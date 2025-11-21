@@ -1,0 +1,184 @@
+version: '3'
+
+# Redis Infrastructure Management Tasks
+# Supports: Single node, Sentinel cluster, monitoring, debugging
+
+vars:
+  REDIS_VM_NAME: ws-poc-redis
+  REDIS_ZONE: us-central1-a
+  REDIS_MACHINE_TYPE: e2-standard-2
+  REDIS_DISK_SIZE: 50GB
+  REDIS_DISK_TYPE: pd-ssd
+  DEPLOYMENT_DIR: deployments/v1/gcp/distributed/redis
+  SCRIPTS_DIR: scripts/v1/gcp/redis
+
+tasks:
+  # ==================== DEPLOYMENT ====================
+
+  create-vm:
+    desc: Create Redis VM on GCP
+    cmds:
+      - |
+        echo "Creating Redis VM: {{.REDIS_VM_NAME}}"
+        gcloud compute instances create {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --machine-type={{.REDIS_MACHINE_TYPE}} \
+          --boot-disk-size={{.REDIS_DISK_SIZE}} \
+          --boot-disk-type={{.REDIS_DISK_TYPE}} \
+          --image-family=ubuntu-2204-lts \
+          --image-project=ubuntu-os-cloud \
+          --tags=redis-server \
+          --metadata=startup-script='#!/bin/bash
+            apt-get update
+            apt-get install -y docker.io docker-compose
+            systemctl enable docker
+            systemctl start docker
+            usermod -aG docker $USER
+          '
+        echo "VM created successfully"
+        echo "Internal IP:"
+        gcloud compute instances describe {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --format='get(networkInterfaces[0].networkIP)'
+
+  setup-firewall:
+    desc: Configure firewall rules for Redis
+    cmds:
+      - |
+        echo "Creating firewall rule: redis-internal"
+        gcloud compute firewall-rules create redis-internal \
+          --allow=tcp:6379 \
+          --source-tags=ws-server \
+          --target-tags=redis-server \
+          --description="Allow WS servers to connect to Redis" \
+          --direction=INGRESS \
+          --priority=1000 \
+          || echo "Rule redis-internal already exists"
+      - |
+        echo "Creating firewall rule: redis-exporter"
+        gcloud compute firewall-rules create redis-exporter \
+          --allow=tcp:9121 \
+          --source-tags=monitoring \
+          --target-tags=redis-server \
+          --description="Allow Prometheus to scrape Redis exporter" \
+          --direction=INGRESS \
+          --priority=1000 \
+          || echo "Rule redis-exporter already exists"
+      - echo "Firewall rules configured successfully"
+
+  deploy-single:
+    desc: Deploy single-node Redis to GCP VM
+    cmds:
+      - |
+        echo "Deploying Redis to {{.REDIS_VM_NAME}}"
+
+        # Copy deployment files
+        echo "Copying deployment files..."
+        gcloud compute scp --recurse \
+          {{.DEPLOYMENT_DIR}}/* \
+          {{.REDIS_VM_NAME}}:~/redis/ \
+          --zone={{.REDIS_ZONE}}
+
+        # Start Redis
+        echo "Starting Redis containers..."
+        gcloud compute ssh {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --command="
+            cd ~/redis && \
+            docker-compose -f docker-compose.single.yml up -d
+          "
+
+        echo "Waiting for Redis to start (10s)..."
+        sleep 10
+
+        echo "Deployment complete!"
+        echo "Run 'task redis:health' to verify"
+
+  # ==================== HEALTH & MONITORING ====================
+
+  health:
+    desc: Run comprehensive health check on Redis
+    cmds:
+      - |
+        echo "Running health check on {{.REDIS_VM_NAME}}"
+        gcloud compute ssh {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --command="bash ~/redis/healthcheck.sh 2>/dev/null" \
+          || echo "Note: Run after healthcheck.sh is copied to VM"
+
+  logs:
+    desc: Tail Redis logs (real-time)
+    cmds:
+      - |
+        echo "Tailing Redis logs (Ctrl+C to exit)..."
+        gcloud compute ssh {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --command="docker logs -f redis-single --tail=100"
+
+  metrics:
+    desc: Show real-time Redis metrics
+    cmds:
+      - |
+        echo "Redis Metrics (refreshing every 5s, Ctrl+C to exit)"
+        gcloud compute ssh {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --command="
+            while true; do
+              clear
+              echo '==================== Redis Stats ===================='
+              docker exec redis-single redis-cli -a \$REDIS_PASSWORD --no-auth-warning INFO stats | grep -E 'total_commands_processed|instantaneous_ops_per_sec'
+              echo ''
+              echo '==================== Memory ===================='
+              docker exec redis-single redis-cli -a \$REDIS_PASSWORD --no-auth-warning INFO memory | grep -E 'used_memory_human|maxmemory_human'
+              echo ''
+              echo '==================== Clients ===================='
+              docker exec redis-single redis-cli -a \$REDIS_PASSWORD --no-auth-warning INFO clients | grep connected_clients
+              sleep 5
+            done
+          "
+
+  cli:
+    desc: Open Redis CLI (debug only)
+    cmds:
+      - |
+        echo "Opening Redis CLI on {{.REDIS_VM_NAME}}"
+        gcloud compute ssh {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --command="docker exec -it redis-single redis-cli -a \$REDIS_PASSWORD"
+
+  # ==================== TESTING ====================
+
+  load-test:
+    desc: Run Redis benchmark
+    cmds:
+      - |
+        echo "Running Redis benchmark on {{.REDIS_VM_NAME}}"
+        gcloud compute ssh {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --command="
+            docker run --rm --network host redis:7.2-alpine \
+              redis-benchmark -h localhost -p 6379 -a \$REDIS_PASSWORD -t ping,set,get -q
+          "
+
+  # ==================== MAINTENANCE ====================
+
+  restart:
+    desc: Restart Redis
+    cmds:
+      - |
+        echo "Restarting Redis on {{.REDIS_VM_NAME}}"
+        gcloud compute ssh {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --command="cd ~/redis && docker-compose -f docker-compose.single.yml restart redis"
+
+  get-ip:
+    desc: Get Redis internal IP
+    cmds:
+      - |
+        REDIS_IP=$(gcloud compute instances describe {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --format='get(networkInterfaces[0].networkIP)')
+        echo "Redis Internal IP: $REDIS_IP"
+        echo ""
+        echo "Update ws-server .env with:"
+        echo "REDIS_SENTINEL_ADDRS=$REDIS_IP:6379"

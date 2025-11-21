@@ -20,6 +20,9 @@ tasks:
       - echo ""
       - task: "setup:backend"
       - echo ""
+      - echo "📦 Deploying Redis (BroadcastBus infrastructure)..."
+      - task: :gcp:redis:deploy-single
+      - echo ""
       - task: "setup:ws"
       - echo ""
       - task: "setup:loadtest"
@@ -27,6 +30,11 @@ tasks:
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - echo "✅ DEPLOYMENT COMPLETE"
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - echo ""
+      - echo "📊 Service Status:"
+      - task: :gcp:redis:get-ip
+      - echo ""
+      - echo "💡 Update ws-server .env with Redis IP before starting"
 
   quick-start:
     desc: Quick start all services (daily use - assumes infrastructure exists)
@@ -84,6 +92,8 @@ tasks:
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - task: "create:backend"
       - echo ""
+      - task: :gcp:redis:create-vm
+      - echo ""
       - task: "create:ws"
       - echo ""
       - task: "create:loadtest"
@@ -92,6 +102,8 @@ tasks:
       - 'echo "Phase 2: Configuring Firewall Rules"'
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - task: "firewall:backend"
+      - echo ""
+      - task: :gcp:redis:setup-firewall
       - echo ""
       - task: "firewall:ws"
       - echo ""
@@ -108,6 +120,7 @@ tasks:
       - 'echo "   Complete setup: task gcp:deploy"'
       - 'echo "   Or run individually:"'
       - 'echo "     - task gcp:deployment:setup:backend"'
+      - 'echo "     - task gcp:deployment:setup:redis"'
       - 'echo "     - task gcp:deployment:setup:ws"'
       - 'echo "     - task gcp:deployment:setup:loadtest"'
 

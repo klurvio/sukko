@@ -107,6 +107,12 @@ includes:
       GIT_REPO_HTTPS: "{{.GIT_REPO_HTTPS}}"
       GIT_PAT: "{{.GIT_PAT}}"
 
+  redis:
+    taskfile: ./redis.yml
+    vars:
+      GCP_PROJECT: "{{.GCP_PROJECT}}"
+      GCP_ZONE: "{{.GCP_ZONE}}"
+
 tasks:
   default:
     desc: Show available GCP tasks

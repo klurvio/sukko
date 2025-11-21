@@ -1,0 +1,390 @@
+{
+  "dashboard": {
+    "title": "Redis BroadcastBus Monitoring",
+    "tags": ["redis", "broadcast", "infrastructure"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Redis Status",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "redis_up{instance=\"ws-poc-redis\"}",
+          "legendFormat": "Redis Up"
+        }],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            },
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "DOWN"}}},
+              {"type": "value", "options": {"1": {"text": "UP"}}}
+            ]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Connected Clients",
+        "type": "stat",
+        "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "redis_connected_clients{instance=\"ws-poc-redis\"}",
+          "legendFormat": "Clients"
+        }],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 2, "color": "green"},
+                {"value": 11, "color": "yellow"},
+                {"value": 20, "color": "red"}
+              ]
+            },
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Memory Usage",
+        "type": "gauge",
+        "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "(redis_memory_used_bytes{instance=\"ws-poc-redis\"} / redis_memory_max_bytes{instance=\"ws-poc-redis\"}) * 100",
+          "legendFormat": "Memory %"
+        }],
+        "options": {
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 70, "color": "yellow"},
+                {"value": 90, "color": "red"}
+              ]
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Commands/sec",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "rate(redis_commands_processed_total{instance=\"ws-poc-redis\"}[1m])",
+          "legendFormat": "Commands/sec"
+        }],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "decimals": 0
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Pub/Sub Channels",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+        "targets": [{
+          "expr": "redis_pubsub_channels{instance=\"ws-poc-redis\"}",
+          "legendFormat": "Active Channels"
+        }],
+        "yaxes": [
+          {"format": "short", "label": "Channels"},
+          {"format": "short"}
+        ],
+        "xaxis": {"show": true, "mode": "time"},
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2,
+        "pointradius": 2,
+        "points": false,
+        "bars": false,
+        "stack": false,
+        "percentage": false,
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "current": true, "max": true},
+        "nullPointMode": "null"
+      },
+      {
+        "id": 6,
+        "title": "Commands Processed Rate",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+        "targets": [{
+          "expr": "rate(redis_commands_processed_total{instance=\"ws-poc-redis\"}[1m])",
+          "legendFormat": "Commands/sec"
+        }],
+        "yaxes": [
+          {"format": "ops", "label": "Commands/sec"},
+          {"format": "short"}
+        ],
+        "xaxis": {"show": true, "mode": "time"},
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2,
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "current": true, "max": true}
+      },
+      {
+        "id": 7,
+        "title": "Latency Percentiles (µs)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "redis_latency_percentiles_usec{instance=\"ws-poc-redis\", quantile=\"0.5\"}",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "redis_latency_percentiles_usec{instance=\"ws-poc-redis\", quantile=\"0.95\"}",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "redis_latency_percentiles_usec{instance=\"ws-poc-redis\", quantile=\"0.99\"}",
+            "legendFormat": "p99"
+          }
+        ],
+        "yaxes": [
+          {"format": "µs", "label": "Latency"},
+          {"format": "short"}
+        ],
+        "alert": {
+          "name": "Redis High Latency",
+          "conditions": [{
+            "evaluator": {"type": "gt", "params": [10000]},
+            "operator": {"type": "and"},
+            "query": {"params": ["C", "5m", "now"]},
+            "reducer": {"type": "avg"},
+            "type": "query"
+          }],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "message": "Redis p99 latency is above 10ms (target: <5ms)",
+          "noDataState": "no_data",
+          "notifications": []
+        },
+        "thresholds": [
+          {"value": 5000, "colorMode": "custom", "fill": false, "line": true, "op": "gt", "fillColor": "rgba(255, 255, 0, 0.2)", "lineColor": "rgba(255, 255, 0, 1)"},
+          {"value": 10000, "colorMode": "custom", "fill": false, "line": true, "op": "gt", "fillColor": "rgba(255, 0, 0, 0.2)", "lineColor": "rgba(255, 0, 0, 1)"}
+        ],
+        "lines": true,
+        "fill": 0,
+        "linewidth": 2,
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "current": true, "max": true}
+      },
+      {
+        "id": 8,
+        "title": "Memory Usage (Bytes)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "redis_memory_used_bytes{instance=\"ws-poc-redis\"}",
+            "legendFormat": "Used Memory"
+          },
+          {
+            "expr": "redis_memory_max_bytes{instance=\"ws-poc-redis\"}",
+            "legendFormat": "Max Memory"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": "Memory"},
+          {"format": "short"}
+        ],
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2,
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "current": true, "max": true}
+      },
+      {
+        "id": 9,
+        "title": "Network Throughput",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(redis_net_input_bytes_total{instance=\"ws-poc-redis\"}[1m])",
+            "legendFormat": "Input (Bytes/sec)"
+          },
+          {
+            "expr": "rate(redis_net_output_bytes_total{instance=\"ws-poc-redis\"}[1m])",
+            "legendFormat": "Output (Bytes/sec)"
+          }
+        ],
+        "yaxes": [
+          {"format": "Bps", "label": "Bytes/sec"},
+          {"format": "short"}
+        ],
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2,
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "current": true, "max": true}
+      },
+      {
+        "id": 10,
+        "title": "Slow Log Entries",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+        "targets": [{
+          "expr": "redis_slowlog_length{instance=\"ws-poc-redis\"}",
+          "legendFormat": "Slow Commands"
+        }],
+        "yaxes": [
+          {"format": "short", "label": "Count"},
+          {"format": "short"}
+        ],
+        "alert": {
+          "name": "Redis Slow Commands",
+          "conditions": [{
+            "evaluator": {"type": "gt", "params": [10]},
+            "operator": {"type": "and"},
+            "query": {"params": ["A", "5m", "now"]},
+            "reducer": {"type": "avg"},
+            "type": "query"
+          }],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "message": "Redis has slow commands (>5ms)",
+          "noDataState": "no_data",
+          "notifications": []
+        },
+        "thresholds": [
+          {"value": 10, "colorMode": "custom", "fill": false, "line": true, "op": "gt", "fillColor": "rgba(255, 255, 0, 0.2)", "lineColor": "rgba(255, 255, 0, 1)"}
+        ],
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2,
+        "legend": {"show": true}
+      },
+      {
+        "id": 11,
+        "title": "Evicted & Rejected Keys",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 28, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(redis_evicted_keys_total{instance=\"ws-poc-redis\"}[5m])",
+            "legendFormat": "Evicted Keys/sec"
+          },
+          {
+            "expr": "rate(redis_rejected_connections_total{instance=\"ws-poc-redis\"}[5m])",
+            "legendFormat": "Rejected Connections/sec"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Rate"},
+          {"format": "short"}
+        ],
+        "alert": {
+          "name": "Redis Evictions or Rejections",
+          "conditions": [{
+            "evaluator": {"type": "gt", "params": [0]},
+            "operator": {"type": "or"},
+            "query": {"params": ["A", "5m", "now"]},
+            "reducer": {"type": "avg"},
+            "type": "query"
+          }],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "message": "Redis is evicting keys or rejecting connections",
+          "noDataState": "no_data",
+          "notifications": []
+        },
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2,
+        "legend": {"show": true, "alignAsTable": true, "current": true, "max": true}
+      },
+      {
+        "id": 12,
+        "title": "Uptime",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 28, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "redis_uptime_in_seconds{instance=\"ws-poc-redis\"}",
+          "legendFormat": "Uptime"
+        }],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "none",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
+      },
+      {
+        "id": 13,
+        "title": "Redis Version",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 28, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "redis_version{instance=\"ws-poc-redis\"}",
+          "legendFormat": "Version"
+        }],
+        "options": {
+          "colorMode": "none",
+          "graphMode": "none",
+          "textMode": "name"
+        }
+      }
+    ],
+    "time": {"from": "now-1h", "to": "now"},
+    "timepicker": {
+      "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h"],
+      "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
+    },
+    "annotations": {
+      "list": [{
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }]
+    }
+  },
+  "overwrite": true
+}

@@ -80,6 +80,14 @@ type Config struct {
 
 	// Environment
 	Environment string `env:"ENVIRONMENT" envDefault:"development"`
+
+	// Redis Sentinel Configuration (for BroadcastBus)
+	// Supports both self-hosted Sentinel (3 addresses) and GCP Memorystore (1 address)
+	RedisSentinelAddrs []string `env:"REDIS_SENTINEL_ADDRS" envSeparator:"," required:"true"`
+	RedisMasterName    string   `env:"REDIS_MASTER_NAME" envDefault:"mymaster"`
+	RedisPassword      string   `env:"REDIS_PASSWORD"`
+	RedisDB            int      `env:"REDIS_DB" envDefault:"0"`
+	RedisChannel       string   `env:"REDIS_CHANNEL" envDefault:"ws.broadcast"`
 }
 
 // LoadConfig reads configuration from .env file and environment variables
@@ -158,6 +166,17 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("LOG_FORMAT must be one of: json, text, pretty (got: %s)", c.LogFormat)
 	}
 
+	// Redis configuration validation
+	if len(c.RedisSentinelAddrs) == 0 {
+		return fmt.Errorf("REDIS_SENTINEL_ADDRS is required (at least one address)")
+	}
+	if c.RedisDB < 0 {
+		return fmt.Errorf("REDIS_DB must be >= 0, got %d", c.RedisDB)
+	}
+	if c.RedisChannel == "" {
+		return fmt.Errorf("REDIS_CHANNEL cannot be empty")
+	}
+
 	return nil
 }
 
@@ -194,6 +213,11 @@ func (c *Config) Print() {
 	fmt.Println("\n=== Logging ===")
 	fmt.Printf("Level:           %s\n", c.LogLevel)
 	fmt.Printf("Format:          %s\n", c.LogFormat)
+	fmt.Println("\n=== Redis (BroadcastBus) ===")
+	fmt.Printf("Sentinel Addrs:  %v\n", c.RedisSentinelAddrs)
+	fmt.Printf("Master Name:     %s\n", c.RedisMasterName)
+	fmt.Printf("Channel:         %s\n", c.RedisChannel)
+	fmt.Printf("Database:        %d\n", c.RedisDB)
 	fmt.Println("============================")
 }
 
@@ -224,5 +248,9 @@ func (c *Config) LogConfig(logger zerolog.Logger) {
 		Dur("metrics_interval", c.MetricsInterval).
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat).
+		Strs("redis_sentinel_addrs", c.RedisSentinelAddrs).
+		Str("redis_master_name", c.RedisMasterName).
+		Str("redis_channel", c.RedisChannel).
+		Int("redis_db", c.RedisDB).
 		Msg("Server configuration loaded")
 }

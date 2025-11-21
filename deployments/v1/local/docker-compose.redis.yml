@@ -1,0 +1,86 @@
+version: '3.8'
+
+# ==============================================================================
+# SERVICES
+# ==============================================================================
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis-local
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass testpassword --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "testpassword", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - odin-local
+
+  redis-cli:
+    image: redis:7-alpine
+    container_name: redis-cli
+    depends_on:
+      - redis
+    command: >
+      sh -c "
+        echo 'Redis CLI container ready. Use: docker exec -it redis-cli redis-cli -h redis -a testpassword'
+        && tail -f /dev/null
+      "
+    networks:
+      - odin-local
+
+# ==============================================================================
+# NETWORKS - Service Communication
+# ==============================================================================
+networks:
+  odin-local:
+    external: true
+    name: odin-local
+
+# ==============================================================================
+# USAGE
+# ==============================================================================
+# Prerequisites:
+#   1. Main local stack must be running (creates odin-local network):
+#      cd deployments/v1/local
+#      docker-compose up -d
+#
+#   2. Then start Redis:
+#      docker-compose -f docker-compose.redis.yml up -d
+#
+# Commands:
+#
+# 1. Start Redis:
+#    cd deployments/v1/local
+#    docker-compose -f docker-compose.redis.yml up -d
+#
+# 2. Check Redis health:
+#    docker exec redis-local redis-cli -a testpassword ping
+#    Expected: PONG
+#
+# 3. Monitor Redis Pub/Sub:
+#    docker exec -it redis-cli redis-cli -h redis -a testpassword
+#    127.0.0.1:6379> SUBSCRIBE ws.broadcast
+#
+# 4. Publish test message (from another terminal):
+#    docker exec redis-local redis-cli -a testpassword PUBLISH ws.broadcast '{"subject":"test","message":"hello"}'
+#
+# 5. Monitor Redis stats:
+#    docker exec redis-local redis-cli -a testpassword INFO stats
+#
+# 6. Stop Redis:
+#    docker-compose -f docker-compose.redis.yml down
+#
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+# Environment variables for ws-server (set in .env.local):
+#   REDIS_SENTINEL_ADDRS=localhost:6379
+#   REDIS_PASSWORD=testpassword
+#
+# Inherited from shared/base.env:
+#   REDIS_MASTER_NAME=mymaster
+#   REDIS_DB=0
+#   REDIS_CHANNEL=ws.broadcast

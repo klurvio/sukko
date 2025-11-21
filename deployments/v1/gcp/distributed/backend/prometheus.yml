@@ -1,11 +1,13 @@
 # Prometheus Configuration - Isolated Setup
-# Scrapes metrics from remote ws-go instance via internal network
+# Scrapes metrics from remote instances via internal network
 #
 # This file is templated. Before deployment, substitute:
 #   ${WS_GO_INTERNAL_IP} - Internal IP of ws-go instance
+#   ${REDIS_INTERNAL_IP} - Internal IP of Redis instance
 #
 # Example:
 #   export WS_GO_INTERNAL_IP=10.128.0.3
+#   export REDIS_INTERNAL_IP=10.128.0.10
 #   envsubst < prometheus.yml > prometheus.deployed.yml
 
 global:
@@ -39,3 +41,12 @@ scrape_configs:
   - job_name: "prometheus"
     static_configs:
       - targets: ["localhost:9090"]
+
+  # Redis Exporter (BroadcastBus infrastructure)
+  - job_name: "redis"
+    static_configs:
+      - targets: ["${REDIS_INTERNAL_IP}:9121"]
+        labels:
+          instance: "ws-poc-redis"
+          service: "redis"
+          role: "broadcast-bus"
