@@ -1,4 +1,4 @@
-version: '3'
+version: "3"
 
 # Redis Infrastructure Management Tasks
 # Supports: Single node, Sentinel cluster, monitoring, debugging
@@ -9,13 +9,16 @@ vars:
   REDIS_MACHINE_TYPE: e2-standard-2
   REDIS_DISK_SIZE: 50GB
   REDIS_DISK_TYPE: pd-ssd
-  DEPLOYMENT_DIR: deployments/v1/gcp/distributed/redis
-  SCRIPTS_DIR: scripts/v1/gcp/redis
+  REDIS_DEPLOY_PATH: /home/deploy/ws_poc/deployments/v1/gcp/distributed/redis
+  # Git config (inherited from parent or use defaults)
+  GIT_BRANCH: '{{.GIT_BRANCH | default "feature/redis-broadcast-bus"}}'
+  GIT_REPO_HTTPS: '{{.GIT_REPO_HTTPS | default "https://github.com/adred-codev/ws_poc.git"}}'
+  GIT_PAT: '{{.GIT_PAT | default ""}}'
 
 tasks:
   # ==================== DEPLOYMENT ====================
 
-  create-vm:
+  create:
     desc: Create Redis VM on GCP
     cmds:
       - |
@@ -70,29 +73,58 @@ tasks:
     desc: Deploy single-node Redis to GCP VM
     cmds:
       - |
-        echo "Deploying Redis to {{.REDIS_VM_NAME}}"
+        echo "🤖 Deploying Redis to {{.REDIS_VM_NAME}}"
 
-        # Copy deployment files
-        echo "Copying deployment files..."
-        gcloud compute scp --recurse \
-          {{.DEPLOYMENT_DIR}}/* \
-          {{.REDIS_VM_NAME}}:~/redis/ \
-          --zone={{.REDIS_ZONE}}
+        # Build clone URL SECURELY (NEVER echo this variable)
+        if [ -n "{{.GIT_PAT}}" ]; then
+          CLONE_URL="https://{{.GIT_PAT}}@github.com/adred-codev/ws_poc.git"
+          echo "🔐 Using authenticated clone"
+        else
+          CLONE_URL="{{.GIT_REPO_HTTPS}}"
+          echo "🌐 Using public clone"
+        fi
 
-        # Start Redis
-        echo "Starting Redis containers..."
+        # Ensure deploy user exists
+        echo "📋 Ensuring deploy user exists..."
         gcloud compute ssh {{.REDIS_VM_NAME}} \
           --zone={{.REDIS_ZONE}} \
-          --command="
-            cd ~/redis && \
-            docker-compose -f docker-compose.single.yml up -d
-          "
+          --command="id -u deploy &>/dev/null || sudo useradd -m -s /bin/bash deploy && sudo usermod -aG docker deploy" 2>/dev/null || true
 
-        echo "Waiting for Redis to start (10s)..."
+        # Check if repo exists
+        REPO_EXISTS=$(gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
+
+        if [ "$REPO_EXISTS" = "true" ]; then
+          echo "✅ Repository exists, updating..."
+          gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
+        else
+          echo "📦 Cloning repository..."
+          gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q $CLONE_URL /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
+        fi
+
+        # Create .env from example if it doesn't exist
+        echo "📝 Setting up Redis configuration..."
+        gcloud compute ssh {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --command="sudo -i -u deploy bash -c 'cd {{.REDIS_DEPLOY_PATH}} && [ ! -f .env ] && cp .env.example .env || echo \".env already exists\"'" 2>/dev/null || true
+
+        # Start Redis
+        echo "🐳 Starting Redis containers..."
+        gcloud compute ssh {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --command="sudo -i -u deploy bash -c 'cd {{.REDIS_DEPLOY_PATH}} && docker-compose -f docker-compose.single.yml up -d 2>&1 | grep -E \"(Created|Started|Running)\"'" 2>/dev/null || true
+
+        echo "⏳ Waiting for Redis to start (10s)..."
         sleep 10
 
-        echo "Deployment complete!"
-        echo "Run 'task redis:health' to verify"
+        # Verify Redis is running
+        echo "🔍 Verifying Redis..."
+        gcloud compute ssh {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} \
+          --command="sudo -i -u deploy docker ps --filter name=redis --format 'table {{.Names}}\t{{.Status}}'" 2>/dev/null || true
+
+        echo ""
+        echo "✅ Redis deployment complete!"
+        echo "Run 'task gcp:redis:health' to verify"
 
   # ==================== HEALTH & MONITORING ====================
 
@@ -103,8 +135,8 @@ tasks:
         echo "Running health check on {{.REDIS_VM_NAME}}"
         gcloud compute ssh {{.REDIS_VM_NAME}} \
           --zone={{.REDIS_ZONE}} \
-          --command="bash ~/redis/healthcheck.sh 2>/dev/null" \
-          || echo "Note: Run after healthcheck.sh is copied to VM"
+          --command="sudo -i -u deploy bash /home/deploy/ws_poc/scripts/v1/gcp/redis/healthcheck.sh 2>/dev/null" \
+          || echo "Note: Ensure repo is cloned on VM"
 
   logs:
     desc: Tail Redis logs (real-time)
@@ -113,7 +145,7 @@ tasks:
         echo "Tailing Redis logs (Ctrl+C to exit)..."
         gcloud compute ssh {{.REDIS_VM_NAME}} \
           --zone={{.REDIS_ZONE}} \
-          --command="docker logs -f redis-single --tail=100"
+          --command="sudo -i -u deploy docker logs -f redis-single --tail=100"
 
   metrics:
     desc: Show real-time Redis metrics
@@ -122,20 +154,20 @@ tasks:
         echo "Redis Metrics (refreshing every 5s, Ctrl+C to exit)"
         gcloud compute ssh {{.REDIS_VM_NAME}} \
           --zone={{.REDIS_ZONE}} \
-          --command="
+          --command="sudo -i -u deploy bash -c '
             while true; do
               clear
-              echo '==================== Redis Stats ===================='
-              docker exec redis-single redis-cli -a \$REDIS_PASSWORD --no-auth-warning INFO stats | grep -E 'total_commands_processed|instantaneous_ops_per_sec'
-              echo ''
-              echo '==================== Memory ===================='
-              docker exec redis-single redis-cli -a \$REDIS_PASSWORD --no-auth-warning INFO memory | grep -E 'used_memory_human|maxmemory_human'
-              echo ''
-              echo '==================== Clients ===================='
+              echo \"==================== Redis Stats ====================\"
+              docker exec redis-single redis-cli -a \$REDIS_PASSWORD --no-auth-warning INFO stats | grep -E \"total_commands_processed|instantaneous_ops_per_sec\"
+              echo \"\"
+              echo \"==================== Memory ====================\"
+              docker exec redis-single redis-cli -a \$REDIS_PASSWORD --no-auth-warning INFO memory | grep -E \"used_memory_human|maxmemory_human\"
+              echo \"\"
+              echo \"==================== Clients ====================\"
               docker exec redis-single redis-cli -a \$REDIS_PASSWORD --no-auth-warning INFO clients | grep connected_clients
               sleep 5
             done
-          "
+          '"
 
   cli:
     desc: Open Redis CLI (debug only)
@@ -144,7 +176,7 @@ tasks:
         echo "Opening Redis CLI on {{.REDIS_VM_NAME}}"
         gcloud compute ssh {{.REDIS_VM_NAME}} \
           --zone={{.REDIS_ZONE}} \
-          --command="docker exec -it redis-single redis-cli -a \$REDIS_PASSWORD"
+          --command="sudo -i -u deploy docker exec -it redis-single redis-cli -a \$REDIS_PASSWORD"
 
   # ==================== TESTING ====================
 
@@ -155,10 +187,8 @@ tasks:
         echo "Running Redis benchmark on {{.REDIS_VM_NAME}}"
         gcloud compute ssh {{.REDIS_VM_NAME}} \
           --zone={{.REDIS_ZONE}} \
-          --command="
-            docker run --rm --network host redis:7.2-alpine \
-              redis-benchmark -h localhost -p 6379 -a \$REDIS_PASSWORD -t ping,set,get -q
-          "
+          --command="sudo -i -u deploy docker run --rm --network host redis:7.2-alpine \
+            redis-benchmark -h localhost -p 6379 -a \$REDIS_PASSWORD -t ping,set,get -q"
 
   # ==================== MAINTENANCE ====================
 
@@ -169,7 +199,7 @@ tasks:
         echo "Restarting Redis on {{.REDIS_VM_NAME}}"
         gcloud compute ssh {{.REDIS_VM_NAME}} \
           --zone={{.REDIS_ZONE}} \
-          --command="cd ~/redis && docker-compose -f docker-compose.single.yml restart redis"
+          --command="sudo -i -u deploy bash -c 'cd {{.REDIS_DEPLOY_PATH}} && docker-compose -f docker-compose.single.yml restart redis'"
 
   get-ip:
     desc: Get Redis internal IP

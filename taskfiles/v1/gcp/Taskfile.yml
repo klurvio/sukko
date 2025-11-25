@@ -112,6 +112,9 @@ includes:
     vars:
       GCP_PROJECT: "{{.GCP_PROJECT}}"
       GCP_ZONE: "{{.GCP_ZONE}}"
+      GIT_BRANCH: "{{.GIT_BRANCH}}"
+      GIT_REPO_HTTPS: "{{.GIT_REPO_HTTPS}}"
+      GIT_PAT: "{{.GIT_PAT}}"
 
 tasks:
   default:

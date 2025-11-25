@@ -6,6 +6,14 @@ version: "3"
 # Purpose: GCP infrastructure and application deployment
 # Scope: Instance creation, firewall, initial setup, code updates
 
+includes:
+  redis:
+    taskfile: ./redis.yml
+    vars:
+      GIT_BRANCH: "{{.GIT_BRANCH}}"
+      GIT_REPO_HTTPS: "{{.GIT_REPO_HTTPS}}"
+      GIT_PAT: "{{.GIT_PAT}}"
+
 tasks:
   # === HIGH-LEVEL WORKFLOWS ===
 
@@ -21,7 +29,7 @@ tasks:
       - task: "setup:backend"
       - echo ""
       - echo "📦 Deploying Redis (BroadcastBus infrastructure)..."
-      - task: :gcp:redis:deploy-single
+      - task: "redis:deploy-single"
       - echo ""
       - task: "setup:ws"
       - echo ""
@@ -32,7 +40,7 @@ tasks:
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - echo ""
       - echo "📊 Service Status:"
-      - task: :gcp:redis:get-ip
+      - task: "redis:get-ip"
       - echo ""
       - echo "💡 Update ws-server .env with Redis IP before starting"
 
@@ -92,7 +100,7 @@ tasks:
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - task: "create:backend"
       - echo ""
-      - task: :gcp:redis:create-vm
+      - task: "redis:create"
       - echo ""
       - task: "create:ws"
       - echo ""
@@ -103,7 +111,7 @@ tasks:
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - task: "firewall:backend"
       - echo ""
-      - task: :gcp:redis:setup-firewall
+      - task: "redis:setup-firewall"
       - echo ""
       - task: "firewall:ws"
       - echo ""
