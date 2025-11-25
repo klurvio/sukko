@@ -54,52 +54,35 @@ A high-performance, production-ready WebSocket server designed for real-time dat
 
 ### High-Level Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Clients (18K+ connections)                    │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│               GCP Load Balancer / LoadBalancer (:3001)           │
-│              Least Connections Strategy                          │
-│              Session Affinity: Client IP                         │
-└─────┬──────────────────┬──────────────────┬─────────────────────┘
-      │                  │                  │
-      ▼                  ▼                  ▼
-┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│  WS Instance 1│   │  WS Instance 2│   │  WS Instance N│
-│  (3 shards)  │   │  (3 shards)  │   │  (3 shards)  │
-│  :3002-3004  │   │  :3002-3004  │   │  :3002-3004  │
-│  6K conns ea │   │  6K conns ea │   │  6K conns ea │
-└──────┬───────┘   └──────┬───────┘   └──────┬───────┘
-       │                  │                  │
-       └──────────────────┼──────────────────┘
-                          │
-              ┌───────────┴───────────┐
-              │                       │
-              ▼                       ▼
-┌─────────────────────────┐  ┌─────────────────────────┐
-│   Redis BroadcastBus    │  │   Kafka/Redpanda        │
-│   Pub/Sub: ws.broadcast │  │   12 partitions/topic   │
-│   Cross-instance sync   │  │   Consumer groups       │
-│   Auto-detect mode:     │  └───────────┬─────────────┘
-│   • 1 addr = direct     │              │
-│   • 3+ addr = Sentinel  │              ▼
-└─────────────────────────┘  ┌─────────────────────────┐
-                             │   Publisher Service     │
-                             │   Event generation      │
-                             └─────────────────────────┘
+![WebSocket Infrastructure Architecture](./docs/architecture/websocket-architecture.svg)
 
-┌─────────────────────────────────────────────────────────────────┐
-│                        Observability Stack                       │
-│   Prometheus → Grafana (metrics visualization)                  │
-│   Promtail → Loki → Grafana (log aggregation)                   │
-│   Redis Exporter → Prometheus (Redis metrics)                   │
-└─────────────────────────────────────────────────────────────────┘
-```
+The diagram shows the complete multi-instance WebSocket infrastructure:
 
-> **See**: [Infrastructure Diagrams](./docs/architecture/infrastructure-diagram.md) for detailed Mermaid diagrams
+**Components:**
+- **GCP Load Balancer** - External load balancing across WS instances
+- **WS Instances** - Each contains:
+  - **Custom Load Balancer** (:3001) - Per-instance load balancer using least connections strategy
+  - **3 Shards** (:3002-3004) - Each handling 6K connections
+- **Message Distribution Layer**:
+  - **Redis BroadcastBus** - Cross-instance message synchronization via Pub/Sub
+  - **Kafka/Redpanda** - Event streaming (12 partitions/topic)
+- **Publisher Service** - Event generation and publishing
+- **Observability Stack** - Prometheus, Grafana, Loki for monitoring
+
+**Message Flow:**
+1. Publisher → Kafka (produce events)
+2. Kafka → WS instances (consumer groups with partition distribution)
+3. Each shard → Redis BroadcastBus (PUBLISH for cross-instance sync)
+4. Redis → ALL instances' shards (SUBSCRIBE for fan-out)
+5. Each shard → connected clients (WebSocket broadcast)
+
+**Key Features:**
+- Horizontal scaling via Redis BroadcastBus (single node or Sentinel HA)
+- Auto-detection: 1 address = direct mode, 3+ addresses = Sentinel mode
+- Per-instance load balancing with least connections strategy
+- Comprehensive monitoring with dashed lines showing telemetry flow
+
+> **See**: [Infrastructure Diagrams](./docs/architecture/infrastructure-diagram.md) for additional Mermaid diagrams
 
 ### Multi-Shard Architecture Details
 
