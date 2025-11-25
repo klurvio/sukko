@@ -1,23 +1,58 @@
 # SPIKE: External Broadcast Bus for Multi-Instance Deployment
 
-**Status**: Proposed
+> **⚠️ SPIKE DOCUMENT - PLANNING PHASE ONLY**
+> This document was created during the **architecture exploration phase** to evaluate NATS vs Redis.
+> **Decision Made**: Redis was chosen (not NATS) for production implementation.
+> **This document is kept for historical context only.**
+>
+> **For Actual Implementation**, see:
+> - `docs/REDIS_BROADCAST_QUICKSTART.md` - Production-ready quickstart guide
+> - `ws/internal/multi/broadcast.go` - Actual Redis implementation (489 lines)
+> - `sessions/handoff-2025-11-22-1144.md` - Final implementation status
+
+**Status**: ⚠️ SPIKE ONLY - **Redis Chosen, NATS Not Implemented**
 **Date**: 2025-01-19
 **Author**: Architecture Review
 **Goal**: Enable multi-instance WebSocket server deployment with Redis or NATS as external broadcast bus
 
 ---
 
+## ✅ **DECISION: Redis Chosen**
+
+After evaluating both options, **Redis was selected** for the following reasons:
+
+1. **Team Familiarity** - Operations team comfortable with Redis
+2. **Managed Option Available** - GCP Memorystore Redis (no managed NATS)
+3. **Sufficient Performance** - 1M msg/sec capacity, 1-2ms latency (meets requirements)
+4. **Simpler Deployment** - Start with single node, upgrade to Sentinel if needed
+5. **Cost Effective** - $53/month single node vs $158/month Sentinel vs $299/month Synadia Cloud (NATS)
+
+**What Was Built**:
+- Direct Redis Pub/Sub implementation (no interface abstraction)
+- Auto-detection: 1 address = direct mode, 3+ = Sentinel mode
+- Zero-code upgrade path: single node → Sentinel → Memorystore
+
+**What Was NOT Built**:
+- ❌ NATS implementation
+- ❌ Interface abstraction (BroadcastBus interface)
+- ❌ Factory pattern for swapping implementations
+- ❌ Multi-provider support
+
+---
+
 ## Table of Contents
+
+> **Note**: Content below is from the original spike evaluation. NATS sections are for reference only.
 
 - [Problem Statement](#problem-statement)
 - [Current Architecture](#current-architecture)
 - [Proposed Solutions](#proposed-solutions)
-- [NATS vs Redis Comparison](#nats-vs-redis-comparison)
+- [NATS vs Redis Comparison](#nats-vs-redis-comparison) ← **Redis won this comparison**
 - [High Availability Strategy](#high-availability-strategy)
-- [Implementation Plan](#implementation-plan)
-- [Code Examples](#code-examples)
+- [Implementation Plan](#implementation-plan) ← **Actual plan differs - see quickstart**
+- [Code Examples](#code-examples) ← **Interface examples not implemented**
 - [Monitoring & Observability](#monitoring--observability)
-- [Recommendation](#recommendation)
+- [Recommendation](#recommendation) ← **Final decision: Redis**
 
 ---
 

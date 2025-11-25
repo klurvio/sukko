@@ -1,14 +1,29 @@
 # Self-Hosted NATS vs Managed Redis: Disadvantages Analysis
 
+> **✅ ANALYSIS COMPLETE - DECISION MADE**
+> This analysis was used to evaluate NATS vs Redis options.
+> **Result**: **Redis was chosen** for production implementation.
+> This document remains accurate and supports the decision made.
+>
+> **Implementation Status**:
+> - ✅ Redis BroadcastBus implemented (`ws/internal/multi/broadcast.go`)
+> - ✅ Started with single-node Redis ($53/month)
+> - ✅ Upgrade path to Sentinel or GCP Memorystore available
+> - ❌ NATS not implemented (analysis showed managed Redis is better fit)
+
 **Context**: Choosing external broadcast bus for multi-instance WebSocket server horizontal scaling.
 
 **Question**: What are the disadvantages of self-hosted NATS compared to managed Redis (GCP Memorystore, AWS ElastiCache)?
+
+**Answer**: ✅ **Managed Redis Chosen** - This analysis below supports that decision.
 
 ---
 
 ## Executive Summary
 
 **Key Finding**: Self-hosted NATS has **significantly higher operational burden** despite superior technical performance. For teams without dedicated platform/SRE engineers, managed Redis is the pragmatic choice.
+
+**✅ This finding informed the implementation decision** - Redis was selected.
 
 ### Critical Disadvantages of Self-Hosted NATS
 

@@ -1,216 +1,240 @@
 # Redis Broadcast Bus: Quick Start Guide
 
-**Purpose**: Fast-track guide for implementing Redis-based broadcast bus
-**Audience**: Engineers implementing the architecture
+**Purpose**: Fast-track guide for deploying Redis-based broadcast bus
+**Audience**: Engineers deploying horizontal scaling
 **Time**: 1-2 weeks to production
-**Main Document**: [REDIS_BROADCAST_BUS_ARCHITECTURE.md](./architecture/REDIS_BROADCAST_BUS_ARCHITECTURE.md)
+**Status**: ✅ **IMPLEMENTED** - Code complete, ready for deployment
+**Branch**: `feature/redis-broadcast-bus`
 
 ---
 
 ## TL;DR
 
-**What**: Replace in-memory BroadcastBus with Redis Pub/Sub for horizontal scaling
+**What**: Redis Pub/Sub BroadcastBus for horizontal scaling (direct implementation, no abstraction layer)
 **Why**: Enable multi-instance deployment (18K → 36K+ connections)
-**How**: Interface abstraction + configuration-based switching
-**Key Feature**: Zero code changes to swap Redis ↔ NATS later
+**How**: Direct Redis integration with auto-detection (single-node or Sentinel)
+**Key Feature**: Zero code changes when upgrading from single-node → Sentinel or Sentinel → Memorystore
 
 ---
 
 ## Quick Decision Tree
 
 ```
-Need horizontal scaling? → YES → Deploy Redis
-                       → NO  → Stay on in-memory
+Need horizontal scaling? → YES → Deploy Redis (start with single node)
+                       → NO  → Keep in-memory (single instance)
 
-Redis performing well? → YES → Stay on Redis
-                      → NO  → Migrate to NATS (config change only!)
+Need 99.9% uptime?     → YES → Upgrade to Sentinel (3 nodes)
+                       → NO  → Single node is sufficient
+
+Want managed solution? → YES → Migrate to GCP Memorystore
+                       → NO  → Keep self-hosted
 ```
 
 ---
 
-## Implementation Checklist
+## Implementation Status
 
-### Week 1: Interface & Redis Implementation
+### ✅ **COMPLETED** (Code Ready on Branch)
 
-**Day 1-2: Refactor to Interface**
-- [ ] Create `ws/internal/multi/broadcast_interface.go`
-- [ ] Rename `broadcast.go` → `broadcast_inmemory.go`
-- [ ] Create `broadcast_factory.go`
-- [ ] Update `main.go` to use factory
-- [ ] Run tests: `go test ./... -v`
-- [ ] Verify: Single-instance still works
+**Redis Implementation** (`ws/internal/multi/broadcast.go` - 489 lines):
+- ✅ Redis Pub/Sub direct implementation
+- ✅ Auto-detection: 1 address = direct mode, 3+ addresses = Sentinel mode
+- ✅ Automatic reconnection with exponential backoff
+- ✅ Health monitoring (10s PING interval)
+- ✅ Graceful shutdown with 5s timeout
+- ✅ Non-blocking publish (100ms timeout)
 
-**Day 3-4: Implement Redis**
-- [ ] Add dependency: `go get github.com/redis/go-redis/v9`
-- [ ] Create `broadcast_redis.go` (implementation provided)
-- [ ] Create `broadcast_redis_test.go` (tests provided)
-- [ ] Run tests: `go test ./... -run Redis -v`
-- [ ] Verify: Unit tests pass
+**Configuration** (three-tier pattern):
+- ✅ Shared defaults: `deployments/v1/shared/base.env`
+- ✅ Local config: `deployments/v1/local/.env.local.example`
+- ✅ GCP config: `deployments/v1/gcp/distributed/ws-server/.env.production`
 
-**Day 5: Deploy Redis to GCP**
-- [ ] Provision e2-standard-2 instance
-- [ ] Install Redis 7.x
-- [ ] Configure Sentinel (1M + 2R + 3S)
-- [ ] Test connectivity from ws-server
-- [ ] Verify failover works
+**GCP Deployment Automation**:
+- ✅ Task commands: `taskfiles/v1/gcp/redis.yml` (15+ commands)
+- ✅ Docker Compose: `deployments/v1/gcp/distributed/redis/docker-compose.single.yml`
+- ✅ Scripts: `scripts/v1/gcp/redis/` (health check, backup, failover test)
 
-### Week 2: Testing & Staging
+**Monitoring**:
+- ✅ Prometheus scrape config for Redis Exporter
+- ✅ Grafana dashboard (13 panels, 3 alerts)
 
-**Day 1-2: Shadow Mode**
-- [ ] Deploy dual-bus mode (publish to both)
-- [ ] Monitor: 100% message consistency
-- [ ] Run for 48 hours
-- [ ] Metrics: Latency <2ms added
+**Local Development**:
+- ✅ `deployments/v1/local/docker-compose.redis.yml`
+- ✅ Local testing validated successfully
 
-**Day 3-4: Staging Deployment**
-- [ ] Set `BROADCAST_BUS_TYPE=redis`
-- [ ] Deploy to staging
-- [ ] Load test: 1000 connections
-- [ ] Verify: Cross-instance messaging works
+---
 
-**Day 5: Production Prep**
-- [ ] Update production config
-- [ ] Review rollback procedure
-- [ ] Prepare monitoring dashboards
-- [ ] Brief on-call team
+## Deployment Checklist
 
-### Week 3-4: Production Rollout
+### Week 1: Local Testing & GCP Deployment
 
-**Week 3: Gradual Migration**
-- [ ] Day 1: 10% traffic on Redis
-- [ ] Day 2: 25% traffic on Redis
-- [ ] Day 3: 50% traffic on Redis
-- [ ] Day 4: 75% traffic on Redis
-- [ ] Day 5: 100% traffic on Redis
+**Day 1: Local Testing (DONE)**
+- [x] Start local Redis: `docker-compose -f docker-compose.redis.yml up -d`
+- [x] Run ws-server locally
+- [x] Verify Redis connection logs
+- [x] Test successful
 
-**Week 4: Multi-Instance**
+**Day 2-3: GCP Deployment**
+- [ ] Deploy with automated tasks: `task gcp:deploy`
+- [ ] Verify Redis health: `task gcp:redis:health`
+- [ ] Get Redis IP: `task gcp:redis:get-ip`
+- [ ] Update ws-server config with Redis IP
+- [ ] Verify ws-server connects to Redis
+
+**Day 4-5: Multi-Instance Testing**
 - [ ] Deploy 2nd ws-server instance
-- [ ] Update load balancer
-- [ ] Load test: 36K connections
-- [ ] Verify: All metrics green
+- [ ] Test cross-instance messaging (100% delivery)
+- [ ] Load test: 1000 connections per instance
+- [ ] Monitor Redis metrics in Grafana
+
+### Week 2: Production Rollout
+
+**Day 1-3: Production Deployment**
+- [ ] Update production .env with Redis config
+- [ ] Rolling deployment (zero downtime)
+- [ ] Monitor for 48 hours
+- [ ] Validate <15ms p99 latency
+
+**Day 4-5: Validation**
+- [ ] Run load tests (target: 36K connections)
+- [ ] Verify all metrics green
+- [ ] Document lessons learned
+
+### Optional: Upgrade to Sentinel HA
+
+**When Needed**: 99.9% uptime requirement, automatic failover needed
+
+**Steps**:
+- [ ] Deploy 2 more Redis nodes (3 total)
+- [ ] Configure replication and Sentinel
+- [ ] Update `REDIS_SENTINEL_ADDRS` from 1 to 3 addresses
+- [ ] Rolling restart - code auto-detects Sentinel!
+- [ ] Test failover (kill master, verify <10s recovery)
 
 ---
 
-## Essential Code Snippets
+## Essential Configuration
 
-### 1. Interface Definition
-
-```go
-// File: ws/internal/multi/broadcast_interface.go
-type BroadcastBus interface {
-    Run()
-    Shutdown()
-    Publish(msg *BroadcastMessage)
-    Subscribe() chan *BroadcastMessage
-    IsHealthy() bool
-}
-```
-
-### 2. Configuration
+### Configuration (Auto-Detection)
 
 ```bash
-# In-memory (single instance)
-BROADCAST_BUS_TYPE=inmemory
-
-# Redis (multi-instance)
-BROADCAST_BUS_TYPE=redis
-REDIS_SENTINEL_ADDRS=10.128.0.5:26379,10.128.0.5:26380,10.128.0.5:26381
+# Local Development
+REDIS_SENTINEL_ADDRS=localhost:6379
+REDIS_PASSWORD=testpassword
 REDIS_MASTER_NAME=mymaster
-REDIS_PASSWORD=<secure-password>
+REDIS_DB=0
+REDIS_CHANNEL=ws.broadcast
 
-# NATS (future migration)
-BROADCAST_BUS_TYPE=nats
-NATS_URL=nats://nats-1:4222,nats://nats-2:4222
+# GCP Single Node (Direct Connection)
+REDIS_SENTINEL_ADDRS=10.128.0.X:6379
+REDIS_PASSWORD=<generated-secure-password>
+# Code auto-detects: 1 address = direct mode
+
+# GCP Sentinel Cluster (HA with Failover)
+REDIS_SENTINEL_ADDRS=node1:26379,node2:26379,node3:26379
+REDIS_PASSWORD=<generated-secure-password>
+# Code auto-detects: 3+ addresses = Sentinel mode
+
+# GCP Memorystore (Managed)
+REDIS_SENTINEL_ADDRS=10.x.x.x:6379
+REDIS_PASSWORD=<gcp-generated-password>
+# Code auto-detects: 1 address = direct mode
 ```
 
-### 3. Factory Pattern
+### Implementation Details
 
 ```go
-// File: ws/cmd/multi/main.go
-busConfig := multi.BroadcastBusConfig{
-    Type:               cfg.BroadcastBusType,
-    RedisSentinelAddrs: cfg.GetRedisSentinelAddrs(),
-    RedisMasterName:    cfg.RedisMasterName,
-    RedisPassword:      cfg.RedisPassword,
-    Logger:             busLogger,
-}
+// File: ws/internal/multi/broadcast.go (489 lines)
+// Direct Redis implementation - NO interface abstraction
 
-broadcastBus, err := multi.NewBroadcastBus(busConfig)
-if err != nil {
-    logger.Fatalf("Failed to create BroadcastBus: %v", err)
+// Auto-detection logic:
+if len(cfg.SentinelAddrs) == 1 {
+    // Single address → Direct connection (standalone or Memorystore)
+    client = redis.NewClient(&redis.Options{
+        Addr:     cfg.SentinelAddrs[0],
+        Password: cfg.Password,
+        DB:       cfg.DB,
+    })
+} else {
+    // Multiple addresses → Sentinel failover cluster
+    client = redis.NewFailoverClient(&redis.FailoverOptions{
+        MasterName:    cfg.MasterName,
+        SentinelAddrs: cfg.SentinelAddrs,
+        Password:      cfg.Password,
+        DB:            cfg.DB,
+    })
 }
-defer broadcastBus.Shutdown()
-
-broadcastBus.Run()
 ```
 
 ---
 
 ## Key Commands
 
-### Deploy Redis to GCP
+### Local Testing
 
 ```bash
-# 1. Provision instance
-gcloud compute instances create redis-server \
-  --machine-type=e2-standard-2 \
-  --zone=us-central1-a \
-  --image-family=ubuntu-2204-lts \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=50GB \
-  --boot-disk-type=pd-ssd \
-  --tags=redis-server \
-  --no-address
+# 1. Start main stack (creates odin-local network)
+cd deployments/v1/local
+docker-compose up -d
 
-# 2. Create firewall rule
-gcloud compute firewall-rules create allow-redis-internal \
-  --allow=tcp:6379,tcp:6380,tcp:6381,tcp:26379,tcp:26380,tcp:26381 \
-  --source-ranges=10.128.0.0/20 \
-  --target-tags=redis-server
+# 2. Start Redis
+docker-compose -f docker-compose.redis.yml up -d
 
-# 3. SSH and install
-gcloud compute ssh redis-server --zone=us-central1-a
-sudo apt update && sudo apt install -y redis-server redis-tools
+# 3. Verify Redis
+docker exec redis-local redis-cli -a testpassword ping
+# Expected: PONG
 
-# 4. Configure (see main doc for full configs)
-# Copy configs from main architecture doc
+# 4. Run ws-server
+cd ../../..
+go run ws/cmd/multi/main.go
 
-# 5. Start services
-sudo systemctl enable redis-master redis-replica-{1,2} redis-sentinel-{1,2,3}
-sudo systemctl start redis-master redis-replica-{1,2} redis-sentinel-{1,2,3}
-
-# 6. Verify
-redis-cli -a <PASSWORD> INFO replication
-# Expected: role:master, connected_slaves:2
+# 5. Verify logs show:
+# [INFO] Connecting to Redis (direct mode)
+# [INFO] Successfully connected to Redis
+# [INFO] BroadcastBus started (Redis Pub/Sub)
 ```
 
-### Deploy ws-server with Redis
+### GCP Deployment (Automated)
 
 ```bash
-# Update environment
-export BROADCAST_BUS_TYPE=redis
-export REDIS_SENTINEL_ADDRS=10.128.0.5:26379,10.128.0.5:26380,10.128.0.5:26381
-export REDIS_MASTER_NAME=mymaster
-export REDIS_PASSWORD=<password>
+# Full deployment (includes Redis + WS servers + monitoring)
+task gcp:deploy
 
-# Deploy
-task gcp:deploy:ws-server
+# Or step-by-step:
+task gcp:redis:create-vm
+task gcp:redis:setup-firewall
+task gcp:redis:deploy-single
 
-# Verify health
-curl http://ws-server-1:3005/health | jq '.broadcast_bus'
-# Expected: {"type":"redis","healthy":true,"connected":true}
+# Get Redis internal IP for ws-server config
+task gcp:redis:get-ip
+
+# Health check
+task gcp:redis:health
+
+# Real-time metrics
+task gcp:redis:metrics
+
+# View logs
+task gcp:redis:logs
+
+# Check system status
+task gcp:status
 ```
 
-### Emergency Rollback
+### Monitoring
 
 ```bash
-# If ANY issues, rollback immediately
-export BROADCAST_BUS_TYPE=inmemory
-task gcp:deploy:rolling-restart
+# View Grafana dashboard
+# URL: http://<backend-ip>:3005
+# Login: admin / admin
+# Dashboard: Redis BroadcastBus Monitoring
 
-# Verify
-curl http://ws-server-1:3005/health | jq '.broadcast_bus.type'
-# Expected: "inmemory"
+# Prometheus queries
+# URL: http://<backend-ip>:9090
+# Queries:
+#   redis_up
+#   redis_connected_clients
+#   redis_latency_percentiles_usec{quantile="0.99"}
 ```
 
 ---
@@ -219,35 +243,48 @@ curl http://ws-server-1:3005/health | jq '.broadcast_bus.type'
 
 ### Must-Have Before Production
 
-1. **Interface Abstraction**: BroadcastBus interface implemented ✓
-2. **Configuration-Based**: Swap via env var only ✓
-3. **Health Checks**: `/health` reports bus type and status ✓
-4. **Rollback Plan**: Tested and documented ✓
-5. **Monitoring**: Prometheus + Grafana dashboards ✓
-6. **Alerting**: Redis connection/latency alerts ✓
-7. **Runbooks**: Connection issues, rollback procedures ✓
+1. **Redis Implementation**: Direct Redis Pub/Sub (489 lines) ✅
+2. **Auto-Detection**: Single-node or Sentinel mode (zero config) ✅
+3. **Health Monitoring**: Periodic PING, publish tracking ✅
+4. **Graceful Shutdown**: 5s timeout, connection cleanup ✅
+5. **Monitoring**: Prometheus + Grafana (13 panels, 3 alerts) ✅
+6. **Task Automation**: 15+ deployment/ops commands ✅
+7. **Runbooks**: Connection issues, health checks ✅
 
 ### Performance Targets
 
-- **Latency**: End-to-end <10ms p99 (with Redis ~8-9ms)
-- **Throughput**: 1K msg/sec sustained (capacity for 10K)
-- **Availability**: 99.9% uptime (Sentinel HA)
-- **Failover**: <10s recovery (Sentinel automatic)
+- **Latency**: End-to-end <15ms p99 (current baseline: ~10ms, Redis adds ~2-5ms)
+- **Throughput**: 1K msg/sec sustained (Redis capacity: 1M msg/sec)
+- **Availability**:
+  - Single node: Manual restart (~30s downtime)
+  - Sentinel HA: 99.9% uptime, <10s automatic failover
+- **Memory**: Redis <90% (4GB max, configurable)
+- **CPU**: Redis <20% under load
 
 ### Key Metrics to Monitor
 
 ```promql
-# Connection status
-broadcast_bus_connected{type="redis"}
-
-# Publish latency
-histogram_quantile(0.99, rate(broadcast_bus_publish_duration_seconds_bucket[5m]))
-
-# Error rate
-rate(broadcast_bus_publish_total{type="redis",status="error"}[5m])
-
-# Redis health
+# Redis availability
 redis_up
+
+# Connected clients (should equal number of ws-server instances)
+redis_connected_clients
+
+# Latency percentiles
+redis_latency_percentiles_usec{quantile="0.99"}
+
+# Memory usage
+redis_memory_used_bytes / redis_memory_max_bytes
+
+# Pub/Sub channels (should be 1: ws.broadcast)
+redis_pubsub_channels
+
+# Slow commands (should be <10)
+redis_slowlog_length
+
+# Error indicators (should be 0)
+redis_evicted_keys_total
+redis_rejected_connections_total
 ```
 
 ---
@@ -256,55 +293,74 @@ redis_up
 
 ### ❌ DON'T
 
-1. **Deploy Redis without Sentinel** → No HA, single point of failure
-2. **Skip shadow mode testing** → Risk of production issues
-3. **Forget to update load balancer** → 2nd instance won't receive traffic
-4. **Use same password in all environments** → Security risk
-5. **Deploy both instances simultaneously** → Rolling restart required
-6. **Ignore metrics** → Won't detect issues early
+1. **Forget main stack first** → Start `docker-compose.yml` before `docker-compose.redis.yml` (creates network)
+2. **Use same password in all environments** → Generate unique secure passwords
+3. **Skip local testing** → Always test locally before GCP deployment
+4. **Deploy both instances simultaneously** → Use rolling deployment
+5. **Ignore Redis memory limits** → Monitor, configure maxmemory with eviction policy
+6. **Forget to get Redis IP** → Run `task gcp:redis:get-ip` and update ws-server config
 
 ### ✅ DO
 
-1. **Use Sentinel with 3 nodes** → Automatic failover
-2. **Test failover before production** → Confidence in HA
-3. **Monitor latency at each stage** → Catch regressions early
-4. **Have rollback plan ready** → Fast recovery if issues
-5. **Document all configuration** → Team can troubleshoot
-6. **Run load tests** → Verify capacity before cutover
+1. **Start with single node** → Simple, cheap ($53/month), upgrade to Sentinel later if needed
+2. **Test locally first** → Use `docker-compose.redis.yml` for local validation
+3. **Use task commands** → Automated deployment/ops: `task gcp:deploy`, `task gcp:redis:health`
+4. **Monitor from day 1** → Grafana dashboard ready, watch latency/memory/errors
+5. **Generate strong passwords** → Use `openssl rand -base64 32 | tr -d "=+/" | cut -c1-32`
+6. **Document your config** → Save Redis IP, passwords securely
 
 ---
 
-## Migration Paths
+## Deployment Modes & Upgrade Paths
 
-### Path 1: In-Memory → Redis (Production)
-
-```
-Week 1: Implement interface + Redis
-Week 2: Shadow mode testing
-Week 3: Gradual rollout (10% → 100%)
-Week 4: Multi-instance deployment
-```
-
-**Result**: 2× capacity (18K → 36K connections)
-
-### Path 2: Redis → NATS (Future Optimization)
-
-```
-Month 3-6: Implement NatsBroadcastBus
-           Shadow mode (Redis + NATS)
-           Gradual migration
-           Decommission Redis
-```
-
-**Benefit**: 2-3ms lower latency, 10× higher throughput
-
-**Key**: ZERO CODE CHANGES! Just change env vars:
+### Mode 1: Local Development
 ```bash
-# Before
-BROADCAST_BUS_TYPE=redis
+REDIS_SENTINEL_ADDRS=localhost:6379
+REDIS_PASSWORD=testpassword
+```
+- **Use**: Local testing
+- **Cost**: $0 (Docker)
+- **Availability**: Dev only
 
-# After
-BROADCAST_BUS_TYPE=nats
+### Mode 2: GCP Single Node
+```bash
+REDIS_SENTINEL_ADDRS=10.128.0.X:6379
+REDIS_PASSWORD=<generated>
+```
+- **Use**: Initial production, <10K connections
+- **Cost**: $53/month (1× e2-standard-2)
+- **Availability**: Manual restart (~30s downtime)
+- **Upgrade**: Add 2 more nodes → Sentinel (change to 3 addresses)
+
+### Mode 3: GCP Sentinel Cluster (HA)
+```bash
+REDIS_SENTINEL_ADDRS=node1:26379,node2:26379,node3:26379
+REDIS_PASSWORD=<generated>
+```
+- **Use**: Production with 99.9% uptime SLA
+- **Cost**: $158/month (3× e2-standard-2)
+- **Availability**: Automatic failover <10s
+- **Upgrade**: Migrate to Memorystore (change to 1 managed address)
+
+### Mode 4: GCP Memorystore (Managed)
+```bash
+REDIS_SENTINEL_ADDRS=10.x.x.x:6379
+REDIS_PASSWORD=<gcp-generated>
+```
+- **Use**: Production, fully managed, minimal ops
+- **Cost**: $180/month (5GB Standard HA)
+- **Availability**: 99.9% SLA, automatic failover
+- **Benefit**: Zero maintenance, GCP handles upgrades/failover
+
+### Zero-Code Upgrade Path
+
+**All upgrades are just config changes:**
+```bash
+# Single → Sentinel: Change 1 address to 3
+# Sentinel → Memorystore: Change 3 addresses to 1 managed endpoint
+# Self-hosted → Managed: Same as above
+
+# Rolling restart - code auto-detects mode!
 ```
 
 ---
@@ -318,34 +374,56 @@ Total:                         $50/month
 Capacity:                      18K connections
 ```
 
-### Multi-Instance with Redis
+### Multi-Instance with Redis (Single Node)
 ```
 2× e2-highcpu-8 (ws-server):   $100/month
-1× e2-standard-2 (Redis):      $50/month
+1× e2-standard-2 (Redis):      $53/month
 ────────────────────────────────────────
-Total:                         $150/month
+Total:                         $153/month
 Capacity:                      36K connections
-Cost per 1K:                   $4.17
+Cost per 1K:                   $4.25
 ```
 
-**ROI**: +$100/month for 2× capacity + HA + horizontal scaling
+### Multi-Instance with Redis (Sentinel HA)
+```
+2× e2-highcpu-8 (ws-server):   $100/month
+3× e2-standard-2 (Redis):      $158/month
+────────────────────────────────────────
+Total:                         $258/month
+Capacity:                      36K connections
+Cost per 1K:                   $7.17
+Benefit:                       99.9% uptime, <10s failover
+```
+
+**ROI**: Start with single node ($153/month), upgrade to Sentinel when traffic justifies HA cost
 
 ---
 
 ## Quick Reference Links
 
-**Main Documentation**:
-- [Redis Broadcast Bus Architecture](./architecture/REDIS_BROADCAST_BUS_ARCHITECTURE.md) - Complete guide
-- [Horizontal Scaling Plan](./architecture/HORIZONTAL_SCALING_PLAN.md) - Multi-instance strategy
+**Implementation Details**:
+- Implementation: `ws/internal/multi/broadcast.go` (489 lines)
+- Configuration: `ws/internal/shared/platform/config.go`
+- Integration: `ws/cmd/multi/main.go`
+
+**Deployment Files**:
+- GCP Redis: `deployments/v1/gcp/distributed/redis/`
+- Local Redis: `deployments/v1/local/docker-compose.redis.yml`
+- Task automation: `taskfiles/v1/gcp/redis.yml`
+- Scripts: `scripts/v1/gcp/redis/`
+
+**Documentation**:
+- [Infrastructure Diagrams](./architecture/infrastructure-diagram.md) - System architecture (4 Mermaid diagrams)
+- [Redis Single Node Deployment](./deployment/REDIS_SINGLE_NODE.md) - Quick deploy guide
+- [Simplified Implementation](./implementation/REDIS_BROADCAST_BUS_SIMPLIFIED.md) - Detailed plan
 
 **Runbooks**:
 - [Redis Connection Issues](./runbooks/redis-connection-issues.md) - Troubleshooting
 - [Rollback to In-Memory](./runbooks/rollback-to-inmemory.md) - Emergency recovery
 
-**Code Examples**:
-- Interface: `ws/internal/multi/broadcast_interface.go`
-- Redis Implementation: `ws/internal/multi/broadcast_redis.go`
-- Factory: `ws/internal/multi/broadcast_factory.go`
+**Monitoring**:
+- Grafana Dashboard: `deployments/v1/gcp/distributed/backend/grafana/provisioning/dashboards/redis.json`
+- Prometheus Config: `deployments/v1/gcp/distributed/backend/prometheus.yml`
 
 **External Resources**:
 - Redis Pub/Sub: https://redis.io/docs/manual/pubsub/
@@ -354,35 +432,40 @@ Cost per 1K:                   $4.17
 
 ---
 
-## Getting Help
-
-**Questions**:
-- Slack: #websocket-scaling channel
-- Email: architecture-team@company.com
-
-**Issues**:
-- Critical (production down): Page on-call engineer
-- High (performance degraded): Post in #incidents
-- Medium (questions/clarification): Post in #websocket-scaling
-
-**Contributing**:
-- Propose changes via PR to main architecture doc
-- Test changes in dev/staging first
-- Update this quick start guide if architecture changes
-
----
-
 ## Next Steps
 
-1. **Read Main Document**: [REDIS_BROADCAST_BUS_ARCHITECTURE.md](./architecture/REDIS_BROADCAST_BUS_ARCHITECTURE.md)
-2. **Start Week 1**: Follow implementation checklist
-3. **Ask Questions**: Post in #websocket-scaling channel
-4. **Track Progress**: Update checklist as you go
+### ✅ **Code Complete** - Ready to Deploy!
 
-**Good luck with the implementation!** 🚀
+**Branch**: `feature/redis-broadcast-bus` (pushed to remote)
+
+**Immediate Actions**:
+1. ✅ Local testing complete (Redis running, ws-server verified)
+2. 📋 Create Pull Request (`feature/redis-broadcast-bus` → `main`)
+3. 📋 Deploy to GCP: `task gcp:deploy`
+4. 📋 Multi-instance testing (2+ ws-server instances)
+
+**Reference Session Handoffs**:
+- Latest: `sessions/handoff-2025-11-22-1144.md` (local testing success)
+- Previous: `sessions/handoff-2025-11-21-2154.md` (implementation complete)
+
+**Useful Commands**:
+```bash
+# View all task commands
+task --list-all | grep redis
+
+# Check implementation
+git log --oneline feature/redis-broadcast-bus
+
+# Review configuration
+cat deployments/v1/shared/base.env | grep REDIS
+cat deployments/v1/local/.env.local.example | grep REDIS
+```
+
+**Ready to ship!** 🚀
 
 ---
 
-**Version**: 1.0
-**Last Updated**: 2025-01-20
-**Status**: Ready for Implementation
+**Version**: 2.0
+**Last Updated**: 2025-11-23 (Corrected to reflect actual implementation)
+**Status**: ✅ Implementation Complete - Deployment Ready
+**Branch**: `feature/redis-broadcast-bus`

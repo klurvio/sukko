@@ -1,20 +1,43 @@
 # Redis Broadcast Bus - Simplified Implementation Plan
 
+> **⚠️ PLANNING DOCUMENT ONLY**
+> This document describes the **initial planning approach** for Redis BroadcastBus.
+> **Actual implementation differs** - see notes below for what was actually built.
+>
+> **For Actual Implementation**, see:
+> - `docs/REDIS_BROADCAST_QUICKSTART.md` - Reflects actual implementation
+> - `ws/internal/multi/broadcast.go` - Actual code (489 lines)
+> - `sessions/handoff-2025-11-22-1144.md` - Final implementation status
+
 **Last Updated**: 2025-11-21
-**Status**: Implementation Plan (Revised)
+**Status**: ⚠️ Planning Document (Implementation Complete - See Above)
 
 ---
 
-## Overview
+## What Was Actually Implemented
+
+The final implementation **differs** from this plan in the following ways:
+
+✅ **Redis Pub/Sub** - Direct implementation (matches plan)
+✅ **Auto-detection** - 1 address = direct, 3+ = Sentinel (simpler than plan)
+⚠️ **Started with Single Node** - NOT Sentinel cluster (simpler, cheaper: $53/month vs $158/month)
+⚠️ **Sentinel is Optional** - Can upgrade later by changing config from 1 to 3 addresses
+⚠️ **No persistence** - Disabled for lower latency (ephemeral market data)
+
+**Key Difference**: This doc assumes Sentinel HA deployment. **Actual implementation starts with single-node Redis**, upgradeable to Sentinel later.
+
+---
+
+## Overview (Original Plan)
 
 **Goal**: Replace in-memory BroadcastBus with Redis Pub/Sub for multi-instance horizontal scaling.
 
 **Key Requirements**:
-1. **Redis only** - No interface abstraction, direct Redis implementation
-2. **High Availability** - Redis Sentinel for automatic failover
-3. **Zero-code-change migration** - Self-hosted Redis → GCP Memorystore (connection string change only)
+1. **Redis only** - No interface abstraction, direct Redis implementation ✅ Implemented
+2. **High Availability** - Redis Sentinel for automatic failover ⚠️ Optional (not initially deployed)
+3. **Zero-code-change migration** - Self-hosted Redis → GCP Memorystore (connection string change only) ✅ Implemented
 
-**Why No Interface?**
+**Why No Interface?** ✅ Confirmed in Implementation
 - Not planning NATS migration (Redis is the long-term solution)
 - Simpler codebase (no abstraction overhead)
 - Faster implementation (skip factory pattern, interface tests)
