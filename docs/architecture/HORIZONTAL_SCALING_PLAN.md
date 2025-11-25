@@ -1,5 +1,31 @@
 # Horizontal Scaling Plan for the Sharded WebSocket Server
 
+> **⚠️ PLANNING DOCUMENT - IMPLEMENTATION DIFFERS**
+>
+> This document was created during the **architecture planning phase** to evaluate horizontal scaling approaches.
+> **The plan recommended NATS**, but after further analysis, **Redis was chosen and implemented** instead.
+>
+> **Key Differences from Plan:**
+> - ❌ NATS was NOT implemented (this plan's recommendation)
+> - ✅ **Redis Pub/Sub was implemented** (simpler, team-familiar, managed option available)
+> - ✅ No interface abstraction (direct Redis implementation in `ws/internal/multi/broadcast.go`)
+> - ✅ Auto-detection: 1 address = direct mode, 3+ = Sentinel mode
+>
+> **For Actual Implementation**, see:
+> - `docs/REDIS_BROADCAST_QUICKSTART.md` - Production-ready quickstart guide
+> - `docs/architecture/infrastructure-diagram.md` - Current architecture diagrams
+> - `ws/internal/multi/broadcast.go` - Actual Redis implementation (489 lines)
+>
+> **Why Redis over NATS?**
+> - Team familiarity with Redis operations
+> - GCP Memorystore provides managed Redis (no managed NATS available)
+> - Simpler deployment: start with single node ($53/mo), upgrade to Sentinel later if needed
+> - Sufficient performance: 1M msg/sec capacity, 1-2ms latency (meets requirements)
+>
+> This document is kept for historical context and architectural reasoning.
+
+---
+
 ## 1. Overview
 
 This document outlines the plan to evolve the sharded WebSocket server from a vertically-scaled, single-machine architecture to a horizontally-scaled, multi-machine cluster. The goal is to create a system that can handle massive numbers of concurrent connections (50,000+) by distributing the load across multiple `e2-standard-4` instances.

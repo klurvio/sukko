@@ -69,7 +69,7 @@ The taskfiles automatically detect `WS_MODE` and use the appropriate:
                   ▼
           ┌───────────────┐
           │ BroadcastBus  │
-          │ (Go channels) │
+          │ (Redis Pub/Sub)│  ← Enables multi-VM scaling
           └───────────────┘
 ```
 
@@ -146,11 +146,19 @@ The taskfiles will automatically use the correct compose file and container name
 **Multi-core mode only**:
 
 1. Kafka consumer in each shard receives messages for its partition(s)
-2. Shard publishes to central **BroadcastBus** (buffered Go channel, 1024 capacity)
-3. BroadcastBus fans out to all shard subscriber channels
-4. Each shard broadcasts locally to its connected clients
+2. Shard publishes to central **BroadcastBus** (Redis Pub/Sub, channel: `ws.broadcast`)
+3. Redis broadcasts to ALL WS instances (multi-VM support)
+4. Each instance's BroadcastBus fans out to its local shard subscriber channels
+5. Each shard broadcasts locally to its connected clients
 
-This ensures all clients across all shards receive every message.
+This ensures all clients across all shards **and all VM instances** receive every message.
+
+**Redis BroadcastBus Features:**
+- Auto-detection: 1 address = direct mode, 3+ addresses = Sentinel HA mode
+- Automatic reconnection with exponential backoff
+- Health monitoring (10s PING interval)
+- Non-blocking publish (100ms timeout)
+- See [Redis BroadcastBus Quick Start](../REDIS_BROADCAST_QUICKSTART.md) for deployment details
 
 ## Observability
 

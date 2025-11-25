@@ -1,10 +1,11 @@
 # Odin WebSocket Server
 
-Production-grade, horizontally-scalable WebSocket server with Kafka pub/sub, multi-shard architecture, comprehensive monitoring, and enterprise-grade reliability.
+Production-grade, horizontally-scalable WebSocket server with Kafka pub/sub, Redis-based broadcast bus, multi-shard architecture, comprehensive monitoring, and enterprise-grade reliability.
 
 ![Go 1.25.1](https://img.shields.io/badge/Go-1.25.1-00ADD8?logo=go)
 ![Node.js 22](https://img.shields.io/badge/Node.js-22-339933?logo=node.js)
 ![Kafka/Redpanda](https://img.shields.io/badge/Kafka-Redpanda-FF6D70)
+![Redis](https://img.shields.io/badge/Redis-7.x-DC382D?logo=redis)
 ![Prometheus 3.6](https://img.shields.io/badge/Prometheus-3.6-E6522C?logo=prometheus)
 ![Grafana 12.2](https://img.shields.io/badge/Grafana-12.2-F46800?logo=grafana)
 ![Loki 3.3](https://img.shields.io/badge/Loki-3.3-F46800?logo=grafana)
@@ -25,6 +26,7 @@ A high-performance, production-ready WebSocket server designed for real-time dat
 
 **Performance & Scalability:**
 - **Multi-Shard Architecture** - Horizontal scaling with LoadBalancer (least connections strategy)
+- **Redis BroadcastBus** - Cross-instance message distribution via Redis Pub/Sub for multi-VM horizontal scaling
 - **High Throughput** - 51K+ messages/sec with 18K connections, event-driven efficiency
 - **Resource Management** - Goroutine limits (100K), memory management, CPU admission control
 - **Smart Load Balancing** - Per-connection routing with automatic shard distribution
@@ -54,52 +56,64 @@ A high-performance, production-ready WebSocket server designed for real-time dat
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Clients (18K connections)                     │
+│                    Clients (18K+ connections)                    │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    LoadBalancer (:3001)                          │
+│               GCP Load Balancer / LoadBalancer (:3001)           │
 │              Least Connections Strategy                          │
 │              Session Affinity: Client IP                         │
 └─────┬──────────────────┬──────────────────┬─────────────────────┘
       │                  │                  │
       ▼                  ▼                  ▼
-┌──────────┐       ┌──────────┐       ┌──────────┐
-│ Shard 0  │       │ Shard 1  │       │ Shard 2  │
-│  :3002   │       │  :3003   │       │  :3004   │
-│ 6K conns │       │ 6K conns │       │ 6K conns │
-└────┬─────┘       └────┬─────┘       └────┬─────┘
-     │                  │                  │
-     └──────────────────┼──────────────────┘
-                        │
-                        ▼
-           ┌────────────────────────┐
-           │   Kafka/Redpanda       │
-           │   12 partitions/topic  │
-           │   Consumer groups      │
-           └────────┬───────────────┘
-                    │
-                    ▼
-           ┌────────────────────────┐
-           │   Publisher Service    │
-           │   Event generation     │
-           └────────────────────────┘
+┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+│  WS Instance 1│   │  WS Instance 2│   │  WS Instance N│
+│  (3 shards)  │   │  (3 shards)  │   │  (3 shards)  │
+│  :3002-3004  │   │  :3002-3004  │   │  :3002-3004  │
+│  6K conns ea │   │  6K conns ea │   │  6K conns ea │
+└──────┬───────┘   └──────┬───────┘   └──────┬───────┘
+       │                  │                  │
+       └──────────────────┼──────────────────┘
+                          │
+              ┌───────────┴───────────┐
+              │                       │
+              ▼                       ▼
+┌─────────────────────────┐  ┌─────────────────────────┐
+│   Redis BroadcastBus    │  │   Kafka/Redpanda        │
+│   Pub/Sub: ws.broadcast │  │   12 partitions/topic   │
+│   Cross-instance sync   │  │   Consumer groups       │
+│   Auto-detect mode:     │  └───────────┬─────────────┘
+│   • 1 addr = direct     │              │
+│   • 3+ addr = Sentinel  │              ▼
+└─────────────────────────┘  ┌─────────────────────────┐
+                             │   Publisher Service     │
+                             │   Event generation      │
+                             └─────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Observability Stack                       │
 │   Prometheus → Grafana (metrics visualization)                  │
 │   Promtail → Loki → Grafana (log aggregation)                   │
+│   Redis Exporter → Prometheus (Redis metrics)                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+> **See**: [Infrastructure Diagrams](./docs/architecture/infrastructure-diagram.md) for detailed Mermaid diagrams
+
 ### Multi-Shard Architecture Details
 
-**3 Shards + LoadBalancer Configuration:**
+**3 Shards + LoadBalancer + Redis Configuration:**
 - Each shard: Independent WebSocket server (6,000 connections max)
 - LoadBalancer: Routes connections using least-connections algorithm
-- BroadcastBus: Coordinates message distribution across all shards
+- Redis BroadcastBus: Cross-instance message distribution via Pub/Sub (enables multi-VM scaling)
 - Kafka Consumer Groups: Parallel consumption with partition distribution
+
+**Horizontal Scaling (Multi-VM):**
+- Multiple WS instances connect to shared Redis for cross-instance messaging
+- Each instance runs identical shard configuration
+- Redis auto-detection: 1 address = direct mode, 3+ addresses = Sentinel HA mode
+- Zero-code-change upgrade path: single node → Sentinel → GCP Memorystore
 
 **Goroutine Breakdown (per connection):**
 - Shard: 2 goroutines (readPump + writePump)
@@ -126,9 +140,13 @@ ws_poc/
 ├── scripts/                    # Testing and utility scripts (load testing, etc.)
 ├── deployments/
 │   └── v1/
+│       ├── local/              # Local development configs
+│       │   ├── docker-compose.yml
+│       │   └── docker-compose.redis.yml  # Local Redis for testing
 │       └── gcp/
 │           └── distributed/    # Production deployment configs
 │               ├── backend/    # Kafka, Publisher, Monitoring
+│               ├── redis/      # Redis BroadcastBus deployment
 │               └── ws-server/  # WebSocket server (multi-shard)
 ├── taskfiles/
 │   └── v1/
@@ -156,7 +174,7 @@ ws_poc/
 **Multi-Core Components (`ws/internal/multi/`):**
 - **LoadBalancer** - Routes connections to shards using least-connections
 - **Proxy** - Bidirectional WebSocket proxy between clients and shards
-- **BroadcastBus** - Coordinates message distribution across shards
+- **BroadcastBus** - Redis Pub/Sub-based message distribution across shards and instances (489 lines)
 - **ResourceGuard** - CPU/memory admission control with graceful degradation
 
 **Shared Components (`ws/internal/shared/`):**
@@ -227,6 +245,8 @@ Complete documentation organized by topic:
 
 ### Architecture & Design
 - **[Multi-Core Architecture](./docs/architecture/MULTI_CORE_USAGE.md)** - Sharding and load balancing
+- **[Redis BroadcastBus Quick Start](./docs/REDIS_BROADCAST_QUICKSTART.md)** - Horizontal scaling with Redis
+- **[Infrastructure Diagrams](./docs/architecture/infrastructure-diagram.md)** - System architecture (Mermaid)
 - **[Horizontal Scaling Plan](./docs/architecture/HORIZONTAL_SCALING_PLAN.md)** - Scaling strategies
 - **[Connection Limit Explained](./docs/architecture/CONNECTION_LIMIT_EXPLAINED.md)** - Capacity planning
 - **[Connection Cleanup Explained](./docs/architecture/CONNECTION_CLEANUP_EXPLAINED.md)** - Lifecycle management
@@ -270,6 +290,7 @@ open docs/API_REJECTION_RESPONSES.md
 ### Backend
 - **Go 1.25.1** - High-performance WebSocket server with goroutine-based concurrency
 - **Kafka/Redpanda** - Distributed message broker for pub/sub (12 partitions/topic)
+- **Redis 7.x** - BroadcastBus for cross-instance message distribution (Pub/Sub)
 - **Node.js 22** - Publisher service and test scripts
 
 ### Observability
@@ -335,6 +356,28 @@ KAFKA_GROUP_ID=ws-server-production  # Base consumer group
 # Topics (12 partitions each)
 # odin.trades, odin.liquidity, odin.balances, odin.metadata,
 # odin.social, odin.community, odin.creation, odin.analytics
+```
+
+**Redis BroadcastBus Configuration:**
+```bash
+# Single node (direct connection) - local dev or single Redis
+REDIS_SENTINEL_ADDRS=localhost:6379
+REDIS_PASSWORD=testpassword
+REDIS_MASTER_NAME=mymaster
+REDIS_DB=0
+REDIS_CHANNEL=ws.broadcast
+
+# GCP Single Node (production)
+REDIS_SENTINEL_ADDRS=10.128.0.X:6379
+REDIS_PASSWORD=<generated-secure-password>
+
+# Sentinel HA Cluster (optional upgrade for 99.9% uptime)
+REDIS_SENTINEL_ADDRS=node1:26379,node2:26379,node3:26379
+REDIS_PASSWORD=<generated-secure-password>
+
+# Code auto-detects mode:
+# - 1 address = direct connection (standalone or Memorystore)
+# - 3+ addresses = Sentinel failover cluster
 ```
 
 **Publisher Configuration:**
@@ -434,7 +477,15 @@ See [API Rejection Responses](./docs/API_REJECTION_RESPONSES.md) for client inte
 
 ## 🎯 Recent Updates
 
-**Latest (2025-11-19):**
+**Latest (2025-11-25):**
+- ✅ **Redis BroadcastBus implemented** - Enables horizontal scaling across multiple VMs
+- ✅ Auto-detection mode: 1 address = direct, 3+ addresses = Sentinel HA
+- ✅ Local Redis testing validated (`docker-compose.redis.yml`)
+- ✅ GCP deployment automation (`task gcp:redis:*` commands)
+- ✅ Grafana dashboard for Redis monitoring (13 panels, 3 alerts)
+- ✅ Zero-code upgrade path: single node → Sentinel → GCP Memorystore
+
+**Previous (2025-11-19):**
 - ✅ Achieved 18K connection capacity (17.7K tested at 98.4% success)
 - ✅ Fixed goroutine calculation (100K limit accounts for LoadBalancer proxy)
 - ✅ Optimized debug logging (99.3% overhead reduction)
