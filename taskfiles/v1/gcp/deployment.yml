@@ -610,13 +610,17 @@ tasks:
         WS_IP=$(gcloud compute instances describe {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)')
         echo "📍 WS server internal IP: $WS_IP"
 
+        # Get Redis internal IP for Prometheus scrape configuration
+        REDIS_IP=$(gcloud compute instances describe ws-redis --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)' 2>/dev/null || echo "")
+        echo "📍 Redis internal IP: ${REDIS_IP:-not found}"
+
         # Create .env file with BACKEND_INTERNAL_IP for docker-compose
         echo "📝 Creating .env file for docker-compose..."
         gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'echo \"BACKEND_INTERNAL_IP=$BACKEND_IP\" > /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend/.env'" 2>/dev/null
 
-        # Substitute WS_GO_INTERNAL_IP in prometheus.yml before starting services
+        # Substitute WS_GO_INTERNAL_IP and REDIS_INTERNAL_IP in prometheus.yml before starting services
         echo "📝 Configuring Prometheus scrape targets..."
-        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && sed -i.bak \"s/\\\${WS_GO_INTERNAL_IP}/$WS_IP/g\" prometheus.yml && echo \"✅ Prometheus config updated: WS server at $WS_IP:3004\"'" 2>/dev/null
+        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && sed -i.bak \"s/\\\${WS_GO_INTERNAL_IP}/$WS_IP/g; s/\\\${REDIS_INTERNAL_IP}/$REDIS_IP/g\" prometheus.yml && echo \"✅ Prometheus config updated: WS at $WS_IP:3004, Redis at $REDIS_IP:9121\"'" 2>/dev/null
 
         echo "🐳 Starting Docker services..."
         gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && docker-compose up -d 2>&1 | grep -E \"(Created|Started|Running)\"'" 2>/dev/null || true
@@ -663,11 +667,23 @@ tasks:
           gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
+        # Fetch Redis password from Redis VM
+        REDIS_PASSWORD=""
+        if [ -n "$REDIS_IP" ]; then
+          echo "🔐 Fetching Redis password from ws-redis..."
+          REDIS_PASSWORD=$(gcloud compute ssh ws-redis --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'grep \"^REDIS_PASSWORD=\" /home/deploy/ws_poc/deployments/v1/gcp/distributed/redis/.env 2>/dev/null | cut -d= -f2'" 2>/dev/null || echo "")
+          if [ -n "$REDIS_PASSWORD" ]; then
+            echo "✅ Got Redis password from ws-redis"
+          else
+            echo "⚠️  Could not fetch Redis password - using placeholder"
+            REDIS_PASSWORD="CHANGEME_GENERATE_STRONG_PASSWORD"
+          fi
+        fi
+
         echo "⚙️  Creating environment files..."
 
         # Create complete .env.production with all required variables
-        # Redis password matches the default in redis/.env.example
-        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && printf \"WS_MODE=multi\nBACKEND_INTERNAL_IP=$BACKEND_IP\nKAFKA_BROKERS=$BACKEND_IP:9092\nREDIS_SENTINEL_ADDRS=$REDIS_IP:6379\nREDIS_PASSWORD=CHANGEME_GENERATE_STRONG_PASSWORD\n\" > .env.production && chmod 600 .env.production'" 2>/dev/null
+        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && printf \"WS_MODE=multi\nBACKEND_INTERNAL_IP=$BACKEND_IP\nKAFKA_BROKERS=$BACKEND_IP:9092\nREDIS_SENTINEL_ADDRS=$REDIS_IP:6379\nREDIS_PASSWORD=$REDIS_PASSWORD\n\" > .env.production && chmod 600 .env.production'" 2>/dev/null
 
         # Create empty .env.debug (required by docker-compose.multi.yml)
         gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'touch /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server/.env.debug'" 2>/dev/null

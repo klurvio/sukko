@@ -125,11 +125,22 @@ tasks:
           gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
-        # Create .env from example if it doesn't exist
+        # Create .env with auto-generated password if it doesn't exist
         echo "📝 Setting up Redis configuration..."
-        gcloud compute ssh {{.REDIS_VM_NAME}} \
-          --zone={{.REDIS_ZONE}} \
-          --command="sudo -i -u deploy bash -c 'cd {{.REDIS_DEPLOY_PATH}} && [ ! -f .env ] && cp .env.example .env || echo \".env already exists\"'" 2>/dev/null || true
+        gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} --command='sudo -i -u deploy bash << "SETUP_ENV"
+        cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/redis
+        if [ ! -f .env ]; then
+          echo "🔐 Generating secure Redis password..."
+          GENERATED_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
+          cp .env.example .env
+          sed -i "s/CHANGEME_GENERATE_STRONG_PASSWORD/$GENERATED_PASSWORD/" .env
+          chmod 600 .env
+          echo "✅ Created .env with auto-generated password"
+        else
+          echo "✅ .env already exists (keeping existing password)"
+        fi
+        SETUP_ENV
+        ' 2>/dev/null || true
 
         # Start Redis
         echo "🐳 Starting Redis containers..."
