@@ -4,7 +4,7 @@ version: "3"
 # Supports: Single node, Sentinel cluster, monitoring, debugging
 
 vars:
-  REDIS_VM_NAME: ws-poc-redis
+  REDIS_VM_NAME: ws-redis
   REDIS_ZONE: us-central1-a
   REDIS_MACHINE_TYPE: e2-standard-2
   REDIS_DISK_SIZE: 50GB

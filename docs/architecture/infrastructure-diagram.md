@@ -28,7 +28,7 @@ graph TB
         end
 
         subgraph "Message Bus Infrastructure"
-            REDIS[Redis Single Node<br/>ws-poc-redis<br/>e2-standard-2<br/>Port 6379<br/><br/>Pub/Sub Channel:<br/>'ws.broadcast']
+            REDIS[Redis Single Node<br/>ws-redis<br/>e2-standard-2<br/>Port 6379<br/><br/>Pub/Sub Channel:<br/>'ws.broadcast']
             KAFKA[Redpanda/Kafka<br/>Topic: 'events'<br/>Partitions: 3]
         end
 
@@ -233,7 +233,7 @@ graph TB
                 BE1[Docker Compose:<br/>- Redpanda :9092, :9644<br/>- Publisher :3003<br/>- Prometheus :9090<br/>- Grafana :3005]
             end
 
-            subgraph "ws-poc-redis (e2-standard-2)"
+            subgraph "ws-redis (e2-standard-2)"
                 RED1[Docker Compose:<br/>- Redis :6379<br/>- Redis Exporter :9121]
             end
 

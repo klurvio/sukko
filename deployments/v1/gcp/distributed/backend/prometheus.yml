@@ -47,6 +47,6 @@ scrape_configs:
     static_configs:
       - targets: ["${REDIS_INTERNAL_IP}:9121"]
         labels:
-          instance: "ws-poc-redis"
+          instance: "ws-redis"
           service: "redis"
           role: "broadcast-bus"

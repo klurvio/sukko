@@ -86,7 +86,7 @@ task redis:health
 
 ```bash
 # Get Redis internal IP
-REDIS_IP=$(gcloud compute instances describe ws-poc-redis \
+REDIS_IP=$(gcloud compute instances describe ws-redis \
   --zone=us-central1-a \
   --format='get(networkInterfaces[0].networkIP)')
 

@@ -450,6 +450,7 @@ tasks:
       - 'echo "   - {{.BACKEND_INSTANCE}} (backend)"'
       - 'echo "   - {{.WS_INSTANCE}} (WebSocket server)"'
       - 'echo "   - {{.LOADTEST_INSTANCE}} (load test)"'
+      - 'echo "   - ws-redis (Redis)"'
       - echo ""
       - echo "All data will be permanently lost!"
       - echo ""
@@ -458,7 +459,7 @@ tasks:
         if [ "$CONFIRM" = "DELETE-ALL" ]; then
           echo ""
           echo "Deleting instances..."
-          gcloud compute instances delete {{.BACKEND_INSTANCE}} {{.WS_INSTANCE}} {{.LOADTEST_INSTANCE}} \
+          gcloud compute instances delete {{.BACKEND_INSTANCE}} {{.WS_INSTANCE}} {{.LOADTEST_INSTANCE}} ws-redis \
             --zone={{.GCP_ZONE}} \
             --project={{.GCP_PROJECT}} \
             --quiet
@@ -642,7 +643,7 @@ tasks:
 
         # Get internal IPs
         BACKEND_IP=$(gcloud compute instances describe {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)')
-        REDIS_IP=$(gcloud compute instances describe ws-poc-redis --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)' 2>/dev/null || echo "")
+        REDIS_IP=$(gcloud compute instances describe ws-redis --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)' 2>/dev/null || echo "")
 
         echo "📍 Backend IP: $BACKEND_IP"
         echo "📍 Redis IP: $REDIS_IP"
