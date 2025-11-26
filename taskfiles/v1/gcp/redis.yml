@@ -114,6 +114,24 @@ tasks:
         echo "🤖 Deploying Redis to {{.REDIS_VM_NAME}}"
         echo "🔐 Using SSH authentication"
 
+        # Wait for SSH key to be ready (startup script may still be running)
+        echo "⏳ Waiting for SSH key to be ready..."
+        for i in {1..30}; do
+          READY=$(gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} \
+            --command="test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
+            --ssh-flag="-o ConnectTimeout=5" 2>/dev/null || echo "")
+          if [ "$READY" = "ready" ]; then
+            echo "✅ SSH key ready"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "❌ Timeout waiting for SSH key"
+            exit 1
+          fi
+          echo "   Waiting... ($((i*10))s)"
+          sleep 10
+        done
+
         # Check if repo exists
         REPO_EXISTS=$(gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
 

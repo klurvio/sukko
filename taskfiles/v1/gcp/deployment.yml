@@ -591,6 +591,32 @@ tasks:
         echo "🤖 Automated Backend Setup"
         echo "🔐 Using SSH authentication"
 
+        # Wait for startup script and SSH key to be ready
+        echo "⏳ Waiting for startup script to complete..."
+        for i in {1..30}; do
+          READY=$(gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} \
+            --command="test -f /var/log/startup-complete.log && test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
+            --ssh-flag="-o ConnectTimeout=5" 2>/dev/null || echo "")
+          if [ "$READY" = "ready" ]; then
+            echo "✅ Startup script complete, SSH key ready"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "❌ Timeout waiting for startup script"
+            exit 1
+          fi
+          echo "   Waiting... ($((i*10))s)"
+          sleep 10
+        done
+
+        # Test GitHub connectivity
+        echo "🔗 Testing GitHub connectivity..."
+        GH_TEST=$(gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} \
+          --command="sudo -i -u deploy ssh -T git@github.com 2>&1 | grep -q 'successfully authenticated' && echo ok || echo fail" 2>/dev/null || echo "fail")
+        if [ "$GH_TEST" != "ok" ]; then
+          echo "⚠️  GitHub SSH test inconclusive, proceeding anyway..."
+        fi
+
         # Check if repo exists
         REPO_EXISTS=$(gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
 
@@ -644,6 +670,24 @@ tasks:
       - |
         echo "🤖 Automated WebSocket Server Setup"
         echo "🔐 Using SSH authentication"
+
+        # Wait for startup script and SSH key to be ready
+        echo "⏳ Waiting for startup script to complete..."
+        for i in {1..30}; do
+          READY=$(gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} \
+            --command="test -f /var/log/startup-complete.log && test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
+            --ssh-flag="-o ConnectTimeout=5" 2>/dev/null || echo "")
+          if [ "$READY" = "ready" ]; then
+            echo "✅ Startup script complete, SSH key ready"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "❌ Timeout waiting for startup script"
+            exit 1
+          fi
+          echo "   Waiting... ($((i*10))s)"
+          sleep 10
+        done
 
         # Get internal IPs
         BACKEND_IP=$(gcloud compute instances describe {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)')
@@ -713,6 +757,24 @@ tasks:
       - |
         echo "🤖 Automated Load Test Setup"
         echo "🔐 Using SSH authentication"
+
+        # Wait for startup script and SSH key to be ready
+        echo "⏳ Waiting for startup script to complete..."
+        for i in {1..30}; do
+          READY=$(gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} \
+            --command="test -f /var/log/startup-complete.log && test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
+            --ssh-flag="-o ConnectTimeout=5" 2>/dev/null || echo "")
+          if [ "$READY" = "ready" ]; then
+            echo "✅ Startup script complete, SSH key ready"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "❌ Timeout waiting for startup script"
+            exit 1
+          fi
+          echo "   Waiting... ($((i*10))s)"
+          sleep 10
+        done
 
         # Check if repo exists
         REPO_EXISTS=$(gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
