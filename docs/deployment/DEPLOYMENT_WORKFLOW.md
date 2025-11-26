@@ -107,17 +107,52 @@ task gcp:deploy
 
 ---
 
+## Task Reference
+
+### Rebuild Tasks (Code Changes)
+
+Use these when Go code has changed and you need to rebuild the Docker image.
+
+| Service | Command | Description |
+|---------|---------|-------------|
+| WebSocket | `task gcp:deployment:rebuild:ws` | Rebuild WS server with latest code |
+| Backend | `task gcp:deployment:rebuild:backend` | Rebuild backend services |
+| All | `task gcp:deployment:rebuild:all` | Rebuild all services |
+
+### Restart Tasks (Config/Env Changes Only)
+
+Use these when only environment variables changed (no code changes).
+
+| Service | Command | Description |
+|---------|---------|-------------|
+| WebSocket | `task gcp:services:restart:ws` | Restart WS container only |
+| Backend | `task gcp:services:restart:backend` | Restart backend containers |
+| Redis | `task gcp:redis:restart` | Restart Redis container |
+| All | `task gcp:services:restart:all` | Restart all services |
+| All (alt) | `task gcp:restart` | Restart all GCP services |
+
+### Other Useful Tasks
+
+| Command | Description |
+|---------|-------------|
+| `task gcp:deployment:reset` | Stop + rebuild + start (full reset) |
+| `task gcp:status` | Check status of all services |
+| `task gcp:logs:ws` | View WebSocket server logs |
+| `task gcp:logs:backend` | View backend logs |
+| `task gcp:redis:health` | Check Redis health |
+
+---
+
 ## Service-Specific Commands
 
 ### WebSocket Server (odin-ws-go)
 
 ```bash
-# Rebuild and restart
+# Rebuild and restart (code changes)
 task gcp:deployment:rebuild:ws
 
-# Restart only (no code changes)
-gcloud compute ssh odin-ws-go --zone=us-central1-a \
-  --command="sudo -u deploy docker restart odin-ws-multi"
+# Restart only (env var changes)
+task gcp:services:restart:ws
 
 # View logs
 task gcp:logs:ws
@@ -126,7 +161,7 @@ task gcp:logs:ws
 ### Redis (ws-redis)
 
 ```bash
-# Rebuild and restart
+# Restart
 task gcp:redis:restart
 
 # View logs
@@ -139,9 +174,14 @@ task gcp:redis:health
 ### Backend (odin-backend)
 
 ```bash
-# Restart services
-gcloud compute ssh odin-backend --zone=us-central1-a \
-  --command="sudo -u deploy bash -c 'cd ~/ws_poc/deployments/v1/gcp/distributed/backend && docker-compose restart'"
+# Rebuild and restart (code changes)
+task gcp:deployment:rebuild:backend
+
+# Restart only (env var changes)
+task gcp:services:restart:backend
+
+# View logs
+task gcp:logs:backend
 ```
 
 ---
