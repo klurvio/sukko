@@ -607,7 +607,7 @@ tasks:
         echo "⏳ Waiting for SSH key to be ready..."
         for i in {1..30}; do
           READY=$(gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} \
-            --command="test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
+            --command="sudo test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
             --ssh-flag="-o ConnectTimeout=5" 2>/dev/null || echo "")
           if [ "$READY" = "ready" ]; then
             echo "✅ SSH key ready"
@@ -687,7 +687,7 @@ tasks:
         echo "⏳ Waiting for SSH key to be ready..."
         for i in {1..30}; do
           READY=$(gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} \
-            --command="test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
+            --command="sudo test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
             --ssh-flag="-o ConnectTimeout=5" 2>/dev/null || echo "")
           if [ "$READY" = "ready" ]; then
             echo "✅ SSH key ready"
@@ -774,7 +774,7 @@ tasks:
         echo "⏳ Waiting for SSH key to be ready..."
         for i in {1..30}; do
           READY=$(gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} \
-            --command="test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
+            --command="sudo test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
             --ssh-flag="-o ConnectTimeout=5" 2>/dev/null || echo "")
           if [ "$READY" = "ready" ]; then
             echo "✅ SSH key ready"
