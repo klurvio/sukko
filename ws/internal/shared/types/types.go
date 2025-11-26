@@ -49,9 +49,12 @@ type ServerConfig struct {
 	ConnRateLimitGlobalBurst   int
 	ConnRateLimitGlobalRate    float64
 
-	// Safety thresholds (emergency brakes)
-	CPURejectThreshold float64 // Reject new connections above this CPU % (default: 75)
-	CPUPauseThreshold  float64 // Pause Kafka consumption above this CPU % (default: 80)
+	// Safety thresholds (emergency brakes) with hysteresis
+	// Hysteresis prevents oscillation by using different thresholds for entering/exiting states
+	CPURejectThreshold      float64 // Upper: reject new connections above this CPU % (default: 75)
+	CPURejectThresholdLower float64 // Lower: stop rejecting below this CPU % (default: 65)
+	CPUPauseThreshold       float64 // Upper: pause Kafka above this CPU % (default: 80)
+	CPUPauseThresholdLower  float64 // Lower: resume Kafka below this CPU % (default: 70)
 
 	// Monitoring intervals
 	MetricsInterval time.Duration // Metrics collection interval (default: 15s)

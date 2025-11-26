@@ -40,7 +40,7 @@ type Config struct {
 	ConnRateLimitGlobalBurst   int     `env:"CONN_RATE_LIMIT_GLOBAL_BURST" envDefault:"300"`
 	ConnRateLimitGlobalRate    float64 `env:"CONN_RATE_LIMIT_GLOBAL_RATE" envDefault:"50.0"`
 
-	// CPU Safety Thresholds (Container-Aware)
+	// CPU Safety Thresholds (Container-Aware) with Hysteresis
 	//
 	// These thresholds are relative to CONTAINER CPU ALLOCATION, not host CPU.
 	// The system uses container-aware cgroup measurement when running in Docker/K8s.
@@ -55,8 +55,21 @@ type Config struct {
 	//
 	// In non-containerized environments, falls back to host CPU percentage.
 	//
-	CPURejectThreshold float64 `env:"WS_CPU_REJECT_THRESHOLD" envDefault:"75.0"` // Reject new connections above this %
-	CPUPauseThreshold  float64 `env:"WS_CPU_PAUSE_THRESHOLD" envDefault:"80.0"`  // Pause Kafka consumption above this %
+	// Hysteresis prevents rapid oscillation when CPU hovers near thresholds.
+	// Uses two thresholds: upper (to enter state) and lower (to exit state).
+	//
+	// Example with default values (reject: 75% upper, 65% lower):
+	//   - CPU rises to 76% → start rejecting connections
+	//   - CPU drops to 70% → still rejecting (in deadband)
+	//   - CPU drops to 64% → stop rejecting, accept connections
+	//   - CPU rises to 70% → still accepting (in deadband)
+	//
+	// The 10% gap is the "hysteresis band" that provides stability.
+	//
+	CPURejectThreshold      float64 `env:"WS_CPU_REJECT_THRESHOLD" envDefault:"75.0"`       // Upper: start rejecting above this %
+	CPURejectThresholdLower float64 `env:"WS_CPU_REJECT_THRESHOLD_LOWER" envDefault:"65.0"` // Lower: stop rejecting below this %
+	CPUPauseThreshold       float64 `env:"WS_CPU_PAUSE_THRESHOLD" envDefault:"80.0"`        // Upper: pause Kafka above this %
+	CPUPauseThresholdLower  float64 `env:"WS_CPU_PAUSE_THRESHOLD_LOWER" envDefault:"70.0"`  // Lower: resume Kafka below this %
 
 	// TCP/Network Tuning (Burst Tolerance)
 	//
@@ -145,14 +158,30 @@ func (c *Config) Validate() error {
 	if c.CPURejectThreshold < 0 || c.CPURejectThreshold > 100 {
 		return fmt.Errorf("WS_CPU_REJECT_THRESHOLD must be 0-100, got %.1f", c.CPURejectThreshold)
 	}
+	if c.CPURejectThresholdLower < 0 || c.CPURejectThresholdLower > 100 {
+		return fmt.Errorf("WS_CPU_REJECT_THRESHOLD_LOWER must be 0-100, got %.1f", c.CPURejectThresholdLower)
+	}
 	if c.CPUPauseThreshold < 0 || c.CPUPauseThreshold > 100 {
 		return fmt.Errorf("WS_CPU_PAUSE_THRESHOLD must be 0-100, got %.1f", c.CPUPauseThreshold)
+	}
+	if c.CPUPauseThresholdLower < 0 || c.CPUPauseThresholdLower > 100 {
+		return fmt.Errorf("WS_CPU_PAUSE_THRESHOLD_LOWER must be 0-100, got %.1f", c.CPUPauseThresholdLower)
 	}
 
 	// Logical checks
 	if c.CPUPauseThreshold < c.CPURejectThreshold {
 		return fmt.Errorf("WS_CPU_PAUSE_THRESHOLD (%.1f) must be >= WS_CPU_REJECT_THRESHOLD (%.1f)",
 			c.CPUPauseThreshold, c.CPURejectThreshold)
+	}
+
+	// Hysteresis validation: lower must be < upper
+	if c.CPURejectThresholdLower >= c.CPURejectThreshold {
+		return fmt.Errorf("WS_CPU_REJECT_THRESHOLD_LOWER (%.1f) must be < WS_CPU_REJECT_THRESHOLD (%.1f)",
+			c.CPURejectThresholdLower, c.CPURejectThreshold)
+	}
+	if c.CPUPauseThresholdLower >= c.CPUPauseThreshold {
+		return fmt.Errorf("WS_CPU_PAUSE_THRESHOLD_LOWER (%.1f) must be < WS_CPU_PAUSE_THRESHOLD (%.1f)",
+			c.CPUPauseThresholdLower, c.CPUPauseThreshold)
 	}
 
 	// Enum checks
@@ -202,9 +231,13 @@ func (c *Config) Print() {
 	fmt.Printf("IP Rate:         %.1f conn/sec\n", c.ConnRateLimitIPRate)
 	fmt.Printf("Global Burst:    %d connections\n", c.ConnRateLimitGlobalBurst)
 	fmt.Printf("Global Rate:     %.1f conn/sec\n", c.ConnRateLimitGlobalRate)
-	fmt.Println("\n=== Safety Thresholds ===")
-	fmt.Printf("CPU Reject:      %.1f%%\n", c.CPURejectThreshold)
-	fmt.Printf("CPU Pause:       %.1f%%\n", c.CPUPauseThreshold)
+	fmt.Println("\n=== Safety Thresholds (with Hysteresis) ===")
+	fmt.Printf("CPU Reject (upper):    %.1f%%\n", c.CPURejectThreshold)
+	fmt.Printf("CPU Reject (lower):    %.1f%%\n", c.CPURejectThresholdLower)
+	fmt.Printf("CPU Reject Band:       %.1f%%\n", c.CPURejectThreshold-c.CPURejectThresholdLower)
+	fmt.Printf("CPU Pause (upper):     %.1f%%\n", c.CPUPauseThreshold)
+	fmt.Printf("CPU Pause (lower):     %.1f%%\n", c.CPUPauseThresholdLower)
+	fmt.Printf("CPU Pause Band:        %.1f%%\n", c.CPUPauseThreshold-c.CPUPauseThresholdLower)
 	fmt.Println("\n=== TCP/Network Tuning ===")
 	fmt.Printf("Listen Backlog:  %d\n", c.TCPListenBacklog)
 	fmt.Printf("Read Timeout:    %s\n", c.HTTPReadTimeout)
@@ -240,7 +273,9 @@ func (c *Config) LogConfig(logger zerolog.Logger) {
 		Int("conn_rate_limit_global_burst", c.ConnRateLimitGlobalBurst).
 		Float64("conn_rate_limit_global_rate", c.ConnRateLimitGlobalRate).
 		Float64("cpu_reject_threshold", c.CPURejectThreshold).
+		Float64("cpu_reject_threshold_lower", c.CPURejectThresholdLower).
 		Float64("cpu_pause_threshold", c.CPUPauseThreshold).
+		Float64("cpu_pause_threshold_lower", c.CPUPauseThresholdLower).
 		Int("tcp_listen_backlog", c.TCPListenBacklog).
 		Dur("http_read_timeout", c.HTTPReadTimeout).
 		Dur("http_write_timeout", c.HTTPWriteTimeout).

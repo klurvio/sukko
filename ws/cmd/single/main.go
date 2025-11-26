@@ -98,9 +98,11 @@ func main() {
 		ConnRateLimitGlobalBurst:   cfg.ConnRateLimitGlobalBurst,
 		ConnRateLimitGlobalRate:    cfg.ConnRateLimitGlobalRate,
 
-		// Safety thresholds (emergency brakes)
-		CPURejectThreshold: cfg.CPURejectThreshold,
-		CPUPauseThreshold:  cfg.CPUPauseThreshold,
+		// Safety thresholds (emergency brakes) with hysteresis
+		CPURejectThreshold:      cfg.CPURejectThreshold,
+		CPURejectThresholdLower: cfg.CPURejectThresholdLower,
+		CPUPauseThreshold:       cfg.CPUPauseThreshold,
+		CPUPauseThresholdLower:  cfg.CPUPauseThresholdLower,
 
 		// Monitoring intervals
 		MetricsInterval: cfg.MetricsInterval,

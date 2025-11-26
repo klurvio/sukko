@@ -33,6 +33,7 @@ import (
 //   - Provide safety checks (CPU, memory, goroutines)
 //   - Log all decisions to Loki
 //   - Query SystemMonitor for resource metrics (no duplicate measurements)
+//   - Use hysteresis for CPU thresholds to prevent oscillation
 type ResourceGuard struct {
 	// Static configuration
 	config types.ServerConfig
@@ -50,6 +51,21 @@ type ResourceGuard struct {
 
 	// External state (pointers to server stats)
 	currentConns *int64 // Pointer to server's current connection count (atomic operations used)
+
+	// Hysteresis state for CPU-based decisions
+	// Uses atomic for thread-safe access without mutex overhead
+	//
+	// State machine for each:
+	//   ACCEPTING/RUNNING                REJECTING/PAUSED
+	//   ┌─────────────┐                 ┌─────────────┐
+	//   │             │  CPU > upper    │             │
+	//   │  Normal     │ ─────────────►  │  Triggered  │
+	//   │             │                 │             │
+	//   │             │  CPU < lower    │             │
+	//   │             │ ◄─────────────  │             │
+	//   └─────────────┘                 └─────────────┘
+	isRejectingCPU atomic.Bool // true when in CPU rejection state
+	isPausingKafka atomic.Bool // true when in Kafka pause state
 }
 
 // GoroutineLimiter limits concurrent goroutines using a semaphore
@@ -141,9 +157,16 @@ func NewResourceGuard(config types.ServerConfig, logger zerolog.Logger, currentC
 		Int("max_kafka_rate", config.MaxKafkaMessagesPerSec).
 		Int("max_broadcast_rate", config.MaxBroadcastsPerSec).
 		Int("max_goroutines", config.MaxGoroutines).
-		Msgf("ResourceGuard initialized: %.1f CPUs allocated, will reject at %.0f%%",
-			systemMonitor.GetCPUAllocation(),
-			config.CPURejectThreshold)
+		Float64("cpu_reject_upper", config.CPURejectThreshold).
+		Float64("cpu_reject_lower", config.CPURejectThresholdLower).
+		Float64("cpu_reject_band", config.CPURejectThreshold-config.CPURejectThresholdLower).
+		Float64("cpu_pause_upper", config.CPUPauseThreshold).
+		Float64("cpu_pause_lower", config.CPUPauseThresholdLower).
+		Float64("cpu_pause_band", config.CPUPauseThreshold-config.CPUPauseThresholdLower).
+		Msgf("ResourceGuard initialized: reject at >%.0f%%, resume at <%.0f%% (%.0f%% hysteresis band)",
+			config.CPURejectThreshold,
+			config.CPURejectThresholdLower,
+			config.CPURejectThreshold-config.CPURejectThresholdLower)
 
 	return rg
 }
@@ -176,14 +199,48 @@ func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 		return false, fmt.Sprintf("at max connections (%d)", rg.config.MaxConnections)
 	}
 
-	// Check 2: CPU emergency brake
-	if currentCPU > rg.config.CPURejectThreshold {
-		monitoring.IncrementCapacityRejection("cpu_overload")
-		rg.logger.Debug().
-			Float64("current_cpu", currentCPU).
-			Float64("threshold", rg.config.CPURejectThreshold).
-			Msg("Connection rejected: CPU overload")
-		return false, fmt.Sprintf("CPU %.1f%% > %.1f%%", currentCPU, rg.config.CPURejectThreshold)
+	// Check 2: CPU emergency brake with hysteresis
+	//
+	// Hysteresis prevents rapid oscillation when CPU hovers near the threshold.
+	// Two thresholds are used:
+	//   - Upper (CPURejectThreshold): Start rejecting when CPU exceeds this
+	//   - Lower (CPURejectThresholdLower): Stop rejecting when CPU drops below this
+	//
+	// Between the thresholds (the "deadband"), the current state is maintained.
+	currentlyRejecting := rg.isRejectingCPU.Load()
+
+	if currentlyRejecting {
+		// Currently rejecting - check if we should stop (CPU below lower threshold)
+		if currentCPU < rg.config.CPURejectThresholdLower {
+			rg.isRejectingCPU.Store(false)
+			rg.logger.Info().
+				Float64("cpu", currentCPU).
+				Float64("lower_threshold", rg.config.CPURejectThresholdLower).
+				Msg("CPU hysteresis: exiting rejection state (CPU dropped below lower threshold)")
+			// Fall through to accept
+		} else {
+			// Still in rejection state (CPU in deadband or still high)
+			monitoring.IncrementCapacityRejection("cpu_overload")
+			rg.logger.Debug().
+				Float64("current_cpu", currentCPU).
+				Float64("upper_threshold", rg.config.CPURejectThreshold).
+				Float64("lower_threshold", rg.config.CPURejectThresholdLower).
+				Msg("Connection rejected: CPU in rejection state (hysteresis)")
+			return false, fmt.Sprintf("CPU %.1f%% (rejecting until < %.1f%%)",
+				currentCPU, rg.config.CPURejectThresholdLower)
+		}
+	} else {
+		// Currently accepting - check if we should start rejecting (CPU above upper threshold)
+		if currentCPU > rg.config.CPURejectThreshold {
+			rg.isRejectingCPU.Store(true)
+			monitoring.IncrementCapacityRejection("cpu_overload")
+			rg.logger.Info().
+				Float64("cpu", currentCPU).
+				Float64("upper_threshold", rg.config.CPURejectThreshold).
+				Msg("CPU hysteresis: entering rejection state (CPU exceeded upper threshold)")
+			return false, fmt.Sprintf("CPU %.1f%% > %.1f%%", currentCPU, rg.config.CPURejectThreshold)
+		}
+		// Still accepting (CPU below upper threshold)
 	}
 
 	// Check 3: Memory emergency brake
@@ -220,9 +277,39 @@ func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 //
 // This provides backpressure when CPU is critically high.
 // Consumer will pause partition consumption temporarily.
+//
+// Uses hysteresis to prevent rapid pause/resume oscillation:
+//   - Pause when CPU > CPUPauseThreshold (upper, default 80%)
+//   - Resume when CPU < CPUPauseThresholdLower (lower, default 70%)
 func (rg *ResourceGuard) ShouldPauseKafka() bool {
 	currentCPU := rg.systemMonitor.GetCPUPercent()
-	return currentCPU > rg.config.CPUPauseThreshold
+	currentlyPausing := rg.isPausingKafka.Load()
+
+	if currentlyPausing {
+		// Currently pausing - check if we should resume (CPU below lower threshold)
+		if currentCPU < rg.config.CPUPauseThresholdLower {
+			rg.isPausingKafka.Store(false)
+			rg.logger.Info().
+				Float64("cpu", currentCPU).
+				Float64("lower_threshold", rg.config.CPUPauseThresholdLower).
+				Msg("CPU hysteresis: exiting Kafka pause state (CPU dropped below lower threshold)")
+			return false
+		}
+		// Still pausing (CPU in deadband or still high)
+		return true
+	}
+
+	// Currently running - check if we should pause (CPU above upper threshold)
+	if currentCPU > rg.config.CPUPauseThreshold {
+		rg.isPausingKafka.Store(true)
+		rg.logger.Info().
+			Float64("cpu", currentCPU).
+			Float64("upper_threshold", rg.config.CPUPauseThreshold).
+			Msg("CPU hysteresis: entering Kafka pause state (CPU exceeded upper threshold)")
+		return true
+	}
+	// Still running (CPU below upper threshold)
+	return false
 }
 
 // AllowKafkaMessage checks if a Kafka message should be processed (rate limiting)
@@ -359,16 +446,20 @@ func (rg *ResourceGuard) GetStats() map[string]any {
 	metrics := rg.systemMonitor.GetMetrics()
 
 	return map[string]any{
-		"max_connections":      rg.config.MaxConnections,
-		"current_connections":  atomic.LoadInt64(rg.currentConns),
-		"cpu_percent":          metrics.CPUPercent,
-		"cpu_reject_threshold": rg.config.CPURejectThreshold,
-		"cpu_pause_threshold":  rg.config.CPUPauseThreshold,
-		"memory_bytes":         metrics.MemoryBytes,
-		"memory_limit_bytes":   rg.config.MemoryLimit,
-		"goroutines_current":   metrics.Goroutines,
-		"goroutines_limit":     rg.config.MaxGoroutines,
-		"kafka_rate_limit":     rg.config.MaxKafkaMessagesPerSec,
-		"broadcast_rate_limit": rg.config.MaxBroadcastsPerSec,
+		"max_connections":            rg.config.MaxConnections,
+		"current_connections":        atomic.LoadInt64(rg.currentConns),
+		"cpu_percent":                metrics.CPUPercent,
+		"cpu_reject_threshold":       rg.config.CPURejectThreshold,
+		"cpu_reject_threshold_lower": rg.config.CPURejectThresholdLower,
+		"cpu_rejecting":              rg.isRejectingCPU.Load(), // current hysteresis state
+		"cpu_pause_threshold":        rg.config.CPUPauseThreshold,
+		"cpu_pause_threshold_lower":  rg.config.CPUPauseThresholdLower,
+		"cpu_pausing_kafka":          rg.isPausingKafka.Load(), // current hysteresis state
+		"memory_bytes":               metrics.MemoryBytes,
+		"memory_limit_bytes":         rg.config.MemoryLimit,
+		"goroutines_current":         metrics.Goroutines,
+		"goroutines_limit":           rg.config.MaxGoroutines,
+		"kafka_rate_limit":           rg.config.MaxKafkaMessagesPerSec,
+		"broadcast_rate_limit":       rg.config.MaxBroadcastsPerSec,
 	}
 }

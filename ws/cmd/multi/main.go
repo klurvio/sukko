@@ -116,10 +116,12 @@ func main() {
 			Format: types.LogFormat(cfg.LogFormat),
 		})
 		resourceGuard := limits.NewResourceGuard(types.ServerConfig{
-			MaxKafkaMessagesPerSec: cfg.MaxKafkaRate,
-			MaxBroadcastsPerSec:    cfg.MaxBroadcastRate,
-			CPUPauseThreshold:      cfg.CPUPauseThreshold,
-			CPURejectThreshold:     cfg.CPURejectThreshold,
+			MaxKafkaMessagesPerSec:  cfg.MaxKafkaRate,
+			MaxBroadcastsPerSec:     cfg.MaxBroadcastRate,
+			CPUPauseThreshold:       cfg.CPUPauseThreshold,
+			CPUPauseThresholdLower:  cfg.CPUPauseThresholdLower,
+			CPURejectThreshold:      cfg.CPURejectThreshold,
+			CPURejectThresholdLower: cfg.CPURejectThresholdLower,
 		}, poolLogger, new(int64)) // Pass dummy connection counter for pool
 
 		var err error
@@ -168,9 +170,11 @@ func main() {
 			ConnRateLimitGlobalBurst:   cfg.ConnRateLimitGlobalBurst,
 			ConnRateLimitGlobalRate:    cfg.ConnRateLimitGlobalRate,
 
-			CPURejectThreshold:     cfg.CPURejectThreshold,
-			CPUPauseThreshold:      cfg.CPUPauseThreshold,
-			MetricsInterval:        cfg.MetricsInterval,
+			CPURejectThreshold:      cfg.CPURejectThreshold,
+			CPURejectThresholdLower: cfg.CPURejectThresholdLower,
+			CPUPauseThreshold:       cfg.CPUPauseThreshold,
+			CPUPauseThresholdLower:  cfg.CPUPauseThresholdLower,
+			MetricsInterval:         cfg.MetricsInterval,
 			LogLevel:               types.LogLevel(cfg.LogLevel),
 			LogFormat:              types.LogFormat(cfg.LogFormat),
 		}
