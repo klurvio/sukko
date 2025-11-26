@@ -603,18 +603,18 @@ tasks:
         echo "🤖 Automated Backend Setup"
         echo "🔐 Using SSH authentication"
 
-        # Wait for startup script and SSH key to be ready
-        echo "⏳ Waiting for startup script to complete..."
+        # Wait for SSH key to be ready (startup script may still be running)
+        echo "⏳ Waiting for SSH key to be ready..."
         for i in {1..30}; do
           READY=$(gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} \
-            --command="test -f /var/log/startup-complete.log && test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
+            --command="test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
             --ssh-flag="-o ConnectTimeout=5" 2>/dev/null || echo "")
           if [ "$READY" = "ready" ]; then
-            echo "✅ Startup script complete, SSH key ready"
+            echo "✅ SSH key ready"
             break
           fi
           if [ $i -eq 30 ]; then
-            echo "❌ Timeout waiting for startup script"
+            echo "❌ Timeout waiting for SSH key"
             exit 1
           fi
           echo "   Waiting... ($((i*10))s)"
@@ -683,18 +683,18 @@ tasks:
         echo "🤖 Automated WebSocket Server Setup"
         echo "🔐 Using SSH authentication"
 
-        # Wait for startup script and SSH key to be ready
-        echo "⏳ Waiting for startup script to complete..."
+        # Wait for SSH key to be ready (startup script may still be running)
+        echo "⏳ Waiting for SSH key to be ready..."
         for i in {1..30}; do
           READY=$(gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} \
-            --command="test -f /var/log/startup-complete.log && test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
+            --command="test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
             --ssh-flag="-o ConnectTimeout=5" 2>/dev/null || echo "")
           if [ "$READY" = "ready" ]; then
-            echo "✅ Startup script complete, SSH key ready"
+            echo "✅ SSH key ready"
             break
           fi
           if [ $i -eq 30 ]; then
-            echo "❌ Timeout waiting for startup script"
+            echo "❌ Timeout waiting for SSH key"
             exit 1
           fi
           echo "   Waiting... ($((i*10))s)"
@@ -770,18 +770,18 @@ tasks:
         echo "🤖 Automated Load Test Setup"
         echo "🔐 Using SSH authentication"
 
-        # Wait for startup script and SSH key to be ready
-        echo "⏳ Waiting for startup script to complete..."
+        # Wait for SSH key to be ready (startup script may still be running)
+        echo "⏳ Waiting for SSH key to be ready..."
         for i in {1..30}; do
           READY=$(gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} \
-            --command="test -f /var/log/startup-complete.log && test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
+            --command="test -f /home/deploy/.ssh/github_deploy_key && echo ready" \
             --ssh-flag="-o ConnectTimeout=5" 2>/dev/null || echo "")
           if [ "$READY" = "ready" ]; then
-            echo "✅ Startup script complete, SSH key ready"
+            echo "✅ SSH key ready"
             break
           fi
           if [ $i -eq 30 ]; then
-            echo "❌ Timeout waiting for startup script"
+            echo "❌ Timeout waiting for SSH key"
             exit 1
           fi
           echo "   Waiting... ($((i*10))s)"
