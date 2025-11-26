@@ -5,7 +5,7 @@ services:
     image: redis:7.2-alpine
     container_name: redis-single
     restart: unless-stopped
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf --requirepass ${REDIS_PASSWORD}
     volumes:
       - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
       - redis-data:/data

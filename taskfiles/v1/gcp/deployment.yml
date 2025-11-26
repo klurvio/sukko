@@ -11,8 +11,7 @@ includes:
     taskfile: ./redis.yml
     vars:
       GIT_BRANCH: "{{.GIT_BRANCH}}"
-      GIT_REPO_HTTPS: "{{.GIT_REPO_HTTPS}}"
-      GIT_PAT: "{{.GIT_PAT}}"
+      GIT_REPO_SSH: "{{.GIT_REPO_SSH}}"
 
 tasks:
   # === HIGH-LEVEL WORKFLOWS ===
@@ -203,7 +202,14 @@ tasks:
               echo "net.ipv4.ip_local_port_range = 1024 65535" >> /etc/sysctl.conf
               echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf
               echo "net.core.somaxconn = 32768" >> /etc/sysctl.conf
-              sysctl -p && echo "Startup completed" > /var/log/startup-complete.log'
+              sysctl -p
+              SSH_DIR=/home/deploy/.ssh
+              mkdir -p $SSH_DIR && chown deploy:deploy $SSH_DIR && chmod 700 $SSH_DIR
+              curl -sf "http://metadata.google.internal/computeMetadata/v1/project/attributes/github-deploy-key" -H "Metadata-Flavor: Google" > $SSH_DIR/github_deploy_key
+              chmod 600 $SSH_DIR/github_deploy_key && chown deploy:deploy $SSH_DIR/github_deploy_key
+              printf "Host github.com\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/github_deploy_key\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n" > $SSH_DIR/config
+              chown deploy:deploy $SSH_DIR/config && chmod 600 $SSH_DIR/config
+              echo "Startup completed" > /var/log/startup-complete.log'
         fi
 
         echo "⏳ Waiting for SSH..."
@@ -269,7 +275,14 @@ tasks:
               echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf
               echo "net.core.somaxconn = 65535" >> /etc/sysctl.conf
               echo "net.ipv4.tcp_max_syn_backlog = 65535" >> /etc/sysctl.conf
-              sysctl -p && echo "Startup completed" > /var/log/startup-complete.log'
+              sysctl -p
+              SSH_DIR=/home/deploy/.ssh
+              mkdir -p $SSH_DIR && chown deploy:deploy $SSH_DIR && chmod 700 $SSH_DIR
+              curl -sf "http://metadata.google.internal/computeMetadata/v1/project/attributes/github-deploy-key" -H "Metadata-Flavor: Google" > $SSH_DIR/github_deploy_key
+              chmod 600 $SSH_DIR/github_deploy_key && chown deploy:deploy $SSH_DIR/github_deploy_key
+              printf "Host github.com\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/github_deploy_key\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n" > $SSH_DIR/config
+              chown deploy:deploy $SSH_DIR/config && chmod 600 $SSH_DIR/config
+              echo "Startup completed" > /var/log/startup-complete.log'
         fi
 
         echo "⏳ Waiting for SSH..."
@@ -335,7 +348,14 @@ tasks:
               echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf
               echo "net.core.somaxconn = 65535" >> /etc/sysctl.conf
               echo "net.ipv4.tcp_max_syn_backlog = 65535" >> /etc/sysctl.conf
-              sysctl -p && echo "Startup completed" > /var/log/startup-complete.log'
+              sysctl -p
+              SSH_DIR=/home/deploy/.ssh
+              mkdir -p $SSH_DIR && chown deploy:deploy $SSH_DIR && chmod 700 $SSH_DIR
+              curl -sf "http://metadata.google.internal/computeMetadata/v1/project/attributes/github-deploy-key" -H "Metadata-Flavor: Google" > $SSH_DIR/github_deploy_key
+              chmod 600 $SSH_DIR/github_deploy_key && chown deploy:deploy $SSH_DIR/github_deploy_key
+              printf "Host github.com\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/github_deploy_key\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n" > $SSH_DIR/config
+              chown deploy:deploy $SSH_DIR/config && chmod 600 $SSH_DIR/config
+              echo "Startup completed" > /var/log/startup-complete.log'
         fi
 
         echo "⏳ Waiting for SSH..."
@@ -564,19 +584,11 @@ tasks:
   # === APPLICATION SETUP ===
 
   setup:backend:
-    desc: Automated backend setup (secure PAT handling, idempotent)
+    desc: Automated backend setup (SSH key auth, idempotent)
     cmds:
       - |
         echo "🤖 Automated Backend Setup"
-
-        # Build clone URL SECURELY (NEVER echo this variable)
-        if [ -n "{{.GIT_PAT}}" ]; then
-          CLONE_URL="https://{{.GIT_PAT}}@github.com/adred-codev/ws_poc.git"
-          echo "🔐 Using authenticated clone"
-        else
-          CLONE_URL="{{.GIT_REPO_HTTPS}}"
-          echo "🌐 Using public clone"
-        fi
+        echo "🔐 Using SSH authentication"
 
         # Check if repo exists
         REPO_EXISTS=$(gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
@@ -586,7 +598,7 @@ tasks:
           gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
         else
           echo "📦 Cloning repository..."
-          gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q $CLONE_URL /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
+          gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
         # Get backend internal IP
@@ -622,23 +634,15 @@ tasks:
         echo "✅ Backend setup complete"
 
   setup:ws:
-    desc: Automated WS setup (secure PAT handling, idempotent)
+    desc: Automated WS setup (SSH key auth, idempotent)
     cmds:
       - |
         echo "🤖 Automated WebSocket Server Setup"
+        echo "🔐 Using SSH authentication"
 
         # Get backend IP
         BACKEND_IP=$(gcloud compute instances describe {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)')
         echo "Backend IP: $BACKEND_IP"
-
-        # Build clone URL SECURELY (NEVER echo this variable)
-        if [ -n "{{.GIT_PAT}}" ]; then
-          CLONE_URL="https://{{.GIT_PAT}}@github.com/adred-codev/ws_poc.git"
-          echo "🔐 Using authenticated clone"
-        else
-          CLONE_URL="{{.GIT_REPO_HTTPS}}"
-          echo "🌐 Using public clone"
-        fi
 
         # Check if repo exists
         REPO_EXISTS=$(gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
@@ -648,7 +652,7 @@ tasks:
           gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
         else
           echo "📦 Cloning repository..."
-          gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q $CLONE_URL /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
+          gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
         echo "⚙️  Configuring environment..."
@@ -661,19 +665,11 @@ tasks:
         echo "✅ WS server setup complete"
 
   setup:loadtest:
-    desc: Automated loadtest setup (secure PAT handling, idempotent)
+    desc: Automated loadtest setup (SSH key auth, idempotent)
     cmds:
       - |
         echo "🤖 Automated Load Test Setup"
-
-        # Build clone URL SECURELY (NEVER echo this variable)
-        if [ -n "{{.GIT_PAT}}" ]; then
-          CLONE_URL="https://{{.GIT_PAT}}@github.com/adred-codev/ws_poc.git"
-          echo "🔐 Using authenticated clone"
-        else
-          CLONE_URL="{{.GIT_REPO_HTTPS}}"
-          echo "🌐 Using public clone"
-        fi
+        echo "🔐 Using SSH authentication"
 
         # Check if repo exists
         REPO_EXISTS=$(gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
@@ -683,7 +679,7 @@ tasks:
           gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
         else
           echo "📦 Cloning repository..."
-          gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q $CLONE_URL /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
+          gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
         # Build Docker image (deploy user in docker group, no sudo needed)

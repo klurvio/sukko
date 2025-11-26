@@ -32,9 +32,8 @@ vars:
   LOADTEST_INSTANCE: '{{.LOADTEST_INSTANCE | default "odin-loadtest"}}'
 
   # Git Configuration
-  GIT_BRANCH: '{{.GIT_BRANCH | default "working-refactored-12k"}}'
-  GIT_REPO_HTTPS: '{{.GIT_REPO_HTTPS | default "https://github.com/adred-codev/ws_poc.git"}}'
-  GIT_PAT: '{{.GIT_PAT | default ""}}'
+  GIT_BRANCH: '{{.GIT_BRANCH | default "feature/redis-broadcast-bus"}}'
+  GIT_REPO_SSH: '{{.GIT_REPO_SSH | default "git@github.com:Toniq-Labs/odin-ws.git"}}'
 
   # Deployment Paths
   BACKEND_DEPLOY_PATH: "{{.USER_WORKING_DIR}}/deployments/v1/gcp/distributed/backend"
@@ -60,8 +59,7 @@ includes:
       BACKEND_INSTANCE: "{{.BACKEND_INSTANCE}}"
       WS_INSTANCE: "{{.WS_INSTANCE}}"
       GIT_BRANCH: "{{.GIT_BRANCH}}"
-      GIT_REPO_HTTPS: "{{.GIT_REPO_HTTPS}}"
-      GIT_PAT: "{{.GIT_PAT}}"
+      GIT_REPO_SSH: "{{.GIT_REPO_SSH}}"
       BACKEND_DEPLOY_PATH: "{{.BACKEND_DEPLOY_PATH}}"
       WS_DEPLOY_PATH: "{{.WS_DEPLOY_PATH}}"
 
@@ -75,8 +73,7 @@ includes:
       WS_INSTANCE: "{{.WS_INSTANCE}}"
       LOADTEST_INSTANCE: "{{.LOADTEST_INSTANCE}}"
       GIT_BRANCH: "{{.GIT_BRANCH}}"
-      GIT_REPO_HTTPS: "{{.GIT_REPO_HTTPS}}"
-      GIT_PAT: "{{.GIT_PAT}}"
+      GIT_REPO_SSH: "{{.GIT_REPO_SSH}}"
       BACKEND_DEPLOY_PATH: "{{.BACKEND_DEPLOY_PATH}}"
       WS_DEPLOY_PATH: "{{.WS_DEPLOY_PATH}}"
 
@@ -104,8 +101,7 @@ includes:
       WS_INSTANCE: "{{.WS_INSTANCE}}"
       LOADTEST_INSTANCE: "{{.LOADTEST_INSTANCE}}"
       GIT_BRANCH: "{{.GIT_BRANCH}}"
-      GIT_REPO_HTTPS: "{{.GIT_REPO_HTTPS}}"
-      GIT_PAT: "{{.GIT_PAT}}"
+      GIT_REPO_SSH: "{{.GIT_REPO_SSH}}"
 
   redis:
     taskfile: ./redis.yml
@@ -113,8 +109,7 @@ includes:
       GCP_PROJECT: "{{.GCP_PROJECT}}"
       GCP_ZONE: "{{.GCP_ZONE}}"
       GIT_BRANCH: "{{.GIT_BRANCH}}"
-      GIT_REPO_HTTPS: "{{.GIT_REPO_HTTPS}}"
-      GIT_PAT: "{{.GIT_PAT}}"
+      GIT_REPO_SSH: "{{.GIT_REPO_SSH}}"
 
 tasks:
   default:
@@ -192,3 +187,39 @@ tasks:
     desc: Show GCP service URLs
     cmds:
       - task: stats:urls
+
+  # === SSH DEPLOY KEY MANAGEMENT ===
+
+  ssh-key:setup:
+    desc: Upload SSH deploy key to GCP project metadata
+    cmds:
+      - |
+        echo "=== SSH Deploy Key Setup ==="
+        KEY_FILE="${SSH_KEY_FILE:-$HOME/.ssh/id_ed25519}"
+        if [ ! -f "$KEY_FILE" ]; then
+          echo "❌ Key file not found: $KEY_FILE"
+          echo "Set SSH_KEY_FILE to specify a different key"
+          exit 1
+        fi
+        echo "Using key: $KEY_FILE"
+        echo "Uploading to GCP project metadata..."
+        gcloud compute project-info add-metadata \
+          --project={{.GCP_PROJECT}} \
+          --metadata-from-file=github-deploy-key=$KEY_FILE
+        echo "✅ SSH deploy key uploaded!"
+
+  ssh-key:verify:
+    desc: Verify SSH deploy key is configured in GCP
+    cmds:
+      - |
+        echo "Checking GCP project metadata..."
+        KEY_DATA=$(gcloud compute project-info describe --project={{.GCP_PROJECT}} \
+          --format="value(commonInstanceMetadata.items[github-deploy-key])" 2>/dev/null | head -c 50)
+        if [ -n "$KEY_DATA" ]; then
+          echo "$KEY_DATA..."
+          echo ""
+          echo "✅ SSH deploy key found in project metadata"
+        else
+          echo "❌ SSH deploy key NOT found"
+          echo "Run: task gcp:ssh-key:setup"
+        fi

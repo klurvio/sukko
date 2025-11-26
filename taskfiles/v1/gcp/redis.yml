@@ -12,8 +12,7 @@ vars:
   REDIS_DEPLOY_PATH: /home/deploy/ws_poc/deployments/v1/gcp/distributed/redis
   # Git config (inherited from parent or use defaults)
   GIT_BRANCH: '{{.GIT_BRANCH | default "feature/redis-broadcast-bus"}}'
-  GIT_REPO_HTTPS: '{{.GIT_REPO_HTTPS | default "https://github.com/adred-codev/ws_poc.git"}}'
-  GIT_PAT: '{{.GIT_PAT | default ""}}'
+  GIT_REPO_SSH: '{{.GIT_REPO_SSH | default "git@github.com:Toniq-Labs/odin-ws.git"}}'
 
 tasks:
   # ==================== DEPLOYMENT ====================
@@ -22,23 +21,62 @@ tasks:
     desc: Create Redis VM on GCP
     cmds:
       - |
-        echo "Creating Redis VM: {{.REDIS_VM_NAME}}"
-        gcloud compute instances create {{.REDIS_VM_NAME}} \
+        echo "🔍 Checking Redis instance..."
+        if gcloud compute instances describe {{.REDIS_VM_NAME}} \
           --zone={{.REDIS_ZONE}} \
-          --machine-type={{.REDIS_MACHINE_TYPE}} \
-          --boot-disk-size={{.REDIS_DISK_SIZE}} \
-          --boot-disk-type={{.REDIS_DISK_TYPE}} \
-          --image-family=ubuntu-2204-lts \
-          --image-project=ubuntu-os-cloud \
-          --tags=redis-server \
-          --metadata=startup-script='#!/bin/bash
-            apt-get update
-            apt-get install -y docker.io docker-compose
-            systemctl enable docker
-            systemctl start docker
-            usermod -aG docker $USER
-          '
-        echo "VM created successfully"
+          --format="value(status)" 2>/dev/null | grep -q "RUNNING"; then
+          echo "✅ Redis VM already running"
+          echo "Internal IP:"
+          gcloud compute instances describe {{.REDIS_VM_NAME}} \
+            --zone={{.REDIS_ZONE}} \
+            --format='get(networkInterfaces[0].networkIP)'
+          exit 0
+        fi
+
+        if gcloud compute instances describe {{.REDIS_VM_NAME}} \
+          --zone={{.REDIS_ZONE}} 2>/dev/null | grep -q "name:"; then
+          echo "⚡ Starting existing Redis instance..."
+          gcloud compute instances start {{.REDIS_VM_NAME}} \
+            --zone={{.REDIS_ZONE}} --quiet
+        else
+          echo "📦 Creating new Redis VM: {{.REDIS_VM_NAME}}"
+          gcloud compute instances create {{.REDIS_VM_NAME}} \
+            --zone={{.REDIS_ZONE}} \
+            --machine-type={{.REDIS_MACHINE_TYPE}} \
+            --boot-disk-size={{.REDIS_DISK_SIZE}} \
+            --boot-disk-type={{.REDIS_DISK_TYPE}} \
+            --image-family=ubuntu-2204-lts \
+            --image-project=ubuntu-os-cloud \
+            --tags=redis-server \
+            --metadata=startup-script='#!/bin/bash
+              apt-get update
+              apt-get install -y docker.io docker-compose git curl
+              systemctl enable docker
+              systemctl start docker
+              usermod -aG docker $(whoami)
+              id -u deploy &>/dev/null || useradd -m -s /bin/bash deploy
+              usermod -aG docker deploy
+              SSH_DIR=/home/deploy/.ssh
+              mkdir -p $SSH_DIR && chown deploy:deploy $SSH_DIR && chmod 700 $SSH_DIR
+              curl -sf "http://metadata.google.internal/computeMetadata/v1/project/attributes/github-deploy-key" -H "Metadata-Flavor: Google" > $SSH_DIR/github_deploy_key
+              chmod 600 $SSH_DIR/github_deploy_key && chown deploy:deploy $SSH_DIR/github_deploy_key
+              printf "Host github.com\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/github_deploy_key\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n" > $SSH_DIR/config
+              chown deploy:deploy $SSH_DIR/config && chmod 600 $SSH_DIR/config
+            '
+        fi
+
+        echo "⏳ Waiting for SSH..."
+        for i in {1..30}; do
+          if gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} \
+            --command="echo ok" \
+            --ssh-flag="-o ConnectTimeout=5" --ssh-flag="-o StrictHostKeyChecking=no" \
+            2>/dev/null | grep -q "ok"; then
+            echo "✅ Redis VM ready"
+            break
+          fi
+          sleep 10
+        done
+
         echo "Internal IP:"
         gcloud compute instances describe {{.REDIS_VM_NAME}} \
           --zone={{.REDIS_ZONE}} \
@@ -74,21 +112,7 @@ tasks:
     cmds:
       - |
         echo "🤖 Deploying Redis to {{.REDIS_VM_NAME}}"
-
-        # Build clone URL SECURELY (NEVER echo this variable)
-        if [ -n "{{.GIT_PAT}}" ]; then
-          CLONE_URL="https://{{.GIT_PAT}}@github.com/adred-codev/ws_poc.git"
-          echo "🔐 Using authenticated clone"
-        else
-          CLONE_URL="{{.GIT_REPO_HTTPS}}"
-          echo "🌐 Using public clone"
-        fi
-
-        # Ensure deploy user exists
-        echo "📋 Ensuring deploy user exists..."
-        gcloud compute ssh {{.REDIS_VM_NAME}} \
-          --zone={{.REDIS_ZONE}} \
-          --command="id -u deploy &>/dev/null || sudo useradd -m -s /bin/bash deploy && sudo usermod -aG docker deploy" 2>/dev/null || true
+        echo "🔐 Using SSH authentication"
 
         # Check if repo exists
         REPO_EXISTS=$(gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
@@ -98,7 +122,7 @@ tasks:
           gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
         else
           echo "📦 Cloning repository..."
-          gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q $CLONE_URL /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
+          gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
         # Create .env from example if it doesn't exist
