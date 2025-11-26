@@ -58,7 +58,11 @@ tasks:
               usermod -aG docker deploy
               SSH_DIR=/home/deploy/.ssh
               mkdir -p $SSH_DIR && chown deploy:deploy $SSH_DIR && chmod 700 $SSH_DIR
-              curl -sf "http://metadata.google.internal/computeMetadata/v1/project/attributes/github-deploy-key" -H "Metadata-Flavor: Google" > $SSH_DIR/github_deploy_key
+              for i in $(seq 1 30); do
+                curl -sf "http://metadata.google.internal/computeMetadata/v1/project/attributes/github-deploy-key" -H "Metadata-Flavor: Google" > $SSH_DIR/github_deploy_key
+                if [ -s $SSH_DIR/github_deploy_key ]; then break; fi
+                sleep 10
+              done
               chmod 600 $SSH_DIR/github_deploy_key && chown deploy:deploy $SSH_DIR/github_deploy_key
               printf "Host github.com\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/github_deploy_key\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n" > $SSH_DIR/config
               chown deploy:deploy $SSH_DIR/config && chmod 600 $SSH_DIR/config
