@@ -640,9 +640,16 @@ tasks:
         echo "🤖 Automated WebSocket Server Setup"
         echo "🔐 Using SSH authentication"
 
-        # Get backend IP
+        # Get internal IPs
         BACKEND_IP=$(gcloud compute instances describe {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)')
-        echo "Backend IP: $BACKEND_IP"
+        REDIS_IP=$(gcloud compute instances describe ws-poc-redis --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)' 2>/dev/null || echo "")
+
+        echo "📍 Backend IP: $BACKEND_IP"
+        echo "📍 Redis IP: $REDIS_IP"
+
+        if [ -z "$REDIS_IP" ]; then
+          echo "⚠️  Redis VM not found - WS server will start without Redis BroadcastBus"
+        fi
 
         # Check if repo exists
         REPO_EXISTS=$(gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
@@ -655,14 +662,33 @@ tasks:
           gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
-        echo "⚙️  Configuring environment..."
-        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && KAFKA_PORT=\$(grep \"^KAFKA_INTERNAL_PORT=\" /home/deploy/ws_poc/deployments/v1/shared/ports.env | cut -d\"=\" -f2) && sed -i.bak \"/^BACKEND_INTERNAL_IP=/d; /^KAFKA_BROKERS=/d\" .env.production && printf \"\\nBACKEND_INTERNAL_IP=$BACKEND_IP\\nKAFKA_BROKERS=$BACKEND_IP:\${KAFKA_PORT}\\n\" >> .env.production && chmod 600 .env.production && echo \"✅ Environment configured (WS_MODE preserved from repo)\"'" 2>/dev/null
+        echo "⚙️  Creating environment files..."
 
-        echo "🐳 Starting Docker services (mode-aware)..."
-        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -u deploy bash --norc --noprofile -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && set -a && source ../../../shared/base.env && source ../../../shared/kafka-topics.env && source ../../../shared/ports.env && source .env.production && set +a && export BACKEND_INTERNAL_IP=$BACKEND_IP && COMPOSE_FILE=\$([ \"\$WS_MODE\" = \"multi\" ] && echo \"docker-compose.multi.yml\" || echo \"docker-compose.yml\") && echo \"Mode: \$WS_MODE, Using: \$COMPOSE_FILE\" && docker-compose -f \$COMPOSE_FILE up -d 2>&1 | grep -E \"(Created|Started|Running)\"'" 2>/dev/null || true
-        sleep 15
+        # Create complete .env.production with all required variables
+        # Redis password matches the default in redis/.env.example
+        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && printf \"WS_MODE=multi\nBACKEND_INTERNAL_IP=$BACKEND_IP\nKAFKA_BROKERS=$BACKEND_IP:9092\nREDIS_SENTINEL_ADDRS=$REDIS_IP:6379\nREDIS_PASSWORD=CHANGEME_GENERATE_STRONG_PASSWORD\n\" > .env.production && chmod 600 .env.production'" 2>/dev/null
 
-        echo "✅ WS server setup complete"
+        # Create empty .env.debug (required by docker-compose.multi.yml)
+        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'touch /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server/.env.debug'" 2>/dev/null
+
+        echo "✅ Environment files created"
+
+        echo "🐳 Starting Docker services..."
+        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && docker-compose -f docker-compose.multi.yml up -d 2>&1'" 2>/dev/null || true
+
+        echo "⏳ Waiting for containers to start (20s)..."
+        sleep 20
+
+        # Verify health
+        WS_EXTERNAL_IP=$(gcloud compute instances describe {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+        HEALTH=$(curl -sf "http://$WS_EXTERNAL_IP:3004/health" 2>/dev/null | head -c 100 || echo "")
+
+        if echo "$HEALTH" | grep -q "healthy"; then
+          echo "✅ WS server setup complete and healthy"
+        else
+          echo "⚠️  WS server started but health check pending"
+          echo "   Check logs: task gcp:logs:ws"
+        fi
 
   setup:loadtest:
     desc: Automated loadtest setup (SSH key auth, idempotent)

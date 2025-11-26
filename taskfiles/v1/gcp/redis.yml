@@ -157,10 +157,41 @@ tasks:
     cmds:
       - |
         echo "Running health check on {{.REDIS_VM_NAME}}"
-        gcloud compute ssh {{.REDIS_VM_NAME}} \
-          --zone={{.REDIS_ZONE}} \
-          --command="sudo -i -u deploy bash /home/deploy/ws_poc/scripts/v1/gcp/redis/healthcheck.sh 2>/dev/null" \
-          || echo "Note: Ensure repo is cloned on VM"
+        # Use heredoc to avoid shell quoting issues with gcloud ssh
+        gcloud compute ssh {{.REDIS_VM_NAME}} --zone={{.REDIS_ZONE}} --command='sudo -i -u deploy bash << "HEALTHCHECK"
+        cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/redis
+        export REDIS_PASSWORD=$(grep "^REDIS_PASSWORD=" .env 2>/dev/null | cut -d= -f2)
+
+        echo "========================================"
+        echo "Redis Health Check"
+        echo "========================================"
+
+        echo -n "1. Connectivity (PING)... "
+        PONG=$(docker exec redis-single redis-cli -a "$REDIS_PASSWORD" --no-auth-warning PING 2>/dev/null)
+        if [ "$PONG" = "PONG" ]; then
+          echo "✓ OK"
+        else
+          echo "✗ FAILED"
+          exit 1
+        fi
+
+        echo -n "2. Redis Version... "
+        docker exec redis-single redis-cli -a "$REDIS_PASSWORD" --no-auth-warning INFO server 2>/dev/null | grep redis_version | cut -d: -f2 | tr -d "\r"
+
+        echo -n "3. Memory... "
+        docker exec redis-single redis-cli -a "$REDIS_PASSWORD" --no-auth-warning INFO memory 2>/dev/null | grep used_memory_human | cut -d: -f2 | tr -d "\r"
+
+        echo -n "4. Clients... "
+        docker exec redis-single redis-cli -a "$REDIS_PASSWORD" --no-auth-warning INFO clients 2>/dev/null | grep connected_clients | cut -d: -f2 | tr -d "\r"
+
+        echo -n "5. Container... "
+        docker ps --filter name=redis-single --format "table {{.Status}}" | tail -1
+
+        echo "========================================"
+        echo "✓ Redis is healthy"
+        echo "========================================"
+        HEALTHCHECK
+        ' 2>/dev/null || echo "Note: Ensure Redis is deployed on VM"
 
   logs:
     desc: Tail Redis logs (real-time)
