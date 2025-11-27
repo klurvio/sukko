@@ -14,6 +14,18 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// ShardMetrics defines the interface for shard load balancing metrics.
+// This interface enables testing with mock shards that don't require
+// full Server/BroadcastBus dependencies.
+type ShardMetrics interface {
+	GetCurrentConnections() int64
+	GetMaxConnections() int
+	GetAddr() string
+}
+
+// Verify that *Shard implements ShardMetrics at compile time
+var _ ShardMetrics = (*Shard)(nil)
+
 // LoadBalancer distributes incoming WebSocket connections to available shards.
 // It uses a "least connections" strategy to ensure even distribution.
 type LoadBalancer struct {
@@ -160,13 +172,29 @@ func (lb *LoadBalancer) handleWebSocket(w http.ResponseWriter, r *http.Request) 
 // selectShard selects a shard using the "least connections" strategy.
 // It also respects the WS_MAX_CONNECTIONS limit per shard.
 func (lb *LoadBalancer) selectShard() (int, *Shard) {
+	// Convert to interface slice for testable selection logic
+	metrics := make([]ShardMetrics, len(lb.shards))
+	for i, s := range lb.shards {
+		metrics[i] = s
+	}
+
+	idx := SelectShardByMetrics(metrics)
+	if idx < 0 {
+		return -1, nil
+	}
+	return idx, lb.shards[idx]
+}
+
+// SelectShardByMetrics implements the "least connections" selection algorithm.
+// This function is exported for testing with mock ShardMetrics implementations.
+// Returns the index of the selected shard, or -1 if all shards are at capacity.
+func SelectShardByMetrics(shards []ShardMetrics) int {
 	var (
 		leastConnections int64 = math.MaxInt64
-		selectedShard    *Shard
-		selectedIndex    int = -1
+		selectedIndex    int   = -1
 	)
 
-	for i, shard := range lb.shards {
+	for i, shard := range shards {
 		currentConns := shard.GetCurrentConnections()
 		maxConns := int64(shard.GetMaxConnections())
 
@@ -179,12 +207,11 @@ func (lb *LoadBalancer) selectShard() (int, *Shard) {
 		// This reduces bias toward higher-indexed shards
 		if currentConns < leastConnections {
 			leastConnections = currentConns
-			selectedShard = shard
 			selectedIndex = i
 		}
 	}
 
-	return selectedIndex, selectedShard
+	return selectedIndex
 }
 
 // handleHealth aggregates health status from all shards.

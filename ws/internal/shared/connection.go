@@ -525,7 +525,12 @@ func (idx *SubscriptionIndex) Get(channel string) []*Client {
 	}
 
 	// Return snapshot directly (no copy needed - it's immutable!)
-	return v.([]*Client)
+	// Use safe type assertion to prevent panic if value is corrupted
+	clients, ok := v.([]*Client)
+	if !ok {
+		return nil
+	}
+	return clients
 }
 
 // Count returns the number of subscribers for a channel
@@ -544,5 +549,10 @@ func (idx *SubscriptionIndex) Count(channel string) int {
 		return 0
 	}
 
-	return len(v.([]*Client))
+	// Use safe type assertion to prevent panic if value is corrupted
+	clients, ok := v.([]*Client)
+	if !ok {
+		return 0
+	}
+	return len(clients)
 }

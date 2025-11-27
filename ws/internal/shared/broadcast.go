@@ -223,11 +223,24 @@ func (s *Server) Broadcast(subject string, message []byte) {
 				// Race scenario: readPump/writePump may set client.conn = nil between our
 				// nil check and usage, causing panic. Local variable is safe even if
 				// client.conn becomes nil after we capture it.
+				// Additional fix: Use recover() to handle panics from writing to closing connections
 				conn := client.conn
 				if conn != nil {
-					closeMsg := ws.NewCloseFrameBody(ws.StatusPolicyViolation, "Client too slow to process messages")
-					ws.WriteFrame(conn, ws.NewCloseFrame(closeMsg))
-					conn.Close()
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								// Connection was closing/closed, this is expected during shutdown
+								s.logger.Debug().
+									Int64("client_id", client.id).
+									Interface("panic", r).
+									Msg("Recovered from panic writing close frame (connection closing)")
+							}
+						}()
+						closeMsg := ws.NewCloseFrameBody(ws.StatusPolicyViolation, "Client too slow to process messages")
+						// Ignore error - connection might already be closing
+						_ = ws.WriteFrame(conn, ws.NewCloseFrame(closeMsg))
+						conn.Close()
+					}()
 				}
 
 				// Increment slow client counter for monitoring

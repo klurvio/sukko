@@ -3,6 +3,7 @@ package testutil
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -293,4 +294,178 @@ func (m *MockAlerter) AlertCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.Alerts)
+}
+
+// =============================================================================
+// Multi-Package Mocks (for multi-core testing)
+// =============================================================================
+
+// MockShard provides controllable shard behavior for LoadBalancer testing.
+type MockShard struct {
+	id              int
+	currentConns    atomic.Int64
+	maxConnections  int
+	availableSlots  atomic.Int32
+	advertiseAddr   string
+	cpuPercent      float64
+	memoryMB        float64
+}
+
+// NewMockShard creates a mock shard with default values.
+func NewMockShard(id int, maxConns int) *MockShard {
+	s := &MockShard{
+		id:             id,
+		maxConnections: maxConns,
+		advertiseAddr:  fmt.Sprintf("localhost:%d", 3000+id),
+		cpuPercent:     10.0,
+		memoryMB:       100.0,
+	}
+	s.availableSlots.Store(int32(maxConns))
+	return s
+}
+
+func (m *MockShard) GetCurrentConnections() int64 {
+	return m.currentConns.Load()
+}
+
+func (m *MockShard) GetMaxConnections() int {
+	return m.maxConnections
+}
+
+func (m *MockShard) GetAvailableSlots() int {
+	return int(m.availableSlots.Load())
+}
+
+func (m *MockShard) GetAddr() string {
+	return m.advertiseAddr
+}
+
+func (m *MockShard) GetSystemStats() (float64, float64) {
+	return m.cpuPercent, m.memoryMB
+}
+
+func (m *MockShard) TryAcquireSlot() bool {
+	for {
+		current := m.availableSlots.Load()
+		if current <= 0 {
+			return false
+		}
+		if m.availableSlots.CompareAndSwap(current, current-1) {
+			m.currentConns.Add(1)
+			return true
+		}
+	}
+}
+
+func (m *MockShard) ReleaseSlot() {
+	m.availableSlots.Add(1)
+	m.currentConns.Add(-1)
+}
+
+// SetConnections sets the current connection count for testing.
+func (m *MockShard) SetConnections(count int64) {
+	m.currentConns.Store(count)
+	m.availableSlots.Store(int32(m.maxConnections - int(count)))
+}
+
+// SetSystemStats sets CPU and memory values.
+func (m *MockShard) SetSystemStats(cpu, mem float64) {
+	m.cpuPercent = cpu
+	m.memoryMB = mem
+}
+
+// MockBroadcastBus provides controllable broadcast bus for Shard/KafkaPool testing.
+type MockBroadcastBus struct {
+	mu            sync.Mutex
+	PublishCalls  []MockBroadcastMessage
+	subscribers   []chan *MockBroadcastMessage
+	healthy       atomic.Bool
+	publishErrors atomic.Uint64
+	messagesRecv  atomic.Uint64
+}
+
+// MockBroadcastMessage mirrors multi.BroadcastMessage for testing.
+type MockBroadcastMessage struct {
+	Subject string
+	Message []byte
+}
+
+// NewMockBroadcastBus creates a mock broadcast bus.
+func NewMockBroadcastBus() *MockBroadcastBus {
+	bus := &MockBroadcastBus{
+		PublishCalls: make([]MockBroadcastMessage, 0),
+		subscribers:  make([]chan *MockBroadcastMessage, 0),
+	}
+	bus.healthy.Store(true)
+	return bus
+}
+
+// Publish records the publish call.
+func (m *MockBroadcastBus) Publish(msg *MockBroadcastMessage) {
+	m.mu.Lock()
+	m.PublishCalls = append(m.PublishCalls, *msg)
+	// Fan out to subscribers
+	for _, sub := range m.subscribers {
+		select {
+		case sub <- msg:
+		default:
+			// Channel full, drop
+		}
+	}
+	m.mu.Unlock()
+}
+
+// Subscribe returns a channel for receiving broadcast messages.
+func (m *MockBroadcastBus) Subscribe() chan *MockBroadcastMessage {
+	subCh := make(chan *MockBroadcastMessage, 1024)
+	m.mu.Lock()
+	m.subscribers = append(m.subscribers, subCh)
+	m.mu.Unlock()
+	return subCh
+}
+
+// GetPublishCount returns the number of publish calls.
+func (m *MockBroadcastBus) GetPublishCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.PublishCalls)
+}
+
+// GetPublishCalls returns all recorded publish calls.
+func (m *MockBroadcastBus) GetPublishCalls() []MockBroadcastMessage {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]MockBroadcastMessage, len(m.PublishCalls))
+	copy(result, m.PublishCalls)
+	return result
+}
+
+// IsHealthy returns the health status.
+func (m *MockBroadcastBus) IsHealthy() bool {
+	return m.healthy.Load()
+}
+
+// SetHealthy sets the health status.
+func (m *MockBroadcastBus) SetHealthy(healthy bool) {
+	m.healthy.Store(healthy)
+}
+
+// GetMetrics returns mock metrics.
+func (m *MockBroadcastBus) GetMetrics() map[string]interface{} {
+	return map[string]interface{}{
+		"type":              "mock",
+		"healthy":           m.IsHealthy(),
+		"channel":           "test.channel",
+		"subscribers":       len(m.subscribers),
+		"publish_errors":    m.publishErrors.Load(),
+		"messages_received": m.messagesRecv.Load(),
+		"last_publish_ago":  0.0,
+	}
+}
+
+// Reset clears all recorded calls.
+func (m *MockBroadcastBus) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.PublishCalls = m.PublishCalls[:0]
 }

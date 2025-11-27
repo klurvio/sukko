@@ -181,15 +181,23 @@ func (p *SlotAwareProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // proxyMessages forwards WebSocket messages bidirectionally between client and backend.
 // Uses goroutines for concurrent forwarding in both directions.
-// Returns when either connection closes or errors.
+// Returns when either connection closes or errors, after ensuring both goroutines complete.
 func (p *SlotAwareProxy) proxyMessages(client, backend *websocket.Conn) {
 	errChan := make(chan error, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	// Client -> Backend
-	go p.copyMessages(client, backend, "client->backend", errChan)
+	go func() {
+		defer wg.Done()
+		p.copyMessages(client, backend, "client->backend", errChan)
+	}()
 
 	// Backend -> Client
-	go p.copyMessages(backend, client, "backend->client", errChan)
+	go func() {
+		defer wg.Done()
+		p.copyMessages(backend, client, "backend->client", errChan)
+	}()
 
 	// Wait for first error (connection close)
 	err := <-errChan
@@ -201,6 +209,13 @@ func (p *SlotAwareProxy) proxyMessages(client, backend *websocket.Conn) {
 			p.logger.Warn().Err(err).Msg("Unexpected connection close")
 		}
 	}
+
+	// Close both connections to unblock any goroutines waiting on read/write
+	client.Close()
+	backend.Close()
+
+	// Wait for both goroutines to complete before returning
+	wg.Wait()
 }
 
 // copyMessages copies WebSocket messages from src to dst.

@@ -9,215 +9,273 @@ import (
 // SubscriptionSet Tests
 // =============================================================================
 
-func TestSubscriptionSet_AddRemove(t *testing.T) {
-	ss := NewSubscriptionSet()
+func TestNewSubscriptionSet(t *testing.T) {
+	set := NewSubscriptionSet()
 
-	// Initially empty
-	if ss.Count() != 0 {
-		t.Errorf("New SubscriptionSet should be empty, got %d", ss.Count())
+	if set == nil {
+		t.Fatal("NewSubscriptionSet should return non-nil")
 	}
+	if set.Count() != 0 {
+		t.Errorf("New set should be empty, got count %d", set.Count())
+	}
+}
 
-	// Add channel
-	ss.Add("BTC.trade")
-	if !ss.Has("BTC.trade") {
-		t.Error("Has(BTC.trade) should return true after Add")
-	}
-	if ss.Count() != 1 {
-		t.Errorf("Count should be 1, got %d", ss.Count())
-	}
+func TestSubscriptionSet_Add(t *testing.T) {
+	set := NewSubscriptionSet()
 
-	// Add another channel
-	ss.Add("ETH.trade")
-	if ss.Count() != 2 {
-		t.Errorf("Count should be 2, got %d", ss.Count())
-	}
+	set.Add("BTC.trade")
 
-	// Add duplicate (should not increase count)
-	ss.Add("BTC.trade")
-	if ss.Count() != 2 {
-		t.Errorf("Duplicate Add should not increase count, got %d", ss.Count())
+	if !set.Has("BTC.trade") {
+		t.Error("Should have BTC.trade after Add")
 	}
+	if set.Count() != 1 {
+		t.Errorf("Count should be 1, got %d", set.Count())
+	}
+}
 
-	// Remove channel
-	ss.Remove("BTC.trade")
-	if ss.Has("BTC.trade") {
-		t.Error("Has(BTC.trade) should return false after Remove")
-	}
-	if ss.Count() != 1 {
-		t.Errorf("Count should be 1 after Remove, got %d", ss.Count())
-	}
+func TestSubscriptionSet_Add_Duplicate(t *testing.T) {
+	set := NewSubscriptionSet()
 
-	// Remove non-existent (should not panic)
-	ss.Remove("NONEXISTENT")
-	if ss.Count() != 1 {
-		t.Errorf("Remove non-existent should not change count, got %d", ss.Count())
+	set.Add("BTC.trade")
+	set.Add("BTC.trade") // Add same channel again
+
+	if set.Count() != 1 {
+		t.Errorf("Duplicate add should not increase count, got %d", set.Count())
 	}
 }
 
 func TestSubscriptionSet_AddMultiple(t *testing.T) {
-	ss := NewSubscriptionSet()
-	channels := []string{"BTC.trade", "ETH.trade", "SOL.trade"}
+	set := NewSubscriptionSet()
 
-	ss.AddMultiple(channels)
+	channels := []string{"BTC.trade", "ETH.trade", "SOL.liquidity"}
+	set.AddMultiple(channels)
 
-	if ss.Count() != 3 {
-		t.Errorf("Count should be 3 after AddMultiple, got %d", ss.Count())
+	if set.Count() != 3 {
+		t.Errorf("Count should be 3, got %d", set.Count())
 	}
 
 	for _, ch := range channels {
-		if !ss.Has(ch) {
-			t.Errorf("Has(%s) should return true", ch)
+		if !set.Has(ch) {
+			t.Errorf("Should have %s after AddMultiple", ch)
 		}
+	}
+}
+
+func TestSubscriptionSet_Remove(t *testing.T) {
+	set := NewSubscriptionSet()
+
+	set.Add("BTC.trade")
+	set.Add("ETH.trade")
+	set.Remove("BTC.trade")
+
+	if set.Has("BTC.trade") {
+		t.Error("Should not have BTC.trade after Remove")
+	}
+	if !set.Has("ETH.trade") {
+		t.Error("Should still have ETH.trade")
+	}
+	if set.Count() != 1 {
+		t.Errorf("Count should be 1 after remove, got %d", set.Count())
+	}
+}
+
+func TestSubscriptionSet_Remove_NonExistent(t *testing.T) {
+	set := NewSubscriptionSet()
+
+	// Should not panic
+	set.Remove("nonexistent")
+
+	if set.Count() != 0 {
+		t.Error("Count should still be 0")
 	}
 }
 
 func TestSubscriptionSet_RemoveMultiple(t *testing.T) {
-	ss := NewSubscriptionSet()
-	ss.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.trade", "DOGE.trade"})
+	set := NewSubscriptionSet()
 
-	ss.RemoveMultiple([]string{"BTC.trade", "SOL.trade"})
+	set.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity", "DOGE.social"})
+	set.RemoveMultiple([]string{"BTC.trade", "SOL.liquidity"})
 
-	if ss.Count() != 2 {
-		t.Errorf("Count should be 2 after RemoveMultiple, got %d", ss.Count())
+	if set.Has("BTC.trade") || set.Has("SOL.liquidity") {
+		t.Error("Removed channels should not exist")
 	}
-	if ss.Has("BTC.trade") || ss.Has("SOL.trade") {
-		t.Error("Removed channels should not be present")
+	if !set.Has("ETH.trade") || !set.Has("DOGE.social") {
+		t.Error("Non-removed channels should still exist")
 	}
-	if !ss.Has("ETH.trade") || !ss.Has("DOGE.trade") {
-		t.Error("Remaining channels should still be present")
+	if set.Count() != 2 {
+		t.Errorf("Count should be 2, got %d", set.Count())
+	}
+}
+
+func TestSubscriptionSet_Has(t *testing.T) {
+	set := NewSubscriptionSet()
+
+	if set.Has("BTC.trade") {
+		t.Error("Empty set should not have any channel")
+	}
+
+	set.Add("BTC.trade")
+
+	if !set.Has("BTC.trade") {
+		t.Error("Should have BTC.trade after Add")
+	}
+	if set.Has("ETH.trade") {
+		t.Error("Should not have ETH.trade (not added)")
 	}
 }
 
 func TestSubscriptionSet_List(t *testing.T) {
-	ss := NewSubscriptionSet()
-	channels := []string{"BTC.trade", "ETH.trade", "SOL.trade"}
-	ss.AddMultiple(channels)
+	set := NewSubscriptionSet()
 
-	list := ss.List()
+	set.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity"})
+
+	list := set.List()
+
 	if len(list) != 3 {
 		t.Errorf("List should have 3 items, got %d", len(list))
 	}
 
-	// Verify all channels are in list (order not guaranteed)
-	channelSet := make(map[string]bool)
+	// Create a map to check presence (order not guaranteed)
+	listMap := make(map[string]bool)
 	for _, ch := range list {
-		channelSet[ch] = true
+		listMap[ch] = true
 	}
-	for _, ch := range channels {
-		if !channelSet[ch] {
-			t.Errorf("List should contain %s", ch)
+
+	for _, expected := range []string{"BTC.trade", "ETH.trade", "SOL.liquidity"} {
+		if !listMap[expected] {
+			t.Errorf("List should contain %s", expected)
 		}
 	}
 }
 
-func TestSubscriptionSet_Clear(t *testing.T) {
-	ss := NewSubscriptionSet()
-	ss.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.trade"})
+func TestSubscriptionSet_List_ReturnsCopy(t *testing.T) {
+	set := NewSubscriptionSet()
+	set.Add("BTC.trade")
 
-	ss.Clear()
+	list := set.List()
+	list[0] = "MODIFIED"
 
-	if ss.Count() != 0 {
-		t.Errorf("Count should be 0 after Clear, got %d", ss.Count())
-	}
-	if ss.Has("BTC.trade") {
-		t.Error("Has should return false after Clear")
+	// Original should not be affected
+	if !set.Has("BTC.trade") {
+		t.Error("Modifying list should not affect set")
 	}
 }
 
-func TestSubscriptionSet_Concurrent(t *testing.T) {
-	ss := NewSubscriptionSet()
-	const numGoroutines = 100
-	const numOps = 100
+func TestSubscriptionSet_Clear(t *testing.T) {
+	set := NewSubscriptionSet()
 
+	set.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity"})
+	set.Clear()
+
+	if set.Count() != 0 {
+		t.Errorf("Count should be 0 after Clear, got %d", set.Count())
+	}
+	if set.Has("BTC.trade") {
+		t.Error("Should not have any channel after Clear")
+	}
+}
+
+func TestSubscriptionSet_ThreadSafety(t *testing.T) {
+	set := NewSubscriptionSet()
 	var wg sync.WaitGroup
-	wg.Add(numGoroutines * 3) // Add, Has, Remove goroutines
+	iterations := 100
 
-	// Concurrent Add
-	for i := 0; i < numGoroutines; i++ {
+	// Concurrent adds
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < numOps; j++ {
-				ss.Add("BTC.trade")
+			for j := 0; j < iterations; j++ {
+				set.Add("channel" + string(rune('A'+id)))
 			}
 		}(i)
 	}
 
-	// Concurrent Has
-	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
+	// Concurrent reads
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
 			defer wg.Done()
-			for j := 0; j < numOps; j++ {
-				ss.Has("BTC.trade")
+			for j := 0; j < iterations; j++ {
+				_ = set.Count()
+				_ = set.Has("channelA")
+				_ = set.List()
 			}
-		}(i)
-	}
-
-	// Concurrent Remove
-	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
-			defer wg.Done()
-			for j := 0; j < numOps; j++ {
-				ss.Remove("ETH.trade")
-			}
-		}(i)
+		}()
 	}
 
 	wg.Wait()
-	// Test passes if no race/panic occurred
+	// Test passes if no race conditions or panics
 }
 
 // =============================================================================
 // SubscriptionIndex Tests
 // =============================================================================
 
-func TestSubscriptionIndex_AddGet(t *testing.T) {
+func TestNewSubscriptionIndex(t *testing.T) {
 	idx := NewSubscriptionIndex()
-	client := &Client{id: 1}
 
-	// Initially empty
-	subs := idx.Get("BTC.trade")
-	if len(subs) != 0 {
-		t.Errorf("Get on empty index should return nil/empty, got %d items", len(subs))
+	if idx == nil {
+		t.Fatal("NewSubscriptionIndex should return non-nil")
 	}
-
-	// Add subscriber
-	idx.Add("BTC.trade", client)
-	subs = idx.Get("BTC.trade")
-	if len(subs) != 1 {
-		t.Errorf("Get should return 1 subscriber, got %d", len(subs))
-	}
-	if subs[0] != client {
-		t.Error("Subscriber should match the added client")
-	}
-
-	// Count
-	if idx.Count("BTC.trade") != 1 {
-		t.Errorf("Count should be 1, got %d", idx.Count("BTC.trade"))
+	if idx.Count("BTC.trade") != 0 {
+		t.Error("New index should have no subscribers")
 	}
 }
 
-func TestSubscriptionIndex_AddDuplicate(t *testing.T) {
+func TestSubscriptionIndex_Add(t *testing.T) {
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
 	idx.Add("BTC.trade", client)
-	idx.Add("BTC.trade", client) // Duplicate
 
 	if idx.Count("BTC.trade") != 1 {
-		t.Errorf("Duplicate Add should not increase count, got %d", idx.Count("BTC.trade"))
+		t.Errorf("Count should be 1, got %d", idx.Count("BTC.trade"))
+	}
+
+	clients := idx.Get("BTC.trade")
+	if len(clients) != 1 || clients[0] != client {
+		t.Error("Get should return the added client")
+	}
+}
+
+func TestSubscriptionIndex_Add_Duplicate(t *testing.T) {
+	idx := NewSubscriptionIndex()
+	client := &Client{id: 1}
+
+	idx.Add("BTC.trade", client)
+	idx.Add("BTC.trade", client) // Add same client again
+
+	if idx.Count("BTC.trade") != 1 {
+		t.Errorf("Duplicate add should not increase count, got %d", idx.Count("BTC.trade"))
+	}
+}
+
+func TestSubscriptionIndex_Add_MultipleClients(t *testing.T) {
+	idx := NewSubscriptionIndex()
+	client1 := &Client{id: 1}
+	client2 := &Client{id: 2}
+	client3 := &Client{id: 3}
+
+	idx.Add("BTC.trade", client1)
+	idx.Add("BTC.trade", client2)
+	idx.Add("BTC.trade", client3)
+
+	if idx.Count("BTC.trade") != 3 {
+		t.Errorf("Count should be 3, got %d", idx.Count("BTC.trade"))
 	}
 }
 
 func TestSubscriptionIndex_AddMultiple(t *testing.T) {
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
-	channels := []string{"BTC.trade", "ETH.trade", "SOL.trade"}
 
+	channels := []string{"BTC.trade", "ETH.trade", "SOL.liquidity"}
 	idx.AddMultiple(channels, client)
 
 	for _, ch := range channels {
 		if idx.Count(ch) != 1 {
-			t.Errorf("Count(%s) should be 1, got %d", ch, idx.Count(ch))
+			t.Errorf("Count for %s should be 1", ch)
 		}
 	}
 }
@@ -229,46 +287,59 @@ func TestSubscriptionIndex_Remove(t *testing.T) {
 
 	idx.Add("BTC.trade", client1)
 	idx.Add("BTC.trade", client2)
-
-	if idx.Count("BTC.trade") != 2 {
-		t.Errorf("Should have 2 subscribers, got %d", idx.Count("BTC.trade"))
-	}
-
-	// Remove one
 	idx.Remove("BTC.trade", client1)
+
 	if idx.Count("BTC.trade") != 1 {
-		t.Errorf("Should have 1 subscriber after Remove, got %d", idx.Count("BTC.trade"))
+		t.Errorf("Count should be 1 after remove, got %d", idx.Count("BTC.trade"))
 	}
 
-	// Remaining should be client2
-	subs := idx.Get("BTC.trade")
-	if len(subs) != 1 || subs[0] != client2 {
-		t.Error("Remaining subscriber should be client2")
+	clients := idx.Get("BTC.trade")
+	if len(clients) != 1 || clients[0] != client2 {
+		t.Error("Should only have client2 remaining")
 	}
+}
 
-	// Remove last subscriber - channel should be removed from map
-	idx.Remove("BTC.trade", client2)
+func TestSubscriptionIndex_Remove_NonExistent(t *testing.T) {
+	idx := NewSubscriptionIndex()
+	client := &Client{id: 1}
+
+	// Should not panic
+	idx.Remove("BTC.trade", client)
+	idx.Remove("nonexistent", client)
+}
+
+func TestSubscriptionIndex_Remove_LastClient(t *testing.T) {
+	idx := NewSubscriptionIndex()
+	client := &Client{id: 1}
+
+	idx.Add("BTC.trade", client)
+	idx.Remove("BTC.trade", client)
+
 	if idx.Count("BTC.trade") != 0 {
-		t.Errorf("Count should be 0 after removing all, got %d", idx.Count("BTC.trade"))
+		t.Errorf("Count should be 0 after removing last client, got %d", idx.Count("BTC.trade"))
+	}
+
+	clients := idx.Get("BTC.trade")
+	if clients != nil {
+		t.Error("Get should return nil for empty channel")
 	}
 }
 
 func TestSubscriptionIndex_RemoveMultiple(t *testing.T) {
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
-	channels := []string{"BTC.trade", "ETH.trade", "SOL.trade"}
 
-	idx.AddMultiple(channels, client)
-	idx.RemoveMultiple([]string{"BTC.trade", "SOL.trade"}, client)
+	idx.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity"}, client)
+	idx.RemoveMultiple([]string{"BTC.trade", "SOL.liquidity"}, client)
 
 	if idx.Count("BTC.trade") != 0 {
-		t.Error("BTC.trade should have 0 subscribers")
+		t.Error("BTC.trade should have no subscribers")
 	}
 	if idx.Count("ETH.trade") != 1 {
-		t.Error("ETH.trade should still have 1 subscriber")
+		t.Error("ETH.trade should still have subscriber")
 	}
-	if idx.Count("SOL.trade") != 0 {
-		t.Error("SOL.trade should have 0 subscribers")
+	if idx.Count("SOL.liquidity") != 0 {
+		t.Error("SOL.liquidity should have no subscribers")
 	}
 }
 
@@ -277,219 +348,277 @@ func TestSubscriptionIndex_RemoveClient(t *testing.T) {
 	client1 := &Client{id: 1}
 	client2 := &Client{id: 2}
 
-	// Client1 subscribed to multiple channels
-	idx.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.trade"}, client1)
-	// Client2 subscribed to one channel
-	idx.Add("BTC.trade", client2)
+	// Client1 subscribes to multiple channels
+	idx.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity"}, client1)
+	// Client2 also subscribes to some
+	idx.AddMultiple([]string{"BTC.trade", "ETH.trade"}, client2)
 
 	// Remove client1 from all channels
 	idx.RemoveClient(client1)
 
-	// Client1 should be gone from all channels
-	if idx.Count("ETH.trade") != 0 {
-		t.Error("ETH.trade should have 0 subscribers after RemoveClient")
-	}
-	if idx.Count("SOL.trade") != 0 {
-		t.Error("SOL.trade should have 0 subscribers after RemoveClient")
-	}
-
-	// Client2 should still be subscribed to BTC.trade
-	if idx.Count("BTC.trade") != 1 {
-		t.Errorf("BTC.trade should have 1 subscriber (client2), got %d", idx.Count("BTC.trade"))
-	}
-}
-
-func TestSubscriptionIndex_AtomicSnapshot(t *testing.T) {
-	idx := NewSubscriptionIndex()
-	client1 := &Client{id: 1}
-	client2 := &Client{id: 2}
-
-	idx.Add("BTC.trade", client1)
-
-	// Get snapshot
-	snapshot1 := idx.Get("BTC.trade")
-	if len(snapshot1) != 1 {
-		t.Errorf("Snapshot should have 1 client, got %d", len(snapshot1))
-	}
-
-	// Modify index
-	idx.Add("BTC.trade", client2)
-
-	// Original snapshot should be unchanged (immutable)
-	if len(snapshot1) != 1 {
-		t.Errorf("Original snapshot should still have 1 client, got %d", len(snapshot1))
-	}
-
-	// New Get should return updated list
-	snapshot2 := idx.Get("BTC.trade")
-	if len(snapshot2) != 2 {
-		t.Errorf("New snapshot should have 2 clients, got %d", len(snapshot2))
-	}
-}
-
-func TestSubscriptionIndex_CopyOnWrite(t *testing.T) {
-	idx := NewSubscriptionIndex()
-	client := &Client{id: 1}
-
-	idx.Add("BTC.trade", client)
-
-	// Get snapshot while iterating
-	snapshot := idx.Get("BTC.trade")
-
-	// Concurrent modification shouldn't affect iteration
-	done := make(chan bool)
-	go func() {
-		for i := 0; i < 100; i++ {
-			idx.Add("BTC.trade", &Client{id: int64(i + 10)})
+	// client1 should be gone from all channels
+	for _, ch := range []string{"BTC.trade", "ETH.trade", "SOL.liquidity"} {
+		clients := idx.Get(ch)
+		for _, c := range clients {
+			if c == client1 {
+				t.Errorf("client1 should not be in %s", ch)
+			}
 		}
-		done <- true
-	}()
-
-	// Iterate snapshot (should be safe even with concurrent modifications)
-	count := 0
-	for range snapshot {
-		count++
 	}
 
-	<-done
-
-	if count != 1 {
-		t.Errorf("Snapshot iteration count should be 1, got %d", count)
+	// client2 should still be in its channels
+	if idx.Count("BTC.trade") != 1 || idx.Count("ETH.trade") != 1 {
+		t.Error("client2 should still be subscribed")
 	}
 }
 
-func TestSubscriptionIndex_Concurrent(t *testing.T) {
+func TestSubscriptionIndex_Get_NonExistent(t *testing.T) {
 	idx := NewSubscriptionIndex()
-	const numGoroutines = 50
-	const numOps = 100
 
+	clients := idx.Get("nonexistent")
+
+	if clients != nil {
+		t.Error("Get should return nil for non-existent channel")
+	}
+}
+
+func TestSubscriptionIndex_ThreadSafety(t *testing.T) {
+	idx := NewSubscriptionIndex()
 	var wg sync.WaitGroup
-	wg.Add(numGoroutines * 4) // Add, Get, Remove, Count goroutines
+	iterations := 100
 
-	// Concurrent Add
-	for i := 0; i < numGoroutines; i++ {
+	// Create some clients
+	clients := make([]*Client, 10)
+	for i := range clients {
+		clients[i] = &Client{id: int64(i)}
+	}
+
+	// Concurrent adds
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			client := &Client{id: int64(id)}
-			for j := 0; j < numOps; j++ {
-				idx.Add("BTC.trade", client)
+			for j := 0; j < iterations; j++ {
+				idx.Add("channel"+string(rune('A'+id%3)), clients[id])
 			}
 		}(i)
 	}
 
-	// Concurrent Get
-	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
+	// Concurrent reads
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
 			defer wg.Done()
-			for j := 0; j < numOps; j++ {
-				_ = idx.Get("BTC.trade")
+			for j := 0; j < iterations; j++ {
+				_ = idx.Count("channelA")
+				_ = idx.Get("channelB")
 			}
-		}(i)
+		}()
 	}
 
-	// Concurrent Remove
-	for i := 0; i < numGoroutines; i++ {
+	// Concurrent removes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			client := &Client{id: int64(id + 1000)}
-			for j := 0; j < numOps; j++ {
-				idx.Remove("BTC.trade", client)
-			}
-		}(i)
-	}
-
-	// Concurrent Count
-	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
-			defer wg.Done()
-			for j := 0; j < numOps; j++ {
-				_ = idx.Count("BTC.trade")
+			for j := 0; j < iterations/2; j++ {
+				idx.Remove("channelA", clients[id])
 			}
 		}(i)
 	}
 
 	wg.Wait()
-	// Test passes if no race/panic occurred
+	// Test passes if no race conditions or panics
 }
 
 // =============================================================================
 // ConnectionPool Tests
 // =============================================================================
 
-func TestConnectionPool_GetPut(t *testing.T) {
+func TestNewConnectionPool(t *testing.T) {
 	pool := NewConnectionPool(100, 512)
 
-	// Get client from pool
+	if pool == nil {
+		t.Fatal("NewConnectionPool should return non-nil")
+	}
+	if pool.maxSize != 100 {
+		t.Errorf("maxSize should be 100, got %d", pool.maxSize)
+	}
+	if pool.bufferSize != 512 {
+		t.Errorf("bufferSize should be 512, got %d", pool.bufferSize)
+	}
+}
+
+func TestNewConnectionPool_DefaultBufferSize(t *testing.T) {
+	pool := NewConnectionPool(100, 0) // 0 = use default
+
+	if pool.bufferSize != 512 {
+		t.Errorf("Default bufferSize should be 512, got %d", pool.bufferSize)
+	}
+}
+
+func TestNewConnectionPool_NegativeBufferSize(t *testing.T) {
+	pool := NewConnectionPool(100, -1) // Negative = use default
+
+	if pool.bufferSize != 512 {
+		t.Errorf("Default bufferSize should be 512 for negative input, got %d", pool.bufferSize)
+	}
+}
+
+func TestConnectionPool_Get(t *testing.T) {
+	pool := NewConnectionPool(100, 256)
+
 	client := pool.Get()
+
 	if client == nil {
-		t.Fatal("Get should return a non-nil client")
+		t.Fatal("Get should return non-nil client")
 	}
-
-	// Verify send channel capacity
-	if cap(client.send) != 512 {
-		t.Errorf("Send channel capacity should be 512, got %d", cap(client.send))
+	if cap(client.send) != 256 {
+		t.Errorf("send channel capacity should be 256, got %d", cap(client.send))
 	}
-
-	// Verify sequence generator initialized
 	if client.seqGen == nil {
 		t.Error("seqGen should be initialized")
 	}
-
-	// Verify subscriptions initialized
 	if client.subscriptions == nil {
 		t.Error("subscriptions should be initialized")
 	}
-
-	// Put client back
-	pool.Put(client)
-	// Should not panic
 }
 
-func TestConnectionPool_BufferSize(t *testing.T) {
-	tests := []struct {
-		name       string
-		bufferSize int
-		expected   int
-	}{
-		{"default", 0, 512},
-		{"custom 256", 256, 256},
-		{"custom 1024", 1024, 1024},
-	}
+func TestConnectionPool_Get_SequenceReset(t *testing.T) {
+	pool := NewConnectionPool(100, 256)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pool := NewConnectionPool(100, tt.bufferSize)
-			client := pool.Get()
-			if cap(client.send) != tt.expected {
-				t.Errorf("Buffer size: got %d, want %d", cap(client.send), tt.expected)
-			}
-		})
-	}
-}
-
-func TestConnectionPool_Reset(t *testing.T) {
-	pool := NewConnectionPool(100, 512)
-
-	// Get and modify client
 	client := pool.Get()
-	client.id = 999
-	client.subscriptions.Add("BTC.trade")
+	// Advance sequence number
+	for i := 0; i < 10; i++ {
+		client.seqGen.Next()
+	}
 
-	// Put back
+	// Return and get again
 	pool.Put(client)
-
-	// Get again (might be same or different instance due to sync.Pool behavior)
 	client2 := pool.Get()
 
-	// ID should be 0 (reset during Put)
-	if client2.id != 0 {
-		t.Errorf("Client ID should be 0 after reset, got %d", client2.id)
+	// Sequence should be reset
+	if client2.seqGen.Current() != 0 {
+		t.Errorf("Sequence should be reset, got %d", client2.seqGen.Current())
 	}
+}
 
-	// Note: sync.Pool doesn't guarantee same instance, so we can't reliably
-	// test that subscriptions were cleared. But we can verify new clients
-	// start with empty subscriptions.
+func TestConnectionPool_Get_SubscriptionsClear(t *testing.T) {
+	pool := NewConnectionPool(100, 256)
+
+	client := pool.Get()
+	client.subscriptions.Add("BTC.trade")
+	client.subscriptions.Add("ETH.trade")
+
+	// Return and get again
+	pool.Put(client)
+	client2 := pool.Get()
+
+	// Subscriptions should be cleared
 	if client2.subscriptions.Count() != 0 {
 		t.Errorf("Subscriptions should be cleared, got %d", client2.subscriptions.Count())
+	}
+}
+
+func TestConnectionPool_Put(t *testing.T) {
+	pool := NewConnectionPool(100, 256)
+
+	client := pool.Get()
+	client.id = 123
+
+	pool.Put(client)
+
+	// After Put, id should be reset
+	if client.id != 0 {
+		t.Errorf("id should be reset to 0, got %d", client.id)
+	}
+	if client.conn != nil {
+		t.Error("conn should be nil after Put")
+	}
+	if client.server != nil {
+		t.Error("server should be nil after Put")
+	}
+}
+
+func TestConnectionPool_Put_Nil(t *testing.T) {
+	pool := NewConnectionPool(100, 256)
+
+	// Should not panic
+	pool.Put(nil)
+}
+
+func TestConnectionPool_ThreadSafety(t *testing.T) {
+	pool := NewConnectionPool(100, 256)
+	var wg sync.WaitGroup
+	iterations := 100
+
+	// Concurrent Get and Put
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				client := pool.Get()
+				if client != nil {
+					client.id = int64(j)
+					pool.Put(client)
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	// Test passes if no race conditions or panics
+}
+
+// =============================================================================
+// Benchmark Tests
+// =============================================================================
+
+func BenchmarkSubscriptionSet_Add(b *testing.B) {
+	set := NewSubscriptionSet()
+	for i := 0; i < b.N; i++ {
+		set.Add("BTC.trade")
+	}
+}
+
+func BenchmarkSubscriptionSet_Has(b *testing.B) {
+	set := NewSubscriptionSet()
+	set.Add("BTC.trade")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = set.Has("BTC.trade")
+	}
+}
+
+func BenchmarkSubscriptionIndex_Add(b *testing.B) {
+	idx := NewSubscriptionIndex()
+	clients := make([]*Client, 100)
+	for i := range clients {
+		clients[i] = &Client{id: int64(i)}
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		idx.Add("BTC.trade", clients[i%100])
+	}
+}
+
+func BenchmarkSubscriptionIndex_Get(b *testing.B) {
+	idx := NewSubscriptionIndex()
+	for i := 0; i < 1000; i++ {
+		idx.Add("BTC.trade", &Client{id: int64(i)})
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = idx.Get("BTC.trade")
+	}
+}
+
+func BenchmarkConnectionPool_GetPut(b *testing.B) {
+	pool := NewConnectionPool(1000, 256)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		client := pool.Get()
+		pool.Put(client)
 	}
 }

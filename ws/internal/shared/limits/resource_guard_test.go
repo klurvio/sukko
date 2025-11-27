@@ -125,10 +125,12 @@ func TestCPURejectHysteresis(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create ResourceGuard with test config
+			// Create mock system monitor with controlled CPU value
+			mock := &mockSystemMonitor{cpuPercent: tt.currentCPU}
+
 			var connCount int64 = 0
 			logger := monitoring.NewLogger(monitoring.LoggerConfig{
-				Level:  types.LogLevelInfo,
+				Level:  types.LogLevelError, // Quiet for tests
 				Format: types.LogFormatJSON,
 			})
 
@@ -144,26 +146,22 @@ func TestCPURejectHysteresis(t *testing.T) {
 				MaxBroadcastsPerSec:     100,
 			}
 
-			rg := NewResourceGuard(config, logger, &connCount)
+			// Use the new constructor with mock monitor
+			rg := NewResourceGuardWithMonitor(config, logger, &connCount, mock)
 
 			// Set initial hysteresis state
 			rg.isRejectingCPU.Store(tt.initialState)
 
-			// Mock the CPU value by replacing systemMonitor's returned value
-			// We need to access the internal systemMonitor - this is a limitation
-			// For now, we'll use a workaround by checking the behavior indirectly
+			// Call ShouldAcceptConnection and verify behavior
+			accept, _ := rg.ShouldAcceptConnection()
 
-			// Since we can't easily mock the systemMonitor, we test the state transitions
-			// by calling the method and checking both the result and final state
-			// This requires temporarily setting CPU via systemMonitor internals
+			if accept != tt.expectedAccept {
+				t.Errorf("ShouldAcceptConnection() = %v, want %v", accept, tt.expectedAccept)
+			}
 
-			// For a more complete test, we would need dependency injection
-			// For now, verify the state machine logic is correct at boundaries
-
-			// Verify initial state is set correctly
-			if rg.isRejectingCPU.Load() != tt.initialState {
-				t.Errorf("Initial state not set correctly: got %v, want %v",
-					rg.isRejectingCPU.Load(), tt.initialState)
+			if rg.isRejectingCPU.Load() != tt.expectedState {
+				t.Errorf("Final isRejectingCPU state = %v, want %v",
+					rg.isRejectingCPU.Load(), tt.expectedState)
 			}
 		})
 	}
@@ -219,9 +217,12 @@ func TestCPUPauseKafkaHysteresis(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Create mock system monitor with controlled CPU value
+			mock := &mockSystemMonitor{cpuPercent: tt.currentCPU}
+
 			var connCount int64 = 0
 			logger := monitoring.NewLogger(monitoring.LoggerConfig{
-				Level:  types.LogLevelInfo,
+				Level:  types.LogLevelError, // Quiet for tests
 				Format: types.LogFormatJSON,
 			})
 
@@ -237,15 +238,22 @@ func TestCPUPauseKafkaHysteresis(t *testing.T) {
 				MaxBroadcastsPerSec:     100,
 			}
 
-			rg := NewResourceGuard(config, logger, &connCount)
+			// Use the new constructor with mock monitor
+			rg := NewResourceGuardWithMonitor(config, logger, &connCount, mock)
 
 			// Set initial hysteresis state
 			rg.isPausingKafka.Store(tt.initialState)
 
-			// Verify initial state is set correctly
-			if rg.isPausingKafka.Load() != tt.initialState {
-				t.Errorf("Initial state not set correctly: got %v, want %v",
-					rg.isPausingKafka.Load(), tt.initialState)
+			// Call ShouldPauseKafka and verify behavior
+			shouldPause := rg.ShouldPauseKafka()
+
+			if shouldPause != tt.expectedPause {
+				t.Errorf("ShouldPauseKafka() = %v, want %v", shouldPause, tt.expectedPause)
+			}
+
+			if rg.isPausingKafka.Load() != tt.expectedState {
+				t.Errorf("Final isPausingKafka state = %v, want %v",
+					rg.isPausingKafka.Load(), tt.expectedState)
 			}
 		})
 	}

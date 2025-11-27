@@ -198,14 +198,17 @@ func (b *BroadcastBus) Shutdown() {
 		close(done)
 	}()
 
+	goroutinesStopped := false
 	select {
 	case <-done:
 		b.logger.Info().Msg("All BroadcastBus goroutines stopped")
+		goroutinesStopped = true
 	case <-time.After(5 * time.Second):
 		b.logger.Warn().Msg("BroadcastBus shutdown timeout (5s), forcing exit")
 	}
 
 	// Close Redis connections
+	// This will cause any goroutines still running to error out
 	if b.pubsub != nil {
 		if err := b.pubsub.Close(); err != nil {
 			b.logger.Error().Err(err).Msg("Failed to close Redis Pub/Sub")
@@ -216,13 +219,23 @@ func (b *BroadcastBus) Shutdown() {
 		b.logger.Error().Err(err).Msg("Failed to close Redis client")
 	}
 
-	// Close all subscriber channels
-	b.subMu.Lock()
-	for _, subCh := range b.subscribers {
-		close(subCh)
+	// Only close subscriber channels if goroutines have stopped
+	// If timeout occurred, goroutines might still be sending to these channels
+	// Let channels be GC'd when goroutines eventually exit
+	if goroutinesStopped {
+		b.subMu.Lock()
+		for _, subCh := range b.subscribers {
+			close(subCh)
+		}
+		b.subscribers = nil
+		b.subMu.Unlock()
+	} else {
+		b.logger.Warn().Msg("Skipping channel close (goroutines may still be running)")
+		// Set subscribers to nil to prevent new messages, but don't close channels
+		b.subMu.Lock()
+		b.subscribers = nil
+		b.subMu.Unlock()
 	}
-	b.subscribers = nil
-	b.subMu.Unlock()
 
 	b.logger.Info().Msg("BroadcastBus shutdown complete")
 }
@@ -268,10 +281,11 @@ func (b *BroadcastBus) Subscribe() chan *BroadcastMessage {
 
 	b.subMu.Lock()
 	b.subscribers = append(b.subscribers, subCh)
+	totalSubscribers := len(b.subscribers) // Capture count while holding lock
 	b.subMu.Unlock()
 
 	b.logger.Info().
-		Int("total_subscribers", len(b.subscribers)).
+		Int("total_subscribers", totalSubscribers).
 		Msg("New subscriber registered")
 
 	return subCh
@@ -329,23 +343,55 @@ func (b *BroadcastBus) receiveLoop() {
 }
 
 // fanOut sends a message to all local subscribers (shards on this instance)
+// Uses a snapshot of subscribers to avoid holding the lock during channel sends.
 func (b *BroadcastBus) fanOut(msg *BroadcastMessage) {
-	b.subMu.RLock()
-	defer b.subMu.RUnlock()
+	// Check if context is cancelled before doing any work
+	select {
+	case <-b.ctx.Done():
+		return // Bus is shutting down
+	default:
+	}
 
+	// Take a snapshot of subscribers while holding the lock
+	b.subMu.RLock()
+	if len(b.subscribers) == 0 {
+		b.subMu.RUnlock()
+		return
+	}
+	subscribers := make([]chan *BroadcastMessage, len(b.subscribers))
+	copy(subscribers, b.subscribers)
+	b.subMu.RUnlock()
+
+	// Iterate over snapshot without holding the lock
+	// This prevents deadlock if Shutdown() is waiting for the lock
 	sent := 0
 	dropped := 0
 
-	for _, subCh := range b.subscribers {
+	for _, subCh := range subscribers {
+		// Check context before each send
 		select {
-		case subCh <- msg:
-			sent++
 		case <-b.ctx.Done():
 			return // Bus is shutting down
 		default:
-			// Subscriber channel full, drop message
-			dropped++
 		}
+
+		// Non-blocking send with panic recovery for closed channels
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Channel was closed (shutdown in progress), this is expected
+					dropped++
+				}
+			}()
+
+			select {
+			case subCh <- msg:
+				sent++
+			default:
+				// Subscriber channel full, drop message
+				dropped++
+			}
+		}()
 	}
 
 	if dropped > 0 {

@@ -12,6 +12,16 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// SystemMonitorInterface defines the interface for system monitoring
+// This allows for dependency injection and easier testing
+type SystemMonitorInterface interface {
+	GetCPUPercent() float64
+	GetMemoryBytes() int64
+	GetGoroutines() int
+	GetMetrics() monitoring.SystemMetrics
+	GetCPUAllocation() float64
+}
+
 // ResourceGuard enforces static resource limits and prevents server overload.
 //
 // Philosophy:
@@ -47,7 +57,8 @@ type ResourceGuard struct {
 	goroutineLimiter *GoroutineLimiter
 
 	// System monitor (singleton, shared across all ResourceGuards)
-	systemMonitor *monitoring.SystemMonitor
+	// Uses interface to allow dependency injection for testing
+	systemMonitor SystemMonitorInterface
 
 	// External state (pointers to server stats)
 	currentConns *int64 // Pointer to server's current connection count (atomic operations used)
@@ -169,6 +180,32 @@ func NewResourceGuard(config types.ServerConfig, logger zerolog.Logger, currentC
 			config.CPURejectThreshold-config.CPURejectThresholdLower)
 
 	return rg
+}
+
+// NewResourceGuardWithMonitor creates a ResourceGuard with a custom SystemMonitor
+// This is primarily used for testing to inject mock monitors
+func NewResourceGuardWithMonitor(config types.ServerConfig, logger zerolog.Logger, currentConns *int64, monitor SystemMonitorInterface) *ResourceGuard {
+	kafkaLimiter := rate.NewLimiter(
+		rate.Limit(config.MaxKafkaMessagesPerSec),
+		config.MaxKafkaMessagesPerSec*2,
+	)
+
+	broadcastLimiter := rate.NewLimiter(
+		rate.Limit(config.MaxBroadcastsPerSec),
+		config.MaxBroadcastsPerSec*2,
+	)
+
+	goroutineLimiter := NewGoroutineLimiter(config.MaxGoroutines)
+
+	return &ResourceGuard{
+		config:           config,
+		logger:           logger,
+		kafkaLimiter:     kafkaLimiter,
+		broadcastLimiter: broadcastLimiter,
+		goroutineLimiter: goroutineLimiter,
+		systemMonitor:    monitor,
+		currentConns:     currentConns,
+	}
 }
 
 // ShouldAcceptConnection checks if a new connection can be accepted

@@ -60,16 +60,29 @@ func (s *Server) writePump(c *Client) {
 			}
 
 			// Batch additional messages from the channel.
+			// Use non-blocking select to safely drain without blocking if channel closes
 			n := len(c.send)
+		batchLoop:
 			for i := 0; i < n; i++ {
-				message = <-c.send
-				err := wsutil.WriteServerMessage(writer, ws.OpText, message)
+				var batchMsg []byte
+				var batchOk bool
+				select {
+				case batchMsg, batchOk = <-c.send:
+					if !batchOk {
+						// Channel closed while batching, flush what we have and exit
+						break batchLoop
+					}
+				default:
+					// Channel unexpectedly empty (concurrent drain), stop batching
+					break batchLoop
+				}
+				err := wsutil.WriteServerMessage(writer, ws.OpText, batchMsg)
 				if err != nil {
 					s.logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to write message")
 					return
 				}
 				batchMsgCount++
-				batchByteCount += int64(len(message))
+				batchByteCount += int64(len(batchMsg))
 			}
 
 			// Flush the buffer to send all batched messages.

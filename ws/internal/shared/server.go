@@ -277,7 +277,9 @@ func (s *Server) Shutdown() error {
 	// Stop accepting new connections
 	if s.listener != nil {
 		s.logger.Info().Msg("Closing listener (no new connections accepted)")
-		s.listener.Close()
+		if err := s.listener.Close(); err != nil {
+			s.logger.Error().Err(err).Msg("Error closing listener")
+		}
 	}
 
 	// Stop receiving new messages from Kafka
