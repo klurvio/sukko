@@ -2,6 +2,7 @@ package shared
 
 import (
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -373,13 +374,7 @@ func (idx *SubscriptionIndex) AddMultiple(channels []string, client *Client) {
 		}
 
 		// Check if client already subscribed
-		alreadySubscribed := false
-		for _, existing := range currentSlice {
-			if existing == client {
-				alreadySubscribed = true
-				break
-			}
-		}
+		alreadySubscribed := slices.Contains(currentSlice, client)
 
 		if !alreadySubscribed {
 			// Create new slice with added client

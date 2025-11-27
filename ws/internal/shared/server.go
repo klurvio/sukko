@@ -17,21 +17,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const (
-	// Time allowed to write a message to the peer.
-	// Reduced from 10s to 5s for faster detection of slow clients
-	writeWait = 5 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	// Reduced from 60s to 30s to detect dead connections faster
-	// Industry standard: 15-30s (Bloomberg: 15s, Coinbase: 30s)
-	pongWait = 30 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	// = 27 seconds with new pongWait
-	pingPeriod = (pongWait * 9) / 10
-)
-
 type Server struct {
 	config        types.ServerConfig
 	logger        zerolog.Logger // Structured logger
@@ -62,6 +47,9 @@ type Server struct {
 
 	// Stats
 	stats *types.Stats
+
+	// Pump for testable read/write operations
+	pump *Pump
 }
 
 func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc) (*Server, error) {
@@ -152,6 +140,17 @@ func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc
 			logger.Printf("Kafka consumer creation skipped (using shared pool mode)")
 		}
 	}
+
+	// Initialize Pump with adapters for testability
+	s.pump = NewPump(
+		DefaultPumpConfig(),
+		NewZerologAdapter(logger),
+		logger, // ZerologLogger for panic recovery
+		NewRateLimiterAdapter(s.rateLimiter),
+		NewAuditLoggerAdapter(s.auditLogger),
+		s.stats,
+		&RealClock{},
+	)
 
 	return s, nil
 }
