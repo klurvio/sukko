@@ -38,7 +38,7 @@ func (s *Server) disconnectClient(c *Client, reason, initiatedBy string) {
 	// Prevents race condition with multiple goroutines trying to close
 	c.closeOnce.Do(func() {
 		if c.conn != nil {
-			c.conn.Close()
+			_ = c.conn.Close()
 		}
 	})
 

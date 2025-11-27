@@ -76,10 +76,10 @@ func TestShard_ReleaseSlot(t *testing.T) {
 
 func TestShard_GetAvailableSlots(t *testing.T) {
 	tests := []struct {
-		name       string
-		maxConns   int
-		acquireN   int
-		expectedN  int
+		name      string
+		maxConns  int
+		acquireN  int
+		expectedN int
 	}{
 		{"all available", 10, 0, 10},
 		{"half used", 10, 5, 5},

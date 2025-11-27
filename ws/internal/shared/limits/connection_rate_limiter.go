@@ -24,11 +24,11 @@ import (
 //   - Allows legitimate reconnection bursts
 type ConnectionRateLimiter struct {
 	// Per-IP rate limiters (map[IP]*rate.Limiter)
-	ipLimiters    map[string]*ipLimiterEntry
-	ipMu          sync.RWMutex
-	ipBurst       int     // Max burst connections per IP
-	ipRate        float64 // Sustained connections/sec per IP
-	ipTTL         time.Duration // Cleanup inactive IPs after this duration
+	ipLimiters map[string]*ipLimiterEntry
+	ipMu       sync.RWMutex
+	ipBurst    int           // Max burst connections per IP
+	ipRate     float64       // Sustained connections/sec per IP
+	ipTTL      time.Duration // Cleanup inactive IPs after this duration
 
 	// Global rate limiter
 	globalLimiter *rate.Limiter
@@ -52,8 +52,8 @@ type ipLimiterEntry struct {
 // ConnectionRateLimiterConfig holds configuration for connection rate limiting
 type ConnectionRateLimiterConfig struct {
 	// Per-IP limits
-	IPBurst int     // Max burst connections per IP (default: 10)
-	IPRate  float64 // Sustained connections/sec per IP (default: 1.0)
+	IPBurst int           // Max burst connections per IP (default: 10)
+	IPRate  float64       // Sustained connections/sec per IP (default: 1.0)
 	IPTTL   time.Duration // Cleanup inactive IPs after this duration (default: 5 minutes)
 
 	// Global limits
@@ -267,11 +267,11 @@ func (crl *ConnectionRateLimiter) GetStats() map[string]any {
 	crl.ipMu.RUnlock()
 
 	return map[string]any{
-		"tracked_ips":   trackedIPs,
-		"ip_burst":      crl.ipBurst,
-		"ip_rate":       crl.ipRate,
-		"ip_ttl":        crl.ipTTL.String(),
-		"global_burst":  crl.globalBurst,
-		"global_rate":   crl.globalRate,
+		"tracked_ips":  trackedIPs,
+		"ip_burst":     crl.ipBurst,
+		"ip_rate":      crl.ipRate,
+		"ip_ttl":       crl.ipTTL.String(),
+		"global_burst": crl.globalBurst,
+		"global_rate":  crl.globalRate,
 	}
 }

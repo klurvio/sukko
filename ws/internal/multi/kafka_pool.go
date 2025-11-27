@@ -14,34 +14,35 @@ import (
 // messages to shards, eliminating per-shard consumer overhead.
 //
 // Architecture:
-//   OLD: N shards × 1 consumer each = N consumers (N× overhead, N× messages)
-//   NEW: 1 consumer pool (2-3 workers) → distribute to N shards
+//
+//	OLD: N shards × 1 consumer each = N consumers (N× overhead, N× messages)
+//	NEW: 1 consumer pool (2-3 workers) → distribute to N shards
 //
 // Benefits:
 //   - Reduces Kafka consumer overhead by 70-85%
 //   - Eliminates message duplication (each message consumed once)
 //   - Better Kafka consumer group semantics (single group, partitioned)
 type KafkaConsumerPool struct {
-	consumer      *kafka.Consumer
-	broadcastBus  *BroadcastBus
-	logger        zerolog.Logger
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
+	consumer     *kafka.Consumer
+	broadcastBus *BroadcastBus
+	logger       zerolog.Logger
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
 
 	// Metrics
-	messagesRouted   uint64
-	messagesDropped  uint64
-	routingErrors    uint64
+	messagesRouted  uint64
+	messagesDropped uint64
+	routingErrors   uint64
 }
 
 // KafkaPoolConfig configures the shared Kafka consumer pool
 type KafkaPoolConfig struct {
-	Brokers         []string
-	ConsumerGroup   string
-	BroadcastBus    *BroadcastBus
-	ResourceGuard   kafka.ResourceGuard
-	Logger          zerolog.Logger
+	Brokers       []string
+	ConsumerGroup string
+	BroadcastBus  *BroadcastBus
+	ResourceGuard kafka.ResourceGuard
+	Logger        zerolog.Logger
 }
 
 // NewKafkaConsumerPool creates a new shared Kafka consumer pool
@@ -61,8 +62,8 @@ func NewKafkaConsumerPool(config KafkaPoolConfig) (*KafkaConsumerPool, error) {
 		Brokers:       config.Brokers,
 		ConsumerGroup: config.ConsumerGroup, // Single group for all shards
 		Topics:        kafka.AllTopics(),
-		Logger:        &pool.logger, // Pass logger for Kafka consumer
-		Broadcast:     pool.routeMessage,    // Route to BroadcastBus
+		Logger:        &pool.logger,      // Pass logger for Kafka consumer
+		Broadcast:     pool.routeMessage, // Route to BroadcastBus
 		ResourceGuard: config.ResourceGuard,
 	})
 	if err != nil {

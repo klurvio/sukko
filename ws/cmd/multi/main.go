@@ -32,10 +32,10 @@ func splitBrokers(brokers string) []string {
 
 func main() {
 	var (
-		debug      = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
-		numShards  = flag.Int("shards", 3, "number of shards to run")
-		basePort   = flag.Int("base-port", 3002, "base port for shards (e.g., 3002, 3003, ...)")
-		lbAddr     = flag.String("lb-addr", ":3005", "address for the load balancer to listen on")
+		debug     = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
+		numShards = flag.Int("shards", 3, "number of shards to run")
+		basePort  = flag.Int("base-port", 3002, "base port for shards (e.g., 3002, 3003, ...)")
+		lbAddr    = flag.String("lb-addr", ":3005", "address for the load balancer to listen on")
 	)
 	flag.Parse()
 
@@ -178,9 +178,9 @@ func main() {
 			// Client buffer configuration
 			ClientSendBufferSize: cfg.ClientSendBufferSize,
 
-			MetricsInterval:         cfg.MetricsInterval,
-			LogLevel:               types.LogLevel(cfg.LogLevel),
-			LogFormat:              types.LogFormat(cfg.LogFormat),
+			MetricsInterval: cfg.MetricsInterval,
+			LogLevel:        types.LogLevel(cfg.LogLevel),
+			LogFormat:       types.LogFormat(cfg.LogFormat),
 		}
 
 		// Get shared consumer for replay (if pool exists)
@@ -194,9 +194,9 @@ func main() {
 			Addr:                 shardBindAddr,      // Bind address for listening
 			AdvertiseAddr:        shardAdvertiseAddr, // Address for LoadBalancer connections
 			ServerConfig:         shardConfig,
-			BroadcastBus:         broadcastBus,              // Pass reference to bus, shard will subscribe internally
-			DisableKafkaConsumer: len(kafkaBrokers) > 0,     // Disable per-shard consumer when using shared pool
-			SharedKafkaConsumer:  sharedConsumer,            // Pass shared consumer for message replay
+			BroadcastBus:         broadcastBus,          // Pass reference to bus, shard will subscribe internally
+			DisableKafkaConsumer: len(kafkaBrokers) > 0, // Disable per-shard consumer when using shared pool
+			SharedKafkaConsumer:  sharedConsumer,        // Pass shared consumer for message replay
 			Logger:               monitoring.NewLogger(monitoring.LoggerConfig{Level: types.LogLevel(cfg.LogLevel), Format: types.LogFormat(cfg.LogFormat)}),
 			MaxConnections:       maxConnsPerShard,
 		})

@@ -79,10 +79,10 @@ type Config struct {
 	// REVERT: Set TCP_LISTEN_BACKLOG=0 to disable custom backlog (use Go defaults)
 	//         Set HTTP_*_TIMEOUT to lower values if needed
 	//
-	TCPListenBacklog  int           `env:"TCP_LISTEN_BACKLOG" envDefault:"2048"` // TCP accept queue size (0 = Go default ~128)
-	HTTPReadTimeout   time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"15s"`   // HTTP server read timeout
-	HTTPWriteTimeout  time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"15s"`  // HTTP server write timeout
-	HTTPIdleTimeout   time.Duration `env:"HTTP_IDLE_TIMEOUT" envDefault:"60s"`   // HTTP server idle timeout
+	TCPListenBacklog int           `env:"TCP_LISTEN_BACKLOG" envDefault:"2048"` // TCP accept queue size (0 = Go default ~128)
+	HTTPReadTimeout  time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"15s"`   // HTTP server read timeout
+	HTTPWriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"15s"`  // HTTP server write timeout
+	HTTPIdleTimeout  time.Duration `env:"HTTP_IDLE_TIMEOUT" envDefault:"60s"`   // HTTP server idle timeout
 
 	// Monitoring
 	MetricsInterval time.Duration `env:"METRICS_INTERVAL" envDefault:"15s"`

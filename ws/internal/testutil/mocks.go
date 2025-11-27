@@ -302,13 +302,13 @@ func (m *MockAlerter) AlertCount() int {
 
 // MockShard provides controllable shard behavior for LoadBalancer testing.
 type MockShard struct {
-	id              int
-	currentConns    atomic.Int64
-	maxConnections  int
-	availableSlots  atomic.Int32
-	advertiseAddr   string
-	cpuPercent      float64
-	memoryMB        float64
+	id             int
+	currentConns   atomic.Int64
+	maxConnections int
+	availableSlots atomic.Int32
+	advertiseAddr  string
+	cpuPercent     float64
+	memoryMB       float64
 }
 
 // NewMockShard creates a mock shard with default values.

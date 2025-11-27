@@ -30,7 +30,7 @@ func (s *Server) readPump(c *Client) {
 		s.disconnectClient(c, disconnectReason, initiatedBy)
 	}()
 
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 
 	for {
 		msg, op, err := wsutil.ReadClientData(c.conn)
@@ -41,7 +41,7 @@ func (s *Server) readPump(c *Client) {
 			break
 		}
 
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 
 		atomic.AddInt64(&s.stats.MessagesReceived, 1)
 		atomic.AddInt64(&s.stats.BytesReceived, int64(len(msg)))

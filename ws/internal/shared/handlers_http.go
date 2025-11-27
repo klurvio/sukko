@@ -141,7 +141,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// Build response
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"status":  status,
 		"healthy": isHealthy,
 		"checks": map[string]any{
@@ -186,7 +186,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"warnings":      warnings,
 		"errors":        errors,
 		"uptime":        time.Since(s.stats.StartTime).Seconds(),
-	})
+	}); err != nil {
+		// Can't do much since WriteHeader already called, just log for debugging
+		s.logger.Debug().Err(err).Msg("Failed to encode health response")
+	}
 }
 
 // getObservabilityStats returns Phase 2 observability metrics for /health endpoint

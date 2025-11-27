@@ -421,7 +421,7 @@ func (b *BroadcastBus) reconnect() bool {
 
 			// Close old subscription
 			if b.pubsub != nil {
-				b.pubsub.Close()
+				_ = b.pubsub.Close()
 			}
 
 			// Create new subscription

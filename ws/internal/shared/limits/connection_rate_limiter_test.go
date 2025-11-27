@@ -111,8 +111,8 @@ func TestCheckConnectionAllowed_GlobalBurstLimit(t *testing.T) {
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     100, // High per-IP limit
 		IPRate:      10.0,
-		GlobalBurst: 5,    // Low global limit
-		GlobalRate:  0.1,  // Very slow refill
+		GlobalBurst: 5,   // Low global limit
+		GlobalRate:  0.1, // Very slow refill
 		Logger:      zerolog.Nop(),
 	})
 	defer limiter.Stop()

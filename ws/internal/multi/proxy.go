@@ -84,8 +84,8 @@ func (p *SlotAwareProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Msg("No available slots in shard")
 		// Send close message to client
 		closeMsg := websocket.FormatCloseMessage(websocket.CloseServiceRestart, "Server overloaded")
-		clientConn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
-		clientConn.Close()
+		_ = clientConn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
+		_ = clientConn.Close()
 		return
 	}
 
@@ -110,7 +110,7 @@ func (p *SlotAwareProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	defer releaseSlot()
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	p.logger.Info().
 		Int("available_slots", p.shard.GetAvailableSlots()).
@@ -155,10 +155,10 @@ func (p *SlotAwareProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Client receives: WebSocket Close Frame (code: 1011, reason: "Backend unavailable")
 		// See: docs/API_REJECTION_RESPONSES.md (Scenario 6)
 		closeMsg := websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Backend unavailable")
-		clientConn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
+		_ = clientConn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
 		return // Slot released by defer
 	}
-	defer backendConn.Close()
+	defer func() { _ = backendConn.Close() }()
 
 	// DEBUG: Backend dial successful
 	p.logger.Debug().
@@ -211,8 +211,8 @@ func (p *SlotAwareProxy) proxyMessages(client, backend *websocket.Conn) {
 	}
 
 	// Close both connections to unblock any goroutines waiting on read/write
-	client.Close()
-	backend.Close()
+	_ = client.Close()
+	_ = backend.Close()
 
 	// Wait for both goroutines to complete before returning
 	wg.Wait()

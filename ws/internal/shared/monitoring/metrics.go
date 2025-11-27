@@ -279,14 +279,8 @@ type ServerMetrics interface {
 
 // MetricsCollector handles periodic collection of system metrics
 type MetricsCollector struct {
-	server    ServerMetrics
-	stopChan  chan struct{}
-	lastStats cpuStats
-}
-
-type cpuStats struct {
-	lastSampleTime time.Time
-	lastCPUUsage   time.Duration
+	server   ServerMetrics
+	stopChan chan struct{}
 }
 
 func NewMetricsCollector(server ServerMetrics) *MetricsCollector {

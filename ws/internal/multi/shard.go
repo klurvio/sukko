@@ -17,10 +17,10 @@ import (
 type Shard struct {
 	ID             int // Exported for external access
 	server         *shared.Server
-	advertiseAddr  string                  // Address advertised to LoadBalancer (e.g., localhost:3002)
+	advertiseAddr  string                 // Address advertised to LoadBalancer (e.g., localhost:3002)
 	broadcastChan  chan *BroadcastMessage // Channel to receive messages from the central bus
 	logger         zerolog.Logger
-	maxConnections int         // Max connections this shard can handle
+	maxConnections int           // Max connections this shard can handle
 	slots          chan struct{} // Semaphore for connection slot reservation
 
 	ctx    context.Context
@@ -48,9 +48,9 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 	// Create a shared.Server instance for this shard
 	// The shared.Server will use the shard's specific maxConnections
 	serverConfig := cfg.ServerConfig
-	serverConfig.MaxConnections = cfg.MaxConnections                        // Override with shard-specific limit
-	serverConfig.DisableKafkaConsumer = cfg.DisableKafkaConsumer            // Pass flag to disable per-shard consumer
-	serverConfig.SharedKafkaConsumer = cfg.SharedKafkaConsumer              // Pass shared consumer for replay
+	serverConfig.MaxConnections = cfg.MaxConnections                                      // Override with shard-specific limit
+	serverConfig.DisableKafkaConsumer = cfg.DisableKafkaConsumer                          // Pass flag to disable per-shard consumer
+	serverConfig.SharedKafkaConsumer = cfg.SharedKafkaConsumer                            // Pass shared consumer for replay
 	serverConfig.ConsumerGroup = fmt.Sprintf("%s-%d", serverConfig.ConsumerGroup, cfg.ID) // Unique consumer group per shard (only used if not disabled)
 
 	// Create broadcast function that will publish to the central bus

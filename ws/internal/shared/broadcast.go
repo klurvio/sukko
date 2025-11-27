@@ -239,7 +239,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 						closeMsg := ws.NewCloseFrameBody(ws.StatusPolicyViolation, "Client too slow to process messages")
 						// Ignore error - connection might already be closing
 						_ = ws.WriteFrame(conn, ws.NewCloseFrame(closeMsg))
-						conn.Close()
+						_ = conn.Close()
 					}()
 				}
 

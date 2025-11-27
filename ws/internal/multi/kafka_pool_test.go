@@ -111,33 +111,6 @@ func TestKafkaPool_AtomicCounters_Concurrent(t *testing.T) {
 // RouteMessage Behavior Tests (without real Kafka)
 // =============================================================================
 
-// mockRouteMessageBus simulates BroadcastBus for routeMessage testing
-type mockRouteMessageBus struct {
-	mu           sync.Mutex
-	publishCalls []BroadcastMessage
-}
-
-func (m *mockRouteMessageBus) publish(msg *BroadcastMessage) {
-	m.mu.Lock()
-	m.publishCalls = append(m.publishCalls, *msg)
-	m.mu.Unlock()
-}
-
-func (m *mockRouteMessageBus) getPublishCount() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.publishCalls)
-}
-
-func (m *mockRouteMessageBus) getLastMessage() *BroadcastMessage {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.publishCalls) == 0 {
-		return nil
-	}
-	return &m.publishCalls[len(m.publishCalls)-1]
-}
-
 func TestKafkaPool_RouteMessage_SubjectCreation(t *testing.T) {
 	// Simulate the routeMessage logic
 	tokenID := "BTC"

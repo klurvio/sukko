@@ -143,7 +143,7 @@ func detectCgroupPath() (path string, version int, err error) {
 	if err != nil {
 		return "", 0, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -239,7 +239,7 @@ func readCPUUsage(cgroupPath string, version int) (uint64, error) {
 		if err != nil {
 			return 0, err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
@@ -279,7 +279,7 @@ func readThrottleStats(cgroupPath string, version int) (ThrottleStats, error) {
 		if err != nil {
 			return stats, err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
@@ -307,7 +307,7 @@ func readThrottleStats(cgroupPath string, version int) (ThrottleStats, error) {
 		if err != nil {
 			return stats, err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {

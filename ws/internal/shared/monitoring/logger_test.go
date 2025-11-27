@@ -274,7 +274,7 @@ func TestRecoverPanic_ServerStaysRunning(t *testing.T) {
 	// Simulate a goroutine that panics but is recovered
 	// NOTE: RecoverPanic must be used DIRECTLY as a defer, not wrapped
 	go func() {
-		defer func() { done <- true }()           // This runs after RecoverPanic
+		defer func() { done <- true }()                    // This runs after RecoverPanic
 		defer RecoverPanic(logger, "workerGoroutine", nil) // This catches panic
 		panic("worker panic")
 	}()

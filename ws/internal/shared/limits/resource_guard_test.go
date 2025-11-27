@@ -41,13 +41,13 @@ func (m *mockSystemMonitor) GetMetrics() monitoring.SystemMetrics {
 
 func TestCPURejectHysteresis(t *testing.T) {
 	tests := []struct {
-		name            string
-		initialState    bool    // isRejectingCPU initial value
-		currentCPU      float64 // CPU percentage to test
-		upperThreshold  float64 // CPURejectThreshold
-		lowerThreshold  float64 // CPURejectThresholdLower
-		expectedAccept  bool    // whether connection should be accepted
-		expectedState   bool    // expected isRejectingCPU after call
+		name           string
+		initialState   bool    // isRejectingCPU initial value
+		currentCPU     float64 // CPU percentage to test
+		upperThreshold float64 // CPURejectThreshold
+		lowerThreshold float64 // CPURejectThresholdLower
+		expectedAccept bool    // whether connection should be accepted
+		expectedState  bool    // expected isRejectingCPU after call
 	}{
 		{
 			name:           "accepting, CPU below upper - stay accepting",

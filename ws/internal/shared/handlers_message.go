@@ -296,10 +296,10 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 
 	// Send acknowledgment with replay statistics
 	ackMsg := map[string]any{
-		"type":            "reconnect_ack",
-		"status":          "completed",
+		"type":              "reconnect_ack",
+		"status":            "completed",
 		"messages_replayed": replayedCount,
-		"message":         fmt.Sprintf("Replayed %d missed messages", replayedCount),
+		"message":           fmt.Sprintf("Replayed %d missed messages", replayedCount),
 	}
 
 	if ackData, err := json.Marshal(ackMsg); err == nil {

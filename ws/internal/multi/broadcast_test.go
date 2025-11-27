@@ -354,15 +354,15 @@ func TestBroadcastBusConfig_Defaults(t *testing.T) {
 		SentinelAddrs: []string{"localhost:6379"},
 	}
 
-	// Test that defaults are applied in NewBroadcastBus validation
-	if cfg.MasterName == "" {
-		// Would be set to "mymaster" in NewBroadcastBus
+	// Test that zero values are detected (would be set to defaults in NewBroadcastBus)
+	if cfg.MasterName != "" {
+		t.Errorf("MasterName should be empty initially, got %s", cfg.MasterName)
 	}
-	if cfg.Channel == "" {
-		// Would be set to "ws.broadcast" in NewBroadcastBus
+	if cfg.Channel != "" {
+		t.Errorf("Channel should be empty initially, got %s", cfg.Channel)
 	}
-	if cfg.BufferSize == 0 {
-		// Would be set to 1024 in NewBroadcastBus
+	if cfg.BufferSize != 0 {
+		t.Errorf("BufferSize should be 0 initially, got %d", cfg.BufferSize)
 	}
 }
 

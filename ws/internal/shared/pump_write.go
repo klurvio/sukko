@@ -31,7 +31,7 @@ func (s *Server) writePump(c *Client) {
 		ticker.Stop()
 		c.closeOnce.Do(func() {
 			if c.conn != nil {
-				c.conn.Close()
+				_ = c.conn.Close()
 			}
 		})
 	}()
@@ -41,16 +41,16 @@ func (s *Server) writePump(c *Client) {
 		case message, ok := <-c.send:
 			if !ok {
 				s.logger.Debug().Int64("client_id", c.id).Msg("Send channel closed")
-				wsutil.WriteServerMessage(c.conn, ws.OpClose, []byte{})
+				_ = wsutil.WriteServerMessage(c.conn, ws.OpClose, []byte{})
 				return
 			}
 
 			// Set a deadline for the write operation.
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 
 			// Batch metrics: accumulate counts before updating atomics
 			var batchMsgCount int64 = 1
-			var batchByteCount int64 = int64(len(message))
+			batchByteCount := int64(len(message))
 
 			// Write the first message
 			err := wsutil.WriteServerMessage(writer, ws.OpText, message)
@@ -100,7 +100,7 @@ func (s *Server) writePump(c *Client) {
 			monitoring.UpdateBytesMetrics(batchByteCount, 0)
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := wsutil.WriteServerMessage(c.conn, ws.OpPing, nil); err != nil {
 				s.logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send ping")
 				return
@@ -108,8 +108,6 @@ func (s *Server) writePump(c *Client) {
 		}
 	}
 }
-
-
 
 // Subject structure:
 // - Part 0: Namespace ("odin")

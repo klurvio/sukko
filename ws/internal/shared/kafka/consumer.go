@@ -38,9 +38,9 @@ type Consumer struct {
 	wg            sync.WaitGroup
 
 	// Batching configuration
-	batchSize     int           // Max messages per batch (default: 50)
-	batchTimeout  time.Duration // Max time to wait for batch (default: 10ms)
-	batchEnabled  bool          // Enable batching (default: true for performance)
+	batchSize    int           // Max messages per batch (default: 50)
+	batchTimeout time.Duration // Max time to wait for batch (default: 10ms)
+	batchEnabled bool          // Enable batching (default: true for performance)
 
 	// Metrics
 	messagesProcessed uint64

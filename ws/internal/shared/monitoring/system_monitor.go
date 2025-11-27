@@ -30,13 +30,13 @@ var (
 
 // SystemMetrics holds current system resource measurements
 type SystemMetrics struct {
-	CPUPercent      float64           // Current CPU usage percentage (container-aware)
-	MemoryBytes     int64             // Current memory usage in bytes
-	MemoryMB        float64           // Current memory usage in MB
-	Goroutines      int               // Current goroutine count
-	CPUAllocation   float64           // CPU allocation (cores) from container limits
-	ThrottleStats   platform.ThrottleStats // CPU throttling statistics
-	Timestamp       time.Time         // When these metrics were captured
+	CPUPercent    float64                // Current CPU usage percentage (container-aware)
+	MemoryBytes   int64                  // Current memory usage in bytes
+	MemoryMB      float64                // Current memory usage in MB
+	Goroutines    int                    // Current goroutine count
+	CPUAllocation float64                // CPU allocation (cores) from container limits
+	ThrottleStats platform.ThrottleStats // CPU throttling statistics
+	Timestamp     time.Time              // When these metrics were captured
 }
 
 // SystemMonitor centralizes system resource monitoring

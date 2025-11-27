@@ -191,7 +191,7 @@ func (lb *LoadBalancer) selectShard() (int, *Shard) {
 func SelectShardByMetrics(shards []ShardMetrics) int {
 	var (
 		leastConnections int64 = math.MaxInt64
-		selectedIndex    int   = -1
+		selectedIndex          = -1
 	)
 
 	for i, shard := range shards {
@@ -236,12 +236,12 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// Build per-shard stats array (zero performance impact - just atomic reads)
 	type ShardStats struct {
-		ID              int     `json:"id"`
-		Connections     int64   `json:"connections"`
-		MaxConnections  int     `json:"max_connections"`
-		AvailableSlots  int     `json:"available_slots"`
-		Utilization     float64 `json:"utilization"`
-		Status          string  `json:"status"`
+		ID             int     `json:"id"`
+		Connections    int64   `json:"connections"`
+		MaxConnections int     `json:"max_connections"`
+		AvailableSlots int     `json:"available_slots"`
+		Utilization    float64 `json:"utilization"`
+		Status         string  `json:"status"`
 	}
 	shardStats := make([]ShardStats, 0, len(lb.shards))
 
@@ -276,12 +276,12 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 		// Add per-shard stats (all atomic reads - zero performance cost)
 		shardStats = append(shardStats, ShardStats{
-			ID:              shard.ID,
-			Connections:     currentConns,
-			MaxConnections:  int(maxConns),
-			AvailableSlots:  availableSlots,
-			Utilization:     utilization,
-			Status:          shardStatus,
+			ID:             shard.ID,
+			Connections:    currentConns,
+			MaxConnections: int(maxConns),
+			AvailableSlots: availableSlots,
+			Utilization:    utilization,
+			Status:         shardStatus,
 		})
 	}
 
@@ -323,13 +323,17 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 				"percentage": cpuPercent, // System-wide CPU (all shards share same process)
 			},
 			"memory": map[string]interface{}{
-				"used_mb":    memoryMB,   // System-wide memory (all shards share same heap)
-				"percentage": 0.0,        // Could calculate from memory limit if needed
+				"used_mb":    memoryMB, // System-wide memory (all shards share same heap)
+				"percentage": 0.0,      // Could calculate from memory limit if needed
 			},
 		},
 		"shards": shardStats, // Per-shard connection breakdown (zero performance cost)
 	}
 
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		// Can't do much here since WriteHeader already called
+		// Log error for debugging
+		_ = err
+	}
 }

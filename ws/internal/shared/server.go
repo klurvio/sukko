@@ -37,7 +37,6 @@ type Server struct {
 	logger        zerolog.Logger // Structured logger
 	listener      net.Listener
 	kafkaConsumer *kafka.Consumer
-	kafkaPaused   int32 // Atomic flag: 1 = paused, 0 = active
 
 	// Connection management
 	connections       *ConnectionPool
@@ -187,8 +186,8 @@ func (s *Server) Start() error {
 				// syscall.Listen sets the TCP accept queue size
 				// This allows the OS to queue more pending connections during bursts
 				// Critical for trading platforms where connection timing affects fairness
-				syscall.Listen(int(file.Fd()), s.config.TCPListenBacklog)
-				file.Close()
+				_ = syscall.Listen(int(file.Fd()), s.config.TCPListenBacklog)
+				_ = file.Close()
 
 				s.logger.Info().
 					Int("backlog", s.config.TCPListenBacklog).

@@ -252,7 +252,7 @@ func TestCapacityPercent_Calculation(t *testing.T) {
 		{"zero_of_hundred", 0, 100, 0.0},
 		{"fifty_of_hundred", 50, 100, 50.0},
 		{"hundred_of_hundred", 100, 100, 100.0},
-		{"zero_max", 50, 0, 0.0},  // Edge case: avoid div by zero
+		{"zero_max", 50, 0, 0.0}, // Edge case: avoid div by zero
 		{"partial", 25, 200, 12.5},
 	}
 
