@@ -1,6 +1,8 @@
 package limits
 
 import (
+	"context"
+	"sync"
 	"testing"
 
 	"github.com/adred-codev/ws_poc/internal/shared/monitoring"
@@ -377,5 +379,355 @@ func TestHysteresisConfigInStats(t *testing.T) {
 	}
 	if stats["cpu_pause_threshold_lower"].(float64) != 70.0 {
 		t.Errorf("cpu_pause_threshold_lower: got %v, want 70.0", stats["cpu_pause_threshold_lower"])
+	}
+}
+
+// =============================================================================
+// GoroutineLimiter Tests
+// =============================================================================
+
+func TestGoroutineLimiter_AcquireRelease(t *testing.T) {
+	limiter := NewGoroutineLimiter(3)
+
+	// Initial state
+	if limiter.Current() != 0 {
+		t.Errorf("Initial Current() should be 0, got %d", limiter.Current())
+	}
+	if limiter.Max() != 3 {
+		t.Errorf("Max() should be 3, got %d", limiter.Max())
+	}
+
+	// Acquire 3 slots
+	for i := 0; i < 3; i++ {
+		if !limiter.Acquire() {
+			t.Errorf("Acquire() %d should succeed", i+1)
+		}
+	}
+
+	if limiter.Current() != 3 {
+		t.Errorf("Current() should be 3, got %d", limiter.Current())
+	}
+
+	// 4th acquire should fail
+	if limiter.Acquire() {
+		t.Error("4th Acquire() should fail when at limit")
+	}
+
+	// Release one
+	limiter.Release()
+	if limiter.Current() != 2 {
+		t.Errorf("Current() should be 2 after release, got %d", limiter.Current())
+	}
+
+	// Now acquire should succeed again
+	if !limiter.Acquire() {
+		t.Error("Acquire() should succeed after release")
+	}
+}
+
+func TestGoroutineLimiter_Concurrent(t *testing.T) {
+	limiter := NewGoroutineLimiter(100)
+	const numGoroutines = 200
+	const iterations = 100
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	acquired := make(chan bool, numGoroutines*iterations)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				if limiter.Acquire() {
+					acquired <- true
+					// Small delay to increase contention
+					limiter.Release()
+				} else {
+					acquired <- false
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(acquired)
+
+	// Count successful acquires
+	successCount := 0
+	for success := range acquired {
+		if success {
+			successCount++
+		}
+	}
+
+	// Should have many successful acquires (exact count depends on timing)
+	if successCount == 0 {
+		t.Error("Should have at least some successful acquires")
+	}
+
+	// Final state should be 0 (all released)
+	if limiter.Current() != 0 {
+		t.Errorf("Final Current() should be 0, got %d", limiter.Current())
+	}
+}
+
+func TestGoroutineLimiter_ZeroMax(t *testing.T) {
+	limiter := NewGoroutineLimiter(0)
+
+	if limiter.Max() != 0 {
+		t.Errorf("Max() should be 0, got %d", limiter.Max())
+	}
+
+	// Acquire should always fail
+	if limiter.Acquire() {
+		t.Error("Acquire() should fail when max is 0")
+	}
+}
+
+// =============================================================================
+// Rate Limiter Tests
+// =============================================================================
+
+func TestResourceGuard_AllowBroadcast(t *testing.T) {
+	var connCount int64 = 0
+	logger := monitoring.NewLogger(monitoring.LoggerConfig{
+		Level:  types.LogLevelError, // Quiet
+		Format: types.LogFormatJSON,
+	})
+
+	config := types.ServerConfig{
+		MaxConnections:          1000,
+		MemoryLimit:             1024 * 1024 * 1024,
+		MaxGoroutines:           10000,
+		CPURejectThreshold:      90.0,
+		CPURejectThresholdLower: 80.0,
+		CPUPauseThreshold:       95.0,
+		CPUPauseThresholdLower:  85.0,
+		MaxKafkaMessagesPerSec:  1000,
+		MaxBroadcastsPerSec:     10, // Low limit for testing
+	}
+
+	rg := NewResourceGuard(config, logger, &connCount)
+
+	// Burst capacity is 2x rate = 20
+	// First 20 should succeed (burst)
+	successCount := 0
+	for i := 0; i < 25; i++ {
+		if rg.AllowBroadcast() {
+			successCount++
+		}
+	}
+
+	// Should have ~20 successes (burst capacity)
+	if successCount < 15 || successCount > 25 {
+		t.Errorf("Expected ~20 successes from burst capacity, got %d", successCount)
+	}
+}
+
+func TestResourceGuard_AllowKafkaMessage(t *testing.T) {
+	var connCount int64 = 0
+	logger := monitoring.NewLogger(monitoring.LoggerConfig{
+		Level:  types.LogLevelError,
+		Format: types.LogFormatJSON,
+	})
+
+	config := types.ServerConfig{
+		MaxConnections:          1000,
+		MemoryLimit:             1024 * 1024 * 1024,
+		MaxGoroutines:           10000,
+		CPURejectThreshold:      90.0,
+		CPURejectThresholdLower: 80.0,
+		CPUPauseThreshold:       95.0,
+		CPUPauseThresholdLower:  85.0,
+		MaxKafkaMessagesPerSec:  10, // Low limit for testing
+		MaxBroadcastsPerSec:     100,
+	}
+
+	rg := NewResourceGuard(config, logger, &connCount)
+	ctx := context.Background()
+
+	// Burst capacity is 2x rate = 20
+	successCount := 0
+	for i := 0; i < 25; i++ {
+		allow, _ := rg.AllowKafkaMessage(ctx)
+		if allow {
+			successCount++
+		}
+	}
+
+	// Should have ~20 successes (burst capacity)
+	if successCount < 15 || successCount > 25 {
+		t.Errorf("Expected ~20 successes from burst capacity, got %d", successCount)
+	}
+}
+
+func TestResourceGuard_AllowKafkaMessage_WaitDuration(t *testing.T) {
+	var connCount int64 = 0
+	logger := monitoring.NewLogger(monitoring.LoggerConfig{
+		Level:  types.LogLevelError,
+		Format: types.LogFormatJSON,
+	})
+
+	config := types.ServerConfig{
+		MaxConnections:          1000,
+		MemoryLimit:             1024 * 1024 * 1024,
+		MaxGoroutines:           10000,
+		CPURejectThreshold:      90.0,
+		CPURejectThresholdLower: 80.0,
+		CPUPauseThreshold:       95.0,
+		CPUPauseThresholdLower:  85.0,
+		MaxKafkaMessagesPerSec:  10,
+		MaxBroadcastsPerSec:     100,
+	}
+
+	rg := NewResourceGuard(config, logger, &connCount)
+	ctx := context.Background()
+
+	// Exhaust burst capacity
+	for i := 0; i < 25; i++ {
+		rg.AllowKafkaMessage(ctx)
+	}
+
+	// Next call should return wait duration
+	allow, waitDuration := rg.AllowKafkaMessage(ctx)
+	if allow {
+		t.Error("Should not allow after burst exhausted")
+	}
+	if waitDuration <= 0 {
+		t.Error("Should return positive wait duration")
+	}
+}
+
+// =============================================================================
+// Connection Acceptance Tests with ResourceGuard
+// =============================================================================
+
+func TestResourceGuard_ShouldAcceptConnection_MaxConnections(t *testing.T) {
+	var connCount int64 = 100 // At limit
+	logger := monitoring.NewLogger(monitoring.LoggerConfig{
+		Level:  types.LogLevelError,
+		Format: types.LogFormatJSON,
+	})
+
+	config := types.ServerConfig{
+		MaxConnections:          100, // Set limit to current count
+		MemoryLimit:             1024 * 1024 * 1024,
+		MaxGoroutines:           10000,
+		CPURejectThreshold:      90.0,
+		CPURejectThresholdLower: 80.0,
+		CPUPauseThreshold:       95.0,
+		CPUPauseThresholdLower:  85.0,
+		MaxKafkaMessagesPerSec:  1000,
+		MaxBroadcastsPerSec:     100,
+	}
+
+	rg := NewResourceGuard(config, logger, &connCount)
+
+	accept, reason := rg.ShouldAcceptConnection()
+	if accept {
+		t.Error("Should reject when at max connections")
+	}
+	if reason == "" {
+		t.Error("Should provide rejection reason")
+	}
+}
+
+func TestResourceGuard_ShouldAcceptConnection_BelowLimit(t *testing.T) {
+	var connCount int64 = 50 // Below limit
+	logger := monitoring.NewLogger(monitoring.LoggerConfig{
+		Level:  types.LogLevelError,
+		Format: types.LogFormatJSON,
+	})
+
+	config := types.ServerConfig{
+		MaxConnections:          100,
+		MemoryLimit:             1024 * 1024 * 1024,
+		MaxGoroutines:           10000,
+		CPURejectThreshold:      99.0, // High to avoid CPU rejection
+		CPURejectThresholdLower: 98.0,
+		CPUPauseThreshold:       99.5,
+		CPUPauseThresholdLower:  99.0,
+		MaxKafkaMessagesPerSec:  1000,
+		MaxBroadcastsPerSec:     100,
+	}
+
+	rg := NewResourceGuard(config, logger, &connCount)
+
+	accept, reason := rg.ShouldAcceptConnection()
+	if !accept {
+		t.Errorf("Should accept when below limits, rejected with: %s", reason)
+	}
+}
+
+// =============================================================================
+// GetStats Tests
+// =============================================================================
+
+func TestResourceGuard_GetStats_AllFields(t *testing.T) {
+	var connCount int64 = 42
+	logger := monitoring.NewLogger(monitoring.LoggerConfig{
+		Level:  types.LogLevelError,
+		Format: types.LogFormatJSON,
+	})
+
+	config := types.ServerConfig{
+		MaxConnections:          1000,
+		MemoryLimit:             512 * 1024 * 1024,
+		MaxGoroutines:           5000,
+		CPURejectThreshold:      75.0,
+		CPURejectThresholdLower: 65.0,
+		CPUPauseThreshold:       80.0,
+		CPUPauseThresholdLower:  70.0,
+		MaxKafkaMessagesPerSec:  1000,
+		MaxBroadcastsPerSec:     100,
+	}
+
+	rg := NewResourceGuard(config, logger, &connCount)
+	stats := rg.GetStats()
+
+	// Verify all expected fields exist
+	expectedFields := []string{
+		"max_connections",
+		"current_connections",
+		"cpu_percent",
+		"cpu_reject_threshold",
+		"cpu_reject_threshold_lower",
+		"cpu_rejecting",
+		"cpu_pause_threshold",
+		"cpu_pause_threshold_lower",
+		"cpu_pausing_kafka",
+		"memory_bytes",
+		"memory_limit_bytes",
+		"goroutines_current",
+		"goroutines_limit",
+		"kafka_rate_limit",
+		"broadcast_rate_limit",
+	}
+
+	for _, field := range expectedFields {
+		if _, ok := stats[field]; !ok {
+			t.Errorf("GetStats() missing field: %s", field)
+		}
+	}
+
+	// Verify specific values
+	if stats["max_connections"].(int) != 1000 {
+		t.Errorf("max_connections: got %v, want 1000", stats["max_connections"])
+	}
+	if stats["current_connections"].(int64) != 42 {
+		t.Errorf("current_connections: got %v, want 42", stats["current_connections"])
+	}
+	if stats["memory_limit_bytes"].(int64) != 512*1024*1024 {
+		t.Errorf("memory_limit_bytes: got %v, want %d", stats["memory_limit_bytes"], 512*1024*1024)
+	}
+	if stats["goroutines_limit"].(int) != 5000 {
+		t.Errorf("goroutines_limit: got %v, want 5000", stats["goroutines_limit"])
+	}
+	if stats["kafka_rate_limit"].(int) != 1000 {
+		t.Errorf("kafka_rate_limit: got %v, want 1000", stats["kafka_rate_limit"])
+	}
+	if stats["broadcast_rate_limit"].(int) != 100 {
+		t.Errorf("broadcast_rate_limit: got %v, want 100", stats["broadcast_rate_limit"])
 	}
 }
