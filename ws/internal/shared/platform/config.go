@@ -87,6 +87,17 @@ type Config struct {
 	// Monitoring
 	MetricsInterval time.Duration `env:"METRICS_INTERVAL" envDefault:"15s"`
 
+	// CPU Polling Interval (for protection decisions)
+	// Separate from MetricsInterval to allow faster CPU spike detection
+	// while keeping full metrics reporting (memory, goroutines) at a reasonable interval.
+	//
+	// CPU polling is used by:
+	// - ShouldPauseKafka() - backpressure when CPU > 80%
+	// - ShouldAcceptConnection() - reject connections when CPU > 75%
+	//
+	// Trade-off: 1s polling = 0.1% CPU overhead, but 15x faster spike detection
+	CPUPollInterval time.Duration `env:"CPU_POLL_INTERVAL" envDefault:"1s"`
+
 	// Logging
 	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
 	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
@@ -101,6 +112,21 @@ type Config struct {
 	RedisPassword      string   `env:"REDIS_PASSWORD"`
 	RedisDB            int      `env:"REDIS_DB" envDefault:"0"`
 	RedisChannel       string   `env:"REDIS_CHANNEL" envDefault:"ws.broadcast"`
+
+	// Client Send Buffer Size
+	// Controls the per-client send channel buffer (memory vs slow-client tolerance trade-off)
+	//
+	// Buffer sizing at 125 msg/sec broadcast rate (25 msg/sec × 5 channel subscriptions):
+	// - 512 slots: ~256KB/client, 4.1s buffer, ~3.5GB heap at 13.5K clients
+	// - 1024 slots: ~512KB/client, 8.2s buffer, ~6.9GB heap at 13.5K clients
+	//
+	// Trade-off:
+	// - Smaller buffer = less memory = less GC pressure = lower CPU spikes
+	// - Larger buffer = more tolerance for slow clients and network hiccups
+	//
+	// Default: 512 (reduced from 1024 to cut heap size by 50%, reduce GC pressure)
+	// Production guidance: Start with 512, increase to 768 or 1024 if cascade disconnects occur
+	ClientSendBufferSize int `env:"WS_CLIENT_SEND_BUFFER_SIZE" envDefault:"512"`
 }
 
 // LoadConfig reads configuration from .env file and environment variables
@@ -206,6 +232,22 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("REDIS_CHANNEL cannot be empty")
 	}
 
+	// Client send buffer size validation
+	if c.ClientSendBufferSize < 64 {
+		return fmt.Errorf("WS_CLIENT_SEND_BUFFER_SIZE must be >= 64, got %d", c.ClientSendBufferSize)
+	}
+	if c.ClientSendBufferSize > 4096 {
+		return fmt.Errorf("WS_CLIENT_SEND_BUFFER_SIZE must be <= 4096 (4096 = ~2MB per client), got %d", c.ClientSendBufferSize)
+	}
+
+	// CPU poll interval validation
+	if c.CPUPollInterval < 100*time.Millisecond {
+		return fmt.Errorf("CPU_POLL_INTERVAL must be >= 100ms, got %v", c.CPUPollInterval)
+	}
+	if c.CPUPollInterval > c.MetricsInterval {
+		return fmt.Errorf("CPU_POLL_INTERVAL (%v) should be <= METRICS_INTERVAL (%v)", c.CPUPollInterval, c.MetricsInterval)
+	}
+
 	return nil
 }
 
@@ -251,6 +293,11 @@ func (c *Config) Print() {
 	fmt.Printf("Master Name:     %s\n", c.RedisMasterName)
 	fmt.Printf("Channel:         %s\n", c.RedisChannel)
 	fmt.Printf("Database:        %d\n", c.RedisDB)
+	fmt.Println("\n=== Client Buffers ===")
+	fmt.Printf("Send Buffer:     %d slots (~%dKB/client)\n", c.ClientSendBufferSize, c.ClientSendBufferSize/2)
+	fmt.Println("\n=== Monitoring ===")
+	fmt.Printf("Metrics Interval: %s\n", c.MetricsInterval)
+	fmt.Printf("CPU Poll Interval: %s\n", c.CPUPollInterval)
 	fmt.Println("============================")
 }
 
@@ -281,11 +328,13 @@ func (c *Config) LogConfig(logger zerolog.Logger) {
 		Dur("http_write_timeout", c.HTTPWriteTimeout).
 		Dur("http_idle_timeout", c.HTTPIdleTimeout).
 		Dur("metrics_interval", c.MetricsInterval).
+		Dur("cpu_poll_interval", c.CPUPollInterval).
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat).
 		Strs("redis_sentinel_addrs", c.RedisSentinelAddrs).
 		Str("redis_master_name", c.RedisMasterName).
 		Str("redis_channel", c.RedisChannel).
 		Int("redis_db", c.RedisDB).
+		Int("client_send_buffer_size", c.ClientSendBufferSize).
 		Msg("Server configuration loaded")
 }

@@ -56,8 +56,12 @@ type ServerConfig struct {
 	CPUPauseThreshold       float64 // Upper: pause Kafka above this CPU % (default: 80)
 	CPUPauseThresholdLower  float64 // Lower: resume Kafka below this CPU % (default: 70)
 
+	// Client buffer configuration
+	ClientSendBufferSize int // Per-client send channel buffer size (default: 512)
+
 	// Monitoring intervals
-	MetricsInterval time.Duration // Metrics collection interval (default: 15s)
+	MetricsInterval time.Duration // Full metrics collection interval (default: 15s)
+	CPUPollInterval time.Duration // CPU polling interval for protection (default: 1s)
 
 	// TCP/Network Tuning (Trading Platform Burst Tolerance)
 	TCPListenBacklog  int           // TCP accept queue size (default: 2048, Go default: ~128)

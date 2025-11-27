@@ -339,20 +339,37 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
 	}
 
 	// ============================================================================
-	// LAYER 2: CPU EMERGENCY BRAKE
+	// LAYER 2: CPU EMERGENCY BRAKE - BACKPRESSURE MODE (zero message loss!)
 	// ============================================================================
+	// If CPU is critically high (>80% by default), WAIT instead of dropping
+	// This creates natural backpressure - messages are never lost
 	if c.resourceGuard.ShouldPauseKafka() {
-		c.incrementDropped()
+		pauseStart := time.Now()
+		pauseLogged := false
 
-		// Log every 100th drop to avoid log spam
-		dropped := c.getDroppedCount()
-		if dropped%100 == 0 {
-			c.logger.Warn().
-				Uint64("dropped_count", dropped).
-				Str("topic", record.Topic).
-				Msg("CPU emergency brake - pausing Kafka consumption")
+		// Wait until CPU recovers (with context cancellation support)
+		for c.resourceGuard.ShouldPauseKafka() {
+			if !pauseLogged {
+				c.logger.Warn().
+					Str("topic", record.Topic).
+					Msg("CPU emergency brake - entering backpressure mode (waiting for CPU recovery)")
+				pauseLogged = true
+			}
+
+			select {
+			case <-c.ctx.Done():
+				return nil // Context cancelled, exit gracefully
+			case <-time.After(100 * time.Millisecond):
+				// Check CPU again
+			}
 		}
-		return nil
+
+		if pauseLogged {
+			c.logger.Info().
+				Dur("pause_duration", time.Since(pauseStart)).
+				Str("topic", record.Topic).
+				Msg("CPU emergency brake released - resuming consumption")
+		}
 	}
 
 	// Extract token ID from key
@@ -410,22 +427,46 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 	}
 
 	// ============================================================================
-	// LAYER 2: CPU EMERGENCY BRAKE
+	// LAYER 2: CPU EMERGENCY BRAKE - BACKPRESSURE MODE (zero message loss!)
 	// ============================================================================
-	// If CPU is critically high (>80% by default), pause consumption
-	// This provides backpressure to prevent cascading failures
+	// If CPU is critically high (>80% by default), WAIT instead of dropping
+	// This creates natural backpressure:
+	// - Consumer pauses, Kafka retains messages
+	// - When CPU recovers (drops below lower threshold), processing resumes
+	// - Zero messages are lost - critical for trading platforms!
+	//
+	// Trade-off: Consumer lag increases during high CPU, but all messages are delivered
 	if c.resourceGuard.ShouldPauseKafka() {
-		c.incrementDropped()
+		pauseStart := time.Now()
+		pauseLogged := false
 
-		// Log every 100th drop to avoid log spam
-		dropped := c.getDroppedCount()
-		if dropped%100 == 0 {
-			c.logger.Warn().
-				Uint64("dropped_count", dropped).
-				Str("topic", record.Topic).
-				Msg("CPU emergency brake - pausing Kafka consumption")
+		// Wait until CPU recovers (with context cancellation support)
+		for c.resourceGuard.ShouldPauseKafka() {
+			// Log once when entering pause state
+			if !pauseLogged {
+				c.logger.Warn().
+					Str("topic", record.Topic).
+					Msg("CPU emergency brake - entering backpressure mode (waiting for CPU recovery)")
+				pauseLogged = true
+			}
+
+			select {
+			case <-c.ctx.Done():
+				// Context cancelled (shutdown), exit gracefully
+				return
+			case <-time.After(100 * time.Millisecond):
+				// Check CPU again after short wait
+				// 100ms balances responsiveness vs CPU overhead
+			}
 		}
-		return
+
+		// Log recovery
+		if pauseLogged {
+			c.logger.Info().
+				Dur("pause_duration", time.Since(pauseStart)).
+				Str("topic", record.Topic).
+				Msg("CPU emergency brake released - resuming consumption")
+		}
 	}
 
 	// Extract token ID from key

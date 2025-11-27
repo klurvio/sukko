@@ -242,7 +242,7 @@ tasks:
         echo "⚠️  Startup timeout (may still be installing)"
 
   create:ws:
-    desc: Create WebSocket server GCP instance (e2-highcpu-8) - smart, idempotent
+    desc: Create WebSocket server GCP instance (n2-highcpu-8 dedicated cores) - smart, idempotent
     cmds:
       - |
         echo "🔍 Checking WS server instance..."
@@ -261,9 +261,13 @@ tasks:
             --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --quiet
         else
           echo "📦 Creating new instance..."
+          # Using n2-highcpu-8: dedicated cores (not burstable) for consistent performance
+          # - e2-highcpu-8: burstable, can be throttled under load → CPU spikes
+          # - n2-highcpu-8: dedicated, consistent performance → no throttling
+          # Cost difference: ~24% more ($0.25/hr → $0.31/hr)
           gcloud compute instances create {{.WS_INSTANCE}} \
             --project={{.GCP_PROJECT}} --zone={{.GCP_ZONE}} \
-            --machine-type=e2-highcpu-8 --image-family=ubuntu-2204-lts \
+            --machine-type=n2-highcpu-8 --image-family=ubuntu-2204-lts \
             --image-project=ubuntu-os-cloud --boot-disk-size=20GB \
             --boot-disk-type=pd-standard --tags=odin-ws-server --quiet \
             --metadata=startup-script='#!/bin/bash

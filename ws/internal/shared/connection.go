@@ -18,32 +18,32 @@ import (
 // 3. Slow client detection - Automatically disconnect laggy clients
 // 4. Rate limiting - Prevent client from DoS-ing server
 //
-// Memory per client: ~512KB (optimized for broadcast-heavy workloads)
+// Memory per client depends on WS_CLIENT_SEND_BUFFER_SIZE (default: 512):
 // - Base struct: ~200 bytes
-// - send channel: 1024 slots × 500 bytes avg = 512KB
+// - send channel: bufferSize slots × 500 bytes avg
 // - sequence generator: 8 bytes
 // - Other fields: ~50 bytes
 //
-// Memory scaling (broadcast-optimized buffer):
-// - 7,000 clients: 7K × 0.512MB = ~3.6GB
-// - 12,000 clients: 12K × 0.512MB = ~6.1GB (safe on 14.5GB instances)
-// - 15,000 clients: 15K × 0.512MB = ~7.7GB
-// - 20,000 clients: 20K × 0.512MB = ~10.2GB
+// Memory scaling at 125 msg/sec (25 msg/sec × 5 subscriptions):
+// With 512 buffer (default, ~256KB/client):
+// - 13,500 clients: ~3.5GB heap (reduced GC pressure)
+// - 18,000 clients: ~4.6GB heap
 //
-// Buffer sizing rationale (broadcast-heavy production workload):
-// - 512 buffer = 108 sec @ 4.7 msg/sec, 5.1s @ 100 msg/sec (previous, cascade failures observed)
-// - 1024 buffer = 216 sec @ 4.7 msg/sec, 10.2s @ 100 msg/sec (current, prevents cascade disconnects)
-// - Observed: 25 msg/sec broadcast rate with 5 channel subscriptions = 125 msg/sec per client
-// - At 125 msg/sec: 1024 buffer = 8.2 seconds of buffering (vs 4.1s with 512)
-// - Result: 2x better tolerance for network hiccups and burst traffic
+// With 1024 buffer (~512KB/client):
+// - 13,500 clients: ~6.9GB heap
+// - 18,000 clients: ~9.2GB heap
 //
-// Trade-off: 2x memory for 20-30% more connection capacity and better reliability
+// Buffer sizing rationale:
+// - 512 buffer: 4.1s tolerance at 125 msg/sec (default - lower GC pressure)
+// - 1024 buffer: 8.2s tolerance at 125 msg/sec (use if cascade disconnects occur)
+//
+// Trade-off: Memory vs slow-client tolerance. Smaller buffer = less GC = lower CPU spikes
 type Client struct {
 	// Basic WebSocket fields
 	id        int64       // Unique client identifier
 	conn      net.Conn    // Underlying TCP connection
 	server    *Server     // Reference to parent server
-	send      chan []byte // Buffered channel for outgoing messages (1024 slots, 8.2s @ 125 msg/sec broadcast)
+	send      chan []byte // Buffered channel for outgoing messages (configurable via WS_CLIENT_SEND_BUFFER_SIZE)
 	closeOnce sync.Once   // Ensures connection is only closed once
 
 	// Message reliability fields
@@ -93,26 +93,34 @@ type Client struct {
 
 // ConnectionPool manages a pool of reusable client objects
 type ConnectionPool struct {
-	pool    sync.Pool
-	maxSize int
+	pool       sync.Pool
+	maxSize    int
+	bufferSize int
 }
 
-func NewConnectionPool(maxSize int) *ConnectionPool {
-	cp := &ConnectionPool{maxSize: maxSize}
+// NewConnectionPool creates a connection pool with configurable buffer size
+// bufferSize: per-client send channel buffer (default: 512, range: 64-4096)
+//
+// Buffer sizing at 125 msg/sec broadcast rate (25 msg/sec × 5 channel subscriptions):
+// - 512 slots: ~256KB/client, 4.1s buffer, ~3.5GB heap at 13.5K clients (default)
+// - 1024 slots: ~512KB/client, 8.2s buffer, ~6.9GB heap at 13.5K clients
+func NewConnectionPool(maxSize int, bufferSize int) *ConnectionPool {
+	// Apply sensible defaults if not specified
+	if bufferSize <= 0 {
+		bufferSize = 512 // Default: reduced from 1024 to cut GC pressure
+	}
+
+	cp := &ConnectionPool{
+		maxSize:    maxSize,
+		bufferSize: bufferSize,
+	}
 
 	cp.pool = sync.Pool{
 		New: func() interface{} {
 			client := &Client{
-				// Buffer size optimized to 1024 slots for broadcast-heavy workloads
-				// Why 1024:
-				// - At 4.7 msg/sec (baseline), provides 216 seconds of buffer (over-provisioned)
-				// - At 125 msg/sec (all-to-all broadcast, 5 channels), provides 8.2 seconds of buffer
-				// - 2x improvement over 512 buffer (prevents cascade disconnections under load)
-				// - Memory cost: 512KB per client (1024 × 500 bytes avg message)
-				// - At 12,000 clients: 6.1GB total buffer memory (safe on 14.5GB instance)
-				// - At 15,000 clients: 7.7GB total buffer memory
-				// - Trade-off: 2x memory for 20-30% more connection capacity
-				send: make(chan []byte, 1024),
+				// Buffer size now configurable via WS_CLIENT_SEND_BUFFER_SIZE
+				// Default: 512 (reduced from 1024 to cut heap size by 50%)
+				send: make(chan []byte, cp.bufferSize),
 			}
 
 			return client

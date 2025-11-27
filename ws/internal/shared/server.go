@@ -79,7 +79,7 @@ func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc
 		logger:            logger,
 		ctx:               ctx,
 		cancel:            cancel,
-		connections:       NewConnectionPool(config.MaxConnections),
+		connections:       NewConnectionPool(config.MaxConnections, config.ClientSendBufferSize),
 		connectionsSem:    make(chan struct{}, config.MaxConnections),
 		subscriptionIndex: NewSubscriptionIndex(), // Fast channel → subscribers lookup
 		rateLimiter:       limits.NewRateLimiter(),

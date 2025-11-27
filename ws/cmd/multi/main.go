@@ -68,8 +68,8 @@ func main() {
 		Format: types.LogFormat(cfg.LogFormat),
 	})
 	systemMonitor := monitoring.GetSystemMonitor(structuredLogger)
-	systemMonitor.StartMonitoring(cfg.MetricsInterval)
-	logger.Printf("SystemMonitor singleton started (centralizes CPU/memory measurement)")
+	systemMonitor.StartMonitoring(cfg.MetricsInterval, cfg.CPUPollInterval)
+	logger.Printf("SystemMonitor started (metrics: %v, cpu poll: %v)", cfg.MetricsInterval, cfg.CPUPollInterval)
 
 	// Create and configure server with loaded configuration
 	kafkaBrokers := []string{}
@@ -174,6 +174,10 @@ func main() {
 			CPURejectThresholdLower: cfg.CPURejectThresholdLower,
 			CPUPauseThreshold:       cfg.CPUPauseThreshold,
 			CPUPauseThresholdLower:  cfg.CPUPauseThresholdLower,
+
+			// Client buffer configuration
+			ClientSendBufferSize: cfg.ClientSendBufferSize,
+
 			MetricsInterval:         cfg.MetricsInterval,
 			LogLevel:               types.LogLevel(cfg.LogLevel),
 			LogFormat:              types.LogFormat(cfg.LogFormat),

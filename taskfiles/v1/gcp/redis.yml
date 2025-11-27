@@ -11,7 +11,7 @@ vars:
   REDIS_DISK_TYPE: pd-ssd
   REDIS_DEPLOY_PATH: /home/deploy/ws_poc/deployments/v1/gcp/distributed/redis
   # Git config (inherited from parent or use defaults)
-  GIT_BRANCH: '{{.GIT_BRANCH | default "feature/redis-broadcast-bus"}}'
+  GIT_BRANCH: '{{.GIT_BRANCH | default "feature/cpu-optimization-backpressure"}}'
   GIT_REPO_SSH: '{{.GIT_REPO_SSH | default "git@github.com:Toniq-Labs/odin-ws.git"}}'
 
 tasks:

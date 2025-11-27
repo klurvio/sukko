@@ -81,27 +81,40 @@ func GetSystemMonitor(logger zerolog.Logger) *SystemMonitor {
 	return systemMonitorInstance
 }
 
-// StartMonitoring begins periodic system metric updates.
+// StartMonitoring begins periodic system metric updates with two tickers:
+// - cpuPollInterval: Fast CPU-only updates for protection decisions (default: 1s)
+// - metricsInterval: Full metrics updates including memory, goroutines (default: 15s)
+//
+// This allows responsive CPU spike detection while keeping full metrics at a reasonable interval.
 // Should be called once during application startup.
 // Safe to call multiple times - only first call takes effect.
-func (sm *SystemMonitor) StartMonitoring(interval time.Duration) {
+func (sm *SystemMonitor) StartMonitoring(metricsInterval, cpuPollInterval time.Duration) {
 	sm.wg.Add(1)
 	go func() {
 		defer sm.wg.Done()
 
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+		// Two tickers: fast for CPU, slow for full metrics
+		cpuTicker := time.NewTicker(cpuPollInterval)
+		metricsTicker := time.NewTicker(metricsInterval)
+		defer cpuTicker.Stop()
+		defer metricsTicker.Stop()
 
 		sm.logger.Info().
-			Dur("interval", interval).
-			Msg("SystemMonitor started")
+			Dur("metrics_interval", metricsInterval).
+			Dur("cpu_poll_interval", cpuPollInterval).
+			Msg("SystemMonitor started with two-ticker approach")
 
-		// Initial update
+		// Initial full update
 		sm.updateMetrics()
 
 		for {
 			select {
-			case <-ticker.C:
+			case <-cpuTicker.C:
+				// Fast path: only update CPU (for ShouldPauseKafka, ShouldAcceptConnection)
+				sm.updateCPUOnly()
+
+			case <-metricsTicker.C:
+				// Slow path: full metrics update (memory, goroutines, etc.)
 				sm.updateMetrics()
 
 			case <-sm.ctx.Done():
@@ -110,6 +123,36 @@ func (sm *SystemMonitor) StartMonitoring(interval time.Duration) {
 			}
 		}
 	}()
+}
+
+// updateCPUOnly performs a fast CPU-only measurement.
+// Used for responsive protection decisions (ShouldPauseKafka, ShouldAcceptConnection).
+// Much faster than updateMetrics() - no memory stats or goroutine counting.
+func (sm *SystemMonitor) updateCPUOnly() {
+	cpuPercent, throttleStats, err := sm.cpuMonitor.GetPercent()
+	if err != nil {
+		// Don't log errors on every poll - too noisy
+		cpuPercent = sm.metrics.CPUPercent // Keep previous value
+	}
+
+	// Update only CPU-related fields
+	sm.mu.Lock()
+	sm.metrics.CPUPercent = cpuPercent
+	sm.metrics.ThrottleStats = throttleStats
+	sm.metrics.Timestamp = time.Now()
+	sm.mu.Unlock()
+
+	// Update Prometheus CPU metrics
+	CpuUsagePercent.Set(cpuPercent)
+	CpuContainerPercent.Set(cpuPercent)
+
+	// Update throttling metrics if available
+	if throttleStats.NrThrottled > 0 {
+		CpuThrottleEventsTotal.Add(float64(throttleStats.NrThrottled))
+	}
+	if throttleStats.ThrottledSec > 0 {
+		CpuThrottledSecondsTotal.Add(throttleStats.ThrottledSec)
+	}
 }
 
 // updateMetrics performs a single measurement of all system resources
