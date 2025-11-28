@@ -95,7 +95,7 @@ func TestCheckConnectionAllowed_IPBurstLimit(t *testing.T) {
 	ip := "192.168.1.1"
 
 	// Should allow 5 connections (burst capacity)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !limiter.CheckConnectionAllowed(ip) {
 			t.Errorf("Connection %d should be allowed (within burst)", i+1)
 		}
@@ -119,7 +119,7 @@ func TestCheckConnectionAllowed_GlobalBurstLimit(t *testing.T) {
 
 	// Use different IPs to not hit per-IP limit
 	successCount := 0
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		ip := "192.168.1." + string(rune('1'+i))
 		if limiter.CheckConnectionAllowed(ip) {
 			successCount++
@@ -143,7 +143,7 @@ func TestCheckConnectionAllowed_SeparateIPBuckets(t *testing.T) {
 	defer limiter.Stop()
 
 	// Exhaust IP1's burst
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		limiter.CheckConnectionAllowed("192.168.1.1")
 	}
 
@@ -171,12 +171,12 @@ func TestCheckConnectionAllowed_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Multiple goroutines making concurrent connection attempts
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 			ip := "192.168.1." + string(rune('0'+(id%10)))
-			for j := 0; j < 10; j++ {
+			for range 10 {
 				limiter.CheckConnectionAllowed(ip)
 			}
 		}(i)

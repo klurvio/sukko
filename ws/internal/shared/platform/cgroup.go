@@ -57,4 +57,3 @@ func GetMemoryLimit() (int64, error) {
 	//   - Containers without memory limits
 	return 0, nil
 }
-

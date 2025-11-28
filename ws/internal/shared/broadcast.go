@@ -16,8 +16,14 @@ import (
 func extractChannel(subject string) string {
 	parts := strings.Split(subject, ".")
 	if len(parts) >= 4 {
+		// Validate both parts are non-empty to avoid returning "." for inputs like "..."
+		symbol := parts[2]
+		eventType := parts[3]
+		if symbol == "" || eventType == "" {
+			return ""
+		}
 		// Hierarchical format: "odin.token.BTC.trade" → "BTC.trade"
-		return parts[2] + "." + parts[3]
+		return symbol + "." + eventType
 	}
 	// Invalid format - event type required
 	return ""

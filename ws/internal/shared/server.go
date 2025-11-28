@@ -166,7 +166,7 @@ func (s *Server) GetStats() *types.Stats {
 }
 
 // GetKafkaConsumer implements monitoring.ServerMetrics interface
-func (s *Server) GetKafkaConsumer() interface{} {
+func (s *Server) GetKafkaConsumer() any {
 	return s.kafkaConsumer
 }
 
@@ -332,7 +332,7 @@ func (s *Server) Shutdown() error {
 
 forceClose:
 	// Force close all remaining connections with proper metrics
-	s.clients.Range(func(key, value interface{}) bool {
+	s.clients.Range(func(key, value any) bool {
 		if client, ok := key.(*Client); ok {
 			// Record shutdown disconnect (both Prometheus and Stats)
 			duration := time.Since(client.connectedAt)

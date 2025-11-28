@@ -1,6 +1,7 @@
 package monitoring
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -135,10 +136,27 @@ func TestNewSlackAlerter(t *testing.T) {
 }
 
 func TestSlackAlerter_SkipsEmptyWebhook(t *testing.T) {
+	// Track if any HTTP request was made
+	var requestMade int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requestMade, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// Create alerter with empty webhook URL
 	alerter := NewSlackAlerter("", "#alerts", "AlertBot")
 
-	// Should not panic or error
 	alerter.Alert(ERROR, "Test", nil)
+
+	// Give time for any potential HTTP request
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify NO request was made (empty webhook should skip)
+	if atomic.LoadInt32(&requestMade) != 0 {
+		t.Error("SlackAlerter with empty webhook should not make HTTP requests")
+	}
 }
 
 func TestSlackAlerter_SendsToWebhook(t *testing.T) {
@@ -304,36 +322,89 @@ func TestNewConsoleAlerter(t *testing.T) {
 }
 
 func TestConsoleAlerter_Alert(t *testing.T) {
-	alerter := NewConsoleAlerter()
+	var buf bytes.Buffer
+	alerter := NewConsoleAlerterWithWriter(&buf)
 
-	// Just verify it doesn't panic
 	alerter.Alert(ERROR, "Test error message", map[string]any{
 		"key": "value",
 	})
+
+	output := buf.String()
+
+	// Verify output contains expected content
+	if !strings.Contains(output, "ALERT") {
+		t.Error("Output should contain 'ALERT'")
+	}
+	if !strings.Contains(output, "ERROR") {
+		t.Error("Output should contain 'ERROR'")
+	}
+	if !strings.Contains(output, "Test error message") {
+		t.Error("Output should contain the message")
+	}
+	if !strings.Contains(output, "key") {
+		t.Error("Output should contain metadata key")
+	}
+	if !strings.Contains(output, "value") {
+		t.Error("Output should contain metadata value")
+	}
 }
 
 func TestConsoleAlerter_NoMetadata(t *testing.T) {
-	alerter := NewConsoleAlerter()
+	var buf bytes.Buffer
+	alerter := NewConsoleAlerterWithWriter(&buf)
 
-	// Just verify it doesn't panic with nil metadata
 	alerter.Alert(INFO, "Test message", nil)
+
+	output := buf.String()
+
+	// Verify output contains alert but no "Metadata:" section
+	if !strings.Contains(output, "INFO") {
+		t.Error("Output should contain 'INFO'")
+	}
+	if !strings.Contains(output, "Test message") {
+		t.Error("Output should contain the message")
+	}
+	if strings.Contains(output, "Metadata:") {
+		t.Error("Output should NOT contain 'Metadata:' when nil metadata passed")
+	}
 }
 
 func TestConsoleAlerter_EmptyMetadata(t *testing.T) {
-	alerter := NewConsoleAlerter()
+	var buf bytes.Buffer
+	alerter := NewConsoleAlerterWithWriter(&buf)
 
-	// Verify it doesn't panic with empty metadata
 	alerter.Alert(INFO, "Test message", map[string]any{})
+
+	output := buf.String()
+
+	// Verify output contains alert but no "Metadata:" section for empty map
+	if !strings.Contains(output, "INFO") {
+		t.Error("Output should contain 'INFO'")
+	}
+	if strings.Contains(output, "Metadata:") {
+		t.Error("Output should NOT contain 'Metadata:' when empty metadata passed")
+	}
 }
 
 func TestConsoleAlerter_AllLevels(t *testing.T) {
-	alerter := NewConsoleAlerter()
 	levels := []AuditLevel{DEBUG, INFO, WARNING, ERROR, CRITICAL}
 
 	for _, level := range levels {
 		t.Run(string(level), func(t *testing.T) {
-			// Verify it doesn't panic for any level
-			alerter.Alert(level, "test", nil)
+			var buf bytes.Buffer
+			alerter := NewConsoleAlerterWithWriter(&buf)
+
+			alerter.Alert(level, "test message", nil)
+
+			output := buf.String()
+
+			// Verify each level is properly formatted in output
+			if !strings.Contains(output, string(level)) {
+				t.Errorf("Output should contain level %q, got: %s", level, output)
+			}
+			if !strings.Contains(output, "test message") {
+				t.Errorf("Output should contain message, got: %s", output)
+			}
 		})
 	}
 }
@@ -363,8 +434,21 @@ func TestAlerterInterface_SlackAlerter(t *testing.T) {
 }
 
 func TestAlerterInterface_ConsoleAlerter(t *testing.T) {
-	var alerter Alerter = NewConsoleAlerter()
+	var buf bytes.Buffer
+	var alerter Alerter = NewConsoleAlerterWithWriter(&buf)
 
-	// Just verify it doesn't panic and satisfies the interface
-	alerter.Alert(WARNING, "Test", nil)
+	alerter.Alert(WARNING, "Test message", map[string]any{"server": "ws-1"})
+
+	output := buf.String()
+
+	// Verify interface implementation produces expected output
+	if !strings.Contains(output, "WARNING") {
+		t.Error("Output should contain 'WARNING'")
+	}
+	if !strings.Contains(output, "Test message") {
+		t.Error("Output should contain the message")
+	}
+	if !strings.Contains(output, "server") {
+		t.Error("Output should contain metadata key")
+	}
 }

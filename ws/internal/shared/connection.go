@@ -117,7 +117,7 @@ func NewConnectionPool(maxSize int, bufferSize int) *ConnectionPool {
 	}
 
 	cp.pool = sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			client := &Client{
 				// Buffer size now configurable via WS_CLIENT_SEND_BUFFER_SIZE
 				// Default: 512 (reduced from 1024 to cut heap size by 50%)
@@ -337,10 +337,8 @@ func (idx *SubscriptionIndex) Add(channel string, client *Client) {
 	}
 
 	// Check if client already subscribed (avoid duplicates)
-	for _, existing := range currentSlice {
-		if existing == client {
-			return // Already subscribed
-		}
+	if slices.Contains(currentSlice, client) {
+		return // Already subscribed
 	}
 
 	// Create new slice with added client (copy-on-write)

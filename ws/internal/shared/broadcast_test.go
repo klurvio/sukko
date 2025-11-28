@@ -130,12 +130,27 @@ func TestExtractChannel_InvalidSubjects(t *testing.T) {
 			name:    "Three parts (no event type)",
 			subject: "odin.token.BTC",
 		},
-		// Note: "..." has 4 parts when split by "." (["", "", "", ""])
-		// This returns "." which is valid per the function (parts[2] + "." + parts[3])
-		// Keeping as edge case but removing the strict empty check
 		{
 			name:    "No dots",
 			subject: "nodots",
+		},
+		// Edge cases: subjects with 4+ parts but empty symbol or event type
+		// These would return "." without validation, which is invalid
+		{
+			name:    "Only dots (empty parts)",
+			subject: "...",
+		},
+		{
+			name:    "Empty symbol",
+			subject: "odin.token..trade",
+		},
+		{
+			name:    "Empty event type",
+			subject: "odin.token.BTC.",
+		},
+		{
+			name:    "Empty symbol and event type",
+			subject: "odin.token..",
 		},
 	}
 
@@ -181,21 +196,21 @@ func TestExtractChannel_AllEventTypes(t *testing.T) {
 
 func BenchmarkExtractChannel_Valid(b *testing.B) {
 	subject := "odin.token.BTC.trade"
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = extractChannel(subject)
 	}
 }
 
 func BenchmarkExtractChannel_Invalid(b *testing.B) {
 	subject := "odin.token.BTC" // Missing event type
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = extractChannel(subject)
 	}
 }
 
 func BenchmarkExtractChannel_LongSubject(b *testing.B) {
 	subject := "odin.token.VERYLONGSYMBOLNAMEWITHMANYCHARACTERS.trade"
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = extractChannel(subject)
 	}
 }

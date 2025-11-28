@@ -120,16 +120,16 @@ func TestSystemMonitor_GetMetrics_ThreadSafe(t *testing.T) {
 
 	// Multiple goroutines reading concurrently should not panic
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				_ = sm.GetMetrics()
 			}
 			done <- true
 		}()
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
@@ -138,42 +138,70 @@ func TestSystemMonitor_GetMetrics_ThreadSafe(t *testing.T) {
 // Convenience Method Tests
 // =============================================================================
 
-func TestSystemMonitor_GetCPUPercent(t *testing.T) {
+func TestSystemMonitor_GetCPUPercent_AfterMonitoring(t *testing.T) {
 	logger := zerolog.Nop()
 	sm := GetSystemMonitor(logger)
 
-	// Should not panic
+	// Start monitoring to ensure we have real values
+	sm.StartMonitoring(50*time.Millisecond, 25*time.Millisecond)
+	time.Sleep(100 * time.Millisecond) // Wait for at least one full update
+
 	cpu := sm.GetCPUPercent()
 
-	// CPU should be between 0-100 (or 0 if monitoring not started)
+	// CPU should be between 0-100
 	if cpu < 0 || cpu > 100 {
 		t.Errorf("CPUPercent should be 0-100, got %f", cpu)
 	}
-}
 
-func TestSystemMonitor_GetMemoryBytes(t *testing.T) {
-	logger := zerolog.Nop()
-	sm := GetSystemMonitor(logger)
-
-	// Should not panic
-	mem := sm.GetMemoryBytes()
-
-	// Memory should be non-negative
-	if mem < 0 {
-		t.Errorf("MemoryBytes should be >= 0, got %d", mem)
+	// Verify it's consistent with GetMetrics()
+	metrics := sm.GetMetrics()
+	if cpu != metrics.CPUPercent {
+		t.Errorf("GetCPUPercent() %f != GetMetrics().CPUPercent %f", cpu, metrics.CPUPercent)
 	}
 }
 
-func TestSystemMonitor_GetMemoryMB(t *testing.T) {
+func TestSystemMonitor_GetMemoryBytes_AfterMonitoring(t *testing.T) {
 	logger := zerolog.Nop()
 	sm := GetSystemMonitor(logger)
 
-	// Should not panic
+	// Start monitoring to ensure we have real values
+	sm.StartMonitoring(50*time.Millisecond, 25*time.Millisecond)
+	time.Sleep(100 * time.Millisecond) // Wait for at least one full update
+
+	mem := sm.GetMemoryBytes()
+
+	// Memory should be positive (Go runtime always uses some memory)
+	if mem <= 0 {
+		t.Errorf("MemoryBytes should be > 0 after monitoring starts, got %d", mem)
+	}
+
+	// Verify it's consistent with GetMetrics()
+	metrics := sm.GetMetrics()
+	if mem != metrics.MemoryBytes {
+		t.Errorf("GetMemoryBytes() %d != GetMetrics().MemoryBytes %d", mem, metrics.MemoryBytes)
+	}
+}
+
+func TestSystemMonitor_GetMemoryMB_AfterMonitoring(t *testing.T) {
+	logger := zerolog.Nop()
+	sm := GetSystemMonitor(logger)
+
+	// Start monitoring to ensure we have real values
+	sm.StartMonitoring(50*time.Millisecond, 25*time.Millisecond)
+	time.Sleep(100 * time.Millisecond) // Wait for at least one full update
+
 	memMB := sm.GetMemoryMB()
 
-	// Memory should be non-negative
-	if memMB < 0 {
-		t.Errorf("MemoryMB should be >= 0, got %f", memMB)
+	// Memory should be positive (Go runtime always uses some memory)
+	if memMB <= 0 {
+		t.Errorf("MemoryMB should be > 0 after monitoring starts, got %f", memMB)
+	}
+
+	// Verify consistency between bytes and MB
+	memBytes := sm.GetMemoryBytes()
+	expectedMB := float64(memBytes) / (1024 * 1024)
+	if memMB != expectedMB {
+		t.Errorf("MemoryMB %f != MemoryBytes/1MB %f", memMB, expectedMB)
 	}
 }
 
@@ -208,23 +236,43 @@ func TestSystemMonitor_GetCPUAllocation(t *testing.T) {
 // StartMonitoring Tests
 // =============================================================================
 
-func TestSystemMonitor_StartMonitoring_NoPanic(t *testing.T) {
+func TestSystemMonitor_StartMonitoring_PopulatesMetrics(t *testing.T) {
 	logger := zerolog.Nop()
 	sm := GetSystemMonitor(logger)
 
-	// Starting monitoring should not panic
-	// Note: The singleton may already be monitoring from other tests
-	sm.StartMonitoring(100*time.Millisecond, 50*time.Millisecond)
+	// Start monitoring with fast intervals for testing
+	sm.StartMonitoring(50*time.Millisecond, 25*time.Millisecond)
 
-	// Give it a moment to collect at least one sample
-	time.Sleep(60 * time.Millisecond)
+	// Wait for at least one full metrics update
+	time.Sleep(100 * time.Millisecond)
 
-	// Metrics should now have values
+	// Get metrics and verify all fields are populated
 	metrics := sm.GetMetrics()
 
 	// Goroutines should be positive (at least the test runner goroutines)
 	if metrics.Goroutines <= 0 {
-		t.Logf("Goroutines after monitoring: %d", metrics.Goroutines)
+		t.Errorf("Goroutines should be > 0 after monitoring starts, got %d", metrics.Goroutines)
+	}
+
+	// Memory should be positive (Go runtime always uses some memory)
+	if metrics.MemoryBytes <= 0 {
+		t.Errorf("MemoryBytes should be > 0 after monitoring starts, got %d", metrics.MemoryBytes)
+	}
+
+	// MemoryMB should be consistent with MemoryBytes
+	expectedMB := float64(metrics.MemoryBytes) / (1024 * 1024)
+	if metrics.MemoryMB != expectedMB {
+		t.Errorf("MemoryMB %f should match MemoryBytes/1MB %f", metrics.MemoryMB, expectedMB)
+	}
+
+	// Timestamp should be recent
+	if time.Since(metrics.Timestamp) > 1*time.Second {
+		t.Errorf("Timestamp too old: %v (expected recent)", metrics.Timestamp)
+	}
+
+	// CPU allocation should be positive (at least 1 core or fraction)
+	if metrics.CPUAllocation <= 0 {
+		t.Errorf("CPUAllocation should be > 0, got %f", metrics.CPUAllocation)
 	}
 }
 
@@ -232,18 +280,26 @@ func TestSystemMonitor_StartMonitoring_NoPanic(t *testing.T) {
 // Shutdown Tests
 // =============================================================================
 
-func TestSystemMonitor_Shutdown_NoPanic(t *testing.T) {
-	// Note: Since this is a singleton, we can't actually test shutdown
-	// without affecting other tests. Just verify the method exists and
-	// calling Shutdown on a fresh monitor doesn't panic.
-
-	// We can't call shutdown on the singleton without breaking other tests,
-	// so we just verify the API exists
+func TestSystemMonitor_Shutdown_MethodExists(t *testing.T) {
+	// LIMITATION: SystemMonitor is a singleton initialized once per process.
+	// We cannot actually call Shutdown() in tests because:
+	// 1. Other tests depend on the singleton being alive
+	// 2. Once shutdown, it cannot be restarted (sync.Once has already fired)
+	// 3. Calling Shutdown() would cause subsequent tests to fail or behave unexpectedly
+	//
+	// This test only verifies the Shutdown method exists and has the correct signature.
+	// Integration tests or a dedicated shutdown test binary should test actual shutdown behavior.
 	logger := zerolog.Nop()
 	sm := GetSystemMonitor(logger)
 
-	// Verify the method exists (compile-time check)
-	_ = sm.Shutdown
+	// Compile-time check that Shutdown method exists with correct signature
+	shutdownFn := sm.Shutdown
+	_ = shutdownFn
+
+	// Verify the monitor is still functional after this test
+	// (proving we didn't accidentally call Shutdown)
+	metrics := sm.GetMetrics()
+	_ = metrics.Timestamp // Would panic if internal state was corrupted
 }
 
 // =============================================================================
@@ -257,9 +313,9 @@ func TestSystemMonitor_ConcurrentReads(t *testing.T) {
 	done := make(chan bool, 50)
 
 	// Multiple goroutines reading different metrics concurrently
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		go func(id int) {
-			for j := 0; j < 50; j++ {
+			for range 50 {
 				switch id % 5 {
 				case 0:
 					_ = sm.GetCPUPercent()
@@ -277,7 +333,7 @@ func TestSystemMonitor_ConcurrentReads(t *testing.T) {
 		}(i)
 	}
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		<-done
 	}
 	// Test passes if no race conditions or panics

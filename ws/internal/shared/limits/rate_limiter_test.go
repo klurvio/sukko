@@ -28,7 +28,7 @@ func TestTokenBucket_TryConsume_Success(t *testing.T) {
 	tb := NewTokenBucket(10, 1)
 
 	// Should allow first 10 requests (burst capacity)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if !tb.TryConsume(1) {
 			t.Errorf("TryConsume(%d) should succeed", i+1)
 		}
@@ -39,7 +39,7 @@ func TestTokenBucket_TryConsume_Exhausted(t *testing.T) {
 	tb := NewTokenBucket(5, 1)
 
 	// Exhaust all tokens
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		tb.TryConsume(1)
 	}
 
@@ -86,7 +86,7 @@ func TestTokenBucket_Refill(t *testing.T) {
 	tb := NewTokenBucket(10, 100) // 100 tokens/second refill rate
 
 	// Exhaust all tokens
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		tb.TryConsume(1)
 	}
 
@@ -107,7 +107,7 @@ func TestTokenBucket_RefillCapAtMax(t *testing.T) {
 
 	// Should still only have maxTokens (10), not 20
 	// Consume 10 should work
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if !tb.TryConsume(1) {
 			t.Errorf("TryConsume(%d) should succeed (max tokens)", i+1)
 		}
@@ -127,18 +127,16 @@ func TestTokenBucket_Concurrent(t *testing.T) {
 	var mu sync.Mutex
 
 	// 100 goroutines each trying to consume 20 tokens
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 20; j++ {
+	for range 100 {
+		wg.Go(func() {
+			for range 20 {
 				if tb.TryConsume(1) {
 					mu.Lock()
 					successCount++
 					mu.Unlock()
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -187,7 +185,7 @@ func TestRateLimiter_CheckLimit_SeparateBuckets(t *testing.T) {
 	rl := NewRateLimiter()
 
 	// Exhaust client 1's bucket (default: 100 tokens)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		rl.CheckLimit(1)
 	}
 
@@ -213,7 +211,7 @@ func TestRateLimiter_RemoveClient(t *testing.T) {
 
 	// Client should get a fresh bucket (full 100 tokens)
 	// This verifies RemoveClient actually removed the old bucket
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if !rl.CheckLimit(123) {
 			t.Errorf("After RemoveClient, client should have fresh bucket (failed at %d)", i+1)
 		}
@@ -230,7 +228,7 @@ func TestRateLimiter_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(id int64) {
 			defer wg.Done()
-			for j := 0; j < 50; j++ {
+			for range 50 {
 				rl.CheckLimit(id)
 			}
 		}(clientID)
@@ -256,7 +254,7 @@ func TestRateLimiter_DefaultLimits(t *testing.T) {
 	// Default should be 100 burst, 10/sec sustained
 	// Verify by consuming 100 tokens
 	successCount := 0
-	for i := 0; i < 110; i++ {
+	for range 110 {
 		if rl.CheckLimit(1) {
 			successCount++
 		}

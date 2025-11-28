@@ -250,7 +250,7 @@ func calculateBufferStats(samples []int) map[string]any {
 	copy(sorted, samples)
 
 	// Simple bubble sort for small arrays (max 100 elements)
-	for i := 0; i < len(sorted); i++ {
+	for i := range sorted {
 		for j := i + 1; j < len(sorted); j++ {
 			if sorted[i] > sorted[j] {
 				sorted[i], sorted[j] = sorted[j], sorted[i]

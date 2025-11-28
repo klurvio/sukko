@@ -525,7 +525,7 @@ func TestAuditLogger_ConcurrentLogging(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Multiple goroutines logging concurrently
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()

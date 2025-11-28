@@ -220,11 +220,11 @@ func TestStats_ConcurrentMapAccess(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent writes to DisconnectsByReason
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				reason := "reason" + string(rune('0'+(id%10)))
 				stats.DisconnectsMu.Lock()
 				stats.DisconnectsByReason[reason]++
@@ -234,11 +234,11 @@ func TestStats_ConcurrentMapAccess(t *testing.T) {
 	}
 
 	// Concurrent writes to DroppedBroadcastsByChannel
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				channel := "channel" + string(rune('0'+(id%10)))
 				stats.DropsMu.Lock()
 				stats.DroppedBroadcastsByChannel[channel]++
@@ -248,11 +248,11 @@ func TestStats_ConcurrentMapAccess(t *testing.T) {
 	}
 
 	// Concurrent writes to BufferSaturationSamples
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < 10; j++ {
+			for j := range 10 {
 				stats.BuffersMu.Lock()
 				if len(stats.BufferSaturationSamples) >= 100 {
 					stats.BufferSaturationSamples = stats.BufferSaturationSamples[1:]
@@ -311,7 +311,7 @@ func TestStats_BufferSaturationSampling(t *testing.T) {
 	}
 
 	// Add samples
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		stats.BuffersMu.Lock()
 		stats.BufferSaturationSamples = append(stats.BufferSaturationSamples, i)
 		stats.BuffersMu.Unlock()

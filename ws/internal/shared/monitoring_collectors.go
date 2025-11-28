@@ -129,7 +129,7 @@ func (s *Server) sampleClientBuffers() {
 			maxSamples := 100
 			highSaturationCount := 0 // Track clients near capacity
 
-			s.clients.Range(func(key, value interface{}) bool {
+			s.clients.Range(func(key, value any) bool {
 				if samplesCollected >= maxSamples {
 					return false // Stop iteration
 				}

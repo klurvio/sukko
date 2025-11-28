@@ -274,7 +274,7 @@ func init() {
 type ServerMetrics interface {
 	GetConfig() types.ServerConfig
 	GetStats() *types.Stats
-	GetKafkaConsumer() interface{} // Returns kafka.Consumer but we only check if nil
+	GetKafkaConsumer() any // Returns kafka.Consumer but we only check if nil
 }
 
 // MetricsCollector handles periodic collection of system metrics

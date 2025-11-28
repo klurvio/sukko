@@ -274,30 +274,30 @@ func TestConsumer_Metrics_Concurrent(t *testing.T) {
 	wg.Add(numGoroutines * 3) // 3 types of operations
 
 	// Concurrent incrementProcessed
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < opsPerGoroutine; j++ {
+			for range opsPerGoroutine {
 				consumer.incrementProcessed()
 			}
 		}()
 	}
 
 	// Concurrent incrementFailed
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < opsPerGoroutine; j++ {
+			for range opsPerGoroutine {
 				consumer.incrementFailed()
 			}
 		}()
 	}
 
 	// Concurrent incrementDropped
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < opsPerGoroutine; j++ {
+			for range opsPerGoroutine {
 				consumer.incrementDropped()
 			}
 		}()
@@ -327,7 +327,7 @@ func TestTokenEvent_Fields(t *testing.T) {
 	event := TokenEvent{
 		Type:      EventTradeExecuted,
 		Timestamp: 1234567890,
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"price":  "100.50",
 			"volume": "1000",
 		},

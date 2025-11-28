@@ -1,7 +1,9 @@
 package shared
 
 import (
+	"bytes"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -49,7 +51,7 @@ func TestNewPump_NilDependencies(t *testing.T) {
 	if pump == nil {
 		t.Fatal("NewPump returned nil")
 	}
-	if pump.Stats != stats {
+	if pump.Stats != stats { //nolint:staticcheck // SA5011 false positive - t.Fatal stops execution
 		t.Error("Stats not set correctly")
 	}
 }
@@ -433,7 +435,7 @@ func TestPump_HandleRateLimitExceeded_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(id int) {
 			defer wg.Done()
 			client := &Client{
@@ -472,7 +474,7 @@ func TestPump_RateLimitingFlow(t *testing.T) {
 
 	clientID := int64(12345)
 	blockedCount := 0
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if !pump.RateLimiter.CheckLimit(clientID) {
 			blockedCount++
 		}
@@ -491,31 +493,53 @@ func TestPump_RateLimitingFlow(t *testing.T) {
 // ZerologAdapter Tests
 // =============================================================================
 
-func TestZerologAdapter_Methods(t *testing.T) {
-	// Create a zerolog logger with a no-op writer
-	logger := zerolog.Nop()
+func TestZerologAdapter_Methods_ReturnValidEvents(t *testing.T) {
+	// Create a zerolog logger that writes to a buffer so we can verify output
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
 	adapter := NewZerologAdapter(logger)
 
-	// Test that all methods return non-nil
-	if adapter.Debug() == nil {
-		t.Error("Debug() returned nil")
+	// Test Debug level - should return a valid event that can be chained and emit output
+	adapter.Debug().Str("test", "debug_value").Msg("debug message")
+
+	// Test Info level
+	adapter.Info().Str("test", "info_value").Msg("info message")
+
+	// Test Warn level
+	adapter.Warn().Str("test", "warn_value").Msg("warn message")
+
+	// Test Error level
+	adapter.Error().Str("test", "error_value").Msg("error message")
+
+	// Verify output was written (zerolog writes JSON)
+	output := buf.String()
+
+	// Verify all levels produced output
+	if !strings.Contains(output, "debug message") {
+		t.Error("Debug() did not produce output")
 	}
-	if adapter.Info() == nil {
-		t.Error("Info() returned nil")
+	if !strings.Contains(output, "info message") {
+		t.Error("Info() did not produce output")
 	}
-	if adapter.Warn() == nil {
-		t.Error("Warn() returned nil")
+	if !strings.Contains(output, "warn message") {
+		t.Error("Warn() did not produce output")
 	}
-	if adapter.Error() == nil {
-		t.Error("Error() returned nil")
+	if !strings.Contains(output, "error message") {
+		t.Error("Error() did not produce output")
+	}
+
+	// Verify fields were included
+	if !strings.Contains(output, "debug_value") {
+		t.Error("Debug().Str() field not in output")
 	}
 }
 
-func TestZerologEventAdapter_Chaining(t *testing.T) {
-	logger := zerolog.Nop()
+func TestZerologEventAdapter_Chaining_ProducesOutput(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
 	adapter := NewZerologAdapter(logger)
 
-	// Test method chaining
+	// Test method chaining with all supported methods
 	adapter.Info().
 		Str("key", "value").
 		Int("num", 42).
@@ -523,5 +547,30 @@ func TestZerologEventAdapter_Chaining(t *testing.T) {
 		Interface("data", map[string]int{"a": 1}).
 		Msg("test message")
 
-	// If we get here without panic, chaining works
+	output := buf.String()
+
+	// Verify the chained call produced output
+	if len(output) == 0 {
+		t.Error("Chained method call did not produce output")
+	}
+
+	// Verify the message was included
+	if !strings.Contains(output, "test message") {
+		t.Errorf("Output missing message: %s", output)
+	}
+
+	// Verify all fields were included in output (zerolog writes JSON)
+	if !strings.Contains(output, "\"key\":\"value\"") {
+		t.Errorf("Output missing Str field: %s", output)
+	}
+	if !strings.Contains(output, "\"num\":42") {
+		t.Errorf("Output missing Int field: %s", output)
+	}
+	if !strings.Contains(output, "\"big\":1234567890") {
+		t.Errorf("Output missing Int64 field: %s", output)
+	}
+	// Interface fields are JSON-encoded
+	if !strings.Contains(output, "\"data\":{\"a\":1}") {
+		t.Errorf("Output missing Interface field: %s", output)
+	}
 }

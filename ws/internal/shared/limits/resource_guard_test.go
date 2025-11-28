@@ -406,7 +406,7 @@ func TestGoroutineLimiter_AcquireRelease(t *testing.T) {
 	}
 
 	// Acquire 3 slots
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if !limiter.Acquire() {
 			t.Errorf("Acquire() %d should succeed", i+1)
 		}
@@ -443,10 +443,10 @@ func TestGoroutineLimiter_Concurrent(t *testing.T) {
 
 	acquired := make(chan bool, numGoroutines*iterations)
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for range iterations {
 				if limiter.Acquire() {
 					acquired <- true
 					// Small delay to increase contention
@@ -521,7 +521,7 @@ func TestResourceGuard_AllowBroadcast(t *testing.T) {
 	// Burst capacity is 2x rate = 20
 	// First 20 should succeed (burst)
 	successCount := 0
-	for i := 0; i < 25; i++ {
+	for range 25 {
 		if rg.AllowBroadcast() {
 			successCount++
 		}
@@ -557,7 +557,7 @@ func TestResourceGuard_AllowKafkaMessage(t *testing.T) {
 
 	// Burst capacity is 2x rate = 20
 	successCount := 0
-	for i := 0; i < 25; i++ {
+	for range 25 {
 		allow, _ := rg.AllowKafkaMessage(ctx)
 		if allow {
 			successCount++
@@ -593,7 +593,7 @@ func TestResourceGuard_AllowKafkaMessage_WaitDuration(t *testing.T) {
 	ctx := context.Background()
 
 	// Exhaust burst capacity
-	for i := 0; i < 25; i++ {
+	for range 25 {
 		rg.AllowKafkaMessage(ctx)
 	}
 

@@ -257,7 +257,7 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 			// Batch additional messages
 			n := len(c.send)
 		batchLoop:
-			for i := 0; i < n; i++ {
+			for range n {
 				var batchMsg []byte
 				var batchOk bool
 				select {

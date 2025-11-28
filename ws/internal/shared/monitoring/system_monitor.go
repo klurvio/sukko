@@ -89,9 +89,7 @@ func GetSystemMonitor(logger zerolog.Logger) *SystemMonitor {
 // Should be called once during application startup.
 // Safe to call multiple times - only first call takes effect.
 func (sm *SystemMonitor) StartMonitoring(metricsInterval, cpuPollInterval time.Duration) {
-	sm.wg.Add(1)
-	go func() {
-		defer sm.wg.Done()
+	sm.wg.Go(func() {
 
 		// Two tickers: fast for CPU, slow for full metrics
 		cpuTicker := time.NewTicker(cpuPollInterval)
@@ -122,7 +120,7 @@ func (sm *SystemMonitor) StartMonitoring(metricsInterval, cpuPollInterval time.D
 				return
 			}
 		}
-	}()
+	})
 }
 
 // updateCPUOnly performs a fast CPU-only measurement.

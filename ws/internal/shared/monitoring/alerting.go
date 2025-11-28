@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -119,19 +120,56 @@ func (s *SlackAlerter) getEmoji(level AuditLevel) string {
 }
 
 // ConsoleAlerter prints alerts to console (for development/testing)
-type ConsoleAlerter struct{}
+type ConsoleAlerter struct {
+	writer io.Writer
+}
 
+// NewConsoleAlerter creates a ConsoleAlerter that writes to stdout
 func NewConsoleAlerter() *ConsoleAlerter {
-	return &ConsoleAlerter{}
+	return &ConsoleAlerter{writer: nil} // nil means os.Stdout
+}
+
+// NewConsoleAlerterWithWriter creates a ConsoleAlerter with a custom writer (for testing)
+func NewConsoleAlerterWithWriter(w io.Writer) *ConsoleAlerter {
+	return &ConsoleAlerter{writer: w}
+}
+
+func (c *ConsoleAlerter) getWriter() io.Writer {
+	if c.writer != nil {
+		return c.writer
+	}
+	return defaultWriter
+}
+
+// defaultWriter is os.Stdout, defined as a variable for easy testing
+var defaultWriter io.Writer = nil // initialized in init or first use
+
+func init() {
+	// Can't import os in init easily, so we handle nil as stdout in getWriter
 }
 
 func (c *ConsoleAlerter) Alert(level AuditLevel, message string, metadata map[string]any) {
-	fmt.Printf("\n🔔 ALERT [%s]: %s\n", level, message)
+	w := c.getWriter()
+	if w == nil {
+		// Default to stdout via fmt (original behavior)
+		fmt.Printf("\n🔔 ALERT [%s]: %s\n", level, message)
+		if len(metadata) > 0 {
+			fmt.Println("  Metadata:")
+			for k, v := range metadata {
+				fmt.Printf("    %s: %v\n", k, v)
+			}
+		}
+		fmt.Println()
+		return
+	}
+
+	// Write to custom writer (ignoring errors - alerting should not break the server)
+	_, _ = fmt.Fprintf(w, "\n🔔 ALERT [%s]: %s\n", level, message)
 	if len(metadata) > 0 {
-		fmt.Println("  Metadata:")
+		_, _ = fmt.Fprintln(w, "  Metadata:")
 		for k, v := range metadata {
-			fmt.Printf("    %s: %v\n", k, v)
+			_, _ = fmt.Fprintf(w, "    %s: %v\n", k, v)
 		}
 	}
-	fmt.Println()
+	_, _ = fmt.Fprintln(w)
 }

@@ -26,10 +26,10 @@ func newTestMockLogger() *testMockLogger {
 	return &testMockLogger{messages: make([]testLogMessage, 0)}
 }
 
-func (m *testMockLogger) Debug() LogEvent { return &testMockLogEvent{logger: m, level: "debug"} }
-func (m *testMockLogger) Info() LogEvent  { return &testMockLogEvent{logger: m, level: "info"} }
-func (m *testMockLogger) Warn() LogEvent  { return &testMockLogEvent{logger: m, level: "warn"} }
-func (m *testMockLogger) Error() LogEvent { return &testMockLogEvent{logger: m, level: "error"} }
+func (m *testMockLogger) Debug() LogEvent                { return &testMockLogEvent{logger: m, level: "debug"} }
+func (m *testMockLogger) Info() LogEvent                 { return &testMockLogEvent{logger: m, level: "info"} }
+func (m *testMockLogger) Warn() LogEvent                 { return &testMockLogEvent{logger: m, level: "warn"} }
+func (m *testMockLogger) Error() LogEvent                { return &testMockLogEvent{logger: m, level: "error"} }
 func (m *testMockLogger) Printf(format string, v ...any) {}
 
 func (m *testMockLogger) messageCount() int {

@@ -12,9 +12,9 @@ import (
 
 // TokenEvent represents an event from Redpanda
 type TokenEvent struct {
-	Type      EventType              `json:"type"`
-	Timestamp int64                  `json:"timestamp"`
-	Data      map[string]interface{} `json:"data"`
+	Type      EventType      `json:"type"`
+	Timestamp int64          `json:"timestamp"`
+	Data      map[string]any `json:"data"`
 }
 
 // BroadcastFunc is called when a message is received

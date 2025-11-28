@@ -106,7 +106,7 @@ func TestCalculateBufferStats_AllSame(t *testing.T) {
 func TestCalculateBufferStats_Percentiles(t *testing.T) {
 	// Create 100 samples for cleaner percentile testing
 	samples := make([]int, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		samples[i] = i + 1 // 1, 2, 3, ..., 100
 	}
 
@@ -185,19 +185,19 @@ func TestCalculateBufferStats_DoesNotModifyInput(t *testing.T) {
 
 func BenchmarkCalculateBufferStats_Small(b *testing.B) {
 	samples := []int{10, 20, 30, 40, 50}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		calculateBufferStats(samples)
 	}
 }
 
 func BenchmarkCalculateBufferStats_Large(b *testing.B) {
 	samples := make([]int, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		samples[i] = i
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		calculateBufferStats(samples)
 	}
 }

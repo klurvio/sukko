@@ -37,7 +37,7 @@ func TestSequenceGenerator_Monotonic(t *testing.T) {
 	const count = 1000
 
 	var prev int64 = 0
-	for i := 0; i < count; i++ {
+	for i := range count {
 		seq := sg.Next()
 		if seq <= prev {
 			t.Errorf("Sequence %d not greater than previous %d at iteration %d", seq, prev, i)
@@ -104,10 +104,10 @@ func TestSequenceGenerator_Concurrent(t *testing.T) {
 
 	results := make(chan int64, numGoroutines*numOps)
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < numOps; j++ {
+			for range numOps {
 				results <- sg.Next()
 			}
 		}()

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/adred-codev/ws_poc/internal/shared/types"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // =============================================================================
@@ -124,35 +125,97 @@ func TestDropReasonConstants(t *testing.T) {
 // Update Function Tests (verify they don't panic)
 // =============================================================================
 
-func TestUpdateMessageMetrics_NoPanic(t *testing.T) {
-	// Should not panic with any input
-	UpdateMessageMetrics(0, 0)
+func TestUpdateMessageMetrics_IncrementsCounters(t *testing.T) {
+	// Get baseline values
+	sentBefore := testutil.ToFloat64(messagesSent)
+	receivedBefore := testutil.ToFloat64(messagesReceived)
+
+	// Update with known values
 	UpdateMessageMetrics(100, 50)
-	UpdateMessageMetrics(-1, -1) // Edge case
+
+	// Verify counters incremented correctly
+	sentAfter := testutil.ToFloat64(messagesSent)
+	receivedAfter := testutil.ToFloat64(messagesReceived)
+
+	if sentAfter-sentBefore != 100 {
+		t.Errorf("messagesSent: got delta %f, want 100", sentAfter-sentBefore)
+	}
+	if receivedAfter-receivedBefore != 50 {
+		t.Errorf("messagesReceived: got delta %f, want 50", receivedAfter-receivedBefore)
+	}
+
+	// Zero values should not change counters
+	sentBefore = sentAfter
+	receivedBefore = receivedAfter
+	UpdateMessageMetrics(0, 0)
+
+	if testutil.ToFloat64(messagesSent) != sentBefore {
+		t.Error("messagesSent should not change with zero input")
+	}
+	if testutil.ToFloat64(messagesReceived) != receivedBefore {
+		t.Error("messagesReceived should not change with zero input")
+	}
+
+	// Negative values should not change counters (guard in implementation)
+	UpdateMessageMetrics(-1, -1)
+	if testutil.ToFloat64(messagesSent) != sentBefore {
+		t.Error("messagesSent should not change with negative input")
+	}
 }
 
-func TestUpdateBytesMetrics_NoPanic(t *testing.T) {
-	// Should not panic with any input
-	UpdateBytesMetrics(0, 0)
+func TestUpdateBytesMetrics_IncrementsCounters(t *testing.T) {
+	// Get baseline values
+	sentBefore := testutil.ToFloat64(bytesSent)
+	receivedBefore := testutil.ToFloat64(bytesReceived)
+
+	// Update with known values
 	UpdateBytesMetrics(1024, 512)
-	UpdateBytesMetrics(-1, -1) // Edge case
+
+	// Verify counters incremented correctly
+	sentAfter := testutil.ToFloat64(bytesSent)
+	receivedAfter := testutil.ToFloat64(bytesReceived)
+
+	if sentAfter-sentBefore != 1024 {
+		t.Errorf("bytesSent: got delta %f, want 1024", sentAfter-sentBefore)
+	}
+	if receivedAfter-receivedBefore != 512 {
+		t.Errorf("bytesReceived: got delta %f, want 512", receivedAfter-receivedBefore)
+	}
+
+	// Zero values should not change counters
+	sentBefore = sentAfter
+	UpdateBytesMetrics(0, 0)
+	if testutil.ToFloat64(bytesSent) != sentBefore {
+		t.Error("bytesSent should not change with zero input")
+	}
 }
 
-func TestIncrementSlowClientDisconnects_NoPanic(t *testing.T) {
-	// Multiple calls should not panic
-	for i := 0; i < 10; i++ {
+func TestIncrementSlowClientDisconnects_IncrementsCounter(t *testing.T) {
+	// Get baseline value
+	before := testutil.ToFloat64(slowClientsDisconnected)
+
+	// Increment 10 times
+	for range 10 {
 		IncrementSlowClientDisconnects()
+	}
+
+	// Verify counter incremented correctly
+	after := testutil.ToFloat64(slowClientsDisconnected)
+	delta := after - before
+
+	if delta != 10 {
+		t.Errorf("slowClientsDisconnected: got delta %f, want 10", delta)
 	}
 }
 
 func TestIncrementRateLimitedMessages_NoPanic(t *testing.T) {
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		IncrementRateLimitedMessages()
 	}
 }
 
 func TestIncrementReplayRequests_NoPanic(t *testing.T) {
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		IncrementReplayRequests()
 	}
 }
@@ -164,13 +227,13 @@ func TestIncrementConnectionRateLimit_NoPanic(t *testing.T) {
 }
 
 func TestIncrementKafkaMessages_NoPanic(t *testing.T) {
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		IncrementKafkaMessages()
 	}
 }
 
 func TestIncrementKafkaDropped_NoPanic(t *testing.T) {
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		IncrementKafkaDropped()
 	}
 }
@@ -388,8 +451,8 @@ func TestRecordClientBufferSizeWithStats_SlidingWindow(t *testing.T) {
 		BufferSaturationSamples: make([]int, 0, 100),
 	}
 
-	// Add more than 100 samples
-	for i := 0; i <= 105; i++ {
+	// Add more than 100 samples (0-105 inclusive = 106 samples)
+	for i := range 106 {
 		RecordClientBufferSizeWithStats(stats, i, 512)
 	}
 
@@ -412,7 +475,7 @@ func TestRecordDisconnectWithStats_Concurrent(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -442,7 +505,7 @@ func TestRecordDroppedBroadcastWithStats_Concurrent(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -473,7 +536,7 @@ func TestRecordDroppedBroadcastWithStats_Concurrent(t *testing.T) {
 type mockServerMetrics struct {
 	config        types.ServerConfig
 	stats         *types.Stats
-	kafkaConsumer interface{}
+	kafkaConsumer any
 }
 
 func (m *mockServerMetrics) GetConfig() types.ServerConfig {
@@ -484,7 +547,7 @@ func (m *mockServerMetrics) GetStats() *types.Stats {
 	return m.stats
 }
 
-func (m *mockServerMetrics) GetKafkaConsumer() interface{} {
+func (m *mockServerMetrics) GetKafkaConsumer() any {
 	return m.kafkaConsumer
 }
 
@@ -548,14 +611,30 @@ func TestMetricsCollector_CollectsStats(t *testing.T) {
 
 	collector := NewMetricsCollector(mock)
 
-	// Update connection count
+	// Update connection count before starting collector
 	atomic.StoreInt64(&mock.stats.CurrentConnections, 500)
 
 	collector.Start()
 	time.Sleep(100 * time.Millisecond)
 	collector.Stop()
 
-	// If we got here without panic, test passes
+	// Verify collector updated the Prometheus gauge
+	activeConns := testutil.ToFloat64(connectionsActive)
+	if activeConns != 500 {
+		t.Errorf("connectionsActive: got %f, want 500", activeConns)
+	}
+
+	// Verify max connections was set
+	maxConns := testutil.ToFloat64(connectionsMax)
+	if maxConns != 5000 {
+		t.Errorf("connectionsMax: got %f, want 5000", maxConns)
+	}
+
+	// Verify goroutines gauge was updated (should be > 0)
+	goroutines := testutil.ToFloat64(goroutinesActive)
+	if goroutines <= 0 {
+		t.Errorf("goroutinesActive: got %f, should be > 0", goroutines)
+	}
 }
 
 func TestMetricsCollector_KafkaStatus_NoConsumer(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adred-codev/ws_poc/internal/shared/kafka"
 	"github.com/adred-codev/ws_poc/internal/shared/types"
 )
 
@@ -58,16 +59,34 @@ func TestServer_GetStats(t *testing.T) {
 }
 
 func TestServer_GetKafkaConsumer_Nil(t *testing.T) {
+	// IMPORTANT: This test documents a Go language behavior, not a bug.
+	//
+	// Go Interface Nil Semantics:
+	// When a nil *kafka.Consumer is returned as interface{}, the interface
+	// itself is NOT nil. This is because interfaces have (type, value) pairs:
+	// - nil interface: (type=nil, value=nil)
+	// - interface holding nil pointer: (type=*kafka.Consumer, value=nil)
+	//
+	// Callers should NOT check "if GetKafkaConsumer() == nil", they should:
+	// 1. Type assert: consumer, ok := GetKafkaConsumer().(*kafka.Consumer)
+	// 2. Then check: if consumer == nil { ... }
+
 	server := &Server{kafkaConsumer: nil}
 
 	got := server.GetKafkaConsumer()
 
-	// Note: In Go, returning a nil pointer wrapped in interface{} is not == nil
-	// The interface itself is non-nil, but points to a nil value
-	// This is expected behavior - callers should type assert and check
+	// Verify the Go nil interface behavior
 	if got == nil {
-		// This should NOT happen because interface{} containing nil *kafka.Consumer != nil
-		t.Error("GetKafkaConsumer() returned nil interface (unexpected)")
+		t.Error("Expected non-nil interface (Go behavior: nil pointer in interface != nil)")
+	}
+
+	// Demonstrate the correct way to check for nil
+	consumer, ok := got.(*kafka.Consumer)
+	if !ok {
+		t.Error("Should be able to type assert to *kafka.Consumer")
+	}
+	if consumer != nil {
+		t.Error("Type-asserted value should be nil")
 	}
 }
 
@@ -85,9 +104,9 @@ func TestServer_Stats_ConcurrentUpdates(t *testing.T) {
 	done := make(chan bool)
 
 	// Concurrent connection increments
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
-			for j := 0; j < numUpdates; j++ {
+			for range numUpdates {
 				atomic.AddInt64(&server.stats.CurrentConnections, 1)
 				atomic.AddInt64(&server.stats.TotalConnections, 1)
 			}
@@ -96,7 +115,7 @@ func TestServer_Stats_ConcurrentUpdates(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 
@@ -557,9 +576,9 @@ func TestServer_ShutdownFlag_ConcurrentReads(t *testing.T) {
 	done := make(chan bool)
 
 	// Start readers before setting flag
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		go func() {
-			for j := 0; j < 1000; j++ {
+			for range 1000 {
 				_ = atomic.LoadInt32(&server.shuttingDown)
 			}
 			done <- true
@@ -570,7 +589,7 @@ func TestServer_ShutdownFlag_ConcurrentReads(t *testing.T) {
 	atomic.StoreInt32(&server.shuttingDown, 1)
 
 	// Wait for all readers
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		<-done
 	}
 
@@ -590,7 +609,7 @@ func TestClientIDGeneration_AtomicIncrement(t *testing.T) {
 	ids := make(map[int64]bool)
 	iterations := 10000
 
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		id := atomic.AddInt64(&counter, 1)
 		if ids[id] {
 			t.Errorf("Duplicate ID generated: %d", id)
@@ -612,7 +631,7 @@ func TestConnectionSemaphore_Behavior(t *testing.T) {
 	sem := make(chan struct{}, maxConn)
 
 	// Should be able to acquire maxConn slots
-	for i := 0; i < maxConn; i++ {
+	for i := range maxConn {
 		select {
 		case sem <- struct{}{}:
 			// Good
@@ -648,8 +667,7 @@ func TestConnectionSemaphore_Behavior(t *testing.T) {
 func BenchmarkParseMessageType(b *testing.B) {
 	input := []byte(`{"type":"subscribe","data":{"channels":["BTC.trade"]}}`)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var msg struct {
 			Type string          `json:"type"`
 			Data json.RawMessage `json:"data"`
@@ -661,8 +679,7 @@ func BenchmarkParseMessageType(b *testing.B) {
 func BenchmarkParseSubscribeRequest(b *testing.B) {
 	input := []byte(`{"channels":["BTC.trade","ETH.liquidity","SOL.social"]}`)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var req struct {
 			Channels []string `json:"channels"`
 		}
@@ -671,7 +688,7 @@ func BenchmarkParseSubscribeRequest(b *testing.B) {
 }
 
 func BenchmarkHeartbeatResponse(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		pong := map[string]any{
 			"type": "pong",
 			"ts":   time.Now().UnixMilli(),
@@ -683,8 +700,7 @@ func BenchmarkHeartbeatResponse(b *testing.B) {
 func BenchmarkSubscriptionAck(b *testing.B) {
 	channels := []string{"BTC.trade", "ETH.liquidity", "SOL.social"}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ack := map[string]any{
 			"type":       "subscription_ack",
 			"subscribed": channels,

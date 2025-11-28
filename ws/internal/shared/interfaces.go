@@ -136,7 +136,7 @@ type ListenerFactory interface {
 
 // KafkaConsumerFactory abstracts Kafka consumer creation for testability.
 type KafkaConsumerFactory interface {
-	NewConsumer(cfg interface{}) (KafkaConsumer, error)
+	NewConsumer(cfg any) (KafkaConsumer, error)
 }
 
 // KafkaConsumer abstracts Kafka consumer operations.
@@ -165,9 +165,9 @@ type PumpDependencies struct {
 // ServerDependencies holds optional injectable dependencies for Server.
 // nil values use production defaults.
 type ServerDependencies struct {
-	Logger               Logger              // nil = use default zerolog
-	ListenerFactory      ListenerFactory     // nil = use net.Listen
+	Logger               Logger               // nil = use default zerolog
+	ListenerFactory      ListenerFactory      // nil = use net.Listen
 	KafkaConsumerFactory KafkaConsumerFactory // nil = use real Kafka
-	Clock                Clock               // nil = use real time
-	TestMode             bool                // Skip background goroutines in tests
+	Clock                Clock                // nil = use real time
+	TestMode             bool                 // Skip background goroutines in tests
 }

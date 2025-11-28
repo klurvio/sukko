@@ -181,27 +181,25 @@ func TestSubscriptionSet_ThreadSafety(t *testing.T) {
 	iterations := 100
 
 	// Concurrent adds
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for range iterations {
 				set.Add("channel" + string(rune('A'+id)))
 			}
 		}(i)
 	}
 
 	// Concurrent reads
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+	for range 10 {
+		wg.Go(func() {
+			for range iterations {
 				_ = set.Count()
 				_ = set.Has("channelA")
 				_ = set.List()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -394,34 +392,32 @@ func TestSubscriptionIndex_ThreadSafety(t *testing.T) {
 	}
 
 	// Concurrent adds
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for range iterations {
 				idx.Add("channel"+string(rune('A'+id%3)), clients[id])
 			}
 		}(i)
 	}
 
 	// Concurrent reads
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+	for range 10 {
+		wg.Go(func() {
+			for range iterations {
 				_ = idx.Count("channelA")
 				_ = idx.Get("channelB")
 			}
-		}()
+		})
 	}
 
 	// Concurrent removes
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < iterations/2; j++ {
+			for range iterations / 2 {
 				idx.Remove("channelA", clients[id])
 			}
 		}(i)
@@ -437,11 +433,11 @@ func TestSubscriptionIndex_ThreadSafety(t *testing.T) {
 
 func TestNewConnectionPool(t *testing.T) {
 	pool := NewConnectionPool(100, 512)
-
 	if pool == nil {
 		t.Fatal("NewConnectionPool should return non-nil")
 	}
-	if pool.maxSize != 100 {
+
+	if pool.maxSize != 100 { //nolint:staticcheck // SA5011 false positive - t.Fatal stops execution
 		t.Errorf("maxSize should be 100, got %d", pool.maxSize)
 	}
 	if pool.bufferSize != 512 {
@@ -469,11 +465,11 @@ func TestConnectionPool_Get(t *testing.T) {
 	pool := NewConnectionPool(100, 256)
 
 	client := pool.Get()
-
 	if client == nil {
 		t.Fatal("Get should return non-nil client")
 	}
-	if cap(client.send) != 256 {
+
+	if cap(client.send) != 256 { //nolint:staticcheck // SA5011 false positive - t.Fatal stops execution
 		t.Errorf("send channel capacity should be 256, got %d", cap(client.send))
 	}
 	if client.seqGen == nil {
@@ -489,7 +485,7 @@ func TestConnectionPool_Get_SequenceReset(t *testing.T) {
 
 	client := pool.Get()
 	// Advance sequence number
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		client.seqGen.Next()
 	}
 
@@ -553,18 +549,16 @@ func TestConnectionPool_ThreadSafety(t *testing.T) {
 	iterations := 100
 
 	// Concurrent Get and Put
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+	for range 20 {
+		wg.Go(func() {
+			for j := range iterations {
 				client := pool.Get()
 				if client != nil {
 					client.id = int64(j)
 					pool.Put(client)
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -577,7 +571,7 @@ func TestConnectionPool_ThreadSafety(t *testing.T) {
 
 func BenchmarkSubscriptionSet_Add(b *testing.B) {
 	set := NewSubscriptionSet()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		set.Add("BTC.trade")
 	}
 }
@@ -585,8 +579,8 @@ func BenchmarkSubscriptionSet_Add(b *testing.B) {
 func BenchmarkSubscriptionSet_Has(b *testing.B) {
 	set := NewSubscriptionSet()
 	set.Add("BTC.trade")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		_ = set.Has("BTC.trade")
 	}
 }
@@ -597,27 +591,27 @@ func BenchmarkSubscriptionIndex_Add(b *testing.B) {
 	for i := range clients {
 		clients[i] = &Client{id: int64(i)}
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := 0; b.Loop(); i++ {
 		idx.Add("BTC.trade", clients[i%100])
 	}
 }
 
 func BenchmarkSubscriptionIndex_Get(b *testing.B) {
 	idx := NewSubscriptionIndex()
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		idx.Add("BTC.trade", &Client{id: int64(i)})
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		_ = idx.Get("BTC.trade")
 	}
 }
 
 func BenchmarkConnectionPool_GetPut(b *testing.B) {
 	pool := NewConnectionPool(1000, 256)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		client := pool.Get()
 		pool.Put(client)
 	}

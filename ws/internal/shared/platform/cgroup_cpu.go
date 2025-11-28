@@ -3,6 +3,7 @@ package platform
 import (
 	"bufio"
 	"fmt"
+	"maps"
 	"os"
 	"runtime"
 	"strconv"
@@ -446,9 +447,7 @@ func (cm *CPUMonitor) GetInfo() map[string]any {
 	}
 
 	if cm.mode == "container" {
-		for k, v := range cm.containerCPU.GetInfo() {
-			info[k] = v
-		}
+		maps.Copy(info, cm.containerCPU.GetInfo())
 	}
 
 	return info
