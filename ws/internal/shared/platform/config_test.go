@@ -35,10 +35,10 @@ func newValidConfig() *Config {
 		CPUPollInterval:            1 * time.Second,
 		LogLevel:                   "info",
 		LogFormat:                  "json",
-		RedisSentinelAddrs:         []string{"localhost:26379"},
-		RedisMasterName:            "mymaster",
-		RedisChannel:               "ws.broadcast",
-		RedisDB:                    0,
+		ValkeyAddrs:      []string{"localhost:26379"},
+		ValkeyMasterName: "mymaster",
+		ValkeyChannel:    "ws.broadcast",
+		ValkeyDB:         0,
 		ClientSendBufferSize:       512,
 	}
 }
@@ -188,7 +188,7 @@ func TestConfig_Validate_LogFormat(t *testing.T) {
 	}
 }
 
-func TestConfig_Validate_Redis(t *testing.T) {
+func TestConfig_Validate_Valkey(t *testing.T) {
 	tests := []struct {
 		name        string
 		addrs       []string
@@ -199,17 +199,17 @@ func TestConfig_Validate_Redis(t *testing.T) {
 	}{
 		{"valid", []string{"localhost:26379"}, 0, "ws.broadcast", false, ""},
 		{"multiple addrs", []string{"host1:26379", "host2:26379", "host3:26379"}, 0, "ws.broadcast", false, ""},
-		{"empty addrs", []string{}, 0, "ws.broadcast", true, "REDIS_SENTINEL_ADDRS"},
-		{"negative db", []string{"localhost:26379"}, -1, "ws.broadcast", true, "REDIS_DB"},
-		{"empty channel", []string{"localhost:26379"}, 0, "", true, "REDIS_CHANNEL"},
+		{"empty addrs", []string{}, 0, "ws.broadcast", true, "VALKEY_ADDRS"},
+		{"negative db", []string{"localhost:26379"}, -1, "ws.broadcast", true, "VALKEY_DB"},
+		{"empty channel", []string{"localhost:26379"}, 0, "", true, "VALKEY_CHANNEL"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := newValidConfig()
-			cfg.RedisSentinelAddrs = tt.addrs
-			cfg.RedisDB = tt.db
-			cfg.RedisChannel = tt.channel
+			cfg.ValkeyAddrs = tt.addrs
+			cfg.ValkeyDB = tt.db
+			cfg.ValkeyChannel = tt.channel
 
 			err := cfg.Validate()
 			if tt.shouldError {

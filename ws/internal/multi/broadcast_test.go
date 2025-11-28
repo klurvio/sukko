@@ -254,8 +254,8 @@ func TestBroadcastBus_GetMetrics_AllFields(t *testing.T) {
 	metrics := bus.GetMetrics()
 
 	// Check all expected fields
-	if metrics["type"] != "redis" {
-		t.Errorf("type: got %v, want redis", metrics["type"])
+	if metrics["type"] != "valkey" {
+		t.Errorf("type: got %v, want valkey", metrics["type"])
 	}
 	if metrics["healthy"] != true {
 		t.Errorf("healthy: got %v, want true", metrics["healthy"])

@@ -12,10 +12,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// BroadcastBus is a Redis Pub/Sub-based system for inter-shard and inter-instance communication.
+// BroadcastBus is a Valkey Pub/Sub-based system for inter-shard and inter-instance communication.
 // It replaces the in-memory channel approach to enable horizontal scaling across multiple VM instances.
+// Uses go-redis client which is compatible with both Valkey and Redis.
 type BroadcastBus struct {
-	// Redis client (Sentinel failover support)
+	// Valkey client (Sentinel failover support)
 	client *redis.Client
 	pubsub *redis.PubSub
 
@@ -42,8 +43,8 @@ type BroadcastBus struct {
 
 // BroadcastBusConfig holds configuration for creating a BroadcastBus
 type BroadcastBusConfig struct {
-	// Sentinel configuration (supports both self-hosted Sentinel and GCP Memorystore)
-	SentinelAddrs []string // e.g., ["redis-1:26379", "redis-2:26379", "redis-3:26379"] or ["10.0.0.3:6379"]
+	// Valkey connection configuration (supports both Sentinel and single instance)
+	SentinelAddrs []string // e.g., ["valkey-1:26379", "valkey-2:26379", "valkey-3:26379"] or ["10.0.0.3:6379"]
 	MasterName    string   // e.g., "mymaster"
 	Password      string
 	DB            int
@@ -55,11 +56,11 @@ type BroadcastBusConfig struct {
 	Logger zerolog.Logger
 }
 
-// NewBroadcastBus creates a new Redis-based BroadcastBus
+// NewBroadcastBus creates a new Valkey-based BroadcastBus
 func NewBroadcastBus(cfg BroadcastBusConfig) (*BroadcastBus, error) {
 	// Validate configuration
 	if len(cfg.SentinelAddrs) == 0 {
-		return nil, fmt.Errorf("REDIS_SENTINEL_ADDRS is required (at least one address)")
+		return nil, fmt.Errorf("VALKEY_ADDRS is required (at least one address)")
 	}
 	if cfg.MasterName == "" {
 		cfg.MasterName = "mymaster" // Default
@@ -73,16 +74,16 @@ func NewBroadcastBus(cfg BroadcastBusConfig) (*BroadcastBus, error) {
 
 	busLogger := cfg.Logger.With().Str("component", "broadcast_bus").Logger()
 
-	// Create Redis client
-	// If single address: Direct connection (GCP Memorystore or single Redis)
+	// Create Valkey client (using go-redis which is compatible with Valkey)
+	// If single address: Direct connection (single Valkey instance)
 	// If multiple addresses: Sentinel failover (self-hosted HA)
 	var client *redis.Client
 	if len(cfg.SentinelAddrs) == 1 {
-		// Direct connection mode (GCP Memorystore or single Redis instance)
+		// Direct connection mode (single Valkey instance)
 		busLogger.Info().
 			Str("mode", "direct").
 			Str("addr", cfg.SentinelAddrs[0]).
-			Msg("Connecting to Redis (direct mode)")
+			Msg("Connecting to Valkey (direct mode)")
 
 		client = redis.NewClient(&redis.Options{
 			Addr:     cfg.SentinelAddrs[0],
@@ -104,12 +105,12 @@ func NewBroadcastBus(cfg BroadcastBusConfig) (*BroadcastBus, error) {
 			MaxRetryBackoff: 1 * time.Second,
 		})
 	} else {
-		// Sentinel failover mode (self-hosted Redis Sentinel cluster)
+		// Sentinel failover mode (self-hosted Valkey Sentinel cluster)
 		busLogger.Info().
 			Str("mode", "sentinel").
 			Strs("sentinel_addrs", cfg.SentinelAddrs).
 			Str("master_name", cfg.MasterName).
-			Msg("Connecting to Redis Sentinel")
+			Msg("Connecting to Valkey Sentinel")
 
 		client = redis.NewFailoverClient(&redis.FailoverOptions{
 			MasterName:    cfg.MasterName,
@@ -138,13 +139,13 @@ func NewBroadcastBus(cfg BroadcastBusConfig) (*BroadcastBus, error) {
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
+		return nil, fmt.Errorf("failed to connect to Valkey: %w", err)
 	}
 
 	busLogger.Info().
 		Str("channel", cfg.Channel).
 		Int("buffer_size", cfg.BufferSize).
-		Msg("Successfully connected to Redis")
+		Msg("Successfully connected to Valkey")
 
 	// Create context for lifecycle management
 	busCtx, busCancel := context.WithCancel(context.Background())
@@ -167,19 +168,19 @@ func NewBroadcastBus(cfg BroadcastBusConfig) (*BroadcastBus, error) {
 // Run starts the BroadcastBus's main loop
 // Must be called after all shards have called Subscribe()
 func (b *BroadcastBus) Run() {
-	// Subscribe to Redis channel
+	// Subscribe to Valkey channel
 	b.pubsub = b.client.Subscribe(b.ctx, b.channel)
 
 	b.logger.Info().
 		Str("channel", b.channel).
 		Int("subscribers", len(b.subscribers)).
-		Msg("BroadcastBus started (Redis Pub/Sub)")
+		Msg("BroadcastBus started (Valkey Pub/Sub)")
 
-	// Start receive loop (fans out Redis messages to local subscribers)
+	// Start receive loop (fans out Valkey messages to local subscribers)
 	b.wg.Add(1)
 	go b.receiveLoop()
 
-	// Start health check loop (periodic Redis PING)
+	// Start health check loop (periodic Valkey PING)
 	b.wg.Add(1)
 	go b.healthCheckLoop()
 }
@@ -207,16 +208,16 @@ func (b *BroadcastBus) Shutdown() {
 		b.logger.Warn().Msg("BroadcastBus shutdown timeout (5s), forcing exit")
 	}
 
-	// Close Redis connections
+	// Close Valkey connections
 	// This will cause any goroutines still running to error out
 	if b.pubsub != nil {
 		if err := b.pubsub.Close(); err != nil {
-			b.logger.Error().Err(err).Msg("Failed to close Redis Pub/Sub")
+			b.logger.Error().Err(err).Msg("Failed to close Valkey Pub/Sub")
 		}
 	}
 
 	if err := b.client.Close(); err != nil {
-		b.logger.Error().Err(err).Msg("Failed to close Redis client")
+		b.logger.Error().Err(err).Msg("Failed to close Valkey client")
 	}
 
 	// Only close subscriber channels if goroutines have stopped
@@ -240,7 +241,7 @@ func (b *BroadcastBus) Shutdown() {
 	b.logger.Info().Msg("BroadcastBus shutdown complete")
 }
 
-// Publish sends a message to Redis Pub/Sub (broadcasts to all instances)
+// Publish sends a message to Valkey Pub/Sub (broadcasts to all instances)
 func (b *BroadcastBus) Publish(msg *BroadcastMessage) {
 	// Serialize message to JSON
 	payload, err := json.Marshal(msg)
@@ -253,7 +254,7 @@ func (b *BroadcastBus) Publish(msg *BroadcastMessage) {
 		return
 	}
 
-	// Publish to Redis with timeout (non-blocking)
+	// Publish to Valkey with timeout (non-blocking)
 	ctx, cancel := context.WithTimeout(b.ctx, 100*time.Millisecond)
 	defer cancel()
 
@@ -262,7 +263,7 @@ func (b *BroadcastBus) Publish(msg *BroadcastMessage) {
 			Err(err).
 			Str("channel", b.channel).
 			Str("subject", msg.Subject).
-			Msg("Failed to publish message to Redis")
+			Msg("Failed to publish message to Valkey")
 
 		b.publishErrors.Add(1)
 		b.healthy.Store(false)
@@ -291,33 +292,33 @@ func (b *BroadcastBus) Subscribe() chan *BroadcastMessage {
 	return subCh
 }
 
-// receiveLoop receives messages from Redis and fans out to local subscribers
+// receiveLoop receives messages from Valkey and fans out to local subscribers
 func (b *BroadcastBus) receiveLoop() {
 	defer b.wg.Done()
 
 	ch := b.pubsub.Channel()
 
-	b.logger.Info().Msg("Redis receive loop started")
+	b.logger.Info().Msg("Valkey receive loop started")
 
 	for {
 		select {
 		case <-b.ctx.Done():
-			b.logger.Info().Msg("Redis receive loop stopping (context cancelled)")
+			b.logger.Info().Msg("Valkey receive loop stopping (context cancelled)")
 			return
 
-		case redisMsg, ok := <-ch:
+		case valkeyMsg, ok := <-ch:
 			if !ok {
 				// Channel closed, attempt reconnection
-				b.logger.Warn().Msg("Redis Pub/Sub channel closed, reconnecting...")
+				b.logger.Warn().Msg("Valkey Pub/Sub channel closed, reconnecting...")
 				b.healthy.Store(false)
 
 				if b.reconnect() {
 					// Reconnected, get new channel
 					ch = b.pubsub.Channel()
-					b.logger.Info().Msg("Reconnected to Redis, resuming receive loop")
+					b.logger.Info().Msg("Reconnected to Valkey, resuming receive loop")
 				} else {
 					// Failed to reconnect, exit loop
-					b.logger.Error().Msg("Failed to reconnect to Redis, exiting receive loop")
+					b.logger.Error().Msg("Failed to reconnect to Valkey, exiting receive loop")
 					return
 				}
 				continue
@@ -325,11 +326,11 @@ func (b *BroadcastBus) receiveLoop() {
 
 			// Deserialize message
 			var msg BroadcastMessage
-			if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
+			if err := json.Unmarshal([]byte(valkeyMsg.Payload), &msg); err != nil {
 				b.logger.Error().
 					Err(err).
-					Str("payload", redisMsg.Payload).
-					Msg("Failed to deserialize Redis message")
+					Str("payload", valkeyMsg.Payload).
+					Msg("Failed to deserialize Valkey message")
 				continue
 			}
 
@@ -403,7 +404,7 @@ func (b *BroadcastBus) fanOut(msg *BroadcastMessage) {
 	}
 }
 
-// reconnect attempts to resubscribe to Redis after connection loss
+// reconnect attempts to resubscribe to Valkey after connection loss
 func (b *BroadcastBus) reconnect() bool {
 	backoff := 100 * time.Millisecond
 	maxBackoff := 30 * time.Second
@@ -417,7 +418,7 @@ func (b *BroadcastBus) reconnect() bool {
 			b.logger.Info().
 				Int("attempt", attempt).
 				Dur("backoff", backoff).
-				Msg("Attempting to reconnect to Redis Pub/Sub")
+				Msg("Attempting to reconnect to Valkey Pub/Sub")
 
 			// Close old subscription
 			if b.pubsub != nil {
@@ -432,7 +433,7 @@ func (b *BroadcastBus) reconnect() bool {
 				b.logger.Error().
 					Err(err).
 					Int("attempt", attempt).
-					Msg("Redis Pub/Sub reconnection failed")
+					Msg("Valkey Pub/Sub reconnection failed")
 
 				// Exponential backoff
 				backoff *= 2
@@ -444,7 +445,7 @@ func (b *BroadcastBus) reconnect() bool {
 
 			b.logger.Info().
 				Int("attempt", attempt).
-				Msg("Successfully reconnected to Redis Pub/Sub")
+				Msg("Successfully reconnected to Valkey Pub/Sub")
 			b.healthy.Store(true)
 			return true
 		}
@@ -452,11 +453,11 @@ func (b *BroadcastBus) reconnect() bool {
 
 	b.logger.Error().
 		Int("max_attempts", maxAttempts).
-		Msg("Failed to reconnect to Redis after max attempts")
+		Msg("Failed to reconnect to Valkey after max attempts")
 	return false
 }
 
-// healthCheckLoop periodically pings Redis to verify connectivity
+// healthCheckLoop periodically pings Valkey to verify connectivity
 func (b *BroadcastBus) healthCheckLoop() {
 	defer b.wg.Done()
 
@@ -475,12 +476,12 @@ func (b *BroadcastBus) healthCheckLoop() {
 			if err != nil {
 				b.logger.Error().
 					Err(err).
-					Msg("Redis health check failed")
+					Msg("Valkey health check failed")
 				b.healthy.Store(false)
 			} else {
 				// Only log health check success at debug level to reduce noise
 				if b.logger.GetLevel() <= zerolog.DebugLevel {
-					b.logger.Debug().Msg("Redis health check passed")
+					b.logger.Debug().Msg("Valkey health check passed")
 				}
 				b.healthy.Store(true)
 			}
@@ -505,7 +506,7 @@ func (b *BroadcastBus) IsHealthy() bool {
 		if b.logger.GetLevel() <= zerolog.DebugLevel {
 			b.logger.Debug().
 				Dur("since_last_publish", time.Since(time.Unix(lastPub, 0))).
-				Msg("No recent Redis publish (might be normal)")
+				Msg("No recent Valkey publish (might be normal)")
 		}
 	}
 
@@ -523,7 +524,7 @@ func (b *BroadcastBus) GetMetrics() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"type":              "redis",
+		"type":              "valkey",
 		"healthy":           b.IsHealthy(),
 		"channel":           b.channel,
 		"subscribers":       len(b.subscribers),

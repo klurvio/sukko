@@ -84,18 +84,18 @@ func main() {
 	}
 	logger.Printf("Total Max Connections: %d, Shards: %d, Max Connections per Shard: %d", cfg.MaxConnections, *numShards, maxConnsPerShard)
 
-	// Initialize central BroadcastBus (Redis Pub/Sub for multi-instance communication)
+	// Initialize central BroadcastBus (Valkey Pub/Sub for multi-instance communication)
 	busLogger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevel(cfg.LogLevel),
 		Format: types.LogFormat(cfg.LogFormat),
 	})
 
 	broadcastBus, err := multi.NewBroadcastBus(multi.BroadcastBusConfig{
-		SentinelAddrs: cfg.RedisSentinelAddrs,
-		MasterName:    cfg.RedisMasterName,
-		Password:      cfg.RedisPassword,
-		DB:            cfg.RedisDB,
-		Channel:       cfg.RedisChannel,
+		SentinelAddrs: cfg.ValkeyAddrs,
+		MasterName:    cfg.ValkeyMasterName,
+		Password:      cfg.ValkeyPassword,
+		DB:            cfg.ValkeyDB,
+		Channel:       cfg.ValkeyChannel,
 		BufferSize:    1024,
 		Logger:        busLogger,
 	})
@@ -103,7 +103,7 @@ func main() {
 		logger.Fatalf("Failed to create BroadcastBus: %v", err)
 	}
 
-	logger.Printf("BroadcastBus initialized (Redis mode: %d sentinel addrs)", len(cfg.RedisSentinelAddrs))
+	logger.Printf("BroadcastBus initialized (Valkey mode: %d addrs)", len(cfg.ValkeyAddrs))
 	broadcastBus.Run()
 
 	// Create shared Kafka consumer pool (replaces per-shard consumers)

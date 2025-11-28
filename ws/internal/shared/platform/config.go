@@ -105,13 +105,13 @@ type Config struct {
 	// Environment
 	Environment string `env:"ENVIRONMENT" envDefault:"development"`
 
-	// Redis Sentinel Configuration (for BroadcastBus)
-	// Supports both self-hosted Sentinel (3 addresses) and GCP Memorystore (1 address)
-	RedisSentinelAddrs []string `env:"REDIS_SENTINEL_ADDRS" envSeparator:"," required:"true"`
-	RedisMasterName    string   `env:"REDIS_MASTER_NAME" envDefault:"mymaster"`
-	RedisPassword      string   `env:"REDIS_PASSWORD"`
-	RedisDB            int      `env:"REDIS_DB" envDefault:"0"`
-	RedisChannel       string   `env:"REDIS_CHANNEL" envDefault:"ws.broadcast"`
+	// Valkey Configuration (for BroadcastBus)
+	// Supports both self-hosted Sentinel (3 addresses) and single instance (1 address)
+	ValkeyAddrs      []string `env:"VALKEY_ADDRS" envSeparator:"," required:"true"`
+	ValkeyMasterName string   `env:"VALKEY_MASTER_NAME" envDefault:"mymaster"`
+	ValkeyPassword   string   `env:"VALKEY_PASSWORD"`
+	ValkeyDB         int      `env:"VALKEY_DB" envDefault:"0"`
+	ValkeyChannel    string   `env:"VALKEY_CHANNEL" envDefault:"ws.broadcast"`
 
 	// Client Send Buffer Size
 	// Controls the per-client send channel buffer (memory vs slow-client tolerance trade-off)
@@ -221,15 +221,15 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("LOG_FORMAT must be one of: json, text, pretty (got: %s)", c.LogFormat)
 	}
 
-	// Redis configuration validation
-	if len(c.RedisSentinelAddrs) == 0 {
-		return fmt.Errorf("REDIS_SENTINEL_ADDRS is required (at least one address)")
+	// Valkey configuration validation
+	if len(c.ValkeyAddrs) == 0 {
+		return fmt.Errorf("VALKEY_ADDRS is required (at least one address)")
 	}
-	if c.RedisDB < 0 {
-		return fmt.Errorf("REDIS_DB must be >= 0, got %d", c.RedisDB)
+	if c.ValkeyDB < 0 {
+		return fmt.Errorf("VALKEY_DB must be >= 0, got %d", c.ValkeyDB)
 	}
-	if c.RedisChannel == "" {
-		return fmt.Errorf("REDIS_CHANNEL cannot be empty")
+	if c.ValkeyChannel == "" {
+		return fmt.Errorf("VALKEY_CHANNEL cannot be empty")
 	}
 
 	// Client send buffer size validation
@@ -288,11 +288,11 @@ func (c *Config) Print() {
 	fmt.Println("\n=== Logging ===")
 	fmt.Printf("Level:           %s\n", c.LogLevel)
 	fmt.Printf("Format:          %s\n", c.LogFormat)
-	fmt.Println("\n=== Redis (BroadcastBus) ===")
-	fmt.Printf("Sentinel Addrs:  %v\n", c.RedisSentinelAddrs)
-	fmt.Printf("Master Name:     %s\n", c.RedisMasterName)
-	fmt.Printf("Channel:         %s\n", c.RedisChannel)
-	fmt.Printf("Database:        %d\n", c.RedisDB)
+	fmt.Println("\n=== Valkey (BroadcastBus) ===")
+	fmt.Printf("Addrs:           %v\n", c.ValkeyAddrs)
+	fmt.Printf("Master Name:     %s\n", c.ValkeyMasterName)
+	fmt.Printf("Channel:         %s\n", c.ValkeyChannel)
+	fmt.Printf("Database:        %d\n", c.ValkeyDB)
 	fmt.Println("\n=== Client Buffers ===")
 	fmt.Printf("Send Buffer:     %d slots (~%dKB/client)\n", c.ClientSendBufferSize, c.ClientSendBufferSize/2)
 	fmt.Println("\n=== Monitoring ===")
@@ -331,10 +331,10 @@ func (c *Config) LogConfig(logger zerolog.Logger) {
 		Dur("cpu_poll_interval", c.CPUPollInterval).
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat).
-		Strs("redis_sentinel_addrs", c.RedisSentinelAddrs).
-		Str("redis_master_name", c.RedisMasterName).
-		Str("redis_channel", c.RedisChannel).
-		Int("redis_db", c.RedisDB).
+		Strs("valkey_addrs", c.ValkeyAddrs).
+		Str("valkey_master_name", c.ValkeyMasterName).
+		Str("valkey_channel", c.ValkeyChannel).
+		Int("valkey_db", c.ValkeyDB).
 		Int("client_send_buffer_size", c.ClientSendBufferSize).
 		Msg("Server configuration loaded")
 }
