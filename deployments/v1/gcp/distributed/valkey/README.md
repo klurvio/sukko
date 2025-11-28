@@ -1,16 +1,16 @@
-# Redis Deployment for WebSocket BroadcastBus
+# Valkey Deployment for WebSocket BroadcastBus
 
-Redis Pub/Sub infrastructure for cross-instance message broadcasting in multi-instance WebSocket server architecture.
+Valkey Pub/Sub infrastructure for cross-instance message broadcasting in multi-instance WebSocket server architecture.
 
 ## Architecture
 
-**Purpose**: Enable horizontal scaling by broadcasting Kafka messages to ALL WebSocket server instances via Redis Pub/Sub.
+**Purpose**: Enable horizontal scaling by broadcasting Kafka messages to ALL WebSocket server instances via Valkey Pub/Sub.
 
 **Flow**:
 ```
 Kafka → KafkaConsumerPool → BroadcastBus.Publish()
                            ↓
-                      Redis PUBLISH
+                      Valkey PUBLISH
                            ↓
                     (Broadcasts to ALL)
                            ↓
@@ -24,14 +24,14 @@ Kafka → KafkaConsumerPool → BroadcastBus.Publish()
    clients only       clients only       clients only
 ```
 
-**Key Point**: Redis does NOT do targeted delivery. ALL shards receive ALL messages and filter locally (O(1) hash lookup).
+**Key Point**: Valkey does NOT do targeted delivery. ALL shards receive ALL messages and filter locally (O(1) hash lookup).
 
 ## Deployment Modes
 
 ### 1. Single Node (Current)
 - **Use case**: Development, initial production, <10K connections
 - **Cost**: ~$62/month (e2-standard-2 + disk)
-- **HA**: None (manual restart if Redis crashes)
+- **HA**: None (manual restart if Valkey crashes)
 - **Setup**: See "Quick Start" below
 
 ### 2. Sentinel Cluster (Future)
@@ -44,7 +44,7 @@ Kafka → KafkaConsumerPool → BroadcastBus.Publish()
 - **Use case**: Managed service, reduce ops burden
 - **Cost**: ~$180/month (5GB standard HA)
 - **HA**: Built-in automatic failover
-- **Setup**: `gcloud redis instances create`
+- **Setup**: `gcloud valkey instances create`
 
 ## Quick Start
 
@@ -53,88 +53,88 @@ Kafka → KafkaConsumerPool → BroadcastBus.Publish()
 - `gcloud` CLI authenticated
 - Docker installed on local machine
 
-### 1. Generate Redis Password
+### 1. Generate Valkey Password
 
 ```bash
 # Generate strong password
 openssl rand -base64 32 | tr -d "=+/" | cut -c1-32
 
 # Store in GCP Secret Manager
-echo -n "YOUR_GENERATED_PASSWORD" | gcloud secrets create redis-password --data-file=-
+echo -n "YOUR_GENERATED_PASSWORD" | gcloud secrets create valkey-password --data-file=-
 
 # Save to .env
 cp .env.example .env
-# Edit .env and set REDIS_PASSWORD=YOUR_GENERATED_PASSWORD
+# Edit .env and set VALKEY_PASSWORD=YOUR_GENERATED_PASSWORD
 ```
 
-### 2. Deploy Redis VM
+### 2. Deploy Valkey VM
 
 ```bash
 # From project root
 cd /Volumes/Dev/Codev/Toniq/ws_poc
 
-# Create VM, firewall, deploy Redis (all in one)
-task redis:create-vm
-task redis:setup-firewall
-task redis:deploy-single
+# Create VM, firewall, deploy Valkey (all in one)
+task valkey:create-vm
+task valkey:setup-firewall
+task valkey:deploy-single
 
 # Verify
-task redis:health
+task valkey:health
 ```
 
 ### 3. Update WS Server Configuration
 
 ```bash
-# Get Redis internal IP
-REDIS_IP=$(gcloud compute instances describe ws-redis \
+# Get Valkey internal IP
+VALKEY_IP=$(gcloud compute instances describe ws-valkey \
   --zone=us-central1-a \
   --format='get(networkInterfaces[0].networkIP)')
 
 # Update ws-server .env
 cd ws
 cat >> .env <<EOF
-# Redis Configuration (auto-detects single node mode)
-REDIS_SENTINEL_ADDRS=${REDIS_IP}:6379
-REDIS_PASSWORD=YOUR_GENERATED_PASSWORD
-REDIS_DB=0
-REDIS_CHANNEL=ws.broadcast
+# Valkey Configuration (auto-detects single node mode)
+VALKEY_SENTINEL_ADDRS=${VALKEY_IP}:6379
+VALKEY_PASSWORD=YOUR_GENERATED_PASSWORD
+VALKEY_DB=0
+VALKEY_CHANNEL=ws.broadcast
 EOF
 ```
 
 ### 4. Test Local Connection
 
 ```bash
-# Start local Redis (for testing)
-docker-compose -f docker-compose.redis-local.yml up -d
+# Start local Valkey (for testing)
+docker-compose -f docker-compose.valkey-local.yml up -d
 
 # Create ws/.env for local testing
 cd ws
 cat > .env <<EOF
-REDIS_SENTINEL_ADDRS=localhost:6379
-REDIS_PASSWORD=testpassword
-REDIS_DB=0
-REDIS_CHANNEL=ws.broadcast
+VALKEY_SENTINEL_ADDRS=localhost:6379
+VALKEY_PASSWORD=testpassword
+VALKEY_DB=0
+VALKEY_CHANNEL=ws.broadcast
 EOF
 
 # Run ws-server
 go run cmd/multi/main.go
 
 # Look for these logs:
-# [INFO] Connecting to Redis (direct mode)
-# [INFO] Successfully connected to Redis
-# [INFO] BroadcastBus started (Redis Pub/Sub)
+# [INFO] Connecting to Valkey (direct mode)
+# [INFO] Successfully connected to Valkey
+# [INFO] BroadcastBus started (Valkey Pub/Sub)
 ```
 
 ## Configuration Files
 
 ### docker-compose.single.yml
-Single-node Redis deployment with:
-- Redis 7.2 Alpine
-- Redis Exporter (Prometheus metrics on :9121)
+Single-node Valkey deployment with:
+- Valkey 7.2 Alpine
+- Valkey Exporter (Prometheus metrics on :9121)
 - Health checks
 - Automatic restart
 
-### redis.conf
+### valkey.conf
 Production-optimized configuration:
 - Persistence disabled (pub/sub workload, ephemeral data)
 - 4GB max memory (allkeys-lru eviction)
@@ -147,57 +147,57 @@ Template for environment variables (copy to `.env`)
 
 ## Task Commands
 
-All Redis operations are managed via Taskfile:
+All Valkey operations are managed via Taskfile:
 
 ```bash
 # Deployment
-task redis:create-vm           # Create GCP VM
-task redis:setup-firewall      # Configure firewall rules
-task redis:deploy-single       # Deploy single-node Redis
+task valkey:create-vm           # Create GCP VM
+task valkey:setup-firewall      # Configure firewall rules
+task valkey:deploy-single       # Deploy single-node Valkey
 
 # Health & Monitoring
-task redis:health              # Run comprehensive health check
-task redis:logs                # Tail Redis logs
-task redis:metrics             # Show real-time metrics
-task redis:cli                 # Open Redis CLI (debug only)
+task valkey:health              # Run comprehensive health check
+task valkey:logs                # Tail Valkey logs
+task valkey:metrics             # Show real-time metrics
+task valkey:cli                 # Open Valkey CLI (debug only)
 
 # Testing
-task redis:load-test           # Redis benchmark
-task redis:pubsub-test         # Pub/sub latency test
+task valkey:load-test           # Valkey benchmark
+task valkey:pubsub-test         # Pub/sub latency test
 
 # Maintenance
-task redis:restart             # Graceful restart
-task redis:stop                # Stop Redis
-task redis:start               # Start Redis
-task redis:backup              # Create snapshot (for debugging)
+task valkey:restart             # Graceful restart
+task valkey:stop                # Stop Valkey
+task valkey:start               # Start Valkey
+task valkey:backup              # Create snapshot (for debugging)
 
 # Future: Sentinel
-task redis:deploy-sentinel     # Deploy 3-node HA cluster
-task redis:failover-test       # Test automatic failover
+task valkey:deploy-sentinel     # Deploy 3-node HA cluster
+task valkey:failover-test       # Test automatic failover
 ```
 
 ## Monitoring
 
 ### Metrics (Prometheus)
 
-Redis Exporter exposes metrics on `:9121/metrics`:
+Valkey Exporter exposes metrics on `:9121/metrics`:
 
 **Critical Metrics**:
-- `redis_up` - Instance availability (alert if 0)
-- `redis_connected_clients` - Should match WS server count (2-10)
-- `redis_commands_processed_per_sec` - Throughput (target: 1K-10K)
-- `redis_latency_percentiles_usec{quantile="0.99"}` - p99 latency (target: <5000µs)
-- `redis_memory_used_bytes / redis_memory_max_bytes` - Memory usage (alert if >90%)
+- `valkey_up` - Instance availability (alert if 0)
+- `valkey_connected_clients` - Should match WS server count (2-10)
+- `valkey_commands_processed_per_sec` - Throughput (target: 1K-10K)
+- `valkey_latency_percentiles_usec{quantile="0.99"}` - p99 latency (target: <5000µs)
+- `valkey_memory_used_bytes / valkey_memory_max_bytes` - Memory usage (alert if >90%)
 
 **Important Metrics**:
-- `redis_pubsub_channels` - Active broadcast channels
-- `redis_slowlog_length` - Slow commands (investigate if >10)
-- `redis_evicted_keys_total` - Should be 0 (pub/sub workload)
-- `redis_rejected_connections_total` - Connection limit issues
+- `valkey_pubsub_channels` - Active broadcast channels
+- `valkey_slowlog_length` - Slow commands (investigate if >10)
+- `valkey_evicted_keys_total` - Should be 0 (pub/sub workload)
+- `valkey_rejected_connections_total` - Connection limit issues
 
 ### Grafana Dashboard
 
-Import dashboard from: `docs/monitoring/redis-dashboard.json` (to be created)
+Import dashboard from: `docs/monitoring/valkey-dashboard.json` (to be created)
 
 **Panels**:
 1. Overview: uptime, clients, commands/sec, memory %
@@ -207,8 +207,8 @@ Import dashboard from: `docs/monitoring/redis-dashboard.json` (to be created)
 
 ### Alerts
 
-Configure in Prometheus (see `taskfiles/v1/gcp/redis.yml`):
-- Redis down (>1min)
+Configure in Prometheus (see `taskfiles/v1/gcp/valkey.yml`):
+- Valkey down (>1min)
 - p99 latency >10ms (>5min)
 - Memory >90% (>5min)
 - Client count mismatch (not 2-10)
@@ -220,7 +220,7 @@ Configure in Prometheus (see `taskfiles/v1/gcp/redis.yml`):
 
 ```bash
 # Comprehensive health check
-./scripts/v1/gcp/redis/healthcheck.sh
+./scripts/v1/gcp/valkey/healthcheck.sh
 
 # Checks:
 # - Connectivity (PING)
@@ -235,51 +235,51 @@ Configure in Prometheus (see `taskfiles/v1/gcp/redis.yml`):
 
 ### Common Issues
 
-**Issue**: `redis_up == 0`
+**Issue**: `valkey_up == 0`
 ```bash
-# Check if Redis container is running
-docker ps | grep redis
+# Check if Valkey container is running
+docker ps | grep valkey
 
 # Check logs
-docker logs redis-single --tail=100
+docker logs valkey-single --tail=100
 
 # Restart if needed
-docker-compose restart redis
+docker-compose restart valkey
 ```
 
 **Issue**: High latency (>10ms)
 ```bash
 # Check slow log
-redis-cli SLOWLOG GET 10
+valkey-cli SLOWLOG GET 10
 
 # Check CPU usage
 top
 
 # Check network latency
-ping <REDIS_IP>
+ping <VALKEY_IP>
 
 # Run latency doctor
-redis-cli --latency-doctor
+valkey-cli --latency-doctor
 ```
 
 **Issue**: Memory at 100%
 ```bash
 # Check memory details
-redis-cli INFO memory
+valkey-cli INFO memory
 
 # Check eviction policy
-redis-cli CONFIG GET maxmemory-policy
+valkey-cli CONFIG GET maxmemory-policy
 
 # Flush (CAUTION: deletes all data)
-redis-cli FLUSHALL
+valkey-cli FLUSHALL
 
-# Or increase maxmemory in redis.conf
+# Or increase maxmemory in valkey.conf
 ```
 
 **Issue**: Client count mismatch
 ```bash
 # List connected clients
-redis-cli CLIENT LIST
+valkey-cli CLIENT LIST
 
 # Expected: 1 connection per WS server instance
 # If more: Check for connection leaks in ws-server
@@ -290,10 +290,10 @@ redis-cli CLIENT LIST
 
 ```bash
 # Via task command (recommended)
-task redis:cli
+task valkey:cli
 
 # Or directly
-docker exec -it redis-single redis-cli -a $REDIS_PASSWORD
+docker exec -it valkey-single valkey-cli -a $VALKEY_PASSWORD
 
 # Useful commands:
 127.0.0.1:6379> INFO stats
@@ -309,9 +309,9 @@ docker exec -it redis-single redis-cli -a $REDIS_PASSWORD
 
 ### Firewall Rules
 
-- **redis-internal**: tcp:6379 from `ws-server` tag only
-- **redis-exporter**: tcp:9121 from `monitoring` tag only
-- **redis-admin**: tcp:6379 from your IP (temporary, for setup only)
+- **valkey-internal**: tcp:6379 from `ws-server` tag only
+- **valkey-exporter**: tcp:9121 from `monitoring` tag only
+- **valkey-admin**: tcp:6379 from your IP (temporary, for setup only)
 
 ### Best Practices
 
@@ -325,7 +325,7 @@ docker exec -it redis-single redis-cli -a $REDIS_PASSWORD
 
 ⚠️ **Future Hardening**:
 - Rotate password quarterly
-- TLS encryption (when supported by go-redis)
+- TLS encryption (when supported by go-valkey)
 - VPC Service Controls
 - Audit logging
 
@@ -335,25 +335,25 @@ docker exec -it redis-single redis-cli -a $REDIS_PASSWORD
 
 ```bash
 # Create snapshot (for debugging, not critical for pub/sub)
-task redis:backup
+task valkey:backup
 
-# Backup stored in: ./backups/redis_backup_TIMESTAMP.rdb.gz
+# Backup stored in: ./backups/valkey_backup_TIMESTAMP.rdb.gz
 ```
 
 ### Restore
 
 ```bash
-# Stop Redis
-docker-compose stop redis
+# Stop Valkey
+docker-compose stop valkey
 
 # Extract backup
-gunzip backups/redis_backup_TIMESTAMP.rdb.gz
+gunzip backups/valkey_backup_TIMESTAMP.rdb.gz
 
-# Copy to Redis data directory
-docker cp backups/redis_backup_TIMESTAMP.rdb redis-single:/data/dump.rdb
+# Copy to Valkey data directory
+docker cp backups/valkey_backup_TIMESTAMP.rdb valkey-single:/data/dump.rdb
 
-# Start Redis
-docker-compose start redis
+# Start Valkey
+docker-compose start valkey
 ```
 
 **Note**: For pub/sub workload, backups are not critical. Data is ephemeral and regenerated from Kafka on restart.
@@ -366,14 +366,14 @@ When you need automatic failover:
 
 ```bash
 # Create 2 more VMs (total 3)
-task redis:create-sentinel-cluster
+task valkey:create-sentinel-cluster
 ```
 
 ### 2. Update Configuration
 
 ```bash
 # ws-server .env (change 1 address to 3)
-REDIS_SENTINEL_ADDRS=10.128.0.10:26379,10.128.0.11:26379,10.128.0.12:26379
+VALKEY_SENTINEL_ADDRS=10.128.0.10:26379,10.128.0.11:26379,10.128.0.12:26379
 ```
 
 ### 3. Rolling Restart
@@ -388,7 +388,7 @@ task services:restart-ws-servers
 
 ```bash
 # Trigger manual failover
-task redis:failover-test
+task valkey:failover-test
 
 # Expected: <5s downtime, automatic recovery
 ```
@@ -397,7 +397,7 @@ task redis:failover-test
 
 ## Cost Analysis
 
-| Mode | Resources | Cost/Month | Downtime on Redis Failure |
+| Mode | Resources | Cost/Month | Downtime on Valkey Failure |
 |------|-----------|------------|---------------------------|
 | **Single Node** | 1× e2-standard-2 | ~$62 | Manual restart (~30s) |
 | **Sentinel** | 3× e2-standard-2 | ~$185 | Auto-failover (<5s) |
@@ -410,16 +410,16 @@ task redis:failover-test
 
 ## Related Documentation
 
-- **Architecture**: `docs/architecture/REDIS_BROADCAST_BUS_ARCHITECTURE.md`
-- **Runbooks**: `docs/runbooks/REDIS_TROUBLESHOOTING.md`
+- **Architecture**: `docs/architecture/VALKEY_BROADCAST_BUS_ARCHITECTURE.md`
+- **Runbooks**: `docs/runbooks/VALKEY_TROUBLESHOOTING.md`
 - **Implementation**: `ws/internal/multi/broadcast.go`
-- **Deployment Guide**: `docs/deployment/REDIS_SINGLE_NODE.md`
+- **Deployment Guide**: `docs/deployment/VALKEY_SINGLE_NODE.md`
 
 ## Support
 
 For issues:
-1. Check `task redis:health`
-2. Review `task redis:logs`
+1. Check `task valkey:health`
+2. Review `task valkey:logs`
 3. Check Grafana dashboard
 4. See "Debugging" section above
-5. Review `docs/runbooks/REDIS_TROUBLESHOOTING.md`
+5. Review `docs/runbooks/VALKEY_TROUBLESHOOTING.md`

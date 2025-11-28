@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  valkey:
+    image: valkey/valkey:7.2-alpine
+    container_name: valkey-single
+    restart: unless-stopped
+    command: valkey-server /usr/local/etc/valkey/valkey.conf --requirepass ${VALKEY_PASSWORD}
+    volumes:
+      - ./valkey.conf:/usr/local/etc/valkey/valkey.conf:ro
+      - valkey-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - valkey-network
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-a", "${VALKEY_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+        labels: "service=valkey,environment=production"
+    environment:
+      - VALKEY_PASSWORD=${VALKEY_PASSWORD}
+
+  valkey-exporter:
+    image: oliver006/redis_exporter:v1.55.0-alpine
+    container_name: valkey-exporter
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis://valkey:6379
+      - REDIS_PASSWORD=${VALKEY_PASSWORD}
+    ports:
+      - "9121:9121"
+    networks:
+      - valkey-network
+    depends_on:
+      valkey:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
+        labels: "service=valkey-exporter,environment=production"
+
+volumes:
+  valkey-data:
+    driver: local
+
+networks:
+  valkey-network:
+    driver: bridge

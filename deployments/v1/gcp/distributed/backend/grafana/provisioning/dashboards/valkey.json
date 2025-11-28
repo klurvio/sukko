@@ -1,7 +1,7 @@
 {
   "dashboard": {
-    "title": "Redis BroadcastBus Monitoring",
-    "tags": ["redis", "broadcast", "infrastructure"],
+    "title": "Valkey BroadcastBus Monitoring",
+    "tags": ["valkey", "broadcast", "infrastructure"],
     "timezone": "browser",
     "schemaVersion": 16,
     "version": 1,
@@ -9,12 +9,12 @@
     "panels": [
       {
         "id": 1,
-        "title": "Redis Status",
+        "title": "Valkey Status",
         "type": "stat",
         "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
         "targets": [{
-          "expr": "redis_up{instance=\"ws-redis\"}",
-          "legendFormat": "Redis Up"
+          "expr": "redis_up{instance=\"ws-valkey\"}",
+          "legendFormat": "Valkey Up"
         }],
         "options": {
           "colorMode": "background",
@@ -43,7 +43,7 @@
         "type": "stat",
         "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
         "targets": [{
-          "expr": "redis_connected_clients{instance=\"ws-redis\"}",
+          "expr": "redis_connected_clients{instance=\"ws-valkey\"}",
           "legendFormat": "Clients"
         }],
         "options": {
@@ -72,7 +72,7 @@
         "type": "gauge",
         "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
         "targets": [{
-          "expr": "(redis_memory_used_bytes{instance=\"ws-redis\"} / redis_memory_max_bytes{instance=\"ws-redis\"}) * 100",
+          "expr": "(redis_memory_used_bytes{instance=\"ws-valkey\"} / redis_memory_max_bytes{instance=\"ws-valkey\"}) * 100",
           "legendFormat": "Memory %"
         }],
         "options": {
@@ -101,7 +101,7 @@
         "type": "stat",
         "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
         "targets": [{
-          "expr": "rate(redis_commands_processed_total{instance=\"ws-redis\"}[1m])",
+          "expr": "rate(redis_commands_processed_total{instance=\"ws-valkey\"}[1m])",
           "legendFormat": "Commands/sec"
         }],
         "options": {
@@ -122,7 +122,7 @@
         "type": "graph",
         "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
         "targets": [{
-          "expr": "redis_pubsub_channels{instance=\"ws-redis\"}",
+          "expr": "redis_pubsub_channels{instance=\"ws-valkey\"}",
           "legendFormat": "Active Channels"
         }],
         "yaxes": [
@@ -147,7 +147,7 @@
         "type": "graph",
         "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
         "targets": [{
-          "expr": "rate(redis_commands_processed_total{instance=\"ws-redis\"}[1m])",
+          "expr": "rate(redis_commands_processed_total{instance=\"ws-valkey\"}[1m])",
           "legendFormat": "Commands/sec"
         }],
         "yaxes": [
@@ -167,15 +167,15 @@
         "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
         "targets": [
           {
-            "expr": "redis_latency_percentiles_usec{instance=\"ws-redis\", quantile=\"0.5\"}",
+            "expr": "redis_latency_percentiles_usec{instance=\"ws-valkey\", quantile=\"0.5\"}",
             "legendFormat": "p50"
           },
           {
-            "expr": "redis_latency_percentiles_usec{instance=\"ws-redis\", quantile=\"0.95\"}",
+            "expr": "redis_latency_percentiles_usec{instance=\"ws-valkey\", quantile=\"0.95\"}",
             "legendFormat": "p95"
           },
           {
-            "expr": "redis_latency_percentiles_usec{instance=\"ws-redis\", quantile=\"0.99\"}",
+            "expr": "redis_latency_percentiles_usec{instance=\"ws-valkey\", quantile=\"0.99\"}",
             "legendFormat": "p99"
           }
         ],
@@ -184,7 +184,7 @@
           {"format": "short"}
         ],
         "alert": {
-          "name": "Redis High Latency",
+          "name": "Valkey High Latency",
           "conditions": [{
             "evaluator": {"type": "gt", "params": [10000]},
             "operator": {"type": "and"},
@@ -195,7 +195,7 @@
           "executionErrorState": "alerting",
           "frequency": "1m",
           "handler": 1,
-          "message": "Redis p99 latency is above 10ms (target: <5ms)",
+          "message": "Valkey p99 latency is above 10ms (target: <5ms)",
           "noDataState": "no_data",
           "notifications": []
         },
@@ -215,11 +215,11 @@
         "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
         "targets": [
           {
-            "expr": "redis_memory_used_bytes{instance=\"ws-redis\"}",
+            "expr": "redis_memory_used_bytes{instance=\"ws-valkey\"}",
             "legendFormat": "Used Memory"
           },
           {
-            "expr": "redis_memory_max_bytes{instance=\"ws-redis\"}",
+            "expr": "redis_memory_max_bytes{instance=\"ws-valkey\"}",
             "legendFormat": "Max Memory"
           }
         ],
@@ -239,11 +239,11 @@
         "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
         "targets": [
           {
-            "expr": "rate(redis_net_input_bytes_total{instance=\"ws-redis\"}[1m])",
+            "expr": "rate(valkey_net_input_bytes_total{instance=\"ws-valkey\"}[1m])",
             "legendFormat": "Input (Bytes/sec)"
           },
           {
-            "expr": "rate(redis_net_output_bytes_total{instance=\"ws-redis\"}[1m])",
+            "expr": "rate(valkey_net_output_bytes_total{instance=\"ws-valkey\"}[1m])",
             "legendFormat": "Output (Bytes/sec)"
           }
         ],
@@ -262,7 +262,7 @@
         "type": "graph",
         "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
         "targets": [{
-          "expr": "redis_slowlog_length{instance=\"ws-redis\"}",
+          "expr": "redis_slowlog_length{instance=\"ws-valkey\"}",
           "legendFormat": "Slow Commands"
         }],
         "yaxes": [
@@ -270,7 +270,7 @@
           {"format": "short"}
         ],
         "alert": {
-          "name": "Redis Slow Commands",
+          "name": "Valkey Slow Commands",
           "conditions": [{
             "evaluator": {"type": "gt", "params": [10]},
             "operator": {"type": "and"},
@@ -281,7 +281,7 @@
           "executionErrorState": "alerting",
           "frequency": "1m",
           "handler": 1,
-          "message": "Redis has slow commands (>5ms)",
+          "message": "Valkey has slow commands (>5ms)",
           "noDataState": "no_data",
           "notifications": []
         },
@@ -300,11 +300,11 @@
         "gridPos": {"x": 0, "y": 28, "w": 12, "h": 8},
         "targets": [
           {
-            "expr": "rate(redis_evicted_keys_total{instance=\"ws-redis\"}[5m])",
+            "expr": "rate(valkey_evicted_keys_total{instance=\"ws-valkey\"}[5m])",
             "legendFormat": "Evicted Keys/sec"
           },
           {
-            "expr": "rate(redis_rejected_connections_total{instance=\"ws-redis\"}[5m])",
+            "expr": "rate(valkey_rejected_connections_total{instance=\"ws-valkey\"}[5m])",
             "legendFormat": "Rejected Connections/sec"
           }
         ],
@@ -313,7 +313,7 @@
           {"format": "short"}
         ],
         "alert": {
-          "name": "Redis Evictions or Rejections",
+          "name": "Valkey Evictions or Rejections",
           "conditions": [{
             "evaluator": {"type": "gt", "params": [0]},
             "operator": {"type": "or"},
@@ -324,7 +324,7 @@
           "executionErrorState": "alerting",
           "frequency": "1m",
           "handler": 1,
-          "message": "Redis is evicting keys or rejecting connections",
+          "message": "Valkey is evicting keys or rejecting connections",
           "noDataState": "no_data",
           "notifications": []
         },
@@ -339,7 +339,7 @@
         "type": "stat",
         "gridPos": {"x": 12, "y": 28, "w": 6, "h": 4},
         "targets": [{
-          "expr": "redis_uptime_in_seconds{instance=\"ws-redis\"}",
+          "expr": "redis_uptime_in_seconds{instance=\"ws-valkey\"}",
           "legendFormat": "Uptime"
         }],
         "options": {
@@ -355,11 +355,11 @@
       },
       {
         "id": 13,
-        "title": "Redis Version",
+        "title": "Valkey Version",
         "type": "stat",
         "gridPos": {"x": 18, "y": 28, "w": 6, "h": 4},
         "targets": [{
-          "expr": "redis_version{instance=\"ws-redis\"}",
+          "expr": "valkey_version{instance=\"ws-valkey\"}",
           "legendFormat": "Version"
         }],
         "options": {

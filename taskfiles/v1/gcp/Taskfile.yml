@@ -103,8 +103,8 @@ includes:
       GIT_BRANCH: "{{.GIT_BRANCH}}"
       GIT_REPO_SSH: "{{.GIT_REPO_SSH}}"
 
-  redis:
-    taskfile: ./redis.yml
+  valkey:
+    taskfile: ./valkey.yml
     vars:
       GCP_PROJECT: "{{.GCP_PROJECT}}"
       GCP_ZONE: "{{.GCP_ZONE}}"

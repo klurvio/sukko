@@ -7,8 +7,8 @@ version: "3"
 # Scope: Instance creation, firewall, initial setup, code updates
 
 includes:
-  redis:
-    taskfile: ./redis.yml
+  valkey:
+    taskfile: ./valkey.yml
     vars:
       GIT_BRANCH: "{{.GIT_BRANCH}}"
       GIT_REPO_SSH: "{{.GIT_REPO_SSH}}"
@@ -27,8 +27,8 @@ tasks:
       - echo ""
       - task: "setup:backend"
       - echo ""
-      - echo "📦 Deploying Redis (BroadcastBus infrastructure)..."
-      - task: "redis:deploy-single"
+      - echo "📦 Deploying Valkey (BroadcastBus infrastructure)..."
+      - task: "valkey:deploy-single"
       - echo ""
       - task: "setup:ws"
       - echo ""
@@ -39,9 +39,9 @@ tasks:
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - echo ""
       - echo "📊 Service Status:"
-      - task: "redis:get-ip"
+      - task: "valkey:get-ip"
       - echo ""
-      - echo "💡 Update ws-server .env with Redis IP before starting"
+      - echo "💡 Update ws-server .env with Valkey IP before starting"
 
   quick-start:
     desc: Quick start all services (daily use - assumes infrastructure exists)
@@ -99,7 +99,7 @@ tasks:
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - task: "create:backend"
       - echo ""
-      - task: "redis:create"
+      - task: "valkey:create"
       - echo ""
       - task: "create:ws"
       - echo ""
@@ -110,7 +110,7 @@ tasks:
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - task: "firewall:backend"
       - echo ""
-      - task: "redis:setup-firewall"
+      - task: "valkey:setup-firewall"
       - echo ""
       - task: "firewall:ws"
       - echo ""
@@ -127,7 +127,7 @@ tasks:
       - 'echo "   Complete setup: task gcp:deploy"'
       - 'echo "   Or run individually:"'
       - 'echo "     - task gcp:deployment:setup:backend"'
-      - 'echo "     - task gcp:deployment:setup:redis"'
+      - 'echo "     - task gcp:deployment:setup:valkey"'
       - 'echo "     - task gcp:deployment:setup:ws"'
       - 'echo "     - task gcp:deployment:setup:loadtest"'
 
@@ -466,7 +466,7 @@ tasks:
       - 'echo "   - {{.BACKEND_INSTANCE}} (backend)"'
       - 'echo "   - {{.WS_INSTANCE}} (WebSocket server)"'
       - 'echo "   - {{.LOADTEST_INSTANCE}} (load test)"'
-      - 'echo "   - ws-redis (Redis)"'
+      - 'echo "   - ws-valkey (Valkey)"'
       - echo ""
       - echo "All data will be permanently lost!"
       - echo ""
@@ -475,7 +475,7 @@ tasks:
         if [ "$CONFIRM" = "DELETE-ALL" ]; then
           echo ""
           echo "Deleting instances..."
-          gcloud compute instances delete {{.BACKEND_INSTANCE}} {{.WS_INSTANCE}} {{.LOADTEST_INSTANCE}} ws-redis \
+          gcloud compute instances delete {{.BACKEND_INSTANCE}} {{.WS_INSTANCE}} {{.LOADTEST_INSTANCE}} ws-valkey \
             --zone={{.GCP_ZONE}} \
             --project={{.GCP_PROJECT}} \
             --quiet
@@ -652,17 +652,17 @@ tasks:
         WS_IP=$(gcloud compute instances describe {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)')
         echo "📍 WS server internal IP: $WS_IP"
 
-        # Get Redis internal IP for Prometheus scrape configuration
-        REDIS_IP=$(gcloud compute instances describe ws-redis --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)' 2>/dev/null || echo "")
-        echo "📍 Redis internal IP: ${REDIS_IP:-not found}"
+        # Get Valkey internal IP for Prometheus scrape configuration
+        VALKEY_IP=$(gcloud compute instances describe ws-valkey --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)' 2>/dev/null || echo "")
+        echo "📍 Valkey internal IP: ${VALKEY_IP:-not found}"
 
         # Create .env file with BACKEND_INTERNAL_IP for docker-compose
         echo "📝 Creating .env file for docker-compose..."
         gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'echo \"BACKEND_INTERNAL_IP=$BACKEND_IP\" > /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend/.env'" 2>/dev/null
 
-        # Substitute WS_GO_INTERNAL_IP and REDIS_INTERNAL_IP in prometheus.yml before starting services
+        # Substitute WS_GO_INTERNAL_IP and VALKEY_INTERNAL_IP in prometheus.yml before starting services
         echo "📝 Configuring Prometheus scrape targets..."
-        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && sed -i.bak \"s/\\\${WS_GO_INTERNAL_IP}/$WS_IP/g; s/\\\${REDIS_INTERNAL_IP}/$REDIS_IP/g\" prometheus.yml && echo \"✅ Prometheus config updated: WS at $WS_IP:3004, Redis at $REDIS_IP:9121\"'" 2>/dev/null
+        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && sed -i.bak \"s/\\\${WS_GO_INTERNAL_IP}/$WS_IP/g; s/\\\${VALKEY_INTERNAL_IP}/$VALKEY_IP/g\" prometheus.yml && echo \"✅ Prometheus config updated: WS at $WS_IP:3004, Valkey at $VALKEY_IP:9121\"'" 2>/dev/null
 
         echo "🐳 Starting Docker services..."
         gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && docker-compose up -d 2>&1 | grep -E \"(Created|Started|Running)\"'" 2>/dev/null || true
@@ -707,13 +707,13 @@ tasks:
 
         # Get internal IPs
         BACKEND_IP=$(gcloud compute instances describe {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)')
-        REDIS_IP=$(gcloud compute instances describe ws-redis --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)' 2>/dev/null || echo "")
+        VALKEY_IP=$(gcloud compute instances describe ws-valkey --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --format='get(networkInterfaces[0].networkIP)' 2>/dev/null || echo "")
 
         echo "📍 Backend IP: $BACKEND_IP"
-        echo "📍 Redis IP: $REDIS_IP"
+        echo "📍 Valkey IP: $VALKEY_IP"
 
-        if [ -z "$REDIS_IP" ]; then
-          echo "⚠️  Redis VM not found - WS server will start without Redis BroadcastBus"
+        if [ -z "$VALKEY_IP" ]; then
+          echo "⚠️  Valkey VM not found - WS server will start without Valkey BroadcastBus"
         fi
 
         # Check if repo exists
@@ -727,23 +727,23 @@ tasks:
           gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
-        # Fetch Redis password from Redis VM
-        REDIS_PASSWORD=""
-        if [ -n "$REDIS_IP" ]; then
-          echo "🔐 Fetching Redis password from ws-redis..."
-          REDIS_PASSWORD=$(gcloud compute ssh ws-redis --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'grep \"^REDIS_PASSWORD=\" /home/deploy/ws_poc/deployments/v1/gcp/distributed/redis/.env 2>/dev/null | cut -d= -f2'" 2>/dev/null || echo "")
-          if [ -n "$REDIS_PASSWORD" ]; then
-            echo "✅ Got Redis password from ws-redis"
+        # Fetch Valkey password from Valkey VM
+        VALKEY_PASSWORD=""
+        if [ -n "$VALKEY_IP" ]; then
+          echo "🔐 Fetching Valkey password from ws-valkey..."
+          VALKEY_PASSWORD=$(gcloud compute ssh ws-valkey --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'grep \"^VALKEY_PASSWORD=\" /home/deploy/ws_poc/deployments/v1/gcp/distributed/valkey/.env 2>/dev/null | cut -d= -f2'" 2>/dev/null || echo "")
+          if [ -n "$VALKEY_PASSWORD" ]; then
+            echo "✅ Got Valkey password from ws-valkey"
           else
-            echo "⚠️  Could not fetch Redis password - using placeholder"
-            REDIS_PASSWORD="CHANGEME_GENERATE_STRONG_PASSWORD"
+            echo "⚠️  Could not fetch Valkey password - using placeholder"
+            VALKEY_PASSWORD="CHANGEME_GENERATE_STRONG_PASSWORD"
           fi
         fi
 
         echo "⚙️  Creating environment files..."
 
         # Create complete .env.production with all required variables
-        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && printf \"WS_MODE=multi\nBACKEND_INTERNAL_IP=$BACKEND_IP\nKAFKA_BROKERS=$BACKEND_IP:9092\nREDIS_SENTINEL_ADDRS=$REDIS_IP:6379\nREDIS_PASSWORD=$REDIS_PASSWORD\n\" > .env.production && chmod 600 .env.production'" 2>/dev/null
+        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && printf \"WS_MODE=multi\nBACKEND_INTERNAL_IP=$BACKEND_IP\nKAFKA_BROKERS=$BACKEND_IP:9092\nVALKEY_SENTINEL_ADDRS=$VALKEY_IP:6379\nVALKEY_PASSWORD=$VALKEY_PASSWORD\n\" > .env.production && chmod 600 .env.production'" 2>/dev/null
 
         # Create empty .env.debug (required by docker-compose.multi.yml)
         gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'touch /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server/.env.debug'" 2>/dev/null
