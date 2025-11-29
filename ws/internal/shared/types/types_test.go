@@ -79,16 +79,12 @@ func TestServerConfig_DefaultFields(t *testing.T) {
 
 func TestServerConfig_ResourceLimits(t *testing.T) {
 	cfg := ServerConfig{
-		CPULimit:               2.5,
 		MemoryLimit:            1024 * 1024 * 1024, // 1GB
 		MaxKafkaMessagesPerSec: 1000,
 		MaxBroadcastsPerSec:    100,
 		MaxGoroutines:          10000,
 	}
 
-	if cfg.CPULimit != 2.5 {
-		t.Errorf("CPULimit: got %f, want 2.5", cfg.CPULimit)
-	}
 	if cfg.MemoryLimit != 1024*1024*1024 {
 		t.Errorf("MemoryLimit: got %d, want 1073741824", cfg.MemoryLimit)
 	}

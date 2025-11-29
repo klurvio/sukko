@@ -157,7 +157,6 @@ func main() {
 			ConsumerGroup:  cfg.ConsumerGroup, // Base consumer group name
 			MaxConnections: maxConnsPerShard,  // Shard-specific max connections
 
-			CPULimit:               cfg.CPULimit,
 			MemoryLimit:            cfg.MemoryLimit,
 			MaxKafkaMessagesPerSec: cfg.MaxKafkaRate,
 			MaxBroadcastsPerSec:    cfg.MaxBroadcastRate,

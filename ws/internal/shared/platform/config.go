@@ -2,6 +2,7 @@ package platform
 
 import (
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -21,9 +22,10 @@ type Config struct {
 	KafkaBrokers  string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"`
 	ConsumerGroup string `env:"KAFKA_CONSUMER_GROUP" envDefault:"ws-server-group"`
 
-	// Resource limits (from container)
-	CPULimit    float64 `env:"WS_CPU_LIMIT" envDefault:"1.0"`
-	MemoryLimit int64   `env:"WS_MEMORY_LIMIT" envDefault:"536870912"` // 512MB
+	// Resource limits
+	// Note: CPU limit is detected automatically via automaxprocs reading cgroup
+	// WS_CPU_LIMIT env var is only used by Docker to set the container limit
+	MemoryLimit int64 `env:"WS_MEMORY_LIMIT" envDefault:"536870912"` // 512MB
 
 	// Capacity
 	MaxConnections int `env:"WS_MAX_CONNECTIONS" envDefault:"500"`
@@ -260,7 +262,7 @@ func (c *Config) Print() {
 	fmt.Printf("Kafka Brokers:   %s\n", c.KafkaBrokers)
 	fmt.Printf("Consumer Group:  %s\n", c.ConsumerGroup)
 	fmt.Println("\n=== Resource Limits ===")
-	fmt.Printf("CPU Limit:       %.1f cores\n", c.CPULimit)
+	fmt.Printf("GOMAXPROCS:      %d (from cgroup via automaxprocs)\n", runtime.GOMAXPROCS(0))
 	fmt.Printf("Memory Limit:    %d MB\n", c.MemoryLimit/(1024*1024))
 	fmt.Printf("Max Connections: %d\n", c.MaxConnections)
 	fmt.Println("\n=== Rate Limits ===")
@@ -308,7 +310,7 @@ func (c *Config) LogConfig(logger zerolog.Logger) {
 		Str("addr", c.Addr).
 		Str("kafka_brokers", c.KafkaBrokers).
 		Str("consumer_group", c.ConsumerGroup).
-		Float64("cpu_limit", c.CPULimit).
+		Int("gomaxprocs", runtime.GOMAXPROCS(0)).
 		Int64("memory_limit_mb", c.MemoryLimit/(1024*1024)).
 		Int("max_connections", c.MaxConnections).
 		Int("max_kafka_rate", c.MaxKafkaRate).

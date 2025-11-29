@@ -12,7 +12,6 @@ func newValidConfig() *Config {
 		Addr:                       ":3002",
 		KafkaBrokers:               "localhost:19092",
 		ConsumerGroup:              "test-group",
-		CPULimit:                   1.0,
 		MemoryLimit:                512 * 1024 * 1024,
 		MaxConnections:             1000,
 		MaxKafkaRate:               1000,

@@ -33,9 +33,9 @@ type ServerConfig struct {
 	SharedKafkaConsumer  any  // Optional: Shared Kafka consumer for message replay (set when using pool mode)
 	MaxConnections       int
 
-	// Static resource limits (explicit configuration)
-	CPULimit    float64 // CPU cores available (from docker limit)
-	MemoryLimit int64   // Memory bytes available (from docker limit)
+	// Static resource limits
+	// Note: CPU limit is detected automatically via automaxprocs reading cgroup
+	MemoryLimit int64 // Memory bytes available (from docker limit)
 
 	// Rate limiting (prevent overload)
 	MaxKafkaMessagesPerSec int // Max Kafka messages consumed per second

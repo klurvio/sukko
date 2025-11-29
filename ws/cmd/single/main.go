@@ -82,8 +82,7 @@ func main() {
 		ConsumerGroup:  cfg.ConsumerGroup,
 		MaxConnections: cfg.MaxConnections,
 
-		// Static resource limits (explicit from config)
-		CPULimit:    cfg.CPULimit,
+		// Static resource limits
 		MemoryLimit: cfg.MemoryLimit,
 
 		// Rate limiting (CRITICAL - prevents overload)

@@ -14,7 +14,6 @@ func NewTestServerConfig() types.ServerConfig {
 		MaxConnections: 1000,
 
 		// Resource limits (generous for testing)
-		CPULimit:      8.0,
 		MemoryLimit:   4 * 1024 * 1024 * 1024, // 4GB
 		MaxGoroutines: 10000,
 

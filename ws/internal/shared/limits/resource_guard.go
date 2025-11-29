@@ -162,7 +162,6 @@ func NewResourceGuard(config types.ServerConfig, logger zerolog.Logger, currentC
 
 	logger.Info().
 		Float64("cpu_allocation", systemMonitor.GetCPUAllocation()).
-		Float64("cpu_limit", config.CPULimit).
 		Int64("memory_limit", config.MemoryLimit).
 		Int("max_connections", config.MaxConnections).
 		Int("max_kafka_rate", config.MaxKafkaMessagesPerSec).
