@@ -2,17 +2,13 @@ version: "3"
 
 # Local Service Management Tasks
 # Individual service control that composes into aggregate tasks
-# Mode-aware: Supports both single-core and multi-core deployments via WS_MODE env var
 
 dotenv: ["{{.USER_WORKING_DIR}}/deployments/v1/local/.env.local"]
 
 vars:
-  # Dynamically choose compose file based on mode (reads WS_MODE from .env.local)
-  COMPOSE_FILE: '{{if eq .WS_MODE "multi"}}{{.USER_WORKING_DIR}}/deployments/v1/local/docker-compose.multi.yml{{else}}{{.USER_WORKING_DIR}}/deployments/v1/local/docker-compose.yml{{end}}'
-  # Dynamically choose container name based on mode
-  WS_CONTAINER: '{{if eq .WS_MODE "multi"}}odin-ws-multi-local{{else}}odin-ws-local{{end}}'
-  # Dynamically choose service name based on mode
-  WS_SERVICE: '{{if eq .WS_MODE "multi"}}ws-server-multi{{else}}ws-server{{end}}'
+  COMPOSE_FILE: "{{.USER_WORKING_DIR}}/deployments/v1/local/docker-compose.yml"
+  WS_CONTAINER: "odin-ws-local"
+  WS_SERVICE: "ws-server"
 
 tasks:
   # ============================================================================
@@ -150,7 +146,7 @@ tasks:
     deps: [start:redpanda]
     cmds:
       - docker-compose -f {{.COMPOSE_FILE}} up -d {{.WS_SERVICE}}
-      - echo "⏳ Waiting for WS server to be ready (mode: {{.WS_MODE}})..."
+      - echo "⏳ Waiting for WS server to be ready..."
       - |
         max_attempts=30
         attempt=0
@@ -274,7 +270,7 @@ tasks:
     desc: Restart WS server (for code changes)
     cmds:
       - docker-compose -f {{.COMPOSE_FILE}} restart {{.WS_SERVICE}}
-      - echo "✅ WS server restarted (mode: {{.WS_MODE}})"
+      - echo "✅ WS server restarted"
 
   restart:monitoring:
     desc: Restart all monitoring services (composed)
@@ -302,7 +298,7 @@ tasks:
     desc: Rebuild and restart WS server (for code changes)
     cmds:
       - docker-compose -f {{.COMPOSE_FILE}} up -d --build {{.WS_SERVICE}}
-      - echo "✅ WS server rebuilt (mode: {{.WS_MODE}})"
+      - echo "✅ WS server rebuilt"
 
   rebuild:all:
     desc: Rebuild and restart all buildable services (composed)

@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/adred-codev/ws_poc/internal/shared/monitoring"
+	"github.com/adred-codev/ws_poc/internal/monitoring"
 )
 
 // MockSystemMonitor provides controllable CPU/memory/goroutine values for testing.
@@ -384,7 +384,7 @@ type MockBroadcastBus struct {
 	messagesRecv  atomic.Uint64
 }
 
-// MockBroadcastMessage mirrors multi.BroadcastMessage for testing.
+// MockBroadcastMessage mirrors orchestration.BroadcastMessage for testing.
 type MockBroadcastMessage struct {
 	Subject string
 	Message []byte
@@ -471,11 +471,11 @@ func (m *MockBroadcastBus) Reset() {
 }
 
 // =============================================================================
-// Interfaces Mocks (for shared.interfaces.go)
+// Interfaces Mocks (for wsserver.interfaces.go)
 // =============================================================================
 
 // MockLogger captures log messages for testing.
-// Implements shared.Logger interface.
+// Implements wsserver.Logger interface.
 type MockLogger struct {
 	mu       sync.Mutex
 	Messages []LogMessage
@@ -502,7 +502,7 @@ func (m *MockLogger) Warn() MockLogEventInterface  { return &MockLogEvent{logger
 func (m *MockLogger) Error() MockLogEventInterface { return &MockLogEvent{logger: m, level: "error"} }
 
 // MockLogEventInterface is the interface returned by MockLogger methods.
-// This allows MockLogger to implement shared.Logger interface.
+// This allows MockLogger to implement wsserver.Logger interface.
 type MockLogEventInterface interface {
 	Err(err error) MockLogEventInterface
 	Int64(key string, val int64) MockLogEventInterface
@@ -571,7 +571,7 @@ func (m *MockLogger) Reset() {
 	m.Messages = m.Messages[:0]
 }
 
-// MockLogEvent implements shared.LogEvent for testing.
+// MockLogEvent implements wsserver.LogEvent for testing.
 type MockLogEvent struct {
 	logger *MockLogger
 	level  string
@@ -628,7 +628,7 @@ func (e *MockLogEvent) Msg(msg string) {
 }
 
 // MockClock provides controllable time for testing.
-// Implements shared.Clock interface.
+// Implements wsserver.Clock interface.
 type MockClock struct {
 	mu         sync.Mutex
 	now        time.Time
@@ -657,7 +657,7 @@ func (c *MockClock) Now() time.Time {
 }
 
 // MockTickerInterface is returned by MockClock.NewTicker.
-// This allows MockClock to implement shared.Clock interface.
+// This allows MockClock to implement wsserver.Clock interface.
 type MockTickerInterface interface {
 	C() <-chan time.Time
 	Stop()
@@ -737,7 +737,7 @@ func (c *MockClock) Tick() {
 	}
 }
 
-// MockTicker implements shared.Ticker for testing.
+// MockTicker implements wsserver.Ticker for testing.
 type MockTicker struct {
 	c        chan time.Time
 	duration time.Duration
@@ -753,7 +753,7 @@ func (t *MockTicker) Stop() {
 }
 
 // MockMetricsRecorder captures metrics for testing.
-// Implements shared.MetricsRecorder interface.
+// Implements wsserver.MetricsRecorder interface.
 type MockMetricsRecorder struct {
 	mu               sync.Mutex
 	MessagesSent     int64
@@ -835,13 +835,13 @@ func (m *MockMetricsRecorder) Reset() {
 }
 
 // MockRateLimiter provides controllable rate limiting for testing.
-// Implements shared.RateLimiter interface.
+// Implements wsserver.RateLimiter interface.
 type MockRateLimiter struct {
 	mu          sync.Mutex
-	AllowAll    bool            // If true, always allows
-	AllowCount  int             // Number of calls to allow before blocking
-	BlockedIDs  map[int64]bool  // Specific IDs to block
-	CallHistory []int64         // Record of all CheckLimit calls
+	AllowAll    bool           // If true, always allows
+	AllowCount  int            // Number of calls to allow before blocking
+	BlockedIDs  map[int64]bool // Specific IDs to block
+	CallHistory []int64        // Record of all CheckLimit calls
 }
 
 // NewMockRateLimiter creates a permissive mock rate limiter.
@@ -917,7 +917,7 @@ func (m *MockRateLimiter) Reset() {
 }
 
 // MockAuditLogger captures audit events for testing.
-// Implements shared.AuditLogger interface.
+// Implements wsserver.AuditLogger interface.
 type MockAuditLogger struct {
 	mu     sync.Mutex
 	Events []AuditEvent
@@ -1007,7 +1007,7 @@ func (m *MockAuditLogger) Reset() {
 }
 
 // MockListenerFactory creates mock listeners for testing.
-// Implements shared.ListenerFactory interface.
+// Implements wsserver.ListenerFactory interface.
 type MockListenerFactory struct {
 	Listener net.Listener
 	Error    error

@@ -1,5 +1,12 @@
-# Local Development Deployment - All Services
-# Mirrors GCP distributed setup in single docker-compose
+# Local Development Deployment - WebSocket Server
+# This deployment runs the sharded WebSocket server with load balancing
+# across CPU cores for higher capacity (12K+ connections)
+#
+# Architecture:
+#   - LoadBalancer listens on :3005 (public-facing)
+#   - Multiple Shards (default: 3) listen on internal ports 3002, 3003, 3004
+#   - Each Shard runs on dedicated CPU core with own Kafka consumer group
+#   - BroadcastBus coordinates inter-shard message distribution
 #
 # Usage:
 #   docker-compose up -d
@@ -7,7 +14,7 @@
 #
 # Services: Redpanda, Publisher, WS Server, Prometheus, Grafana, Loki, Promtail
 # Network: All services on odin-local bridge network
-# Resources: ~8GB RAM, ~3.7 CPUs (laptop-friendly)
+# Resources: ~8GB RAM, ~3.7 CPUs (3 CPUs for WS server shards)
 
 services:
   # ============================================================================
@@ -115,13 +122,21 @@ services:
       dockerfile: Dockerfile
     container_name: odin-ws-local
     ports:
-      - "3005:3002"
+      - "3005:3005" # Load Balancer port (public-facing)
     env_file:
       - ../shared/base.env
       - ../shared/kafka-topics.env
       - ../shared/ports.env
       - ./overrides.env
       - .env.local
+    command:
+      # Shard configuration
+      # --shards: Number of worker shards (one per CPU core)
+      # --base-port: Starting port for shards (3002, 3003, 3004, ...)
+      # --lb-addr: Load balancer public address
+      - "--shards=3"
+      - "--base-port=3002"
+      - "--lb-addr=:3005"
     depends_on:
       redpanda:
         condition: service_healthy
@@ -131,8 +146,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 14G
+          cpus: "3.0" # 1 CPU per shard (3 shards total)
+          memory: 14G # Same memory as single-core (distributed across shards)
     # Kernel tuning matching GCP production (12K capacity)
     ulimits:
       nofile:
