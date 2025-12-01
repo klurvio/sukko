@@ -1,0 +1,51 @@
+# Default values for redpanda subchart
+
+enabled: true
+
+replicaCount: 1
+
+image:
+  repository: redpandadata/redpanda
+  tag: v23.3.5
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+
+# Ports
+kafkaPort: 9092
+adminPort: 9644
+pandaproxyPort: 8082
+schemaRegistryPort: 8081
+consolePort: 8080
+
+# Storage
+storage:
+  enabled: true
+  size: 5Gi
+  storageClass: ""
+
+# Topic configuration
+topics:
+  - name: odin.trade
+    partitions: 12
+    replicationFactor: 1
+  - name: odin.orderbook
+    partitions: 12
+    replicationFactor: 1
+  - name: odin.ticker
+    partitions: 12
+    replicationFactor: 1
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

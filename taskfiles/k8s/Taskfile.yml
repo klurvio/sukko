@@ -1,0 +1,38 @@
+# =============================================================================
+# Kubernetes Taskfile - Main Entry Point
+# =============================================================================
+# Usage: task k8s:<environment>:<command>
+# Examples:
+#   task k8s:local:setup
+#   task k8s:develop:deploy
+#   task k8s:staging:status
+#   task k8s:production:rollback
+
+version: '3'
+
+includes:
+  local: ./local.yml
+  develop: ./develop.yml
+  staging: ./staging.yml
+  production: ./production.yml
+  common: ./common.yml
+
+vars:
+  HELM_CHART_PATH: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
+  WS_DOCKERFILE_PATH: "{{.ROOT_DIR}}/ws"
+
+tasks:
+  default:
+    desc: Show available K8s commands
+    cmds:
+      - echo "Kubernetes deployment tasks"
+      - echo ""
+      - echo "Environments:"
+      - echo "  task k8s:local:*       - Local kind cluster"
+      - echo "  task k8s:develop:*     - GKE develop environment"
+      - echo "  task k8s:staging:*     - GKE staging environment"
+      - echo "  task k8s:production:*  - GKE production environment"
+      - echo ""
+      - echo "Common tasks:"
+      - echo "  task k8s:helm:lint     - Lint Helm charts"
+      - echo "  task k8s:helm:template - Dry-run render templates"

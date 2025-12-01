@@ -1,0 +1,81 @@
+# Default values for monitoring subchart
+
+enabled: true
+
+# Prometheus
+prometheus:
+  enabled: true
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  port: 9090
+  nodePort: 30090
+  retention: "7d"
+  scrapeInterval: "15s"
+  image:
+    repository: prom/prometheus
+    tag: v2.47.0
+    pullPolicy: IfNotPresent
+
+# Grafana
+grafana:
+  enabled: true
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "250m"
+      memory: "512Mi"
+  port: 3000
+  nodePort: 30300
+  adminUser: admin
+  # adminPassword set via secret
+  image:
+    repository: grafana/grafana
+    tag: 10.2.0
+    pullPolicy: IfNotPresent
+
+# Loki
+loki:
+  enabled: true
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  port: 3100
+  retention: "168h"
+  image:
+    repository: grafana/loki
+    tag: 2.9.2
+    pullPolicy: IfNotPresent
+
+# Promtail
+promtail:
+  enabled: true
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+  image:
+    repository: grafana/promtail
+    tag: 2.9.2
+    pullPolicy: IfNotPresent
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

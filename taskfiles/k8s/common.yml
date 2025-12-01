@@ -1,0 +1,58 @@
+# =============================================================================
+# Common K8s Tasks - Shared across environments
+# =============================================================================
+
+version: '3'
+
+vars:
+  HELM_CHART_PATH: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
+
+tasks:
+  # ===========================================================================
+  # Helm Operations
+  # ===========================================================================
+  helm:lint:
+    desc: Lint Helm charts
+    cmds:
+      - helm lint {{.HELM_CHART_PATH}}
+
+  helm:template:
+    desc: "Dry-run render templates (ENV=local|develop|staging|production)"
+    vars:
+      ENV: '{{default "local" .ENV}}'
+    cmds:
+      - helm template odin {{.HELM_CHART_PATH}} -f {{.HELM_CHART_PATH}}/values-{{.ENV}}.yaml
+
+  helm:deps:
+    desc: Update Helm dependencies
+    cmds:
+      - helm dependency update {{.HELM_CHART_PATH}}
+
+  helm:diff:
+    desc: "Show diff before upgrade (ENV=local|develop|staging|production)"
+    vars:
+      ENV: '{{default "local" .ENV}}'
+      NAMESPACE: '{{default "odin-local" .NAMESPACE}}'
+    cmds:
+      - helm diff upgrade odin {{.HELM_CHART_PATH}} -f {{.HELM_CHART_PATH}}/values-{{.ENV}}.yaml -n {{.NAMESPACE}}
+
+  # ===========================================================================
+  # Build Operations
+  # ===========================================================================
+  build:ws-server:
+    desc: Build ws-server Docker image
+    dir: "{{.ROOT_DIR}}/ws"
+    cmds:
+      - docker build -t odin-ws:latest .
+
+  build:publisher:
+    desc: Build publisher Docker image
+    dir: "{{.ROOT_DIR}}/publisher"
+    cmds:
+      - docker build -t odin-publisher:latest .
+
+  build:all:
+    desc: Build all Docker images
+    cmds:
+      - task: build:ws-server
+      - task: build:publisher

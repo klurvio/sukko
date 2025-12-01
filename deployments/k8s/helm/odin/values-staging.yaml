@@ -1,0 +1,106 @@
+# =============================================================================
+# Staging Environment (GKE Autopilot)
+# =============================================================================
+
+global:
+  namespace: odin-staging
+  imageRegistry: "us-central1-docker.pkg.dev/YOUR_PROJECT/odin"
+
+# WebSocket Server
+ws-server:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: us-central1-docker.pkg.dev/YOUR_PROJECT/odin/ws-server
+    pullPolicy: Always
+  config:
+    shards: 2
+  resources:
+    requests:
+      cpu: "1"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "1Gi"
+  service:
+    type: LoadBalancer
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+
+# Redpanda
+redpanda:
+  enabled: true
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+  storage:
+    enabled: true
+    size: 20Gi
+
+# Valkey
+valkey:
+  enabled: true
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# Publisher
+publisher:
+  enabled: true
+  image:
+    repository: us-central1-docker.pkg.dev/YOUR_PROJECT/odin/publisher
+    pullPolicy: Always
+  resources:
+    requests:
+      cpu: "125m"
+      memory: "256Mi"
+    limits:
+      cpu: "250m"
+      memory: "512Mi"
+
+# Monitoring
+monitoring:
+  enabled: true
+  prometheus:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  grafana:
+    resources:
+      requests:
+        cpu: "125m"
+        memory: "256Mi"
+      limits:
+        cpu: "250m"
+        memory: "512Mi"
+  loki:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  promtail:
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "100m"
+        memory: "128Mi"

@@ -33,6 +33,11 @@ includes:
     taskfile: ./taskfiles/v1/gcp/Taskfile.yml
     dir: .
 
+  # Kubernetes deployment (GKE Autopilot)
+  k8s:
+    taskfile: ./taskfiles/k8s/Taskfile.yml
+    dir: .
+
 tasks:
   default:
     desc: Show available commands

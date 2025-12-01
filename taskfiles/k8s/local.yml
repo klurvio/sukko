@@ -1,0 +1,107 @@
+# =============================================================================
+# Local Environment Tasks (kind)
+# =============================================================================
+
+version: '3'
+
+vars:
+  HELM_CHART_PATH: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
+  KIND_CONFIG: "{{.ROOT_DIR}}/deployments/k8s/environments/local/kind-config.yaml"
+  CLUSTER_NAME: odin-local
+  NAMESPACE: odin-local
+  VALUES_FILE: "{{.HELM_CHART_PATH}}/values-local.yaml"
+
+tasks:
+  # ===========================================================================
+  # Cluster Management
+  # ===========================================================================
+  setup:
+    desc: Create kind cluster and deploy full stack
+    cmds:
+      - task: cluster:create
+      - task: images:load
+      - task: up
+
+  cluster:create:
+    desc: Create kind cluster
+    cmds:
+      - kind create cluster --config {{.KIND_CONFIG}} || true
+      - kubectl create namespace {{.NAMESPACE}} --dry-run=client -o yaml | kubectl apply -f -
+
+  cluster:delete:
+    desc: Delete kind cluster
+    cmds:
+      - kind delete cluster --name {{.CLUSTER_NAME}}
+
+  destroy:
+    desc: Delete kind cluster (alias)
+    cmds:
+      - task: cluster:delete
+
+  # ===========================================================================
+  # Image Management
+  # ===========================================================================
+  images:load:
+    desc: Build and load images into kind
+    cmds:
+      - task: common:build:ws-server
+      - kind load docker-image odin-ws:latest --name {{.CLUSTER_NAME}}
+      # - task: common:build:publisher
+      # - kind load docker-image odin-publisher:latest --name {{.CLUSTER_NAME}}
+
+  # ===========================================================================
+  # Deployment
+  # ===========================================================================
+  up:
+    desc: Deploy/upgrade Helm release
+    cmds:
+      - helm upgrade --install odin {{.HELM_CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace
+
+  down:
+    desc: Uninstall Helm release
+    cmds:
+      - helm uninstall odin -n {{.NAMESPACE}} || true
+
+  rebuild:
+    desc: Rebuild images and restart pods
+    cmds:
+      - task: images:load
+      - kubectl rollout restart deployment -n {{.NAMESPACE}}
+
+  # ===========================================================================
+  # Status & Debugging
+  # ===========================================================================
+  status:
+    desc: Show deployment status
+    cmds:
+      - kubectl get pods -n {{.NAMESPACE}}
+      - echo ""
+      - kubectl get svc -n {{.NAMESPACE}}
+
+  logs:
+    desc: Tail ws-server logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.NAMESPACE}} --tail=100
+
+  logs:all:
+    desc: Tail all pod logs
+    cmds:
+      - kubectl logs -f --all-containers=true -l app.kubernetes.io/part-of=odin -n {{.NAMESPACE}} --tail=50
+
+  shell:
+    desc: Open shell in ws-server pod
+    cmds:
+      - kubectl exec -it $(kubectl get pods -n {{.NAMESPACE}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].metadata.name}') -n {{.NAMESPACE}} -- sh
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+  test:health:
+    desc: Test ws-server health endpoint
+    cmds:
+      - curl -s http://localhost:3005/health | jq .
+
+  test:ws:
+    desc: Connect to WebSocket (requires wscat)
+    cmds:
+      - wscat -c ws://localhost:3005/ws

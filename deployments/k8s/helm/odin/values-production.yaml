@@ -1,0 +1,101 @@
+# =============================================================================
+# Production Environment (GKE Autopilot)
+# =============================================================================
+
+global:
+  namespace: odin-prod
+  imageRegistry: "us-central1-docker.pkg.dev/YOUR_PROJECT/odin"
+
+# WebSocket Server
+ws-server:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: us-central1-docker.pkg.dev/YOUR_PROJECT/odin/ws-server
+    pullPolicy: Always
+  config:
+    shards: 2
+  resources:
+    requests:
+      cpu: "1"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "1Gi"
+  service:
+    type: LoadBalancer
+  sessionAffinity:
+    enabled: true
+    timeoutSeconds: 10800  # 3 hours
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+# Redpanda
+redpanda:
+  enabled: true
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+  storage:
+    enabled: true
+    size: 50Gi
+
+# Valkey
+valkey:
+  enabled: true
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# Publisher - Disabled in production (real data from external sources)
+publisher:
+  enabled: false
+
+# Monitoring
+monitoring:
+  enabled: true
+  prometheus:
+    retention: "30d"
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  grafana:
+    resources:
+      requests:
+        cpu: "125m"
+        memory: "256Mi"
+      limits:
+        cpu: "250m"
+        memory: "512Mi"
+  loki:
+    retention: "720h"  # 30 days
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  promtail:
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "100m"
+        memory: "128Mi"

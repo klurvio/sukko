@@ -1,0 +1,41 @@
+{{- if and .Values.enabled .Values.prometheus.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "monitoring.fullname" . }}-prometheus-config
+  labels:
+    {{- include "monitoring.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.prometheus.scrapeInterval }}
+      evaluation_interval: {{ .Values.prometheus.scrapeInterval }}
+
+    scrape_configs:
+      # Scrape ws-server metrics
+      - job_name: 'ws-server'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: keep
+            regex: ws-server
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            action: keep
+            regex: http
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+
+      # Scrape Redpanda metrics
+      - job_name: 'redpanda'
+        static_configs:
+          - targets: ['{{ .Release.Name }}-redpanda:9644']
+
+      # Prometheus self-monitoring
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+{{- end }}

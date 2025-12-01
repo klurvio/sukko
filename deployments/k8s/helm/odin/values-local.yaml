@@ -1,0 +1,100 @@
+# =============================================================================
+# Local Environment (kind) - M1 MacBook optimized
+# =============================================================================
+
+global:
+  namespace: odin-local
+
+# WebSocket Server - Minimal for local dev
+ws-server:
+  enabled: true
+  replicaCount: 1
+  config:
+    shards: 1  # Single shard for M1
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "512Mi"
+  service:
+    type: NodePort
+    nodePort: 30080
+  autoscaling:
+    enabled: false
+
+# Redpanda - Reduced resources
+redpanda:
+  enabled: true
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  storage:
+    enabled: false  # Use emptyDir for local
+
+# Valkey - Minimal
+valkey:
+  enabled: true
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+
+# Publisher - Minimal
+publisher:
+  enabled: true
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+
+# Monitoring - Reduced for local
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "100m"
+        memory: "256Mi"
+  grafana:
+    enabled: true
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "100m"
+        memory: "256Mi"
+  loki:
+    enabled: true
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "100m"
+        memory: "256Mi"
+  promtail:
+    enabled: true
+    resources:
+      requests:
+        cpu: "25m"
+        memory: "32Mi"
+      limits:
+        cpu: "50m"
+        memory: "64Mi"

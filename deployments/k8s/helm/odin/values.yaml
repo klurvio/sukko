@@ -1,0 +1,307 @@
+# =============================================================================
+# Odin WebSocket Infrastructure - Base Values
+# =============================================================================
+# This file contains base/default configuration values.
+# Environment-specific overrides are in values-{local,develop,staging,production}.yaml
+
+global:
+  # Namespace (overridden per environment)
+  namespace: odin
+
+  # Image registry (overridden for GKE)
+  imageRegistry: ""
+
+  # Common labels applied to all resources
+  labels:
+    app.kubernetes.io/part-of: odin
+
+# =============================================================================
+# WebSocket Server
+# =============================================================================
+ws-server:
+  enabled: true
+
+  replicaCount: 1
+
+  image:
+    repository: odin-ws
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Server configuration
+  config:
+    shards: 2
+    basePort: 3002
+    lbAddr: ":3001"
+
+    # Rate limiting
+    maxKafkaRate: 1000
+    maxBroadcastRate: 25
+
+    # Connection rate limiting (DoS protection)
+    connRateLimit:
+      enabled: true
+      ipBurst: 100
+      ipRate: 100.0
+      globalBurst: 300
+      globalRate: 50.0
+
+    # CPU thresholds
+    cpuRejectThreshold: 75.0
+    cpuPauseThreshold: 75.0
+
+    # TCP tuning
+    tcpListenBacklog: 2048
+    httpReadTimeout: "15s"
+    httpWriteTimeout: "15s"
+    httpIdleTimeout: "60s"
+
+    # Logging
+    logLevel: info
+    logFormat: json
+
+    # Metrics
+    metricsInterval: "15s"
+
+  # Valkey (Redis) connection for BroadcastBus
+  valkey:
+    # Address will be service name in K8s
+    addrs: "valkey:6379"
+    masterName: mymaster
+    db: 0
+    channel: ws.broadcast
+    # Password set via secret
+
+  # Kafka configuration
+  kafka:
+    brokers: "redpanda:9092"
+    consumerGroup: odin-ws-consumer
+    topics:
+      - odin.trade
+      - odin.orderbook
+      - odin.ticker
+
+  # Resource allocation (overridden per environment)
+  resources:
+    requests:
+      cpu: "1"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "1Gi"
+
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 3001
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 3001
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+
+  # Service configuration
+  service:
+    type: NodePort
+    port: 3001
+    nodePort: 30080
+
+  # Session affinity for WebSocket
+  sessionAffinity:
+    enabled: true
+    timeoutSeconds: 10800  # 3 hours
+
+  # HPA (disabled by default, enabled in staging/production)
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+# =============================================================================
+# Redpanda (Kafka)
+# =============================================================================
+redpanda:
+  enabled: true
+
+  replicaCount: 1
+
+  image:
+    repository: redpandadata/redpanda
+    tag: v23.3.5
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+  # Kafka listener port
+  kafkaPort: 9092
+
+  # Admin port
+  adminPort: 9644
+
+  # Pandaproxy (REST) port
+  pandaproxyPort: 8082
+
+  # Schema registry port
+  schemaRegistryPort: 8081
+
+  # Console port
+  consolePort: 8080
+
+  # Storage
+  storage:
+    enabled: true
+    size: 5Gi
+    storageClass: ""  # Use default
+
+  # Topic configuration
+  topics:
+    - name: odin.trade
+      partitions: 12
+      replicationFactor: 1
+    - name: odin.orderbook
+      partitions: 12
+      replicationFactor: 1
+    - name: odin.ticker
+      partitions: 12
+      replicationFactor: 1
+
+# =============================================================================
+# Valkey (Redis-compatible)
+# =============================================================================
+valkey:
+  enabled: true
+
+  replicaCount: 1
+
+  image:
+    repository: valkey/valkey
+    tag: 7.2-alpine
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+  port: 6379
+
+  # Configuration
+  config:
+    maxmemory: "256mb"
+    maxmemoryPolicy: "allkeys-lru"
+
+  # Password (set via secret in production)
+  auth:
+    enabled: true
+    # password set via secret
+
+# =============================================================================
+# Publisher (Event Generator)
+# =============================================================================
+publisher:
+  enabled: true
+
+  replicaCount: 1
+
+  image:
+    repository: odin-publisher
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "512Mi"
+
+  # Kafka connection
+  kafka:
+    brokers: "redpanda:9092"
+
+  # Publishing rate
+  config:
+    ratePerSecond: 100
+    tokens:
+      - BTC
+      - ETH
+      - SOL
+      - DOGE
+
+# =============================================================================
+# Monitoring Stack
+# =============================================================================
+monitoring:
+  enabled: true
+
+  # Prometheus
+  prometheus:
+    enabled: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    port: 9090
+    nodePort: 30090
+    retention: "7d"
+    scrapeInterval: "15s"
+
+  # Grafana
+  grafana:
+    enabled: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "250m"
+        memory: "512Mi"
+    port: 3000
+    nodePort: 30300
+    # Admin credentials (set via secret in production)
+    adminUser: admin
+
+  # Loki (Log aggregation)
+  loki:
+    enabled: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    port: 3100
+    retention: "168h"  # 7 days
+
+  # Promtail (Log collector - DaemonSet)
+  promtail:
+    enabled: true
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "100m"
+        memory: "128Mi"

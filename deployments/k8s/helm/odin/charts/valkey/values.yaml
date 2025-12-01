@@ -1,0 +1,36 @@
+# Default values for valkey subchart
+
+enabled: true
+
+replicaCount: 1
+
+image:
+  repository: valkey/valkey
+  tag: 7.2-alpine
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+port: 6379
+
+config:
+  maxmemory: "256mb"
+  maxmemoryPolicy: "allkeys-lru"
+
+auth:
+  enabled: true
+  # password is set via secret
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

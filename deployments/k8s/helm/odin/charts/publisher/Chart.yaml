@@ -1,0 +1,6 @@
+apiVersion: v2
+name: publisher
+description: Event publisher for generating test market data
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

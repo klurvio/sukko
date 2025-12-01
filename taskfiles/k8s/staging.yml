@@ -1,0 +1,82 @@
+# =============================================================================
+# Staging Environment Tasks (GKE Autopilot)
+# =============================================================================
+
+version: '3'
+
+vars:
+  HELM_CHART_PATH: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
+  NAMESPACE: odin-staging
+  VALUES_FILE: "{{.HELM_CHART_PATH}}/values-staging.yaml"
+  GKE_CLUSTER: odin-staging
+  GKE_REGION: us-central1
+  GKE_PROJECT: '{{.GKE_PROJECT | default "YOUR_PROJECT"}}'
+  REGISTRY: us-central1-docker.pkg.dev/{{.GKE_PROJECT}}/odin
+
+tasks:
+  # ===========================================================================
+  # Cluster Connection
+  # ===========================================================================
+  connect:
+    desc: Connect to GKE staging cluster
+    cmds:
+      - gcloud container clusters get-credentials {{.GKE_CLUSTER}} --region {{.GKE_REGION}} --project {{.GKE_PROJECT}}
+
+  # ===========================================================================
+  # Build & Push
+  # ===========================================================================
+  build:
+    desc: Build and push images to Artifact Registry
+    cmds:
+      - docker build -t {{.REGISTRY}}/ws-server:staging {{.ROOT_DIR}}/ws
+      - docker push {{.REGISTRY}}/ws-server:staging
+
+  # ===========================================================================
+  # Deployment
+  # ===========================================================================
+  deploy:
+    desc: Build, push, and deploy to GKE staging
+    cmds:
+      - task: build
+      - task: upgrade
+
+  upgrade:
+    desc: Upgrade existing deployment
+    cmds:
+      - helm upgrade --install odin {{.HELM_CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace
+
+  down:
+    desc: Uninstall Helm release
+    cmds:
+      - helm uninstall odin -n {{.NAMESPACE}} || true
+
+  # ===========================================================================
+  # Status & Debugging
+  # ===========================================================================
+  status:
+    desc: Show deployment status
+    cmds:
+      - kubectl get pods -n {{.NAMESPACE}}
+      - echo ""
+      - kubectl get svc -n {{.NAMESPACE}}
+      - echo ""
+      - kubectl get hpa -n {{.NAMESPACE}}
+
+  logs:
+    desc: Tail ws-server logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.NAMESPACE}} --tail=100
+
+  # ===========================================================================
+  # Load Testing
+  # ===========================================================================
+  loadtest:
+    desc: Run load test against staging
+    vars:
+      CONNECTIONS: '{{default "5000" .CONNECTIONS}}'
+      DURATION: '{{default "300" .DURATION}}'
+    cmds:
+      - |
+        STAGING_IP=$(kubectl get svc -n {{.NAMESPACE}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+        echo "Running load test against $STAGING_IP"
+        # Add your load testing tool here

@@ -1,0 +1,94 @@
+# Default values for ws-server subchart
+# These can be overridden from the parent chart
+
+enabled: true
+
+replicaCount: 1
+
+image:
+  repository: odin-ws
+  tag: latest
+  pullPolicy: IfNotPresent
+
+config:
+  shards: 2
+  basePort: 3002
+  lbAddr: ":3001"
+  maxKafkaRate: 1000
+  maxBroadcastRate: 25
+  connRateLimit:
+    enabled: true
+    ipBurst: 100
+    ipRate: 100.0
+    globalBurst: 300
+    globalRate: 50.0
+  cpuRejectThreshold: 75.0
+  cpuPauseThreshold: 75.0
+  tcpListenBacklog: 2048
+  httpReadTimeout: "15s"
+  httpWriteTimeout: "15s"
+  httpIdleTimeout: "60s"
+  logLevel: info
+  logFormat: json
+  metricsInterval: "15s"
+
+valkey:
+  addrs: "valkey:6379"
+  masterName: mymaster
+  db: 0
+  channel: ws.broadcast
+
+kafka:
+  brokers: "redpanda:9092"
+  consumerGroup: odin-ws-consumer
+  topics:
+    - odin.trade
+    - odin.orderbook
+    - odin.ticker
+
+resources:
+  requests:
+    cpu: "1"
+    memory: "512Mi"
+  limits:
+    cpu: "2"
+    memory: "1Gi"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3001
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3001
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+
+service:
+  type: NodePort
+  port: 3001
+  nodePort: 30080
+
+sessionAffinity:
+  enabled: true
+  timeoutSeconds: 10800
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
