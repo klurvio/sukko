@@ -1,3 +1,12 @@
+// Package limits provides rate limiting and resource protection mechanisms
+// for the WebSocket server. It implements token bucket rate limiting,
+// connection rate limiting, and CPU/memory-based resource guards with
+// hysteresis to prevent oscillation.
+//
+// Key components:
+//   - TokenBucket: Per-client message rate limiting
+//   - ConnectionRateLimiter: Per-IP and global connection throttling
+//   - ResourceGuard: CPU-aware backpressure with configurable thresholds
 package limits
 
 import (

@@ -1,3 +1,12 @@
+// Package platform provides environment configuration and container resource
+// detection. It handles loading configuration from environment variables and
+// detecting cgroup-based resource limits for containers.
+//
+// Key features:
+//   - Environment variable parsing with defaults via caarlos0/env
+//   - Optional .env file loading via godotenv
+//   - Cgroup v1/v2 CPU and memory limit detection
+//   - Automatic GOMAXPROCS configuration via automaxprocs
 package platform
 
 import (

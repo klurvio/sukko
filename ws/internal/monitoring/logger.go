@@ -1,3 +1,12 @@
+// Package monitoring provides observability components for the WebSocket server
+// including structured logging, Prometheus metrics, alerting, and system resource
+// monitoring with cgroup-aware CPU/memory tracking.
+//
+// Key components:
+//   - Logger: Structured JSON logging with Loki integration
+//   - MetricsCollector: Prometheus metrics for connections, messages, latency
+//   - AuditLogger: Audit trail for security-relevant events
+//   - SystemMonitor: Real-time CPU and memory monitoring for resource guards
 package monitoring
 
 import (

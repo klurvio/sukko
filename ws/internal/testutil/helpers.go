@@ -1,3 +1,5 @@
+// helpers.go provides testing assertion helpers and concurrent test utilities.
+// For mock implementations, see mocks.go. For test fixtures, see fixtures.go.
 package testutil
 
 import (

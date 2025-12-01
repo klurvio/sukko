@@ -23,24 +23,23 @@ import (
 //   - Protects against distributed attacks
 //   - Allows legitimate reconnection bursts
 type ConnectionRateLimiter struct {
-	// Per-IP rate limiters (map[IP]*rate.Limiter)
-	ipLimiters map[string]*ipLimiterEntry
-	ipMu       sync.RWMutex
-	ipBurst    int           // Max burst connections per IP
-	ipRate     float64       // Sustained connections/sec per IP
-	ipTTL      time.Duration // Cleanup inactive IPs after this duration
+	// Per-IP rate limiting - prevents single client from flooding connections
+	ipLimiters map[string]*ipLimiterEntry // IP address → limiter entry
+	ipMu       sync.RWMutex               // Protects ipLimiters map
+	ipBurst    int                        // Max burst connections per IP (default: 10)
+	ipRate     float64                    // Sustained connections/sec per IP (default: 1.0)
+	ipTTL      time.Duration              // Cleanup inactive IPs after this duration (default: 5m)
 
-	// Global rate limiter
-	globalLimiter *rate.Limiter
-	globalBurst   int     // Max burst connections system-wide
-	globalRate    float64 // Sustained connections/sec system-wide
+	// Global rate limiting - prevents system-wide overload
+	globalLimiter *rate.Limiter // System-wide token bucket limiter
+	globalBurst   int           // Max burst connections system-wide (default: 300)
+	globalRate    float64       // Sustained connections/sec system-wide (default: 50.0)
 
-	// Logger
-	logger zerolog.Logger
+	logger zerolog.Logger // Structured logger with "connection_rate_limiter" component tag
 
-	// Cleanup ticker
-	cleanupTicker *time.Ticker
-	stopCleanup   chan struct{}
+	// Background cleanup - removes stale IP entries to prevent memory leak
+	cleanupTicker *time.Ticker  // Triggers cleanup every minute
+	stopCleanup   chan struct{} // Signals cleanup goroutine to exit
 }
 
 // ipLimiterEntry holds a rate limiter and last access time for an IP

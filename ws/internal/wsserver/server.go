@@ -1,3 +1,13 @@
+// Package wsserver provides a high-performance WebSocket server optimized for
+// trading platforms. It handles connection management, message broadcasting,
+// rate limiting, and subscription-based filtering with hierarchical channels.
+//
+// Key features:
+//   - Token bucket rate limiting per client
+//   - CPU-aware resource guards with hysteresis
+//   - Subscription indexing for efficient message routing (93% CPU savings)
+//   - Graceful shutdown with connection draining
+//   - Integration with Kafka/Redpanda for message consumption
 package wsserver
 
 import (
@@ -17,41 +27,63 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// Server is the main WebSocket server that manages client connections, message
+// broadcasting, and resource protection. It integrates with Kafka/Redpanda for
+// real-time message consumption and uses subscription-based filtering to route
+// messages only to interested clients.
+//
+// Thread Safety: All public methods are safe for concurrent use. Internal state
+// is protected by mutexes, atomic operations, and channel-based synchronization.
+//
+// Lifecycle: Create with NewServer, start with Start, stop with Shutdown.
+// The server supports graceful shutdown with configurable connection draining.
 type Server struct {
-	config        types.ServerConfig
-	logger        zerolog.Logger // Structured logger
-	listener      net.Listener
-	kafkaConsumer *kafka.Consumer
+	config        types.ServerConfig // Immutable after creation
+	logger        zerolog.Logger     // Structured logger for all server events
+	listener      net.Listener       // TCP listener for accepting connections
+	kafkaConsumer *kafka.Consumer    // Kafka/Redpanda consumer for market data
 
 	// Connection management
-	connections       *ConnectionPool
-	clients           sync.Map // map[*Client]bool
-	clientCount       int64
-	connectionsSem    chan struct{}      // Semaphore for max connections
-	subscriptionIndex *SubscriptionIndex // Fast lookup: channel → subscribers (93% CPU savings!)
+	connections       *ConnectionPool    // Pre-allocated connection pool
+	clients           sync.Map           // map[*Client]bool - active client tracking
+	clientCount       int64              // Atomic counter for connection IDs
+	connectionsSem    chan struct{}      // Semaphore enforcing MaxConnections limit
+	subscriptionIndex *SubscriptionIndex // Channel → subscribers index (93% CPU savings)
 
 	// Rate limiting
-	rateLimiter           *limits.RateLimiter
-	connectionRateLimiter *limits.ConnectionRateLimiter
+	rateLimiter           *limits.RateLimiter           // Per-client message rate limiting
+	connectionRateLimiter *limits.ConnectionRateLimiter // Per-IP and global connection throttling
 
 	// Monitoring
-	auditLogger      *monitoring.AuditLogger
-	metricsCollector *monitoring.MetricsCollector
-	resourceGuard    *limits.ResourceGuard // Replaces DynamicCapacityManager
+	auditLogger      *monitoring.AuditLogger      // Security and operational audit events
+	metricsCollector *monitoring.MetricsCollector // Prometheus metrics collector
+	resourceGuard    *limits.ResourceGuard        // CPU-aware backpressure with hysteresis
 
 	// Lifecycle
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	shuttingDown int32 // Atomic flag for graceful shutdown
+	ctx          context.Context    // Root context for all server goroutines
+	cancel       context.CancelFunc // Cancels ctx to signal shutdown
+	wg           sync.WaitGroup     // Tracks all server goroutines for clean shutdown
+	shuttingDown int32              // Atomic flag: 1 = rejecting new connections
 
 	// Stats
-	stats *types.Stats
+	stats *types.Stats // Runtime statistics and metrics
 
 	// Pump for testable read/write operations
-	pump *Pump
+	pump *Pump // Handles WebSocket read/write with dependency injection
 }
 
+// NewServer creates a new WebSocket server with the provided configuration.
+// The broadcastToBusFunc is called for each message consumed from Kafka to
+// distribute it across server instances via the BroadcastBus.
+//
+// The server initializes:
+//   - Connection pool with pre-allocated client slots
+//   - Subscription index for efficient message routing
+//   - Rate limiters (per-client and per-IP if enabled)
+//   - Resource guard for CPU-based backpressure
+//   - Kafka consumer (unless DisableKafkaConsumer is set for shared pool mode)
+//
+// Returns an error if Kafka consumer initialization fails.
 func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -170,6 +202,16 @@ func (s *Server) GetKafkaConsumer() any {
 	return s.kafkaConsumer
 }
 
+// Start begins accepting WebSocket connections on the configured address.
+// It starts several background goroutines:
+//   - HTTP server for WebSocket upgrades, health checks, and Prometheus metrics
+//   - Kafka consumer for real-time message consumption
+//   - Metrics collection at configured intervals
+//   - Memory monitoring and buffer saturation sampling
+//   - ResourceGuard CPU monitoring for backpressure
+//
+// Start returns immediately after launching goroutines. Use Shutdown to stop.
+// Returns an error if the TCP listener cannot be created or Kafka fails to start.
 func (s *Server) Start() error {
 	// Create TCP listener with custom backlog for burst tolerance
 	listener, err := net.Listen("tcp", s.config.Addr)
@@ -266,6 +308,18 @@ func (s *Server) Start() error {
 	return nil
 }
 
+// Shutdown performs a graceful server shutdown with connection draining.
+// The shutdown sequence:
+//  1. Sets shutdown flag to reject new connections immediately
+//  2. Closes the TCP listener (stops accepting new connections)
+//  3. Stops the Kafka consumer (no new messages)
+//  4. Waits up to 30 seconds for existing connections to drain gracefully
+//  5. Force-closes remaining connections after grace period
+//  6. Cancels the root context to stop all background goroutines
+//  7. Waits for all goroutines to complete
+//
+// During the grace period, clients can complete pending operations and
+// disconnect cleanly. This prevents data loss for in-flight messages.
 func (s *Server) Shutdown() error {
 	s.logger.Info().Msg("Initiating graceful shutdown")
 

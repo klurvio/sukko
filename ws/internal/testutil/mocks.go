@@ -1,4 +1,3 @@
-// Package testutil provides testing utilities, mocks, and fixtures for the WS server.
 package testutil
 
 import (

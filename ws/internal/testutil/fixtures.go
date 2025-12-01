@@ -1,3 +1,6 @@
+// Package testutil provides test fixtures, helpers, and mock implementations
+// for unit testing WebSocket server components. It includes safe default
+// configurations, mock clients, and assertion helpers.
 package testutil
 
 import (

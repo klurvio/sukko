@@ -1,3 +1,12 @@
+// Package kafka provides Kafka/Redpanda consumer integration with resource-aware
+// message processing. It supports batching, rate limiting, and CPU-based backpressure
+// to prevent message loss during high load.
+//
+// Key features:
+//   - Franz-go based consumer with consumer group support
+//   - Message batching for reduced overhead (default: 50 messages, 10ms timeout)
+//   - Integration with ResourceGuard for CPU-based throttling
+//   - Offset replay for client reconnection scenarios
 package kafka
 
 import (
@@ -27,44 +36,60 @@ type ResourceGuard interface {
 	ShouldPauseKafka() bool
 }
 
-// Consumer wraps franz-go client for consuming from Redpanda
+// Consumer wraps franz-go client for consuming from Kafka/Redpanda.
+// It provides three-layer protection against overload:
+//  1. Rate limiting - caps consumption at configured rate (e.g., 25 msg/sec)
+//  2. CPU emergency brake - pauses when CPU exceeds threshold (e.g., 80%)
+//  3. Direct broadcast - non-blocking message delivery to clients
+//
+// Thread Safety: All public methods are safe for concurrent use.
+//
+// Lifecycle: Create with NewConsumer, start with Start, stop with Stop.
 type Consumer struct {
-	client        *kgo.Client
-	logger        *zerolog.Logger
-	broadcast     BroadcastFunc
-	resourceGuard ResourceGuard
-	ctx           context.Context
+	client        *kgo.Client     // Franz-go Kafka client
+	logger        *zerolog.Logger // Structured logger
+	broadcast     BroadcastFunc   // Callback for message delivery to clients
+	resourceGuard ResourceGuard   // Rate limiting and CPU brake
+	ctx           context.Context // Root context for consumer goroutines
 	cancel        context.CancelFunc
-	wg            sync.WaitGroup
+	wg            sync.WaitGroup // Tracks consumer goroutines
 
-	// Batching configuration
+	// Batching configuration - reduces overhead by processing multiple messages together
 	batchSize    int           // Max messages per batch (default: 50)
 	batchTimeout time.Duration // Max time to wait for batch (default: 10ms)
 	batchEnabled bool          // Enable batching (default: true for performance)
 
-	// Metrics
-	messagesProcessed uint64
-	messagesFailed    uint64
-	messagesDropped   uint64 // Rate limited or CPU paused
-	batchesSent       uint64 // Number of batches sent
-	mu                sync.RWMutex
+	// Metrics - protected by mu mutex
+	messagesProcessed uint64       // Successfully broadcast messages
+	messagesFailed    uint64       // Messages with invalid format
+	messagesDropped   uint64       // Rate limited or CPU paused
+	batchesSent       uint64       // Number of batches sent
+	mu                sync.RWMutex // Protects metrics fields
 }
 
-// ConsumerConfig holds consumer configuration
+// ConsumerConfig holds configuration for creating a Kafka consumer.
+// Required fields: Brokers, ConsumerGroup, Topics, Broadcast, ResourceGuard.
 type ConsumerConfig struct {
-	Brokers       []string
-	ConsumerGroup string
-	Topics        []string
-	Logger        *zerolog.Logger
-	Broadcast     BroadcastFunc
-	ResourceGuard ResourceGuard // For rate limiting and CPU brake
+	Brokers       []string        // Kafka/Redpanda broker addresses (required)
+	ConsumerGroup string          // Consumer group ID for offset tracking (required)
+	Topics        []string        // Topics to consume from (required)
+	Logger        *zerolog.Logger // Structured logger for consumer events
+	Broadcast     BroadcastFunc   // Callback for message delivery (required)
+	ResourceGuard ResourceGuard   // Rate limiting and CPU brake (required)
 
-	// Optional batching configuration
+	// Optional batching configuration - improves throughput by reducing per-message overhead
 	BatchSize    int           // Max messages per batch (default: 50, 0 = disabled)
 	BatchTimeout time.Duration // Max wait for batch (default: 10ms)
 }
 
-// NewConsumer creates a new Kafka consumer
+// NewConsumer creates a new Kafka consumer with the provided configuration.
+// It validates required fields and initializes the franz-go client with
+// optimal settings for trading workloads (500ms fetch wait, 10MB max fetch).
+//
+// The consumer starts at the latest offset (no historical replay on creation).
+// Use Start to begin consuming and Stop for graceful shutdown.
+//
+// Returns an error if any required field is missing or client creation fails.
 func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if len(cfg.Brokers) == 0 {
 		return nil, fmt.Errorf("at least one broker is required")
@@ -148,7 +173,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	return consumer, nil
 }
 
-// Start begins consuming messages
+// Start begins consuming messages from Kafka in a background goroutine.
+// It returns immediately after launching the consumer loop.
+// Call Stop to gracefully shut down the consumer.
 func (c *Consumer) Start() error {
 	c.logger.Info().Msg("Starting Kafka consumer")
 
@@ -159,7 +186,9 @@ func (c *Consumer) Start() error {
 	return nil
 }
 
-// Stop gracefully stops the consumer
+// Stop gracefully stops the consumer and waits for pending messages to complete.
+// It cancels the consumer context, waits for the consume loop to exit, then
+// closes the Kafka client. Final metrics are logged before returning.
 func (c *Consumer) Stop() error {
 	c.logger.Info().Msg("Stopping Kafka consumer")
 
@@ -512,7 +541,9 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 		Msg("Consumed Kafka message")
 }
 
-// GetMetrics returns current consumer metrics
+// GetMetrics returns current consumer metrics: messages processed successfully,
+// messages that failed validation, and messages dropped due to rate limiting.
+// Thread-safe for concurrent access.
 func (c *Consumer) GetMetrics() (processed, failed, dropped uint64) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

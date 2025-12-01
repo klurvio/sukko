@@ -1,3 +1,12 @@
+// Package orchestration provides multi-instance coordination for horizontally
+// scaled WebSocket servers. It uses Valkey (Redis-compatible) Pub/Sub for
+// broadcasting messages across server instances and shards.
+//
+// Key components:
+//   - BroadcastBus: Valkey-based inter-instance message distribution
+//   - LoadBalancer: Routes connections across local shards
+//   - Shard: Manages a subset of WebSocket connections
+//   - KafkaConsumerPool: Shared Kafka consumer to avoid message duplication
 package orchestration
 
 import (
@@ -15,30 +24,35 @@ import (
 // BroadcastBus is a Valkey Pub/Sub-based system for inter-shard and inter-instance communication.
 // It replaces the in-memory channel approach to enable horizontal scaling across multiple VM instances.
 // Uses go-redis client which is compatible with both Valkey and Redis.
+//
+// Architecture: Each VM instance has one BroadcastBus. When a message is published,
+// Valkey broadcasts it to all connected BroadcastBus instances. Each BroadcastBus
+// then fans out to its local shards (subscribers).
+//
+// Thread Safety: All public methods are safe for concurrent use.
+//
+// Lifecycle: Create with NewBroadcastBus, call Subscribe for each shard, call Run
+// to start receiving, and Shutdown to stop.
 type BroadcastBus struct {
-	// Valkey client (Sentinel failover support)
-	client *redis.Client
-	pubsub *redis.PubSub
+	client *redis.Client // Valkey client (supports Sentinel failover)
+	pubsub *redis.PubSub // Valkey Pub/Sub subscription
 
-	// Pub/Sub configuration
-	channel string // e.g., "ws.broadcast"
+	channel string // Pub/Sub channel name (e.g., "ws.broadcast")
 
-	// Subscription management
-	subscribers []chan *BroadcastMessage
-	subMu       sync.RWMutex
+	subscribers []chan *BroadcastMessage // Local shard subscription channels
+	subMu       sync.RWMutex             // Protects subscribers slice
 
-	// Lifecycle management
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	ctx    context.Context    // Root context for bus goroutines
+	cancel context.CancelFunc // Cancels ctx to signal shutdown
+	wg     sync.WaitGroup     // Tracks receiveLoop and healthCheckLoop
 
-	// Health tracking
-	healthy       atomic.Bool
-	lastPublish   atomic.Int64 // Unix timestamp of last successful publish
-	publishErrors atomic.Uint64
-	messagesRecv  atomic.Uint64
+	// Health tracking - all fields are atomic for lock-free reads
+	healthy       atomic.Bool   // True if Valkey connection is operational
+	lastPublish   atomic.Int64  // Unix timestamp of last successful publish
+	publishErrors atomic.Uint64 // Count of failed publish attempts
+	messagesRecv  atomic.Uint64 // Count of messages received from Valkey
 
-	logger zerolog.Logger
+	logger zerolog.Logger // Structured logger with "broadcast_bus" component tag
 }
 
 // BroadcastBusConfig holds configuration for creating a BroadcastBus
@@ -56,7 +70,12 @@ type BroadcastBusConfig struct {
 	Logger zerolog.Logger
 }
 
-// NewBroadcastBus creates a new Valkey-based BroadcastBus
+// NewBroadcastBus creates a new Valkey-based BroadcastBus with the provided configuration.
+// It supports two connection modes:
+//   - Direct mode (single address): Connects directly to a Valkey instance
+//   - Sentinel mode (multiple addresses): Uses Sentinel for automatic failover
+//
+// The connection is tested before returning. Returns an error if the connection fails.
 func NewBroadcastBus(cfg BroadcastBusConfig) (*BroadcastBus, error) {
 	// Validate configuration
 	if len(cfg.SentinelAddrs) == 0 {
@@ -165,8 +184,13 @@ func NewBroadcastBus(cfg BroadcastBusConfig) (*BroadcastBus, error) {
 	return bus, nil
 }
 
-// Run starts the BroadcastBus's main loop
-// Must be called after all shards have called Subscribe()
+// Run starts the BroadcastBus's receive and health check loops.
+// It subscribes to the Valkey Pub/Sub channel and starts goroutines for:
+//   - receiveLoop: Receives messages from Valkey and fans out to local subscribers
+//   - healthCheckLoop: Periodic Valkey PING to verify connectivity
+//
+// Must be called after all shards have called Subscribe(). Returns immediately
+// after launching goroutines. Use Shutdown to stop.
 func (b *BroadcastBus) Run() {
 	// Subscribe to Valkey channel
 	b.pubsub = b.client.Subscribe(b.ctx, b.channel)
@@ -185,7 +209,12 @@ func (b *BroadcastBus) Run() {
 	go b.healthCheckLoop()
 }
 
-// Shutdown gracefully stops the BroadcastBus
+// Shutdown gracefully stops the BroadcastBus with a 5-second timeout.
+// The shutdown sequence:
+//  1. Cancels the root context to signal goroutines to stop
+//  2. Waits up to 5 seconds for goroutines to finish
+//  3. Closes Valkey Pub/Sub subscription and client connections
+//  4. Closes subscriber channels (only if goroutines stopped cleanly)
 func (b *BroadcastBus) Shutdown() {
 	b.logger.Info().Msg("Shutting down BroadcastBus")
 

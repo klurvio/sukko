@@ -1,3 +1,6 @@
+// Package messaging provides message envelope structures, sequence tracking,
+// and priority handling for WebSocket messages. It implements the industry-standard
+// envelope pattern used by financial trading platforms for reliable message delivery.
 package messaging
 
 import (
