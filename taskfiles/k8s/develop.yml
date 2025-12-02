@@ -5,9 +5,9 @@
 version: '3'
 
 vars:
-  HELM_CHART_PATH: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
-  NAMESPACE: odin-dev
-  VALUES_FILE: "{{.HELM_CHART_PATH}}/values-develop.yaml"
+  DEV_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
+  DEV_NS: odin-dev
+  DEV_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values-develop.yaml"
   GKE_CLUSTER: odin-dev
   GKE_REGION: us-central1
   GKE_PROJECT: '{{.GKE_PROJECT | default "YOUR_PROJECT"}}'
@@ -45,12 +45,12 @@ tasks:
   upgrade:
     desc: Upgrade existing deployment
     cmds:
-      - helm upgrade --install odin {{.HELM_CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace
+      - helm upgrade --install odin {{.DEV_CHART}} -f {{.DEV_VALUES}} -n {{.DEV_NS}} --create-namespace
 
   down:
     desc: Uninstall Helm release
     cmds:
-      - helm uninstall odin -n {{.NAMESPACE}} || true
+      - helm uninstall odin -n {{.DEV_NS}} || true
 
   # ===========================================================================
   # Status & Debugging
@@ -58,16 +58,16 @@ tasks:
   status:
     desc: Show deployment status
     cmds:
-      - kubectl get pods -n {{.NAMESPACE}}
+      - kubectl get pods -n {{.DEV_NS}}
       - echo ""
-      - kubectl get svc -n {{.NAMESPACE}}
+      - kubectl get svc -n {{.DEV_NS}}
 
   logs:
     desc: Tail ws-server logs
     cmds:
-      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.NAMESPACE}} --tail=100
+      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.DEV_NS}} --tail=100
 
   port-forward:
     desc: Port-forward ws-server for local testing
     cmds:
-      - kubectl port-forward -n {{.NAMESPACE}} svc/odin-ws-server 3005:3001
+      - kubectl port-forward -n {{.DEV_NS}} svc/odin-ws-server 3005:3001

@@ -17,9 +17,9 @@ includes:
   production: ./production.yml
   common: ./common.yml
 
-vars:
-  HELM_CHART_PATH: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
-  WS_DOCKERFILE_PATH: "{{.ROOT_DIR}}/ws"
+# NOTE: Each environment taskfile defines its own chart/namespace/values variables
+# with environment-specific prefixes (LOCAL_*, DEV_*, STAGING_*, PROD_*) to
+# prevent variable name collisions across includes.
 
 tasks:
   default:

@@ -65,8 +65,9 @@ ws-server:
 
   # Valkey (Redis) connection for BroadcastBus
   valkey:
-    # Address will be service name in K8s
-    addrs: "valkey:6379"
+    # Empty string = use dynamic default: {{ .Release.Name }}-valkey:6379
+    # Override this for external Valkey/Redis
+    addrs: ""
     masterName: mymaster
     db: 0
     channel: ws.broadcast
@@ -74,7 +75,9 @@ ws-server:
 
   # Kafka configuration
   kafka:
-    brokers: "redpanda:9092"
+    # Empty string = use dynamic default: {{ .Release.Name }}-redpanda:9092
+    # Override this for external Kafka
+    brokers: ""
     consumerGroup: odin-ws-consumer
     topics:
       - odin.trade
@@ -235,7 +238,8 @@ publisher:
 
   # Kafka connection
   kafka:
-    brokers: "redpanda:9092"
+    # Empty = dynamic default ({{ .Release.Name }}-redpanda:9092)
+    brokers: ""
 
   # Publishing rate
   config:

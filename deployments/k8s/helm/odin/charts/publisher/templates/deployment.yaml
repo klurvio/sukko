@@ -24,8 +24,9 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
+            # Kafka/Redpanda: Use provided value or default to release-name-redpanda:9092
             - name: KAFKA_BROKERS
-              value: "{{ .Values.kafka.brokers }}"
+              value: "{{ .Values.kafka.brokers | default (printf "%s-redpanda:9092" .Release.Name) }}"
             - name: PUBLISH_RATE
               value: "{{ .Values.config.ratePerSecond }}"
             - name: TOKENS

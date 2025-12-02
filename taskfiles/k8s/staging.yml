@@ -5,9 +5,9 @@
 version: '3'
 
 vars:
-  HELM_CHART_PATH: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
-  NAMESPACE: odin-staging
-  VALUES_FILE: "{{.HELM_CHART_PATH}}/values-staging.yaml"
+  STAGING_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
+  STAGING_NS: odin-staging
+  STAGING_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values-staging.yaml"
   GKE_CLUSTER: odin-staging
   GKE_REGION: us-central1
   GKE_PROJECT: '{{.GKE_PROJECT | default "YOUR_PROJECT"}}'
@@ -43,12 +43,12 @@ tasks:
   upgrade:
     desc: Upgrade existing deployment
     cmds:
-      - helm upgrade --install odin {{.HELM_CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace
+      - helm upgrade --install odin {{.STAGING_CHART}} -f {{.STAGING_VALUES}} -n {{.STAGING_NS}} --create-namespace
 
   down:
     desc: Uninstall Helm release
     cmds:
-      - helm uninstall odin -n {{.NAMESPACE}} || true
+      - helm uninstall odin -n {{.STAGING_NS}} || true
 
   # ===========================================================================
   # Status & Debugging
@@ -56,16 +56,16 @@ tasks:
   status:
     desc: Show deployment status
     cmds:
-      - kubectl get pods -n {{.NAMESPACE}}
+      - kubectl get pods -n {{.STAGING_NS}}
       - echo ""
-      - kubectl get svc -n {{.NAMESPACE}}
+      - kubectl get svc -n {{.STAGING_NS}}
       - echo ""
-      - kubectl get hpa -n {{.NAMESPACE}}
+      - kubectl get hpa -n {{.STAGING_NS}}
 
   logs:
     desc: Tail ws-server logs
     cmds:
-      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.NAMESPACE}} --tail=100
+      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.STAGING_NS}} --tail=100
 
   # ===========================================================================
   # Load Testing
@@ -77,6 +77,6 @@ tasks:
       DURATION: '{{default "300" .DURATION}}'
     cmds:
       - |
-        STAGING_IP=$(kubectl get svc -n {{.NAMESPACE}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+        STAGING_IP=$(kubectl get svc -n {{.STAGING_NS}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
         echo "Running load test against $STAGING_IP"
         # Add your load testing tool here

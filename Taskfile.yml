@@ -38,6 +38,11 @@ includes:
     taskfile: ./taskfiles/k8s/Taskfile.yml
     dir: .
 
+  # Terraform infrastructure management
+  terraform:
+    taskfile: ./taskfiles/terraform/Taskfile.yml
+    dir: .
+
 tasks:
   default:
     desc: Show available commands

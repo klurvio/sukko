@@ -1,0 +1,249 @@
+# =============================================================================
+# Terraform Taskfile - Infrastructure Management
+# =============================================================================
+# Usage: task terraform:<command>
+# Examples:
+#   task terraform:shared:plan
+#   task terraform:dev:apply
+#   task terraform:prod:kubeconfig
+
+version: '3'
+
+vars:
+  TF_DIR: '{{.ROOT_DIR}}/deployments/terraform'
+
+tasks:
+  default:
+    desc: Show Terraform commands
+    cmds:
+      - task: help
+
+  help:
+    desc: Show available Terraform commands
+    silent: true
+    cmds:
+      - cmd: echo "TERRAFORM INFRASTRUCTURE MANAGEMENT"
+      - cmd: echo ""
+      - cmd: echo "GENERAL COMMANDS"
+      - cmd: 'echo "  task terraform:init ENV=<env>     - Initialize Terraform"'
+      - cmd: 'echo "  task terraform:plan ENV=<env>     - Plan infrastructure changes"'
+      - cmd: 'echo "  task terraform:apply ENV=<env>    - Apply infrastructure changes"'
+      - cmd: 'echo "  task terraform:destroy ENV=<env>  - Destroy infrastructure (DANGEROUS)"'
+      - cmd: 'echo "  task terraform:output ENV=<env>   - Show outputs"'
+      - cmd: 'echo "  task terraform:fmt                - Format all Terraform files"'
+      - cmd: 'echo "  task terraform:validate ENV=<env> - Validate configuration"'
+      - cmd: echo ""
+      - cmd: echo "SHARED ENVIRONMENT"
+      - cmd: 'echo "  task terraform:shared:init        - Initialize shared environment"'
+      - cmd: 'echo "  task terraform:shared:plan        - Plan shared resources"'
+      - cmd: 'echo "  task terraform:shared:apply       - Apply shared resources"'
+      - cmd: echo ""
+      - cmd: echo "DEV-STAGING ENVIRONMENT"
+      - cmd: 'echo "  task terraform:dev:init           - Initialize dev-staging"'
+      - cmd: 'echo "  task terraform:dev:plan           - Plan dev-staging cluster"'
+      - cmd: 'echo "  task terraform:dev:apply          - Apply dev-staging cluster"'
+      - cmd: 'echo "  task terraform:dev:kubeconfig     - Get kubeconfig for dev-staging"'
+      - cmd: echo ""
+      - cmd: echo "PRODUCTION ENVIRONMENT"
+      - cmd: 'echo "  task terraform:prod:init          - Initialize production"'
+      - cmd: 'echo "  task terraform:prod:plan          - Plan production cluster"'
+      - cmd: 'echo "  task terraform:prod:apply         - Apply production cluster"'
+      - cmd: 'echo "  task terraform:prod:kubeconfig    - Get kubeconfig for production"'
+      - cmd: echo ""
+      - cmd: echo "STATUS"
+      - cmd: 'echo "  task terraform:status             - Show infrastructure status"'
+      - cmd: echo ""
+      - 'echo "Environments: shared, dev-staging, production"'
+
+  # ============================================================================
+  # GENERIC COMMANDS (with ENV variable)
+  # ============================================================================
+
+  init:
+    desc: Initialize Terraform for an environment
+    cmds:
+      - terraform -chdir={{.TF_DIR}}/environments/{{.ENV}} init
+    requires:
+      vars: [ENV]
+
+  plan:
+    desc: Plan Terraform changes
+    cmds:
+      - terraform -chdir={{.TF_DIR}}/environments/{{.ENV}} plan -out=tfplan
+    requires:
+      vars: [ENV]
+
+  apply:
+    desc: Apply Terraform changes
+    cmds:
+      - terraform -chdir={{.TF_DIR}}/environments/{{.ENV}} apply tfplan
+    requires:
+      vars: [ENV]
+
+  apply-auto:
+    desc: Apply Terraform changes with auto-approve
+    cmds:
+      - terraform -chdir={{.TF_DIR}}/environments/{{.ENV}} apply -auto-approve
+    requires:
+      vars: [ENV]
+
+  destroy:
+    desc: Destroy Terraform resources (DANGEROUS)
+    cmds:
+      - terraform -chdir={{.TF_DIR}}/environments/{{.ENV}} destroy
+    requires:
+      vars: [ENV]
+    prompt: 'Are you sure you want to destroy {{.ENV}}? This action is irreversible!'
+
+  output:
+    desc: Show Terraform outputs
+    cmds:
+      - terraform -chdir={{.TF_DIR}}/environments/{{.ENV}} output
+    requires:
+      vars: [ENV]
+
+  validate:
+    desc: Validate Terraform configuration
+    cmds:
+      - terraform -chdir={{.TF_DIR}}/environments/{{.ENV}} validate
+    requires:
+      vars: [ENV]
+
+  # ============================================================================
+  # FORMATTING
+  # ============================================================================
+
+  fmt:
+    desc: Format all Terraform files
+    cmds:
+      - terraform fmt -recursive {{.TF_DIR}}
+
+  # ============================================================================
+  # SHARED ENVIRONMENT
+  # ============================================================================
+
+  shared:init:
+    desc: Initialize shared environment
+    cmds:
+      - task: init
+        vars: {ENV: shared}
+
+  shared:plan:
+    desc: Plan shared resources
+    cmds:
+      - task: plan
+        vars: {ENV: shared}
+
+  shared:apply:
+    desc: Apply shared resources
+    cmds:
+      - task: apply
+        vars: {ENV: shared}
+
+  shared:output:
+    desc: Show shared outputs
+    cmds:
+      - task: output
+        vars: {ENV: shared}
+
+  # ============================================================================
+  # DEV-STAGING ENVIRONMENT
+  # ============================================================================
+
+  dev:init:
+    desc: Initialize dev-staging environment
+    cmds:
+      - task: init
+        vars: {ENV: dev-staging}
+
+  dev:plan:
+    desc: Plan dev-staging cluster
+    cmds:
+      - task: plan
+        vars: {ENV: dev-staging}
+
+  dev:apply:
+    desc: Apply dev-staging cluster
+    cmds:
+      - task: apply
+        vars: {ENV: dev-staging}
+
+  dev:output:
+    desc: Show dev-staging outputs
+    cmds:
+      - task: output
+        vars: {ENV: dev-staging}
+
+  dev:kubeconfig:
+    desc: Get kubeconfig for dev-staging cluster
+    cmds:
+      - |
+        CLUSTER=$(terraform -chdir={{.TF_DIR}}/environments/dev-staging output -raw cluster_name 2>/dev/null || echo "")
+        LOCATION=$(terraform -chdir={{.TF_DIR}}/environments/dev-staging output -raw cluster_location 2>/dev/null || echo "")
+        if [ -n "$CLUSTER" ] && [ -n "$LOCATION" ]; then
+          gcloud container clusters get-credentials $CLUSTER --region $LOCATION
+          echo "Kubeconfig configured for $CLUSTER"
+        else
+          echo "Could not retrieve cluster info. Run 'task terraform:dev:apply' first."
+          exit 1
+        fi
+
+  # ============================================================================
+  # PRODUCTION ENVIRONMENT
+  # ============================================================================
+
+  prod:init:
+    desc: Initialize production environment
+    cmds:
+      - task: init
+        vars: {ENV: production}
+
+  prod:plan:
+    desc: Plan production cluster
+    cmds:
+      - task: plan
+        vars: {ENV: production}
+
+  prod:apply:
+    desc: Apply production cluster
+    cmds:
+      - task: apply
+        vars: {ENV: production}
+
+  prod:output:
+    desc: Show production outputs
+    cmds:
+      - task: output
+        vars: {ENV: production}
+
+  prod:kubeconfig:
+    desc: Get kubeconfig for production cluster
+    cmds:
+      - |
+        CLUSTER=$(terraform -chdir={{.TF_DIR}}/environments/production output -raw cluster_name 2>/dev/null || echo "")
+        LOCATION=$(terraform -chdir={{.TF_DIR}}/environments/production output -raw cluster_location 2>/dev/null || echo "")
+        if [ -n "$CLUSTER" ] && [ -n "$LOCATION" ]; then
+          gcloud container clusters get-credentials $CLUSTER --region $LOCATION
+          echo "Kubeconfig configured for $CLUSTER"
+        else
+          echo "Could not retrieve cluster info. Run 'task terraform:prod:apply' first."
+          exit 1
+        fi
+
+  # ============================================================================
+  # STATUS
+  # ============================================================================
+
+  status:
+    desc: Show infrastructure status
+    cmds:
+      - cmd: echo "TERRAFORM INFRASTRUCTURE STATUS"
+      - cmd: echo ""
+      - cmd: echo "SHARED RESOURCES"
+      - terraform -chdir={{.TF_DIR}}/environments/shared output 2>/dev/null || echo "   Not deployed or not initialized"
+      - cmd: echo ""
+      - cmd: echo "DEV-STAGING CLUSTER"
+      - terraform -chdir={{.TF_DIR}}/environments/dev-staging output 2>/dev/null || echo "   Not deployed or not initialized"
+      - cmd: echo ""
+      - cmd: echo "PRODUCTION CLUSTER"
+      - terraform -chdir={{.TF_DIR}}/environments/production output 2>/dev/null || echo "   Not deployed or not initialized"

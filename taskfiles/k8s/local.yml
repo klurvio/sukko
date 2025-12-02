@@ -5,11 +5,11 @@
 version: '3'
 
 vars:
-  HELM_CHART_PATH: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
-  KIND_CONFIG: "{{.ROOT_DIR}}/deployments/k8s/environments/local/kind-config.yaml"
-  CLUSTER_NAME: odin-local
-  NAMESPACE: odin-local
-  VALUES_FILE: "{{.HELM_CHART_PATH}}/values-local.yaml"
+  LOCAL_HELM_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
+  LOCAL_KIND_CONFIG: "{{.ROOT_DIR}}/deployments/k8s/environments/local/kind-config.yaml"
+  LOCAL_CLUSTER: odin-local
+  LOCAL_NS: odin-local
+  LOCAL_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values-local.yaml"
 
 tasks:
   # ===========================================================================
@@ -25,13 +25,13 @@ tasks:
   cluster:create:
     desc: Create kind cluster
     cmds:
-      - kind create cluster --config {{.KIND_CONFIG}} || true
-      - kubectl create namespace {{.NAMESPACE}} --dry-run=client -o yaml | kubectl apply -f -
+      - kind create cluster --config {{.LOCAL_KIND_CONFIG}} || true
+      - kubectl create namespace {{.LOCAL_NS}} --dry-run=client -o yaml | kubectl apply -f -
 
   cluster:delete:
     desc: Delete kind cluster
     cmds:
-      - kind delete cluster --name {{.CLUSTER_NAME}}
+      - kind delete cluster --name {{.LOCAL_CLUSTER}}
 
   destroy:
     desc: Delete kind cluster (alias)
@@ -44,10 +44,10 @@ tasks:
   images:load:
     desc: Build and load images into kind
     cmds:
-      - task: common:build:ws-server
-      - kind load docker-image odin-ws:latest --name {{.CLUSTER_NAME}}
-      # - task: common:build:publisher
-      # - kind load docker-image odin-publisher:latest --name {{.CLUSTER_NAME}}
+      - docker build -t odin-ws:latest {{.ROOT_DIR}}/ws
+      - kind load docker-image odin-ws:latest --name {{.LOCAL_CLUSTER}}
+      # - docker build -t odin-publisher:latest {{.ROOT_DIR}}/publisher
+      # - kind load docker-image odin-publisher:latest --name {{.LOCAL_CLUSTER}}
 
   # ===========================================================================
   # Deployment
@@ -55,18 +55,18 @@ tasks:
   up:
     desc: Deploy/upgrade Helm release
     cmds:
-      - helm upgrade --install odin {{.HELM_CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace
+      - helm upgrade --install odin {{.LOCAL_HELM_CHART}} -f {{.LOCAL_VALUES}} -n {{.LOCAL_NS}} --create-namespace
 
   down:
     desc: Uninstall Helm release
     cmds:
-      - helm uninstall odin -n {{.NAMESPACE}} || true
+      - helm uninstall odin -n {{.LOCAL_NS}} || true
 
   rebuild:
     desc: Rebuild images and restart pods
     cmds:
       - task: images:load
-      - kubectl rollout restart deployment -n {{.NAMESPACE}}
+      - kubectl rollout restart deployment -n {{.LOCAL_NS}}
 
   # ===========================================================================
   # Status & Debugging
@@ -74,24 +74,24 @@ tasks:
   status:
     desc: Show deployment status
     cmds:
-      - kubectl get pods -n {{.NAMESPACE}}
+      - kubectl get pods -n {{.LOCAL_NS}}
       - echo ""
-      - kubectl get svc -n {{.NAMESPACE}}
+      - kubectl get svc -n {{.LOCAL_NS}}
 
   logs:
     desc: Tail ws-server logs
     cmds:
-      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.NAMESPACE}} --tail=100
+      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.LOCAL_NS}} --tail=100
 
   logs:all:
     desc: Tail all pod logs
     cmds:
-      - kubectl logs -f --all-containers=true -l app.kubernetes.io/part-of=odin -n {{.NAMESPACE}} --tail=50
+      - kubectl logs -f --all-containers=true -l app.kubernetes.io/part-of=odin -n {{.LOCAL_NS}} --tail=50
 
   shell:
     desc: Open shell in ws-server pod
     cmds:
-      - kubectl exec -it $(kubectl get pods -n {{.NAMESPACE}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].metadata.name}') -n {{.NAMESPACE}} -- sh
+      - kubectl exec -it $(kubectl get pods -n {{.LOCAL_NS}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].metadata.name}') -n {{.LOCAL_NS}} -- sh
 
   # ===========================================================================
   # Testing

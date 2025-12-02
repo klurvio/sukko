@@ -24,6 +24,8 @@ spec:
         - name: ws-server
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - "./odin-ws"
           args:
             - "--shards={{ .Values.config.shards }}"
             - "--base-port={{ .Values.config.basePort }}"
@@ -44,12 +46,14 @@ spec:
                 name: {{ include "ws-server.fullname" . }}-secrets
                 optional: true
           env:
+            # Kafka/Redpanda: Use provided value or default to release-name-redpanda:9092
             - name: KAFKA_BROKERS
-              value: "{{ .Values.kafka.brokers }}"
+              value: "{{ .Values.kafka.brokers | default (printf "%s-redpanda:9092" .Release.Name) }}"
             - name: KAFKA_CONSUMER_GROUP
               value: "{{ .Values.kafka.consumerGroup }}"
+            # Valkey: Use provided value or default to release-name-valkey:6379
             - name: VALKEY_ADDRS
-              value: "{{ .Values.valkey.addrs }}"
+              value: "{{ .Values.valkey.addrs | default (printf "%s-valkey:6379" .Release.Name) }}"
             - name: VALKEY_MASTER_NAME
               value: "{{ .Values.valkey.masterName }}"
             - name: VALKEY_DB

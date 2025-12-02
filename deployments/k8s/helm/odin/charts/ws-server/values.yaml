@@ -33,13 +33,15 @@ config:
   metricsInterval: "15s"
 
 valkey:
-  addrs: "valkey:6379"
+  # Empty = dynamic default ({{ .Release.Name }}-valkey:6379)
+  addrs: ""
   masterName: mymaster
   db: 0
   channel: ws.broadcast
 
 kafka:
-  brokers: "redpanda:9092"
+  # Empty = dynamic default ({{ .Release.Name }}-redpanda:9092)
+  brokers: ""
   consumerGroup: odin-ws-consumer
   topics:
     - odin.trade

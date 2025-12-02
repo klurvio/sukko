@@ -5,7 +5,8 @@
 version: '3'
 
 vars:
-  HELM_CHART_PATH: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
+  # Common chart path used by utility tasks (lint, template, deps)
+  COMMON_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
 
 tasks:
   # ===========================================================================
@@ -14,27 +15,27 @@ tasks:
   helm:lint:
     desc: Lint Helm charts
     cmds:
-      - helm lint {{.HELM_CHART_PATH}}
+      - helm lint {{.COMMON_CHART}}
 
   helm:template:
     desc: "Dry-run render templates (ENV=local|develop|staging|production)"
     vars:
       ENV: '{{default "local" .ENV}}'
     cmds:
-      - helm template odin {{.HELM_CHART_PATH}} -f {{.HELM_CHART_PATH}}/values-{{.ENV}}.yaml
+      - helm template odin {{.COMMON_CHART}} -f {{.COMMON_CHART}}/values-{{.ENV}}.yaml
 
   helm:deps:
     desc: Update Helm dependencies
     cmds:
-      - helm dependency update {{.HELM_CHART_PATH}}
+      - helm dependency update {{.COMMON_CHART}}
 
   helm:diff:
     desc: "Show diff before upgrade (ENV=local|develop|staging|production)"
     vars:
       ENV: '{{default "local" .ENV}}'
-      NAMESPACE: '{{default "odin-local" .NAMESPACE}}'
+      NS: '{{default "odin-local" .NS}}'
     cmds:
-      - helm diff upgrade odin {{.HELM_CHART_PATH}} -f {{.HELM_CHART_PATH}}/values-{{.ENV}}.yaml -n {{.NAMESPACE}}
+      - helm diff upgrade odin {{.COMMON_CHART}} -f {{.COMMON_CHART}}/values-{{.ENV}}.yaml -n {{.NS}}
 
   # ===========================================================================
   # Build Operations

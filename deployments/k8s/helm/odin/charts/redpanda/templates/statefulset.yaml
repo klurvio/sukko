@@ -29,7 +29,7 @@ spec:
             - redpanda
             - start
             - --smp=1
-            - --memory=512M
+            - --memory={{ .Values.memory | default "512M" }}
             - --reserve-memory=0M
             - --overprovisioned
             - --node-id=0
