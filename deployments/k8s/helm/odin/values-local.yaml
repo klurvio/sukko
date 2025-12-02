@@ -11,6 +11,8 @@ ws-server:
   replicaCount: 1
   config:
     shards: 1  # Single shard for M1
+    logLevel: debug
+    logFormat: pretty
   resources:
     requests:
       cpu: "500m"

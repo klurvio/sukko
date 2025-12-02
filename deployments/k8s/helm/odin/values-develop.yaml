@@ -15,6 +15,8 @@ ws-server:
     pullPolicy: Always
   config:
     shards: 2
+    logLevel: debug
+    logFormat: json
   resources:
     requests:
       cpu: "1"
