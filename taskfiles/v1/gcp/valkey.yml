@@ -11,7 +11,7 @@ vars:
   VALKEY_DISK_TYPE: pd-ssd
   VALKEY_DEPLOY_PATH: /home/deploy/ws_poc/deployments/v1/gcp/distributed/valkey
   # Git config (inherited from parent or use defaults)
-  GIT_BRANCH: '{{.GIT_BRANCH | default "feature/cpu-optimization-backpressure"}}'
+  GIT_BRANCH: '{{.GIT_BRANCH | default "feature/kubernetes-helm-deployment"}}'
   GIT_REPO_SSH: '{{.GIT_REPO_SSH | default "git@github.com:Toniq-Labs/odin-ws.git"}}'
 
 tasks:

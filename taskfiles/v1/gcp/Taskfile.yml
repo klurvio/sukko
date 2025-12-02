@@ -32,7 +32,7 @@ vars:
   LOADTEST_INSTANCE: '{{.LOADTEST_INSTANCE | default "odin-loadtest"}}'
 
   # Git Configuration
-  GIT_BRANCH: '{{.GIT_BRANCH | default "feature/cpu-optimization-backpressure"}}'
+  GIT_BRANCH: '{{.GIT_BRANCH | default "feature/kubernetes-helm-deployment"}}'
   GIT_REPO_SSH: '{{.GIT_REPO_SSH | default "git@github.com:Toniq-Labs/odin-ws.git"}}'
 
   # Deployment Paths
