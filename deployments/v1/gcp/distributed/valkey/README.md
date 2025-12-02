@@ -94,7 +94,7 @@ VALKEY_IP=$(gcloud compute instances describe ws-valkey \
 cd ws
 cat >> .env <<EOF
 # Valkey Configuration (auto-detects single node mode)
-VALKEY_SENTINEL_ADDRS=${VALKEY_IP}:6379
+VALKEY_ADDRS=${VALKEY_IP}:6379
 VALKEY_PASSWORD=YOUR_GENERATED_PASSWORD
 VALKEY_DB=0
 VALKEY_CHANNEL=ws.broadcast
@@ -110,7 +110,7 @@ docker-compose -f docker-compose.valkey-local.yml up -d
 # Create ws/.env for local testing
 cd ws
 cat > .env <<EOF
-VALKEY_SENTINEL_ADDRS=localhost:6379
+VALKEY_ADDRS=localhost:6379
 VALKEY_PASSWORD=testpassword
 VALKEY_DB=0
 VALKEY_CHANNEL=ws.broadcast
@@ -373,7 +373,7 @@ task valkey:create-sentinel-cluster
 
 ```bash
 # ws-server .env (change 1 address to 3)
-VALKEY_SENTINEL_ADDRS=10.128.0.10:26379,10.128.0.11:26379,10.128.0.12:26379
+VALKEY_ADDRS=10.128.0.10:26379,10.128.0.11:26379,10.128.0.12:26379
 ```
 
 ### 3. Rolling Restart

@@ -743,7 +743,7 @@ tasks:
         echo "⚙️  Creating environment files..."
 
         # Create complete .env.production with all required variables
-        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && printf \"WS_MODE=multi\nBACKEND_INTERNAL_IP=$BACKEND_IP\nKAFKA_BROKERS=$BACKEND_IP:9092\nVALKEY_SENTINEL_ADDRS=$VALKEY_IP:6379\nVALKEY_PASSWORD=$VALKEY_PASSWORD\n\" > .env.production && chmod 600 .env.production'" 2>/dev/null
+        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && printf \"WS_MODE=multi\nBACKEND_INTERNAL_IP=$BACKEND_IP\nKAFKA_BROKERS=$BACKEND_IP:9092\nVALKEY_ADDRS=$VALKEY_IP:6379\nVALKEY_PASSWORD=$VALKEY_PASSWORD\n\" > .env.production && chmod 600 .env.production'" 2>/dev/null
 
         # Create empty .env.debug (required by docker-compose.multi.yml)
         gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'touch /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server/.env.debug'" 2>/dev/null

@@ -299,4 +299,4 @@ tasks:
         echo "Valkey Internal IP: $VALKEY_IP"
         echo ""
         echo "Update ws-server .env with:"
-        echo "VALKEY_SENTINEL_ADDRS=$VALKEY_IP:6379"
+        echo "VALKEY_ADDRS=$VALKEY_IP:6379"
