@@ -30,15 +30,30 @@ storage:
   size: 5Gi
   storageClass: ""
 
-# Topic configuration
+# Topic configuration (matches v1 deployment)
 topics:
-  - name: odin.trade
+  - name: odin.trades
     partitions: 12
     replicationFactor: 1
-  - name: odin.orderbook
+  - name: odin.liquidity
     partitions: 12
     replicationFactor: 1
-  - name: odin.ticker
+  - name: odin.balances
+    partitions: 12
+    replicationFactor: 1
+  - name: odin.metadata
+    partitions: 12
+    replicationFactor: 1
+  - name: odin.social
+    partitions: 12
+    replicationFactor: 1
+  - name: odin.community
+    partitions: 12
+    replicationFactor: 1
+  - name: odin.creation
+    partitions: 12
+    replicationFactor: 1
+  - name: odin.analytics
     partitions: 12
     replicationFactor: 1
 

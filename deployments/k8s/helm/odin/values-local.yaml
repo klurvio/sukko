@@ -39,6 +39,32 @@ redpanda:
       memory: "384Mi"  # 256M + overhead for container
   storage:
     enabled: false  # Use emptyDir for local
+  # Fewer partitions for Kind hardware constraints
+  topics:
+    - name: odin.trades
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.liquidity
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.balances
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.metadata
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.social
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.community
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.creation
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.analytics
+      partitions: 1
+      replicationFactor: 1
 
 # Valkey - Minimal (no auth for local dev)
 valkey:

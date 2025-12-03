@@ -44,9 +44,14 @@ kafka:
   brokers: ""
   consumerGroup: odin-ws-consumer
   topics:
-    - odin.trade
-    - odin.orderbook
-    - odin.ticker
+    - odin.trades
+    - odin.liquidity
+    - odin.balances
+    - odin.metadata
+    - odin.social
+    - odin.community
+    - odin.creation
+    - odin.analytics
 
 resources:
   requests:

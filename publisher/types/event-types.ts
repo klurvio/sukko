@@ -1,4 +1,4 @@
-// Event type to Redpanda topic mapping
+// Event type to Redpanda topic mapping (matches v1 deployment)
 export const EVENT_TYPE_TOPICS = {
   // Trading events → odin.trades
   TRADE_EXECUTED: 'odin.trades',
@@ -41,7 +41,7 @@ export const EVENT_TYPE_TOPICS = {
 } as const;
 
 export type EventType = keyof typeof EVENT_TYPE_TOPICS;
-export type TopicName = typeof EVENT_TYPE_TOPICS[EventType];
+export type TopicName = (typeof EVENT_TYPE_TOPICS)[EventType];
 
 // Token event payload interface
 export interface TokenEvent {

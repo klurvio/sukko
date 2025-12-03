@@ -46,8 +46,8 @@ tasks:
     cmds:
       - docker build -t odin-ws:latest {{.ROOT_DIR}}/ws
       - kind load docker-image odin-ws:latest --name {{.LOCAL_CLUSTER}}
-      # - docker build -t odin-publisher:latest {{.ROOT_DIR}}/publisher
-      # - kind load docker-image odin-publisher:latest --name {{.LOCAL_CLUSTER}}
+      - docker build -t odin-publisher:latest {{.ROOT_DIR}}/publisher
+      - kind load docker-image odin-publisher:latest --name {{.LOCAL_CLUSTER}}
 
   # ===========================================================================
   # Deployment
