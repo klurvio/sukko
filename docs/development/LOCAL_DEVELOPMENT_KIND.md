@@ -341,7 +341,10 @@ curl -s http://localhost:3005/health | jq '{
 
 ```bash
 # Navigate to loadtest directory
-cd /Volumes/Dev/Codev/Toniq/ws_poc/loadtest
+cd loadtest
+
+# Build the loadtest binary (first time or after code changes)
+go build -o sustained-load-test
 
 # Run local load test (100 connections, 5 ramp/sec, 5 min duration)
 ./sustained-load-test \
