@@ -235,10 +235,18 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 				if p.Logger != nil {
 					p.Logger.Debug().Int64("client_id", c.id).Msg("Send channel closed")
 				}
-				_ = wsutil.WriteServerMessage(c.conn, ws.OpClose, []byte{})
+				// Guard against nil conn (client may already be cleaned up)
+				if c.conn != nil {
+					_ = wsutil.WriteServerMessage(c.conn, ws.OpClose, []byte{})
+				}
 				return
 			}
 
+			// Guard against race condition: connection may be nil if client was
+			// disconnected and returned to pool while message was pending
+			if c.conn == nil {
+				return
+			}
 			_ = c.conn.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
 
 			// Batch metrics
@@ -294,6 +302,11 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 			monitoring.UpdateBytesMetrics(batchByteCount, 0)
 
 		case <-ticker.C():
+			// Guard against race condition: connection may be nil if client was
+			// disconnected and returned to pool while ticker was pending
+			if c.conn == nil {
+				return
+			}
 			_ = c.conn.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
 			if err := wsutil.WriteServerMessage(c.conn, ws.OpPing, nil); err != nil {
 				if p.Logger != nil {

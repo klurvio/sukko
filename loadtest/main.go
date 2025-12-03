@@ -257,7 +257,7 @@ func getEnvInt(key string, defaultValue int) int {
 func rampUpConnections(ctx context.Context) error {
 	log.Printf("🚀 Starting ramp-up: %d connections at %d/sec", config.TargetConnections, config.RampRate)
 
-	batchSize := config.RampRate / 10 // 10 batches per second
+	batchSize := max(1, config.RampRate/10) // 10 batches per second, minimum 1
 	batchInterval := 100 * time.Millisecond
 
 	ticker := time.NewTicker(batchInterval)
