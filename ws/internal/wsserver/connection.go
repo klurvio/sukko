@@ -90,6 +90,26 @@ type Client struct {
 	// - 30 subscriptions per client: 30 × 40 = 1.2KB per client
 	// - 10K clients: 10K × 1.2KB = 12MB total (negligible)
 	subscriptions *SubscriptionSet // Thread-safe set of subscribed channels
+
+	// Authentication fields
+	// When WS_AUTH_ENABLED=true, all clients must authenticate before connecting.
+	// Authentication happens during WebSocket upgrade via token query parameter.
+	// The token is validated and the app ID is extracted from JWT claims.
+	//
+	// Token lifecycle:
+	// 1. Client connects with ?token=JWT in URL
+	// 2. Server validates token, extracts appID, sets tokenExpiry
+	// 3. Server tracks client in TokenMonitor for expiry warnings
+	// 4. When token nears expiry (5 min), server sends auth:expiring message
+	// 5. Client can send auth:refresh with new token to extend session
+	// 6. If token expires without refresh, connection is closed
+	//
+	// Memory: ~72 bytes (2 strings + bool + time.Time)
+	appID         string    // App ID from JWT claims (empty if not authenticated)
+	tenantID      string    // Tenant ID from JWT claims (empty if not authenticated)
+	authenticated bool      // Whether client has successfully authenticated
+	tokenExpiry   time.Time // When the current token expires (zero if not authenticated)
+	remoteAddr    string    // Client's remote IP address for audit logging
 }
 
 // ConnectionPool manages a pool of reusable client objects
@@ -166,6 +186,15 @@ func (p *ConnectionPool) Get() *Client {
 			client.subscriptions.Clear()
 		}
 
+		// Reset authentication fields
+		// Each new connection starts unauthenticated
+		// Client must authenticate via token query parameter during WebSocket upgrade
+		client.appID = ""
+		client.tenantID = ""
+		client.authenticated = false
+		client.tokenExpiry = time.Time{}
+		client.remoteAddr = ""
+
 		return client
 	}
 	return nil
@@ -185,6 +214,14 @@ func (p *ConnectionPool) Put(c *Client) {
 	if c.subscriptions != nil {
 		c.subscriptions.Clear()
 	}
+
+	// Clear authentication data before returning to pool
+	// (security: don't leak app info to next connection)
+	c.appID = ""
+	c.tenantID = ""
+	c.authenticated = false
+	c.tokenExpiry = time.Time{}
+	c.remoteAddr = ""
 
 	p.pool.Put(c)
 }

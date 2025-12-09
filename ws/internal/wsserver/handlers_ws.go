@@ -1,6 +1,7 @@
 package wsserver
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -87,6 +88,55 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			Msg("ResourceGuard accepted connection")
 	}
 
+	// JWT Authentication (when enabled)
+	// Extract token from query parameter and validate
+	// Client receives: HTTP 401 "Unauthorized" if token is missing/invalid
+	// See: docs/API_REJECTION_RESPONSES.md (Scenario 4 - Auth)
+	var appID string
+	var tenantID string
+	var tokenExpiry time.Time
+	if s.config.AuthEnabled && s.jwtValidator != nil {
+		token := r.URL.Query().Get("token")
+
+		// Log auth attempt
+		if s.authAuditLog != nil {
+			s.authAuditLog.LogAuthAttempt(clientIP, clientIP)
+		}
+
+		claims, err := s.jwtValidator.ValidateToken(token)
+		if err != nil {
+			// Log auth failure
+			if s.authAuditLog != nil {
+				s.authAuditLog.LogAuthFailed(clientIP, clientIP, err.Error())
+			}
+
+			s.logger.Warn().
+				Str("client_ip", clientIP).
+				Str("error", err.Error()).
+				Dur("elapsed_ms", time.Since(startTime)).
+				Msg("Connection rejected: authentication failed")
+			monitoring.ConnectionsFailed.Inc()
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		appID = claims.AppID()
+		tenantID = claims.Tenant()
+		tokenExpiry = claims.ExpiresAt.Time
+
+		// Log auth success
+		if s.authAuditLog != nil {
+			s.authAuditLog.LogAuthSuccess(clientIP, appID, clientIP, tokenExpiry)
+		}
+
+		s.logger.Debug().
+			Str("client_ip", clientIP).
+			Str("app_id", appID).
+			Str("tenant_id", tenantID).
+			Time("token_expiry", tokenExpiry).
+			Msg("Authentication successful")
+	}
+
 	// Try to acquire connection slot (blocking, no timeout)
 	// In multi-core mode with LoadBalancer, capacity control happens at LB level
 	// This semaphore just ensures we don't exceed shard capacity
@@ -135,6 +185,21 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	client.conn = conn
 	client.server = s
 	client.id = atomic.AddInt64(&s.clientCount, 1)
+	client.remoteAddr = clientIP
+
+	// Set authentication fields (only if auth is enabled)
+	if s.config.AuthEnabled && appID != "" {
+		client.appID = appID
+		client.tenantID = tenantID
+		client.authenticated = true
+		client.tokenExpiry = tokenExpiry
+
+		// Register client with token monitor for expiry tracking
+		if s.tokenMonitor != nil {
+			clientIDStr := fmt.Sprintf("%d", client.id)
+			s.tokenMonitor.TrackClient(clientIDStr, appID, clientIP, tokenExpiry)
+		}
+	}
 
 	s.clients.Store(client, true)
 	atomic.AddInt64(&s.stats.TotalConnections, 1)

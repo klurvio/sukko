@@ -5,6 +5,7 @@ go 1.25.1
 require (
 	github.com/caarlos0/env/v11 v11.0.0
 	github.com/gobwas/ws v1.4.0
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.20.5
@@ -14,6 +15,7 @@ require (
 	github.com/twmb/franz-go v1.20.3
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/time v0.5.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -24,6 +26,7 @@ require (
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect

@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/adred-codev/ws_poc/internal/auth"
 	"github.com/adred-codev/ws_poc/internal/kafka"
 	"github.com/adred-codev/ws_poc/internal/limits"
 	"github.com/adred-codev/ws_poc/internal/monitoring"
@@ -70,6 +71,11 @@ type Server struct {
 
 	// Pump for testable read/write operations
 	pump *Pump // Handles WebSocket read/write with dependency injection
+
+	// Authentication (when WS_AUTH_ENABLED=true)
+	jwtValidator *auth.JWTValidator // JWT token validation and issuance
+	authAuditLog *auth.AuditLogger  // Auth event audit logging
+	tokenMonitor *auth.TokenMonitor // Token expiry monitoring and auto-refresh
 }
 
 // NewServer creates a new WebSocket server with the provided configuration.
@@ -173,6 +179,31 @@ func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc
 		}
 	}
 
+	// Initialize authentication (when enabled)
+	if config.AuthEnabled && config.JWTSecret != "" {
+		s.jwtValidator = auth.NewJWTValidator(config.JWTSecret)
+		s.authAuditLog = auth.NewAuditLogger(logger)
+
+		// Create token monitor with callbacks
+		callbacks := &serverTokenMonitorCallbacks{server: s}
+		s.tokenMonitor = auth.NewTokenMonitor(callbacks, s.authAuditLog)
+
+		// Apply configured intervals if set
+		if config.TokenCheckInterval > 0 {
+			s.tokenMonitor.SetCheckInterval(config.TokenCheckInterval)
+		}
+		if config.TokenExpiryWarning > 0 {
+			s.tokenMonitor.SetExpiryWarning(config.TokenExpiryWarning)
+		}
+
+		logger.Info().
+			Bool("auth_enabled", config.AuthEnabled).
+			Dur("token_expiry", config.TokenExpiry).
+			Dur("check_interval", config.TokenCheckInterval).
+			Dur("expiry_warning", config.TokenExpiryWarning).
+			Msg("JWT authentication initialized")
+	}
+
 	// Initialize Pump with adapters for testability
 	s.pump = NewPump(
 		DefaultPumpConfig(),
@@ -185,6 +216,50 @@ func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc
 	)
 
 	return s, nil
+}
+
+// serverTokenMonitorCallbacks implements auth.TokenMonitorCallbacks for the server.
+type serverTokenMonitorCallbacks struct {
+	server *Server
+}
+
+func (c *serverTokenMonitorCallbacks) OnTokenExpiring(clientID string, expiresIn time.Duration) {
+	// Find the client and send warning message
+	c.server.clients.Range(func(key, value any) bool {
+		if client, ok := key.(*Client); ok {
+			if fmt.Sprintf("%d", client.id) == clientID {
+				client.SendJSON(AuthExpiringMessage{
+					Type:      "auth:expiring",
+					ExpiresAt: client.tokenExpiry.Unix(),
+					ExpiresIn: int(expiresIn.Seconds()),
+				})
+				return false // Stop iteration
+			}
+		}
+		return true
+	})
+}
+
+func (c *serverTokenMonitorCallbacks) OnTokenExpired(clientID string) {
+	// Find the client and close connection
+	c.server.clients.Range(func(key, value any) bool {
+		if client, ok := key.(*Client); ok {
+			if fmt.Sprintf("%d", client.id) == clientID {
+				// Send expiry notification before closing
+				client.SendJSON(AuthExpiredMessage{
+					Type:    "auth:expired",
+					Message: "Token expired, connection will close",
+				})
+
+				// Close the connection
+				client.closeOnce.Do(func() {
+					close(client.send)
+				})
+				return false // Stop iteration
+			}
+		}
+		return true
+	})
 }
 
 // GetConfig implements monitoring.ServerMetrics interface
@@ -260,6 +335,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/metrics", monitoring.HandleMetrics) // Prometheus metrics endpoint
 
+	// NOTE: Token issuance moved to auth-service (internal/authservice)
+	// ws-server only handles JWT validation, not token issuance
+
 	server := &http.Server{
 		Handler:        mux,
 		ReadTimeout:    s.config.HTTPReadTimeout,
@@ -299,6 +377,12 @@ func (s *Server) Start() error {
 	// Start ResourceGuard monitoring (static limits with safety checks)
 	// Now also updates server stats for unified CPU measurement
 	s.resourceGuard.StartMonitoring(s.ctx, s.config.MetricsInterval, s.stats)
+
+	// Start token monitor for auto-refresh (when auth is enabled)
+	if s.tokenMonitor != nil {
+		s.tokenMonitor.Start()
+		s.logger.Info().Msg("Token expiry monitor started")
+	}
 
 	s.auditLogger.Info("ServerStarted", "WebSocket server started successfully", map[string]any{
 		"addr":           s.config.Addr,
@@ -342,6 +426,12 @@ func (s *Server) Shutdown() error {
 				Err(err).
 				Msg("Error stopping Kafka consumer")
 		}
+	}
+
+	// Stop token expiry monitor
+	if s.tokenMonitor != nil {
+		s.logger.Info().Msg("Stopping token expiry monitor")
+		s.tokenMonitor.Stop()
 	}
 
 	// Count current connections
