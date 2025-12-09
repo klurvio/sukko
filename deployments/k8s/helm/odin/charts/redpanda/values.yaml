@@ -30,6 +30,12 @@ storage:
   size: 5Gi
   storageClass: ""
 
+# External access for odin-api publisher
+externalAccess:
+  enabled: false
+  type: LoadBalancer  # LoadBalancer or NodePort
+  nodePort: ""        # Only used if type is NodePort
+
 # Topic configuration (matches v1 deployment)
 topics:
   - name: odin.trades
