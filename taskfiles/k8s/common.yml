@@ -38,6 +38,27 @@ tasks:
       - helm diff upgrade odin {{.COMMON_CHART}} -f {{.COMMON_CHART}}/values-{{.ENV}}.yaml -n {{.NS}}
 
   # ===========================================================================
+  # Test Operations
+  # ===========================================================================
+  test:unit:
+    desc: Run all Go unit tests
+    dir: "{{.ROOT_DIR}}/ws"
+    cmds:
+      - go test ./... -v
+
+  test:unit:short:
+    desc: Run Go unit tests (short mode, skip slow tests)
+    dir: "{{.ROOT_DIR}}/ws"
+    cmds:
+      - go test ./... -short
+
+  test:unit:cover:
+    desc: Run Go unit tests with coverage report
+    dir: "{{.ROOT_DIR}}/ws"
+    cmds:
+      - go test ./... -cover
+
+  # ===========================================================================
   # Build Operations
   # ===========================================================================
   build:ws-server:
