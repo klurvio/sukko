@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/kafka"
 	"github.com/rs/zerolog"
 )
@@ -24,7 +25,7 @@ import (
 //   - Better Kafka consumer group semantics (single group, partitioned)
 type KafkaConsumerPool struct {
 	consumer     *kafka.Consumer
-	broadcastBus *BroadcastBus
+	broadcastBus broadcast.Bus
 	logger       zerolog.Logger
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -40,9 +41,13 @@ type KafkaConsumerPool struct {
 type KafkaPoolConfig struct {
 	Brokers       []string
 	ConsumerGroup string
-	BroadcastBus  *BroadcastBus
+	BroadcastBus  broadcast.Bus
 	ResourceGuard kafka.ResourceGuard
 	Logger        zerolog.Logger
+
+	// Security configuration for managed Kafka/Redpanda services
+	SASL *kafka.SASLConfig // SASL authentication (nil = no auth)
+	TLS  *kafka.TLSConfig  // TLS encryption (nil = no TLS)
 }
 
 // NewKafkaConsumerPool creates a new shared Kafka consumer pool
@@ -65,6 +70,8 @@ func NewKafkaConsumerPool(config KafkaPoolConfig) (*KafkaConsumerPool, error) {
 		Logger:        &pool.logger,      // Pass logger for Kafka consumer
 		Broadcast:     pool.routeMessage, // Route to BroadcastBus
 		ResourceGuard: config.ResourceGuard,
+		SASL:          config.SASL, // Pass through SASL auth config
+		TLS:           config.TLS,  // Pass through TLS config
 	})
 	if err != nil {
 		cancel()
@@ -100,9 +107,9 @@ func (p *KafkaConsumerPool) routeMessage(tokenID string, eventType string, messa
 	subject := fmt.Sprintf("odin.token.%s.%s", tokenID, eventType)
 
 	// Create broadcast message
-	broadcastMsg := &BroadcastMessage{
+	broadcastMsg := &broadcast.Message{
 		Subject: subject,
-		Message: message,
+		Payload: message,
 	}
 
 	// Publish once to BroadcastBus

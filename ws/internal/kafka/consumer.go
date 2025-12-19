@@ -11,12 +11,16 @@ package kafka
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
 
 // TokenEvent represents an event from Redpanda
@@ -34,6 +38,20 @@ type BroadcastFunc func(tokenID string, eventType string, message []byte)
 type ResourceGuard interface {
 	AllowKafkaMessage(ctx context.Context) (allow bool, waitDuration time.Duration)
 	ShouldPauseKafka() bool
+}
+
+// SASLConfig holds SASL authentication configuration for Kafka
+type SASLConfig struct {
+	Mechanism string // "scram-sha-256" or "scram-sha-512"
+	Username  string
+	Password  string
+}
+
+// TLSConfig holds TLS encryption configuration for Kafka
+type TLSConfig struct {
+	Enabled            bool
+	InsecureSkipVerify bool   // Skip server certificate verification (not for production)
+	CAPath             string // Path to CA certificate file (optional, uses system CA pool if empty)
 }
 
 // Consumer wraps franz-go client for consuming from Kafka/Redpanda.
@@ -77,6 +95,10 @@ type ConsumerConfig struct {
 	Broadcast     BroadcastFunc   // Callback for message delivery (required)
 	ResourceGuard ResourceGuard   // Rate limiting and CPU brake (required)
 
+	// Security configuration for managed Kafka/Redpanda services
+	SASL *SASLConfig // SASL authentication (nil = no auth, for local dev)
+	TLS  *TLSConfig  // TLS encryption (nil = no TLS, for local dev)
+
 	// Optional batching configuration - improves throughput by reducing per-message overhead
 	BatchSize    int           // Max messages per batch (default: 50, 0 = disabled)
 	BatchTimeout time.Duration // Max wait for batch (default: 10ms)
@@ -109,17 +131,17 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create franz-go client
-	client, err := kgo.NewClient(
+	// Build client options
+	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumerGroup(cfg.ConsumerGroup),
 		kgo.ConsumeTopics(cfg.Topics...),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()), // Start from latest
-		kgo.FetchMaxWait(500*time.Millisecond),
+		kgo.FetchMaxWait(500 * time.Millisecond),
 		kgo.FetchMinBytes(1),
-		kgo.FetchMaxBytes(10*1024*1024), // 10MB
-		kgo.SessionTimeout(30*time.Second),
-		kgo.RebalanceTimeout(60*time.Second),
+		kgo.FetchMaxBytes(10 * 1024 * 1024), // 10MB
+		kgo.SessionTimeout(30 * time.Second),
+		kgo.RebalanceTimeout(60 * time.Second),
 		kgo.OnPartitionsAssigned(func(_ context.Context, _ *kgo.Client, assigned map[string][]int32) {
 			if cfg.Logger != nil {
 				cfg.Logger.Info().
@@ -134,7 +156,71 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 					Msg("Partitions revoked")
 			}
 		}),
-	)
+	}
+
+	// Add SASL authentication if configured
+	if cfg.SASL != nil {
+		var mechanism scram.Auth = scram.Auth{
+			User: cfg.SASL.Username,
+			Pass: cfg.SASL.Password,
+		}
+
+		switch cfg.SASL.Mechanism {
+		case "scram-sha-256":
+			opts = append(opts, kgo.SASL(mechanism.AsSha256Mechanism()))
+			if cfg.Logger != nil {
+				cfg.Logger.Info().
+					Str("mechanism", "SCRAM-SHA-256").
+					Str("username", cfg.SASL.Username).
+					Msg("Kafka SASL authentication enabled")
+			}
+		case "scram-sha-512":
+			opts = append(opts, kgo.SASL(mechanism.AsSha512Mechanism()))
+			if cfg.Logger != nil {
+				cfg.Logger.Info().
+					Str("mechanism", "SCRAM-SHA-512").
+					Str("username", cfg.SASL.Username).
+					Msg("Kafka SASL authentication enabled")
+			}
+		default:
+			cancel()
+			return nil, fmt.Errorf("unsupported SASL mechanism: %s (use scram-sha-256 or scram-sha-512)", cfg.SASL.Mechanism)
+		}
+	}
+
+	// Add TLS encryption if configured
+	if cfg.TLS != nil && cfg.TLS.Enabled {
+		tlsCfg := &tls.Config{
+			InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
+			MinVersion:         tls.VersionTLS12,
+		}
+
+		// Load CA certificate if provided
+		if cfg.TLS.CAPath != "" {
+			caCert, err := os.ReadFile(cfg.TLS.CAPath)
+			if err != nil {
+				cancel()
+				return nil, fmt.Errorf("failed to read CA certificate from %s: %w", cfg.TLS.CAPath, err)
+			}
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM(caCert) {
+				cancel()
+				return nil, fmt.Errorf("failed to parse CA certificate from %s", cfg.TLS.CAPath)
+			}
+			tlsCfg.RootCAs = caCertPool
+		}
+
+		opts = append(opts, kgo.DialTLSConfig(tlsCfg))
+		if cfg.Logger != nil {
+			cfg.Logger.Info().
+				Bool("insecure_skip_verify", cfg.TLS.InsecureSkipVerify).
+				Str("ca_path", cfg.TLS.CAPath).
+				Msg("Kafka TLS encryption enabled")
+		}
+	}
+
+	// Create franz-go client with all options
+	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create kafka client: %w", err)

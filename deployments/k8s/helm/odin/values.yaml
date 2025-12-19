@@ -78,7 +78,16 @@ ws-server:
     # Metrics
     metricsInterval: "15s"
 
-  # Valkey (Redis) connection for BroadcastBus
+  # ==========================================================================
+  # Broadcast Bus Configuration
+  # ==========================================================================
+  # The broadcast bus is used for inter-instance messaging (pub/sub)
+  # Supports: "valkey" (Redis-compatible) or "nats" (NATS Core)
+  broadcast:
+    # Backend type: "valkey" or "nats"
+    type: nats
+
+  # Valkey (Redis) connection for BroadcastBus (when broadcast.type=valkey)
   valkey:
     # Empty string = use dynamic default: {{ .Release.Name }}-valkey:6379
     # Override this for external Valkey/Redis
@@ -88,10 +97,25 @@ ws-server:
     channel: ws.broadcast
     # Password set via secret
 
+  # NATS connection for BroadcastBus (when broadcast.type=nats)
+  nats:
+    # Empty string = use dynamic default: nats://{{ .Release.Name }}-nats:4222
+    # For cluster: nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
+    urls: ""
+    # Enable cluster mode (automatic failover, load balancing)
+    clusterMode: false
+    # NATS subject for broadcasting
+    subject: ws.broadcast
+    # Authentication (token preferred, or user/password)
+    # Set via secret in production
+    token: ""
+    user: ""
+    password: ""
+
   # Kafka configuration
   kafka:
     # Empty string = use dynamic default: {{ .Release.Name }}-redpanda:9092
-    # Override this for external Kafka
+    # Override this for external Kafka/Redpanda
     brokers: ""
     consumerGroup: odin-ws-consumer
     topics:
@@ -103,6 +127,25 @@ ws-server:
       - odin.community
       - odin.creation
       - odin.analytics
+
+    # SASL Authentication (for managed Kafka/Redpanda services)
+    # Enable this for external/managed Redpanda that requires authentication
+    sasl:
+      enabled: false
+      mechanism: scram-sha-256  # scram-sha-256 or scram-sha-512
+      username: ""
+      # Password: Set via existingSecret (recommended) or directly (not for production)
+      password: ""
+      # Use existing Kubernetes secret for password (recommended for production)
+      existingSecret: ""
+      existingSecretKey: "kafka-sasl-password"
+
+    # TLS Encryption (for managed Kafka/Redpanda services)
+    # Enable this for external/managed Redpanda that requires TLS
+    tls:
+      enabled: false
+      insecureSkipVerify: false  # Skip CA verification (not recommended for production)
+      caPath: ""  # Path to CA certificate (mounted from secret)
 
   # Resource allocation (overridden per environment)
   resources:
@@ -287,10 +330,10 @@ redpanda:
     nodePort: ""        # Only used if type is NodePort
 
 # =============================================================================
-# Valkey (Redis-compatible)
+# Valkey (Redis-compatible) - Disabled by default, NATS is primary
 # =============================================================================
 valkey:
-  enabled: true
+  enabled: false
 
   replicaCount: 1
 
@@ -318,6 +361,53 @@ valkey:
   auth:
     enabled: true
     # password set via secret
+
+# =============================================================================
+# NATS (High-performance messaging) - Primary broadcast bus
+# =============================================================================
+nats:
+  enabled: true
+
+  # Number of NATS nodes (use 3 for cluster/HA)
+  replicaCount: 1
+
+  image:
+    repository: nats
+    tag: 2.10-alpine
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "64Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+  # NATS ports
+  ports:
+    client: 4222
+    cluster: 6222
+    monitor: 8222
+
+  # Cluster configuration
+  cluster:
+    enabled: false  # Enable for HA (requires replicaCount >= 3)
+    name: "nats-cluster"
+
+  # Authentication
+  auth:
+    enabled: false
+    # token: set via secret
+
+  # Logging
+  logging:
+    debug: false
+    trace: false
+
+  # JetStream (disabled - we use Core NATS for pub/sub)
+  jetstream:
+    enabled: false
 
 # =============================================================================
 # Publisher (Event Generator)

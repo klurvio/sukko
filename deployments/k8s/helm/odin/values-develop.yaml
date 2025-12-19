@@ -17,6 +17,16 @@ ws-server:
     shards: 2
     logLevel: debug
     logFormat: json
+
+  # Broadcast Bus - NATS for high performance
+  broadcast:
+    type: nats
+
+  # NATS cluster config
+  nats:
+    urls: ""  # Uses dynamic default: nats://odin-dev-nats:4222
+    clusterMode: true
+
   resources:
     requests:
       cpu: "1"
@@ -43,16 +53,23 @@ redpanda:
     enabled: true
     size: 10Gi
 
-# Valkey
+# Valkey - Disabled (using NATS instead)
 valkey:
+  enabled: false
+
+# NATS - 3-node cluster for HA
+nats:
   enabled: true
+  replicaCount: 3
+  cluster:
+    enabled: true
   resources:
     requests:
-      cpu: "250m"
-      memory: "256Mi"
+      cpu: "100m"
+      memory: "64Mi"
     limits:
       cpu: "500m"
-      memory: "512Mi"
+      memory: "256Mi"
 
 # Publisher
 publisher:

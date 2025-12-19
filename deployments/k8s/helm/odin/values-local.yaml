@@ -13,6 +13,21 @@ ws-server:
     shards: 1  # Single shard for M1
     logLevel: debug
     logFormat: pretty
+
+  # Broadcast Bus - NATS for high performance
+  broadcast:
+    type: nats
+
+  # NATS config (single node for local dev)
+  nats:
+    urls: ""  # Uses dynamic default: nats://odin-local-nats:4222
+    clusterMode: false  # Single node for local
+
+  # Kafka/Redpanda - Self-hosted in cluster (no auth needed)
+  kafka:
+    brokers: ""  # Uses dynamic default: odin-local-redpanda:9092
+    # SASL/TLS disabled for local self-hosted Redpanda (defaults from base values)
+
   resources:
     requests:
       cpu: "500m"
@@ -79,11 +94,20 @@ redpanda:
       partitions: 1
       replicationFactor: 1
 
-# Valkey - Minimal (no auth for local dev)
+# Valkey - Disabled (using NATS instead)
 valkey:
-  enabled: true
+  enabled: false
   auth:
-    enabled: false  # No password for local development
+    enabled: false
+
+# NATS - Single node for local dev
+nats:
+  enabled: true
+  replicaCount: 1
+  cluster:
+    enabled: false
+  auth:
+    enabled: false
   resources:
     requests:
       cpu: "50m"

@@ -17,6 +17,37 @@ ws-server:
     shards: 2
     logLevel: warn
     logFormat: json
+
+  # Broadcast Bus - NATS for high performance
+  broadcast:
+    type: nats
+
+  # NATS cluster config (3-node cluster for HA)
+  nats:
+    urls: ""  # Uses dynamic default: nats://odin-prod-nats:4222
+    clusterMode: true
+    # token: Set via Kubernetes secret
+
+  # Kafka/Redpanda - External managed instance
+  kafka:
+    # IMPORTANT: Set this to your managed Redpanda cluster address
+    brokers: "your-cluster.cloud.redpanda.com:9092"
+    consumerGroup: odin-ws-consumer
+
+    # SASL Authentication (required for managed Redpanda)
+    sasl:
+      enabled: true
+      mechanism: scram-sha-256
+      username: "odin-consumer"
+      # IMPORTANT: Use existingSecret in production, never commit passwords!
+      existingSecret: "kafka-credentials"
+      existingSecretKey: "password"
+
+    # TLS Encryption (required for managed Redpanda)
+    tls:
+      enabled: true
+      insecureSkipVerify: false
+
   resources:
     requests:
       cpu: "1"
@@ -35,27 +66,28 @@ ws-server:
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
 
-# Redpanda
+# Redpanda - Disabled in production (using managed Redpanda Cloud)
+# ws-server connects to external managed Redpanda via kafka.brokers
 redpanda:
-  enabled: true
-  resources:
-    requests:
-      cpu: "500m"
-      memory: "512Mi"
-    limits:
-      cpu: "1"
-      memory: "1Gi"
-  storage:
-    enabled: true
-    size: 50Gi
+  enabled: false
 
-# Valkey
+# Valkey - Disabled (using NATS instead)
 valkey:
+  enabled: false
+
+# NATS - 3-node cluster for HA in production
+nats:
   enabled: true
+  replicaCount: 3
+  cluster:
+    enabled: true
+  auth:
+    enabled: true
+    # token: Set via Kubernetes secret
   resources:
     requests:
-      cpu: "250m"
-      memory: "256Mi"
+      cpu: "100m"
+      memory: "128Mi"
     limits:
       cpu: "500m"
       memory: "512Mi"

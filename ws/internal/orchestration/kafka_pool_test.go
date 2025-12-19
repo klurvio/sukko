@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
 )
 
 // =============================================================================
@@ -118,9 +120,9 @@ func TestKafkaPool_RouteMessage_SubjectCreation(t *testing.T) {
 	message := []byte(`{"price":"100.50"}`)
 
 	subject := fmt.Sprintf("odin.token.%s.%s", tokenID, eventType)
-	broadcastMsg := &BroadcastMessage{
+	broadcastMsg := &broadcast.Message{
 		Subject: subject,
-		Message: message,
+		Payload: message,
 	}
 
 	// Verify subject format
@@ -129,8 +131,8 @@ func TestKafkaPool_RouteMessage_SubjectCreation(t *testing.T) {
 	}
 
 	// Verify message is preserved
-	if string(broadcastMsg.Message) != `{"price":"100.50"}` {
-		t.Errorf("Message: got %s, want {\"price\":\"100.50\"}", broadcastMsg.Message)
+	if string(broadcastMsg.Payload) != `{"price":"100.50"}` {
+		t.Errorf("Payload: got %s, want {\"price\":\"100.50\"}", broadcastMsg.Payload)
 	}
 }
 
@@ -144,13 +146,13 @@ func TestKafkaPool_RouteMessage_MultipleTokens(t *testing.T) {
 		{"SOL", "ticker"},
 	}
 
-	messages := make([]*BroadcastMessage, 0)
+	messages := make([]*broadcast.Message, 0)
 
 	for _, token := range tokens {
 		subject := fmt.Sprintf("odin.token.%s.%s", token.tokenID, token.eventType)
-		msg := &BroadcastMessage{
+		msg := &broadcast.Message{
 			Subject: subject,
-			Message: []byte(`{}`),
+			Payload: []byte(`{}`),
 		}
 		messages = append(messages, msg)
 	}

@@ -3,6 +3,8 @@ package orchestration
 import (
 	"sync"
 	"testing"
+
+	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
 )
 
 // =============================================================================
@@ -196,19 +198,19 @@ func TestShard_GetMaxConnections(t *testing.T) {
 }
 
 // =============================================================================
-// BroadcastMessage Tests
+// Broadcast Message Tests
 // =============================================================================
 
 func TestBroadcastMessage_Fields(t *testing.T) {
-	msg := &BroadcastMessage{
+	msg := &broadcast.Message{
 		Subject: "odin.token.BTC.trade",
-		Message: []byte(`{"price":"100.50"}`),
+		Payload: []byte(`{"price":"100.50"}`),
 	}
 
 	if msg.Subject != "odin.token.BTC.trade" {
 		t.Errorf("Subject: got %s, want odin.token.BTC.trade", msg.Subject)
 	}
-	if string(msg.Message) != `{"price":"100.50"}` {
-		t.Errorf("Message: got %s, want {\"price\":\"100.50\"}", msg.Message)
+	if string(msg.Payload) != `{"price":"100.50"}` {
+		t.Errorf("Payload: got %s, want {\"price\":\"100.50\"}", msg.Payload)
 	}
 }

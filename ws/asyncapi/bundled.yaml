@@ -144,11 +144,11 @@ channels:
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
-                price: "45000.50"
-                amount: "0.5"
-                buyer: "0x1234567890abcdef"
-                seller: "0xfedcba0987654321"
-                txHash: "0xabc123def456"
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
           - name: Liquidity Added Event
             summary: Example of a liquidity addition event
             headers:
@@ -157,9 +157,9 @@ channels:
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
-                amount: "10000.00"
-                provider: "0x1234567890abcdef"
-                totalLiquidity: "500000.00"
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
     bindings:
       kafka:
         partitions: 12
@@ -255,11 +255,11 @@ channels:
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
-                price: "45000.50"
-                amount: "0.5"
-                buyer: "0x1234567890abcdef"
-                seller: "0xfedcba0987654321"
-                txHash: "0xabc123def456"
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
           - name: Liquidity Added Event
             summary: Example of a liquidity addition event
             headers:
@@ -268,9 +268,9 @@ channels:
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
-                amount: "10000.00"
-                provider: "0x1234567890abcdef"
-                totalLiquidity: "500000.00"
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
     bindings:
       kafka:
         partitions: 12
@@ -365,11 +365,11 @@ channels:
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
-                price: "45000.50"
-                amount: "0.5"
-                buyer: "0x1234567890abcdef"
-                seller: "0xfedcba0987654321"
-                txHash: "0xabc123def456"
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
           - name: Liquidity Added Event
             summary: Example of a liquidity addition event
             headers:
@@ -378,9 +378,9 @@ channels:
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
-                amount: "10000.00"
-                provider: "0x1234567890abcdef"
-                totalLiquidity: "500000.00"
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
     bindings:
       kafka:
         partitions: 12
@@ -476,11 +476,11 @@ channels:
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
-                price: "45000.50"
-                amount: "0.5"
-                buyer: "0x1234567890abcdef"
-                seller: "0xfedcba0987654321"
-                txHash: "0xabc123def456"
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
           - name: Liquidity Added Event
             summary: Example of a liquidity addition event
             headers:
@@ -489,9 +489,9 @@ channels:
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
-                amount: "10000.00"
-                provider: "0x1234567890abcdef"
-                totalLiquidity: "500000.00"
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
     bindings:
       kafka:
         partitions: 12
@@ -586,11 +586,11 @@ channels:
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
-                price: "45000.50"
-                amount: "0.5"
-                buyer: "0x1234567890abcdef"
-                seller: "0xfedcba0987654321"
-                txHash: "0xabc123def456"
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
           - name: Liquidity Added Event
             summary: Example of a liquidity addition event
             headers:
@@ -599,9 +599,9 @@ channels:
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
-                amount: "10000.00"
-                provider: "0x1234567890abcdef"
-                totalLiquidity: "500000.00"
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
     bindings:
       kafka:
         partitions: 12
@@ -698,11 +698,11 @@ channels:
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
-                price: "45000.50"
-                amount: "0.5"
-                buyer: "0x1234567890abcdef"
-                seller: "0xfedcba0987654321"
-                txHash: "0xabc123def456"
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
           - name: Liquidity Added Event
             summary: Example of a liquidity addition event
             headers:
@@ -711,9 +711,9 @@ channels:
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
-                amount: "10000.00"
-                provider: "0x1234567890abcdef"
-                totalLiquidity: "500000.00"
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
     bindings:
       kafka:
         partitions: 12
@@ -808,11 +808,11 @@ channels:
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
-                price: "45000.50"
-                amount: "0.5"
-                buyer: "0x1234567890abcdef"
-                seller: "0xfedcba0987654321"
-                txHash: "0xabc123def456"
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
           - name: Liquidity Added Event
             summary: Example of a liquidity addition event
             headers:
@@ -821,9 +821,9 @@ channels:
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
-                amount: "10000.00"
-                provider: "0x1234567890abcdef"
-                totalLiquidity: "500000.00"
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
     bindings:
       kafka:
         partitions: 12
@@ -920,11 +920,11 @@ channels:
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
-                price: "45000.50"
-                amount: "0.5"
-                buyer: "0x1234567890abcdef"
-                seller: "0xfedcba0987654321"
-                txHash: "0xabc123def456"
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
           - name: Liquidity Added Event
             summary: Example of a liquidity addition event
             headers:
@@ -933,9 +933,9 @@ channels:
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
-                amount: "10000.00"
-                provider: "0x1234567890abcdef"
-                totalLiquidity: "500000.00"
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
     bindings:
       kafka:
         partitions: 12
@@ -946,7 +946,7 @@ operations:
   publishTrades:
     action: send
     channel:
-      $ref: "#/channels/odin.trades"
+      $ref: '#/channels/odin.trades'
     summary: Publish trade events
     description: |
       Publish trade events to the odin.trades topic.
@@ -974,11 +974,11 @@ operations:
       producer.Produce("odin.trades", tokenID, event)
       ```
     messages:
-      - $ref: "#/channels/odin.trades/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.trades/messages/TokenEventMessage'
   publishLiquidity:
     action: send
     channel:
-      $ref: "#/channels/odin.liquidity"
+      $ref: '#/channels/odin.liquidity'
     summary: Publish liquidity events
     description: |
       Publish liquidity pool events to odin.liquidity.
@@ -988,11 +988,11 @@ operations:
       - `LIQUIDITY_REMOVED` - Funds removed from pool
       - `LIQUIDITY_REBALANCED` - Pool ratio adjusted
     messages:
-      - $ref: "#/channels/odin.liquidity/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.liquidity/messages/TokenEventMessage'
   publishBalances:
     action: send
     channel:
-      $ref: "#/channels/odin.balances"
+      $ref: '#/channels/odin.balances'
     summary: Publish balance events
     description: |
       Publish balance change events to odin.balances.
@@ -1001,11 +1001,11 @@ operations:
       - `BALANCE_UPDATED` - User balance changed
       - `TRANSFER_COMPLETED` - Token transfer completed
     messages:
-      - $ref: "#/channels/odin.balances/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.balances/messages/TokenEventMessage'
   publishMetadata:
     action: send
     channel:
-      $ref: "#/channels/odin.metadata"
+      $ref: '#/channels/odin.metadata'
     summary: Publish metadata events
     description: |
       Publish token metadata updates to odin.metadata.
@@ -1015,11 +1015,11 @@ operations:
       - `TOKEN_NAME_CHANGED` - Token name updated
       - `TOKEN_FLAGS_CHANGED` - Flags updated (verified, featured, trending)
     messages:
-      - $ref: "#/channels/odin.metadata/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.metadata/messages/TokenEventMessage'
   publishSocial:
     action: send
     channel:
-      $ref: "#/channels/odin.social"
+      $ref: '#/channels/odin.social'
     summary: Publish social events
     description: |
       Publish social verification events to odin.social.
@@ -1028,11 +1028,11 @@ operations:
       - `TWITTER_VERIFIED` - Twitter verification confirmed
       - `SOCIAL_LINKS_UPDATED` - Social links changed
     messages:
-      - $ref: "#/channels/odin.social/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.social/messages/TokenEventMessage'
   publishCommunity:
     action: send
     channel:
-      $ref: "#/channels/odin.community"
+      $ref: '#/channels/odin.community'
     summary: Publish community events
     description: |
       Publish community interaction events to odin.community.
@@ -1043,11 +1043,11 @@ operations:
       - `COMMENT_UPVOTED` - Comment upvoted
       - `FAVORITE_TOGGLED` - Favorite status changed
     messages:
-      - $ref: "#/channels/odin.community/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.community/messages/TokenEventMessage'
   publishCreation:
     action: send
     channel:
-      $ref: "#/channels/odin.creation"
+      $ref: '#/channels/odin.creation'
     summary: Publish creation events
     description: |
       Publish token creation events to odin.creation.
@@ -1056,11 +1056,11 @@ operations:
       - `TOKEN_CREATED` - New token created
       - `TOKEN_LISTED` - Token listed on exchange
     messages:
-      - $ref: "#/channels/odin.creation/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.creation/messages/TokenEventMessage'
   publishAnalytics:
     action: send
     channel:
-      $ref: "#/channels/odin.analytics"
+      $ref: '#/channels/odin.analytics'
     summary: Publish analytics events
     description: |
       Publish analytics updates to odin.analytics.
@@ -1071,11 +1071,11 @@ operations:
       - `ANALYTICS_RECALCULATED` - Full recalculation
       - `TRENDING_UPDATED` - Trending rank/score updated
     messages:
-      - $ref: "#/channels/odin.analytics/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.analytics/messages/TokenEventMessage'
   consumeTrades:
     action: receive
     channel:
-      $ref: "#/channels/odin.trades"
+      $ref: '#/channels/odin.trades'
     summary: Consume trade events
     description: |
       Subscribe to trade events including executions, buys, and sells.
@@ -1096,77 +1096,77 @@ operations:
       }
       ```
     messages:
-      - $ref: "#/channels/odin.trades/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.trades/messages/TokenEventMessage'
   consumeLiquidity:
     action: receive
     channel:
-      $ref: "#/channels/odin.liquidity"
+      $ref: '#/channels/odin.liquidity'
     summary: Consume liquidity events
     description: |
       Subscribe to liquidity pool operations.
       Medium-frequency topic with 60s retention.
     messages:
-      - $ref: "#/channels/odin.liquidity/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.liquidity/messages/TokenEventMessage'
   consumeBalances:
     action: receive
     channel:
-      $ref: "#/channels/odin.balances"
+      $ref: '#/channels/odin.balances'
     summary: Consume balance events
     description: |
       Subscribe to user balance and transfer events.
       High-frequency topic with 30s retention.
     messages:
-      - $ref: "#/channels/odin.balances/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.balances/messages/TokenEventMessage'
   consumeMetadata:
     action: receive
     channel:
-      $ref: "#/channels/odin.metadata"
+      $ref: '#/channels/odin.metadata'
     summary: Consume metadata events
     description: |
       Subscribe to token metadata updates.
       Low-frequency topic with 1h retention.
     messages:
-      - $ref: "#/channels/odin.metadata/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.metadata/messages/TokenEventMessage'
   consumeSocial:
     action: receive
     channel:
-      $ref: "#/channels/odin.social"
+      $ref: '#/channels/odin.social'
     summary: Consume social events
     description: |
       Subscribe to social verification and links updates.
       Low-frequency topic with 1h retention.
     messages:
-      - $ref: "#/channels/odin.social/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.social/messages/TokenEventMessage'
   consumeCommunity:
     action: receive
     channel:
-      $ref: "#/channels/odin.community"
+      $ref: '#/channels/odin.community'
     summary: Consume community events
     description: |
       Subscribe to comments, favorites, and voting events.
       Medium-frequency topic with 5m retention.
     messages:
-      - $ref: "#/channels/odin.community/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.community/messages/TokenEventMessage'
   consumeCreation:
     action: receive
     channel:
-      $ref: "#/channels/odin.creation"
+      $ref: '#/channels/odin.creation'
     summary: Consume creation events
     description: |
       Subscribe to token creation and listing events.
       Low-frequency topic with 1h retention.
     messages:
-      - $ref: "#/channels/odin.creation/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.creation/messages/TokenEventMessage'
   consumeAnalytics:
     action: receive
     channel:
-      $ref: "#/channels/odin.analytics"
+      $ref: '#/channels/odin.analytics'
     summary: Consume analytics events
     description: |
       Subscribe to price deltas, holder counts, and trending updates.
       Medium-frequency topic with 5m retention.
     messages:
-      - $ref: "#/channels/odin.analytics/messages/TokenEventMessage"
+      - $ref: '#/channels/odin.analytics/messages/TokenEventMessage'
 components:
   messages:
     TokenEventMessage:
@@ -1245,11 +1245,11 @@ components:
             type: TRADE_EXECUTED
             timestamp: 1699901234567
             data:
-              price: "45000.50"
-              amount: "0.5"
-              buyer: "0x1234567890abcdef"
-              seller: "0xfedcba0987654321"
-              txHash: "0xabc123def456"
+              price: '45000.50'
+              amount: '0.5'
+              buyer: '0x1234567890abcdef'
+              seller: '0xfedcba0987654321'
+              txHash: '0xabc123def456'
         - name: Liquidity Added Event
           summary: Example of a liquidity addition event
           headers:
@@ -1258,9 +1258,9 @@ components:
             type: LIQUIDITY_ADDED
             timestamp: 1699901234567
             data:
-              amount: "10000.00"
-              provider: "0x1234567890abcdef"
-              totalLiquidity: "500000.00"
+              amount: '10000.00'
+              provider: '0x1234567890abcdef'
+              totalLiquidity: '500000.00'
   schemas:
     TradePayload:
       type: object
@@ -1278,19 +1278,19 @@ components:
             price:
               type: string
               description: Trade price as decimal string
-              example: "45000.50"
+              example: '45000.50'
             amount:
               type: string
               description: Trade amount as decimal string
-              example: "0.5"
+              example: '0.5'
             buyer:
               type: string
               description: Buyer wallet address
-              example: "0x1234567890abcdef1234567890abcdef12345678"
+              example: '0x1234567890abcdef1234567890abcdef12345678'
             seller:
               type: string
               description: Seller wallet address
-              example: "0xfedcba0987654321fedcba0987654321fedcba09"
+              example: '0xfedcba0987654321fedcba0987654321fedcba09'
             txHash:
               type: string
               description: Transaction hash
@@ -1307,15 +1307,15 @@ components:
             price:
               type: string
               description: Buy price as decimal string
-              example: "45000.50"
+              example: '45000.50'
             amount:
               type: string
               description: Buy amount as decimal string
-              example: "1.0"
+              example: '1.0'
             buyer:
               type: string
               description: Buyer wallet address
-              example: "0x1234567890abcdef1234567890abcdef12345678"
+              example: '0x1234567890abcdef1234567890abcdef12345678'
             txHash:
               type: string
               description: Transaction hash
@@ -1332,15 +1332,15 @@ components:
             price:
               type: string
               description: Sell price as decimal string
-              example: "45000.50"
+              example: '45000.50'
             amount:
               type: string
               description: Sell amount as decimal string
-              example: "1.0"
+              example: '1.0'
             seller:
               type: string
               description: Seller wallet address
-              example: "0xfedcba0987654321fedcba0987654321fedcba09"
+              example: '0xfedcba0987654321fedcba0987654321fedcba09'
             txHash:
               type: string
               description: Transaction hash
@@ -1361,15 +1361,15 @@ components:
             amount:
               type: string
               description: Amount added as decimal string
-              example: "10000.00"
+              example: '10000.00'
             provider:
               type: string
               description: Liquidity provider wallet address
-              example: "0x1234567890abcdef1234567890abcdef12345678"
+              example: '0x1234567890abcdef1234567890abcdef12345678'
             totalLiquidity:
               type: string
               description: Total pool liquidity after addition
-              example: "500000.00"
+              example: '500000.00'
         - type: object
           title: Liquidity Removed
           description: Liquidity removed from pool
@@ -1381,15 +1381,15 @@ components:
             amount:
               type: string
               description: Amount removed as decimal string
-              example: "5000.00"
+              example: '5000.00'
             provider:
               type: string
               description: Liquidity provider wallet address
-              example: "0x1234567890abcdef1234567890abcdef12345678"
+              example: '0x1234567890abcdef1234567890abcdef12345678'
             totalLiquidity:
               type: string
               description: Total pool liquidity after removal
-              example: "495000.00"
+              example: '495000.00'
         - type: object
           title: Liquidity Rebalanced
           description: Pool ratio adjustment
@@ -1411,7 +1411,7 @@ components:
             totalLiquidity:
               type: string
               description: Total pool liquidity
-              example: "500000.00"
+              example: '500000.00'
     BalancePayload:
       type: object
       description: Payload for balance-related events
@@ -1427,11 +1427,11 @@ components:
             user:
               type: string
               description: User wallet address
-              example: "0x1234567890abcdef1234567890abcdef12345678"
+              example: '0x1234567890abcdef1234567890abcdef12345678'
             balance:
               type: string
               description: New balance as decimal string
-              example: "1000.00"
+              example: '1000.00'
             change:
               type: number
               format: double
@@ -1448,15 +1448,15 @@ components:
             from:
               type: string
               description: Sender wallet address
-              example: "0x1234567890abcdef1234567890abcdef12345678"
+              example: '0x1234567890abcdef1234567890abcdef12345678'
             to:
               type: string
               description: Recipient wallet address
-              example: "0xfedcba0987654321fedcba0987654321fedcba09"
+              example: '0xfedcba0987654321fedcba0987654321fedcba09'
             amount:
               type: string
               description: Transfer amount as decimal string
-              example: "500.00"
+              example: '500.00'
             txHash:
               type: string
               description: Transaction hash
@@ -1539,7 +1539,7 @@ components:
             twitterHandle:
               type: string
               description: Twitter handle
-              example: "@tokenBTC"
+              example: '@tokenBTC'
             verified:
               type: boolean
               description: Verification status
@@ -1593,7 +1593,7 @@ components:
             author:
               type: string
               description: Comment author wallet address
-              example: "0x1234567890abcdef1234567890abcdef12345678"
+              example: '0x1234567890abcdef1234567890abcdef12345678'
             content:
               type: string
               description: Comment text content
@@ -1617,7 +1617,7 @@ components:
             pinnedBy:
               type: string
               description: Moderator wallet address who pinned
-              example: "0xfedcba0987654321fedcba0987654321fedcba09"
+              example: '0xfedcba0987654321fedcba0987654321fedcba09'
         - type: object
           title: Comment Upvoted
           description: Comment received upvote
@@ -1633,7 +1633,7 @@ components:
             voter:
               type: string
               description: Voter wallet address
-              example: "0x1234567890abcdef1234567890abcdef12345678"
+              example: '0x1234567890abcdef1234567890abcdef12345678'
             totalUpvotes:
               type: integer
               description: Total upvote count after this vote
@@ -1648,7 +1648,7 @@ components:
             userId:
               type: string
               description: User wallet address
-              example: "0x1234567890abcdef1234567890abcdef12345678"
+              example: '0x1234567890abcdef1234567890abcdef12345678'
             isFavorite:
               type: boolean
               description: Current favorite status
@@ -1670,7 +1670,7 @@ components:
             creator:
               type: string
               description: Token creator wallet address
-              example: "0x1234567890abcdef1234567890abcdef12345678"
+              example: '0x1234567890abcdef1234567890abcdef12345678'
             name:
               type: string
               description: Token name
@@ -1682,7 +1682,7 @@ components:
             supply:
               type: string
               description: Total supply as decimal string
-              example: "1000000000"
+              example: '1000000000'
             timestamp:
               type: integer
               format: int64
@@ -1703,7 +1703,7 @@ components:
             initialPrice:
               type: string
               description: Initial listing price as decimal string
-              example: "0.01"
+              example: '0.01'
             timestamp:
               type: integer
               format: int64
@@ -1725,7 +1725,7 @@ components:
             price:
               type: string
               description: Current price as decimal string
-              example: "45000.50"
+              example: '45000.50'
             delta1h:
               type: number
               format: double
@@ -1769,19 +1769,19 @@ components:
             price:
               type: string
               description: Current price as decimal string
-              example: "45000.50"
+              example: '45000.50'
             volume24h:
               type: string
               description: 24-hour trading volume as decimal string
-              example: "1000000.00"
+              example: '1000000.00'
             marketCap:
               type: string
               description: Market capitalization as decimal string
-              example: "100000000.00"
+              example: '100000000.00'
             liquidity:
               type: string
               description: Total liquidity as decimal string
-              example: "500000.00"
+              example: '500000.00'
             holderCount:
               type: integer
               description: Total holder count

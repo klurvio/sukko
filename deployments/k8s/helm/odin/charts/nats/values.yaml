@@ -1,0 +1,52 @@
+# Default values for nats subchart
+
+enabled: true
+
+# Number of NATS nodes (use 3 for cluster/HA)
+replicaCount: 1
+
+image:
+  repository: nats
+  tag: 2.10-alpine
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "64Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+# NATS ports
+ports:
+  client: 4222      # Client connections
+  cluster: 6222     # Cluster routing
+  monitor: 8222     # HTTP monitoring
+
+# Cluster configuration
+cluster:
+  enabled: false    # Enable clustering (requires replicaCount >= 3)
+  name: "nats-cluster"
+
+# Authentication
+auth:
+  enabled: false
+  # token: set via secret
+
+# Logging
+logging:
+  debug: false
+  trace: false
+
+# JetStream (disabled - we use Core NATS for pub/sub)
+jetstream:
+  enabled: false
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

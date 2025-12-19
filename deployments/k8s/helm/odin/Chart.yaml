@@ -18,6 +18,9 @@ dependencies:
   - name: valkey
     version: "1.0.0"
     condition: valkey.enabled
+  - name: nats
+    version: "1.0.0"
+    condition: nats.enabled
   - name: publisher
     version: "1.0.0"
     condition: publisher.enabled

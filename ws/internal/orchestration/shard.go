@@ -6,9 +6,10 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
-	"github.com/Toniq-Labs/odin-ws/internal/types"
 	"github.com/Toniq-Labs/odin-ws/internal/server"
+	"github.com/Toniq-Labs/odin-ws/internal/types"
 	"github.com/rs/zerolog"
 )
 
@@ -17,8 +18,8 @@ import (
 type Shard struct {
 	ID             int // Exported for external access
 	server         *server.Server
-	advertiseAddr  string                 // Address advertised to LoadBalancer (e.g., localhost:3002)
-	broadcastChan  chan *BroadcastMessage // Channel to receive messages from the central bus
+	advertiseAddr  string                    // Address advertised to LoadBalancer (e.g., localhost:3002)
+	broadcastChan  <-chan *broadcast.Message // Channel to receive messages from the central bus
 	logger         zerolog.Logger
 	maxConnections int           // Max connections this shard can handle
 	slots          chan struct{} // Semaphore for connection slot reservation
@@ -34,7 +35,7 @@ type ShardConfig struct {
 	Addr                 string // Address for this shard to bind/listen on (e.g., 0.0.0.0:3002)
 	AdvertiseAddr        string // Address advertised to LoadBalancer (e.g., localhost:3002)
 	ServerConfig         types.ServerConfig
-	BroadcastBus         *BroadcastBus // Reference to the central bus
+	BroadcastBus         broadcast.Bus // Reference to the central bus
 	DisableKafkaConsumer bool          // When true, shard will not create its own Kafka consumer (for shared pool mode)
 	SharedKafkaConsumer  interface{}   // Optional: Shared Kafka consumer for message replay (set when using pool mode)
 	Logger               zerolog.Logger
@@ -57,9 +58,9 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 	// instead of directly broadcasting to local clients
 	broadcastToBusFunc := func(tokenID string, eventType string, message []byte) {
 		subject := fmt.Sprintf("odin.token.%s.%s", tokenID, eventType)
-		cfg.BroadcastBus.Publish(&BroadcastMessage{
+		cfg.BroadcastBus.Publish(&broadcast.Message{
 			Subject: subject,
-			Message: message,
+			Payload: message,
 		})
 	}
 
@@ -155,7 +156,7 @@ func (s *Shard) runBroadcastListener() {
 				return
 			}
 			// Call the local broadcast function of the shared server
-			s.server.Broadcast(msg.Subject, msg.Message)
+			s.server.Broadcast(msg.Subject, msg.Payload)
 		case <-s.ctx.Done():
 			s.logger.Info().Msg("Broadcast listener stopped")
 			return
@@ -215,10 +216,4 @@ func (s *Shard) GetSystemStats() (cpuPercent float64, memoryMB float64) {
 	systemMonitor := monitoring.GetSystemMonitor(s.logger)
 	metrics := systemMonitor.GetMetrics()
 	return metrics.CPUPercent, metrics.MemoryMB
-}
-
-// BroadcastMessage is the type of message sent over the central BroadcastBus
-type BroadcastMessage struct {
-	Subject string
-	Message []byte
 }

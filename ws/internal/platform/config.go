@@ -31,6 +31,30 @@ type Config struct {
 	KafkaBrokers  string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"`
 	ConsumerGroup string `env:"KAFKA_CONSUMER_GROUP" envDefault:"ws-server-group"`
 
+	// Kafka Security - SASL Authentication
+	//
+	// For connecting to managed Kafka/Redpanda services that require authentication.
+	// When KafkaSASLEnabled=false (default), connects without authentication (local dev).
+	//
+	// Supported mechanisms:
+	// - scram-sha-256: SCRAM-SHA-256 (recommended, widely supported)
+	// - scram-sha-512: SCRAM-SHA-512 (stronger, less common)
+	KafkaSASLEnabled   bool   `env:"KAFKA_SASL_ENABLED" envDefault:"false"`
+	KafkaSASLMechanism string `env:"KAFKA_SASL_MECHANISM"` // scram-sha-256 or scram-sha-512
+	KafkaSASLUsername  string `env:"KAFKA_SASL_USERNAME"`
+	KafkaSASLPassword  string `env:"KAFKA_SASL_PASSWORD"`
+
+	// Kafka Security - TLS Encryption
+	//
+	// For encrypted connections to Kafka. Required for most managed services.
+	// When KafkaTLSEnabled=false (default), connects without TLS (local dev).
+	//
+	// KafkaTLSInsecure: Skip server certificate verification (NOT for production)
+	// KafkaTLSCAPath: Path to CA certificate for server verification
+	KafkaTLSEnabled  bool   `env:"KAFKA_TLS_ENABLED" envDefault:"false"`
+	KafkaTLSInsecure bool   `env:"KAFKA_TLS_INSECURE" envDefault:"false"`
+	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`
+
 	// Resource limits
 	// Note: CPU limit is detected automatically via automaxprocs reading cgroup
 	// WS_CPU_LIMIT env var is only used by Docker to set the container limit
@@ -125,16 +149,16 @@ type Config struct {
 	// TokenExpiryWarning: How long before expiry to warn clients (auth:expiring message).
 	// TokenCheckInterval: How often to check for expiring tokens.
 	//
-	AuthEnabled          bool          `env:"WS_AUTH_ENABLED" envDefault:"false"`
-	JWTSecret            string        `env:"WS_JWT_SECRET"`
-	TokenExpiry          time.Duration `env:"WS_TOKEN_EXPIRY" envDefault:"24h"`
-	APIKey               string        `env:"WS_API_KEY"`
-	TokenExpiryWarning   time.Duration `env:"WS_TOKEN_EXPIRY_WARNING" envDefault:"5m"`
-	TokenCheckInterval   time.Duration `env:"WS_TOKEN_CHECK_INTERVAL" envDefault:"1m"`
+	AuthEnabled        bool          `env:"WS_AUTH_ENABLED" envDefault:"false"`
+	JWTSecret          string        `env:"WS_JWT_SECRET"`
+	TokenExpiry        time.Duration `env:"WS_TOKEN_EXPIRY" envDefault:"24h"`
+	APIKey             string        `env:"WS_API_KEY"`
+	TokenExpiryWarning time.Duration `env:"WS_TOKEN_EXPIRY_WARNING" envDefault:"5m"`
+	TokenCheckInterval time.Duration `env:"WS_TOKEN_CHECK_INTERVAL" envDefault:"1m"`
 
-	// Valkey Configuration (for BroadcastBus)
+	// Valkey Configuration (for BroadcastBus when BROADCAST_TYPE=valkey)
 	// Supports both self-hosted Sentinel (3 addresses) and single instance (1 address)
-	ValkeyAddrs      []string `env:"VALKEY_ADDRS" envSeparator:"," required:"true"`
+	ValkeyAddrs      []string `env:"VALKEY_ADDRS" envSeparator:","`
 	ValkeyMasterName string   `env:"VALKEY_MASTER_NAME" envDefault:"mymaster"`
 	ValkeyPassword   string   `env:"VALKEY_PASSWORD"`
 	ValkeyDB         int      `env:"VALKEY_DB" envDefault:"0"`
@@ -154,6 +178,40 @@ type Config struct {
 	// Default: 512 (reduced from 1024 to cut heap size by 50%, reduce GC pressure)
 	// Production guidance: Start with 512, increase to 768 or 1024 if cascade disconnects occur
 	ClientSendBufferSize int `env:"WS_CLIENT_SEND_BUFFER_SIZE" envDefault:"512"`
+
+	// Broadcast Bus Configuration
+	//
+	// BroadcastType: Backend for inter-instance messaging ("valkey" or "nats")
+	// - valkey: Redis-compatible Pub/Sub (default, ~1-2ms latency)
+	// - nats: NATS Core Pub/Sub (sub-millisecond latency, fire-and-forget)
+	//
+	// When switching backends:
+	// 1. Set BROADCAST_TYPE to the new backend
+	// 2. Configure the corresponding backend settings (VALKEY_* or NATS_*)
+	// 3. Restart all instances to use the same backend
+	BroadcastType string `env:"BROADCAST_TYPE" envDefault:"valkey"`
+
+	// NATS Configuration (for BroadcastBus when BROADCAST_TYPE=nats)
+	//
+	// NATSURLs: Comma-separated NATS server URLs
+	// - Single: nats://localhost:4222
+	// - Cluster: nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
+	//
+	// NATSClusterMode: Enable cluster features (automatic failover, load balancing)
+	// - false: Local development (single server)
+	// - true: Production (cluster of NATS servers)
+	//
+	// NATSSubject: NATS subject for broadcasting (default: ws.broadcast)
+	//
+	// Authentication (choose one):
+	// - NATSToken: Token-based auth (preferred for production)
+	// - NATSUser + NATSPassword: User/password auth (alternative)
+	NATSURLs        []string `env:"NATS_URLS" envSeparator:","`
+	NATSClusterMode bool     `env:"NATS_CLUSTER_MODE" envDefault:"false"`
+	NATSSubject     string   `env:"NATS_SUBJECT" envDefault:"ws.broadcast"`
+	NATSToken       string   `env:"NATS_TOKEN"`
+	NATSUser        string   `env:"NATS_USER"`
+	NATSPassword    string   `env:"NATS_PASSWORD"`
 }
 
 // LoadConfig reads configuration from .env file and environment variables
@@ -248,15 +306,38 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("LOG_FORMAT must be one of: json, text, pretty (got: %s)", c.LogFormat)
 	}
 
-	// Valkey configuration validation
-	if len(c.ValkeyAddrs) == 0 {
-		return fmt.Errorf("VALKEY_ADDRS is required (at least one address)")
+	// Broadcast bus configuration validation
+	// Empty defaults to "valkey" (same as envDefault in struct tag)
+	validBroadcastTypes := map[string]bool{"valkey": true, "redis": true, "nats": true, "": true}
+	if !validBroadcastTypes[c.BroadcastType] {
+		return fmt.Errorf("BROADCAST_TYPE must be one of: valkey, nats (got: %s)", c.BroadcastType)
 	}
-	if c.ValkeyDB < 0 {
-		return fmt.Errorf("VALKEY_DB must be >= 0, got %d", c.ValkeyDB)
+
+	// Valkey-specific validation (when BROADCAST_TYPE=valkey or redis)
+	if c.BroadcastType == "valkey" || c.BroadcastType == "redis" || c.BroadcastType == "" {
+		if len(c.ValkeyAddrs) == 0 {
+			return fmt.Errorf("VALKEY_ADDRS is required when BROADCAST_TYPE=%s", c.BroadcastType)
+		}
+		if c.ValkeyDB < 0 {
+			return fmt.Errorf("VALKEY_DB must be >= 0, got %d", c.ValkeyDB)
+		}
+		if c.ValkeyChannel == "" {
+			return fmt.Errorf("VALKEY_CHANNEL cannot be empty")
+		}
 	}
-	if c.ValkeyChannel == "" {
-		return fmt.Errorf("VALKEY_CHANNEL cannot be empty")
+
+	// NATS-specific validation (when BROADCAST_TYPE=nats)
+	if c.BroadcastType == "nats" {
+		if len(c.NATSURLs) == 0 {
+			return fmt.Errorf("NATS_URLS is required when BROADCAST_TYPE=nats")
+		}
+		if c.NATSSubject == "" {
+			return fmt.Errorf("NATS_SUBJECT cannot be empty")
+		}
+		// Cluster mode requires multiple URLs
+		if c.NATSClusterMode && len(c.NATSURLs) < 2 {
+			return fmt.Errorf("NATS_CLUSTER_MODE=true requires at least 2 NATS URLs, got %d", len(c.NATSURLs))
+		}
 	}
 
 	// Client send buffer size validation
@@ -297,6 +378,24 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Kafka SASL validation
+	if c.KafkaSASLEnabled {
+		validMechanisms := map[string]bool{"scram-sha-256": true, "scram-sha-512": true}
+		if !validMechanisms[c.KafkaSASLMechanism] {
+			return fmt.Errorf("KAFKA_SASL_MECHANISM must be 'scram-sha-256' or 'scram-sha-512', got: %s", c.KafkaSASLMechanism)
+		}
+		if c.KafkaSASLUsername == "" {
+			return fmt.Errorf("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLED=true")
+		}
+		if c.KafkaSASLPassword == "" {
+			return fmt.Errorf("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
+		}
+	}
+
+	// Kafka TLS validation
+	// Note: We don't require CA path - system CA pool is used by default if not specified
+	// KafkaTLSInsecure is allowed but should be warned about in production
+
 	return nil
 }
 
@@ -308,6 +407,18 @@ func (c *Config) Print() {
 	fmt.Printf("Address:         %s\n", c.Addr)
 	fmt.Printf("Kafka Brokers:   %s\n", c.KafkaBrokers)
 	fmt.Printf("Consumer Group:  %s\n", c.ConsumerGroup)
+	fmt.Println("\n=== Kafka Security ===")
+	fmt.Printf("SASL Enabled:    %v\n", c.KafkaSASLEnabled)
+	if c.KafkaSASLEnabled {
+		fmt.Printf("SASL Mechanism:  %s\n", c.KafkaSASLMechanism)
+		fmt.Printf("SASL Username:   %s\n", c.KafkaSASLUsername)
+		fmt.Printf("SASL Password:   %s\n", "****")
+	}
+	fmt.Printf("TLS Enabled:     %v\n", c.KafkaTLSEnabled)
+	if c.KafkaTLSEnabled {
+		fmt.Printf("TLS Insecure:    %v\n", c.KafkaTLSInsecure)
+		fmt.Printf("TLS CA Path:     %s\n", c.KafkaTLSCAPath)
+	}
 	fmt.Println("\n=== Resource Limits ===")
 	fmt.Printf("GOMAXPROCS:      %d (from cgroup via automaxprocs)\n", runtime.GOMAXPROCS(0))
 	fmt.Printf("Memory Limit:    %d MB\n", c.MemoryLimit/(1024*1024))
@@ -345,11 +456,21 @@ func (c *Config) Print() {
 		fmt.Printf("Check Interval:  %s\n", c.TokenCheckInterval)
 		fmt.Printf("API Key Set:     %v\n", c.APIKey != "")
 	}
-	fmt.Println("\n=== Valkey (BroadcastBus) ===")
-	fmt.Printf("Addrs:           %v\n", c.ValkeyAddrs)
-	fmt.Printf("Master Name:     %s\n", c.ValkeyMasterName)
-	fmt.Printf("Channel:         %s\n", c.ValkeyChannel)
-	fmt.Printf("Database:        %d\n", c.ValkeyDB)
+	fmt.Println("\n=== Broadcast Bus ===")
+	fmt.Printf("Type:            %s\n", c.BroadcastType)
+	if c.BroadcastType == "valkey" || c.BroadcastType == "redis" || c.BroadcastType == "" {
+		fmt.Printf("Valkey Addrs:    %v\n", c.ValkeyAddrs)
+		fmt.Printf("Master Name:     %s\n", c.ValkeyMasterName)
+		fmt.Printf("Channel:         %s\n", c.ValkeyChannel)
+		fmt.Printf("Database:        %d\n", c.ValkeyDB)
+	}
+	if c.BroadcastType == "nats" {
+		fmt.Printf("NATS URLs:       %v\n", c.NATSURLs)
+		fmt.Printf("Cluster Mode:    %v\n", c.NATSClusterMode)
+		fmt.Printf("Subject:         %s\n", c.NATSSubject)
+		fmt.Printf("Token Auth:      %v\n", c.NATSToken != "")
+		fmt.Printf("User Auth:       %v\n", c.NATSUser != "")
+	}
 	fmt.Println("\n=== Client Buffers ===")
 	fmt.Printf("Send Buffer:     %d slots (~%dKB/client)\n", c.ClientSendBufferSize, c.ClientSendBufferSize/2)
 	fmt.Println("\n=== Monitoring ===")
@@ -365,6 +486,12 @@ func (c *Config) LogConfig(logger zerolog.Logger) {
 		Str("addr", c.Addr).
 		Str("kafka_brokers", c.KafkaBrokers).
 		Str("consumer_group", c.ConsumerGroup).
+		Bool("kafka_sasl_enabled", c.KafkaSASLEnabled).
+		Str("kafka_sasl_mechanism", c.KafkaSASLMechanism).
+		Bool("kafka_sasl_username_set", c.KafkaSASLUsername != "").
+		Bool("kafka_tls_enabled", c.KafkaTLSEnabled).
+		Bool("kafka_tls_insecure", c.KafkaTLSInsecure).
+		Str("kafka_tls_ca_path", c.KafkaTLSCAPath).
 		Int("gomaxprocs", runtime.GOMAXPROCS(0)).
 		Int64("memory_limit_mb", c.MemoryLimit/(1024*1024)).
 		Int("max_connections", c.MaxConnections).
@@ -393,10 +520,16 @@ func (c *Config) LogConfig(logger zerolog.Logger) {
 		Dur("token_expiry_warning", c.TokenExpiryWarning).
 		Dur("token_check_interval", c.TokenCheckInterval).
 		Bool("api_key_set", c.APIKey != "").
+		Str("broadcast_type", c.BroadcastType).
 		Strs("valkey_addrs", c.ValkeyAddrs).
 		Str("valkey_master_name", c.ValkeyMasterName).
 		Str("valkey_channel", c.ValkeyChannel).
 		Int("valkey_db", c.ValkeyDB).
+		Strs("nats_urls", c.NATSURLs).
+		Bool("nats_cluster_mode", c.NATSClusterMode).
+		Str("nats_subject", c.NATSSubject).
+		Bool("nats_token_set", c.NATSToken != "").
+		Bool("nats_user_set", c.NATSUser != "").
 		Int("client_send_buffer_size", c.ClientSendBufferSize).
 		Msg("Server configuration loaded")
 }

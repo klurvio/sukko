@@ -9,7 +9,10 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/orchestration"
@@ -84,26 +87,40 @@ func main() {
 	}
 	logger.Printf("Total Max Connections: %d, Shards: %d, Max Connections per Shard: %d", cfg.MaxConnections, *numShards, maxConnsPerShard)
 
-	// Initialize central BroadcastBus (Valkey Pub/Sub for multi-instance communication)
+	// Initialize central BroadcastBus (configurable backend: Valkey or NATS)
 	busLogger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevel(cfg.LogLevel),
 		Format: types.LogFormat(cfg.LogFormat),
 	})
 
-	broadcastBus, err := orchestration.NewBroadcastBus(orchestration.BroadcastBusConfig{
-		SentinelAddrs: cfg.ValkeyAddrs,
-		MasterName:    cfg.ValkeyMasterName,
-		Password:      cfg.ValkeyPassword,
-		DB:            cfg.ValkeyDB,
-		Channel:       cfg.ValkeyChannel,
-		BufferSize:    1024,
-		Logger:        busLogger,
-	})
+	// Build broadcast config based on BROADCAST_TYPE
+	busCfg := broadcast.Config{
+		Type:            cfg.BroadcastType,
+		BufferSize:      1024,
+		ShutdownTimeout: 5 * time.Second,
+		Valkey: broadcast.ValkeyConfig{
+			Addrs:      cfg.ValkeyAddrs,
+			MasterName: cfg.ValkeyMasterName,
+			Password:   cfg.ValkeyPassword,
+			DB:         cfg.ValkeyDB,
+			Channel:    cfg.ValkeyChannel,
+		},
+		NATS: broadcast.NATSConfig{
+			URLs:        cfg.NATSURLs,
+			ClusterMode: cfg.NATSClusterMode,
+			Subject:     cfg.NATSSubject,
+			Token:       cfg.NATSToken,
+			User:        cfg.NATSUser,
+			Password:    cfg.NATSPassword,
+		},
+	}
+
+	broadcastBus, err := broadcast.NewBus(busCfg, busLogger)
 	if err != nil {
 		logger.Fatalf("Failed to create BroadcastBus: %v", err)
 	}
 
-	logger.Printf("BroadcastBus initialized (Valkey mode: %d addrs)", len(cfg.ValkeyAddrs))
+	logger.Printf("BroadcastBus initialized (type: %s)", cfg.BroadcastType)
 	broadcastBus.Run()
 
 	// Create shared Kafka consumer pool (replaces per-shard consumers)
@@ -124,6 +141,26 @@ func main() {
 			CPURejectThresholdLower: cfg.CPURejectThresholdLower,
 		}, poolLogger, new(int64)) // Pass dummy connection counter for pool
 
+		// Build SASL config if enabled
+		var saslConfig *kafka.SASLConfig
+		if cfg.KafkaSASLEnabled {
+			saslConfig = &kafka.SASLConfig{
+				Mechanism: cfg.KafkaSASLMechanism,
+				Username:  cfg.KafkaSASLUsername,
+				Password:  cfg.KafkaSASLPassword,
+			}
+		}
+
+		// Build TLS config if enabled
+		var tlsConfig *kafka.TLSConfig
+		if cfg.KafkaTLSEnabled {
+			tlsConfig = &kafka.TLSConfig{
+				Enabled:            true,
+				InsecureSkipVerify: cfg.KafkaTLSInsecure,
+				CAPath:             cfg.KafkaTLSCAPath,
+			}
+		}
+
 		var err error
 		kafkaPool, err = orchestration.NewKafkaConsumerPool(orchestration.KafkaPoolConfig{
 			Brokers:       kafkaBrokers,
@@ -131,6 +168,8 @@ func main() {
 			BroadcastBus:  broadcastBus,
 			ResourceGuard: resourceGuard,
 			Logger:        poolLogger,
+			SASL:          saslConfig,
+			TLS:           tlsConfig,
 		})
 		if err != nil {
 			logger.Fatalf("Failed to create Kafka consumer pool: %v", err)

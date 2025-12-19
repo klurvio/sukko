@@ -32,12 +32,26 @@ config:
   logFormat: json
   metricsInterval: "15s"
 
+# Broadcast Bus Configuration
+broadcast:
+  # Backend type: "valkey" or "nats"
+  type: valkey
+
 valkey:
   # Empty = dynamic default ({{ .Release.Name }}-valkey:6379)
   addrs: ""
   masterName: mymaster
   db: 0
   channel: ws.broadcast
+
+nats:
+  # Empty = dynamic default (nats://{{ .Release.Name }}-nats:4222)
+  urls: ""
+  clusterMode: false
+  subject: ws.broadcast
+  token: ""
+  user: ""
+  password: ""
 
 kafka:
   # Empty = dynamic default ({{ .Release.Name }}-redpanda:9092)
@@ -52,6 +66,23 @@ kafka:
     - odin.community
     - odin.creation
     - odin.analytics
+
+  # SASL Authentication (for managed Kafka/Redpanda services)
+  sasl:
+    enabled: false
+    mechanism: scram-sha-256  # scram-sha-256 or scram-sha-512
+    username: ""
+    # password: Set via existingSecret or directly (not recommended)
+    password: ""
+    # Use existing secret for password (recommended for production)
+    existingSecret: ""
+    existingSecretKey: "kafka-sasl-password"
+
+  # TLS Encryption (for managed Kafka/Redpanda services)
+  tls:
+    enabled: false
+    insecureSkipVerify: false  # Skip CA verification (not for production)
+    caPath: ""  # Path to CA certificate (mounted from secret)
 
 resources:
   requests:

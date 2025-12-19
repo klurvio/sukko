@@ -1,0 +1,41 @@
+{{- if .Values.enabled }}
+---
+# Headless service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nats.fullname" . }}-headless
+  labels:
+    {{- include "nats.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: client
+      port: {{ .Values.ports.client }}
+      targetPort: client
+    - name: cluster
+      port: {{ .Values.ports.cluster }}
+      targetPort: cluster
+  selector:
+    {{- include "nats.selectorLabels" . | nindent 4 }}
+---
+# ClusterIP service for client connections
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nats.fullname" . }}
+  labels:
+    {{- include "nats.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: client
+      port: {{ .Values.ports.client }}
+      targetPort: client
+    - name: monitor
+      port: {{ .Values.ports.monitor }}
+      targetPort: monitor
+  selector:
+    {{- include "nats.selectorLabels" . | nindent 4 }}
+{{- end }}

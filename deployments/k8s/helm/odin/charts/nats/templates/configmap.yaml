@@ -1,0 +1,55 @@
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nats.fullname" . }}-config
+  labels:
+    {{- include "nats.labels" . | nindent 4 }}
+data:
+  nats.conf: |
+    # NATS Server Configuration
+
+    # Client port
+    port: {{ .Values.ports.client }}
+
+    # HTTP monitoring port
+    http_port: {{ .Values.ports.monitor }}
+
+    # Logging
+    {{- if .Values.logging.debug }}
+    debug: true
+    {{- end }}
+    {{- if .Values.logging.trace }}
+    trace: true
+    {{- end }}
+
+    # Cluster configuration
+    {{- if .Values.cluster.enabled }}
+    cluster {
+      name: {{ .Values.cluster.name }}
+      port: {{ .Values.ports.cluster }}
+
+      routes = [
+        {{- $fullname := include "nats.fullname" . }}
+        {{- $clusterPort := .Values.ports.cluster }}
+        {{- range $i := until (int .Values.replicaCount) }}
+        nats-route://{{ $fullname }}-{{ $i }}.{{ $fullname }}-headless:{{ $clusterPort }}
+        {{- end }}
+      ]
+    }
+    {{- end }}
+
+    {{- if .Values.auth.enabled }}
+    # Authentication
+    authorization {
+      {{- if .Values.auth.token }}
+      token: $NATS_TOKEN
+      {{- end }}
+    }
+    {{- end }}
+
+    # Disable JetStream (using Core NATS only)
+    {{- if not .Values.jetstream.enabled }}
+    # jetstream: disabled
+    {{- end }}
+{{- end }}

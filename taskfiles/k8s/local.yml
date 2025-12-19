@@ -75,10 +75,15 @@ tasks:
   # ===========================================================================
   # Deployment
   # ===========================================================================
+  asyncapi:bundle:
+    desc: Bundle AsyncAPI spec into single file
+    cmds:
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/asyncapi/bundled.yaml
+
   deploy:
     desc: Deploy/upgrade Helm release
     cmds:
-      - task: common:asyncapi:bundle
+      - task: asyncapi:bundle
       - helm upgrade --install odin {{.LOCAL_HELM_CHART}} -f {{.LOCAL_VALUES}} -n {{.LOCAL_NS}} --create-namespace
 
   down:
