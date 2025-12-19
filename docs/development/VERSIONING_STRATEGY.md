@@ -36,15 +36,65 @@ When configuration, deployments, or application code changes in the future, we n
   - Documentation updates
   - Minor performance tweaks
 
+## Runtime Version Endpoint
+
+Both ws-server and auth-service expose a `/version` endpoint that returns build-time version information:
+
+```bash
+curl http://localhost:3005/version
+```
+
+```json
+{
+  "version": "v1.2.3",
+  "commit_hash": "abc1234",
+  "build_time": "2025-12-19T10:30:00Z",
+  "service": "ws-server"
+}
+```
+
+### How It Works
+
+Version info is injected at build time via Go ldflags:
+
+```dockerfile
+# ws/build/server/Dockerfile
+ARG VERSION=dev
+ARG COMMIT_HASH=unknown
+ARG BUILD_TIME=unknown
+
+RUN go build -ldflags="-s -w \
+    -X 'github.com/Toniq-Labs/odin-ws/internal/version.Version=${VERSION}' \
+    -X 'github.com/Toniq-Labs/odin-ws/internal/version.CommitHash=${COMMIT_HASH}' \
+    -X 'github.com/Toniq-Labs/odin-ws/internal/version.BuildTime=${BUILD_TIME}'" \
+    -o /odin-ws ./cmd/server
+```
+
+The taskfiles automatically populate these values:
+- **VERSION**: `git describe --tags --always --dirty`
+- **COMMIT_HASH**: `git rev-parse --short HEAD`
+- **BUILD_TIME**: `date -u +%Y-%m-%dT%H:%M:%SZ`
+
+### Version Package Location
+
+```
+ws/internal/version/
+├── version.go      # Version variables and Info struct
+├── handler.go      # HTTP handler for /version endpoint
+└── version_test.go # Unit tests
+```
+
 ## What Gets Versioned
 
 ### 1. Application Code
 - **ws-server** (Go) - `/ws` directory
+- **auth-service** (Go) - `/ws` directory (shared codebase)
 - **publisher** (TypeScript) - `/publisher` directory
 - **Load testing** - `/loadtest` directory (tools version with stack)
 
 ### 2. Docker Images
-- `odin-ws-server:v1.0.0`
+- `odin-ws:v1.0.0` (ws-server)
+- `odin-auth:v1.0.0` (auth-service)
 - `odin-publisher:v1.0.0`
 
 ### 3. Configuration Stack

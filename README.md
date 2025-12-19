@@ -111,62 +111,70 @@ Publishers → Kafka → WS-Server → Valkey (BroadcastBus) → All Pods → Cl
 
 ```
 odin-ws/
-├── cmd/
-│   └── ws-server/              # Main application entry point
-├── ws/
+├── ws/                         # Go WebSocket server (module: github.com/Toniq-Labs/odin-ws)
+│   ├── cmd/
+│   │   ├── server/main.go      # WS server entry point
+│   │   └── auth/main.go        # Auth service entry point
+│   ├── build/                  # Dockerfiles
+│   │   ├── server/Dockerfile   # WS server multi-stage build
+│   │   └── auth/Dockerfile     # Auth service multi-stage build
 │   ├── internal/
-│   │   ├── multi/              # Multi-core architecture (LoadBalancer, BroadcastBus)
-│   │   └── shared/             # Shared components (Server, Kafka, metrics, health)
-│   └── pkg/                    # Public packages (config, logger, models)
+│   │   ├── server/             # WebSocket server (handlers, pump, broadcast)
+│   │   ├── orchestration/      # Multi-shard (LoadBalancer, Shard, KafkaPool)
+│   │   ├── authsvc/            # Auth service HTTP handlers
+│   │   ├── auth/               # JWT token validation/issuance
+│   │   ├── kafka/              # Kafka consumer
+│   │   ├── monitoring/         # Logging, metrics, system monitor
+│   │   ├── limits/             # Rate limiting, resource guard
+│   │   ├── version/            # Build version info (ldflags injection)
+│   │   └── ...
+│   └── asyncapi/               # AsyncAPI spec for Kafka topics
 ├── publisher/                  # Node.js event publisher service
 ├── loadtest/                   # Go-based load testing tool
-├── scripts/                    # Testing and utility scripts
 ├── deployments/
 │   ├── k8s/                    # Kubernetes deployments (primary)
-│   │   └── helm/
-│   │       └── odin/           # Odin Helm chart
-│   │           ├── charts/     # Subcharts (ws-server, redpanda, valkey, etc.)
-│   │           ├── values.yaml           # Base values
-│   │           ├── values-local.yaml     # Kind/local development
-│   │           ├── values-develop.yaml   # Development environment
-│   │           ├── values-staging.yaml   # Staging environment
-│   │           └── values-production.yaml # Production environment
+│   │   └── helm/odin/          # Odin Helm chart
+│   │       ├── charts/         # Subcharts (ws-server, auth-service, redpanda, valkey)
+│   │       ├── values-local.yaml     # Kind/local development
+│   │       ├── values-develop.yaml   # Development environment
+│   │       ├── values-staging.yaml   # Staging environment
+│   │       └── values-production.yaml # Production environment
 │   └── v1/                     # Legacy VM-based deployment
 │       ├── local/              # Docker Compose for local dev
 │       └── gcp/                # GCP Compute Engine deployment
 ├── taskfiles/
-│   ├── k8s/                   # Kubernetes tasks
+│   ├── k8s/                   # Kubernetes tasks (local, develop, staging, production)
 │   └── v1/                    # Legacy deployment tasks
 ├── docs/
 │   ├── architecture/          # System design and patterns
 │   ├── deployment/            # Deployment guides
 │   ├── development/           # Developer guides
-│   ├── performance/           # Optimization and capacity planning
-│   ├── events/                # Event system documentation
-│   ├── monitoring/            # Observability setup
-│   └── ARCHITECTURE_K8S_PRODUCTION.md  # K8s production architecture
+│   └── ...
 ├── sessions/                  # Session handoff documents (65+ files)
-├── grafana/                   # Grafana dashboard provisioning
-├── docker-compose.yml         # Local development orchestration
-├── Dockerfile                 # Multi-stage Docker build
-├── Taskfile.yml              # Main task orchestrator
-└── prometheus.yml            # Prometheus configuration
+└── Taskfile.yml              # Main task orchestrator
 ```
 
 ### Component Architecture
 
-**Multi-Core Components (`ws/internal/multi/`):**
-- **LoadBalancer** - Routes connections to shards using least-connections
-- **Proxy** - Bidirectional WebSocket proxy between clients and shards
-- **BroadcastBus** - Redis Pub/Sub-based message distribution across shards and instances (489 lines)
-- **ResourceGuard** - CPU/memory admission control with graceful degradation
+**Orchestration (`ws/internal/orchestration/`):**
+- **LoadBalancer** - Routes connections to shards using least-connections, exposes `/health`, `/version`
+- **Shard** - Manages individual WebSocket server instances
+- **KafkaPool** - Shared Kafka consumer pool across shards
 
-**Shared Components (`ws/internal/shared/`):**
+**Server (`ws/internal/server/`):**
 - **Server** - WebSocket server core (connection handling, readPump, writePump)
-- **Kafka** - Consumer group management, offset tracking, partition balancing
-- **Health** - Comprehensive health checks (capacity, CPU, memory, Kafka, goroutines)
-- **Metrics** - Prometheus instrumentation (50+ metrics)
-- **Ratelimiter** - Token bucket rate limiting with IP-based quotas
+- **Broadcast** - Message distribution to connected clients
+- **Handlers** - WebSocket upgrade, message routing
+
+**Auth Service (`ws/internal/authsvc/`):**
+- **Service** - JWT token generation for multi-tenant access
+- **Handlers** - HTTP endpoints (`POST /auth/token`, `GET /health`, `GET /version`)
+
+**Shared Components:**
+- **kafka/** - Consumer group management, offset tracking
+- **monitoring/** - Prometheus metrics (50+), structured logging, system monitor
+- **limits/** - ResourceGuard, rate limiting with IP-based quotas
+- **version/** - Build version info via ldflags (`/version` endpoint)
 
 ## 🚀 Quick Start
 
@@ -200,11 +208,12 @@ task monitor:logs        # Loki log explorer
 
 ```bash
 # Local development with Kind
-task k8s:local:up              # Create Kind cluster + deploy all services
+task k8s:local:setup           # Create Kind cluster + build + deploy all services
 
 # Verify deployment
 kubectl get pods -n odin-local
 task k8s:local:logs            # View ws-server logs
+task k8s:local:health          # Check health endpoint
 
 # Run load test
 cd loadtest && ./sustained-load-test -url ws://localhost:30080/ws -connections 50
@@ -485,13 +494,25 @@ See [API Rejection Responses](./docs/API_REJECTION_RESPONSES.md) for client inte
 
 ## 🎯 Recent Updates
 
-**Latest (2025-12-04):**
+**Latest (2025-12-19):**
+- ✅ **K8s Taskfiles Reorganization** - Standardized task names across all environments
+  - `up` → `deploy`, `loadtest` → `test:load`, `rebuild` → `build:reload`
+  - Added `logs:all`, `logs:auth`, `logs:publisher` to all environments
+  - Added `health` task for quick health checks
+- ✅ **Version Package** - Build-time version injection via ldflags
+  - New `/version` endpoint on ws-server and auth-service
+  - Returns version, commit hash, build time
+- ✅ **File Reorganization**
+  - Dockerfiles moved to `ws/build/{server,auth}/Dockerfile`
+  - AsyncAPI specs moved to `ws/asyncapi/`
+- ✅ **Module Path** - Changed to `github.com/Toniq-Labs/odin-ws`
+
+**Previous (2025-12-04):**
 - ✅ **Kubernetes deployment** - Helm charts for ws-server, Redpanda, Valkey, monitoring
 - ✅ **Cloudflare integration** - Edge layer for DDoS, TLS, WAF (documented)
 - ✅ **Architecture diagram** - SVG production architecture diagram
-- ✅ **Kind local development** - `task k8s:local:up` for local K8s testing
+- ✅ **Kind local development** - `task k8s:local:setup` for local K8s testing
 - ✅ Kafka topic alignment with v1 deployment (odin.trades, odin.liquidity, etc.)
-- ✅ Load test validation on Kind cluster (50 connections, 100% success)
 
 **Previous (2025-11-25):**
 - ✅ **Redis BroadcastBus implemented** - Enables horizontal scaling across multiple VMs

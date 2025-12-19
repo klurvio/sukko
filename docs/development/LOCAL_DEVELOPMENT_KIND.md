@@ -96,20 +96,20 @@ task k8s:local:destroy
 
 ```bash
 # Deploy/upgrade Helm release
-task k8s:local:up
+task k8s:local:deploy
 
 # Uninstall Helm release (keeps cluster)
 task k8s:local:down
 
 # Rebuild images and restart pods
-task k8s:local:rebuild
+task k8s:local:build:reload
 ```
 
 ### Image Management
 
 ```bash
-# Build ws-server image and load into Kind
-task k8s:local:images:load
+# Build all images and load into Kind
+task k8s:local:build
 ```
 
 ### Monitoring & Debugging
@@ -132,7 +132,7 @@ task k8s:local:shell
 
 ```bash
 # Test health endpoint
-task k8s:local:test:health
+task k8s:local:health
 
 # Connect via WebSocket (requires wscat)
 task k8s:local:test:ws
@@ -171,7 +171,7 @@ publisher:
 Apply changes:
 
 ```bash
-task k8s:local:up
+task k8s:local:deploy
 ```
 
 ## Development Workflow
@@ -194,7 +194,7 @@ Edit files in `ws/` directory.
 
 ```bash
 # Rebuild image and restart pods
-task k8s:local:rebuild
+task k8s:local:build:reload
 
 # Watch logs
 task k8s:local:logs
@@ -384,10 +384,10 @@ kubectl get events -n odin-local --sort-by='.lastTimestamp'
 
 ```bash
 # Ensure image is loaded into Kind
-task k8s:local:images:load
+task k8s:local:build
 
 # Verify image exists
-docker exec -it odin-local-control-plane crictl images | grep odin
+docker exec -it odin-ws-local-control-plane crictl images | grep odin
 ```
 
 ### Port Already in Use
@@ -442,10 +442,10 @@ task k8s:common:helm:lint
 
 ```bash
 # Skip full rebuild if only config changed
-task k8s:local:up
+task k8s:local:deploy
 
 # For Go code changes, rebuild is required
-task k8s:local:rebuild
+task k8s:local:build:reload
 ```
 
 ### Watch Multiple Resources
@@ -486,7 +486,8 @@ docker stats odin-local-control-plane
 | `deployments/k8s/helm/odin/Chart.yaml` | Umbrella chart definition |
 | `deployments/k8s/helm/odin/charts/*/` | Sub-charts |
 | `taskfiles/k8s/local.yml` | Local task definitions |
-| `ws/Dockerfile` | ws-server container image |
+| `ws/build/server/Dockerfile` | ws-server container image |
+| `ws/build/auth/Dockerfile` | auth-service container image |
 
 ## Related Documentation
 
