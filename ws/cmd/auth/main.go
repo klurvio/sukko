@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/adred-codev/odin-ws/internal/authsvc"
+	"github.com/Toniq-Labs/odin-ws/internal/authsvc"
 )
 
 func main() {

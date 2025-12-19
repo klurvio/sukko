@@ -162,9 +162,9 @@ package main
 import (
     "os"
     
-    "github.com/adred-codev/odin-ws/internal/single/core"
-    "github.com/adred-codev/odin-ws/internal/single/monitoring"
-    "github.com/adred-codev/odin-ws/internal/single/platform"
+    "github.com/Toniq-Labs/odin-ws/internal/single/core"
+    "github.com/Toniq-Labs/odin-ws/internal/single/monitoring"
+    "github.com/Toniq-Labs/odin-ws/internal/single/platform"
 )
 
 func main() {
@@ -192,18 +192,18 @@ func main() {
 **Current ws/server.go imports:**
 ```go
 import (
-    "github.com/adred-codev/odin-ws/kafka"
+    "github.com/Toniq-Labs/odin-ws/kafka"
 )
 ```
 
 **After moving to internal/single/core/server.go:**
 ```go
 import (
-    "github.com/adred-codev/odin-ws/internal/single/kafka"
-    "github.com/adred-codev/odin-ws/internal/single/messaging"
-    "github.com/adred-codev/odin-ws/internal/single/limits"
-    "github.com/adred-codev/odin-ws/internal/single/monitoring"
-    "github.com/adred-codev/odin-ws/internal/single/platform"
+    "github.com/Toniq-Labs/odin-ws/internal/single/kafka"
+    "github.com/Toniq-Labs/odin-ws/internal/single/messaging"
+    "github.com/Toniq-Labs/odin-ws/internal/single/limits"
+    "github.com/Toniq-Labs/odin-ws/internal/single/monitoring"
+    "github.com/Toniq-Labs/odin-ws/internal/single/platform"
 )
 ```
 

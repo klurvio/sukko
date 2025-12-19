@@ -6,9 +6,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/adred-codev/odin-ws/internal/monitoring"
-	"github.com/adred-codev/odin-ws/internal/types"
-	"github.com/adred-codev/odin-ws/internal/server"
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server"
 	"github.com/rs/zerolog"
 )
 

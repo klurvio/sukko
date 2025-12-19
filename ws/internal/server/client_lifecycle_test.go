@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adred-codev/odin-ws/internal/limits"
-	"github.com/adred-codev/odin-ws/internal/messaging"
-	"github.com/adred-codev/odin-ws/internal/monitoring"
-	"github.com/adred-codev/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/limits"
+	"github.com/Toniq-Labs/odin-ws/internal/messaging"
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/types"
 	"github.com/rs/zerolog"
 )
 

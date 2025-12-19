@@ -7,7 +7,7 @@ package server
 import (
 	"time"
 
-	"github.com/adred-codev/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/rs/zerolog"
 )
 

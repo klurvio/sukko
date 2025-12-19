@@ -1,4 +1,4 @@
-module github.com/adred-codev/odin-ws
+module github.com/Toniq-Labs/odin-ws
 
 go 1.25.1
 

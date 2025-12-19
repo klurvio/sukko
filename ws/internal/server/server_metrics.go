@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/adred-codev/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
 )

@@ -10,11 +10,11 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/adred-codev/odin-ws/internal/limits"
-	"github.com/adred-codev/odin-ws/internal/monitoring"
-	"github.com/adred-codev/odin-ws/internal/orchestration"
-	"github.com/adred-codev/odin-ws/internal/platform"
-	"github.com/adred-codev/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/limits"
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/orchestration"
+	"github.com/Toniq-Labs/odin-ws/internal/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/types"
 	_ "go.uber.org/automaxprocs"
 )
 

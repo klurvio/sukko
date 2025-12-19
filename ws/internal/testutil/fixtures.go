@@ -6,7 +6,7 @@ package testutil
 import (
 	"time"
 
-	"github.com/adred-codev/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/types"
 )
 
 // NewTestServerConfig creates a ServerConfig with safe defaults for testing.

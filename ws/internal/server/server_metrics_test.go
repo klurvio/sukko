@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/adred-codev/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/types"
 )
 
 // =============================================================================

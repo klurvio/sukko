@@ -208,10 +208,10 @@ odin-ws/
 **Go Modules:**
 ```go
 // ws-single/go.mod
-module github.com/adred-codev/odin-ws/ws-single
+module github.com/Toniq-Labs/odin-ws/ws-single
 
 // ws-multi/go.mod
-module github.com/adred-codev/odin-ws/ws-multi
+module github.com/Toniq-Labs/odin-ws/ws-multi
 ```
 
 **Build Commands:**
@@ -408,8 +408,8 @@ mkdir -p pkg/metrics pkg/logger pkg/kafka
 package main
 
 import (
-    "github.com/adred-codev/odin-ws/internal/single"
-    "github.com/adred-codev/odin-ws/pkg/logger"
+    "github.com/Toniq-Labs/odin-ws/internal/single"
+    "github.com/Toniq-Labs/odin-ws/pkg/logger"
 )
 
 func main() {
@@ -441,9 +441,9 @@ mv ws/kafka/ pkg/kafka/
 package single
 
 import (
-    "github.com/adred-codev/odin-ws/internal/shared"
-    "github.com/adred-codev/odin-ws/pkg/metrics"
-    "github.com/adred-codev/odin-ws/pkg/kafka"
+    "github.com/Toniq-Labs/odin-ws/internal/shared"
+    "github.com/Toniq-Labs/odin-ws/pkg/metrics"
+    "github.com/Toniq-Labs/odin-ws/pkg/kafka"
 )
 ```
 
@@ -490,8 +490,8 @@ package main
 
 import (
     "runtime"
-    "github.com/adred-codev/odin-ws/internal/multi"
-    "github.com/adred-codev/odin-ws/pkg/logger"
+    "github.com/Toniq-Labs/odin-ws/internal/multi"
+    "github.com/Toniq-Labs/odin-ws/pkg/logger"
 )
 
 func main() {
@@ -510,8 +510,8 @@ package multi
 
 import (
     "sync"
-    "github.com/adred-codev/odin-ws/internal/shared"
-    "github.com/adred-codev/odin-ws/pkg/metrics"
+    "github.com/Toniq-Labs/odin-ws/internal/shared"
+    "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
 type Server struct {

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/adred-codev/odin-ws/internal/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/kafka"
 	"github.com/rs/zerolog"
 )
 

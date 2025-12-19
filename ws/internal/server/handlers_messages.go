@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/adred-codev/odin-ws/internal/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/auth"
 )
 
 // Auth message types for WebSocket communication

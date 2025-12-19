@@ -3,7 +3,7 @@ package authsvc
 import (
 	"time"
 
-	"github.com/adred-codev/odin-ws/internal/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/auth"
 )
 
 // Service is the core auth service that handles token issuance.

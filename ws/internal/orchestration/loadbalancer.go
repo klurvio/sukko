@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adred-codev/odin-ws/internal/monitoring"
-	"github.com/adred-codev/odin-ws/internal/version"
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/version"
 	"github.com/rs/zerolog"
 )
 

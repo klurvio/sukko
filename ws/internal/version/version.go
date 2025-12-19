@@ -1,9 +1,9 @@
 // Package version provides build-time version information.
 // Variables are set via ldflags during build:
 //
-//	-X 'github.com/adred-codev/odin-ws/internal/version.Version=v1.0.0'
-//	-X 'github.com/adred-codev/odin-ws/internal/version.CommitHash=abc123'
-//	-X 'github.com/adred-codev/odin-ws/internal/version.BuildTime=2024-01-15T10:30:00Z'
+//	-X 'github.com/Toniq-Labs/odin-ws/internal/version.Version=v1.0.0'
+//	-X 'github.com/Toniq-Labs/odin-ws/internal/version.CommitHash=abc123'
+//	-X 'github.com/Toniq-Labs/odin-ws/internal/version.BuildTime=2024-01-15T10:30:00Z'
 package version
 
 // Build-time variables (set via ldflags).

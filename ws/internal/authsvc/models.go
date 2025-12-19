@@ -1,7 +1,7 @@
 // Package authservice provides the standalone auth service for multi-tenant JWT token issuance.
 package authsvc
 
-import "github.com/adred-codev/odin-ws/internal/version"
+import "github.com/Toniq-Labs/odin-ws/internal/version"
 
 // Tenant represents an organization/company using the platform.
 type Tenant struct {

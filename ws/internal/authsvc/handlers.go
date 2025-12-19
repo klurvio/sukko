@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/adred-codev/odin-ws/internal/version"
+	"github.com/Toniq-Labs/odin-ws/internal/version"
 )
 
 // Handler returns the HTTP handler for the auth service.

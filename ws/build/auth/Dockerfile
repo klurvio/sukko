@@ -20,9 +20,9 @@ ARG BUILD_TIME=unknown
 # CGO_ENABLED=0 ensures a static binary without C dependencies
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w \
-    -X 'github.com/adred-codev/odin-ws/internal/version.Version=${VERSION}' \
-    -X 'github.com/adred-codev/odin-ws/internal/version.CommitHash=${COMMIT_HASH}' \
-    -X 'github.com/adred-codev/odin-ws/internal/version.BuildTime=${BUILD_TIME}'" \
+    -X 'github.com/Toniq-Labs/odin-ws/internal/version.Version=${VERSION}' \
+    -X 'github.com/Toniq-Labs/odin-ws/internal/version.CommitHash=${COMMIT_HASH}' \
+    -X 'github.com/Toniq-Labs/odin-ws/internal/version.BuildTime=${BUILD_TIME}'" \
     -o /odin-auth ./cmd/auth
 
 # Stage 2: Create the final, minimal image

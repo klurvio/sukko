@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/adred-codev/odin-ws/internal/messaging"
-	"github.com/adred-codev/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/messaging"
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/gobwas/ws"
 )
 
