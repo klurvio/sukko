@@ -13,14 +13,14 @@ vars:
 
 tasks:
   # ===========================================================================
-  # Cluster Management
+  # Connection / Setup
   # ===========================================================================
   setup:
     desc: Create kind cluster and deploy full stack
     cmds:
       - task: cluster:create
-      - task: images:load
-      - task: up
+      - task: build
+      - task: deploy
 
   cluster:create:
     desc: Create kind cluster
@@ -34,14 +34,14 @@ tasks:
       - kind delete cluster --name {{.LOCAL_CLUSTER}}
 
   destroy:
-    desc: Delete kind cluster (alias)
+    desc: Delete kind cluster
     cmds:
       - task: cluster:delete
 
   # ===========================================================================
-  # Image Management
+  # Build & Images
   # ===========================================================================
-  images:load:
+  build:
     desc: Build and load images into kind
     vars:
       VERSION:
@@ -66,10 +66,16 @@ tasks:
       - docker build -t odin-publisher:latest {{.ROOT_DIR}}/publisher
       - kind load docker-image odin-publisher:latest --name {{.LOCAL_CLUSTER}}
 
+  build:reload:
+    desc: Rebuild images and restart pods
+    cmds:
+      - task: build
+      - kubectl rollout restart deployment -n {{.LOCAL_NS}}
+
   # ===========================================================================
   # Deployment
   # ===========================================================================
-  up:
+  deploy:
     desc: Deploy/upgrade Helm release
     cmds:
       - task: common:asyncapi:bundle
@@ -80,14 +86,8 @@ tasks:
     cmds:
       - helm uninstall odin -n {{.LOCAL_NS}} || true
 
-  rebuild:
-    desc: Rebuild images and restart pods
-    cmds:
-      - task: images:load
-      - kubectl rollout restart deployment -n {{.LOCAL_NS}}
-
   # ===========================================================================
-  # Status & Debugging
+  # Observability
   # ===========================================================================
   status:
     desc: Show deployment status
@@ -111,6 +111,11 @@ tasks:
     cmds:
       - kubectl logs -f -l app.kubernetes.io/name=auth-service -n {{.LOCAL_NS}} --tail=100
 
+  logs:publisher:
+    desc: Tail publisher logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=publisher -n {{.LOCAL_NS}} --tail=100
+
   shell:
     desc: Open shell in ws-server pod
     cmds:
@@ -119,7 +124,7 @@ tasks:
   # ===========================================================================
   # Testing
   # ===========================================================================
-  test:health:
+  health:
     desc: Test ws-server health endpoint
     cmds:
       - curl -s http://localhost:3005/health | jq .

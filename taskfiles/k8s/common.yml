@@ -38,7 +38,57 @@ tasks:
       - helm diff upgrade odin {{.COMMON_CHART}} -f {{.COMMON_CHART}}/values-{{.ENV}}.yaml -n {{.NS}}
 
   # ===========================================================================
-  # Test Operations
+  # Build Operations
+  # ===========================================================================
+  build:ws:
+    desc: Build ws-server Docker image with version info
+    dir: "{{.ROOT_DIR}}/ws"
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+      COMMIT_HASH:
+        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
+    cmds:
+      - docker build -t odin-ws:latest
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          .
+
+  build:auth:
+    desc: Build auth-service Docker image with version info
+    dir: "{{.ROOT_DIR}}/ws"
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+      COMMIT_HASH:
+        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
+    cmds:
+      - docker build -t odin-auth:latest
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f Dockerfile.auth .
+
+  build:publisher:
+    desc: Build publisher Docker image
+    dir: "{{.ROOT_DIR}}/publisher"
+    cmds:
+      - docker build -t odin-publisher:latest .
+
+  build:all:
+    desc: Build all Docker images
+    cmds:
+      - task: build:ws
+      - task: build:auth
+      - task: build:publisher
+
+  # ===========================================================================
+  # Testing
   # ===========================================================================
   test:unit:
     desc: Run all Go unit tests
@@ -57,56 +107,6 @@ tasks:
     dir: "{{.ROOT_DIR}}/ws"
     cmds:
       - go test ./... -cover
-
-  # ===========================================================================
-  # Build Operations
-  # ===========================================================================
-  build:ws-server:
-    desc: Build ws-server Docker image with version info
-    dir: "{{.ROOT_DIR}}/ws"
-    vars:
-      VERSION:
-        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
-      COMMIT_HASH:
-        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
-      BUILD_TIME:
-        sh: date -u +%Y-%m-%dT%H:%M:%SZ
-    cmds:
-      - docker build -t odin-ws:latest
-          --build-arg VERSION={{.VERSION}}
-          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
-          --build-arg BUILD_TIME={{.BUILD_TIME}}
-          .
-
-  build:publisher:
-    desc: Build publisher Docker image
-    dir: "{{.ROOT_DIR}}/publisher"
-    cmds:
-      - docker build -t odin-publisher:latest .
-
-  build:auth-service:
-    desc: Build auth-service Docker image with version info
-    dir: "{{.ROOT_DIR}}/ws"
-    vars:
-      VERSION:
-        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
-      COMMIT_HASH:
-        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
-      BUILD_TIME:
-        sh: date -u +%Y-%m-%dT%H:%M:%SZ
-    cmds:
-      - docker build -t odin-auth:latest
-          --build-arg VERSION={{.VERSION}}
-          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
-          --build-arg BUILD_TIME={{.BUILD_TIME}}
-          -f Dockerfile.auth .
-
-  build:all:
-    desc: Build all Docker images
-    cmds:
-      - task: build:ws-server
-      - task: build:auth-service
-      - task: build:publisher
 
   # ===========================================================================
   # Documentation

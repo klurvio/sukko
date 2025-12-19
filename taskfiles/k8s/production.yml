@@ -16,7 +16,7 @@ vars:
 
 tasks:
   # ===========================================================================
-  # Cluster Connection
+  # Connection / Setup
   # ===========================================================================
   connect:
     desc: Connect to GKE production cluster
@@ -24,7 +24,7 @@ tasks:
       - gcloud container clusters get-credentials {{.GKE_CLUSTER}} --region {{.GKE_REGION}} --project {{.GKE_PROJECT}}
 
   # ===========================================================================
-  # Build & Push
+  # Build & Images
   # ===========================================================================
   build:
     desc: Build and push images to Artifact Registry
@@ -41,14 +41,14 @@ tasks:
   # ===========================================================================
   deploy:
     desc: Build, push, and deploy to GKE production
-    prompt: "⚠️  This will deploy to PRODUCTION. Are you sure?"
+    prompt: "This will deploy to PRODUCTION. Are you sure?"
     cmds:
       - task: build
       - task: upgrade
 
   upgrade:
     desc: Upgrade existing deployment (rolling update)
-    prompt: "⚠️  This will upgrade PRODUCTION. Are you sure?"
+    prompt: "This will upgrade PRODUCTION. Are you sure?"
     cmds:
       - helm upgrade --install odin {{.PROD_CHART}} -f {{.PROD_VALUES}} -n {{.PROD_NS}} --create-namespace --wait
 
@@ -57,9 +57,6 @@ tasks:
     cmds:
       - helm rollback odin -n {{.PROD_NS}}
 
-  # ===========================================================================
-  # Scaling
-  # ===========================================================================
   scale:
     desc: "Manual scaling (REPLICAS=N)"
     vars:
@@ -68,7 +65,7 @@ tasks:
       - kubectl scale deployment odin-ws-server -n {{.PROD_NS}} --replicas={{.REPLICAS}}
 
   # ===========================================================================
-  # Status & Debugging
+  # Observability
   # ===========================================================================
   status:
     desc: Show deployment status
@@ -84,8 +81,23 @@ tasks:
     cmds:
       - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.PROD_NS}} --tail=100
 
+  logs:all:
+    desc: Tail all pod logs
+    cmds:
+      - kubectl logs -f --all-containers=true -l app.kubernetes.io/instance=odin -n {{.PROD_NS}} --tail=50
+
+  logs:auth:
+    desc: Tail auth-service logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=auth-service -n {{.PROD_NS}} --tail=100
+
+  logs:publisher:
+    desc: Tail publisher logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=publisher -n {{.PROD_NS}} --tail=100
+
   # ===========================================================================
-  # Health & Monitoring
+  # Testing
   # ===========================================================================
   health:
     desc: Check production health

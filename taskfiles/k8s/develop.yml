@@ -15,7 +15,7 @@ vars:
 
 tasks:
   # ===========================================================================
-  # Cluster Connection
+  # Connection / Setup
   # ===========================================================================
   connect:
     desc: Connect to GKE develop cluster
@@ -23,7 +23,7 @@ tasks:
       - gcloud container clusters get-credentials {{.GKE_CLUSTER}} --region {{.GKE_REGION}} --project {{.GKE_PROJECT}}
 
   # ===========================================================================
-  # Build & Push
+  # Build & Images
   # ===========================================================================
   build:
     desc: Build and push images to Artifact Registry
@@ -32,6 +32,12 @@ tasks:
       - docker push {{.REGISTRY}}/ws-server:latest
       # - docker build -t {{.REGISTRY}}/publisher:latest {{.ROOT_DIR}}/publisher
       # - docker push {{.REGISTRY}}/publisher:latest
+
+  build:reload:
+    desc: Rebuild images and restart pods
+    cmds:
+      - task: build
+      - kubectl rollout restart deployment -n {{.DEV_NS}}
 
   # ===========================================================================
   # Deployment
@@ -53,7 +59,7 @@ tasks:
       - helm uninstall odin -n {{.DEV_NS}} || true
 
   # ===========================================================================
-  # Status & Debugging
+  # Observability
   # ===========================================================================
   status:
     desc: Show deployment status
@@ -67,7 +73,38 @@ tasks:
     cmds:
       - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.DEV_NS}} --tail=100
 
+  logs:all:
+    desc: Tail all pod logs
+    cmds:
+      - kubectl logs -f --all-containers=true -l app.kubernetes.io/instance=odin -n {{.DEV_NS}} --tail=50
+
+  logs:auth:
+    desc: Tail auth-service logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=auth-service -n {{.DEV_NS}} --tail=100
+
+  logs:publisher:
+    desc: Tail publisher logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=publisher -n {{.DEV_NS}} --tail=100
+
   port-forward:
     desc: Port-forward ws-server for local testing
     cmds:
       - kubectl port-forward -n {{.DEV_NS}} svc/odin-ws-server 3005:3001
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+  health:
+    desc: Check develop environment health
+    cmds:
+      - |
+        DEV_IP=$(kubectl get svc -n {{.DEV_NS}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "localhost")
+        if [ "$DEV_IP" = "localhost" ]; then
+          echo "No external IP found, trying port-forward..."
+          curl -s http://localhost:3005/health | jq .
+        else
+          echo "Develop IP: $DEV_IP"
+          curl -s http://$DEV_IP/health | jq .
+        fi

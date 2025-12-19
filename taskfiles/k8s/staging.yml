@@ -15,7 +15,7 @@ vars:
 
 tasks:
   # ===========================================================================
-  # Cluster Connection
+  # Connection / Setup
   # ===========================================================================
   connect:
     desc: Connect to GKE staging cluster
@@ -23,7 +23,7 @@ tasks:
       - gcloud container clusters get-credentials {{.GKE_CLUSTER}} --region {{.GKE_REGION}} --project {{.GKE_PROJECT}}
 
   # ===========================================================================
-  # Build & Push
+  # Build & Images
   # ===========================================================================
   build:
     desc: Build and push images to Artifact Registry
@@ -50,8 +50,13 @@ tasks:
     cmds:
       - helm uninstall odin -n {{.STAGING_NS}} || true
 
+  rollback:
+    desc: Rollback to previous release
+    cmds:
+      - helm rollback odin -n {{.STAGING_NS}}
+
   # ===========================================================================
-  # Status & Debugging
+  # Observability
   # ===========================================================================
   status:
     desc: Show deployment status
@@ -67,10 +72,33 @@ tasks:
     cmds:
       - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.STAGING_NS}} --tail=100
 
+  logs:all:
+    desc: Tail all pod logs
+    cmds:
+      - kubectl logs -f --all-containers=true -l app.kubernetes.io/instance=odin -n {{.STAGING_NS}} --tail=50
+
+  logs:auth:
+    desc: Tail auth-service logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=auth-service -n {{.STAGING_NS}} --tail=100
+
+  logs:publisher:
+    desc: Tail publisher logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=publisher -n {{.STAGING_NS}} --tail=100
+
   # ===========================================================================
-  # Load Testing
+  # Testing
   # ===========================================================================
-  loadtest:
+  health:
+    desc: Check staging environment health
+    cmds:
+      - |
+        STAGING_IP=$(kubectl get svc -n {{.STAGING_NS}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+        echo "Staging IP: $STAGING_IP"
+        curl -s http://$STAGING_IP/health | jq .
+
+  test:load:
     desc: Run load test against staging
     vars:
       CONNECTIONS: '{{default "5000" .CONNECTIONS}}'
