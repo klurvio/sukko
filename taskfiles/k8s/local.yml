@@ -88,7 +88,12 @@ tasks:
   logs:all:
     desc: Tail all pod logs
     cmds:
-      - kubectl logs -f --all-containers=true -l app.kubernetes.io/part-of=odin -n {{.LOCAL_NS}} --tail=50
+      - kubectl logs -f --all-containers=true -l app.kubernetes.io/instance=odin -n {{.LOCAL_NS}} --tail=50
+
+  logs:auth:
+    desc: Tail auth-service logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=auth-service -n {{.LOCAL_NS}} --tail=100
 
   shell:
     desc: Open shell in ws-server pod
