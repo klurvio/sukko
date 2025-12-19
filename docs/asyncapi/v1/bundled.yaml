@@ -1,0 +1,1804 @@
+asyncapi: 3.0.0
+info:
+  title: Odin WebSocket Streaming API
+  version: 1.0.0
+  description: >
+    Event streaming API for the Odin WebSocket infrastructure.
+
+
+    This API documents the Kafka/Redpanda messaging layer for real-time token
+    events.
+
+    Events are published to topics based on their category using the pattern:
+    `odin.<category>`
+
+
+    ## Topics Overview
+
+    - `odin.trades` - Trading events (executions, buys, sells)
+
+    - `odin.liquidity` - Liquidity pool operations
+
+    - `odin.balances` - User balance and transfer events
+
+    - `odin.metadata` - Token metadata updates
+
+    - `odin.social` - Social verification and links
+
+    - `odin.community` - Comments, favorites, voting
+
+    - `odin.creation` - Token creation and listing
+
+    - `odin.analytics` - Price deltas, holder counts, trending
+
+
+    ## Message Key
+
+    All messages use the **token ID** as the Kafka message key for
+    partition-based sharding.
+  contact:
+    name: Platform Team
+  license:
+    name: Proprietary
+defaultContentType: application/json
+servers:
+  local:
+    host: localhost:9092
+    protocol: kafka
+    description: Local Redpanda broker for development
+  kubernetes:
+    host: odin-redpanda:9092
+    protocol: kafka
+    description: Kubernetes internal Redpanda broker
+  kind:
+    host: localhost:19092
+    protocol: kafka
+    description: Kind cluster Redpanda (external port)
+channels:
+  odin.trades:
+    address: odin.trades
+    description: |
+      Trading events including executions, buys, and sells.
+
+      **Event Types:**
+      - `TRADE_EXECUTED` - Direct trade execution
+      - `BUY_COMPLETED` - Buy order completed
+      - `SELL_COMPLETED` - Sell order completed
+
+      **Frequency:** High (20% of all events)
+      **Retention:** 30 seconds
+    messages:
+      TokenEventMessage:
+        name: TokenEventMessage
+        title: Token Event Message
+        summary: Standard event envelope for all Odin token events
+        description: >
+          All events in Odin are wrapped in this envelope structure.
+
+          The `type` field determines the event type, and the `data` field
+
+          contains the event-specific payload.
+
+
+          **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
+          "ETH")
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            kafka_key:
+              type: string
+              description: Token ID used as Kafka partition key
+              example: BTC
+        payload:
+          type: object
+          required:
+            - type
+            - timestamp
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type constant. Valid values depend on the topic:
+
+                - trades: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
+
+                - liquidity: LIQUIDITY_ADDED, LIQUIDITY_REMOVED,
+                LIQUIDITY_REBALANCED
+
+                - balances: BALANCE_UPDATED, TRANSFER_COMPLETED
+
+                - metadata: METADATA_UPDATED, TOKEN_NAME_CHANGED,
+                TOKEN_FLAGS_CHANGED
+
+                - social: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
+
+                - community: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED,
+                FAVORITE_TOGGLED
+
+                - creation: TOKEN_CREATED, TOKEN_LISTED
+
+                - analytics: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED,
+                ANALYTICS_RECALCULATED, TRENDING_UPDATED
+              example: TRADE_EXECUTED
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event occurred
+              example: 1699901234567
+            data:
+              type: object
+              description: >
+                Event-specific payload data. The structure depends on the event
+                type.
+
+                See the schema definitions for each topic.
+              additionalProperties: true
+        examples:
+          - name: Trade Executed Event
+            summary: Example of a trade execution event
+            headers:
+              kafka_key: BTC
+            payload:
+              type: TRADE_EXECUTED
+              timestamp: 1699901234567
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
+          - name: Liquidity Added Event
+            summary: Example of a liquidity addition event
+            headers:
+              kafka_key: ETH
+            payload:
+              type: LIQUIDITY_ADDED
+              timestamp: 1699901234567
+              data:
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 30000
+  odin.liquidity:
+    address: odin.liquidity
+    description: |
+      Liquidity pool operations and state changes.
+
+      **Event Types:**
+      - `LIQUIDITY_ADDED` - Liquidity provider added funds
+      - `LIQUIDITY_REMOVED` - Liquidity removed from pool
+      - `LIQUIDITY_REBALANCED` - Pool ratio adjustment
+
+      **Frequency:** Medium (8% of all events)
+      **Retention:** 60 seconds
+    messages:
+      TokenEventMessage:
+        name: TokenEventMessage
+        title: Token Event Message
+        summary: Standard event envelope for all Odin token events
+        description: >
+          All events in Odin are wrapped in this envelope structure.
+
+          The `type` field determines the event type, and the `data` field
+
+          contains the event-specific payload.
+
+
+          **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
+          "ETH")
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            kafka_key:
+              type: string
+              description: Token ID used as Kafka partition key
+              example: BTC
+        payload:
+          type: object
+          required:
+            - type
+            - timestamp
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type constant. Valid values depend on the topic:
+
+                - trades: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
+
+                - liquidity: LIQUIDITY_ADDED, LIQUIDITY_REMOVED,
+                LIQUIDITY_REBALANCED
+
+                - balances: BALANCE_UPDATED, TRANSFER_COMPLETED
+
+                - metadata: METADATA_UPDATED, TOKEN_NAME_CHANGED,
+                TOKEN_FLAGS_CHANGED
+
+                - social: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
+
+                - community: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED,
+                FAVORITE_TOGGLED
+
+                - creation: TOKEN_CREATED, TOKEN_LISTED
+
+                - analytics: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED,
+                ANALYTICS_RECALCULATED, TRENDING_UPDATED
+              example: TRADE_EXECUTED
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event occurred
+              example: 1699901234567
+            data:
+              type: object
+              description: >
+                Event-specific payload data. The structure depends on the event
+                type.
+
+                See the schema definitions for each topic.
+              additionalProperties: true
+        examples:
+          - name: Trade Executed Event
+            summary: Example of a trade execution event
+            headers:
+              kafka_key: BTC
+            payload:
+              type: TRADE_EXECUTED
+              timestamp: 1699901234567
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
+          - name: Liquidity Added Event
+            summary: Example of a liquidity addition event
+            headers:
+              kafka_key: ETH
+            payload:
+              type: LIQUIDITY_ADDED
+              timestamp: 1699901234567
+              data:
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 60000
+  odin.balances:
+    address: odin.balances
+    description: |
+      User balance changes and token transfers.
+
+      **Event Types:**
+      - `BALANCE_UPDATED` - User balance changed
+      - `TRANSFER_COMPLETED` - Token transfer completed
+
+      **Frequency:** High (3% of all events)
+      **Retention:** 30 seconds
+    messages:
+      TokenEventMessage:
+        name: TokenEventMessage
+        title: Token Event Message
+        summary: Standard event envelope for all Odin token events
+        description: >
+          All events in Odin are wrapped in this envelope structure.
+
+          The `type` field determines the event type, and the `data` field
+
+          contains the event-specific payload.
+
+
+          **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
+          "ETH")
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            kafka_key:
+              type: string
+              description: Token ID used as Kafka partition key
+              example: BTC
+        payload:
+          type: object
+          required:
+            - type
+            - timestamp
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type constant. Valid values depend on the topic:
+
+                - trades: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
+
+                - liquidity: LIQUIDITY_ADDED, LIQUIDITY_REMOVED,
+                LIQUIDITY_REBALANCED
+
+                - balances: BALANCE_UPDATED, TRANSFER_COMPLETED
+
+                - metadata: METADATA_UPDATED, TOKEN_NAME_CHANGED,
+                TOKEN_FLAGS_CHANGED
+
+                - social: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
+
+                - community: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED,
+                FAVORITE_TOGGLED
+
+                - creation: TOKEN_CREATED, TOKEN_LISTED
+
+                - analytics: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED,
+                ANALYTICS_RECALCULATED, TRENDING_UPDATED
+              example: TRADE_EXECUTED
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event occurred
+              example: 1699901234567
+            data:
+              type: object
+              description: >
+                Event-specific payload data. The structure depends on the event
+                type.
+
+                See the schema definitions for each topic.
+              additionalProperties: true
+        examples:
+          - name: Trade Executed Event
+            summary: Example of a trade execution event
+            headers:
+              kafka_key: BTC
+            payload:
+              type: TRADE_EXECUTED
+              timestamp: 1699901234567
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
+          - name: Liquidity Added Event
+            summary: Example of a liquidity addition event
+            headers:
+              kafka_key: ETH
+            payload:
+              type: LIQUIDITY_ADDED
+              timestamp: 1699901234567
+              data:
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 30000
+  odin.metadata:
+    address: odin.metadata
+    description: |
+      Token metadata and configuration updates.
+
+      **Event Types:**
+      - `METADATA_UPDATED` - General metadata change
+      - `TOKEN_NAME_CHANGED` - Token name updated
+      - `TOKEN_FLAGS_CHANGED` - Flag updates (verified, featured, trending)
+
+      **Frequency:** Low (5% of all events)
+      **Retention:** 1 hour
+    messages:
+      TokenEventMessage:
+        name: TokenEventMessage
+        title: Token Event Message
+        summary: Standard event envelope for all Odin token events
+        description: >
+          All events in Odin are wrapped in this envelope structure.
+
+          The `type` field determines the event type, and the `data` field
+
+          contains the event-specific payload.
+
+
+          **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
+          "ETH")
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            kafka_key:
+              type: string
+              description: Token ID used as Kafka partition key
+              example: BTC
+        payload:
+          type: object
+          required:
+            - type
+            - timestamp
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type constant. Valid values depend on the topic:
+
+                - trades: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
+
+                - liquidity: LIQUIDITY_ADDED, LIQUIDITY_REMOVED,
+                LIQUIDITY_REBALANCED
+
+                - balances: BALANCE_UPDATED, TRANSFER_COMPLETED
+
+                - metadata: METADATA_UPDATED, TOKEN_NAME_CHANGED,
+                TOKEN_FLAGS_CHANGED
+
+                - social: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
+
+                - community: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED,
+                FAVORITE_TOGGLED
+
+                - creation: TOKEN_CREATED, TOKEN_LISTED
+
+                - analytics: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED,
+                ANALYTICS_RECALCULATED, TRENDING_UPDATED
+              example: TRADE_EXECUTED
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event occurred
+              example: 1699901234567
+            data:
+              type: object
+              description: >
+                Event-specific payload data. The structure depends on the event
+                type.
+
+                See the schema definitions for each topic.
+              additionalProperties: true
+        examples:
+          - name: Trade Executed Event
+            summary: Example of a trade execution event
+            headers:
+              kafka_key: BTC
+            payload:
+              type: TRADE_EXECUTED
+              timestamp: 1699901234567
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
+          - name: Liquidity Added Event
+            summary: Example of a liquidity addition event
+            headers:
+              kafka_key: ETH
+            payload:
+              type: LIQUIDITY_ADDED
+              timestamp: 1699901234567
+              data:
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 3600000
+  odin.social:
+    address: odin.social
+    description: |
+      Social verification and links updates.
+
+      **Event Types:**
+      - `TWITTER_VERIFIED` - Twitter verification confirmed
+      - `SOCIAL_LINKS_UPDATED` - Social media links changed
+
+      **Frequency:** Low
+      **Retention:** 1 hour
+    messages:
+      TokenEventMessage:
+        name: TokenEventMessage
+        title: Token Event Message
+        summary: Standard event envelope for all Odin token events
+        description: >
+          All events in Odin are wrapped in this envelope structure.
+
+          The `type` field determines the event type, and the `data` field
+
+          contains the event-specific payload.
+
+
+          **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
+          "ETH")
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            kafka_key:
+              type: string
+              description: Token ID used as Kafka partition key
+              example: BTC
+        payload:
+          type: object
+          required:
+            - type
+            - timestamp
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type constant. Valid values depend on the topic:
+
+                - trades: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
+
+                - liquidity: LIQUIDITY_ADDED, LIQUIDITY_REMOVED,
+                LIQUIDITY_REBALANCED
+
+                - balances: BALANCE_UPDATED, TRANSFER_COMPLETED
+
+                - metadata: METADATA_UPDATED, TOKEN_NAME_CHANGED,
+                TOKEN_FLAGS_CHANGED
+
+                - social: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
+
+                - community: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED,
+                FAVORITE_TOGGLED
+
+                - creation: TOKEN_CREATED, TOKEN_LISTED
+
+                - analytics: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED,
+                ANALYTICS_RECALCULATED, TRENDING_UPDATED
+              example: TRADE_EXECUTED
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event occurred
+              example: 1699901234567
+            data:
+              type: object
+              description: >
+                Event-specific payload data. The structure depends on the event
+                type.
+
+                See the schema definitions for each topic.
+              additionalProperties: true
+        examples:
+          - name: Trade Executed Event
+            summary: Example of a trade execution event
+            headers:
+              kafka_key: BTC
+            payload:
+              type: TRADE_EXECUTED
+              timestamp: 1699901234567
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
+          - name: Liquidity Added Event
+            summary: Example of a liquidity addition event
+            headers:
+              kafka_key: ETH
+            payload:
+              type: LIQUIDITY_ADDED
+              timestamp: 1699901234567
+              data:
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 3600000
+  odin.community:
+    address: odin.community
+    description: |
+      Community interactions including comments and voting.
+
+      **Event Types:**
+      - `COMMENT_POSTED` - New comment added
+      - `COMMENT_PINNED` - Comment pinned by moderator
+      - `COMMENT_UPVOTED` - Comment received upvote
+      - `FAVORITE_TOGGLED` - User favorited/unfavorited token
+
+      **Frequency:** Medium (5% of all events)
+      **Retention:** 5 minutes
+    messages:
+      TokenEventMessage:
+        name: TokenEventMessage
+        title: Token Event Message
+        summary: Standard event envelope for all Odin token events
+        description: >
+          All events in Odin are wrapped in this envelope structure.
+
+          The `type` field determines the event type, and the `data` field
+
+          contains the event-specific payload.
+
+
+          **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
+          "ETH")
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            kafka_key:
+              type: string
+              description: Token ID used as Kafka partition key
+              example: BTC
+        payload:
+          type: object
+          required:
+            - type
+            - timestamp
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type constant. Valid values depend on the topic:
+
+                - trades: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
+
+                - liquidity: LIQUIDITY_ADDED, LIQUIDITY_REMOVED,
+                LIQUIDITY_REBALANCED
+
+                - balances: BALANCE_UPDATED, TRANSFER_COMPLETED
+
+                - metadata: METADATA_UPDATED, TOKEN_NAME_CHANGED,
+                TOKEN_FLAGS_CHANGED
+
+                - social: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
+
+                - community: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED,
+                FAVORITE_TOGGLED
+
+                - creation: TOKEN_CREATED, TOKEN_LISTED
+
+                - analytics: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED,
+                ANALYTICS_RECALCULATED, TRENDING_UPDATED
+              example: TRADE_EXECUTED
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event occurred
+              example: 1699901234567
+            data:
+              type: object
+              description: >
+                Event-specific payload data. The structure depends on the event
+                type.
+
+                See the schema definitions for each topic.
+              additionalProperties: true
+        examples:
+          - name: Trade Executed Event
+            summary: Example of a trade execution event
+            headers:
+              kafka_key: BTC
+            payload:
+              type: TRADE_EXECUTED
+              timestamp: 1699901234567
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
+          - name: Liquidity Added Event
+            summary: Example of a liquidity addition event
+            headers:
+              kafka_key: ETH
+            payload:
+              type: LIQUIDITY_ADDED
+              timestamp: 1699901234567
+              data:
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 300000
+  odin.creation:
+    address: odin.creation
+    description: |
+      Token creation and exchange listing events.
+
+      **Event Types:**
+      - `TOKEN_CREATED` - New token created
+      - `TOKEN_LISTED` - Token listed on exchange
+
+      **Frequency:** Low
+      **Retention:** 1 hour
+    messages:
+      TokenEventMessage:
+        name: TokenEventMessage
+        title: Token Event Message
+        summary: Standard event envelope for all Odin token events
+        description: >
+          All events in Odin are wrapped in this envelope structure.
+
+          The `type` field determines the event type, and the `data` field
+
+          contains the event-specific payload.
+
+
+          **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
+          "ETH")
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            kafka_key:
+              type: string
+              description: Token ID used as Kafka partition key
+              example: BTC
+        payload:
+          type: object
+          required:
+            - type
+            - timestamp
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type constant. Valid values depend on the topic:
+
+                - trades: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
+
+                - liquidity: LIQUIDITY_ADDED, LIQUIDITY_REMOVED,
+                LIQUIDITY_REBALANCED
+
+                - balances: BALANCE_UPDATED, TRANSFER_COMPLETED
+
+                - metadata: METADATA_UPDATED, TOKEN_NAME_CHANGED,
+                TOKEN_FLAGS_CHANGED
+
+                - social: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
+
+                - community: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED,
+                FAVORITE_TOGGLED
+
+                - creation: TOKEN_CREATED, TOKEN_LISTED
+
+                - analytics: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED,
+                ANALYTICS_RECALCULATED, TRENDING_UPDATED
+              example: TRADE_EXECUTED
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event occurred
+              example: 1699901234567
+            data:
+              type: object
+              description: >
+                Event-specific payload data. The structure depends on the event
+                type.
+
+                See the schema definitions for each topic.
+              additionalProperties: true
+        examples:
+          - name: Trade Executed Event
+            summary: Example of a trade execution event
+            headers:
+              kafka_key: BTC
+            payload:
+              type: TRADE_EXECUTED
+              timestamp: 1699901234567
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
+          - name: Liquidity Added Event
+            summary: Example of a liquidity addition event
+            headers:
+              kafka_key: ETH
+            payload:
+              type: LIQUIDITY_ADDED
+              timestamp: 1699901234567
+              data:
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 3600000
+  odin.analytics:
+    address: odin.analytics
+    description: |
+      Analytics and metrics updates.
+
+      **Event Types:**
+      - `PRICE_DELTA_UPDATED` - Price change metrics updated
+      - `HOLDER_COUNT_UPDATED` - Holder count changed
+      - `ANALYTICS_RECALCULATED` - Full analytics recalculation
+      - `TRENDING_UPDATED` - Trending rank/score updated
+
+      **Frequency:** Medium (7% of all events)
+      **Retention:** 5 minutes
+    messages:
+      TokenEventMessage:
+        name: TokenEventMessage
+        title: Token Event Message
+        summary: Standard event envelope for all Odin token events
+        description: >
+          All events in Odin are wrapped in this envelope structure.
+
+          The `type` field determines the event type, and the `data` field
+
+          contains the event-specific payload.
+
+
+          **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
+          "ETH")
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            kafka_key:
+              type: string
+              description: Token ID used as Kafka partition key
+              example: BTC
+        payload:
+          type: object
+          required:
+            - type
+            - timestamp
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type constant. Valid values depend on the topic:
+
+                - trades: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
+
+                - liquidity: LIQUIDITY_ADDED, LIQUIDITY_REMOVED,
+                LIQUIDITY_REBALANCED
+
+                - balances: BALANCE_UPDATED, TRANSFER_COMPLETED
+
+                - metadata: METADATA_UPDATED, TOKEN_NAME_CHANGED,
+                TOKEN_FLAGS_CHANGED
+
+                - social: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
+
+                - community: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED,
+                FAVORITE_TOGGLED
+
+                - creation: TOKEN_CREATED, TOKEN_LISTED
+
+                - analytics: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED,
+                ANALYTICS_RECALCULATED, TRENDING_UPDATED
+              example: TRADE_EXECUTED
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event occurred
+              example: 1699901234567
+            data:
+              type: object
+              description: >
+                Event-specific payload data. The structure depends on the event
+                type.
+
+                See the schema definitions for each topic.
+              additionalProperties: true
+        examples:
+          - name: Trade Executed Event
+            summary: Example of a trade execution event
+            headers:
+              kafka_key: BTC
+            payload:
+              type: TRADE_EXECUTED
+              timestamp: 1699901234567
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                buyer: '0x1234567890abcdef'
+                seller: '0xfedcba0987654321'
+                txHash: '0xabc123def456'
+          - name: Liquidity Added Event
+            summary: Example of a liquidity addition event
+            headers:
+              kafka_key: ETH
+            payload:
+              type: LIQUIDITY_ADDED
+              timestamp: 1699901234567
+              data:
+                amount: '10000.00'
+                provider: '0x1234567890abcdef'
+                totalLiquidity: '500000.00'
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 1
+        topicConfiguration:
+          retention.ms: 300000
+operations:
+  publishTrades:
+    action: send
+    channel:
+      $ref: '#/channels/odin.trades'
+    summary: Publish trade events
+    description: |
+      Publish trade events to the odin.trades topic.
+
+      **Message Key**: Use the token ID (e.g., "BTC", "ETH") as the Kafka key
+      for partition-based sharding.
+
+      **Event Types**:
+      - `TRADE_EXECUTED` - Direct trade execution
+      - `BUY_COMPLETED` - Buy order completed
+      - `SELL_COMPLETED` - Sell order completed
+
+      **Example (Go)**:
+      ```go
+      event := TokenEvent{
+        Type:      "TRADE_EXECUTED",
+        Timestamp: time.Now().UnixMilli(),
+        Data: map[string]any{
+          "price":  "45000.50",
+          "amount": "0.5",
+          "buyer":  "0x...",
+          "seller": "0x...",
+        },
+      }
+      producer.Produce("odin.trades", tokenID, event)
+      ```
+    messages:
+      - $ref: '#/channels/odin.trades/messages/TokenEventMessage'
+  publishLiquidity:
+    action: send
+    channel:
+      $ref: '#/channels/odin.liquidity'
+    summary: Publish liquidity events
+    description: |
+      Publish liquidity pool events to odin.liquidity.
+
+      **Event Types**:
+      - `LIQUIDITY_ADDED` - Funds added to pool
+      - `LIQUIDITY_REMOVED` - Funds removed from pool
+      - `LIQUIDITY_REBALANCED` - Pool ratio adjusted
+    messages:
+      - $ref: '#/channels/odin.liquidity/messages/TokenEventMessage'
+  publishBalances:
+    action: send
+    channel:
+      $ref: '#/channels/odin.balances'
+    summary: Publish balance events
+    description: |
+      Publish balance change events to odin.balances.
+
+      **Event Types**:
+      - `BALANCE_UPDATED` - User balance changed
+      - `TRANSFER_COMPLETED` - Token transfer completed
+    messages:
+      - $ref: '#/channels/odin.balances/messages/TokenEventMessage'
+  publishMetadata:
+    action: send
+    channel:
+      $ref: '#/channels/odin.metadata'
+    summary: Publish metadata events
+    description: |
+      Publish token metadata updates to odin.metadata.
+
+      **Event Types**:
+      - `METADATA_UPDATED` - General metadata change
+      - `TOKEN_NAME_CHANGED` - Token name updated
+      - `TOKEN_FLAGS_CHANGED` - Flags updated (verified, featured, trending)
+    messages:
+      - $ref: '#/channels/odin.metadata/messages/TokenEventMessage'
+  publishSocial:
+    action: send
+    channel:
+      $ref: '#/channels/odin.social'
+    summary: Publish social events
+    description: |
+      Publish social verification events to odin.social.
+
+      **Event Types**:
+      - `TWITTER_VERIFIED` - Twitter verification confirmed
+      - `SOCIAL_LINKS_UPDATED` - Social links changed
+    messages:
+      - $ref: '#/channels/odin.social/messages/TokenEventMessage'
+  publishCommunity:
+    action: send
+    channel:
+      $ref: '#/channels/odin.community'
+    summary: Publish community events
+    description: |
+      Publish community interaction events to odin.community.
+
+      **Event Types**:
+      - `COMMENT_POSTED` - New comment
+      - `COMMENT_PINNED` - Comment pinned
+      - `COMMENT_UPVOTED` - Comment upvoted
+      - `FAVORITE_TOGGLED` - Favorite status changed
+    messages:
+      - $ref: '#/channels/odin.community/messages/TokenEventMessage'
+  publishCreation:
+    action: send
+    channel:
+      $ref: '#/channels/odin.creation'
+    summary: Publish creation events
+    description: |
+      Publish token creation events to odin.creation.
+
+      **Event Types**:
+      - `TOKEN_CREATED` - New token created
+      - `TOKEN_LISTED` - Token listed on exchange
+    messages:
+      - $ref: '#/channels/odin.creation/messages/TokenEventMessage'
+  publishAnalytics:
+    action: send
+    channel:
+      $ref: '#/channels/odin.analytics'
+    summary: Publish analytics events
+    description: |
+      Publish analytics updates to odin.analytics.
+
+      **Event Types**:
+      - `PRICE_DELTA_UPDATED` - Price change metrics
+      - `HOLDER_COUNT_UPDATED` - Holder count changed
+      - `ANALYTICS_RECALCULATED` - Full recalculation
+      - `TRENDING_UPDATED` - Trending rank/score updated
+    messages:
+      - $ref: '#/channels/odin.analytics/messages/TokenEventMessage'
+  consumeTrades:
+    action: receive
+    channel:
+      $ref: '#/channels/odin.trades'
+    summary: Consume trade events
+    description: |
+      Subscribe to trade events including executions, buys, and sells.
+      High-frequency topic with 30s retention.
+
+      **Consumer Group**: Use a unique consumer group ID per service.
+
+      **Example (Go)**:
+      ```go
+      consumer := kafka.NewConsumer(kafka.ConsumerConfig{
+        Brokers:       []string{"odin-redpanda:9092"},
+        ConsumerGroup: "my-service-trades",
+        Topics:        []string{"odin.trades"},
+      })
+      for event := range consumer.Events() {
+        tokenID := event.Key
+        // Process event.Value (TokenEvent)
+      }
+      ```
+    messages:
+      - $ref: '#/channels/odin.trades/messages/TokenEventMessage'
+  consumeLiquidity:
+    action: receive
+    channel:
+      $ref: '#/channels/odin.liquidity'
+    summary: Consume liquidity events
+    description: |
+      Subscribe to liquidity pool operations.
+      Medium-frequency topic with 60s retention.
+    messages:
+      - $ref: '#/channels/odin.liquidity/messages/TokenEventMessage'
+  consumeBalances:
+    action: receive
+    channel:
+      $ref: '#/channels/odin.balances'
+    summary: Consume balance events
+    description: |
+      Subscribe to user balance and transfer events.
+      High-frequency topic with 30s retention.
+    messages:
+      - $ref: '#/channels/odin.balances/messages/TokenEventMessage'
+  consumeMetadata:
+    action: receive
+    channel:
+      $ref: '#/channels/odin.metadata'
+    summary: Consume metadata events
+    description: |
+      Subscribe to token metadata updates.
+      Low-frequency topic with 1h retention.
+    messages:
+      - $ref: '#/channels/odin.metadata/messages/TokenEventMessage'
+  consumeSocial:
+    action: receive
+    channel:
+      $ref: '#/channels/odin.social'
+    summary: Consume social events
+    description: |
+      Subscribe to social verification and links updates.
+      Low-frequency topic with 1h retention.
+    messages:
+      - $ref: '#/channels/odin.social/messages/TokenEventMessage'
+  consumeCommunity:
+    action: receive
+    channel:
+      $ref: '#/channels/odin.community'
+    summary: Consume community events
+    description: |
+      Subscribe to comments, favorites, and voting events.
+      Medium-frequency topic with 5m retention.
+    messages:
+      - $ref: '#/channels/odin.community/messages/TokenEventMessage'
+  consumeCreation:
+    action: receive
+    channel:
+      $ref: '#/channels/odin.creation'
+    summary: Consume creation events
+    description: |
+      Subscribe to token creation and listing events.
+      Low-frequency topic with 1h retention.
+    messages:
+      - $ref: '#/channels/odin.creation/messages/TokenEventMessage'
+  consumeAnalytics:
+    action: receive
+    channel:
+      $ref: '#/channels/odin.analytics'
+    summary: Consume analytics events
+    description: |
+      Subscribe to price deltas, holder counts, and trending updates.
+      Medium-frequency topic with 5m retention.
+    messages:
+      - $ref: '#/channels/odin.analytics/messages/TokenEventMessage'
+components:
+  messages:
+    TokenEventMessage:
+      name: TokenEventMessage
+      title: Token Event Message
+      summary: Standard event envelope for all Odin token events
+      description: >
+        All events in Odin are wrapped in this envelope structure.
+
+        The `type` field determines the event type, and the `data` field
+
+        contains the event-specific payload.
+
+
+        **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
+        "ETH")
+      contentType: application/json
+      headers:
+        type: object
+        properties:
+          kafka_key:
+            type: string
+            description: Token ID used as Kafka partition key
+            example: BTC
+      payload:
+        type: object
+        required:
+          - type
+          - timestamp
+          - data
+        properties:
+          type:
+            type: string
+            description: >
+              Event type constant. Valid values depend on the topic:
+
+              - trades: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
+
+              - liquidity: LIQUIDITY_ADDED, LIQUIDITY_REMOVED,
+              LIQUIDITY_REBALANCED
+
+              - balances: BALANCE_UPDATED, TRANSFER_COMPLETED
+
+              - metadata: METADATA_UPDATED, TOKEN_NAME_CHANGED,
+              TOKEN_FLAGS_CHANGED
+
+              - social: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
+
+              - community: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED,
+              FAVORITE_TOGGLED
+
+              - creation: TOKEN_CREATED, TOKEN_LISTED
+
+              - analytics: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED,
+              ANALYTICS_RECALCULATED, TRENDING_UPDATED
+            example: TRADE_EXECUTED
+          timestamp:
+            type: integer
+            format: int64
+            description: Unix timestamp in milliseconds when the event occurred
+            example: 1699901234567
+          data:
+            type: object
+            description: >
+              Event-specific payload data. The structure depends on the event
+              type.
+
+              See the schema definitions for each topic.
+            additionalProperties: true
+      examples:
+        - name: Trade Executed Event
+          summary: Example of a trade execution event
+          headers:
+            kafka_key: BTC
+          payload:
+            type: TRADE_EXECUTED
+            timestamp: 1699901234567
+            data:
+              price: '45000.50'
+              amount: '0.5'
+              buyer: '0x1234567890abcdef'
+              seller: '0xfedcba0987654321'
+              txHash: '0xabc123def456'
+        - name: Liquidity Added Event
+          summary: Example of a liquidity addition event
+          headers:
+            kafka_key: ETH
+          payload:
+            type: LIQUIDITY_ADDED
+            timestamp: 1699901234567
+            data:
+              amount: '10000.00'
+              provider: '0x1234567890abcdef'
+              totalLiquidity: '500000.00'
+  schemas:
+    TradePayload:
+      type: object
+      description: Payload for trade-related events
+      oneOf:
+        - type: object
+          title: Trade Executed
+          description: Direct trade execution payload
+          required:
+            - price
+            - amount
+            - buyer
+            - seller
+          properties:
+            price:
+              type: string
+              description: Trade price as decimal string
+              example: '45000.50'
+            amount:
+              type: string
+              description: Trade amount as decimal string
+              example: '0.5'
+            buyer:
+              type: string
+              description: Buyer wallet address
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+            seller:
+              type: string
+              description: Seller wallet address
+              example: '0xfedcba0987654321fedcba0987654321fedcba09'
+            txHash:
+              type: string
+              description: Transaction hash
+              example: >-
+                0xabc123def456789abc123def456789abc123def456789abc123def456789abcd
+        - type: object
+          title: Buy Completed
+          description: Buy order completion payload
+          required:
+            - price
+            - amount
+            - buyer
+          properties:
+            price:
+              type: string
+              description: Buy price as decimal string
+              example: '45000.50'
+            amount:
+              type: string
+              description: Buy amount as decimal string
+              example: '1.0'
+            buyer:
+              type: string
+              description: Buyer wallet address
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+            txHash:
+              type: string
+              description: Transaction hash
+              example: >-
+                0xabc123def456789abc123def456789abc123def456789abc123def456789abcd
+        - type: object
+          title: Sell Completed
+          description: Sell order completion payload
+          required:
+            - price
+            - amount
+            - seller
+          properties:
+            price:
+              type: string
+              description: Sell price as decimal string
+              example: '45000.50'
+            amount:
+              type: string
+              description: Sell amount as decimal string
+              example: '1.0'
+            seller:
+              type: string
+              description: Seller wallet address
+              example: '0xfedcba0987654321fedcba0987654321fedcba09'
+            txHash:
+              type: string
+              description: Transaction hash
+              example: >-
+                0xabc123def456789abc123def456789abc123def456789abc123def456789abcd
+    LiquidityPayload:
+      type: object
+      description: Payload for liquidity-related events
+      oneOf:
+        - type: object
+          title: Liquidity Added
+          description: Liquidity provider added funds
+          required:
+            - amount
+            - provider
+            - totalLiquidity
+          properties:
+            amount:
+              type: string
+              description: Amount added as decimal string
+              example: '10000.00'
+            provider:
+              type: string
+              description: Liquidity provider wallet address
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+            totalLiquidity:
+              type: string
+              description: Total pool liquidity after addition
+              example: '500000.00'
+        - type: object
+          title: Liquidity Removed
+          description: Liquidity removed from pool
+          required:
+            - amount
+            - provider
+            - totalLiquidity
+          properties:
+            amount:
+              type: string
+              description: Amount removed as decimal string
+              example: '5000.00'
+            provider:
+              type: string
+              description: Liquidity provider wallet address
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+            totalLiquidity:
+              type: string
+              description: Total pool liquidity after removal
+              example: '495000.00'
+        - type: object
+          title: Liquidity Rebalanced
+          description: Pool ratio adjustment
+          required:
+            - oldRatio
+            - newRatio
+            - totalLiquidity
+          properties:
+            oldRatio:
+              type: number
+              format: double
+              description: Previous pool ratio
+              example: 0.5
+            newRatio:
+              type: number
+              format: double
+              description: New pool ratio after rebalance
+              example: 0.6
+            totalLiquidity:
+              type: string
+              description: Total pool liquidity
+              example: '500000.00'
+    BalancePayload:
+      type: object
+      description: Payload for balance-related events
+      oneOf:
+        - type: object
+          title: Balance Updated
+          description: User balance changed
+          required:
+            - user
+            - balance
+            - change
+          properties:
+            user:
+              type: string
+              description: User wallet address
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+            balance:
+              type: string
+              description: New balance as decimal string
+              example: '1000.00'
+            change:
+              type: number
+              format: double
+              description: Balance change amount (positive or negative)
+              example: 50
+        - type: object
+          title: Transfer Completed
+          description: Token transfer completed
+          required:
+            - from
+            - to
+            - amount
+          properties:
+            from:
+              type: string
+              description: Sender wallet address
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+            to:
+              type: string
+              description: Recipient wallet address
+              example: '0xfedcba0987654321fedcba0987654321fedcba09'
+            amount:
+              type: string
+              description: Transfer amount as decimal string
+              example: '500.00'
+            txHash:
+              type: string
+              description: Transaction hash
+              example: >-
+                0xabc123def456789abc123def456789abc123def456789abc123def456789abcd
+    MetadataPayload:
+      type: object
+      description: Payload for metadata-related events
+      oneOf:
+        - type: object
+          title: Metadata Updated
+          description: General metadata change
+          properties:
+            name:
+              type: string
+              description: Token name
+              example: Bitcoin
+            symbol:
+              type: string
+              description: Token symbol
+              example: BTC
+            description:
+              type: string
+              description: Token description
+              example: The original cryptocurrency
+            image:
+              type: string
+              format: uri
+              description: Token image URL
+              example: https://example.com/btc.png
+        - type: object
+          title: Token Name Changed
+          description: Token name updated
+          required:
+            - oldName
+            - newName
+          properties:
+            oldName:
+              type: string
+              description: Previous token name
+              example: Bitcoin Cash
+            newName:
+              type: string
+              description: New token name
+              example: Bitcoin
+        - type: object
+          title: Token Flags Changed
+          description: Token flag updates
+          required:
+            - flags
+          properties:
+            flags:
+              type: object
+              description: Token flags object
+              properties:
+                verified:
+                  type: boolean
+                  description: Whether token is verified
+                  example: true
+                featured:
+                  type: boolean
+                  description: Whether token is featured
+                  example: false
+                trending:
+                  type: boolean
+                  description: Whether token is trending
+                  example: true
+    SocialPayload:
+      type: object
+      description: Payload for social-related events
+      oneOf:
+        - type: object
+          title: Twitter Verified
+          description: Twitter verification confirmed
+          required:
+            - twitterHandle
+            - verified
+            - verifiedAt
+          properties:
+            twitterHandle:
+              type: string
+              description: Twitter handle
+              example: '@tokenBTC'
+            verified:
+              type: boolean
+              description: Verification status
+              example: true
+            verifiedAt:
+              type: integer
+              format: int64
+              description: Verification timestamp in milliseconds
+              example: 1699901234567
+        - type: object
+          title: Social Links Updated
+          description: Social media links changed
+          properties:
+            twitter:
+              type: string
+              format: uri
+              description: Twitter profile URL
+              example: https://twitter.com/tokenBTC
+            telegram:
+              type: string
+              format: uri
+              description: Telegram group URL
+              example: https://t.me/tokenBTC
+            discord:
+              type: string
+              format: uri
+              description: Discord server URL
+              example: https://discord.gg/tokenBTC
+            website:
+              type: string
+              format: uri
+              description: Project website URL
+              example: https://tokenbtc.com
+    CommunityPayload:
+      type: object
+      description: Payload for community-related events
+      oneOf:
+        - type: object
+          title: Comment Posted
+          description: New comment added
+          required:
+            - commentId
+            - author
+            - content
+            - timestamp
+          properties:
+            commentId:
+              type: string
+              description: Unique comment identifier
+              example: comment-12345
+            author:
+              type: string
+              description: Comment author wallet address
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+            content:
+              type: string
+              description: Comment text content
+              example: Great project!
+            timestamp:
+              type: integer
+              format: int64
+              description: Comment creation timestamp in milliseconds
+              example: 1699901234567
+        - type: object
+          title: Comment Pinned
+          description: Comment pinned by moderator
+          required:
+            - commentId
+            - pinnedBy
+          properties:
+            commentId:
+              type: string
+              description: Pinned comment identifier
+              example: comment-12345
+            pinnedBy:
+              type: string
+              description: Moderator wallet address who pinned
+              example: '0xfedcba0987654321fedcba0987654321fedcba09'
+        - type: object
+          title: Comment Upvoted
+          description: Comment received upvote
+          required:
+            - commentId
+            - voter
+            - totalUpvotes
+          properties:
+            commentId:
+              type: string
+              description: Upvoted comment identifier
+              example: comment-12345
+            voter:
+              type: string
+              description: Voter wallet address
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+            totalUpvotes:
+              type: integer
+              description: Total upvote count after this vote
+              example: 45
+        - type: object
+          title: Favorite Toggled
+          description: User favorited/unfavorited token
+          required:
+            - userId
+            - isFavorite
+          properties:
+            userId:
+              type: string
+              description: User wallet address
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+            isFavorite:
+              type: boolean
+              description: Current favorite status
+              example: true
+    CreationPayload:
+      type: object
+      description: Payload for creation-related events
+      oneOf:
+        - type: object
+          title: Token Created
+          description: New token created
+          required:
+            - creator
+            - name
+            - symbol
+            - supply
+            - timestamp
+          properties:
+            creator:
+              type: string
+              description: Token creator wallet address
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+            name:
+              type: string
+              description: Token name
+              example: My Token
+            symbol:
+              type: string
+              description: Token symbol
+              example: MYTKN
+            supply:
+              type: string
+              description: Total supply as decimal string
+              example: '1000000000'
+            timestamp:
+              type: integer
+              format: int64
+              description: Creation timestamp in milliseconds
+              example: 1699901234567
+        - type: object
+          title: Token Listed
+          description: Token listed on exchange
+          required:
+            - exchange
+            - initialPrice
+            - timestamp
+          properties:
+            exchange:
+              type: string
+              description: Exchange name
+              example: Odin DEX
+            initialPrice:
+              type: string
+              description: Initial listing price as decimal string
+              example: '0.01'
+            timestamp:
+              type: integer
+              format: int64
+              description: Listing timestamp in milliseconds
+              example: 1699901234567
+    AnalyticsPayload:
+      type: object
+      description: Payload for analytics-related events
+      oneOf:
+        - type: object
+          title: Price Delta Updated
+          description: Price change metrics updated
+          required:
+            - price
+            - delta1h
+            - delta24h
+            - delta7d
+          properties:
+            price:
+              type: string
+              description: Current price as decimal string
+              example: '45000.50'
+            delta1h:
+              type: number
+              format: double
+              description: Price change percentage in last 1 hour
+              example: 2.5
+            delta24h:
+              type: number
+              format: double
+              description: Price change percentage in last 24 hours
+              example: -5
+            delta7d:
+              type: number
+              format: double
+              description: Price change percentage in last 7 days
+              example: 15.3
+        - type: object
+          title: Holder Count Updated
+          description: Holder count changed
+          required:
+            - holderCount
+            - change
+          properties:
+            holderCount:
+              type: integer
+              description: Current total holder count
+              example: 5000
+            change:
+              type: integer
+              description: Change in holder count (positive or negative)
+              example: 150
+        - type: object
+          title: Analytics Recalculated
+          description: Full analytics recalculation
+          required:
+            - price
+            - volume24h
+            - marketCap
+            - liquidity
+            - holderCount
+          properties:
+            price:
+              type: string
+              description: Current price as decimal string
+              example: '45000.50'
+            volume24h:
+              type: string
+              description: 24-hour trading volume as decimal string
+              example: '1000000.00'
+            marketCap:
+              type: string
+              description: Market capitalization as decimal string
+              example: '100000000.00'
+            liquidity:
+              type: string
+              description: Total liquidity as decimal string
+              example: '500000.00'
+            holderCount:
+              type: integer
+              description: Total holder count
+              example: 5000
+        - type: object
+          title: Trending Updated
+          description: Trending rank/score updated
+          required:
+            - rank
+            - score
+          properties:
+            rank:
+              type: integer
+              description: Current trending rank (1 = most trending)
+              example: 25
+            score:
+              type: number
+              format: double
+              description: Trending score (higher = more trending)
+              example: 850.5

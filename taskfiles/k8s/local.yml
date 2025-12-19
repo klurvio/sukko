@@ -57,6 +57,7 @@ tasks:
   up:
     desc: Deploy/upgrade Helm release
     cmds:
+      - task: common:asyncapi:bundle
       - helm upgrade --install odin {{.LOCAL_HELM_CHART}} -f {{.LOCAL_VALUES}} -n {{.LOCAL_NS}} --create-namespace
 
   down:

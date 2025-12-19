@@ -1,0 +1,77 @@
+# Token Event Message
+# This is the envelope structure for all events in the Odin system
+
+TokenEventMessage:
+  name: TokenEventMessage
+  title: Token Event Message
+  summary: Standard event envelope for all Odin token events
+  description: |
+    All events in Odin are wrapped in this envelope structure.
+    The `type` field determines the event type, and the `data` field
+    contains the event-specific payload.
+
+    **Message Key**: The Kafka message key is the token ID (e.g., "BTC", "ETH")
+  contentType: application/json
+  headers:
+    type: object
+    properties:
+      kafka_key:
+        type: string
+        description: Token ID used as Kafka partition key
+        example: BTC
+  payload:
+    type: object
+    required:
+      - type
+      - timestamp
+      - data
+    properties:
+      type:
+        type: string
+        description: |
+          Event type constant. Valid values depend on the topic:
+          - trades: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
+          - liquidity: LIQUIDITY_ADDED, LIQUIDITY_REMOVED, LIQUIDITY_REBALANCED
+          - balances: BALANCE_UPDATED, TRANSFER_COMPLETED
+          - metadata: METADATA_UPDATED, TOKEN_NAME_CHANGED, TOKEN_FLAGS_CHANGED
+          - social: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
+          - community: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED, FAVORITE_TOGGLED
+          - creation: TOKEN_CREATED, TOKEN_LISTED
+          - analytics: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED, ANALYTICS_RECALCULATED, TRENDING_UPDATED
+        example: TRADE_EXECUTED
+      timestamp:
+        type: integer
+        format: int64
+        description: Unix timestamp in milliseconds when the event occurred
+        example: 1699901234567
+      data:
+        type: object
+        description: |
+          Event-specific payload data. The structure depends on the event type.
+          See the schema definitions for each topic.
+        additionalProperties: true
+  examples:
+    - name: Trade Executed Event
+      summary: Example of a trade execution event
+      headers:
+        kafka_key: BTC
+      payload:
+        type: TRADE_EXECUTED
+        timestamp: 1699901234567
+        data:
+          price: "45000.50"
+          amount: "0.5"
+          buyer: "0x1234567890abcdef"
+          seller: "0xfedcba0987654321"
+          txHash: "0xabc123def456"
+    - name: Liquidity Added Event
+      summary: Example of a liquidity addition event
+      headers:
+        kafka_key: ETH
+      payload:
+        type: LIQUIDITY_ADDED
+        timestamp: 1699901234567
+        data:
+          amount: "10000.00"
+          provider: "0x1234567890abcdef"
+          totalLiquidity: "500000.00"

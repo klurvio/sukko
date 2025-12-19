@@ -1,0 +1,25 @@
+# Community Channel
+# Comments, favorites, and voting
+
+OdinCommunity:
+  address: odin.community
+  description: |
+    Community interactions including comments and voting.
+
+    **Event Types:**
+    - `COMMENT_POSTED` - New comment added
+    - `COMMENT_PINNED` - Comment pinned by moderator
+    - `COMMENT_UPVOTED` - Comment received upvote
+    - `FAVORITE_TOGGLED` - User favorited/unfavorited token
+
+    **Frequency:** Medium (5% of all events)
+    **Retention:** 5 minutes
+  messages:
+    TokenEventMessage:
+      $ref: '../component/message/token_event.yaml#/TokenEventMessage'
+  bindings:
+    kafka:
+      partitions: 12
+      replicas: 1
+      topicConfiguration:
+        retention.ms: 300000

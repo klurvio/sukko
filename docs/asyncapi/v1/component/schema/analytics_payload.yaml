@@ -1,0 +1,108 @@
+# Analytics Payload Schemas
+# Data structures for odin.analytics events
+
+AnalyticsPayload:
+  type: object
+  description: Payload for analytics-related events
+  oneOf:
+    - $ref: '#/PriceDeltaUpdatedPayload'
+    - $ref: '#/HolderCountUpdatedPayload'
+    - $ref: '#/AnalyticsRecalculatedPayload'
+    - $ref: '#/TrendingUpdatedPayload'
+
+PriceDeltaUpdatedPayload:
+  type: object
+  title: Price Delta Updated
+  description: Price change metrics updated
+  required:
+    - price
+    - delta1h
+    - delta24h
+    - delta7d
+  properties:
+    price:
+      type: string
+      description: Current price as decimal string
+      example: "45000.50"
+    delta1h:
+      type: number
+      format: double
+      description: Price change percentage in last 1 hour
+      example: 2.5
+    delta24h:
+      type: number
+      format: double
+      description: Price change percentage in last 24 hours
+      example: -5.0
+    delta7d:
+      type: number
+      format: double
+      description: Price change percentage in last 7 days
+      example: 15.3
+
+HolderCountUpdatedPayload:
+  type: object
+  title: Holder Count Updated
+  description: Holder count changed
+  required:
+    - holderCount
+    - change
+  properties:
+    holderCount:
+      type: integer
+      description: Current total holder count
+      example: 5000
+    change:
+      type: integer
+      description: Change in holder count (positive or negative)
+      example: 150
+
+AnalyticsRecalculatedPayload:
+  type: object
+  title: Analytics Recalculated
+  description: Full analytics recalculation
+  required:
+    - price
+    - volume24h
+    - marketCap
+    - liquidity
+    - holderCount
+  properties:
+    price:
+      type: string
+      description: Current price as decimal string
+      example: "45000.50"
+    volume24h:
+      type: string
+      description: 24-hour trading volume as decimal string
+      example: "1000000.00"
+    marketCap:
+      type: string
+      description: Market capitalization as decimal string
+      example: "100000000.00"
+    liquidity:
+      type: string
+      description: Total liquidity as decimal string
+      example: "500000.00"
+    holderCount:
+      type: integer
+      description: Total holder count
+      example: 5000
+
+TrendingUpdatedPayload:
+  type: object
+  title: Trending Updated
+  description: Trending rank/score updated
+  required:
+    - rank
+    - score
+  properties:
+    rank:
+      type: integer
+      description: Current trending rank (1 = most trending)
+      example: 25
+    score:
+      type: number
+      format: double
+      description: Trending score (higher = more trending)
+      example: 850.5

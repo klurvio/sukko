@@ -64,3 +64,11 @@ tasks:
       - task: build:ws-server
       - task: build:auth-service
       - task: build:publisher
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+  asyncapi:bundle:
+    desc: Bundle AsyncAPI spec into single file
+    cmds:
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/docs/asyncapi/v1/asyncapi.yaml -o {{.ROOT_DIR}}/docs/asyncapi/v1/bundled.yaml
