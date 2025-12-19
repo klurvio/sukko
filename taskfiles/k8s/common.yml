@@ -55,7 +55,7 @@ tasks:
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
-          .
+          -f build/server/Dockerfile .
 
   build:auth:
     desc: Build auth-service Docker image with version info
@@ -72,7 +72,7 @@ tasks:
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
-          -f Dockerfile.auth .
+          -f build/auth/Dockerfile .
 
   build:publisher:
     desc: Build publisher Docker image
@@ -114,4 +114,4 @@ tasks:
   asyncapi:bundle:
     desc: Bundle AsyncAPI spec into single file
     cmds:
-      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/docs/asyncapi/v1/asyncapi.yaml -o {{.ROOT_DIR}}/docs/asyncapi/v1/bundled.yaml
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/asyncapi/bundled.yaml

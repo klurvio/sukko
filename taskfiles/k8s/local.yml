@@ -55,13 +55,13 @@ tasks:
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
-          {{.ROOT_DIR}}/ws
+          -f {{.ROOT_DIR}}/ws/build/server/Dockerfile {{.ROOT_DIR}}/ws
       - kind load docker-image odin-ws:latest --name {{.LOCAL_CLUSTER}}
       - docker build -t odin-auth:latest
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
-          -f {{.ROOT_DIR}}/ws/Dockerfile.auth {{.ROOT_DIR}}/ws
+          -f {{.ROOT_DIR}}/ws/build/auth/Dockerfile {{.ROOT_DIR}}/ws
       - kind load docker-image odin-auth:latest --name {{.LOCAL_CLUSTER}}
       - docker build -t odin-publisher:latest {{.ROOT_DIR}}/publisher
       - kind load docker-image odin-publisher:latest --name {{.LOCAL_CLUSTER}}

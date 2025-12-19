@@ -119,7 +119,7 @@ services:
   ws-server:
     build:
       context: ../../ws
-      dockerfile: Dockerfile
+      dockerfile: build/server/Dockerfile
     container_name: odin-ws-local
     ports:
       - "3005:3005" # Load Balancer port (public-facing)

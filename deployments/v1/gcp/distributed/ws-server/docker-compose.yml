@@ -18,7 +18,7 @@ services:
   ws-go:
     build:
       context: ../../../../../ws
-      dockerfile: Dockerfile
+      dockerfile: build/server/Dockerfile
     container_name: odin-ws-go
     ports:
       - "0.0.0.0:3004:3001"  # LoadBalancer port (external:internal)
