@@ -18,7 +18,7 @@ This document outlines the plan to consolidate GCP deployment configurations fro
 
 ### 1.1 Old Structure (NATS-based)
 
-**Location**: `/Volumes/Dev/Codev/Toniq/ws_poc/deployments/old/gcp-distributed-nats/`
+**Location**: `/Volumes/Dev/Codev/Toniq/odin-ws/deployments/old/gcp-distributed-nats/`
 
 **Components**:
 - `ws-server/` - WebSocket server (e2-standard-4, NATS connection)
@@ -56,7 +56,7 @@ promtail:
   memory: 512M
 ```
 
-**Old Taskfiles**: `/Volumes/Dev/Codev/Toniq/ws_poc/taskfiles/old/`
+**Old Taskfiles**: `/Volumes/Dev/Codev/Toniq/odin-ws/taskfiles/old/`
 - `deploy-gcp.yml` - Infrastructure and deployment tasks
 - `test.yml` - Load testing tasks with specific parameters
   - capacity tests: 2000 connections (old local limit)
@@ -66,7 +66,7 @@ promtail:
 
 ### 1.2 New Structure (Kafka-based, v1)
 
-**Location**: `/Volumes/Dev/Codev/Toniq/ws_poc/deployments/v1/gcp/`
+**Location**: `/Volumes/Dev/Codev/Toniq/odin-ws/deployments/v1/gcp/`
 
 **Architecture**: Distributed (2 instances)
 - `backend/` - Redpanda/Kafka, Publisher, Monitoring (e2-small)
@@ -106,7 +106,7 @@ WS_MAX_BROADCAST_RATE=25
 WS_MAX_GOROUTINES=30000
 ```
 
-**New Taskfiles**: `/Volumes/Dev/Codev/Toniq/ws_poc/taskfiles/v1/gcp/`
+**New Taskfiles**: `/Volumes/Dev/Codev/Toniq/odin-ws/taskfiles/v1/gcp/`
 - `Taskfile.yml` - Main orchestrator (✅ CREATED)
 - `services.yml` - Service start/stop/restart (✅ CREATED)
 - `deployment.yml` - Infrastructure and deployment (✅ CREATED)

@@ -9,7 +9,7 @@ vars:
   VALKEY_MACHINE_TYPE: e2-standard-2
   VALKEY_DISK_SIZE: 50GB
   VALKEY_DISK_TYPE: pd-ssd
-  VALKEY_DEPLOY_PATH: /home/deploy/ws_poc/deployments/v1/gcp/distributed/valkey
+  VALKEY_DEPLOY_PATH: /home/deploy/odin-ws/deployments/v1/gcp/distributed/valkey
   # Git config (inherited from parent or use defaults)
   GIT_BRANCH: '{{.GIT_BRANCH | default "feature/kubernetes-helm-deployment"}}'
   GIT_REPO_SSH: '{{.GIT_REPO_SSH | default "git@github.com:Toniq-Labs/odin-ws.git"}}'
@@ -137,20 +137,20 @@ tasks:
         done
 
         # Check if repo exists
-        REPO_EXISTS=$(gcloud compute ssh {{.VALKEY_VM_NAME}} --zone={{.VALKEY_ZONE}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
+        REPO_EXISTS=$(gcloud compute ssh {{.VALKEY_VM_NAME}} --zone={{.VALKEY_ZONE}} --command="sudo -i -u deploy test -d /home/deploy/odin-ws && echo true || echo false" 2>/dev/null || echo "false")
 
         if [ "$REPO_EXISTS" = "true" ]; then
           echo "✅ Repository exists, updating..."
-          gcloud compute ssh {{.VALKEY_VM_NAME}} --zone={{.VALKEY_ZONE}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
+          gcloud compute ssh {{.VALKEY_VM_NAME}} --zone={{.VALKEY_ZONE}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
         else
           echo "📦 Cloning repository..."
-          gcloud compute ssh {{.VALKEY_VM_NAME}} --zone={{.VALKEY_ZONE}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
+          gcloud compute ssh {{.VALKEY_VM_NAME}} --zone={{.VALKEY_ZONE}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/odin-ws" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
         # Create .env with auto-generated password if it doesn't exist
         echo "📝 Setting up Valkey configuration..."
         gcloud compute ssh {{.VALKEY_VM_NAME}} --zone={{.VALKEY_ZONE}} --command='sudo -i -u deploy bash << "SETUP_ENV"
-        cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/valkey
+        cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/valkey
         if [ ! -f .env ]; then
           echo "🔐 Generating secure Valkey password..."
           GENERATED_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
@@ -192,7 +192,7 @@ tasks:
         echo "Running health check on {{.VALKEY_VM_NAME}}"
         # Use heredoc to avoid shell quoting issues with gcloud ssh
         gcloud compute ssh {{.VALKEY_VM_NAME}} --zone={{.VALKEY_ZONE}} --command='sudo -i -u deploy bash << "HEALTHCHECK"
-        cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/valkey
+        cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/valkey
         export VALKEY_PASSWORD=$(grep "^VALKEY_PASSWORD=" .env 2>/dev/null | cut -d= -f2)
 
         echo "========================================"

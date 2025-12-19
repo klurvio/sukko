@@ -228,7 +228,7 @@ REDIS_CHANNEL=ws.broadcast
 ### Update .env file
 
 ```bash
-cd /Volumes/Dev/Codev/Toniq/ws_poc/ws
+cd /Volumes/Dev/Codev/Toniq/odin-ws/ws
 
 # Create/update .env
 cat >> .env <<EOF
@@ -245,7 +245,7 @@ EOF
 
 ```bash
 # Run ws-server locally
-cd /Volumes/Dev/Codev/Toniq/ws_poc/ws
+cd /Volumes/Dev/Codev/Toniq/odin-ws/ws
 go run cmd/multi/main.go
 
 # Expected logs:

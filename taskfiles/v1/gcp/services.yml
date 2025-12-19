@@ -15,7 +15,7 @@ tasks:
       - echo "🚀 Starting backend services on {{.BACKEND_INSTANCE}}..."
       - |
         gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
-          sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && docker-compose up -d'"
+          sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/backend && docker-compose up -d'"
       - echo "⏳ Waiting for services to be ready..."
       - sleep 15
       - task: :health:backend
@@ -27,7 +27,7 @@ tasks:
       - echo "⏸️  Stopping backend services on {{.BACKEND_INSTANCE}}..."
       - |
         gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
-          sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && docker-compose down'"
+          sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/backend && docker-compose down'"
       - echo "✅ Backend services stopped"
 
   restart:backend:
@@ -36,7 +36,7 @@ tasks:
       - echo "🔄 Restarting backend services on {{.BACKEND_INSTANCE}}..."
       - |
         gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
-          sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && docker-compose restart'"
+          sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/backend && docker-compose restart'"
       - echo "⏳ Waiting for services to be ready..."
       - sleep 15
       - task: :health:backend
@@ -58,7 +58,7 @@ tasks:
 
         gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
           sudo -i -u deploy bash -c '\
-            cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && \
+            cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/ws-server && \
             source .env.production && \
             export BACKEND_INTERNAL_IP=$BACKEND_IP && \
             COMPOSE_FILE=\$([ \"\$WS_MODE\" = \"multi\" ] && echo \"docker-compose.multi.yml\" || echo \"docker-compose.yml\") && \
@@ -76,7 +76,7 @@ tasks:
       - |
         gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
           sudo -i -u deploy bash -c '\
-            cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && \
+            cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/ws-server && \
             source .env.production && \
             COMPOSE_FILE=\$([ \"\$WS_MODE\" = \"multi\" ] && echo \"docker-compose.multi.yml\" || echo \"docker-compose.yml\") && \
             docker-compose -f \$COMPOSE_FILE down'"
@@ -89,7 +89,7 @@ tasks:
       - |
         gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
           sudo -i -u deploy bash -c '\
-            cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && \
+            cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/ws-server && \
             source .env.production && \
             COMPOSE_FILE=\$([ \"\$WS_MODE\" = \"multi\" ] && echo \"docker-compose.multi.yml\" || echo \"docker-compose.yml\") && \
             docker-compose -f \$COMPOSE_FILE restart'"
@@ -139,7 +139,7 @@ tasks:
       - echo "📦 Backend containers ({{.BACKEND_INSTANCE}}):"
       - |
         gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
-          sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && docker-compose ps'"
+          sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/backend && docker-compose ps'"
 
   ps:ws:
     desc: Show running containers on WebSocket server instance
@@ -147,7 +147,7 @@ tasks:
       - echo "📦 WebSocket server containers ({{.WS_INSTANCE}}):"
       - |
         gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
-          sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && docker-compose ps'"
+          sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/ws-server && docker-compose ps'"
 
   ps:all:
     desc: Show running containers on all instances
@@ -163,25 +163,25 @@ tasks:
     cmds:
       - |
         gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
-          sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && docker-compose logs -f'"
+          sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/backend && docker-compose logs -f'"
 
   logs:ws:
     desc: View WebSocket server logs (follow mode)
     cmds:
       - |
         gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
-          sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && docker-compose logs -f'"
+          sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/ws-server && docker-compose logs -f'"
 
   logs:backend:tail:
     desc: View last 100 lines of backend logs
     cmds:
       - |
         gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
-          sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && docker-compose logs --tail=100'"
+          sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/backend && docker-compose logs --tail=100'"
 
   logs:ws:tail:
     desc: View last 100 lines of WebSocket server logs
     cmds:
       - |
         gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
-          sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && docker-compose logs --tail=100'"
+          sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/ws-server && docker-compose logs --tail=100'"

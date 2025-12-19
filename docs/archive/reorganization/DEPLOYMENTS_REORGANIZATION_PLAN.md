@@ -401,7 +401,7 @@ SSH into odin-backend:
 export EXTERNAL_IP=$(curl -s ifconfig.me)
 
 # Deploy
-cd /path/to/ws_poc/deployments/gcp/distributed/backend
+cd /path/to/odin-ws/deployments/gcp/distributed/backend
 docker-compose up -d
 
 # Create Kafka topics
@@ -432,7 +432,7 @@ SSH into odin-ws-go:
 export BACKEND_INTERNAL_IP=10.128.0.2
 
 # Deploy
-cd /path/to/ws_poc/deployments/gcp/distributed/ws-server
+cd /path/to/odin-ws/deployments/gcp/distributed/ws-server
 docker-compose up -d
 
 # Verify

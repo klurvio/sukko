@@ -52,8 +52,15 @@ tasks:
     cmds:
       - docker build -t odin-publisher:latest .
 
+  build:auth-service:
+    desc: Build auth-service Docker image
+    dir: "{{.ROOT_DIR}}/ws"
+    cmds:
+      - docker build -t odin-auth:latest -f Dockerfile.auth .
+
   build:all:
     desc: Build all Docker images
     cmds:
       - task: build:ws-server
+      - task: build:auth-service
       - task: build:publisher

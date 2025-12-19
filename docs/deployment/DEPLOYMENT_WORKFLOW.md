@@ -55,7 +55,7 @@ gcloud compute ssh odin-ws-go --zone=us-central1-a
 
 # Switch to deploy user and edit .env
 sudo -i -u deploy
-cd ~/ws_poc/deployments/v1/gcp/distributed/ws
+cd ~/odin-ws/deployments/v1/gcp/distributed/ws
 nano .env.production  # or vim
 
 # Restart the container
@@ -190,9 +190,9 @@ task gcp:logs:backend
 
 | VM | Config Path |
 |----|-------------|
-| odin-ws-go | `/home/deploy/ws_poc/deployments/v1/gcp/distributed/ws/.env.production` |
-| ws-redis | `/home/deploy/ws_poc/deployments/v1/gcp/distributed/redis/.env` |
-| odin-backend | `/home/deploy/ws_poc/deployments/v1/gcp/distributed/backend/.env` |
+| odin-ws-go | `/home/deploy/odin-ws/deployments/v1/gcp/distributed/ws/.env.production` |
+| ws-redis | `/home/deploy/odin-ws/deployments/v1/gcp/distributed/redis/.env` |
+| odin-backend | `/home/deploy/odin-ws/deployments/v1/gcp/distributed/backend/.env` |
 
 ---
 
@@ -250,7 +250,7 @@ gcloud compute ssh odin-ws-go --zone=us-central1-a
 
 # Switch to deploy user
 sudo -i -u deploy
-cd ~/ws_poc
+cd ~/odin-ws
 
 # Checkout previous commit
 git log --oneline -5  # find the commit to rollback to

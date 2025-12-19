@@ -302,7 +302,7 @@ onMessage(envelope) {
 
 ### Automated Testing
 
-See `/Volumes/Dev/Codev/Toniq/ws_poc/docs/testing/replay-test-plan.md` (to be created) for:
+See `/Volumes/Dev/Codev/Toniq/odin-ws/docs/testing/replay-test-plan.md` (to be created) for:
 - Unit tests for `ReplayFromOffsets`
 - Integration tests for reconnect handler
 - Load tests for concurrent replay requests

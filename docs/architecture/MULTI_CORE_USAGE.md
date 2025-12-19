@@ -219,7 +219,7 @@ gcloud compute ssh odin-ws-go --zone=us-central1-a
 
 # Edit .env.production
 sudo su - deploy
-cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server
+cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/ws-server
 nano .env.production
 
 # Change this line:

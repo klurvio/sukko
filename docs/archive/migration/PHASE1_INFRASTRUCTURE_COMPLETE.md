@@ -100,7 +100,7 @@ sudo docker ps | grep redpanda
 sudo docker logs redpanda
 
 # Create topics
-cd /home/deploy/ws_poc
+cd /home/deploy/odin-ws
 ./scripts/setup-redpanda-topics.sh localhost:9092
 
 # Verify

@@ -107,7 +107,7 @@ tasks:
         RESULT=$(gcloud compute ssh {{.INSTANCE_NAME}} \
           --zone={{.GCP_ZONE}} \
           --project={{.GCP_PROJECT}} \
-          --command="sudo -u deploy test -d /home/deploy/ws_poc && echo 'true' || echo 'false'" \
+          --command="sudo -u deploy test -d /home/deploy/odin-ws && echo 'true' || echo 'false'" \
           2>/dev/null || echo "false")
         echo "$RESULT"
 

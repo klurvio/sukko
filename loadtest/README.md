@@ -43,7 +43,7 @@ go build -o loadtest
 The test runner Dockerfile builds this tool:
 
 ```bash
-# From ws_poc root
+# From odin-ws root
 docker build -t loadtest -f deployments/gcp-distributed/test-runner/Dockerfile --build-context . loadtest/
 ```
 

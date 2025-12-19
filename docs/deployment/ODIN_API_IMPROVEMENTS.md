@@ -91,7 +91,7 @@ const syncTokenPriceDelta = wrapper(
 - ✅ WebSocket server: Update test suite
 - ⏳ **No API changes required yet**
 
-**Status:** In progress at `/Volumes/Dev/Codev/Toniq/ws_poc`
+**Status:** In progress at `/Volumes/Dev/Codev/Toniq/odin-ws`
 
 ---
 

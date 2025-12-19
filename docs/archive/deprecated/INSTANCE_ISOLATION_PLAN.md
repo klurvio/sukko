@@ -395,12 +395,12 @@ cd ~/ws-poc
 ```bash
 # From local machine
 gcloud compute scp --recurse \
-  /Volumes/Dev/Codev/Toniq/ws_poc/src \
+  /Volumes/Dev/Codev/Toniq/odin-ws/src \
   odin-ws-go:~/ws-poc/ \
   --zone=us-central1-a
 
 gcloud compute scp \
-  /Volumes/Dev/Codev/Toniq/ws_poc/docker-compose.yml \
+  /Volumes/Dev/Codev/Toniq/odin-ws/docker-compose.yml \
   odin-ws-go:~/ws-poc/ \
   --zone=us-central1-a
 ```
@@ -499,7 +499,7 @@ curl http://${WS_GO_EXTERNAL_IP}:3004/health
 **4.1 Update test script to point to new instance**:
 ```bash
 # From local machine
-cd /Volumes/Dev/Codev/Toniq/ws_poc
+cd /Volumes/Dev/Codev/Toniq/odin-ws
 
 # Get ws-go external IP
 WS_GO_IP=$(gcloud compute instances describe odin-ws-go \

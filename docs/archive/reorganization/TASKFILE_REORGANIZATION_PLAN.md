@@ -18,7 +18,7 @@
 ## 📁 New Directory Structure
 
 ```
-ws_poc/
+odin-ws/
 ├── Taskfile.yml                    # Main orchestrator (updated)
 ├── taskfiles/
 │   ├── old/                        # Archive old NATS-based taskfiles

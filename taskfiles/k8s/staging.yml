@@ -8,7 +8,7 @@ vars:
   STAGING_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
   STAGING_NS: odin-staging
   STAGING_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values-staging.yaml"
-  GKE_CLUSTER: odin-staging
+  GKE_CLUSTER: odin-ws-staging
   GKE_REGION: us-central1
   GKE_PROJECT: '{{.GKE_PROJECT | default "YOUR_PROJECT"}}'
   REGISTRY: us-central1-docker.pkg.dev/{{.GKE_PROJECT}}/odin

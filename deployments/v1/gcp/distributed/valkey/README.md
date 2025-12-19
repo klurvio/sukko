@@ -71,7 +71,7 @@ cp .env.example .env
 
 ```bash
 # From project root
-cd /Volumes/Dev/Codev/Toniq/ws_poc
+cd /Volumes/Dev/Codev/Toniq/odin-ws
 
 # Create VM, firewall, deploy Valkey (all in one)
 task valkey:create-vm

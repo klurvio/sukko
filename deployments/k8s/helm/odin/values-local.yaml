@@ -26,6 +26,19 @@ ws-server:
   autoscaling:
     enabled: false
 
+# Auth Service - JWT token issuer
+auth-service:
+  enabled: true
+  config:
+    logLevel: debug
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "32Mi"
+    limits:
+      cpu: "100m"
+      memory: "64Mi"
+
 # Redpanda - Reduced resources for kind
 redpanda:
   enabled: true

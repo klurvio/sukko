@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adred-codev/ws_poc/internal/platform"
+	"github.com/adred-codev/odin-ws/internal/platform"
 	"github.com/rs/zerolog"
 )
 

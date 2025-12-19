@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adred-codev/ws_poc/internal/types"
+	"github.com/adred-codev/odin-ws/internal/types"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 

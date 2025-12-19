@@ -300,7 +300,7 @@ gcloud compute instances create odin-ws-go \
 
 ```bash
 # Copy the .env.production configuration above to:
-# /Volumes/Dev/Codev/Toniq/ws_poc/isolated/ws-go/.env.production
+# /Volumes/Dev/Codev/Toniq/odin-ws/isolated/ws-go/.env.production
 
 # Deploy using task
 task gcp2:deploy:ws-go

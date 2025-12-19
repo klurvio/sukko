@@ -9,7 +9,7 @@ vars:
   PROD_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
   PROD_NS: odin-prod
   PROD_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values-production.yaml"
-  GKE_CLUSTER: odin-prod
+  GKE_CLUSTER: odin-ws-prod
   GKE_REGION: us-central1
   GKE_PROJECT: '{{.GKE_PROJECT | default "YOUR_PROJECT"}}'
   REGISTRY: us-central1-docker.pkg.dev/{{.GKE_PROJECT}}/odin

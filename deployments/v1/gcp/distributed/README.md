@@ -62,8 +62,8 @@ SSH into `odin-backend`:
 ```bash
 # Clone repo (or copy deployment files)
 cd ~
-git clone <your-repo> ws_poc
-cd ws_poc/deployments/gcp/distributed/backend
+git clone <your-repo> odin-ws
+cd odin-ws/deployments/gcp/distributed/backend
 
 # Get external IP (for Grafana URL)
 export EXTERNAL_IP=$(curl -s ifconfig.me)
@@ -115,8 +115,8 @@ SSH into `odin-ws-go`:
 ```bash
 # Clone repo (or copy deployment files)
 cd ~
-git clone <your-repo> ws_poc
-cd ws_poc/deployments/gcp/distributed/ws-server
+git clone <your-repo> odin-ws
+cd odin-ws/deployments/gcp/distributed/ws-server
 
 # Set backend internal IP (use the IP from Step 3)
 export BACKEND_INTERNAL_IP=10.128.0.2
@@ -203,13 +203,13 @@ ws.onerror = (e) => console.error('Error:', e);
 
 **Backend:**
 ```bash
-cd ~/ws_poc/deployments/gcp/distributed/backend
+cd ~/odin-ws/deployments/gcp/distributed/backend
 docker compose up -d
 ```
 
 **WS Server:**
 ```bash
-cd ~/ws_poc/deployments/gcp/distributed/ws-server
+cd ~/odin-ws/deployments/gcp/distributed/ws-server
 export BACKEND_INTERNAL_IP=10.128.0.2
 docker compose up -d
 ```
@@ -230,7 +230,7 @@ docker compose down
 
 **Rebuild WS server:**
 ```bash
-cd ~/ws_poc
+cd ~/odin-ws
 git pull
 cd deployments/gcp/distributed/ws-server
 export BACKEND_INTERNAL_IP=10.128.0.2

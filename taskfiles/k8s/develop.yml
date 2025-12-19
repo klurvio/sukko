@@ -8,7 +8,7 @@ vars:
   DEV_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
   DEV_NS: odin-dev
   DEV_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values-develop.yaml"
-  GKE_CLUSTER: odin-dev
+  GKE_CLUSTER: odin-ws-dev
   GKE_REGION: us-central1
   GKE_PROJECT: '{{.GKE_PROJECT | default "YOUR_PROJECT"}}'
   REGISTRY: us-central1-docker.pkg.dev/{{.GKE_PROJECT}}/odin

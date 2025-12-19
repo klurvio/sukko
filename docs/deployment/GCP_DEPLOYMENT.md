@@ -253,8 +253,8 @@ gcloud compute ssh odin-ws-server --zone=$ZONE
 sudo su - deploy
 
 # Clone repository
-git clone https://github.com/yourorg/ws_poc.git
-cd ws_poc
+git clone https://github.com/yourorg/odin-ws.git
+cd odin-ws
 
 # Create production environment file
 cat > .env.production << 'EOF'
@@ -394,7 +394,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/home/deploy/ws_poc
+WorkingDirectory=/home/deploy/odin-ws
 ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 User=deploy
@@ -481,7 +481,7 @@ wscat -c ws://$EXTERNAL_IP:3004/ws
 
 ```bash
 # From your local machine (where you have the code)
-cd /Volumes/Dev/Codev/Toniq/ws_poc
+cd /Volumes/Dev/Codev/Toniq/odin-ws
 
 # Update stress test script to use your IP
 # Edit scripts/stress-test-high-load.cjs
@@ -506,7 +506,7 @@ gcloud compute ssh odin-ws-server --zone=$ZONE
 
 # View all logs
 sudo su - deploy
-cd ws_poc
+cd odin-ws
 docker compose logs -f
 
 # View specific service
@@ -557,7 +557,7 @@ gcloud compute ssh odin-ws-server --zone=$ZONE
 
 # Switch to deploy user
 sudo su - deploy
-cd ws_poc
+cd odin-ws
 
 # Pull latest code
 git pull origin main
@@ -590,13 +590,13 @@ mkdir -p $BACKUP_DIR
 
 # Backup Prometheus data
 docker run --rm \
-  -v ws_poc_prometheus_data:/data \
+  -v odin-ws_prometheus_data:/data \
   -v $BACKUP_DIR:/backup \
   alpine tar czf /backup/prometheus-$DATE.tar.gz /data
 
 # Backup Grafana data
 docker run --rm \
-  -v ws_poc_grafana_data:/data \
+  -v odin-ws_grafana_data:/data \
   -v $BACKUP_DIR:/backup \
   alpine tar czf /backup/grafana-$DATE.tar.gz /data
 
@@ -625,7 +625,7 @@ gcloud compute ssh odin-ws-server --zone=$ZONE --command="sudo systemctl restart
 # Or SSH in and restart specific service
 gcloud compute ssh odin-ws-server --zone=$ZONE
 sudo su - deploy
-cd ws_poc
+cd odin-ws
 docker compose restart ws-go
 ```
 
@@ -880,7 +880,7 @@ jobs:
         run: |
           gcloud compute ssh $INSTANCE \
             --zone=$ZONE \
-            --command="sudo su - deploy -c 'cd ws_poc && \
+            --command="sudo su - deploy -c 'cd odin-ws && \
               git pull origin main && \
               docker compose -f docker-compose.yml -f docker-compose.prod.yml build && \
               docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d'"
@@ -959,7 +959,7 @@ gcloud compute ssh odin-ws-server --zone=$ZONE
 
 # Check logs
 sudo su - deploy
-cd ws_poc
+cd odin-ws
 docker compose logs
 
 # Check disk space
@@ -1003,7 +1003,7 @@ gcloud compute instances describe odin-ws-server \
 
 # View logs
 gcloud compute ssh odin-ws-server --zone=us-central1-a \
-  --command="sudo su - deploy -c 'cd ws_poc && docker compose logs -f'"
+  --command="sudo su - deploy -c 'cd odin-ws && docker compose logs -f'"
 
 # Restart services
 gcloud compute ssh odin-ws-server --zone=us-central1-a \

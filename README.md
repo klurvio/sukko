@@ -52,36 +52,35 @@ A high-performance, production-ready WebSocket server designed for real-time dat
 
 ## 🏗️ Architecture
 
-### High-Level Architecture
+### Kubernetes Production Architecture
 
-![WebSocket Infrastructure Architecture](./docs/architecture/websocket-architecture.svg)
+![Odin WebSocket Production Architecture](./docs/architecture/architecture-diagram.svg)
 
-The diagram shows the complete multi-instance WebSocket infrastructure:
+The diagram shows the complete K8s production architecture with Cloudflare edge:
 
 **Components:**
-- **GCP Load Balancer** - External load balancing across WS instances
-- **WS Instances** - Each contains:
-  - **Custom Load Balancer** (:3001) - Per-instance load balancer using least connections strategy
-  - **3 Shards** (:3002-3004) - Each handling 6K connections
-- **Message Distribution Layer**:
-  - **Redis BroadcastBus** - Cross-instance message synchronization via Pub/Sub
-  - **Kafka/Redpanda** - Event streaming (12 partitions/topic)
-- **Publisher Service** - Event generation and publishing
-- **Observability Stack** - Prometheus, Grafana, Loki for monitoring
+- **Cloudflare Edge** - DDoS protection, TLS termination (wss→ws), WAF, WebSocket proxy
+- **K8s LoadBalancer Service** - Exposes ws-server to Cloudflare origin
+- **WS-Server Pods** - Horizontally scalable pods with HPA
+  - Multi-shard architecture per pod
+  - Ping/pong keepalive (27s interval, Cloudflare compatible)
+  - Rate limiting (backup to edge)
+- **Valkey (Redis)** - BroadcastBus for cross-pod message distribution
+- **Redpanda (Kafka)** - Event ingestion from publishers
+- **Monitoring Stack** - Prometheus, Grafana, Loki, Promtail
 
-**Message Flow:**
-1. Publisher → Kafka (produce events)
-2. Kafka → WS instances (consumer groups with partition distribution)
-3. Each shard → Redis BroadcastBus (PUBLISH for cross-instance sync)
-4. Redis → ALL instances' shards (SUBSCRIBE for fan-out)
-5. Each shard → connected clients (WebSocket broadcast)
+**Data Flow:**
+```
+Publishers → Kafka → WS-Server → Valkey (BroadcastBus) → All Pods → Clients
+```
 
 **Key Features:**
-- Horizontal scaling via Redis BroadcastBus (single node or Sentinel HA)
-- Auto-detection: 1 address = direct mode, 3+ addresses = Sentinel mode
-- Per-instance load balancing with least connections strategy
-- Comprehensive monitoring with dashed lines showing telemetry flow
+- Cloudflare handles DDoS, TLS, WAF at the edge
+- K8s HPA auto-scales ws-server pods based on CPU
+- Redis Pub/Sub enables cross-pod broadcasting
+- Helm charts for easy deployment
 
+> **See**: [K8s Production Architecture](./docs/ARCHITECTURE_K8S_PRODUCTION.md) for detailed deployment guide
 > **See**: [Infrastructure Diagrams](./docs/architecture/infrastructure-diagram.md) for additional Mermaid diagrams
 
 ### Multi-Shard Architecture Details
@@ -111,7 +110,7 @@ The diagram shows the complete multi-instance WebSocket infrastructure:
 ## 📁 Project Structure
 
 ```
-ws_poc/
+odin-ws/
 ├── cmd/
 │   └── ws-server/              # Main application entry point
 ├── ws/
@@ -120,22 +119,24 @@ ws_poc/
 │   │   └── shared/             # Shared components (Server, Kafka, metrics, health)
 │   └── pkg/                    # Public packages (config, logger, models)
 ├── publisher/                  # Node.js event publisher service
-├── scripts/                    # Testing and utility scripts (load testing, etc.)
+├── loadtest/                   # Go-based load testing tool
+├── scripts/                    # Testing and utility scripts
 ├── deployments/
-│   └── v1/
-│       ├── local/              # Local development configs
-│       │   ├── docker-compose.yml
-│       │   └── docker-compose.redis.yml  # Local Redis for testing
-│       └── gcp/
-│           └── distributed/    # Production deployment configs
-│               ├── backend/    # Kafka, Publisher, Monitoring
-│               ├── redis/      # Redis BroadcastBus deployment
-│               └── ws-server/  # WebSocket server (multi-shard)
+│   ├── k8s/                    # Kubernetes deployments (primary)
+│   │   └── helm/
+│   │       └── odin/           # Odin Helm chart
+│   │           ├── charts/     # Subcharts (ws-server, redpanda, valkey, etc.)
+│   │           ├── values.yaml           # Base values
+│   │           ├── values-local.yaml     # Kind/local development
+│   │           ├── values-develop.yaml   # Development environment
+│   │           ├── values-staging.yaml   # Staging environment
+│   │           └── values-production.yaml # Production environment
+│   └── v1/                     # Legacy VM-based deployment
+│       ├── local/              # Docker Compose for local dev
+│       └── gcp/                # GCP Compute Engine deployment
 ├── taskfiles/
-│   └── v1/
-│       ├── gcp/               # GCP deployment tasks
-│       ├── local/             # Local development tasks
-│       └── shared/            # Shared utilities
+│   ├── k8s/                   # Kubernetes tasks
+│   └── v1/                    # Legacy deployment tasks
 ├── docs/
 │   ├── architecture/          # System design and patterns
 │   ├── deployment/            # Deployment guides
@@ -143,7 +144,7 @@ ws_poc/
 │   ├── performance/           # Optimization and capacity planning
 │   ├── events/                # Event system documentation
 │   ├── monitoring/            # Observability setup
-│   └── archive/               # Historical documents
+│   └── ARCHITECTURE_K8S_PRODUCTION.md  # K8s production architecture
 ├── sessions/                  # Session handoff documents (65+ files)
 ├── grafana/                   # Grafana dashboard provisioning
 ├── docker-compose.yml         # Local development orchestration
@@ -195,7 +196,28 @@ task monitor:grafana     # http://localhost:3010 (admin/admin)
 task monitor:logs        # Loki log explorer
 ```
 
-### GCP Production Deployment
+### Kubernetes Deployment (Recommended)
+
+```bash
+# Local development with Kind
+task k8s:local:up              # Create Kind cluster + deploy all services
+
+# Verify deployment
+kubectl get pods -n odin-local
+task k8s:local:logs            # View ws-server logs
+
+# Run load test
+cd loadtest && ./sustained-load-test -url ws://localhost:30080/ws -connections 50
+
+# Production deployment (GKE/EKS/AKS)
+helm upgrade --install odin ./deployments/k8s/helm/odin \
+  -f ./deployments/k8s/helm/odin/values-production.yaml \
+  -n odin-prod --create-namespace
+```
+
+**For detailed K8s deployment, see [K8s Production Architecture](./docs/ARCHITECTURE_K8S_PRODUCTION.md).**
+
+### GCP VM Deployment (Legacy)
 
 ```bash
 # Set up GCP credentials
@@ -215,7 +237,7 @@ task gcp:stats:connections
 task gcp:load-test:start connections=18000
 ```
 
-**For detailed deployment instructions, see [GCP Deployment Guide](./docs/deployment/GCP_DEPLOYMENT.md).**
+**For VM-based deployment, see [GCP Deployment Guide](./docs/deployment/GCP_DEPLOYMENT.md).**
 
 ## 📚 Documentation
 
@@ -236,7 +258,8 @@ Complete documentation organized by topic:
 - **[Replay Mechanism Deep Dive](./docs/architecture/REPLAY_MECHANISM_DEEP_DIVE.md)** - Message replay system
 
 ### Production Deployment
-- **[GCP Deployment Guide](./docs/deployment/GCP_DEPLOYMENT.md)** - Automated GCP deployment
+- **[K8s Production Architecture](./docs/ARCHITECTURE_K8S_PRODUCTION.md)** - Kubernetes + Cloudflare deployment
+- **[GCP Deployment Guide](./docs/deployment/GCP_DEPLOYMENT.md)** - Legacy VM-based deployment
 - **[Production Architecture](./docs/deployment/PRODUCTION_ARCHITECTURE.md)** - Production patterns
 - **[Monitoring Setup Guide](./docs/monitoring/MONITORING_SETUP.md)** - Prometheus + Grafana + Loki
 
@@ -283,10 +306,12 @@ open docs/API_REJECTION_RESPONSES.md
 - **Promtail** - Log collection from Docker containers
 
 ### Infrastructure
+- **Kubernetes** - Primary production orchestration (GKE/EKS/AKS)
+- **Helm 3** - Package management for K8s deployments
+- **Cloudflare** - Edge layer (DDoS, TLS, WAF, WebSocket proxy)
 - **Docker** - Containerization with multi-stage builds
-- **Docker Compose** - Multi-container orchestration
+- **Kind** - Local Kubernetes for development
 - **Alpine Linux 3.20** - Minimal production images (~25MB)
-- **GCP Compute Engine** - Cloud deployment (e2-highcpu-8)
 
 ## 🔧 Configuration
 
@@ -460,20 +485,25 @@ See [API Rejection Responses](./docs/API_REJECTION_RESPONSES.md) for client inte
 
 ## 🎯 Recent Updates
 
-**Latest (2025-11-25):**
+**Latest (2025-12-04):**
+- ✅ **Kubernetes deployment** - Helm charts for ws-server, Redpanda, Valkey, monitoring
+- ✅ **Cloudflare integration** - Edge layer for DDoS, TLS, WAF (documented)
+- ✅ **Architecture diagram** - SVG production architecture diagram
+- ✅ **Kind local development** - `task k8s:local:up` for local K8s testing
+- ✅ Kafka topic alignment with v1 deployment (odin.trades, odin.liquidity, etc.)
+- ✅ Load test validation on Kind cluster (50 connections, 100% success)
+
+**Previous (2025-11-25):**
 - ✅ **Redis BroadcastBus implemented** - Enables horizontal scaling across multiple VMs
 - ✅ Auto-detection mode: 1 address = direct, 3+ addresses = Sentinel HA
 - ✅ Local Redis testing validated (`docker-compose.redis.yml`)
 - ✅ GCP deployment automation (`task gcp:redis:*` commands)
 - ✅ Grafana dashboard for Redis monitoring (13 panels, 3 alerts)
-- ✅ Zero-code upgrade path: single node → Sentinel → GCP Memorystore
 
 **Previous (2025-11-19):**
 - ✅ Achieved 18K connection capacity (17.7K tested at 98.4% success)
 - ✅ Fixed goroutine calculation (100K limit accounts for LoadBalancer proxy)
 - ✅ Optimized debug logging (99.3% overhead reduction)
-- ✅ Reorganized documentation (topic-based structure)
-- ✅ Added comprehensive API rejection documentation
 
 **Session Reports:** See [sessions/](./sessions/) for detailed handoff documents (65+ session files)
 
@@ -482,8 +512,9 @@ See [API Rejection Responses](./docs/API_REJECTION_RESPONSES.md) for client inte
 **Need Help?**
 
 - **Getting Started**: See [Local Development Guide](./docs/development/LOCAL_DEVELOPMENT.md)
+- **K8s Deployment**: See [K8s Production Architecture](./docs/ARCHITECTURE_K8S_PRODUCTION.md)
 - **All Commands**: Run `task --list` or see [Taskfile Guide](./docs/development/TASKFILE_GUIDE.md)
-- **GCP Deployment**: See [GCP Deployment Guide](./docs/deployment/GCP_DEPLOYMENT.md)
+- **Legacy GCP Deployment**: See [GCP Deployment Guide](./docs/deployment/GCP_DEPLOYMENT.md)
 - **Architecture**: See [Multi-Core Architecture](./docs/architecture/MULTI_CORE_USAGE.md)
 - **API Integration**: See [API Rejection Responses](./docs/API_REJECTION_RESPONSES.md)
 - **Troubleshooting**: See session handoff documents in [sessions/](./sessions/)

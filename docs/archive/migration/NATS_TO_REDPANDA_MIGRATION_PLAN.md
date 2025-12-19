@@ -902,7 +902,7 @@ curl -X POST http://localhost:3003/control \
 **Update `ws/go.mod`:**
 
 ```go
-module ws_poc
+module odin-ws
 
 go 1.25.1
 

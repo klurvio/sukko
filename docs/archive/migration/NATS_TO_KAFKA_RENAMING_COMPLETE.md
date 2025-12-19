@@ -87,7 +87,7 @@ Successfully replaced all NATS references with Kafka equivalents throughout the 
 
 ✅ **Code compiles successfully:**
 ```bash
-cd /Volumes/Dev/Codev/Toniq/ws_poc/ws && go build
+cd /Volumes/Dev/Codev/Toniq/odin-ws/ws && go build
 # Success (only warnings from external dependency)
 ```
 

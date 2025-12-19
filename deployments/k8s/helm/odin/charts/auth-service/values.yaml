@@ -1,0 +1,69 @@
+# Default values for auth-service subchart
+# These can be overridden from the parent chart
+
+enabled: true
+
+replicaCount: 1
+
+image:
+  repository: odin-auth
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Service configuration
+config:
+  port: 3002
+  tokenExpiry: "24h"
+  logLevel: info
+
+# Tenant configuration (seeded via ConfigMap)
+# Format matches config/tenants.yaml in the auth service
+tenants:
+  - id: "odin-internal"
+    name: "Odin Internal"
+    apps:
+      - id: "odin-web"
+        name: "Odin Web Dashboard"
+        secret_env: "APP_SECRET_ODIN_WEB"
+      - id: "odin-mobile"
+        name: "Odin Mobile App"
+        secret_env: "APP_SECRET_ODIN_MOBILE"
+
+# Resource allocation
+resources:
+  requests:
+    cpu: "100m"
+    memory: "64Mi"
+  limits:
+    cpu: "250m"
+    memory: "128Mi"
+
+# Health checks
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3002
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3002
+  initialDelaySeconds: 3
+  periodSeconds: 5
+  timeoutSeconds: 2
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 3002
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

@@ -159,8 +159,8 @@ tasks:
       - "echo \"\""
       - "echo \"# Switch to deploy user and clone repo\""
       - "echo \"sudo su - deploy\""
-      - "echo \"git clone https://github.com/yourorg/ws_poc.git\""
-      - "echo \"cd ws_poc\""
+      - "echo \"git clone https://github.com/yourorg/odin-ws.git\""
+      - "echo \"cd odin-ws\""
       - "echo \"\""
       - "echo \"# Create production environment (update CHANGE_THIS_STRONG_PASSWORD!)\""
       - "echo \"cat > .env.production << 'EOF'\""
@@ -191,7 +191,7 @@ tasks:
     cmds:
       - "echo \"🔄 Updating deployment...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && git pull origin main && docker compose -f docker-compose.yml -f docker-compose.prod.yml build && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d && sleep 5 && curl -f http://localhost:3004/health'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && git pull origin main && docker compose -f docker-compose.yml -f docker-compose.prod.yml build && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d && sleep 5 && curl -f http://localhost:3004/health'"
       - "echo \"✅ Deployment updated\""
       - task: health
 
@@ -214,7 +214,7 @@ tasks:
         [Service]
         Type=oneshot
         RemainAfterExit=yes
-        WorkingDirectory=/home/deploy/ws_poc
+        WorkingDirectory=/home/deploy/odin-ws
         ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
         ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml down
         User=deploy
@@ -231,20 +231,20 @@ tasks:
   # === OPERATIONS ===
 
   ssh:
-    desc: SSH into GCP instance (then run 'sudo su - deploy' and 'cd ws_poc')
+    desc: SSH into GCP instance (then run 'sudo su - deploy' and 'cd odin-ws')
     cmds:
       - gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}}
 
   docker:ps:
     desc: Show running Docker containers on GCP instance
     cmds:
-      - gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker compose ps'"
+      - gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker compose ps'"
 
   docker:up:
     desc: Start all Docker services on GCP instance
     cmds:
       - "echo \"🚀 Starting Docker services on GCP instance...\""
-      - gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d'"
+      - gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d'"
       - "echo \"⏳ Waiting for services to start...\""
       - sleep 10
       - task: health
@@ -253,14 +253,14 @@ tasks:
     desc: Stop all Docker services on GCP instance
     cmds:
       - "echo \"⏸️  Stopping Docker services on GCP instance...\""
-      - gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker compose -f docker-compose.yml -f docker-compose.prod.yml down'"
+      - gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker compose -f docker-compose.yml -f docker-compose.prod.yml down'"
       - "echo \"✅ Services stopped\""
 
   docker:restart:
     desc: Restart all Docker services on GCP instance
     cmds:
       - "echo \"🔄 Restarting Docker services on GCP instance...\""
-      - gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker compose -f docker-compose.yml -f docker-compose.prod.yml restart'"
+      - gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker compose -f docker-compose.yml -f docker-compose.prod.yml restart'"
       - "echo \"⏳ Waiting for services to start...\""
       - sleep 10
       - task: health
@@ -293,14 +293,14 @@ tasks:
     cmds:
       - |
         gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
-          sudo su - deploy -c 'cd ws_poc && docker compose logs -f'\""
+          sudo su - deploy -c 'cd odin-ws && docker compose logs -f'\""
 
   logs:tail:
     desc: View last 100 lines of application logs
     cmds:
       - |
         gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="\
-          sudo su - deploy -c 'cd ws_poc && docker compose logs --tail=100'\""
+          sudo su - deploy -c 'cd odin-ws && docker compose logs --tail=100'\""
 
   restart:
     desc: Restart services via systemd
@@ -410,8 +410,8 @@ tasks:
         BACKUP_DIR=/backups
         DATE=\$(date +%Y%m%d-%H%M%S)
         mkdir -p \$BACKUP_DIR
-        docker run --rm -v ws_poc_prometheus_data:/data -v \$BACKUP_DIR:/backup alpine tar czf /backup/prometheus-\$DATE.tar.gz /data
-        docker run --rm -v ws_poc_grafana_data:/data -v \$BACKUP_DIR:/backup alpine tar czf /backup/grafana-\$DATE.tar.gz /data
+        docker run --rm -v odin-ws_prometheus_data:/data -v \$BACKUP_DIR:/backup alpine tar czf /backup/prometheus-\$DATE.tar.gz /data
+        docker run --rm -v odin-ws_grafana_data:/data -v \$BACKUP_DIR:/backup alpine tar czf /backup/grafana-\$DATE.tar.gz /data
         find \$BACKUP_DIR -name \"*.tar.gz\" -mtime +7 -delete
         echo \"Backup completed: \$DATE\\""
         EOF
@@ -613,7 +613,7 @@ tasks:
     cmds:
       - "echo \"🧪 Running realistic test ON GCP instance ({{.TARGET_CONNECTIONS}} connections, {{.DURATION}}s)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS={{.TARGET_CONNECTIONS}} DURATION={{.DURATION}} node realistic-trading-simulator.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS={{.TARGET_CONNECTIONS}} DURATION={{.DURATION}} node realistic-trading-simulator.cjs\"'"
       - "echo \"✅ Test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
       - "echo \"💡 Monitor: task gcp:health\""
@@ -623,7 +623,7 @@ tasks:
     cmds:
       - "echo \"🧪 Running 5-minute realistic test ON GCP instance (300 connections)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=300 DURATION=300 node realistic-trading-simulator.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=300 DURATION=300 node realistic-trading-simulator.cjs\"'"
       - "echo \"✅ Test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
 
@@ -632,7 +632,7 @@ tasks:
     cmds:
       - "echo \"🧪 Running 30-minute realistic test ON GCP instance (1000 connections)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1000 DURATION=1800 node realistic-trading-simulator.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1000 DURATION=1800 node realistic-trading-simulator.cjs\"'"
       - "echo \"✅ Test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
 
@@ -641,7 +641,7 @@ tasks:
     cmds:
       - "echo \"🧪 Running 2-hour realistic test ON GCP instance (2000 connections)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=2000 DURATION=7200 node realistic-trading-simulator.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=2000 DURATION=7200 node realistic-trading-simulator.cjs\"'"
       - "echo \"✅ Test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
 
@@ -674,7 +674,7 @@ tasks:
     cmds:
       - "echo \"🧪 Running sustained load test ON GCP instance ({{.TARGET_CONNECTIONS}} connections, {{.RAMP_RATE}}/sec ramp, {{.DURATION}}s sustain)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS={{.TARGET_CONNECTIONS}} RAMP_RATE={{.RAMP_RATE}} DURATION={{.DURATION}} node sustained-load-test.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS={{.TARGET_CONNECTIONS}} RAMP_RATE={{.RAMP_RATE}} DURATION={{.DURATION}} node sustained-load-test.cjs\"'"
       - "echo \"✅ Sustained test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
 
@@ -685,7 +685,7 @@ tasks:
     cmds:
       - "echo \"📊 Running CAPACITY test ON GCP instance (500 connections, 30 min)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=500 RAMP_RATE=50 DURATION=1800 node sustained-load-test.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=500 RAMP_RATE=50 DURATION=1800 node sustained-load-test.cjs\"'"
       - "echo \"✅ Test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
 
@@ -694,7 +694,7 @@ tasks:
     cmds:
       - "echo \"📊 Running CAPACITY test ON GCP instance (500 connections, 5 min)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=500 RAMP_RATE=50 DURATION=300 node sustained-load-test.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=500 RAMP_RATE=50 DURATION=300 node sustained-load-test.cjs\"'"
       - "echo \"✅ Test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
 
@@ -705,7 +705,7 @@ tasks:
     cmds:
       - "echo \"⚠️  Running STRESS test ON GCP instance (1000 connections, 30 min)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1000 RAMP_RATE=100 DURATION=1800 node sustained-load-test.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1000 RAMP_RATE=100 DURATION=1800 node sustained-load-test.cjs\"'"
       - "echo \"✅ Test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
 
@@ -714,7 +714,7 @@ tasks:
     cmds:
       - "echo \"⚠️  Running STRESS test ON GCP instance (1500 connections, 30 min)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1500 RAMP_RATE=100 DURATION=1800 node sustained-load-test.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1500 RAMP_RATE=100 DURATION=1800 node sustained-load-test.cjs\"'"
       - "echo \"✅ Test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
 
@@ -725,7 +725,7 @@ tasks:
     cmds:
       - "echo \"🧪 Running 10-minute sustained load test ON GCP instance (1000 connections)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1000 RAMP_RATE=100 DURATION=600 node sustained-load-test.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1000 RAMP_RATE=100 DURATION=600 node sustained-load-test.cjs\"'"
       - "echo \"✅ Test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
 
@@ -734,7 +734,7 @@ tasks:
     cmds:
       - "echo \"🧪 Running 30-minute sustained load test ON GCP instance (1500 connections)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1500 RAMP_RATE=100 DURATION=1800 node sustained-load-test.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1500 RAMP_RATE=100 DURATION=1800 node sustained-load-test.cjs\"'"
       - "echo \"✅ Test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
 
@@ -743,7 +743,7 @@ tasks:
     cmds:
       - "echo \"🧪 Running 60-minute sustained load test ON GCP instance (1500 connections)...\""
       - |
-        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd ws_poc && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1500 RAMP_RATE=100 DURATION=3600 node sustained-load-test.cjs\"'"
+        gcloud compute ssh {{.GCP_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo su - deploy -c 'cd odin-ws && docker run -d --name stress-test --network=host -v \$(pwd)/scripts:/scripts -w /scripts node:22-alpine sh -c \"apk add --no-cache curl && npm install ws && WS_URL=ws://localhost:3004/ws HEALTH_URL=http://localhost:3004/health TARGET_CONNECTIONS=1500 RAMP_RATE=100 DURATION=3600 node sustained-load-test.cjs\"'"
       - "echo \"✅ Test started on GCP instance (running in background container)\""
       - "echo \"💡 View logs: task gcp:test:remote:logs\""
 

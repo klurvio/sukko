@@ -1,4 +1,4 @@
-module github.com/adred-codev/ws_poc
+module github.com/adred-codev/odin-ws
 
 go 1.25.1
 

@@ -8,10 +8,10 @@ version: "3"
 #
 # Note: Tests run from GCP load test instance to avoid local ulimit issues
 # Instance: odin-loadtest (e2-standard-8 with high ulimits)
-# Load test binary: ~/ws_poc/loadtest/sustained-load-test
+# Load test binary: ~/odin-ws/loadtest/sustained-load-test
 
 vars:
-  LOADTEST_BINARY: "/home/deploy/ws_poc/loadtest/sustained-load-test"
+  LOADTEST_BINARY: "/home/deploy/odin-ws/loadtest/sustained-load-test"
 
 tasks:
   # === CAPACITY TESTS ===

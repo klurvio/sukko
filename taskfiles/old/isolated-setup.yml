@@ -288,22 +288,22 @@ tasks:
 
       # Copy source code (self-contained ws/ directory with go.mod, Dockerfile)
       - echo "📤 Copying ws-server source files..."
-      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command='rm -rf /tmp/ws_poc_deploy && mkdir -p /tmp/ws_poc_deploy'
-      - gcloud compute scp --recurse {{.USER_WORKING_DIR}}/ws {{.WS_GO_INSTANCE}}:/tmp/ws_poc_deploy/ --zone={{.GCP_ZONE}}
-      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/gcp-distributed/ws-server/docker-compose.yml {{.WS_GO_INSTANCE}}:/tmp/ws_poc_deploy/docker-compose.template.yml --zone={{.GCP_ZONE}}
-      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/gcp-distributed/ws-server/promtail-config.yml {{.WS_GO_INSTANCE}}:/tmp/ws_poc_deploy/promtail-config.template.yml --zone={{.GCP_ZONE}}
-      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/gcp-distributed/ws-server/.env.production {{.WS_GO_INSTANCE}}:/tmp/ws_poc_deploy/.env.production --zone={{.GCP_ZONE}}
-      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command='sudo rm -rf /home/deploy/ws_poc && sudo mkdir -p /home/deploy/ws_poc && sudo sh -c "mv /tmp/ws_poc_deploy/* /tmp/ws_poc_deploy/.[!.]* /home/deploy/ws_poc/ 2>/dev/null || true" && sudo chown -R deploy:deploy /home/deploy/ws_poc'
+      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command='rm -rf /tmp/odin-ws_deploy && mkdir -p /tmp/odin-ws_deploy'
+      - gcloud compute scp --recurse {{.USER_WORKING_DIR}}/ws {{.WS_GO_INSTANCE}}:/tmp/odin-ws_deploy/ --zone={{.GCP_ZONE}}
+      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/gcp-distributed/ws-server/docker-compose.yml {{.WS_GO_INSTANCE}}:/tmp/odin-ws_deploy/docker-compose.template.yml --zone={{.GCP_ZONE}}
+      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/gcp-distributed/ws-server/promtail-config.yml {{.WS_GO_INSTANCE}}:/tmp/odin-ws_deploy/promtail-config.template.yml --zone={{.GCP_ZONE}}
+      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/gcp-distributed/ws-server/.env.production {{.WS_GO_INSTANCE}}:/tmp/odin-ws_deploy/.env.production --zone={{.GCP_ZONE}}
+      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command='sudo rm -rf /home/deploy/odin-ws && sudo mkdir -p /home/deploy/odin-ws && sudo sh -c "mv /tmp/odin-ws_deploy/* /tmp/odin-ws_deploy/.[!.]* /home/deploy/odin-ws/ 2>/dev/null || true" && sudo chown -R deploy:deploy /home/deploy/odin-ws'
 
       # Substitute variables and deploy
       - echo "📝 Substituting variables (BACKEND_INTERNAL_IP={{.BACKEND_INTERNAL_IP}})..."
       - |
-        gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo bash -c 'cd /home/deploy/ws_poc && export BACKEND_INTERNAL_IP={{.BACKEND_INTERNAL_IP}} && envsubst < docker-compose.template.yml > docker-compose.yml && envsubst < promtail-config.template.yml > promtail-config.yml && envsubst < .env.production > .env.production.final && mv .env.production.final .env.production'"
+        gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo bash -c 'cd /home/deploy/odin-ws && export BACKEND_INTERNAL_IP={{.BACKEND_INTERNAL_IP}} && envsubst < docker-compose.template.yml > docker-compose.yml && envsubst < promtail-config.template.yml > promtail-config.yml && envsubst < .env.production > .env.production.final && mv .env.production.final .env.production'"
 
       # Build and start
       - echo "🚀 Building and starting ws-go..."
-      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml build"
-      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml up -d"
+      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml build"
+      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml up -d"
 
       # Wait and check
       - echo "⏳ Waiting for ws-go to start..."
@@ -318,24 +318,24 @@ tasks:
 
       # Copy manifests and configs to deploy user's home
       - echo "📤 Copying manifests and configuration files..."
-      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command='rm -rf /tmp/ws_poc_deploy && mkdir -p /tmp/ws_poc_deploy'
-      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/gcp-distributed/backend/docker-compose.yml {{.BACKEND_INSTANCE}}:/tmp/ws_poc_deploy/docker-compose.yml --zone={{.GCP_ZONE}}
-      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/gcp-distributed/backend/prometheus.yml {{.BACKEND_INSTANCE}}:/tmp/ws_poc_deploy/prometheus.template.yml --zone={{.GCP_ZONE}}
-      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/local/configs/loki-config.yml {{.BACKEND_INSTANCE}}:/tmp/ws_poc_deploy/loki-config.yml --zone={{.GCP_ZONE}}
-      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/local/configs/promtail-config.yml {{.BACKEND_INSTANCE}}:/tmp/ws_poc_deploy/promtail-config.yml --zone={{.GCP_ZONE}}
-      - gcloud compute scp --recurse {{.USER_WORKING_DIR}}/deployments/local/grafana {{.BACKEND_INSTANCE}}:/tmp/ws_poc_deploy/ --zone={{.GCP_ZONE}}
-      - gcloud compute scp --recurse {{.USER_WORKING_DIR}}/publisher {{.BACKEND_INSTANCE}}:/tmp/ws_poc_deploy/ --zone={{.GCP_ZONE}}
-      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command='sudo rm -rf /home/deploy/ws_poc && sudo mkdir -p /home/deploy/ws_poc && sudo mv /tmp/ws_poc_deploy/* /home/deploy/ws_poc/ && sudo chown -R deploy:deploy /home/deploy/ws_poc'
+      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command='rm -rf /tmp/odin-ws_deploy && mkdir -p /tmp/odin-ws_deploy'
+      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/gcp-distributed/backend/docker-compose.yml {{.BACKEND_INSTANCE}}:/tmp/odin-ws_deploy/docker-compose.yml --zone={{.GCP_ZONE}}
+      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/gcp-distributed/backend/prometheus.yml {{.BACKEND_INSTANCE}}:/tmp/odin-ws_deploy/prometheus.template.yml --zone={{.GCP_ZONE}}
+      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/local/configs/loki-config.yml {{.BACKEND_INSTANCE}}:/tmp/odin-ws_deploy/loki-config.yml --zone={{.GCP_ZONE}}
+      - gcloud compute scp {{.USER_WORKING_DIR}}/deployments/local/configs/promtail-config.yml {{.BACKEND_INSTANCE}}:/tmp/odin-ws_deploy/promtail-config.yml --zone={{.GCP_ZONE}}
+      - gcloud compute scp --recurse {{.USER_WORKING_DIR}}/deployments/local/grafana {{.BACKEND_INSTANCE}}:/tmp/odin-ws_deploy/ --zone={{.GCP_ZONE}}
+      - gcloud compute scp --recurse {{.USER_WORKING_DIR}}/publisher {{.BACKEND_INSTANCE}}:/tmp/odin-ws_deploy/ --zone={{.GCP_ZONE}}
+      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command='sudo rm -rf /home/deploy/odin-ws && sudo mkdir -p /home/deploy/odin-ws && sudo mv /tmp/odin-ws_deploy/* /home/deploy/odin-ws/ && sudo chown -R deploy:deploy /home/deploy/odin-ws'
 
       # Substitute Prometheus config variables
       - echo "📝 Substituting Prometheus variables (WS_GO_INTERNAL_IP={{.WS_GO_INTERNAL_IP}})..."
       - |
-        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo bash -c 'cd /home/deploy/ws_poc && export WS_GO_INTERNAL_IP={{.WS_GO_INTERNAL_IP}} && envsubst < prometheus.template.yml > prometheus.yml && cat prometheus.yml'"
+        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo bash -c 'cd /home/deploy/odin-ws && export WS_GO_INTERNAL_IP={{.WS_GO_INTERNAL_IP}} && envsubst < prometheus.template.yml > prometheus.yml && cat prometheus.yml'"
 
       # Build and start
       - echo "🚀 Building and starting backend services..."
-      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml build"
-      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml up -d"
+      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml build"
+      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml up -d"
 
       # Wait and check
       - echo "⏳ Waiting for services to start..."
@@ -520,12 +520,12 @@ tasks:
   logs:ws-go:
     desc: Show ws-go logs
     cmds:
-      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command='sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml logs -f --tail=100'
+      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command='sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml logs -f --tail=100'
 
   logs:backend:
     desc: Show backend services logs
     cmds:
-      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command='sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml logs -f --tail=100'
+      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command='sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml logs -f --tail=100'
 
   logs:nats:
     desc: Show NATS logs
@@ -767,7 +767,7 @@ tasks:
     desc: Restart ws-go service
     cmds:
       - echo "🔄 Restarting ws-go..."
-      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml restart"
+      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml restart"
       - sleep 5
       - task: health:ws-go
 
@@ -775,7 +775,7 @@ tasks:
     desc: Restart backend services
     cmds:
       - echo "🔄 Restarting backend services..."
-      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml restart"
+      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml restart"
       - sleep 10
       - task: health:backend
 
@@ -797,8 +797,8 @@ tasks:
     cmds:
       - echo "📦 Updating ws-go..."
       - gcloud compute scp --recurse {{.USER_WORKING_DIR}}/src {{.WS_GO_INSTANCE}}:/tmp/ --zone={{.GCP_ZONE}}
-      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo rm -rf /home/deploy/ws_poc/src && sudo mv /tmp/src /home/deploy/ws_poc/ && sudo chown -R deploy:deploy /home/deploy/ws_poc/src"
-      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml build && sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml up -d"
+      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo rm -rf /home/deploy/odin-ws/src && sudo mv /tmp/src /home/deploy/odin-ws/ && sudo chown -R deploy:deploy /home/deploy/odin-ws/src"
+      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml build && sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml up -d"
       - sleep 5
       - task: health:ws-go
 
@@ -816,13 +816,13 @@ tasks:
     desc: Stop ws-go service (keep instance running)
     cmds:
       - echo "⏹️  Stopping ws-go..."
-      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml down"
+      - gcloud compute ssh {{.WS_GO_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml down"
 
   stop:backend:
     desc: Stop backend services (keep instance running)
     cmds:
       - echo "⏹️  Stopping backend services..."
-      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/ws_poc/docker-compose.yml down"
+      - gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --command="sudo docker compose -f /home/deploy/odin-ws/docker-compose.yml down"
 
   stop:test-runner:
     desc: Stop test-runner (no-op - no persistent services)

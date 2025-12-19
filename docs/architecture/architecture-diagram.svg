@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1400" font-family="Inter, -apple-system, BlinkMacSystemFont, sans-serif">
+  <!-- Define styles -->
+  <defs>
+    <style>
+      .title { font-size: 18px; font-weight: 600; fill: #1a1a1a; }
+      .subtitle { font-size: 13px; font-weight: 500; fill: #4a4a4a; }
+      .label { font-size: 12px; fill: #2a2a2a; }
+      .small-label { font-size: 11px; fill: #5a5a5a; }
+      .feature { font-size: 11px; fill: #3a3a3a; }
+      .box { stroke-width: 2; }
+      .arrow { stroke-width: 2; fill: none; }
+      .marker { fill: #666; }
+    </style>
+    
+    <!-- Arrow markers -->
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" class="marker">
+      <polygon points="0 0, 10 3, 0 6" />
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="1400" fill="#f8f9fa"/>
+
+  <!-- Title -->
+  <text x="600" y="35" text-anchor="middle" class="title">Odin WebSocket Service - Production Architecture</text>
+
+  <!-- CLIENTS -->
+  <rect x="300" y="70" width="600" height="60" rx="8" fill="#e3f2fd" stroke="#1976d2" class="box"/>
+  <text x="600" y="95" text-anchor="middle" class="subtitle">CLIENTS</text>
+  <text x="600" y="115" text-anchor="middle" class="label">wss://ws.yourdomain.com/ws</text>
+
+  <!-- Arrow down -->
+  <line x1="600" y1="130" x2="600" y2="170" stroke="#666" class="arrow" marker-end="url(#arrowhead)"/>
+
+  <!-- CLOUDFLARE -->
+  <rect x="100" y="170" width="1000" height="200" rx="8" fill="#fff3e0" stroke="#f57c00" class="box"/>
+  <text x="600" y="195" text-anchor="middle" class="subtitle">CLOUDFLARE</text>
+  
+  <!-- Cloudflare - Automatic -->
+  <rect x="130" y="210" width="440" height="140" rx="6" fill="white" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="350" y="230" text-anchor="middle" class="label" font-weight="600">Automatic (no config)</text>
+  <text x="150" y="255" class="feature">• DDoS Protection (L3/L4/L7)</text>
+  <text x="150" y="275" class="feature">• TLS Termination (wss → ws)</text>
+  <text x="150" y="295" class="feature">• WebSocket Proxy</text>
+  <text x="150" y="315" class="feature">• Global Anycast</text>
+  <text x="150" y="335" class="small-label">Idle Timeout: 100s (requires ping/pong)</text>
+  
+  <!-- Cloudflare - Optional -->
+  <rect x="600" y="210" width="470" height="140" rx="6" fill="white" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="835" y="230" text-anchor="middle" class="label" font-weight="600">Optional (dashboard config)</text>
+  <text x="620" y="255" class="feature">• WAF Rules</text>
+  <text x="620" y="275" class="feature">• Rate Limiting Rules</text>
+  <text x="620" y="295" class="feature">• Bot Fight Mode</text>
+  <text x="620" y="315" class="feature">• IP Access Rules</text>
+
+  <!-- Arrow down -->
+  <line x1="600" y1="370" x2="600" y2="410" stroke="#666" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="600" y="395" text-anchor="middle" class="small-label">Origin: cluster IP/domain</text>
+
+  <!-- KUBERNETES CLUSTER -->
+  <rect x="100" y="410" width="1000" height="820" rx="8" fill="#e8f5e9" stroke="#388e3c" class="box"/>
+  <text x="600" y="435" text-anchor="middle" class="subtitle">KUBERNETES CLUSTER</text>
+
+  <!-- Load Balancer Service -->
+  <rect x="300" y="460" width="600" height="50" rx="6" fill="white" stroke="#666" stroke-width="1.5"/>
+  <text x="600" y="490" text-anchor="middle" class="label">Service: LoadBalancer (External IP)</text>
+
+  <!-- WS-SERVER PODS container (drawn first so arrows appear on top) -->
+  <rect x="150" y="535" width="900" height="300" rx="6" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="2"/>
+  <text x="600" y="560" text-anchor="middle" class="subtitle">WS-SERVER PODS</text>
+
+  <!-- Arrow from LoadBalancer down to fork point -->
+  <line x1="600" y1="510" x2="600" y2="575" stroke="#666" class="arrow"/>
+  <!-- Horizontal bus line -->
+  <line x1="300" y1="575" x2="900" y2="575" stroke="#666" class="arrow"/>
+  <!-- Vertical drops to pods -->
+  <line x1="300" y1="575" x2="300" y2="600" stroke="#666" class="arrow" marker-end="url(#arrowhead)"/>
+  <line x1="600" y1="575" x2="600" y2="600" stroke="#666" class="arrow" marker-end="url(#arrowhead)"/>
+  <line x1="900" y1="575" x2="900" y2="600" stroke="#666" class="arrow" marker-end="url(#arrowhead)"/>
+
+  <!-- Pod 1 -->
+  <rect x="200" y="600" width="200" height="120" rx="6" fill="white" stroke="#9c27b0" stroke-width="1.5"/>
+  <text x="300" y="620" text-anchor="middle" class="label" font-weight="600">Pod 1</text>
+  <rect x="220" y="635" width="160" height="70" rx="4" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="1"/>
+  <text x="300" y="655" text-anchor="middle" class="small-label">Shard 0</text>
+  <text x="300" y="675" text-anchor="middle" class="small-label">Shard 1</text>
+  <text x="300" y="695" text-anchor="middle" class="small-label">...</text>
+
+  <!-- Pod 2 -->
+  <rect x="500" y="600" width="200" height="120" rx="6" fill="white" stroke="#9c27b0" stroke-width="1.5"/>
+  <text x="600" y="620" text-anchor="middle" class="label" font-weight="600">Pod 2</text>
+  <rect x="520" y="635" width="160" height="70" rx="4" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="1"/>
+  <text x="600" y="655" text-anchor="middle" class="small-label">Shard 0</text>
+  <text x="600" y="675" text-anchor="middle" class="small-label">Shard 1</text>
+  <text x="600" y="695" text-anchor="middle" class="small-label">...</text>
+
+  <!-- Pod 3 -->
+  <rect x="800" y="600" width="200" height="120" rx="6" fill="white" stroke="#9c27b0" stroke-width="1.5"/>
+  <text x="900" y="620" text-anchor="middle" class="label" font-weight="600">Pod 3 (HPA)</text>
+  <rect x="820" y="635" width="160" height="70" rx="4" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="1"/>
+  <text x="900" y="655" text-anchor="middle" class="small-label">Shard 0</text>
+  <text x="900" y="675" text-anchor="middle" class="small-label">Shard 1</text>
+  <text x="900" y="695" text-anchor="middle" class="small-label">...</text>
+
+  <!-- Features -->
+  <text x="180" y="755" class="feature" font-weight="600">Features:</text>
+  <text x="180" y="775" class="feature">• Ping/Pong (27s) ✓</text>
+  <text x="180" y="795" class="feature">• Rate Limiting ✓</text>
+  <text x="180" y="815" class="feature">• Shard Distribution</text>
+  <text x="500" y="775" class="feature">• Auth (JWT) - planned</text>
+  <text x="500" y="795" class="feature">• Subscription Management</text>
+  <text x="500" y="815" class="feature">• Graceful Shutdown</text>
+
+  <!-- Arrow from pods splits to data stores - bus style with vertical drops -->
+  <line x1="600" y1="835" x2="600" y2="870" stroke="#666" class="arrow"/>
+  <!-- Horizontal bus line -->
+  <line x1="345" y1="870" x2="855" y2="870" stroke="#666" class="arrow"/>
+  <!-- Labels above bus line -->
+  <text x="345" y="860" text-anchor="middle" class="small-label">connects to</text>
+  <text x="855" y="860" text-anchor="middle" class="small-label">consumes from</text>
+  <!-- Vertical arrows down to data stores -->
+  <line x1="345" y1="870" x2="345" y2="910" stroke="#666" class="arrow" marker-end="url(#arrowhead)"/>
+  <line x1="855" y1="870" x2="855" y2="910" stroke="#666" class="arrow" marker-end="url(#arrowhead)"/>
+
+  <!-- VALKEY -->
+  <rect x="170" y="910" width="350" height="120" rx="6" fill="#ffebee" stroke="#c62828" stroke-width="2"/>
+  <text x="345" y="935" text-anchor="middle" class="subtitle">VALKEY (Redis)</text>
+  <text x="345" y="955" text-anchor="middle" class="label" font-weight="600">BroadcastBus Pub/Sub</text>
+  <text x="190" y="980" class="feature">• Cross-pod broadcasting</text>
+  <text x="190" y="1000" class="feature">• WS-Server publishes here</text>
+  <text x="190" y="1020" class="feature">• All pods subscribe</text>
+
+  <!-- REDPANDA -->
+  <rect x="680" y="910" width="350" height="120" rx="6" fill="#e1f5fe" stroke="#0277bd" stroke-width="2"/>
+  <text x="855" y="935" text-anchor="middle" class="subtitle">REDPANDA (Kafka)</text>
+  <text x="855" y="955" text-anchor="middle" class="label" font-weight="600">Event Ingestion</text>
+  <text x="700" y="980" class="feature">• Publishers → Kafka</text>
+  <text x="700" y="1000" class="feature">• WS-Server consumes</text>
+  <text x="700" y="1020" class="feature">• Event stream processing</text>
+
+  <!-- Data Flow -->
+  <rect x="150" y="1060" width="900" height="60" rx="6" fill="#fff9c4" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="600" y="1080" text-anchor="middle" class="label" font-weight="600">Data Flow:</text>
+  <text x="600" y="1105" text-anchor="middle" class="feature">Publishers → Kafka → WS-Server → Valkey (BroadcastBus) → All Pods → Clients</text>
+
+  <!-- MONITORING -->
+  <rect x="150" y="1140" width="900" height="70" rx="6" fill="#fce4ec" stroke="#ad1457" stroke-width="1.5"/>
+  <text x="600" y="1165" text-anchor="middle" class="subtitle">MONITORING</text>
+  <text x="250" y="1190" class="feature">• Prometheus (metrics)</text>
+  <text x="500" y="1190" class="feature">• Grafana (dashboards)</text>
+  <text x="750" y="1190" class="feature">• Loki (logs)</text>
+  <text x="950" y="1190" class="feature">• Promtail</text>
+
+  <!-- Footer notes -->
+  <text x="600" y="1260" text-anchor="middle" class="small-label">Version 1.0 | Status: Planned | Date: 2025-12-04</text>
+</svg>

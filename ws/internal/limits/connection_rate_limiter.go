@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adred-codev/ws_poc/internal/monitoring"
+	"github.com/adred-codev/odin-ws/internal/monitoring"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 )

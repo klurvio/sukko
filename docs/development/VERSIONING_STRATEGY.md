@@ -67,7 +67,7 @@ When configuration, deployments, or application code changes in the future, we n
 
 ### Option A: Versioned Deployments Directory (RECOMMENDED)
 ```
-ws_poc/
+odin-ws/
 ├── VERSION                           # Root version file
 ├── CHANGELOG.md                      # Version changelog
 ├── ws/                               # Application code (git versioned)

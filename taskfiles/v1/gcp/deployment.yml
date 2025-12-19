@@ -634,14 +634,14 @@ tasks:
         fi
 
         # Check if repo exists
-        REPO_EXISTS=$(gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
+        REPO_EXISTS=$(gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/odin-ws && echo true || echo false" 2>/dev/null || echo "false")
 
         if [ "$REPO_EXISTS" = "true" ]; then
           echo "✅ Repository exists, updating..."
-          gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
+          gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
         else
           echo "📦 Cloning repository..."
-          gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
+          gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/odin-ws" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
         # Get backend internal IP
@@ -658,14 +658,14 @@ tasks:
 
         # Create .env file with BACKEND_INTERNAL_IP for docker-compose
         echo "📝 Creating .env file for docker-compose..."
-        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'echo \"BACKEND_INTERNAL_IP=$BACKEND_IP\" > /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend/.env'" 2>/dev/null
+        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'echo \"BACKEND_INTERNAL_IP=$BACKEND_IP\" > /home/deploy/odin-ws/deployments/v1/gcp/distributed/backend/.env'" 2>/dev/null
 
         # Substitute WS_GO_INTERNAL_IP and VALKEY_INTERNAL_IP in prometheus.yml before starting services
         echo "📝 Configuring Prometheus scrape targets..."
-        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && sed -i.bak \"s/\\\${WS_GO_INTERNAL_IP}/$WS_IP/g; s/\\\${VALKEY_INTERNAL_IP}/$VALKEY_IP/g\" prometheus.yml && echo \"✅ Prometheus config updated: WS at $WS_IP:3004, Valkey at $VALKEY_IP:9121\"'" 2>/dev/null
+        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/backend && sed -i.bak \"s/\\\${WS_GO_INTERNAL_IP}/$WS_IP/g; s/\\\${VALKEY_INTERNAL_IP}/$VALKEY_IP/g\" prometheus.yml && echo \"✅ Prometheus config updated: WS at $WS_IP:3004, Valkey at $VALKEY_IP:9121\"'" 2>/dev/null
 
         echo "🐳 Starting Docker services..."
-        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/backend && docker-compose up -d 2>&1 | grep -E \"(Created|Started|Running)\"'" 2>/dev/null || true
+        gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/backend && docker-compose up -d 2>&1 | grep -E \"(Created|Started|Running)\"'" 2>/dev/null || true
         sleep 15
 
         # Create topics if needed
@@ -717,21 +717,21 @@ tasks:
         fi
 
         # Check if repo exists
-        REPO_EXISTS=$(gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
+        REPO_EXISTS=$(gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/odin-ws && echo true || echo false" 2>/dev/null || echo "false")
 
         if [ "$REPO_EXISTS" = "true" ]; then
           echo "✅ Repository exists, updating..."
-          gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
+          gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
         else
           echo "📦 Cloning repository..."
-          gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
+          gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/odin-ws" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
         # Fetch Valkey password from Valkey VM
         VALKEY_PASSWORD=""
         if [ -n "$VALKEY_IP" ]; then
           echo "🔐 Fetching Valkey password from ws-valkey..."
-          VALKEY_PASSWORD=$(gcloud compute ssh ws-valkey --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'grep \"^VALKEY_PASSWORD=\" /home/deploy/ws_poc/deployments/v1/gcp/distributed/valkey/.env 2>/dev/null | cut -d= -f2'" 2>/dev/null || echo "")
+          VALKEY_PASSWORD=$(gcloud compute ssh ws-valkey --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'grep \"^VALKEY_PASSWORD=\" /home/deploy/odin-ws/deployments/v1/gcp/distributed/valkey/.env 2>/dev/null | cut -d= -f2'" 2>/dev/null || echo "")
           if [ -n "$VALKEY_PASSWORD" ]; then
             echo "✅ Got Valkey password from ws-valkey"
           else
@@ -743,15 +743,15 @@ tasks:
         echo "⚙️  Creating environment files..."
 
         # Create complete .env.production with all required variables
-        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && printf \"WS_MODE=multi\nBACKEND_INTERNAL_IP=$BACKEND_IP\nKAFKA_BROKERS=$BACKEND_IP:9092\nVALKEY_ADDRS=$VALKEY_IP:6379\nVALKEY_PASSWORD=$VALKEY_PASSWORD\n\" > .env.production && chmod 600 .env.production'" 2>/dev/null
+        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/ws-server && printf \"WS_MODE=multi\nBACKEND_INTERNAL_IP=$BACKEND_IP\nKAFKA_BROKERS=$BACKEND_IP:9092\nVALKEY_ADDRS=$VALKEY_IP:6379\nVALKEY_PASSWORD=$VALKEY_PASSWORD\n\" > .env.production && chmod 600 .env.production'" 2>/dev/null
 
         # Create empty .env.debug (required by docker-compose.multi.yml)
-        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'touch /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server/.env.debug'" 2>/dev/null
+        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'touch /home/deploy/odin-ws/deployments/v1/gcp/distributed/ws-server/.env.debug'" 2>/dev/null
 
         echo "✅ Environment files created"
 
         echo "🐳 Starting Docker services..."
-        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc/deployments/v1/gcp/distributed/ws-server && docker-compose -f docker-compose.multi.yml up -d 2>&1'" 2>/dev/null || true
+        gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/ws-server && docker-compose -f docker-compose.multi.yml up -d 2>&1'" 2>/dev/null || true
 
         echo "⏳ Waiting for containers to start (20s)..."
         sleep 20
@@ -793,19 +793,19 @@ tasks:
         done
 
         # Check if repo exists
-        REPO_EXISTS=$(gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/ws_poc && echo true || echo false" 2>/dev/null || echo "false")
+        REPO_EXISTS=$(gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy test -d /home/deploy/odin-ws && echo true || echo false" 2>/dev/null || echo "false")
 
         if [ "$REPO_EXISTS" = "true" ]; then
           echo "✅ Repository exists, updating..."
-          gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/ws_poc && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
+          gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy bash -c 'cd /home/deploy/odin-ws && git fetch origin {{.GIT_BRANCH}} 2>&1 | grep -v From && git reset --hard origin/{{.GIT_BRANCH}} 2>&1 | head -1'" 2>/dev/null
         else
           echo "📦 Cloning repository..."
-          gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/ws_poc" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
+          gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy git clone -b {{.GIT_BRANCH}} -q {{.GIT_REPO_SSH}} /home/deploy/odin-ws" 2>&1 | grep -v "Cloning" | grep -v "remote" || true
         fi
 
         # Build Docker image (deploy user in docker group, no sudo needed)
         echo "🐳 Building Docker image..."
-        gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy docker build -t loadtest /home/deploy/ws_poc/loadtest 2>&1 | tail -10" 2>/dev/null || true
+        gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy docker build -t loadtest /home/deploy/odin-ws/loadtest 2>&1 | tail -10" 2>/dev/null || true
 
         # Verify image was built
         IMAGE_EXISTS=$(gcloud compute ssh {{.LOADTEST_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="sudo -i -u deploy docker images -q loadtest 2>/dev/null" 2>/dev/null)
@@ -828,7 +828,7 @@ tasks:
       - |
         gcloud compute ssh {{.BACKEND_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="\
           sudo su - deploy -c '\
-            cd ws_poc && \
+            cd odin-ws && \
             git pull origin {{.GIT_BRANCH}} && \
             cd deployments/v1/gcp/distributed/backend && \
             docker-compose build && \
@@ -850,7 +850,7 @@ tasks:
 
         gcloud compute ssh {{.WS_INSTANCE}} --zone={{.GCP_ZONE}} --project={{.GCP_PROJECT}} --command="\
           sudo su - deploy -c '\
-            cd ws_poc && \
+            cd odin-ws && \
             git pull origin {{.GIT_BRANCH}} && \
             cd deployments/v1/gcp/distributed/ws-server && \
             source .env.production && \

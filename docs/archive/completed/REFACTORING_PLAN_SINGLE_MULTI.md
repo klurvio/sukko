@@ -7,7 +7,7 @@
 ## Target Directory Structure
 
 ```
-ws_poc/
+odin-ws/
 ├── cmd/
 │   └── ws-single/                    # Single-core binary (for now)
 │       ├── main.go                   110 lines (move from ws/main.go)
@@ -162,9 +162,9 @@ package main
 import (
     "os"
     
-    "github.com/adred-codev/ws_poc/internal/single/core"
-    "github.com/adred-codev/ws_poc/internal/single/monitoring"
-    "github.com/adred-codev/ws_poc/internal/single/platform"
+    "github.com/adred-codev/odin-ws/internal/single/core"
+    "github.com/adred-codev/odin-ws/internal/single/monitoring"
+    "github.com/adred-codev/odin-ws/internal/single/platform"
 )
 
 func main() {
@@ -192,18 +192,18 @@ func main() {
 **Current ws/server.go imports:**
 ```go
 import (
-    "github.com/adred-codev/ws_poc/kafka"
+    "github.com/adred-codev/odin-ws/kafka"
 )
 ```
 
 **After moving to internal/single/core/server.go:**
 ```go
 import (
-    "github.com/adred-codev/ws_poc/internal/single/kafka"
-    "github.com/adred-codev/ws_poc/internal/single/messaging"
-    "github.com/adred-codev/ws_poc/internal/single/limits"
-    "github.com/adred-codev/ws_poc/internal/single/monitoring"
-    "github.com/adred-codev/ws_poc/internal/single/platform"
+    "github.com/adred-codev/odin-ws/internal/single/kafka"
+    "github.com/adred-codev/odin-ws/internal/single/messaging"
+    "github.com/adred-codev/odin-ws/internal/single/limits"
+    "github.com/adred-codev/odin-ws/internal/single/monitoring"
+    "github.com/adred-codev/odin-ws/internal/single/platform"
 )
 ```
 

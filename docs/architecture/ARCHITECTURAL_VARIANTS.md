@@ -104,7 +104,7 @@ Regional hubs:    ws-multi (high throughput)
 
 **Structure:**
 ```
-ws_poc/
+odin-ws/
 ├── cmd/
 │   ├── ws-single/              # Single-core binary
 │   │   ├── main.go
@@ -189,7 +189,7 @@ CMD ["./ws-single"]
 
 **Structure:**
 ```
-ws_poc/
+odin-ws/
 ├── ws-single/                  # Completely independent
 │   ├── go.mod
 │   ├── *.go
@@ -208,10 +208,10 @@ ws_poc/
 **Go Modules:**
 ```go
 // ws-single/go.mod
-module github.com/adred-codev/ws_poc/ws-single
+module github.com/adred-codev/odin-ws/ws-single
 
 // ws-multi/go.mod
-module github.com/adred-codev/ws_poc/ws-multi
+module github.com/adred-codev/odin-ws/ws-multi
 ```
 
 **Build Commands:**
@@ -389,7 +389,7 @@ cd ws && go run main.go
 ### Phase 2: Create Directory Structure
 
 ```bash
-cd /Volumes/Dev/Codev/Toniq/ws_poc
+cd /Volumes/Dev/Codev/Toniq/odin-ws
 
 # Create new structure
 mkdir -p cmd/ws-single cmd/ws-multi
@@ -408,8 +408,8 @@ mkdir -p pkg/metrics pkg/logger pkg/kafka
 package main
 
 import (
-    "github.com/adred-codev/ws_poc/internal/single"
-    "github.com/adred-codev/ws_poc/pkg/logger"
+    "github.com/adred-codev/odin-ws/internal/single"
+    "github.com/adred-codev/odin-ws/pkg/logger"
 )
 
 func main() {
@@ -441,9 +441,9 @@ mv ws/kafka/ pkg/kafka/
 package single
 
 import (
-    "github.com/adred-codev/ws_poc/internal/shared"
-    "github.com/adred-codev/ws_poc/pkg/metrics"
-    "github.com/adred-codev/ws_poc/pkg/kafka"
+    "github.com/adred-codev/odin-ws/internal/shared"
+    "github.com/adred-codev/odin-ws/pkg/metrics"
+    "github.com/adred-codev/odin-ws/pkg/kafka"
 )
 ```
 
@@ -490,8 +490,8 @@ package main
 
 import (
     "runtime"
-    "github.com/adred-codev/ws_poc/internal/multi"
-    "github.com/adred-codev/ws_poc/pkg/logger"
+    "github.com/adred-codev/odin-ws/internal/multi"
+    "github.com/adred-codev/odin-ws/pkg/logger"
 )
 
 func main() {
@@ -510,8 +510,8 @@ package multi
 
 import (
     "sync"
-    "github.com/adred-codev/ws_poc/internal/shared"
-    "github.com/adred-codev/ws_poc/pkg/metrics"
+    "github.com/adred-codev/odin-ws/internal/shared"
+    "github.com/adred-codev/odin-ws/pkg/metrics"
 )
 
 type Server struct {
@@ -730,7 +730,7 @@ images:build:multi:
 ### Recommended Structure
 
 ```
-ws_poc/
+odin-ws/
 ├── cmd/
 │   ├── ws-single/     # Current: Single-core (production)
 │   └── ws-multi/      # Future: Multi-core (experimental)

@@ -7,7 +7,7 @@ version: '3'
 vars:
   LOCAL_HELM_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
   LOCAL_KIND_CONFIG: "{{.ROOT_DIR}}/deployments/k8s/environments/local/kind-config.yaml"
-  LOCAL_CLUSTER: odin-local
+  LOCAL_CLUSTER: odin-ws-local
   LOCAL_NS: odin-local
   LOCAL_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values-local.yaml"
 
@@ -46,6 +46,8 @@ tasks:
     cmds:
       - docker build -t odin-ws:latest {{.ROOT_DIR}}/ws
       - kind load docker-image odin-ws:latest --name {{.LOCAL_CLUSTER}}
+      - docker build -t odin-auth:latest -f {{.ROOT_DIR}}/ws/Dockerfile.auth {{.ROOT_DIR}}/ws
+      - kind load docker-image odin-auth:latest --name {{.LOCAL_CLUSTER}}
       - docker build -t odin-publisher:latest {{.ROOT_DIR}}/publisher
       - kind load docker-image odin-publisher:latest --name {{.LOCAL_CLUSTER}}
 

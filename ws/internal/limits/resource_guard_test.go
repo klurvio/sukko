@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/adred-codev/ws_poc/internal/monitoring"
-	"github.com/adred-codev/ws_poc/internal/types"
+	"github.com/adred-codev/odin-ws/internal/monitoring"
+	"github.com/adred-codev/odin-ws/internal/types"
 )
 
 // mockSystemMonitor allows controlled CPU values for testing

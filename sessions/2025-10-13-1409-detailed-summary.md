@@ -2140,7 +2140,7 @@ feat: Make connection timeout configurable for accurate load testing
 **Session Conducted By**: AI Assistant (Claude)
 **Session Date**: October 13, 2025
 **Project**: WebSocket Server (ws-go) - ODIN Token Real-Time Updates
-**Repository**: `/Volumes/Dev/Codev/Toniq/ws_poc`
+**Repository**: `/Volumes/Dev/Codev/Toniq/odin-ws`
 
 **For Questions About This Session**:
 - See: `docs/testing/CONNECTION_TIMEOUT_ANALYSIS.md` for technical details

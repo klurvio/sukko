@@ -9,6 +9,9 @@ dependencies:
   - name: ws-server
     version: "1.0.0"
     condition: ws-server.enabled
+  - name: auth-service
+    version: "1.0.0"
+    condition: auth-service.enabled
   - name: redpanda
     version: "1.0.0"
     condition: redpanda.enabled

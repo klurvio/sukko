@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/adred-codev/ws_poc/internal/monitoring"
+	"github.com/adred-codev/odin-ws/internal/monitoring"
 )
 
 // MockSystemMonitor provides controllable CPU/memory/goroutine values for testing.

@@ -3391,9 +3391,9 @@ task gcp:redis:test-connection
 ## References
 
 **Internal Documentation**:
-- `/Volumes/Dev/Codev/Toniq/ws_poc/docs/spikes/SPIKE_EXTERNAL_BROADCAST_BUS.md` - Original NATS vs Redis comparison
-- `/Volumes/Dev/Codev/Toniq/ws_poc/docs/architecture/HORIZONTAL_SCALING_PLAN.md` - Multi-instance scaling strategy
-- `/Volumes/Dev/Codev/Toniq/ws_poc/ws/internal/multi/broadcast.go` - Current in-memory implementation
+- `/Volumes/Dev/Codev/Toniq/odin-ws/docs/spikes/SPIKE_EXTERNAL_BROADCAST_BUS.md` - Original NATS vs Redis comparison
+- `/Volumes/Dev/Codev/Toniq/odin-ws/docs/architecture/HORIZONTAL_SCALING_PLAN.md` - Multi-instance scaling strategy
+- `/Volumes/Dev/Codev/Toniq/odin-ws/ws/internal/multi/broadcast.go` - Current in-memory implementation
 
 **External Resources**:
 - Redis Pub/Sub Documentation: https://redis.io/docs/manual/pubsub/

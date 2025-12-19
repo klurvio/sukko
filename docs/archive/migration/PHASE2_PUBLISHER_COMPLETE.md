@@ -126,23 +126,23 @@ January 5, 2025
 ## Files Created/Modified
 
 ### Created Files
-1. `/Volumes/Dev/Codev/Toniq/ws_poc/publisher/types/event-types.ts`
-2. `/Volumes/Dev/Codev/Toniq/ws_poc/publisher/redpanda-publisher.ts`
-3. `/Volumes/Dev/Codev/Toniq/ws_poc/publisher/event-simulator.ts`
-4. `/Volumes/Dev/Codev/Toniq/ws_poc/publisher/api-server.ts`
-5. `/Volumes/Dev/Codev/Toniq/ws_poc/publisher/index.ts`
-6. `/Volumes/Dev/Codev/Toniq/ws_poc/publisher/tsconfig.json`
-7. `/Volumes/Dev/Codev/Toniq/ws_poc/publisher/.env.example`
+1. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/types/event-types.ts`
+2. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/redpanda-publisher.ts`
+3. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/event-simulator.ts`
+4. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/api-server.ts`
+5. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/index.ts`
+6. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/tsconfig.json`
+7. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/.env.example`
 
 ### Modified Files
-1. `/Volumes/Dev/Codev/Toniq/ws_poc/publisher/package.json`
+1. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/package.json`
    - Removed: `nats@^2.19.0`
    - Added: `kafkajs@^2.2.4`
    - Updated version: 1.0.0 → 2.0.0
    - Changed main entry: `publisher.js` → `index.js`
    - Updated dev script: `publisher.ts` → `index.ts`
 
-2. `/Volumes/Dev/Codev/Toniq/ws_poc/scripts/setup-redpanda-topics.sh`
+2. `/Volumes/Dev/Codev/Toniq/odin-ws/scripts/setup-redpanda-topics.sh`
    - Fixed to use `docker exec` for rpk commands
    - Simplified from associative array to sequential calls
    - Added better error handling and output formatting

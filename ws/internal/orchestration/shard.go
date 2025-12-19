@@ -6,9 +6,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/adred-codev/ws_poc/internal/monitoring"
-	"github.com/adred-codev/ws_poc/internal/types"
-	"github.com/adred-codev/ws_poc/internal/wsserver"
+	"github.com/adred-codev/odin-ws/internal/monitoring"
+	"github.com/adred-codev/odin-ws/internal/types"
+	"github.com/adred-codev/odin-ws/internal/server"
 	"github.com/rs/zerolog"
 )
 
@@ -16,7 +16,7 @@ import (
 // It manages a subset of total connections and communicates via a central BroadcastBus.
 type Shard struct {
 	ID             int // Exported for external access
-	server         *wsserver.Server
+	server         *server.Server
 	advertiseAddr  string                 // Address advertised to LoadBalancer (e.g., localhost:3002)
 	broadcastChan  chan *BroadcastMessage // Channel to receive messages from the central bus
 	logger         zerolog.Logger
@@ -45,8 +45,8 @@ type ShardConfig struct {
 func NewShard(cfg ShardConfig) (*Shard, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create a wsserver.Server instance for this shard
-	// The wsserver.Server will use the shard's specific maxConnections
+	// Create a server.Server instance for this shard
+	// The server.Server will use the shard's specific maxConnections
 	serverConfig := cfg.ServerConfig
 	serverConfig.MaxConnections = cfg.MaxConnections                                      // Override with shard-specific limit
 	serverConfig.DisableKafkaConsumer = cfg.DisableKafkaConsumer                          // Pass flag to disable per-shard consumer
@@ -63,8 +63,8 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 		})
 	}
 
-	// Create the wsserver.Server instance
-	shardServer, err := wsserver.NewServer(serverConfig, broadcastToBusFunc) // Pass the bus-publishing broadcast func
+	// Create the server.Server instance
+	shardServer, err := server.NewServer(serverConfig, broadcastToBusFunc) // Pass the bus-publishing broadcast func
 
 	if err != nil {
 		cancel()

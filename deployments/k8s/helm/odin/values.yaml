@@ -16,6 +16,21 @@ global:
     app.kubernetes.io/part-of: odin
 
 # =============================================================================
+# Shared Authentication Secrets
+# =============================================================================
+# These secrets are shared between auth-service and ws-server
+auth:
+  # JWT signing secret (must be at least 32 bytes)
+  # IMPORTANT: Override in values-{env}.yaml with real secrets!
+  jwtSecret: "your-32-byte-jwt-secret-here!!"
+
+  # App secrets (key = env var name, value = secret)
+  # These match the secret_env fields in auth-service.tenants config
+  appSecrets:
+    APP_SECRET_ODIN_WEB: "change-me-odin-web-secret"
+    APP_SECRET_ODIN_MOBILE: "change-me-odin-mobile-secret"
+
+# =============================================================================
 # WebSocket Server
 # =============================================================================
 ws-server:
@@ -134,6 +149,69 @@ ws-server:
     targetCPUUtilizationPercentage: 70
 
 # =============================================================================
+# Auth Service
+# =============================================================================
+auth-service:
+  enabled: true
+
+  replicaCount: 1
+
+  image:
+    repository: odin-auth
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Service configuration
+  config:
+    port: 3002
+    tokenExpiry: "24h"
+    logLevel: info
+
+  # Tenant configuration (seeded via ConfigMap)
+  # To add/modify tenants: Update values -> helm upgrade -> kubectl rollout restart
+  tenants:
+    - id: "odin-internal"
+      name: "Odin Internal"
+      apps:
+        - id: "odin-web"
+          name: "Odin Web Dashboard"
+          secret_env: "APP_SECRET_ODIN_WEB"
+        - id: "odin-mobile"
+          name: "Odin Mobile App"
+          secret_env: "APP_SECRET_ODIN_MOBILE"
+
+  # Resource allocation (lightweight service)
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "64Mi"
+    limits:
+      cpu: "250m"
+      memory: "128Mi"
+
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 3002
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 3002
+    initialDelaySeconds: 3
+    periodSeconds: 5
+    timeoutSeconds: 2
+
+  # Service configuration (ClusterIP - internal only)
+  service:
+    type: ClusterIP
+    port: 3002
+
+# =============================================================================
 # Redpanda (Kafka)
 # =============================================================================
 redpanda:
@@ -201,6 +279,12 @@ redpanda:
     - name: odin.analytics
       partitions: 12
       replicationFactor: 1
+
+  # External access for odin-api publisher (Firebase Functions → K8s)
+  externalAccess:
+    enabled: false
+    type: LoadBalancer  # LoadBalancer or NodePort
+    nodePort: ""        # Only used if type is NodePort
 
 # =============================================================================
 # Valkey (Redis-compatible)

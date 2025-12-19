@@ -20,7 +20,7 @@ This session achieved three major milestones: (1) Optimized connection timeout f
 
 ### Files Created
 
-#### 1. `/Volumes/Dev/Codev/Toniq/ws_poc/src/config/config.go` (NEW - 223 lines)
+#### 1. `/Volumes/Dev/Codev/Toniq/odin-ws/src/config/config.go` (NEW - 223 lines)
 **Purpose:** Centralized, type-safe configuration management with validation
 
 **Key Components:**
@@ -88,7 +88,7 @@ type Config struct {
 - **Fail-fast validation:** Invalid configs rejected at startup
 - **Multiple output formats:** Human-readable (Print) and machine-readable (LogConfig)
 
-#### 2. `/Volumes/Dev/Codev/Toniq/ws_poc/src/.env.example` (NEW - 185 lines)
+#### 2. `/Volumes/Dev/Codev/Toniq/odin-ws/src/.env.example` (NEW - 185 lines)
 **Purpose:** Comprehensive configuration template with inline documentation
 
 **Structure:**
@@ -115,7 +115,7 @@ WS_WORKER_POOL_SIZE=192
 WS_WORKER_QUEUE_SIZE=19200 # 100x workers
 ```
 
-#### 3. `/Volumes/Dev/Codev/Toniq/ws_poc/isolated/ws-go/.env.production` (NEW - 80 lines)
+#### 3. `/Volumes/Dev/Codev/Toniq/odin-ws/isolated/ws-go/.env.production` (NEW - 80 lines)
 **Purpose:** Production-ready configuration for odin-ws-go instance
 
 **Key Settings:**
@@ -135,7 +135,7 @@ LOG_FORMAT=json
 
 **Notable:** Uses `${BACKEND_INTERNAL_IP}` substitution for NATS URL
 
-#### 4. `/Volumes/Dev/Codev/Toniq/ws_poc/docs/testing/CONNECTION_TIMEOUT_ANALYSIS.md` (NEW - 235 lines)
+#### 4. `/Volumes/Dev/Codev/Toniq/odin-ws/docs/testing/CONNECTION_TIMEOUT_ANALYSIS.md` (NEW - 235 lines)
 **Purpose:** Document connection timeout investigation and resolution
 
 **Key Sections:**
@@ -146,7 +146,7 @@ LOG_FORMAT=json
 5. **Recommendations by Use Case:** Load testing (10s), production web (15-30s), mobile (20-40s), admin tools (5s)
 6. **Trade-offs Analysis:** Benefits (fewer false negatives, better UX) vs Risks (longer wait for errors)
 
-#### 5. `/Volumes/Dev/Codev/Toniq/ws_poc/docs/production/CONFIG_MIGRATION_PLAN.md` (NEW - 730 lines, 18K words)
+#### 5. `/Volumes/Dev/Codev/Toniq/odin-ws/docs/production/CONFIG_MIGRATION_PLAN.md` (NEW - 730 lines, 18K words)
 **Purpose:** Comprehensive migration plan for configuration centralization
 
 **Major Sections:**
@@ -161,7 +161,7 @@ LOG_FORMAT=json
 
 ### Files Modified
 
-#### 1. `/Volumes/Dev/Codev/Toniq/ws_poc/src/main.go`
+#### 1. `/Volumes/Dev/Codev/Toniq/odin-ws/src/main.go`
 **Changes:** 176 lines → 102 lines (-74 lines, **42% reduction**)
 
 **Removed Code (lines 16-62 deleted):**
@@ -213,7 +213,7 @@ serverConfig := ServerConfig{
 - ✅ Documented (all defaults in .env.example)
 - ✅ Testable (config package can be unit tested)
 
-#### 2. `/Volumes/Dev/Codev/Toniq/ws_poc/isolated/ws-go/docker-compose.yml`
+#### 2. `/Volumes/Dev/Codev/Toniq/odin-ws/isolated/ws-go/docker-compose.yml`
 **Changes:** 88 lines → 42 lines (-46 lines, **52% reduction**)
 
 **Removed:**
@@ -264,7 +264,7 @@ command:
 - ✅ Self-documenting (comments in .env file)
 - ✅ No more `envsubst` needed for BACKEND_INTERNAL_IP
 
-#### 3. `/Volumes/Dev/Codev/Toniq/ws_poc/scripts/sustained-load-test.cjs`
+#### 3. `/Volumes/Dev/Codev/Toniq/odin-ws/scripts/sustained-load-test.cjs`
 **Changes:** Connection timeout configuration made explicit and documented
 
 **Added (lines 137-146):**
@@ -302,7 +302,7 @@ CONNECTION_TIMEOUT=15000 npm run test:sustained
 CONNECTION_TIMEOUT=5000 npm run test:sustained
 ```
 
-#### 4. `/Volumes/Dev/Codev/Toniq/ws_poc/src/go.mod`
+#### 4. `/Volumes/Dev/Codev/Toniq/odin-ws/src/go.mod`
 **Dependencies Added:**
 ```go
 require (
@@ -665,7 +665,7 @@ Test Results (After Fix):
 4. ✅ Always distinguish between "server can't handle load" vs "test is too aggressive"
 
 **Documentation Created:**
-- `/Volumes/Dev/Codev/Toniq/ws_poc/docs/testing/CONNECTION_TIMEOUT_ANALYSIS.md` (235 lines)
+- `/Volumes/Dev/Codev/Toniq/odin-ws/docs/testing/CONNECTION_TIMEOUT_ANALYSIS.md` (235 lines)
 
 ---
 
@@ -822,7 +822,7 @@ WS_WORKER_POOL_SIZE=0 WS_CPU_LIMIT=1.9 go run main.go
 - ✅ Minimal overhead (22KB vs Viper's 2MB)
 
 **Documentation Created:**
-- `/Volumes/Dev/Codev/Toniq/ws_poc/docs/production/CONFIG_MIGRATION_PLAN.md` (730 lines)
+- `/Volumes/Dev/Codev/Toniq/odin-ws/docs/production/CONFIG_MIGRATION_PLAN.md` (730 lines)
 
 ---
 
@@ -835,7 +835,7 @@ WS_WORKER_POOL_SIZE=0 WS_CPU_LIMIT=1.9 go run main.go
 **Test Procedure:**
 ```bash
 # Run sustained load test with 7,000 connections
-cd /Volumes/Dev/Codev/Toniq/ws_poc
+cd /Volumes/Dev/Codev/Toniq/odin-ws
 TARGET_CONNECTIONS=7000 CONNECTION_TIMEOUT=10000 npm run test:sustained
 ```
 
@@ -871,7 +871,7 @@ TARGET_CONNECTIONS=7000 CONNECTION_TIMEOUT=10000 npm run test:sustained
 
 ```bash
 # Test 1: Successful load
-cd /Volumes/Dev/Codev/Toniq/ws_poc/src
+cd /Volumes/Dev/Codev/Toniq/odin-ws/src
 cp .env.example .env
 go run main.go
 # Expected: Server starts, config printed
@@ -923,7 +923,7 @@ Test 6: ✅ PASS - Auto-calculated worker_pool_size=4 from cpu_limit=1.9
 
 **Test Procedure:**
 ```bash
-cd /Volumes/Dev/Codev/Toniq/ws_poc/isolated/ws-go
+cd /Volumes/Dev/Codev/Toniq/odin-ws/isolated/ws-go
 export BACKEND_INTERNAL_IP=10.128.0.2
 docker-compose up -d
 docker logs odin-ws-go | head -50
@@ -966,7 +966,7 @@ NATS URL:        nats://10.128.0.2:4222
 
 **Test Procedure:**
 ```bash
-cd /Volumes/Dev/Codev/Toniq/ws_poc/src
+cd /Volumes/Dev/Codev/Toniq/odin-ws/src
 go mod tidy
 go build -o /tmp/ws-server
 ls -lh /tmp/ws-server
@@ -1320,7 +1320,7 @@ CONNECTION_TIMEOUT_MS: parseInt(process.env.CONNECTION_TIMEOUT) || 10000,
 
 ### New Documentation Files
 
-#### 1. `/Volumes/Dev/Codev/Toniq/ws_poc/docs/testing/CONNECTION_TIMEOUT_ANALYSIS.md`
+#### 1. `/Volumes/Dev/Codev/Toniq/odin-ws/docs/testing/CONNECTION_TIMEOUT_ANALYSIS.md`
 **Size:** 235 lines
 **Purpose:** Document connection timeout investigation and resolution
 
@@ -1344,7 +1344,7 @@ CONNECTION_TIMEOUT_MS: parseInt(process.env.CONNECTION_TIMEOUT) || 10000,
 
 ---
 
-#### 2. `/Volumes/Dev/Codev/Toniq/ws_poc/docs/production/CONFIG_MIGRATION_PLAN.md`
+#### 2. `/Volumes/Dev/Codev/Toniq/odin-ws/docs/production/CONFIG_MIGRATION_PLAN.md`
 **Size:** 730 lines, 18K words
 **Purpose:** Comprehensive migration plan for configuration centralization
 
@@ -1370,7 +1370,7 @@ CONNECTION_TIMEOUT_MS: parseInt(process.env.CONNECTION_TIMEOUT) || 10000,
 
 ---
 
-#### 3. `/Volumes/Dev/Codev/Toniq/ws_poc/src/.env.example`
+#### 3. `/Volumes/Dev/Codev/Toniq/odin-ws/src/.env.example`
 **Size:** 185 lines
 **Purpose:** Comprehensive configuration template
 
@@ -1395,7 +1395,7 @@ CONNECTION_TIMEOUT_MS: parseInt(process.env.CONNECTION_TIMEOUT) || 10000,
 
 ---
 
-#### 4. `/Volumes/Dev/Codev/Toniq/ws_poc/isolated/ws-go/.env.production`
+#### 4. `/Volumes/Dev/Codev/Toniq/odin-ws/isolated/ws-go/.env.production`
 **Size:** 80 lines
 **Purpose:** Production-ready configuration
 
@@ -1606,7 +1606,7 @@ Type Safety:
 
 1. **[ ] Commit Configuration Changes**
    ```bash
-   cd /Volumes/Dev/Codev/Toniq/ws_poc
+   cd /Volumes/Dev/Codev/Toniq/odin-ws
    git add src/config/ src/.env.example isolated/ws-go/.env.production
    git add src/main.go src/go.mod src/go.sum isolated/ws-go/docker-compose.yml
    git commit -m "feat: Centralize configuration with type-safe .env parsing"
@@ -1618,7 +1618,7 @@ Type Safety:
 2. **[ ] Deploy to Staging**
    ```bash
    # SSH to staging server
-   cd /path/to/ws_poc
+   cd /path/to/odin-ws
    git pull origin main
    cd isolated/ws-go
    docker-compose down
@@ -1842,7 +1842,7 @@ TestConfigAutoCalculate_QueueSize
 #### Environment Setup
 ```bash
 # Project location
-cd /Volumes/Dev/Codev/Toniq/ws_poc
+cd /Volumes/Dev/Codev/Toniq/odin-ws
 
 # Current branch
 git checkout main
@@ -1903,9 +1903,9 @@ Binary Size Increase: +22KB (godotenv + env)
 4. ✅ Stay with VMs (not Kubernetes)
 
 #### Documentation References
-- Connection timeout: `/Volumes/Dev/Codev/Toniq/ws_poc/docs/testing/CONNECTION_TIMEOUT_ANALYSIS.md`
-- Config migration: `/Volumes/Dev/Codev/Toniq/ws_poc/docs/production/CONFIG_MIGRATION_PLAN.md`
-- Config template: `/Volumes/Dev/Codev/Toniq/ws_poc/src/.env.example`
+- Connection timeout: `/Volumes/Dev/Codev/Toniq/odin-ws/docs/testing/CONNECTION_TIMEOUT_ANALYSIS.md`
+- Config migration: `/Volumes/Dev/Codev/Toniq/odin-ws/docs/production/CONFIG_MIGRATION_PLAN.md`
+- Config template: `/Volumes/Dev/Codev/Toniq/odin-ws/src/.env.example`
 
 ---
 
@@ -1957,5 +1957,5 @@ All changes tested locally and validated. Ready for staging deployment followed 
 ---
 
 **Session Summary Created:** 2025-10-13
-**Summary Location:** `/Volumes/Dev/Codev/Toniq/ws_poc/sessions/2025-10-13-detailed-summary.md`
+**Summary Location:** `/Volumes/Dev/Codev/Toniq/odin-ws/sessions/2025-10-13-detailed-summary.md`
 **Total Lines:** 2,000+ (comprehensive session documentation)

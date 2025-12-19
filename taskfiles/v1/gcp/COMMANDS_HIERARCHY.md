@@ -573,7 +573,7 @@ gcp:                                  # High-level shortcuts
 
 ## See Also
 
-- Main Taskfile: `/Volumes/Dev/Codev/Toniq/ws_poc/Taskfile.yml`
+- Main Taskfile: `/Volumes/Dev/Codev/Toniq/odin-ws/Taskfile.yml`
 - GCP Deployment Guide: `GCP_CONSOLIDATION_PLAN.md`
 - Health Check Reference: `health.yml`
 - Load Test Configs: `load-test.yml`

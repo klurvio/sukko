@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/adred-codev/ws_poc/internal/authservice"
+	"github.com/adred-codev/odin-ws/internal/authsvc"
 )
 
 func main() {
@@ -28,7 +28,7 @@ func main() {
 	}
 
 	// Load tenant configuration
-	cfg, err := authservice.LoadConfig(configPath)
+	cfg, err := authsvc.LoadConfig(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config from %s: %v", configPath, err)
 	}
@@ -39,7 +39,7 @@ func main() {
 	}
 
 	// Create and configure service
-	svc := authservice.New(jwtSecret)
+	svc := authsvc.New(jwtSecret)
 	svc.SetConfig(cfg)
 	svc.SetTokenExpiry(tokenExpiry)
 
