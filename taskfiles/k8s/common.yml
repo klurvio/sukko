@@ -41,10 +41,21 @@ tasks:
   # Build Operations
   # ===========================================================================
   build:ws-server:
-    desc: Build ws-server Docker image
+    desc: Build ws-server Docker image with version info
     dir: "{{.ROOT_DIR}}/ws"
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+      COMMIT_HASH:
+        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
-      - docker build -t odin-ws:latest .
+      - docker build -t odin-ws:latest
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          .
 
   build:publisher:
     desc: Build publisher Docker image
@@ -53,10 +64,21 @@ tasks:
       - docker build -t odin-publisher:latest .
 
   build:auth-service:
-    desc: Build auth-service Docker image
+    desc: Build auth-service Docker image with version info
     dir: "{{.ROOT_DIR}}/ws"
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+      COMMIT_HASH:
+        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
-      - docker build -t odin-auth:latest -f Dockerfile.auth .
+      - docker build -t odin-auth:latest
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f Dockerfile.auth .
 
   build:all:
     desc: Build all Docker images

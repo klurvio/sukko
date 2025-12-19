@@ -1,6 +1,8 @@
 // Package authservice provides the standalone auth service for multi-tenant JWT token issuance.
 package authsvc
 
+import "github.com/adred-codev/odin-ws/internal/version"
+
 // Tenant represents an organization/company using the platform.
 type Tenant struct {
 	ID   string `json:"id" yaml:"id"`
@@ -47,5 +49,6 @@ type ErrorResponse struct {
 
 // HealthResponse represents the health check response.
 type HealthResponse struct {
-	Status string `json:"status"`
+	Status  string       `json:"status"`
+	Version version.Info `json:"version"`
 }

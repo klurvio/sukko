@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/adred-codev/odin-ws/internal/version"
 )
 
 // Handler returns the HTTP handler for the auth service.
@@ -11,6 +13,7 @@ func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth/token", s.handleIssueToken)
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /version", version.Handler("auth-service"))
 	return mux
 }
 
@@ -56,7 +59,10 @@ func (s *Service) handleIssueToken(w http.ResponseWriter, r *http.Request) {
 // handleHealth handles GET /health requests.
 func (s *Service) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(HealthResponse{Status: "ok"})
+	json.NewEncoder(w).Encode(HealthResponse{
+		Status:  "ok",
+		Version: version.Get("auth-service"),
+	})
 }
 
 // writeError writes a JSON error response.

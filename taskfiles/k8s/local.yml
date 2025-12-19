@@ -43,10 +43,25 @@ tasks:
   # ===========================================================================
   images:load:
     desc: Build and load images into kind
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+      COMMIT_HASH:
+        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
-      - docker build -t odin-ws:latest {{.ROOT_DIR}}/ws
+      - docker build -t odin-ws:latest
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          {{.ROOT_DIR}}/ws
       - kind load docker-image odin-ws:latest --name {{.LOCAL_CLUSTER}}
-      - docker build -t odin-auth:latest -f {{.ROOT_DIR}}/ws/Dockerfile.auth {{.ROOT_DIR}}/ws
+      - docker build -t odin-auth:latest
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f {{.ROOT_DIR}}/ws/Dockerfile.auth {{.ROOT_DIR}}/ws
       - kind load docker-image odin-auth:latest --name {{.LOCAL_CLUSTER}}
       - docker build -t odin-publisher:latest {{.ROOT_DIR}}/publisher
       - kind load docker-image odin-publisher:latest --name {{.LOCAL_CLUSTER}}

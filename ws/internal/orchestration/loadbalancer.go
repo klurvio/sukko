@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/adred-codev/odin-ws/internal/monitoring"
+	"github.com/adred-codev/odin-ws/internal/version"
 	"github.com/rs/zerolog"
 )
 
@@ -108,6 +109,7 @@ func (lb *LoadBalancer) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", lb.handleWebSocket)
 	mux.HandleFunc("/health", lb.handleHealth)
+	mux.HandleFunc("/version", version.Handler("ws-server"))
 
 	// Store config in LoadBalancer so we can access timeouts
 	// Need to get these from the cfg parameter in Start()
@@ -313,6 +315,7 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	response := map[string]interface{}{
 		"status":  status,
 		"healthy": isHealthy,
+		"version": version.Get("ws-server"),
 		"checks": map[string]interface{}{
 			"capacity": map[string]interface{}{
 				"current":    int(totalConnections),
