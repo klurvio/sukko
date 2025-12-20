@@ -15,6 +15,7 @@ includes:
   develop: ./develop.yml
   staging: ./staging.yml
   production: ./production.yml
+  gke-standard: ./gke-standard.yml
   common: ./common.yml
 
 # NOTE: Each environment taskfile defines its own chart/namespace/values variables
@@ -28,10 +29,11 @@ tasks:
       - echo "Kubernetes deployment tasks"
       - echo ""
       - echo "Environments:"
-      - echo "  task k8s:local:*       - Local kind cluster"
-      - echo "  task k8s:develop:*     - GKE develop environment"
-      - echo "  task k8s:staging:*     - GKE staging environment"
-      - echo "  task k8s:production:*  - GKE production environment"
+      - echo "  task k8s:local:*        - Local kind cluster"
+      - echo "  task k8s:develop:*      - GKE develop (Autopilot)"
+      - echo "  task k8s:staging:*      - GKE staging (Autopilot)"
+      - echo "  task k8s:production:*   - GKE production (Autopilot)"
+      - echo "  task k8s:gke-standard:* - GKE Standard (Spot VMs, Terraform)"
       - echo ""
       - echo "Common tasks:"
       - echo "  task k8s:helm:lint     - Lint Helm charts"

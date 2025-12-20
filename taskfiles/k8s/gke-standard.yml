@@ -1,0 +1,307 @@
+# =============================================================================
+# GKE Standard Environment Tasks (Spot VMs, Terraform-managed)
+# =============================================================================
+
+version: '3'
+
+vars:
+  GKE_STD_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
+  GKE_STD_NS: odin-gke-standard
+  GKE_STD_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values-gke-standard.yaml"
+  GKE_STD_TF_DIR: "{{.ROOT_DIR}}/deployments/k8s/terraform/gke-standard"
+  GKE_STD_PROJECT: '{{.GKE_PROJECT | default "YOUR_PROJECT"}}'
+  GKE_STD_ZONE: '{{.GKE_ZONE | default "us-central1-a"}}'
+  GKE_STD_CLUSTER: '{{.GKE_STD_CLUSTER | default "odin-ws-gke-standard"}}'
+  REGISTRY: us-central1-docker.pkg.dev/{{.GKE_STD_PROJECT}}/odin
+
+tasks:
+  # ===========================================================================
+  # Infrastructure (Terraform)
+  # ===========================================================================
+  tf:init:
+    desc: Initialize Terraform for GKE Standard
+    cmds:
+      - terraform -chdir={{.GKE_STD_TF_DIR}} init
+
+  tf:plan:
+    desc: Plan GKE Standard infrastructure changes
+    cmds:
+      - terraform -chdir={{.GKE_STD_TF_DIR}} plan -out=tfplan
+
+  tf:apply:
+    desc: Apply GKE Standard infrastructure
+    cmds:
+      - terraform -chdir={{.GKE_STD_TF_DIR}} apply tfplan
+
+  tf:apply-auto:
+    desc: Apply GKE Standard infrastructure (auto-approve)
+    cmds:
+      - terraform -chdir={{.GKE_STD_TF_DIR}} apply -auto-approve
+
+  tf:destroy:
+    desc: Destroy GKE Standard infrastructure (DANGEROUS)
+    prompt: 'This will DESTROY the GKE Standard cluster. Are you sure?'
+    cmds:
+      - terraform -chdir={{.GKE_STD_TF_DIR}} destroy
+
+  tf:output:
+    desc: Show Terraform outputs
+    cmds:
+      - terraform -chdir={{.GKE_STD_TF_DIR}} output
+
+  tf:fmt:
+    desc: Format Terraform files
+    cmds:
+      - terraform fmt -recursive {{.GKE_STD_TF_DIR}}
+
+  tf:validate:
+    desc: Validate Terraform configuration
+    cmds:
+      - terraform -chdir={{.GKE_STD_TF_DIR}} validate
+
+  # ===========================================================================
+  # Full Workflow
+  # ===========================================================================
+  setup:
+    desc: Complete setup - infrastructure + deploy
+    cmds:
+      - task: tf:init
+      - task: tf:plan
+      - task: tf:apply
+      - task: connect
+      - task: build
+      - task: deploy
+      - task: status
+
+  destroy:
+    desc: Complete teardown - uninstall + destroy infrastructure
+    prompt: 'This will DESTROY everything. Are you sure?'
+    cmds:
+      - task: down
+      - task: tf:destroy
+
+  # ===========================================================================
+  # Connection
+  # ===========================================================================
+  connect:
+    desc: Connect to GKE Standard cluster
+    cmds:
+      - gcloud container clusters get-credentials {{.GKE_STD_CLUSTER}} --zone {{.GKE_STD_ZONE}} --project {{.GKE_STD_PROJECT}}
+
+  connect:tf:
+    desc: Connect using Terraform output
+    cmds:
+      - |
+        CLUSTER=$(terraform -chdir={{.GKE_STD_TF_DIR}} output -raw cluster_name 2>/dev/null || echo "")
+        ZONE=$(terraform -chdir={{.GKE_STD_TF_DIR}} output -raw cluster_location 2>/dev/null || echo "")
+        PROJECT=$(terraform -chdir={{.GKE_STD_TF_DIR}} output -raw project_id 2>/dev/null || echo "{{.GKE_STD_PROJECT}}")
+        if [ -n "$CLUSTER" ] && [ -n "$ZONE" ]; then
+          gcloud container clusters get-credentials $CLUSTER --zone $ZONE --project $PROJECT
+          echo "Connected to $CLUSTER in $ZONE"
+        else
+          echo "Could not retrieve cluster info. Run 'task k8s:gke-standard:tf:apply' first."
+          exit 1
+        fi
+
+  # ===========================================================================
+  # Build & Push Images
+  # ===========================================================================
+  build:
+    desc: Build and push all images to Artifact Registry
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+      COMMIT_HASH:
+        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
+    cmds:
+      - echo "Building images with version {{.VERSION}}..."
+      - docker build -t {{.REGISTRY}}/ws-server:latest -t {{.REGISTRY}}/ws-server:{{.VERSION}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f {{.ROOT_DIR}}/ws/build/server/Dockerfile {{.ROOT_DIR}}/ws
+      - docker push {{.REGISTRY}}/ws-server:latest
+      - docker push {{.REGISTRY}}/ws-server:{{.VERSION}}
+      - docker build -t {{.REGISTRY}}/ws-gateway:latest -t {{.REGISTRY}}/ws-gateway:{{.VERSION}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f {{.ROOT_DIR}}/ws/build/gateway/Dockerfile {{.ROOT_DIR}}/ws
+      - docker push {{.REGISTRY}}/ws-gateway:latest
+      - docker push {{.REGISTRY}}/ws-gateway:{{.VERSION}}
+      - docker build -t {{.REGISTRY}}/publisher:latest -t {{.REGISTRY}}/publisher:{{.VERSION}}
+          {{.ROOT_DIR}}/publisher
+      - docker push {{.REGISTRY}}/publisher:latest
+      - docker push {{.REGISTRY}}/publisher:{{.VERSION}}
+
+  build:ws:
+    desc: Build and push ws-server only
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+      COMMIT_HASH:
+        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
+    cmds:
+      - docker build -t {{.REGISTRY}}/ws-server:latest
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f {{.ROOT_DIR}}/ws/build/server/Dockerfile {{.ROOT_DIR}}/ws
+      - docker push {{.REGISTRY}}/ws-server:latest
+
+  build:gateway:
+    desc: Build and push ws-gateway only
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+      COMMIT_HASH:
+        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
+    cmds:
+      - docker build -t {{.REGISTRY}}/ws-gateway:latest
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f {{.ROOT_DIR}}/ws/build/gateway/Dockerfile {{.ROOT_DIR}}/ws
+      - docker push {{.REGISTRY}}/ws-gateway:latest
+
+  build:reload:
+    desc: Rebuild images and restart pods
+    cmds:
+      - task: build
+      - kubectl rollout restart deployment -n {{.GKE_STD_NS}}
+
+  # ===========================================================================
+  # Deployment
+  # ===========================================================================
+  asyncapi:bundle:
+    desc: Bundle AsyncAPI spec into single file
+    cmds:
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/asyncapi/bundled.yaml
+
+  deploy:
+    desc: Deploy/upgrade Helm release
+    cmds:
+      - task: asyncapi:bundle
+      - helm upgrade --install odin {{.GKE_STD_CHART}} -f {{.GKE_STD_VALUES}} -n {{.GKE_STD_NS}} --create-namespace
+
+  diff:
+    desc: Show diff before upgrade
+    cmds:
+      - helm diff upgrade odin {{.GKE_STD_CHART}} -f {{.GKE_STD_VALUES}} -n {{.GKE_STD_NS}}
+
+  down:
+    desc: Uninstall Helm release
+    cmds:
+      - helm uninstall odin -n {{.GKE_STD_NS}} || true
+
+  rollback:
+    desc: Rollback to previous release
+    cmds:
+      - helm rollback odin -n {{.GKE_STD_NS}}
+
+  # ===========================================================================
+  # Observability
+  # ===========================================================================
+  status:
+    desc: Show deployment status
+    cmds:
+      - echo "=== Nodes (Spot VMs) ==="
+      - kubectl get nodes -o wide
+      - echo ""
+      - echo "=== Pods ==="
+      - kubectl get pods -n {{.GKE_STD_NS}} -o wide
+      - echo ""
+      - echo "=== Services ==="
+      - kubectl get svc -n {{.GKE_STD_NS}}
+      - echo ""
+      - echo "=== HPA ==="
+      - kubectl get hpa -n {{.GKE_STD_NS}} 2>/dev/null || echo "No HPA configured"
+
+  nodes:
+    desc: Show node details (Spot status)
+    cmds:
+      - kubectl get nodes -o custom-columns='NAME:.metadata.name,STATUS:.status.conditions[?(@.type=="Ready")].status,SPOT:.metadata.labels.cloud\.google\.com/gke-spot,TYPE:.metadata.labels.node\.kubernetes\.io/instance-type'
+
+  logs:
+    desc: Tail ws-server logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.GKE_STD_NS}} --tail=100
+
+  logs:gateway:
+    desc: Tail ws-gateway logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=ws-gateway -n {{.GKE_STD_NS}} --tail=100
+
+  logs:all:
+    desc: Tail all pod logs
+    cmds:
+      - kubectl logs -f --all-containers=true -l app.kubernetes.io/instance=odin -n {{.GKE_STD_NS}} --tail=50
+
+  logs:publisher:
+    desc: Tail publisher logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=publisher -n {{.GKE_STD_NS}} --tail=100
+
+  events:
+    desc: Show recent events (useful for Spot preemption)
+    cmds:
+      - kubectl get events -n {{.GKE_STD_NS}} --sort-by='.lastTimestamp' | tail -20
+
+  # ===========================================================================
+  # Port Forwarding
+  # ===========================================================================
+  port-forward:ws:
+    desc: Port-forward ws-server for local testing
+    cmds:
+      - kubectl port-forward -n {{.GKE_STD_NS}} svc/odin-ws-server 3005:3001
+
+  port-forward:gateway:
+    desc: Port-forward ws-gateway for local testing
+    cmds:
+      - kubectl port-forward -n {{.GKE_STD_NS}} svc/odin-ws-gateway 3006:3000
+
+  port-forward:grafana:
+    desc: Port-forward Grafana
+    cmds:
+      - kubectl port-forward -n {{.GKE_STD_NS}} svc/odin-grafana 3000:3000
+
+  port-forward:prometheus:
+    desc: Port-forward Prometheus
+    cmds:
+      - kubectl port-forward -n {{.GKE_STD_NS}} svc/odin-prometheus 9090:9090
+
+  # ===========================================================================
+  # Health & Testing
+  # ===========================================================================
+  health:
+    desc: Check environment health
+    cmds:
+      - |
+        WS_IP=$(kubectl get svc -n {{.GKE_STD_NS}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+        if [ -n "$WS_IP" ]; then
+          echo "WS Server IP: $WS_IP"
+          curl -s http://$WS_IP:3001/health | jq .
+        else
+          echo "No external IP found. Try port-forward:"
+          echo "  task k8s:gke-standard:port-forward:ws"
+        fi
+
+  # ===========================================================================
+  # Cost Management
+  # ===========================================================================
+  cost:info:
+    desc: Show Spot VM cost savings info
+    cmds:
+      - echo "=== Spot VM Cost Analysis ==="
+      - echo ""
+      - kubectl get nodes -l cloud.google.com/gke-spot=true --no-headers 2>/dev/null | wc -l | xargs -I {} echo "Spot nodes: {}"
+      - kubectl get nodes -l cloud.google.com/gke-spot!=true --no-headers 2>/dev/null | wc -l | xargs -I {} echo "On-demand nodes: {}"
+      - echo ""
+      - echo "Spot VMs provide 60-90% cost savings vs on-demand."
+      - echo "Run 'gcloud compute machine-types describe e2-standard-4 --zone={{.GKE_STD_ZONE}}' for pricing."
