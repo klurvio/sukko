@@ -17,10 +17,11 @@ var (
 )
 
 // Claims represents the JWT claims structure.
-// Uses standard JWT claims with Subject (sub) as the app ID.
+// Uses standard JWT claims with Subject (sub) as the app ID or user principal.
 type Claims struct {
 	jwt.RegisteredClaims
-	TenantID string `json:"tenant_id,omitempty"`
+	TenantID string   `json:"tenant_id,omitempty"`
+	Groups   []string `json:"groups,omitempty"` // Group memberships for group-scoped channel access
 }
 
 // AppID returns the subject (app ID) from the token.

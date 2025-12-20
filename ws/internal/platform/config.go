@@ -140,21 +140,8 @@ type Config struct {
 	// Environment
 	Environment string `env:"ENVIRONMENT" envDefault:"development"`
 
-	// Authentication Configuration
-	//
-	// AuthEnabled: When true, all WebSocket connections must provide a valid JWT.
-	// JWTSecret: The secret key used to sign and verify JWT tokens. Required if AuthEnabled.
-	// TokenExpiry: Default token expiry duration for issued tokens.
-	// APIKey: Shared key for /auth/token endpoint (server-to-server auth).
-	// TokenExpiryWarning: How long before expiry to warn clients (auth:expiring message).
-	// TokenCheckInterval: How often to check for expiring tokens.
-	//
-	AuthEnabled        bool          `env:"WS_AUTH_ENABLED" envDefault:"false"`
-	JWTSecret          string        `env:"WS_JWT_SECRET"`
-	TokenExpiry        time.Duration `env:"WS_TOKEN_EXPIRY" envDefault:"24h"`
-	APIKey             string        `env:"WS_API_KEY"`
-	TokenExpiryWarning time.Duration `env:"WS_TOKEN_EXPIRY_WARNING" envDefault:"5m"`
-	TokenCheckInterval time.Duration `env:"WS_TOKEN_CHECK_INTERVAL" envDefault:"1m"`
+	// NOTE: Authentication is now handled by ws-gateway
+	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 
 	// Valkey Configuration (for BroadcastBus when BROADCAST_TYPE=valkey)
 	// Supports both self-hosted Sentinel (3 addresses) and single instance (1 address)
@@ -356,27 +343,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("CPU_POLL_INTERVAL (%v) should be <= METRICS_INTERVAL (%v)", c.CPUPollInterval, c.MetricsInterval)
 	}
 
-	// Authentication validation
-	if c.AuthEnabled {
-		if c.JWTSecret == "" {
-			return fmt.Errorf("WS_JWT_SECRET is required when WS_AUTH_ENABLED=true")
-		}
-		if len(c.JWTSecret) < 32 {
-			return fmt.Errorf("WS_JWT_SECRET must be at least 32 characters for HS256 security")
-		}
-		if c.TokenExpiry < time.Minute {
-			return fmt.Errorf("WS_TOKEN_EXPIRY must be >= 1 minute, got %v", c.TokenExpiry)
-		}
-		if c.TokenExpiryWarning < time.Minute {
-			return fmt.Errorf("WS_TOKEN_EXPIRY_WARNING must be >= 1 minute, got %v", c.TokenExpiryWarning)
-		}
-		if c.TokenExpiryWarning >= c.TokenExpiry {
-			return fmt.Errorf("WS_TOKEN_EXPIRY_WARNING (%v) must be < WS_TOKEN_EXPIRY (%v)", c.TokenExpiryWarning, c.TokenExpiry)
-		}
-		if c.TokenCheckInterval < 10*time.Second {
-			return fmt.Errorf("WS_TOKEN_CHECK_INTERVAL must be >= 10 seconds, got %v", c.TokenCheckInterval)
-		}
-	}
+	// NOTE: Authentication is now handled by ws-gateway
+	// No auth config validation needed in ws-server
 
 	// Kafka SASL validation
 	if c.KafkaSASLEnabled {
@@ -449,13 +417,7 @@ func (c *Config) Print() {
 	fmt.Printf("Level:           %s\n", c.LogLevel)
 	fmt.Printf("Format:          %s\n", c.LogFormat)
 	fmt.Println("\n=== Authentication ===")
-	fmt.Printf("Auth Enabled:    %v\n", c.AuthEnabled)
-	if c.AuthEnabled {
-		fmt.Printf("Token Expiry:    %s\n", c.TokenExpiry)
-		fmt.Printf("Expiry Warning:  %s\n", c.TokenExpiryWarning)
-		fmt.Printf("Check Interval:  %s\n", c.TokenCheckInterval)
-		fmt.Printf("API Key Set:     %v\n", c.APIKey != "")
-	}
+	fmt.Println("Auth:            Handled by ws-gateway")
 	fmt.Println("\n=== Broadcast Bus ===")
 	fmt.Printf("Type:            %s\n", c.BroadcastType)
 	if c.BroadcastType == "valkey" || c.BroadcastType == "redis" || c.BroadcastType == "" {
@@ -515,11 +477,7 @@ func (c *Config) LogConfig(logger zerolog.Logger) {
 		Dur("cpu_poll_interval", c.CPUPollInterval).
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat).
-		Bool("auth_enabled", c.AuthEnabled).
-		Dur("token_expiry", c.TokenExpiry).
-		Dur("token_expiry_warning", c.TokenExpiryWarning).
-		Dur("token_check_interval", c.TokenCheckInterval).
-		Bool("api_key_set", c.APIKey != "").
+		Str("auth", "handled by ws-gateway").
 		Str("broadcast_type", c.BroadcastType).
 		Strs("valkey_addrs", c.ValkeyAddrs).
 		Str("valkey_master_name", c.ValkeyMasterName).

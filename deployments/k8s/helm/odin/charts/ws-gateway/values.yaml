@@ -1,0 +1,90 @@
+# Default values for ws-gateway subchart
+# These can be overridden from the parent chart
+
+enabled: true
+
+replicaCount: 2
+
+image:
+  repository: odin-gateway
+  tag: latest
+  pullPolicy: IfNotPresent
+
+config:
+  port: 3000
+  readTimeout: "15s"
+  writeTimeout: "15s"
+  idleTimeout: "60s"
+  dialTimeout: "10s"
+  messageTimeout: "60s"
+  logLevel: info
+  logFormat: json
+
+  # Backend ws-server URL (empty = dynamic default)
+  # Dynamic default: ws://{{ .Release.Name }}-ws-server:3001/ws
+  backendURL: ""
+
+# Channel permission patterns
+permissions:
+  # Public channels - any authenticated user can subscribe
+  public:
+    - "*.trade"
+    - "*.liquidity"
+    - "*.metadata"
+  # User-scoped channels - JWT.sub must match {principal}
+  userScoped:
+    - "balances.{principal}"
+    - "notifications.{principal}"
+  # Group-scoped channels - JWT.groups must contain {group_id}
+  groupScoped:
+    - "community.{group_id}"
+    - "social.{group_id}"
+
+# Rate limiting per principal
+rateLimit:
+  enabled: true
+  burst: 100
+  rate: 10.0
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 3
+  periodSeconds: 5
+  timeoutSeconds: 2
+
+service:
+  type: LoadBalancer
+  port: 443
+  targetPort: 3000
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

@@ -57,8 +57,10 @@ tasks:
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f build/server/Dockerfile .
 
-  build:auth:
-    desc: Build auth-service Docker image with version info
+  # build:auth - REMOVED (auth-service eliminated, odin-api issues tokens)
+
+  build:gateway:
+    desc: Build ws-gateway Docker image with version info
     dir: "{{.ROOT_DIR}}/ws"
     vars:
       VERSION:
@@ -68,11 +70,11 @@ tasks:
       BUILD_TIME:
         sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
-      - docker build -t odin-auth:latest
+      - docker build -t odin-gateway:latest
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
-          -f build/auth/Dockerfile .
+          -f build/gateway/Dockerfile .
 
   build:publisher:
     desc: Build publisher Docker image
@@ -84,7 +86,7 @@ tasks:
     desc: Build all Docker images
     cmds:
       - task: build:ws
-      - task: build:auth
+      - task: build:gateway
       - task: build:publisher
 
   # ===========================================================================

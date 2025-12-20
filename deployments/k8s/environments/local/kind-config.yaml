@@ -14,6 +14,10 @@ nodes:
       - containerPort: 30080
         hostPort: 3005
         protocol: TCP
+      # Auth Service (for local testing)
+      - containerPort: 30082
+        hostPort: 3002
+        protocol: TCP
       # Grafana
       - containerPort: 30300
         hostPort: 3010

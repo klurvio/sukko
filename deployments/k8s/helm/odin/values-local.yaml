@@ -5,7 +5,26 @@
 global:
   namespace: odin-local
 
-# WebSocket Server - Minimal for local dev
+# WebSocket Gateway - Handles auth and permission filtering
+ws-gateway:
+  enabled: true
+  replicaCount: 1
+  config:
+    logLevel: debug
+    logFormat: pretty
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "64Mi"
+    limits:
+      cpu: "250m"
+      memory: "128Mi"
+  service:
+    type: NodePort
+    port: 3000
+    nodePort: 30000
+
+# WebSocket Server - Dumb broadcaster (no auth)
 ws-server:
   enabled: true
   replicaCount: 1
@@ -28,6 +47,9 @@ ws-server:
     brokers: ""  # Uses dynamic default: odin-local-redpanda:9092
     # SASL/TLS disabled for local self-hosted Redpanda (defaults from base values)
 
+  # NOTE: Auth is now handled by ws-gateway
+  # ws-server is a dumb broadcaster with network-level security
+
   resources:
     requests:
       cpu: "500m"
@@ -41,18 +63,9 @@ ws-server:
   autoscaling:
     enabled: false
 
-# Auth Service - JWT token issuer
-auth-service:
-  enabled: true
-  config:
-    logLevel: debug
-  resources:
-    requests:
-      cpu: "50m"
-      memory: "32Mi"
-    limits:
-      cpu: "100m"
-      memory: "64Mi"
+# Auth Service - REMOVED
+# Token issuance is now handled by odin-api
+# For local testing, use a test JWT or mock odin-api
 
 # Redpanda - Reduced resources for kind
 redpanda:

@@ -160,7 +160,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 
 	// Add SASL authentication if configured
 	if cfg.SASL != nil {
-		var mechanism scram.Auth = scram.Auth{
+		var mechanism = scram.Auth{
 			User: cfg.SASL.Username,
 			Pass: cfg.SASL.Password,
 		}

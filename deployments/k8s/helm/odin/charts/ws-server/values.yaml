@@ -84,6 +84,14 @@ kafka:
     insecureSkipVerify: false  # Skip CA verification (not for production)
     caPath: ""  # Path to CA certificate (mounted from secret)
 
+# JWT Authentication for WebSocket connections
+# Requires shared secret from parent chart (odin-auth-secrets)
+auth:
+  enabled: false
+  tokenExpiry: "24h"
+  tokenExpiryWarning: "5m"
+  tokenCheckInterval: "1m"
+
 resources:
   requests:
     cpu: "1"
@@ -122,6 +130,12 @@ autoscaling:
   minReplicas: 1
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
+
+# Network Policy - Restrict access to gateway only
+networkPolicy:
+  enabled: true
+  # Allow Prometheus to scrape metrics
+  allowPrometheus: true
 
 podAnnotations: {}
 

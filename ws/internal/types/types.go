@@ -76,13 +76,8 @@ type ServerConfig struct {
 	LogLevel  LogLevel  // Log level (default: info)
 	LogFormat LogFormat // Log format (default: json)
 
-	// Authentication configuration
-	AuthEnabled        bool          // Enable JWT authentication for WebSocket connections
-	JWTSecret          string        // Secret key for JWT signing/validation
-	TokenExpiry        time.Duration // Default token expiry duration (default: 24h)
-	APIKey             string        // API key for token issuance endpoint
-	TokenExpiryWarning time.Duration // Time before expiry to send warning (default: 5m)
-	TokenCheckInterval time.Duration // Interval for checking token expiry (default: 1m)
+	// NOTE: Authentication is now handled by ws-gateway
+	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 }
 
 // Stats tracks server statistics

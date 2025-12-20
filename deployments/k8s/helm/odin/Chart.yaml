@@ -6,12 +6,13 @@ version: 1.0.0
 appVersion: "1.0.0"
 
 dependencies:
+  - name: ws-gateway
+    version: "1.0.0"
+    condition: ws-gateway.enabled
   - name: ws-server
     version: "1.0.0"
     condition: ws-server.enabled
-  - name: auth-service
-    version: "1.0.0"
-    condition: auth-service.enabled
+  # NOTE: auth-service removed - odin-api now issues JWT tokens directly
   - name: redpanda
     version: "1.0.0"
     condition: redpanda.enabled
