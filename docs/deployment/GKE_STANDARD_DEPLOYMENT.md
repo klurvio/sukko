@@ -9,6 +9,97 @@ Deploy odin-ws to GKE Standard cluster with Spot VMs for 60-90% cost savings com
 | GKE Autopilot | ~$275-375 | Baseline |
 | GKE Standard (Spot) | ~$135-165 | **~$150-200/mo** |
 
+## Node Pool Architecture
+
+In Kubernetes (GKE), services don't get individual VMs. Instead, all pods share nodes in a **node pool**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    GKE Standard Cluster                          │
+│                                                                   │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │         Node Pool (e.g., 2x e2-standard-4 nodes)         │   │
+│   │                                                           │   │
+│   │   Node 1 (e2-standard-4)      Node 2 (e2-standard-4)     │   │
+│   │   ┌───────────────────┐      ┌───────────────────────┐   │   │
+│   │   │ ws-server pod     │      │ ws-gateway pod        │   │   │
+│   │   │ redpanda pod      │      │ ws-server pod         │   │   │
+│   │   │ nats pod          │      │ prometheus pod        │   │   │
+│   │   └───────────────────┘      └───────────────────────┘   │   │
+│   └─────────────────────────────────────────────────────────┘   │
+│                                                                   │
+│   Total: 8 vCPU, 32 GB RAM shared across all pods               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key concepts:**
+- **Node Pool** = a group of identical VMs (all same instance type)
+- **Kubernetes scheduler** distributes pods across nodes automatically
+- **Resource requests/limits** in Helm values control CPU/RAM per pod
+- The instance type applies to the **entire node pool**, not per service
+
+## Instance Type Selection
+
+### Available Instance Types
+
+| Instance | vCPU | RAM | On-Demand/mo | Spot/mo | Notes |
+|----------|------|-----|--------------|---------|-------|
+| **e2-standard-4** | 4 | 16 GB | ~$98 | ~$29 | Recommended - balanced |
+| **e2-highcpu-4** | 4 | 4 GB | ~$72 | ~$22 | CPU-heavy, low memory |
+| **n2-highcpu-4** | 4 | 4 GB | ~$100 | ~$30 | Dedicated CPU, low memory |
+| **n2-standard-4** | 4 | 16 GB | ~$140 | ~$42 | Premium, consistent performance |
+
+### E2 vs N2 Series
+
+| Aspect | E2 | N2 |
+|--------|----|----|
+| CPU | Variable (shared pool) | Dedicated Intel Cascade/Ice Lake |
+| Performance | Good for bursty loads | Consistent, predictable |
+| Networking | Up to 16 Gbps | Up to 32 Gbps |
+| Sustained discount | No | Yes (up to 20%) |
+| Best for | Cost-sensitive, dev/staging | Production, consistent load |
+
+### Recommendation
+
+**e2-standard-4 with Spot VMs** (~$29/mo per node) is recommended for all environments:
+
+- **ws-server** uses 2 shards = needs 2 CPU cores for parallel processing
+- 16GB RAM per node provides headroom for all services
+- Multiple services share nodes, so memory matters
+- Each WebSocket connection uses ~10-15KB memory
+
+| Environment | Instance Type | Node Count | Monthly Cost (Spot) |
+|-------------|---------------|------------|---------------------|
+| **Develop** | e2-standard-4 | 2 fixed | ~$58/mo |
+| **Staging** | e2-standard-4 | 2 fixed | ~$58/mo |
+| **Production** | e2-standard-4 | 1-5 autoscaling | ~$29-145/mo |
+
+### Per-Service Resource Allocation
+
+Resources are controlled via Helm values, not instance types:
+
+**Production (`values/standard/production.yaml`):**
+
+| Service | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|---------|-------------|-----------|----------------|--------------|
+| ws-server | 1 core | 2 cores | 512Mi | 1Gi |
+| ws-gateway | 500m | 1 core | 256Mi | 512Mi |
+| Redpanda | 500m | 1 core | 1Gi | 1.5Gi |
+| NATS | 100m | 250m | 128Mi | 256Mi |
+| Prometheus | 250m | 500m | 512Mi | 1Gi |
+| Grafana | 100m | 250m | 256Mi | 512Mi |
+
+**Develop/Staging (minimal):**
+
+| Service | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|---------|-------------|-----------|----------------|--------------|
+| ws-server | 500m | 1 core | 256Mi | 512Mi |
+| ws-gateway | 250m | 500m | 128Mi | 256Mi |
+| Redpanda | 250m | 500m | 256Mi | 384Mi |
+| NATS | 50m | 100m | 64Mi | 128Mi |
+
+With 2 nodes of e2-standard-4 (total 8 vCPU, 32GB), all services fit comfortably with room for autoscaling.
+
 ## Prerequisites
 
 - GCP Project with billing enabled
@@ -282,22 +373,3 @@ Ensure you're authenticated to Artifact Registry:
 gcloud auth configure-docker us-central1-docker.pkg.dev
 ```
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    GKE Standard Cluster                          │
-│                                                                   │
-│   ┌─────────────────────────────────────────────────────────┐   │
-│   │              Node Pool (Spot VMs - 70% savings)          │   │
-│   │   Dev/Staging: 2 fixed nodes | Prod: 1-5 autoscaling     │   │
-│   │                                                           │   │
-│   │   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐    │   │
-│   │   │ws-gateway│  │ws-server│  │  NATS   │  │Redpanda │    │   │
-│   │   │   (2)   │  │   (2)   │  │   (1)   │  │   (1)   │    │   │
-│   │   └─────────┘  └─────────┘  └─────────┘  └─────────┘    │   │
-│   └─────────────────────────────────────────────────────────┘   │
-│                                                                   │
-│   Self-hosted NATS + Redpanda (minimal resources)                │
-└─────────────────────────────────────────────────────────────────┘
-```
