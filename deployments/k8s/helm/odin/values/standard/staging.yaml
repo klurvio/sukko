@@ -165,6 +165,11 @@ redpanda:
       value: "true"
       effect: "NoSchedule"
 
+  # External access for odin-api publisher
+  externalAccess:
+    enabled: true
+    type: LoadBalancer
+
 # =============================================================================
 # Valkey - Disabled (using NATS)
 # =============================================================================

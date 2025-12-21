@@ -251,6 +251,16 @@ tasks:
     cmds:
       - kubectl get nodes -o custom-columns='NAME:.metadata.name,STATUS:.status.conditions[?(@.type=="Ready")].status,SPOT:.metadata.labels.cloud\.google\.com/gke-spot,TYPE:.metadata.labels.node\.kubernetes\.io/instance-type'
 
+  external-ips:
+    desc: Get external IPs for services (ws-gateway, redpanda)
+    cmds:
+      - echo "=== External IPs ==="
+      - kubectl get svc -n {{.GKE_STD_NS}} -o wide | grep -E "NAME|LoadBalancer"
+      - echo ""
+      - echo "Use these IPs to configure odin-api:"
+      - echo "  - ws-gateway: for WebSocket clients"
+      - echo "  - redpanda-external: for Kafka publishers (port 9094)"
+
   logs:
     desc: Tail ws-server logs
     cmds:

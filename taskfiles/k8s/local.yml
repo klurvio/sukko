@@ -21,6 +21,8 @@ tasks:
       - task: cluster:create
       - task: build
       - task: deploy
+      - task: port-forward:start
+      - task: status
 
   cluster:create:
     desc: Create kind cluster
@@ -127,14 +129,92 @@ tasks:
       - kubectl exec -it $(kubectl get pods -n {{.LOCAL_NS}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].metadata.name}') -n {{.LOCAL_NS}} -- sh
 
   # ===========================================================================
+  # Port Forwarding (required for kind cluster access)
+  # ===========================================================================
+  port-forward:start:
+    desc: Start all port-forwards in background (gateway, redpanda)
+    cmds:
+      - task: port-forward:stop
+      - |
+        echo "Starting port-forwards in background..."
+        kubectl port-forward -n {{.LOCAL_NS}} svc/odin-ws-gateway 3006:3000 &
+        kubectl port-forward -n {{.LOCAL_NS}} svc/odin-redpanda 9092:9092 &
+        sleep 2
+        echo ""
+        echo "Port-forwards active:"
+        echo "  - ws-gateway:  localhost:3006 → gateway:3000"
+        echo "  - redpanda:    localhost:9092 → redpanda:9092"
+        echo ""
+        echo "To stop: task k8s:local:port-forward:stop"
+
+  port-forward:stop:
+    desc: Stop all port-forwards
+    cmds:
+      - pkill -f "port-forward.*odin" 2>/dev/null || true
+
+  port-forward:gateway:
+    desc: Port forward ws-gateway for external access (localhost:3006)
+    cmds:
+      - kubectl port-forward -n {{.LOCAL_NS}} svc/odin-ws-gateway 3006:3000
+
+  port-forward:redpanda:
+    desc: Port forward Redpanda for external publishers (localhost:9092)
+    cmds:
+      - kubectl port-forward -n {{.LOCAL_NS}} svc/odin-redpanda 9092:9092
+
+  # ===========================================================================
   # Testing
   # ===========================================================================
   health:
-    desc: Test ws-server health endpoint
+    desc: Test ws-gateway health endpoint (requires port-forward:gateway)
     cmds:
-      - curl -s http://localhost:3005/health | jq .
+      - curl -s http://localhost:3006/health | jq .
 
   test:ws:
-    desc: Connect to WebSocket (requires wscat)
+    desc: Connect to WebSocket via gateway (requires port-forward:gateway)
     cmds:
-      - wscat -c ws://localhost:3005/ws
+      - wscat -c ws://localhost:3006/ws
+
+  # ===========================================================================
+  # Publisher Control
+  # ===========================================================================
+  publisher:start:
+    desc: Start publisher at specified rate (default 1 msg/sec)
+    vars:
+      RATE: '{{.RATE | default "1"}}'
+      TOKENS: '{{.TOKENS | default "BTC,ETH,SOL,DOGE"}}'
+    cmds:
+      - |
+        # Port forward in background
+        kubectl port-forward -n {{.LOCAL_NS}} deploy/odin-publisher 3007:3001 &
+        PF_PID=$!
+        sleep 2
+        # Start publisher
+        TOKEN_ARRAY=$(echo '{{.TOKENS}}' | sed 's/,/","/g')
+        curl -s -X POST http://localhost:3007/start \
+          -H "Content-Type: application/json" \
+          -d "{\"rate\": {{.RATE}}, \"tokenIds\": [\"${TOKEN_ARRAY}\"]}"
+        echo ""
+        # Cleanup port forward
+        kill $PF_PID 2>/dev/null || true
+
+  publisher:stop:
+    desc: Stop publisher
+    cmds:
+      - |
+        kubectl port-forward -n {{.LOCAL_NS}} deploy/odin-publisher 3007:3001 &
+        PF_PID=$!
+        sleep 2
+        curl -s -X POST http://localhost:3007/stop
+        echo ""
+        kill $PF_PID 2>/dev/null || true
+
+  publisher:status:
+    desc: Get publisher status
+    cmds:
+      - |
+        kubectl port-forward -n {{.LOCAL_NS}} deploy/odin-publisher 3007:3001 &
+        PF_PID=$!
+        sleep 2
+        curl -s http://localhost:3007/status | jq .
+        kill $PF_PID 2>/dev/null || true
