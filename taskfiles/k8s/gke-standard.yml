@@ -9,11 +9,11 @@ vars:
   GKE_STD_ENV: '{{.GKE_STD_ENV | default "develop"}}'
   GKE_STD_NS: 'odin-std-{{.GKE_STD_ENV}}'
   GKE_STD_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values/standard/{{.GKE_STD_ENV}}.yaml"
-  GKE_STD_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/gke-standard"
-  GKE_STD_PROJECT: '{{.GKE_PROJECT | default "YOUR_PROJECT"}}'
+  GKE_STD_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/gke-standard/{{.GKE_STD_ENV}}"
+  GKE_STD_PROJECT: 'trim-array-480700-j7'
   GKE_STD_ZONE: '{{.GKE_ZONE | default "us-central1-a"}}'
-  GKE_STD_CLUSTER: '{{.GKE_STD_CLUSTER | default "odin-ws-gke-standard"}}'
-  REGISTRY: us-central1-docker.pkg.dev/{{.GKE_STD_PROJECT}}/odin
+  GKE_STD_CLUSTER: 'odin-ws-{{.GKE_STD_ENV}}'
+  GKE_STD_REGISTRY: us-central1-docker.pkg.dev/{{.GKE_STD_PROJECT}}/odin
 
 tasks:
   # ===========================================================================
@@ -118,24 +118,24 @@ tasks:
         sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
       - echo "Building images with version {{.VERSION}}..."
-      - docker build -t {{.REGISTRY}}/ws-server:latest -t {{.REGISTRY}}/ws-server:{{.VERSION}}
+      - docker build -t {{.GKE_STD_REGISTRY}}/ws-server:latest -t {{.GKE_STD_REGISTRY}}/ws-server:{{.VERSION}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f {{.ROOT_DIR}}/ws/build/server/Dockerfile {{.ROOT_DIR}}/ws
-      - docker push {{.REGISTRY}}/ws-server:latest
-      - docker push {{.REGISTRY}}/ws-server:{{.VERSION}}
-      - docker build -t {{.REGISTRY}}/ws-gateway:latest -t {{.REGISTRY}}/ws-gateway:{{.VERSION}}
+      - docker push {{.GKE_STD_REGISTRY}}/ws-server:latest
+      - docker push {{.GKE_STD_REGISTRY}}/ws-server:{{.VERSION}}
+      - docker build -t {{.GKE_STD_REGISTRY}}/ws-gateway:latest -t {{.GKE_STD_REGISTRY}}/ws-gateway:{{.VERSION}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f {{.ROOT_DIR}}/ws/build/gateway/Dockerfile {{.ROOT_DIR}}/ws
-      - docker push {{.REGISTRY}}/ws-gateway:latest
-      - docker push {{.REGISTRY}}/ws-gateway:{{.VERSION}}
-      - docker build -t {{.REGISTRY}}/publisher:latest -t {{.REGISTRY}}/publisher:{{.VERSION}}
+      - docker push {{.GKE_STD_REGISTRY}}/ws-gateway:latest
+      - docker push {{.GKE_STD_REGISTRY}}/ws-gateway:{{.VERSION}}
+      - docker build -t {{.GKE_STD_REGISTRY}}/publisher:latest -t {{.GKE_STD_REGISTRY}}/publisher:{{.VERSION}}
           {{.ROOT_DIR}}/publisher
-      - docker push {{.REGISTRY}}/publisher:latest
-      - docker push {{.REGISTRY}}/publisher:{{.VERSION}}
+      - docker push {{.GKE_STD_REGISTRY}}/publisher:latest
+      - docker push {{.GKE_STD_REGISTRY}}/publisher:{{.VERSION}}
 
   build:ws:
     desc: Build and push ws-server only
@@ -147,12 +147,12 @@ tasks:
       BUILD_TIME:
         sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
-      - docker build -t {{.REGISTRY}}/ws-server:latest
+      - docker build -t {{.GKE_STD_REGISTRY}}/ws-server:latest
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f {{.ROOT_DIR}}/ws/build/server/Dockerfile {{.ROOT_DIR}}/ws
-      - docker push {{.REGISTRY}}/ws-server:latest
+      - docker push {{.GKE_STD_REGISTRY}}/ws-server:latest
 
   build:gateway:
     desc: Build and push ws-gateway only
@@ -164,18 +164,44 @@ tasks:
       BUILD_TIME:
         sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
-      - docker build -t {{.REGISTRY}}/ws-gateway:latest
+      - docker build -t {{.GKE_STD_REGISTRY}}/ws-gateway:latest
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f {{.ROOT_DIR}}/ws/build/gateway/Dockerfile {{.ROOT_DIR}}/ws
-      - docker push {{.REGISTRY}}/ws-gateway:latest
+      - docker push {{.GKE_STD_REGISTRY}}/ws-gateway:latest
 
   build:reload:
     desc: Rebuild images and restart pods
     cmds:
       - task: build
       - kubectl rollout restart deployment -n {{.GKE_STD_NS}}
+
+  # ===========================================================================
+  # Cloud Build (no local Docker required)
+  # ===========================================================================
+  cloud-build:
+    desc: Build images using Google Cloud Build
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - echo "Submitting build to Cloud Build..."
+      - gcloud builds submit --config=cloudbuild.yaml --project={{.GKE_STD_PROJECT}} .
+
+  cloud-build:status:
+    desc: Show recent Cloud Build status
+    cmds:
+      - gcloud builds list --limit=5 --project={{.GKE_STD_PROJECT}}
+
+  cloud-build:logs:
+    desc: Stream logs from latest build
+    cmds:
+      - |
+        BUILD_ID=$(gcloud builds list --limit=1 --format='value(id)' --project={{.GKE_STD_PROJECT}})
+        if [ -n "$BUILD_ID" ]; then
+          gcloud builds log $BUILD_ID --stream --project={{.GKE_STD_PROJECT}}
+        else
+          echo "No builds found"
+        fi
 
   # ===========================================================================
   # Deployment
@@ -257,9 +283,9 @@ tasks:
       - echo "=== External IPs ==="
       - kubectl get svc -n {{.GKE_STD_NS}} -o wide | grep -E "NAME|LoadBalancer"
       - echo ""
-      - echo "Use these IPs to configure odin-api:"
-      - echo "  - ws-gateway: for WebSocket clients"
-      - echo "  - redpanda-external: for Kafka publishers (port 9094)"
+      - 'echo "Use these IPs to configure odin-api:"'
+      - 'echo "  - ws-gateway: for WebSocket clients"'
+      - 'echo "  - redpanda-external: for Kafka publishers (port 9094)"'
 
   logs:
     desc: Tail ws-server logs

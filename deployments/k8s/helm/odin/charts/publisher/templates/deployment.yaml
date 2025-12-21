@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: publisher
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             # Kafka/Redpanda: Use provided value or default to release-name-redpanda:9092

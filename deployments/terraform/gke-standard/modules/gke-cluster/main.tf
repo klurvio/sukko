@@ -1,8 +1,8 @@
 # =============================================================================
-# GKE Standard Cluster with Spot VMs
+# GKE Standard Cluster Module
 # =============================================================================
-# Cost-optimized GKE Standard deployment for odin-ws
-# Spot VMs provide 60-90% cost savings over regular VMs
+# Reusable module for creating GKE Standard clusters with Spot VMs
+# Cost-optimized: Spot VMs provide 60-90% savings over regular VMs
 
 # =============================================================================
 # VPC Network
@@ -157,12 +157,12 @@ resource "google_container_cluster" "primary" {
     enabled = var.enable_vertical_pod_autoscaling
   }
 
-  # Maintenance window - Sundays 4-8 AM UTC
+  # Maintenance window - Daily 4-8 AM UTC (4h/day meets GKE's 48h/32d requirement)
   maintenance_policy {
     recurring_window {
       start_time = "2024-01-01T04:00:00Z"
       end_time   = "2024-01-01T08:00:00Z"
-      recurrence = "FREQ=WEEKLY;BYDAY=SU"
+      recurrence = "FREQ=DAILY"
     }
   }
 

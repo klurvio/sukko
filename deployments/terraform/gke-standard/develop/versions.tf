@@ -12,10 +12,10 @@ terraform {
     }
   }
 
-  # Uncomment to use GCS backend for state
+  # Uncomment to use GCS backend for remote state
   # backend "gcs" {
   #   bucket = "your-terraform-state-bucket"
-  #   prefix = "odin-ws/gke-standard"
+  #   prefix = "odin-ws/gke-standard/develop"
   # }
 }
 

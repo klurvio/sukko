@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
         - name: ws-server
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             - "./odin-ws"

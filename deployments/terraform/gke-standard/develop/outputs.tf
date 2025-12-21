@@ -9,39 +9,39 @@ output "project_id" {
 
 output "cluster_id" {
   description = "The ID of the GKE cluster"
-  value       = google_container_cluster.primary.id
+  value       = module.gke.cluster_id
 }
 
 output "cluster_name" {
   description = "The name of the GKE cluster"
-  value       = google_container_cluster.primary.name
+  value       = module.gke.cluster_name
 }
 
 output "cluster_endpoint" {
   description = "The endpoint of the GKE cluster"
-  value       = google_container_cluster.primary.endpoint
+  value       = module.gke.cluster_endpoint
   sensitive   = true
 }
 
 output "cluster_ca_certificate" {
   description = "The CA certificate of the GKE cluster"
-  value       = google_container_cluster.primary.master_auth[0].cluster_ca_certificate
+  value       = module.gke.cluster_ca_certificate
   sensitive   = true
 }
 
 output "cluster_location" {
   description = "The location (zone) of the GKE cluster"
-  value       = google_container_cluster.primary.location
+  value       = module.gke.cluster_location
 }
 
 output "network_name" {
   description = "The name of the VPC network"
-  value       = google_compute_network.vpc.name
+  value       = module.gke.network_name
 }
 
 output "subnet_name" {
   description = "The name of the subnet"
-  value       = google_compute_subnetwork.subnet.name
+  value       = module.gke.subnet_name
 }
 
 output "namespace" {
@@ -51,7 +51,7 @@ output "namespace" {
 
 output "node_pool_name" {
   description = "The name of the primary node pool"
-  value       = google_container_node_pool.primary.name
+  value       = module.gke.node_pool_name
 }
 
 output "spot_enabled" {
@@ -66,5 +66,5 @@ output "autoscaling_enabled" {
 
 output "kubeconfig_command" {
   description = "Command to configure kubectl"
-  value       = "gcloud container clusters get-credentials ${google_container_cluster.primary.name} --zone ${var.zone} --project ${var.project_id}"
+  value       = "gcloud container clusters get-credentials ${module.gke.cluster_name} --zone ${var.zone} --project ${var.project_id}"
 }

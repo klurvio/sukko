@@ -1,5 +1,5 @@
 # =============================================================================
-# GKE Standard - Develop Configuration
+# GKE Standard - Develop Environment
 # =============================================================================
 
 # Project Configuration
@@ -10,9 +10,10 @@ region = "us-central1"
 zone   = "us-central1-a"
 
 # Cluster Configuration
-cluster_name = "odin-ws-gke-standard"
+cluster_name = "odin-ws-develop"
 environment  = "develop"
 namespace    = "odin-std-develop"
+network_name = "odin-ws-develop-vpc"
 
 # Node Pool Configuration
 node_machine_type = "e2-standard-4"

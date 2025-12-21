@@ -373,3 +373,46 @@ Ensure you're authenticated to Artifact Registry:
 gcloud auth configure-docker us-central1-docker.pkg.dev
 ```
 
+## Expected Deployed Resources
+
+After deployment, the following resources are created:
+
+| Service | Replicas | Service Type | External Access |
+|---------|----------|--------------|-----------------|
+| ws-gateway | 2 | LoadBalancer | Yes - external IP |
+| ws-server | 2 | LoadBalancer | Yes - external IP |
+| redpanda | 1 | ClusterIP + LoadBalancer | Yes - port 9094 |
+| nats | 1 | ClusterIP | No |
+| publisher | 1 | ClusterIP | No |
+| prometheus | 1 | ClusterIP | No (port-forward) |
+| grafana | 1 | ClusterIP | No (port-forward) |
+| loki | 1 | ClusterIP | No |
+| promtail | DaemonSet | - | No |
+
+Get external IPs after deployment:
+```bash
+task k8s:gke-standard:external-ips
+```
+
+## Estimated Monthly Cost
+
+### Fixed Infrastructure Costs
+
+| Component | Develop | Staging | Production |
+|-----------|---------|---------|------------|
+| Compute (2x e2-standard-4 Spot) | ~$58 | ~$58 | ~$29-145 (1-5 nodes) |
+| LoadBalancer x3 (forwarding rules) | ~$54 | ~$54 | ~$54 |
+| Artifact Registry | ~$5 | ~$5 | ~$5 |
+| **Base Total** | **~$117/mo** | **~$117/mo** | **~$88-204/mo** |
+
+### Variable Costs (traffic-based)
+
+| Traffic Type | Cost |
+|--------------|------|
+| Egress (first 1TB) | $0.12/GB |
+| LoadBalancer data processing | $0.008/GB |
+
+**Examples:**
+- Low-traffic develop (<10GB egress): ~$117-120/mo
+- High-traffic production (100GB egress): ~$130/mo additional
+

@@ -1,0 +1,69 @@
+# =============================================================================
+# Cloud Build Configuration
+# =============================================================================
+# Manual trigger: gcloud builds submit --config=cloudbuild.yaml .
+# Or via task: task k8s:gke-standard:cloud-build
+
+timeout: 1200s  # 20 minutes max
+
+substitutions:
+  _TAG: latest  # Default tag, can override with --substitutions=_TAG=v1.0.0
+
+steps:
+  # Build ws-server
+  - id: 'build-ws-server'
+    name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/odin/ws-server:${_TAG}'
+      - '--build-arg'
+      - 'VERSION=${_TAG}'
+      - '--build-arg'
+      - 'COMMIT_HASH=${SHORT_SHA:-manual}'
+      - '--build-arg'
+      - 'BUILD_TIME=${BUILD_ID}'
+      - '-f'
+      - 'ws/build/server/Dockerfile'
+      - 'ws'
+    waitFor: ['-']  # Start immediately (parallel)
+
+  # Build ws-gateway
+  - id: 'build-ws-gateway'
+    name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/odin/ws-gateway:${_TAG}'
+      - '--build-arg'
+      - 'VERSION=${_TAG}'
+      - '--build-arg'
+      - 'COMMIT_HASH=${SHORT_SHA:-manual}'
+      - '--build-arg'
+      - 'BUILD_TIME=${BUILD_ID}'
+      - '-f'
+      - 'ws/build/gateway/Dockerfile'
+      - 'ws'
+    waitFor: ['-']  # Start immediately (parallel)
+
+  # Build publisher
+  - id: 'build-publisher'
+    name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/odin/publisher:${_TAG}'
+      - '-f'
+      - 'publisher/Dockerfile'
+      - 'publisher'
+    waitFor: ['-']  # Start immediately (parallel)
+
+# Images to push to Artifact Registry
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/odin/ws-server:${_TAG}'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/odin/ws-gateway:${_TAG}'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/odin/publisher:${_TAG}'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'  # Faster builds

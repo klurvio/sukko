@@ -14,7 +14,7 @@ variable "region" {
 }
 
 variable "zone" {
-  description = "GCP zone for zonal cluster (cost-effective for non-prod)"
+  description = "GCP zone"
   type        = string
   default     = "us-central1-a"
 }
@@ -26,30 +26,26 @@ variable "zone" {
 variable "cluster_name" {
   description = "GKE cluster name"
   type        = string
-  default     = "odin-ws"
 }
 
 variable "environment" {
-  description = "Environment name (develop, staging, production)"
+  description = "Environment name"
   type        = string
-  default     = "develop"
 }
 
-variable "kubernetes_version" {
-  description = "Kubernetes version (use 'latest' for most recent stable)"
+variable "namespace" {
+  description = "Kubernetes namespace for odin resources"
   type        = string
-  default     = "latest"
+}
+
+variable "network_name" {
+  description = "VPC network name"
+  type        = string
 }
 
 # =============================================================================
 # Network Configuration
 # =============================================================================
-
-variable "network_name" {
-  description = "VPC network name"
-  type        = string
-  default     = "odin-ws-vpc"
-}
 
 variable "subnet_cidr" {
   description = "Subnet CIDR range"
@@ -76,11 +72,11 @@ variable "services_cidr" {
 variable "node_machine_type" {
   description = "Machine type for nodes"
   type        = string
-  default     = "e2-standard-4" # 4 vCPU, 16GB RAM
+  default     = "e2-standard-4"
 }
 
 variable "node_count" {
-  description = "Fixed number of nodes (used when enable_autoscaling=false)"
+  description = "Fixed number of nodes"
   type        = number
   default     = 2
 }
@@ -104,9 +100,21 @@ variable "node_disk_size_gb" {
 }
 
 variable "use_spot_vms" {
-  description = "Use Spot VMs for cost savings (can be preempted)"
+  description = "Use Spot VMs for cost savings"
   type        = bool
   default     = true
+}
+
+variable "taint_spot_nodes" {
+  description = "Add taints to Spot nodes"
+  type        = bool
+  default     = false
+}
+
+variable "enable_autoscaling" {
+  description = "Enable node pool autoscaling"
+  type        = bool
+  default     = false
 }
 
 # =============================================================================
@@ -126,35 +134,13 @@ variable "enable_vertical_pod_autoscaling" {
 }
 
 variable "release_channel" {
-  description = "GKE release channel (RAPID, REGULAR, STABLE)"
+  description = "GKE release channel"
   type        = string
   default     = "REGULAR"
 }
 
-# =============================================================================
-# Namespace & Security
-# =============================================================================
-
-variable "namespace" {
-  description = "Kubernetes namespace for odin resources"
-  type        = string
-  default     = "odin-gke-standard"
-}
-
 variable "deletion_protection" {
   description = "Enable deletion protection for the cluster"
-  type        = bool
-  default     = false
-}
-
-variable "taint_spot_nodes" {
-  description = "Add taints to Spot nodes (requires tolerations in workloads)"
-  type        = bool
-  default     = false
-}
-
-variable "enable_autoscaling" {
-  description = "Enable node pool autoscaling (true for production, false for dev/staging)"
   type        = bool
   default     = false
 }
