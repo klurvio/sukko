@@ -48,6 +48,8 @@ ws-gateway:
     dialTimeout: "10s"
     logLevel: info
     logFormat: json
+    # Authentication - disabled for now, enable when odin-api is ready
+    authEnabled: false
 
   # Channel permission patterns
   permissions:

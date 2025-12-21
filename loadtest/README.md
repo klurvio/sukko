@@ -28,6 +28,7 @@ See: `docs/NODE_JS_EVENT_LOOP_BOTTLENECK.md` for detailed analysis.
 - **Graceful Shutdown**: Clean connection teardown on SIGINT/SIGTERM
 - **Phase Detection**: Automatic test mode detection (lite/standard/stress)
 - **Detailed Reporting**: Comprehensive metrics at completion
+- **JWT Authentication**: Supports ws-gateway authentication via JWT tokens
 
 ## Installation
 
@@ -59,8 +60,8 @@ docker build -t loadtest -f deployments/gcp-distributed/test-runner/Dockerfile -
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-url` | `ws://localhost:3004/ws` | WebSocket server URL |
-| `-health` | `http://localhost:3004/health` | Health check endpoint URL |
+| `-url` | `ws://localhost:3000/ws` | WebSocket server URL (gateway) |
+| `-health` | `http://localhost:3000/health` | Health check endpoint URL |
 | `-connections` | `7000` | Target number of concurrent connections |
 | `-ramp-rate` | `100` | Connections per second during ramp-up |
 | `-duration` | `1800` | Sustain duration in seconds (30 minutes) |
@@ -71,6 +72,16 @@ docker build -t loadtest -f deployments/gcp-distributed/test-runner/Dockerfile -
 | `-health-interval` | `5` | Health check interval in seconds |
 | `-connection-timeout` | `10000` | Connection timeout in milliseconds |
 | `-max-connections` | `18000` | Server max connections (for test mode detection) |
+
+### Authentication Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-token` | `` | Pre-generated JWT token |
+| `-jwt-secret` | `` | JWT secret to generate tokens (min 32 chars) |
+| `-principal` | `loadtest-user` | Principal ID for generated tokens |
+
+**Note:** When connecting through ws-gateway, authentication is required. Either provide a pre-generated token or the same JWT secret used by ws-gateway.
 
 ### Subscription Modes
 
@@ -91,10 +102,21 @@ docker build -t loadtest -f deployments/gcp-distributed/test-runner/Dockerfile -
 
 ### Examples
 
+**With JWT Secret (recommended for ws-gateway):**
+```bash
+./loadtest \
+  -url ws://localhost:3000/ws \
+  -jwt-secret "your-32-character-secret-key-here" \
+  -connections 500 \
+  -ramp-rate 50 \
+  -duration 300
+```
+
 **Light Test (500 connections, 5 minutes):**
 ```bash
 ./loadtest \
-  -url ws://localhost:3004/ws \
+  -url ws://localhost:3000/ws \
+  -jwt-secret "your-32-character-secret-key-here" \
   -connections 500 \
   -ramp-rate 50 \
   -duration 300
@@ -166,6 +188,9 @@ When running in Docker, you can use environment variables instead of flags:
 | `CHANNELS` | `-channels` |
 | `SUBSCRIPTION_MODE` | `-subscription-mode` |
 | `CHANNELS_PER_CLIENT` | `-channels-per-client` |
+| `JWT_TOKEN` | `-token` |
+| `JWT_SECRET` | `-jwt-secret` |
+| `PRINCIPAL` | `-principal` |
 
 **Note:** Flags take precedence over environment variables.
 
@@ -449,6 +474,7 @@ GOOS=darwin GOARCH=arm64 go build -o loadtest-macos
 ## Dependencies
 
 - **gorilla/websocket** - WebSocket client implementation
+- **golang-jwt/jwt/v5** - JWT token generation for authentication
 - **Go 1.23+** - Required for standard library features
 
 Install dependencies:

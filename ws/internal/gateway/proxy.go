@@ -142,6 +142,11 @@ type SubscribeData struct {
 
 // interceptClientMessage intercepts client messages, filtering subscribe requests.
 func (p *Proxy) interceptClientMessage(msg []byte) ([]byte, error) {
+	// If no claims or anonymous, allow all channels (auth disabled)
+	if p.claims == nil || p.claims.Subject == "anonymous" {
+		return msg, nil
+	}
+
 	var clientMsg ClientMessage
 	if err := json.Unmarshal(msg, &clientMsg); err != nil {
 		// Not valid JSON, pass through

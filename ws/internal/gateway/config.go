@@ -25,7 +25,8 @@ type Config struct {
 	MessageTimeout time.Duration `env:"GATEWAY_MESSAGE_TIMEOUT" envDefault:"60s"`
 
 	// Authentication
-	JWTSecret string `env:"JWT_SECRET" required:"true"`
+	AuthEnabled bool   `env:"AUTH_ENABLED" envDefault:"true"`
+	JWTSecret   string `env:"JWT_SECRET"`
 
 	// Permissions - channel patterns
 	PublicPatterns      []string `env:"GATEWAY_PUBLIC_PATTERNS" envSeparator:"," envDefault:"*.trade,*.liquidity,*.metadata"`
@@ -74,12 +75,14 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("GATEWAY_PORT must be between 1 and 65535, got %d", c.Port)
 	}
 
-	if c.JWTSecret == "" {
-		return fmt.Errorf("JWT_SECRET is required")
-	}
-
-	if len(c.JWTSecret) < 32 {
-		return fmt.Errorf("JWT_SECRET must be at least 32 characters for HS256 security")
+	// Only require JWTSecret when auth is enabled
+	if c.AuthEnabled {
+		if c.JWTSecret == "" {
+			return fmt.Errorf("JWT_SECRET is required when AUTH_ENABLED=true")
+		}
+		if len(c.JWTSecret) < 32 {
+			return fmt.Errorf("JWT_SECRET must be at least 32 characters for HS256 security")
+		}
 	}
 
 	if c.BackendURL == "" {
@@ -108,6 +111,7 @@ func (c *Config) LogConfig(logger zerolog.Logger) {
 	logger.Info().
 		Str("environment", c.Environment).
 		Int("port", c.Port).
+		Bool("auth_enabled", c.AuthEnabled).
 		Dur("read_timeout", c.ReadTimeout).
 		Dur("write_timeout", c.WriteTimeout).
 		Dur("idle_timeout", c.IdleTimeout).

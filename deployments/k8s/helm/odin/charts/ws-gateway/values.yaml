@@ -20,6 +20,9 @@ config:
   logLevel: info
   logFormat: json
 
+  # Authentication - set to false to disable JWT validation
+  authEnabled: false
+
   # Backend ws-server URL (empty = dynamic default)
   # Dynamic default: ws://{{ .Release.Name }}-ws-server:3001/ws
   backendURL: ""

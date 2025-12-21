@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 
@@ -26,9 +27,15 @@ type Gateway struct {
 
 // New creates a new Gateway instance.
 func New(config *Config, logger zerolog.Logger) *Gateway {
+	// Only create JWT validator if auth is enabled
+	var jwtValidator *auth.JWTValidator
+	if config.AuthEnabled {
+		jwtValidator = auth.NewJWTValidator(config.JWTSecret)
+	}
+
 	return &Gateway{
 		config:       config,
-		jwtValidator: auth.NewJWTValidator(config.JWTSecret),
+		jwtValidator: jwtValidator,
 		permissions: NewPermissionChecker(
 			config.PublicPatterns,
 			config.UserScopedPatterns,
@@ -55,33 +62,50 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	remoteAddr := r.RemoteAddr
 
-	// Extract token from query parameter or Authorization header
-	token := gw.extractToken(r)
-	if token == "" {
-		gw.logger.Warn().
-			Str("remote_addr", remoteAddr).
-			Msg("Connection rejected: no token provided")
-		http.Error(w, "Unauthorized: token required", http.StatusUnauthorized)
-		return
-	}
+	var claims *auth.Claims
 
-	// Validate JWT token
-	claims, err := gw.jwtValidator.ValidateToken(token)
-	if err != nil {
-		gw.logger.Warn().
-			Err(err).
-			Str("remote_addr", remoteAddr).
-			Msg("Connection rejected: invalid token")
-		http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
-		return
-	}
+	if gw.config.AuthEnabled {
+		// Extract token from query parameter or Authorization header
+		token := gw.extractToken(r)
+		if token == "" {
+			gw.logger.Warn().
+				Str("remote_addr", remoteAddr).
+				Msg("Connection rejected: no token provided")
+			http.Error(w, "Unauthorized: token required", http.StatusUnauthorized)
+			return
+		}
 
-	gw.logger.Debug().
-		Str("principal", claims.Subject).
-		Str("tenant_id", claims.TenantID).
-		Strs("groups", claims.Groups).
-		Str("remote_addr", remoteAddr).
-		Msg("Token validated successfully")
+		// Validate JWT token
+		var err error
+		claims, err = gw.jwtValidator.ValidateToken(token)
+		if err != nil {
+			gw.logger.Warn().
+				Err(err).
+				Str("remote_addr", remoteAddr).
+				Msg("Connection rejected: invalid token")
+			http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		gw.logger.Debug().
+			Str("principal", claims.Subject).
+			Str("tenant_id", claims.TenantID).
+			Strs("groups", claims.Groups).
+			Str("remote_addr", remoteAddr).
+			Msg("Token validated successfully")
+	} else {
+		// Auth disabled - create anonymous claims
+		claims = &auth.Claims{
+			RegisteredClaims: jwt.RegisteredClaims{
+				Subject: "anonymous",
+			},
+			TenantID: "anonymous",
+			Groups:   []string{},
+		}
+		gw.logger.Debug().
+			Str("remote_addr", remoteAddr).
+			Msg("Auth disabled - allowing anonymous connection")
+	}
 
 	// Upgrade client connection to WebSocket
 	clientConn, err := gw.upgrader.Upgrade(w, r, nil)

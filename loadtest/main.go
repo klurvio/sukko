@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 )
 
@@ -36,6 +37,11 @@ type Config struct {
 	ChannelsPerClient  int
 	ConnectionTimeout  int // connection timeout in milliseconds
 	MaxConnections     int // server max connections (for test mode detection)
+
+	// Authentication
+	Token     string // Pre-generated JWT token
+	JWTSecret string // Secret to generate test tokens
+	Principal string // Principal ID for generated tokens
 }
 
 // State tracks test metrics
@@ -145,6 +151,14 @@ func main() {
 	log.Printf("   Server:       %s", config.WSURL)
 	log.Printf("   Health:       %s", config.HealthURL)
 
+	if config.Token != "" {
+		log.Printf("\n🔐 Authentication:")
+		log.Printf("   Principal:    %s", config.Principal)
+		log.Printf("   Token:        %s...%s", config.Token[:10], config.Token[len(config.Token)-10:])
+	} else {
+		log.Printf("\n⚠️  Authentication: DISABLED (no token provided)")
+	}
+
 	if len(config.Channels) > 0 {
 		log.Printf("\n🔔 Subscription Settings:")
 		log.Printf("   Mode:         %s", config.SubscriptionMode)
@@ -211,8 +225,8 @@ func main() {
 func parseFlags() *Config {
 	cfg := &Config{}
 
-	flag.StringVar(&cfg.WSURL, "url", getEnv("WS_URL", "ws://localhost:3004/ws"), "WebSocket server URL")
-	flag.StringVar(&cfg.HealthURL, "health", getEnv("HEALTH_URL", "http://localhost:3004/health"), "Health check URL")
+	flag.StringVar(&cfg.WSURL, "url", getEnv("WS_URL", "ws://localhost:3000/ws"), "WebSocket server URL (gateway)")
+	flag.StringVar(&cfg.HealthURL, "health", getEnv("HEALTH_URL", "http://localhost:3000/health"), "Health check URL")
 	flag.IntVar(&cfg.TargetConnections, "connections", getEnvInt("TARGET_CONNECTIONS", 7000), "Target number of connections")
 	flag.IntVar(&cfg.RampRate, "ramp-rate", getEnvInt("RAMP_RATE", 100), "Connections per second during ramp-up")
 	flag.IntVar(&cfg.SustainDurationSec, "duration", getEnvInt("DURATION", 1800), "Sustain duration in seconds")
@@ -220,6 +234,11 @@ func parseFlags() *Config {
 	flag.IntVar(&cfg.HealthCheckSec, "health-interval", 5, "Health check interval in seconds")
 	flag.IntVar(&cfg.ConnectionTimeout, "connection-timeout", getEnvInt("CONNECTION_TIMEOUT", 10000), "Connection timeout in milliseconds")
 	flag.IntVar(&cfg.MaxConnections, "max-connections", getEnvInt("WS_MAX_CONNECTIONS", 18000), "Server max connections (for test mode detection)")
+
+	// Authentication flags
+	flag.StringVar(&cfg.Token, "token", getEnv("JWT_TOKEN", ""), "Pre-generated JWT token for authentication")
+	flag.StringVar(&cfg.JWTSecret, "jwt-secret", getEnv("JWT_SECRET", ""), "JWT secret to generate test tokens (min 32 chars)")
+	flag.StringVar(&cfg.Principal, "principal", getEnv("PRINCIPAL", "loadtest-user"), "Principal ID for generated tokens")
 
 	channelsStr := flag.String("channels", getEnv("CHANNELS", "BTC.trade,ETH.trade,SOL.trade,ODIN.trade,DOGE.trade"), "Comma-separated list of channels")
 	flag.StringVar(&cfg.SubscriptionMode, "subscription-mode", getEnv("SUBSCRIPTION_MODE", "all"), "Subscription mode: all, single, random")
@@ -233,6 +252,16 @@ func parseFlags() *Config {
 		for i := range cfg.Channels {
 			cfg.Channels[i] = strings.TrimSpace(cfg.Channels[i])
 		}
+	}
+
+	// Generate token if secret provided but no token
+	if cfg.Token == "" && cfg.JWTSecret != "" {
+		token, err := generateTestToken(cfg.JWTSecret, cfg.Principal)
+		if err != nil {
+			log.Fatalf("❌ Failed to generate JWT token: %v", err)
+		}
+		cfg.Token = token
+		log.Printf("🔑 Generated JWT token for principal: %s", cfg.Principal)
 	}
 
 	return cfg
@@ -252,6 +281,24 @@ func getEnvInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+// generateTestToken creates a JWT token for loadtest authentication
+func generateTestToken(secret, principal string) (string, error) {
+	if len(secret) < 32 {
+		return "", fmt.Errorf("JWT secret must be at least 32 characters")
+	}
+
+	claims := jwt.MapClaims{
+		"sub":       principal,
+		"tenant_id": "loadtest",
+		"groups":    []string{"loadtest"},
+		"iat":       time.Now().Unix(),
+		"exp":       time.Now().Add(24 * time.Hour).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
 }
 
 func rampUpConnections(ctx context.Context) error {
@@ -353,6 +400,13 @@ func (c *Connection) Connect() error {
 	if err != nil {
 		log.Printf("Connection %d: url parse error: %v", c.id, err)
 		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	// Add JWT token as query parameter for authentication
+	if config.Token != "" {
+		q := u.Query()
+		q.Set("token", config.Token)
+		u.RawQuery = q.Encode()
 	}
 
 	ws, _, err := dialer.Dial(u.String(), nil)

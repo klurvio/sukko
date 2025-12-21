@@ -51,12 +51,17 @@ spec:
               value: "ws://{{ .Release.Name }}-ws-server:3001/ws"
               {{- end }}
 
-            # JWT Secret (from shared secret)
+            # Authentication
+            - name: AUTH_ENABLED
+              value: "{{ .Values.config.authEnabled }}"
+            {{- if .Values.config.authEnabled }}
+            # JWT Secret (from shared secret) - only required when auth is enabled
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-auth-secrets
                   key: jwt-secret
+            {{- end }}
 
             # Permission patterns
             - name: GATEWAY_PUBLIC_PATTERNS
