@@ -9,7 +9,7 @@ vars:
   LOCAL_KIND_CONFIG: "{{.ROOT_DIR}}/deployments/k8s/environments/local/kind-config.yaml"
   LOCAL_CLUSTER: odin-ws-local
   LOCAL_NS: odin-local
-  LOCAL_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values-local.yaml"
+  LOCAL_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values/local.yaml"
 
 tasks:
   # ===========================================================================

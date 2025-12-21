@@ -1,16 +1,16 @@
 # =============================================================================
-# GKE Standard Environment (Spot VMs, Cost-Optimized)
+# GKE Standard - Production Environment (Spot VMs, Autoscaling)
 # =============================================================================
-# This environment uses GKE Standard with Spot VMs for 60-90% cost savings.
-# Workloads should tolerate interruptions (Spot VMs can be preempted).
+# Production environment using GKE Standard with Spot VMs for 60-90% cost savings.
+# Autoscaling 1-5 nodes, higher replicas, persistent storage, NATS cluster.
 #
 # Usage:
 #   helm upgrade --install odin ./deployments/k8s/helm/odin \
-#     -f ./deployments/k8s/helm/odin/values-gke-standard.yaml \
-#     -n odin-gke-standard --create-namespace
+#     -f ./deployments/k8s/helm/odin/values/standard/production.yaml \
+#     -n odin-std-production --create-namespace
 
 global:
-  namespace: odin-gke-standard
+  namespace: odin-std-production
   # Update with your Artifact Registry path
   imageRegistry: "us-central1-docker.pkg.dev/YOUR_PROJECT/odin"
 
@@ -19,24 +19,24 @@ global:
 # =============================================================================
 ws-gateway:
   enabled: true
-  replicaCount: 2
+  replicaCount: 3
 
   image:
     repository: ws-gateway
     tag: latest
-    pullPolicy: Always
+    pullPolicy: IfNotPresent
 
   config:
-    logLevel: info
+    logLevel: warn
     logFormat: json
 
   resources:
     requests:
-      cpu: "250m"
-      memory: "128Mi"
-    limits:
       cpu: "500m"
       memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "512Mi"
 
   service:
     type: LoadBalancer
@@ -53,47 +53,57 @@ ws-gateway:
   # Pod disruption budget for Spot preemption handling
   podDisruptionBudget:
     enabled: true
-    minAvailable: 1
+    minAvailable: 2
+
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
 
 # =============================================================================
 # WebSocket Server
 # =============================================================================
 ws-server:
   enabled: true
-  replicaCount: 2
+  replicaCount: 3
 
   image:
     repository: ws-server
     tag: latest
-    pullPolicy: Always
+    pullPolicy: IfNotPresent
 
   config:
-    shards: 2
-    logLevel: info
+    shards: 4
+    logLevel: warn
     logFormat: json
 
   # Broadcast Bus - NATS
   broadcast:
     type: nats
 
-  # NATS config
+  # NATS config - cluster mode for production
   nats:
     urls: ""  # Uses dynamic default
-    clusterMode: false  # Single node for cost savings
+    clusterMode: true
 
   resources:
     requests:
-      cpu: "500m"
-      memory: "256Mi"
-    limits:
       cpu: "1"
       memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "1Gi"
 
   service:
     type: LoadBalancer
 
   autoscaling:
-    enabled: false  # Enable for production
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
 
   # Spot VM tolerations
   tolerations:
@@ -105,58 +115,60 @@ ws-server:
   # Pod disruption budget for graceful handling
   podDisruptionBudget:
     enabled: true
-    minAvailable: 1
+    minAvailable: 2
 
   # Termination grace period for WebSocket connections
   terminationGracePeriodSeconds: 30
 
 # =============================================================================
-# Redpanda (Kafka) - Minimal Self-Hosted
+# Redpanda (Kafka) - Production with Persistence
 # =============================================================================
 redpanda:
   enabled: true
-  replicaCount: 1
+  replicaCount: 3
 
-  # Minimal resources for self-hosted
-  memory: "256M"
+  # Production resources
+  memory: "1G"
   resources:
     requests:
-      cpu: "250m"
-      memory: "256Mi"
-    limits:
       cpu: "500m"
-      memory: "384Mi"
+      memory: "1Gi"
+    limits:
+      cpu: "1"
+      memory: "1.5Gi"
 
-  # Use emptyDir for cost savings (data not persisted)
+  # Persistent storage for production
   storage:
-    enabled: false
+    enabled: true
+    size: 10Gi
+    storageClass: standard-rwo
 
-  # Minimal partitions
+  # Production partitions
   topics:
     - name: odin.trades
-      partitions: 1
-      replicationFactor: 1
+      partitions: 4
+      replicationFactor: 2
     - name: odin.liquidity
-      partitions: 1
-      replicationFactor: 1
+      partitions: 4
+      replicationFactor: 2
     - name: odin.balances
-      partitions: 1
-      replicationFactor: 1
+      partitions: 4
+      replicationFactor: 2
     - name: odin.metadata
-      partitions: 1
-      replicationFactor: 1
+      partitions: 2
+      replicationFactor: 2
     - name: odin.social
-      partitions: 1
-      replicationFactor: 1
+      partitions: 2
+      replicationFactor: 2
     - name: odin.community
-      partitions: 1
-      replicationFactor: 1
+      partitions: 2
+      replicationFactor: 2
     - name: odin.creation
-      partitions: 1
-      replicationFactor: 1
+      partitions: 2
+      replicationFactor: 2
     - name: odin.analytics
-      partitions: 1
-      replicationFactor: 1
+      partitions: 2
+      replicationFactor: 2
 
   # Spot VM tolerations
   tolerations:
@@ -164,6 +176,10 @@ redpanda:
       operator: "Equal"
       value: "true"
       effect: "NoSchedule"
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
 
 # =============================================================================
 # Valkey - Disabled (using NATS)
@@ -172,26 +188,27 @@ valkey:
   enabled: false
 
 # =============================================================================
-# NATS - Minimal Self-Hosted
+# NATS - Production Cluster
 # =============================================================================
 nats:
   enabled: true
-  replicaCount: 1
+  replicaCount: 3
 
   cluster:
-    enabled: false  # Single node for cost savings
+    enabled: true
+    replicas: 3
 
   auth:
-    enabled: false
+    enabled: true
 
-  # Minimal resources
+  # Production resources
   resources:
     requests:
-      cpu: "50m"
-      memory: "64Mi"
-    limits:
       cpu: "100m"
       memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
 
   # Spot VM tolerations
   tolerations:
@@ -199,6 +216,10 @@ nats:
       operator: "Equal"
       value: "true"
       effect: "NoSchedule"
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
 
 # =============================================================================
 # Publisher
@@ -209,15 +230,15 @@ publisher:
   image:
     repository: publisher
     tag: latest
-    pullPolicy: Always
+    pullPolicy: IfNotPresent
 
   resources:
     requests:
-      cpu: "50m"
-      memory: "64Mi"
-    limits:
       cpu: "100m"
       memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
 
   # Spot VM tolerations
   tolerations:
@@ -227,12 +248,31 @@ publisher:
       effect: "NoSchedule"
 
 # =============================================================================
-# Monitoring - Minimal
+# Monitoring - Production
 # =============================================================================
 monitoring:
   enabled: true
 
   prometheus:
+    enabled: true
+    retention: 15d
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    storage:
+      enabled: true
+      size: 20Gi
+    tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+
+  grafana:
     enabled: true
     resources:
       requests:
@@ -247,30 +287,19 @@ monitoring:
         value: "true"
         effect: "NoSchedule"
 
-  grafana:
-    enabled: true
-    resources:
-      requests:
-        cpu: "50m"
-        memory: "128Mi"
-      limits:
-        cpu: "100m"
-        memory: "256Mi"
-    tolerations:
-      - key: "cloud.google.com/gke-spot"
-        operator: "Equal"
-        value: "true"
-        effect: "NoSchedule"
-
   loki:
     enabled: true
+    retention: 7d
     resources:
       requests:
-        cpu: "50m"
-        memory: "128Mi"
-      limits:
         cpu: "100m"
         memory: "256Mi"
+      limits:
+        cpu: "250m"
+        memory: "512Mi"
+    storage:
+      enabled: true
+      size: 10Gi
     tolerations:
       - key: "cloud.google.com/gke-spot"
         operator: "Equal"
@@ -281,11 +310,11 @@ monitoring:
     enabled: true
     resources:
       requests:
-        cpu: "25m"
-        memory: "32Mi"
-      limits:
         cpu: "50m"
         memory: "64Mi"
+      limits:
+        cpu: "100m"
+        memory: "128Mi"
     tolerations:
       - key: "cloud.google.com/gke-spot"
         operator: "Equal"

@@ -6,9 +6,10 @@ version: '3'
 
 vars:
   GKE_STD_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
-  GKE_STD_NS: odin-gke-standard
-  GKE_STD_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values-gke-standard.yaml"
-  GKE_STD_TF_DIR: "{{.ROOT_DIR}}/deployments/k8s/terraform/gke-standard"
+  GKE_STD_ENV: '{{.GKE_STD_ENV | default "develop"}}'
+  GKE_STD_NS: 'odin-std-{{.GKE_STD_ENV}}'
+  GKE_STD_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values/standard/{{.GKE_STD_ENV}}.yaml"
+  GKE_STD_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/gke-standard"
   GKE_STD_PROJECT: '{{.GKE_PROJECT | default "YOUR_PROJECT"}}'
   GKE_STD_ZONE: '{{.GKE_ZONE | default "us-central1-a"}}'
   GKE_STD_CLUSTER: '{{.GKE_STD_CLUSTER | default "odin-ws-gke-standard"}}'
@@ -185,10 +186,32 @@ tasks:
       - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/asyncapi/bundled.yaml
 
   deploy:
-    desc: Deploy/upgrade Helm release
+    desc: Deploy/upgrade Helm release (uses GKE_STD_ENV, defaults to develop)
     cmds:
       - task: asyncapi:bundle
       - helm upgrade --install odin {{.GKE_STD_CHART}} -f {{.GKE_STD_VALUES}} -n {{.GKE_STD_NS}} --create-namespace
+
+  deploy:develop:
+    desc: Deploy to GKE Standard develop
+    cmds:
+      - task: deploy
+        vars:
+          GKE_STD_ENV: develop
+
+  deploy:staging:
+    desc: Deploy to GKE Standard staging
+    cmds:
+      - task: deploy
+        vars:
+          GKE_STD_ENV: staging
+
+  deploy:production:
+    desc: Deploy to GKE Standard production
+    prompt: "This will deploy to GKE Standard PRODUCTION. Are you sure?"
+    cmds:
+      - task: deploy
+        vars:
+          GKE_STD_ENV: production
 
   diff:
     desc: Show diff before upgrade
@@ -300,8 +323,8 @@ tasks:
     cmds:
       - echo "=== Spot VM Cost Analysis ==="
       - echo ""
-      - kubectl get nodes -l cloud.google.com/gke-spot=true --no-headers 2>/dev/null | wc -l | xargs -I {} echo "Spot nodes: {}"
-      - kubectl get nodes -l cloud.google.com/gke-spot!=true --no-headers 2>/dev/null | wc -l | xargs -I {} echo "On-demand nodes: {}"
+      - 'kubectl get nodes -l cloud.google.com/gke-spot=true --no-headers 2>/dev/null | wc -l | xargs -I {} echo "Spot nodes: {}"'
+      - 'kubectl get nodes -l "cloud.google.com/gke-spot!=true" --no-headers 2>/dev/null | wc -l | xargs -I {} echo "On-demand nodes: {}"'
       - echo ""
       - echo "Spot VMs provide 60-90% cost savings vs on-demand."
       - echo "Run 'gcloud compute machine-types describe e2-standard-4 --zone={{.GKE_STD_ZONE}}' for pricing."

@@ -23,7 +23,7 @@ Deploy odin-ws to GKE Standard cluster with Spot VMs for 60-90% cost savings com
 ### 1. Configure Terraform Variables
 
 ```bash
-cd deployments/k8s/terraform/gke-standard
+cd deployments/terraform/gke-standard
 cp terraform.tfvars.example terraform.tfvars
 vim terraform.tfvars  # Set your project_id
 ```
@@ -94,7 +94,13 @@ task k8s:gke-standard:build
 ### Deploy Application
 
 ```bash
+# Deploy to develop (default)
 task k8s:gke-standard:deploy
+
+# Or deploy to specific environment
+task k8s:gke-standard:deploy:develop
+task k8s:gke-standard:deploy:staging
+task k8s:gke-standard:deploy:production
 ```
 
 ## Configuration
@@ -118,17 +124,42 @@ max_node_count     = 5
 
 ### Spot VMs
 
-Spot VMs are enabled by default for 60-90% cost savings:
+**What are Spot VMs?**
+
+Spot VMs are discounted compute instances that Google can reclaim (preempt) when they need the capacity back.
+
+| Aspect | Spot VMs | Regular (On-Demand) VMs |
+|--------|----------|------------------------|
+| **Cost** | 60-90% cheaper | Full price |
+| **Availability** | Can be preempted with 30s notice | Always available |
+| **Best for** | Dev/staging, stateless workloads | Production with strict uptime |
+
+**Why Spot VMs work well for odin-ws:**
+- WebSocket servers can gracefully disconnect clients during preemption
+- Kubernetes automatically reschedules pods to new nodes
+- The Helm chart includes `PodDisruptionBudgets` to maintain minimum availability
+- 30-second termination grace period allows clean connection shutdown
+
+**Recommendation:**
+- `use_spot_vms = true` for develop/staging (saves ~$120/mo)
+- Consider `use_spot_vms = false` for production if you need guaranteed uptime
+
+**Configuration:**
 
 ```hcl
 # terraform.tfvars
-use_spot_vms     = true   # Default
+use_spot_vms     = true   # Default - 60-90% cost savings
 taint_spot_nodes = false  # Set true for dedicated Spot handling
 ```
 
 ### Resource Allocation
 
-The `values-gke-standard.yaml` uses minimal resources for self-hosted NATS and Redpanda:
+Values files are located in `deployments/k8s/helm/odin/values/standard/`:
+- `develop.yaml` - Minimal resources, fixed replicas
+- `staging.yaml` - Production-like config, fixed replicas
+- `production.yaml` - Autoscaling, persistent storage, NATS cluster
+
+**Develop/Staging** (minimal resources):
 
 | Component | CPU Request | Memory Request |
 |-----------|-------------|----------------|
@@ -173,7 +204,10 @@ task k8s:gke-standard:nodes
 | Command | Description |
 |---------|-------------|
 | `task k8s:gke-standard:setup` | Full setup (infra + deploy) |
-| `task k8s:gke-standard:deploy` | Deploy/upgrade Helm release |
+| `task k8s:gke-standard:deploy` | Deploy/upgrade (default: develop) |
+| `task k8s:gke-standard:deploy:develop` | Deploy to develop |
+| `task k8s:gke-standard:deploy:staging` | Deploy to staging |
+| `task k8s:gke-standard:deploy:production` | Deploy to production |
 | `task k8s:gke-standard:down` | Uninstall Helm release |
 | `task k8s:gke-standard:destroy` | Complete teardown |
 | `task k8s:gke-standard:rollback` | Rollback to previous |
@@ -235,10 +269,10 @@ kubectl describe nodes
 
 ```bash
 # Refresh state
-terraform -chdir=deployments/k8s/terraform/gke-standard refresh
+terraform -chdir=deployments/terraform/gke-standard refresh
 
 # Import existing resources
-terraform -chdir=deployments/k8s/terraform/gke-standard import <resource> <id>
+terraform -chdir=deployments/terraform/gke-standard import <resource> <id>
 ```
 
 ### Build/Push failures
