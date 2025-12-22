@@ -1,0 +1,198 @@
+version: "3"
+
+# =============================================================================
+# GCP v2 - Infrastructure Management
+# =============================================================================
+# VM create, delete, setup, SSH access
+
+vars:
+  # Environment (develop, staging)
+  ENV: '{{.ENV | default "develop"}}'
+  GCP_PROJECT: '{{.GCP_PROJECT | default "your-project-id"}}'
+  GCP_ZONE: '{{.GCP_ZONE | default "us-central1-a"}}'
+  INSTANCE_NAME: 'odin-tools-{{.ENV}}'
+  MACHINE_TYPE: '{{.MACHINE_TYPE | default "e2-standard-8"}}'
+  BOOT_DISK_SIZE: '{{.BOOT_DISK_SIZE | default "50GB"}}'
+  V2_DEPLOY_DIR: '{{.USER_WORKING_DIR}}/deployments/gcp/v2'
+  V2_ENV_FILE: '{{.V2_DEPLOY_DIR}}/environments/{{.ENV}}.env'
+  REMOTE_DIR: '/home/deploy/odin-ws'
+
+tasks:
+  # ===========================================================================
+  # VM Lifecycle
+  # ===========================================================================
+
+  create:
+    desc: Create GCP VM for loadtest/publisher
+    cmds:
+      - echo "Creating VM {{.INSTANCE_NAME}} ({{.MACHINE_TYPE}})..."
+      - |
+        gcloud compute instances create {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --machine-type={{.MACHINE_TYPE}} \
+          --image-family=ubuntu-2204-lts \
+          --image-project=ubuntu-os-cloud \
+          --boot-disk-size={{.BOOT_DISK_SIZE}} \
+          --boot-disk-type=pd-ssd \
+          --tags=odin-tools \
+          --scopes=compute-rw,storage-ro \
+          --metadata=enable-oslogin=TRUE
+      - echo ""
+      - echo "VM created. Run 'task gcp:v2:setup ENV={{.ENV}}' to initialize."
+
+  create-spot:
+    desc: Create Spot VM (cheaper, preemptible)
+    cmds:
+      - echo "Creating Spot VM {{.INSTANCE_NAME}} ({{.MACHINE_TYPE}})..."
+      - |
+        gcloud compute instances create {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --machine-type={{.MACHINE_TYPE}} \
+          --image-family=ubuntu-2204-lts \
+          --image-project=ubuntu-os-cloud \
+          --boot-disk-size={{.BOOT_DISK_SIZE}} \
+          --boot-disk-type=pd-ssd \
+          --tags=odin-tools \
+          --scopes=compute-rw,storage-ro \
+          --provisioning-model=SPOT \
+          --instance-termination-action=STOP \
+          --metadata=enable-oslogin=TRUE
+      - echo ""
+      - echo "Spot VM created. Run 'task gcp:v2:setup ENV={{.ENV}}' to initialize."
+
+  delete:
+    desc: Delete GCP VM
+    cmds:
+      - echo "Deleting VM {{.INSTANCE_NAME}}..."
+      - |
+        gcloud compute instances delete {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --quiet
+      - echo "VM deleted."
+
+  start:
+    desc: Start stopped VM
+    cmds:
+      - |
+        gcloud compute instances start {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}}
+      - echo "VM started."
+
+  stop:
+    desc: Stop running VM
+    cmds:
+      - |
+        gcloud compute instances stop {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}}
+      - echo "VM stopped."
+
+  # ===========================================================================
+  # VM Setup
+  # ===========================================================================
+
+  setup:
+    desc: Setup VM (install Docker, clone repo, configure kernel)
+    cmds:
+      - echo "Setting up VM {{.INSTANCE_NAME}}..."
+      - echo ""
+      - echo "[1/4] Copying setup script..."
+      - |
+        gcloud compute scp {{.V2_DEPLOY_DIR}}/scripts/setup-vm.sh \
+          {{.INSTANCE_NAME}}:/tmp/setup-vm.sh \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}}
+      - echo ""
+      - echo "[2/4] Running setup script (this may take a few minutes)..."
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="sudo bash /tmp/setup-vm.sh"
+      - echo ""
+      - echo "[3/4] Copying environment file..."
+      - |
+        gcloud compute scp {{.V2_ENV_FILE}} \
+          {{.INSTANCE_NAME}}:/tmp/{{.ENV}}.env \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}}
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="sudo mkdir -p {{.REMOTE_DIR}}/deployments/gcp/v2/environments && sudo cp /tmp/{{.ENV}}.env {{.REMOTE_DIR}}/deployments/gcp/v2/environments/"
+      - echo ""
+      - echo "[4/4] Building Docker images..."
+      - task: build-images
+      - echo ""
+      - echo "Setup complete! Use 'task gcp:v2:ssh ENV={{.ENV}}' to connect."
+
+  build-images:
+    desc: Build Docker images on VM
+    cmds:
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="cd {{.REMOTE_DIR}}/deployments/gcp/v2 && sudo docker-compose build"
+
+  sync-env:
+    desc: Sync environment file to VM
+    cmds:
+      - echo "Syncing {{.ENV}}.env to VM..."
+      - |
+        gcloud compute scp {{.V2_ENV_FILE}} \
+          {{.INSTANCE_NAME}}:{{.REMOTE_DIR}}/deployments/gcp/v2/environments/{{.ENV}}.env \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}}
+      - echo "Environment file synced."
+
+  # ===========================================================================
+  # SSH Access
+  # ===========================================================================
+
+  ssh:
+    desc: SSH into VM
+    cmds:
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}}
+
+  # ===========================================================================
+  # Status
+  # ===========================================================================
+
+  status:
+    desc: Show VM and container status
+    cmds:
+      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - echo "VM Status - {{.INSTANCE_NAME}}"
+      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - |
+        gcloud compute instances describe {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --format="table(name,status,machineType.basename(),networkInterfaces[0].accessConfigs[0].natIP)" 2>/dev/null || echo "VM not found"
+      - echo ""
+      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - echo "Container Status"
+      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="cd {{.REMOTE_DIR}}/deployments/gcp/v2 && sudo docker-compose ps" 2>/dev/null || echo "Unable to get container status"
+
+  ip:
+    desc: Get VM external IP
+    cmds:
+      - |
+        gcloud compute instances describe {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --format="get(networkInterfaces[0].accessConfigs[0].natIP)"

@@ -1,0 +1,79 @@
+version: "3.8"
+
+# =============================================================================
+# GCP v2 Deployment - Loadtest + Publisher
+# =============================================================================
+# Single VM deployment for testing tools
+# Both services can connect to external K8s or v1 GCP backend
+
+services:
+  # ===========================================================================
+  # Loadtest - WebSocket load testing tool (Go)
+  # ===========================================================================
+  loadtest:
+    build:
+      context: ../../../loadtest
+      dockerfile: Dockerfile
+    image: loadtest:latest
+    container_name: odin-loadtest
+    network_mode: host
+    environment:
+      - WS_URL=${WS_URL:-ws://localhost:3000/ws}
+      - HEALTH_URL=${HEALTH_URL:-http://localhost:3000/health}
+      - TARGET_CONNECTIONS=${TARGET_CONNECTIONS:-1000}
+      - RAMP_RATE=${RAMP_RATE:-100}
+      - DURATION=${DURATION:-300}
+      - SUBSCRIPTION_MODE=${SUBSCRIPTION_MODE:-random}
+      - CHANNELS=${CHANNELS:-BTC.trade,ETH.trade,SOL.trade}
+      - CHANNELS_PER_CLIENT=${CHANNELS_PER_CLIENT:-3}
+    profiles:
+      - loadtest
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Publisher - Kafka event publisher (Node.js)
+  # ===========================================================================
+  publisher:
+    build:
+      context: ../../../publisher
+      dockerfile: Dockerfile
+    image: publisher:latest
+    container_name: odin-publisher
+    ports:
+      - "3003:3003"
+    environment:
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-localhost:9092}
+      - API_PORT=3003
+      - NODE_ENV=production
+      - PUBLISH_RATE=${PUBLISH_RATE:-25}
+    profiles:
+      - publisher
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# =============================================================================
+# USAGE
+# =============================================================================
+# Build images:
+#   docker-compose build
+#
+# Start publisher:
+#   docker-compose --profile publisher up -d
+#
+# Start loadtest:
+#   docker-compose --profile loadtest up -d
+#
+# Start both:
+#   docker-compose --profile publisher --profile loadtest up -d
+#
+# View logs:
+#   docker-compose logs -f loadtest
+#   docker-compose logs -f publisher
+#
+# Stop all:
+#   docker-compose --profile publisher --profile loadtest down

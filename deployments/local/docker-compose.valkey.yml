@@ -44,7 +44,7 @@ networks:
 # ==============================================================================
 # Prerequisites:
 #   1. Main local stack must be running (creates odin-local network):
-#      cd deployments/v1/local
+#      cd deployments/local
 #      docker-compose up -d
 #
 #   2. Then start Valkey:
@@ -53,7 +53,7 @@ networks:
 # Commands:
 #
 # 1. Start Valkey:
-#    cd deployments/v1/local
+#    cd deployments/local
 #    docker-compose -f docker-compose.valkey.yml up -d
 #
 # 2. Check Valkey health:

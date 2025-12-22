@@ -1,0 +1,128 @@
+version: "3"
+
+# =============================================================================
+# GCP v2 - Loadtest & Publisher Deployment
+# =============================================================================
+# Deploy testing tools to GCP VM for testing against K8s or v1 backends
+# Usage: task gcp:v2:<command> ENV=<develop|staging>
+
+includes:
+  infra:
+    taskfile: ./infrastructure.yml
+    internal: true
+  loadtest:
+    taskfile: ./loadtest.yml
+  publisher:
+    taskfile: ./publisher.yml
+
+vars:
+  ENV: '{{.ENV | default "develop"}}'
+
+tasks:
+  # ===========================================================================
+  # High-Level Commands
+  # ===========================================================================
+
+  default:
+    desc: Show available commands
+    cmds:
+      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - echo "GCP v2 - Loadtest & Publisher"
+      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - echo ""
+      - echo "Infrastructure:"
+      - echo "  task gcp:v2:create ENV=develop    - Create VM"
+      - echo "  task gcp:v2:delete ENV=develop    - Delete VM"
+      - echo "  task gcp:v2:setup ENV=develop     - Setup VM"
+      - echo "  task gcp:v2:ssh ENV=develop       - SSH to VM"
+      - echo "  task gcp:v2:status ENV=develop    - Show status"
+      - echo ""
+      - echo "Loadtest:"
+      - echo "  task gcp:v2:loadtest:start ENV=develop"
+      - echo "  task gcp:v2:loadtest:stop ENV=develop"
+      - echo "  task gcp:v2:loadtest:logs ENV=develop"
+      - echo "  task gcp:v2:loadtest:capacity ENV=develop"
+      - echo ""
+      - echo "Publisher:"
+      - echo "  task gcp:v2:publisher:start ENV=develop RATE=25"
+      - echo "  task gcp:v2:publisher:stop ENV=develop"
+      - echo "  task gcp:v2:publisher:logs ENV=develop"
+      - echo ""
+      - echo "Local (no GCP):"
+      - echo "  task gcp:v2:local:up"
+      - echo "  task gcp:v2:local:down"
+      - echo ""
+
+  # ===========================================================================
+  # Infrastructure shortcuts
+  # ===========================================================================
+
+  create:
+    desc: Create GCP VM for environment
+    cmds:
+      - task: infra:create
+
+  delete:
+    desc: Delete GCP VM for environment
+    cmds:
+      - task: infra:delete
+
+  setup:
+    desc: Setup VM (clone repo, build images, configure kernel)
+    cmds:
+      - task: infra:setup
+
+  ssh:
+    desc: SSH into VM
+    cmds:
+      - task: infra:ssh
+
+  status:
+    desc: Show VM and container status
+    cmds:
+      - task: infra:status
+
+  # ===========================================================================
+  # Local Environment (no GCP)
+  # ===========================================================================
+
+  local:up:
+    desc: Start both services locally (Docker)
+    dir: "{{.USER_WORKING_DIR}}/deployments/gcp/v2"
+    cmds:
+      - echo "Starting loadtest and publisher locally..."
+      - docker-compose --env-file environments/local.env --profile publisher --profile loadtest up -d
+      - echo "Services started. Use 'docker-compose logs -f' to view logs."
+
+  local:down:
+    desc: Stop local services
+    dir: "{{.USER_WORKING_DIR}}/deployments/gcp/v2"
+    cmds:
+      - docker-compose --profile publisher --profile loadtest down
+      - echo "Services stopped."
+
+  local:loadtest:run:
+    desc: Run loadtest locally (CONNECTIONS=100 DURATION=60)
+    dir: "{{.USER_WORKING_DIR}}/deployments/gcp/v2"
+    vars:
+      CONNECTIONS: '{{.CONNECTIONS | default "100"}}'
+      DURATION: '{{.DURATION | default "60"}}'
+    cmds:
+      - echo "Running local loadtest ({{.CONNECTIONS}} connections, {{.DURATION}}s)..."
+      - |
+        docker-compose --env-file environments/local.env run --rm \
+          -e TARGET_CONNECTIONS={{.CONNECTIONS}} \
+          -e DURATION={{.DURATION}} \
+          loadtest
+
+  local:publisher:start:
+    desc: Start publisher locally (RATE=10)
+    dir: "{{.USER_WORKING_DIR}}/deployments/gcp/v2"
+    vars:
+      RATE: '{{.RATE | default "10"}}'
+    cmds:
+      - echo "Starting local publisher ({{.RATE}} events/sec)..."
+      - |
+        docker-compose --env-file environments/local.env \
+          -e PUBLISH_RATE={{.RATE}} \
+          --profile publisher up -d

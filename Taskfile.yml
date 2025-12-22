@@ -3,7 +3,7 @@ version: "3"
 # Main Taskfile - Orchestrates all sub-taskfiles
 # Run 'task' or 'task --list' to see available commands
 
-dotenv: ["./deployments/v1/gcp/.env.gcp"]
+dotenv: ["./deployments/gcp/v1/.env.gcp"]
 
 includes:
   # Version management
@@ -30,7 +30,12 @@ includes:
 
   # GCP deployment (Kafka/Redpanda, Distributed) - v1
   gcp:
-    taskfile: ./taskfiles/v1/gcp/Taskfile.yml
+    taskfile: ./taskfiles/gcp/v1/Taskfile.yml
+    dir: .
+
+  # GCP v2 - Loadtest & Publisher tools (connects to K8s or v1 backends)
+  gcp:v2:
+    taskfile: ./taskfiles/gcp/v2/Taskfile.yml
     dir: .
 
   # Kubernetes deployment (GKE Autopilot)
@@ -143,6 +148,16 @@ tasks:
       - echo "  task gcp:health:all                 - Check all services health"
       - echo "  task gcp:stats:urls                 - Show service URLs"
       - echo "  task gcp:load-test:capacity         - Run capacity test (12K)"
+      - echo ""
+      - echo "🧪 GCP v2 - LOADTEST & PUBLISHER"
+      - echo "  task gcp:v2                         - Show v2 commands"
+      - echo "  task gcp:v2:create ENV=develop      - Create VM"
+      - echo "  task gcp:v2:setup ENV=develop       - Setup VM (Docker, kernel)"
+      - echo "  task gcp:v2:ssh ENV=develop         - SSH into VM"
+      - echo "  task gcp:v2:loadtest:start ENV=develop"
+      - echo "  task gcp:v2:loadtest:capacity ENV=develop"
+      - echo "  task gcp:v2:publisher:start ENV=develop RATE=25"
+      - echo "  task gcp:v2:local:up                - Start locally (no GCP)"
       - echo ""
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - echo ""

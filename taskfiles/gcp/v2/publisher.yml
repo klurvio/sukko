@@ -1,0 +1,108 @@
+version: "3"
+
+# =============================================================================
+# GCP v2 - Publisher Tasks
+# =============================================================================
+# Manage publisher container on GCP VM
+
+vars:
+  # Environment (develop, staging)
+  ENV: '{{.ENV | default "develop"}}'
+  GCP_PROJECT: '{{.GCP_PROJECT | default "your-project-id"}}'
+  GCP_ZONE: '{{.GCP_ZONE | default "us-central1-a"}}'
+  INSTANCE_NAME: 'odin-tools-{{.ENV}}'
+  REMOTE_DIR: '/home/deploy/odin-ws'
+
+  # Publisher defaults (can be overridden via CLI)
+  RATE: '{{.RATE | default "25"}}'
+  LINES: '{{.LINES | default "100"}}'
+
+tasks:
+  # ===========================================================================
+  # Container Management
+  # ===========================================================================
+
+  start:
+    desc: Start publisher container (RATE=25)
+    cmds:
+      - echo "Starting publisher on {{.INSTANCE_NAME}} ({{.RATE}} events/sec)..."
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="cd {{.REMOTE_DIR}}/deployments/gcp/v2 && \
+            PUBLISH_RATE={{.RATE}} sudo -E docker-compose --env-file environments/{{.ENV}}.env \
+            --profile publisher up -d"
+      - echo "Publisher started. Use 'task gcp:v2:publisher:logs' to view logs."
+
+  stop:
+    desc: Stop publisher container
+    cmds:
+      - echo "Stopping publisher on {{.INSTANCE_NAME}}..."
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="cd {{.REMOTE_DIR}}/deployments/gcp/v2 && \
+            sudo docker-compose --profile publisher stop publisher"
+      - echo "Publisher stopped."
+
+  restart:
+    desc: Restart publisher container
+    cmds:
+      - task: stop
+      - task: start
+
+  logs:
+    desc: View publisher logs
+    cmds:
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="cd {{.REMOTE_DIR}}/deployments/gcp/v2 && \
+            sudo docker-compose logs --tail={{.LINES}} -f publisher"
+
+  status:
+    desc: Show publisher container status
+    cmds:
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="cd {{.REMOTE_DIR}}/deployments/gcp/v2 && \
+            sudo docker-compose ps publisher"
+
+  # ===========================================================================
+  # Rate Control
+  # ===========================================================================
+
+  set-rate:
+    desc: Update publish rate (requires restart)
+    cmds:
+      - echo "Setting publish rate to {{.RATE}} events/sec..."
+      - task: stop
+      - task: start
+
+  # ===========================================================================
+  # Utilities
+  # ===========================================================================
+
+  shell:
+    desc: Open shell in publisher container
+    cmds:
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="cd {{.REMOTE_DIR}}/deployments/gcp/v2 && \
+            sudo docker-compose --profile publisher exec publisher /bin/sh"
+
+  health:
+    desc: Check publisher health endpoint
+    cmds:
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="curl -s http://localhost:3003/health || echo 'Publisher not responding'"

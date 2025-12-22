@@ -3,10 +3,10 @@ version: "3"
 # Local Service Management Tasks
 # Individual service control that composes into aggregate tasks
 
-dotenv: ["{{.USER_WORKING_DIR}}/deployments/v1/local/.env.local"]
+dotenv: ["{{.USER_WORKING_DIR}}/deployments/local/.env.local"]
 
 vars:
-  COMPOSE_FILE: "{{.USER_WORKING_DIR}}/deployments/v1/local/docker-compose.yml"
+  COMPOSE_FILE: "{{.USER_WORKING_DIR}}/deployments/local/docker-compose.yml"
   WS_CONTAINER: "odin-ws-local"
   WS_SERVICE: "ws-server"
 

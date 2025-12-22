@@ -3,7 +3,7 @@ version: "3"
 # Local Deployment Workflow Tasks
 # Complete deployment workflows using composed tasks
 
-dotenv: ["{{.USER_WORKING_DIR}}/deployments/v1/local/.env.local"]
+dotenv: ["{{.USER_WORKING_DIR}}/deployments/local/.env.local"]
 
 includes:
   services:
@@ -45,7 +45,7 @@ tasks:
     desc: Initialize environment file
     cmds:
       - |
-        cd {{.USER_WORKING_DIR}}/deployments/v1/local
+        cd {{.USER_WORKING_DIR}}/deployments/local
         if [ ! -f .env.local ]; then
           echo "ℹ️  .env.local will be created with secrets template"
         else
@@ -76,7 +76,7 @@ tasks:
     desc: Create Kafka topics
     cmds:
       - echo "📝 Creating Kafka topics..."
-      - bash {{.USER_WORKING_DIR}}/scripts/v1/local/setup-redpanda-topics.sh redpanda-local
+      - bash {{.USER_WORKING_DIR}}/scripts/local/setup-redpanda-topics.sh redpanda-local
 
   show-urls:
     desc: Display service URLs
@@ -132,5 +132,5 @@ tasks:
   stop:
     desc: Stop all services (keeps volumes)
     cmds:
-      - docker-compose -f {{.USER_WORKING_DIR}}/deployments/v1/local/docker-compose.yml down
+      - docker-compose -f {{.USER_WORKING_DIR}}/deployments/local/docker-compose.yml down
       - echo "✅ Services stopped (volumes preserved)"
