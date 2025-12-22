@@ -7,29 +7,36 @@ Deploy odin-ws to GKE Standard cluster with Spot VMs for 60-90% cost savings com
 | Setup | Monthly Cost | Savings |
 |-------|-------------|---------|
 | GKE Autopilot | ~$275-375 | Baseline |
-| GKE Standard (Spot) | ~$135-165 | **~$150-200/mo** |
+| GKE Standard (Spot) | ~$99-120 | **~$175-255/mo** |
 
 ## Node Pool Architecture
 
 In Kubernetes (GKE), services don't get individual VMs. Instead, all pods share nodes in a **node pool**:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    GKE Standard Cluster                          │
-│                                                                   │
-│   ┌─────────────────────────────────────────────────────────┐   │
-│   │         Node Pool (e.g., 2x e2-standard-4 nodes)         │   │
-│   │                                                           │   │
-│   │   Node 1 (e2-standard-4)      Node 2 (e2-standard-4)     │   │
-│   │   ┌───────────────────┐      ┌───────────────────────┐   │   │
-│   │   │ ws-server pod     │      │ ws-gateway pod        │   │   │
-│   │   │ redpanda pod      │      │ ws-server pod         │   │   │
-│   │   │ nats pod          │      │ prometheus pod        │   │   │
-│   │   └───────────────────┘      └───────────────────────┘   │   │
-│   └─────────────────────────────────────────────────────────┘   │
-│                                                                   │
-│   Total: 8 vCPU, 32 GB RAM shared across all pods               │
-└─────────────────────────────────────────────────────────────────┘
+                                    ┌─────────────────┐
+                                    │    loadtest     │  (External - not in cluster)
+                                    │   Go CLI tool   │
+                                    └────────┬────────┘
+                                             │ WebSocket connections
+                                             ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           GKE Standard Cluster                               │
+│                                                                              │
+│   ┌───────────────────────────────────────────────────────────────────┐     │
+│   │              Node Pool (e.g., 2x e2-standard-4 nodes)              │     │
+│   │                                                                    │     │
+│   │   Node 1 (e2-standard-4)         Node 2 (e2-standard-4)           │     │
+│   │   ┌────────────────────┐        ┌────────────────────────┐        │     │
+│   │   │ ws-gateway pod     │        │ ws-server pod          │        │     │
+│   │   │ ws-server pod      │        │ redpanda pod           │        │     │
+│   │   │ nats pod           │        │ publisher pod (test)   │        │     │
+│   │   │ prometheus pod     │        │ grafana pod            │        │     │
+│   │   └────────────────────┘        └────────────────────────┘        │     │
+│   └───────────────────────────────────────────────────────────────────┘     │
+│                                                                              │
+│   Total: 8 vCPU, 32 GB RAM shared across all pods                           │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key concepts:**
@@ -86,6 +93,7 @@ Resources are controlled via Helm values, not instance types:
 | ws-gateway | 500m | 1 core | 256Mi | 512Mi |
 | Redpanda | 500m | 1 core | 1Gi | 1.5Gi |
 | NATS | 100m | 250m | 128Mi | 256Mi |
+| Publisher | 100m | 250m | 128Mi | 256Mi |
 | Prometheus | 250m | 500m | 512Mi | 1Gi |
 | Grafana | 100m | 250m | 256Mi | 512Mi |
 
@@ -97,8 +105,11 @@ Resources are controlled via Helm values, not instance types:
 | ws-gateway | 250m | 500m | 128Mi | 256Mi |
 | Redpanda | 250m | 500m | 256Mi | 384Mi |
 | NATS | 50m | 100m | 64Mi | 128Mi |
+| Publisher | 125m | 250m | 256Mi | 512Mi |
 
 With 2 nodes of e2-standard-4 (total 8 vCPU, 32GB), all services fit comfortably with room for autoscaling.
+
+**Note:** `loadtest` is not deployed to the cluster. It runs externally (local machine, Docker, or GCP VM) and connects to ws-gateway to simulate thousands of WebSocket clients. See `loadtest/README.md` for usage.
 
 ## Prerequisites
 
@@ -258,6 +269,7 @@ Values files are located in `deployments/k8s/helm/odin/values/standard/`:
 | ws-server | 500m | 256Mi |
 | NATS | 50m | 64Mi |
 | Redpanda | 250m | 256Mi |
+| Publisher | 125m | 256Mi |
 
 ## Handling Spot Preemption
 
@@ -307,10 +319,20 @@ task k8s:gke-standard:nodes
 
 | Command | Description |
 |---------|-------------|
-| `task k8s:gke-standard:build` | Build all images |
+| `task k8s:gke-standard:build` | Build all images (ws-server, ws-gateway, publisher) |
 | `task k8s:gke-standard:build:ws` | Build ws-server only |
 | `task k8s:gke-standard:build:gateway` | Build ws-gateway only |
+| `task k8s:gke-standard:build:publisher` | Build publisher only |
 | `task k8s:gke-standard:build:reload` | Build and restart pods |
+
+### Load Testing
+
+| Command | Description |
+|---------|-------------|
+| `cd loadtest && go build -o loadtest` | Build loadtest CLI locally |
+| `./loadtest -url ws://<GATEWAY_IP>/ws -connections 1000` | Run load test |
+
+See `loadtest/README.md` for full options including JWT auth, ramp rates, and subscription modes.
 
 ### Observability
 
@@ -320,6 +342,7 @@ task k8s:gke-standard:nodes
 | `task k8s:gke-standard:nodes` | Show Spot node status |
 | `task k8s:gke-standard:logs` | Tail ws-server logs |
 | `task k8s:gke-standard:logs:gateway` | Tail ws-gateway logs |
+| `task k8s:gke-standard:logs:publisher` | Tail publisher logs |
 | `task k8s:gke-standard:events` | Show recent events |
 
 ### Port Forwarding
@@ -379,15 +402,17 @@ After deployment, the following resources are created:
 
 | Service | Replicas | Service Type | External Access |
 |---------|----------|--------------|-----------------|
-| ws-gateway | 2 | LoadBalancer | Yes - external IP |
-| ws-server | 2 | LoadBalancer | Yes - external IP |
-| redpanda | 1 | ClusterIP + LoadBalancer | Yes - port 9094 |
+| ws-gateway | 2 | LoadBalancer | Yes - external IP :443 |
+| ws-server | 2 | ClusterIP | No - internal only (gateway routes to it) |
+| redpanda | 1 | ClusterIP + LoadBalancer | Yes - port 9092 (for external publishers) |
 | nats | 1 | ClusterIP | No |
-| publisher | 1 | ClusterIP | No |
+| publisher | 1 | - (Deployment only) | No - publishes to Kafka internally |
 | prometheus | 1 | ClusterIP | No (port-forward) |
 | grafana | 1 | ClusterIP | No (port-forward) |
 | loki | 1 | ClusterIP | No |
 | promtail | DaemonSet | - | No |
+
+**Note:** The `loadtest` tool is NOT deployed to Kubernetes. It's a standalone Go CLI that runs externally (locally or from a GCP VM) to load test the WebSocket servers.
 
 Get external IPs after deployment:
 ```bash
@@ -401,9 +426,9 @@ task k8s:gke-standard:external-ips
 | Component | Develop | Staging | Production |
 |-----------|---------|---------|------------|
 | Compute (2x e2-standard-4 Spot) | ~$58 | ~$58 | ~$29-145 (1-5 nodes) |
-| LoadBalancer x3 (forwarding rules) | ~$54 | ~$54 | ~$54 |
+| LoadBalancer x2 (ws-gateway + redpanda) | ~$36 | ~$36 | ~$36 |
 | Artifact Registry | ~$5 | ~$5 | ~$5 |
-| **Base Total** | **~$117/mo** | **~$117/mo** | **~$88-204/mo** |
+| **Base Total** | **~$99/mo** | **~$99/mo** | **~$70-186/mo** |
 
 ### Variable Costs (traffic-based)
 
@@ -413,6 +438,6 @@ task k8s:gke-standard:external-ips
 | LoadBalancer data processing | $0.008/GB |
 
 **Examples:**
-- Low-traffic develop (<10GB egress): ~$117-120/mo
-- High-traffic production (100GB egress): ~$130/mo additional
+- Low-traffic develop (<10GB egress): ~$99-102/mo
+- High-traffic production (100GB egress): ~$112/mo additional
 

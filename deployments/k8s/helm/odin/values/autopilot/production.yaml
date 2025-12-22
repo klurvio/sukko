@@ -56,7 +56,7 @@ ws-server:
       cpu: "2"
       memory: "1Gi"
   service:
-    type: LoadBalancer
+    type: ClusterIP  # Internal only - gateway handles external traffic
   sessionAffinity:
     enabled: true
     timeoutSeconds: 10800  # 3 hours

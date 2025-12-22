@@ -97,7 +97,7 @@ ws-server:
       memory: "1Gi"
 
   service:
-    type: LoadBalancer
+    type: ClusterIP  # Internal only - gateway handles external traffic
 
   autoscaling:
     enabled: true
