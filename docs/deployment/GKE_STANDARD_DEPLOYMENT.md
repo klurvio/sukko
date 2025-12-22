@@ -14,12 +14,13 @@ Deploy odin-ws to GKE Standard cluster with Spot VMs for 60-90% cost savings com
 In Kubernetes (GKE), services don't get individual VMs. Instead, all pods share nodes in a **node pool**:
 
 ```
-                                    ┌─────────────────┐
-                                    │    loadtest     │  (External - not in cluster)
-                                    │   Go CLI tool   │
-                                    └────────┬────────┘
-                                             │ WebSocket connections
-                                             ▼
+                    ┌─────────────────┐       ┌─────────────────┐
+                    │    loadtest     │       │    publisher    │
+                    │   Go CLI tool   │       │  Node.js tool   │
+                    └────────┬────────┘       └────────┬────────┘
+                             │ WebSocket               │ Kafka
+                             │ connections             │ messages
+                             ▼                         ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           GKE Standard Cluster                               │
 │                                                                              │
@@ -30,13 +31,17 @@ In Kubernetes (GKE), services don't get individual VMs. Instead, all pods share 
 │   │   ┌────────────────────┐        ┌────────────────────────┐        │     │
 │   │   │ ws-gateway pod     │        │ ws-server pod          │        │     │
 │   │   │ ws-server pod      │        │ redpanda pod           │        │     │
-│   │   │ nats pod           │        │ publisher pod (test)   │        │     │
+│   │   │ nats pod           │        │ loki pod               │        │     │
 │   │   │ prometheus pod     │        │ grafana pod            │        │     │
 │   │   └────────────────────┘        └────────────────────────┘        │     │
 │   └───────────────────────────────────────────────────────────────────┘     │
 │                                                                              │
 │   Total: 8 vCPU, 32 GB RAM shared across all pods                           │
 └─────────────────────────────────────────────────────────────────────────────┘
+
+External tools (not deployed to cluster):
+- loadtest: WebSocket load testing (Go) - see loadtest/README.md
+- publisher: Kafka event publisher (Node.js) - see publisher/README.md
 ```
 
 **Key concepts:**
@@ -93,7 +98,6 @@ Resources are controlled via Helm values, not instance types:
 | ws-gateway | 500m | 1 core | 256Mi | 512Mi |
 | Redpanda | 500m | 1 core | 1Gi | 1.5Gi |
 | NATS | 100m | 250m | 128Mi | 256Mi |
-| Publisher | 100m | 250m | 128Mi | 256Mi |
 | Prometheus | 250m | 500m | 512Mi | 1Gi |
 | Grafana | 100m | 250m | 256Mi | 512Mi |
 
@@ -105,11 +109,10 @@ Resources are controlled via Helm values, not instance types:
 | ws-gateway | 250m | 500m | 128Mi | 256Mi |
 | Redpanda | 250m | 500m | 256Mi | 384Mi |
 | NATS | 50m | 100m | 64Mi | 128Mi |
-| Publisher | 125m | 250m | 256Mi | 512Mi |
 
 With 2 nodes of e2-standard-4 (total 8 vCPU, 32GB), all services fit comfortably with room for autoscaling.
 
-**Note:** `loadtest` is not deployed to the cluster. It runs externally (local machine, Docker, or GCP VM) and connects to ws-gateway to simulate thousands of WebSocket clients. See `loadtest/README.md` for usage.
+**Note:** `loadtest` and `publisher` are not deployed to the cluster. They run externally (local machine, Docker, or GCP VM). See `loadtest/README.md` and `publisher/README.md` for usage.
 
 ## Prerequisites
 
@@ -319,10 +322,9 @@ task k8s:gke-standard:nodes
 
 | Command | Description |
 |---------|-------------|
-| `task k8s:gke-standard:build` | Build all images (ws-server, ws-gateway, publisher) |
+| `task k8s:gke-standard:build` | Build all images (ws-server, ws-gateway) |
 | `task k8s:gke-standard:build:ws` | Build ws-server only |
 | `task k8s:gke-standard:build:gateway` | Build ws-gateway only |
-| `task k8s:gke-standard:build:publisher` | Build publisher only |
 | `task k8s:gke-standard:build:reload` | Build and restart pods |
 
 ### Load Testing
@@ -342,7 +344,6 @@ See `loadtest/README.md` for full options including JWT auth, ramp rates, and su
 | `task k8s:gke-standard:nodes` | Show Spot node status |
 | `task k8s:gke-standard:logs` | Tail ws-server logs |
 | `task k8s:gke-standard:logs:gateway` | Tail ws-gateway logs |
-| `task k8s:gke-standard:logs:publisher` | Tail publisher logs |
 | `task k8s:gke-standard:events` | Show recent events |
 
 ### Port Forwarding
@@ -406,13 +407,12 @@ After deployment, the following resources are created:
 | ws-server | 2 | ClusterIP | No - internal only (gateway routes to it) |
 | redpanda | 1 | ClusterIP + LoadBalancer | Yes - port 9092 (for external publishers) |
 | nats | 1 | ClusterIP | No |
-| publisher | 1 | - (Deployment only) | No - publishes to Kafka internally |
 | prometheus | 1 | ClusterIP | No (port-forward) |
 | grafana | 1 | ClusterIP | No (port-forward) |
 | loki | 1 | ClusterIP | No |
 | promtail | DaemonSet | - | No |
 
-**Note:** The `loadtest` tool is NOT deployed to Kubernetes. It's a standalone Go CLI that runs externally (locally or from a GCP VM) to load test the WebSocket servers.
+**Note:** The `loadtest` and `publisher` tools are NOT deployed to Kubernetes. They run externally (locally or from a GCP VM) to test the WebSocket servers. See `loadtest/README.md` and `publisher/README.md`.
 
 Get external IPs after deployment:
 ```bash

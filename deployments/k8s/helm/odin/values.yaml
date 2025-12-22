@@ -410,41 +410,6 @@ nats:
     enabled: false
 
 # =============================================================================
-# Publisher (Event Generator)
-# =============================================================================
-publisher:
-  enabled: true
-
-  replicaCount: 1
-
-  image:
-    repository: odin-publisher
-    tag: latest
-    pullPolicy: IfNotPresent
-
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-    limits:
-      cpu: "250m"
-      memory: "512Mi"
-
-  # Kafka connection
-  kafka:
-    # Empty = dynamic default ({{ .Release.Name }}-redpanda:9092)
-    brokers: ""
-
-  # Publishing rate
-  config:
-    ratePerSecond: 100
-    tokens:
-      - BTC
-      - ETH
-      - SOL
-      - DOGE
-
-# =============================================================================
 # Monitoring Stack
 # =============================================================================
 monitoring:

@@ -30,13 +30,6 @@ tasks:
       - docker-compose -f {{.COMPOSE_FILE}} rm -f console
       - echo "✅ Console deleted"
 
-  delete:publisher:
-    desc: Delete Publisher container
-    cmds:
-      - docker-compose -f {{.COMPOSE_FILE}} stop publisher
-      - docker-compose -f {{.COMPOSE_FILE}} rm -f publisher
-      - echo "✅ Publisher deleted"
-
   delete:ws:
     desc: Delete WS server container
     cmds:
@@ -118,27 +111,6 @@ tasks:
           sleep 1
         done
         echo "❌ Console failed to become ready after ${max_attempts}s"
-        exit 1
-
-  start:publisher:
-    desc: Start Publisher
-    deps: [start:redpanda]
-    cmds:
-      - docker-compose -f {{.COMPOSE_FILE}} up -d publisher
-      - echo "⏳ Waiting for Publisher to be ready..."
-      - |
-        max_attempts=30
-        attempt=0
-        while [ $attempt -lt $max_attempts ]; do
-          if curl -sf http://localhost:3006/health > /dev/null 2>&1; then
-            echo "✅ Publisher ready!"
-            exit 0
-          fi
-          attempt=$((attempt + 1))
-          echo "   Attempt $attempt/$max_attempts..."
-          sleep 1
-        done
-        echo "❌ Publisher failed to become ready after ${max_attempts}s"
         exit 1
 
   start:ws:
@@ -245,7 +217,6 @@ tasks:
       - task: start:redpanda
       - sleep 5
       - task: start:console
-      - task: start:publisher
       - task: start:ws
       - task: start:monitoring
       - echo "✅ All services started"
@@ -259,12 +230,6 @@ tasks:
     cmds:
       - task: delete:redpanda
       - task: start:redpanda
-
-  restart:publisher:
-    desc: Restart Publisher (for code changes)
-    cmds:
-      - docker-compose -f {{.COMPOSE_FILE}} restart publisher
-      - echo "✅ Publisher restarted"
 
   restart:ws:
     desc: Restart WS server (for code changes)
@@ -288,12 +253,6 @@ tasks:
   # REBUILD (For code changes)
   # ============================================================================
 
-  rebuild:publisher:
-    desc: Rebuild and restart Publisher (for code changes)
-    cmds:
-      - docker-compose -f {{.COMPOSE_FILE}} up -d --build publisher
-      - echo "✅ Publisher rebuilt"
-
   rebuild:ws:
     desc: Rebuild and restart WS server (for code changes)
     cmds:
@@ -303,7 +262,6 @@ tasks:
   rebuild:all:
     desc: Rebuild and restart all buildable services (composed)
     cmds:
-      - task: rebuild:publisher
       - task: rebuild:ws
 
   # ============================================================================
@@ -314,11 +272,6 @@ tasks:
     desc: Tail Redpanda logs
     cmds:
       - docker-compose -f {{.COMPOSE_FILE}} logs -f redpanda
-
-  logs:publisher:
-    desc: Tail Publisher logs
-    cmds:
-      - docker-compose -f {{.COMPOSE_FILE}} logs -f publisher
 
   logs:ws:
     desc: Tail WS server logs

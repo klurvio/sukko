@@ -92,10 +92,6 @@ nats:
       cpu: "500m"
       memory: "512Mi"
 
-# Publisher - Disabled in production (real data from external sources)
-publisher:
-  enabled: false
-
 # Monitoring
 monitoring:
   enabled: true

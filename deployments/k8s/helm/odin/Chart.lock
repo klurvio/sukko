@@ -14,11 +14,8 @@ dependencies:
 - name: nats
   repository: ""
   version: 1.0.0
-- name: publisher
-  repository: ""
-  version: 1.0.0
 - name: monitoring
   repository: ""
   version: 1.0.0
-digest: sha256:c80a61de7bacc78a60a3221b7ab9115a0defae998aff0a6dd2288a7637dbfa6a
-generated: "2025-12-20T18:27:50.093036+08:00"
+digest: sha256:3a3e23372e91435887ac12ccbf215e297ada46dfbd261d9a1285e6cc9fd3d3c9
+generated: "2025-12-22T22:07:28.859648+08:00"

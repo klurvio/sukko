@@ -132,10 +132,6 @@ tasks:
           -f {{.ROOT_DIR}}/ws/build/gateway/Dockerfile {{.ROOT_DIR}}/ws
       - docker push {{.GKE_STD_REGISTRY}}/ws-gateway:latest
       - docker push {{.GKE_STD_REGISTRY}}/ws-gateway:{{.VERSION}}
-      - docker build -t {{.GKE_STD_REGISTRY}}/publisher:latest -t {{.GKE_STD_REGISTRY}}/publisher:{{.VERSION}}
-          {{.ROOT_DIR}}/publisher
-      - docker push {{.GKE_STD_REGISTRY}}/publisher:latest
-      - docker push {{.GKE_STD_REGISTRY}}/publisher:{{.VERSION}}
 
   build:ws:
     desc: Build and push ws-server only
@@ -301,11 +297,6 @@ tasks:
     desc: Tail all pod logs
     cmds:
       - kubectl logs -f --all-containers=true -l app.kubernetes.io/instance=odin -n {{.GKE_STD_NS}} --tail=50
-
-  logs:publisher:
-    desc: Tail publisher logs
-    cmds:
-      - kubectl logs -f -l app.kubernetes.io/name=publisher -n {{.GKE_STD_NS}} --tail=100
 
   events:
     desc: Show recent events (useful for Spot preemption)

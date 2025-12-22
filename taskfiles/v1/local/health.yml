@@ -17,19 +17,6 @@ tasks:
           exit 1
         fi
 
-  publisher:
-    desc: Check Publisher health
-    cmds:
-      - |
-        echo -n "🔍 Publisher: "
-        if curl -sf http://localhost:3006/health > /dev/null 2>&1; then
-          echo "✅ Healthy"
-          exit 0
-        else
-          echo "❌ Unhealthy"
-          exit 1
-        fi
-
   ws:
     desc: Check WS server health
     cmds:
@@ -90,7 +77,6 @@ tasks:
       - echo "🏥 HEALTH CHECK - LOCAL DEPLOYMENT"
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - task: redpanda
-      - task: publisher
       - task: ws
       - task: prometheus
       - task: grafana

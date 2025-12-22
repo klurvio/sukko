@@ -227,32 +227,6 @@ nats:
     minAvailable: 2
 
 # =============================================================================
-# Publisher
-# =============================================================================
-publisher:
-  enabled: true
-
-  image:
-    repository: publisher
-    tag: latest
-    pullPolicy: IfNotPresent
-
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-    limits:
-      cpu: "250m"
-      memory: "256Mi"
-
-  # Spot VM tolerations
-  tolerations:
-    - key: "cloud.google.com/gke-spot"
-      operator: "Equal"
-      value: "true"
-      effect: "NoSchedule"
-
-# =============================================================================
 # Monitoring - Production
 # =============================================================================
 monitoring:

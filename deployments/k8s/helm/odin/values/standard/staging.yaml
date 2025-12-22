@@ -206,32 +206,6 @@ nats:
       effect: "NoSchedule"
 
 # =============================================================================
-# Publisher
-# =============================================================================
-publisher:
-  enabled: true
-
-  image:
-    repository: publisher
-    tag: latest
-    pullPolicy: Always
-
-  resources:
-    requests:
-      cpu: "50m"
-      memory: "64Mi"
-    limits:
-      cpu: "100m"
-      memory: "128Mi"
-
-  # Spot VM tolerations
-  tolerations:
-    - key: "cloud.google.com/gke-spot"
-      operator: "Equal"
-      value: "true"
-      effect: "NoSchedule"
-
-# =============================================================================
 # Monitoring - Minimal
 # =============================================================================
 monitoring:

@@ -4,14 +4,6 @@ version: "3"
 # Get statistics, IPs, and monitoring information
 
 tasks:
-  publisher:
-    desc: Get publisher statistics
-    cmds:
-      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      - echo "📡 PUBLISHER STATISTICS"
-      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      - curl -s http://localhost:3006/status | jq '.'
-
   ws:
     desc: Get WS server statistics
     cmds:
@@ -37,12 +29,6 @@ tasks:
         if docker ps --format '{{.Names}}' | grep -q "odin-ws-local"; then
           echo "🌐 WebSocket Server:      ws://localhost:3005"
           echo "   Health endpoint:       http://localhost:3005/health"
-        fi
-
-        # Publisher
-        if docker ps --format '{{.Names}}' | grep -q "odin-publisher-local"; then
-          echo "📡 Publisher:             http://localhost:3006"
-          echo "   Status endpoint:       http://localhost:3006/status"
         fi
 
         # Redpanda Console
@@ -94,8 +80,6 @@ tasks:
   all:
     desc: Show all stats (composed)
     cmds:
-      - task: publisher
-      - echo ""
       - task: ws
       - echo ""
       - task: ips

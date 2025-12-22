@@ -194,64 +194,6 @@ tasks:
             echo '✅ Custom test started' && \
             echo '📊 Monitor with: task gcp:load-test:logs'"
 
-  # === PUBLISHER CONTROL ===
-
-  start:publisher:
-    desc: "Start publisher (default: 100 events/sec, 3 tokens)"
-    vars:
-      RATE: '{{.RATE | default "100"}}'
-      TOKENS: '{{.TOKENS | default "BTC,ETH,SOL"}}'
-    cmds:
-      - |
-        BACKEND_IP=$(gcloud compute instances describe {{.BACKEND_INSTANCE}} \
-          --zone={{.GCP_ZONE}} \
-          --project={{.GCP_PROJECT}} \
-          --format="get(networkInterfaces[0].accessConfigs[0].natIP)")
-
-        echo "=========================================="
-        echo "🚀 STARTING PUBLISHER"
-        echo "=========================================="
-        echo "   Backend IP - $BACKEND_IP:3003"
-        echo "   Rate - {{.RATE}} events/sec"
-        echo "   Tokens - {{.TOKENS}}"
-        echo "   Duration - Indefinite (until stopped)"
-        echo ""
-        echo "   Stop - task gcp:load-test:stop:publisher"
-        echo "=========================================="
-        echo ""
-
-        # Convert comma-separated tokens to JSON array
-        TOKEN_ARRAY=$(echo '{{.TOKENS}}' | awk -F',' '{
-          printf "["
-          for(i=1; i<=NF; i++) {
-            printf "\"%s\"", $i
-            if(i<NF) printf ","
-          }
-          printf "]"
-        }')
-
-        curl -X POST "http://$BACKEND_IP:3003/start" \
-          -H "Content-Type: application/json" \
-          -d "{\"rate\": {{.RATE}}, \"tokenIds\": $TOKEN_ARRAY}"
-
-        echo ""
-        echo "✅ Publisher started!"
-
-  stop:publisher:
-    desc: Stop publisher
-    cmds:
-      - |
-        BACKEND_IP=$(gcloud compute instances describe {{.BACKEND_INSTANCE}} \
-          --zone={{.GCP_ZONE}} \
-          --project={{.GCP_PROJECT}} \
-          --format="get(networkInterfaces[0].accessConfigs[0].natIP)")
-
-        echo "🛑 Stopping publisher on $BACKEND_IP:3003..."
-
-        curl -X POST "http://$BACKEND_IP:3003/stop"
-
-        echo ""
-        echo "✅ Publisher stopped"
 
   # === CONTROL ===
 

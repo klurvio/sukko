@@ -188,7 +188,7 @@ task gcp:deployment:ssh:ws             # SSH to ws-server instance
 ### Start Services
 
 ```bash
-task gcp:services:start:backend        # Start backend (redpanda, publisher, grafana)
+task gcp:services:start:backend        # Start backend (redpanda, grafana)
 task gcp:services:start:ws             # Start ws-server
 task gcp:services:start:all            # Start all services
 ```
@@ -288,15 +288,6 @@ task gcp:load-test:custom -- \
   --duration 600 \
   --rate 50 \
   --workers 32
-```
-
-### Publisher Control
-
-```bash
-task gcp:load-test:start:publisher     # Start Kafka publisher
-                                       # → Publishes to all 8 topics
-
-task gcp:load-test:stop:publisher      # Stop publisher
 ```
 
 ### Test Management
@@ -457,9 +448,6 @@ task gcp:deployment:rebuild-code
 #### 4. Load Testing Flow
 
 ```
-# Start publisher
-task gcp:load-test:start:publisher
-
 # Run capacity test
 task gcp:load-test:capacity
   └─ SSH to loadtest instance
@@ -472,9 +460,6 @@ task gcp:load-test:capacity
 # Monitor (in another terminal)
 task gcp:health:ws                    # Check ws-server stats
 task gcp:services:logs:ws:tail        # Watch logs
-
-# Stop publisher
-task gcp:load-test:stop:publisher
 ```
 
 ### Dependency Graph
@@ -528,8 +513,6 @@ task gcp:services:logs:ws:tail        # Watch logs
 
 # Testing
 task gcp:load-test:capacity           # Full capacity test
-task gcp:load-test:start:publisher    # Start publisher
-task gcp:load-test:stop:publisher     # Stop publisher
 
 # Troubleshooting
 task gcp:services:ps:all              # See all containers

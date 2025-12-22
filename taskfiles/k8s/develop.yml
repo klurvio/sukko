@@ -83,11 +83,6 @@ tasks:
     cmds:
       - kubectl logs -f -l app.kubernetes.io/name=auth-service -n {{.DEV_NS}} --tail=100
 
-  logs:publisher:
-    desc: Tail publisher logs
-    cmds:
-      - kubectl logs -f -l app.kubernetes.io/name=publisher -n {{.DEV_NS}} --tail=100
-
   port-forward:
     desc: Port-forward ws-server for local testing
     cmds:

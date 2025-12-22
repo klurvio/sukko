@@ -22,9 +22,6 @@ dependencies:
   - name: nats
     version: "1.0.0"
     condition: nats.enabled
-  - name: publisher
-    version: "1.0.0"
-    condition: publisher.enabled
   - name: monitoring
     version: "1.0.0"
     condition: monitoring.enabled

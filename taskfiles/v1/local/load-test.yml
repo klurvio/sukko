@@ -65,35 +65,6 @@ tasks:
       - echo ""
       - echo "🎉 Full capacity test running!"
 
-  start:publisher:
-    desc: Start publisher only (1000 events/sec)
-    cmds:
-      - echo "=========================================="
-      - echo "STARTING PUBLISHER"
-      - echo "=========================================="
-      - echo "   Rate - 1000 events/sec"
-      - echo "   Tokens - 20"
-      - echo "   Duration - Indefinite (until stopped)"
-      - echo ""
-      - echo "   Monitor - task local:test:status"
-      - echo "   Stop - task local:test:stop:publisher"
-      - echo "=========================================="
-      - echo ""
-      - |
-        curl -X POST http://localhost:3006/start \
-          -H "Content-Type: application/json" \
-          -d '{
-            "rate": 1000,
-            "tokenIds": [
-              "BTC", "ETH", "SOL", "DOGE", "ODIN",
-              "AVAX", "MATIC", "LINK", "UNI", "AAVE",
-              "SUSHI", "COMP", "MKR", "SNX", "YFI",
-              "CRV", "BAL", "RUNE", "LUNA", "ATOM"
-            ]
-          }'
-      - echo ""
-      - echo "✅ Publisher started!"
-
   stop:
     desc: Stop all load tests (publisher + clients)
     cmds:
@@ -120,13 +91,6 @@ tasks:
         fi
       - echo ""
       - echo "✅ All load tests stopped"
-
-  stop:publisher:
-    desc: Stop publisher only
-    cmds:
-      - curl -X POST http://localhost:3006/stop
-      - echo ""
-      - echo "✅ Publisher stopped"
 
   stop:clients:
     desc: Stop WebSocket clients only

@@ -129,17 +129,6 @@ nats:
       cpu: "100m"
       memory: "128Mi"
 
-# Publisher - Minimal
-publisher:
-  enabled: true
-  resources:
-    requests:
-      cpu: "50m"
-      memory: "64Mi"
-    limits:
-      cpu: "100m"
-      memory: "128Mi"
-
 # Monitoring - Reduced for local
 monitoring:
   enabled: true

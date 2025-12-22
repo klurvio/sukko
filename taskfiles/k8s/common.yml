@@ -76,18 +76,11 @@ tasks:
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f build/gateway/Dockerfile .
 
-  build:publisher:
-    desc: Build publisher Docker image
-    dir: "{{.ROOT_DIR}}/publisher"
-    cmds:
-      - docker build -t odin-publisher:latest .
-
   build:all:
     desc: Build all Docker images
     cmds:
       - task: build:ws
       - task: build:gateway
-      - task: build:publisher
 
   # ===========================================================================
   # Testing

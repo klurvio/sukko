@@ -82,11 +82,6 @@ tasks:
     cmds:
       - kubectl logs -f -l app.kubernetes.io/name=auth-service -n {{.STAGING_NS}} --tail=100
 
-  logs:publisher:
-    desc: Tail publisher logs
-    cmds:
-      - kubectl logs -f -l app.kubernetes.io/name=publisher -n {{.STAGING_NS}} --tail=100
-
   # ===========================================================================
   # Testing
   # ===========================================================================
