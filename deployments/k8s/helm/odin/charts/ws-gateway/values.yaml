@@ -49,6 +49,30 @@ rateLimit:
   burst: 100
   rate: 10.0
 
+# Connection Limits Configuration
+# See docs/architecture/CONNECTION_LIMITS.md for details
+connectionLimits:
+  # Maximum concurrent connections per gateway pod
+  maxConnections: 20000
+  # Read/write buffer sizes per connection
+  readBufferSize: 4096
+  writeBufferSize: 4096
+  # Maximum message size in bytes
+  maxMessageSize: 65536
+
+# Pod Security Context
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
 resources:
   requests:
     cpu: "250m"

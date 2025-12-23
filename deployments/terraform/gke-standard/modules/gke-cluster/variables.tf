@@ -140,8 +140,5 @@ variable "deletion_protection" {
   default     = false
 }
 
-variable "enable_kernel_tuning" {
-  description = "Enable kernel tuning for high WebSocket connections (18K+). Adds startup-script to nodes."
-  type        = bool
-  default     = true
-}
+# Note: Kernel tuning is now done via DaemonSet in the Helm chart
+# See deployments/k8s/helm/odin/templates/kernel-tuning-daemonset.yaml

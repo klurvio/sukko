@@ -20,8 +20,16 @@ spec:
       labels:
         {{- include "ws-server.selectorLabels" . | nindent 8 }}
     spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: ws-server
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
@@ -127,6 +135,15 @@ spec:
             - name: WS_TOKEN_CHECK_INTERVAL
               value: "{{ .Values.auth.tokenCheckInterval }}"
             {{- end }}
+            # Connection Limits (application-level safety valve)
+            - name: MAX_CONNECTIONS_PER_SHARD
+              value: "{{ .Values.connectionLimits.maxConnectionsPerShard | default 10000 }}"
+            - name: READ_BUFFER_SIZE
+              value: "{{ .Values.connectionLimits.readBufferSize | default 4096 }}"
+            - name: WRITE_BUFFER_SIZE
+              value: "{{ .Values.connectionLimits.writeBufferSize | default 4096 }}"
+            - name: MAX_MESSAGE_SIZE
+              value: "{{ .Values.connectionLimits.maxMessageSize | default 65536 }}"
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

@@ -16,6 +16,14 @@ global:
     app.kubernetes.io/part-of: odin
 
 # =============================================================================
+# Kernel Tuning DaemonSet
+# =============================================================================
+# Applies sysctl settings for high WebSocket connections (18K+)
+# See docs/architecture/CONNECTION_LIMITS.md for details
+kernelTuning:
+  enabled: true
+
+# =============================================================================
 # Shared Authentication Secrets
 # =============================================================================
 # JWT secret shared between odin-api (issues tokens) and ws-gateway (validates)

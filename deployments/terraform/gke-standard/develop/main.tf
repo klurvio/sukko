@@ -35,4 +35,7 @@ module "gke" {
   enable_vertical_pod_autoscaling = var.enable_vertical_pod_autoscaling
   release_channel                 = var.release_channel
   deletion_protection             = var.deletion_protection
+
+  # Note: Kernel tuning is done via DaemonSet in Helm chart
+  # See docs/architecture/CONNECTION_LIMITS.md
 }

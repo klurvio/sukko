@@ -20,8 +20,16 @@ spec:
       labels:
         {{- include "ws-gateway.selectorLabels" . | nindent 8 }}
     spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
@@ -88,6 +96,16 @@ spec:
             # Environment
             - name: ENVIRONMENT
               value: "{{ .Release.Namespace }}"
+
+            # Connection Limits
+            - name: MAX_CONNECTIONS
+              value: "{{ .Values.connectionLimits.maxConnections | default 20000 }}"
+            - name: READ_BUFFER_SIZE
+              value: "{{ .Values.connectionLimits.readBufferSize | default 4096 }}"
+            - name: WRITE_BUFFER_SIZE
+              value: "{{ .Values.connectionLimits.writeBufferSize | default 4096 }}"
+            - name: MAX_MESSAGE_SIZE
+              value: "{{ .Values.connectionLimits.maxMessageSize | default 65536 }}"
 
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}

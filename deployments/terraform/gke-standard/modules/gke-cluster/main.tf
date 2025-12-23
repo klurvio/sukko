@@ -239,41 +239,10 @@ resource "google_container_node_pool" "primary" {
     }
 
     # Metadata
+    # Note: Kernel tuning is done via DaemonSet in Helm chart
+    # GKE doesn't allow startup-script in node pool metadata
     metadata = {
       disable-legacy-endpoints = "true"
-      # Kernel tuning for high WebSocket connections (18K+)
-      # Applied when node starts via startup-script
-      startup-script = var.enable_kernel_tuning ? <<-EOF
-        #!/bin/bash
-        # =============================================================================
-        # Kernel Tuning for High WebSocket Connections
-        # =============================================================================
-        # Supports 18K+ concurrent connections for ws-gateway and ws-server
-
-        # File descriptor limits
-        sysctl -w fs.file-max=2097152
-
-        # TCP/Network tuning
-        sysctl -w net.ipv4.ip_local_port_range="1024 65535"
-        sysctl -w net.ipv4.tcp_tw_reuse=1
-        sysctl -w net.core.somaxconn=65535
-        sysctl -w net.ipv4.tcp_max_syn_backlog=65535
-        sysctl -w net.core.netdev_max_backlog=65535
-
-        # Persist across reboots
-        cat >> /etc/sysctl.conf <<SYSCTL
-        # Added by odin GKE startup-script - high connection tuning
-        fs.file-max=2097152
-        net.ipv4.ip_local_port_range=1024 65535
-        net.ipv4.tcp_tw_reuse=1
-        net.core.somaxconn=65535
-        net.ipv4.tcp_max_syn_backlog=65535
-        net.core.netdev_max_backlog=65535
-        SYSCTL
-
-        echo "Kernel tuning applied for high WebSocket connections"
-      EOF
-      : null
     }
 
     # Shielded instance

@@ -32,6 +32,33 @@ config:
   logFormat: json
   metricsInterval: "15s"
 
+# Connection Limits Configuration
+# See docs/architecture/CONNECTION_LIMITS.md for details
+connectionLimits:
+  # Maximum connections per shard (application-level safety valve)
+  # Total pod capacity = maxConnectionsPerShard * shards
+  maxConnectionsPerShard: 10000
+  # Read/write buffer sizes per connection (affects memory usage)
+  # Lower = less memory, higher = better throughput for large messages
+  readBufferSize: 4096
+  writeBufferSize: 4096
+  # Maximum message size in bytes (prevents memory exhaustion from large messages)
+  maxMessageSize: 65536
+
+# Pod Security Context
+# Note: Node-level kernel tuning handles ulimits (see CONNECTION_LIMITS.md)
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
 # Broadcast Bus Configuration
 broadcast:
   # Backend type: "valkey" or "nats"
