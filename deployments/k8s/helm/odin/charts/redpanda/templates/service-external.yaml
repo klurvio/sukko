@@ -7,6 +7,9 @@ metadata:
     {{- include "redpanda.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.externalAccess.type }}
+  {{- if .Values.externalAccess.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.externalAccess.loadBalancerIP }}
+  {{- end }}
   ports:
     - port: {{ .Values.kafkaPort }}
       {{- if .Values.externalAccess.advertisedHost }}

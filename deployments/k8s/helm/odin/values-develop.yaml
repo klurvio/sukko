@@ -66,16 +66,27 @@ ws-server:
 redpanda:
   replicaCount: 1
 
+  # Redpanda runtime memory (Seastar)
+  memory: "768M"
+
   resources:
     requests:
       cpu: "250m"
-      memory: "256Mi"
+      memory: "768Mi"
     limits:
       cpu: "500m"
-      memory: "512Mi"
+      memory: "1Gi"
 
   storage:
     size: 2Gi
+
+  # External access for local publisher testing
+  # Pass advertisedHost and loadBalancerIP via --set at deploy time:
+  #   --set redpanda.externalAccess.advertisedHost=$IP
+  #   --set redpanda.externalAccess.loadBalancerIP=$IP
+  externalAccess:
+    enabled: true
+    type: LoadBalancer
 
 # =============================================================================
 # NATS - Develop

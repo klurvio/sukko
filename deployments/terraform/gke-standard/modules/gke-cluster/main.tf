@@ -265,3 +265,15 @@ resource "google_container_node_pool" "primary" {
     ]
   }
 }
+
+# =============================================================================
+# Static External IPs for LoadBalancer Services
+# =============================================================================
+# Reserved IPs ensure consistent addresses across redeploys
+
+resource "google_compute_address" "redpanda_external" {
+  name         = "${var.cluster_name}-redpanda-external"
+  region       = var.region
+  address_type = "EXTERNAL"
+  project      = var.project_id
+}

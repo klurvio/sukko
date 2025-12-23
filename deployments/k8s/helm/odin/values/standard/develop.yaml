@@ -116,19 +116,21 @@ redpanda:
   enabled: true
   replicaCount: 1
 
-  # Minimal resources for self-hosted
-  memory: "256M"
+  # Seastar runtime memory - must be less than container limit
+  # 768M leaves room for OS overhead within 1Gi container limit
+  memory: "768M"
   resources:
     requests:
       cpu: "250m"
-      memory: "256Mi"
+      memory: "768Mi"
     limits:
       cpu: "500m"
-      memory: "384Mi"
+      memory: "1Gi"
 
-  # Use emptyDir for cost savings (data not persisted)
+  # Persistent storage for data durability
   storage:
-    enabled: false
+    enabled: true
+    size: 2Gi
 
   # Minimal partitions
   topics:
@@ -164,7 +166,11 @@ redpanda:
       value: "true"
       effect: "NoSchedule"
 
-  # External access for odin-api publisher
+  # External access for local publisher testing
+  # The static IP is managed by Terraform and injected via --set at deploy time:
+  #   --set redpanda.externalAccess.advertisedHost=$REDPANDA_IP
+  #   --set redpanda.externalAccess.loadBalancerIP=$REDPANDA_IP
+  # This is handled automatically by: task k8s:gke-standard:deploy
   externalAccess:
     enabled: true
     type: LoadBalancer

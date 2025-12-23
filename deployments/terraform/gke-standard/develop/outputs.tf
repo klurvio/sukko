@@ -68,3 +68,8 @@ output "kubeconfig_command" {
   description = "Command to configure kubectl"
   value       = "gcloud container clusters get-credentials ${module.gke.cluster_name} --zone ${var.zone} --project ${var.project_id}"
 }
+
+output "redpanda_external_ip" {
+  description = "The static external IP for Redpanda LoadBalancer"
+  value       = module.gke.redpanda_external_ip
+}

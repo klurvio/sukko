@@ -209,9 +209,21 @@ tasks:
 
   deploy:
     desc: Deploy/upgrade Helm release (uses GKE_STD_ENV, defaults to develop)
+    vars:
+      # Get Redpanda static IP from Terraform (if available)
+      REDPANDA_IP:
+        sh: terraform -chdir={{.GKE_STD_TF_DIR}} output -raw redpanda_external_ip 2>/dev/null || echo ""
     cmds:
       - task: asyncapi:bundle
-      - helm upgrade --install odin {{.GKE_STD_CHART}} -f {{.GKE_STD_VALUES}} -n {{.GKE_STD_NS}} --create-namespace
+      - |
+        HELM_CMD="helm upgrade --install odin {{.GKE_STD_CHART}} -f {{.GKE_STD_VALUES}} -n {{.GKE_STD_NS}} --create-namespace"
+        if [ -n "{{.REDPANDA_IP}}" ]; then
+          echo "Using Redpanda static IP: {{.REDPANDA_IP}}"
+          HELM_CMD="$HELM_CMD --set redpanda.externalAccess.advertisedHost={{.REDPANDA_IP}} --set redpanda.externalAccess.loadBalancerIP={{.REDPANDA_IP}}"
+        else
+          echo "Warning: No Redpanda static IP found in Terraform. External publisher access may not work."
+        fi
+        eval $HELM_CMD
 
   deploy:develop:
     desc: Deploy to GKE Standard develop
@@ -275,13 +287,19 @@ tasks:
 
   external-ips:
     desc: Get external IPs for services (ws-gateway, redpanda)
+    vars:
+      REDPANDA_STATIC_IP:
+        sh: terraform -chdir={{.GKE_STD_TF_DIR}} output -raw redpanda_external_ip 2>/dev/null || echo "N/A"
     cmds:
-      - echo "=== External IPs ==="
+      - 'echo "=== External IPs ==="'
       - kubectl get svc -n {{.GKE_STD_NS}} -o wide | grep -E "NAME|LoadBalancer"
-      - echo ""
-      - 'echo "Use these IPs to configure odin-api:"'
-      - 'echo "  - ws-gateway: for WebSocket clients"'
-      - 'echo "  - redpanda-external: for Kafka publishers (port 9094)"'
+      - 'echo ""'
+      - 'echo "=== Terraform Static IPs ==="'
+      - 'echo "  Redpanda: {{.REDPANDA_STATIC_IP}}"'
+      - 'echo ""'
+      - 'echo "Use these IPs to configure clients:"'
+      - 'echo "  - ws-gateway: for WebSocket clients (port 443)"'
+      - 'echo "  - redpanda: for Kafka publishers ({{.REDPANDA_STATIC_IP}}:9092)"'
 
   logs:
     desc: Tail ws-server logs

@@ -226,6 +226,56 @@ helm upgrade --install odin ./deployments/k8s/helm/odin \
 
 **For detailed K8s deployment, see [K8s Production Architecture](./docs/ARCHITECTURE_K8S_PRODUCTION.md).**
 
+### Testing K8s with External Loadtest/Publisher
+
+For testing K8s deployments with external traffic (simulating real producers):
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                        GCP VM (odin-tools-develop)                           │
+│  ┌─────────────┐                                         ┌───────────────┐   │
+│  │  Publisher  │                                         │   Loadtest    │   │
+│  │  (Node.js)  │                                         │   (Go)        │   │
+│  └──────┬──────┘                                         └───────▲───────┘   │
+└─────────┼────────────────────────────────────────────────────────┼───────────┘
+          │ Kafka (external)                           WebSocket   │
+          ▼                                                        │
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         K8s Cluster                                          │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐          │
+│  │    Redpanda     │───►│    ws-server    │───►│   ws-gateway    │◄─────────│
+│  │  (dual listener)│    │ (Kafka consumer)│    │  (LoadBalancer) │          │
+│  └─────────────────┘    └─────────────────┘    └─────────────────┘          │
+│   External: 19092        Valkey broadcast       External: 443               │
+│   Internal: 9092                                                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Setup:**
+```bash
+# 1. Deploy K8s with external Redpanda access
+helm upgrade odin ./deployments/k8s/helm/odin -n odin-std-develop \
+  --set redpanda.externalAccess.enabled=true \
+  --set redpanda.externalAccess.advertisedHost=<REDPANDA_EXTERNAL_IP>
+
+# 2. Get external IPs
+kubectl get svc -n odin-std-develop odin-ws-gateway odin-redpanda-external
+
+# 3. Create loadtest VM and configure endpoints
+task gcp:v2:create ENV=develop GCP_PROJECT=<your-project>
+# Update deployments/gcp/v2/environments/develop.env with IPs
+task gcp:v2:setup ENV=develop GCP_PROJECT=<your-project>
+
+# 4. Run test
+task gcp:v2:publisher:start ENV=develop RATE=1 TOKENS=BTC,ETH,SOL
+task gcp:v2:loadtest:start ENV=develop
+
+# 5. Cleanup
+task gcp:v2:delete ENV=develop GCP_PROJECT=<your-project>
+```
+
+**See [GCP v2 Testing Guide](./deployments/gcp/v2/README.md) for detailed instructions.**
+
 ### GCP VM Deployment (Legacy)
 
 ```bash

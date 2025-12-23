@@ -43,3 +43,8 @@ output "node_pool_name" {
   description = "The name of the primary node pool"
   value       = google_container_node_pool.primary.name
 }
+
+output "redpanda_external_ip" {
+  description = "The static external IP for Redpanda LoadBalancer"
+  value       = google_compute_address.redpanda_external.address
+}
