@@ -23,9 +23,11 @@ tasks:
   # ===========================================================================
 
   start:
-    desc: Start publisher container (RATE=25)
+    desc: Start publisher container and trigger API (RATE=1, TOKENS=BTC,ETH,SOL)
+    vars:
+      TOKENS: '{{.TOKENS | default "BTC,ETH,SOL"}}'
     cmds:
-      - echo "Starting publisher on {{.INSTANCE_NAME}} ({{.RATE}} events/sec)..."
+      - echo "Starting publisher on {{.INSTANCE_NAME}} ({{.RATE}} events/sec, tokens={{.TOKENS}})..."
       - |
         gcloud compute ssh {{.INSTANCE_NAME}} \
           --project={{.GCP_PROJECT}} \
@@ -33,6 +35,18 @@ tasks:
           --command="cd {{.REMOTE_DIR}}/deployments/gcp/v2 && \
             PUBLISH_RATE={{.RATE}} sudo -E docker-compose --env-file environments/{{.ENV}}.env \
             --profile publisher up -d"
+      - echo "Waiting for publisher API to be ready..."
+      - sleep 3
+      - |
+        # Convert TOKENS to JSON array and call /start API
+        TOKENS_JSON=$(echo '{{.TOKENS}}' | awk -F',' '{printf "["; for(i=1;i<=NF;i++){printf "\"%s\"", $i; if(i<NF) printf ","} printf "]"}')
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="curl -s -X POST http://localhost:3003/start \
+            -H 'Content-Type: application/json' \
+            -d '{\"rate\": {{.RATE}}, \"tokenIds\": ${TOKENS_JSON}}'"
+      - echo ""
       - echo "Publisher started. Use 'task gcp:v2:publisher:logs' to view logs."
 
   stop:

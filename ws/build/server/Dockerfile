@@ -29,13 +29,23 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Stage 2: Create the final, minimal image
 FROM alpine:latest
 
-WORKDIR /root/
-
 # Install ca-certificates for HTTPS connections (Kafka/Redpanda TLS support)
 RUN apk --no-cache add ca-certificates
 
+# Create non-root user for security
+RUN addgroup -g 1000 -S odin && \
+    adduser -u 1000 -S odin -G odin
+
+WORKDIR /app
+
 # Copy the static binary from the builder stage
 COPY --from=builder /odin-ws .
+
+# Ensure binary is executable
+RUN chmod +x /app/odin-ws && chown odin:odin /app/odin-ws
+
+# Switch to non-root user
+USER odin
 
 # Expose the load balancer port (default 3005)
 EXPOSE 3005

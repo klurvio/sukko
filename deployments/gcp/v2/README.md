@@ -40,13 +40,22 @@ task gcp:v2:setup ENV=develop
 
 ### 3. Configure Endpoints
 
-Edit the environment file on the VM:
+Get the K8s service IPs (after Helm deployment):
 ```bash
-task gcp:v2:ssh ENV=develop
-vim ~/odin-ws/deployments/gcp/v2/environments/develop.env
+kubectl get svc -n odin-std-develop odin-ws-gateway odin-redpanda-external
 ```
 
-Update `WS_URL` and `KAFKA_BROKERS` to point to your backend.
+Update `deployments/gcp/v2/environments/develop.env` with the EXTERNAL-IP values:
+```env
+WS_URL=ws://<WS_GATEWAY_EXTERNAL_IP>:443/ws
+HEALTH_URL=http://<WS_GATEWAY_EXTERNAL_IP>:443/health
+KAFKA_BROKERS=<REDPANDA_EXTERNAL_IP>:9092
+```
+
+Sync to VM:
+```bash
+task gcp:v2:sync-env ENV=develop
+```
 
 ### 4. Run Tests
 
@@ -138,3 +147,91 @@ These settings allow the VM to handle 18K+ WebSocket connections.
 | e2-standard-8 | ~$70 | ~$195 |
 
 Use Spot VMs for cost savings if preemption is acceptable for testing.
+
+## Test Guide: K8s Develop Cluster
+
+Step-by-step guide for testing the K8s develop cluster with low-volume traffic.
+
+### Test Configuration
+
+| Parameter | Loadtest | Publisher |
+|-----------|----------|-----------|
+| Target endpoint | ws://WS_GATEWAY_IP/ws | REDPANDA_IP:9092 |
+| Rate | 5 conn/sec (RAMP_RATE) | 1 msg/sec (RATE) |
+| Connections | 100 total | N/A |
+| Duration | 300s (5 min) | Continuous |
+
+### Step 1: Get K8s Endpoints
+
+```bash
+kubectl get svc -n odin-std-develop odin-ws-gateway odin-redpanda-external
+```
+
+Note the EXTERNAL-IP values for ws-gateway and redpanda-external.
+
+### Step 2: Update develop.env
+
+Edit `deployments/gcp/v2/environments/develop.env` with the IPs from Step 1:
+
+```env
+# Replace placeholders with actual IPs from kubectl output
+WS_URL=ws://<WS_GATEWAY_EXTERNAL_IP>:443/ws
+HEALTH_URL=http://<WS_GATEWAY_EXTERNAL_IP>:443/health
+KAFKA_BROKERS=<REDPANDA_EXTERNAL_IP>:9092
+```
+
+The other settings (connections, rate, channels) have sensible defaults for testing.
+
+### Step 3: Create and Setup VM
+
+```bash
+task gcp:v2:create ENV=develop
+task gcp:v2:setup ENV=develop
+task gcp:v2:sync-env ENV=develop
+```
+
+### Step 4: Start Publisher
+
+```bash
+task gcp:v2:publisher:start ENV=develop RATE=1
+task gcp:v2:publisher:logs ENV=develop
+```
+
+### Step 5: Run Loadtest
+
+```bash
+task gcp:v2:loadtest:run ENV=develop CONNECTIONS=100 RAMP_RATE=5 DURATION=300
+task gcp:v2:loadtest:logs ENV=develop
+```
+
+### Step 6: Verify End-to-End Flow
+
+```bash
+# Check ws-server receiving messages
+kubectl logs -n odin-std-develop -l app.kubernetes.io/name=ws-server -f --tail=50
+
+# Check ws-gateway proxying connections
+kubectl logs -n odin-std-develop -l app.kubernetes.io/name=ws-gateway -f --tail=50
+```
+
+### Step 7: Cleanup
+
+```bash
+task gcp:v2:publisher:stop ENV=develop
+task gcp:v2:stop ENV=develop  # Stop VM to save costs
+```
+
+### Expected Flow
+
+```
+Publisher (VM)                    K8s Cluster                      Loadtest (VM)
+     │                                 │                                │
+     │ ──── Kafka (1 msg/sec) ────────►│                                │
+     │                           Redpanda                               │
+     │                                 │                                │
+     │                           ws-server                              │
+     │                                 │                                │
+     │                           ws-gateway ◄──── WS (5 conn/sec) ──────│
+     │                                 │                                │
+     │                                 │ ────── Messages ───────────────►│
+```

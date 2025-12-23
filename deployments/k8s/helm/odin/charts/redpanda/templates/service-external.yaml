@@ -9,7 +9,12 @@ spec:
   type: {{ .Values.externalAccess.type }}
   ports:
     - port: {{ .Values.kafkaPort }}
+      {{- if .Values.externalAccess.advertisedHost }}
+      # When advertisedHost is set, use the external listener port
+      targetPort: {{ .Values.externalAccess.containerPort }}
+      {{- else }}
       targetPort: kafka
+      {{- end }}
       protocol: TCP
       name: kafka
       {{- if and (eq .Values.externalAccess.type "NodePort") .Values.externalAccess.nodePort }}

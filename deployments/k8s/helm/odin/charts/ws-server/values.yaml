@@ -50,6 +50,8 @@ connectionLimits:
 podSecurityContext:
   fsGroup: 1000
 
+# Container Security Context
+# Dockerfile creates non-root user (odin:1000) in /app directory
 securityContext:
   runAsNonRoot: true
   runAsUser: 1000
