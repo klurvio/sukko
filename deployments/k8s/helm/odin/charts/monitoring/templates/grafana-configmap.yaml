@@ -12,6 +12,7 @@ data:
     datasources:
       - name: Prometheus
         type: prometheus
+        uid: prometheus
         access: proxy
         url: http://{{ include "monitoring.fullname" . }}-prometheus:{{ .Values.prometheus.port }}
         isDefault: true
@@ -19,6 +20,7 @@ data:
       {{- if .Values.loki.enabled }}
       - name: Loki
         type: loki
+        uid: loki
         access: proxy
         url: http://{{ include "monitoring.fullname" . }}-loki:{{ .Values.loki.port }}
         editable: false

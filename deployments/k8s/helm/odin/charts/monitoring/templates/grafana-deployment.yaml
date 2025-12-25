@@ -52,12 +52,26 @@ spec:
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
             - name: data
               mountPath: /var/lib/grafana
+      {{- with .Values.grafana.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       volumes:
         - name: datasources
           configMap:
             name: {{ include "monitoring.fullname" . }}-grafana-datasources
+        - name: dashboards-provider
+          configMap:
+            name: {{ include "monitoring.fullname" . }}-grafana-dashboards-provider
+        - name: dashboards
+          configMap:
+            name: {{ include "monitoring.fullname" . }}-grafana-dashboards
         - name: data
           emptyDir: {}
 {{- end }}

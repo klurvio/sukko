@@ -34,6 +34,12 @@ data:
         static_configs:
           - targets: ['{{ .Release.Name }}-redpanda:9644']
 
+      # Scrape NATS metrics (monitoring port 8222)
+      - job_name: 'nats'
+        static_configs:
+          - targets: ['{{ .Release.Name }}-nats:8222']
+        metrics_path: /
+
       # Prometheus self-monitoring
       - job_name: 'prometheus'
         static_configs:
