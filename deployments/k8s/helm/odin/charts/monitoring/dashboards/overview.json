@@ -194,6 +194,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "NATS health inferred from ws-server Kafka connected status. NATS itself doesn't expose Prometheus metrics.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -253,12 +254,12 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "up{job=\"nats\"}",
+          "expr": "ws_kafka_connected",
           "legendFormat": "__auto",
           "refId": "A"
         }
       ],
-      "title": "NATS",
+      "title": "Kafka Connected",
       "type": "stat"
     },
     {
@@ -630,7 +631,7 @@
       },
       "id": 102,
       "panels": [],
-      "title": "Message Bus (Redpanda + NATS)",
+      "title": "Kafka Ingestion (Redpanda)",
       "type": "row"
     },
     {
@@ -708,13 +709,13 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "sum(rate(redpanda_kafka_request_bytes_total[1m]))",
-          "legendFormat": "Bytes In",
+          "expr": "sum(rate(vectorized_cluster_partition_bytes_produced_total[1m]))",
+          "legendFormat": "Bytes Produced",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(redpanda_kafka_response_bytes_total[1m]))",
-          "legendFormat": "Bytes Out",
+          "expr": "sum(rate(vectorized_cluster_partition_bytes_fetched_total[1m]))",
+          "legendFormat": "Bytes Fetched",
           "refId": "B"
         }
       ],
@@ -796,17 +797,17 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "nats_varz_connections",
-          "legendFormat": "NATS Connections",
+          "expr": "rate(ws_kafka_messages_received_total[1m])",
+          "legendFormat": "Messages Received/sec",
           "refId": "A"
         },
         {
-          "expr": "nats_varz_subscriptions",
-          "legendFormat": "NATS Subscriptions",
+          "expr": "rate(ws_kafka_messages_dropped_total[1m])",
+          "legendFormat": "Messages Dropped/sec",
           "refId": "B"
         }
       ],
-      "title": "NATS Status",
+      "title": "Kafka Consumer (ws-server)",
       "type": "timeseries"
     },
     {
@@ -816,6 +817,227 @@
         "w": 24,
         "x": 0,
         "y": 23
+      },
+      "id": 104,
+      "panels": [],
+      "title": "Client Broadcasts",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Broadcasts that failed to be delivered to WebSocket clients. Non-zero values indicate delivery issues.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 22,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull", "sum"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "expr": "rate(ws_dropped_broadcasts_total[1m])",
+          "legendFormat": "{{channel}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Dropped Broadcasts by Channel",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Total number of broadcasts dropped since server start",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 24
+      },
+      "id": 23,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "expr": "sum(ws_dropped_broadcasts_total)",
+          "legendFormat": "Total Dropped",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Dropped",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Total broadcasts delivered to WebSocket clients",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 24
+      },
+      "id": 24,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "expr": "sum(rate(ws_messages_sent_total[1m]))",
+          "legendFormat": "Broadcasts/sec",
+          "refId": "A"
+        }
+      ],
+      "title": "Broadcast Rate",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
       },
       "id": 103,
       "panels": [],
@@ -889,7 +1111,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 24
+        "y": 31
       },
       "id": 30,
       "options": {
@@ -980,7 +1202,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 24
+        "y": 31
       },
       "id": 31,
       "options": {

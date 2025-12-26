@@ -21,6 +21,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
+
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 )
 
 // TokenEvent represents an event from Redpanda
@@ -640,6 +642,7 @@ func (c *Consumer) incrementProcessed() {
 	c.mu.Lock()
 	c.messagesProcessed++
 	c.mu.Unlock()
+	monitoring.IncrementKafkaMessages()
 }
 
 func (c *Consumer) incrementFailed() {
@@ -652,6 +655,7 @@ func (c *Consumer) incrementDropped() {
 	c.mu.Lock()
 	c.messagesDropped++
 	c.mu.Unlock()
+	monitoring.IncrementKafkaDropped()
 }
 
 func (c *Consumer) getDroppedCount() uint64 {

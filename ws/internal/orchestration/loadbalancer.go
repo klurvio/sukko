@@ -110,6 +110,7 @@ func (lb *LoadBalancer) Start() error {
 	mux.HandleFunc("/ws", lb.handleWebSocket)
 	mux.HandleFunc("/health", lb.handleHealth)
 	mux.HandleFunc("/version", version.Handler("ws-server"))
+	mux.HandleFunc("/metrics", monitoring.HandleMetrics)
 
 	// Store config in LoadBalancer so we can access timeouts
 	// Need to get these from the cfg parameter in Start()

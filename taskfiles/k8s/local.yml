@@ -129,7 +129,7 @@ tasks:
   # Port Forwarding (required for kind cluster access)
   # ===========================================================================
   port-forward:start:
-    desc: Start all port-forwards in background (gateway, redpanda, grafana)
+    desc: Start all port-forwards in background (gateway, redpanda, grafana, prometheus)
     cmds:
       - task: port-forward:stop
       - |
@@ -137,12 +137,14 @@ tasks:
         kubectl port-forward -n {{.LOCAL_NS}} svc/odin-ws-gateway 3006:3000 &
         kubectl port-forward -n {{.LOCAL_NS}} svc/odin-redpanda-external 9092:9092 &
         kubectl port-forward -n {{.LOCAL_NS}} svc/odin-monitoring-grafana 3010:3000 &
+        kubectl port-forward -n {{.LOCAL_NS}} svc/odin-monitoring-prometheus 9090:9090 &
         sleep 2
         echo ""
         echo "Port-forwards active:"
         echo "  - ws-gateway:  localhost:3006 → gateway:3000"
         echo "  - redpanda:    localhost:9092 → redpanda-external:9092"
         echo "  - grafana:     localhost:3010 → grafana:3000"
+        echo "  - prometheus:  localhost:9090 → prometheus:9090"
         echo ""
         echo "To stop: task k8s:local:port-forward:stop"
 

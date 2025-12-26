@@ -13,32 +13,20 @@ data:
       evaluation_interval: {{ .Values.prometheus.scrapeInterval }}
 
     scrape_configs:
-      # Scrape ws-server metrics
+      # Scrape ws-server metrics (port 3001 /metrics endpoint)
       - job_name: 'ws-server'
-        kubernetes_sd_configs:
-          - role: pod
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
-            action: keep
-            regex: ws-server
-          - source_labels: [__meta_kubernetes_pod_container_port_name]
-            action: keep
-            regex: http
-          - source_labels: [__meta_kubernetes_namespace]
-            target_label: namespace
-          - source_labels: [__meta_kubernetes_pod_name]
-            target_label: pod
+        static_configs:
+          - targets: ['{{ .Release.Name }}-ws-server:3001']
+        metrics_path: /metrics
 
       # Scrape Redpanda metrics
       - job_name: 'redpanda'
         static_configs:
           - targets: ['{{ .Release.Name }}-redpanda:9644']
 
-      # Scrape NATS metrics (monitoring port 8222)
-      - job_name: 'nats'
-        static_configs:
-          - targets: ['{{ .Release.Name }}-nats:8222']
-        metrics_path: /
+      # Note: NATS monitoring port 8222 exposes JSON endpoints (/varz, /connz),
+      # not Prometheus format. Use nats-prometheus-exporter sidecar if needed.
+      # For now, NATS health is monitored via ws-server connection status.
 
       # Prometheus self-monitoring
       - job_name: 'prometheus'
