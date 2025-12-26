@@ -289,7 +289,32 @@ monitoring:
   enabled: true     # Set false for minimal setup
 ```
 
-## Local Testing with Load Test Tool
+## Publishing Test Data
+
+The Publisher generates simulated events and publishes to Redpanda. It runs locally and connects to Kind's Redpanda via port-forward.
+
+### Start Publisher
+
+```bash
+# Ensure port-forwards are running (includes Redpanda on localhost:9092)
+task k8s:local:port-forward:start
+
+# Start publisher (default: 10 events/sec)
+task k8s:local:publisher:start
+
+# Or with custom rate
+task k8s:local:publisher:start RATE=50
+```
+
+### Publisher Commands
+
+```bash
+task k8s:local:publisher:status       # Check status
+task k8s:local:publisher:rate RATE=100  # Change rate
+task k8s:local:publisher:stop         # Stop publisher
+```
+
+## Load Testing
 
 ### Build and Run Load Test
 
@@ -299,9 +324,6 @@ cd loadtest
 
 # Build the loadtest binary
 go build -o loadtest .
-
-# Start port-forward first
-task k8s:local:port-forward:start
 
 # Run load test (100 connections, 5 ramp/sec, 5 min duration)
 ./loadtest \

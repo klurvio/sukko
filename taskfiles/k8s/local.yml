@@ -171,3 +171,39 @@ tasks:
     desc: Connect to WebSocket via gateway (requires port-forward:gateway)
     cmds:
       - wscat -c ws://localhost:3006/ws
+
+  # ===========================================================================
+  # Publisher (runs locally, connects to Kind's Redpanda)
+  # ===========================================================================
+  publisher:start:
+    desc: Start publisher (RATE=10)
+    dir: "{{.ROOT_DIR}}/publisher"
+    vars:
+      RATE: '{{.RATE | default "10"}}'
+    cmds:
+      - echo "Starting publisher ({{.RATE}} events/sec)..."
+      - npm install --silent
+      - KAFKA_BROKERS=localhost:9092 API_PORT=3003 npm run dev &
+      - sleep 2
+      - 'curl -s -X POST http://localhost:3003/start -H "Content-Type: application/json" -d ''{"rate": {{.RATE}}, "tokenIds": ["BTC", "ETH", "SOL"]}'''
+      - echo "Publisher started on http://localhost:3003"
+
+  publisher:stop:
+    desc: Stop publisher
+    cmds:
+      - curl -s -X POST http://localhost:3003/stop || true
+      - pkill -f "tsx.*publisher" 2>/dev/null || true
+      - echo "Publisher stopped"
+
+  publisher:status:
+    desc: Check publisher status
+    cmds:
+      - curl -s http://localhost:3003/status | jq . || echo "Publisher not running"
+
+  publisher:rate:
+    desc: Update publish rate (RATE=50)
+    vars:
+      RATE: '{{.RATE | default "50"}}'
+    cmds:
+      - 'curl -s -X POST http://localhost:3003/rate -H "Content-Type: application/json" -d ''{"rate": {{.RATE}}}'''
+      - echo "Rate updated to {{.RATE}} events/sec"
