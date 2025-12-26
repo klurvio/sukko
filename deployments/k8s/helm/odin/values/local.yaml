@@ -71,6 +71,11 @@ ws-server:
 redpanda:
   enabled: true
   memory: "256M"  # Redpanda process memory (must be < container limit)
+  # External access for local publisher via port-forward
+  externalAccess:
+    enabled: true
+    advertisedHost: localhost  # Publisher connects via port-forward
+    containerPort: 19092       # External listener port inside container
   resources:
     requests:
       cpu: "250m"

@@ -129,18 +129,20 @@ tasks:
   # Port Forwarding (required for kind cluster access)
   # ===========================================================================
   port-forward:start:
-    desc: Start all port-forwards in background (gateway, redpanda)
+    desc: Start all port-forwards in background (gateway, redpanda, grafana)
     cmds:
       - task: port-forward:stop
       - |
         echo "Starting port-forwards in background..."
         kubectl port-forward -n {{.LOCAL_NS}} svc/odin-ws-gateway 3006:3000 &
-        kubectl port-forward -n {{.LOCAL_NS}} svc/odin-redpanda 9092:9092 &
+        kubectl port-forward -n {{.LOCAL_NS}} svc/odin-redpanda-external 9092:9092 &
+        kubectl port-forward -n {{.LOCAL_NS}} svc/odin-monitoring-grafana 3010:3000 &
         sleep 2
         echo ""
         echo "Port-forwards active:"
         echo "  - ws-gateway:  localhost:3006 → gateway:3000"
-        echo "  - redpanda:    localhost:9092 → redpanda:9092"
+        echo "  - redpanda:    localhost:9092 → redpanda-external:9092"
+        echo "  - grafana:     localhost:3010 → grafana:3000"
         echo ""
         echo "To stop: task k8s:local:port-forward:stop"
 
@@ -157,7 +159,7 @@ tasks:
   port-forward:redpanda:
     desc: Port forward Redpanda for external publishers (localhost:9092)
     cmds:
-      - kubectl port-forward -n {{.LOCAL_NS}} svc/odin-redpanda 9092:9092
+      - kubectl port-forward -n {{.LOCAL_NS}} svc/odin-redpanda-external 9092:9092
 
   # ===========================================================================
   # Testing
@@ -207,3 +209,47 @@ tasks:
     cmds:
       - 'curl -s -X POST http://localhost:3003/rate -H "Content-Type: application/json" -d ''{"rate": {{.RATE}}}'''
       - echo "Rate updated to {{.RATE}} events/sec"
+
+  # ===========================================================================
+  # Load Testing
+  # ===========================================================================
+  loadtest:build:
+    desc: Build loadtest binary
+    dir: "{{.ROOT_DIR}}/loadtest"
+    cmds:
+      - go build -o loadtest .
+      - echo "Built loadtest binary"
+
+  loadtest:run:
+    desc: Run load test (CONNECTIONS=100, DURATION=300, RAMP=5)
+    dir: "{{.ROOT_DIR}}/loadtest"
+    vars:
+      CONNECTIONS: '{{.CONNECTIONS | default "100"}}'
+      DURATION: '{{.DURATION | default "300"}}'
+      RAMP: '{{.RAMP | default "5"}}'
+    cmds:
+      - |
+        ./loadtest \
+          -url ws://localhost:3006/ws \
+          -health http://localhost:3006/health \
+          -connections {{.CONNECTIONS}} \
+          -ramp-rate {{.RAMP}} \
+          -duration {{.DURATION}}
+
+  loadtest:quick:
+    desc: Quick smoke test (10 connections, 30 seconds)
+    dir: "{{.ROOT_DIR}}/loadtest"
+    cmds:
+      - |
+        ./loadtest \
+          -url ws://localhost:3006/ws \
+          -health http://localhost:3006/health \
+          -connections 10 \
+          -ramp-rate 5 \
+          -duration 30
+
+  loadtest:stop:
+    desc: Stop running load test
+    cmds:
+      - pkill -f "./loadtest" 2>/dev/null || true
+      - echo "Loadtest stopped"

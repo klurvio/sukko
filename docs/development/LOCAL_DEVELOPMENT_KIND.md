@@ -316,30 +316,27 @@ task k8s:local:publisher:stop         # Stop publisher
 
 ## Load Testing
 
-### Build and Run Load Test
+### Build Load Test Binary
 
 ```bash
-# Navigate to loadtest directory
-cd loadtest
+task k8s:local:loadtest:build
+```
 
-# Build the loadtest binary
-go build -o loadtest .
+### Run Load Test
 
-# Run load test (100 connections, 5 ramp/sec, 5 min duration)
-./loadtest \
-  -url ws://localhost:3006/ws \
-  -health http://localhost:3006/health \
-  -connections 100 \
-  -ramp-rate 5 \
-  -duration 300
+```bash
+# Default: 100 connections, 5 ramp/sec, 5 min duration
+task k8s:local:loadtest:run
 
-# Quick smoke test (10 connections, 30 seconds)
-./loadtest \
-  -url ws://localhost:3006/ws \
-  -health http://localhost:3006/health \
-  -connections 10 \
-  -ramp-rate 5 \
-  -duration 30
+# Custom parameters
+task k8s:local:loadtest:run CONNECTIONS=500 DURATION=600 RAMP=10
+```
+
+### Quick Smoke Test
+
+```bash
+# 10 connections, 30 seconds
+task k8s:local:loadtest:quick
 ```
 
 ## Local Testing Limitations

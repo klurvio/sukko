@@ -75,9 +75,12 @@ type State struct {
 }
 
 // HealthResponse from server
+// Supports both ws-gateway format: {"status":"ok","service":"ws-gateway"}
+// And ws-server format: {"status":"ok","healthy":true,"checks":{...}}
 type HealthResponse struct {
 	Status  string `json:"status"`
-	Healthy bool   `json:"healthy"`
+	Service string `json:"service"` // ws-gateway includes this
+	Healthy *bool  `json:"healthy"` // Pointer to distinguish missing from false
 	Checks  struct {
 		Capacity struct {
 			Current int `json:"current"`
@@ -89,6 +92,20 @@ type HealthResponse struct {
 			Percentage float64 `json:"percentage"`
 		} `json:"memory"`
 	} `json:"checks"`
+}
+
+// IsHealthy returns true if the server is healthy
+// Handles both gateway format (status=ok) and server format (healthy=true)
+func (h *HealthResponse) IsHealthy() bool {
+	// Gateway format: status == "ok" means healthy
+	if h.Status == "ok" {
+		return true
+	}
+	// Server format: explicit healthy field
+	if h.Healthy != nil && *h.Healthy {
+		return true
+	}
+	return false
 }
 
 // Connection represents a WebSocket client
@@ -631,7 +648,7 @@ func checkServerHealth() error {
 	state.lastHealthCheck = &health
 	state.mu.Unlock()
 
-	if !health.Healthy {
+	if !health.IsHealthy() {
 		log.Printf("⚠️  Server reports unhealthy status but continuing...")
 	}
 
@@ -745,7 +762,7 @@ func printReport() {
 	log.Printf("\n💻 Server Health:")
 	if health != nil {
 		healthStatus := "✅ Healthy"
-		if !health.Healthy {
+		if !health.IsHealthy() {
 			healthStatus = "❌ Unhealthy"
 		}
 		log.Printf("   Status:       %s", healthStatus)
