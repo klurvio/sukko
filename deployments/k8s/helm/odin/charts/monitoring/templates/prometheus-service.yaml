@@ -7,13 +7,15 @@ metadata:
     {{- include "monitoring.labels" . | nindent 4 }}
     app.kubernetes.io/component: prometheus
 spec:
-  type: NodePort
+  type: {{ .Values.prometheus.service.type | default "ClusterIP" }}
   ports:
     - port: {{ .Values.prometheus.port }}
       targetPort: http
       protocol: TCP
       name: http
-      nodePort: {{ .Values.prometheus.nodePort }}
+      {{- if and (eq (.Values.prometheus.service.type | default "ClusterIP") "NodePort") .Values.prometheus.service.nodePort }}
+      nodePort: {{ .Values.prometheus.service.nodePort }}
+      {{- end }}
   selector:
     {{- include "monitoring.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: prometheus

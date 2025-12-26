@@ -171,6 +171,9 @@ monitoring:
         memory: "2Gi"
     retention: "30d"
     scrapeInterval: "15s"
+    service:
+      type: NodePort
+      nodePort: 30090
 
   grafana:
     resources:
@@ -180,6 +183,9 @@ monitoring:
       limits:
         cpu: "500m"
         memory: "1Gi"
+    service:
+      type: NodePort
+      nodePort: 30300
 
   loki:
     resources:

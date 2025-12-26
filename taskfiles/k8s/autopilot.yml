@@ -1,0 +1,163 @@
+# =============================================================================
+# GKE Autopilot Environment Tasks (Managed nodes, simpler but more expensive)
+# =============================================================================
+# Usage: task k8s:autopilot:deploy ENV=develop
+
+version: '3'
+
+vars:
+  GKE_AP_ENV: '{{.GKE_AP_ENV | default "develop"}}'
+  GKE_AP_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
+  GKE_AP_NS: 'odin-{{.GKE_AP_ENV}}'
+  GKE_AP_VALUES: "{{.ROOT_DIR}}/deployments/k8s/helm/odin/values/autopilot/{{.GKE_AP_ENV}}.yaml"
+  GKE_AP_CLUSTER: 'odin-ws-{{.GKE_AP_ENV}}'
+  GKE_AP_REGION: us-central1
+  GKE_AP_PROJECT: '{{.GKE_PROJECT | default "YOUR_PROJECT"}}'
+  GKE_AP_REGISTRY: us-central1-docker.pkg.dev/{{.GKE_AP_PROJECT}}/odin
+
+tasks:
+  # ===========================================================================
+  # Connection
+  # ===========================================================================
+  connect:
+    desc: Connect to GKE Autopilot cluster
+    cmds:
+      - gcloud container clusters get-credentials {{.GKE_AP_CLUSTER}} --region {{.GKE_AP_REGION}} --project {{.GKE_AP_PROJECT}}
+
+  # ===========================================================================
+  # Build & Images
+  # ===========================================================================
+  build:
+    desc: Build and push images to Artifact Registry
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+      COMMIT_HASH:
+        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+      BUILD_TIME:
+        sh: date -u +%Y-%m-%dT%H:%M:%SZ
+      TAG: '{{if eq .GKE_AP_ENV "production"}}{{.VERSION}}{{else}}{{.GKE_AP_ENV}}{{end}}'
+    cmds:
+      - echo "Building images for {{.GKE_AP_ENV}} with tag {{.TAG}}..."
+      - docker build -t {{.GKE_AP_REGISTRY}}/ws-server:{{.TAG}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f {{.ROOT_DIR}}/ws/build/server/Dockerfile {{.ROOT_DIR}}/ws
+      - docker push {{.GKE_AP_REGISTRY}}/ws-server:{{.TAG}}
+      - docker build -t {{.GKE_AP_REGISTRY}}/ws-gateway:{{.TAG}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f {{.ROOT_DIR}}/ws/build/gateway/Dockerfile {{.ROOT_DIR}}/ws
+      - docker push {{.GKE_AP_REGISTRY}}/ws-gateway:{{.TAG}}
+
+  build:reload:
+    desc: Rebuild images and restart pods
+    cmds:
+      - task: build
+      - kubectl rollout restart deployment -n {{.GKE_AP_NS}}
+
+  # ===========================================================================
+  # Deployment
+  # ===========================================================================
+  deploy:
+    desc: Build, push, and deploy to GKE Autopilot (ENV=develop|staging|production)
+    cmds:
+      - task: connect
+      - task: build
+      - task: upgrade
+
+  deploy:develop:
+    desc: Deploy to GKE Autopilot develop
+    cmds:
+      - task: deploy
+        vars:
+          GKE_AP_ENV: develop
+
+  deploy:staging:
+    desc: Deploy to GKE Autopilot staging
+    cmds:
+      - task: deploy
+        vars:
+          GKE_AP_ENV: staging
+
+  deploy:production:
+    desc: Deploy to GKE Autopilot production
+    prompt: "This will deploy to Autopilot PRODUCTION. Are you sure?"
+    cmds:
+      - task: deploy
+        vars:
+          GKE_AP_ENV: production
+
+  upgrade:
+    desc: Upgrade existing deployment
+    cmds:
+      - task: connect
+      - helm upgrade --install odin {{.GKE_AP_CHART}} -f {{.GKE_AP_VALUES}} -n {{.GKE_AP_NS}} --create-namespace
+
+  down:
+    desc: Uninstall Helm release
+    cmds:
+      - helm uninstall odin -n {{.GKE_AP_NS}} || true
+
+  rollback:
+    desc: Rollback to previous release
+    cmds:
+      - helm rollback odin -n {{.GKE_AP_NS}}
+
+  # ===========================================================================
+  # Observability
+  # ===========================================================================
+  status:
+    desc: Show deployment status
+    cmds:
+      - kubectl get pods -n {{.GKE_AP_NS}}
+      - echo ""
+      - kubectl get svc -n {{.GKE_AP_NS}}
+      - echo ""
+      - kubectl get hpa -n {{.GKE_AP_NS}} 2>/dev/null || echo "No HPA configured"
+
+  logs:
+    desc: Tail ws-server logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.GKE_AP_NS}} --tail=100
+
+  logs:gateway:
+    desc: Tail ws-gateway logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=ws-gateway -n {{.GKE_AP_NS}} --tail=100
+
+  logs:all:
+    desc: Tail all pod logs
+    cmds:
+      - kubectl logs -f --all-containers=true -l app.kubernetes.io/instance=odin -n {{.GKE_AP_NS}} --tail=50
+
+  # ===========================================================================
+  # Port Forwarding
+  # ===========================================================================
+  port-forward:ws:
+    desc: Port-forward ws-server for local testing
+    cmds:
+      - kubectl port-forward -n {{.GKE_AP_NS}} svc/odin-ws-server 3005:3001
+
+  port-forward:gateway:
+    desc: Port-forward ws-gateway for local testing
+    cmds:
+      - kubectl port-forward -n {{.GKE_AP_NS}} svc/odin-ws-gateway 3006:3000
+
+  # ===========================================================================
+  # Health & Testing
+  # ===========================================================================
+  health:
+    desc: Check environment health
+    cmds:
+      - |
+        GW_IP=$(kubectl get svc -n {{.GKE_AP_NS}} -l app.kubernetes.io/name=ws-gateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+        if [ -n "$GW_IP" ]; then
+          echo "Gateway IP: $GW_IP"
+          curl -s http://$GW_IP:3000/health | jq .
+        else
+          echo "No external IP found. Try port-forward:"
+          echo "  task k8s:autopilot:port-forward:gateway"
+        fi

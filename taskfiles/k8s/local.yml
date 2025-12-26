@@ -28,6 +28,8 @@ tasks:
     desc: Create kind cluster
     cmds:
       - kind create cluster --config {{.LOCAL_KIND_CONFIG}} || true
+      # Always switch to kind context (in case cluster already exists)
+      - kubectl config use-context kind-{{.LOCAL_CLUSTER}}
       - kubectl create namespace {{.LOCAL_NS}} --dry-run=client -o yaml | kubectl apply -f -
 
   cluster:delete:
@@ -83,6 +85,8 @@ tasks:
   deploy:
     desc: Deploy/upgrade Helm release
     cmds:
+      # Ensure we're using kind context
+      - kubectl config use-context kind-{{.LOCAL_CLUSTER}}
       - task: asyncapi:bundle
       - helm upgrade --install odin {{.LOCAL_HELM_CHART}} -f {{.LOCAL_VALUES}} -n {{.LOCAL_NS}} --create-namespace
 

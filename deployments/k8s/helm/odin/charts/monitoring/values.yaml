@@ -13,9 +13,11 @@ prometheus:
       cpu: "500m"
       memory: "512Mi"
   port: 9090
-  nodePort: 30090
   retention: "7d"
   scrapeInterval: "15s"
+  service:
+    type: ClusterIP  # Use NodePort for external access
+    nodePort: 30090  # Only used when type is NodePort
   image:
     repository: prom/prometheus
     tag: v2.47.0
@@ -32,9 +34,11 @@ grafana:
       cpu: "250m"
       memory: "512Mi"
   port: 3000
-  nodePort: 30300
   adminUser: admin
   # adminPassword set via secret
+  service:
+    type: ClusterIP  # Use NodePort for external access
+    nodePort: 30300  # Only used when type is NodePort
   image:
     repository: grafana/grafana
     tag: 10.2.0

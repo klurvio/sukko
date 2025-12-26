@@ -120,6 +120,9 @@ monitoring:
         cpu: "250m"
         memory: "512Mi"
     retention: "3d"
+    service:
+      type: NodePort
+      nodePort: 30090
 
   grafana:
     resources:
@@ -129,6 +132,9 @@ monitoring:
       limits:
         cpu: "250m"
         memory: "256Mi"
+    service:
+      type: NodePort
+      nodePort: 30300
 
   loki:
     resources:

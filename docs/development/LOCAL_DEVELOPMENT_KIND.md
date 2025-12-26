@@ -1,6 +1,6 @@
 # Local Development with Kind
 
-This guide covers setting up a local Kubernetes development environment using [Kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) for the Odin WebSocket server.
+This guide covers setting up a local Kubernetes development environment using [Kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) for the Odin WebSocket infrastructure.
 
 ## Prerequisites
 
@@ -39,41 +39,54 @@ task k8s:local:setup
 ```
 
 This command:
-1. Creates a Kind cluster named `odin-local`
-2. Builds the ws-server Docker image
-3. Loads the image into Kind
-4. Deploys the full stack via Helm
+1. Creates a Kind cluster named `odin-ws-local`
+2. Switches kubectl context to the Kind cluster
+3. Builds ws-server and ws-gateway Docker images
+4. Loads images into Kind
+5. Deploys the full stack via Helm
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Kind Cluster (odin-local)                │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │                  Namespace: odin-local                  │ │
-│  │                                                         │ │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐ │ │
-│  │  │  ws-server  │  │   Valkey    │  │    Redpanda     │ │ │
-│  │  │  (Go)       │──│  (PubSub)   │  │  (Kafka compat) │ │ │
-│  │  │  Port 3005  │  │  Port 6379  │  │  Port 9092      │ │ │
-│  │  └─────────────┘  └─────────────┘  └─────────────────┘ │ │
-│  │         │                                               │ │
-│  │  ┌──────┴──────┐  ┌─────────────┐  ┌─────────────────┐ │ │
-│  │  │  Publisher  │  │  Prometheus │  │     Grafana     │ │ │
-│  │  │  (test data)│  │  Port 9090  │  │   Port 3010     │ │ │
-│  │  └─────────────┘  └─────────────┘  └─────────────────┘ │ │
-│  └─────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                    Kind Cluster (odin-ws-local)                       │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │                    Namespace: odin-local                        │  │
+│  │                                                                 │  │
+│  │  ┌─────────────┐      ┌─────────────┐      ┌───────────────┐   │  │
+│  │  │ ws-gateway  │─────▶│  ws-server  │◀─────│   Redpanda    │   │  │
+│  │  │  (Go)       │      │   (Go)      │      │ (Kafka compat)│   │  │
+│  │  │ Port 30000  │      │ Port 30080  │      │  Port 9092    │   │  │
+│  │  └─────────────┘      └──────┬──────┘      └───────────────┘   │  │
+│  │        │                     │                                  │  │
+│  │        │              ┌──────┴──────┐                          │  │
+│  │        │              │    NATS     │                          │  │
+│  │        │              │ (Broadcast) │                          │  │
+│  │        │              │  Port 4222  │                          │  │
+│  │        │              └─────────────┘                          │  │
+│  │        │                                                        │  │
+│  │  ┌─────┴─────────────────────────────────────────────────────┐ │  │
+│  │  │                    Monitoring Stack                        │ │  │
+│  │  │  Prometheus:9090  │  Grafana:30300  │  Loki  │  Promtail  │ │  │
+│  │  └────────────────────────────────────────────────────────────┘ │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
+
+Data Flow:
+  Publisher ──▶ Redpanda ──▶ ws-server ──▶ NATS (broadcast) ──▶ ws-server instances
+                                │
+  Clients ◀──── ws-gateway ◀───┘
 ```
 
 ## Exposed Ports
 
-| Service | Host Port | Description |
-|---------|-----------|-------------|
-| ws-server | 3005 | WebSocket endpoint + health |
-| Grafana | 3010 | Monitoring dashboards |
-| Prometheus | 9090 | Metrics collection |
-| Redpanda Console | 8080 | Kafka topic browser |
+| Service | Host Port | Container Port | Description |
+|---------|-----------|----------------|-------------|
+| ws-gateway | 3006 (port-forward) | 30000 | WebSocket endpoint (auth + filtering) |
+| ws-server | 3005 | 30080 | Internal WebSocket server |
+| Grafana | 3010 | 30300 | Monitoring dashboards |
+| Prometheus | 9090 | 30090 | Metrics collection |
+| Redpanda Console | 8080 | 30800 | Kafka topic browser |
 
 ## Task Commands Reference
 
@@ -121,6 +134,9 @@ task k8s:local:status
 # Tail ws-server logs
 task k8s:local:logs
 
+# Tail ws-gateway logs
+task k8s:local:logs:gateway
+
 # Tail all pod logs
 task k8s:local:logs:all
 
@@ -128,50 +144,30 @@ task k8s:local:logs:all
 task k8s:local:shell
 ```
 
+### Port Forwarding
+
+Since Kind uses NodePorts mapped to host ports, you may need port-forwarding for some services:
+
+```bash
+# Start all port-forwards (gateway + redpanda)
+task k8s:local:port-forward:start
+
+# Stop all port-forwards
+task k8s:local:port-forward:stop
+
+# Individual port-forwards
+task k8s:local:port-forward:gateway   # localhost:3006 → gateway:3000
+task k8s:local:port-forward:redpanda  # localhost:9092 → redpanda:9092
+```
+
 ### Testing
 
 ```bash
-# Test health endpoint
+# Test health endpoint (requires port-forward)
 task k8s:local:health
 
-# Connect via WebSocket (requires wscat)
+# Connect via WebSocket (requires wscat + port-forward)
 task k8s:local:test:ws
-```
-
-### Publisher Management
-
-The Publisher generates test market data and publishes to Redpanda (Kafka). It's enabled by default in local development.
-
-```bash
-# View publisher pod status
-kubectl get pods -n odin-local -l app.kubernetes.io/name=publisher
-
-# Tail publisher logs
-kubectl logs -f -l app.kubernetes.io/name=publisher -n odin-local
-```
-
-#### Configuration
-
-Default settings in `values-local.yaml`:
-- **Rate**: 5 messages/second
-- **Tokens**: BTC, ETH, SOL, DOGE
-
-To customize, edit `deployments/k8s/helm/odin/values-local.yaml`:
-
-```yaml
-publisher:
-  enabled: true          # Set false to disable
-  config:
-    ratePerSecond: 50    # Adjust publish rate
-    tokens:
-      - BTC
-      - ETH
-```
-
-Apply changes:
-
-```bash
-task k8s:local:deploy
 ```
 
 ## Development Workflow
@@ -188,12 +184,15 @@ kubectl get pods -n odin-local -w
 
 ### 2. Make Code Changes
 
-Edit files in `ws/` directory.
+Edit files in `ws/` directory:
+- `ws/cmd/server/` - ws-server code
+- `ws/cmd/gateway/` - ws-gateway code
+- `ws/internal/` - shared internal packages
 
 ### 3. Rebuild and Redeploy
 
 ```bash
-# Rebuild image and restart pods
+# Rebuild images and restart pods
 task k8s:local:build:reload
 
 # Watch logs
@@ -203,11 +202,14 @@ task k8s:local:logs
 ### 4. Test Changes
 
 ```bash
+# Start port-forward
+task k8s:local:port-forward:start
+
 # Health check
-curl http://localhost:3005/health | jq
+curl http://localhost:3006/health | jq
 
 # WebSocket connection
-wscat -c ws://localhost:3005/ws
+wscat -c ws://localhost:3006/ws
 ```
 
 ### 5. Iterate
@@ -223,7 +225,7 @@ Located at: `deployments/k8s/environments/local/kind-config.yaml`
 ```yaml
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: odin-local
+name: odin-ws-local
 
 nodes:
   - role: control-plane
@@ -240,46 +242,82 @@ nodes:
 
 ### Helm Values (Local)
 
-Located at: `deployments/k8s/helm/odin/values-local.yaml`
+Located at: `deployments/k8s/helm/odin/values/local.yaml`
 
 Key settings for local development:
 - Single shard (M1 Mac optimized)
 - Debug logging with pretty format
 - Reduced resource limits
-- No Valkey authentication
+- NATS for broadcast bus (no auth)
 - Minimal Redpanda memory
+- Valkey disabled (using NATS instead)
 
 ## Helm Charts
 
 The Odin umbrella chart includes:
 
-| Chart | Purpose |
-|-------|---------|
-| ws-server | WebSocket server (Go) |
-| redpanda | Kafka-compatible message broker |
-| valkey | Redis-compatible pub/sub |
-| publisher | Test data generator |
-| monitoring | Prometheus + Grafana + Loki |
+| Chart | Purpose | Enabled |
+|-------|---------|---------|
+| ws-gateway | Auth + permission filtering gateway | Yes |
+| ws-server | WebSocket broadcaster (no auth) | Yes |
+| redpanda | Kafka-compatible message broker | Yes |
+| nats | High-performance broadcast bus | Yes |
+| valkey | Redis-compatible (disabled) | No |
+| monitoring | Prometheus + Grafana + Loki | Yes |
 
 ### Enabling/Disabling Components
 
-Edit `values-local.yaml`:
+Edit `deployments/k8s/helm/odin/values/local.yaml`:
 
 ```yaml
+ws-gateway:
+  enabled: true
+
 ws-server:
   enabled: true
 
 redpanda:
   enabled: true
 
-valkey:
+nats:
   enabled: true
 
-publisher:
-  enabled: true    # Set false to disable test data
+valkey:
+  enabled: false    # Using NATS for broadcast
 
 monitoring:
-  enabled: true    # Set false for minimal setup
+  enabled: true     # Set false for minimal setup
+```
+
+## Local Testing with Load Test Tool
+
+### Build and Run Load Test
+
+```bash
+# Navigate to loadtest directory
+cd loadtest
+
+# Build the loadtest binary
+go build -o loadtest .
+
+# Start port-forward first
+task k8s:local:port-forward:start
+
+# Run load test (100 connections, 5 ramp/sec, 5 min duration)
+./loadtest \
+  -url ws://localhost:3006/ws \
+  -health http://localhost:3006/health \
+  -connections 100 \
+  -ramp-rate 5 \
+  -duration 300
+
+# Quick smoke test (10 connections, 30 seconds)
+./loadtest \
+  -url ws://localhost:3006/ws \
+  -health http://localhost:3006/health \
+  -connections 10 \
+  -ramp-rate 5 \
+  -duration 30
 ```
 
 ## Local Testing Limitations
@@ -301,71 +339,37 @@ Local machines (especially macOS) have kernel-level constraints:
 
 **What to test locally:**
 - Functionality and correctness
-- Message flow (Kafka → ws-server → WebSocket)
+- Message flow (Kafka → ws-server → NATS → WebSocket)
 - Subscription/unsubscription logic
+- Gateway auth and permission filtering
 - Health endpoint responses
 - Log output and debugging
 - Code changes before pushing
 
-**What to test on GCP:**
+**What to test on GKE:**
 - Connection capacity (10K-100K+)
 - CPU/memory under load
 - Broadcast performance
 - Backpressure behavior
 - Multi-shard coordination
-
-### Local Testing Examples
-
-#### 1. Manual WebSocket Test
-
-```bash
-# Single connection with wscat
-wscat -c ws://localhost:3005/ws
-
-# Send subscription
-> {"action":"subscribe","channel":"odin.trades"}
-```
-
-#### 2. Health Check
-
-```bash
-# Check health while connections are active
-curl -s http://localhost:3005/health | jq '{
-  status: .status,
-  connections: .checks.capacity.current,
-  cpu: .checks.cpu.percentage
-}'
-```
-
-#### 3. Local Load Test (Go Tool)
-
-```bash
-# Navigate to loadtest directory
-cd loadtest
-
-# Build the loadtest binary (first time or after code changes)
-go build -o sustained-load-test
-
-# Run local load test (100 connections, 5 ramp/sec, 5 min duration)
-./sustained-load-test \
-  -url ws://localhost:3005/ws \
-  -health http://localhost:3005/health \
-  -connections 100 \
-  -ramp-rate 5 \
-  -duration 300
-
-# Quick smoke test (10 connections, 30 seconds)
-./sustained-load-test \
-  -url ws://localhost:3005/ws \
-  -health http://localhost:3005/health \
-  -connections 10 \
-  -ramp-rate 5 \
-  -duration 30
-```
-
-**Note:** Ramp rates 1-9 will create ~10 connections/sec (minimum batch size).
+- Gateway-to-server communication at scale
 
 ## Troubleshooting
+
+### Wrong Kubectl Context
+
+If pods deploy to GKE instead of Kind:
+
+```bash
+# Check current context
+kubectl config current-context
+
+# Switch to Kind context
+kubectl config use-context kind-odin-ws-local
+
+# Or re-run setup (auto-switches context)
+task k8s:local:deploy
+```
 
 ### Pods Not Starting
 
@@ -410,6 +414,9 @@ docker ps
 # Check Kind cluster
 kind get clusters
 
+# Check if Kind container is running
+docker ps --filter name=odin-ws-local
+
 # Recreate if needed
 task k8s:local:destroy
 task k8s:local:setup
@@ -419,7 +426,7 @@ task k8s:local:setup
 
 ```bash
 # Update Helm dependencies
-task k8s:common:helm:deps
+helm dependency update deployments/k8s/helm/odin
 
 # Lint charts
 task k8s:common:helm:lint
@@ -429,12 +436,14 @@ task k8s:common:helm:lint
 
 | Setting | Local (Kind) | Develop (GKE) | Production (GKE) |
 |---------|--------------|---------------|------------------|
-| Replicas | 1 | 2 | 3+ (autoscale) |
-| Shards | 1 | 2 | 3 |
+| Cluster Type | Kind | GKE Standard | GKE Standard |
+| Replicas | 1 | 1-2 | 3+ (autoscale) |
+| Shards | 1 | 2 | 2 |
 | Log Level | debug | debug | warn |
 | Log Format | pretty | json | json |
 | Resources | Minimal | Medium | Full |
 | Autoscaling | Disabled | Enabled | Enabled |
+| Broadcast Bus | NATS | NATS | NATS |
 
 ## Tips
 
@@ -457,8 +466,8 @@ kubectl get pods -n odin-local -w
 # Terminal 2: Watch logs
 task k8s:local:logs
 
-# Terminal 3: Health checks
-watch -n 2 'curl -s http://localhost:3005/health | jq'
+# Terminal 3: Health checks (requires port-forward)
+watch -n 2 'curl -s http://localhost:3006/health | jq'
 ```
 
 ### Clean State
@@ -474,7 +483,7 @@ task k8s:local:setup
 Monitor Kind resource consumption:
 
 ```bash
-docker stats odin-local-control-plane
+docker stats odin-ws-local-control-plane
 ```
 
 ## File Locations
@@ -482,15 +491,15 @@ docker stats odin-local-control-plane
 | File | Purpose |
 |------|---------|
 | `deployments/k8s/environments/local/kind-config.yaml` | Kind cluster configuration |
-| `deployments/k8s/helm/odin/values-local.yaml` | Local Helm values |
+| `deployments/k8s/helm/odin/values/local.yaml` | Local Helm values |
 | `deployments/k8s/helm/odin/Chart.yaml` | Umbrella chart definition |
 | `deployments/k8s/helm/odin/charts/*/` | Sub-charts |
 | `taskfiles/k8s/local.yml` | Local task definitions |
 | `ws/build/server/Dockerfile` | ws-server container image |
-| `ws/build/auth/Dockerfile` | auth-service container image |
+| `ws/build/gateway/Dockerfile` | ws-gateway container image |
 
 ## Related Documentation
 
-- [Terraform Infrastructure](./TERRAFORM_PLAN.md)
-- [GCP Deployment](./deployment/)
-- [Architecture Overview](./architecture/)
+- [GKE Standard Deployment](../deployment/GKE_STANDARD_DEPLOYMENT.md)
+- [Architecture Overview](../architecture/)
+- [Monitoring Setup](../monitoring/MONITORING_SETUP.md)

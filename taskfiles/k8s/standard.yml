@@ -214,6 +214,8 @@ tasks:
       REDPANDA_IP:
         sh: terraform -chdir={{.GKE_STD_TF_DIR}} output -raw redpanda_external_ip 2>/dev/null || echo ""
     cmds:
+      # Ensure we're connected to the correct cluster
+      - task: connect
       - task: asyncapi:bundle
       - |
         HELM_CMD="helm upgrade --install odin {{.GKE_STD_CHART}} -f {{.GKE_STD_VALUES}} -n {{.GKE_STD_NS}} --create-namespace"
