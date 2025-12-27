@@ -139,7 +139,42 @@ func (lb *LoadBalancer) Start() error {
 	}()
 
 	lb.logger.Info().Msg("LoadBalancer started")
+
+	// Start metrics aggregation goroutine
+	lb.wg.Add(1)
+	go lb.runMetricsAggregation()
+
 	return nil
+}
+
+// runMetricsAggregation periodically aggregates metrics from all shards
+// This fixes the bug where per-shard collectors overwrite each other's metrics
+func (lb *LoadBalancer) runMetricsAggregation() {
+	defer lb.wg.Done()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			lb.aggregateMetrics()
+		case <-lb.ctx.Done():
+			return
+		}
+	}
+}
+
+// aggregateMetrics sums connection counts from all shards and updates prometheus metrics
+func (lb *LoadBalancer) aggregateMetrics() {
+	var totalConnections int64
+	var totalMaxConnections int64
+
+	for _, shard := range lb.shards {
+		totalConnections += shard.GetCurrentConnections()
+		totalMaxConnections += int64(shard.GetMaxConnections())
+	}
+
+	monitoring.SetAggregatedConnectionMetrics(totalConnections, totalMaxConnections)
 }
 
 // Shutdown gracefully stops the LoadBalancer.

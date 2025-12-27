@@ -301,8 +301,10 @@ func (m *MetricsCollector) Stop() {
 func (m *MetricsCollector) collect() {
 	stats := m.server.GetStats()
 
-	// Connection metrics
-	connectionsActive.Set(float64(atomic.LoadInt64(&stats.CurrentConnections)))
+	// Connection metrics - DISABLED per-shard setting
+	// connectionsActive is now set by LoadBalancer.aggregateMetrics() which sums all shards
+	// This fixes the multi-shard overwrite bug where each shard's collector would overwrite the gauge
+	_ = atomic.LoadInt64(&stats.CurrentConnections) // Keep read for stats object usage
 
 	// Memory metrics
 	var mem runtime.MemStats
@@ -337,7 +339,16 @@ func (m *MetricsCollector) estimateCPU() float64 {
 func UpdateConnectionMetrics(server ServerMetrics) {
 	stats := server.GetStats()
 	connectionsTotal.Inc()
-	connectionsActive.Set(float64(atomic.LoadInt64(&stats.CurrentConnections)))
+	// NOTE: connectionsActive is now set by LoadBalancer.aggregateMetrics() to fix
+	// the multi-shard overwrite bug. Per-shard collectors were overwriting each other.
+	_ = atomic.LoadInt64(&stats.CurrentConnections) // Keep the read for potential future use
+}
+
+// SetAggregatedConnectionMetrics sets the aggregated connection metrics from LoadBalancer
+// This should be called by the LoadBalancer which has visibility into all shards
+func SetAggregatedConnectionMetrics(totalConnections, totalMaxConnections int64) {
+	connectionsActive.Set(float64(totalConnections))
+	connectionsMax.Set(float64(totalMaxConnections))
 }
 
 // UpdateMessageMetrics updates message-related metrics

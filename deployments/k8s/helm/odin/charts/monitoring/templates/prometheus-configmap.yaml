@@ -13,10 +13,27 @@ data:
       evaluation_interval: {{ .Values.prometheus.scrapeInterval }}
 
     scrape_configs:
-      # Scrape ws-server metrics (port 3001 /metrics endpoint)
+      # Scrape ws-server metrics from ALL pods (not via Service which load-balances to one)
       - job_name: 'ws-server'
-        static_configs:
-          - targets: ['{{ .Release.Name }}-ws-server:3001']
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - {{ .Release.Namespace }}
+        relabel_configs:
+          # Only scrape endpoints for ws-server service
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: {{ .Release.Name }}-ws-server
+          # Only scrape the metrics port (3001)
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: http
+          # Use pod name as instance label for better identification
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
         metrics_path: /metrics
 
       # Scrape Redpanda metrics

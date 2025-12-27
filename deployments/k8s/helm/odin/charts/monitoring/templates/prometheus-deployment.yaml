@@ -20,6 +20,7 @@ spec:
         {{- include "monitoring.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: prometheus
     spec:
+      serviceAccountName: {{ include "monitoring.fullname" . }}-prometheus
       containers:
         - name: prometheus
           image: "{{ .Values.prometheus.image.repository }}:{{ .Values.prometheus.image.tag }}"
