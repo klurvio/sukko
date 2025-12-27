@@ -118,20 +118,20 @@ tasks:
         sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
       - echo "Building images with version {{.VERSION}}..."
-      - docker build -t {{.GKE_STD_REGISTRY}}/ws-server:latest -t {{.GKE_STD_REGISTRY}}/ws-server:{{.VERSION}}
+      - docker buildx build --platform linux/amd64
+          -t {{.GKE_STD_REGISTRY}}/ws-server:latest -t {{.GKE_STD_REGISTRY}}/ws-server:{{.VERSION}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f {{.ROOT_DIR}}/ws/build/server/Dockerfile {{.ROOT_DIR}}/ws
-      - docker push {{.GKE_STD_REGISTRY}}/ws-server:latest
-      - docker push {{.GKE_STD_REGISTRY}}/ws-server:{{.VERSION}}
-      - docker build -t {{.GKE_STD_REGISTRY}}/ws-gateway:latest -t {{.GKE_STD_REGISTRY}}/ws-gateway:{{.VERSION}}
+          --push
+      - docker buildx build --platform linux/amd64
+          -t {{.GKE_STD_REGISTRY}}/ws-gateway:latest -t {{.GKE_STD_REGISTRY}}/ws-gateway:{{.VERSION}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f {{.ROOT_DIR}}/ws/build/gateway/Dockerfile {{.ROOT_DIR}}/ws
-      - docker push {{.GKE_STD_REGISTRY}}/ws-gateway:latest
-      - docker push {{.GKE_STD_REGISTRY}}/ws-gateway:{{.VERSION}}
+          --push
 
   build:ws:
     desc: Build and push ws-server only
@@ -143,12 +143,13 @@ tasks:
       BUILD_TIME:
         sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
-      - docker build -t {{.GKE_STD_REGISTRY}}/ws-server:latest
+      - docker buildx build --platform linux/amd64
+          -t {{.GKE_STD_REGISTRY}}/ws-server:latest
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f {{.ROOT_DIR}}/ws/build/server/Dockerfile {{.ROOT_DIR}}/ws
-      - docker push {{.GKE_STD_REGISTRY}}/ws-server:latest
+          --push
 
   build:gateway:
     desc: Build and push ws-gateway only
@@ -160,18 +161,49 @@ tasks:
       BUILD_TIME:
         sh: date -u +%Y-%m-%dT%H:%M:%SZ
     cmds:
-      - docker build -t {{.GKE_STD_REGISTRY}}/ws-gateway:latest
+      - docker buildx build --platform linux/amd64
+          -t {{.GKE_STD_REGISTRY}}/ws-gateway:latest
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f {{.ROOT_DIR}}/ws/build/gateway/Dockerfile {{.ROOT_DIR}}/ws
-      - docker push {{.GKE_STD_REGISTRY}}/ws-gateway:latest
+          --push
 
   build:reload:
-    desc: Rebuild images and restart pods
+    desc: Rebuild all images and restart pods
     cmds:
       - task: build
       - kubectl rollout restart deployment -n {{.GKE_STD_NS}}
+
+  build:reload:ws:
+    desc: Rebuild ws-server and restart its pods
+    cmds:
+      - task: build:ws
+      - task: reload:ws
+
+  build:reload:gateway:
+    desc: Rebuild ws-gateway and restart its pods
+    cmds:
+      - task: build:gateway
+      - task: reload:gateway
+
+  reload:
+    desc: Restart all pods (no rebuild)
+    cmds:
+      - kubectl rollout restart deployment -n {{.GKE_STD_NS}}
+      - kubectl rollout status deployment -n {{.GKE_STD_NS}} --timeout=120s
+
+  reload:ws:
+    desc: Restart ws-server pods (no rebuild)
+    cmds:
+      - kubectl rollout restart deployment/odin-ws-server -n {{.GKE_STD_NS}}
+      - kubectl rollout status deployment/odin-ws-server -n {{.GKE_STD_NS}} --timeout=120s
+
+  reload:gateway:
+    desc: Restart ws-gateway pods (no rebuild)
+    cmds:
+      - kubectl rollout restart deployment/odin-ws-gateway -n {{.GKE_STD_NS}}
+      - kubectl rollout status deployment/odin-ws-gateway -n {{.GKE_STD_NS}} --timeout=120s
 
   # ===========================================================================
   # Cloud Build (no local Docker required)
@@ -288,20 +320,17 @@ tasks:
       - kubectl get nodes -o custom-columns='NAME:.metadata.name,STATUS:.status.conditions[?(@.type=="Ready")].status,SPOT:.metadata.labels.cloud\.google\.com/gke-spot,TYPE:.metadata.labels.node\.kubernetes\.io/instance-type'
 
   external-ips:
-    desc: Get external IPs for services (ws-gateway, redpanda)
+    desc: Get external IPs for services in env file format
     vars:
-      REDPANDA_STATIC_IP:
-        sh: terraform -chdir={{.GKE_STD_TF_DIR}} output -raw redpanda_external_ip 2>/dev/null || echo "N/A"
+      WS_GATEWAY_IP:
+        sh: kubectl get svc odin-ws-gateway -n {{.GKE_STD_NS}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending"
+      REDPANDA_IP:
+        sh: kubectl get svc odin-redpanda-external -n {{.GKE_STD_NS}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending"
     cmds:
-      - 'echo "=== External IPs ==="'
-      - kubectl get svc -n {{.GKE_STD_NS}} -o wide | grep -E "NAME|LoadBalancer"
-      - 'echo ""'
-      - 'echo "=== Terraform Static IPs ==="'
-      - 'echo "  Redpanda: {{.REDPANDA_STATIC_IP}}"'
-      - 'echo ""'
-      - 'echo "Use these IPs to configure clients:"'
-      - 'echo "  - ws-gateway: for WebSocket clients (port 443)"'
-      - 'echo "  - redpanda: for Kafka publishers ({{.REDPANDA_STATIC_IP}}:9092)"'
+      - 'echo "# External IPs for {{.GKE_STD_ENV}}"'
+      - 'echo "WS_URL=ws://{{.WS_GATEWAY_IP}}:443/ws"'
+      - 'echo "HEALTH_URL=http://{{.WS_GATEWAY_IP}}:443/health"'
+      - 'echo "KAFKA_BROKERS={{.REDPANDA_IP}}:9092"'
 
   logs:
     desc: Tail ws-server logs

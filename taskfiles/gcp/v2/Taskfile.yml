@@ -87,6 +87,21 @@ tasks:
     cmds:
       - task: infra:status
 
+  sync-env:
+    desc: Sync environment file to VM
+    cmds:
+      - task: infra:sync-env
+
+  sync-code:
+    desc: Sync code from local to VM
+    cmds:
+      - task: infra:sync-code
+
+  build-images:
+    desc: Build Docker images on VM
+    cmds:
+      - task: infra:build-images
+
   # ===========================================================================
   # Local Environment (no GCP)
   # ===========================================================================
