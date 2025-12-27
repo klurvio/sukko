@@ -297,7 +297,13 @@ task k8s:standard:port-forward:grafana GKE_STD_ENV=staging
 
 ```bash
 task gcp:v2:publisher:stop ENV=staging
-task gcp:v2:stop ENV=staging
+task gcp:v2:stop ENV=staging  # Stop VM to save costs
+
+# Delete VM when no longer needed
+task gcp:v2:delete ENV=staging
+
+# Delete VMs in all environments (develop, staging, production)
+task gcp:v2:delete-all
 ```
 
 See `deployments/gcp/v2/README.md` for full documentation.

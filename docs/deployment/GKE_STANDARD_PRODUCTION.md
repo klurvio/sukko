@@ -406,7 +406,13 @@ task k8s:standard:port-forward:grafana GKE_STD_ENV=production
 ### Cleanup
 
 ```bash
-task gcp:v2:stop ENV=production
+task gcp:v2:stop ENV=production  # Stop VM to save costs
+
+# Delete VM when no longer needed
+task gcp:v2:delete ENV=production
+
+# Delete VMs in all environments (develop, staging, production)
+task gcp:v2:delete-all
 ```
 
 See `deployments/gcp/v2/README.md` for full documentation.

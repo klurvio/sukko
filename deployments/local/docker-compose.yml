@@ -88,30 +88,35 @@ services:
           memory: 256M
 
   # ============================================================================
-  # PUBLISHER - Event Generator
+  # PUBLISHER - Event Generator (Go)
   # ============================================================================
   publisher:
     build:
-      context: ../../publisher
+      context: ../../publisher-go
       dockerfile: Dockerfile
     container_name: odin-publisher-local
     ports:
-      - "3006:3003"
+      - "3006:3006"
     environment:
       - KAFKA_BROKERS=redpanda:9092
-      - API_PORT=3003
-      - NODE_ENV=development
+      - API_PORT=3006
     depends_on:
       redpanda:
         condition: service_healthy
     restart: unless-stopped
     networks:
       - odin-local
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
     deploy:
       resources:
         limits:
           cpus: "0.3"
-          memory: 256M
+          memory: 128M
 
   # ============================================================================
   # WS SERVER - WebSocket Server (Go)

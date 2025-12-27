@@ -332,6 +332,12 @@ task k8s:standard:logs GKE_STD_ENV=develop
 ```bash
 task gcp:v2:publisher:stop ENV=develop
 task gcp:v2:stop ENV=develop  # Stop VM to save costs
+
+# Delete VM when no longer needed
+task gcp:v2:delete ENV=develop
+
+# Delete VMs in all environments (develop, staging, production)
+task gcp:v2:delete-all
 ```
 
 See `deployments/gcp/v2/README.md` for full documentation.

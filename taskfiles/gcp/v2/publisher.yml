@@ -48,7 +48,7 @@ tasks:
         gcloud compute ssh {{.INSTANCE_NAME}} \
           --project={{.GCP_PROJECT}} \
           --zone={{.GCP_ZONE}} \
-          --command="curl -s -X POST http://localhost:3003/start \
+          --command="curl -s -X POST http://localhost:3001/start \
             -H 'Content-Type: application/json' \
             -d '{\"rate\": {{.RATE}}, \"tokenIds\": ${TOKENS_JSON}}'"
       - echo ""
@@ -124,4 +124,4 @@ tasks:
         gcloud compute ssh {{.INSTANCE_NAME}} \
           --project={{.GCP_PROJECT}} \
           --zone={{.GCP_ZONE}} \
-          --command="curl -s http://localhost:3003/health || echo 'Publisher not responding'"
+          --command="curl -s http://localhost:3001/health || echo 'Publisher not responding'"

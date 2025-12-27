@@ -31,30 +31,28 @@ services:
     restart: unless-stopped
 
   # ===========================================================================
-  # Publisher - Kafka event publisher (Node.js)
+  # Publisher - Kafka event publisher (Go)
   # ===========================================================================
   publisher:
     build:
-      context: ../../../publisher
+      context: ../../../publisher-go
       dockerfile: Dockerfile
     image: publisher:latest
     container_name: odin-publisher
     ports:
-      - "3003:3003"
+      - "3001:3001"
     environment:
       - KAFKA_BROKERS=${KAFKA_BROKERS:-localhost:9092}
-      - API_PORT=3003
-      - NODE_ENV=production
-      - PUBLISH_RATE=${PUBLISH_RATE:-25}
+      - API_PORT=3001
     profiles:
       - publisher
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3003/status"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 5s
 
 # =============================================================================
 # USAGE
