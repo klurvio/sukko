@@ -5,59 +5,29 @@
 # Reference: Used by capacity planning and configuration scripts
 
 # =============================================================================
-# WORKER POOL SIZING
-# =============================================================================
-worker_pool_size:
-  formula: "max(32, CPU_LIMIT * 2)"
-  description: "Minimum 32 workers for stability, or 2x CPU cores for parallelism"
-  rationale: "Each worker handles broadcast tasks; 2x CPU allows overlap during I/O"
-  examples:
-    - cpu: 1.0
-      result: 32
-      note: "Minimum enforced (1.0 * 2 = 2, but min is 32)"
-    - cpu: 2.0
-      result: 32
-      note: "Still minimum (2.0 * 2 = 4)"
-    - cpu: 16.0
-      result: 32
-      note: "Standard for larger instances"
-
-worker_queue_size:
-  formula: "WORKER_POOL_SIZE * 100"
-  description: "100 pending tasks per worker"
-  rationale: "Handles burst of Kafka messages during traffic spikes"
-  examples:
-    - workers: 32
-      result: 3200
-    - workers: 64
-      result: 6400
-
-# =============================================================================
 # GOROUTINE LIMITS
 # =============================================================================
+# Note: Worker pool was removed for performance. Kafka consumer now calls
+# broadcast() directly (non-blocking). This simplified the goroutine model.
 max_goroutines:
-  formula: "((MAX_CONNECTIONS * 2) + WORKER_POOL_SIZE + 13) * 1.2"
-  description: "Connection handlers + workers + overhead with 20% buffer"
+  formula: "((MAX_CONNECTIONS * 2) + 13) * 1.2"
+  description: "Connection handlers + server overhead with 20% buffer"
   breakdown:
     connection_handlers: "MAX_CONNECTIONS * 2 (readPump + writePump)"
-    workers: "WORKER_POOL_SIZE"
     server_overhead: "13 (HTTP server, metrics, monitoring, Kafka consumer)"
     safety_buffer: "20% (× 1.2)"
   examples:
     - connections: 1000
-      workers: 32
-      calculation: "((1000 * 2) + 32 + 13) * 1.2"
-      result: 2454
+      calculation: "((1000 * 2) + 13) * 1.2"
+      result: 2416
       rounded: 3000
     - connections: 7000
-      workers: 32
-      calculation: "((7000 * 2) + 32 + 13) * 1.2"
-      result: 16854
+      calculation: "((7000 * 2) + 13) * 1.2"
+      result: 16816
       rounded: 17000
     - connections: 12000
-      workers: 256
-      calculation: "((12000 * 2) + 256 + 13) * 1.2"
-      result: 29122
+      calculation: "((12000 * 2) + 13) * 1.2"
+      result: 28816
       rounded: 30000
 
 # =============================================================================
@@ -160,15 +130,13 @@ capacity_targets:
     cpu: 1.0
     memory_gb: 4
     target_connections: 1000
-    worker_pool: 32
     max_goroutines: 3000
-  
+
   gcp_distributed_ws:
     instance: "e2-standard-4"
     cpu: 1.0
     memory_gb: 14.5
     target_connections: 12000
-    worker_pool: 256
     max_goroutines: 30000
   
   gcp_distributed_backend:

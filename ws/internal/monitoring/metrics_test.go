@@ -108,7 +108,6 @@ func TestDropReasonConstants(t *testing.T) {
 	}{
 		{"SendTimeout", DropReasonSendTimeout, "send_timeout"},
 		{"BufferFull", DropReasonBufferFull, "buffer_full"},
-		{"WorkerQueueFull", DropReasonWorkerQueueFull, "worker_queue_full"},
 		{"ClientDisconnected", DropReasonClientDisconnected, "client_disconnected"},
 	}
 
@@ -367,7 +366,6 @@ func TestRecordDroppedBroadcast_AllReasons(t *testing.T) {
 	reasons := []string{
 		DropReasonSendTimeout,
 		DropReasonBufferFull,
-		DropReasonWorkerQueueFull,
 		DropReasonClientDisconnected,
 	}
 

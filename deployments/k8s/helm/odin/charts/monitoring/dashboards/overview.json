@@ -907,12 +907,12 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "rate(ws_dropped_broadcasts_total[1m])",
-          "legendFormat": "{{channel}}",
+          "expr": "sum by (channel, reason) (rate(ws_dropped_broadcasts_detailed_total[1m]))",
+          "legendFormat": "{{channel}} ({{reason}})",
           "refId": "A"
         }
       ],
-      "title": "Dropped Broadcasts by Channel",
+      "title": "Dropped Broadcasts by Channel & Reason",
       "type": "timeseries"
     },
     {
@@ -969,7 +969,7 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "sum(ws_dropped_broadcasts_total)",
+          "expr": "sum(ws_dropped_broadcasts_detailed_total)",
           "legendFormat": "Total Dropped",
           "refId": "A"
         }

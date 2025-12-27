@@ -259,6 +259,8 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 				if p.Logger != nil {
 					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to write message")
 				}
+				// Record dropped messages: 1 (current) + remaining in buffer
+				p.recordSendTimeoutDrops(c, 1)
 				return
 			}
 
@@ -281,6 +283,8 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 					if p.Logger != nil {
 						p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to write message")
 					}
+					// Record dropped messages: 1 (current) + remaining in buffer
+					p.recordSendTimeoutDrops(c, 1)
 					return
 				}
 				batchMsgCount++
@@ -292,6 +296,8 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 				if p.Logger != nil {
 					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to flush writer")
 				}
+				// Record remaining messages in buffer as dropped
+				p.recordSendTimeoutDrops(c, 0)
 				return
 			}
 
@@ -314,6 +320,32 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 				}
 				return
 			}
+		}
+	}
+}
+
+// recordSendTimeoutDrops records dropped messages when a write operation fails.
+// failedCount is the number of messages that failed during the current write.
+// It also drains and counts remaining messages in the client's send buffer.
+// Uses "delivery" as channel since actual channel info is not available at write time.
+func (p *Pump) recordSendTimeoutDrops(c *Client, failedCount int) {
+	// Count remaining messages in send buffer
+	remainingCount := len(c.send)
+	totalDropped := failedCount + remainingCount
+
+	if totalDropped > 0 {
+		// Record each drop (using "delivery" as pseudo-channel since we don't have channel info)
+		for range totalDropped {
+			monitoring.RecordDroppedBroadcastWithStats(p.Stats, "delivery", monitoring.DropReasonSendTimeout)
+		}
+	}
+
+	// Drain the send buffer to prevent blocking senders
+	for range remainingCount {
+		select {
+		case <-c.send:
+		default:
+			return
 		}
 	}
 }

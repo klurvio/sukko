@@ -131,6 +131,13 @@ func (s *Server) Broadcast(subject string, message []byte) {
 		// Removing buffer saves 6GB RAM (12K clients × 500KB) and reduces broadcast CPU overhead
 		// For reconnection, clients will use Kafka-based replay (see handleReconnect)
 
+		// Check if client already disconnected (race condition protection)
+		// This can happen if client disconnects between getting subscriber list and sending
+		if client.conn == nil {
+			monitoring.RecordDroppedBroadcastWithStats(s.stats, channel, monitoring.DropReasonClientDisconnected)
+			continue
+		}
+
 		// Attempt to send - COMPLETELY NON-BLOCKING
 		// Critical fix: Do not use time.After() which blocks the entire broadcast
 		// Instead, immediately detect full buffers and mark client as slow

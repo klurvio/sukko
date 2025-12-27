@@ -90,11 +90,6 @@ var (
 		Help: "Total number of connections rate limited by type (per_ip or global)",
 	}, []string{"type"})
 
-	droppedBroadcasts = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "ws_dropped_broadcasts_total",
-		Help: "Total number of broadcast tasks dropped when worker pool queue full",
-	})
-
 	// Enhanced drop tracking with categorization
 	droppedBroadcastsDetailed = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_dropped_broadcasts_detailed_total",
@@ -111,22 +106,6 @@ var (
 		Name:    "ws_slow_client_attempts_before_disconnect",
 		Help:    "Distribution of send attempts before slow client disconnect",
 		Buckets: []float64{1, 2, 3, 4, 5, 10, 20},
-	})
-
-	// Worker pool metrics
-	workerQueueDepth = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "ws_worker_queue_depth",
-		Help: "Current number of tasks waiting in worker pool queue",
-	})
-
-	workerQueueCapacity = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "ws_worker_queue_capacity",
-		Help: "Maximum capacity of worker pool queue",
-	})
-
-	workerQueueUtilization = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "ws_worker_queue_utilization_percent",
-		Help: "Worker pool queue utilization percentage (0-100)",
 	})
 
 	// System metrics
@@ -238,14 +217,9 @@ func init() {
 	prometheus.MustRegister(rateLimitedMessages)
 	prometheus.MustRegister(replayRequests)
 	prometheus.MustRegister(connectionRateLimited)
-	prometheus.MustRegister(droppedBroadcasts)
 	prometheus.MustRegister(droppedBroadcastsDetailed)
 	prometheus.MustRegister(clientSendBufferSize)
 	prometheus.MustRegister(slowClientAttempts)
-
-	prometheus.MustRegister(workerQueueDepth)
-	prometheus.MustRegister(workerQueueCapacity)
-	prometheus.MustRegister(workerQueueUtilization)
 
 	prometheus.MustRegister(memoryUsageBytes)
 	prometheus.MustRegister(memoryLimitBytes)
@@ -496,7 +470,6 @@ const (
 const (
 	DropReasonSendTimeout        = "send_timeout"        // Timed out trying to send to client
 	DropReasonBufferFull         = "buffer_full"         // Client send buffer is full
-	DropReasonWorkerQueueFull    = "worker_queue_full"   // Worker pool queue full
 	DropReasonClientDisconnected = "client_disconnected" // Client already disconnected
 )
 
