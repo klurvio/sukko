@@ -87,31 +87,17 @@ else
 fi
 
 # =============================================================================
-# 5. Clone repository and build images
+# 5. Create directory structure (code synced via SCP, not git clone)
 # =============================================================================
-echo "[5/5] Cloning repository..."
+echo "[5/5] Creating directory structure..."
 REPO_DIR=/home/deploy/odin-ws
-if [ ! -d "$REPO_DIR" ]; then
-    sudo -u deploy git clone git@github.com:your-org/odin-ws.git $REPO_DIR || {
-        echo "  Git clone failed - you may need to clone manually"
-        echo "  Run: sudo -u deploy git clone <repo-url> $REPO_DIR"
-    }
-fi
-
-# Build Docker images if repo exists
-if [ -d "$REPO_DIR" ]; then
-    echo "Building Docker images..."
-    cd $REPO_DIR/deployments/gcp/v2
-    sudo -u deploy docker-compose build || echo "  Docker build failed - run manually"
-fi
+mkdir -p $REPO_DIR/{loadtest,publisher,deployments/gcp/v2/environments}
+chown -R deploy:deploy $REPO_DIR
 
 echo ""
 echo "=================================================="
-echo "Setup complete!"
+echo "VM Setup complete!"
 echo "=================================================="
 echo ""
-echo "Next steps:"
-echo "  1. Configure endpoints in /home/deploy/odin-ws/deployments/gcp/v2/environments/"
-echo "  2. Start publisher: docker-compose --profile publisher up -d"
-echo "  3. Start loadtest: docker-compose --profile loadtest up -d"
+echo "Code will be synced from local via 'task gcp:v2:sync-code'"
 echo ""

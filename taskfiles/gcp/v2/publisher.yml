@@ -8,8 +8,13 @@ version: "3"
 vars:
   # Environment (develop, staging)
   ENV: '{{.ENV | default "develop"}}'
-  GCP_PROJECT: '{{.GCP_PROJECT | default "your-project-id"}}'
-  GCP_ZONE: '{{.GCP_ZONE | default "us-central1-a"}}'
+  V2_DEPLOY_DIR: '{{.USER_WORKING_DIR}}/deployments/gcp/v2'
+  V2_ENV_FILE: '{{.V2_DEPLOY_DIR}}/environments/{{.ENV}}.env'
+  # Read GCP_PROJECT from env file, with fallback
+  GCP_PROJECT:
+    sh: grep -E '^GCP_PROJECT=' "{{.V2_ENV_FILE}}" 2>/dev/null | cut -d= -f2 || echo "{{.GCP_PROJECT}}"
+  GCP_ZONE:
+    sh: grep -E '^GCP_ZONE=' "{{.V2_ENV_FILE}}" 2>/dev/null | cut -d= -f2 || echo "us-central1-a"
   INSTANCE_NAME: 'odin-tools-{{.ENV}}'
   REMOTE_DIR: '/home/deploy/odin-ws'
 

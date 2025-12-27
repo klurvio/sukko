@@ -8,14 +8,19 @@ version: "3"
 vars:
   # Environment (develop, staging)
   ENV: '{{.ENV | default "develop"}}'
-  GCP_PROJECT: '{{.GCP_PROJECT | default "your-project-id"}}'
-  GCP_ZONE: '{{.GCP_ZONE | default "us-central1-a"}}'
-  INSTANCE_NAME: 'odin-tools-{{.ENV}}'
-  MACHINE_TYPE: '{{.MACHINE_TYPE | default "e2-standard-8"}}'
-  BOOT_DISK_SIZE: '{{.BOOT_DISK_SIZE | default "50GB"}}'
   V2_DEPLOY_DIR: '{{.USER_WORKING_DIR}}/deployments/gcp/v2'
   V2_ENV_FILE: '{{.V2_DEPLOY_DIR}}/environments/{{.ENV}}.env'
+  # Read GCP_PROJECT from env file, with fallback
+  GCP_PROJECT:
+    sh: grep -E '^GCP_PROJECT=' "{{.V2_ENV_FILE}}" 2>/dev/null | cut -d= -f2 || echo "{{.GCP_PROJECT}}"
+  GCP_ZONE:
+    sh: grep -E '^GCP_ZONE=' "{{.V2_ENV_FILE}}" 2>/dev/null | cut -d= -f2 || echo "us-central1-a"
+  INSTANCE_NAME: 'odin-tools-{{.ENV}}'
+  MACHINE_TYPE:
+    sh: grep -E '^MACHINE_TYPE=' "{{.V2_ENV_FILE}}" 2>/dev/null | cut -d= -f2 || echo "e2-standard-8"
+  BOOT_DISK_SIZE: '{{.BOOT_DISK_SIZE | default "50GB"}}'
   REMOTE_DIR: '/home/deploy/odin-ws'
+  SYNC_TEMP_DIR: '/tmp/{{.INSTANCE_NAME}}-sync'
 
 tasks:
   # ===========================================================================
@@ -96,40 +101,39 @@ tasks:
   # ===========================================================================
 
   setup:
-    desc: Setup VM (install Docker, clone repo, configure kernel)
+    desc: Setup VM (install Docker, sync code, build images)
     cmds:
       - echo "Setting up VM {{.INSTANCE_NAME}}..."
       - echo ""
-      - echo "[1/4] Copying setup script..."
+      - echo "[1/4] Copying and running setup script..."
       - |
         gcloud compute scp {{.V2_DEPLOY_DIR}}/scripts/setup-vm.sh \
           {{.INSTANCE_NAME}}:/tmp/setup-vm.sh \
           --project={{.GCP_PROJECT}} \
           --zone={{.GCP_ZONE}}
-      - echo ""
-      - echo "[2/4] Running setup script (this may take a few minutes)..."
       - |
         gcloud compute ssh {{.INSTANCE_NAME}} \
           --project={{.GCP_PROJECT}} \
           --zone={{.GCP_ZONE}} \
           --command="sudo bash /tmp/setup-vm.sh"
       - echo ""
-      - echo "[3/4] Copying environment file..."
-      - |
-        gcloud compute scp {{.V2_ENV_FILE}} \
-          {{.INSTANCE_NAME}}:/tmp/{{.ENV}}.env \
-          --project={{.GCP_PROJECT}} \
-          --zone={{.GCP_ZONE}}
-      - |
-        gcloud compute ssh {{.INSTANCE_NAME}} \
-          --project={{.GCP_PROJECT}} \
-          --zone={{.GCP_ZONE}} \
-          --command="sudo mkdir -p {{.REMOTE_DIR}}/deployments/gcp/v2/environments && sudo cp /tmp/{{.ENV}}.env {{.REMOTE_DIR}}/deployments/gcp/v2/environments/"
+      - echo "[2/4] Syncing code from local..."
+      - task: sync-code
+      - echo ""
+      - echo "[3/4] Syncing environment file..."
+      - task: sync-env
       - echo ""
       - echo "[4/4] Building Docker images..."
       - task: build-images
       - echo ""
-      - echo "Setup complete! Use 'task gcp:v2:ssh ENV={{.ENV}}' to connect."
+      - echo "=================================================="
+      - echo "Setup complete!"
+      - echo "=================================================="
+      - echo ""
+      - echo "Next steps:"
+      - echo "  task gcp:v2:publisher:start ENV={{.ENV}}"
+      - echo "  task gcp:v2:loadtest:run ENV={{.ENV}}"
+      - echo ""
 
   build-images:
     desc: Build Docker images on VM
@@ -150,6 +154,54 @@ tasks:
           --project={{.GCP_PROJECT}} \
           --zone={{.GCP_ZONE}}
       - echo "Environment file synced."
+
+  sync-code:
+    desc: Sync code from local to VM (no git clone needed)
+    vars:
+      LOCAL_ROOT: '{{.USER_WORKING_DIR}}'
+    cmds:
+      - echo "Syncing code to {{.INSTANCE_NAME}}..."
+      - echo ""
+      - echo "[1/5] Preparing remote directories..."
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="sudo rm -rf {{.SYNC_TEMP_DIR}} && mkdir -p {{.SYNC_TEMP_DIR}}"
+      - echo "[2/5] Syncing loadtest/..."
+      - |
+        gcloud compute scp --recurse \
+          {{.LOCAL_ROOT}}/loadtest \
+          {{.INSTANCE_NAME}}:{{.SYNC_TEMP_DIR}}/ \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}}
+      - echo "[3/5] Syncing publisher/..."
+      - |
+        gcloud compute scp --recurse \
+          {{.LOCAL_ROOT}}/publisher \
+          {{.INSTANCE_NAME}}:{{.SYNC_TEMP_DIR}}/ \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}}
+      - echo "[4/5] Syncing deployments/gcp/v2/..."
+      - |
+        gcloud compute scp --recurse \
+          {{.LOCAL_ROOT}}/deployments/gcp/v2 \
+          {{.INSTANCE_NAME}}:{{.SYNC_TEMP_DIR}}/ \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}}
+      - echo "[5/5] Moving files to deploy user directory..."
+      - |
+        gcloud compute ssh {{.INSTANCE_NAME}} \
+          --project={{.GCP_PROJECT}} \
+          --zone={{.GCP_ZONE}} \
+          --command="sudo mkdir -p {{.REMOTE_DIR}}/deployments/gcp && \
+            sudo cp -r {{.SYNC_TEMP_DIR}}/loadtest {{.REMOTE_DIR}}/ && \
+            sudo cp -r {{.SYNC_TEMP_DIR}}/publisher {{.REMOTE_DIR}}/ && \
+            sudo cp -r {{.SYNC_TEMP_DIR}}/v2 {{.REMOTE_DIR}}/deployments/gcp/ && \
+            sudo chown -R deploy:deploy {{.REMOTE_DIR}} && \
+            sudo rm -rf {{.SYNC_TEMP_DIR}}"
+      - echo ""
+      - echo "Code synced successfully."
 
   # ===========================================================================
   # SSH Access

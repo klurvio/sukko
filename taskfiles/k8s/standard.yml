@@ -339,12 +339,12 @@ tasks:
   port-forward:grafana:
     desc: Port-forward Grafana
     cmds:
-      - kubectl port-forward -n {{.GKE_STD_NS}} svc/odin-grafana 3000:3000
+      - kubectl port-forward -n {{.GKE_STD_NS}} svc/odin-monitoring-grafana 3000:3000
 
   port-forward:prometheus:
     desc: Port-forward Prometheus
     cmds:
-      - kubectl port-forward -n {{.GKE_STD_NS}} svc/odin-prometheus 9090:9090
+      - kubectl port-forward -n {{.GKE_STD_NS}} svc/odin-monitoring-prometheus 9090:9090
 
   # ===========================================================================
   # Health & Testing
