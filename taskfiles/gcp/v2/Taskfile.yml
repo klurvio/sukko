@@ -67,6 +67,11 @@ tasks:
     cmds:
       - task: infra:delete
 
+  delete-all:
+    desc: Delete VMs for all environments (develop, staging, production)
+    cmds:
+      - task: infra:delete-all
+
   setup:
     desc: Setup VM (clone repo, build images, configure kernel)
     cmds:
