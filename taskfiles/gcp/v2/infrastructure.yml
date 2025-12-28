@@ -29,6 +29,9 @@ tasks:
 
   create:
     desc: Create GCP VM for loadtest/publisher
+    vars:
+      CURRENT_USER:
+        sh: gcloud config get-value account 2>/dev/null
     cmds:
       - echo "Creating VM {{.INSTANCE_NAME}} ({{.MACHINE_TYPE}})..."
       - |
@@ -44,10 +47,21 @@ tasks:
           --scopes=compute-rw,storage-ro \
           --metadata=enable-oslogin=TRUE
       - echo ""
+      - echo "Granting OS Login access to {{.CURRENT_USER}}..."
+      - |
+        gcloud projects add-iam-policy-binding {{.GCP_PROJECT}} \
+          --member="user:{{.CURRENT_USER}}" \
+          --role="roles/compute.osAdminLogin" \
+          --condition=None \
+          --quiet
+      - echo ""
       - echo "VM created. Run 'task gcp:v2:setup ENV={{.ENV}}' to initialize."
 
   create-spot:
     desc: Create Spot VM (cheaper, preemptible)
+    vars:
+      CURRENT_USER:
+        sh: gcloud config get-value account 2>/dev/null
     cmds:
       - echo "Creating Spot VM {{.INSTANCE_NAME}} ({{.MACHINE_TYPE}})..."
       - |
@@ -64,6 +78,14 @@ tasks:
           --provisioning-model=SPOT \
           --instance-termination-action=STOP \
           --metadata=enable-oslogin=TRUE
+      - echo ""
+      - echo "Granting OS Login access to {{.CURRENT_USER}}..."
+      - |
+        gcloud projects add-iam-policy-binding {{.GCP_PROJECT}} \
+          --member="user:{{.CURRENT_USER}}" \
+          --role="roles/compute.osAdminLogin" \
+          --condition=None \
+          --quiet
       - echo ""
       - echo "Spot VM created. Run 'task gcp:v2:setup ENV={{.ENV}}' to initialize."
 
@@ -167,8 +189,38 @@ tasks:
           --zone={{.GCP_ZONE}} \
           --command="cd {{.REMOTE_DIR}}/deployments/gcp/v2 && sudo docker-compose --profile loadtest --profile publisher build"
 
+  update-ips:
+    desc: Update local env file with current K8s external IPs
+    vars:
+      K8S_NS: 'odin-std-{{.ENV}}'
+      WS_GATEWAY_IP:
+        sh: kubectl get svc odin-ws-gateway -n odin-std-{{.ENV}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+      REDPANDA_IP:
+        sh: kubectl get svc odin-redpanda-external -n odin-std-{{.ENV}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+    cmds:
+      - echo "Fetching IPs from K8s namespace {{.K8S_NS}}..."
+      - |
+        if [ -n "{{.WS_GATEWAY_IP}}" ] && [ "{{.WS_GATEWAY_IP}}" != "pending" ]; then
+          echo "  ws-gateway: {{.WS_GATEWAY_IP}}"
+          sed -i.bak 's|^WS_URL=.*|WS_URL=ws://{{.WS_GATEWAY_IP}}:443/ws|' {{.V2_ENV_FILE}}
+          sed -i.bak 's|^HEALTH_URL=.*|HEALTH_URL=http://{{.WS_GATEWAY_IP}}:443/health|' {{.V2_ENV_FILE}}
+        else
+          echo "  ⚠️  ws-gateway: not found"
+        fi
+      - |
+        if [ -n "{{.REDPANDA_IP}}" ] && [ "{{.REDPANDA_IP}}" != "pending" ]; then
+          echo "  redpanda:    {{.REDPANDA_IP}}"
+          sed -i.bak 's|^KAFKA_BROKERS=.*|KAFKA_BROKERS={{.REDPANDA_IP}}:9092|' {{.V2_ENV_FILE}}
+        else
+          echo "  ⚠️  redpanda: not found"
+        fi
+      - rm -f {{.V2_ENV_FILE}}.bak
+      - echo ""
+      - echo "Updated {{.V2_ENV_FILE}}:"
+      - grep -E '^(WS_URL|HEALTH_URL|KAFKA_BROKERS)=' {{.V2_ENV_FILE}}
+
   sync-env:
-    desc: Sync environment file to VM
+    desc: Sync local env file to VM
     cmds:
       - echo "Syncing {{.ENV}}.env to VM..."
       - |
@@ -183,7 +235,13 @@ tasks:
           --command="sudo cp /tmp/{{.ENV}}.env {{.REMOTE_DIR}}/deployments/gcp/v2/environments/{{.ENV}}.env && \
             sudo chown deploy:deploy {{.REMOTE_DIR}}/deployments/gcp/v2/environments/{{.ENV}}.env && \
             rm /tmp/{{.ENV}}.env"
-      - echo "Environment file synced."
+      - echo "Done."
+
+  refresh-env:
+    desc: Update IPs from K8s and sync to VM
+    cmds:
+      - task: update-ips
+      - task: sync-env
 
   sync-code:
     desc: Sync code from local to VM (no git clone needed)

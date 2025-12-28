@@ -31,11 +31,16 @@ tasks:
       - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - echo ""
       - echo "Infrastructure:"
-      - echo "  task gcp:v2:create ENV=develop    - Create VM"
-      - echo "  task gcp:v2:delete ENV=develop    - Delete VM"
-      - echo "  task gcp:v2:setup ENV=develop     - Setup VM"
-      - echo "  task gcp:v2:ssh ENV=develop       - SSH to VM"
-      - echo "  task gcp:v2:status ENV=develop    - Show status"
+      - echo "  task gcp:v2:create ENV=develop     - Create VM"
+      - echo "  task gcp:v2:delete ENV=develop     - Delete VM"
+      - echo "  task gcp:v2:setup ENV=develop      - Setup VM (install, sync, build)"
+      - echo "  task gcp:v2:ssh ENV=develop        - SSH to VM"
+      - echo "  task gcp:v2:status ENV=develop     - Show status"
+      - echo ""
+      - echo "Environment:"
+      - echo "  task gcp:v2:update-ips ENV=develop - Fetch IPs from K8s → local env"
+      - echo "  task gcp:v2:sync-env ENV=develop   - Sync local env → VM"
+      - echo "  task gcp:v2:refresh-env ENV=develop - Update IPs + sync (both)"
       - echo ""
       - echo "Loadtest:"
       - echo "  task gcp:v2:loadtest:start ENV=develop"
@@ -87,10 +92,20 @@ tasks:
     cmds:
       - task: infra:status
 
+  update-ips:
+    desc: Update local env file with K8s external IPs
+    cmds:
+      - task: infra:update-ips
+
   sync-env:
-    desc: Sync environment file to VM
+    desc: Sync local env file to VM
     cmds:
       - task: infra:sync-env
+
+  refresh-env:
+    desc: Update IPs from K8s and sync to VM
+    cmds:
+      - task: infra:refresh-env
 
   sync-code:
     desc: Sync code from local to VM
