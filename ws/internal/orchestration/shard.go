@@ -15,14 +15,14 @@ import (
 
 // Shard represents a single instance of the WebSocket server, running on its own core.
 // It manages a subset of total connections and communicates via a central BroadcastBus.
+// Capacity control is handled by the server's ResourceGuard.
 type Shard struct {
 	ID             int // Exported for external access
 	server         *server.Server
 	advertiseAddr  string                    // Address advertised to LoadBalancer (e.g., localhost:3002)
 	broadcastChan  <-chan *broadcast.Message // Channel to receive messages from the central bus
 	logger         zerolog.Logger
-	maxConnections int           // Max connections this shard can handle
-	slots          chan struct{} // Semaphore for connection slot reservation
+	maxConnections int // Max connections this shard can handle
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -75,13 +75,6 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 	// Subscribe to the central broadcast bus
 	broadcastChan := cfg.BroadcastBus.Subscribe()
 
-	// Create semaphore for connection slot reservation
-	slots := make(chan struct{}, cfg.MaxConnections)
-	// Pre-fill with available slots
-	for i := 0; i < cfg.MaxConnections; i++ {
-		slots <- struct{}{}
-	}
-
 	shard := &Shard{
 		ID:             cfg.ID,
 		server:         shardServer,
@@ -89,7 +82,6 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 		broadcastChan:  broadcastChan,
 		logger:         cfg.Logger.With().Int("shard_id", cfg.ID).Logger(),
 		maxConnections: cfg.MaxConnections,
-		slots:          slots,
 		ctx:            ctx,
 		cancel:         cancel,
 	}
@@ -177,35 +169,6 @@ func (s *Shard) GetMaxConnections() int {
 // GetAddr returns the address this shard is listening on
 func (s *Shard) GetAddr() string {
 	return s.advertiseAddr // Return advertise address for LoadBalancer, not bind address
-}
-
-// TryAcquireSlot attempts to reserve a connection slot non-blockingly.
-// Returns true if a slot was acquired, false if shard is at capacity.
-func (s *Shard) TryAcquireSlot() bool {
-	select {
-	case <-s.slots:
-		return true
-	default:
-		return false
-	}
-}
-
-// ReleaseSlot returns a connection slot to the pool.
-// Should be called when a connection closes.
-func (s *Shard) ReleaseSlot() {
-	select {
-	case s.slots <- struct{}{}:
-		// Slot returned
-	default:
-		// This should never happen - it means we're releasing more than we acquired
-		s.logger.Error().Msg("CRITICAL: Attempted to release slot but channel is full")
-	}
-}
-
-// GetAvailableSlots returns the number of available connection slots.
-// Used for load balancer decision making.
-func (s *Shard) GetAvailableSlots() int {
-	return len(s.slots)
 }
 
 // GetSystemStats returns system-wide CPU and memory metrics.

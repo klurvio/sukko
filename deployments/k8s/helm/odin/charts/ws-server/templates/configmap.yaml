@@ -20,9 +20,11 @@ data:
   CONN_RATE_LIMIT_GLOBAL_BURST: "{{ .Values.config.connRateLimit.globalBurst }}"
   CONN_RATE_LIMIT_GLOBAL_RATE: "{{ .Values.config.connRateLimit.globalRate }}"
 
-  # CPU thresholds
+  # CPU thresholds (with hysteresis - 10% band for stability)
   WS_CPU_REJECT_THRESHOLD: "{{ .Values.config.cpuRejectThreshold }}"
+  WS_CPU_REJECT_THRESHOLD_LOWER: "{{ sub .Values.config.cpuRejectThreshold 10.0 }}"
   WS_CPU_PAUSE_THRESHOLD: "{{ .Values.config.cpuPauseThreshold }}"
+  WS_CPU_PAUSE_THRESHOLD_LOWER: "{{ sub .Values.config.cpuPauseThreshold 10.0 }}"
 
   # TCP/Network tuning
   TCP_LISTEN_BACKLOG: "{{ .Values.config.tcpListenBacklog }}"
@@ -36,6 +38,11 @@ data:
 
   # Metrics
   METRICS_INTERVAL: "{{ .Values.config.metricsInterval }}"
+
+  # Goroutine limit (safety valve against runaway goroutine growth)
+  # Each connection uses ~10 goroutines (read/write pumps + proxy)
+  # Formula: maxGoroutines = (clusterMaxConnections / replicaCount) * 10 + 5000 (system overhead)
+  WS_MAX_GOROUTINES: "{{ add (mul (div (.Values.connectionLimits.clusterMaxConnections | default 100000) (.Values.replicaCount | default 1)) 10) 5000 }}"
 
   # Kafka topics (comma-separated)
   KAFKA_TOPICS: "{{ join "," .Values.kafka.topics }}"

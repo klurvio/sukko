@@ -11,10 +11,10 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// SlotAwareProxy is a WebSocket proxy with guaranteed slot lifecycle management.
-// It solves the slot leak bug by acquiring slots AFTER successful WebSocket upgrade,
-// ensuring slots are only held for valid connections and always released.
-type SlotAwareProxy struct {
+// ShardProxy is a WebSocket proxy that forwards connections to a backend shard.
+// Capacity control is handled by the shard's ResourceGuard - the proxy simply
+// forwards the connection and lets the shard decide whether to accept it.
+type ShardProxy struct {
 	shard      *Shard
 	backendURL *url.URL
 	logger     zerolog.Logger
@@ -27,10 +27,9 @@ type SlotAwareProxy struct {
 	messageTimeout time.Duration
 }
 
-// NewSlotAwareProxy creates a new WebSocket proxy for a specific shard.
-// The proxy guarantees slot release in all code paths, preventing resource leaks.
-func NewSlotAwareProxy(shard *Shard, backendURL *url.URL, logger zerolog.Logger) *SlotAwareProxy {
-	return &SlotAwareProxy{
+// NewShardProxy creates a new WebSocket proxy for a specific shard.
+func NewShardProxy(shard *Shard, backendURL *url.URL, logger zerolog.Logger) *ShardProxy {
+	return &ShardProxy{
 		shard:      shard,
 		backendURL: backendURL,
 		logger:     logger.With().Str("component", "proxy").Int("shard_id", shard.ID).Logger(),
@@ -50,74 +49,29 @@ func NewSlotAwareProxy(shard *Shard, backendURL *url.URL, logger zerolog.Logger)
 	}
 }
 
-// ServeHTTP handles the WebSocket proxy request with guaranteed slot management.
-//
-// CRITICAL BUG FIX: This implementation solves the slot leak bug by:
-// 1. Upgrading to WebSocket BEFORE acquiring slot
-// 2. Only acquiring slot if upgrade succeeds
-// 3. Using defer to GUARANTEE slot release
-// 4. Proper cleanup in ALL error paths
-//
-// Previous bug: koding/websocketproxy could leak slots when handshake failed
-// after HTTP hijack. This implementation makes slot leaks IMPOSSIBLE by design.
-func (p *SlotAwareProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// ServeHTTP handles the WebSocket proxy request.
+// The proxy upgrades the client connection, then dials the backend shard.
+// Capacity control is delegated to the shard's ResourceGuard which will
+// return 503 if the shard is at capacity (connection limit, CPU, memory, etc.)
+func (p *ShardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
-	// STEP 1: Upgrade client to WebSocket (NO slot acquired yet!)
-	// If this fails, no slot to leak - perfect!
+	// STEP 1: Upgrade client to WebSocket
 	clientConn, err := p.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		// Upgrade failed - no slot acquired, nothing to clean up
 		p.logger.Warn().
 			Err(err).
 			Str("remote_addr", r.RemoteAddr).
 			Msg("Client WebSocket upgrade failed")
 		return
 	}
-
-	// STEP 2: Try to acquire slot (upgrade succeeded)
-	// Client receives: WebSocket Close Frame (code: 1012, reason: "Server overloaded")
-	// See: docs/API_REJECTION_RESPONSES.md (Scenario 5)
-	if !p.shard.TryAcquireSlot() {
-		p.logger.Warn().
-			Int("available_slots", p.shard.GetAvailableSlots()).
-			Msg("No available slots in shard")
-		// Send close message to client
-		closeMsg := websocket.FormatCloseMessage(websocket.CloseServiceRestart, "Server overloaded")
-		_ = clientConn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
-		_ = clientConn.Close()
-		return
-	}
-
-	// STEP 3: Guarantee slot release with defer
-	// This ensures slot is ALWAYS released, even if:
-	// - Backend dial fails
-	// - Message proxying errors
-	// - Panic occurs
-	// - Any other error
-	slotReleased := false
-	slotReleaseMutex := sync.Mutex{}
-	releaseSlot := func() {
-		slotReleaseMutex.Lock()
-		defer slotReleaseMutex.Unlock()
-		if !slotReleased {
-			p.shard.ReleaseSlot()
-			slotReleased = true
-			p.logger.Debug().
-				Dur("duration", time.Since(startTime)).
-				Int("available_slots", p.shard.GetAvailableSlots()).
-				Msg("Released slot")
-		}
-	}
-	defer releaseSlot()
 	defer func() { _ = clientConn.Close() }()
 
-	p.logger.Info().
-		Int("available_slots", p.shard.GetAvailableSlots()).
+	p.logger.Debug().
 		Str("remote_addr", r.RemoteAddr).
-		Msg("Slot acquired, proxying connection to shard")
+		Msg("Client upgraded, connecting to backend shard")
 
-	// STEP 4: Connect to backend shard
+	// STEP 2: Connect to backend shard
 	ctx, cancel := context.WithTimeout(context.Background(), p.dialTimeout)
 	defer cancel()
 
@@ -156,7 +110,7 @@ func (p *SlotAwareProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// See: docs/API_REJECTION_RESPONSES.md (Scenario 6)
 		closeMsg := websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Backend unavailable")
 		_ = clientConn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
-		return // Slot released by defer
+		return
 	}
 	defer func() { _ = backendConn.Close() }()
 
@@ -171,7 +125,7 @@ func (p *SlotAwareProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Str("backend_url", p.backendURL.String()).
 		Msg("Backend connected, starting bidirectional proxy")
 
-	// STEP 5: Proxy messages bidirectionally
+	// STEP 3: Proxy messages bidirectionally
 	p.proxyMessages(clientConn, backendConn)
 
 	p.logger.Info().
@@ -182,7 +136,7 @@ func (p *SlotAwareProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // proxyMessages forwards WebSocket messages bidirectionally between client and backend.
 // Uses goroutines for concurrent forwarding in both directions.
 // Returns when either connection closes or errors, after ensuring both goroutines complete.
-func (p *SlotAwareProxy) proxyMessages(client, backend *websocket.Conn) {
+func (p *ShardProxy) proxyMessages(client, backend *websocket.Conn) {
 	errChan := make(chan error, 2)
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -221,7 +175,7 @@ func (p *SlotAwareProxy) proxyMessages(client, backend *websocket.Conn) {
 // copyMessages copies WebSocket messages from src to dst.
 // Handles all message types (text, binary, close, ping, pong).
 // Sends error to errChan when connection closes or fails.
-func (p *SlotAwareProxy) copyMessages(src, dst *websocket.Conn, direction string, errChan chan error) {
+func (p *ShardProxy) copyMessages(src, dst *websocket.Conn, direction string, errChan chan error) {
 	for {
 		messageType, message, err := src.ReadMessage()
 		if err != nil {

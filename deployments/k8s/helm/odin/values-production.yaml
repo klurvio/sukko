@@ -65,9 +65,9 @@ ws-server:
       globalBurst: 200
       globalRate: 100.0
 
-  # Connection limits (production capacity)
+  # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:
-    maxConnectionsPerShard: 10000  # 20K total per pod
+    clusterMaxConnections: 100000
     readBufferSize: 4096
     writeBufferSize: 4096
     maxMessageSize: 65536

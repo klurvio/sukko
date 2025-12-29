@@ -49,16 +49,8 @@ rateLimit:
   burst: 100
   rate: 10.0
 
-# Connection Limits Configuration
-# See docs/architecture/CONNECTION_LIMITS.md for details
-connectionLimits:
-  # Maximum concurrent connections per gateway pod
-  maxConnections: 20000
-  # Read/write buffer sizes per connection
-  readBufferSize: 4096
-  writeBufferSize: 4096
-  # Maximum message size in bytes
-  maxMessageSize: 65536
+# Note: Gateway does not use connection limits (only rate limiting)
+# Capacity control happens at the ws-server level via ResourceGuard
 
 # Pod Security Context
 podSecurityContext:

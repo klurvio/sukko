@@ -136,8 +136,10 @@ spec:
               value: "{{ .Values.auth.tokenCheckInterval }}"
             {{- end }}
             # Connection Limits (application-level safety valve)
-            - name: MAX_CONNECTIONS_PER_SHARD
-              value: "{{ .Values.connectionLimits.maxConnectionsPerShard | default 10000 }}"
+            # WS_MAX_CONNECTIONS = clusterMaxConnections / replicaCount (per-pod limit)
+            # ResourceGuard enforces actual limits based on CPU/memory at runtime
+            - name: WS_MAX_CONNECTIONS
+              value: {{ div (.Values.connectionLimits.clusterMaxConnections | required "connectionLimits.clusterMaxConnections is required") (.Values.replicaCount | default 1) | quote }}
             - name: READ_BUFFER_SIZE
               value: "{{ .Values.connectionLimits.readBufferSize | default 4096 }}"
             - name: WRITE_BUFFER_SIZE

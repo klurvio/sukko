@@ -22,8 +22,8 @@ config:
     ipRate: 100.0
     globalBurst: 300
     globalRate: 50.0
-  cpuRejectThreshold: 75.0
-  cpuPauseThreshold: 75.0
+  cpuRejectThreshold: 60.0
+  cpuPauseThreshold: 70.0
   tcpListenBacklog: 2048
   httpReadTimeout: "15s"
   httpWriteTimeout: "15s"
@@ -35,9 +35,9 @@ config:
 # Connection Limits Configuration
 # See docs/architecture/CONNECTION_LIMITS.md for details
 connectionLimits:
-  # Maximum connections per shard (application-level safety valve)
-  # Total pod capacity = maxConnectionsPerShard * shards
-  maxConnectionsPerShard: 10000
+  # Cluster-wide max connections (ResourceGuard enforces actual limits at runtime)
+  # Formula: WS_MAX_CONNECTIONS = clusterMaxConnections / replicaCount
+  clusterMaxConnections: 100000
   # Read/write buffer sizes per connection (affects memory usage)
   # Lower = less memory, higher = better throughput for large messages
   readBufferSize: 4096

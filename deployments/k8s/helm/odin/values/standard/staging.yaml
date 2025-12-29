@@ -72,6 +72,10 @@ ws-server:
     logLevel: info
     logFormat: json
 
+  # Connection limits (ResourceGuard enforces actual limits at runtime)
+  connectionLimits:
+    clusterMaxConnections: 100000
+
   # Broadcast Bus - NATS
   broadcast:
     type: nats

@@ -97,15 +97,9 @@ spec:
             - name: ENVIRONMENT
               value: "{{ .Release.Namespace }}"
 
-            # Connection Limits
-            - name: MAX_CONNECTIONS
-              value: "{{ .Values.connectionLimits.maxConnections | default 20000 }}"
-            - name: READ_BUFFER_SIZE
-              value: "{{ .Values.connectionLimits.readBufferSize | default 4096 }}"
-            - name: WRITE_BUFFER_SIZE
-              value: "{{ .Values.connectionLimits.writeBufferSize | default 4096 }}"
-            - name: MAX_MESSAGE_SIZE
-              value: "{{ .Values.connectionLimits.maxMessageSize | default 65536 }}"
+            # Note: Gateway does not use connection limits (only rate limiting)
+            # MAX_CONNECTIONS, READ_BUFFER_SIZE, etc. are NOT read by gateway code
+            # Capacity control happens at the ws-server level
 
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}

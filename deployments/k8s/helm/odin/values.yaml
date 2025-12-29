@@ -126,8 +126,8 @@ ws-server:
       globalRate: 50.0
 
     # CPU thresholds
-    cpuRejectThreshold: 75.0
-    cpuPauseThreshold: 75.0
+    cpuRejectThreshold: 60.0
+    cpuPauseThreshold: 70.0
 
     # TCP tuning
     tcpListenBacklog: 2048
@@ -141,6 +141,10 @@ ws-server:
 
     # Metrics
     metricsInterval: "15s"
+
+  # Connection limits (ResourceGuard enforces actual limits at runtime)
+  connectionLimits:
+    clusterMaxConnections: 100000
 
   # ==========================================================================
   # Broadcast Bus Configuration

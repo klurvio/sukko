@@ -40,9 +40,9 @@ ws-server:
     shards: 2
     logLevel: info
 
-  # Connection limits (near-production)
+  # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:
-    maxConnectionsPerShard: 7500  # 15K total per pod
+    clusterMaxConnections: 100000
     readBufferSize: 4096
     writeBufferSize: 4096
     maxMessageSize: 65536

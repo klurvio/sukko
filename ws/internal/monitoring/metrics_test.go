@@ -616,11 +616,8 @@ func TestMetricsCollector_CollectsStats(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	collector.Stop()
 
-	// Verify collector updated the Prometheus gauge
-	activeConns := testutil.ToFloat64(connectionsActive)
-	if activeConns != 500 {
-		t.Errorf("connectionsActive: got %f, want 500", activeConns)
-	}
+	// NOTE: connectionsActive is now set by LoadBalancer.aggregateMetrics()
+	// to fix multi-shard overwrite bug, so we don't test it here
 
 	// Verify max connections was set
 	maxConns := testutil.ToFloat64(connectionsMax)

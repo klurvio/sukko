@@ -66,7 +66,7 @@ type Config struct {
 	// Rate limiting
 	MaxKafkaRate     int `env:"WS_MAX_KAFKA_RATE" envDefault:"1000"` // Kafka message consumption rate
 	MaxBroadcastRate int `env:"WS_MAX_BROADCAST_RATE" envDefault:"20"`
-	MaxGoroutines    int `env:"WS_MAX_GOROUTINES" envDefault:"1000"`
+	MaxGoroutines    int `env:"WS_MAX_GOROUTINES" envDefault:"100000"`
 
 	// Connection rate limiting (DoS protection)
 	ConnectionRateLimitEnabled bool    `env:"CONN_RATE_LIMIT_ENABLED" envDefault:"true"`
@@ -93,18 +93,18 @@ type Config struct {
 	// Hysteresis prevents rapid oscillation when CPU hovers near thresholds.
 	// Uses two thresholds: upper (to enter state) and lower (to exit state).
 	//
-	// Example with default values (reject: 75% upper, 65% lower):
-	//   - CPU rises to 76% → start rejecting connections
-	//   - CPU drops to 70% → still rejecting (in deadband)
-	//   - CPU drops to 64% → stop rejecting, accept connections
-	//   - CPU rises to 70% → still accepting (in deadband)
+	// Example with default values (reject: 60% upper, 50% lower):
+	//   - CPU rises to 61% → start rejecting connections
+	//   - CPU drops to 55% → still rejecting (in deadband)
+	//   - CPU drops to 49% → stop rejecting, accept connections
+	//   - CPU rises to 55% → still accepting (in deadband)
 	//
 	// The 10% gap is the "hysteresis band" that provides stability.
 	//
-	CPURejectThreshold      float64 `env:"WS_CPU_REJECT_THRESHOLD" envDefault:"75.0"`       // Upper: start rejecting above this %
-	CPURejectThresholdLower float64 `env:"WS_CPU_REJECT_THRESHOLD_LOWER" envDefault:"65.0"` // Lower: stop rejecting below this %
-	CPUPauseThreshold       float64 `env:"WS_CPU_PAUSE_THRESHOLD" envDefault:"80.0"`        // Upper: pause Kafka above this %
-	CPUPauseThresholdLower  float64 `env:"WS_CPU_PAUSE_THRESHOLD_LOWER" envDefault:"70.0"`  // Lower: resume Kafka below this %
+	CPURejectThreshold      float64 `env:"WS_CPU_REJECT_THRESHOLD" envDefault:"60.0"`       // Upper: start rejecting above this %
+	CPURejectThresholdLower float64 `env:"WS_CPU_REJECT_THRESHOLD_LOWER" envDefault:"50.0"` // Lower: stop rejecting below this %
+	CPUPauseThreshold       float64 `env:"WS_CPU_PAUSE_THRESHOLD" envDefault:"70.0"`        // Upper: pause Kafka above this %
+	CPUPauseThresholdLower  float64 `env:"WS_CPU_PAUSE_THRESHOLD_LOWER" envDefault:"60.0"`  // Lower: resume Kafka below this %
 
 	// TCP/Network Tuning (Burst Tolerance)
 	//

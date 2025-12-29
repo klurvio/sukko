@@ -75,15 +75,15 @@ func NewLoadBalancer(cfg LoadBalancerConfig) (*LoadBalancer, error) {
 			cancel()
 			return nil, fmt.Errorf("failed to parse shard address %s: %w", shardAddr, err)
 		}
-		// Create custom SlotAwareProxy that fixes slot leak bug
-		// Upgrades to WebSocket BEFORE acquiring slot, preventing leaks
-		proxies[i] = NewSlotAwareProxy(shard, shardURL, cfg.Logger)
+		// Create ShardProxy that forwards connections to the shard
+		// Capacity control is handled by the shard's ResourceGuard
+		proxies[i] = NewShardProxy(shard, shardURL, cfg.Logger)
 
 		// Log proxy target (one-time, no performance impact)
 		cfg.Logger.Info().
 			Int("shard_id", shard.ID).
 			Str("target_url", shardURL.String()).
-			Msg("Created SlotAwareProxy for shard")
+			Msg("Created ShardProxy for shard")
 	}
 
 	lb := &LoadBalancer{
@@ -186,9 +186,10 @@ func (lb *LoadBalancer) Shutdown() {
 }
 
 // handleWebSocket handles incoming WebSocket upgrade requests.
-// Selects a shard and delegates to SlotAwareProxy which handles all slot lifecycle management.
+// Selects a shard using "least connections" strategy and delegates to ShardProxy.
+// Capacity control is handled by the shard's ResourceGuard which may return 503.
 func (lb *LoadBalancer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// Select shard with most available capacity
+	// Select shard with least connections
 	// Client receives: HTTP 503 "Server overloaded" (all shards full)
 	// See: docs/API_REJECTION_RESPONSES.md (Scenario 4)
 	selectedShardIndex, selectedShard := lb.selectShard()
@@ -200,10 +201,9 @@ func (lb *LoadBalancer) handleWebSocket(w http.ResponseWriter, r *http.Request) 
 
 	lb.logger.Debug().
 		Int("shard_id", selectedShard.ID).
-		Int("available_slots", selectedShard.GetAvailableSlots()).
-		Msg("Routing connection to shard proxy")
+		Int64("current_connections", selectedShard.GetCurrentConnections()).
+		Msg("Routing connection to shard")
 
-	// Proxy handles all slot lifecycle management internally
 	lb.proxies[selectedShardIndex].ServeHTTP(w, r)
 }
 
@@ -277,7 +277,6 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		ID             int     `json:"id"`
 		Connections    int64   `json:"connections"`
 		MaxConnections int     `json:"max_connections"`
-		AvailableSlots int     `json:"available_slots"`
 		Utilization    float64 `json:"utilization"`
 		Status         string  `json:"status"`
 	}
@@ -286,7 +285,6 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	for _, shard := range lb.shards {
 		currentConns := shard.GetCurrentConnections()
 		maxConns := int64(shard.GetMaxConnections())
-		availableSlots := shard.GetAvailableSlots()
 
 		totalConnections += currentConns
 		totalMaxConnections += maxConns
@@ -317,7 +315,6 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 			ID:             shard.ID,
 			Connections:    currentConns,
 			MaxConnections: int(maxConns),
-			AvailableSlots: availableSlots,
 			Utilization:    utilization,
 			Status:         shardStatus,
 		})
