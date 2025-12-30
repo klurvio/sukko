@@ -62,8 +62,7 @@ ws-server:
   service:
     type: ClusterIP  # Internal only - gateway handles external traffic
   sessionAffinity:
-    enabled: true
-    timeoutSeconds: 10800  # 3 hours
+    enabled: false  # Disabled - gateway proxy makes this counterproductive
   autoscaling:
     enabled: true
     minReplicas: 2

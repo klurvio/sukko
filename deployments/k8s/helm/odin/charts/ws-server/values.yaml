@@ -150,8 +150,13 @@ service:
   port: 3001
   nodePort: 30080
 
+# Session Affinity - DISABLED by default
+# With gateway acting as proxy, the "client IP" is the gateway pod IP,
+# not the actual client. This causes all traffic from one gateway to
+# go to a single ws-server pod, breaking load distribution.
+# Only enable if clients connect directly to ws-server (no gateway).
 sessionAffinity:
-  enabled: true
+  enabled: false
   timeoutSeconds: 10800
 
 autoscaling:

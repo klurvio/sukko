@@ -247,10 +247,12 @@ ws-server:
     port: 3001
     nodePort: 30080
 
-  # Session affinity for WebSocket
+  # Session Affinity - DISABLED
+  # With gateway acting as proxy, session affinity causes uneven load distribution.
+  # See ws-server/values.yaml for detailed explanation.
   sessionAffinity:
-    enabled: true
-    timeoutSeconds: 10800  # 3 hours
+    enabled: false
+    timeoutSeconds: 10800  # Only used if enabled
 
   # HPA (disabled by default, enabled in staging/production)
   autoscaling:
