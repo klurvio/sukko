@@ -140,6 +140,10 @@ type Config struct {
 	// Environment
 	Environment string `env:"ENVIRONMENT" envDefault:"development"`
 
+	// Pod IP for NATS metrics publishing (least-connections routing)
+	// Set via Kubernetes downward API in deployment.yaml
+	PodIP string `env:"POD_IP"`
+
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 

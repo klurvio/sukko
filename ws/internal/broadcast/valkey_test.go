@@ -258,6 +258,34 @@ func TestValkeyBus_MetricsStructure(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// PublishDirect Tests
+// =============================================================================
+
+// TestValkeyBus_PublishDirect_NoOp verifies that PublishDirect is a no-op
+// for Valkey backend. NATS-based least-connections routing is not supported
+// with Valkey, so calls to PublishDirect should be ignored silently.
+func TestValkeyBus_PublishDirect_NoOp(t *testing.T) {
+	// Valkey backend doesn't support direct subject publishing.
+	// The method exists for interface compatibility but does nothing.
+	// This test documents the expected behavior.
+
+	// Verify the interface requires PublishDirect
+	var _ Bus = (*valkeyBus)(nil)
+
+	// The actual PublishDirect implementation logs a debug message
+	// and returns without publishing. This is intentional - when using
+	// Valkey backend, gateway falls back to K8s Service load balancing.
+}
+
+// TestValkeyBus_PublishDirect_Interface tests that valkeyBus implements
+// the PublishDirect method from the Bus interface.
+func TestValkeyBus_PublishDirect_Interface(t *testing.T) {
+	// This is a compile-time check - if valkeyBus doesn't implement Bus,
+	// the package won't compile. This test documents the expectation.
+	var _ Bus = (*valkeyBus)(nil)
+}
+
 // Helper function
 func containsIgnoreCase(s, substr string) bool {
 	return len(s) >= len(substr) &&

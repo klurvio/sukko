@@ -76,6 +76,19 @@ promtail:
     tag: 2.9.2
     pullPolicy: IfNotPresent
 
+# Dashboard thresholds (override per environment)
+dashboards:
+  thresholds:
+    # CPU thresholds (percentage)
+    cpu:
+      warning: 60    # cpuRejectThreshold - new connections rejected
+      critical: 70   # cpuPauseThreshold - Kafka consumption paused
+    # Memory thresholds (MB) - set per environment based on ws-server limit
+    # Formula: warning = limit * 0.8, critical = limit * 0.9
+    memory:
+      warning: 410   # 80% of 512Mi (develop default)
+      critical: 460  # 90% of 512Mi (develop default)
+
 podAnnotations: {}
 
 nodeSelector: {}

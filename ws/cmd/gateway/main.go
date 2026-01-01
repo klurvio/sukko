@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/gateway"
@@ -45,6 +47,23 @@ func main() {
 	// Create gateway
 	gw := gateway.New(config, logger)
 
+	// Initialize NATS for least-connections routing (optional)
+	var nc *nats.Conn
+	var router *gateway.LeastConnRouter
+	if config.NATSEnabled {
+		var err error
+		nc, err = initNATS(config, logger)
+		if err != nil {
+			logger.Fatal().Err(err).Msg("Failed to connect to NATS")
+		}
+
+		router = gateway.NewLeastConnRouter(nc, logger)
+		if err := router.Start(); err != nil {
+			logger.Fatal().Err(err).Msg("Failed to start least-connections router")
+		}
+		gw.SetRouter(router)
+	}
+
 	// Create HTTP server
 	server := gw.NewServer()
 
@@ -75,6 +94,14 @@ func main() {
 
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error().Err(err).Msg("Server shutdown error")
+	}
+
+	// Cleanup NATS resources
+	if router != nil {
+		router.Stop()
+	}
+	if nc != nil {
+		nc.Close()
 	}
 
 	logger.Info().Msg("Gateway stopped")
@@ -126,6 +153,39 @@ func initLogger() zerolog.Logger {
 	}
 
 	return logger
+}
+
+// initNATS creates a NATS connection for least-connections routing.
+func initNATS(config *gateway.Config, logger zerolog.Logger) (*nats.Conn, error) {
+	opts := []nats.Option{
+		nats.Name("ws-gateway"),
+		nats.ReconnectWait(2 * time.Second),
+		nats.MaxReconnects(-1), // Unlimited reconnects
+		nats.PingInterval(10 * time.Second),
+		nats.MaxPingsOutstanding(3),
+		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
+			if err != nil {
+				logger.Warn().Err(err).Msg("NATS disconnected")
+			}
+		}),
+		nats.ReconnectHandler(func(nc *nats.Conn) {
+			logger.Info().Str("url", nc.ConnectedUrl()).Msg("NATS reconnected")
+		}),
+	}
+
+	// Build server URL(s)
+	serverURL := strings.Join(config.NATSURLs, ",")
+
+	nc, err := nats.Connect(serverURL, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Info().
+		Str("connected_url", nc.ConnectedUrl()).
+		Msg("Connected to NATS for least-connections routing")
+
+	return nc, nil
 }
 
 func init() {

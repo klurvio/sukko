@@ -33,7 +33,12 @@ data:
   overview.json: |
     {{ .Files.Get "dashboards/overview.json" | nindent 4 }}
   websocket.json: |
-    {{ .Files.Get "dashboards/websocket.json" | nindent 4 }}
+    {{- $dashboard := .Files.Get "dashboards/websocket.json" -}}
+    {{- $dashboard = replace "__CPU_WARNING__" (printf "%.0f" .Values.dashboards.thresholds.cpu.warning) $dashboard -}}
+    {{- $dashboard = replace "__CPU_CRITICAL__" (printf "%.0f" .Values.dashboards.thresholds.cpu.critical) $dashboard -}}
+    {{- $dashboard = replace "__MEMORY_WARNING__" (printf "%.0f" .Values.dashboards.thresholds.memory.warning) $dashboard -}}
+    {{- $dashboard = replace "__MEMORY_CRITICAL__" (printf "%.0f" .Values.dashboards.thresholds.memory.critical) $dashboard -}}
+    {{ $dashboard | nindent 4 }}
   redpanda.json: |
     {{ .Files.Get "dashboards/redpanda.json" | nindent 4 }}
   nats.json: |

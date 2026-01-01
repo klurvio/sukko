@@ -181,6 +181,18 @@ func (b *valkeyBus) Publish(msg *Message) {
 	b.healthy.Store(true)
 }
 
+// PublishDirect is a no-op for Valkey backend.
+// Direct subject publishing is only supported by NATS.
+// This allows ws-server to use either backend without code changes.
+func (b *valkeyBus) PublishDirect(subject string, payload []byte) {
+	// Valkey doesn't support direct subject publishing.
+	// When using Valkey backend, least-connections routing via NATS is disabled.
+	// Gateway falls back to K8s Service load balancing.
+	b.logger.Debug().
+		Str("subject", subject).
+		Msg("PublishDirect called on Valkey backend (no-op)")
+}
+
 // Subscribe returns a channel for receiving broadcast messages.
 func (b *valkeyBus) Subscribe() <-chan *Message {
 	subCh := make(chan *Message, b.bufferSize)

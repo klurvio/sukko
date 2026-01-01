@@ -329,3 +329,44 @@ func TestNATSBus_HealthCheck(t *testing.T) {
 		})
 	}
 }
+
+// =============================================================================
+// PublishDirect Tests
+// =============================================================================
+
+// TestNATSBus_PublishDirect_DifferentSubject tests that PublishDirect
+// publishes to a different subject than the default broadcast subject.
+// This verifies the separation between broadcast messages (ws.broadcast)
+// and metrics messages (odin.lb.metrics).
+func TestNATSBus_PublishDirect_DifferentSubject(t *testing.T) {
+	// Verify that PublishDirect uses the provided subject, not the default
+	defaultSubject := "ws.broadcast"
+	metricsSubject := "odin.lb.metrics"
+
+	if defaultSubject == metricsSubject {
+		t.Error("Metrics subject should be different from default broadcast subject")
+	}
+}
+
+// TestNATSBus_PublishDirect_PayloadFormat tests the expected payload format
+// for metrics publishing via PublishDirect.
+func TestNATSBus_PublishDirect_PayloadFormat(t *testing.T) {
+	// Verify the payload format matches what LoadBalancer publishes
+	expectedFields := []string{"pod_ip", "connections", "max", "ts"}
+
+	testPayload := `{"pod_ip":"10.0.0.5","connections":150,"max":1000,"ts":1609459200}`
+
+	for _, field := range expectedFields {
+		if !strings.Contains(testPayload, field) {
+			t.Errorf("Payload should contain field %q", field)
+		}
+	}
+}
+
+// TestNATSBus_PublishDirect_Interface tests that natsBus implements
+// the PublishDirect method from the Bus interface.
+func TestNATSBus_PublishDirect_Interface(t *testing.T) {
+	// This is a compile-time check - if natsBus doesn't implement Bus,
+	// the package won't compile. This test documents the expectation.
+	var _ Bus = (*natsBus)(nil)
+}

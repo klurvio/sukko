@@ -193,6 +193,23 @@ func (b *natsBus) Publish(msg *Message) {
 	b.healthy.Store(true)
 }
 
+// PublishDirect sends a message directly to a specific NATS subject.
+// Used for metrics publishing (e.g., odin.lb.metrics) that bypass
+// the main broadcast channel.
+func (b *natsBus) PublishDirect(subject string, payload []byte) {
+	if err := b.conn.Publish(subject, payload); err != nil {
+		b.logger.Error().
+			Err(err).
+			Str("subject", subject).
+			Msg("Failed to publish direct message to NATS")
+		b.publishErrors.Add(1)
+		b.healthy.Store(false)
+		return
+	}
+	b.lastPublish.Store(time.Now().Unix())
+	b.healthy.Store(true)
+}
+
 // Subscribe returns a channel for receiving broadcast messages.
 func (b *natsBus) Subscribe() <-chan *Message {
 	subCh := make(chan *Message, b.bufferSize)

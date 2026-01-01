@@ -71,6 +71,11 @@ type Server struct {
 	// Pump for testable read/write operations
 	pump *Pump // Handles WebSocket read/write with dependency injection
 
+	// OnConnectionChange is called when connection count changes (connect/disconnect).
+	// Used by LoadBalancer for real-time NATS publishing to enable least-connections routing.
+	// The delta parameter is +1 for connect, -1 for disconnect.
+	OnConnectionChange func(delta int64)
+
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 }

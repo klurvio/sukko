@@ -46,6 +46,11 @@ func (s *Server) disconnectClient(c *Client, reason, initiatedBy string) {
 	s.clients.Delete(c)
 	atomic.AddInt64(&s.stats.CurrentConnections, -1)
 
+	// Notify LoadBalancer for real-time NATS publishing (least-connections routing)
+	if s.OnConnectionChange != nil {
+		s.OnConnectionChange(-1)
+	}
+
 	// Remove client from subscription index (prevent memory leak)
 	s.subscriptionIndex.RemoveClient(c)
 

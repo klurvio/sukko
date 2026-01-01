@@ -49,6 +49,17 @@ rateLimit:
   burst: 100
   rate: 10.0
 
+# NATS Configuration for Least-Connections Routing
+# When enabled, gateway routes to ws-server pod with fewest connections
+# instead of relying on K8s Service random distribution
+nats:
+  enabled: false
+  # Empty = dynamic default (nats://{{ .Release.Name }}-nats:4222)
+  urls: ""
+
+# WS-Server port (used when routing directly to pods)
+wsServerPort: 3001
+
 # Note: Gateway does not use connection limits (only rate limiting)
 # Capacity control happens at the ws-server level via ResourceGuard
 

@@ -40,6 +40,7 @@ type ShardConfig struct {
 	SharedKafkaConsumer  interface{}   // Optional: Shared Kafka consumer for message replay (set when using pool mode)
 	Logger               zerolog.Logger
 	MaxConnections       int
+	OnConnectionChange   func(delta int64) // Callback for real-time NATS publishing (least-connections routing)
 }
 
 // NewShard creates a new Shard instance
@@ -70,6 +71,11 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create shared server for shard %d: %w", cfg.ID, err)
+	}
+
+	// Set connection change callback for real-time NATS publishing
+	if cfg.OnConnectionChange != nil {
+		shardServer.OnConnectionChange = cfg.OnConnectionChange
 	}
 
 	// Subscribe to the central broadcast bus
@@ -179,4 +185,11 @@ func (s *Shard) GetSystemStats() (cpuPercent float64, memoryMB float64) {
 	systemMonitor := monitoring.GetSystemMonitor(s.logger)
 	metrics := systemMonitor.GetMetrics()
 	return metrics.CPUPercent, metrics.MemoryMB
+}
+
+// SetOnConnectionChange sets the callback for connection count changes.
+// Used by LoadBalancer to receive real-time updates for NATS publishing.
+// This allows setting the callback after shard creation.
+func (s *Shard) SetOnConnectionChange(callback func(delta int64)) {
+	s.server.OnConnectionChange = callback
 }

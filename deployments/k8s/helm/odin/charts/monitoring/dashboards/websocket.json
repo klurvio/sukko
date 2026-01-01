@@ -439,11 +439,11 @@
               },
               {
                 "color": "yellow",
-                "value": 70
+                "value": __CPU_WARNING__
               },
               {
                 "color": "red",
-                "value": 90
+                "value": __CPU_CRITICAL__
               }
             ]
           },
@@ -528,11 +528,11 @@
               },
               {
                 "color": "yellow",
-                "value": 410
+                "value": __MEMORY_WARNING__
               },
               {
                 "color": "red",
-                "value": 460
+                "value": __MEMORY_CRITICAL__
               }
             ]
           },

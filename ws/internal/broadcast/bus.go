@@ -31,9 +31,16 @@ import (
 // call Run to start receiving, and Shutdown to stop.
 type Bus interface {
 	// Publish sends a message to all connected instances (fire-and-forget).
+	// The message is published to the configured broadcast subject.
 	// Errors are logged internally and tracked via metrics.
 	// This method must be non-blocking and safe for concurrent use.
 	Publish(msg *Message)
+
+	// PublishDirect sends a message directly to a specific NATS subject.
+	// Used for metrics publishing (e.g., odin.lb.metrics) that bypass
+	// the main broadcast channel. Only supported by NATS backend.
+	// For Valkey backend, this is a no-op.
+	PublishDirect(subject string, payload []byte)
 
 	// Subscribe returns a channel for receiving broadcast messages.
 	// Each shard should call this once before Run is called.

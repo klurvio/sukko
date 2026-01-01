@@ -98,6 +98,16 @@ nats:
 # Monitoring
 monitoring:
   enabled: true
+
+  # Dashboard thresholds (must match ws-server config and resource limits)
+  dashboards:
+    thresholds:
+      cpu:
+        warning: 60    # cpuRejectThreshold - new connections rejected
+        critical: 70   # cpuPauseThreshold - Kafka consumption paused
+      memory:
+        warning: 820   # 80% of 1Gi limit
+        critical: 920  # 90% of 1Gi limit
   prometheus:
     retention: "30d"
     resources:

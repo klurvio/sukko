@@ -23,6 +23,9 @@ type Gateway struct {
 
 	upgrader *websocket.Upgrader
 	dialer   *websocket.Dialer
+
+	// Least-connections routing (optional, requires NATS)
+	router *LeastConnRouter
 }
 
 // New creates a new Gateway instance.
@@ -54,6 +57,14 @@ func New(config *Config, logger zerolog.Logger) *Gateway {
 			HandshakeTimeout: config.DialTimeout,
 		},
 	}
+}
+
+// SetRouter sets the least-connections router for direct pod routing.
+// When set, the gateway will route connections to the pod with fewest connections
+// instead of relying on K8s Service load balancing.
+func (gw *Gateway) SetRouter(router *LeastConnRouter) {
+	gw.router = router
+	gw.logger.Info().Msg("Least-connections router enabled")
 }
 
 // HandleWebSocket handles incoming WebSocket upgrade requests.
@@ -122,11 +133,23 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), gw.config.DialTimeout)
 	defer cancel()
 
-	backendConn, resp, err := gw.dialer.DialContext(ctx, gw.config.BackendURL, nil)
+	// Select backend URL - use least-connections routing if available
+	backendURL := gw.config.BackendURL
+	if gw.router != nil {
+		if podIP := gw.router.SelectPod(); podIP != "" {
+			backendURL = fmt.Sprintf("ws://%s:%d/ws", podIP, gw.config.WSServerPort)
+			gw.logger.Debug().
+				Str("pod_ip", podIP).
+				Str("backend_url", backendURL).
+				Msg("Routing to least-loaded pod")
+		}
+	}
+
+	backendConn, resp, err := gw.dialer.DialContext(ctx, backendURL, nil)
 	if err != nil {
 		logEvent := gw.logger.Error().
 			Err(err).
-			Str("backend_url", gw.config.BackendURL).
+			Str("backend_url", backendURL).
 			Str("remote_addr", remoteAddr)
 
 		if resp != nil {

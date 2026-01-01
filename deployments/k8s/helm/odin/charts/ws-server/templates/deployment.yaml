@@ -54,6 +54,11 @@ spec:
                 name: {{ include "ws-server.fullname" . }}-secrets
                 optional: true
           env:
+            # Pod IP for NATS metrics publishing (least-connections routing)
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
             # Kafka/Redpanda: Use provided value or default to release-name-redpanda:9092
             - name: KAFKA_BROKERS
               value: "{{ .Values.kafka.brokers | default (printf "%s-redpanda:9092" .Release.Name) }}"

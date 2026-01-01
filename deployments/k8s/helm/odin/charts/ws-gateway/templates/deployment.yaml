@@ -97,6 +97,16 @@ spec:
             - name: ENVIRONMENT
               value: "{{ .Release.Namespace }}"
 
+            # NATS Configuration for Least-Connections Routing
+            - name: NATS_ENABLED
+              value: "{{ .Values.nats.enabled }}"
+            {{- if .Values.nats.enabled }}
+            - name: NATS_URLS
+              value: "{{ .Values.nats.urls | default (printf "nats://%s-nats:4222" .Release.Name) }}"
+            - name: WS_SERVER_PORT
+              value: "{{ .Values.wsServerPort }}"
+            {{- end }}
+
             # Note: Gateway does not use connection limits (only rate limiting)
             # MAX_CONNECTIONS, READ_BUFFER_SIZE, etc. are NOT read by gateway code
             # Capacity control happens at the ws-server level

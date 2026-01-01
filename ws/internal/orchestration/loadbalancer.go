@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/version"
 	"github.com/rs/zerolog"
@@ -40,6 +41,10 @@ type LoadBalancer struct {
 	httpWriteTimeout time.Duration
 	httpIdleTimeout  time.Duration
 
+	// NATS publishing for gateway least-connections routing
+	broadcastBus broadcast.Bus // Reference to NATS bus for publishing metrics
+	podIP        string        // Pod IP for identifying this instance in metrics
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -55,6 +60,10 @@ type LoadBalancerConfig struct {
 	HTTPReadTimeout  time.Duration
 	HTTPWriteTimeout time.Duration
 	HTTPIdleTimeout  time.Duration
+
+	// NATS publishing for gateway least-connections routing
+	BroadcastBus broadcast.Bus // Reference to NATS bus for publishing metrics (optional)
+	PodIP        string        // Pod IP for identifying this instance in metrics
 }
 
 // NewLoadBalancer creates a new LoadBalancer instance.
@@ -95,8 +104,22 @@ func NewLoadBalancer(cfg LoadBalancerConfig) (*LoadBalancer, error) {
 		httpReadTimeout:  cfg.HTTPReadTimeout,
 		httpWriteTimeout: cfg.HTTPWriteTimeout,
 		httpIdleTimeout:  cfg.HTTPIdleTimeout,
-		ctx:              ctx,
-		cancel:           cancel,
+		// NATS publishing for gateway least-connections routing
+		broadcastBus: cfg.BroadcastBus,
+		podIP:        cfg.PodIP,
+		ctx:          ctx,
+		cancel:       cancel,
+	}
+
+	// Set up connection change callback on each shard for real-time NATS publishing
+	if lb.broadcastBus != nil && lb.podIP != "" {
+		for _, shard := range cfg.Shards {
+			shard.SetOnConnectionChange(lb.onConnectionChange)
+		}
+		cfg.Logger.Info().
+			Str("pod_ip", cfg.PodIP).
+			Int("num_shards", len(cfg.Shards)).
+			Msg("Enabled real-time NATS publishing for gateway least-connections routing")
 	}
 
 	return lb, nil
@@ -175,6 +198,47 @@ func (lb *LoadBalancer) aggregateMetrics() {
 	}
 
 	monitoring.SetAggregatedConnectionMetrics(totalConnections, totalMaxConnections)
+}
+
+// onConnectionChange is called by each shard when connection count changes.
+// It aggregates the current total from all shards and publishes to NATS
+// for gateway least-connections routing.
+func (lb *LoadBalancer) onConnectionChange(delta int64) {
+	// Skip if NATS publishing is not configured
+	if lb.broadcastBus == nil || lb.podIP == "" {
+		return
+	}
+
+	// Aggregate current total from all shards
+	var totalConnections int64
+	for _, shard := range lb.shards {
+		totalConnections += shard.GetCurrentConnections()
+	}
+
+	// Publish to NATS immediately for real-time routing
+	lb.publishMetrics(totalConnections)
+}
+
+// publishMetrics sends the current connection count to NATS for gateway routing.
+// Uses the "odin.lb.metrics" subject which gateway subscribes to.
+// Note: Uses PublishDirect to publish to a specific subject, bypassing the
+// main broadcast channel (ws.broadcast). This only works with NATS backend.
+func (lb *LoadBalancer) publishMetrics(connections int64) {
+	// Calculate total max connections
+	var totalMaxConnections int64
+	for _, shard := range lb.shards {
+		totalMaxConnections += int64(shard.GetMaxConnections())
+	}
+
+	// Create JSON payload for metrics
+	payload := []byte(fmt.Sprintf(
+		`{"pod_ip":"%s","connections":%d,"max":%d,"ts":%d}`,
+		lb.podIP, connections, totalMaxConnections, time.Now().Unix(),
+	))
+
+	// Publish directly to odin.lb.metrics subject (NATS only)
+	// For Valkey backend, this is a no-op and gateway uses K8s Service LB
+	lb.broadcastBus.PublishDirect("odin.lb.metrics", payload)
 }
 
 // Shutdown gracefully stops the LoadBalancer.

@@ -44,6 +44,13 @@ type Config struct {
 
 	// Environment
 	Environment string `env:"ENVIRONMENT" envDefault:"development"`
+
+	// NATS configuration for least-connections routing
+	NATSEnabled bool     `env:"NATS_ENABLED" envDefault:"false"`
+	NATSURLs    []string `env:"NATS_URLS" envSeparator:"," envDefault:"nats://localhost:4222"`
+
+	// WS-Server pod port (used when routing directly to pods)
+	WSServerPort int `env:"WS_SERVER_PORT" envDefault:"3001"`
 }
 
 // LoadConfig reads configuration from environment variables.
@@ -125,5 +132,8 @@ func (c *Config) LogConfig(logger zerolog.Logger) {
 		Float64("rate_limit_rate", c.RateLimitRate).
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat).
+		Bool("nats_enabled", c.NATSEnabled).
+		Strs("nats_urls", c.NATSURLs).
+		Int("ws_server_port", c.WSServerPort).
 		Msg("Gateway configuration loaded")
 }

@@ -148,6 +148,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Update Prometheus metrics
 	monitoring.UpdateConnectionMetrics(s)
 
+	// Notify LoadBalancer for real-time NATS publishing (least-connections routing)
+	if s.OnConnectionChange != nil {
+		s.OnConnectionChange(+1)
+	}
+
 	// DEBUG: Client fully initialized, starting pumps
 	s.logger.Info().
 		Str("client_ip", clientIP).

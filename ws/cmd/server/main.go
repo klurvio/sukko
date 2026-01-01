@@ -257,6 +257,9 @@ func main() {
 		HTTPReadTimeout:  cfg.HTTPReadTimeout,
 		HTTPWriteTimeout: cfg.HTTPWriteTimeout,
 		HTTPIdleTimeout:  cfg.HTTPIdleTimeout,
+		// NATS publishing for gateway least-connections routing
+		BroadcastBus: broadcastBus,
+		PodIP:        cfg.PodIP,
 	})
 	if err != nil {
 		logger.Fatalf("Failed to create load balancer: %v", err)
