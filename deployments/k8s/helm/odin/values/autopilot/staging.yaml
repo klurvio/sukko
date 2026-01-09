@@ -17,6 +17,7 @@ ws-server:
     shards: 2
     logLevel: info
     logFormat: json
+    environment: staging  # Topic naming: odin.staging.{base}.refined
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:
@@ -59,6 +60,59 @@ redpanda:
   storage:
     enabled: true
     size: 20Gi
+  # Topic configuration for staging
+  # Topics use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
+  topics:
+    # Regular topics (publisher → external service)
+    - name: odin.staging.trade
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.liquidity
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.balances
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.metadata
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.social
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.community
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.creation
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.analytics
+      partitions: 4
+      replicationFactor: 1
+    # Refined topics (external service → ws-server)
+    - name: odin.staging.trade.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.liquidity.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.balances.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.metadata.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.social.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.community.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.creation.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.staging.analytics.refined
+      partitions: 4
+      replicationFactor: 1
 
 # Valkey - Disabled (using NATS instead)
 valkey:

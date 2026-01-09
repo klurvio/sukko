@@ -16,6 +16,9 @@ config:
   lbAddr: ":3001"
   maxKafkaRate: 1000
   maxBroadcastRate: 25
+  # Environment for topic naming (local, dev, staging, prod)
+  # Topics are generated as: odin.{environment}.{base}.refined
+  environment: local
   connRateLimit:
     enabled: true
     ipBurst: 100
@@ -86,15 +89,9 @@ kafka:
   # Empty = dynamic default ({{ .Release.Name }}-redpanda:9092)
   brokers: ""
   consumerGroup: odin-ws-consumer
-  topics:
-    - odin.trades
-    - odin.liquidity
-    - odin.balances
-    - odin.metadata
-    - odin.social
-    - odin.community
-    - odin.creation
-    - odin.analytics
+  # Topics are now generated dynamically based on environment:
+  #   odin.{env}.trade.refined, odin.{env}.liquidity.refined, etc.
+  # See config.environment above
 
   # SASL Authentication (for managed Kafka/Redpanda services)
   sasl:

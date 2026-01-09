@@ -41,6 +41,7 @@ type KafkaConsumerPool struct {
 type KafkaPoolConfig struct {
 	Brokers       []string
 	ConsumerGroup string
+	Environment   string // Environment for topic naming (e.g., "dev", "staging", "prod")
 	BroadcastBus  broadcast.Bus
 	ResourceGuard kafka.ResourceGuard
 	Logger        zerolog.Logger
@@ -63,10 +64,12 @@ func NewKafkaConsumerPool(config KafkaPoolConfig) (*KafkaConsumerPool, error) {
 
 	// Create single shared Kafka consumer
 	// This consumer will be shared across all shards
+	// Consumes from refined topics only (processed data from external service)
+	topics := kafka.AllRefinedTopics(config.Environment)
 	consumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers:       config.Brokers,
 		ConsumerGroup: config.ConsumerGroup, // Single group for all shards
-		Topics:        kafka.AllTopics(),
+		Topics:        topics,
 		Logger:        &pool.logger,      // Pass logger for Kafka consumer
 		Broadcast:     pool.routeMessage, // Route to BroadcastBus
 		ResourceGuard: config.ResourceGuard,
@@ -81,7 +84,9 @@ func NewKafkaConsumerPool(config KafkaPoolConfig) (*KafkaConsumerPool, error) {
 	pool.consumer = consumer
 	pool.logger.Info().
 		Str("consumer_group", config.ConsumerGroup).
-		Msg("Shared Kafka consumer pool created")
+		Str("environment", kafka.NormalizeEnv(config.Environment)).
+		Strs("topics", topics).
+		Msg("Shared Kafka consumer pool created (refined topics only)")
 
 	return pool, nil
 }

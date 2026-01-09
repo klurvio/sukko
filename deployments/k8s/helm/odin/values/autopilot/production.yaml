@@ -17,6 +17,7 @@ ws-server:
     shards: 2
     logLevel: warn
     logFormat: json
+    environment: prod  # Topic naming: odin.prod.{base}.refined
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:

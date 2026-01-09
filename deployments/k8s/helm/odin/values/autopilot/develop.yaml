@@ -17,6 +17,7 @@ ws-server:
     shards: 2
     logLevel: debug
     logFormat: json
+    environment: dev  # Topic naming: odin.dev.{base}.refined
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:
@@ -56,6 +57,59 @@ redpanda:
   storage:
     enabled: true
     size: 10Gi
+  # Topic configuration for development
+  # Topics use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
+  topics:
+    # Regular topics (publisher → external service)
+    - name: odin.dev.trade
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.liquidity
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.balances
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.metadata
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.social
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.community
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.creation
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.analytics
+      partitions: 4
+      replicationFactor: 1
+    # Refined topics (external service → ws-server)
+    - name: odin.dev.trade.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.liquidity.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.balances.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.metadata.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.social.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.community.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.creation.refined
+      partitions: 4
+      replicationFactor: 1
+    - name: odin.dev.analytics.refined
+      partitions: 4
+      replicationFactor: 1
 
 # Valkey - Disabled (using NATS instead)
 valkey:

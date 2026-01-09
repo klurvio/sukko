@@ -70,6 +70,7 @@ ws-server:
     shards: 2
     logLevel: info
     logFormat: json
+    environment: dev  # Topic naming: odin.dev.{base}.refined
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:
@@ -136,30 +137,59 @@ redpanda:
     enabled: true
     size: 2Gi
 
-  # Minimal partitions
+  # Topic configuration for development
+  # Topics use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
+  # Regular topics: Publisher publishes here
+  # Refined topics: ws-server consumes from here (after external service processing)
   topics:
-    - name: odin.trades
+    # Regular topics (publisher → external service)
+    - name: odin.dev.trade
       partitions: 1
       replicationFactor: 1
-    - name: odin.liquidity
+    - name: odin.dev.liquidity
       partitions: 1
       replicationFactor: 1
-    - name: odin.balances
+    - name: odin.dev.balances
       partitions: 1
       replicationFactor: 1
-    - name: odin.metadata
+    - name: odin.dev.metadata
       partitions: 1
       replicationFactor: 1
-    - name: odin.social
+    - name: odin.dev.social
       partitions: 1
       replicationFactor: 1
-    - name: odin.community
+    - name: odin.dev.community
       partitions: 1
       replicationFactor: 1
-    - name: odin.creation
+    - name: odin.dev.creation
       partitions: 1
       replicationFactor: 1
-    - name: odin.analytics
+    - name: odin.dev.analytics
+      partitions: 1
+      replicationFactor: 1
+    # Refined topics (external service → ws-server)
+    - name: odin.dev.trade.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.dev.liquidity.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.dev.balances.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.dev.metadata.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.dev.social.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.dev.community.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.dev.creation.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.dev.analytics.refined
       partitions: 1
       replicationFactor: 1
 

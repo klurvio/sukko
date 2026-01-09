@@ -39,6 +39,7 @@ ws-server:
   config:
     shards: 2
     logLevel: debug  # More verbose for development
+    environment: dev  # Topic naming: odin.dev.{base}.refined
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:

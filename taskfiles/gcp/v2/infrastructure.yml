@@ -10,14 +10,21 @@ vars:
   ENV: '{{.ENV | default "develop"}}'
   V2_DEPLOY_DIR: '{{.USER_WORKING_DIR}}/deployments/gcp/v2'
   V2_ENV_FILE: '{{.V2_DEPLOY_DIR}}/environments/{{.ENV}}.env'
-  # Read GCP_PROJECT from env file, with fallback
+  # Read GCP_PROJECT from env file, with hardcoded fallback
+  # Note: pipe to cut always succeeds, so we check if result is empty
   GCP_PROJECT:
-    sh: grep -E '^GCP_PROJECT=' "{{.V2_ENV_FILE}}" 2>/dev/null | cut -d= -f2 || echo "{{.GCP_PROJECT}}"
+    sh: |
+      val=$(grep -E '^GCP_PROJECT=' "{{.V2_ENV_FILE}}" 2>/dev/null | cut -d= -f2)
+      echo "${val:-trim-array-480700-j7}"
   GCP_ZONE:
-    sh: grep -E '^GCP_ZONE=' "{{.V2_ENV_FILE}}" 2>/dev/null | cut -d= -f2 || echo "us-central1-a"
+    sh: |
+      val=$(grep -E '^GCP_ZONE=' "{{.V2_ENV_FILE}}" 2>/dev/null | cut -d= -f2)
+      echo "${val:-us-central1-a}"
   INSTANCE_NAME: 'odin-tools-{{.ENV}}'
   MACHINE_TYPE:
-    sh: grep -E '^MACHINE_TYPE=' "{{.V2_ENV_FILE}}" 2>/dev/null | cut -d= -f2 || echo "e2-standard-8"
+    sh: |
+      val=$(grep -E '^MACHINE_TYPE=' "{{.V2_ENV_FILE}}" 2>/dev/null | cut -d= -f2)
+      echo "${val:-e2-standard-8}"
   BOOT_DISK_SIZE: '{{.BOOT_DISK_SIZE | default "50GB"}}'
   REMOTE_DIR: '/home/deploy/odin-ws'
   SYNC_TEMP_DIR: '/tmp/{{.INSTANCE_NAME}}-sync'

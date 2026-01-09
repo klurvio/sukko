@@ -71,6 +71,7 @@ ws-server:
     shards: 2
     logLevel: info
     logFormat: json
+    environment: staging  # Topic naming: odin.staging.{base}.refined
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:
@@ -135,30 +136,59 @@ redpanda:
   storage:
     enabled: false
 
-  # Minimal partitions
+  # Topic configuration for staging
+  # Topics use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
+  # Regular topics: Publisher publishes here
+  # Refined topics: ws-server consumes from here (after external service processing)
   topics:
-    - name: odin.trades
+    # Regular topics (publisher → external service)
+    - name: odin.staging.trade
       partitions: 1
       replicationFactor: 1
-    - name: odin.liquidity
+    - name: odin.staging.liquidity
       partitions: 1
       replicationFactor: 1
-    - name: odin.balances
+    - name: odin.staging.balances
       partitions: 1
       replicationFactor: 1
-    - name: odin.metadata
+    - name: odin.staging.metadata
       partitions: 1
       replicationFactor: 1
-    - name: odin.social
+    - name: odin.staging.social
       partitions: 1
       replicationFactor: 1
-    - name: odin.community
+    - name: odin.staging.community
       partitions: 1
       replicationFactor: 1
-    - name: odin.creation
+    - name: odin.staging.creation
       partitions: 1
       replicationFactor: 1
-    - name: odin.analytics
+    - name: odin.staging.analytics
+      partitions: 1
+      replicationFactor: 1
+    # Refined topics (external service → ws-server)
+    - name: odin.staging.trade.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.staging.liquidity.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.staging.balances.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.staging.metadata.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.staging.social.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.staging.community.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.staging.creation.refined
+      partitions: 1
+      replicationFactor: 1
+    - name: odin.staging.analytics.refined
       partitions: 1
       replicationFactor: 1
 

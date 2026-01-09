@@ -56,6 +56,7 @@ ws-server:
   config:
     shards: 2
     logLevel: warn  # Reduce log volume in production
+    environment: prod  # Topic naming: odin.prod.{base}.refined
 
     # Tighter rate limiting for production
     connRateLimit:
@@ -107,29 +108,58 @@ redpanda:
     storageClass: "pd-ssd"  # Use SSD for production
 
   # Topic configuration for production
+  # Topics use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
+  # Regular topics: Publisher publishes here
+  # Refined topics: ws-server consumes from here (after external service processing)
   topics:
-    - name: odin.trades
+    # Regular topics (publisher → external service)
+    - name: odin.prod.trade
       partitions: 12
       replicationFactor: 3
-    - name: odin.liquidity
+    - name: odin.prod.liquidity
       partitions: 12
       replicationFactor: 3
-    - name: odin.balances
+    - name: odin.prod.balances
       partitions: 12
       replicationFactor: 3
-    - name: odin.metadata
+    - name: odin.prod.metadata
       partitions: 12
       replicationFactor: 3
-    - name: odin.social
+    - name: odin.prod.social
       partitions: 12
       replicationFactor: 3
-    - name: odin.community
+    - name: odin.prod.community
       partitions: 12
       replicationFactor: 3
-    - name: odin.creation
+    - name: odin.prod.creation
       partitions: 12
       replicationFactor: 3
-    - name: odin.analytics
+    - name: odin.prod.analytics
+      partitions: 12
+      replicationFactor: 3
+    # Refined topics (external service → ws-server)
+    - name: odin.prod.trade.refined
+      partitions: 12
+      replicationFactor: 3
+    - name: odin.prod.liquidity.refined
+      partitions: 12
+      replicationFactor: 3
+    - name: odin.prod.balances.refined
+      partitions: 12
+      replicationFactor: 3
+    - name: odin.prod.metadata.refined
+      partitions: 12
+      replicationFactor: 3
+    - name: odin.prod.social.refined
+      partitions: 12
+      replicationFactor: 3
+    - name: odin.prod.community.refined
+      partitions: 12
+      replicationFactor: 3
+    - name: odin.prod.creation.refined
+      partitions: 12
+      replicationFactor: 3
+    - name: odin.prod.analytics.refined
       partitions: 12
       replicationFactor: 3
 

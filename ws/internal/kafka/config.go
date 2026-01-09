@@ -1,29 +1,95 @@
 package kafka
 
-// Topic names for all event types
-const (
-	TopicTrades    = "odin.trades"
-	TopicLiquidity = "odin.liquidity"
-	TopicMetadata  = "odin.metadata"
-	TopicSocial    = "odin.social"
-	TopicCommunity = "odin.community"
-	TopicCreation  = "odin.creation"
-	TopicAnalytics = "odin.analytics"
-	TopicBalances  = "odin.balances"
+import (
+	"fmt"
+	"strings"
 )
 
-// AllTopics returns all topic names
-func AllTopics() []string {
-	return []string{
-		TopicTrades,
-		TopicLiquidity,
-		TopicMetadata,
-		TopicSocial,
-		TopicCommunity,
-		TopicCreation,
-		TopicAnalytics,
-		TopicBalances,
+// Topic base names (without environment prefix)
+const (
+	TopicBaseTrade     = "trade"
+	TopicBaseLiquidity = "liquidity"
+	TopicBaseMetadata  = "metadata"
+	TopicBaseSocial    = "social"
+	TopicBaseCommunity = "community"
+	TopicBaseCreation  = "creation"
+	TopicBaseAnalytics = "analytics"
+	TopicBaseBalances  = "balances"
+)
+
+// allTopicBases contains all base topic names
+var allTopicBases = []string{
+	TopicBaseTrade,
+	TopicBaseLiquidity,
+	TopicBaseMetadata,
+	TopicBaseSocial,
+	TopicBaseCommunity,
+	TopicBaseCreation,
+	TopicBaseAnalytics,
+	TopicBaseBalances,
+}
+
+// NormalizeEnv converts environment names to short form for topic naming
+// Examples: "development" -> "local", "develop" -> "dev", "production" -> "prod"
+func NormalizeEnv(env string) string {
+	env = strings.ToLower(strings.TrimSpace(env))
+	switch env {
+	case "development", "local", "":
+		return "local"
+	case "develop", "dev":
+		return "dev"
+	case "staging", "stage":
+		return "staging"
+	case "production", "prod":
+		return "prod"
+	default:
+		return env
 	}
+}
+
+// GetTopic returns the full topic name for an environment
+// Example: GetTopic("dev", "trade") -> "odin.dev.trade"
+func GetTopic(env, base string) string {
+	return fmt.Sprintf("odin.%s.%s", NormalizeEnv(env), base)
+}
+
+// GetRefinedTopic returns the refined topic name for an environment
+// Example: GetRefinedTopic("dev", "trade") -> "odin.dev.trade.refined"
+func GetRefinedTopic(env, base string) string {
+	return fmt.Sprintf("odin.%s.%s.refined", NormalizeEnv(env), base)
+}
+
+// AllTopicBases returns all base topic names (without environment prefix)
+func AllTopicBases() []string {
+	return allTopicBases
+}
+
+// AllTopics returns all regular topic names for an environment
+func AllTopics(env string) []string {
+	topics := make([]string, len(allTopicBases))
+	for i, base := range allTopicBases {
+		topics[i] = GetTopic(env, base)
+	}
+	return topics
+}
+
+// AllRefinedTopics returns all refined topic names for an environment
+func AllRefinedTopics(env string) []string {
+	topics := make([]string, len(allTopicBases))
+	for i, base := range allTopicBases {
+		topics[i] = GetRefinedTopic(env, base)
+	}
+	return topics
+}
+
+// AllTopicsWithRefined returns both regular and refined topics for an environment
+func AllTopicsWithRefined(env string) []string {
+	topics := make([]string, 0, len(allTopicBases)*2)
+	for _, base := range allTopicBases {
+		topics = append(topics, GetTopic(env, base))
+		topics = append(topics, GetRefinedTopic(env, base))
+	}
+	return topics
 }
 
 // EventType represents different event types
@@ -70,26 +136,44 @@ const (
 	EventTransferCompleted EventType = "TRANSFER_COMPLETED"
 )
 
-// TopicToEventType maps topic names to their event type category
+// TopicToEventType maps a full topic name to its event type category
+// Handles both regular and refined topics
+// Example: "odin.dev.trade" -> "trade", "odin.dev.trade.refined" -> "trade"
 func TopicToEventType(topic string) string {
-	switch topic {
-	case TopicTrades:
-		return "trade"
-	case TopicLiquidity:
-		return "liquidity"
-	case TopicMetadata:
-		return "metadata"
-	case TopicSocial:
-		return "social"
-	case TopicCommunity:
-		return "community"
-	case TopicCreation:
-		return "creation"
-	case TopicAnalytics:
-		return "analytics"
-	case TopicBalances:
-		return "balances"
+	// Remove "odin." prefix and ".refined" suffix
+	topic = strings.TrimPrefix(topic, "odin.")
+	topic = strings.TrimSuffix(topic, ".refined")
+
+	// Remove environment prefix (e.g., "dev.", "local.", "staging.", "prod.")
+	parts := strings.SplitN(topic, ".", 2)
+	if len(parts) == 2 {
+		return parts[1] // Return the base topic name
+	}
+
+	// Fallback for legacy topic names (e.g., "odin.trades" -> "trades")
+	return topic
+}
+
+// EventTypeToTopicBase maps event types to their base topic name
+func EventTypeToTopicBase(eventType EventType) string {
+	switch eventType {
+	case EventTradeExecuted, EventBuyCompleted, EventSellCompleted:
+		return TopicBaseTrade
+	case EventLiquidityAdded, EventLiquidityRemoved, EventLiquidityRebalanced:
+		return TopicBaseLiquidity
+	case EventMetadataUpdated, EventTokenNameChanged, EventTokenFlagsChanged:
+		return TopicBaseMetadata
+	case EventTwitterVerified, EventSocialLinksUpdated:
+		return TopicBaseSocial
+	case EventCommentPosted, EventCommentPinned, EventCommentUpvoted, EventFavoriteToggled:
+		return TopicBaseCommunity
+	case EventTokenCreated, EventTokenListed:
+		return TopicBaseCreation
+	case EventPriceDeltaUpdated, EventHolderCountUpdated, EventAnalyticsRecalculated, EventTrendingUpdated:
+		return TopicBaseAnalytics
+	case EventBalanceUpdated, EventTransferCompleted:
+		return TopicBaseBalances
 	default:
-		return "unknown"
+		return TopicBaseTrade // Default to trade for unknown events
 	}
 }

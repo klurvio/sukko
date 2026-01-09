@@ -64,58 +64,95 @@ const (
 	EventTransferCompleted = "TRANSFER_COMPLETED"
 )
 
-// Topic names
+// Topic base names (without environment prefix)
 const (
-	TopicTrades    = "odin.trades"
-	TopicLiquidity = "odin.liquidity"
-	TopicMetadata  = "odin.metadata"
-	TopicSocial    = "odin.social"
-	TopicCommunity = "odin.community"
-	TopicCreation  = "odin.creation"
-	TopicAnalytics = "odin.analytics"
-	TopicBalances  = "odin.balances"
+	TopicBaseTrade     = "trade"
+	TopicBaseLiquidity = "liquidity"
+	TopicBaseMetadata  = "metadata"
+	TopicBaseSocial    = "social"
+	TopicBaseCommunity = "community"
+	TopicBaseCreation  = "creation"
+	TopicBaseAnalytics = "analytics"
+	TopicBaseBalances  = "balances"
 )
 
-// EventTypeTopics maps event types to their Kafka topics
-var EventTypeTopics = map[string]string{
-	// Trading events → odin.trades
-	EventTradeExecuted: TopicTrades,
-	EventBuyCompleted:  TopicTrades,
-	EventSellCompleted: TopicTrades,
+// EventTypeToBase maps event types to their base topic names
+var EventTypeToBase = map[string]string{
+	// Trading events → trade
+	EventTradeExecuted: TopicBaseTrade,
+	EventBuyCompleted:  TopicBaseTrade,
+	EventSellCompleted: TopicBaseTrade,
 
-	// Liquidity events → odin.liquidity
-	EventLiquidityAdded:      TopicLiquidity,
-	EventLiquidityRemoved:    TopicLiquidity,
-	EventLiquidityRebalanced: TopicLiquidity,
+	// Liquidity events → liquidity
+	EventLiquidityAdded:      TopicBaseLiquidity,
+	EventLiquidityRemoved:    TopicBaseLiquidity,
+	EventLiquidityRebalanced: TopicBaseLiquidity,
 
-	// Metadata events → odin.metadata
-	EventMetadataUpdated:   TopicMetadata,
-	EventTokenNameChanged:  TopicMetadata,
-	EventTokenFlagsChanged: TopicMetadata,
+	// Metadata events → metadata
+	EventMetadataUpdated:   TopicBaseMetadata,
+	EventTokenNameChanged:  TopicBaseMetadata,
+	EventTokenFlagsChanged: TopicBaseMetadata,
 
-	// Social events → odin.social
-	EventTwitterVerified:    TopicSocial,
-	EventSocialLinksUpdated: TopicSocial,
+	// Social events → social
+	EventTwitterVerified:    TopicBaseSocial,
+	EventSocialLinksUpdated: TopicBaseSocial,
 
-	// Community events → odin.community
-	EventCommentPosted:   TopicCommunity,
-	EventCommentPinned:   TopicCommunity,
-	EventCommentUpvoted:  TopicCommunity,
-	EventFavoriteToggled: TopicCommunity,
+	// Community events → community
+	EventCommentPosted:   TopicBaseCommunity,
+	EventCommentPinned:   TopicBaseCommunity,
+	EventCommentUpvoted:  TopicBaseCommunity,
+	EventFavoriteToggled: TopicBaseCommunity,
 
-	// Creation events → odin.creation
-	EventTokenCreated: TopicCreation,
-	EventTokenListed:  TopicCreation,
+	// Creation events → creation
+	EventTokenCreated: TopicBaseCreation,
+	EventTokenListed:  TopicBaseCreation,
 
-	// Analytics events → odin.analytics
-	EventPriceDeltaUpdated:     TopicAnalytics,
-	EventHolderCountUpdated:    TopicAnalytics,
-	EventAnalyticsRecalculated: TopicAnalytics,
-	EventTrendingUpdated:       TopicAnalytics,
+	// Analytics events → analytics
+	EventPriceDeltaUpdated:     TopicBaseAnalytics,
+	EventHolderCountUpdated:    TopicBaseAnalytics,
+	EventAnalyticsRecalculated: TopicBaseAnalytics,
+	EventTrendingUpdated:       TopicBaseAnalytics,
 
-	// Balance events → odin.balances
-	EventBalanceUpdated:    TopicBalances,
-	EventTransferCompleted: TopicBalances,
+	// Balance events → balances
+	EventBalanceUpdated:    TopicBaseBalances,
+	EventTransferCompleted: TopicBaseBalances,
+}
+
+// normalizeEnv converts environment names to short form for topic naming
+func normalizeEnv(env string) string {
+	env = strings.ToLower(strings.TrimSpace(env))
+	switch env {
+	case "development", "local", "":
+		return "local"
+	case "develop", "dev":
+		return "dev"
+	case "staging", "stage":
+		return "staging"
+	case "production", "prod":
+		return "prod"
+	default:
+		return env
+	}
+}
+
+// getTopic returns the full topic name for an environment
+// Format: odin.{env}.{base} (e.g., odin.dev.trade)
+// If useRefined is true, appends .refined suffix (e.g., odin.dev.trade.refined)
+func getTopic(env, base string, useRefined bool) string {
+	topic := fmt.Sprintf("odin.%s.%s", normalizeEnv(env), base)
+	if useRefined {
+		topic += ".refined"
+	}
+	return topic
+}
+
+// getTopicForEvent returns the full topic name for an event type
+func getTopicForEvent(env, eventType string, useRefined bool) string {
+	base, ok := EventTypeToBase[eventType]
+	if !ok {
+		return getTopic(env, TopicBaseTrade, useRefined) // Default to trade for unknown events
+	}
+	return getTopic(env, base, useRefined)
 }
 
 // Weighted event distribution
@@ -173,6 +210,8 @@ func init() {
 type Config struct {
 	KafkaBrokers []string
 	APIPort      int
+	Environment  string // Environment for topic naming (e.g., "local", "dev", "staging", "prod")
+	UseRefined   bool   // If true, publish to refined topics (for dev/testing without processor)
 }
 
 // Event represents a token event
@@ -208,9 +247,19 @@ func loadConfig() *Config {
 		}
 	}
 
+	environment := os.Getenv("ENVIRONMENT")
+	if environment == "" {
+		environment = "local"
+	}
+
+	// USE_REFINED: publish directly to refined topics (for dev/testing without processor)
+	useRefined := os.Getenv("USE_REFINED") == "true"
+
 	return &Config{
 		KafkaBrokers: strings.Split(brokers, ","),
 		APIPort:      port,
+		Environment:  environment,
+		UseRefined:   useRefined,
 	}
 }
 
@@ -440,6 +489,8 @@ func generateRandomEvent(tokenIDs []string) Event {
 
 type Publisher struct {
 	client       *kgo.Client
+	environment  string // Environment for topic naming
+	useRefined   bool   // If true, publish to refined topics
 	isConnected  bool
 	publishCount int64
 	lastLogTime  time.Time
@@ -448,7 +499,7 @@ type Publisher struct {
 	mu           sync.RWMutex
 }
 
-func NewPublisher(brokers []string) (*Publisher, error) {
+func NewPublisher(brokers []string, environment string, useRefined bool) (*Publisher, error) {
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(brokers...),
 		kgo.ClientID("odin-publisher"),
@@ -467,6 +518,8 @@ func NewPublisher(brokers []string) (*Publisher, error) {
 
 	return &Publisher{
 		client:      client,
+		environment: environment,
+		useRefined:  useRefined,
 		statsStopCh: make(chan struct{}),
 	}, nil
 }
@@ -528,12 +581,13 @@ func (p *Publisher) Publish(ctx context.Context, event Event) error {
 		p.mu.RUnlock()
 		return fmt.Errorf("publisher not connected")
 	}
+	environment := p.environment
+	useRefined := p.useRefined
 	p.mu.RUnlock()
 
-	topic, ok := EventTypeTopics[event.Type]
-	if !ok {
-		return fmt.Errorf("unknown event type: %s", event.Type)
-	}
+	// Get environment-prefixed topic name
+	// If useRefined is true, publishes to refined topics (for dev/testing without processor)
+	topic := getTopicForEvent(environment, event.Type, useRefined)
 
 	// Create message payload
 	msg := KafkaMessage{
@@ -950,10 +1004,14 @@ func main() {
 
 	config := loadConfig()
 
-	log.Printf("[Main] Starting publisher with brokers: %v", config.KafkaBrokers)
+	topicType := "regular"
+	if config.UseRefined {
+		topicType = "refined"
+	}
+	log.Printf("[Main] Starting publisher with brokers: %v, environment: %s, topic_type: %s", config.KafkaBrokers, normalizeEnv(config.Environment), topicType)
 
 	// Create publisher
-	publisher, err := NewPublisher(config.KafkaBrokers)
+	publisher, err := NewPublisher(config.KafkaBrokers, config.Environment, config.UseRefined)
 	if err != nil {
 		log.Fatalf("[Main] Failed to create publisher: %v", err)
 	}

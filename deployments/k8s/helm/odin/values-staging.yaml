@@ -39,6 +39,7 @@ ws-server:
   config:
     shards: 2
     logLevel: info
+    environment: staging  # Topic naming: odin.staging.{base}.refined
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:

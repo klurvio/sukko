@@ -112,6 +112,7 @@ ws-server:
     shards: 2
     basePort: 3002
     lbAddr: ":3001"
+    environment: local  # Topic naming: odin.{env}.{base}.refined (e.g., odin.local.trade.refined)
 
     # Rate limiting
     maxKafkaRate: 1000
@@ -186,15 +187,9 @@ ws-server:
     # Override this for external Kafka/Redpanda
     brokers: ""
     consumerGroup: odin-ws-consumer
-    topics:
-      - odin.trades
-      - odin.liquidity
-      - odin.balances
-      - odin.metadata
-      - odin.social
-      - odin.community
-      - odin.creation
-      - odin.analytics
+    # NOTE: Topics are now dynamically determined based on config.environment
+    # ws-server consumes from refined topics: odin.{env}.{base}.refined
+    # Topics are created by Redpanda chart based on redpanda.topics config
 
     # SASL Authentication (for managed Kafka/Redpanda services)
     # Enable this for external/managed Redpanda that requires authentication
@@ -310,30 +305,60 @@ redpanda:
     size: 5Gi
     storageClass: ""  # Use default
 
-  # Topic configuration (matches v1 deployment)
+  # Topic configuration
+  # Topics use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
+  # Regular topics: Publisher publishes here
+  # Refined topics: ws-server consumes from here (after external service processing)
+  # NOTE: These are defaults for local environment. Override in values-{env}.yaml files.
   topics:
-    - name: odin.trades
+    # Regular topics (publisher → external service)
+    - name: odin.local.trade
       partitions: 12
       replicationFactor: 1
-    - name: odin.liquidity
+    - name: odin.local.liquidity
       partitions: 12
       replicationFactor: 1
-    - name: odin.balances
+    - name: odin.local.balances
       partitions: 12
       replicationFactor: 1
-    - name: odin.metadata
+    - name: odin.local.metadata
       partitions: 12
       replicationFactor: 1
-    - name: odin.social
+    - name: odin.local.social
       partitions: 12
       replicationFactor: 1
-    - name: odin.community
+    - name: odin.local.community
       partitions: 12
       replicationFactor: 1
-    - name: odin.creation
+    - name: odin.local.creation
       partitions: 12
       replicationFactor: 1
-    - name: odin.analytics
+    - name: odin.local.analytics
+      partitions: 12
+      replicationFactor: 1
+    # Refined topics (external service → ws-server)
+    - name: odin.local.trade.refined
+      partitions: 12
+      replicationFactor: 1
+    - name: odin.local.liquidity.refined
+      partitions: 12
+      replicationFactor: 1
+    - name: odin.local.balances.refined
+      partitions: 12
+      replicationFactor: 1
+    - name: odin.local.metadata.refined
+      partitions: 12
+      replicationFactor: 1
+    - name: odin.local.social.refined
+      partitions: 12
+      replicationFactor: 1
+    - name: odin.local.community.refined
+      partitions: 12
+      replicationFactor: 1
+    - name: odin.local.creation.refined
+      partitions: 12
+      replicationFactor: 1
+    - name: odin.local.analytics.refined
       partitions: 12
       replicationFactor: 1
 

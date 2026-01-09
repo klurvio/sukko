@@ -59,6 +59,9 @@ spec:
               value: "{{ .Values.kafka.brokers | default (printf "%s-redpanda:9092" .Release.Name) }}"
             - name: KAFKA_CONSUMER_GROUP
               value: "{{ .Values.kafka.consumerGroup }}"
+            # Environment for topic naming (topics: odin.{env}.{base}.refined)
+            - name: ENVIRONMENT
+              value: "{{ .Values.config.environment | default "local" }}"
             # Kafka SASL Authentication (for managed services)
             - name: KAFKA_SASL_ENABLED
               value: "{{ .Values.kafka.sasl.enabled | default false }}"

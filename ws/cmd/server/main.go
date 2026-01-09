@@ -165,6 +165,7 @@ func main() {
 		kafkaPool, err = orchestration.NewKafkaConsumerPool(orchestration.KafkaPoolConfig{
 			Brokers:       kafkaBrokers,
 			ConsumerGroup: cfg.ConsumerGroup, // Single group for all shards
+			Environment:   cfg.Environment,   // Environment for topic naming
 			BroadcastBus:  broadcastBus,
 			ResourceGuard: resourceGuard,
 			Logger:        poolLogger,
@@ -194,6 +195,7 @@ func main() {
 			Addr:           shardBindAddr,
 			KafkaBrokers:   kafkaBrokers,
 			ConsumerGroup:  cfg.ConsumerGroup, // Base consumer group name
+			Environment:    cfg.Environment,   // Environment for topic naming
 			MaxConnections: maxConnsPerShard,  // Shard-specific max connections
 
 			MemoryLimit:            cfg.MemoryLimit,

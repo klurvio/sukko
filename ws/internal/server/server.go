@@ -142,11 +142,13 @@ func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc
 		Msg("Server initialized with ResourceGuard")
 
 	// Initialize Kafka consumer (skip if DisableKafkaConsumer flag is set for shared pool mode)
+	// Consumes from refined topics only (processed data from external service)
 	if len(config.KafkaBrokers) > 0 && !config.DisableKafkaConsumer {
+		topics := kafka.AllRefinedTopics(config.Environment)
 		consumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
 			Brokers:       config.KafkaBrokers,
 			ConsumerGroup: config.ConsumerGroup,
-			Topics:        kafka.AllTopics(),
+			Topics:        topics,
 			Logger:        &logger,
 			Broadcast:     broadcastToBusFunc, // Use the provided broadcast function
 			ResourceGuard: s.resourceGuard,    // Enable rate limiting and CPU brake
@@ -164,7 +166,8 @@ func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc
 		s.auditLogger.Info("KafkaConsumerCreated", "Kafka consumer created successfully", map[string]any{
 			"brokers":        config.KafkaBrokers,
 			"consumer_group": config.ConsumerGroup,
-			"topics":         kafka.AllTopics(),
+			"environment":    kafka.NormalizeEnv(config.Environment),
+			"topics":         topics,
 		})
 	} else if config.DisableKafkaConsumer {
 		// In shared pool mode, use the shared consumer reference for replay operations

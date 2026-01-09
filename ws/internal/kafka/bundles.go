@@ -12,51 +12,82 @@ const (
 	BundleAll        BundleType = "ALL"
 )
 
-// bundleTopicMap maps bundle types to their topic lists
-var bundleTopicMap = map[BundleType][]string{
+// bundleBasesMap maps bundle types to their base topic lists
+var bundleBasesMap = map[BundleType][]string{
 	BundleTrading: {
-		TopicTrades,
-		TopicLiquidity,
-		TopicAnalytics,
+		TopicBaseTrade,
+		TopicBaseLiquidity,
+		TopicBaseAnalytics,
 	},
 	BundleFullMarket: {
-		TopicTrades,
-		TopicLiquidity,
-		TopicAnalytics,
-		TopicMetadata,
+		TopicBaseTrade,
+		TopicBaseLiquidity,
+		TopicBaseAnalytics,
+		TopicBaseMetadata,
 	},
 	BundleCommunity: {
-		TopicCommunity,
-		TopicSocial,
-		TopicMetadata,
+		TopicBaseCommunity,
+		TopicBaseSocial,
+		TopicBaseMetadata,
 	},
 	BundlePortfolio: {
-		TopicTrades,
-		TopicAnalytics,
-		TopicBalances,
+		TopicBaseTrade,
+		TopicBaseAnalytics,
+		TopicBaseBalances,
 	},
 	BundlePriceOnly: {
-		TopicTrades,
-		TopicAnalytics,
+		TopicBaseTrade,
+		TopicBaseAnalytics,
 	},
-	BundleAll: AllTopics(),
+	BundleAll: nil, // Special case: returns all topics
 }
 
-// GetBundleTopics returns the topics for a given bundle type
-func GetBundleTopics(bundle BundleType) []string {
-	topics, ok := bundleTopicMap[bundle]
+// GetBundleBases returns the base topic names for a given bundle type
+func GetBundleBases(bundle BundleType) []string {
+	if bundle == BundleAll {
+		return AllTopicBases()
+	}
+	bases, ok := bundleBasesMap[bundle]
 	if !ok {
 		return nil
 	}
 	// Return a copy to prevent modification
-	result := make([]string, len(topics))
-	copy(result, topics)
+	result := make([]string, len(bases))
+	copy(result, bases)
 	return result
+}
+
+// GetBundleTopics returns the full topic names for a given bundle type and environment
+// Returns refined topics for ws-server consumption
+func GetBundleTopics(env string, bundle BundleType) []string {
+	bases := GetBundleBases(bundle)
+	if bases == nil {
+		return nil
+	}
+	topics := make([]string, len(bases))
+	for i, base := range bases {
+		topics[i] = GetRefinedTopic(env, base)
+	}
+	return topics
+}
+
+// GetBundleRegularTopics returns regular (non-refined) topics for a bundle
+// Used by publisher to know which topics to publish to
+func GetBundleRegularTopics(env string, bundle BundleType) []string {
+	bases := GetBundleBases(bundle)
+	if bases == nil {
+		return nil
+	}
+	topics := make([]string, len(bases))
+	for i, base := range bases {
+		topics[i] = GetTopic(env, base)
+	}
+	return topics
 }
 
 // ValidBundle checks if a bundle type is valid
 func ValidBundle(bundle BundleType) bool {
-	_, ok := bundleTopicMap[bundle]
+	_, ok := bundleBasesMap[bundle]
 	return ok
 }
 
@@ -72,22 +103,32 @@ func AllBundles() []BundleType {
 	}
 }
 
-// GetTopicsForSubscription expands a subscription request into topic list
-// Supports both bundle types and individual topic names
-func GetTopicsForSubscription(subscription string) []string {
+// GetTopicsForSubscription expands a subscription request into refined topic list
+// Supports both bundle types and individual base topic names
+func GetTopicsForSubscription(env, subscription string) []string {
 	// Check if it's a bundle
 	bundle := BundleType(subscription)
-	if topics := GetBundleTopics(bundle); topics != nil {
+	if topics := GetBundleTopics(env, bundle); topics != nil {
 		return topics
 	}
 
-	// Check if it's a valid topic name
-	for _, topic := range AllTopics() {
-		if topic == subscription {
-			return []string{topic}
+	// Check if it's a valid base topic name
+	for _, base := range AllTopicBases() {
+		if base == subscription {
+			return []string{GetRefinedTopic(env, base)}
 		}
 	}
 
 	// Invalid subscription
 	return nil
+}
+
+// IsValidBaseTopic checks if a base topic name is valid
+func IsValidBaseTopic(base string) bool {
+	for _, b := range AllTopicBases() {
+		if b == base {
+			return true
+		}
+	}
+	return false
 }

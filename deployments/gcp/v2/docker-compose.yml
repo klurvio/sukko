@@ -43,6 +43,8 @@ services:
       - "3001:3001"
     environment:
       - KAFKA_BROKERS=${KAFKA_BROKERS:-localhost:9092}
+      - ENVIRONMENT=${ENVIRONMENT:-local}
+      - USE_REFINED=${USE_REFINED:-false}
       - API_PORT=3001
     profiles:
       - publisher

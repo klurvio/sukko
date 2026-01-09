@@ -32,8 +32,9 @@ type ServerConfig struct {
 	Addr                 string
 	KafkaBrokers         []string
 	ConsumerGroup        string
-	DisableKafkaConsumer bool // When true, skip Kafka consumer creation (for shared pool mode)
-	SharedKafkaConsumer  any  // Optional: Shared Kafka consumer for message replay (set when using pool mode)
+	Environment          string // Environment for topic naming (e.g., "local", "dev", "staging", "prod")
+	DisableKafkaConsumer bool   // When true, skip Kafka consumer creation (for shared pool mode)
+	SharedKafkaConsumer  any    // Optional: Shared Kafka consumer for message replay (set when using pool mode)
 	MaxConnections       int
 
 	// Static resource limits
