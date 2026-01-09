@@ -41,7 +41,7 @@ type KafkaConsumerPool struct {
 type KafkaPoolConfig struct {
 	Brokers       []string
 	ConsumerGroup string
-	Environment   string // Environment for topic naming (e.g., "dev", "staging", "prod")
+	Environment   string // Topic namespace for topic naming (e.g., "local", "dev", "staging", "main")
 	BroadcastBus  broadcast.Bus
 	ResourceGuard kafka.ResourceGuard
 	Logger        zerolog.Logger
@@ -84,7 +84,7 @@ func NewKafkaConsumerPool(config KafkaPoolConfig) (*KafkaConsumerPool, error) {
 	pool.consumer = consumer
 	pool.logger.Info().
 		Str("consumer_group", config.ConsumerGroup).
-		Str("environment", kafka.NormalizeEnv(config.Environment)).
+		Str("topic_namespace", kafka.NormalizeEnv(config.Environment)).
 		Strs("topics", topics).
 		Msg("Shared Kafka consumer pool created (refined topics only)")
 

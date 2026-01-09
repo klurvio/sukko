@@ -140,6 +140,17 @@ type Config struct {
 	// Environment
 	Environment string `env:"ENVIRONMENT" envDefault:"development"`
 
+	// KafkaTopicNamespace overrides ENVIRONMENT for Kafka topic naming only.
+	// If empty, defaults to normalized ENVIRONMENT value.
+	// Valid values: local, dev, staging, main
+	//
+	// Use cases:
+	//   - Set to "main" in develop environment to consume from production topics
+	//   - Keeps logs/metrics accurate (shows "develop" not "main")
+	//
+	// See ws/internal/kafka/config.go for detailed documentation.
+	KafkaTopicNamespace string `env:"KAFKA_TOPIC_NAMESPACE" envDefault:""`
+
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 
@@ -372,6 +383,9 @@ func (c *Config) Validate() error {
 func (c *Config) Print() {
 	fmt.Println("=== Server Configuration ===")
 	fmt.Printf("Environment:     %s\n", c.Environment)
+	if c.KafkaTopicNamespace != "" {
+		fmt.Printf("Topic Namespace: %s (override)\n", c.KafkaTopicNamespace)
+	}
 	fmt.Printf("Address:         %s\n", c.Addr)
 	fmt.Printf("Kafka Brokers:   %s\n", c.KafkaBrokers)
 	fmt.Printf("Consumer Group:  %s\n", c.ConsumerGroup)
@@ -445,6 +459,7 @@ func (c *Config) Print() {
 func (c *Config) LogConfig(logger zerolog.Logger) {
 	logger.Info().
 		Str("environment", c.Environment).
+		Str("kafka_topic_namespace", c.KafkaTopicNamespace).
 		Str("addr", c.Addr).
 		Str("kafka_brokers", c.KafkaBrokers).
 		Str("consumer_group", c.ConsumerGroup).

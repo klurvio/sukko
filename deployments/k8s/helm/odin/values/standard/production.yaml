@@ -78,7 +78,8 @@ ws-server:
     shards: 4
     logLevel: warn
     logFormat: json
-    environment: prod  # Topic naming: odin.prod.{base}.refined
+    environment: production  # Deployment environment for logging/metrics
+    # kafkaTopicNamespace defaults to "main" (normalized from "production")
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:
@@ -154,53 +155,53 @@ redpanda:
   # Refined topics: ws-server consumes from here (after external service processing)
   topics:
     # Regular topics (publisher → external service)
-    - name: odin.prod.trade
+    - name: odin.main.trade
       partitions: 4
       replicationFactor: 2
-    - name: odin.prod.liquidity
+    - name: odin.main.liquidity
       partitions: 4
       replicationFactor: 2
-    - name: odin.prod.balances
+    - name: odin.main.balances
       partitions: 4
       replicationFactor: 2
-    - name: odin.prod.metadata
+    - name: odin.main.metadata
       partitions: 2
       replicationFactor: 2
-    - name: odin.prod.social
+    - name: odin.main.social
       partitions: 2
       replicationFactor: 2
-    - name: odin.prod.community
+    - name: odin.main.community
       partitions: 2
       replicationFactor: 2
-    - name: odin.prod.creation
+    - name: odin.main.creation
       partitions: 2
       replicationFactor: 2
-    - name: odin.prod.analytics
+    - name: odin.main.analytics
       partitions: 2
       replicationFactor: 2
     # Refined topics (external service → ws-server)
-    - name: odin.prod.trade.refined
+    - name: odin.main.trade.refined
       partitions: 4
       replicationFactor: 2
-    - name: odin.prod.liquidity.refined
+    - name: odin.main.liquidity.refined
       partitions: 4
       replicationFactor: 2
-    - name: odin.prod.balances.refined
+    - name: odin.main.balances.refined
       partitions: 4
       replicationFactor: 2
-    - name: odin.prod.metadata.refined
+    - name: odin.main.metadata.refined
       partitions: 2
       replicationFactor: 2
-    - name: odin.prod.social.refined
+    - name: odin.main.social.refined
       partitions: 2
       replicationFactor: 2
-    - name: odin.prod.community.refined
+    - name: odin.main.community.refined
       partitions: 2
       replicationFactor: 2
-    - name: odin.prod.creation.refined
+    - name: odin.main.creation.refined
       partitions: 2
       replicationFactor: 2
-    - name: odin.prod.analytics.refined
+    - name: odin.main.analytics.refined
       partitions: 2
       replicationFactor: 2
 

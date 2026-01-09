@@ -71,7 +71,10 @@ ws-server:
     shards: 2
     logLevel: info
     logFormat: json
-    environment: staging  # Topic naming: odin.staging.{base}.refined
+    environment: staging  # Deployment environment for logging/metrics
+    # kafkaTopicNamespace: defaults to "staging" (normalized from "staging")
+    # Uncomment to consume from production topics for testing:
+    # kafkaTopicNamespace: main
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:

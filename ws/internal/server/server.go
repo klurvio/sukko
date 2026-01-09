@@ -41,7 +41,7 @@ type Server struct {
 	config        types.ServerConfig // Immutable after creation
 	logger        zerolog.Logger     // Structured logger for all server events
 	listener      net.Listener       // TCP listener for accepting connections
-	kafkaConsumer *kafka.Consumer    // Kafka/Redpanda consumer for market data
+	kafkaConsumer *kafka.Consumer    // Kafka/Redpanda consumer for market data (managed by KafkaConsumerPool)
 
 	// Connection management
 	connections       *ConnectionPool    // Pre-allocated connection pool
@@ -84,9 +84,9 @@ type Server struct {
 //   - Subscription index for efficient message routing
 //   - Rate limiters (per-client and per-IP if enabled)
 //   - Resource guard for CPU-based backpressure
-//   - Kafka consumer (unless DisableKafkaConsumer is set for shared pool mode)
 //
-// Returns an error if Kafka consumer initialization fails.
+// Note: Kafka consumption is handled by KafkaConsumerPool (shared pool mode).
+// The server receives a reference to the shared consumer for metrics only.
 func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -141,42 +141,12 @@ func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc
 		Int("broadcast_rate_limit", config.MaxBroadcastsPerSec).
 		Msg("Server initialized with ResourceGuard")
 
-	// Initialize Kafka consumer (skip if DisableKafkaConsumer flag is set for shared pool mode)
-	// Consumes from refined topics only (processed data from external service)
-	if len(config.KafkaBrokers) > 0 && !config.DisableKafkaConsumer {
-		topics := kafka.AllRefinedTopics(config.Environment)
-		consumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
-			Brokers:       config.KafkaBrokers,
-			ConsumerGroup: config.ConsumerGroup,
-			Topics:        topics,
-			Logger:        &logger,
-			Broadcast:     broadcastToBusFunc, // Use the provided broadcast function
-			ResourceGuard: s.resourceGuard,    // Enable rate limiting and CPU brake
-		})
-		if err != nil {
-			s.auditLogger.Critical("KafkaConnectionFailed", "Failed to create Kafka consumer", map[string]any{
-				"brokers": config.KafkaBrokers,
-				"error":   err.Error(),
-			})
-			return nil, fmt.Errorf("failed to create kafka consumer: %w", err)
-		}
-		s.kafkaConsumer = consumer
-		logger.Printf("Created Kafka consumer for brokers: %v", config.KafkaBrokers)
-
-		s.auditLogger.Info("KafkaConsumerCreated", "Kafka consumer created successfully", map[string]any{
-			"brokers":        config.KafkaBrokers,
-			"consumer_group": config.ConsumerGroup,
-			"environment":    kafka.NormalizeEnv(config.Environment),
-			"topics":         topics,
-		})
-	} else if config.DisableKafkaConsumer {
-		// In shared pool mode, use the shared consumer reference for replay operations
-		if config.SharedKafkaConsumer != nil {
-			s.kafkaConsumer = config.SharedKafkaConsumer.(*kafka.Consumer)
-			logger.Printf("Using shared Kafka consumer for message replay")
-		} else {
-			logger.Printf("Kafka consumer creation skipped (using shared pool mode)")
-		}
+	// In shared pool mode, the KafkaConsumerPool handles Kafka consumption.
+	// Shards receive a reference to the shared consumer for metrics/replay only.
+	// The shared consumer is started/stopped by the pool, not by individual servers.
+	if config.SharedKafkaConsumer != nil {
+		s.kafkaConsumer = config.SharedKafkaConsumer.(*kafka.Consumer)
+		logger.Info().Msg("Using shared Kafka consumer (managed by pool)")
 	}
 
 	// NOTE: Authentication is now handled by ws-gateway
@@ -252,17 +222,9 @@ func (s *Server) Start() error {
 		Str("address", s.config.Addr).
 		Msg("Server listening")
 
-	// Start Kafka consumer
-	if s.kafkaConsumer != nil {
-		if err := s.kafkaConsumer.Start(); err != nil {
-			s.auditLogger.Critical("KafkaStartFailed", "Failed to start Kafka consumer", map[string]any{
-				"error": err.Error(),
-			})
-			return fmt.Errorf("failed to start kafka consumer: %w", err)
-		}
-		s.logger.Info().
-			Msg("Started Kafka consumer for all topics")
-	}
+	// Note: Kafka consumer is managed by KafkaConsumerPool in shared pool mode.
+	// Individual servers don't start/stop the consumer - they just hold a reference
+	// for metrics and replay operations. The pool handles lifecycle.
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
@@ -346,15 +308,8 @@ func (s *Server) Shutdown() error {
 		}
 	}
 
-	// Stop receiving new messages from Kafka
-	if s.kafkaConsumer != nil {
-		s.logger.Info().Msg("Stopping Kafka consumer (no new messages)")
-		if err := s.kafkaConsumer.Stop(); err != nil {
-			s.logger.Error().
-				Err(err).
-				Msg("Error stopping Kafka consumer")
-		}
-	}
+	// Note: Kafka consumer lifecycle is managed by KafkaConsumerPool.
+	// Servers don't stop the shared consumer - the pool handles it during shutdown.
 
 	// Count current connections
 	currentConns := atomic.LoadInt64(&s.stats.CurrentConnections)

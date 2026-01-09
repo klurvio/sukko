@@ -64,6 +64,16 @@ func main() {
 	// Print human-readable config for startup logs
 	cfg.Print()
 
+	// Resolve effective topic namespace for Kafka
+	// KafkaTopicNamespace overrides Environment for topic naming
+	topicNamespace := cfg.KafkaTopicNamespace
+	if topicNamespace == "" {
+		topicNamespace = kafka.NormalizeEnv(cfg.Environment)
+	} else {
+		topicNamespace = kafka.NormalizeEnv(topicNamespace)
+	}
+	logger.Printf("Topic namespace: %s (environment: %s)", topicNamespace, cfg.Environment)
+
 	// Initialize SystemMonitor singleton FIRST (before creating any ResourceGuards)
 	// This ensures all ResourceGuards share the same system metrics source
 	structuredLogger := monitoring.NewLogger(monitoring.LoggerConfig{
@@ -165,7 +175,7 @@ func main() {
 		kafkaPool, err = orchestration.NewKafkaConsumerPool(orchestration.KafkaPoolConfig{
 			Brokers:       kafkaBrokers,
 			ConsumerGroup: cfg.ConsumerGroup, // Single group for all shards
-			Environment:   cfg.Environment,   // Environment for topic naming
+			Environment:   topicNamespace,    // Resolved topic namespace for topic naming
 			BroadcastBus:  broadcastBus,
 			ResourceGuard: resourceGuard,
 			Logger:        poolLogger,
@@ -195,7 +205,7 @@ func main() {
 			Addr:           shardBindAddr,
 			KafkaBrokers:   kafkaBrokers,
 			ConsumerGroup:  cfg.ConsumerGroup, // Base consumer group name
-			Environment:    cfg.Environment,   // Environment for topic naming
+			Environment:    cfg.Environment,   // Environment for logging (topic naming via shared pool)
 			MaxConnections: maxConnsPerShard,  // Shard-specific max connections
 
 			MemoryLimit:            cfg.MemoryLimit,
@@ -230,15 +240,14 @@ func main() {
 		}
 
 		shard, err := orchestration.NewShard(orchestration.ShardConfig{
-			ID:                   i,
-			Addr:                 shardBindAddr,      // Bind address for listening
-			AdvertiseAddr:        shardAdvertiseAddr, // Address for LoadBalancer connections
-			ServerConfig:         shardConfig,
-			BroadcastBus:         broadcastBus,          // Pass reference to bus, shard will subscribe internally
-			DisableKafkaConsumer: len(kafkaBrokers) > 0, // Disable per-shard consumer when using shared pool
-			SharedKafkaConsumer:  sharedConsumer,        // Pass shared consumer for message replay
-			Logger:               monitoring.NewLogger(monitoring.LoggerConfig{Level: types.LogLevel(cfg.LogLevel), Format: types.LogFormat(cfg.LogFormat)}),
-			MaxConnections:       maxConnsPerShard,
+			ID:                  i,
+			Addr:                shardBindAddr,      // Bind address for listening
+			AdvertiseAddr:       shardAdvertiseAddr, // Address for LoadBalancer connections
+			ServerConfig:        shardConfig,
+			BroadcastBus:        broadcastBus,   // Pass reference to bus, shard will subscribe internally
+			SharedKafkaConsumer: sharedConsumer, // Shared consumer for metrics (managed by pool)
+			Logger:              monitoring.NewLogger(monitoring.LoggerConfig{Level: types.LogLevel(cfg.LogLevel), Format: types.LogFormat(cfg.LogFormat)}),
+			MaxConnections:      maxConnsPerShard,
 		})
 		if err != nil {
 			logger.Fatalf("Failed to create shard %d: %v", i, err)

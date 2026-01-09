@@ -5,6 +5,31 @@ import (
 	"strings"
 )
 
+// =============================================================================
+// Topic Namespace Configuration
+// =============================================================================
+//
+// ENVIRONMENT vs KAFKA_TOPIC_NAMESPACE:
+//
+// ENVIRONMENT: Identifies the deployment environment (develop, staging, production).
+//   - Used for: logging, metrics labels, feature flags, operational context
+//   - Example: ENVIRONMENT=develop means "this is the develop deployment"
+//
+// KAFKA_TOPIC_NAMESPACE: Identifies which Kafka topic namespace to use.
+//   - Used for: topic naming only (odin.{namespace}.{base}.refined)
+//   - Defaults to: normalized ENVIRONMENT value if not set
+//   - Example: KAFKA_TOPIC_NAMESPACE=main means "consume from odin.main.* topics"
+//
+// Why separate?
+//   - Allows develop environment to consume from main topics for testing
+//   - Keeps logs/metrics accurate (shows "develop" not "main")
+//   - Explicit about intent - clearly shows cross-namespace access
+//   - Safer - can't accidentally affect non-topic environment behavior
+//
+// Valid namespaces: local, dev, staging, main
+//
+// =============================================================================
+
 // Topic base names (without environment prefix)
 const (
 	TopicBaseTrade     = "trade"
@@ -29,8 +54,16 @@ var allTopicBases = []string{
 	TopicBaseBalances,
 }
 
-// NormalizeEnv converts environment names to short form for topic naming
-// Examples: "development" -> "local", "develop" -> "dev", "production" -> "prod"
+// NormalizeEnv converts environment names to short form for topic namespace.
+// This is used for Kafka topic naming: odin.{namespace}.{base}
+//
+// Mapping:
+//   - "development", "local", "" -> "local"
+//   - "develop", "dev"           -> "dev"
+//   - "staging", "stage"         -> "staging"
+//   - "production", "prod", "main" -> "main"
+//
+// Note: Production uses "main" namespace (not "prod") for clarity.
 func NormalizeEnv(env string) string {
 	env = strings.ToLower(strings.TrimSpace(env))
 	switch env {
@@ -40,8 +73,8 @@ func NormalizeEnv(env string) string {
 		return "dev"
 	case "staging", "stage":
 		return "staging"
-	case "production", "prod":
-		return "prod"
+	case "production", "prod", "main":
+		return "main"
 	default:
 		return env
 	}
@@ -144,7 +177,7 @@ func TopicToEventType(topic string) string {
 	topic = strings.TrimPrefix(topic, "odin.")
 	topic = strings.TrimSuffix(topic, ".refined")
 
-	// Remove environment prefix (e.g., "dev.", "local.", "staging.", "prod.")
+	// Remove environment prefix (e.g., "dev.", "local.", "staging.", "main.")
 	parts := strings.SplitN(topic, ".", 2)
 	if len(parts) == 2 {
 		return parts[1] // Return the base topic name

@@ -29,13 +29,12 @@ const (
 
 // ServerConfig contains the configuration for the WebSocket server
 type ServerConfig struct {
-	Addr                 string
-	KafkaBrokers         []string
-	ConsumerGroup        string
-	Environment          string // Environment for topic naming (e.g., "local", "dev", "staging", "prod")
-	DisableKafkaConsumer bool   // When true, skip Kafka consumer creation (for shared pool mode)
-	SharedKafkaConsumer  any    // Optional: Shared Kafka consumer for message replay (set when using pool mode)
-	MaxConnections       int
+	Addr                string
+	KafkaBrokers        []string
+	ConsumerGroup       string
+	Environment         string // Environment for logging (topic naming handled by KafkaConsumerPool)
+	SharedKafkaConsumer any    // Shared Kafka consumer reference (managed by KafkaConsumerPool)
+	MaxConnections      int
 
 	// Static resource limits
 	// Note: CPU limit is detected automatically via automaxprocs reading cgroup

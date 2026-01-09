@@ -53,11 +53,13 @@ func TestNormalizeEnv(t *testing.T) {
 		{"dev", "dev"},
 		{"staging", "staging"},
 		{"stage", "staging"},
-		{"production", "prod"},
-		{"prod", "prod"},
+		{"production", "main"},
+		{"prod", "main"},
+		{"main", "main"},
 		{"custom", "custom"},
-		{"  dev  ", "dev"}, // with whitespace
-		{"DEV", "dev"},     // uppercase
+		{"  dev  ", "dev"},     // with whitespace
+		{"DEV", "dev"},         // uppercase
+		{"PRODUCTION", "main"}, // uppercase production
 	}
 
 	for _, tt := range tests {
@@ -83,9 +85,10 @@ func TestGetTopic(t *testing.T) {
 		{"local", TopicBaseTrade, "odin.local.trade"},
 		{"dev", TopicBaseLiquidity, "odin.dev.liquidity"},
 		{"staging", TopicBaseMetadata, "odin.staging.metadata"},
-		{"prod", TopicBaseBalances, "odin.prod.balances"},
+		{"main", TopicBaseBalances, "odin.main.balances"},
 		{"development", TopicBaseTrade, "odin.local.trade"}, // normalizes to local
-		{"production", TopicBaseTrade, "odin.prod.trade"},   // normalizes to prod
+		{"production", TopicBaseTrade, "odin.main.trade"},   // normalizes to main
+		{"prod", TopicBaseTrade, "odin.main.trade"},         // normalizes to main
 	}
 
 	for _, tt := range tests {
@@ -111,7 +114,8 @@ func TestGetRefinedTopic(t *testing.T) {
 		{"local", TopicBaseTrade, "odin.local.trade.refined"},
 		{"dev", TopicBaseLiquidity, "odin.dev.liquidity.refined"},
 		{"staging", TopicBaseMetadata, "odin.staging.metadata.refined"},
-		{"prod", TopicBaseBalances, "odin.prod.balances.refined"},
+		{"main", TopicBaseBalances, "odin.main.balances.refined"},
+		{"production", TopicBaseTrade, "odin.main.trade.refined"}, // normalizes to main
 	}
 
 	for _, tt := range tests {
@@ -245,11 +249,11 @@ func TestTopicToEventType_RegularTopics(t *testing.T) {
 		{"odin.dev.trade", "trade"},
 		{"odin.local.liquidity", "liquidity"},
 		{"odin.staging.metadata", "metadata"},
-		{"odin.prod.social", "social"},
+		{"odin.main.social", "social"},
 		{"odin.dev.community", "community"},
 		{"odin.local.creation", "creation"},
 		{"odin.staging.analytics", "analytics"},
-		{"odin.prod.balances", "balances"},
+		{"odin.main.balances", "balances"},
 	}
 
 	for _, tt := range tests {
@@ -270,7 +274,7 @@ func TestTopicToEventType_RefinedTopics(t *testing.T) {
 		{"odin.dev.trade.refined", "trade"},
 		{"odin.local.liquidity.refined", "liquidity"},
 		{"odin.staging.metadata.refined", "metadata"},
-		{"odin.prod.balances.refined", "balances"},
+		{"odin.main.balances.refined", "balances"},
 	}
 
 	for _, tt := range tests {

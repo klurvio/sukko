@@ -16,9 +16,14 @@ config:
   lbAddr: ":3001"
   maxKafkaRate: 1000
   maxBroadcastRate: 25
-  # Environment for topic naming (local, dev, staging, prod)
-  # Topics are generated as: odin.{environment}.{base}.refined
+  # Environment: deployment environment for logging, metrics, feature flags
+  # Values: develop, staging, production (or local for development)
   environment: local
+  # kafkaTopicNamespace: overrides environment for Kafka topic naming only
+  # If empty, uses normalized environment (local, dev, staging, main)
+  # Set to "main" in develop to consume from production topics for testing
+  # Topics are generated as: odin.{namespace}.{base}.refined
+  kafkaTopicNamespace: ""
   connRateLimit:
     enabled: true
     ipBurst: 100

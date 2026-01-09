@@ -118,7 +118,16 @@ var EventTypeToBase = map[string]string{
 	EventTransferCompleted: TopicBaseBalances,
 }
 
-// normalizeEnv converts environment names to short form for topic naming
+// normalizeEnv converts environment names to short form for topic naming.
+// This is used for Kafka topic naming: odin.{namespace}.{base}
+//
+// Mapping:
+//   - "development", "local", "" -> "local"
+//   - "develop", "dev"           -> "dev"
+//   - "staging", "stage"         -> "staging"
+//   - "production", "prod", "main" -> "main"
+//
+// Note: Production uses "main" namespace (not "prod") for clarity.
 func normalizeEnv(env string) string {
 	env = strings.ToLower(strings.TrimSpace(env))
 	switch env {
@@ -128,8 +137,8 @@ func normalizeEnv(env string) string {
 		return "dev"
 	case "staging", "stage":
 		return "staging"
-	case "production", "prod":
-		return "prod"
+	case "production", "prod", "main":
+		return "main"
 	default:
 		return env
 	}
@@ -208,10 +217,11 @@ func init() {
 
 // Config holds application configuration
 type Config struct {
-	KafkaBrokers []string
-	APIPort      int
-	Environment  string // Environment for topic naming (e.g., "local", "dev", "staging", "prod")
-	UseRefined   bool   // If true, publish to refined topics (for dev/testing without processor)
+	KafkaBrokers        []string
+	APIPort             int
+	Environment         string // Deployment environment (e.g., "develop", "staging", "production")
+	KafkaTopicNamespace string // Topic namespace (resolved from KAFKA_TOPIC_NAMESPACE or normalized Environment)
+	UseRefined          bool   // If true, publish to refined topics (for dev/testing without processor)
 }
 
 // Event represents a token event
@@ -252,14 +262,25 @@ func loadConfig() *Config {
 		environment = "local"
 	}
 
+	// KAFKA_TOPIC_NAMESPACE overrides ENVIRONMENT for topic naming
+	// This allows publishing to different topic namespaces without changing ENVIRONMENT
+	// Example: Set KAFKA_TOPIC_NAMESPACE=main in develop to publish to production topics
+	kafkaTopicNamespace := os.Getenv("KAFKA_TOPIC_NAMESPACE")
+	if kafkaTopicNamespace == "" {
+		kafkaTopicNamespace = normalizeEnv(environment)
+	} else {
+		kafkaTopicNamespace = normalizeEnv(kafkaTopicNamespace)
+	}
+
 	// USE_REFINED: publish directly to refined topics (for dev/testing without processor)
 	useRefined := os.Getenv("USE_REFINED") == "true"
 
 	return &Config{
-		KafkaBrokers: strings.Split(brokers, ","),
-		APIPort:      port,
-		Environment:  environment,
-		UseRefined:   useRefined,
+		KafkaBrokers:        strings.Split(brokers, ","),
+		APIPort:             port,
+		Environment:         environment,
+		KafkaTopicNamespace: kafkaTopicNamespace,
+		UseRefined:          useRefined,
 	}
 }
 
@@ -488,18 +509,18 @@ func generateRandomEvent(tokenIDs []string) Event {
 // =============================================================================
 
 type Publisher struct {
-	client       *kgo.Client
-	environment  string // Environment for topic naming
-	useRefined   bool   // If true, publish to refined topics
-	isConnected  bool
-	publishCount int64
-	lastLogTime  time.Time
-	lastCount    int64
-	statsStopCh  chan struct{}
-	mu           sync.RWMutex
+	client         *kgo.Client
+	topicNamespace string // Topic namespace for topic naming (from KAFKA_TOPIC_NAMESPACE or normalized ENVIRONMENT)
+	useRefined     bool   // If true, publish to refined topics
+	isConnected    bool
+	publishCount   int64
+	lastLogTime    time.Time
+	lastCount      int64
+	statsStopCh    chan struct{}
+	mu             sync.RWMutex
 }
 
-func NewPublisher(brokers []string, environment string, useRefined bool) (*Publisher, error) {
+func NewPublisher(brokers []string, topicNamespace string, useRefined bool) (*Publisher, error) {
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(brokers...),
 		kgo.ClientID("odin-publisher"),
@@ -517,10 +538,10 @@ func NewPublisher(brokers []string, environment string, useRefined bool) (*Publi
 	}
 
 	return &Publisher{
-		client:      client,
-		environment: environment,
-		useRefined:  useRefined,
-		statsStopCh: make(chan struct{}),
+		client:         client,
+		topicNamespace: topicNamespace,
+		useRefined:     useRefined,
+		statsStopCh:    make(chan struct{}),
 	}, nil
 }
 
@@ -581,13 +602,13 @@ func (p *Publisher) Publish(ctx context.Context, event Event) error {
 		p.mu.RUnlock()
 		return fmt.Errorf("publisher not connected")
 	}
-	environment := p.environment
+	topicNamespace := p.topicNamespace
 	useRefined := p.useRefined
 	p.mu.RUnlock()
 
-	// Get environment-prefixed topic name
+	// Get namespace-prefixed topic name
 	// If useRefined is true, publishes to refined topics (for dev/testing without processor)
-	topic := getTopicForEvent(environment, event.Type, useRefined)
+	topic := getTopicForEvent(topicNamespace, event.Type, useRefined)
 
 	// Create message payload
 	msg := KafkaMessage{
@@ -1008,10 +1029,11 @@ func main() {
 	if config.UseRefined {
 		topicType = "refined"
 	}
-	log.Printf("[Main] Starting publisher with brokers: %v, environment: %s, topic_type: %s", config.KafkaBrokers, normalizeEnv(config.Environment), topicType)
+	log.Printf("[Main] Starting publisher with brokers: %v, topic_namespace: %s, environment: %s, topic_type: %s",
+		config.KafkaBrokers, config.KafkaTopicNamespace, config.Environment, topicType)
 
 	// Create publisher
-	publisher, err := NewPublisher(config.KafkaBrokers, config.Environment, config.UseRefined)
+	publisher, err := NewPublisher(config.KafkaBrokers, config.KafkaTopicNamespace, config.UseRefined)
 	if err != nil {
 		log.Fatalf("[Main] Failed to create publisher: %v", err)
 	}

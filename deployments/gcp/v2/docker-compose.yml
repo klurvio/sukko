@@ -44,6 +44,7 @@ services:
     environment:
       - KAFKA_BROKERS=${KAFKA_BROKERS:-localhost:9092}
       - ENVIRONMENT=${ENVIRONMENT:-local}
+      - KAFKA_TOPIC_NAMESPACE=${KAFKA_TOPIC_NAMESPACE:-}
       - USE_REFINED=${USE_REFINED:-false}
       - API_PORT=3001
     profiles:

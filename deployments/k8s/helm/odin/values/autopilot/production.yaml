@@ -17,7 +17,8 @@ ws-server:
     shards: 2
     logLevel: warn
     logFormat: json
-    environment: prod  # Topic naming: odin.prod.{base}.refined
+    environment: production  # Deployment environment for logging/metrics
+    # kafkaTopicNamespace defaults to "main" (normalized from "production")
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:
