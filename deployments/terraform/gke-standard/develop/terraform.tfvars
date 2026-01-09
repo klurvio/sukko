@@ -23,8 +23,8 @@ node_disk_size_gb = 50
 use_spot_vms     = true
 taint_spot_nodes = false
 
-# Scaling - Fixed 2 nodes for develop
-node_count         = 2
+# Scaling - Single node for POC
+node_count         = 1
 enable_autoscaling = false
 
 # Features
