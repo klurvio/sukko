@@ -71,9 +71,9 @@ ws-server:
     logLevel: info
     logFormat: json
     environment: develop  # Deployment environment for logging/metrics
-    # kafkaTopicNamespace: defaults to "dev" (normalized from "develop")
-    # Uncomment to consume from production topics for testing:
-    # kafkaTopicNamespace: main
+    # Topic namespace: "main" to consume from production Redpanda topics
+    # This allows develop to test against real production data
+    kafkaTopicNamespace: main
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:
