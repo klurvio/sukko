@@ -140,59 +140,65 @@ redpanda:
     enabled: true
     size: 2Gi
 
-  # Topic configuration for development
-  # Topics use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
+  # Topic configuration
+  # IMPORTANT: Topic namespace must match ws-server.config.kafkaTopicNamespace
+  # If you change topics from odin.main.* to odin.dev.*, also change:
+  #   ws-server.config.kafkaTopicNamespace: dev (or remove to use default)
+  #
+  # Current: odin.main.* topics → kafkaTopicNamespace: main
+  #
+  # Topics use namespace-prefixed naming: odin.{namespace}.{base}.refined
   # Regular topics: Publisher publishes here
   # Refined topics: ws-server consumes from here (after external service processing)
   topics:
     # Regular topics (publisher → external service)
-    - name: odin.dev.trade
+    - name: odin.main.trade
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.liquidity
+    - name: odin.main.liquidity
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.balances
+    - name: odin.main.balances
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.metadata
+    - name: odin.main.metadata
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.social
+    - name: odin.main.social
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.community
+    - name: odin.main.community
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.creation
+    - name: odin.main.creation
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.analytics
+    - name: odin.main.analytics
       partitions: 1
       replicationFactor: 1
     # Refined topics (external service → ws-server)
-    - name: odin.dev.trade.refined
+    - name: odin.main.trade.refined
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.liquidity.refined
+    - name: odin.main.liquidity.refined
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.balances.refined
+    - name: odin.main.balances.refined
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.metadata.refined
+    - name: odin.main.metadata.refined
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.social.refined
+    - name: odin.main.social.refined
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.community.refined
+    - name: odin.main.community.refined
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.creation.refined
+    - name: odin.main.creation.refined
       partitions: 1
       replicationFactor: 1
-    - name: odin.dev.analytics.refined
+    - name: odin.main.analytics.refined
       partitions: 1
       replicationFactor: 1
 

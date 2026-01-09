@@ -8,7 +8,7 @@ version: "3"
 vars:
   # Environment (develop, staging)
   ENV: '{{.ENV | default "develop"}}'
-  V2_DEPLOY_DIR: '{{.USER_WORKING_DIR}}/deployments/gcp/v2'
+  V2_DEPLOY_DIR: '{{.ROOT_DIR}}/deployments/gcp/v2'
   V2_ENV_FILE: '{{.V2_DEPLOY_DIR}}/environments/{{.ENV}}.env'
   # Read GCP_PROJECT from env file, with hardcoded fallback
   # Note: pipe to cut always succeeds, so we check if result is empty
@@ -253,7 +253,7 @@ tasks:
   sync-code:
     desc: Sync code from local to VM (no git clone needed)
     vars:
-      LOCAL_ROOT: '{{.USER_WORKING_DIR}}'
+      LOCAL_ROOT: '{{.ROOT_DIR}}'
     cmds:
       - echo "Syncing code to {{.INSTANCE_NAME}}..."
       - echo ""
