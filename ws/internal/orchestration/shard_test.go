@@ -27,12 +27,12 @@ func TestShard_GetMaxConnections(t *testing.T) {
 
 func TestBroadcastMessage_Fields(t *testing.T) {
 	msg := &broadcast.Message{
-		Subject: "odin.token.BTC.trade",
+		Subject: "BTC.trade",
 		Payload: []byte(`{"price":"100.50"}`),
 	}
 
-	if msg.Subject != "odin.token.BTC.trade" {
-		t.Errorf("Subject: got %s, want odin.token.BTC.trade", msg.Subject)
+	if msg.Subject != "BTC.trade" {
+		t.Errorf("Subject: got %s, want BTC.trade", msg.Subject)
 	}
 	if string(msg.Payload) != `{"price":"100.50"}` {
 		t.Errorf("Payload: got %s, want {\"price\":\"100.50\"}", msg.Payload)

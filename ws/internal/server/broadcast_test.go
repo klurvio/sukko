@@ -15,44 +15,44 @@ func TestExtractChannel_ValidSubjects(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "BTC trade",
-			subject:  "odin.token.BTC.trade",
+			name:     "BTC trade (2 parts)",
+			subject:  "BTC.trade",
 			expected: "BTC.trade",
 		},
 		{
-			name:     "ETH liquidity",
-			subject:  "odin.token.ETH.liquidity",
+			name:     "ETH liquidity (2 parts)",
+			subject:  "ETH.liquidity",
 			expected: "ETH.liquidity",
 		},
 		{
-			name:     "SOL metadata",
-			subject:  "odin.token.SOL.metadata",
+			name:     "SOL metadata (2 parts)",
+			subject:  "SOL.metadata",
 			expected: "SOL.metadata",
 		},
 		{
-			name:     "DOGE social",
-			subject:  "odin.token.DOGE.social",
-			expected: "DOGE.social",
+			name:     "User-scoped trade (3 parts)",
+			subject:  "BTC.trade.user123",
+			expected: "BTC.trade.user123",
 		},
 		{
-			name:     "SHIB favorites",
-			subject:  "odin.token.SHIB.favorites",
-			expected: "SHIB.favorites",
+			name:     "User-scoped balances (3 parts)",
+			subject:  "ETH.balances.user456",
+			expected: "ETH.balances.user456",
 		},
 		{
-			name:     "PEPE creation",
-			subject:  "odin.token.PEPE.creation",
-			expected: "PEPE.creation",
+			name:     "Group-scoped community (3 parts)",
+			subject:  "SOL.community.group789",
+			expected: "SOL.community.group789",
 		},
 		{
-			name:     "BONK analytics",
-			subject:  "odin.token.BONK.analytics",
-			expected: "BONK.analytics",
+			name:     "Simple balances (2 parts)",
+			subject:  "balances.user123",
+			expected: "balances.user123",
 		},
 		{
-			name:     "WIF balances",
-			subject:  "odin.token.WIF.balances",
-			expected: "WIF.balances",
+			name:     "Simple community (2 parts)",
+			subject:  "community.group456",
+			expected: "community.group456",
 		},
 	}
 
@@ -73,29 +73,29 @@ func TestExtractChannel_EdgeCases(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "Extra parts (5 parts)",
-			subject:  "odin.token.BTC.trade.extra",
-			expected: "BTC.trade",
-		},
-		{
-			name:     "Extra parts (6 parts)",
-			subject:  "odin.token.ETH.liquidity.more.parts",
-			expected: "ETH.liquidity",
-		},
-		{
 			name:     "Long symbol",
-			subject:  "odin.token.VERYLONGSYMBOLNAME.trade",
+			subject:  "VERYLONGSYMBOLNAME.trade",
 			expected: "VERYLONGSYMBOLNAME.trade",
 		},
 		{
 			name:     "Lowercase symbol",
-			subject:  "odin.token.btc.trade",
+			subject:  "btc.trade",
 			expected: "btc.trade",
 		},
 		{
 			name:     "Mixed case symbol",
-			subject:  "odin.token.BtC.TrAdE",
+			subject:  "BtC.TrAdE",
 			expected: "BtC.TrAdE",
+		},
+		{
+			name:     "4 parts",
+			subject:  "a.b.c.d",
+			expected: "a.b.c.d",
+		},
+		{
+			name:     "5 parts",
+			subject:  "a.b.c.d.e",
+			expected: "a.b.c.d.e",
 		},
 	}
 
@@ -119,38 +119,32 @@ func TestExtractChannel_InvalidSubjects(t *testing.T) {
 			subject: "",
 		},
 		{
-			name:    "Single part",
+			name:    "Single part (no dots)",
 			subject: "odin",
-		},
-		{
-			name:    "Two parts",
-			subject: "odin.token",
-		},
-		{
-			name:    "Three parts (no event type)",
-			subject: "odin.token.BTC",
 		},
 		{
 			name:    "No dots",
 			subject: "nodots",
 		},
-		// Edge cases: subjects with 4+ parts but empty symbol or event type
-		// These would return "." without validation, which is invalid
 		{
 			name:    "Only dots (empty parts)",
 			subject: "...",
 		},
 		{
-			name:    "Empty symbol",
-			subject: "odin.token..trade",
+			name:    "Empty first part",
+			subject: ".trade",
 		},
 		{
-			name:    "Empty event type",
-			subject: "odin.token.BTC.",
+			name:    "Empty second part",
+			subject: "BTC.",
 		},
 		{
-			name:    "Empty symbol and event type",
-			subject: "odin.token..",
+			name:    "Empty middle part",
+			subject: "BTC..user123",
+		},
+		{
+			name:    "All empty parts",
+			subject: "..",
 		},
 	}
 
@@ -165,7 +159,7 @@ func TestExtractChannel_InvalidSubjects(t *testing.T) {
 }
 
 func TestExtractChannel_AllEventTypes(t *testing.T) {
-	// Test all 8 documented event types
+	// Test all documented event types
 	eventTypes := []string{
 		"trade",
 		"liquidity",
@@ -175,11 +169,12 @@ func TestExtractChannel_AllEventTypes(t *testing.T) {
 		"creation",
 		"analytics",
 		"balances",
+		"community",
 	}
 
 	for _, eventType := range eventTypes {
 		t.Run(eventType, func(t *testing.T) {
-			subject := "odin.token.BTC." + eventType
+			subject := "BTC." + eventType
 			expected := "BTC." + eventType
 
 			result := extractChannel(subject)
@@ -194,22 +189,29 @@ func TestExtractChannel_AllEventTypes(t *testing.T) {
 // Benchmark Tests
 // =============================================================================
 
-func BenchmarkExtractChannel_Valid(b *testing.B) {
-	subject := "odin.token.BTC.trade"
+func BenchmarkExtractChannel_TwoParts(b *testing.B) {
+	subject := "BTC.trade"
+	for b.Loop() {
+		_ = extractChannel(subject)
+	}
+}
+
+func BenchmarkExtractChannel_ThreeParts(b *testing.B) {
+	subject := "BTC.trade.user123"
 	for b.Loop() {
 		_ = extractChannel(subject)
 	}
 }
 
 func BenchmarkExtractChannel_Invalid(b *testing.B) {
-	subject := "odin.token.BTC" // Missing event type
+	subject := "nodots"
 	for b.Loop() {
 		_ = extractChannel(subject)
 	}
 }
 
 func BenchmarkExtractChannel_LongSubject(b *testing.B) {
-	subject := "odin.token.VERYLONGSYMBOLNAMEWITHMANYCHARACTERS.trade"
+	subject := "VERYLONGSYMBOLNAMEWITHMANYCHARACTERS.trade"
 	for b.Loop() {
 		_ = extractChannel(subject)
 	}

@@ -16,7 +16,7 @@
 //	bus.Run()
 //
 //	// Publish messages (fire-and-forget)
-//	bus.Publish(&broadcast.Message{Subject: "odin.token.BTC.trades", Payload: data})
+//	bus.Publish(&broadcast.Message{Subject: "BTC.trade", Payload: data})
 package broadcast
 
 import (
@@ -64,7 +64,7 @@ type Bus interface {
 
 // Message represents a broadcast message sent between instances.
 type Message struct {
-	// Subject is the routing key (e.g., "odin.token.BTC.trades")
+	// Subject is the routing key (e.g., "BTC.trade")
 	Subject string `json:"subject"`
 
 	// Payload is the raw message data (typically JSON)

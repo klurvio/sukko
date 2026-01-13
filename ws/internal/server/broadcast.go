@@ -11,22 +11,29 @@ import (
 	"github.com/gobwas/ws"
 )
 
-// extractChannel extracts hierarchical channel from subject
-// Example: "odin.token.BTC.trade" → "BTC.trade"
+// extractChannel returns the broadcast subject as the channel for subscription matching.
+// The broadcast subject IS the channel - no transformation needed.
+//
+// Supported formats (2+ parts):
+//   - "BTC.trade" (public)
+//   - "BTC.trade.user123" (user-scoped)
+//   - "community.group456" (group-scoped)
 func extractChannel(subject string) string {
 	parts := strings.Split(subject, ".")
-	if len(parts) >= 4 {
-		// Validate both parts are non-empty to avoid returning "." for inputs like "..."
-		symbol := parts[2]
-		eventType := parts[3]
-		if symbol == "" || eventType == "" {
+
+	// Minimum: {subject}.{eventType}, can have more parts
+	if len(parts) < 2 {
+		return ""
+	}
+
+	// Validate no empty parts
+	for _, p := range parts {
+		if p == "" {
 			return ""
 		}
-		// Hierarchical format: "odin.token.BTC.trade" → "BTC.trade"
-		return symbol + "." + eventType
 	}
-	// Invalid format - event type required
-	return ""
+
+	return subject
 }
 
 // broadcast sends a message to subscribed clients with reliability guarantees
@@ -59,7 +66,7 @@ func extractChannel(subject string) string {
 // - Result: 160x reduction vs no filtering, 8x reduction vs symbol-only filtering
 func (s *Server) Broadcast(subject string, message []byte) {
 	// Extract hierarchical channel from subject for subscription filtering
-	// Example: "odin.token.BTC.trade" → "BTC.trade"
+	// Example: "BTC.trade" (new format) or "odin.token.BTC.trade" (legacy) → "BTC.trade"
 	channel := extractChannel(subject)
 
 	// Edge case: If channel is empty (malformed subject), skip broadcast entirely

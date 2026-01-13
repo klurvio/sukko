@@ -36,12 +36,12 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestMessage_Fields(t *testing.T) {
 	msg := &Message{
-		Subject: "odin.token.BTC.trades",
+		Subject: "BTC.trade",
 		Payload: []byte(`{"price":"50000.00"}`),
 	}
 
-	if msg.Subject != "odin.token.BTC.trades" {
-		t.Errorf("Subject: got %s, want odin.token.BTC.trades", msg.Subject)
+	if msg.Subject != "BTC.trade" {
+		t.Errorf("Subject: got %s, want BTC.trade", msg.Subject)
 	}
 	if string(msg.Payload) != `{"price":"50000.00"}` {
 		t.Errorf("Payload: got %s, want {\"price\":\"50000.00\"}", msg.Payload)

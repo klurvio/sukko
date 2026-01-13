@@ -46,7 +46,7 @@ func (m *mockResourceGuard) ShouldPauseKafka() bool {
 func TestNewConsumer_NoBrokers(t *testing.T) {
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
-	broadcast := func(tokenID, eventType string, message []byte) {}
+	broadcast := func(subject string, message []byte) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{},
@@ -66,7 +66,7 @@ func TestNewConsumer_NoBrokers(t *testing.T) {
 func TestNewConsumer_NoConsumerGroup(t *testing.T) {
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
-	broadcast := func(tokenID, eventType string, message []byte) {}
+	broadcast := func(subject string, message []byte) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
@@ -86,7 +86,7 @@ func TestNewConsumer_NoConsumerGroup(t *testing.T) {
 func TestNewConsumer_NoTopics(t *testing.T) {
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
-	broadcast := func(tokenID, eventType string, message []byte) {}
+	broadcast := func(subject string, message []byte) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
@@ -124,7 +124,7 @@ func TestNewConsumer_NoBroadcast(t *testing.T) {
 
 func TestNewConsumer_NoResourceGuard(t *testing.T) {
 	logger := zerolog.Nop()
-	broadcast := func(tokenID, eventType string, message []byte) {}
+	broadcast := func(subject string, message []byte) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
@@ -353,8 +353,7 @@ func TestReplayMessage_Fields(t *testing.T) {
 		Topic:     GetRefinedTopic("test", TopicBaseTrade),
 		Partition: 0,
 		Offset:    12345,
-		TokenID:   "BTC",
-		EventType: "trade",
+		Subject:   "BTC.trade",
 		Data:      []byte(`{"price":"100.50"}`),
 	}
 
@@ -367,11 +366,8 @@ func TestReplayMessage_Fields(t *testing.T) {
 	if msg.Offset != 12345 {
 		t.Errorf("Offset = %d, want 12345", msg.Offset)
 	}
-	if msg.TokenID != "BTC" {
-		t.Errorf("TokenID = %s, want BTC", msg.TokenID)
-	}
-	if msg.EventType != "trade" {
-		t.Errorf("EventType = %s, want trade", msg.EventType)
+	if msg.Subject != "BTC.trade" {
+		t.Errorf("Subject = %s, want BTC.trade", msg.Subject)
 	}
 	if string(msg.Data) != `{"price":"100.50"}` {
 		t.Errorf("Data = %s, want {\"price\":\"100.50\"}", msg.Data)
@@ -384,38 +380,30 @@ func TestReplayMessage_Fields(t *testing.T) {
 
 func TestBroadcastFunc_Signature(t *testing.T) {
 	var calls []struct {
-		tokenID   string
-		eventType string
-		message   []byte
+		subject string
+		message []byte
 	}
 
-	var broadcast BroadcastFunc = func(tokenID, eventType string, message []byte) {
+	var broadcast BroadcastFunc = func(subject string, message []byte) {
 		calls = append(calls, struct {
-			tokenID   string
-			eventType string
-			message   []byte
-		}{tokenID, eventType, message})
+			subject string
+			message []byte
+		}{subject, message})
 	}
 
-	broadcast("BTC", "trade", []byte(`{"test":true}`))
-	broadcast("ETH", "liquidity", []byte(`{"pool":"abc"}`))
+	broadcast("BTC.trade", []byte(`{"test":true}`))
+	broadcast("ETH.liquidity", []byte(`{"pool":"abc"}`))
 
 	if len(calls) != 2 {
 		t.Fatalf("Expected 2 calls, got %d", len(calls))
 	}
 
-	if calls[0].tokenID != "BTC" {
-		t.Errorf("calls[0].tokenID = %s, want BTC", calls[0].tokenID)
-	}
-	if calls[0].eventType != "trade" {
-		t.Errorf("calls[0].eventType = %s, want trade", calls[0].eventType)
+	if calls[0].subject != "BTC.trade" {
+		t.Errorf("calls[0].subject = %s, want BTC.trade", calls[0].subject)
 	}
 
-	if calls[1].tokenID != "ETH" {
-		t.Errorf("calls[1].tokenID = %s, want ETH", calls[1].tokenID)
-	}
-	if calls[1].eventType != "liquidity" {
-		t.Errorf("calls[1].eventType = %s, want liquidity", calls[1].eventType)
+	if calls[1].subject != "ETH.liquidity" {
+		t.Errorf("calls[1].subject = %s, want ETH.liquidity", calls[1].subject)
 	}
 }
 

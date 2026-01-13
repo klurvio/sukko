@@ -33,8 +33,8 @@ type TokenEvent struct {
 }
 
 // BroadcastFunc is called when a message is received
-// Parameters: tokenID, eventType, messageJSON
-type BroadcastFunc func(tokenID string, eventType string, message []byte)
+// Parameters: subject (Kafka Key = broadcast channel), messageJSON
+type BroadcastFunc func(subject string, message []byte)
 
 // ResourceGuard interface for rate limiting and CPU emergency brake
 type ResourceGuard interface {
@@ -319,9 +319,8 @@ func (c *Consumer) consumeLoop() {
 
 	// Batching enabled: accumulate messages and flush periodically
 	type batchedMessage struct {
-		tokenID   string
-		eventType string
-		message   []byte
+		subject string
+		message []byte
 	}
 
 	batch := make([]batchedMessage, 0, c.batchSize)
@@ -335,7 +334,7 @@ func (c *Consumer) consumeLoop() {
 
 		// Send all messages in batch
 		for _, msg := range batch {
-			c.broadcast(msg.tokenID, msg.eventType, msg.message)
+			c.broadcast(msg.subject, msg.message)
 			c.incrementProcessed()
 		}
 
@@ -432,9 +431,8 @@ func (c *Consumer) consumeLoopUnbatched() {
 // prepareMessage validates and prepares a message for batching
 // Returns nil if message should be dropped (rate limited, invalid, etc.)
 func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
-	tokenID   string
-	eventType string
-	message   []byte
+	subject string
+	message []byte
 } {
 	// ============================================================================
 	// LAYER 1: RATE LIMITING
@@ -489,27 +487,23 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
 		}
 	}
 
-	// Extract token ID from key
-	tokenID := string(record.Key)
-	if tokenID == "" {
+	// Extract subject (routing key) from Kafka key
+	// The Kafka Key IS the broadcast subject (e.g., "BTC.trade", "BTC.balances.user123")
+	subject := string(record.Key)
+	if subject == "" {
 		c.logger.Warn().
 			Str("topic", record.Topic).
-			Msg("Record missing token ID key")
+			Msg("Record missing subject key")
 		c.incrementFailed()
 		return nil
 	}
 
-	// Get event type category from topic
-	eventType := TopicToEventType(record.Topic)
-
 	return &struct {
-		tokenID   string
-		eventType string
-		message   []byte
+		subject string
+		message []byte
 	}{
-		tokenID:   tokenID,
-		eventType: eventType,
-		message:   record.Value,
+		subject: subject,
+		message: record.Value,
 	}
 }
 
@@ -586,20 +580,16 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 		}
 	}
 
-	// Extract token ID from key
-	tokenID := string(record.Key)
-	if tokenID == "" {
+	// Extract subject (routing key) from Kafka key
+	// The Kafka Key IS the broadcast subject (e.g., "BTC.trade", "BTC.balances.user123")
+	subject := string(record.Key)
+	if subject == "" {
 		c.logger.Warn().
 			Str("topic", record.Topic).
-			Msg("Record missing token ID key")
+			Msg("Record missing subject key")
 		c.incrementFailed()
 		return
 	}
-
-	// Get event type category from topic
-	// NOTE: We broadcast raw bytes without validation for performance
-	// (no unmarshal overhead - Kafka messages are already validated by producer)
-	eventType := TopicToEventType(record.Topic)
 
 	// ============================================================================
 	// DIRECT BROADCAST (Worker pool removed for performance)
@@ -616,15 +606,14 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 	// - Consumer group heartbeats, offsets, rebalancing all still work correctly
 	//
 	// Performance gain: ~1-2% CPU saved + reduced goroutine overhead
-	c.broadcast(tokenID, eventType, record.Value)
+	c.broadcast(subject, record.Value)
 
 	// Increment processed count after successful broadcast
 	c.incrementProcessed()
 
 	// DEBUG level: Zero overhead in production (LOG_LEVEL=info)
 	c.logger.Debug().
-		Str("token_id", tokenID).
-		Str("event_type", eventType).
+		Str("subject", subject).
 		Str("topic", record.Topic).
 		Msg("Consumed Kafka message")
 }
@@ -681,8 +670,7 @@ type ReplayMessage struct {
 	Topic     string
 	Partition int32
 	Offset    int64
-	TokenID   string
-	EventType string
+	Subject   string // The Kafka Key = broadcast subject
 	Data      []byte
 }
 
@@ -811,16 +799,16 @@ func (c *Consumer) ReplayFromOffsets(
 				return // Stop if we've hit the limit
 			}
 
-			// Parse message to get token ID and event type
+			// Parse message to get subject
 			msg := c.prepareMessage(record)
 			if msg == nil {
 				return
 			}
 
 			// Filter by subscriptions (only return messages client is subscribed to)
-			channel := fmt.Sprintf("%s.%s", msg.tokenID, msg.eventType)
+			// The subject IS the channel (e.g., "BTC.trade", "BTC.balances.user123")
 			if len(subSet) > 0 {
-				if _, subscribed := subSet[channel]; !subscribed {
+				if _, subscribed := subSet[msg.subject]; !subscribed {
 					return // Skip messages for unsubscribed channels
 				}
 			}
@@ -830,8 +818,7 @@ func (c *Consumer) ReplayFromOffsets(
 				Topic:     record.Topic,
 				Partition: record.Partition,
 				Offset:    record.Offset,
-				TokenID:   msg.tokenID,
-				EventType: msg.eventType,
+				Subject:   msg.subject,
 				Data:      msg.message,
 			})
 			messagesRead++

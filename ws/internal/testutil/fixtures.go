@@ -121,13 +121,14 @@ func SampleChannels() []string {
 	}
 }
 
-// SampleSubjects returns common Kafka subjects for testing.
+// SampleSubjects returns common broadcast subjects for testing.
+// The broadcast subject IS the channel in the new format.
 func SampleSubjects() []string {
 	return []string{
-		"odin.token.BTC.trade",
-		"odin.token.ETH.trade",
-		"odin.token.SOL.trade",
-		"odin.token.BTC.orderbook",
-		"odin.token.ETH.orderbook",
+		"BTC.trade",
+		"ETH.trade",
+		"SOL.trade",
+		"BTC.orderbook",
+		"ETH.orderbook",
 	}
 }

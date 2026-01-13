@@ -37,21 +37,21 @@ func TestKafkaPoolMetrics_Fields(t *testing.T) {
 
 func TestKafkaPool_SubjectFormat(t *testing.T) {
 	tests := []struct {
-		tokenID   string
+		subject   string
 		eventType string
 		expected  string
 	}{
-		{"BTC", "trade", "odin.token.BTC.trade"},
-		{"ETH", "orderbook", "odin.token.ETH.orderbook"},
-		{"SOL", "ticker", "odin.token.SOL.ticker"},
-		{"DOGE", "trade", "odin.token.DOGE.trade"},
+		{"BTC", "trade", "BTC.trade"},
+		{"ETH", "orderbook", "ETH.orderbook"},
+		{"SOL", "ticker", "SOL.ticker"},
+		{"DOGE", "trade", "DOGE.trade"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.tokenID+"_"+tt.eventType, func(t *testing.T) {
-			subject := fmt.Sprintf("odin.token.%s.%s", tt.tokenID, tt.eventType)
-			if subject != tt.expected {
-				t.Errorf("Subject: got %s, want %s", subject, tt.expected)
+		t.Run(tt.subject+"_"+tt.eventType, func(t *testing.T) {
+			result := fmt.Sprintf("%s.%s", tt.subject, tt.eventType)
+			if result != tt.expected {
+				t.Errorf("Subject: got %s, want %s", result, tt.expected)
 			}
 		})
 	}
@@ -115,19 +115,19 @@ func TestKafkaPool_AtomicCounters_Concurrent(t *testing.T) {
 
 func TestKafkaPool_RouteMessage_SubjectCreation(t *testing.T) {
 	// Simulate the routeMessage logic
-	tokenID := "BTC"
+	subject := "BTC"
 	eventType := "trade"
 	message := []byte(`{"price":"100.50"}`)
 
-	subject := fmt.Sprintf("odin.token.%s.%s", tokenID, eventType)
+	broadcastSubject := fmt.Sprintf("%s.%s", subject, eventType)
 	broadcastMsg := &broadcast.Message{
-		Subject: subject,
+		Subject: broadcastSubject,
 		Payload: message,
 	}
 
 	// Verify subject format
-	if broadcastMsg.Subject != "odin.token.BTC.trade" {
-		t.Errorf("Subject: got %s, want odin.token.BTC.trade", broadcastMsg.Subject)
+	if broadcastMsg.Subject != "BTC.trade" {
+		t.Errorf("Subject: got %s, want BTC.trade", broadcastMsg.Subject)
 	}
 
 	// Verify message is preserved
@@ -136,9 +136,9 @@ func TestKafkaPool_RouteMessage_SubjectCreation(t *testing.T) {
 	}
 }
 
-func TestKafkaPool_RouteMessage_MultipleTokens(t *testing.T) {
-	tokens := []struct {
-		tokenID   string
+func TestKafkaPool_RouteMessage_MultipleSubjects(t *testing.T) {
+	entities := []struct {
+		subject   string
 		eventType string
 	}{
 		{"BTC", "trade"},
@@ -148,10 +148,10 @@ func TestKafkaPool_RouteMessage_MultipleTokens(t *testing.T) {
 
 	messages := make([]*broadcast.Message, 0)
 
-	for _, token := range tokens {
-		subject := fmt.Sprintf("odin.token.%s.%s", token.tokenID, token.eventType)
+	for _, entity := range entities {
+		broadcastSubject := fmt.Sprintf("%s.%s", entity.subject, entity.eventType)
 		msg := &broadcast.Message{
-			Subject: subject,
+			Subject: broadcastSubject,
 			Payload: []byte(`{}`),
 		}
 		messages = append(messages, msg)

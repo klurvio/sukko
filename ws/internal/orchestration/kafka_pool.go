@@ -105,13 +105,12 @@ func (p *KafkaConsumerPool) Start() error {
 
 // routeMessage is called by the Kafka consumer for each message
 // It publishes the message once to the BroadcastBus, which fans out to all shards
-func (p *KafkaConsumerPool) routeMessage(tokenID string, eventType string, message []byte) {
+// The subject (Kafka Key) IS the broadcast channel (e.g., "BTC.trade", "BTC.balances.user123")
+func (p *KafkaConsumerPool) routeMessage(subject string, message []byte) {
 	atomic.AddUint64(&p.messagesRouted, 1)
 
-	// Format subject for BroadcastBus
-	subject := fmt.Sprintf("odin.token.%s.%s", tokenID, eventType)
-
 	// Create broadcast message
+	// The subject (Kafka Key) is used directly as the broadcast channel
 	broadcastMsg := &broadcast.Message{
 		Subject: subject,
 		Payload: message,

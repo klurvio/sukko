@@ -53,8 +53,8 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 
 	// Create broadcast function that will publish to the central bus
 	// instead of directly broadcasting to local clients
-	broadcastToBusFunc := func(tokenID string, eventType string, message []byte) {
-		subject := fmt.Sprintf("odin.token.%s.%s", tokenID, eventType)
+	// The subject (Kafka Key) IS the broadcast channel
+	broadcastToBusFunc := func(subject string, message []byte) {
 		cfg.BroadcastBus.Publish(&broadcast.Message{
 			Subject: subject,
 			Payload: message,
