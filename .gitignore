@@ -58,3 +58,13 @@ bin
 deployments/v1/gcp/.env.gcp
 old_ws/
 .claude
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+tfplan
+*.tfplan
+
+# Go binaries (publisher)
+publisher-go/publisher-go
