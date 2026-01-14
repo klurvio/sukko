@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
@@ -32,8 +33,29 @@ type TokenEvent struct {
 	Data      map[string]any `json:"data"`
 }
 
-// BroadcastFunc is called when a message is received
-// Parameters: subject (Kafka Key = broadcast channel), messageJSON
+// KafkaMessage is the standard message format for CDC-to-consumer communication.
+// All messages in Kafka/Redpanda follow this structure:
+//
+//	{
+//	  "key": "all.trade",       // Broadcast subject/channel
+//	  "value": {                // Actual payload to send to clients
+//	    "token": "BTC",
+//	    "price": "50000.00",
+//	    ...
+//	  }
+//	}
+//
+// The "key" field determines which clients receive the message (subscription matching).
+// The "value" field is passed through as-is to subscribed clients.
+type KafkaMessage struct {
+	Key   string          `json:"key"`
+	Value json.RawMessage `json:"value"`
+}
+
+// BroadcastFunc is called when a message is received.
+// Parameters:
+//   - subject: The "key" field from KafkaMessage (broadcast channel, e.g., "all.trade")
+//   - message: The "value" field from KafkaMessage (payload to send to clients)
 type BroadcastFunc func(subject string, message []byte)
 
 // ResourceGuard interface for rate limiting and CPU emergency brake
@@ -487,13 +509,22 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
 		}
 	}
 
-	// Extract subject (routing key) from Kafka key
-	// The Kafka Key IS the broadcast subject (e.g., "BTC.trade", "BTC.balances.user123")
-	subject := string(record.Key)
-	if subject == "" {
+	// Parse message using standard KafkaMessage format:
+	// {"key": "all.trade", "value": {...}}
+	var msg KafkaMessage
+	if err := json.Unmarshal(record.Value, &msg); err != nil {
+		c.logger.Warn().
+			Err(err).
+			Str("topic", record.Topic).
+			Msg("Failed to parse message - expected {\"key\": \"...\", \"value\": {...}}")
+		c.incrementFailed()
+		return nil
+	}
+
+	if msg.Key == "" {
 		c.logger.Warn().
 			Str("topic", record.Topic).
-			Msg("Record missing subject key")
+			Msg("Message missing 'key' field")
 		c.incrementFailed()
 		return nil
 	}
@@ -502,8 +533,8 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
 		subject string
 		message []byte
 	}{
-		subject: subject,
-		message: record.Value,
+		subject: msg.Key,
+		message: msg.Value,
 	}
 }
 
@@ -580,13 +611,22 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 		}
 	}
 
-	// Extract subject (routing key) from Kafka key
-	// The Kafka Key IS the broadcast subject (e.g., "BTC.trade", "BTC.balances.user123")
-	subject := string(record.Key)
-	if subject == "" {
+	// Parse message using standard KafkaMessage format:
+	// {"key": "all.trade", "value": {...}}
+	var msg KafkaMessage
+	if err := json.Unmarshal(record.Value, &msg); err != nil {
+		c.logger.Warn().
+			Err(err).
+			Str("topic", record.Topic).
+			Msg("Failed to parse message - expected {\"key\": \"...\", \"value\": {...}}")
+		c.incrementFailed()
+		return
+	}
+
+	if msg.Key == "" {
 		c.logger.Warn().
 			Str("topic", record.Topic).
-			Msg("Record missing subject key")
+			Msg("Message missing 'key' field")
 		c.incrementFailed()
 		return
 	}
@@ -606,14 +646,14 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 	// - Consumer group heartbeats, offsets, rebalancing all still work correctly
 	//
 	// Performance gain: ~1-2% CPU saved + reduced goroutine overhead
-	c.broadcast(subject, record.Value)
+	c.broadcast(msg.Key, msg.Value)
 
 	// Increment processed count after successful broadcast
 	c.incrementProcessed()
 
 	// DEBUG level: Zero overhead in production (LOG_LEVEL=info)
 	c.logger.Debug().
-		Str("subject", subject).
+		Str("subject", msg.Key).
 		Str("topic", record.Topic).
 		Msg("Consumed Kafka message")
 }

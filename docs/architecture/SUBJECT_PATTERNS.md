@@ -4,15 +4,35 @@
 
 This document defines the contract between publishers (CDC, etc.) and the WebSocket broadcast system.
 
-**Key Principle:** The Kafka message Key IS the broadcast subject IS the client channel.
+## Message Format
+
+All Kafka messages use a standard JSON structure with `key` and `value` fields:
+
+```json
+{
+  "key": "all.trade",
+  "value": {
+    "token": "BTC",
+    "price": "50000.00",
+    "volume": "1.5",
+    "side": "buy",
+    "timestamp": 1705123456789
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `key` | The broadcast subject/channel (e.g., `BTC.trade`, `all.trade`) |
+| `value` | The payload to send to subscribed clients (any JSON object) |
 
 ## Message Flow
 
 ```
-Publisher → Kafka (Key = subject) → ws-server → BroadcastBus → Clients
+Publisher → Kafka ({"key": "...", "value": {...}}) → ws-server → BroadcastBus → Clients
 ```
 
-The ws-server acts as a "dumb pipe" - it does not interpret or transform the subject. Whatever Key the publisher sets becomes the channel that clients subscribe to.
+The ws-server parses each Kafka message, extracts the `key` as the broadcast subject, and sends the `value` to all clients subscribed to that subject.
 
 ## Subject Format
 
@@ -47,40 +67,59 @@ The gateway validates client subscriptions against allowed patterns. Patterns us
 
 ### Public Channel
 
-```
-Topic: odin.main.trade.refined
-Key:   "BTC.trade"
-Value: {"price": "50000.00", "volume": "1.5", "timestamp": 1705123456789}
+```json
+// Topic: odin.main.trade.refined
+{
+  "key": "BTC.trade",
+  "value": {
+    "price": "50000.00",
+    "volume": "1.5",
+    "timestamp": 1705123456789
+  }
+}
 ```
 
-Result: All clients subscribed to `BTC.trade` receive the message.
+Result: All clients subscribed to `BTC.trade` receive the `value` payload.
 
 ### User-scoped Channel
 
-```
-Topic: odin.main.balances.refined
-Key:   "BTC.balances.user123"
-Value: {"available": "10.5", "locked": "2.0", "total": "12.5"}
+```json
+// Topic: odin.main.balances.refined
+{
+  "key": "BTC.balances.user123",
+  "value": {
+    "available": "10.5",
+    "locked": "2.0",
+    "total": "12.5"
+  }
+}
 ```
 
 Result: Only the client with `JWT.sub = "user123"` can subscribe to and receive messages on this channel.
 
 ### Group-scoped Channel
 
-```
-Topic: odin.main.community.refined
-Key:   "23sz.community.crypto-traders"
-Value: {"message": "Hello!", "author": "user456", "timestamp": 1705123456789}
+```json
+// Topic: odin.main.community.refined
+{
+  "key": "23sz.community.crypto-traders",
+  "value": {
+    "message": "Hello!",
+    "author": "user456",
+    "timestamp": 1705123456789
+  }
+}
 ```
 
 Result: Only clients who are members of the "crypto-traders" group can subscribe to and receive messages.
 
 ## Rules for Publishers
 
-1. **Key = Full Subject**: Set the Kafka message Key to the complete broadcast subject
-2. **Value is Opaque**: ws-server passes the Value through as-is without parsing
-3. **Match Gateway Patterns**: The subject must match at least one gateway pattern, otherwise clients cannot subscribe
-4. **Consistent Format**: Use the same subject format for related messages
+1. **Use Standard Format**: All messages must be JSON with `key` and `value` fields
+2. **key = Broadcast Subject**: The `key` field is the channel clients subscribe to
+3. **value = Client Payload**: The `value` field is sent as-is to subscribed clients
+4. **Match Gateway Patterns**: The subject must match at least one gateway pattern, otherwise clients cannot subscribe
+5. **Consistent Format**: Use the same subject format for related messages
 
 ## Adding New Channel Types
 
@@ -91,7 +130,7 @@ To add a new channel type:
    - `GATEWAY_PUBLIC_PATTERNS` for public channels
    - `GATEWAY_USER_SCOPED_PATTERNS` for user-scoped channels
    - `GATEWAY_GROUP_SCOPED_PATTERNS` for group-scoped channels
-3. **Update publisher** to set the Kafka Key in the new format
+3. **Update publisher** to use the `key` field in the new format
 4. **Clients can subscribe** using the new channel format
 
 ## Examples by Use Case
@@ -121,10 +160,14 @@ Publishers emit the same message to both:
 1. **Specific channel**: `BTC.trade` - for clients wanting just BTC
 2. **Aggregate channel**: `all.trade` - for clients wanting ALL trades
 
-```
-CDC publishes trade event:
-  → Key: "BTC.trade"     (specific)
-  → Key: "all.trade"     (aggregate, same Value)
+```json
+// CDC publishes trade event as TWO Kafka messages:
+
+// Message 1: Specific channel
+{"key": "BTC.trade", "value": {"token": "BTC", "price": "50000.00", ...}}
+
+// Message 2: Aggregate channel (same value)
+{"key": "all.trade", "value": {"token": "BTC", "price": "50000.00", ...}}
 ```
 
 ### Client Subscription Examples
@@ -138,18 +181,22 @@ CDC publishes trade event:
 
 ### Publisher Implementation
 
-When publishing a trade event, CDC sends TWO messages:
+When publishing a trade event, CDC sends TWO messages to the same topic:
 
-```
-# Message 1: Specific channel
-Topic: odin.main.trade.refined
-Key:   "BTC.trade"
-Value: {"token": "BTC", "price": "50000.00", ...}
+```json
+// Topic: odin.main.trade.refined
 
-# Message 2: Aggregate channel (same Value)
-Topic: odin.main.trade.refined
-Key:   "all.trade"
-Value: {"token": "BTC", "price": "50000.00", ...}
+// Message 1: Specific channel
+{
+  "key": "BTC.trade",
+  "value": {"token": "BTC", "price": "50000.00", "volume": "1.5", "side": "buy", "timestamp": 1705123456789}
+}
+
+// Message 2: Aggregate channel (same value)
+{
+  "key": "all.trade",
+  "value": {"token": "BTC", "price": "50000.00", "volume": "1.5", "side": "buy", "timestamp": 1705123456789}
+}
 ```
 
 ### Aggregate Channel Conventions
