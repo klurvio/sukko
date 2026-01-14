@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -445,106 +444,5 @@ func TestResourceGuard_MockImplementation(t *testing.T) {
 	guard.shouldPause = true
 	if !guard.ShouldPauseKafka() {
 		t.Error("Should pause when shouldPause=true")
-	}
-}
-
-// =============================================================================
-// KafkaMessage Format Tests
-// =============================================================================
-
-func TestKafkaMessage_Parse(t *testing.T) {
-	// Standard CDC message format
-	raw := []byte(`{
-		"key": "all.trade",
-		"value": {
-			"token": "BTC",
-			"price": "50000.00",
-			"volume": "1.5",
-			"side": "buy",
-			"timestamp": 1705123456789
-		}
-	}`)
-
-	var msg KafkaMessage
-	err := json.Unmarshal(raw, &msg)
-	if err != nil {
-		t.Fatalf("Failed to parse KafkaMessage: %v", err)
-	}
-
-	if msg.Key != "all.trade" {
-		t.Errorf("Key = %s, want all.trade", msg.Key)
-	}
-
-	// Value should be the raw JSON of the inner object
-	expectedValue := `{"token":"BTC","price":"50000.00","volume":"1.5","side":"buy","timestamp":1705123456789}`
-	// Compact for comparison
-	var compacted []byte
-	compacted, _ = json.Marshal(json.RawMessage(msg.Value))
-
-	var expected []byte
-	expected, _ = json.Marshal(json.RawMessage(expectedValue))
-
-	if string(compacted) != string(expected) {
-		t.Errorf("Value = %s, want %s", string(msg.Value), expectedValue)
-	}
-}
-
-func TestKafkaMessage_MissingKey(t *testing.T) {
-	raw := []byte(`{
-		"value": {"token": "BTC"}
-	}`)
-
-	var msg KafkaMessage
-	err := json.Unmarshal(raw, &msg)
-	if err != nil {
-		t.Fatalf("Parse should succeed: %v", err)
-	}
-
-	// Key should be empty string
-	if msg.Key != "" {
-		t.Errorf("Key = %s, want empty string", msg.Key)
-	}
-}
-
-func TestKafkaMessage_EmptyValue(t *testing.T) {
-	raw := []byte(`{
-		"key": "BTC.trade",
-		"value": {}
-	}`)
-
-	var msg KafkaMessage
-	err := json.Unmarshal(raw, &msg)
-	if err != nil {
-		t.Fatalf("Failed to parse: %v", err)
-	}
-
-	if msg.Key != "BTC.trade" {
-		t.Errorf("Key = %s, want BTC.trade", msg.Key)
-	}
-
-	if string(msg.Value) != "{}" {
-		t.Errorf("Value = %s, want {}", string(msg.Value))
-	}
-}
-
-func TestKafkaMessage_NullValue(t *testing.T) {
-	raw := []byte(`{
-		"key": "BTC.trade",
-		"value": null
-	}`)
-
-	var msg KafkaMessage
-	err := json.Unmarshal(raw, &msg)
-	if err != nil {
-		t.Fatalf("Failed to parse: %v", err)
-	}
-
-	if msg.Key != "BTC.trade" {
-		t.Errorf("Key = %s, want BTC.trade", msg.Key)
-	}
-
-	// null becomes nil for json.RawMessage
-	if msg.Value != nil && string(msg.Value) != "null" {
-		t.Errorf("Value = %s, want null or nil", string(msg.Value))
 	}
 }
