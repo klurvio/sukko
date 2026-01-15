@@ -275,7 +275,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 		envelope := &messaging.MessageEnvelope{
 			Seq:       c.seqGen.Next(), // Generate unique sequence number for this client
 			Timestamp: time.Now().UnixMilli(),
-			Type:      "replay:message",
+			Channel:   msg.Subject, // Channel from Kafka Key (e.g., "BTC.trade")
 			Priority:  messaging.PRIORITY_NORMAL,
 			Data:      json.RawMessage(msg.Data),
 		}

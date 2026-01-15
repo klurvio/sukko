@@ -38,7 +38,7 @@ const (
 // 2. Message replay - clients can request missed messages by sequence range
 // 3. Latency measurement - timestamp allows client to calculate server→client delay
 // 4. Priority-based delivery - critical messages never dropped
-// 5. Type-based routing - client knows how to handle each message
+// 5. Channel-based routing - client knows which channel the message is from
 //
 // Example client-side gap detection:
 //
@@ -61,20 +61,20 @@ type MessageEnvelope struct {
 	// 4. Regulatory compliance (prove when message was sent)
 	Timestamp int64 `json:"ts"`
 
-	// Message type for client-side routing
+	// Channel identifies which subscription channel this message is from
+	// This allows clients to route messages to the appropriate handler
 	// Examples:
-	//   "price:update"     - Stock/crypto price changed
-	//   "order:fill"       - User's order executed
-	//   "account:balance"  - Account balance changed
-	//   "system:error"     - Server error notification
-	//   "connection:close" - Server shutting down
+	//   "BTC.trade"     - Trade events for BTC
+	//   "all.trade"     - All trade events (aggregate)
+	//   "ETH.liquidity" - Liquidity events for ETH
+	//   "BTC.balances.user123" - User-scoped balance updates
 	//
 	// Client code pattern:
-	//   switch (message.type) {
-	//     case "price:update": updatePriceDisplay(message.data)
-	//     case "order:fill": showNotification(message.data)
+	//   switch (message.channel) {
+	//     case "BTC.trade": handleBTCTrade(message.data)
+	//     case "all.trade": handleAllTrades(message.data)
 	//   }
-	Type string `json:"type"`
+	Channel string `json:"channel"`
 
 	// Priority level - determines delivery strategy
 	// Not sent to client (omitempty), used internally by server
@@ -84,15 +84,15 @@ type MessageEnvelope struct {
 	// - NORMAL: Never block, drop message if client buffer full
 	Priority MessagePriority `json:"priority,omitempty"`
 
-	// Actual message payload (varies by type)
+	// Actual message payload (varies by channel)
 	// Stored as json.RawMessage to avoid double-encoding
 	// Server doesn't need to parse Kafka messages, just wrap and forward
 	//
-	// Example for "price:update":
-	//   {"tokenId": "BTC", "price": 45000.50, "volume24h": 1234567}
+	// Example for "BTC.trade" channel:
+	//   {"token": "BTC", "price": 45000, "amount_btc": 1500000000}
 	//
-	// Example for "order:fill":
-	//   {"orderId": "abc123", "price": 45000, "quantity": 0.5, "side": "buy"}
+	// Example for "ETH.liquidity" channel:
+	//   {"token": "ETH", "poolId": "abc123", "liquidity": "1000000"}
 	Data json.RawMessage `json:"data"`
 }
 
@@ -147,7 +147,7 @@ func (s *SequenceGenerator) Reset() {
 // Parameters:
 //
 //	data     - Raw message payload from Kafka (JSON bytes)
-//	msgType  - Message type for client routing ("price:update", etc.)
+//	channel  - Channel this message is from ("BTC.trade", "all.trade", etc.)
 //	priority - Delivery priority (CRITICAL, HIGH, NORMAL)
 //	seqGen   - Per-client sequence generator
 //
@@ -157,14 +157,14 @@ func (s *SequenceGenerator) Reset() {
 //
 // Example usage:
 //
-//	envelope, _ := WrapMessage(kafkaData, "price:update", PRIORITY_HIGH, client.seqGen)
+//	envelope, _ := WrapMessage(kafkaData, "BTC.trade", PRIORITY_HIGH, client.seqGen)
 //	jsonBytes, _ := envelope.Serialize()
 //	client.send <- jsonBytes
-func WrapMessage(data []byte, msgType string, priority MessagePriority, seqGen *SequenceGenerator) (*MessageEnvelope, error) {
+func WrapMessage(data []byte, channel string, priority MessagePriority, seqGen *SequenceGenerator) (*MessageEnvelope, error) {
 	return &MessageEnvelope{
 		Seq:       seqGen.Next(),
 		Timestamp: time.Now().UnixMilli(),
-		Type:      msgType,
+		Channel:   channel,
 		Priority:  priority,
 		Data:      json.RawMessage(data),
 	}, nil
@@ -175,7 +175,7 @@ func WrapMessage(data []byte, msgType string, priority MessagePriority, seqGen *
 //
 // Returns JSON in format:
 //
-//	{"seq":1,"ts":1234567890,"type":"price:update","data":{...}}
+//	{"seq":1,"ts":1234567890,"channel":"BTC.trade","data":{...}}
 //
 // Error handling:
 // - Should never fail in production (envelope fields are always valid JSON)

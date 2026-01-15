@@ -115,7 +115,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 	baseEnvelope := &messaging.MessageEnvelope{
 		Seq:       0, // Shared sequence for all clients (acceptable for 12K capacity)
 		Timestamp: time.Now().UnixMilli(),
-		Type:      "price:update",
+		Channel:   channel, // Actual channel (e.g., "BTC.trade", "all.trade")
 		Priority:  messaging.PRIORITY_HIGH,
 		Data:      json.RawMessage(message),
 	}
