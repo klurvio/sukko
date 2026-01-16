@@ -203,10 +203,10 @@ func main() {
 		kafkaProducer, err = kafka.NewProducer(kafka.ProducerConfig{
 			Brokers:        kafkaBrokers,
 			TopicNamespace: topicNamespace,
-			ClientID:       "odin-ws-server-producer",
-			Logger:         &producerLogger,
-			SASL:           saslConfig,
-			TLS:            tlsConfig,
+			// ClientID auto-generated with hostname (odin-ws-producer-{hostname})
+			Logger: &producerLogger,
+			SASL:   saslConfig,
+			TLS:    tlsConfig,
 		})
 		if err != nil {
 			logger.Fatalf("Failed to create Kafka producer: %v", err)

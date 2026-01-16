@@ -113,7 +113,8 @@ func (s *Server) Broadcast(subject string, message []byte) {
 	//   - Sequence numbers weren't critical for this use case
 	//   - Performance gain: 6.5K → 12K connections @ 30% CPU
 	baseEnvelope := &messaging.MessageEnvelope{
-		Seq:       0, // Shared sequence for all clients (acceptable for 12K capacity)
+		Type:      "message", // Standard type for broadcast messages (industry standard)
+		Seq:       0,         // Shared sequence for all clients (acceptable for 12K capacity)
 		Timestamp: time.Now().UnixMilli(),
 		Channel:   channel, // Actual channel (e.g., "BTC.trade", "all.trade")
 		Priority:  messaging.PRIORITY_HIGH,

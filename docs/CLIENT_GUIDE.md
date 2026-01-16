@@ -35,7 +35,9 @@ ws.onopen = () => {
 // 3. Receive messages
 ws.onmessage = (event) => {
   const msg = JSON.parse(event.data);
-  console.log(`[${msg.channel}] seq=${msg.seq}`, msg.data);
+  if (msg.type === 'message') {
+    console.log(`[${msg.channel}] seq=${msg.seq}`, msg.data);
+  }
 };
 ```
 
@@ -150,12 +152,15 @@ ws.send(JSON.stringify({
 
 ## Message Format
 
+All messages include a `type` field for consistent routing. This follows industry standards (Coinbase, Binance, Pusher).
+
 ### Data Messages (from subscribed channels)
 
-Data messages use a `channel` field to indicate which channel the message is from:
+Data messages have `type: "message"` and a `channel` field:
 
 ```json
 {
+  "type": "message",
   "seq": 1234,
   "ts": 1699901234567,
   "channel": "BTC.trade",
@@ -169,6 +174,7 @@ Data messages use a `channel` field to indicate which channel the message is fro
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `type` | string | Always `"message"` for data messages |
 | `seq` | int64 | Sequence number (monotonically increasing per connection) |
 | `ts` | int64 | Server timestamp in Unix milliseconds |
 | `channel` | string | Channel this message is from (e.g., "BTC.trade", "all.trade") |
@@ -176,16 +182,19 @@ Data messages use a `channel` field to indicate which channel the message is fro
 
 ### Control Messages
 
-Control messages (acknowledgments, errors) use a `type` field:
+Control messages use other `type` values:
 
 | Type | Description |
 |------|-------------|
+| `message` | **Data from subscribed channel** (has `channel`, `seq`, `ts`, `data`) |
 | `subscription_ack` | Subscription confirmed |
 | `unsubscription_ack` | Unsubscription confirmed |
 | `pong` | Heartbeat response |
 | `reconnect_ack` | Reconnection completed |
 | `reconnect_error` | Reconnection failed |
-| `error` | Error response |
+| `publish_ack` | Publish to Kafka confirmed |
+| `publish_error` | Publish to Kafka failed |
+| `error` | General error response |
 
 ---
 
@@ -342,10 +351,11 @@ function reconnect() {
 
 ### Replayed Messages
 
-Replayed messages have the same format as regular data messages, with the `channel` field:
+Replayed messages have the same format as regular data messages, with `type: "message"`:
 
 ```json
 {
+  "type": "message",
   "seq": 1,
   "ts": 1699901200000,
   "channel": "BTC.trade",
@@ -432,32 +442,41 @@ ws.send(JSON.stringify({
 ws.onmessage = (event) => {
   const msg = JSON.parse(event.data);
 
-  // Data messages have 'channel', control messages have 'type'
-  if (msg.channel) {
-    // Route by channel
-    switch (msg.channel) {
-      case 'BTC.trade':
-        handleBTCTrade(msg.data);
-        break;
-      case 'all.trade':
-        handleAllTrades(msg.data);
-        break;
-      default:
-        handleGenericData(msg.channel, msg.data);
-    }
-  } else if (msg.type) {
-    // Handle control messages
-    switch (msg.type) {
-      case 'subscription_ack':
-        console.log('Subscribed to', msg.subscribed);
-        break;
-      case 'error':
-        handleError(msg);
-        break;
-      case 'pong':
-        // Heartbeat acknowledged
-        break;
-    }
+  // All messages have 'type' - route by type first
+  switch (msg.type) {
+    case 'message':
+      // Data message - route by channel
+      switch (msg.channel) {
+        case 'BTC.trade':
+          handleBTCTrade(msg.data);
+          break;
+        case 'all.trade':
+          handleAllTrades(msg.data);
+          break;
+        default:
+          handleGenericData(msg.channel, msg.data);
+      }
+      break;
+
+    case 'subscription_ack':
+      console.log('Subscribed to', msg.subscribed);
+      break;
+
+    case 'publish_ack':
+      console.log('Message published to', msg.channel);
+      break;
+
+    case 'publish_error':
+      console.error('Publish failed:', msg.code, msg.message);
+      break;
+
+    case 'error':
+      handleError(msg);
+      break;
+
+    case 'pong':
+      // Heartbeat acknowledged
+      break;
   }
 };
 ```
@@ -559,10 +578,10 @@ class OdinWebSocketClient {
 
   onMessage(msg) {
     // Override this method to handle messages
-    // Data messages have 'channel', control messages have 'type'
-    if (msg.channel) {
+    // All messages have 'type' - data messages have type: "message"
+    if (msg.type === 'message') {
       console.log(`[${msg.channel}]`, msg.data);
-    } else if (msg.type) {
+    } else {
       console.log(`[${msg.type}]`, msg);
     }
   }
@@ -651,20 +670,24 @@ const client = new OdinWebSocketClient(
 );
 
 client.onMessage = (msg) => {
-  // Data messages have 'channel', control messages have 'type'
-  if (msg.channel) {
-    // Handle data by channel
-    console.log(`Data from ${msg.channel}:`, msg.data);
-  } else if (msg.type) {
-    // Handle control messages
-    switch (msg.type) {
-      case 'subscription_ack':
-        console.log('Subscribed:', msg.subscribed);
-        break;
-      case 'error':
-        console.error('Error:', msg.message);
-        break;
-    }
+  // All messages have 'type' - route by type
+  switch (msg.type) {
+    case 'message':
+      // Data message - route by channel
+      console.log(`Data from ${msg.channel}:`, msg.data);
+      break;
+    case 'subscription_ack':
+      console.log('Subscribed:', msg.subscribed);
+      break;
+    case 'publish_ack':
+      console.log('Published to:', msg.channel);
+      break;
+    case 'publish_error':
+      console.error('Publish failed:', msg.code, msg.message);
+      break;
+    case 'error':
+      console.error('Error:', msg.message);
+      break;
   }
 };
 

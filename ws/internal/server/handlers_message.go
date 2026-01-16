@@ -286,6 +286,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 	for _, msg := range replayedMsgs {
 		// Wrap in message envelope with sequence number
 		envelope := &messaging.MessageEnvelope{
+			Type:      "message",       // Standard type for broadcast messages
 			Seq:       c.seqGen.Next(), // Generate unique sequence number for this client
 			Timestamp: time.Now().UnixMilli(),
 			Channel:   msg.Subject, // Channel from Kafka Key (e.g., "BTC.trade")

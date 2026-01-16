@@ -33,7 +33,7 @@ type ProducerStats struct {
 type ProducerConfig struct {
 	Brokers        []string        // Kafka/Redpanda broker addresses (required)
 	TopicNamespace string          // Topic namespace: "local", "dev", "staging", "main" (required)
-	ClientID       string          // Client ID for Kafka connection (optional, defaults to "odin-ws-producer")
+	ClientID       string          // Client ID for Kafka connection (optional, defaults to "odin-ws-producer-{hostname}")
 	Logger         *zerolog.Logger // Structured logger (optional)
 
 	// Security configuration for managed Kafka/Redpanda services
@@ -81,9 +81,15 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Set defaults
+	// Auto-generate client ID with hostname for per-instance observability
+	// Example: "odin-ws-producer-odin-ws-7f8d9c4b5-abc123" in Kubernetes
 	clientID := cfg.ClientID
 	if clientID == "" {
-		clientID = "odin-ws-producer"
+		hostname, err := os.Hostname()
+		if err != nil {
+			hostname = "unknown"
+		}
+		clientID = fmt.Sprintf("odin-ws-producer-%s", hostname)
 	}
 	batchMaxBytes := cfg.BatchMaxBytes
 	if batchMaxBytes == 0 {

@@ -47,6 +47,19 @@ const (
 //	detect gap: 101 missing
 //	request replay: {"type": "replay", "data": {"from": 101, "to": 101}}
 type MessageEnvelope struct {
+	// Type identifies the message type for client routing
+	// Broadcast messages always have Type: "message"
+	// This aligns with industry standards (Coinbase, Binance, Pusher)
+	// where all messages include a type field for consistent parsing.
+	//
+	// Client code pattern:
+	//   if (msg.type === "message") {
+	//     // Broadcast data - route by msg.channel
+	//   } else {
+	//     // Control message - handle by msg.type
+	//   }
+	Type string `json:"type"`
+
 	// Sequence number - monotonically increasing per connection
 	// Starts at 1 on connection, increments for each message sent
 	// Client uses this for gap detection:
@@ -162,6 +175,7 @@ func (s *SequenceGenerator) Reset() {
 //	client.send <- jsonBytes
 func WrapMessage(data []byte, channel string, priority MessagePriority, seqGen *SequenceGenerator) (*MessageEnvelope, error) {
 	return &MessageEnvelope{
+		Type:      "message", // Standard type for broadcast messages
 		Seq:       seqGen.Next(),
 		Timestamp: time.Now().UnixMilli(),
 		Channel:   channel,
@@ -175,7 +189,7 @@ func WrapMessage(data []byte, channel string, priority MessagePriority, seqGen *
 //
 // Returns JSON in format:
 //
-//	{"seq":1,"ts":1234567890,"channel":"BTC.trade","data":{...}}
+//	{"type":"message","seq":1,"ts":1234567890,"channel":"BTC.trade","data":{...}}
 //
 // Error handling:
 // - Should never fail in production (envelope fields are always valid JSON)
