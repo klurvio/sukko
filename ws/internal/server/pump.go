@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"runtime/debug"
 	"sync/atomic"
 	"time"
@@ -111,6 +112,11 @@ func (p *Pump) newTicker(d time.Duration) Ticker {
 // ReadLoop reads messages from the WebSocket connection.
 // disconnectFn is called when the client disconnects.
 // handleMsgFn is called for each text message received.
+//
+// Uses wsutil.Reader with explicit frame handling to ensure the read deadline
+// is refreshed when pong frames are received. This fixes a bug where
+// wsutil.ReadClientData() would handle pongs internally without returning,
+// causing the read deadline to never refresh and connections to timeout.
 func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Client, string, string), handleMsgFn func(*Client, []byte)) {
 	// Panic recovery
 	defer p.recoverPanic("readPump", map[string]any{
@@ -132,6 +138,12 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 
 	_ = c.conn.SetReadDeadline(p.now().Add(p.Config.PongWait))
 
+	// Create reader for explicit frame handling
+	reader := wsutil.Reader{
+		Source: c.conn,
+		State:  ws.StateServerSide,
+	}
+
 	for {
 		// Check for context cancellation (server shutdown)
 		select {
@@ -142,14 +154,52 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 		default:
 		}
 
-		msg, op, err := wsutil.ReadClientData(c.conn)
+		// Read next frame header
+		hdr, err := reader.NextFrame()
 		if err != nil {
 			disconnectReason = monitoring.DisconnectReasonReadError
 			initiatedBy = monitoring.DisconnectInitiatedByClient
 			break
 		}
 
+		// Refresh deadline on ANY frame (including pong) - this is the key fix
 		_ = c.conn.SetReadDeadline(p.now().Add(p.Config.PongWait))
+
+		// Handle control frames
+		if hdr.OpCode.IsControl() {
+			// Handle ping - send pong response
+			if hdr.OpCode == ws.OpPing {
+				payload := make([]byte, hdr.Length)
+				if hdr.Length > 0 {
+					if _, err := io.ReadFull(c.conn, payload); err != nil {
+						break
+					}
+					if hdr.Masked {
+						ws.Cipher(payload, hdr.Mask, 0)
+					}
+				}
+				_ = wsutil.WriteServerMessage(c.conn, ws.OpPong, payload)
+				continue
+			}
+			// Handle close
+			if hdr.OpCode == ws.OpClose {
+				return
+			}
+			// Handle pong - deadline already refreshed, discard payload
+			if hdr.OpCode == ws.OpPong {
+				_ = reader.Discard()
+				continue
+			}
+			continue
+		}
+
+		// Read data frame payload
+		msg, err := io.ReadAll(&reader)
+		if err != nil {
+			disconnectReason = monitoring.DisconnectReasonReadError
+			initiatedBy = monitoring.DisconnectInitiatedByClient
+			break
+		}
 
 		// Update stats
 		atomic.AddInt64(&p.Stats.MessagesReceived, 1)
@@ -157,7 +207,7 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 		monitoring.UpdateMessageMetrics(0, 1)
 		monitoring.UpdateBytesMetrics(0, int64(len(msg)))
 
-		if op == ws.OpText {
+		if hdr.OpCode == ws.OpText {
 			// Rate limiting check
 			if p.RateLimiter != nil && !p.RateLimiter.CheckLimit(c.id) {
 				p.handleRateLimitExceeded(c)
@@ -168,10 +218,6 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 			if handleMsgFn != nil {
 				handleMsgFn(c, msg)
 			}
-		} else if op == ws.OpPing {
-			// gobwas library handles pongs automatically
-		} else if op == ws.OpClose {
-			return
 		}
 	}
 }
