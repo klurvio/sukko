@@ -136,6 +136,7 @@ func main() {
 	// Create shared Kafka consumer pool (replaces per-shard consumers)
 	// This eliminates 9x message duplication (3 consumers × 3 broadcasts)
 	var kafkaPool *orchestration.KafkaConsumerPool
+	var kafkaProducer *kafka.Producer
 	if len(kafkaBrokers) > 0 {
 		// Create resource guard for CPU brake (shared across pool)
 		poolLogger := monitoring.NewLogger(monitoring.LoggerConfig{
@@ -191,6 +192,27 @@ func main() {
 		}
 
 		logger.Printf("Shared Kafka consumer pool started (replaces %d per-shard consumers)", *numShards)
+
+		// Create shared Kafka producer for client message publishing
+		// Clients can publish messages to Kafka via the "publish" message type
+		producerLogger := monitoring.NewLogger(monitoring.LoggerConfig{
+			Level:  types.LogLevel(cfg.LogLevel),
+			Format: types.LogFormat(cfg.LogFormat),
+		})
+
+		kafkaProducer, err = kafka.NewProducer(kafka.ProducerConfig{
+			Brokers:        kafkaBrokers,
+			TopicNamespace: topicNamespace,
+			ClientID:       "odin-ws-server-producer",
+			Logger:         &producerLogger,
+			SASL:           saslConfig,
+			TLS:            tlsConfig,
+		})
+		if err != nil {
+			logger.Fatalf("Failed to create Kafka producer: %v", err)
+		}
+
+		logger.Printf("Kafka producer initialized (topic: %s)", kafkaProducer.Topic())
 	}
 
 	// Create and start shards
@@ -246,6 +268,7 @@ func main() {
 			ServerConfig:        shardConfig,
 			BroadcastBus:        broadcastBus,   // Pass reference to bus, shard will subscribe internally
 			SharedKafkaConsumer: sharedConsumer, // Shared consumer for metrics (managed by pool)
+			KafkaProducer:       kafkaProducer,  // Shared producer for client publishing (optional)
 			Logger:              monitoring.NewLogger(monitoring.LoggerConfig{Level: types.LogLevel(cfg.LogLevel), Format: types.LogFormat(cfg.LogFormat)}),
 			MaxConnections:      maxConnsPerShard,
 		})
@@ -297,6 +320,13 @@ func main() {
 	if kafkaPool != nil {
 		if err := kafkaPool.Stop(); err != nil {
 			logger.Printf("Error stopping Kafka pool: %v", err)
+		}
+	}
+
+	// Shutdown Kafka producer
+	if kafkaProducer != nil {
+		if err := kafkaProducer.Close(); err != nil {
+			logger.Printf("Error closing Kafka producer: %v", err)
 		}
 	}
 

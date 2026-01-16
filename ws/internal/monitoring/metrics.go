@@ -171,6 +171,17 @@ var (
 		Help: "Total number of Kafka messages dropped due to backpressure",
 	})
 
+	// Kafka producer metrics (client-to-Kafka publishing)
+	kafkaMessagesPublished = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "ws_kafka_messages_published_total",
+		Help: "Total number of messages published to Kafka by clients",
+	})
+
+	kafkaPublishErrors = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "ws_kafka_publish_errors_total",
+		Help: "Total number of failed publish attempts to Kafka",
+	})
+
 	// Dynamic capacity metrics
 	capacityMaxConnections = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "ws_capacity_max_connections",
@@ -234,6 +245,8 @@ func init() {
 	prometheus.MustRegister(kafkaConnected)
 	prometheus.MustRegister(kafkaMessagesReceived)
 	prometheus.MustRegister(kafkaMessagesDropped)
+	prometheus.MustRegister(kafkaMessagesPublished)
+	prometheus.MustRegister(kafkaPublishErrors)
 
 	prometheus.MustRegister(capacityMaxConnections)
 	prometheus.MustRegister(capacityCPUThreshold)
@@ -399,6 +412,16 @@ func IncrementKafkaMessages() {
 // IncrementKafkaDropped increments dropped Kafka message counter
 func IncrementKafkaDropped() {
 	kafkaMessagesDropped.Inc()
+}
+
+// IncrementMessagesPublished increments the Kafka publish success counter
+func IncrementMessagesPublished() {
+	kafkaMessagesPublished.Inc()
+}
+
+// IncrementPublishErrors increments the Kafka publish error counter
+func IncrementPublishErrors() {
+	kafkaPublishErrors.Inc()
 }
 
 // UpdateCapacityMetrics updates dynamic capacity metrics

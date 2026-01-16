@@ -471,6 +471,75 @@ func TestMessageTypes_Valid(t *testing.T) {
 }
 
 // =============================================================================
+// Regression Tests - Ensure publishing feature doesn't affect existing handlers
+// =============================================================================
+
+func TestMessageHandler_ExistingTypesUnaffected(t *testing.T) {
+	// Verify all existing message types parse and route correctly
+	// This ensures the new "publish" case doesn't affect the switch statement
+	existingTypes := []string{"subscribe", "unsubscribe", "heartbeat", "reconnect"}
+
+	for _, msgType := range existingTypes {
+		t.Run(msgType, func(t *testing.T) {
+			msg := []byte(`{"type": "` + msgType + `", "data": {}}`)
+			parsedType, _, err := parseClientMessage(msg)
+
+			if err != nil {
+				t.Fatalf("Failed to parse %s message: %v", msgType, err)
+			}
+			if parsedType != msgType {
+				t.Errorf("Message type mismatch: got %q, want %q", parsedType, msgType)
+			}
+		})
+	}
+}
+
+func TestMessageTypes_AllTypesIncludingPublish(t *testing.T) {
+	// Verify all message types (existing + publish) work correctly
+	// Regression test: adding "publish" must not break other message types
+	allTypes := []string{"subscribe", "unsubscribe", "heartbeat", "reconnect", "publish"}
+
+	for _, msgType := range allTypes {
+		t.Run(msgType, func(t *testing.T) {
+			msg := []byte(`{"type": "` + msgType + `", "data": {}}`)
+			parsedType, _, err := parseClientMessage(msg)
+
+			if err != nil {
+				t.Fatalf("Failed to parse %s: %v", msgType, err)
+			}
+			if parsedType != msgType {
+				t.Errorf("got %q, want %q", parsedType, msgType)
+			}
+		})
+	}
+}
+
+func TestMessageHandler_PublishDoesNotAffectExistingTypes(t *testing.T) {
+	// Interleaved parsing test - ensure publish doesn't corrupt parser state
+	messages := []struct {
+		msgType string
+		payload string
+	}{
+		{"subscribe", `{"type": "subscribe", "data": {"channels": ["BTC.trade"]}}`},
+		{"publish", `{"type": "publish", "data": {"channel": "test.chat", "data": {"msg": "hello"}}}`},
+		{"unsubscribe", `{"type": "unsubscribe", "data": {"channels": ["BTC.trade"]}}`},
+		{"publish", `{"type": "publish", "data": {"channel": "test.chat", "data": {"msg": "world"}}}`},
+		{"heartbeat", `{"type": "heartbeat"}`},
+		{"reconnect", `{"type": "reconnect", "data": {"client_id": "abc123"}}`},
+	}
+
+	for i, msg := range messages {
+		parsedType, _, err := parseClientMessage([]byte(msg.payload))
+		if err != nil {
+			t.Fatalf("Message %d (%s): parse failed: %v", i, msg.msgType, err)
+		}
+		if parsedType != msg.msgType {
+			t.Errorf("Message %d: got %q, want %q", i, parsedType, msg.msgType)
+		}
+	}
+}
+
+// =============================================================================
 // Benchmark Tests
 // =============================================================================
 

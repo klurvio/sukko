@@ -37,6 +37,7 @@ type ShardConfig struct {
 	ServerConfig        types.ServerConfig
 	BroadcastBus        broadcast.Bus // Reference to the central bus
 	SharedKafkaConsumer interface{}   // Shared Kafka consumer (managed by KafkaConsumerPool)
+	KafkaProducer       interface{}   // Kafka producer for client message publishing (optional)
 	Logger              zerolog.Logger
 	MaxConnections      int
 }
@@ -50,6 +51,7 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 	serverConfig := cfg.ServerConfig
 	serverConfig.MaxConnections = cfg.MaxConnections           // Override with shard-specific limit
 	serverConfig.SharedKafkaConsumer = cfg.SharedKafkaConsumer // Pass shared consumer for metrics
+	serverConfig.KafkaProducer = cfg.KafkaProducer             // Pass shared producer for client publishing
 
 	// Create broadcast function that will publish to the central bus
 	// instead of directly broadcasting to local clients

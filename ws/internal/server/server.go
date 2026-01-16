@@ -42,6 +42,7 @@ type Server struct {
 	logger        zerolog.Logger     // Structured logger for all server events
 	listener      net.Listener       // TCP listener for accepting connections
 	kafkaConsumer *kafka.Consumer    // Kafka/Redpanda consumer for market data (managed by KafkaConsumerPool)
+	kafkaProducer *kafka.Producer    // Kafka/Redpanda producer for client message publishing (optional)
 
 	// Connection management
 	connections       *ConnectionPool    // Pre-allocated connection pool
@@ -147,6 +148,15 @@ func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc
 	if config.SharedKafkaConsumer != nil {
 		s.kafkaConsumer = config.SharedKafkaConsumer.(*kafka.Consumer)
 		logger.Info().Msg("Using shared Kafka consumer (managed by pool)")
+	}
+
+	// Initialize Kafka producer for client message publishing (optional)
+	// If configured, clients can publish messages to Kafka via the "publish" message type
+	if config.KafkaProducer != nil {
+		s.kafkaProducer = config.KafkaProducer.(*kafka.Producer)
+		logger.Info().
+			Str("topic", s.kafkaProducer.Topic()).
+			Msg("Kafka producer enabled for client message publishing")
 	}
 
 	// NOTE: Authentication is now handled by ws-gateway

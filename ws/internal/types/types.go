@@ -34,6 +34,7 @@ type ServerConfig struct {
 	ConsumerGroup       string
 	Environment         string // Environment for logging (topic naming handled by KafkaConsumerPool)
 	SharedKafkaConsumer any    // Shared Kafka consumer reference (managed by KafkaConsumerPool)
+	KafkaProducer       any    // Kafka producer for client message publishing (optional)
 	MaxConnections      int
 
 	// Static resource limits

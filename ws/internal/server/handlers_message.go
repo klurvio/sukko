@@ -170,6 +170,19 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			}
 		}
 
+	case "publish":
+		// Client publishing a message to Kafka
+		// Message format: {"type": "publish", "data": {"channel": "community.group123.chat", "data": {...}}}
+		//
+		// This enables bidirectional WebSocket messaging:
+		// - Clients can publish messages to Kafka topics
+		// - Messages are stored with channel as key for partitioning
+		// - Other clients subscribed to the channel receive the message via Kafka consumer
+		//
+		// Security: Authentication is handled by ws-gateway before requests reach here.
+		// The client_id in Kafka headers is the server-verified identity, not client-claimed.
+		s.handleClientPublish(c, req.Data)
+
 	default:
 		// Unknown message type
 		// Log but don't disconnect (might be future feature we haven't implemented yet)
