@@ -2,13 +2,17 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Toniq-Labs/odin-ws/internal/messaging"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 )
 
@@ -572,5 +576,349 @@ func TestZerologEventAdapter_Chaining_ProducesOutput(t *testing.T) {
 	// Interface fields are JSON-encoded
 	if !strings.Contains(output, "\"data\":{\"a\":1}") {
 		t.Errorf("Output missing Interface field: %s", output)
+	}
+}
+
+// =============================================================================
+// ReadLoop Tests - WebSocket Frame Handling
+// =============================================================================
+
+// Helper to create a WebSocket frame for testing
+func createWebSocketFrame(opCode ws.OpCode, payload []byte, masked bool) []byte {
+	var buf bytes.Buffer
+
+	header := ws.Header{
+		Fin:    true,
+		OpCode: opCode,
+		Length: int64(len(payload)),
+		Masked: masked,
+	}
+
+	if masked {
+		header.Mask = [4]byte{0x12, 0x34, 0x56, 0x78}
+	}
+
+	_ = ws.WriteHeader(&buf, header)
+
+	if masked && len(payload) > 0 {
+		// Create a copy to mask
+		maskedPayload := make([]byte, len(payload))
+		copy(maskedPayload, payload)
+		ws.Cipher(maskedPayload, header.Mask, 0)
+		buf.Write(maskedPayload)
+	} else {
+		buf.Write(payload)
+	}
+
+	return buf.Bytes()
+}
+
+func TestReadLoop_TextMessage_ProcessedCorrectly(t *testing.T) {
+	// Create test message
+	textPayload := []byte(`{"type":"subscribe","data":{"channels":["BTC.trade"]}}`)
+	frameData := createWebSocketFrame(ws.OpText, textPayload, true) // Client frames are masked
+
+	// Add a close frame to terminate the loop
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{}, true)
+	frameData = append(frameData, closeFrame...)
+
+	mockConn := newTestMockConn()
+	mockConn.setReadData(frameData)
+
+	stats := &types.Stats{}
+	pump := &Pump{
+		Config: DefaultPumpConfig(),
+		Stats:  stats,
+	}
+
+	client := &Client{
+		id:            1,
+		conn:          mockConn,
+		send:          make(chan []byte, 10),
+		subscriptions: NewSubscriptionSet(),
+		seqGen:        messaging.NewSequenceGenerator(),
+	}
+
+	var receivedMsg []byte
+	handleMsgFn := func(c *Client, msg []byte) {
+		receivedMsg = msg
+	}
+
+	ctx := context.Background()
+	pump.ReadLoop(ctx, client, nil, handleMsgFn)
+
+	// Verify message was received
+	if receivedMsg == nil {
+		t.Error("Expected text message to be processed")
+	}
+
+	if string(receivedMsg) != string(textPayload) {
+		t.Errorf("Message mismatch: got %s, want %s", string(receivedMsg), string(textPayload))
+	}
+
+	// Verify stats were updated
+	if stats.MessagesReceived != 1 {
+		t.Errorf("MessagesReceived: got %d, want 1", stats.MessagesReceived)
+	}
+}
+
+func TestReadLoop_PingFrame_SendsPongResponse(t *testing.T) {
+	// Create ping frame with payload
+	pingPayload := []byte("ping-data")
+	pingFrame := createWebSocketFrame(ws.OpPing, pingPayload, true)
+
+	// Add close frame to terminate
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{}, true)
+	frameData := append(pingFrame, closeFrame...)
+
+	mockConn := newTestMockConn()
+	mockConn.setReadData(frameData)
+
+	stats := &types.Stats{}
+	pump := &Pump{
+		Config: DefaultPumpConfig(),
+		Stats:  stats,
+	}
+
+	client := &Client{
+		id:            1,
+		conn:          mockConn,
+		send:          make(chan []byte, 10),
+		subscriptions: NewSubscriptionSet(),
+		seqGen:        messaging.NewSequenceGenerator(),
+	}
+
+	ctx := context.Background()
+	pump.ReadLoop(ctx, client, nil, nil)
+
+	// Verify pong was written
+	writtenData := mockConn.getWrittenData()
+	if len(writtenData) == 0 {
+		t.Error("Expected pong response to be written")
+	}
+
+	// Parse the written frame to verify it's a pong
+	reader := bytes.NewReader(writtenData)
+	header, err := ws.ReadHeader(reader)
+	if err != nil {
+		t.Fatalf("Failed to read written header: %v", err)
+	}
+
+	if header.OpCode != ws.OpPong {
+		t.Errorf("Expected OpPong, got %v", header.OpCode)
+	}
+}
+
+func TestReadLoop_PongFrame_RefreshesDeadline(t *testing.T) {
+	// Create pong frame (simulating client responding to server ping)
+	pongPayload := []byte{}
+	pongFrame := createWebSocketFrame(ws.OpPong, pongPayload, true)
+
+	// Add close frame to terminate
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{}, true)
+	frameData := append(pongFrame, closeFrame...)
+
+	mockConn := newTestMockConn()
+	mockConn.setReadData(frameData)
+
+	stats := &types.Stats{}
+	pump := &Pump{
+		Config: DefaultPumpConfig(),
+		Stats:  stats,
+	}
+
+	client := &Client{
+		id:            1,
+		conn:          mockConn,
+		send:          make(chan []byte, 10),
+		subscriptions: NewSubscriptionSet(),
+		seqGen:        messaging.NewSequenceGenerator(),
+	}
+
+	ctx := context.Background()
+	pump.ReadLoop(ctx, client, nil, nil)
+
+	// Verify deadline was set multiple times (initial + after pong + after close)
+	deadlineCount := mockConn.getDeadlineCount()
+	if deadlineCount < 2 {
+		t.Errorf("Expected at least 2 deadline sets (initial + after pong), got %d", deadlineCount)
+	}
+}
+
+func TestReadLoop_CloseFrame_ExitsGracefully(t *testing.T) {
+	// Create close frame
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{}, true)
+
+	mockConn := newTestMockConn()
+	mockConn.setReadData(closeFrame)
+
+	stats := &types.Stats{}
+	pump := &Pump{
+		Config: DefaultPumpConfig(),
+		Stats:  stats,
+	}
+
+	client := &Client{
+		id:            1,
+		conn:          mockConn,
+		send:          make(chan []byte, 10),
+		subscriptions: NewSubscriptionSet(),
+		seqGen:        messaging.NewSequenceGenerator(),
+	}
+
+	done := make(chan bool)
+	go func() {
+		ctx := context.Background()
+		pump.ReadLoop(ctx, client, nil, nil)
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Good - ReadLoop exited
+	case <-time.After(1 * time.Second):
+		t.Error("ReadLoop did not exit on close frame")
+	}
+}
+
+func TestReadLoop_ContextCancellation_ExitsWithServerShutdown(t *testing.T) {
+	// Create a connection that blocks on read
+	mockConn := newTestMockConn()
+	mockConn.setReadError(io.EOF) // Will return EOF when read buffer is empty
+
+	stats := &types.Stats{}
+	pump := &Pump{
+		Config: DefaultPumpConfig(),
+		Stats:  stats,
+	}
+
+	client := &Client{
+		id:            1,
+		conn:          mockConn,
+		send:          make(chan []byte, 10),
+		subscriptions: NewSubscriptionSet(),
+		seqGen:        messaging.NewSequenceGenerator(),
+	}
+
+	var disconnectReason string
+	var initiatedBy string
+	disconnectFn := func(c *Client, reason, by string) {
+		disconnectReason = reason
+		initiatedBy = by
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan bool)
+	go func() {
+		pump.ReadLoop(ctx, client, disconnectFn, nil)
+		done <- true
+	}()
+
+	// Cancel context to simulate server shutdown
+	cancel()
+
+	select {
+	case <-done:
+		// Verify shutdown reason
+		if disconnectReason != "server_shutdown" {
+			t.Errorf("Expected server_shutdown reason, got %s", disconnectReason)
+		}
+		if initiatedBy != "server" {
+			t.Errorf("Expected server initiated, got %s", initiatedBy)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("ReadLoop did not exit on context cancellation")
+	}
+}
+
+func TestReadLoop_ReadError_CallsDisconnectFn(t *testing.T) {
+	// Create connection that returns error
+	mockConn := newTestMockConn()
+	mockConn.setReadError(io.ErrUnexpectedEOF)
+
+	stats := &types.Stats{}
+	pump := &Pump{
+		Config: DefaultPumpConfig(),
+		Stats:  stats,
+	}
+
+	client := &Client{
+		id:            1,
+		conn:          mockConn,
+		send:          make(chan []byte, 10),
+		subscriptions: NewSubscriptionSet(),
+		seqGen:        messaging.NewSequenceGenerator(),
+	}
+
+	var disconnectCalled bool
+	var disconnectReason string
+	disconnectFn := func(c *Client, reason, by string) {
+		disconnectCalled = true
+		disconnectReason = reason
+	}
+
+	ctx := context.Background()
+	pump.ReadLoop(ctx, client, disconnectFn, nil)
+
+	if !disconnectCalled {
+		t.Error("Expected disconnectFn to be called")
+	}
+
+	if disconnectReason != "read_error" {
+		t.Errorf("Expected read_error reason, got %s", disconnectReason)
+	}
+}
+
+func TestReadLoop_RateLimiting_BlocksExcessiveMessages(t *testing.T) {
+	// Create multiple text frames
+	var frameData []byte
+	for range 3 {
+		textPayload := []byte(`{"type":"heartbeat"}`)
+		frame := createWebSocketFrame(ws.OpText, textPayload, true)
+		frameData = append(frameData, frame...)
+	}
+	// Add close frame
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{}, true)
+	frameData = append(frameData, closeFrame...)
+
+	mockConn := newTestMockConn()
+	mockConn.setReadData(frameData)
+
+	mockRateLimiter := newTestMockRateLimiter()
+	mockRateLimiter.setAllowCount(1) // Only allow first message
+
+	stats := &types.Stats{}
+	pump := &Pump{
+		Config:      DefaultPumpConfig(),
+		Stats:       stats,
+		RateLimiter: mockRateLimiter,
+		Logger:      newTestMockLogger(),
+	}
+
+	client := &Client{
+		id:            1,
+		conn:          mockConn,
+		send:          make(chan []byte, 10),
+		subscriptions: NewSubscriptionSet(),
+		seqGen:        messaging.NewSequenceGenerator(),
+	}
+
+	processedCount := 0
+	handleMsgFn := func(c *Client, msg []byte) {
+		processedCount++
+	}
+
+	ctx := context.Background()
+	pump.ReadLoop(ctx, client, nil, handleMsgFn)
+
+	// Only 1 message should have been processed (first one allowed by rate limiter)
+	if processedCount != 1 {
+		t.Errorf("Expected 1 processed message, got %d", processedCount)
+	}
+
+	// Rate limiter should have been called 3 times
+	if mockRateLimiter.getCallCount() != 3 {
+		t.Errorf("Expected 3 rate limiter calls, got %d", mockRateLimiter.getCallCount())
 	}
 }

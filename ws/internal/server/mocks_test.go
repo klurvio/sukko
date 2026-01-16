@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net"
 	"sync"
 	"time"
 )
@@ -305,4 +306,127 @@ func (m *testMockAuditLogger) hasEvent(eventName string) bool {
 		}
 	}
 	return false
+}
+
+// =============================================================================
+// Mock Connection for WebSocket Testing
+// =============================================================================
+
+// testMockConn implements net.Conn for testing WebSocket frame handling.
+type testMockConn struct {
+	mu           sync.Mutex
+	readBuf      []byte
+	readPos      int
+	readErr      error
+	writeBuf     []byte
+	writeErr     error
+	closed       bool
+	deadlines    []time.Time
+	readDeadline time.Time
+}
+
+func newTestMockConn() *testMockConn {
+	return &testMockConn{
+		readBuf:   make([]byte, 0),
+		writeBuf:  make([]byte, 0),
+		deadlines: make([]time.Time, 0),
+	}
+}
+
+func (c *testMockConn) Read(b []byte) (n int, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.readErr != nil {
+		return 0, c.readErr
+	}
+
+	if c.readPos >= len(c.readBuf) {
+		return 0, c.readErr
+	}
+
+	n = copy(b, c.readBuf[c.readPos:])
+	c.readPos += n
+	return n, nil
+}
+
+func (c *testMockConn) Write(b []byte) (n int, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.writeErr != nil {
+		return 0, c.writeErr
+	}
+
+	c.writeBuf = append(c.writeBuf, b...)
+	return len(b), nil
+}
+
+func (c *testMockConn) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+	return nil
+}
+
+func (c *testMockConn) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8080}
+}
+
+func (c *testMockConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 12345}
+}
+
+func (c *testMockConn) SetDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.deadlines = append(c.deadlines, t)
+	return nil
+}
+
+func (c *testMockConn) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.readDeadline = t
+	c.deadlines = append(c.deadlines, t)
+	return nil
+}
+
+func (c *testMockConn) SetWriteDeadline(t time.Time) error {
+	return nil
+}
+
+// Helper methods for testing
+
+func (c *testMockConn) setReadData(data []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.readBuf = data
+	c.readPos = 0
+}
+
+func (c *testMockConn) setReadError(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.readErr = err
+}
+
+func (c *testMockConn) getWrittenData() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	result := make([]byte, len(c.writeBuf))
+	copy(result, c.writeBuf)
+	return result
+}
+
+func (c *testMockConn) getDeadlineCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.deadlines)
+}
+
+func (c *testMockConn) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
 }
