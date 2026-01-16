@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gobwas/ws"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/auth"
@@ -20,9 +20,6 @@ type Gateway struct {
 	jwtValidator *auth.JWTValidator
 	permissions  *PermissionChecker
 	logger       zerolog.Logger
-
-	upgrader *websocket.Upgrader
-	dialer   *websocket.Dialer
 }
 
 // New creates a new Gateway instance.
@@ -42,17 +39,6 @@ func New(config *Config, logger zerolog.Logger) *Gateway {
 			config.GroupScopedPatterns,
 		),
 		logger: logger.With().Str("component", "gateway").Logger(),
-		upgrader: &websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins (handled by ingress/LB)
-			},
-		},
-		dialer: &websocket.Dialer{
-			Proxy:            http.ProxyFromEnvironment,
-			HandshakeTimeout: config.DialTimeout,
-		},
 	}
 }
 
@@ -107,8 +93,8 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			Msg("Auth disabled - allowing anonymous connection")
 	}
 
-	// Upgrade client connection to WebSocket
-	clientConn, err := gw.upgrader.Upgrade(w, r, nil)
+	// Upgrade client connection to WebSocket using gobwas/ws
+	clientConn, _, _, err := ws.UpgradeHTTP(r, w)
 	if err != nil {
 		gw.logger.Warn().
 			Err(err).
@@ -118,28 +104,21 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = clientConn.Close() }()
 
-	// Connect to backend ws-server
+	// Connect to backend ws-server using gobwas/ws
 	ctx, cancel := context.WithTimeout(context.Background(), gw.config.DialTimeout)
 	defer cancel()
 
-	backendConn, resp, err := gw.dialer.DialContext(ctx, gw.config.BackendURL, nil)
+	backendConn, _, _, err := ws.Dial(ctx, gw.config.BackendURL)
 	if err != nil {
-		logEvent := gw.logger.Error().
+		gw.logger.Error().
 			Err(err).
 			Str("backend_url", gw.config.BackendURL).
-			Str("remote_addr", remoteAddr)
+			Str("remote_addr", remoteAddr).
+			Msg("Failed to connect to backend")
 
-		if resp != nil {
-			logEvent = logEvent.Int("http_status", resp.StatusCode)
-		}
-		logEvent.Msg("Failed to connect to backend")
-
-		// Send close message to client
-		closeMsg := websocket.FormatCloseMessage(
-			websocket.CloseInternalServerErr,
-			"Backend unavailable",
-		)
-		_ = clientConn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
+		// Send close frame to client
+		closeFrame := ws.NewCloseFrameBody(ws.StatusInternalServerError, "Backend unavailable")
+		_ = ws.WriteFrame(clientConn, ws.NewCloseFrame(closeFrame))
 		return
 	}
 	defer func() { _ = backendConn.Close() }()

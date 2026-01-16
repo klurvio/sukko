@@ -2,12 +2,14 @@ package orchestration
 
 import (
 	"context"
+	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 )
 
@@ -19,9 +21,6 @@ type ShardProxy struct {
 	backendURL *url.URL
 	logger     zerolog.Logger
 
-	upgrader websocket.Upgrader
-	dialer   *websocket.Dialer
-
 	// Timeouts
 	dialTimeout    time.Duration
 	messageTimeout time.Duration
@@ -30,20 +29,9 @@ type ShardProxy struct {
 // NewShardProxy creates a new WebSocket proxy for a specific shard.
 func NewShardProxy(shard *Shard, backendURL *url.URL, logger zerolog.Logger) *ShardProxy {
 	return &ShardProxy{
-		shard:      shard,
-		backendURL: backendURL,
-		logger:     logger.With().Str("component", "proxy").Int("shard_id", shard.ID).Logger(),
-		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins (LoadBalancer handles CORS)
-			},
-		},
-		dialer: &websocket.Dialer{
-			Proxy:            http.ProxyFromEnvironment,
-			HandshakeTimeout: 10 * time.Second,
-		},
+		shard:          shard,
+		backendURL:     backendURL,
+		logger:         logger.With().Str("component", "proxy").Int("shard_id", shard.ID).Logger(),
 		dialTimeout:    10 * time.Second,
 		messageTimeout: 60 * time.Second,
 	}
@@ -56,8 +44,8 @@ func NewShardProxy(shard *Shard, backendURL *url.URL, logger zerolog.Logger) *Sh
 func (p *ShardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
-	// STEP 1: Upgrade client to WebSocket
-	clientConn, err := p.upgrader.Upgrade(w, r, nil)
+	// STEP 1: Upgrade client to WebSocket using gobwas/ws
+	clientConn, _, _, err := ws.UpgradeHTTP(r, w)
 	if err != nil {
 		p.logger.Warn().
 			Err(err).
@@ -71,7 +59,7 @@ func (p *ShardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Str("remote_addr", r.RemoteAddr).
 		Msg("Client upgraded, connecting to backend shard")
 
-	// STEP 2: Connect to backend shard
+	// STEP 2: Connect to backend shard using gobwas/ws
 	ctx, cancel := context.WithTimeout(context.Background(), p.dialTimeout)
 	defer cancel()
 
@@ -83,33 +71,25 @@ func (p *ShardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Str("client_remote_addr", r.RemoteAddr).
 		Msg("Attempting to dial backend shard")
 
-	backendConn, resp, err := p.dialer.DialContext(ctx, p.backendURL.String(), nil)
+	backendConn, _, _, err := ws.Dial(ctx, p.backendURL.String())
 	dialDuration := time.Since(dialStart)
 
 	if err != nil {
 		// DEBUG: Enhanced backend dial failure logging
-		logEvent := p.logger.Error().
+		p.logger.Error().
 			Err(err).
 			Str("backend_url", p.backendURL.String()).
 			Dur("dial_duration_ms", dialDuration).
 			Dur("elapsed_since_start_ms", time.Since(startTime)).
 			Str("client_remote_addr", r.RemoteAddr).
-			Int("shard_id", p.shard.ID)
-
-		// Add HTTP response details if available
-		if resp != nil {
-			logEvent = logEvent.
-				Int("http_status", resp.StatusCode).
-				Str("http_status_text", resp.Status)
-		}
-
-		logEvent.Msg("Backend dial failed")
+			Int("shard_id", p.shard.ID).
+			Msg("Backend dial failed")
 
 		// Send error to client
 		// Client receives: WebSocket Close Frame (code: 1011, reason: "Backend unavailable")
 		// See: docs/API_REJECTION_RESPONSES.md (Scenario 6)
-		closeMsg := websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Backend unavailable")
-		_ = clientConn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
+		closeFrame := ws.NewCloseFrameBody(ws.StatusInternalServerError, "Backend unavailable")
+		_ = ws.WriteFrame(clientConn, ws.NewCloseFrame(closeFrame))
 		return
 	}
 	defer func() { _ = backendConn.Close() }()
@@ -136,32 +116,29 @@ func (p *ShardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // proxyMessages forwards WebSocket messages bidirectionally between client and backend.
 // Uses goroutines for concurrent forwarding in both directions.
 // Returns when either connection closes or errors, after ensuring both goroutines complete.
-func (p *ShardProxy) proxyMessages(client, backend *websocket.Conn) {
+func (p *ShardProxy) proxyMessages(client, backend net.Conn) {
 	errChan := make(chan error, 2)
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Client -> Backend
+	// Client -> Backend (client frames are masked, need to re-mask for backend)
 	go func() {
 		defer wg.Done()
-		p.copyMessages(client, backend, "client->backend", errChan)
+		p.copyMessages(client, backend, "client->backend", true, errChan)
 	}()
 
-	// Backend -> Client
+	// Backend -> Client (server frames are not masked, send as-is)
 	go func() {
 		defer wg.Done()
-		p.copyMessages(backend, client, "backend->client", errChan)
+		p.copyMessages(backend, client, "backend->client", false, errChan)
 	}()
 
 	// Wait for first error (connection close)
 	err := <-errChan
-	if err != nil {
-		// Check if it's a normal closure
-		if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-			p.logger.Debug().Msg("Connection closed normally")
-		} else if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-			p.logger.Warn().Err(err).Msg("Unexpected connection close")
-		}
+	if err != nil && err != io.EOF {
+		p.logger.Warn().Err(err).Msg("Connection closed with error")
+	} else {
+		p.logger.Debug().Msg("Connection closed normally")
 	}
 
 	// Close both connections to unblock any goroutines waiting on read/write
@@ -172,31 +149,99 @@ func (p *ShardProxy) proxyMessages(client, backend *websocket.Conn) {
 	wg.Wait()
 }
 
-// copyMessages copies WebSocket messages from src to dst.
-// Handles all message types (text, binary, close, ping, pong).
-// Sends error to errChan when connection closes or fails.
-func (p *ShardProxy) copyMessages(src, dst *websocket.Conn, direction string, errChan chan error) {
+// copyMessages copies WebSocket frames from src to dst.
+// Handles ALL frame types transparently: text, binary, ping, pong, close.
+// This ensures ping/pong frames pass through the proxy to the browser.
+//
+// The maskOutput parameter controls whether outgoing frames should be masked:
+// - client->backend: true (client frames must be masked per WebSocket spec)
+// - backend->client: false (server frames must not be masked)
+func (p *ShardProxy) copyMessages(src, dst net.Conn, direction string, maskOutput bool, errChan chan error) {
 	for {
-		messageType, message, err := src.ReadMessage()
+		// Read frame header
+		header, err := ws.ReadHeader(src)
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+			if err != io.EOF {
 				p.logger.Debug().
 					Err(err).
 					Str("direction", direction).
-					Msg("Connection closed")
+					Msg("Read header error")
 			}
 			errChan <- err
 			return
 		}
 
-		err = dst.WriteMessage(messageType, message)
-		if err != nil {
-			p.logger.Error().
+		// Read payload
+		payload := make([]byte, header.Length)
+		if header.Length > 0 {
+			if _, err := io.ReadFull(src, payload); err != nil {
+				p.logger.Debug().
+					Err(err).
+					Str("direction", direction).
+					Msg("Read payload error")
+				errChan <- err
+				return
+			}
+		}
+
+		// Unmask if the incoming frame was masked (client->proxy frames are masked)
+		if header.Masked {
+			ws.Cipher(payload, header.Mask, 0)
+		}
+
+		// Handle close frame - forward it and exit
+		if header.OpCode == ws.OpClose {
+			p.logger.Debug().
+				Str("direction", direction).
+				Msg("Received close frame, forwarding")
+
+			outHeader := ws.Header{
+				Fin:    true,
+				OpCode: ws.OpClose,
+				Length: int64(len(payload)),
+			}
+			if maskOutput {
+				outHeader.Masked = true
+				outHeader.Mask = ws.NewMask()
+				ws.Cipher(payload, outHeader.Mask, 0)
+			}
+			_ = ws.WriteHeader(dst, outHeader)
+			_, _ = dst.Write(payload)
+			errChan <- nil
+			return
+		}
+
+		// Forward all other frames (text, binary, ping, pong) as-is
+		outHeader := ws.Header{
+			Fin:    header.Fin,
+			OpCode: header.OpCode,
+			Length: int64(len(payload)),
+		}
+
+		// Apply masking if needed (client->backend requires masked frames)
+		if maskOutput {
+			outHeader.Masked = true
+			outHeader.Mask = ws.NewMask()
+			ws.Cipher(payload, outHeader.Mask, 0)
+		}
+
+		if err := ws.WriteHeader(dst, outHeader); err != nil {
+			p.logger.Debug().
 				Err(err).
 				Str("direction", direction).
-				Msg("Write failed")
+				Msg("Write header error")
 			errChan <- err
 			return
+		}
+		if len(payload) > 0 {
+			if _, err := dst.Write(payload); err != nil {
+				p.logger.Debug().
+					Err(err).
+					Str("direction", direction).
+					Msg("Write payload error")
+				errChan <- err
+				return
+			}
 		}
 	}
 }

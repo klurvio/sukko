@@ -2,10 +2,12 @@ package gateway
 
 import (
 	"encoding/json"
+	"io"
+	"net"
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/auth"
@@ -14,8 +16,8 @@ import (
 // Proxy handles bidirectional WebSocket message forwarding between client and backend.
 // It intercepts subscribe messages to filter channels based on permissions.
 type Proxy struct {
-	clientConn  *websocket.Conn
-	backendConn *websocket.Conn
+	clientConn  net.Conn
+	backendConn net.Conn
 	claims      *auth.Claims
 	permissions *PermissionChecker
 	logger      zerolog.Logger
@@ -25,7 +27,7 @@ type Proxy struct {
 
 // NewProxy creates a new proxy for a client-backend connection pair.
 func NewProxy(
-	clientConn, backendConn *websocket.Conn,
+	clientConn, backendConn net.Conn,
 	claims *auth.Claims,
 	permissions *PermissionChecker,
 	logger zerolog.Logger,
@@ -62,12 +64,10 @@ func (p *Proxy) Run() {
 
 	// Wait for first error (connection close)
 	err := <-errChan
-	if err != nil {
-		if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-			p.logger.Debug().Msg("Connection closed normally")
-		} else if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-			p.logger.Warn().Err(err).Msg("Unexpected connection close")
-		}
+	if err != nil && err != io.EOF {
+		p.logger.Warn().Err(err).Msg("Connection closed with error")
+	} else {
+		p.logger.Debug().Msg("Connection closed normally")
 	}
 
 	// Close both connections to unblock waiting goroutines
@@ -80,28 +80,50 @@ func (p *Proxy) Run() {
 
 // proxyClientToBackend forwards messages from client to backend,
 // intercepting subscribe messages to filter channels.
+// Handles all frame types including ping/pong transparently.
 func (p *Proxy) proxyClientToBackend(errChan chan error) {
 	for {
-		messageType, message, err := p.clientConn.ReadMessage()
+		// Read frame header
+		header, err := ws.ReadHeader(p.clientConn)
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				p.logger.Debug().Err(err).Msg("Client connection closed")
+			if err != io.EOF {
+				p.logger.Debug().Err(err).Msg("Client read error")
 			}
 			errChan <- err
 			return
 		}
 
-		// Intercept and possibly modify the message
-		modifiedMessage, err := p.interceptClientMessage(message)
-		if err != nil {
-			p.logger.Error().Err(err).Msg("Failed to intercept client message")
-			// Forward original message on error
-			modifiedMessage = message
+		// Read payload
+		payload := make([]byte, header.Length)
+		if header.Length > 0 {
+			if _, err := io.ReadFull(p.clientConn, payload); err != nil {
+				p.logger.Debug().Err(err).Msg("Client payload read error")
+				errChan <- err
+				return
+			}
 		}
 
-		// Forward to backend
-		if err := p.backendConn.WriteMessage(messageType, modifiedMessage); err != nil {
-			p.logger.Error().Err(err).Msg("Failed to write to backend")
+		// Unmask client frames (client->server frames are always masked)
+		if header.Masked {
+			ws.Cipher(payload, header.Mask, 0)
+		}
+
+		// Handle close frame
+		if header.OpCode == ws.OpClose {
+			p.logger.Debug().Msg("Client sent close frame")
+			p.forwardCloseFrame(p.backendConn, payload, true)
+			errChan <- nil
+			return
+		}
+
+		// For text frames, intercept and possibly modify (subscribe filtering)
+		if header.OpCode == ws.OpText {
+			payload, _ = p.interceptClientMessage(payload)
+		}
+
+		// Forward frame to backend (re-mask for server)
+		if err := p.forwardFrame(p.backendConn, header.OpCode, payload, header.Fin, true); err != nil {
+			p.logger.Debug().Err(err).Msg("Backend write error")
 			errChan <- err
 			return
 		}
@@ -109,23 +131,89 @@ func (p *Proxy) proxyClientToBackend(errChan chan error) {
 }
 
 // proxyBackendToClient forwards messages from backend to client (pass-through).
+// Handles all frame types including ping/pong transparently.
 func (p *Proxy) proxyBackendToClient(errChan chan error) {
 	for {
-		messageType, message, err := p.backendConn.ReadMessage()
+		// Read frame header
+		header, err := ws.ReadHeader(p.backendConn)
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				p.logger.Debug().Err(err).Msg("Backend connection closed")
+			if err != io.EOF {
+				p.logger.Debug().Err(err).Msg("Backend read error")
 			}
 			errChan <- err
 			return
 		}
 
-		// Pass through to client
-		if err := p.clientConn.WriteMessage(messageType, message); err != nil {
-			p.logger.Error().Err(err).Msg("Failed to write to client")
+		// Read payload
+		payload := make([]byte, header.Length)
+		if header.Length > 0 {
+			if _, err := io.ReadFull(p.backendConn, payload); err != nil {
+				p.logger.Debug().Err(err).Msg("Backend payload read error")
+				errChan <- err
+				return
+			}
+		}
+
+		// Server frames are not masked, no need to unmask
+
+		// Handle close frame
+		if header.OpCode == ws.OpClose {
+			p.logger.Debug().Msg("Backend sent close frame")
+			p.forwardCloseFrame(p.clientConn, payload, false)
+			errChan <- nil
+			return
+		}
+
+		// Forward all frames to client (server->client: no masking)
+		if err := p.forwardFrame(p.clientConn, header.OpCode, payload, header.Fin, false); err != nil {
+			p.logger.Debug().Err(err).Msg("Client write error")
 			errChan <- err
 			return
 		}
+	}
+}
+
+// forwardFrame forwards a WebSocket frame to the destination.
+// If mask is true, the frame will be masked (required for client->server frames).
+func (p *Proxy) forwardFrame(dst net.Conn, opCode ws.OpCode, payload []byte, fin bool, mask bool) error {
+	header := ws.Header{
+		Fin:    fin,
+		OpCode: opCode,
+		Length: int64(len(payload)),
+	}
+
+	if mask {
+		header.Masked = true
+		header.Mask = ws.NewMask()
+		ws.Cipher(payload, header.Mask, 0)
+	}
+
+	if err := ws.WriteHeader(dst, header); err != nil {
+		return err
+	}
+	if len(payload) > 0 {
+		if _, err := dst.Write(payload); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// forwardCloseFrame forwards a close frame to the destination.
+func (p *Proxy) forwardCloseFrame(dst net.Conn, payload []byte, mask bool) {
+	header := ws.Header{
+		Fin:    true,
+		OpCode: ws.OpClose,
+		Length: int64(len(payload)),
+	}
+	if mask {
+		header.Masked = true
+		header.Mask = ws.NewMask()
+		ws.Cipher(payload, header.Mask, 0)
+	}
+	_ = ws.WriteHeader(dst, header)
+	if len(payload) > 0 {
+		_, _ = dst.Write(payload)
 	}
 }
 
