@@ -90,12 +90,12 @@ type MessageEnvelope struct {
 	Channel string `json:"channel"`
 
 	// Priority level - determines delivery strategy
-	// Not sent to client (omitempty), used internally by server
+	// Hidden from clients (json:"-"), used internally by server
 	// Server uses this in broadcast() to decide:
 	// - CRITICAL: Block up to 1 second, then disconnect slow client
 	// - HIGH: Block up to 100ms, then disconnect slow client
 	// - NORMAL: Never block, drop message if client buffer full
-	Priority MessagePriority `json:"priority,omitempty"`
+	Priority MessagePriority `json:"-"`
 
 	// Actual message payload (varies by channel)
 	// Stored as json.RawMessage to avoid double-encoding

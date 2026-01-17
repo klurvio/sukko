@@ -205,11 +205,9 @@ func TestMessageEnvelope_Priority(t *testing.T) {
 				t.Fatalf("Failed to decode: %v", err)
 			}
 
-			// Priority should be included in JSON
-			if tt.priority != PRIORITY_CRITICAL { // 0 is omitted by omitempty
-				if decoded["priority"] == nil {
-					t.Errorf("priority should be present for %s", tt.name)
-				}
+			// Priority should never be in JSON (hidden with json:"-")
+			if decoded["priority"] != nil {
+				t.Errorf("priority should not be present in JSON, got: %v", decoded["priority"])
 			}
 		})
 	}
