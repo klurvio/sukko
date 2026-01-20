@@ -1,6 +1,6 @@
 # Generic Multi-Tenant Authentication System for WebSocket
 
-**Date:** 2026-01-17
+**Date:** 2026-01-20 (Updated)
 
 ---
 
@@ -53,6 +53,26 @@ Design and implement a generic, secure, flexible, testable, and robust multi-ten
 
 ---
 
+## Current Implementation Status
+
+> **As of 2026-01-20:** Foundation components exist, full PolicyEngine is planned.
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| JWT Validator | **Implemented** | `ws/internal/auth/jwt.go` |
+| Claims (basic) | **Implemented** | `ws/internal/auth/jwt.go` - has TenantID, Groups |
+| Claims (enhanced) | Planned | Need Attributes, Roles, Scopes, Custom |
+| PermissionChecker | **Implemented** | `ws/internal/gateway/permissions.go` |
+| Gateway auth flow | **Implemented** | `ws/internal/gateway/gateway.go` |
+| Subscribe filtering | **Implemented** | `ws/internal/gateway/proxy.go` |
+| Auth config | **Implemented** | `ws/internal/platform/gateway_config.go` |
+| PolicyEngine | Planned | Full YAML-driven rule engine |
+| TenantIsolator | Planned | Channel-level tenant boundaries |
+| TopicIsolator | Planned | Kafka topic tenant boundaries |
+| Audit logging | Planned | Authorization decision logging |
+
+---
+
 ## Design Principle: Auth Implies Isolation
 
 **Single master switch:** `auth.enabled` controls everything.
@@ -95,7 +115,9 @@ Design and implement a generic, secure, flexible, testable, and robust multi-ten
 
 ### Phase 1: Enhanced Claims Structure
 
-**File:** `ws/internal/auth/claims.go` (new)
+**File:** `ws/internal/auth/jwt.go` (modify existing Claims struct)
+
+> **Current State:** Claims struct exists with `TenantID` and `Groups`. Enhancement needed to add `Attributes`, `Roles`, `Scopes`, and `Custom` fields.
 
 ```go
 type Claims struct {
@@ -409,19 +431,20 @@ rules:
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `ws/internal/auth/claims.go` | Create | Enhanced claims structure |
+| `ws/internal/auth/jwt.go` | Modify | Enhance Claims struct with Attributes, Roles, Scopes, Custom |
 | `ws/internal/auth/engine.go` | Create | Policy engine |
 | `ws/internal/auth/placeholders.go` | Create | Placeholder resolution |
 | `ws/internal/auth/tenant.go` | Create | Tenant isolation (channels) |
 | `ws/internal/auth/topic.go` | Create | Topic isolation (Kafka) |
 | `ws/internal/auth/channel.go` | Create | Channel parser |
 | `ws/internal/auth/audit.go` | Create | Audit logging |
-| `ws/internal/auth/jwt.go` | Modify | Add claim helpers |
-| `ws/internal/gateway/config.go` | Modify | Load policy config |
+| `ws/internal/platform/gateway_config.go` | Modify | Load policy config |
 | `ws/internal/gateway/gateway.go` | Modify | Integrate PolicyEngine |
 | `ws/internal/gateway/proxy.go` | Modify | Add publish permission check |
 | `ws/internal/kafka/producer.go` | Modify | Add topic isolation check |
 | `config/auth-policy.yaml` | Create | Default policy configuration |
+
+> **Note:** Gateway config was refactored from `gateway/config.go` to `platform/gateway_config.go` following idiomatic Go patterns (config via dependency injection).
 
 ---
 

@@ -693,7 +693,7 @@ func TestServer_BroadcastFunctionality_NotAffectedByProducerField(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
-	defer server.Shutdown()
+	defer func() { _ = server.Shutdown() }()
 
 	// Trigger a broadcast
 	server.Broadcast("BTC.trade", []byte(`{"price": "50000"}`))
@@ -731,7 +731,7 @@ func TestServer_SubscriptionFlow_NotAffectedByProducerField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
-	defer server.Shutdown()
+	defer func() { _ = server.Shutdown() }()
 
 	// Create a mock client
 	client := &Client{

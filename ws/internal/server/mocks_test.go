@@ -424,9 +424,3 @@ func (c *testMockConn) getDeadlineCount() int {
 	defer c.mu.Unlock()
 	return len(c.deadlines)
 }
-
-func (c *testMockConn) isClosed() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.closed
-}

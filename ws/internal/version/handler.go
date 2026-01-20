@@ -10,6 +10,8 @@ import (
 func Handler(serviceName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(Get(serviceName))
+		if err := json.NewEncoder(w).Encode(Get(serviceName)); err != nil {
+			http.Error(w, "failed to encode version", http.StatusInternalServerError)
+		}
 	}
 }

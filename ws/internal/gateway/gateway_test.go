@@ -172,7 +172,7 @@ func TestGateway_HandleHealth(t *testing.T) {
 	gw.HandleHealth(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
@@ -246,7 +246,7 @@ func TestGateway_HandleWebSocket_NoToken(t *testing.T) {
 	gw.HandleWebSocket(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Should return 401 Unauthorized when no token provided
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -266,7 +266,7 @@ func TestGateway_HandleWebSocket_InvalidToken(t *testing.T) {
 	gw.HandleWebSocket(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Should return 401 Unauthorized for invalid token
 	if resp.StatusCode != http.StatusUnauthorized {
