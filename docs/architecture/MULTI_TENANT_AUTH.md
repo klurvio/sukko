@@ -594,6 +594,233 @@ rules:
 
 ---
 
+### Phase 10: Tenant Provisioning
+
+**Files:**
+- `ws/internal/admin/provisioner.go` (new) - TenantProvisioner with Redpanda Admin client
+- `ws/internal/admin/handlers.go` (new) - HTTP handlers for admin API
+
+**Design Decision:** Tenant provisioning creates Redpanda topics and ACLs. No auto-create - topics are explicitly provisioned.
+
+**Why separate `admin` package (not in `server/handlers_http.go`):**
+- Different dependencies: Needs Redpanda Admin client (ws-server doesn't have this)
+- Different auth: Admin endpoints need stricter auth than health checks
+- Deployment flexibility: Can mount on ws-server OR run as separate admin service
+- Separation of concerns: Operational (health/stats) vs administrative (provisioning)
+
+```
+ws/internal/
+├── server/
+│   └── handlers_http.go    # Health, stats, reconnect (operational)
+└── admin/
+    ├── provisioner.go      # TenantProvisioner (Redpanda topics + ACLs)
+    └── handlers.go         # POST /admin/tenants, DELETE, GET
+```
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Tenant Onboarding Flow                        │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Admin calls POST /admin/tenants                              │
+│  2. TenantProvisioner creates:                                   │
+│     ├── Redpanda topics: {env}.{tenant}.{category}               │
+│     ├── ACLs (tenant can only access their topics)               │
+│     └── Tenant record in database (optional)                     │
+│  3. Returns tenant credentials/config                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Redpanda Admin Client:**
+```go
+type TenantProvisioner struct {
+    rpAdmin   *redpanda.AdminClient
+    config    ProvisionerConfig
+}
+
+type ProvisionerConfig struct {
+    Environment       string
+    DefaultPartitions int    // e.g., 3
+    ReplicationFactor int    // e.g., 3 for prod, 1 for dev
+    RetentionMs       int64  // e.g., 86400000 (24h)
+}
+
+// ProvisionTenantRequest - categories passed in request, not hardcoded
+type ProvisionTenantRequest struct {
+    TenantID   string   `json:"tenant_id" validate:"required,alphanum"`
+    Categories []string `json:"categories" validate:"required,min=1"`
+    // e.g., ["trade", "liquidity", "trade.refined", "liquidity.refined"]
+}
+
+// ProvisionTenant creates topics and ACLs for a new tenant
+// Categories are passed in the request for flexibility
+func (p *TenantProvisioner) ProvisionTenant(ctx context.Context, req *ProvisionTenantRequest) (*TenantProvisionResult, error) {
+    var topics []string
+    for _, category := range req.Categories {
+        topicName := BuildTopicName(p.config.Environment, req.TenantID, category)
+        // e.g., main.acme.trade, main.acme.trade.refined
+
+        err := p.rpAdmin.CreateTopic(ctx, topicName, p.config.DefaultPartitions, p.config.ReplicationFactor)
+        if err != nil {
+            return nil, fmt.Errorf("failed to create topic %s: %w", topicName, err)
+        }
+        topics = append(topics, topicName)
+    }
+
+    // Create ACLs (tenant can only produce/consume their topics)
+    err := p.createTenantACLs(ctx, req.TenantID)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create ACLs: %w", err)
+    }
+
+    return &TenantProvisionResult{
+        TenantID: req.TenantID,
+        Topics:   topics,
+    }, nil
+}
+
+// DeprovisionTenant removes all topics and ACLs for a tenant
+func (p *TenantProvisioner) DeprovisionTenant(ctx context.Context, tenantID string) error
+```
+
+**Redpanda ACL Setup:**
+```go
+func (p *TenantProvisioner) createTenantACLs(ctx context.Context, tenantID string) error {
+    // Pattern: {env}.{tenant}.*
+    resourcePattern := fmt.Sprintf("%s.%s.*", p.config.Environment, tenantID)
+
+    // Allow produce and consume on tenant's topics only
+    acls := []redpanda.ACL{
+        {
+            Principal:    fmt.Sprintf("User:%s", tenantID),
+            ResourceType: "TOPIC",
+            ResourceName: resourcePattern,
+            PatternType:  "PREFIXED",
+            Operation:    "ALL",  // READ, WRITE, DESCRIBE
+            Permission:   "ALLOW",
+        },
+    }
+
+    return p.rpAdmin.CreateACLs(ctx, acls)
+}
+```
+
+**Admin API:**
+```go
+// POST /admin/tenants
+type CreateTenantRequest struct {
+    TenantID   string   `json:"tenant_id" validate:"required,alphanum"`
+    Categories []string `json:"categories" validate:"required,min=1"`
+}
+
+type CreateTenantResponse struct {
+    TenantID string   `json:"tenant_id"`
+    Topics   []string `json:"topics"`
+    Status   string   `json:"status"`
+}
+
+// DELETE /admin/tenants/{tenant_id}
+// GET /admin/tenants
+// GET /admin/tenants/{tenant_id}
+```
+
+**Example Request:**
+```json
+POST /admin/tenants
+{
+  "tenant_id": "acme",
+  "categories": [
+    "trade",
+    "liquidity",
+    "balances",
+    "metadata",
+    "trade.refined",
+    "liquidity.refined",
+    "balances.refined",
+    "metadata.refined"
+  ]
+}
+```
+
+**Example Response:**
+```json
+{
+  "tenant_id": "acme",
+  "topics": [
+    "main.acme.trade",
+    "main.acme.liquidity",
+    "main.acme.balances",
+    "main.acme.metadata",
+    "main.acme.trade.refined",
+    "main.acme.liquidity.refined",
+    "main.acme.balances.refined",
+    "main.acme.metadata.refined"
+  ],
+  "status": "provisioned"
+}
+```
+
+---
+
+### Phase 11: Helm Chart Cleanup
+
+**Problem:** Current Helm charts have static topic definitions that won't work for multi-tenant.
+
+**Current State (to remove):**
+```yaml
+# deployments/k8s/helm/odin/values/standard/develop.yaml
+redpanda:
+  topics:
+    - name: odin.main.trade        # ❌ Static, single-tenant
+    - name: odin.main.liquidity    # ❌ Static, single-tenant
+    # ... 16 pre-defined topics
+```
+
+**New State:**
+```yaml
+# deployments/k8s/helm/odin/values/standard/develop.yaml
+redpanda:
+  # Topics are now dynamic - created by TenantProvisioner
+  # No static topic definitions needed
+
+  # Topic defaults for provisioner
+  topicDefaults:
+    partitions: 1          # Dev: 1, Prod: 3
+    replicationFactor: 1   # Dev: 1, Prod: 3
+    retentionMs: 86400000  # 24 hours
+
+ws-server:
+  config:
+    environment: develop   # Used in topic naming: {env}.{tenant}.{category}
+    # Remove: kafkaTopicNamespace (no longer needed)
+```
+
+**Files to Update:**
+
+| File | Changes |
+|------|---------|
+| `values/standard/develop.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
+| `values/standard/staging.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
+| `values/standard/production.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
+| `values/autopilot/develop.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
+| `values/autopilot/staging.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
+| `values/local.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
+| `templates/redpanda/*` | Remove topic init job (if exists) |
+
+**Configuration Changes:**
+
+| Config | Old | New |
+|--------|-----|-----|
+| `kafkaTopicNamespace` | `main` | Remove (use `environment` instead) |
+| `redpanda.topics[]` | Static list | Remove entirely |
+| `topicDefaults` | N/A | New section for provisioner defaults |
+
+**Migration Notes:**
+- Existing topics (`odin.main.*`) will remain until manually deleted
+- New tenants get topics via TenantProvisioner
+- No breaking change for current single-tenant setup (auth disabled)
+
+---
+
 ### Phase 9: Documentation Updates
 
 **Files to Update:**
@@ -714,16 +941,29 @@ npx @asyncapi/cli bundle asyncapi.yaml -o bundled.yaml
 | `ws/internal/auth/engine.go` | Create | Policy engine |
 | `ws/internal/auth/placeholders.go` | Create | Placeholder resolution |
 | `ws/internal/auth/tenant.go` | Create | Tenant isolation (channels) |
-| `ws/internal/auth/topic.go` | Create | Topic isolation (Kafka) |
+| `ws/internal/auth/topic.go` | Create | Topic isolation (Redpanda) |
 | `ws/internal/auth/channel.go` | Create | Channel mapper (tenant implicit) |
 | `ws/internal/kafka/consumer_pool.go` | Create | Hybrid consumer strategy |
 | `ws/internal/kafka/topics.go` | Modify | Add tenant to topic building |
 | `ws/internal/auth/audit.go` | Create | Audit logging |
+| `ws/internal/admin/provisioner.go` | Create | TenantProvisioner (Redpanda topics + ACLs) |
+| `ws/internal/admin/handlers.go` | Create | Admin API handlers for tenant management |
 | `ws/internal/platform/gateway_config.go` | Modify | Load policy config |
 | `ws/internal/gateway/gateway.go` | Modify | Integrate PolicyEngine |
 | `ws/internal/gateway/proxy.go` | Modify | Add publish permission check |
 | `ws/internal/kafka/producer.go` | Modify | Add topic isolation check |
 | `config/auth-policy.yaml` | Create | Default policy configuration |
+
+### Infrastructure Files (Helm)
+
+| File | Action | Purpose |
+|------|--------|---------|
+| `deployments/k8s/helm/odin/values/standard/develop.yaml` | Modify | Remove static topics, add `topicDefaults` |
+| `deployments/k8s/helm/odin/values/standard/staging.yaml` | Modify | Remove static topics, add `topicDefaults` |
+| `deployments/k8s/helm/odin/values/standard/production.yaml` | Modify | Remove static topics, add `topicDefaults` |
+| `deployments/k8s/helm/odin/values/autopilot/*.yaml` | Modify | Remove static topics, add `topicDefaults` |
+| `deployments/k8s/helm/odin/values/local.yaml` | Modify | Remove static topics, add `topicDefaults` |
+| `deployments/k8s/helm/odin/templates/redpanda/*` | Modify | Remove topic init job if exists |
 
 ### Documentation Files
 
@@ -813,16 +1053,29 @@ func TestKafkaProducer_TopicIsolation(t *testing.T)
 - Load rules from auth-policy.yaml
 - Integrate with gateway
 
-### Step 4: Documentation Updates
+### Step 4: Tenant Provisioning
+- Create `ws/internal/admin/provisioner.go` with TenantProvisioner
+- Create `ws/internal/admin/handlers.go` for admin endpoints
+- Implement Redpanda topic creation with proper partitions/replication
+- Implement Redpanda ACL setup per tenant
+
+### Step 5: Helm Chart Cleanup
+- Remove static `redpanda.topics[]` from all values files
+- Add `topicDefaults` section for provisioner configuration
+- Remove `kafkaTopicNamespace` config (replaced by `environment`)
+- Remove topic init job templates if they exist
+
+### Step 6: Documentation Updates
 - Update `docs/CLIENT_GUIDE.md` with Multi-Tenant Architecture section
 - Update `ws/asyncapi/asyncapi.yaml` with new topic naming convention
 - Update `ws/asyncapi/channel/*.yaml` with new channel references
 - Regenerate `ws/asyncapi/bundled.yaml`
 
-### Step 5: Testing & Verification
+### Step 7: Testing & Verification
 - Unit tests for all components
 - Integration tests for multi-tenant scenarios
 - Security tests for isolation enforcement
+- Test TenantProvisioner against Redpanda
 - Verify documentation accuracy
 
 ---
