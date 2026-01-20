@@ -421,9 +421,9 @@ Examples:
 
 ---
 
-### Phase 7: Consumer Strategy (Hybrid)
+### Phase 7: Consumer Strategy (Hybrid with Hot Reload)
 
-**Design Decision:** Shared consumers by default, dedicated consumers for large tenants.
+**Design Decision:** Shared consumers by default, dedicated consumers for large tenants. Configuration changes via ConfigMap hot reload (no pod restart).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -460,16 +460,126 @@ type DedicatedConfig struct {
 }
 
 type ConsumerPool struct {
+    mu        sync.RWMutex
     shared    *Consumer              // Handles most tenants (regex pattern)
     dedicated map[string]*Consumer   // tenant_id → dedicated consumer
+    config    *ConsumerPoolConfig
+    watcher   *ConfigWatcher
 }
 
 // Shared consumer uses regex to match all tenants EXCEPT dedicated ones
 // Pattern: main\.(?!whale|enterprise)[^.]+\.trade
 func (p *ConsumerPool) buildSharedPattern() string
+```
 
-// Promotes tenant from shared to dedicated (zero downtime)
-func (p *ConsumerPool) PromoteToDedicated(tenantID string) error
+**Hot Reload via ConfigMap:**
+
+```go
+// ConfigWatcher watches for ConfigMap changes and triggers reload
+type ConfigWatcher struct {
+    configPath string
+    onChange   func(*ConsumerPoolConfig)
+    lastHash   string
+}
+
+// Watch monitors the config file for changes (fsnotify or polling)
+func (w *ConfigWatcher) Watch(ctx context.Context) error {
+    // Poll every 30 seconds or use fsnotify
+    for {
+        select {
+        case <-ctx.Done():
+            return nil
+        case <-time.After(30 * time.Second):
+            if w.hasConfigChanged() {
+                newConfig := w.loadConfig()
+                w.onChange(newConfig)
+            }
+        }
+    }
+}
+
+// Reload reconfigures consumer pool without pod restart
+func (p *ConsumerPool) Reload(newConfig *ConsumerPoolConfig) error {
+    p.mu.Lock()
+    defer p.mu.Unlock()
+
+    // 1. Find tenants that need dedicated consumers (newly added)
+    newDedicated := p.findNewDedicatedTenants(newConfig)
+
+    // 2. Start dedicated consumers for new tenants FIRST
+    for _, tenant := range newDedicated {
+        consumer := p.createDedicatedConsumer(tenant)
+        p.dedicated[tenant.TenantID] = consumer
+        consumer.Start()
+    }
+
+    // 3. Rebuild shared consumer with updated exclude list
+    // Brief pause in shared consumption during this step
+    p.shared.Stop()
+    p.shared = p.createSharedConsumer(newConfig.ExcludeTenants)
+    p.shared.Start()
+
+    // 4. Remove consumers for tenants no longer dedicated
+    removed := p.findRemovedDedicatedTenants(newConfig)
+    for _, tenantID := range removed {
+        p.dedicated[tenantID].Stop()
+        delete(p.dedicated, tenantID)
+    }
+
+    p.config = newConfig
+    return nil
+}
+```
+
+**Promotion Flow (Zero Downtime):**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 1: Update ConfigMap                                         │
+│   dedicatedTenants:                                              │
+│     - tenantID: whale                                            │
+│       groupID: ws-whale                                          │
+├─────────────────────────────────────────────────────────────────┤
+│ Step 2: ConfigWatcher detects change (within 30s)                │
+├─────────────────────────────────────────────────────────────────┤
+│ Step 3: Reload() executes:                                       │
+│   a. Start dedicated consumer for whale (catches up from latest) │
+│   b. Restart shared consumer with whale excluded                 │
+│   c. ~100ms pause in shared consumption during restart           │
+├─────────────────────────────────────────────────────────────────┤
+│ Step 4: Both consumers running, whale isolated                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Kubernetes ConfigMap Setup:**
+
+```yaml
+# configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ws-server-consumer-config
+data:
+  consumer-pool.yaml: |
+    sharedGroupID: ws-shared
+    excludeTenants: ["whale", "enterprise"]
+    dedicatedTenants:
+      - tenantID: whale
+        groupID: ws-whale
+      - tenantID: enterprise
+        groupID: ws-enterprise
+```
+
+```yaml
+# deployment.yaml - mount ConfigMap
+volumes:
+  - name: consumer-config
+    configMap:
+      name: ws-server-consumer-config
+volumeMounts:
+  - name: consumer-config
+    mountPath: /etc/ws-server/consumer-pool.yaml
+    subPath: consumer-pool.yaml
 ```
 
 **When to Graduate Tenant to Dedicated:**
@@ -943,7 +1053,8 @@ npx @asyncapi/cli bundle asyncapi.yaml -o bundled.yaml
 | `ws/internal/auth/tenant.go` | Create | Tenant isolation (channels) |
 | `ws/internal/auth/topic.go` | Create | Topic isolation (Redpanda) |
 | `ws/internal/auth/channel.go` | Create | Channel mapper (tenant implicit) |
-| `ws/internal/kafka/consumer_pool.go` | Create | Hybrid consumer strategy |
+| `ws/internal/kafka/consumer_pool.go` | Create | Hybrid consumer strategy with hot reload |
+| `ws/internal/kafka/config_watcher.go` | Create | ConfigMap watcher for hot reload |
 | `ws/internal/kafka/topics.go` | Modify | Add tenant to topic building |
 | `ws/internal/auth/audit.go` | Create | Audit logging |
 | `ws/internal/admin/provisioner.go` | Create | TenantProvisioner (Redpanda topics + ACLs) |
@@ -964,6 +1075,8 @@ npx @asyncapi/cli bundle asyncapi.yaml -o bundled.yaml
 | `deployments/k8s/helm/odin/values/autopilot/*.yaml` | Modify | Remove static topics, add `topicDefaults` |
 | `deployments/k8s/helm/odin/values/local.yaml` | Modify | Remove static topics, add `topicDefaults` |
 | `deployments/k8s/helm/odin/templates/redpanda/*` | Modify | Remove topic init job if exists |
+| `deployments/k8s/helm/odin/templates/ws-server/configmap.yaml` | Create | Consumer pool ConfigMap for hot reload |
+| `deployments/k8s/helm/odin/templates/ws-server/deployment.yaml` | Modify | Mount consumer pool ConfigMap |
 
 ### Documentation Files
 
@@ -1059,11 +1172,13 @@ func TestKafkaProducer_TopicIsolation(t *testing.T)
 - Implement Redpanda topic creation with proper partitions/replication
 - Implement Redpanda ACL setup per tenant
 
-### Step 5: Helm Chart Cleanup
+### Step 5: Helm Chart Updates
 - Remove static `redpanda.topics[]` from all values files
 - Add `topicDefaults` section for provisioner configuration
 - Remove `kafkaTopicNamespace` config (replaced by `environment`)
 - Remove topic init job templates if they exist
+- Create consumer pool ConfigMap for hot reload
+- Update ws-server Deployment to mount ConfigMap
 
 ### Step 6: Documentation Updates
 - Update `docs/CLIENT_GUIDE.md` with Multi-Tenant Architecture section
