@@ -11,19 +11,20 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/platform"
 )
 
 // Gateway handles WebSocket connections, authenticating clients and proxying
 // to the ws-server backend with permission-based channel filtering.
 type Gateway struct {
-	config       *Config
+	config       *platform.GatewayConfig
 	jwtValidator *auth.JWTValidator
 	permissions  *PermissionChecker
 	logger       zerolog.Logger
 }
 
 // New creates a new Gateway instance.
-func New(config *Config, logger zerolog.Logger) *Gateway {
+func New(config *platform.GatewayConfig, logger zerolog.Logger) *Gateway {
 	// Only create JWT validator if auth is enabled
 	var jwtValidator *auth.JWTValidator
 	if config.AuthEnabled {

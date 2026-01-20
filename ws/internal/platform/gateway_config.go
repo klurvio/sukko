@@ -1,6 +1,6 @@
-// Package gateway provides a WebSocket gateway that handles authentication
-// and subscription permissions, proxying to the ws-server backend.
-package gateway
+// Package platform provides configuration loading for all components.
+// Config loading happens here (at entry point), not in library packages.
+package platform
 
 import (
 	"fmt"
@@ -11,8 +11,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Config holds gateway configuration loaded from environment variables.
-type Config struct {
+// GatewayConfig holds gateway configuration loaded from environment variables.
+type GatewayConfig struct {
 	// Server settings
 	Port         int           `env:"GATEWAY_PORT" envDefault:"3000"`
 	ReadTimeout  time.Duration `env:"GATEWAY_READ_TIMEOUT" envDefault:"15s"`
@@ -48,9 +48,9 @@ type Config struct {
 	Environment string `env:"ENVIRONMENT" envDefault:"development"`
 }
 
-// LoadConfig reads configuration from environment variables.
+// LoadGatewayConfig reads gateway configuration from environment variables.
 // Optionally loads from .env file if present.
-func LoadConfig(logger *zerolog.Logger) (*Config, error) {
+func LoadGatewayConfig(logger *zerolog.Logger) (*GatewayConfig, error) {
 	// Load .env file (optional)
 	if err := godotenv.Load(); err != nil {
 		if logger != nil {
@@ -58,21 +58,21 @@ func LoadConfig(logger *zerolog.Logger) (*Config, error) {
 		}
 	}
 
-	cfg := &Config{}
+	cfg := &GatewayConfig{}
 
 	if err := env.Parse(cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
+		return nil, fmt.Errorf("failed to parse gateway config: %w", err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("config validation failed: %w", err)
+		return nil, fmt.Errorf("gateway config validation failed: %w", err)
 	}
 
 	return cfg, nil
 }
 
-// Validate checks configuration for errors.
-func (c *Config) Validate() error {
+// Validate checks gateway configuration for errors.
+func (c *GatewayConfig) Validate() error {
 	if c.Port < 1 || c.Port > 65535 {
 		return fmt.Errorf("GATEWAY_PORT must be between 1 and 65535, got %d", c.Port)
 	}
@@ -108,8 +108,8 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// LogConfig logs configuration using structured logging.
-func (c *Config) LogConfig(logger zerolog.Logger) {
+// LogConfig logs gateway configuration using structured logging.
+func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 	logger.Info().
 		Str("environment", c.Environment).
 		Int("port", c.Port).

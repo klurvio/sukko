@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/gateway"
+	"github.com/Toniq-Labs/odin-ws/internal/platform"
 )
 
 // Version information (set by build flags)
@@ -35,7 +36,7 @@ func main() {
 		Msg("Starting ws-gateway")
 
 	// Load configuration
-	config, err := gateway.LoadConfig(&logger)
+	config, err := platform.LoadGatewayConfig(&logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to load configuration")
 	}

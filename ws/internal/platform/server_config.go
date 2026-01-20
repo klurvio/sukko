@@ -19,13 +19,13 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Config holds all server configuration
+// ServerConfig holds all server configuration
 // Tags:
 //
 //	env: Environment variable name
 //	envDefault: Default value if not set
 //	required: Must be provided (no default)
-type Config struct {
+type ServerConfig struct {
 	// Server basics
 	Addr          string `env:"WS_ADDR" envDefault:":3002"`
 	KafkaBrokers  string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"`
@@ -212,11 +212,11 @@ type Config struct {
 	NATSPassword    string   `env:"NATS_PASSWORD"`
 }
 
-// LoadConfig reads configuration from .env file and environment variables
+// LoadServerConfig reads server configuration from .env file and environment variables
 // Priority: ENV vars > .env file > defaults
 //
 // Optional logger parameter for structured logging. If nil, logs to stdout.
-func LoadConfig(logger *zerolog.Logger) (*Config, error) {
+func LoadServerConfig(logger *zerolog.Logger) (*ServerConfig, error) {
 	// Load .env file (optional - OK if it doesn't exist)
 	// In production (Docker), we use environment variables directly
 	// In development, .env file provides convenience
@@ -233,7 +233,7 @@ func LoadConfig(logger *zerolog.Logger) (*Config, error) {
 		}
 	}
 
-	cfg := &Config{}
+	cfg := &ServerConfig{}
 
 	// Parse environment variables into struct
 	// This validates types and applies defaults
@@ -253,8 +253,8 @@ func LoadConfig(logger *zerolog.Logger) (*Config, error) {
 	return cfg, nil
 }
 
-// Validate checks configuration for errors
-func (c *Config) Validate() error {
+// Validate checks server configuration for errors
+func (c *ServerConfig) Validate() error {
 	// Required fields (no sensible defaults)
 	if c.Addr == "" {
 		return fmt.Errorf("WS_ADDR is required")
@@ -378,9 +378,9 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Print logs configuration for debugging (human-readable format)
+// Print logs server configuration for debugging (human-readable format)
 // For production, use LogConfig() with structured logging
-func (c *Config) Print() {
+func (c *ServerConfig) Print() {
 	fmt.Println("=== Server Configuration ===")
 	fmt.Printf("Environment:     %s\n", c.Environment)
 	if c.KafkaTopicNamespace != "" {
@@ -455,8 +455,8 @@ func (c *Config) Print() {
 	fmt.Println("============================")
 }
 
-// LogConfig logs configuration using structured logging (Loki-compatible)
-func (c *Config) LogConfig(logger zerolog.Logger) {
+// LogConfig logs server configuration using structured logging (Loki-compatible)
+func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 	logger.Info().
 		Str("environment", c.Environment).
 		Str("kafka_topic_namespace", c.KafkaTopicNamespace).

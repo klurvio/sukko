@@ -50,7 +50,7 @@ func main() {
 	logger.Printf("GOMAXPROCS: %d (via automaxprocs - rounds down to integer)", maxProcs)
 
 	// Load configuration from .env file and environment variables
-	cfg, err := platform.LoadConfig(nil) // Pass nil for now, structured logger created after
+	cfg, err := platform.LoadServerConfig(nil) // Pass nil for now, structured logger created after
 	if err != nil {
 		logger.Fatalf("Failed to load configuration: %v", err)
 	}
