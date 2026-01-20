@@ -20,6 +20,26 @@ Design and implement a generic, secure, flexible, testable, and robust multi-ten
 
 ---
 
+## Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| **Infrastructure** | Multi-tenant shared | Cost-effective, standard for SaaS |
+| **Kafka Cluster** | Shared + tenant topics | One cluster, ACL-enforced isolation |
+| **Topic Naming** | `{env}.{tenant}.{resource}` | Environment + tenant prevents cross-contamination |
+| **Channel Naming** | Tenant implicit | Client sees `BTC.trade`, server maps to `{tenant}.BTC.trade` |
+| **Consumer Strategy** | Hybrid (Option C) | Shared default, dedicated for large tenants |
+| **Migration** | Hard cutover | No backward compatibility period |
+
+**Naming Examples:**
+```
+Client subscribes:  BTC.trade
+Server internal:    acme.BTC.trade      (tenant from JWT)
+Kafka topic:        main.acme.trade     (env + tenant + resource)
+```
+
+---
+
 ## Industry Standards Followed
 
 - **Pusher/Ably**: Channel naming conventions with tenant prefixes
@@ -242,39 +262,89 @@ func (t *TenantIsolator) CheckTenantAccess(claims *Claims, channel string) *Tena
 
 ---
 
-### Phase 5: Channel Parser
+### Phase 5: Channel Naming (Tenant Implicit)
 
 **File:** `ws/internal/auth/channel.go` (new)
 
+**Design Decision:** Tenant is implicit in channels (derived from JWT), not explicit in channel name.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Client API (Simple)          │ Server Internal (Tenant-Aware)│
+├──────────────────────────────┼───────────────────────────────┤
+│ subscribe("BTC.trade")       │ → acme.BTC.trade              │
+│ subscribe("ETH.liquidity")   │ → acme.ETH.liquidity          │
+│ subscribe("balances")        │ → acme.user123.balances       │
+└──────────────────────────────┴───────────────────────────────┘
+        Client sees                    Server maps (from JWT)
+```
+
+**Why Tenant Implicit:**
+- Cleaner client API (matches Pusher/Ably industry standard)
+- Tenant derived from JWT claims (already authenticated)
+- Less error-prone (client can't subscribe to wrong tenant)
+- No breaking change to channel format
+
 ```go
-type ChannelParser struct {
+type ChannelMapper struct {
     config ChannelConfig
 }
 
 type ChannelConfig struct {
-    Separator      string   `yaml:"separator"`       // default: "."
-    RequiredPrefix string   `yaml:"required_prefix"` // e.g., "ws"
-    TenantPosition int      `yaml:"tenant_position"` // 0-indexed
-    MinParts       int      `yaml:"min_parts"`
-    MaxParts       int      `yaml:"max_parts"`
-    ResourceTypes  []string `yaml:"resource_types"`
+    Separator string `yaml:"separator"` // default: "."
 }
 
-// Channel format: ws.{tenant_id}.{scope}.{resource}.{action}
+// MapToInternal converts client channel to internal tenant-prefixed channel
+// Client: "BTC.trade" → Internal: "acme.BTC.trade"
+func (m *ChannelMapper) MapToInternal(claims *Claims, clientChannel string) string {
+    return fmt.Sprintf("%s.%s", claims.TenantID, clientChannel)
+}
+
+// MapToClient converts internal channel back to client format
+// Internal: "acme.BTC.trade" → Client: "BTC.trade"
+func (m *ChannelMapper) MapToClient(internalChannel string) string {
+    parts := strings.SplitN(internalChannel, ".", 2)
+    if len(parts) == 2 {
+        return parts[1]
+    }
+    return internalChannel
+}
+
+// Channel format (internal): {tenant_id}.{symbol}.{event_type}
 // Examples:
-//   ws.acme.public.BTC.trade           - Public market data
-//   ws.acme.user.user123.notifications - User notifications
-//   ws.acme.group.traders.chat         - Group chat
+//   acme.BTC.trade              - Public market data (tenant: acme)
+//   acme.user123.balances       - User-scoped balances
+//   acme.vip.community          - Group-scoped community
 ```
 
 ---
 
-### Phase 6: Topic Isolation (Kafka/Message Bus)
+### Phase 6: Topic Isolation (Kafka/Redpanda)
 
 **File:** `ws/internal/auth/topic.go` (new)
 
+**Design Decision:** Topics include BOTH environment AND tenant for isolation. No prefix needed (dedicated cluster assumed).
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Topic Format: {environment}.{tenant_id}.{resource}      │
+├─────────────────────────────────────────────────────────┤
+│ dev.acme.trade           ← Dev, Acme tenant, trades     │
+│ main.acme.trade          ← Prod, Acme tenant, trades    │
+│ main.globex.trade        ← Prod, Globex tenant, trades  │
+│ main.acme.client-events  ← Prod, client-published       │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Why Environment + Tenant (no prefix):**
+- Prevents dev code from accidentally consuming prod data
+- Prevents cross-environment contamination
+- ACLs can enforce both environment AND tenant boundaries
+- No prefix needed - dedicated Kafka cluster assumed
+- Simpler, shorter topic names
+
 ```go
-// TopicIsolator enforces tenant boundaries on Kafka/message bus topics
+// TopicIsolator enforces tenant boundaries on Kafka/Redpanda topics
 // CRITICAL: Tenants can ONLY publish/consume topics they own
 type TopicIsolator struct {
     config TopicIsolationConfig
@@ -283,16 +353,16 @@ type TopicIsolator struct {
 type TopicIsolationConfig struct {
     // No "Enabled" field - auth enabled = isolation enforced
 
-    // TopicPrefix required prefix for all topics (e.g., "odin")
-    TopicPrefix string `yaml:"topic_prefix" json:"topic_prefix"`
+    // Environment deployment environment (dev, staging, main)
+    Environment string `yaml:"environment" json:"environment"`
 
-    // TenantPosition position of tenant in topic name (0-indexed after prefix)
-    TenantPosition int `yaml:"tenant_position" json:"tenant_position"`
+    // TenantPosition position of tenant in topic name (0-indexed)
+    TenantPosition int `yaml:"tenant_position" json:"tenant_position"` // 1 for env.tenant.resource
 
     // Separator between topic parts (default: ".")
     Separator string `yaml:"separator" json:"separator"`
 
-    // StrictMode rejects topics without tenant prefix (default: true)
+    // StrictMode rejects topics without tenant (default: true)
     StrictMode bool `yaml:"strict_mode" json:"strict_mode"`
 
     // CrossTenantRoles roles that can access cross-tenant topics (e.g., admin)
@@ -302,18 +372,23 @@ type TopicIsolationConfig struct {
     SharedTopicPatterns []string `yaml:"shared_topic_patterns" json:"shared_topic_patterns"`
 }
 
-// Topic format: {prefix}.{tenant_id}.{resource}[.{sub_resource}]
-// Examples:
-//   odin.acme.trade               - Trade events for tenant acme
-//   odin.acme.client-events       - Client-published events for acme
-//   odin.system.broadcast         - Cross-tenant system messages (shared)
+// BuildTopicName constructs a topic name with environment and tenant
+func BuildTopicName(env, tenant, resource string) string {
+    return fmt.Sprintf("%s.%s.%s", env, tenant, resource)
+    // Example: main.acme.trade
+}
+
+// ExtractTenantFromTopic extracts tenant_id from topic name
+func ExtractTenantFromTopic(topic string) string {
+    // main.acme.trade → acme (position 1)
+    parts := strings.Split(topic, ".")
+    if len(parts) >= 3 {
+        return parts[1]
+    }
+    return ""
+}
 
 // CheckTopicAccess verifies tenant can access topic
-// ENFORCEMENT RULES:
-//   1. Extract tenant_id from topic name
-//   2. Compare with claims.TenantID
-//   3. DENY if tenant mismatch (unless cross-tenant role or shared topic)
-//   4. DENY if topic has no tenant prefix (strict mode)
 func (t *TopicIsolator) CheckTopicAccess(claims *Claims, topic string, action TopicAction) *TopicCheckResult
 
 type TopicAction string
@@ -333,19 +408,96 @@ type TopicCheckResult struct {
 
 **Topic Naming Convention:**
 ```
-{prefix}.{tenant_id}.{resource_type}[.{sub_resource}]
+{environment}.{tenant_id}.{resource}
 
 Examples:
-  odin.acme.trade               - Trade events
-  odin.acme.liquidity           - Liquidity events
-  odin.acme.user.notifications  - User notifications
-  odin.acme.client-events       - Client-published events
-  odin.system.broadcast         - Cross-tenant system messages
+  main.acme.trade          - Prod, Acme, trade events
+  main.acme.liquidity      - Prod, Acme, liquidity events
+  main.globex.trade        - Prod, Globex, trade events
+  dev.acme.trade           - Dev, Acme, trade events
+  main.acme.client-events  - Prod, Acme, client-published
+  main.system.broadcast    - Prod, cross-tenant system messages
 ```
 
 ---
 
-### Phase 7: Configuration Schema
+### Phase 7: Consumer Strategy (Hybrid)
+
+**Design Decision:** Shared consumers by default, dedicated consumers for large tenants.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Redpanda Cluster                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  main.acme.trade      ──┐                                        │
+│  main.smallco.trade    ├──► Shared Consumer Group               │
+│  main.startup.trade   ──┘    "ws-shared"                        │
+│                              Pattern: main\..*\.trade            │
+│                              (excludes dedicated tenants)        │
+│                                                                  │
+│  main.whale.trade     ────► Dedicated Consumer Group            │
+│                              "ws-whale"                          │
+│                                                                  │
+│  main.enterprise.trade ───► Dedicated Consumer Group            │
+│                              "ws-enterprise"                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**File:** `ws/internal/kafka/consumer_pool.go` (new)
+
+```go
+type ConsumerPoolConfig struct {
+    Environment      string
+    SharedGroupID    string              // "ws-shared"
+    ExcludeTenants   []string            // ["whale", "enterprise"]
+    DedicatedTenants []DedicatedConfig
+}
+
+type DedicatedConfig struct {
+    TenantID string
+    GroupID  string
+}
+
+type ConsumerPool struct {
+    shared    *Consumer              // Handles most tenants (regex pattern)
+    dedicated map[string]*Consumer   // tenant_id → dedicated consumer
+}
+
+// Shared consumer uses regex to match all tenants EXCEPT dedicated ones
+// Pattern: main\.(?!whale|enterprise)[^.]+\.trade
+func (p *ConsumerPool) buildSharedPattern() string
+
+// Promotes tenant from shared to dedicated (zero downtime)
+func (p *ConsumerPool) PromoteToDedicated(tenantID string) error
+```
+
+**When to Graduate Tenant to Dedicated:**
+
+| Metric | Threshold | Action |
+|--------|-----------|--------|
+| Messages/sec | >10K | Consider dedicated |
+| Consumer lag | >5 min sustained | Dedicated needed |
+| Connection count | >1000 concurrent | Dedicated needed |
+| SLA tier | Enterprise | Dedicated by default |
+
+**Configuration:**
+```yaml
+consumer_strategy:
+  shared:
+    enabled: true
+    group_id: "odin-ws-shared"
+    pattern: "odin.{env}.*.{topic}"
+    exclude_tenants: []  # Start empty, add as needed
+
+  dedicated: []  # Start empty, add large tenants as needed
+    # - tenant_id: "whale"
+    #   group_id: "odin-ws-whale"
+```
+
+---
+
+### Phase 8: Configuration Schema
 
 **File:** `config/auth-policy.yaml` (new)
 
@@ -364,59 +516,74 @@ settings:
   default_effect: deny           # Fail-secure (only applies when auth enabled)
   audit_denials: true
 
+# Channel naming: tenant IMPLICIT (derived from JWT, not in channel name)
+# Client sees: BTC.trade → Server maps to: {tenant_id}.BTC.trade
 channels:
   separator: "."
-  required_prefix: "ws"
-  tenant_position: 1
-  resource_types: [public, user, group, private]
+  tenant_implicit: true                # Tenant derived from JWT, not channel name
+  # Client subscribes to "BTC.trade", server internally uses "acme.BTC.trade"
 
 # No "enabled" field - controlled by auth.enabled
 tenant_isolation:
   strict_mode: true
   cross_tenant_roles: [admin, system]
   shared_channel_patterns:
-    - "ws.system.*"
+    - "system.*"                       # Cross-tenant system broadcasts
 
-# No "enabled" field - controlled by auth.enabled
+# Topic naming: {environment}.{tenant_id}.{resource}
+# Includes BOTH environment AND tenant for isolation (no prefix - dedicated cluster)
 topic_isolation:
-  strict_mode: true                    # Reject topics without tenant prefix
-  topic_prefix: "odin"
-  tenant_position: 1                   # odin.{tenant_id}.resource
+  strict_mode: true                    # Reject topics without tenant
+  environment: "main"                  # dev, staging, main
+  tenant_position: 1                   # env.{tenant_id}.resource
   separator: "."
   cross_tenant_roles: [admin, system]  # Roles that can access other tenants
   shared_topic_patterns:               # Topics accessible by all tenants
-    - "odin.system.*"
-  # ENFORCEMENT: Tenants can ONLY access odin.{their_tenant_id}.*
-  # Example: tenant "acme" can only access odin.acme.* topics
+    - "*.system.*"                     # Cross-tenant system messages
+  # ENFORCEMENT: Tenants can ONLY access {env}.{their_tenant_id}.*
+  # Example: tenant "acme" in prod can only access main.acme.* topics
+
+# Consumer strategy: Hybrid (shared default, dedicated for large tenants)
+consumer_strategy:
+  shared:
+    group_id: "ws-shared"
+    pattern: "{environment}.*.{resource}"
+    exclude_tenants: []                # Large tenants get dedicated consumers
+  dedicated: []                        # Add as needed: [{tenant_id, group_id}]
 
 placeholders:
   user_id: "sub"
   tenant_id: "tenant_id"
   sub: "sub"
 
+# Rules apply to INTERNAL channel format: {tenant_id}.{symbol}.{event}
+# Client channel "BTC.trade" becomes internal "{tenant_id}.BTC.trade"
 rules:
-  - id: public-channels
-    description: "Public channels for all authenticated users"
+  - id: public-market-data
+    description: "Public market data channels for all authenticated users"
     priority: 100
     match:
-      channel_pattern: "ws.{tenant_id}.public.*"
+      # Internal: acme.BTC.trade, acme.ETH.liquidity
+      channel_pattern: "{tenant_id}.*.{trade|liquidity|metadata|analytics}"
     actions: [subscribe]
     effect: allow
 
   - id: user-own-channels
-    description: "Users can access their own channels"
+    description: "Users can access their own scoped channels"
     priority: 90
     match:
-      channel_pattern: "ws.{tenant_id}.user.{user_id}.*"
-    actions: [subscribe, publish]
+      # Internal: acme.user123.balances, acme.user123.notifications
+      channel_pattern: "{tenant_id}.{user_id}.*"
+    actions: [subscribe]
     effect: allow
 
   - id: group-member-channels
     description: "Group members can access group channels"
     priority: 80
     match:
-      channel_pattern: "ws.{tenant_id}.group.{group_id}.*"
-    actions: [subscribe, publish]
+      # Internal: acme.vip.community, acme.traders.social
+      channel_pattern: "{tenant_id}.{group_id}.*"
+    actions: [subscribe]
     conditions:
       - type: claim
         field: groups
@@ -427,7 +594,119 @@ rules:
 
 ---
 
+### Phase 9: Documentation Updates
+
+**Files to Update:**
+- `docs/CLIENT_GUIDE.md` - Client-facing documentation
+- `ws/asyncapi/asyncapi.yaml` - AsyncAPI specification
+- `ws/asyncapi/channel/*.yaml` - Channel definitions
+
+#### 9.1 CLIENT_GUIDE.md Updates
+
+Add Multi-Tenant Architecture section explaining:
+- Tenant-implicit channel naming (industry standard: Pusher/Ably)
+- How tenant_id from JWT maps channels internally
+- Client API unchanged (simple channel names)
+
+**Changes:**
+
+| Section | Change |
+|---------|--------|
+| Table of Contents | Add "Multi-Tenant Architecture" link |
+| After Authentication | Add new "Multi-Tenant Architecture" section |
+| Available Channels | Add note about tenant scoping |
+| Related Documentation | Add link to MULTI_TENANT_AUTH.md |
+
+**New Section Content:**
+```markdown
+## Multi-Tenant Architecture
+
+Odin uses a **tenant-implicit** channel naming pattern. Your channels are
+automatically scoped to your tenant based on your JWT token.
+
+### How It Works
+
+When you subscribe to a channel like `BTC.trade`, the server automatically
+maps it to your tenant:
+
+| Layer              | Example                                |
+|--------------------|----------------------------------------|
+| Client subscribes  | BTC.trade                              |
+| Server internal    | acme.BTC.trade     ← tenant from JWT   |
+| Kafka topic        | main.acme.trade    ← env + tenant      |
+
+### What This Means for You
+
+1. **Simple API**: Subscribe to `BTC.trade`, not `acme.BTC.trade`
+2. **Automatic isolation**: You only receive your tenant's data
+3. **No cross-tenant access**: Cannot subscribe to another tenant's channels
+4. **Tenant from JWT**: The `tenant_id` claim in your token determines your tenant
+```
+
+#### 9.2 AsyncAPI Specification Updates
+
+Update topic naming to reflect multi-tenant pattern: `{env}.{tenant}.{category}` (no prefix - dedicated cluster).
+
+**asyncapi.yaml Changes:**
+
+| Section | Current | New |
+|---------|---------|-----|
+| Description | `odin.<category>` | `{env}.{tenant}.{category}` |
+| Topics Overview | `odin.trades` | `{env}.{tenant}.trades` |
+| Channel names | `odin.trades` | `{env}.{tenant}.trades` |
+| Examples | `producer.Produce("odin.trades", ...)` | `producer.Produce(kafka.BuildTopicName(...), ...)` |
+
+**New Description Section:**
+```yaml
+description: |
+  Topic naming follows the multi-tenant pattern: `{env}.{tenant}.{category}`
+
+  | Component | Description | Example |
+  |-----------|-------------|---------|
+  | `{env}` | Environment | `dev`, `staging`, `main` |
+  | `{tenant}` | Tenant ID from JWT | `acme`, `globex` |
+  | `{category}` | Event category | `trades`, `liquidity` |
+
+  Example: `main.acme.trades`
+
+  ## Multi-Tenant Isolation
+  - Each tenant's data is isolated to their own topics
+  - ACLs enforce tenant boundaries at the Kafka level
+  - Environment prevents cross-environment contamination
+  - No prefix needed - dedicated Kafka/Redpanda cluster assumed
+
+  ## Consumer Strategy
+  - **Shared consumers**: Small tenants share consumer groups with regex patterns
+  - **Dedicated consumers**: Large tenants get dedicated consumer groups
+```
+
+**Channel Reference Updates:**
+```yaml
+channels:
+  {env}.{tenant}.trades:
+    $ref: './channel/trades.yaml#/OdinTrades'
+  {env}.{tenant}.liquidity:
+    $ref: './channel/liquidity.yaml#/OdinLiquidity'
+  # ... etc
+```
+
+**Operation Updates:**
+- Update all `$ref` paths to use new channel names
+- Update code examples to use `kafka.BuildTopicName()`
+
+#### 9.3 Regenerate bundled.yaml
+
+After updating asyncapi.yaml and channel/*.yaml:
+```bash
+cd ws/asyncapi
+npx @asyncapi/cli bundle asyncapi.yaml -o bundled.yaml
+```
+
+---
+
 ## Files to Create/Modify
+
+### Code Files
 
 | File | Action | Purpose |
 |------|--------|---------|
@@ -436,13 +715,24 @@ rules:
 | `ws/internal/auth/placeholders.go` | Create | Placeholder resolution |
 | `ws/internal/auth/tenant.go` | Create | Tenant isolation (channels) |
 | `ws/internal/auth/topic.go` | Create | Topic isolation (Kafka) |
-| `ws/internal/auth/channel.go` | Create | Channel parser |
+| `ws/internal/auth/channel.go` | Create | Channel mapper (tenant implicit) |
+| `ws/internal/kafka/consumer_pool.go` | Create | Hybrid consumer strategy |
+| `ws/internal/kafka/topics.go` | Modify | Add tenant to topic building |
 | `ws/internal/auth/audit.go` | Create | Audit logging |
 | `ws/internal/platform/gateway_config.go` | Modify | Load policy config |
 | `ws/internal/gateway/gateway.go` | Modify | Integrate PolicyEngine |
 | `ws/internal/gateway/proxy.go` | Modify | Add publish permission check |
 | `ws/internal/kafka/producer.go` | Modify | Add topic isolation check |
 | `config/auth-policy.yaml` | Create | Default policy configuration |
+
+### Documentation Files
+
+| File | Action | Purpose |
+|------|--------|---------|
+| `docs/CLIENT_GUIDE.md` | Modify | Add Multi-Tenant Architecture section, update channel docs |
+| `ws/asyncapi/asyncapi.yaml` | Modify | Update topic naming to `{env}.{tenant}.{category}` |
+| `ws/asyncapi/channel/*.yaml` | Modify | Update channel references for new naming |
+| `ws/asyncapi/bundled.yaml` | Regenerate | Bundle updated AsyncAPI spec |
 
 > **Note:** Gateway config was refactored from `gateway/config.go` to `platform/gateway_config.go` following idiomatic Go patterns (config via dependency injection).
 
@@ -523,10 +813,17 @@ func TestKafkaProducer_TopicIsolation(t *testing.T)
 - Load rules from auth-policy.yaml
 - Integrate with gateway
 
-### Step 4: Testing & Verification
+### Step 4: Documentation Updates
+- Update `docs/CLIENT_GUIDE.md` with Multi-Tenant Architecture section
+- Update `ws/asyncapi/asyncapi.yaml` with new topic naming convention
+- Update `ws/asyncapi/channel/*.yaml` with new channel references
+- Regenerate `ws/asyncapi/bundled.yaml`
+
+### Step 5: Testing & Verification
 - Unit tests for all components
 - Integration tests for multi-tenant scenarios
 - Security tests for isolation enforcement
+- Verify documentation accuracy
 
 ---
 
