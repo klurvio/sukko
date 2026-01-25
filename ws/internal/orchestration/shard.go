@@ -6,11 +6,12 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/rs/zerolog"
+
 	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/server"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
-	"github.com/rs/zerolog"
 )
 
 // Shard represents a single instance of the WebSocket server, running on its own core.
@@ -36,8 +37,8 @@ type ShardConfig struct {
 	AdvertiseAddr       string // Address advertised to LoadBalancer (e.g., localhost:3002)
 	ServerConfig        types.ServerConfig
 	BroadcastBus        broadcast.Bus // Reference to the central bus
-	SharedKafkaConsumer interface{}   // Shared Kafka consumer (managed by KafkaConsumerPool)
-	KafkaProducer       interface{}   // Kafka producer for client message publishing (optional)
+	SharedKafkaConsumer any           // Shared Kafka consumer (managed by KafkaConsumerPool)
+	KafkaProducer       any           // Kafka producer for client message publishing (optional)
 	Logger              zerolog.Logger
 	MaxConnections      int
 }

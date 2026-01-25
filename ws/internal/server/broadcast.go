@@ -2,13 +2,15 @@ package server
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/gobwas/ws"
+
 	"github.com/Toniq-Labs/odin-ws/internal/messaging"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
-	"github.com/gobwas/ws"
 )
 
 // extractChannel returns the broadcast subject as the channel for subscription matching.
@@ -27,10 +29,8 @@ func extractChannel(subject string) string {
 	}
 
 	// Validate no empty parts
-	for _, p := range parts {
-		if p == "" {
-			return ""
-		}
+	if slices.Contains(parts, "") {
+		return ""
 	}
 
 	return subject

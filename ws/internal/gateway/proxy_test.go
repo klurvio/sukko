@@ -369,8 +369,7 @@ func BenchmarkInterceptClientMessage_PassThrough(b *testing.B) {
 	proxy := newTestProxy(testClaims("user123"), []string{"*.trade"}, nil, nil)
 	input := []byte(`{"type":"subscribe","data":{"channels":["BTC.trade","ETH.trade"]}}`)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = proxy.interceptClientMessage(input)
 	}
 }
@@ -379,8 +378,7 @@ func BenchmarkInterceptClientMessage_Filtered(b *testing.B) {
 	proxy := newTestProxy(testClaims("user123"), []string{"*.trade"}, nil, nil)
 	input := []byte(`{"type":"subscribe","data":{"channels":["BTC.trade","secret.channel","ETH.trade"]}}`)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = proxy.interceptClientMessage(input)
 	}
 }

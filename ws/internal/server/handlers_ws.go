@@ -7,9 +7,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 )
 
 // WebSocket upgrade handler

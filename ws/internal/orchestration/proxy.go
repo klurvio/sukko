@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -135,7 +136,7 @@ func (p *ShardProxy) proxyMessages(client, backend net.Conn) {
 
 	// Wait for first error (connection close)
 	err := <-errChan
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		p.logger.Warn().Err(err).Msg("Connection closed with error")
 	} else {
 		p.logger.Debug().Msg("Connection closed normally")
@@ -161,7 +162,7 @@ func (p *ShardProxy) copyMessages(src, dst net.Conn, direction string, maskOutpu
 		// Read frame header
 		header, err := ws.ReadHeader(src)
 		if err != nil {
-			if err != io.EOF {
+			if !errors.Is(err, io.EOF) {
 				p.logger.Debug().
 					Err(err).
 					Str("direction", direction).

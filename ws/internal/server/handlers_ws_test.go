@@ -10,7 +10,7 @@ import (
 // =============================================================================
 
 func TestGetClientIP_XForwardedFor_SingleIP(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Forwarded-For", "192.168.1.100")
 	req.RemoteAddr = "10.0.0.1:12345"
 
@@ -22,7 +22,7 @@ func TestGetClientIP_XForwardedFor_SingleIP(t *testing.T) {
 }
 
 func TestGetClientIP_XForwardedFor_MultipleIPs(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	// Multiple IPs in chain: client -> proxy1 -> proxy2
 	req.Header.Set("X-Forwarded-For", "203.0.113.50, 198.51.100.178, 192.0.2.1")
 	req.RemoteAddr = "10.0.0.1:12345"
@@ -36,7 +36,7 @@ func TestGetClientIP_XForwardedFor_MultipleIPs(t *testing.T) {
 }
 
 func TestGetClientIP_XForwardedFor_WithSpaces(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Forwarded-For", "  192.168.1.100  ")
 	req.RemoteAddr = "10.0.0.1:12345"
 
@@ -49,7 +49,7 @@ func TestGetClientIP_XForwardedFor_WithSpaces(t *testing.T) {
 }
 
 func TestGetClientIP_NoForwardedHeader_WithPort(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.100:54321"
 
 	ip := getClientIP(req)
@@ -61,7 +61,7 @@ func TestGetClientIP_NoForwardedHeader_WithPort(t *testing.T) {
 }
 
 func TestGetClientIP_NoForwardedHeader_IPv6WithPort(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "[::1]:54321"
 
 	ip := getClientIP(req)
@@ -73,7 +73,7 @@ func TestGetClientIP_NoForwardedHeader_IPv6WithPort(t *testing.T) {
 }
 
 func TestGetClientIP_NoForwardedHeader_JustIP(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.100" // No port (unusual but possible)
 
 	ip := getClientIP(req)
@@ -85,7 +85,7 @@ func TestGetClientIP_NoForwardedHeader_JustIP(t *testing.T) {
 }
 
 func TestGetClientIP_Localhost(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 
 	ip := getClientIP(req)
@@ -96,7 +96,7 @@ func TestGetClientIP_Localhost(t *testing.T) {
 }
 
 func TestGetClientIP_LocalhostIPv6(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "[::1]:12345"
 
 	ip := getClientIP(req)
@@ -107,7 +107,7 @@ func TestGetClientIP_LocalhostIPv6(t *testing.T) {
 }
 
 func TestGetClientIP_XForwardedFor_Empty(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Forwarded-For", "")
 	req.RemoteAddr = "10.0.0.5:9999"
 
@@ -176,7 +176,7 @@ func TestGetClientIP_TableDriven(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, _ := http.NewRequest("GET", "/", nil)
+			req, _ := http.NewRequest(http.MethodGet, "/", nil)
 			if tt.xForwardedFor != "" {
 				req.Header.Set("X-Forwarded-For", tt.xForwardedFor)
 			}
@@ -196,7 +196,7 @@ func TestGetClientIP_TableDriven(t *testing.T) {
 // =============================================================================
 
 func BenchmarkGetClientIP_WithForwarded(b *testing.B) {
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Forwarded-For", "203.0.113.50, 198.51.100.178")
 	req.RemoteAddr = "10.0.0.1:12345"
 
@@ -206,7 +206,7 @@ func BenchmarkGetClientIP_WithForwarded(b *testing.B) {
 }
 
 func BenchmarkGetClientIP_Direct(b *testing.B) {
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "203.0.113.50:54321"
 
 	for b.Loop() {

@@ -5,9 +5,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
+
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 )
 
 // Internal monitoring and metric collection

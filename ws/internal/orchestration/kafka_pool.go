@@ -6,9 +6,10 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/rs/zerolog"
+
 	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/kafka"
-	"github.com/rs/zerolog"
 )
 
 // KafkaConsumerPool manages a shared pool of Kafka consumers that distribute
@@ -163,7 +164,7 @@ func (p *KafkaConsumerPool) GetMetrics() KafkaPoolMetrics {
 
 // GetConsumer returns the shared Kafka consumer for replay operations
 // This allows shards to perform message replay without creating new consumers
-func (p *KafkaConsumerPool) GetConsumer() interface{} {
+func (p *KafkaConsumerPool) GetConsumer() any {
 	return p.consumer
 }
 

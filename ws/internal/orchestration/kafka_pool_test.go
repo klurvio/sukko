@@ -92,10 +92,10 @@ func TestKafkaPool_AtomicCounters_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < opsPerGoroutine; j++ {
+			for range opsPerGoroutine {
 				atomic.AddUint64(&counter, 1)
 			}
 		}()
@@ -225,20 +225,20 @@ func TestKafkaPool_GetMetrics_Concurrent(t *testing.T) {
 	wg.Add(numReaders + numWriters)
 
 	// Concurrent writers
-	for i := 0; i < numWriters; i++ {
+	for range numWriters {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < ops; j++ {
+			for range ops {
 				atomic.AddUint64(&pool.messagesRouted, 1)
 			}
 		}()
 	}
 
 	// Concurrent readers
-	for i := 0; i < numReaders; i++ {
+	for range numReaders {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < ops; j++ {
+			for range ops {
 				_ = pool.GetMetrics()
 			}
 		}()

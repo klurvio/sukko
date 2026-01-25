@@ -3,6 +3,7 @@ package broadcast
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -47,7 +48,7 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 
 	// Validate configuration
 	if len(vcfg.Addrs) == 0 {
-		return nil, fmt.Errorf("valkey: at least one address is required (VALKEY_ADDRS)")
+		return nil, errors.New("valkey: at least one address is required (VALKEY_ADDRS)")
 	}
 	if vcfg.MasterName == "" {
 		vcfg.MasterName = "mymaster"

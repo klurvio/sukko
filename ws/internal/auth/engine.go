@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -326,7 +327,7 @@ func (e *PolicyEngine) Authorize(req *AuthzRequest) *AuthzResult {
 			result.Allowed = rule.Effect == EffectAllow
 			result.MatchedRule = rule
 			result.Captures = captures
-			result.Reason = fmt.Sprintf("matched rule: %s", rule.ID)
+			result.Reason = "matched rule: " + rule.ID
 			result.Duration = time.Since(start)
 			return result
 		}
@@ -392,12 +393,7 @@ func (e *PolicyEngine) actionMatches(ruleActions []Action, action Action) bool {
 		return true // Empty means all actions
 	}
 
-	for _, a := range ruleActions {
-		if a == action {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ruleActions, action)
 }
 
 // channelMatches checks if the channel matches the rule.
@@ -489,8 +485,8 @@ func (e *PolicyEngine) evaluateClaimCondition(cond Condition, claims *Claims) bo
 		fieldValue = claims.Subject
 	default:
 		// Check attributes
-		if strings.HasPrefix(cond.Field, "attrs.") {
-			attrName := strings.TrimPrefix(cond.Field, "attrs.")
+		if after, ok := strings.CutPrefix(cond.Field, "attrs."); ok {
+			attrName := after
 			fieldValue = claims.GetAttribute(attrName)
 		} else {
 			return false
@@ -532,12 +528,7 @@ func (e *PolicyEngine) compareValues(fieldValue any, op Operator, condValue any)
 		switch fv := fieldValue.(type) {
 		case []string:
 			condStr := fmt.Sprintf("%v", condValue)
-			for _, v := range fv {
-				if v == condStr {
-					return true
-				}
-			}
-			return false
+			return slices.Contains(fv, condStr)
 		case string:
 			return strings.Contains(fv, fmt.Sprintf("%v", condValue))
 		default:
@@ -549,12 +540,7 @@ func (e *PolicyEngine) compareValues(fieldValue any, op Operator, condValue any)
 		fieldStr := fmt.Sprintf("%v", fieldValue)
 		switch cv := condValue.(type) {
 		case []string:
-			for _, v := range cv {
-				if v == fieldStr {
-					return true
-				}
-			}
-			return false
+			return slices.Contains(cv, fieldStr)
 		case []any:
 			for _, v := range cv {
 				if fmt.Sprintf("%v", v) == fieldStr {

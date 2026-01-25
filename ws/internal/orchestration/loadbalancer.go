@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -10,9 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/version"
-	"github.com/rs/zerolog"
 )
 
 // ShardMetrics defines the interface for shard load balancing metrics.
@@ -60,7 +62,7 @@ type LoadBalancerConfig struct {
 // NewLoadBalancer creates a new LoadBalancer instance.
 func NewLoadBalancer(cfg LoadBalancerConfig) (*LoadBalancer, error) {
 	if len(cfg.Shards) == 0 {
-		return nil, fmt.Errorf("no shards provided to load balancer")
+		return nil, errors.New("no shards provided to load balancer")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -262,7 +264,7 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Handle preflight requests
-	if r.Method == "OPTIONS" {
+	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -345,20 +347,20 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		status = "degraded"
 	}
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"status":  status,
 		"healthy": isHealthy,
 		"version": version.Get("ws-server"),
-		"checks": map[string]interface{}{
-			"capacity": map[string]interface{}{
+		"checks": map[string]any{
+			"capacity": map[string]any{
 				"current":    int(totalConnections),
 				"max":        int(totalMaxConnections),
 				"percentage": capacityPercent,
 			},
-			"cpu": map[string]interface{}{
+			"cpu": map[string]any{
 				"percentage": cpuPercent, // System-wide CPU (all shards share same process)
 			},
-			"memory": map[string]interface{}{
+			"memory": map[string]any{
 				"used_mb":    memoryMB, // System-wide memory (all shards share same heap)
 				"percentage": 0.0,      // Could calculate from memory limit if needed
 			},

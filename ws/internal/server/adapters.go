@@ -7,8 +7,9 @@ package server
 import (
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 )
 
 // =============================================================================

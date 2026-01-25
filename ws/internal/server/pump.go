@@ -11,11 +11,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
-	"github.com/Toniq-Labs/odin-ws/internal/types"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/types"
 )
 
 // PumpConfig holds timing configuration for pump operations.

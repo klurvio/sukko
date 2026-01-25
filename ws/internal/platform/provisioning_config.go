@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -109,10 +110,10 @@ func LoadProvisioningConfig(logger *zerolog.Logger) (*ProvisioningConfig, error)
 func (c *ProvisioningConfig) Validate() error {
 	// Required fields
 	if c.Addr == "" {
-		return fmt.Errorf("PROVISIONING_ADDR is required")
+		return errors.New("PROVISIONING_ADDR is required")
 	}
 	if c.DatabaseURL == "" {
-		return fmt.Errorf("DATABASE_URL is required")
+		return errors.New("DATABASE_URL is required")
 	}
 
 	// Range checks
@@ -163,10 +164,10 @@ func (c *ProvisioningConfig) Validate() error {
 				c.KafkaSASLMechanism)
 		}
 		if c.KafkaSASLUsername == "" {
-			return fmt.Errorf("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLED=true")
+			return errors.New("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLED=true")
 		}
 		if c.KafkaSASLPassword == "" {
-			return fmt.Errorf("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
+			return errors.New("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
 		}
 	}
 

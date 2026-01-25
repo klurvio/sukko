@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/lib/pq" // PostgreSQL driver
+
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
@@ -19,7 +21,6 @@ import (
 	provkafka "github.com/Toniq-Labs/odin-ws/internal/provisioning/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/repository"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
-	_ "github.com/lib/pq" // PostgreSQL driver
 )
 
 func main() {

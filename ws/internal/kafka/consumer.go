@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -116,19 +117,19 @@ type ConsumerConfig struct {
 // Returns an error if any required field is missing or client creation fails.
 func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if len(cfg.Brokers) == 0 {
-		return nil, fmt.Errorf("at least one broker is required")
+		return nil, errors.New("at least one broker is required")
 	}
 	if cfg.ConsumerGroup == "" {
-		return nil, fmt.Errorf("consumer group is required")
+		return nil, errors.New("consumer group is required")
 	}
 	if len(cfg.Topics) == 0 {
-		return nil, fmt.Errorf("at least one topic is required")
+		return nil, errors.New("at least one topic is required")
 	}
 	if cfg.Broadcast == nil {
-		return nil, fmt.Errorf("broadcast function is required")
+		return nil, errors.New("broadcast function is required")
 	}
 	if cfg.ResourceGuard == nil {
-		return nil, fmt.Errorf("resource guard is required")
+		return nil, errors.New("resource guard is required")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -709,7 +710,7 @@ func (c *Consumer) ReplayFromOffsets(
 	subscriptions []string,
 ) ([]ReplayMessage, error) {
 	if len(topicOffsets) == 0 {
-		return nil, fmt.Errorf("at least one topic offset is required")
+		return nil, errors.New("at least one topic offset is required")
 	}
 
 	c.logger.Info().

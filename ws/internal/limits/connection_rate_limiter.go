@@ -4,9 +4,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
+
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 )
 
 // ConnectionRateLimiter provides DoS protection through rate limiting of connection attempts.

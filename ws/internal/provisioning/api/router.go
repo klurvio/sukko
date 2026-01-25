@@ -4,11 +4,12 @@ package api
 import (
 	"net/http"
 
-	"github.com/Toniq-Labs/odin-ws/internal/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 )
 
 // RouterConfig holds configuration for the HTTP router.

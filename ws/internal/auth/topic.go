@@ -2,6 +2,7 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -145,7 +146,7 @@ func (t *TopicIsolator) CheckTopicAccess(claims *Claims, topic string, action To
 		if claims.HasRole(role) {
 			result.Allowed = true
 			result.IsCrossTenant = true
-			result.Reason = fmt.Sprintf("cross-tenant access via role: %s", role)
+			result.Reason = "cross-tenant access via role: " + role
 			return result
 		}
 	}
@@ -262,7 +263,7 @@ func (t *TopicIsolator) ParseTopic(topic string) *TopicParts {
 // Returns an error describing the issue if invalid.
 func (t *TopicIsolator) ValidateTopicFormat(topic string) error {
 	if topic == "" {
-		return fmt.Errorf("topic cannot be empty")
+		return errors.New("topic cannot be empty")
 	}
 
 	parts := strings.Split(topic, t.config.Separator)
@@ -274,7 +275,7 @@ func (t *TopicIsolator) ValidateTopicFormat(topic string) error {
 
 	// Check environment
 	if parts[0] == "" {
-		return fmt.Errorf("environment (first part) cannot be empty")
+		return errors.New("environment (first part) cannot be empty")
 	}
 
 	// Check tenant
@@ -284,7 +285,7 @@ func (t *TopicIsolator) ValidateTopicFormat(topic string) error {
 
 	// Check category
 	if parts[t.config.TenantPosition+1] == "" {
-		return fmt.Errorf("category cannot be empty")
+		return errors.New("category cannot be empty")
 	}
 
 	return nil

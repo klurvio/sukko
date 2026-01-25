@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	_ "go.uber.org/automaxprocs"
+
 	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/limits"
@@ -18,13 +20,12 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/orchestration"
 	"github.com/Toniq-Labs/odin-ws/internal/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
-	_ "go.uber.org/automaxprocs"
 )
 
 // Helper function to split broker string
 func splitBrokers(brokers string) []string {
 	result := []string{}
-	for _, b := range strings.Split(brokers, ",") {
+	for b := range strings.SplitSeq(brokers, ",") {
 		trimmed := strings.TrimSpace(b)
 		if trimmed != "" {
 			result = append(result, trimmed)
@@ -217,7 +218,7 @@ func main() {
 
 	// Create and start shards
 	shards := make([]*orchestration.Shard, *numShards)
-	for i := 0; i < *numShards; i++ {
+	for i := range *numShards {
 		// Bind address: 0.0.0.0 to accept both IPv4/IPv6 connections
 		shardBindAddr := fmt.Sprintf("0.0.0.0:%d", *basePort+i)
 		// Advertise address: 127.0.0.1 (IPv4 loopback) for LoadBalancer to connect to
@@ -256,7 +257,7 @@ func main() {
 		}
 
 		// Get shared consumer for replay (if pool exists)
-		var sharedConsumer interface{}
+		var sharedConsumer any
 		if kafkaPool != nil {
 			sharedConsumer = kafkaPool.GetConsumer()
 		}

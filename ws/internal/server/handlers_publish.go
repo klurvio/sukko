@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -164,11 +165,5 @@ func isValidPublishChannel(channel string) bool {
 	}
 
 	// Check that no part is empty
-	for _, part := range parts {
-		if part == "" {
-			return false
-		}
-	}
-
-	return true
+	return !slices.Contains(parts, "")
 }

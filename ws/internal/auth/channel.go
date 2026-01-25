@@ -2,6 +2,7 @@
 package auth
 
 import (
+	"slices"
 	"strings"
 )
 
@@ -152,13 +153,7 @@ func (m *ChannelMapper) ValidateChannelAccess(claims *Claims, internalChannel st
 	}
 
 	// Check for cross-tenant roles
-	for _, role := range crossTenantRoles {
-		if claims.HasRole(role) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(crossTenantRoles, claims.HasRole)
 }
 
 // ChannelParts represents the parsed components of a channel name.
@@ -234,14 +229,14 @@ func matchSimplePattern(pattern, value string) bool {
 	}
 
 	// Handle trailing wildcard: "system.*" matches "system.anything"
-	if strings.HasSuffix(pattern, ".*") {
-		prefix := strings.TrimSuffix(pattern, ".*")
+	if before, ok := strings.CutSuffix(pattern, ".*"); ok {
+		prefix := before
 		return strings.HasPrefix(value, prefix+".")
 	}
 
 	// Handle leading wildcard: "*.broadcast" matches "anything.broadcast"
-	if strings.HasPrefix(pattern, "*.") {
-		suffix := strings.TrimPrefix(pattern, "*.")
+	if after, ok := strings.CutPrefix(pattern, "*."); ok {
+		suffix := after
 		return strings.HasSuffix(value, "."+suffix)
 	}
 

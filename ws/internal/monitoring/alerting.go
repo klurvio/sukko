@@ -2,6 +2,7 @@ package monitoring
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -86,9 +87,21 @@ func (s *SlackAlerter) Alert(level AuditLevel, message string, metadata map[stri
 	}
 
 	// Send to Slack (with timeout)
-	client := &http.Client{Timeout: 5 * time.Second}
-	_, _ = client.Post(s.webhookURL, "application/json", bytes.NewBuffer(jsonPayload))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.webhookURL, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	// Ignore errors - don't want alerting to break the server
+	if err == nil && resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 }
 
 func (s *SlackAlerter) getColor(level AuditLevel) string {

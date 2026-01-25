@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -96,7 +97,7 @@ func (c *GatewayConfig) Validate() error {
 	// Require provisioning database when auth is enabled
 	if c.AuthEnabled {
 		if c.ProvisioningDBURL == "" {
-			return fmt.Errorf("PROVISIONING_DATABASE_URL is required when AUTH_ENABLED=true")
+			return errors.New("PROVISIONING_DATABASE_URL is required when AUTH_ENABLED=true")
 		}
 	}
 
@@ -112,11 +113,11 @@ func (c *GatewayConfig) Validate() error {
 	}
 
 	if c.BackendURL == "" {
-		return fmt.Errorf("GATEWAY_BACKEND_URL is required")
+		return errors.New("GATEWAY_BACKEND_URL is required")
 	}
 
 	if len(c.PublicPatterns) == 0 {
-		return fmt.Errorf("GATEWAY_PUBLIC_PATTERNS must have at least one pattern")
+		return errors.New("GATEWAY_PUBLIC_PATTERNS must have at least one pattern")
 	}
 
 	validLogLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}

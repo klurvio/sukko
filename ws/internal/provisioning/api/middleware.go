@@ -2,14 +2,17 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/auth"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/auth"
 )
 
 // Context keys for auth information.
@@ -76,14 +79,14 @@ func AuthMiddleware(validator *auth.MultiTenantValidator, logger zerolog.Logger)
 					Str("path", r.URL.Path).
 					Msg("Token validation failed")
 
-				switch err {
-				case auth.ErrMissingToken:
+				switch {
+				case errors.Is(err, auth.ErrMissingToken):
 					writeError(w, http.StatusUnauthorized, "MISSING_TOKEN", "Token required")
-				case auth.ErrTokenExpired:
+				case errors.Is(err, auth.ErrTokenExpired):
 					writeError(w, http.StatusUnauthorized, "TOKEN_EXPIRED", "Token has expired")
-				case auth.ErrKeyNotFound:
+				case errors.Is(err, auth.ErrKeyNotFound):
 					writeError(w, http.StatusUnauthorized, "KEY_NOT_FOUND", "Signing key not found")
-				case auth.ErrKeyRevoked:
+				case errors.Is(err, auth.ErrKeyRevoked):
 					writeError(w, http.StatusUnauthorized, "KEY_REVOKED", "Signing key has been revoked")
 				default:
 					writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Token validation failed")
@@ -121,11 +124,9 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 			}
 
 			// Check if user has any of the required roles
-			for _, requiredRole := range roles {
-				if claims.HasRole(requiredRole) {
-					next.ServeHTTP(w, r)
-					return
-				}
+			if slices.ContainsFunc(roles, claims.HasRole) {
+				next.ServeHTTP(w, r)
+				return
 			}
 
 			writeError(w, http.StatusForbidden, "INSUFFICIENT_ROLE", "Required role: "+strings.Join(roles, " or "))

@@ -15,9 +15,10 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/types"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"github.com/Toniq-Labs/odin-ws/internal/types"
 )
 
 // LoggerConfig holds logger configuration

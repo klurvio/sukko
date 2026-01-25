@@ -91,10 +91,7 @@ func (m *MockTenantStore) List(ctx context.Context, opts provisioning.ListOption
 	if opts.Offset >= len(result) {
 		return []*provisioning.Tenant{}, total, nil
 	}
-	end := opts.Offset + opts.Limit
-	if end > len(result) {
-		end = len(result)
-	}
+	end := min(opts.Offset+opts.Limit, len(result))
 	return result[opts.Offset:end], total, nil
 }
 
@@ -419,10 +416,7 @@ func (m *MockAuditStore) ListByTenant(ctx context.Context, tenantID string, opts
 	if opts.Offset >= len(result) {
 		return []*provisioning.AuditEntry{}, total, nil
 	}
-	end := opts.Offset + opts.Limit
-	if end > len(result) {
-		end = len(result)
-	}
+	end := min(opts.Offset+opts.Limit, len(result))
 	return result[opts.Offset:end], total, nil
 }
 

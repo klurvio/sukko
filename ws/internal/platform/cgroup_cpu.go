@@ -2,6 +2,7 @@ package platform
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -107,7 +108,7 @@ func (cc *ContainerCPU) GetPercent() (percent float64, throttled ThrottleStats, 
 	// percent = (cpu_time / wall_time) * 100
 	timeDeltaUsec := timeDelta.Microseconds()
 	if timeDeltaUsec == 0 {
-		return 0, ThrottleStats{}, fmt.Errorf("time delta too small")
+		return 0, ThrottleStats{}, errors.New("time delta too small")
 	}
 
 	// Raw CPU usage percentage (can be > 100% on multi-core)
@@ -172,7 +173,7 @@ func detectCgroupPath() (path string, version int, err error) {
 		}
 	}
 
-	return "", 0, fmt.Errorf("could not detect cgroup path")
+	return "", 0, errors.New("could not detect cgroup path")
 }
 
 // readCPUQuota reads the CPU quota and period
@@ -252,7 +253,7 @@ func readCPUUsage(cgroupPath string, version int) (uint64, error) {
 				}
 			}
 		}
-		return 0, fmt.Errorf("usage_usec not found in cpu.stat")
+		return 0, errors.New("usage_usec not found in cpu.stat")
 
 	} else {
 		// cgroup v1: cpuacct.usage contains nanoseconds
@@ -407,7 +408,7 @@ func (cm *CPUMonitor) GetPercent() (float64, ThrottleStats, error) {
 		return 0, ThrottleStats{}, err
 	}
 	if len(cpuPercent) == 0 {
-		return 0, ThrottleStats{}, fmt.Errorf("no CPU data")
+		return 0, ThrottleStats{}, errors.New("no CPU data")
 	}
 	return cpuPercent[0], ThrottleStats{}, nil
 }
@@ -419,7 +420,7 @@ func (cm *CPUMonitor) GetHostPercent() (float64, error) {
 		return 0, err
 	}
 	if len(cpuPercent) == 0 {
-		return 0, fmt.Errorf("no CPU data")
+		return 0, errors.New("no CPU data")
 	}
 	return cpuPercent[0], nil
 }

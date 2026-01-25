@@ -6,10 +6,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
-	"github.com/Toniq-Labs/odin-ws/internal/types"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
+
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/types"
 )
 
 // SystemMonitorInterface defines the interface for system monitoring

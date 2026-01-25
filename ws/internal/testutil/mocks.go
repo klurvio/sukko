@@ -450,8 +450,8 @@ func (m *MockBroadcastBus) SetHealthy(healthy bool) {
 }
 
 // GetMetrics returns mock metrics.
-func (m *MockBroadcastBus) GetMetrics() map[string]interface{} {
-	return map[string]interface{}{
+func (m *MockBroadcastBus) GetMetrics() map[string]any {
+	return map[string]any{
 		"type":              "mock",
 		"healthy":           m.IsHealthy(),
 		"channel":           "test.channel",

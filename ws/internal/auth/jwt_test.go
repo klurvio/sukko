@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -52,7 +53,7 @@ func TestValidateToken_MissingToken(t *testing.T) {
 	v := NewJWTValidator("test-secret-key-at-least-32-bytes")
 
 	_, err := v.ValidateToken("")
-	if err != ErrMissingToken {
+	if !errors.Is(err, ErrMissingToken) {
 		t.Errorf("expected ErrMissingToken, got %v", err)
 	}
 }
@@ -61,7 +62,7 @@ func TestValidateToken_InvalidToken(t *testing.T) {
 	v := NewJWTValidator("test-secret-key-at-least-32-bytes")
 
 	_, err := v.ValidateToken("invalid.token.here")
-	if err != ErrInvalidToken {
+	if !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("expected ErrInvalidToken, got %v", err)
 	}
 }
@@ -78,7 +79,7 @@ func TestValidateToken_WrongSecret(t *testing.T) {
 
 	// Try to validate with v2
 	_, err = v2.ValidateToken(token)
-	if err != ErrInvalidToken {
+	if !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("expected ErrInvalidToken for wrong secret, got %v", err)
 	}
 }
@@ -93,7 +94,7 @@ func TestValidateToken_ExpiredToken(t *testing.T) {
 	}
 
 	_, err = v.ValidateToken(token)
-	if err != ErrTokenExpired {
+	if !errors.Is(err, ErrTokenExpired) {
 		t.Errorf("expected ErrTokenExpired, got %v", err)
 	}
 }

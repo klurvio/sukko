@@ -1,8 +1,10 @@
+// Package main provides a load testing tool for WebSocket servers.
 package main
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -142,9 +144,9 @@ func main() {
 		phase:         "ramping",
 	}
 
-	log.Printf("\n" + strings.Repeat("=", 80))
+	log.Printf("%s", "\n"+strings.Repeat("=", 80))
 	log.Printf("🧪 SUSTAINED LOAD TEST (Go Client)")
-	log.Printf(strings.Repeat("=", 80))
+	log.Printf("%s", strings.Repeat("=", 80))
 
 	// Determine test mode
 	testMode := "📊 CAPACITY TEST"
@@ -188,16 +190,16 @@ func main() {
 		log.Printf("\n⚠️  Subscription Filtering: DISABLED (all clients receive all messages)")
 	}
 
-	log.Printf("\n" + strings.Repeat("=", 80) + "\n")
-
-	// Initial health check
-	log.Printf("🏥 Performing initial health check...")
-	if err := checkServerHealth(); err != nil {
-		log.Fatalf("❌ Server health check failed: %v", err)
-	}
+	log.Printf("%s", "\n"+strings.Repeat("=", 80)+"\n")
 
 	// Setup signal handling
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Initial health check
+	log.Printf("🏥 Performing initial health check...")
+	if err := checkServerHealth(ctx); err != nil {
+		log.Fatalf("❌ Server health check failed: %v", err)
+	}
 	defer cancel()
 
 	sigChan := make(chan os.Signal, 1)
@@ -217,7 +219,8 @@ func main() {
 
 	// Ramp up connections
 	if err := rampUpConnections(ctx); err != nil {
-		log.Fatalf("❌ Ramp-up failed: %v", err)
+		log.Printf("❌ Ramp-up failed: %v", err)
+		return
 	}
 
 	// Sustain phase
@@ -303,7 +306,7 @@ func getEnvInt(key string, defaultValue int) int {
 // generateTestToken creates a JWT token for loadtest authentication
 func generateTestToken(secret, principal string) (string, error) {
 	if len(secret) < 32 {
-		return "", fmt.Errorf("JWT secret must be at least 32 characters")
+		return "", errors.New("JWT secret must be at least 32 characters")
 	}
 
 	claims := jwt.MapClaims{
@@ -355,7 +358,7 @@ func rampUpConnections(ctx context.Context) error {
 				go func(connID int) {
 					defer wg.Done()
 					log.Printf("Creating connection %d", connID)
-					conn := NewConnection(connID, ctx)
+					conn := NewConnection(ctx, connID)
 					if err := conn.Connect(); err != nil {
 						atomic.AddInt64(&state.failedConnections, 1)
 						// Track error type
@@ -374,7 +377,7 @@ func rampUpConnections(ctx context.Context) error {
 	}
 }
 
-func NewConnection(id int, ctx context.Context) *Connection {
+func NewConnection(ctx context.Context, id int) *Connection {
 	connCtx, cancel := context.WithCancel(ctx)
 	log.Printf("NewConnection: %d", id)
 	return &Connection{
@@ -405,8 +408,8 @@ func (c *Connection) Connect() error {
 			}
 
 			if tcpConn, ok := conn.(*net.TCPConn); ok {
-				tcpConn.SetKeepAlive(true)
-				tcpConn.SetKeepAlivePeriod(30 * time.Second)
+				_ = tcpConn.SetKeepAlive(true)
+				_ = tcpConn.SetKeepAlivePeriod(30 * time.Second)
 			}
 
 			return conn, nil
@@ -426,7 +429,10 @@ func (c *Connection) Connect() error {
 		u.RawQuery = q.Encode()
 	}
 
-	ws, _, err := dialer.Dial(u.String(), nil)
+	ws, resp, err := dialer.Dial(u.String(), nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		log.Printf("Connection %d: dial error: %v", c.id, err)
 		return fmt.Errorf("dial failed: %w", err)
@@ -454,12 +460,12 @@ func (c *Connection) Connect() error {
 	const readTimeout = 60 * time.Second
 
 	// Set initial read deadline (prevents zombie connections)
-	c.ws.SetReadDeadline(time.Now().Add(readTimeout))
+	_ = c.ws.SetReadDeadline(time.Now().Add(readTimeout))
 
 	// Configure PONG handler (called when server sends PING and we auto-respond)
 	// This extends the deadline every time we successfully respond to a PING
-	c.ws.SetPongHandler(func(appData string) error {
-		c.ws.SetReadDeadline(time.Now().Add(readTimeout))
+	c.ws.SetPongHandler(func(_ string) error {
+		_ = c.ws.SetReadDeadline(time.Now().Add(readTimeout))
 		return nil
 	})
 
@@ -492,7 +498,7 @@ func (c *Connection) autoSubscribe() {
 		numChannels := min(config.ChannelsPerClient, len(config.Channels))
 		// Simple random selection
 		perm := rand.Perm(len(config.Channels))
-		for i := 0; i < numChannels; i++ {
+		for i := range numChannels {
 			channelsToSubscribe = append(channelsToSubscribe, config.Channels[perm[i]])
 		}
 	default:
@@ -510,9 +516,9 @@ func (c *Connection) subscribe(channels []string) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
-	msg := map[string]interface{}{
+	msg := map[string]any{
 		"type": "subscribe",
-		"data": map[string]interface{}{
+		"data": map[string]any{
 			"channels": channels,
 		},
 	}
@@ -543,17 +549,17 @@ func (c *Connection) readPump() {
 		default:
 		}
 
-		var msg map[string]interface{}
+		var msg map[string]any
 		if err := c.ws.ReadJSON(&msg); err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				// Connection closed unexpectedly
+				log.Printf("Connection %d closed unexpectedly: %v", c.id, err)
 			}
 			return
 		}
 
 		// Reset read deadline on every successful message
 		// This keeps connection alive during active message flow
-		c.ws.SetReadDeadline(time.Now().Add(readTimeout))
+		_ = c.ws.SetReadDeadline(time.Now().Add(readTimeout))
 
 		// Handle different message types (matches Node.js line 269-298)
 		msgType, _ := msg["type"].(string)
@@ -597,7 +603,7 @@ func (c *Connection) writePump() {
 			}
 
 			c.writeMu.Lock()
-			heartbeat := map[string]interface{}{
+			heartbeat := map[string]any{
 				"type": "heartbeat",
 			}
 			err := c.ws.WriteJSON(heartbeat)
@@ -625,19 +631,27 @@ func (c *Connection) close() {
 		atomic.AddInt64(&state.activeConnections, -1)
 
 		if c.ws != nil {
-			c.ws.Close()
+			_ = c.ws.Close()
 		}
 
 		c.cancel()
 	})
 }
 
-func checkServerHealth() error {
-	resp, err := http.Get(config.HealthURL)
+func checkServerHealth(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, config.HealthURL, nil)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
 
 	var health HealthResponse
 	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
@@ -664,7 +678,7 @@ func periodicHealthChecks(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := checkServerHealth(); err != nil {
+			if err := checkServerHealth(ctx); err != nil {
 				log.Printf("❌ Health check failed: %v", err)
 			}
 		}
@@ -714,9 +728,9 @@ func printReport() {
 		memUsage = health.Checks.Memory.Percentage
 	}
 
-	log.Printf("\n" + strings.Repeat("=", 80))
+	log.Printf("%s", "\n"+strings.Repeat("=", 80))
 	log.Printf("📊 SUSTAINED LOAD TEST - Elapsed: %ds - Phase: %s", elapsed, strings.ToUpper(state.phase))
-	log.Printf(strings.Repeat("=", 80))
+	log.Printf("%s", strings.Repeat("=", 80))
 	log.Printf("\n🔌 Connections:")
 	log.Printf("   Active:       %d / %d target", active, config.TargetConnections)
 	log.Printf("   Created:      %d", totalCreated)
@@ -729,10 +743,7 @@ func printReport() {
 	log.Printf("   Rate:         %.2f msg/sec", msgRate)
 
 	// Calculate error percentage (avoid division by zero)
-	divisor := messagesRcvd
-	if divisor < 1 {
-		divisor = 1
-	}
+	divisor := max(messagesRcvd, 1)
 	log.Printf("   Errors:       %d (%.2f%%)", errors, float64(errors)/float64(divisor)*100)
 
 	filteredOut := atomic.LoadInt64(&state.messagesFilteredOut)
@@ -772,13 +783,14 @@ func printReport() {
 		log.Printf("   Status:       ⚠️  No health data")
 	}
 
-	if state.phase == "ramping" {
+	switch state.phase {
+	case "ramping":
 		rampElapsed := int(time.Since(state.rampStartTime).Seconds())
 		rampProgress := float64(totalCreated) / float64(config.TargetConnections) * 100
 		log.Printf("\n🚀 Ramp Progress:")
 		log.Printf("   Progress:     %.1f%%", rampProgress)
 		log.Printf("   Time:         %ds", rampElapsed)
-	} else if state.phase == "sustaining" {
+	case "sustaining":
 		sustainElapsed := int(time.Since(state.sustainStartTime).Seconds())
 		remaining := max(0, config.SustainDurationSec-sustainElapsed)
 		log.Printf("\n🔒 Sustain Status:")
@@ -788,31 +800,31 @@ func printReport() {
 
 	// Print connection errors if any
 	hasErrors := false
-	state.connectionErrors.Range(func(key, value interface{}) bool {
+	state.connectionErrors.Range(func(_, _ any) bool {
 		hasErrors = true
 		return false
 	})
 
 	if hasErrors {
 		log.Printf("\n⚠️  Connection Errors:")
-		state.connectionErrors.Range(func(key, value interface{}) bool {
+		state.connectionErrors.Range(func(key, value any) bool {
 			count := atomic.LoadInt64(value.(*int64))
 			log.Printf("   %s: %d", key, count)
 			return true
 		})
 	}
 
-	log.Printf(strings.Repeat("=", 80) + "\n")
+	log.Printf("%s", strings.Repeat("=", 80)+"\n")
 }
 
 func formatNumber(n int64) string {
 	// Match Node.js toLocaleString() behavior
 	if n < 1000 {
-		return fmt.Sprintf("%d", n)
+		return strconv.FormatInt(n, 10)
 	}
 	// Use comma formatting like Node.js
-	str := fmt.Sprintf("%d", n)
-	var result []rune
+	str := strconv.FormatInt(n, 10)
+	result := make([]rune, 0, len(str)+len(str)/3)
 	for i, ch := range str {
 		if i > 0 && (len(str)-i)%3 == 0 {
 			result = append(result, ',')
@@ -820,18 +832,4 @@ func formatNumber(n int64) string {
 		result = append(result, ch)
 	}
 	return string(result)
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

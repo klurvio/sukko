@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -72,10 +73,10 @@ type Producer struct {
 // Returns an error if any required field is missing or client creation fails.
 func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if len(cfg.Brokers) == 0 {
-		return nil, fmt.Errorf("at least one broker is required")
+		return nil, errors.New("at least one broker is required")
 	}
 	if cfg.TopicNamespace == "" {
-		return nil, fmt.Errorf("topic namespace is required")
+		return nil, errors.New("topic namespace is required")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -89,7 +90,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 		if err != nil {
 			hostname = "unknown"
 		}
-		clientID = fmt.Sprintf("odin-ws-producer-%s", hostname)
+		clientID = "odin-ws-producer-" + hostname
 	}
 	batchMaxBytes := cfg.BatchMaxBytes
 	if batchMaxBytes == 0 {
@@ -221,7 +222,7 @@ func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, 
 	p.mu.RLock()
 	if p.closed {
 		p.mu.RUnlock()
-		return fmt.Errorf("producer is closed")
+		return errors.New("producer is closed")
 	}
 	topic := p.topic
 	p.mu.RUnlock()

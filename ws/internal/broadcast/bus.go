@@ -95,7 +95,7 @@ type Metrics struct {
 	LastPublishAgo float64 `json:"last_publish_ago"`
 
 	// LastPublishTime is the time of the last successful publish
-	LastPublishTime time.Time `json:"last_publish_time,omitempty"`
+	LastPublishTime time.Time `json:"last_publish_time,omitzero"`
 }
 
 // Config holds configuration for creating a Bus.

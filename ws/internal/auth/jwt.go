@@ -4,6 +4,7 @@ package auth
 
 import (
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -60,32 +61,17 @@ func (c *Claims) Tenant() string {
 
 // HasRole checks if the claims contain the specified role.
 func (c *Claims) HasRole(role string) bool {
-	for _, r := range c.Roles {
-		if r == role {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Roles, role)
 }
 
 // HasScope checks if the claims contain the specified scope.
 func (c *Claims) HasScope(scope string) bool {
-	for _, s := range c.Scopes {
-		if s == scope {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Scopes, scope)
 }
 
 // HasGroup checks if the claims contain the specified group.
 func (c *Claims) HasGroup(group string) bool {
-	for _, g := range c.Groups {
-		if g == group {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Groups, group)
 }
 
 // GetAttribute returns the value of the specified attribute, or empty string if not found.
@@ -117,7 +103,7 @@ func (v *JWTValidator) ValidateToken(tokenString string) (*Claims, error) {
 		return nil, ErrMissingToken
 	}
 
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (any, error) {
 		// Validate signing method is HMAC
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, ErrInvalidToken

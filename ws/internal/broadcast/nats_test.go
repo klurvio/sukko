@@ -132,12 +132,14 @@ func TestNATSBus_ClusterURLBuilding(t *testing.T) {
 			var serverURL string
 			if tt.clusterMode && len(tt.urls) > 1 {
 				serverURL = ""
+				var serverURLSb135 strings.Builder
 				for i, url := range tt.urls {
 					if i > 0 {
-						serverURL += ","
+						serverURLSb135.WriteString(",")
 					}
-					serverURL += url
+					serverURLSb135.WriteString(url)
 				}
+				serverURL += serverURLSb135.String()
 			} else {
 				serverURL = tt.urls[0]
 			}
@@ -183,7 +185,7 @@ func TestNATSBus_SubscribeChannel(t *testing.T) {
 func TestNATSBus_FanOutLogic(t *testing.T) {
 	const numSubscribers = 5
 	subscribers := make([]chan *Message, numSubscribers)
-	for i := 0; i < numSubscribers; i++ {
+	for i := range numSubscribers {
 		subscribers[i] = make(chan *Message, 10)
 	}
 

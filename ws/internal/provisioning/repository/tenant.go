@@ -141,7 +141,7 @@ func (r *PostgresTenantRepository) Update(ctx context.Context, tenant *provision
 func (r *PostgresTenantRepository) List(ctx context.Context, opts provisioning.ListOptions) ([]*provisioning.Tenant, int, error) {
 	// Build query with optional status filter
 	whereClause := "WHERE status != 'deleted'"
-	args := []interface{}{}
+	args := []any{}
 	argNum := 1
 
 	if opts.Status != nil {
@@ -151,7 +151,7 @@ func (r *PostgresTenantRepository) List(ctx context.Context, opts provisioning.L
 	}
 
 	// Count total
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM tenants %s", whereClause)
+	countQuery := "SELECT COUNT(*) FROM tenants " + whereClause
 	var total int
 	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count tenants: %w", err)
@@ -162,10 +162,7 @@ func (r *PostgresTenantRepository) List(ctx context.Context, opts provisioning.L
 	if limit <= 0 {
 		limit = 50
 	}
-	offset := opts.Offset
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(opts.Offset, 0)
 
 	query := fmt.Sprintf(`
 		SELECT id, name, status, consumer_type, metadata, created_at, updated_at,
@@ -228,7 +225,7 @@ func (r *PostgresTenantRepository) List(ctx context.Context, opts provisioning.L
 // UpdateStatus updates a tenant's status.
 func (r *PostgresTenantRepository) UpdateStatus(ctx context.Context, tenantID string, status provisioning.TenantStatus) error {
 	var query string
-	var args []interface{}
+	var args []any
 
 	switch status {
 	case provisioning.StatusSuspended:
@@ -237,28 +234,28 @@ func (r *PostgresTenantRepository) UpdateStatus(ctx context.Context, tenantID st
 			SET status = $2, suspended_at = NOW(), updated_at = NOW()
 			WHERE id = $1 AND status = 'active'
 		`
-		args = []interface{}{tenantID, status}
+		args = []any{tenantID, status}
 	case provisioning.StatusActive:
 		query = `
 			UPDATE tenants
 			SET status = $2, suspended_at = NULL, updated_at = NOW()
 			WHERE id = $1 AND status IN ('suspended')
 		`
-		args = []interface{}{tenantID, status}
+		args = []any{tenantID, status}
 	case provisioning.StatusDeprovisioning:
 		query = `
 			UPDATE tenants
 			SET status = $2, updated_at = NOW()
 			WHERE id = $1 AND status IN ('active', 'suspended')
 		`
-		args = []interface{}{tenantID, status}
+		args = []any{tenantID, status}
 	case provisioning.StatusDeleted:
 		query = `
 			UPDATE tenants
 			SET status = $2, deleted_at = NOW(), updated_at = NOW()
 			WHERE id = $1 AND status = 'deprovisioning'
 		`
-		args = []interface{}{tenantID, status}
+		args = []any{tenantID, status}
 	default:
 		return fmt.Errorf("invalid status transition to: %s", status)
 	}

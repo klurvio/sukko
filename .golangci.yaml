@@ -1,0 +1,200 @@
+# golangci-lint configuration
+# https://golangci-lint.run/usage/configuration/
+# Run: golangci-lint run ./...
+
+version: "2"
+
+run:
+  # Timeout for analysis
+  timeout: 5m
+  # Include test files
+  tests: true
+  # Go version - matches go.mod
+  go: "1.25"
+
+output:
+  # Sort results by file, line, then column
+  sort-results: true
+
+linters:
+  # Disable all linters, enable only what we need
+  disable-all: true
+  enable:
+    # Default linters
+    - errcheck      # Check for unchecked errors
+    - govet         # Go vet checks
+    - ineffassign   # Detects ineffectual assignments
+    - staticcheck   # Staticcheck suite (includes gosimple, stylecheck)
+    - unused        # Check for unused code
+
+    # Additional recommended linters
+    - bodyclose     # Check HTTP response body is closed
+    - contextcheck  # Check context.Context is passed correctly
+    - durationcheck # Check duration multiplications
+    - errorlint     # Find code that will cause issues with Go 1.13+ error wrapping
+    - exhaustive    # Check exhaustiveness of enum switch statements
+    - gocritic      # Opinionated linter with many checks
+    - gosec         # Security checks
+    - misspell      # Check for spelling mistakes
+    - nilerr        # Check for err != nil but returns nil
+    - noctx         # Check for http requests without context
+    - prealloc      # Find slice declarations that could be preallocated
+    - predeclared   # Check for shadowing predeclared identifiers
+    - revive        # Fast, configurable linter
+    - rowserrcheck  # Check sql.Rows.Err is called
+    - sqlclosecheck # Check sql.Rows and sql.Stmt are closed
+    - paralleltest  # Detects missing usage of t.Parallel
+    - unconvert     # Remove unnecessary conversions
+    - unparam       # Report unused function parameters
+    - wastedassign  # Find wasted assignment statements
+
+    # Go modernization linters
+    - copyloopvar   # Detects places where loop variables are copied
+    - intrange      # Suggests use of integer range syntax (Go 1.22+)
+    - perfsprint    # Check for fmt.Sprintf that can be replaced with string concat
+    - usestdlibvars # Detect when http/time constants can be used
+    - modernize     # Suggests modern Go features
+
+formatters:
+  enable:
+    - gofmt         # Check code formatting
+    - goimports     # Check imports formatting
+  settings:
+    gofmt:
+      # Simplify code
+      simplify: true
+    goimports:
+      # Put local imports after 3rd-party packages
+      local-prefixes:
+        - github.com/Toniq-Labs
+
+linters-settings:
+  errcheck:
+    # Check for errors returned from type assertions
+    check-type-assertions: true
+    # Check for errors returned by blank identifiers
+    check-blank: true
+    # Exclude some common functions that don't need error checking
+    exclude-functions:
+      - (io.Closer).Close
+      - (net/http.ResponseWriter).Write
+
+  exhaustive:
+    # Check switch statements over enums
+    default-signifies-exhaustive: true
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - hugeParam      # Often not a concern in modern Go
+      - rangeValCopy   # Go 1.22+ handles this
+
+  gosec:
+    # Exclude some checks
+    excludes:
+      - G104  # Audit errors not checked (covered by errcheck)
+      - G307  # Deferring unsafe method (often false positive with Close)
+
+  govet:
+    # Enable all analyzers
+    enable-all: true
+    disable:
+      - fieldalignment  # Too noisy for most codebases
+      - shadow          # Covered by predeclared
+
+  misspell:
+    locale: US
+
+  prealloc:
+    # Only suggest prealloc when there's >10% improvement
+    simple: true
+    range-loops: true
+    for-loops: true
+
+  revive:
+    # Reduce severity for some rules
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+        disabled: true  # Too strict for internal packages
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+        disabled: true  # Covered by unparam
+      - name: unreachable-code
+      - name: redefines-builtin-id
+
+  staticcheck:
+    # Enable all checks
+    checks: ["all", "-ST1000", "-ST1003", "-ST1016"]
+
+  unparam:
+    # Check exported functions
+    check-exported: false
+
+issues:
+  # Maximum issues count per one linter
+  max-issues-per-linter: 50
+  # Maximum count of issues with the same text
+  max-same-issues: 5
+
+  # Exclude some linters from running on tests
+  exclude-rules:
+    # Exclude some linters from running on test files
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - unparam
+        - prealloc
+
+    # Exclude some staticcheck checks in test files
+    - path: _test\.go
+      text: "SA1019"  # Using deprecated function (often needed in tests)
+
+    # Allow unused parameters in test helpers
+    - path: testutil/
+      linters:
+        - unparam
+
+    # Allow init functions in main packages
+    - path: cmd/
+      linters:
+        - gochecknoinits
+
+    # Exclude lll issues for long lines with go:generate
+    - linters:
+        - lll
+      source: "^//go:generate "
+
+severity:
+  # Default severity for issues
+  default: warning
+  # Set specific severity for some rules
+  rules:
+    - linters:
+        - gosec
+      severity: error
+    - linters:
+        - govet
+      severity: error

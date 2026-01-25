@@ -146,7 +146,7 @@ func TestValkeyBus_FanOutLogic(t *testing.T) {
 	// Test fan-out to multiple subscribers
 	const numSubscribers = 3
 	subscribers := make([]chan *Message, numSubscribers)
-	for i := 0; i < numSubscribers; i++ {
+	for i := range numSubscribers {
 		subscribers[i] = make(chan *Message, 10)
 	}
 
@@ -277,7 +277,7 @@ func containsLower(s, substr string) bool {
 
 func toLower(s string) string {
 	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		if c >= 'A' && c <= 'Z' {
 			c += 'a' - 'A'

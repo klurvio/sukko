@@ -97,7 +97,7 @@ func AssertEventually(t *testing.T, timeout time.Duration, condition func() bool
 func RunConcurrent(n int, fn func(i int)) {
 	var wg sync.WaitGroup
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		go func(idx int) {
 			defer wg.Done()
 			fn(idx)
@@ -112,7 +112,7 @@ func RunConcurrentWithStart(n int, fn func(i int)) {
 	start := make(chan struct{})
 
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		go func(idx int) {
 			defer wg.Done()
 			<-start // Wait for signal

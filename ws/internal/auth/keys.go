@@ -119,7 +119,7 @@ type KeyRegistryStats struct {
 func ParsePublicKey(pemData string, algorithm string) (crypto.PublicKey, error) {
 	block, _ := pem.Decode([]byte(pemData))
 	if block == nil {
-		return nil, fmt.Errorf("failed to decode PEM block")
+		return nil, errors.New("failed to decode PEM block")
 	}
 
 	pub, err := x509.ParsePKIXPublicKey(block.Bytes)

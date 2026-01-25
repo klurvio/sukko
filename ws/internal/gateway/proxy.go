@@ -2,8 +2,10 @@ package gateway
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
@@ -64,7 +66,7 @@ func (p *Proxy) Run() {
 
 	// Wait for first error (connection close)
 	err := <-errChan
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		p.logger.Warn().Err(err).Msg("Connection closed with error")
 	} else {
 		p.logger.Debug().Msg("Connection closed normally")
@@ -86,7 +88,7 @@ func (p *Proxy) proxyClientToBackend(errChan chan error) {
 		// Read frame header
 		header, err := ws.ReadHeader(p.clientConn)
 		if err != nil {
-			if err != io.EOF {
+			if !errors.Is(err, io.EOF) {
 				p.logger.Debug().Err(err).Msg("Client read error")
 			}
 			errChan <- err
@@ -137,7 +139,7 @@ func (p *Proxy) proxyBackendToClient(errChan chan error) {
 		// Read frame header
 		header, err := ws.ReadHeader(p.backendConn)
 		if err != nil {
-			if err != io.EOF {
+			if !errors.Is(err, io.EOF) {
 				p.logger.Debug().Err(err).Msg("Backend read error")
 			}
 			errChan <- err
@@ -237,8 +239,8 @@ func (p *Proxy) interceptClientMessage(msg []byte) ([]byte, error) {
 
 	var clientMsg ClientMessage
 	if err := json.Unmarshal(msg, &clientMsg); err != nil {
-		// Not valid JSON, pass through
-		return msg, nil
+		// Not valid JSON, pass through (intentional: non-JSON messages are passed unchanged)
+		return msg, nil //nolint:nilerr // Intentional: pass through non-JSON messages
 	}
 
 	// Only intercept subscribe messages
@@ -288,10 +290,5 @@ func (p *Proxy) interceptClientMessage(msg []byte) ([]byte, error) {
 
 // contains checks if a string slice contains a value.
 func contains(slice []string, val string) bool {
-	for _, s := range slice {
-		if s == val {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, val)
 }

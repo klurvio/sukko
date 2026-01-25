@@ -10,6 +10,7 @@
 package platform
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"time"
@@ -257,7 +258,7 @@ func LoadServerConfig(logger *zerolog.Logger) (*ServerConfig, error) {
 func (c *ServerConfig) Validate() error {
 	// Required fields (no sensible defaults)
 	if c.Addr == "" {
-		return fmt.Errorf("WS_ADDR is required")
+		return errors.New("WS_ADDR is required")
 	}
 
 	// Range checks
@@ -320,17 +321,17 @@ func (c *ServerConfig) Validate() error {
 			return fmt.Errorf("VALKEY_DB must be >= 0, got %d", c.ValkeyDB)
 		}
 		if c.ValkeyChannel == "" {
-			return fmt.Errorf("VALKEY_CHANNEL cannot be empty")
+			return errors.New("VALKEY_CHANNEL cannot be empty")
 		}
 	}
 
 	// NATS-specific validation (when BROADCAST_TYPE=nats)
 	if c.BroadcastType == "nats" {
 		if len(c.NATSURLs) == 0 {
-			return fmt.Errorf("NATS_URLS is required when BROADCAST_TYPE=nats")
+			return errors.New("NATS_URLS is required when BROADCAST_TYPE=nats")
 		}
 		if c.NATSSubject == "" {
-			return fmt.Errorf("NATS_SUBJECT cannot be empty")
+			return errors.New("NATS_SUBJECT cannot be empty")
 		}
 		// Cluster mode requires multiple URLs
 		if c.NATSClusterMode && len(c.NATSURLs) < 2 {
@@ -364,10 +365,10 @@ func (c *ServerConfig) Validate() error {
 			return fmt.Errorf("KAFKA_SASL_MECHANISM must be 'scram-sha-256' or 'scram-sha-512', got: %s", c.KafkaSASLMechanism)
 		}
 		if c.KafkaSASLUsername == "" {
-			return fmt.Errorf("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLED=true")
+			return errors.New("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLED=true")
 		}
 		if c.KafkaSASLPassword == "" {
-			return fmt.Errorf("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
+			return errors.New("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
 		}
 	}
 

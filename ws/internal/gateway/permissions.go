@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/Toniq-Labs/odin-ws/internal/auth"
@@ -97,12 +98,7 @@ func (pc *PermissionChecker) extractGroupID(channel string) string {
 
 // containsGroup checks if the groups slice contains the target group.
 func (pc *PermissionChecker) containsGroup(groups []string, target string) bool {
-	for _, g := range groups {
-		if g == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(groups, target)
 }
 
 // matchPattern matches a pattern against a channel.

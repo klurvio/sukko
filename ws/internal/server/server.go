@@ -20,11 +20,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/Toniq-Labs/odin-ws/internal/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
-	"github.com/rs/zerolog"
 )
 
 // Server is the main WebSocket server that manages client connections, message

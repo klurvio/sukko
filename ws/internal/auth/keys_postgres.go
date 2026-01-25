@@ -4,6 +4,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -54,7 +55,7 @@ type PostgresKeyRegistry struct {
 // NewPostgresKeyRegistry creates a new PostgresKeyRegistry.
 func NewPostgresKeyRegistry(cfg PostgresKeyRegistryConfig) (*PostgresKeyRegistry, error) {
 	if cfg.DB == nil {
-		return nil, fmt.Errorf("database connection is required")
+		return nil, errors.New("database connection is required")
 	}
 
 	if cfg.RefreshInterval == 0 {
@@ -323,7 +324,7 @@ func (r *PostgresKeyRegistry) fetchKeyFromDB(ctx context.Context, keyID string) 
 		&revokedAt,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrKeyNotFound
 	}
 	if err != nil {

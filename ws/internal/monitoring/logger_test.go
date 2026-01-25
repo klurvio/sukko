@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/types"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/types"
 )
 
 // resetGlobalLevel resets zerolog's global level to Trace for tests

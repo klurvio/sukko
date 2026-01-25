@@ -203,7 +203,7 @@ func (t *TenantIsolator) CheckChannelAccess(ctx context.Context, claims *Claims,
 		if claims.HasRole(role) {
 			result.Allowed = true
 			result.IsCrossTenant = true
-			result.Reason = fmt.Sprintf("cross-tenant via role: %s", role)
+			result.Reason = "cross-tenant via role: " + role
 			result.Duration = time.Since(start)
 			t.logAccess(ctx, result, action)
 			return result

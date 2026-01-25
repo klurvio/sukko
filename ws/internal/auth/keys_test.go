@@ -9,6 +9,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"testing"
 	"time"
 )
@@ -217,7 +218,7 @@ func TestStaticKeyRegistry_GetKey(t *testing.T) {
 
 	t.Run("non-existing key", func(t *testing.T) {
 		_, err := registry.GetKey(ctx, "non-existent")
-		if err != ErrKeyNotFound {
+		if !errors.Is(err, ErrKeyNotFound) {
 			t.Errorf("Expected ErrKeyNotFound, got %v", err)
 		}
 	})
@@ -243,7 +244,7 @@ func TestStaticKeyRegistry_GetKey_Revoked(t *testing.T) {
 
 	ctx := context.Background()
 	_, err := registry.GetKey(ctx, "revoked-key")
-	if err != ErrKeyRevoked {
+	if !errors.Is(err, ErrKeyRevoked) {
 		t.Errorf("Expected ErrKeyRevoked, got %v", err)
 	}
 }
@@ -268,7 +269,7 @@ func TestStaticKeyRegistry_GetKey_Expired(t *testing.T) {
 
 	ctx := context.Background()
 	_, err := registry.GetKey(ctx, "expired-key")
-	if err != ErrKeyExpired {
+	if !errors.Is(err, ErrKeyExpired) {
 		t.Errorf("Expected ErrKeyExpired, got %v", err)
 	}
 }

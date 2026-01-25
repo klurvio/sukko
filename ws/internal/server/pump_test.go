@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/messaging"
-	"github.com/Toniq-Labs/odin-ws/internal/types"
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/messaging"
+	"github.com/Toniq-Labs/odin-ws/internal/types"
 )
 
 // =============================================================================

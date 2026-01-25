@@ -39,13 +39,13 @@ func (r *PostgresAuditRepository) Log(ctx context.Context, entry *provisioning.A
 	}
 
 	// Convert empty tenant_id to NULL
-	var tenantID interface{}
+	var tenantID any
 	if entry.TenantID != "" {
 		tenantID = entry.TenantID
 	}
 
 	// Convert empty IP address to NULL
-	var ipAddress interface{}
+	var ipAddress any
 	if entry.IPAddress != "" {
 		ipAddress = entry.IPAddress
 	}
@@ -80,10 +80,7 @@ func (r *PostgresAuditRepository) ListByTenant(ctx context.Context, tenantID str
 	if limit <= 0 {
 		limit = 50
 	}
-	offset := opts.Offset
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(opts.Offset, 0)
 
 	query := `
 		SELECT id, tenant_id, action, actor, actor_type, ip_address, details, created_at

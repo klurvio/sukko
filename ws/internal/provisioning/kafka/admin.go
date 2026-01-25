@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -61,7 +62,7 @@ type Admin struct {
 // NewAdmin creates a new Kafka admin client.
 func NewAdmin(cfg AdminConfig) (*Admin, error) {
 	if len(cfg.Brokers) == 0 {
-		return nil, fmt.Errorf("at least one broker is required")
+		return nil, errors.New("at least one broker is required")
 	}
 
 	timeout := cfg.Timeout
@@ -115,7 +116,7 @@ func NewAdmin(cfg AdminConfig) (*Admin, error) {
 			}
 			caCertPool := x509.NewCertPool()
 			if !caCertPool.AppendCertsFromPEM(caCert) {
-				return nil, fmt.Errorf("failed to parse CA certificate")
+				return nil, errors.New("failed to parse CA certificate")
 			}
 			tlsCfg.RootCAs = caCertPool
 		}
@@ -183,7 +184,7 @@ func (a *Admin) CreateTopic(ctx context.Context, name string, partitions int, co
 	for _, tr := range resp {
 		if tr.Err != nil {
 			// Ignore "topic already exists" error
-			if tr.Err == kerr.TopicAlreadyExists {
+			if errors.Is(tr.Err, kerr.TopicAlreadyExists) {
 				a.logger.Debug().
 					Str("topic", name).
 					Msg("Topic already exists, skipping creation")
@@ -214,7 +215,7 @@ func (a *Admin) DeleteTopic(ctx context.Context, name string) error {
 	for _, tr := range resp {
 		if tr.Err != nil {
 			// Ignore "topic not found" error
-			if tr.Err == kerr.UnknownTopicOrPartition {
+			if errors.Is(tr.Err, kerr.UnknownTopicOrPartition) {
 				a.logger.Debug().
 					Str("topic", name).
 					Msg("Topic does not exist, skipping deletion")

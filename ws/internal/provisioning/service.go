@@ -2,7 +2,9 @@ package provisioning
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -170,7 +172,7 @@ func (s *Service) UpdateTenant(ctx context.Context, tenantID string, req UpdateT
 	}
 
 	if tenant.Status == StatusDeleted {
-		return nil, fmt.Errorf("cannot update deleted tenant")
+		return nil, errors.New("cannot update deleted tenant")
 	}
 
 	if req.Name != nil {
@@ -243,7 +245,7 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string) error 
 	gracePeriodMs := int64(s.config.DeprovisionGraceDays * 24 * 60 * 60 * 1000)
 	for _, topic := range topics {
 		if err := s.kafka.SetTopicConfig(ctx, topic.TopicName, map[string]string{
-			"retention.ms": fmt.Sprintf("%d", gracePeriodMs),
+			"retention.ms": strconv.FormatInt(gracePeriodMs, 10),
 		}); err != nil {
 			s.logger.Error().Err(err).
 				Str("tenant_id", tenantID).
@@ -318,7 +320,7 @@ func (s *Service) RevokeKey(ctx context.Context, tenantID, keyID string) error {
 		return err
 	}
 	if key.TenantID != tenantID {
-		return fmt.Errorf("key does not belong to tenant")
+		return errors.New("key does not belong to tenant")
 	}
 
 	if err := s.keys.Revoke(ctx, keyID); err != nil {
@@ -453,7 +455,7 @@ func (s *Service) createTopicsForTenant(ctx context.Context, tenantID string, ca
 	// Create ACL for tenant
 	if len(created) > 0 {
 		acl := ACLBinding{
-			Principal:    fmt.Sprintf("User:%s", tenantID),
+			Principal:    "User:" + tenantID,
 			ResourceType: "TOPIC",
 			ResourceName: fmt.Sprintf("%s.%s.", s.config.TopicNamespace, tenantID),
 			PatternType:  "PREFIXED",
@@ -472,7 +474,7 @@ func (s *Service) createTopicsForTenant(ctx context.Context, tenantID string, ca
 func (s *Service) createSingleTopic(ctx context.Context, tenantID, topicName, category string) error {
 	// Create in Kafka
 	config := map[string]string{
-		"retention.ms": fmt.Sprintf("%d", s.config.DefaultRetentionMs),
+		"retention.ms": strconv.FormatInt(s.config.DefaultRetentionMs, 10),
 	}
 	if err := s.kafka.CreateTopic(ctx, topicName, s.config.DefaultPartitions, config); err != nil {
 		return fmt.Errorf("create kafka topic: %w", err)

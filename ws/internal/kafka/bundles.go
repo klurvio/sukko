@@ -1,5 +1,7 @@
 package kafka
 
+import "slices"
+
 // BundleType represents different subscription bundle types
 type BundleType string
 
@@ -125,10 +127,5 @@ func GetTopicsForSubscription(env, subscription string) []string {
 
 // IsValidBaseTopic checks if a base topic name is valid
 func IsValidBaseTopic(base string) bool {
-	for _, b := range AllTopicBases() {
-		if b == base {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(AllTopicBases(), base)
 }

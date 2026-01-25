@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 )
 
 // Handler provides HTTP handlers for provisioning operations.
@@ -89,7 +90,7 @@ func (h *Handler) ListTenants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"tenants": tenants,
 		"total":   total,
 		"limit":   opts.Limit,
@@ -188,7 +189,7 @@ func (h *Handler) ListKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"keys": keys,
 	})
 }
@@ -215,7 +216,7 @@ func (h *Handler) GetActiveKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"keys": keys,
 	})
 }
@@ -242,7 +243,7 @@ func (h *Handler) CreateTopics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordTopicCreated(len(topics))
-	writeJSON(w, http.StatusCreated, map[string]interface{}{
+	writeJSON(w, http.StatusCreated, map[string]any{
 		"topics": topicNames,
 	})
 }
@@ -257,7 +258,7 @@ func (h *Handler) ListTopics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"topics": topics,
 	})
 }
@@ -305,7 +306,7 @@ func (h *Handler) GetAuditLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"entries": entries,
 		"total":   total,
 		"limit":   opts.Limit,
@@ -343,7 +344,7 @@ func parseListOptions(r *http.Request) provisioning.ListOptions {
 }
 
 // writeJSON writes a JSON response.
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)

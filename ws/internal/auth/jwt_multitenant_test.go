@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,7 +10,7 @@ import (
 )
 
 // createTestToken creates a signed JWT token for testing.
-func createTestToken(t *testing.T, key *KeyInfo, privateKey interface{}, claims *Claims) string {
+func createTestToken(t *testing.T, key *KeyInfo, privateKey any, claims *Claims) string {
 	t.Helper()
 
 	method, err := GetSigningMethod(key.Algorithm)
@@ -203,7 +204,7 @@ func TestMultiTenantValidator_ValidateToken_ExpiredToken(t *testing.T) {
 
 	ctx := context.Background()
 	_, err = validator.ValidateToken(ctx, tokenString)
-	if err != ErrTokenExpired {
+	if !errors.Is(err, ErrTokenExpired) {
 		t.Errorf("Expected ErrTokenExpired, got %v", err)
 	}
 }
@@ -298,7 +299,7 @@ func TestMultiTenantValidator_ValidateToken_MissingToken(t *testing.T) {
 
 	ctx := context.Background()
 	_, err = validator.ValidateToken(ctx, "")
-	if err != ErrMissingToken {
+	if !errors.Is(err, ErrMissingToken) {
 		t.Errorf("Expected ErrMissingToken, got %v", err)
 	}
 }

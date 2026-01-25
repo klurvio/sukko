@@ -3,6 +3,7 @@ package provisioning
 import (
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -54,7 +55,7 @@ func (c ConsumerType) IsValid() bool {
 }
 
 // Metadata is a JSON object for flexible tenant metadata.
-type Metadata map[string]interface{}
+type Metadata map[string]any
 
 // Value implements driver.Valuer for database storage.
 func (m Metadata) Value() (driver.Value, error) {
@@ -65,7 +66,7 @@ func (m Metadata) Value() (driver.Value, error) {
 }
 
 // Scan implements sql.Scanner for database retrieval.
-func (m *Metadata) Scan(value interface{}) error {
+func (m *Metadata) Scan(value any) error {
 	if value == nil {
 		*m = make(Metadata)
 		return nil
@@ -129,10 +130,10 @@ func (t *Tenant) Validate() error {
 		return err
 	}
 	if t.Name == "" {
-		return fmt.Errorf("tenant name is required")
+		return errors.New("tenant name is required")
 	}
 	if len(t.Name) > 256 {
-		return fmt.Errorf("tenant name must be <= 256 characters")
+		return errors.New("tenant name must be <= 256 characters")
 	}
 	if !t.ConsumerType.IsValid() {
 		return fmt.Errorf("invalid consumer type: %q", t.ConsumerType)
@@ -215,11 +216,11 @@ func (k *TenantKey) Validate() error {
 		return fmt.Errorf("invalid algorithm: %q (must be ES256, RS256, or EdDSA)", k.Algorithm)
 	}
 	if k.PublicKey == "" {
-		return fmt.Errorf("public key is required")
+		return errors.New("public key is required")
 	}
 	// Basic PEM format check
 	if len(k.PublicKey) < 50 {
-		return fmt.Errorf("public key appears too short to be valid PEM")
+		return errors.New("public key appears too short to be valid PEM")
 	}
 	return nil
 }

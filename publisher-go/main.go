@@ -1,8 +1,13 @@
+// Package main provides a Kafka event publisher with HTTP API for simulating events.
+// This is a test/simulation tool where math/rand is acceptable for generating random data.
+//
+//nolint:gosec // G404: This package uses math/rand intentionally for test data simulation
 package main
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -226,17 +231,17 @@ type Config struct {
 
 // Event represents a token event
 type Event struct {
-	Type      string                 `json:"type"`
-	TokenID   string                 `json:"tokenId"`
-	Timestamp int64                  `json:"timestamp"`
-	Data      map[string]interface{} `json:"data"`
+	Type      string         `json:"type"`
+	TokenID   string         `json:"tokenId"`
+	Timestamp int64          `json:"timestamp"`
+	Data      map[string]any `json:"data"`
 }
 
 // KafkaMessage is the message format sent to Kafka
 type KafkaMessage struct {
-	Type      string                 `json:"type"`
-	Timestamp int64                  `json:"timestamp"`
-	Data      map[string]interface{} `json:"data"`
+	Type      string         `json:"type"`
+	Timestamp int64          `json:"timestamp"`
+	Data      map[string]any `json:"data"`
 }
 
 // =============================================================================
@@ -285,7 +290,7 @@ func loadConfig() *Config {
 }
 
 // =============================================================================
-// Random Data Generators
+// Random Data Generators (for simulation - crypto/rand not needed)
 // =============================================================================
 
 func randomPrice() float64 {
@@ -332,10 +337,10 @@ func randomBool() bool {
 // Event Data Generators
 // =============================================================================
 
-func generateEventData(eventType, tokenID string) map[string]interface{} {
+func generateEventData(eventType, tokenID string) map[string]any {
 	switch eventType {
 	case EventTradeExecuted, EventBuyCompleted, EventSellCompleted:
-		return map[string]interface{}{
+		return map[string]any{
 			"price":  randomPrice(),
 			"amount": randomAmount(),
 			"buyer":  randomAddress(),
@@ -344,29 +349,29 @@ func generateEventData(eventType, tokenID string) map[string]interface{} {
 		}
 
 	case EventLiquidityAdded, EventLiquidityRemoved:
-		return map[string]interface{}{
+		return map[string]any{
 			"amount":         randomAmount(),
 			"provider":       randomAddress(),
 			"totalLiquidity": randomAmount() * 10,
 		}
 
 	case EventLiquidityRebalanced:
-		return map[string]interface{}{
+		return map[string]any{
 			"oldRatio":       rand.Float64(),
 			"newRatio":       rand.Float64(),
 			"totalLiquidity": randomAmount() * 10,
 		}
 
 	case EventMetadataUpdated, EventTokenNameChanged:
-		return map[string]interface{}{
-			"name":        fmt.Sprintf("Token %s", tokenID),
+		return map[string]any{
+			"name":        "Token " + tokenID,
 			"symbol":      randomSymbol(),
 			"description": "Updated token metadata",
 		}
 
 	case EventTokenFlagsChanged:
-		return map[string]interface{}{
-			"flags": map[string]interface{}{
+		return map[string]any{
+			"flags": map[string]any{
 				"verified": rand.Float64() > 0.5,
 				"featured": rand.Float64() > 0.8,
 				"trending": rand.Float64() > 0.7,
@@ -374,21 +379,21 @@ func generateEventData(eventType, tokenID string) map[string]interface{} {
 		}
 
 	case EventTwitterVerified:
-		return map[string]interface{}{
-			"twitterHandle": fmt.Sprintf("@token%s", tokenID),
+		return map[string]any{
+			"twitterHandle": "@token" + tokenID,
 			"verified":      true,
 			"verifiedAt":    time.Now().UnixMilli(),
 		}
 
 	case EventSocialLinksUpdated:
-		return map[string]interface{}{
-			"twitter":  fmt.Sprintf("https://twitter.com/token%s", tokenID),
-			"telegram": fmt.Sprintf("https://t.me/token%s", tokenID),
+		return map[string]any{
+			"twitter":  "https://twitter.com/token" + tokenID,
+			"telegram": "https://t.me/token" + tokenID,
 			"website":  fmt.Sprintf("https://token%s.com", tokenID),
 		}
 
 	case EventCommentPosted:
-		return map[string]interface{}{
+		return map[string]any{
 			"commentId": randomHash(),
 			"author":    randomAddress(),
 			"content":   "This is a test comment",
@@ -396,41 +401,41 @@ func generateEventData(eventType, tokenID string) map[string]interface{} {
 		}
 
 	case EventCommentPinned:
-		return map[string]interface{}{
+		return map[string]any{
 			"commentId": randomHash(),
 			"pinnedBy":  randomAddress(),
 		}
 
 	case EventCommentUpvoted:
-		return map[string]interface{}{
+		return map[string]any{
 			"commentId":    randomHash(),
 			"voter":        randomAddress(),
 			"totalUpvotes": rand.Intn(100),
 		}
 
 	case EventFavoriteToggled:
-		return map[string]interface{}{
+		return map[string]any{
 			"userId":     randomAddress(),
 			"isFavorite": randomBool(),
 		}
 
 	case EventTokenCreated:
-		return map[string]interface{}{
+		return map[string]any{
 			"creator": randomAddress(),
-			"name":    fmt.Sprintf("Token %s", tokenID),
+			"name":    "Token " + tokenID,
 			"symbol":  randomSymbol(),
 			"supply":  randomAmount() * 1000000,
 		}
 
 	case EventTokenListed:
-		return map[string]interface{}{
+		return map[string]any{
 			"exchange":     "Odin DEX",
 			"initialPrice": randomPrice(),
 			"timestamp":    time.Now().UnixMilli(),
 		}
 
 	case EventPriceDeltaUpdated:
-		return map[string]interface{}{
+		return map[string]any{
 			"price":    randomPrice(),
 			"delta1h":  (rand.Float64() - 0.5) * 20,
 			"delta24h": (rand.Float64() - 0.5) * 50,
@@ -438,33 +443,33 @@ func generateEventData(eventType, tokenID string) map[string]interface{} {
 		}
 
 	case EventHolderCountUpdated:
-		return map[string]interface{}{
+		return map[string]any{
 			"holderCount": rand.Intn(10000),
 			"change":      int((rand.Float64() - 0.5) * 100),
 		}
 
 	case EventAnalyticsRecalculated:
-		return map[string]interface{}{
+		return map[string]any{
 			"volume24h": randomAmount() * 10000,
 			"marketCap": randomAmount() * 1000000,
 			"liquidity": randomAmount() * 100000,
 		}
 
 	case EventTrendingUpdated:
-		return map[string]interface{}{
+		return map[string]any{
 			"rank":  rand.Intn(100) + 1,
 			"score": rand.Float64() * 1000,
 		}
 
 	case EventBalanceUpdated:
-		return map[string]interface{}{
+		return map[string]any{
 			"user":    randomAddress(),
 			"balance": randomAmount() * 1000,
 			"change":  (rand.Float64() - 0.5) * 100,
 		}
 
 	case EventTransferCompleted:
-		return map[string]interface{}{
+		return map[string]any{
 			"from":   randomAddress(),
 			"to":     randomAddress(),
 			"amount": randomAmount(),
@@ -472,7 +477,7 @@ func generateEventData(eventType, tokenID string) map[string]interface{} {
 		}
 
 	default:
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
 }
 
@@ -600,7 +605,7 @@ func (p *Publisher) Publish(ctx context.Context, event Event) error {
 	p.mu.RLock()
 	if !p.isConnected {
 		p.mu.RUnlock()
-		return fmt.Errorf("publisher not connected")
+		return errors.New("publisher not connected")
 	}
 	topicNamespace := p.topicNamespace
 	useRefined := p.useRefined
@@ -831,8 +836,9 @@ func NewServer(publisher *Publisher, port int) *Server {
 	mux.HandleFunc("/rate", s.handleRate)
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: corsMiddleware(mux),
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           corsMiddleware(mux),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	return s
@@ -844,7 +850,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
-		if r.Method == "OPTIONS" {
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -878,7 +884,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		publisherStatus = "connected"
 	}
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"status":      "ok",
 		"publisher":   publisherStatus,
 		"simulator":   simulatorStatus,
@@ -886,7 +892,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -895,14 +901,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"isRunning":        s.simulator.IsRunning(),
 		"currentRate":      s.simulator.GetRate(),
 		"publisherHealthy": s.publisher.IsHealthy(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 type startRequest struct {
@@ -930,7 +936,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]string{"error": "tokenIds array is required and must not be empty"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 		return
 	}
 
@@ -942,16 +948,16 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	// Create new simulator and start
 	// Use background context so simulator keeps running after HTTP response is sent
 	s.simulator = NewSimulator(s.publisher)
-	s.simulator.Start(context.Background(), req.Rate, req.TokenIDs)
+	s.simulator.Start(context.Background(), req.Rate, req.TokenIDs) //nolint:contextcheck // Intentional: simulator must outlive HTTP request
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"status":     "started",
 		"rate":       req.Rate,
 		"tokenCount": len(req.TokenIDs),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
@@ -964,7 +970,7 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]string{"status": "stopped"}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 type rateRequest struct {
@@ -987,7 +993,7 @@ func (s *Server) handleRate(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]string{"error": "rate must be a positive number"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 		return
 	}
 
@@ -995,7 +1001,7 @@ func (s *Server) handleRate(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]string{"error": "Simulator not running. Call /start first."}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 		return
 	}
 
@@ -1005,15 +1011,15 @@ func (s *Server) handleRate(w http.ResponseWriter, r *http.Request) {
 
 	// Use background context so simulator keeps running after HTTP response is sent
 	s.simulator = NewSimulator(s.publisher)
-	s.simulator.Start(context.Background(), req.Rate, tokenIDs)
+	s.simulator.Start(context.Background(), req.Rate, tokenIDs) //nolint:contextcheck // Intentional: simulator must outlive HTTP request
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"status": "updated",
 		"rate":   req.Rate,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // =============================================================================
@@ -1051,7 +1057,7 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		if err := server.Start(); err != nil && err != http.ErrServerClosed {
+		if err := server.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("[Main] Server error: %v", err)
 		}
 	}()

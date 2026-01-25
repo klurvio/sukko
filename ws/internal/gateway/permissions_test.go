@@ -252,8 +252,7 @@ func BenchmarkCanSubscribe_Public(b *testing.B) {
 	}
 	claims.Subject = "user123"
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		pc.CanSubscribe(claims, "BTC.trade")
 	}
 }
@@ -269,8 +268,7 @@ func BenchmarkCanSubscribe_UserScoped(b *testing.B) {
 	}
 	claims.Subject = "user123"
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		pc.CanSubscribe(claims, "balances.user123")
 	}
 }
@@ -293,8 +291,7 @@ func BenchmarkFilterChannels(b *testing.B) {
 		"community.vip", "community.other",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		pc.FilterChannels(claims, channels)
 	}
 }

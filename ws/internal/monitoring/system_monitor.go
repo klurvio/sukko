@@ -6,8 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/platform"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/platform"
 )
 
 // SystemMonitor is a singleton that centralizes system resource monitoring.

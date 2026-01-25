@@ -3,7 +3,9 @@ package broadcast
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,7 +49,7 @@ func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 
 	// Validate configuration
 	if len(ncfg.URLs) == 0 {
-		return nil, fmt.Errorf("nats: at least one URL is required (NATS_URLS)")
+		return nil, errors.New("nats: at least one URL is required (NATS_URLS)")
 	}
 	if ncfg.Subject == "" {
 		ncfg.Subject = "ws.broadcast"
@@ -117,12 +119,14 @@ func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 			Strs("urls", ncfg.URLs).
 			Msg("Connecting to NATS cluster")
 		serverURL = ""
+		var serverURLSb120 strings.Builder
 		for i, url := range ncfg.URLs {
 			if i > 0 {
-				serverURL += ","
+				serverURLSb120.WriteString(",")
 			}
-			serverURL += url
+			serverURLSb120.WriteString(url)
 		}
+		serverURL += serverURLSb120.String()
 	} else {
 		// Single server mode
 		busLogger.Info().

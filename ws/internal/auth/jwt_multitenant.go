@@ -37,7 +37,7 @@ type MultiTenantValidator struct {
 // NewMultiTenantValidator creates a new multi-tenant JWT validator.
 func NewMultiTenantValidator(cfg MultiTenantValidatorConfig) (*MultiTenantValidator, error) {
 	if cfg.KeyRegistry == nil {
-		return nil, fmt.Errorf("key registry is required")
+		return nil, errors.New("key registry is required")
 	}
 
 	allowedAlgos := make(map[string]bool)
@@ -72,25 +72,25 @@ func (v *MultiTenantValidator) ValidateToken(ctx context.Context, tokenString st
 		jwt.WithValidMethods([]string{"ES256", "RS256", "EdDSA"}),
 	)
 
-	token, err := parser.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := parser.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (any, error) {
 		// Get kid from header
 		kidRaw, ok := token.Header["kid"]
 		if !ok {
 			if v.requireKeyID {
-				return nil, fmt.Errorf("missing kid header")
+				return nil, errors.New("missing kid header")
 			}
-			return nil, fmt.Errorf("missing kid header")
+			return nil, errors.New("missing kid header")
 		}
 
 		kid, ok := kidRaw.(string)
 		if !ok || kid == "" {
-			return nil, fmt.Errorf("invalid kid header")
+			return nil, errors.New("invalid kid header")
 		}
 
 		// Check algorithm is allowed
 		alg, ok := token.Header["alg"].(string)
 		if !ok {
-			return nil, fmt.Errorf("missing alg header")
+			return nil, errors.New("missing alg header")
 		}
 		if !v.allowedAlgorithms[alg] {
 			return nil, fmt.Errorf("algorithm %s not allowed", alg)
@@ -123,7 +123,7 @@ func (v *MultiTenantValidator) ValidateToken(ctx context.Context, tokenString st
 		if errors.Is(err, jwt.ErrTokenExpired) {
 			return nil, ErrTokenExpired
 		}
-		return nil, fmt.Errorf("%w: %v", ErrInvalidToken, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidToken, err)
 	}
 
 	claims, ok := token.Claims.(*Claims)
@@ -165,12 +165,12 @@ func ExtractKeyID(tokenString string) (string, error) {
 
 	kidRaw, ok := token.Header["kid"]
 	if !ok {
-		return "", fmt.Errorf("missing kid header")
+		return "", errors.New("missing kid header")
 	}
 
 	kid, ok := kidRaw.(string)
 	if !ok {
-		return "", fmt.Errorf("invalid kid header")
+		return "", errors.New("invalid kid header")
 	}
 
 	return kid, nil
@@ -187,7 +187,7 @@ func ExtractTenantID(tokenString string) (string, error) {
 
 	claims, ok := token.Claims.(*Claims)
 	if !ok {
-		return "", fmt.Errorf("invalid claims type")
+		return "", errors.New("invalid claims type")
 	}
 
 	return claims.TenantID, nil
