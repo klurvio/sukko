@@ -108,9 +108,17 @@ redpanda:
     storageClass: "pd-ssd"  # Use SSD for production
 
   # Topic configuration for production
-  # Topics use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
+  #
+  # NOTE: These are INFRASTRUCTURE topics for the shared broadcast bus.
+  # They use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
   # Regular topics: Publisher publishes here
   # Refined topics: ws-server consumes from here (after external service processing)
+  #
+  # For MULTI-TENANT deployments:
+  # Tenant-specific topics are created dynamically via the Provisioning API.
+  # They use the format: {namespace}.{tenant_id}.{category}
+  # Example: main.acme-corp.trade, main.acme-corp.liquidity
+  # See docs/architecture/MULTI_TENANT_AUTH.md for details.
   topics:
     # Regular topics (publisher → external service)
     - name: odin.prod.trade

@@ -7,6 +7,7 @@ This guide explains how to connect to the Odin WebSocket server, subscribe to ch
 - [Quick Start](#quick-start)
 - [Connection](#connection)
 - [Authentication](#authentication)
+- [Multi-Tenant Architecture](#multi-tenant-architecture)
 - [Subscribing to Channels](#subscribing-to-channels)
 - [Message Format](#message-format)
 - [Available Channels](#available-channels)
@@ -103,6 +104,118 @@ Client                    Gateway                   Server
 | 401 | No token provided |
 | 401 | Invalid or expired token |
 | 403 | Token valid but lacks permission |
+
+---
+
+## Multi-Tenant Architecture
+
+Odin WebSocket uses a multi-tenant architecture where each organization (tenant) has isolated access.
+
+### How It Works
+
+1. **Your organization** generates JWT tokens signed with your private key
+2. **Odin Gateway** validates tokens using your registered public key
+3. **Tenant isolation** ensures you only access your organization's data
+
+```
+Your Application                       Odin Gateway
+     │                                      │
+     │  1. Sign JWT with                    │
+     │     your private key                 │
+     │                                      │
+     │  2. Connect with JWT                 │
+     │ ─────────────────────────────────►   │
+     │                                      │  3. Validate JWT with
+     │                                      │     your public key
+     │                                      │
+     │                                      │  4. Extract tenant_id
+     │                                      │
+     │  5. Access granted to                │
+     │ ◄─────────────────────────────────   │     your tenant's data only
+     │                                      │
+```
+
+### JWT Token Requirements
+
+Your JWT tokens must include:
+
+| Claim | Required | Description |
+|-------|----------|-------------|
+| `tenant_id` | Yes | Your organization identifier |
+| `sub` | Yes | User/application identifier |
+| `exp` | Yes | Token expiration timestamp |
+| `kid` | Yes (header) | Key ID of your signing key |
+
+**Example JWT Payload:**
+```json
+{
+  "sub": "user-12345",
+  "tenant_id": "acme-corp",
+  "exp": 1699901234,
+  "iat": 1699814834,
+  "groups": ["traders", "premium"],
+  "roles": ["user"]
+}
+```
+
+**JWT Header with Key ID:**
+```json
+{
+  "alg": "ES256",
+  "typ": "JWT",
+  "kid": "acme-prod-2026"
+}
+```
+
+### Supported Signing Algorithms
+
+| Algorithm | Type | Recommended |
+|-----------|------|-------------|
+| ES256 | ECDSA P-256 | Yes (smaller, faster) |
+| RS256 | RSA 2048-bit | Yes |
+| EdDSA | Ed25519 | Yes (fastest) |
+
+### Tenant Isolation
+
+Your tenant can only access:
+- Channels prefixed with your tenant ID (automatic)
+- Topics in your tenant's namespace
+- Your own users' scoped channels
+
+**Example - Channel Mapping:**
+
+| You Subscribe To | Server Maps To |
+|-----------------|----------------|
+| `BTC.trade` | `acme-corp.BTC.trade` |
+| `ETH.liquidity` | `acme-corp.ETH.liquidity` |
+| `balances.user123` | `acme-corp.user123.balances` |
+
+You never see the tenant prefix - it's added automatically based on your JWT.
+
+### Key Registration
+
+To use Odin WebSocket:
+
+1. **Generate a key pair** (ES256 recommended):
+   ```bash
+   openssl ecparam -name prime256v1 -genkey -noout -out private.pem
+   openssl ec -in private.pem -pubout -out public.pem
+   ```
+
+2. **Register your public key** with Odin (via provisioning API or admin portal)
+
+3. **Sign tokens** with your private key (keep this secret!)
+
+4. **Connect** with signed JWTs
+
+### Multi-Tenant Errors
+
+| Error Code | Meaning |
+|------------|---------|
+| `KEY_NOT_FOUND` | Your key ID is not registered |
+| `KEY_REVOKED` | Your key has been revoked |
+| `TENANT_MISMATCH` | Attempting to access another tenant's resources |
+| `MISSING_TENANT` | JWT missing required `tenant_id` claim |
 
 ---
 
@@ -700,6 +813,7 @@ client.connect().then(() => {
 
 ## Related Documentation
 
+- [Multi-Tenant Authentication](./architecture/MULTI_TENANT_AUTH.md) - Full authentication architecture details
 - [Subject Patterns](./architecture/SUBJECT_PATTERNS.md) - Detailed channel naming conventions
 - [Kafka Replay Protocol](./architecture/KAFKA_REPLAY_PROTOCOL.md) - How message replay works
 - [API Rejection Responses](./development/API_REJECTION_RESPONSES.md) - Error codes and retry strategies

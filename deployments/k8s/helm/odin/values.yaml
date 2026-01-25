@@ -306,10 +306,20 @@ redpanda:
     storageClass: ""  # Use default
 
   # Topic configuration
-  # Topics use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
+  #
+  # NOTE: These are INFRASTRUCTURE topics for the shared broadcast bus.
+  # They use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
   # Regular topics: Publisher publishes here
   # Refined topics: ws-server consumes from here (after external service processing)
-  # NOTE: These are defaults for local environment. Override in values-{env}.yaml files.
+  #
+  # For MULTI-TENANT deployments:
+  # Tenant-specific topics are created dynamically via the Provisioning API.
+  # They use the format: {namespace}.{tenant_id}.{category}
+  # Example: main.acme-corp.trade, main.acme-corp.liquidity
+  # The provisioning service creates these when tenants are onboarded.
+  # See docs/architecture/MULTI_TENANT_AUTH.md for details.
+  #
+  # NOTE: These defaults are for local environment. Override in values-{env}.yaml files.
   topics:
     # Regular topics (publisher → external service)
     - name: odin.local.trade

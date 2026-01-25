@@ -94,9 +94,15 @@ kafka:
   # Empty = dynamic default ({{ .Release.Name }}-redpanda:9092)
   brokers: ""
   consumerGroup: odin-ws-consumer
-  # Topics are now generated dynamically based on environment:
-  #   odin.{env}.trade.refined, odin.{env}.liquidity.refined, etc.
-  # See config.environment above
+  # Topics are generated dynamically based on config.kafkaTopicNamespace (or environment):
+  #   odin.{namespace}.trade.refined, odin.{namespace}.liquidity.refined, etc.
+  # These are INFRASTRUCTURE topics for the shared broadcast bus.
+  #
+  # For MULTI-TENANT deployments:
+  # Tenant-specific topics use format: {namespace}.{tenant_id}.{category}
+  # Example: main.acme-corp.trade, main.acme-corp.liquidity
+  # These are created via the Provisioning API when tenants are onboarded.
+  # See docs/architecture/MULTI_TENANT_AUTH.md for details.
 
   # SASL Authentication (for managed Kafka/Redpanda services)
   sasl:

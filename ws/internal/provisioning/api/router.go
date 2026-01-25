@@ -4,6 +4,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/Toniq-Labs/odin-ws/internal/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -15,6 +16,13 @@ type RouterConfig struct {
 	Service   *provisioning.Service
 	Logger    zerolog.Logger
 	RateLimit int // requests per minute
+
+	// AuthEnabled enables JWT authentication for API endpoints.
+	// When enabled, Validator must be provided.
+	AuthEnabled bool
+
+	// Validator validates JWT tokens. Required when AuthEnabled is true.
+	Validator *auth.MultiTenantValidator
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -38,22 +46,40 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// TODO: Add auth middleware in Phase 4
-		// r.Use(AuthMiddleware(keyRegistry))
+		// Apply auth middleware if enabled
+		if cfg.AuthEnabled && cfg.Validator != nil {
+			r.Use(AuthMiddleware(cfg.Validator, cfg.Logger))
+		}
 
-		// Tenant management
+		// Tenant management - requires admin role when auth is enabled
 		r.Route("/tenants", func(r chi.Router) {
-			r.Post("/", h.CreateTenant)
-			r.Get("/", h.ListTenants)
+			// Admin-only operations
+			r.Group(func(r chi.Router) {
+				if cfg.AuthEnabled {
+					r.Use(RequireRole("admin", "system"))
+				}
+				r.Post("/", h.CreateTenant)
+				r.Get("/", h.ListTenants)
+			})
 
 			r.Route("/{tenantID}", func(r chi.Router) {
+				// Tenant isolation - users can only access their own tenant
+				if cfg.AuthEnabled {
+					r.Use(RequireTenant())
+				}
+
 				r.Get("/", h.GetTenant)
 				r.Patch("/", h.UpdateTenant)
-				r.Delete("/", h.DeprovisionTenant)
 
-				// Lifecycle actions
-				r.Post("/suspend", h.SuspendTenant)
-				r.Post("/reactivate", h.ReactivateTenant)
+				// Admin-only operations
+				r.Group(func(r chi.Router) {
+					if cfg.AuthEnabled {
+						r.Use(RequireRole("admin", "system"))
+					}
+					r.Delete("/", h.DeprovisionTenant)
+					r.Post("/suspend", h.SuspendTenant)
+					r.Post("/reactivate", h.ReactivateTenant)
+				})
 
 				// Key management
 				r.Route("/keys", func(r chi.Router) {
@@ -70,15 +96,25 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 				// Quota management
 				r.Get("/quotas", h.GetQuota)
-				r.Patch("/quotas", h.UpdateQuota)
+				r.Group(func(r chi.Router) {
+					if cfg.AuthEnabled {
+						r.Use(RequireRole("admin", "system"))
+					}
+					r.Patch("/quotas", h.UpdateQuota)
+				})
 
 				// Audit log
 				r.Get("/audit", h.GetAuditLog)
 			})
 		})
 
-		// Active keys endpoint (for WS Gateway)
-		r.Get("/keys/active", h.GetActiveKeys)
+		// Active keys endpoint (for WS Gateway) - requires system role
+		r.Group(func(r chi.Router) {
+			if cfg.AuthEnabled {
+				r.Use(RequireRole("system", "admin"))
+			}
+			r.Get("/keys/active", h.GetActiveKeys)
+		})
 	})
 
 	return r

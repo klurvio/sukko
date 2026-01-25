@@ -7,6 +7,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 )
 
@@ -41,9 +42,7 @@ func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
 
 // Metrics returns Prometheus metrics.
 func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
-	// TODO: Integrate with Prometheus
-	w.Header().Set("Content-Type", "text/plain")
-	_, _ = w.Write([]byte("# Provisioning service metrics\n"))
+	promhttp.Handler().ServeHTTP(w, r)
 }
 
 // CreateTenant creates a new tenant.
@@ -57,10 +56,13 @@ func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.service.CreateTenant(r.Context(), req)
 	if err != nil {
 		h.logger.Error().Err(err).Str("tenant_id", req.TenantID).Msg("Failed to create tenant")
+		RecordTenantOperation("create", "error")
 		writeError(w, http.StatusInternalServerError, "CREATE_FAILED", err.Error())
 		return
 	}
 
+	RecordTenantCreated()
+	RecordTenantOperation("create", "success")
 	writeJSON(w, http.StatusCreated, resp)
 }
 
@@ -119,10 +121,12 @@ func (h *Handler) SuspendTenant(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
 
 	if err := h.service.SuspendTenant(r.Context(), tenantID); err != nil {
+		RecordTenantOperation("suspend", "error")
 		writeError(w, http.StatusInternalServerError, "SUSPEND_FAILED", err.Error())
 		return
 	}
 
+	RecordTenantOperation("suspend", "success")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "suspended"})
 }
 
@@ -131,10 +135,12 @@ func (h *Handler) ReactivateTenant(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
 
 	if err := h.service.ReactivateTenant(r.Context(), tenantID); err != nil {
+		RecordTenantOperation("reactivate", "error")
 		writeError(w, http.StatusInternalServerError, "REACTIVATE_FAILED", err.Error())
 		return
 	}
 
+	RecordTenantOperation("reactivate", "success")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "active"})
 }
 
@@ -143,10 +149,12 @@ func (h *Handler) DeprovisionTenant(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
 
 	if err := h.service.DeprovisionTenant(r.Context(), tenantID); err != nil {
+		RecordTenantOperation("deprovision", "error")
 		writeError(w, http.StatusInternalServerError, "DEPROVISION_FAILED", err.Error())
 		return
 	}
 
+	RecordTenantOperation("deprovision", "success")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deprovisioning"})
 }
 
@@ -166,6 +174,7 @@ func (h *Handler) CreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	RecordKeyCreated()
 	writeJSON(w, http.StatusCreated, key)
 }
 
@@ -194,6 +203,7 @@ func (h *Handler) RevokeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	RecordKeyRevoked()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 
@@ -231,6 +241,7 @@ func (h *Handler) CreateTopics(w http.ResponseWriter, r *http.Request) {
 		topicNames[i] = t.TopicName
 	}
 
+	RecordTopicCreated(len(topics))
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"topics": topicNames,
 	})
