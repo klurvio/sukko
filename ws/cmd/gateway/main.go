@@ -44,7 +44,15 @@ func main() {
 	config.LogConfig(logger)
 
 	// Create gateway
-	gw := gateway.New(config, logger)
+	gw, err := gateway.New(config, logger)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to create gateway")
+	}
+	defer func() {
+		if err := gw.Close(); err != nil {
+			logger.Error().Err(err).Msg("Gateway cleanup error")
+		}
+	}()
 
 	// Create HTTP server
 	server := gw.NewServer()

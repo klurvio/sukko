@@ -1,12 +1,12 @@
-# Generic Multi-Tenant Authentication System for WebSocket
+# Multi-Tenant Authentication System
 
-**Date:** 2026-01-20 (Updated)
+**Date:** 2026-01-25
 
 ---
 
 ## Overview
 
-Design and implement a generic, secure, flexible, testable, and robust multi-tenant authentication and authorization system for WebSocket servers. Not odin-specific - reusable for any SaaS.
+A generic, secure, multi-tenant authentication and authorization system for WebSocket servers. Uses per-tenant asymmetric keys (ES256/RS256/EdDSA) for JWT validation.
 
 ---
 
@@ -16,7 +16,56 @@ Design and implement a generic, secure, flexible, testable, and robust multi-ten
 2. **Secure** - Tenant isolation enforced, fail-secure defaults, audit logging
 3. **Flexible** - Config-driven rules, custom placeholders, extensible claims
 4. **Testable** - Unit testable policies, integration test patterns
-5. **Robust** - Handle edge cases, graceful degradation
+5. **Observable** - Prometheus metrics, structured logging, audit trail
+
+---
+
+## Authentication Model: Per-Tenant Asymmetric Keys
+
+Each tenant has their own key pair:
+- **Private key**: Tenant keeps secret, signs tokens
+- **Public key**: Gateway stores, verifies tokens
+
+```
+┌─────────────────┐                      ┌─────────────────┐
+│  Tenant (Odin)  │                      │     Gateway     │
+│                 │                      │                 │
+│  Has: private   │                      │  Has: tenant's  │
+│       key       │                      │       public key│
+│                 │                      │                 │
+│  1. User logs   │                      │                 │
+│     into Odin   │                      │                 │
+│                 │                      │                 │
+│  2. Odin signs  │      JWT Token       │  3. Gateway     │
+│     JWT with    │ ──────────────────►  │     validates   │
+│     private key │                      │     with public │
+│                 │                      │     key         │
+│                 │                      │                 │
+│                 │                      │  4. Extracts    │
+│                 │                      │     tenant_id   │
+│                 │                      │                 │
+│                 │                      │  5. Enforces    │
+│                 │                      │     isolation   │
+└─────────────────┘                      └─────────────────┘
+```
+
+### JWT Header with Key ID
+
+```json
+{
+  "alg": "ES256",
+  "typ": "JWT",
+  "kid": "odin-prod-2026"
+}
+```
+
+### Supported Algorithms
+
+| Algorithm | Type | Key Size | Recommended |
+|-----------|------|----------|-------------|
+| ES256 | ECDSA P-256 | 256-bit | Yes (smaller, faster) |
+| RS256 | RSA | 2048-bit | Yes |
+| EdDSA | Ed25519 | 256-bit | Yes (fastest) |
 
 ---
 
@@ -24,29 +73,359 @@ Design and implement a generic, secure, flexible, testable, and robust multi-ten
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
+| **Authentication** | Per-tenant asymmetric keys | Tenant signs, gateway verifies. Gateway cannot forge tokens. |
+| **Key Storage** | PostgreSQL with cache | Durable storage, in-memory cache for performance |
 | **Infrastructure** | Multi-tenant shared | Cost-effective, standard for SaaS |
-| **Kafka Cluster** | Shared + tenant topics | One cluster, ACL-enforced isolation |
 | **Topic Naming** | `{env}.{tenant}.{resource}` | Environment + tenant prevents cross-contamination |
 | **Channel Naming** | Tenant implicit | Client sees `BTC.trade`, server maps to `{tenant}.BTC.trade` |
-| **Consumer Strategy** | Hybrid (Option C) | Shared default, dedicated for large tenants |
-| **Migration** | Hard cutover | No backward compatibility period |
+| **Isolation Mode** | Always fail-secure | Topics/channels without tenant are rejected |
 
-**Naming Examples:**
+---
+
+## Implementation Status
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| MultiTenantValidator | **Implemented** | `internal/auth/jwt_multitenant.go` |
+| PostgresKeyRegistry | **Implemented** | `internal/auth/keys_postgres.go` |
+| StaticKeyRegistry | **Implemented** | `internal/auth/keys.go` (for testing) |
+| Claims (enhanced) | **Implemented** | `internal/auth/jwt.go` |
+| PermissionChecker | **Implemented** | `internal/gateway/permissions.go` |
+| Gateway auth flow | **Implemented** | `internal/gateway/gateway.go` |
+| Subscribe filtering | **Implemented** | `internal/gateway/proxy.go` |
+| Gateway config | **Implemented** | `internal/platform/gateway_config.go` |
+| Provisioning Service | **Implemented** | `internal/provisioning/` |
+| Database migrations | **Implemented** | `internal/provisioning/repository/migrations/` |
+
+---
+
+## Configuration
+
+All configuration is via environment variables, managed through Helm charts.
+
+### Gateway Configuration
+
+**Helm Values** (`deployments/k8s/helm/odin/charts/ws-gateway/values.yaml`):
+
+```yaml
+config:
+  # Authentication
+  authEnabled: true
+  requireTenantId: true
+
+  # Key cache settings
+  keyCacheRefreshInterval: "1m"
+  keyCacheQueryTimeout: "5s"
+
+  # Database connection pool
+  dbMaxOpenConns: 10
+  dbMaxIdleConns: 5
+  dbConnMaxLifetime: "5m"
+  dbConnMaxIdleTime: "1m"
+  dbPingTimeout: "5s"
 ```
-Client subscribes:  BTC.trade
-Server internal:    acme.BTC.trade      (tenant from JWT)
-Kafka topic:        main.acme.trade     (env + tenant + resource)
+
+**Environment Variables** (set by Helm deployment.yaml):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AUTH_ENABLED` | Enable JWT validation | `false` |
+| `REQUIRE_TENANT_ID` | Require tenant_id claim | `true` |
+| `PROVISIONING_DATABASE_URL` | PostgreSQL connection string | (from secret) |
+| `KEY_CACHE_REFRESH_INTERVAL` | Background cache refresh | `1m` |
+| `KEY_CACHE_QUERY_TIMEOUT` | DB query timeout | `5s` |
+| `DB_MAX_OPEN_CONNS` | Max open connections | `10` |
+| `DB_MAX_IDLE_CONNS` | Max idle connections | `5` |
+| `DB_CONN_MAX_LIFETIME` | Connection max lifetime | `5m` |
+| `DB_CONN_MAX_IDLE_TIME` | Idle connection max time | `1m` |
+| `DB_PING_TIMEOUT` | Connection ping timeout | `5s` |
+
+### Enabling Authentication
+
+```yaml
+# values/production.yaml
+ws-gateway:
+  config:
+    authEnabled: true
+```
+
+Create the database secret:
+```bash
+kubectl create secret generic odin-provisioning-db \
+  --from-literal=database-url="postgres://user:pass@host:5432/provisioning?sslmode=require"
 ```
 
 ---
 
-## Industry Standards Followed
+## Database Schema
 
-- **Pusher/Ably**: Channel naming conventions with tenant prefixes
-- **RBAC + ABAC**: Hybrid permission model (roles + attributes)
-- **Tenant Isolation First**: Check tenant before any other authorization
-- **Declarative Policies**: YAML-driven rules, not hardcoded logic
-- **Short-lived Tokens**: JWT with refresh capability
+The provisioning database stores tenant keys for JWT validation.
+
+### Schema Location
+
+`internal/provisioning/repository/migrations/001_initial.sql`
+
+### Key Tables
+
+```sql
+-- Tenant public keys for JWT validation
+CREATE TABLE tenant_keys (
+    key_id          TEXT PRIMARY KEY,
+    tenant_id       TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    algorithm       TEXT NOT NULL CHECK (algorithm IN ('ES256', 'RS256', 'EdDSA')),
+    public_key      TEXT NOT NULL,
+    is_active       BOOLEAN NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at      TIMESTAMPTZ,
+    revoked_at      TIMESTAMPTZ
+);
+
+-- Indexes for key lookup performance
+CREATE INDEX idx_tenant_keys_lookup ON tenant_keys(key_id, is_active)
+    WHERE is_active = true;
+```
+
+---
+
+## Database Migrations
+
+Migrations are managed with [Atlas](https://atlasgo.io/), a Go-native schema migration tool.
+
+### Installation
+
+```bash
+# Install Atlas CLI
+curl -sSf https://atlasgo.sh | sh
+```
+
+### Apply Migrations
+
+```bash
+# Apply all pending migrations
+atlas migrate apply \
+  --url "$DATABASE_URL" \
+  --dir "file://ws/internal/provisioning/repository/migrations"
+```
+
+### Validate Schema
+
+```bash
+# Check for schema drift
+atlas schema diff \
+  --from "$DATABASE_URL" \
+  --to "file://ws/internal/provisioning/repository/migrations"
+```
+
+### Taskfile Integration
+
+```yaml
+# Taskfile.yml
+provisioning:migrate:
+  desc: Apply database migrations
+  dir: "{{.ROOT_DIR}}"
+  cmds:
+    - atlas migrate apply --url "$DATABASE_URL" --dir "file://ws/internal/provisioning/repository/migrations"
+
+provisioning:validate:
+  desc: Check for schema drift
+  dir: "{{.ROOT_DIR}}"
+  cmds:
+    - atlas schema diff --from "$DATABASE_URL" --to "file://ws/internal/provisioning/repository/migrations"
+
+provisioning:new-migration:
+  desc: Create a new migration file
+  dir: "{{.ROOT_DIR}}"
+  cmds:
+    - atlas migrate new {{.CLI_ARGS}} --dir "file://ws/internal/provisioning/repository/migrations"
+```
+
+### Kubernetes Init Container
+
+For automatic migration on deployment:
+
+```yaml
+# In ws-gateway deployment.yaml or as a separate Job
+initContainers:
+  - name: migrate
+    image: arigaio/atlas:latest
+    command:
+      - atlas
+      - migrate
+      - apply
+      - --url
+      - $(DATABASE_URL)
+      - --dir
+      - file:///migrations
+    env:
+      - name: DATABASE_URL
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Release.Name }}-provisioning-db
+            key: database-url
+    volumeMounts:
+      - name: migrations
+        mountPath: /migrations
+volumes:
+  - name: migrations
+    configMap:
+      name: {{ .Release.Name }}-migrations
+```
+
+---
+
+## Observability
+
+Authentication events are tracked via Prometheus metrics, structured logging, and audit logging.
+
+### Prometheus Metrics
+
+Metrics follow the existing `ws_` prefix pattern in `internal/monitoring/`.
+
+```go
+// internal/monitoring/auth_metrics.go
+
+var (
+    // Authentication attempts
+    AuthAttempts = promauto.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "ws_auth_attempts_total",
+            Help: "Total authentication attempts",
+        },
+        []string{"result", "failure_reason"},
+    )
+    // Labels: result=success|failure, failure_reason=invalid_token|expired|key_not_found|...
+
+    // Authentication latency
+    AuthLatency = promauto.NewHistogram(
+        prometheus.HistogramOpts{
+            Name:    "ws_auth_duration_seconds",
+            Help:    "Authentication duration in seconds",
+            Buckets: prometheus.DefBuckets,
+        },
+    )
+
+    // Key cache performance
+    KeyCacheHits = promauto.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "ws_key_cache_operations_total",
+            Help: "Key registry cache operations",
+        },
+        []string{"result"}, // hit, miss
+    )
+
+    // Access control decisions
+    AccessDenials = promauto.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "ws_access_denials_total",
+            Help: "Access denials by resource type and reason",
+        },
+        []string{"resource_type", "reason"},
+    )
+    // Labels: resource_type=channel|topic, reason=tenant_mismatch|unauthorized|...
+)
+```
+
+### Structured Logging
+
+Using zerolog with tenant context:
+
+```go
+// Successful authentication
+logger.Info().
+    Str("tenant_id", claims.TenantID).
+    Str("user_id", claims.Subject).
+    Str("key_id", keyID).
+    Str("algorithm", claims.Algorithm).
+    Dur("latency", duration).
+    Msg("Token validated successfully")
+
+// Authentication failure
+logger.Warn().
+    Str("remote_addr", remoteAddr).
+    Str("key_id", keyID).
+    Str("reason", "key_not_found").
+    Msg("Authentication failed")
+
+// Access denied
+logger.Warn().
+    Str("tenant_id", claims.TenantID).
+    Str("user_id", claims.Subject).
+    Str("channel", channel).
+    Str("reason", "tenant_mismatch").
+    Msg("Channel access denied")
+```
+
+### Audit Logging
+
+Security-relevant events use the audit logger for compliance:
+
+```go
+// internal/monitoring/audit_logger.go pattern
+
+// Successful authentication
+auditLogger.Info("AuthSuccess",
+    "User authenticated successfully",
+    map[string]any{
+        "tenant_id": claims.TenantID,
+        "user_id":   claims.Subject,
+        "key_id":    keyID,
+        "algorithm": claims.Algorithm,
+        "remote_addr": remoteAddr,
+    })
+
+// Authentication failure
+auditLogger.Warning("AuthFailure",
+    "Authentication attempt failed",
+    map[string]any{
+        "remote_addr": remoteAddr,
+        "reason":      "invalid_signature",
+        "key_id":      keyID,
+    })
+
+// Access denied
+auditLogger.Warning("AccessDenied",
+    "Tenant access denied",
+    map[string]any{
+        "tenant_id":       claims.TenantID,
+        "user_id":         claims.Subject,
+        "resource":        channel,
+        "resource_tenant": resourceTenant,
+        "reason":          "tenant_mismatch",
+    })
+
+// Cross-tenant access (admin)
+auditLogger.Warning("CrossTenantAccess",
+    "Admin accessed other tenant's resource",
+    map[string]any{
+        "admin_tenant":    claims.TenantID,
+        "resource_tenant": resourceTenant,
+        "resource":        resource,
+        "granting_role":   role,
+    })
+```
+
+### Grafana Dashboard Queries
+
+Example PromQL queries for monitoring:
+
+```promql
+# Authentication success rate
+sum(rate(ws_auth_attempts_total{result="success"}[5m]))
+/ sum(rate(ws_auth_attempts_total[5m]))
+
+# Authentication failures by reason
+sum by (failure_reason) (rate(ws_auth_attempts_total{result="failure"}[5m]))
+
+# P99 authentication latency
+histogram_quantile(0.99, rate(ws_auth_duration_seconds_bucket[5m]))
+
+# Key cache hit rate
+sum(rate(ws_key_cache_operations_total{result="hit"}[5m]))
+/ sum(rate(ws_key_cache_operations_total[5m]))
+
+# Access denials by tenant
+sum by (resource_type, reason) (rate(ws_access_denials_total[5m]))
+```
 
 ---
 
@@ -58,95 +437,58 @@ Kafka topic:        main.acme.trade     (env + tenant + resource)
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Gateway                                  │
 ├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
-│  │ JWT         │  │ Tenant      │  │ Policy Engine           │ │
-│  │ Validator   │──│ Isolator    │──│ (Rule Evaluation)       │ │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
-│         │                │                      │               │
-│         ▼                ▼                      ▼               │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
+│  │ MultiTenant     │  │ Postgres        │  │ Permission      │ │
+│  │ Validator       │──│ KeyRegistry     │  │ Checker         │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
+│         │                      │                    │           │
+│         ▼                      ▼                    ▼           │
 │  ┌─────────────────────────────────────────────────────────────┐│
 │  │                  Authorization Flow                          ││
-│  │  1. Validate JWT → 2. Check Tenant → 3. Evaluate Rules      ││
+│  │  1. Extract token → 2. Validate JWT → 3. Check permissions  ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                              │                                   │
+│                              ▼                                   │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                     Observability                            ││
+│  │  Metrics (Prometheus) │ Logs (zerolog) │ Audit (AuditLogger)││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Registry Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PostgresKeyRegistry                           │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐    ┌─────────────────┐                     │
+│  │  In-Memory      │◄───│  Background     │                     │
+│  │  Cache          │    │  Refresh        │                     │
+│  │  (sync.RWMutex) │    │  (ticker)       │                     │
+│  └────────┬────────┘    └─────────────────┘                     │
+│           │                      │                               │
+│           │ cache miss           │ periodic refresh              │
+│           ▼                      ▼                               │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                    PostgreSQL                                ││
+│  │                  (tenant_keys table)                         ││
 │  └─────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Current Implementation Status
-
-> **As of 2026-01-20:** Foundation components exist, full PolicyEngine is planned.
-
-| Component | Status | Location |
-|-----------|--------|----------|
-| JWT Validator | **Implemented** | `ws/internal/auth/jwt.go` |
-| Claims (basic) | **Implemented** | `ws/internal/auth/jwt.go` - has TenantID, Groups |
-| Claims (enhanced) | Planned | Need Attributes, Roles, Scopes, Custom |
-| PermissionChecker | **Implemented** | `ws/internal/gateway/permissions.go` |
-| Gateway auth flow | **Implemented** | `ws/internal/gateway/gateway.go` |
-| Subscribe filtering | **Implemented** | `ws/internal/gateway/proxy.go` |
-| Auth config | **Implemented** | `ws/internal/platform/gateway_config.go` |
-| PolicyEngine | Planned | Full YAML-driven rule engine |
-| TenantIsolator | Planned | Channel-level tenant boundaries |
-| TopicIsolator | Planned | Kafka topic tenant boundaries |
-| Audit logging | Planned | Authorization decision logging |
-
----
-
-## Design Principle: Auth Implies Isolation
-
-**Single master switch:** `auth.enabled` controls everything.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      auth.enabled: false                         │
-├─────────────────────────────────────────────────────────────────┤
-│  - No JWT validation                                             │
-│  - No tenant isolation                                           │
-│  - No topic isolation                                            │
-│  - No policy rules evaluated                                     │
-│  - Open access (for development/POC)                             │
-└─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│                      auth.enabled: true                          │
-├─────────────────────────────────────────────────────────────────┤
-│  - JWT validation enforced                                       │
-│  - Tenant isolation enforced (channels)                          │
-│  - Topic isolation enforced (Kafka)                              │
-│  - Policy rules evaluated                                        │
-│  - Secure multi-tenant mode                                      │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Why no separate `enabled` flags?**
-
-| Problem with separate flags | Result |
-|-----------------------------|--------|
-| `auth: on, tenant_isolation: off` | Security hole - authenticated but no boundaries |
-| `auth: on, topic_isolation: off` | Security hole - tenant A can access tenant B topics |
-| `auth: off, isolation: on` | Impossible - no claims to check |
-
-**Conclusion:** Auth and isolation are inseparable. One switch, no confusion.
-
----
-
-## Implementation Plan
-
-### Phase 1: Enhanced Claims Structure
-
-**File:** `ws/internal/auth/jwt.go` (modify existing Claims struct)
-
-> **Current State:** Claims struct exists with `TenantID` and `Groups`. Enhancement needed to add `Attributes`, `Roles`, `Scopes`, and `Custom` fields.
+## Claims Structure
 
 ```go
 type Claims struct {
     jwt.RegisteredClaims
 
-    // Tenant isolation (REQUIRED)
+    // Tenant isolation (REQUIRED when auth enabled)
     TenantID string `json:"tenant_id"`
 
-    // Identity attributes (for placeholder resolution)
+    // Identity attributes
     Attributes map[string]string `json:"attrs,omitempty"`
 
     // RBAC
@@ -157,119 +499,46 @@ type Claims struct {
 
     // Permission scopes
     Scopes []string `json:"scopes,omitempty"`
-
-    // Extension point
-    Custom map[string]any `json:"custom,omitempty"`
 }
 
 // Helper methods
-func (c *Claims) UserID() string              // Returns sub (user identifier)
-func (c *Claims) TenantID() string            // Returns tenant_id
 func (c *Claims) HasRole(role string) bool
 func (c *Claims) HasScope(scope string) bool
 func (c *Claims) HasGroup(group string) bool
 func (c *Claims) GetAttribute(key string) string
-func (c *Claims) ResolveTemplate(template string) string
 ```
 
 ---
 
-### Phase 2: Generic Permission Rule Engine
+## Channel Permission Patterns
 
-**File:** `ws/internal/auth/engine.go` (new)
+Configure via Helm values:
 
-```go
-// PermissionRule - single authorization rule
-type PermissionRule struct {
-    ID          string      `yaml:"id"`
-    Description string      `yaml:"description"`
-    Priority    int         `yaml:"priority"`      // Higher = evaluated first
-    Match       RuleMatch   `yaml:"match"`         // Channel pattern
-    Actions     []Action    `yaml:"actions"`       // subscribe, publish, presence
-    Conditions  []Condition `yaml:"conditions"`    // AND logic
-    Effect      Effect      `yaml:"effect"`        // allow or deny
-}
+```yaml
+permissions:
+  # Public channels - any authenticated user can subscribe
+  public:
+    - "*.trade"
+    - "*.liquidity"
+    - "*.metadata"
+    - "all.trade"
+    - "all.liquidity"
 
-// Condition - requirement that must be met
-type Condition struct {
-    Type   ConditionType `yaml:"type"`   // claim, attribute, channel, time
-    Field  string        `yaml:"field"`  // claim path (e.g., "roles", "attrs.tier")
-    Op     Operator      `yaml:"op"`     // eq, contains, matches, exists, in
-    Value  any           `yaml:"value"`
-    Negate bool          `yaml:"negate"` // NOT operator
-}
+  # User-scoped channels - JWT.sub must match {principal}
+  userScoped:
+    - "balances.{principal}"
+    - "notifications.{principal}"
 
-// PolicyEngine - evaluates rules
-type PolicyEngine struct {
-    rules         []*PermissionRule
-    tenantRules   map[string][]*PermissionRule
-    placeholders  *PlaceholderResolver
-    auditLogger   AuditLogger
-    defaultEffect Effect
-}
-
-func (e *PolicyEngine) Authorize(ctx context.Context, req *AuthzRequest) *AuthzResult
+  # Group-scoped channels - JWT.groups must contain {group_id}
+  groupScoped:
+    - "community.{group_id}"
+    - "social.{group_id}"
 ```
 
----
-
-### Phase 3: Placeholder Resolution
-
-**File:** `ws/internal/auth/placeholders.go` (new)
-
-```go
-type PlaceholderResolver struct {
-    builtins map[string]PlaceholderFunc
-    custom   map[string]PlaceholderFunc
-}
-
-// Built-in placeholders (generic, not product-specific)
-var DefaultPlaceholders = map[string]PlaceholderFunc{
-    "user_id":   func(c *Claims) string { return c.Subject },
-    "tenant_id": func(c *Claims) string { return c.TenantID },
-    "tenant":    func(c *Claims) string { return c.TenantID },
-    "sub":       func(c *Claims) string { return c.Subject },
-}
-
-// Resolve {placeholder} in patterns
-func (r *PlaceholderResolver) Resolve(pattern string, claims *Claims) string
-
-// Extract values from channel given pattern
-func (r *PlaceholderResolver) Extract(pattern, channel string) (map[string]string, bool)
-```
-
----
-
-### Phase 4: Tenant Isolation
-
-**File:** `ws/internal/auth/tenant.go` (new)
-
-```go
-type TenantIsolator struct {
-    config TenantIsolationConfig
-    parser *ChannelParser
-}
-
-type TenantIsolationConfig struct {
-    // No "Enabled" field - auth enabled = isolation enforced
-    StrictMode            bool     `yaml:"strict_mode"`
-    CrossTenantRoles      []string `yaml:"cross_tenant_roles"`
-    SharedChannelPatterns []string `yaml:"shared_channel_patterns"`
-}
-
-func (t *TenantIsolator) CheckTenantAccess(claims *Claims, channel string) *TenantCheckResult
-```
-
----
-
-### Phase 5: Channel Naming (Tenant Implicit)
-
-**File:** `ws/internal/auth/channel.go` (new)
-
-**Design Decision:** Tenant is implicit in channels (derived from JWT), not explicit in channel name.
+### Channel Naming (Tenant Implicit)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
+┌──────────────────────────────┬───────────────────────────────┐
 │ Client API (Simple)          │ Server Internal (Tenant-Aware)│
 ├──────────────────────────────┼───────────────────────────────┤
 │ subscribe("BTC.trade")       │ → acme.BTC.trade              │
@@ -279,899 +548,97 @@ func (t *TenantIsolator) CheckTenantAccess(claims *Claims, channel string) *Tena
         Client sees                    Server maps (from JWT)
 ```
 
-**Why Tenant Implicit:**
-- Cleaner client API (matches Pusher/Ably industry standard)
-- Tenant derived from JWT claims (already authenticated)
-- Less error-prone (client can't subscribe to wrong tenant)
-- No breaking change to channel format
-
-```go
-type ChannelMapper struct {
-    config ChannelConfig
-}
-
-type ChannelConfig struct {
-    Separator string `yaml:"separator"` // default: "."
-}
-
-// MapToInternal converts client channel to internal tenant-prefixed channel
-// Client: "BTC.trade" → Internal: "acme.BTC.trade"
-func (m *ChannelMapper) MapToInternal(claims *Claims, clientChannel string) string {
-    return fmt.Sprintf("%s.%s", claims.TenantID, clientChannel)
-}
-
-// MapToClient converts internal channel back to client format
-// Internal: "acme.BTC.trade" → Client: "BTC.trade"
-func (m *ChannelMapper) MapToClient(internalChannel string) string {
-    parts := strings.SplitN(internalChannel, ".", 2)
-    if len(parts) == 2 {
-        return parts[1]
-    }
-    return internalChannel
-}
-
-// Channel format (internal): {tenant_id}.{symbol}.{event_type}
-// Examples:
-//   acme.BTC.trade              - Public market data (tenant: acme)
-//   acme.user123.balances       - User-scoped balances
-//   acme.vip.community          - Group-scoped community
-```
-
 ---
 
-### Phase 6: Topic Isolation (Kafka/Redpanda)
+## Tenant Isolation
 
-**File:** `ws/internal/auth/topic.go` (new)
-
-**Design Decision:** Topics include BOTH environment AND tenant for isolation. No prefix needed (dedicated cluster assumed).
-
-```
-┌─────────────────────────────────────────────────────────┐
-│ Topic Format: {environment}.{tenant_id}.{resource}      │
-├─────────────────────────────────────────────────────────┤
-│ dev.acme.trade           ← Dev, Acme tenant, trades     │
-│ main.acme.trade          ← Prod, Acme tenant, trades    │
-│ main.globex.trade        ← Prod, Globex tenant, trades  │
-│ main.acme.client-events  ← Prod, client-published       │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Why Environment + Tenant (no prefix):**
-- Prevents dev code from accidentally consuming prod data
-- Prevents cross-environment contamination
-- ACLs can enforce both environment AND tenant boundaries
-- No prefix needed - dedicated Kafka cluster assumed
-- Simpler, shorter topic names
-
-```go
-// TopicIsolator enforces tenant boundaries on Kafka/Redpanda topics
-// CRITICAL: Tenants can ONLY publish/consume topics they own
-type TopicIsolator struct {
-    config TopicIsolationConfig
-}
-
-type TopicIsolationConfig struct {
-    // No "Enabled" field - auth enabled = isolation enforced
-
-    // Environment deployment environment (dev, staging, main)
-    Environment string `yaml:"environment" json:"environment"`
-
-    // TenantPosition position of tenant in topic name (0-indexed)
-    TenantPosition int `yaml:"tenant_position" json:"tenant_position"` // 1 for env.tenant.resource
-
-    // Separator between topic parts (default: ".")
-    Separator string `yaml:"separator" json:"separator"`
-
-    // StrictMode rejects topics without tenant (default: true)
-    StrictMode bool `yaml:"strict_mode" json:"strict_mode"`
-
-    // CrossTenantRoles roles that can access cross-tenant topics (e.g., admin)
-    CrossTenantRoles []string `yaml:"cross_tenant_roles" json:"cross_tenant_roles"`
-
-    // SharedTopicPatterns topics accessible by all tenants (e.g., system broadcasts)
-    SharedTopicPatterns []string `yaml:"shared_topic_patterns" json:"shared_topic_patterns"`
-}
-
-// BuildTopicName constructs a topic name with environment and tenant
-func BuildTopicName(env, tenant, resource string) string {
-    return fmt.Sprintf("%s.%s.%s", env, tenant, resource)
-    // Example: main.acme.trade
-}
-
-// ExtractTenantFromTopic extracts tenant_id from topic name
-func ExtractTenantFromTopic(topic string) string {
-    // main.acme.trade → acme (position 1)
-    parts := strings.Split(topic, ".")
-    if len(parts) >= 3 {
-        return parts[1]
-    }
-    return ""
-}
-
-// CheckTopicAccess verifies tenant can access topic
-func (t *TopicIsolator) CheckTopicAccess(claims *Claims, topic string, action TopicAction) *TopicCheckResult
-
-type TopicAction string
-const (
-    TopicActionPublish TopicAction = "publish"
-    TopicActionConsume TopicAction = "consume"
-)
-
-type TopicCheckResult struct {
-    Allowed       bool
-    TopicTenant   string // Tenant extracted from topic
-    ClaimsTenant  string // Tenant from claims
-    Reason        string
-    IsCrossTenant bool   // True if cross-tenant access was granted (for audit)
-}
-```
-
-**Topic Naming Convention:**
-```
-{environment}.{tenant_id}.{resource}
-
-Examples:
-  main.acme.trade          - Prod, Acme, trade events
-  main.acme.liquidity      - Prod, Acme, liquidity events
-  main.globex.trade        - Prod, Globex, trade events
-  dev.acme.trade           - Dev, Acme, trade events
-  main.acme.client-events  - Prod, Acme, client-published
-  main.system.broadcast    - Prod, cross-tenant system messages
-```
-
----
-
-### Phase 7: Consumer Strategy (Hybrid)
-
-**Design Decision:** Shared consumers by default, dedicated consumers for large tenants. Configuration via Helm values, applied via rolling restart (industry standard).
+**Design Principle:** Auth implies isolation. Single switch controls everything.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         Redpanda Cluster                         │
+│                      AUTH_ENABLED=false                          │
 ├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  main.acme.trade      ──┐                                        │
-│  main.smallco.trade    ├──► Shared Consumer Group               │
-│  main.startup.trade   ──┘    "ws-shared"                        │
-│                              Pattern: main\..*\.trade            │
-│                              (excludes dedicated tenants)        │
-│                                                                  │
-│  main.whale.trade     ────► Dedicated Consumer Group            │
-│                              "ws-whale"                          │
-│                                                                  │
-│  main.enterprise.trade ───► Dedicated Consumer Group            │
-│                              "ws-enterprise"                     │
+│  - No JWT validation                                             │
+│  - No tenant isolation                                           │
+│  - Open access (for development/POC)                             │
 └─────────────────────────────────────────────────────────────────┘
-```
 
-**File:** `ws/internal/kafka/consumer_pool.go` (new)
-
-```go
-type ConsumerPoolConfig struct {
-    Environment      string
-    SharedGroupID    string             // "ws-shared"
-    ExcludeTenants   []string           // ["whale", "enterprise"]
-    DedicatedTenants []DedicatedConfig
-}
-
-type DedicatedConfig struct {
-    TenantID string
-    GroupID  string
-}
-
-type ConsumerPool struct {
-    shared    *Consumer              // Handles most tenants (regex pattern)
-    dedicated map[string]*Consumer   // tenant_id → dedicated consumer
-}
-
-// NewConsumerPool creates consumers based on config (called at startup)
-func NewConsumerPool(config *ConsumerPoolConfig) *ConsumerPool {
-    pool := &ConsumerPool{
-        dedicated: make(map[string]*Consumer),
-    }
-
-    // Create shared consumer with exclude pattern
-    pool.shared = createSharedConsumer(config)
-
-    // Create dedicated consumers
-    for _, tenant := range config.DedicatedTenants {
-        pool.dedicated[tenant.TenantID] = createDedicatedConsumer(tenant)
-    }
-
-    return pool
-}
-
-// Shared consumer uses regex to match all tenants EXCEPT dedicated ones
-// Pattern: main\.(?!whale|enterprise)[^.]+\.trade
-func buildSharedPattern(env string, excludes []string) string
-```
-
-**Helm Values Configuration:**
-
-```yaml
-# values/standard/production.yaml
-ws-server:
-  config:
-    environment: main
-
-  # Consumer pool configuration
-  consumerPool:
-    sharedGroupID: ws-shared
-    # Tenants excluded from shared consumer (have dedicated)
-    excludeTenants: []
-
-    # Dedicated consumers for large tenants
-    dedicatedTenants: []
-    # Example when graduating a tenant:
-    # excludeTenants: ["whale"]
-    # dedicatedTenants:
-    #   - tenantID: whale
-    #     groupID: ws-whale
-```
-
-**Promotion Flow (Rolling Restart):**
-
-```
 ┌─────────────────────────────────────────────────────────────────┐
-│ Step 1: Update Helm values                                       │
-│   excludeTenants: ["whale"]                                      │
-│   dedicatedTenants:                                              │
-│     - tenantID: whale                                            │
-│       groupID: ws-whale                                          │
+│                      AUTH_ENABLED=true                           │
 ├─────────────────────────────────────────────────────────────────┤
-│ Step 2: Deploy                                                   │
-│   helm upgrade odin ./deployments/k8s/helm/odin \                │
-│     -f values/standard/production.yaml                           │
-├─────────────────────────────────────────────────────────────────┤
-│ Step 3: Kubernetes rolling restart                               │
-│   - Pod 1 terminates gracefully                                  │
-│   - Pod 2 serves traffic                                         │
-│   - New Pod 1 starts with new config                             │
-│   - Pod 2 terminates, new Pod 2 starts                           │
-├─────────────────────────────────────────────────────────────────┤
-│ Step 4: All pods running with dedicated whale consumer           │
-│   Total time: ~2-3 minutes                                       │
-│   Downtime: zero (rolling restart)                               │
+│  - JWT validation enforced                                       │
+│  - Tenant isolation enforced                                     │
+│  - Fail-secure mode (default deny)                               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Why Rolling Restart (Industry Standard):**
-- Simpler implementation (no ConfigWatcher code)
-- Battle-tested (Kubernetes handles graceful transitions)
-- Atomic (all pods get same config after rollout)
-- Auditable (config changes tracked in Git/Helm history)
-- Tenant graduation is rare (quarterly) - doesn't justify hot reload complexity
-
-**When to Graduate Tenant to Dedicated:**
-
-| Metric | Threshold | Action |
-|--------|-----------|--------|
-| Messages/sec | >10K | Consider dedicated |
-| Consumer lag | >5 min sustained | Dedicated needed |
-| Connection count | >1000 concurrent | Dedicated needed |
-| SLA tier | Enterprise | Dedicated by default |
-
-**Configuration:**
-```yaml
-consumer_strategy:
-  shared:
-    enabled: true
-    group_id: "odin-ws-shared"
-    pattern: "odin.{env}.*.{topic}"
-    exclude_tenants: []  # Start empty, add as needed
-
-  dedicated: []  # Start empty, add large tenants as needed
-    # - tenant_id: "whale"
-    #   group_id: "odin-ws-whale"
-```
-
 ---
 
-### Phase 8: Configuration Schema
-
-**File:** `config/auth-policy.yaml` (new)
-
-```yaml
-version: "1.0"
-
-# MASTER SWITCH: auth.enabled controls everything
-# - auth.enabled: false → No JWT validation, no isolation (open access for dev/POC)
-# - auth.enabled: true  → JWT required, all isolation enforced (secure multi-tenant)
-auth:
-  enabled: true                  # Master switch - enables JWT + all isolation
-  signing_method: HS256
-  required_claims: [tenant_id, sub]
-
-settings:
-  default_effect: deny           # Fail-secure (only applies when auth enabled)
-  audit_denials: true
-
-# Channel naming: tenant IMPLICIT (derived from JWT, not in channel name)
-# Client sees: BTC.trade → Server maps to: {tenant_id}.BTC.trade
-channels:
-  separator: "."
-  tenant_implicit: true                # Tenant derived from JWT, not channel name
-  # Client subscribes to "BTC.trade", server internally uses "acme.BTC.trade"
-
-# No "enabled" field - controlled by auth.enabled
-tenant_isolation:
-  strict_mode: true
-  cross_tenant_roles: [admin, system]
-  shared_channel_patterns:
-    - "system.*"                       # Cross-tenant system broadcasts
-
-# Topic naming: {environment}.{tenant_id}.{resource}
-# Includes BOTH environment AND tenant for isolation (no prefix - dedicated cluster)
-topic_isolation:
-  strict_mode: true                    # Reject topics without tenant
-  environment: "main"                  # dev, staging, main
-  tenant_position: 1                   # env.{tenant_id}.resource
-  separator: "."
-  cross_tenant_roles: [admin, system]  # Roles that can access other tenants
-  shared_topic_patterns:               # Topics accessible by all tenants
-    - "*.system.*"                     # Cross-tenant system messages
-  # ENFORCEMENT: Tenants can ONLY access {env}.{their_tenant_id}.*
-  # Example: tenant "acme" in prod can only access main.acme.* topics
-
-# Consumer strategy: Hybrid (shared default, dedicated for large tenants)
-consumer_strategy:
-  shared:
-    group_id: "ws-shared"
-    pattern: "{environment}.*.{resource}"
-    exclude_tenants: []                # Large tenants get dedicated consumers
-  dedicated: []                        # Add as needed: [{tenant_id, group_id}]
-
-placeholders:
-  user_id: "sub"
-  tenant_id: "tenant_id"
-  sub: "sub"
-
-# Rules apply to INTERNAL channel format: {tenant_id}.{symbol}.{event}
-# Client channel "BTC.trade" becomes internal "{tenant_id}.BTC.trade"
-rules:
-  - id: public-market-data
-    description: "Public market data channels for all authenticated users"
-    priority: 100
-    match:
-      # Internal: acme.BTC.trade, acme.ETH.liquidity
-      channel_pattern: "{tenant_id}.*.{trade|liquidity|metadata|analytics}"
-    actions: [subscribe]
-    effect: allow
-
-  - id: user-own-channels
-    description: "Users can access their own scoped channels"
-    priority: 90
-    match:
-      # Internal: acme.user123.balances, acme.user123.notifications
-      channel_pattern: "{tenant_id}.{user_id}.*"
-    actions: [subscribe]
-    effect: allow
-
-  - id: group-member-channels
-    description: "Group members can access group channels"
-    priority: 80
-    match:
-      # Internal: acme.vip.community, acme.traders.social
-      channel_pattern: "{tenant_id}.{group_id}.*"
-    actions: [subscribe]
-    conditions:
-      - type: claim
-        field: groups
-        op: contains
-        value: "{group_id}"
-    effect: allow
-```
-
----
-
-### Phase 10: Tenant Provisioning
-
-**Files:**
-- `ws/internal/admin/provisioner.go` (new) - TenantProvisioner with Redpanda Admin client
-- `ws/internal/admin/handlers.go` (new) - HTTP handlers for admin API
-
-**Design Decision:** Tenant provisioning creates Redpanda topics and ACLs. No auto-create - topics are explicitly provisioned.
-
-**Why separate `admin` package (not in `server/handlers_http.go`):**
-- Different dependencies: Needs Redpanda Admin client (ws-server doesn't have this)
-- Different auth: Admin endpoints need stricter auth than health checks
-- Deployment flexibility: Can mount on ws-server OR run as separate admin service
-- Separation of concerns: Operational (health/stats) vs administrative (provisioning)
-
-```
-ws/internal/
-├── server/
-│   └── handlers_http.go    # Health, stats, reconnect (operational)
-└── admin/
-    ├── provisioner.go      # TenantProvisioner (Redpanda topics + ACLs)
-    └── handlers.go         # POST /admin/tenants, DELETE, GET
-```
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Tenant Onboarding Flow                        │
-├─────────────────────────────────────────────────────────────────┤
-│  1. Admin calls POST /admin/tenants                              │
-│  2. TenantProvisioner creates:                                   │
-│     ├── Redpanda topics: {env}.{tenant}.{category}               │
-│     ├── ACLs (tenant can only access their topics)               │
-│     └── Tenant record in database (optional)                     │
-│  3. Returns tenant credentials/config                            │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Redpanda Admin Client:**
-```go
-type TenantProvisioner struct {
-    rpAdmin   *redpanda.AdminClient
-    config    ProvisionerConfig
-}
-
-type ProvisionerConfig struct {
-    Environment       string
-    DefaultPartitions int    // e.g., 3
-    ReplicationFactor int    // e.g., 3 for prod, 1 for dev
-    RetentionMs       int64  // e.g., 86400000 (24h)
-}
-
-// ProvisionTenantRequest - categories passed in request, not hardcoded
-type ProvisionTenantRequest struct {
-    TenantID   string   `json:"tenant_id" validate:"required,alphanum"`
-    Categories []string `json:"categories" validate:"required,min=1"`
-    // e.g., ["trade", "liquidity", "trade.refined", "liquidity.refined"]
-}
-
-// ProvisionTenant creates topics and ACLs for a new tenant
-// Categories are passed in the request for flexibility
-func (p *TenantProvisioner) ProvisionTenant(ctx context.Context, req *ProvisionTenantRequest) (*TenantProvisionResult, error) {
-    var topics []string
-    for _, category := range req.Categories {
-        topicName := BuildTopicName(p.config.Environment, req.TenantID, category)
-        // e.g., main.acme.trade, main.acme.trade.refined
-
-        err := p.rpAdmin.CreateTopic(ctx, topicName, p.config.DefaultPartitions, p.config.ReplicationFactor)
-        if err != nil {
-            return nil, fmt.Errorf("failed to create topic %s: %w", topicName, err)
-        }
-        topics = append(topics, topicName)
-    }
-
-    // Create ACLs (tenant can only produce/consume their topics)
-    err := p.createTenantACLs(ctx, req.TenantID)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create ACLs: %w", err)
-    }
-
-    return &TenantProvisionResult{
-        TenantID: req.TenantID,
-        Topics:   topics,
-    }, nil
-}
-
-// DeprovisionTenant removes all topics and ACLs for a tenant
-func (p *TenantProvisioner) DeprovisionTenant(ctx context.Context, tenantID string) error
-```
-
-**Redpanda ACL Setup:**
-```go
-func (p *TenantProvisioner) createTenantACLs(ctx context.Context, tenantID string) error {
-    // Pattern: {env}.{tenant}.*
-    resourcePattern := fmt.Sprintf("%s.%s.*", p.config.Environment, tenantID)
-
-    // Allow produce and consume on tenant's topics only
-    acls := []redpanda.ACL{
-        {
-            Principal:    fmt.Sprintf("User:%s", tenantID),
-            ResourceType: "TOPIC",
-            ResourceName: resourcePattern,
-            PatternType:  "PREFIXED",
-            Operation:    "ALL",  // READ, WRITE, DESCRIBE
-            Permission:   "ALLOW",
-        },
-    }
-
-    return p.rpAdmin.CreateACLs(ctx, acls)
-}
-```
-
-**Admin API:**
-```go
-// POST /admin/tenants
-type CreateTenantRequest struct {
-    TenantID   string   `json:"tenant_id" validate:"required,alphanum"`
-    Categories []string `json:"categories" validate:"required,min=1"`
-}
-
-type CreateTenantResponse struct {
-    TenantID string   `json:"tenant_id"`
-    Topics   []string `json:"topics"`
-    Status   string   `json:"status"`
-}
-
-// DELETE /admin/tenants/{tenant_id}
-// GET /admin/tenants
-// GET /admin/tenants/{tenant_id}
-```
-
-**Example Request:**
-```json
-POST /admin/tenants
-{
-  "tenant_id": "acme",
-  "categories": [
-    "trade",
-    "liquidity",
-    "balances",
-    "metadata",
-    "trade.refined",
-    "liquidity.refined",
-    "balances.refined",
-    "metadata.refined"
-  ]
-}
-```
-
-**Example Response:**
-```json
-{
-  "tenant_id": "acme",
-  "topics": [
-    "main.acme.trade",
-    "main.acme.liquidity",
-    "main.acme.balances",
-    "main.acme.metadata",
-    "main.acme.trade.refined",
-    "main.acme.liquidity.refined",
-    "main.acme.balances.refined",
-    "main.acme.metadata.refined"
-  ],
-  "status": "provisioned"
-}
-```
-
----
-
-### Phase 11: Helm Chart Cleanup
-
-**Problem:** Current Helm charts have static topic definitions that won't work for multi-tenant.
-
-**Current State (to remove):**
-```yaml
-# deployments/k8s/helm/odin/values/standard/develop.yaml
-redpanda:
-  topics:
-    - name: odin.main.trade        # ❌ Static, single-tenant
-    - name: odin.main.liquidity    # ❌ Static, single-tenant
-    # ... 16 pre-defined topics
-```
-
-**New State:**
-```yaml
-# deployments/k8s/helm/odin/values/standard/develop.yaml
-redpanda:
-  # Topics are now dynamic - created by TenantProvisioner
-  # No static topic definitions needed
-
-  # Topic defaults for provisioner
-  topicDefaults:
-    partitions: 1          # Dev: 1, Prod: 3
-    replicationFactor: 1   # Dev: 1, Prod: 3
-    retentionMs: 86400000  # 24 hours
-
-ws-server:
-  config:
-    environment: develop   # Used in topic naming: {env}.{tenant}.{category}
-    # Remove: kafkaTopicNamespace (no longer needed)
-```
-
-**Files to Update:**
-
-| File | Changes |
-|------|---------|
-| `values/standard/develop.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
-| `values/standard/staging.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
-| `values/standard/production.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
-| `values/autopilot/develop.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
-| `values/autopilot/staging.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
-| `values/local.yaml` | Remove `redpanda.topics[]`, add `topicDefaults` |
-| `templates/redpanda/*` | Remove topic init job (if exists) |
-
-**Configuration Changes:**
-
-| Config | Old | New |
-|--------|-----|-----|
-| `kafkaTopicNamespace` | `main` | Remove (use `environment` instead) |
-| `redpanda.topics[]` | Static list | Remove entirely |
-| `topicDefaults` | N/A | New section for provisioner defaults |
-
-**Migration Notes:**
-- Existing topics (`odin.main.*`) will remain until manually deleted
-- New tenants get topics via TenantProvisioner
-- No breaking change for current single-tenant setup (auth disabled)
-
----
-
-### Phase 9: Documentation Updates
-
-**Files to Update:**
-- `docs/CLIENT_GUIDE.md` - Client-facing documentation
-- `ws/asyncapi/asyncapi.yaml` - AsyncAPI specification
-- `ws/asyncapi/channel/*.yaml` - Channel definitions
-
-#### 9.1 CLIENT_GUIDE.md Updates
-
-Add Multi-Tenant Architecture section explaining:
-- Tenant-implicit channel naming (industry standard: Pusher/Ably)
-- How tenant_id from JWT maps channels internally
-- Client API unchanged (simple channel names)
-
-**Changes:**
-
-| Section | Change |
-|---------|--------|
-| Table of Contents | Add "Multi-Tenant Architecture" link |
-| After Authentication | Add new "Multi-Tenant Architecture" section |
-| Available Channels | Add note about tenant scoping |
-| Related Documentation | Add link to MULTI_TENANT_AUTH.md |
-
-**New Section Content:**
-```markdown
-## Multi-Tenant Architecture
-
-Odin uses a **tenant-implicit** channel naming pattern. Your channels are
-automatically scoped to your tenant based on your JWT token.
-
-### How It Works
-
-When you subscribe to a channel like `BTC.trade`, the server automatically
-maps it to your tenant:
-
-| Layer              | Example                                |
-|--------------------|----------------------------------------|
-| Client subscribes  | BTC.trade                              |
-| Server internal    | acme.BTC.trade     ← tenant from JWT   |
-| Kafka topic        | main.acme.trade    ← env + tenant      |
-
-### What This Means for You
-
-1. **Simple API**: Subscribe to `BTC.trade`, not `acme.BTC.trade`
-2. **Automatic isolation**: You only receive your tenant's data
-3. **No cross-tenant access**: Cannot subscribe to another tenant's channels
-4. **Tenant from JWT**: The `tenant_id` claim in your token determines your tenant
-```
-
-#### 9.2 AsyncAPI Specification Updates
-
-Update topic naming to reflect multi-tenant pattern: `{env}.{tenant}.{category}` (no prefix - dedicated cluster).
-
-**asyncapi.yaml Changes:**
-
-| Section | Current | New |
-|---------|---------|-----|
-| Description | `odin.<category>` | `{env}.{tenant}.{category}` |
-| Topics Overview | `odin.trades` | `{env}.{tenant}.trades` |
-| Channel names | `odin.trades` | `{env}.{tenant}.trades` |
-| Examples | `producer.Produce("odin.trades", ...)` | `producer.Produce(kafka.BuildTopicName(...), ...)` |
-
-**New Description Section:**
-```yaml
-description: |
-  Topic naming follows the multi-tenant pattern: `{env}.{tenant}.{category}`
-
-  | Component | Description | Example |
-  |-----------|-------------|---------|
-  | `{env}` | Environment | `dev`, `staging`, `main` |
-  | `{tenant}` | Tenant ID from JWT | `acme`, `globex` |
-  | `{category}` | Event category | `trades`, `liquidity` |
-
-  Example: `main.acme.trades`
-
-  ## Multi-Tenant Isolation
-  - Each tenant's data is isolated to their own topics
-  - ACLs enforce tenant boundaries at the Kafka level
-  - Environment prevents cross-environment contamination
-  - No prefix needed - dedicated Kafka/Redpanda cluster assumed
-
-  ## Consumer Strategy
-  - **Shared consumers**: Small tenants share consumer groups with regex patterns
-  - **Dedicated consumers**: Large tenants get dedicated consumer groups
-```
-
-**Channel Reference Updates:**
-```yaml
-channels:
-  {env}.{tenant}.trades:
-    $ref: './channel/trades.yaml#/OdinTrades'
-  {env}.{tenant}.liquidity:
-    $ref: './channel/liquidity.yaml#/OdinLiquidity'
-  # ... etc
-```
-
-**Operation Updates:**
-- Update all `$ref` paths to use new channel names
-- Update code examples to use `kafka.BuildTopicName()`
-
-#### 9.3 Regenerate bundled.yaml
-
-After updating asyncapi.yaml and channel/*.yaml:
-```bash
-cd ws/asyncapi
-npx @asyncapi/cli bundle asyncapi.yaml -o bundled.yaml
-```
-
----
-
-## Files to Create/Modify
-
-### Code Files
-
-| File | Action | Purpose |
-|------|--------|---------|
-| `ws/internal/auth/jwt.go` | Modify | Enhance Claims struct with Attributes, Roles, Scopes, Custom |
-| `ws/internal/auth/engine.go` | Create | Policy engine |
-| `ws/internal/auth/placeholders.go` | Create | Placeholder resolution |
-| `ws/internal/auth/tenant.go` | Create | Tenant isolation (channels) |
-| `ws/internal/auth/topic.go` | Create | Topic isolation (Redpanda) |
-| `ws/internal/auth/channel.go` | Create | Channel mapper (tenant implicit) |
-| `ws/internal/kafka/consumer_pool.go` | Create | Hybrid consumer strategy |
-| `ws/internal/kafka/topics.go` | Modify | Add tenant to topic building |
-| `ws/internal/auth/audit.go` | Create | Audit logging |
-| `ws/internal/admin/provisioner.go` | Create | TenantProvisioner (Redpanda topics + ACLs) |
-| `ws/internal/admin/handlers.go` | Create | Admin API handlers for tenant management |
-| `ws/internal/platform/gateway_config.go` | Modify | Load policy config |
-| `ws/internal/gateway/gateway.go` | Modify | Integrate PolicyEngine |
-| `ws/internal/gateway/proxy.go` | Modify | Add publish permission check |
-| `ws/internal/kafka/producer.go` | Modify | Add topic isolation check |
-| `config/auth-policy.yaml` | Create | Default policy configuration |
-
-### Infrastructure Files (Helm)
-
-| File | Action | Purpose |
-|------|--------|---------|
-| `deployments/k8s/helm/odin/values/standard/develop.yaml` | Modify | Remove static topics, add `topicDefaults` |
-| `deployments/k8s/helm/odin/values/standard/staging.yaml` | Modify | Remove static topics, add `topicDefaults` |
-| `deployments/k8s/helm/odin/values/standard/production.yaml` | Modify | Remove static topics, add `topicDefaults` |
-| `deployments/k8s/helm/odin/values/autopilot/*.yaml` | Modify | Remove static topics, add `topicDefaults` |
-| `deployments/k8s/helm/odin/values/local.yaml` | Modify | Remove static topics, add `topicDefaults` |
-| `deployments/k8s/helm/odin/templates/redpanda/*` | Modify | Remove topic init job if exists |
-
-### Documentation Files
-
-| File | Action | Purpose |
-|------|--------|---------|
-| `docs/CLIENT_GUIDE.md` | Modify | Add Multi-Tenant Architecture section, update channel docs |
-| `ws/asyncapi/asyncapi.yaml` | Modify | Update topic naming to `{env}.{tenant}.{category}` |
-| `ws/asyncapi/channel/*.yaml` | Modify | Update channel references for new naming |
-| `ws/asyncapi/bundled.yaml` | Regenerate | Bundle updated AsyncAPI spec |
-
-> **Note:** Gateway config was refactored from `gateway/config.go` to `platform/gateway_config.go` following idiomatic Go patterns (config via dependency injection).
-
----
-
-## Test Strategy
+## Testing
 
 ### Unit Tests
 
 ```go
-// Test tenant isolation (channels)
-func TestPolicyEngine_TenantIsolation(t *testing.T)
+// Test JWT validation
+func TestMultiTenantValidator_ValidateToken_ES256(t *testing.T)
+func TestMultiTenantValidator_ValidateToken_ExpiredToken(t *testing.T)
+func TestMultiTenantValidator_ValidateToken_KeyNotFound(t *testing.T)
+func TestMultiTenantValidator_ValidateToken_RevokedKey(t *testing.T)
 
-// Test topic isolation (Kafka)
-func TestTopicIsolator_TenantAccess(t *testing.T)
+// Test key registry
+func TestPostgresKeyRegistry_GetKey(t *testing.T)
+func TestPostgresKeyRegistry_CacheRefresh(t *testing.T)
 
-// Test placeholder resolution
-func TestPlaceholderResolver_CustomPlaceholders(t *testing.T)
-
-// Test rule priority
-func TestRuleEvaluation_Priority(t *testing.T)
-
-// Test deny overrides allow
-func TestRuleEvaluation_DenyOverride(t *testing.T)
-
-// Test channel parsing
-func TestChannelParser_Formats(t *testing.T)
-
-// Test topic parsing
-func TestTopicParser_Formats(t *testing.T)
+// Test permissions
+func TestPermissionChecker_PublicChannel(t *testing.T)
+func TestPermissionChecker_UserScopedChannel(t *testing.T)
+func TestPermissionChecker_GroupScopedChannel(t *testing.T)
 ```
 
 ### Integration Tests
 
 ```go
-// Multi-tenant WebSocket integration
-func TestGateway_MultiTenant_Integration(t *testing.T)
-
-// Cross-tenant channel access denied
-func TestGateway_CrossTenant_ChannelDenied(t *testing.T)
-
-// Cross-tenant topic access denied
-func TestGateway_CrossTenant_TopicDenied(t *testing.T)
-
-// Role-based access
-func TestGateway_RBAC_Integration(t *testing.T)
-
-// Topic publish isolation
-func TestKafkaProducer_TopicIsolation(t *testing.T)
+func TestGateway_AuthEnabled_ValidToken(t *testing.T)
+func TestGateway_AuthEnabled_InvalidToken(t *testing.T)
+func TestGateway_AuthEnabled_ExpiredToken(t *testing.T)
+func TestGateway_ChannelPermission_Denied(t *testing.T)
 ```
 
-### Security Tests
-
-- Tenant A cannot access Tenant B channels
-- Tenant A cannot publish to Tenant B topics
-- Tenant A cannot consume from Tenant B topics
-- Expired tokens rejected
-- Invalid signatures rejected
-- Missing required claims rejected
-- Audit logs capture all denials
-
----
-
-## Implementation Order
-
-### Step 1: Core Components
-- Create claims.go with enhanced Claims structure
-- Create placeholders.go with resolver
-- Create channel.go and topic.go parsers
-
-### Step 2: Isolation Enforcement
-- Create tenant.go for channel isolation
-- Add topic isolation to topic.go
-- Create audit.go for logging
-
-### Step 3: Policy Engine
-- Create engine.go with rule evaluation
-- Load rules from auth-policy.yaml
-- Integrate with gateway
-
-### Step 4: Tenant Provisioning
-- Create `ws/internal/admin/provisioner.go` with TenantProvisioner
-- Create `ws/internal/admin/handlers.go` for admin endpoints
-- Implement Redpanda topic creation with proper partitions/replication
-- Implement Redpanda ACL setup per tenant
-
-### Step 5: Helm Chart Updates
-- Remove static `redpanda.topics[]` from all values files
-- Add `topicDefaults` section for provisioner configuration
-- Add `consumerPool` section for hybrid consumer strategy
-- Remove `kafkaTopicNamespace` config (replaced by `environment`)
-- Remove topic init job templates if they exist
-
-### Step 6: Documentation Updates
-- Update `docs/CLIENT_GUIDE.md` with Multi-Tenant Architecture section
-- Update `ws/asyncapi/asyncapi.yaml` with new topic naming convention
-- Update `ws/asyncapi/channel/*.yaml` with new channel references
-- Regenerate `ws/asyncapi/bundled.yaml`
-
-### Step 7: Testing & Verification
-- Unit tests for all components
-- Integration tests for multi-tenant scenarios
-- Security tests for isolation enforcement
-- Test TenantProvisioner against Redpanda
-- Verify documentation accuracy
-
----
-
-## Verification
-
-1. **Unit tests pass**: `go test ./internal/auth/...`
-2. **Integration tests pass**: `go test ./internal/gateway/... -tags=integration`
-3. **Channel tenant isolation**: Cross-tenant channel access blocked
-4. **Topic tenant isolation**: Cross-tenant topic access blocked
-5. **Audit logging**: All denials logged with context
-6. **Config reload**: Policy changes without restart
+Run tests:
+```bash
+go test ./internal/auth/... ./internal/gateway/... -v
+```
 
 ---
 
 ## Security Checklist
 
-- [ ] Single master switch: `auth.enabled` controls all security features
-- [ ] Default effect is `deny` (fail-secure)
-- [ ] Channel tenant isolation checked before rule evaluation
-- [ ] Topic tenant isolation checked before publish/consume
-- [ ] All authorization decisions audited
-- [ ] JWT signature verified
-- [ ] JWT expiration enforced
-- [ ] Required claims validated
-- [ ] No implicit trust between tenants
-- [ ] No cross-tenant topic access
-- [ ] Rate limiting per user
+### Authentication
+- [x] ES256/RS256/EdDSA asymmetric keys
+- [x] Key ID (kid) lookup from JWT header
+- [x] Tenant ID in claims must match key owner
+- [x] Only allowed algorithms accepted
+- [x] Token expiration enforced
+
+### Authorization
+- [x] Default effect is deny (fail-secure)
+- [x] Channel tenant isolation checked
+- [x] All authorization decisions logged
+
+### Key Management
+- [x] Keys stored in PostgreSQL (durable)
+- [x] In-memory cache for performance
+- [x] Background cache refresh
+- [x] Key revocation support
+
+### Observability
+- [x] Prometheus metrics for auth events
+- [x] Structured logging with tenant context
+- [x] Audit logging for security events
+
+---
+
+## Related Documentation
+
+- [Provisioning Service](./PROVISIONING_SERVICE.md) - Tenant onboarding API
+- [Client Guide](../CLIENT_GUIDE.md) - WebSocket client integration

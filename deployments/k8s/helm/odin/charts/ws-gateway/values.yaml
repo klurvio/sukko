@@ -21,7 +21,20 @@ config:
   logFormat: json
 
   # Authentication - set to false to disable JWT validation
+  # When enabled, uses multi-tenant asymmetric key validation from provisioning database
   authEnabled: false
+
+  # Multi-tenant auth settings (only used when authEnabled: true)
+  requireTenantId: true
+  keyCacheRefreshInterval: "1m"
+  keyCacheQueryTimeout: "5s"
+
+  # Database connection pool settings (only used when authEnabled: true)
+  dbMaxOpenConns: 10
+  dbMaxIdleConns: 5
+  dbConnMaxLifetime: "5m"
+  dbConnMaxIdleTime: "1m"
+  dbPingTimeout: "5s"
 
   # Backend ws-server URL (empty = dynamic default)
   # Dynamic default: ws://{{ .Release.Name }}-ws-server:3001/ws

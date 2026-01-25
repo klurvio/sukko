@@ -1,0 +1,425 @@
+// Package auth provides JWT authentication for WebSocket connections.
+package auth
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/rs/zerolog"
+)
+
+// PostgresKeyRegistryConfig configures the PostgresKeyRegistry.
+type PostgresKeyRegistryConfig struct {
+	// DB is the database connection pool.
+	DB *sql.DB
+
+	// RefreshInterval is how often to refresh the cache (default: 1 minute).
+	RefreshInterval time.Duration
+
+	// QueryTimeout is the timeout for database queries (default: 5 seconds).
+	QueryTimeout time.Duration
+
+	// Logger for structured logging.
+	Logger zerolog.Logger
+}
+
+// PostgresKeyRegistry implements KeyRegistry by fetching keys from the provisioning database.
+// It maintains an in-memory cache that is refreshed periodically.
+type PostgresKeyRegistry struct {
+	db              *sql.DB
+	refreshInterval time.Duration
+	queryTimeout    time.Duration
+	logger          zerolog.Logger
+
+	// Cache
+	cacheMu      sync.RWMutex
+	keysByID     map[string]*KeyInfo
+	keysByTenant map[string][]*KeyInfo
+	lastRefresh  time.Time
+
+	// Stats
+	cacheHits     atomic.Int64
+	cacheMisses   atomic.Int64
+	refreshErrors atomic.Int64
+
+	// Lifecycle
+	stopCh chan struct{}
+	wg     sync.WaitGroup
+}
+
+// NewPostgresKeyRegistry creates a new PostgresKeyRegistry.
+func NewPostgresKeyRegistry(cfg PostgresKeyRegistryConfig) (*PostgresKeyRegistry, error) {
+	if cfg.DB == nil {
+		return nil, fmt.Errorf("database connection is required")
+	}
+
+	if cfg.RefreshInterval == 0 {
+		cfg.RefreshInterval = 1 * time.Minute
+	}
+	if cfg.QueryTimeout == 0 {
+		cfg.QueryTimeout = 5 * time.Second
+	}
+
+	r := &PostgresKeyRegistry{
+		db:              cfg.DB,
+		refreshInterval: cfg.RefreshInterval,
+		queryTimeout:    cfg.QueryTimeout,
+		logger:          cfg.Logger,
+		keysByID:        make(map[string]*KeyInfo),
+		keysByTenant:    make(map[string][]*KeyInfo),
+		stopCh:          make(chan struct{}),
+	}
+
+	// Initial load
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.QueryTimeout)
+	defer cancel()
+
+	if err := r.refreshCache(ctx); err != nil {
+		r.logger.Warn().Err(err).Msg("Initial key cache load failed, will retry")
+	}
+
+	// Start background refresh
+	r.wg.Add(1)
+	go r.backgroundRefresh()
+
+	return r, nil
+}
+
+// GetKey retrieves a key by ID from the cache.
+func (r *PostgresKeyRegistry) GetKey(ctx context.Context, keyID string) (*KeyInfo, error) {
+	r.cacheMu.RLock()
+	key, ok := r.keysByID[keyID]
+	r.cacheMu.RUnlock()
+
+	if !ok {
+		r.cacheMisses.Add(1)
+
+		// Try fetching directly from DB on cache miss
+		key, err := r.fetchKeyFromDB(ctx, keyID)
+		if err != nil {
+			return nil, err
+		}
+
+		// Add to cache
+		r.cacheMu.Lock()
+		r.keysByID[key.KeyID] = key
+		r.cacheMu.Unlock()
+
+		return key, nil
+	}
+
+	r.cacheHits.Add(1)
+
+	// Check validity
+	if key.RevokedAt != nil {
+		return nil, ErrKeyRevoked
+	}
+	if key.ExpiresAt != nil && key.ExpiresAt.Before(time.Now()) {
+		return nil, ErrKeyExpired
+	}
+	if !key.IsActive {
+		return nil, ErrKeyNotFound
+	}
+
+	return key, nil
+}
+
+// GetKeysByTenant retrieves all active keys for a tenant.
+func (r *PostgresKeyRegistry) GetKeysByTenant(ctx context.Context, tenantID string) ([]*KeyInfo, error) {
+	r.cacheMu.RLock()
+	keys := r.keysByTenant[tenantID]
+	r.cacheMu.RUnlock()
+
+	if len(keys) == 0 {
+		// Try fetching from DB
+		return r.fetchKeysByTenantFromDB(ctx, tenantID)
+	}
+
+	// Filter to only valid keys
+	var validKeys []*KeyInfo
+	for _, key := range keys {
+		if key.IsValid() {
+			validKeys = append(validKeys, key)
+		}
+	}
+
+	return validKeys, nil
+}
+
+// Refresh forces a refresh of the key cache.
+func (r *PostgresKeyRegistry) Refresh(ctx context.Context) error {
+	return r.refreshCache(ctx)
+}
+
+// Stats returns cache statistics.
+func (r *PostgresKeyRegistry) Stats() KeyRegistryStats {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
+
+	activeCount := 0
+	for _, key := range r.keysByID {
+		if key.IsValid() {
+			activeCount++
+		}
+	}
+
+	return KeyRegistryStats{
+		TotalKeys:     len(r.keysByID),
+		ActiveKeys:    activeCount,
+		LastRefresh:   r.lastRefresh,
+		RefreshErrors: r.refreshErrors.Load(),
+		CacheHits:     r.cacheHits.Load(),
+		CacheMisses:   r.cacheMisses.Load(),
+	}
+}
+
+// Close stops background refresh and releases resources.
+func (r *PostgresKeyRegistry) Close() error {
+	close(r.stopCh)
+	r.wg.Wait()
+	return nil
+}
+
+// backgroundRefresh periodically refreshes the key cache.
+func (r *PostgresKeyRegistry) backgroundRefresh() {
+	defer r.wg.Done()
+
+	ticker := time.NewTicker(r.refreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.stopCh:
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), r.queryTimeout)
+			if err := r.refreshCache(ctx); err != nil {
+				r.refreshErrors.Add(1)
+				r.logger.Error().Err(err).Msg("Failed to refresh key cache")
+			}
+			cancel()
+		}
+	}
+}
+
+// refreshCache loads all active keys from the database.
+func (r *PostgresKeyRegistry) refreshCache(ctx context.Context) error {
+	query := `
+		SELECT
+			tk.key_id,
+			tk.tenant_id,
+			tk.algorithm,
+			tk.public_key,
+			tk.is_active,
+			tk.expires_at,
+			tk.revoked_at
+		FROM tenant_keys tk
+		JOIN tenants t ON tk.tenant_id = t.id
+		WHERE tk.is_active = true
+		  AND tk.revoked_at IS NULL
+		  AND (tk.expires_at IS NULL OR tk.expires_at > NOW())
+		  AND t.status = 'active'
+	`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("query keys: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	newKeysByID := make(map[string]*KeyInfo)
+	newKeysByTenant := make(map[string][]*KeyInfo)
+
+	for rows.Next() {
+		var key KeyInfo
+		var expiresAt, revokedAt sql.NullTime
+
+		if err := rows.Scan(
+			&key.KeyID,
+			&key.TenantID,
+			&key.Algorithm,
+			&key.PublicKeyPEM,
+			&key.IsActive,
+			&expiresAt,
+			&revokedAt,
+		); err != nil {
+			r.logger.Warn().Err(err).Msg("Failed to scan key row")
+			continue
+		}
+
+		if expiresAt.Valid {
+			key.ExpiresAt = &expiresAt.Time
+		}
+		if revokedAt.Valid {
+			key.RevokedAt = &revokedAt.Time
+		}
+
+		// Parse the public key
+		pub, err := ParsePublicKey(key.PublicKeyPEM, key.Algorithm)
+		if err != nil {
+			r.logger.Warn().
+				Str("key_id", key.KeyID).
+				Str("algorithm", key.Algorithm).
+				Err(err).
+				Msg("Failed to parse public key")
+			continue
+		}
+		key.PublicKey = pub
+
+		newKeysByID[key.KeyID] = &key
+		newKeysByTenant[key.TenantID] = append(newKeysByTenant[key.TenantID], &key)
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate rows: %w", err)
+	}
+
+	// Swap cache
+	r.cacheMu.Lock()
+	r.keysByID = newKeysByID
+	r.keysByTenant = newKeysByTenant
+	r.lastRefresh = time.Now()
+	r.cacheMu.Unlock()
+
+	r.logger.Debug().
+		Int("key_count", len(newKeysByID)).
+		Int("tenant_count", len(newKeysByTenant)).
+		Msg("Key cache refreshed")
+
+	return nil
+}
+
+// fetchKeyFromDB fetches a single key from the database.
+func (r *PostgresKeyRegistry) fetchKeyFromDB(ctx context.Context, keyID string) (*KeyInfo, error) {
+	query := `
+		SELECT
+			tk.key_id,
+			tk.tenant_id,
+			tk.algorithm,
+			tk.public_key,
+			tk.is_active,
+			tk.expires_at,
+			tk.revoked_at
+		FROM tenant_keys tk
+		JOIN tenants t ON tk.tenant_id = t.id
+		WHERE tk.key_id = $1
+		  AND t.status = 'active'
+	`
+
+	var key KeyInfo
+	var expiresAt, revokedAt sql.NullTime
+
+	err := r.db.QueryRowContext(ctx, query, keyID).Scan(
+		&key.KeyID,
+		&key.TenantID,
+		&key.Algorithm,
+		&key.PublicKeyPEM,
+		&key.IsActive,
+		&expiresAt,
+		&revokedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrKeyNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query key: %w", err)
+	}
+
+	if expiresAt.Valid {
+		key.ExpiresAt = &expiresAt.Time
+	}
+	if revokedAt.Valid {
+		key.RevokedAt = &revokedAt.Time
+	}
+
+	// Check validity
+	if !key.IsActive {
+		return nil, ErrKeyNotFound
+	}
+	if key.RevokedAt != nil {
+		return nil, ErrKeyRevoked
+	}
+	if key.ExpiresAt != nil && key.ExpiresAt.Before(time.Now()) {
+		return nil, ErrKeyExpired
+	}
+
+	// Parse the public key
+	pub, err := ParsePublicKey(key.PublicKeyPEM, key.Algorithm)
+	if err != nil {
+		return nil, fmt.Errorf("parse public key: %w", err)
+	}
+	key.PublicKey = pub
+
+	return &key, nil
+}
+
+// fetchKeysByTenantFromDB fetches all active keys for a tenant from the database.
+func (r *PostgresKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenantID string) ([]*KeyInfo, error) {
+	query := `
+		SELECT
+			tk.key_id,
+			tk.tenant_id,
+			tk.algorithm,
+			tk.public_key,
+			tk.is_active,
+			tk.expires_at,
+			tk.revoked_at
+		FROM tenant_keys tk
+		JOIN tenants t ON tk.tenant_id = t.id
+		WHERE tk.tenant_id = $1
+		  AND tk.is_active = true
+		  AND tk.revoked_at IS NULL
+		  AND (tk.expires_at IS NULL OR tk.expires_at > NOW())
+		  AND t.status = 'active'
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("query keys: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var keys []*KeyInfo
+	for rows.Next() {
+		var key KeyInfo
+		var expiresAt, revokedAt sql.NullTime
+
+		if err := rows.Scan(
+			&key.KeyID,
+			&key.TenantID,
+			&key.Algorithm,
+			&key.PublicKeyPEM,
+			&key.IsActive,
+			&expiresAt,
+			&revokedAt,
+		); err != nil {
+			continue
+		}
+
+		if expiresAt.Valid {
+			key.ExpiresAt = &expiresAt.Time
+		}
+		if revokedAt.Valid {
+			key.RevokedAt = &revokedAt.Time
+		}
+
+		// Parse the public key
+		pub, err := ParsePublicKey(key.PublicKeyPEM, key.Algorithm)
+		if err != nil {
+			continue
+		}
+		key.PublicKey = pub
+
+		keys = append(keys, &key)
+	}
+
+	return keys, rows.Err()
+}
+
+// Ensure PostgresKeyRegistry implements KeyRegistryWithRefresh.
+var _ KeyRegistryWithRefresh = (*PostgresKeyRegistry)(nil)

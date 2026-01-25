@@ -16,12 +16,28 @@ var (
 	ErrMissingToken = errors.New("missing token")
 )
 
-// Claims represents the JWT claims structure.
-// Uses standard JWT claims with Subject (sub) as the app ID or user principal.
+// Claims represents the JWT claims structure for multi-tenant authentication.
+// Uses standard JWT claims with Subject (sub) as the user/app identifier.
 type Claims struct {
 	jwt.RegisteredClaims
-	TenantID string   `json:"tenant_id,omitempty"`
-	Groups   []string `json:"groups,omitempty"` // Group memberships for group-scoped channel access
+
+	// TenantID is the tenant identifier (REQUIRED for multi-tenant mode)
+	TenantID string `json:"tenant_id,omitempty"`
+
+	// Attributes are identity attributes for placeholder resolution (e.g., "tier": "premium")
+	Attributes map[string]string `json:"attrs,omitempty"`
+
+	// Roles for RBAC (e.g., ["admin", "trader"])
+	Roles []string `json:"roles,omitempty"`
+
+	// Groups for group-scoped channel access (e.g., ["vip", "traders"])
+	Groups []string `json:"groups,omitempty"`
+
+	// Scopes for permission scopes (e.g., ["read:trades", "write:orders"])
+	Scopes []string `json:"scopes,omitempty"`
+
+	// Custom is an extension point for application-specific claims
+	Custom map[string]any `json:"custom,omitempty"`
 }
 
 // AppID returns the subject (app ID) from the token.
@@ -30,10 +46,54 @@ func (c *Claims) AppID() string {
 	return c.Subject
 }
 
+// UserID returns the subject (user identifier) from the token.
+// Alias for Subject for clarity in user-centric contexts.
+func (c *Claims) UserID() string {
+	return c.Subject
+}
+
 // Tenant returns the tenant ID from the token.
 // The tenant ID identifies the organization/company that owns the app.
 func (c *Claims) Tenant() string {
 	return c.TenantID
+}
+
+// HasRole checks if the claims contain the specified role.
+func (c *Claims) HasRole(role string) bool {
+	for _, r := range c.Roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+// HasScope checks if the claims contain the specified scope.
+func (c *Claims) HasScope(scope string) bool {
+	for _, s := range c.Scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
+}
+
+// HasGroup checks if the claims contain the specified group.
+func (c *Claims) HasGroup(group string) bool {
+	for _, g := range c.Groups {
+		if g == group {
+			return true
+		}
+	}
+	return false
+}
+
+// GetAttribute returns the value of the specified attribute, or empty string if not found.
+func (c *Claims) GetAttribute(key string) string {
+	if c.Attributes == nil {
+		return ""
+	}
+	return c.Attributes[key]
 }
 
 // JWTValidator handles JWT token validation and issuance.

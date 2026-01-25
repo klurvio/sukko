@@ -48,6 +48,11 @@ includes:
     taskfile: ./taskfiles/terraform/Taskfile.yml
     dir: .
 
+  # Provisioning database migrations (Atlas)
+  provisioning:
+    taskfile: ./taskfiles/provisioning.yml
+    dir: .
+
 tasks:
   default:
     desc: Show available commands

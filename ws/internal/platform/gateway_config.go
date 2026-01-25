@@ -24,9 +24,25 @@ type GatewayConfig struct {
 	DialTimeout    time.Duration `env:"GATEWAY_DIAL_TIMEOUT" envDefault:"10s"`
 	MessageTimeout time.Duration `env:"GATEWAY_MESSAGE_TIMEOUT" envDefault:"60s"`
 
-	// Authentication
-	AuthEnabled bool   `env:"AUTH_ENABLED" envDefault:"true"`
-	JWTSecret   string `env:"JWT_SECRET"`
+	// Authentication (multi-tenant with asymmetric keys)
+	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"true"`
+
+	// Provisioning database connection (required when auth is enabled)
+	ProvisioningDBURL string `env:"PROVISIONING_DATABASE_URL"`
+
+	// Key cache settings
+	KeyCacheRefreshInterval time.Duration `env:"KEY_CACHE_REFRESH_INTERVAL" envDefault:"1m"`
+	KeyCacheQueryTimeout    time.Duration `env:"KEY_CACHE_QUERY_TIMEOUT" envDefault:"5s"`
+
+	// Multi-tenant settings
+	RequireTenantID bool `env:"REQUIRE_TENANT_ID" envDefault:"true"`
+
+	// Database connection pool settings
+	DBMaxOpenConns    int           `env:"DB_MAX_OPEN_CONNS" envDefault:"10"`
+	DBMaxIdleConns    int           `env:"DB_MAX_IDLE_CONNS" envDefault:"5"`
+	DBConnMaxLifetime time.Duration `env:"DB_CONN_MAX_LIFETIME" envDefault:"5m"`
+	DBConnMaxIdleTime time.Duration `env:"DB_CONN_MAX_IDLE_TIME" envDefault:"1m"`
+	DBPingTimeout     time.Duration `env:"DB_PING_TIMEOUT" envDefault:"5s"`
 
 	// Permissions - channel patterns
 	// Patterns support wildcards: *.trade matches BTC.trade, *.trade.* matches BTC.trade.user123
@@ -77,14 +93,22 @@ func (c *GatewayConfig) Validate() error {
 		return fmt.Errorf("GATEWAY_PORT must be between 1 and 65535, got %d", c.Port)
 	}
 
-	// Only require JWTSecret when auth is enabled
+	// Require provisioning database when auth is enabled
 	if c.AuthEnabled {
-		if c.JWTSecret == "" {
-			return fmt.Errorf("JWT_SECRET is required when AUTH_ENABLED=true")
+		if c.ProvisioningDBURL == "" {
+			return fmt.Errorf("PROVISIONING_DATABASE_URL is required when AUTH_ENABLED=true")
 		}
-		if len(c.JWTSecret) < 32 {
-			return fmt.Errorf("JWT_SECRET must be at least 32 characters for HS256 security")
-		}
+	}
+
+	// Validate DB pool settings
+	if c.DBMaxOpenConns < 1 {
+		return fmt.Errorf("DB_MAX_OPEN_CONNS must be at least 1, got %d", c.DBMaxOpenConns)
+	}
+	if c.DBMaxIdleConns < 0 {
+		return fmt.Errorf("DB_MAX_IDLE_CONNS must be non-negative, got %d", c.DBMaxIdleConns)
+	}
+	if c.DBMaxIdleConns > c.DBMaxOpenConns {
+		return fmt.Errorf("DB_MAX_IDLE_CONNS (%d) cannot exceed DB_MAX_OPEN_CONNS (%d)", c.DBMaxIdleConns, c.DBMaxOpenConns)
 	}
 
 	if c.BackendURL == "" {
@@ -110,7 +134,7 @@ func (c *GatewayConfig) Validate() error {
 
 // LogConfig logs gateway configuration using structured logging.
 func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
-	logger.Info().
+	event := logger.Info().
 		Str("environment", c.Environment).
 		Int("port", c.Port).
 		Bool("auth_enabled", c.AuthEnabled).
@@ -126,6 +150,24 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		Int("rate_limit_burst", c.RateLimitBurst).
 		Float64("rate_limit_rate", c.RateLimitRate).
 		Str("log_level", c.LogLevel).
-		Str("log_format", c.LogFormat).
-		Msg("Gateway configuration loaded")
+		Str("log_format", c.LogFormat)
+
+	// Add auth-specific fields when enabled
+	if c.AuthEnabled {
+		event = event.
+			Bool("require_tenant_id", c.RequireTenantID).
+			Dur("key_cache_refresh_interval", c.KeyCacheRefreshInterval).
+			Dur("key_cache_query_timeout", c.KeyCacheQueryTimeout).
+			Int("db_max_open_conns", c.DBMaxOpenConns).
+			Int("db_max_idle_conns", c.DBMaxIdleConns).
+			Dur("db_conn_max_lifetime", c.DBConnMaxLifetime).
+			Dur("db_conn_max_idle_time", c.DBConnMaxIdleTime).
+			Dur("db_ping_timeout", c.DBPingTimeout)
+		// Don't log the DB URL for security
+		if c.ProvisioningDBURL != "" {
+			event = event.Bool("provisioning_db_configured", true)
+		}
+	}
+
+	event.Msg("Gateway configuration loaded")
 }

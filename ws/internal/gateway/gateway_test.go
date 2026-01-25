@@ -9,30 +9,39 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/Toniq-Labs/odin-ws/internal/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/platform"
 )
 
-// newTestGatewayConfig returns a gateway config with valid defaults for testing.
+// newTestGatewayConfig returns a gateway config with auth disabled for testing.
+// Auth requires a database connection, so most unit tests run with auth disabled.
 func newTestGatewayConfig() *platform.GatewayConfig {
 	return &platform.GatewayConfig{
-		Port:                3000,
-		ReadTimeout:         15 * time.Second,
-		WriteTimeout:        15 * time.Second,
-		IdleTimeout:         60 * time.Second,
-		BackendURL:          "ws://localhost:3001/ws",
-		DialTimeout:         10 * time.Second,
-		MessageTimeout:      60 * time.Second,
-		AuthEnabled:         true,
-		JWTSecret:           "test-secret-key-at-least-32-bytes!!",
-		PublicPatterns:      []string{"*.trade"},
-		UserScopedPatterns:  []string{"balances.{principal}"},
-		GroupScopedPatterns: []string{"community.{group_id}"},
-		RateLimitEnabled:    true,
-		RateLimitBurst:      100,
-		RateLimitRate:       10.0,
-		LogLevel:            "info",
-		LogFormat:           "json",
-		Environment:         "test",
+		Port:                    3000,
+		ReadTimeout:             15 * time.Second,
+		WriteTimeout:            15 * time.Second,
+		IdleTimeout:             60 * time.Second,
+		BackendURL:              "ws://localhost:3001/ws",
+		DialTimeout:             10 * time.Second,
+		MessageTimeout:          60 * time.Second,
+		AuthEnabled:             false, // Disabled by default for unit tests
+		PublicPatterns:          []string{"*.trade"},
+		UserScopedPatterns:      []string{"balances.{principal}"},
+		GroupScopedPatterns:     []string{"community.{group_id}"},
+		RateLimitEnabled:        true,
+		RateLimitBurst:          100,
+		RateLimitRate:           10.0,
+		LogLevel:                "info",
+		LogFormat:               "json",
+		Environment:             "test",
+		KeyCacheRefreshInterval: 1 * time.Minute,
+		KeyCacheQueryTimeout:    5 * time.Second,
+		RequireTenantID:         true,
+		DBMaxOpenConns:          10,
+		DBMaxIdleConns:          5,
+		DBConnMaxLifetime:       5 * time.Minute,
+		DBConnMaxIdleTime:       1 * time.Minute,
+		DBPingTimeout:           5 * time.Second,
 	}
 }
 
@@ -41,24 +50,18 @@ func newTestLogger() zerolog.Logger {
 	return zerolog.Nop()
 }
 
-func TestNew_AuthEnabled(t *testing.T) {
-	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
-	logger := newTestLogger()
-
-	gw := New(cfg, logger)
-
-	if gw == nil {
-		t.Fatal("New() returned nil")
-	}
-	if gw.config != cfg {
-		t.Error("Gateway config not set correctly")
-	}
-	if gw.jwtValidator == nil {
-		t.Error("JWT validator should be created when auth is enabled")
-	}
-	if gw.permissions == nil {
-		t.Error("PermissionChecker should be created")
+// newGatewayWithMockValidator creates a gateway with auth disabled and injects a mock validator.
+// This is useful for testing auth behavior without a database connection.
+func newGatewayWithMockValidator(cfg *platform.GatewayConfig, logger zerolog.Logger, validator *auth.MultiTenantValidator) *Gateway {
+	return &Gateway{
+		config: cfg,
+		permissions: NewPermissionChecker(
+			cfg.PublicPatterns,
+			cfg.UserScopedPatterns,
+			cfg.GroupScopedPatterns,
+		),
+		validator: validator,
+		logger:    logger.With().Str("component", "gateway").Logger(),
 	}
 }
 
@@ -67,23 +70,45 @@ func TestNew_AuthDisabled(t *testing.T) {
 	cfg.AuthEnabled = false
 	logger := newTestLogger()
 
-	gw := New(cfg, logger)
+	gw, err := New(cfg, logger)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = gw.Close() }()
 
 	if gw == nil {
 		t.Fatal("New() returned nil")
 	}
-	if gw.jwtValidator != nil {
-		t.Error("JWT validator should be nil when auth is disabled")
+	if gw.validator != nil {
+		t.Error("Validator should be nil when auth is disabled")
 	}
 	if gw.permissions == nil {
 		t.Error("PermissionChecker should still be created")
 	}
 }
 
+func TestNew_AuthEnabled_RequiresDatabase(t *testing.T) {
+	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = true
+	cfg.ProvisioningDBURL = "" // No database URL
+	logger := newTestLogger()
+
+	// Should fail because no database URL is provided
+	_, err := New(cfg, logger)
+	if err == nil {
+		t.Error("New() should fail when auth is enabled without database URL")
+	}
+}
+
 func TestGateway_ExtractToken(t *testing.T) {
 	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = false
 	logger := newTestLogger()
-	gw := New(cfg, logger)
+	gw, err := New(cfg, logger)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = gw.Close() }()
 
 	tests := []struct {
 		name       string
@@ -163,8 +188,13 @@ func TestGateway_ExtractToken(t *testing.T) {
 
 func TestGateway_HandleHealth(t *testing.T) {
 	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = false
 	logger := newTestLogger()
-	gw := New(cfg, logger)
+	gw, err := New(cfg, logger)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = gw.Close() }()
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
@@ -202,8 +232,13 @@ func TestGateway_NewServer(t *testing.T) {
 	cfg.ReadTimeout = 20 * time.Second
 	cfg.WriteTimeout = 25 * time.Second
 	cfg.IdleTimeout = 120 * time.Second
+	cfg.AuthEnabled = false
 	logger := newTestLogger()
-	gw := New(cfg, logger)
+	gw, err := New(cfg, logger)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = gw.Close() }()
 
 	server := gw.NewServer()
 
@@ -234,11 +269,23 @@ func TestGateway_NewServer(t *testing.T) {
 	}
 }
 
-func TestGateway_HandleWebSocket_NoToken(t *testing.T) {
+func TestGateway_HandleWebSocket_NoToken_WithMockValidator(t *testing.T) {
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthEnabled = true // Enable auth for this test
 	logger := newTestLogger()
-	gw := New(cfg, logger)
+
+	// Create a mock validator using StaticKeyRegistry
+	registry := auth.NewStaticKeyRegistry()
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry:     registry,
+		RequireTenantID: true,
+		RequireKeyID:    true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	gw := newGatewayWithMockValidator(cfg, logger, validator)
 
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 	w := httptest.NewRecorder()
@@ -254,11 +301,23 @@ func TestGateway_HandleWebSocket_NoToken(t *testing.T) {
 	}
 }
 
-func TestGateway_HandleWebSocket_InvalidToken(t *testing.T) {
+func TestGateway_HandleWebSocket_InvalidToken_WithMockValidator(t *testing.T) {
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthEnabled = true // Enable auth for this test
 	logger := newTestLogger()
-	gw := New(cfg, logger)
+
+	// Create a mock validator using StaticKeyRegistry (empty, so all tokens fail)
+	registry := auth.NewStaticKeyRegistry()
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry:     registry,
+		RequireTenantID: true,
+		RequireKeyID:    true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	gw := newGatewayWithMockValidator(cfg, logger, validator)
 
 	req := httptest.NewRequest(http.MethodGet, "/ws?token=invalid-token", nil)
 	w := httptest.NewRecorder()
@@ -271,5 +330,21 @@ func TestGateway_HandleWebSocket_InvalidToken(t *testing.T) {
 	// Should return 401 Unauthorized for invalid token
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("HandleWebSocket() with invalid token status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func TestGateway_Close_NilFields(t *testing.T) {
+	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = false
+	logger := newTestLogger()
+
+	gw, err := New(cfg, logger)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	// Should not panic when closing gateway with nil keyRegistry and dbConn
+	if err := gw.Close(); err != nil {
+		t.Errorf("Close() error = %v, want nil", err)
 	}
 }

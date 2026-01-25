@@ -1,0 +1,94 @@
+version: "3"
+
+# Provisioning Database Migration Tasks
+# Uses Atlas (https://atlasgo.io/) for database migrations
+
+vars:
+  MIGRATIONS_DIR: "{{.ROOT_DIR}}/ws/internal/provisioning/repository/migrations"
+
+tasks:
+  migrate:
+    desc: Apply database migrations
+    summary: |
+      Applies all pending database migrations using Atlas.
+
+      Requires DATABASE_URL environment variable to be set:
+        export DATABASE_URL="postgres://user:pass@host:5432/provisioning?sslmode=require"
+
+      Or use dotenv file.
+    dir: "{{.ROOT_DIR}}"
+    preconditions:
+      - sh: command -v atlas
+        msg: "Atlas CLI not installed. Install with: curl -sSf https://atlasgo.sh | sh"
+      - sh: '[ -n "$DATABASE_URL" ]'
+        msg: "DATABASE_URL environment variable not set"
+    cmds:
+      - atlas migrate apply --url "$DATABASE_URL" --dir "file://{{.MIGRATIONS_DIR}}"
+
+  validate:
+    desc: Check for schema drift
+    summary: |
+      Compares the current database schema with the migration files.
+      Reports any differences (drift) between the two.
+    dir: "{{.ROOT_DIR}}"
+    preconditions:
+      - sh: command -v atlas
+        msg: "Atlas CLI not installed. Install with: curl -sSf https://atlasgo.sh | sh"
+      - sh: '[ -n "$DATABASE_URL" ]'
+        msg: "DATABASE_URL environment variable not set"
+    cmds:
+      - atlas schema diff --from "$DATABASE_URL" --to "file://{{.MIGRATIONS_DIR}}"
+
+  status:
+    desc: Show migration status
+    summary: |
+      Shows the current migration status of the database.
+    dir: "{{.ROOT_DIR}}"
+    preconditions:
+      - sh: command -v atlas
+        msg: "Atlas CLI not installed. Install with: curl -sSf https://atlasgo.sh | sh"
+      - sh: '[ -n "$DATABASE_URL" ]'
+        msg: "DATABASE_URL environment variable not set"
+    cmds:
+      - atlas migrate status --url "$DATABASE_URL" --dir "file://{{.MIGRATIONS_DIR}}"
+
+  new:
+    desc: Create a new migration file
+    summary: |
+      Creates a new migration file in the migrations directory.
+
+      Usage: task provisioning:new -- migration_name
+
+      Example: task provisioning:new -- add_user_preferences
+    dir: "{{.ROOT_DIR}}"
+    preconditions:
+      - sh: command -v atlas
+        msg: "Atlas CLI not installed. Install with: curl -sSf https://atlasgo.sh | sh"
+    cmds:
+      - atlas migrate new {{.CLI_ARGS}} --dir "file://{{.MIGRATIONS_DIR}}"
+
+  hash:
+    desc: Recalculate migration hash
+    summary: |
+      Recalculates the atlas.sum file after modifying migration files.
+      Required when manually editing migration SQL files.
+    dir: "{{.ROOT_DIR}}"
+    preconditions:
+      - sh: command -v atlas
+        msg: "Atlas CLI not installed. Install with: curl -sSf https://atlasgo.sh | sh"
+    cmds:
+      - atlas migrate hash --dir "file://{{.MIGRATIONS_DIR}}"
+
+  lint:
+    desc: Lint migration files
+    summary: |
+      Analyzes migration files for potential issues:
+      - Destructive changes (DROP, TRUNCATE)
+      - Backward incompatible changes
+      - Missing indexes on foreign keys
+    dir: "{{.ROOT_DIR}}"
+    preconditions:
+      - sh: command -v atlas
+        msg: "Atlas CLI not installed. Install with: curl -sSf https://atlasgo.sh | sh"
+    cmds:
+      - atlas migrate lint --dir "file://{{.MIGRATIONS_DIR}}" --dev-url "docker://postgres/15"

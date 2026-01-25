@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
@@ -12,28 +13,28 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/platform"
+
+	// PostgreSQL driver
+	_ "github.com/lib/pq"
 )
 
 // Gateway handles WebSocket connections, authenticating clients and proxying
 // to the ws-server backend with permission-based channel filtering.
 type Gateway struct {
-	config       *platform.GatewayConfig
-	jwtValidator *auth.JWTValidator
-	permissions  *PermissionChecker
-	logger       zerolog.Logger
+	config      *platform.GatewayConfig
+	validator   *auth.MultiTenantValidator
+	keyRegistry auth.KeyRegistry // For cleanup on shutdown
+	dbConn      *sql.DB          // For cleanup on shutdown
+	permissions *PermissionChecker
+	logger      zerolog.Logger
 }
 
 // New creates a new Gateway instance.
-func New(config *platform.GatewayConfig, logger zerolog.Logger) *Gateway {
-	// Only create JWT validator if auth is enabled
-	var jwtValidator *auth.JWTValidator
-	if config.AuthEnabled {
-		jwtValidator = auth.NewJWTValidator(config.JWTSecret)
-	}
-
-	return &Gateway{
-		config:       config,
-		jwtValidator: jwtValidator,
+// For multi-tenant mode, this opens a database connection and starts key cache refresh.
+// Call Close() to release resources when shutting down.
+func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error) {
+	gw := &Gateway{
+		config: config,
 		permissions: NewPermissionChecker(
 			config.PublicPatterns,
 			config.UserScopedPatterns,
@@ -41,6 +42,96 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) *Gateway {
 		),
 		logger: logger.With().Str("component", "gateway").Logger(),
 	}
+
+	// Set up validator if auth is enabled
+	if config.AuthEnabled {
+		if err := gw.setupValidator(); err != nil {
+			return nil, fmt.Errorf("setup validator: %w", err)
+		}
+	}
+
+	return gw, nil
+}
+
+// setupValidator configures the multi-tenant JWT validator with asymmetric keys.
+func (gw *Gateway) setupValidator() error {
+	// Open database connection
+	db, err := sql.Open("postgres", gw.config.ProvisioningDBURL)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+
+	// Configure connection pool from config
+	db.SetMaxOpenConns(gw.config.DBMaxOpenConns)
+	db.SetMaxIdleConns(gw.config.DBMaxIdleConns)
+	db.SetConnMaxLifetime(gw.config.DBConnMaxLifetime)
+	db.SetConnMaxIdleTime(gw.config.DBConnMaxIdleTime)
+
+	// Verify connection
+	ctx, cancel := context.WithTimeout(context.Background(), gw.config.DBPingTimeout)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("ping database: %w", err)
+	}
+	gw.dbConn = db
+
+	// Create key registry with background refresh
+	keyRegistry, err := auth.NewPostgresKeyRegistry(auth.PostgresKeyRegistryConfig{
+		DB:              db,
+		RefreshInterval: gw.config.KeyCacheRefreshInterval,
+		QueryTimeout:    gw.config.KeyCacheQueryTimeout,
+		Logger:          gw.logger.With().Str("component", "key_registry").Logger(),
+	})
+	if err != nil {
+		_ = db.Close()
+		return fmt.Errorf("create key registry: %w", err)
+	}
+	gw.keyRegistry = keyRegistry
+
+	// Create multi-tenant validator
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry:     keyRegistry,
+		RequireTenantID: gw.config.RequireTenantID,
+		RequireKeyID:    true,
+	})
+	if err != nil {
+		_ = keyRegistry.Close()
+		_ = db.Close()
+		return fmt.Errorf("create validator: %w", err)
+	}
+	gw.validator = validator
+
+	gw.logger.Info().
+		Dur("cache_refresh_interval", gw.config.KeyCacheRefreshInterval).
+		Bool("require_tenant_id", gw.config.RequireTenantID).
+		Int("db_max_open_conns", gw.config.DBMaxOpenConns).
+		Msg("Configured multi-tenant authentication")
+
+	return nil
+}
+
+// Close releases resources held by the gateway.
+// Should be called during shutdown.
+func (gw *Gateway) Close() error {
+	var errs []error
+
+	if gw.keyRegistry != nil {
+		if err := gw.keyRegistry.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close key registry: %w", err))
+		}
+	}
+
+	if gw.dbConn != nil {
+		if err := gw.dbConn.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close database: %w", err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("close errors: %v", errs)
+	}
+	return nil
 }
 
 // HandleWebSocket handles incoming WebSocket upgrade requests.
@@ -48,6 +139,7 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) *Gateway {
 func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	remoteAddr := r.RemoteAddr
+	ctx := r.Context()
 
 	var claims *auth.Claims
 
@@ -62,9 +154,9 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Validate JWT token
+		// Validate JWT token using multi-tenant validator
 		var err error
-		claims, err = gw.jwtValidator.ValidateToken(token)
+		claims, err = gw.validator.ValidateToken(ctx, token)
 		if err != nil {
 			gw.logger.Warn().
 				Err(err).

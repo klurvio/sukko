@@ -1,15 +1,18 @@
 ---
-marp: true
-theme: default
-paginate: true
-header: 'Odin WebSocket System'
-footer: 'Confidential - January 2026'
+title: Odin WebSocket System
+theme: black
+revealOptions:
+  transition: slide
+  slideNumber: true
+  hash: true
 ---
 
 # Odin WebSocket System
 ## Real-Time Streaming Infrastructure
 
 **Enterprise-Scale | Cost-Efficient**
+
+*Confidential - January 2026*
 
 ---
 
@@ -49,7 +52,7 @@ footer: 'Confidential - January 2026'
 ```
 Connections:     17,710 / 18,000 (98.4% success)
 Publish Rate:    10 events/sec (test publisher)
-Throughput:      51,110 msg/sec delivered (10 × ~5,111 subscribers)
+Throughput:      51,110 msg/sec delivered (10 x ~5,111 subscribers)
 CPU Usage:       15-20% average (30-70% during broadcasts)
 Memory:          ~1 GB stable
 Goroutines:      72,340 (72% of 100K limit)
@@ -57,7 +60,10 @@ Goroutines:      72,340 (72% of 100K limit)
 
 **Note:** System supports up to 25 msg/sec publish rate (configurable)
 
+---
+
 ## Multi-Shard Distribution
+
 ```
 Shard 0: 5,909 / 6,000 (98.5%)
 Shard 1: 5,901 / 6,000 (98.4%)
@@ -86,24 +92,26 @@ Variance: 0.15% (near-perfect load balancing)
 
 ```
 Without NATS:
-┌─────────────┐     ┌─────────────┐
-│   Pod A     │     │   Pod B     │
-│ Client 1,2  │     │ Client 3,4  │
-└──────┬──────┘     └─────────────┘
-       │
-  Kafka msg → Only Pod A receives → Clients 3,4 miss the message!
++-------------+     +-------------+
+|   Pod A     |     |   Pod B     |
+| Client 1,2  |     | Client 3,4  |
++------+------+     +-------------+
+       |
+  Kafka msg -> Only Pod A receives -> Clients 3,4 miss the message!
 ```
+
+---
 
 ## The Solution
 
 ```
 With NATS Broadcast Bus:
-┌─────────────┐     ┌─────────────┐
-│   Pod A     │◀───▶│   Pod B     │
-│ Client 1,2  │ NATS│ Client 3,4  │
-└──────┬──────┘     └─────────────┘
-       │
-  Kafka msg → Pod A receives → NATS re-broadcasts → All clients receive!
++-------------+     +-------------+
+|   Pod A     |<--->|   Pod B     |
+| Client 1,2  | NATS| Client 3,4  |
++------+------+     +-------------+
+       |
+  Kafka msg -> Pod A receives -> NATS re-broadcasts -> All clients receive!
 ```
 
 **Result:** Clients receive messages regardless of which pod they're connected to.
@@ -113,23 +121,30 @@ With NATS Broadcast Bus:
 # Kubernetes Architecture (Current)
 
 ```
-┌─────────────┐    ┌────────────────┐    ┌─────────────────┐
-│   Clients   │───▶│   Cloudflare   │───▶│  K8s LoadBalancer│
-│  (Browser)  │    │  (DDoS/TLS)    │    │ (Least-Conn)    │
-└─────────────┘    └────────────────┘    └────────┬────────┘
-                                                  │
-                   ┌──────────────────────────────┼──────────────────────────────┐
-                   │                    GKE Cluster                               │
-                   │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐      │
-                   │  │ WS-Gateway  │───▶│  WS-Server  │◀──▶│    NATS     │      │
-                   │  │  (Auth)     │    │ (Broadcast) │    │ (Cross-pod) │      │
-                   │  └─────────────┘    └──────┬──────┘    └─────────────┘      │
-                   │                            │                                 │
-                   │                     ┌──────▼──────┐    ┌─────────────┐      │
-                   │                     │  Redpanda   │◀───│ CDC Odin API│      │
-                   │                     │   (Kafka)   │    │ (Publisher) │      │
-                   │                     └─────────────┘    └─────────────┘      │
-                   └──────────────────────────────────────────────────────────────┘
++-------------+    +----------------+    +-----------------+
+|   Clients   |--->|   Cloudflare   |--->| K8s LoadBalancer|
+|  (Browser)  |    |  (DDoS/TLS)    |    | (Least-Conn)    |
++-------------+    +----------------+    +--------+--------+
+                                                  |
++-----------------------------------------------------------------------------+
+|                              GKE Cluster                                    |
+|  +-------------+    +-------------+    +-------------+                      |
+|  | WS-Gateway  |--->|  WS-Server  |<-->|    NATS     |                      |
+|  |  (Auth)     |    | (Broadcast) |    | (Cross-pod) |                      |
+|  +-------------+    +------+------+    +-------------+                      |
+|                            |                                                |
+|                     +------v------+    +-------------+                      |
+|                     |  Redpanda   |<---|CDC Odin API|                       |
+|                     |   (Kafka)   |    | (Publisher) |                      |
+|                     +-------------+    +-------------+                      |
+|                                                                             |
+|  +---------------------------- Observability ------------------------------+|
+|  |  +------------+    +------------+    +------------+                     ||
+|  |  | Prometheus |<---|  Grafana   |--->|    Loki    |                     ||
+|  |  | (Metrics)  |    |(Dashboards)|    |   (Logs)   |                     ||
+|  |  +------------+    +------------+    +------------+                     ||
+|  +-------------------------------------------------------------------------+|
++-----------------------------------------------------------------------------+
 ```
 
 **Status:** Functional PoC (1 connection validated), load test pending
@@ -158,6 +173,8 @@ With NATS Broadcast Bus:
 | Kubernetes Native | Helm charts, HPA, rolling updates |
 | Observability | 50+ metrics, Grafana dashboards |
 
+---
+
 ## Tier 3: Operational Excellence
 | Feature | Description |
 |---------|-------------|
@@ -167,29 +184,84 @@ With NATS Broadcast Bus:
 
 ---
 
+# User Metrics (from Google Analytics)
+
+## Daily Active Users
+| Period | Users |
+|--------|-------|
+| Current daily | ~10,000 |
+| Peak daily (historical) | ~20,000 |
+| Total (6 months) | 165,000 |
+
+## Top Market: China (117K users)
+Peak hours likely: 6 PM - 12 AM CST (~6 hour window)
+
+---
+
+# Peak Concurrent Estimation
+
+## Method 1: Conservative (Session Duration Formula)
+```
+Peak concurrent = Daily users x (avg session / peak window)
+
+Current: 10,000 x (10 min / 360 min) = ~280 concurrent
+Peak:    20,000 x (10 min / 360 min) = ~560 concurrent
+With major event (5x): 560 x 5 = ~2,800 concurrent
+```
+
+---
+
+## Method 2: Inflated Estimate (35-45% of daily)
+*Padded for safety margin and growth buffer*
+```
+Current: 10,000 x 35% = 3,500 concurrent
+Peak:    20,000 x 45% = 9,000 concurrent
+```
+
+---
+
+# Concurrent Scenarios
+
+| Scenario | Method | Concurrent |
+|----------|--------|------------|
+| Current normal | Session formula | ~280 |
+| Current + major event | Session x 5 | ~2,800 |
+| Current (inflated) | 35% of daily | ~3,500 |
+| Peak day (inflated) | 45% of daily | ~9,000 |
+
+**Capacity Target: 3,500-9,000** (inflated for safety + growth)
+
+*Validated system: 18K connections - covers even worst-case scenarios*
+*Users distributed across ~7 pages, reducing broadcast fan-out per message*
+
+---
+
 # Cost Justification: Polling vs WebSocket
 
 ## Current State (Polling Every 2-3 Seconds)
 
 | Metric | Value |
 |--------|-------|
-| Active users (30 min) | ~400 |
-| **Peak concurrent users** | **~1,000** |
+| Daily active users | ~10K (current), ~20K (peak) |
+| **Peak concurrent (inflated)** | **~3,500 - 9,000** |
 | Requests per user/min | 20-30 |
-| **Peak requests/minute** | **20,000 - 30,000** |
+| **Peak requests/minute** | **70,000 - 270,000** |
 | Polling-related cost (est.) | ~$5,955/month |
 
-*Peak concurrent estimated as ~2.5x "active users in 30 min" (GA4 real-time)*
 *Cost attribution: 50% Cloud Run, 30% Cloud SQL due to polling*
 
-## WebSocket Server Cost
+---
+
+## WebSocket Server Cost (for 9K connections)
 
 | Component | Monthly Cost |
 |-----------|--------------|
-| GKE node (e2-medium Spot) | ~$15-25 |
+| GKE nodes (e2-standard-4 Spot, 2x) | ~$100-150 |
 | Redpanda (self-hosted) | ~$50-100 |
-| Load Balancer + Egress | ~$50-70 |
-| **Total** | **~$135-225/month** |
+| Load Balancer + Egress | ~$100-150 |
+| **Total** | **~$250-400/month** |
+
+*Still 93-96% cheaper than polling*
 
 ---
 
@@ -200,12 +272,14 @@ With NATS Broadcast Bus:
 | Approach | Monthly | Annual |
 |----------|---------|--------|
 | **Current (Polling)** | ~$5,955 | ~$71,460 |
-| **WebSocket Server** | ~$180 | ~$2,160 |
-| **Savings** | **~$5,775** | **~$69,300** |
+| **WebSocket Server** | ~$325 | ~$3,900 |
+| **Savings** | **~$5,630** | **~$67,560** |
+
+---
 
 ## ROI Highlights
 
-- **97% cost reduction** in polling-related infrastructure
+- **94% cost reduction** in polling-related infrastructure
 - **Immediate payback** - WS server already built
 - **Better UX** - Real-time updates vs 2-3s delay
 - **Reduced load** - Less pressure on Cloud Run & SQL
@@ -223,11 +297,58 @@ With NATS Broadcast Bus:
 | Production | 1-5 nodes (Spot VM, autoscaling) | ~$400-600 |
 | **Total** | All environments | **~$700-1,000** |
 
+---
+
 ## Cost Optimization Strategies
+
 - **Spot VMs:** 60-90% savings vs on-demand
 - **Zonal clusters:** 20% cheaper than regional
 - **Right-sized resources:** Per-environment tuning
 - **HPA:** Prevents over-provisioning
+
+---
+
+# Autoscaling Strategy
+
+## How It Works
+```
+Load increases
+    → HPA adds pods (70% CPU threshold)
+    → No node capacity?
+        → Cluster Autoscaler adds nodes
+    → Zero downtime
+```
+
+## Configuration
+| Component | Setting | Value |
+|-----------|---------|-------|
+| HPA | Min replicas | 2 |
+| HPA | Max replicas | 10 |
+| HPA | CPU threshold | 70% |
+| Cluster Autoscaler | Min nodes | 2 |
+| Cluster Autoscaler | Max nodes | 5 |
+| Pod Disruption Budget | Min available | 1 |
+
+---
+
+# Zero-Downtime Scaling & Upgrades
+
+## Horizontal Scaling
+- HPA adds pods when CPU > 70%
+- Cluster Autoscaler adds nodes when needed
+- Traffic distributes across all healthy pods
+
+## Vertical Scaling (Bigger Nodes)
+- Add new node pool with larger machines
+- Rolling drain of old nodes (one at a time)
+- Pod Disruption Budget ensures min 1 pod always running
+
+## Node Upgrades
+- GKE rolling update (one node at a time)
+- Pods migrate before node is removed
+- Automated with zero manual intervention
+
+**All operations: Zero downtime**
 
 ---
 
@@ -242,6 +363,8 @@ Client sees:    all.trade
 Server maps:    odin.all.trade  (tenant from JWT)
 Kafka topic:    main.odin.trade
 ```
+
+---
 
 ## Key Decisions
 
@@ -272,7 +395,7 @@ Kafka topic:    main.odin.trade
 
 ## Environments
 ```
-Local (Kind) → Develop (GKE) → Staging (GKE) → Production (GKE)
+Local (Kind) -> Develop (GKE) -> Staging (GKE) -> Production (GKE)
 ```
 
 ## Automation
@@ -281,7 +404,10 @@ Local (Kind) → Develop (GKE) → Staging (GKE) → Production (GKE)
 - **Helm** for Kubernetes deployments
 - **Rolling updates** for zero-downtime deploys
 
+---
+
 ## Monitoring
+
 - Real-time Grafana dashboards
 - Prometheus alerting rules
 - Loki log aggregation
@@ -314,7 +440,10 @@ Local (Kind) → Develop (GKE) → Staging (GKE) → Production (GKE)
 3. **Publish Events** - Show messages flowing
 4. **Show K8s Pods** - Demonstrate deployment
 
+---
+
 ## Key URLs
+
 - Grafana: `http://localhost:3010`
 - WebSocket: `ws://localhost:30080/ws`
 
@@ -327,9 +456,11 @@ Local (Kind) → Develop (GKE) → Staging (GKE) → Production (GKE)
 # Summary
 
 ## Validated
-- **18K connections** with 51K msg/sec throughput (10 pub/sec × 5K subscribers)
+- **18K connections** with 51K msg/sec throughput (10 pub/sec x 5K subscribers)
 - Multi-shard architecture with near-perfect load balancing
 - Zero message errors under sustained load
+
+---
 
 ## Ready for Production (K8s)
 - Full deployment pipeline functional
