@@ -16,16 +16,18 @@ type Alerter interface {
 	Alert(level AuditLevel, message string, metadata map[string]any)
 }
 
-// MultiAlerter sends alerts to multiple alerters
-// Example: Send to both Slack and Email
+// MultiAlerter sends alerts to multiple alerters.
+// Example: Send to both Slack and Email.
 type MultiAlerter struct {
 	alerters []Alerter
 }
 
+// NewMultiAlerter creates a MultiAlerter that fans out to multiple alerters.
 func NewMultiAlerter(alerters ...Alerter) *MultiAlerter {
 	return &MultiAlerter{alerters: alerters}
 }
 
+// Alert sends an alert to all configured alerters concurrently.
 func (m *MultiAlerter) Alert(level AuditLevel, message string, metadata map[string]any) {
 	for _, alerter := range m.alerters {
 		// Run in goroutine to avoid blocking
@@ -40,6 +42,7 @@ type SlackAlerter struct {
 	username   string
 }
 
+// NewSlackAlerter creates a Slack alerter with the given webhook configuration.
 func NewSlackAlerter(webhookURL, channel, username string) *SlackAlerter {
 	return &SlackAlerter{
 		webhookURL: webhookURL,
@@ -48,6 +51,7 @@ func NewSlackAlerter(webhookURL, channel, username string) *SlackAlerter {
 	}
 }
 
+// Alert sends an alert to Slack via webhook.
 func (s *SlackAlerter) Alert(level AuditLevel, message string, metadata map[string]any) {
 	if s.webhookURL == "" {
 		return // Not configured
@@ -154,13 +158,14 @@ func (c *ConsoleAlerter) getWriter() io.Writer {
 	return defaultWriter
 }
 
-// defaultWriter is os.Stdout, defined as a variable for easy testing
-var defaultWriter io.Writer = nil // initialized in init or first use
+// defaultWriter is os.Stdout, defined as a variable for easy testing.
+var defaultWriter io.Writer // initialized in init or first use
 
 func init() {
 	// Can't import os in init easily, so we handle nil as stdout in getWriter
 }
 
+// Alert outputs an alert message to the console with metadata.
 func (c *ConsoleAlerter) Alert(level AuditLevel, message string, metadata map[string]any) {
 	w := c.getWriter()
 	if w == nil {

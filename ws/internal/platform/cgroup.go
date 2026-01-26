@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// getMemoryLimit returns the container memory limit in bytes from cgroup filesystem.
+// GetMemoryLimit returns the container memory limit in bytes from cgroup filesystem.
 //
 // Purpose:
 //

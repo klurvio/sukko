@@ -1,3 +1,5 @@
+// Package gateway provides WebSocket connection handling with authentication,
+// proxying to backend servers, and permission-based channel filtering.
 package gateway
 
 import (
@@ -141,12 +143,22 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	remoteAddr := r.RemoteAddr
 	ctx := r.Context()
 
+	// Record connection attempt and track disconnect reason for metrics
+	RecordConnection()
+	closeReason := "normal"
+	defer func() {
+		RecordDisconnection(closeReason, time.Since(startTime))
+	}()
+
 	var claims *auth.Claims
 
 	if gw.config.AuthEnabled {
+		authStart := time.Now()
 		// Extract token from query parameter or Authorization header
 		token := gw.extractToken(r)
 		if token == "" {
+			RecordAuthValidation("failed", time.Since(authStart))
+			closeReason = "no_token"
 			gw.logger.Warn().
 				Str("remote_addr", remoteAddr).
 				Msg("Connection rejected: no token provided")
@@ -158,6 +170,8 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		var err error
 		claims, err = gw.validator.ValidateToken(ctx, token)
 		if err != nil {
+			RecordAuthValidation("failed", time.Since(authStart))
+			closeReason = "invalid_token"
 			gw.logger.Warn().
 				Err(err).
 				Str("remote_addr", remoteAddr).
@@ -165,6 +179,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
 			return
 		}
+		RecordAuthValidation("success", time.Since(authStart))
 
 		gw.logger.Debug().
 			Str("principal", claims.Subject).
@@ -173,6 +188,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			Str("remote_addr", remoteAddr).
 			Msg("Token validated successfully")
 	} else {
+		RecordAuthValidation("skipped", 0)
 		// Auth disabled - create anonymous claims
 		claims = &auth.Claims{
 			RegisteredClaims: jwt.RegisteredClaims{
@@ -189,6 +205,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Upgrade client connection to WebSocket using gobwas/ws
 	clientConn, _, _, err := ws.UpgradeHTTP(r, w)
 	if err != nil {
+		closeReason = "upgrade_failed"
 		gw.logger.Warn().
 			Err(err).
 			Str("remote_addr", remoteAddr).
@@ -201,8 +218,11 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	dialCtx, cancel := context.WithTimeout(ctx, gw.config.DialTimeout)
 	defer cancel()
 
+	dialStart := time.Now()
 	backendConn, _, _, err := ws.Dial(dialCtx, gw.config.BackendURL)
 	if err != nil {
+		RecordBackendConnect("failed", time.Since(dialStart))
+		closeReason = "backend_unavailable"
 		gw.logger.Error().
 			Err(err).
 			Str("backend_url", gw.config.BackendURL).
@@ -214,6 +234,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		_ = ws.WriteFrame(clientConn, ws.NewCloseFrame(closeFrame))
 		return
 	}
+	RecordBackendConnect("success", time.Since(dialStart))
 	defer func() { _ = backendConn.Close() }()
 
 	gw.logger.Info().
@@ -241,7 +262,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleHealth handles health check requests.
-func (gw *Gateway) HandleHealth(w http.ResponseWriter, r *http.Request) {
+func (gw *Gateway) HandleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"status":"ok","service":"ws-gateway"}`))
@@ -269,6 +290,7 @@ func (gw *Gateway) NewServer() *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", gw.HandleWebSocket)
 	mux.HandleFunc("/health", gw.HandleHealth)
+	mux.HandleFunc("/metrics", HandleMetrics)
 
 	return &http.Server{
 		Addr:         fmt.Sprintf(":%d", gw.config.Port),

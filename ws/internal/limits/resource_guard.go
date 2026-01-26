@@ -86,11 +86,11 @@ type GoroutineLimiter struct {
 	max int
 }
 
-// NewGoroutineLimiter creates a limiter that allows max concurrent goroutines
-func NewGoroutineLimiter(max int) *GoroutineLimiter {
+// NewGoroutineLimiter creates a limiter that allows maxGoroutines concurrent goroutines.
+func NewGoroutineLimiter(maxGoroutines int) *GoroutineLimiter {
 	return &GoroutineLimiter{
-		sem: make(chan struct{}, max),
-		max: max,
+		sem: make(chan struct{}, maxGoroutines),
+		max: maxGoroutines,
 	}
 }
 
@@ -356,7 +356,7 @@ func (rg *ResourceGuard) ShouldPauseKafka() bool {
 // Returns:
 //   - allow: true if message should be processed
 //   - waitDuration: how long caller should wait before retrying (if blocked)
-func (rg *ResourceGuard) AllowKafkaMessage(ctx context.Context) (allow bool, waitDuration time.Duration) {
+func (rg *ResourceGuard) AllowKafkaMessage(_ context.Context) (allow bool, waitDuration time.Duration) {
 	// Non-blocking check
 	reservation := rg.kafkaLimiter.Reserve()
 	if !reservation.OK() {

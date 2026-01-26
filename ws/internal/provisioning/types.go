@@ -149,10 +149,11 @@ func (t *Tenant) IsActive() bool {
 // Algorithm represents a JWT signing algorithm.
 type Algorithm string
 
+// Algorithm constants for JWT signing.
 const (
-	AlgorithmES256 Algorithm = "ES256"
-	AlgorithmRS256 Algorithm = "RS256"
-	AlgorithmEdDSA Algorithm = "EdDSA"
+	AlgorithmES256 Algorithm = "ES256" // ECDSA using P-256 and SHA-256
+	AlgorithmRS256 Algorithm = "RS256" // RSA PKCS#1 using SHA-256
+	AlgorithmEdDSA Algorithm = "EdDSA" // EdDSA signature algorithm
 )
 
 // IsValid checks if the algorithm is supported.

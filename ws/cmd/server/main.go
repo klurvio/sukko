@@ -78,8 +78,9 @@ func main() {
 	// Initialize SystemMonitor singleton FIRST (before creating any ResourceGuards)
 	// This ensures all ResourceGuards share the same system metrics source
 	structuredLogger := monitoring.NewLogger(monitoring.LoggerConfig{
-		Level:  types.LogLevel(cfg.LogLevel),
-		Format: types.LogFormat(cfg.LogFormat),
+		Level:       types.LogLevel(cfg.LogLevel),
+		Format:      types.LogFormat(cfg.LogFormat),
+		ServiceName: "ws-server",
 	})
 	systemMonitor := monitoring.GetSystemMonitor(structuredLogger)
 	systemMonitor.StartMonitoring(cfg.MetricsInterval, cfg.CPUPollInterval)
@@ -100,8 +101,9 @@ func main() {
 
 	// Initialize central BroadcastBus (configurable backend: Valkey or NATS)
 	busLogger := monitoring.NewLogger(monitoring.LoggerConfig{
-		Level:  types.LogLevel(cfg.LogLevel),
-		Format: types.LogFormat(cfg.LogFormat),
+		Level:       types.LogLevel(cfg.LogLevel),
+		Format:      types.LogFormat(cfg.LogFormat),
+		ServiceName: "ws-server",
 	})
 
 	// Build broadcast config based on BROADCAST_TYPE
@@ -141,8 +143,9 @@ func main() {
 	if len(kafkaBrokers) > 0 {
 		// Create resource guard for CPU brake (shared across pool)
 		poolLogger := monitoring.NewLogger(monitoring.LoggerConfig{
-			Level:  types.LogLevel(cfg.LogLevel),
-			Format: types.LogFormat(cfg.LogFormat),
+			Level:       types.LogLevel(cfg.LogLevel),
+			Format:      types.LogFormat(cfg.LogFormat),
+			ServiceName: "ws-server",
 		})
 		resourceGuard := limits.NewResourceGuard(types.ServerConfig{
 			MaxKafkaMessagesPerSec:  cfg.MaxKafkaRate,
@@ -197,8 +200,9 @@ func main() {
 		// Create shared Kafka producer for client message publishing
 		// Clients can publish messages to Kafka via the "publish" message type
 		producerLogger := monitoring.NewLogger(monitoring.LoggerConfig{
-			Level:  types.LogLevel(cfg.LogLevel),
-			Format: types.LogFormat(cfg.LogFormat),
+			Level:       types.LogLevel(cfg.LogLevel),
+			Format:      types.LogFormat(cfg.LogFormat),
+			ServiceName: "ws-server",
 		})
 
 		kafkaProducer, err = kafka.NewProducer(kafka.ProducerConfig{
@@ -270,7 +274,7 @@ func main() {
 			BroadcastBus:        broadcastBus,   // Pass reference to bus, shard will subscribe internally
 			SharedKafkaConsumer: sharedConsumer, // Shared consumer for metrics (managed by pool)
 			KafkaProducer:       kafkaProducer,  // Shared producer for client publishing (optional)
-			Logger:              monitoring.NewLogger(monitoring.LoggerConfig{Level: types.LogLevel(cfg.LogLevel), Format: types.LogFormat(cfg.LogFormat)}),
+			Logger:              monitoring.NewLogger(monitoring.LoggerConfig{Level: types.LogLevel(cfg.LogLevel), Format: types.LogFormat(cfg.LogFormat), ServiceName: "ws-server"}),
 			MaxConnections:      maxConnsPerShard,
 		})
 		if err != nil {
@@ -287,7 +291,7 @@ func main() {
 	lb, err := orchestration.NewLoadBalancer(orchestration.LoadBalancerConfig{
 		Addr:   *lbAddr,
 		Shards: shards,
-		Logger: monitoring.NewLogger(monitoring.LoggerConfig{Level: types.LogLevel(cfg.LogLevel), Format: types.LogFormat(cfg.LogFormat)}),
+		Logger: monitoring.NewLogger(monitoring.LoggerConfig{Level: types.LogLevel(cfg.LogLevel), Format: types.LogFormat(cfg.LogFormat), ServiceName: "ws-server"}),
 		// TCP/HTTP tuning for trading platform burst tolerance
 		HTTPReadTimeout:  cfg.HTTPReadTimeout,
 		HTTPWriteTimeout: cfg.HTTPWriteTimeout,

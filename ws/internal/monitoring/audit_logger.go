@@ -11,6 +11,7 @@ import (
 // Follows standard logging levels used by most monitoring systems
 type AuditLevel string
 
+// AuditLevel constants for audit event severity.
 const (
 	DEBUG    AuditLevel = "DEBUG"    // Detailed debug information
 	INFO     AuditLevel = "INFO"     // Normal operations
@@ -148,6 +149,7 @@ type ClientLogger struct {
 	clientID    int64
 }
 
+// Debug logs a debug-level event for this client.
 func (c *ClientLogger) Debug(event, message string, metadata map[string]any) {
 	c.auditLogger.Log(AuditEvent{
 		Level:    DEBUG,
@@ -158,6 +160,7 @@ func (c *ClientLogger) Debug(event, message string, metadata map[string]any) {
 	})
 }
 
+// Info logs an info-level event for this client.
 func (c *ClientLogger) Info(event, message string, metadata map[string]any) {
 	c.auditLogger.Log(AuditEvent{
 		Level:    INFO,
@@ -168,6 +171,7 @@ func (c *ClientLogger) Info(event, message string, metadata map[string]any) {
 	})
 }
 
+// Warning logs a warning-level event for this client.
 func (c *ClientLogger) Warning(event, message string, metadata map[string]any) {
 	c.auditLogger.Log(AuditEvent{
 		Level:    WARNING,
@@ -178,6 +182,7 @@ func (c *ClientLogger) Warning(event, message string, metadata map[string]any) {
 	})
 }
 
+// Error logs an error-level event for this client.
 func (c *ClientLogger) Error(event, message string, metadata map[string]any) {
 	c.auditLogger.Log(AuditEvent{
 		Level:    ERROR,
@@ -188,6 +193,7 @@ func (c *ClientLogger) Error(event, message string, metadata map[string]any) {
 	})
 }
 
+// Critical logs a critical-level event for this client.
 func (c *ClientLogger) Critical(event, message string, metadata map[string]any) {
 	c.auditLogger.Log(AuditEvent{
 		Level:    CRITICAL,

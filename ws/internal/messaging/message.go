@@ -21,10 +21,11 @@ import (
 // - Market stats: NORMAL (nice-to-have, not critical)
 type MessagePriority int
 
+// MessagePriority constants for delivery guarantees.
 const (
-	PRIORITY_CRITICAL MessagePriority = iota // Never drop - disconnect if can't deliver
-	PRIORITY_HIGH                            // Drop only as last resort
-	PRIORITY_NORMAL                          // Drop if client slow (prevents head-of-line blocking)
+	PriorityCritical MessagePriority = iota // Never drop - disconnect if can't deliver
+	PriorityHigh                            // Drop only as last resort
+	PriorityNormal                          // Drop if client slow (prevents head-of-line blocking)
 )
 
 // MessageEnvelope wraps all WebSocket messages with delivery metadata

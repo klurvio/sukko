@@ -30,11 +30,13 @@ func NewMockTenantStore() *MockTenantStore {
 	}
 }
 
-func (m *MockTenantStore) Ping(ctx context.Context) error {
+// Ping implements TenantStore.Ping for testing.
+func (m *MockTenantStore) Ping(_ context.Context) error {
 	return m.PingErr
 }
 
-func (m *MockTenantStore) Create(ctx context.Context, tenant *provisioning.Tenant) error {
+// Create implements TenantStore.Create for testing.
+func (m *MockTenantStore) Create(_ context.Context, tenant *provisioning.Tenant) error {
 	if m.CreateErr != nil {
 		return m.CreateErr
 	}
@@ -50,7 +52,8 @@ func (m *MockTenantStore) Create(ctx context.Context, tenant *provisioning.Tenan
 	return nil
 }
 
-func (m *MockTenantStore) Get(ctx context.Context, tenantID string) (*provisioning.Tenant, error) {
+// Get implements TenantStore.Get for testing.
+func (m *MockTenantStore) Get(_ context.Context, tenantID string) (*provisioning.Tenant, error) {
 	if m.GetErr != nil {
 		return nil, m.GetErr
 	}
@@ -63,7 +66,8 @@ func (m *MockTenantStore) Get(ctx context.Context, tenantID string) (*provisioni
 	return t, nil
 }
 
-func (m *MockTenantStore) Update(ctx context.Context, tenant *provisioning.Tenant) error {
+// Update implements TenantStore.Update for testing.
+func (m *MockTenantStore) Update(_ context.Context, tenant *provisioning.Tenant) error {
 	if m.UpdateErr != nil {
 		return m.UpdateErr
 	}
@@ -77,7 +81,8 @@ func (m *MockTenantStore) Update(ctx context.Context, tenant *provisioning.Tenan
 	return nil
 }
 
-func (m *MockTenantStore) List(ctx context.Context, opts provisioning.ListOptions) ([]*provisioning.Tenant, int, error) {
+// List implements TenantStore.List for testing.
+func (m *MockTenantStore) List(_ context.Context, opts provisioning.ListOptions) ([]*provisioning.Tenant, int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	result := make([]*provisioning.Tenant, 0, len(m.tenants))
@@ -95,7 +100,8 @@ func (m *MockTenantStore) List(ctx context.Context, opts provisioning.ListOption
 	return result[opts.Offset:end], total, nil
 }
 
-func (m *MockTenantStore) UpdateStatus(ctx context.Context, tenantID string, status provisioning.TenantStatus) error {
+// UpdateStatus implements TenantStore.UpdateStatus for testing.
+func (m *MockTenantStore) UpdateStatus(_ context.Context, tenantID string, status provisioning.TenantStatus) error {
 	if m.UpdateStatusErr != nil {
 		return m.UpdateStatusErr
 	}
@@ -114,7 +120,8 @@ func (m *MockTenantStore) UpdateStatus(ctx context.Context, tenantID string, sta
 	return nil
 }
 
-func (m *MockTenantStore) SetDeprovisionAt(ctx context.Context, tenantID string, deprovisionAt *provisioning.Time) error {
+// SetDeprovisionAt implements TenantStore.SetDeprovisionAt for testing.
+func (m *MockTenantStore) SetDeprovisionAt(_ context.Context, tenantID string, deprovisionAt *provisioning.Time) error {
 	if m.SetDeprovisionAtErr != nil {
 		return m.SetDeprovisionAtErr
 	}
@@ -131,7 +138,8 @@ func (m *MockTenantStore) SetDeprovisionAt(ctx context.Context, tenantID string,
 	return nil
 }
 
-func (m *MockTenantStore) GetTenantsForDeletion(ctx context.Context) ([]*provisioning.Tenant, error) {
+// GetTenantsForDeletion implements TenantStore.GetTenantsForDeletion for testing.
+func (m *MockTenantStore) GetTenantsForDeletion(_ context.Context) ([]*provisioning.Tenant, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []*provisioning.Tenant
@@ -155,13 +163,15 @@ type MockKeyStore struct {
 	RevokeAllForTenantErr error
 }
 
+// NewMockKeyStore creates a new MockKeyStore.
 func NewMockKeyStore() *MockKeyStore {
 	return &MockKeyStore{
 		keys: make(map[string]*provisioning.TenantKey),
 	}
 }
 
-func (m *MockKeyStore) Create(ctx context.Context, key *provisioning.TenantKey) error {
+// Create implements KeyStore.Create for testing.
+func (m *MockKeyStore) Create(_ context.Context, key *provisioning.TenantKey) error {
 	if m.CreateErr != nil {
 		return m.CreateErr
 	}
@@ -177,7 +187,8 @@ func (m *MockKeyStore) Create(ctx context.Context, key *provisioning.TenantKey) 
 	return nil
 }
 
-func (m *MockKeyStore) Get(ctx context.Context, keyID string) (*provisioning.TenantKey, error) {
+// Get implements KeyStore.Get for testing.
+func (m *MockKeyStore) Get(_ context.Context, keyID string) (*provisioning.TenantKey, error) {
 	if m.GetErr != nil {
 		return nil, m.GetErr
 	}
@@ -190,7 +201,8 @@ func (m *MockKeyStore) Get(ctx context.Context, keyID string) (*provisioning.Ten
 	return k, nil
 }
 
-func (m *MockKeyStore) ListByTenant(ctx context.Context, tenantID string) ([]*provisioning.TenantKey, error) {
+// ListByTenant implements KeyStore.ListByTenant for testing.
+func (m *MockKeyStore) ListByTenant(_ context.Context, tenantID string) ([]*provisioning.TenantKey, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []*provisioning.TenantKey
@@ -202,7 +214,8 @@ func (m *MockKeyStore) ListByTenant(ctx context.Context, tenantID string) ([]*pr
 	return result, nil
 }
 
-func (m *MockKeyStore) Revoke(ctx context.Context, keyID string) error {
+// Revoke implements KeyStore.Revoke for testing.
+func (m *MockKeyStore) Revoke(_ context.Context, keyID string) error {
 	if m.RevokeErr != nil {
 		return m.RevokeErr
 	}
@@ -218,7 +231,8 @@ func (m *MockKeyStore) Revoke(ctx context.Context, keyID string) error {
 	return nil
 }
 
-func (m *MockKeyStore) RevokeAllForTenant(ctx context.Context, tenantID string) error {
+// RevokeAllForTenant implements KeyStore.RevokeAllForTenant for testing.
+func (m *MockKeyStore) RevokeAllForTenant(_ context.Context, tenantID string) error {
 	if m.RevokeAllForTenantErr != nil {
 		return m.RevokeAllForTenantErr
 	}
@@ -234,7 +248,8 @@ func (m *MockKeyStore) RevokeAllForTenant(ctx context.Context, tenantID string) 
 	return nil
 }
 
-func (m *MockKeyStore) GetActiveKeys(ctx context.Context) ([]*provisioning.TenantKey, error) {
+// GetActiveKeys implements KeyStore.GetActiveKeys for testing.
+func (m *MockKeyStore) GetActiveKeys(_ context.Context) ([]*provisioning.TenantKey, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []*provisioning.TenantKey
@@ -255,13 +270,15 @@ type MockTopicStore struct {
 	CreateErr error
 }
 
+// NewMockTopicStore creates a new MockTopicStore.
 func NewMockTopicStore() *MockTopicStore {
 	return &MockTopicStore{
 		topics: make(map[string]*provisioning.TenantTopic),
 	}
 }
 
-func (m *MockTopicStore) Create(ctx context.Context, topic *provisioning.TenantTopic) error {
+// Create implements TopicStore.Create for testing.
+func (m *MockTopicStore) Create(_ context.Context, topic *provisioning.TenantTopic) error {
 	if m.CreateErr != nil {
 		return m.CreateErr
 	}
@@ -276,7 +293,8 @@ func (m *MockTopicStore) Create(ctx context.Context, topic *provisioning.TenantT
 	return nil
 }
 
-func (m *MockTopicStore) ListByTenant(ctx context.Context, tenantID string) ([]*provisioning.TenantTopic, error) {
+// ListByTenant implements TopicStore.ListByTenant for testing.
+func (m *MockTopicStore) ListByTenant(_ context.Context, tenantID string) ([]*provisioning.TenantTopic, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []*provisioning.TenantTopic
@@ -288,7 +306,8 @@ func (m *MockTopicStore) ListByTenant(ctx context.Context, tenantID string) ([]*
 	return result, nil
 }
 
-func (m *MockTopicStore) MarkDeleted(ctx context.Context, topicName string) error {
+// MarkDeleted implements TopicStore.MarkDeleted for testing.
+func (m *MockTopicStore) MarkDeleted(_ context.Context, topicName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.topics[topicName]
@@ -300,7 +319,8 @@ func (m *MockTopicStore) MarkDeleted(ctx context.Context, topicName string) erro
 	return nil
 }
 
-func (m *MockTopicStore) CountByTenant(ctx context.Context, tenantID string) (int, error) {
+// CountByTenant implements TopicStore.CountByTenant for testing.
+func (m *MockTopicStore) CountByTenant(_ context.Context, tenantID string) (int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	count := 0
@@ -312,7 +332,8 @@ func (m *MockTopicStore) CountByTenant(ctx context.Context, tenantID string) (in
 	return count, nil
 }
 
-func (m *MockTopicStore) CountPartitionsByTenant(ctx context.Context, tenantID string) (int, error) {
+// CountPartitionsByTenant implements TopicStore.CountPartitionsByTenant for testing.
+func (m *MockTopicStore) CountPartitionsByTenant(_ context.Context, tenantID string) (int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	count := 0
@@ -334,13 +355,15 @@ type MockQuotaStore struct {
 	UpdateErr error
 }
 
+// NewMockQuotaStore creates a new MockQuotaStore.
 func NewMockQuotaStore() *MockQuotaStore {
 	return &MockQuotaStore{
 		quotas: make(map[string]*provisioning.TenantQuota),
 	}
 }
 
-func (m *MockQuotaStore) Create(ctx context.Context, quota *provisioning.TenantQuota) error {
+// Create implements QuotaStore.Create for testing.
+func (m *MockQuotaStore) Create(_ context.Context, quota *provisioning.TenantQuota) error {
 	if m.CreateErr != nil {
 		return m.CreateErr
 	}
@@ -352,7 +375,8 @@ func (m *MockQuotaStore) Create(ctx context.Context, quota *provisioning.TenantQ
 	return nil
 }
 
-func (m *MockQuotaStore) Get(ctx context.Context, tenantID string) (*provisioning.TenantQuota, error) {
+// Get implements QuotaStore.Get for testing.
+func (m *MockQuotaStore) Get(_ context.Context, tenantID string) (*provisioning.TenantQuota, error) {
 	if m.GetErr != nil {
 		return nil, m.GetErr
 	}
@@ -365,7 +389,8 @@ func (m *MockQuotaStore) Get(ctx context.Context, tenantID string) (*provisionin
 	return q, nil
 }
 
-func (m *MockQuotaStore) Update(ctx context.Context, quota *provisioning.TenantQuota) error {
+// Update implements QuotaStore.Update for testing.
+func (m *MockQuotaStore) Update(_ context.Context, quota *provisioning.TenantQuota) error {
 	if m.UpdateErr != nil {
 		return m.UpdateErr
 	}
@@ -384,13 +409,15 @@ type MockAuditStore struct {
 	LogErr error
 }
 
+// NewMockAuditStore creates a new MockAuditStore.
 func NewMockAuditStore() *MockAuditStore {
 	return &MockAuditStore{
 		entries: []*provisioning.AuditEntry{},
 	}
 }
 
-func (m *MockAuditStore) Log(ctx context.Context, entry *provisioning.AuditEntry) error {
+// Log implements AuditStore.Log for testing.
+func (m *MockAuditStore) Log(_ context.Context, entry *provisioning.AuditEntry) error {
 	if m.LogErr != nil {
 		return m.LogErr
 	}

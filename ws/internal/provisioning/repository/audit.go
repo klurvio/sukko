@@ -1,3 +1,4 @@
+// Package repository provides database repositories for the provisioning system.
 package repository
 
 import (

@@ -27,11 +27,11 @@ func newTestMockLogger() *testMockLogger {
 	return &testMockLogger{messages: make([]testLogMessage, 0)}
 }
 
-func (m *testMockLogger) Debug() LogEvent                { return &testMockLogEvent{logger: m, level: "debug"} }
-func (m *testMockLogger) Info() LogEvent                 { return &testMockLogEvent{logger: m, level: "info"} }
-func (m *testMockLogger) Warn() LogEvent                 { return &testMockLogEvent{logger: m, level: "warn"} }
-func (m *testMockLogger) Error() LogEvent                { return &testMockLogEvent{logger: m, level: "error"} }
-func (m *testMockLogger) Printf(format string, v ...any) {}
+func (m *testMockLogger) Debug() LogEvent           { return &testMockLogEvent{logger: m, level: "debug"} }
+func (m *testMockLogger) Info() LogEvent            { return &testMockLogEvent{logger: m, level: "info"} }
+func (m *testMockLogger) Warn() LogEvent            { return &testMockLogEvent{logger: m, level: "warn"} }
+func (m *testMockLogger) Error() LogEvent           { return &testMockLogEvent{logger: m, level: "error"} }
+func (m *testMockLogger) Printf(_ string, _ ...any) {}
 
 func (m *testMockLogger) messageCount() int {
 	m.mu.Lock()
@@ -141,7 +141,7 @@ func (c *testMockClock) NewTicker(d time.Duration) Ticker {
 	return ticker
 }
 
-func (c *testMockClock) After(d time.Duration) <-chan time.Time {
+func (c *testMockClock) After(_ time.Duration) <-chan time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	ch := make(chan time.Time, 1)
@@ -392,7 +392,7 @@ func (c *testMockConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-func (c *testMockConn) SetWriteDeadline(t time.Time) error {
+func (c *testMockConn) SetWriteDeadline(_ time.Time) error {
 	return nil
 }
 

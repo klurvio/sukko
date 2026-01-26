@@ -206,31 +206,30 @@ func readCPUQuota(cgroupPath string, version int) (quota, period int64, err erro
 		}
 
 		return quota, period, nil
-
-	} else {
-		// cgroup v1: separate files
-		quotaData, err := os.ReadFile(cgroupPath + "/cpu.cfs_quota_us") //nolint:gosec // Path constructed from trusted cgroup detection
-		if err != nil {
-			return 0, 0, err
-		}
-
-		periodData, err := os.ReadFile(cgroupPath + "/cpu.cfs_period_us") //nolint:gosec // Path constructed from trusted cgroup detection
-		if err != nil {
-			return 0, 0, err
-		}
-
-		quota, err = strconv.ParseInt(strings.TrimSpace(string(quotaData)), 10, 64)
-		if err != nil {
-			return 0, 0, err
-		}
-
-		period, err = strconv.ParseInt(strings.TrimSpace(string(periodData)), 10, 64)
-		if err != nil {
-			return 0, 0, err
-		}
-
-		return quota, period, nil
 	}
+
+	// cgroup v1: separate files
+	quotaData, err := os.ReadFile(cgroupPath + "/cpu.cfs_quota_us") //nolint:gosec // Path constructed from trusted cgroup detection
+	if err != nil {
+		return 0, 0, err
+	}
+
+	periodData, err := os.ReadFile(cgroupPath + "/cpu.cfs_period_us") //nolint:gosec // Path constructed from trusted cgroup detection
+	if err != nil {
+		return 0, 0, err
+	}
+
+	quota, err = strconv.ParseInt(strings.TrimSpace(string(quotaData)), 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	period, err = strconv.ParseInt(strings.TrimSpace(string(periodData)), 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return quota, period, nil
 }
 
 // readCPUUsage reads cumulative CPU usage in microseconds
@@ -254,22 +253,21 @@ func readCPUUsage(cgroupPath string, version int) (uint64, error) {
 			}
 		}
 		return 0, errors.New("usage_usec not found in cpu.stat")
-
-	} else {
-		// cgroup v1: cpuacct.usage contains nanoseconds
-		data, err := os.ReadFile(cgroupPath + "/cpuacct.usage") //nolint:gosec // Path constructed from trusted cgroup detection
-		if err != nil {
-			return 0, err
-		}
-
-		nsec, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
-		if err != nil {
-			return 0, err
-		}
-
-		// Convert nanoseconds to microseconds
-		return nsec / 1000, nil
 	}
+
+	// cgroup v1: cpuacct.usage contains nanoseconds
+	data, err := os.ReadFile(cgroupPath + "/cpuacct.usage") //nolint:gosec // Path constructed from trusted cgroup detection
+	if err != nil {
+		return 0, err
+	}
+
+	nsec, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	// Convert nanoseconds to microseconds
+	return nsec / 1000, nil
 }
 
 // readThrottleStats reads CPU throttling statistics

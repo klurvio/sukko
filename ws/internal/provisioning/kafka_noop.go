@@ -19,41 +19,41 @@ func NewNoopKafkaAdmin() *NoopKafkaAdmin {
 }
 
 // CreateTopic records a topic creation (no-op).
-func (n *NoopKafkaAdmin) CreateTopic(ctx context.Context, name string, partitions int, config map[string]string) error {
+func (n *NoopKafkaAdmin) CreateTopic(_ context.Context, name string, _ int, _ map[string]string) error {
 	n.topics[name] = true
 	return nil
 }
 
 // DeleteTopic records a topic deletion (no-op).
-func (n *NoopKafkaAdmin) DeleteTopic(ctx context.Context, name string) error {
+func (n *NoopKafkaAdmin) DeleteTopic(_ context.Context, name string) error {
 	delete(n.topics, name)
 	return nil
 }
 
 // TopicExists checks if a topic was recorded (no-op).
-func (n *NoopKafkaAdmin) TopicExists(ctx context.Context, name string) (bool, error) {
+func (n *NoopKafkaAdmin) TopicExists(_ context.Context, name string) (bool, error) {
 	_, ok := n.topics[name]
 	return ok, nil
 }
 
 // SetTopicConfig is a no-op.
-func (n *NoopKafkaAdmin) SetTopicConfig(ctx context.Context, name string, config map[string]string) error {
+func (n *NoopKafkaAdmin) SetTopicConfig(_ context.Context, _ string, _ map[string]string) error {
 	return nil
 }
 
 // CreateACL records an ACL creation (no-op).
-func (n *NoopKafkaAdmin) CreateACL(ctx context.Context, acl ACLBinding) error {
+func (n *NoopKafkaAdmin) CreateACL(_ context.Context, acl ACLBinding) error {
 	n.acls = append(n.acls, acl)
 	return nil
 }
 
 // DeleteACL is a no-op.
-func (n *NoopKafkaAdmin) DeleteACL(ctx context.Context, acl ACLBinding) error {
+func (n *NoopKafkaAdmin) DeleteACL(_ context.Context, _ ACLBinding) error {
 	return nil
 }
 
 // SetQuota is a no-op.
-func (n *NoopKafkaAdmin) SetQuota(ctx context.Context, tenantID string, quota QuotaConfig) error {
+func (n *NoopKafkaAdmin) SetQuota(_ context.Context, _ string, _ QuotaConfig) error {
 	return nil
 }
 

@@ -613,7 +613,7 @@ func TestNewMetricsCollector(t *testing.T) {
 }
 
 //nolint:paralleltest // shares global Prometheus metrics
-func TestMetricsCollector_StartStop(t *testing.T) {
+func TestMetricsCollector_StartStop(_ *testing.T) {
 	var connCount int64 = 500
 	mock := &mockServerMetrics{
 		config: types.ServerConfig{
@@ -676,7 +676,7 @@ func TestMetricsCollector_CollectsStats(t *testing.T) {
 }
 
 //nolint:paralleltest // shares global Prometheus metrics
-func TestMetricsCollector_KafkaStatus_NoConsumer(t *testing.T) {
+func TestMetricsCollector_KafkaStatus_NoConsumer(_ *testing.T) {
 	mock := &mockServerMetrics{
 		config: types.ServerConfig{
 			MaxConnections:  10000,

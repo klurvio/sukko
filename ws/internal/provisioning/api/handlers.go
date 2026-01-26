@@ -350,8 +350,8 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
-// APIError represents an error response.
-type APIError struct {
+// Error represents an API error response.
+type Error struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
@@ -360,5 +360,5 @@ type APIError struct {
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(APIError{Code: code, Message: message})
+	_ = json.NewEncoder(w).Encode(Error{Code: code, Message: message})
 }

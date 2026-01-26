@@ -1,4 +1,4 @@
-// Package shared provides core WebSocket server functionality.
+// Package server provides core WebSocket server functionality.
 // This file contains the Pump struct for WebSocket read/write operations.
 package server
 

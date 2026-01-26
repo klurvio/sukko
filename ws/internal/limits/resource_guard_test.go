@@ -130,7 +130,7 @@ func TestCPURejectHysteresis(t *testing.T) {
 			// Create mock system monitor with controlled CPU value
 			mock := &mockSystemMonitor{cpuPercent: tt.currentCPU}
 
-			var connCount int64 = 0
+			var connCount int64
 			logger := monitoring.NewLogger(monitoring.LoggerConfig{
 				Level:  types.LogLevelError, // Quiet for tests
 				Format: types.LogFormatJSON,
@@ -224,7 +224,7 @@ func TestCPUPauseKafkaHysteresis(t *testing.T) {
 			// Create mock system monitor with controlled CPU value
 			mock := &mockSystemMonitor{cpuPercent: tt.currentCPU}
 
-			var connCount int64 = 0
+			var connCount int64
 			logger := monitoring.NewLogger(monitoring.LoggerConfig{
 				Level:  types.LogLevelError, // Quiet for tests
 				Format: types.LogFormatJSON,
@@ -327,7 +327,7 @@ func TestHysteresisStateVisibility(t *testing.T) {
 func TestHysteresisInitialState(t *testing.T) {
 	t.Parallel()
 	// Test that hysteresis starts in accepting/running state (not rejecting/pausing)
-	var connCount int64 = 0
+	var connCount int64
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevelInfo,
 		Format: types.LogFormatJSON,
@@ -361,7 +361,7 @@ func TestHysteresisInitialState(t *testing.T) {
 func TestHysteresisConfigInStats(t *testing.T) {
 	t.Parallel()
 	// Test that threshold configs are exposed in GetStats()
-	var connCount int64 = 0
+	var connCount int64
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevelInfo,
 		Format: types.LogFormatJSON,
@@ -509,7 +509,7 @@ func TestGoroutineLimiter_ZeroMax(t *testing.T) {
 
 func TestResourceGuard_AllowBroadcast(t *testing.T) {
 	t.Parallel()
-	var connCount int64 = 0
+	var connCount int64
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevelError, // Quiet
 		Format: types.LogFormatJSON,
@@ -546,7 +546,7 @@ func TestResourceGuard_AllowBroadcast(t *testing.T) {
 
 func TestResourceGuard_AllowKafkaMessage(t *testing.T) {
 	t.Parallel()
-	var connCount int64 = 0
+	var connCount int64
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevelError,
 		Format: types.LogFormatJSON,
@@ -584,7 +584,7 @@ func TestResourceGuard_AllowKafkaMessage(t *testing.T) {
 
 func TestResourceGuard_AllowKafkaMessage_WaitDuration(t *testing.T) {
 	t.Parallel()
-	var connCount int64 = 0
+	var connCount int64
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevelError,
 		Format: types.LogFormatJSON,

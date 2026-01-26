@@ -105,6 +105,7 @@ func NewTenantIsolator(config TenantIsolationConfig, opts ...TenantIsolatorOptio
 // AccessAction represents the type of access being requested.
 type AccessAction string
 
+// AccessAction constants for tenant isolation checks.
 const (
 	ActionSubscribe AccessAction = "subscribe"
 	ActionPublish   AccessAction = "publish"

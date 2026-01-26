@@ -1,3 +1,4 @@
+// Provisioning service entry point for tenant management.
 package main
 
 import (
@@ -49,8 +50,9 @@ func main() {
 
 	// Initialize structured logger
 	structuredLogger := monitoring.NewLogger(monitoring.LoggerConfig{
-		Level:  types.LogLevel(cfg.LogLevel),
-		Format: types.LogFormat(cfg.LogFormat),
+		Level:       types.LogLevel(cfg.LogLevel),
+		Format:      types.LogFormat(cfg.LogFormat),
+		ServiceName: "provisioning-service",
 	})
 
 	// Connect to PostgreSQL
@@ -164,6 +166,7 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
+		defer monitoring.RecoverPanic(structuredLogger, "http.ListenAndServe", nil)
 		logger.Printf("Starting provisioning service on %s", cfg.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatalf("Server error: %v", err)

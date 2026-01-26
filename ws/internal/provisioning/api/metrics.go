@@ -6,66 +6,66 @@ import (
 )
 
 // Prometheus metrics for the provisioning service.
-// Follows the ws_ prefix pattern used throughout the codebase.
+// Uses provisioning_ prefix for service-specific metrics.
 var (
 	// Tenant operations
 	tenantsCreated = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "ws_provisioning_tenants_created_total",
+		Name: "provisioning_tenants_created_total",
 		Help: "Total number of tenants created",
 	})
 
 	tenantsActive = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "ws_provisioning_tenants_active",
+		Name: "provisioning_tenants_active",
 		Help: "Current number of active tenants",
 	})
 
 	tenantOperations = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "ws_provisioning_tenant_operations_total",
+		Name: "provisioning_tenant_operations_total",
 		Help: "Total tenant operations by type and result",
 	}, []string{"operation", "result"})
 
 	// Key operations
 	keysCreated = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "ws_provisioning_keys_created_total",
+		Name: "provisioning_keys_created_total",
 		Help: "Total number of keys created",
 	})
 
 	keysRevoked = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "ws_provisioning_keys_revoked_total",
+		Name: "provisioning_keys_revoked_total",
 		Help: "Total number of keys revoked",
 	})
 
 	keysActive = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "ws_provisioning_keys_active",
+		Name: "provisioning_keys_active",
 		Help: "Current number of active keys",
 	})
 
 	// Topic operations
 	topicsCreated = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "ws_provisioning_topics_created_total",
+		Name: "provisioning_topics_created_total",
 		Help: "Total number of topics created",
 	})
 
 	// API request metrics
 	apiRequests = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "ws_provisioning_api_requests_total",
+		Name: "provisioning_api_requests_total",
 		Help: "Total API requests by endpoint and status",
 	}, []string{"endpoint", "method", "status"})
 
 	apiLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "ws_provisioning_api_latency_seconds",
+		Name:    "provisioning_api_latency_seconds",
 		Help:    "API request latency in seconds",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"endpoint", "method"})
 
 	// Auth metrics for provisioning API
 	authAttempts = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "ws_provisioning_auth_attempts_total",
+		Name: "provisioning_auth_attempts_total",
 		Help: "Total authentication attempts",
 	}, []string{"result", "failure_reason"})
 
 	authorizationDenials = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "ws_provisioning_authorization_denials_total",
+		Name: "provisioning_authorization_denials_total",
 		Help: "Total authorization denials by reason",
 	}, []string{"reason"})
 )

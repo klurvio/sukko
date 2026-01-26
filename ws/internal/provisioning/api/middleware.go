@@ -63,12 +63,11 @@ func AuthMiddleware(validator *auth.MultiTenantValidator, logger zerolog.Logger)
 			}
 
 			// Expect "Bearer <token>"
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			scheme, tokenString, found := strings.Cut(authHeader, " ")
+			if !found || !strings.EqualFold(scheme, "Bearer") {
 				writeError(w, http.StatusUnauthorized, "INVALID_AUTH_HEADER", "Authorization header must be 'Bearer <token>'")
 				return
 			}
-			tokenString := parts[1]
 
 			// Validate token
 			claims, err := validator.ValidateToken(r.Context(), tokenString)

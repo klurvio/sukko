@@ -5,6 +5,7 @@ import "slices"
 // BundleType represents different subscription bundle types
 type BundleType string
 
+// BundleType constants define the available subscription bundles.
 const (
 	BundleTrading    BundleType = "TRADING"
 	BundleFullMarket BundleType = "FULL_MARKET"

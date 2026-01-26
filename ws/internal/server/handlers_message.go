@@ -290,7 +290,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 			Seq:       c.seqGen.Next(), // Generate unique sequence number for this client
 			Timestamp: time.Now().UnixMilli(),
 			Channel:   msg.Subject, // Channel from Kafka Key (e.g., "BTC.trade")
-			Priority:  messaging.PRIORITY_NORMAL,
+			Priority:  messaging.PriorityNormal,
 			Data:      json.RawMessage(msg.Data),
 		}
 

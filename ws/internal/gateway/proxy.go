@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 )
 
 // Proxy handles bidirectional WebSocket message forwarding between client and backend.
@@ -54,12 +55,14 @@ func (p *Proxy) Run() {
 
 	// Client -> Backend (with message interception)
 	go func() {
+		defer monitoring.RecoverPanic(p.logger, "proxyClientToBackend", nil)
 		defer wg.Done()
 		p.proxyClientToBackend(errChan)
 	}()
 
 	// Backend -> Client (pass-through)
 	go func() {
+		defer monitoring.RecoverPanic(p.logger, "proxyBackendToClient", nil)
 		defer wg.Done()
 		p.proxyBackendToClient(errChan)
 	}()
@@ -89,6 +92,7 @@ func (p *Proxy) proxyClientToBackend(errChan chan error) {
 		header, err := ws.ReadHeader(p.clientConn)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
+				RecordProxyError("client_read_error")
 				p.logger.Debug().Err(err).Msg("Client read error")
 			}
 			errChan <- err
@@ -99,6 +103,7 @@ func (p *Proxy) proxyClientToBackend(errChan chan error) {
 		payload := make([]byte, header.Length)
 		if header.Length > 0 {
 			if _, err := io.ReadFull(p.clientConn, payload); err != nil {
+				RecordProxyError("client_read_error")
 				p.logger.Debug().Err(err).Msg("Client payload read error")
 				errChan <- err
 				return
@@ -123,8 +128,12 @@ func (p *Proxy) proxyClientToBackend(errChan chan error) {
 			payload, _ = p.interceptClientMessage(payload)
 		}
 
+		// Record message metrics
+		RecordMessage("client_to_backend", len(payload))
+
 		// Forward frame to backend (re-mask for server)
 		if err := p.forwardFrame(p.backendConn, header.OpCode, payload, header.Fin, true); err != nil {
+			RecordProxyError("backend_write_error")
 			p.logger.Debug().Err(err).Msg("Backend write error")
 			errChan <- err
 			return
@@ -140,6 +149,7 @@ func (p *Proxy) proxyBackendToClient(errChan chan error) {
 		header, err := ws.ReadHeader(p.backendConn)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
+				RecordProxyError("backend_read_error")
 				p.logger.Debug().Err(err).Msg("Backend read error")
 			}
 			errChan <- err
@@ -150,6 +160,7 @@ func (p *Proxy) proxyBackendToClient(errChan chan error) {
 		payload := make([]byte, header.Length)
 		if header.Length > 0 {
 			if _, err := io.ReadFull(p.backendConn, payload); err != nil {
+				RecordProxyError("backend_read_error")
 				p.logger.Debug().Err(err).Msg("Backend payload read error")
 				errChan <- err
 				return
@@ -166,8 +177,12 @@ func (p *Proxy) proxyBackendToClient(errChan chan error) {
 			return
 		}
 
+		// Record message metrics
+		RecordMessage("backend_to_client", len(payload))
+
 		// Forward all frames to client (server->client: no masking)
 		if err := p.forwardFrame(p.clientConn, header.OpCode, payload, header.Fin, false); err != nil {
+			RecordProxyError("client_write_error")
 			p.logger.Debug().Err(err).Msg("Client write error")
 			errChan <- err
 			return
@@ -258,9 +273,12 @@ func (p *Proxy) interceptClientMessage(msg []byte) ([]byte, error) {
 	// Filter channels based on permissions
 	allowedChannels := p.permissions.FilterChannels(p.claims, subData.Channels)
 
-	// Log denied channels
+	// Log denied channels and record metrics
 	for _, ch := range subData.Channels {
-		if !contains(allowedChannels, ch) {
+		if contains(allowedChannels, ch) {
+			RecordChannelCheck("allowed")
+		} else {
+			RecordChannelCheck("denied")
 			p.logger.Warn().
 				Str("channel", ch).
 				Str("principal", p.claims.Subject).

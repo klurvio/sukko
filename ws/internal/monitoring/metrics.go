@@ -120,33 +120,33 @@ var (
 		Help: "Memory limit in bytes (from cgroup)",
 	})
 
-	CpuUsagePercent = prometheus.NewGauge(prometheus.GaugeOpts{
+	CPUUsagePercent = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "ws_cpu_usage_percent",
 		Help: "Current CPU usage percentage (container-aware: % of allocated CPUs)",
 	})
 
 	// Enhanced CPU metrics (container-aware)
-	CpuContainerPercent = prometheus.NewGauge(prometheus.GaugeOpts{
+	CPUContainerPercent = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "ws_cpu_container_percent",
 		Help: "CPU usage as percentage of container allocation (0-100%)",
 	})
 
-	CpuHostPercent = prometheus.NewGauge(prometheus.GaugeOpts{
+	CPUHostPercent = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "ws_cpu_host_percent",
 		Help: "CPU usage as percentage of total host CPUs (for reference)",
 	})
 
-	CpuAllocationCores = prometheus.NewGauge(prometheus.GaugeOpts{
+	CPUAllocationCores = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "ws_cpu_allocation_cores",
 		Help: "Number of CPU cores allocated to container",
 	})
 
-	CpuThrottledSecondsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+	CPUThrottledSecondsTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "ws_cpu_throttled_seconds_total",
 		Help: "Total time (seconds) container CPU was throttled by cgroup",
 	})
 
-	CpuThrottleEventsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+	CPUThrottleEventsTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "ws_cpu_throttle_events_total",
 		Help: "Total number of times container hit CPU limit and was throttled",
 	})
@@ -235,12 +235,12 @@ func init() {
 
 	prometheus.MustRegister(memoryUsageBytes)
 	prometheus.MustRegister(memoryLimitBytes)
-	prometheus.MustRegister(CpuUsagePercent)
-	prometheus.MustRegister(CpuContainerPercent)
-	prometheus.MustRegister(CpuHostPercent)
-	prometheus.MustRegister(CpuAllocationCores)
-	prometheus.MustRegister(CpuThrottledSecondsTotal)
-	prometheus.MustRegister(CpuThrottleEventsTotal)
+	prometheus.MustRegister(CPUUsagePercent)
+	prometheus.MustRegister(CPUContainerPercent)
+	prometheus.MustRegister(CPUHostPercent)
+	prometheus.MustRegister(CPUAllocationCores)
+	prometheus.MustRegister(CPUThrottledSecondsTotal)
+	prometheus.MustRegister(CPUThrottleEventsTotal)
 	prometheus.MustRegister(goroutinesActive)
 
 	prometheus.MustRegister(kafkaConnected)
@@ -271,6 +271,7 @@ type MetricsCollector struct {
 	stopChan chan struct{}
 }
 
+// NewMetricsCollector creates a new MetricsCollector for the given server.
 func NewMetricsCollector(server ServerMetrics) *MetricsCollector {
 	return &MetricsCollector{
 		server:   server,
@@ -326,7 +327,7 @@ func (m *MetricsCollector) collect() {
 	memoryUsageBytes.Set(float64(mem.Alloc))
 
 	// CPU metrics (estimated)
-	CpuUsagePercent.Set(m.estimateCPU())
+	CPUUsagePercent.Set(m.estimateCPU())
 
 	// Goroutine metrics
 	goroutinesActive.Set(float64(runtime.NumGoroutine()))
@@ -547,8 +548,8 @@ func RecordSlowClientAttempt(attempts int) {
 	slowClientAttempts.Observe(float64(attempts))
 }
 
-// RecordClientBufferSize samples a client's send buffer usage
-func RecordClientBufferSize(bufferLen, bufferCap int) {
+// RecordClientBufferSize samples a client's send buffer usage.
+func RecordClientBufferSize(bufferLen, _ int) {
 	clientSendBufferSize.WithLabelValues("all").Observe(float64(bufferLen))
 }
 
@@ -567,7 +568,7 @@ func RecordClientBufferSizeWithStats(stats *types.Stats, bufferLen, bufferCap in
 	stats.BuffersMu.Unlock()
 }
 
-// handleMetrics serves Prometheus metrics at /metrics endpoint
+// HandleMetrics serves Prometheus metrics at /metrics endpoint.
 func HandleMetrics(w http.ResponseWriter, r *http.Request) {
 	promhttp.Handler().ServeHTTP(w, r)
 }

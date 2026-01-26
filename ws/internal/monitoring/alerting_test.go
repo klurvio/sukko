@@ -105,7 +105,7 @@ type blockingAlerter struct {
 	blockDuration time.Duration
 }
 
-func (b *blockingAlerter) Alert(level AuditLevel, message string, metadata map[string]any) {
+func (b *blockingAlerter) Alert(_ AuditLevel, _ string, _ map[string]any) {
 	time.Sleep(b.blockDuration)
 	b.mu.Lock()
 	b.alertCount++
@@ -145,7 +145,7 @@ func TestSlackAlerter_SkipsEmptyWebhook(t *testing.T) {
 	// Track if any HTTP request was made
 	var requestMade int32
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&requestMade, 1)
 		w.WriteHeader(http.StatusOK)
 	}))

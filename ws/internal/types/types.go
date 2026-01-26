@@ -11,6 +11,7 @@ import (
 // LogLevel represents log verbosity level
 type LogLevel string
 
+// LogLevel constants for configuring log verbosity.
 const (
 	LogLevelDebug LogLevel = "debug"
 	LogLevelInfo  LogLevel = "info"
@@ -22,6 +23,7 @@ const (
 // LogFormat represents log output format
 type LogFormat string
 
+// LogFormat constants for configuring log output format.
 const (
 	LogFormatJSON   LogFormat = "json"   // JSON format for Loki
 	LogFormatPretty LogFormat = "pretty" // Human-readable for local dev

@@ -23,8 +23,9 @@ import (
 
 // LoggerConfig holds logger configuration
 type LoggerConfig struct {
-	Level  types.LogLevel  // Minimum log level
-	Format types.LogFormat // Output format
+	Level       types.LogLevel  // Minimum log level
+	Format      types.LogFormat // Output format
+	ServiceName string          // Service name for log identification (e.g., "ws-server", "ws-gateway")
 }
 
 // NewLogger creates a structured logger configured for Loki integration
@@ -35,12 +36,14 @@ type LoggerConfig struct {
 //   - Contextual fields for filtering
 //   - Timestamp in RFC3339 format
 //   - Caller information for debugging
+//   - Configurable service name for multi-service deployments
 //
 // Example:
 //
 //	logger := NewLogger(LoggerConfig{
-//	    Level: LogLevelInfo,
-//	    Format: LogFormatJSON,
+//	    Level:       LogLevelInfo,
+//	    Format:      LogFormatJSON,
+//	    ServiceName: "ws-gateway",
 //	})
 //	logger.Info().
 //	    Str("component", "server").
@@ -75,12 +78,18 @@ func NewLogger(config LoggerConfig) zerolog.Logger {
 		}
 	}
 
+	// Determine service name (default to "ws-server" for backwards compatibility)
+	serviceName := config.ServiceName
+	if serviceName == "" {
+		serviceName = "ws-server"
+	}
+
 	// Create logger with timestamp and caller info
 	logger := zerolog.New(output).
 		With().
 		Timestamp().
 		Caller().
-		Str("service", "ws-server").
+		Str("service", serviceName).
 		Logger()
 
 	return logger

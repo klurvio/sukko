@@ -38,7 +38,7 @@ func TestSequenceGenerator_Monotonic(t *testing.T) {
 	sg := NewSequenceGenerator()
 	const count = 1000
 
-	var prev int64 = 0
+	var prev int64
 	for i := range count {
 		seq := sg.Next()
 		if seq <= prev {
@@ -153,7 +153,7 @@ func TestMessageEnvelope_Serialize(t *testing.T) {
 		Seq:       1,
 		Timestamp: 1234567890,
 		Channel:   "BTC.trade",
-		Priority:  PRIORITY_HIGH,
+		Priority:  PriorityHigh,
 		Data:      data,
 	}
 
@@ -188,9 +188,9 @@ func TestMessageEnvelope_Priority(t *testing.T) {
 		name     string
 		priority MessagePriority
 	}{
-		{"CRITICAL", PRIORITY_CRITICAL},
-		{"HIGH", PRIORITY_HIGH},
-		{"NORMAL", PRIORITY_NORMAL},
+		{"CRITICAL", PriorityCritical},
+		{"HIGH", PriorityHigh},
+		{"NORMAL", PriorityNormal},
 	}
 
 	for _, tt := range tests {
@@ -270,7 +270,7 @@ func TestWrapMessage(t *testing.T) {
 	sg := NewSequenceGenerator()
 	data := []byte(`{"tokenId":"BTC","price":"100.50"}`)
 
-	envelope, err := WrapMessage(data, "BTC.trade", PRIORITY_HIGH, sg)
+	envelope, err := WrapMessage(data, "BTC.trade", PriorityHigh, sg)
 	if err != nil {
 		t.Fatalf("WrapMessage failed: %v", err)
 	}
@@ -281,8 +281,8 @@ func TestWrapMessage(t *testing.T) {
 	if envelope.Channel != "BTC.trade" {
 		t.Errorf("Channel: got %s, want BTC.trade", envelope.Channel)
 	}
-	if envelope.Priority != PRIORITY_HIGH {
-		t.Errorf("Priority: got %d, want %d", envelope.Priority, PRIORITY_HIGH)
+	if envelope.Priority != PriorityHigh {
+		t.Errorf("Priority: got %d, want %d", envelope.Priority, PriorityHigh)
 	}
 	if envelope.Timestamp == 0 {
 		t.Error("Timestamp should be set")
@@ -296,9 +296,9 @@ func TestWrapMessage_SequenceIncrement(t *testing.T) {
 	t.Parallel()
 	sg := NewSequenceGenerator()
 
-	env1, _ := WrapMessage([]byte(`{}`), "test.channel", PRIORITY_NORMAL, sg)
-	env2, _ := WrapMessage([]byte(`{}`), "test.channel", PRIORITY_NORMAL, sg)
-	env3, _ := WrapMessage([]byte(`{}`), "test.channel", PRIORITY_NORMAL, sg)
+	env1, _ := WrapMessage([]byte(`{}`), "test.channel", PriorityNormal, sg)
+	env2, _ := WrapMessage([]byte(`{}`), "test.channel", PriorityNormal, sg)
+	env3, _ := WrapMessage([]byte(`{}`), "test.channel", PriorityNormal, sg)
 
 	if env1.Seq != 1 || env2.Seq != 2 || env3.Seq != 3 {
 		t.Errorf("Sequences should be 1, 2, 3; got %d, %d, %d",
@@ -309,13 +309,13 @@ func TestWrapMessage_SequenceIncrement(t *testing.T) {
 func TestMessagePriority_Values(t *testing.T) {
 	t.Parallel()
 	// Verify priority constants have expected values
-	if PRIORITY_CRITICAL != 0 {
-		t.Errorf("PRIORITY_CRITICAL should be 0, got %d", PRIORITY_CRITICAL)
+	if PriorityCritical != 0 {
+		t.Errorf("PriorityCritical should be 0, got %d", PriorityCritical)
 	}
-	if PRIORITY_HIGH != 1 {
-		t.Errorf("PRIORITY_HIGH should be 1, got %d", PRIORITY_HIGH)
+	if PriorityHigh != 1 {
+		t.Errorf("PriorityHigh should be 1, got %d", PriorityHigh)
 	}
-	if PRIORITY_NORMAL != 2 {
-		t.Errorf("PRIORITY_NORMAL should be 2, got %d", PRIORITY_NORMAL)
+	if PriorityNormal != 2 {
+		t.Errorf("PriorityNormal should be 2, got %d", PriorityNormal)
 	}
 }

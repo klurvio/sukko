@@ -15,6 +15,7 @@ import (
 // Effect represents the effect of a rule (allow or deny).
 type Effect string
 
+// Effect constants for authorization rules.
 const (
 	EffectAllow Effect = "allow"
 	EffectDeny  Effect = "deny"
@@ -23,6 +24,7 @@ const (
 // Action represents an action that can be authorized.
 type Action string
 
+// Action constants for authorization.
 const (
 	ActionRead    Action = "read"
 	ActionWrite   Action = "write"
@@ -34,6 +36,7 @@ const (
 // ConditionType represents the type of condition.
 type ConditionType string
 
+// ConditionType constants for rule conditions.
 const (
 	ConditionTypeClaim     ConditionType = "claim"
 	ConditionTypeAttribute ConditionType = "attribute"
@@ -44,6 +47,7 @@ const (
 // Operator represents a comparison operator.
 type Operator string
 
+// Operator constants for condition comparisons.
 const (
 	OpEquals     Operator = "eq"
 	OpNotEquals  Operator = "neq"
@@ -154,7 +158,7 @@ func WithPlaceholderResolver(resolver *PlaceholderResolver) PolicyEngineOption {
 	}
 }
 
-// WithTenantIsolator sets a custom tenant isolator.
+// WithPolicyTenantIsolator sets a custom tenant isolator.
 func WithPolicyTenantIsolator(isolator *TenantIsolator) PolicyEngineOption {
 	return func(e *PolicyEngine) {
 		e.tenantIsolator = isolator

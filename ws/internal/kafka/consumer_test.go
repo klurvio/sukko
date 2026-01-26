@@ -29,7 +29,7 @@ func newMockResourceGuard() *mockResourceGuard {
 	}
 }
 
-func (m *mockResourceGuard) AllowKafkaMessage(ctx context.Context) (bool, time.Duration) {
+func (m *mockResourceGuard) AllowKafkaMessage(_ context.Context) (bool, time.Duration) {
 	m.allowCount.Add(1)
 	return m.allowKafka, m.waitDuration
 }
@@ -47,7 +47,7 @@ func TestNewConsumer_NoBrokers(t *testing.T) {
 	t.Parallel()
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
-	broadcast := func(subject string, message []byte) {}
+	broadcast := func(_ string, _ []byte) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{},
@@ -68,7 +68,7 @@ func TestNewConsumer_NoConsumerGroup(t *testing.T) {
 	t.Parallel()
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
-	broadcast := func(subject string, message []byte) {}
+	broadcast := func(_ string, _ []byte) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
@@ -89,7 +89,7 @@ func TestNewConsumer_NoTopics(t *testing.T) {
 	t.Parallel()
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
-	broadcast := func(subject string, message []byte) {}
+	broadcast := func(_ string, _ []byte) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
@@ -129,7 +129,7 @@ func TestNewConsumer_NoBroadcast(t *testing.T) {
 func TestNewConsumer_NoResourceGuard(t *testing.T) {
 	t.Parallel()
 	logger := zerolog.Nop()
-	broadcast := func(subject string, message []byte) {}
+	broadcast := func(_ string, _ []byte) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},

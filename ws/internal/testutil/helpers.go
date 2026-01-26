@@ -1,5 +1,5 @@
-// helpers.go provides testing assertion helpers and concurrent test utilities.
-// For mock implementations, see mocks.go. For test fixtures, see fixtures.go.
+// Package testutil provides testing assertion helpers, mock implementations,
+// and concurrent test utilities for the odin-ws project.
 package testutil
 
 import (

@@ -49,28 +49,33 @@ func (m *MockSystemMonitor) SetGoroutines(count int) {
 	m.goroutines = count
 }
 
+// GetCPUPercent returns the mocked CPU percentage.
 func (m *MockSystemMonitor) GetCPUPercent() float64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.cpuPercent
 }
 
+// GetMemoryBytes returns the mocked memory usage in bytes.
 func (m *MockSystemMonitor) GetMemoryBytes() int64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.memoryBytes
 }
 
+// GetGoroutines returns the mocked goroutine count.
 func (m *MockSystemMonitor) GetGoroutines() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.goroutines
 }
 
+// GetCPUAllocation returns the mocked CPU allocation (default 1.0).
 func (m *MockSystemMonitor) GetCPUAllocation() float64 {
 	return 1.0
 }
 
+// GetMetrics returns mocked system metrics.
 func (m *MockSystemMonitor) GetMetrics() monitoring.SystemMetrics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -100,7 +105,8 @@ func NewMockResourceGuard() *MockResourceGuard {
 	}
 }
 
-func (m *MockResourceGuard) AllowKafkaMessage(ctx context.Context) (bool, time.Duration) {
+// AllowKafkaMessage implements the ResourceGuard interface for testing.
+func (m *MockResourceGuard) AllowKafkaMessage(_ context.Context) (bool, time.Duration) {
 	if m.AllowKafka {
 		m.AllowedCount.Add(1)
 		return true, 0
@@ -109,6 +115,7 @@ func (m *MockResourceGuard) AllowKafkaMessage(ctx context.Context) (bool, time.D
 	return false, m.WaitDuration
 }
 
+// ShouldPauseKafka implements the ResourceGuard interface for testing.
 func (m *MockResourceGuard) ShouldPauseKafka() bool {
 	return m.ShouldPause
 }
@@ -176,22 +183,22 @@ func (m *MockBroadcastFunc) Reset() {
 
 // MockConn implements net.Conn for testing WebSocket operations.
 type MockConn struct {
-	ReadData    []byte
-	ReadErr     error
-	WriteData   []byte
-	WrittenData []byte
-	WriteErr    error
-	Closed      bool
-	LocalAddr_  net.Addr
-	RemoteAddr_ net.Addr
-	mu          sync.Mutex
+	ReadData      []byte
+	ReadErr       error
+	WriteData     []byte
+	WrittenData   []byte
+	WriteErr      error
+	Closed        bool
+	LocalAddress  net.Addr
+	RemoteAddress net.Addr
+	mu            sync.Mutex
 }
 
 // NewMockConn creates a mock connection with default addresses.
 func NewMockConn() *MockConn {
 	return &MockConn{
-		LocalAddr_:  &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 3004},
-		RemoteAddr_: &net.TCPAddr{IP: net.ParseIP("192.168.1.100"), Port: 54321},
+		LocalAddress:  &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 3004},
+		RemoteAddress: &net.TCPAddr{IP: net.ParseIP("192.168.1.100"), Port: 54321},
 	}
 }
 
@@ -215,6 +222,7 @@ func (m *MockConn) Write(b []byte) (n int, err error) {
 	return len(b), nil
 }
 
+// Close marks the connection as closed.
 func (m *MockConn) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -222,23 +230,28 @@ func (m *MockConn) Close() error {
 	return nil
 }
 
+// LocalAddr returns the mock local address.
 func (m *MockConn) LocalAddr() net.Addr {
-	return m.LocalAddr_
+	return m.LocalAddress
 }
 
+// RemoteAddr returns the mock remote address.
 func (m *MockConn) RemoteAddr() net.Addr {
-	return m.RemoteAddr_
+	return m.RemoteAddress
 }
 
-func (m *MockConn) SetDeadline(t time.Time) error {
+// SetDeadline is a no-op for the mock.
+func (m *MockConn) SetDeadline(_ time.Time) error {
 	return nil
 }
 
-func (m *MockConn) SetReadDeadline(t time.Time) error {
+// SetReadDeadline is a no-op for the mock.
+func (m *MockConn) SetReadDeadline(_ time.Time) error {
 	return nil
 }
 
-func (m *MockConn) SetWriteDeadline(t time.Time) error {
+// SetWriteDeadline is a no-op for the mock.
+func (m *MockConn) SetWriteDeadline(_ time.Time) error {
 	return nil
 }
 
@@ -278,6 +291,7 @@ func NewMockAlerter() *MockAlerter {
 	}
 }
 
+// Alert implements the Alerter interface for testing.
 func (m *MockAlerter) Alert(level monitoring.AuditLevel, message string, metadata map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -323,22 +337,27 @@ func NewMockShard(id int, maxConns int) *MockShard {
 	return s
 }
 
+// GetCurrentConnections returns the current connection count.
 func (m *MockShard) GetCurrentConnections() int64 {
 	return m.currentConns.Load()
 }
 
+// GetMaxConnections returns the maximum connections allowed.
 func (m *MockShard) GetMaxConnections() int {
 	return m.maxConnections
 }
 
+// GetAvailableSlots returns the number of available connection slots.
 func (m *MockShard) GetAvailableSlots() int {
 	return int(m.availableSlots.Load())
 }
 
+// GetAddr returns the shard's advertised address.
 func (m *MockShard) GetAddr() string {
 	return m.advertiseAddr
 }
 
+// GetSystemStats returns the CPU and memory usage.
 func (m *MockShard) GetSystemStats() (float64, float64) {
 	return m.cpuPercent, m.memoryMB
 }

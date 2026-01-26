@@ -1,4 +1,4 @@
-// Package shared provides core WebSocket server functionality.
+// Package server provides core WebSocket server functionality.
 // This file defines interfaces for dependency injection and testability.
 package server
 
@@ -162,9 +162,9 @@ type PumpDependencies struct {
 	Stats             *types.Stats
 }
 
-// ServerDependencies holds optional injectable dependencies for Server.
+// Dependencies holds optional injectable dependencies for Server.
 // nil values use production defaults.
-type ServerDependencies struct {
+type Dependencies struct {
 	Logger               Logger               // nil = use default zerolog
 	ListenerFactory      ListenerFactory      // nil = use net.Listen
 	KafkaConsumerFactory KafkaConsumerFactory // nil = use real Kafka

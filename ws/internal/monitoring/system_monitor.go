@@ -142,15 +142,15 @@ func (sm *SystemMonitor) updateCPUOnly() {
 	sm.mu.Unlock()
 
 	// Update Prometheus CPU metrics
-	CpuUsagePercent.Set(cpuPercent)
-	CpuContainerPercent.Set(cpuPercent)
+	CPUUsagePercent.Set(cpuPercent)
+	CPUContainerPercent.Set(cpuPercent)
 
 	// Update throttling metrics if available
 	if throttleStats.NrThrottled > 0 {
-		CpuThrottleEventsTotal.Add(float64(throttleStats.NrThrottled))
+		CPUThrottleEventsTotal.Add(float64(throttleStats.NrThrottled))
 	}
 	if throttleStats.ThrottledSec > 0 {
-		CpuThrottledSecondsTotal.Add(throttleStats.ThrottledSec)
+		CPUThrottledSecondsTotal.Add(throttleStats.ThrottledSec)
 	}
 }
 
@@ -184,21 +184,21 @@ func (sm *SystemMonitor) updateMetrics() {
 	sm.mu.Unlock()
 
 	// Update Prometheus metrics
-	CpuUsagePercent.Set(cpuPercent)
-	CpuContainerPercent.Set(cpuPercent)
-	CpuAllocationCores.Set(sm.cpuMonitor.GetAllocation())
+	CPUUsagePercent.Set(cpuPercent)
+	CPUContainerPercent.Set(cpuPercent)
+	CPUAllocationCores.Set(sm.cpuMonitor.GetAllocation())
 
 	// Also get host CPU for reference
 	if hostCPU, err := sm.cpuMonitor.GetHostPercent(); err == nil {
-		CpuHostPercent.Set(hostCPU)
+		CPUHostPercent.Set(hostCPU)
 	}
 
 	// Update throttling metrics if available
 	if throttleStats.NrThrottled > 0 {
-		CpuThrottleEventsTotal.Add(float64(throttleStats.NrThrottled))
+		CPUThrottleEventsTotal.Add(float64(throttleStats.NrThrottled))
 	}
 	if throttleStats.ThrottledSec > 0 {
-		CpuThrottledSecondsTotal.Add(throttleStats.ThrottledSec)
+		CPUThrottledSecondsTotal.Add(throttleStats.ThrottledSec)
 	}
 
 	sm.logger.Debug().

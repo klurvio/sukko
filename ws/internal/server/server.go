@@ -1,4 +1,4 @@
-// Package wsserver provides a high-performance WebSocket server optimized for
+// Package server provides a high-performance WebSocket server optimized for
 // trading platforms. It handles connection management, message broadcasting,
 // rate limiting, and subscription-based filtering with hierarchical channels.
 //
@@ -89,7 +89,7 @@ type Server struct {
 //
 // Note: Kafka consumption is handled by KafkaConsumerPool (shared pool mode).
 // The server receives a reference to the shared consumer for metrics only.
-func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc) (*Server, error) {
+func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Initialize structured logger
@@ -367,7 +367,7 @@ func (s *Server) Shutdown() error {
 
 forceClose:
 	// Force close all remaining connections with proper metrics
-	s.clients.Range(func(key, value any) bool {
+	s.clients.Range(func(key, _ any) bool {
 		if client, ok := key.(*Client); ok {
 			// Record shutdown disconnect (both Prometheus and Stats)
 			duration := time.Since(client.connectedAt)

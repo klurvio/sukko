@@ -12,10 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	"github.com/Toniq-Labs/odin-ws/internal/gateway"
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/types"
 )
 
 // Version information (set by build flags)
@@ -26,8 +26,12 @@ var (
 )
 
 func main() {
-	// Initialize logger
-	logger := initLogger()
+	// Initialize logger using shared monitoring package
+	logger := monitoring.NewLogger(monitoring.LoggerConfig{
+		Level:       types.LogLevel(os.Getenv("LOG_LEVEL")),
+		Format:      types.LogFormat(os.Getenv("LOG_FORMAT")),
+		ServiceName: "ws-gateway",
+	})
 
 	logger.Info().
 		Str("version", Version).
@@ -63,6 +67,7 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
+		defer monitoring.RecoverPanic(logger, "http.ListenAndServe", nil)
 		logger.Info().
 			Int("port", config.Port).
 			Msg("Gateway listening")
@@ -87,54 +92,6 @@ func main() {
 	}
 
 	logger.Info().Msg("Gateway stopped")
-}
-
-// initLogger creates a zerolog logger based on environment.
-func initLogger() zerolog.Logger {
-	// Check environment for log format
-	logFormat := os.Getenv("LOG_FORMAT")
-	if logFormat == "" {
-		logFormat = "json"
-	}
-
-	// Check environment for log level
-	logLevel := os.Getenv("LOG_LEVEL")
-	if logLevel == "" {
-		logLevel = "info"
-	}
-
-	// Set log level
-	var level zerolog.Level
-	switch logLevel {
-	case "debug":
-		level = zerolog.DebugLevel
-	case "warn":
-		level = zerolog.WarnLevel
-	case "error":
-		level = zerolog.ErrorLevel
-	default:
-		level = zerolog.InfoLevel
-	}
-
-	// Create logger
-	var logger zerolog.Logger
-	if logFormat == "pretty" || logFormat == "text" {
-		logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).
-			Level(level).
-			With().
-			Timestamp().
-			Str("service", "ws-gateway").
-			Logger()
-	} else {
-		logger = zerolog.New(os.Stdout).
-			Level(level).
-			With().
-			Timestamp().
-			Str("service", "ws-gateway").
-			Logger()
-	}
-
-	return logger
 }
 
 func init() {
