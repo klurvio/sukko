@@ -135,6 +135,7 @@ func NewConnectionPool(maxSize int, bufferSize int) *ConnectionPool {
 	return cp
 }
 
+// Get retrieves a client from the pool, resetting it for reuse.
 func (p *ConnectionPool) Get() *Client {
 	v := p.pool.Get()
 	if client, ok := v.(*Client); ok {
@@ -178,6 +179,7 @@ func (p *ConnectionPool) Get() *Client {
 	return nil
 }
 
+// Put returns a client to the pool after resetting its state.
 func (p *ConnectionPool) Put(c *Client) {
 	if c == nil {
 		return

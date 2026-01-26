@@ -9,13 +9,6 @@ global:
   namespace: odin-production
 
 # =============================================================================
-# Shared Authentication Secrets - PRODUCTION
-# =============================================================================
-# IMPORTANT: Override jwtSecret with a real secret!
-# Use: helm install --set auth.jwtSecret="your-real-secret-here"
-# Or: Create a separate secrets file that is NOT committed to git
-
-# =============================================================================
 # WebSocket Gateway - Production
 # =============================================================================
 ws-gateway:

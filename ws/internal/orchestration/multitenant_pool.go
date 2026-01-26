@@ -50,6 +50,7 @@ type MultiTenantConsumerPool struct {
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
 	mu           sync.RWMutex
+	metrics      PoolMetricsCallback
 
 	// Shared consumer for all shared-mode tenants
 	sharedConsumer *kafka.Consumer
@@ -62,13 +63,22 @@ type MultiTenantConsumerPool struct {
 	refreshInterval time.Duration
 	lastRefresh     time.Time
 
-	// Metrics
+	// Internal metrics (also exposed via Prometheus if callback is set)
 	messagesRouted   uint64
 	messagesDropped  uint64
 	topicsSubscribed uint64
 	dedicatedCount   uint64
 	refreshCount     uint64
 	refreshErrors    uint64
+}
+
+// PoolMetricsCallback is a callback interface for reporting multi-tenant pool metrics.
+// This allows the monitoring package to receive metrics without creating a circular dependency.
+type PoolMetricsCallback interface {
+	// OnMessageRouted is called when a message is routed to the broadcast bus.
+	OnMessageRouted()
+	// OnRefresh is called after a topic refresh operation.
+	OnRefresh(success bool, topicsSubscribed, dedicatedConsumers int)
 }
 
 // MultiTenantPoolConfig configures the multi-tenant consumer pool.
@@ -99,6 +109,10 @@ type MultiTenantPoolConfig struct {
 	// Security configuration for managed Kafka/Redpanda services
 	SASL *kafka.SASLConfig
 	TLS  *kafka.TLSConfig
+
+	// Metrics is an optional callback for reporting pool metrics to Prometheus.
+	// If nil, metrics are still tracked internally via GetMetrics().
+	Metrics PoolMetricsCallback
 }
 
 // NewMultiTenantConsumerPool creates a new multi-tenant consumer pool.
@@ -135,6 +149,7 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		logger:             config.Logger.With().Str("component", "multitenant-pool").Logger(),
 		ctx:                ctx,
 		cancel:             cancel,
+		metrics:            config.Metrics,
 		sharedTopics:       make(map[string]bool),
 		dedicatedConsumers: make(map[string]*kafka.Consumer),
 		refreshInterval:    refreshInterval,
@@ -220,12 +235,18 @@ func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 	// Get shared tenant topics
 	sharedTopics, err := p.registry.GetSharedTenantTopics(ctx, p.config.Namespace)
 	if err != nil {
+		if p.metrics != nil {
+			p.metrics.OnRefresh(false, 0, 0)
+		}
 		return fmt.Errorf("failed to get shared tenant topics: %w", err)
 	}
 
 	// Get dedicated tenants
 	dedicatedTenants, err := p.registry.GetDedicatedTenants(ctx, p.config.Namespace)
 	if err != nil {
+		if p.metrics != nil {
+			p.metrics.OnRefresh(false, 0, 0)
+		}
 		return fmt.Errorf("failed to get dedicated tenants: %w", err)
 	}
 
@@ -234,16 +255,30 @@ func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 
 	// Update shared consumer
 	if err := p.updateSharedConsumer(ctx, sharedTopics); err != nil {
+		if p.metrics != nil {
+			p.metrics.OnRefresh(false, 0, 0)
+		}
 		return fmt.Errorf("failed to update shared consumer: %w", err)
 	}
 
 	// Update dedicated consumers
 	if err := p.updateDedicatedConsumers(ctx, dedicatedTenants); err != nil {
+		if p.metrics != nil {
+			p.metrics.OnRefresh(false, 0, 0)
+		}
 		return fmt.Errorf("failed to update dedicated consumers: %w", err)
 	}
 
-	atomic.StoreUint64(&p.topicsSubscribed, uint64(len(p.sharedTopics)))
-	atomic.StoreUint64(&p.dedicatedCount, uint64(len(p.dedicatedConsumers)))
+	topicsCount := len(p.sharedTopics)
+	dedicatedCount := len(p.dedicatedConsumers)
+
+	atomic.StoreUint64(&p.topicsSubscribed, uint64(topicsCount))
+	atomic.StoreUint64(&p.dedicatedCount, uint64(dedicatedCount))
+
+	// Report success to Prometheus
+	if p.metrics != nil {
+		p.metrics.OnRefresh(true, topicsCount, dedicatedCount)
+	}
 
 	return nil
 }
@@ -322,6 +357,8 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 }
 
 // updateDedicatedConsumers creates, updates, or removes dedicated consumers.
+//
+//nolint:unparam // error return is for interface consistency and future error handling
 func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, tenants []kafka.TenantTopics) error {
 	// Build tenant set
 	activeTenants := make(map[string]bool, len(tenants))
@@ -396,6 +433,11 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 // It publishes the message to the BroadcastBus for distribution to WebSocket clients.
 func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte) {
 	atomic.AddUint64(&p.messagesRouted, 1)
+
+	// Report to Prometheus via callback
+	if p.metrics != nil {
+		p.metrics.OnMessageRouted()
+	}
 
 	p.broadcastBus.Publish(&broadcast.Message{
 		Subject: subject,

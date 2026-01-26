@@ -209,6 +209,30 @@ var (
 		Name: "ws_errors_total",
 		Help: "Total errors by type and severity",
 	}, []string{"type", "severity"})
+
+	// =============================================================================
+	// Multi-Tenant Consumer Pool Metrics
+	// =============================================================================
+
+	multitenantTopicsSubscribed = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "ws_multitenant_topics_subscribed",
+		Help: "Number of topics subscribed by shared consumer",
+	})
+
+	multitenantDedicatedConsumers = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "ws_multitenant_dedicated_consumers",
+		Help: "Number of dedicated consumer instances for isolated tenants",
+	})
+
+	multitenantMessagesRouted = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "ws_multitenant_messages_routed_total",
+		Help: "Total messages routed through multi-tenant pool",
+	})
+
+	multitenantRefreshTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_multitenant_refresh_total",
+		Help: "Topic refresh operations by result",
+	}, []string{"result"}) // success, error
 )
 
 func init() {
@@ -255,6 +279,11 @@ func init() {
 	prometheus.MustRegister(capacityAvailableHeadroom)
 
 	prometheus.MustRegister(errorsTotal)
+
+	prometheus.MustRegister(multitenantTopicsSubscribed)
+	prometheus.MustRegister(multitenantDedicatedConsumers)
+	prometheus.MustRegister(multitenantMessagesRouted)
+	prometheus.MustRegister(multitenantRefreshTotal)
 }
 
 // ServerMetrics is an interface that provides metrics access to server state
@@ -566,6 +595,38 @@ func RecordClientBufferSizeWithStats(stats *types.Stats, bufferLen, bufferCap in
 		stats.BufferSaturationSamples = stats.BufferSaturationSamples[1:]
 	}
 	stats.BuffersMu.Unlock()
+}
+
+// =============================================================================
+// Multi-Tenant Pool Metrics Callback Interface
+// =============================================================================
+
+// MultiTenantPoolMetrics is a callback interface for reporting multi-tenant consumer pool metrics.
+// This allows the orchestration package to report metrics without importing monitoring.
+type MultiTenantPoolMetrics interface {
+	// OnMessageRouted is called when a message is routed to the broadcast bus.
+	OnMessageRouted()
+	// OnRefresh is called after a topic refresh operation.
+	OnRefresh(success bool, topicsSubscribed, dedicatedConsumers int)
+}
+
+// MultiTenantPoolMetricsAdapter implements MultiTenantPoolMetrics for Prometheus.
+type MultiTenantPoolMetricsAdapter struct{}
+
+// OnMessageRouted records a routed message.
+func (a *MultiTenantPoolMetricsAdapter) OnMessageRouted() {
+	multitenantMessagesRouted.Inc()
+}
+
+// OnRefresh records a topic refresh operation and updates gauges.
+func (a *MultiTenantPoolMetricsAdapter) OnRefresh(success bool, topicsSubscribed, dedicatedConsumers int) {
+	if success {
+		multitenantRefreshTotal.WithLabelValues("success").Inc()
+		multitenantTopicsSubscribed.Set(float64(topicsSubscribed))
+		multitenantDedicatedConsumers.Set(float64(dedicatedConsumers))
+	} else {
+		multitenantRefreshTotal.WithLabelValues("error").Inc()
+	}
 }
 
 // HandleMetrics serves Prometheus metrics at /metrics endpoint.

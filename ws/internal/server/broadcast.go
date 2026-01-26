@@ -36,7 +36,7 @@ func extractChannel(subject string) string {
 	return subject
 }
 
-// broadcast sends a message to subscribed clients with reliability guarantees
+// Broadcast sends a message to subscribed clients with reliability guarantees
 // This is the critical path for message delivery in a trading platform
 //
 // Changes from basic WebSocket broadcast:

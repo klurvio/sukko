@@ -261,11 +261,11 @@ func calculateBufferStats(samples []int) map[string]any {
 
 	// Calculate average
 	sum := 0
-	max := 0
+	maxVal := 0
 	for _, v := range sorted {
 		sum += v
-		if v > max {
-			max = v
+		if v > maxVal {
+			maxVal = v
 		}
 	}
 	avg := float64(sum) / float64(len(sorted))
@@ -281,7 +281,7 @@ func calculateBufferStats(samples []int) map[string]any {
 		"p50":     sorted[p50idx],
 		"p95":     sorted[p95idx],
 		"p99":     sorted[p99idx],
-		"max":     max,
+		"max":     maxVal,
 	}
 }
 

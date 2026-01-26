@@ -362,6 +362,7 @@ func (m *MockShard) GetSystemStats() (float64, float64) {
 	return m.cpuPercent, m.memoryMB
 }
 
+// TryAcquireSlot attempts to acquire a connection slot.
 func (m *MockShard) TryAcquireSlot() bool {
 	for {
 		current := m.availableSlots.Load()
@@ -375,6 +376,7 @@ func (m *MockShard) TryAcquireSlot() bool {
 	}
 }
 
+// ReleaseSlot releases a previously acquired connection slot.
 func (m *MockShard) ReleaseSlot() {
 	m.availableSlots.Add(1)
 	m.currentConns.Add(-1)
@@ -514,9 +516,16 @@ func NewMockLogger() *MockLogger {
 	}
 }
 
+// Debug returns a debug-level mock log event.
 func (m *MockLogger) Debug() MockLogEventInterface { return &MockLogEvent{logger: m, level: "debug"} }
-func (m *MockLogger) Info() MockLogEventInterface  { return &MockLogEvent{logger: m, level: "info"} }
-func (m *MockLogger) Warn() MockLogEventInterface  { return &MockLogEvent{logger: m, level: "warn"} }
+
+// Info returns an info-level mock log event.
+func (m *MockLogger) Info() MockLogEventInterface { return &MockLogEvent{logger: m, level: "info"} }
+
+// Warn returns a warn-level mock log event.
+func (m *MockLogger) Warn() MockLogEventInterface { return &MockLogEvent{logger: m, level: "warn"} }
+
+// Error returns an error-level mock log event.
 func (m *MockLogger) Error() MockLogEventInterface { return &MockLogEvent{logger: m, level: "error"} }
 
 // MockLogEventInterface is the interface returned by MockLogger methods.
@@ -530,6 +539,7 @@ type MockLogEventInterface interface {
 	Msg(msg string)
 }
 
+// Printf logs a formatted message.
 func (m *MockLogger) Printf(format string, v ...any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -597,11 +607,13 @@ type MockLogEvent struct {
 	err    error
 }
 
+// Err adds an error field to the mock log event.
 func (e *MockLogEvent) Err(err error) MockLogEventInterface {
 	e.err = err
 	return e
 }
 
+// Int64 adds an int64 field to the mock log event.
 func (e *MockLogEvent) Int64(key string, val int64) MockLogEventInterface {
 	if e.fields == nil {
 		e.fields = make(map[string]any)
@@ -610,6 +622,7 @@ func (e *MockLogEvent) Int64(key string, val int64) MockLogEventInterface {
 	return e
 }
 
+// Int adds an int field to the mock log event.
 func (e *MockLogEvent) Int(key string, val int) MockLogEventInterface {
 	if e.fields == nil {
 		e.fields = make(map[string]any)
@@ -618,6 +631,7 @@ func (e *MockLogEvent) Int(key string, val int) MockLogEventInterface {
 	return e
 }
 
+// Str adds a string field to the mock log event.
 func (e *MockLogEvent) Str(key string, val string) MockLogEventInterface {
 	if e.fields == nil {
 		e.fields = make(map[string]any)
@@ -626,6 +640,7 @@ func (e *MockLogEvent) Str(key string, val string) MockLogEventInterface {
 	return e
 }
 
+// Interface adds an interface field to the mock log event.
 func (e *MockLogEvent) Interface(key string, val any) MockLogEventInterface {
 	if e.fields == nil {
 		e.fields = make(map[string]any)
@@ -634,6 +649,7 @@ func (e *MockLogEvent) Interface(key string, val any) MockLogEventInterface {
 	return e
 }
 
+// Msg sends the mock log event with the given message.
 func (e *MockLogEvent) Msg(msg string) {
 	e.logger.mu.Lock()
 	defer e.logger.mu.Unlock()
@@ -668,6 +684,7 @@ func NewMockClock(t ...time.Time) *MockClock {
 	}
 }
 
+// Now returns the current mock time.
 func (c *MockClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -681,6 +698,7 @@ type MockTickerInterface interface {
 	Stop()
 }
 
+// NewTicker creates a new mock ticker with the given duration.
 func (c *MockClock) NewTicker(d time.Duration) MockTickerInterface {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -763,10 +781,12 @@ type MockTicker struct {
 	stopped  bool
 }
 
+// C returns the channel on which ticks are delivered.
 func (t *MockTicker) C() <-chan time.Time {
 	return t.c
 }
 
+// Stop stops the mock ticker.
 func (t *MockTicker) Stop() {
 	t.stopped = true
 }
@@ -797,6 +817,7 @@ func NewMockMetricsRecorder() *MockMetricsRecorder {
 	}
 }
 
+// RecordMessageSent records sent message metrics.
 func (m *MockMetricsRecorder) RecordMessageSent(count, bytes int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -804,6 +825,7 @@ func (m *MockMetricsRecorder) RecordMessageSent(count, bytes int64) {
 	m.BytesSent += bytes
 }
 
+// RecordMessageReceived records received message metrics.
 func (m *MockMetricsRecorder) RecordMessageReceived(count, bytes int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -811,12 +833,14 @@ func (m *MockMetricsRecorder) RecordMessageReceived(count, bytes int64) {
 	m.BytesReceived += bytes
 }
 
+// IncrementRateLimited increments the rate limited counter.
 func (m *MockMetricsRecorder) IncrementRateLimited() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.RateLimitedCount++
 }
 
+// RecordDisconnect records a disconnect event.
 func (m *MockMetricsRecorder) RecordDisconnect(reason, initiatedBy string, duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -872,6 +896,7 @@ func NewMockRateLimiter() *MockRateLimiter {
 	}
 }
 
+// CheckLimit checks if the client has exceeded its rate limit.
 func (m *MockRateLimiter) CheckLimit(clientID int64) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -957,6 +982,7 @@ func NewMockAuditLogger() *MockAuditLogger {
 	}
 }
 
+// Warning logs a warning-level audit event.
 func (m *MockAuditLogger) Warning(event, message string, metadata map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -968,6 +994,7 @@ func (m *MockAuditLogger) Warning(event, message string, metadata map[string]any
 	})
 }
 
+// Info logs an info-level audit event.
 func (m *MockAuditLogger) Info(event, message string, metadata map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -979,6 +1006,7 @@ func (m *MockAuditLogger) Info(event, message string, metadata map[string]any) {
 	})
 }
 
+// Critical logs a critical-level audit event.
 func (m *MockAuditLogger) Critical(event, message string, metadata map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -1,3 +1,4 @@
+// Package main provides the entry point for the WebSocket server.
 package main
 
 import (
@@ -220,6 +221,7 @@ func main() {
 			RefreshInterval: cfg.TopicRefreshInterval,
 			SASL:            saslConfig,
 			TLS:             tlsConfig,
+			Metrics:         &monitoring.MultiTenantPoolMetricsAdapter{},
 		})
 		if err != nil {
 			logger.Fatalf("Failed to create multi-tenant consumer pool: %v", err)

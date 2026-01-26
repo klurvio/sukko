@@ -84,6 +84,7 @@ func (gw *Gateway) setupValidator() error {
 		RefreshInterval: gw.config.KeyCacheRefreshInterval,
 		QueryTimeout:    gw.config.KeyCacheQueryTimeout,
 		Logger:          gw.logger.With().Str("component", "key_registry").Logger(),
+		Metrics:         &KeyCacheMetricsAdapter{},
 	})
 	if err != nil {
 		_ = db.Close()

@@ -1,7 +1,7 @@
 // Package types defines core configuration structures and type definitions
 // used across the WebSocket server. It provides ServerConfig for server
 // settings, Stats for runtime metrics, and various constants and enums.
-package types
+package types //nolint:revive // package name is intentional for shared types
 
 import (
 	"sync"

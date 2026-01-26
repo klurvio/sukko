@@ -13,6 +13,17 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// KeyCacheMetrics is a callback interface for reporting cache metrics.
+// This allows the gateway to receive metrics without creating a dependency.
+type KeyCacheMetrics interface {
+	// OnCacheHit is called when a key is found in cache.
+	OnCacheHit()
+	// OnCacheMiss is called when a key is not found in cache.
+	OnCacheMiss()
+	// OnCacheRefresh is called after a cache refresh attempt.
+	OnCacheRefresh(success bool, keyCount int)
+}
+
 // PostgresKeyRegistryConfig configures the PostgresKeyRegistry.
 type PostgresKeyRegistryConfig struct {
 	// DB is the database connection pool.
@@ -26,6 +37,10 @@ type PostgresKeyRegistryConfig struct {
 
 	// Logger for structured logging.
 	Logger zerolog.Logger
+
+	// Metrics is an optional callback for reporting cache metrics.
+	// If nil, metrics are not reported (but still tracked internally via Stats()).
+	Metrics KeyCacheMetrics
 }
 
 // PostgresKeyRegistry implements KeyRegistry by fetching keys from the provisioning database.
@@ -35,6 +50,7 @@ type PostgresKeyRegistry struct {
 	refreshInterval time.Duration
 	queryTimeout    time.Duration
 	logger          zerolog.Logger
+	metrics         KeyCacheMetrics
 
 	// Cache
 	cacheMu      sync.RWMutex
@@ -70,6 +86,7 @@ func NewPostgresKeyRegistry(cfg PostgresKeyRegistryConfig) (*PostgresKeyRegistry
 		refreshInterval: cfg.RefreshInterval,
 		queryTimeout:    cfg.QueryTimeout,
 		logger:          cfg.Logger,
+		metrics:         cfg.Metrics,
 		keysByID:        make(map[string]*KeyInfo),
 		keysByTenant:    make(map[string][]*KeyInfo),
 		stopCh:          make(chan struct{}),
@@ -98,6 +115,9 @@ func (r *PostgresKeyRegistry) GetKey(ctx context.Context, keyID string) (*KeyInf
 
 	if !ok {
 		r.cacheMisses.Add(1)
+		if r.metrics != nil {
+			r.metrics.OnCacheMiss()
+		}
 
 		// Try fetching directly from DB on cache miss
 		key, err := r.fetchKeyFromDB(ctx, keyID)
@@ -114,6 +134,9 @@ func (r *PostgresKeyRegistry) GetKey(ctx context.Context, keyID string) (*KeyInf
 	}
 
 	r.cacheHits.Add(1)
+	if r.metrics != nil {
+		r.metrics.OnCacheHit()
+	}
 
 	// Check validity
 	if key.RevokedAt != nil {
@@ -201,6 +224,9 @@ func (r *PostgresKeyRegistry) backgroundRefresh() {
 			if err := r.refreshCache(ctx); err != nil {
 				r.refreshErrors.Add(1)
 				r.logger.Error().Err(err).Msg("Failed to refresh key cache")
+				if r.metrics != nil {
+					r.metrics.OnCacheRefresh(false, 0)
+				}
 			}
 			cancel()
 		}
@@ -290,6 +316,10 @@ func (r *PostgresKeyRegistry) refreshCache(ctx context.Context) error {
 		Int("key_count", len(newKeysByID)).
 		Int("tenant_count", len(newKeysByTenant)).
 		Msg("Key cache refreshed")
+
+	if r.metrics != nil {
+		r.metrics.OnCacheRefresh(true, len(newKeysByID))
+	}
 
 	return nil
 }

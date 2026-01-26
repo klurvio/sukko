@@ -43,16 +43,6 @@ kernelTuning:
   enabled: true
 
 # =============================================================================
-# Shared Authentication Secrets
-# =============================================================================
-# JWT secret shared between odin-api (issues tokens) and ws-gateway (validates)
-auth:
-  # JWT signing secret (must be at least 32 bytes)
-  # IMPORTANT: Override in values-{env}.yaml with real secrets!
-  # Must match the JWT_SECRET configured in odin-api
-  jwtSecret: "your-32-byte-jwt-secret-here!!!!"
-
-# =============================================================================
 # WebSocket Gateway
 # =============================================================================
 # The gateway handles authentication and permission filtering before proxying

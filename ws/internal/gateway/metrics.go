@@ -91,6 +91,30 @@ var backendLatency = promauto.NewHistogram(prometheus.HistogramOpts{
 })
 
 // =============================================================================
+// Key Cache Metrics
+// =============================================================================
+
+var keyCacheHits = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "gateway_key_cache_hits_total",
+	Help: "Total key cache hits",
+})
+
+var keyCacheMisses = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "gateway_key_cache_misses_total",
+	Help: "Total key cache misses",
+})
+
+var keyCacheSize = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "gateway_key_cache_size",
+	Help: "Current number of keys in cache",
+})
+
+var keyCacheRefreshes = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "gateway_key_cache_refreshes_total",
+	Help: "Key cache refresh operations by result",
+}, []string{"result"}) // success, error
+
+// =============================================================================
 // Helper Functions
 // =============================================================================
 
@@ -132,6 +156,54 @@ func RecordProxyError(errorType string) {
 func RecordBackendConnect(status string, latency time.Duration) {
 	backendConnects.WithLabelValues(status).Inc()
 	backendLatency.Observe(latency.Seconds())
+}
+
+// RecordKeyCacheHit records a key cache hit.
+func RecordKeyCacheHit() {
+	keyCacheHits.Inc()
+}
+
+// RecordKeyCacheMiss records a key cache miss.
+func RecordKeyCacheMiss() {
+	keyCacheMisses.Inc()
+}
+
+// SetKeyCacheSize sets the current key cache size.
+func SetKeyCacheSize(size int) {
+	keyCacheSize.Set(float64(size))
+}
+
+// RecordKeyCacheRefresh records a cache refresh operation.
+func RecordKeyCacheRefresh(success bool) {
+	if success {
+		keyCacheRefreshes.WithLabelValues("success").Inc()
+	} else {
+		keyCacheRefreshes.WithLabelValues("error").Inc()
+	}
+}
+
+// KeyCacheMetricsAdapter implements auth.KeyCacheMetrics for Prometheus.
+// This adapter allows the auth package to report metrics without depending on gateway.
+type KeyCacheMetricsAdapter struct{}
+
+// OnCacheHit records a key cache hit.
+func (a *KeyCacheMetricsAdapter) OnCacheHit() {
+	keyCacheHits.Inc()
+}
+
+// OnCacheMiss records a key cache miss.
+func (a *KeyCacheMetricsAdapter) OnCacheMiss() {
+	keyCacheMisses.Inc()
+}
+
+// OnCacheRefresh records a cache refresh operation.
+func (a *KeyCacheMetricsAdapter) OnCacheRefresh(success bool, keyCount int) {
+	if success {
+		keyCacheRefreshes.WithLabelValues("success").Inc()
+		keyCacheSize.Set(float64(keyCount))
+	} else {
+		keyCacheRefreshes.WithLabelValues("error").Inc()
+	}
 }
 
 // HandleMetrics serves Prometheus metrics.

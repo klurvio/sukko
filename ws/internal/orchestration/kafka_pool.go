@@ -1,3 +1,6 @@
+// Package orchestration provides consumer pool management and message routing
+// for multi-tenant WebSocket infrastructure. It handles Kafka consumer pooling,
+// shard-based message distribution, and tenant isolation.
 package orchestration
 
 import (

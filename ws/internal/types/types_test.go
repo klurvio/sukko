@@ -1,4 +1,4 @@
-package types
+package types //nolint:revive // test file for types package
 
 import (
 	"sync"

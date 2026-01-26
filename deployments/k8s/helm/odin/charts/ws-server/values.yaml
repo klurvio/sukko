@@ -134,14 +134,6 @@ multiTenant:
   dbConnMaxLifetime: "5m"
   dbConnMaxIdleTime: "1m"
 
-# JWT Authentication for WebSocket connections
-# Requires shared secret from parent chart (odin-auth-secrets)
-auth:
-  enabled: false
-  tokenExpiry: "24h"
-  tokenExpiryWarning: "5m"
-  tokenCheckInterval: "1m"
-
 resources:
   requests:
     cpu: "1"

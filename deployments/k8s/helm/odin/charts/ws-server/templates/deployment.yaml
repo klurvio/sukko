@@ -126,22 +126,6 @@ spec:
             - name: NATS_PASSWORD
               value: "{{ .Values.nats.password }}"
             {{- end }}
-            # JWT Authentication
-            - name: WS_AUTH_ENABLED
-              value: "{{ .Values.auth.enabled | default false }}"
-            {{- if .Values.auth.enabled }}
-            - name: WS_JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-auth-secrets
-                  key: jwt-secret
-            - name: WS_TOKEN_EXPIRY
-              value: "{{ .Values.auth.tokenExpiry }}"
-            - name: WS_TOKEN_EXPIRY_WARNING
-              value: "{{ .Values.auth.tokenExpiryWarning }}"
-            - name: WS_TOKEN_CHECK_INTERVAL
-              value: "{{ .Values.auth.tokenCheckInterval }}"
-            {{- end }}
             # Multi-Tenant Consumer (Required)
             # Provisioning database URL - reads tenant topics for dynamic consumer groups
             - name: PROVISIONING_DATABASE_URL

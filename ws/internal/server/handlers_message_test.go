@@ -416,7 +416,7 @@ func TestSequenceGenerator_MonotonicIncrease_Handlers(t *testing.T) {
 	t.Parallel()
 	gen := messaging.NewSequenceGenerator()
 
-	var prev int64 = 0
+	var prev int64
 	for range 1000 {
 		seq := gen.Next()
 		if seq <= prev {
