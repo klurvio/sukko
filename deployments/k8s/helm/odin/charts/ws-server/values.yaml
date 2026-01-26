@@ -121,6 +121,19 @@ kafka:
     insecureSkipVerify: false  # Skip CA verification (not for production)
     caPath: ""  # Path to CA certificate (mounted from secret)
 
+# Multi-Tenant Consumer Configuration (Required)
+# ws-server queries the provisioning database for tenant topics
+# and manages consumer groups dynamically based on tenant consumer_type
+multiTenant:
+  # Topic refresh interval - how often to query DB for new tenant topics
+  # Lower values = faster topic discovery, higher DB load
+  topicRefreshInterval: "60s"
+  # Database connection pool settings
+  dbMaxOpenConns: 5
+  dbMaxIdleConns: 2
+  dbConnMaxLifetime: "5m"
+  dbConnMaxIdleTime: "1m"
+
 # JWT Authentication for WebSocket connections
 # Requires shared secret from parent chart (odin-auth-secrets)
 auth:

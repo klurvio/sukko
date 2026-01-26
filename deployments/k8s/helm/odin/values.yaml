@@ -15,6 +15,25 @@ global:
   labels:
     app.kubernetes.io/part-of: odin
 
+  # Provisioning Database (shared across subcharts)
+  # Used by ws-gateway (tenant keys) and ws-server (tenant topics)
+  #
+  # Configure ONE of the following:
+  #   1. existingSecret (recommended for production) - Use a pre-created K8s secret
+  #   2. databaseUrl (for local dev) - Helm creates the secret
+  #
+  # If neither is set, chart will fail with an error.
+  provisioning:
+    # Option 1: Use existing secret (recommended for production)
+    # The secret must contain key "database-url" with the PostgreSQL connection string
+    # Create via Terraform, External Secrets Operator, or kubectl
+    existingSecret: ""
+
+    # Option 2: Database URL for local development
+    # Only used if existingSecret is empty
+    # Format: postgres://user:password@host:port/database?sslmode=require
+    databaseUrl: ""
+
 # =============================================================================
 # Kernel Tuning DaemonSet
 # =============================================================================

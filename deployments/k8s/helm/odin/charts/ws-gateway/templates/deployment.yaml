@@ -67,7 +67,7 @@ spec:
             - name: PROVISIONING_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-provisioning-db
+                  name: {{ .Values.global.provisioning.existingSecret | default (printf "%s-provisioning-db" .Release.Name) }}
                   key: database-url
             # Multi-tenant settings
             - name: REQUIRE_TENANT_ID

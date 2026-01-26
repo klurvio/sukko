@@ -142,6 +142,23 @@ spec:
             - name: WS_TOKEN_CHECK_INTERVAL
               value: "{{ .Values.auth.tokenCheckInterval }}"
             {{- end }}
+            # Multi-Tenant Consumer (Required)
+            # Provisioning database URL - reads tenant topics for dynamic consumer groups
+            - name: PROVISIONING_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.provisioning.existingSecret | default (printf "%s-provisioning-db" .Release.Name) }}
+                  key: database-url
+            - name: TOPIC_REFRESH_INTERVAL
+              value: "{{ .Values.multiTenant.topicRefreshInterval | default "60s" }}"
+            - name: PROVISIONING_DB_MAX_OPEN_CONNS
+              value: "{{ .Values.multiTenant.dbMaxOpenConns | default 5 }}"
+            - name: PROVISIONING_DB_MAX_IDLE_CONNS
+              value: "{{ .Values.multiTenant.dbMaxIdleConns | default 2 }}"
+            - name: PROVISIONING_DB_CONN_MAX_LIFETIME
+              value: "{{ .Values.multiTenant.dbConnMaxLifetime | default "5m" }}"
+            - name: PROVISIONING_DB_CONN_MAX_IDLE_TIME
+              value: "{{ .Values.multiTenant.dbConnMaxIdleTime | default "1m" }}"
             # Connection Limits (application-level safety valve)
             # WS_MAX_CONNECTIONS = clusterMaxConnections / replicaCount (per-pod limit)
             # ResourceGuard enforces actual limits based on CPU/memory at runtime
