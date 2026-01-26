@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 )
 
 // KeyCacheMetrics is a callback interface for reporting cache metrics.
@@ -210,6 +212,7 @@ func (r *PostgresKeyRegistry) Close() error {
 
 // backgroundRefresh periodically refreshes the key cache.
 func (r *PostgresKeyRegistry) backgroundRefresh() {
+	defer monitoring.RecoverPanic(r.logger, "backgroundRefresh", nil)
 	defer r.wg.Done()
 
 	ticker := time.NewTicker(r.refreshInterval)

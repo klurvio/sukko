@@ -12,6 +12,8 @@ import (
 
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 )
 
 // ShardProxy is a WebSocket proxy that forwards connections to a backend shard.
@@ -124,12 +126,14 @@ func (p *ShardProxy) proxyMessages(client, backend net.Conn) {
 
 	// Client -> Backend (client frames are masked, need to re-mask for backend)
 	go func() {
+		defer monitoring.RecoverPanic(p.logger, "proxyClientToBackend", nil)
 		defer wg.Done()
 		p.copyMessages(client, backend, "client->backend", true, errChan)
 	}()
 
 	// Backend -> Client (server frames are not masked, send as-is)
 	go func() {
+		defer monitoring.RecoverPanic(p.logger, "proxyBackendToClient", nil)
 		defer wg.Done()
 		p.copyMessages(backend, client, "backend->client", false, errChan)
 	}()

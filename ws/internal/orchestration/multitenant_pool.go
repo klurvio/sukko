@@ -12,6 +12,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 )
 
 // MultiTenantConsumerPool manages Kafka consumers for multi-tenant deployments.
@@ -207,6 +208,7 @@ func (p *MultiTenantConsumerPool) Start() error {
 
 // refreshLoop periodically checks for new tenant topics.
 func (p *MultiTenantConsumerPool) refreshLoop() {
+	defer monitoring.RecoverPanic(p.logger, "refreshLoop", nil)
 	defer p.wg.Done()
 
 	ticker := time.NewTicker(p.refreshInterval)
