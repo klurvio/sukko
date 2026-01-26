@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -11,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/lib/pq" // PostgreSQL driver
 	_ "go.uber.org/automaxprocs"
 
 	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
@@ -19,6 +22,7 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/orchestration"
 	"github.com/Toniq-Labs/odin-ws/internal/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
 )
 
@@ -136,10 +140,14 @@ func main() {
 	logger.Printf("BroadcastBus initialized (type: %s)", cfg.BroadcastType)
 	broadcastBus.Run()
 
-	// Create shared Kafka consumer pool (replaces per-shard consumers)
-	// This eliminates 9x message duplication (3 consumers × 3 broadcasts)
-	var kafkaPool *orchestration.KafkaConsumerPool
+	// Create multi-tenant Kafka consumer pool
+	// Queries provisioning database for tenant topics and manages consumer groups:
+	// - Shared tenants: odin-shared-{namespace} consumer group
+	// - Dedicated tenants: odin-{tenant_id}-{namespace} consumer group
+	var multiTenantPool *orchestration.MultiTenantConsumerPool
 	var kafkaProducer *kafka.Producer
+	var provisioningDB *sql.DB
+
 	if len(kafkaBrokers) > 0 {
 		// Create resource guard for CPU brake (shared across pool)
 		poolLogger := monitoring.NewLogger(monitoring.LoggerConfig{
@@ -176,26 +184,52 @@ func main() {
 			}
 		}
 
+		// Connect to provisioning database for tenant topic discovery
 		var err error
-		kafkaPool, err = orchestration.NewKafkaConsumerPool(orchestration.KafkaPoolConfig{
-			Brokers:       kafkaBrokers,
-			ConsumerGroup: cfg.ConsumerGroup, // Single group for all shards
-			Environment:   topicNamespace,    // Resolved topic namespace for topic naming
-			BroadcastBus:  broadcastBus,
-			ResourceGuard: resourceGuard,
-			Logger:        poolLogger,
-			SASL:          saslConfig,
-			TLS:           tlsConfig,
+		provisioningDB, err = sql.Open("postgres", cfg.ProvisioningDatabaseURL)
+		if err != nil {
+			logger.Fatalf("Failed to open provisioning database: %v", err)
+		}
+
+		// Configure connection pool
+		provisioningDB.SetMaxOpenConns(cfg.ProvisioningDBMaxOpenConns)
+		provisioningDB.SetMaxIdleConns(cfg.ProvisioningDBMaxIdleConns)
+		provisioningDB.SetConnMaxLifetime(cfg.ProvisioningDBConnMaxLifetime)
+		provisioningDB.SetConnMaxIdleTime(cfg.ProvisioningDBConnMaxIdleTime)
+
+		// Verify connection (fail fast if DB unreachable)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := provisioningDB.PingContext(ctx); err != nil {
+			cancel()
+			logger.Fatalf("Failed to connect to provisioning database: %v", err)
+		}
+		cancel()
+		logger.Printf("Connected to provisioning database")
+
+		// Create topic registry backed by provisioning database
+		topicRegistry := provisioning.NewTopicRegistry(provisioningDB)
+
+		// Create multi-tenant consumer pool
+		multiTenantPool, err = orchestration.NewMultiTenantConsumerPool(orchestration.MultiTenantPoolConfig{
+			Brokers:         kafkaBrokers,
+			Namespace:       topicNamespace,
+			Registry:        topicRegistry,
+			BroadcastBus:    broadcastBus,
+			ResourceGuard:   resourceGuard,
+			Logger:          poolLogger,
+			RefreshInterval: cfg.TopicRefreshInterval,
+			SASL:            saslConfig,
+			TLS:             tlsConfig,
 		})
 		if err != nil {
-			logger.Fatalf("Failed to create Kafka consumer pool: %v", err)
+			logger.Fatalf("Failed to create multi-tenant consumer pool: %v", err)
 		}
 
-		if err := kafkaPool.Start(); err != nil {
-			logger.Fatalf("Failed to start Kafka consumer pool: %v", err)
+		if err := multiTenantPool.Start(); err != nil {
+			logger.Fatalf("Failed to start multi-tenant consumer pool: %v", err)
 		}
 
-		logger.Printf("Shared Kafka consumer pool started (replaces %d per-shard consumers)", *numShards)
+		logger.Printf("Multi-tenant consumer pool started (refresh: %v)", cfg.TopicRefreshInterval)
 
 		// Create shared Kafka producer for client message publishing
 		// Clients can publish messages to Kafka via the "publish" message type
@@ -260,10 +294,10 @@ func main() {
 			LogFormat:       types.LogFormat(cfg.LogFormat),
 		}
 
-		// Get shared consumer for replay (if pool exists)
+		// Get shared consumer for replay (from multi-tenant pool)
 		var sharedConsumer any
-		if kafkaPool != nil {
-			sharedConsumer = kafkaPool.GetConsumer()
+		if multiTenantPool != nil {
+			sharedConsumer = multiTenantPool.GetSharedConsumer()
 		}
 
 		shard, err := orchestration.NewShard(orchestration.ShardConfig{
@@ -321,10 +355,17 @@ func main() {
 		}
 	}
 
-	// Shutdown Kafka pool (before BroadcastBus)
-	if kafkaPool != nil {
-		if err := kafkaPool.Stop(); err != nil {
-			logger.Printf("Error stopping Kafka pool: %v", err)
+	// Shutdown multi-tenant consumer pool (before BroadcastBus)
+	if multiTenantPool != nil {
+		if err := multiTenantPool.Stop(); err != nil {
+			logger.Printf("Error stopping multi-tenant consumer pool: %v", err)
+		}
+	}
+
+	// Close provisioning database connection
+	if provisioningDB != nil {
+		if err := provisioningDB.Close(); err != nil {
+			logger.Printf("Error closing provisioning database: %v", err)
 		}
 	}
 

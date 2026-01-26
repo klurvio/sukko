@@ -693,7 +693,8 @@ func (c *MockClock) NewTicker(d time.Duration) MockTickerInterface {
 	return ticker
 }
 
-func (c *MockClock) After(d time.Duration) <-chan time.Time {
+// After returns a channel for time-based operations.
+func (c *MockClock) After(_ time.Duration) <-chan time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	ch := make(chan time.Time, 1)
@@ -1031,7 +1032,8 @@ type MockListenerFactory struct {
 	Error    error
 }
 
-func (m *MockListenerFactory) Listen(network, addr string) (net.Listener, error) {
+// Listen implements ListenerFactory.Listen for testing.
+func (m *MockListenerFactory) Listen(_, _ string) (net.Listener, error) {
 	if m.Error != nil {
 		return nil, m.Error
 	}

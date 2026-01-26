@@ -524,7 +524,7 @@ func TestClientBufferIteration_WithSyncMap(t *testing.T) {
 	samplesCollected := 0
 	highSaturation := 0
 
-	clients.Range(func(key, value any) bool {
+	clients.Range(func(key, _ any) bool {
 		client, ok := key.(*Client)
 		if !ok {
 			return true

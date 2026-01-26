@@ -430,7 +430,8 @@ func (m *MockAuditStore) Log(_ context.Context, entry *provisioning.AuditEntry) 
 	return nil
 }
 
-func (m *MockAuditStore) ListByTenant(ctx context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.AuditEntry, int, error) {
+// ListByTenant implements AuditStore.ListByTenant for testing.
+func (m *MockAuditStore) ListByTenant(_ context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.AuditEntry, int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []*provisioning.AuditEntry
@@ -468,6 +469,7 @@ type MockKafkaAdmin struct {
 	SetQuotaErr       error
 }
 
+// NewMockKafkaAdmin creates a new MockKafkaAdmin.
 func NewMockKafkaAdmin() *MockKafkaAdmin {
 	return &MockKafkaAdmin{
 		topics: make(map[string]bool),
@@ -476,7 +478,8 @@ func NewMockKafkaAdmin() *MockKafkaAdmin {
 	}
 }
 
-func (m *MockKafkaAdmin) CreateTopic(ctx context.Context, name string, partitions int, config map[string]string) error {
+// CreateTopic implements KafkaAdmin.CreateTopic for testing.
+func (m *MockKafkaAdmin) CreateTopic(_ context.Context, name string, _ int, _ map[string]string) error {
 	if m.CreateTopicErr != nil {
 		return m.CreateTopicErr
 	}
@@ -486,7 +489,8 @@ func (m *MockKafkaAdmin) CreateTopic(ctx context.Context, name string, partition
 	return nil
 }
 
-func (m *MockKafkaAdmin) DeleteTopic(ctx context.Context, name string) error {
+// DeleteTopic implements KafkaAdmin.DeleteTopic for testing.
+func (m *MockKafkaAdmin) DeleteTopic(_ context.Context, name string) error {
 	if m.DeleteTopicErr != nil {
 		return m.DeleteTopicErr
 	}
@@ -496,21 +500,24 @@ func (m *MockKafkaAdmin) DeleteTopic(ctx context.Context, name string) error {
 	return nil
 }
 
-func (m *MockKafkaAdmin) TopicExists(ctx context.Context, name string) (bool, error) {
+// TopicExists implements KafkaAdmin.TopicExists for testing.
+func (m *MockKafkaAdmin) TopicExists(_ context.Context, name string) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	_, ok := m.topics[name]
 	return ok, nil
 }
 
-func (m *MockKafkaAdmin) SetTopicConfig(ctx context.Context, name string, config map[string]string) error {
+// SetTopicConfig implements KafkaAdmin.SetTopicConfig for testing.
+func (m *MockKafkaAdmin) SetTopicConfig(_ context.Context, _ string, _ map[string]string) error {
 	if m.SetTopicConfigErr != nil {
 		return m.SetTopicConfigErr
 	}
 	return nil
 }
 
-func (m *MockKafkaAdmin) CreateACL(ctx context.Context, acl provisioning.ACLBinding) error {
+// CreateACL implements KafkaAdmin.CreateACL for testing.
+func (m *MockKafkaAdmin) CreateACL(_ context.Context, acl provisioning.ACLBinding) error {
 	if m.CreateACLErr != nil {
 		return m.CreateACLErr
 	}
@@ -520,11 +527,13 @@ func (m *MockKafkaAdmin) CreateACL(ctx context.Context, acl provisioning.ACLBind
 	return nil
 }
 
-func (m *MockKafkaAdmin) DeleteACL(ctx context.Context, acl provisioning.ACLBinding) error {
+// DeleteACL implements KafkaAdmin.DeleteACL for testing.
+func (m *MockKafkaAdmin) DeleteACL(_ context.Context, _ provisioning.ACLBinding) error {
 	return nil
 }
 
-func (m *MockKafkaAdmin) SetQuota(ctx context.Context, tenantID string, quota provisioning.QuotaConfig) error {
+// SetQuota implements KafkaAdmin.SetQuota for testing.
+func (m *MockKafkaAdmin) SetQuota(_ context.Context, tenantID string, quota provisioning.QuotaConfig) error {
 	if m.SetQuotaErr != nil {
 		return m.SetQuotaErr
 	}

@@ -26,7 +26,7 @@ type mockTenantRegistry struct {
 	mu               sync.Mutex
 }
 
-func (m *mockTenantRegistry) GetSharedTenantTopics(ctx context.Context, namespace string) ([]string, error) {
+func (m *mockTenantRegistry) GetSharedTenantTopics(_ context.Context, _ string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
@@ -36,7 +36,7 @@ func (m *mockTenantRegistry) GetSharedTenantTopics(ctx context.Context, namespac
 	return m.sharedTopics, nil
 }
 
-func (m *mockTenantRegistry) GetDedicatedTenants(ctx context.Context, namespace string) ([]kafka.TenantTopics, error) {
+func (m *mockTenantRegistry) GetDedicatedTenants(_ context.Context, _ string) ([]kafka.TenantTopics, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
@@ -72,7 +72,7 @@ func (m *mockBroadcastBus) Shutdown() {
 	// Not used in tests
 }
 
-func (m *mockBroadcastBus) ShutdownWithContext(ctx context.Context) {
+func (m *mockBroadcastBus) ShutdownWithContext(_ context.Context) {
 	// Not used in tests
 }
 
@@ -96,7 +96,7 @@ func (m *mockBroadcastBus) getPublishCount() int64 {
 // mockResourceGuard implements kafka.ResourceGuard for testing
 type mockResourceGuard struct{}
 
-func (m *mockResourceGuard) AllowKafkaMessage(ctx context.Context) (bool, time.Duration) {
+func (m *mockResourceGuard) AllowKafkaMessage(_ context.Context) (bool, time.Duration) {
 	return true, 0
 }
 

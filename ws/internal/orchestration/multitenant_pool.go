@@ -249,7 +249,7 @@ func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 }
 
 // updateSharedConsumer creates or updates the shared consumer for shared-mode tenants.
-func (p *MultiTenantConsumerPool) updateSharedConsumer(ctx context.Context, topics []string) error {
+func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics []string) error {
 	// Build topic set for comparison
 	newTopics := make(map[string]bool, len(topics))
 	for _, topic := range topics {
@@ -322,7 +322,7 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(ctx context.Context, topi
 }
 
 // updateDedicatedConsumers creates, updates, or removes dedicated consumers.
-func (p *MultiTenantConsumerPool) updateDedicatedConsumers(ctx context.Context, tenants []kafka.TenantTopics) error {
+func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, tenants []kafka.TenantTopics) error {
 	// Build tenant set
 	activeTenants := make(map[string]bool, len(tenants))
 	for _, t := range tenants {

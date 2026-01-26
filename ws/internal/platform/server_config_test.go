@@ -39,6 +39,10 @@ func newValidServerConfig() *ServerConfig {
 		ValkeyChannel:              "ws.broadcast",
 		ValkeyDB:                   0,
 		ClientSendBufferSize:       512,
+		// Multi-tenant consumer (required)
+		ProvisioningDatabaseURL:    "postgres://user:pass@localhost:5432/provisioning?sslmode=disable",
+		TopicRefreshInterval:       60 * time.Second,
+		ProvisioningDBMaxOpenConns: 5,
 	}
 }
 

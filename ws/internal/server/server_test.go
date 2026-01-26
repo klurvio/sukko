@@ -739,7 +739,7 @@ func TestServer_SubscriptionFlow_NotAffectedByProducerField(t *testing.T) {
 	// Regression test: Subscription flow must work correctly
 	// even with producer field present in Server struct
 
-	mockBroadcast := func(subject string, payload []byte) {}
+	mockBroadcast := func(_ string, _ []byte) {}
 
 	config := types.ServerConfig{
 		Addr:           ":0",

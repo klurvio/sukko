@@ -668,7 +668,7 @@ func TestReadLoop_TextMessage_ProcessedCorrectly(t *testing.T) {
 	}
 
 	var receivedMsg []byte
-	handleMsgFn := func(c *Client, msg []byte) {
+	handleMsgFn := func(_ *Client, msg []byte) {
 		receivedMsg = msg
 	}
 
@@ -834,7 +834,7 @@ func TestReadLoop_ContextCancellation_ExitsWithServerShutdown(t *testing.T) {
 
 	var disconnectReason string
 	var initiatedBy string
-	disconnectFn := func(c *Client, reason, by string) {
+	disconnectFn := func(_ *Client, reason, by string) {
 		disconnectReason = reason
 		initiatedBy = by
 	}
@@ -886,7 +886,7 @@ func TestReadLoop_ReadError_CallsDisconnectFn(t *testing.T) {
 
 	var disconnectCalled bool
 	var disconnectReason string
-	disconnectFn := func(c *Client, reason, by string) {
+	disconnectFn := func(_ *Client, reason, _ string) {
 		disconnectCalled = true
 		disconnectReason = reason
 	}
@@ -939,7 +939,7 @@ func TestReadLoop_RateLimiting_BlocksExcessiveMessages(t *testing.T) {
 	}
 
 	processedCount := 0
-	handleMsgFn := func(c *Client, msg []byte) {
+	handleMsgFn := func(_ *Client, _ []byte) {
 		processedCount++
 	}
 

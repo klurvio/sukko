@@ -211,6 +211,30 @@ type ServerConfig struct {
 	NATSToken       string   `env:"NATS_TOKEN"`
 	NATSUser        string   `env:"NATS_USER"`
 	NATSPassword    string   `env:"NATS_PASSWORD"`
+
+	// Multi-Tenant Consumer Configuration (Required)
+	//
+	// The server uses MultiTenantConsumerPool which:
+	// - Queries the provisioning database for tenant topics
+	// - Manages consumer groups dynamically based on tenant consumer_type:
+	//   - Shared tenants: odin-shared-{namespace} consumer group
+	//   - Dedicated tenants: odin-{tenant_id}-{namespace} consumer group
+	//
+	// ProvisioningDatabaseURL: PostgreSQL connection string for multi-tenant topic registry
+	// Required - server will fail to start if not set or DB is unreachable
+	// Example: postgres://user:pass@host:5432/provisioning?sslmode=require
+	ProvisioningDatabaseURL string `env:"PROVISIONING_DATABASE_URL,required"`
+
+	// TopicRefreshInterval: How often to query the database for new tenant topics
+	// Lower values = faster topic discovery, higher DB load
+	// Default: 60s (good balance for most deployments)
+	TopicRefreshInterval time.Duration `env:"TOPIC_REFRESH_INTERVAL" envDefault:"60s"`
+
+	// Database Connection Pool (for provisioning database when multi-tenant enabled)
+	ProvisioningDBMaxOpenConns    int           `env:"PROVISIONING_DB_MAX_OPEN_CONNS" envDefault:"5"`
+	ProvisioningDBMaxIdleConns    int           `env:"PROVISIONING_DB_MAX_IDLE_CONNS" envDefault:"2"`
+	ProvisioningDBConnMaxLifetime time.Duration `env:"PROVISIONING_DB_CONN_MAX_LIFETIME" envDefault:"5m"`
+	ProvisioningDBConnMaxIdleTime time.Duration `env:"PROVISIONING_DB_CONN_MAX_IDLE_TIME" envDefault:"1m"`
 }
 
 // LoadServerConfig reads server configuration from .env file and environment variables
@@ -376,6 +400,17 @@ func (c *ServerConfig) Validate() error {
 	// Note: We don't require CA path - system CA pool is used by default if not specified
 	// KafkaTLSInsecure is allowed but should be warned about in production
 
+	// Multi-tenant consumer validation (required)
+	if c.ProvisioningDatabaseURL == "" {
+		return errors.New("PROVISIONING_DATABASE_URL is required")
+	}
+	if c.TopicRefreshInterval < 5*time.Second {
+		return fmt.Errorf("TOPIC_REFRESH_INTERVAL must be >= 5s, got %v", c.TopicRefreshInterval)
+	}
+	if c.ProvisioningDBMaxOpenConns < 1 {
+		return fmt.Errorf("PROVISIONING_DB_MAX_OPEN_CONNS must be >= 1, got %d", c.ProvisioningDBMaxOpenConns)
+	}
+
 	return nil
 }
 
@@ -450,6 +485,11 @@ func (c *ServerConfig) Print() {
 	}
 	fmt.Println("\n=== Client Buffers ===")
 	fmt.Printf("Send Buffer:     %d slots (~%dKB/client)\n", c.ClientSendBufferSize, c.ClientSendBufferSize/2)
+	fmt.Println("\n=== Multi-Tenant Consumer ===")
+	fmt.Printf("Provisioning DB:     %s\n", maskDatabaseURL(c.ProvisioningDatabaseURL))
+	fmt.Printf("Topic Refresh:       %s\n", c.TopicRefreshInterval)
+	fmt.Printf("DB Max Open Conns:   %d\n", c.ProvisioningDBMaxOpenConns)
+	fmt.Printf("DB Max Idle Conns:   %d\n", c.ProvisioningDBMaxIdleConns)
 	fmt.Println("\n=== Monitoring ===")
 	fmt.Printf("Metrics Interval: %s\n", c.MetricsInterval)
 	fmt.Printf("CPU Poll Interval: %s\n", c.CPUPollInterval)
@@ -505,5 +545,7 @@ func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 		Bool("nats_token_set", c.NATSToken != "").
 		Bool("nats_user_set", c.NATSUser != "").
 		Int("client_send_buffer_size", c.ClientSendBufferSize).
+		Dur("topic_refresh_interval", c.TopicRefreshInterval).
+		Int("provisioning_db_max_open_conns", c.ProvisioningDBMaxOpenConns).
 		Msg("Server configuration loaded")
 }
