@@ -6,7 +6,9 @@ import (
 )
 
 func TestNewTenantIsolator(t *testing.T) {
+	t.Parallel()
 	t.Run("with default config", func(t *testing.T) {
+		t.Parallel()
 		iso := NewTenantIsolator(DefaultTenantIsolationConfig())
 		if iso == nil {
 			t.Fatal("expected non-nil isolator")
@@ -20,6 +22,7 @@ func TestNewTenantIsolator(t *testing.T) {
 	})
 
 	t.Run("with custom channel mapper", func(t *testing.T) {
+		t.Parallel()
 		customMapper := NewChannelMapper(ChannelConfig{Separator: "/"})
 		iso := NewTenantIsolator(
 			DefaultTenantIsolationConfig(),
@@ -31,6 +34,7 @@ func TestNewTenantIsolator(t *testing.T) {
 	})
 
 	t.Run("with custom audit logger", func(t *testing.T) {
+		t.Parallel()
 		logger := &testAuditLogger{}
 		iso := NewTenantIsolator(
 			DefaultTenantIsolationConfig(),
@@ -43,6 +47,7 @@ func TestNewTenantIsolator(t *testing.T) {
 }
 
 func TestTenantIsolator_CheckChannelAccess(t *testing.T) {
+	t.Parallel()
 	iso := NewTenantIsolator(TenantIsolationConfig{
 		CrossTenantRoles:      []string{"admin", "system"},
 		SharedChannelPatterns: []string{"system.*", "broadcast.*"},
@@ -118,6 +123,7 @@ func TestTenantIsolator_CheckChannelAccess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := iso.CheckChannelAccess(ctx, tt.claims, tt.channel, tt.action)
 
 			if result.Allowed != tt.expectAllowed {
@@ -137,6 +143,7 @@ func TestTenantIsolator_CheckChannelAccess(t *testing.T) {
 }
 
 func TestTenantIsolator_CheckTopicAccess(t *testing.T) {
+	t.Parallel()
 	iso := NewTenantIsolator(TenantIsolationConfig{
 		CrossTenantRoles:    []string{"admin"},
 		SharedTopicPatterns: []string{"main.shared.*"},
@@ -190,6 +197,7 @@ func TestTenantIsolator_CheckTopicAccess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := iso.CheckTopicAccess(ctx, tt.claims, tt.topic, tt.action)
 
 			if result.Allowed != tt.expectAllowed {
@@ -205,6 +213,7 @@ func TestTenantIsolator_CheckTopicAccess(t *testing.T) {
 }
 
 func TestTenantIsolator_MapClientToInternal(t *testing.T) {
+	t.Parallel()
 	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
 
 	claims := &Claims{TenantID: "acme"}
@@ -217,6 +226,7 @@ func TestTenantIsolator_MapClientToInternal(t *testing.T) {
 }
 
 func TestTenantIsolator_MapInternalToClient(t *testing.T) {
+	t.Parallel()
 	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
 
 	result := iso.MapInternalToClient("acme.BTC.trade")
@@ -228,6 +238,7 @@ func TestTenantIsolator_MapInternalToClient(t *testing.T) {
 }
 
 func TestTenantIsolator_BuildTopicName(t *testing.T) {
+	t.Parallel()
 	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
 
 	result := iso.BuildTopicName("acme", "trade")
@@ -239,6 +250,7 @@ func TestTenantIsolator_BuildTopicName(t *testing.T) {
 }
 
 func TestTenantIsolator_GetTenantFromChannel(t *testing.T) {
+	t.Parallel()
 	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
 
 	result := iso.GetTenantFromChannel("acme.BTC.trade")
@@ -250,6 +262,7 @@ func TestTenantIsolator_GetTenantFromChannel(t *testing.T) {
 }
 
 func TestTenantIsolator_GetTenantFromTopic(t *testing.T) {
+	t.Parallel()
 	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
 
 	result := iso.GetTenantFromTopic("main.acme.trade")
@@ -261,6 +274,7 @@ func TestTenantIsolator_GetTenantFromTopic(t *testing.T) {
 }
 
 func TestTenantIsolator_CanAccessResource(t *testing.T) {
+	t.Parallel()
 	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
 
 	claims := &Claims{TenantID: "acme"}
@@ -286,6 +300,7 @@ func TestTenantIsolator_CanAccessResource(t *testing.T) {
 }
 
 func TestTenantIsolator_AuditLogging(t *testing.T) {
+	t.Parallel()
 	logger := &testAuditLogger{}
 
 	iso := NewTenantIsolator(
@@ -313,6 +328,7 @@ func TestTenantIsolator_AuditLogging(t *testing.T) {
 }
 
 func TestTenantIsolator_ResultFlags(t *testing.T) {
+	t.Parallel()
 	iso := NewTenantIsolator(TenantIsolationConfig{
 		CrossTenantRoles:      []string{"admin"},
 		SharedChannelPatterns: []string{"system.*"},
@@ -321,6 +337,7 @@ func TestTenantIsolator_ResultFlags(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("cross-tenant flag set", func(t *testing.T) {
+		t.Parallel()
 		claims := &Claims{TenantID: "acme", Roles: []string{"admin"}}
 		result := iso.CheckChannelAccess(ctx, claims, "globex.trade", ActionSubscribe)
 
@@ -330,6 +347,7 @@ func TestTenantIsolator_ResultFlags(t *testing.T) {
 	})
 
 	t.Run("shared flag set", func(t *testing.T) {
+		t.Parallel()
 		claims := &Claims{TenantID: "acme"}
 		result := iso.CheckChannelAccess(ctx, claims, "system.broadcast", ActionSubscribe)
 
@@ -340,7 +358,9 @@ func TestTenantIsolator_ResultFlags(t *testing.T) {
 }
 
 func TestExtractTenantContext(t *testing.T) {
+	t.Parallel()
 	t.Run("with claims", func(t *testing.T) {
+		t.Parallel()
 		claims := &Claims{
 			TenantID: "acme",
 			Roles:    []string{"admin", "user"},
@@ -365,6 +385,7 @@ func TestExtractTenantContext(t *testing.T) {
 	})
 
 	t.Run("with nil claims", func(t *testing.T) {
+		t.Parallel()
 		ctx := ExtractTenantContext(nil)
 
 		if ctx.TenantID != "" {
@@ -374,6 +395,7 @@ func TestExtractTenantContext(t *testing.T) {
 }
 
 func TestDefaultTenantIsolationConfig(t *testing.T) {
+	t.Parallel()
 	config := DefaultTenantIsolationConfig()
 
 	if len(config.CrossTenantRoles) != 2 {
@@ -396,12 +418,12 @@ type testAuditLogger struct {
 	entries      []*AuditEntry
 }
 
-func (l *testAuditLogger) LogDenied(ctx context.Context, entry *AuditEntry) {
+func (l *testAuditLogger) LogDenied(_ context.Context, entry *AuditEntry) {
 	l.deniedCount++
 	l.entries = append(l.entries, entry)
 }
 
-func (l *testAuditLogger) LogAllowed(ctx context.Context, entry *AuditEntry) {
+func (l *testAuditLogger) LogAllowed(_ context.Context, entry *AuditEntry) {
 	l.allowedCount++
 	l.entries = append(l.entries, entry)
 }

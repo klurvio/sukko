@@ -228,7 +228,7 @@ func (t *TenantIsolator) CheckTopicAccess(ctx context.Context, claims *Claims, t
 	switch action {
 	case ActionPublish:
 		topicAction = TopicActionPublish
-	default:
+	case ActionSubscribe, ActionConsume, ActionPresence:
 		topicAction = TopicActionConsume
 	}
 
@@ -335,8 +335,8 @@ type AuditLogger interface {
 // noopAuditLogger is a no-op implementation of AuditLogger.
 type noopAuditLogger struct{}
 
-func (n *noopAuditLogger) LogDenied(ctx context.Context, entry *AuditEntry)  {}
-func (n *noopAuditLogger) LogAllowed(ctx context.Context, entry *AuditEntry) {}
+func (n *noopAuditLogger) LogDenied(_ context.Context, _ *AuditEntry)  {}
+func (n *noopAuditLogger) LogAllowed(_ context.Context, _ *AuditEntry) {}
 
 // TenantContext provides tenant information for a request.
 type TenantContext struct {

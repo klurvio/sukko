@@ -24,7 +24,7 @@ func (s *Server) collectMetrics() {
 	// Get current process for memory stats
 	// NOTE: CPU is now measured by ResourceGuard via container-aware CPUMonitor
 	// to provide single source of truth and avoid divergence
-	proc, err := process.NewProcess(int32(os.Getpid()))
+	proc, err := process.NewProcess(int32(os.Getpid())) //nolint:gosec // PID always fits in int32 on all supported platforms
 	if err != nil {
 		s.logger.Error().
 			Err(err).

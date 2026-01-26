@@ -13,6 +13,7 @@ import (
 // =============================================================================
 
 func TestNewProducer_NoBrokers(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	cfg := ProducerConfig{
@@ -28,6 +29,7 @@ func TestNewProducer_NoBrokers(t *testing.T) {
 }
 
 func TestNewProducer_NoTopicNamespace(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	cfg := ProducerConfig{
@@ -43,6 +45,7 @@ func TestNewProducer_NoTopicNamespace(t *testing.T) {
 }
 
 func TestNewProducer_InvalidSASLMechanism(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	cfg := ProducerConfig{
@@ -67,6 +70,7 @@ func TestNewProducer_InvalidSASLMechanism(t *testing.T) {
 // =============================================================================
 
 func TestProducerConfig_Defaults(t *testing.T) {
+	t.Parallel()
 	cfg := ProducerConfig{
 		Brokers:        []string{"localhost:9092"},
 		TopicNamespace: "test",
@@ -94,6 +98,7 @@ func TestProducerConfig_Defaults(t *testing.T) {
 }
 
 func TestProducerConfig_CustomValues(t *testing.T) {
+	t.Parallel()
 	cfg := ProducerConfig{
 		Brokers:         []string{"localhost:9092", "localhost:9093"},
 		TopicNamespace:  "production",
@@ -128,6 +133,7 @@ func TestProducerConfig_CustomValues(t *testing.T) {
 // =============================================================================
 
 func TestProducerStats_Initial(t *testing.T) {
+	t.Parallel()
 	producer := &Producer{}
 
 	stats := producer.Stats()
@@ -141,6 +147,7 @@ func TestProducerStats_Initial(t *testing.T) {
 }
 
 func TestProducerStats_IncrementPublished(t *testing.T) {
+	t.Parallel()
 	producer := &Producer{}
 
 	atomic.AddInt64(&producer.stats.MessagesPublished, 1)
@@ -154,6 +161,7 @@ func TestProducerStats_IncrementPublished(t *testing.T) {
 }
 
 func TestProducerStats_IncrementFailed(t *testing.T) {
+	t.Parallel()
 	producer := &Producer{}
 
 	atomic.AddInt64(&producer.stats.MessagesFailed, 1)
@@ -166,6 +174,7 @@ func TestProducerStats_IncrementFailed(t *testing.T) {
 }
 
 func TestProducerStats_Concurrent(t *testing.T) {
+	t.Parallel()
 	producer := &Producer{}
 
 	const numGoroutines = 100
@@ -212,6 +221,7 @@ func TestProducerStats_Concurrent(t *testing.T) {
 // =============================================================================
 
 func TestProducer_Topic(t *testing.T) {
+	t.Parallel()
 	producer := &Producer{
 		topic: "odin.test.client-events",
 	}
@@ -223,6 +233,7 @@ func TestProducer_Topic(t *testing.T) {
 }
 
 func TestProducer_TopicNamespaces(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		namespace     string
 		expectedTopic string
@@ -236,6 +247,7 @@ func TestProducer_TopicNamespaces(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.namespace, func(t *testing.T) {
+			t.Parallel()
 			topic := GetTopic(tc.namespace, TopicClientEvents)
 			if topic != tc.expectedTopic {
 				t.Errorf("GetTopic(%q, TopicClientEvents) = %q, want %q", tc.namespace, topic, tc.expectedTopic)
@@ -249,6 +261,7 @@ func TestProducer_TopicNamespaces(t *testing.T) {
 // =============================================================================
 
 func TestProducer_Close_Idempotent(t *testing.T) {
+	t.Parallel()
 	producer := &Producer{
 		closed: false,
 	}
@@ -263,6 +276,7 @@ func TestProducer_Close_Idempotent(t *testing.T) {
 }
 
 func TestProducer_Close_SetsClosedFlag(t *testing.T) {
+	t.Parallel()
 	producer := &Producer{
 		closed: false,
 	}
@@ -283,6 +297,7 @@ func TestProducer_Close_SetsClosedFlag(t *testing.T) {
 // =============================================================================
 
 func TestTopicClientEvents_Value(t *testing.T) {
+	t.Parallel()
 	if TopicClientEvents != "client-events" {
 		t.Errorf("TopicClientEvents = %q, want %q", TopicClientEvents, "client-events")
 	}
@@ -293,6 +308,7 @@ func TestTopicClientEvents_Value(t *testing.T) {
 // =============================================================================
 
 func TestSASLConfig_Fields(t *testing.T) {
+	t.Parallel()
 	sasl := &SASLConfig{
 		Mechanism: "scram-sha-256",
 		Username:  "testuser",
@@ -311,10 +327,12 @@ func TestSASLConfig_Fields(t *testing.T) {
 }
 
 func TestSASLConfig_SupportedMechanisms(t *testing.T) {
+	t.Parallel()
 	mechanisms := []string{"scram-sha-256", "scram-sha-512"}
 
 	for _, mech := range mechanisms {
 		t.Run(mech, func(t *testing.T) {
+			t.Parallel()
 			// Just verify these are valid string values
 			// Actual validation happens in NewProducer
 			if mech != "scram-sha-256" && mech != "scram-sha-512" {
@@ -329,6 +347,7 @@ func TestSASLConfig_SupportedMechanisms(t *testing.T) {
 // =============================================================================
 
 func TestTLSConfig_Fields(t *testing.T) {
+	t.Parallel()
 	tlsCfg := &TLSConfig{
 		Enabled:            true,
 		InsecureSkipVerify: false,
@@ -347,6 +366,7 @@ func TestTLSConfig_Fields(t *testing.T) {
 }
 
 func TestTLSConfig_InsecureMode(t *testing.T) {
+	t.Parallel()
 	tlsCfg := &TLSConfig{
 		Enabled:            true,
 		InsecureSkipVerify: true,

@@ -10,6 +10,7 @@ import (
 // =============================================================================
 
 func TestNewSubscriptionSet(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 
 	if set == nil {
@@ -21,6 +22,7 @@ func TestNewSubscriptionSet(t *testing.T) {
 }
 
 func TestSubscriptionSet_Add(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 
 	set.Add("BTC.trade")
@@ -34,6 +36,7 @@ func TestSubscriptionSet_Add(t *testing.T) {
 }
 
 func TestSubscriptionSet_Add_Duplicate(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 
 	set.Add("BTC.trade")
@@ -45,6 +48,7 @@ func TestSubscriptionSet_Add_Duplicate(t *testing.T) {
 }
 
 func TestSubscriptionSet_AddMultiple(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 
 	channels := []string{"BTC.trade", "ETH.trade", "SOL.liquidity"}
@@ -62,6 +66,7 @@ func TestSubscriptionSet_AddMultiple(t *testing.T) {
 }
 
 func TestSubscriptionSet_Remove(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 
 	set.Add("BTC.trade")
@@ -80,6 +85,7 @@ func TestSubscriptionSet_Remove(t *testing.T) {
 }
 
 func TestSubscriptionSet_Remove_NonExistent(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 
 	// Should not panic
@@ -91,6 +97,7 @@ func TestSubscriptionSet_Remove_NonExistent(t *testing.T) {
 }
 
 func TestSubscriptionSet_RemoveMultiple(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 
 	set.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity", "DOGE.social"})
@@ -108,6 +115,7 @@ func TestSubscriptionSet_RemoveMultiple(t *testing.T) {
 }
 
 func TestSubscriptionSet_Has(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 
 	if set.Has("BTC.trade") {
@@ -125,6 +133,7 @@ func TestSubscriptionSet_Has(t *testing.T) {
 }
 
 func TestSubscriptionSet_List(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 
 	set.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity"})
@@ -149,6 +158,7 @@ func TestSubscriptionSet_List(t *testing.T) {
 }
 
 func TestSubscriptionSet_List_ReturnsCopy(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 	set.Add("BTC.trade")
 
@@ -162,6 +172,7 @@ func TestSubscriptionSet_List_ReturnsCopy(t *testing.T) {
 }
 
 func TestSubscriptionSet_Clear(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 
 	set.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity"})
@@ -176,6 +187,7 @@ func TestSubscriptionSet_Clear(t *testing.T) {
 }
 
 func TestSubscriptionSet_ThreadSafety(t *testing.T) {
+	t.Parallel()
 	set := NewSubscriptionSet()
 	var wg sync.WaitGroup
 	iterations := 100
@@ -211,6 +223,7 @@ func TestSubscriptionSet_ThreadSafety(t *testing.T) {
 // =============================================================================
 
 func TestNewSubscriptionIndex(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 
 	if idx == nil {
@@ -222,6 +235,7 @@ func TestNewSubscriptionIndex(t *testing.T) {
 }
 
 func TestSubscriptionIndex_Add(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
@@ -238,6 +252,7 @@ func TestSubscriptionIndex_Add(t *testing.T) {
 }
 
 func TestSubscriptionIndex_Add_Duplicate(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
@@ -250,6 +265,7 @@ func TestSubscriptionIndex_Add_Duplicate(t *testing.T) {
 }
 
 func TestSubscriptionIndex_Add_MultipleClients(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 	client1 := &Client{id: 1}
 	client2 := &Client{id: 2}
@@ -265,6 +281,7 @@ func TestSubscriptionIndex_Add_MultipleClients(t *testing.T) {
 }
 
 func TestSubscriptionIndex_AddMultiple(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
@@ -279,6 +296,7 @@ func TestSubscriptionIndex_AddMultiple(t *testing.T) {
 }
 
 func TestSubscriptionIndex_Remove(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 	client1 := &Client{id: 1}
 	client2 := &Client{id: 2}
@@ -298,6 +316,7 @@ func TestSubscriptionIndex_Remove(t *testing.T) {
 }
 
 func TestSubscriptionIndex_Remove_NonExistent(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
@@ -307,6 +326,7 @@ func TestSubscriptionIndex_Remove_NonExistent(t *testing.T) {
 }
 
 func TestSubscriptionIndex_Remove_LastClient(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
@@ -324,6 +344,7 @@ func TestSubscriptionIndex_Remove_LastClient(t *testing.T) {
 }
 
 func TestSubscriptionIndex_RemoveMultiple(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
@@ -342,6 +363,7 @@ func TestSubscriptionIndex_RemoveMultiple(t *testing.T) {
 }
 
 func TestSubscriptionIndex_RemoveClient(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 	client1 := &Client{id: 1}
 	client2 := &Client{id: 2}
@@ -371,6 +393,7 @@ func TestSubscriptionIndex_RemoveClient(t *testing.T) {
 }
 
 func TestSubscriptionIndex_Get_NonExistent(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 
 	clients := idx.Get("nonexistent")
@@ -381,6 +404,7 @@ func TestSubscriptionIndex_Get_NonExistent(t *testing.T) {
 }
 
 func TestSubscriptionIndex_ThreadSafety(t *testing.T) {
+	t.Parallel()
 	idx := NewSubscriptionIndex()
 	var wg sync.WaitGroup
 	iterations := 100
@@ -432,6 +456,7 @@ func TestSubscriptionIndex_ThreadSafety(t *testing.T) {
 // =============================================================================
 
 func TestNewConnectionPool(t *testing.T) {
+	t.Parallel()
 	pool := NewConnectionPool(100, 512)
 	if pool == nil {
 		t.Fatal("NewConnectionPool should return non-nil")
@@ -446,6 +471,7 @@ func TestNewConnectionPool(t *testing.T) {
 }
 
 func TestNewConnectionPool_DefaultBufferSize(t *testing.T) {
+	t.Parallel()
 	pool := NewConnectionPool(100, 0) // 0 = use default
 
 	if pool.bufferSize != 512 {
@@ -454,6 +480,7 @@ func TestNewConnectionPool_DefaultBufferSize(t *testing.T) {
 }
 
 func TestNewConnectionPool_NegativeBufferSize(t *testing.T) {
+	t.Parallel()
 	pool := NewConnectionPool(100, -1) // Negative = use default
 
 	if pool.bufferSize != 512 {
@@ -462,6 +489,7 @@ func TestNewConnectionPool_NegativeBufferSize(t *testing.T) {
 }
 
 func TestConnectionPool_Get(t *testing.T) {
+	t.Parallel()
 	pool := NewConnectionPool(100, 256)
 
 	client := pool.Get()
@@ -481,6 +509,7 @@ func TestConnectionPool_Get(t *testing.T) {
 }
 
 func TestConnectionPool_Get_SequenceReset(t *testing.T) {
+	t.Parallel()
 	pool := NewConnectionPool(100, 256)
 
 	client := pool.Get()
@@ -500,6 +529,7 @@ func TestConnectionPool_Get_SequenceReset(t *testing.T) {
 }
 
 func TestConnectionPool_Get_SubscriptionsClear(t *testing.T) {
+	t.Parallel()
 	pool := NewConnectionPool(100, 256)
 
 	client := pool.Get()
@@ -517,6 +547,7 @@ func TestConnectionPool_Get_SubscriptionsClear(t *testing.T) {
 }
 
 func TestConnectionPool_Put(t *testing.T) {
+	t.Parallel()
 	pool := NewConnectionPool(100, 256)
 
 	client := pool.Get()
@@ -537,6 +568,7 @@ func TestConnectionPool_Put(t *testing.T) {
 }
 
 func TestConnectionPool_Put_Nil(t *testing.T) {
+	t.Parallel()
 	pool := NewConnectionPool(100, 256)
 
 	// Should not panic
@@ -544,6 +576,7 @@ func TestConnectionPool_Put_Nil(t *testing.T) {
 }
 
 func TestConnectionPool_ThreadSafety(t *testing.T) {
+	t.Parallel()
 	pool := NewConnectionPool(100, 256)
 	var wg sync.WaitGroup
 	iterations := 100

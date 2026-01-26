@@ -7,6 +7,7 @@ import (
 )
 
 func TestNewPlaceholderResolver(t *testing.T) {
+	t.Parallel()
 	r := NewPlaceholderResolver()
 
 	if r == nil {
@@ -21,6 +22,7 @@ func TestNewPlaceholderResolver(t *testing.T) {
 }
 
 func TestPlaceholderResolver_Resolve(t *testing.T) {
+	t.Parallel()
 	r := NewPlaceholderResolver()
 
 	claims := &Claims{
@@ -88,6 +90,7 @@ func TestPlaceholderResolver_Resolve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := r.Resolve(tt.pattern, claims)
 			if result != tt.expected {
 				t.Errorf("Resolve(%q) = %q, want %q", tt.pattern, result, tt.expected)
@@ -97,6 +100,7 @@ func TestPlaceholderResolver_Resolve(t *testing.T) {
 }
 
 func TestPlaceholderResolver_Resolve_NilClaims(t *testing.T) {
+	t.Parallel()
 	r := NewPlaceholderResolver()
 
 	result := r.Resolve("{tenant_id}.trade", nil)
@@ -106,10 +110,11 @@ func TestPlaceholderResolver_Resolve_NilClaims(t *testing.T) {
 }
 
 func TestPlaceholderResolver_RegisterCustom(t *testing.T) {
+	t.Parallel()
 	r := NewPlaceholderResolver()
 
 	// Register custom placeholder
-	r.RegisterCustom("org", func(c *Claims) string {
+	r.RegisterCustom("org", func(_ *Claims) string {
 		return "custom-org"
 	})
 
@@ -124,10 +129,11 @@ func TestPlaceholderResolver_RegisterCustom(t *testing.T) {
 }
 
 func TestPlaceholderResolver_RegisterCustom_OverridesBuiltin(t *testing.T) {
+	t.Parallel()
 	r := NewPlaceholderResolver()
 
 	// Override built-in tenant_id
-	r.RegisterCustom("tenant_id", func(c *Claims) string {
+	r.RegisterCustom("tenant_id", func(_ *Claims) string {
 		return "custom-tenant"
 	})
 
@@ -142,6 +148,7 @@ func TestPlaceholderResolver_RegisterCustom_OverridesBuiltin(t *testing.T) {
 }
 
 func TestPlaceholderResolver_RegisterAttribute(t *testing.T) {
+	t.Parallel()
 	r := NewPlaceholderResolver()
 	r.RegisterAttribute("tier")
 
@@ -158,6 +165,7 @@ func TestPlaceholderResolver_RegisterAttribute(t *testing.T) {
 }
 
 func TestHasPlaceholders(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		pattern  string
 		expected bool
@@ -173,6 +181,7 @@ func TestHasPlaceholders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.pattern, func(t *testing.T) {
+			t.Parallel()
 			result := HasPlaceholders(tt.pattern)
 			if result != tt.expected {
 				t.Errorf("HasPlaceholders(%q) = %v, want %v", tt.pattern, result, tt.expected)
@@ -182,6 +191,7 @@ func TestHasPlaceholders(t *testing.T) {
 }
 
 func TestExtractPlaceholderNames(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		pattern  string
 		expected []string
@@ -195,6 +205,7 @@ func TestExtractPlaceholderNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.pattern, func(t *testing.T) {
+			t.Parallel()
 			result := ExtractPlaceholderNames(tt.pattern)
 			if len(result) != len(tt.expected) {
 				t.Errorf("ExtractPlaceholderNames(%q) = %v, want %v", tt.pattern, result, tt.expected)
@@ -210,6 +221,7 @@ func TestExtractPlaceholderNames(t *testing.T) {
 }
 
 func TestMatchPattern(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		pattern  string
@@ -277,6 +289,7 @@ func TestMatchPattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := MatchPattern(tt.pattern, tt.channel)
 
 			if result.Matched != tt.matched {
@@ -297,6 +310,7 @@ func TestMatchPattern(t *testing.T) {
 }
 
 func TestBuildPattern(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		parts    []string
 		expected string
@@ -310,6 +324,7 @@ func TestBuildPattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
+			t.Parallel()
 			result := BuildPattern(tt.parts...)
 			if result != tt.expected {
 				t.Errorf("BuildPattern(%v) = %q, want %q", tt.parts, result, tt.expected)
@@ -319,6 +334,7 @@ func TestBuildPattern(t *testing.T) {
 }
 
 func TestDefaultPlaceholders(t *testing.T) {
+	t.Parallel()
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "user123",
@@ -339,6 +355,7 @@ func TestDefaultPlaceholders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			fn, ok := DefaultPlaceholders[tt.name]
 			if !ok {
 				t.Fatalf("DefaultPlaceholders[%q] not found", tt.name)

@@ -9,6 +9,7 @@ import (
 )
 
 func TestAdminConfig_Validation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		cfg     AdminConfig
@@ -120,6 +121,7 @@ func TestAdminConfig_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Note: NewAdmin will attempt to connect, so we can only test
 			// config validation errors that happen before connection.
 			// For configs that would pass validation but fail connection,
@@ -144,6 +146,7 @@ func TestAdminConfig_Validation(t *testing.T) {
 }
 
 func TestAdmin_MapOperation(t *testing.T) {
+	t.Parallel()
 	// Create a minimal admin for testing mapOperation
 	admin := &Admin{}
 
@@ -170,6 +173,7 @@ func TestAdmin_MapOperation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
 			got := admin.mapOperation(tt.input)
 			if got != tt.expected {
 				t.Errorf("mapOperation(%q) = %v, want %v", tt.input, got, tt.expected)
@@ -179,6 +183,7 @@ func TestAdmin_MapOperation(t *testing.T) {
 }
 
 func TestSASLConfig(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		mechanism string
@@ -193,6 +198,7 @@ func TestSASLConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := AdminConfig{
 				Brokers: []string{"localhost:9092"},
 				SASL: &SASLConfig{
@@ -220,6 +226,7 @@ func TestSASLConfig(t *testing.T) {
 }
 
 func TestTLSConfig(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		tls     *TLSConfig
@@ -266,6 +273,7 @@ func TestTLSConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := AdminConfig{
 				Brokers: []string{"localhost:9092"},
 				TLS:     tt.tls,
@@ -288,6 +296,7 @@ func TestTLSConfig(t *testing.T) {
 }
 
 func TestDefaultTimeout(t *testing.T) {
+	t.Parallel()
 	// Test that default timeout is applied when not specified
 	cfg := AdminConfig{
 		Brokers: []string{"localhost:9092"},

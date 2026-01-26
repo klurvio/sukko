@@ -66,6 +66,7 @@ func newGatewayWithMockValidator(cfg *platform.GatewayConfig, logger zerolog.Log
 }
 
 func TestNew_AuthDisabled(t *testing.T) {
+	t.Parallel()
 	cfg := newTestGatewayConfig()
 	cfg.AuthEnabled = false
 	logger := newTestLogger()
@@ -88,6 +89,7 @@ func TestNew_AuthDisabled(t *testing.T) {
 }
 
 func TestNew_AuthEnabled_RequiresDatabase(t *testing.T) {
+	t.Parallel()
 	cfg := newTestGatewayConfig()
 	cfg.AuthEnabled = true
 	cfg.ProvisioningDBURL = "" // No database URL
@@ -101,6 +103,7 @@ func TestNew_AuthEnabled_RequiresDatabase(t *testing.T) {
 }
 
 func TestGateway_ExtractToken(t *testing.T) {
+	t.Parallel()
 	cfg := newTestGatewayConfig()
 	cfg.AuthEnabled = false
 	logger := newTestLogger()
@@ -168,6 +171,7 @@ func TestGateway_ExtractToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			url := "/ws"
 			if tt.queryToken != "" {
 				url += "?token=" + tt.queryToken
@@ -187,6 +191,7 @@ func TestGateway_ExtractToken(t *testing.T) {
 }
 
 func TestGateway_HandleHealth(t *testing.T) {
+	t.Parallel()
 	cfg := newTestGatewayConfig()
 	cfg.AuthEnabled = false
 	logger := newTestLogger()
@@ -227,6 +232,7 @@ func TestGateway_HandleHealth(t *testing.T) {
 }
 
 func TestGateway_NewServer(t *testing.T) {
+	t.Parallel()
 	cfg := newTestGatewayConfig()
 	cfg.Port = 3456
 	cfg.ReadTimeout = 20 * time.Second
@@ -270,6 +276,7 @@ func TestGateway_NewServer(t *testing.T) {
 }
 
 func TestGateway_HandleWebSocket_NoToken_WithMockValidator(t *testing.T) {
+	t.Parallel()
 	cfg := newTestGatewayConfig()
 	cfg.AuthEnabled = true // Enable auth for this test
 	logger := newTestLogger()
@@ -302,6 +309,7 @@ func TestGateway_HandleWebSocket_NoToken_WithMockValidator(t *testing.T) {
 }
 
 func TestGateway_HandleWebSocket_InvalidToken_WithMockValidator(t *testing.T) {
+	t.Parallel()
 	cfg := newTestGatewayConfig()
 	cfg.AuthEnabled = true // Enable auth for this test
 	logger := newTestLogger()
@@ -334,6 +342,7 @@ func TestGateway_HandleWebSocket_InvalidToken_WithMockValidator(t *testing.T) {
 }
 
 func TestGateway_Close_NilFields(t *testing.T) {
+	t.Parallel()
 	cfg := newTestGatewayConfig()
 	cfg.AuthEnabled = false
 	logger := newTestLogger()

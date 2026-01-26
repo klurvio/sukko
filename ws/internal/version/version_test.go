@@ -8,6 +8,7 @@ import (
 )
 
 func TestGet(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		serviceName string
@@ -28,6 +29,7 @@ func TestGet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			info := Get(tt.serviceName)
 
 			if info.Service != tt.serviceName {
@@ -47,6 +49,7 @@ func TestGet(t *testing.T) {
 }
 
 func TestString(t *testing.T) {
+	t.Parallel()
 	expected := Version + " (" + CommitHash + ")"
 	got := String()
 
@@ -56,6 +59,7 @@ func TestString(t *testing.T) {
 }
 
 func TestString_DefaultValues(t *testing.T) {
+	t.Parallel()
 	// With default values, should return "dev (unknown)"
 	expected := "dev (unknown)"
 	got := String()
@@ -66,6 +70,7 @@ func TestString_DefaultValues(t *testing.T) {
 }
 
 func TestHandler(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		serviceName string
@@ -82,6 +87,7 @@ func TestHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			handler := Handler(tt.serviceName)
 
 			req := httptest.NewRequest(http.MethodGet, "/version", nil)
@@ -123,6 +129,7 @@ func TestHandler(t *testing.T) {
 }
 
 func TestInfo_JSONSerialization(t *testing.T) {
+	t.Parallel()
 	info := Info{
 		Version:    "v1.0.0",
 		CommitHash: "abc123",

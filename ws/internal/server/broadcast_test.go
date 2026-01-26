@@ -9,6 +9,7 @@ import (
 // =============================================================================
 
 func TestExtractChannel_ValidSubjects(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		subject  string
@@ -58,6 +59,7 @@ func TestExtractChannel_ValidSubjects(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := extractChannel(tt.subject)
 			if result != tt.expected {
 				t.Errorf("extractChannel(%q) = %q, want %q", tt.subject, result, tt.expected)
@@ -67,6 +69,7 @@ func TestExtractChannel_ValidSubjects(t *testing.T) {
 }
 
 func TestExtractChannel_EdgeCases(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		subject  string
@@ -101,6 +104,7 @@ func TestExtractChannel_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := extractChannel(tt.subject)
 			if result != tt.expected {
 				t.Errorf("extractChannel(%q) = %q, want %q", tt.subject, result, tt.expected)
@@ -110,6 +114,7 @@ func TestExtractChannel_EdgeCases(t *testing.T) {
 }
 
 func TestExtractChannel_InvalidSubjects(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		subject string
@@ -150,6 +155,7 @@ func TestExtractChannel_InvalidSubjects(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := extractChannel(tt.subject)
 			if result != "" {
 				t.Errorf("extractChannel(%q) = %q, want empty string", tt.subject, result)
@@ -159,6 +165,7 @@ func TestExtractChannel_InvalidSubjects(t *testing.T) {
 }
 
 func TestExtractChannel_AllEventTypes(t *testing.T) {
+	t.Parallel()
 	// Test all documented event types
 	eventTypes := []string{
 		"trade",
@@ -174,6 +181,7 @@ func TestExtractChannel_AllEventTypes(t *testing.T) {
 
 	for _, eventType := range eventTypes {
 		t.Run(eventType, func(t *testing.T) {
+			t.Parallel()
 			subject := "BTC." + eventType
 			expected := "BTC." + eventType
 

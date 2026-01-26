@@ -13,6 +13,8 @@ import (
 // =============================================================================
 
 func TestShardProxy_NewShardProxy(t *testing.T) {
+	t.Parallel()
+
 	shard := &Shard{ID: 1}
 	backendURL, _ := url.Parse("ws://localhost:3001/ws")
 	logger := zerolog.Nop()
@@ -31,6 +33,8 @@ func TestShardProxy_NewShardProxy(t *testing.T) {
 }
 
 func TestShardProxy_DefaultTimeouts(t *testing.T) {
+	t.Parallel()
+
 	shard := &Shard{ID: 1}
 	backendURL, _ := url.Parse("ws://localhost:3001/ws")
 	logger := zerolog.Nop()

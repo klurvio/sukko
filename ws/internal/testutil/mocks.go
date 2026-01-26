@@ -319,7 +319,7 @@ func NewMockShard(id int, maxConns int) *MockShard {
 		cpuPercent:     10.0,
 		memoryMB:       100.0,
 	}
-	s.availableSlots.Store(int32(maxConns))
+	s.availableSlots.Store(int32(maxConns)) //nolint:gosec // Test mock, maxConns always small
 	return s
 }
 
@@ -364,7 +364,7 @@ func (m *MockShard) ReleaseSlot() {
 // SetConnections sets the current connection count for testing.
 func (m *MockShard) SetConnections(count int64) {
 	m.currentConns.Store(count)
-	m.availableSlots.Store(int32(m.maxConnections - int(count)))
+	m.availableSlots.Store(int32(m.maxConnections - int(count))) //nolint:gosec // Test mock, values always small
 }
 
 // SetSystemStats sets CPU and memory values.

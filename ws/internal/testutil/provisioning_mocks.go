@@ -80,7 +80,7 @@ func (m *MockTenantStore) Update(ctx context.Context, tenant *provisioning.Tenan
 func (m *MockTenantStore) List(ctx context.Context, opts provisioning.ListOptions) ([]*provisioning.Tenant, int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var result []*provisioning.Tenant
+	result := make([]*provisioning.Tenant, 0, len(m.tenants))
 	for _, t := range m.tenants {
 		if opts.Status != nil && t.Status != *opts.Status {
 			continue
@@ -125,7 +125,7 @@ func (m *MockTenantStore) SetDeprovisionAt(ctx context.Context, tenantID string,
 		return errors.New("tenant not found")
 	}
 	if deprovisionAt != nil {
-		tt := time.Time(*deprovisionAt)
+		tt := *deprovisionAt
 		t.DeprovisionAt = &tt
 	}
 	return nil
@@ -511,7 +511,7 @@ func (m *MockKafkaAdmin) SetQuota(ctx context.Context, tenantID string, quota pr
 func (m *MockKafkaAdmin) GetTopics() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var result []string
+	result := make([]string, 0, len(m.topics))
 	for name := range m.topics {
 		result = append(result, name)
 	}

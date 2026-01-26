@@ -40,6 +40,7 @@ func newTestService() (*provisioning.Service, *testutil.MockTenantStore, *testut
 }
 
 func TestService_CreateTenant(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		req         provisioning.CreateTenantRequest
@@ -97,7 +98,7 @@ func TestService_CreateTenant(t *testing.T) {
 				TenantID: "existing",
 				Name:     "Existing Tenant",
 			},
-			setupMock: func(ts *testutil.MockTenantStore, ks *testutil.MockKeyStore) {
+			setupMock: func(ts *testutil.MockTenantStore, _ *testutil.MockKeyStore) {
 				_ = ts.Create(context.Background(), testutil.NewTestTenant("existing"))
 			},
 			wantErr:     true,
@@ -109,7 +110,7 @@ func TestService_CreateTenant(t *testing.T) {
 				TenantID: "store-fail",
 				Name:     "Store Fail",
 			},
-			setupMock: func(ts *testutil.MockTenantStore, ks *testutil.MockKeyStore) {
+			setupMock: func(ts *testutil.MockTenantStore, _ *testutil.MockKeyStore) {
 				ts.CreateErr = errors.New("database connection failed")
 			},
 			wantErr:     true,
@@ -119,6 +120,7 @@ func TestService_CreateTenant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			svc, tenantStore, keyStore, _ := newTestService()
 
 			if tt.setupMock != nil {
@@ -149,6 +151,7 @@ func TestService_CreateTenant(t *testing.T) {
 }
 
 func TestService_GetTenant(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
 
 	// Setup: create a tenant
@@ -174,6 +177,7 @@ func TestService_GetTenant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := svc.GetTenant(context.Background(), tt.tenantID)
 
 			if tt.wantErr {
@@ -196,6 +200,7 @@ func TestService_GetTenant(t *testing.T) {
 }
 
 func TestService_SuspendAndReactivateTenant(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
 
 	// Setup: create a tenant
@@ -228,6 +233,7 @@ func TestService_SuspendAndReactivateTenant(t *testing.T) {
 }
 
 func TestService_DeprovisionTenant(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, keyStore, _ := newTestService()
 
 	// Setup: create a tenant with key
@@ -258,6 +264,7 @@ func TestService_DeprovisionTenant(t *testing.T) {
 }
 
 func TestService_CreateKey(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
 
 	// Setup: create a tenant
@@ -306,6 +313,7 @@ func TestService_CreateKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			key, err := svc.CreateKey(context.Background(), tt.tenantID, tt.req)
 
 			if tt.wantErr {
@@ -330,6 +338,7 @@ func TestService_CreateKey(t *testing.T) {
 }
 
 func TestService_RevokeKey(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, keyStore, _ := newTestService()
 
 	// Setup: create tenant and key
@@ -354,6 +363,7 @@ func TestService_RevokeKey(t *testing.T) {
 }
 
 func TestService_RevokeKey_WrongTenant(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, keyStore, _ := newTestService()
 
 	// Setup: create two tenants with keys
@@ -375,6 +385,7 @@ func TestService_RevokeKey_WrongTenant(t *testing.T) {
 }
 
 func TestService_CreateTopics(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, _, kafkaAdmin := newTestService()
 
 	// Setup: create a tenant
@@ -406,6 +417,7 @@ func TestService_CreateTopics(t *testing.T) {
 }
 
 func TestService_CreateTopics_SuspendedTenant(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
 
 	// Setup: create and suspend a tenant
@@ -424,6 +436,7 @@ func TestService_CreateTopics_SuspendedTenant(t *testing.T) {
 }
 
 func TestService_Ready(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
 
 	// Test healthy
@@ -441,6 +454,7 @@ func TestService_Ready(t *testing.T) {
 }
 
 func TestService_GetActiveKeys(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, keyStore, _ := newTestService()
 
 	// Setup: create tenants and keys
@@ -469,6 +483,7 @@ func TestService_GetActiveKeys(t *testing.T) {
 }
 
 func TestService_UpdateQuota(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, _, kafkaAdmin := newTestService()
 
 	// Setup: create tenant and quota
@@ -504,6 +519,7 @@ func TestService_UpdateQuota(t *testing.T) {
 }
 
 func TestService_ListTenants(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
 
 	// Setup: create multiple tenants
@@ -552,6 +568,7 @@ func TestService_ListTenants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tenants, total, err := svc.ListTenants(context.Background(), tt.opts)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -567,6 +584,7 @@ func TestService_ListTenants(t *testing.T) {
 }
 
 func TestService_GetAuditLog(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
 
 	// Create a tenant (generates audit entries)
@@ -598,6 +616,7 @@ func TestService_GetAuditLog(t *testing.T) {
 }
 
 func TestService_UpdateTenant(t *testing.T) {
+	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
 
 	// Setup: create a tenant
@@ -624,6 +643,7 @@ func TestService_UpdateTenant(t *testing.T) {
 }
 
 func TestService_CreateTenantWithKey(t *testing.T) {
+	t.Parallel()
 	svc, _, _, _ := newTestService()
 
 	// Create tenant with initial key

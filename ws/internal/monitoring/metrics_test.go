@@ -16,6 +16,7 @@ import (
 // =============================================================================
 
 func TestErrorSeverityConstants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		constant string
@@ -28,6 +29,7 @@ func TestErrorSeverityConstants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if tt.constant != tt.expected {
 				t.Errorf("ErrorSeverity%s: got %s, want %s", tt.name, tt.constant, tt.expected)
 			}
@@ -36,6 +38,7 @@ func TestErrorSeverityConstants(t *testing.T) {
 }
 
 func TestErrorTypeConstants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		constant string
@@ -50,6 +53,7 @@ func TestErrorTypeConstants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if tt.constant != tt.expected {
 				t.Errorf("ErrorType%s: got %s, want %s", tt.name, tt.constant, tt.expected)
 			}
@@ -58,6 +62,7 @@ func TestErrorTypeConstants(t *testing.T) {
 }
 
 func TestDisconnectReasonConstants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		constant string
@@ -75,6 +80,7 @@ func TestDisconnectReasonConstants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if tt.constant != tt.expected {
 				t.Errorf("DisconnectReason%s: got %s, want %s", tt.name, tt.constant, tt.expected)
 			}
@@ -83,6 +89,7 @@ func TestDisconnectReasonConstants(t *testing.T) {
 }
 
 func TestDisconnectInitiatedByConstants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		constant string
@@ -94,6 +101,7 @@ func TestDisconnectInitiatedByConstants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if tt.constant != tt.expected {
 				t.Errorf("DisconnectInitiatedBy%s: got %s, want %s", tt.name, tt.constant, tt.expected)
 			}
@@ -102,6 +110,7 @@ func TestDisconnectInitiatedByConstants(t *testing.T) {
 }
 
 func TestDropReasonConstants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		constant string
@@ -114,6 +123,7 @@ func TestDropReasonConstants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if tt.constant != tt.expected {
 				t.Errorf("DropReason%s: got %s, want %s", tt.name, tt.constant, tt.expected)
 			}
@@ -126,6 +136,7 @@ func TestDropReasonConstants(t *testing.T) {
 // =============================================================================
 
 func TestUpdateMessageMetrics_IncrementsCounters(t *testing.T) {
+	t.Parallel()
 	// Get baseline values
 	sentBefore := testutil.ToFloat64(messagesSent)
 	receivedBefore := testutil.ToFloat64(messagesReceived)
@@ -164,6 +175,7 @@ func TestUpdateMessageMetrics_IncrementsCounters(t *testing.T) {
 }
 
 func TestUpdateBytesMetrics_IncrementsCounters(t *testing.T) {
+	t.Parallel()
 	// Get baseline values
 	sentBefore := testutil.ToFloat64(bytesSent)
 	receivedBefore := testutil.ToFloat64(bytesReceived)
@@ -191,6 +203,7 @@ func TestUpdateBytesMetrics_IncrementsCounters(t *testing.T) {
 }
 
 func TestIncrementSlowClientDisconnects_IncrementsCounter(t *testing.T) {
+	t.Parallel()
 	// Get baseline value
 	before := testutil.ToFloat64(slowClientsDisconnected)
 
@@ -209,48 +222,56 @@ func TestIncrementSlowClientDisconnects_IncrementsCounter(t *testing.T) {
 }
 
 func TestIncrementRateLimitedMessages_NoPanic(t *testing.T) {
+	t.Parallel()
 	for range 10 {
 		IncrementRateLimitedMessages()
 	}
 }
 
 func TestIncrementReplayRequests_NoPanic(t *testing.T) {
+	t.Parallel()
 	for range 10 {
 		IncrementReplayRequests()
 	}
 }
 
 func TestIncrementConnectionRateLimit_NoPanic(t *testing.T) {
+	t.Parallel()
 	IncrementConnectionRateLimit("per_ip")
 	IncrementConnectionRateLimit("global")
 	IncrementConnectionRateLimit("unknown")
 }
 
 func TestIncrementKafkaMessages_NoPanic(t *testing.T) {
+	t.Parallel()
 	for range 10 {
 		IncrementKafkaMessages()
 	}
 }
 
 func TestIncrementKafkaDropped_NoPanic(t *testing.T) {
+	t.Parallel()
 	for range 10 {
 		IncrementKafkaDropped()
 	}
 }
 
 func TestUpdateCapacityMetrics_NoPanic(t *testing.T) {
+	t.Parallel()
 	UpdateCapacityMetrics(10000, 75.0)
 	UpdateCapacityMetrics(0, 0)
 	UpdateCapacityMetrics(100000, 90.0)
 }
 
 func TestIncrementCapacityRejection_NoPanic(t *testing.T) {
+	t.Parallel()
 	IncrementCapacityRejection("cpu_limit")
 	IncrementCapacityRejection("memory_limit")
 	IncrementCapacityRejection("connection_limit")
 }
 
 func TestUpdateCapacityHeadroom_NoPanic(t *testing.T) {
+	t.Parallel()
 	UpdateCapacityHeadroom(25.0, 50.0)
 	UpdateCapacityHeadroom(0.0, 0.0)
 	UpdateCapacityHeadroom(100.0, 100.0)
@@ -261,6 +282,7 @@ func TestUpdateCapacityHeadroom_NoPanic(t *testing.T) {
 // =============================================================================
 
 func TestRecordError_AllTypes(t *testing.T) {
+	t.Parallel()
 	errorTypes := []string{
 		ErrorTypeKafka,
 		ErrorTypeBroadcast,
@@ -277,6 +299,7 @@ func TestRecordError_AllTypes(t *testing.T) {
 	for _, et := range errorTypes {
 		for _, sev := range severities {
 			t.Run(et+"_"+sev, func(t *testing.T) {
+				t.Parallel()
 				// Should not panic
 				RecordError(et, sev)
 			})
@@ -285,24 +308,28 @@ func TestRecordError_AllTypes(t *testing.T) {
 }
 
 func TestRecordKafkaError_AllSeverities(t *testing.T) {
+	t.Parallel()
 	RecordKafkaError(ErrorSeverityWarning)
 	RecordKafkaError(ErrorSeverityCritical)
 	RecordKafkaError(ErrorSeverityFatal)
 }
 
 func TestRecordBroadcastError_AllSeverities(t *testing.T) {
+	t.Parallel()
 	RecordBroadcastError(ErrorSeverityWarning)
 	RecordBroadcastError(ErrorSeverityCritical)
 	RecordBroadcastError(ErrorSeverityFatal)
 }
 
 func TestRecordSerializationError_AllSeverities(t *testing.T) {
+	t.Parallel()
 	RecordSerializationError(ErrorSeverityWarning)
 	RecordSerializationError(ErrorSeverityCritical)
 	RecordSerializationError(ErrorSeverityFatal)
 }
 
 func TestRecordConnectionError_AllSeverities(t *testing.T) {
+	t.Parallel()
 	RecordConnectionError(ErrorSeverityWarning)
 	RecordConnectionError(ErrorSeverityCritical)
 	RecordConnectionError(ErrorSeverityFatal)
@@ -313,6 +340,7 @@ func TestRecordConnectionError_AllSeverities(t *testing.T) {
 // =============================================================================
 
 func TestRecordDisconnect_AllReasons(t *testing.T) {
+	t.Parallel()
 	reasons := []string{
 		DisconnectReasonReadError,
 		DisconnectReasonWriteTimeout,
@@ -331,6 +359,7 @@ func TestRecordDisconnect_AllReasons(t *testing.T) {
 	for _, reason := range reasons {
 		for _, initiator := range initiators {
 			t.Run(reason+"_"+initiator, func(t *testing.T) {
+				t.Parallel()
 				// Should not panic
 				RecordDisconnect(reason, initiator, 5*time.Minute)
 			})
@@ -339,6 +368,7 @@ func TestRecordDisconnect_AllReasons(t *testing.T) {
 }
 
 func TestRecordDisconnectWithStats_UpdatesStats(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{
 		DisconnectsByReason: make(map[string]int64),
 	}
@@ -363,6 +393,7 @@ func TestRecordDisconnectWithStats_UpdatesStats(t *testing.T) {
 // =============================================================================
 
 func TestRecordDroppedBroadcast_AllReasons(t *testing.T) {
+	t.Parallel()
 	channels := []string{"trades", "orders", "quotes", "system"}
 	reasons := []string{
 		DropReasonSendTimeout,
@@ -373,6 +404,7 @@ func TestRecordDroppedBroadcast_AllReasons(t *testing.T) {
 	for _, channel := range channels {
 		for _, reason := range reasons {
 			t.Run(channel+"_"+reason, func(t *testing.T) {
+				t.Parallel()
 				// Should not panic
 				RecordDroppedBroadcast(channel, reason)
 			})
@@ -381,6 +413,7 @@ func TestRecordDroppedBroadcast_AllReasons(t *testing.T) {
 }
 
 func TestRecordDroppedBroadcastWithStats_UpdatesStats(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{
 		DroppedBroadcastsByChannel: make(map[string]int64),
 	}
@@ -405,6 +438,7 @@ func TestRecordDroppedBroadcastWithStats_UpdatesStats(t *testing.T) {
 // =============================================================================
 
 func TestRecordSlowClientAttempt_NoPanic(t *testing.T) {
+	t.Parallel()
 	RecordSlowClientAttempt(1)
 	RecordSlowClientAttempt(5)
 	RecordSlowClientAttempt(10)
@@ -412,12 +446,14 @@ func TestRecordSlowClientAttempt_NoPanic(t *testing.T) {
 }
 
 func TestRecordClientBufferSize_NoPanic(t *testing.T) {
+	t.Parallel()
 	RecordClientBufferSize(0, 512)
 	RecordClientBufferSize(256, 512)
 	RecordClientBufferSize(512, 512)
 }
 
 func TestRecordClientBufferSizeWithStats_UpdatesStats(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{
 		BufferSaturationSamples: make([]int, 0, 100),
 	}
@@ -446,6 +482,7 @@ func TestRecordClientBufferSizeWithStats_UpdatesStats(t *testing.T) {
 }
 
 func TestRecordClientBufferSizeWithStats_SlidingWindow(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{
 		BufferSaturationSamples: make([]int, 0, 100),
 	}
@@ -469,6 +506,7 @@ func TestRecordClientBufferSizeWithStats_SlidingWindow(t *testing.T) {
 // =============================================================================
 
 func TestRecordDisconnectWithStats_Concurrent(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{
 		DisconnectsByReason: make(map[string]int64),
 	}
@@ -499,6 +537,7 @@ func TestRecordDisconnectWithStats_Concurrent(t *testing.T) {
 }
 
 func TestRecordDroppedBroadcastWithStats_Concurrent(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{
 		DroppedBroadcastsByChannel: make(map[string]int64),
 	}
@@ -551,6 +590,7 @@ func (m *mockServerMetrics) GetKafkaConsumer() any {
 }
 
 func TestNewMetricsCollector(t *testing.T) {
+	t.Parallel()
 	mock := &mockServerMetrics{
 		config: types.ServerConfig{
 			MaxConnections:  10000,
@@ -572,6 +612,7 @@ func TestNewMetricsCollector(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares global Prometheus metrics
 func TestMetricsCollector_StartStop(t *testing.T) {
 	var connCount int64 = 500
 	mock := &mockServerMetrics{
@@ -596,6 +637,7 @@ func TestMetricsCollector_StartStop(t *testing.T) {
 	collector.Stop()
 }
 
+//nolint:paralleltest // shares global Prometheus metrics
 func TestMetricsCollector_CollectsStats(t *testing.T) {
 	var connCount int64 = 250
 	mock := &mockServerMetrics{
@@ -633,6 +675,7 @@ func TestMetricsCollector_CollectsStats(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares global Prometheus metrics
 func TestMetricsCollector_KafkaStatus_NoConsumer(t *testing.T) {
 	mock := &mockServerMetrics{
 		config: types.ServerConfig{
@@ -650,6 +693,7 @@ func TestMetricsCollector_KafkaStatus_NoConsumer(t *testing.T) {
 }
 
 func TestMetricsCollector_KafkaStatus_WithConsumer(t *testing.T) {
+	t.Parallel()
 	mock := &mockServerMetrics{
 		config: types.ServerConfig{
 			MaxConnections:  10000,

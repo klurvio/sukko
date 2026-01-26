@@ -105,7 +105,7 @@ func NewAdmin(cfg AdminConfig) (*Admin, error) {
 	// Add TLS encryption if configured
 	if cfg.TLS != nil && cfg.TLS.Enabled {
 		tlsCfg := &tls.Config{
-			InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
+			InsecureSkipVerify: cfg.TLS.InsecureSkipVerify, //nolint:gosec // Controlled by configuration for dev/testing environments
 			MinVersion:         tls.VersionTLS12,
 		}
 
@@ -175,7 +175,7 @@ func (a *Admin) CreateTopic(ctx context.Context, name string, partitions int, co
 		configs[k] = &val
 	}
 
-	resp, err := a.admin.CreateTopics(ctx, int32(partitions), int16(-1), configs, name)
+	resp, err := a.admin.CreateTopics(ctx, int32(partitions), int16(-1), configs, name) //nolint:gosec // Partition count validated externally, safe conversion
 	if err != nil {
 		return fmt.Errorf("create topic request failed: %w", err)
 	}

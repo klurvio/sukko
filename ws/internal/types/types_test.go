@@ -11,6 +11,7 @@ import (
 // =============================================================================
 
 func TestLogLevel_Constants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		level    LogLevel
@@ -25,6 +26,7 @@ func TestLogLevel_Constants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if string(tt.level) != tt.expected {
 				t.Errorf("LogLevel %s = %q, want %q", tt.name, tt.level, tt.expected)
 			}
@@ -33,6 +35,7 @@ func TestLogLevel_Constants(t *testing.T) {
 }
 
 func TestLogFormat_Constants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		format   LogFormat
@@ -44,6 +47,7 @@ func TestLogFormat_Constants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if string(tt.format) != tt.expected {
 				t.Errorf("LogFormat %s = %q, want %q", tt.name, tt.format, tt.expected)
 			}
@@ -56,6 +60,7 @@ func TestLogFormat_Constants(t *testing.T) {
 // =============================================================================
 
 func TestServerConfig_DefaultFields(t *testing.T) {
+	t.Parallel()
 	cfg := ServerConfig{
 		Addr:           ":8080",
 		KafkaBrokers:   []string{"kafka:9092"},
@@ -78,6 +83,7 @@ func TestServerConfig_DefaultFields(t *testing.T) {
 }
 
 func TestServerConfig_ResourceLimits(t *testing.T) {
+	t.Parallel()
 	cfg := ServerConfig{
 		MemoryLimit:            1024 * 1024 * 1024, // 1GB
 		MaxKafkaMessagesPerSec: 1000,
@@ -100,6 +106,7 @@ func TestServerConfig_ResourceLimits(t *testing.T) {
 }
 
 func TestServerConfig_HysteresisThresholds(t *testing.T) {
+	t.Parallel()
 	cfg := ServerConfig{
 		CPURejectThreshold:      75.0,
 		CPURejectThresholdLower: 65.0,
@@ -120,6 +127,7 @@ func TestServerConfig_HysteresisThresholds(t *testing.T) {
 }
 
 func TestServerConfig_ConnectionRateLimiting(t *testing.T) {
+	t.Parallel()
 	cfg := ServerConfig{
 		ConnectionRateLimitEnabled: true,
 		ConnRateLimitIPBurst:       10,
@@ -140,6 +148,7 @@ func TestServerConfig_ConnectionRateLimiting(t *testing.T) {
 }
 
 func TestServerConfig_HTTPTimeouts(t *testing.T) {
+	t.Parallel()
 	cfg := ServerConfig{
 		HTTPReadTimeout:  15 * time.Second,
 		HTTPWriteTimeout: 15 * time.Second,
@@ -162,6 +171,7 @@ func TestServerConfig_HTTPTimeouts(t *testing.T) {
 // =============================================================================
 
 func TestStats_ZeroValues(t *testing.T) {
+	t.Parallel()
 	stats := &Stats{}
 
 	if stats.TotalConnections != 0 {
@@ -176,6 +186,7 @@ func TestStats_ZeroValues(t *testing.T) {
 }
 
 func TestStats_Fields(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	stats := &Stats{
 		TotalConnections:        1000,
@@ -207,6 +218,7 @@ func TestStats_Fields(t *testing.T) {
 }
 
 func TestStats_ConcurrentMapAccess(t *testing.T) {
+	t.Parallel()
 	stats := &Stats{
 		DisconnectsByReason:        make(map[string]int64),
 		DroppedBroadcastsByChannel: make(map[string]int64),
@@ -276,6 +288,7 @@ func TestStats_ConcurrentMapAccess(t *testing.T) {
 }
 
 func TestStats_DisconnectReasonTracking(t *testing.T) {
+	t.Parallel()
 	stats := &Stats{
 		DisconnectsByReason: make(map[string]int64),
 	}
@@ -302,6 +315,7 @@ func TestStats_DisconnectReasonTracking(t *testing.T) {
 }
 
 func TestStats_BufferSaturationSampling(t *testing.T) {
+	t.Parallel()
 	stats := &Stats{
 		BufferSaturationSamples: make([]int, 0, 100),
 	}

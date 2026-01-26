@@ -6,6 +6,8 @@ import (
 )
 
 func TestDefaultConfig(t *testing.T) {
+	t.Parallel()
+
 	cfg := DefaultConfig()
 
 	if cfg.Type != "valkey" {
@@ -35,6 +37,8 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestMessage_Fields(t *testing.T) {
+	t.Parallel()
+
 	msg := &Message{
 		Subject: "BTC.trade",
 		Payload: []byte(`{"price":"50000.00"}`),
@@ -49,6 +53,8 @@ func TestMessage_Fields(t *testing.T) {
 }
 
 func TestMetrics_Fields(t *testing.T) {
+	t.Parallel()
+
 	now := time.Now()
 	m := Metrics{
 		Type:             "valkey",
@@ -88,6 +94,8 @@ func TestMetrics_Fields(t *testing.T) {
 }
 
 func TestValkeyConfig_Fields(t *testing.T) {
+	t.Parallel()
+
 	cfg := ValkeyConfig{
 		Addrs:      []string{"valkey-1:6379", "valkey-2:6379"},
 		MasterName: "mymaster",
@@ -114,6 +122,8 @@ func TestValkeyConfig_Fields(t *testing.T) {
 }
 
 func TestNATSConfig_Fields(t *testing.T) {
+	t.Parallel()
+
 	cfg := NATSConfig{
 		URLs:          []string{"nats://nats-1:4222", "nats://nats-2:4222"},
 		ClusterMode:   true,

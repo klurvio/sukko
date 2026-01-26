@@ -23,6 +23,7 @@ func resetGlobalLevel() {
 // =============================================================================
 
 func TestNewLogger_DefaultLevel(t *testing.T) {
+	t.Parallel()
 	// Test with empty level defaults to info
 	logger := NewLogger(LoggerConfig{
 		Level:  "", // Empty defaults to info
@@ -34,6 +35,7 @@ func TestNewLogger_DefaultLevel(t *testing.T) {
 }
 
 func TestNewLogger_AllLevels(t *testing.T) {
+	t.Parallel()
 	levels := []types.LogLevel{
 		types.LogLevelDebug,
 		types.LogLevelInfo,
@@ -44,6 +46,7 @@ func TestNewLogger_AllLevels(t *testing.T) {
 
 	for _, level := range levels {
 		t.Run(string(level), func(t *testing.T) {
+			t.Parallel()
 			logger := NewLogger(LoggerConfig{
 				Level:  level,
 				Format: types.LogFormatJSON,
@@ -56,6 +59,7 @@ func TestNewLogger_AllLevels(t *testing.T) {
 }
 
 func TestNewLogger_JSONFormat(t *testing.T) {
+	t.Parallel()
 	resetGlobalLevel()
 
 	var buf bytes.Buffer
@@ -75,6 +79,7 @@ func TestNewLogger_JSONFormat(t *testing.T) {
 }
 
 func TestNewLogger_IncludesServiceField(t *testing.T) {
+	t.Parallel()
 	resetGlobalLevel()
 
 	var buf bytes.Buffer
@@ -97,6 +102,7 @@ func TestNewLogger_IncludesServiceField(t *testing.T) {
 // =============================================================================
 
 func TestLogError_LogsError(t *testing.T) {
+	t.Parallel()
 	resetGlobalLevel()
 
 	var buf bytes.Buffer
@@ -115,6 +121,7 @@ func TestLogError_LogsError(t *testing.T) {
 }
 
 func TestLogError_WithFields(t *testing.T) {
+	t.Parallel()
 	resetGlobalLevel()
 
 	var buf bytes.Buffer
@@ -137,6 +144,7 @@ func TestLogError_WithFields(t *testing.T) {
 }
 
 func TestLogError_NilFields(t *testing.T) {
+	t.Parallel()
 	resetGlobalLevel()
 
 	var buf bytes.Buffer
@@ -158,6 +166,7 @@ func TestLogError_NilFields(t *testing.T) {
 // =============================================================================
 
 func TestLogErrorWithStack_IncludesStackTrace(t *testing.T) {
+	t.Parallel()
 	resetGlobalLevel()
 
 	var buf bytes.Buffer
@@ -176,6 +185,7 @@ func TestLogErrorWithStack_IncludesStackTrace(t *testing.T) {
 }
 
 func TestLogErrorWithStack_WithFields(t *testing.T) {
+	t.Parallel()
 	resetGlobalLevel()
 
 	var buf bytes.Buffer
@@ -202,6 +212,7 @@ func TestLogErrorWithStack_WithFields(t *testing.T) {
 // =============================================================================
 
 func TestRecoverPanic_CapturesPanic(t *testing.T) {
+	t.Parallel()
 	resetGlobalLevel()
 
 	var buf bytes.Buffer
@@ -225,6 +236,7 @@ func TestRecoverPanic_CapturesPanic(t *testing.T) {
 }
 
 func TestRecoverPanic_WithContextFields(t *testing.T) {
+	t.Parallel()
 	resetGlobalLevel()
 
 	var buf bytes.Buffer
@@ -247,6 +259,7 @@ func TestRecoverPanic_WithContextFields(t *testing.T) {
 }
 
 func TestRecoverPanic_NoPanic(t *testing.T) {
+	t.Parallel()
 	resetGlobalLevel()
 
 	var buf bytes.Buffer
@@ -264,6 +277,7 @@ func TestRecoverPanic_NoPanic(t *testing.T) {
 }
 
 func TestRecoverPanic_ServerStaysRunning(t *testing.T) {
+	t.Parallel()
 	resetGlobalLevel()
 
 	var buf bytes.Buffer
@@ -300,6 +314,7 @@ func TestRecoverPanic_ServerStaysRunning(t *testing.T) {
 // =============================================================================
 
 func TestLoggerConfig_Fields(t *testing.T) {
+	t.Parallel()
 	config := LoggerConfig{
 		Level:  types.LogLevelDebug,
 		Format: types.LogFormatPretty,
@@ -318,6 +333,7 @@ func TestLoggerConfig_Fields(t *testing.T) {
 // =============================================================================
 
 func TestInitGlobalLogger_SetsGlobalLogger(t *testing.T) {
+	t.Parallel()
 	// Just verify it doesn't panic
 	InitGlobalLogger(LoggerConfig{
 		Level:  types.LogLevelInfo,

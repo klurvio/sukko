@@ -9,6 +9,7 @@ import (
 )
 
 func TestNewBus_InvalidType(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	cfg := Config{
@@ -25,6 +26,7 @@ func TestNewBus_InvalidType(t *testing.T) {
 }
 
 func TestNewBus_DefaultsApplied(t *testing.T) {
+	t.Parallel()
 	// Test that defaults are applied when values are zero
 	cfg := Config{
 		Type:            "valkey",
@@ -52,6 +54,7 @@ func TestNewBus_DefaultsApplied(t *testing.T) {
 }
 
 func TestNewBus_ValkeyType(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		busType  string
@@ -66,6 +69,7 @@ func TestNewBus_ValkeyType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := Config{
 				Type:       tt.busType,
 				BufferSize: 1024,
@@ -85,6 +89,7 @@ func TestNewBus_ValkeyType(t *testing.T) {
 }
 
 func TestNewBus_NATSType(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	cfg := Config{
@@ -104,6 +109,7 @@ func TestNewBus_NATSType(t *testing.T) {
 }
 
 func TestNewBus_ValkeyMissingAddrs(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	cfg := Config{
@@ -124,6 +130,7 @@ func TestNewBus_ValkeyMissingAddrs(t *testing.T) {
 }
 
 func TestNewBus_NATSMissingURLs(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	cfg := Config{
@@ -144,6 +151,7 @@ func TestNewBus_NATSMissingURLs(t *testing.T) {
 }
 
 func TestConfig_Defaults(t *testing.T) {
+	t.Parallel()
 	// Verify that DefaultConfig returns sensible values
 	cfg := DefaultConfig()
 

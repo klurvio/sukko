@@ -75,6 +75,7 @@ func generateTestEdKey(t *testing.T) (string, ed25519.PrivateKey) {
 }
 
 func TestParsePublicKey_ES256(t *testing.T) {
+	t.Parallel()
 	pemData, _ := generateTestECKey(t)
 
 	pub, err := ParsePublicKey(pemData, "ES256")
@@ -88,6 +89,7 @@ func TestParsePublicKey_ES256(t *testing.T) {
 }
 
 func TestParsePublicKey_RS256(t *testing.T) {
+	t.Parallel()
 	pemData, _ := generateTestRSAKey(t)
 
 	pub, err := ParsePublicKey(pemData, "RS256")
@@ -101,6 +103,7 @@ func TestParsePublicKey_RS256(t *testing.T) {
 }
 
 func TestParsePublicKey_EdDSA(t *testing.T) {
+	t.Parallel()
 	pemData, _ := generateTestEdKey(t)
 
 	pub, err := ParsePublicKey(pemData, "EdDSA")
@@ -114,6 +117,7 @@ func TestParsePublicKey_EdDSA(t *testing.T) {
 }
 
 func TestParsePublicKey_Mismatch(t *testing.T) {
+	t.Parallel()
 	ecPEM, _ := generateTestECKey(t)
 
 	// Try to parse EC key as RSA
@@ -124,6 +128,7 @@ func TestParsePublicKey_Mismatch(t *testing.T) {
 }
 
 func TestParsePublicKey_InvalidPEM(t *testing.T) {
+	t.Parallel()
 	_, err := ParsePublicKey("not valid pem", "ES256")
 	if err == nil {
 		t.Error("Expected error for invalid PEM")
@@ -131,6 +136,7 @@ func TestParsePublicKey_InvalidPEM(t *testing.T) {
 }
 
 func TestParsePublicKey_UnsupportedAlgorithm(t *testing.T) {
+	t.Parallel()
 	ecPEM, _ := generateTestECKey(t)
 
 	_, err := ParsePublicKey(ecPEM, "HS256")
@@ -140,6 +146,7 @@ func TestParsePublicKey_UnsupportedAlgorithm(t *testing.T) {
 }
 
 func TestKeyInfo_IsValid(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	past := now.Add(-time.Hour)
 	future := now.Add(time.Hour)
@@ -178,6 +185,7 @@ func TestKeyInfo_IsValid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.key.IsValid(); got != tt.expected {
 				t.Errorf("KeyInfo.IsValid() = %v, want %v", got, tt.expected)
 			}
@@ -186,6 +194,7 @@ func TestKeyInfo_IsValid(t *testing.T) {
 }
 
 func TestStaticKeyRegistry_GetKey(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 
 	ecPEM, _ := generateTestECKey(t)
@@ -204,6 +213,7 @@ func TestStaticKeyRegistry_GetKey(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("existing key", func(t *testing.T) {
+		t.Parallel()
 		got, err := registry.GetKey(ctx, "test-key-1")
 		if err != nil {
 			t.Fatalf("GetKey failed: %v", err)
@@ -217,6 +227,7 @@ func TestStaticKeyRegistry_GetKey(t *testing.T) {
 	})
 
 	t.Run("non-existing key", func(t *testing.T) {
+		t.Parallel()
 		_, err := registry.GetKey(ctx, "non-existent")
 		if !errors.Is(err, ErrKeyNotFound) {
 			t.Errorf("Expected ErrKeyNotFound, got %v", err)
@@ -225,6 +236,7 @@ func TestStaticKeyRegistry_GetKey(t *testing.T) {
 }
 
 func TestStaticKeyRegistry_GetKey_Revoked(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 
 	ecPEM, _ := generateTestECKey(t)
@@ -250,6 +262,7 @@ func TestStaticKeyRegistry_GetKey_Revoked(t *testing.T) {
 }
 
 func TestStaticKeyRegistry_GetKey_Expired(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 
 	ecPEM, _ := generateTestECKey(t)
@@ -275,6 +288,7 @@ func TestStaticKeyRegistry_GetKey_Expired(t *testing.T) {
 }
 
 func TestStaticKeyRegistry_GetKeysByTenant(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 
 	ecPEM, _ := generateTestECKey(t)
@@ -317,6 +331,7 @@ func TestStaticKeyRegistry_GetKeysByTenant(t *testing.T) {
 }
 
 func TestGetSigningMethod(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		algorithm string
 		wantErr   bool
@@ -330,6 +345,7 @@ func TestGetSigningMethod(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.algorithm, func(t *testing.T) {
+			t.Parallel()
 			_, err := GetSigningMethod(tt.algorithm)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetSigningMethod(%s) error = %v, wantErr %v", tt.algorithm, err, tt.wantErr)

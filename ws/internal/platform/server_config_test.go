@@ -43,6 +43,7 @@ func newValidServerConfig() *ServerConfig {
 }
 
 func TestServerConfig_Validate_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := newValidServerConfig()
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Valid config should not error: %v", err)
@@ -50,6 +51,7 @@ func TestServerConfig_Validate_Valid(t *testing.T) {
 }
 
 func TestServerConfig_Validate_EmptyAddr(t *testing.T) {
+	t.Parallel()
 	cfg := newValidServerConfig()
 	cfg.Addr = ""
 
@@ -63,6 +65,7 @@ func TestServerConfig_Validate_EmptyAddr(t *testing.T) {
 }
 
 func TestServerConfig_Validate_MaxConnections(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		value       int
@@ -76,6 +79,7 @@ func TestServerConfig_Validate_MaxConnections(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.MaxConnections = tt.value
 			err := cfg.Validate()
@@ -90,6 +94,7 @@ func TestServerConfig_Validate_MaxConnections(t *testing.T) {
 }
 
 func TestServerConfig_Validate_CPUThresholds(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		reject      float64
@@ -110,6 +115,7 @@ func TestServerConfig_Validate_CPUThresholds(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.CPURejectThreshold = tt.reject
 			cfg.CPURejectThresholdLower = tt.rejectLower
@@ -133,11 +139,13 @@ func TestServerConfig_Validate_CPUThresholds(t *testing.T) {
 }
 
 func TestServerConfig_Validate_LogLevel(t *testing.T) {
+	t.Parallel()
 	validLevels := []string{"debug", "info", "warn", "error"}
 	invalidLevels := []string{"DEBUG", "INFO", "invalid", "", "trace"}
 
 	for _, level := range validLevels {
 		t.Run("valid_"+level, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.LogLevel = level
 			if err := cfg.Validate(); err != nil {
@@ -148,6 +156,7 @@ func TestServerConfig_Validate_LogLevel(t *testing.T) {
 
 	for _, level := range invalidLevels {
 		t.Run("invalid_"+level, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.LogLevel = level
 			err := cfg.Validate()
@@ -162,11 +171,13 @@ func TestServerConfig_Validate_LogLevel(t *testing.T) {
 }
 
 func TestServerConfig_Validate_LogFormat(t *testing.T) {
+	t.Parallel()
 	validFormats := []string{"json", "text", "pretty"}
 	invalidFormats := []string{"JSON", "xml", "", "console"}
 
 	for _, format := range validFormats {
 		t.Run("valid_"+format, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.LogFormat = format
 			if err := cfg.Validate(); err != nil {
@@ -177,6 +188,7 @@ func TestServerConfig_Validate_LogFormat(t *testing.T) {
 
 	for _, format := range invalidFormats {
 		t.Run("invalid_"+format, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.LogFormat = format
 			err := cfg.Validate()
@@ -188,6 +200,7 @@ func TestServerConfig_Validate_LogFormat(t *testing.T) {
 }
 
 func TestServerConfig_Validate_Valkey(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		addrs       []string
@@ -205,6 +218,7 @@ func TestServerConfig_Validate_Valkey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.ValkeyAddrs = tt.addrs
 			cfg.ValkeyDB = tt.db
@@ -227,6 +241,7 @@ func TestServerConfig_Validate_Valkey(t *testing.T) {
 }
 
 func TestServerConfig_Validate_ClientSendBufferSize(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		size        int
@@ -244,6 +259,7 @@ func TestServerConfig_Validate_ClientSendBufferSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.ClientSendBufferSize = tt.size
 			err := cfg.Validate()
@@ -258,6 +274,7 @@ func TestServerConfig_Validate_ClientSendBufferSize(t *testing.T) {
 }
 
 func TestServerConfig_Validate_CPUPollInterval(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		pollInterval    time.Duration
@@ -274,6 +291,7 @@ func TestServerConfig_Validate_CPUPollInterval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.CPUPollInterval = tt.pollInterval
 			cfg.MetricsInterval = tt.metricsInterval
@@ -295,6 +313,7 @@ func TestServerConfig_Validate_CPUPollInterval(t *testing.T) {
 }
 
 func TestServerConfig_Validate_HysteresisGap(t *testing.T) {
+	t.Parallel()
 	// Test that hysteresis gap (upper - lower) is reasonable
 
 	// Valid: 10% gap

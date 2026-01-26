@@ -114,9 +114,6 @@ func (lb *LoadBalancer) Start() error {
 	mux.HandleFunc("/version", version.Handler("ws-server"))
 	mux.HandleFunc("/metrics", monitoring.HandleMetrics)
 
-	// Store config in LoadBalancer so we can access timeouts
-	// Need to get these from the cfg parameter in Start()
-	// For now, we'll need to store cfg in NewLoadBalancer
 	server := &http.Server{
 		Addr:    lb.addr,
 		Handler: mux,
@@ -298,13 +295,16 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Determine shard status
-		shardStatus := "available"
-		if currentConns >= maxConns {
+		var shardStatus string
+		switch {
+		case currentConns >= maxConns:
 			shardStatus = "full"
-		} else if utilization > 90 {
+		case utilization > 90:
 			shardStatus = "high"
-		} else if utilization > 75 {
+		case utilization > 75:
 			shardStatus = "medium"
+		default:
+			shardStatus = "available"
 		}
 
 		// Simple health check: if shard is at over capacity, mark as unhealthy

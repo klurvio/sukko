@@ -10,6 +10,7 @@ import (
 // =============================================================================
 
 func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
+	t.Parallel()
 	validChannels := []string{
 		"community.chat",
 		"group.123.message",
@@ -26,6 +27,7 @@ func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 
 	for _, channel := range validChannels {
 		t.Run(channel, func(t *testing.T) {
+			t.Parallel()
 			if !isValidPublishChannel(channel) {
 				t.Errorf("isValidPublishChannel(%q) = false, want true", channel)
 			}
@@ -34,6 +36,7 @@ func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 }
 
 func TestIsValidPublishChannel_InvalidFormats(t *testing.T) {
+	t.Parallel()
 	invalidChannels := []struct {
 		channel string
 		reason  string
@@ -50,6 +53,7 @@ func TestIsValidPublishChannel_InvalidFormats(t *testing.T) {
 
 	for _, tc := range invalidChannels {
 		t.Run(tc.reason, func(t *testing.T) {
+			t.Parallel()
 			if isValidPublishChannel(tc.channel) {
 				t.Errorf("isValidPublishChannel(%q) = true, want false (reason: %s)", tc.channel, tc.reason)
 			}
@@ -58,6 +62,7 @@ func TestIsValidPublishChannel_InvalidFormats(t *testing.T) {
 }
 
 func TestIsValidPublishChannel_EdgeCases(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		channel string
 		valid   bool
@@ -74,6 +79,7 @@ func TestIsValidPublishChannel_EdgeCases(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
 			result := isValidPublishChannel(tc.channel)
 			if result != tc.valid {
 				t.Errorf("isValidPublishChannel(%q) = %v, want %v", tc.channel, result, tc.valid)
@@ -97,6 +103,7 @@ func parsePublishRequest(data json.RawMessage) (channel string, payload json.Raw
 }
 
 func TestParsePublishRequest_Valid(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"channel": "community.chat", "data": {"message": "Hello", "sender": "user123"}}`)
 
 	channel, payload, err := parsePublishRequest(data)
@@ -113,6 +120,7 @@ func TestParsePublishRequest_Valid(t *testing.T) {
 }
 
 func TestParsePublishRequest_MinimalData(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"channel": "a.b", "data": {}}`)
 
 	channel, payload, err := parsePublishRequest(data)
@@ -129,6 +137,7 @@ func TestParsePublishRequest_MinimalData(t *testing.T) {
 }
 
 func TestParsePublishRequest_ComplexPayload(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{
 		"channel": "game.events",
 		"data": {
@@ -160,6 +169,7 @@ func TestParsePublishRequest_ComplexPayload(t *testing.T) {
 }
 
 func TestParsePublishRequest_MissingChannel(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"data": {"message": "Hello"}}`)
 
 	channel, _, err := parsePublishRequest(data)
@@ -174,6 +184,7 @@ func TestParsePublishRequest_MissingChannel(t *testing.T) {
 }
 
 func TestParsePublishRequest_MissingData(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"channel": "community.chat"}`)
 
 	channel, payload, err := parsePublishRequest(data)
@@ -191,6 +202,7 @@ func TestParsePublishRequest_MissingData(t *testing.T) {
 }
 
 func TestParsePublishRequest_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{invalid json}`)
 
 	_, _, err := parsePublishRequest(data)
@@ -201,6 +213,7 @@ func TestParsePublishRequest_InvalidJSON(t *testing.T) {
 }
 
 func TestParsePublishRequest_StringData(t *testing.T) {
+	t.Parallel()
 	// Data as string instead of object (valid JSON, client can send any JSON type)
 	data := json.RawMessage(`{"channel": "test.events", "data": "simple string message"}`)
 
@@ -218,6 +231,7 @@ func TestParsePublishRequest_StringData(t *testing.T) {
 }
 
 func TestParsePublishRequest_ArrayData(t *testing.T) {
+	t.Parallel()
 	// Data as array (valid JSON)
 	data := json.RawMessage(`{"channel": "batch.events", "data": [1, 2, 3, "four"]}`)
 
@@ -239,6 +253,7 @@ func TestParsePublishRequest_ArrayData(t *testing.T) {
 // =============================================================================
 
 func TestPublishAck_JSONFormat(t *testing.T) {
+	t.Parallel()
 	channel := "community.chat"
 
 	ack := map[string]any{
@@ -278,6 +293,7 @@ func TestPublishAck_JSONFormat(t *testing.T) {
 // =============================================================================
 
 func TestPublishError_JSONFormat(t *testing.T) {
+	t.Parallel()
 	code := "rate_limited"
 	message := "Publish rate limit exceeded"
 
@@ -314,6 +330,7 @@ func TestPublishError_JSONFormat(t *testing.T) {
 }
 
 func TestPublishError_ErrorCodes(t *testing.T) {
+	t.Parallel()
 	errorCodes := []struct {
 		code    string
 		message string
@@ -328,6 +345,7 @@ func TestPublishError_ErrorCodes(t *testing.T) {
 
 	for _, tc := range errorCodes {
 		t.Run(tc.code, func(t *testing.T) {
+			t.Parallel()
 			errResp := map[string]any{
 				"type":    "publish_error",
 				"code":    tc.code,
@@ -359,6 +377,7 @@ func TestPublishError_ErrorCodes(t *testing.T) {
 // =============================================================================
 
 func TestParseClientMessage_Publish(t *testing.T) {
+	t.Parallel()
 	msg := `{"type": "publish", "data": {"channel": "community.chat", "data": {"msg": "hello"}}}`
 
 	msgType, msgData, err := parseClientMessage([]byte(msg))
@@ -391,6 +410,7 @@ func TestParseClientMessage_Publish(t *testing.T) {
 // =============================================================================
 
 func TestMaxPublishMessageSize_Constant(t *testing.T) {
+	t.Parallel()
 	expectedSize := 64 * 1024 // 64KB
 
 	if maxPublishMessageSize != expectedSize {
@@ -399,6 +419,7 @@ func TestMaxPublishMessageSize_Constant(t *testing.T) {
 }
 
 func TestMessageSize_UnderLimit(t *testing.T) {
+	t.Parallel()
 	// Create a message just under the limit
 	smallPayload := make([]byte, 1024) // 1KB
 	for i := range smallPayload {
@@ -411,6 +432,7 @@ func TestMessageSize_UnderLimit(t *testing.T) {
 }
 
 func TestMessageSize_OverLimit(t *testing.T) {
+	t.Parallel()
 	// Create a message over the limit
 	largePayload := make([]byte, maxPublishMessageSize+1)
 	for i := range largePayload {

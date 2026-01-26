@@ -32,7 +32,7 @@ func LoggingMiddleware(logger zerolog.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
-			defer func() {
+			defer func() { //nolint:contextcheck // Context is captured from r which is in scope
 				logger.Info().
 					Str("method", r.Method).
 					Str("path", r.URL.Path).

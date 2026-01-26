@@ -19,6 +19,7 @@ import (
 // =============================================================================
 
 func TestBufferUsagePercent_Empty(t *testing.T) {
+	t.Parallel()
 	bufferLen := 0
 	bufferCap := 512
 
@@ -30,6 +31,7 @@ func TestBufferUsagePercent_Empty(t *testing.T) {
 }
 
 func TestBufferUsagePercent_Half(t *testing.T) {
+	t.Parallel()
 	bufferLen := 256
 	bufferCap := 512
 
@@ -41,6 +43,7 @@ func TestBufferUsagePercent_Half(t *testing.T) {
 }
 
 func TestBufferUsagePercent_Full(t *testing.T) {
+	t.Parallel()
 	bufferLen := 512
 	bufferCap := 512
 
@@ -52,6 +55,7 @@ func TestBufferUsagePercent_Full(t *testing.T) {
 }
 
 func TestBufferUsagePercent_Quarter(t *testing.T) {
+	t.Parallel()
 	bufferLen := 128
 	bufferCap := 512
 
@@ -63,6 +67,7 @@ func TestBufferUsagePercent_Quarter(t *testing.T) {
 }
 
 func TestBufferUsagePercent_ThreeQuarters(t *testing.T) {
+	t.Parallel()
 	bufferLen := 384
 	bufferCap := 512
 
@@ -74,6 +79,7 @@ func TestBufferUsagePercent_ThreeQuarters(t *testing.T) {
 }
 
 func TestBufferUsagePercent_SmallBuffer(t *testing.T) {
+	t.Parallel()
 	bufferLen := 5
 	bufferCap := 10
 
@@ -85,6 +91,7 @@ func TestBufferUsagePercent_SmallBuffer(t *testing.T) {
 }
 
 func TestBufferUsagePercent_LargeBuffer(t *testing.T) {
+	t.Parallel()
 	bufferLen := 512
 	bufferCap := 1024
 
@@ -100,6 +107,7 @@ func TestBufferUsagePercent_LargeBuffer(t *testing.T) {
 // =============================================================================
 
 func TestConnectionDuration_Calculation(t *testing.T) {
+	t.Parallel()
 	connectedAt := time.Now().Add(-5 * time.Second)
 
 	duration := time.Since(connectedAt)
@@ -111,6 +119,7 @@ func TestConnectionDuration_Calculation(t *testing.T) {
 }
 
 func TestConnectionDuration_LongConnection(t *testing.T) {
+	t.Parallel()
 	connectedAt := time.Now().Add(-1 * time.Hour)
 
 	duration := time.Since(connectedAt)
@@ -122,6 +131,7 @@ func TestConnectionDuration_LongConnection(t *testing.T) {
 }
 
 func TestConnectionDuration_VeryShort(t *testing.T) {
+	t.Parallel()
 	connectedAt := time.Now().Add(-100 * time.Millisecond)
 
 	duration := time.Since(connectedAt)
@@ -137,6 +147,7 @@ func TestConnectionDuration_VeryShort(t *testing.T) {
 // =============================================================================
 
 func TestClient_SendAttemptsAtomic(t *testing.T) {
+	t.Parallel()
 	client := &Client{
 		sendAttempts: 0,
 	}
@@ -156,6 +167,7 @@ func TestClient_SendAttemptsAtomic(t *testing.T) {
 }
 
 func TestClient_SlowClientWarnedFlag(t *testing.T) {
+	t.Parallel()
 	client := &Client{
 		slowClientWarned: 0,
 	}
@@ -180,6 +192,7 @@ func TestClient_SlowClientWarnedFlag(t *testing.T) {
 // =============================================================================
 
 func TestDisconnectReasons_Constants(t *testing.T) {
+	t.Parallel()
 	// Verify disconnect reason constants are defined correctly
 	reasons := []string{
 		monitoring.DisconnectReasonReadError,
@@ -197,6 +210,7 @@ func TestDisconnectReasons_Constants(t *testing.T) {
 }
 
 func TestDisconnectInitiatedBy_Constants(t *testing.T) {
+	t.Parallel()
 	initiators := []string{
 		monitoring.DisconnectInitiatedByClient,
 		monitoring.DisconnectInitiatedByServer,
@@ -214,6 +228,7 @@ func TestDisconnectInitiatedBy_Constants(t *testing.T) {
 // =============================================================================
 
 func TestStats_CurrentConnectionsDecrement(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{
 		CurrentConnections: 10,
 	}
@@ -226,6 +241,7 @@ func TestStats_CurrentConnectionsDecrement(t *testing.T) {
 }
 
 func TestStats_CurrentConnectionsDecrement_ToZero(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{
 		CurrentConnections: 1,
 	}
@@ -238,6 +254,7 @@ func TestStats_CurrentConnectionsDecrement_ToZero(t *testing.T) {
 }
 
 func TestStats_CurrentConnectionsDecrement_Concurrent(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{
 		CurrentConnections: 1000,
 	}
@@ -260,6 +277,7 @@ func TestStats_CurrentConnectionsDecrement_Concurrent(t *testing.T) {
 // =============================================================================
 
 func TestCloseOnce_SingleExecution(t *testing.T) {
+	t.Parallel()
 	var closeOnce sync.Once
 	closeCount := 0
 
@@ -281,6 +299,7 @@ func TestCloseOnce_SingleExecution(t *testing.T) {
 }
 
 func TestCloseOnce_ConcurrentCalls(t *testing.T) {
+	t.Parallel()
 	var closeOnce sync.Once
 	var closeCount int32
 
@@ -304,6 +323,7 @@ func TestCloseOnce_ConcurrentCalls(t *testing.T) {
 // =============================================================================
 
 func TestSemaphore_Release(t *testing.T) {
+	t.Parallel()
 	maxConn := 10
 	sem := make(chan struct{}, maxConn)
 
@@ -333,6 +353,7 @@ func TestSemaphore_Release(t *testing.T) {
 }
 
 func TestSemaphore_ReleaseMultiple(t *testing.T) {
+	t.Parallel()
 	maxConn := 10
 	sem := make(chan struct{}, maxConn)
 
@@ -370,6 +391,7 @@ func TestSemaphore_ReleaseMultiple(t *testing.T) {
 // =============================================================================
 
 func TestDisconnectClient_Integration(t *testing.T) {
+	t.Parallel()
 	// Create minimal server with required components
 	logger := zerolog.Nop()
 	stats := &types.Stats{
@@ -434,6 +456,7 @@ func TestDisconnectClient_Integration(t *testing.T) {
 // =============================================================================
 
 func TestClient_SequenceGenerator(t *testing.T) {
+	t.Parallel()
 	client := &Client{
 		seqGen: messaging.NewSequenceGenerator(),
 	}
@@ -460,6 +483,7 @@ func TestClient_SequenceGenerator(t *testing.T) {
 }
 
 func TestClient_SubscriptionsCount(t *testing.T) {
+	t.Parallel()
 	client := &Client{
 		subscriptions: NewSubscriptionSet(),
 	}
@@ -482,6 +506,7 @@ func TestClient_SubscriptionsCount(t *testing.T) {
 // =============================================================================
 
 func TestClient_SendBufferMetrics(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		bufferCap   int
@@ -528,6 +553,7 @@ func TestClient_SendBufferMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			client := &Client{
 				send: make(chan []byte, tt.bufferCap),
 			}

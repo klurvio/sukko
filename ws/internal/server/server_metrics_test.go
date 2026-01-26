@@ -13,6 +13,7 @@ import (
 // =============================================================================
 
 func TestMemoryBytesToMB_Conversion(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		bytes    uint64
@@ -57,6 +58,7 @@ func TestMemoryBytesToMB_Conversion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := float64(tt.bytes) / 1024 / 1024
 
 			if result != tt.expected {
@@ -71,6 +73,7 @@ func TestMemoryBytesToMB_Conversion(t *testing.T) {
 // =============================================================================
 
 func TestMemoryPercentage_Calculation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		usedMB      float64
@@ -124,6 +127,7 @@ func TestMemoryPercentage_Calculation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			percent := (tt.usedMB / tt.limitMB) * 100
 
 			if percent != tt.expected {
@@ -138,6 +142,7 @@ func TestMemoryPercentage_Calculation(t *testing.T) {
 // =============================================================================
 
 func TestMemoryThreshold_Critical(t *testing.T) {
+	t.Parallel()
 	limitMB := 1024.0
 
 	criticalTests := []struct {
@@ -164,6 +169,7 @@ func TestMemoryThreshold_Critical(t *testing.T) {
 }
 
 func TestMemoryThreshold_Warning(t *testing.T) {
+	t.Parallel()
 	limitMB := 1024.0
 
 	warningTests := []struct {
@@ -194,6 +200,7 @@ func TestMemoryThreshold_Warning(t *testing.T) {
 // =============================================================================
 
 func TestBufferSaturation_Calculation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		bufferLen   int
@@ -254,6 +261,7 @@ func TestBufferSaturation_Calculation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			usagePercent := float64(tt.bufferLen) / float64(tt.bufferCap) * 100
 			isHighUsage := usagePercent >= 90
 
@@ -272,6 +280,7 @@ func TestBufferSaturation_Calculation(t *testing.T) {
 // =============================================================================
 
 func TestHighSaturationPercentage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name                string
 		highSaturationCount int
@@ -318,6 +327,7 @@ func TestHighSaturationPercentage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if tt.totalSampled == 0 {
 				return // Skip division by zero
 			}
@@ -337,6 +347,7 @@ func TestHighSaturationPercentage(t *testing.T) {
 // =============================================================================
 
 func TestStats_MemoryUpdate_ThreadSafe(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{}
 
 	var wg sync.WaitGroup
@@ -370,6 +381,7 @@ func TestStats_MemoryUpdate_ThreadSafe(t *testing.T) {
 // =============================================================================
 
 func TestStats_CurrentConnections_Atomic(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{
 		CurrentConnections: 0,
 	}
@@ -403,6 +415,7 @@ func TestStats_CurrentConnections_Atomic(t *testing.T) {
 // =============================================================================
 
 func TestSampleLimit_MaxSamples(t *testing.T) {
+	t.Parallel()
 	maxSamples := 100
 
 	// Simulate sampling with limit
@@ -422,6 +435,7 @@ func TestSampleLimit_MaxSamples(t *testing.T) {
 }
 
 func TestSampleLimit_LessThanMax(t *testing.T) {
+	t.Parallel()
 	maxSamples := 100
 
 	// Simulate sampling when fewer clients available
@@ -445,6 +459,7 @@ func TestSampleLimit_LessThanMax(t *testing.T) {
 // =============================================================================
 
 func TestConfigMemoryLimit_BytesToMB(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		limitBytes int64
@@ -474,6 +489,7 @@ func TestConfigMemoryLimit_BytesToMB(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			memLimitMB := float64(tt.limitBytes) / 1024.0 / 1024.0
 
 			if memLimitMB != tt.expectedMB {
@@ -488,6 +504,7 @@ func TestConfigMemoryLimit_BytesToMB(t *testing.T) {
 // =============================================================================
 
 func TestClientBufferIteration_WithSyncMap(t *testing.T) {
+	t.Parallel()
 	var clients sync.Map
 
 	// Add 10 mock clients with buffers

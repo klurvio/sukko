@@ -106,15 +106,14 @@ func (s *SlackAlerter) Alert(level AuditLevel, message string, metadata map[stri
 
 func (s *SlackAlerter) getColor(level AuditLevel) string {
 	switch level {
-	case CRITICAL:
-		return "danger"
-	case ERROR:
+	case CRITICAL, ERROR:
 		return "danger"
 	case WARNING:
 		return "warning"
-	default:
+	case DEBUG, INFO:
 		return "good"
 	}
+	return "good"
 }
 
 func (s *SlackAlerter) getEmoji(level AuditLevel) string {
@@ -127,9 +126,10 @@ func (s *SlackAlerter) getEmoji(level AuditLevel) string {
 		return ":warning:"
 	case INFO:
 		return ":information_source:"
-	default:
+	case DEBUG:
 		return ":white_check_mark:"
 	}
+	return ":white_check_mark:"
 }
 
 // ConsoleAlerter prints alerts to console (for development/testing)

@@ -12,6 +12,7 @@ const configTestEnv = "test"
 // =============================================================================
 
 func TestTopicBaseConstants(t *testing.T) {
+	t.Parallel()
 	// Verify all topic base constants have expected values
 	tests := []struct {
 		name     string
@@ -30,6 +31,7 @@ func TestTopicBaseConstants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if tt.base != tt.expected {
 				t.Errorf("%s = %q, want %q", tt.name, tt.base, tt.expected)
 			}
@@ -42,6 +44,7 @@ func TestTopicBaseConstants(t *testing.T) {
 // =============================================================================
 
 func TestNormalizeEnv(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected string
@@ -64,6 +67,7 @@ func TestNormalizeEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
 			result := NormalizeEnv(tt.input)
 			if result != tt.expected {
 				t.Errorf("NormalizeEnv(%q) = %q, want %q", tt.input, result, tt.expected)
@@ -77,6 +81,7 @@ func TestNormalizeEnv(t *testing.T) {
 // =============================================================================
 
 func TestGetTopic(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		env      string
 		base     string
@@ -93,6 +98,7 @@ func TestGetTopic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.env+"_"+tt.base, func(t *testing.T) {
+			t.Parallel()
 			result := GetTopic(tt.env, tt.base)
 			if result != tt.expected {
 				t.Errorf("GetTopic(%q, %q) = %q, want %q", tt.env, tt.base, result, tt.expected)
@@ -106,6 +112,7 @@ func TestGetTopic(t *testing.T) {
 // =============================================================================
 
 func TestGetRefinedTopic(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		env      string
 		base     string
@@ -120,6 +127,7 @@ func TestGetRefinedTopic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.env+"_"+tt.base, func(t *testing.T) {
+			t.Parallel()
 			result := GetRefinedTopic(tt.env, tt.base)
 			if result != tt.expected {
 				t.Errorf("GetRefinedTopic(%q, %q) = %q, want %q", tt.env, tt.base, result, tt.expected)
@@ -133,6 +141,7 @@ func TestGetRefinedTopic(t *testing.T) {
 // =============================================================================
 
 func TestAllTopicBases_ReturnsAllBases(t *testing.T) {
+	t.Parallel()
 	bases := AllTopicBases()
 
 	if len(bases) != 8 {
@@ -141,6 +150,7 @@ func TestAllTopicBases_ReturnsAllBases(t *testing.T) {
 }
 
 func TestAllTopicBases_ContainsExpectedBases(t *testing.T) {
+	t.Parallel()
 	bases := AllTopicBases()
 	baseSet := make(map[string]bool)
 	for _, base := range bases {
@@ -170,6 +180,7 @@ func TestAllTopicBases_ContainsExpectedBases(t *testing.T) {
 // =============================================================================
 
 func TestAllTopics_ReturnsAllTopics(t *testing.T) {
+	t.Parallel()
 	topics := AllTopics(configTestEnv)
 
 	if len(topics) != 8 {
@@ -178,6 +189,7 @@ func TestAllTopics_ReturnsAllTopics(t *testing.T) {
 }
 
 func TestAllTopics_ContainsExpectedTopics(t *testing.T) {
+	t.Parallel()
 	topics := AllTopics(configTestEnv)
 	topicSet := make(map[string]bool)
 	for _, topic := range topics {
@@ -207,6 +219,7 @@ func TestAllTopics_ContainsExpectedTopics(t *testing.T) {
 // =============================================================================
 
 func TestAllRefinedTopics_ReturnsAllRefinedTopics(t *testing.T) {
+	t.Parallel()
 	topics := AllRefinedTopics(configTestEnv)
 
 	if len(topics) != 8 {
@@ -215,6 +228,7 @@ func TestAllRefinedTopics_ReturnsAllRefinedTopics(t *testing.T) {
 }
 
 func TestAllRefinedTopics_ContainsRefinedSuffix(t *testing.T) {
+	t.Parallel()
 	topics := AllRefinedTopics(configTestEnv)
 
 	for _, topic := range topics {
@@ -229,6 +243,7 @@ func TestAllRefinedTopics_ContainsRefinedSuffix(t *testing.T) {
 // =============================================================================
 
 func TestAllTopicsWithRefined_ReturnsDoubleTopics(t *testing.T) {
+	t.Parallel()
 	topics := AllTopicsWithRefined(configTestEnv)
 
 	// Should return 2x the number of base topics (regular + refined)
@@ -242,6 +257,7 @@ func TestAllTopicsWithRefined_ReturnsDoubleTopics(t *testing.T) {
 // =============================================================================
 
 func TestTopicToEventType_RegularTopics(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		topic    string
 		expected string
@@ -258,6 +274,7 @@ func TestTopicToEventType_RegularTopics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.topic, func(t *testing.T) {
+			t.Parallel()
 			result := TopicToEventType(tt.topic)
 			if result != tt.expected {
 				t.Errorf("TopicToEventType(%q) = %q, want %q", tt.topic, result, tt.expected)
@@ -267,6 +284,7 @@ func TestTopicToEventType_RegularTopics(t *testing.T) {
 }
 
 func TestTopicToEventType_RefinedTopics(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		topic    string
 		expected string
@@ -279,6 +297,7 @@ func TestTopicToEventType_RefinedTopics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.topic, func(t *testing.T) {
+			t.Parallel()
 			result := TopicToEventType(tt.topic)
 			if result != tt.expected {
 				t.Errorf("TopicToEventType(%q) = %q, want %q", tt.topic, result, tt.expected)
@@ -288,6 +307,7 @@ func TestTopicToEventType_RefinedTopics(t *testing.T) {
 }
 
 func TestTopicToEventType_LegacyTopics(t *testing.T) {
+	t.Parallel()
 	// Legacy topic names without environment prefix
 	tests := []struct {
 		topic    string
@@ -299,6 +319,7 @@ func TestTopicToEventType_LegacyTopics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.topic, func(t *testing.T) {
+			t.Parallel()
 			result := TopicToEventType(tt.topic)
 			if result != tt.expected {
 				t.Errorf("TopicToEventType(%q) = %q, want %q", tt.topic, result, tt.expected)
@@ -312,6 +333,7 @@ func TestTopicToEventType_LegacyTopics(t *testing.T) {
 // =============================================================================
 
 func TestEventTypeConstants(t *testing.T) {
+	t.Parallel()
 	// Trading events
 	if EventTradeExecuted != "TRADE_EXECUTED" {
 		t.Errorf("EventTradeExecuted = %q, want TRADE_EXECUTED", EventTradeExecuted)
@@ -339,6 +361,7 @@ func TestEventTypeConstants(t *testing.T) {
 // =============================================================================
 
 func TestEventTypeToTopicBase(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		eventType EventType
 		expected  string
@@ -358,6 +381,7 @@ func TestEventTypeToTopicBase(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.eventType), func(t *testing.T) {
+			t.Parallel()
 			result := EventTypeToTopicBase(tt.eventType)
 			if result != tt.expected {
 				t.Errorf("EventTypeToTopicBase(%q) = %q, want %q", tt.eventType, result, tt.expected)
@@ -367,6 +391,7 @@ func TestEventTypeToTopicBase(t *testing.T) {
 }
 
 func TestEventTypeToTopicBase_Unknown(t *testing.T) {
+	t.Parallel()
 	// Unknown event types should default to trade topic
 	result := EventTypeToTopicBase(EventType("UNKNOWN_EVENT"))
 	if result != TopicBaseTrade {

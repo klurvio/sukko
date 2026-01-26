@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 // =============================================================================
 
 func TestDefaultPumpConfig(t *testing.T) {
+	t.Parallel()
 	config := DefaultPumpConfig()
 
 	if config.PongWait != 30*time.Second {
@@ -36,6 +38,7 @@ func TestDefaultPumpConfig(t *testing.T) {
 }
 
 func TestPumpConfig_PingLessThanPong(t *testing.T) {
+	t.Parallel()
 	config := DefaultPumpConfig()
 
 	if config.PingPeriod >= config.PongWait {
@@ -48,6 +51,7 @@ func TestPumpConfig_PingLessThanPong(t *testing.T) {
 // =============================================================================
 
 func TestNewPump_NilDependencies(t *testing.T) {
+	t.Parallel()
 	config := DefaultPumpConfig()
 	stats := &types.Stats{}
 
@@ -62,6 +66,7 @@ func TestNewPump_NilDependencies(t *testing.T) {
 }
 
 func TestNewPump_AllDependencies(t *testing.T) {
+	t.Parallel()
 	config := DefaultPumpConfig()
 	mockLogger := newTestMockLogger()
 	mockRateLimiter := newTestMockRateLimiter()
@@ -101,6 +106,7 @@ func TestNewPump_AllDependencies(t *testing.T) {
 // =============================================================================
 
 func TestCreateRateLimitErrorMessage_Format(t *testing.T) {
+	t.Parallel()
 	msg := CreateRateLimitErrorMessage()
 
 	var parsed map[string]any
@@ -120,6 +126,7 @@ func TestCreateRateLimitErrorMessage_Format(t *testing.T) {
 }
 
 func TestCreateRateLimitErrorMessage_Consistency(t *testing.T) {
+	t.Parallel()
 	msg1 := CreateRateLimitErrorMessage()
 	msg2 := CreateRateLimitErrorMessage()
 
@@ -133,6 +140,7 @@ func TestCreateRateLimitErrorMessage_Consistency(t *testing.T) {
 // =============================================================================
 
 func TestPump_HandleRateLimitExceeded_LogsWarning(t *testing.T) {
+	t.Parallel()
 	mockLogger := newTestMockLogger()
 	mockAuditLogger := newTestMockAuditLogger()
 	stats := &types.Stats{}
@@ -168,6 +176,7 @@ func TestPump_HandleRateLimitExceeded_LogsWarning(t *testing.T) {
 }
 
 func TestPump_HandleRateLimitExceeded_AuditLog(t *testing.T) {
+	t.Parallel()
 	mockLogger := newTestMockLogger()
 	mockAuditLogger := newTestMockAuditLogger()
 	stats := &types.Stats{}
@@ -195,6 +204,7 @@ func TestPump_HandleRateLimitExceeded_AuditLog(t *testing.T) {
 }
 
 func TestPump_HandleRateLimitExceeded_SendsError(t *testing.T) {
+	t.Parallel()
 	mockLogger := newTestMockLogger()
 	stats := &types.Stats{}
 
@@ -225,6 +235,7 @@ func TestPump_HandleRateLimitExceeded_SendsError(t *testing.T) {
 }
 
 func TestPump_HandleRateLimitExceeded_FullBuffer(t *testing.T) {
+	t.Parallel()
 	mockLogger := newTestMockLogger()
 	stats := &types.Stats{}
 
@@ -254,6 +265,7 @@ func TestPump_HandleRateLimitExceeded_FullBuffer(t *testing.T) {
 }
 
 func TestPump_HandleRateLimitExceeded_UpdatesStats(t *testing.T) {
+	t.Parallel()
 	mockLogger := newTestMockLogger()
 	stats := &types.Stats{}
 
@@ -281,6 +293,7 @@ func TestPump_HandleRateLimitExceeded_UpdatesStats(t *testing.T) {
 // =============================================================================
 
 func TestPump_Now_WithMockClock(t *testing.T) {
+	t.Parallel()
 	fixedTime := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 	mockClock := newTestMockClock(fixedTime)
 
@@ -294,6 +307,7 @@ func TestPump_Now_WithMockClock(t *testing.T) {
 }
 
 func TestPump_Now_WithNilClock(t *testing.T) {
+	t.Parallel()
 	pump := &Pump{Clock: nil}
 
 	before := time.Now()
@@ -306,6 +320,7 @@ func TestPump_Now_WithNilClock(t *testing.T) {
 }
 
 func TestPump_Now_ClockAdvance(t *testing.T) {
+	t.Parallel()
 	mockClock := newTestMockClock()
 	pump := &Pump{Clock: mockClock}
 
@@ -324,6 +339,7 @@ func TestPump_Now_ClockAdvance(t *testing.T) {
 // =============================================================================
 
 func TestPump_NewTicker_WithMockClock(t *testing.T) {
+	t.Parallel()
 	mockClock := newTestMockClock()
 	pump := &Pump{Clock: mockClock}
 
@@ -341,6 +357,7 @@ func TestPump_NewTicker_WithMockClock(t *testing.T) {
 }
 
 func TestPump_NewTicker_WithNilClock(t *testing.T) {
+	t.Parallel()
 	pump := &Pump{Clock: nil}
 
 	ticker := pump.newTicker(1 * time.Second)
@@ -357,22 +374,27 @@ func TestPump_NewTicker_WithNilClock(t *testing.T) {
 // =============================================================================
 
 func TestZerologAdapter_ImplementsLogger(t *testing.T) {
+	t.Parallel()
 	var _ Logger = (*ZerologAdapter)(nil)
 }
 
 func TestAuditLoggerAdapter_ImplementsAuditLogger(t *testing.T) {
+	t.Parallel()
 	var _ AuditLogger = (*AuditLoggerAdapter)(nil)
 }
 
 func TestRateLimiterAdapter_ImplementsRateLimiter(t *testing.T) {
+	t.Parallel()
 	var _ RateLimiter = (*RateLimiterAdapter)(nil)
 }
 
 func TestRealClock_ImplementsClock(t *testing.T) {
+	t.Parallel()
 	var _ Clock = (*RealClock)(nil)
 }
 
 func TestRealTicker_ImplementsTicker(t *testing.T) {
+	t.Parallel()
 	var _ Ticker = (*RealTicker)(nil)
 }
 
@@ -381,6 +403,7 @@ func TestRealTicker_ImplementsTicker(t *testing.T) {
 // =============================================================================
 
 func TestRealClock_Now(t *testing.T) {
+	t.Parallel()
 	clock := &RealClock{}
 
 	before := time.Now()
@@ -393,6 +416,7 @@ func TestRealClock_Now(t *testing.T) {
 }
 
 func TestRealClock_NewTicker(t *testing.T) {
+	t.Parallel()
 	clock := &RealClock{}
 
 	ticker := clock.NewTicker(100 * time.Millisecond)
@@ -411,6 +435,7 @@ func TestRealClock_NewTicker(t *testing.T) {
 }
 
 func TestRealClock_After(t *testing.T) {
+	t.Parallel()
 	clock := &RealClock{}
 
 	ch := clock.After(10 * time.Millisecond)
@@ -428,6 +453,7 @@ func TestRealClock_After(t *testing.T) {
 // =============================================================================
 
 func TestPump_HandleRateLimitExceeded_Concurrent(t *testing.T) {
+	t.Parallel()
 	mockLogger := newTestMockLogger()
 	stats := &types.Stats{}
 
@@ -463,6 +489,7 @@ func TestPump_HandleRateLimitExceeded_Concurrent(t *testing.T) {
 // =============================================================================
 
 func TestPump_RateLimitingFlow(t *testing.T) {
+	t.Parallel()
 	mockLogger := newTestMockLogger()
 	mockRateLimiter := newTestMockRateLimiter()
 	mockAuditLogger := newTestMockAuditLogger()
@@ -498,10 +525,12 @@ func TestPump_RateLimitingFlow(t *testing.T) {
 // ZerologAdapter Tests
 // =============================================================================
 
+//nolint:paralleltest // depends on zerolog global state
 func TestZerologAdapter_Methods_ReturnValidEvents(t *testing.T) {
 	// Create a zerolog logger that writes to a buffer so we can verify output
+	// Use Level(DebugLevel) to ensure debug messages are not filtered by global level
 	var buf bytes.Buffer
-	logger := zerolog.New(&buf)
+	logger := zerolog.New(&buf).Level(zerolog.DebugLevel)
 	adapter := NewZerologAdapter(logger)
 
 	// Test Debug level - should return a valid event that can be chained and emit output
@@ -540,6 +569,7 @@ func TestZerologAdapter_Methods_ReturnValidEvents(t *testing.T) {
 }
 
 func TestZerologEventAdapter_Chaining_ProducesOutput(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	logger := zerolog.New(&buf)
 	adapter := NewZerologAdapter(logger)
@@ -584,43 +614,40 @@ func TestZerologEventAdapter_Chaining_ProducesOutput(t *testing.T) {
 // ReadLoop Tests - WebSocket Frame Handling
 // =============================================================================
 
-// Helper to create a WebSocket frame for testing
-func createWebSocketFrame(opCode ws.OpCode, payload []byte, masked bool) []byte {
+// Helper to create a WebSocket frame for testing.
+// Client frames are always masked per WebSocket spec.
+func createWebSocketFrame(opCode ws.OpCode, payload []byte) []byte {
 	var buf bytes.Buffer
 
 	header := ws.Header{
 		Fin:    true,
 		OpCode: opCode,
 		Length: int64(len(payload)),
-		Masked: masked,
-	}
-
-	if masked {
-		header.Mask = [4]byte{0x12, 0x34, 0x56, 0x78}
+		Masked: true,
+		Mask:   [4]byte{0x12, 0x34, 0x56, 0x78},
 	}
 
 	_ = ws.WriteHeader(&buf, header)
 
-	if masked && len(payload) > 0 {
+	if len(payload) > 0 {
 		// Create a copy to mask
 		maskedPayload := make([]byte, len(payload))
 		copy(maskedPayload, payload)
 		ws.Cipher(maskedPayload, header.Mask, 0)
 		buf.Write(maskedPayload)
-	} else {
-		buf.Write(payload)
 	}
 
 	return buf.Bytes()
 }
 
 func TestReadLoop_TextMessage_ProcessedCorrectly(t *testing.T) {
+	t.Parallel()
 	// Create test message
 	textPayload := []byte(`{"type":"subscribe","data":{"channels":["BTC.trade"]}}`)
-	frameData := createWebSocketFrame(ws.OpText, textPayload, true) // Client frames are masked
+	frameData := createWebSocketFrame(ws.OpText, textPayload) // Client frames are masked
 
 	// Add a close frame to terminate the loop
-	closeFrame := createWebSocketFrame(ws.OpClose, []byte{}, true)
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{})
 	frameData = append(frameData, closeFrame...)
 
 	mockConn := newTestMockConn()
@@ -664,13 +691,14 @@ func TestReadLoop_TextMessage_ProcessedCorrectly(t *testing.T) {
 }
 
 func TestReadLoop_PingFrame_SendsPongResponse(t *testing.T) {
+	t.Parallel()
 	// Create ping frame with payload
 	pingPayload := []byte("ping-data")
-	pingFrame := createWebSocketFrame(ws.OpPing, pingPayload, true)
+	pingFrame := createWebSocketFrame(ws.OpPing, pingPayload)
 
 	// Add close frame to terminate
-	closeFrame := createWebSocketFrame(ws.OpClose, []byte{}, true)
-	frameData := append(pingFrame, closeFrame...)
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{})
+	frameData := slices.Concat(pingFrame, closeFrame)
 
 	mockConn := newTestMockConn()
 	mockConn.setReadData(frameData)
@@ -711,13 +739,14 @@ func TestReadLoop_PingFrame_SendsPongResponse(t *testing.T) {
 }
 
 func TestReadLoop_PongFrame_RefreshesDeadline(t *testing.T) {
+	t.Parallel()
 	// Create pong frame (simulating client responding to server ping)
 	pongPayload := []byte{}
-	pongFrame := createWebSocketFrame(ws.OpPong, pongPayload, true)
+	pongFrame := createWebSocketFrame(ws.OpPong, pongPayload)
 
 	// Add close frame to terminate
-	closeFrame := createWebSocketFrame(ws.OpClose, []byte{}, true)
-	frameData := append(pongFrame, closeFrame...)
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{})
+	frameData := slices.Concat(pongFrame, closeFrame)
 
 	mockConn := newTestMockConn()
 	mockConn.setReadData(frameData)
@@ -747,8 +776,9 @@ func TestReadLoop_PongFrame_RefreshesDeadline(t *testing.T) {
 }
 
 func TestReadLoop_CloseFrame_ExitsGracefully(t *testing.T) {
+	t.Parallel()
 	// Create close frame
-	closeFrame := createWebSocketFrame(ws.OpClose, []byte{}, true)
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{})
 
 	mockConn := newTestMockConn()
 	mockConn.setReadData(closeFrame)
@@ -783,6 +813,7 @@ func TestReadLoop_CloseFrame_ExitsGracefully(t *testing.T) {
 }
 
 func TestReadLoop_ContextCancellation_ExitsWithServerShutdown(t *testing.T) {
+	t.Parallel()
 	// Create a connection that blocks on read
 	mockConn := newTestMockConn()
 	mockConn.setReadError(io.EOF) // Will return EOF when read buffer is empty
@@ -834,6 +865,7 @@ func TestReadLoop_ContextCancellation_ExitsWithServerShutdown(t *testing.T) {
 }
 
 func TestReadLoop_ReadError_CallsDisconnectFn(t *testing.T) {
+	t.Parallel()
 	// Create connection that returns error
 	mockConn := newTestMockConn()
 	mockConn.setReadError(io.ErrUnexpectedEOF)
@@ -872,15 +904,16 @@ func TestReadLoop_ReadError_CallsDisconnectFn(t *testing.T) {
 }
 
 func TestReadLoop_RateLimiting_BlocksExcessiveMessages(t *testing.T) {
+	t.Parallel()
 	// Create multiple text frames
 	var frameData []byte
 	for range 3 {
 		textPayload := []byte(`{"type":"heartbeat"}`)
-		frame := createWebSocketFrame(ws.OpText, textPayload, true)
+		frame := createWebSocketFrame(ws.OpText, textPayload)
 		frameData = append(frameData, frame...)
 	}
 	// Add close frame
-	closeFrame := createWebSocketFrame(ws.OpClose, []byte{}, true)
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{})
 	frameData = append(frameData, closeFrame...)
 
 	mockConn := newTestMockConn()

@@ -151,7 +151,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	// Add TLS encryption if configured
 	if cfg.TLS != nil && cfg.TLS.Enabled {
 		tlsCfg := &tls.Config{
-			InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
+			InsecureSkipVerify: cfg.TLS.InsecureSkipVerify, //nolint:gosec // Controlled by configuration for dev/testing environments
 			MinVersion:         tls.VersionTLS12,
 		}
 

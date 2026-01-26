@@ -40,6 +40,7 @@ func newMockShards(configs []struct{ current, max int64 }) []ShardMetrics {
 // =============================================================================
 
 func TestLoadBalancerConfig_Fields(t *testing.T) {
+	t.Parallel()
 	cfg := LoadBalancerConfig{
 		Addr:             ":3000",
 		Shards:           []*Shard{},
@@ -64,6 +65,7 @@ func TestLoadBalancerConfig_Fields(t *testing.T) {
 }
 
 func TestLoadBalancerConfig_NoShards(t *testing.T) {
+	t.Parallel()
 	cfg := LoadBalancerConfig{
 		Addr:   ":3000",
 		Shards: []*Shard{}, // Empty shards
@@ -77,6 +79,7 @@ func TestLoadBalancerConfig_NoShards(t *testing.T) {
 }
 
 func TestLoadBalancerConfig_NilShards(t *testing.T) {
+	t.Parallel()
 	cfg := LoadBalancerConfig{
 		Addr:   ":3000",
 		Shards: nil, // Nil shards
@@ -94,6 +97,7 @@ func TestLoadBalancerConfig_NilShards(t *testing.T) {
 // =============================================================================
 
 func TestSelectShardByMetrics_LeastConnections(t *testing.T) {
+	t.Parallel()
 	shards := newMockShards([]struct{ current, max int64 }{
 		{50, 100},
 		{30, 100}, // Least connections
@@ -108,6 +112,7 @@ func TestSelectShardByMetrics_LeastConnections(t *testing.T) {
 }
 
 func TestSelectShardByMetrics_AllFull(t *testing.T) {
+	t.Parallel()
 	shards := newMockShards([]struct{ current, max int64 }{
 		{100, 100}, // Full
 		{100, 100}, // Full
@@ -122,6 +127,7 @@ func TestSelectShardByMetrics_AllFull(t *testing.T) {
 }
 
 func TestSelectShardByMetrics_SingleShard(t *testing.T) {
+	t.Parallel()
 	shards := newMockShards([]struct{ current, max int64 }{
 		{25, 100},
 	})
@@ -134,6 +140,7 @@ func TestSelectShardByMetrics_SingleShard(t *testing.T) {
 }
 
 func TestSelectShardByMetrics_EvenDistribution(t *testing.T) {
+	t.Parallel()
 	// All shards have same connections
 	shards := newMockShards([]struct{ current, max int64 }{
 		{50, 100},
@@ -150,6 +157,7 @@ func TestSelectShardByMetrics_EvenDistribution(t *testing.T) {
 }
 
 func TestSelectShardByMetrics_RespectsCapacity(t *testing.T) {
+	t.Parallel()
 	shards := newMockShards([]struct{ current, max int64 }{
 		{10, 100}, // Available
 		{50, 50},  // Full (50/50)
@@ -165,6 +173,7 @@ func TestSelectShardByMetrics_RespectsCapacity(t *testing.T) {
 }
 
 func TestSelectShardByMetrics_EmptyShards(t *testing.T) {
+	t.Parallel()
 	idx := SelectShardByMetrics([]ShardMetrics{})
 
 	if idx != -1 {
@@ -173,6 +182,7 @@ func TestSelectShardByMetrics_EmptyShards(t *testing.T) {
 }
 
 func TestSelectShardByMetrics_NilShards(t *testing.T) {
+	t.Parallel()
 	idx := SelectShardByMetrics(nil)
 
 	if idx != -1 {
@@ -181,6 +191,7 @@ func TestSelectShardByMetrics_NilShards(t *testing.T) {
 }
 
 func TestSelectShardByMetrics_PartialCapacity(t *testing.T) {
+	t.Parallel()
 	// First two shards full, third has room
 	shards := newMockShards([]struct{ current, max int64 }{
 		{100, 100}, // Full
@@ -200,6 +211,7 @@ func TestSelectShardByMetrics_PartialCapacity(t *testing.T) {
 // =============================================================================
 
 func TestHealthStatus_Calculation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		totalConns      int64
@@ -217,6 +229,7 @@ func TestHealthStatus_Calculation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Simulate health calculation from handleHealth
 			var capacityPercent float64
 			if tt.totalMaxConns > 0 {
@@ -243,6 +256,7 @@ func TestHealthStatus_Calculation(t *testing.T) {
 }
 
 func TestCapacityPercent_Calculation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		current    int64
@@ -258,6 +272,7 @@ func TestCapacityPercent_Calculation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var capacityPercent float64
 			if tt.max > 0 {
 				capacityPercent = float64(tt.current) / float64(tt.max) * 100
@@ -275,6 +290,7 @@ func TestCapacityPercent_Calculation(t *testing.T) {
 // =============================================================================
 
 func TestShardStatus_Calculation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		current        int64
@@ -290,19 +306,23 @@ func TestShardStatus_Calculation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Simulate shard status calculation
 			utilization := 0.0
 			if tt.max > 0 {
 				utilization = (float64(tt.current) / float64(tt.max)) * 100
 			}
 
-			shardStatus := "available"
-			if tt.current >= tt.max {
+			var shardStatus string
+			switch {
+			case tt.current >= tt.max:
 				shardStatus = "full"
-			} else if utilization > 90 {
+			case utilization > 90:
 				shardStatus = "high"
-			} else if utilization > 75 {
+			case utilization > 75:
 				shardStatus = "medium"
+			default:
+				shardStatus = "available"
 			}
 
 			if shardStatus != tt.expectedStatus {

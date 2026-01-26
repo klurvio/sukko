@@ -180,7 +180,7 @@ func detectCgroupPath() (path string, version int, err error) {
 func readCPUQuota(cgroupPath string, version int) (quota, period int64, err error) {
 	if version == 2 {
 		// cgroup v2: /sys/fs/cgroup/.../cpu.max contains "quota period"
-		data, err := os.ReadFile(cgroupPath + "/cpu.max")
+		data, err := os.ReadFile(cgroupPath + "/cpu.max") //nolint:gosec // Path constructed from trusted cgroup detection
 		if err != nil {
 			return 0, 0, err
 		}
@@ -209,12 +209,12 @@ func readCPUQuota(cgroupPath string, version int) (quota, period int64, err erro
 
 	} else {
 		// cgroup v1: separate files
-		quotaData, err := os.ReadFile(cgroupPath + "/cpu.cfs_quota_us")
+		quotaData, err := os.ReadFile(cgroupPath + "/cpu.cfs_quota_us") //nolint:gosec // Path constructed from trusted cgroup detection
 		if err != nil {
 			return 0, 0, err
 		}
 
-		periodData, err := os.ReadFile(cgroupPath + "/cpu.cfs_period_us")
+		periodData, err := os.ReadFile(cgroupPath + "/cpu.cfs_period_us") //nolint:gosec // Path constructed from trusted cgroup detection
 		if err != nil {
 			return 0, 0, err
 		}
@@ -237,7 +237,7 @@ func readCPUQuota(cgroupPath string, version int) (quota, period int64, err erro
 func readCPUUsage(cgroupPath string, version int) (uint64, error) {
 	if version == 2 {
 		// cgroup v2: cpu.stat contains "usage_usec NNNNNN"
-		file, err := os.Open(cgroupPath + "/cpu.stat")
+		file, err := os.Open(cgroupPath + "/cpu.stat") //nolint:gosec // Path constructed from trusted cgroup detection
 		if err != nil {
 			return 0, err
 		}
@@ -257,7 +257,7 @@ func readCPUUsage(cgroupPath string, version int) (uint64, error) {
 
 	} else {
 		// cgroup v1: cpuacct.usage contains nanoseconds
-		data, err := os.ReadFile(cgroupPath + "/cpuacct.usage")
+		data, err := os.ReadFile(cgroupPath + "/cpuacct.usage") //nolint:gosec // Path constructed from trusted cgroup detection
 		if err != nil {
 			return 0, err
 		}
@@ -277,7 +277,7 @@ func readThrottleStats(cgroupPath string, version int) (ThrottleStats, error) {
 	var stats ThrottleStats
 
 	if version == 2 {
-		file, err := os.Open(cgroupPath + "/cpu.stat")
+		file, err := os.Open(cgroupPath + "/cpu.stat") //nolint:gosec // Path constructed from trusted cgroup detection
 		if err != nil {
 			return stats, err
 		}
@@ -305,7 +305,7 @@ func readThrottleStats(cgroupPath string, version int) (ThrottleStats, error) {
 
 	} else {
 		// cgroup v1: cpu.stat has different format
-		file, err := os.Open(cgroupPath + "/cpu.stat")
+		file, err := os.Open(cgroupPath + "/cpu.stat") //nolint:gosec // Path constructed from trusted cgroup detection
 		if err != nil {
 			return stats, err
 		}

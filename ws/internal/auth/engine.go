@@ -463,6 +463,9 @@ func (e *PolicyEngine) evaluateCondition(cond Condition, claims *Claims, capture
 		return e.evaluateAttributeCondition(cond, claims)
 	case ConditionTypeChannel:
 		return e.evaluateChannelCondition(cond, captures)
+	case ConditionTypeTime:
+		// Time-based conditions not yet implemented
+		return false
 	default:
 		return false
 	}

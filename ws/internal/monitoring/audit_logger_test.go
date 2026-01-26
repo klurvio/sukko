@@ -15,6 +15,7 @@ import (
 // =============================================================================
 
 func TestAuditLevel_Constants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		level    AuditLevel
 		expected string
@@ -28,6 +29,7 @@ func TestAuditLevel_Constants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.level), func(t *testing.T) {
+			t.Parallel()
 			if string(tt.level) != tt.expected {
 				t.Errorf("AuditLevel: got %s, want %s", tt.level, tt.expected)
 			}
@@ -40,6 +42,7 @@ func TestAuditLevel_Constants(t *testing.T) {
 // =============================================================================
 
 func TestAuditEvent_JSONMarshaling(t *testing.T) {
+	t.Parallel()
 	clientID := int64(12345)
 	event := AuditEvent{
 		Level:     WARNING,
@@ -76,6 +79,7 @@ func TestAuditEvent_JSONMarshaling(t *testing.T) {
 }
 
 func TestAuditEvent_OmitsNilClientID(t *testing.T) {
+	t.Parallel()
 	event := AuditEvent{
 		Level:   INFO,
 		Event:   "ServerStarted",
@@ -96,6 +100,7 @@ func TestAuditEvent_OmitsNilClientID(t *testing.T) {
 }
 
 func TestAuditEvent_OmitsEmptyMetadata(t *testing.T) {
+	t.Parallel()
 	event := AuditEvent{
 		Level:   INFO,
 		Event:   "ServerStarted",
@@ -120,6 +125,7 @@ func TestAuditEvent_OmitsEmptyMetadata(t *testing.T) {
 // =============================================================================
 
 func TestNewAuditLogger_DefaultSettings(t *testing.T) {
+	t.Parallel()
 	logger := NewAuditLogger(INFO)
 
 	if logger == nil {
@@ -134,10 +140,12 @@ func TestNewAuditLogger_DefaultSettings(t *testing.T) {
 }
 
 func TestNewAuditLogger_AllLevels(t *testing.T) {
+	t.Parallel()
 	levels := []AuditLevel{DEBUG, INFO, WARNING, ERROR, CRITICAL}
 
 	for _, level := range levels {
 		t.Run(string(level), func(t *testing.T) {
+			t.Parallel()
 			logger := NewAuditLogger(level)
 			if logger.minLevel != level {
 				t.Errorf("minLevel: got %s, want %s", logger.minLevel, level)
@@ -161,6 +169,7 @@ func testAuditLogger(minLevel AuditLevel) (*AuditLogger, *bytes.Buffer) {
 }
 
 func TestAuditLogger_Log_OutputsJSON(t *testing.T) {
+	t.Parallel()
 	logger, buf := testAuditLogger(INFO)
 
 	logger.Log(AuditEvent{
@@ -179,6 +188,7 @@ func TestAuditLogger_Log_OutputsJSON(t *testing.T) {
 }
 
 func TestAuditLogger_Log_SetsTimestamp(t *testing.T) {
+	t.Parallel()
 	logger, buf := testAuditLogger(INFO)
 
 	// Log event without timestamp
@@ -197,6 +207,7 @@ func TestAuditLogger_Log_SetsTimestamp(t *testing.T) {
 }
 
 func TestAuditLogger_Log_RespectsMinLevel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		minLevel  AuditLevel
@@ -221,6 +232,7 @@ func TestAuditLogger_Log_RespectsMinLevel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			logger, buf := testAuditLogger(tt.minLevel)
 
 			logger.Log(AuditEvent{
@@ -269,6 +281,7 @@ func (m *mockAlerter) getAlerts() int {
 }
 
 func TestAuditLogger_SetAlerter(t *testing.T) {
+	t.Parallel()
 	logger := NewAuditLogger(INFO)
 	alerter := &mockAlerter{}
 
@@ -280,6 +293,7 @@ func TestAuditLogger_SetAlerter(t *testing.T) {
 }
 
 func TestAuditLogger_AlertsOnWarningAndAbove(t *testing.T) {
+	t.Parallel()
 	logger, _ := testAuditLogger(DEBUG)
 	alerter := &mockAlerter{}
 	logger.SetAlerter(alerter)
@@ -325,6 +339,7 @@ func TestAuditLogger_AlertsOnWarningAndAbove(t *testing.T) {
 // =============================================================================
 
 func TestAuditLogger_Debug(t *testing.T) {
+	t.Parallel()
 	logger, buf := testAuditLogger(DEBUG)
 
 	logger.Debug("TestEvent", "debug message", map[string]any{"key": "value"})
@@ -339,6 +354,7 @@ func TestAuditLogger_Debug(t *testing.T) {
 }
 
 func TestAuditLogger_Info(t *testing.T) {
+	t.Parallel()
 	logger, buf := testAuditLogger(INFO)
 
 	logger.Info("TestEvent", "info message", nil)
@@ -350,6 +366,7 @@ func TestAuditLogger_Info(t *testing.T) {
 }
 
 func TestAuditLogger_Warning(t *testing.T) {
+	t.Parallel()
 	logger, buf := testAuditLogger(INFO)
 
 	logger.Warning("TestEvent", "warning message", nil)
@@ -361,6 +378,7 @@ func TestAuditLogger_Warning(t *testing.T) {
 }
 
 func TestAuditLogger_Error(t *testing.T) {
+	t.Parallel()
 	logger, buf := testAuditLogger(INFO)
 
 	logger.Error("TestEvent", "error message", nil)
@@ -372,6 +390,7 @@ func TestAuditLogger_Error(t *testing.T) {
 }
 
 func TestAuditLogger_Critical(t *testing.T) {
+	t.Parallel()
 	logger, buf := testAuditLogger(INFO)
 
 	logger.Critical("TestEvent", "critical message", nil)
@@ -387,6 +406,7 @@ func TestAuditLogger_Critical(t *testing.T) {
 // =============================================================================
 
 func TestAuditLogger_WithClientID(t *testing.T) {
+	t.Parallel()
 	logger, _ := testAuditLogger(DEBUG)
 	clientLogger := logger.WithClientID(12345)
 
@@ -406,6 +426,7 @@ func TestAuditLogger_WithClientID(t *testing.T) {
 // =============================================================================
 
 func TestClientLogger_IncludesClientID(t *testing.T) {
+	t.Parallel()
 	logger, buf := testAuditLogger(DEBUG)
 	clientLogger := logger.WithClientID(99999)
 
@@ -418,6 +439,7 @@ func TestClientLogger_IncludesClientID(t *testing.T) {
 }
 
 func TestClientLogger_AllLevels(t *testing.T) {
+	t.Parallel()
 	logger, buf := testAuditLogger(DEBUG)
 	clientLogger := logger.WithClientID(12345)
 
@@ -435,6 +457,7 @@ func TestClientLogger_AllLevels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			buf.Reset()
 			tt.logFunc("TestEvent", "test message", nil)
 
@@ -450,6 +473,7 @@ func TestClientLogger_AllLevels(t *testing.T) {
 }
 
 func TestClientLogger_WithMetadata(t *testing.T) {
+	t.Parallel()
 	logger, buf := testAuditLogger(DEBUG)
 	clientLogger := logger.WithClientID(12345)
 
@@ -468,6 +492,7 @@ func TestClientLogger_WithMetadata(t *testing.T) {
 // =============================================================================
 
 func TestShouldLog_LevelHierarchy(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		minLevel  AuditLevel
 		logLevel  AuditLevel
@@ -506,6 +531,7 @@ func TestShouldLog_LevelHierarchy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.minLevel)+"_"+string(tt.logLevel), func(t *testing.T) {
+			t.Parallel()
 			logger := &AuditLogger{minLevel: tt.minLevel}
 			result := logger.shouldLog(tt.logLevel)
 			if result != tt.shouldLog {
@@ -521,6 +547,7 @@ func TestShouldLog_LevelHierarchy(t *testing.T) {
 // =============================================================================
 
 func TestAuditLogger_ConcurrentLogging(t *testing.T) {
+	t.Parallel()
 	logger, buf := testAuditLogger(DEBUG)
 	var wg sync.WaitGroup
 

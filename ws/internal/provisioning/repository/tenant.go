@@ -164,6 +164,7 @@ func (r *PostgresTenantRepository) List(ctx context.Context, opts provisioning.L
 	}
 	offset := max(opts.Offset, 0)
 
+	//nolint:gosec // whereClause is built from known conditions using parameterized values, safe from SQL injection
 	query := fmt.Sprintf(`
 		SELECT id, name, status, consumer_type, metadata, created_at, updated_at,
 		       suspended_at, deprovision_at, deleted_at

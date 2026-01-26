@@ -7,6 +7,7 @@ import (
 )
 
 func TestNewJWTValidator(t *testing.T) {
+	t.Parallel()
 	secret := "test-secret-key-at-least-32-bytes"
 	v := NewJWTValidator(secret)
 
@@ -16,6 +17,7 @@ func TestNewJWTValidator(t *testing.T) {
 }
 
 func TestIssueAndValidateToken(t *testing.T) {
+	t.Parallel()
 	secret := "test-secret-key-at-least-32-bytes"
 	v := NewJWTValidator(secret)
 
@@ -50,6 +52,7 @@ func TestIssueAndValidateToken(t *testing.T) {
 }
 
 func TestValidateToken_MissingToken(t *testing.T) {
+	t.Parallel()
 	v := NewJWTValidator("test-secret-key-at-least-32-bytes")
 
 	_, err := v.ValidateToken("")
@@ -59,6 +62,7 @@ func TestValidateToken_MissingToken(t *testing.T) {
 }
 
 func TestValidateToken_InvalidToken(t *testing.T) {
+	t.Parallel()
 	v := NewJWTValidator("test-secret-key-at-least-32-bytes")
 
 	_, err := v.ValidateToken("invalid.token.here")
@@ -68,6 +72,7 @@ func TestValidateToken_InvalidToken(t *testing.T) {
 }
 
 func TestValidateToken_WrongSecret(t *testing.T) {
+	t.Parallel()
 	v1 := NewJWTValidator("secret-one-at-least-32-bytes-long")
 	v2 := NewJWTValidator("secret-two-at-least-32-bytes-long")
 
@@ -85,6 +90,7 @@ func TestValidateToken_WrongSecret(t *testing.T) {
 }
 
 func TestValidateToken_ExpiredToken(t *testing.T) {
+	t.Parallel()
 	v := NewJWTValidator("test-secret-key-at-least-32-bytes")
 
 	// Issue token that expires immediately
@@ -100,6 +106,7 @@ func TestValidateToken_ExpiredToken(t *testing.T) {
 }
 
 func TestClaimsAppID(t *testing.T) {
+	t.Parallel()
 	v := NewJWTValidator("test-secret-key-at-least-32-bytes")
 
 	testCases := []struct {
@@ -113,6 +120,7 @@ func TestClaimsAppID(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.appID, func(t *testing.T) {
+			t.Parallel()
 			token, _, err := v.IssueToken(tc.appID, 1*time.Hour)
 			if err != nil {
 				t.Fatalf("failed to issue token: %v", err)
@@ -131,6 +139,7 @@ func TestClaimsAppID(t *testing.T) {
 }
 
 func TestIssueTokenWithTenant(t *testing.T) {
+	t.Parallel()
 	v := NewJWTValidator("test-secret-key-at-least-32-bytes")
 
 	testCases := []struct {
@@ -145,6 +154,7 @@ func TestIssueTokenWithTenant(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			token, expiresAt, err := v.IssueTokenWithTenant(tc.appID, tc.tenantID, 1*time.Hour)
 			if err != nil {
 				t.Fatalf("failed to issue token: %v", err)
@@ -178,6 +188,7 @@ func TestIssueTokenWithTenant(t *testing.T) {
 }
 
 func TestIssueTokenDelegatesToIssueTokenWithTenant(t *testing.T) {
+	t.Parallel()
 	v := NewJWTValidator("test-secret-key-at-least-32-bytes")
 
 	// IssueToken should create a token with empty tenant ID

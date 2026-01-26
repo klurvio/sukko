@@ -97,7 +97,7 @@ type TopicCheckResult struct {
 
 // CheckTopicAccess verifies that the claims allow access to the topic.
 // Returns a detailed result explaining the decision.
-func (t *TopicIsolator) CheckTopicAccess(claims *Claims, topic string, action TopicAction) *TopicCheckResult {
+func (t *TopicIsolator) CheckTopicAccess(claims *Claims, topic string, _ TopicAction) *TopicCheckResult {
 	result := &TopicCheckResult{
 		ClaimsTenant: "",
 	}

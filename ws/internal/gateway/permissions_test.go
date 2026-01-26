@@ -7,6 +7,7 @@ import (
 )
 
 func TestPermissionChecker_CanSubscribe_PublicChannels(t *testing.T) {
+	t.Parallel()
 	pc := NewPermissionChecker(
 		[]string{"*.trade", "*.liquidity", "odin.*"},
 		[]string{},
@@ -34,6 +35,7 @@ func TestPermissionChecker_CanSubscribe_PublicChannels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := pc.CanSubscribe(claims, tt.channel)
 			if got != tt.want {
 				t.Errorf("CanSubscribe(%q) = %v, want %v", tt.channel, got, tt.want)
@@ -43,6 +45,7 @@ func TestPermissionChecker_CanSubscribe_PublicChannels(t *testing.T) {
 }
 
 func TestPermissionChecker_CanSubscribe_UserScopedChannels(t *testing.T) {
+	t.Parallel()
 	pc := NewPermissionChecker(
 		[]string{},
 		[]string{"balances.{principal}", "notifications.{principal}"},
@@ -64,6 +67,7 @@ func TestPermissionChecker_CanSubscribe_UserScopedChannels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			claims := &auth.Claims{
 				TenantID: "tenant1",
 			}
@@ -79,6 +83,7 @@ func TestPermissionChecker_CanSubscribe_UserScopedChannels(t *testing.T) {
 }
 
 func TestPermissionChecker_CanSubscribe_GroupScopedChannels(t *testing.T) {
+	t.Parallel()
 	pc := NewPermissionChecker(
 		[]string{},
 		[]string{},
@@ -101,6 +106,7 @@ func TestPermissionChecker_CanSubscribe_GroupScopedChannels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			claims := &auth.Claims{
 				TenantID: "tenant1",
 				Groups:   tt.groups,
@@ -117,6 +123,7 @@ func TestPermissionChecker_CanSubscribe_GroupScopedChannels(t *testing.T) {
 }
 
 func TestPermissionChecker_FilterChannels(t *testing.T) {
+	t.Parallel()
 	pc := NewPermissionChecker(
 		[]string{"*.trade"},
 		[]string{"balances.{principal}"},
@@ -163,6 +170,7 @@ func TestPermissionChecker_FilterChannels(t *testing.T) {
 }
 
 func TestMatchPattern(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		pattern string
 		channel string
@@ -194,6 +202,7 @@ func TestMatchPattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.pattern+"_"+tt.channel, func(t *testing.T) {
+			t.Parallel()
 			got := matchPattern(tt.pattern, tt.channel)
 			if got != tt.want {
 				t.Errorf("matchPattern(%q, %q) = %v, want %v",
@@ -204,6 +213,7 @@ func TestMatchPattern(t *testing.T) {
 }
 
 func TestExtractPlaceholder(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		pattern     string
 		channel     string
@@ -231,6 +241,7 @@ func TestExtractPlaceholder(t *testing.T) {
 	for _, tt := range tests {
 		name := tt.pattern + "_" + tt.channel
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			got := extractPlaceholder(tt.pattern, tt.channel, tt.placeholder)
 			if got != tt.want {
 				t.Errorf("extractPlaceholder(%q, %q, %q) = %q, want %q",

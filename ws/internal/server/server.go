@@ -116,8 +116,10 @@ func NewServer(config types.ServerConfig, broadcastToBusFunc kafka.BroadcastFunc
 	}
 
 	// Initialize monitoring
-	s.auditLogger = monitoring.NewAuditLogger(monitoring.INFO) // Log INFO and above
-	s.auditLogger.SetAlerter(monitoring.NewConsoleAlerter())   // Use console alerter for now
+	// ConsoleAlerter writes to stdout, which is captured by container logging (fluentd/loki/cloudwatch)
+	// For dedicated alerting, use MultiAlerter with SlackAlerter via SLACK_WEBHOOK_URL env var
+	s.auditLogger = monitoring.NewAuditLogger(monitoring.INFO)
+	s.auditLogger.SetAlerter(monitoring.NewConsoleAlerter())
 	s.metricsCollector = monitoring.NewMetricsCollector(s)
 
 	// Initialize ResourceGuard with static configuration
@@ -204,7 +206,8 @@ func (s *Server) GetKafkaConsumer() any {
 // Returns an error if the TCP listener cannot be created or Kafka fails to start.
 func (s *Server) Start() error {
 	// Create TCP listener with custom backlog for burst tolerance
-	listener, err := net.Listen("tcp", s.config.Addr)
+	lc := net.ListenConfig{}
+	listener, err := lc.Listen(s.ctx, "tcp", s.config.Addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}

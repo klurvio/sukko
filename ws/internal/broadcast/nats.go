@@ -88,7 +88,7 @@ func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 
 	// Connection event handlers
 	opts = append(opts,
-		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			if err != nil {
 				busLogger.Warn().Err(err).Msg("NATS disconnected")
 			} else {
@@ -100,10 +100,10 @@ func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 				Str("url", nc.ConnectedUrl()).
 				Msg("NATS reconnected")
 		}),
-		nats.ClosedHandler(func(nc *nats.Conn) {
+		nats.ClosedHandler(func(_ *nats.Conn) {
 			busLogger.Info().Msg("NATS connection closed")
 		}),
-		nats.ErrorHandler(func(nc *nats.Conn, sub *nats.Subscription, err error) {
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
 			busLogger.Error().
 				Err(err).
 				Msg("NATS async error")

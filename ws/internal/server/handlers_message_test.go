@@ -25,6 +25,7 @@ func parseClientMessage(data []byte) (msgType string, msgData json.RawMessage, e
 }
 
 func TestParseClientMessage_Subscribe(t *testing.T) {
+	t.Parallel()
 	msg := `{"type": "subscribe", "data": {"channels": ["BTC.trade", "ETH.trade"]}}`
 
 	msgType, msgData, err := parseClientMessage([]byte(msg))
@@ -41,6 +42,7 @@ func TestParseClientMessage_Subscribe(t *testing.T) {
 }
 
 func TestParseClientMessage_Unsubscribe(t *testing.T) {
+	t.Parallel()
 	msg := `{"type": "unsubscribe", "data": {"channels": ["BTC.trade"]}}`
 
 	msgType, msgData, err := parseClientMessage([]byte(msg))
@@ -57,6 +59,7 @@ func TestParseClientMessage_Unsubscribe(t *testing.T) {
 }
 
 func TestParseClientMessage_Heartbeat(t *testing.T) {
+	t.Parallel()
 	msg := `{"type": "heartbeat"}`
 
 	msgType, _, err := parseClientMessage([]byte(msg))
@@ -70,6 +73,7 @@ func TestParseClientMessage_Heartbeat(t *testing.T) {
 }
 
 func TestParseClientMessage_Reconnect(t *testing.T) {
+	t.Parallel()
 	msg := `{"type": "reconnect", "data": {"client_id": "abc123", "last_offset": {"topic1": 12345}}}`
 
 	msgType, msgData, err := parseClientMessage([]byte(msg))
@@ -86,6 +90,7 @@ func TestParseClientMessage_Reconnect(t *testing.T) {
 }
 
 func TestParseClientMessage_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	msg := `{invalid json}`
 
 	_, _, err := parseClientMessage([]byte(msg))
@@ -96,6 +101,7 @@ func TestParseClientMessage_InvalidJSON(t *testing.T) {
 }
 
 func TestParseClientMessage_EmptyType(t *testing.T) {
+	t.Parallel()
 	msg := `{"type": "", "data": {}}`
 
 	msgType, _, err := parseClientMessage([]byte(msg))
@@ -109,6 +115,7 @@ func TestParseClientMessage_EmptyType(t *testing.T) {
 }
 
 func TestParseClientMessage_MissingType(t *testing.T) {
+	t.Parallel()
 	msg := `{"data": {"channels": ["BTC.trade"]}}`
 
 	msgType, _, err := parseClientMessage([]byte(msg))
@@ -123,6 +130,7 @@ func TestParseClientMessage_MissingType(t *testing.T) {
 }
 
 func TestParseClientMessage_UnknownType(t *testing.T) {
+	t.Parallel()
 	msg := `{"type": "unknown_future_message_type", "data": {}}`
 
 	msgType, _, err := parseClientMessage([]byte(msg))
@@ -149,6 +157,7 @@ func parseSubscribeRequest(data json.RawMessage) ([]string, error) {
 }
 
 func TestParseSubscribeRequest_SingleChannel(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"channels": ["BTC.trade"]}`)
 
 	channels, err := parseSubscribeRequest(data)
@@ -165,6 +174,7 @@ func TestParseSubscribeRequest_SingleChannel(t *testing.T) {
 }
 
 func TestParseSubscribeRequest_MultipleChannels(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"channels": ["BTC.trade", "ETH.trade", "SOL.liquidity", "BTC.analytics"]}`)
 
 	channels, err := parseSubscribeRequest(data)
@@ -178,6 +188,7 @@ func TestParseSubscribeRequest_MultipleChannels(t *testing.T) {
 }
 
 func TestParseSubscribeRequest_EmptyChannels(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"channels": []}`)
 
 	channels, err := parseSubscribeRequest(data)
@@ -191,6 +202,7 @@ func TestParseSubscribeRequest_EmptyChannels(t *testing.T) {
 }
 
 func TestParseSubscribeRequest_InvalidFormat(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"channels": "not-an-array"}`)
 
 	_, err := parseSubscribeRequest(data)
@@ -215,6 +227,7 @@ func parseReconnectRequest(data json.RawMessage) (clientID string, lastOffsets m
 }
 
 func TestParseReconnectRequest_Valid(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"client_id": "abc123", "last_offset": {"topic1": 12345, "topic2": 67890}}`)
 
 	clientID, offsets, err := parseReconnectRequest(data)
@@ -234,6 +247,7 @@ func TestParseReconnectRequest_Valid(t *testing.T) {
 }
 
 func TestParseReconnectRequest_EmptyOffsets(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"client_id": "abc123", "last_offset": {}}`)
 
 	clientID, offsets, err := parseReconnectRequest(data)
@@ -250,6 +264,7 @@ func TestParseReconnectRequest_EmptyOffsets(t *testing.T) {
 }
 
 func TestParseReconnectRequest_MissingClientID(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"last_offset": {"topic1": 12345}}`)
 
 	clientID, _, err := parseReconnectRequest(data)
@@ -268,6 +283,7 @@ func TestParseReconnectRequest_MissingClientID(t *testing.T) {
 // =============================================================================
 
 func TestPongResponse_Format(t *testing.T) {
+	t.Parallel()
 	before := time.Now().UnixMilli()
 
 	pong := map[string]any{
@@ -304,6 +320,7 @@ func TestPongResponse_Format(t *testing.T) {
 // =============================================================================
 
 func TestSubscriptionAck_JSONFormat(t *testing.T) {
+	t.Parallel()
 	channels := []string{"BTC.trade", "ETH.trade"}
 	count := 5
 
@@ -344,6 +361,7 @@ func TestSubscriptionAck_JSONFormat(t *testing.T) {
 // =============================================================================
 
 func TestClientSendBuffer_NonBlocking(t *testing.T) {
+	t.Parallel()
 	client := &Client{
 		send: make(chan []byte, 2), // Small buffer
 	}
@@ -354,12 +372,12 @@ func TestClientSendBuffer_NonBlocking(t *testing.T) {
 
 	// Non-blocking send should not block
 	data := []byte("msg3")
-	sent := false
+	var sent bool
 	select {
 	case client.send <- data:
 		sent = true
 	default:
-		sent = false
+		// Buffer is full, send would block
 	}
 
 	if sent {
@@ -368,6 +386,7 @@ func TestClientSendBuffer_NonBlocking(t *testing.T) {
 }
 
 func TestClientSendBuffer_Drain(t *testing.T) {
+	t.Parallel()
 	client := &Client{
 		send: make(chan []byte, 3),
 	}
@@ -394,6 +413,7 @@ func TestClientSendBuffer_Drain(t *testing.T) {
 // =============================================================================
 
 func TestSequenceGenerator_MonotonicIncrease_Handlers(t *testing.T) {
+	t.Parallel()
 	gen := messaging.NewSequenceGenerator()
 
 	var prev int64 = 0
@@ -407,6 +427,7 @@ func TestSequenceGenerator_MonotonicIncrease_Handlers(t *testing.T) {
 }
 
 func TestSequenceGenerator_ConcurrentSafe_Handlers(t *testing.T) {
+	t.Parallel()
 	gen := messaging.NewSequenceGenerator()
 
 	var wg sync.WaitGroup
@@ -443,6 +464,7 @@ func TestSequenceGenerator_ConcurrentSafe_Handlers(t *testing.T) {
 // =============================================================================
 
 func TestMessageTypes_Valid(t *testing.T) {
+	t.Parallel()
 	validTypes := []string{
 		"subscribe",
 		"unsubscribe",
@@ -475,12 +497,14 @@ func TestMessageTypes_Valid(t *testing.T) {
 // =============================================================================
 
 func TestMessageHandler_ExistingTypesUnaffected(t *testing.T) {
+	t.Parallel()
 	// Verify all existing message types parse and route correctly
 	// This ensures the new "publish" case doesn't affect the switch statement
 	existingTypes := []string{"subscribe", "unsubscribe", "heartbeat", "reconnect"}
 
 	for _, msgType := range existingTypes {
 		t.Run(msgType, func(t *testing.T) {
+			t.Parallel()
 			msg := []byte(`{"type": "` + msgType + `", "data": {}}`)
 			parsedType, _, err := parseClientMessage(msg)
 
@@ -495,12 +519,14 @@ func TestMessageHandler_ExistingTypesUnaffected(t *testing.T) {
 }
 
 func TestMessageTypes_AllTypesIncludingPublish(t *testing.T) {
+	t.Parallel()
 	// Verify all message types (existing + publish) work correctly
 	// Regression test: adding "publish" must not break other message types
 	allTypes := []string{"subscribe", "unsubscribe", "heartbeat", "reconnect", "publish"}
 
 	for _, msgType := range allTypes {
 		t.Run(msgType, func(t *testing.T) {
+			t.Parallel()
 			msg := []byte(`{"type": "` + msgType + `", "data": {}}`)
 			parsedType, _, err := parseClientMessage(msg)
 
@@ -515,6 +541,7 @@ func TestMessageTypes_AllTypesIncludingPublish(t *testing.T) {
 }
 
 func TestMessageHandler_PublishDoesNotAffectExistingTypes(t *testing.T) {
+	t.Parallel()
 	// Interleaved parsing test - ensure publish doesn't corrupt parser state
 	messages := []struct {
 		msgType string

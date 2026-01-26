@@ -11,6 +11,7 @@ import (
 // =============================================================================
 
 func TestShard_GetMaxConnections(t *testing.T) {
+	t.Parallel()
 	tests := []int{1, 10, 100, 1000, 10000}
 
 	for _, max := range tests {
@@ -26,6 +27,7 @@ func TestShard_GetMaxConnections(t *testing.T) {
 // =============================================================================
 
 func TestBroadcastMessage_Fields(t *testing.T) {
+	t.Parallel()
 	msg := &broadcast.Message{
 		Subject: "BTC.trade",
 		Payload: []byte(`{"price":"100.50"}`),

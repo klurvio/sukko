@@ -15,6 +15,7 @@ import (
 // =============================================================================
 
 func TestServer_GetConfig(t *testing.T) {
+	t.Parallel()
 	config := types.ServerConfig{
 		Addr:           ":8080",
 		MaxConnections: 1000,
@@ -37,6 +38,7 @@ func TestServer_GetConfig(t *testing.T) {
 }
 
 func TestServer_GetStats(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{
 		StartTime:          time.Now(),
 		CurrentConnections: 42,
@@ -59,6 +61,7 @@ func TestServer_GetStats(t *testing.T) {
 }
 
 func TestServer_GetKafkaConsumer_Nil(t *testing.T) {
+	t.Parallel()
 	// IMPORTANT: This test documents a Go language behavior, not a bug.
 	//
 	// Go Interface Nil Semantics:
@@ -95,6 +98,7 @@ func TestServer_GetKafkaConsumer_Nil(t *testing.T) {
 // =============================================================================
 
 func TestServer_Stats_ConcurrentUpdates(t *testing.T) {
+	t.Parallel()
 	stats := &types.Stats{}
 	server := &Server{stats: stats}
 
@@ -133,6 +137,7 @@ func TestServer_Stats_ConcurrentUpdates(t *testing.T) {
 // =============================================================================
 
 func TestParseMessageType(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		input   string
@@ -185,6 +190,7 @@ func TestParseMessageType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var msg struct {
 				Type string          `json:"type"`
 				Data json.RawMessage `json:"data"`
@@ -216,6 +222,7 @@ func TestParseMessageType(t *testing.T) {
 // =============================================================================
 
 func TestParseSubscribeRequest(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -260,6 +267,7 @@ func TestParseSubscribeRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var req struct {
 				Channels []string `json:"channels"`
 			}
@@ -298,6 +306,7 @@ func TestParseSubscribeRequest(t *testing.T) {
 // =============================================================================
 
 func TestParseReconnectRequest(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		input        string
@@ -335,6 +344,7 @@ func TestParseReconnectRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var req struct {
 				ClientID   string           `json:"client_id"`
 				LastOffset map[string]int64 `json:"last_offset"`
@@ -376,6 +386,7 @@ func TestParseReconnectRequest(t *testing.T) {
 // =============================================================================
 
 func TestHeartbeatResponse_Format(t *testing.T) {
+	t.Parallel()
 	pong := map[string]any{
 		"type": "pong",
 		"ts":   time.Now().UnixMilli(),
@@ -405,6 +416,7 @@ func TestHeartbeatResponse_Format(t *testing.T) {
 // =============================================================================
 
 func TestSubscriptionAck_Format(t *testing.T) {
+	t.Parallel()
 	channels := []string{"BTC.trade", "ETH.liquidity"}
 	ack := map[string]any{
 		"type":       "subscription_ack",
@@ -448,6 +460,7 @@ func TestSubscriptionAck_Format(t *testing.T) {
 }
 
 func TestUnsubscriptionAck_Format(t *testing.T) {
+	t.Parallel()
 	channels := []string{"BTC.trade"}
 	ack := map[string]any{
 		"type":         "unsubscription_ack",
@@ -485,6 +498,7 @@ func TestUnsubscriptionAck_Format(t *testing.T) {
 // =============================================================================
 
 func TestReconnectError_Format(t *testing.T) {
+	t.Parallel()
 	errorMsg := map[string]any{
 		"type":    "reconnect_error",
 		"message": "Invalid reconnect request format",
@@ -514,6 +528,7 @@ func TestReconnectError_Format(t *testing.T) {
 // =============================================================================
 
 func TestReconnectAck_Format(t *testing.T) {
+	t.Parallel()
 	ackMsg := map[string]any{
 		"type":              "reconnect_ack",
 		"status":            "completed",
@@ -555,6 +570,7 @@ func TestReconnectAck_Format(t *testing.T) {
 // =============================================================================
 
 func TestServer_ShutdownFlag(t *testing.T) {
+	t.Parallel()
 	server := &Server{}
 
 	// Initial state
@@ -571,6 +587,7 @@ func TestServer_ShutdownFlag(t *testing.T) {
 }
 
 func TestServer_ShutdownFlag_ConcurrentReads(t *testing.T) {
+	t.Parallel()
 	server := &Server{}
 
 	done := make(chan bool)
@@ -604,6 +621,7 @@ func TestServer_ShutdownFlag_ConcurrentReads(t *testing.T) {
 // =============================================================================
 
 func TestClientIDGeneration_AtomicIncrement(t *testing.T) {
+	t.Parallel()
 	// Test atomic increment pattern (more reliable than UnixNano for uniqueness)
 	var counter int64
 	ids := make(map[int64]bool)
@@ -627,6 +645,7 @@ func TestClientIDGeneration_AtomicIncrement(t *testing.T) {
 // =============================================================================
 
 func TestConnectionSemaphore_Behavior(t *testing.T) {
+	t.Parallel()
 	maxConn := 3
 	sem := make(chan struct{}, maxConn)
 
@@ -665,6 +684,7 @@ func TestConnectionSemaphore_Behavior(t *testing.T) {
 // =============================================================================
 
 func TestServer_BroadcastFunctionality_NotAffectedByProducerField(t *testing.T) {
+	t.Parallel()
 	// Regression test: Adding kafkaProducer field to Server struct
 	// must not affect the broadcast functionality
 	//
@@ -715,6 +735,7 @@ func TestServer_BroadcastFunctionality_NotAffectedByProducerField(t *testing.T) 
 }
 
 func TestServer_SubscriptionFlow_NotAffectedByProducerField(t *testing.T) {
+	t.Parallel()
 	// Regression test: Subscription flow must work correctly
 	// even with producer field present in Server struct
 
@@ -760,6 +781,7 @@ func TestServer_SubscriptionFlow_NotAffectedByProducerField(t *testing.T) {
 }
 
 func TestServer_MessageParsing_AllTypesStillWork(t *testing.T) {
+	t.Parallel()
 	// Regression test: All message types must parse correctly
 	// This verifies the handlers_message.go switch statement
 	// wasn't broken by adding the "publish" case
@@ -778,6 +800,7 @@ func TestServer_MessageParsing_AllTypesStillWork(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var msg struct {
 				Type string          `json:"type"`
 				Data json.RawMessage `json:"data"`

@@ -6,6 +6,7 @@ import (
 )
 
 func TestTenant_Validate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		tenant  *Tenant
@@ -115,6 +116,7 @@ func TestTenant_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := tt.tenant.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Tenant.Validate() error = %v, wantErr %v", err, tt.wantErr)
@@ -124,6 +126,7 @@ func TestTenant_Validate(t *testing.T) {
 }
 
 func TestTenantKey_Validate(t *testing.T) {
+	t.Parallel()
 	samplePEM := `-----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEn6jKqjRy/2aBT3c5H8QT2CnLMz7O
 nUwZ9KeOJoL8G5FmH6u0L9Pt5TXpR1LW9YXhNO3WL9YqKYL7qfqB5i0b6Q==
@@ -208,6 +211,7 @@ nUwZ9KeOJoL8G5FmH6u0L9Pt5TXpR1LW9YXhNO3WL9YqKYL7qfqB5i0b6Q==
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := tt.key.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("TenantKey.Validate() error = %v, wantErr %v", err, tt.wantErr)
@@ -217,6 +221,7 @@ nUwZ9KeOJoL8G5FmH6u0L9Pt5TXpR1LW9YXhNO3WL9YqKYL7qfqB5i0b6Q==
 }
 
 func TestTenantKey_IsExpired(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	past := now.Add(-time.Hour)
 	future := now.Add(time.Hour)
@@ -251,6 +256,7 @@ func TestTenantKey_IsExpired(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.key.IsExpired(); got != tt.expired {
 				t.Errorf("TenantKey.IsExpired() = %v, want %v", got, tt.expired)
 			}
@@ -259,6 +265,7 @@ func TestTenantKey_IsExpired(t *testing.T) {
 }
 
 func TestTenantStatus_IsValid(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status TenantStatus
 		valid  bool
@@ -274,6 +281,7 @@ func TestTenantStatus_IsValid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.status), func(t *testing.T) {
+			t.Parallel()
 			if got := tt.status.IsValid(); got != tt.valid {
 				t.Errorf("TenantStatus(%q).IsValid() = %v, want %v", tt.status, got, tt.valid)
 			}
@@ -282,6 +290,7 @@ func TestTenantStatus_IsValid(t *testing.T) {
 }
 
 func TestConsumerType_IsValid(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		ctype ConsumerType
 		valid bool
@@ -294,6 +303,7 @@ func TestConsumerType_IsValid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.ctype), func(t *testing.T) {
+			t.Parallel()
 			if got := tt.ctype.IsValid(); got != tt.valid {
 				t.Errorf("ConsumerType(%q).IsValid() = %v, want %v", tt.ctype, got, tt.valid)
 			}
@@ -302,6 +312,7 @@ func TestConsumerType_IsValid(t *testing.T) {
 }
 
 func TestAlgorithm_IsValid(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		alg   Algorithm
 		valid bool
@@ -316,6 +327,7 @@ func TestAlgorithm_IsValid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.alg), func(t *testing.T) {
+			t.Parallel()
 			if got := tt.alg.IsValid(); got != tt.valid {
 				t.Errorf("Algorithm(%q).IsValid() = %v, want %v", tt.alg, got, tt.valid)
 			}
@@ -324,6 +336,7 @@ func TestAlgorithm_IsValid(t *testing.T) {
 }
 
 func TestTenant_IsActive(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status TenantStatus
 		active bool
@@ -336,6 +349,7 @@ func TestTenant_IsActive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.status), func(t *testing.T) {
+			t.Parallel()
 			tenant := &Tenant{Status: tt.status}
 			if got := tenant.IsActive(); got != tt.active {
 				t.Errorf("Tenant{Status: %q}.IsActive() = %v, want %v", tt.status, got, tt.active)
@@ -345,6 +359,7 @@ func TestTenant_IsActive(t *testing.T) {
 }
 
 func TestFormatPrincipal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		tenantID string
 		expected string
@@ -357,6 +372,7 @@ func TestFormatPrincipal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.tenantID, func(t *testing.T) {
+			t.Parallel()
 			got := FormatPrincipal(tt.tenantID)
 			if got != tt.expected {
 				t.Errorf("FormatPrincipal(%q) = %q, want %q", tt.tenantID, got, tt.expected)
@@ -366,6 +382,7 @@ func TestFormatPrincipal(t *testing.T) {
 }
 
 func TestParsePrincipal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		principal string
 		expected  string
@@ -383,6 +400,7 @@ func TestParsePrincipal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.principal, func(t *testing.T) {
+			t.Parallel()
 			got := ParsePrincipal(tt.principal)
 			if got != tt.expected {
 				t.Errorf("ParsePrincipal(%q) = %q, want %q", tt.principal, got, tt.expected)
@@ -392,6 +410,7 @@ func TestParsePrincipal(t *testing.T) {
 }
 
 func TestValidatePrincipal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		principal string
 		valid     bool
@@ -410,6 +429,7 @@ func TestValidatePrincipal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.principal, func(t *testing.T) {
+			t.Parallel()
 			got := ValidatePrincipal(tt.principal)
 			if got != tt.valid {
 				t.Errorf("ValidatePrincipal(%q) = %v, want %v", tt.principal, got, tt.valid)
@@ -419,6 +439,7 @@ func TestValidatePrincipal(t *testing.T) {
 }
 
 func TestACLConstants(t *testing.T) {
+	t.Parallel()
 	// Verify ACL constants have expected values
 	if ACLResourceTopic != "TOPIC" {
 		t.Errorf("ACLResourceTopic = %q, want %q", ACLResourceTopic, "TOPIC")

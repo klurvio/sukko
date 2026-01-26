@@ -30,6 +30,7 @@ func createTestToken(t *testing.T, key *KeyInfo, privateKey any, claims *Claims)
 }
 
 func TestMultiTenantValidator_ValidateToken_ES256(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 	ecPEM, privateKey := generateTestECKey(t)
 
@@ -77,6 +78,7 @@ func TestMultiTenantValidator_ValidateToken_ES256(t *testing.T) {
 }
 
 func TestMultiTenantValidator_ValidateToken_RS256(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 	rsaPEM, privateKey := generateTestRSAKey(t)
 
@@ -125,6 +127,7 @@ func TestMultiTenantValidator_ValidateToken_RS256(t *testing.T) {
 }
 
 func TestMultiTenantValidator_ValidateToken_EdDSA(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 	edPEM, privateKey := generateTestEdKey(t)
 
@@ -169,6 +172,7 @@ func TestMultiTenantValidator_ValidateToken_EdDSA(t *testing.T) {
 }
 
 func TestMultiTenantValidator_ValidateToken_ExpiredToken(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 	ecPEM, privateKey := generateTestECKey(t)
 
@@ -210,6 +214,7 @@ func TestMultiTenantValidator_ValidateToken_ExpiredToken(t *testing.T) {
 }
 
 func TestMultiTenantValidator_ValidateToken_KeyNotFound(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 	ecPEM, privateKey := generateTestECKey(t)
 
@@ -247,6 +252,7 @@ func TestMultiTenantValidator_ValidateToken_KeyNotFound(t *testing.T) {
 }
 
 func TestMultiTenantValidator_ValidateToken_RevokedKey(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 	ecPEM, privateKey := generateTestECKey(t)
 
@@ -288,6 +294,7 @@ func TestMultiTenantValidator_ValidateToken_RevokedKey(t *testing.T) {
 }
 
 func TestMultiTenantValidator_ValidateToken_MissingToken(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
@@ -305,6 +312,7 @@ func TestMultiTenantValidator_ValidateToken_MissingToken(t *testing.T) {
 }
 
 func TestMultiTenantValidator_ValidateToken_RequireTenantID(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 	ecPEM, privateKey := generateTestECKey(t)
 
@@ -346,6 +354,7 @@ func TestMultiTenantValidator_ValidateToken_RequireTenantID(t *testing.T) {
 }
 
 func TestMultiTenantValidator_ValidateTokenForTenant(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 	ecPEM, privateKey := generateTestECKey(t)
 
@@ -379,6 +388,7 @@ func TestMultiTenantValidator_ValidateTokenForTenant(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("matching tenant", func(t *testing.T) {
+		t.Parallel()
 		_, err := validator.ValidateTokenForTenant(ctx, tokenString, "acme")
 		if err != nil {
 			t.Errorf("ValidateTokenForTenant failed: %v", err)
@@ -386,6 +396,7 @@ func TestMultiTenantValidator_ValidateTokenForTenant(t *testing.T) {
 	})
 
 	t.Run("non-matching tenant", func(t *testing.T) {
+		t.Parallel()
 		_, err := validator.ValidateTokenForTenant(ctx, tokenString, "other")
 		if err == nil {
 			t.Error("Expected error for tenant mismatch")
@@ -394,6 +405,7 @@ func TestMultiTenantValidator_ValidateTokenForTenant(t *testing.T) {
 }
 
 func TestExtractKeyID(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 	ecPEM, privateKey := generateTestECKey(t)
 
@@ -429,6 +441,7 @@ func TestExtractKeyID(t *testing.T) {
 }
 
 func TestExtractTenantID(t *testing.T) {
+	t.Parallel()
 	registry := NewStaticKeyRegistry()
 	ecPEM, privateKey := generateTestECKey(t)
 

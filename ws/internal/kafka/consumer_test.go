@@ -44,6 +44,7 @@ func (m *mockResourceGuard) ShouldPauseKafka() bool {
 // =============================================================================
 
 func TestNewConsumer_NoBrokers(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
 	broadcast := func(subject string, message []byte) {}
@@ -64,6 +65,7 @@ func TestNewConsumer_NoBrokers(t *testing.T) {
 }
 
 func TestNewConsumer_NoConsumerGroup(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
 	broadcast := func(subject string, message []byte) {}
@@ -84,6 +86,7 @@ func TestNewConsumer_NoConsumerGroup(t *testing.T) {
 }
 
 func TestNewConsumer_NoTopics(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
 	broadcast := func(subject string, message []byte) {}
@@ -104,6 +107,7 @@ func TestNewConsumer_NoTopics(t *testing.T) {
 }
 
 func TestNewConsumer_NoBroadcast(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
 
@@ -123,6 +127,7 @@ func TestNewConsumer_NoBroadcast(t *testing.T) {
 }
 
 func TestNewConsumer_NoResourceGuard(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	broadcast := func(subject string, message []byte) {}
 
@@ -146,6 +151,7 @@ func TestNewConsumer_NoResourceGuard(t *testing.T) {
 // =============================================================================
 
 func TestConsumerConfig_BatchDefaults(t *testing.T) {
+	t.Parallel()
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
@@ -164,6 +170,7 @@ func TestConsumerConfig_BatchDefaults(t *testing.T) {
 }
 
 func TestConsumerConfig_CustomBatch(t *testing.T) {
+	t.Parallel()
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
@@ -185,6 +192,7 @@ func TestConsumerConfig_CustomBatch(t *testing.T) {
 // =============================================================================
 
 func TestConsumer_GetMetrics_Initial(t *testing.T) {
+	t.Parallel()
 	consumer := &Consumer{}
 
 	processed, failed, dropped := consumer.GetMetrics()
@@ -201,6 +209,7 @@ func TestConsumer_GetMetrics_Initial(t *testing.T) {
 }
 
 func TestConsumer_IncrementProcessed(t *testing.T) {
+	t.Parallel()
 	consumer := &Consumer{}
 
 	consumer.incrementProcessed()
@@ -214,6 +223,7 @@ func TestConsumer_IncrementProcessed(t *testing.T) {
 }
 
 func TestConsumer_IncrementFailed(t *testing.T) {
+	t.Parallel()
 	consumer := &Consumer{}
 
 	consumer.incrementFailed()
@@ -226,6 +236,7 @@ func TestConsumer_IncrementFailed(t *testing.T) {
 }
 
 func TestConsumer_IncrementDropped(t *testing.T) {
+	t.Parallel()
 	consumer := &Consumer{}
 
 	consumer.incrementDropped()
@@ -240,6 +251,7 @@ func TestConsumer_IncrementDropped(t *testing.T) {
 }
 
 func TestConsumer_GetDroppedCount(t *testing.T) {
+	t.Parallel()
 	consumer := &Consumer{}
 
 	consumer.incrementDropped()
@@ -252,6 +264,7 @@ func TestConsumer_GetDroppedCount(t *testing.T) {
 }
 
 func TestConsumer_IncrementBatches(t *testing.T) {
+	t.Parallel()
 	consumer := &Consumer{}
 
 	consumer.incrementBatches()
@@ -265,6 +278,7 @@ func TestConsumer_IncrementBatches(t *testing.T) {
 }
 
 func TestConsumer_Metrics_Concurrent(t *testing.T) {
+	t.Parallel()
 	consumer := &Consumer{}
 
 	const numGoroutines = 100
@@ -324,6 +338,7 @@ func TestConsumer_Metrics_Concurrent(t *testing.T) {
 // =============================================================================
 
 func TestTokenEvent_Fields(t *testing.T) {
+	t.Parallel()
 	event := TokenEvent{
 		Type:      EventTradeExecuted,
 		Timestamp: 1234567890,
@@ -349,6 +364,7 @@ func TestTokenEvent_Fields(t *testing.T) {
 // =============================================================================
 
 func TestReplayMessage_Fields(t *testing.T) {
+	t.Parallel()
 	msg := ReplayMessage{
 		Topic:     GetRefinedTopic("test", TopicBaseTrade),
 		Partition: 0,
@@ -379,6 +395,7 @@ func TestReplayMessage_Fields(t *testing.T) {
 // =============================================================================
 
 func TestBroadcastFunc_Signature(t *testing.T) {
+	t.Parallel()
 	var calls []struct {
 		subject string
 		message []byte
@@ -412,6 +429,7 @@ func TestBroadcastFunc_Signature(t *testing.T) {
 // =============================================================================
 
 func TestResourceGuard_MockImplementation(t *testing.T) {
+	t.Parallel()
 	guard := newMockResourceGuard()
 
 	// Default should allow

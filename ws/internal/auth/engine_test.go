@@ -8,7 +8,9 @@ import (
 )
 
 func TestNewPolicyEngine(t *testing.T) {
+	t.Parallel()
 	t.Run("with default config", func(t *testing.T) {
+		t.Parallel()
 		engine := NewPolicyEngine(DefaultPolicyEngineConfig())
 		if engine == nil {
 			t.Fatal("expected non-nil engine")
@@ -19,6 +21,7 @@ func TestNewPolicyEngine(t *testing.T) {
 	})
 
 	t.Run("with custom default effect", func(t *testing.T) {
+		t.Parallel()
 		engine := NewPolicyEngine(PolicyEngineConfig{
 			DefaultEffect: EffectAllow,
 		})
@@ -28,6 +31,7 @@ func TestNewPolicyEngine(t *testing.T) {
 	})
 
 	t.Run("with rules", func(t *testing.T) {
+		t.Parallel()
 		engine := NewPolicyEngine(PolicyEngineConfig{
 			Rules: []*PermissionRule{
 				{ID: "rule1", Priority: 10},
@@ -42,7 +46,9 @@ func TestNewPolicyEngine(t *testing.T) {
 }
 
 func TestPolicyEngine_Authorize_NoRules(t *testing.T) {
+	t.Parallel()
 	t.Run("default deny", func(t *testing.T) {
+		t.Parallel()
 		engine := NewPolicyEngine(PolicyEngineConfig{
 			DefaultEffect: EffectDeny,
 		})
@@ -59,6 +65,7 @@ func TestPolicyEngine_Authorize_NoRules(t *testing.T) {
 	})
 
 	t.Run("default allow", func(t *testing.T) {
+		t.Parallel()
 		engine := NewPolicyEngine(PolicyEngineConfig{
 			DefaultEffect: EffectAllow,
 		})
@@ -76,6 +83,7 @@ func TestPolicyEngine_Authorize_NoRules(t *testing.T) {
 }
 
 func TestPolicyEngine_Authorize_ExactMatch(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
@@ -99,6 +107,7 @@ func TestPolicyEngine_Authorize_ExactMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.channel, func(t *testing.T) {
+			t.Parallel()
 			result := engine.Authorize(&AuthzRequest{
 				Claims:  &Claims{TenantID: "acme"},
 				Action:  RuleSubscribe,
@@ -113,6 +122,7 @@ func TestPolicyEngine_Authorize_ExactMatch(t *testing.T) {
 }
 
 func TestPolicyEngine_Authorize_PrefixMatch(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
@@ -136,6 +146,7 @@ func TestPolicyEngine_Authorize_PrefixMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.channel, func(t *testing.T) {
+			t.Parallel()
 			result := engine.Authorize(&AuthzRequest{
 				Claims:  &Claims{TenantID: "acme"},
 				Action:  RuleSubscribe,
@@ -150,6 +161,7 @@ func TestPolicyEngine_Authorize_PrefixMatch(t *testing.T) {
 }
 
 func TestPolicyEngine_Authorize_PatternMatch(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
@@ -175,6 +187,7 @@ func TestPolicyEngine_Authorize_PatternMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.channel, func(t *testing.T) {
+			t.Parallel()
 			result := engine.Authorize(&AuthzRequest{
 				Claims:  &Claims{TenantID: "acme"},
 				Action:  RuleSubscribe,
@@ -190,6 +203,7 @@ func TestPolicyEngine_Authorize_PatternMatch(t *testing.T) {
 }
 
 func TestPolicyEngine_Authorize_PlaceholderResolution(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
@@ -208,6 +222,7 @@ func TestPolicyEngine_Authorize_PlaceholderResolution(t *testing.T) {
 	}
 
 	t.Run("matches resolved channel", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  claims,
 			Action:  RuleSubscribe,
@@ -220,6 +235,7 @@ func TestPolicyEngine_Authorize_PlaceholderResolution(t *testing.T) {
 	})
 
 	t.Run("rejects wrong user", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  claims,
 			Action:  RuleSubscribe,
@@ -233,6 +249,7 @@ func TestPolicyEngine_Authorize_PlaceholderResolution(t *testing.T) {
 }
 
 func TestPolicyEngine_Authorize_ActionFilter(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
@@ -246,6 +263,7 @@ func TestPolicyEngine_Authorize_ActionFilter(t *testing.T) {
 	})
 
 	t.Run("subscribe allowed", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme"},
 			Action:  RuleSubscribe,
@@ -257,6 +275,7 @@ func TestPolicyEngine_Authorize_ActionFilter(t *testing.T) {
 	})
 
 	t.Run("publish denied", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme"},
 			Action:  RulePublish,
@@ -269,6 +288,7 @@ func TestPolicyEngine_Authorize_ActionFilter(t *testing.T) {
 }
 
 func TestPolicyEngine_Authorize_Conditions(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
@@ -290,6 +310,7 @@ func TestPolicyEngine_Authorize_Conditions(t *testing.T) {
 	})
 
 	t.Run("admin role allowed", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme", Roles: []string{"admin"}},
 			Action:  RuleSubscribe,
@@ -301,6 +322,7 @@ func TestPolicyEngine_Authorize_Conditions(t *testing.T) {
 	})
 
 	t.Run("non-admin denied", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme", Roles: []string{"user"}},
 			Action:  RuleSubscribe,
@@ -313,6 +335,7 @@ func TestPolicyEngine_Authorize_Conditions(t *testing.T) {
 }
 
 func TestPolicyEngine_Authorize_Priority(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
@@ -332,6 +355,7 @@ func TestPolicyEngine_Authorize_Priority(t *testing.T) {
 	})
 
 	t.Run("higher priority rule wins", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme"},
 			Action:  RuleSubscribe,
@@ -346,6 +370,7 @@ func TestPolicyEngine_Authorize_Priority(t *testing.T) {
 	})
 
 	t.Run("lower priority allows other channels", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme"},
 			Action:  RuleSubscribe,
@@ -358,6 +383,7 @@ func TestPolicyEngine_Authorize_Priority(t *testing.T) {
 }
 
 func TestPolicyEngine_Authorize_TenantRules(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
@@ -380,6 +406,7 @@ func TestPolicyEngine_Authorize_TenantRules(t *testing.T) {
 	})
 
 	t.Run("premium tenant gets extra access", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "premium"},
 			Action:  RuleSubscribe,
@@ -391,6 +418,7 @@ func TestPolicyEngine_Authorize_TenantRules(t *testing.T) {
 	})
 
 	t.Run("regular tenant denied premium", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "basic"},
 			Action:  RuleSubscribe,
@@ -403,6 +431,7 @@ func TestPolicyEngine_Authorize_TenantRules(t *testing.T) {
 }
 
 func TestPolicyEngine_Authorize_Captures(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
@@ -436,6 +465,7 @@ func TestPolicyEngine_Authorize_Captures(t *testing.T) {
 }
 
 func TestPolicyEngine_Authorize_NegateCondition(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
@@ -457,6 +487,7 @@ func TestPolicyEngine_Authorize_NegateCondition(t *testing.T) {
 	})
 
 	t.Run("non-banned allowed", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme", Roles: []string{"user"}},
 			Action:  RuleSubscribe,
@@ -468,6 +499,7 @@ func TestPolicyEngine_Authorize_NegateCondition(t *testing.T) {
 	})
 
 	t.Run("banned denied", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme", Roles: []string{"banned"}},
 			Action:  RuleSubscribe,
@@ -480,6 +512,7 @@ func TestPolicyEngine_Authorize_NegateCondition(t *testing.T) {
 }
 
 func TestPolicyEngine_CompareValues(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(DefaultPolicyEngineConfig())
 
 	tests := []struct {
@@ -530,6 +563,7 @@ func TestPolicyEngine_CompareValues(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := engine.compareValues(tt.fieldValue, tt.op, tt.condValue)
 			if result != tt.expected {
 				t.Errorf("compareValues(%v, %v, %v) = %v, want %v",
@@ -540,6 +574,7 @@ func TestPolicyEngine_CompareValues(t *testing.T) {
 }
 
 func TestPolicyEngine_AddRemoveRule(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(DefaultPolicyEngineConfig())
 
 	// Add rule
@@ -578,6 +613,7 @@ func TestPolicyEngine_AddRemoveRule(t *testing.T) {
 }
 
 func TestPolicyEngine_CanSubscribe_CanPublish(t *testing.T) {
+	t.Parallel()
 	engine := NewPolicyEngine(PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
@@ -617,6 +653,7 @@ func TestPolicyEngine_CanSubscribe_CanPublish(t *testing.T) {
 }
 
 func TestPolicyEngine_WithTenantIsolator(t *testing.T) {
+	t.Parallel()
 	isolator := NewTenantIsolator(TenantIsolationConfig{
 		CrossTenantRoles: []string{"admin"},
 	})
@@ -629,6 +666,7 @@ func TestPolicyEngine_WithTenantIsolator(t *testing.T) {
 	)
 
 	t.Run("same tenant allowed", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme"},
 			Action:  RuleSubscribe,
@@ -640,6 +678,7 @@ func TestPolicyEngine_WithTenantIsolator(t *testing.T) {
 	})
 
 	t.Run("different tenant denied", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme"},
 			Action:  RuleSubscribe,
@@ -651,6 +690,7 @@ func TestPolicyEngine_WithTenantIsolator(t *testing.T) {
 	})
 
 	t.Run("admin cross-tenant allowed", func(t *testing.T) {
+		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme", Roles: []string{"admin"}},
 			Action:  RuleSubscribe,
@@ -663,6 +703,7 @@ func TestPolicyEngine_WithTenantIsolator(t *testing.T) {
 }
 
 func TestDefaultPolicyEngineConfig(t *testing.T) {
+	t.Parallel()
 	config := DefaultPolicyEngineConfig()
 
 	if config.DefaultEffect != EffectDeny {

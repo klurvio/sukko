@@ -14,6 +14,7 @@ import (
 // =============================================================================
 
 func TestKafkaPoolMetrics_Fields(t *testing.T) {
+	t.Parallel()
 	metrics := KafkaPoolMetrics{
 		MessagesRouted:  100,
 		MessagesDropped: 5,
@@ -36,6 +37,7 @@ func TestKafkaPoolMetrics_Fields(t *testing.T) {
 // =============================================================================
 
 func TestKafkaPool_SubjectFormat(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		subject   string
 		eventType string
@@ -49,6 +51,7 @@ func TestKafkaPool_SubjectFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.subject+"_"+tt.eventType, func(t *testing.T) {
+			t.Parallel()
 			result := fmt.Sprintf("%s.%s", tt.subject, tt.eventType)
 			if result != tt.expected {
 				t.Errorf("Subject: got %s, want %s", result, tt.expected)
@@ -62,6 +65,7 @@ func TestKafkaPool_SubjectFormat(t *testing.T) {
 // =============================================================================
 
 func TestKafkaPool_AtomicCounters(t *testing.T) {
+	t.Parallel()
 	var messagesRouted uint64
 	var messagesDropped uint64
 	var routingErrors uint64
@@ -85,6 +89,7 @@ func TestKafkaPool_AtomicCounters(t *testing.T) {
 }
 
 func TestKafkaPool_AtomicCounters_Concurrent(t *testing.T) {
+	t.Parallel()
 	var counter uint64
 	const numGoroutines = 100
 	const opsPerGoroutine = 1000
@@ -114,6 +119,7 @@ func TestKafkaPool_AtomicCounters_Concurrent(t *testing.T) {
 // =============================================================================
 
 func TestKafkaPool_RouteMessage_SubjectCreation(t *testing.T) {
+	t.Parallel()
 	// Simulate the routeMessage logic
 	subject := "BTC"
 	eventType := "trade"
@@ -137,6 +143,7 @@ func TestKafkaPool_RouteMessage_SubjectCreation(t *testing.T) {
 }
 
 func TestKafkaPool_RouteMessage_MultipleSubjects(t *testing.T) {
+	t.Parallel()
 	entities := []struct {
 		subject   string
 		eventType string
@@ -176,6 +183,7 @@ func TestKafkaPool_RouteMessage_MultipleSubjects(t *testing.T) {
 // =============================================================================
 
 func TestKafkaPool_GetMetrics_Structure(t *testing.T) {
+	t.Parallel()
 	// Test the metrics structure
 	pool := &KafkaConsumerPool{}
 
@@ -198,6 +206,7 @@ func TestKafkaPool_GetMetrics_Structure(t *testing.T) {
 }
 
 func TestKafkaPool_GetMetrics_Initial(t *testing.T) {
+	t.Parallel()
 	pool := &KafkaConsumerPool{}
 
 	metrics := pool.GetMetrics()
@@ -215,6 +224,7 @@ func TestKafkaPool_GetMetrics_Initial(t *testing.T) {
 }
 
 func TestKafkaPool_GetMetrics_Concurrent(t *testing.T) {
+	t.Parallel()
 	pool := &KafkaConsumerPool{}
 
 	const numReaders = 50
@@ -259,6 +269,7 @@ func TestKafkaPool_GetMetrics_Concurrent(t *testing.T) {
 // =============================================================================
 
 func TestKafkaPoolConfig_Fields(t *testing.T) {
+	t.Parallel()
 	cfg := KafkaPoolConfig{
 		Brokers:       []string{"localhost:9092", "localhost:9093"},
 		ConsumerGroup: "test-group",

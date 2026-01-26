@@ -11,6 +11,7 @@ import (
 // =============================================================================
 
 func TestNewTokenBucket(t *testing.T) {
+	t.Parallel()
 	tb := NewTokenBucket(100, 10)
 
 	if tb.maxTokens != 100 {
@@ -25,6 +26,7 @@ func TestNewTokenBucket(t *testing.T) {
 }
 
 func TestTokenBucket_TryConsume_Success(t *testing.T) {
+	t.Parallel()
 	tb := NewTokenBucket(10, 1)
 
 	// Should allow first 10 requests (burst capacity)
@@ -36,6 +38,7 @@ func TestTokenBucket_TryConsume_Success(t *testing.T) {
 }
 
 func TestTokenBucket_TryConsume_Exhausted(t *testing.T) {
+	t.Parallel()
 	tb := NewTokenBucket(5, 1)
 
 	// Exhaust all tokens
@@ -50,6 +53,7 @@ func TestTokenBucket_TryConsume_Exhausted(t *testing.T) {
 }
 
 func TestTokenBucket_TryConsume_MultipleTokens(t *testing.T) {
+	t.Parallel()
 	tb := NewTokenBucket(10, 1)
 
 	// Consume 5 tokens at once
@@ -69,6 +73,7 @@ func TestTokenBucket_TryConsume_MultipleTokens(t *testing.T) {
 }
 
 func TestTokenBucket_TryConsume_InsufficientTokens(t *testing.T) {
+	t.Parallel()
 	tb := NewTokenBucket(5, 1)
 
 	// Try to consume more than available
@@ -83,6 +88,7 @@ func TestTokenBucket_TryConsume_InsufficientTokens(t *testing.T) {
 }
 
 func TestTokenBucket_Refill(t *testing.T) {
+	t.Parallel()
 	tb := NewTokenBucket(10, 100) // 100 tokens/second refill rate
 
 	// Exhaust all tokens
@@ -100,6 +106,7 @@ func TestTokenBucket_Refill(t *testing.T) {
 }
 
 func TestTokenBucket_RefillCapAtMax(t *testing.T) {
+	t.Parallel()
 	tb := NewTokenBucket(10, 100) // 100 tokens/second
 
 	// Wait longer than needed for full refill
@@ -120,6 +127,7 @@ func TestTokenBucket_RefillCapAtMax(t *testing.T) {
 }
 
 func TestTokenBucket_Concurrent(t *testing.T) {
+	t.Parallel()
 	tb := NewTokenBucket(1000, 100)
 
 	var wg sync.WaitGroup
@@ -152,6 +160,7 @@ func TestTokenBucket_Concurrent(t *testing.T) {
 }
 
 func TestTokenBucket_ZeroTokens(t *testing.T) {
+	t.Parallel()
 	tb := NewTokenBucket(0, 0)
 
 	// Should fail immediately with 0 capacity
@@ -165,6 +174,7 @@ func TestTokenBucket_ZeroTokens(t *testing.T) {
 // =============================================================================
 
 func TestNewRateLimiter(t *testing.T) {
+	t.Parallel()
 	rl := NewRateLimiter()
 
 	if rl == nil {
@@ -173,6 +183,7 @@ func TestNewRateLimiter(t *testing.T) {
 }
 
 func TestRateLimiter_CheckLimit_NewClient(t *testing.T) {
+	t.Parallel()
 	rl := NewRateLimiter()
 
 	// First check for a new client should succeed
@@ -182,6 +193,7 @@ func TestRateLimiter_CheckLimit_NewClient(t *testing.T) {
 }
 
 func TestRateLimiter_CheckLimit_SeparateBuckets(t *testing.T) {
+	t.Parallel()
 	rl := NewRateLimiter()
 
 	// Exhaust client 1's bucket (default: 100 tokens)
@@ -201,6 +213,7 @@ func TestRateLimiter_CheckLimit_SeparateBuckets(t *testing.T) {
 }
 
 func TestRateLimiter_RemoveClient(t *testing.T) {
+	t.Parallel()
 	rl := NewRateLimiter()
 
 	// Create bucket for client
@@ -219,6 +232,7 @@ func TestRateLimiter_RemoveClient(t *testing.T) {
 }
 
 func TestRateLimiter_Concurrent(t *testing.T) {
+	t.Parallel()
 	rl := NewRateLimiter()
 
 	var wg sync.WaitGroup
@@ -249,6 +263,7 @@ func TestRateLimiter_Concurrent(t *testing.T) {
 }
 
 func TestRateLimiter_DefaultLimits(t *testing.T) {
+	t.Parallel()
 	rl := NewRateLimiter()
 
 	// Default should be 100 burst, 10/sec sustained

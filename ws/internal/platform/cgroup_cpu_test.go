@@ -16,6 +16,7 @@ import (
 // =============================================================================
 
 func TestThrottleStats_ZeroValue(t *testing.T) {
+	t.Parallel()
 	var stats ThrottleStats
 
 	if stats.NrPeriods != 0 {
@@ -30,6 +31,7 @@ func TestThrottleStats_ZeroValue(t *testing.T) {
 }
 
 func TestThrottleStats_Values(t *testing.T) {
+	t.Parallel()
 	stats := ThrottleStats{
 		NrPeriods:    100,
 		NrThrottled:  10,
@@ -52,6 +54,7 @@ func TestThrottleStats_Values(t *testing.T) {
 // =============================================================================
 
 func TestContainerCPU_GetAllocation(t *testing.T) {
+	t.Parallel()
 	cc := &ContainerCPU{
 		numCPUsAllocated: 2.5,
 	}
@@ -63,6 +66,7 @@ func TestContainerCPU_GetAllocation(t *testing.T) {
 }
 
 func TestContainerCPU_GetAllocation_ThreadSafe(t *testing.T) {
+	t.Parallel()
 	cc := &ContainerCPU{
 		numCPUsAllocated: 4.0,
 	}
@@ -77,6 +81,7 @@ func TestContainerCPU_GetAllocation_ThreadSafe(t *testing.T) {
 }
 
 func TestContainerCPU_GetInfo(t *testing.T) {
+	t.Parallel()
 	cc := &ContainerCPU{
 		cgroupVersion:    2,
 		cgroupPath:       "/sys/fs/cgroup/test",
@@ -105,6 +110,7 @@ func TestContainerCPU_GetInfo(t *testing.T) {
 }
 
 func TestContainerCPU_GetInfo_ThreadSafe(t *testing.T) {
+	t.Parallel()
 	cc := &ContainerCPU{
 		cgroupVersion:    2,
 		cgroupPath:       "/sys/fs/cgroup/test",
@@ -127,6 +133,7 @@ func TestContainerCPU_GetInfo_ThreadSafe(t *testing.T) {
 // =============================================================================
 
 func TestCPUMonitor_Mode_Host(t *testing.T) {
+	t.Parallel()
 	// Create a CPUMonitor in host mode (no container detection)
 	cm := &CPUMonitor{
 		mode:   "host",
@@ -139,6 +146,7 @@ func TestCPUMonitor_Mode_Host(t *testing.T) {
 }
 
 func TestCPUMonitor_Mode_Container(t *testing.T) {
+	t.Parallel()
 	cm := &CPUMonitor{
 		mode: "container",
 		containerCPU: &ContainerCPU{
@@ -153,6 +161,7 @@ func TestCPUMonitor_Mode_Container(t *testing.T) {
 }
 
 func TestCPUMonitor_GetAllocation_HostMode(t *testing.T) {
+	t.Parallel()
 	cm := &CPUMonitor{
 		mode:   "host",
 		logger: zerolog.Nop(),
@@ -167,6 +176,7 @@ func TestCPUMonitor_GetAllocation_HostMode(t *testing.T) {
 }
 
 func TestCPUMonitor_GetAllocation_ContainerMode(t *testing.T) {
+	t.Parallel()
 	cm := &CPUMonitor{
 		mode: "container",
 		containerCPU: &ContainerCPU{
@@ -183,6 +193,7 @@ func TestCPUMonitor_GetAllocation_ContainerMode(t *testing.T) {
 }
 
 func TestCPUMonitor_GetInfo_HostMode(t *testing.T) {
+	t.Parallel()
 	cm := &CPUMonitor{
 		mode:   "host",
 		logger: zerolog.Nop(),
@@ -204,6 +215,7 @@ func TestCPUMonitor_GetInfo_HostMode(t *testing.T) {
 }
 
 func TestCPUMonitor_GetInfo_ContainerMode(t *testing.T) {
+	t.Parallel()
 	cm := &CPUMonitor{
 		mode: "container",
 		containerCPU: &ContainerCPU{
@@ -234,11 +246,12 @@ func TestCPUMonitor_GetInfo_ContainerMode(t *testing.T) {
 // =============================================================================
 
 func TestReadCPUQuota_V2_WithQuota(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create cpu.max file with quota
 	cpuMaxPath := filepath.Join(tmpDir, "cpu.max")
-	err := os.WriteFile(cpuMaxPath, []byte("200000 100000\n"), 0644)
+	err := os.WriteFile(cpuMaxPath, []byte("200000 100000\n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -257,11 +270,12 @@ func TestReadCPUQuota_V2_WithQuota(t *testing.T) {
 }
 
 func TestReadCPUQuota_V2_NoQuota(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create cpu.max file with "max" (no limit)
 	cpuMaxPath := filepath.Join(tmpDir, "cpu.max")
-	err := os.WriteFile(cpuMaxPath, []byte("max 100000\n"), 0644)
+	err := os.WriteFile(cpuMaxPath, []byte("max 100000\n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -280,11 +294,12 @@ func TestReadCPUQuota_V2_NoQuota(t *testing.T) {
 }
 
 func TestReadCPUQuota_V2_InvalidFormat(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create cpu.max file with invalid format
 	cpuMaxPath := filepath.Join(tmpDir, "cpu.max")
-	err := os.WriteFile(cpuMaxPath, []byte("invalid\n"), 0644)
+	err := os.WriteFile(cpuMaxPath, []byte("invalid\n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -296,18 +311,19 @@ func TestReadCPUQuota_V2_InvalidFormat(t *testing.T) {
 }
 
 func TestReadCPUQuota_V1_WithQuota(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create cgroup v1 files
 	quotaPath := filepath.Join(tmpDir, "cpu.cfs_quota_us")
 	periodPath := filepath.Join(tmpDir, "cpu.cfs_period_us")
 
-	err := os.WriteFile(quotaPath, []byte("150000\n"), 0644)
+	err := os.WriteFile(quotaPath, []byte("150000\n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create quota file: %v", err)
 	}
 
-	err = os.WriteFile(periodPath, []byte("100000\n"), 0644)
+	err = os.WriteFile(periodPath, []byte("100000\n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create period file: %v", err)
 	}
@@ -326,18 +342,19 @@ func TestReadCPUQuota_V1_WithQuota(t *testing.T) {
 }
 
 func TestReadCPUQuota_V1_NoLimit(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create cgroup v1 files with -1 (no limit)
 	quotaPath := filepath.Join(tmpDir, "cpu.cfs_quota_us")
 	periodPath := filepath.Join(tmpDir, "cpu.cfs_period_us")
 
-	err := os.WriteFile(quotaPath, []byte("-1\n"), 0644)
+	err := os.WriteFile(quotaPath, []byte("-1\n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create quota file: %v", err)
 	}
 
-	err = os.WriteFile(periodPath, []byte("100000\n"), 0644)
+	err = os.WriteFile(periodPath, []byte("100000\n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create period file: %v", err)
 	}
@@ -356,6 +373,7 @@ func TestReadCPUQuota_V1_NoLimit(t *testing.T) {
 }
 
 func TestReadCPUQuota_MissingFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	_, _, err := readCPUQuota(tmpDir, 2)
@@ -365,6 +383,7 @@ func TestReadCPUQuota_MissingFile(t *testing.T) {
 }
 
 func TestReadCPUUsage_V2(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create cpu.stat file with usage_usec
@@ -376,7 +395,7 @@ nr_periods 100
 nr_throttled 5
 throttled_usec 500000
 `
-	err := os.WriteFile(cpuStatPath, []byte(content), 0644)
+	err := os.WriteFile(cpuStatPath, []byte(content), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -392,6 +411,7 @@ throttled_usec 500000
 }
 
 func TestReadCPUUsage_V2_MissingUsageUsec(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create cpu.stat file without usage_usec
@@ -399,7 +419,7 @@ func TestReadCPUUsage_V2_MissingUsageUsec(t *testing.T) {
 	content := `user_usec 1000000000
 system_usec 234567890
 `
-	err := os.WriteFile(cpuStatPath, []byte(content), 0644)
+	err := os.WriteFile(cpuStatPath, []byte(content), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -411,12 +431,13 @@ system_usec 234567890
 }
 
 func TestReadCPUUsage_V1(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create cpuacct.usage file (nanoseconds)
 	cpuacctPath := filepath.Join(tmpDir, "cpuacct.usage")
 	// 1234567890000 nanoseconds = 1234567890 microseconds
-	err := os.WriteFile(cpuacctPath, []byte("1234567890000\n"), 0644)
+	err := os.WriteFile(cpuacctPath, []byte("1234567890000\n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -433,6 +454,7 @@ func TestReadCPUUsage_V1(t *testing.T) {
 }
 
 func TestReadCPUUsage_MissingFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	_, err := readCPUUsage(tmpDir, 2)
@@ -442,6 +464,7 @@ func TestReadCPUUsage_MissingFile(t *testing.T) {
 }
 
 func TestReadThrottleStats_V2(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create cpu.stat file with throttle stats
@@ -451,7 +474,7 @@ nr_periods 1000
 nr_throttled 50
 throttled_usec 5000000
 `
-	err := os.WriteFile(cpuStatPath, []byte(content), 0644)
+	err := os.WriteFile(cpuStatPath, []byte(content), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -474,6 +497,7 @@ throttled_usec 5000000
 }
 
 func TestReadThrottleStats_V1(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create cpu.stat file with v1 format (throttled_time in nanoseconds)
@@ -482,7 +506,7 @@ func TestReadThrottleStats_V1(t *testing.T) {
 nr_throttled 100
 throttled_time 3000000000
 `
-	err := os.WriteFile(cpuStatPath, []byte(content), 0644)
+	err := os.WriteFile(cpuStatPath, []byte(content), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -505,6 +529,7 @@ throttled_time 3000000000
 }
 
 func TestReadThrottleStats_MissingFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	_, err := readThrottleStats(tmpDir, 2)
@@ -514,13 +539,14 @@ func TestReadThrottleStats_MissingFile(t *testing.T) {
 }
 
 func TestReadThrottleStats_PartialData(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create cpu.stat file with only some fields
 	cpuStatPath := filepath.Join(tmpDir, "cpu.stat")
 	content := `nr_periods 500
 `
-	err := os.WriteFile(cpuStatPath, []byte(content), 0644)
+	err := os.WriteFile(cpuStatPath, []byte(content), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -547,6 +573,7 @@ func TestReadThrottleStats_PartialData(t *testing.T) {
 // =============================================================================
 
 func TestNewCPUMonitor_FallbackToHost(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	// This test runs on any system - if not in a container, it falls back to host mode
@@ -574,6 +601,7 @@ func TestNewCPUMonitor_FallbackToHost(t *testing.T) {
 }
 
 func TestNewCPUMonitor_GetPercent(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	cm := NewCPUMonitor(logger)
 
@@ -621,6 +649,7 @@ func TestNewCPUMonitor_GetPercent(t *testing.T) {
 }
 
 func TestCPUMonitor_GetHostPercent(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	cm := NewCPUMonitor(logger)
 
@@ -640,6 +669,7 @@ func TestCPUMonitor_GetHostPercent(t *testing.T) {
 // =============================================================================
 
 func TestContainerCPU_CalculatePercent(t *testing.T) {
+	t.Parallel()
 	// Test the percentage calculation logic
 	// Formula: (usageDelta / timeDeltaUsec) * 100 / numCPUsAllocated
 
@@ -682,6 +712,7 @@ func TestContainerCPU_CalculatePercent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			rawPercent := (float64(tt.usageDelta) / float64(tt.timeDeltaUsec)) * 100.0
 			percent := rawPercent / tt.numCPUsAllocated
 
@@ -734,7 +765,7 @@ func BenchmarkCPUMonitor_GetAllocation_Host(b *testing.B) {
 func BenchmarkReadCPUQuota_V2(b *testing.B) {
 	tmpDir := b.TempDir()
 	cpuMaxPath := filepath.Join(tmpDir, "cpu.max")
-	_ = os.WriteFile(cpuMaxPath, []byte("200000 100000\n"), 0644)
+	_ = os.WriteFile(cpuMaxPath, []byte("200000 100000\n"), 0600)
 
 	for b.Loop() {
 		_, _, _ = readCPUQuota(tmpDir, 2)
@@ -748,7 +779,7 @@ func BenchmarkReadCPUUsage_V2(b *testing.B) {
 user_usec 1000000000
 system_usec 234567890
 `
-	_ = os.WriteFile(cpuStatPath, []byte(content), 0644)
+	_ = os.WriteFile(cpuStatPath, []byte(content), 0600)
 
 	for b.Loop() {
 		_, _ = readCPUUsage(tmpDir, 2)
@@ -763,7 +794,7 @@ nr_periods 1000
 nr_throttled 50
 throttled_usec 5000000
 `
-	_ = os.WriteFile(cpuStatPath, []byte(content), 0644)
+	_ = os.WriteFile(cpuStatPath, []byte(content), 0600)
 
 	for b.Loop() {
 		_, _ = readThrottleStats(tmpDir, 2)

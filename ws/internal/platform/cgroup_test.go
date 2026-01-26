@@ -20,6 +20,7 @@ import (
 // readMemoryLimitFromPath* test functions below, which use mock data and temp files.
 
 func TestGetMemoryLimit_ReturnsValidResult(t *testing.T) {
+	t.Parallel()
 	// Integration test: verify GetMemoryLimit works on current system
 	limit, err := GetMemoryLimit()
 
@@ -62,6 +63,7 @@ func parseMemoryLimit(v2Data, v1Data string, v2Exists, v1Exists bool) (int64, er
 }
 
 func TestParseMemoryLimit_V2_WithLimit(t *testing.T) {
+	t.Parallel()
 	// 512MB = 536870912 bytes
 	limit, err := parseMemoryLimit("536870912\n", "", true, false)
 
@@ -74,6 +76,7 @@ func TestParseMemoryLimit_V2_WithLimit(t *testing.T) {
 }
 
 func TestParseMemoryLimit_V2_Max(t *testing.T) {
+	t.Parallel()
 	// "max" means unlimited
 	limit, err := parseMemoryLimit("max\n", "", true, false)
 
@@ -86,6 +89,7 @@ func TestParseMemoryLimit_V2_Max(t *testing.T) {
 }
 
 func TestParseMemoryLimit_V2_LargeValue(t *testing.T) {
+	t.Parallel()
 	// 16GB
 	limit, err := parseMemoryLimit("17179869184\n", "", true, false)
 
@@ -98,6 +102,7 @@ func TestParseMemoryLimit_V2_LargeValue(t *testing.T) {
 }
 
 func TestParseMemoryLimit_V1_WithLimit(t *testing.T) {
+	t.Parallel()
 	// 1GB = 1073741824 bytes
 	limit, err := parseMemoryLimit("", "1073741824\n", false, true)
 
@@ -110,6 +115,7 @@ func TestParseMemoryLimit_V1_WithLimit(t *testing.T) {
 }
 
 func TestParseMemoryLimit_V1_VeryLargeValue(t *testing.T) {
+	t.Parallel()
 	// This represents "unlimited" on some v1 systems
 	// 9223372036854771712 is close to int64 max
 	limit, err := parseMemoryLimit("", "9223372036854771712\n", false, true)
@@ -123,6 +129,7 @@ func TestParseMemoryLimit_V1_VeryLargeValue(t *testing.T) {
 }
 
 func TestParseMemoryLimit_V2_Preferred_Over_V1(t *testing.T) {
+	t.Parallel()
 	// When both exist, v2 should be preferred
 	limit, err := parseMemoryLimit("536870912\n", "1073741824\n", true, true)
 
@@ -136,6 +143,7 @@ func TestParseMemoryLimit_V2_Preferred_Over_V1(t *testing.T) {
 }
 
 func TestParseMemoryLimit_NoFiles(t *testing.T) {
+	t.Parallel()
 	limit, err := parseMemoryLimit("", "", false, false)
 
 	if err != nil {
@@ -147,6 +155,7 @@ func TestParseMemoryLimit_NoFiles(t *testing.T) {
 }
 
 func TestParseMemoryLimit_InvalidV2Format(t *testing.T) {
+	t.Parallel()
 	_, err := parseMemoryLimit("invalid\n", "", true, false)
 
 	if err == nil {
@@ -155,6 +164,7 @@ func TestParseMemoryLimit_InvalidV2Format(t *testing.T) {
 }
 
 func TestParseMemoryLimit_InvalidV1Format(t *testing.T) {
+	t.Parallel()
 	_, err := parseMemoryLimit("", "not-a-number\n", false, true)
 
 	if err == nil {
@@ -169,7 +179,7 @@ func TestParseMemoryLimit_InvalidV1Format(t *testing.T) {
 // readMemoryLimitFromPath reads memory limit from a specific file path
 // This is a testable version of the file reading logic
 func readMemoryLimitFromPath(path string, isV2 bool) (int64, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // Test helper, path is from controlled test temp directory
 	if err != nil {
 		return 0, err
 	}
@@ -184,11 +194,12 @@ func readMemoryLimitFromPath(path string, isV2 bool) (int64, error) {
 }
 
 func TestReadMemoryLimitFromPath_V2_WithLimit(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	memMaxPath := filepath.Join(tmpDir, "memory.max")
 
 	// Write 256MB limit
-	err := os.WriteFile(memMaxPath, []byte("268435456\n"), 0644)
+	err := os.WriteFile(memMaxPath, []byte("268435456\n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -204,10 +215,11 @@ func TestReadMemoryLimitFromPath_V2_WithLimit(t *testing.T) {
 }
 
 func TestReadMemoryLimitFromPath_V2_Max(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	memMaxPath := filepath.Join(tmpDir, "memory.max")
 
-	err := os.WriteFile(memMaxPath, []byte("max\n"), 0644)
+	err := os.WriteFile(memMaxPath, []byte("max\n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -223,11 +235,12 @@ func TestReadMemoryLimitFromPath_V2_Max(t *testing.T) {
 }
 
 func TestReadMemoryLimitFromPath_V1(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	memLimitPath := filepath.Join(tmpDir, "memory.limit_in_bytes")
 
 	// Write 2GB limit
-	err := os.WriteFile(memLimitPath, []byte("2147483648\n"), 0644)
+	err := os.WriteFile(memLimitPath, []byte("2147483648\n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -243,6 +256,7 @@ func TestReadMemoryLimitFromPath_V1(t *testing.T) {
 }
 
 func TestReadMemoryLimitFromPath_MissingFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	missingPath := filepath.Join(tmpDir, "nonexistent")
 
@@ -253,10 +267,11 @@ func TestReadMemoryLimitFromPath_MissingFile(t *testing.T) {
 }
 
 func TestReadMemoryLimitFromPath_EmptyFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	emptyPath := filepath.Join(tmpDir, "empty")
 
-	err := os.WriteFile(emptyPath, []byte(""), 0644)
+	err := os.WriteFile(emptyPath, []byte(""), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -268,10 +283,11 @@ func TestReadMemoryLimitFromPath_EmptyFile(t *testing.T) {
 }
 
 func TestReadMemoryLimitFromPath_WhitespaceOnly(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	wsPath := filepath.Join(tmpDir, "whitespace")
 
-	err := os.WriteFile(wsPath, []byte("   \n  \t  \n"), 0644)
+	err := os.WriteFile(wsPath, []byte("   \n  \t  \n"), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -287,6 +303,7 @@ func TestReadMemoryLimitFromPath_WhitespaceOnly(t *testing.T) {
 // =============================================================================
 
 func TestMemorySizeConstants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		sizeStr     string
@@ -333,6 +350,7 @@ func TestMemorySizeConstants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			bytes, err := strconv.ParseInt(tt.sizeStr, 10, 64)
 			if err != nil {
 				t.Fatalf("Failed to parse %s: %v", tt.sizeStr, err)
@@ -351,6 +369,7 @@ func TestMemorySizeConstants(t *testing.T) {
 // =============================================================================
 
 func TestParseMemoryLimit_LeadingTrailingWhitespace(t *testing.T) {
+	t.Parallel()
 	limit, err := parseMemoryLimit("  536870912  \n", "", true, false)
 
 	if err != nil {
@@ -362,6 +381,7 @@ func TestParseMemoryLimit_LeadingTrailingWhitespace(t *testing.T) {
 }
 
 func TestParseMemoryLimit_V2_MaxWithWhitespace(t *testing.T) {
+	t.Parallel()
 	limit, err := parseMemoryLimit("  max  \n", "", true, false)
 
 	if err != nil {
@@ -373,6 +393,7 @@ func TestParseMemoryLimit_V2_MaxWithWhitespace(t *testing.T) {
 }
 
 func TestParseMemoryLimit_ZeroBytes(t *testing.T) {
+	t.Parallel()
 	// Zero is technically valid (though unusual)
 	limit, err := parseMemoryLimit("0\n", "", true, false)
 
@@ -385,6 +406,7 @@ func TestParseMemoryLimit_ZeroBytes(t *testing.T) {
 }
 
 func TestParseMemoryLimit_MinimalSize(t *testing.T) {
+	t.Parallel()
 	// Very small limit (1 byte)
 	limit, err := parseMemoryLimit("1\n", "", true, false)
 
@@ -421,7 +443,7 @@ func BenchmarkParseMemoryLimit_V1(b *testing.B) {
 func BenchmarkReadMemoryLimitFromPath(b *testing.B) {
 	tmpDir := b.TempDir()
 	memMaxPath := filepath.Join(tmpDir, "memory.max")
-	_ = os.WriteFile(memMaxPath, []byte("536870912\n"), 0644)
+	_ = os.WriteFile(memMaxPath, []byte("536870912\n"), 0600)
 
 	for b.Loop() {
 		_, _ = readMemoryLimitFromPath(memMaxPath, true)

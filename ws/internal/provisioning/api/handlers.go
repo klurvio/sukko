@@ -27,7 +27,7 @@ func NewHandler(svc *provisioning.Service, logger zerolog.Logger) *Handler {
 }
 
 // Health returns basic health status.
-func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

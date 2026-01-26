@@ -100,7 +100,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// Check capacity (NOT a failure condition - server operates within design limits at 100%)
 	capacityPercent := float64(currentConns) / float64(maxConns) * 100
 	capacityHealthy := true
-	if capacityPercent > 100 {
+	switch {
+	case capacityPercent > 100:
 		// If it comes here, it means the server is over loaded and the limit check is failing
 		capacityHealthy = false
 		errors = append(errors, fmt.Sprintf("Server at over capacity (%d/%d)", currentConns, maxConns))
@@ -108,14 +109,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			Int64("current", currentConns).
 			Int64("max", maxConns).
 			Msg("Health check failed: Server at over capacity")
-	} else if capacityPercent == 100 {
+	case capacityPercent == 100:
 		capacityHealthy = true
 		warnings = append(warnings, fmt.Sprintf("Server at full capacity (%d/%d)", currentConns, maxConns))
 		s.logger.Warn().
 			Int64("current", currentConns).
 			Int64("max", maxConns).
 			Msg("Server at full capacity - consider scaling")
-	} else if capacityPercent > 90 && capacityPercent < 100 {
+	case capacityPercent > 90:
 		capacityHealthy = true
 		warnings = append(warnings, fmt.Sprintf("Server near capacity (%.1f%%)", capacityPercent))
 	}

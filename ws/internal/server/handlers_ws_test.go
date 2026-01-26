@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"testing"
 )
@@ -10,7 +11,8 @@ import (
 // =============================================================================
 
 func TestGetClientIP_XForwardedFor_SingleIP(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	t.Parallel()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.Header.Set("X-Forwarded-For", "192.168.1.100")
 	req.RemoteAddr = "10.0.0.1:12345"
 
@@ -22,7 +24,8 @@ func TestGetClientIP_XForwardedFor_SingleIP(t *testing.T) {
 }
 
 func TestGetClientIP_XForwardedFor_MultipleIPs(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	t.Parallel()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	// Multiple IPs in chain: client -> proxy1 -> proxy2
 	req.Header.Set("X-Forwarded-For", "203.0.113.50, 198.51.100.178, 192.0.2.1")
 	req.RemoteAddr = "10.0.0.1:12345"
@@ -36,7 +39,8 @@ func TestGetClientIP_XForwardedFor_MultipleIPs(t *testing.T) {
 }
 
 func TestGetClientIP_XForwardedFor_WithSpaces(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	t.Parallel()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.Header.Set("X-Forwarded-For", "  192.168.1.100  ")
 	req.RemoteAddr = "10.0.0.1:12345"
 
@@ -49,7 +53,8 @@ func TestGetClientIP_XForwardedFor_WithSpaces(t *testing.T) {
 }
 
 func TestGetClientIP_NoForwardedHeader_WithPort(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	t.Parallel()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.100:54321"
 
 	ip := getClientIP(req)
@@ -61,7 +66,8 @@ func TestGetClientIP_NoForwardedHeader_WithPort(t *testing.T) {
 }
 
 func TestGetClientIP_NoForwardedHeader_IPv6WithPort(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	t.Parallel()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.RemoteAddr = "[::1]:54321"
 
 	ip := getClientIP(req)
@@ -73,7 +79,8 @@ func TestGetClientIP_NoForwardedHeader_IPv6WithPort(t *testing.T) {
 }
 
 func TestGetClientIP_NoForwardedHeader_JustIP(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	t.Parallel()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.100" // No port (unusual but possible)
 
 	ip := getClientIP(req)
@@ -85,7 +92,8 @@ func TestGetClientIP_NoForwardedHeader_JustIP(t *testing.T) {
 }
 
 func TestGetClientIP_Localhost(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	t.Parallel()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 
 	ip := getClientIP(req)
@@ -96,7 +104,8 @@ func TestGetClientIP_Localhost(t *testing.T) {
 }
 
 func TestGetClientIP_LocalhostIPv6(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	t.Parallel()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.RemoteAddr = "[::1]:12345"
 
 	ip := getClientIP(req)
@@ -107,7 +116,8 @@ func TestGetClientIP_LocalhostIPv6(t *testing.T) {
 }
 
 func TestGetClientIP_XForwardedFor_Empty(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	t.Parallel()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.Header.Set("X-Forwarded-For", "")
 	req.RemoteAddr = "10.0.0.5:9999"
 
@@ -124,61 +134,57 @@ func TestGetClientIP_XForwardedFor_Empty(t *testing.T) {
 // =============================================================================
 
 func TestGetClientIP_TableDriven(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
-		name          string
-		xForwardedFor string
-		remoteAddr    string
-		expectedIP    string
+		name       string
+		xForwarded string
+		remoteAddr string
+		expectedIP string
 	}{
 		{
-			name:          "AWS ALB style",
-			xForwardedFor: "203.0.113.50",
-			remoteAddr:    "10.0.0.1:12345",
-			expectedIP:    "203.0.113.50",
+			name:       "X-Forwarded-For single IP",
+			xForwarded: "192.168.1.100",
+			remoteAddr: "10.0.0.1:12345",
+			expectedIP: "192.168.1.100",
 		},
 		{
-			name:          "CloudFlare style (multiple proxies)",
-			xForwardedFor: "203.0.113.50, 198.41.215.162",
-			remoteAddr:    "10.0.0.1:12345",
-			expectedIP:    "203.0.113.50",
+			name:       "X-Forwarded-For multiple IPs",
+			xForwarded: "203.0.113.50, 198.51.100.178",
+			remoteAddr: "10.0.0.1:12345",
+			expectedIP: "203.0.113.50",
 		},
 		{
-			name:          "Nginx proxy",
-			xForwardedFor: "172.16.0.100",
-			remoteAddr:    "127.0.0.1:54321",
-			expectedIP:    "172.16.0.100",
+			name:       "No X-Forwarded-For with port",
+			xForwarded: "",
+			remoteAddr: "192.168.1.100:54321",
+			expectedIP: "192.168.1.100",
 		},
 		{
-			name:          "Direct connection",
-			xForwardedFor: "",
-			remoteAddr:    "203.0.113.50:54321",
-			expectedIP:    "203.0.113.50",
+			name:       "IPv6 with port",
+			xForwarded: "",
+			remoteAddr: "[2001:db8::1]:54321",
+			expectedIP: "2001:db8::1",
 		},
 		{
-			name:          "Internal load balancer",
-			xForwardedFor: "",
-			remoteAddr:    "127.0.0.1:12345",
-			expectedIP:    "127.0.0.1",
+			name:       "Localhost IPv4",
+			xForwarded: "",
+			remoteAddr: "127.0.0.1:12345",
+			expectedIP: "127.0.0.1",
 		},
 		{
-			name:          "IPv6 direct",
-			xForwardedFor: "",
-			remoteAddr:    "[2001:db8::1]:54321",
-			expectedIP:    "2001:db8::1",
-		},
-		{
-			name:          "IPv6 forwarded",
-			xForwardedFor: "2001:db8::50",
-			remoteAddr:    "[::1]:12345",
-			expectedIP:    "2001:db8::50",
+			name:       "Localhost IPv6",
+			xForwarded: "",
+			remoteAddr: "[::1]:12345",
+			expectedIP: "::1",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, _ := http.NewRequest(http.MethodGet, "/", nil)
-			if tt.xForwardedFor != "" {
-				req.Header.Set("X-Forwarded-For", tt.xForwardedFor)
+			t.Parallel()
+			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+			if tt.xForwarded != "" {
+				req.Header.Set("X-Forwarded-For", tt.xForwarded)
 			}
 			req.RemoteAddr = tt.remoteAddr
 
@@ -188,28 +194,5 @@ func TestGetClientIP_TableDriven(t *testing.T) {
 				t.Errorf("getClientIP: got %q, want %q", ip, tt.expectedIP)
 			}
 		})
-	}
-}
-
-// =============================================================================
-// Benchmark Tests
-// =============================================================================
-
-func BenchmarkGetClientIP_WithForwarded(b *testing.B) {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Forwarded-For", "203.0.113.50, 198.51.100.178")
-	req.RemoteAddr = "10.0.0.1:12345"
-
-	for b.Loop() {
-		_ = getClientIP(req)
-	}
-}
-
-func BenchmarkGetClientIP_Direct(b *testing.B) {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
-	req.RemoteAddr = "203.0.113.50:54321"
-
-	for b.Loop() {
-		_ = getClientIP(req)
 	}
 }

@@ -18,6 +18,7 @@ import (
 // =============================================================================
 
 func TestNewMultiAlerter(t *testing.T) {
+	t.Parallel()
 	alerter1 := &mockAlerter{}
 	alerter2 := &mockAlerter{}
 
@@ -32,6 +33,7 @@ func TestNewMultiAlerter(t *testing.T) {
 }
 
 func TestNewMultiAlerter_Empty(t *testing.T) {
+	t.Parallel()
 	multi := NewMultiAlerter()
 
 	if multi == nil {
@@ -43,6 +45,7 @@ func TestNewMultiAlerter_Empty(t *testing.T) {
 }
 
 func TestMultiAlerter_AlertAllAlerters(t *testing.T) {
+	t.Parallel()
 	alerter1 := &mockAlerter{}
 	alerter2 := &mockAlerter{}
 	alerter3 := &mockAlerter{}
@@ -67,6 +70,7 @@ func TestMultiAlerter_AlertAllAlerters(t *testing.T) {
 }
 
 func TestMultiAlerter_RunsInGoroutines(t *testing.T) {
+	t.Parallel()
 	// Create an alerter that blocks
 	blockingAlerter := &blockingAlerter{
 		blockDuration: 100 * time.Millisecond,
@@ -119,6 +123,7 @@ func (b *blockingAlerter) getAlerts() int {
 // =============================================================================
 
 func TestNewSlackAlerter(t *testing.T) {
+	t.Parallel()
 	alerter := NewSlackAlerter("https://hooks.slack.com/services/test", "#alerts", "AlertBot")
 
 	if alerter == nil {
@@ -136,6 +141,7 @@ func TestNewSlackAlerter(t *testing.T) {
 }
 
 func TestSlackAlerter_SkipsEmptyWebhook(t *testing.T) {
+	t.Parallel()
 	// Track if any HTTP request was made
 	var requestMade int32
 
@@ -160,6 +166,7 @@ func TestSlackAlerter_SkipsEmptyWebhook(t *testing.T) {
 }
 
 func TestSlackAlerter_SendsToWebhook(t *testing.T) {
+	t.Parallel()
 	var receivedPayload map[string]any
 	var receivedContentType string
 	var requestCount int32
@@ -206,6 +213,7 @@ func TestSlackAlerter_SendsToWebhook(t *testing.T) {
 }
 
 func TestSlackAlerter_getColor(t *testing.T) {
+	t.Parallel()
 	alerter := &SlackAlerter{}
 
 	tests := []struct {
@@ -221,6 +229,7 @@ func TestSlackAlerter_getColor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.level), func(t *testing.T) {
+			t.Parallel()
 			color := alerter.getColor(tt.level)
 			if color != tt.expected {
 				t.Errorf("getColor(%s): got %s, want %s", tt.level, color, tt.expected)
@@ -230,6 +239,7 @@ func TestSlackAlerter_getColor(t *testing.T) {
 }
 
 func TestSlackAlerter_getEmoji(t *testing.T) {
+	t.Parallel()
 	alerter := &SlackAlerter{}
 
 	tests := []struct {
@@ -245,6 +255,7 @@ func TestSlackAlerter_getEmoji(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.level), func(t *testing.T) {
+			t.Parallel()
 			emoji := alerter.getEmoji(tt.level)
 			if emoji != tt.expected {
 				t.Errorf("getEmoji(%s): got %s, want %s", tt.level, emoji, tt.expected)
@@ -254,6 +265,7 @@ func TestSlackAlerter_getEmoji(t *testing.T) {
 }
 
 func TestSlackAlerter_IncludesMetadataFields(t *testing.T) {
+	t.Parallel()
 	var receivedPayload map[string]any
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -291,11 +303,15 @@ func TestSlackAlerter_IncludesMetadataFields(t *testing.T) {
 }
 
 func TestSlackAlerter_Timeout(t *testing.T) {
+	t.Parallel()
 	// Create a server that hangs
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		time.Sleep(10 * time.Second) // Longer than timeout
 	}))
-	defer server.Close()
+	defer func() {
+		server.CloseClientConnections() // Force close hanging connections
+		server.Close()
+	}()
 
 	alerter := NewSlackAlerter(server.URL, "#test", "Bot")
 
@@ -314,6 +330,7 @@ func TestSlackAlerter_Timeout(t *testing.T) {
 // =============================================================================
 
 func TestNewConsoleAlerter(t *testing.T) {
+	t.Parallel()
 	alerter := NewConsoleAlerter()
 
 	if alerter == nil {
@@ -322,6 +339,7 @@ func TestNewConsoleAlerter(t *testing.T) {
 }
 
 func TestConsoleAlerter_Alert(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	alerter := NewConsoleAlerterWithWriter(&buf)
 
@@ -350,6 +368,7 @@ func TestConsoleAlerter_Alert(t *testing.T) {
 }
 
 func TestConsoleAlerter_NoMetadata(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	alerter := NewConsoleAlerterWithWriter(&buf)
 
@@ -370,6 +389,7 @@ func TestConsoleAlerter_NoMetadata(t *testing.T) {
 }
 
 func TestConsoleAlerter_EmptyMetadata(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	alerter := NewConsoleAlerterWithWriter(&buf)
 
@@ -387,10 +407,12 @@ func TestConsoleAlerter_EmptyMetadata(t *testing.T) {
 }
 
 func TestConsoleAlerter_AllLevels(t *testing.T) {
+	t.Parallel()
 	levels := []AuditLevel{DEBUG, INFO, WARNING, ERROR, CRITICAL}
 
 	for _, level := range levels {
 		t.Run(string(level), func(t *testing.T) {
+			t.Parallel()
 			var buf bytes.Buffer
 			alerter := NewConsoleAlerterWithWriter(&buf)
 
@@ -414,6 +436,7 @@ func TestConsoleAlerter_AllLevels(t *testing.T) {
 // =============================================================================
 
 func TestAlerterInterface_MockAlerter(t *testing.T) {
+	t.Parallel()
 	var alerter Alerter = &mockAlerter{}
 
 	alerter.Alert(ERROR, "Test", nil)
@@ -427,6 +450,7 @@ func TestAlerterInterface_MockAlerter(t *testing.T) {
 }
 
 func TestAlerterInterface_SlackAlerter(t *testing.T) {
+	t.Parallel()
 	var alerter Alerter = NewSlackAlerter("", "", "")
 
 	// Should not panic even with empty config
@@ -434,6 +458,7 @@ func TestAlerterInterface_SlackAlerter(t *testing.T) {
 }
 
 func TestAlerterInterface_ConsoleAlerter(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	var alerter Alerter = NewConsoleAlerterWithWriter(&buf)
 

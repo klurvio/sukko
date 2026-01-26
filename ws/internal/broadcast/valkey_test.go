@@ -11,6 +11,7 @@ import (
 
 // TestValkeyBus_ConfigValidation tests configuration validation
 func TestValkeyBus_ConfigValidation(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	tests := []struct {
@@ -58,6 +59,7 @@ func TestValkeyBus_ConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := newValkeyBus(tt.cfg, logger)
 			if tt.wantErr != "" {
 				if err == nil {
@@ -73,6 +75,7 @@ func TestValkeyBus_ConfigValidation(t *testing.T) {
 
 // TestValkeyBus_DefaultValues tests that defaults are applied
 func TestValkeyBus_DefaultValues(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	cfg := Config{
@@ -99,6 +102,7 @@ func TestValkeyBus_DefaultValues(t *testing.T) {
 
 // TestValkeyBus_DirectVsSentinel tests mode selection based on addr count
 func TestValkeyBus_DirectVsSentinel(t *testing.T) {
+	t.Parallel()
 	// This is more of a documentation test - verifying the logic is correct
 	// based on the number of addresses
 
@@ -115,6 +119,7 @@ func TestValkeyBus_DirectVsSentinel(t *testing.T) {
 
 // TestValkeyBus_SubscribeChannel tests the subscribe channel creation
 func TestValkeyBus_SubscribeChannel(t *testing.T) {
+	t.Parallel()
 	// Test that subscribe returns a channel with correct buffer size
 	bufferSize := 512
 
@@ -143,6 +148,7 @@ func TestValkeyBus_SubscribeChannel(t *testing.T) {
 
 // TestValkeyBus_FanOutLogic tests the fan-out behavior
 func TestValkeyBus_FanOutLogic(t *testing.T) {
+	t.Parallel()
 	// Test fan-out to multiple subscribers
 	const numSubscribers = 3
 	subscribers := make([]chan *Message, numSubscribers)
@@ -189,6 +195,7 @@ func TestValkeyBus_FanOutLogic(t *testing.T) {
 
 // TestValkeyBus_FanOutDropsOnFullChannel tests drop behavior
 func TestValkeyBus_FanOutDropsOnFullChannel(t *testing.T) {
+	t.Parallel()
 	// Create a full channel (buffer size 1, already has 1 message)
 	subCh := make(chan *Message, 1)
 	subCh <- &Message{Subject: "existing"}
@@ -211,6 +218,7 @@ func TestValkeyBus_FanOutDropsOnFullChannel(t *testing.T) {
 
 // TestValkeyBus_ContextCancellation tests shutdown via context
 func TestValkeyBus_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Simulate a loop that checks context
@@ -239,6 +247,7 @@ func TestValkeyBus_ContextCancellation(t *testing.T) {
 
 // TestValkeyBus_MetricsStructure tests metrics returned format
 func TestValkeyBus_MetricsStructure(t *testing.T) {
+	t.Parallel()
 	// Verify metrics structure matches expected format
 	m := Metrics{
 		Type:             "valkey",

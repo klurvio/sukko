@@ -189,7 +189,7 @@ func (r *StaticKeyRegistry) AddKey(key *KeyInfo) error {
 }
 
 // GetKey retrieves a key by ID.
-func (r *StaticKeyRegistry) GetKey(ctx context.Context, keyID string) (*KeyInfo, error) {
+func (r *StaticKeyRegistry) GetKey(_ context.Context, keyID string) (*KeyInfo, error) {
 	key, ok := r.keys[keyID]
 	if !ok {
 		return nil, ErrKeyNotFound
@@ -207,7 +207,7 @@ func (r *StaticKeyRegistry) GetKey(ctx context.Context, keyID string) (*KeyInfo,
 }
 
 // GetKeysByTenant retrieves all active keys for a tenant.
-func (r *StaticKeyRegistry) GetKeysByTenant(ctx context.Context, tenantID string) ([]*KeyInfo, error) {
+func (r *StaticKeyRegistry) GetKeysByTenant(_ context.Context, tenantID string) ([]*KeyInfo, error) {
 	var keys []*KeyInfo
 	for _, key := range r.keys {
 		if key.TenantID == tenantID && key.IsValid() {

@@ -5,7 +5,9 @@ import (
 )
 
 func TestNewChannelMapper(t *testing.T) {
+	t.Parallel()
 	t.Run("with default config", func(t *testing.T) {
+		t.Parallel()
 		m := NewChannelMapper(DefaultChannelConfig())
 		if m == nil {
 			t.Fatal("expected non-nil mapper")
@@ -19,6 +21,7 @@ func TestNewChannelMapper(t *testing.T) {
 	})
 
 	t.Run("with empty separator defaults to dot", func(t *testing.T) {
+		t.Parallel()
 		m := NewChannelMapper(ChannelConfig{Separator: ""})
 		if m.config.Separator != "." {
 			t.Errorf("expected separator '.', got %q", m.config.Separator)
@@ -26,6 +29,7 @@ func TestNewChannelMapper(t *testing.T) {
 	})
 
 	t.Run("with custom separator", func(t *testing.T) {
+		t.Parallel()
 		m := NewChannelMapper(ChannelConfig{Separator: "/"})
 		if m.config.Separator != "/" {
 			t.Errorf("expected separator '/', got %q", m.config.Separator)
@@ -34,6 +38,7 @@ func TestNewChannelMapper(t *testing.T) {
 }
 
 func TestChannelMapper_MapToInternal(t *testing.T) {
+	t.Parallel()
 	m := NewChannelMapper(DefaultChannelConfig())
 
 	tests := []struct {
@@ -76,6 +81,7 @@ func TestChannelMapper_MapToInternal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := m.MapToInternal(tt.claims, tt.clientChannel)
 			if result != tt.expected {
 				t.Errorf("MapToInternal(%v, %q) = %q, want %q",
@@ -86,6 +92,7 @@ func TestChannelMapper_MapToInternal(t *testing.T) {
 }
 
 func TestChannelMapper_MapToInternal_TenantExplicit(t *testing.T) {
+	t.Parallel()
 	m := NewChannelMapper(ChannelConfig{
 		Separator:      ".",
 		TenantImplicit: false, // Tenant explicit in channel
@@ -101,6 +108,7 @@ func TestChannelMapper_MapToInternal_TenantExplicit(t *testing.T) {
 }
 
 func TestChannelMapper_MapToClient(t *testing.T) {
+	t.Parallel()
 	m := NewChannelMapper(DefaultChannelConfig())
 
 	tests := []struct {
@@ -132,6 +140,7 @@ func TestChannelMapper_MapToClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := m.MapToClient(tt.internalChannel)
 			if result != tt.expected {
 				t.Errorf("MapToClient(%q) = %q, want %q",
@@ -142,6 +151,7 @@ func TestChannelMapper_MapToClient(t *testing.T) {
 }
 
 func TestChannelMapper_MapToClientWithTenant(t *testing.T) {
+	t.Parallel()
 	m := NewChannelMapper(DefaultChannelConfig())
 
 	tests := []struct {
@@ -172,6 +182,7 @@ func TestChannelMapper_MapToClientWithTenant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			client, tenant := m.MapToClientWithTenant(tt.internalChannel)
 			if client != tt.expectedClient {
 				t.Errorf("MapToClientWithTenant(%q) client = %q, want %q",
@@ -186,6 +197,7 @@ func TestChannelMapper_MapToClientWithTenant(t *testing.T) {
 }
 
 func TestChannelMapper_ExtractTenant(t *testing.T) {
+	t.Parallel()
 	m := NewChannelMapper(DefaultChannelConfig())
 
 	tests := []struct {
@@ -200,6 +212,7 @@ func TestChannelMapper_ExtractTenant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.channel, func(t *testing.T) {
+			t.Parallel()
 			result := m.ExtractTenant(tt.channel)
 			if result != tt.expected {
 				t.Errorf("ExtractTenant(%q) = %q, want %q", tt.channel, result, tt.expected)
@@ -209,6 +222,7 @@ func TestChannelMapper_ExtractTenant(t *testing.T) {
 }
 
 func TestChannelMapper_ValidateChannelAccess(t *testing.T) {
+	t.Parallel()
 	m := NewChannelMapper(DefaultChannelConfig())
 
 	tests := []struct {
@@ -266,6 +280,7 @@ func TestChannelMapper_ValidateChannelAccess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := m.ValidateChannelAccess(tt.claims, tt.internalChannel, tt.crossTenantRoles)
 			if result != tt.expected {
 				t.Errorf("ValidateChannelAccess() = %v, want %v", result, tt.expected)
@@ -275,6 +290,7 @@ func TestChannelMapper_ValidateChannelAccess(t *testing.T) {
 }
 
 func TestChannelMapper_ParseChannel(t *testing.T) {
+	t.Parallel()
 	m := NewChannelMapper(DefaultChannelConfig())
 
 	tests := []struct {
@@ -306,6 +322,7 @@ func TestChannelMapper_ParseChannel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.channel, func(t *testing.T) {
+			t.Parallel()
 			result := m.ParseChannel(tt.channel)
 
 			if result.Tenant != tt.expectedTenant {
@@ -335,6 +352,7 @@ func TestChannelMapper_ParseChannel(t *testing.T) {
 }
 
 func TestChannelMapper_BuildInternalChannel(t *testing.T) {
+	t.Parallel()
 	m := NewChannelMapper(DefaultChannelConfig())
 
 	tests := []struct {
@@ -349,6 +367,7 @@ func TestChannelMapper_BuildInternalChannel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
+			t.Parallel()
 			result := m.BuildInternalChannel(tt.tenant, tt.parts...)
 			if result != tt.expected {
 				t.Errorf("BuildInternalChannel(%q, %v) = %q, want %q",
@@ -359,6 +378,7 @@ func TestChannelMapper_BuildInternalChannel(t *testing.T) {
 }
 
 func TestIsSharedChannel(t *testing.T) {
+	t.Parallel()
 	sharedPatterns := []string{"system.*", "broadcast.*", "*.global"}
 
 	tests := []struct {
@@ -376,6 +396,7 @@ func TestIsSharedChannel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.channel, func(t *testing.T) {
+			t.Parallel()
 			result := IsSharedChannel(tt.channel, sharedPatterns)
 			if result != tt.expected {
 				t.Errorf("IsSharedChannel(%q) = %v, want %v", tt.channel, result, tt.expected)
@@ -385,6 +406,7 @@ func TestIsSharedChannel(t *testing.T) {
 }
 
 func TestMatchSimplePattern(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		pattern  string
 		value    string
@@ -409,6 +431,7 @@ func TestMatchSimplePattern(t *testing.T) {
 	for _, tt := range tests {
 		name := tt.pattern + "_" + tt.value
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			result := matchSimplePattern(tt.pattern, tt.value)
 			if result != tt.expected {
 				t.Errorf("matchSimplePattern(%q, %q) = %v, want %v",
@@ -419,6 +442,7 @@ func TestMatchSimplePattern(t *testing.T) {
 }
 
 func TestDefaultChannelConfig(t *testing.T) {
+	t.Parallel()
 	config := DefaultChannelConfig()
 
 	if config.Separator != "." {
@@ -431,6 +455,7 @@ func TestDefaultChannelConfig(t *testing.T) {
 }
 
 func TestChannelMapper_RoundTrip(t *testing.T) {
+	t.Parallel()
 	m := NewChannelMapper(DefaultChannelConfig())
 	claims := &Claims{TenantID: "acme"}
 
@@ -444,6 +469,7 @@ func TestChannelMapper_RoundTrip(t *testing.T) {
 
 	for _, clientChannel := range clientChannels {
 		t.Run(clientChannel, func(t *testing.T) {
+			t.Parallel()
 			internal := m.MapToInternal(claims, clientChannel)
 			roundTrip := m.MapToClient(internal)
 

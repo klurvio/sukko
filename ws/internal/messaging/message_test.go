@@ -11,6 +11,7 @@ import (
 // =============================================================================
 
 func TestSequenceGenerator_Next(t *testing.T) {
+	t.Parallel()
 	sg := NewSequenceGenerator()
 
 	// First sequence should be 1
@@ -33,6 +34,7 @@ func TestSequenceGenerator_Next(t *testing.T) {
 }
 
 func TestSequenceGenerator_Monotonic(t *testing.T) {
+	t.Parallel()
 	sg := NewSequenceGenerator()
 	const count = 1000
 
@@ -47,6 +49,7 @@ func TestSequenceGenerator_Monotonic(t *testing.T) {
 }
 
 func TestSequenceGenerator_Current(t *testing.T) {
+	t.Parallel()
 	sg := NewSequenceGenerator()
 
 	// Initial current should be 0
@@ -69,6 +72,7 @@ func TestSequenceGenerator_Current(t *testing.T) {
 }
 
 func TestSequenceGenerator_Reset(t *testing.T) {
+	t.Parallel()
 	sg := NewSequenceGenerator()
 
 	// Generate some sequences
@@ -95,6 +99,7 @@ func TestSequenceGenerator_Reset(t *testing.T) {
 }
 
 func TestSequenceGenerator_Concurrent(t *testing.T) {
+	t.Parallel()
 	sg := NewSequenceGenerator()
 	const numGoroutines = 100
 	const numOps = 100
@@ -142,6 +147,7 @@ func TestSequenceGenerator_Concurrent(t *testing.T) {
 // =============================================================================
 
 func TestMessageEnvelope_Serialize(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"tokenId":"BTC","price":"100.50"}`)
 	envelope := &MessageEnvelope{
 		Seq:       1,
@@ -177,6 +183,7 @@ func TestMessageEnvelope_Serialize(t *testing.T) {
 }
 
 func TestMessageEnvelope_Priority(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		priority MessagePriority
@@ -188,6 +195,7 @@ func TestMessageEnvelope_Priority(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			envelope := &MessageEnvelope{
 				Seq:      1,
 				Channel:  "test.channel",
@@ -214,6 +222,7 @@ func TestMessageEnvelope_Priority(t *testing.T) {
 }
 
 func TestMessageEnvelope_DataPreserved(t *testing.T) {
+	t.Parallel()
 	originalData := `{"nested":{"key":"value"},"array":[1,2,3]}`
 	envelope := &MessageEnvelope{
 		Seq:     1,
@@ -257,6 +266,7 @@ func TestMessageEnvelope_DataPreserved(t *testing.T) {
 }
 
 func TestWrapMessage(t *testing.T) {
+	t.Parallel()
 	sg := NewSequenceGenerator()
 	data := []byte(`{"tokenId":"BTC","price":"100.50"}`)
 
@@ -283,6 +293,7 @@ func TestWrapMessage(t *testing.T) {
 }
 
 func TestWrapMessage_SequenceIncrement(t *testing.T) {
+	t.Parallel()
 	sg := NewSequenceGenerator()
 
 	env1, _ := WrapMessage([]byte(`{}`), "test.channel", PRIORITY_NORMAL, sg)
@@ -296,6 +307,7 @@ func TestWrapMessage_SequenceIncrement(t *testing.T) {
 }
 
 func TestMessagePriority_Values(t *testing.T) {
+	t.Parallel()
 	// Verify priority constants have expected values
 	if PRIORITY_CRITICAL != 0 {
 		t.Errorf("PRIORITY_CRITICAL should be 0, got %d", PRIORITY_CRITICAL)

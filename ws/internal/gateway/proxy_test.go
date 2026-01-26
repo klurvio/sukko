@@ -50,6 +50,7 @@ func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatter
 }
 
 func TestProxy_InterceptClientMessage_AnonymousBypass(t *testing.T) {
+	t.Parallel()
 	// Anonymous users should bypass all filtering
 	anonClaims := &auth.Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -72,6 +73,7 @@ func TestProxy_InterceptClientMessage_AnonymousBypass(t *testing.T) {
 }
 
 func TestProxy_InterceptClientMessage_NilClaimsBypass(t *testing.T) {
+	t.Parallel()
 	// Nil claims should bypass filtering
 	proxy := newTestProxy(nil, []string{"*.trade"}, nil, nil)
 
@@ -88,7 +90,8 @@ func TestProxy_InterceptClientMessage_NilClaimsBypass(t *testing.T) {
 }
 
 func TestProxy_InterceptClientMessage_NonJSON(t *testing.T) {
-	proxy := newTestProxy(testClaims("user123"), []string{"*.trade"}, nil, nil)
+	t.Parallel()
+	proxy := newTestProxy(testClaims("user456"), []string{"*.trade"}, nil, nil)
 
 	// Non-JSON messages should pass through
 	inputs := []string{
@@ -100,6 +103,7 @@ func TestProxy_InterceptClientMessage_NonJSON(t *testing.T) {
 
 	for _, input := range inputs {
 		t.Run(input, func(t *testing.T) {
+			t.Parallel()
 			result, _ := proxy.interceptClientMessage([]byte(input))
 			if string(result) != input {
 				t.Errorf("Non-JSON should pass through unchanged.\nGot:  %s\nWant: %s", result, input)
@@ -109,6 +113,7 @@ func TestProxy_InterceptClientMessage_NonJSON(t *testing.T) {
 }
 
 func TestProxy_InterceptClientMessage_NonSubscribe(t *testing.T) {
+	t.Parallel()
 	proxy := newTestProxy(testClaims("user123"), []string{"*.trade"}, nil, nil)
 
 	// Non-subscribe messages should pass through
@@ -121,6 +126,7 @@ func TestProxy_InterceptClientMessage_NonSubscribe(t *testing.T) {
 
 	for _, input := range messages {
 		t.Run(input, func(t *testing.T) {
+			t.Parallel()
 			result, _ := proxy.interceptClientMessage([]byte(input))
 			if string(result) != input {
 				t.Errorf("Non-subscribe should pass through unchanged.\nGot:  %s\nWant: %s", result, input)
@@ -130,6 +136,7 @@ func TestProxy_InterceptClientMessage_NonSubscribe(t *testing.T) {
 }
 
 func TestProxy_InterceptClientMessage_AllAllowed(t *testing.T) {
+	t.Parallel()
 	proxy := newTestProxy(testClaims("user123"), []string{"*.trade", "*.liquidity"}, nil, nil)
 
 	input := `{"type":"subscribe","data":{"channels":["BTC.trade","ETH.liquidity"]}}`
@@ -146,6 +153,7 @@ func TestProxy_InterceptClientMessage_AllAllowed(t *testing.T) {
 }
 
 func TestProxy_InterceptClientMessage_SomeFiltered(t *testing.T) {
+	t.Parallel()
 	proxy := newTestProxy(testClaims("user123"), []string{"*.trade"}, nil, nil)
 
 	input := `{"type":"subscribe","data":{"channels":["BTC.trade","secret.channel","ETH.trade"]}}`
@@ -180,6 +188,7 @@ func TestProxy_InterceptClientMessage_SomeFiltered(t *testing.T) {
 }
 
 func TestProxy_InterceptClientMessage_AllFiltered(t *testing.T) {
+	t.Parallel()
 	proxy := newTestProxy(testClaims("user123"), []string{"*.trade"}, nil, nil)
 
 	input := `{"type":"subscribe","data":{"channels":["secret.channel","forbidden.data"]}}`
@@ -207,6 +216,7 @@ func TestProxy_InterceptClientMessage_AllFiltered(t *testing.T) {
 }
 
 func TestProxy_InterceptClientMessage_UserScoped(t *testing.T) {
+	t.Parallel()
 	proxy := newTestProxy(
 		testClaims("user123"),
 		[]string{"*.trade"},
@@ -238,6 +248,7 @@ func TestProxy_InterceptClientMessage_UserScoped(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			inputData := SubscribeData{Channels: tt.channels}
 			dataBytes, _ := json.Marshal(inputData)
 			inputMsg := ClientMessage{Type: "subscribe", Data: dataBytes}
@@ -266,6 +277,7 @@ func TestProxy_InterceptClientMessage_UserScoped(t *testing.T) {
 }
 
 func TestProxy_InterceptClientMessage_GroupScoped(t *testing.T) {
+	t.Parallel()
 	proxy := newTestProxy(
 		testClaimsWithGroups("user123", []string{"vip", "traders"}),
 		[]string{"*.trade"},
@@ -297,6 +309,7 @@ func TestProxy_InterceptClientMessage_GroupScoped(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			inputData := SubscribeData{Channels: tt.channels}
 			dataBytes, _ := json.Marshal(inputData)
 			inputMsg := ClientMessage{Type: "subscribe", Data: dataBytes}
@@ -325,6 +338,7 @@ func TestProxy_InterceptClientMessage_GroupScoped(t *testing.T) {
 }
 
 func TestProxy_InterceptClientMessage_MalformedSubscribeData(t *testing.T) {
+	t.Parallel()
 	proxy := newTestProxy(testClaims("user123"), []string{"*.trade"}, nil, nil)
 
 	// Valid subscribe type but malformed data
@@ -338,6 +352,7 @@ func TestProxy_InterceptClientMessage_MalformedSubscribeData(t *testing.T) {
 }
 
 func TestContains(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		slice []string
@@ -356,6 +371,7 @@ func TestContains(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := contains(tt.slice, tt.val)
 			if got != tt.want {
 				t.Errorf("contains(%v, %q) = %v, want %v", tt.slice, tt.val, got, tt.want)

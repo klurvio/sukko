@@ -39,6 +39,7 @@ func newValidGatewayConfig() *GatewayConfig {
 }
 
 func TestGatewayConfig_Validate_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := newValidGatewayConfig()
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Valid config should not error: %v", err)
@@ -46,6 +47,7 @@ func TestGatewayConfig_Validate_Valid(t *testing.T) {
 }
 
 func TestGatewayConfig_Validate_AuthDisabled(t *testing.T) {
+	t.Parallel()
 	cfg := newValidGatewayConfig()
 	cfg.AuthEnabled = false
 	cfg.ProvisioningDBURL = "" // Should be OK when auth disabled
@@ -56,6 +58,7 @@ func TestGatewayConfig_Validate_AuthDisabled(t *testing.T) {
 }
 
 func TestGatewayConfig_Validate_AuthEnabled_RequiresDB(t *testing.T) {
+	t.Parallel()
 	cfg := newValidGatewayConfig()
 	cfg.AuthEnabled = true
 	cfg.ProvisioningDBURL = "" // Missing DB URL
@@ -70,6 +73,7 @@ func TestGatewayConfig_Validate_AuthEnabled_RequiresDB(t *testing.T) {
 }
 
 func TestGatewayConfig_Validate_AuthEnabled_WithDB(t *testing.T) {
+	t.Parallel()
 	cfg := newValidGatewayConfig()
 	cfg.AuthEnabled = true
 	cfg.ProvisioningDBURL = "postgres://test:test@localhost:5432/test"
@@ -80,6 +84,7 @@ func TestGatewayConfig_Validate_AuthEnabled_WithDB(t *testing.T) {
 }
 
 func TestGatewayConfig_Validate_Port(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		port        int
@@ -95,6 +100,7 @@ func TestGatewayConfig_Validate_Port(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidGatewayConfig()
 			cfg.Port = tt.port
 			err := cfg.Validate()
@@ -109,6 +115,7 @@ func TestGatewayConfig_Validate_Port(t *testing.T) {
 }
 
 func TestGatewayConfig_Validate_DBPoolSettings(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		maxOpenConns  int
@@ -128,6 +135,7 @@ func TestGatewayConfig_Validate_DBPoolSettings(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidGatewayConfig()
 			cfg.DBMaxOpenConns = tt.maxOpenConns
 			cfg.DBMaxIdleConns = tt.maxIdleConns
@@ -148,6 +156,7 @@ func TestGatewayConfig_Validate_DBPoolSettings(t *testing.T) {
 }
 
 func TestGatewayConfig_Validate_BackendURL(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		url         string
@@ -161,6 +170,7 @@ func TestGatewayConfig_Validate_BackendURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidGatewayConfig()
 			cfg.BackendURL = tt.url
 			err := cfg.Validate()
@@ -175,6 +185,7 @@ func TestGatewayConfig_Validate_BackendURL(t *testing.T) {
 }
 
 func TestGatewayConfig_Validate_PublicPatterns(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		patterns    []string
@@ -188,6 +199,7 @@ func TestGatewayConfig_Validate_PublicPatterns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidGatewayConfig()
 			cfg.PublicPatterns = tt.patterns
 			err := cfg.Validate()
@@ -202,11 +214,13 @@ func TestGatewayConfig_Validate_PublicPatterns(t *testing.T) {
 }
 
 func TestGatewayConfig_Validate_LogLevel(t *testing.T) {
+	t.Parallel()
 	validLevels := []string{"debug", "info", "warn", "error"}
 	invalidLevels := []string{"DEBUG", "INFO", "invalid", "", "trace"}
 
 	for _, level := range validLevels {
 		t.Run("valid_"+level, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidGatewayConfig()
 			cfg.LogLevel = level
 			if err := cfg.Validate(); err != nil {
@@ -217,6 +231,7 @@ func TestGatewayConfig_Validate_LogLevel(t *testing.T) {
 
 	for _, level := range invalidLevels {
 		t.Run("invalid_"+level, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidGatewayConfig()
 			cfg.LogLevel = level
 			err := cfg.Validate()
@@ -231,11 +246,13 @@ func TestGatewayConfig_Validate_LogLevel(t *testing.T) {
 }
 
 func TestGatewayConfig_Validate_LogFormat(t *testing.T) {
+	t.Parallel()
 	validFormats := []string{"json", "text", "pretty"}
 	invalidFormats := []string{"JSON", "xml", "", "console"}
 
 	for _, format := range validFormats {
 		t.Run("valid_"+format, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidGatewayConfig()
 			cfg.LogFormat = format
 			if err := cfg.Validate(); err != nil {
@@ -246,6 +263,7 @@ func TestGatewayConfig_Validate_LogFormat(t *testing.T) {
 
 	for _, format := range invalidFormats {
 		t.Run("invalid_"+format, func(t *testing.T) {
+			t.Parallel()
 			cfg := newValidGatewayConfig()
 			cfg.LogFormat = format
 			err := cfg.Validate()

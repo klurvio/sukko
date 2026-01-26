@@ -11,6 +11,7 @@ import (
 
 // TestNATSBus_ConfigValidation tests configuration validation
 func TestNATSBus_ConfigValidation(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	tests := []struct {
@@ -58,6 +59,7 @@ func TestNATSBus_ConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := newNATSBus(tt.cfg, logger)
 			if tt.wantErr != "" {
 				if err == nil {
@@ -73,6 +75,7 @@ func TestNATSBus_ConfigValidation(t *testing.T) {
 
 // TestNATSBus_DefaultValues tests that defaults are applied
 func TestNATSBus_DefaultValues(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 
 	cfg := Config{
@@ -101,6 +104,7 @@ func TestNATSBus_DefaultValues(t *testing.T) {
 
 // TestNATSBus_ClusterURLBuilding tests URL building for cluster mode
 func TestNATSBus_ClusterURLBuilding(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		urls        []string
@@ -129,6 +133,7 @@ func TestNATSBus_ClusterURLBuilding(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var serverURL string
 			if tt.clusterMode && len(tt.urls) > 1 {
 				serverURL = ""
@@ -159,6 +164,7 @@ func TestNATSBus_ClusterURLBuilding(t *testing.T) {
 
 // TestNATSBus_SubscribeChannel tests subscribe channel creation
 func TestNATSBus_SubscribeChannel(t *testing.T) {
+	t.Parallel()
 	bufferSize := 256
 
 	var subscribers []chan *Message
@@ -183,6 +189,7 @@ func TestNATSBus_SubscribeChannel(t *testing.T) {
 
 // TestNATSBus_FanOutLogic tests fan-out to subscribers
 func TestNATSBus_FanOutLogic(t *testing.T) {
+	t.Parallel()
 	const numSubscribers = 5
 	subscribers := make([]chan *Message, numSubscribers)
 	for i := range numSubscribers {
@@ -210,6 +217,7 @@ func TestNATSBus_FanOutLogic(t *testing.T) {
 
 // TestNATSBus_MetricsType tests that NATS metrics report correct type
 func TestNATSBus_MetricsType(t *testing.T) {
+	t.Parallel()
 	m := Metrics{
 		Type:             "nats",
 		Healthy:          true,
@@ -226,6 +234,7 @@ func TestNATSBus_MetricsType(t *testing.T) {
 
 // TestNATSBus_AuthOptions tests authentication option handling
 func TestNATSBus_AuthOptions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		cfg      NATSConfig
@@ -269,12 +278,14 @@ func TestNATSBus_AuthOptions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var authType string
-			if tt.cfg.Token != "" {
+			switch {
+			case tt.cfg.Token != "":
 				authType = "token"
-			} else if tt.cfg.User != "" && tt.cfg.Password != "" {
+			case tt.cfg.User != "" && tt.cfg.Password != "":
 				authType = "user"
-			} else {
+			default:
 				authType = "none"
 			}
 
@@ -287,6 +298,7 @@ func TestNATSBus_AuthOptions(t *testing.T) {
 
 // TestNATSBus_ReconnectSettings tests reconnection configuration
 func TestNATSBus_ReconnectSettings(t *testing.T) {
+	t.Parallel()
 	cfg := NATSConfig{
 		ReconnectWait: 5 * time.Second,
 		MaxReconnects: 10,
@@ -308,6 +320,7 @@ func TestNATSBus_ReconnectSettings(t *testing.T) {
 
 // TestNATSBus_HealthCheck tests health check logic
 func TestNATSBus_HealthCheck(t *testing.T) {
+	t.Parallel()
 	// Simulate health check conditions
 	tests := []struct {
 		name        string
@@ -323,6 +336,7 @@ func TestNATSBus_HealthCheck(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Simulate IsHealthy() logic
 			result := tt.healthy && tt.isConnected
 			if result != tt.wantHealthy {

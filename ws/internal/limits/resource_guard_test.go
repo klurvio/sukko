@@ -40,6 +40,7 @@ func (m *mockSystemMonitor) GetMetrics() monitoring.SystemMetrics {
 }
 
 func TestCPURejectHysteresis(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		initialState   bool    // isRejectingCPU initial value
@@ -125,6 +126,7 @@ func TestCPURejectHysteresis(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Create mock system monitor with controlled CPU value
 			mock := &mockSystemMonitor{cpuPercent: tt.currentCPU}
 
@@ -168,6 +170,7 @@ func TestCPURejectHysteresis(t *testing.T) {
 }
 
 func TestCPUPauseKafkaHysteresis(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		initialState   bool    // isPausingKafka initial value
@@ -217,6 +220,7 @@ func TestCPUPauseKafkaHysteresis(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Create mock system monitor with controlled CPU value
 			mock := &mockSystemMonitor{cpuPercent: tt.currentCPU}
 
@@ -260,6 +264,7 @@ func TestCPUPauseKafkaHysteresis(t *testing.T) {
 }
 
 func TestHysteresisStateVisibility(t *testing.T) {
+	t.Parallel()
 	// Test that GetStats() exposes hysteresis state
 	var connCount int64 = 5
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
@@ -320,6 +325,7 @@ func TestHysteresisStateVisibility(t *testing.T) {
 }
 
 func TestHysteresisInitialState(t *testing.T) {
+	t.Parallel()
 	// Test that hysteresis starts in accepting/running state (not rejecting/pausing)
 	var connCount int64 = 0
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
@@ -353,6 +359,7 @@ func TestHysteresisInitialState(t *testing.T) {
 }
 
 func TestHysteresisConfigInStats(t *testing.T) {
+	t.Parallel()
 	// Test that threshold configs are exposed in GetStats()
 	var connCount int64 = 0
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
@@ -395,6 +402,7 @@ func TestHysteresisConfigInStats(t *testing.T) {
 // =============================================================================
 
 func TestGoroutineLimiter_AcquireRelease(t *testing.T) {
+	t.Parallel()
 	limiter := NewGoroutineLimiter(3)
 
 	// Initial state
@@ -434,6 +442,7 @@ func TestGoroutineLimiter_AcquireRelease(t *testing.T) {
 }
 
 func TestGoroutineLimiter_Concurrent(t *testing.T) {
+	t.Parallel()
 	limiter := NewGoroutineLimiter(100)
 	const numGoroutines = 200
 	const iterations = 100
@@ -481,6 +490,7 @@ func TestGoroutineLimiter_Concurrent(t *testing.T) {
 }
 
 func TestGoroutineLimiter_ZeroMax(t *testing.T) {
+	t.Parallel()
 	limiter := NewGoroutineLimiter(0)
 
 	if limiter.Max() != 0 {
@@ -498,6 +508,7 @@ func TestGoroutineLimiter_ZeroMax(t *testing.T) {
 // =============================================================================
 
 func TestResourceGuard_AllowBroadcast(t *testing.T) {
+	t.Parallel()
 	var connCount int64 = 0
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevelError, // Quiet
@@ -534,6 +545,7 @@ func TestResourceGuard_AllowBroadcast(t *testing.T) {
 }
 
 func TestResourceGuard_AllowKafkaMessage(t *testing.T) {
+	t.Parallel()
 	var connCount int64 = 0
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevelError,
@@ -571,6 +583,7 @@ func TestResourceGuard_AllowKafkaMessage(t *testing.T) {
 }
 
 func TestResourceGuard_AllowKafkaMessage_WaitDuration(t *testing.T) {
+	t.Parallel()
 	var connCount int64 = 0
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevelError,
@@ -612,6 +625,7 @@ func TestResourceGuard_AllowKafkaMessage_WaitDuration(t *testing.T) {
 // =============================================================================
 
 func TestResourceGuard_ShouldAcceptConnection_MaxConnections(t *testing.T) {
+	t.Parallel()
 	var connCount int64 = 100 // At limit
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevelError,
@@ -642,6 +656,7 @@ func TestResourceGuard_ShouldAcceptConnection_MaxConnections(t *testing.T) {
 }
 
 func TestResourceGuard_ShouldAcceptConnection_BelowLimit(t *testing.T) {
+	t.Parallel()
 	var connCount int64 = 50 // Below limit
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevelError,
@@ -673,6 +688,7 @@ func TestResourceGuard_ShouldAcceptConnection_BelowLimit(t *testing.T) {
 // =============================================================================
 
 func TestResourceGuard_GetStats_AllFields(t *testing.T) {
+	t.Parallel()
 	var connCount int64 = 42
 	logger := monitoring.NewLogger(monitoring.LoggerConfig{
 		Level:  types.LogLevelError,

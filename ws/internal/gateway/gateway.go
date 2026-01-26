@@ -198,10 +198,10 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = clientConn.Close() }()
 
 	// Connect to backend ws-server using gobwas/ws
-	ctx, cancel := context.WithTimeout(context.Background(), gw.config.DialTimeout)
+	dialCtx, cancel := context.WithTimeout(ctx, gw.config.DialTimeout)
 	defer cancel()
 
-	backendConn, _, _, err := ws.Dial(ctx, gw.config.BackendURL)
+	backendConn, _, _, err := ws.Dial(dialCtx, gw.config.BackendURL)
 	if err != nil {
 		gw.logger.Error().
 			Err(err).

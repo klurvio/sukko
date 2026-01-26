@@ -13,6 +13,7 @@ import (
 // =============================================================================
 
 func TestNewConnectionRateLimiter_Defaults(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		Logger: zerolog.Nop(),
 	})
@@ -36,6 +37,7 @@ func TestNewConnectionRateLimiter_Defaults(t *testing.T) {
 }
 
 func TestNewConnectionRateLimiter_CustomConfig(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     20,
 		IPRate:      2.0,
@@ -67,6 +69,7 @@ func TestNewConnectionRateLimiter_CustomConfig(t *testing.T) {
 // =============================================================================
 
 func TestCheckConnectionAllowed_NewIP(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     10,
 		IPRate:      1.0,
@@ -83,6 +86,7 @@ func TestCheckConnectionAllowed_NewIP(t *testing.T) {
 }
 
 func TestCheckConnectionAllowed_IPBurstLimit(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     5,
 		IPRate:      0.1, // Very slow refill
@@ -108,6 +112,7 @@ func TestCheckConnectionAllowed_IPBurstLimit(t *testing.T) {
 }
 
 func TestCheckConnectionAllowed_GlobalBurstLimit(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     100, // High per-IP limit
 		IPRate:      10.0,
@@ -133,6 +138,7 @@ func TestCheckConnectionAllowed_GlobalBurstLimit(t *testing.T) {
 }
 
 func TestCheckConnectionAllowed_SeparateIPBuckets(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     3,
 		IPRate:      0.1,
@@ -159,6 +165,7 @@ func TestCheckConnectionAllowed_SeparateIPBuckets(t *testing.T) {
 }
 
 func TestCheckConnectionAllowed_Concurrent(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     100,
 		IPRate:      10.0,
@@ -191,6 +198,7 @@ func TestCheckConnectionAllowed_Concurrent(t *testing.T) {
 // =============================================================================
 
 func TestGetStats_TrackedIPs(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     10,
 		GlobalBurst: 100,
@@ -216,6 +224,7 @@ func TestGetStats_TrackedIPs(t *testing.T) {
 }
 
 func TestGetStats_ReturnsAllFields(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     10,
 		IPRate:      1.0,
@@ -241,6 +250,7 @@ func TestGetStats_ReturnsAllFields(t *testing.T) {
 // =============================================================================
 
 func TestCleanup_RemovesStaleIPs(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     10,
 		IPRate:      1.0,
@@ -275,6 +285,7 @@ func TestCleanup_RemovesStaleIPs(t *testing.T) {
 }
 
 func TestCleanup_KeepsRecentIPs(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     10,
 		IPRate:      1.0,
@@ -302,6 +313,7 @@ func TestCleanup_KeepsRecentIPs(t *testing.T) {
 // =============================================================================
 
 func TestStop_StopsCleanupGoroutine(t *testing.T) {
+	t.Parallel()
 	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
 		IPBurst:     10,
 		GlobalBurst: 100,

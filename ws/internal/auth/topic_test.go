@@ -5,7 +5,9 @@ import (
 )
 
 func TestNewTopicIsolator(t *testing.T) {
+	t.Parallel()
 	t.Run("with default config", func(t *testing.T) {
+		t.Parallel()
 		iso := NewTopicIsolator(DefaultTopicIsolationConfig())
 		if iso == nil {
 			t.Fatal("expected non-nil isolator")
@@ -19,6 +21,7 @@ func TestNewTopicIsolator(t *testing.T) {
 	})
 
 	t.Run("with empty separator defaults to dot", func(t *testing.T) {
+		t.Parallel()
 		iso := NewTopicIsolator(TopicIsolationConfig{Separator: ""})
 		if iso.config.Separator != "." {
 			t.Errorf("expected separator '.', got %q", iso.config.Separator)
@@ -26,6 +29,7 @@ func TestNewTopicIsolator(t *testing.T) {
 	})
 
 	t.Run("with empty environment defaults to main", func(t *testing.T) {
+		t.Parallel()
 		iso := NewTopicIsolator(TopicIsolationConfig{Environment: ""})
 		if iso.config.Environment != "main" {
 			t.Errorf("expected environment 'main', got %q", iso.config.Environment)
@@ -34,6 +38,7 @@ func TestNewTopicIsolator(t *testing.T) {
 }
 
 func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
+	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
 		Environment:         "main",
 		TenantPosition:      1,
@@ -118,6 +123,7 @@ func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := iso.CheckTopicAccess(tt.claims, tt.topic, tt.action)
 
 			if result.Allowed != tt.expectAllowed {
@@ -134,6 +140,7 @@ func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
 }
 
 func TestTopicIsolator_CheckTopicAccess_CrossTenantFlags(t *testing.T) {
+	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
 		Environment:         "main",
 		TenantPosition:      1,
@@ -143,6 +150,7 @@ func TestTopicIsolator_CheckTopicAccess_CrossTenantFlags(t *testing.T) {
 	})
 
 	t.Run("cross-tenant flag set", func(t *testing.T) {
+		t.Parallel()
 		claims := &Claims{TenantID: "acme", Roles: []string{"admin"}}
 		result := iso.CheckTopicAccess(claims, "main.globex.trade", TopicActionConsume)
 
@@ -152,6 +160,7 @@ func TestTopicIsolator_CheckTopicAccess_CrossTenantFlags(t *testing.T) {
 	})
 
 	t.Run("shared topic flag set", func(t *testing.T) {
+		t.Parallel()
 		claims := &Claims{TenantID: "acme"}
 		result := iso.CheckTopicAccess(claims, "main.shared.broadcast", TopicActionConsume)
 
@@ -162,6 +171,7 @@ func TestTopicIsolator_CheckTopicAccess_CrossTenantFlags(t *testing.T) {
 }
 
 func TestTopicIsolator_ExtractTenantFromTopic(t *testing.T) {
+	t.Parallel()
 	iso := NewTopicIsolator(DefaultTopicIsolationConfig())
 
 	tests := []struct {
@@ -178,6 +188,7 @@ func TestTopicIsolator_ExtractTenantFromTopic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.topic, func(t *testing.T) {
+			t.Parallel()
 			result := iso.ExtractTenantFromTopic(tt.topic)
 			if result != tt.expected {
 				t.Errorf("ExtractTenantFromTopic(%q) = %q, want %q",
@@ -188,6 +199,7 @@ func TestTopicIsolator_ExtractTenantFromTopic(t *testing.T) {
 }
 
 func TestTopicIsolator_BuildTopicName(t *testing.T) {
+	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
 		Environment:    "main",
 		TenantPosition: 1,
@@ -206,6 +218,7 @@ func TestTopicIsolator_BuildTopicName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
+			t.Parallel()
 			result := iso.BuildTopicName(tt.tenant, tt.category)
 			if result != tt.expected {
 				t.Errorf("BuildTopicName(%q, %q) = %q, want %q",
@@ -216,6 +229,7 @@ func TestTopicIsolator_BuildTopicName(t *testing.T) {
 }
 
 func TestTopicIsolator_BuildTopicNameWithEnv(t *testing.T) {
+	t.Parallel()
 	iso := NewTopicIsolator(DefaultTopicIsolationConfig())
 
 	result := iso.BuildTopicNameWithEnv("dev", "acme", "trade")
@@ -227,6 +241,7 @@ func TestTopicIsolator_BuildTopicNameWithEnv(t *testing.T) {
 }
 
 func TestTopicIsolator_ParseTopic(t *testing.T) {
+	t.Parallel()
 	iso := NewTopicIsolator(DefaultTopicIsolationConfig())
 
 	tests := []struct {
@@ -244,6 +259,7 @@ func TestTopicIsolator_ParseTopic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.topic, func(t *testing.T) {
+			t.Parallel()
 			result := iso.ParseTopic(tt.topic)
 
 			if result.Environment != tt.expectEnv {
@@ -267,6 +283,7 @@ func TestTopicIsolator_ParseTopic(t *testing.T) {
 }
 
 func TestTopicIsolator_ValidateTopicFormat(t *testing.T) {
+	t.Parallel()
 	iso := NewTopicIsolator(DefaultTopicIsolationConfig())
 
 	tests := []struct {
@@ -286,6 +303,7 @@ func TestTopicIsolator_ValidateTopicFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.topic, func(t *testing.T) {
+			t.Parallel()
 			err := iso.ValidateTopicFormat(tt.topic)
 			hasErr := err != nil
 
@@ -298,6 +316,7 @@ func TestTopicIsolator_ValidateTopicFormat(t *testing.T) {
 }
 
 func TestTopicIsolator_CanPublish_CanConsume(t *testing.T) {
+	t.Parallel()
 	iso := NewTopicIsolator(DefaultTopicIsolationConfig())
 
 	claims := &Claims{TenantID: "acme"}
@@ -320,6 +339,7 @@ func TestTopicIsolator_CanPublish_CanConsume(t *testing.T) {
 }
 
 func TestTopicIsolator_BuildTopicPrefix(t *testing.T) {
+	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
 		Environment: "main",
 		Separator:   ".",
@@ -334,6 +354,7 @@ func TestTopicIsolator_BuildTopicPrefix(t *testing.T) {
 }
 
 func TestTopicIsolator_ListAllowedTopicPatterns(t *testing.T) {
+	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
 		Environment:         "main",
 		Separator:           ".",
@@ -354,6 +375,7 @@ func TestTopicIsolator_ListAllowedTopicPatterns(t *testing.T) {
 }
 
 func TestMatchTopicPattern(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		pattern  string
 		topic    string
@@ -385,6 +407,7 @@ func TestMatchTopicPattern(t *testing.T) {
 	for _, tt := range tests {
 		name := tt.pattern + "_vs_" + tt.topic
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			result := matchTopicPattern(tt.pattern, tt.topic, ".")
 			if result != tt.expected {
 				t.Errorf("matchTopicPattern(%q, %q) = %v, want %v",
@@ -395,6 +418,7 @@ func TestMatchTopicPattern(t *testing.T) {
 }
 
 func TestDefaultTopicIsolationConfig(t *testing.T) {
+	t.Parallel()
 	config := DefaultTopicIsolationConfig()
 
 	if config.Environment != "main" {
@@ -412,6 +436,7 @@ func TestDefaultTopicIsolationConfig(t *testing.T) {
 }
 
 func TestTopicIsolator_FailSecure(t *testing.T) {
+	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
 		Environment:         "main",
 		TenantPosition:      1,
@@ -422,6 +447,7 @@ func TestTopicIsolator_FailSecure(t *testing.T) {
 	claims := &Claims{TenantID: "acme"}
 
 	t.Run("topic with matching tenant allowed", func(t *testing.T) {
+		t.Parallel()
 		result := iso.CheckTopicAccess(claims, "main.acme.trade", TopicActionConsume)
 		if !result.Allowed {
 			t.Errorf("expected topic with matching tenant to be allowed, got: %s", result.Reason)
@@ -429,6 +455,7 @@ func TestTopicIsolator_FailSecure(t *testing.T) {
 	})
 
 	t.Run("topic without tenant segment denied", func(t *testing.T) {
+		t.Parallel()
 		// Single part topic has no tenant - must be rejected (fail-secure)
 		result := iso.CheckTopicAccess(claims, "broadcast", TopicActionConsume)
 		if result.Allowed {
@@ -437,6 +464,7 @@ func TestTopicIsolator_FailSecure(t *testing.T) {
 	})
 
 	t.Run("shared topic allowed", func(t *testing.T) {
+		t.Parallel()
 		// Explicitly configured shared topic
 		result := iso.CheckTopicAccess(claims, "main.shared.broadcast", TopicActionConsume)
 		if !result.Allowed {
@@ -445,6 +473,7 @@ func TestTopicIsolator_FailSecure(t *testing.T) {
 	})
 
 	t.Run("topic with different tenant denied", func(t *testing.T) {
+		t.Parallel()
 		result := iso.CheckTopicAccess(claims, "main.globex.trade", TopicActionConsume)
 		if result.Allowed {
 			t.Error("expected topic with different tenant to be denied")

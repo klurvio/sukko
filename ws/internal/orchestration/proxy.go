@@ -61,7 +61,7 @@ func (p *ShardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Msg("Client upgraded, connecting to backend shard")
 
 	// STEP 2: Connect to backend shard using gobwas/ws
-	ctx, cancel := context.WithTimeout(context.Background(), p.dialTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), p.dialTimeout)
 	defer cancel()
 
 	// DEBUG: Log before backend dial attempt

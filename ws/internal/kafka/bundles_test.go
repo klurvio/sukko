@@ -12,6 +12,7 @@ const testEnv = "test"
 // =============================================================================
 
 func TestBundleTypeConstants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		bundle   BundleType
@@ -27,6 +28,7 @@ func TestBundleTypeConstants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if string(tt.bundle) != tt.expected {
 				t.Errorf("%s = %q, want %q", tt.name, tt.bundle, tt.expected)
 			}
@@ -39,6 +41,7 @@ func TestBundleTypeConstants(t *testing.T) {
 // =============================================================================
 
 func TestGetBundleBases_Trading(t *testing.T) {
+	t.Parallel()
 	bases := GetBundleBases(BundleTrading)
 
 	if bases == nil {
@@ -63,6 +66,7 @@ func TestGetBundleBases_Trading(t *testing.T) {
 }
 
 func TestGetBundleBases_All(t *testing.T) {
+	t.Parallel()
 	bases := GetBundleBases(BundleAll)
 
 	if bases == nil {
@@ -77,6 +81,7 @@ func TestGetBundleBases_All(t *testing.T) {
 }
 
 func TestGetBundleBases_Invalid(t *testing.T) {
+	t.Parallel()
 	bases := GetBundleBases(BundleType("INVALID"))
 
 	if bases != nil {
@@ -85,6 +90,7 @@ func TestGetBundleBases_Invalid(t *testing.T) {
 }
 
 func TestGetBundleBases_ReturnsCopy(t *testing.T) {
+	t.Parallel()
 	bases1 := GetBundleBases(BundleTrading)
 	bases2 := GetBundleBases(BundleTrading)
 
@@ -106,6 +112,7 @@ func TestGetBundleBases_ReturnsCopy(t *testing.T) {
 // =============================================================================
 
 func TestGetBundleTopics_Trading(t *testing.T) {
+	t.Parallel()
 	topics := GetBundleTopics(testEnv, BundleTrading)
 
 	if topics == nil {
@@ -134,6 +141,7 @@ func TestGetBundleTopics_Trading(t *testing.T) {
 }
 
 func TestGetBundleTopics_FullMarket(t *testing.T) {
+	t.Parallel()
 	topics := GetBundleTopics(testEnv, BundleFullMarket)
 
 	if topics == nil {
@@ -152,6 +160,7 @@ func TestGetBundleTopics_FullMarket(t *testing.T) {
 }
 
 func TestGetBundleTopics_Community(t *testing.T) {
+	t.Parallel()
 	topics := GetBundleTopics(testEnv, BundleCommunity)
 
 	if topics == nil {
@@ -169,6 +178,7 @@ func TestGetBundleTopics_Community(t *testing.T) {
 }
 
 func TestGetBundleTopics_Portfolio(t *testing.T) {
+	t.Parallel()
 	topics := GetBundleTopics(testEnv, BundlePortfolio)
 
 	if topics == nil {
@@ -186,6 +196,7 @@ func TestGetBundleTopics_Portfolio(t *testing.T) {
 }
 
 func TestGetBundleTopics_PriceOnly(t *testing.T) {
+	t.Parallel()
 	topics := GetBundleTopics(testEnv, BundlePriceOnly)
 
 	if topics == nil {
@@ -202,6 +213,7 @@ func TestGetBundleTopics_PriceOnly(t *testing.T) {
 }
 
 func TestGetBundleTopics_All(t *testing.T) {
+	t.Parallel()
 	topics := GetBundleTopics(testEnv, BundleAll)
 
 	if topics == nil {
@@ -216,6 +228,7 @@ func TestGetBundleTopics_All(t *testing.T) {
 }
 
 func TestGetBundleTopics_Invalid(t *testing.T) {
+	t.Parallel()
 	topics := GetBundleTopics(testEnv, BundleType("INVALID"))
 
 	if topics != nil {
@@ -224,10 +237,12 @@ func TestGetBundleTopics_Invalid(t *testing.T) {
 }
 
 func TestGetBundleTopics_DifferentEnvironments(t *testing.T) {
+	t.Parallel()
 	envs := []string{"local", "dev", "staging", "prod"}
 
 	for _, env := range envs {
 		t.Run(env, func(t *testing.T) {
+			t.Parallel()
 			topics := GetBundleTopics(env, BundleTrading)
 			if topics == nil {
 				t.Fatalf("GetBundleTopics(%s, BundleTrading) returned nil", env)
@@ -253,6 +268,7 @@ func hasPrefix(s, prefix string) bool {
 // =============================================================================
 
 func TestValidBundle_ValidBundles(t *testing.T) {
+	t.Parallel()
 	validBundles := []BundleType{
 		BundleTrading,
 		BundleFullMarket,
@@ -264,6 +280,7 @@ func TestValidBundle_ValidBundles(t *testing.T) {
 
 	for _, bundle := range validBundles {
 		t.Run(string(bundle), func(t *testing.T) {
+			t.Parallel()
 			if !ValidBundle(bundle) {
 				t.Errorf("ValidBundle(%s) = false, want true", bundle)
 			}
@@ -272,6 +289,7 @@ func TestValidBundle_ValidBundles(t *testing.T) {
 }
 
 func TestValidBundle_InvalidBundles(t *testing.T) {
+	t.Parallel()
 	invalidBundles := []BundleType{
 		BundleType("INVALID"),
 		BundleType(""),
@@ -281,6 +299,7 @@ func TestValidBundle_InvalidBundles(t *testing.T) {
 
 	for _, bundle := range invalidBundles {
 		t.Run(string(bundle), func(t *testing.T) {
+			t.Parallel()
 			if ValidBundle(bundle) {
 				t.Errorf("ValidBundle(%s) = true, want false", bundle)
 			}
@@ -293,6 +312,7 @@ func TestValidBundle_InvalidBundles(t *testing.T) {
 // =============================================================================
 
 func TestAllBundles_ReturnsAllBundles(t *testing.T) {
+	t.Parallel()
 	bundles := AllBundles()
 
 	if len(bundles) != 6 {
@@ -301,6 +321,7 @@ func TestAllBundles_ReturnsAllBundles(t *testing.T) {
 }
 
 func TestAllBundles_ContainsExpectedBundles(t *testing.T) {
+	t.Parallel()
 	bundles := AllBundles()
 	bundleSet := make(map[BundleType]bool)
 	for _, bundle := range bundles {
@@ -328,6 +349,7 @@ func TestAllBundles_ContainsExpectedBundles(t *testing.T) {
 // =============================================================================
 
 func TestGetTopicsForSubscription_Bundle(t *testing.T) {
+	t.Parallel()
 	topics := GetTopicsForSubscription(testEnv, "TRADING")
 
 	if topics == nil {
@@ -342,6 +364,7 @@ func TestGetTopicsForSubscription_Bundle(t *testing.T) {
 }
 
 func TestGetTopicsForSubscription_BaseTopic(t *testing.T) {
+	t.Parallel()
 	topics := GetTopicsForSubscription(testEnv, TopicBaseTrade)
 
 	if topics == nil {
@@ -359,8 +382,10 @@ func TestGetTopicsForSubscription_BaseTopic(t *testing.T) {
 }
 
 func TestGetTopicsForSubscription_AllBaseTopics(t *testing.T) {
+	t.Parallel()
 	for _, base := range AllTopicBases() {
 		t.Run(base, func(t *testing.T) {
+			t.Parallel()
 			topics := GetTopicsForSubscription(testEnv, base)
 
 			if topics == nil {
@@ -378,6 +403,7 @@ func TestGetTopicsForSubscription_AllBaseTopics(t *testing.T) {
 }
 
 func TestGetTopicsForSubscription_Invalid(t *testing.T) {
+	t.Parallel()
 	topics := GetTopicsForSubscription(testEnv, "invalid.subscription")
 
 	if topics != nil {
@@ -386,6 +412,7 @@ func TestGetTopicsForSubscription_Invalid(t *testing.T) {
 }
 
 func TestGetTopicsForSubscription_Empty(t *testing.T) {
+	t.Parallel()
 	topics := GetTopicsForSubscription(testEnv, "")
 
 	if topics != nil {
@@ -394,8 +421,10 @@ func TestGetTopicsForSubscription_Empty(t *testing.T) {
 }
 
 func TestGetTopicsForSubscription_AllBundles(t *testing.T) {
+	t.Parallel()
 	for _, bundle := range AllBundles() {
 		t.Run(string(bundle), func(t *testing.T) {
+			t.Parallel()
 			topics := GetTopicsForSubscription(testEnv, string(bundle))
 
 			if topics == nil {
@@ -415,9 +444,11 @@ func TestGetTopicsForSubscription_AllBundles(t *testing.T) {
 // =============================================================================
 
 func TestIsValidBaseTopic_Valid(t *testing.T) {
+	t.Parallel()
 	validBases := AllTopicBases()
 	for _, base := range validBases {
 		t.Run(base, func(t *testing.T) {
+			t.Parallel()
 			if !IsValidBaseTopic(base) {
 				t.Errorf("IsValidBaseTopic(%s) = false, want true", base)
 			}
@@ -426,9 +457,11 @@ func TestIsValidBaseTopic_Valid(t *testing.T) {
 }
 
 func TestIsValidBaseTopic_Invalid(t *testing.T) {
+	t.Parallel()
 	invalidBases := []string{"invalid", "", "odin.trades", "odin.dev.trade.refined"}
 	for _, base := range invalidBases {
 		t.Run(base, func(t *testing.T) {
+			t.Parallel()
 			if IsValidBaseTopic(base) {
 				t.Errorf("IsValidBaseTopic(%s) = true, want false", base)
 			}
@@ -441,6 +474,7 @@ func TestIsValidBaseTopic_Invalid(t *testing.T) {
 // =============================================================================
 
 func TestGetBundleRegularTopics_Trading(t *testing.T) {
+	t.Parallel()
 	topics := GetBundleRegularTopics(testEnv, BundleTrading)
 
 	if topics == nil {

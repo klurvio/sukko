@@ -174,7 +174,7 @@ func (sm *SystemMonitor) updateMetrics() {
 	sm.mu.Lock()
 	sm.metrics = SystemMetrics{
 		CPUPercent:    cpuPercent,
-		MemoryBytes:   int64(mem.Alloc),
+		MemoryBytes:   int64(mem.Alloc), //nolint:gosec // Memory allocation fits in int64 for practical purposes
 		MemoryMB:      float64(mem.Alloc) / (1024 * 1024),
 		Goroutines:    goroutines,
 		CPUAllocation: sm.cpuMonitor.GetAllocation(),

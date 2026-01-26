@@ -9,6 +9,7 @@ import (
 // =============================================================================
 
 func TestCalculateBufferStats_Empty(t *testing.T) {
+	t.Parallel()
 	stats := calculateBufferStats([]int{})
 
 	if stats["samples"].(int) != 0 {
@@ -32,6 +33,7 @@ func TestCalculateBufferStats_Empty(t *testing.T) {
 }
 
 func TestCalculateBufferStats_SingleElement(t *testing.T) {
+	t.Parallel()
 	stats := calculateBufferStats([]int{50})
 
 	if stats["samples"].(int) != 1 {
@@ -46,6 +48,7 @@ func TestCalculateBufferStats_SingleElement(t *testing.T) {
 }
 
 func TestCalculateBufferStats_Sorted(t *testing.T) {
+	t.Parallel()
 	// Already sorted input
 	samples := []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
 	stats := calculateBufferStats(samples)
@@ -66,6 +69,7 @@ func TestCalculateBufferStats_Sorted(t *testing.T) {
 }
 
 func TestCalculateBufferStats_Unsorted(t *testing.T) {
+	t.Parallel()
 	// Unsorted input - should still work
 	samples := []int{50, 10, 90, 30, 70, 20, 80, 40, 60, 100}
 	stats := calculateBufferStats(samples)
@@ -86,6 +90,7 @@ func TestCalculateBufferStats_Unsorted(t *testing.T) {
 }
 
 func TestCalculateBufferStats_AllSame(t *testing.T) {
+	t.Parallel()
 	samples := []int{50, 50, 50, 50, 50}
 	stats := calculateBufferStats(samples)
 
@@ -104,6 +109,7 @@ func TestCalculateBufferStats_AllSame(t *testing.T) {
 }
 
 func TestCalculateBufferStats_Percentiles(t *testing.T) {
+	t.Parallel()
 	// Create 100 samples for cleaner percentile testing
 	samples := make([]int, 100)
 	for i := range 100 {
@@ -132,6 +138,7 @@ func TestCalculateBufferStats_Percentiles(t *testing.T) {
 }
 
 func TestCalculateBufferStats_LargeValues(t *testing.T) {
+	t.Parallel()
 	samples := []int{1000000, 2000000, 3000000}
 	stats := calculateBufferStats(samples)
 
@@ -146,6 +153,7 @@ func TestCalculateBufferStats_LargeValues(t *testing.T) {
 }
 
 func TestCalculateBufferStats_WithZeros(t *testing.T) {
+	t.Parallel()
 	samples := []int{0, 0, 10, 20, 0}
 	stats := calculateBufferStats(samples)
 
@@ -165,6 +173,7 @@ func TestCalculateBufferStats_WithZeros(t *testing.T) {
 }
 
 func TestCalculateBufferStats_DoesNotModifyInput(t *testing.T) {
+	t.Parallel()
 	samples := []int{50, 10, 90, 30, 70}
 	original := make([]int, len(samples))
 	copy(original, samples)
