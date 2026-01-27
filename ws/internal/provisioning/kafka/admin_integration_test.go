@@ -256,7 +256,7 @@ func TestAdmin_Integration_MultiTenantScenario(t *testing.T) {
 
 	// Simulate provisioning multiple tenants
 	tenants := []string{"acme", "globex", "initech"}
-	namespace := "main"
+	namespace := "prod"
 
 	for _, tenantID := range tenants {
 		t.Run("provision tenant "+tenantID, func(t *testing.T) {

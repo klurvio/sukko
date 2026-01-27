@@ -16,17 +16,17 @@ import (
 //   - Example: ENVIRONMENT=develop means "this is the develop deployment"
 //
 // KAFKA_TOPIC_NAMESPACE: Identifies which Kafka topic namespace to use.
-//   - Used for: topic naming only (odin.{namespace}.{base}.refined)
+//   - Used for: topic naming only (odin.{namespace}.{base})
 //   - Defaults to: normalized ENVIRONMENT value if not set
-//   - Example: KAFKA_TOPIC_NAMESPACE=main means "consume from odin.main.* topics"
+//   - Example: KAFKA_TOPIC_NAMESPACE=prod means "consume from odin.prod.* topics"
 //
 // Why separate?
-//   - Allows develop environment to consume from main topics for testing
-//   - Keeps logs/metrics accurate (shows "develop" not "main")
+//   - Allows develop environment to consume from prod topics for testing
+//   - Keeps logs/metrics accurate (shows "develop" not "prod")
 //   - Explicit about intent - clearly shows cross-namespace access
 //   - Safer - can't accidentally affect non-topic environment behavior
 //
-// Valid namespaces: local, dev, staging, main
+// Valid namespaces: local, dev, staging, prod
 //
 // =============================================================================
 
@@ -61,9 +61,7 @@ var allTopicBases = []string{
 //   - "development", "local", "" -> "local"
 //   - "develop", "dev"           -> "dev"
 //   - "staging", "stage"         -> "staging"
-//   - "production", "prod", "main" -> "main"
-//
-// Note: Production uses "main" namespace (not "prod") for clarity.
+//   - "production", "prod"       -> "prod"
 func NormalizeEnv(env string) string {
 	env = strings.ToLower(strings.TrimSpace(env))
 	switch env {
@@ -73,8 +71,8 @@ func NormalizeEnv(env string) string {
 		return "dev"
 	case "staging", "stage":
 		return "staging"
-	case "production", "prod", "main":
-		return "main"
+	case "production", "prod":
+		return "prod"
 	default:
 		return env
 	}
@@ -84,12 +82,6 @@ func NormalizeEnv(env string) string {
 // Example: GetTopic("dev", "trade") -> "odin.dev.trade"
 func GetTopic(env, base string) string {
 	return fmt.Sprintf("odin.%s.%s", NormalizeEnv(env), base)
-}
-
-// GetRefinedTopic returns the refined topic name for an environment
-// Example: GetRefinedTopic("dev", "trade") -> "odin.dev.trade.refined"
-func GetRefinedTopic(env, base string) string {
-	return fmt.Sprintf("odin.%s.%s.refined", NormalizeEnv(env), base)
 }
 
 // AllTopicBases returns all base topic names (without environment prefix)
@@ -102,25 +94,6 @@ func AllTopics(env string) []string {
 	topics := make([]string, len(allTopicBases))
 	for i, base := range allTopicBases {
 		topics[i] = GetTopic(env, base)
-	}
-	return topics
-}
-
-// AllRefinedTopics returns all refined topic names for an environment
-func AllRefinedTopics(env string) []string {
-	topics := make([]string, len(allTopicBases))
-	for i, base := range allTopicBases {
-		topics[i] = GetRefinedTopic(env, base)
-	}
-	return topics
-}
-
-// AllTopicsWithRefined returns both regular and refined topics for an environment
-func AllTopicsWithRefined(env string) []string {
-	topics := make([]string, 0, len(allTopicBases)*2)
-	for _, base := range allTopicBases {
-		topics = append(topics, GetTopic(env, base))
-		topics = append(topics, GetRefinedTopic(env, base))
 	}
 	return topics
 }
@@ -162,15 +135,13 @@ const (
 	EventTransferCompleted EventType = "TRANSFER_COMPLETED" // Transfer completed event
 )
 
-// TopicToEventType maps a full topic name to its event type category
-// Handles both regular and refined topics
-// Example: "odin.dev.trade" -> "trade", "odin.dev.trade.refined" -> "trade"
+// TopicToEventType maps a full topic name to its event type category.
+// Example: "odin.dev.trade" -> "trade"
 func TopicToEventType(topic string) string {
-	// Remove "odin." prefix and ".refined" suffix
+	// Remove "odin." prefix
 	topic = strings.TrimPrefix(topic, "odin.")
-	topic = strings.TrimSuffix(topic, ".refined")
 
-	// Remove environment prefix (e.g., "dev.", "local.", "staging.", "main.")
+	// Remove environment prefix (e.g., "dev.", "local.", "staging.", "prod.")
 	if _, after, found := strings.Cut(topic, "."); found {
 		return after // Return the base topic name
 	}

@@ -56,13 +56,13 @@ func TestNormalizeEnv(t *testing.T) {
 		{"dev", "dev"},
 		{"staging", "staging"},
 		{"stage", "staging"},
-		{"production", "main"},
-		{"prod", "main"},
-		{"main", "main"},
+		{"production", "prod"},
+		{"prod", "prod"},
 		{"custom", "custom"},
 		{"  dev  ", "dev"},     // with whitespace
 		{"DEV", "dev"},         // uppercase
-		{"PRODUCTION", "main"}, // uppercase production
+		{"PRODUCTION", "prod"}, // uppercase production
+		{"main", "main"},       // pass-through via default case
 	}
 
 	for _, tt := range tests {
@@ -92,8 +92,8 @@ func TestGetTopic(t *testing.T) {
 		{"staging", TopicBaseMetadata, "odin.staging.metadata"},
 		{"main", TopicBaseBalances, "odin.main.balances"},
 		{"development", TopicBaseTrade, "odin.local.trade"}, // normalizes to local
-		{"production", TopicBaseTrade, "odin.main.trade"},   // normalizes to main
-		{"prod", TopicBaseTrade, "odin.main.trade"},         // normalizes to main
+		{"production", TopicBaseTrade, "odin.prod.trade"},   // normalizes to prod
+		{"prod", TopicBaseTrade, "odin.prod.trade"},         // normalizes to prod
 	}
 
 	for _, tt := range tests {
@@ -102,35 +102,6 @@ func TestGetTopic(t *testing.T) {
 			result := GetTopic(tt.env, tt.base)
 			if result != tt.expected {
 				t.Errorf("GetTopic(%q, %q) = %q, want %q", tt.env, tt.base, result, tt.expected)
-			}
-		})
-	}
-}
-
-// =============================================================================
-// GetRefinedTopic Tests
-// =============================================================================
-
-func TestGetRefinedTopic(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		env      string
-		base     string
-		expected string
-	}{
-		{"local", TopicBaseTrade, "odin.local.trade.refined"},
-		{"dev", TopicBaseLiquidity, "odin.dev.liquidity.refined"},
-		{"staging", TopicBaseMetadata, "odin.staging.metadata.refined"},
-		{"main", TopicBaseBalances, "odin.main.balances.refined"},
-		{"production", TopicBaseTrade, "odin.main.trade.refined"}, // normalizes to main
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.env+"_"+tt.base, func(t *testing.T) {
-			t.Parallel()
-			result := GetRefinedTopic(tt.env, tt.base)
-			if result != tt.expected {
-				t.Errorf("GetRefinedTopic(%q, %q) = %q, want %q", tt.env, tt.base, result, tt.expected)
 			}
 		})
 	}
@@ -215,44 +186,6 @@ func TestAllTopics_ContainsExpectedTopics(t *testing.T) {
 }
 
 // =============================================================================
-// AllRefinedTopics Tests
-// =============================================================================
-
-func TestAllRefinedTopics_ReturnsAllRefinedTopics(t *testing.T) {
-	t.Parallel()
-	topics := AllRefinedTopics(configTestEnv)
-
-	if len(topics) != 8 {
-		t.Errorf("AllRefinedTopics() returned %d topics, want 8", len(topics))
-	}
-}
-
-func TestAllRefinedTopics_ContainsRefinedSuffix(t *testing.T) {
-	t.Parallel()
-	topics := AllRefinedTopics(configTestEnv)
-
-	for _, topic := range topics {
-		if len(topic) < 8 || topic[len(topic)-8:] != ".refined" {
-			t.Errorf("AllRefinedTopics() topic %s does not have .refined suffix", topic)
-		}
-	}
-}
-
-// =============================================================================
-// AllTopicsWithRefined Tests
-// =============================================================================
-
-func TestAllTopicsWithRefined_ReturnsDoubleTopics(t *testing.T) {
-	t.Parallel()
-	topics := AllTopicsWithRefined(configTestEnv)
-
-	// Should return 2x the number of base topics (regular + refined)
-	if len(topics) != 16 {
-		t.Errorf("AllTopicsWithRefined() returned %d topics, want 16", len(topics))
-	}
-}
-
-// =============================================================================
 // TopicToEventType Tests
 // =============================================================================
 
@@ -265,34 +198,11 @@ func TestTopicToEventType_RegularTopics(t *testing.T) {
 		{"odin.dev.trade", "trade"},
 		{"odin.local.liquidity", "liquidity"},
 		{"odin.staging.metadata", "metadata"},
-		{"odin.main.social", "social"},
+		{"odin.prod.social", "social"},
 		{"odin.dev.community", "community"},
 		{"odin.local.creation", "creation"},
 		{"odin.staging.analytics", "analytics"},
-		{"odin.main.balances", "balances"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.topic, func(t *testing.T) {
-			t.Parallel()
-			result := TopicToEventType(tt.topic)
-			if result != tt.expected {
-				t.Errorf("TopicToEventType(%q) = %q, want %q", tt.topic, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestTopicToEventType_RefinedTopics(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		topic    string
-		expected string
-	}{
-		{"odin.dev.trade.refined", "trade"},
-		{"odin.local.liquidity.refined", "liquidity"},
-		{"odin.staging.metadata.refined", "metadata"},
-		{"odin.main.balances.refined", "balances"},
+		{"odin.prod.balances", "balances"},
 	}
 
 	for _, tt := range tests {

@@ -22,7 +22,7 @@ const (
 //
 // Example:
 //
-//	main.acme.trade     - Production, Acme tenant, trade events
+//	prod.acme.trade     - Production, Acme tenant, trade events
 //	dev.globex.liquidity - Development, Globex tenant, liquidity events
 type TopicIsolator struct {
 	config TopicIsolationConfig
@@ -30,7 +30,7 @@ type TopicIsolator struct {
 
 // TopicIsolationConfig configures topic isolation behavior.
 type TopicIsolationConfig struct {
-	// Environment is the deployment environment (dev, staging, main).
+	// Environment is the deployment environment (dev, staging, prod).
 	// Used as the first part of topic names.
 	Environment string `yaml:"environment" json:"environment"`
 
@@ -47,19 +47,25 @@ type TopicIsolationConfig struct {
 
 	// SharedTopicPatterns are topics accessible by all tenants.
 	// These must be explicitly configured - no implicit sharing.
-	// Example: ["*.system.*", "main.shared.*"]
+	// Example: ["*.system.*", "prod.shared.*"]
 	SharedTopicPatterns []string `yaml:"shared_topic_patterns" json:"shared_topic_patterns"`
+
+	// ValidNamespaces restricts which namespace prefixes are accepted by ValidateTopicFormat.
+	// If empty, namespace validation is skipped (any non-empty namespace is accepted).
+	// Example: {"local": true, "dev": true, "staging": true, "prod": true}
+	ValidNamespaces map[string]bool `yaml:"valid_namespaces" json:"valid_namespaces"`
 }
 
 // DefaultTopicIsolationConfig returns sensible defaults.
 // Always fail-secure: topics without valid tenant are rejected.
 func DefaultTopicIsolationConfig() TopicIsolationConfig {
 	return TopicIsolationConfig{
-		Environment:         "main",
+		Environment:         "prod",
 		TenantPosition:      1, // {env}.{tenant}.{category}
 		Separator:           ".",
 		CrossTenantRoles:    []string{"admin", "system"},
 		SharedTopicPatterns: []string{},
+		ValidNamespaces:     map[string]bool{"local": true, "dev": true, "staging": true, "prod": true},
 	}
 }
 
@@ -69,7 +75,7 @@ func NewTopicIsolator(config TopicIsolationConfig) *TopicIsolator {
 		config.Separator = "."
 	}
 	if config.Environment == "" {
-		config.Environment = "main"
+		config.Environment = "prod"
 	}
 	return &TopicIsolator{config: config}
 }
@@ -163,7 +169,7 @@ func (t *TopicIsolator) CheckTopicAccess(claims *Claims, topic string, _ TopicAc
 //
 // Example:
 //
-//	"main.acme.trade" → "acme" (position 1)
+//	"prod.acme.trade" → "acme" (position 1)
 //	"acme.trade" → "" (not enough parts for position 1)
 func (t *TopicIsolator) ExtractTenantFromTopic(topic string) string {
 	parts := strings.Split(topic, t.config.Separator)
@@ -179,7 +185,7 @@ func (t *TopicIsolator) ExtractTenantFromTopic(topic string) string {
 //
 // Example:
 //
-//	BuildTopicName("main", "acme", "trade") → "main.acme.trade"
+//	BuildTopicName("acme", "trade") → "prod.acme.trade"
 func (t *TopicIsolator) BuildTopicName(tenant, category string) string {
 	return strings.Join([]string{t.config.Environment, tenant, category}, t.config.Separator)
 }
@@ -227,9 +233,9 @@ func matchTopicPattern(pattern, topic, separator string) bool {
 
 // TopicParts represents the parsed components of a topic name.
 type TopicParts struct {
-	Environment string // First segment (e.g., "main", "dev")
+	Environment string // First segment (e.g., "prod", "dev")
 	Tenant      string // Tenant ID (e.g., "acme")
-	Category    string // Rest of the topic (e.g., "trade", "trade.refined")
+	Category    string // Rest of the topic (e.g., "trade", "trade.v2")
 	Original    string // Original topic string
 }
 
@@ -237,8 +243,8 @@ type TopicParts struct {
 //
 // Example:
 //
-//	"main.acme.trade" → {Environment: "main", Tenant: "acme", Category: "trade"}
-//	"main.acme.trade.refined" → {Environment: "main", Tenant: "acme", Category: "trade.refined"}
+//	"prod.acme.trade" → {Environment: "prod", Tenant: "acme", Category: "trade"}
+//	"prod.acme.trade.v2" → {Environment: "prod", Tenant: "acme", Category: "trade.v2"}
 func (t *TopicIsolator) ParseTopic(topic string) *TopicParts {
 	parts := strings.Split(topic, t.config.Separator)
 	result := &TopicParts{Original: topic}
@@ -261,6 +267,7 @@ func (t *TopicIsolator) ParseTopic(topic string) *TopicParts {
 
 // ValidateTopicFormat checks if a topic follows the expected format.
 // Returns an error describing the issue if invalid.
+// When ValidNamespaces is configured, also validates the namespace prefix.
 func (t *TopicIsolator) ValidateTopicFormat(topic string) error {
 	if topic == "" {
 		return errors.New("topic cannot be empty")
@@ -276,6 +283,11 @@ func (t *TopicIsolator) ValidateTopicFormat(topic string) error {
 	// Check environment
 	if parts[0] == "" {
 		return errors.New("environment (first part) cannot be empty")
+	}
+
+	// Validate namespace against configured set (if configured)
+	if len(t.config.ValidNamespaces) > 0 && !t.config.ValidNamespaces[parts[0]] {
+		return fmt.Errorf("namespace %q is not valid", parts[0])
 	}
 
 	// Check tenant
@@ -313,7 +325,7 @@ func (t *TopicIsolator) CanConsume(claims *Claims, topic string) bool {
 //
 // Example:
 //
-//	BuildTopicPrefix("acme") → "main.acme."
+//	BuildTopicPrefix("acme") → "prod.acme."
 func (t *TopicIsolator) BuildTopicPrefix(tenant string) string {
 	return t.config.Environment + t.config.Separator + tenant + t.config.Separator
 }
@@ -323,7 +335,7 @@ func (t *TopicIsolator) BuildTopicPrefix(tenant string) string {
 //
 // Example:
 //
-//	ListAllowedTopicPatterns("acme") → ["main\\.acme\\..*"]
+//	ListAllowedTopicPatterns("acme") → ["prod\\.acme\\..*"]
 func (t *TopicIsolator) ListAllowedTopicPatterns(tenant string) []string {
 	// Escape separator for regex
 	escapedSep := strings.ReplaceAll(t.config.Separator, ".", "\\.")

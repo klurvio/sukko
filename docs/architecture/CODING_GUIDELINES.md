@@ -11,15 +11,16 @@ This document establishes coding standards for the Odin WebSocket server codebas
 3. [Package Organization](#package-organization)
 4. [File Naming Conventions](#file-naming-conventions)
 5. [Error Handling](#error-handling)
-6. [Logging](#logging)
-7. [Configuration](#configuration)
-8. [Testing](#testing)
-9. [Observability and Metrics](#observability-and-metrics)
-10. [Security](#security)
-11. [Performance](#performance)
-12. [Concurrency Patterns](#concurrency-patterns)
-13. [WebSocket SaaS Patterns](#websocket-saas-patterns)
-14. [Code Review Checklist](#code-review-checklist)
+6. [Graceful Degradation](#graceful-degradation)
+7. [Logging](#logging)
+8. [Configuration](#configuration)
+9. [Testing](#testing)
+10. [Observability and Metrics](#observability-and-metrics)
+11. [Security](#security)
+12. [Performance](#performance)
+13. [Concurrency Patterns](#concurrency-patterns)
+14. [WebSocket SaaS Patterns](#websocket-saas-patterns)
+15. [Code Review Checklist](#code-review-checklist)
 
 ---
 
@@ -451,6 +452,278 @@ if err := json.Unmarshal(data, &msg); err != nil {
 // ACCEPTABLE - Explicitly ignored with reason
 _ = conn.Close() // Best effort cleanup, error logged elsewhere
 ```
+
+---
+
+## Graceful Degradation
+
+The system must remain operational when optional dependencies are unavailable. Graceful degradation means the service continues with reduced functionality rather than crashing. Every optional dependency must have a defined degraded behavior.
+
+### Classify Dependencies as Critical vs Optional
+
+Before integrating a dependency, classify it. Critical dependencies cause startup failure. Optional dependencies log a warning and continue with reduced functionality.
+
+```go
+// CRITICAL dependency - fail fast at startup
+provisioningDB, err = sql.Open("postgres", cfg.ProvisioningDatabaseURL)
+if err != nil {
+    logger.Fatalf("Failed to open provisioning database: %v", err)
+}
+
+// OPTIONAL dependency - degrade gracefully
+admin, err := provkafka.NewAdmin(adminCfg)
+if err != nil {
+    logger.Printf("Warning: Failed to connect to Kafka, using noop admin: %v", err)
+    kafkaAdmin = provisioning.NewNoopKafkaAdmin()
+} else {
+    kafkaAdmin = admin
+}
+```
+
+### Use Noop Implementations for Optional Features
+
+When an optional dependency is unavailable, substitute a noop implementation that satisfies the same interface. This eliminates nil checks scattered throughout the codebase.
+
+```go
+// Interface defines the contract
+type KafkaAdmin interface {
+    CreateTopic(ctx context.Context, name string, partitions int, config map[string]string) error
+    DeleteTopic(ctx context.Context, name string) error
+    CreateACL(ctx context.Context, acl ACLBinding) error
+    DeleteACL(ctx context.Context, acl ACLBinding) error
+}
+
+// Noop implementation for when Kafka is unavailable
+type NoopKafkaAdmin struct {
+    topics map[string]bool
+}
+
+func (n *NoopKafkaAdmin) CreateTopic(_ context.Context, name string, _ int, _ map[string]string) error {
+    n.topics[name] = true
+    return nil // Silently succeeds
+}
+
+func (n *NoopKafkaAdmin) DeleteTopic(_ context.Context, name string) error {
+    delete(n.topics, name)
+    return nil
+}
+
+// BAD - Nil checks everywhere
+if s.kafkaAdmin != nil {
+    if err := s.kafkaAdmin.CreateTopic(ctx, name, 3, nil); err != nil {
+        // ...
+    }
+}
+
+// GOOD - Noop handles absence transparently
+// kafkaAdmin is always non-nil (either real or noop)
+if err := s.kafkaAdmin.CreateTopic(ctx, name, 3, nil); err != nil {
+    return fmt.Errorf("create topic: %w", err)
+}
+```
+
+**When nil checks are acceptable:** Use nil checks when the dependency controls a distinct code path (not just a single call), such as skipping an entire feature:
+
+```go
+// ACCEPTABLE - Nil check guards a distinct feature, not a single method call
+if s.kafkaProducer == nil {
+    s.sendPublishError(c, "not_available", "Publishing is not enabled on this server")
+    return
+}
+// ... entire publish flow follows
+```
+
+### Continue on Non-Critical Failures
+
+For multi-step cleanup or teardown operations, log failures but continue processing remaining steps. A failure to delete one resource must not prevent deletion of others.
+
+```go
+// GOOD - Continue cleanup despite individual failures
+func (lm *LifecycleManager) DeleteTenant(ctx context.Context, tenantID string) error {
+    // Step 1: Delete Kafka topics (best-effort)
+    topics, err := lm.service.ListTopics(ctx, tenantID)
+    if err != nil {
+        lm.logger.Warn().Err(err).Str("tenant_id", tenantID).
+            Msg("Failed to list topics for deletion, continuing anyway")
+    }
+    for _, topic := range topics {
+        if err := lm.service.kafka.DeleteTopic(ctx, topic.TopicName); err != nil {
+            lm.logger.Warn().Err(err).Str("topic", topic.TopicName).
+                Msg("Failed to delete Kafka topic, continuing anyway")
+        }
+    }
+
+    // Step 2: Delete ACLs (best-effort)
+    if err := lm.service.kafka.DeleteACL(ctx, topicACL); err != nil {
+        lm.logger.Warn().Err(err).Str("tenant_id", tenantID).
+            Msg("Failed to delete topic ACL, continuing anyway")
+    }
+
+    // Step 3: Delete database record (critical - this is the source of truth)
+    if err := lm.service.repo.Delete(ctx, tenantID); err != nil {
+        return fmt.Errorf("delete tenant record %s: %w", tenantID, err)
+    }
+
+    return nil
+}
+
+// BAD - First failure aborts entire cleanup
+func (lm *LifecycleManager) DeleteTenant(ctx context.Context, tenantID string) error {
+    if err := lm.service.kafka.DeleteTopic(ctx, topicName); err != nil {
+        return err // Orphaned ACLs and DB record!
+    }
+    // Never reached if topic deletion fails
+    // ...
+}
+```
+
+### Non-Blocking Message Delivery
+
+For WebSocket message delivery, use non-blocking sends. If a client's buffer is full, skip the message rather than blocking the broadcast loop for all clients.
+
+```go
+// GOOD - Non-blocking send with graceful skip
+select {
+case client.send <- data:
+    // Sent successfully
+default:
+    // Client buffer full - skip this non-critical message
+    // Regular heartbeat/timeout will handle the slow client
+}
+
+// BAD - Blocking send stalls ALL clients
+client.send <- data // One slow client blocks the entire broadcast
+```
+
+### Expose Degraded Health Status
+
+Health checks must distinguish between healthy, degraded, and unhealthy states. A degraded service is still accepting traffic but operating with reduced functionality.
+
+```go
+// Three-state health: healthy → degraded → unhealthy
+status := "healthy"
+statusCode := http.StatusOK
+
+if !isHealthy {
+    status = "unhealthy"
+    statusCode = http.StatusServiceUnavailable
+} else if len(warnings) > 0 {
+    status = "degraded"
+    statusCode = http.StatusOK // Still accepting traffic
+}
+```
+
+### Retry with Exponential Backoff
+
+For transient failures (network partitions, temporary unavailability), implement exponential backoff with a maximum cap. Never retry indefinitely without backoff.
+
+```go
+// GOOD - Exponential backoff with cap
+backoff := 100 * time.Millisecond
+maxBackoff := 30 * time.Second
+
+for attempt := 1; attempt <= maxAttempts; attempt++ {
+    select {
+    case <-ctx.Done():
+        return false // Respect cancellation
+    case <-time.After(backoff):
+    }
+
+    if err := s.reconnect(); err != nil {
+        s.logger.Error().Err(err).Int("attempt", attempt).Msg("Reconnection failed")
+        backoff *= 2
+        if backoff > maxBackoff {
+            backoff = maxBackoff
+        }
+        continue
+    }
+
+    s.logger.Info().Int("attempt", attempt).Msg("Reconnected successfully")
+    return true
+}
+
+// BAD - Fixed interval, no cap, no context
+for {
+    time.Sleep(1 * time.Second) // Constant hammering
+    if err := s.reconnect(); err == nil {
+        break
+    }
+}
+```
+
+### Circuit Breaker for Slow Clients
+
+Detect persistently slow consumers and disconnect them after a threshold of consecutive failures. This prevents one slow client from degrading the entire system.
+
+```go
+select {
+case client.send <- data:
+    client.sendAttempts.Store(0) // Reset on success
+    successCount++
+
+default:
+    attempts := client.sendAttempts.Add(1)
+    monitoring.RecordDroppedBroadcast(channel, monitoring.DropReasonBufferFull)
+
+    // Log on first failure only (avoid log spam)
+    if attempts == 1 && client.slowClientWarned.CompareAndSwap(0, 1) {
+        s.logger.Warn().Int64("client_id", client.id).Msg("Client is slow")
+    }
+
+    // Circuit breaker: disconnect after 3 consecutive failures
+    if attempts >= 3 {
+        s.logger.Warn().
+            Int64("client_id", client.id).
+            Int32("consecutive_failures", attempts).
+            Msg("Disconnecting slow client")
+        go s.disconnectClient(client, "too_slow")
+    }
+}
+```
+
+### Feature Flags for Optional Capabilities
+
+Gate optional features behind configuration flags. When disabled, the feature must be entirely absent — not half-initialized.
+
+```go
+// GOOD - Feature fully absent when disabled
+if config.AuthEnabled {
+    if err := gw.setupValidator(); err != nil {
+        return nil, fmt.Errorf("setup validator: %w", err)
+    }
+} else {
+    // Auth disabled - create anonymous claims for all connections
+    claims = &auth.Claims{
+        Subject:  "anonymous",
+        TenantID: "anonymous",
+    }
+}
+
+// GOOD - Optional tracker only initialized when enabled
+if config.TenantConnectionLimitEnabled {
+    gw.connTracker = NewTenantConnectionTracker(config.DefaultTenantConnectionLimit)
+}
+// Later: nil check guards the entire feature
+if gw.connTracker != nil && claims.TenantID != "" {
+    if !gw.connTracker.TryAcquire(claims.TenantID) {
+        // Reject connection
+        return
+    }
+    defer gw.connTracker.Release(claims.TenantID)
+}
+```
+
+### Degradation Decision Matrix
+
+| Dependency | Classification | On Failure | Degraded Behavior |
+|------------|---------------|------------|-------------------|
+| Provisioning DB | Critical | Fatal at startup | None — required |
+| Kafka Brokers | Optional | Log warning, use noop | No message publishing/consuming |
+| Valkey/NATS | Critical | Fatal at startup | None — required for broadcast |
+| Auth Validator | Optional (configurable) | Skip validation | Anonymous access allowed |
+| Kafka ACLs | Optional | Log warning, continue | Topics without ACL protection |
+| Health Check Subsystems | Non-critical | Report degraded | Accept traffic, surface warnings |
+| Client Send Buffer | Non-critical | Skip message | Disconnect after threshold |
 
 ---
 
@@ -1357,6 +1630,15 @@ Before submitting code for review, verify:
 - [ ] Audit logging for security events
 - [ ] Health check endpoints updated
 - [ ] Errors are logged with sufficient context for debugging
+
+### Graceful Degradation
+- [ ] Dependencies classified as critical or optional in the decision matrix
+- [ ] Optional dependencies have noop implementations or nil-guarded fallbacks
+- [ ] Multi-step cleanup/teardown continues on individual step failures
+- [ ] Health endpoint reports degraded state when optional dependencies are down
+- [ ] Retry logic uses exponential backoff with a maximum cap
+- [ ] Slow consumers detected and disconnected via circuit breaker threshold
+- [ ] Feature flags fully gate optional capabilities (no half-initialized state)
 
 ### Configuration
 - [ ] New settings have environment variables

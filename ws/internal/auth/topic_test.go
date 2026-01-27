@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -12,8 +13,8 @@ func TestNewTopicIsolator(t *testing.T) {
 		if iso == nil {
 			t.Fatal("expected non-nil isolator")
 		}
-		if iso.config.Environment != "main" {
-			t.Errorf("expected environment 'main', got %q", iso.config.Environment)
+		if iso.config.Environment != "prod" {
+			t.Errorf("expected environment 'prod', got %q", iso.config.Environment)
 		}
 		if iso.config.Separator != "." {
 			t.Errorf("expected separator '.', got %q", iso.config.Separator)
@@ -28,11 +29,11 @@ func TestNewTopicIsolator(t *testing.T) {
 		}
 	})
 
-	t.Run("with empty environment defaults to main", func(t *testing.T) {
+	t.Run("with empty environment defaults to prod", func(t *testing.T) {
 		t.Parallel()
 		iso := NewTopicIsolator(TopicIsolationConfig{Environment: ""})
-		if iso.config.Environment != "main" {
-			t.Errorf("expected environment 'main', got %q", iso.config.Environment)
+		if iso.config.Environment != "prod" {
+			t.Errorf("expected environment 'prod', got %q", iso.config.Environment)
 		}
 	})
 }
@@ -40,11 +41,11 @@ func TestNewTopicIsolator(t *testing.T) {
 func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
 	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
-		Environment:         "main",
+		Environment:         "prod",
 		TenantPosition:      1,
 		Separator:           ".",
 		CrossTenantRoles:    []string{"admin", "system"},
-		SharedTopicPatterns: []string{"main.shared.*"},
+		SharedTopicPatterns: []string{"prod.shared.*"},
 	})
 
 	tests := []struct {
@@ -58,7 +59,7 @@ func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
 		{
 			name:          "same tenant allowed",
 			claims:        &Claims{TenantID: "acme"},
-			topic:         "main.acme.trade",
+			topic:         "prod.acme.trade",
 			action:        TopicActionConsume,
 			expectAllowed: true,
 			expectReason:  "tenant match",
@@ -66,56 +67,56 @@ func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
 		{
 			name:          "different tenant denied",
 			claims:        &Claims{TenantID: "acme"},
-			topic:         "main.globex.trade",
+			topic:         "prod.globex.trade",
 			action:        TopicActionConsume,
 			expectAllowed: false,
 		},
 		{
 			name:          "nil claims allowed (auth disabled)",
 			claims:        nil,
-			topic:         "main.acme.trade",
+			topic:         "prod.acme.trade",
 			action:        TopicActionConsume,
 			expectAllowed: true,
 		},
 		{
 			name:          "empty tenant allowed (auth disabled)",
 			claims:        &Claims{TenantID: ""},
-			topic:         "main.acme.trade",
+			topic:         "prod.acme.trade",
 			action:        TopicActionConsume,
 			expectAllowed: true,
 		},
 		{
 			name:          "admin role cross-tenant allowed",
 			claims:        &Claims{TenantID: "acme", Roles: []string{"admin"}},
-			topic:         "main.globex.trade",
+			topic:         "prod.globex.trade",
 			action:        TopicActionConsume,
 			expectAllowed: true,
 		},
 		{
 			name:          "system role cross-tenant allowed",
 			claims:        &Claims{TenantID: "acme", Roles: []string{"system"}},
-			topic:         "main.globex.trade",
+			topic:         "prod.globex.trade",
 			action:        TopicActionPublish,
 			expectAllowed: true,
 		},
 		{
 			name:          "shared topic allowed",
 			claims:        &Claims{TenantID: "acme"},
-			topic:         "main.shared.broadcast",
+			topic:         "prod.shared.broadcast",
 			action:        TopicActionConsume,
 			expectAllowed: true,
 		},
 		{
 			name:          "rejects topic without tenant segment",
 			claims:        &Claims{TenantID: "acme"},
-			topic:         "main.trade", // Missing tenant - not in shared patterns
+			topic:         "prod.trade", // Missing tenant - not in shared patterns
 			action:        TopicActionConsume,
 			expectAllowed: false,
 		},
 		{
 			name:          "publish same tenant allowed",
 			claims:        &Claims{TenantID: "acme"},
-			topic:         "main.acme.trade",
+			topic:         "prod.acme.trade",
 			action:        TopicActionPublish,
 			expectAllowed: true,
 		},
@@ -142,17 +143,17 @@ func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
 func TestTopicIsolator_CheckTopicAccess_CrossTenantFlags(t *testing.T) {
 	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
-		Environment:         "main",
+		Environment:         "prod",
 		TenantPosition:      1,
 		Separator:           ".",
 		CrossTenantRoles:    []string{"admin"},
-		SharedTopicPatterns: []string{"main.shared.*"},
+		SharedTopicPatterns: []string{"prod.shared.*"},
 	})
 
 	t.Run("cross-tenant flag set", func(t *testing.T) {
 		t.Parallel()
 		claims := &Claims{TenantID: "acme", Roles: []string{"admin"}}
-		result := iso.CheckTopicAccess(claims, "main.globex.trade", TopicActionConsume)
+		result := iso.CheckTopicAccess(claims, "prod.globex.trade", TopicActionConsume)
 
 		if !result.IsCrossTenant {
 			t.Error("expected IsCrossTenant to be true for cross-tenant access")
@@ -162,7 +163,7 @@ func TestTopicIsolator_CheckTopicAccess_CrossTenantFlags(t *testing.T) {
 	t.Run("shared topic flag set", func(t *testing.T) {
 		t.Parallel()
 		claims := &Claims{TenantID: "acme"}
-		result := iso.CheckTopicAccess(claims, "main.shared.broadcast", TopicActionConsume)
+		result := iso.CheckTopicAccess(claims, "prod.shared.broadcast", TopicActionConsume)
 
 		if !result.IsSharedTopic {
 			t.Error("expected IsSharedTopic to be true for shared topic")
@@ -178,10 +179,10 @@ func TestTopicIsolator_ExtractTenantFromTopic(t *testing.T) {
 		topic    string
 		expected string
 	}{
-		{"main.acme.trade", "acme"},
-		{"main.globex.liquidity", "globex"},
+		{"prod.acme.trade", "acme"},
+		{"prod.globex.liquidity", "globex"},
 		{"dev.startup.trade", "startup"},
-		{"main.trade", "trade"}, // Position 1 exists, returns "trade"
+		{"prod.trade", "trade"}, // Position 1 exists, returns "trade"
 		{"trade", ""},           // Not enough parts (position 1 doesn't exist)
 		{"", ""},
 	}
@@ -201,7 +202,7 @@ func TestTopicIsolator_ExtractTenantFromTopic(t *testing.T) {
 func TestTopicIsolator_BuildTopicName(t *testing.T) {
 	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
-		Environment:    "main",
+		Environment:    "prod",
 		TenantPosition: 1,
 		Separator:      ".",
 	})
@@ -211,9 +212,9 @@ func TestTopicIsolator_BuildTopicName(t *testing.T) {
 		category string
 		expected string
 	}{
-		{"acme", "trade", "main.acme.trade"},
-		{"globex", "liquidity", "main.globex.liquidity"},
-		{"startup", "balances", "main.startup.balances"},
+		{"acme", "trade", "prod.acme.trade"},
+		{"globex", "liquidity", "prod.globex.liquidity"},
+		{"startup", "balances", "prod.startup.balances"},
 	}
 
 	for _, tt := range tests {
@@ -250,11 +251,12 @@ func TestTopicIsolator_ParseTopic(t *testing.T) {
 		expectTnt string
 		expectCat string
 	}{
-		{"main.acme.trade", "main", "acme", "trade"},
+		{"prod.acme.trade", "prod", "acme", "trade"},
 		{"dev.globex.liquidity", "dev", "globex", "liquidity"},
-		{"main.acme.trade.refined", "main", "acme", "trade.refined"},
-		{"main.acme", "main", "acme", ""},
-		{"main", "main", "", ""},
+		{"prod.acme.trade.v2", "prod", "acme", "trade.v2"},
+		{"prod.acme.trade.v2.extra", "prod", "acme", "trade.v2.extra"},
+		{"prod.acme", "prod", "acme", ""},
+		{"prod", "prod", "", ""},
 	}
 
 	for _, tt := range tests {
@@ -287,18 +289,21 @@ func TestTopicIsolator_ValidateTopicFormat(t *testing.T) {
 	iso := NewTopicIsolator(DefaultTopicIsolationConfig())
 
 	tests := []struct {
-		topic     string
-		expectErr bool
+		topic         string
+		expectErr     bool
+		expectErrText string
 	}{
-		{"main.acme.trade", false},
-		{"dev.globex.liquidity", false},
-		{"main.acme.trade.refined", false},
-		{"main.acme", true},   // Missing category
-		{"main", true},        // Missing tenant and category
-		{"", true},            // Empty
-		{".acme.trade", true}, // Empty environment
-		{"main..trade", true}, // Empty tenant
-		{"main.acme.", true},  // Empty category
+		{"prod.acme.trade", false, ""},
+		{"dev.globex.liquidity", false, ""},
+		{"prod.acme.trade.v2", false, ""},
+		{"prod.acme.trade.v2.extra", false, ""},
+		{"prod.acme", true, ""},                   // Missing category
+		{"prod", true, ""},                        // Missing tenant and category
+		{"", true, ""},                            // Empty
+		{".acme.trade", true, ""},                 // Empty environment
+		{"prod..trade", true, ""},                 // Empty tenant
+		{"prod.acme.", true, ""},                  // Empty category
+		{"invalid.acme.trade", true, "namespace"}, // Invalid namespace
 	}
 
 	for _, tt := range tests {
@@ -311,6 +316,11 @@ func TestTopicIsolator_ValidateTopicFormat(t *testing.T) {
 				t.Errorf("ValidateTopicFormat(%q) error = %v, want error = %v",
 					tt.topic, err, tt.expectErr)
 			}
+
+			if tt.expectErrText != "" && err != nil && !strings.Contains(err.Error(), tt.expectErrText) {
+				t.Errorf("ValidateTopicFormat(%q) error = %q, want error containing %q",
+					tt.topic, err.Error(), tt.expectErrText)
+			}
 		})
 	}
 }
@@ -322,18 +332,18 @@ func TestTopicIsolator_CanPublish_CanConsume(t *testing.T) {
 	claims := &Claims{TenantID: "acme"}
 
 	// Same tenant
-	if !iso.CanPublish(claims, "main.acme.trade") {
+	if !iso.CanPublish(claims, "prod.acme.trade") {
 		t.Error("expected CanPublish to return true for same tenant")
 	}
-	if !iso.CanConsume(claims, "main.acme.trade") {
+	if !iso.CanConsume(claims, "prod.acme.trade") {
 		t.Error("expected CanConsume to return true for same tenant")
 	}
 
 	// Different tenant
-	if iso.CanPublish(claims, "main.globex.trade") {
+	if iso.CanPublish(claims, "prod.globex.trade") {
 		t.Error("expected CanPublish to return false for different tenant")
 	}
-	if iso.CanConsume(claims, "main.globex.trade") {
+	if iso.CanConsume(claims, "prod.globex.trade") {
 		t.Error("expected CanConsume to return false for different tenant")
 	}
 }
@@ -341,12 +351,12 @@ func TestTopicIsolator_CanPublish_CanConsume(t *testing.T) {
 func TestTopicIsolator_BuildTopicPrefix(t *testing.T) {
 	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
-		Environment: "main",
+		Environment: "prod",
 		Separator:   ".",
 	})
 
 	result := iso.BuildTopicPrefix("acme")
-	expected := "main.acme."
+	expected := "prod.acme."
 
 	if result != expected {
 		t.Errorf("BuildTopicPrefix() = %q, want %q", result, expected)
@@ -356,9 +366,9 @@ func TestTopicIsolator_BuildTopicPrefix(t *testing.T) {
 func TestTopicIsolator_ListAllowedTopicPatterns(t *testing.T) {
 	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
-		Environment:         "main",
+		Environment:         "prod",
 		Separator:           ".",
-		SharedTopicPatterns: []string{"main.shared.*"},
+		SharedTopicPatterns: []string{"prod.shared.*"},
 	})
 
 	patterns := iso.ListAllowedTopicPatterns("acme")
@@ -368,7 +378,7 @@ func TestTopicIsolator_ListAllowedTopicPatterns(t *testing.T) {
 	}
 
 	// First pattern should be tenant's topics
-	expected := "main\\.acme\\..*"
+	expected := "prod\\.acme\\..*"
 	if patterns[0] != expected {
 		t.Errorf("patterns[0] = %q, want %q", patterns[0], expected)
 	}
@@ -382,26 +392,26 @@ func TestMatchTopicPattern(t *testing.T) {
 		expected bool
 	}{
 		// Exact match
-		{"main.acme.trade", "main.acme.trade", true},
-		{"main.acme.trade", "main.acme.liquidity", false},
+		{"prod.acme.trade", "prod.acme.trade", true},
+		{"prod.acme.trade", "prod.acme.liquidity", false},
 
 		// Wildcard in tenant position
-		{"main.*.trade", "main.acme.trade", true},
-		{"main.*.trade", "main.globex.trade", true},
-		{"main.*.trade", "main.acme.liquidity", false},
+		{"prod.*.trade", "prod.acme.trade", true},
+		{"prod.*.trade", "prod.globex.trade", true},
+		{"prod.*.trade", "prod.acme.liquidity", false},
 
 		// Wildcard in category position
-		{"main.shared.*", "main.shared.broadcast", true},
-		{"main.shared.*", "main.shared.alerts", true},
-		{"main.shared.*", "main.acme.trade", false},
+		{"prod.shared.*", "prod.shared.broadcast", true},
+		{"prod.shared.*", "prod.shared.alerts", true},
+		{"prod.shared.*", "prod.acme.trade", false},
 
 		// Multiple wildcards
-		{"*.*.*", "main.acme.trade", true},
+		{"*.*.*", "prod.acme.trade", true},
 		{"*.*.*", "dev.globex.liquidity", true},
 
 		// Length mismatch
-		{"main.*.trade", "main.acme", false},
-		{"main.*", "main.acme.trade", false},
+		{"prod.*.trade", "prod.acme", false},
+		{"prod.*", "prod.acme.trade", false},
 	}
 
 	for _, tt := range tests {
@@ -421,8 +431,8 @@ func TestDefaultTopicIsolationConfig(t *testing.T) {
 	t.Parallel()
 	config := DefaultTopicIsolationConfig()
 
-	if config.Environment != "main" {
-		t.Errorf("expected environment 'main', got %q", config.Environment)
+	if config.Environment != "prod" {
+		t.Errorf("expected environment 'prod', got %q", config.Environment)
 	}
 	if config.TenantPosition != 1 {
 		t.Errorf("expected tenant position 1, got %d", config.TenantPosition)
@@ -433,22 +443,33 @@ func TestDefaultTopicIsolationConfig(t *testing.T) {
 	if len(config.CrossTenantRoles) != 2 {
 		t.Errorf("expected 2 cross-tenant roles, got %d", len(config.CrossTenantRoles))
 	}
+
+	// Validate ValidNamespaces includes the expected namespaces
+	expectedNamespaces := []string{"local", "dev", "staging", "prod"}
+	for _, ns := range expectedNamespaces {
+		if !config.ValidNamespaces[ns] {
+			t.Errorf("expected ValidNamespaces to include %q", ns)
+		}
+	}
+	if len(config.ValidNamespaces) != len(expectedNamespaces) {
+		t.Errorf("expected %d valid namespaces, got %d", len(expectedNamespaces), len(config.ValidNamespaces))
+	}
 }
 
 func TestTopicIsolator_FailSecure(t *testing.T) {
 	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
-		Environment:         "main",
+		Environment:         "prod",
 		TenantPosition:      1,
 		Separator:           ".",
-		SharedTopicPatterns: []string{"main.shared.*"},
+		SharedTopicPatterns: []string{"prod.shared.*"},
 	})
 
 	claims := &Claims{TenantID: "acme"}
 
 	t.Run("topic with matching tenant allowed", func(t *testing.T) {
 		t.Parallel()
-		result := iso.CheckTopicAccess(claims, "main.acme.trade", TopicActionConsume)
+		result := iso.CheckTopicAccess(claims, "prod.acme.trade", TopicActionConsume)
 		if !result.Allowed {
 			t.Errorf("expected topic with matching tenant to be allowed, got: %s", result.Reason)
 		}
@@ -466,7 +487,7 @@ func TestTopicIsolator_FailSecure(t *testing.T) {
 	t.Run("shared topic allowed", func(t *testing.T) {
 		t.Parallel()
 		// Explicitly configured shared topic
-		result := iso.CheckTopicAccess(claims, "main.shared.broadcast", TopicActionConsume)
+		result := iso.CheckTopicAccess(claims, "prod.shared.broadcast", TopicActionConsume)
 		if !result.Allowed {
 			t.Errorf("expected shared topic to be allowed, got: %s", result.Reason)
 		}
@@ -474,7 +495,7 @@ func TestTopicIsolator_FailSecure(t *testing.T) {
 
 	t.Run("topic with different tenant denied", func(t *testing.T) {
 		t.Parallel()
-		result := iso.CheckTopicAccess(claims, "main.globex.trade", TopicActionConsume)
+		result := iso.CheckTopicAccess(claims, "prod.globex.trade", TopicActionConsume)
 		if result.Allowed {
 			t.Error("expected topic with different tenant to be denied")
 		}

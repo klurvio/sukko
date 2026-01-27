@@ -33,7 +33,7 @@ type ProducerStats struct {
 // ProducerConfig holds configuration for creating a Kafka producer.
 type ProducerConfig struct {
 	Brokers        []string        // Kafka/Redpanda broker addresses (required)
-	TopicNamespace string          // Topic namespace: "local", "dev", "staging", "main" (required)
+	TopicNamespace string          // Topic namespace: "local", "dev", "staging", "prod" (required)
 	ClientID       string          // Client ID for Kafka connection (optional, defaults to "odin-ws-producer-{hostname}")
 	Logger         *zerolog.Logger // Structured logger (optional)
 

@@ -398,15 +398,15 @@ func TestService_CreateTopics(t *testing.T) {
 		t.Fatalf("failed to create topics: %v", err)
 	}
 
-	// Verify topics created (base + refined)
-	if len(topics) != 4 {
-		t.Errorf("expected 4 topics (2 base + 2 refined), got %d", len(topics))
+	// Verify topics created
+	if len(topics) != 2 {
+		t.Errorf("expected 2 topics, got %d", len(topics))
 	}
 
 	// Verify Kafka topics
 	kafkaTopics := kafkaAdmin.GetTopics()
-	if len(kafkaTopics) != 4 {
-		t.Errorf("expected 4 Kafka topics, got %d", len(kafkaTopics))
+	if len(kafkaTopics) != 2 {
+		t.Errorf("expected 2 Kafka topics, got %d", len(kafkaTopics))
 	}
 
 	// Verify ACLs created

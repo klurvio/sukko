@@ -60,23 +60,8 @@ func GetBundleBases(bundle BundleType) []string {
 	return result
 }
 
-// GetBundleTopics returns the full topic names for a given bundle type and environment
-// Returns refined topics for ws-server consumption
+// GetBundleTopics returns the full topic names for a given bundle type and environment.
 func GetBundleTopics(env string, bundle BundleType) []string {
-	bases := GetBundleBases(bundle)
-	if bases == nil {
-		return nil
-	}
-	topics := make([]string, len(bases))
-	for i, base := range bases {
-		topics[i] = GetRefinedTopic(env, base)
-	}
-	return topics
-}
-
-// GetBundleRegularTopics returns regular (non-refined) topics for a bundle
-// Used by publisher to know which topics to publish to
-func GetBundleRegularTopics(env string, bundle BundleType) []string {
 	bases := GetBundleBases(bundle)
 	if bases == nil {
 		return nil
@@ -106,8 +91,8 @@ func AllBundles() []BundleType {
 	}
 }
 
-// GetTopicsForSubscription expands a subscription request into refined topic list
-// Supports both bundle types and individual base topic names
+// GetTopicsForSubscription expands a subscription request into a topic list.
+// Supports both bundle types and individual base topic names.
 func GetTopicsForSubscription(env, subscription string) []string {
 	// Check if it's a bundle
 	bundle := BundleType(subscription)
@@ -118,7 +103,7 @@ func GetTopicsForSubscription(env, subscription string) []string {
 	// Check if it's a valid base topic name
 	for _, base := range AllTopicBases() {
 		if base == subscription {
-			return []string{GetRefinedTopic(env, base)}
+			return []string{GetTopic(env, base)}
 		}
 	}
 

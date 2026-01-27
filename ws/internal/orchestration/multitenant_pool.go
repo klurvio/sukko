@@ -87,7 +87,7 @@ type MultiTenantPoolConfig struct {
 	// Brokers is the list of Kafka/Redpanda broker addresses (required)
 	Brokers []string
 
-	// Namespace is the topic namespace (e.g., "main", "develop")
+	// Namespace is the topic namespace (e.g., "prod", "dev")
 	// Used for consumer group naming and topic prefixes
 	Namespace string
 

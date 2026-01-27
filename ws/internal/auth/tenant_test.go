@@ -146,7 +146,7 @@ func TestTenantIsolator_CheckTopicAccess(t *testing.T) {
 	t.Parallel()
 	iso := NewTenantIsolator(TenantIsolationConfig{
 		CrossTenantRoles:    []string{"admin"},
-		SharedTopicPatterns: []string{"main.shared.*"},
+		SharedTopicPatterns: []string{"prod.shared.*"},
 	})
 
 	ctx := context.Background()
@@ -161,35 +161,35 @@ func TestTenantIsolator_CheckTopicAccess(t *testing.T) {
 		{
 			name:          "same tenant consume allowed",
 			claims:        &Claims{TenantID: "acme"},
-			topic:         "main.acme.trade",
+			topic:         "prod.acme.trade",
 			action:        ActionConsume,
 			expectAllowed: true,
 		},
 		{
 			name:          "same tenant publish allowed",
 			claims:        &Claims{TenantID: "acme"},
-			topic:         "main.acme.trade",
+			topic:         "prod.acme.trade",
 			action:        ActionPublish,
 			expectAllowed: true,
 		},
 		{
 			name:          "different tenant denied",
 			claims:        &Claims{TenantID: "acme"},
-			topic:         "main.globex.trade",
+			topic:         "prod.globex.trade",
 			action:        ActionConsume,
 			expectAllowed: false,
 		},
 		{
 			name:          "shared topic allowed",
 			claims:        &Claims{TenantID: "acme"},
-			topic:         "main.shared.broadcast",
+			topic:         "prod.shared.broadcast",
 			action:        ActionConsume,
 			expectAllowed: true,
 		},
 		{
 			name:          "admin cross-tenant allowed",
 			claims:        &Claims{TenantID: "acme", Roles: []string{"admin"}},
-			topic:         "main.globex.trade",
+			topic:         "prod.globex.trade",
 			action:        ActionConsume,
 			expectAllowed: true,
 		},
@@ -243,7 +243,7 @@ func TestTenantIsolator_BuildTopicName(t *testing.T) {
 
 	result := iso.BuildTopicName("acme", "trade")
 
-	expected := "main.acme.trade"
+	expected := "prod.acme.trade"
 	if result != expected {
 		t.Errorf("BuildTopicName() = %q, want %q", result, expected)
 	}
@@ -265,7 +265,7 @@ func TestTenantIsolator_GetTenantFromTopic(t *testing.T) {
 	t.Parallel()
 	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
 
-	result := iso.GetTenantFromTopic("main.acme.trade")
+	result := iso.GetTenantFromTopic("prod.acme.trade")
 
 	expected := "acme"
 	if result != expected {
@@ -289,7 +289,7 @@ func TestTenantIsolator_CanAccessResource(t *testing.T) {
 	}
 
 	// Topic access
-	if !iso.CanAccessResource(claims, "main.acme.trade", "topic", ActionConsume) {
+	if !iso.CanAccessResource(claims, "prod.acme.trade", "topic", ActionConsume) {
 		t.Error("expected topic access to be allowed for same tenant")
 	}
 

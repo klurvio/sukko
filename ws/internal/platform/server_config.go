@@ -143,14 +143,18 @@ type ServerConfig struct {
 
 	// KafkaTopicNamespace overrides ENVIRONMENT for Kafka topic naming only.
 	// If empty, defaults to normalized ENVIRONMENT value.
-	// Valid values: local, dev, staging, main
+	// Validated against VALID_NAMESPACES (default: local,dev,staging,prod).
 	//
 	// Use cases:
-	//   - Set to "main" in develop environment to consume from production topics
-	//   - Keeps logs/metrics accurate (shows "develop" not "main")
+	//   - Set to "prod" in develop environment to consume from production topics
+	//   - Keeps logs/metrics accurate (shows "develop" not "prod")
 	//
 	// See ws/internal/kafka/config.go for detailed documentation.
 	KafkaTopicNamespace string `env:"KAFKA_TOPIC_NAMESPACE" envDefault:""`
+
+	// ValidNamespaces is a comma-separated list of allowed topic namespace prefixes.
+	// Used to validate KafkaTopicNamespace and topic formats at runtime.
+	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,staging,prod"`
 
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy

@@ -124,7 +124,7 @@ func TestMultiTenantPoolConfig_Validation(t *testing.T) {
 			name: "valid config",
 			config: MultiTenantPoolConfig{
 				Brokers:       []string{"localhost:9092"},
-				Namespace:     "main",
+				Namespace:     "prod",
 				Registry:      registry,
 				BroadcastBus:  bus,
 				ResourceGuard: guard,
@@ -135,7 +135,7 @@ func TestMultiTenantPoolConfig_Validation(t *testing.T) {
 		{
 			name: "missing brokers",
 			config: MultiTenantPoolConfig{
-				Namespace:     "main",
+				Namespace:     "prod",
 				Registry:      registry,
 				BroadcastBus:  bus,
 				ResourceGuard: guard,
@@ -160,7 +160,7 @@ func TestMultiTenantPoolConfig_Validation(t *testing.T) {
 			name: "missing registry",
 			config: MultiTenantPoolConfig{
 				Brokers:       []string{"localhost:9092"},
-				Namespace:     "main",
+				Namespace:     "prod",
 				BroadcastBus:  bus,
 				ResourceGuard: guard,
 				Logger:        logger,
@@ -172,7 +172,7 @@ func TestMultiTenantPoolConfig_Validation(t *testing.T) {
 			name: "missing broadcast bus",
 			config: MultiTenantPoolConfig{
 				Brokers:       []string{"localhost:9092"},
-				Namespace:     "main",
+				Namespace:     "prod",
 				Registry:      registry,
 				ResourceGuard: guard,
 				Logger:        logger,
@@ -184,7 +184,7 @@ func TestMultiTenantPoolConfig_Validation(t *testing.T) {
 			name: "missing resource guard",
 			config: MultiTenantPoolConfig{
 				Brokers:      []string{"localhost:9092"},
-				Namespace:    "main",
+				Namespace:    "prod",
 				Registry:     registry,
 				BroadcastBus: bus,
 				Logger:       logger,
@@ -220,7 +220,7 @@ func TestMultiTenantPool_DefaultRefreshInterval(t *testing.T) {
 
 	config := MultiTenantPoolConfig{
 		Brokers:       []string{"localhost:9092"},
-		Namespace:     "main",
+		Namespace:     "prod",
 		Registry:      registry,
 		BroadcastBus:  bus,
 		ResourceGuard: guard,
@@ -247,7 +247,7 @@ func TestMultiTenantPool_CustomRefreshInterval(t *testing.T) {
 
 	config := MultiTenantPoolConfig{
 		Brokers:         []string{"localhost:9092"},
-		Namespace:       "main",
+		Namespace:       "prod",
 		Registry:        registry,
 		BroadcastBus:    bus,
 		ResourceGuard:   guard,
@@ -310,7 +310,7 @@ func TestMultiTenantPool_GetMetrics_Initial(t *testing.T) {
 
 	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
 		Brokers:       []string{"localhost:9092"},
-		Namespace:     "main",
+		Namespace:     "prod",
 		Registry:      registry,
 		BroadcastBus:  bus,
 		ResourceGuard: guard,
@@ -350,7 +350,7 @@ func TestMultiTenantPool_RouteMessage(t *testing.T) {
 
 	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
 		Brokers:       []string{"localhost:9092"},
-		Namespace:     "main",
+		Namespace:     "prod",
 		Registry:      registry,
 		BroadcastBus:  bus,
 		ResourceGuard: guard,
@@ -382,7 +382,7 @@ func TestMultiTenantPool_RouteMessage_Concurrent(t *testing.T) {
 
 	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
 		Brokers:       []string{"localhost:9092"},
-		Namespace:     "main",
+		Namespace:     "prod",
 		Registry:      registry,
 		BroadcastBus:  bus,
 		ResourceGuard: guard,
@@ -429,7 +429,7 @@ func TestMultiTenantPool_AtomicCounters(t *testing.T) {
 
 	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
 		Brokers:       []string{"localhost:9092"},
-		Namespace:     "main",
+		Namespace:     "prod",
 		Registry:      registry,
 		BroadcastBus:  bus,
 		ResourceGuard: guard,
@@ -472,10 +472,10 @@ func TestMultiTenantPool_ConsumerGroupNaming(t *testing.T) {
 		isShared  bool
 		expected  string
 	}{
-		{"main", "", true, "odin-shared-main"},
-		{"develop", "", true, "odin-shared-develop"},
-		{"main", "acme", false, "odin-acme-main"},
-		{"develop", "bigcorp", false, "odin-bigcorp-develop"},
+		{"prod", "", true, "odin-shared-prod"},
+		{"dev", "", true, "odin-shared-dev"},
+		{"prod", "acme", false, "odin-acme-prod"},
+		{"dev", "bigcorp", false, "odin-bigcorp-dev"},
 		{"staging", "tenant123", false, "odin-tenant123-staging"},
 	}
 
@@ -509,7 +509,7 @@ func TestMultiTenantPool_GetSharedConsumer_Initial(t *testing.T) {
 
 	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
 		Brokers:       []string{"localhost:9092"},
-		Namespace:     "main",
+		Namespace:     "prod",
 		Registry:      registry,
 		BroadcastBus:  bus,
 		ResourceGuard: guard,
@@ -535,9 +535,9 @@ func TestMultiTenantPool_TopicTracking(t *testing.T) {
 	logger := zerolog.New(nil).Level(zerolog.Disabled)
 	registry := &mockTenantRegistry{
 		sharedTopics: []string{
-			"main.acme.trade",
-			"main.acme.liquidity",
-			"main.bigcorp.trade",
+			"prod.acme.trade",
+			"prod.acme.liquidity",
+			"prod.bigcorp.trade",
 		},
 	}
 	bus := &mockBroadcastBus{}
@@ -545,7 +545,7 @@ func TestMultiTenantPool_TopicTracking(t *testing.T) {
 
 	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
 		Brokers:       []string{"localhost:9092"},
-		Namespace:     "main",
+		Namespace:     "prod",
 		Registry:      registry,
 		BroadcastBus:  bus,
 		ResourceGuard: guard,

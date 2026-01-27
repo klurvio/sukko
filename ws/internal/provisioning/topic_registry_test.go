@@ -24,7 +24,7 @@ func TestTenantTopics_Fields(t *testing.T) {
 	t.Parallel()
 	tt := kafka.TenantTopics{
 		TenantID: "acme",
-		Topics:   []string{"main.acme.trade", "main.acme.liquidity"},
+		Topics:   []string{"prod.acme.trade", "prod.acme.liquidity"},
 	}
 
 	if tt.TenantID != "acme" {
@@ -33,10 +33,10 @@ func TestTenantTopics_Fields(t *testing.T) {
 	if len(tt.Topics) != 2 {
 		t.Errorf("Topics length: got %d, want 2", len(tt.Topics))
 	}
-	if tt.Topics[0] != "main.acme.trade" {
+	if tt.Topics[0] != "prod.acme.trade" {
 		t.Errorf("Topics[0]: got %s, want main.acme.trade", tt.Topics[0])
 	}
-	if tt.Topics[1] != "main.acme.liquidity" {
+	if tt.Topics[1] != "prod.acme.liquidity" {
 		t.Errorf("Topics[1]: got %s, want main.acme.liquidity", tt.Topics[1])
 	}
 }
@@ -53,8 +53,8 @@ func TestTopicNaming_Format(t *testing.T) {
 		category  string
 		expected  string
 	}{
-		{"main", "acme", "trade", "main.acme.trade"},
-		{"main", "acme", "liquidity", "main.acme.liquidity"},
+		{"prod", "acme", "trade", "prod.acme.trade"},
+		{"prod", "acme", "liquidity", "prod.acme.liquidity"},
 		{"develop", "bigcorp", "analytics", "develop.bigcorp.analytics"},
 		{"staging", "tenant-123", "balances", "staging.tenant-123.balances"},
 	}
@@ -78,10 +78,10 @@ func TestTopicNaming_NamespacePrefix(t *testing.T) {
 		topicName   string
 		shouldMatch bool
 	}{
-		{"main", "main.acme.trade", true},
-		{"main", "develop.acme.trade", false},
+		{"prod", "prod.acme.trade", true},
+		{"prod", "develop.acme.trade", false},
 		{"develop", "develop.bigcorp.liquidity", true},
-		{"develop", "main.bigcorp.liquidity", false},
+		{"develop", "prod.bigcorp.liquidity", false},
 		{"staging", "staging.tenant.analytics", true},
 	}
 
@@ -124,7 +124,7 @@ func TestSQLPattern_LikePrefix(t *testing.T) {
 		namespace string
 		expected  string
 	}{
-		{"main", "main.%"},
+		{"prod", "prod.%"},
 		{"develop", "develop.%"},
 		{"staging", "staging.%"},
 		{"local", "local.%"},
@@ -159,10 +159,10 @@ func TestQueryResult_MultipleTopics(t *testing.T) {
 	t.Parallel()
 	// Test handling of multiple topics
 	topics := []string{
-		"main.acme.trade",
-		"main.acme.liquidity",
-		"main.acme.analytics",
-		"main.bigcorp.trade",
+		"prod.acme.trade",
+		"prod.acme.liquidity",
+		"prod.acme.analytics",
+		"prod.bigcorp.trade",
 	}
 
 	if len(topics) != 4 {
@@ -183,8 +183,8 @@ func TestQueryResult_TenantGrouping(t *testing.T) {
 	t.Parallel()
 	// Test grouping topics by tenant
 	tenants := []kafka.TenantTopics{
-		{TenantID: "acme", Topics: []string{"main.acme.trade", "main.acme.liquidity"}},
-		{TenantID: "bigcorp", Topics: []string{"main.bigcorp.trade"}},
+		{TenantID: "acme", Topics: []string{"prod.acme.trade", "prod.acme.liquidity"}},
+		{TenantID: "bigcorp", Topics: []string{"prod.bigcorp.trade"}},
 	}
 
 	if len(tenants) != 2 {
@@ -217,7 +217,7 @@ func TestTopicRegistry_TenantWithNoTopics(t *testing.T) {
 	t.Parallel()
 	// Dedicated tenants with no topics should not be included
 	tenants := []kafka.TenantTopics{
-		{TenantID: "acme", Topics: []string{"main.acme.trade"}},
+		{TenantID: "acme", Topics: []string{"prod.acme.trade"}},
 		{TenantID: "empty", Topics: []string{}}, // No topics
 	}
 
@@ -274,23 +274,23 @@ func TestTopicRegistry_MultipleNamespaces(t *testing.T) {
 	t.Parallel()
 	// Verify that topics are correctly filtered by namespace
 	allTopics := []string{
-		"main.acme.trade",
-		"main.acme.liquidity",
+		"prod.acme.trade",
+		"prod.acme.liquidity",
 		"develop.acme.trade", // Different namespace
-		"main.bigcorp.analytics",
+		"prod.bigcorp.analytics",
 	}
 
-	// Filter for "main" namespace
-	namespacePrefix := "main."
-	mainTopics := make([]string, 0)
+	// Filter for "prod" namespace
+	namespacePrefix := "prod."
+	prodTopics := make([]string, 0)
 	for _, topic := range allTopics {
 		if len(topic) > len(namespacePrefix) && topic[:len(namespacePrefix)] == namespacePrefix {
-			mainTopics = append(mainTopics, topic)
+			prodTopics = append(prodTopics, topic)
 		}
 	}
 
-	if len(mainTopics) != 3 {
-		t.Errorf("Main namespace topics: got %d, want 3", len(mainTopics))
+	if len(prodTopics) != 3 {
+		t.Errorf("Prod namespace topics: got %d, want 3", len(prodTopics))
 	}
 
 	// Filter for "develop" namespace

@@ -3,6 +3,7 @@ package platform
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -44,7 +45,8 @@ type ProvisioningConfig struct {
 	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`
 
 	// Topic Defaults
-	TopicNamespace     string `env:"KAFKA_TOPIC_NAMESPACE" envDefault:"main"`
+	TopicNamespace     string `env:"KAFKA_TOPIC_NAMESPACE" envDefault:"prod"`
+	ValidNamespaces    string `env:"VALID_NAMESPACES" envDefault:"local,dev,staging,prod"` // Comma-separated valid namespace prefixes
 	DefaultPartitions  int    `env:"DEFAULT_PARTITIONS" envDefault:"3"`
 	DefaultRetentionMs int64  `env:"DEFAULT_RETENTION_MS" envDefault:"604800000"` // 7 days
 
@@ -173,11 +175,14 @@ func (c *ProvisioningConfig) Validate() error {
 		}
 	}
 
-	// Topic namespace validation
-	validNamespaces := map[string]bool{"local": true, "dev": true, "staging": true, "main": true}
-	if !validNamespaces[c.TopicNamespace] {
-		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE must be one of: local, dev, staging, main (got: %s)",
-			c.TopicNamespace)
+	// Topic namespace validation (config-driven)
+	validNS := parseNamespaces(c.ValidNamespaces)
+	if len(validNS) == 0 {
+		return errors.New("VALID_NAMESPACES must contain at least one namespace")
+	}
+	if !validNS[c.TopicNamespace] {
+		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE must be one of: %s (got: %s)",
+			c.ValidNamespaces, c.TopicNamespace)
 	}
 
 	return nil
@@ -250,6 +255,23 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat).
 		Msg("Provisioning service configuration loaded")
+}
+
+// ParsedValidNamespaces returns the ValidNamespaces string as a set.
+func (c *ProvisioningConfig) ParsedValidNamespaces() map[string]bool {
+	return parseNamespaces(c.ValidNamespaces)
+}
+
+// parseNamespaces converts a comma-separated namespace string into a set.
+func parseNamespaces(raw string) map[string]bool {
+	ns := map[string]bool{}
+	for s := range strings.SplitSeq(raw, ",") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			ns[s] = true
+		}
+	}
+	return ns
 }
 
 // maskDatabaseURL masks the password in a database URL for logging.

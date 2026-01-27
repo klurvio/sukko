@@ -18,7 +18,7 @@ type TenantRegistry interface {
 	//
 	// Parameters:
 	//   - ctx: Context for cancellation and timeout
-	//   - namespace: Topic namespace (e.g., "main", "develop")
+	//   - namespace: Topic namespace (e.g., "prod", "dev")
 	//
 	// Returns:
 	//   - []string: List of topic names for all shared tenants
@@ -31,7 +31,7 @@ type TenantRegistry interface {
 	//
 	// Parameters:
 	//   - ctx: Context for cancellation and timeout
-	//   - namespace: Topic namespace (e.g., "main", "develop")
+	//   - namespace: Topic namespace (e.g., "prod", "dev")
 	//
 	// Returns:
 	//   - []TenantTopics: List of tenant IDs with their topic lists
@@ -46,6 +46,6 @@ type TenantTopics struct {
 	TenantID string
 
 	// Topics is the list of Kafka topics for this tenant
-	// Format: {namespace}.{tenant_id}.{category} (e.g., "main.acme.trade")
+	// Format: {namespace}.{tenant_id}.{category} (e.g., "prod.acme.trade")
 	Topics []string
 }

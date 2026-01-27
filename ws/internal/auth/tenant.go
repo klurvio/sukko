@@ -100,7 +100,7 @@ func NewTenantIsolator(config TenantIsolationConfig, opts ...TenantIsolatorOptio
 	// Create default topic isolator if not provided
 	if t.topicIsolator == nil {
 		t.topicIsolator = NewTopicIsolator(TopicIsolationConfig{
-			Environment:         "main",
+			Environment:         "prod",
 			TenantPosition:      1,
 			Separator:           ".",
 			CrossTenantRoles:    config.CrossTenantRoles,

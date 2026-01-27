@@ -120,9 +120,9 @@ func TestGetBundleTopics_Trading(t *testing.T) {
 	}
 
 	expected := []string{
-		GetRefinedTopic(testEnv, TopicBaseTrade),
-		GetRefinedTopic(testEnv, TopicBaseLiquidity),
-		GetRefinedTopic(testEnv, TopicBaseAnalytics),
+		GetTopic(testEnv, TopicBaseTrade),
+		GetTopic(testEnv, TopicBaseLiquidity),
+		GetTopic(testEnv, TopicBaseAnalytics),
 	}
 	if len(topics) != len(expected) {
 		t.Errorf("GetBundleTopics(BundleTrading) returned %d topics, want %d", len(topics), len(expected))
@@ -149,10 +149,10 @@ func TestGetBundleTopics_FullMarket(t *testing.T) {
 	}
 
 	expected := []string{
-		GetRefinedTopic(testEnv, TopicBaseTrade),
-		GetRefinedTopic(testEnv, TopicBaseLiquidity),
-		GetRefinedTopic(testEnv, TopicBaseAnalytics),
-		GetRefinedTopic(testEnv, TopicBaseMetadata),
+		GetTopic(testEnv, TopicBaseTrade),
+		GetTopic(testEnv, TopicBaseLiquidity),
+		GetTopic(testEnv, TopicBaseAnalytics),
+		GetTopic(testEnv, TopicBaseMetadata),
 	}
 	if len(topics) != len(expected) {
 		t.Errorf("GetBundleTopics(BundleFullMarket) returned %d topics, want %d", len(topics), len(expected))
@@ -168,9 +168,9 @@ func TestGetBundleTopics_Community(t *testing.T) {
 	}
 
 	expected := []string{
-		GetRefinedTopic(testEnv, TopicBaseCommunity),
-		GetRefinedTopic(testEnv, TopicBaseSocial),
-		GetRefinedTopic(testEnv, TopicBaseMetadata),
+		GetTopic(testEnv, TopicBaseCommunity),
+		GetTopic(testEnv, TopicBaseSocial),
+		GetTopic(testEnv, TopicBaseMetadata),
 	}
 	if len(topics) != len(expected) {
 		t.Errorf("GetBundleTopics(BundleCommunity) returned %d topics, want %d", len(topics), len(expected))
@@ -186,9 +186,9 @@ func TestGetBundleTopics_Portfolio(t *testing.T) {
 	}
 
 	expected := []string{
-		GetRefinedTopic(testEnv, TopicBaseTrade),
-		GetRefinedTopic(testEnv, TopicBaseAnalytics),
-		GetRefinedTopic(testEnv, TopicBaseBalances),
+		GetTopic(testEnv, TopicBaseTrade),
+		GetTopic(testEnv, TopicBaseAnalytics),
+		GetTopic(testEnv, TopicBaseBalances),
 	}
 	if len(topics) != len(expected) {
 		t.Errorf("GetBundleTopics(BundlePortfolio) returned %d topics, want %d", len(topics), len(expected))
@@ -204,8 +204,8 @@ func TestGetBundleTopics_PriceOnly(t *testing.T) {
 	}
 
 	expected := []string{
-		GetRefinedTopic(testEnv, TopicBaseTrade),
-		GetRefinedTopic(testEnv, TopicBaseAnalytics),
+		GetTopic(testEnv, TopicBaseTrade),
+		GetTopic(testEnv, TopicBaseAnalytics),
 	}
 	if len(topics) != len(expected) {
 		t.Errorf("GetBundleTopics(BundlePriceOnly) returned %d topics, want %d", len(topics), len(expected))
@@ -220,8 +220,8 @@ func TestGetBundleTopics_All(t *testing.T) {
 		t.Fatal("GetBundleTopics(BundleAll) returned nil")
 	}
 
-	// BundleAll should contain all refined topics
-	allTopics := AllRefinedTopics(testEnv)
+	// BundleAll should contain all topics
+	allTopics := AllTopics(testEnv)
 	if len(topics) != len(allTopics) {
 		t.Errorf("GetBundleTopics(BundleAll) returned %d topics, want %d", len(topics), len(allTopics))
 	}
@@ -375,7 +375,7 @@ func TestGetTopicsForSubscription_BaseTopic(t *testing.T) {
 		t.Errorf("GetTopicsForSubscription(trade) returned %d topics, want 1", len(topics))
 	}
 
-	expected := GetRefinedTopic(testEnv, TopicBaseTrade)
+	expected := GetTopic(testEnv, TopicBaseTrade)
 	if topics[0] != expected {
 		t.Errorf("GetTopicsForSubscription(trade)[0] = %s, want %s", topics[0], expected)
 	}
@@ -394,7 +394,7 @@ func TestGetTopicsForSubscription_AllBaseTopics(t *testing.T) {
 			if len(topics) != 1 {
 				t.Errorf("GetTopicsForSubscription(%s) returned %d topics, want 1", base, len(topics))
 			}
-			expected := GetRefinedTopic(testEnv, base)
+			expected := GetTopic(testEnv, base)
 			if topics[0] != expected {
 				t.Errorf("GetTopicsForSubscription(%s)[0] = %s, want %s", base, topics[0], expected)
 			}
@@ -458,7 +458,7 @@ func TestIsValidBaseTopic_Valid(t *testing.T) {
 
 func TestIsValidBaseTopic_Invalid(t *testing.T) {
 	t.Parallel()
-	invalidBases := []string{"invalid", "", "odin.trades", "odin.dev.trade.refined"}
+	invalidBases := []string{"invalid", "", "odin.trades", "odin.dev.trade"}
 	for _, base := range invalidBases {
 		t.Run(base, func(t *testing.T) {
 			t.Parallel()
@@ -467,37 +467,4 @@ func TestIsValidBaseTopic_Invalid(t *testing.T) {
 			}
 		})
 	}
-}
-
-// =============================================================================
-// GetBundleRegularTopics Tests
-// =============================================================================
-
-func TestGetBundleRegularTopics_Trading(t *testing.T) {
-	t.Parallel()
-	topics := GetBundleRegularTopics(testEnv, BundleTrading)
-
-	if topics == nil {
-		t.Fatal("GetBundleRegularTopics(BundleTrading) returned nil")
-	}
-
-	expected := []string{
-		GetTopic(testEnv, TopicBaseTrade),
-		GetTopic(testEnv, TopicBaseLiquidity),
-		GetTopic(testEnv, TopicBaseAnalytics),
-	}
-	if len(topics) != len(expected) {
-		t.Errorf("GetBundleRegularTopics(BundleTrading) returned %d topics, want %d", len(topics), len(expected))
-	}
-
-	// Verify these are regular topics (not refined)
-	for _, topic := range topics {
-		if hasSuffix(topic, ".refined") {
-			t.Errorf("GetBundleRegularTopics returned refined topic: %s", topic)
-		}
-	}
-}
-
-func hasSuffix(s, suffix string) bool {
-	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }

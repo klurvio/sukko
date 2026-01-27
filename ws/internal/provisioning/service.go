@@ -436,20 +436,6 @@ func (s *Service) createTopicsForTenant(ctx context.Context, tenantID string, ca
 			Partitions:  s.config.DefaultPartitions,
 			RetentionMs: s.config.DefaultRetentionMs,
 		})
-
-		// Create refined topic
-		refinedTopic := baseTopic + ".refined"
-		if err := s.createSingleTopic(ctx, tenantID, refinedTopic, category+".refined"); err != nil {
-			s.logger.Error().Err(err).Str("topic", refinedTopic).Msg("Failed to create refined topic")
-			continue
-		}
-		created = append(created, &TenantTopic{
-			TenantID:    tenantID,
-			TopicName:   refinedTopic,
-			Category:    category + ".refined",
-			Partitions:  s.config.DefaultPartitions,
-			RetentionMs: s.config.DefaultRetentionMs,
-		})
 	}
 
 	// Create ACL for tenant

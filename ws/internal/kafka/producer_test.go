@@ -240,8 +240,8 @@ func TestProducer_TopicNamespaces(t *testing.T) {
 		{"local", "odin.local.client-events"},
 		{"dev", "odin.dev.client-events"},
 		{"staging", "odin.staging.client-events"},
-		{"main", "odin.main.client-events"},
-		{"production", "odin.main.client-events"}, // production normalizes to main
+		{"main", "odin.main.client-events"},       // pass-through via default case
+		{"production", "odin.prod.client-events"}, // production normalizes to prod
 	}
 
 	for _, tc := range testCases {
