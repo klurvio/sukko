@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/Toniq-Labs/odin-ws/internal/messaging"
@@ -329,6 +328,6 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 		Msg("Kafka replay completed successfully")
 
 	// Increment reconnect counter for monitoring
-	atomic.AddInt64(&s.stats.MessageReplayRequests, 1)
+	s.stats.MessageReplayRequests.Add(1)
 	monitoring.IncrementReplayRequests()
 }

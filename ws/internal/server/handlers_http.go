@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync/atomic"
 	"time"
 )
 
@@ -28,10 +27,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	memoryMB := s.stats.MemoryMB
 	s.stats.Mu.RUnlock()
 
-	currentConns := atomic.LoadInt64(&s.stats.CurrentConnections)
+	currentConns := s.stats.CurrentConnections.Load()
 	maxConns := int64(s.config.MaxConnections) // Static configuration
-	slowClients := atomic.LoadInt64(&s.stats.SlowClientsDisconnected)
-	totalConns := atomic.LoadInt64(&s.stats.TotalConnections)
+	slowClients := s.stats.SlowClientsDisconnected.Load()
+	totalConns := s.stats.TotalConnections.Load()
 
 	// Get ResourceGuard stats
 	resourceStats := s.resourceGuard.GetStats()

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 
 	"github.com/rs/zerolog"
 
@@ -158,7 +157,7 @@ func (s *Shard) runBroadcastListener() {
 
 // GetCurrentConnections returns the current number of active connections for this shard
 func (s *Shard) GetCurrentConnections() int64 {
-	return atomic.LoadInt64(&s.server.GetStats().CurrentConnections)
+	return s.server.GetStats().CurrentConnections.Load()
 }
 
 // GetMaxConnections returns the maximum number of connections for this shard

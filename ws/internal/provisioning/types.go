@@ -281,6 +281,10 @@ type TenantQuota struct {
 	// ConsumerByteRate is the maximum consumer throughput (bytes/sec).
 	ConsumerByteRate int64 `json:"consumer_byte_rate"`
 
+	// MaxConnections is the maximum concurrent WebSocket connections.
+	// 0 means use the system default.
+	MaxConnections int `json:"max_connections"`
+
 	// UpdatedAt is when quotas were last updated.
 	UpdatedAt time.Time `json:"updated_at"`
 }

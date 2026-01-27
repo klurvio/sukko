@@ -1,6 +1,13 @@
 # Default values for ws-gateway subchart
 # These can be overridden from the parent chart
 
+# Global values — sensible defaults for standalone linting.
+# The parent odin chart overrides these via Helm's global value merge.
+global:
+  imageRegistry: ""
+  provisioning:
+    existingSecret: ""
+
 enabled: true
 
 replicaCount: 2

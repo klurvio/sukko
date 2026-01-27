@@ -65,12 +65,12 @@ type MultiTenantConsumerPool struct {
 	lastRefresh     time.Time
 
 	// Internal metrics (also exposed via Prometheus if callback is set)
-	messagesRouted   uint64
-	messagesDropped  uint64
-	topicsSubscribed uint64
-	dedicatedCount   uint64
-	refreshCount     uint64
-	refreshErrors    uint64
+	messagesRouted   atomic.Uint64
+	messagesDropped  atomic.Uint64
+	topicsSubscribed atomic.Uint64
+	dedicatedCount   atomic.Uint64
+	refreshCount     atomic.Uint64
+	refreshErrors    atomic.Uint64
 }
 
 // PoolMetricsCallback is a callback interface for reporting multi-tenant pool metrics.
@@ -220,7 +220,7 @@ func (p *MultiTenantConsumerPool) refreshLoop() {
 			return
 		case <-ticker.C:
 			if err := p.refreshTopics(p.ctx); err != nil {
-				atomic.AddUint64(&p.refreshErrors, 1)
+				p.refreshErrors.Add(1)
 				p.logger.Error().
 					Err(err).
 					Msg("Topic refresh failed")
@@ -231,7 +231,7 @@ func (p *MultiTenantConsumerPool) refreshLoop() {
 
 // refreshTopics queries the registry for current tenant topics and updates consumers.
 func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
-	atomic.AddUint64(&p.refreshCount, 1)
+	p.refreshCount.Add(1)
 	p.lastRefresh = time.Now()
 
 	// Get shared tenant topics
@@ -274,8 +274,8 @@ func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 	topicsCount := len(p.sharedTopics)
 	dedicatedCount := len(p.dedicatedConsumers)
 
-	atomic.StoreUint64(&p.topicsSubscribed, uint64(topicsCount))
-	atomic.StoreUint64(&p.dedicatedCount, uint64(dedicatedCount))
+	p.topicsSubscribed.Store(uint64(topicsCount))
+	p.dedicatedCount.Store(uint64(dedicatedCount))
 
 	// Report success to Prometheus
 	if p.metrics != nil {
@@ -434,7 +434,7 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 // routeMessage is called by consumers for each message.
 // It publishes the message to the BroadcastBus for distribution to WebSocket clients.
 func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte) {
-	atomic.AddUint64(&p.messagesRouted, 1)
+	p.messagesRouted.Add(1)
 
 	// Report to Prometheus via callback
 	if p.metrics != nil {
@@ -447,10 +447,10 @@ func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte) {
 	})
 
 	// Log periodic metrics
-	if routed := atomic.LoadUint64(&p.messagesRouted); routed%1000 == 0 {
+	if routed := p.messagesRouted.Load(); routed%1000 == 0 {
 		p.logger.Debug().
 			Uint64("routed", routed).
-			Uint64("dropped", atomic.LoadUint64(&p.messagesDropped)).
+			Uint64("dropped", p.messagesDropped.Load()).
 			Msg("Multi-tenant pool routing metrics")
 	}
 }
@@ -486,10 +486,10 @@ func (p *MultiTenantConsumerPool) Stop() error {
 	}
 
 	p.logger.Info().
-		Uint64("total_routed", atomic.LoadUint64(&p.messagesRouted)).
-		Uint64("total_dropped", atomic.LoadUint64(&p.messagesDropped)).
-		Uint64("refresh_count", atomic.LoadUint64(&p.refreshCount)).
-		Uint64("refresh_errors", atomic.LoadUint64(&p.refreshErrors)).
+		Uint64("total_routed", p.messagesRouted.Load()).
+		Uint64("total_dropped", p.messagesDropped.Load()).
+		Uint64("refresh_count", p.refreshCount.Load()).
+		Uint64("refresh_errors", p.refreshErrors.Load()).
 		Msg("Multi-tenant consumer pool stopped")
 
 	return nil
@@ -498,12 +498,12 @@ func (p *MultiTenantConsumerPool) Stop() error {
 // GetMetrics returns current pool metrics.
 func (p *MultiTenantConsumerPool) GetMetrics() MultiTenantPoolMetrics {
 	return MultiTenantPoolMetrics{
-		MessagesRouted:   atomic.LoadUint64(&p.messagesRouted),
-		MessagesDropped:  atomic.LoadUint64(&p.messagesDropped),
-		TopicsSubscribed: atomic.LoadUint64(&p.topicsSubscribed),
-		DedicatedCount:   atomic.LoadUint64(&p.dedicatedCount),
-		RefreshCount:     atomic.LoadUint64(&p.refreshCount),
-		RefreshErrors:    atomic.LoadUint64(&p.refreshErrors),
+		MessagesRouted:   p.messagesRouted.Load(),
+		MessagesDropped:  p.messagesDropped.Load(),
+		TopicsSubscribed: p.topicsSubscribed.Load(),
+		DedicatedCount:   p.dedicatedCount.Load(),
+		RefreshCount:     p.refreshCount.Load(),
+		RefreshErrors:    p.refreshErrors.Load(),
 		LastRefresh:      p.lastRefresh,
 	}
 }

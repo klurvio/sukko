@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -150,9 +149,9 @@ func TestProducerStats_IncrementPublished(t *testing.T) {
 	t.Parallel()
 	producer := &Producer{}
 
-	atomic.AddInt64(&producer.stats.MessagesPublished, 1)
-	atomic.AddInt64(&producer.stats.MessagesPublished, 1)
-	atomic.AddInt64(&producer.stats.MessagesPublished, 1)
+	producer.stats.MessagesPublished.Add(1)
+	producer.stats.MessagesPublished.Add(1)
+	producer.stats.MessagesPublished.Add(1)
 
 	stats := producer.Stats()
 	if stats.MessagesPublished != 3 {
@@ -164,8 +163,8 @@ func TestProducerStats_IncrementFailed(t *testing.T) {
 	t.Parallel()
 	producer := &Producer{}
 
-	atomic.AddInt64(&producer.stats.MessagesFailed, 1)
-	atomic.AddInt64(&producer.stats.MessagesFailed, 1)
+	producer.stats.MessagesFailed.Add(1)
+	producer.stats.MessagesFailed.Add(1)
 
 	stats := producer.Stats()
 	if stats.MessagesFailed != 2 {
@@ -188,7 +187,7 @@ func TestProducerStats_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range opsPerGoroutine {
-				atomic.AddInt64(&producer.stats.MessagesPublished, 1)
+				producer.stats.MessagesPublished.Add(1)
 			}
 		}()
 	}
@@ -198,7 +197,7 @@ func TestProducerStats_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range opsPerGoroutine {
-				atomic.AddInt64(&producer.stats.MessagesFailed, 1)
+				producer.stats.MessagesFailed.Add(1)
 			}
 		}()
 	}
@@ -389,14 +388,14 @@ func BenchmarkProducerStats_Increment(b *testing.B) {
 	producer := &Producer{}
 
 	for b.Loop() {
-		atomic.AddInt64(&producer.stats.MessagesPublished, 1)
+		producer.stats.MessagesPublished.Add(1)
 	}
 }
 
 func BenchmarkProducerStats_Read(b *testing.B) {
 	producer := &Producer{}
-	atomic.StoreInt64(&producer.stats.MessagesPublished, 12345)
-	atomic.StoreInt64(&producer.stats.MessagesFailed, 67)
+	producer.stats.MessagesPublished.Store(12345)
+	producer.stats.MessagesFailed.Store(67)
 
 	for b.Loop() {
 		_ = producer.Stats()

@@ -174,14 +174,14 @@ func TestStats_ZeroValues(t *testing.T) {
 	t.Parallel()
 	stats := &Stats{}
 
-	if stats.TotalConnections != 0 {
-		t.Errorf("TotalConnections: got %d, want 0", stats.TotalConnections)
+	if stats.TotalConnections.Load() != 0 {
+		t.Errorf("TotalConnections: got %d, want 0", stats.TotalConnections.Load())
 	}
-	if stats.CurrentConnections != 0 {
-		t.Errorf("CurrentConnections: got %d, want 0", stats.CurrentConnections)
+	if stats.CurrentConnections.Load() != 0 {
+		t.Errorf("CurrentConnections: got %d, want 0", stats.CurrentConnections.Load())
 	}
-	if stats.MessagesSent != 0 {
-		t.Errorf("MessagesSent: got %d, want 0", stats.MessagesSent)
+	if stats.MessagesSent.Load() != 0 {
+		t.Errorf("MessagesSent: got %d, want 0", stats.MessagesSent.Load())
 	}
 }
 
@@ -189,25 +189,25 @@ func TestStats_Fields(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 	stats := &Stats{
-		TotalConnections:        1000,
-		CurrentConnections:      500,
-		MessagesSent:            10000,
-		MessagesReceived:        5000,
-		BytesSent:               1024 * 1024,
-		BytesReceived:           512 * 1024,
-		StartTime:               now,
-		CPUPercent:              45.5,
-		MemoryMB:                256.0,
-		SlowClientsDisconnected: 10,
-		RateLimitedMessages:     50,
-		MessageReplayRequests:   5,
+		StartTime:  now,
+		CPUPercent: 45.5,
+		MemoryMB:   256.0,
 	}
+	stats.TotalConnections.Store(1000)
+	stats.CurrentConnections.Store(500)
+	stats.MessagesSent.Store(10000)
+	stats.MessagesReceived.Store(5000)
+	stats.BytesSent.Store(1024 * 1024)
+	stats.BytesReceived.Store(512 * 1024)
+	stats.SlowClientsDisconnected.Store(10)
+	stats.RateLimitedMessages.Store(50)
+	stats.MessageReplayRequests.Store(5)
 
-	if stats.TotalConnections != 1000 {
-		t.Errorf("TotalConnections: got %d, want 1000", stats.TotalConnections)
+	if stats.TotalConnections.Load() != 1000 {
+		t.Errorf("TotalConnections: got %d, want 1000", stats.TotalConnections.Load())
 	}
-	if stats.CurrentConnections != 500 {
-		t.Errorf("CurrentConnections: got %d, want 500", stats.CurrentConnections)
+	if stats.CurrentConnections.Load() != 500 {
+		t.Errorf("CurrentConnections: got %d, want 500", stats.CurrentConnections.Load())
 	}
 	if !stats.StartTime.Equal(now) {
 		t.Errorf("StartTime mismatch")

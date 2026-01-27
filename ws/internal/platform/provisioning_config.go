@@ -56,7 +56,9 @@ type ProvisioningConfig struct {
 	ConsumerByteRate       int64 `env:"CONSUMER_BYTE_RATE" envDefault:"52428800"`   // 50MB/s
 
 	// Tenant Lifecycle
-	DeprovisionGraceDays int `env:"DEPROVISION_GRACE_DAYS" envDefault:"30"`
+	DeprovisionGraceDays    int           `env:"DEPROVISION_GRACE_DAYS" envDefault:"30"`
+	LifecycleCheckInterval  time.Duration `env:"LIFECYCLE_CHECK_INTERVAL" envDefault:"1h"`
+	LifecycleManagerEnabled bool          `env:"LIFECYCLE_MANAGER_ENABLED" envDefault:"true"`
 
 	// Rate Limiting
 	APIRateLimitPerMinute int `env:"API_RATE_LIMIT_PER_MIN" envDefault:"60"`

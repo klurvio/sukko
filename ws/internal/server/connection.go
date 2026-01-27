@@ -72,10 +72,10 @@ type Client struct {
 	// - Coinbase: 2 strikes (more aggressive)
 	// - Binance: No automatic disconnect (relies on ping timeout)
 	// - FIX protocol: 5 second timeout (more lenient)
-	lastMessageSentAt time.Time // Timestamp of last successful send
-	sendAttempts      int32     // Consecutive failed send attempts (atomic for thread-safety)
-	slowClientWarned  int32     // Flag to avoid log spam (warn once) - atomic: 0 = not warned, 1 = warned
-	connectedAt       time.Time // Timestamp when client connected (for disconnect duration tracking)
+	lastMessageSentAt time.Time    // Timestamp of last successful send
+	sendAttempts      atomic.Int32 // Consecutive failed send attempts (atomic for thread-safety)
+	slowClientWarned  atomic.Int32 // Flag to avoid log spam (warn once) - atomic: 0 = not warned, 1 = warned
+	connectedAt       time.Time    // Timestamp when client connected (for disconnect duration tracking)
 
 	// Subscription filtering fields
 	// Purpose: Only send messages to clients subscribed to specific channels
@@ -158,9 +158,9 @@ func (p *ConnectionPool) Get() *Client {
 
 		// Initialize slow client detection fields
 		client.lastMessageSentAt = time.Now()
-		atomic.StoreInt32(&client.sendAttempts, 0)
-		atomic.StoreInt32(&client.slowClientWarned, 0) // 0 = not warned
-		client.connectedAt = time.Now()                // Track connection start time for metrics
+		client.sendAttempts.Store(0)
+		client.slowClientWarned.Store(0) // 0 = not warned
+		client.connectedAt = time.Now()  // Track connection start time for metrics
 
 		// Initialize subscription set
 		// Each new connection starts with no subscriptions

@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -163,7 +164,7 @@ func main() {
 			CPUPauseThresholdLower:  cfg.CPUPauseThresholdLower,
 			CPURejectThreshold:      cfg.CPURejectThreshold,
 			CPURejectThresholdLower: cfg.CPURejectThresholdLower,
-		}, poolLogger, new(int64)) // Pass dummy connection counter for pool
+		}, poolLogger, &atomic.Int64{}) // Pool only uses CPU brake/rate limiting, not connection admission
 
 		// Build SASL config if enabled
 		var saslConfig *kafka.SASLConfig

@@ -6,20 +6,45 @@ info:
     Event streaming API for the Odin WebSocket infrastructure.
 
     This API documents the Kafka/Redpanda messaging layer for real-time token events.
-    Events are published to topics based on their category using the pattern: `odin.<category>`
 
-    ## Topics Overview
-    - `odin.trades` - Trading events (executions, buys, sells)
-    - `odin.liquidity` - Liquidity pool operations
-    - `odin.balances` - User balance and transfer events
-    - `odin.metadata` - Token metadata updates
-    - `odin.social` - Social verification and links
-    - `odin.community` - Comments, favorites, voting
-    - `odin.creation` - Token creation and listing
-    - `odin.analytics` - Price deltas, holder counts, trending
+    ## Topic Naming Patterns
+
+    ### Infrastructure Topics (Shared Processing Pipeline)
+    Pattern: `odin.{env}.{category}` and `odin.{env}.{category}.refined`
+
+    The Flink processing pipeline consumes raw events and publishes refined events:
+    - **Raw topics** (publisher writes): `odin.local.trade`, `odin.develop.trade`, `odin.main.trade`
+    - **Refined topics** (ws-server consumes): `odin.local.trade.refined`, `odin.develop.trade.refined`
+
+    Environment values: `local`, `develop`, `staging`, `main`
+
+    ### Multi-Tenant Topics
+    Pattern: `{namespace}.{tenant_id}.{category}`
+
+    Tenants receive isolated topics provisioned via the Provisioning API:
+    - Example: `main.acme-corp.trade`, `main.acme-corp.liquidity`
+    - Topics are created when tenants are onboarded
+    - Access controlled via JWT authentication with tenant-scoped keys
+
+    Consumer types:
+    - **Shared**: Multiple tenants share a consumer group (default)
+    - **Dedicated**: Tenant gets isolated consumer for guaranteed throughput
+
+    ## Categories
+    - `trade` - Trading events (executions, buys, sells)
+    - `liquidity` - Liquidity pool operations
+    - `balance` - User balance and transfer events
+    - `metadata` - Token metadata updates
+    - `social` - Social verification and links
+    - `community` - Comments, favorites, voting
+    - `creation` - Token creation and listing
+    - `analytics` - Price deltas, holder counts, trending
 
     ## Message Key
     All messages use the **token ID** as the Kafka message key for partition-based sharding.
+
+    ## Authentication
+    WebSocket connections require JWT authentication. See security schemes below.
   contact:
     name: Platform Team
   license:
@@ -30,14 +55,32 @@ servers:
     host: localhost:9092
     protocol: kafka
     description: Local Redpanda broker for development
-  kubernetes:
-    host: odin-redpanda:9092
+    tags:
+      - name: env:local
+  develop:
+    host: odin-redpanda.develop:9092
     protocol: kafka
-    description: Kubernetes internal Redpanda broker
+    description: Develop environment Redpanda cluster
+    tags:
+      - name: env:develop
+  staging:
+    host: odin-redpanda.staging:9092
+    protocol: kafka
+    description: Staging environment Redpanda cluster
+    tags:
+      - name: env:staging
+  production:
+    host: odin-redpanda.production:9092
+    protocol: kafka
+    description: Production Redpanda cluster
+    tags:
+      - name: env:main
   kind:
     host: localhost:19092
     protocol: kafka
     description: Kind cluster Redpanda (external port)
+    tags:
+      - name: env:local
 
 defaultContentType: application/json
 
@@ -328,3 +371,39 @@ components:
       $ref: './component/schema/creation_payload.yaml#/CreationPayload'
     AnalyticsPayload:
       $ref: './component/schema/analytics_payload.yaml#/AnalyticsPayload'
+
+  securitySchemes:
+    tenantJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT authentication for multi-tenant WebSocket connections.
+
+        **Token Requirements:**
+        - Algorithm: ES256, RS256, or EdDSA (asymmetric only)
+        - Header must include `kid` (key ID) registered via Provisioning API
+        - Claims must include `tid` (tenant ID) matching the registered key
+
+        **Required Claims:**
+        | Claim | Description |
+        |-------|-------------|
+        | `tenant_id` | Tenant ID (e.g., "acme-corp") |
+        | `sub` | Subject/user identifier |
+        | `exp` | Expiration timestamp |
+        | `iat` | Issued-at timestamp |
+
+        **Optional Claims:**
+        | Claim | Description |
+        |-------|-------------|
+        | `aud` | Audience (validated if configured) |
+        | `categories` | Array of allowed event categories |
+
+        **Connection URL:**
+        ```
+        wss://gateway.example.com/ws?token=<JWT>
+        ```
+
+        **Key Registration:**
+        Public keys are registered via the Provisioning API and cached by ws-gateway.
+        Keys support rotation with multiple active keys per tenant.

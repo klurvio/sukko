@@ -2,11 +2,11 @@
 package auth
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -209,13 +209,13 @@ func NewPolicyEngine(config PolicyEngineConfig, opts ...PolicyEngineOption) *Pol
 
 // sortRules sorts rules by priority (highest first).
 func (e *PolicyEngine) sortRules() {
-	sort.Slice(e.rules, func(i, j int) bool {
-		return e.rules[i].Priority > e.rules[j].Priority
+	slices.SortFunc(e.rules, func(a, b *PermissionRule) int {
+		return cmp.Compare(b.Priority, a.Priority)
 	})
 
 	for _, rules := range e.tenantRules {
-		sort.Slice(rules, func(i, j int) bool {
-			return rules[i].Priority > rules[j].Priority
+		slices.SortFunc(rules, func(a, b *PermissionRule) int {
+			return cmp.Compare(b.Priority, a.Priority)
 		})
 	}
 }
@@ -362,8 +362,8 @@ func (e *PolicyEngine) getApplicableRules(claims *Claims) []*PermissionRule {
 	combined = append(combined, e.rules...)
 
 	// Re-sort by priority
-	sort.Slice(combined, func(i, j int) bool {
-		return combined[i].Priority > combined[j].Priority
+	slices.SortFunc(combined, func(a, b *PermissionRule) int {
+		return cmp.Compare(b.Priority, a.Priority)
 	})
 
 	return combined

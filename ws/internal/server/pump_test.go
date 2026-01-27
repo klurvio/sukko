@@ -279,12 +279,12 @@ func TestPump_HandleRateLimitExceeded_UpdatesStats(t *testing.T) {
 		send: make(chan []byte, 10),
 	}
 
-	initialCount := stats.RateLimitedMessages
+	initialCount := stats.RateLimitedMessages.Load()
 
 	pump.handleRateLimitExceeded(client)
 
-	if stats.RateLimitedMessages != initialCount+1 {
-		t.Errorf("RateLimitedMessages: got %d, want %d", stats.RateLimitedMessages, initialCount+1)
+	if stats.RateLimitedMessages.Load() != initialCount+1 {
+		t.Errorf("RateLimitedMessages: got %d, want %d", stats.RateLimitedMessages.Load(), initialCount+1)
 	}
 }
 
@@ -479,8 +479,8 @@ func TestPump_HandleRateLimitExceeded_Concurrent(t *testing.T) {
 
 	wg.Wait()
 
-	if stats.RateLimitedMessages != numGoroutines {
-		t.Errorf("RateLimitedMessages: got %d, want %d", stats.RateLimitedMessages, numGoroutines)
+	if stats.RateLimitedMessages.Load() != numGoroutines {
+		t.Errorf("RateLimitedMessages: got %d, want %d", stats.RateLimitedMessages.Load(), numGoroutines)
 	}
 }
 
@@ -685,8 +685,8 @@ func TestReadLoop_TextMessage_ProcessedCorrectly(t *testing.T) {
 	}
 
 	// Verify stats were updated
-	if stats.MessagesReceived != 1 {
-		t.Errorf("MessagesReceived: got %d, want 1", stats.MessagesReceived)
+	if stats.MessagesReceived.Load() != 1 {
+		t.Errorf("MessagesReceived: got %d, want 1", stats.MessagesReceived.Load())
 	}
 }
 

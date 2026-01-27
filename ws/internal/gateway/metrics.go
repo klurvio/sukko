@@ -91,6 +91,15 @@ var backendLatency = promauto.NewHistogram(prometheus.HistogramOpts{
 })
 
 // =============================================================================
+// Access Denial Metrics
+// =============================================================================
+
+var accessDenials = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "gateway_access_denials_total",
+	Help: "Access denials by resource type and reason",
+}, []string{"resource_type", "reason"})
+
+// =============================================================================
 // Key Cache Metrics
 // =============================================================================
 
@@ -180,6 +189,20 @@ func RecordKeyCacheRefresh(success bool) {
 	} else {
 		keyCacheRefreshes.WithLabelValues("error").Inc()
 	}
+}
+
+// RecordAccessDenial records an access denial with resource type and reason.
+func RecordAccessDenial(resourceType, reason string) {
+	accessDenials.WithLabelValues(resourceType, reason).Inc()
+}
+
+// AccessDenialMetricsAdapter implements auth.AccessDenialMetrics for Prometheus.
+// This adapter allows the auth package to report access denial metrics without depending on gateway.
+type AccessDenialMetricsAdapter struct{}
+
+// OnAccessDenied records an access denial event.
+func (a *AccessDenialMetricsAdapter) OnAccessDenied(resourceType, reason string) {
+	accessDenials.WithLabelValues(resourceType, reason).Inc()
 }
 
 // KeyCacheMetricsAdapter implements auth.KeyCacheMetrics for Prometheus.

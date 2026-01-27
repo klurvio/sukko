@@ -62,7 +62,7 @@ type ResourceGuard struct {
 	systemMonitor SystemMonitorInterface
 
 	// External state (pointers to server stats)
-	currentConns *int64 // Pointer to server's current connection count (atomic operations used)
+	currentConns *atomic.Int64 // Pointer to server's current connection count (typed atomic)
 
 	// Hysteresis state for CPU-based decisions
 	// Uses atomic for thread-safe access without mutex overhead
@@ -125,12 +125,12 @@ func (gl *GoroutineLimiter) Max() int {
 // Parameters:
 //   - config: Server configuration with explicit resource limits
 //   - logger: Structured logger for Loki
-//   - currentConns: Pointer to server's current connection count (int64, uses atomic ops)
+//   - currentConns: Pointer to server's current connection count (atomic.Int64)
 //
 // Example:
 //
 //	guard := NewResourceGuard(config, logger, &server.stats.CurrentConnections)
-func NewResourceGuard(config types.ServerConfig, logger zerolog.Logger, currentConns *int64) *ResourceGuard {
+func NewResourceGuard(config types.ServerConfig, logger zerolog.Logger, currentConns *atomic.Int64) *ResourceGuard {
 	// Create Kafka rate limiter
 	// Limit: MaxKafkaMessagesPerSec per second
 	// Burst: Allow up to 2x the rate in bursts (for traffic spikes)
@@ -184,7 +184,7 @@ func NewResourceGuard(config types.ServerConfig, logger zerolog.Logger, currentC
 
 // NewResourceGuardWithMonitor creates a ResourceGuard with a custom SystemMonitor
 // This is primarily used for testing to inject mock monitors
-func NewResourceGuardWithMonitor(config types.ServerConfig, logger zerolog.Logger, currentConns *int64, monitor SystemMonitorInterface) *ResourceGuard {
+func NewResourceGuardWithMonitor(config types.ServerConfig, logger zerolog.Logger, currentConns *atomic.Int64, monitor SystemMonitorInterface) *ResourceGuard {
 	kafkaLimiter := rate.NewLimiter(
 		rate.Limit(config.MaxKafkaMessagesPerSec),
 		config.MaxKafkaMessagesPerSec*2,
@@ -221,7 +221,7 @@ func NewResourceGuardWithMonitor(config types.ServerConfig, logger zerolog.Logge
 //   - reason: human-readable rejection reason (if rejected)
 func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 	// Query current resource metrics from SystemMonitor (single source of truth)
-	currentConns := atomic.LoadInt64(rg.currentConns)
+	currentConns := rg.currentConns.Load()
 	currentCPU := rg.systemMonitor.GetCPUPercent()
 	currentMemory := rg.systemMonitor.GetMemoryBytes()
 	currentGoros := rg.systemMonitor.GetGoroutines()
@@ -430,7 +430,7 @@ func (rg *ResourceGuard) UpdateResources(serverStats *types.Stats) {
 	rg.logger.Debug().
 		Float64("cpu_percent", metrics.CPUPercent).
 		Float64("memory_mb", metrics.MemoryMB).
-		Int64("connections", atomic.LoadInt64(rg.currentConns)).
+		Int64("connections", rg.currentConns.Load()).
 		Int("goroutines", metrics.Goroutines).
 		Msg("Server stats updated from SystemMonitor")
 }
@@ -484,7 +484,7 @@ func (rg *ResourceGuard) GetStats() map[string]any {
 
 	return map[string]any{
 		"max_connections":            rg.config.MaxConnections,
-		"current_connections":        atomic.LoadInt64(rg.currentConns),
+		"current_connections":        rg.currentConns.Load(),
 		"cpu_percent":                metrics.CPUPercent,
 		"cpu_reject_threshold":       rg.config.CPURejectThreshold,
 		"cpu_reject_threshold_lower": rg.config.CPURejectThresholdLower,

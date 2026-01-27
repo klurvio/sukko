@@ -2,6 +2,7 @@ package broadcast
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -269,29 +270,5 @@ func TestValkeyBus_MetricsStructure(t *testing.T) {
 
 // Helper function
 func containsIgnoreCase(s, substr string) bool {
-	return len(s) >= len(substr) &&
-		(s == substr ||
-			len(substr) == 0 ||
-			(len(s) > 0 && containsLower(toLower(s), toLower(substr))))
-}
-
-func containsLower(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
-func toLower(s string) string {
-	b := make([]byte, len(s))
-	for i := range len(s) {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		b[i] = c
-	}
-	return string(b)
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

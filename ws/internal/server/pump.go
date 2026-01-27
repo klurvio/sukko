@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"io"
 	"runtime/debug"
-	"sync/atomic"
 	"time"
 
 	"github.com/gobwas/ws"
@@ -203,8 +202,8 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 		}
 
 		// Update stats
-		atomic.AddInt64(&p.Stats.MessagesReceived, 1)
-		atomic.AddInt64(&p.Stats.BytesReceived, int64(len(msg)))
+		p.Stats.MessagesReceived.Add(1)
+		p.Stats.BytesReceived.Add(int64(len(msg)))
 		monitoring.UpdateMessageMetrics(0, 1)
 		monitoring.UpdateBytesMetrics(0, int64(len(msg)))
 
@@ -248,7 +247,7 @@ func (p *Pump) handleRateLimitExceeded(c *Client) {
 		// Client buffer full
 	}
 
-	atomic.AddInt64(&p.Stats.RateLimitedMessages, 1)
+	p.Stats.RateLimitedMessages.Add(1)
 	monitoring.IncrementRateLimitedMessages()
 }
 
@@ -349,8 +348,8 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 			}
 
 			// Update metrics (once per batch)
-			atomic.AddInt64(&p.Stats.MessagesSent, batchMsgCount)
-			atomic.AddInt64(&p.Stats.BytesSent, batchByteCount)
+			p.Stats.MessagesSent.Add(batchMsgCount)
+			p.Stats.BytesSent.Add(batchByteCount)
 			monitoring.UpdateMessageMetrics(batchMsgCount, 0)
 			monitoring.UpdateBytesMetrics(batchByteCount, 0)
 

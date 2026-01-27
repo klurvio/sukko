@@ -164,6 +164,19 @@ func main() {
 		IdleTimeout:  cfg.HTTPIdleTimeout,
 	}
 
+	// Start lifecycle manager (background job for tenant cleanup)
+	var lifecycleManager *provisioning.LifecycleManager
+	if cfg.LifecycleManagerEnabled {
+		lifecycleManager = provisioning.NewLifecycleManager(provisioning.LifecycleManagerConfig{
+			Service:  svc,
+			Interval: cfg.LifecycleCheckInterval,
+			Logger:   structuredLogger,
+		})
+		lifecycleManager.Start()
+		defer lifecycleManager.Stop()
+		logger.Printf("Lifecycle manager started (interval: %s)", cfg.LifecycleCheckInterval)
+	}
+
 	// Start server in goroutine
 	go func() {
 		defer monitoring.RecoverPanic(structuredLogger, "http.ListenAndServe", nil)

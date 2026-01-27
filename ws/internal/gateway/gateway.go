@@ -28,6 +28,7 @@ type Gateway struct {
 	keyRegistry auth.KeyRegistry // For cleanup on shutdown
 	dbConn      *sql.DB          // For cleanup on shutdown
 	permissions *PermissionChecker
+	connTracker *TenantConnectionTracker // Per-tenant connection tracking
 	logger      zerolog.Logger
 }
 
@@ -43,6 +44,14 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 			config.GroupScopedPatterns,
 		),
 		logger: logger.With().Str("component", "gateway").Logger(),
+	}
+
+	// Set up per-tenant connection tracking if enabled
+	if config.TenantConnectionLimitEnabled {
+		gw.connTracker = NewTenantConnectionTracker(config.DefaultTenantConnectionLimit)
+		gw.logger.Info().
+			Int("default_limit", config.DefaultTenantConnectionLimit).
+			Msg("Per-tenant connection limits enabled")
 	}
 
 	// Set up validator if auth is enabled
@@ -201,6 +210,23 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		gw.logger.Debug().
 			Str("remote_addr", remoteAddr).
 			Msg("Auth disabled - allowing anonymous connection")
+	}
+
+	// Check per-tenant connection limits
+	if gw.connTracker != nil && claims.TenantID != "" {
+		if !gw.connTracker.TryAcquire(claims.TenantID) {
+			closeReason = "tenant_limit_exceeded"
+			gw.logger.Warn().
+				Str("tenant_id", claims.TenantID).
+				Str("remote_addr", remoteAddr).
+				Int64("current_connections", gw.connTracker.GetConnectionCount(claims.TenantID)).
+				Int("limit", gw.connTracker.GetLimit(claims.TenantID)).
+				Msg("Connection rejected: tenant connection limit exceeded")
+			http.Error(w, "Too Many Connections: tenant limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		// Ensure we release the connection slot on exit
+		defer gw.connTracker.Release(claims.TenantID)
 	}
 
 	// Upgrade client connection to WebSocket using gobwas/ws

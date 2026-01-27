@@ -148,41 +148,37 @@ func TestConnectionDuration_VeryShort(t *testing.T) {
 
 func TestClient_SendAttemptsAtomic(t *testing.T) {
 	t.Parallel()
-	client := &Client{
-		sendAttempts: 0,
-	}
+	client := &Client{}
 
 	// Concurrent increments
 	var wg sync.WaitGroup
 	for range 100 {
 		wg.Go(func() {
-			atomic.AddInt32(&client.sendAttempts, 1)
+			client.sendAttempts.Add(1)
 		})
 	}
 	wg.Wait()
 
-	if atomic.LoadInt32(&client.sendAttempts) != 100 {
-		t.Errorf("sendAttempts: got %d, want 100", client.sendAttempts)
+	if client.sendAttempts.Load() != 100 {
+		t.Errorf("sendAttempts: got %d, want 100", client.sendAttempts.Load())
 	}
 }
 
 func TestClient_SlowClientWarnedFlag(t *testing.T) {
 	t.Parallel()
-	client := &Client{
-		slowClientWarned: 0,
-	}
+	client := &Client{}
 
 	// First warning should succeed
-	if !atomic.CompareAndSwapInt32(&client.slowClientWarned, 0, 1) {
+	if !client.slowClientWarned.CompareAndSwap(0, 1) {
 		t.Error("First CAS should succeed")
 	}
 
 	// Second warning should fail (already warned)
-	if atomic.CompareAndSwapInt32(&client.slowClientWarned, 0, 1) {
+	if client.slowClientWarned.CompareAndSwap(0, 1) {
 		t.Error("Second CAS should fail (already warned)")
 	}
 
-	if atomic.LoadInt32(&client.slowClientWarned) != 1 {
+	if client.slowClientWarned.Load() != 1 {
 		t.Error("slowClientWarned should be 1")
 	}
 }
@@ -229,46 +225,43 @@ func TestDisconnectInitiatedBy_Constants(t *testing.T) {
 
 func TestStats_CurrentConnectionsDecrement(t *testing.T) {
 	t.Parallel()
-	stats := &types.Stats{
-		CurrentConnections: 10,
-	}
+	stats := &types.Stats{}
+	stats.CurrentConnections.Store(10)
 
-	atomic.AddInt64(&stats.CurrentConnections, -1)
+	stats.CurrentConnections.Add(-1)
 
-	if stats.CurrentConnections != 9 {
-		t.Errorf("CurrentConnections: got %d, want 9", stats.CurrentConnections)
+	if stats.CurrentConnections.Load() != 9 {
+		t.Errorf("CurrentConnections: got %d, want 9", stats.CurrentConnections.Load())
 	}
 }
 
 func TestStats_CurrentConnectionsDecrement_ToZero(t *testing.T) {
 	t.Parallel()
-	stats := &types.Stats{
-		CurrentConnections: 1,
-	}
+	stats := &types.Stats{}
+	stats.CurrentConnections.Store(1)
 
-	atomic.AddInt64(&stats.CurrentConnections, -1)
+	stats.CurrentConnections.Add(-1)
 
-	if stats.CurrentConnections != 0 {
-		t.Errorf("CurrentConnections: got %d, want 0", stats.CurrentConnections)
+	if stats.CurrentConnections.Load() != 0 {
+		t.Errorf("CurrentConnections: got %d, want 0", stats.CurrentConnections.Load())
 	}
 }
 
 func TestStats_CurrentConnectionsDecrement_Concurrent(t *testing.T) {
 	t.Parallel()
-	stats := &types.Stats{
-		CurrentConnections: 1000,
-	}
+	stats := &types.Stats{}
+	stats.CurrentConnections.Store(1000)
 
 	var wg sync.WaitGroup
 	for range 1000 {
 		wg.Go(func() {
-			atomic.AddInt64(&stats.CurrentConnections, -1)
+			stats.CurrentConnections.Add(-1)
 		})
 	}
 	wg.Wait()
 
-	if stats.CurrentConnections != 0 {
-		t.Errorf("CurrentConnections: got %d, want 0", stats.CurrentConnections)
+	if stats.CurrentConnections.Load() != 0 {
+		t.Errorf("CurrentConnections: got %d, want 0", stats.CurrentConnections.Load())
 	}
 }
 
@@ -301,20 +294,20 @@ func TestCloseOnce_SingleExecution(t *testing.T) {
 func TestCloseOnce_ConcurrentCalls(t *testing.T) {
 	t.Parallel()
 	var closeOnce sync.Once
-	var closeCount int32
+	var closeCount atomic.Int32
 
 	var wg sync.WaitGroup
 	for range 100 {
 		wg.Go(func() {
 			closeOnce.Do(func() {
-				atomic.AddInt32(&closeCount, 1)
+				closeCount.Add(1)
 			})
 		})
 	}
 	wg.Wait()
 
-	if atomic.LoadInt32(&closeCount) != 1 {
-		t.Errorf("closeCount: got %d, want 1", closeCount)
+	if closeCount.Load() != 1 {
+		t.Errorf("closeCount: got %d, want 1", closeCount.Load())
 	}
 }
 
@@ -395,9 +388,9 @@ func TestDisconnectClient_Integration(t *testing.T) {
 	// Create minimal server with required components
 	logger := zerolog.Nop()
 	stats := &types.Stats{
-		CurrentConnections:  1,
 		DisconnectsByReason: make(map[string]int64),
 	}
+	stats.CurrentConnections.Store(1)
 
 	server := &Server{
 		logger:            logger,
@@ -432,8 +425,8 @@ func TestDisconnectClient_Integration(t *testing.T) {
 	server.disconnectClient(client, monitoring.DisconnectReasonReadError, monitoring.DisconnectInitiatedByClient)
 
 	// Verify stats updated
-	if stats.CurrentConnections != 0 {
-		t.Errorf("CurrentConnections should be 0, got %d", stats.CurrentConnections)
+	if stats.CurrentConnections.Load() != 0 {
+		t.Errorf("CurrentConnections should be 0, got %d", stats.CurrentConnections.Load())
 	}
 
 	// Verify client removed from subscription index
@@ -594,11 +587,12 @@ func BenchmarkBufferUsageCalculation(b *testing.B) {
 }
 
 func BenchmarkAtomicDecrement(b *testing.B) {
-	var counter int64 = 1000000
+	var counter atomic.Int64
+	counter.Store(1000000)
 
 	for b.Loop() {
-		atomic.AddInt64(&counter, -1)
-		atomic.AddInt64(&counter, 1) // Reset for next iteration
+		counter.Add(-1)
+		counter.Add(1) // Reset for next iteration
 	}
 }
 

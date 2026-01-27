@@ -2,7 +2,6 @@ package server
 
 import (
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/Toniq-Labs/odin-ws/internal/types"
@@ -382,31 +381,29 @@ func TestStats_MemoryUpdate_ThreadSafe(t *testing.T) {
 
 func TestStats_CurrentConnections_Atomic(t *testing.T) {
 	t.Parallel()
-	stats := &types.Stats{
-		CurrentConnections: 0,
-	}
+	stats := &types.Stats{}
 
 	var wg sync.WaitGroup
 
 	// 100 increments
 	for range 100 {
 		wg.Go(func() {
-			atomic.AddInt64(&stats.CurrentConnections, 1)
+			stats.CurrentConnections.Add(1)
 		})
 	}
 
 	// 50 decrements
 	for range 50 {
 		wg.Go(func() {
-			atomic.AddInt64(&stats.CurrentConnections, -1)
+			stats.CurrentConnections.Add(-1)
 		})
 	}
 
 	wg.Wait()
 
 	expected := int64(50)
-	if stats.CurrentConnections != expected {
-		t.Errorf("CurrentConnections: got %d, want %d", stats.CurrentConnections, expected)
+	if stats.CurrentConnections.Load() != expected {
+		t.Errorf("CurrentConnections: got %d, want %d", stats.CurrentConnections.Load(), expected)
 	}
 }
 
@@ -596,7 +593,7 @@ func BenchmarkStatsConnectionsAtomic(b *testing.B) {
 	stats := &types.Stats{}
 
 	for b.Loop() {
-		atomic.AddInt64(&stats.CurrentConnections, 1)
-		atomic.AddInt64(&stats.CurrentConnections, -1)
+		stats.CurrentConnections.Add(1)
+		stats.CurrentConnections.Add(-1)
 	}
 }

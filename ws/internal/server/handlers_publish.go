@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
@@ -83,7 +82,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Str("channel", pubReq.Channel).
 			Msg("Client publish rate limited")
 		s.sendPublishError(c, "rate_limited", "Publish rate limit exceeded")
-		atomic.AddInt64(&s.stats.RateLimitedMessages, 1)
+		s.stats.RateLimitedMessages.Add(1)
 		monitoring.IncrementRateLimitedMessages()
 		return
 	}

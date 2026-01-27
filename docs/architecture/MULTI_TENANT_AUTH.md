@@ -1,6 +1,6 @@
 # Multi-Tenant Authentication System
 
-**Date:** 2026-01-25
+**Date:** 2026-01-27 (Updated)
 
 ---
 
@@ -279,50 +279,33 @@ Authentication events are tracked via Prometheus metrics, structured logging, an
 
 ### Prometheus Metrics
 
-Metrics follow the existing `ws_` prefix pattern in `internal/monitoring/`.
+Metrics use **service-specific prefixes** to distinguish between components:
+- `gateway_` - WebSocket gateway metrics (`internal/gateway/metrics.go`)
+- `ws_` - Core WebSocket server metrics (`internal/monitoring/metrics.go`)
+- `provisioning_` - Provisioning service metrics (`internal/provisioning/api/metrics.go`)
+
+#### Gateway Auth Metrics
 
 ```go
-// internal/monitoring/auth_metrics.go
+// internal/gateway/metrics.go
 
-var (
-    // Authentication attempts
-    AuthAttempts = promauto.NewCounterVec(
-        prometheus.CounterOpts{
-            Name: "ws_auth_attempts_total",
-            Help: "Total authentication attempts",
-        },
-        []string{"result", "failure_reason"},
-    )
-    // Labels: result=success|failure, failure_reason=invalid_token|expired|key_not_found|...
+// Authentication attempts by status (success, failed, skipped)
+gateway_auth_validations_total{status="success|failed|skipped"}
 
-    // Authentication latency
-    AuthLatency = promauto.NewHistogram(
-        prometheus.HistogramOpts{
-            Name:    "ws_auth_duration_seconds",
-            Help:    "Authentication duration in seconds",
-            Buckets: prometheus.DefBuckets,
-        },
-    )
+// JWT validation latency
+gateway_auth_latency_seconds
 
-    // Key cache performance
-    KeyCacheHits = promauto.NewCounterVec(
-        prometheus.CounterOpts{
-            Name: "ws_key_cache_operations_total",
-            Help: "Key registry cache operations",
-        },
-        []string{"result"}, // hit, miss
-    )
+// Channel permission checks by result
+gateway_channel_checks_total{result="allowed|denied"}
 
-    // Access control decisions
-    AccessDenials = promauto.NewCounterVec(
-        prometheus.CounterOpts{
-            Name: "ws_access_denials_total",
-            Help: "Access denials by resource type and reason",
-        },
-        []string{"resource_type", "reason"},
-    )
-    // Labels: resource_type=channel|topic, reason=tenant_mismatch|unauthorized|...
-)
+// Access denials with detailed reason
+gateway_access_denials_total{resource_type="channel|topic", reason="unauthorized|tenant_mismatch|..."}
+
+// Key cache performance
+gateway_key_cache_hits_total
+gateway_key_cache_misses_total
+gateway_key_cache_size
+gateway_key_cache_refreshes_total{result="success|error"}
 ```
 
 ### Structured Logging
@@ -410,21 +393,25 @@ Example PromQL queries for monitoring:
 
 ```promql
 # Authentication success rate
-sum(rate(ws_auth_attempts_total{result="success"}[5m]))
-/ sum(rate(ws_auth_attempts_total[5m]))
+sum(rate(gateway_auth_validations_total{status="success"}[5m]))
+/ sum(rate(gateway_auth_validations_total[5m]))
 
-# Authentication failures by reason
-sum by (failure_reason) (rate(ws_auth_attempts_total{result="failure"}[5m]))
+# Authentication failures
+rate(gateway_auth_validations_total{status="failed"}[5m])
 
 # P99 authentication latency
-histogram_quantile(0.99, rate(ws_auth_duration_seconds_bucket[5m]))
+histogram_quantile(0.99, rate(gateway_auth_latency_seconds_bucket[5m]))
 
 # Key cache hit rate
-sum(rate(ws_key_cache_operations_total{result="hit"}[5m]))
-/ sum(rate(ws_key_cache_operations_total[5m]))
+sum(rate(gateway_key_cache_hits_total[5m]))
+/ (sum(rate(gateway_key_cache_hits_total[5m])) + sum(rate(gateway_key_cache_misses_total[5m])))
 
-# Access denials by tenant
-sum by (resource_type, reason) (rate(ws_access_denials_total[5m]))
+# Access denials by reason
+sum by (resource_type, reason) (rate(gateway_access_denials_total[5m]))
+
+# Channel check deny rate
+sum(rate(gateway_channel_checks_total{result="denied"}[5m]))
+/ sum(rate(gateway_channel_checks_total[5m]))
 ```
 
 ---
@@ -635,6 +622,92 @@ go test ./internal/auth/... ./internal/gateway/... -v
 - [x] Prometheus metrics for auth events
 - [x] Structured logging with tenant context
 - [x] Audit logging for security events
+
+---
+
+## Rate Limiting & Protection
+
+The system includes multiple layers of protection against abuse:
+
+### Current Implementation
+
+| Protection | Scope | Location |
+|------------|-------|----------|
+| Per-IP connection rate limit | 10 burst, 1 conn/sec | `internal/limits/connection_rate_limiter.go` |
+| Global connection rate limit | 300 burst, 50 conn/sec | `internal/limits/connection_rate_limiter.go` |
+| Max connections (system-wide) | Configurable | `internal/limits/resource_guard.go` |
+| CPU/Memory emergency brakes | System-wide | `internal/limits/resource_guard.go` |
+| Message rate limiting | Per-connection | `internal/server/client.go` |
+
+### How It Works
+
+```
+Client Connection
+       │
+       ▼
+┌─────────────────────┐
+│  Per-IP Rate Limit  │ ─── Reject if > 10 burst or > 1/sec from same IP
+└─────────────────────┘
+       │
+       ▼
+┌─────────────────────┐
+│ Global Rate Limit   │ ─── Reject if > 300 burst or > 50/sec total
+└─────────────────────┘
+       │
+       ▼
+┌─────────────────────┐
+│  Resource Guard     │ ─── Reject if max connections reached
+└─────────────────────┘     or CPU/memory thresholds exceeded
+       │
+       ▼
+┌─────────────────────┐
+│  JWT Validation     │ ─── Reject if invalid/expired token
+└─────────────────────┘
+       │
+       ▼
+    Connected
+```
+
+---
+
+## Future Enhancements
+
+The following features are planned for future phases:
+
+### Phase 2: Scale Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Per-tenant connection limits | Enforce max connections per tenant from quotas | **Implemented** |
+| Tenant deletion background job | Periodic cleanup of deprovisioned tenants | **Implemented** |
+| Per-tenant rate limiting | API rate limits based on tenant tier | Planned |
+| Per-tenant metrics | Add `tenant_id` label to key metrics | **Implemented** |
+
+### Phase 3: Enterprise Features
+
+| Feature | Description | Priority |
+|---------|-------------|----------|
+| Tenant tiers/plans | Free, starter, pro, enterprise quota templates | Medium |
+| Webhook notifications | Notify external systems of tenant events | Low |
+| Allowed origins (CORS) | Per-tenant origin restrictions | Low |
+| gRPC API | Alternative to REST for internal services | Low |
+| Key usage tracking | `last_used_at`, `last_used_ip` for API keys | Low |
+
+### Implementation Details
+
+**Per-tenant connection limits** (`internal/gateway/tenant_connections.go`):
+- `TenantConnectionTracker` tracks active connections per tenant
+- Thread-safe with atomic operations
+- Configurable default limit via `DEFAULT_TENANT_CONNECTION_LIMIT` (default: 1000)
+- Enable/disable via `TENANT_CONNECTION_LIMIT_ENABLED` (default: true)
+- Metrics: `gateway_tenant_connections_active`, `gateway_tenant_connections_rejected_total`
+
+**Tenant deletion job** (`internal/provisioning/lifecycle.go`):
+- `LifecycleManager` runs background goroutine
+- Configurable interval via `LIFECYCLE_CHECK_INTERVAL` (default: 1h)
+- Enable/disable via `LIFECYCLE_MANAGER_ENABLED` (default: true)
+- Deletes Kafka topics and ACLs for deprovisioned tenants
+- Updates tenant status to `deleted` after cleanup
 
 ---
 

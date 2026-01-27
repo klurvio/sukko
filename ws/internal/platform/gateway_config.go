@@ -36,7 +36,9 @@ type GatewayConfig struct {
 	KeyCacheQueryTimeout    time.Duration `env:"KEY_CACHE_QUERY_TIMEOUT" envDefault:"5s"`
 
 	// Multi-tenant settings
-	RequireTenantID bool `env:"REQUIRE_TENANT_ID" envDefault:"true"`
+	RequireTenantID              bool `env:"REQUIRE_TENANT_ID" envDefault:"true"`
+	DefaultTenantConnectionLimit int  `env:"DEFAULT_TENANT_CONNECTION_LIMIT" envDefault:"1000"`
+	TenantConnectionLimitEnabled bool `env:"TENANT_CONNECTION_LIMIT_ENABLED" envDefault:"true"`
 
 	// Database connection pool settings
 	DBMaxOpenConns    int           `env:"DB_MAX_OPEN_CONNS" envDefault:"10"`

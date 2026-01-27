@@ -36,9 +36,9 @@ type KafkaConsumerPool struct {
 	wg           sync.WaitGroup
 
 	// Metrics
-	messagesRouted  uint64
-	messagesDropped uint64
-	routingErrors   uint64
+	messagesRouted  atomic.Uint64
+	messagesDropped atomic.Uint64
+	routingErrors   atomic.Uint64
 }
 
 // KafkaPoolConfig configures the shared Kafka consumer pool
@@ -111,7 +111,7 @@ func (p *KafkaConsumerPool) Start() error {
 // It publishes the message once to the BroadcastBus, which fans out to all shards
 // The subject (Kafka Key) IS the broadcast channel (e.g., "BTC.trade", "BTC.balances.user123")
 func (p *KafkaConsumerPool) routeMessage(subject string, message []byte) {
-	atomic.AddUint64(&p.messagesRouted, 1)
+	p.messagesRouted.Add(1)
 
 	// Create broadcast message
 	// The subject (Kafka Key) is used directly as the broadcast channel
@@ -125,10 +125,10 @@ func (p *KafkaConsumerPool) routeMessage(subject string, message []byte) {
 	p.broadcastBus.Publish(broadcastMsg)
 
 	// Log periodic metrics (every 1000 messages)
-	if routed := atomic.LoadUint64(&p.messagesRouted); routed%1000 == 0 {
+	if routed := p.messagesRouted.Load(); routed%1000 == 0 {
 		p.logger.Debug().
 			Uint64("routed", routed).
-			Uint64("dropped", atomic.LoadUint64(&p.messagesDropped)).
+			Uint64("dropped", p.messagesDropped.Load()).
 			Msg("Kafka pool routing metrics")
 	}
 }
@@ -149,8 +149,8 @@ func (p *KafkaConsumerPool) Stop() error {
 	p.wg.Wait()
 
 	p.logger.Info().
-		Uint64("total_routed", atomic.LoadUint64(&p.messagesRouted)).
-		Uint64("total_dropped", atomic.LoadUint64(&p.messagesDropped)).
+		Uint64("total_routed", p.messagesRouted.Load()).
+		Uint64("total_dropped", p.messagesDropped.Load()).
 		Msg("Shared Kafka consumer pool stopped")
 
 	return nil
@@ -159,9 +159,9 @@ func (p *KafkaConsumerPool) Stop() error {
 // GetMetrics returns current pool metrics
 func (p *KafkaConsumerPool) GetMetrics() KafkaPoolMetrics {
 	return KafkaPoolMetrics{
-		MessagesRouted:  atomic.LoadUint64(&p.messagesRouted),
-		MessagesDropped: atomic.LoadUint64(&p.messagesDropped),
-		RoutingErrors:   atomic.LoadUint64(&p.routingErrors),
+		MessagesRouted:  p.messagesRouted.Load(),
+		MessagesDropped: p.messagesDropped.Load(),
+		RoutingErrors:   p.routingErrors.Load(),
 	}
 }
 

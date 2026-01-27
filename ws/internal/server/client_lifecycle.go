@@ -1,7 +1,6 @@
 package server
 
 import (
-	"sync/atomic"
 	"time"
 
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
@@ -30,7 +29,7 @@ func (s *Server) disconnectClient(c *Client, reason, initiatedBy string) {
 		Int("send_buffer_len", bufferLen).
 		Int("send_buffer_cap", bufferCap).
 		Float64("send_buffer_usage_pct", bufferUsagePercent).
-		Int32("send_attempts", atomic.LoadInt32(&c.sendAttempts)).
+		Int32("send_attempts", c.sendAttempts.Load()).
 		Time("connected_at", c.connectedAt).
 		Msg("Client disconnected")
 
@@ -44,7 +43,7 @@ func (s *Server) disconnectClient(c *Client, reason, initiatedBy string) {
 
 	// Cleanup resources
 	s.clients.Delete(c)
-	atomic.AddInt64(&s.stats.CurrentConnections, -1)
+	s.stats.CurrentConnections.Add(-1)
 
 	// Remove client from subscription index (prevent memory leak)
 	s.subscriptionIndex.RemoveClient(c)

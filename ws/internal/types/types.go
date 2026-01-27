@@ -5,6 +5,7 @@ package types //nolint:revive // package name is intentional for shared types
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -85,21 +86,21 @@ type ServerConfig struct {
 
 // Stats tracks server statistics
 type Stats struct {
-	TotalConnections   int64
-	CurrentConnections int64
-	MessagesSent       int64
-	MessagesReceived   int64
-	BytesSent          int64
-	BytesReceived      int64
+	TotalConnections   atomic.Int64
+	CurrentConnections atomic.Int64
+	MessagesSent       atomic.Int64
+	MessagesReceived   atomic.Int64
+	BytesSent          atomic.Int64
+	BytesReceived      atomic.Int64
 	StartTime          time.Time
 	Mu                 sync.RWMutex
 	CPUPercent         float64
 	MemoryMB           float64
 
 	// Message delivery reliability metrics
-	SlowClientsDisconnected int64 // Count of clients disconnected for being too slow
-	RateLimitedMessages     int64 // Count of messages dropped due to rate limiting
-	MessageReplayRequests   int64 // Count of replay requests served (gap recovery)
+	SlowClientsDisconnected atomic.Int64 // Count of clients disconnected for being too slow
+	RateLimitedMessages     atomic.Int64 // Count of messages dropped due to rate limiting
+	MessageReplayRequests   atomic.Int64 // Count of replay requests served (gap recovery)
 
 	// Phase 2 observability metrics
 	DisconnectsByReason        map[string]int64 // Disconnect counts by reason (read_error, write_timeout, etc.)
@@ -110,5 +111,5 @@ type Stats struct {
 	BuffersMu                  sync.RWMutex     // Protects BufferSaturationSamples slice
 
 	// Phase 4 logging counters
-	DroppedBroadcastLogCounter int64 // Counter for sampled logging (every 100th drop)
+	DroppedBroadcastLogCounter atomic.Int64 // Counter for sampled logging (every 100th drop)
 }

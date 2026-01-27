@@ -48,7 +48,7 @@ type Server struct {
 	// Connection management
 	connections       *ConnectionPool    // Pre-allocated connection pool
 	clients           sync.Map           // map[*Client]bool - active client tracking
-	clientCount       int64              // Atomic counter for connection IDs
+	clientCount       atomic.Int64       // Atomic counter for connection IDs
 	connectionsSem    chan struct{}      // Semaphore enforcing MaxConnections limit
 	subscriptionIndex *SubscriptionIndex // Channel → subscribers index (93% CPU savings)
 
@@ -65,7 +65,7 @@ type Server struct {
 	ctx          context.Context    // Root context for all server goroutines
 	cancel       context.CancelFunc // Cancels ctx to signal shutdown
 	wg           sync.WaitGroup     // Tracks all server goroutines for clean shutdown
-	shuttingDown int32              // Atomic flag: 1 = rejecting new connections
+	shuttingDown atomic.Int32       // Atomic flag: 1 = rejecting new connections
 
 	// Stats
 	stats *types.Stats // Runtime statistics and metrics
@@ -312,7 +312,7 @@ func (s *Server) Shutdown() error {
 	s.logger.Info().Msg("Initiating graceful shutdown")
 
 	// Set shutdown flag to reject new connections
-	atomic.StoreInt32(&s.shuttingDown, 1)
+	s.shuttingDown.Store(1)
 
 	// Stop accepting new connections
 	if s.listener != nil {
@@ -326,7 +326,7 @@ func (s *Server) Shutdown() error {
 	// Servers don't stop the shared consumer - the pool handles it during shutdown.
 
 	// Count current connections
-	currentConns := atomic.LoadInt64(&s.stats.CurrentConnections)
+	currentConns := s.stats.CurrentConnections.Load()
 	s.logger.Info().
 		Int64("active_connections", currentConns).
 		Int("grace_period_sec", 30).
@@ -344,7 +344,7 @@ func (s *Server) Shutdown() error {
 		select {
 		case <-drainTimer.C:
 			// Grace period expired, force close remaining connections
-			remaining := atomic.LoadInt64(&s.stats.CurrentConnections)
+			remaining := s.stats.CurrentConnections.Load()
 			if remaining > 0 {
 				s.logger.Warn().
 					Int64("remaining_connections", remaining).
@@ -354,7 +354,7 @@ func (s *Server) Shutdown() error {
 
 		case <-checkTicker.C:
 			// Check if all connections drained
-			remaining := atomic.LoadInt64(&s.stats.CurrentConnections)
+			remaining := s.stats.CurrentConnections.Load()
 			if remaining == 0 {
 				s.logger.Info().Msg("All connections drained gracefully")
 				goto cleanup

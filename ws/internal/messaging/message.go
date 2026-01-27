@@ -115,7 +115,7 @@ type MessageEnvelope struct {
 //
 // Thread-safe implementation using atomic operations:
 // - Multiple goroutines can call Next() concurrently
-// - No mutex needed (atomic.AddInt64 is lock-free)
+// - No mutex needed (atomic.Int64.Add is lock-free)
 // - Faster than mutex-based counter under high concurrency
 //
 // Industry standard: Every message delivery system needs sequence numbers
@@ -124,13 +124,13 @@ type MessageEnvelope struct {
 // - WebSocket implementations: Per-connection sequences
 // - Our implementation: Per-connection sequences for gap detection
 type SequenceGenerator struct {
-	counter int64
+	counter atomic.Int64
 }
 
 // NewSequenceGenerator creates a sequence generator starting at 0
 // First call to Next() will return 1
 func NewSequenceGenerator() *SequenceGenerator {
-	return &SequenceGenerator{counter: 0}
+	return &SequenceGenerator{}
 }
 
 // Next returns the next sequence number in the sequence
@@ -140,19 +140,19 @@ func NewSequenceGenerator() *SequenceGenerator {
 // Performance: ~10ns per call on modern CPUs (100M sequences/second)
 // Memory: 8 bytes per generator (negligible)
 func (s *SequenceGenerator) Next() int64 {
-	return atomic.AddInt64(&s.counter, 1)
+	return s.counter.Add(1)
 }
 
 // Current returns the current sequence number without incrementing
 // Thread-safe using atomic operations
 func (s *SequenceGenerator) Current() int64 {
-	return atomic.LoadInt64(&s.counter)
+	return s.counter.Load()
 }
 
 // Reset sets the sequence counter back to 0
 // Thread-safe using atomic operations
 func (s *SequenceGenerator) Reset() {
-	atomic.StoreInt64(&s.counter, 0)
+	s.counter.Store(0)
 }
 
 // WrapMessage creates an envelope for raw Kafka messages

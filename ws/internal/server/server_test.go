@@ -40,10 +40,10 @@ func TestServer_GetConfig(t *testing.T) {
 func TestServer_GetStats(t *testing.T) {
 	t.Parallel()
 	stats := &types.Stats{
-		StartTime:          time.Now(),
-		CurrentConnections: 42,
-		TotalConnections:   100,
+		StartTime: time.Now(),
 	}
+	stats.CurrentConnections.Store(42)
+	stats.TotalConnections.Store(100)
 
 	server := &Server{stats: stats}
 
@@ -52,11 +52,11 @@ func TestServer_GetStats(t *testing.T) {
 	if got != stats {
 		t.Error("GetStats() should return the same stats instance")
 	}
-	if got.CurrentConnections != 42 {
-		t.Errorf("GetStats().CurrentConnections: got %d, want 42", got.CurrentConnections)
+	if got.CurrentConnections.Load() != 42 {
+		t.Errorf("GetStats().CurrentConnections: got %d, want 42", got.CurrentConnections.Load())
 	}
-	if got.TotalConnections != 100 {
-		t.Errorf("GetStats().TotalConnections: got %d, want 100", got.TotalConnections)
+	if got.TotalConnections.Load() != 100 {
+		t.Errorf("GetStats().TotalConnections: got %d, want 100", got.TotalConnections.Load())
 	}
 }
 
@@ -111,8 +111,8 @@ func TestServer_Stats_ConcurrentUpdates(t *testing.T) {
 	for range numGoroutines {
 		go func() {
 			for range numUpdates {
-				atomic.AddInt64(&server.stats.CurrentConnections, 1)
-				atomic.AddInt64(&server.stats.TotalConnections, 1)
+				server.stats.CurrentConnections.Add(1)
+				server.stats.TotalConnections.Add(1)
 			}
 			done <- true
 		}()
@@ -124,11 +124,11 @@ func TestServer_Stats_ConcurrentUpdates(t *testing.T) {
 	}
 
 	expected := int64(numGoroutines * numUpdates)
-	if server.stats.CurrentConnections != expected {
-		t.Errorf("CurrentConnections: got %d, want %d", server.stats.CurrentConnections, expected)
+	if server.stats.CurrentConnections.Load() != expected {
+		t.Errorf("CurrentConnections: got %d, want %d", server.stats.CurrentConnections.Load(), expected)
 	}
-	if server.stats.TotalConnections != expected {
-		t.Errorf("TotalConnections: got %d, want %d", server.stats.TotalConnections, expected)
+	if server.stats.TotalConnections.Load() != expected {
+		t.Errorf("TotalConnections: got %d, want %d", server.stats.TotalConnections.Load(), expected)
 	}
 }
 
@@ -574,14 +574,14 @@ func TestServer_ShutdownFlag(t *testing.T) {
 	server := &Server{}
 
 	// Initial state
-	if atomic.LoadInt32(&server.shuttingDown) != 0 {
+	if server.shuttingDown.Load() != 0 {
 		t.Error("shuttingDown should be 0 initially")
 	}
 
 	// Set shutdown flag
-	atomic.StoreInt32(&server.shuttingDown, 1)
+	server.shuttingDown.Store(1)
 
-	if atomic.LoadInt32(&server.shuttingDown) != 1 {
+	if server.shuttingDown.Load() != 1 {
 		t.Error("shuttingDown should be 1 after store")
 	}
 }
@@ -596,14 +596,14 @@ func TestServer_ShutdownFlag_ConcurrentReads(t *testing.T) {
 	for range 100 {
 		go func() {
 			for range 1000 {
-				_ = atomic.LoadInt32(&server.shuttingDown)
+				_ = server.shuttingDown.Load()
 			}
 			done <- true
 		}()
 	}
 
 	// Set flag while reads are happening
-	atomic.StoreInt32(&server.shuttingDown, 1)
+	server.shuttingDown.Store(1)
 
 	// Wait for all readers
 	for range 100 {
@@ -611,7 +611,7 @@ func TestServer_ShutdownFlag_ConcurrentReads(t *testing.T) {
 	}
 
 	// Verify final state
-	if atomic.LoadInt32(&server.shuttingDown) != 1 {
+	if server.shuttingDown.Load() != 1 {
 		t.Error("shuttingDown should still be 1")
 	}
 }
@@ -623,12 +623,12 @@ func TestServer_ShutdownFlag_ConcurrentReads(t *testing.T) {
 func TestClientIDGeneration_AtomicIncrement(t *testing.T) {
 	t.Parallel()
 	// Test atomic increment pattern (more reliable than UnixNano for uniqueness)
-	var counter int64
+	var counter atomic.Int64
 	ids := make(map[int64]bool)
 	iterations := 10000
 
 	for range iterations {
-		id := atomic.AddInt64(&counter, 1)
+		id := counter.Add(1)
 		if ids[id] {
 			t.Errorf("Duplicate ID generated: %d", id)
 		}

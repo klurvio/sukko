@@ -3,7 +3,6 @@ package orchestration
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -441,10 +440,10 @@ func TestMultiTenantPool_AtomicCounters(t *testing.T) {
 	}
 
 	// Test atomic increments
-	atomic.AddUint64(&pool.messagesRouted, 100)
-	atomic.AddUint64(&pool.messagesDropped, 5)
-	atomic.AddUint64(&pool.refreshCount, 10)
-	atomic.AddUint64(&pool.refreshErrors, 2)
+	pool.messagesRouted.Add(100)
+	pool.messagesDropped.Add(5)
+	pool.refreshCount.Add(10)
+	pool.refreshErrors.Add(2)
 
 	metrics := pool.GetMetrics()
 	if metrics.MessagesRouted != 100 {

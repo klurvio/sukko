@@ -8,36 +8,94 @@ revealOptions:
 ---
 
 # Odin WebSocket System
+
 ## Real-Time Streaming Infrastructure
 
 **Enterprise-Scale | Cost-Efficient**
 
-*Confidential - January 2026*
+_Confidential - January 2026_
 
 ---
 
 # Executive Summary
 
-| Metric | Value | Environment |
-|--------|-------|-------------|
-| **Concurrent Connections** | 18,000 | Validated (Dedicated VM) |
-| **Message Throughput** | 51,000+ msg/sec (@ 10 pub/sec) | Validated (Dedicated VM) |
-| **Latency** | Sub-10ms | Target |
-| **Uptime Target** | 99.9% | Design Goal |
-| **Monthly Cost (All Envs)** | ~$700-1,000 | K8s Estimated |
+| Metric                      | Value                          | Environment              |
+| --------------------------- | ------------------------------ | ------------------------ |
+| **Concurrent Connections**  | 18,000                         | Validated (Dedicated VM) |
+| **Message Throughput**      | 51,000+ msg/sec (@ 10 pub/sec) | Validated (Dedicated VM) |
+| **Latency**                 | Sub-10ms                       | Target                   |
+| **Uptime Target**           | 99.9%                          | Design Goal              |
+| **Monthly Cost (All Envs)** | ~$700-1,000                    | K8s Estimated            |
 
 **Status:** Core system validated on dedicated VM. K8s deployment functional (PoC), load test pending.
+
+---
+
+# The Problem
+
+## Current Architecture: HTTP Polling
+
+```
+Every 2-3 seconds, EVERY user asks: "Any updates?"
+
+┌──────────┐      ┌─────────────┐      ┌───────────┐
+│  10,000  │ ───► │  Cloud Run  │ ───► │ Cloud SQL │
+│  Users   │ x20  │  (API)      │ x20  │ (DB)      │
+│          │ /min │ $$$         │ /min │ $$$       │
+└──────────┘      └─────────────┘      └───────────┘
+         └──────── 200,000+ requests/minute ────────┘
+```
+
+---
+
+## Pain Points
+
+| Problem                     | Impact                         | Cost                     |
+| --------------------------- | ------------------------------ | ------------------------ |
+| **Excessive API calls**     | 70K-270K requests/min at peak  | Cloud Run overload       |
+| **Database pressure**       | Repeated queries for same data | Cloud SQL bottleneck     |
+| **2-3 second delay**        | Users see stale data           | Poor UX, missed trades   |
+| **Linear cost scaling**     | More users = more polling      | ~$6K/month wasted        |
+| **No real-time capability** | Can't push instant updates     | Competitive disadvantage |
+
+---
+
+# The Solution
+
+## Real-Time WebSocket Infrastructure
+
+```
+Server PUSHES updates instantly when data changes
+
+┌──────────┐                    ┌─────────────┐
+│  10,000  │◄──── WebSocket ────│    Odin     │◄──── Kafka ────┐
+│  Users   │     (persistent)   │  WS Server  │                │
+│          │                    │             │          ┌─────┴─────┐
+└──────────┘                    └─────────────┘          │ Data      │
+         └──── 1 connection per user, instant updates ───│ Changes   │
+                                                         └───────────┘
+```
+
+---
+
+## Why This Works
+
+- **Sub-10ms real-time updates** replace 2-3 second polling delays
+- **Single persistent connection per user** instead of 20+ requests/minute
+- **Detailed cost analysis and ROI breakdown ahead**
 
 ---
 
 # Two Deployment Architectures
 
 ## 1. Dedicated VM (Validated - Load Tested)
+
 - Single n2-highcpu-8 instance (8 vCPU, 8GB RAM)
 - Docker-compose deployment
 - 18K connections @ 51K msg/sec tested
 
 ## 2. Kubernetes (Current Focus)
+
 - GKE Standard cluster
 - Helm-based deployment
 - Horizontal scaling ready
@@ -75,14 +133,14 @@ Variance: 0.15% (near-perfect load balancing)
 
 # Architecture Components
 
-| Component | Purpose | Status |
-|-----------|---------|--------|
-| **WS-Gateway** | JWT authentication, permission filtering | Functional |
-| **WS-Server** | WebSocket connections, message broadcasting | Functional |
-| **Redpanda** | Event streaming (Kafka-compatible) | Functional |
-| **NATS** | Cross-pod message distribution | Functional |
-| **Prometheus + Grafana** | Metrics and dashboards | Functional |
-| **Loki** | Log aggregation | Functional |
+| Component                | Purpose                                     | Status     |
+| ------------------------ | ------------------------------------------- | ---------- |
+| **WS-Gateway**           | JWT authentication, permission filtering    | Functional |
+| **WS-Server**            | WebSocket connections, message broadcasting | Functional |
+| **Redpanda**             | Event streaming (Kafka-compatible)          | Functional |
+| **NATS**                 | Cross-pod message distribution              | Functional |
+| **Prometheus + Grafana** | Metrics and dashboards                      | Functional |
+| **Loki**                 | Log aggregation                             | Functional |
 
 ---
 
@@ -153,47 +211,51 @@ With NATS Broadcast Bus:
 
 # Features: Tier 1 - Core Capabilities
 
-| Feature | Description | Business Value |
-|---------|-------------|----------------|
-| **Extreme Scalability** | 18K connections (validated) | Handle peak traffic |
-| **Horizontal Scaling** | Multi-pod with NATS broadcast | Grow with demand |
-| **Enterprise Reliability** | Panic recovery, graceful degradation | Customer trust |
-| **Message Replay** | Sequence-based recovery (20-50ms) | Data integrity |
-| **Channel Subscriptions** | Pattern-based filtering | Flexible data access |
+| Feature                    | Description                          | Business Value       |
+| -------------------------- | ------------------------------------ | -------------------- |
+| **Extreme Scalability**    | 18K connections (validated)          | Handle peak traffic  |
+| **Horizontal Scaling**     | Multi-pod with NATS broadcast        | Grow with demand     |
+| **Enterprise Reliability** | Panic recovery, graceful degradation | Customer trust       |
+| **Message Replay**         | Sequence-based recovery (20-50ms)    | Data integrity       |
+| **Channel Subscriptions**  | Pattern-based filtering              | Flexible data access |
 
 ---
 
 # Features: Tier 2 & 3
 
 ## Tier 2: Security & Infrastructure
-| Feature | Description |
-|---------|-------------|
-| JWT Authentication | Token-based auth with claims |
+
+| Feature            | Description                             |
+| ------------------ | --------------------------------------- |
+| JWT Authentication | Token-based auth with claims            |
 | Multi-Tenant Ready | Tenant isolation at channel/topic level |
-| Kubernetes Native | Helm charts, HPA, rolling updates |
-| Observability | 50+ metrics, Grafana dashboards |
+| Kubernetes Native  | Helm charts, HPA, rolling updates       |
+| Observability      | 50+ metrics, Grafana dashboards         |
 
 ---
 
 ## Tier 3: Operational Excellence
-| Feature | Description |
-|---------|-------------|
-| Rate Limiting | Per-IP token bucket (abuse protection) |
-| Graceful Degradation | ResourceGuard admission control |
-| Auto-scaling | HPA based on CPU (70% threshold) |
+
+| Feature              | Description                            |
+| -------------------- | -------------------------------------- |
+| Rate Limiting        | Per-IP token bucket (abuse protection) |
+| Graceful Degradation | ResourceGuard admission control        |
+| Auto-scaling         | HPA based on CPU (70% threshold)       |
 
 ---
 
 # User Metrics (from Google Analytics)
 
 ## Daily Active Users
-| Period | Users |
-|--------|-------|
-| Current daily | ~10,000 |
+
+| Period                  | Users   |
+| ----------------------- | ------- |
+| Current daily           | ~10,000 |
 | Peak daily (historical) | ~20,000 |
-| Total (6 months) | 165,000 |
+| Total (6 months)        | 165,000 |
 
 ## Top Market: China (117K users)
+
 Peak hours likely: 6 PM - 12 AM CST (~6 hour window)
 
 ---
@@ -201,6 +263,7 @@ Peak hours likely: 6 PM - 12 AM CST (~6 hour window)
 # Peak Concurrent Estimation
 
 ## Method 1: Conservative (Session Duration Formula)
+
 ```
 Peak concurrent = Daily users x (avg session / peak window)
 
@@ -212,7 +275,9 @@ With major event (5x): 560 x 5 = ~2,800 concurrent
 ---
 
 ## Method 2: Inflated Estimate (35-45% of daily)
-*Padded for safety margin and growth buffer*
+
+_Padded for safety margin and growth buffer_
+
 ```
 Current: 10,000 x 35% = 3,500 concurrent
 Peak:    20,000 x 45% = 9,000 concurrent
@@ -222,17 +287,17 @@ Peak:    20,000 x 45% = 9,000 concurrent
 
 # Concurrent Scenarios
 
-| Scenario | Method | Concurrent |
-|----------|--------|------------|
-| Current normal | Session formula | ~280 |
-| Current + major event | Session x 5 | ~2,800 |
-| Current (inflated) | 35% of daily | ~3,500 |
-| Peak day (inflated) | 45% of daily | ~9,000 |
+| Scenario              | Method          | Concurrent |
+| --------------------- | --------------- | ---------- |
+| Current normal        | Session formula | ~280       |
+| Current + major event | Session x 5     | ~2,800     |
+| Current (inflated)    | 35% of daily    | ~3,500     |
+| Peak day (inflated)   | 45% of daily    | ~9,000     |
 
 **Capacity Target: 3,500-9,000** (inflated for safety + growth)
 
-*Validated system: 18K connections - covers even worst-case scenarios*
-*Users distributed across ~7 pages, reducing broadcast fan-out per message*
+_Validated system: 18K connections - covers even worst-case scenarios_
+_Users distributed across ~7 pages, reducing broadcast fan-out per message_
 
 ---
 
@@ -240,28 +305,28 @@ Peak:    20,000 x 45% = 9,000 concurrent
 
 ## Current State (Polling Every 2-3 Seconds)
 
-| Metric | Value |
-|--------|-------|
-| Daily active users | ~10K (current), ~20K (peak) |
-| **Peak concurrent (inflated)** | **~3,500 - 9,000** |
-| Requests per user/min | 20-30 |
-| **Peak requests/minute** | **70,000 - 270,000** |
-| Polling-related cost (est.) | ~$5,955/month |
+| Metric                         | Value                       |
+| ------------------------------ | --------------------------- |
+| Daily active users             | ~10K (current), ~20K (peak) |
+| **Peak concurrent (inflated)** | **~3,500 - 9,000**          |
+| Requests per user/min          | 20-30                       |
+| **Peak requests/minute**       | **70,000 - 270,000**        |
+| Polling-related cost (est.)    | ~$5,955/month               |
 
-*Cost attribution: 50% Cloud Run, 30% Cloud SQL due to polling*
+_Cost attribution: 50% Cloud Run, 30% Cloud SQL due to polling_
 
 ---
 
 ## WebSocket Server Cost (for 9K connections)
 
-| Component | Monthly Cost |
-|-----------|--------------|
-| GKE nodes (e2-standard-4 Spot, 2x) | ~$100-150 |
-| Redpanda (self-hosted) | ~$50-100 |
-| Load Balancer + Egress | ~$100-150 |
-| **Total** | **~$250-400/month** |
+| Component                          | Monthly Cost        |
+| ---------------------------------- | ------------------- |
+| GKE nodes (e2-standard-4 Spot, 2x) | ~$100-150           |
+| Redpanda (self-hosted)             | ~$50-100            |
+| Load Balancer + Egress             | ~$100-150           |
+| **Total**                          | **~$250-400/month** |
 
-*Still 93-96% cheaper than polling*
+_Still 93-96% cheaper than polling_
 
 ---
 
@@ -269,11 +334,11 @@ Peak:    20,000 x 45% = 9,000 concurrent
 
 ## Monthly & Annual Impact
 
-| Approach | Monthly | Annual |
-|----------|---------|--------|
-| **Current (Polling)** | ~$5,955 | ~$71,460 |
-| **WebSocket Server** | ~$325 | ~$3,900 |
-| **Savings** | **~$5,630** | **~$67,560** |
+| Approach              | Monthly     | Annual       |
+| --------------------- | ----------- | ------------ |
+| **Current (Polling)** | ~$5,955     | ~$71,460     |
+| **WebSocket Server**  | ~$325       | ~$3,900      |
+| **Savings**           | **~$5,630** | **~$67,560** |
 
 ---
 
@@ -290,12 +355,12 @@ Peak:    20,000 x 45% = 9,000 concurrent
 
 ## Monthly Infrastructure Cost
 
-| Environment | Configuration | Cost |
-|-------------|---------------|------|
-| Development | 1 node (Spot VM) | ~$100-150 |
-| Staging | 2 nodes (Spot VM) | ~$200-250 |
-| Production | 1-5 nodes (Spot VM, autoscaling) | ~$400-600 |
-| **Total** | All environments | **~$700-1,000** |
+| Environment | Configuration                    | Cost            |
+| ----------- | -------------------------------- | --------------- |
+| Development | 1 node (Spot VM)                 | ~$100-150       |
+| Staging     | 2 nodes (Spot VM)                | ~$200-250       |
+| Production  | 1-5 nodes (Spot VM, autoscaling) | ~$400-600       |
+| **Total**   | All environments                 | **~$700-1,000** |
 
 ---
 
@@ -311,6 +376,7 @@ Peak:    20,000 x 45% = 9,000 concurrent
 # Autoscaling Strategy
 
 ## How It Works
+
 ```
 Load increases
     → HPA adds pods (70% CPU threshold)
@@ -320,30 +386,34 @@ Load increases
 ```
 
 ## Configuration
-| Component | Setting | Value |
-|-----------|---------|-------|
-| HPA | Min replicas | 2 |
-| HPA | Max replicas | 10 |
-| HPA | CPU threshold | 70% |
-| Cluster Autoscaler | Min nodes | 2 |
-| Cluster Autoscaler | Max nodes | 5 |
-| Pod Disruption Budget | Min available | 1 |
+
+| Component             | Setting       | Value |
+| --------------------- | ------------- | ----- |
+| HPA                   | Min replicas  | 2     |
+| HPA                   | Max replicas  | 10    |
+| HPA                   | CPU threshold | 70%   |
+| Cluster Autoscaler    | Min nodes     | 2     |
+| Cluster Autoscaler    | Max nodes     | 5     |
+| Pod Disruption Budget | Min available | 1     |
 
 ---
 
 # Zero-Downtime Scaling & Upgrades
 
 ## Horizontal Scaling
+
 - HPA adds pods when CPU > 70%
 - Cluster Autoscaler adds nodes when needed
 - Traffic distributes across all healthy pods
 
 ## Vertical Scaling (Bigger Nodes)
+
 - Add new node pool with larger machines
 - Rolling drain of old nodes (one at a time)
 - Pod Disruption Budget ensures min 1 pod always running
 
 ## Node Upgrades
+
 - GKE rolling update (one node at a time)
 - Pods migrate before node is removed
 - Automated with zero manual intervention
@@ -355,6 +425,7 @@ Load increases
 # Multi-Tenant Architecture
 
 ## Naming Convention
+
 ```
 Topic Format:   {env}.{tenant}.{category}
 Example:        main.odin.trade
@@ -368,37 +439,39 @@ Kafka topic:    main.odin.trade
 
 ## Key Decisions
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Infrastructure | Shared multi-tenant | Cost-effective |
-| Topic Isolation | Environment + Tenant | Cross-contamination prevention |
-| Channel Naming | Tenant implicit | Industry standard |
-| Consumer Strategy | Hybrid | Flexibility for large tenants |
+| Decision          | Choice               | Rationale                      |
+| ----------------- | -------------------- | ------------------------------ |
+| Infrastructure    | Shared multi-tenant  | Cost-effective                 |
+| Topic Isolation   | Environment + Tenant | Cross-contamination prevention |
+| Channel Naming    | Tenant implicit      | Industry standard              |
+| Consumer Strategy | Hybrid               | Flexibility for large tenants  |
 
 ---
 
 # Technology Stack
 
-| Layer | Technology | Why |
-|-------|------------|-----|
-| **Language** | Go 1.25 | Performance, concurrency |
-| **WebSocket** | gobwas/ws | Low memory, high performance |
-| **Streaming** | Redpanda (Kafka) | Proven, scalable |
-| **Broadcast** | NATS | Low latency, simple |
-| **Orchestration** | Kubernetes + Helm | Industry standard |
-| **Monitoring** | Prometheus + Grafana | Best-in-class observability |
-| **Edge** | Cloudflare | DDoS, TLS, WAF |
+| Layer             | Technology           | Why                          |
+| ----------------- | -------------------- | ---------------------------- |
+| **Language**      | Go 1.25              | Performance, concurrency     |
+| **WebSocket**     | gobwas/ws            | Low memory, high performance |
+| **Streaming**     | Redpanda (Kafka)     | Proven, scalable             |
+| **Broadcast**     | NATS                 | Low latency, simple          |
+| **Orchestration** | Kubernetes + Helm    | Industry standard            |
+| **Monitoring**    | Prometheus + Grafana | Best-in-class observability  |
+| **Edge**          | Cloudflare           | DDoS, TLS, WAF               |
 
 ---
 
 # Deployment & Operations
 
 ## Environments
+
 ```
 Local (Kind) -> Develop (GKE) -> Staging (GKE) -> Production (GKE)
 ```
 
 ## Automation
+
 - **50+ Taskfile commands** for common operations
 - **Terraform** for infrastructure provisioning
 - **Helm** for Kubernetes deployments
@@ -418,6 +491,7 @@ Local (Kind) -> Develop (GKE) -> Staging (GKE) -> Production (GKE)
 # Roadmap
 
 ## Completed
+
 - Core WebSocket server with multi-shard architecture
 - 18K connection capacity (validated on dedicated VM)
 - Kubernetes deployment with Helm (PoC functional)
@@ -425,6 +499,7 @@ Local (Kind) -> Develop (GKE) -> Staging (GKE) -> Production (GKE)
 - JWT authentication (gateway)
 
 ## In Progress
+
 - K8s load testing (pending resources)
 - Multi-tenant architecture implementation
 - Tenant provisioning API
@@ -448,7 +523,7 @@ Local (Kind) -> Develop (GKE) -> Staging (GKE) -> Production (GKE)
 - WebSocket: `ws://localhost:30080/ws`
 
 ```json
-{"type":"subscribe","data":{"channels":["all.trade"]}}
+{ "type": "subscribe", "data": { "channels": ["all.trade"] } }
 ```
 
 ---
@@ -456,6 +531,7 @@ Local (Kind) -> Develop (GKE) -> Staging (GKE) -> Production (GKE)
 # Summary
 
 ## Validated
+
 - **18K connections** with 51K msg/sec throughput (10 pub/sec x 5K subscribers)
 - Multi-shard architecture with near-perfect load balancing
 - Zero message errors under sustained load
@@ -463,11 +539,13 @@ Local (Kind) -> Develop (GKE) -> Staging (GKE) -> Production (GKE)
 ---
 
 ## Ready for Production (K8s)
+
 - Full deployment pipeline functional
 - Monitoring and observability in place
 - Cost-optimized with Spot VMs (~$1K/month)
 
 ## Next Step
+
 - K8s load testing when resources available
 - Expected: Similar performance to dedicated VM
 

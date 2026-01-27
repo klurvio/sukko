@@ -3,7 +3,6 @@ package monitoring
 import (
 	"net/http"
 	"runtime"
-	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -348,7 +347,7 @@ func (m *MetricsCollector) collect() {
 	// Connection metrics - DISABLED per-shard setting
 	// connectionsActive is now set by LoadBalancer.aggregateMetrics() which sums all shards
 	// This fixes the multi-shard overwrite bug where each shard's collector would overwrite the gauge
-	_ = atomic.LoadInt64(&stats.CurrentConnections) // Keep read for stats object usage
+	_ = stats.CurrentConnections.Load() // Keep read for stats object usage
 
 	// Memory metrics
 	var mem runtime.MemStats
@@ -385,7 +384,7 @@ func UpdateConnectionMetrics(server ServerMetrics) {
 	connectionsTotal.Inc()
 	// NOTE: connectionsActive is now set by LoadBalancer.aggregateMetrics() to fix
 	// the multi-shard overwrite bug. Per-shard collectors were overwriting each other.
-	_ = atomic.LoadInt64(&stats.CurrentConnections) // Keep the read for potential future use
+	_ = stats.CurrentConnections.Load() // Keep the read for potential future use
 }
 
 // SetAggregatedConnectionMetrics sets the aggregated connection metrics from LoadBalancer

@@ -66,31 +66,31 @@ func TestKafkaPool_SubjectFormat(t *testing.T) {
 
 func TestKafkaPool_AtomicCounters(t *testing.T) {
 	t.Parallel()
-	var messagesRouted uint64
-	var messagesDropped uint64
-	var routingErrors uint64
+	var messagesRouted atomic.Uint64
+	var messagesDropped atomic.Uint64
+	var routingErrors atomic.Uint64
 
 	// Test increments
-	atomic.AddUint64(&messagesRouted, 1)
-	atomic.AddUint64(&messagesRouted, 1)
-	if atomic.LoadUint64(&messagesRouted) != 2 {
-		t.Errorf("messagesRouted: got %d, want 2", atomic.LoadUint64(&messagesRouted))
+	messagesRouted.Add(1)
+	messagesRouted.Add(1)
+	if messagesRouted.Load() != 2 {
+		t.Errorf("messagesRouted: got %d, want 2", messagesRouted.Load())
 	}
 
-	atomic.AddUint64(&messagesDropped, 5)
-	if atomic.LoadUint64(&messagesDropped) != 5 {
-		t.Errorf("messagesDropped: got %d, want 5", atomic.LoadUint64(&messagesDropped))
+	messagesDropped.Add(5)
+	if messagesDropped.Load() != 5 {
+		t.Errorf("messagesDropped: got %d, want 5", messagesDropped.Load())
 	}
 
-	atomic.AddUint64(&routingErrors, 3)
-	if atomic.LoadUint64(&routingErrors) != 3 {
-		t.Errorf("routingErrors: got %d, want 3", atomic.LoadUint64(&routingErrors))
+	routingErrors.Add(3)
+	if routingErrors.Load() != 3 {
+		t.Errorf("routingErrors: got %d, want 3", routingErrors.Load())
 	}
 }
 
 func TestKafkaPool_AtomicCounters_Concurrent(t *testing.T) {
 	t.Parallel()
-	var counter uint64
+	var counter atomic.Uint64
 	const numGoroutines = 100
 	const opsPerGoroutine = 1000
 
@@ -101,7 +101,7 @@ func TestKafkaPool_AtomicCounters_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range opsPerGoroutine {
-				atomic.AddUint64(&counter, 1)
+				counter.Add(1)
 			}
 		}()
 	}
@@ -109,8 +109,8 @@ func TestKafkaPool_AtomicCounters_Concurrent(t *testing.T) {
 	wg.Wait()
 
 	expected := uint64(numGoroutines * opsPerGoroutine)
-	if atomic.LoadUint64(&counter) != expected {
-		t.Errorf("Counter: got %d, want %d", atomic.LoadUint64(&counter), expected)
+	if counter.Load() != expected {
+		t.Errorf("Counter: got %d, want %d", counter.Load(), expected)
 	}
 }
 
@@ -188,9 +188,9 @@ func TestKafkaPool_GetMetrics_Structure(t *testing.T) {
 	pool := &KafkaConsumerPool{}
 
 	// Set some metrics
-	atomic.StoreUint64(&pool.messagesRouted, 1000)
-	atomic.StoreUint64(&pool.messagesDropped, 50)
-	atomic.StoreUint64(&pool.routingErrors, 10)
+	pool.messagesRouted.Store(1000)
+	pool.messagesDropped.Store(50)
+	pool.routingErrors.Store(10)
 
 	metrics := pool.GetMetrics()
 
@@ -239,7 +239,7 @@ func TestKafkaPool_GetMetrics_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range ops {
-				atomic.AddUint64(&pool.messagesRouted, 1)
+				pool.messagesRouted.Add(1)
 			}
 		}()
 	}

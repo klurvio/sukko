@@ -26,8 +26,8 @@ const TopicClientEvents = "client-events"
 
 // ProducerStats holds metrics for the producer.
 type ProducerStats struct {
-	MessagesPublished int64 // Successfully published messages
-	MessagesFailed    int64 // Failed publish attempts
+	MessagesPublished atomic.Int64 // Successfully published messages
+	MessagesFailed    atomic.Int64 // Failed publish attempts
 }
 
 // ProducerConfig holds configuration for creating a Kafka producer.
@@ -241,7 +241,7 @@ func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, 
 	// Use synchronous produce for reliability (client expects ack)
 	results := p.client.ProduceSync(ctx, record)
 	if err := results.FirstErr(); err != nil {
-		atomic.AddInt64(&p.stats.MessagesFailed, 1)
+		p.stats.MessagesFailed.Add(1)
 		if p.logger != nil {
 			p.logger.Error().
 				Err(err).
@@ -253,7 +253,7 @@ func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, 
 		return fmt.Errorf("kafka produce failed: %w", err)
 	}
 
-	atomic.AddInt64(&p.stats.MessagesPublished, 1)
+	p.stats.MessagesPublished.Add(1)
 
 	if p.logger != nil {
 		p.logger.Debug().
@@ -267,12 +267,18 @@ func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, 
 	return nil
 }
 
-// Stats returns a copy of the current producer statistics.
-func (p *Producer) Stats() ProducerStats {
-	return ProducerStats{
-		MessagesPublished: atomic.LoadInt64(&p.stats.MessagesPublished),
-		MessagesFailed:    atomic.LoadInt64(&p.stats.MessagesFailed),
+// Stats returns a snapshot of the current producer statistics.
+func (p *Producer) Stats() ProducerStatsSnapshot {
+	return ProducerStatsSnapshot{
+		MessagesPublished: p.stats.MessagesPublished.Load(),
+		MessagesFailed:    p.stats.MessagesFailed.Load(),
 	}
+}
+
+// ProducerStatsSnapshot is a plain snapshot of producer statistics (safe to copy).
+type ProducerStatsSnapshot struct {
+	MessagesPublished int64
+	MessagesFailed    int64
 }
 
 // Topic returns the full topic name this producer publishes to.

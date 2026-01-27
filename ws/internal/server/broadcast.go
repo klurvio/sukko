@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/gobwas/ws"
@@ -154,7 +153,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 		case client.send <- sharedData:
 			// Success - message queued for writePump to send
 			// Reset failure counter (client is healthy)
-			atomic.StoreInt32(&client.sendAttempts, 0)
+			client.sendAttempts.Store(0)
 			client.lastMessageSentAt = time.Now()
 			successCount++
 
@@ -174,13 +173,13 @@ func (s *Server) Broadcast(subject string, message []byte) {
 			// CRITICAL: We do NOT block here. We increment failure counter
 			// and let the cleanup goroutine handle disconnection.
 			// This keeps broadcast fast (~1-2ms) regardless of slow clients.
-			attempts := atomic.AddInt32(&client.sendAttempts, 1)
+			attempts := client.sendAttempts.Add(1)
 
 			// Track dropped broadcast with channel and reason (both Prometheus and Stats)
 			monitoring.RecordDroppedBroadcastWithStats(s.stats, channel, monitoring.DropReasonBufferFull)
 
 			// Phase 4: Sampled structured logging (every 100th drop to avoid log spam)
-			dropCount := atomic.AddInt64(&s.stats.DroppedBroadcastLogCounter, 1)
+			dropCount := s.stats.DroppedBroadcastLogCounter.Add(1)
 			if dropCount%100 == 0 {
 				bufferLen := len(client.send)
 				bufferCap := cap(client.send)
@@ -198,7 +197,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 
 			// Log warning on first failure (avoid spam)
 			// Use atomic CompareAndSwap to avoid race condition
-			if attempts == 1 && atomic.CompareAndSwapInt32(&client.slowClientWarned, 0, 1) {
+			if attempts == 1 && client.slowClientWarned.CompareAndSwap(0, 1) {
 				s.logger.Warn().
 					Int64("client_id", client.id).
 					Str("reason", "send_buffer_full").
@@ -269,7 +268,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 				// - Network infrastructure issues
 				// - Client app performance issues
 				// - Need to optimize message size/frequency
-				atomic.AddInt64(&s.stats.SlowClientsDisconnected, 1)
+				s.stats.SlowClientsDisconnected.Add(1)
 				monitoring.IncrementSlowClientDisconnects()
 			}
 		}

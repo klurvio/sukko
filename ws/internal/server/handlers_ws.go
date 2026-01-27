@@ -4,7 +4,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/gobwas/ws"
@@ -33,7 +32,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Reject new connections during graceful shutdown
 	// Client receives: HTTP 503 "Server is shutting down"
 	// See: docs/API_REJECTION_RESPONSES.md (Scenario 1)
-	if atomic.LoadInt32(&s.shuttingDown) == 1 {
+	if s.shuttingDown.Load() == 1 {
 		s.logger.Debug().
 			Str("client_ip", clientIP).
 			Msg("Connection rejected: server shutting down")
@@ -64,7 +63,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// See: docs/API_REJECTION_RESPONSES.md (Scenario 3)
 	shouldAccept, reason := s.resourceGuard.ShouldAcceptConnection()
 	if !shouldAccept {
-		currentConnections := atomic.LoadInt64(&s.stats.CurrentConnections)
+		currentConnections := s.stats.CurrentConnections.Load()
 		// DEBUG: Enhanced ResourceGuard rejection logging
 		s.logger.Warn().
 			Str("client_ip", clientIP).
@@ -83,7 +82,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if s.logger.GetLevel() <= zerolog.DebugLevel {
 		s.logger.Debug().
 			Str("client_ip", clientIP).
-			Int64("current_connections", atomic.LoadInt64(&s.stats.CurrentConnections)).
+			Int64("current_connections", s.stats.CurrentConnections.Load()).
 			Int("max_connections", s.config.MaxConnections).
 			Msg("ResourceGuard accepted connection")
 	}
@@ -139,12 +138,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	client := s.connections.Get()
 	client.conn = conn
 	client.server = s
-	client.id = atomic.AddInt64(&s.clientCount, 1)
+	client.id = s.clientCount.Add(1)
 	client.remoteAddr = clientIP
 
 	s.clients.Store(client, true)
-	atomic.AddInt64(&s.stats.TotalConnections, 1)
-	currentConns := atomic.AddInt64(&s.stats.CurrentConnections, 1)
+	s.stats.TotalConnections.Add(1)
+	currentConns := s.stats.CurrentConnections.Add(1)
 
 	// Update Prometheus metrics
 	monitoring.UpdateConnectionMetrics(s)

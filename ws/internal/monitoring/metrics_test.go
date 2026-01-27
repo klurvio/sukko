@@ -2,7 +2,6 @@ package monitoring
 
 import (
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -614,16 +613,14 @@ func TestNewMetricsCollector(t *testing.T) {
 
 //nolint:paralleltest // shares global Prometheus metrics
 func TestMetricsCollector_StartStop(_ *testing.T) {
-	var connCount int64 = 500
 	mock := &mockServerMetrics{
 		config: types.ServerConfig{
 			MaxConnections:  10000,
 			MetricsInterval: 50 * time.Millisecond, // Fast for testing
 		},
-		stats: &types.Stats{
-			CurrentConnections: connCount,
-		},
+		stats: &types.Stats{},
 	}
+	mock.stats.CurrentConnections.Store(500)
 
 	collector := NewMetricsCollector(mock)
 
@@ -639,21 +636,19 @@ func TestMetricsCollector_StartStop(_ *testing.T) {
 
 //nolint:paralleltest // shares global Prometheus metrics
 func TestMetricsCollector_CollectsStats(t *testing.T) {
-	var connCount int64 = 250
 	mock := &mockServerMetrics{
 		config: types.ServerConfig{
 			MaxConnections:  5000,
 			MetricsInterval: 50 * time.Millisecond,
 		},
-		stats: &types.Stats{
-			CurrentConnections: connCount,
-		},
+		stats: &types.Stats{},
 	}
+	mock.stats.CurrentConnections.Store(250)
 
 	collector := NewMetricsCollector(mock)
 
 	// Update connection count before starting collector
-	atomic.StoreInt64(&mock.stats.CurrentConnections, 500)
+	mock.stats.CurrentConnections.Store(500)
 
 	collector.Start()
 	time.Sleep(100 * time.Millisecond)

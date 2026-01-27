@@ -2,7 +2,6 @@ package server
 
 import (
 	"os"
-	"sync/atomic"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/mem"
@@ -84,7 +83,7 @@ func (s *Server) monitorMemory() {
 			s.stats.Mu.RUnlock()
 
 			memPercent := (memUsedMB / memLimitMB) * 100
-			currentConns := atomic.LoadInt64(&s.stats.CurrentConnections)
+			currentConns := s.stats.CurrentConnections.Load()
 
 			// Critical threshold: >90%
 			if memPercent > 90 {
@@ -164,14 +163,14 @@ func (s *Server) sampleClientBuffers() {
 						Int("high_saturation_count", highSaturationCount).
 						Int("total_sampled", samplesCollected).
 						Float64("high_saturation_pct", highSaturationPercent).
-						Int64("current_connections", atomic.LoadInt64(&s.stats.CurrentConnections)).
+						Int64("current_connections", s.stats.CurrentConnections.Load()).
 						Msg("High buffer saturation detected across client population")
 
 					s.auditLogger.Warning("HighBufferSaturation", "Many clients near buffer capacity", map[string]any{
 						"high_saturation_count": highSaturationCount,
 						"total_sampled":         samplesCollected,
 						"saturation_percent":    highSaturationPercent,
-						"current_connections":   atomic.LoadInt64(&s.stats.CurrentConnections),
+						"current_connections":   s.stats.CurrentConnections.Load(),
 					})
 				}
 			}

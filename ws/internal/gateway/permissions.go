@@ -119,14 +119,12 @@ func matchPattern(pattern, channel string) bool {
 	}
 
 	// Handle prefix wildcard: *.suffix
-	if strings.HasPrefix(pattern, "*") {
-		suffix := pattern[1:]
+	if suffix, ok := strings.CutPrefix(pattern, "*"); ok {
 		return strings.HasSuffix(channel, suffix)
 	}
 
 	// Handle suffix wildcard: prefix.*
-	if strings.HasSuffix(pattern, "*") {
-		prefix := pattern[:len(pattern)-1]
+	if prefix, ok := strings.CutSuffix(pattern, "*"); ok {
 		return strings.HasPrefix(channel, prefix)
 	}
 
@@ -154,18 +152,18 @@ func extractPlaceholder(pattern, channel, placeholder string) string {
 	prefix := pattern[:placeholderIdx]
 	suffix := pattern[placeholderIdx+len(placeholder):]
 
-	// Check if channel has the required prefix and suffix
-	if !strings.HasPrefix(channel, prefix) {
-		return ""
-	}
-	if suffix != "" && !strings.HasSuffix(channel, suffix) {
+	// Check if channel has the required prefix and strip it
+	value, ok := strings.CutPrefix(channel, prefix)
+	if !ok {
 		return ""
 	}
 
-	// Extract the value between prefix and suffix
-	value := channel[len(prefix):]
+	// Check if the remainder has the required suffix and strip it
 	if suffix != "" {
-		value = value[:len(value)-len(suffix)]
+		value, ok = strings.CutSuffix(value, suffix)
+		if !ok {
+			return ""
+		}
 	}
 
 	// Ensure we extracted something

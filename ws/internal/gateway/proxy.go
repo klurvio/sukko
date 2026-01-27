@@ -279,6 +279,7 @@ func (p *Proxy) interceptClientMessage(msg []byte) ([]byte, error) {
 			RecordChannelCheck("allowed")
 		} else {
 			RecordChannelCheck("denied")
+			RecordAccessDenial("channel", "unauthorized")
 			p.logger.Warn().
 				Str("channel", ch).
 				Str("principal", p.claims.Subject).
