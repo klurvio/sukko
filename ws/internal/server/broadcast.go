@@ -204,11 +204,10 @@ func (s *Server) Broadcast(subject string, message []byte) {
 					Msg("Client is slow")
 			}
 
-			// Disconnect after 3 consecutive failures (industry standard)
-			// Why 3? Balance between:
-			// - Too low (1-2): False positives from brief network hiccups
-			// - Too high (5+): Slow client wastes resources too long
-			if attempts >= 3 {
+			// Disconnect after SlowClientMaxAttempts consecutive failures
+			// Configurable via WS_SLOW_CLIENT_MAX_ATTEMPTS (default: 3)
+			// Industry comparison: Coinbase=2, Binance=unlimited, FIX=5s timeout
+			if int(attempts) >= s.config.SlowClientMaxAttempts {
 				s.logger.Warn().
 					Int64("client_id", client.id).
 					Int32("consecutive_failures", attempts).

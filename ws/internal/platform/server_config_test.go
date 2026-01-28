@@ -39,6 +39,7 @@ func newValidServerConfig() *ServerConfig {
 		ValkeyChannel:              "ws.broadcast",
 		ValkeyDB:                   0,
 		ClientSendBufferSize:       512,
+		SlowClientMaxAttempts:      3,
 		// Multi-tenant consumer (required)
 		ProvisioningDatabaseURL:    "postgres://user:pass@localhost:5432/provisioning?sslmode=disable",
 		TopicRefreshInterval:       60 * time.Second,
@@ -306,6 +307,42 @@ func TestServerConfig_Validate_CPUPollInterval(t *testing.T) {
 					t.Error("Should error")
 				} else if !strings.Contains(err.Error(), tt.errorField) {
 					t.Errorf("Error should mention %s: %v", tt.errorField, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Should not error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_SlowClientMaxAttempts(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		value       int
+		shouldError bool
+	}{
+		{"min valid", 1, false},
+		{"default", 3, false},
+		{"max valid", 10, false},
+		{"zero", 0, true},
+		{"negative", -1, true},
+		{"too large", 11, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.SlowClientMaxAttempts = tt.value
+			err := cfg.Validate()
+			if tt.shouldError {
+				if err == nil {
+					t.Error("Should error")
+				} else if !strings.Contains(err.Error(), "WS_SLOW_CLIENT_MAX_ATTEMPTS") {
+					t.Errorf("Error should mention WS_SLOW_CLIENT_MAX_ATTEMPTS: %v", err)
 				}
 			} else {
 				if err != nil {

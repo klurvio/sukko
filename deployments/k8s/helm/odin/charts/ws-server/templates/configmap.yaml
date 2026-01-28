@@ -44,6 +44,9 @@ data:
   # Formula: maxGoroutines = (clusterMaxConnections / replicaCount) * 10 + 5000 (system overhead)
   WS_MAX_GOROUTINES: "{{ add (mul (div (.Values.connectionLimits.clusterMaxConnections | default 100000) (.Values.replicaCount | default 1)) 10) 5000 }}"
 
+  # Slow client detection
+  WS_SLOW_CLIENT_MAX_ATTEMPTS: "{{ .Values.config.slowClientMaxAttempts | default 3 }}"
+
   # Kafka topics (comma-separated)
   KAFKA_TOPICS: "{{ join "," .Values.kafka.topics }}"
 {{- end }}

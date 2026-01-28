@@ -143,10 +143,10 @@ func TestNewSlackAlerter(t *testing.T) {
 func TestSlackAlerter_SkipsEmptyWebhook(t *testing.T) {
 	t.Parallel()
 	// Track if any HTTP request was made
-	var requestMade int32
+	var requestMade atomic.Int32
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&requestMade, 1)
+		requestMade.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -160,7 +160,7 @@ func TestSlackAlerter_SkipsEmptyWebhook(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Verify NO request was made (empty webhook should skip)
-	if atomic.LoadInt32(&requestMade) != 0 {
+	if requestMade.Load() != 0 {
 		t.Error("SlackAlerter with empty webhook should not make HTTP requests")
 	}
 }
@@ -169,10 +169,10 @@ func TestSlackAlerter_SendsToWebhook(t *testing.T) {
 	t.Parallel()
 	var receivedPayload map[string]any
 	var receivedContentType string
-	var requestCount int32
+	var requestCount atomic.Int32
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&requestCount, 1)
+		requestCount.Add(1)
 		receivedContentType = r.Header.Get("Content-Type")
 
 		body, _ := io.ReadAll(r.Body)
@@ -192,8 +192,8 @@ func TestSlackAlerter_SendsToWebhook(t *testing.T) {
 	// Give time for HTTP request
 	time.Sleep(50 * time.Millisecond)
 
-	if atomic.LoadInt32(&requestCount) != 1 {
-		t.Errorf("Expected 1 request, got %d", requestCount)
+	if requestCount.Load() != 1 {
+		t.Errorf("Expected 1 request, got %d", requestCount.Load())
 	}
 
 	if receivedContentType != "application/json" {

@@ -292,6 +292,9 @@ func main() {
 			// Client buffer configuration
 			ClientSendBufferSize: cfg.ClientSendBufferSize,
 
+			// Slow client detection
+			SlowClientMaxAttempts: cfg.SlowClientMaxAttempts,
+
 			MetricsInterval: cfg.MetricsInterval,
 			LogLevel:        types.LogLevel(cfg.LogLevel),
 			LogFormat:       types.LogFormat(cfg.LogFormat),

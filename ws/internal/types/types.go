@@ -66,6 +66,9 @@ type ServerConfig struct {
 	// Client buffer configuration
 	ClientSendBufferSize int // Per-client send channel buffer size (default: 512)
 
+	// Slow client detection
+	SlowClientMaxAttempts int // Consecutive send failures before disconnecting slow client (default: 3)
+
 	// Monitoring intervals
 	MetricsInterval time.Duration // Full metrics collection interval (default: 15s)
 	CPUPollInterval time.Duration // CPU polling interval for protection (default: 1s)

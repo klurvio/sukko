@@ -23,6 +23,12 @@ config:
   lbAddr: ":3001"
   maxKafkaRate: 1000
   maxBroadcastRate: 25
+  # Slow Client Detection
+  # When a client's send buffer is full, tracks consecutive failed send attempts.
+  # After this many consecutive failures, the client is disconnected.
+  # Range: 1-10 (1 = aggressive, 10 = very lenient)
+  # Industry: Coinbase=2, Binance=unlimited, FIX=5s timeout
+  slowClientMaxAttempts: 3
   # Environment: deployment environment for logging, metrics, feature flags
   # Values: develop, staging, production (or local for development)
   environment: local

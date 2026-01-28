@@ -167,6 +167,20 @@ type ServerConfig struct {
 	ValkeyDB         int      `env:"VALKEY_DB" envDefault:"0"`
 	ValkeyChannel    string   `env:"VALKEY_CHANNEL" envDefault:"ws.broadcast"`
 
+	// Slow Client Detection
+	//
+	// When a client's send buffer is full, the server tracks consecutive failed send attempts.
+	// After SlowClientMaxAttempts consecutive failures, the client is disconnected.
+	//
+	// Industry comparison:
+	//   - Coinbase: 2 attempts (aggressive)
+	//   - Binance: No automatic disconnect (relies on ping timeout)
+	//   - FIX protocol: 5 second timeout (lenient)
+	//
+	// Default: 3 (balanced - tolerates brief hiccups, disconnects persistent slow clients)
+	// Range: 1-10 (1 = aggressive, 10 = very lenient)
+	SlowClientMaxAttempts int `env:"WS_SLOW_CLIENT_MAX_ATTEMPTS" envDefault:"3"`
+
 	// Client Send Buffer Size
 	// Controls the per-client send channel buffer (memory vs slow-client tolerance trade-off)
 	//
@@ -367,6 +381,11 @@ func (c *ServerConfig) Validate() error {
 		}
 	}
 
+	// Slow client threshold validation
+	if c.SlowClientMaxAttempts < 1 || c.SlowClientMaxAttempts > 10 {
+		return fmt.Errorf("WS_SLOW_CLIENT_MAX_ATTEMPTS must be 1-10, got %d", c.SlowClientMaxAttempts)
+	}
+
 	// Client send buffer size validation
 	if c.ClientSendBufferSize < 64 {
 		return fmt.Errorf("WS_CLIENT_SEND_BUFFER_SIZE must be >= 64, got %d", c.ClientSendBufferSize)
@@ -489,6 +508,8 @@ func (c *ServerConfig) Print() {
 	}
 	fmt.Println("\n=== Client Buffers ===")
 	fmt.Printf("Send Buffer:     %d slots (~%dKB/client)\n", c.ClientSendBufferSize, c.ClientSendBufferSize/2)
+	fmt.Println("\n=== Slow Client Detection ===")
+	fmt.Printf("Max Attempts:    %d\n", c.SlowClientMaxAttempts)
 	fmt.Println("\n=== Multi-Tenant Consumer ===")
 	fmt.Printf("Provisioning DB:     %s\n", maskDatabaseURL(c.ProvisioningDatabaseURL))
 	fmt.Printf("Topic Refresh:       %s\n", c.TopicRefreshInterval)
