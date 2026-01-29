@@ -10,6 +10,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
 // Prometheus metrics for WebSocket server
@@ -45,7 +46,7 @@ var (
 	connectionDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "ws_connection_duration_seconds",
 		Help:    "Connection duration before disconnect",
-		Buckets: []float64{1, 5, 10, 30, 60, 300, 600, 1800, 3600}, // 1s to 1hr
+		Buckets: pkgmetrics.ConnectionDurationBuckets,
 	}, []string{"reason"})
 
 	// Message metrics
@@ -99,7 +100,7 @@ var (
 	clientSendBufferSize = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "ws_client_send_buffer_size",
 		Help:    "Distribution of client send buffer usage",
-		Buckets: []float64{0, 64, 128, 256, 384, 448, 480, 496, 504, 510, 511, 512}, // Track saturation
+		Buckets: pkgmetrics.BufferSaturationBuckets,
 	}, []string{"percentile"})
 
 	slowClientAttempts = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -471,71 +472,32 @@ func UpdateCapacityHeadroom(cpuHeadroom, memHeadroom float64) {
 	capacityAvailableHeadroom.WithLabelValues("memory").Set(memHeadroom)
 }
 
-// Error severity levels for metrics and logging
-const (
-	ErrorSeverityWarning  = "warning"  // Non-critical, service continues
-	ErrorSeverityCritical = "critical" // Critical but recoverable
-	ErrorSeverityFatal    = "fatal"    // Service cannot continue
-)
-
-// Error types for categorization
-const (
-	ErrorTypeKafka         = "kafka"
-	ErrorTypeBroadcast     = "broadcast"
-	ErrorTypeSerialization = "serialization"
-	ErrorTypeConnection    = "connection"
-	ErrorTypeHealth        = "health"
-)
 
 // RecordError tracks an error in both Prometheus and returns true to signal logging needed
 func RecordError(errorType, severity string) {
 	errorsTotal.WithLabelValues(errorType, severity).Inc()
 }
 
-// RecordKafkaError tracks Kafka-related errors
+// RecordKafkaError tracks Kafka-related errors.
 func RecordKafkaError(severity string) {
-	errorsTotal.WithLabelValues(ErrorTypeKafka, severity).Inc()
+	errorsTotal.WithLabelValues(pkgmetrics.ErrorTypeKafka, severity).Inc()
 }
 
-// RecordBroadcastError tracks broadcast-related errors
+// RecordBroadcastError tracks broadcast-related errors.
 func RecordBroadcastError(severity string) {
-	errorsTotal.WithLabelValues(ErrorTypeBroadcast, severity).Inc()
+	errorsTotal.WithLabelValues(pkgmetrics.ErrorTypeBroadcast, severity).Inc()
 }
 
-// RecordSerializationError tracks serialization errors
+// RecordSerializationError tracks serialization errors.
 func RecordSerializationError(severity string) {
-	errorsTotal.WithLabelValues(ErrorTypeSerialization, severity).Inc()
+	errorsTotal.WithLabelValues(pkgmetrics.ErrorTypeSerialization, severity).Inc()
 }
 
-// RecordConnectionError tracks connection errors
+// RecordConnectionError tracks connection errors.
 func RecordConnectionError(severity string) {
-	errorsTotal.WithLabelValues(ErrorTypeConnection, severity).Inc()
+	errorsTotal.WithLabelValues(pkgmetrics.ErrorTypeConnection, severity).Inc()
 }
 
-// Disconnect reasons - standardized constants for categorization
-const (
-	DisconnectReasonReadError         = "read_error"          // Client stopped reading (network issue, crash)
-	DisconnectReasonWriteTimeout      = "write_timeout"       // Slow client (send buffer full)
-	DisconnectReasonPingTimeout       = "ping_timeout"        // Client didn't respond to ping
-	DisconnectReasonRateLimitExceeded = "rate_limit_exceeded" // Client sent too many messages
-	DisconnectReasonServerShutdown    = "server_shutdown"     // Graceful shutdown
-	DisconnectReasonClientInitiated   = "client_initiated"    // Normal close from client
-	DisconnectReasonSubscriptionError = "subscription_error"  // Invalid subscription
-	DisconnectReasonSendChannelClosed = "send_channel_closed" // Server closed send channel
-)
-
-// Who initiated the disconnect
-const (
-	DisconnectInitiatedByClient = "client"
-	DisconnectInitiatedByServer = "server"
-)
-
-// Drop reasons - why broadcast messages were dropped
-const (
-	DropReasonSendTimeout        = "send_timeout"        // Timed out trying to send to client
-	DropReasonBufferFull         = "buffer_full"         // Client send buffer is full
-	DropReasonClientDisconnected = "client_disconnected" // Client already disconnected
-)
 
 // RecordDisconnect tracks a disconnect with reason, initiator, and duration
 func RecordDisconnect(reason, initiatedBy string, duration time.Duration) {
@@ -600,17 +562,11 @@ func RecordClientBufferSizeWithStats(stats *types.Stats, bufferLen, bufferCap in
 // Multi-Tenant Pool Metrics Callback Interface
 // =============================================================================
 
-// MultiTenantPoolMetrics is a callback interface for reporting multi-tenant consumer pool metrics.
-// This allows the orchestration package to report metrics without importing monitoring.
-type MultiTenantPoolMetrics interface {
-	// OnMessageRouted is called when a message is routed to the broadcast bus.
-	OnMessageRouted()
-	// OnRefresh is called after a topic refresh operation.
-	OnRefresh(success bool, topicsSubscribed, dedicatedConsumers int)
-}
-
-// MultiTenantPoolMetricsAdapter implements MultiTenantPoolMetrics for Prometheus.
+// MultiTenantPoolMetricsAdapter implements pkgmetrics.PoolMetrics for Prometheus.
 type MultiTenantPoolMetricsAdapter struct{}
+
+// Interface compliance check.
+var _ pkgmetrics.PoolMetrics = (*MultiTenantPoolMetricsAdapter)(nil)
 
 // OnMessageRouted records a routed message.
 func (a *MultiTenantPoolMetricsAdapter) OnMessageRouted() {

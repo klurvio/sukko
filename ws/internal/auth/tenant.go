@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
 // TenantIsolator provides unified tenant isolation for channels and topics.
@@ -14,7 +16,7 @@ type TenantIsolator struct {
 	channelMapper *ChannelMapper
 	topicIsolator *TopicIsolator
 	auditLogger   AuditLogger
-	metrics       AccessDenialMetrics
+	metrics       pkgmetrics.AccessDenialMetrics
 }
 
 // TenantIsolationConfig configures tenant isolation behavior.
@@ -73,7 +75,7 @@ func WithTopicIsolator(isolator *TopicIsolator) TenantIsolatorOption {
 }
 
 // WithAccessDenialMetrics sets a metrics callback for access denials.
-func WithAccessDenialMetrics(metrics AccessDenialMetrics) TenantIsolatorOption {
+func WithAccessDenialMetrics(metrics pkgmetrics.AccessDenialMetrics) TenantIsolatorOption {
 	return func(t *TenantIsolator) {
 		t.metrics = metrics
 	}
@@ -84,7 +86,7 @@ func NewTenantIsolator(config TenantIsolationConfig, opts ...TenantIsolatorOptio
 	t := &TenantIsolator{
 		config:      config,
 		auditLogger: &noopAuditLogger{},
-		metrics:     &noopAccessDenialMetrics{},
+		metrics:     pkgmetrics.NoopAccessDenialMetrics{},
 	}
 
 	// Apply options
@@ -348,18 +350,6 @@ type noopAuditLogger struct{}
 func (n *noopAuditLogger) LogDenied(_ context.Context, _ *AuditEntry)  {}
 func (n *noopAuditLogger) LogAllowed(_ context.Context, _ *AuditEntry) {}
 
-// AccessDenialMetrics interface for recording access denial metrics.
-// This allows the auth package to report metrics without depending on gateway.
-type AccessDenialMetrics interface {
-	// OnAccessDenied is called when access is denied.
-	// resourceType is "channel" or "topic", reason explains why access was denied.
-	OnAccessDenied(resourceType, reason string)
-}
-
-// noopAccessDenialMetrics is a no-op implementation of AccessDenialMetrics.
-type noopAccessDenialMetrics struct{}
-
-func (n *noopAccessDenialMetrics) OnAccessDenied(_, _ string) {}
 
 // TenantContext provides tenant information for a request.
 type TenantContext struct {

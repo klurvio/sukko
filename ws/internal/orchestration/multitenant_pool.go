@@ -13,6 +13,7 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
 // MultiTenantConsumerPool manages Kafka consumers for multi-tenant deployments.
@@ -51,7 +52,7 @@ type MultiTenantConsumerPool struct {
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
 	mu           sync.RWMutex
-	metrics      PoolMetricsCallback
+	metrics      pkgmetrics.PoolMetrics
 
 	// Shared consumer for all shared-mode tenants
 	sharedConsumer *kafka.Consumer
@@ -71,15 +72,6 @@ type MultiTenantConsumerPool struct {
 	dedicatedCount   atomic.Uint64
 	refreshCount     atomic.Uint64
 	refreshErrors    atomic.Uint64
-}
-
-// PoolMetricsCallback is a callback interface for reporting multi-tenant pool metrics.
-// This allows the monitoring package to receive metrics without creating a circular dependency.
-type PoolMetricsCallback interface {
-	// OnMessageRouted is called when a message is routed to the broadcast bus.
-	OnMessageRouted()
-	// OnRefresh is called after a topic refresh operation.
-	OnRefresh(success bool, topicsSubscribed, dedicatedConsumers int)
 }
 
 // MultiTenantPoolConfig configures the multi-tenant consumer pool.
@@ -113,7 +105,7 @@ type MultiTenantPoolConfig struct {
 
 	// Metrics is an optional callback for reporting pool metrics to Prometheus.
 	// If nil, metrics are still tracked internally via GetMetrics().
-	Metrics PoolMetricsCallback
+	Metrics pkgmetrics.PoolMetrics
 }
 
 // NewMultiTenantConsumerPool creates a new multi-tenant consumer pool.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/messaging"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
 // extractChannel returns the broadcast subject as the channel for subscription matching.
@@ -123,7 +124,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 	// Serialize ONCE for all clients (not once per client!)
 	sharedData, err := baseEnvelope.Serialize()
 	if err != nil {
-		monitoring.RecordSerializationError(monitoring.ErrorSeverityCritical)
+		monitoring.RecordSerializationError(pkgmetrics.SeverityCritical)
 		s.logger.Error().
 			Err(err).
 			Str("channel", channel).
@@ -141,7 +142,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 		// Check if client already disconnected (race condition protection)
 		// This can happen if client disconnects between getting subscriber list and sending
 		if client.conn == nil {
-			monitoring.RecordDroppedBroadcastWithStats(s.stats, channel, monitoring.DropReasonClientDisconnected)
+			monitoring.RecordDroppedBroadcastWithStats(s.stats, channel, pkgmetrics.DropReasonClientDisconnected)
 			continue
 		}
 
@@ -176,7 +177,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 			attempts := client.sendAttempts.Add(1)
 
 			// Track dropped broadcast with channel and reason (both Prometheus and Stats)
-			monitoring.RecordDroppedBroadcastWithStats(s.stats, channel, monitoring.DropReasonBufferFull)
+			monitoring.RecordDroppedBroadcastWithStats(s.stats, channel, pkgmetrics.DropReasonBufferFull)
 
 			// Phase 4: Sampled structured logging (every 100th drop to avoid log spam)
 			dropCount := s.stats.DroppedBroadcastLogCounter.Add(1)
@@ -186,7 +187,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 				s.logger.Warn().
 					Int64("client_id", client.id).
 					Str("channel", channel).
-					Str("reason", monitoring.DropReasonBufferFull).
+					Str("reason", pkgmetrics.DropReasonBufferFull).
 					Int32("attempts", attempts).
 					Int("buffer_len", bufferLen).
 					Int("buffer_cap", bufferCap).
@@ -216,7 +217,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 
 				// Record disconnect metrics with proper categorization (both Prometheus and Stats)
 				duration := time.Since(client.connectedAt)
-				monitoring.RecordDisconnectWithStats(s.stats, monitoring.DisconnectReasonWriteTimeout, monitoring.DisconnectInitiatedByServer, duration)
+				monitoring.RecordDisconnectWithStats(s.stats, pkgmetrics.DisconnectWriteTimeout, pkgmetrics.InitiatedByServer, duration)
 
 				// Record how many attempts it took before disconnect (for histogram analysis)
 				monitoring.RecordSlowClientAttempt(int(attempts))

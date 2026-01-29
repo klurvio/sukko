@@ -13,18 +13,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
-
-// KeyCacheMetrics is a callback interface for reporting cache metrics.
-// This allows the gateway to receive metrics without creating a dependency.
-type KeyCacheMetrics interface {
-	// OnCacheHit is called when a key is found in cache.
-	OnCacheHit()
-	// OnCacheMiss is called when a key is not found in cache.
-	OnCacheMiss()
-	// OnCacheRefresh is called after a cache refresh attempt.
-	OnCacheRefresh(success bool, keyCount int)
-}
 
 // PostgresKeyRegistryConfig configures the PostgresKeyRegistry.
 type PostgresKeyRegistryConfig struct {
@@ -42,7 +32,7 @@ type PostgresKeyRegistryConfig struct {
 
 	// Metrics is an optional callback for reporting cache metrics.
 	// If nil, metrics are not reported (but still tracked internally via Stats()).
-	Metrics KeyCacheMetrics
+	Metrics pkgmetrics.CacheMetrics
 }
 
 // PostgresKeyRegistry implements KeyRegistry by fetching keys from the provisioning database.
@@ -52,7 +42,7 @@ type PostgresKeyRegistry struct {
 	refreshInterval time.Duration
 	queryTimeout    time.Duration
 	logger          zerolog.Logger
-	metrics         KeyCacheMetrics
+	metrics         pkgmetrics.CacheMetrics
 
 	// Cache
 	cacheMu      sync.RWMutex

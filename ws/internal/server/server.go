@@ -26,6 +26,7 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
 // Server is the main WebSocket server that manages client connections, message
@@ -371,7 +372,7 @@ forceClose:
 		if client, ok := key.(*Client); ok {
 			// Record shutdown disconnect (both Prometheus and Stats)
 			duration := time.Since(client.connectedAt)
-			monitoring.RecordDisconnectWithStats(s.stats, monitoring.DisconnectReasonServerShutdown, monitoring.DisconnectInitiatedByServer, duration)
+			monitoring.RecordDisconnectWithStats(s.stats, pkgmetrics.DisconnectServerShutdown, pkgmetrics.InitiatedByServer, duration)
 
 			close(client.send)
 		}

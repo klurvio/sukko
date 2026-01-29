@@ -7,6 +7,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
 // Prometheus metrics for the gateway service.
@@ -29,7 +31,7 @@ var connectionsActive = promauto.NewGauge(prometheus.GaugeOpts{
 var connectionDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Name:    "gateway_connection_duration_seconds",
 	Help:    "Connection duration before disconnect",
-	Buckets: []float64{1, 5, 10, 30, 60, 300, 600, 1800, 3600},
+	Buckets: pkgmetrics.ConnectionDurationBuckets,
 }, []string{"close_reason"})
 
 // =============================================================================
@@ -44,7 +46,7 @@ var authValidations = promauto.NewCounterVec(prometheus.CounterOpts{
 var authLatency = promauto.NewHistogram(prometheus.HistogramOpts{
 	Name:    "gateway_auth_latency_seconds",
 	Help:    "JWT validation latency",
-	Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25},
+	Buckets: pkgmetrics.AuthLatencyBuckets,
 })
 
 // =============================================================================
@@ -87,7 +89,7 @@ var backendConnects = promauto.NewCounterVec(prometheus.CounterOpts{
 var backendLatency = promauto.NewHistogram(prometheus.HistogramOpts{
 	Name:    "gateway_backend_latency_seconds",
 	Help:    "Backend dial latency",
-	Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0},
+	Buckets: pkgmetrics.BackendLatencyBuckets,
 })
 
 // =============================================================================
@@ -233,3 +235,9 @@ func (a *KeyCacheMetricsAdapter) OnCacheRefresh(success bool, keyCount int) {
 func HandleMetrics(w http.ResponseWriter, r *http.Request) {
 	promhttp.Handler().ServeHTTP(w, r)
 }
+
+// Interface compliance checks.
+var (
+	_ pkgmetrics.AccessDenialMetrics = (*AccessDenialMetricsAdapter)(nil)
+	_ pkgmetrics.CacheMetrics        = (*KeyCacheMetricsAdapter)(nil)
+)

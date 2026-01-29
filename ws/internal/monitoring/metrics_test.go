@@ -8,6 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/Toniq-Labs/odin-ws/internal/types"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
 // =============================================================================
@@ -21,16 +22,16 @@ func TestErrorSeverityConstants(t *testing.T) {
 		constant string
 		expected string
 	}{
-		{"Warning", ErrorSeverityWarning, "warning"},
-		{"Critical", ErrorSeverityCritical, "critical"},
-		{"Fatal", ErrorSeverityFatal, "fatal"},
+		{"Warning", pkgmetrics.SeverityWarning, "warning"},
+		{"Critical", pkgmetrics.SeverityCritical, "critical"},
+		{"Fatal", pkgmetrics.SeverityFatal, "fatal"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if tt.constant != tt.expected {
-				t.Errorf("ErrorSeverity%s: got %s, want %s", tt.name, tt.constant, tt.expected)
+				t.Errorf("Severity%s: got %s, want %s", tt.name, tt.constant, tt.expected)
 			}
 		})
 	}
@@ -43,11 +44,11 @@ func TestErrorTypeConstants(t *testing.T) {
 		constant string
 		expected string
 	}{
-		{"Kafka", ErrorTypeKafka, "kafka"},
-		{"Broadcast", ErrorTypeBroadcast, "broadcast"},
-		{"Serialization", ErrorTypeSerialization, "serialization"},
-		{"Connection", ErrorTypeConnection, "connection"},
-		{"Health", ErrorTypeHealth, "health"},
+		{"Kafka", pkgmetrics.ErrorTypeKafka, "kafka"},
+		{"Broadcast", pkgmetrics.ErrorTypeBroadcast, "broadcast"},
+		{"Serialization", pkgmetrics.ErrorTypeSerialization, "serialization"},
+		{"Connection", pkgmetrics.ErrorTypeConnection, "connection"},
+		{"Health", pkgmetrics.ErrorTypeHealth, "health"},
 	}
 
 	for _, tt := range tests {
@@ -67,21 +68,21 @@ func TestDisconnectReasonConstants(t *testing.T) {
 		constant string
 		expected string
 	}{
-		{"ReadError", DisconnectReasonReadError, "read_error"},
-		{"WriteTimeout", DisconnectReasonWriteTimeout, "write_timeout"},
-		{"PingTimeout", DisconnectReasonPingTimeout, "ping_timeout"},
-		{"RateLimitExceeded", DisconnectReasonRateLimitExceeded, "rate_limit_exceeded"},
-		{"ServerShutdown", DisconnectReasonServerShutdown, "server_shutdown"},
-		{"ClientInitiated", DisconnectReasonClientInitiated, "client_initiated"},
-		{"SubscriptionError", DisconnectReasonSubscriptionError, "subscription_error"},
-		{"SendChannelClosed", DisconnectReasonSendChannelClosed, "send_channel_closed"},
+		{"ReadError", pkgmetrics.DisconnectReadError, "read_error"},
+		{"WriteTimeout", pkgmetrics.DisconnectWriteTimeout, "write_timeout"},
+		{"PingTimeout", pkgmetrics.DisconnectPingTimeout, "ping_timeout"},
+		{"RateLimitExceeded", pkgmetrics.DisconnectRateLimitExceeded, "rate_limit_exceeded"},
+		{"ServerShutdown", pkgmetrics.DisconnectServerShutdown, "server_shutdown"},
+		{"ClientInitiated", pkgmetrics.DisconnectClientInitiated, "client_initiated"},
+		{"SubscriptionError", pkgmetrics.DisconnectSubscriptionError, "subscription_error"},
+		{"SendChannelClosed", pkgmetrics.DisconnectSendChannelClosed, "send_channel_closed"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if tt.constant != tt.expected {
-				t.Errorf("DisconnectReason%s: got %s, want %s", tt.name, tt.constant, tt.expected)
+				t.Errorf("Disconnect%s: got %s, want %s", tt.name, tt.constant, tt.expected)
 			}
 		})
 	}
@@ -94,15 +95,15 @@ func TestDisconnectInitiatedByConstants(t *testing.T) {
 		constant string
 		expected string
 	}{
-		{"Client", DisconnectInitiatedByClient, "client"},
-		{"Server", DisconnectInitiatedByServer, "server"},
+		{"Client", pkgmetrics.InitiatedByClient, "client"},
+		{"Server", pkgmetrics.InitiatedByServer, "server"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if tt.constant != tt.expected {
-				t.Errorf("DisconnectInitiatedBy%s: got %s, want %s", tt.name, tt.constant, tt.expected)
+				t.Errorf("InitiatedBy%s: got %s, want %s", tt.name, tt.constant, tt.expected)
 			}
 		})
 	}
@@ -115,9 +116,9 @@ func TestDropReasonConstants(t *testing.T) {
 		constant string
 		expected string
 	}{
-		{"SendTimeout", DropReasonSendTimeout, "send_timeout"},
-		{"BufferFull", DropReasonBufferFull, "buffer_full"},
-		{"ClientDisconnected", DropReasonClientDisconnected, "client_disconnected"},
+		{"SendTimeout", pkgmetrics.DropReasonSendTimeout, "send_timeout"},
+		{"BufferFull", pkgmetrics.DropReasonBufferFull, "buffer_full"},
+		{"ClientDisconnected", pkgmetrics.DropReasonClientDisconnected, "client_disconnected"},
 	}
 
 	for _, tt := range tests {
@@ -283,16 +284,16 @@ func TestUpdateCapacityHeadroom_NoPanic(t *testing.T) {
 func TestRecordError_AllTypes(t *testing.T) {
 	t.Parallel()
 	errorTypes := []string{
-		ErrorTypeKafka,
-		ErrorTypeBroadcast,
-		ErrorTypeSerialization,
-		ErrorTypeConnection,
-		ErrorTypeHealth,
+		pkgmetrics.ErrorTypeKafka,
+		pkgmetrics.ErrorTypeBroadcast,
+		pkgmetrics.ErrorTypeSerialization,
+		pkgmetrics.ErrorTypeConnection,
+		pkgmetrics.ErrorTypeHealth,
 	}
 	severities := []string{
-		ErrorSeverityWarning,
-		ErrorSeverityCritical,
-		ErrorSeverityFatal,
+		pkgmetrics.SeverityWarning,
+		pkgmetrics.SeverityCritical,
+		pkgmetrics.SeverityFatal,
 	}
 
 	for _, et := range errorTypes {
@@ -308,30 +309,30 @@ func TestRecordError_AllTypes(t *testing.T) {
 
 func TestRecordKafkaError_AllSeverities(t *testing.T) {
 	t.Parallel()
-	RecordKafkaError(ErrorSeverityWarning)
-	RecordKafkaError(ErrorSeverityCritical)
-	RecordKafkaError(ErrorSeverityFatal)
+	RecordKafkaError(pkgmetrics.SeverityWarning)
+	RecordKafkaError(pkgmetrics.SeverityCritical)
+	RecordKafkaError(pkgmetrics.SeverityFatal)
 }
 
 func TestRecordBroadcastError_AllSeverities(t *testing.T) {
 	t.Parallel()
-	RecordBroadcastError(ErrorSeverityWarning)
-	RecordBroadcastError(ErrorSeverityCritical)
-	RecordBroadcastError(ErrorSeverityFatal)
+	RecordBroadcastError(pkgmetrics.SeverityWarning)
+	RecordBroadcastError(pkgmetrics.SeverityCritical)
+	RecordBroadcastError(pkgmetrics.SeverityFatal)
 }
 
 func TestRecordSerializationError_AllSeverities(t *testing.T) {
 	t.Parallel()
-	RecordSerializationError(ErrorSeverityWarning)
-	RecordSerializationError(ErrorSeverityCritical)
-	RecordSerializationError(ErrorSeverityFatal)
+	RecordSerializationError(pkgmetrics.SeverityWarning)
+	RecordSerializationError(pkgmetrics.SeverityCritical)
+	RecordSerializationError(pkgmetrics.SeverityFatal)
 }
 
 func TestRecordConnectionError_AllSeverities(t *testing.T) {
 	t.Parallel()
-	RecordConnectionError(ErrorSeverityWarning)
-	RecordConnectionError(ErrorSeverityCritical)
-	RecordConnectionError(ErrorSeverityFatal)
+	RecordConnectionError(pkgmetrics.SeverityWarning)
+	RecordConnectionError(pkgmetrics.SeverityCritical)
+	RecordConnectionError(pkgmetrics.SeverityFatal)
 }
 
 // =============================================================================
@@ -341,18 +342,18 @@ func TestRecordConnectionError_AllSeverities(t *testing.T) {
 func TestRecordDisconnect_AllReasons(t *testing.T) {
 	t.Parallel()
 	reasons := []string{
-		DisconnectReasonReadError,
-		DisconnectReasonWriteTimeout,
-		DisconnectReasonPingTimeout,
-		DisconnectReasonRateLimitExceeded,
-		DisconnectReasonServerShutdown,
-		DisconnectReasonClientInitiated,
-		DisconnectReasonSubscriptionError,
-		DisconnectReasonSendChannelClosed,
+		pkgmetrics.DisconnectReadError,
+		pkgmetrics.DisconnectWriteTimeout,
+		pkgmetrics.DisconnectPingTimeout,
+		pkgmetrics.DisconnectRateLimitExceeded,
+		pkgmetrics.DisconnectServerShutdown,
+		pkgmetrics.DisconnectClientInitiated,
+		pkgmetrics.DisconnectSubscriptionError,
+		pkgmetrics.DisconnectSendChannelClosed,
 	}
 	initiators := []string{
-		DisconnectInitiatedByClient,
-		DisconnectInitiatedByServer,
+		pkgmetrics.InitiatedByClient,
+		pkgmetrics.InitiatedByServer,
 	}
 
 	for _, reason := range reasons {
@@ -372,18 +373,18 @@ func TestRecordDisconnectWithStats_UpdatesStats(t *testing.T) {
 		DisconnectsByReason: make(map[string]int64),
 	}
 
-	RecordDisconnectWithStats(stats, DisconnectReasonReadError, DisconnectInitiatedByClient, 1*time.Minute)
-	RecordDisconnectWithStats(stats, DisconnectReasonReadError, DisconnectInitiatedByClient, 2*time.Minute)
-	RecordDisconnectWithStats(stats, DisconnectReasonWriteTimeout, DisconnectInitiatedByServer, 3*time.Minute)
+	RecordDisconnectWithStats(stats, pkgmetrics.DisconnectReadError, pkgmetrics.InitiatedByClient, 1*time.Minute)
+	RecordDisconnectWithStats(stats, pkgmetrics.DisconnectReadError, pkgmetrics.InitiatedByClient, 2*time.Minute)
+	RecordDisconnectWithStats(stats, pkgmetrics.DisconnectWriteTimeout, pkgmetrics.InitiatedByServer, 3*time.Minute)
 
 	stats.DisconnectsMu.RLock()
 	defer stats.DisconnectsMu.RUnlock()
 
-	if stats.DisconnectsByReason[DisconnectReasonReadError] != 2 {
-		t.Errorf("ReadError count: got %d, want 2", stats.DisconnectsByReason[DisconnectReasonReadError])
+	if stats.DisconnectsByReason[pkgmetrics.DisconnectReadError] != 2 {
+		t.Errorf("ReadError count: got %d, want 2", stats.DisconnectsByReason[pkgmetrics.DisconnectReadError])
 	}
-	if stats.DisconnectsByReason[DisconnectReasonWriteTimeout] != 1 {
-		t.Errorf("WriteTimeout count: got %d, want 1", stats.DisconnectsByReason[DisconnectReasonWriteTimeout])
+	if stats.DisconnectsByReason[pkgmetrics.DisconnectWriteTimeout] != 1 {
+		t.Errorf("WriteTimeout count: got %d, want 1", stats.DisconnectsByReason[pkgmetrics.DisconnectWriteTimeout])
 	}
 }
 
@@ -395,9 +396,9 @@ func TestRecordDroppedBroadcast_AllReasons(t *testing.T) {
 	t.Parallel()
 	channels := []string{"trades", "orders", "quotes", "system"}
 	reasons := []string{
-		DropReasonSendTimeout,
-		DropReasonBufferFull,
-		DropReasonClientDisconnected,
+		pkgmetrics.DropReasonSendTimeout,
+		pkgmetrics.DropReasonBufferFull,
+		pkgmetrics.DropReasonClientDisconnected,
 	}
 
 	for _, channel := range channels {
@@ -417,9 +418,9 @@ func TestRecordDroppedBroadcastWithStats_UpdatesStats(t *testing.T) {
 		DroppedBroadcastsByChannel: make(map[string]int64),
 	}
 
-	RecordDroppedBroadcastWithStats(stats, "trades", DropReasonBufferFull)
-	RecordDroppedBroadcastWithStats(stats, "trades", DropReasonBufferFull)
-	RecordDroppedBroadcastWithStats(stats, "orders", DropReasonSendTimeout)
+	RecordDroppedBroadcastWithStats(stats, "trades", pkgmetrics.DropReasonBufferFull)
+	RecordDroppedBroadcastWithStats(stats, "trades", pkgmetrics.DropReasonBufferFull)
+	RecordDroppedBroadcastWithStats(stats, "orders", pkgmetrics.DropReasonSendTimeout)
 
 	stats.DropsMu.RLock()
 	defer stats.DropsMu.RUnlock()
@@ -515,19 +516,19 @@ func TestRecordDisconnectWithStats_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			reason := DisconnectReasonReadError
+			reason := pkgmetrics.DisconnectReadError
 			if id%2 == 0 {
-				reason = DisconnectReasonWriteTimeout
+				reason = pkgmetrics.DisconnectWriteTimeout
 			}
-			RecordDisconnectWithStats(stats, reason, DisconnectInitiatedByServer, time.Minute)
+			RecordDisconnectWithStats(stats, reason, pkgmetrics.InitiatedByServer, time.Minute)
 		}(i)
 	}
 
 	wg.Wait()
 
 	stats.DisconnectsMu.RLock()
-	total := stats.DisconnectsByReason[DisconnectReasonReadError] +
-		stats.DisconnectsByReason[DisconnectReasonWriteTimeout]
+	total := stats.DisconnectsByReason[pkgmetrics.DisconnectReadError] +
+		stats.DisconnectsByReason[pkgmetrics.DisconnectWriteTimeout]
 	stats.DisconnectsMu.RUnlock()
 
 	if total != 100 {
@@ -550,7 +551,7 @@ func TestRecordDroppedBroadcastWithStats_Concurrent(t *testing.T) {
 			if id%2 == 0 {
 				channel = "orders"
 			}
-			RecordDroppedBroadcastWithStats(stats, channel, DropReasonBufferFull)
+			RecordDroppedBroadcastWithStats(stats, channel, pkgmetrics.DropReasonBufferFull)
 		}(i)
 	}
 

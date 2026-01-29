@@ -16,6 +16,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
 // PumpConfig holds timing configuration for pump operations.
@@ -128,8 +129,8 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 
 	defer func() {
 		if disconnectReason == "" {
-			disconnectReason = monitoring.DisconnectReasonReadError
-			initiatedBy = monitoring.DisconnectInitiatedByClient
+			disconnectReason = pkgmetrics.DisconnectReadError
+			initiatedBy = pkgmetrics.InitiatedByClient
 		}
 		if disconnectFn != nil {
 			disconnectFn(c, disconnectReason, initiatedBy)
@@ -148,8 +149,8 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 		// Check for context cancellation (server shutdown)
 		select {
 		case <-ctx.Done():
-			disconnectReason = monitoring.DisconnectReasonServerShutdown
-			initiatedBy = monitoring.DisconnectInitiatedByServer
+			disconnectReason = pkgmetrics.DisconnectServerShutdown
+			initiatedBy = pkgmetrics.InitiatedByServer
 			return
 		default:
 		}
@@ -157,8 +158,8 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 		// Read next frame header
 		hdr, err := reader.NextFrame()
 		if err != nil {
-			disconnectReason = monitoring.DisconnectReasonReadError
-			initiatedBy = monitoring.DisconnectInitiatedByClient
+			disconnectReason = pkgmetrics.DisconnectReadError
+			initiatedBy = pkgmetrics.InitiatedByClient
 			break
 		}
 
@@ -196,8 +197,8 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 		// Read data frame payload
 		msg, err := io.ReadAll(&reader)
 		if err != nil {
-			disconnectReason = monitoring.DisconnectReasonReadError
-			initiatedBy = monitoring.DisconnectInitiatedByClient
+			disconnectReason = pkgmetrics.DisconnectReadError
+			initiatedBy = pkgmetrics.InitiatedByClient
 			break
 		}
 
@@ -382,7 +383,7 @@ func (p *Pump) recordSendTimeoutDrops(c *Client, failedCount int) {
 	if totalDropped > 0 {
 		// Record each drop (using "delivery" as pseudo-channel since we don't have channel info)
 		for range totalDropped {
-			monitoring.RecordDroppedBroadcastWithStats(p.Stats, "delivery", monitoring.DropReasonSendTimeout)
+			monitoring.RecordDroppedBroadcastWithStats(p.Stats, "delivery", pkgmetrics.DropReasonSendTimeout)
 		}
 	}
 

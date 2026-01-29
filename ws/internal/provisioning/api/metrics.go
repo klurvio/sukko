@@ -3,6 +3,8 @@ package api
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
 // Prometheus metrics for the provisioning service.
@@ -55,7 +57,7 @@ var (
 	apiLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "provisioning_api_latency_seconds",
 		Help:    "API request latency in seconds",
-		Buckets: prometheus.DefBuckets,
+		Buckets: pkgmetrics.APILatencyBuckets,
 	}, []string{"endpoint", "method"})
 
 	// Auth metrics for provisioning API

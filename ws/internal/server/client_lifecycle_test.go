@@ -10,8 +10,8 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/messaging"
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
 // =============================================================================
@@ -191,11 +191,11 @@ func TestDisconnectReasons_Constants(t *testing.T) {
 	t.Parallel()
 	// Verify disconnect reason constants are defined correctly
 	reasons := []string{
-		monitoring.DisconnectReasonReadError,
-		monitoring.DisconnectReasonWriteTimeout,
-		monitoring.DisconnectReasonPingTimeout,
-		monitoring.DisconnectReasonServerShutdown,
-		monitoring.DisconnectReasonRateLimitExceeded,
+		pkgmetrics.DisconnectReadError,
+		pkgmetrics.DisconnectWriteTimeout,
+		pkgmetrics.DisconnectPingTimeout,
+		pkgmetrics.DisconnectServerShutdown,
+		pkgmetrics.DisconnectRateLimitExceeded,
 	}
 
 	for _, reason := range reasons {
@@ -208,8 +208,8 @@ func TestDisconnectReasons_Constants(t *testing.T) {
 func TestDisconnectInitiatedBy_Constants(t *testing.T) {
 	t.Parallel()
 	initiators := []string{
-		monitoring.DisconnectInitiatedByClient,
-		monitoring.DisconnectInitiatedByServer,
+		pkgmetrics.InitiatedByClient,
+		pkgmetrics.InitiatedByServer,
 	}
 
 	for _, initiator := range initiators {
@@ -422,7 +422,7 @@ func TestDisconnectClient_Integration(t *testing.T) {
 	server.subscriptionIndex.Add("BTC.trade", client)
 
 	// Disconnect
-	server.disconnectClient(client, monitoring.DisconnectReasonReadError, monitoring.DisconnectInitiatedByClient)
+	server.disconnectClient(client, pkgmetrics.DisconnectReadError, pkgmetrics.InitiatedByClient)
 
 	// Verify stats updated
 	if stats.CurrentConnections.Load() != 0 {
