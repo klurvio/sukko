@@ -15,6 +15,7 @@ import (
 
 	_ "github.com/lib/pq" // PostgreSQL driver
 
+	"github.com/Toniq-Labs/odin-ws/internal/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
@@ -148,11 +149,77 @@ func main() {
 		Logger:               structuredLogger,
 	})
 
+	// Set up authentication if enabled
+	var validator *auth.MultiTenantValidator
+	var oidcCloser *auth.OIDCKeyfuncResult
+	if cfg.AuthEnabled {
+		// Create key registry from existing database connection
+		keyRegistry, err := auth.NewPostgresKeyRegistry(auth.PostgresKeyRegistryConfig{
+			DB:              db,
+			RefreshInterval: 1 * time.Minute,
+			QueryTimeout:    5 * time.Second,
+			Logger:          structuredLogger.With().Str("component", "key_registry").Logger(),
+		})
+		if err != nil {
+			logger.Fatalf("Failed to create key registry: %v", err)
+		}
+		defer func() { _ = keyRegistry.Close() }()
+
+		// Build validator config
+		validatorCfg := auth.MultiTenantValidatorConfig{
+			KeyRegistry:     keyRegistry,
+			RequireTenantID: true,
+			RequireKeyID:    true,
+		}
+
+		// Set up OIDC keyfunc if configured (graceful degradation on failure)
+		if cfg.OIDCEnabled() {
+			oidcResult, err := auth.NewOIDCKeyfunc(context.Background(), auth.OIDCConfig{
+				IssuerURL: cfg.OIDCIssuerURL,
+				JWKSURL:   cfg.OIDCJWKSURL,
+				Audience:  cfg.OIDCAudience,
+			}, structuredLogger.With().Str("component", "oidc").Logger())
+
+			if err != nil {
+				// Graceful degradation: log warning but continue without OIDC
+				structuredLogger.Warn().
+					Err(err).
+					Str("jwks_url", cfg.OIDCJWKSURL).
+					Msg("Failed to create OIDC keyfunc, continuing without OIDC support")
+			} else {
+				oidcCloser = oidcResult
+				validatorCfg.OIDCKeyfunc = oidcResult.Keyfunc
+				validatorCfg.OIDCIssuer = cfg.OIDCIssuerURL
+				validatorCfg.OIDCAudience = cfg.OIDCAudience
+				defer oidcCloser.Close()
+
+				structuredLogger.Info().
+					Str("issuer_url", cfg.OIDCIssuerURL).
+					Str("jwks_url", cfg.OIDCJWKSURL).
+					Msg("OIDC support enabled")
+			}
+		}
+
+		// Create multi-tenant validator
+		validator, err = auth.NewMultiTenantValidator(validatorCfg)
+		if err != nil {
+			logger.Fatalf("Failed to create validator: %v", err)
+		}
+
+		structuredLogger.Info().
+			Bool("oidc_enabled", cfg.OIDCEnabled()).
+			Msg("Authentication enabled")
+	}
+
 	// Initialize HTTP router
 	router := api.NewRouter(api.RouterConfig{
-		Service:   svc,
-		Logger:    structuredLogger,
-		RateLimit: cfg.APIRateLimitPerMinute,
+		Service:            svc,
+		Logger:             structuredLogger,
+		RateLimit:          cfg.APIRateLimitPerMinute,
+		AuthEnabled:        cfg.AuthEnabled,
+		Validator:          validator,
+		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
+		CORSMaxAge:         cfg.CORSMaxAge,
 	})
 
 	// Create HTTP server

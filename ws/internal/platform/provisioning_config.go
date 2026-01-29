@@ -70,6 +70,19 @@ type ProvisioningConfig struct {
 	HTTPWriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"15s"`
 	HTTPIdleTimeout  time.Duration `env:"HTTP_IDLE_TIMEOUT" envDefault:"60s"`
 
+	// Authentication (requires DATABASE_URL for key registry)
+	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"false"`
+
+	// OIDC/JWKS support (external IdP tokens)
+	// OIDC is enabled when both IssuerURL and JWKSURL are set
+	OIDCIssuerURL string `env:"OIDC_ISSUER_URL"`
+	OIDCAudience  string `env:"OIDC_AUDIENCE"`
+	OIDCJWKSURL   string `env:"OIDC_JWKS_URL"`
+
+	// CORS settings
+	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
+	CORSMaxAge         int      `env:"CORS_MAX_AGE" envDefault:"3600"`
+
 	// Environment
 	Environment string `env:"ENVIRONMENT" envDefault:"development"`
 }
@@ -185,7 +198,27 @@ func (c *ProvisioningConfig) Validate() error {
 			c.ValidNamespaces, c.TopicNamespace)
 	}
 
+	// Validate OIDC settings - if one URL is set, both must be set
+	hasIssuer := c.OIDCIssuerURL != ""
+	hasJWKS := c.OIDCJWKSURL != ""
+	if hasIssuer != hasJWKS {
+		if !hasIssuer {
+			return errors.New("OIDC_ISSUER_URL is required when OIDC_JWKS_URL is set")
+		}
+		return errors.New("OIDC_JWKS_URL is required when OIDC_ISSUER_URL is set")
+	}
+
+	// Validate CORS settings
+	if c.CORSMaxAge < 0 {
+		return fmt.Errorf("CORS_MAX_AGE must be >= 0, got %d", c.CORSMaxAge)
+	}
+
 	return nil
+}
+
+// OIDCEnabled returns true if OIDC is configured (both IssuerURL and JWKSURL are set).
+func (c *ProvisioningConfig) OIDCEnabled() bool {
+	return c.OIDCIssuerURL != "" && c.OIDCJWKSURL != ""
 }
 
 // Print logs provisioning configuration for debugging (human-readable format).
@@ -233,7 +266,7 @@ func (c *ProvisioningConfig) Print() {
 
 // LogConfig logs provisioning configuration using structured logging.
 func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
-	logger.Info().
+	event := logger.Info().
 		Str("environment", c.Environment).
 		Str("addr", c.Addr).
 		Str("kafka_brokers", c.KafkaBrokers).
@@ -252,9 +285,24 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Dur("http_read_timeout", c.HTTPReadTimeout).
 		Dur("http_write_timeout", c.HTTPWriteTimeout).
 		Dur("http_idle_timeout", c.HTTPIdleTimeout).
+		Bool("auth_enabled", c.AuthEnabled).
+		Strs("cors_allowed_origins", c.CORSAllowedOrigins).
+		Int("cors_max_age", c.CORSMaxAge).
 		Str("log_level", c.LogLevel).
-		Str("log_format", c.LogFormat).
-		Msg("Provisioning service configuration loaded")
+		Str("log_format", c.LogFormat)
+
+	// Add OIDC-specific fields when enabled
+	if c.OIDCEnabled() {
+		event = event.
+			Bool("oidc_enabled", true).
+			Str("oidc_issuer_url", c.OIDCIssuerURL).
+			Str("oidc_jwks_url", c.OIDCJWKSURL)
+		if c.OIDCAudience != "" {
+			event = event.Str("oidc_audience", c.OIDCAudience)
+		}
+	}
+
+	event.Msg("Provisioning service configuration loaded")
 }
 
 // ParsedValidNamespaces returns the ValidNamespaces string as a set.

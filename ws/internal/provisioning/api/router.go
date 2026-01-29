@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/auth"
@@ -24,11 +25,27 @@ type RouterConfig struct {
 
 	// Validator validates JWT tokens. Required when AuthEnabled is true.
 	Validator *auth.MultiTenantValidator
+
+	// CORS configuration
+	CORSAllowedOrigins []string // Allowed origins (e.g., ["http://localhost:3000"])
+	CORSMaxAge         int      // Preflight cache duration in seconds
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
 func NewRouter(cfg RouterConfig) http.Handler {
 	r := chi.NewRouter()
+
+	// CORS middleware - must be first so preflight OPTIONS requests succeed without auth
+	if len(cfg.CORSAllowedOrigins) > 0 {
+		r.Use(cors.Handler(cors.Options{
+			AllowedOrigins:   cfg.CORSAllowedOrigins,
+			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
+			ExposedHeaders:   []string{"X-Request-ID"},
+			AllowCredentials: true,
+			MaxAge:           cfg.CORSMaxAge,
+		}))
+	}
 
 	// Middleware stack
 	r.Use(middleware.RequestID)

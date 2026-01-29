@@ -25,8 +25,9 @@ import (
 type Gateway struct {
 	config      *platform.GatewayConfig
 	validator   *auth.MultiTenantValidator
-	keyRegistry auth.KeyRegistry // For cleanup on shutdown
-	dbConn      *sql.DB          // For cleanup on shutdown
+	keyRegistry auth.KeyRegistry        // For cleanup on shutdown
+	dbConn      *sql.DB                 // For cleanup on shutdown
+	oidcCloser  *auth.OIDCKeyfuncResult // For OIDC keyfunc cleanup on shutdown
 	permissions *PermissionChecker
 	connTracker *TenantConnectionTracker // Per-tenant connection tracking
 	logger      zerolog.Logger
@@ -101,13 +102,46 @@ func (gw *Gateway) setupValidator() error {
 	}
 	gw.keyRegistry = keyRegistry
 
-	// Create multi-tenant validator
-	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+	// Build validator config
+	validatorCfg := auth.MultiTenantValidatorConfig{
 		KeyRegistry:     keyRegistry,
 		RequireTenantID: gw.config.RequireTenantID,
 		RequireKeyID:    true,
-	})
+	}
+
+	// Set up OIDC keyfunc if configured (graceful degradation on failure)
+	if gw.config.OIDCEnabled() {
+		oidcResult, err := auth.NewOIDCKeyfunc(context.Background(), auth.OIDCConfig{
+			IssuerURL: gw.config.OIDCIssuerURL,
+			JWKSURL:   gw.config.OIDCJWKSURL,
+			Audience:  gw.config.OIDCAudience,
+		}, gw.logger.With().Str("component", "oidc").Logger())
+
+		if err != nil {
+			// Graceful degradation: log warning but continue without OIDC
+			gw.logger.Warn().
+				Err(err).
+				Str("jwks_url", gw.config.OIDCJWKSURL).
+				Msg("Failed to create OIDC keyfunc, continuing without OIDC support")
+		} else {
+			gw.oidcCloser = oidcResult
+			validatorCfg.OIDCKeyfunc = oidcResult.Keyfunc
+			validatorCfg.OIDCIssuer = gw.config.OIDCIssuerURL
+			validatorCfg.OIDCAudience = gw.config.OIDCAudience
+
+			gw.logger.Info().
+				Str("issuer_url", gw.config.OIDCIssuerURL).
+				Str("jwks_url", gw.config.OIDCJWKSURL).
+				Msg("OIDC support enabled")
+		}
+	}
+
+	// Create multi-tenant validator
+	validator, err := auth.NewMultiTenantValidator(validatorCfg)
 	if err != nil {
+		if gw.oidcCloser != nil {
+			gw.oidcCloser.Close()
+		}
 		_ = keyRegistry.Close()
 		_ = db.Close()
 		return fmt.Errorf("create validator: %w", err)
@@ -117,6 +151,7 @@ func (gw *Gateway) setupValidator() error {
 	gw.logger.Info().
 		Dur("cache_refresh_interval", gw.config.KeyCacheRefreshInterval).
 		Bool("require_tenant_id", gw.config.RequireTenantID).
+		Bool("oidc_enabled", gw.config.OIDCEnabled()).
 		Int("db_max_open_conns", gw.config.DBMaxOpenConns).
 		Msg("Configured multi-tenant authentication")
 
@@ -127,6 +162,11 @@ func (gw *Gateway) setupValidator() error {
 // Should be called during shutdown.
 func (gw *Gateway) Close() error {
 	var errs []error
+
+	// Close OIDC keyfunc (stops background JWKS refresh)
+	if gw.oidcCloser != nil {
+		gw.oidcCloser.Close()
+	}
 
 	if gw.keyRegistry != nil {
 		if err := gw.keyRegistry.Close(); err != nil {

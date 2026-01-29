@@ -31,6 +31,12 @@ type GatewayConfig struct {
 	// Provisioning database connection (required when auth is enabled)
 	ProvisioningDBURL string `env:"PROVISIONING_DATABASE_URL"`
 
+	// OIDC/JWKS support (external IdP tokens)
+	// OIDC is enabled when both IssuerURL and JWKSURL are set
+	OIDCIssuerURL string `env:"OIDC_ISSUER_URL"`
+	OIDCAudience  string `env:"OIDC_AUDIENCE"`
+	OIDCJWKSURL   string `env:"OIDC_JWKS_URL"`
+
 	// Key cache settings
 	KeyCacheRefreshInterval time.Duration `env:"KEY_CACHE_REFRESH_INTERVAL" envDefault:"1m"`
 	KeyCacheQueryTimeout    time.Duration `env:"KEY_CACHE_QUERY_TIMEOUT" envDefault:"5s"`
@@ -103,6 +109,16 @@ func (c *GatewayConfig) Validate() error {
 		}
 	}
 
+	// Validate OIDC settings - if one URL is set, both must be set
+	hasIssuer := c.OIDCIssuerURL != ""
+	hasJWKS := c.OIDCJWKSURL != ""
+	if hasIssuer != hasJWKS {
+		if !hasIssuer {
+			return errors.New("OIDC_ISSUER_URL is required when OIDC_JWKS_URL is set")
+		}
+		return errors.New("OIDC_JWKS_URL is required when OIDC_ISSUER_URL is set")
+	}
+
 	// Validate DB pool settings
 	if c.DBMaxOpenConns < 1 {
 		return fmt.Errorf("DB_MAX_OPEN_CONNS must be at least 1, got %d", c.DBMaxOpenConns)
@@ -133,6 +149,11 @@ func (c *GatewayConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// OIDCEnabled returns true if OIDC is configured (both IssuerURL and JWKSURL are set).
+func (c *GatewayConfig) OIDCEnabled() bool {
+	return c.OIDCIssuerURL != "" && c.OIDCJWKSURL != ""
 }
 
 // LogConfig logs gateway configuration using structured logging.
@@ -169,6 +190,17 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		// Don't log the DB URL for security
 		if c.ProvisioningDBURL != "" {
 			event = event.Bool("provisioning_db_configured", true)
+		}
+	}
+
+	// Add OIDC-specific fields when enabled
+	if c.OIDCEnabled() {
+		event = event.
+			Bool("oidc_enabled", true).
+			Str("oidc_issuer_url", c.OIDCIssuerURL).
+			Str("oidc_jwks_url", c.OIDCJWKSURL)
+		if c.OIDCAudience != "" {
+			event = event.Str("oidc_audience", c.OIDCAudience)
 		}
 	}
 
