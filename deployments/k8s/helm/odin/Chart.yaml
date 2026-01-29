@@ -12,6 +12,9 @@ dependencies:
   - name: ws-server
     version: "1.0.0"
     condition: ws-server.enabled
+  - name: provisioning
+    version: "1.0.0"
+    condition: provisioning.enabled
   # NOTE: auth-service removed - odin-api now issues JWT tokens directly
   - name: redpanda
     version: "1.0.0"

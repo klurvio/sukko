@@ -266,6 +266,51 @@ ws-server:
     targetCPUUtilizationPercentage: 70
 
 # =============================================================================
+# Provisioning API
+# =============================================================================
+# Multi-tenant management: tenants, keys, topics, quotas
+# Exposes HTTP API for tenant self-service and admin operations
+provisioning:
+  enabled: false  # Enable when ready for multi-tenant
+
+  replicaCount: 1
+
+  image:
+    repository: odin-provisioning
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  config:
+    port: 8080
+    logLevel: info
+    logFormat: json
+
+    # Authentication - enable for external access
+    authEnabled: false
+
+    # OIDC settings (enabled when both issuerUrl and jwksUrl are set)
+    oidcIssuerUrl: ""
+    oidcAudience: ""
+    oidcJwksUrl: ""
+
+    # CORS settings
+    corsAllowedOrigins:
+      - "http://localhost:3000"
+    corsMaxAge: 3600
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+# =============================================================================
 # Auth Service - REMOVED
 # =============================================================================
 # Token issuance is now handled by odin-api (Firebase Functions)

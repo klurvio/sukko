@@ -1,0 +1,119 @@
+# Default values for provisioning subchart
+# These can be overridden from the parent chart
+
+# Global values — sensible defaults for standalone linting.
+# The parent odin chart overrides these via Helm's global value merge.
+global:
+  imageRegistry: ""
+  provisioning:
+    existingSecret: ""
+
+enabled: true
+
+replicaCount: 1
+
+image:
+  repository: odin-provisioning
+  tag: latest
+  pullPolicy: IfNotPresent
+
+config:
+  port: 8080
+  logLevel: info
+  logFormat: json
+
+  # Authentication - set to false for internal-only deployment
+  authEnabled: false
+
+  # OIDC settings (enabled when both issuerUrl and jwksUrl are set)
+  oidcIssuerUrl: ""
+  oidcAudience: ""
+  oidcJwksUrl: ""
+
+  # CORS settings
+  corsAllowedOrigins:
+    - "http://localhost:3000"
+  corsMaxAge: 3600
+
+  # HTTP server timeouts
+  httpReadTimeout: "15s"
+  httpWriteTimeout: "15s"
+  httpIdleTimeout: "60s"
+
+  # Database connection pool
+  dbMaxOpenConns: 25
+  dbMaxIdleConns: 5
+  dbConnMaxLifetime: "5m"
+
+  # Kafka/Redpanda settings (optional)
+  kafkaBrokers: ""
+  kafkaAdminTimeout: "30s"
+
+  # Topic defaults
+  topicNamespace: "prod"
+  defaultPartitions: 3
+  defaultRetentionMs: 604800000  # 7 days
+
+  # Tenant quotas
+  maxTopicsPerTenant: 50
+  maxPartitionsPerTenant: 200
+  deprovisionGraceDays: 30
+
+  # Rate limiting
+  apiRateLimitPerMin: 60
+
+  # Lifecycle manager
+  lifecycleManagerEnabled: true
+  lifecycleCheckInterval: "1h"
+
+# Pod Security Context
+podSecurityContext:
+  fsGroup: 1000
+
+# Container Security Context
+# Dockerfile creates non-root user (odin:1000) in /app directory
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8080
+  initialDelaySeconds: 3
+  periodSeconds: 5
+  timeoutSeconds: 2
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

@@ -5,6 +5,9 @@ dependencies:
 - name: ws-server
   repository: ""
   version: 1.0.0
+- name: provisioning
+  repository: ""
+  version: 1.0.0
 - name: redpanda
   repository: ""
   version: 1.0.0
@@ -17,5 +20,5 @@ dependencies:
 - name: monitoring
   repository: ""
   version: 1.0.0
-digest: sha256:3a3e23372e91435887ac12ccbf215e297ada46dfbd261d9a1285e6cc9fd3d3c9
-generated: "2025-12-22T22:07:28.859648+08:00"
+digest: sha256:386b34d91d0c2b1d250dbbbcb91f2db1fa844c50b7986f9fc50afed3b02877b8
+generated: "2026-01-29T16:23:58.140319+08:00"
