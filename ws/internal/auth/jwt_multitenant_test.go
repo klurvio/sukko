@@ -499,14 +499,14 @@ func createOIDCTestToken(t *testing.T, privateKey any, alg string, claims *Claim
 
 // mockOIDCKeyfunc creates a keyfunc that returns the given public key.
 func mockOIDCKeyfunc(publicKey any) jwt.Keyfunc {
-	return func(token *jwt.Token) (any, error) {
+	return func(_ *jwt.Token) (any, error) {
 		return publicKey, nil
 	}
 }
 
 // mockFailingOIDCKeyfunc creates a keyfunc that always returns an error.
 func mockFailingOIDCKeyfunc() jwt.Keyfunc {
-	return func(token *jwt.Token) (any, error) {
+	return func(_ *jwt.Token) (any, error) {
 		return nil, errors.New("OIDC keyfunc failure")
 	}
 }

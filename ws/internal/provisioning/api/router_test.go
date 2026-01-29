@@ -151,13 +151,10 @@ func TestRouter_CORSPreflight(t *testing.T) {
 				if rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
 					t.Errorf("expected status 200 or 204, got %d", rec.Code)
 				}
-			} else {
+			} else if allowOrigin != "" && allowOrigin != tt.origin {
 				// For disallowed origins, the CORS middleware typically doesn't set headers
-				// The request may still succeed but without CORS headers
-				if allowOrigin != "" && allowOrigin != tt.origin {
-					// If there's an Allow-Origin header, it shouldn't match the disallowed origin
-					t.Logf("Allow-Origin header present: %s", allowOrigin)
-				}
+				// If there's an Allow-Origin header, it shouldn't match the disallowed origin
+				t.Logf("Allow-Origin header present: %s", allowOrigin)
 			}
 		})
 	}
