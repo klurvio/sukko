@@ -475,3 +475,312 @@ func TestExtractTenantID(t *testing.T) {
 		t.Errorf("tenantID = %s, want extracted-tenant", tenantID)
 	}
 }
+
+// createOIDCTestToken creates a signed JWT token for OIDC testing (without kid header).
+func createOIDCTestToken(t *testing.T, privateKey any, alg string, claims *Claims) string {
+	t.Helper()
+
+	method, err := GetSigningMethod(alg)
+	if err != nil {
+		t.Fatalf("GetSigningMethod failed: %v", err)
+	}
+
+	token := jwt.NewWithClaims(method, claims)
+	// OIDC tokens typically have kid, but we set it for keyfunc lookup
+	token.Header["kid"] = "oidc-key-1"
+
+	tokenString, err := token.SignedString(privateKey)
+	if err != nil {
+		t.Fatalf("Failed to sign token: %v", err)
+	}
+
+	return tokenString
+}
+
+// mockOIDCKeyfunc creates a keyfunc that returns the given public key.
+func mockOIDCKeyfunc(publicKey any) jwt.Keyfunc {
+	return func(token *jwt.Token) (any, error) {
+		return publicKey, nil
+	}
+}
+
+// mockFailingOIDCKeyfunc creates a keyfunc that always returns an error.
+func mockFailingOIDCKeyfunc() jwt.Keyfunc {
+	return func(token *jwt.Token) (any, error) {
+		return nil, errors.New("OIDC keyfunc failure")
+	}
+}
+
+func TestMultiTenantValidator_OIDCRouting(t *testing.T) {
+	t.Parallel()
+
+	// Set up tenant key registry
+	registry := NewStaticKeyRegistry()
+	tenantPEM, tenantPrivateKey := generateTestECKey(t)
+	tenantKey := &KeyInfo{
+		KeyID:        "tenant-key-1",
+		TenantID:     "acme",
+		Algorithm:    "ES256",
+		PublicKeyPEM: tenantPEM,
+		IsActive:     true,
+	}
+	if err := registry.AddKey(tenantKey); err != nil {
+		t.Fatalf("AddKey failed: %v", err)
+	}
+
+	// Set up OIDC key (RSA for typical IdP)
+	oidcPEM, oidcPrivateKey := generateTestRSAKey(t)
+	oidcPublicKey, err := ParsePublicKey(oidcPEM, "RS256")
+	if err != nil {
+		t.Fatalf("ParsePublicKey failed: %v", err)
+	}
+
+	const oidcIssuer = "https://auth.example.com/"
+	const oidcAudience = "https://api.odin.io"
+
+	tests := []struct {
+		name        string
+		claims      *Claims
+		useOIDCKey  bool
+		oidcKeyfunc jwt.Keyfunc
+		wantErr     error
+		wantTenant  string
+	}{
+		{
+			name: "oidc_token_valid_audience",
+			claims: &Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject:   "user-123",
+					Issuer:    oidcIssuer,
+					Audience:  jwt.ClaimStrings{oidcAudience},
+					ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+				},
+				TenantID: "acme",
+			},
+			useOIDCKey:  true,
+			oidcKeyfunc: mockOIDCKeyfunc(oidcPublicKey),
+			wantErr:     nil,
+			wantTenant:  "acme",
+		},
+		{
+			name: "oidc_token_wrong_audience",
+			claims: &Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject:   "user-123",
+					Issuer:    oidcIssuer,
+					Audience:  jwt.ClaimStrings{"https://wrong.audience.com"},
+					ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+				},
+				TenantID: "acme",
+			},
+			useOIDCKey:  true,
+			oidcKeyfunc: mockOIDCKeyfunc(oidcPublicKey),
+			wantErr:     ErrInvalidAudience,
+		},
+		{
+			name: "oidc_token_missing_audience",
+			claims: &Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject:   "user-123",
+					Issuer:    oidcIssuer,
+					ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+				},
+				TenantID: "acme",
+			},
+			useOIDCKey:  true,
+			oidcKeyfunc: mockOIDCKeyfunc(oidcPublicKey),
+			wantErr:     ErrInvalidAudience,
+		},
+		{
+			name: "tenant_token_different_issuer",
+			claims: &Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject:   "user-456",
+					Issuer:    "https://other-issuer.com/",
+					ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+				},
+				TenantID: "acme",
+			},
+			useOIDCKey:  false,
+			oidcKeyfunc: mockOIDCKeyfunc(oidcPublicKey),
+			wantErr:     nil,
+			wantTenant:  "acme",
+		},
+		{
+			name: "tenant_token_no_issuer",
+			claims: &Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject:   "user-789",
+					ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+				},
+				TenantID: "globex",
+			},
+			useOIDCKey:  false,
+			oidcKeyfunc: mockOIDCKeyfunc(oidcPublicKey),
+			wantErr:     nil,
+			wantTenant:  "globex",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
+				KeyRegistry:  registry,
+				OIDCIssuer:   oidcIssuer,
+				OIDCAudience: oidcAudience,
+				OIDCKeyfunc:  tt.oidcKeyfunc,
+			})
+			if err != nil {
+				t.Fatalf("NewMultiTenantValidator failed: %v", err)
+			}
+
+			var tokenString string
+			if tt.useOIDCKey {
+				tokenString = createOIDCTestToken(t, oidcPrivateKey, "RS256", tt.claims)
+			} else {
+				tokenString = createTestToken(t, tenantKey, tenantPrivateKey, tt.claims)
+			}
+
+			ctx := context.Background()
+			gotClaims, err := validator.ValidateToken(ctx, tokenString)
+
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("ValidateToken() error = %v, wantErr %v", err, tt.wantErr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("ValidateToken() unexpected error: %v", err)
+			}
+
+			if gotClaims.TenantID != tt.wantTenant {
+				t.Errorf("TenantID = %s, want %s", gotClaims.TenantID, tt.wantTenant)
+			}
+		})
+	}
+}
+
+func TestMultiTenantValidator_OIDCDisabled_FallsBackToTenantKeys(t *testing.T) {
+	t.Parallel()
+
+	// Set up tenant key registry
+	registry := NewStaticKeyRegistry()
+	tenantPEM, tenantPrivateKey := generateTestECKey(t)
+	tenantKey := &KeyInfo{
+		KeyID:        "tenant-key-1",
+		TenantID:     "acme",
+		Algorithm:    "ES256",
+		PublicKeyPEM: tenantPEM,
+		IsActive:     true,
+	}
+	if err := registry.AddKey(tenantKey); err != nil {
+		t.Fatalf("AddKey failed: %v", err)
+	}
+
+	// Validator with OIDC disabled (OIDCKeyfunc is nil)
+	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
+		KeyRegistry:  registry,
+		OIDCIssuer:   "https://auth.example.com/",
+		OIDCAudience: "https://api.odin.io",
+		OIDCKeyfunc:  nil, // OIDC disabled
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator failed: %v", err)
+	}
+
+	// Create a token with the OIDC issuer but sign with tenant key
+	// Since OIDCKeyfunc is nil, it should fall back to tenant key registry
+	claims := &Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-123",
+			Issuer:    "https://auth.example.com/", // Same as OIDCIssuer
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+		TenantID: "acme",
+	}
+
+	tokenString := createTestToken(t, tenantKey, tenantPrivateKey, claims)
+
+	ctx := context.Background()
+	gotClaims, err := validator.ValidateToken(ctx, tokenString)
+	if err != nil {
+		t.Fatalf("ValidateToken() unexpected error: %v", err)
+	}
+
+	if gotClaims.TenantID != "acme" {
+		t.Errorf("TenantID = %s, want acme", gotClaims.TenantID)
+	}
+}
+
+func TestMultiTenantValidator_OIDCKeyfuncFailure_DoesNotBreakTenantKeys(t *testing.T) {
+	t.Parallel()
+
+	// Set up tenant key registry
+	registry := NewStaticKeyRegistry()
+	tenantPEM, tenantPrivateKey := generateTestECKey(t)
+	tenantKey := &KeyInfo{
+		KeyID:        "tenant-key-1",
+		TenantID:     "acme",
+		Algorithm:    "ES256",
+		PublicKeyPEM: tenantPEM,
+		IsActive:     true,
+	}
+	if err := registry.AddKey(tenantKey); err != nil {
+		t.Fatalf("AddKey failed: %v", err)
+	}
+
+	// Validator with a failing OIDC keyfunc
+	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
+		KeyRegistry:  registry,
+		OIDCIssuer:   "https://auth.example.com/",
+		OIDCAudience: "https://api.odin.io",
+		OIDCKeyfunc:  mockFailingOIDCKeyfunc(),
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator failed: %v", err)
+	}
+
+	// Tenant token (different issuer) should still work
+	tenantClaims := &Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-123",
+			Issuer:    "https://tenant.example.com/",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+		TenantID: "acme",
+	}
+
+	tenantToken := createTestToken(t, tenantKey, tenantPrivateKey, tenantClaims)
+
+	ctx := context.Background()
+	gotClaims, err := validator.ValidateToken(ctx, tenantToken)
+	if err != nil {
+		t.Fatalf("ValidateToken() for tenant token unexpected error: %v", err)
+	}
+
+	if gotClaims.TenantID != "acme" {
+		t.Errorf("TenantID = %s, want acme", gotClaims.TenantID)
+	}
+
+	// OIDC token should fail due to keyfunc failure
+	oidcClaims := &Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-456",
+			Issuer:    "https://auth.example.com/", // Matches OIDCIssuer
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+		TenantID: "acme",
+	}
+
+	// Need to sign with some key (using tenant key, but it will fail at keyfunc)
+	oidcToken := createTestToken(t, tenantKey, tenantPrivateKey, oidcClaims)
+
+	_, err = validator.ValidateToken(ctx, oidcToken)
+	if err == nil {
+		t.Error("Expected error for OIDC token with failing keyfunc")
+	}
+}

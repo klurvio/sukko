@@ -12,9 +12,10 @@ import (
 
 // Sentinel errors for authentication failures
 var (
-	ErrInvalidToken = errors.New("invalid token")
-	ErrTokenExpired = errors.New("token expired")
-	ErrMissingToken = errors.New("missing token")
+	ErrInvalidToken    = errors.New("invalid token")
+	ErrTokenExpired    = errors.New("token expired")
+	ErrMissingToken    = errors.New("missing token")
+	ErrInvalidAudience = errors.New("invalid audience")
 )
 
 // Claims represents the JWT claims structure for multi-tenant authentication.
