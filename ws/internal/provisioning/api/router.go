@@ -9,8 +9,8 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 )
 
 // RouterConfig holds configuration for the HTTP router.

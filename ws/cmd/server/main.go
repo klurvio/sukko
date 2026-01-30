@@ -18,14 +18,14 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 	_ "go.uber.org/automaxprocs"
 
-	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
-	"github.com/Toniq-Labs/odin-ws/internal/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
-	"github.com/Toniq-Labs/odin-ws/internal/orchestration"
-	"github.com/Toniq-Labs/odin-ws/internal/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server/orchestration"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/limits"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
 

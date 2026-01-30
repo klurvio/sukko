@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // =============================================================================

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/messaging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/messaging"
 )
 
 // =============================================================================

@@ -13,8 +13,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 
 	// PostgreSQL driver
 	_ "github.com/lib/pq"

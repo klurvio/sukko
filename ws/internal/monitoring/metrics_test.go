@@ -7,7 +7,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 

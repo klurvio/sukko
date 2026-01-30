@@ -8,7 +8,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 )
 
 // testClaims creates auth.Claims with the given subject for testing.

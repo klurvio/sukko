@@ -15,12 +15,12 @@ import (
 
 	_ "github.com/lib/pq" // PostgreSQL driver
 
-	"github.com/Toniq-Labs/odin-ws/internal/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/api"
 	provkafka "github.com/Toniq-Labs/odin-ws/internal/provisioning/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/repository"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
 

@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/testutil"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/testutil"
 )
 
 func newTestService() (*provisioning.Service, *testutil.MockTenantStore, *testutil.MockKeyStore, *testutil.MockKafkaAdmin) {

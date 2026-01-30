@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Toniq-Labs/odin-ws/internal/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 )
 
 // PermissionChecker validates channel subscription permissions based on JWT claims.

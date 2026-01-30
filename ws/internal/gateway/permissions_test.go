@@ -3,7 +3,7 @@ package gateway
 import (
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 )
 
 func TestPermissionChecker_CanSubscribe_PublicChannels(t *testing.T) {

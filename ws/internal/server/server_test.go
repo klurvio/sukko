@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // =============================================================================

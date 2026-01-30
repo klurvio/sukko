@@ -8,8 +8,8 @@ import (
 
 	"github.com/gobwas/ws"
 
-	"github.com/Toniq-Labs/odin-ws/internal/messaging"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/messaging"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 

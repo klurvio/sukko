@@ -12,7 +12,7 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
 

@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // =============================================================================

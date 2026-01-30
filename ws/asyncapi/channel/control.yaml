@@ -1,0 +1,112 @@
+# WebSocket Control Channels
+# Virtual channels for WebSocket protocol operations
+
+WsSubscribe:
+  address: ws://control/subscribe
+  description: |
+    Channel for subscription management.
+
+    **Client → Server:**
+    - `SubscribeRequest` - Subscribe to event channels
+    - `UnsubscribeRequest` - Unsubscribe from event channels
+
+    **Server → Client:**
+    - `SubscriptionAck` - Confirms subscription
+    - `UnsubscriptionAck` - Confirms unsubscription
+
+    **Example Flow:**
+    ```
+    Client: {"type": "subscribe", "data": {"channels": ["BTC.trade"]}}
+    Server: {"type": "subscription_ack", "subscribed": ["BTC.trade"], "count": 1}
+    ```
+  messages:
+    SubscribeRequest:
+      $ref: '../component/message/control.yaml#/SubscribeRequest'
+    UnsubscribeRequest:
+      $ref: '../component/message/control.yaml#/UnsubscribeRequest'
+    SubscriptionAck:
+      $ref: '../component/message/control.yaml#/SubscriptionAck'
+    UnsubscriptionAck:
+      $ref: '../component/message/control.yaml#/UnsubscriptionAck'
+
+WsHeartbeat:
+  address: ws://control/heartbeat
+  description: |
+    Channel for connection keep-alive.
+
+    **Client → Server:**
+    - `HeartbeatRequest` - Ping to keep connection alive
+
+    **Server → Client:**
+    - `PongResponse` - Response with server timestamp
+
+    **Recommended Interval:** Send heartbeat every 30 seconds.
+
+    **Example Flow:**
+    ```
+    Client: {"type": "heartbeat"}
+    Server: {"type": "pong", "ts": 1699901234567}
+    ```
+  messages:
+    HeartbeatRequest:
+      $ref: '../component/message/control.yaml#/HeartbeatRequest'
+    PongResponse:
+      $ref: '../component/message/control.yaml#/PongResponse'
+
+WsReconnect:
+  address: ws://control/reconnect
+  description: |
+    Channel for reconnection and message replay.
+
+    **Client → Server:**
+    - `ReconnectRequest` - Request to replay missed messages
+
+    **Server → Client:**
+    - `ReconnectAck` - Confirms reconnection and replay status
+
+    **Use Case:**
+    When a client reconnects after a disconnect, it can request replay
+    of messages missed during the outage by providing its last known offset.
+
+    **Example Flow:**
+    ```
+    Client: {"type": "reconnect", "data": {"client_id": "abc123", "last_offset": 12345}}
+    Server: {"type": "reconnect_ack", "status": "success", "messages_replayed": 42}
+    ```
+
+    **Status Values:**
+    - `success` - All missed messages replayed
+    - `partial` - Some messages beyond retention window
+    - `failed` - Invalid client_id or offset
+  messages:
+    ReconnectRequest:
+      $ref: '../component/message/control.yaml#/ReconnectRequest'
+    ReconnectAck:
+      $ref: '../component/message/control.yaml#/ReconnectAck'
+
+WsError:
+  address: ws://control/error
+  description: |
+    Channel for error responses and publish acknowledgments.
+
+    **Server → Client:**
+    - `ErrorResponse` - Error during message processing
+    - `PublishAck` - Confirms successful publish
+    - `PublishError` - Error during publish operation
+
+    **Common Error Codes:**
+    | Code | Description |
+    |------|-------------|
+    | `invalid_message` | Malformed message payload |
+    | `unauthorized` | Authentication required or failed |
+    | `forbidden` | Not authorized for this channel |
+    | `channel_not_found` | Requested channel does not exist |
+    | `rate_limited` | Too many requests |
+    | `internal_error` | Server-side error |
+  messages:
+    ErrorResponse:
+      $ref: '../component/message/control.yaml#/ErrorResponse'
+    PublishAck:
+      $ref: '../component/message/control.yaml#/PublishAck'
+    PublishError:
+      $ref: '../component/message/control.yaml#/PublishError'

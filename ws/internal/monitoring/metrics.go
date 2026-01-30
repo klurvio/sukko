@@ -8,8 +8,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/Toniq-Labs/odin-ws/internal/platform"
-	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 

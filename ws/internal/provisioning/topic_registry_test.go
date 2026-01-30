@@ -3,7 +3,7 @@ package provisioning
 import (
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 )
 
 // =============================================================================

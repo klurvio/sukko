@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/messaging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/messaging"
 )
 
 // Client represents a WebSocket client connection with message reliability features

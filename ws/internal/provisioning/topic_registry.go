@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/Toniq-Labs/odin-ws/internal/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 )
 
 // TopicRegistry implements kafka.TenantRegistry using PostgreSQL.

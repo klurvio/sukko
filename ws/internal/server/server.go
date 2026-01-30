@@ -22,10 +22,10 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
-	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/limits"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
