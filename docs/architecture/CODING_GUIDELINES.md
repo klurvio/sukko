@@ -663,7 +663,7 @@ case client.send <- data:
 
 default:
     attempts := client.sendAttempts.Add(1)
-    monitoring.RecordDroppedBroadcast(channel, monitoring.DropReasonBufferFull)
+    metrics.RecordDroppedBroadcast(channel, metrics.DropReasonBufferFull)
 
     // Log on first failure only (avoid log spam)
     if attempts == 1 && client.slowClientWarned.CompareAndSwap(0, 1) {
@@ -783,7 +783,7 @@ All goroutines must have panic recovery:
 ```go
 func (s *Server) backgroundWorker() {
     // CRITICAL: Must be FIRST defer (LIFO order means it executes LAST)
-    defer monitoring.RecoverPanic(s.logger, "backgroundWorker", map[string]any{
+    defer logging.RecoverPanic(s.logger, "backgroundWorker", map[string]any{
         "worker_id": s.workerID,
     })
 
@@ -1368,7 +1368,7 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) worker() {
-    defer monitoring.RecoverPanic(s.logger, "worker", nil)
+    defer logging.RecoverPanic(s.logger, "worker", nil)
     defer s.wg.Done()
 
     ticker := time.NewTicker(s.config.WorkerInterval)
