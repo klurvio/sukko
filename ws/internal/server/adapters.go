@@ -9,7 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/pkg/audit"
 )
 
 // =============================================================================
@@ -87,13 +87,13 @@ func (e *ZerologEventAdapter) Msg(msg string) {
 // Audit Logger Adapter (implements AuditLogger interface)
 // =============================================================================
 
-// AuditLoggerAdapter wraps monitoring.AuditLogger to implement AuditLogger interface.
+// AuditLoggerAdapter wraps audit.Logger to implement AuditLogger interface.
 type AuditLoggerAdapter struct {
-	logger *monitoring.AuditLogger
+	logger *audit.Logger
 }
 
-// NewAuditLoggerAdapter creates an AuditLogger from monitoring.AuditLogger.
-func NewAuditLoggerAdapter(logger *monitoring.AuditLogger) *AuditLoggerAdapter {
+// NewAuditLoggerAdapter creates an AuditLogger from audit.Logger.
+func NewAuditLoggerAdapter(logger *audit.Logger) *AuditLoggerAdapter {
 	return &AuditLoggerAdapter{logger: logger}
 }
 

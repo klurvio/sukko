@@ -22,10 +22,12 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/pkg/alerting"
+	"github.com/Toniq-Labs/odin-ws/pkg/audit"
 	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
@@ -59,9 +61,9 @@ type Server struct {
 	connectionRateLimiter *limits.ConnectionRateLimiter // Per-IP and global connection throttling
 
 	// Monitoring
-	auditLogger      *monitoring.AuditLogger      // Security and operational audit events
-	metricsCollector *monitoring.MetricsCollector // Prometheus metrics collector
-	resourceGuard    *limits.ResourceGuard        // CPU-aware backpressure with hysteresis
+	auditLogger      *audit.Logger         // Security and operational audit events
+	metricsCollector *metrics.Collector    // Prometheus metrics collector
+	resourceGuard    *limits.ResourceGuard // CPU-aware backpressure with hysteresis
 
 	// Lifecycle
 	ctx          context.Context    // Root context for all server goroutines
@@ -120,9 +122,9 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 	// Initialize monitoring
 	// ConsoleAlerter writes to stdout, which is captured by container logging (fluentd/loki/cloudwatch)
 	// For dedicated alerting, use MultiAlerter with SlackAlerter via SLACK_WEBHOOK_URL env var
-	s.auditLogger = monitoring.NewAuditLogger(monitoring.INFO)
-	s.auditLogger.SetAlerter(monitoring.NewConsoleAlerter())
-	s.metricsCollector = monitoring.NewMetricsCollector(s)
+	s.auditLogger = audit.NewWithLevel(alerting.INFO)
+	s.auditLogger.SetAlerter(alerting.NewConsoleAlerter())
+	s.metricsCollector = metrics.NewCollector(s)
 
 	// Initialize ResourceGuard with static configuration
 	s.resourceGuard = limits.NewResourceGuard(config, logger, &s.stats.CurrentConnections)
@@ -181,17 +183,17 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 	return s, nil
 }
 
-// GetConfig implements monitoring.ServerMetrics interface
+// GetConfig implements metrics.ServerMetrics interface
 func (s *Server) GetConfig() types.ServerConfig {
 	return s.config
 }
 
-// GetStats implements monitoring.ServerMetrics interface
+// GetStats implements metrics.ServerMetrics interface
 func (s *Server) GetStats() *types.Stats {
 	return s.stats
 }
 
-// GetKafkaConsumer implements monitoring.ServerMetrics interface
+// GetKafkaConsumer implements metrics.ServerMetrics interface
 func (s *Server) GetKafkaConsumer() any {
 	return s.kafkaConsumer
 }
@@ -245,7 +247,7 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
-	mux.HandleFunc("/metrics", monitoring.HandleMetrics) // Prometheus metrics endpoint
+	mux.HandleFunc("/metrics", metrics.HandleMetrics) // Prometheus metrics endpoint
 
 	// NOTE: Token issuance moved to auth-service (internal/authservice)
 	// ws-server only handles JWT validation, not token issuance
@@ -373,7 +375,7 @@ forceClose:
 		if client, ok := key.(*Client); ok {
 			// Record shutdown disconnect (both Prometheus and Stats)
 			duration := time.Since(client.connectedAt)
-			monitoring.RecordDisconnectWithStats(s.stats, pkgmetrics.DisconnectServerShutdown, pkgmetrics.InitiatedByServer, duration)
+			metrics.RecordDisconnectWithStats(s.stats, pkgmetrics.DisconnectServerShutdown, pkgmetrics.InitiatedByServer, duration)
 
 			close(client.send)
 		}

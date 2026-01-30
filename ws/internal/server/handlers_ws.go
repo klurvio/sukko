@@ -9,7 +9,7 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 )
 
 // WebSocket upgrade handler
@@ -72,7 +72,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			Str("reason", reason).
 			Dur("elapsed_ms", time.Since(startTime)).
 			Msg("Connection rejected by ResourceGuard")
-		monitoring.ConnectionsFailed.Inc()
+		metrics.ConnectionsFailed.Inc()
 		http.Error(w, "Server overloaded", http.StatusServiceUnavailable)
 		return
 	}
@@ -116,7 +116,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			"upgrade_duration": upgradeDuration.String(),
 			"total_elapsed":    time.Since(startTime).String(),
 		})
-		monitoring.ConnectionsFailed.Inc()
+		metrics.ConnectionsFailed.Inc()
 		s.logger.Error().
 			Err(err).
 			Str("client_ip", clientIP).
@@ -146,7 +146,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	currentConns := s.stats.CurrentConnections.Add(1)
 
 	// Update Prometheus metrics
-	monitoring.UpdateConnectionMetrics(s)
+	metrics.UpdateConnectionMetrics()
 
 	// DEBUG: Client fully initialized, starting pumps
 	s.logger.Info().

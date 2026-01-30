@@ -7,8 +7,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/server"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	"github.com/Toniq-Labs/odin-ws/pkg/logging"
@@ -176,7 +176,7 @@ func (s *Shard) GetAddr() string {
 // Queries directly from SystemMonitor singleton (single source of truth).
 func (s *Shard) GetSystemStats() (cpuPercent float64, memoryMB float64) {
 	// Get SystemMonitor singleton (all shards share the same instance)
-	systemMonitor := monitoring.GetSystemMonitor(s.logger)
+	systemMonitor := metrics.GetSystemMonitor(s.logger)
 	metrics := systemMonitor.GetMetrics()
 	return metrics.CPUPercent, metrics.MemoryMB
 }

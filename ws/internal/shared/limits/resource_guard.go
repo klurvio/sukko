@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
@@ -19,7 +19,7 @@ type SystemMonitorInterface interface {
 	GetCPUPercent() float64
 	GetMemoryBytes() int64
 	GetGoroutines() int
-	GetMetrics() monitoring.SystemMetrics
+	GetMetrics() metrics.SystemMetrics
 	GetCPUAllocation() float64
 }
 
@@ -149,7 +149,7 @@ func NewResourceGuard(config types.ServerConfig, logger zerolog.Logger, currentC
 	goroutineLimiter := NewGoroutineLimiter(config.MaxGoroutines)
 
 	// Get SystemMonitor singleton (shared across all ResourceGuards)
-	systemMonitor := monitoring.GetSystemMonitor(logger)
+	systemMonitor := metrics.GetSystemMonitor(logger)
 
 	rg := &ResourceGuard{
 		config:           config,
@@ -228,7 +228,7 @@ func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 
 	// Check 1: Hard connection limit
 	if currentConns >= int64(rg.config.MaxConnections) {
-		monitoring.IncrementCapacityRejection("at_max_connections")
+		metrics.IncrementCapacityRejection("at_max_connections")
 		rg.logger.Debug().
 			Int64("current_conns", currentConns).
 			Int("max_conns", rg.config.MaxConnections).
@@ -257,7 +257,7 @@ func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 			// Fall through to accept
 		} else {
 			// Still in rejection state (CPU in deadband or still high)
-			monitoring.IncrementCapacityRejection("cpu_overload")
+			metrics.IncrementCapacityRejection("cpu_overload")
 			rg.logger.Debug().
 				Float64("current_cpu", currentCPU).
 				Float64("upper_threshold", rg.config.CPURejectThreshold).
@@ -270,7 +270,7 @@ func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 		// Currently accepting - check if we should start rejecting (CPU above upper threshold)
 		if currentCPU > rg.config.CPURejectThreshold {
 			rg.isRejectingCPU.Store(true)
-			monitoring.IncrementCapacityRejection("cpu_overload")
+			metrics.IncrementCapacityRejection("cpu_overload")
 			rg.logger.Info().
 				Float64("cpu", currentCPU).
 				Float64("upper_threshold", rg.config.CPURejectThreshold).
@@ -282,7 +282,7 @@ func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 
 	// Check 3: Memory emergency brake
 	if currentMemory > rg.config.MemoryLimit {
-		monitoring.IncrementCapacityRejection("memory_limit")
+		metrics.IncrementCapacityRejection("memory_limit")
 		rg.logger.Debug().
 			Int64("current_memory_mb", currentMemory/(1024*1024)).
 			Int64("limit_mb", rg.config.MemoryLimit/(1024*1024)).
@@ -292,7 +292,7 @@ func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 
 	// Check 4: Goroutine limit
 	if currentGoros > rg.config.MaxGoroutines {
-		monitoring.IncrementCapacityRejection("goroutine_limit")
+		metrics.IncrementCapacityRejection("goroutine_limit")
 		rg.logger.Debug().
 			Int("current_goroutines", currentGoros).
 			Int("max_goroutines", rg.config.MaxGoroutines).
@@ -453,18 +453,18 @@ func (rg *ResourceGuard) StartMonitoring(ctx context.Context, interval time.Dura
 				rg.UpdateResources(serverStats)
 
 				// Get metrics for Prometheus updates
-				metrics := rg.systemMonitor.GetMetrics()
+				sysMetrics := rg.systemMonitor.GetMetrics()
 
 				// Update Prometheus capacity metrics
-				cpuHeadroom := 100.0 - metrics.CPUPercent
+				cpuHeadroom := 100.0 - sysMetrics.CPUPercent
 				memPercent := 0.0
 				if rg.config.MemoryLimit > 0 {
-					memPercent = (float64(metrics.MemoryBytes) / float64(rg.config.MemoryLimit)) * 100
+					memPercent = (float64(sysMetrics.MemoryBytes) / float64(rg.config.MemoryLimit)) * 100
 				}
 				memHeadroom := 100.0 - memPercent
 
-				monitoring.UpdateCapacityHeadroom(cpuHeadroom, memHeadroom)
-				monitoring.UpdateCapacityMetrics(rg.config.MaxConnections, rg.config.CPURejectThreshold)
+				metrics.UpdateCapacityHeadroom(cpuHeadroom, memHeadroom)
+				metrics.UpdateCapacityMetrics(rg.config.MaxConnections, rg.config.CPURejectThreshold)
 
 			case <-ctx.Done():
 				rg.logger.Info().Msg("ResourceGuard stats sync stopped")

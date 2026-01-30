@@ -13,7 +13,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/version"
 	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
@@ -113,7 +113,7 @@ func (lb *LoadBalancer) Start() error {
 	mux.HandleFunc("/ws", lb.handleWebSocket)
 	mux.HandleFunc("/health", lb.handleHealth)
 	mux.HandleFunc("/version", version.Handler("ws-server"))
-	mux.HandleFunc("/metrics", monitoring.HandleMetrics)
+	mux.HandleFunc("/metrics", metrics.HandleMetrics)
 
 	server := &http.Server{
 		Addr:    lb.addr,
@@ -174,7 +174,7 @@ func (lb *LoadBalancer) aggregateMetrics() {
 		totalMaxConnections += int64(shard.GetMaxConnections())
 	}
 
-	monitoring.SetAggregatedConnectionMetrics(totalConnections, totalMaxConnections)
+	metrics.SetAggregatedConnectionMetrics(totalConnections, totalMaxConnections)
 }
 
 // Shutdown gracefully stops the LoadBalancer.

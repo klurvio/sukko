@@ -7,7 +7,7 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
 
@@ -144,7 +144,7 @@ func (s *Server) sampleClientBuffers() {
 				bufferLen := len(client.send)
 				bufferCap := cap(client.send)
 				usagePercent := float64(bufferLen) / float64(bufferCap) * 100
-				monitoring.RecordClientBufferSizeWithStats(s.stats, bufferLen, bufferCap)
+				metrics.RecordClientBufferSizeWithStats(s.stats, bufferLen, bufferCap)
 
 				// Phase 4: Track high saturation clients
 				if usagePercent >= 90 {

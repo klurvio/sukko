@@ -8,7 +8,7 @@ import (
 
 	"github.com/gobwas/ws"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/messaging"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
@@ -124,7 +124,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 	// Serialize ONCE for all clients (not once per client!)
 	sharedData, err := baseEnvelope.Serialize()
 	if err != nil {
-		monitoring.RecordSerializationError(pkgmetrics.SeverityCritical)
+		metrics.RecordSerializationError(pkgmetrics.SeverityCritical)
 		s.logger.Error().
 			Err(err).
 			Str("channel", channel).
@@ -142,7 +142,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 		// Check if client already disconnected (race condition protection)
 		// This can happen if client disconnects between getting subscriber list and sending
 		if client.conn == nil {
-			monitoring.RecordDroppedBroadcastWithStats(s.stats, channel, pkgmetrics.DropReasonClientDisconnected)
+			metrics.RecordDroppedBroadcastWithStats(s.stats, channel, pkgmetrics.DropReasonClientDisconnected)
 			continue
 		}
 
@@ -177,7 +177,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 			attempts := client.sendAttempts.Add(1)
 
 			// Track dropped broadcast with channel and reason (both Prometheus and Stats)
-			monitoring.RecordDroppedBroadcastWithStats(s.stats, channel, pkgmetrics.DropReasonBufferFull)
+			metrics.RecordDroppedBroadcastWithStats(s.stats, channel, pkgmetrics.DropReasonBufferFull)
 
 			// Phase 4: Sampled structured logging (every 100th drop to avoid log spam)
 			dropCount := s.stats.DroppedBroadcastLogCounter.Add(1)
@@ -217,10 +217,10 @@ func (s *Server) Broadcast(subject string, message []byte) {
 
 				// Record disconnect metrics with proper categorization (both Prometheus and Stats)
 				duration := time.Since(client.connectedAt)
-				monitoring.RecordDisconnectWithStats(s.stats, pkgmetrics.DisconnectWriteTimeout, pkgmetrics.InitiatedByServer, duration)
+				metrics.RecordDisconnectWithStats(s.stats, pkgmetrics.DisconnectWriteTimeout, pkgmetrics.InitiatedByServer, duration)
 
 				// Record how many attempts it took before disconnect (for histogram analysis)
-				monitoring.RecordSlowClientAttempt(int(attempts))
+				metrics.RecordSlowClientAttempt(int(attempts))
 
 				// Audit log slow client disconnection
 				s.auditLogger.Warning("SlowClientDisconnected", "Client disconnected for being too slow", map[string]any{
@@ -269,7 +269,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 				// - Client app performance issues
 				// - Need to optimize message size/frequency
 				s.stats.SlowClientsDisconnected.Add(1)
-				monitoring.IncrementSlowClientDisconnects()
+				metrics.IncrementSlowClientDisconnects()
 			}
 		}
 	}

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/messaging"
 )
 
@@ -329,5 +329,5 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 
 	// Increment reconnect counter for monitoring
 	s.stats.MessageReplayRequests.Add(1)
-	monitoring.IncrementReplayRequests()
+	metrics.IncrementReplayRequests()
 }

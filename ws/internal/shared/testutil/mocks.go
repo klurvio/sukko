@@ -9,7 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/pkg/alerting"
 )
 
 // MockSystemMonitor provides controllable CPU/memory/goroutine values for testing.
@@ -77,10 +78,10 @@ func (m *MockSystemMonitor) GetCPUAllocation() float64 {
 }
 
 // GetMetrics returns mocked system metrics.
-func (m *MockSystemMonitor) GetMetrics() monitoring.SystemMetrics {
+func (m *MockSystemMonitor) GetMetrics() metrics.SystemMetrics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return monitoring.SystemMetrics{
+	return metrics.SystemMetrics{
 		CPUPercent:  m.cpuPercent,
 		MemoryBytes: m.memoryBytes,
 		MemoryMB:    float64(m.memoryBytes) / (1024 * 1024),
@@ -280,7 +281,7 @@ type MockAlerter struct {
 
 // AlertCall records a single alert invocation.
 type AlertCall struct {
-	Level    monitoring.AuditLevel
+	Level    alerting.Level
 	Message  string
 	Metadata map[string]any
 }
@@ -293,7 +294,7 @@ func NewMockAlerter() *MockAlerter {
 }
 
 // Alert implements the Alerter interface for testing.
-func (m *MockAlerter) Alert(level monitoring.AuditLevel, message string, metadata map[string]any) {
+func (m *MockAlerter) Alert(level alerting.Level, message string, metadata map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Alerts = append(m.Alerts, AlertCall{

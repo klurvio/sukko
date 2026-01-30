@@ -3,7 +3,7 @@ package server
 import (
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 )
 
 // Client connection lifecycle management
@@ -12,7 +12,7 @@ func (s *Server) disconnectClient(c *Client, reason, initiatedBy string) {
 	duration := time.Since(c.connectedAt)
 
 	// Record disconnect metrics (both Prometheus and Stats)
-	monitoring.RecordDisconnectWithStats(s.stats, reason, initiatedBy, duration)
+	metrics.RecordDisconnectWithStats(s.stats, reason, initiatedBy, duration)
 
 	// Log disconnect with enhanced context (Phase 4: Structured logging)
 	bufferLen := len(c.send)

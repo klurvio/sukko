@@ -14,7 +14,7 @@ import (
 	"github.com/gobwas/ws/wsutil"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
@@ -205,8 +205,8 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 		// Update stats
 		p.Stats.MessagesReceived.Add(1)
 		p.Stats.BytesReceived.Add(int64(len(msg)))
-		monitoring.UpdateMessageMetrics(0, 1)
-		monitoring.UpdateBytesMetrics(0, int64(len(msg)))
+		metrics.UpdateMessageMetrics(0, 1)
+		metrics.UpdateBytesMetrics(0, int64(len(msg)))
 
 		if hdr.OpCode == ws.OpText {
 			// Rate limiting check
@@ -249,7 +249,7 @@ func (p *Pump) handleRateLimitExceeded(c *Client) {
 	}
 
 	p.Stats.RateLimitedMessages.Add(1)
-	monitoring.IncrementRateLimitedMessages()
+	metrics.IncrementRateLimitedMessages()
 }
 
 // WriteLoop writes messages to the WebSocket connection.
@@ -351,8 +351,8 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 			// Update metrics (once per batch)
 			p.Stats.MessagesSent.Add(batchMsgCount)
 			p.Stats.BytesSent.Add(batchByteCount)
-			monitoring.UpdateMessageMetrics(batchMsgCount, 0)
-			monitoring.UpdateBytesMetrics(batchByteCount, 0)
+			metrics.UpdateMessageMetrics(batchMsgCount, 0)
+			metrics.UpdateBytesMetrics(batchByteCount, 0)
 
 		case <-ticker.C():
 			// Guard against race condition: connection may be nil if client was
@@ -383,7 +383,7 @@ func (p *Pump) recordSendTimeoutDrops(c *Client, failedCount int) {
 	if totalDropped > 0 {
 		// Record each drop (using "delivery" as pseudo-channel since we don't have channel info)
 		for range totalDropped {
-			monitoring.RecordDroppedBroadcastWithStats(p.Stats, "delivery", pkgmetrics.DropReasonSendTimeout)
+			metrics.RecordDroppedBroadcastWithStats(p.Stats, "delivery", pkgmetrics.DropReasonSendTimeout)
 		}
 	}
 

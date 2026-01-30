@@ -18,8 +18,8 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 	_ "go.uber.org/automaxprocs"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/server/orchestration"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
@@ -89,7 +89,7 @@ func main() {
 		Format:      logging.LogFormat(cfg.LogFormat),
 		ServiceName: "ws-server",
 	})
-	systemMonitor := monitoring.GetSystemMonitor(structuredLogger)
+	systemMonitor := metrics.GetSystemMonitor(structuredLogger)
 	systemMonitor.StartMonitoring(cfg.MetricsInterval, cfg.CPUPollInterval)
 	logger.Printf("SystemMonitor started (metrics: %v, cpu poll: %v)", cfg.MetricsInterval, cfg.CPUPollInterval)
 
@@ -223,7 +223,7 @@ func main() {
 			RefreshInterval: cfg.TopicRefreshInterval,
 			SASL:            saslConfig,
 			TLS:             tlsConfig,
-			Metrics:         &monitoring.MultiTenantPoolMetricsAdapter{},
+			Metrics:         &metrics.MultiTenantPoolMetricsAdapter{},
 		})
 		if err != nil {
 			logger.Fatalf("Failed to create multi-tenant consumer pool: %v", err)

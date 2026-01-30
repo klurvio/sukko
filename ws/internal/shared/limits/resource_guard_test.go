@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
@@ -32,8 +32,8 @@ func (m *mockSystemMonitor) GetCPUAllocation() float64 {
 	return 1.0
 }
 
-func (m *mockSystemMonitor) GetMetrics() monitoring.SystemMetrics {
-	return monitoring.SystemMetrics{
+func (m *mockSystemMonitor) GetMetrics() metrics.SystemMetrics {
+	return metrics.SystemMetrics{
 		CPUPercent:  m.cpuPercent,
 		MemoryBytes: 100 * 1024 * 1024,
 		MemoryMB:    100,

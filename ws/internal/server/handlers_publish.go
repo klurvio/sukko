@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 )
 
 // Maximum message size for client publishes (64KB)
@@ -83,7 +83,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Msg("Client publish rate limited")
 		s.sendPublishError(c, "rate_limited", "Publish rate limit exceeded")
 		s.stats.RateLimitedMessages.Add(1)
-		monitoring.IncrementRateLimitedMessages()
+		metrics.IncrementRateLimitedMessages()
 		return
 	}
 
@@ -98,7 +98,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Str("channel", pubReq.Channel).
 			Msg("Failed to publish message to Kafka")
 		s.sendPublishError(c, "publish_failed", "Failed to publish message")
-		monitoring.IncrementPublishErrors()
+		metrics.IncrementPublishErrors()
 		return
 	}
 
@@ -111,7 +111,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 		Int("data_size", len(pubReq.Data)).
 		Msg("Client message published to Kafka")
 
-	monitoring.IncrementMessagesPublished()
+	metrics.IncrementMessagesPublished()
 }
 
 // sendPublishAck sends a publish acknowledgment to the client.

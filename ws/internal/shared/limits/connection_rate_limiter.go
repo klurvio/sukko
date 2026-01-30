@@ -7,7 +7,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 )
 
 // ConnectionRateLimiter provides DoS protection through rate limiting of connection attempts.
@@ -152,7 +152,7 @@ func (crl *ConnectionRateLimiter) CheckConnectionAllowed(ip string) bool {
 			Msg("Connection rejected: global rate limit exceeded")
 
 		// Update Prometheus metrics
-		monitoring.IncrementConnectionRateLimit("global")
+		metrics.IncrementConnectionRateLimit("global")
 		return false
 	}
 
@@ -166,7 +166,7 @@ func (crl *ConnectionRateLimiter) CheckConnectionAllowed(ip string) bool {
 			Msg("Connection rejected: per-IP rate limit exceeded")
 
 		// Update Prometheus metrics
-		monitoring.IncrementConnectionRateLimit("per_ip")
+		metrics.IncrementConnectionRateLimit("per_ip")
 		return false
 	}
 
