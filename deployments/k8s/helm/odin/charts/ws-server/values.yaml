@@ -53,6 +53,36 @@ config:
   logFormat: json
   metricsInterval: "15s"
 
+# Alerting Configuration
+# See pkg/alerting/config.go for full documentation
+alerting:
+  # Enable alerting (default: false)
+  enabled: false
+  # Minimum level for alerts: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  minLevel: WARNING
+  # Slack configuration (optional)
+  slack:
+    # Webhook URL for Slack notifications
+    webhookUrl: ""
+    # Channel to post to (optional, uses webhook default)
+    channel: ""
+    # Username for bot (default: AlertBot)
+    username: "AlertBot"
+  # Rate limiting to prevent alert spam
+  rateLimit:
+    # Time window for rate limiting
+    window: "5m"
+    # Maximum alerts per window
+    max: 3
+  # Also output alerts to console (useful for debugging)
+  consoleEnabled: false
+
+# Audit Logging Configuration
+# See pkg/audit/config.go for full documentation
+audit:
+  # Minimum level for audit logs: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  minLevel: INFO
+
 # Connection Limits Configuration
 # See docs/architecture/CONNECTION_LIMITS.md for details
 connectionLimits:

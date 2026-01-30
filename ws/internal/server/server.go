@@ -119,11 +119,12 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 		},
 	}
 
-	// Initialize monitoring
-	// ConsoleAlerter writes to stdout, which is captured by container logging (fluentd/loki/cloudwatch)
-	// For dedicated alerting, use MultiAlerter with SlackAlerter via SLACK_WEBHOOK_URL env var
-	s.auditLogger = audit.NewWithLevel(alerting.INFO)
-	s.auditLogger.SetAlerter(alerting.NewConsoleAlerter())
+	// Initialize monitoring with environment-based configuration
+	// See pkg/alerting/config.go and pkg/audit/config.go for env var documentation
+	// Default: Console alerter (stdout) for container logging (fluentd/loki/cloudwatch)
+	// Production: Set ALERT_ENABLED=true and ALERT_SLACK_WEBHOOK_URL for Slack alerts
+	alerter := alerting.NewFromEnv()
+	s.auditLogger = audit.NewFromEnvWithAlerter(alerter)
 	s.metricsCollector = metrics.NewCollector(s)
 
 	// Initialize ResourceGuard with static configuration

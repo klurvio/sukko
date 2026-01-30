@@ -154,6 +154,32 @@ spec:
               value: "{{ .Values.connectionLimits.writeBufferSize | default 4096 }}"
             - name: MAX_MESSAGE_SIZE
               value: "{{ .Values.connectionLimits.maxMessageSize | default 65536 }}"
+            # Alerting Configuration
+            - name: ALERT_ENABLED
+              value: "{{ .Values.alerting.enabled | default false }}"
+            - name: ALERT_MIN_LEVEL
+              value: "{{ .Values.alerting.minLevel | default "WARNING" }}"
+            {{- if .Values.alerting.slack.webhookUrl }}
+            - name: ALERT_SLACK_WEBHOOK_URL
+              value: "{{ .Values.alerting.slack.webhookUrl }}"
+            {{- end }}
+            {{- if .Values.alerting.slack.channel }}
+            - name: ALERT_SLACK_CHANNEL
+              value: "{{ .Values.alerting.slack.channel }}"
+            {{- end }}
+            - name: ALERT_SLACK_USERNAME
+              value: "{{ .Values.alerting.slack.username | default "AlertBot" }}"
+            - name: ALERT_SERVICE_NAME
+              value: "ws-server"
+            - name: ALERT_RATE_LIMIT_WINDOW
+              value: "{{ .Values.alerting.rateLimit.window | default "5m" }}"
+            - name: ALERT_RATE_LIMIT_MAX
+              value: "{{ .Values.alerting.rateLimit.max | default 3 }}"
+            - name: ALERT_CONSOLE_ENABLED
+              value: "{{ .Values.alerting.consoleEnabled | default false }}"
+            # Audit Logging Configuration
+            - name: AUDIT_MIN_LEVEL
+              value: "{{ .Values.audit.minLevel | default "INFO" }}"
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
