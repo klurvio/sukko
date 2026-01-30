@@ -9,8 +9,8 @@ import (
 	"github.com/gobwas/ws"
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/messaging"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
 // extractChannel returns the broadcast subject as the channel for subscription matching.

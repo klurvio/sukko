@@ -3,7 +3,7 @@ package orchestration
 import (
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
 )
 
 // =============================================================================

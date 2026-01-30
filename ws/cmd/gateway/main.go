@@ -14,7 +14,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/gateway"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
-	"github.com/Toniq-Labs/odin-ws/pkg/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 )
 
 // Version information (set by build flags)

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/pkg/alerting"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
 )
 
 // MockSystemMonitor provides controllable CPU/memory/goroutine values for testing.

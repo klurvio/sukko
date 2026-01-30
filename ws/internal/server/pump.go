@@ -16,7 +16,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
 // PumpConfig holds timing configuration for pump operations.

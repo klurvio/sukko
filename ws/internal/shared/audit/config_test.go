@@ -3,7 +3,7 @@ package audit
 import (
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/pkg/alerting"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
 )
 
 func TestDefaultConfig(t *testing.T) {

@@ -21,7 +21,7 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/repository"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
-	"github.com/Toniq-Labs/odin-ws/pkg/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 )
 
 func main() {

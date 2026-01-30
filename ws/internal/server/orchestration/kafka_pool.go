@@ -11,7 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 )
 

@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/pkg/alerting"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
 )
 
 // Logger handles structured logging for all auditable events.

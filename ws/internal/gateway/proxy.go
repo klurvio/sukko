@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/pkg/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 )
 
 // Proxy handles bidirectional WebSocket message forwarding between client and backend.

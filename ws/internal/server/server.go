@@ -24,12 +24,12 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/limits"
+	"github.com/Toniq-Labs/odin-ws/internal/server/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
-	"github.com/Toniq-Labs/odin-ws/pkg/alerting"
-	"github.com/Toniq-Labs/odin-ws/pkg/audit"
-	"github.com/Toniq-Labs/odin-ws/pkg/logging"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/audit"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
 // Server is the main WebSocket server that manages client connections, message

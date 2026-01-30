@@ -15,6 +15,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/version"
 
 	// PostgreSQL driver
 	_ "github.com/lib/pq"
@@ -357,6 +358,7 @@ func (gw *Gateway) NewServer() *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", gw.HandleWebSocket)
 	mux.HandleFunc("/health", gw.HandleHealth)
+	mux.HandleFunc("/version", version.Handler("gateway"))
 	mux.HandleFunc("/metrics", HandleMetrics)
 
 	return &http.Server{

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/version"
 )
 
 // RouterConfig holds configuration for the HTTP router.
@@ -60,6 +61,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Health endpoints (no auth required)
 	r.Get("/health", h.Health)
 	r.Get("/ready", h.Ready)
+	r.Get("/version", version.Handler("provisioning"))
 	r.Get("/metrics", h.Metrics)
 
 	// API v1 routes

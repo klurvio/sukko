@@ -15,7 +15,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/version"
-	"github.com/Toniq-Labs/odin-ws/pkg/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 )
 
 // ShardMetrics defines the interface for shard load balancing metrics.

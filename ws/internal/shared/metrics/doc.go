@@ -35,7 +35,7 @@
 //
 // Import with an alias to avoid conflicts with service-specific metrics:
 //
-//	import pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
+//	import pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 //
 //	var latency = prometheus.NewHistogram(prometheus.HistogramOpts{
 //	    Name:    "my_latency_seconds",

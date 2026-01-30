@@ -3,7 +3,7 @@ package audit
 import (
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/pkg/alerting"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
 )
 
 // Event represents a single auditable event in the system.

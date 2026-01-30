@@ -9,7 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/pkg/audit"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/audit"
 )
 
 // =============================================================================

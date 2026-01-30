@@ -10,10 +10,10 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
-	"github.com/Toniq-Labs/odin-ws/pkg/logging"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
 // MultiTenantConsumerPool manages Kafka consumers for multi-tenant deployments.

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
 // TenantIsolator provides unified tenant isolation for channels and topics.

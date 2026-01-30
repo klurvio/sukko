@@ -8,7 +8,7 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/pkg/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 )
 
 // Internal monitoring and metric collection

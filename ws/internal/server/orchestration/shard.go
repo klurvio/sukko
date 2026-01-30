@@ -9,9 +9,9 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/server"
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
-	"github.com/Toniq-Labs/odin-ws/pkg/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 )
 
 // Shard represents a single instance of the WebSocket server, running on its own core.

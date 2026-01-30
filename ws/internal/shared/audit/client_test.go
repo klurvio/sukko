@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/pkg/alerting"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
 )
 
 func TestClientLogger_IncludesClientID(t *testing.T) {

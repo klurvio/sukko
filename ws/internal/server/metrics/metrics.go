@@ -13,7 +13,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
 // =============================================================================

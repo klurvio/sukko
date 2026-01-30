@@ -12,8 +12,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/pkg/logging"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
 // PostgresKeyRegistryConfig configures the PostgresKeyRegistry.
