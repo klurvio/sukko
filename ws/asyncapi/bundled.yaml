@@ -9,33 +9,110 @@ info:
     This API documents the Kafka/Redpanda messaging layer for real-time token
     events.
 
-    Events are published to topics based on their category using the pattern:
-    `odin.<category>`
+
+    ## Topic Naming Patterns
 
 
-    ## Topics Overview
+    ### Infrastructure Topics (Shared Processing Pipeline)
 
-    - `odin.trades` - Trading events (executions, buys, sells)
+    Pattern: `odin.{env}.{category}` and `odin.{env}.{category}.refined`
 
-    - `odin.liquidity` - Liquidity pool operations
 
-    - `odin.balances` - User balance and transfer events
+    The Flink processing pipeline consumes raw events and publishes refined
+    events:
 
-    - `odin.metadata` - Token metadata updates
+    - **Raw topics** (publisher writes): `odin.local.trade`,
+    `odin.develop.trade`, `odin.main.trade`
 
-    - `odin.social` - Social verification and links
+    - **Refined topics** (ws-server consumes): `odin.local.trade.refined`,
+    `odin.develop.trade.refined`
 
-    - `odin.community` - Comments, favorites, voting
 
-    - `odin.creation` - Token creation and listing
+    Environment values: `local`, `develop`, `staging`, `main`
 
-    - `odin.analytics` - Price deltas, holder counts, trending
+
+    ### Multi-Tenant Topics
+
+    Pattern: `{namespace}.{tenant_id}.{category}`
+
+
+    Tenants receive isolated topics provisioned via the Provisioning API:
+
+    - Example: `main.acme-corp.trade`, `main.acme-corp.liquidity`
+
+    - Topics are created when tenants are onboarded
+
+    - Access controlled via JWT authentication with tenant-scoped keys
+
+
+    Consumer types:
+
+    - **Shared**: Multiple tenants share a consumer group (default)
+
+    - **Dedicated**: Tenant gets isolated consumer for guaranteed throughput
+
+
+    ## Categories
+
+    - `trade` - Trading events (executions, buys, sells)
+
+    - `liquidity` - Liquidity pool operations
+
+    - `balance` - User balance and transfer events
+
+    - `metadata` - Token metadata updates
+
+    - `social` - Social verification and links
+
+    - `community` - Comments, favorites, voting
+
+    - `creation` - Token creation and listing
+
+    - `analytics` - Price deltas, holder counts, trending
 
 
     ## Message Key
 
     All messages use the **token ID** as the Kafka message key for
     partition-based sharding.
+
+
+    ## Authentication
+
+    WebSocket connections support two authentication methods:
+
+
+    ### 1. Tenant JWT (PostgresKeyRegistry)
+
+    - Tokens include `kid` header referencing registered public key
+
+    - Keys managed via Provisioning API
+
+    - Best for: Multi-tenant SaaS deployments with key rotation
+
+
+    ### 2. OIDC/JWKS Authentication
+
+    - Tokens validated via JWKS discovery from configured issuers
+
+    - Issuer URL in `iss` claim determines JWKS endpoint
+
+    - Best for: Integration with existing identity providers
+
+
+    **Token Routing:**
+
+    The gateway automatically routes tokens to the appropriate validator:
+
+    1. `kid` header present → Tenant JWT validator
+
+    2. `iss` claim present → OIDC/JWKS validator
+
+
+    See security schemes below for detailed requirements.
+  externalDocs:
+    description: WebSocket Client Integration Guide
+    url: https://github.com/toniq/odin-ws/blob/main/ws/CLIENT_GUIDE.md
   contact:
     name: Platform Team
   license:
@@ -46,14 +123,32 @@ servers:
     host: localhost:9092
     protocol: kafka
     description: Local Redpanda broker for development
-  kubernetes:
-    host: odin-redpanda:9092
+    tags:
+      - name: env:local
+  develop:
+    host: odin-redpanda.develop:9092
     protocol: kafka
-    description: Kubernetes internal Redpanda broker
+    description: Develop environment Redpanda cluster
+    tags:
+      - name: env:develop
+  staging:
+    host: odin-redpanda.staging:9092
+    protocol: kafka
+    description: Staging environment Redpanda cluster
+    tags:
+      - name: env:staging
+  production:
+    host: odin-redpanda.production:9092
+    protocol: kafka
+    description: Production Redpanda cluster
+    tags:
+      - name: env:main
   kind:
     host: localhost:19092
     protocol: kafka
     description: Kind cluster Redpanda (external port)
+    tags:
+      - name: env:local
 channels:
   odin.trades:
     address: odin.trades
@@ -82,6 +177,16 @@ channels:
 
           **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
           "ETH")
+
+
+          **Sequence Numbers**: The `seq` field is a per-connection sequence
+          number
+
+          that clients can use for gap detection. If a client receives seq=5
+          followed
+
+          by seq=7, it knows seq=6 was missed and can request replay via
+          reconnect.
         contentType: application/json
         headers:
           type: object
@@ -97,6 +202,21 @@ channels:
             - timestamp
             - data
           properties:
+            seq:
+              type: integer
+              format: int64
+              description: |
+                Per-connection sequence number for gap detection.
+                Starts at 1 for each new WebSocket connection and increments
+                monotonically. Clients can detect missed messages by checking
+                for gaps in the sequence.
+              example: 42
+            channel:
+              type: string
+              description: |
+                The channel this message was published to (e.g., "BTC.trade").
+                Format: `{token_id}.{category}` for token-specific channels.
+              example: BTC.trade
             type:
               type: string
               description: >
@@ -141,6 +261,8 @@ channels:
             headers:
               kafka_key: BTC
             payload:
+              seq: 42
+              channel: BTC.trade
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
@@ -154,6 +276,8 @@ channels:
             headers:
               kafka_key: ETH
             payload:
+              seq: 43
+              channel: ETH.liquidity
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
@@ -193,6 +317,16 @@ channels:
 
           **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
           "ETH")
+
+
+          **Sequence Numbers**: The `seq` field is a per-connection sequence
+          number
+
+          that clients can use for gap detection. If a client receives seq=5
+          followed
+
+          by seq=7, it knows seq=6 was missed and can request replay via
+          reconnect.
         contentType: application/json
         headers:
           type: object
@@ -208,6 +342,21 @@ channels:
             - timestamp
             - data
           properties:
+            seq:
+              type: integer
+              format: int64
+              description: |
+                Per-connection sequence number for gap detection.
+                Starts at 1 for each new WebSocket connection and increments
+                monotonically. Clients can detect missed messages by checking
+                for gaps in the sequence.
+              example: 42
+            channel:
+              type: string
+              description: |
+                The channel this message was published to (e.g., "BTC.trade").
+                Format: `{token_id}.{category}` for token-specific channels.
+              example: BTC.trade
             type:
               type: string
               description: >
@@ -252,6 +401,8 @@ channels:
             headers:
               kafka_key: BTC
             payload:
+              seq: 42
+              channel: BTC.trade
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
@@ -265,6 +416,8 @@ channels:
             headers:
               kafka_key: ETH
             payload:
+              seq: 43
+              channel: ETH.liquidity
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
@@ -303,6 +456,16 @@ channels:
 
           **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
           "ETH")
+
+
+          **Sequence Numbers**: The `seq` field is a per-connection sequence
+          number
+
+          that clients can use for gap detection. If a client receives seq=5
+          followed
+
+          by seq=7, it knows seq=6 was missed and can request replay via
+          reconnect.
         contentType: application/json
         headers:
           type: object
@@ -318,6 +481,21 @@ channels:
             - timestamp
             - data
           properties:
+            seq:
+              type: integer
+              format: int64
+              description: |
+                Per-connection sequence number for gap detection.
+                Starts at 1 for each new WebSocket connection and increments
+                monotonically. Clients can detect missed messages by checking
+                for gaps in the sequence.
+              example: 42
+            channel:
+              type: string
+              description: |
+                The channel this message was published to (e.g., "BTC.trade").
+                Format: `{token_id}.{category}` for token-specific channels.
+              example: BTC.trade
             type:
               type: string
               description: >
@@ -362,6 +540,8 @@ channels:
             headers:
               kafka_key: BTC
             payload:
+              seq: 42
+              channel: BTC.trade
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
@@ -375,6 +555,8 @@ channels:
             headers:
               kafka_key: ETH
             payload:
+              seq: 43
+              channel: ETH.liquidity
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
@@ -414,6 +596,16 @@ channels:
 
           **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
           "ETH")
+
+
+          **Sequence Numbers**: The `seq` field is a per-connection sequence
+          number
+
+          that clients can use for gap detection. If a client receives seq=5
+          followed
+
+          by seq=7, it knows seq=6 was missed and can request replay via
+          reconnect.
         contentType: application/json
         headers:
           type: object
@@ -429,6 +621,21 @@ channels:
             - timestamp
             - data
           properties:
+            seq:
+              type: integer
+              format: int64
+              description: |
+                Per-connection sequence number for gap detection.
+                Starts at 1 for each new WebSocket connection and increments
+                monotonically. Clients can detect missed messages by checking
+                for gaps in the sequence.
+              example: 42
+            channel:
+              type: string
+              description: |
+                The channel this message was published to (e.g., "BTC.trade").
+                Format: `{token_id}.{category}` for token-specific channels.
+              example: BTC.trade
             type:
               type: string
               description: >
@@ -473,6 +680,8 @@ channels:
             headers:
               kafka_key: BTC
             payload:
+              seq: 42
+              channel: BTC.trade
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
@@ -486,6 +695,8 @@ channels:
             headers:
               kafka_key: ETH
             payload:
+              seq: 43
+              channel: ETH.liquidity
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
@@ -524,6 +735,16 @@ channels:
 
           **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
           "ETH")
+
+
+          **Sequence Numbers**: The `seq` field is a per-connection sequence
+          number
+
+          that clients can use for gap detection. If a client receives seq=5
+          followed
+
+          by seq=7, it knows seq=6 was missed and can request replay via
+          reconnect.
         contentType: application/json
         headers:
           type: object
@@ -539,6 +760,21 @@ channels:
             - timestamp
             - data
           properties:
+            seq:
+              type: integer
+              format: int64
+              description: |
+                Per-connection sequence number for gap detection.
+                Starts at 1 for each new WebSocket connection and increments
+                monotonically. Clients can detect missed messages by checking
+                for gaps in the sequence.
+              example: 42
+            channel:
+              type: string
+              description: |
+                The channel this message was published to (e.g., "BTC.trade").
+                Format: `{token_id}.{category}` for token-specific channels.
+              example: BTC.trade
             type:
               type: string
               description: >
@@ -583,6 +819,8 @@ channels:
             headers:
               kafka_key: BTC
             payload:
+              seq: 42
+              channel: BTC.trade
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
@@ -596,6 +834,8 @@ channels:
             headers:
               kafka_key: ETH
             payload:
+              seq: 43
+              channel: ETH.liquidity
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
@@ -636,6 +876,16 @@ channels:
 
           **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
           "ETH")
+
+
+          **Sequence Numbers**: The `seq` field is a per-connection sequence
+          number
+
+          that clients can use for gap detection. If a client receives seq=5
+          followed
+
+          by seq=7, it knows seq=6 was missed and can request replay via
+          reconnect.
         contentType: application/json
         headers:
           type: object
@@ -651,6 +901,21 @@ channels:
             - timestamp
             - data
           properties:
+            seq:
+              type: integer
+              format: int64
+              description: |
+                Per-connection sequence number for gap detection.
+                Starts at 1 for each new WebSocket connection and increments
+                monotonically. Clients can detect missed messages by checking
+                for gaps in the sequence.
+              example: 42
+            channel:
+              type: string
+              description: |
+                The channel this message was published to (e.g., "BTC.trade").
+                Format: `{token_id}.{category}` for token-specific channels.
+              example: BTC.trade
             type:
               type: string
               description: >
@@ -695,6 +960,8 @@ channels:
             headers:
               kafka_key: BTC
             payload:
+              seq: 42
+              channel: BTC.trade
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
@@ -708,6 +975,8 @@ channels:
             headers:
               kafka_key: ETH
             payload:
+              seq: 43
+              channel: ETH.liquidity
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
@@ -746,6 +1015,16 @@ channels:
 
           **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
           "ETH")
+
+
+          **Sequence Numbers**: The `seq` field is a per-connection sequence
+          number
+
+          that clients can use for gap detection. If a client receives seq=5
+          followed
+
+          by seq=7, it knows seq=6 was missed and can request replay via
+          reconnect.
         contentType: application/json
         headers:
           type: object
@@ -761,6 +1040,21 @@ channels:
             - timestamp
             - data
           properties:
+            seq:
+              type: integer
+              format: int64
+              description: |
+                Per-connection sequence number for gap detection.
+                Starts at 1 for each new WebSocket connection and increments
+                monotonically. Clients can detect missed messages by checking
+                for gaps in the sequence.
+              example: 42
+            channel:
+              type: string
+              description: |
+                The channel this message was published to (e.g., "BTC.trade").
+                Format: `{token_id}.{category}` for token-specific channels.
+              example: BTC.trade
             type:
               type: string
               description: >
@@ -805,6 +1099,8 @@ channels:
             headers:
               kafka_key: BTC
             payload:
+              seq: 42
+              channel: BTC.trade
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
@@ -818,6 +1114,8 @@ channels:
             headers:
               kafka_key: ETH
             payload:
+              seq: 43
+              channel: ETH.liquidity
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
@@ -858,6 +1156,16 @@ channels:
 
           **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
           "ETH")
+
+
+          **Sequence Numbers**: The `seq` field is a per-connection sequence
+          number
+
+          that clients can use for gap detection. If a client receives seq=5
+          followed
+
+          by seq=7, it knows seq=6 was missed and can request replay via
+          reconnect.
         contentType: application/json
         headers:
           type: object
@@ -873,6 +1181,21 @@ channels:
             - timestamp
             - data
           properties:
+            seq:
+              type: integer
+              format: int64
+              description: |
+                Per-connection sequence number for gap detection.
+                Starts at 1 for each new WebSocket connection and increments
+                monotonically. Clients can detect missed messages by checking
+                for gaps in the sequence.
+              example: 42
+            channel:
+              type: string
+              description: |
+                The channel this message was published to (e.g., "BTC.trade").
+                Format: `{token_id}.{category}` for token-specific channels.
+              example: BTC.trade
             type:
               type: string
               description: >
@@ -917,6 +1240,8 @@ channels:
             headers:
               kafka_key: BTC
             payload:
+              seq: 42
+              channel: BTC.trade
               type: TRADE_EXECUTED
               timestamp: 1699901234567
               data:
@@ -930,6 +1255,8 @@ channels:
             headers:
               kafka_key: ETH
             payload:
+              seq: 43
+              channel: ETH.liquidity
               type: LIQUIDITY_ADDED
               timestamp: 1699901234567
               data:
@@ -942,6 +1269,541 @@ channels:
         replicas: 1
         topicConfiguration:
           retention.ms: 300000
+  ws.control.subscribe:
+    address: ws://control/subscribe
+    description: >
+      Channel for subscription management.
+
+
+      **Client → Server:**
+
+      - `SubscribeRequest` - Subscribe to event channels
+
+      - `UnsubscribeRequest` - Unsubscribe from event channels
+
+
+      **Server → Client:**
+
+      - `SubscriptionAck` - Confirms subscription
+
+      - `UnsubscriptionAck` - Confirms unsubscription
+
+
+      **Example Flow:**
+
+      ```
+
+      Client: {"type": "subscribe", "data": {"channels": ["BTC.trade"]}}
+
+      Server: {"type": "subscription_ack", "subscribed": ["BTC.trade"], "count":
+      1}
+
+      ```
+    messages:
+      SubscribeRequest:
+        name: SubscribeRequest
+        title: Subscribe Request
+        summary: Request to subscribe to event channels
+        description: >
+          Client sends this message to subscribe to one or more event channels.
+
+          The server will acknowledge with a `SubscriptionAck` message.
+
+
+          **Channel Format**: `{token_id}.{category}` (e.g., "BTC.trade",
+          "ETH.liquidity")
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - data
+          properties:
+            type:
+              type: string
+              const: subscribe
+              description: Message type identifier
+            data:
+              type: object
+              required:
+                - channels
+              properties:
+                channels:
+                  type: array
+                  items:
+                    type: string
+                  description: List of channels to subscribe to
+                  example:
+                    - BTC.trade
+                    - ETH.liquidity
+                    - '*.creation'
+        examples:
+          - name: Subscribe to multiple channels
+            payload:
+              type: subscribe
+              data:
+                channels:
+                  - BTC.trade
+                  - ETH.trade
+                  - BTC.liquidity
+      UnsubscribeRequest:
+        name: UnsubscribeRequest
+        title: Unsubscribe Request
+        summary: Request to unsubscribe from event channels
+        description: >
+          Client sends this message to unsubscribe from one or more event
+          channels.
+
+          The server will acknowledge with an `UnsubscriptionAck` message.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - data
+          properties:
+            type:
+              type: string
+              const: unsubscribe
+              description: Message type identifier
+            data:
+              type: object
+              required:
+                - channels
+              properties:
+                channels:
+                  type: array
+                  items:
+                    type: string
+                  description: List of channels to unsubscribe from
+                  example:
+                    - BTC.trade
+        examples:
+          - name: Unsubscribe from a channel
+            payload:
+              type: unsubscribe
+              data:
+                channels:
+                  - BTC.trade
+      SubscriptionAck:
+        name: SubscriptionAck
+        title: Subscription Acknowledgment
+        summary: Server acknowledgment of subscription request
+        description: |
+          Server sends this message to confirm a successful subscription.
+          Contains the list of channels now subscribed and the total count.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - subscribed
+            - count
+          properties:
+            type:
+              type: string
+              const: subscription_ack
+              description: Message type identifier
+            subscribed:
+              type: array
+              items:
+                type: string
+              description: List of channels successfully subscribed to
+              example:
+                - BTC.trade
+                - ETH.trade
+            count:
+              type: integer
+              description: Total number of active subscriptions for this connection
+              example: 5
+        examples:
+          - name: Subscription confirmed
+            payload:
+              type: subscription_ack
+              subscribed:
+                - BTC.trade
+                - ETH.trade
+              count: 5
+      UnsubscriptionAck:
+        name: UnsubscriptionAck
+        title: Unsubscription Acknowledgment
+        summary: Server acknowledgment of unsubscription request
+        description: |
+          Server sends this message to confirm a successful unsubscription.
+          Contains the list of channels unsubscribed and the remaining count.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - unsubscribed
+            - count
+          properties:
+            type:
+              type: string
+              const: unsubscription_ack
+              description: Message type identifier
+            unsubscribed:
+              type: array
+              items:
+                type: string
+              description: List of channels successfully unsubscribed from
+              example:
+                - BTC.trade
+            count:
+              type: integer
+              description: Total number of remaining active subscriptions
+              example: 4
+        examples:
+          - name: Unsubscription confirmed
+            payload:
+              type: unsubscription_ack
+              unsubscribed:
+                - BTC.trade
+              count: 4
+  ws.control.heartbeat:
+    address: ws://control/heartbeat
+    description: |
+      Channel for connection keep-alive.
+
+      **Client → Server:**
+      - `HeartbeatRequest` - Ping to keep connection alive
+
+      **Server → Client:**
+      - `PongResponse` - Response with server timestamp
+
+      **Recommended Interval:** Send heartbeat every 30 seconds.
+
+      **Example Flow:**
+      ```
+      Client: {"type": "heartbeat"}
+      Server: {"type": "pong", "ts": 1699901234567}
+      ```
+    messages:
+      HeartbeatRequest:
+        name: HeartbeatRequest
+        title: Heartbeat Request
+        summary: Keep-alive ping from client
+        description: |
+          Client sends this message to keep the connection alive.
+          The server will respond with a `PongResponse` message.
+
+          **Recommended interval**: Send every 30 seconds to prevent timeout.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+          properties:
+            type:
+              type: string
+              const: heartbeat
+              description: Message type identifier
+        examples:
+          - name: Heartbeat ping
+            payload:
+              type: heartbeat
+      PongResponse:
+        name: PongResponse
+        title: Pong Response
+        summary: Server response to heartbeat
+        description: |
+          Server sends this message in response to a `HeartbeatRequest`.
+          Contains the server timestamp for latency measurement.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - ts
+          properties:
+            type:
+              type: string
+              const: pong
+              description: Message type identifier
+            ts:
+              type: integer
+              format: int64
+              description: Server timestamp in milliseconds
+              example: 1699901234567
+        examples:
+          - name: Pong with timestamp
+            payload:
+              type: pong
+              ts: 1699901234567
+  ws.control.reconnect:
+    address: ws://control/reconnect
+    description: >
+      Channel for reconnection and message replay.
+
+
+      **Client → Server:**
+
+      - `ReconnectRequest` - Request to replay missed messages
+
+
+      **Server → Client:**
+
+      - `ReconnectAck` - Confirms reconnection and replay status
+
+
+      **Use Case:**
+
+      When a client reconnects after a disconnect, it can request replay
+
+      of messages missed during the outage by providing its last known offset.
+
+
+      **Example Flow:**
+
+      ```
+
+      Client: {"type": "reconnect", "data": {"client_id": "abc123",
+      "last_offset": 12345}}
+
+      Server: {"type": "reconnect_ack", "status": "success",
+      "messages_replayed": 42}
+
+      ```
+
+
+      **Status Values:**
+
+      - `success` - All missed messages replayed
+
+      - `partial` - Some messages beyond retention window
+
+      - `failed` - Invalid client_id or offset
+    messages:
+      ReconnectRequest:
+        name: ReconnectRequest
+        title: Reconnect Request
+        summary: Request to reconnect and replay missed messages
+        description: |
+          Client sends this message after reconnecting to request replay of
+          missed messages. The server will replay messages from the specified
+          offset and respond with a `ReconnectAck` message.
+
+          **Use case**: After a disconnect, client provides its last known
+          offset to receive any messages that were published during the outage.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - data
+          properties:
+            type:
+              type: string
+              const: reconnect
+              description: Message type identifier
+            data:
+              type: object
+              required:
+                - client_id
+                - last_offset
+              properties:
+                client_id:
+                  type: string
+                  description: Client's unique identifier from previous session
+                  example: client-abc123
+                last_offset:
+                  type: integer
+                  format: int64
+                  description: Last successfully received message offset
+                  example: 12345
+        examples:
+          - name: Reconnect with offset
+            payload:
+              type: reconnect
+              data:
+                client_id: client-abc123
+                last_offset: 12345
+      ReconnectAck:
+        name: ReconnectAck
+        title: Reconnect Acknowledgment
+        summary: Server acknowledgment of reconnect request
+        description: |
+          Server sends this message after processing a reconnect request.
+          Indicates the reconnection status and how many messages were replayed.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - status
+            - messages_replayed
+          properties:
+            type:
+              type: string
+              const: reconnect_ack
+              description: Message type identifier
+            status:
+              type: string
+              enum:
+                - success
+                - partial
+                - failed
+              description: |
+                Reconnection status:
+                - `success`: All missed messages replayed
+                - `partial`: Some messages were beyond retention window
+                - `failed`: Reconnection failed (invalid client_id or offset)
+              example: success
+            messages_replayed:
+              type: integer
+              description: Number of messages replayed to the client
+              example: 42
+        examples:
+          - name: Successful reconnection
+            payload:
+              type: reconnect_ack
+              status: success
+              messages_replayed: 42
+  ws.control.error:
+    address: ws://control/error
+    description: |
+      Channel for error responses and publish acknowledgments.
+
+      **Server → Client:**
+      - `ErrorResponse` - Error during message processing
+      - `PublishAck` - Confirms successful publish
+      - `PublishError` - Error during publish operation
+
+      **Common Error Codes:**
+      | Code | Description |
+      |------|-------------|
+      | `invalid_message` | Malformed message payload |
+      | `unauthorized` | Authentication required or failed |
+      | `forbidden` | Not authorized for this channel |
+      | `channel_not_found` | Requested channel does not exist |
+      | `rate_limited` | Too many requests |
+      | `internal_error` | Server-side error |
+    messages:
+      ErrorResponse:
+        name: ErrorResponse
+        title: Error Response
+        summary: Server error message
+        description: >
+          Server sends this message when an error occurs during message
+          processing.
+
+          Contains an error code and human-readable message.
+
+
+          **Common Error Codes:**
+
+          | Code | Description |
+
+          |------|-------------|
+
+          | `invalid_message` | Malformed message payload |
+
+          | `unauthorized` | Authentication required or failed |
+
+          | `forbidden` | Not authorized for this channel |
+
+          | `channel_not_found` | Requested channel does not exist |
+
+          | `rate_limited` | Too many requests |
+
+          | `internal_error` | Server-side error |
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - code
+            - message
+          properties:
+            type:
+              type: string
+              const: error
+              description: Message type identifier
+            code:
+              type: string
+              description: Error code for programmatic handling
+              example: unauthorized
+            message:
+              type: string
+              description: Human-readable error description
+              example: Token expired
+        examples:
+          - name: Authentication error
+            payload:
+              type: error
+              code: unauthorized
+              message: Token expired
+      PublishAck:
+        name: PublishAck
+        title: Publish Acknowledgment
+        summary: Server acknowledgment of published message
+        description: >
+          Server sends this message to confirm a message was successfully
+
+          published to a channel. Only sent if the client has publish
+          permissions.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - channel
+          properties:
+            type:
+              type: string
+              const: publish_ack
+              description: Message type identifier
+            channel:
+              type: string
+              description: Channel the message was published to
+              example: BTC.trade
+        examples:
+          - name: Publish confirmed
+            payload:
+              type: publish_ack
+              channel: BTC.trade
+      PublishError:
+        name: PublishError
+        title: Publish Error
+        summary: Server error for failed publish
+        description: |
+          Server sends this message when a publish operation fails.
+          Contains an error code and description.
+
+          **Common Error Codes:**
+          | Code | Description |
+          |------|-------------|
+          | `forbidden` | Not authorized to publish to this channel |
+          | `invalid_payload` | Message payload validation failed |
+          | `channel_not_found` | Target channel does not exist |
+          | `quota_exceeded` | Publish rate limit exceeded |
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - code
+            - message
+          properties:
+            type:
+              type: string
+              const: publish_error
+              description: Message type identifier
+            code:
+              type: string
+              description: Error code for programmatic handling
+              example: forbidden
+            message:
+              type: string
+              description: Human-readable error description
+              example: Not authorized to publish to this channel
+        examples:
+          - name: Publish forbidden
+            payload:
+              type: publish_error
+              code: forbidden
+              message: Not authorized to publish to this channel
 operations:
   publishTrades:
     action: send
@@ -1167,6 +2029,78 @@ operations:
       Medium-frequency topic with 5m retention.
     messages:
       - $ref: '#/channels/odin.analytics/messages/TokenEventMessage'
+  wsSubscribe:
+    action: send
+    channel:
+      $ref: '#/channels/ws.control.subscribe'
+    summary: Subscribe to event channels
+    description: |
+      Client sends subscription requests to manage channel subscriptions.
+
+      **Request:** `SubscribeRequest` or `UnsubscribeRequest`
+      **Response:** `SubscriptionAck` or `UnsubscriptionAck`
+    messages:
+      - $ref: '#/channels/ws.control.subscribe/messages/SubscribeRequest'
+      - $ref: '#/channels/ws.control.subscribe/messages/UnsubscribeRequest'
+  wsSubscribeAck:
+    action: receive
+    channel:
+      $ref: '#/channels/ws.control.subscribe'
+    summary: Receive subscription acknowledgments
+    description: |
+      Server sends acknowledgments for subscription operations.
+    messages:
+      - $ref: '#/channels/ws.control.subscribe/messages/SubscriptionAck'
+      - $ref: '#/channels/ws.control.subscribe/messages/UnsubscriptionAck'
+  wsHeartbeat:
+    action: send
+    channel:
+      $ref: '#/channels/ws.control.heartbeat'
+    summary: Send heartbeat ping
+    description: |
+      Client sends heartbeat to keep connection alive.
+      Recommended interval: every 30 seconds.
+    messages:
+      - $ref: '#/channels/ws.control.heartbeat/messages/HeartbeatRequest'
+  wsHeartbeatAck:
+    action: receive
+    channel:
+      $ref: '#/channels/ws.control.heartbeat'
+    summary: Receive heartbeat response
+    description: |
+      Server responds with pong containing server timestamp.
+    messages:
+      - $ref: '#/channels/ws.control.heartbeat/messages/PongResponse'
+  wsReconnect:
+    action: send
+    channel:
+      $ref: '#/channels/ws.control.reconnect'
+    summary: Request reconnection and replay
+    description: |
+      Client sends reconnect request to replay missed messages.
+      Provide the last known offset to receive messages from that point.
+    messages:
+      - $ref: '#/channels/ws.control.reconnect/messages/ReconnectRequest'
+  wsReconnectAck:
+    action: receive
+    channel:
+      $ref: '#/channels/ws.control.reconnect'
+    summary: Receive reconnection acknowledgment
+    description: |
+      Server acknowledges reconnection with replay status.
+    messages:
+      - $ref: '#/channels/ws.control.reconnect/messages/ReconnectAck'
+  wsError:
+    action: receive
+    channel:
+      $ref: '#/channels/ws.control.error'
+    summary: Receive error responses
+    description: |
+      Server sends error responses for failed operations.
+    messages:
+      - $ref: '#/channels/ws.control.error/messages/ErrorResponse'
+      - $ref: '#/channels/ws.control.error/messages/PublishAck'
+      - $ref: '#/channels/ws.control.error/messages/PublishError'
 components:
   messages:
     TokenEventMessage:
@@ -1183,6 +2117,16 @@ components:
 
         **Message Key**: The Kafka message key is the token ID (e.g., "BTC",
         "ETH")
+
+
+        **Sequence Numbers**: The `seq` field is a per-connection sequence
+        number
+
+        that clients can use for gap detection. If a client receives seq=5
+        followed
+
+        by seq=7, it knows seq=6 was missed and can request replay via
+        reconnect.
       contentType: application/json
       headers:
         type: object
@@ -1198,6 +2142,21 @@ components:
           - timestamp
           - data
         properties:
+          seq:
+            type: integer
+            format: int64
+            description: |
+              Per-connection sequence number for gap detection.
+              Starts at 1 for each new WebSocket connection and increments
+              monotonically. Clients can detect missed messages by checking
+              for gaps in the sequence.
+            example: 42
+          channel:
+            type: string
+            description: |
+              The channel this message was published to (e.g., "BTC.trade").
+              Format: `{token_id}.{category}` for token-specific channels.
+            example: BTC.trade
           type:
             type: string
             description: >
@@ -1242,6 +2201,8 @@ components:
           headers:
             kafka_key: BTC
           payload:
+            seq: 42
+            channel: BTC.trade
             type: TRADE_EXECUTED
             timestamp: 1699901234567
             data:
@@ -1255,6 +2216,8 @@ components:
           headers:
             kafka_key: ETH
           payload:
+            seq: 43
+            channel: ETH.liquidity
             type: LIQUIDITY_ADDED
             timestamp: 1699901234567
             data:
@@ -1802,3 +2765,87 @@ components:
               format: double
               description: Trending score (higher = more trending)
               example: 850.5
+  securitySchemes:
+    tenantJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT authentication for multi-tenant WebSocket connections.
+
+
+        **Token Requirements:**
+
+        - Algorithm: ES256, RS256, or EdDSA (asymmetric only)
+
+        - Header must include `kid` (key ID) registered via Provisioning API
+
+        - Claims must include `tid` (tenant ID) matching the registered key
+
+
+        **Required Claims:**
+
+        | Claim | Description |
+
+        |-------|-------------|
+
+        | `tenant_id` | Tenant ID (e.g., "acme-corp") |
+
+        | `sub` | Subject/user identifier |
+
+        | `exp` | Expiration timestamp |
+
+        | `iat` | Issued-at timestamp |
+
+
+        **Optional Claims:**
+
+        | Claim | Description |
+
+        |-------|-------------|
+
+        | `aud` | Audience (validated if configured) |
+
+        | `categories` | Array of allowed event categories |
+
+
+        **Connection URL:**
+
+        ```
+
+        wss://gateway.example.com/ws?token=<JWT>
+
+        ```
+
+
+        **Key Registration:**
+
+        Public keys are registered via the Provisioning API and cached by
+        ws-gateway.
+
+        Keys support rotation with multiple active keys per tenant.
+    oidcJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        OIDC/JWKS-based JWT authentication.
+
+        **How it works:**
+        - Tokens are validated via JWKS discovery from configured OIDC issuers
+        - Issuer URL in token determines which JWKS endpoint to use
+        - Audience claim is validated against configured values
+
+        **Required Claims:**
+        | Claim | Description |
+        |-------|-------------|
+        | `iss` | OIDC issuer URL (must be pre-registered) |
+        | `sub` | Subject/user identifier |
+        | `aud` | Audience (validated against config) |
+        | `exp` | Expiration timestamp |
+        | `tenant_id` | Tenant identifier |
+
+        **Token Routing:**
+        Gateway routes tokens to appropriate validator based on:
+        1. `kid` header present → Tenant JWT (PostgresKeyRegistry)
+        2. `iss` claim present → OIDC/JWKS validation

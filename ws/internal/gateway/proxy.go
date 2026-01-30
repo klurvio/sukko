@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
 
 // Proxy handles bidirectional WebSocket message forwarding between client and backend.
@@ -55,14 +55,14 @@ func (p *Proxy) Run() {
 
 	// Client -> Backend (with message interception)
 	go func() {
-		defer monitoring.RecoverPanic(p.logger, "proxyClientToBackend", nil)
+		defer logging.RecoverPanic(p.logger, "proxyClientToBackend", nil)
 		defer wg.Done()
 		p.proxyClientToBackend(errChan)
 	}()
 
 	// Backend -> Client (pass-through)
 	go func() {
-		defer monitoring.RecoverPanic(p.logger, "proxyBackendToClient", nil)
+		defer logging.RecoverPanic(p.logger, "proxyBackendToClient", nil)
 		defer wg.Done()
 		p.proxyBackendToClient(errChan)
 	}()

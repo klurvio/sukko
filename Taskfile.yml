@@ -229,3 +229,8 @@ tasks:
     desc: Quick stats overview
     cmds:
       - task: local:stats:all
+
+  asyncapi:bundle:
+    desc: Bundle AsyncAPI spec into single file
+    cmds:
+      - task: k8s:common:asyncapi:bundle

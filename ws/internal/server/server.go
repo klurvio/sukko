@@ -26,6 +26,7 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
@@ -94,9 +95,9 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Initialize structured logger
-	logger := monitoring.NewLogger(monitoring.LoggerConfig{
-		Level:  config.LogLevel,
-		Format: config.LogFormat,
+	logger := logging.NewLogger(logging.LoggerConfig{
+		Level:  logging.LogLevel(config.LogLevel),
+		Format: logging.LogFormat(config.LogFormat),
 	})
 
 	s := &Server{
@@ -260,7 +261,7 @@ func (s *Server) Start() error {
 	s.wg.Add(1)
 	go func() {
 		// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
-		defer monitoring.RecoverPanic(s.logger, "server.Serve", nil)
+		defer logging.RecoverPanic(s.logger, "server.Serve", nil)
 
 		defer s.wg.Done()
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {

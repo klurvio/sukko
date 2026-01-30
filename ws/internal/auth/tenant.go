@@ -350,7 +350,6 @@ type noopAuditLogger struct{}
 func (n *noopAuditLogger) LogDenied(_ context.Context, _ *AuditEntry)  {}
 func (n *noopAuditLogger) LogAllowed(_ context.Context, _ *AuditEntry) {}
 
-
 // TenantContext provides tenant information for a request.
 type TenantContext struct {
 	TenantID string

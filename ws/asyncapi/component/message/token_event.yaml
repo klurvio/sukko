@@ -11,6 +11,10 @@ TokenEventMessage:
     contains the event-specific payload.
 
     **Message Key**: The Kafka message key is the token ID (e.g., "BTC", "ETH")
+
+    **Sequence Numbers**: The `seq` field is a per-connection sequence number
+    that clients can use for gap detection. If a client receives seq=5 followed
+    by seq=7, it knows seq=6 was missed and can request replay via reconnect.
   contentType: application/json
   headers:
     type: object
@@ -26,6 +30,21 @@ TokenEventMessage:
       - timestamp
       - data
     properties:
+      seq:
+        type: integer
+        format: int64
+        description: |
+          Per-connection sequence number for gap detection.
+          Starts at 1 for each new WebSocket connection and increments
+          monotonically. Clients can detect missed messages by checking
+          for gaps in the sequence.
+        example: 42
+      channel:
+        type: string
+        description: |
+          The channel this message was published to (e.g., "BTC.trade").
+          Format: `{token_id}.{category}` for token-specific channels.
+        example: "BTC.trade"
       type:
         type: string
         description: |
@@ -56,6 +75,8 @@ TokenEventMessage:
       headers:
         kafka_key: BTC
       payload:
+        seq: 42
+        channel: "BTC.trade"
         type: TRADE_EXECUTED
         timestamp: 1699901234567
         data:
@@ -69,6 +90,8 @@ TokenEventMessage:
       headers:
         kafka_key: ETH
       payload:
+        seq: 43
+        channel: "ETH.liquidity"
         type: LIQUIDITY_ADDED
         timestamp: 1699901234567
         data:

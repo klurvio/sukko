@@ -21,14 +21,18 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/types"
 )
 
-// LoggerConfig holds logger configuration
+// LoggerConfig holds logger configuration.
+//
+// Deprecated: Use pkg/logging.LoggerConfig instead.
 type LoggerConfig struct {
 	Level       types.LogLevel  // Minimum log level
 	Format      types.LogFormat // Output format
 	ServiceName string          // Service name for log identification (e.g., "ws-server", "ws-gateway")
 }
 
-// NewLogger creates a structured logger configured for Loki integration
+// NewLogger creates a structured logger configured for Loki integration.
+//
+// Deprecated: Use pkg/logging.NewLogger instead.
 //
 // Features:
 //   - Structured JSON output (Loki-compatible)
@@ -173,7 +177,10 @@ func LogPanic(logger zerolog.Logger, panicValue any, msg string, fields map[stri
 	event.Msg(msg)
 }
 
-// RecoverPanic is a helper for goroutine panic recovery that logs but doesn't exit
+// RecoverPanic is a helper for goroutine panic recovery that logs but doesn't exit.
+//
+// Deprecated: Use pkg/logging.RecoverPanic instead. This function remains for backward
+// compatibility and will be removed when internal/monitoring is deleted.
 //
 // CRITICAL: Use this in ALL goroutine defer blocks to catch panics that would otherwise
 // crash the entire process. This is for DEBUGGING - logs panic details but keeps server running.
@@ -181,7 +188,7 @@ func LogPanic(logger zerolog.Logger, panicValue any, msg string, fields map[stri
 // Example:
 //
 //	go func() {
-//	    defer monitoring.RecoverPanic(logger, "writePump", map[string]any{"client_id": id})
+//	    defer logging.RecoverPanic(logger, "writePump", map[string]any{"client_id": id})
 //	    // ... goroutine work ...
 //	}()
 func RecoverPanic(logger zerolog.Logger, goroutineName string, fields map[string]any) {

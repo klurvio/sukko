@@ -472,7 +472,6 @@ func UpdateCapacityHeadroom(cpuHeadroom, memHeadroom float64) {
 	capacityAvailableHeadroom.WithLabelValues("memory").Set(memHeadroom)
 }
 
-
 // RecordError tracks an error in both Prometheus and returns true to signal logging needed
 func RecordError(errorType, severity string) {
 	errorsTotal.WithLabelValues(errorType, severity).Inc()
@@ -497,7 +496,6 @@ func RecordSerializationError(severity string) {
 func RecordConnectionError(severity string) {
 	errorsTotal.WithLabelValues(pkgmetrics.ErrorTypeConnection, severity).Inc()
 }
-
 
 // RecordDisconnect tracks a disconnect with reason, initiator, and duration
 func RecordDisconnect(reason, initiatedBy string, duration time.Duration) {

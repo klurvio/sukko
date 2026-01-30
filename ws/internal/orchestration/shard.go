@@ -11,6 +11,7 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/server"
 	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
 
 // Shard represents a single instance of the WebSocket server, running on its own core.
@@ -132,7 +133,7 @@ func (s *Shard) Shutdown() error {
 // runBroadcastListener listens to the central BroadcastBus and broadcasts messages locally
 func (s *Shard) runBroadcastListener() {
 	// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
-	defer monitoring.RecoverPanic(s.logger, "runBroadcastListener", map[string]any{
+	defer logging.RecoverPanic(s.logger, "runBroadcastListener", map[string]any{
 		"shard_id": s.ID,
 	})
 

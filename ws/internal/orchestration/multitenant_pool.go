@@ -12,7 +12,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/pkg/metrics"
 )
 
@@ -200,7 +200,7 @@ func (p *MultiTenantConsumerPool) Start() error {
 
 // refreshLoop periodically checks for new tenant topics.
 func (p *MultiTenantConsumerPool) refreshLoop() {
-	defer monitoring.RecoverPanic(p.logger, "refreshLoop", nil)
+	defer logging.RecoverPanic(p.logger, "refreshLoop", nil)
 	defer p.wg.Done()
 
 	ticker := time.NewTicker(p.refreshInterval)

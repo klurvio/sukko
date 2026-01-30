@@ -234,11 +234,6 @@ tasks:
   # ===========================================================================
   # Deployment
   # ===========================================================================
-  asyncapi:bundle:
-    desc: Bundle AsyncAPI spec into single file
-    cmds:
-      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/asyncapi/bundled.yaml
-
   deploy:
     desc: Deploy/upgrade Helm release (uses GKE_STD_ENV, defaults to develop)
     vars:
@@ -248,7 +243,7 @@ tasks:
     cmds:
       # Ensure we're connected to the correct cluster
       - task: connect
-      - task: asyncapi:bundle
+      - task: common:asyncapi:bundle
       - |
         HELM_CMD="helm upgrade --install odin {{.GKE_STD_CHART}} -f {{.GKE_STD_VALUES}} -n {{.GKE_STD_NS}} --create-namespace"
         if [ -n "{{.REDPANDA_IP}}" ]; then

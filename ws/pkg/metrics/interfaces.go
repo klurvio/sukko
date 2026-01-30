@@ -16,8 +16,13 @@ type CacheMetrics interface {
 // NoopCacheMetrics is a no-op implementation of CacheMetrics.
 type NoopCacheMetrics struct{}
 
-func (NoopCacheMetrics) OnCacheHit()                  {}
-func (NoopCacheMetrics) OnCacheMiss()                 {}
+// OnCacheHit implements CacheMetrics.
+func (NoopCacheMetrics) OnCacheHit() {}
+
+// OnCacheMiss implements CacheMetrics.
+func (NoopCacheMetrics) OnCacheMiss() {}
+
+// OnCacheRefresh implements CacheMetrics.
 func (NoopCacheMetrics) OnCacheRefresh(_ bool, _ int) {}
 
 // AccessDenialMetrics is a callback interface for recording access denial metrics.
@@ -31,6 +36,7 @@ type AccessDenialMetrics interface {
 // NoopAccessDenialMetrics is a no-op implementation of AccessDenialMetrics.
 type NoopAccessDenialMetrics struct{}
 
+// OnAccessDenied implements AccessDenialMetrics.
 func (NoopAccessDenialMetrics) OnAccessDenied(_, _ string) {}
 
 // PoolMetrics is a callback interface for reporting multi-tenant consumer pool metrics.
@@ -45,7 +51,10 @@ type PoolMetrics interface {
 // NoopPoolMetrics is a no-op implementation of PoolMetrics.
 type NoopPoolMetrics struct{}
 
-func (NoopPoolMetrics) OnMessageRouted()           {}
+// OnMessageRouted implements PoolMetrics.
+func (NoopPoolMetrics) OnMessageRouted() {}
+
+// OnRefresh implements PoolMetrics.
 func (NoopPoolMetrics) OnRefresh(_ bool, _, _ int) {}
 
 // DisconnectMetrics is a callback interface for recording disconnect events.
@@ -59,4 +68,5 @@ type DisconnectMetrics interface {
 // NoopDisconnectMetrics is a no-op implementation of DisconnectMetrics.
 type NoopDisconnectMetrics struct{}
 
+// OnDisconnect implements DisconnectMetrics.
 func (NoopDisconnectMetrics) OnDisconnect(_, _ string, _ time.Duration) {}

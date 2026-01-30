@@ -44,7 +44,27 @@ info:
     All messages use the **token ID** as the Kafka message key for partition-based sharding.
 
     ## Authentication
-    WebSocket connections require JWT authentication. See security schemes below.
+    WebSocket connections support two authentication methods:
+
+    ### 1. Tenant JWT (PostgresKeyRegistry)
+    - Tokens include `kid` header referencing registered public key
+    - Keys managed via Provisioning API
+    - Best for: Multi-tenant SaaS deployments with key rotation
+
+    ### 2. OIDC/JWKS Authentication
+    - Tokens validated via JWKS discovery from configured issuers
+    - Issuer URL in `iss` claim determines JWKS endpoint
+    - Best for: Integration with existing identity providers
+
+    **Token Routing:**
+    The gateway automatically routes tokens to the appropriate validator:
+    1. `kid` header present → Tenant JWT validator
+    2. `iss` claim present → OIDC/JWKS validator
+
+    See security schemes below for detailed requirements.
+  externalDocs:
+    description: WebSocket Client Integration Guide
+    url: https://github.com/toniq/odin-ws/blob/main/ws/CLIENT_GUIDE.md
   contact:
     name: Platform Team
   license:
@@ -85,6 +105,7 @@ servers:
 defaultContentType: application/json
 
 channels:
+  # Kafka/Redpanda Event Channels
   odin.trades:
     $ref: './channel/trades.yaml#/OdinTrades'
   odin.liquidity:
@@ -101,6 +122,16 @@ channels:
     $ref: './channel/creation.yaml#/OdinCreation'
   odin.analytics:
     $ref: './channel/analytics.yaml#/OdinAnalytics'
+
+  # WebSocket Control Channels
+  ws.control.subscribe:
+    $ref: './channel/control.yaml#/WsSubscribe'
+  ws.control.heartbeat:
+    $ref: './channel/control.yaml#/WsHeartbeat'
+  ws.control.reconnect:
+    $ref: './channel/control.yaml#/WsReconnect'
+  ws.control.error:
+    $ref: './channel/control.yaml#/WsError'
 
 operations:
   # =============================================================================
@@ -349,6 +380,88 @@ operations:
     messages:
       - $ref: '#/channels/odin.analytics/messages/TokenEventMessage'
 
+  # =============================================================================
+  # WebSocket Control Operations
+  # =============================================================================
+  wsSubscribe:
+    action: send
+    channel:
+      $ref: '#/channels/ws.control.subscribe'
+    summary: Subscribe to event channels
+    description: |
+      Client sends subscription requests to manage channel subscriptions.
+
+      **Request:** `SubscribeRequest` or `UnsubscribeRequest`
+      **Response:** `SubscriptionAck` or `UnsubscriptionAck`
+    messages:
+      - $ref: '#/channels/ws.control.subscribe/messages/SubscribeRequest'
+      - $ref: '#/channels/ws.control.subscribe/messages/UnsubscribeRequest'
+
+  wsSubscribeAck:
+    action: receive
+    channel:
+      $ref: '#/channels/ws.control.subscribe'
+    summary: Receive subscription acknowledgments
+    description: |
+      Server sends acknowledgments for subscription operations.
+    messages:
+      - $ref: '#/channels/ws.control.subscribe/messages/SubscriptionAck'
+      - $ref: '#/channels/ws.control.subscribe/messages/UnsubscriptionAck'
+
+  wsHeartbeat:
+    action: send
+    channel:
+      $ref: '#/channels/ws.control.heartbeat'
+    summary: Send heartbeat ping
+    description: |
+      Client sends heartbeat to keep connection alive.
+      Recommended interval: every 30 seconds.
+    messages:
+      - $ref: '#/channels/ws.control.heartbeat/messages/HeartbeatRequest'
+
+  wsHeartbeatAck:
+    action: receive
+    channel:
+      $ref: '#/channels/ws.control.heartbeat'
+    summary: Receive heartbeat response
+    description: |
+      Server responds with pong containing server timestamp.
+    messages:
+      - $ref: '#/channels/ws.control.heartbeat/messages/PongResponse'
+
+  wsReconnect:
+    action: send
+    channel:
+      $ref: '#/channels/ws.control.reconnect'
+    summary: Request reconnection and replay
+    description: |
+      Client sends reconnect request to replay missed messages.
+      Provide the last known offset to receive messages from that point.
+    messages:
+      - $ref: '#/channels/ws.control.reconnect/messages/ReconnectRequest'
+
+  wsReconnectAck:
+    action: receive
+    channel:
+      $ref: '#/channels/ws.control.reconnect'
+    summary: Receive reconnection acknowledgment
+    description: |
+      Server acknowledges reconnection with replay status.
+    messages:
+      - $ref: '#/channels/ws.control.reconnect/messages/ReconnectAck'
+
+  wsError:
+    action: receive
+    channel:
+      $ref: '#/channels/ws.control.error'
+    summary: Receive error responses
+    description: |
+      Server sends error responses for failed operations.
+    messages:
+      - $ref: '#/channels/ws.control.error/messages/ErrorResponse'
+      - $ref: '#/channels/ws.control.error/messages/PublishAck'
+      - $ref: '#/channels/ws.control.error/messages/PublishError'
+
 components:
   messages:
     TokenEventMessage:
@@ -407,3 +520,29 @@ components:
         **Key Registration:**
         Public keys are registered via the Provisioning API and cached by ws-gateway.
         Keys support rotation with multiple active keys per tenant.
+
+    oidcJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        OIDC/JWKS-based JWT authentication.
+
+        **How it works:**
+        - Tokens are validated via JWKS discovery from configured OIDC issuers
+        - Issuer URL in token determines which JWKS endpoint to use
+        - Audience claim is validated against configured values
+
+        **Required Claims:**
+        | Claim | Description |
+        |-------|-------------|
+        | `iss` | OIDC issuer URL (must be pre-registered) |
+        | `sub` | Subject/user identifier |
+        | `aud` | Audience (validated against config) |
+        | `exp` | Expiration timestamp |
+        | `tenant_id` | Tenant identifier |
+
+        **Token Routing:**
+        Gateway routes tokens to appropriate validator based on:
+        1. `kid` header present → Tenant JWT (PostgresKeyRegistry)
+        2. `iss` claim present → OIDC/JWKS validation

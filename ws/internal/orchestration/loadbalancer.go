@@ -15,6 +15,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/version"
+	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
 
 // ShardMetrics defines the interface for shard load balancing metrics.
@@ -128,7 +129,7 @@ func (lb *LoadBalancer) Start() error {
 	lb.wg.Add(1)
 	go func() {
 		// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
-		defer monitoring.RecoverPanic(lb.logger, "loadbalancer.ListenAndServe", nil)
+		defer logging.RecoverPanic(lb.logger, "loadbalancer.ListenAndServe", nil)
 
 		defer lb.wg.Done()
 		lb.logger.Info().Str("address", server.Addr).Msg("LoadBalancer listening")

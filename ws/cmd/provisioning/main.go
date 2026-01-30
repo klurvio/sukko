@@ -16,13 +16,12 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 
 	"github.com/Toniq-Labs/odin-ws/internal/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/api"
 	provkafka "github.com/Toniq-Labs/odin-ws/internal/provisioning/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/repository"
-	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
 
 func main() {
@@ -50,9 +49,9 @@ func main() {
 	cfg.Print()
 
 	// Initialize structured logger
-	structuredLogger := monitoring.NewLogger(monitoring.LoggerConfig{
-		Level:       types.LogLevel(cfg.LogLevel),
-		Format:      types.LogFormat(cfg.LogFormat),
+	structuredLogger := logging.NewLogger(logging.LoggerConfig{
+		Level:       logging.LogLevel(cfg.LogLevel),
+		Format:      logging.LogFormat(cfg.LogFormat),
 		ServiceName: "provisioning-service",
 	})
 
@@ -246,7 +245,7 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		defer monitoring.RecoverPanic(structuredLogger, "http.ListenAndServe", nil)
+		defer logging.RecoverPanic(structuredLogger, "http.ListenAndServe", nil)
 		logger.Printf("Starting provisioning service on %s", cfg.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatalf("Server error: %v", err)

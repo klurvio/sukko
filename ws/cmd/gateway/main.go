@@ -13,9 +13,8 @@ import (
 	"time"
 
 	"github.com/Toniq-Labs/odin-ws/internal/gateway"
-	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
 	"github.com/Toniq-Labs/odin-ws/internal/platform"
-	"github.com/Toniq-Labs/odin-ws/internal/types"
+	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
 
 // Version information (set by build flags)
@@ -26,10 +25,10 @@ var (
 )
 
 func main() {
-	// Initialize logger using shared monitoring package
-	logger := monitoring.NewLogger(monitoring.LoggerConfig{
-		Level:       types.LogLevel(os.Getenv("LOG_LEVEL")),
-		Format:      types.LogFormat(os.Getenv("LOG_FORMAT")),
+	// Initialize logger using shared logging package
+	logger := logging.NewLogger(logging.LoggerConfig{
+		Level:       logging.LogLevel(os.Getenv("LOG_LEVEL")),
+		Format:      logging.LogFormat(os.Getenv("LOG_FORMAT")),
 		ServiceName: "ws-gateway",
 	})
 
@@ -67,7 +66,7 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		defer monitoring.RecoverPanic(logger, "http.ListenAndServe", nil)
+		defer logging.RecoverPanic(logger, "http.ListenAndServe", nil)
 		logger.Info().
 			Int("port", config.Port).
 			Msg("Gateway listening")

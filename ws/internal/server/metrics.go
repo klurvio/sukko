@@ -8,12 +8,13 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 
 	"github.com/Toniq-Labs/odin-ws/internal/monitoring"
+	"github.com/Toniq-Labs/odin-ws/pkg/logging"
 )
 
 // Internal monitoring and metric collection
 func (s *Server) collectMetrics() {
 	// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
-	defer monitoring.RecoverPanic(s.logger, "collectMetrics", nil)
+	defer logging.RecoverPanic(s.logger, "collectMetrics", nil)
 
 	defer s.wg.Done()
 
@@ -64,7 +65,7 @@ func (s *Server) collectMetrics() {
 
 func (s *Server) monitorMemory() {
 	// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
-	defer monitoring.RecoverPanic(s.logger, "monitorMemory", nil)
+	defer logging.RecoverPanic(s.logger, "monitorMemory", nil)
 
 	defer s.wg.Done()
 
@@ -110,7 +111,7 @@ func (s *Server) monitorMemory() {
 // Samples a subset of clients to avoid expensive iteration over all connections
 func (s *Server) sampleClientBuffers() {
 	// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
-	defer monitoring.RecoverPanic(s.logger, "sampleClientBuffers", nil)
+	defer logging.RecoverPanic(s.logger, "sampleClientBuffers", nil)
 
 	defer s.wg.Done()
 
