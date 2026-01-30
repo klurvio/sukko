@@ -11,9 +11,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
 // =============================================================================

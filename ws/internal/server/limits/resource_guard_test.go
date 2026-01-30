@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // mockSystemMonitor allows controlled CPU values for testing

@@ -15,8 +15,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // PumpConfig holds timing configuration for pump operations.

@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/Toniq-Labs/odin-ws/internal/gateway"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 )
 
 // Version information (set by build flags)

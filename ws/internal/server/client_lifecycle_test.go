@@ -10,8 +10,8 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // =============================================================================

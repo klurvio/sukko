@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 )
 
 // Client message handlers
