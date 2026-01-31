@@ -163,7 +163,7 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 	if config.KafkaProducer != nil {
 		s.kafkaProducer = config.KafkaProducer.(*kafka.Producer)
 		logger.Info().
-			Str("topic", s.kafkaProducer.Topic()).
+			Str("namespace", s.kafkaProducer.Namespace()).
 			Msg("Kafka producer enabled for client message publishing")
 	}
 

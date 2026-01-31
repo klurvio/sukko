@@ -8,15 +8,13 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
 // Client message handlers
 func (s *Server) handleClientMessage(c *Client, data []byte) {
 	// Parse outer message structure
-	var req struct {
-		Type string          `json:"type"`
-		Data json.RawMessage `json:"data"`
-	}
+	var req protocol.ClientMessage
 
 	if err := json.Unmarshal(data, &req); err != nil {
 		s.logger.Warn().
@@ -27,7 +25,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 	}
 
 	switch req.Type {
-	case "reconnect":
+	case protocol.MsgTypeReconnect:
 		// KAFKA-BASED RECONNECTION (replaces old in-memory replay buffer)
 		// Client reconnecting after disconnect, requesting missed messages from Kafka
 		//
@@ -42,14 +40,14 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 		// Implementation: See handleKafkaReconnect() below
 		s.handleKafkaReconnect(c, req.Data)
 
-	case "heartbeat":
+	case protocol.MsgTypeHeartbeat:
 		// Client keep-alive ping
 		// Some older browsers/libraries don't support WebSocket ping/pong
 		// So they send application-level heartbeats
 		//
 		// We respond with current server time (helps detect clock skew)
 		pong := map[string]any{
-			"type": "pong",
+			"type": protocol.MsgTypePong,
 			"ts":   time.Now().UnixMilli(),
 		}
 
@@ -63,7 +61,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			}
 		}
 
-	case "subscribe":
+	case protocol.MsgTypeSubscribe:
 		// Client subscribing to hierarchical channels (symbol.eventType)
 		// Message format: {"type": "subscribe", "data": {"channels": ["BTC.trade", "ETH.trade", "BTC.analytics"]}}
 		//
@@ -86,9 +84,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 		// - Without filtering: 12 × 8 events × 10K = 960K writes/sec (CPU overload)
 		// - With hierarchical: 12 × avg 2K subscribers = 24K writes/sec (CPU <30%)
 		// - Result: 40x reduction in broadcast overhead
-		var subReq struct {
-			Channels []string `json:"channels"` // List of hierarchical channels (e.g., "BTC.trade")
-		}
+		var subReq protocol.SubscribeData
 
 		if err := json.Unmarshal(req.Data, &subReq); err != nil {
 			s.logger.Warn().
@@ -112,7 +108,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 		// Send acknowledgment to client
 		ack := map[string]any{
-			"type":       "subscription_ack",
+			"type":       protocol.RespTypeSubscriptionAck,
 			"subscribed": subReq.Channels,
 			"count":      c.subscriptions.Count(),
 		}
@@ -126,12 +122,10 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			}
 		}
 
-	case "unsubscribe":
+	case protocol.MsgTypeUnsubscribe:
 		// Client unsubscribing from channels
 		// Message format: {"type": "unsubscribe", "data": {"channels": ["BTC"]}}
-		var unsubReq struct {
-			Channels []string `json:"channels"` // List of channels to unsubscribe from
-		}
+		var unsubReq protocol.UnsubscribeData
 
 		if err := json.Unmarshal(req.Data, &unsubReq); err != nil {
 			s.logger.Warn().
@@ -155,7 +149,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 		// Send acknowledgment to client
 		ack := map[string]any{
-			"type":         "unsubscription_ack",
+			"type":         protocol.RespTypeUnsubscriptionAck,
 			"unsubscribed": unsubReq.Channels,
 			"count":        c.subscriptions.Count(),
 		}
@@ -169,7 +163,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			}
 		}
 
-	case "publish":
+	case protocol.MsgTypePublish:
 		// Client publishing a message to Kafka
 		// Message format: {"type": "publish", "data": {"channel": "community.group123.chat", "data": {...}}}
 		//
@@ -209,7 +203,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 
 		// Send error response
 		errorMsg := map[string]any{
-			"type":    "reconnect_error",
+			"type":    protocol.RespTypeReconnectError,
 			"message": "Invalid reconnect request format",
 		}
 		if errorData, err := json.Marshal(errorMsg); err == nil {
@@ -234,7 +228,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 			Msg("Kafka replay requested but no consumer available")
 
 		errorMsg := map[string]any{
-			"type":    "reconnect_error",
+			"type":    protocol.RespTypeReconnectError,
 			"message": "Message replay not available (no Kafka consumer)",
 		}
 		if errorData, err := json.Marshal(errorMsg); err == nil {
@@ -268,7 +262,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 			Msg("Failed to replay messages from Kafka")
 
 		errorMsg := map[string]any{
-			"type":    "reconnect_error",
+			"type":    protocol.RespTypeReconnectError,
 			"message": fmt.Sprintf("Failed to replay messages: %v", err),
 		}
 		if errorData, err := json.Marshal(errorMsg); err == nil {
@@ -285,8 +279,8 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 	for _, msg := range replayedMsgs {
 		// Wrap in message envelope with sequence number
 		envelope := &messaging.MessageEnvelope{
-			Type:      "message",       // Standard type for broadcast messages
-			Seq:       c.seqGen.Next(), // Generate unique sequence number for this client
+			Type:      protocol.MsgTypeMessage, // Standard type for broadcast messages
+			Seq:       c.seqGen.Next(),         // Generate unique sequence number for this client
 			Timestamp: time.Now().UnixMilli(),
 			Channel:   msg.Subject, // Channel from Kafka Key (e.g., "BTC.trade")
 			Priority:  messaging.PriorityNormal,
@@ -309,7 +303,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 
 	// Send acknowledgment with replay statistics
 	ackMsg := map[string]any{
-		"type":              "reconnect_ack",
+		"type":              protocol.RespTypeReconnectAck,
 		"status":            "completed",
 		"messages_replayed": replayedCount,
 		"message":           fmt.Sprintf("Replayed %d missed messages", replayedCount),

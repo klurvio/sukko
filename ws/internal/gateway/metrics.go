@@ -78,6 +78,21 @@ var proxyErrors = promauto.NewCounterVec(prometheus.CounterOpts{
 }, []string{"type"}) // read_error, write_error
 
 // =============================================================================
+// Publish Metrics
+// =============================================================================
+
+var publishTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "gateway_publish_total",
+	Help: "Publish message intercepts by tenant and result",
+}, []string{"tenant", "result"}) // success, rate_limited, forbidden, etc.
+
+var publishLatency = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "gateway_publish_latency_seconds",
+	Help:    "Publish message interception latency",
+	Buckets: pkgmetrics.AuthLatencyBuckets,
+})
+
+// =============================================================================
 // Backend Metrics
 // =============================================================================
 
@@ -196,6 +211,19 @@ func RecordKeyCacheRefresh(success bool) {
 // RecordAccessDenial records an access denial with resource type and reason.
 func RecordAccessDenial(resourceType, reason string) {
 	accessDenials.WithLabelValues(resourceType, reason).Inc()
+}
+
+// RecordPublishResult records a publish message interception result.
+func RecordPublishResult(tenant, result string) {
+	if tenant == "" {
+		tenant = "unknown"
+	}
+	publishTotal.WithLabelValues(tenant, result).Inc()
+}
+
+// RecordPublishLatency records the latency of publish message interception.
+func RecordPublishLatency(seconds float64) {
+	publishLatency.Observe(seconds)
 }
 
 // AccessDenialMetricsAdapter implements auth.AccessDenialMetrics for Prometheus.

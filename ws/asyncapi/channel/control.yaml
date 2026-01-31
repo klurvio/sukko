@@ -14,6 +14,37 @@ WsSubscribe:
     - `SubscriptionAck` - Confirms subscription
     - `UnsubscriptionAck` - Confirms unsubscription
 
+    **Channel Format**: `{token_id}.{category}` (e.g., "BTC.trade", "ETH.liquidity")
+
+    ## Wildcard Subscription Patterns
+
+    | Pattern | Matches | Example |
+    |---------|---------|---------|
+    | `*.trade` | Any token's trade events | `BTC.trade`, `ETH.trade` |
+    | `odin.*` | Any odin channel | `odin.trades`, `odin.liquidity` |
+    | `prefix*suffix` | Prefix AND suffix match | `BTC*trade` → `BTC.spot.trade` |
+    | `*` | All channels | Everything |
+
+    **Note:** Wildcards expand at subscription time based on available channels.
+
+    ## Subscription Bundles
+
+    Clients can subscribe to predefined bundles for common use cases:
+
+    | Bundle | Categories Included | Use Case |
+    |--------|---------------------|----------|
+    | `TRADING` | trade, liquidity, analytics | Active traders |
+    | `FULL_MARKET` | trade, liquidity, analytics, metadata | Market data feeds |
+    | `COMMUNITY` | community, social, metadata | Social features |
+    | `PORTFOLIO` | trade, analytics, balances | Portfolio tracking |
+    | `PRICE_ONLY` | trade, analytics | Simple price feeds |
+    | `ALL` | All 8 categories | Complete feed |
+
+    **Bundle Example:**
+    ```json
+    {"type": "subscribe", "data": {"channels": ["BTC.TRADING"]}}
+    ```
+
     **Example Flow:**
     ```
     Client: {"type": "subscribe", "data": {"channels": ["BTC.trade"]}}
@@ -94,14 +125,20 @@ WsError:
     - `PublishAck` - Confirms successful publish
     - `PublishError` - Error during publish operation
 
-    **Common Error Codes:**
+    **Error Codes:**
     | Code | Description |
     |------|-------------|
-    | `invalid_message` | Malformed message payload |
+    | `invalid_message` | Malformed JSON payload |
+    | `invalid_request` | Request format invalid |
+    | `invalid_channel` | Invalid channel format |
     | `unauthorized` | Authentication required or failed |
     | `forbidden` | Not authorized for this channel |
-    | `channel_not_found` | Requested channel does not exist |
+    | `channel_not_found` | Channel does not exist |
     | `rate_limited` | Too many requests |
+    | `RATE_LIMIT_EXCEEDED` | Rate limit exceeded (legacy) |
+    | `message_too_large` | Payload exceeds 64KB |
+    | `not_available` | Feature disabled |
+    | `publish_failed` | Kafka publish failed |
     | `internal_error` | Server-side error |
   messages:
     ErrorResponse:
@@ -110,3 +147,97 @@ WsError:
       $ref: '../component/message/control.yaml#/PublishAck'
     PublishError:
       $ref: '../component/message/control.yaml#/PublishError'
+
+WsPublish:
+  address: ws://control/publish
+  description: |
+    Channel for client message publishing to Kafka.
+
+    **Client → Server:**
+    - `PublishRequest` - Publish message to a channel
+
+    **Server → Client:**
+    - `PublishAck` - Confirms successful publish
+    - `PublishError` - Error during publish
+
+    ## Channel-to-Topic Routing
+
+    Messages are routed to the appropriate Kafka topic based on channel structure:
+
+    **Client Channel Format:** `{identifier}.{category}` (e.g., "BTC.trade")
+    **Internal Channel Format:** `{tenant}.{identifier}.{category}` (e.g., "acme.BTC.trade")
+
+    The gateway maps client channels to internal format by adding the tenant prefix from JWT:
+    - Client sends: `BTC.trade`
+    - Gateway maps: `acme.BTC.trade` (tenant "acme" from JWT)
+    - Server publishes to: Topic `{namespace}.acme.trade`, Key `acme.BTC.trade`
+
+    **Topic Pattern:** `{namespace}.{tenant}.{category}`
+    - Example: `prod.acme.trade`, `dev.globex.community`
+
+    **Message Key:** Full internal channel (e.g., `acme.BTC.trade`)
+    - Same key = same partition = ordering guaranteed
+
+    ## Limits
+
+    - Max message size: 64KB
+    - Rate limit: 10 messages/sec (100 burst)
+    - Channel format: Minimum 2 dot-separated parts (client), 3 parts (internal)
+
+    ## Error Codes
+
+    | Code | Description |
+    |------|-------------|
+    | `not_available` | Publishing is not enabled on this server |
+    | `invalid_request` | Invalid publish request format |
+    | `invalid_channel` | Channel must have format: identifier.category |
+    | `message_too_large` | Message exceeds maximum size limit |
+    | `rate_limited` | Publish rate limit exceeded |
+    | `forbidden` | Not authorized to publish to this channel |
+    | `topic_not_provisioned` | Category is not provisioned for your tenant |
+    | `service_unavailable` | Kafka temporarily unavailable (circuit breaker open) |
+    | `publish_failed` | Failed to publish message |
+
+    **Example Flow:**
+    ```
+    Client: {"type": "publish", "data": {"channel": "BTC.trade", "data": {"message": "Hello!"}}}
+    Gateway: Maps to internal channel "acme.BTC.trade"
+    Server: Publishes to Kafka topic "prod.acme.trade" with key "acme.BTC.trade"
+    Server: {"type": "publish_ack", "channel": "acme.BTC.trade", "status": "accepted"}
+    ```
+  messages:
+    PublishRequest:
+      $ref: '../component/message/control.yaml#/PublishRequest'
+    PublishAck:
+      $ref: '../component/message/control.yaml#/PublishAck'
+    PublishError:
+      $ref: '../component/message/control.yaml#/PublishError'
+
+WsBroadcast:
+  address: ws://control/broadcast
+  description: |
+    Channel for server-to-client broadcast messages.
+
+    **Server → Client:**
+    - `BroadcastMessage` - Event broadcast to subscribed clients
+
+    All messages broadcast from server to clients use a standard envelope format
+    with sequence numbers for gap detection and timestamps for latency measurement.
+
+    **Message Envelope:**
+    ```json
+    {
+      "type": "message",
+      "seq": 42,
+      "ts": 1699901234567,
+      "channel": "BTC.trade",
+      "data": {...}
+    }
+    ```
+
+    **Gap Detection:**
+    Track the `seq` field. If you receive seq 102 but expected 101,
+    use `reconnect` to replay missed messages from Kafka.
+  messages:
+    BroadcastMessage:
+      $ref: '../component/message/control.yaml#/BroadcastMessage'

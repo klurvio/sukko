@@ -7,8 +7,10 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
+	"golang.org/x/time/rate"
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
 // testClaims creates auth.Claims with the given subject for testing.
@@ -46,6 +48,9 @@ func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatter
 		permissions:    pc,
 		logger:         zerolog.Nop(),
 		messageTimeout: 60 * time.Second,
+		channelMapper:  auth.NewChannelMapper(auth.DefaultChannelConfig()),
+		publishLimiter: rate.NewLimiter(10, 100), // 10/sec, 100 burst
+		maxPublishSize: 64 * 1024,                // 64KB
 	}
 }
 
@@ -112,15 +117,14 @@ func TestProxy_InterceptClientMessage_NonJSON(t *testing.T) {
 	}
 }
 
-func TestProxy_InterceptClientMessage_NonSubscribe(t *testing.T) {
+func TestProxy_InterceptClientMessage_NonSubscribeNonPublish(t *testing.T) {
 	t.Parallel()
 	proxy := newTestProxy(testClaims("user123"), []string{"*.trade"}, nil, nil)
 
-	// Non-subscribe messages should pass through
+	// Non-subscribe/non-publish messages should pass through unchanged
 	messages := []string{
 		`{"type":"ping"}`,
 		`{"type":"pong"}`,
-		`{"type":"publish","data":{"channel":"test","message":"hello"}}`,
 		`{"type":"unsubscribe","data":{"channels":["BTC.trade"]}}`,
 	}
 
@@ -129,9 +133,41 @@ func TestProxy_InterceptClientMessage_NonSubscribe(t *testing.T) {
 			t.Parallel()
 			result, _ := proxy.interceptClientMessage([]byte(input))
 			if string(result) != input {
-				t.Errorf("Non-subscribe should pass through unchanged.\nGot:  %s\nWant: %s", result, input)
+				t.Errorf("Non-subscribe/non-publish should pass through unchanged.\nGot:  %s\nWant: %s", result, input)
 			}
 		})
+	}
+}
+
+func TestProxy_InterceptClientMessage_PublishMapsChannel(t *testing.T) {
+	t.Parallel()
+	proxy := newTestProxy(testClaims("user123"), []string{"*.trade"}, nil, nil)
+
+	// Publish should map channel by adding tenant prefix
+	input := `{"type":"publish","data":{"channel":"BTC.trade","data":{"msg":"test"}}}`
+	result, err := proxy.interceptClientMessage([]byte(input))
+
+	if err != nil {
+		t.Fatalf("interceptClientMessage() error = %v", err)
+	}
+
+	// Result should have mapped channel (tenant prefix added)
+	var msg protocol.ClientMessage
+	if err := json.Unmarshal(result, &msg); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+	if msg.Type != "publish" {
+		t.Errorf("Type should be publish, got %s", msg.Type)
+	}
+
+	var pubData protocol.PublishData
+	if err := json.Unmarshal(msg.Data, &pubData); err != nil {
+		t.Fatalf("Failed to parse publish data: %v", err)
+	}
+	// Channel should now have tenant prefix
+	expectedChannel := "test-tenant.BTC.trade"
+	if pubData.Channel != expectedChannel {
+		t.Errorf("Channel should be %s, got %s", expectedChannel, pubData.Channel)
 	}
 }
 
@@ -164,12 +200,12 @@ func TestProxy_InterceptClientMessage_SomeFiltered(t *testing.T) {
 	}
 
 	// Parse result to verify filtering
-	var msg ClientMessage
+	var msg protocol.ClientMessage
 	if err := json.Unmarshal(result, &msg); err != nil {
 		t.Fatalf("Failed to parse result: %v", err)
 	}
 
-	var data SubscribeData
+	var data protocol.SubscribeData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		t.Fatalf("Failed to parse data: %v", err)
 	}
@@ -199,12 +235,12 @@ func TestProxy_InterceptClientMessage_AllFiltered(t *testing.T) {
 	}
 
 	// Parse result
-	var msg ClientMessage
+	var msg protocol.ClientMessage
 	if err := json.Unmarshal(result, &msg); err != nil {
 		t.Fatalf("Failed to parse result: %v", err)
 	}
 
-	var data SubscribeData
+	var data protocol.SubscribeData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		t.Fatalf("Failed to parse data: %v", err)
 	}
@@ -249,9 +285,9 @@ func TestProxy_InterceptClientMessage_UserScoped(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			inputData := SubscribeData{Channels: tt.channels}
+			inputData := protocol.SubscribeData{Channels: tt.channels}
 			dataBytes, _ := json.Marshal(inputData)
-			inputMsg := ClientMessage{Type: "subscribe", Data: dataBytes}
+			inputMsg := protocol.ClientMessage{Type: "subscribe", Data: dataBytes}
 			input, _ := json.Marshal(inputMsg)
 
 			result, err := proxy.interceptClientMessage(input)
@@ -259,12 +295,12 @@ func TestProxy_InterceptClientMessage_UserScoped(t *testing.T) {
 				t.Fatalf("interceptClientMessage() error = %v", err)
 			}
 
-			var msg ClientMessage
+			var msg protocol.ClientMessage
 			if err := json.Unmarshal(result, &msg); err != nil {
 				t.Fatalf("Failed to parse result: %v", err)
 			}
 
-			var data SubscribeData
+			var data protocol.SubscribeData
 			if err := json.Unmarshal(msg.Data, &data); err != nil {
 				t.Fatalf("Failed to parse data: %v", err)
 			}
@@ -310,9 +346,9 @@ func TestProxy_InterceptClientMessage_GroupScoped(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			inputData := SubscribeData{Channels: tt.channels}
+			inputData := protocol.SubscribeData{Channels: tt.channels}
 			dataBytes, _ := json.Marshal(inputData)
-			inputMsg := ClientMessage{Type: "subscribe", Data: dataBytes}
+			inputMsg := protocol.ClientMessage{Type: "subscribe", Data: dataBytes}
 			input, _ := json.Marshal(inputMsg)
 
 			result, err := proxy.interceptClientMessage(input)
@@ -320,12 +356,12 @@ func TestProxy_InterceptClientMessage_GroupScoped(t *testing.T) {
 				t.Fatalf("interceptClientMessage() error = %v", err)
 			}
 
-			var msg ClientMessage
+			var msg protocol.ClientMessage
 			if err := json.Unmarshal(result, &msg); err != nil {
 				t.Fatalf("Failed to parse result: %v", err)
 			}
 
-			var data SubscribeData
+			var data protocol.SubscribeData
 			if err := json.Unmarshal(msg.Data, &data); err != nil {
 				t.Fatalf("Failed to parse data: %v", err)
 			}

@@ -24,14 +24,15 @@ import (
 // Gateway handles WebSocket connections, authenticating clients and proxying
 // to the ws-server backend with permission-based channel filtering.
 type Gateway struct {
-	config      *platform.GatewayConfig
-	validator   *auth.MultiTenantValidator
-	keyRegistry auth.KeyRegistry        // For cleanup on shutdown
-	dbConn      *sql.DB                 // For cleanup on shutdown
-	oidcCloser  *auth.OIDCKeyfuncResult // For OIDC keyfunc cleanup on shutdown
-	permissions *PermissionChecker
-	connTracker *TenantConnectionTracker // Per-tenant connection tracking
-	logger      zerolog.Logger
+	config        *platform.GatewayConfig
+	validator     *auth.MultiTenantValidator
+	keyRegistry   auth.KeyRegistry        // For cleanup on shutdown
+	dbConn        *sql.DB                 // For cleanup on shutdown
+	oidcCloser    *auth.OIDCKeyfuncResult // For OIDC keyfunc cleanup on shutdown
+	permissions   *PermissionChecker
+	connTracker   *TenantConnectionTracker // Per-tenant connection tracking
+	channelMapper *auth.ChannelMapper      // Channel name mapping for publish
+	logger        zerolog.Logger
 }
 
 // New creates a new Gateway instance.
@@ -45,7 +46,8 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 			config.UserScopedPatterns,
 			config.GroupScopedPatterns,
 		),
-		logger: logger.With().Str("component", "gateway").Logger(),
+		channelMapper: auth.NewChannelMapper(auth.DefaultChannelConfig()),
+		logger:        logger.With().Str("component", "gateway").Logger(),
 	}
 
 	// Set up per-tenant connection tracking if enabled
@@ -313,14 +315,19 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Msg("Client connected and proxying to backend")
 
 	// Create and run proxy
-	proxy := NewProxy(
-		clientConn,
-		backendConn,
-		claims,
-		gw.permissions,
-		gw.logger.With().Str("principal", claims.Subject).Logger(),
-		gw.config.MessageTimeout,
-	)
+	proxy := NewProxy(ProxyConfig{
+		ClientConn:       clientConn,
+		BackendConn:      backendConn,
+		Claims:           claims,
+		Permissions:      gw.permissions,
+		Logger:           gw.logger.With().Str("principal", claims.Subject).Logger(),
+		MessageTimeout:   gw.config.MessageTimeout,
+		ChannelMapper:    gw.channelMapper,
+		CrossTenantRoles: gw.config.CrossTenantRoles,
+		PublishRateLimit: gw.config.PublishRateLimit,
+		PublishBurst:     gw.config.PublishBurst,
+		MaxPublishSize:   gw.config.MaxPublishSize,
+	})
 	proxy.Run()
 
 	gw.logger.Info().

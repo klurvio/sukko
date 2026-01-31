@@ -31,6 +31,11 @@ import (
 // =============================================================================
 
 // Topic base names (without environment prefix)
+//
+// Deprecated: These constants are provided for backward compatibility with legacy
+// single-tenant deployments. In multi-tenant deployments, topics are provisioned
+// per-tenant via the provisioning service and queried through TenantRegistry.
+// New code should not depend on this list - use TenantRegistry to discover topics.
 const (
 	TopicBaseTrade     = "trade"
 	TopicBaseLiquidity = "liquidity"
@@ -42,7 +47,12 @@ const (
 	TopicBaseBalances  = "balances"
 )
 
-// allTopicBases contains all base topic names
+// allTopicBases contains all base topic names.
+//
+// Deprecated: This list is provided for backward compatibility with legacy
+// single-tenant deployments. In multi-tenant mode, topics are provisioned
+// per-tenant and should be queried from TenantRegistry, not this hardcoded list.
+// Each tenant can have a different set of categories based on their subscription.
 var allTopicBases = []string{
 	TopicBaseTrade,
 	TopicBaseLiquidity,
@@ -84,12 +94,20 @@ func GetTopic(env, base string) string {
 	return fmt.Sprintf("odin.%s.%s", NormalizeEnv(env), base)
 }
 
-// AllTopicBases returns all base topic names (without environment prefix)
+// AllTopicBases returns all base topic names (without environment prefix).
+//
+// Deprecated: Use TenantRegistry.GetSharedTenantTopics or GetDedicatedTenants
+// to discover provisioned topics in multi-tenant mode. This function is
+// provided for backward compatibility with legacy single-tenant deployments.
 func AllTopicBases() []string {
 	return allTopicBases
 }
 
-// AllTopics returns all regular topic names for an environment
+// AllTopics returns all regular topic names for an environment.
+//
+// Deprecated: Use TenantRegistry to discover provisioned topics in multi-tenant
+// mode. This function assumes single-tenant deployment and is provided for
+// backward compatibility only.
 func AllTopics(env string) []string {
 	topics := make([]string, len(allTopicBases))
 	for i, base := range allTopicBases {

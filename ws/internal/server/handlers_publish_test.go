@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
 // =============================================================================
@@ -11,18 +13,20 @@ import (
 
 func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 	t.Parallel()
+	// Channel must have at least 3 parts in internal format: {tenant}.{identifier}.{category}
+	// These are internal (mapped) channels, not client channels
 	validChannels := []string{
-		"community.chat",
-		"group.123.message",
-		"user.abc.notification",
-		"app.feature.event",
-		"a.b",                  // Minimum valid: 2 parts
-		"a.b.c.d.e.f",          // Many parts is fine
-		"BTC.trade",            // Uppercase
-		"btc-usdt.orderbook",   // Hyphen in part
-		"user_123.settings",    // Underscore in part
-		"v1.api.request",       // Version prefix
-		"io.toniq.odin.events", // Reverse domain notation
+		"tenant.community.chat",
+		"acme.group.123.message",
+		"test.user.abc.notification",
+		"org.app.feature.event",
+		"a.b.c",                   // Minimum valid: 3 parts
+		"a.b.c.d.e.f",             // Many parts is fine
+		"tenant.BTC.trade",        // Uppercase
+		"acme.btc-usdt.orderbook", // Hyphen in part
+		"test.user_123.settings",  // Underscore in part
+		"tenant.v1.api.request",   // Version prefix
+		"io.toniq.odin.events",    // Reverse domain notation
 	}
 
 	for _, channel := range validChannels {
@@ -37,18 +41,25 @@ func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 
 func TestIsValidPublishChannel_InvalidFormats(t *testing.T) {
 	t.Parallel()
+	// Internal channels must have at least 3 parts: {tenant}.{identifier}.{category}
+	// 2-part channels are client format (before gateway mapping)
 	invalidChannels := []struct {
 		channel string
 		reason  string
 	}{
 		{"", "empty string"},
 		{"singletopic", "no dot separator"},
+		{"a.b", "only 2 parts (client format, not internal)"},
+		{"BTC.trade", "only 2 parts (needs tenant prefix)"},
 		{".chat", "empty first part"},
 		{"community.", "empty last part"},
 		{"community..chat", "empty middle part"},
 		{"...", "all empty parts"},
 		{"..", "two dots only"},
 		{".", "single dot"},
+		{"a.b.", "empty last part"},
+		{".b.c", "empty first part"},
+		{"a..c", "empty middle part"},
 	}
 
 	for _, tc := range invalidChannels {
@@ -63,18 +74,20 @@ func TestIsValidPublishChannel_InvalidFormats(t *testing.T) {
 
 func TestIsValidPublishChannel_EdgeCases(t *testing.T) {
 	t.Parallel()
+	// Internal channels require at least 3 parts: {tenant}.{identifier}.{category}
 	testCases := []struct {
 		channel string
 		valid   bool
 		desc    string
 	}{
-		{"a.b", true, "minimum 2 parts"},
-		{"ab.cd", true, "two letter parts"},
-		{"123.456", true, "numeric parts"},
-		{"a-b.c-d", true, "hyphens allowed"},
-		{"a_b.c_d", true, "underscores allowed"},
-		{"A.B", true, "uppercase allowed"},
-		{"aB.cD", true, "mixed case allowed"},
+		{"a.b", false, "2 parts is client format, not internal"},
+		{"a.b.c", true, "minimum 3 parts (internal format)"},
+		{"ab.cd.ef", true, "two letter parts"},
+		{"123.456.789", true, "numeric parts"},
+		{"a-b.c-d.e-f", true, "hyphens allowed"},
+		{"a_b.c_d.e_f", true, "underscores allowed"},
+		{"A.B.C", true, "uppercase allowed"},
+		{"aB.cD.eF", true, "mixed case allowed"},
 	}
 
 	for _, tc := range testCases {
@@ -409,12 +422,12 @@ func TestParseClientMessage_Publish(t *testing.T) {
 // Message Size Tests
 // =============================================================================
 
-func TestMaxPublishMessageSize_Constant(t *testing.T) {
+func TestDefaultMaxPublishSize_Constant(t *testing.T) {
 	t.Parallel()
 	expectedSize := 64 * 1024 // 64KB
 
-	if maxPublishMessageSize != expectedSize {
-		t.Errorf("maxPublishMessageSize = %d, want %d", maxPublishMessageSize, expectedSize)
+	if protocol.DefaultMaxPublishSize != expectedSize {
+		t.Errorf("protocol.DefaultMaxPublishSize = %d, want %d", protocol.DefaultMaxPublishSize, expectedSize)
 	}
 }
 
@@ -426,21 +439,21 @@ func TestMessageSize_UnderLimit(t *testing.T) {
 		smallPayload[i] = 'a'
 	}
 
-	if len(smallPayload) > maxPublishMessageSize {
-		t.Errorf("Small payload (%d bytes) exceeds max (%d bytes)", len(smallPayload), maxPublishMessageSize)
+	if len(smallPayload) > protocol.DefaultMaxPublishSize {
+		t.Errorf("Small payload (%d bytes) exceeds max (%d bytes)", len(smallPayload), protocol.DefaultMaxPublishSize)
 	}
 }
 
 func TestMessageSize_OverLimit(t *testing.T) {
 	t.Parallel()
 	// Create a message over the limit
-	largePayload := make([]byte, maxPublishMessageSize+1)
+	largePayload := make([]byte, protocol.DefaultMaxPublishSize+1)
 	for i := range largePayload {
 		largePayload[i] = 'a'
 	}
 
-	if len(largePayload) <= maxPublishMessageSize {
-		t.Errorf("Large payload (%d bytes) should exceed max (%d bytes)", len(largePayload), maxPublishMessageSize)
+	if len(largePayload) <= protocol.DefaultMaxPublishSize {
+		t.Errorf("Large payload (%d bytes) should exceed max (%d bytes)", len(largePayload), protocol.DefaultMaxPublishSize)
 	}
 }
 
@@ -449,7 +462,7 @@ func TestMessageSize_OverLimit(t *testing.T) {
 // =============================================================================
 
 func BenchmarkIsValidPublishChannel_Valid(b *testing.B) {
-	channel := "community.group123.chat"
+	channel := "tenant.group123.chat" // 3 parts - internal format
 
 	for b.Loop() {
 		_ = isValidPublishChannel(channel)

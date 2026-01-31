@@ -163,22 +163,18 @@ func (c *ProvisioningConfig) Validate() error {
 	}
 
 	// Enum checks
-	validLogLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
-	if !validLogLevels[c.LogLevel] {
-		return fmt.Errorf("LOG_LEVEL must be one of: debug, info, warn, error (got: %s)", c.LogLevel)
+	if err := ValidateLogLevel(c.LogLevel); err != nil {
+		return err
 	}
 
-	validLogFormats := map[string]bool{"json": true, "text": true, "pretty": true}
-	if !validLogFormats[c.LogFormat] {
-		return fmt.Errorf("LOG_FORMAT must be one of: json, text, pretty (got: %s)", c.LogFormat)
+	if err := ValidateLogFormat(c.LogFormat); err != nil {
+		return err
 	}
 
 	// Kafka SASL validation
 	if c.KafkaSASLEnabled {
-		validMechanisms := map[string]bool{"scram-sha-256": true, "scram-sha-512": true}
-		if !validMechanisms[c.KafkaSASLMechanism] {
-			return fmt.Errorf("KAFKA_SASL_MECHANISM must be 'scram-sha-256' or 'scram-sha-512', got: %s",
-				c.KafkaSASLMechanism)
+		if err := ValidateKafkaSASLMechanism(c.KafkaSASLMechanism); err != nil {
+			return err
 		}
 		if c.KafkaSASLUsername == "" {
 			return errors.New("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLED=true")

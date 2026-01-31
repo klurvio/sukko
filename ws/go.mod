@@ -16,12 +16,13 @@ require (
 	github.com/redis/go-redis/v9 v9.17.0
 	github.com/rs/zerolog v1.33.0
 	github.com/shirou/gopsutil/v3 v3.24.5
+	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go/modules/redpanda v0.40.0
 	github.com/twmb/franz-go v1.20.6
 	github.com/twmb/franz-go/pkg/kadm v1.17.2
 	go.uber.org/automaxprocs v1.6.0
-	golang.org/x/time v0.9.0
+	golang.org/x/time v0.14.0
 )
 
 require (

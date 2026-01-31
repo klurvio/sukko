@@ -10,19 +10,27 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/sony/gobreaker/v2"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
+
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
-// TopicClientEvents is the base topic name for client-generated events.
-// All client publishes go to this single ingress topic (industry standard pattern).
-// Full topic name: odin.{namespace}.client-events
-const TopicClientEvents = "client-events"
+// Re-export sentinel errors from protocol package for backward compatibility.
+// These aliases allow existing code that imports kafka.ErrXxx to continue working.
+var (
+	ErrInvalidChannel      = protocol.ErrInvalidChannel
+	ErrTopicNotProvisioned = protocol.ErrTopicNotProvisioned
+	ErrServiceUnavailable  = protocol.ErrServiceUnavailable
+	ErrProducerClosed      = protocol.ErrProducerClosed
+)
 
 // ProducerStats holds metrics for the producer.
 type ProducerStats struct {
@@ -41,6 +49,17 @@ type ProducerConfig struct {
 	SASL *SASLConfig // SASL authentication (nil = no auth, for local dev)
 	TLS  *TLSConfig  // TLS encryption (nil = no TLS, for local dev)
 
+	// Topic validation (optional - if nil, topics are not validated)
+	TenantRegistry TenantRegistry // Registry to validate provisioned topics
+
+	// Circuit breaker settings (optional - sensible defaults provided)
+	CircuitBreakerTimeout      time.Duration // Time before half-open (default: 30s)
+	CircuitBreakerMaxFailures  uint32        // Consecutive failures to trip (default: 5)
+	CircuitBreakerHalfOpenReqs uint32        // Requests allowed in half-open (default: 1)
+
+	// Topic cache settings
+	TopicCacheTTL time.Duration // TTL for provisioned topic cache (default: 60s)
+
 	// Producer tuning (optional - sensible defaults provided)
 	BatchMaxBytes   int32         // Max batch size in bytes (default: 1MB)
 	MaxBufferedRecs int           // Max buffered records (default: 10000)
@@ -57,13 +76,22 @@ type ProducerConfig struct {
 type Producer struct {
 	client         *kgo.Client
 	topicNamespace string
-	topic          string // Pre-computed full topic name
 	logger         *zerolog.Logger
 	stats          ProducerStats
 	ctx            context.Context
 	cancel         context.CancelFunc
 	mu             sync.RWMutex
 	closed         bool
+
+	// Circuit breaker for Kafka connection
+	circuitBreaker *gobreaker.CircuitBreaker[any]
+
+	// Topic validation
+	tenantRegistry    TenantRegistry
+	provisionedTopics map[string]bool
+	topicCacheMu      sync.RWMutex
+	topicCacheExpiry  time.Time
+	topicCacheTTL     time.Duration
 }
 
 // NewProducer creates a new Kafka producer with the provided configuration.
@@ -103,6 +131,26 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	recordRetries := cfg.RecordRetries
 	if recordRetries == 0 {
 		recordRetries = 8
+	}
+
+	// Circuit breaker defaults
+	cbTimeout := cfg.CircuitBreakerTimeout
+	if cbTimeout == 0 {
+		cbTimeout = 30 * time.Second
+	}
+	cbMaxFailures := cfg.CircuitBreakerMaxFailures
+	if cbMaxFailures == 0 {
+		cbMaxFailures = 5
+	}
+	cbHalfOpenReqs := cfg.CircuitBreakerHalfOpenReqs
+	if cbHalfOpenReqs == 0 {
+		cbHalfOpenReqs = 1
+	}
+
+	// Topic cache TTL default
+	topicCacheTTL := cfg.TopicCacheTTL
+	if topicCacheTTL == 0 {
+		topicCacheTTL = 60 * time.Second
 	}
 
 	// Build client options
@@ -186,23 +234,45 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 		return nil, fmt.Errorf("failed to create kafka producer client: %w", err)
 	}
 
-	// Pre-compute the full topic name
-	topic := GetTopic(cfg.TopicNamespace, TopicClientEvents)
+	// Create circuit breaker for Kafka connection
+	cbSettings := gobreaker.Settings{
+		Name:        "kafka-producer",
+		MaxRequests: cbHalfOpenReqs,
+		Interval:    0, // No periodic reset
+		Timeout:     cbTimeout,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			return counts.ConsecutiveFailures >= cbMaxFailures
+		},
+		OnStateChange: func(name string, from, to gobreaker.State) {
+			if cfg.Logger != nil {
+				cfg.Logger.Warn().
+					Str("name", name).
+					Str("from", from.String()).
+					Str("to", to.String()).
+					Msg("Circuit breaker state changed")
+			}
+		},
+	}
+	cb := gobreaker.NewCircuitBreaker[any](cbSettings)
 
 	producer := &Producer{
-		client:         client,
-		topicNamespace: NormalizeEnv(cfg.TopicNamespace),
-		topic:          topic,
-		logger:         cfg.Logger,
-		ctx:            ctx,
-		cancel:         cancel,
+		client:            client,
+		topicNamespace:    NormalizeEnv(cfg.TopicNamespace),
+		logger:            cfg.Logger,
+		ctx:               ctx,
+		cancel:            cancel,
+		circuitBreaker:    cb,
+		tenantRegistry:    cfg.TenantRegistry,
+		provisionedTopics: make(map[string]bool),
+		topicCacheTTL:     topicCacheTTL,
 	}
 
 	if cfg.Logger != nil {
 		cfg.Logger.Info().
 			Strs("brokers", cfg.Brokers).
-			Str("topic", topic).
+			Str("namespace", producer.topicNamespace).
 			Str("client_id", clientID).
+			Dur("circuit_breaker_timeout", cbTimeout).
 			Msg("Kafka producer initialized")
 	}
 
@@ -211,21 +281,49 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 
 // Publish sends a client message to Kafka.
 //
-// The message is published to the client-events topic with:
-//   - Key: channel string (for partitioning - same channel = same partition = ordering)
+// The message is published to the appropriate category topic based on channel:
+//   - Channel format: {tenant}.{identifier}.{category} (internal/mapped)
+//   - Topic: {namespace}.{tenant}.{category}
+//   - Key: full channel string (for partitioning - same channel = same partition = ordering)
 //   - Value: raw JSON from client (no parsing/validation)
 //   - Headers: metadata (client_id, source, timestamp)
 //
-// This follows the industry standard pattern of using a single ingress topic
-// for client-generated events, with the channel as the partition key.
+// The channel must already be in internal format (tenant-prefixed) after gateway mapping.
+// Example: channel "acme.BTC.trade" → topic "prod.acme.trade", key "acme.BTC.trade"
 func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, data []byte) error {
 	p.mu.RLock()
 	if p.closed {
 		p.mu.RUnlock()
-		return errors.New("producer is closed")
+		return ErrProducerClosed
 	}
-	topic := p.topic
 	p.mu.RUnlock()
+
+	// Execute through circuit breaker
+	_, err := p.circuitBreaker.Execute(func() (any, error) {
+		return nil, p.doPublish(ctx, clientID, channel, data)
+	})
+
+	if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
+		return fmt.Errorf("%w: kafka circuit breaker open", ErrServiceUnavailable)
+	}
+
+	return err
+}
+
+// doPublish performs the actual Kafka publish operation.
+func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string, data []byte) error {
+	// parseChannel ALWAYS runs - extracts tenant/category to build topic
+	tenant, category, err := parseChannel(channel)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidChannel, err)
+	}
+
+	topic := fmt.Sprintf("%s.%s.%s", p.topicNamespace, tenant, category)
+
+	// Validate topic is provisioned (if registry is configured)
+	if p.tenantRegistry != nil && !p.isTopicProvisioned(ctx, topic) {
+		return fmt.Errorf("%w: %s", ErrTopicNotProvisioned, topic)
+	}
 
 	record := &kgo.Record{
 		Topic: topic,
@@ -233,7 +331,7 @@ func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, 
 		Value: data,
 		Headers: []kgo.RecordHeader{
 			{Key: "client_id", Value: []byte(strconv.FormatInt(clientID, 10))},
-			{Key: "source", Value: []byte("ws-server")},
+			{Key: "source", Value: []byte("ws-client")},
 			{Key: "timestamp", Value: []byte(strconv.FormatInt(time.Now().UnixMilli(), 10))},
 		},
 	}
@@ -267,6 +365,107 @@ func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, 
 	return nil
 }
 
+// parseChannel extracts tenant and category from an internal channel.
+// Channel format: {tenant}.{identifier}.{category} (minimum 3 parts)
+//
+// Example:
+//
+//	"acme.BTC.trade" → tenant: "acme", category: "trade"
+//	"acme.user123.balances" → tenant: "acme", category: "balances"
+//	"acme.group.chat.community" → tenant: "acme", category: "community"
+func parseChannel(channel string) (tenant, category string, err error) {
+	parts := strings.Split(channel, ".")
+
+	// Must be mapped format: tenant.identifier.category (3+ parts)
+	if len(parts) < 3 {
+		return "", "", fmt.Errorf("channel must have at least 3 parts (tenant.identifier.category), got %d", len(parts))
+	}
+
+	tenant = parts[0]
+	category = parts[len(parts)-1]
+
+	if tenant == "" {
+		return "", "", fmt.Errorf("tenant (first segment) cannot be empty")
+	}
+	if category == "" {
+		return "", "", fmt.Errorf("category (last segment) cannot be empty")
+	}
+
+	return tenant, category, nil
+}
+
+// isTopicProvisioned checks if a topic exists in the cache or registry.
+// Uses a TTL-based cache to avoid querying the registry on every publish.
+func (p *Producer) isTopicProvisioned(ctx context.Context, topic string) bool {
+	// Check cache first
+	p.topicCacheMu.RLock()
+	if time.Now().Before(p.topicCacheExpiry) {
+		if provisioned, ok := p.provisionedTopics[topic]; ok {
+			p.topicCacheMu.RUnlock()
+			return provisioned
+		}
+	}
+	p.topicCacheMu.RUnlock()
+
+	// Cache miss or expired - refresh cache
+	p.refreshTopicCache(ctx)
+
+	// Check again after refresh
+	p.topicCacheMu.RLock()
+	defer p.topicCacheMu.RUnlock()
+	return p.provisionedTopics[topic]
+}
+
+// refreshTopicCache refreshes the provisioned topics cache from the registry.
+func (p *Producer) refreshTopicCache(ctx context.Context) {
+	p.topicCacheMu.Lock()
+	defer p.topicCacheMu.Unlock()
+
+	// Double-check after acquiring write lock
+	if time.Now().Before(p.topicCacheExpiry) {
+		return
+	}
+
+	// Query shared topics
+	sharedTopics, err := p.tenantRegistry.GetSharedTenantTopics(ctx, p.topicNamespace)
+	if err != nil {
+		if p.logger != nil {
+			p.logger.Warn().Err(err).Msg("Failed to refresh shared topic cache")
+		}
+		return
+	}
+
+	// Query dedicated tenants
+	dedicatedTenants, err := p.tenantRegistry.GetDedicatedTenants(ctx, p.topicNamespace)
+	if err != nil {
+		if p.logger != nil {
+			p.logger.Warn().Err(err).Msg("Failed to refresh dedicated topic cache")
+		}
+		return
+	}
+
+	// Rebuild cache
+	newCache := make(map[string]bool)
+	for _, topic := range sharedTopics {
+		newCache[topic] = true
+	}
+	for _, tenant := range dedicatedTenants {
+		for _, topic := range tenant.Topics {
+			newCache[topic] = true
+		}
+	}
+
+	p.provisionedTopics = newCache
+	p.topicCacheExpiry = time.Now().Add(p.topicCacheTTL)
+
+	if p.logger != nil {
+		p.logger.Debug().
+			Int("topic_count", len(newCache)).
+			Dur("ttl", p.topicCacheTTL).
+			Msg("Refreshed provisioned topic cache")
+	}
+}
+
 // Stats returns a snapshot of the current producer statistics.
 func (p *Producer) Stats() ProducerStatsSnapshot {
 	return ProducerStatsSnapshot{
@@ -281,11 +480,16 @@ type ProducerStatsSnapshot struct {
 	MessagesFailed    int64
 }
 
-// Topic returns the full topic name this producer publishes to.
-func (p *Producer) Topic() string {
+// Namespace returns the topic namespace this producer uses.
+func (p *Producer) Namespace() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return p.topic
+	return p.topicNamespace
+}
+
+// CircuitBreakerState returns the current state of the circuit breaker.
+func (p *Producer) CircuitBreakerState() gobreaker.State {
+	return p.circuitBreaker.State()
 }
 
 // Close gracefully shuts down the producer.

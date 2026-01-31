@@ -255,7 +255,7 @@ func main() {
 			logger.Fatalf("Failed to create Kafka producer: %v", err)
 		}
 
-		logger.Printf("Kafka producer initialized (topic: %s)", kafkaProducer.Topic())
+		logger.Printf("Kafka producer initialized (namespace: %s)", kafkaProducer.Namespace())
 	}
 
 	// Create and start shards

@@ -65,6 +65,12 @@ type GatewayConfig struct {
 	RateLimitBurst   int     `env:"GATEWAY_RATE_LIMIT_BURST" envDefault:"100"`
 	RateLimitRate    float64 `env:"GATEWAY_RATE_LIMIT_RATE" envDefault:"10.0"`
 
+	// Publish-specific settings
+	PublishRateLimit float64  `env:"GATEWAY_PUBLISH_RATE_LIMIT" envDefault:"10.0"` // Messages per second
+	PublishBurst     int      `env:"GATEWAY_PUBLISH_BURST" envDefault:"100"`       // Burst capacity
+	MaxPublishSize   int      `env:"GATEWAY_MAX_PUBLISH_SIZE" envDefault:"65536"`  // Max message size (64KB)
+	CrossTenantRoles []string `env:"GATEWAY_CROSS_TENANT_ROLES" envSeparator:","`  // Roles that can access cross-tenant channels
+
 	// Logging
 	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
 	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
@@ -138,14 +144,12 @@ func (c *GatewayConfig) Validate() error {
 		return errors.New("GATEWAY_PUBLIC_PATTERNS must have at least one pattern")
 	}
 
-	validLogLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
-	if !validLogLevels[c.LogLevel] {
-		return fmt.Errorf("LOG_LEVEL must be one of: debug, info, warn, error (got: %s)", c.LogLevel)
+	if err := ValidateLogLevel(c.LogLevel); err != nil {
+		return err
 	}
 
-	validLogFormats := map[string]bool{"json": true, "text": true, "pretty": true}
-	if !validLogFormats[c.LogFormat] {
-		return fmt.Errorf("LOG_FORMAT must be one of: json, text, pretty (got: %s)", c.LogFormat)
+	if err := ValidateLogFormat(c.LogFormat); err != nil {
+		return err
 	}
 
 	return nil

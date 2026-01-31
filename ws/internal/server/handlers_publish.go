@@ -3,15 +3,14 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
-
-// Maximum message size for client publishes (64KB)
-const maxPublishMessageSize = 64 * 1024
 
 // handleClientPublish processes a client publish request.
 // It validates the request, checks rate limits, and publishes to Kafka.
@@ -21,67 +20,65 @@ const maxPublishMessageSize = 64 * 1024
 //	{
 //	  "type": "publish",
 //	  "data": {
-//	    "channel": "community.group123.chat",
+//	    "channel": "acme.BTC.trade",  // Internal format (tenant-prefixed from gateway)
 //	    "data": {"message": "Hello", "sender": "user456"}
 //	  }
 //	}
 //
 // The message is published to Kafka with:
-//   - Topic: odin.{namespace}.client-events (single ingress topic)
-//   - Key: channel string (for partitioning)
+//   - Topic: {namespace}.{tenant}.{category} (extracted from channel)
+//   - Key: full channel string (for partitioning - same channel = same partition = ordering)
 //   - Value: raw JSON from client's data field
 //   - Headers: client_id (server-verified), source, timestamp
+//
+// The channel must already be in internal format (tenant-prefixed) after gateway mapping.
 func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 	// Check if producer is available
 	if s.kafkaProducer == nil {
-		s.sendPublishError(c, "not_available", "Publishing is not enabled on this server")
+		s.sendPublishError(c, string(protocol.ErrCodeNotAvailable), protocol.PublishErrorMessages[protocol.ErrCodeNotAvailable])
 		return
 	}
 
 	// Parse the publish request
-	var pubReq struct {
-		Channel string          `json:"channel"`
-		Data    json.RawMessage `json:"data"`
-	}
+	var pubReq protocol.PublishData
 
 	if err := json.Unmarshal(data, &pubReq); err != nil {
 		s.logger.Warn().
 			Int64("client_id", c.id).
 			Err(err).
 			Msg("Client sent invalid publish request")
-		s.sendPublishError(c, "invalid_request", "Invalid publish request format")
+		s.sendPublishError(c, string(protocol.ErrCodeInvalidRequest), protocol.PublishErrorMessages[protocol.ErrCodeInvalidRequest])
 		return
 	}
 
-	// Validate channel format (must have at least 2 dot-separated parts)
+	// Validate channel format (must have at least 3 dot-separated parts: tenant.identifier.category)
 	if !isValidPublishChannel(pubReq.Channel) {
 		s.logger.Warn().
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
 			Msg("Client sent invalid channel format")
-		s.sendPublishError(c, "invalid_channel", "Channel must have format: name.type (e.g., community.chat)")
+		s.sendPublishError(c, string(protocol.ErrCodeInvalidChannel), protocol.PublishErrorMessages[protocol.ErrCodeInvalidChannel])
 		return
 	}
 
 	// Validate message size
-	if len(pubReq.Data) > maxPublishMessageSize {
+	if len(pubReq.Data) > protocol.DefaultMaxPublishSize {
 		s.logger.Warn().
 			Int64("client_id", c.id).
 			Int("size", len(pubReq.Data)).
-			Int("max_size", maxPublishMessageSize).
+			Int("max_size", protocol.DefaultMaxPublishSize).
 			Msg("Client publish message too large")
-		s.sendPublishError(c, "message_too_large", "Message exceeds maximum size of 64KB")
+		s.sendPublishError(c, string(protocol.ErrCodeMessageTooLarge), protocol.PublishErrorMessages[protocol.ErrCodeMessageTooLarge])
 		return
 	}
 
 	// Rate limiting check (uses the same rate limiter as other messages)
-	// TODO: Consider separate rate limiter with stricter limits for publishing
 	if s.rateLimiter != nil && !s.rateLimiter.CheckLimit(c.id) {
 		s.logger.Warn().
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
 			Msg("Client publish rate limited")
-		s.sendPublishError(c, "rate_limited", "Publish rate limit exceeded")
+		s.sendPublishError(c, string(protocol.ErrCodeRateLimited), protocol.PublishErrorMessages[protocol.ErrCodeRateLimited])
 		s.stats.RateLimitedMessages.Add(1)
 		metrics.IncrementRateLimitedMessages()
 		return
@@ -97,7 +94,19 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
 			Msg("Failed to publish message to Kafka")
-		s.sendPublishError(c, "publish_failed", "Failed to publish message")
+
+		// Map specific errors to error codes
+		code := protocol.ErrCodePublishFailed
+		switch {
+		case errors.Is(err, protocol.ErrInvalidChannel):
+			code = protocol.ErrCodeInvalidChannel
+		case errors.Is(err, protocol.ErrTopicNotProvisioned):
+			code = protocol.ErrCodeTopicNotProvisioned
+		case errors.Is(err, protocol.ErrServiceUnavailable):
+			code = protocol.ErrCodeServiceUnavailable
+		}
+
+		s.sendPublishError(c, string(code), protocol.PublishErrorMessages[code])
 		metrics.IncrementPublishErrors()
 		return
 	}
@@ -117,7 +126,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 // sendPublishAck sends a publish acknowledgment to the client.
 func (s *Server) sendPublishAck(c *Client, channel string) {
 	ack := map[string]any{
-		"type":    "publish_ack",
+		"type":    protocol.RespTypePublishAck,
 		"channel": channel,
 		"status":  "accepted",
 	}
@@ -135,7 +144,7 @@ func (s *Server) sendPublishAck(c *Client, channel string) {
 // sendPublishError sends a publish error response to the client.
 func (s *Server) sendPublishError(c *Client, code, message string) {
 	errResp := map[string]any{
-		"type":    "publish_error",
+		"type":    protocol.RespTypePublishError,
 		"code":    code,
 		"message": message,
 	}
@@ -150,16 +159,21 @@ func (s *Server) sendPublishError(c *Client, code, message string) {
 	}
 }
 
-// isValidPublishChannel validates that a channel has the correct format.
-// Channels must have at least 2 dot-separated parts (e.g., "community.chat").
+// isValidPublishChannel validates that a channel has the correct internal format.
+// Internal channels must have at least 3 dot-separated parts: {tenant}.{identifier}.{category}
 // Parts cannot be empty.
+//
+// Examples:
+//   - "acme.BTC.trade" → valid (tenant=acme, identifier=BTC, category=trade)
+//   - "acme.user123.balances" → valid
+//   - "BTC.trade" → invalid (only 2 parts, not tenant-prefixed)
 func isValidPublishChannel(channel string) bool {
 	if channel == "" {
 		return false
 	}
 
 	parts := strings.Split(channel, ".")
-	if len(parts) < 2 {
+	if len(parts) < protocol.MinInternalChannelParts {
 		return false
 	}
 

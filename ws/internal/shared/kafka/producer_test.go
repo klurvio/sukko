@@ -216,40 +216,41 @@ func TestProducerStats_Concurrent(t *testing.T) {
 }
 
 // =============================================================================
-// Producer Topic Tests
+// Producer Namespace Tests
 // =============================================================================
 
-func TestProducer_Topic(t *testing.T) {
+func TestProducer_Namespace(t *testing.T) {
 	t.Parallel()
 	producer := &Producer{
-		topic: "odin.test.client-events",
+		topicNamespace: "test",
 	}
 
-	topic := producer.Topic()
-	if topic != "odin.test.client-events" {
-		t.Errorf("Topic() = %q, want %q", topic, "odin.test.client-events")
+	namespace := producer.Namespace()
+	if namespace != "test" {
+		t.Errorf("Namespace() = %q, want %q", namespace, "test")
 	}
 }
 
-func TestProducer_TopicNamespaces(t *testing.T) {
+func TestProducer_Namespaces(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
-		namespace     string
-		expectedTopic string
+		input    string
+		expected string
 	}{
-		{"local", "odin.local.client-events"},
-		{"dev", "odin.dev.client-events"},
-		{"staging", "odin.staging.client-events"},
-		{"main", "odin.main.client-events"},       // pass-through via default case
-		{"production", "odin.prod.client-events"}, // production normalizes to prod
+		{"local", "local"},
+		{"dev", "dev"},
+		{"develop", "dev"},
+		{"staging", "staging"},
+		{"prod", "prod"},
+		{"production", "prod"},
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.namespace, func(t *testing.T) {
+		t.Run(tc.input, func(t *testing.T) {
 			t.Parallel()
-			topic := GetTopic(tc.namespace, TopicClientEvents)
-			if topic != tc.expectedTopic {
-				t.Errorf("GetTopic(%q, TopicClientEvents) = %q, want %q", tc.namespace, topic, tc.expectedTopic)
+			normalized := NormalizeEnv(tc.input)
+			if normalized != tc.expected {
+				t.Errorf("NormalizeEnv(%q) = %q, want %q", tc.input, normalized, tc.expected)
 			}
 		})
 	}
@@ -292,13 +293,61 @@ func TestProducer_Close_SetsClosedFlag(t *testing.T) {
 }
 
 // =============================================================================
-// TopicClientEvents Constant Tests
+// parseChannel Tests
 // =============================================================================
 
-func TestTopicClientEvents_Value(t *testing.T) {
+func TestParseChannel_ValidFormats(t *testing.T) {
 	t.Parallel()
-	if TopicClientEvents != "client-events" {
-		t.Errorf("TopicClientEvents = %q, want %q", TopicClientEvents, "client-events")
+	testCases := []struct {
+		channel  string
+		tenant   string
+		category string
+	}{
+		{"acme.BTC.trade", "acme", "trade"},
+		{"globex.user123.balances", "globex", "balances"},
+		{"test.group.chat.community", "test", "community"},
+		{"tenant.a.b.c.d.category", "tenant", "category"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.channel, func(t *testing.T) {
+			t.Parallel()
+			tenant, category, err := parseChannel(tc.channel)
+			if err != nil {
+				t.Fatalf("parseChannel(%q) error = %v", tc.channel, err)
+			}
+			if tenant != tc.tenant {
+				t.Errorf("tenant = %q, want %q", tenant, tc.tenant)
+			}
+			if category != tc.category {
+				t.Errorf("category = %q, want %q", category, tc.category)
+			}
+		})
+	}
+}
+
+func TestParseChannel_InvalidFormats(t *testing.T) {
+	t.Parallel()
+	invalidChannels := []struct {
+		channel string
+		reason  string
+	}{
+		{"", "empty string"},
+		{"single", "only 1 part"},
+		{"a.b", "only 2 parts"},
+		{".b.c", "empty tenant"},
+		{"a.b.", "empty category"},
+		{"...", "all empty parts"},
+	}
+
+	for _, tc := range invalidChannels {
+		t.Run(tc.reason, func(t *testing.T) {
+			t.Parallel()
+			_, _, err := parseChannel(tc.channel)
+			if err == nil {
+				t.Errorf("parseChannel(%q) should return error (reason: %s)", tc.channel, tc.reason)
+			}
+		})
 	}
 }
 
@@ -404,6 +453,13 @@ func BenchmarkProducerStats_Read(b *testing.B) {
 
 func BenchmarkGetTopic(b *testing.B) {
 	for b.Loop() {
-		_ = GetTopic("dev", TopicClientEvents)
+		_ = GetTopic("dev", "trade")
+	}
+}
+
+func BenchmarkParseChannel(b *testing.B) {
+	channel := "acme.BTC.trade"
+	for b.Loop() {
+		_, _, _ = parseChannel(channel)
 	}
 }

@@ -9,36 +9,109 @@ info:
 
     ## Topic Naming Patterns
 
-    ### Infrastructure Topics (Shared Processing Pipeline)
-    Pattern: `odin.{env}.{category}` and `odin.{env}.{category}.refined`
+    ### Infrastructure Topics
+    Pattern: `odin.{namespace}.{category}`
 
-    The Flink processing pipeline consumes raw events and publishes refined events:
-    - **Raw topics** (publisher writes): `odin.local.trade`, `odin.develop.trade`, `odin.main.trade`
-    - **Refined topics** (ws-server consumes): `odin.local.trade.refined`, `odin.develop.trade.refined`
+    Examples:
+    - `odin.local.trade` - Local development
+    - `odin.dev.trade` - Development environment
+    - `odin.staging.trade` - Staging environment
+    - `odin.prod.trade` - Production environment
 
-    Environment values: `local`, `develop`, `staging`, `main`
+    **Namespace values:** `local`, `dev`, `staging`, `prod`
+
+    **Note:** The `KAFKA_TOPIC_NAMESPACE` environment variable controls which namespace
+    to use, defaulting to a normalized form of `ENVIRONMENT`. This allows a develop
+    deployment to consume from prod topics for testing while keeping logs/metrics accurate.
 
     ### Multi-Tenant Topics
     Pattern: `{namespace}.{tenant_id}.{category}`
 
     Tenants receive isolated topics provisioned via the Provisioning API:
-    - Example: `main.acme-corp.trade`, `main.acme-corp.liquidity`
+    - Example: `prod.acme-corp.trade`, `prod.acme-corp.liquidity`
     - Topics are created when tenants are onboarded
     - Access controlled via JWT authentication with tenant-scoped keys
 
-    Consumer types:
-    - **Shared**: Multiple tenants share a consumer group (default)
-    - **Dedicated**: Tenant gets isolated consumer for guaranteed throughput
+    ### Client Events Topic
+    Pattern: `odin.{namespace}.client-events`
+
+    Ingress topic for client-published messages via WebSocket `publish` command.
+    - Message key: Channel string (for partitioning)
+    - Headers: `client_id`, `source`, `timestamp`
+
+    ## Consumer Groups
+
+    ### Shared Mode (Default)
+    - Consumer group: `odin-shared-{namespace}`
+    - Multiple tenants share the consumer
+    - Cost-effective for most deployments
+
+    ### Dedicated Mode
+    - Consumer group: `odin-{tenant_id}-{namespace}`
+    - Isolated consumer per tenant
+    - Guaranteed throughput for high-volume tenants
 
     ## Categories
     - `trade` - Trading events (executions, buys, sells)
     - `liquidity` - Liquidity pool operations
-    - `balance` - User balance and transfer events
+    - `balances` - User balance and transfer events
     - `metadata` - Token metadata updates
     - `social` - Social verification and links
     - `community` - Comments, favorites, voting
     - `creation` - Token creation and listing
     - `analytics` - Price deltas, holder counts, trending
+
+    ## Subscription Bundles
+
+    Clients can subscribe to predefined bundles for common use cases:
+
+    | Bundle | Categories Included | Use Case |
+    |--------|---------------------|----------|
+    | `TRADING` | trade, liquidity, analytics | Active traders |
+    | `FULL_MARKET` | trade, liquidity, analytics, metadata | Market data feeds |
+    | `COMMUNITY` | community, social, metadata | Social features |
+    | `PORTFOLIO` | trade, analytics, balances | Portfolio tracking |
+    | `PRICE_ONLY` | trade, analytics | Simple price feeds |
+    | `ALL` | All 8 categories | Complete feed |
+
+    **Example:**
+    ```json
+    {"type": "subscribe", "data": {"channels": ["BTC.TRADING"]}}
+    ```
+
+    ## Rate Limiting
+
+    ### Message Rate Limits
+    - **Burst:** 100 messages
+    - **Sustained:** 10 messages/second
+    - **Max message size:** 64KB
+
+    ### Connection Limits
+    - Per-tenant connection limits (configurable)
+    - Returns HTTP 429 when exceeded
+
+    ### Slow Client Detection
+    - Clients with full send buffers (3+ consecutive failures) are disconnected
+    - Close code: 1008 (Policy Violation)
+    - Reason: "Client too slow to process messages"
+
+    ## Channel Permissions (Gateway)
+
+    The ws-gateway enforces channel permissions based on JWT claims:
+
+    ### 1. Public Channels
+    - Pattern: `*.trade`, `*.liquidity`, `odin.*`
+    - Access: Any authenticated user
+
+    ### 2. User-Scoped Channels
+    - Pattern: `balances.{principal}`, `notifications.{principal}`
+    - Access: JWT `sub` claim must match `{principal}`
+    - Example: `balances.user123` requires JWT with `sub: "user123"`
+
+    ### 3. Group-Scoped Channels
+    - Pattern: `community.{group_id}`, `project.{group_id}`
+    - Access: JWT `groups` array must contain `{group_id}`
+    - Example: `community.team-alpha` requires JWT with `groups: ["team-alpha", ...]`
 
     ## Message Key
     All messages use the **token ID** as the Kafka message key for partition-based sharding.
@@ -77,24 +150,24 @@ servers:
     description: Local Redpanda broker for development
     tags:
       - name: env:local
-  develop:
-    host: odin-redpanda.develop:9092
+  dev:
+    host: odin-redpanda.dev:9092
     protocol: kafka
-    description: Develop environment Redpanda cluster
+    description: Development environment Redpanda cluster
     tags:
-      - name: env:develop
+      - name: env:dev
   staging:
     host: odin-redpanda.staging:9092
     protocol: kafka
     description: Staging environment Redpanda cluster
     tags:
       - name: env:staging
-  production:
-    host: odin-redpanda.production:9092
+  prod:
+    host: odin-redpanda.prod:9092
     protocol: kafka
     description: Production Redpanda cluster
     tags:
-      - name: env:main
+      - name: env:prod
   kind:
     host: localhost:19092
     protocol: kafka
@@ -132,6 +205,14 @@ channels:
     $ref: './channel/control.yaml#/WsReconnect'
   ws.control.error:
     $ref: './channel/control.yaml#/WsError'
+  ws.control.publish:
+    $ref: './channel/control.yaml#/WsPublish'
+  ws.control.broadcast:
+    $ref: './channel/control.yaml#/WsBroadcast'
+
+  # Client Events Topic (Kafka)
+  odin.client-events:
+    $ref: './channel/client_events.yaml#/OdinClientEvents'
 
 operations:
   # =============================================================================
@@ -461,6 +542,101 @@ operations:
       - $ref: '#/channels/ws.control.error/messages/ErrorResponse'
       - $ref: '#/channels/ws.control.error/messages/PublishAck'
       - $ref: '#/channels/ws.control.error/messages/PublishError'
+
+  wsPublish:
+    action: send
+    channel:
+      $ref: '#/channels/ws.control.publish'
+    summary: Publish message to channel
+    description: |
+      Client sends a message to be published to Kafka.
+
+      **Flow:**
+      1. Client sends `PublishRequest` with channel and data
+      2. Server validates channel format (min 2 dot-separated parts)
+      3. Server checks message size (max 64KB)
+      4. Server applies rate limiting (10/sec, 100 burst)
+      5. Server publishes to `odin.{namespace}.client-events` topic
+      6. Server sends `PublishAck` on success or `PublishError` on failure
+
+      **Kafka Message:**
+      - Topic: `odin.{namespace}.client-events`
+      - Key: Channel string (for partitioning)
+      - Value: Raw JSON from client's data field
+      - Headers: `client_id`, `source`, `timestamp`
+    messages:
+      - $ref: '#/channels/ws.control.publish/messages/PublishRequest'
+
+  wsPublishAck:
+    action: receive
+    channel:
+      $ref: '#/channels/ws.control.publish'
+    summary: Receive publish acknowledgments
+    description: |
+      Server sends acknowledgments or errors for publish operations.
+    messages:
+      - $ref: '#/channels/ws.control.publish/messages/PublishAck'
+      - $ref: '#/channels/ws.control.publish/messages/PublishError'
+
+  wsBroadcast:
+    action: receive
+    channel:
+      $ref: '#/channels/ws.control.broadcast'
+    summary: Receive broadcast messages
+    description: |
+      Server broadcasts messages to subscribed clients.
+
+      **Message Envelope:**
+      All broadcast messages use a standard envelope with:
+      - `type`: Always "message"
+      - `seq`: Per-connection sequence number (starts at 1)
+      - `ts`: Server timestamp in milliseconds
+      - `channel`: Channel the message was published to
+      - `data`: Event payload
+
+      **Gap Detection:**
+      Clients should track `seq` numbers. If a gap is detected
+      (received seq != expected seq), use `reconnect` to replay
+      missed messages from Kafka.
+
+      **Latency Measurement:**
+      Calculate: `clientTime - ts`
+    messages:
+      - $ref: '#/channels/ws.control.broadcast/messages/BroadcastMessage'
+
+  publishClientEvents:
+    action: send
+    channel:
+      $ref: '#/channels/odin.client-events'
+    summary: Publish client events to Kafka
+    description: |
+      Internal operation: ws-server publishes client messages to Kafka.
+
+      This is an internal operation - clients use the WebSocket `publish`
+      message type, and the server writes to this Kafka topic.
+
+      **Message Format:**
+      - Key: Channel string (e.g., "community.group123.chat")
+      - Value: Raw JSON from client
+      - Headers: client_id, source, timestamp
+    messages:
+      - $ref: '#/channels/odin.client-events/messages/ClientPublishedMessage'
+
+  consumeClientEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/odin.client-events'
+    summary: Consume client events from Kafka
+    description: |
+      Downstream services consume client-published messages.
+
+      **Use Cases:**
+      - Chat message processing
+      - Content moderation
+      - Event aggregation
+      - Analytics pipelines
+    messages:
+      - $ref: '#/channels/odin.client-events/messages/ClientPublishedMessage'
 
 components:
   messages:
