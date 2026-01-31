@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
@@ -52,7 +51,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 	}
 
 	// Validate channel format (must have at least 3 dot-separated parts: tenant.identifier.category)
-	if !isValidPublishChannel(pubReq.Channel) {
+	if !auth.IsValidInternalChannel(pubReq.Channel) {
 		s.logger.Warn().
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
@@ -157,26 +156,4 @@ func (s *Server) sendPublishError(c *Client, code, message string) {
 			// Client buffer full
 		}
 	}
-}
-
-// isValidPublishChannel validates that a channel has the correct internal format.
-// Internal channels must have at least 3 dot-separated parts: {tenant}.{identifier}.{category}
-// Parts cannot be empty.
-//
-// Examples:
-//   - "acme.BTC.trade" → valid (tenant=acme, identifier=BTC, category=trade)
-//   - "acme.user123.balances" → valid
-//   - "BTC.trade" → invalid (only 2 parts, not tenant-prefixed)
-func isValidPublishChannel(channel string) bool {
-	if channel == "" {
-		return false
-	}
-
-	parts := strings.Split(channel, ".")
-	if len(parts) < protocol.MinInternalChannelParts {
-		return false
-	}
-
-	// Check that no part is empty
-	return !slices.Contains(parts, "")
 }

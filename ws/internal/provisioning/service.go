@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 )
 
 // ServiceConfig holds the configuration for the provisioning service.
@@ -488,12 +490,18 @@ func (s *Service) buildTopicName(tenantID, category string) string {
 
 // auditLog records an audit entry.
 func (s *Service) auditLog(ctx context.Context, tenantID, action string, details Metadata) {
+	// Get actor type, defaulting to "system" if not set
+	actorType := auth.GetActorType(ctx)
+	if actorType == "system" {
+		actorType = ActorTypeSystem
+	}
+
 	entry := &AuditEntry{
 		TenantID:  tenantID,
 		Action:    action,
-		Actor:     getActorFromContext(ctx),
-		ActorType: getActorTypeFromContext(ctx),
-		IPAddress: getIPFromContext(ctx),
+		Actor:     auth.GetActor(ctx),
+		ActorType: actorType,
+		IPAddress: auth.GetClientIPFromContext(ctx),
 		Details:   details,
 	}
 	if err := s.audit.Log(ctx, entry); err != nil {
@@ -501,40 +509,6 @@ func (s *Service) auditLog(ctx context.Context, tenantID, action string, details
 	}
 }
 
-// Context keys for actor information.
-type contextKey string
-
-const (
-	ctxKeyActor     contextKey = "actor"
-	ctxKeyActorType contextKey = "actor_type"
-	ctxKeyIP        contextKey = "ip_address"
-)
-
 // WithActor adds actor information to context.
-func WithActor(ctx context.Context, actor, actorType, ip string) context.Context {
-	ctx = context.WithValue(ctx, ctxKeyActor, actor)
-	ctx = context.WithValue(ctx, ctxKeyActorType, actorType)
-	ctx = context.WithValue(ctx, ctxKeyIP, ip)
-	return ctx
-}
-
-func getActorFromContext(ctx context.Context) string {
-	if v, ok := ctx.Value(ctxKeyActor).(string); ok {
-		return v
-	}
-	return "system"
-}
-
-func getActorTypeFromContext(ctx context.Context) string {
-	if v, ok := ctx.Value(ctxKeyActorType).(string); ok {
-		return v
-	}
-	return ActorTypeSystem
-}
-
-func getIPFromContext(ctx context.Context) string {
-	if v, ok := ctx.Value(ctxKeyIP).(string); ok {
-		return v
-	}
-	return ""
-}
+// This is an alias for auth.WithActor for backwards compatibility.
+var WithActor = auth.WithActor

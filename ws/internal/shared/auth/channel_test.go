@@ -405,7 +405,7 @@ func TestIsSharedChannel(t *testing.T) {
 	}
 }
 
-func TestMatchSimplePattern(t *testing.T) {
+func TestMatchWildcard_SharedChannel(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		pattern  string
@@ -432,9 +432,9 @@ func TestMatchSimplePattern(t *testing.T) {
 		name := tt.pattern + "_" + tt.value
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			result := matchSimplePattern(tt.pattern, tt.value)
+			result := MatchWildcard(tt.pattern, tt.value)
 			if result != tt.expected {
-				t.Errorf("matchSimplePattern(%q, %q) = %v, want %v",
+				t.Errorf("MatchWildcard(%q, %q) = %v, want %v",
 					tt.pattern, tt.value, result, tt.expected)
 			}
 		})
@@ -476,6 +476,130 @@ func TestChannelMapper_RoundTrip(t *testing.T) {
 			if roundTrip != clientChannel {
 				t.Errorf("round-trip failed: %q → %q → %q",
 					clientChannel, internal, roundTrip)
+			}
+		})
+	}
+}
+
+func TestValidateInternalChannel(t *testing.T) {
+	tests := []struct {
+		name    string
+		channel string
+		wantErr bool
+	}{
+		{
+			name:    "valid 3-part channel",
+			channel: "acme.BTC.trade",
+			wantErr: false,
+		},
+		{
+			name:    "valid 4-part channel",
+			channel: "acme.user123.private.balances",
+			wantErr: false,
+		},
+		{
+			name:    "empty channel",
+			channel: "",
+			wantErr: true,
+		},
+		{
+			name:    "only 2 parts",
+			channel: "BTC.trade",
+			wantErr: true,
+		},
+		{
+			name:    "only 1 part",
+			channel: "trade",
+			wantErr: true,
+		},
+		{
+			name:    "empty first part",
+			channel: ".BTC.trade",
+			wantErr: true,
+		},
+		{
+			name:    "empty middle part",
+			channel: "acme..trade",
+			wantErr: true,
+		},
+		{
+			name:    "empty last part",
+			channel: "acme.BTC.",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateInternalChannel(tt.channel)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateInternalChannel(%q) error = %v, wantErr %v", tt.channel, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsValidInternalChannel(t *testing.T) {
+	// Valid channels
+	if !IsValidInternalChannel("acme.BTC.trade") {
+		t.Error("IsValidInternalChannel('acme.BTC.trade') = false, want true")
+	}
+
+	// Invalid channels
+	if IsValidInternalChannel("BTC.trade") {
+		t.Error("IsValidInternalChannel('BTC.trade') = true, want false")
+	}
+}
+
+func TestParseInternalChannel(t *testing.T) {
+	tests := []struct {
+		name         string
+		channel      string
+		wantTenant   string
+		wantCategory string
+		wantErr      bool
+	}{
+		{
+			name:         "valid 3-part channel",
+			channel:      "acme.BTC.trade",
+			wantTenant:   "acme",
+			wantCategory: "trade",
+			wantErr:      false,
+		},
+		{
+			name:         "valid 4-part channel",
+			channel:      "acme.user123.private.balances",
+			wantTenant:   "acme",
+			wantCategory: "balances",
+			wantErr:      false,
+		},
+		{
+			name:    "invalid channel (2 parts)",
+			channel: "BTC.trade",
+			wantErr: true,
+		},
+		{
+			name:    "empty channel",
+			channel: "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tenant, category, err := ParseInternalChannel(tt.channel)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseInternalChannel(%q) error = %v, wantErr %v", tt.channel, err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				return
+			}
+			if tenant != tt.wantTenant {
+				t.Errorf("ParseInternalChannel(%q) tenant = %q, want %q", tt.channel, tenant, tt.wantTenant)
+			}
+			if category != tt.wantCategory {
+				t.Errorf("ParseInternalChannel(%q) category = %q, want %q", tt.channel, category, tt.wantCategory)
 			}
 		})
 	}

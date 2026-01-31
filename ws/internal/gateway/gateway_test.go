@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 )
 
@@ -102,16 +104,8 @@ func TestNew_AuthEnabled_RequiresDatabase(t *testing.T) {
 	}
 }
 
-func TestGateway_ExtractToken(t *testing.T) {
+func TestExtractBearerToken(t *testing.T) {
 	t.Parallel()
-	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = false
-	logger := newTestLogger()
-	gw, err := New(cfg, logger)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer func() { _ = gw.Close() }()
 
 	tests := []struct {
 		name       string
@@ -182,9 +176,9 @@ func TestGateway_ExtractToken(t *testing.T) {
 				req.Header.Set("Authorization", tt.authHeader)
 			}
 
-			got := gw.extractToken(req)
+			got := httputil.ExtractBearerToken(req)
 			if got != tt.expected {
-				t.Errorf("extractToken() = %q, want %q", got, tt.expected)
+				t.Errorf("ExtractBearerToken() = %q, want %q", got, tt.expected)
 			}
 		})
 	}
@@ -220,14 +214,20 @@ func TestGateway_HandleHealth(t *testing.T) {
 		t.Errorf("HandleHealth() Content-Type = %q, want %q", contentType, "application/json")
 	}
 
-	// Check body
+	// Check body - parse as JSON to avoid ordering issues
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("Failed to read response body: %v", err)
 	}
-	expectedBody := `{"status":"ok","service":"ws-gateway"}`
-	if string(body) != expectedBody {
-		t.Errorf("HandleHealth() body = %q, want %q", string(body), expectedBody)
+	var result map[string]string
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("Failed to parse response body as JSON: %v", err)
+	}
+	if result["status"] != "ok" {
+		t.Errorf("HandleHealth() status = %q, want %q", result["status"], "ok")
+	}
+	if result["service"] != "ws-gateway" {
+		t.Errorf("HandleHealth() service = %q, want %q", result["service"], "ws-gateway")
 	}
 }
 

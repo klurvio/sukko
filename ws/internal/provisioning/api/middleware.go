@@ -13,14 +13,13 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
 )
 
-// Context keys for auth information.
+// Context key for actor information (tenant_id:user_id format).
 type contextKey string
 
 const (
-	// ClaimsContextKey is the context key for JWT claims.
-	ClaimsContextKey contextKey = "claims"
 	// ActorContextKey is the context key for the actor (tenant_id:user_id).
 	ActorContextKey contextKey = "actor"
 )
@@ -58,14 +57,14 @@ func AuthMiddleware(validator *auth.MultiTenantValidator, logger zerolog.Logger)
 			// Extract token from Authorization header
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				writeError(w, http.StatusUnauthorized, "MISSING_TOKEN", "Authorization header required")
+				httputil.WriteError(w, http.StatusUnauthorized, "MISSING_TOKEN", "Authorization header required")
 				return
 			}
 
 			// Expect "Bearer <token>"
 			scheme, tokenString, found := strings.Cut(authHeader, " ")
 			if !found || !strings.EqualFold(scheme, "Bearer") {
-				writeError(w, http.StatusUnauthorized, "INVALID_AUTH_HEADER", "Authorization header must be 'Bearer <token>'")
+				httputil.WriteError(w, http.StatusUnauthorized, "INVALID_AUTH_HEADER", "Authorization header must be 'Bearer <token>'")
 				return
 			}
 
@@ -80,15 +79,15 @@ func AuthMiddleware(validator *auth.MultiTenantValidator, logger zerolog.Logger)
 
 				switch {
 				case errors.Is(err, auth.ErrMissingToken):
-					writeError(w, http.StatusUnauthorized, "MISSING_TOKEN", "Token required")
+					httputil.WriteError(w, http.StatusUnauthorized, "MISSING_TOKEN", "Token required")
 				case errors.Is(err, auth.ErrTokenExpired):
-					writeError(w, http.StatusUnauthorized, "TOKEN_EXPIRED", "Token has expired")
+					httputil.WriteError(w, http.StatusUnauthorized, "TOKEN_EXPIRED", "Token has expired")
 				case errors.Is(err, auth.ErrKeyNotFound):
-					writeError(w, http.StatusUnauthorized, "KEY_NOT_FOUND", "Signing key not found")
+					httputil.WriteError(w, http.StatusUnauthorized, "KEY_NOT_FOUND", "Signing key not found")
 				case errors.Is(err, auth.ErrKeyRevoked):
-					writeError(w, http.StatusUnauthorized, "KEY_REVOKED", "Signing key has been revoked")
+					httputil.WriteError(w, http.StatusUnauthorized, "KEY_REVOKED", "Signing key has been revoked")
 				default:
-					writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Token validation failed")
+					httputil.WriteError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Token validation failed")
 				}
 				return
 			}
@@ -96,8 +95,8 @@ func AuthMiddleware(validator *auth.MultiTenantValidator, logger zerolog.Logger)
 			// Build actor string for audit logging
 			actor := claims.TenantID + ":" + claims.Subject
 
-			// Add claims and actor to context
-			ctx := context.WithValue(r.Context(), ClaimsContextKey, claims)
+			// Add claims and actor to context using shared helpers
+			ctx := auth.WithClaims(r.Context(), claims)
 			ctx = context.WithValue(ctx, ActorContextKey, actor)
 
 			logger.Debug().
@@ -118,7 +117,7 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims := GetClaimsFromContext(r.Context())
 			if claims == nil {
-				writeError(w, http.StatusUnauthorized, "NOT_AUTHENTICATED", "Authentication required")
+				httputil.WriteError(w, http.StatusUnauthorized, "NOT_AUTHENTICATED", "Authentication required")
 				return
 			}
 
@@ -128,7 +127,7 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 				return
 			}
 
-			writeError(w, http.StatusForbidden, "INSUFFICIENT_ROLE", "Required role: "+strings.Join(roles, " or "))
+			httputil.WriteError(w, http.StatusForbidden, "INSUFFICIENT_ROLE", "Required role: "+strings.Join(roles, " or "))
 		})
 	}
 }
@@ -141,7 +140,7 @@ func RequireTenant() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims := GetClaimsFromContext(r.Context())
 			if claims == nil {
-				writeError(w, http.StatusUnauthorized, "NOT_AUTHENTICATED", "Authentication required")
+				httputil.WriteError(w, http.StatusUnauthorized, "NOT_AUTHENTICATED", "Authentication required")
 				return
 			}
 
@@ -160,7 +159,7 @@ func RequireTenant() func(http.Handler) http.Handler {
 
 			// Check tenant match
 			if claims.TenantID != tenantID {
-				writeError(w, http.StatusForbidden, "TENANT_MISMATCH", "Cannot access other tenant's resources")
+				httputil.WriteError(w, http.StatusForbidden, "TENANT_MISMATCH", "Cannot access other tenant's resources")
 				return
 			}
 
@@ -171,8 +170,7 @@ func RequireTenant() func(http.Handler) http.Handler {
 
 // GetClaimsFromContext retrieves JWT claims from context.
 func GetClaimsFromContext(ctx context.Context) *auth.Claims {
-	claims, _ := ctx.Value(ClaimsContextKey).(*auth.Claims)
-	return claims
+	return auth.GetClaims(ctx)
 }
 
 // GetActorFromContext retrieves the actor string from context.

@@ -2,8 +2,12 @@
 package auth
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
 // ChannelMapper handles tenant-implicit channel name mapping.
@@ -212,33 +216,55 @@ func (m *ChannelMapper) BuildInternalChannel(tenant string, parts ...string) str
 //   - "system.*"
 //   - "broadcast.*"
 func IsSharedChannel(channel string, sharedPatterns []string) bool {
-	for _, pattern := range sharedPatterns {
-		if matchSimplePattern(pattern, channel) {
-			return true
-		}
-	}
-	return false
+	return MatchAnyWildcard(sharedPatterns, channel)
 }
 
-// matchSimplePattern performs simple wildcard matching.
-// Supports * as wildcard for any segment.
-func matchSimplePattern(pattern, value string) bool {
-	// Exact match
-	if pattern == value {
-		return true
+// ValidateInternalChannel validates internal channel format.
+// Internal channels must have at least 3 dot-separated parts: {tenant}.{identifier}.{category}
+// Parts cannot be empty.
+//
+// Examples:
+//   - "acme.BTC.trade" → valid (tenant=acme, identifier=BTC, category=trade)
+//   - "acme.user123.balances" → valid
+//   - "BTC.trade" → invalid (only 2 parts, not tenant-prefixed)
+func ValidateInternalChannel(channel string) error {
+	if channel == "" {
+		return errors.New("channel cannot be empty")
 	}
 
-	// Handle trailing wildcard: "system.*" matches "system.anything"
-	if before, ok := strings.CutSuffix(pattern, ".*"); ok {
-		prefix := before
-		return strings.HasPrefix(value, prefix+".")
+	parts := strings.Split(channel, ".")
+	if len(parts) < protocol.MinInternalChannelParts {
+		return fmt.Errorf("channel must have at least %d parts: tenant.identifier.category (got %d)",
+			protocol.MinInternalChannelParts, len(parts))
 	}
 
-	// Handle leading wildcard: "*.broadcast" matches "anything.broadcast"
-	if after, ok := strings.CutPrefix(pattern, "*."); ok {
-		suffix := after
-		return strings.HasSuffix(value, "."+suffix)
+	for i, part := range parts {
+		if part == "" {
+			return fmt.Errorf("channel part %d cannot be empty", i)
+		}
 	}
 
-	return false
+	return nil
+}
+
+// IsValidInternalChannel checks if a channel has valid internal format.
+// This is a convenience wrapper around ValidateInternalChannel for boolean checks.
+func IsValidInternalChannel(channel string) bool {
+	return ValidateInternalChannel(channel) == nil
+}
+
+// ParseInternalChannel extracts tenant and category from an internal channel.
+// The tenant is the first part, category is the last part.
+//
+// Example:
+//
+//	"acme.BTC.trade" → tenant: "acme", category: "trade"
+//	"acme.user123.private.balances" → tenant: "acme", category: "balances"
+func ParseInternalChannel(channel string) (tenant, category string, err error) {
+	if err := ValidateInternalChannel(channel); err != nil {
+		return "", "", err
+	}
+
+	parts := strings.Split(channel, ".")
+	return parts[0], parts[len(parts)-1], nil
 }

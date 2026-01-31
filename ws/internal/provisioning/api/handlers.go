@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
 )
 
 // Handler provides HTTP handlers for provisioning operations.
@@ -28,17 +29,17 @@ func NewHandler(svc *provisioning.Service, logger zerolog.Logger) *Handler {
 
 // Health returns basic health status.
 func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // Ready returns readiness status (database connectivity).
 func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.Ready(r.Context()); err != nil {
 		h.logger.Error().Err(err).Msg("Readiness check failed")
-		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "Database not available")
+		httputil.WriteError(w, http.StatusServiceUnavailable, "NOT_READY", "Database not available")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 // Metrics returns Prometheus metrics.
@@ -50,7 +51,7 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 	var req provisioning.CreateTenantRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
 
@@ -58,13 +59,13 @@ func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error().Err(err).Str("tenant_id", req.TenantID).Msg("Failed to create tenant")
 		RecordTenantOperation("create", "error")
-		writeError(w, http.StatusInternalServerError, "CREATE_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "CREATE_FAILED", err.Error())
 		return
 	}
 
 	RecordTenantCreated()
 	RecordTenantOperation("create", "success")
-	writeJSON(w, http.StatusCreated, resp)
+	httputil.WriteJSON(w, http.StatusCreated, resp)
 }
 
 // GetTenant retrieves a tenant by ID.
@@ -73,11 +74,11 @@ func (h *Handler) GetTenant(w http.ResponseWriter, r *http.Request) {
 
 	tenant, err := h.service.GetTenant(r.Context(), tenantID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+		httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, tenant)
+	httputil.WriteJSON(w, http.StatusOK, tenant)
 }
 
 // ListTenants returns a paginated list of tenants.
@@ -86,11 +87,11 @@ func (h *Handler) ListTenants(w http.ResponseWriter, r *http.Request) {
 
 	tenants, total, err := h.service.ListTenants(r.Context(), opts)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "LIST_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "LIST_FAILED", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"tenants": tenants,
 		"total":   total,
 		"limit":   opts.Limit,
@@ -104,17 +105,17 @@ func (h *Handler) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 
 	var req provisioning.UpdateTenantRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
 
 	tenant, err := h.service.UpdateTenant(r.Context(), tenantID, req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "UPDATE_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "UPDATE_FAILED", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, tenant)
+	httputil.WriteJSON(w, http.StatusOK, tenant)
 }
 
 // SuspendTenant suspends a tenant.
@@ -123,12 +124,12 @@ func (h *Handler) SuspendTenant(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.SuspendTenant(r.Context(), tenantID); err != nil {
 		RecordTenantOperation("suspend", "error")
-		writeError(w, http.StatusInternalServerError, "SUSPEND_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "SUSPEND_FAILED", err.Error())
 		return
 	}
 
 	RecordTenantOperation("suspend", "success")
-	writeJSON(w, http.StatusOK, map[string]string{"status": "suspended"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "suspended"})
 }
 
 // ReactivateTenant reactivates a suspended tenant.
@@ -137,12 +138,12 @@ func (h *Handler) ReactivateTenant(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.ReactivateTenant(r.Context(), tenantID); err != nil {
 		RecordTenantOperation("reactivate", "error")
-		writeError(w, http.StatusInternalServerError, "REACTIVATE_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "REACTIVATE_FAILED", err.Error())
 		return
 	}
 
 	RecordTenantOperation("reactivate", "success")
-	writeJSON(w, http.StatusOK, map[string]string{"status": "active"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "active"})
 }
 
 // DeprovisionTenant initiates tenant deletion.
@@ -151,12 +152,12 @@ func (h *Handler) DeprovisionTenant(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.DeprovisionTenant(r.Context(), tenantID); err != nil {
 		RecordTenantOperation("deprovision", "error")
-		writeError(w, http.StatusInternalServerError, "DEPROVISION_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "DEPROVISION_FAILED", err.Error())
 		return
 	}
 
 	RecordTenantOperation("deprovision", "success")
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deprovisioning"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deprovisioning"})
 }
 
 // CreateKey registers a new public key.
@@ -165,18 +166,18 @@ func (h *Handler) CreateKey(w http.ResponseWriter, r *http.Request) {
 
 	var req provisioning.CreateKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
 
 	key, err := h.service.CreateKey(r.Context(), tenantID, req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "CREATE_KEY_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "CREATE_KEY_FAILED", err.Error())
 		return
 	}
 
 	RecordKeyCreated()
-	writeJSON(w, http.StatusCreated, key)
+	httputil.WriteJSON(w, http.StatusCreated, key)
 }
 
 // ListKeys returns all keys for a tenant.
@@ -185,11 +186,11 @@ func (h *Handler) ListKeys(w http.ResponseWriter, r *http.Request) {
 
 	keys, err := h.service.ListKeys(r.Context(), tenantID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "LIST_KEYS_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "LIST_KEYS_FAILED", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"keys": keys,
 	})
 }
@@ -200,23 +201,23 @@ func (h *Handler) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	keyID := chi.URLParam(r, "keyID")
 
 	if err := h.service.RevokeKey(r.Context(), tenantID, keyID); err != nil {
-		writeError(w, http.StatusInternalServerError, "REVOKE_KEY_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "REVOKE_KEY_FAILED", err.Error())
 		return
 	}
 
 	RecordKeyRevoked()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 
 // GetActiveKeys returns all active keys (for WS Gateway).
 func (h *Handler) GetActiveKeys(w http.ResponseWriter, r *http.Request) {
 	keys, err := h.service.GetActiveKeys(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "GET_KEYS_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "GET_KEYS_FAILED", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"keys": keys,
 	})
 }
@@ -227,13 +228,13 @@ func (h *Handler) CreateTopics(w http.ResponseWriter, r *http.Request) {
 
 	var req provisioning.CreateTopicsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
 
 	topics, err := h.service.CreateTopics(r.Context(), tenantID, req.Categories)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "CREATE_TOPICS_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "CREATE_TOPICS_FAILED", err.Error())
 		return
 	}
 
@@ -243,7 +244,7 @@ func (h *Handler) CreateTopics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordTopicCreated(len(topics))
-	writeJSON(w, http.StatusCreated, map[string]any{
+	httputil.WriteJSON(w, http.StatusCreated, map[string]any{
 		"topics": topicNames,
 	})
 }
@@ -254,11 +255,11 @@ func (h *Handler) ListTopics(w http.ResponseWriter, r *http.Request) {
 
 	topics, err := h.service.ListTopics(r.Context(), tenantID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "LIST_TOPICS_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "LIST_TOPICS_FAILED", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"topics": topics,
 	})
 }
@@ -269,11 +270,11 @@ func (h *Handler) GetQuota(w http.ResponseWriter, r *http.Request) {
 
 	quota, err := h.service.GetQuota(r.Context(), tenantID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "QUOTA_NOT_FOUND", err.Error())
+		httputil.WriteError(w, http.StatusNotFound, "QUOTA_NOT_FOUND", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, quota)
+	httputil.WriteJSON(w, http.StatusOK, quota)
 }
 
 // UpdateQuota updates quotas for a tenant.
@@ -282,17 +283,17 @@ func (h *Handler) UpdateQuota(w http.ResponseWriter, r *http.Request) {
 
 	var req provisioning.UpdateQuotaRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
 
 	quota, err := h.service.UpdateQuota(r.Context(), tenantID, req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "UPDATE_QUOTA_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "UPDATE_QUOTA_FAILED", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, quota)
+	httputil.WriteJSON(w, http.StatusOK, quota)
 }
 
 // GetAuditLog returns audit entries for a tenant.
@@ -302,11 +303,11 @@ func (h *Handler) GetAuditLog(w http.ResponseWriter, r *http.Request) {
 
 	entries, total, err := h.service.GetAuditLog(r.Context(), tenantID, opts)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "GET_AUDIT_FAILED", err.Error())
+		httputil.WriteError(w, http.StatusInternalServerError, "GET_AUDIT_FAILED", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"entries": entries,
 		"total":   total,
 		"limit":   opts.Limit,
@@ -341,24 +342,4 @@ func parseListOptions(r *http.Request) provisioning.ListOptions {
 	}
 
 	return opts
-}
-
-// writeJSON writes a JSON response.
-func writeJSON(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(data)
-}
-
-// Error represents an API error response.
-type Error struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-// writeError writes an error response.
-func writeError(w http.ResponseWriter, status int, code, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(Error{Code: code, Message: message})
 }

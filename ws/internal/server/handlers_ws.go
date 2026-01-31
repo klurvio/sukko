@@ -1,21 +1,20 @@
 package server
 
 import (
-	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
 )
 
 // WebSocket upgrade handler
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
-	clientIP := getClientIP(r)
+	clientIP := httputil.GetClientIP(r)
 
 	// DEBUG: Log incoming WebSocket upgrade request
 	s.logger.Debug().
@@ -158,27 +157,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	go s.writePump(client)
 	go s.readPump(client)
-}
-
-// getClientIP extracts the client IP from the request.
-// Checks X-Forwarded-For header first (for load balancers/proxies),
-// then falls back to RemoteAddr.
-func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (standard for load balancers)
-	forwarded := r.Header.Get("X-Forwarded-For")
-	if forwarded != "" {
-		// Use first IP in the chain (client IP)
-		parts := strings.Split(forwarded, ",")
-		return strings.TrimSpace(parts[0])
-	}
-
-	// Fall back to RemoteAddr
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		// If split fails, return as-is (might be just IP without port)
-		return r.RemoteAddr
-	}
-	return ip
 }
 
 // disconnectClient handles client disconnect with proper instrumentation

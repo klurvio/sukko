@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
@@ -32,8 +33,8 @@ func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 	for _, channel := range validChannels {
 		t.Run(channel, func(t *testing.T) {
 			t.Parallel()
-			if !isValidPublishChannel(channel) {
-				t.Errorf("isValidPublishChannel(%q) = false, want true", channel)
+			if !auth.IsValidInternalChannel(channel) {
+				t.Errorf("auth.IsValidInternalChannel(%q) = false, want true", channel)
 			}
 		})
 	}
@@ -65,8 +66,8 @@ func TestIsValidPublishChannel_InvalidFormats(t *testing.T) {
 	for _, tc := range invalidChannels {
 		t.Run(tc.reason, func(t *testing.T) {
 			t.Parallel()
-			if isValidPublishChannel(tc.channel) {
-				t.Errorf("isValidPublishChannel(%q) = true, want false (reason: %s)", tc.channel, tc.reason)
+			if auth.IsValidInternalChannel(tc.channel) {
+				t.Errorf("auth.IsValidInternalChannel(%q) = true, want false (reason: %s)", tc.channel, tc.reason)
 			}
 		})
 	}
@@ -93,9 +94,9 @@ func TestIsValidPublishChannel_EdgeCases(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
 			t.Parallel()
-			result := isValidPublishChannel(tc.channel)
+			result := auth.IsValidInternalChannel(tc.channel)
 			if result != tc.valid {
-				t.Errorf("isValidPublishChannel(%q) = %v, want %v", tc.channel, result, tc.valid)
+				t.Errorf("auth.IsValidInternalChannel(%q) = %v, want %v", tc.channel, result, tc.valid)
 			}
 		})
 	}
@@ -465,7 +466,7 @@ func BenchmarkIsValidPublishChannel_Valid(b *testing.B) {
 	channel := "tenant.group123.chat" // 3 parts - internal format
 
 	for b.Loop() {
-		_ = isValidPublishChannel(channel)
+		_ = auth.IsValidInternalChannel(channel)
 	}
 }
 
@@ -473,7 +474,7 @@ func BenchmarkIsValidPublishChannel_Invalid(b *testing.B) {
 	channel := "invalid"
 
 	for b.Loop() {
-		_ = isValidPublishChannel(channel)
+		_ = auth.IsValidInternalChannel(channel)
 	}
 }
 

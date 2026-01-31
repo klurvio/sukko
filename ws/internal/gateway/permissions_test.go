@@ -169,7 +169,7 @@ func TestPermissionChecker_FilterChannels(t *testing.T) {
 	}
 }
 
-func TestMatchPattern(t *testing.T) {
+func TestMatchWildcard(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		pattern string
@@ -203,49 +203,56 @@ func TestMatchPattern(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.pattern+"_"+tt.channel, func(t *testing.T) {
 			t.Parallel()
-			got := matchPattern(tt.pattern, tt.channel)
+			got := auth.MatchWildcard(tt.pattern, tt.channel)
 			if got != tt.want {
-				t.Errorf("matchPattern(%q, %q) = %v, want %v",
+				t.Errorf("auth.MatchWildcard(%q, %q) = %v, want %v",
 					tt.pattern, tt.channel, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestExtractPlaceholder(t *testing.T) {
+func TestMatchPatternCaptures(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		pattern     string
-		channel     string
-		placeholder string
-		want        string
+		pattern       string
+		channel       string
+		wantCaptures  map[string]string
+		wantMatched   bool
 	}{
 		// User principal extraction
-		{"balances.{principal}", "balances.user123", "{principal}", "user123"},
-		{"balances.{principal}", "balances.abc-def", "{principal}", "abc-def"},
-		{"notifications.{principal}", "notifications.xyz", "{principal}", "xyz"},
+		{"balances.{principal}", "balances.user123", map[string]string{"principal": "user123"}, true},
+		{"balances.{principal}", "balances.abc-def", map[string]string{"principal": "abc-def"}, true},
+		{"notifications.{principal}", "notifications.xyz", map[string]string{"principal": "xyz"}, true},
 
 		// Group ID extraction
-		{"community.{group_id}", "community.traders", "{group_id}", "traders"},
-		{"social.{group_id}", "social.whales", "{group_id}", "whales"},
+		{"community.{group_id}", "community.traders", map[string]string{"group_id": "traders"}, true},
+		{"social.{group_id}", "social.whales", map[string]string{"group_id": "whales"}, true},
 
 		// Non-matching cases
-		{"balances.{principal}", "other.user123", "{principal}", ""},
-		{"balances.{principal}", "balances.", "{principal}", ""},
-		{"community.{group_id}", "other.traders", "{group_id}", ""},
+		{"balances.{principal}", "other.user123", nil, false},
+		{"community.{group_id}", "other.traders", nil, false},
 
 		// Suffix pattern
-		{"{principal}.balances", "user123.balances", "{principal}", "user123"},
+		{"{principal}.balances", "user123.balances", map[string]string{"principal": "user123"}, true},
 	}
 
 	for _, tt := range tests {
 		name := tt.pattern + "_" + tt.channel
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			got := extractPlaceholder(tt.pattern, tt.channel, tt.placeholder)
-			if got != tt.want {
-				t.Errorf("extractPlaceholder(%q, %q, %q) = %q, want %q",
-					tt.pattern, tt.channel, tt.placeholder, got, tt.want)
+			result := auth.MatchPattern(tt.pattern, tt.channel)
+			if result.Matched != tt.wantMatched {
+				t.Errorf("auth.MatchPattern(%q, %q).Matched = %v, want %v",
+					tt.pattern, tt.channel, result.Matched, tt.wantMatched)
+			}
+			if tt.wantMatched {
+				for key, wantValue := range tt.wantCaptures {
+					if gotValue, ok := result.Captures[key]; !ok || gotValue != wantValue {
+						t.Errorf("auth.MatchPattern(%q, %q).Captures[%q] = %q, want %q",
+							tt.pattern, tt.channel, key, gotValue, wantValue)
+					}
+				}
 			}
 		})
 	}

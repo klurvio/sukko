@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"testing"
+
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
 )
 
 // =============================================================================
@@ -16,7 +18,7 @@ func TestGetClientIP_XForwardedFor_SingleIP(t *testing.T) {
 	req.Header.Set("X-Forwarded-For", "192.168.1.100")
 	req.RemoteAddr = "10.0.0.1:12345"
 
-	ip := getClientIP(req)
+	ip := httputil.GetClientIP(req)
 
 	if ip != "192.168.1.100" {
 		t.Errorf("getClientIP: got %q, want %q", ip, "192.168.1.100")
@@ -30,7 +32,7 @@ func TestGetClientIP_XForwardedFor_MultipleIPs(t *testing.T) {
 	req.Header.Set("X-Forwarded-For", "203.0.113.50, 198.51.100.178, 192.0.2.1")
 	req.RemoteAddr = "10.0.0.1:12345"
 
-	ip := getClientIP(req)
+	ip := httputil.GetClientIP(req)
 
 	// Should return first IP (original client)
 	if ip != "203.0.113.50" {
@@ -44,7 +46,7 @@ func TestGetClientIP_XForwardedFor_WithSpaces(t *testing.T) {
 	req.Header.Set("X-Forwarded-For", "  192.168.1.100  ")
 	req.RemoteAddr = "10.0.0.1:12345"
 
-	ip := getClientIP(req)
+	ip := httputil.GetClientIP(req)
 
 	// Should trim spaces
 	if ip != "192.168.1.100" {
@@ -57,7 +59,7 @@ func TestGetClientIP_NoForwardedHeader_WithPort(t *testing.T) {
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.100:54321"
 
-	ip := getClientIP(req)
+	ip := httputil.GetClientIP(req)
 
 	// Should extract IP from RemoteAddr
 	if ip != "192.168.1.100" {
@@ -70,7 +72,7 @@ func TestGetClientIP_NoForwardedHeader_IPv6WithPort(t *testing.T) {
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.RemoteAddr = "[::1]:54321"
 
-	ip := getClientIP(req)
+	ip := httputil.GetClientIP(req)
 
 	// Should extract IPv6 IP from RemoteAddr
 	if ip != "::1" {
@@ -83,7 +85,7 @@ func TestGetClientIP_NoForwardedHeader_JustIP(t *testing.T) {
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.100" // No port (unusual but possible)
 
-	ip := getClientIP(req)
+	ip := httputil.GetClientIP(req)
 
 	// Should return as-is when no port
 	if ip != "192.168.1.100" {
@@ -96,7 +98,7 @@ func TestGetClientIP_Localhost(t *testing.T) {
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 
-	ip := getClientIP(req)
+	ip := httputil.GetClientIP(req)
 
 	if ip != "127.0.0.1" {
 		t.Errorf("getClientIP: got %q, want %q", ip, "127.0.0.1")
@@ -108,7 +110,7 @@ func TestGetClientIP_LocalhostIPv6(t *testing.T) {
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.RemoteAddr = "[::1]:12345"
 
-	ip := getClientIP(req)
+	ip := httputil.GetClientIP(req)
 
 	if ip != "::1" {
 		t.Errorf("getClientIP: got %q, want %q", ip, "::1")
@@ -121,7 +123,7 @@ func TestGetClientIP_XForwardedFor_Empty(t *testing.T) {
 	req.Header.Set("X-Forwarded-For", "")
 	req.RemoteAddr = "10.0.0.5:9999"
 
-	ip := getClientIP(req)
+	ip := httputil.GetClientIP(req)
 
 	// Empty X-Forwarded-For should fall back to RemoteAddr
 	if ip != "10.0.0.5" {
@@ -188,7 +190,7 @@ func TestGetClientIP_TableDriven(t *testing.T) {
 			}
 			req.RemoteAddr = tt.remoteAddr
 
-			ip := getClientIP(req)
+			ip := httputil.GetClientIP(req)
 
 			if ip != tt.expectedIP {
 				t.Errorf("getClientIP: got %q, want %q", ip, tt.expectedIP)

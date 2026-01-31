@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
@@ -62,29 +63,20 @@ func NewPump(config PumpConfig, logger Logger, zerologLogger zerolog.Logger, rat
 }
 
 // recoverPanic handles panic recovery for pump operations.
-// Uses zerolog for production, falls back to basic logging for tests.
+// Uses the shared logging.RecoverPanic for production (zerolog),
+// falls back to basic logging for tests using the Logger interface.
 func (p *Pump) recoverPanic(goroutineName string, fields map[string]any) {
 	if r := recover(); r != nil {
-		stack := string(debug.Stack())
-
-		// Try zerolog first (production)
+		// Try zerolog first (production) using shared logging
 		if p.ZerologLogger.GetLevel() != zerolog.Disabled {
-			event := p.ZerologLogger.Error().
-				Str("goroutine", goroutineName).
-				Interface("panic_value", r).
-				Str("stack_trace", stack).
-				Str("recovery_mode", "captured_panic_continuing_execution")
-
-			for k, v := range fields {
-				event = event.Interface(k, v)
-			}
-
-			event.Msg("GOROUTINE PANIC RECOVERED")
-			return
+			// Re-panic and let shared logging handle it
+			defer logging.RecoverPanic(p.ZerologLogger, goroutineName, fields)
+			panic(r)
 		}
 
 		// Fall back to interface logger (tests)
 		if p.Logger != nil {
+			stack := string(debug.Stack())
 			p.Logger.Error().
 				Str("goroutine", goroutineName).
 				Interface("panic_value", r).

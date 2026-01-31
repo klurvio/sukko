@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/version"
 
@@ -208,7 +209,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if gw.config.AuthEnabled {
 		authStart := time.Now()
 		// Extract token from query parameter or Authorization header
-		token := gw.extractToken(r)
+		token := httputil.ExtractBearerToken(r)
 		if token == "" {
 			RecordAuthValidation("failed", time.Since(authStart))
 			closeReason = "no_token"
@@ -338,26 +339,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 // HandleHealth handles health check requests.
 func (gw *Gateway) HandleHealth(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"status":"ok","service":"ws-gateway"}`))
-}
-
-// extractToken extracts the JWT token from the request.
-// Checks query parameter first, then Authorization header.
-func (gw *Gateway) extractToken(r *http.Request) string {
-	// Check query parameter
-	if token := r.URL.Query().Get("token"); token != "" {
-		return token
-	}
-
-	// Check Authorization header
-	authHeader := r.Header.Get("Authorization")
-	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
-		return authHeader[7:]
-	}
-
-	return ""
+	httputil.WriteHealthOK(w, "ws-gateway")
 }
 
 // NewServer creates an HTTP server for the gateway.

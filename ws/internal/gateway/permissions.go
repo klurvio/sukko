@@ -2,10 +2,12 @@ package gateway
 
 import (
 	"slices"
-	"strings"
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 )
+
+// Note: This package uses auth.MatchWildcard for pattern matching and
+// auth.MatchPattern for placeholder extraction from channel patterns.
 
 // PermissionChecker validates channel subscription permissions based on JWT claims.
 // It supports three channel categories:
@@ -64,12 +66,7 @@ func (pc *PermissionChecker) FilterChannels(claims *auth.Claims, channels []stri
 // matchesPublic checks if the channel matches any public pattern.
 // Patterns support wildcards: *.trade matches BTC.trade, ETH.trade, etc.
 func (pc *PermissionChecker) matchesPublic(channel string) bool {
-	for _, pattern := range pc.publicPatterns {
-		if matchPattern(pattern, channel) {
-			return true
-		}
-	}
-	return false
+	return auth.MatchAnyWildcard(pc.publicPatterns, channel)
 }
 
 // extractUserPrincipal extracts the principal from a user-scoped channel.
@@ -77,8 +74,11 @@ func (pc *PermissionChecker) matchesPublic(channel string) bool {
 // Returns empty string if no user-scoped pattern matches.
 func (pc *PermissionChecker) extractUserPrincipal(channel string) string {
 	for _, pattern := range pc.userScopedPatterns {
-		if principal := extractPlaceholder(pattern, channel, "{principal}"); principal != "" {
-			return principal
+		result := auth.MatchPattern(pattern, channel)
+		if result.Matched {
+			if principal, ok := result.Captures["principal"]; ok && principal != "" {
+				return principal
+			}
 		}
 	}
 	return ""
@@ -89,8 +89,11 @@ func (pc *PermissionChecker) extractUserPrincipal(channel string) string {
 // Returns empty string if no group-scoped pattern matches.
 func (pc *PermissionChecker) extractGroupID(channel string) string {
 	for _, pattern := range pc.groupScopedPatterns {
-		if groupID := extractPlaceholder(pattern, channel, "{group_id}"); groupID != "" {
-			return groupID
+		result := auth.MatchPattern(pattern, channel)
+		if result.Matched {
+			if groupID, ok := result.Captures["group_id"]; ok && groupID != "" {
+				return groupID
+			}
 		}
 	}
 	return ""
@@ -99,77 +102,4 @@ func (pc *PermissionChecker) extractGroupID(channel string) string {
 // containsGroup checks if the groups slice contains the target group.
 func (pc *PermissionChecker) containsGroup(groups []string, target string) bool {
 	return slices.Contains(groups, target)
-}
-
-// matchPattern matches a pattern against a channel.
-// Supports * as a wildcard that matches any sequence of characters.
-// Examples:
-//   - "*.trade" matches "BTC.trade", "ETH.trade"
-//   - "odin.*" matches "odin.trades", "odin.liquidity"
-//   - "*" matches anything
-func matchPattern(pattern, channel string) bool {
-	// Handle exact match
-	if pattern == channel {
-		return true
-	}
-
-	// Handle simple wildcard patterns
-	if pattern == "*" {
-		return true
-	}
-
-	// Handle prefix wildcard: *.suffix
-	if suffix, ok := strings.CutPrefix(pattern, "*"); ok {
-		return strings.HasSuffix(channel, suffix)
-	}
-
-	// Handle suffix wildcard: prefix.*
-	if prefix, ok := strings.CutSuffix(pattern, "*"); ok {
-		return strings.HasPrefix(channel, prefix)
-	}
-
-	// Handle middle wildcard: prefix*suffix
-	if idx := strings.Index(pattern, "*"); idx >= 0 {
-		prefix := pattern[:idx]
-		suffix := pattern[idx+1:]
-		return strings.HasPrefix(channel, prefix) && strings.HasSuffix(channel, suffix)
-	}
-
-	return false
-}
-
-// extractPlaceholder extracts a value from a channel based on a pattern with a placeholder.
-// For pattern "balances.{principal}" and channel "balances.abc123", returns "abc123".
-// Returns empty string if the pattern doesn't match or placeholder not found.
-func extractPlaceholder(pattern, channel, placeholder string) string {
-	// Find the placeholder position in the pattern
-	placeholderIdx := strings.Index(pattern, placeholder)
-	if placeholderIdx < 0 {
-		return ""
-	}
-
-	// Get prefix and suffix around the placeholder
-	prefix := pattern[:placeholderIdx]
-	suffix := pattern[placeholderIdx+len(placeholder):]
-
-	// Check if channel has the required prefix and strip it
-	value, ok := strings.CutPrefix(channel, prefix)
-	if !ok {
-		return ""
-	}
-
-	// Check if the remainder has the required suffix and strip it
-	if suffix != "" {
-		value, ok = strings.CutSuffix(value, suffix)
-		if !ok {
-			return ""
-		}
-	}
-
-	// Ensure we extracted something
-	if value == "" {
-		return ""
-	}
-
-	return value
 }
