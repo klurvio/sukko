@@ -125,6 +125,34 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 				// Audit log
 				r.Get("/audit", h.GetAuditLog)
+
+				// OIDC configuration (admin-only for create/update/delete)
+				r.Route("/oidc", func(r chi.Router) {
+					r.Get("/", h.GetOIDCConfig)
+					r.Group(func(r chi.Router) {
+						if cfg.AuthEnabled {
+							r.Use(RequireRole("admin", "system"))
+						}
+						r.Post("/", h.CreateOIDCConfig)
+						r.Put("/", h.UpdateOIDCConfig)
+						r.Delete("/", h.DeleteOIDCConfig)
+					})
+				})
+
+				// Channel rules (admin-only for set/delete)
+				r.Route("/channel-rules", func(r chi.Router) {
+					r.Get("/", h.GetChannelRules)
+					r.Group(func(r chi.Router) {
+						if cfg.AuthEnabled {
+							r.Use(RequireRole("admin", "system"))
+						}
+						r.Put("/", h.SetChannelRules)
+						r.Delete("/", h.DeleteChannelRules)
+					})
+				})
+
+				// Test access endpoint
+				r.Post("/test-access", h.TestAccess)
 			})
 		})
 

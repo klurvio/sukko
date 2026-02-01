@@ -10,17 +10,20 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // ServiceConfig holds the configuration for the provisioning service.
 type ServiceConfig struct {
-	TenantStore TenantStore
-	KeyStore    KeyStore
-	TopicStore  TopicStore
-	QuotaStore  QuotaStore
-	AuditStore  AuditStore
-	KafkaAdmin  KafkaAdmin
-	Logger      zerolog.Logger
+	TenantStore       TenantStore
+	KeyStore          KeyStore
+	TopicStore        TopicStore
+	QuotaStore        QuotaStore
+	AuditStore        AuditStore
+	OIDCConfigStore   OIDCConfigStore
+	ChannelRulesStore ChannelRulesStore
+	KafkaAdmin        KafkaAdmin
+	Logger            zerolog.Logger
 
 	// Topic configuration
 	TopicNamespace     string
@@ -36,27 +39,31 @@ type ServiceConfig struct {
 
 // Service provides tenant lifecycle management and provisioning operations.
 type Service struct {
-	tenants TenantStore
-	keys    KeyStore
-	topics  TopicStore
-	quotas  QuotaStore
-	audit   AuditStore
-	kafka   KafkaAdmin
-	logger  zerolog.Logger
-	config  ServiceConfig
+	tenants      TenantStore
+	keys         KeyStore
+	topics       TopicStore
+	quotas       QuotaStore
+	audit        AuditStore
+	oidcConfigs  OIDCConfigStore
+	channelRules ChannelRulesStore
+	kafka        KafkaAdmin
+	logger       zerolog.Logger
+	config       ServiceConfig
 }
 
 // NewService creates a new provisioning Service.
 func NewService(cfg ServiceConfig) *Service {
 	return &Service{
-		tenants: cfg.TenantStore,
-		keys:    cfg.KeyStore,
-		topics:  cfg.TopicStore,
-		quotas:  cfg.QuotaStore,
-		audit:   cfg.AuditStore,
-		kafka:   cfg.KafkaAdmin,
-		logger:  cfg.Logger,
-		config:  cfg,
+		tenants:      cfg.TenantStore,
+		keys:         cfg.KeyStore,
+		topics:       cfg.TopicStore,
+		quotas:       cfg.QuotaStore,
+		audit:        cfg.AuditStore,
+		oidcConfigs:  cfg.OIDCConfigStore,
+		channelRules: cfg.ChannelRulesStore,
+		kafka:        cfg.KafkaAdmin,
+		logger:       cfg.Logger,
+		config:       cfg,
 	}
 }
 
@@ -512,3 +519,182 @@ func (s *Service) auditLog(ctx context.Context, tenantID, action string, details
 // WithActor adds actor information to context.
 // This is an alias for auth.WithActor for backwards compatibility.
 var WithActor = auth.WithActor
+
+// CreateOIDCConfig creates OIDC configuration for a tenant.
+func (s *Service) CreateOIDCConfig(ctx context.Context, config *types.TenantOIDCConfig) error {
+	if s.oidcConfigs == nil {
+		return errors.New("OIDC config store not configured")
+	}
+
+	// Verify tenant exists and is active
+	tenant, err := s.tenants.Get(ctx, config.TenantID)
+	if err != nil {
+		return err
+	}
+	if tenant.Status != StatusActive {
+		return fmt.Errorf("tenant is not active: %s", tenant.Status)
+	}
+
+	// Validate config
+	if err := config.Validate(); err != nil {
+		return fmt.Errorf("invalid OIDC config: %w", err)
+	}
+
+	// Create in store
+	if err := s.oidcConfigs.Create(ctx, config); err != nil {
+		return fmt.Errorf("create OIDC config: %w", err)
+	}
+
+	s.auditLog(ctx, config.TenantID, ActionCreateOIDCConfig, Metadata{
+		"issuer_url": config.IssuerURL,
+		"audience":   config.Audience,
+	})
+
+	s.logger.Info().
+		Str("tenant_id", config.TenantID).
+		Str("issuer_url", config.IssuerURL).
+		Msg("OIDC config created")
+
+	return nil
+}
+
+// GetOIDCConfig retrieves OIDC configuration for a tenant.
+func (s *Service) GetOIDCConfig(ctx context.Context, tenantID string) (*types.TenantOIDCConfig, error) {
+	if s.oidcConfigs == nil {
+		return nil, errors.New("OIDC config store not configured")
+	}
+
+	return s.oidcConfigs.Get(ctx, tenantID)
+}
+
+// UpdateOIDCConfig updates OIDC configuration for a tenant.
+func (s *Service) UpdateOIDCConfig(ctx context.Context, config *types.TenantOIDCConfig) error {
+	if s.oidcConfigs == nil {
+		return errors.New("OIDC config store not configured")
+	}
+
+	// Validate config
+	if err := config.Validate(); err != nil {
+		return fmt.Errorf("invalid OIDC config: %w", err)
+	}
+
+	// Update in store
+	if err := s.oidcConfigs.Update(ctx, config); err != nil {
+		return fmt.Errorf("update OIDC config: %w", err)
+	}
+
+	s.auditLog(ctx, config.TenantID, ActionUpdateOIDCConfig, Metadata{
+		"issuer_url": config.IssuerURL,
+		"audience":   config.Audience,
+		"enabled":    config.Enabled,
+	})
+
+	s.logger.Info().
+		Str("tenant_id", config.TenantID).
+		Str("issuer_url", config.IssuerURL).
+		Bool("enabled", config.Enabled).
+		Msg("OIDC config updated")
+
+	return nil
+}
+
+// DeleteOIDCConfig deletes OIDC configuration for a tenant.
+func (s *Service) DeleteOIDCConfig(ctx context.Context, tenantID string) error {
+	if s.oidcConfigs == nil {
+		return errors.New("OIDC config store not configured")
+	}
+
+	// Get existing to verify it exists and for audit log
+	existing, err := s.oidcConfigs.Get(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+
+	// Delete from store
+	if err := s.oidcConfigs.Delete(ctx, tenantID); err != nil {
+		return fmt.Errorf("delete OIDC config: %w", err)
+	}
+
+	s.auditLog(ctx, tenantID, ActionDeleteOIDCConfig, Metadata{
+		"issuer_url": existing.IssuerURL,
+	})
+
+	s.logger.Info().
+		Str("tenant_id", tenantID).
+		Msg("OIDC config deleted")
+
+	return nil
+}
+
+// GetChannelRules retrieves channel rules for a tenant.
+func (s *Service) GetChannelRules(ctx context.Context, tenantID string) (*types.TenantChannelRules, error) {
+	if s.channelRules == nil {
+		return nil, errors.New("channel rules store not configured")
+	}
+
+	return s.channelRules.Get(ctx, tenantID)
+}
+
+// SetChannelRules creates or updates channel rules for a tenant.
+func (s *Service) SetChannelRules(ctx context.Context, tenantID string, rules *types.ChannelRules) error {
+	if s.channelRules == nil {
+		return errors.New("channel rules store not configured")
+	}
+
+	// Verify tenant exists and is active
+	tenant, err := s.tenants.Get(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if tenant.Status != StatusActive {
+		return fmt.Errorf("tenant is not active: %s", tenant.Status)
+	}
+
+	// Validate rules
+	if err := rules.Validate(); err != nil {
+		return fmt.Errorf("invalid channel rules: %w", err)
+	}
+
+	// Upsert in store
+	if err := s.channelRules.Update(ctx, tenantID, rules); err != nil {
+		return fmt.Errorf("set channel rules: %w", err)
+	}
+
+	s.auditLog(ctx, tenantID, ActionSetChannelRules, Metadata{
+		"public_patterns": len(rules.Public),
+		"group_mappings":  len(rules.GroupMappings),
+	})
+
+	s.logger.Info().
+		Str("tenant_id", tenantID).
+		Int("public_patterns", len(rules.Public)).
+		Int("group_mappings", len(rules.GroupMappings)).
+		Msg("Channel rules set")
+
+	return nil
+}
+
+// DeleteChannelRules deletes channel rules for a tenant.
+func (s *Service) DeleteChannelRules(ctx context.Context, tenantID string) error {
+	if s.channelRules == nil {
+		return errors.New("channel rules store not configured")
+	}
+
+	// Verify rules exist (will return error if not found)
+	if _, err := s.channelRules.Get(ctx, tenantID); err != nil {
+		return err
+	}
+
+	// Delete from store
+	if err := s.channelRules.Delete(ctx, tenantID); err != nil {
+		return fmt.Errorf("delete channel rules: %w", err)
+	}
+
+	s.auditLog(ctx, tenantID, ActionDeleteChannelRules, nil)
+
+	s.logger.Info().
+		Str("tenant_id", tenantID).
+		Msg("Channel rules deleted")
+
+	return nil
+}

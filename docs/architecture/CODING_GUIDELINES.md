@@ -346,6 +346,112 @@ internal/
 4. **Shared types go in `types/`** - Config structs, constants, enums
 5. **Test utilities go in `testutil/`** - Reusable mocks and helpers
 
+### Shared Code Consolidation
+
+**Before writing any new code**, check if it can be shared across packages. Duplicate code is technical debt that leads to inconsistencies and bugs.
+
+#### What MUST be in `internal/shared/`
+
+| Category | Package | Examples |
+|----------|---------|----------|
+| **Errors** | `shared/protocol/` | Sentinel errors, error codes, error types |
+| **Constants** | `shared/protocol/` | Limits, timeouts, magic numbers |
+| **Types** | `shared/types/` | Core structs, enums, interfaces used across packages |
+| **Auth utilities** | `shared/auth/` | JWT helpers, context functions, pattern matching |
+| **HTTP utilities** | `shared/httputil/` | Token extraction, client IP, JSON responses |
+| **Logging** | `shared/logging/` | Panic recovery, structured logging helpers |
+| **Metrics** | `shared/metrics/` | Metric names, labels, recording functions |
+| **Platform** | `shared/platform/` | Config structs, environment detection |
+| **Test utilities** | `shared/testutil/` | Mocks, fixtures, test helpers |
+
+#### When to Consolidate
+
+**ALWAYS check before writing:**
+
+```go
+// BEFORE writing a new helper function, ask:
+// 1. Does this already exist in internal/shared/?
+// 2. Could another package use this?
+// 3. Is this duplicating logic from another package?
+
+// BAD - Duplicate helper in gateway/
+func extractToken(r *http.Request) string { ... }
+
+// BAD - Same logic in server/
+func getClientIP(r *http.Request) string { ... }
+
+// BAD - Same logic in provisioning/
+func writeJSON(w http.ResponseWriter, status int, data any) { ... }
+
+// GOOD - Shared utilities
+import "github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
+
+token := httputil.ExtractBearerToken(r)
+clientIP := httputil.GetClientIP(r)
+httputil.WriteJSON(w, http.StatusOK, data)
+```
+
+#### Shared Package Structure
+
+```
+internal/shared/
+├── alerting/         # Alert backends (Slack, PagerDuty, etc.)
+├── audit/            # Audit logging infrastructure
+├── auth/             # JWT, OIDC, pattern matching, context helpers
+│   ├── channel.go    # Channel validation and mapping
+│   ├── context.go    # Context helpers (WithClaims, GetActor, etc.)
+│   ├── jwt.go        # JWT types and validation
+│   ├── pattern.go    # Wildcard pattern matching
+│   └── placeholders.go # Placeholder resolution
+├── httputil/         # HTTP request/response utilities
+│   ├── request.go    # ExtractBearerToken, GetClientIP
+│   └── response.go   # WriteJSON, WriteError, WriteHealthOK
+├── kafka/            # Kafka consumer/producer abstractions
+├── logging/          # Logger setup, panic recovery
+├── metrics/          # Metric constants and interfaces
+├── platform/         # Config structs, platform detection
+├── protocol/         # Protocol types, error codes, limits
+├── testutil/         # Shared test utilities and mocks
+├── types/            # Core type definitions
+└── version/          # Version information
+```
+
+#### Consolidation Checklist
+
+Before every PR, verify:
+
+- [ ] **No duplicate functions** - Search for similar logic in other packages
+- [ ] **No duplicate error definitions** - Use `shared/protocol/` errors
+- [ ] **No duplicate constants** - Use `shared/protocol/` or `shared/metrics/`
+- [ ] **No duplicate types** - Use `shared/types/` or `shared/auth/`
+- [ ] **Context helpers centralized** - Use `shared/auth/` for claims/actor context
+- [ ] **HTTP helpers centralized** - Use `shared/httputil/` for request/response utilities
+
+#### How to Find Duplicates
+
+```bash
+# Find duplicate function patterns
+grep -r "func extractToken" internal/
+grep -r "func getClientIP" internal/
+grep -r "func writeJSON" internal/
+grep -r "func writeError" internal/
+
+# Find duplicate error definitions
+grep -r "var Err" internal/ | grep -v "_test.go"
+
+# Find duplicate constants
+grep -r "const Max" internal/
+grep -r "const Min" internal/
+```
+
+#### When Adding New Shared Code
+
+1. **Check existing packages first** - Don't reinvent
+2. **Add to appropriate sub-package** - Follow the structure above
+3. **Add unit tests** - 100% coverage for shared utilities
+4. **Update imports in all packages** - Replace local duplicates
+5. **Delete the duplicates** - Don't leave dead code
+
 ---
 
 ## File Naming Conventions
@@ -1645,6 +1751,16 @@ Before submitting code for review, verify:
 - [ ] Sensible defaults provided
 - [ ] Validation for new config fields
 - [ ] Configuration changes documented
+
+### Shared Code Consolidation (BLOCKING)
+- [ ] **No duplicate helper functions** - Check `internal/shared/` before writing new utilities
+- [ ] **No duplicate error definitions** - Use errors from `shared/protocol/`
+- [ ] **No duplicate constants** - Use constants from `shared/protocol/` or `shared/metrics/`
+- [ ] **No duplicate types/interfaces** - Use types from `shared/types/` or `shared/auth/`
+- [ ] **HTTP utilities use `shared/httputil/`** - Token extraction, client IP, JSON responses
+- [ ] **Context helpers use `shared/auth/`** - Claims, actor, client IP context functions
+- [ ] **Pattern matching uses `shared/auth/`** - Wildcard matching, placeholder resolution
+- [ ] **New shared code has tests** - 100% coverage for shared utilities
 
 ---
 

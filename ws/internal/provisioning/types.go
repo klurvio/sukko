@@ -329,6 +329,15 @@ const (
 	ActionCreateTopic       = "create_topic"
 	ActionDeleteTopic       = "delete_topic"
 	ActionUpdateQuota       = "update_quota"
+
+	// OIDC configuration actions
+	ActionCreateOIDCConfig = "create_oidc_config"
+	ActionUpdateOIDCConfig = "update_oidc_config"
+	ActionDeleteOIDCConfig = "delete_oidc_config"
+
+	// Channel rules actions
+	ActionSetChannelRules    = "set_channel_rules"
+	ActionDeleteChannelRules = "delete_channel_rules"
 )
 
 // Actor type constants.

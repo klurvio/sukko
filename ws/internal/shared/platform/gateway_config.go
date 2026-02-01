@@ -37,6 +37,26 @@ type GatewayConfig struct {
 	OIDCAudience  string `env:"OIDC_AUDIENCE"`
 	OIDCJWKSURL   string `env:"OIDC_JWKS_URL"`
 
+	// Multi-issuer OIDC (Feature Flag)
+	// When enabled, each tenant can register their own IdP via provisioning API
+	MultiIssuerOIDCEnabled bool `env:"GATEWAY_MULTI_ISSUER_OIDC_ENABLED" envDefault:"false"`
+
+	// Per-tenant channel rules (Feature Flag)
+	// When enabled, channel permissions come from per-tenant rules in the database
+	PerTenantChannelRulesEnabled bool `env:"GATEWAY_PER_TENANT_CHANNEL_RULES" envDefault:"false"`
+
+	// TenantRegistry cache settings (used when multi-issuer OIDC is enabled)
+	IssuerCacheTTL       time.Duration `env:"GATEWAY_ISSUER_CACHE_TTL" envDefault:"5m"`
+	ChannelRulesCacheTTL time.Duration `env:"GATEWAY_CHANNEL_RULES_CACHE_TTL" envDefault:"1m"`
+	OIDCKeyfuncCacheTTL  time.Duration `env:"GATEWAY_OIDC_KEYFUNC_CACHE_TTL" envDefault:"1h"`
+
+	// JWKS fetch settings
+	JWKSFetchTimeout    time.Duration `env:"GATEWAY_JWKS_FETCH_TIMEOUT" envDefault:"10s"`
+	JWKSRefreshInterval time.Duration `env:"GATEWAY_JWKS_REFRESH_INTERVAL" envDefault:"1h"`
+
+	// Fallback channel rules (when tenant has none configured)
+	FallbackPublicChannels []string `env:"GATEWAY_FALLBACK_PUBLIC_CHANNELS" envSeparator:"," envDefault:"*.metadata"`
+
 	// Key cache settings
 	KeyCacheRefreshInterval time.Duration `env:"KEY_CACHE_REFRESH_INTERVAL" envDefault:"1m"`
 	KeyCacheQueryTimeout    time.Duration `env:"KEY_CACHE_QUERY_TIMEOUT" envDefault:"5s"`
@@ -125,6 +145,26 @@ func (c *GatewayConfig) Validate() error {
 		return errors.New("OIDC_JWKS_URL is required when OIDC_ISSUER_URL is set")
 	}
 
+	// Validate multi-issuer OIDC settings
+	if c.MultiIssuerOIDCEnabled {
+		if c.IssuerCacheTTL < time.Second {
+			return fmt.Errorf("GATEWAY_ISSUER_CACHE_TTL must be >= 1s, got %v", c.IssuerCacheTTL)
+		}
+		if c.JWKSFetchTimeout < time.Second {
+			return fmt.Errorf("GATEWAY_JWKS_FETCH_TIMEOUT must be >= 1s, got %v", c.JWKSFetchTimeout)
+		}
+		if c.OIDCKeyfuncCacheTTL < time.Second {
+			return fmt.Errorf("GATEWAY_OIDC_KEYFUNC_CACHE_TTL must be >= 1s, got %v", c.OIDCKeyfuncCacheTTL)
+		}
+	}
+
+	// Validate per-tenant channel rules settings
+	if c.PerTenantChannelRulesEnabled {
+		if c.ChannelRulesCacheTTL < time.Second {
+			return fmt.Errorf("GATEWAY_CHANNEL_RULES_CACHE_TTL must be >= 1s, got %v", c.ChannelRulesCacheTTL)
+		}
+	}
+
 	// Validate DB pool settings
 	if c.DBMaxOpenConns < 1 {
 		return fmt.Errorf("DB_MAX_OPEN_CONNS must be at least 1, got %d", c.DBMaxOpenConns)
@@ -208,5 +248,33 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		}
 	}
 
+	// Add multi-issuer OIDC fields when enabled
+	if c.MultiIssuerOIDCEnabled {
+		event = event.
+			Bool("multi_issuer_oidc_enabled", true).
+			Dur("issuer_cache_ttl", c.IssuerCacheTTL).
+			Dur("oidc_keyfunc_cache_ttl", c.OIDCKeyfuncCacheTTL).
+			Dur("jwks_fetch_timeout", c.JWKSFetchTimeout).
+			Dur("jwks_refresh_interval", c.JWKSRefreshInterval)
+	}
+
+	// Add per-tenant channel rules fields when enabled
+	if c.PerTenantChannelRulesEnabled {
+		event = event.
+			Bool("per_tenant_channel_rules_enabled", true).
+			Dur("channel_rules_cache_ttl", c.ChannelRulesCacheTTL).
+			Strs("fallback_public_channels", c.FallbackPublicChannels)
+	}
+
 	event.Msg("Gateway configuration loaded")
+}
+
+// MultiIssuerOIDCReady returns true if multi-issuer OIDC is enabled and configured.
+func (c *GatewayConfig) MultiIssuerOIDCReady() bool {
+	return c.MultiIssuerOIDCEnabled && c.ProvisioningDBURL != ""
+}
+
+// PerTenantChannelRulesReady returns true if per-tenant channel rules are enabled and configured.
+func (c *GatewayConfig) PerTenantChannelRulesReady() bool {
+	return c.PerTenantChannelRulesEnabled && c.ProvisioningDBURL != ""
 }

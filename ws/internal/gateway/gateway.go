@@ -34,6 +34,11 @@ type Gateway struct {
 	connTracker   *TenantConnectionTracker // Per-tenant connection tracking
 	channelMapper *auth.ChannelMapper      // Channel name mapping for publish
 	logger        zerolog.Logger
+
+	// Multi-issuer OIDC support (optional, enabled via config)
+	tenantRegistry   TenantRegistry       // Tenant lookup by issuer, channel rules
+	multiIssuerOIDC  *MultiIssuerOIDC     // Dynamic JWKS management per issuer
+	tenantPermChecker *TenantPermissionChecker // Per-tenant channel authorization
 }
 
 // New creates a new Gateway instance.
@@ -64,6 +69,19 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 		if err := gw.setupValidator(); err != nil {
 			return nil, fmt.Errorf("setup validator: %w", err)
 		}
+	}
+
+	// Set up per-tenant channel rules if enabled (requires auth to be enabled first for dbConn)
+	if config.PerTenantChannelRulesEnabled && gw.tenantRegistry != nil {
+		fallbackRules := DefaultChannelRules(config.FallbackPublicChannels)
+		gw.tenantPermChecker = NewTenantPermissionChecker(
+			gw.tenantRegistry,
+			fallbackRules,
+			gw.logger.With().Str("component", "tenant_permissions").Logger(),
+		)
+		gw.logger.Info().
+			Int("fallback_patterns", len(config.FallbackPublicChannels)).
+			Msg("Per-tenant channel rules enabled")
 	}
 
 	return gw, nil
@@ -113,8 +131,19 @@ func (gw *Gateway) setupValidator() error {
 		RequireKeyID:    true,
 	}
 
-	// Set up OIDC keyfunc if configured (graceful degradation on failure)
-	if gw.config.OIDCEnabled() {
+	// Set up multi-issuer OIDC if enabled (graceful degradation on failure)
+	if gw.config.MultiIssuerOIDCEnabled {
+		if err := gw.setupMultiIssuerOIDC(db); err != nil {
+			// Graceful degradation: log warning but continue without multi-issuer
+			gw.logger.Warn().
+				Err(err).
+				Msg("Failed to setup multi-issuer OIDC, continuing with single-issuer or tenant keys only")
+		}
+	}
+
+	// Set up single-issuer OIDC keyfunc if configured (graceful degradation on failure)
+	// This is the legacy single-issuer mode, used when multi-issuer is not enabled
+	if gw.config.OIDCEnabled() && !gw.config.MultiIssuerOIDCEnabled {
 		oidcResult, err := auth.NewOIDCKeyfunc(context.Background(), auth.OIDCConfig{
 			IssuerURL: gw.config.OIDCIssuerURL,
 			JWKSURL:   gw.config.OIDCJWKSURL,
@@ -136,7 +165,7 @@ func (gw *Gateway) setupValidator() error {
 			gw.logger.Info().
 				Str("issuer_url", gw.config.OIDCIssuerURL).
 				Str("jwks_url", gw.config.OIDCJWKSURL).
-				Msg("OIDC support enabled")
+				Msg("OIDC support enabled (single-issuer mode)")
 		}
 	}
 
@@ -156,8 +185,51 @@ func (gw *Gateway) setupValidator() error {
 		Dur("cache_refresh_interval", gw.config.KeyCacheRefreshInterval).
 		Bool("require_tenant_id", gw.config.RequireTenantID).
 		Bool("oidc_enabled", gw.config.OIDCEnabled()).
+		Bool("multi_issuer_oidc_enabled", gw.config.MultiIssuerOIDCEnabled).
 		Int("db_max_open_conns", gw.config.DBMaxOpenConns).
 		Msg("Configured multi-tenant authentication")
+
+	return nil
+}
+
+// setupMultiIssuerOIDC sets up the TenantRegistry and MultiIssuerOIDC components.
+func (gw *Gateway) setupMultiIssuerOIDC(db *sql.DB) error {
+	// Create TenantRegistry with PostgreSQL backend
+	registry, err := NewPostgresTenantRegistry(PostgresTenantRegistryConfig{
+		DB:                   db,
+		IssuerCacheTTL:       gw.config.IssuerCacheTTL,
+		ChannelRulesCacheTTL: gw.config.ChannelRulesCacheTTL,
+		QueryTimeout:         gw.config.KeyCacheQueryTimeout,
+		Logger:               gw.logger.With().Str("component", "tenant_registry").Logger(),
+	})
+	if err != nil {
+		// Graceful degradation: use noop registry
+		gw.logger.Warn().
+			Err(err).
+			Msg("Failed to create TenantRegistry, using noop (OIDC multi-issuer disabled)")
+		gw.tenantRegistry = NewNoopTenantRegistry(gw.logger)
+		return nil
+	}
+	gw.tenantRegistry = registry
+
+	// Create MultiIssuerOIDC for dynamic JWKS management
+	multiOIDC, err := NewMultiIssuerOIDC(MultiIssuerOIDCConfig{
+		Registry:         registry,
+		KeyfuncCacheTTL:  gw.config.OIDCKeyfuncCacheTTL,
+		JWKSFetchTimeout: gw.config.JWKSFetchTimeout,
+		Logger:           gw.logger.With().Str("component", "multi_issuer_oidc").Logger(),
+	})
+	if err != nil {
+		_ = registry.Close()
+		return fmt.Errorf("create multi-issuer OIDC: %w", err)
+	}
+	gw.multiIssuerOIDC = multiOIDC
+
+	gw.logger.Info().
+		Dur("issuer_cache_ttl", gw.config.IssuerCacheTTL).
+		Dur("channel_rules_cache_ttl", gw.config.ChannelRulesCacheTTL).
+		Dur("keyfunc_cache_ttl", gw.config.OIDCKeyfuncCacheTTL).
+		Msg("Multi-issuer OIDC enabled with TenantRegistry")
 
 	return nil
 }
@@ -167,7 +239,21 @@ func (gw *Gateway) setupValidator() error {
 func (gw *Gateway) Close() error {
 	var errs []error
 
-	// Close OIDC keyfunc (stops background JWKS refresh)
+	// Close multi-issuer OIDC (stops background JWKS refresh for all issuers)
+	if gw.multiIssuerOIDC != nil {
+		if err := gw.multiIssuerOIDC.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close multi-issuer OIDC: %w", err))
+		}
+	}
+
+	// Close tenant registry (clears caches)
+	if gw.tenantRegistry != nil {
+		if err := gw.tenantRegistry.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close tenant registry: %w", err))
+		}
+	}
+
+	// Close OIDC keyfunc (stops background JWKS refresh for single-issuer mode)
 	if gw.oidcCloser != nil {
 		gw.oidcCloser.Close()
 	}
