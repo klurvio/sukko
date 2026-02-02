@@ -4,10 +4,8 @@
 
 version: "3"
 
+# Note: Build tasks are available from root as build:* (no need to re-include)
 includes:
-  build:
-    taskfile: ../../shared/build.yml
-    dir: "{{.ROOT_DIR}}"
   helm:
     taskfile: ../../shared/helm.yml
     dir: "{{.ROOT_DIR}}"
@@ -242,7 +240,7 @@ tasks:
     cmds:
       - task: connect
       - task: migrate
-      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/asyncapi/bundled.yaml
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml
       - |
         HELM_CMD="helm upgrade --install odin {{.ROOT_DIR}}/deployments/helm/odin -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace"
         if [ -n "{{.REDPANDA_IP}}" ]; then
@@ -293,16 +291,16 @@ tasks:
   status:
     desc: Show deployment status
     cmds:
-      - echo "=== Nodes (Spot VMs) ==="
+      - 'echo "=== Nodes (Spot VMs) ==="'
       - kubectl get nodes -o wide
-      - echo ""
-      - echo "=== Pods ==="
+      - 'echo ""'
+      - 'echo "=== Pods ==="'
       - kubectl get pods -n {{.NAMESPACE}} -o wide
-      - echo ""
-      - echo "=== Services ==="
+      - 'echo ""'
+      - 'echo "=== Services ==="'
       - kubectl get svc -n {{.NAMESPACE}}
-      - echo ""
-      - echo "=== HPA ==="
+      - 'echo ""'
+      - 'echo "=== HPA ==="'
       - kubectl get hpa -n {{.NAMESPACE}} 2>/dev/null || echo "No HPA configured"
 
   nodes:
@@ -487,10 +485,10 @@ tasks:
   cost:info:
     desc: Show Spot VM cost savings info
     cmds:
-      - echo "=== Spot VM Cost Analysis ==="
-      - echo ""
+      - 'echo "=== Spot VM Cost Analysis ==="'
+      - 'echo ""'
       - 'kubectl get nodes -l cloud.google.com/gke-spot=true --no-headers 2>/dev/null | wc -l | xargs -I {} echo "Spot nodes: {}"'
       - 'kubectl get nodes -l "cloud.google.com/gke-spot!=true" --no-headers 2>/dev/null | wc -l | xargs -I {} echo "On-demand nodes: {}"'
-      - echo ""
-      - echo "Spot VMs provide 60-90% cost savings vs on-demand."
-      - echo "Run 'gcloud compute machine-types describe e2-standard-4 --zone={{.ZONE}}' for pricing."
+      - 'echo ""'
+      - 'echo "Spot VMs provide 60-90% cost savings vs on-demand."'
+      - 'echo "Run gcloud compute machine-types describe e2-standard-4 --zone={{.ZONE}} for pricing."'

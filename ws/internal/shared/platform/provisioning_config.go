@@ -46,7 +46,7 @@ type ProvisioningConfig struct {
 
 	// Topic Defaults
 	TopicNamespace     string `env:"KAFKA_TOPIC_NAMESPACE" envDefault:"prod"`
-	ValidNamespaces    string `env:"VALID_NAMESPACES" envDefault:"local,dev,staging,prod"` // Comma-separated valid namespace prefixes
+	ValidNamespaces    string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"` // Comma-separated valid namespace prefixes
 	DefaultPartitions  int    `env:"DEFAULT_PARTITIONS" envDefault:"3"`
 	DefaultRetentionMs int64  `env:"DEFAULT_RETENTION_MS" envDefault:"604800000"` // 7 days
 

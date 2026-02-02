@@ -445,7 +445,7 @@ func TestDefaultTopicIsolationConfig(t *testing.T) {
 	}
 
 	// Validate ValidNamespaces includes the expected namespaces
-	expectedNamespaces := []string{"local", "dev", "staging", "prod"}
+	expectedNamespaces := []string{"local", "dev", "stag", "prod"}
 	for _, ns := range expectedNamespaces {
 		if !config.ValidNamespaces[ns] {
 			t.Errorf("expected ValidNamespaces to include %q", ns)

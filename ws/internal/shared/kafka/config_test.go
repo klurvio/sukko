@@ -49,20 +49,27 @@ func TestNormalizeEnv(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"development", "local"},
+		// Pass-through behavior (no mapping, just normalize)
 		{"local", "local"},
-		{"", "local"},
-		{"develop", "dev"},
 		{"dev", "dev"},
-		{"staging", "staging"},
-		{"stage", "staging"},
-		{"production", "prod"},
+		{"stag", "stag"},
+		{"staging", "staging"}, // pass-through (no mapping)
 		{"prod", "prod"},
 		{"custom", "custom"},
-		{"  dev  ", "dev"},     // with whitespace
-		{"DEV", "dev"},         // uppercase
-		{"PRODUCTION", "prod"}, // uppercase production
-		{"main", "main"},       // pass-through via default case
+		{"main", "main"},
+
+		// Empty string defaults to local
+		{"", "local"},
+
+		// Whitespace trimming
+		{"  dev  ", "dev"},
+		{"  prod  ", "prod"},
+
+		// Lowercase conversion
+		{"DEV", "dev"},
+		{"PROD", "prod"},
+		{"LOCAL", "local"},
+		{"STAG", "stag"},
 	}
 
 	for _, tt := range tests {
@@ -87,13 +94,23 @@ func TestGetTopic(t *testing.T) {
 		base     string
 		expected string
 	}{
+		// Standard namespaces (configured via Helm)
 		{"local", TopicBaseTrade, "odin.local.trade"},
 		{"dev", TopicBaseLiquidity, "odin.dev.liquidity"},
-		{"staging", TopicBaseMetadata, "odin.staging.metadata"},
+		{"stag", TopicBaseMetadata, "odin.stag.metadata"},
+		{"staging", TopicBaseSocial, "odin.staging.social"}, // pass-through
+		{"prod", TopicBaseBalances, "odin.prod.balances"},
+
+		// Custom/pass-through namespaces
 		{"main", TopicBaseBalances, "odin.main.balances"},
-		{"development", TopicBaseTrade, "odin.local.trade"}, // normalizes to local
-		{"production", TopicBaseTrade, "odin.prod.trade"},   // normalizes to prod
-		{"prod", TopicBaseTrade, "odin.prod.trade"},         // normalizes to prod
+		{"custom", TopicBaseTrade, "odin.custom.trade"},
+
+		// Empty defaults to local
+		{"", TopicBaseTrade, "odin.local.trade"},
+
+		// Case normalization
+		{"PROD", TopicBaseTrade, "odin.prod.trade"},
+		{"DEV", TopicBaseLiquidity, "odin.dev.liquidity"},
 	}
 
 	for _, tt := range tests {

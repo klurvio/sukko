@@ -1,13 +1,11 @@
 # =============================================================================
 # Common K8s Tasks - Shared across environments
 # =============================================================================
+# Note: Build tasks are available from root as build:* (no need to re-include)
 
 version: "3"
 
 includes:
-  build:
-    taskfile: ../shared/build.yml
-    dir: "{{.ROOT_DIR}}"
   helm:
     taskfile: ../shared/helm.yml
     dir: "{{.ROOT_DIR}}"
@@ -24,4 +22,4 @@ tasks:
   asyncapi:bundle:
     desc: Bundle AsyncAPI spec into single file
     cmds:
-      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/asyncapi/bundled.yaml
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml

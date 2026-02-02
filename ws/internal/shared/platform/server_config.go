@@ -143,7 +143,7 @@ type ServerConfig struct {
 
 	// KafkaTopicNamespace overrides ENVIRONMENT for Kafka topic naming only.
 	// If empty, defaults to normalized ENVIRONMENT value.
-	// Validated against VALID_NAMESPACES (default: local,dev,staging,prod).
+	// Validated against VALID_NAMESPACES (default: local,dev,stag,prod).
 	//
 	// Use cases:
 	//   - Set to "prod" in develop environment to consume from production topics
@@ -154,7 +154,7 @@ type ServerConfig struct {
 
 	// ValidNamespaces is a comma-separated list of allowed topic namespace prefixes.
 	// Used to validate KafkaTopicNamespace and topic formats at runtime.
-	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,staging,prod"`
+	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"`
 
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy

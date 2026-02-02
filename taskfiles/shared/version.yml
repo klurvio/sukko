@@ -18,9 +18,9 @@ tasks:
       BRANCH:
         sh: git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown"
     cmds:
-      - echo "Version: {{.VERSION}}"
-      - echo "Commit:  {{.COMMIT}}"
-      - echo "Branch:  {{.BRANCH}}"
+      - 'echo "Version: {{.VERSION}}"'
+      - 'echo "Commit:  {{.COMMIT}}"'
+      - 'echo "Branch:  {{.BRANCH}}"'
 
   check:
     desc: Validate version consistency
@@ -32,8 +32,8 @@ tasks:
         else
           echo "No version.json found"
         fi
-      - echo ""
-      - echo "Git tags:"
+      - 'echo ""'
+      - 'echo "Git tags:"'
       - git tag --list 'v*' | tail -5
 
   changelog:

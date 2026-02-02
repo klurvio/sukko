@@ -117,13 +117,15 @@ tasks:
   # ===========================================================================
   # Build & Test Shortcuts
   # ===========================================================================
-  build:
+  build-all:
     desc: Build all Docker images
+    aliases: [build]
     cmds:
       - task: build:all
 
-  test:
+  test-all:
     desc: Run unit tests
+    aliases: [test]
     cmds:
       - task: test:unit
 

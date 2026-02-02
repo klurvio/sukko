@@ -30,7 +30,7 @@ type TopicIsolator struct {
 
 // TopicIsolationConfig configures topic isolation behavior.
 type TopicIsolationConfig struct {
-	// Environment is the deployment environment (dev, staging, prod).
+	// Environment is the deployment environment (dev, stag, prod).
 	// Used as the first part of topic names.
 	Environment string `yaml:"environment" json:"environment"`
 
@@ -52,7 +52,7 @@ type TopicIsolationConfig struct {
 
 	// ValidNamespaces restricts which namespace prefixes are accepted by ValidateTopicFormat.
 	// If empty, namespace validation is skipped (any non-empty namespace is accepted).
-	// Example: {"local": true, "dev": true, "staging": true, "prod": true}
+	// Example: {"local": true, "dev": true, "stag": true, "prod": true}
 	ValidNamespaces map[string]bool `yaml:"valid_namespaces" json:"valid_namespaces"`
 }
 
@@ -65,7 +65,7 @@ func DefaultTopicIsolationConfig() TopicIsolationConfig {
 		Separator:           ".",
 		CrossTenantRoles:    []string{"admin", "system"},
 		SharedTopicPatterns: []string{},
-		ValidNamespaces:     map[string]bool{"local": true, "dev": true, "staging": true, "prod": true},
+		ValidNamespaces:     map[string]bool{"local": true, "dev": true, "stag": true, "prod": true},
 	}
 }
 

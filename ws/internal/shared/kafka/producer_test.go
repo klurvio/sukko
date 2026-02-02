@@ -233,16 +233,19 @@ func TestProducer_Namespace(t *testing.T) {
 
 func TestProducer_Namespaces(t *testing.T) {
 	t.Parallel()
+	// NormalizeEnv does lowercase/trim only - no mapping
+	// Actual namespace values come from Helm configuration
 	testCases := []struct {
 		input    string
 		expected string
 	}{
 		{"local", "local"},
 		{"dev", "dev"},
-		{"develop", "dev"},
-		{"staging", "staging"},
+		{"stag", "stag"},
 		{"prod", "prod"},
-		{"production", "prod"},
+		{"PROD", "prod"},   // lowercase conversion
+		{"  dev  ", "dev"}, // whitespace trimming
+		{"", "local"},      // empty defaults to local
 	}
 
 	for _, tc := range testCases {

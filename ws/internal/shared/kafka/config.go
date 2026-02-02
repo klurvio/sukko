@@ -26,7 +26,7 @@ import (
 //   - Explicit about intent - clearly shows cross-namespace access
 //   - Safer - can't accidentally affect non-topic environment behavior
 //
-// Valid namespaces: local, dev, staging, prod
+// Valid namespaces (configured via Helm): local, dev, stag, prod
 //
 // =============================================================================
 
@@ -64,28 +64,22 @@ var allTopicBases = []string{
 	TopicBaseBalances,
 }
 
-// NormalizeEnv converts environment names to short form for topic namespace.
-// This is used for Kafka topic naming: odin.{namespace}.{base}
+// NormalizeEnv normalizes the namespace string (lowercase, trim whitespace).
+// The actual namespace value comes from configuration (Helm charts), not code mapping.
 //
-// Mapping:
-//   - "development", "local", "" -> "local"
-//   - "develop", "dev"           -> "dev"
-//   - "staging", "stage"         -> "staging"
-//   - "production", "prod"       -> "prod"
+// Valid namespaces (configured via Helm):
+//   - local
+//   - dev
+//   - stag
+//   - prod
+//
+// Empty string defaults to "local" for backward compatibility.
 func NormalizeEnv(env string) string {
 	env = strings.ToLower(strings.TrimSpace(env))
-	switch env {
-	case "development", "local", "":
+	if env == "" {
 		return "local"
-	case "develop", "dev":
-		return "dev"
-	case "staging", "stage":
-		return "staging"
-	case "production", "prod":
-		return "prod"
-	default:
-		return env
 	}
+	return env
 }
 
 // GetTopic returns the full topic name for an environment

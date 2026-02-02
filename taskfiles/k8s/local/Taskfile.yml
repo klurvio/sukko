@@ -4,10 +4,8 @@
 
 version: "3"
 
+# Note: Build tasks are available from root as build:* (no need to re-include)
 includes:
-  build:
-    taskfile: ../../shared/build.yml
-    dir: "{{.ROOT_DIR}}"
   helm:
     taskfile: ../../shared/helm.yml
     dir: "{{.ROOT_DIR}}"
@@ -105,7 +103,7 @@ tasks:
     cmds:
       - kubectl config use-context kind-{{.CLUSTER_NAME}}
       - task: migrate
-      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/asyncapi/bundled.yaml
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml
       - task: helm:upgrade
 
   down:
@@ -257,7 +255,7 @@ tasks:
       - KAFKA_BROKERS=localhost:9092 API_PORT=3003 npm run dev &
       - sleep 2
       - 'curl -s -X POST http://localhost:3003/start -H "Content-Type: application/json" -d ''{"rate": {{.RATE}}, "tokenIds": ["BTC", "ETH", "SOL"]}'''
-      - echo "Publisher started on http://localhost:3003"
+      - 'echo "Publisher started on http://localhost:3003"'
 
   publisher:stop:
     desc: Stop publisher
