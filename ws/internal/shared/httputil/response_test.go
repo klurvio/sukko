@@ -8,6 +8,7 @@ import (
 )
 
 func TestWriteJSON(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		status     int
@@ -40,6 +41,7 @@ func TestWriteJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			w := httptest.NewRecorder()
 			err := WriteJSON(w, tt.status, tt.data)
 			if err != nil {
@@ -73,6 +75,7 @@ func TestWriteJSON(t *testing.T) {
 }
 
 func TestWriteError(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		status      int
@@ -113,6 +116,7 @@ func TestWriteError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			w := httptest.NewRecorder()
 			WriteError(w, tt.status, tt.code, tt.message)
 
@@ -140,6 +144,7 @@ func TestWriteError(t *testing.T) {
 }
 
 func TestWriteHealthOK(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		serviceName string
@@ -156,6 +161,7 @@ func TestWriteHealthOK(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			w := httptest.NewRecorder()
 			WriteHealthOK(w, tt.serviceName)
 

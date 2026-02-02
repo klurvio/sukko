@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -46,15 +47,15 @@ type MultiIssuerOIDC struct {
 }
 
 type keyfuncCacheEntry struct {
-	keyfunc      jwt.Keyfunc
+	keyfunc       jwt.Keyfunc
 	cancelRefresh context.CancelFunc
-	expiresAt    time.Time
+	expiresAt     time.Time
 }
 
 // NewMultiIssuerOIDC creates a new multi-issuer OIDC validator.
 func NewMultiIssuerOIDC(cfg MultiIssuerOIDCConfig) (*MultiIssuerOIDC, error) {
 	if cfg.Registry == nil {
-		return nil, fmt.Errorf("registry is required")
+		return nil, errors.New("registry is required")
 	}
 
 	// Set defaults

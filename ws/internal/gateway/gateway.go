@@ -36,8 +36,8 @@ type Gateway struct {
 	logger        zerolog.Logger
 
 	// Multi-issuer OIDC support (optional, enabled via config)
-	tenantRegistry   TenantRegistry       // Tenant lookup by issuer, channel rules
-	multiIssuerOIDC  *MultiIssuerOIDC     // Dynamic JWKS management per issuer
+	tenantRegistry    TenantRegistry           // Tenant lookup by issuer, channel rules
+	multiIssuerOIDC   *MultiIssuerOIDC         // Dynamic JWKS management per issuer
 	tenantPermChecker *TenantPermissionChecker // Per-tenant channel authorization
 }
 

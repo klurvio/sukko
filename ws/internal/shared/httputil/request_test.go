@@ -7,6 +7,7 @@ import (
 )
 
 func TestExtractBearerToken(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		query     string
@@ -59,6 +60,7 @@ func TestExtractBearerToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			url := "http://example.com"
 			if tt.query != "" {
 				url += "?" + tt.query
@@ -77,6 +79,7 @@ func TestExtractBearerToken(t *testing.T) {
 }
 
 func TestGetClientIP(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		xff        string
@@ -123,6 +126,7 @@ func TestGetClientIP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
 			if tt.xff != "" {
 				req.Header.Set("X-Forwarded-For", tt.xff)

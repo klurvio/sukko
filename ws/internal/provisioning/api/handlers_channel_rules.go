@@ -27,7 +27,7 @@ func (h *Handler) GetChannelRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, rules)
+	_ = httputil.WriteJSON(w, http.StatusOK, rules)
 }
 
 // SetChannelRules creates or updates channel rules for a tenant.
@@ -78,7 +78,7 @@ func (h *Handler) SetChannelRules(w http.ResponseWriter, r *http.Request) {
 		Int("group_mappings", len(rules.GroupMappings)).
 		Msg("Channel rules set")
 
-	httputil.WriteJSON(w, http.StatusOK, rules)
+	_ = httputil.WriteJSON(w, http.StatusOK, rules)
 }
 
 // DeleteChannelRules deletes channel rules for a tenant.
@@ -100,7 +100,7 @@ func (h *Handler) DeleteChannelRules(w http.ResponseWriter, r *http.Request) {
 		Str("tenant_id", tenantID).
 		Msg("Channel rules deleted")
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // TestAccess tests what channel patterns a set of groups would have access to.
@@ -119,7 +119,7 @@ func (h *Handler) TestAccess(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, types.ErrChannelRulesNotFound) {
 			// No rules configured - return empty patterns
-			httputil.WriteJSON(w, http.StatusOK, provisioning.TestAccessResponse{
+			_ = httputil.WriteJSON(w, http.StatusOK, provisioning.TestAccessResponse{
 				AllowedPatterns: []string{},
 			})
 			return
@@ -131,7 +131,7 @@ func (h *Handler) TestAccess(w http.ResponseWriter, r *http.Request) {
 	// Compute allowed patterns for the given groups
 	allowedPatterns := rules.Rules.ComputeAllowedPatterns(req.Groups)
 
-	httputil.WriteJSON(w, http.StatusOK, provisioning.TestAccessResponse{
+	_ = httputil.WriteJSON(w, http.StatusOK, provisioning.TestAccessResponse{
 		AllowedPatterns: allowedPatterns,
 	})
 }

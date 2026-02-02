@@ -129,6 +129,7 @@ func TestTenantPermissionChecker_CanSubscribe_WithTenantRules(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := checker.CanSubscribe(context.Background(), tt.claims, tt.channel)
 			if got != tt.want {
 				t.Errorf("CanSubscribe() = %v, want %v", got, tt.want)
@@ -186,6 +187,7 @@ func TestTenantPermissionChecker_CanSubscribe_FallbackRules(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := checker.CanSubscribe(context.Background(), tt.claims, tt.channel)
 			if got != tt.want {
 				t.Errorf("CanSubscribe() = %v, want %v", got, tt.want)

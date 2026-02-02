@@ -3,6 +3,7 @@ package auth
 import "testing"
 
 func TestMatchWildcard(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		pattern string
@@ -44,6 +45,7 @@ func TestMatchWildcard(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := MatchWildcard(tt.pattern, tt.value)
 			if got != tt.want {
 				t.Errorf("MatchWildcard(%q, %q) = %v, want %v", tt.pattern, tt.value, got, tt.want)
@@ -53,6 +55,7 @@ func TestMatchWildcard(t *testing.T) {
 }
 
 func TestMatchAnyWildcard(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		patterns []string
@@ -99,6 +102,7 @@ func TestMatchAnyWildcard(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := MatchAnyWildcard(tt.patterns, tt.value)
 			if got != tt.want {
 				t.Errorf("MatchAnyWildcard(%v, %q) = %v, want %v", tt.patterns, tt.value, got, tt.want)

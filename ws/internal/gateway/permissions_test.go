@@ -215,10 +215,10 @@ func TestMatchWildcard(t *testing.T) {
 func TestMatchPatternCaptures(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		pattern       string
-		channel       string
-		wantCaptures  map[string]string
-		wantMatched   bool
+		pattern      string
+		channel      string
+		wantCaptures map[string]string
+		wantMatched  bool
 	}{
 		// User principal extraction
 		{"balances.{principal}", "balances.user123", map[string]string{"principal": "user123"}, true},

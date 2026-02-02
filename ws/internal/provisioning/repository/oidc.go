@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
@@ -247,14 +248,9 @@ func isUniqueViolation(err error) bool {
 		containsSubstring(errStr, "violates unique constraint")
 }
 
-// containsSubstring is a simple substring check without importing strings.
+// containsSubstring is a simple substring check using strings.Contains.
 func containsSubstring(s, substr string) bool {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, substr)
 }
 
 // Ensure PostgresOIDCConfigRepository implements OIDCConfigStore.

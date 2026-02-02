@@ -482,6 +482,7 @@ func TestChannelMapper_RoundTrip(t *testing.T) {
 }
 
 func TestValidateInternalChannel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		channel string
@@ -531,6 +532,7 @@ func TestValidateInternalChannel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := ValidateInternalChannel(tt.channel)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateInternalChannel(%q) error = %v, wantErr %v", tt.channel, err, tt.wantErr)
@@ -540,6 +542,7 @@ func TestValidateInternalChannel(t *testing.T) {
 }
 
 func TestIsValidInternalChannel(t *testing.T) {
+	t.Parallel()
 	// Valid channels
 	if !IsValidInternalChannel("acme.BTC.trade") {
 		t.Error("IsValidInternalChannel('acme.BTC.trade') = false, want true")
@@ -552,6 +555,7 @@ func TestIsValidInternalChannel(t *testing.T) {
 }
 
 func TestParseInternalChannel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		channel      string
@@ -587,6 +591,7 @@ func TestParseInternalChannel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tenant, category, err := ParseInternalChannel(tt.channel)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParseInternalChannel(%q) error = %v, wantErr %v", tt.channel, err, tt.wantErr)

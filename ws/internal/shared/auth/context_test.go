@@ -8,6 +8,7 @@ import (
 )
 
 func TestWithClaims_GetClaims(t *testing.T) {
+	t.Parallel()
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "user123",
@@ -40,6 +41,7 @@ func TestWithClaims_GetClaims(t *testing.T) {
 }
 
 func TestWithActor_GetActor(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Default actor is "system"
@@ -57,6 +59,7 @@ func TestWithActor_GetActor(t *testing.T) {
 }
 
 func TestGetActorType(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Default actor type is "system"
@@ -74,6 +77,7 @@ func TestGetActorType(t *testing.T) {
 }
 
 func TestGetClientIPFromContext(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Default IP is empty
@@ -91,6 +95,7 @@ func TestGetClientIPFromContext(t *testing.T) {
 }
 
 func TestContextChaining(t *testing.T) {
+	t.Parallel()
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "user123",
@@ -118,6 +123,7 @@ func TestContextChaining(t *testing.T) {
 }
 
 func TestGetClaims_NilValue(t *testing.T) {
+	t.Parallel()
 	// Test that context with nil claims value returns nil
 	ctx := WithClaims(context.Background(), nil)
 	if got := GetClaims(ctx); got != nil {

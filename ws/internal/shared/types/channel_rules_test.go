@@ -35,8 +35,8 @@ func TestChannelRules_Validate(t *testing.T) {
 			rules: ChannelRules{
 				Public: []string{"*.metadata"},
 				GroupMappings: map[string][]string{
-					"traders":      {"*.trade", "*.liquidity"},
-					"premium":      {"*.realtime"},
+					"traders":       {"*.trade", "*.liquidity"},
+					"premium":       {"*.realtime"},
 					"market-makers": {"*.orderbook", "*.depth"},
 				},
 			},

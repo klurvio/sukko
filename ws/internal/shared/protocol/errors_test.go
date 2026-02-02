@@ -179,10 +179,10 @@ func TestSentinelErrors_UniqueMessages(t *testing.T) {
 func TestSentinelErrors_ErrorInterface(t *testing.T) {
 	t.Parallel()
 	// Verify all sentinel errors implement the error interface
-	var _ error = ErrInvalidChannel
-	var _ error = ErrTopicNotProvisioned
-	var _ error = ErrServiceUnavailable
-	var _ error = ErrProducerClosed
+	var _ = ErrInvalidChannel
+	var _ = ErrTopicNotProvisioned
+	var _ = ErrServiceUnavailable
+	var _ = ErrProducerClosed
 
 	// Verify Error() returns non-empty strings
 	testCases := []struct {

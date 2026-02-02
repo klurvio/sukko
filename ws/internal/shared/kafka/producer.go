@@ -315,7 +315,7 @@ func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string
 	// parseChannel ALWAYS runs - extracts tenant/category to build topic
 	tenant, category, err := parseChannel(channel)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidChannel, err)
+		return fmt.Errorf("%w: %w", ErrInvalidChannel, err)
 	}
 
 	topic := fmt.Sprintf("%s.%s.%s", p.topicNamespace, tenant, category)
@@ -385,10 +385,10 @@ func parseChannel(channel string) (tenant, category string, err error) {
 	category = parts[len(parts)-1]
 
 	if tenant == "" {
-		return "", "", fmt.Errorf("tenant (first segment) cannot be empty")
+		return "", "", errors.New("tenant (first segment) cannot be empty")
 	}
 	if category == "" {
-		return "", "", fmt.Errorf("category (last segment) cannot be empty")
+		return "", "", errors.New("category (last segment) cannot be empty")
 	}
 
 	return tenant, category, nil

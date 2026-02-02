@@ -29,7 +29,7 @@ func NewHandler(svc *provisioning.Service, logger zerolog.Logger) *Handler {
 
 // Health returns basic health status.
 func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // Ready returns readiness status (database connectivity).
@@ -39,7 +39,7 @@ func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "NOT_READY", "Database not available")
 		return
 	}
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 // Metrics returns Prometheus metrics.
@@ -65,7 +65,7 @@ func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 
 	RecordTenantCreated()
 	RecordTenantOperation("create", "success")
-	httputil.WriteJSON(w, http.StatusCreated, resp)
+	_ = httputil.WriteJSON(w, http.StatusCreated, resp)
 }
 
 // GetTenant retrieves a tenant by ID.
@@ -78,7 +78,7 @@ func (h *Handler) GetTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, tenant)
+	_ = httputil.WriteJSON(w, http.StatusOK, tenant)
 }
 
 // ListTenants returns a paginated list of tenants.
@@ -91,7 +91,7 @@ func (h *Handler) ListTenants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"tenants": tenants,
 		"total":   total,
 		"limit":   opts.Limit,
@@ -115,7 +115,7 @@ func (h *Handler) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, tenant)
+	_ = httputil.WriteJSON(w, http.StatusOK, tenant)
 }
 
 // SuspendTenant suspends a tenant.
@@ -129,7 +129,7 @@ func (h *Handler) SuspendTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordTenantOperation("suspend", "success")
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "suspended"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "suspended"})
 }
 
 // ReactivateTenant reactivates a suspended tenant.
@@ -143,7 +143,7 @@ func (h *Handler) ReactivateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordTenantOperation("reactivate", "success")
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "active"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "active"})
 }
 
 // DeprovisionTenant initiates tenant deletion.
@@ -157,7 +157,7 @@ func (h *Handler) DeprovisionTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordTenantOperation("deprovision", "success")
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deprovisioning"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deprovisioning"})
 }
 
 // CreateKey registers a new public key.
@@ -177,7 +177,7 @@ func (h *Handler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordKeyCreated()
-	httputil.WriteJSON(w, http.StatusCreated, key)
+	_ = httputil.WriteJSON(w, http.StatusCreated, key)
 }
 
 // ListKeys returns all keys for a tenant.
@@ -190,7 +190,7 @@ func (h *Handler) ListKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"keys": keys,
 	})
 }
@@ -206,7 +206,7 @@ func (h *Handler) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordKeyRevoked()
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 
 // GetActiveKeys returns all active keys (for WS Gateway).
@@ -217,7 +217,7 @@ func (h *Handler) GetActiveKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"keys": keys,
 	})
 }
@@ -244,7 +244,7 @@ func (h *Handler) CreateTopics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordTopicCreated(len(topics))
-	httputil.WriteJSON(w, http.StatusCreated, map[string]any{
+	_ = httputil.WriteJSON(w, http.StatusCreated, map[string]any{
 		"topics": topicNames,
 	})
 }
@@ -259,7 +259,7 @@ func (h *Handler) ListTopics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"topics": topics,
 	})
 }
@@ -274,7 +274,7 @@ func (h *Handler) GetQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, quota)
+	_ = httputil.WriteJSON(w, http.StatusOK, quota)
 }
 
 // UpdateQuota updates quotas for a tenant.
@@ -293,7 +293,7 @@ func (h *Handler) UpdateQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, quota)
+	_ = httputil.WriteJSON(w, http.StatusOK, quota)
 }
 
 // GetAuditLog returns audit entries for a tenant.
@@ -307,7 +307,7 @@ func (h *Handler) GetAuditLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"entries": entries,
 		"total":   total,
 		"limit":   opts.Limit,

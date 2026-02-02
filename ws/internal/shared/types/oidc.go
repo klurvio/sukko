@@ -48,7 +48,7 @@ func (c *TenantOIDCConfig) Validate() error {
 
 	issuerURL, err := url.Parse(c.IssuerURL)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidIssuerURL, err)
+		return fmt.Errorf("%w: %w", ErrInvalidIssuerURL, err)
 	}
 
 	if issuerURL.Scheme != "https" {
@@ -67,7 +67,7 @@ func (c *TenantOIDCConfig) Validate() error {
 
 		jwksURL, err := url.Parse(c.JWKSURL)
 		if err != nil {
-			return fmt.Errorf("%w: %v", ErrInvalidJWKSURL, err)
+			return fmt.Errorf("%w: %w", ErrInvalidJWKSURL, err)
 		}
 
 		if jwksURL.Scheme != "https" {

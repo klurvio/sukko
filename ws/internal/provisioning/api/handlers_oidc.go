@@ -54,7 +54,7 @@ func (h *Handler) CreateOIDCConfig(w http.ResponseWriter, r *http.Request) {
 		Str("issuer_url", config.IssuerURL).
 		Msg("OIDC config created")
 
-	httputil.WriteJSON(w, http.StatusCreated, config)
+	_ = httputil.WriteJSON(w, http.StatusCreated, config)
 }
 
 // GetOIDCConfig retrieves OIDC configuration for a tenant.
@@ -72,7 +72,7 @@ func (h *Handler) GetOIDCConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, config)
+	_ = httputil.WriteJSON(w, http.StatusOK, config)
 }
 
 // UpdateOIDCConfig updates OIDC configuration for a tenant.
@@ -134,7 +134,7 @@ func (h *Handler) UpdateOIDCConfig(w http.ResponseWriter, r *http.Request) {
 		Bool("enabled", existing.Enabled).
 		Msg("OIDC config updated")
 
-	httputil.WriteJSON(w, http.StatusOK, existing)
+	_ = httputil.WriteJSON(w, http.StatusOK, existing)
 }
 
 // DeleteOIDCConfig deletes OIDC configuration for a tenant.
@@ -156,5 +156,5 @@ func (h *Handler) DeleteOIDCConfig(w http.ResponseWriter, r *http.Request) {
 		Str("tenant_id", tenantID).
 		Msg("OIDC config deleted")
 
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

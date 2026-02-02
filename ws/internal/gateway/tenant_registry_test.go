@@ -147,6 +147,7 @@ func TestMockTenantRegistry_GetTenantByIssuer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tenantID, err := registry.GetTenantByIssuer(context.Background(), tt.issuerURL)
 
 			if !errors.Is(err, tt.wantErr) {
@@ -189,6 +190,7 @@ func TestMockTenantRegistry_GetChannelRules(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			rules, err := registry.GetChannelRules(context.Background(), tt.tenantID)
 
 			if !errors.Is(err, tt.wantErr) {
