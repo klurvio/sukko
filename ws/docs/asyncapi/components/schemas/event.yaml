@@ -1,0 +1,63 @@
+eventEnvelope:
+  type: object
+  description: |
+    Common message envelope structure for all events.
+
+    Event types are dynamic and not hardcoded - they are determined by the
+    publishing service based on the specific domain event being emitted.
+  required:
+    - type
+    - seq
+    - timestamp
+    - channel
+    - priority
+    - data
+  properties:
+    type:
+      type: string
+      description: |
+        Event type identifier. This is dynamic and determined by the publishing
+        service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED", "TOKEN_CREATED"
+      examples:
+        - "TRADE_EXECUTED"
+        - "BALANCE_UPDATED"
+        - "LIQUIDITY_ADDED"
+        - "TOKEN_CREATED"
+        - "METADATA_UPDATED"
+    seq:
+      type: integer
+      format: int64
+      description: Monotonically increasing sequence number for ordering events
+      examples:
+        - 12345
+        - 67890
+    timestamp:
+      type: integer
+      format: int64
+      description: Unix timestamp in milliseconds when the event was created
+      examples:
+        - 1704067200000
+    channel:
+      type: string
+      description: |
+        Channel identifier used for routing and partitioning.
+        Format varies by category (e.g., "BTC.trade", "wallet123.balances")
+      examples:
+        - "BTC.trade"
+        - "ETH.liquidity"
+        - "wallet123.balances"
+    priority:
+      type: string
+      description: Message priority level for processing
+      enum:
+        - CRITICAL
+        - HIGH
+        - NORMAL
+      default: NORMAL
+    data:
+      type: object
+      description: |
+        Event-specific payload. The structure depends on the event type and is
+        determined by the publishing service. This is a free-form object that
+        can contain any valid JSON.
+      additionalProperties: true

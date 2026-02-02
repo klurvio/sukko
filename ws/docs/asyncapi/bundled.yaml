@@ -1,0 +1,1842 @@
+asyncapi: 3.1.0
+info:
+  title: Odin WebSocket Event Bus
+  version: 1.0.0
+  description: >
+    AsyncAPI specification for internal services publishing messages to
+    Redpanda.
+
+
+    ## Topic Naming Convention
+
+
+    Topics follow the pattern: `{namespace}.{tenant}.{category}`
+
+
+    ### Namespaces
+
+    Namespaces are configured via Helm charts. No code-level mapping is
+    performed;
+
+    values pass through as-is (lowercase, trimmed). Default valid namespaces:
+
+    - `local` - Local development
+
+    - `dev` - Development environment
+
+    - `stag` - Staging environment
+
+    - `prod` - Production environment
+
+
+    Empty namespace defaults to `local` for backward compatibility.
+
+
+    ### Categories
+
+    8 categories are supported: trade, liquidity, metadata, social, community,
+    creation, analytics, balances
+
+
+    ### Dynamic Provisioning
+
+    Topics are dynamically provisioned per-tenant via PostgreSQL
+    (`tenant_topics` table).
+
+    Event types within each category are also dynamic and not hardcoded.
+
+
+    ## Message Key
+
+    The Kafka record key is the full channel identifier (e.g., `acme.BTC.trade`)
+    used for partitioning.
+defaultContentType: application/json
+servers:
+  redpanda:
+    host: redpanda.redpanda.svc.cluster.local:9093
+    protocol: kafka
+    description: Internal Redpanda broker within the Kubernetes cluster
+    tags:
+      - name: internal
+        description: Cluster-internal access only
+channels:
+  trade:
+    address: '{namespace}.{tenant}.trade'
+    description: |
+      Trade events channel for token trading activity.
+
+      ## Topic Pattern
+      `{namespace}.{tenant}.trade`
+
+      ## Example Topics
+      - `dev.acme.trade` - Development environment for tenant "acme"
+      - `prod.mycompany.trade` - Production environment for tenant "mycompany"
+
+      ## Message Key
+      Full channel identifier for partitioning (e.g., `acme.BTC.trade`)
+    parameters:
+      namespace:
+        description: |
+          Environment namespace (normalized):
+          - `local` - local development, development, or empty
+          - `dev` - develop, dev
+          - `staging` - staging, stage
+          - `prod` - production, prod
+      tenant:
+        description: Tenant identifier (dynamically provisioned via tenant_topics table)
+    messages:
+      event:
+        name: Event
+        title: Event Message
+        summary: Common event envelope for all messages published to Redpanda
+        description: >
+          All messages published to Redpanda topics use this common envelope
+          structure.
+
+          The `type` field indicates the specific event type, and `data`
+          contains the
+
+          event-specific payload.
+
+
+          ## Kafka Record Structure
+
+
+          ```
+
+          Record {
+            Topic:   "{namespace}.{tenant}.{category}"
+            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
+            Value:   <this message as JSON>
+            Headers: [
+              {Key: "client_id", Value: "{id}"},
+              {Key: "source", Value: "ws-client"},
+              {Key: "timestamp", Value: "{unix_ms}"}
+            ]
+          }
+
+          ```
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            client_id:
+              type: string
+              description: Unique identifier of the publishing client
+            source:
+              type: string
+              description: Source of the message (e.g., "ws-client")
+              default: ws-client
+            timestamp:
+              type: string
+              description: Unix timestamp in milliseconds when the message was produced
+          required:
+            - client_id
+            - source
+            - timestamp
+        payload:
+          type: object
+          description: >
+            Common message envelope structure for all events.
+
+
+            Event types are dynamic and not hardcoded - they are determined by
+            the
+
+            publishing service based on the specific domain event being emitted.
+          required:
+            - type
+            - seq
+            - timestamp
+            - channel
+            - priority
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type identifier. This is dynamic and determined by the
+                publishing
+
+                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
+                "TOKEN_CREATED"
+              examples:
+                - TRADE_EXECUTED
+                - BALANCE_UPDATED
+                - LIQUIDITY_ADDED
+                - TOKEN_CREATED
+                - METADATA_UPDATED
+            seq:
+              type: integer
+              format: int64
+              description: Monotonically increasing sequence number for ordering events
+              examples:
+                - 12345
+                - 67890
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event was created
+              examples:
+                - 1704067200000
+            channel:
+              type: string
+              description: >
+                Channel identifier used for routing and partitioning.
+
+                Format varies by category (e.g., "BTC.trade",
+                "wallet123.balances")
+              examples:
+                - BTC.trade
+                - ETH.liquidity
+                - wallet123.balances
+            priority:
+              type: string
+              description: Message priority level for processing
+              enum:
+                - CRITICAL
+                - HIGH
+                - NORMAL
+              default: NORMAL
+            data:
+              type: object
+              description: >
+                Event-specific payload. The structure depends on the event type
+                and is
+
+                determined by the publishing service. This is a free-form object
+                that
+
+                can contain any valid JSON.
+              additionalProperties: true
+        examples:
+          - name: Trade Event Example
+            summary: Example trade event message
+            headers:
+              client_id: client-12345
+              source: ws-client
+              timestamp: '1704067200000'
+            payload:
+              type: TRADE_EXECUTED
+              seq: 12345
+              timestamp: 1704067200000
+              channel: BTC.trade
+              priority: NORMAL
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                side: buy
+          - name: Balance Update Example
+            summary: Example balance update message
+            headers:
+              client_id: client-67890
+              source: ws-client
+              timestamp: '1704067300000'
+            payload:
+              type: BALANCE_UPDATED
+              seq: 12346
+              timestamp: 1704067300000
+              channel: wallet123.balances
+              priority: HIGH
+              data:
+                wallet: wallet123
+                token: ETH
+                balance: '10.5'
+  liquidity:
+    address: '{namespace}.{tenant}.liquidity'
+    description: >
+      Liquidity events channel for liquidity pool activity.
+
+
+      ## Topic Pattern
+
+      `{namespace}.{tenant}.liquidity`
+
+
+      ## Example Topics
+
+      - `dev.acme.liquidity` - Development environment for tenant "acme"
+
+      - `prod.mycompany.liquidity` - Production environment for tenant
+      "mycompany"
+
+
+      ## Message Key
+
+      Full channel identifier for partitioning (e.g., `acme.ETH.liquidity`)
+    parameters:
+      namespace:
+        description: |
+          Environment namespace (normalized):
+          - `local` - local development, development, or empty
+          - `dev` - develop, dev
+          - `staging` - staging, stage
+          - `prod` - production, prod
+      tenant:
+        description: Tenant identifier (dynamically provisioned via tenant_topics table)
+    messages:
+      event:
+        name: Event
+        title: Event Message
+        summary: Common event envelope for all messages published to Redpanda
+        description: >
+          All messages published to Redpanda topics use this common envelope
+          structure.
+
+          The `type` field indicates the specific event type, and `data`
+          contains the
+
+          event-specific payload.
+
+
+          ## Kafka Record Structure
+
+
+          ```
+
+          Record {
+            Topic:   "{namespace}.{tenant}.{category}"
+            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
+            Value:   <this message as JSON>
+            Headers: [
+              {Key: "client_id", Value: "{id}"},
+              {Key: "source", Value: "ws-client"},
+              {Key: "timestamp", Value: "{unix_ms}"}
+            ]
+          }
+
+          ```
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            client_id:
+              type: string
+              description: Unique identifier of the publishing client
+            source:
+              type: string
+              description: Source of the message (e.g., "ws-client")
+              default: ws-client
+            timestamp:
+              type: string
+              description: Unix timestamp in milliseconds when the message was produced
+          required:
+            - client_id
+            - source
+            - timestamp
+        payload:
+          type: object
+          description: >
+            Common message envelope structure for all events.
+
+
+            Event types are dynamic and not hardcoded - they are determined by
+            the
+
+            publishing service based on the specific domain event being emitted.
+          required:
+            - type
+            - seq
+            - timestamp
+            - channel
+            - priority
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type identifier. This is dynamic and determined by the
+                publishing
+
+                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
+                "TOKEN_CREATED"
+              examples:
+                - TRADE_EXECUTED
+                - BALANCE_UPDATED
+                - LIQUIDITY_ADDED
+                - TOKEN_CREATED
+                - METADATA_UPDATED
+            seq:
+              type: integer
+              format: int64
+              description: Monotonically increasing sequence number for ordering events
+              examples:
+                - 12345
+                - 67890
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event was created
+              examples:
+                - 1704067200000
+            channel:
+              type: string
+              description: >
+                Channel identifier used for routing and partitioning.
+
+                Format varies by category (e.g., "BTC.trade",
+                "wallet123.balances")
+              examples:
+                - BTC.trade
+                - ETH.liquidity
+                - wallet123.balances
+            priority:
+              type: string
+              description: Message priority level for processing
+              enum:
+                - CRITICAL
+                - HIGH
+                - NORMAL
+              default: NORMAL
+            data:
+              type: object
+              description: >
+                Event-specific payload. The structure depends on the event type
+                and is
+
+                determined by the publishing service. This is a free-form object
+                that
+
+                can contain any valid JSON.
+              additionalProperties: true
+        examples:
+          - name: Trade Event Example
+            summary: Example trade event message
+            headers:
+              client_id: client-12345
+              source: ws-client
+              timestamp: '1704067200000'
+            payload:
+              type: TRADE_EXECUTED
+              seq: 12345
+              timestamp: 1704067200000
+              channel: BTC.trade
+              priority: NORMAL
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                side: buy
+          - name: Balance Update Example
+            summary: Example balance update message
+            headers:
+              client_id: client-67890
+              source: ws-client
+              timestamp: '1704067300000'
+            payload:
+              type: BALANCE_UPDATED
+              seq: 12346
+              timestamp: 1704067300000
+              channel: wallet123.balances
+              priority: HIGH
+              data:
+                wallet: wallet123
+                token: ETH
+                balance: '10.5'
+  metadata:
+    address: '{namespace}.{tenant}.metadata'
+    description: >
+      Metadata events channel for token and asset metadata updates.
+
+
+      ## Topic Pattern
+
+      `{namespace}.{tenant}.metadata`
+
+
+      ## Example Topics
+
+      - `dev.acme.metadata` - Development environment for tenant "acme"
+
+      - `prod.mycompany.metadata` - Production environment for tenant
+      "mycompany"
+
+
+      ## Message Key
+
+      Full channel identifier for partitioning (e.g., `acme.BTC.metadata`)
+    parameters:
+      namespace:
+        description: |
+          Environment namespace (normalized):
+          - `local` - local development, development, or empty
+          - `dev` - develop, dev
+          - `staging` - staging, stage
+          - `prod` - production, prod
+      tenant:
+        description: Tenant identifier (dynamically provisioned via tenant_topics table)
+    messages:
+      event:
+        name: Event
+        title: Event Message
+        summary: Common event envelope for all messages published to Redpanda
+        description: >
+          All messages published to Redpanda topics use this common envelope
+          structure.
+
+          The `type` field indicates the specific event type, and `data`
+          contains the
+
+          event-specific payload.
+
+
+          ## Kafka Record Structure
+
+
+          ```
+
+          Record {
+            Topic:   "{namespace}.{tenant}.{category}"
+            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
+            Value:   <this message as JSON>
+            Headers: [
+              {Key: "client_id", Value: "{id}"},
+              {Key: "source", Value: "ws-client"},
+              {Key: "timestamp", Value: "{unix_ms}"}
+            ]
+          }
+
+          ```
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            client_id:
+              type: string
+              description: Unique identifier of the publishing client
+            source:
+              type: string
+              description: Source of the message (e.g., "ws-client")
+              default: ws-client
+            timestamp:
+              type: string
+              description: Unix timestamp in milliseconds when the message was produced
+          required:
+            - client_id
+            - source
+            - timestamp
+        payload:
+          type: object
+          description: >
+            Common message envelope structure for all events.
+
+
+            Event types are dynamic and not hardcoded - they are determined by
+            the
+
+            publishing service based on the specific domain event being emitted.
+          required:
+            - type
+            - seq
+            - timestamp
+            - channel
+            - priority
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type identifier. This is dynamic and determined by the
+                publishing
+
+                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
+                "TOKEN_CREATED"
+              examples:
+                - TRADE_EXECUTED
+                - BALANCE_UPDATED
+                - LIQUIDITY_ADDED
+                - TOKEN_CREATED
+                - METADATA_UPDATED
+            seq:
+              type: integer
+              format: int64
+              description: Monotonically increasing sequence number for ordering events
+              examples:
+                - 12345
+                - 67890
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event was created
+              examples:
+                - 1704067200000
+            channel:
+              type: string
+              description: >
+                Channel identifier used for routing and partitioning.
+
+                Format varies by category (e.g., "BTC.trade",
+                "wallet123.balances")
+              examples:
+                - BTC.trade
+                - ETH.liquidity
+                - wallet123.balances
+            priority:
+              type: string
+              description: Message priority level for processing
+              enum:
+                - CRITICAL
+                - HIGH
+                - NORMAL
+              default: NORMAL
+            data:
+              type: object
+              description: >
+                Event-specific payload. The structure depends on the event type
+                and is
+
+                determined by the publishing service. This is a free-form object
+                that
+
+                can contain any valid JSON.
+              additionalProperties: true
+        examples:
+          - name: Trade Event Example
+            summary: Example trade event message
+            headers:
+              client_id: client-12345
+              source: ws-client
+              timestamp: '1704067200000'
+            payload:
+              type: TRADE_EXECUTED
+              seq: 12345
+              timestamp: 1704067200000
+              channel: BTC.trade
+              priority: NORMAL
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                side: buy
+          - name: Balance Update Example
+            summary: Example balance update message
+            headers:
+              client_id: client-67890
+              source: ws-client
+              timestamp: '1704067300000'
+            payload:
+              type: BALANCE_UPDATED
+              seq: 12346
+              timestamp: 1704067300000
+              channel: wallet123.balances
+              priority: HIGH
+              data:
+                wallet: wallet123
+                token: ETH
+                balance: '10.5'
+  social:
+    address: '{namespace}.{tenant}.social'
+    description: |
+      Social events channel for social activity and interactions.
+
+      ## Topic Pattern
+      `{namespace}.{tenant}.social`
+
+      ## Example Topics
+      - `dev.acme.social` - Development environment for tenant "acme"
+      - `prod.mycompany.social` - Production environment for tenant "mycompany"
+
+      ## Message Key
+      Full channel identifier for partitioning (e.g., `acme.user123.social`)
+    parameters:
+      namespace:
+        description: |
+          Environment namespace (normalized):
+          - `local` - local development, development, or empty
+          - `dev` - develop, dev
+          - `staging` - staging, stage
+          - `prod` - production, prod
+      tenant:
+        description: Tenant identifier (dynamically provisioned via tenant_topics table)
+    messages:
+      event:
+        name: Event
+        title: Event Message
+        summary: Common event envelope for all messages published to Redpanda
+        description: >
+          All messages published to Redpanda topics use this common envelope
+          structure.
+
+          The `type` field indicates the specific event type, and `data`
+          contains the
+
+          event-specific payload.
+
+
+          ## Kafka Record Structure
+
+
+          ```
+
+          Record {
+            Topic:   "{namespace}.{tenant}.{category}"
+            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
+            Value:   <this message as JSON>
+            Headers: [
+              {Key: "client_id", Value: "{id}"},
+              {Key: "source", Value: "ws-client"},
+              {Key: "timestamp", Value: "{unix_ms}"}
+            ]
+          }
+
+          ```
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            client_id:
+              type: string
+              description: Unique identifier of the publishing client
+            source:
+              type: string
+              description: Source of the message (e.g., "ws-client")
+              default: ws-client
+            timestamp:
+              type: string
+              description: Unix timestamp in milliseconds when the message was produced
+          required:
+            - client_id
+            - source
+            - timestamp
+        payload:
+          type: object
+          description: >
+            Common message envelope structure for all events.
+
+
+            Event types are dynamic and not hardcoded - they are determined by
+            the
+
+            publishing service based on the specific domain event being emitted.
+          required:
+            - type
+            - seq
+            - timestamp
+            - channel
+            - priority
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type identifier. This is dynamic and determined by the
+                publishing
+
+                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
+                "TOKEN_CREATED"
+              examples:
+                - TRADE_EXECUTED
+                - BALANCE_UPDATED
+                - LIQUIDITY_ADDED
+                - TOKEN_CREATED
+                - METADATA_UPDATED
+            seq:
+              type: integer
+              format: int64
+              description: Monotonically increasing sequence number for ordering events
+              examples:
+                - 12345
+                - 67890
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event was created
+              examples:
+                - 1704067200000
+            channel:
+              type: string
+              description: >
+                Channel identifier used for routing and partitioning.
+
+                Format varies by category (e.g., "BTC.trade",
+                "wallet123.balances")
+              examples:
+                - BTC.trade
+                - ETH.liquidity
+                - wallet123.balances
+            priority:
+              type: string
+              description: Message priority level for processing
+              enum:
+                - CRITICAL
+                - HIGH
+                - NORMAL
+              default: NORMAL
+            data:
+              type: object
+              description: >
+                Event-specific payload. The structure depends on the event type
+                and is
+
+                determined by the publishing service. This is a free-form object
+                that
+
+                can contain any valid JSON.
+              additionalProperties: true
+        examples:
+          - name: Trade Event Example
+            summary: Example trade event message
+            headers:
+              client_id: client-12345
+              source: ws-client
+              timestamp: '1704067200000'
+            payload:
+              type: TRADE_EXECUTED
+              seq: 12345
+              timestamp: 1704067200000
+              channel: BTC.trade
+              priority: NORMAL
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                side: buy
+          - name: Balance Update Example
+            summary: Example balance update message
+            headers:
+              client_id: client-67890
+              source: ws-client
+              timestamp: '1704067300000'
+            payload:
+              type: BALANCE_UPDATED
+              seq: 12346
+              timestamp: 1704067300000
+              channel: wallet123.balances
+              priority: HIGH
+              data:
+                wallet: wallet123
+                token: ETH
+                balance: '10.5'
+  community:
+    address: '{namespace}.{tenant}.community'
+    description: >
+      Community events channel for community-related activity.
+
+
+      ## Topic Pattern
+
+      `{namespace}.{tenant}.community`
+
+
+      ## Example Topics
+
+      - `dev.acme.community` - Development environment for tenant "acme"
+
+      - `prod.mycompany.community` - Production environment for tenant
+      "mycompany"
+
+
+      ## Message Key
+
+      Full channel identifier for partitioning (e.g., `acme.group1.community`)
+    parameters:
+      namespace:
+        description: |
+          Environment namespace (normalized):
+          - `local` - local development, development, or empty
+          - `dev` - develop, dev
+          - `staging` - staging, stage
+          - `prod` - production, prod
+      tenant:
+        description: Tenant identifier (dynamically provisioned via tenant_topics table)
+    messages:
+      event:
+        name: Event
+        title: Event Message
+        summary: Common event envelope for all messages published to Redpanda
+        description: >
+          All messages published to Redpanda topics use this common envelope
+          structure.
+
+          The `type` field indicates the specific event type, and `data`
+          contains the
+
+          event-specific payload.
+
+
+          ## Kafka Record Structure
+
+
+          ```
+
+          Record {
+            Topic:   "{namespace}.{tenant}.{category}"
+            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
+            Value:   <this message as JSON>
+            Headers: [
+              {Key: "client_id", Value: "{id}"},
+              {Key: "source", Value: "ws-client"},
+              {Key: "timestamp", Value: "{unix_ms}"}
+            ]
+          }
+
+          ```
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            client_id:
+              type: string
+              description: Unique identifier of the publishing client
+            source:
+              type: string
+              description: Source of the message (e.g., "ws-client")
+              default: ws-client
+            timestamp:
+              type: string
+              description: Unix timestamp in milliseconds when the message was produced
+          required:
+            - client_id
+            - source
+            - timestamp
+        payload:
+          type: object
+          description: >
+            Common message envelope structure for all events.
+
+
+            Event types are dynamic and not hardcoded - they are determined by
+            the
+
+            publishing service based on the specific domain event being emitted.
+          required:
+            - type
+            - seq
+            - timestamp
+            - channel
+            - priority
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type identifier. This is dynamic and determined by the
+                publishing
+
+                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
+                "TOKEN_CREATED"
+              examples:
+                - TRADE_EXECUTED
+                - BALANCE_UPDATED
+                - LIQUIDITY_ADDED
+                - TOKEN_CREATED
+                - METADATA_UPDATED
+            seq:
+              type: integer
+              format: int64
+              description: Monotonically increasing sequence number for ordering events
+              examples:
+                - 12345
+                - 67890
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event was created
+              examples:
+                - 1704067200000
+            channel:
+              type: string
+              description: >
+                Channel identifier used for routing and partitioning.
+
+                Format varies by category (e.g., "BTC.trade",
+                "wallet123.balances")
+              examples:
+                - BTC.trade
+                - ETH.liquidity
+                - wallet123.balances
+            priority:
+              type: string
+              description: Message priority level for processing
+              enum:
+                - CRITICAL
+                - HIGH
+                - NORMAL
+              default: NORMAL
+            data:
+              type: object
+              description: >
+                Event-specific payload. The structure depends on the event type
+                and is
+
+                determined by the publishing service. This is a free-form object
+                that
+
+                can contain any valid JSON.
+              additionalProperties: true
+        examples:
+          - name: Trade Event Example
+            summary: Example trade event message
+            headers:
+              client_id: client-12345
+              source: ws-client
+              timestamp: '1704067200000'
+            payload:
+              type: TRADE_EXECUTED
+              seq: 12345
+              timestamp: 1704067200000
+              channel: BTC.trade
+              priority: NORMAL
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                side: buy
+          - name: Balance Update Example
+            summary: Example balance update message
+            headers:
+              client_id: client-67890
+              source: ws-client
+              timestamp: '1704067300000'
+            payload:
+              type: BALANCE_UPDATED
+              seq: 12346
+              timestamp: 1704067300000
+              channel: wallet123.balances
+              priority: HIGH
+              data:
+                wallet: wallet123
+                token: ETH
+                balance: '10.5'
+  creation:
+    address: '{namespace}.{tenant}.creation'
+    description: >
+      Creation events channel for token and asset creation activity.
+
+
+      ## Topic Pattern
+
+      `{namespace}.{tenant}.creation`
+
+
+      ## Example Topics
+
+      - `dev.acme.creation` - Development environment for tenant "acme"
+
+      - `prod.mycompany.creation` - Production environment for tenant
+      "mycompany"
+
+
+      ## Message Key
+
+      Full channel identifier for partitioning (e.g., `acme.NEWTOKEN.creation`)
+    parameters:
+      namespace:
+        description: |
+          Environment namespace (normalized):
+          - `local` - local development, development, or empty
+          - `dev` - develop, dev
+          - `staging` - staging, stage
+          - `prod` - production, prod
+      tenant:
+        description: Tenant identifier (dynamically provisioned via tenant_topics table)
+    messages:
+      event:
+        name: Event
+        title: Event Message
+        summary: Common event envelope for all messages published to Redpanda
+        description: >
+          All messages published to Redpanda topics use this common envelope
+          structure.
+
+          The `type` field indicates the specific event type, and `data`
+          contains the
+
+          event-specific payload.
+
+
+          ## Kafka Record Structure
+
+
+          ```
+
+          Record {
+            Topic:   "{namespace}.{tenant}.{category}"
+            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
+            Value:   <this message as JSON>
+            Headers: [
+              {Key: "client_id", Value: "{id}"},
+              {Key: "source", Value: "ws-client"},
+              {Key: "timestamp", Value: "{unix_ms}"}
+            ]
+          }
+
+          ```
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            client_id:
+              type: string
+              description: Unique identifier of the publishing client
+            source:
+              type: string
+              description: Source of the message (e.g., "ws-client")
+              default: ws-client
+            timestamp:
+              type: string
+              description: Unix timestamp in milliseconds when the message was produced
+          required:
+            - client_id
+            - source
+            - timestamp
+        payload:
+          type: object
+          description: >
+            Common message envelope structure for all events.
+
+
+            Event types are dynamic and not hardcoded - they are determined by
+            the
+
+            publishing service based on the specific domain event being emitted.
+          required:
+            - type
+            - seq
+            - timestamp
+            - channel
+            - priority
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type identifier. This is dynamic and determined by the
+                publishing
+
+                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
+                "TOKEN_CREATED"
+              examples:
+                - TRADE_EXECUTED
+                - BALANCE_UPDATED
+                - LIQUIDITY_ADDED
+                - TOKEN_CREATED
+                - METADATA_UPDATED
+            seq:
+              type: integer
+              format: int64
+              description: Monotonically increasing sequence number for ordering events
+              examples:
+                - 12345
+                - 67890
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event was created
+              examples:
+                - 1704067200000
+            channel:
+              type: string
+              description: >
+                Channel identifier used for routing and partitioning.
+
+                Format varies by category (e.g., "BTC.trade",
+                "wallet123.balances")
+              examples:
+                - BTC.trade
+                - ETH.liquidity
+                - wallet123.balances
+            priority:
+              type: string
+              description: Message priority level for processing
+              enum:
+                - CRITICAL
+                - HIGH
+                - NORMAL
+              default: NORMAL
+            data:
+              type: object
+              description: >
+                Event-specific payload. The structure depends on the event type
+                and is
+
+                determined by the publishing service. This is a free-form object
+                that
+
+                can contain any valid JSON.
+              additionalProperties: true
+        examples:
+          - name: Trade Event Example
+            summary: Example trade event message
+            headers:
+              client_id: client-12345
+              source: ws-client
+              timestamp: '1704067200000'
+            payload:
+              type: TRADE_EXECUTED
+              seq: 12345
+              timestamp: 1704067200000
+              channel: BTC.trade
+              priority: NORMAL
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                side: buy
+          - name: Balance Update Example
+            summary: Example balance update message
+            headers:
+              client_id: client-67890
+              source: ws-client
+              timestamp: '1704067300000'
+            payload:
+              type: BALANCE_UPDATED
+              seq: 12346
+              timestamp: 1704067300000
+              channel: wallet123.balances
+              priority: HIGH
+              data:
+                wallet: wallet123
+                token: ETH
+                balance: '10.5'
+  analytics:
+    address: '{namespace}.{tenant}.analytics'
+    description: >
+      Analytics events channel for metrics and analytics data.
+
+
+      ## Topic Pattern
+
+      `{namespace}.{tenant}.analytics`
+
+
+      ## Example Topics
+
+      - `dev.acme.analytics` - Development environment for tenant "acme"
+
+      - `prod.mycompany.analytics` - Production environment for tenant
+      "mycompany"
+
+
+      ## Message Key
+
+      Full channel identifier for partitioning (e.g., `acme.daily.analytics`)
+    parameters:
+      namespace:
+        description: |
+          Environment namespace (normalized):
+          - `local` - local development, development, or empty
+          - `dev` - develop, dev
+          - `staging` - staging, stage
+          - `prod` - production, prod
+      tenant:
+        description: Tenant identifier (dynamically provisioned via tenant_topics table)
+    messages:
+      event:
+        name: Event
+        title: Event Message
+        summary: Common event envelope for all messages published to Redpanda
+        description: >
+          All messages published to Redpanda topics use this common envelope
+          structure.
+
+          The `type` field indicates the specific event type, and `data`
+          contains the
+
+          event-specific payload.
+
+
+          ## Kafka Record Structure
+
+
+          ```
+
+          Record {
+            Topic:   "{namespace}.{tenant}.{category}"
+            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
+            Value:   <this message as JSON>
+            Headers: [
+              {Key: "client_id", Value: "{id}"},
+              {Key: "source", Value: "ws-client"},
+              {Key: "timestamp", Value: "{unix_ms}"}
+            ]
+          }
+
+          ```
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            client_id:
+              type: string
+              description: Unique identifier of the publishing client
+            source:
+              type: string
+              description: Source of the message (e.g., "ws-client")
+              default: ws-client
+            timestamp:
+              type: string
+              description: Unix timestamp in milliseconds when the message was produced
+          required:
+            - client_id
+            - source
+            - timestamp
+        payload:
+          type: object
+          description: >
+            Common message envelope structure for all events.
+
+
+            Event types are dynamic and not hardcoded - they are determined by
+            the
+
+            publishing service based on the specific domain event being emitted.
+          required:
+            - type
+            - seq
+            - timestamp
+            - channel
+            - priority
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type identifier. This is dynamic and determined by the
+                publishing
+
+                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
+                "TOKEN_CREATED"
+              examples:
+                - TRADE_EXECUTED
+                - BALANCE_UPDATED
+                - LIQUIDITY_ADDED
+                - TOKEN_CREATED
+                - METADATA_UPDATED
+            seq:
+              type: integer
+              format: int64
+              description: Monotonically increasing sequence number for ordering events
+              examples:
+                - 12345
+                - 67890
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event was created
+              examples:
+                - 1704067200000
+            channel:
+              type: string
+              description: >
+                Channel identifier used for routing and partitioning.
+
+                Format varies by category (e.g., "BTC.trade",
+                "wallet123.balances")
+              examples:
+                - BTC.trade
+                - ETH.liquidity
+                - wallet123.balances
+            priority:
+              type: string
+              description: Message priority level for processing
+              enum:
+                - CRITICAL
+                - HIGH
+                - NORMAL
+              default: NORMAL
+            data:
+              type: object
+              description: >
+                Event-specific payload. The structure depends on the event type
+                and is
+
+                determined by the publishing service. This is a free-form object
+                that
+
+                can contain any valid JSON.
+              additionalProperties: true
+        examples:
+          - name: Trade Event Example
+            summary: Example trade event message
+            headers:
+              client_id: client-12345
+              source: ws-client
+              timestamp: '1704067200000'
+            payload:
+              type: TRADE_EXECUTED
+              seq: 12345
+              timestamp: 1704067200000
+              channel: BTC.trade
+              priority: NORMAL
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                side: buy
+          - name: Balance Update Example
+            summary: Example balance update message
+            headers:
+              client_id: client-67890
+              source: ws-client
+              timestamp: '1704067300000'
+            payload:
+              type: BALANCE_UPDATED
+              seq: 12346
+              timestamp: 1704067300000
+              channel: wallet123.balances
+              priority: HIGH
+              data:
+                wallet: wallet123
+                token: ETH
+                balance: '10.5'
+  balances:
+    address: '{namespace}.{tenant}.balances'
+    description: >
+      Balances events channel for account balance updates.
+
+
+      ## Topic Pattern
+
+      `{namespace}.{tenant}.balances`
+
+
+      ## Example Topics
+
+      - `dev.acme.balances` - Development environment for tenant "acme"
+
+      - `prod.mycompany.balances` - Production environment for tenant
+      "mycompany"
+
+
+      ## Message Key
+
+      Full channel identifier for partitioning (e.g., `acme.wallet123.balances`)
+    parameters:
+      namespace:
+        description: |
+          Environment namespace (normalized):
+          - `local` - local development, development, or empty
+          - `dev` - develop, dev
+          - `staging` - staging, stage
+          - `prod` - production, prod
+      tenant:
+        description: Tenant identifier (dynamically provisioned via tenant_topics table)
+    messages:
+      event:
+        name: Event
+        title: Event Message
+        summary: Common event envelope for all messages published to Redpanda
+        description: >
+          All messages published to Redpanda topics use this common envelope
+          structure.
+
+          The `type` field indicates the specific event type, and `data`
+          contains the
+
+          event-specific payload.
+
+
+          ## Kafka Record Structure
+
+
+          ```
+
+          Record {
+            Topic:   "{namespace}.{tenant}.{category}"
+            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
+            Value:   <this message as JSON>
+            Headers: [
+              {Key: "client_id", Value: "{id}"},
+              {Key: "source", Value: "ws-client"},
+              {Key: "timestamp", Value: "{unix_ms}"}
+            ]
+          }
+
+          ```
+        contentType: application/json
+        headers:
+          type: object
+          properties:
+            client_id:
+              type: string
+              description: Unique identifier of the publishing client
+            source:
+              type: string
+              description: Source of the message (e.g., "ws-client")
+              default: ws-client
+            timestamp:
+              type: string
+              description: Unix timestamp in milliseconds when the message was produced
+          required:
+            - client_id
+            - source
+            - timestamp
+        payload:
+          type: object
+          description: >
+            Common message envelope structure for all events.
+
+
+            Event types are dynamic and not hardcoded - they are determined by
+            the
+
+            publishing service based on the specific domain event being emitted.
+          required:
+            - type
+            - seq
+            - timestamp
+            - channel
+            - priority
+            - data
+          properties:
+            type:
+              type: string
+              description: >
+                Event type identifier. This is dynamic and determined by the
+                publishing
+
+                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
+                "TOKEN_CREATED"
+              examples:
+                - TRADE_EXECUTED
+                - BALANCE_UPDATED
+                - LIQUIDITY_ADDED
+                - TOKEN_CREATED
+                - METADATA_UPDATED
+            seq:
+              type: integer
+              format: int64
+              description: Monotonically increasing sequence number for ordering events
+              examples:
+                - 12345
+                - 67890
+            timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp in milliseconds when the event was created
+              examples:
+                - 1704067200000
+            channel:
+              type: string
+              description: >
+                Channel identifier used for routing and partitioning.
+
+                Format varies by category (e.g., "BTC.trade",
+                "wallet123.balances")
+              examples:
+                - BTC.trade
+                - ETH.liquidity
+                - wallet123.balances
+            priority:
+              type: string
+              description: Message priority level for processing
+              enum:
+                - CRITICAL
+                - HIGH
+                - NORMAL
+              default: NORMAL
+            data:
+              type: object
+              description: >
+                Event-specific payload. The structure depends on the event type
+                and is
+
+                determined by the publishing service. This is a free-form object
+                that
+
+                can contain any valid JSON.
+              additionalProperties: true
+        examples:
+          - name: Trade Event Example
+            summary: Example trade event message
+            headers:
+              client_id: client-12345
+              source: ws-client
+              timestamp: '1704067200000'
+            payload:
+              type: TRADE_EXECUTED
+              seq: 12345
+              timestamp: 1704067200000
+              channel: BTC.trade
+              priority: NORMAL
+              data:
+                price: '45000.50'
+                amount: '0.5'
+                side: buy
+          - name: Balance Update Example
+            summary: Example balance update message
+            headers:
+              client_id: client-67890
+              source: ws-client
+              timestamp: '1704067300000'
+            payload:
+              type: BALANCE_UPDATED
+              seq: 12346
+              timestamp: 1704067300000
+              channel: wallet123.balances
+              priority: HIGH
+              data:
+                wallet: wallet123
+                token: ETH
+                balance: '10.5'
+operations:
+  publishTrade:
+    action: send
+    channel:
+      $ref: '#/channels/trade'
+    messages:
+      - $ref: '#/channels/trade/messages/event'
+  publishLiquidity:
+    action: send
+    channel:
+      $ref: '#/channels/liquidity'
+    messages:
+      - $ref: '#/channels/liquidity/messages/event'
+  publishMetadata:
+    action: send
+    channel:
+      $ref: '#/channels/metadata'
+    messages:
+      - $ref: '#/channels/metadata/messages/event'
+  publishSocial:
+    action: send
+    channel:
+      $ref: '#/channels/social'
+    messages:
+      - $ref: '#/channels/social/messages/event'
+  publishCommunity:
+    action: send
+    channel:
+      $ref: '#/channels/community'
+    messages:
+      - $ref: '#/channels/community/messages/event'
+  publishCreation:
+    action: send
+    channel:
+      $ref: '#/channels/creation'
+    messages:
+      - $ref: '#/channels/creation/messages/event'
+  publishAnalytics:
+    action: send
+    channel:
+      $ref: '#/channels/analytics'
+    messages:
+      - $ref: '#/channels/analytics/messages/event'
+  publishBalances:
+    action: send
+    channel:
+      $ref: '#/channels/balances'
+    messages:
+      - $ref: '#/channels/balances/messages/event'
+components:
+  messages:
+    event:
+      name: Event
+      title: Event Message
+      summary: Common event envelope for all messages published to Redpanda
+      description: >
+        All messages published to Redpanda topics use this common envelope
+        structure.
+
+        The `type` field indicates the specific event type, and `data` contains
+        the
+
+        event-specific payload.
+
+
+        ## Kafka Record Structure
+
+
+        ```
+
+        Record {
+          Topic:   "{namespace}.{tenant}.{category}"
+          Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
+          Value:   <this message as JSON>
+          Headers: [
+            {Key: "client_id", Value: "{id}"},
+            {Key: "source", Value: "ws-client"},
+            {Key: "timestamp", Value: "{unix_ms}"}
+          ]
+        }
+
+        ```
+      contentType: application/json
+      headers:
+        type: object
+        properties:
+          client_id:
+            type: string
+            description: Unique identifier of the publishing client
+          source:
+            type: string
+            description: Source of the message (e.g., "ws-client")
+            default: ws-client
+          timestamp:
+            type: string
+            description: Unix timestamp in milliseconds when the message was produced
+        required:
+          - client_id
+          - source
+          - timestamp
+      payload:
+        type: object
+        description: |
+          Common message envelope structure for all events.
+
+          Event types are dynamic and not hardcoded - they are determined by the
+          publishing service based on the specific domain event being emitted.
+        required:
+          - type
+          - seq
+          - timestamp
+          - channel
+          - priority
+          - data
+        properties:
+          type:
+            type: string
+            description: >
+              Event type identifier. This is dynamic and determined by the
+              publishing
+
+              service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
+              "TOKEN_CREATED"
+            examples:
+              - TRADE_EXECUTED
+              - BALANCE_UPDATED
+              - LIQUIDITY_ADDED
+              - TOKEN_CREATED
+              - METADATA_UPDATED
+          seq:
+            type: integer
+            format: int64
+            description: Monotonically increasing sequence number for ordering events
+            examples:
+              - 12345
+              - 67890
+          timestamp:
+            type: integer
+            format: int64
+            description: Unix timestamp in milliseconds when the event was created
+            examples:
+              - 1704067200000
+          channel:
+            type: string
+            description: >
+              Channel identifier used for routing and partitioning.
+
+              Format varies by category (e.g., "BTC.trade",
+              "wallet123.balances")
+            examples:
+              - BTC.trade
+              - ETH.liquidity
+              - wallet123.balances
+          priority:
+            type: string
+            description: Message priority level for processing
+            enum:
+              - CRITICAL
+              - HIGH
+              - NORMAL
+            default: NORMAL
+          data:
+            type: object
+            description: >
+              Event-specific payload. The structure depends on the event type
+              and is
+
+              determined by the publishing service. This is a free-form object
+              that
+
+              can contain any valid JSON.
+            additionalProperties: true
+      examples:
+        - name: Trade Event Example
+          summary: Example trade event message
+          headers:
+            client_id: client-12345
+            source: ws-client
+            timestamp: '1704067200000'
+          payload:
+            type: TRADE_EXECUTED
+            seq: 12345
+            timestamp: 1704067200000
+            channel: BTC.trade
+            priority: NORMAL
+            data:
+              price: '45000.50'
+              amount: '0.5'
+              side: buy
+        - name: Balance Update Example
+          summary: Example balance update message
+          headers:
+            client_id: client-67890
+            source: ws-client
+            timestamp: '1704067300000'
+          payload:
+            type: BALANCE_UPDATED
+            seq: 12346
+            timestamp: 1704067300000
+            channel: wallet123.balances
+            priority: HIGH
+            data:
+              wallet: wallet123
+              token: ETH
+              balance: '10.5'
+  schemas:
+    eventEnvelope:
+      type: object
+      description: |
+        Common message envelope structure for all events.
+
+        Event types are dynamic and not hardcoded - they are determined by the
+        publishing service based on the specific domain event being emitted.
+      required:
+        - type
+        - seq
+        - timestamp
+        - channel
+        - priority
+        - data
+      properties:
+        type:
+          type: string
+          description: >
+            Event type identifier. This is dynamic and determined by the
+            publishing
+
+            service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
+            "TOKEN_CREATED"
+          examples:
+            - TRADE_EXECUTED
+            - BALANCE_UPDATED
+            - LIQUIDITY_ADDED
+            - TOKEN_CREATED
+            - METADATA_UPDATED
+        seq:
+          type: integer
+          format: int64
+          description: Monotonically increasing sequence number for ordering events
+          examples:
+            - 12345
+            - 67890
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds when the event was created
+          examples:
+            - 1704067200000
+        channel:
+          type: string
+          description: |
+            Channel identifier used for routing and partitioning.
+            Format varies by category (e.g., "BTC.trade", "wallet123.balances")
+          examples:
+            - BTC.trade
+            - ETH.liquidity
+            - wallet123.balances
+        priority:
+          type: string
+          description: Message priority level for processing
+          enum:
+            - CRITICAL
+            - HIGH
+            - NORMAL
+          default: NORMAL
+        data:
+          type: object
+          description: >
+            Event-specific payload. The structure depends on the event type and
+            is
+
+            determined by the publishing service. This is a free-form object
+            that
+
+            can contain any valid JSON.
+          additionalProperties: true
