@@ -1,0 +1,342 @@
+# =============================================================================
+# GKE Standard - Production Environment (Spot VMs, Autoscaling)
+# =============================================================================
+# Production environment using GKE Standard with Spot VMs for 60-90% cost savings.
+# Autoscaling 1-5 nodes, higher replicas, persistent storage, NATS cluster.
+#
+# Usage:
+#   helm upgrade --install odin ./deployments/k8s/helm/odin \
+#     -f ./deployments/k8s/helm/odin/values/standard/production.yaml \
+#     -n odin-std-production --create-namespace
+
+global:
+  namespace: odin-std-production
+  # Update with your Artifact Registry path
+  imageRegistry: "us-central1-docker.pkg.dev/YOUR_PROJECT/odin"
+
+# =============================================================================
+# WebSocket Gateway
+# =============================================================================
+ws-gateway:
+  enabled: true
+  replicaCount: 3
+
+  image:
+    repository: ws-gateway
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  config:
+    logLevel: warn
+    logFormat: json
+    # Multi-Issuer OIDC / Per-Tenant Channel Rules
+    multiIssuerOIDCEnabled: false    # Enable after staging validation
+    perTenantChannelRulesEnabled: false
+    issuerCacheTTL: "5m"
+    channelRulesCacheTTL: "1m"
+    oidcKeyfuncCacheTTL: "1h"
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "512Mi"
+
+  service:
+    type: LoadBalancer
+    port: 443
+    targetPort: 3000
+
+  # Spot VM tolerations
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+
+  # Pod disruption budget for Spot preemption handling
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+# =============================================================================
+# WebSocket Server
+# =============================================================================
+ws-server:
+  enabled: true
+  replicaCount: 3
+
+  image:
+    repository: ws-server
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  config:
+    shards: 4
+    logLevel: warn
+    logFormat: json
+    environment: production  # Deployment environment for logging/metrics
+    # kafkaTopicNamespace defaults to "main" (normalized from "production")
+
+  # Connection limits (ResourceGuard enforces actual limits at runtime)
+  connectionLimits:
+    clusterMaxConnections: 100000
+
+  # Broadcast Bus - NATS
+  broadcast:
+    type: nats
+
+  # NATS config - cluster mode for production
+  nats:
+    urls: ""  # Uses dynamic default
+    clusterMode: true
+
+  resources:
+    requests:
+      cpu: "1"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "1Gi"
+
+  service:
+    type: ClusterIP  # Internal only - gateway handles external traffic
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+
+  # Spot VM tolerations
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+
+  # Pod disruption budget for graceful handling
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+  # Termination grace period for WebSocket connections
+  terminationGracePeriodSeconds: 30
+
+# =============================================================================
+# Redpanda (Kafka) - Production with Persistence
+# =============================================================================
+redpanda:
+  enabled: true
+  replicaCount: 3
+
+  # Production resources
+  memory: "1G"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1"
+      memory: "1.5Gi"
+
+  # Persistent storage for production
+  storage:
+    enabled: true
+    size: 10Gi
+    storageClass: standard-rwo
+
+  # Topic configuration for production
+  # Topics use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
+  # Regular topics: Publisher publishes here
+  # Refined topics: ws-server consumes from here (after external service processing)
+  topics:
+    # Regular topics (publisher → external service)
+    - name: odin.main.trade
+      partitions: 4
+      replicationFactor: 2
+    - name: odin.main.liquidity
+      partitions: 4
+      replicationFactor: 2
+    - name: odin.main.balances
+      partitions: 4
+      replicationFactor: 2
+    - name: odin.main.metadata
+      partitions: 2
+      replicationFactor: 2
+    - name: odin.main.social
+      partitions: 2
+      replicationFactor: 2
+    - name: odin.main.community
+      partitions: 2
+      replicationFactor: 2
+    - name: odin.main.creation
+      partitions: 2
+      replicationFactor: 2
+    - name: odin.main.analytics
+      partitions: 2
+      replicationFactor: 2
+    # Refined topics (external service → ws-server)
+    - name: odin.main.trade.refined
+      partitions: 4
+      replicationFactor: 2
+    - name: odin.main.liquidity.refined
+      partitions: 4
+      replicationFactor: 2
+    - name: odin.main.balances.refined
+      partitions: 4
+      replicationFactor: 2
+    - name: odin.main.metadata.refined
+      partitions: 2
+      replicationFactor: 2
+    - name: odin.main.social.refined
+      partitions: 2
+      replicationFactor: 2
+    - name: odin.main.community.refined
+      partitions: 2
+      replicationFactor: 2
+    - name: odin.main.creation.refined
+      partitions: 2
+      replicationFactor: 2
+    - name: odin.main.analytics.refined
+      partitions: 2
+      replicationFactor: 2
+
+  # Spot VM tolerations
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+  # External access for odin-api publisher
+  externalAccess:
+    enabled: true
+    type: LoadBalancer
+
+# =============================================================================
+# Valkey - Disabled (using NATS)
+# =============================================================================
+valkey:
+  enabled: false
+
+# =============================================================================
+# NATS - Production Cluster
+# =============================================================================
+nats:
+  enabled: true
+  replicaCount: 3
+
+  cluster:
+    enabled: true
+    replicas: 3
+
+  auth:
+    enabled: true
+
+  # Production resources
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+  # Spot VM tolerations
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+# =============================================================================
+# Monitoring - Production
+# =============================================================================
+monitoring:
+  enabled: true
+
+  prometheus:
+    enabled: true
+    retention: 15d
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    storage:
+      enabled: true
+      size: 20Gi
+    tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+
+  grafana:
+    enabled: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "250m"
+        memory: "512Mi"
+    tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+
+  loki:
+    enabled: true
+    retention: 7d
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "250m"
+        memory: "512Mi"
+    storage:
+      enabled: true
+      size: 10Gi
+    tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+
+  promtail:
+    enabled: true
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "100m"
+        memory: "128Mi"
+    tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"

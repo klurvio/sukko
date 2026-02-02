@@ -1,0 +1,91 @@
+# =============================================================================
+# Shared Build Tasks - Docker image building
+# =============================================================================
+
+version: "3"
+
+vars:
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  COMMIT_HASH:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+  BUILD_TIME:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  # Registry can be overridden for remote builds
+  REGISTRY: '{{.REGISTRY | default ""}}'
+  # Image prefix (empty for local, "registry/" for remote)
+  IMAGE_PREFIX: '{{if .REGISTRY}}{{.REGISTRY}}/{{end}}'
+
+tasks:
+  ws-server:
+    desc: Build ws-server Docker image
+    dir: "{{.ROOT_DIR}}/ws"
+    vars:
+      IMAGE: '{{.IMAGE_PREFIX}}{{.WS_SERVER_IMAGE | default "odin-ws"}}'
+      TAG: '{{.TAG | default "latest"}}'
+    cmds:
+      - docker build -t {{.IMAGE}}:{{.TAG}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f build/server/Dockerfile .
+
+  gateway:
+    desc: Build ws-gateway Docker image
+    dir: "{{.ROOT_DIR}}/ws"
+    vars:
+      IMAGE: '{{.IMAGE_PREFIX}}{{.GATEWAY_IMAGE | default "odin-gateway"}}'
+      TAG: '{{.TAG | default "latest"}}'
+    cmds:
+      - docker build -t {{.IMAGE}}:{{.TAG}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f build/gateway/Dockerfile .
+
+  all:
+    desc: Build all Docker images
+    cmds:
+      - task: ws-server
+      - task: gateway
+
+  # Cross-platform build for remote registries (linux/amd64)
+  push:ws-server:
+    desc: Build and push ws-server to registry
+    requires:
+      vars: [REGISTRY]
+    dir: "{{.ROOT_DIR}}/ws"
+    vars:
+      TAG: '{{.TAG | default "latest"}}'
+    cmds:
+      - docker buildx build --platform linux/amd64
+          -t {{.REGISTRY}}/ws-server:{{.TAG}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f build/server/Dockerfile .
+          --push
+
+  push:gateway:
+    desc: Build and push ws-gateway to registry
+    requires:
+      vars: [REGISTRY]
+    dir: "{{.ROOT_DIR}}/ws"
+    vars:
+      TAG: '{{.TAG | default "latest"}}'
+    cmds:
+      - docker buildx build --platform linux/amd64
+          -t {{.REGISTRY}}/ws-gateway:{{.TAG}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f build/gateway/Dockerfile .
+          --push
+
+  push:all:
+    desc: Build and push all images to registry
+    requires:
+      vars: [REGISTRY]
+    cmds:
+      - task: push:ws-server
+      - task: push:gateway

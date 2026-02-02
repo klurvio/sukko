@@ -4,19 +4,20 @@
 # Usage: task k8s:<cluster-type>:<command>
 # Examples:
 #   task k8s:local:setup
-#   task k8s:standard:deploy:develop
-#   task k8s:autopilot:deploy:staging
+#   task k8s:remote:standard:deploy ENV=develop
 
-version: '3'
+version: "3"
 
 includes:
-  local: ./local.yml
-  autopilot: ./autopilot.yml
-  standard: ./standard.yml
-  common: ./common.yml
-
-# NOTE: Each cluster type taskfile uses environment variables (ENV, GKE_AP_ENV, GKE_STD_ENV)
-# to select the target environment (develop, staging, production).
+  local:
+    taskfile: ./local/Taskfile.yml
+    dir: "{{.ROOT_DIR}}"
+  remote:
+    taskfile: ./remote/Taskfile.yml
+    dir: "{{.ROOT_DIR}}"
+  common:
+    taskfile: ./common.yml
+    dir: "{{.ROOT_DIR}}"
 
 tasks:
   default:
@@ -24,24 +25,20 @@ tasks:
     cmds:
       - echo "Kubernetes deployment tasks"
       - echo ""
-      - echo "=== Local (kind cluster) ==="
+      - echo "=== Local (Kind cluster) ==="
       - echo "  task k8s:local:setup       - Create cluster and deploy"
       - echo "  task k8s:local:deploy      - Deploy/upgrade Helm release"
       - echo "  task k8s:local:status      - Show pod/service status"
       - echo "  task k8s:local:logs        - Tail ws-server logs"
       - echo ""
       - echo "=== GKE Standard (Spot VMs, 60-90% cheaper) ==="
-      - echo "  task k8s:standard:deploy:develop    - Deploy to develop"
-      - echo "  task k8s:standard:deploy:staging    - Deploy to staging"
-      - echo "  task k8s:standard:deploy:production - Deploy to production"
-      - echo "  task k8s:standard:tf:*              - Terraform commands"
-      - echo "  task k8s:standard:status            - Show deployment status"
-      - echo ""
-      - echo "=== GKE Autopilot (managed nodes, simpler) ==="
-      - echo "  task k8s:autopilot:deploy:develop    - Deploy to develop"
-      - echo "  task k8s:autopilot:deploy:staging    - Deploy to staging"
-      - echo "  task k8s:autopilot:deploy:production - Deploy to production"
+      - echo "  task k8s:remote:standard:deploy ENV=develop"
+      - echo "  task k8s:remote:standard:deploy ENV=staging"
+      - echo "  task k8s:remote:standard:deploy ENV=production"
+      - echo "  task k8s:remote:standard:status"
+      - echo "  task k8s:remote:standard:tf:init"
       - echo ""
       - echo "Common tasks:"
       - echo "  task k8s:common:helm:lint     - Lint Helm charts"
-      - echo "  task k8s:common:helm:template - Dry-run render templates"
+      - echo "  task k8s:common:build:all     - Build all images"
+      - echo "  task k8s:common:test:unit     - Run unit tests"

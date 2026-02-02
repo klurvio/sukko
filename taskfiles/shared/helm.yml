@@ -1,0 +1,61 @@
+# =============================================================================
+# Shared Helm Tasks - Chart operations
+# =============================================================================
+
+version: "3"
+
+vars:
+  CHART_PATH: '{{.CHART_PATH | default (printf "%s/deployments/helm/odin" .ROOT_DIR)}}'
+  VALUES_FILE: '{{.VALUES_FILE | default ""}}'
+  NAMESPACE: '{{.NAMESPACE | default "default"}}'
+
+tasks:
+  lint:
+    desc: Lint Helm charts
+    cmds:
+      - helm lint {{.CHART_PATH}}
+
+  template:
+    desc: Dry-run render templates
+    cmds:
+      - |
+        if [ -n "{{.VALUES_FILE}}" ]; then
+          helm template odin {{.CHART_PATH}} -f {{.VALUES_FILE}}
+        else
+          helm template odin {{.CHART_PATH}}
+        fi
+
+  deps:
+    desc: Update Helm dependencies
+    cmds:
+      - helm dependency update {{.CHART_PATH}}
+
+  diff:
+    desc: Show diff before upgrade
+    requires:
+      vars: [VALUES_FILE, NAMESPACE]
+    cmds:
+      - helm diff upgrade odin {{.CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}}
+
+  upgrade:
+    desc: Upgrade/install Helm release
+    requires:
+      vars: [VALUES_FILE, NAMESPACE]
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+    cmds:
+      - helm upgrade --install odin {{.CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace {{.EXTRA_ARGS}}
+
+  uninstall:
+    desc: Uninstall Helm release
+    requires:
+      vars: [NAMESPACE]
+    cmds:
+      - helm uninstall odin -n {{.NAMESPACE}} || true
+
+  rollback:
+    desc: Rollback to previous release
+    requires:
+      vars: [NAMESPACE]
+    cmds:
+      - helm rollback odin -n {{.NAMESPACE}}

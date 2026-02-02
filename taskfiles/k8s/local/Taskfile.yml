@@ -1,0 +1,324 @@
+# =============================================================================
+# Local Environment Tasks (Kind cluster)
+# =============================================================================
+
+version: "3"
+
+includes:
+  build:
+    taskfile: ../../shared/build.yml
+    dir: "{{.ROOT_DIR}}"
+  helm:
+    taskfile: ../../shared/helm.yml
+    dir: "{{.ROOT_DIR}}"
+    vars:
+      CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/odin"
+      VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/odin/values/local.yaml"
+      NAMESPACE: odin-local
+  test:
+    taskfile: ../../shared/test.yml
+    dir: "{{.ROOT_DIR}}"
+
+vars:
+  CLUSTER_NAME: odin-ws-local
+  NAMESPACE: odin-local
+  KIND_CONFIG: "{{.ROOT_DIR}}/deployments/k8s/local/kind-config.yaml"
+  DB_URL: "postgres://postgres:postgres@localhost:5432/provisioning?sslmode=disable"
+
+tasks:
+  # ===========================================================================
+  # Cluster Lifecycle
+  # ===========================================================================
+  setup:
+    desc: Create Kind cluster and deploy full stack
+    cmds:
+      - task: cluster:create
+      - task: build
+      - task: deploy
+      - task: port-forward:start
+      - task: status
+
+  cluster:create:
+    desc: Create Kind cluster
+    cmds:
+      - kind create cluster --config {{.KIND_CONFIG}} --name {{.CLUSTER_NAME}} || true
+      - kubectl config use-context kind-{{.CLUSTER_NAME}}
+      - kubectl create namespace {{.NAMESPACE}} --dry-run=client -o yaml | kubectl apply -f -
+
+  cluster:delete:
+    desc: Delete Kind cluster
+    cmds:
+      - kind delete cluster --name {{.CLUSTER_NAME}}
+
+  destroy:
+    desc: Delete Kind cluster (alias)
+    cmds:
+      - task: cluster:delete
+
+  # ===========================================================================
+  # Build & Images
+  # ===========================================================================
+  build:
+    desc: Build and load images into Kind
+    cmds:
+      - task: build:all
+      - kind load docker-image odin-ws:latest --name {{.CLUSTER_NAME}}
+      - kind load docker-image odin-gateway:latest --name {{.CLUSTER_NAME}}
+
+  build:reload:
+    desc: Rebuild images, run migrations, and restart pods
+    cmds:
+      - task: build
+      - task: migrate
+      - kubectl rollout restart deployment -n {{.NAMESPACE}}
+
+  # ===========================================================================
+  # Database Migrations
+  # ===========================================================================
+  migrate:
+    desc: Run database migrations (local)
+    cmds:
+      - |
+        if ! nc -z localhost 5432 2>/dev/null; then
+          echo "Starting port-forward to postgres..."
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning-db 5432:5432 &
+          sleep 2
+        fi
+      - DATABASE_URL="{{.DB_URL}}" task provisioning:db:migrate
+
+  migrate:status:
+    desc: Show migration status (local)
+    cmds:
+      - |
+        if ! nc -z localhost 5432 2>/dev/null; then
+          echo "Starting port-forward to postgres..."
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning-db 5432:5432 &
+          sleep 2
+        fi
+      - DATABASE_URL="{{.DB_URL}}" task provisioning:db:status
+
+  # ===========================================================================
+  # Deployment
+  # ===========================================================================
+  deploy:
+    desc: Deploy/upgrade Helm release (runs migrations first)
+    cmds:
+      - kubectl config use-context kind-{{.CLUSTER_NAME}}
+      - task: migrate
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/asyncapi/bundled.yaml
+      - task: helm:upgrade
+
+  down:
+    desc: Uninstall Helm release
+    cmds:
+      - task: helm:uninstall
+
+  # ===========================================================================
+  # Observability
+  # ===========================================================================
+  status:
+    desc: Show deployment status
+    cmds:
+      - kubectl get pods -n {{.NAMESPACE}}
+      - echo ""
+      - kubectl get svc -n {{.NAMESPACE}}
+
+  logs:
+    desc: Tail ws-server logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.NAMESPACE}} --tail=100
+
+  logs:all:
+    desc: Tail all pod logs
+    cmds:
+      - kubectl logs -f --all-containers=true -l app.kubernetes.io/instance=odin -n {{.NAMESPACE}} --tail=50
+
+  logs:gateway:
+    desc: Tail ws-gateway logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=ws-gateway -n {{.NAMESPACE}} --tail=100
+
+  shell:
+    desc: Open shell in ws-server pod
+    cmds:
+      - kubectl exec -it $(kubectl get pods -n {{.NAMESPACE}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].metadata.name}') -n {{.NAMESPACE}} -- sh
+
+  # ===========================================================================
+  # Port Forwarding
+  # ===========================================================================
+  port-forward:start:
+    desc: Start all port-forwards in background
+    cmds:
+      - task: port-forward:stop
+      - |
+        echo "Starting port-forwards in background..."
+        kubectl port-forward -n {{.NAMESPACE}} svc/odin-ws-gateway 3006:3000 &
+        kubectl port-forward -n {{.NAMESPACE}} svc/odin-redpanda-external 9092:9092 &
+        kubectl port-forward -n {{.NAMESPACE}} svc/odin-monitoring-grafana 3010:3000 &
+        kubectl port-forward -n {{.NAMESPACE}} svc/odin-monitoring-prometheus 9090:9090 &
+        sleep 2
+        echo ""
+        echo "Port-forwards active:"
+        echo "  - ws-gateway:  localhost:3006"
+        echo "  - redpanda:    localhost:9092"
+        echo "  - grafana:     localhost:3010"
+        echo "  - prometheus:  localhost:9090"
+
+  port-forward:stop:
+    desc: Stop all port-forwards
+    cmds:
+      - pkill -f "port-forward.*odin" 2>/dev/null || true
+
+  port-forward:gateway:
+    desc: Port forward ws-gateway (localhost:3006)
+    cmds:
+      - kubectl port-forward -n {{.NAMESPACE}} svc/odin-ws-gateway 3006:3000
+
+  port-forward:redpanda:
+    desc: Port forward Redpanda (localhost:9092)
+    cmds:
+      - kubectl port-forward -n {{.NAMESPACE}} svc/odin-redpanda-external 9092:9092
+
+  port-forward:provisioning:
+    desc: Port forward provisioning API (localhost:8082)
+    cmds:
+      - kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082
+
+  # ===========================================================================
+  # Provisioning API
+  # ===========================================================================
+  provision:quick-setup:
+    desc: Create test tenant with topics (local)
+    cmds:
+      - task: provisioning:api:quick-setup
+        vars:
+          PROVISIONING_URL: "http://localhost:8082"
+          TENANT_ID: '{{.TENANT_ID | default "local-test"}}'
+          TENANT_NAME: '{{.TENANT_NAME | default "Local Test Tenant"}}'
+
+  provision:tenant:list:
+    desc: List tenants (local)
+    cmds:
+      - task: provisioning:api:tenant:list
+        vars:
+          PROVISIONING_URL: "http://localhost:8082"
+
+  provision:tenant:get:
+    desc: Get tenant details (local)
+    requires:
+      vars: [TENANT_ID]
+    cmds:
+      - task: provisioning:api:tenant:get
+        vars:
+          PROVISIONING_URL: "http://localhost:8082"
+          TENANT_ID: "{{.TENANT_ID}}"
+
+  provision:topics:create:
+    desc: Create topics for tenant (local)
+    requires:
+      vars: [TENANT_ID]
+    cmds:
+      - task: provisioning:api:topics:create
+        vars:
+          PROVISIONING_URL: "http://localhost:8082"
+          TENANT_ID: "{{.TENANT_ID}}"
+
+  provision:health:
+    desc: Check provisioning API health
+    cmds:
+      - task: provisioning:api:health
+        vars:
+          PROVISIONING_URL: "http://localhost:8082"
+
+  # ===========================================================================
+  # Testing & Health
+  # ===========================================================================
+  health:
+    desc: Test ws-gateway health endpoint
+    cmds:
+      - curl -s http://localhost:3006/health | jq .
+
+  test:ws:
+    desc: Connect to WebSocket via gateway
+    cmds:
+      - wscat -c ws://localhost:3006/ws
+
+  # ===========================================================================
+  # Publisher (local)
+  # ===========================================================================
+  publisher:start:
+    desc: Start publisher (RATE=10)
+    dir: "{{.ROOT_DIR}}/publisher"
+    vars:
+      RATE: '{{.RATE | default "10"}}'
+    cmds:
+      - echo "Starting publisher ({{.RATE}} events/sec)..."
+      - npm install --silent
+      - KAFKA_BROKERS=localhost:9092 API_PORT=3003 npm run dev &
+      - sleep 2
+      - 'curl -s -X POST http://localhost:3003/start -H "Content-Type: application/json" -d ''{"rate": {{.RATE}}, "tokenIds": ["BTC", "ETH", "SOL"]}'''
+      - echo "Publisher started on http://localhost:3003"
+
+  publisher:stop:
+    desc: Stop publisher
+    cmds:
+      - curl -s -X POST http://localhost:3003/stop || true
+      - pkill -f "tsx.*publisher" 2>/dev/null || true
+      - echo "Publisher stopped"
+
+  publisher:status:
+    desc: Check publisher status
+    cmds:
+      - curl -s http://localhost:3003/status | jq . || echo "Publisher not running"
+
+  publisher:rate:
+    desc: Update publish rate (RATE=50)
+    vars:
+      RATE: '{{.RATE | default "50"}}'
+    cmds:
+      - 'curl -s -X POST http://localhost:3003/rate -H "Content-Type: application/json" -d ''{"rate": {{.RATE}}}'''
+      - echo "Rate updated to {{.RATE}} events/sec"
+
+  # ===========================================================================
+  # Load Testing
+  # ===========================================================================
+  loadtest:build:
+    desc: Build loadtest binary
+    dir: "{{.ROOT_DIR}}/loadtest"
+    cmds:
+      - go build -o loadtest .
+      - echo "Built loadtest binary"
+
+  loadtest:run:
+    desc: Run load test (CONNECTIONS=100, DURATION=300, RAMP=5)
+    dir: "{{.ROOT_DIR}}/loadtest"
+    vars:
+      CONNECTIONS: '{{.CONNECTIONS | default "100"}}'
+      DURATION: '{{.DURATION | default "300"}}'
+      RAMP: '{{.RAMP | default "5"}}'
+    cmds:
+      - |
+        ./loadtest \
+          -url ws://localhost:3006/ws \
+          -health http://localhost:3006/health \
+          -connections {{.CONNECTIONS}} \
+          -ramp-rate {{.RAMP}} \
+          -duration {{.DURATION}}
+
+  loadtest:quick:
+    desc: Quick smoke test (10 connections, 30 seconds)
+    dir: "{{.ROOT_DIR}}/loadtest"
+    cmds:
+      - |
+        ./loadtest \
+          -url ws://localhost:3006/ws \
+          -health http://localhost:3006/health \
+          -connections 10 \
+          -ramp-rate 5 \
+          -duration 30
+
+  loadtest:stop:
+    desc: Stop running load test
+    cmds:
+      - pkill -f "./loadtest" 2>/dev/null || true
+      - echo "Loadtest stopped"

@@ -1,0 +1,496 @@
+# =============================================================================
+# GKE Standard Environment Tasks (Spot VMs, Terraform-managed)
+# =============================================================================
+
+version: "3"
+
+includes:
+  build:
+    taskfile: ../../shared/build.yml
+    dir: "{{.ROOT_DIR}}"
+  helm:
+    taskfile: ../../shared/helm.yml
+    dir: "{{.ROOT_DIR}}"
+    vars:
+      CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/odin"
+
+vars:
+  # Environment (develop, staging, production)
+  ENV: '{{.ENV | default "develop"}}'
+  # Derived variables
+  NAMESPACE: 'odin-std-{{.ENV}}'
+  VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/odin/values/standard/{{.ENV}}.yaml"
+  TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.ENV}}"
+  # GCP Settings
+  PROJECT: 'trim-array-480700-j7'
+  ZONE: '{{.ZONE | default "us-central1-a"}}'
+  CLUSTER: 'odin-ws-{{.ENV}}'
+  REGISTRY: 'us-central1-docker.pkg.dev/{{.PROJECT}}/odin'
+
+tasks:
+  # ===========================================================================
+  # Infrastructure (Terraform)
+  # ===========================================================================
+  tf:init:
+    desc: Initialize Terraform
+    cmds:
+      - terraform -chdir={{.TF_DIR}} init
+
+  tf:plan:
+    desc: Plan infrastructure changes
+    cmds:
+      - terraform -chdir={{.TF_DIR}} plan -out=tfplan
+
+  tf:apply:
+    desc: Apply infrastructure
+    cmds:
+      - terraform -chdir={{.TF_DIR}} apply tfplan
+
+  tf:apply-auto:
+    desc: Apply infrastructure (auto-approve)
+    cmds:
+      - terraform -chdir={{.TF_DIR}} apply -auto-approve
+
+  tf:destroy:
+    desc: Destroy infrastructure (DANGEROUS)
+    prompt: 'This will DESTROY the GKE cluster for {{.ENV}}. Are you sure?'
+    cmds:
+      - terraform -chdir={{.TF_DIR}} destroy
+
+  tf:output:
+    desc: Show Terraform outputs
+    cmds:
+      - terraform -chdir={{.TF_DIR}} output
+
+  tf:fmt:
+    desc: Format Terraform files
+    cmds:
+      - terraform fmt -recursive {{.TF_DIR}}
+
+  tf:validate:
+    desc: Validate Terraform configuration
+    cmds:
+      - terraform -chdir={{.TF_DIR}} validate
+
+  # ===========================================================================
+  # Full Workflow
+  # ===========================================================================
+  setup:
+    desc: Complete setup - infrastructure + deploy
+    cmds:
+      - task: tf:init
+      - task: tf:plan
+      - task: tf:apply
+      - task: connect
+      - task: build
+      - task: deploy
+      - task: status
+
+  destroy:
+    desc: Complete teardown - uninstall + destroy infrastructure
+    prompt: 'This will DESTROY everything for {{.ENV}}. Are you sure?'
+    cmds:
+      - task: down
+      - task: tf:destroy
+
+  # ===========================================================================
+  # Connection
+  # ===========================================================================
+  connect:
+    desc: Connect to GKE cluster
+    cmds:
+      - gcloud container clusters get-credentials {{.CLUSTER}} --zone {{.ZONE}} --project {{.PROJECT}}
+
+  connect:tf:
+    desc: Connect using Terraform output
+    cmds:
+      - |
+        CLUSTER=$(terraform -chdir={{.TF_DIR}} output -raw cluster_name 2>/dev/null || echo "")
+        ZONE=$(terraform -chdir={{.TF_DIR}} output -raw cluster_location 2>/dev/null || echo "")
+        PROJECT=$(terraform -chdir={{.TF_DIR}} output -raw project_id 2>/dev/null || echo "{{.PROJECT}}")
+        if [ -n "$CLUSTER" ] && [ -n "$ZONE" ]; then
+          gcloud container clusters get-credentials $CLUSTER --zone $ZONE --project $PROJECT
+          echo "Connected to $CLUSTER in $ZONE"
+        else
+          echo "Could not retrieve cluster info. Run tf:apply first."
+          exit 1
+        fi
+
+  # ===========================================================================
+  # Build & Push Images
+  # ===========================================================================
+  build:
+    desc: Build and push all images to Artifact Registry
+    cmds:
+      - echo "Building images..."
+      - task: build:push:all
+        vars:
+          REGISTRY: "{{.REGISTRY}}"
+
+  build:ws:
+    desc: Build and push ws-server only
+    cmds:
+      - task: build:push:ws-server
+        vars:
+          REGISTRY: "{{.REGISTRY}}"
+
+  build:gateway:
+    desc: Build and push ws-gateway only
+    cmds:
+      - task: build:push:gateway
+        vars:
+          REGISTRY: "{{.REGISTRY}}"
+
+  build:reload:
+    desc: Rebuild all images, run migrations, and restart pods
+    cmds:
+      - task: build
+      - task: migrate
+      - kubectl rollout restart deployment -n {{.NAMESPACE}}
+
+  build:reload:ws:
+    desc: Rebuild ws-server and restart its pods
+    cmds:
+      - task: build:ws
+      - task: reload:ws
+
+  build:reload:gateway:
+    desc: Rebuild ws-gateway and restart its pods
+    cmds:
+      - task: build:gateway
+      - task: reload:gateway
+
+  reload:
+    desc: Restart all pods (no rebuild)
+    cmds:
+      - kubectl rollout restart deployment -n {{.NAMESPACE}}
+      - kubectl rollout status deployment -n {{.NAMESPACE}} --timeout=120s
+
+  reload:ws:
+    desc: Restart ws-server pods (no rebuild)
+    cmds:
+      - kubectl rollout restart deployment/odin-ws-server -n {{.NAMESPACE}}
+      - kubectl rollout status deployment/odin-ws-server -n {{.NAMESPACE}} --timeout=120s
+
+  reload:gateway:
+    desc: Restart ws-gateway pods (no rebuild)
+    cmds:
+      - kubectl rollout restart deployment/odin-ws-gateway -n {{.NAMESPACE}}
+      - kubectl rollout status deployment/odin-ws-gateway -n {{.NAMESPACE}} --timeout=120s
+
+  # ===========================================================================
+  # Cloud Build (no local Docker required)
+  # ===========================================================================
+  cloud-build:
+    desc: Build images using Google Cloud Build
+    dir: "{{.ROOT_DIR}}"
+    cmds:
+      - echo "Submitting build to Cloud Build..."
+      - gcloud builds submit --config=cloudbuild.yaml --project={{.PROJECT}} .
+
+  cloud-build:status:
+    desc: Show recent Cloud Build status
+    cmds:
+      - gcloud builds list --limit=5 --project={{.PROJECT}}
+
+  cloud-build:logs:
+    desc: Stream logs from latest build
+    cmds:
+      - |
+        BUILD_ID=$(gcloud builds list --limit=1 --format='value(id)' --project={{.PROJECT}})
+        if [ -n "$BUILD_ID" ]; then
+          gcloud builds log $BUILD_ID --stream --project={{.PROJECT}}
+        else
+          echo "No builds found"
+        fi
+
+  # ===========================================================================
+  # Database Migrations
+  # ===========================================================================
+  migrate:
+    desc: Run database migrations
+    cmds:
+      - |
+        echo "Running migrations for {{.ENV}}..."
+        DB_URL=$(kubectl get secret odin-provisioning-db -n {{.NAMESPACE}} -o jsonpath='{.data.database-url}' 2>/dev/null | base64 -d)
+        if [ -z "$DB_URL" ]; then
+          echo "Error: Could not get database URL from secret odin-provisioning-db"
+          echo "Make sure the secret exists in namespace {{.NAMESPACE}}"
+          exit 1
+        fi
+        DATABASE_URL="$DB_URL" task provisioning:db:migrate
+
+  migrate:status:
+    desc: Show migration status
+    cmds:
+      - |
+        DB_URL=$(kubectl get secret odin-provisioning-db -n {{.NAMESPACE}} -o jsonpath='{.data.database-url}' 2>/dev/null | base64 -d)
+        if [ -z "$DB_URL" ]; then
+          echo "Error: Could not get database URL from secret"
+          exit 1
+        fi
+        DATABASE_URL="$DB_URL" task provisioning:db:status
+
+  # ===========================================================================
+  # Deployment
+  # ===========================================================================
+  deploy:
+    desc: Deploy/upgrade Helm release (runs migrations first)
+    vars:
+      REDPANDA_IP:
+        sh: terraform -chdir={{.TF_DIR}} output -raw redpanda_external_ip 2>/dev/null || echo ""
+    cmds:
+      - task: connect
+      - task: migrate
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/asyncapi/bundled.yaml
+      - |
+        HELM_CMD="helm upgrade --install odin {{.ROOT_DIR}}/deployments/helm/odin -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace"
+        if [ -n "{{.REDPANDA_IP}}" ]; then
+          echo "Using Redpanda static IP: {{.REDPANDA_IP}}"
+          HELM_CMD="$HELM_CMD --set redpanda.externalAccess.advertisedHost={{.REDPANDA_IP}} --set redpanda.externalAccess.loadBalancerIP={{.REDPANDA_IP}}"
+        else
+          echo "Warning: No Redpanda static IP found. External publisher access may not work."
+        fi
+        eval $HELM_CMD
+
+  deploy:develop:
+    desc: Deploy to develop
+    cmds:
+      - task: deploy
+        vars: { ENV: develop }
+
+  deploy:staging:
+    desc: Deploy to staging
+    cmds:
+      - task: deploy
+        vars: { ENV: staging }
+
+  deploy:production:
+    desc: Deploy to production
+    prompt: "This will deploy to PRODUCTION. Are you sure?"
+    cmds:
+      - task: deploy
+        vars: { ENV: production }
+
+  diff:
+    desc: Show diff before upgrade
+    cmds:
+      - helm diff upgrade odin {{.ROOT_DIR}}/deployments/helm/odin -f {{.VALUES_FILE}} -n {{.NAMESPACE}}
+
+  down:
+    desc: Uninstall Helm release
+    cmds:
+      - helm uninstall odin -n {{.NAMESPACE}} || true
+
+  rollback:
+    desc: Rollback to previous release
+    cmds:
+      - helm rollback odin -n {{.NAMESPACE}}
+
+  # ===========================================================================
+  # Observability
+  # ===========================================================================
+  status:
+    desc: Show deployment status
+    cmds:
+      - echo "=== Nodes (Spot VMs) ==="
+      - kubectl get nodes -o wide
+      - echo ""
+      - echo "=== Pods ==="
+      - kubectl get pods -n {{.NAMESPACE}} -o wide
+      - echo ""
+      - echo "=== Services ==="
+      - kubectl get svc -n {{.NAMESPACE}}
+      - echo ""
+      - echo "=== HPA ==="
+      - kubectl get hpa -n {{.NAMESPACE}} 2>/dev/null || echo "No HPA configured"
+
+  nodes:
+    desc: Show node details (Spot status)
+    cmds:
+      - kubectl get nodes -o custom-columns='NAME:.metadata.name,STATUS:.status.conditions[?(@.type=="Ready")].status,SPOT:.metadata.labels.cloud\.google\.com/gke-spot,TYPE:.metadata.labels.node\.kubernetes\.io/instance-type'
+
+  external-ips:
+    desc: Get external IPs for services
+    vars:
+      WS_GATEWAY_IP:
+        sh: kubectl get svc odin-ws-gateway -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending"
+      REDPANDA_IP:
+        sh: kubectl get svc odin-redpanda-external -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending"
+    cmds:
+      - 'echo "# External IPs for {{.ENV}}"'
+      - 'echo "WS_URL=ws://{{.WS_GATEWAY_IP}}:443/ws"'
+      - 'echo "HEALTH_URL=http://{{.WS_GATEWAY_IP}}:443/health"'
+      - 'echo "KAFKA_BROKERS={{.REDPANDA_IP}}:9092"'
+
+  logs:
+    desc: Tail ws-server logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=ws-server -n {{.NAMESPACE}} --tail=100
+
+  logs:gateway:
+    desc: Tail ws-gateway logs
+    cmds:
+      - kubectl logs -f -l app.kubernetes.io/name=ws-gateway -n {{.NAMESPACE}} --tail=100
+
+  logs:all:
+    desc: Tail all pod logs
+    cmds:
+      - kubectl logs -f --all-containers=true -l app.kubernetes.io/instance=odin -n {{.NAMESPACE}} --tail=50
+
+  events:
+    desc: Show recent events (useful for Spot preemption)
+    cmds:
+      - kubectl get events -n {{.NAMESPACE}} --sort-by='.lastTimestamp' | tail -20
+
+  # ===========================================================================
+  # Port Forwarding
+  # ===========================================================================
+  port-forward:ws:
+    desc: Port-forward ws-server
+    cmds:
+      - kubectl port-forward -n {{.NAMESPACE}} svc/odin-ws-server 3005:3001
+
+  port-forward:gateway:
+    desc: Port-forward ws-gateway
+    cmds:
+      - kubectl port-forward -n {{.NAMESPACE}} svc/odin-ws-gateway 3006:3000
+
+  port-forward:grafana:
+    desc: Port-forward Grafana
+    cmds:
+      - kubectl port-forward -n {{.NAMESPACE}} svc/odin-monitoring-grafana 3000:3000
+
+  port-forward:prometheus:
+    desc: Port-forward Prometheus
+    cmds:
+      - kubectl port-forward -n {{.NAMESPACE}} svc/odin-monitoring-prometheus 9090:9090
+
+  port-forward:provisioning:
+    desc: Port-forward provisioning API
+    cmds:
+      - kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082
+
+  # ===========================================================================
+  # Health & Testing
+  # ===========================================================================
+  health:
+    desc: Check environment health
+    cmds:
+      - |
+        WS_IP=$(kubectl get svc -n {{.NAMESPACE}} -l app.kubernetes.io/name=ws-server -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+        if [ -n "$WS_IP" ]; then
+          echo "WS Server IP: $WS_IP"
+          curl -s http://$WS_IP:3001/health | jq .
+        else
+          echo "No external IP found. Try port-forward:"
+          echo "  task k8s:remote:standard:port-forward:ws"
+        fi
+
+  # ===========================================================================
+  # Provisioning API
+  # ===========================================================================
+  provision:quick-setup:
+    desc: Create test tenant with topics
+    vars:
+      PROVISIONING_IP:
+        sh: kubectl get svc odin-provisioning -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+    cmds:
+      - |
+        if [ -z "{{.PROVISIONING_IP}}" ]; then
+          echo "Provisioning service not available via LoadBalancer. Using port-forward..."
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082 &
+          PF_PID=$!
+          sleep 2
+          task provisioning:api:quick-setup PROVISIONING_URL="http://localhost:8082" TENANT_ID="{{.TENANT_ID | default (printf "%s-test" .ENV)}}"
+          kill $PF_PID 2>/dev/null || true
+        else
+          task provisioning:api:quick-setup PROVISIONING_URL="http://{{.PROVISIONING_IP}}:8082" TENANT_ID="{{.TENANT_ID | default (printf "%s-test" .ENV)}}"
+        fi
+
+  provision:tenant:list:
+    desc: List tenants
+    vars:
+      PROVISIONING_IP:
+        sh: kubectl get svc odin-provisioning -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+    cmds:
+      - |
+        if [ -z "{{.PROVISIONING_IP}}" ]; then
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082 &
+          PF_PID=$!
+          sleep 2
+          task provisioning:api:tenant:list PROVISIONING_URL="http://localhost:8082"
+          kill $PF_PID 2>/dev/null || true
+        else
+          task provisioning:api:tenant:list PROVISIONING_URL="http://{{.PROVISIONING_IP}}:8082"
+        fi
+
+  provision:tenant:get:
+    desc: Get tenant details
+    requires:
+      vars: [TENANT_ID]
+    vars:
+      PROVISIONING_IP:
+        sh: kubectl get svc odin-provisioning -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+    cmds:
+      - |
+        if [ -z "{{.PROVISIONING_IP}}" ]; then
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082 &
+          PF_PID=$!
+          sleep 2
+          task provisioning:api:tenant:get PROVISIONING_URL="http://localhost:8082" TENANT_ID="{{.TENANT_ID}}"
+          kill $PF_PID 2>/dev/null || true
+        else
+          task provisioning:api:tenant:get PROVISIONING_URL="http://{{.PROVISIONING_IP}}:8082" TENANT_ID="{{.TENANT_ID}}"
+        fi
+
+  provision:topics:create:
+    desc: Create topics for tenant
+    requires:
+      vars: [TENANT_ID]
+    vars:
+      PROVISIONING_IP:
+        sh: kubectl get svc odin-provisioning -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+    cmds:
+      - |
+        if [ -z "{{.PROVISIONING_IP}}" ]; then
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082 &
+          PF_PID=$!
+          sleep 2
+          task provisioning:api:topics:create PROVISIONING_URL="http://localhost:8082" TENANT_ID="{{.TENANT_ID}}"
+          kill $PF_PID 2>/dev/null || true
+        else
+          task provisioning:api:topics:create PROVISIONING_URL="http://{{.PROVISIONING_IP}}:8082" TENANT_ID="{{.TENANT_ID}}"
+        fi
+
+  provision:health:
+    desc: Check provisioning API health
+    vars:
+      PROVISIONING_IP:
+        sh: kubectl get svc odin-provisioning -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+    cmds:
+      - |
+        if [ -z "{{.PROVISIONING_IP}}" ]; then
+          echo "Provisioning service not available via LoadBalancer. Using port-forward..."
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082 &
+          PF_PID=$!
+          sleep 2
+          curl -s http://localhost:8082/health | jq
+          kill $PF_PID 2>/dev/null || true
+        else
+          curl -s http://{{.PROVISIONING_IP}}:8082/health | jq
+        fi
+
+  # ===========================================================================
+  # Cost Management
+  # ===========================================================================
+  cost:info:
+    desc: Show Spot VM cost savings info
+    cmds:
+      - echo "=== Spot VM Cost Analysis ==="
+      - echo ""
+      - 'kubectl get nodes -l cloud.google.com/gke-spot=true --no-headers 2>/dev/null | wc -l | xargs -I {} echo "Spot nodes: {}"'
+      - 'kubectl get nodes -l "cloud.google.com/gke-spot!=true" --no-headers 2>/dev/null | wc -l | xargs -I {} echo "On-demand nodes: {}"'
+      - echo ""
+      - echo "Spot VMs provide 60-90% cost savings vs on-demand."
+      - echo "Run 'gcloud compute machine-types describe e2-standard-4 --zone={{.ZONE}}' for pricing."

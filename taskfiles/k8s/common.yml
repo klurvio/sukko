@@ -2,107 +2,22 @@
 # Common K8s Tasks - Shared across environments
 # =============================================================================
 
-version: '3'
+version: "3"
 
-vars:
-  # Common chart path used by utility tasks (lint, template, deps)
-  COMMON_CHART: "{{.ROOT_DIR}}/deployments/k8s/helm/odin"
+includes:
+  build:
+    taskfile: ../shared/build.yml
+    dir: "{{.ROOT_DIR}}"
+  helm:
+    taskfile: ../shared/helm.yml
+    dir: "{{.ROOT_DIR}}"
+    vars:
+      CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/odin"
+  test:
+    taskfile: ../shared/test.yml
+    dir: "{{.ROOT_DIR}}"
 
 tasks:
-  # ===========================================================================
-  # Helm Operations
-  # ===========================================================================
-  helm:lint:
-    desc: Lint Helm charts
-    cmds:
-      - helm lint {{.COMMON_CHART}}
-
-  helm:template:
-    desc: "Dry-run render templates (ENV=local|develop|staging|production)"
-    vars:
-      ENV: '{{default "local" .ENV}}'
-    cmds:
-      - helm template odin {{.COMMON_CHART}} -f {{.COMMON_CHART}}/values-{{.ENV}}.yaml
-
-  helm:deps:
-    desc: Update Helm dependencies
-    cmds:
-      - helm dependency update {{.COMMON_CHART}}
-
-  helm:diff:
-    desc: "Show diff before upgrade (ENV=local|develop|staging|production)"
-    vars:
-      ENV: '{{default "local" .ENV}}'
-      NS: '{{default "odin-local" .NS}}'
-    cmds:
-      - helm diff upgrade odin {{.COMMON_CHART}} -f {{.COMMON_CHART}}/values-{{.ENV}}.yaml -n {{.NS}}
-
-  # ===========================================================================
-  # Build Operations
-  # ===========================================================================
-  build:ws:
-    desc: Build ws-server Docker image with version info
-    dir: "{{.ROOT_DIR}}/ws"
-    vars:
-      VERSION:
-        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
-      COMMIT_HASH:
-        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
-      BUILD_TIME:
-        sh: date -u +%Y-%m-%dT%H:%M:%SZ
-    cmds:
-      - docker build -t odin-ws:latest
-          --build-arg VERSION={{.VERSION}}
-          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
-          --build-arg BUILD_TIME={{.BUILD_TIME}}
-          -f build/server/Dockerfile .
-
-  # build:auth - REMOVED (auth-service eliminated, odin-api issues tokens)
-
-  build:gateway:
-    desc: Build ws-gateway Docker image with version info
-    dir: "{{.ROOT_DIR}}/ws"
-    vars:
-      VERSION:
-        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
-      COMMIT_HASH:
-        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
-      BUILD_TIME:
-        sh: date -u +%Y-%m-%dT%H:%M:%SZ
-    cmds:
-      - docker build -t odin-gateway:latest
-          --build-arg VERSION={{.VERSION}}
-          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
-          --build-arg BUILD_TIME={{.BUILD_TIME}}
-          -f build/gateway/Dockerfile .
-
-  build:all:
-    desc: Build all Docker images
-    cmds:
-      - task: build:ws
-      - task: build:gateway
-
-  # ===========================================================================
-  # Testing
-  # ===========================================================================
-  test:unit:
-    desc: Run all Go unit tests
-    dir: "{{.ROOT_DIR}}/ws"
-    cmds:
-      - go test ./... -v
-
-  test:unit:short:
-    desc: Run Go unit tests (short mode, skip slow tests)
-    dir: "{{.ROOT_DIR}}/ws"
-    cmds:
-      - go test ./... -short
-
-  test:unit:cover:
-    desc: Run Go unit tests with coverage report
-    dir: "{{.ROOT_DIR}}/ws"
-    cmds:
-      - go test ./... -cover
-
   # ===========================================================================
   # Documentation
   # ===========================================================================

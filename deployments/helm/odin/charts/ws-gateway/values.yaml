@@ -1,0 +1,150 @@
+# Default values for ws-gateway subchart
+# These can be overridden from the parent chart
+
+# Global values — sensible defaults for standalone linting.
+# The parent odin chart overrides these via Helm's global value merge.
+global:
+  imageRegistry: ""
+  provisioning:
+    existingSecret: ""
+
+enabled: true
+
+replicaCount: 2
+
+image:
+  repository: odin-gateway
+  tag: latest
+  pullPolicy: IfNotPresent
+
+config:
+  port: 3000
+  readTimeout: "15s"
+  writeTimeout: "15s"
+  idleTimeout: "60s"
+  dialTimeout: "10s"
+  messageTimeout: "60s"
+  logLevel: info
+  logFormat: json
+
+  # Authentication - set to false to disable JWT validation
+  # When enabled, uses multi-tenant asymmetric key validation from provisioning database
+  authEnabled: false
+
+  # Multi-tenant auth settings (only used when authEnabled: true)
+  requireTenantId: true
+  keyCacheRefreshInterval: "1m"
+  keyCacheQueryTimeout: "5s"
+
+  # Database connection pool settings (only used when authEnabled: true)
+  dbMaxOpenConns: 10
+  dbMaxIdleConns: 5
+  dbConnMaxLifetime: "5m"
+  dbConnMaxIdleTime: "1m"
+  dbPingTimeout: "5s"
+
+  # Backend ws-server URL (empty = dynamic default)
+  # Dynamic default: ws://{{ .Release.Name }}-ws-server:3001/ws
+  backendURL: ""
+
+  # Multi-Issuer OIDC (Feature Flag)
+  multiIssuerOIDCEnabled: false
+
+  # Per-Tenant Channel Rules (Feature Flag)
+  perTenantChannelRulesEnabled: false
+
+  # TenantRegistry Cache Settings
+  issuerCacheTTL: "5m"
+  channelRulesCacheTTL: "1m"
+  oidcKeyfuncCacheTTL: "1h"
+
+  # JWKS Fetch Settings
+  jwksFetchTimeout: "10s"
+  jwksRefreshInterval: "1h"
+
+  # Fallback Channel Rules
+  fallbackPublicChannels:
+    - "*.metadata"
+
+# Channel permission patterns
+permissions:
+  # Public channels - any authenticated user can subscribe
+  public:
+    - "*.trade"
+    - "*.liquidity"
+    - "*.metadata"
+  # User-scoped channels - JWT.sub must match {principal}
+  userScoped:
+    - "balances.{principal}"
+    - "notifications.{principal}"
+  # Group-scoped channels - JWT.groups must contain {group_id}
+  groupScoped:
+    - "community.{group_id}"
+    - "social.{group_id}"
+
+# Rate limiting per principal
+rateLimit:
+  enabled: true
+  burst: 100
+  rate: 10.0
+
+# Note: Gateway does not use connection limits (only rate limiting)
+# Capacity control happens at the ws-server level via ResourceGuard
+
+# Pod Security Context
+podSecurityContext:
+  fsGroup: 1000
+
+# Container Security Context
+# Dockerfile creates non-root user (odin:1000) in /app directory
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 3
+  periodSeconds: 5
+  timeoutSeconds: 2
+
+service:
+  type: LoadBalancer
+  port: 443
+  targetPort: 3000
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

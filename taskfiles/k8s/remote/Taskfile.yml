@@ -1,0 +1,25 @@
+# =============================================================================
+# Remote K8s Clusters Entry Point
+# =============================================================================
+
+version: "3"
+
+includes:
+  standard:
+    taskfile: ./standard.yml
+    dir: "{{.ROOT_DIR}}"
+
+tasks:
+  default:
+    desc: Show available remote cluster commands
+    cmds:
+      - echo "Remote Kubernetes deployment tasks"
+      - echo ""
+      - echo "=== GKE Standard (Spot VMs, 60-90% cheaper) ==="
+      - echo "  task k8s:remote:standard:deploy ENV=develop"
+      - echo "  task k8s:remote:standard:deploy ENV=staging"
+      - echo "  task k8s:remote:standard:deploy ENV=production"
+      - echo "  task k8s:remote:standard:status"
+      - echo "  task k8s:remote:standard:tf:init"
+      - echo ""
+      - echo "Note: Autopilot support can be added in the future"

@@ -1,56 +1,35 @@
 version: "3"
 
-# Main Taskfile - Orchestrates all sub-taskfiles
+# =============================================================================
+# Main Taskfile - Entry Point
+# =============================================================================
 # Run 'task' or 'task --list' to see available commands
 
-dotenv: ["./deployments/gcp/v1/.env.gcp"]
-
 includes:
-  # Version management
+  # Shared utilities
+  build:
+    taskfile: ./taskfiles/shared/build.yml
+    dir: .
+  test:
+    taskfile: ./taskfiles/shared/test.yml
+    dir: .
   version:
-    taskfile: ./taskfiles/version.yml
+    taskfile: ./taskfiles/shared/version.yml
     dir: .
 
-  # Local deployment (Kafka/Redpanda) - v1 (TEMPORARILY DISABLED)
-  # local:
-  #   taskfile: ./taskfiles/v1/local/services.yml
-  #   dir: .
-  # local:health:
-  #   taskfile: ./taskfiles/v1/local/health.yml
-  #   dir: .
-  # local:deploy:
-  #   taskfile: ./taskfiles/v1/local/deployment.yml
-  #   dir: .
-  # local:test:
-  #   taskfile: ./taskfiles/v1/local/load-test.yml
-  #   dir: .
-  # local:stats:
-  #   taskfile: ./taskfiles/v1/local/stats.yml
-  #   dir: .
-
-  # GCP deployment (Kafka/Redpanda, Distributed) - v1
-  gcp:
-    taskfile: ./taskfiles/gcp/v1/Taskfile.yml
+  # Provisioning (DB + API)
+  provisioning:
+    taskfile: ./taskfiles/provisioning.yml
     dir: .
 
-  # GCP v2 - Loadtest & Publisher tools (connects to K8s or v1 backends)
-  gcp:v2:
-    taskfile: ./taskfiles/gcp/v2/Taskfile.yml
-    dir: .
-
-  # Kubernetes deployment (GKE Autopilot)
+  # Kubernetes
   k8s:
     taskfile: ./taskfiles/k8s/Taskfile.yml
     dir: .
 
-  # Terraform infrastructure management
+  # Terraform
   terraform:
     taskfile: ./taskfiles/terraform/Taskfile.yml
-    dir: .
-
-  # Provisioning database migrations (Atlas)
-  provisioning:
-    taskfile: ./taskfiles/provisioning.yml
     dir: .
 
 tasks:
@@ -58,178 +37,104 @@ tasks:
     desc: Show available commands
     silent: true
     cmds:
-      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      - echo "📋 ODIN WEBSOCKET SERVER - TASK COMMANDS"
-      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - echo "ODIN WEBSOCKET SERVER - TASK COMMANDS"
       - echo ""
-      - echo "📦 VERSION MANAGEMENT"
-      - echo "  task version:info              - Show current version"
-      - echo "  task version:check             - Validate version consistency"
-      - echo "  task version:build:images      - Build Docker images"
-      - echo "  task version:help              - Version management help"
+      - echo "=== QUICK SHORTCUTS ==="
+      - echo "  task dev              - Start local development (Kind)"
+      - echo "  task dev:deploy       - Deploy to local Kind cluster"
+      - echo "  task dev:status       - Show local cluster status"
       - echo ""
-      - echo "🏠 LOCAL DEPLOYMENT"
-      - echo "  task up                        - Quick start deployment"
-      - echo "  task down                      - Quick stop deployment"
-      - echo "  task health                    - Quick health check"
-      - echo "  task test                      - Quick load test"
+      - echo "=== REMOTE DEPLOYMENT ==="
+      - echo "  task deploy:develop   - Deploy to GKE Standard develop"
+      - echo "  task deploy:staging   - Deploy to GKE Standard staging"
+      - echo "  task deploy:production- Deploy to GKE Standard production"
       - echo ""
-      - echo "📦 DEPLOYMENT WORKFLOWS"
-      - echo "  task local:deploy:setup        - Complete setup from scratch"
-      - echo "  task local:deploy:reset        - Delete all & redeploy"
-      - echo "  task local:deploy:quick-start  - Quick start (assumes setup)"
-      - echo "  task local:deploy:stop         - Stop all services"
-      - echo "  task local:deploy:rebuild-code - Rebuild after code changes"
+      - echo "=== BUILD & TEST ==="
+      - echo "  task build            - Build all Docker images"
+      - echo "  task test             - Run unit tests"
+      - echo "  task lint             - Lint Helm charts"
       - echo ""
-      - echo "🔧 SERVICE CONTROL (Individual)"
-      - echo "  task local:start:redpanda      - Start Redpanda"
-      - echo "  task local:start:publisher     - Start Publisher"
-      - echo "  task local:start:ws            - Start WS server"
-      - echo "  task local:restart:ws          - Restart WS server"
-      - echo "  task local:rebuild:ws          - Rebuild WS server"
-      - echo "  task local:logs:ws             - Tail WS server logs"
+      - echo "=== PROVISIONING ==="
+      - echo "  task provisioning:db:migrate    - Run DB migrations"
+      - echo "  task provisioning:api:tenant:list - List tenants"
       - echo ""
-      - echo "🔧 SERVICE CONTROL (Aggregate)"
-      - echo "  task local:start:all           - Start all services"
-      - echo "  task local:delete:all          - Delete all (nuclear)"
-      - echo "  task local:restart:all         - Restart all services"
-      - echo "  task local:rebuild:all         - Rebuild all services"
-      - echo "  task local:logs:all            - Tail all logs"
-      - echo "  task local:status              - Show service status"
+      - echo "=== DETAILED COMMANDS ==="
+      - echo "  task k8s              - Kubernetes commands"
+      - echo "  task terraform        - Terraform commands"
+      - echo "  task version:info     - Show version info"
       - echo ""
-      - echo "🏥 HEALTH CHECKS"
-      - echo "  task local:health:all          - Check all services"
-      - echo "  task local:health:detailed     - Detailed health (JSON)"
-      - echo "  task local:health:redpanda     - Check Redpanda only"
-      - echo "  task local:health:publisher    - Check Publisher only"
-      - echo "  task local:health:ws           - Check WS server only"
-      - echo ""
-      - echo "🧪 LOAD TESTING"
-      - echo "  task local:test:sustained      - Sustained capacity test"
-      - echo "  task local:test:stop           - Stop load test"
-      - echo "  task local:test:status         - Check test status"
-      - echo ""
-      - echo "📊 STATS & MONITORING"
-      - echo "  task local:stats:all           - Show all stats"
-      - echo "  task local:stats:publisher     - Publisher stats"
-      - echo "  task local:stats:ws            - WS server stats"
-      - echo "  task local:stats:ips           - Container IP addresses"
-      - echo "  task local:stats:topics        - List Kafka topics"
-      - echo "  task local:stats:consume       - Consume messages (TOPIC=... NUM=...)"
-      - echo ""
-      - echo "☁️  GCP DEPLOYMENT (TOP-LEVEL SHORTCUTS)"
-      - echo "  task gcp:deploy                     - Complete first-time deployment"
-      - echo "  task gcp:up                         - Start all GCP services (quick start)"
-      - echo "  task gcp:down                       - Stop all GCP services"
-      - echo "  task gcp:restart                    - Restart all GCP services"
-      - echo "  task gcp:status                     - Show deployment status"
-      - echo "  task gcp:verify                     - Verify health"
-      - echo ""
-      - echo "☁️  GCP DEPLOYMENT WORKFLOWS"
-      - echo "  task gcp:deployment:setup           - Complete setup (infra + app)"
-      - echo "  task gcp:deployment:infrastructure  - Setup infrastructure only"
-      - echo "  task gcp:deployment:guided-setup    - Guided app setup (manual steps)"
-      - echo "  task gcp:deployment:quick-start     - Quick start (daily use)"
-      - echo "  task gcp:deployment:stop            - Stop all services"
-      - echo "  task gcp:deployment:reset           - Reset deployment"
-      - echo "  task gcp:deployment:rebuild-code    - Rebuild after code changes"
-      - echo "  task gcp:deployment:show-urls       - Show service URLs"
-      - echo ""
-      - echo "☁️  GCP CODE REBUILDS"
-      - echo "  task gcp:deployment:rebuild:backend - Rebuild backend with latest code"
-      - echo "  task gcp:deployment:rebuild:ws      - Rebuild WS server with latest code"
-      - echo "  task gcp:deployment:rebuild:all     - Rebuild all services"
-      - echo ""
-      - echo "☁️  GCP SERVICE CONTROL"
-      - echo "  task gcp:services:start:backend     - Start backend services"
-      - echo "  task gcp:services:start:ws          - Start WebSocket server"
-      - echo "  task gcp:services:stop:all          - Stop all services"
-      - echo "  task gcp:services:restart:all       - Restart all services"
-      - echo "  task gcp:services:ps                - Show running containers"
-      - echo "  task gcp:services:logs:backend      - View backend logs (follow)"
-      - echo "  task gcp:services:logs:ws           - View WS logs (follow)"
-      - echo ""
-      - echo "☁️  GCP HEALTH & MONITORING"
-      - echo "  task gcp:health:all                 - Check all services health"
-      - echo "  task gcp:stats:urls                 - Show service URLs"
-      - echo "  task gcp:load-test:capacity         - Run capacity test (12K)"
-      - echo ""
-      - echo "🧪 GCP v2 - LOADTEST & PUBLISHER"
-      - echo "  task gcp:v2                         - Show v2 commands"
-      - echo "  task gcp:v2:create ENV=develop      - Create VM"
-      - echo "  task gcp:v2:setup ENV=develop       - Setup VM (Docker, kernel)"
-      - echo "  task gcp:v2:ssh ENV=develop         - SSH into VM"
-      - echo "  task gcp:v2:loadtest:start ENV=develop"
-      - echo "  task gcp:v2:loadtest:capacity ENV=develop"
-      - echo "  task gcp:v2:publisher:start ENV=develop RATE=25"
-      - echo "  task gcp:v2:local:up                - Start locally (no GCP)"
-      - echo ""
-      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      - echo ""
-      - echo "💡 TIP - Run task --list-all to see all available tasks"
-      - echo "💡 TIP - Run task TASKNAME --summary for task description"
-      - echo "💡 TIP - See GCP_CONSOLIDATION_PLAN.md for GCP deployment guide"
-      - echo ""
+      - echo "Run 'task --list-all' to see all available tasks"
 
-  # ============================================================================
-  # QUICK SHORTCUTS
-  # ============================================================================
-
-  up:
-    desc: Quick start local deployment
+  # ===========================================================================
+  # Quick Shortcuts - Local Development
+  # ===========================================================================
+  dev:
+    desc: Start local development (Kind)
     cmds:
-      - task: local:deploy:quick-start
+      - task: k8s:local:setup
 
-  down:
-    desc: Stop local deployment
+  dev:deploy:
+    desc: Deploy to local Kind cluster
     cmds:
-      - task: local:deploy:stop
+      - task: k8s:local:deploy
 
-  restart:
-    desc: Restart all local services
+  dev:status:
+    desc: Show local cluster status
     cmds:
-      - task: local:restart:all
+      - task: k8s:local:status
 
-  status:
-    desc: Show local deployment status
+  dev:logs:
+    desc: Tail local ws-server logs
     cmds:
-      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      - echo "📊 LOCAL DEPLOYMENT STATUS"
-      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      - echo ""
-      - task: local:health:all
-      - echo ""
-      - echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      - echo ""
-      - task: local:deploy:show-urls
-      - echo ""
-      - task: local:status
+      - task: k8s:local:logs
 
-  verify:
-    desc: Verify local deployment health
+  dev:build:
+    desc: Build and reload local images
     cmds:
-      - task: local:health:all
+      - task: k8s:local:build:reload
 
-  deploy:
-    desc: Complete local deployment from scratch
+  # ===========================================================================
+  # Remote Deployment Shortcuts
+  # ===========================================================================
+  deploy:develop:
+    desc: Deploy to GKE Standard develop
     cmds:
-      - task: local:deploy:setup
+      - task: k8s:remote:standard:deploy
+        vars: { ENV: develop }
 
-  health:
-    desc: Quick health check
+  deploy:staging:
+    desc: Deploy to GKE Standard staging
     cmds:
-      - task: local:health:all
+      - task: k8s:remote:standard:deploy
+        vars: { ENV: staging }
+
+  deploy:production:
+    desc: Deploy to GKE Standard production
+    cmds:
+      - task: k8s:remote:standard:deploy
+        vars: { ENV: production }
+
+  # ===========================================================================
+  # Build & Test Shortcuts
+  # ===========================================================================
+  build:
+    desc: Build all Docker images
+    cmds:
+      - task: build:all
 
   test:
-    desc: Quick sustained load test
+    desc: Run unit tests
     cmds:
-      - task: local:test:sustained
+      - task: test:unit
 
-  stats:
-    desc: Quick stats overview
+  lint:
+    desc: Lint Helm charts
     cmds:
-      - task: local:stats:all
+      - task: k8s:common:helm:lint
 
+  # ===========================================================================
+  # AsyncAPI
+  # ===========================================================================
   asyncapi:bundle:
     desc: Bundle AsyncAPI spec into single file
     cmds:
