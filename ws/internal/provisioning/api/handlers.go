@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // api is a common package name for HTTP handlers
 
 import (
 	"encoding/json"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 )
 
 // Handler provides HTTP handlers for provisioning operations.
@@ -238,9 +239,11 @@ func (h *Handler) CreateTopics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build full topic names at runtime
+	namespace := h.service.TopicNamespace()
 	topicNames := make([]string, len(topics))
 	for i, t := range topics {
-		topicNames[i] = t.TopicName
+		topicNames[i] = kafka.BuildTopicName(namespace, tenantID, t.Category)
 	}
 
 	RecordTopicCreated(len(topics))

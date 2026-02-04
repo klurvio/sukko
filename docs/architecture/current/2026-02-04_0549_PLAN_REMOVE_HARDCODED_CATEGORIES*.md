@@ -145,7 +145,7 @@ ON CONFLICT (tenant_id, category) DO NOTHING;
 -- Topic names are now built at runtime: {KAFKA_TOPIC_NAMESPACE}.{tenant}.{category}
 ```
 
-**Status:** ⏳ PENDING
+**Status:** ✅ Implemented
 
 ---
 
@@ -190,7 +190,7 @@ func BuildTopicName(namespace, tenantID, category string) string {
 
 **Also remove:** `GetTopic()` function in `config.go` (wrong format: `odin.{env}.{base}`, unused in production)
 
-**Status:** ⏳ PENDING
+**Status:** ✅ Implemented
 
 ---
 
@@ -237,43 +237,257 @@ func (r *TopicRegistry) GetSharedTenantTopics(ctx context.Context, namespace str
 
 **Similarly update `GetDedicatedTenants()`** to use `tenant_categories` and `kafka.BuildTopicName()`.
 
-**Status:** ⏳ PENDING
+**Status:** ✅ Implemented
 
 ---
 
-## Phase 4: Update Provisioning Service
+## Phase 4: Migrate Provisioning Service from `tenant_topics` to `tenant_categories`
+
+**Status:** ✅ Implemented
+
+### Problem Statement
+
+Currently there are two tables tracking topics:
+
+| Table | Written By | Read By |
+|-------|------------|---------|
+| `tenant_categories` | Migration only (odin seed) | TenantRegistry (consumer/producer) |
+| `tenant_topics` | Provisioning Service (API) | Provisioning Service only |
+
+**Bug:** When new tenants are created via API:
+- Service writes to `tenant_topics`
+- TenantRegistry reads from `tenant_categories`
+- **New tenants' topics won't be discovered!**
+
+It only works for odin because odin is seeded in the migration.
+
+### Current State (Broken)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        PROVISIONING SERVICE                          │
+│                                                                      │
+│  CreateTopics() ──────► tenant_topics (INSERT)                      │
+│  ListTopics()   ◄────── tenant_topics (SELECT)                      │
+│  Deprovision()  ◄────── tenant_topics (SELECT for retention update) │
+└─────────────────────────────────────────────────────────────────────┘
+                                  ✗ Not connected!
+┌─────────────────────────────────────────────────────────────────────┐
+│                     CONSUMER POOL / PRODUCER                         │
+│                                                                      │
+│  GetSharedTenantTopics() ◄────── tenant_categories (SELECT)         │
+│  GetDedicatedTenants()   ◄────── tenant_categories (SELECT)         │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Target State (Fixed)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     ALL SERVICES USE ONE TABLE                       │
+│                                                                      │
+│  Provisioning:                                                       │
+│    CreateTopics() ──────► tenant_categories (INSERT)                │
+│    ListTopics()   ◄────── tenant_categories (SELECT)                │
+│    Deprovision()  ◄────── tenant_categories (SELECT + soft delete)  │
+│                                                                      │
+│  Consumer/Producer:                                                  │
+│    GetSharedTenantTopics() ◄────── tenant_categories (SELECT)       │
+│    GetDedicatedTenants()   ◄────── tenant_categories (SELECT)       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Files to Change
+
+| File | Action |
+|------|--------|
+| `provisioning/repository/topic.go` | Change all SQL from `tenant_topics` → `tenant_categories`, remove `topic_name` column usage |
+| `provisioning/service.go` | Use `kafka.BuildTopicName()` when needing full topic name |
+| `provisioning/interfaces.go` | Update `TopicStore` interface if needed |
+| `provisioning/types.go` | Update `TenantTopic` struct - remove `TopicName` field |
+| `migrations/001_initial.sql` | Remove `tenant_topics` table creation |
+| `shared/testutil/provisioning_mocks.go` | Update `MockTopicStore` |
+
+### Step 4.1: Update `TenantTopic` Model
+
+**File:** `ws/internal/provisioning/types.go`
+
+**Before:**
+```go
+type TenantTopic struct {
+    TenantID    string
+    TopicName   string  // Full name like "prod.odin.trade"
+    Category    string
+    Partitions  int
+    RetentionMs int64
+    CreatedAt   time.Time
+    DeletedAt   *time.Time
+}
+```
+
+**After:**
+```go
+type TenantTopic struct {
+    TenantID    string
+    Category    string  // Just "trade", "liquidity", etc.
+    Partitions  int
+    RetentionMs int64
+    CreatedAt   time.Time
+    DeletedAt   *time.Time
+}
+
+// TopicName is built at runtime when needed:
+// kafka.BuildTopicName(namespace, t.TenantID, t.Category)
+```
+
+### Step 4.2: Update `PostgresTopicRepository`
+
+**File:** `ws/internal/provisioning/repository/topic.go`
+
+**Before:**
+```go
+func (r *PostgresTopicRepository) Create(ctx context.Context, topic *TenantTopic) error {
+    query := `
+        INSERT INTO tenant_topics (tenant_id, topic_name, category, partitions, retention_ms, created_at)
+        VALUES ($1, $2, $3, $4, $5, NOW())
+        ON CONFLICT (topic_name) DO NOTHING
+    `
+    _, err := r.db.ExecContext(ctx, query,
+        topic.TenantID, topic.TopicName, topic.Category, topic.Partitions, topic.RetentionMs)
+    return err
+}
+
+func (r *PostgresTopicRepository) ListByTenant(ctx context.Context, tenantID string) ([]*TenantTopic, error) {
+    query := `
+        SELECT tenant_id, topic_name, category, partitions, retention_ms, created_at, deleted_at
+        FROM tenant_topics
+        WHERE tenant_id = $1 AND deleted_at IS NULL
+    `
+    // ... scans topic_name from DB
+}
+```
+
+**After:**
+```go
+func (r *PostgresTopicRepository) Create(ctx context.Context, topic *TenantTopic) error {
+    query := `
+        INSERT INTO tenant_categories (tenant_id, category, partitions, retention_ms, created_at)
+        VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT (tenant_id, category) DO NOTHING
+    `
+    _, err := r.db.ExecContext(ctx, query,
+        topic.TenantID, topic.Category, topic.Partitions, topic.RetentionMs)
+    return err
+}
+
+func (r *PostgresTopicRepository) ListByTenant(ctx context.Context, tenantID string) ([]*TenantTopic, error) {
+    query := `
+        SELECT tenant_id, category, partitions, retention_ms, created_at, deleted_at
+        FROM tenant_categories
+        WHERE tenant_id = $1 AND deleted_at IS NULL
+    `
+    // ... no topic_name column - built at runtime
+}
+
+func (r *PostgresTopicRepository) MarkDeleted(ctx context.Context, tenantID, category string) error {
+    query := `
+        UPDATE tenant_categories
+        SET deleted_at = NOW()
+        WHERE tenant_id = $1 AND category = $2 AND deleted_at IS NULL
+    `
+    _, err := r.db.ExecContext(ctx, query, tenantID, category)
+    return err
+}
+```
+
+### Step 4.3: Update `Service` Methods
 
 **File:** `ws/internal/provisioning/service.go`
 
-Update topic creation to use `tenant_categories` and shared `BuildTopicName`:
+Update `createSingleTopic` - topic name built at runtime, only category stored:
 
 ```go
-// CreateTopics creates categories for a tenant
-func (s *Service) CreateTopics(ctx context.Context, tenantID string, categories []string) error {
-    // Insert into tenant_categories (not tenant_topics)
-    for _, category := range categories {
-        _, err := s.db.ExecContext(ctx, `
-            INSERT INTO tenant_categories (tenant_id, category)
-            VALUES ($1, $2)
-            ON CONFLICT (tenant_id, category) DO NOTHING
-        `, tenantID, category)
-        if err != nil {
-            return fmt.Errorf("insert category %s: %w", category, err)
-        }
+func (s *Service) createSingleTopic(ctx context.Context, tenantID, category string) error {
+    // Build topic name at runtime
+    topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, category)
 
-        // Create actual Kafka topic using shared function
-        topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, category)
-        if err := s.kafkaAdmin.CreateTopic(ctx, topicName, partitions, replication); err != nil {
-            return fmt.Errorf("create kafka topic %s: %w", topicName, err)
-        }
+    // Create in Kafka
+    config := map[string]string{
+        "retention.ms": strconv.FormatInt(s.config.DefaultRetentionMs, 10),
     }
+    if err := s.kafka.CreateTopic(ctx, topicName, s.config.DefaultPartitions, config); err != nil {
+        return fmt.Errorf("create kafka topic: %w", err)
+    }
+
+    // Record category in database (not full topic name)
+    topic := &TenantTopic{
+        TenantID:    tenantID,
+        Category:    category,
+        Partitions:  s.config.DefaultPartitions,
+        RetentionMs: s.config.DefaultRetentionMs,
+    }
+    if err := s.topics.Create(ctx, topic); err != nil {
+        return fmt.Errorf("record category: %w", err)
+    }
+
     return nil
 }
-
-// Remove buildTopicName() method - use kafka.BuildTopicName() instead
 ```
 
-**Status:** ⏳ PENDING
+Update deprovision to build topic names at runtime:
+
+```go
+// In DeprovisionTenant - build topic names when updating Kafka retention
+topics, _ := s.topics.ListByTenant(ctx, tenantID)
+for _, topic := range topics {
+    topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, topic.Category)
+    if err := s.kafka.SetTopicConfig(ctx, topicName, map[string]string{
+        "retention.ms": strconv.FormatInt(gracePeriodMs, 10),
+    }); err != nil {
+        s.logger.Error().Err(err).Str("topic", topicName).Msg("Failed to update topic retention")
+    }
+}
+```
+
+### Step 4.4: Remove `tenant_topics` from Migration
+
+**File:** `ws/internal/provisioning/repository/migrations/001_initial.sql`
+
+Remove or comment out:
+```sql
+-- REMOVED: tenant_topics table (replaced by tenant_categories in 003_seed_odin_tenant.sql)
+-- CREATE TABLE tenant_topics (...)
+-- CREATE INDEX idx_tenant_topics_tenant ON tenant_topics(tenant_id)
+```
+
+### Step 4.5: Update Tests and Mocks
+
+**Files:**
+- `ws/internal/shared/testutil/provisioning_mocks.go` - Update `MockTopicStore`
+- `ws/internal/provisioning/repository/topic_test.go` - Update tests
+- `ws/internal/provisioning/service_test.go` - Update tests
+
+### Migration Safety
+
+Since nothing is deployed yet (per the plan notes), we can:
+1. Modify migrations directly (no new migration needed)
+2. Drop `tenant_topics` table definition from `001_initial.sql`
+3. Keep `tenant_categories` in `003_seed_odin_tenant.sql`
+
+### Verification
+
+```bash
+# Verify no tenant_topics references remain
+grep -rn "tenant_topics" ws/internal/ --include="*.go" | grep -v "_test.go"
+# Should return nothing
+
+# Verify tenant_categories is used
+grep -rn "tenant_categories" ws/internal/ --include="*.go"
+# Should show repository/topic.go and topic_registry.go
+
+# Run tests
+go test ./internal/provisioning/...
+```
 
 ---
 
@@ -358,7 +572,7 @@ if len(toAdd) > 0 {
 }
 ```
 
-**Status:** ⏳ PENDING
+**Status:** ✅ Implemented
 
 ---
 
@@ -389,7 +603,7 @@ if len(toAdd) > 0 {
 - `TestGetTopic()`
 - `BenchmarkGetTopic()`
 
-**Status:** ⏳ PENDING
+**Status:** ✅ Implemented
 
 ---
 
@@ -403,7 +617,7 @@ if len(toAdd) > 0 {
 - Superseded by hierarchical channel subscriptions (`BTC.trade`, `ETH.analytics`)
 - WebSocket protocol has no bundle support
 
-**Status:** ⏳ PENDING
+**Status:** ✅ Implemented
 
 ---
 
@@ -435,7 +649,7 @@ if len(topics) == 0 {
 }
 ```
 
-**Status:** ⏳ PENDING
+**Status:** ✅ Implemented
 
 ---
 
@@ -450,52 +664,71 @@ if len(topics) == 0 {
 | `topic_registry_test.go` | Test new category-based queries |
 | `topic_test.go` | NEW - test `BuildTopicName()` |
 
-**Status:** ⏳ PENDING
+**Status:** ✅ Implemented
 
 ---
 
-## Phase 10: Deprecate tenant_topics Table
+## Phase 10: Remove tenant_topics Table
 
-After migration is stable:
+**Status:** ✅ Implemented (part of Phase 4)
 
-```sql
--- Future migration: drop tenant_topics if no longer needed
--- Or keep for backward compatibility / audit trail
-ALTER TABLE tenant_topics RENAME TO tenant_topics_deprecated;
-```
+This is now included in Phase 4. Since nothing is deployed yet, we remove `tenant_topics` directly from `001_initial.sql` rather than creating a deprecation migration.
 
-**Status:** ⏳ FUTURE (after validation)
+**Action:** Remove from `migrations/001_initial.sql`:
+- `CREATE TABLE tenant_topics` statement
+- `CREATE INDEX idx_tenant_topics_tenant` statement
+- Associated comments
+
+The `tenant_categories` table in `003_seed_odin_tenant.sql` becomes the single source of truth.
 
 ---
 
 ## Files Summary
 
-| File | Action |
-|------|--------|
-| `migrations/003_seed_odin_tenant.sql` | MODIFY - add tenant_categories table, remove tenant_topics seeding |
-| `shared/kafka/topic.go` | NEW - shared `BuildTopicName()` function |
-| `provisioning/topic_registry.go` | Query tenant_categories, use `BuildTopicName()` |
-| `provisioning/service.go` | Use tenant_categories, use `BuildTopicName()` |
-| `shared/kafka/consumer.go` | Add `AddConsumeTopics()` method |
-| `shared/kafka/producer.go` | Reduce TTL 60s → 30s, use `BuildTopicName()` |
-| `shared/kafka/config.go` | Remove hardcoded constants + `GetTopic()` + `EventTypeToTopicBase()` |
-| `shared/kafka/config_test.go` | Remove tests for deleted functions |
-| `shared/kafka/bundles.go` | DELETE |
-| `shared/kafka/bundles_test.go` | DELETE |
-| `server/orchestration/kafka_pool.go` | Use registry, remove hardcoded fallback |
-| `server/orchestration/multitenant_pool.go` | Reduce TTL, call `AddConsumeTopics()` |
+### Implemented ✅
+
+| File | Action | Status |
+|------|--------|--------|
+| `migrations/003_seed_odin_tenant.sql` | Add `tenant_categories` table, seed odin categories | ✅ Done |
+| `shared/kafka/topic.go` | NEW - shared `BuildTopicName()` function | ✅ Done |
+| `provisioning/topic_registry.go` | Query `tenant_categories`, use `BuildTopicName()` | ✅ Done |
+| `shared/kafka/consumer.go` | Add `AddConsumeTopics()` method | ✅ Done |
+| `shared/kafka/producer.go` | Reduce TTL 60s → 30s, use `BuildTopicName()` | ✅ Done |
+| `shared/kafka/config.go` | Remove hardcoded constants + `GetTopic()` + `EventTypeToTopicBase()` | ✅ Done |
+| `shared/kafka/config_test.go` | Remove tests for deleted functions | ✅ Done |
+| `shared/kafka/bundles.go` | DELETE | ✅ Done |
+| `shared/kafka/bundles_test.go` | DELETE | ✅ Done |
+| `server/orchestration/kafka_pool.go` | Use registry, remove hardcoded fallback | ✅ Done |
+| `server/orchestration/multitenant_pool.go` | Reduce TTL, call `AddConsumeTopics()` | ✅ Done |
+
+### Phase 4 Files ✅ (Now Implemented)
+
+| File | Action | Status |
+|------|--------|--------|
+| `provisioning/repository/topic.go` | Change SQL from `tenant_topics` → `tenant_categories` | ✅ Done |
+| `provisioning/service.go` | Build topic names at runtime, add `TopicNamespace()` getter | ✅ Done |
+| `provisioning/types.go` | Remove `TopicName` field from `TenantTopic` struct | ✅ Done |
+| `provisioning/interfaces.go` | Update `TopicStore.MarkDeleted(tenantID, category)` | ✅ Done |
+| `provisioning/lifecycle.go` | Build topic names at runtime during deletion | ✅ Done |
+| `provisioning/api/handlers.go` | Build topic names at runtime in API responses | ✅ Done |
+| `migrations/001_initial.sql` | Remove `tenant_topics` table creation | ✅ Done |
+| `shared/testutil/provisioning_mocks.go` | Update `MockTopicStore` | ✅ Done |
+| `shared/testutil/provisioning_fixtures.go` | Remove `TopicName` from test fixtures | ✅ Done |
 
 ---
 
 ## Deployment Order
 
-1. **Phase 1** - Modify migration (add tenant_categories table)
-2. **Phase 2** - Add shared `BuildTopicName()` function
-3. **Phase 3-4** - Update TenantRegistry and Service to use new table + shared function
-4. **Phase 5** - Caching improvements (independent)
-5. **Phase 6-8** - Remove hardcoded code (requires phases 1-4)
-6. **Phase 9** - Update tests
-7. **Phase 10** - Deprecate old table (future)
+1. **Phase 1** - Modify migration (add tenant_categories table) ✅
+2. **Phase 2** - Add shared `BuildTopicName()` function ✅
+3. **Phase 3** - Update TenantRegistry to use tenant_categories ✅
+4. **Phase 4** - Migrate Provisioning Service from tenant_topics to tenant_categories ✅
+5. **Phase 5** - Caching improvements ✅
+6. **Phase 6-8** - Remove hardcoded code ✅
+7. **Phase 9** - Update tests ✅
+8. **Phase 10** - Remove tenant_topics (included in Phase 4) ✅
+
+**All phases complete!**
 
 ---
 

@@ -66,26 +66,9 @@ COMMENT ON COLUMN tenant_keys.algorithm IS 'JWT signing algorithm: ES256, RS256,
 COMMENT ON COLUMN tenant_keys.is_active IS 'Whether key is currently valid for verification';
 COMMENT ON COLUMN tenant_keys.revoked_at IS 'Timestamp when key was revoked (NULL if active)';
 
--- Provisioned Kafka topics (tracking, Kafka is source of truth)
-CREATE TABLE tenant_topics (
-    id              SERIAL PRIMARY KEY,
-    tenant_id       TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    topic_name      TEXT NOT NULL UNIQUE,
-    category        TEXT NOT NULL,
-    partitions      INT NOT NULL DEFAULT 3,
-    retention_ms    BIGINT NOT NULL DEFAULT 604800000,  -- 7 days
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at      TIMESTAMPTZ,
-
-    CONSTRAINT valid_partitions CHECK (partitions >= 1 AND partitions <= 100),
-    CONSTRAINT valid_retention CHECK (retention_ms >= 0),
-    CONSTRAINT category_not_empty CHECK (char_length(category) > 0)
-);
-
-COMMENT ON TABLE tenant_topics IS 'Tracking of provisioned Kafka topics per tenant';
-COMMENT ON COLUMN tenant_topics.topic_name IS 'Full Kafka topic name (e.g., "main.acme.trade")';
-COMMENT ON COLUMN tenant_topics.category IS 'Topic category (e.g., "trade", "liquidity")';
-COMMENT ON COLUMN tenant_topics.deleted_at IS 'Soft delete timestamp (NULL if active)';
+-- NOTE: tenant_topics table REMOVED - replaced by tenant_categories in 003_seed_odin_tenant.sql
+-- Topic categories are stored in tenant_categories table (category only, no namespace prefix).
+-- Full topic names are built at runtime: kafka.BuildTopicName(namespace, tenantID, category)
 
 -- Resource quotas per tenant
 CREATE TABLE tenant_quotas (
@@ -144,9 +127,7 @@ CREATE INDEX idx_tenant_keys_tenant_active ON tenant_keys(tenant_id)
 CREATE INDEX idx_tenant_keys_lookup ON tenant_keys(key_id, is_active)
     WHERE is_active = true AND revoked_at IS NULL;
 
--- Tenant topics: lookup by tenant (non-deleted)
-CREATE INDEX idx_tenant_topics_tenant ON tenant_topics(tenant_id)
-    WHERE deleted_at IS NULL;
+-- NOTE: idx_tenant_topics_tenant REMOVED - tenant_topics table replaced by tenant_categories
 
 -- Audit log: lookup by tenant and time (for audit queries)
 CREATE INDEX idx_audit_tenant_time ON provisioning_audit(tenant_id, created_at DESC);

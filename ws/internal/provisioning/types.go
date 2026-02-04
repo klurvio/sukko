@@ -234,7 +234,9 @@ func (k *TenantKey) IsExpired() bool {
 	return k.ExpiresAt.Before(time.Now())
 }
 
-// TenantTopic represents a provisioned Kafka topic.
+// TenantTopic represents a provisioned Kafka topic category.
+// Note: Full topic names are built at runtime using kafka.BuildTopicName(namespace, tenantID, category).
+// Only the category is stored in the database (tenant_categories table).
 type TenantTopic struct {
 	// ID is the database ID.
 	ID int64 `json:"id,omitempty"`
@@ -242,10 +244,8 @@ type TenantTopic struct {
 	// TenantID is the owning tenant.
 	TenantID string `json:"tenant_id"`
 
-	// TopicName is the full Kafka topic name (e.g., "main.acme.trade").
-	TopicName string `json:"topic_name"`
-
-	// Category is the topic category (e.g., "trade").
+	// Category is the topic category (e.g., "trade", "liquidity").
+	// Full topic name is built at runtime: {namespace}.{tenant_id}.{category}
 	Category string `json:"category"`
 
 	// Partitions is the number of partitions.

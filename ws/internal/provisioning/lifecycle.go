@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 )
 
 // LifecycleManager handles background tenant lifecycle operations.
@@ -131,19 +133,22 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 				continue // Already marked deleted
 			}
 
+			// Build topic name at runtime
+			topicName := kafka.BuildTopicName(lm.service.config.TopicNamespace, tenantID, topic.Category)
+
 			// Delete from Kafka
-			if err := lm.service.kafka.DeleteTopic(ctx, topic.TopicName); err != nil {
+			if err := lm.service.kafka.DeleteTopic(ctx, topicName); err != nil {
 				lm.logger.Warn().
 					Err(err).
-					Str("topic", topic.TopicName).
+					Str("topic", topicName).
 					Msg("Failed to delete Kafka topic, continuing anyway")
 			}
 
 			// Mark as deleted in database
-			if err := lm.service.topics.MarkDeleted(ctx, topic.TopicName); err != nil {
+			if err := lm.service.topics.MarkDeleted(ctx, tenantID, topic.Category); err != nil {
 				lm.logger.Warn().
 					Err(err).
-					Str("topic", topic.TopicName).
+					Str("topic", topicName).
 					Msg("Failed to mark topic as deleted")
 			}
 		}

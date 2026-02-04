@@ -58,12 +58,12 @@ func NewTestTenantKey(keyID, tenantID string) *provisioning.TenantKey {
 	}
 }
 
-// NewTestTenantTopic creates a test topic.
+// NewTestTenantTopic creates a test topic category.
+// Note: Full topic name is built at runtime using kafka.BuildTopicName(namespace, tenantID, category).
 func NewTestTenantTopic(tenantID, category string) *provisioning.TenantTopic {
 	now := time.Now()
 	return &provisioning.TenantTopic{
 		TenantID:    tenantID,
-		TopicName:   "test." + tenantID + "." + category,
 		Category:    category,
 		Partitions:  3,
 		RetentionMs: 604800000,

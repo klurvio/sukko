@@ -263,9 +263,10 @@ func (m *MockKeyStore) GetActiveKeys(_ context.Context) ([]*provisioning.TenantK
 }
 
 // MockTopicStore is an in-memory mock implementation of TopicStore.
+// Uses tenant_categories model - key is "tenantID/category".
 type MockTopicStore struct {
 	mu     sync.RWMutex
-	topics map[string]*provisioning.TenantTopic
+	topics map[string]*provisioning.TenantTopic // key: "tenantID/category"
 
 	CreateErr error
 }
@@ -277,6 +278,11 @@ func NewMockTopicStore() *MockTopicStore {
 	}
 }
 
+// topicKey creates a unique key for a topic category.
+func topicKey(tenantID, category string) string {
+	return tenantID + "/" + category
+}
+
 // Create implements TopicStore.Create for testing.
 func (m *MockTopicStore) Create(_ context.Context, topic *provisioning.TenantTopic) error {
 	if m.CreateErr != nil {
@@ -284,12 +290,14 @@ func (m *MockTopicStore) Create(_ context.Context, topic *provisioning.TenantTop
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, exists := m.topics[topic.TopicName]; exists {
-		return errors.New("topic already exists")
+	key := topicKey(topic.TenantID, topic.Category)
+	if _, exists := m.topics[key]; exists {
+		// ON CONFLICT DO NOTHING behavior - no error, just skip
+		return nil
 	}
 	t := *topic
 	t.CreatedAt = time.Now()
-	m.topics[topic.TopicName] = &t
+	m.topics[key] = &t
 	return nil
 }
 
@@ -307,12 +315,13 @@ func (m *MockTopicStore) ListByTenant(_ context.Context, tenantID string) ([]*pr
 }
 
 // MarkDeleted implements TopicStore.MarkDeleted for testing.
-func (m *MockTopicStore) MarkDeleted(_ context.Context, topicName string) error {
+func (m *MockTopicStore) MarkDeleted(_ context.Context, tenantID, category string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	t, ok := m.topics[topicName]
+	key := topicKey(tenantID, category)
+	t, ok := m.topics[key]
 	if !ok {
-		return errors.New("topic not found")
+		return errors.New("category not found")
 	}
 	now := time.Now()
 	t.DeletedAt = &now

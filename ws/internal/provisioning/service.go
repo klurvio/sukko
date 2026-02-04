@@ -144,7 +144,9 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 			// Don't fail - topics can be created later
 		} else {
 			for _, t := range topics {
-				response.Topics = append(response.Topics, t.TopicName)
+				// Build topic name at runtime for response
+				topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.ID, t.Category)
+				response.Topics = append(response.Topics, topicName)
 			}
 		}
 	}
@@ -254,12 +256,14 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string) error 
 	topics, _ := s.topics.ListByTenant(ctx, tenantID)
 	gracePeriodMs := int64(s.config.DeprovisionGraceDays * 24 * 60 * 60 * 1000)
 	for _, topic := range topics {
-		if err := s.kafka.SetTopicConfig(ctx, topic.TopicName, map[string]string{
+		// Build topic name at runtime
+		topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, topic.Category)
+		if err := s.kafka.SetTopicConfig(ctx, topicName, map[string]string{
 			"retention.ms": strconv.FormatInt(gracePeriodMs, 10),
 		}); err != nil {
 			s.logger.Error().Err(err).
 				Str("tenant_id", tenantID).
-				Str("topic", topic.TopicName).
+				Str("topic", topicName).
 				Msg("Failed to update topic retention")
 		}
 	}
@@ -368,9 +372,17 @@ func (s *Service) CreateTopics(ctx context.Context, tenantID string, categories 
 	return s.createTopicsForTenant(ctx, tenantID, categories)
 }
 
-// ListTopics returns all topics for a tenant.
+// ListTopics returns all topic categories for a tenant.
+// Note: TenantTopic.Category contains the category name. To get the full topic name,
+// use kafka.BuildTopicName(service.TopicNamespace(), tenantID, category).
 func (s *Service) ListTopics(ctx context.Context, tenantID string) ([]*TenantTopic, error) {
 	return s.topics.ListByTenant(ctx, tenantID)
+}
+
+// TopicNamespace returns the configured Kafka topic namespace.
+// Used to build full topic names: {namespace}.{tenantID}.{category}
+func (s *Service) TopicNamespace() string {
+	return s.config.TopicNamespace
 }
 
 // GetQuota returns quotas for a tenant.
@@ -433,15 +445,13 @@ func (s *Service) createTopicsForTenant(ctx context.Context, tenantID string, ca
 	created := []*TenantTopic{}
 
 	for _, category := range categories {
-		// Create base topic using shared function
-		baseTopic := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, category)
-		if err := s.createSingleTopic(ctx, tenantID, baseTopic, category); err != nil {
-			s.logger.Error().Err(err).Str("topic", baseTopic).Msg("Failed to create topic")
+		if err := s.createSingleTopic(ctx, tenantID, category); err != nil {
+			topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, category)
+			s.logger.Error().Err(err).Str("topic", topicName).Msg("Failed to create topic")
 			continue
 		}
 		created = append(created, &TenantTopic{
 			TenantID:    tenantID,
-			TopicName:   baseTopic,
 			Category:    category,
 			Partitions:  s.config.DefaultPartitions,
 			RetentionMs: s.config.DefaultRetentionMs,
@@ -466,8 +476,12 @@ func (s *Service) createTopicsForTenant(ctx context.Context, tenantID string, ca
 	return created, nil
 }
 
-// createSingleTopic creates a single Kafka topic and records it in the database.
-func (s *Service) createSingleTopic(ctx context.Context, tenantID, topicName, category string) error {
+// createSingleTopic creates a single Kafka topic and records the category in the database.
+// Topic name is built at runtime using kafka.BuildTopicName(namespace, tenantID, category).
+func (s *Service) createSingleTopic(ctx context.Context, tenantID, category string) error {
+	// Build topic name at runtime
+	topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, category)
+
 	// Create in Kafka
 	config := map[string]string{
 		"retention.ms": strconv.FormatInt(s.config.DefaultRetentionMs, 10),
@@ -476,16 +490,15 @@ func (s *Service) createSingleTopic(ctx context.Context, tenantID, topicName, ca
 		return fmt.Errorf("create kafka topic: %w", err)
 	}
 
-	// Record in database
+	// Record category in database (not full topic name)
 	topic := &TenantTopic{
 		TenantID:    tenantID,
-		TopicName:   topicName,
 		Category:    category,
 		Partitions:  s.config.DefaultPartitions,
 		RetentionMs: s.config.DefaultRetentionMs,
 	}
 	if err := s.topics.Create(ctx, topic); err != nil {
-		return fmt.Errorf("record topic: %w", err)
+		return fmt.Errorf("record category: %w", err)
 	}
 
 	return nil

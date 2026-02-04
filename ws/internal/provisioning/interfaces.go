@@ -57,19 +57,20 @@ type KeyStore interface {
 	GetActiveKeys(ctx context.Context) ([]*TenantKey, error)
 }
 
-// TopicStore handles topic tracking operations.
-// Note: Kafka is the source of truth for topics; this tracks provisioned topics.
+// TopicStore handles topic category tracking operations.
+// Note: Stores categories in tenant_categories table. Full topic names are built
+// at runtime using kafka.BuildTopicName(namespace, tenantID, category).
 type TopicStore interface {
-	// Create records a provisioned topic.
+	// Create records a provisioned topic category.
 	Create(ctx context.Context, topic *TenantTopic) error
 
-	// ListByTenant returns all topics for a tenant.
+	// ListByTenant returns all topic categories for a tenant.
 	ListByTenant(ctx context.Context, tenantID string) ([]*TenantTopic, error)
 
-	// MarkDeleted marks a topic as deleted.
-	MarkDeleted(ctx context.Context, topicName string) error
+	// MarkDeleted marks a topic category as deleted.
+	MarkDeleted(ctx context.Context, tenantID, category string) error
 
-	// CountByTenant returns the number of active topics for a tenant.
+	// CountByTenant returns the number of active topic categories for a tenant.
 	CountByTenant(ctx context.Context, tenantID string) (int, error)
 
 	// CountPartitionsByTenant returns the total partitions for a tenant.

@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // api is a common package name for HTTP handlers
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
