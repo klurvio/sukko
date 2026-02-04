@@ -147,10 +147,10 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 		cbHalfOpenReqs = 1
 	}
 
-	// Topic cache TTL default
+	// Topic cache TTL default (30s for faster topic discovery)
 	topicCacheTTL := cfg.TopicCacheTTL
 	if topicCacheTTL == 0 {
-		topicCacheTTL = 60 * time.Second
+		topicCacheTTL = 30 * time.Second
 	}
 
 	// Build client options
@@ -318,7 +318,7 @@ func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string
 		return fmt.Errorf("%w: %w", ErrInvalidChannel, err)
 	}
 
-	topic := fmt.Sprintf("%s.%s.%s", p.topicNamespace, tenant, category)
+	topic := BuildTopicName(p.topicNamespace, tenant, category)
 
 	// Validate topic is provisioned (if registry is configured)
 	if p.tenantRegistry != nil && !p.isTopicProvisioned(ctx, topic) {

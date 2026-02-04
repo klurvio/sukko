@@ -127,10 +127,10 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		return nil, errors.New("resource guard is required")
 	}
 
-	// Default refresh interval
+	// Default refresh interval (30s for faster topic discovery)
 	refreshInterval := config.RefreshInterval
 	if refreshInterval == 0 {
-		refreshInterval = 60 * time.Second
+		refreshInterval = 30 * time.Second
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -325,14 +325,16 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 		return nil
 	}
 
-	// Log changes
+	// Add new topics incrementally (no rebalance)
 	if len(toAdd) > 0 {
 		p.logger.Info().
 			Strs("topics", toAdd).
 			Msg("Adding new topics to shared consumer")
-		// Note: franz-go AddConsumeTopics() would be called here
-		// For now, we track the topics; full implementation requires consumer recreation
-		// or using the franz-go client method directly
+
+		// Use AddConsumeTopics for incremental assignment (KIP-429)
+		// This avoids triggering a full consumer group rebalance
+		p.sharedConsumer.AddConsumeTopics(toAdd...)
+
 		for _, topic := range toAdd {
 			p.sharedTopics[topic] = true
 		}

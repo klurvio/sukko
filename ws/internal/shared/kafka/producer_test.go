@@ -454,12 +454,6 @@ func BenchmarkProducerStats_Read(b *testing.B) {
 	}
 }
 
-func BenchmarkGetTopic(b *testing.B) {
-	for b.Loop() {
-		_ = GetTopic("dev", "trade")
-	}
-}
-
 func BenchmarkParseChannel(b *testing.B) {
 	channel := "acme.BTC.trade"
 	for b.Loop() {

@@ -233,8 +233,8 @@ func TestMultiTenantPool_DefaultRefreshInterval(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if pool.refreshInterval != 60*time.Second {
-		t.Errorf("refreshInterval: got %v, want 60s", pool.refreshInterval)
+	if pool.refreshInterval != 30*time.Second {
+		t.Errorf("refreshInterval: got %v, want 30s", pool.refreshInterval)
 	}
 }
 

@@ -41,12 +41,15 @@ type KafkaConsumerPool struct {
 	routingErrors   atomic.Uint64
 }
 
-// KafkaPoolConfig configures the shared Kafka consumer pool
+// KafkaPoolConfig configures the shared Kafka consumer pool.
+//
+// Deprecated: Use MultiTenantConsumerPool for new deployments.
+// This pool is retained for backward compatibility but requires explicit topic configuration.
 type KafkaPoolConfig struct {
 	Brokers       []string
 	ConsumerGroup string
-	Environment   string   // Topic namespace for topic naming (e.g., "local", "dev", "staging", "prod")
-	Topics        []string // Explicit topic list; if empty, defaults to kafka.AllTopics(Environment)
+	Environment   string   // Topic namespace for logging (e.g., "local", "dev", "staging", "prod")
+	Topics        []string // Explicit topic list (required - no default)
 	BroadcastBus  broadcast.Bus
 	ResourceGuard kafka.ResourceGuard
 	Logger        zerolog.Logger
@@ -71,7 +74,8 @@ func NewKafkaConsumerPool(config KafkaPoolConfig) (*KafkaConsumerPool, error) {
 	// This consumer will be shared across all shards
 	topics := config.Topics
 	if len(topics) == 0 {
-		topics = kafka.AllTopics(config.Environment)
+		cancel()
+		return nil, fmt.Errorf("topics are required for KafkaConsumerPool (use MultiTenantConsumerPool with TenantRegistry for topic discovery)")
 	}
 	consumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers:       config.Brokers,

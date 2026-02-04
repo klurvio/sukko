@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
@@ -432,8 +433,8 @@ func (s *Service) createTopicsForTenant(ctx context.Context, tenantID string, ca
 	created := []*TenantTopic{}
 
 	for _, category := range categories {
-		// Create base topic
-		baseTopic := s.buildTopicName(tenantID, category)
+		// Create base topic using shared function
+		baseTopic := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, category)
 		if err := s.createSingleTopic(ctx, tenantID, baseTopic, category); err != nil {
 			s.logger.Error().Err(err).Str("topic", baseTopic).Msg("Failed to create topic")
 			continue
@@ -488,11 +489,6 @@ func (s *Service) createSingleTopic(ctx context.Context, tenantID, topicName, ca
 	}
 
 	return nil
-}
-
-// buildTopicName constructs a topic name from namespace, tenant, and category.
-func (s *Service) buildTopicName(tenantID, category string) string {
-	return fmt.Sprintf("%s.%s.%s", s.config.TopicNamespace, tenantID, category)
 }
 
 // auditLog records an audit entry.

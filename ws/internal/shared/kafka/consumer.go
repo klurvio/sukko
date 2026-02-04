@@ -298,6 +298,31 @@ func (c *Consumer) Stop() error {
 	return nil
 }
 
+// AddConsumeTopics dynamically adds topics to the consumer without triggering
+// a full consumer group rebalance. This uses franz-go's AddConsumeTopics()
+// which implements incremental cooperative rebalancing (KIP-429, Kafka 2.4+).
+//
+// Benefits over recreating the consumer:
+//   - No stop-the-world rebalance (5-30s pause avoided)
+//   - Existing partition assignments remain stable
+//   - New topics are assigned incrementally
+//   - Zero message loss during topic addition
+//
+// Thread Safety: Safe for concurrent use.
+func (c *Consumer) AddConsumeTopics(topics ...string) {
+	if len(topics) == 0 {
+		return
+	}
+
+	c.client.AddConsumeTopics(topics...)
+
+	if c.logger != nil {
+		c.logger.Info().
+			Strs("topics", topics).
+			Msg("Added topics to consumer (incremental assignment)")
+	}
+}
+
 // consumeLoop continuously polls for messages
 func (c *Consumer) consumeLoop() {
 	// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)

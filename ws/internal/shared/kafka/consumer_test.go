@@ -52,7 +52,7 @@ func TestNewConsumer_NoBrokers(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{},
 		ConsumerGroup: "test-group",
-		Topics:        []string{GetTopic("test", TopicBaseTrade)},
+		Topics:        []string{BuildTopicName("test", "odin", "trade")},
 		Logger:        &logger,
 		Broadcast:     broadcast,
 		ResourceGuard: guard,
@@ -73,7 +73,7 @@ func TestNewConsumer_NoConsumerGroup(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "",
-		Topics:        []string{GetTopic("test", TopicBaseTrade)},
+		Topics:        []string{BuildTopicName("test", "odin", "trade")},
 		Logger:        &logger,
 		Broadcast:     broadcast,
 		ResourceGuard: guard,
@@ -114,7 +114,7 @@ func TestNewConsumer_NoBroadcast(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{GetTopic("test", TopicBaseTrade)},
+		Topics:        []string{BuildTopicName("test", "odin", "trade")},
 		Logger:        &logger,
 		Broadcast:     nil,
 		ResourceGuard: guard,
@@ -134,7 +134,7 @@ func TestNewConsumer_NoResourceGuard(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{GetTopic("test", TopicBaseTrade)},
+		Topics:        []string{BuildTopicName("test", "odin", "trade")},
 		Logger:        &logger,
 		Broadcast:     broadcast,
 		ResourceGuard: nil,
@@ -155,7 +155,7 @@ func TestConsumerConfig_BatchDefaults(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{GetTopic("test", TopicBaseTrade)},
+		Topics:        []string{BuildTopicName("test", "odin", "trade")},
 	}
 
 	// Default BatchSize should be 0 (will be set to 50 in NewConsumer)
@@ -174,7 +174,7 @@ func TestConsumerConfig_CustomBatch(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{GetTopic("test", TopicBaseTrade)},
+		Topics:        []string{BuildTopicName("test", "odin", "trade")},
 		BatchSize:     100,
 		BatchTimeout:  20 * time.Millisecond,
 	}
@@ -366,15 +366,15 @@ func TestTokenEvent_Fields(t *testing.T) {
 func TestReplayMessage_Fields(t *testing.T) {
 	t.Parallel()
 	msg := ReplayMessage{
-		Topic:     GetTopic("test", TopicBaseTrade),
+		Topic:     BuildTopicName("test", "odin", "trade"),
 		Partition: 0,
 		Offset:    12345,
 		Subject:   "BTC.trade",
 		Data:      []byte(`{"price":"100.50"}`),
 	}
 
-	if msg.Topic != GetTopic("test", TopicBaseTrade) {
-		t.Errorf("Topic = %s, want %s", msg.Topic, GetTopic("test", TopicBaseTrade))
+	if msg.Topic != BuildTopicName("test", "odin", "trade") {
+		t.Errorf("Topic = %s, want %s", msg.Topic, BuildTopicName("test", "odin", "trade"))
 	}
 	if msg.Partition != 0 {
 		t.Errorf("Partition = %d, want 0", msg.Partition)

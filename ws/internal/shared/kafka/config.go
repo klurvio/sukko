@@ -1,7 +1,6 @@
 package kafka
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -16,9 +15,9 @@ import (
 //   - Example: ENVIRONMENT=develop means "this is the develop deployment"
 //
 // KAFKA_TOPIC_NAMESPACE: Identifies which Kafka topic namespace to use.
-//   - Used for: topic naming only (odin.{namespace}.{base})
+//   - Used for: topic naming only ({namespace}.{tenant}.{category})
 //   - Defaults to: normalized ENVIRONMENT value if not set
-//   - Example: KAFKA_TOPIC_NAMESPACE=prod means "consume from odin.prod.* topics"
+//   - Example: KAFKA_TOPIC_NAMESPACE=prod means "consume from prod.* topics"
 //
 // Why separate?
 //   - Allows develop environment to consume from prod topics for testing
@@ -28,41 +27,10 @@ import (
 //
 // Valid namespaces (configured via Helm): local, dev, stag, prod
 //
+// Topic names are built at runtime using BuildTopicName() in topic.go:
+//   BuildTopicName(namespace, tenantID, category) -> "{namespace}.{tenantID}.{category}"
+//
 // =============================================================================
-
-// Topic base names (without environment prefix)
-//
-// Deprecated: These constants are provided for backward compatibility with legacy
-// single-tenant deployments. In multi-tenant deployments, topics are provisioned
-// per-tenant via the provisioning service and queried through TenantRegistry.
-// New code should not depend on this list - use TenantRegistry to discover topics.
-const (
-	TopicBaseTrade     = "trade"
-	TopicBaseLiquidity = "liquidity"
-	TopicBaseMetadata  = "metadata"
-	TopicBaseSocial    = "social"
-	TopicBaseCommunity = "community"
-	TopicBaseCreation  = "creation"
-	TopicBaseAnalytics = "analytics"
-	TopicBaseBalances  = "balances"
-)
-
-// allTopicBases contains all base topic names.
-//
-// Deprecated: This list is provided for backward compatibility with legacy
-// single-tenant deployments. In multi-tenant mode, topics are provisioned
-// per-tenant and should be queried from TenantRegistry, not this hardcoded list.
-// Each tenant can have a different set of categories based on their subscription.
-var allTopicBases = []string{
-	TopicBaseTrade,
-	TopicBaseLiquidity,
-	TopicBaseMetadata,
-	TopicBaseSocial,
-	TopicBaseCommunity,
-	TopicBaseCreation,
-	TopicBaseAnalytics,
-	TopicBaseBalances,
-}
 
 // NormalizeEnv normalizes the namespace string (lowercase, trim whitespace).
 // The actual namespace value comes from configuration (Helm charts), not code mapping.
@@ -80,34 +48,6 @@ func NormalizeEnv(env string) string {
 		return "local"
 	}
 	return env
-}
-
-// GetTopic returns the full topic name for an environment
-// Example: GetTopic("dev", "trade") -> "odin.dev.trade"
-func GetTopic(env, base string) string {
-	return fmt.Sprintf("odin.%s.%s", NormalizeEnv(env), base)
-}
-
-// AllTopicBases returns all base topic names (without environment prefix).
-//
-// Deprecated: Use TenantRegistry.GetSharedTenantTopics or GetDedicatedTenants
-// to discover provisioned topics in multi-tenant mode. This function is
-// provided for backward compatibility with legacy single-tenant deployments.
-func AllTopicBases() []string {
-	return allTopicBases
-}
-
-// AllTopics returns all regular topic names for an environment.
-//
-// Deprecated: Use TenantRegistry to discover provisioned topics in multi-tenant
-// mode. This function assumes single-tenant deployment and is provided for
-// backward compatibility only.
-func AllTopics(env string) []string {
-	topics := make([]string, len(allTopicBases))
-	for i, base := range allTopicBases {
-		topics[i] = GetTopic(env, base)
-	}
-	return topics
 }
 
 // EventType represents different event types
@@ -147,41 +87,27 @@ const (
 	EventTransferCompleted EventType = "TRANSFER_COMPLETED" // Transfer completed event
 )
 
-// TopicToEventType maps a full topic name to its event type category.
-// Example: "odin.dev.trade" -> "trade"
+// TopicToEventType maps a full topic name to its category.
+// This extracts the category (last part) from any topic format.
+//
+// Example:
+//
+//	"prod.odin.trade" -> "trade"
+//	"dev.acme.balances" -> "balances"
+//	"odin.dev.trade" (legacy) -> "trade"
 func TopicToEventType(topic string) string {
-	// Remove "odin." prefix
+	// Handle new format: {namespace}.{tenant}.{category}
+	// Handle legacy format: odin.{env}.{category}
+	parts := strings.Split(topic, ".")
+	if len(parts) >= 3 {
+		return parts[len(parts)-1] // Return last part (category)
+	}
+
+	// Handle legacy format with odin. prefix
 	topic = strings.TrimPrefix(topic, "odin.")
-
-	// Remove environment prefix (e.g., "dev.", "local.", "staging.", "prod.")
 	if _, after, found := strings.Cut(topic, "."); found {
-		return after // Return the base topic name
+		return after
 	}
 
-	// Fallback for legacy topic names (e.g., "odin.trades" -> "trades")
 	return topic
-}
-
-// EventTypeToTopicBase maps event types to their base topic name
-func EventTypeToTopicBase(eventType EventType) string {
-	switch eventType {
-	case EventTradeExecuted, EventBuyCompleted, EventSellCompleted:
-		return TopicBaseTrade
-	case EventLiquidityAdded, EventLiquidityRemoved, EventLiquidityRebalanced:
-		return TopicBaseLiquidity
-	case EventMetadataUpdated, EventTokenNameChanged, EventTokenFlagsChanged:
-		return TopicBaseMetadata
-	case EventTwitterVerified, EventSocialLinksUpdated:
-		return TopicBaseSocial
-	case EventCommentPosted, EventCommentPinned, EventCommentUpvoted, EventFavoriteToggled:
-		return TopicBaseCommunity
-	case EventTokenCreated, EventTokenListed:
-		return TopicBaseCreation
-	case EventPriceDeltaUpdated, EventHolderCountUpdated, EventAnalyticsRecalculated, EventTrendingUpdated:
-		return TopicBaseAnalytics
-	case EventBalanceUpdated, EventTransferCompleted:
-		return TopicBaseBalances
-	default:
-		return TopicBaseTrade // Default to trade for unknown events
-	}
 }
