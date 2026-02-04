@@ -340,10 +340,9 @@ func (t *TopicIsolator) ListAllowedTopicPatterns(tenant string) []string {
 	// Escape separator for regex
 	escapedSep := strings.ReplaceAll(t.config.Separator, ".", "\\.")
 
-	patterns := []string{
-		// Tenant's own topics
-		t.config.Environment + escapedSep + tenant + escapedSep + ".*",
-	}
+	patterns := make([]string, 0, 1+len(t.config.SharedTopicPatterns))
+	// Tenant's own topics
+	patterns = append(patterns, t.config.Environment+escapedSep+tenant+escapedSep+".*")
 
 	// Add shared topic patterns (convert to regex)
 	for _, pattern := range t.config.SharedTopicPatterns {

@@ -5,6 +5,7 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -75,7 +76,7 @@ func NewKafkaConsumerPool(config KafkaPoolConfig) (*KafkaConsumerPool, error) {
 	topics := config.Topics
 	if len(topics) == 0 {
 		cancel()
-		return nil, fmt.Errorf("topics are required for KafkaConsumerPool (use MultiTenantConsumerPool with TenantRegistry for topic discovery)")
+		return nil, errors.New("topics are required for KafkaConsumerPool (use MultiTenantConsumerPool with TenantRegistry for topic discovery)")
 	}
 	consumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers:       config.Brokers,

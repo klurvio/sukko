@@ -8,6 +8,9 @@ dependencies:
 - name: provisioning
   repository: ""
   version: 1.0.0
+- name: postgresql
+  repository: ""
+  version: 1.0.0
 - name: redpanda
   repository: ""
   version: 1.0.0
@@ -20,5 +23,5 @@ dependencies:
 - name: monitoring
   repository: ""
   version: 1.0.0
-digest: sha256:386b34d91d0c2b1d250dbbbcb91f2db1fa844c50b7986f9fc50afed3b02877b8
-generated: "2026-01-29T16:23:58.140319+08:00"
+digest: sha256:30c476c902d1e8719e1fb1766302ce26e492625610bd0726cc6bf29d0f675aa0
+generated: "2026-02-04T18:53:31.037962+08:00"

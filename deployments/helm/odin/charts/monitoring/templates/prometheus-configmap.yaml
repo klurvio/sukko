@@ -41,6 +41,18 @@ data:
         static_configs:
           - targets: ['{{ .Release.Name }}-redpanda:9644']
 
+      # Scrape ws-gateway metrics
+      - job_name: 'ws-gateway'
+        static_configs:
+          - targets: ['{{ .Release.Name }}-ws-gateway:3000']
+        metrics_path: /metrics
+
+      # Scrape provisioning metrics
+      - job_name: 'provisioning'
+        static_configs:
+          - targets: ['{{ .Release.Name }}-provisioning:8080']
+        metrics_path: /metrics
+
       # Note: NATS monitoring port 8222 exposes JSON endpoints (/varz, /connz),
       # not Prometheus format. Use nats-prometheus-exporter sidecar if needed.
       # For now, NATS health is monitored via ws-server connection status.

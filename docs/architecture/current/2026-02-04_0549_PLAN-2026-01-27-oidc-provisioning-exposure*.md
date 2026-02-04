@@ -1,5 +1,7 @@
 # Plan: OIDC/JWKS Support + Provisioning API Exposure
 
+**Status:** ✅ Implemented
+
 ## Goal
 
 Enable the ws-gateway and provisioning API to validate tokens from an external IdP (Auth0, Clerk, etc.) via OIDC JWKS, alongside existing per-tenant asymmetric keys from PostgreSQL. Expose the provisioning API with authentication, CORS, and a Helm subchart for K8s deployment.

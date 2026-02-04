@@ -182,6 +182,7 @@ issues:
       linters:
         - gochecknoinits
 
+
     # Exclude lll issues for long lines with go:generate
     - linters:
         - lll

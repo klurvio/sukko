@@ -1,4 +1,5 @@
-package api
+// Package api provides HTTP handlers and middleware for the provisioning service.
+package api //nolint:revive // api is a common package name for HTTP handlers
 
 import (
 	"context"

@@ -153,7 +153,7 @@ func TestKafkaPool_RouteMessage_MultipleSubjects(t *testing.T) {
 		{"SOL", "ticker"},
 	}
 
-	messages := make([]*broadcast.Message, 0)
+	messages := make([]*broadcast.Message, 0, len(entities))
 
 	for _, entity := range entities {
 		broadcastSubject := fmt.Sprintf("%s.%s", entity.subject, entity.eventType)

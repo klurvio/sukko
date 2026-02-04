@@ -4,6 +4,8 @@
 
 global:
   namespace: odin-local
+  provisioning:
+    databaseUrl: "postgres://odin:odin_local_dev@odin-local-postgresql:5432/odin_provisioning?sslmode=disable"
 
 # WebSocket Gateway - Handles auth and permission filtering
 ws-gateway:
@@ -212,3 +214,42 @@ monitoring:
       limits:
         cpu: "50m"
         memory: "64Mi"
+
+# PostgreSQL for provisioning database
+postgresql:
+  enabled: true
+  auth:
+    database: odin_provisioning
+    username: odin
+    password: odin_local_dev  # OK for local dev only
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+  persistence:
+    enabled: false  # emptyDir - data lost on restart
+
+# Provisioning API (no auth for local dev)
+provisioning:
+  enabled: true
+  replicaCount: 1
+  config:
+    logLevel: debug
+    logFormat: pretty
+    authEnabled: false  # No auth for local provisioning
+    topicNamespace: local
+    kafkaBrokers: ""  # Uses dynamic default
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "250m"
+      memory: "128Mi"
+  service:
+    type: NodePort
+    port: 8080
+    nodePort: 30081

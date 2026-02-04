@@ -10,13 +10,17 @@ name: odin-ws-local
 nodes:
   - role: control-plane
     extraPortMappings:
-      # WebSocket Server
+      # WebSocket Gateway (client entry point)
+      - containerPort: 30000
+        hostPort: 3000
+        protocol: TCP
+      # WebSocket Server (internal, for testing)
       - containerPort: 30080
         hostPort: 3005
         protocol: TCP
-      # Auth Service (for local testing)
-      - containerPort: 30082
-        hostPort: 3002
+      # Provisioning API (tenant management)
+      - containerPort: 30081
+        hostPort: 8081
         protocol: TCP
       # Grafana
       - containerPort: 30300
@@ -26,7 +30,7 @@ nodes:
       - containerPort: 30090
         hostPort: 9090
         protocol: TCP
-      # Redpanda Console (optional)
+      # Redpanda Console
       - containerPort: 30800
         hostPort: 8080
         protocol: TCP

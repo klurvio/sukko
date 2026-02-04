@@ -125,7 +125,7 @@ func TestValkeyBus_SubscribeChannel(t *testing.T) {
 	bufferSize := 512
 
 	// Create a mock subscriber list
-	var subscribers []chan *Message
+	subscribers := make([]chan *Message, 0, 1)
 	var mu sync.RWMutex
 
 	// Simulate Subscribe() logic

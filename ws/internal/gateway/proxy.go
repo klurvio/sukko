@@ -450,6 +450,8 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 
 // sendPublishErrorToClient sends a publish error directly to the client WebSocket.
 // Returns nil bytes to signal that the message should NOT be forwarded to backend.
+//
+//nolint:unparam // Always returns nil bytes by design - indicates message should not be forwarded
 func (p *Proxy) sendPublishErrorToClient(code protocol.PublishErrorCode) ([]byte, error) {
 	errMsg := map[string]string{
 		"type":    protocol.RespTypePublishError,

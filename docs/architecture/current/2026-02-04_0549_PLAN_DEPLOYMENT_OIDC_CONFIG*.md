@@ -1,5 +1,7 @@
 # Plan: Update Deployments with OIDC/Channel Rules Config + Provisioning Tasks
 
+**Status:** ✅ Implemented
+
 ## Summary
 
 Update KinD (local) and GKE Standard (remote) deployment configurations with the new multi-issuer OIDC and per-tenant channel rules environment variables. Consolidate provisioning tasks (db migrations + API operations) into a single taskfile with namespaced tasks. Add automatic migration on deploy/rebuild.

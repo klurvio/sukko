@@ -167,7 +167,7 @@ func TestNATSBus_SubscribeChannel(t *testing.T) {
 	t.Parallel()
 	bufferSize := 256
 
-	var subscribers []chan *Message
+	subscribers := make([]chan *Message, 0, 1)
 	var mu sync.RWMutex
 
 	// Simulate Subscribe()

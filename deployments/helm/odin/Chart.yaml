@@ -15,6 +15,9 @@ dependencies:
   - name: provisioning
     version: "1.0.0"
     condition: provisioning.enabled
+  - name: postgresql
+    version: "1.0.0"
+    condition: postgresql.enabled
   # NOTE: auth-service removed - odin-api now issues JWT tokens directly
   - name: redpanda
     version: "1.0.0"

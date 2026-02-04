@@ -1,5 +1,7 @@
 # Plan: OIDC Multi-Issuer Support & Per-Tenant Channel Rules
 
+**Status:** ✅ Implemented
+
 ## Summary
 
 Extend the authentication system to support multiple OIDC issuers (one per tenant) and per-tenant channel access rules. This enables third-party tenants to use their own Identity Providers while we control channel authorization.

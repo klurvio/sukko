@@ -1,3 +1,4 @@
+// Package types provides shared type definitions used across services.
 package types
 
 import (

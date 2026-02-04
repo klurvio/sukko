@@ -28,10 +28,10 @@ func TestBuildTopicName(t *testing.T) {
 		{"prod", "odin", "balances", "prod.odin.balances"},
 
 		// Edge cases
-		{"", "odin", "trade", ".odin.trade"},           // Empty namespace
-		{"prod", "", "trade", "prod..trade"},           // Empty tenant
-		{"prod", "odin", "", "prod.odin."},             // Empty category
-		{"PROD", "ODIN", "TRADE", "PROD.ODIN.TRADE"},   // Uppercase (preserved)
+		{"", "odin", "trade", ".odin.trade"},         // Empty namespace
+		{"prod", "", "trade", "prod..trade"},         // Empty tenant
+		{"prod", "odin", "", "prod.odin."},           // Empty category
+		{"PROD", "ODIN", "TRADE", "PROD.ODIN.TRADE"}, // Uppercase (preserved)
 	}
 
 	for _, tt := range tests {

@@ -906,14 +906,13 @@ func TestReadLoop_ReadError_CallsDisconnectFn(t *testing.T) {
 func TestReadLoop_RateLimiting_BlocksExcessiveMessages(t *testing.T) {
 	t.Parallel()
 	// Create multiple text frames
-	var frameData []byte
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{})
+	textFrame := createWebSocketFrame(ws.OpText, []byte(`{"type":"heartbeat"}`))
+	frameData := make([]byte, 0, len(textFrame)*3+len(closeFrame))
 	for range 3 {
-		textPayload := []byte(`{"type":"heartbeat"}`)
-		frame := createWebSocketFrame(ws.OpText, textPayload)
-		frameData = append(frameData, frame...)
+		frameData = append(frameData, textFrame...)
 	}
 	// Add close frame
-	closeFrame := createWebSocketFrame(ws.OpClose, []byte{})
 	frameData = append(frameData, closeFrame...)
 
 	mockConn := newTestMockConn()

@@ -127,10 +127,11 @@ func (m *MultiIssuerOIDC) createKeyfunc(ctx context.Context, issuerURL string) (
 		Str("tenant_id", tenantID).
 		Msg("Creating keyfunc for issuer")
 
-	// Create keyfunc with refresh context
+	// Create keyfunc with refresh context derived from m.ctx
 	refreshCtx, cancelRefresh := context.WithCancel(m.ctx)
 	fetchStart := time.Now()
 
+	//nolint:contextcheck // refreshCtx is derived from m.ctx via WithCancel above
 	kf, err := keyfunc.NewDefaultCtx(refreshCtx, []string{jwksURL})
 	if err != nil {
 		cancelRefresh()
