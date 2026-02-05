@@ -13,7 +13,6 @@ import (
 // It combines channel and topic isolation with audit logging capabilities.
 type TenantIsolator struct {
 	config        TenantIsolationConfig
-	channelMapper *ChannelMapper
 	topicIsolator *TopicIsolator
 	auditLogger   AuditLogger
 	metrics       pkgmetrics.AccessDenialMetrics
@@ -22,9 +21,6 @@ type TenantIsolator struct {
 // TenantIsolationConfig configures tenant isolation behavior.
 // Always fail-secure: requests without proper tenant context are rejected.
 type TenantIsolationConfig struct {
-	// CrossTenantRoles are roles that can access any tenant's resources.
-	CrossTenantRoles []string `yaml:"cross_tenant_roles" json:"cross_tenant_roles"`
-
 	// SharedChannelPatterns are channels accessible by all tenants.
 	SharedChannelPatterns []string `yaml:"shared_channel_patterns" json:"shared_channel_patterns"`
 
@@ -42,7 +38,6 @@ type TenantIsolationConfig struct {
 // Always fail-secure by design - no "non-strict" mode.
 func DefaultTenantIsolationConfig() TenantIsolationConfig {
 	return TenantIsolationConfig{
-		CrossTenantRoles:      []string{"admin", "system"},
 		SharedChannelPatterns: []string{"system.*"},
 		SharedTopicPatterns:   []string{},
 		AuditDenials:          true,
@@ -57,13 +52,6 @@ type TenantIsolatorOption func(*TenantIsolator)
 func WithAuditLogger(logger AuditLogger) TenantIsolatorOption {
 	return func(t *TenantIsolator) {
 		t.auditLogger = logger
-	}
-}
-
-// WithChannelMapper sets a custom channel mapper.
-func WithChannelMapper(mapper *ChannelMapper) TenantIsolatorOption {
-	return func(t *TenantIsolator) {
-		t.channelMapper = mapper
 	}
 }
 
@@ -94,18 +82,12 @@ func NewTenantIsolator(config TenantIsolationConfig, opts ...TenantIsolatorOptio
 		opt(t)
 	}
 
-	// Create default channel mapper if not provided
-	if t.channelMapper == nil {
-		t.channelMapper = NewChannelMapper(DefaultChannelConfig())
-	}
-
 	// Create default topic isolator if not provided
 	if t.topicIsolator == nil {
 		t.topicIsolator = NewTopicIsolator(TopicIsolationConfig{
 			Environment:         "prod",
 			TenantPosition:      1,
 			Separator:           ".",
-			CrossTenantRoles:    config.CrossTenantRoles,
 			SharedTopicPatterns: config.SharedTopicPatterns,
 		})
 	}
@@ -143,9 +125,6 @@ type AccessCheckResult struct {
 
 	// ResourceTenant is the tenant extracted from the resource.
 	ResourceTenant string
-
-	// IsCrossTenant indicates cross-tenant access was granted.
-	IsCrossTenant bool
 
 	// IsShared indicates the resource is shared across tenants.
 	IsShared bool
@@ -189,7 +168,7 @@ func (t *TenantIsolator) CheckChannelAccess(ctx context.Context, claims *Claims,
 	}
 
 	// Extract tenant from channel
-	channelTenant := t.channelMapper.ExtractTenant(channel)
+	channelTenant := extractChannelTenant(channel, ".")
 	result.ResourceTenant = channelTenant
 
 	// No tenant in channel = shared
@@ -208,18 +187,6 @@ func (t *TenantIsolator) CheckChannelAccess(ctx context.Context, claims *Claims,
 		result.Duration = time.Since(start)
 		t.logAccess(ctx, result, action)
 		return result
-	}
-
-	// Check cross-tenant roles
-	for _, role := range t.config.CrossTenantRoles {
-		if claims.HasRole(role) {
-			result.Allowed = true
-			result.IsCrossTenant = true
-			result.Reason = "cross-tenant via role: " + role
-			result.Duration = time.Since(start)
-			t.logAccess(ctx, result, action)
-			return result
-		}
 	}
 
 	// Denied
@@ -254,8 +221,7 @@ func (t *TenantIsolator) CheckTopicAccess(ctx context.Context, claims *Claims, t
 		Resource:       topic,
 		ClaimsTenant:   topicResult.ClaimsTenant,
 		ResourceTenant: topicResult.TopicTenant,
-		IsCrossTenant:  topicResult.IsCrossTenant,
-		IsShared:       topicResult.IsSharedTopic,
+		IsShared: topicResult.IsSharedTopic,
 		Duration:       time.Since(start),
 	}
 
@@ -263,25 +229,9 @@ func (t *TenantIsolator) CheckTopicAccess(ctx context.Context, claims *Claims, t
 	return result
 }
 
-// MapClientToInternal converts a client channel to internal format.
-// Convenience method for channel mapping.
-func (t *TenantIsolator) MapClientToInternal(claims *Claims, clientChannel string) string {
-	return t.channelMapper.MapToInternal(claims, clientChannel)
-}
-
-// MapInternalToClient converts an internal channel to client format.
-func (t *TenantIsolator) MapInternalToClient(internalChannel string) string {
-	return t.channelMapper.MapToClient(internalChannel)
-}
-
 // BuildTopicName constructs a topic name for a tenant.
 func (t *TenantIsolator) BuildTopicName(tenant, category string) string {
 	return t.topicIsolator.BuildTopicName(tenant, category)
-}
-
-// GetTenantFromChannel extracts tenant from an internal channel.
-func (t *TenantIsolator) GetTenantFromChannel(internalChannel string) string {
-	return t.channelMapper.ExtractTenant(internalChannel)
 }
 
 // GetTenantFromTopic extracts tenant from a topic name.
@@ -317,9 +267,8 @@ func (t *TenantIsolator) logAccess(ctx context.Context, result *AccessCheckResul
 			Resource:       result.Resource,
 			ClaimsTenant:   result.ClaimsTenant,
 			ResourceTenant: result.ResourceTenant,
-			Reason:         result.Reason,
-			IsCrossTenant:  result.IsCrossTenant,
-			IsShared:       result.IsShared,
+			Reason:   result.Reason,
+			IsShared: result.IsShared,
 			Duration:       result.Duration,
 		})
 	}
@@ -332,9 +281,8 @@ type AuditEntry struct {
 	Resource       string
 	ClaimsTenant   string
 	ResourceTenant string
-	Reason         string
-	IsCrossTenant  bool
-	IsShared       bool
+	Reason   string
+	IsShared bool
 	Duration       time.Duration
 }
 

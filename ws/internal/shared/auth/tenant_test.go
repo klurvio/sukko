@@ -13,23 +13,8 @@ func TestNewTenantIsolator(t *testing.T) {
 		if iso == nil {
 			t.Fatal("expected non-nil isolator")
 		}
-		if iso.channelMapper == nil {
-			t.Error("expected channel mapper to be initialized")
-		}
 		if iso.topicIsolator == nil {
 			t.Error("expected topic isolator to be initialized")
-		}
-	})
-
-	t.Run("with custom channel mapper", func(t *testing.T) {
-		t.Parallel()
-		customMapper := NewChannelMapper(ChannelConfig{Separator: "/"})
-		iso := NewTenantIsolator(
-			DefaultTenantIsolationConfig(),
-			WithChannelMapper(customMapper),
-		)
-		if iso.channelMapper != customMapper {
-			t.Error("expected custom channel mapper to be used")
 		}
 	})
 
@@ -49,7 +34,6 @@ func TestNewTenantIsolator(t *testing.T) {
 func TestTenantIsolator_CheckChannelAccess(t *testing.T) {
 	t.Parallel()
 	iso := NewTenantIsolator(TenantIsolationConfig{
-		CrossTenantRoles:      []string{"admin", "system"},
 		SharedChannelPatterns: []string{"system.*", "broadcast.*"},
 		AuditDenials:          true,
 	})
@@ -106,11 +90,11 @@ func TestTenantIsolator_CheckChannelAccess(t *testing.T) {
 			expectAllowed: true,
 		},
 		{
-			name:          "admin role cross-tenant allowed",
+			name:          "admin role cross-tenant denied (cross-tenant roles removed)",
 			claims:        &Claims{TenantID: "acme", Roles: []string{"admin"}},
 			channel:       "globex.BTC.trade",
 			action:        ActionSubscribe,
-			expectAllowed: true,
+			expectAllowed: false,
 		},
 		{
 			name:          "publish same tenant allowed",
@@ -145,7 +129,6 @@ func TestTenantIsolator_CheckChannelAccess(t *testing.T) {
 func TestTenantIsolator_CheckTopicAccess(t *testing.T) {
 	t.Parallel()
 	iso := NewTenantIsolator(TenantIsolationConfig{
-		CrossTenantRoles:    []string{"admin"},
 		SharedTopicPatterns: []string{"prod.shared.*"},
 	})
 
@@ -187,11 +170,11 @@ func TestTenantIsolator_CheckTopicAccess(t *testing.T) {
 			expectAllowed: true,
 		},
 		{
-			name:          "admin cross-tenant allowed",
+			name:          "admin cross-tenant denied (cross-tenant roles removed)",
 			claims:        &Claims{TenantID: "acme", Roles: []string{"admin"}},
 			topic:         "prod.globex.trade",
 			action:        ActionConsume,
-			expectAllowed: true,
+			expectAllowed: false,
 		},
 	}
 
@@ -212,31 +195,6 @@ func TestTenantIsolator_CheckTopicAccess(t *testing.T) {
 	}
 }
 
-func TestTenantIsolator_MapClientToInternal(t *testing.T) {
-	t.Parallel()
-	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
-
-	claims := &Claims{TenantID: "acme"}
-	result := iso.MapClientToInternal(claims, "BTC.trade")
-
-	expected := "acme.BTC.trade"
-	if result != expected {
-		t.Errorf("MapClientToInternal() = %q, want %q", result, expected)
-	}
-}
-
-func TestTenantIsolator_MapInternalToClient(t *testing.T) {
-	t.Parallel()
-	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
-
-	result := iso.MapInternalToClient("acme.BTC.trade")
-
-	expected := "BTC.trade"
-	if result != expected {
-		t.Errorf("MapInternalToClient() = %q, want %q", result, expected)
-	}
-}
-
 func TestTenantIsolator_BuildTopicName(t *testing.T) {
 	t.Parallel()
 	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
@@ -246,18 +204,6 @@ func TestTenantIsolator_BuildTopicName(t *testing.T) {
 	expected := "prod.acme.trade"
 	if result != expected {
 		t.Errorf("BuildTopicName() = %q, want %q", result, expected)
-	}
-}
-
-func TestTenantIsolator_GetTenantFromChannel(t *testing.T) {
-	t.Parallel()
-	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
-
-	result := iso.GetTenantFromChannel("acme.BTC.trade")
-
-	expected := "acme"
-	if result != expected {
-		t.Errorf("GetTenantFromChannel() = %q, want %q", result, expected)
 	}
 }
 
@@ -330,21 +276,10 @@ func TestTenantIsolator_AuditLogging(t *testing.T) {
 func TestTenantIsolator_ResultFlags(t *testing.T) {
 	t.Parallel()
 	iso := NewTenantIsolator(TenantIsolationConfig{
-		CrossTenantRoles:      []string{"admin"},
 		SharedChannelPatterns: []string{"system.*"},
 	})
 
 	ctx := context.Background()
-
-	t.Run("cross-tenant flag set", func(t *testing.T) {
-		t.Parallel()
-		claims := &Claims{TenantID: "acme", Roles: []string{"admin"}}
-		result := iso.CheckChannelAccess(ctx, claims, "globex.trade", ActionSubscribe)
-
-		if !result.IsCrossTenant {
-			t.Error("expected IsCrossTenant to be true")
-		}
-	})
 
 	t.Run("shared flag set", func(t *testing.T) {
 		t.Parallel()
@@ -397,10 +332,6 @@ func TestExtractTenantContext(t *testing.T) {
 func TestDefaultTenantIsolationConfig(t *testing.T) {
 	t.Parallel()
 	config := DefaultTenantIsolationConfig()
-
-	if len(config.CrossTenantRoles) != 2 {
-		t.Errorf("expected 2 cross-tenant roles, got %d", len(config.CrossTenantRoles))
-	}
 
 	if !config.AuditDenials {
 		t.Error("expected AuditDenials to be true")
