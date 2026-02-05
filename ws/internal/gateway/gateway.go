@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gobwas/ws"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
@@ -46,14 +45,18 @@ type Gateway struct {
 // Call Close() to release resources when shutting down.
 func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error) {
 	gw := &Gateway{
-		config: config,
-		permissions: NewPermissionChecker(
+		config:        config,
+		channelMapper: auth.NewChannelMapper(auth.DefaultChannelConfig()),
+		logger:        logger.With().Str("component", "gateway").Logger(),
+	}
+
+	// Only create permission checker when auth is enabled (used for channel filtering)
+	if config.AuthEnabled {
+		gw.permissions = NewPermissionChecker(
 			config.PublicPatterns,
 			config.UserScopedPatterns,
 			config.GroupScopedPatterns,
-		),
-		channelMapper: auth.NewChannelMapper(auth.DefaultChannelConfig()),
-		logger:        logger.With().Str("component", "gateway").Logger(),
+		)
 	}
 
 	// Set up per-tenant connection tracking if enabled
@@ -69,6 +72,10 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 		if err := gw.setupValidator(); err != nil {
 			return nil, fmt.Errorf("setup validator: %w", err)
 		}
+	} else {
+		gw.logger.Warn().
+			Str("default_tenant_id", config.DefaultTenantID).
+			Msg("Auth disabled — all connections treated as anonymous, routed to default tenant")
 	}
 
 	// Set up per-tenant channel rules if enabled (requires auth to be enabled first for dbConn)
@@ -290,7 +297,12 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		RecordDisconnection(closeReason, time.Since(startTime))
 	}()
 
+	// Resolve identity (principal, tenantID) and auth (claims) separately.
+	// When auth disabled: claims is nil, principal/tenantID come from config.
+	// When auth enabled: all three come from the validated JWT.
 	var claims *auth.Claims
+	var principal string
+	var tenantID string
 
 	if gw.config.AuthEnabled {
 		authStart := time.Now()
@@ -321,42 +333,44 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		RecordAuthValidation("success", time.Since(authStart))
 
+		principal = claims.Subject
+		tenantID = claims.TenantID
+
 		gw.logger.Debug().
-			Str("principal", claims.Subject).
-			Str("tenant_id", claims.TenantID).
+			Str("principal", principal).
+			Str("tenant_id", tenantID).
 			Strs("groups", claims.Groups).
 			Str("remote_addr", remoteAddr).
 			Msg("Token validated successfully")
 	} else {
 		RecordAuthValidation("skipped", 0)
-		// Auth disabled - create anonymous claims
-		claims = &auth.Claims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				Subject: "anonymous",
-			},
-			TenantID: "anonymous",
-			Groups:   []string{},
-		}
+		// No auth = no claims object
+		claims = nil
+		principal = "anonymous"
+		tenantID = gw.config.DefaultTenantID
+
 		gw.logger.Debug().
+			Str("principal", principal).
+			Str("tenant_id", tenantID).
 			Str("remote_addr", remoteAddr).
 			Msg("Auth disabled - allowing anonymous connection")
 	}
 
 	// Check per-tenant connection limits
-	if gw.connTracker != nil && claims.TenantID != "" {
-		if !gw.connTracker.TryAcquire(claims.TenantID) {
+	if gw.connTracker != nil && tenantID != "" {
+		if !gw.connTracker.TryAcquire(tenantID) {
 			closeReason = "tenant_limit_exceeded"
 			gw.logger.Warn().
-				Str("tenant_id", claims.TenantID).
+				Str("tenant_id", tenantID).
 				Str("remote_addr", remoteAddr).
-				Int64("current_connections", gw.connTracker.GetConnectionCount(claims.TenantID)).
-				Int("limit", gw.connTracker.GetLimit(claims.TenantID)).
+				Int64("current_connections", gw.connTracker.GetConnectionCount(tenantID)).
+				Int("limit", gw.connTracker.GetLimit(tenantID)).
 				Msg("Connection rejected: tenant connection limit exceeded")
 			http.Error(w, "Too Many Connections: tenant limit exceeded", http.StatusTooManyRequests)
 			return
 		}
 		// Ensure we release the connection slot on exit
-		defer gw.connTracker.Release(claims.TenantID)
+		defer gw.connTracker.Release(tenantID)
 	}
 
 	// Upgrade client connection to WebSocket using gobwas/ws
@@ -395,8 +409,8 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = backendConn.Close() }()
 
 	gw.logger.Info().
-		Str("principal", claims.Subject).
-		Str("tenant_id", claims.TenantID).
+		Str("principal", principal).
+		Str("tenant_id", tenantID).
 		Str("remote_addr", remoteAddr).
 		Dur("connect_time", time.Since(startTime)).
 		Msg("Client connected and proxying to backend")
@@ -405,9 +419,11 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	proxy := NewProxy(ProxyConfig{
 		ClientConn:       clientConn,
 		BackendConn:      backendConn,
-		Claims:           claims,
+		AuthEnabled:      gw.config.AuthEnabled,
+		Claims:           claims, // nil when auth disabled — proxy won't use it
+		TenantID:         tenantID,
 		Permissions:      gw.permissions,
-		Logger:           gw.logger.With().Str("principal", claims.Subject).Logger(),
+		Logger:           gw.logger.With().Str("principal", principal).Logger(),
 		MessageTimeout:   gw.config.MessageTimeout,
 		ChannelMapper:    gw.channelMapper,
 		CrossTenantRoles: gw.config.CrossTenantRoles,
@@ -418,7 +434,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	proxy.Run()
 
 	gw.logger.Info().
-		Str("principal", claims.Subject).
+		Str("principal", principal).
 		Dur("session_duration", time.Since(startTime)).
 		Msg("Client disconnected")
 }

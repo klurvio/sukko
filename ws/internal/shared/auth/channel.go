@@ -74,6 +74,20 @@ func (m *ChannelMapper) MapToInternal(claims *Claims, clientChannel string) stri
 	return claims.TenantID + m.config.Separator + clientChannel
 }
 
+// MapToInternalWithTenant converts a client channel using an explicit tenant ID.
+// Unlike MapToInternal, this does not require Claims — used when routing
+// is separated from auth (e.g., auth disabled, tenant from config).
+//
+// Example:
+//
+//	client: "BTC.trade", tenantID: "odin" → "odin.BTC.trade"
+func (m *ChannelMapper) MapToInternalWithTenant(tenantID, clientChannel string) string {
+	if tenantID == "" || !m.config.TenantImplicit {
+		return clientChannel
+	}
+	return tenantID + m.config.Separator + clientChannel
+}
+
 // MapToClient converts an internal tenant-prefixed channel back to client format.
 // Strips the tenant prefix so clients see simple channel names.
 //

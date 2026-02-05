@@ -16,7 +16,8 @@ func newValidGatewayConfig() *GatewayConfig {
 		BackendURL:              "ws://localhost:3001/ws",
 		DialTimeout:             10 * time.Second,
 		MessageTimeout:          60 * time.Second,
-		AuthEnabled:             false, // Disabled by default for tests
+		AuthEnabled:             false,  // Disabled by default for tests
+		DefaultTenantID:         "odin", // Required when auth disabled
 		ProvisioningDBURL:       "postgres://test:test@localhost:5432/test",
 		KeyCacheRefreshInterval: 1 * time.Minute,
 		KeyCacheQueryTimeout:    5 * time.Second,
@@ -54,6 +55,21 @@ func TestGatewayConfig_Validate_AuthDisabled(t *testing.T) {
 
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Auth disabled config should not error: %v", err)
+	}
+}
+
+func TestGatewayConfig_Validate_AuthDisabled_RequiresDefaultTenantID(t *testing.T) {
+	t.Parallel()
+	cfg := newValidGatewayConfig()
+	cfg.AuthEnabled = false
+	cfg.DefaultTenantID = "" // Empty should fail
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("Should error when auth disabled without DefaultTenantID")
+	}
+	if !strings.Contains(err.Error(), "DEFAULT_TENANT_ID") {
+		t.Errorf("Error should mention DEFAULT_TENANT_ID: %v", err)
 	}
 }
 

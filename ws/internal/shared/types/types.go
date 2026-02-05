@@ -83,6 +83,12 @@ type ServerConfig struct {
 	LogLevel  LogLevel  // Log level (default: info)
 	LogFormat LogFormat // Log format (default: json)
 
+	// Channel mapping for broadcast envelope (optional, removable).
+	// When set, strips tenant prefix from envelope channel before sending to clients.
+	// Type: ChannelMapper interface with MapToClient(string) string method.
+	// nil = no stripping (future SaaS mode where CDC flow is retired)
+	ChannelMapper any
+
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 }

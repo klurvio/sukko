@@ -26,7 +26,8 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 		BackendURL:              "ws://localhost:3001/ws",
 		DialTimeout:             10 * time.Second,
 		MessageTimeout:          60 * time.Second,
-		AuthEnabled:             false, // Disabled by default for unit tests
+		AuthEnabled:             false,  // Disabled by default for unit tests
+		DefaultTenantID:         "odin", // Required when auth disabled
 		PublicPatterns:          []string{"*.trade"},
 		UserScopedPatterns:      []string{"balances.{principal}"},
 		GroupScopedPatterns:     []string{"community.{group_id}"},
@@ -85,8 +86,8 @@ func TestNew_AuthDisabled(t *testing.T) {
 	if gw.validator != nil {
 		t.Error("Validator should be nil when auth is disabled")
 	}
-	if gw.permissions == nil {
-		t.Error("PermissionChecker should still be created")
+	if gw.permissions != nil {
+		t.Error("PermissionChecker should be nil when auth is disabled")
 	}
 }
 

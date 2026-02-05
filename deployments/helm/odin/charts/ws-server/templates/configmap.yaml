@@ -47,6 +47,10 @@ data:
   # Slow client detection
   WS_SLOW_CLIENT_MAX_ATTEMPTS: "{{ .Values.config.slowClientMaxAttempts | default 3 }}"
 
+  # Default tenant ID — disables multi-tenant support for the producer.
+  # Only used when auth is disabled at the gateway level.
+  DEFAULT_TENANT_ID: "{{ .Values.config.defaultTenantID | default "odin" }}"
+
   # Kafka topics (comma-separated)
   KAFKA_TOPICS: "{{ join "," .Values.kafka.topics }}"
 {{- end }}

@@ -37,14 +37,21 @@ func testClaimsWithGroups(subject string, groups []string) *auth.Claims {
 	return claims
 }
 
-// newTestProxy creates a Proxy for testing interceptClientMessage.
+// newTestProxy creates a Proxy for testing interceptClientMessage with auth enabled.
 // Uses nil connections since we're only testing message interception.
+// Sets authEnabled=true and tenantID from claims.TenantID (mimics gateway auth-enabled path).
 func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatterns []string) *Proxy {
 	pc := NewPermissionChecker(publicPatterns, userPatterns, groupPatterns)
+	tenantID := ""
+	if claims != nil {
+		tenantID = claims.TenantID
+	}
 	return &Proxy{
 		clientConn:     nil, // Not needed for interception tests
 		backendConn:    nil, // Not needed for interception tests
+		authEnabled:    true,
 		claims:         claims,
+		tenantID:       tenantID,
 		permissions:    pc,
 		logger:         zerolog.Nop(),
 		messageTimeout: 60 * time.Second,
@@ -54,15 +61,28 @@ func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatter
 	}
 }
 
-func TestProxy_InterceptClientMessage_AnonymousBypass(t *testing.T) {
-	t.Parallel()
-	// Anonymous users should bypass all filtering
-	anonClaims := &auth.Claims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject: "anonymous",
-		},
+// newTestProxyNoAuth creates a Proxy for testing with auth disabled.
+// Sets authEnabled=false with a default tenantID (mimics gateway auth-disabled path).
+func newTestProxyNoAuth(tenantID string) *Proxy {
+	return &Proxy{
+		clientConn:     nil,
+		backendConn:    nil,
+		authEnabled:    false,
+		claims:         nil,
+		tenantID:       tenantID,
+		permissions:    nil,
+		logger:         zerolog.Nop(),
+		messageTimeout: 60 * time.Second,
+		channelMapper:  auth.NewChannelMapper(auth.DefaultChannelConfig()),
+		publishLimiter: rate.NewLimiter(10, 100),
+		maxPublishSize: 64 * 1024,
 	}
-	proxy := newTestProxy(anonClaims, []string{"*.trade"}, nil, nil)
+}
+
+func TestProxy_InterceptClientMessage_AuthDisabled(t *testing.T) {
+	t.Parallel()
+	// Auth disabled: no permission filtering, but channel mapping still runs
+	proxy := newTestProxyNoAuth("odin")
 
 	input := `{"type":"subscribe","data":{"channels":["secret.channel","forbidden.data"]}}`
 	result, err := proxy.interceptClientMessage([]byte(input))
@@ -71,16 +91,79 @@ func TestProxy_InterceptClientMessage_AnonymousBypass(t *testing.T) {
 		t.Fatalf("interceptClientMessage() error = %v", err)
 	}
 
-	// Should pass through unchanged
-	if string(result) != input {
-		t.Errorf("Anonymous should pass through unchanged.\nGot:  %s\nWant: %s", result, input)
+	// Should have channels mapped to internal format (no permission filtering)
+	var msg protocol.ClientMessage
+	if err := json.Unmarshal(result, &msg); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+	var data protocol.SubscribeData
+	if err := json.Unmarshal(msg.Data, &data); err != nil {
+		t.Fatalf("Failed to parse data: %v", err)
+	}
+
+	// All channels pass through (no filtering) but get tenant prefix
+	expected := []string{"odin.secret.channel", "odin.forbidden.data"}
+	if len(data.Channels) != len(expected) {
+		t.Errorf("Expected %d channels, got %d: %v", len(expected), len(data.Channels), data.Channels)
+	}
+	for i, ch := range expected {
+		if i < len(data.Channels) && data.Channels[i] != ch {
+			t.Errorf("Channel[%d] = %q, want %q", i, data.Channels[i], ch)
+		}
 	}
 }
 
-func TestProxy_InterceptClientMessage_NilClaimsBypass(t *testing.T) {
+func TestProxy_InterceptClientMessage_AuthDisabledPublish(t *testing.T) {
 	t.Parallel()
-	// Nil claims should bypass filtering
-	proxy := newTestProxy(nil, []string{"*.trade"}, nil, nil)
+	// Auth disabled: no access validation, but channel mapping still runs
+	proxy := newTestProxyNoAuth("odin")
+
+	input := `{"type":"publish","data":{"channel":"BTC.trade","data":{"price":50000}}}`
+	result, err := proxy.interceptClientMessage([]byte(input))
+
+	if err != nil {
+		t.Fatalf("interceptClientMessage() error = %v", err)
+	}
+
+	// Result should have mapped channel with tenant prefix, no access denied
+	var msg protocol.ClientMessage
+	if err := json.Unmarshal(result, &msg); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+	if msg.Type != "publish" {
+		t.Errorf("Type should be publish, got %s", msg.Type)
+	}
+
+	var pubData protocol.PublishData
+	if err := json.Unmarshal(msg.Data, &pubData); err != nil {
+		t.Fatalf("Failed to parse publish data: %v", err)
+	}
+	// Channel should have tenant prefix even with auth disabled
+	expectedChannel := "odin.BTC.trade"
+	if pubData.Channel != expectedChannel {
+		t.Errorf("Channel = %q, want %q", pubData.Channel, expectedChannel)
+	}
+	// Data payload should be preserved through mapping
+	var payload map[string]any
+	if err := json.Unmarshal(pubData.Data, &payload); err != nil {
+		t.Fatalf("Failed to parse publish payload: %v", err)
+	}
+	if price, ok := payload["price"]; !ok || price != float64(50000) {
+		t.Errorf("Payload not preserved: got %v", payload)
+	}
+}
+
+func TestProxy_InterceptClientMessage_EmptyTenantBypass(t *testing.T) {
+	t.Parallel()
+	// Empty tenantID should bypass all interception (defensive guard)
+	proxy := &Proxy{
+		tenantID:       "",
+		authEnabled:    false,
+		logger:         zerolog.Nop(),
+		channelMapper:  auth.NewChannelMapper(auth.DefaultChannelConfig()),
+		publishLimiter: rate.NewLimiter(10, 100),
+		maxPublishSize: 64 * 1024,
+	}
 
 	input := `{"type":"subscribe","data":{"channels":["secret.channel"]}}`
 	result, err := proxy.interceptClientMessage([]byte(input))
@@ -90,7 +173,7 @@ func TestProxy_InterceptClientMessage_NilClaimsBypass(t *testing.T) {
 	}
 
 	if string(result) != input {
-		t.Errorf("Nil claims should pass through unchanged.\nGot:  %s\nWant: %s", result, input)
+		t.Errorf("Empty tenantID should pass through unchanged.\nGot:  %s\nWant: %s", result, input)
 	}
 }
 
@@ -182,9 +265,24 @@ func TestProxy_InterceptClientMessage_AllAllowed(t *testing.T) {
 		t.Fatalf("interceptClientMessage() error = %v", err)
 	}
 
-	// All channels allowed - original message preserved
-	if string(result) != input {
-		t.Errorf("All allowed should pass through unchanged.\nGot:  %s\nWant: %s", result, input)
+	// All channels allowed, then mapped to internal format with tenant prefix
+	var msg protocol.ClientMessage
+	if err := json.Unmarshal(result, &msg); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+	var data protocol.SubscribeData
+	if err := json.Unmarshal(msg.Data, &data); err != nil {
+		t.Fatalf("Failed to parse data: %v", err)
+	}
+
+	expected := []string{"test-tenant.BTC.trade", "test-tenant.ETH.liquidity"}
+	if len(data.Channels) != len(expected) {
+		t.Errorf("Expected %d channels, got %d: %v", len(expected), len(data.Channels), data.Channels)
+	}
+	for i, ch := range expected {
+		if i < len(data.Channels) && data.Channels[i] != ch {
+			t.Errorf("Channel[%d] = %q, want %q", i, data.Channels[i], ch)
+		}
 	}
 }
 
@@ -210,8 +308,8 @@ func TestProxy_InterceptClientMessage_SomeFiltered(t *testing.T) {
 		t.Fatalf("Failed to parse data: %v", err)
 	}
 
-	// Should have BTC.trade and ETH.trade, but not secret.channel
-	expectedChannels := []string{"BTC.trade", "ETH.trade"}
+	// Should have BTC.trade and ETH.trade (not secret.channel), mapped with tenant prefix
+	expectedChannels := []string{"test-tenant.BTC.trade", "test-tenant.ETH.trade"}
 	if len(data.Channels) != len(expectedChannels) {
 		t.Errorf("Expected %d channels, got %d: %v", len(expectedChannels), len(data.Channels), data.Channels)
 	}
@@ -268,7 +366,7 @@ func TestProxy_InterceptClientMessage_UserScoped(t *testing.T) {
 		{
 			name:            "own balance allowed",
 			channels:        []string{"balances.user123"},
-			expectedAllowed: []string{"balances.user123"},
+			expectedAllowed: []string{"test-tenant.balances.user123"},
 		},
 		{
 			name:            "other user balance denied",
@@ -278,7 +376,7 @@ func TestProxy_InterceptClientMessage_UserScoped(t *testing.T) {
 		{
 			name:            "mixed - own allowed, other denied",
 			channels:        []string{"balances.user123", "balances.user456"},
-			expectedAllowed: []string{"balances.user123"},
+			expectedAllowed: []string{"test-tenant.balances.user123"},
 		},
 	}
 
@@ -329,7 +427,7 @@ func TestProxy_InterceptClientMessage_GroupScoped(t *testing.T) {
 		{
 			name:            "member group allowed",
 			channels:        []string{"community.vip"},
-			expectedAllowed: []string{"community.vip"},
+			expectedAllowed: []string{"test-tenant.community.vip"},
 		},
 		{
 			name:            "non-member group denied",
@@ -339,7 +437,7 @@ func TestProxy_InterceptClientMessage_GroupScoped(t *testing.T) {
 		{
 			name:            "mixed member and non-member",
 			channels:        []string{"community.vip", "community.whales", "community.traders"},
-			expectedAllowed: []string{"community.vip", "community.traders"},
+			expectedAllowed: []string{"test-tenant.community.vip", "test-tenant.community.traders"},
 		},
 	}
 

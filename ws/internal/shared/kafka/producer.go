@@ -60,6 +60,11 @@ type ProducerConfig struct {
 	// Topic cache settings
 	TopicCacheTTL time.Duration // TTL for provisioned topic cache (default: 60s)
 
+	// DefaultTenantID is used when channel has no tenant prefix.
+	// For channels like "BTC.trade" (2 parts), prepends this tenant.
+	// When empty, channels must be in full internal format (3+ parts).
+	DefaultTenantID string
+
 	// Producer tuning (optional - sensible defaults provided)
 	BatchMaxBytes   int32         // Max batch size in bytes (default: 1MB)
 	MaxBufferedRecs int           // Max buffered records (default: 10000)
@@ -74,14 +79,15 @@ type ProducerConfig struct {
 //
 // Lifecycle: Create with NewProducer, use Publish to send messages, Close when done.
 type Producer struct {
-	client         *kgo.Client
-	topicNamespace string
-	logger         *zerolog.Logger
-	stats          ProducerStats
-	ctx            context.Context
-	cancel         context.CancelFunc
-	mu             sync.RWMutex
-	closed         bool
+	client          *kgo.Client
+	topicNamespace  string
+	defaultTenantID string
+	logger          *zerolog.Logger
+	stats           ProducerStats
+	ctx             context.Context
+	cancel          context.CancelFunc
+	mu              sync.RWMutex
+	closed          bool
 
 	// Circuit breaker for Kafka connection
 	circuitBreaker *gobreaker.CircuitBreaker[any]
@@ -258,6 +264,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	producer := &Producer{
 		client:            client,
 		topicNamespace:    NormalizeEnv(cfg.TopicNamespace),
+		defaultTenantID:   cfg.DefaultTenantID,
 		logger:            cfg.Logger,
 		ctx:               ctx,
 		cancel:            cancel,
@@ -312,8 +319,15 @@ func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, 
 
 // doPublish performs the actual Kafka publish operation.
 func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string, data []byte) error {
-	// parseChannel ALWAYS runs - extracts tenant/category to build topic
-	tenant, category, err := parseChannel(channel)
+	// Extract tenant/category to build topic.
+	// When defaultTenantID is set, channels with fewer than 3 parts use the default tenant.
+	var tenant, category string
+	var err error
+	if p.defaultTenantID != "" {
+		tenant, category, err = p.parseChannelWithDefault(channel)
+	} else {
+		tenant, category, err = parseChannel(channel)
+	}
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidChannel, err)
 	}
@@ -392,6 +406,38 @@ func parseChannel(channel string) (tenant, category string, err error) {
 	}
 
 	return tenant, category, nil
+}
+
+// parseChannelWithDefault extracts tenant and category, using default tenant if needed.
+// Handles channels with fewer than 3 parts by prepending the default tenant.
+//
+// Examples with DefaultTenantID = "odin":
+//
+//	"odin.BTC.trade"  → tenant: "odin", category: "trade" (3+ parts: explicit tenant)
+//	"BTC.trade"       → tenant: "odin", category: "trade" (2 parts: use default)
+//	"trade"           → tenant: "odin", category: "trade" (1 part: use default)
+func (p *Producer) parseChannelWithDefault(channel string) (tenant, category string, err error) {
+	parts := strings.Split(channel, ".")
+
+	switch len(parts) {
+	case 0:
+		return "", "", errors.New("channel cannot be empty")
+	case 1:
+		// Just category: "trade" → use default tenant
+		if parts[0] == "" {
+			return "", "", errors.New("channel cannot be empty")
+		}
+		return p.defaultTenantID, parts[0], nil
+	case 2:
+		// identifier.category: "BTC.trade" → use default tenant
+		if parts[0] == "" || parts[1] == "" {
+			return "", "", errors.New("channel parts cannot be empty")
+		}
+		return p.defaultTenantID, parts[1], nil
+	default:
+		// 3+ parts: tenant.identifier.category — delegate to standard parser
+		return parseChannel(channel)
+	}
 }
 
 // isTopicProvisioned checks if a topic exists in the cache or registry.

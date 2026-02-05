@@ -156,6 +156,10 @@ type ServerConfig struct {
 	// Used to validate KafkaTopicNamespace and topic formats at runtime.
 	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"`
 
+	// DefaultTenantID disables multi-tenant support. All messages
+	// are routed to this tenant. Only used when AUTH_ENABLED=false.
+	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
+
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 
@@ -488,6 +492,7 @@ func (c *ServerConfig) Print() {
 	fmt.Printf("Format:          %s\n", c.LogFormat)
 	fmt.Println("\n=== Authentication ===")
 	fmt.Println("Auth:            Handled by ws-gateway")
+	fmt.Printf("Default Tenant:  %s\n", c.DefaultTenantID)
 	fmt.Println("\n=== Broadcast Bus ===")
 	fmt.Printf("Type:            %s\n", c.BroadcastType)
 	if c.BroadcastType == "valkey" || c.BroadcastType == "redis" || c.BroadcastType == "" {
@@ -569,5 +574,6 @@ func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 		Int("client_send_buffer_size", c.ClientSendBufferSize).
 		Dur("topic_refresh_interval", c.TopicRefreshInterval).
 		Int("provisioning_db_max_open_conns", c.ProvisioningDBMaxOpenConns).
+		Str("default_tenant_id", c.DefaultTenantID).
 		Msg("Server configuration loaded")
 }

@@ -14,6 +14,8 @@ ws-gateway:
   config:
     logLevel: debug
     logFormat: pretty
+    authEnabled: false       # No auth for local dev
+    defaultTenantID: "odin"  # Single tenant for local dev
     # Enable for local testing
     multiIssuerOIDCEnabled: false    # Can enable for testing
     perTenantChannelRulesEnabled: false

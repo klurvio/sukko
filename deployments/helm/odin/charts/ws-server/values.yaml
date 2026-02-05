@@ -29,6 +29,9 @@ config:
   # Range: 1-10 (1 = aggressive, 10 = very lenient)
   # Industry: Coinbase=2, Binance=unlimited, FIX=5s timeout
   slowClientMaxAttempts: 3
+  # Default tenant ID — disables multi-tenant support.
+  # All messages are routed to this tenant. Only used when auth is disabled at gateway.
+  defaultTenantID: "odin"
   # Environment: deployment environment for logging, metrics, feature flags
   # Values: develop, staging, production (or local for development)
   environment: local

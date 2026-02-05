@@ -107,6 +107,68 @@ func TestChannelMapper_MapToInternal_TenantExplicit(t *testing.T) {
 	}
 }
 
+func TestChannelMapper_MapToInternalWithTenant(t *testing.T) {
+	t.Parallel()
+	m := NewChannelMapper(DefaultChannelConfig())
+
+	tests := []struct {
+		name          string
+		tenantID      string
+		clientChannel string
+		expected      string
+	}{
+		{
+			name:          "normal mapping",
+			tenantID:      "odin",
+			clientChannel: "BTC.trade",
+			expected:      "odin.BTC.trade",
+		},
+		{
+			name:          "user scoped channel",
+			tenantID:      "acme",
+			clientChannel: "user123.balances",
+			expected:      "acme.user123.balances",
+		},
+		{
+			name:          "single part channel",
+			tenantID:      "odin",
+			clientChannel: "notifications",
+			expected:      "odin.notifications",
+		},
+		{
+			name:          "empty tenantID returns as-is",
+			tenantID:      "",
+			clientChannel: "BTC.trade",
+			expected:      "BTC.trade",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := m.MapToInternalWithTenant(tt.tenantID, tt.clientChannel)
+			if result != tt.expected {
+				t.Errorf("MapToInternalWithTenant(%q, %q) = %q, want %q",
+					tt.tenantID, tt.clientChannel, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestChannelMapper_MapToInternalWithTenant_TenantExplicit(t *testing.T) {
+	t.Parallel()
+	m := NewChannelMapper(ChannelConfig{
+		Separator:      ".",
+		TenantImplicit: false, // Tenant explicit in channel
+	})
+
+	// Should not add tenant prefix when TenantImplicit is false
+	result := m.MapToInternalWithTenant("acme", "BTC.trade")
+	if result != "BTC.trade" {
+		t.Errorf("expected no modification when TenantImplicit=false, got %q", result)
+	}
+}
+
 func TestChannelMapper_MapToClient(t *testing.T) {
 	t.Parallel()
 	m := NewChannelMapper(DefaultChannelConfig())

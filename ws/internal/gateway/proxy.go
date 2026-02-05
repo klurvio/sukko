@@ -21,19 +21,23 @@ import (
 
 // Proxy handles bidirectional WebSocket message forwarding between client and backend.
 // It intercepts subscribe and publish messages to:
-// - Filter subscribe channels based on permissions
-// - Map publish channels (add tenant prefix from JWT)
+// - Filter subscribe channels based on permissions (auth only)
+// - Map channels to internal format with tenant prefix (routing, always)
 // - Validate publish access and rate limits
 type Proxy struct {
 	clientConn  net.Conn
 	backendConn net.Conn
-	claims      *auth.Claims
-	permissions *PermissionChecker
 	logger      zerolog.Logger
 
 	messageTimeout time.Duration
 
-	// Channel mapping for publish messages
+	// Auth (only used when authEnabled=true)
+	claims      *auth.Claims
+	permissions *PermissionChecker
+	authEnabled bool
+
+	// Routing (always used — from JWT when auth enabled, from config when disabled)
+	tenantID         string
 	channelMapper    *auth.ChannelMapper
 	crossTenantRoles []string
 
@@ -46,12 +50,16 @@ type Proxy struct {
 type ProxyConfig struct {
 	ClientConn     net.Conn
 	BackendConn    net.Conn
-	Claims         *auth.Claims
-	Permissions    *PermissionChecker
 	Logger         zerolog.Logger
 	MessageTimeout time.Duration
 
-	// Channel mapping for publish messages
+	// Auth (claims is nil when auth disabled — proxy won't use it)
+	AuthEnabled bool
+	Claims      *auth.Claims
+	Permissions *PermissionChecker
+
+	// Routing (always set — from JWT or config)
+	TenantID         string
 	ChannelMapper    *auth.ChannelMapper
 	CrossTenantRoles []string
 
@@ -83,10 +91,12 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 	return &Proxy{
 		clientConn:       cfg.ClientConn,
 		backendConn:      cfg.BackendConn,
-		claims:           cfg.Claims,
-		permissions:      cfg.Permissions,
 		logger:           cfg.Logger,
 		messageTimeout:   cfg.MessageTimeout,
+		authEnabled:      cfg.AuthEnabled,
+		claims:           cfg.Claims,
+		permissions:      cfg.Permissions,
+		tenantID:         cfg.TenantID,
 		channelMapper:    cfg.ChannelMapper,
 		crossTenantRoles: cfg.CrossTenantRoles,
 		publishLimiter:   rate.NewLimiter(rate.Limit(publishRateLimit), publishBurst),
@@ -288,8 +298,9 @@ func (p *Proxy) forwardCloseFrame(dst net.Conn, payload []byte, mask bool) {
 
 // interceptClientMessage intercepts client messages for subscribe and publish requests.
 func (p *Proxy) interceptClientMessage(msg []byte) ([]byte, error) {
-	// If no claims or anonymous, allow all channels (auth disabled)
-	if p.claims == nil || p.claims.Subject == "anonymous" {
+	// Defensive guard — tenantID is always set in practice (from JWT or config default).
+	// This only triggers if config has empty DefaultTenantID AND auth is disabled.
+	if p.tenantID == "" {
 		return msg, nil
 	}
 
@@ -309,7 +320,9 @@ func (p *Proxy) interceptClientMessage(msg []byte) ([]byte, error) {
 	}
 }
 
-// interceptSubscribe intercepts subscribe messages to filter channels based on permissions.
+// interceptSubscribe intercepts subscribe messages to:
+// 1. Filter channels based on permissions (auth only — skipped when auth disabled)
+// 2. Map channels to internal format with tenant prefix (routing — always runs)
 func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, error) {
 	// Parse subscribe data
 	var subData protocol.SubscribeData
@@ -318,62 +331,82 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 		return json.Marshal(clientMsg)
 	}
 
-	// Filter channels based on permissions
-	allowedChannels := p.permissions.FilterChannels(p.claims, subData.Channels)
+	// 1. Permission filtering (auth only — never runs when auth disabled)
+	channels := subData.Channels
+	if p.authEnabled {
+		allowedChannels := p.permissions.FilterChannels(p.claims, channels)
 
-	// Log denied channels and record metrics
-	for _, ch := range subData.Channels {
-		if contains(allowedChannels, ch) {
-			RecordChannelCheck("allowed")
-		} else {
-			RecordChannelCheck("denied")
-			RecordAccessDenial("channel", "unauthorized")
-			p.logger.Warn().
-				Str("channel", ch).
-				Str("principal", p.claims.Subject).
-				Msg("Subscription denied")
+		// Log denied channels and record metrics
+		for _, ch := range channels {
+			if contains(allowedChannels, ch) {
+				RecordChannelCheck("allowed")
+			} else {
+				RecordChannelCheck("denied")
+				RecordAccessDenial("channel", "unauthorized")
+				p.logger.Warn().
+					Str("channel", ch).
+					Msg("Subscription denied")
+			}
 		}
+
+		channels = allowedChannels
 	}
 
-	// If all channels were allowed, pass through original message
-	if len(allowedChannels) == len(subData.Channels) {
-		return json.Marshal(clientMsg)
-	}
+	// 2. Channel mapping (routing — always runs)
+	channels = p.mapChannelsToInternal(channels)
 
-	// Create modified message with only allowed channels
-	modifiedData := protocol.SubscribeData{Channels: allowedChannels}
+	// 3. Rebuild message with mapped channels
+	modifiedData := protocol.SubscribeData{Channels: channels}
 	dataBytes, err := json.Marshal(modifiedData)
 	if err != nil {
 		return json.Marshal(clientMsg)
 	}
 
-	modifiedMsg := protocol.ClientMessage{
+	return json.Marshal(protocol.ClientMessage{
 		Type: protocol.MsgTypeSubscribe,
 		Data: dataBytes,
-	}
+	})
+}
 
-	return json.Marshal(modifiedMsg)
+// mapChannelToInternal maps a single client channel to internal tenant-prefixed format.
+// Avoids double-prefixing if the channel already starts with the tenant prefix.
+func (p *Proxy) mapChannelToInternal(ch string) string {
+	if p.channelMapper == nil || p.tenantID == "" {
+		return ch
+	}
+	if strings.HasPrefix(ch, p.tenantID+".") {
+		return ch // Already prefixed
+	}
+	return p.channelMapper.MapToInternalWithTenant(p.tenantID, ch)
+}
+
+// mapChannelsToInternal maps client channels to internal tenant-prefixed format.
+// Uses MapToInternalWithTenant which respects TenantImplicit and config.Separator.
+func (p *Proxy) mapChannelsToInternal(channels []string) []string {
+	if p.channelMapper == nil || p.tenantID == "" {
+		return channels
+	}
+	mapped := make([]string, len(channels))
+	for i, ch := range channels {
+		mapped[i] = p.mapChannelToInternal(ch)
+	}
+	return mapped
 }
 
 // interceptPublish intercepts publish messages to:
 // 1. Rate limit publishes
 // 2. Validate message size
-// 3. Map client channel to internal format (add tenant prefix)
-// 4. Validate channel access
+// 3. Map client channel to internal format (routing — always runs)
+// 4. Validate channel access (auth only — skipped when auth disabled)
 func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, error) {
 	start := time.Now()
 	defer func() {
 		RecordPublishLatency(time.Since(start).Seconds())
 	}()
 
-	tenantID := ""
-	if p.claims != nil {
-		tenantID = p.claims.TenantID
-	}
-
 	// 1. Rate limit check
 	if !p.publishLimiter.Allow() {
-		RecordPublishResult(tenantID, string(protocol.ErrCodeRateLimited))
+		RecordPublishResult(p.tenantID, string(protocol.ErrCodeRateLimited))
 		return p.sendPublishErrorToClient(protocol.ErrCodeRateLimited)
 	}
 
@@ -381,7 +414,7 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 	var pubData protocol.PublishData
 	if err := json.Unmarshal(clientMsg.Data, &pubData); err != nil {
 		p.logger.Warn().Err(err).Msg("Failed to parse publish data")
-		RecordPublishResult(tenantID, string(protocol.ErrCodeInvalidRequest))
+		RecordPublishResult(p.tenantID, string(protocol.ErrCodeInvalidRequest))
 		return p.sendPublishErrorToClient(protocol.ErrCodeInvalidRequest)
 	}
 
@@ -391,7 +424,7 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 			Int("size", len(pubData.Data)).
 			Int("max_size", p.maxPublishSize).
 			Msg("Publish message too large")
-		RecordPublishResult(tenantID, string(protocol.ErrCodeMessageTooLarge))
+		RecordPublishResult(p.tenantID, string(protocol.ErrCodeMessageTooLarge))
 		return p.sendPublishErrorToClient(protocol.ErrCodeMessageTooLarge)
 	}
 
@@ -401,36 +434,27 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 		p.logger.Warn().
 			Str("channel", pubData.Channel).
 			Msg("Invalid publish channel format")
-		RecordPublishResult(tenantID, string(protocol.ErrCodeInvalidChannel))
+		RecordPublishResult(p.tenantID, string(protocol.ErrCodeInvalidChannel))
 		return p.sendPublishErrorToClient(protocol.ErrCodeInvalidChannel)
 	}
 
-	// 5. Map channel to internal format (detect double-prefix)
-	var internalChannel string
-	if p.channelMapper != nil && p.claims != nil && p.claims.TenantID != "" {
-		// Check if already prefixed with tenant (avoid double-prefix)
-		if strings.HasPrefix(pubData.Channel, p.claims.TenantID+".") {
-			internalChannel = pubData.Channel
-		} else {
-			internalChannel = p.channelMapper.MapToInternal(p.claims, pubData.Channel)
-		}
-	} else {
-		// No channel mapper or no tenant - pass through
-		internalChannel = pubData.Channel
-	}
+	// 5. Map channel to internal format (routing — always runs)
+	internalChannel := p.mapChannelToInternal(pubData.Channel)
 
-	// 6. Validate channel access
-	if p.channelMapper != nil && !p.channelMapper.ValidateChannelAccess(p.claims, internalChannel, p.crossTenantRoles) {
-		p.logger.Warn().
-			Str("channel", pubData.Channel).
-			Str("internal_channel", internalChannel).
-			Str("principal", p.claims.Subject).
-			Msg("Publish access denied")
-		RecordPublishResult(tenantID, string(protocol.ErrCodeForbidden))
-		return p.sendPublishErrorToClient(protocol.ErrCodeForbidden)
+	// 6. Validate channel access (auth only — skipped when auth disabled)
+	if p.authEnabled && p.channelMapper != nil {
+		if !p.channelMapper.ValidateChannelAccess(p.claims, internalChannel, p.crossTenantRoles) {
+			p.logger.Warn().
+				Str("channel", pubData.Channel).
+				Str("internal_channel", internalChannel).
+				Msg("Publish access denied")
+			RecordPublishResult(p.tenantID, string(protocol.ErrCodeForbidden))
+			return p.sendPublishErrorToClient(protocol.ErrCodeForbidden)
+		}
 	}
 
 	// 7. Rebuild message with mapped channel
+	originalChannel := pubData.Channel
 	pubData.Channel = internalChannel
 	newData, err := json.Marshal(pubData)
 	if err != nil {
@@ -439,11 +463,11 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 	}
 
 	p.logger.Debug().
-		Str("original_channel", pubData.Channel).
+		Str("original_channel", originalChannel).
 		Str("internal_channel", internalChannel).
 		Msg("Mapped publish channel")
 
-	RecordPublishResult(tenantID, "success")
+	RecordPublishResult(p.tenantID, "success")
 
 	return json.Marshal(protocol.ClientMessage{Type: protocol.MsgTypePublish, Data: newData})
 }

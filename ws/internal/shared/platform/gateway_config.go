@@ -28,6 +28,10 @@ type GatewayConfig struct {
 	// Authentication (multi-tenant with asymmetric keys)
 	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"true"`
 
+	// DefaultTenantID disables multi-tenant support. All connections
+	// are routed to this tenant. Only used when AUTH_ENABLED=false.
+	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
+
 	// Provisioning database connection (required when auth is enabled)
 	ProvisioningDBURL string `env:"PROVISIONING_DATABASE_URL"`
 
@@ -133,6 +137,10 @@ func (c *GatewayConfig) Validate() error {
 		if c.ProvisioningDBURL == "" {
 			return errors.New("PROVISIONING_DATABASE_URL is required when AUTH_ENABLED=true")
 		}
+	} else {
+		if c.DefaultTenantID == "" {
+			return errors.New("DEFAULT_TENANT_ID is required when AUTH_ENABLED=false")
+		}
 	}
 
 	// Validate OIDC settings - if one URL is set, both must be set
@@ -219,6 +227,11 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		Float64("rate_limit_rate", c.RateLimitRate).
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat)
+
+	// Add routing fields when auth is disabled
+	if !c.AuthEnabled {
+		event = event.Str("default_tenant_id", c.DefaultTenantID)
+	}
 
 	// Add auth-specific fields when enabled
 	if c.AuthEnabled {

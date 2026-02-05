@@ -112,11 +112,20 @@ func (s *Server) Broadcast(subject string, message []byte) {
 	//   - Replay functionality still works (clients store messages)
 	//   - Sequence numbers weren't critical for this use case
 	//   - Performance gain: 6.5K → 12K connections @ 30% CPU
+	// Strip tenant prefix from envelope channel if ChannelMapper is configured.
+	// Subscription index still uses internal format (e.g., "odin.BTC.trade") for matching.
+	// Only the channel in the client envelope is converted to client format (e.g., "BTC.trade").
+	// This is removable: set channelMapper to nil when CDC flow is retired.
+	envelopeChannel := channel
+	if s.channelMapper != nil {
+		envelopeChannel = s.channelMapper.MapToClient(channel)
+	}
+
 	baseEnvelope := &messaging.MessageEnvelope{
 		Type:      "message", // Standard type for broadcast messages (industry standard)
 		Seq:       0,         // Shared sequence for all clients (acceptable for 12K capacity)
 		Timestamp: time.Now().UnixMilli(),
-		Channel:   channel, // Actual channel (e.g., "BTC.trade", "all.trade")
+		Channel:   envelopeChannel, // Client-facing channel (e.g., "BTC.trade")
 		Priority:  messaging.PriorityHigh,
 		Data:      json.RawMessage(message),
 	}

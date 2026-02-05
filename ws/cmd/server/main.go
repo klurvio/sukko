@@ -23,6 +23,7 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/server/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/server/orchestration"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
@@ -247,9 +248,10 @@ func main() {
 			Brokers:        kafkaBrokers,
 			TopicNamespace: topicNamespace,
 			// ClientID auto-generated with hostname (odin-ws-producer-{hostname})
-			Logger: &producerLogger,
-			SASL:   saslConfig,
-			TLS:    tlsConfig,
+			Logger:          &producerLogger,
+			SASL:            saslConfig,
+			TLS:             tlsConfig,
+			DefaultTenantID: cfg.DefaultTenantID,
 		})
 		if err != nil {
 			logger.Fatalf("Failed to create Kafka producer: %v", err)
@@ -257,6 +259,9 @@ func main() {
 
 		logger.Printf("Kafka producer initialized (namespace: %s)", kafkaProducer.Namespace())
 	}
+
+	// Create channel mapper once (shared across all shards — immutable after creation)
+	channelMapper := auth.NewChannelMapper(auth.DefaultChannelConfig())
 
 	// Create and start shards
 	shards := make([]*orchestration.Shard, *numShards)
@@ -299,6 +304,10 @@ func main() {
 			MetricsInterval: cfg.MetricsInterval,
 			LogLevel:        types.LogLevel(cfg.LogLevel),
 			LogFormat:       types.LogFormat(cfg.LogFormat),
+
+			// Channel mapping for broadcast envelope (removable: set to nil when CDC flow is retired)
+			// Strips tenant prefix from internal channel before sending to clients
+			ChannelMapper: channelMapper,
 		}
 
 		// Get shared consumer for replay (from multi-tenant pool)
