@@ -90,10 +90,9 @@ type GatewayConfig struct {
 	RateLimitRate    float64 `env:"GATEWAY_RATE_LIMIT_RATE" envDefault:"10.0"`
 
 	// Publish-specific settings
-	PublishRateLimit float64  `env:"GATEWAY_PUBLISH_RATE_LIMIT" envDefault:"10.0"` // Messages per second
-	PublishBurst     int      `env:"GATEWAY_PUBLISH_BURST" envDefault:"100"`       // Burst capacity
-	MaxPublishSize   int      `env:"GATEWAY_MAX_PUBLISH_SIZE" envDefault:"65536"`  // Max message size (64KB)
-	CrossTenantRoles []string `env:"GATEWAY_CROSS_TENANT_ROLES" envSeparator:","`  // Roles that can access cross-tenant channels
+	PublishRateLimit float64 `env:"GATEWAY_PUBLISH_RATE_LIMIT" envDefault:"10.0"` // Messages per second
+	PublishBurst     int     `env:"GATEWAY_PUBLISH_BURST" envDefault:"100"`       // Burst capacity
+	MaxPublishSize   int     `env:"GATEWAY_MAX_PUBLISH_SIZE" envDefault:"65536"`  // Max message size (64KB)
 
 	// Logging
 	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`

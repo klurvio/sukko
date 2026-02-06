@@ -84,13 +84,6 @@ func TestDefaultPublishBurst_GreaterThanRateLimit(t *testing.T) {
 // Channel Parts Tests
 // =============================================================================
 
-func TestMinClientChannelParts_Value(t *testing.T) {
-	t.Parallel()
-	if MinClientChannelParts != 2 {
-		t.Errorf("MinClientChannelParts = %d, want 2", MinClientChannelParts)
-	}
-}
-
 func TestMinInternalChannelParts_Value(t *testing.T) {
 	t.Parallel()
 	if MinInternalChannelParts != 3 {
@@ -98,29 +91,8 @@ func TestMinInternalChannelParts_Value(t *testing.T) {
 	}
 }
 
-func TestMinInternalChannelParts_GreaterThanClient(t *testing.T) {
+func TestMinInternalChannelParts_Positive(t *testing.T) {
 	t.Parallel()
-	// Internal channels have tenant prefix, so must have more parts
-	if MinInternalChannelParts <= MinClientChannelParts {
-		t.Errorf("MinInternalChannelParts (%d) should be greater than MinClientChannelParts (%d)",
-			MinInternalChannelParts, MinClientChannelParts)
-	}
-}
-
-func TestChannelParts_DifferenceIsOne(t *testing.T) {
-	t.Parallel()
-	// The difference should be exactly 1 (the tenant prefix)
-	diff := MinInternalChannelParts - MinClientChannelParts
-	if diff != 1 {
-		t.Errorf("Difference between internal and client channel parts = %d, want 1 (tenant prefix)", diff)
-	}
-}
-
-func TestChannelParts_Positive(t *testing.T) {
-	t.Parallel()
-	if MinClientChannelParts <= 0 {
-		t.Errorf("MinClientChannelParts = %d, must be positive", MinClientChannelParts)
-	}
 	if MinInternalChannelParts <= 0 {
 		t.Errorf("MinInternalChannelParts = %d, must be positive", MinInternalChannelParts)
 	}

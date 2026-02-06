@@ -30,9 +30,8 @@ type Gateway struct {
 	dbConn        *sql.DB                 // For cleanup on shutdown
 	oidcCloser    *auth.OIDCKeyfuncResult // For OIDC keyfunc cleanup on shutdown
 	permissions   *PermissionChecker
-	connTracker   *TenantConnectionTracker // Per-tenant connection tracking
-	channelMapper *auth.ChannelMapper      // Channel name mapping for publish
-	logger        zerolog.Logger
+	connTracker *TenantConnectionTracker // Per-tenant connection tracking
+	logger      zerolog.Logger
 
 	// Multi-issuer OIDC support (optional, enabled via config)
 	tenantRegistry    TenantRegistry           // Tenant lookup by issuer, channel rules
@@ -45,9 +44,8 @@ type Gateway struct {
 // Call Close() to release resources when shutting down.
 func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error) {
 	gw := &Gateway{
-		config:        config,
-		channelMapper: auth.NewChannelMapper(auth.DefaultChannelConfig()),
-		logger:        logger.With().Str("component", "gateway").Logger(),
+		config: config,
+		logger: logger.With().Str("component", "gateway").Logger(),
 	}
 
 	// Only create permission checker when auth is enabled (used for channel filtering)
@@ -423,10 +421,8 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Claims:           claims, // nil when auth disabled — proxy won't use it
 		TenantID:         tenantID,
 		Permissions:      gw.permissions,
-		Logger:           gw.logger.With().Str("principal", principal).Logger(),
-		MessageTimeout:   gw.config.MessageTimeout,
-		ChannelMapper:    gw.channelMapper,
-		CrossTenantRoles: gw.config.CrossTenantRoles,
+		Logger:          gw.logger.With().Str("principal", principal).Logger(),
+		MessageTimeout:  gw.config.MessageTimeout,
 		PublishRateLimit: gw.config.PublishRateLimit,
 		PublishBurst:     gw.config.PublishBurst,
 		MaxPublishSize:   gw.config.MaxPublishSize,

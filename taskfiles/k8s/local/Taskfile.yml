@@ -103,7 +103,7 @@ tasks:
     cmds:
       - kubectl config use-context kind-{{.CLUSTER_NAME}}
       - task: migrate
-      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/client-ws.asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml
       - task: helm:upgrade
 
   down:

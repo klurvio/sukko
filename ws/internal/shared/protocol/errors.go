@@ -14,8 +14,7 @@ const (
 	ErrCodeInvalidRequest PublishErrorCode = "invalid_request"
 
 	// ErrCodeInvalidChannel indicates invalid channel format.
-	// Channel must have format: {identifier}.{category} (client) or
-	// {tenant}.{identifier}.{category} (internal).
+	// Channel must have format: {tenant}.{identifier}.{category}
 	ErrCodeInvalidChannel PublishErrorCode = "invalid_channel"
 
 	// ErrCodeMessageTooLarge indicates payload exceeds size limit.
@@ -41,7 +40,7 @@ const (
 var PublishErrorMessages = map[PublishErrorCode]string{
 	ErrCodeNotAvailable:        "Publishing is not enabled on this server",
 	ErrCodeInvalidRequest:      "Invalid publish request format",
-	ErrCodeInvalidChannel:      "Channel must have format: identifier.category",
+	ErrCodeInvalidChannel:      "Channel must have format: tenant.identifier.category",
 	ErrCodeMessageTooLarge:     "Message exceeds maximum size limit",
 	ErrCodeRateLimited:         "Publish rate limit exceeded",
 	ErrCodePublishFailed:       "Failed to publish message",

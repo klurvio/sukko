@@ -2,11 +2,15 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
 // =============================================================================
@@ -599,5 +603,76 @@ func BenchmarkSequenceGenerator(b *testing.B) {
 
 	for b.Loop() {
 		_ = gen.Next()
+	}
+}
+
+// =============================================================================
+// Error Response Tests
+// =============================================================================
+
+func TestHandleClientMessage_ErrorResponses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		wantType string
+		wantCode string
+	}{
+		{
+			name:     "invalid_json",
+			input:    `{invalid json`,
+			wantType: protocol.MsgTypeError,
+			wantCode: "invalid_json",
+		},
+		{
+			name:     "invalid_subscribe_data",
+			input:    `{"type":"subscribe","data":"not an object"}`,
+			wantType: protocol.RespTypeSubscribeError,
+			wantCode: "invalid_request",
+		},
+		{
+			name:     "invalid_unsubscribe_data",
+			input:    `{"type":"unsubscribe","data":"not an object"}`,
+			wantType: protocol.RespTypeUnsubscribeError,
+			wantCode: "invalid_request",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Minimal server setup for error path testing
+			server := &Server{
+				logger:            zerolog.New(io.Discard),
+				subscriptionIndex: NewSubscriptionIndex(),
+			}
+
+			// Minimal client setup
+			client := &Client{
+				id:            1,
+				send:          make(chan []byte, 16),
+				subscriptions: NewSubscriptionSet(),
+			}
+
+			server.handleClientMessage(client, []byte(tt.input))
+
+			select {
+			case respBytes := <-client.send:
+				var resp map[string]any
+				if err := json.Unmarshal(respBytes, &resp); err != nil {
+					t.Fatalf("Failed to unmarshal response: %v", err)
+				}
+				if resp["type"] != tt.wantType {
+					t.Errorf("type = %v, want %v", resp["type"], tt.wantType)
+				}
+				if resp["code"] != tt.wantCode {
+					t.Errorf("code = %v, want %v", resp["code"], tt.wantCode)
+				}
+			case <-time.After(100 * time.Millisecond):
+				t.Error("Expected error response, got none")
+			}
+		})
 	}
 }

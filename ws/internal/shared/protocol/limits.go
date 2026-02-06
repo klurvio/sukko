@@ -23,10 +23,8 @@ const (
 )
 
 // Channel format constants define the minimum number of parts in channel names.
+// With explicit channels, clients always include the tenant prefix.
 const (
-	// MinClientChannelParts is the minimum parts for client channels: {identifier}.{category}
-	MinClientChannelParts = 2
-
-	// MinInternalChannelParts is the minimum parts for internal channels: {tenant}.{identifier}.{category}
+	// MinInternalChannelParts is the minimum parts for channels: {tenant}.{identifier}.{category}
 	MinInternalChannelParts = 3
 )

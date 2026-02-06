@@ -21,6 +21,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			Int64("client_id", c.id).
 			Err(err).
 			Msg("Client sent invalid JSON")
+		s.sendErrorToClient(c, protocol.MsgTypeError, "invalid_json", "Message is not valid JSON")
 		return
 	}
 
@@ -62,10 +63,11 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 		}
 
 	case protocol.MsgTypeSubscribe:
-		// Client subscribing to hierarchical channels (symbol.eventType)
-		// Message format: {"type": "subscribe", "data": {"channels": ["BTC.trade", "ETH.trade", "BTC.analytics"]}}
+		// Client subscribing to hierarchical channels (tenant.symbol.eventType)
+		// Message format: {"type": "subscribe", "data": {"channels": ["odin.BTC.trade", "odin.ETH.trade", "odin.BTC.analytics"]}}
 		//
-		// Channel format: "{SYMBOL}.{EVENT_TYPE}"
+		// Channel format: "{TENANT}.{SYMBOL}.{EVENT_TYPE}"
+		// - TENANT: Tenant identifier (odin, acme, etc.)
 		// - SYMBOL: Token symbol (BTC, ETH, SOL, etc.)
 		// - EVENT_TYPE: One of 8 types (trade, liquidity, metadata, social, favorites, creation, analytics, balances)
 		//
@@ -76,9 +78,9 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 		// - Better UX: Clients see only relevant updates
 		//
 		// Example use cases:
-		// - Trading client: ["BTC.trade", "ETH.trade"] - Only price updates
-		// - Dashboard: ["BTC.trade", "BTC.analytics", "ETH.trade", "ETH.analytics"] - Prices + metrics
-		// - Social app: ["BTC.social", "ETH.social"] - Only comments/reactions
+		// - Trading client: ["odin.BTC.trade", "odin.ETH.trade"] - Only price updates
+		// - Dashboard: ["odin.BTC.trade", "odin.BTC.analytics", "odin.ETH.trade", "odin.ETH.analytics"] - Prices + metrics
+		// - Social app: ["odin.BTC.social", "odin.ETH.social"] - Only comments/reactions
 		//
 		// Performance impact (10K clients, 200 tokens, 12 msg/sec):
 		// - Without filtering: 12 × 8 events × 10K = 960K writes/sec (CPU overload)
@@ -91,6 +93,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 				Int64("client_id", c.id).
 				Err(err).
 				Msg("Client sent invalid subscribe request")
+			s.sendErrorToClient(c, protocol.RespTypeSubscribeError, "invalid_request", "Invalid subscribe request format")
 			return
 		}
 
@@ -132,6 +135,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 				Int64("client_id", c.id).
 				Err(err).
 				Msg("Client sent invalid unsubscribe request")
+			s.sendErrorToClient(c, protocol.RespTypeUnsubscribeError, "invalid_request", "Invalid unsubscribe request format")
 			return
 		}
 
@@ -282,7 +286,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 			Type:      protocol.MsgTypeMessage, // Standard type for broadcast messages
 			Seq:       c.seqGen.Next(),         // Generate unique sequence number for this client
 			Timestamp: time.Now().UnixMilli(),
-			Channel:   msg.Subject, // Channel from Kafka Key (e.g., "BTC.trade")
+			Channel:   msg.Subject, // Channel from Kafka Key (e.g., "odin.BTC.trade")
 			Priority:  messaging.PriorityNormal,
 			Data:      json.RawMessage(msg.Data),
 		}
@@ -324,4 +328,23 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 	// Increment reconnect counter for monitoring
 	s.stats.MessageReplayRequests.Add(1)
 	metrics.IncrementReplayRequests()
+}
+
+// sendErrorToClient sends an error response to the client.
+// Used for all error types (message parsing, subscribe, unsubscribe).
+func (s *Server) sendErrorToClient(c *Client, errType, code, message string) {
+	errResp := map[string]any{
+		"type":    errType,
+		"code":    code,
+		"message": message,
+	}
+
+	if data, err := json.Marshal(errResp); err == nil {
+		select {
+		case c.send <- data:
+			// Error sent
+		default:
+			// Client buffer full - non-blocking per graceful degradation guidelines
+		}
+	}
 }

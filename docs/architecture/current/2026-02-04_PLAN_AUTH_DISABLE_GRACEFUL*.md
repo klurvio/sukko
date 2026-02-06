@@ -1,6 +1,6 @@
 # Plan: Graceful Auth Disable Without Breaking Code
 
-**Status:** Planned
+**Status:** Implemented
 **Date:** 2026-02-04
 **Scope:** Ensure all features degrade gracefully when `AUTH_ENABLED=false`
 

@@ -22,4 +22,4 @@ tasks:
   asyncapi:bundle:
     desc: Bundle AsyncAPI spec into single file
     cmds:
-      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/client-ws.asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml

@@ -1,0 +1,935 @@
+asyncapi: 3.0.0
+
+info:
+  title: Odin WebSocket Client API
+  version: 1.0.0
+  description: |
+    Real-time WebSocket API for subscribing to market data and publishing events.
+
+    ## Connection
+
+    Connect via WebSocket:
+    - **Authenticated**: `wss://{host}/ws?token={jwt}` or `wss://{host}/ws` with `Authorization: Bearer {jwt}` header
+    - **Unauthenticated** (auth disabled): `wss://{host}/ws` — all connections routed to the default tenant
+
+    The query parameter `token` takes precedence over the `Authorization` header when both are provided.
+
+    ## Health Check
+
+    A REST health endpoint is available at `GET /health`, returning `{"status":"ok","service":"ws-gateway"}`.
+
+    ## Channel Format
+
+    All channels use explicit tenant-prefixed format: `{tenant}.{identifier}.{category}`
+
+    - Minimum 3 dot-separated parts
+    - The tenant prefix must match the authenticated tenant (JWT `tenant_id`) or the default tenant (when auth is disabled)
+    - Examples: `odin.BTC.trade`, `odin.ETH.orderbook`, `acme.balances.user123`
+
+    ## Connection Lifecycle
+
+    - **Admission control**: The server may reject WebSocket upgrades under high CPU (>60%), memory pressure, goroutine limits, or per-tenant connection limits.
+    - **Slow client disconnection**: If the server fails to deliver 3 consecutive messages to a client (send buffer full), it disconnects with close code 1008 (Policy Violation).
+    - **Graceful shutdown**: The server sends close code 1001 (Going Away) to all clients before stopping.
+    - **Heartbeat**: Client sends `heartbeat`, server responds with `pong` containing a timestamp.
+
+    ## WebSocket Close Codes
+
+    | Code | Meaning | Trigger |
+    |------|---------|---------|
+    | 1000 | Normal closure | Client or server initiated clean close |
+    | 1001 | Going away | Server shutting down (graceful) |
+    | 1008 | Policy violation | Slow client disconnected after max delivery attempts |
+    | 1011 | Internal error | Unexpected server error |
+
+    ## JWT Claims
+
+    | Field | Type | Description |
+    |-------|------|-------------|
+    | `sub` | string | Principal — user or application identifier |
+    | `tenant_id` | string | Tenant for routing and access control |
+    | `roles` | string[] | Roles for authorization |
+    | `groups` | string[] | Group memberships (for group-scoped channels) |
+    | `scopes` | string[] | Permission scopes |
+    | `attrs` | map[string]string | Custom attributes for placeholder resolution |
+
+    ## Channel Permissions (auth enabled)
+
+    The gateway validates channels in two stages:
+
+    **Stage 1 — Tenant validation (always):**
+    Channel must start with `{tenant_id}.` matching the JWT's `tenant_id` (auth enabled) or the default tenant ID (auth disabled). Channels with the wrong tenant prefix are silently filtered out on subscribe, or rejected with `forbidden` on publish.
+
+    **Stage 2 — Pattern matching (auth enabled only):**
+    The gateway strips the tenant prefix and matches the remaining portion against permission patterns.
+
+    | Pattern Type | Config Key | Format | Example | Behavior |
+    |--------------|-----------|--------|---------|----------|
+    | Public | `publicPatterns` | Wildcard glob | `*.trade` | Anyone can subscribe (matches `BTC.trade` from `odin.BTC.trade`) |
+    | User-scoped | `userScopedPatterns` | `{principal}` placeholder | `balances.{principal}` | Only the JWT subject can subscribe (`odin.balances.user123` requires `sub=user123`) |
+    | Group-scoped | `groupScopedPatterns` | `{group_id}` placeholder | `community.{group_id}` | Only group members can subscribe (matched against JWT `groups` claim) |
+
+    Channels not matching any pattern are denied.
+
+    ## Rate Limits and Constraints
+
+    | Constraint | Default | Config Env Var |
+    |------------|---------|----------------|
+    | Publish rate | 10 msg/sec | `GATEWAY_PUBLISH_RATE_LIMIT` |
+    | Publish burst | 100 | `GATEWAY_PUBLISH_BURST` |
+    | Max publish payload | 64KB | `GATEWAY_MAX_PUBLISH_SIZE` |
+    | Send buffer | 256 messages | `WS_SEND_BUFFER_SIZE` |
+    | Slow client max attempts | 3 | `WS_SLOW_CLIENT_MAX_ATTEMPTS` |
+    | Reconnect replay limit | 100 messages | — |
+    | Reconnect timeout | 5s | — |
+    | Min channel parts | 3 | — |
+
+    ## Internal Protocol Note
+
+    With explicit channels, the gateway-to-server protocol uses the same channel format as the client API (`{tenant}.{identifier}.{category}`). The gateway validates and filters; it does not transform channel names.
+
+    | Aspect | Client to Gateway | Gateway to Server |
+    |--------|-------------------|-------------------|
+    | Channel format | `{tenant}.{identifier}.{category}` | Same (passed through) |
+    | Auth | JWT validated at gateway | Already validated |
+    | Subscribe filtering | Gateway filters unauthorized channels | All channels pre-authorized |
+    | Publish validation | Gateway validates tenant + permissions | Server validates Kafka routing |
+
+  contact:
+    name: Odin Platform Team
+  license:
+    name: Proprietary
+
+servers:
+  gateway:
+    host: "{host}:{port}"
+    protocol: wss
+    description: Odin WebSocket Gateway — authenticates connections, validates tenant isolation, and proxies to the internal WebSocket server.
+    security:
+      - $ref: "#/components/securitySchemes/bearerToken"
+      - $ref: "#/components/securitySchemes/queryToken"
+
+channels:
+  clientSend:
+    address: /ws
+    description: >
+      WebSocket endpoint for client-to-server messages.
+      Clients send subscribe, unsubscribe, publish, reconnect, and heartbeat messages.
+    messages:
+      subscribe:
+        $ref: "#/components/messages/subscribe"
+      unsubscribe:
+        $ref: "#/components/messages/unsubscribe"
+      publish:
+        $ref: "#/components/messages/publish"
+      reconnect:
+        $ref: "#/components/messages/reconnect"
+      heartbeat:
+        $ref: "#/components/messages/heartbeat"
+
+  clientReceive:
+    address: /ws
+    description: >
+      WebSocket endpoint for server-to-client messages.
+      Clients receive broadcast messages, acknowledgments, errors, and pong responses.
+    messages:
+      message:
+        $ref: "#/components/messages/message"
+      subscriptionAck:
+        $ref: "#/components/messages/subscriptionAck"
+      unsubscriptionAck:
+        $ref: "#/components/messages/unsubscriptionAck"
+      publishAck:
+        $ref: "#/components/messages/publishAck"
+      publishError:
+        $ref: "#/components/messages/publishError"
+      reconnectAck:
+        $ref: "#/components/messages/reconnectAck"
+      reconnectError:
+        $ref: "#/components/messages/reconnectError"
+      pong:
+        $ref: "#/components/messages/pong"
+      error:
+        $ref: "#/components/messages/error"
+      messageError:
+        $ref: "#/components/messages/messageError"
+      subscribeError:
+        $ref: "#/components/messages/subscribeError"
+      unsubscribeError:
+        $ref: "#/components/messages/unsubscribeError"
+
+operations:
+  sendSubscribe:
+    action: send
+    channel:
+      $ref: "#/channels/clientSend"
+    summary: Subscribe to channels
+    description: >
+      Subscribe to one or more channels. Channels use explicit tenant-prefixed format
+      (`{tenant}.{identifier}.{category}`). The gateway validates the tenant prefix and,
+      when auth is enabled, filters channels by permission rules. Unauthorized channels
+      are silently dropped.
+    messages:
+      - $ref: "#/channels/clientSend/messages/subscribe"
+
+  sendUnsubscribe:
+    action: send
+    channel:
+      $ref: "#/channels/clientSend"
+    summary: Unsubscribe from channels
+    description: >
+      Unsubscribe from one or more previously subscribed channels.
+      Unsubscribing from non-subscribed channels is harmless (no error).
+    messages:
+      - $ref: "#/channels/clientSend/messages/unsubscribe"
+
+  sendPublish:
+    action: send
+    channel:
+      $ref: "#/channels/clientSend"
+    summary: Publish a message to a channel
+    description: |
+      Publish a message to a single channel. The gateway validates:
+      1. Tenant prefix matches authenticated tenant
+      2. Channel has at least 3 dot-separated parts
+      3. Payload does not exceed 64KB
+      4. Rate limit not exceeded (10 msg/sec, burst 100)
+
+      On success, the message is routed to the corresponding Redpanda topic
+      (`{namespace}.{tenant}.{category}`) and a `publish_ack` is returned.
+    messages:
+      - $ref: "#/channels/clientSend/messages/publish"
+
+  sendReconnect:
+    action: send
+    channel:
+      $ref: "#/channels/clientSend"
+    summary: Reconnect and replay missed messages
+    description: >
+      Request replay of missed messages using a persistent client ID and last-known
+      Kafka offsets. The server replays up to 100 messages within a 5-second timeout.
+    messages:
+      - $ref: "#/channels/clientSend/messages/reconnect"
+
+  sendHeartbeat:
+    action: send
+    channel:
+      $ref: "#/channels/clientSend"
+    summary: Send a heartbeat
+    description: >
+      Send a heartbeat to keep the connection alive. The server responds with a `pong`
+      message containing the current server timestamp.
+    messages:
+      - $ref: "#/channels/clientSend/messages/heartbeat"
+
+  receiveMessage:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive a broadcast message
+    description: >
+      Receive a broadcast message on a subscribed channel. Messages include a monotonic
+      sequence number for gap detection and a server timestamp in Unix milliseconds.
+    messages:
+      - $ref: "#/channels/clientReceive/messages/message"
+
+  receiveSubscriptionAck:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive subscription acknowledgment
+    messages:
+      - $ref: "#/channels/clientReceive/messages/subscriptionAck"
+
+  receiveUnsubscriptionAck:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive unsubscription acknowledgment
+    messages:
+      - $ref: "#/channels/clientReceive/messages/unsubscriptionAck"
+
+  receivePublishAck:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive publish acknowledgment
+    messages:
+      - $ref: "#/channels/clientReceive/messages/publishAck"
+
+  receivePublishError:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive publish error
+    messages:
+      - $ref: "#/channels/clientReceive/messages/publishError"
+
+  receiveReconnectAck:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive reconnect acknowledgment
+    messages:
+      - $ref: "#/channels/clientReceive/messages/reconnectAck"
+
+  receiveReconnectError:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive reconnect error
+    messages:
+      - $ref: "#/channels/clientReceive/messages/reconnectError"
+
+  receivePong:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive heartbeat response
+    messages:
+      - $ref: "#/channels/clientReceive/messages/pong"
+
+  receiveError:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive a generic error
+    messages:
+      - $ref: "#/channels/clientReceive/messages/error"
+
+  receiveMessageError:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive error for malformed messages
+    description: >
+      Received when a client sends a message that is not valid JSON.
+    messages:
+      - $ref: "#/channels/clientReceive/messages/messageError"
+
+  receiveSubscribeError:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive subscribe error
+    description: >
+      Received when a subscribe request has an invalid data format.
+    messages:
+      - $ref: "#/channels/clientReceive/messages/subscribeError"
+
+  receiveUnsubscribeError:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive unsubscribe error
+    description: >
+      Received when an unsubscribe request has an invalid data format.
+    messages:
+      - $ref: "#/channels/clientReceive/messages/unsubscribeError"
+
+components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "Authorization: Bearer {token} header"
+    queryToken:
+      type: httpApiKey
+      in: query
+      name: token
+      description: "?token={jwt} query parameter — takes precedence over header"
+
+  schemas:
+    ClientMessage:
+      type: object
+      description: Standard envelope for all client-to-server messages.
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          description: Message type identifier.
+          enum:
+            - subscribe
+            - unsubscribe
+            - publish
+            - reconnect
+            - heartbeat
+        data:
+          type: object
+          description: Type-specific payload.
+
+    SubscribeData:
+      type: object
+      description: Payload for subscribe messages.
+      required:
+        - channels
+      properties:
+        channels:
+          type: array
+          items:
+            type: string
+          description: "Channels to subscribe to. Format: {tenant}.{identifier}.{category}"
+          examples:
+            - ["odin.BTC.trade", "odin.ETH.orderbook"]
+
+    UnsubscribeData:
+      type: object
+      description: Payload for unsubscribe messages.
+      required:
+        - channels
+      properties:
+        channels:
+          type: array
+          items:
+            type: string
+          description: "Channels to unsubscribe from. Format: {tenant}.{identifier}.{category}"
+          examples:
+            - ["odin.BTC.trade"]
+
+    PublishData:
+      type: object
+      description: Payload for publish messages.
+      required:
+        - channel
+        - data
+      properties:
+        channel:
+          type: string
+          description: "Target channel. Format: {tenant}.{identifier}.{category}"
+          examples:
+            - "odin.BTC.trade"
+        data:
+          type: object
+          description: Arbitrary JSON payload (max 64KB).
+          examples:
+            - { "price": 50000, "volume": 1.5 }
+
+    ReconnectData:
+      type: object
+      description: Payload for reconnect messages.
+      required:
+        - client_id
+        - last_offset
+      properties:
+        client_id:
+          type: string
+          description: Persistent client identifier for reconnection.
+          examples:
+            - "abc123"
+        last_offset:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+          description: Map of Kafka topic to last received offset.
+          examples:
+            - { "local.odin.trade": 12345 }
+
+    MessageEnvelope:
+      type: object
+      description: Broadcast message envelope sent to subscribed clients.
+      required:
+        - type
+        - seq
+        - ts
+        - channel
+        - data
+      properties:
+        type:
+          type: string
+          const: message
+          description: Always "message" for broadcast messages.
+        seq:
+          type: integer
+          format: int64
+          description: Monotonically increasing sequence number per connection. Starts at 1. Used for gap detection.
+        ts:
+          type: integer
+          format: int64
+          description: Server timestamp in Unix milliseconds.
+        channel:
+          type: string
+          description: "Channel this message was broadcast on. Format: {tenant}.{identifier}.{category}"
+          examples:
+            - "odin.BTC.trade"
+        data:
+          type: object
+          description: Message payload (schema owned by the publishing service).
+      examples:
+        - type: message
+          seq: 1234
+          ts: 1706000000000
+          channel: "odin.BTC.trade"
+          data: { "price": 50000, "volume": 1.5 }
+
+    SubscriptionAck:
+      type: object
+      description: Acknowledgment after a successful subscribe operation.
+      required:
+        - type
+        - subscribed
+        - count
+      properties:
+        type:
+          type: string
+          const: subscription_ack
+        subscribed:
+          type: array
+          items:
+            type: string
+          description: Channels that were successfully subscribed (with tenant prefix). Channels that were filtered by permissions are not included.
+        count:
+          type: integer
+          description: Total active subscription count for this connection.
+      examples:
+        - type: subscription_ack
+          subscribed: ["odin.BTC.trade"]
+          count: 5
+
+    UnsubscriptionAck:
+      type: object
+      description: Acknowledgment after an unsubscribe operation.
+      required:
+        - type
+        - unsubscribed
+        - count
+      properties:
+        type:
+          type: string
+          const: unsubscription_ack
+        unsubscribed:
+          type: array
+          items:
+            type: string
+          description: Channels that were unsubscribed (with tenant prefix).
+        count:
+          type: integer
+          description: Total active subscription count for this connection.
+      examples:
+        - type: unsubscription_ack
+          unsubscribed: ["odin.BTC.trade"]
+          count: 4
+
+    PublishAck:
+      type: object
+      description: Acknowledgment after a successful publish.
+      required:
+        - type
+        - channel
+        - status
+      properties:
+        type:
+          type: string
+          const: publish_ack
+        channel:
+          type: string
+          description: Channel the message was published to (with tenant prefix).
+        status:
+          type: string
+          const: accepted
+          description: Always "accepted" on success.
+      examples:
+        - type: publish_ack
+          channel: "odin.BTC.trade"
+          status: accepted
+
+    PublishError:
+      type: object
+      description: Error response for a failed publish operation.
+      required:
+        - type
+        - code
+        - message
+      properties:
+        type:
+          type: string
+          const: publish_error
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - not_available
+            - invalid_request
+            - invalid_channel
+            - message_too_large
+            - rate_limited
+            - publish_failed
+            - forbidden
+            - topic_not_provisioned
+            - service_unavailable
+        message:
+          type: string
+          description: Human-readable error description.
+      examples:
+        - type: publish_error
+          code: rate_limited
+          message: "Publish rate limit exceeded"
+
+    ReconnectAck:
+      type: object
+      description: Acknowledgment after a successful reconnect with message replay.
+      required:
+        - type
+        - status
+        - messages_replayed
+        - message
+      properties:
+        type:
+          type: string
+          const: reconnect_ack
+        status:
+          type: string
+          const: completed
+          description: Always "completed".
+        messages_replayed:
+          type: integer
+          description: Number of messages replayed from Kafka.
+        message:
+          type: string
+          description: Human-readable summary.
+      examples:
+        - type: reconnect_ack
+          status: completed
+          messages_replayed: 5
+          message: "Replayed 5 missed messages"
+
+    ReconnectError:
+      type: object
+      description: Error response when reconnect/replay fails.
+      required:
+        - type
+        - message
+      properties:
+        type:
+          type: string
+          const: reconnect_error
+        message:
+          type: string
+          description: Human-readable error description.
+      examples:
+        - type: reconnect_error
+          message: "Message replay not available (no Kafka consumer)"
+
+    Pong:
+      type: object
+      description: Response to a heartbeat message.
+      required:
+        - type
+        - ts
+      properties:
+        type:
+          type: string
+          const: pong
+        ts:
+          type: integer
+          format: int64
+          description: Server timestamp in Unix milliseconds.
+      examples:
+        - type: pong
+          ts: 1706000000000
+
+    Error:
+      type: object
+      description: Generic error response.
+      required:
+        - type
+        - message
+      properties:
+        type:
+          type: string
+          const: error
+        message:
+          type: string
+          description: Human-readable error description.
+
+    MessageError:
+      type: object
+      description: Error response for malformed messages (e.g., invalid JSON).
+      required:
+        - type
+        - code
+        - message
+      properties:
+        type:
+          type: string
+          const: error
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - invalid_json
+        message:
+          type: string
+          description: Human-readable error description.
+      examples:
+        - type: error
+          code: invalid_json
+          message: "Message is not valid JSON"
+
+    SubscribeError:
+      type: object
+      description: Error response for failed subscribe requests.
+      required:
+        - type
+        - code
+        - message
+      properties:
+        type:
+          type: string
+          const: subscribe_error
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - invalid_request
+        message:
+          type: string
+          description: Human-readable error description.
+      examples:
+        - type: subscribe_error
+          code: invalid_request
+          message: "Invalid subscribe request format"
+
+    UnsubscribeError:
+      type: object
+      description: Error response for failed unsubscribe requests.
+      required:
+        - type
+        - code
+        - message
+      properties:
+        type:
+          type: string
+          const: unsubscribe_error
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - invalid_request
+        message:
+          type: string
+          description: Human-readable error description.
+      examples:
+        - type: unsubscribe_error
+          code: invalid_request
+          message: "Invalid unsubscribe request format"
+
+  messages:
+    subscribe:
+      name: subscribe
+      title: Subscribe
+      summary: Subscribe to one or more channels.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+        properties:
+          type:
+            type: string
+            const: subscribe
+          data:
+            $ref: "#/components/schemas/SubscribeData"
+      examples:
+        - name: subscribeExample
+          payload:
+            type: subscribe
+            data:
+              channels:
+                - "odin.BTC.trade"
+                - "odin.ETH.orderbook"
+
+    unsubscribe:
+      name: unsubscribe
+      title: Unsubscribe
+      summary: Unsubscribe from one or more channels.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+        properties:
+          type:
+            type: string
+            const: unsubscribe
+          data:
+            $ref: "#/components/schemas/UnsubscribeData"
+      examples:
+        - name: unsubscribeExample
+          payload:
+            type: unsubscribe
+            data:
+              channels:
+                - "odin.BTC.trade"
+
+    publish:
+      name: publish
+      title: Publish
+      summary: Publish a message to a channel.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+        properties:
+          type:
+            type: string
+            const: publish
+          data:
+            $ref: "#/components/schemas/PublishData"
+      examples:
+        - name: publishExample
+          payload:
+            type: publish
+            data:
+              channel: "odin.BTC.trade"
+              data:
+                price: 50000
+                volume: 1.5
+
+    reconnect:
+      name: reconnect
+      title: Reconnect
+      summary: Reconnect and replay missed messages from Kafka offsets.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+        properties:
+          type:
+            type: string
+            const: reconnect
+          data:
+            $ref: "#/components/schemas/ReconnectData"
+      examples:
+        - name: reconnectExample
+          payload:
+            type: reconnect
+            data:
+              client_id: "abc123"
+              last_offset:
+                "local.odin.trade": 12345
+
+    heartbeat:
+      name: heartbeat
+      title: Heartbeat
+      summary: Send a heartbeat to keep the connection alive.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+        properties:
+          type:
+            type: string
+            const: heartbeat
+          data:
+            type: object
+      examples:
+        - name: heartbeatExample
+          payload:
+            type: heartbeat
+            data: {}
+
+    message:
+      name: message
+      title: Broadcast Message
+      summary: A broadcast message on a subscribed channel.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/MessageEnvelope"
+
+    subscriptionAck:
+      name: subscriptionAck
+      title: Subscription Acknowledgment
+      summary: Confirms which channels were subscribed.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/SubscriptionAck"
+
+    unsubscriptionAck:
+      name: unsubscriptionAck
+      title: Unsubscription Acknowledgment
+      summary: Confirms which channels were unsubscribed.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/UnsubscriptionAck"
+
+    publishAck:
+      name: publishAck
+      title: Publish Acknowledgment
+      summary: Confirms a message was accepted for publishing.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/PublishAck"
+
+    publishError:
+      name: publishError
+      title: Publish Error
+      summary: Indicates a publish operation failed.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/PublishError"
+
+    reconnectAck:
+      name: reconnectAck
+      title: Reconnect Acknowledgment
+      summary: Confirms message replay completed.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/ReconnectAck"
+
+    reconnectError:
+      name: reconnectError
+      title: Reconnect Error
+      summary: Indicates reconnect/replay failed.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/ReconnectError"
+
+    pong:
+      name: pong
+      title: Pong
+      summary: Heartbeat response with server timestamp.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/Pong"
+
+    error:
+      name: error
+      title: Error
+      summary: Generic error response.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/Error"
+
+    messageError:
+      name: messageError
+      title: Message Error
+      summary: Error for malformed messages (invalid JSON).
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/MessageError"
+
+    subscribeError:
+      name: subscribeError
+      title: Subscribe Error
+      summary: Error for failed subscribe requests.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/SubscribeError"
+
+    unsubscribeError:
+      name: unsubscribeError
+      title: Unsubscribe Error
+      summary: Error for failed unsubscribe requests.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/UnsubscribeError"

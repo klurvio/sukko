@@ -240,7 +240,7 @@ tasks:
     cmds:
       - task: connect
       - task: migrate
-      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/client-ws.asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml
       - |
         HELM_CMD="helm upgrade --install odin {{.ROOT_DIR}}/deployments/helm/odin -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace"
         if [ -n "{{.REDPANDA_IP}}" ]; then

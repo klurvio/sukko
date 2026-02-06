@@ -1,1842 +1,1809 @@
-asyncapi: 3.1.0
+asyncapi: 3.0.0
 info:
-  title: Odin WebSocket Event Bus
+  title: Odin WebSocket Client API
   version: 1.0.0
   description: >
-    AsyncAPI specification for internal services publishing messages to
-    Redpanda.
+    Real-time WebSocket API for subscribing to market data and publishing
+    events.
 
 
-    ## Topic Naming Convention
+    ## Connection
 
 
-    Topics follow the pattern: `{namespace}.{tenant}.{category}`
+    Connect via WebSocket:
+
+    - **Authenticated**: `wss://{host}/ws?token={jwt}` or `wss://{host}/ws` with
+    `Authorization: Bearer {jwt}` header
+
+    - **Unauthenticated** (auth disabled): `wss://{host}/ws` — all connections
+    routed to the default tenant
 
 
-    ### Namespaces
-
-    Namespaces are configured via Helm charts. No code-level mapping is
-    performed;
-
-    values pass through as-is (lowercase, trimmed). Default valid namespaces:
-
-    - `local` - Local development
-
-    - `dev` - Development environment
-
-    - `stag` - Staging environment
-
-    - `prod` - Production environment
+    The query parameter `token` takes precedence over the `Authorization` header
+    when both are provided.
 
 
-    Empty namespace defaults to `local` for backward compatibility.
+    ## Health Check
 
 
-    ### Categories
-
-    8 categories are supported: trade, liquidity, metadata, social, community,
-    creation, analytics, balances
+    A REST health endpoint is available at `GET /health`, returning
+    `{"status":"ok","service":"ws-gateway"}`.
 
 
-    ### Dynamic Provisioning
-
-    Topics are dynamically provisioned per-tenant via PostgreSQL
-    (`tenant_topics` table).
-
-    Event types within each category are also dynamic and not hardcoded.
+    ## Channel Format
 
 
-    ## Message Key
+    All channels use explicit tenant-prefixed format:
+    `{tenant}.{identifier}.{category}`
 
-    The Kafka record key is the full channel identifier (e.g., `acme.BTC.trade`)
-    used for partitioning.
-defaultContentType: application/json
+
+    - Minimum 3 dot-separated parts
+
+    - The tenant prefix must match the authenticated tenant (JWT `tenant_id`) or
+    the default tenant (when auth is disabled)
+
+    - Examples: `odin.BTC.trade`, `odin.ETH.orderbook`, `acme.balances.user123`
+
+
+    ## Connection Lifecycle
+
+
+    - **Admission control**: The server may reject WebSocket upgrades under high
+    CPU (>60%), memory pressure, goroutine limits, or per-tenant connection
+    limits.
+
+    - **Slow client disconnection**: If the server fails to deliver 3
+    consecutive messages to a client (send buffer full), it disconnects with
+    close code 1008 (Policy Violation).
+
+    - **Graceful shutdown**: The server sends close code 1001 (Going Away) to
+    all clients before stopping.
+
+    - **Heartbeat**: Client sends `heartbeat`, server responds with `pong`
+    containing a timestamp.
+
+
+    ## WebSocket Close Codes
+
+
+    | Code | Meaning | Trigger |
+
+    |------|---------|---------|
+
+    | 1000 | Normal closure | Client or server initiated clean close |
+
+    | 1001 | Going away | Server shutting down (graceful) |
+
+    | 1008 | Policy violation | Slow client disconnected after max delivery
+    attempts |
+
+    | 1011 | Internal error | Unexpected server error |
+
+
+    ## JWT Claims
+
+
+    | Field | Type | Description |
+
+    |-------|------|-------------|
+
+    | `sub` | string | Principal — user or application identifier |
+
+    | `tenant_id` | string | Tenant for routing and access control |
+
+    | `roles` | string[] | Roles for authorization |
+
+    | `groups` | string[] | Group memberships (for group-scoped channels) |
+
+    | `scopes` | string[] | Permission scopes |
+
+    | `attrs` | map[string]string | Custom attributes for placeholder resolution
+    |
+
+
+    ## Channel Permissions (auth enabled)
+
+
+    The gateway validates channels in two stages:
+
+
+    **Stage 1 — Tenant validation (always):**
+
+    Channel must start with `{tenant_id}.` matching the JWT's `tenant_id` (auth
+    enabled) or the default tenant ID (auth disabled). Channels with the wrong
+    tenant prefix are silently filtered out on subscribe, or rejected with
+    `forbidden` on publish.
+
+
+    **Stage 2 — Pattern matching (auth enabled only):**
+
+    The gateway strips the tenant prefix and matches the remaining portion
+    against permission patterns.
+
+
+    | Pattern Type | Config Key | Format | Example | Behavior |
+
+    |--------------|-----------|--------|---------|----------|
+
+    | Public | `publicPatterns` | Wildcard glob | `*.trade` | Anyone can
+    subscribe (matches `BTC.trade` from `odin.BTC.trade`) |
+
+    | User-scoped | `userScopedPatterns` | `{principal}` placeholder |
+    `balances.{principal}` | Only the JWT subject can subscribe
+    (`odin.balances.user123` requires `sub=user123`) |
+
+    | Group-scoped | `groupScopedPatterns` | `{group_id}` placeholder |
+    `community.{group_id}` | Only group members can subscribe (matched against
+    JWT `groups` claim) |
+
+
+    Channels not matching any pattern are denied.
+
+
+    ## Rate Limits and Constraints
+
+
+    | Constraint | Default | Config Env Var |
+
+    |------------|---------|----------------|
+
+    | Publish rate | 10 msg/sec | `GATEWAY_PUBLISH_RATE_LIMIT` |
+
+    | Publish burst | 100 | `GATEWAY_PUBLISH_BURST` |
+
+    | Max publish payload | 64KB | `GATEWAY_MAX_PUBLISH_SIZE` |
+
+    | Send buffer | 256 messages | `WS_SEND_BUFFER_SIZE` |
+
+    | Slow client max attempts | 3 | `WS_SLOW_CLIENT_MAX_ATTEMPTS` |
+
+    | Reconnect replay limit | 100 messages | — |
+
+    | Reconnect timeout | 5s | — |
+
+    | Min channel parts | 3 | — |
+
+
+    ## Internal Protocol Note
+
+
+    With explicit channels, the gateway-to-server protocol uses the same channel
+    format as the client API (`{tenant}.{identifier}.{category}`). The gateway
+    validates and filters; it does not transform channel names.
+
+
+    | Aspect | Client to Gateway | Gateway to Server |
+
+    |--------|-------------------|-------------------|
+
+    | Channel format | `{tenant}.{identifier}.{category}` | Same (passed
+    through) |
+
+    | Auth | JWT validated at gateway | Already validated |
+
+    | Subscribe filtering | Gateway filters unauthorized channels | All channels
+    pre-authorized |
+
+    | Publish validation | Gateway validates tenant + permissions | Server
+    validates Kafka routing |
+  contact:
+    name: Odin Platform Team
+  license:
+    name: Proprietary
 servers:
-  redpanda:
-    host: redpanda.redpanda.svc.cluster.local:9093
-    protocol: kafka
-    description: Internal Redpanda broker within the Kubernetes cluster
-    tags:
-      - name: internal
-        description: Cluster-internal access only
+  gateway:
+    host: '{host}:{port}'
+    protocol: wss
+    description: >-
+      Odin WebSocket Gateway — authenticates connections, validates tenant
+      isolation, and proxies to the internal WebSocket server.
+    security:
+      - type: http
+        scheme: bearer
+        bearerFormat: JWT
+        description: 'Authorization: Bearer {token} header'
+      - type: httpApiKey
+        in: query
+        name: token
+        description: '?token={jwt} query parameter — takes precedence over header'
 channels:
-  trade:
-    address: '{namespace}.{tenant}.trade'
-    description: |
-      Trade events channel for token trading activity.
-
-      ## Topic Pattern
-      `{namespace}.{tenant}.trade`
-
-      ## Example Topics
-      - `dev.acme.trade` - Development environment for tenant "acme"
-      - `prod.mycompany.trade` - Production environment for tenant "mycompany"
-
-      ## Message Key
-      Full channel identifier for partitioning (e.g., `acme.BTC.trade`)
-    parameters:
-      namespace:
-        description: |
-          Environment namespace (normalized):
-          - `local` - local development, development, or empty
-          - `dev` - develop, dev
-          - `staging` - staging, stage
-          - `prod` - production, prod
-      tenant:
-        description: Tenant identifier (dynamically provisioned via tenant_topics table)
-    messages:
-      event:
-        name: Event
-        title: Event Message
-        summary: Common event envelope for all messages published to Redpanda
-        description: >
-          All messages published to Redpanda topics use this common envelope
-          structure.
-
-          The `type` field indicates the specific event type, and `data`
-          contains the
-
-          event-specific payload.
-
-
-          ## Kafka Record Structure
-
-
-          ```
-
-          Record {
-            Topic:   "{namespace}.{tenant}.{category}"
-            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
-            Value:   <this message as JSON>
-            Headers: [
-              {Key: "client_id", Value: "{id}"},
-              {Key: "source", Value: "ws-client"},
-              {Key: "timestamp", Value: "{unix_ms}"}
-            ]
-          }
-
-          ```
-        contentType: application/json
-        headers:
-          type: object
-          properties:
-            client_id:
-              type: string
-              description: Unique identifier of the publishing client
-            source:
-              type: string
-              description: Source of the message (e.g., "ws-client")
-              default: ws-client
-            timestamp:
-              type: string
-              description: Unix timestamp in milliseconds when the message was produced
-          required:
-            - client_id
-            - source
-            - timestamp
-        payload:
-          type: object
-          description: >
-            Common message envelope structure for all events.
-
-
-            Event types are dynamic and not hardcoded - they are determined by
-            the
-
-            publishing service based on the specific domain event being emitted.
-          required:
-            - type
-            - seq
-            - timestamp
-            - channel
-            - priority
-            - data
-          properties:
-            type:
-              type: string
-              description: >
-                Event type identifier. This is dynamic and determined by the
-                publishing
-
-                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
-                "TOKEN_CREATED"
-              examples:
-                - TRADE_EXECUTED
-                - BALANCE_UPDATED
-                - LIQUIDITY_ADDED
-                - TOKEN_CREATED
-                - METADATA_UPDATED
-            seq:
-              type: integer
-              format: int64
-              description: Monotonically increasing sequence number for ordering events
-              examples:
-                - 12345
-                - 67890
-            timestamp:
-              type: integer
-              format: int64
-              description: Unix timestamp in milliseconds when the event was created
-              examples:
-                - 1704067200000
-            channel:
-              type: string
-              description: >
-                Channel identifier used for routing and partitioning.
-
-                Format varies by category (e.g., "BTC.trade",
-                "wallet123.balances")
-              examples:
-                - BTC.trade
-                - ETH.liquidity
-                - wallet123.balances
-            priority:
-              type: string
-              description: Message priority level for processing
-              enum:
-                - CRITICAL
-                - HIGH
-                - NORMAL
-              default: NORMAL
-            data:
-              type: object
-              description: >
-                Event-specific payload. The structure depends on the event type
-                and is
-
-                determined by the publishing service. This is a free-form object
-                that
-
-                can contain any valid JSON.
-              additionalProperties: true
-        examples:
-          - name: Trade Event Example
-            summary: Example trade event message
-            headers:
-              client_id: client-12345
-              source: ws-client
-              timestamp: '1704067200000'
-            payload:
-              type: TRADE_EXECUTED
-              seq: 12345
-              timestamp: 1704067200000
-              channel: BTC.trade
-              priority: NORMAL
-              data:
-                price: '45000.50'
-                amount: '0.5'
-                side: buy
-          - name: Balance Update Example
-            summary: Example balance update message
-            headers:
-              client_id: client-67890
-              source: ws-client
-              timestamp: '1704067300000'
-            payload:
-              type: BALANCE_UPDATED
-              seq: 12346
-              timestamp: 1704067300000
-              channel: wallet123.balances
-              priority: HIGH
-              data:
-                wallet: wallet123
-                token: ETH
-                balance: '10.5'
-  liquidity:
-    address: '{namespace}.{tenant}.liquidity'
+  clientSend:
+    address: /ws
     description: >
-      Liquidity events channel for liquidity pool activity.
-
-
-      ## Topic Pattern
-
-      `{namespace}.{tenant}.liquidity`
-
-
-      ## Example Topics
-
-      - `dev.acme.liquidity` - Development environment for tenant "acme"
-
-      - `prod.mycompany.liquidity` - Production environment for tenant
-      "mycompany"
-
-
-      ## Message Key
-
-      Full channel identifier for partitioning (e.g., `acme.ETH.liquidity`)
-    parameters:
-      namespace:
-        description: |
-          Environment namespace (normalized):
-          - `local` - local development, development, or empty
-          - `dev` - develop, dev
-          - `staging` - staging, stage
-          - `prod` - production, prod
-      tenant:
-        description: Tenant identifier (dynamically provisioned via tenant_topics table)
+      WebSocket endpoint for client-to-server messages. Clients send subscribe,
+      unsubscribe, publish, reconnect, and heartbeat messages.
     messages:
-      event:
-        name: Event
-        title: Event Message
-        summary: Common event envelope for all messages published to Redpanda
-        description: >
-          All messages published to Redpanda topics use this common envelope
-          structure.
-
-          The `type` field indicates the specific event type, and `data`
-          contains the
-
-          event-specific payload.
-
-
-          ## Kafka Record Structure
-
-
-          ```
-
-          Record {
-            Topic:   "{namespace}.{tenant}.{category}"
-            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
-            Value:   <this message as JSON>
-            Headers: [
-              {Key: "client_id", Value: "{id}"},
-              {Key: "source", Value: "ws-client"},
-              {Key: "timestamp", Value: "{unix_ms}"}
-            ]
-          }
-
-          ```
+      subscribe:
+        name: subscribe
+        title: Subscribe
+        summary: Subscribe to one or more channels.
         contentType: application/json
-        headers:
-          type: object
-          properties:
-            client_id:
-              type: string
-              description: Unique identifier of the publishing client
-            source:
-              type: string
-              description: Source of the message (e.g., "ws-client")
-              default: ws-client
-            timestamp:
-              type: string
-              description: Unix timestamp in milliseconds when the message was produced
-          required:
-            - client_id
-            - source
-            - timestamp
         payload:
           type: object
-          description: >
-            Common message envelope structure for all events.
-
-
-            Event types are dynamic and not hardcoded - they are determined by
-            the
-
-            publishing service based on the specific domain event being emitted.
           required:
             - type
-            - seq
-            - timestamp
-            - channel
-            - priority
             - data
           properties:
             type:
               type: string
-              description: >
-                Event type identifier. This is dynamic and determined by the
-                publishing
-
-                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
-                "TOKEN_CREATED"
-              examples:
-                - TRADE_EXECUTED
-                - BALANCE_UPDATED
-                - LIQUIDITY_ADDED
-                - TOKEN_CREATED
-                - METADATA_UPDATED
-            seq:
-              type: integer
-              format: int64
-              description: Monotonically increasing sequence number for ordering events
-              examples:
-                - 12345
-                - 67890
-            timestamp:
-              type: integer
-              format: int64
-              description: Unix timestamp in milliseconds when the event was created
-              examples:
-                - 1704067200000
-            channel:
-              type: string
-              description: >
-                Channel identifier used for routing and partitioning.
-
-                Format varies by category (e.g., "BTC.trade",
-                "wallet123.balances")
-              examples:
-                - BTC.trade
-                - ETH.liquidity
-                - wallet123.balances
-            priority:
-              type: string
-              description: Message priority level for processing
-              enum:
-                - CRITICAL
-                - HIGH
-                - NORMAL
-              default: NORMAL
+              const: subscribe
             data:
               type: object
-              description: >
-                Event-specific payload. The structure depends on the event type
-                and is
-
-                determined by the publishing service. This is a free-form object
-                that
-
-                can contain any valid JSON.
-              additionalProperties: true
+              description: Payload for subscribe messages.
+              required:
+                - channels
+              properties:
+                channels:
+                  type: array
+                  items:
+                    type: string
+                  description: >-
+                    Channels to subscribe to. Format:
+                    {tenant}.{identifier}.{category}
+                  examples:
+                    - - odin.BTC.trade
+                      - odin.ETH.orderbook
         examples:
-          - name: Trade Event Example
-            summary: Example trade event message
-            headers:
-              client_id: client-12345
-              source: ws-client
-              timestamp: '1704067200000'
+          - name: subscribeExample
             payload:
-              type: TRADE_EXECUTED
-              seq: 12345
-              timestamp: 1704067200000
-              channel: BTC.trade
-              priority: NORMAL
+              type: subscribe
               data:
-                price: '45000.50'
-                amount: '0.5'
-                side: buy
-          - name: Balance Update Example
-            summary: Example balance update message
-            headers:
-              client_id: client-67890
-              source: ws-client
-              timestamp: '1704067300000'
+                channels:
+                  - odin.BTC.trade
+                  - odin.ETH.orderbook
+      unsubscribe:
+        name: unsubscribe
+        title: Unsubscribe
+        summary: Unsubscribe from one or more channels.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - data
+          properties:
+            type:
+              type: string
+              const: unsubscribe
+            data:
+              type: object
+              description: Payload for unsubscribe messages.
+              required:
+                - channels
+              properties:
+                channels:
+                  type: array
+                  items:
+                    type: string
+                  description: >-
+                    Channels to unsubscribe from. Format:
+                    {tenant}.{identifier}.{category}
+                  examples:
+                    - - odin.BTC.trade
+        examples:
+          - name: unsubscribeExample
             payload:
-              type: BALANCE_UPDATED
-              seq: 12346
-              timestamp: 1704067300000
-              channel: wallet123.balances
-              priority: HIGH
+              type: unsubscribe
               data:
-                wallet: wallet123
-                token: ETH
-                balance: '10.5'
-  metadata:
-    address: '{namespace}.{tenant}.metadata'
+                channels:
+                  - odin.BTC.trade
+      publish:
+        name: publish
+        title: Publish
+        summary: Publish a message to a channel.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - data
+          properties:
+            type:
+              type: string
+              const: publish
+            data:
+              type: object
+              description: Payload for publish messages.
+              required:
+                - channel
+                - data
+              properties:
+                channel:
+                  type: string
+                  description: 'Target channel. Format: {tenant}.{identifier}.{category}'
+                  examples:
+                    - odin.BTC.trade
+                data:
+                  type: object
+                  description: Arbitrary JSON payload (max 64KB).
+                  examples:
+                    - price: 50000
+                      volume: 1.5
+        examples:
+          - name: publishExample
+            payload:
+              type: publish
+              data:
+                channel: odin.BTC.trade
+                data:
+                  price: 50000
+                  volume: 1.5
+      reconnect:
+        name: reconnect
+        title: Reconnect
+        summary: Reconnect and replay missed messages from Kafka offsets.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - data
+          properties:
+            type:
+              type: string
+              const: reconnect
+            data:
+              type: object
+              description: Payload for reconnect messages.
+              required:
+                - client_id
+                - last_offset
+              properties:
+                client_id:
+                  type: string
+                  description: Persistent client identifier for reconnection.
+                  examples:
+                    - abc123
+                last_offset:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                    format: int64
+                  description: Map of Kafka topic to last received offset.
+                  examples:
+                    - local.odin.trade: 12345
+        examples:
+          - name: reconnectExample
+            payload:
+              type: reconnect
+              data:
+                client_id: abc123
+                last_offset:
+                  local.odin.trade: 12345
+      heartbeat:
+        name: heartbeat
+        title: Heartbeat
+        summary: Send a heartbeat to keep the connection alive.
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+          properties:
+            type:
+              type: string
+              const: heartbeat
+            data:
+              type: object
+        examples:
+          - name: heartbeatExample
+            payload:
+              type: heartbeat
+              data: {}
+  clientReceive:
+    address: /ws
     description: >
-      Metadata events channel for token and asset metadata updates.
-
-
-      ## Topic Pattern
-
-      `{namespace}.{tenant}.metadata`
-
-
-      ## Example Topics
-
-      - `dev.acme.metadata` - Development environment for tenant "acme"
-
-      - `prod.mycompany.metadata` - Production environment for tenant
-      "mycompany"
-
-
-      ## Message Key
-
-      Full channel identifier for partitioning (e.g., `acme.BTC.metadata`)
-    parameters:
-      namespace:
-        description: |
-          Environment namespace (normalized):
-          - `local` - local development, development, or empty
-          - `dev` - develop, dev
-          - `staging` - staging, stage
-          - `prod` - production, prod
-      tenant:
-        description: Tenant identifier (dynamically provisioned via tenant_topics table)
+      WebSocket endpoint for server-to-client messages. Clients receive
+      broadcast messages, acknowledgments, errors, and pong responses.
     messages:
-      event:
-        name: Event
-        title: Event Message
-        summary: Common event envelope for all messages published to Redpanda
-        description: >
-          All messages published to Redpanda topics use this common envelope
-          structure.
-
-          The `type` field indicates the specific event type, and `data`
-          contains the
-
-          event-specific payload.
-
-
-          ## Kafka Record Structure
-
-
-          ```
-
-          Record {
-            Topic:   "{namespace}.{tenant}.{category}"
-            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
-            Value:   <this message as JSON>
-            Headers: [
-              {Key: "client_id", Value: "{id}"},
-              {Key: "source", Value: "ws-client"},
-              {Key: "timestamp", Value: "{unix_ms}"}
-            ]
-          }
-
-          ```
+      message:
+        name: message
+        title: Broadcast Message
+        summary: A broadcast message on a subscribed channel.
         contentType: application/json
-        headers:
-          type: object
-          properties:
-            client_id:
-              type: string
-              description: Unique identifier of the publishing client
-            source:
-              type: string
-              description: Source of the message (e.g., "ws-client")
-              default: ws-client
-            timestamp:
-              type: string
-              description: Unix timestamp in milliseconds when the message was produced
-          required:
-            - client_id
-            - source
-            - timestamp
         payload:
           type: object
-          description: >
-            Common message envelope structure for all events.
-
-
-            Event types are dynamic and not hardcoded - they are determined by
-            the
-
-            publishing service based on the specific domain event being emitted.
+          description: Broadcast message envelope sent to subscribed clients.
           required:
             - type
             - seq
-            - timestamp
+            - ts
             - channel
-            - priority
             - data
           properties:
             type:
               type: string
-              description: >
-                Event type identifier. This is dynamic and determined by the
-                publishing
-
-                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
-                "TOKEN_CREATED"
-              examples:
-                - TRADE_EXECUTED
-                - BALANCE_UPDATED
-                - LIQUIDITY_ADDED
-                - TOKEN_CREATED
-                - METADATA_UPDATED
+              const: message
+              description: Always "message" for broadcast messages.
             seq:
               type: integer
               format: int64
-              description: Monotonically increasing sequence number for ordering events
-              examples:
-                - 12345
-                - 67890
-            timestamp:
+              description: >-
+                Monotonically increasing sequence number per connection. Starts
+                at 1. Used for gap detection.
+            ts:
               type: integer
               format: int64
-              description: Unix timestamp in milliseconds when the event was created
-              examples:
-                - 1704067200000
+              description: Server timestamp in Unix milliseconds.
             channel:
               type: string
-              description: >
-                Channel identifier used for routing and partitioning.
-
-                Format varies by category (e.g., "BTC.trade",
-                "wallet123.balances")
+              description: >-
+                Channel this message was broadcast on. Format:
+                {tenant}.{identifier}.{category}
               examples:
-                - BTC.trade
-                - ETH.liquidity
-                - wallet123.balances
-            priority:
-              type: string
-              description: Message priority level for processing
-              enum:
-                - CRITICAL
-                - HIGH
-                - NORMAL
-              default: NORMAL
+                - odin.BTC.trade
             data:
               type: object
-              description: >
-                Event-specific payload. The structure depends on the event type
-                and is
-
-                determined by the publishing service. This is a free-form object
-                that
-
-                can contain any valid JSON.
-              additionalProperties: true
-        examples:
-          - name: Trade Event Example
-            summary: Example trade event message
-            headers:
-              client_id: client-12345
-              source: ws-client
-              timestamp: '1704067200000'
-            payload:
-              type: TRADE_EXECUTED
-              seq: 12345
-              timestamp: 1704067200000
-              channel: BTC.trade
-              priority: NORMAL
+              description: Message payload (schema owned by the publishing service).
+          examples:
+            - type: message
+              seq: 1234
+              ts: 1706000000000
+              channel: odin.BTC.trade
               data:
-                price: '45000.50'
-                amount: '0.5'
-                side: buy
-          - name: Balance Update Example
-            summary: Example balance update message
-            headers:
-              client_id: client-67890
-              source: ws-client
-              timestamp: '1704067300000'
-            payload:
-              type: BALANCE_UPDATED
-              seq: 12346
-              timestamp: 1704067300000
-              channel: wallet123.balances
-              priority: HIGH
-              data:
-                wallet: wallet123
-                token: ETH
-                balance: '10.5'
-  social:
-    address: '{namespace}.{tenant}.social'
-    description: |
-      Social events channel for social activity and interactions.
-
-      ## Topic Pattern
-      `{namespace}.{tenant}.social`
-
-      ## Example Topics
-      - `dev.acme.social` - Development environment for tenant "acme"
-      - `prod.mycompany.social` - Production environment for tenant "mycompany"
-
-      ## Message Key
-      Full channel identifier for partitioning (e.g., `acme.user123.social`)
-    parameters:
-      namespace:
-        description: |
-          Environment namespace (normalized):
-          - `local` - local development, development, or empty
-          - `dev` - develop, dev
-          - `staging` - staging, stage
-          - `prod` - production, prod
-      tenant:
-        description: Tenant identifier (dynamically provisioned via tenant_topics table)
-    messages:
-      event:
-        name: Event
-        title: Event Message
-        summary: Common event envelope for all messages published to Redpanda
-        description: >
-          All messages published to Redpanda topics use this common envelope
-          structure.
-
-          The `type` field indicates the specific event type, and `data`
-          contains the
-
-          event-specific payload.
-
-
-          ## Kafka Record Structure
-
-
-          ```
-
-          Record {
-            Topic:   "{namespace}.{tenant}.{category}"
-            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
-            Value:   <this message as JSON>
-            Headers: [
-              {Key: "client_id", Value: "{id}"},
-              {Key: "source", Value: "ws-client"},
-              {Key: "timestamp", Value: "{unix_ms}"}
-            ]
-          }
-
-          ```
+                price: 50000
+                volume: 1.5
+      subscriptionAck:
+        name: subscriptionAck
+        title: Subscription Acknowledgment
+        summary: Confirms which channels were subscribed.
         contentType: application/json
-        headers:
-          type: object
-          properties:
-            client_id:
-              type: string
-              description: Unique identifier of the publishing client
-            source:
-              type: string
-              description: Source of the message (e.g., "ws-client")
-              default: ws-client
-            timestamp:
-              type: string
-              description: Unix timestamp in milliseconds when the message was produced
-          required:
-            - client_id
-            - source
-            - timestamp
         payload:
           type: object
-          description: >
-            Common message envelope structure for all events.
-
-
-            Event types are dynamic and not hardcoded - they are determined by
-            the
-
-            publishing service based on the specific domain event being emitted.
+          description: Acknowledgment after a successful subscribe operation.
           required:
             - type
-            - seq
-            - timestamp
-            - channel
-            - priority
-            - data
+            - subscribed
+            - count
           properties:
             type:
               type: string
-              description: >
-                Event type identifier. This is dynamic and determined by the
-                publishing
-
-                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
-                "TOKEN_CREATED"
-              examples:
-                - TRADE_EXECUTED
-                - BALANCE_UPDATED
-                - LIQUIDITY_ADDED
-                - TOKEN_CREATED
-                - METADATA_UPDATED
-            seq:
+              const: subscription_ack
+            subscribed:
+              type: array
+              items:
+                type: string
+              description: >-
+                Channels that were successfully subscribed (with tenant prefix).
+                Channels that were filtered by permissions are not included.
+            count:
               type: integer
-              format: int64
-              description: Monotonically increasing sequence number for ordering events
-              examples:
-                - 12345
-                - 67890
-            timestamp:
-              type: integer
-              format: int64
-              description: Unix timestamp in milliseconds when the event was created
-              examples:
-                - 1704067200000
-            channel:
-              type: string
-              description: >
-                Channel identifier used for routing and partitioning.
-
-                Format varies by category (e.g., "BTC.trade",
-                "wallet123.balances")
-              examples:
-                - BTC.trade
-                - ETH.liquidity
-                - wallet123.balances
-            priority:
-              type: string
-              description: Message priority level for processing
-              enum:
-                - CRITICAL
-                - HIGH
-                - NORMAL
-              default: NORMAL
-            data:
-              type: object
-              description: >
-                Event-specific payload. The structure depends on the event type
-                and is
-
-                determined by the publishing service. This is a free-form object
-                that
-
-                can contain any valid JSON.
-              additionalProperties: true
-        examples:
-          - name: Trade Event Example
-            summary: Example trade event message
-            headers:
-              client_id: client-12345
-              source: ws-client
-              timestamp: '1704067200000'
-            payload:
-              type: TRADE_EXECUTED
-              seq: 12345
-              timestamp: 1704067200000
-              channel: BTC.trade
-              priority: NORMAL
-              data:
-                price: '45000.50'
-                amount: '0.5'
-                side: buy
-          - name: Balance Update Example
-            summary: Example balance update message
-            headers:
-              client_id: client-67890
-              source: ws-client
-              timestamp: '1704067300000'
-            payload:
-              type: BALANCE_UPDATED
-              seq: 12346
-              timestamp: 1704067300000
-              channel: wallet123.balances
-              priority: HIGH
-              data:
-                wallet: wallet123
-                token: ETH
-                balance: '10.5'
-  community:
-    address: '{namespace}.{tenant}.community'
-    description: >
-      Community events channel for community-related activity.
-
-
-      ## Topic Pattern
-
-      `{namespace}.{tenant}.community`
-
-
-      ## Example Topics
-
-      - `dev.acme.community` - Development environment for tenant "acme"
-
-      - `prod.mycompany.community` - Production environment for tenant
-      "mycompany"
-
-
-      ## Message Key
-
-      Full channel identifier for partitioning (e.g., `acme.group1.community`)
-    parameters:
-      namespace:
-        description: |
-          Environment namespace (normalized):
-          - `local` - local development, development, or empty
-          - `dev` - develop, dev
-          - `staging` - staging, stage
-          - `prod` - production, prod
-      tenant:
-        description: Tenant identifier (dynamically provisioned via tenant_topics table)
-    messages:
-      event:
-        name: Event
-        title: Event Message
-        summary: Common event envelope for all messages published to Redpanda
-        description: >
-          All messages published to Redpanda topics use this common envelope
-          structure.
-
-          The `type` field indicates the specific event type, and `data`
-          contains the
-
-          event-specific payload.
-
-
-          ## Kafka Record Structure
-
-
-          ```
-
-          Record {
-            Topic:   "{namespace}.{tenant}.{category}"
-            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
-            Value:   <this message as JSON>
-            Headers: [
-              {Key: "client_id", Value: "{id}"},
-              {Key: "source", Value: "ws-client"},
-              {Key: "timestamp", Value: "{unix_ms}"}
-            ]
-          }
-
-          ```
+              description: Total active subscription count for this connection.
+          examples:
+            - type: subscription_ack
+              subscribed:
+                - odin.BTC.trade
+              count: 5
+      unsubscriptionAck:
+        name: unsubscriptionAck
+        title: Unsubscription Acknowledgment
+        summary: Confirms which channels were unsubscribed.
         contentType: application/json
-        headers:
-          type: object
-          properties:
-            client_id:
-              type: string
-              description: Unique identifier of the publishing client
-            source:
-              type: string
-              description: Source of the message (e.g., "ws-client")
-              default: ws-client
-            timestamp:
-              type: string
-              description: Unix timestamp in milliseconds when the message was produced
-          required:
-            - client_id
-            - source
-            - timestamp
         payload:
           type: object
-          description: >
-            Common message envelope structure for all events.
-
-
-            Event types are dynamic and not hardcoded - they are determined by
-            the
-
-            publishing service based on the specific domain event being emitted.
+          description: Acknowledgment after an unsubscribe operation.
           required:
             - type
-            - seq
-            - timestamp
-            - channel
-            - priority
-            - data
+            - unsubscribed
+            - count
           properties:
             type:
               type: string
-              description: >
-                Event type identifier. This is dynamic and determined by the
-                publishing
-
-                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
-                "TOKEN_CREATED"
-              examples:
-                - TRADE_EXECUTED
-                - BALANCE_UPDATED
-                - LIQUIDITY_ADDED
-                - TOKEN_CREATED
-                - METADATA_UPDATED
-            seq:
+              const: unsubscription_ack
+            unsubscribed:
+              type: array
+              items:
+                type: string
+              description: Channels that were unsubscribed (with tenant prefix).
+            count:
               type: integer
-              format: int64
-              description: Monotonically increasing sequence number for ordering events
-              examples:
-                - 12345
-                - 67890
-            timestamp:
-              type: integer
-              format: int64
-              description: Unix timestamp in milliseconds when the event was created
-              examples:
-                - 1704067200000
-            channel:
-              type: string
-              description: >
-                Channel identifier used for routing and partitioning.
-
-                Format varies by category (e.g., "BTC.trade",
-                "wallet123.balances")
-              examples:
-                - BTC.trade
-                - ETH.liquidity
-                - wallet123.balances
-            priority:
-              type: string
-              description: Message priority level for processing
-              enum:
-                - CRITICAL
-                - HIGH
-                - NORMAL
-              default: NORMAL
-            data:
-              type: object
-              description: >
-                Event-specific payload. The structure depends on the event type
-                and is
-
-                determined by the publishing service. This is a free-form object
-                that
-
-                can contain any valid JSON.
-              additionalProperties: true
-        examples:
-          - name: Trade Event Example
-            summary: Example trade event message
-            headers:
-              client_id: client-12345
-              source: ws-client
-              timestamp: '1704067200000'
-            payload:
-              type: TRADE_EXECUTED
-              seq: 12345
-              timestamp: 1704067200000
-              channel: BTC.trade
-              priority: NORMAL
-              data:
-                price: '45000.50'
-                amount: '0.5'
-                side: buy
-          - name: Balance Update Example
-            summary: Example balance update message
-            headers:
-              client_id: client-67890
-              source: ws-client
-              timestamp: '1704067300000'
-            payload:
-              type: BALANCE_UPDATED
-              seq: 12346
-              timestamp: 1704067300000
-              channel: wallet123.balances
-              priority: HIGH
-              data:
-                wallet: wallet123
-                token: ETH
-                balance: '10.5'
-  creation:
-    address: '{namespace}.{tenant}.creation'
-    description: >
-      Creation events channel for token and asset creation activity.
-
-
-      ## Topic Pattern
-
-      `{namespace}.{tenant}.creation`
-
-
-      ## Example Topics
-
-      - `dev.acme.creation` - Development environment for tenant "acme"
-
-      - `prod.mycompany.creation` - Production environment for tenant
-      "mycompany"
-
-
-      ## Message Key
-
-      Full channel identifier for partitioning (e.g., `acme.NEWTOKEN.creation`)
-    parameters:
-      namespace:
-        description: |
-          Environment namespace (normalized):
-          - `local` - local development, development, or empty
-          - `dev` - develop, dev
-          - `staging` - staging, stage
-          - `prod` - production, prod
-      tenant:
-        description: Tenant identifier (dynamically provisioned via tenant_topics table)
-    messages:
-      event:
-        name: Event
-        title: Event Message
-        summary: Common event envelope for all messages published to Redpanda
-        description: >
-          All messages published to Redpanda topics use this common envelope
-          structure.
-
-          The `type` field indicates the specific event type, and `data`
-          contains the
-
-          event-specific payload.
-
-
-          ## Kafka Record Structure
-
-
-          ```
-
-          Record {
-            Topic:   "{namespace}.{tenant}.{category}"
-            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
-            Value:   <this message as JSON>
-            Headers: [
-              {Key: "client_id", Value: "{id}"},
-              {Key: "source", Value: "ws-client"},
-              {Key: "timestamp", Value: "{unix_ms}"}
-            ]
-          }
-
-          ```
+              description: Total active subscription count for this connection.
+          examples:
+            - type: unsubscription_ack
+              unsubscribed:
+                - odin.BTC.trade
+              count: 4
+      publishAck:
+        name: publishAck
+        title: Publish Acknowledgment
+        summary: Confirms a message was accepted for publishing.
         contentType: application/json
-        headers:
-          type: object
-          properties:
-            client_id:
-              type: string
-              description: Unique identifier of the publishing client
-            source:
-              type: string
-              description: Source of the message (e.g., "ws-client")
-              default: ws-client
-            timestamp:
-              type: string
-              description: Unix timestamp in milliseconds when the message was produced
-          required:
-            - client_id
-            - source
-            - timestamp
         payload:
           type: object
-          description: >
-            Common message envelope structure for all events.
-
-
-            Event types are dynamic and not hardcoded - they are determined by
-            the
-
-            publishing service based on the specific domain event being emitted.
+          description: Acknowledgment after a successful publish.
           required:
             - type
-            - seq
-            - timestamp
             - channel
-            - priority
-            - data
+            - status
           properties:
             type:
               type: string
-              description: >
-                Event type identifier. This is dynamic and determined by the
-                publishing
-
-                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
-                "TOKEN_CREATED"
-              examples:
-                - TRADE_EXECUTED
-                - BALANCE_UPDATED
-                - LIQUIDITY_ADDED
-                - TOKEN_CREATED
-                - METADATA_UPDATED
-            seq:
-              type: integer
-              format: int64
-              description: Monotonically increasing sequence number for ordering events
-              examples:
-                - 12345
-                - 67890
-            timestamp:
-              type: integer
-              format: int64
-              description: Unix timestamp in milliseconds when the event was created
-              examples:
-                - 1704067200000
+              const: publish_ack
             channel:
               type: string
-              description: >
-                Channel identifier used for routing and partitioning.
-
-                Format varies by category (e.g., "BTC.trade",
-                "wallet123.balances")
-              examples:
-                - BTC.trade
-                - ETH.liquidity
-                - wallet123.balances
-            priority:
+              description: Channel the message was published to (with tenant prefix).
+            status:
               type: string
-              description: Message priority level for processing
-              enum:
-                - CRITICAL
-                - HIGH
-                - NORMAL
-              default: NORMAL
-            data:
-              type: object
-              description: >
-                Event-specific payload. The structure depends on the event type
-                and is
-
-                determined by the publishing service. This is a free-form object
-                that
-
-                can contain any valid JSON.
-              additionalProperties: true
-        examples:
-          - name: Trade Event Example
-            summary: Example trade event message
-            headers:
-              client_id: client-12345
-              source: ws-client
-              timestamp: '1704067200000'
-            payload:
-              type: TRADE_EXECUTED
-              seq: 12345
-              timestamp: 1704067200000
-              channel: BTC.trade
-              priority: NORMAL
-              data:
-                price: '45000.50'
-                amount: '0.5'
-                side: buy
-          - name: Balance Update Example
-            summary: Example balance update message
-            headers:
-              client_id: client-67890
-              source: ws-client
-              timestamp: '1704067300000'
-            payload:
-              type: BALANCE_UPDATED
-              seq: 12346
-              timestamp: 1704067300000
-              channel: wallet123.balances
-              priority: HIGH
-              data:
-                wallet: wallet123
-                token: ETH
-                balance: '10.5'
-  analytics:
-    address: '{namespace}.{tenant}.analytics'
-    description: >
-      Analytics events channel for metrics and analytics data.
-
-
-      ## Topic Pattern
-
-      `{namespace}.{tenant}.analytics`
-
-
-      ## Example Topics
-
-      - `dev.acme.analytics` - Development environment for tenant "acme"
-
-      - `prod.mycompany.analytics` - Production environment for tenant
-      "mycompany"
-
-
-      ## Message Key
-
-      Full channel identifier for partitioning (e.g., `acme.daily.analytics`)
-    parameters:
-      namespace:
-        description: |
-          Environment namespace (normalized):
-          - `local` - local development, development, or empty
-          - `dev` - develop, dev
-          - `staging` - staging, stage
-          - `prod` - production, prod
-      tenant:
-        description: Tenant identifier (dynamically provisioned via tenant_topics table)
-    messages:
-      event:
-        name: Event
-        title: Event Message
-        summary: Common event envelope for all messages published to Redpanda
-        description: >
-          All messages published to Redpanda topics use this common envelope
-          structure.
-
-          The `type` field indicates the specific event type, and `data`
-          contains the
-
-          event-specific payload.
-
-
-          ## Kafka Record Structure
-
-
-          ```
-
-          Record {
-            Topic:   "{namespace}.{tenant}.{category}"
-            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
-            Value:   <this message as JSON>
-            Headers: [
-              {Key: "client_id", Value: "{id}"},
-              {Key: "source", Value: "ws-client"},
-              {Key: "timestamp", Value: "{unix_ms}"}
-            ]
-          }
-
-          ```
+              const: accepted
+              description: Always "accepted" on success.
+          examples:
+            - type: publish_ack
+              channel: odin.BTC.trade
+              status: accepted
+      publishError:
+        name: publishError
+        title: Publish Error
+        summary: Indicates a publish operation failed.
         contentType: application/json
-        headers:
-          type: object
-          properties:
-            client_id:
-              type: string
-              description: Unique identifier of the publishing client
-            source:
-              type: string
-              description: Source of the message (e.g., "ws-client")
-              default: ws-client
-            timestamp:
-              type: string
-              description: Unix timestamp in milliseconds when the message was produced
-          required:
-            - client_id
-            - source
-            - timestamp
         payload:
           type: object
-          description: >
-            Common message envelope structure for all events.
-
-
-            Event types are dynamic and not hardcoded - they are determined by
-            the
-
-            publishing service based on the specific domain event being emitted.
+          description: Error response for a failed publish operation.
           required:
             - type
-            - seq
-            - timestamp
-            - channel
-            - priority
-            - data
+            - code
+            - message
           properties:
             type:
               type: string
-              description: >
-                Event type identifier. This is dynamic and determined by the
-                publishing
-
-                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
-                "TOKEN_CREATED"
-              examples:
-                - TRADE_EXECUTED
-                - BALANCE_UPDATED
-                - LIQUIDITY_ADDED
-                - TOKEN_CREATED
-                - METADATA_UPDATED
-            seq:
-              type: integer
-              format: int64
-              description: Monotonically increasing sequence number for ordering events
-              examples:
-                - 12345
-                - 67890
-            timestamp:
-              type: integer
-              format: int64
-              description: Unix timestamp in milliseconds when the event was created
-              examples:
-                - 1704067200000
-            channel:
+              const: publish_error
+            code:
               type: string
-              description: >
-                Channel identifier used for routing and partitioning.
-
-                Format varies by category (e.g., "BTC.trade",
-                "wallet123.balances")
-              examples:
-                - BTC.trade
-                - ETH.liquidity
-                - wallet123.balances
-            priority:
-              type: string
-              description: Message priority level for processing
+              description: Machine-readable error code.
               enum:
-                - CRITICAL
-                - HIGH
-                - NORMAL
-              default: NORMAL
-            data:
-              type: object
-              description: >
-                Event-specific payload. The structure depends on the event type
-                and is
-
-                determined by the publishing service. This is a free-form object
-                that
-
-                can contain any valid JSON.
-              additionalProperties: true
-        examples:
-          - name: Trade Event Example
-            summary: Example trade event message
-            headers:
-              client_id: client-12345
-              source: ws-client
-              timestamp: '1704067200000'
-            payload:
-              type: TRADE_EXECUTED
-              seq: 12345
-              timestamp: 1704067200000
-              channel: BTC.trade
-              priority: NORMAL
-              data:
-                price: '45000.50'
-                amount: '0.5'
-                side: buy
-          - name: Balance Update Example
-            summary: Example balance update message
-            headers:
-              client_id: client-67890
-              source: ws-client
-              timestamp: '1704067300000'
-            payload:
-              type: BALANCE_UPDATED
-              seq: 12346
-              timestamp: 1704067300000
-              channel: wallet123.balances
-              priority: HIGH
-              data:
-                wallet: wallet123
-                token: ETH
-                balance: '10.5'
-  balances:
-    address: '{namespace}.{tenant}.balances'
-    description: >
-      Balances events channel for account balance updates.
-
-
-      ## Topic Pattern
-
-      `{namespace}.{tenant}.balances`
-
-
-      ## Example Topics
-
-      - `dev.acme.balances` - Development environment for tenant "acme"
-
-      - `prod.mycompany.balances` - Production environment for tenant
-      "mycompany"
-
-
-      ## Message Key
-
-      Full channel identifier for partitioning (e.g., `acme.wallet123.balances`)
-    parameters:
-      namespace:
-        description: |
-          Environment namespace (normalized):
-          - `local` - local development, development, or empty
-          - `dev` - develop, dev
-          - `staging` - staging, stage
-          - `prod` - production, prod
-      tenant:
-        description: Tenant identifier (dynamically provisioned via tenant_topics table)
-    messages:
-      event:
-        name: Event
-        title: Event Message
-        summary: Common event envelope for all messages published to Redpanda
-        description: >
-          All messages published to Redpanda topics use this common envelope
-          structure.
-
-          The `type` field indicates the specific event type, and `data`
-          contains the
-
-          event-specific payload.
-
-
-          ## Kafka Record Structure
-
-
-          ```
-
-          Record {
-            Topic:   "{namespace}.{tenant}.{category}"
-            Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
-            Value:   <this message as JSON>
-            Headers: [
-              {Key: "client_id", Value: "{id}"},
-              {Key: "source", Value: "ws-client"},
-              {Key: "timestamp", Value: "{unix_ms}"}
-            ]
-          }
-
-          ```
+                - not_available
+                - invalid_request
+                - invalid_channel
+                - message_too_large
+                - rate_limited
+                - publish_failed
+                - forbidden
+                - topic_not_provisioned
+                - service_unavailable
+            message:
+              type: string
+              description: Human-readable error description.
+          examples:
+            - type: publish_error
+              code: rate_limited
+              message: Publish rate limit exceeded
+      reconnectAck:
+        name: reconnectAck
+        title: Reconnect Acknowledgment
+        summary: Confirms message replay completed.
         contentType: application/json
-        headers:
-          type: object
-          properties:
-            client_id:
-              type: string
-              description: Unique identifier of the publishing client
-            source:
-              type: string
-              description: Source of the message (e.g., "ws-client")
-              default: ws-client
-            timestamp:
-              type: string
-              description: Unix timestamp in milliseconds when the message was produced
-          required:
-            - client_id
-            - source
-            - timestamp
         payload:
           type: object
-          description: >
-            Common message envelope structure for all events.
-
-
-            Event types are dynamic and not hardcoded - they are determined by
-            the
-
-            publishing service based on the specific domain event being emitted.
+          description: Acknowledgment after a successful reconnect with message replay.
           required:
             - type
-            - seq
-            - timestamp
-            - channel
-            - priority
-            - data
+            - status
+            - messages_replayed
+            - message
           properties:
             type:
               type: string
-              description: >
-                Event type identifier. This is dynamic and determined by the
-                publishing
-
-                service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
-                "TOKEN_CREATED"
-              examples:
-                - TRADE_EXECUTED
-                - BALANCE_UPDATED
-                - LIQUIDITY_ADDED
-                - TOKEN_CREATED
-                - METADATA_UPDATED
-            seq:
+              const: reconnect_ack
+            status:
+              type: string
+              const: completed
+              description: Always "completed".
+            messages_replayed:
+              type: integer
+              description: Number of messages replayed from Kafka.
+            message:
+              type: string
+              description: Human-readable summary.
+          examples:
+            - type: reconnect_ack
+              status: completed
+              messages_replayed: 5
+              message: Replayed 5 missed messages
+      reconnectError:
+        name: reconnectError
+        title: Reconnect Error
+        summary: Indicates reconnect/replay failed.
+        contentType: application/json
+        payload:
+          type: object
+          description: Error response when reconnect/replay fails.
+          required:
+            - type
+            - message
+          properties:
+            type:
+              type: string
+              const: reconnect_error
+            message:
+              type: string
+              description: Human-readable error description.
+          examples:
+            - type: reconnect_error
+              message: Message replay not available (no Kafka consumer)
+      pong:
+        name: pong
+        title: Pong
+        summary: Heartbeat response with server timestamp.
+        contentType: application/json
+        payload:
+          type: object
+          description: Response to a heartbeat message.
+          required:
+            - type
+            - ts
+          properties:
+            type:
+              type: string
+              const: pong
+            ts:
               type: integer
               format: int64
-              description: Monotonically increasing sequence number for ordering events
-              examples:
-                - 12345
-                - 67890
-            timestamp:
-              type: integer
-              format: int64
-              description: Unix timestamp in milliseconds when the event was created
-              examples:
-                - 1704067200000
-            channel:
+              description: Server timestamp in Unix milliseconds.
+          examples:
+            - type: pong
+              ts: 1706000000000
+      error:
+        name: error
+        title: Error
+        summary: Generic error response.
+        contentType: application/json
+        payload:
+          type: object
+          description: Generic error response.
+          required:
+            - type
+            - message
+          properties:
+            type:
               type: string
-              description: >
-                Channel identifier used for routing and partitioning.
-
-                Format varies by category (e.g., "BTC.trade",
-                "wallet123.balances")
-              examples:
-                - BTC.trade
-                - ETH.liquidity
-                - wallet123.balances
-            priority:
+              const: error
+            message:
               type: string
-              description: Message priority level for processing
+              description: Human-readable error description.
+      messageError:
+        name: messageError
+        title: Message Error
+        summary: Error for malformed messages (invalid JSON).
+        contentType: application/json
+        payload:
+          type: object
+          description: Error response for malformed messages (e.g., invalid JSON).
+          required:
+            - type
+            - code
+            - message
+          properties:
+            type:
+              type: string
+              const: error
+            code:
+              type: string
+              description: Machine-readable error code.
               enum:
-                - CRITICAL
-                - HIGH
-                - NORMAL
-              default: NORMAL
-            data:
-              type: object
-              description: >
-                Event-specific payload. The structure depends on the event type
-                and is
-
-                determined by the publishing service. This is a free-form object
-                that
-
-                can contain any valid JSON.
-              additionalProperties: true
-        examples:
-          - name: Trade Event Example
-            summary: Example trade event message
-            headers:
-              client_id: client-12345
-              source: ws-client
-              timestamp: '1704067200000'
-            payload:
-              type: TRADE_EXECUTED
-              seq: 12345
-              timestamp: 1704067200000
-              channel: BTC.trade
-              priority: NORMAL
-              data:
-                price: '45000.50'
-                amount: '0.5'
-                side: buy
-          - name: Balance Update Example
-            summary: Example balance update message
-            headers:
-              client_id: client-67890
-              source: ws-client
-              timestamp: '1704067300000'
-            payload:
-              type: BALANCE_UPDATED
-              seq: 12346
-              timestamp: 1704067300000
-              channel: wallet123.balances
-              priority: HIGH
-              data:
-                wallet: wallet123
-                token: ETH
-                balance: '10.5'
+                - invalid_json
+            message:
+              type: string
+              description: Human-readable error description.
+          examples:
+            - type: error
+              code: invalid_json
+              message: Message is not valid JSON
+      subscribeError:
+        name: subscribeError
+        title: Subscribe Error
+        summary: Error for failed subscribe requests.
+        contentType: application/json
+        payload:
+          type: object
+          description: Error response for failed subscribe requests.
+          required:
+            - type
+            - code
+            - message
+          properties:
+            type:
+              type: string
+              const: subscribe_error
+            code:
+              type: string
+              description: Machine-readable error code.
+              enum:
+                - invalid_request
+            message:
+              type: string
+              description: Human-readable error description.
+          examples:
+            - type: subscribe_error
+              code: invalid_request
+              message: Invalid subscribe request format
+      unsubscribeError:
+        name: unsubscribeError
+        title: Unsubscribe Error
+        summary: Error for failed unsubscribe requests.
+        contentType: application/json
+        payload:
+          type: object
+          description: Error response for failed unsubscribe requests.
+          required:
+            - type
+            - code
+            - message
+          properties:
+            type:
+              type: string
+              const: unsubscribe_error
+            code:
+              type: string
+              description: Machine-readable error code.
+              enum:
+                - invalid_request
+            message:
+              type: string
+              description: Human-readable error description.
+          examples:
+            - type: unsubscribe_error
+              code: invalid_request
+              message: Invalid unsubscribe request format
 operations:
-  publishTrade:
+  sendSubscribe:
     action: send
     channel:
-      $ref: '#/channels/trade'
+      $ref: '#/channels/clientSend'
+    summary: Subscribe to channels
+    description: >
+      Subscribe to one or more channels. Channels use explicit tenant-prefixed
+      format (`{tenant}.{identifier}.{category}`). The gateway validates the
+      tenant prefix and, when auth is enabled, filters channels by permission
+      rules. Unauthorized channels are silently dropped.
     messages:
-      - $ref: '#/channels/trade/messages/event'
-  publishLiquidity:
+      - $ref: '#/channels/clientSend/messages/subscribe'
+  sendUnsubscribe:
     action: send
     channel:
-      $ref: '#/channels/liquidity'
+      $ref: '#/channels/clientSend'
+    summary: Unsubscribe from channels
+    description: >
+      Unsubscribe from one or more previously subscribed channels. Unsubscribing
+      from non-subscribed channels is harmless (no error).
     messages:
-      - $ref: '#/channels/liquidity/messages/event'
-  publishMetadata:
+      - $ref: '#/channels/clientSend/messages/unsubscribe'
+  sendPublish:
     action: send
     channel:
-      $ref: '#/channels/metadata'
+      $ref: '#/channels/clientSend'
+    summary: Publish a message to a channel
+    description: |
+      Publish a message to a single channel. The gateway validates:
+      1. Tenant prefix matches authenticated tenant
+      2. Channel has at least 3 dot-separated parts
+      3. Payload does not exceed 64KB
+      4. Rate limit not exceeded (10 msg/sec, burst 100)
+
+      On success, the message is routed to the corresponding Redpanda topic
+      (`{namespace}.{tenant}.{category}`) and a `publish_ack` is returned.
     messages:
-      - $ref: '#/channels/metadata/messages/event'
-  publishSocial:
+      - $ref: '#/channels/clientSend/messages/publish'
+  sendReconnect:
     action: send
     channel:
-      $ref: '#/channels/social'
+      $ref: '#/channels/clientSend'
+    summary: Reconnect and replay missed messages
+    description: >
+      Request replay of missed messages using a persistent client ID and
+      last-known Kafka offsets. The server replays up to 100 messages within a
+      5-second timeout.
     messages:
-      - $ref: '#/channels/social/messages/event'
-  publishCommunity:
+      - $ref: '#/channels/clientSend/messages/reconnect'
+  sendHeartbeat:
     action: send
     channel:
-      $ref: '#/channels/community'
+      $ref: '#/channels/clientSend'
+    summary: Send a heartbeat
+    description: >
+      Send a heartbeat to keep the connection alive. The server responds with a
+      `pong` message containing the current server timestamp.
     messages:
-      - $ref: '#/channels/community/messages/event'
-  publishCreation:
-    action: send
+      - $ref: '#/channels/clientSend/messages/heartbeat'
+  receiveMessage:
+    action: receive
     channel:
-      $ref: '#/channels/creation'
+      $ref: '#/channels/clientReceive'
+    summary: Receive a broadcast message
+    description: >
+      Receive a broadcast message on a subscribed channel. Messages include a
+      monotonic sequence number for gap detection and a server timestamp in Unix
+      milliseconds.
     messages:
-      - $ref: '#/channels/creation/messages/event'
-  publishAnalytics:
-    action: send
+      - $ref: '#/channels/clientReceive/messages/message'
+  receiveSubscriptionAck:
+    action: receive
     channel:
-      $ref: '#/channels/analytics'
+      $ref: '#/channels/clientReceive'
+    summary: Receive subscription acknowledgment
     messages:
-      - $ref: '#/channels/analytics/messages/event'
-  publishBalances:
-    action: send
+      - $ref: '#/channels/clientReceive/messages/subscriptionAck'
+  receiveUnsubscriptionAck:
+    action: receive
     channel:
-      $ref: '#/channels/balances'
+      $ref: '#/channels/clientReceive'
+    summary: Receive unsubscription acknowledgment
     messages:
-      - $ref: '#/channels/balances/messages/event'
+      - $ref: '#/channels/clientReceive/messages/unsubscriptionAck'
+  receivePublishAck:
+    action: receive
+    channel:
+      $ref: '#/channels/clientReceive'
+    summary: Receive publish acknowledgment
+    messages:
+      - $ref: '#/channels/clientReceive/messages/publishAck'
+  receivePublishError:
+    action: receive
+    channel:
+      $ref: '#/channels/clientReceive'
+    summary: Receive publish error
+    messages:
+      - $ref: '#/channels/clientReceive/messages/publishError'
+  receiveReconnectAck:
+    action: receive
+    channel:
+      $ref: '#/channels/clientReceive'
+    summary: Receive reconnect acknowledgment
+    messages:
+      - $ref: '#/channels/clientReceive/messages/reconnectAck'
+  receiveReconnectError:
+    action: receive
+    channel:
+      $ref: '#/channels/clientReceive'
+    summary: Receive reconnect error
+    messages:
+      - $ref: '#/channels/clientReceive/messages/reconnectError'
+  receivePong:
+    action: receive
+    channel:
+      $ref: '#/channels/clientReceive'
+    summary: Receive heartbeat response
+    messages:
+      - $ref: '#/channels/clientReceive/messages/pong'
+  receiveError:
+    action: receive
+    channel:
+      $ref: '#/channels/clientReceive'
+    summary: Receive a generic error
+    messages:
+      - $ref: '#/channels/clientReceive/messages/error'
+  receiveMessageError:
+    action: receive
+    channel:
+      $ref: '#/channels/clientReceive'
+    summary: Receive error for malformed messages
+    description: |
+      Received when a client sends a message that is not valid JSON.
+    messages:
+      - $ref: '#/channels/clientReceive/messages/messageError'
+  receiveSubscribeError:
+    action: receive
+    channel:
+      $ref: '#/channels/clientReceive'
+    summary: Receive subscribe error
+    description: |
+      Received when a subscribe request has an invalid data format.
+    messages:
+      - $ref: '#/channels/clientReceive/messages/subscribeError'
+  receiveUnsubscribeError:
+    action: receive
+    channel:
+      $ref: '#/channels/clientReceive'
+    summary: Receive unsubscribe error
+    description: |
+      Received when an unsubscribe request has an invalid data format.
+    messages:
+      - $ref: '#/channels/clientReceive/messages/unsubscribeError'
 components:
-  messages:
-    event:
-      name: Event
-      title: Event Message
-      summary: Common event envelope for all messages published to Redpanda
-      description: >
-        All messages published to Redpanda topics use this common envelope
-        structure.
-
-        The `type` field indicates the specific event type, and `data` contains
-        the
-
-        event-specific payload.
-
-
-        ## Kafka Record Structure
-
-
-        ```
-
-        Record {
-          Topic:   "{namespace}.{tenant}.{category}"
-          Key:     "{channel}"  // Full channel for partitioning (e.g., "acme.BTC.trade")
-          Value:   <this message as JSON>
-          Headers: [
-            {Key: "client_id", Value: "{id}"},
-            {Key: "source", Value: "ws-client"},
-            {Key: "timestamp", Value: "{unix_ms}"}
-          ]
-        }
-
-        ```
-      contentType: application/json
-      headers:
-        type: object
-        properties:
-          client_id:
-            type: string
-            description: Unique identifier of the publishing client
-          source:
-            type: string
-            description: Source of the message (e.g., "ws-client")
-            default: ws-client
-          timestamp:
-            type: string
-            description: Unix timestamp in milliseconds when the message was produced
-        required:
-          - client_id
-          - source
-          - timestamp
-      payload:
-        type: object
-        description: |
-          Common message envelope structure for all events.
-
-          Event types are dynamic and not hardcoded - they are determined by the
-          publishing service based on the specific domain event being emitted.
-        required:
-          - type
-          - seq
-          - timestamp
-          - channel
-          - priority
-          - data
-        properties:
-          type:
-            type: string
-            description: >
-              Event type identifier. This is dynamic and determined by the
-              publishing
-
-              service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
-              "TOKEN_CREATED"
-            examples:
-              - TRADE_EXECUTED
-              - BALANCE_UPDATED
-              - LIQUIDITY_ADDED
-              - TOKEN_CREATED
-              - METADATA_UPDATED
-          seq:
-            type: integer
-            format: int64
-            description: Monotonically increasing sequence number for ordering events
-            examples:
-              - 12345
-              - 67890
-          timestamp:
-            type: integer
-            format: int64
-            description: Unix timestamp in milliseconds when the event was created
-            examples:
-              - 1704067200000
-          channel:
-            type: string
-            description: >
-              Channel identifier used for routing and partitioning.
-
-              Format varies by category (e.g., "BTC.trade",
-              "wallet123.balances")
-            examples:
-              - BTC.trade
-              - ETH.liquidity
-              - wallet123.balances
-          priority:
-            type: string
-            description: Message priority level for processing
-            enum:
-              - CRITICAL
-              - HIGH
-              - NORMAL
-            default: NORMAL
-          data:
-            type: object
-            description: >
-              Event-specific payload. The structure depends on the event type
-              and is
-
-              determined by the publishing service. This is a free-form object
-              that
-
-              can contain any valid JSON.
-            additionalProperties: true
-      examples:
-        - name: Trade Event Example
-          summary: Example trade event message
-          headers:
-            client_id: client-12345
-            source: ws-client
-            timestamp: '1704067200000'
-          payload:
-            type: TRADE_EXECUTED
-            seq: 12345
-            timestamp: 1704067200000
-            channel: BTC.trade
-            priority: NORMAL
-            data:
-              price: '45000.50'
-              amount: '0.5'
-              side: buy
-        - name: Balance Update Example
-          summary: Example balance update message
-          headers:
-            client_id: client-67890
-            source: ws-client
-            timestamp: '1704067300000'
-          payload:
-            type: BALANCE_UPDATED
-            seq: 12346
-            timestamp: 1704067300000
-            channel: wallet123.balances
-            priority: HIGH
-            data:
-              wallet: wallet123
-              token: ETH
-              balance: '10.5'
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Authorization: Bearer {token} header'
+    queryToken:
+      type: httpApiKey
+      in: query
+      name: token
+      description: '?token={jwt} query parameter — takes precedence over header'
   schemas:
-    eventEnvelope:
+    ClientMessage:
       type: object
-      description: |
-        Common message envelope structure for all events.
-
-        Event types are dynamic and not hardcoded - they are determined by the
-        publishing service based on the specific domain event being emitted.
+      description: Standard envelope for all client-to-server messages.
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          description: Message type identifier.
+          enum:
+            - subscribe
+            - unsubscribe
+            - publish
+            - reconnect
+            - heartbeat
+        data:
+          type: object
+          description: Type-specific payload.
+    SubscribeData:
+      type: object
+      description: Payload for subscribe messages.
+      required:
+        - channels
+      properties:
+        channels:
+          type: array
+          items:
+            type: string
+          description: 'Channels to subscribe to. Format: {tenant}.{identifier}.{category}'
+          examples:
+            - - odin.BTC.trade
+              - odin.ETH.orderbook
+    UnsubscribeData:
+      type: object
+      description: Payload for unsubscribe messages.
+      required:
+        - channels
+      properties:
+        channels:
+          type: array
+          items:
+            type: string
+          description: >-
+            Channels to unsubscribe from. Format:
+            {tenant}.{identifier}.{category}
+          examples:
+            - - odin.BTC.trade
+    PublishData:
+      type: object
+      description: Payload for publish messages.
+      required:
+        - channel
+        - data
+      properties:
+        channel:
+          type: string
+          description: 'Target channel. Format: {tenant}.{identifier}.{category}'
+          examples:
+            - odin.BTC.trade
+        data:
+          type: object
+          description: Arbitrary JSON payload (max 64KB).
+          examples:
+            - price: 50000
+              volume: 1.5
+    ReconnectData:
+      type: object
+      description: Payload for reconnect messages.
+      required:
+        - client_id
+        - last_offset
+      properties:
+        client_id:
+          type: string
+          description: Persistent client identifier for reconnection.
+          examples:
+            - abc123
+        last_offset:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+          description: Map of Kafka topic to last received offset.
+          examples:
+            - local.odin.trade: 12345
+    MessageEnvelope:
+      type: object
+      description: Broadcast message envelope sent to subscribed clients.
       required:
         - type
         - seq
-        - timestamp
+        - ts
         - channel
-        - priority
         - data
       properties:
         type:
           type: string
-          description: >
-            Event type identifier. This is dynamic and determined by the
-            publishing
-
-            service. Examples: "TRADE_EXECUTED", "BALANCE_UPDATED",
-            "TOKEN_CREATED"
-          examples:
-            - TRADE_EXECUTED
-            - BALANCE_UPDATED
-            - LIQUIDITY_ADDED
-            - TOKEN_CREATED
-            - METADATA_UPDATED
+          const: message
+          description: Always "message" for broadcast messages.
         seq:
           type: integer
           format: int64
-          description: Monotonically increasing sequence number for ordering events
-          examples:
-            - 12345
-            - 67890
-        timestamp:
+          description: >-
+            Monotonically increasing sequence number per connection. Starts at
+            1. Used for gap detection.
+        ts:
           type: integer
           format: int64
-          description: Unix timestamp in milliseconds when the event was created
-          examples:
-            - 1704067200000
+          description: Server timestamp in Unix milliseconds.
         channel:
           type: string
-          description: |
-            Channel identifier used for routing and partitioning.
-            Format varies by category (e.g., "BTC.trade", "wallet123.balances")
+          description: >-
+            Channel this message was broadcast on. Format:
+            {tenant}.{identifier}.{category}
           examples:
-            - BTC.trade
-            - ETH.liquidity
-            - wallet123.balances
-        priority:
-          type: string
-          description: Message priority level for processing
-          enum:
-            - CRITICAL
-            - HIGH
-            - NORMAL
-          default: NORMAL
+            - odin.BTC.trade
         data:
           type: object
-          description: >
-            Event-specific payload. The structure depends on the event type and
-            is
-
-            determined by the publishing service. This is a free-form object
-            that
-
-            can contain any valid JSON.
-          additionalProperties: true
+          description: Message payload (schema owned by the publishing service).
+      examples:
+        - type: message
+          seq: 1234
+          ts: 1706000000000
+          channel: odin.BTC.trade
+          data:
+            price: 50000
+            volume: 1.5
+    SubscriptionAck:
+      type: object
+      description: Acknowledgment after a successful subscribe operation.
+      required:
+        - type
+        - subscribed
+        - count
+      properties:
+        type:
+          type: string
+          const: subscription_ack
+        subscribed:
+          type: array
+          items:
+            type: string
+          description: >-
+            Channels that were successfully subscribed (with tenant prefix).
+            Channels that were filtered by permissions are not included.
+        count:
+          type: integer
+          description: Total active subscription count for this connection.
+      examples:
+        - type: subscription_ack
+          subscribed:
+            - odin.BTC.trade
+          count: 5
+    UnsubscriptionAck:
+      type: object
+      description: Acknowledgment after an unsubscribe operation.
+      required:
+        - type
+        - unsubscribed
+        - count
+      properties:
+        type:
+          type: string
+          const: unsubscription_ack
+        unsubscribed:
+          type: array
+          items:
+            type: string
+          description: Channels that were unsubscribed (with tenant prefix).
+        count:
+          type: integer
+          description: Total active subscription count for this connection.
+      examples:
+        - type: unsubscription_ack
+          unsubscribed:
+            - odin.BTC.trade
+          count: 4
+    PublishAck:
+      type: object
+      description: Acknowledgment after a successful publish.
+      required:
+        - type
+        - channel
+        - status
+      properties:
+        type:
+          type: string
+          const: publish_ack
+        channel:
+          type: string
+          description: Channel the message was published to (with tenant prefix).
+        status:
+          type: string
+          const: accepted
+          description: Always "accepted" on success.
+      examples:
+        - type: publish_ack
+          channel: odin.BTC.trade
+          status: accepted
+    PublishError:
+      type: object
+      description: Error response for a failed publish operation.
+      required:
+        - type
+        - code
+        - message
+      properties:
+        type:
+          type: string
+          const: publish_error
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - not_available
+            - invalid_request
+            - invalid_channel
+            - message_too_large
+            - rate_limited
+            - publish_failed
+            - forbidden
+            - topic_not_provisioned
+            - service_unavailable
+        message:
+          type: string
+          description: Human-readable error description.
+      examples:
+        - type: publish_error
+          code: rate_limited
+          message: Publish rate limit exceeded
+    ReconnectAck:
+      type: object
+      description: Acknowledgment after a successful reconnect with message replay.
+      required:
+        - type
+        - status
+        - messages_replayed
+        - message
+      properties:
+        type:
+          type: string
+          const: reconnect_ack
+        status:
+          type: string
+          const: completed
+          description: Always "completed".
+        messages_replayed:
+          type: integer
+          description: Number of messages replayed from Kafka.
+        message:
+          type: string
+          description: Human-readable summary.
+      examples:
+        - type: reconnect_ack
+          status: completed
+          messages_replayed: 5
+          message: Replayed 5 missed messages
+    ReconnectError:
+      type: object
+      description: Error response when reconnect/replay fails.
+      required:
+        - type
+        - message
+      properties:
+        type:
+          type: string
+          const: reconnect_error
+        message:
+          type: string
+          description: Human-readable error description.
+      examples:
+        - type: reconnect_error
+          message: Message replay not available (no Kafka consumer)
+    Pong:
+      type: object
+      description: Response to a heartbeat message.
+      required:
+        - type
+        - ts
+      properties:
+        type:
+          type: string
+          const: pong
+        ts:
+          type: integer
+          format: int64
+          description: Server timestamp in Unix milliseconds.
+      examples:
+        - type: pong
+          ts: 1706000000000
+    Error:
+      type: object
+      description: Generic error response.
+      required:
+        - type
+        - message
+      properties:
+        type:
+          type: string
+          const: error
+        message:
+          type: string
+          description: Human-readable error description.
+    MessageError:
+      type: object
+      description: Error response for malformed messages (e.g., invalid JSON).
+      required:
+        - type
+        - code
+        - message
+      properties:
+        type:
+          type: string
+          const: error
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - invalid_json
+        message:
+          type: string
+          description: Human-readable error description.
+      examples:
+        - type: error
+          code: invalid_json
+          message: Message is not valid JSON
+    SubscribeError:
+      type: object
+      description: Error response for failed subscribe requests.
+      required:
+        - type
+        - code
+        - message
+      properties:
+        type:
+          type: string
+          const: subscribe_error
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - invalid_request
+        message:
+          type: string
+          description: Human-readable error description.
+      examples:
+        - type: subscribe_error
+          code: invalid_request
+          message: Invalid subscribe request format
+    UnsubscribeError:
+      type: object
+      description: Error response for failed unsubscribe requests.
+      required:
+        - type
+        - code
+        - message
+      properties:
+        type:
+          type: string
+          const: unsubscribe_error
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - invalid_request
+        message:
+          type: string
+          description: Human-readable error description.
+      examples:
+        - type: unsubscribe_error
+          code: invalid_request
+          message: Invalid unsubscribe request format
+  messages:
+    subscribe:
+      name: subscribe
+      title: Subscribe
+      summary: Subscribe to one or more channels.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+        properties:
+          type:
+            type: string
+            const: subscribe
+          data:
+            type: object
+            description: Payload for subscribe messages.
+            required:
+              - channels
+            properties:
+              channels:
+                type: array
+                items:
+                  type: string
+                description: >-
+                  Channels to subscribe to. Format:
+                  {tenant}.{identifier}.{category}
+                examples:
+                  - - odin.BTC.trade
+                    - odin.ETH.orderbook
+      examples:
+        - name: subscribeExample
+          payload:
+            type: subscribe
+            data:
+              channels:
+                - odin.BTC.trade
+                - odin.ETH.orderbook
+    unsubscribe:
+      name: unsubscribe
+      title: Unsubscribe
+      summary: Unsubscribe from one or more channels.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+        properties:
+          type:
+            type: string
+            const: unsubscribe
+          data:
+            type: object
+            description: Payload for unsubscribe messages.
+            required:
+              - channels
+            properties:
+              channels:
+                type: array
+                items:
+                  type: string
+                description: >-
+                  Channels to unsubscribe from. Format:
+                  {tenant}.{identifier}.{category}
+                examples:
+                  - - odin.BTC.trade
+      examples:
+        - name: unsubscribeExample
+          payload:
+            type: unsubscribe
+            data:
+              channels:
+                - odin.BTC.trade
+    publish:
+      name: publish
+      title: Publish
+      summary: Publish a message to a channel.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+        properties:
+          type:
+            type: string
+            const: publish
+          data:
+            type: object
+            description: Payload for publish messages.
+            required:
+              - channel
+              - data
+            properties:
+              channel:
+                type: string
+                description: 'Target channel. Format: {tenant}.{identifier}.{category}'
+                examples:
+                  - odin.BTC.trade
+              data:
+                type: object
+                description: Arbitrary JSON payload (max 64KB).
+                examples:
+                  - price: 50000
+                    volume: 1.5
+      examples:
+        - name: publishExample
+          payload:
+            type: publish
+            data:
+              channel: odin.BTC.trade
+              data:
+                price: 50000
+                volume: 1.5
+    reconnect:
+      name: reconnect
+      title: Reconnect
+      summary: Reconnect and replay missed messages from Kafka offsets.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+        properties:
+          type:
+            type: string
+            const: reconnect
+          data:
+            type: object
+            description: Payload for reconnect messages.
+            required:
+              - client_id
+              - last_offset
+            properties:
+              client_id:
+                type: string
+                description: Persistent client identifier for reconnection.
+                examples:
+                  - abc123
+              last_offset:
+                type: object
+                additionalProperties:
+                  type: integer
+                  format: int64
+                description: Map of Kafka topic to last received offset.
+                examples:
+                  - local.odin.trade: 12345
+      examples:
+        - name: reconnectExample
+          payload:
+            type: reconnect
+            data:
+              client_id: abc123
+              last_offset:
+                local.odin.trade: 12345
+    heartbeat:
+      name: heartbeat
+      title: Heartbeat
+      summary: Send a heartbeat to keep the connection alive.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+        properties:
+          type:
+            type: string
+            const: heartbeat
+          data:
+            type: object
+      examples:
+        - name: heartbeatExample
+          payload:
+            type: heartbeat
+            data: {}
+    message:
+      name: message
+      title: Broadcast Message
+      summary: A broadcast message on a subscribed channel.
+      contentType: application/json
+      payload:
+        type: object
+        description: Broadcast message envelope sent to subscribed clients.
+        required:
+          - type
+          - seq
+          - ts
+          - channel
+          - data
+        properties:
+          type:
+            type: string
+            const: message
+            description: Always "message" for broadcast messages.
+          seq:
+            type: integer
+            format: int64
+            description: >-
+              Monotonically increasing sequence number per connection. Starts at
+              1. Used for gap detection.
+          ts:
+            type: integer
+            format: int64
+            description: Server timestamp in Unix milliseconds.
+          channel:
+            type: string
+            description: >-
+              Channel this message was broadcast on. Format:
+              {tenant}.{identifier}.{category}
+            examples:
+              - odin.BTC.trade
+          data:
+            type: object
+            description: Message payload (schema owned by the publishing service).
+        examples:
+          - type: message
+            seq: 1234
+            ts: 1706000000000
+            channel: odin.BTC.trade
+            data:
+              price: 50000
+              volume: 1.5
+    subscriptionAck:
+      name: subscriptionAck
+      title: Subscription Acknowledgment
+      summary: Confirms which channels were subscribed.
+      contentType: application/json
+      payload:
+        type: object
+        description: Acknowledgment after a successful subscribe operation.
+        required:
+          - type
+          - subscribed
+          - count
+        properties:
+          type:
+            type: string
+            const: subscription_ack
+          subscribed:
+            type: array
+            items:
+              type: string
+            description: >-
+              Channels that were successfully subscribed (with tenant prefix).
+              Channels that were filtered by permissions are not included.
+          count:
+            type: integer
+            description: Total active subscription count for this connection.
+        examples:
+          - type: subscription_ack
+            subscribed:
+              - odin.BTC.trade
+            count: 5
+    unsubscriptionAck:
+      name: unsubscriptionAck
+      title: Unsubscription Acknowledgment
+      summary: Confirms which channels were unsubscribed.
+      contentType: application/json
+      payload:
+        type: object
+        description: Acknowledgment after an unsubscribe operation.
+        required:
+          - type
+          - unsubscribed
+          - count
+        properties:
+          type:
+            type: string
+            const: unsubscription_ack
+          unsubscribed:
+            type: array
+            items:
+              type: string
+            description: Channels that were unsubscribed (with tenant prefix).
+          count:
+            type: integer
+            description: Total active subscription count for this connection.
+        examples:
+          - type: unsubscription_ack
+            unsubscribed:
+              - odin.BTC.trade
+            count: 4
+    publishAck:
+      name: publishAck
+      title: Publish Acknowledgment
+      summary: Confirms a message was accepted for publishing.
+      contentType: application/json
+      payload:
+        type: object
+        description: Acknowledgment after a successful publish.
+        required:
+          - type
+          - channel
+          - status
+        properties:
+          type:
+            type: string
+            const: publish_ack
+          channel:
+            type: string
+            description: Channel the message was published to (with tenant prefix).
+          status:
+            type: string
+            const: accepted
+            description: Always "accepted" on success.
+        examples:
+          - type: publish_ack
+            channel: odin.BTC.trade
+            status: accepted
+    publishError:
+      name: publishError
+      title: Publish Error
+      summary: Indicates a publish operation failed.
+      contentType: application/json
+      payload:
+        type: object
+        description: Error response for a failed publish operation.
+        required:
+          - type
+          - code
+          - message
+        properties:
+          type:
+            type: string
+            const: publish_error
+          code:
+            type: string
+            description: Machine-readable error code.
+            enum:
+              - not_available
+              - invalid_request
+              - invalid_channel
+              - message_too_large
+              - rate_limited
+              - publish_failed
+              - forbidden
+              - topic_not_provisioned
+              - service_unavailable
+          message:
+            type: string
+            description: Human-readable error description.
+        examples:
+          - type: publish_error
+            code: rate_limited
+            message: Publish rate limit exceeded
+    reconnectAck:
+      name: reconnectAck
+      title: Reconnect Acknowledgment
+      summary: Confirms message replay completed.
+      contentType: application/json
+      payload:
+        type: object
+        description: Acknowledgment after a successful reconnect with message replay.
+        required:
+          - type
+          - status
+          - messages_replayed
+          - message
+        properties:
+          type:
+            type: string
+            const: reconnect_ack
+          status:
+            type: string
+            const: completed
+            description: Always "completed".
+          messages_replayed:
+            type: integer
+            description: Number of messages replayed from Kafka.
+          message:
+            type: string
+            description: Human-readable summary.
+        examples:
+          - type: reconnect_ack
+            status: completed
+            messages_replayed: 5
+            message: Replayed 5 missed messages
+    reconnectError:
+      name: reconnectError
+      title: Reconnect Error
+      summary: Indicates reconnect/replay failed.
+      contentType: application/json
+      payload:
+        type: object
+        description: Error response when reconnect/replay fails.
+        required:
+          - type
+          - message
+        properties:
+          type:
+            type: string
+            const: reconnect_error
+          message:
+            type: string
+            description: Human-readable error description.
+        examples:
+          - type: reconnect_error
+            message: Message replay not available (no Kafka consumer)
+    pong:
+      name: pong
+      title: Pong
+      summary: Heartbeat response with server timestamp.
+      contentType: application/json
+      payload:
+        type: object
+        description: Response to a heartbeat message.
+        required:
+          - type
+          - ts
+        properties:
+          type:
+            type: string
+            const: pong
+          ts:
+            type: integer
+            format: int64
+            description: Server timestamp in Unix milliseconds.
+        examples:
+          - type: pong
+            ts: 1706000000000
+    error:
+      name: error
+      title: Error
+      summary: Generic error response.
+      contentType: application/json
+      payload:
+        type: object
+        description: Generic error response.
+        required:
+          - type
+          - message
+        properties:
+          type:
+            type: string
+            const: error
+          message:
+            type: string
+            description: Human-readable error description.
+    messageError:
+      name: messageError
+      title: Message Error
+      summary: Error for malformed messages (invalid JSON).
+      contentType: application/json
+      payload:
+        type: object
+        description: Error response for malformed messages (e.g., invalid JSON).
+        required:
+          - type
+          - code
+          - message
+        properties:
+          type:
+            type: string
+            const: error
+          code:
+            type: string
+            description: Machine-readable error code.
+            enum:
+              - invalid_json
+          message:
+            type: string
+            description: Human-readable error description.
+        examples:
+          - type: error
+            code: invalid_json
+            message: Message is not valid JSON
+    subscribeError:
+      name: subscribeError
+      title: Subscribe Error
+      summary: Error for failed subscribe requests.
+      contentType: application/json
+      payload:
+        type: object
+        description: Error response for failed subscribe requests.
+        required:
+          - type
+          - code
+          - message
+        properties:
+          type:
+            type: string
+            const: subscribe_error
+          code:
+            type: string
+            description: Machine-readable error code.
+            enum:
+              - invalid_request
+          message:
+            type: string
+            description: Human-readable error description.
+        examples:
+          - type: subscribe_error
+            code: invalid_request
+            message: Invalid subscribe request format
+    unsubscribeError:
+      name: unsubscribeError
+      title: Unsubscribe Error
+      summary: Error for failed unsubscribe requests.
+      contentType: application/json
+      payload:
+        type: object
+        description: Error response for failed unsubscribe requests.
+        required:
+          - type
+          - code
+          - message
+        properties:
+          type:
+            type: string
+            const: unsubscribe_error
+          code:
+            type: string
+            description: Machine-readable error code.
+            enum:
+              - invalid_request
+          message:
+            type: string
+            description: Human-readable error description.
+        examples:
+          - type: unsubscribe_error
+            code: invalid_request
+            message: Invalid unsubscribe request format

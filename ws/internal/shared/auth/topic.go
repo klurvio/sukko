@@ -41,10 +41,6 @@ type TopicIsolationConfig struct {
 	// Separator between topic parts (default: ".").
 	Separator string `yaml:"separator" json:"separator"`
 
-	// CrossTenantRoles are roles that can access any tenant's topics.
-	// Example: ["admin", "system"]
-	CrossTenantRoles []string `yaml:"cross_tenant_roles" json:"cross_tenant_roles"`
-
 	// SharedTopicPatterns are topics accessible by all tenants.
 	// These must be explicitly configured - no implicit sharing.
 	// Example: ["*.system.*", "prod.shared.*"]
@@ -63,7 +59,6 @@ func DefaultTopicIsolationConfig() TopicIsolationConfig {
 		Environment:         "prod",
 		TenantPosition:      1, // {env}.{tenant}.{category}
 		Separator:           ".",
-		CrossTenantRoles:    []string{"admin", "system"},
 		SharedTopicPatterns: []string{},
 		ValidNamespaces:     map[string]bool{"local": true, "dev": true, "stag": true, "prod": true},
 	}
@@ -93,9 +88,6 @@ type TopicCheckResult struct {
 
 	// Reason explains why access was allowed or denied.
 	Reason string
-
-	// IsCrossTenant indicates cross-tenant access was granted (for audit).
-	IsCrossTenant bool
 
 	// IsSharedTopic indicates the topic is shared across tenants.
 	IsSharedTopic bool
@@ -145,16 +137,6 @@ func (t *TopicIsolator) CheckTopicAccess(claims *Claims, topic string, _ TopicAc
 		result.Allowed = true
 		result.Reason = "tenant match"
 		return result
-	}
-
-	// Check cross-tenant roles
-	for _, role := range t.config.CrossTenantRoles {
-		if claims.HasRole(role) {
-			result.Allowed = true
-			result.IsCrossTenant = true
-			result.Reason = "cross-tenant access via role: " + role
-			return result
-		}
 	}
 
 	// Denied: tenant mismatch

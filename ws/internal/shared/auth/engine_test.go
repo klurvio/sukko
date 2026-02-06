@@ -654,9 +654,7 @@ func TestPolicyEngine_CanSubscribe_CanPublish(t *testing.T) {
 
 func TestPolicyEngine_WithTenantIsolator(t *testing.T) {
 	t.Parallel()
-	isolator := NewTenantIsolator(TenantIsolationConfig{
-		CrossTenantRoles: []string{"admin"},
-	})
+	isolator := NewTenantIsolator(TenantIsolationConfig{})
 
 	engine := NewPolicyEngine(
 		PolicyEngineConfig{
@@ -689,15 +687,15 @@ func TestPolicyEngine_WithTenantIsolator(t *testing.T) {
 		}
 	})
 
-	t.Run("admin cross-tenant allowed", func(t *testing.T) {
+	t.Run("admin cross-tenant denied (cross-tenant roles removed)", func(t *testing.T) {
 		t.Parallel()
 		result := engine.Authorize(&AuthzRequest{
 			Claims:  &Claims{TenantID: "acme", Roles: []string{"admin"}},
 			Action:  RuleSubscribe,
 			Channel: "globex.trade",
 		})
-		if !result.Allowed {
-			t.Error("expected admin to have cross-tenant access")
+		if result.Allowed {
+			t.Error("expected admin cross-tenant to be denied (cross-tenant roles removed)")
 		}
 	})
 }

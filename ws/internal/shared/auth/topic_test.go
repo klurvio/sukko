@@ -44,7 +44,6 @@ func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
 		Environment:         "prod",
 		TenantPosition:      1,
 		Separator:           ".",
-		CrossTenantRoles:    []string{"admin", "system"},
 		SharedTopicPatterns: []string{"prod.shared.*"},
 	})
 
@@ -86,18 +85,18 @@ func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
 			expectAllowed: true,
 		},
 		{
-			name:          "admin role cross-tenant allowed",
+			name:          "admin role cross-tenant denied (cross-tenant roles removed)",
 			claims:        &Claims{TenantID: "acme", Roles: []string{"admin"}},
 			topic:         "prod.globex.trade",
 			action:        TopicActionConsume,
-			expectAllowed: true,
+			expectAllowed: false,
 		},
 		{
-			name:          "system role cross-tenant allowed",
+			name:          "system role cross-tenant denied (cross-tenant roles removed)",
 			claims:        &Claims{TenantID: "acme", Roles: []string{"system"}},
 			topic:         "prod.globex.trade",
 			action:        TopicActionPublish,
-			expectAllowed: true,
+			expectAllowed: false,
 		},
 		{
 			name:          "shared topic allowed",
@@ -140,24 +139,13 @@ func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
 	}
 }
 
-func TestTopicIsolator_CheckTopicAccess_CrossTenantFlags(t *testing.T) {
+func TestTopicIsolator_CheckTopicAccess_Flags(t *testing.T) {
 	t.Parallel()
 	iso := NewTopicIsolator(TopicIsolationConfig{
 		Environment:         "prod",
 		TenantPosition:      1,
 		Separator:           ".",
-		CrossTenantRoles:    []string{"admin"},
 		SharedTopicPatterns: []string{"prod.shared.*"},
-	})
-
-	t.Run("cross-tenant flag set", func(t *testing.T) {
-		t.Parallel()
-		claims := &Claims{TenantID: "acme", Roles: []string{"admin"}}
-		result := iso.CheckTopicAccess(claims, "prod.globex.trade", TopicActionConsume)
-
-		if !result.IsCrossTenant {
-			t.Error("expected IsCrossTenant to be true for cross-tenant access")
-		}
 	})
 
 	t.Run("shared topic flag set", func(t *testing.T) {
@@ -439,9 +427,6 @@ func TestDefaultTopicIsolationConfig(t *testing.T) {
 	}
 	if config.Separator != "." {
 		t.Errorf("expected separator '.', got %q", config.Separator)
-	}
-	if len(config.CrossTenantRoles) != 2 {
-		t.Errorf("expected 2 cross-tenant roles, got %d", len(config.CrossTenantRoles))
 	}
 
 	// Validate ValidNamespaces includes the expected namespaces

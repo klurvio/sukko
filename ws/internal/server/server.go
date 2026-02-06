@@ -32,13 +32,6 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
-// ChannelMapper maps internal channels to client-facing format.
-// Used in Broadcast() to strip tenant prefix from envelope channel.
-// Implemented by auth.ChannelMapper.
-type ChannelMapper interface {
-	MapToClient(internalChannel string) string
-}
-
 // Server is the main WebSocket server that manages client connections, message
 // broadcasting, and resource protection. It integrates with Kafka/Redpanda for
 // real-time message consumption and uses subscription-based filtering to route
@@ -83,11 +76,6 @@ type Server struct {
 
 	// Pump for testable read/write operations
 	pump *Pump // Handles WebSocket read/write with dependency injection
-
-	// Channel mapping for broadcast envelope (optional, removable)
-	// When set, strips tenant prefix from envelope channel before sending to clients.
-	// nil = no stripping (future SaaS mode where CDC flow is retired)
-	channelMapper ChannelMapper
 
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
@@ -177,13 +165,6 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 		logger.Info().
 			Str("namespace", s.kafkaProducer.Namespace()).
 			Msg("Kafka producer enabled for client message publishing")
-	}
-
-	// Initialize channel mapper for broadcast envelope (optional, removable)
-	// Strips tenant prefix from channel in client envelope (e.g., "odin.BTC.trade" → "BTC.trade")
-	if config.ChannelMapper != nil {
-		s.channelMapper = config.ChannelMapper.(ChannelMapper)
-		logger.Info().Msg("Channel mapper enabled for broadcast envelope")
 	}
 
 	// NOTE: Authentication is now handled by ws-gateway

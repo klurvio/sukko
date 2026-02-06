@@ -25,10 +25,10 @@ func TestSubscriptionSet_Add(t *testing.T) {
 	t.Parallel()
 	set := NewSubscriptionSet()
 
-	set.Add("BTC.trade")
+	set.Add("odin.BTC.trade")
 
-	if !set.Has("BTC.trade") {
-		t.Error("Should have BTC.trade after Add")
+	if !set.Has("odin.BTC.trade") {
+		t.Error("Should have odin.BTC.trade after Add")
 	}
 	if set.Count() != 1 {
 		t.Errorf("Count should be 1, got %d", set.Count())
@@ -39,8 +39,8 @@ func TestSubscriptionSet_Add_Duplicate(t *testing.T) {
 	t.Parallel()
 	set := NewSubscriptionSet()
 
-	set.Add("BTC.trade")
-	set.Add("BTC.trade") // Add same channel again
+	set.Add("odin.BTC.trade")
+	set.Add("odin.BTC.trade") // Add same channel again
 
 	if set.Count() != 1 {
 		t.Errorf("Duplicate add should not increase count, got %d", set.Count())
@@ -51,7 +51,7 @@ func TestSubscriptionSet_AddMultiple(t *testing.T) {
 	t.Parallel()
 	set := NewSubscriptionSet()
 
-	channels := []string{"BTC.trade", "ETH.trade", "SOL.liquidity"}
+	channels := []string{"odin.BTC.trade", "odin.ETH.trade", "odin.SOL.liquidity"}
 	set.AddMultiple(channels)
 
 	if set.Count() != 3 {
@@ -69,15 +69,15 @@ func TestSubscriptionSet_Remove(t *testing.T) {
 	t.Parallel()
 	set := NewSubscriptionSet()
 
-	set.Add("BTC.trade")
-	set.Add("ETH.trade")
-	set.Remove("BTC.trade")
+	set.Add("odin.BTC.trade")
+	set.Add("odin.ETH.trade")
+	set.Remove("odin.BTC.trade")
 
-	if set.Has("BTC.trade") {
-		t.Error("Should not have BTC.trade after Remove")
+	if set.Has("odin.BTC.trade") {
+		t.Error("Should not have odin.BTC.trade after Remove")
 	}
-	if !set.Has("ETH.trade") {
-		t.Error("Should still have ETH.trade")
+	if !set.Has("odin.ETH.trade") {
+		t.Error("Should still have odin.ETH.trade")
 	}
 	if set.Count() != 1 {
 		t.Errorf("Count should be 1 after remove, got %d", set.Count())
@@ -100,13 +100,13 @@ func TestSubscriptionSet_RemoveMultiple(t *testing.T) {
 	t.Parallel()
 	set := NewSubscriptionSet()
 
-	set.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity", "DOGE.social"})
-	set.RemoveMultiple([]string{"BTC.trade", "SOL.liquidity"})
+	set.AddMultiple([]string{"odin.BTC.trade", "odin.ETH.trade", "odin.SOL.liquidity", "odin.DOGE.social"})
+	set.RemoveMultiple([]string{"odin.BTC.trade", "odin.SOL.liquidity"})
 
-	if set.Has("BTC.trade") || set.Has("SOL.liquidity") {
+	if set.Has("odin.BTC.trade") || set.Has("odin.SOL.liquidity") {
 		t.Error("Removed channels should not exist")
 	}
-	if !set.Has("ETH.trade") || !set.Has("DOGE.social") {
+	if !set.Has("odin.ETH.trade") || !set.Has("odin.DOGE.social") {
 		t.Error("Non-removed channels should still exist")
 	}
 	if set.Count() != 2 {
@@ -118,17 +118,17 @@ func TestSubscriptionSet_Has(t *testing.T) {
 	t.Parallel()
 	set := NewSubscriptionSet()
 
-	if set.Has("BTC.trade") {
+	if set.Has("odin.BTC.trade") {
 		t.Error("Empty set should not have any channel")
 	}
 
-	set.Add("BTC.trade")
+	set.Add("odin.BTC.trade")
 
-	if !set.Has("BTC.trade") {
-		t.Error("Should have BTC.trade after Add")
+	if !set.Has("odin.BTC.trade") {
+		t.Error("Should have odin.BTC.trade after Add")
 	}
-	if set.Has("ETH.trade") {
-		t.Error("Should not have ETH.trade (not added)")
+	if set.Has("odin.ETH.trade") {
+		t.Error("Should not have odin.ETH.trade (not added)")
 	}
 }
 
@@ -136,7 +136,7 @@ func TestSubscriptionSet_List(t *testing.T) {
 	t.Parallel()
 	set := NewSubscriptionSet()
 
-	set.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity"})
+	set.AddMultiple([]string{"odin.BTC.trade", "odin.ETH.trade", "odin.SOL.liquidity"})
 
 	list := set.List()
 
@@ -150,7 +150,7 @@ func TestSubscriptionSet_List(t *testing.T) {
 		listMap[ch] = true
 	}
 
-	for _, expected := range []string{"BTC.trade", "ETH.trade", "SOL.liquidity"} {
+	for _, expected := range []string{"odin.BTC.trade", "odin.ETH.trade", "odin.SOL.liquidity"} {
 		if !listMap[expected] {
 			t.Errorf("List should contain %s", expected)
 		}
@@ -160,13 +160,13 @@ func TestSubscriptionSet_List(t *testing.T) {
 func TestSubscriptionSet_List_ReturnsCopy(t *testing.T) {
 	t.Parallel()
 	set := NewSubscriptionSet()
-	set.Add("BTC.trade")
+	set.Add("odin.BTC.trade")
 
 	list := set.List()
 	list[0] = "MODIFIED"
 
 	// Original should not be affected
-	if !set.Has("BTC.trade") {
+	if !set.Has("odin.BTC.trade") {
 		t.Error("Modifying list should not affect set")
 	}
 }
@@ -175,13 +175,13 @@ func TestSubscriptionSet_Clear(t *testing.T) {
 	t.Parallel()
 	set := NewSubscriptionSet()
 
-	set.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity"})
+	set.AddMultiple([]string{"odin.BTC.trade", "odin.ETH.trade", "odin.SOL.liquidity"})
 	set.Clear()
 
 	if set.Count() != 0 {
 		t.Errorf("Count should be 0 after Clear, got %d", set.Count())
 	}
-	if set.Has("BTC.trade") {
+	if set.Has("odin.BTC.trade") {
 		t.Error("Should not have any channel after Clear")
 	}
 }
@@ -229,7 +229,7 @@ func TestNewSubscriptionIndex(t *testing.T) {
 	if idx == nil {
 		t.Fatal("NewSubscriptionIndex should return non-nil")
 	}
-	if idx.Count("BTC.trade") != 0 {
+	if idx.Count("odin.BTC.trade") != 0 {
 		t.Error("New index should have no subscribers")
 	}
 }
@@ -239,13 +239,13 @@ func TestSubscriptionIndex_Add(t *testing.T) {
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
-	idx.Add("BTC.trade", client)
+	idx.Add("odin.BTC.trade", client)
 
-	if idx.Count("BTC.trade") != 1 {
-		t.Errorf("Count should be 1, got %d", idx.Count("BTC.trade"))
+	if idx.Count("odin.BTC.trade") != 1 {
+		t.Errorf("Count should be 1, got %d", idx.Count("odin.BTC.trade"))
 	}
 
-	clients := idx.Get("BTC.trade")
+	clients := idx.Get("odin.BTC.trade")
 	if len(clients) != 1 || clients[0] != client {
 		t.Error("Get should return the added client")
 	}
@@ -256,11 +256,11 @@ func TestSubscriptionIndex_Add_Duplicate(t *testing.T) {
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
-	idx.Add("BTC.trade", client)
-	idx.Add("BTC.trade", client) // Add same client again
+	idx.Add("odin.BTC.trade", client)
+	idx.Add("odin.BTC.trade", client) // Add same client again
 
-	if idx.Count("BTC.trade") != 1 {
-		t.Errorf("Duplicate add should not increase count, got %d", idx.Count("BTC.trade"))
+	if idx.Count("odin.BTC.trade") != 1 {
+		t.Errorf("Duplicate add should not increase count, got %d", idx.Count("odin.BTC.trade"))
 	}
 }
 
@@ -271,12 +271,12 @@ func TestSubscriptionIndex_Add_MultipleClients(t *testing.T) {
 	client2 := &Client{id: 2}
 	client3 := &Client{id: 3}
 
-	idx.Add("BTC.trade", client1)
-	idx.Add("BTC.trade", client2)
-	idx.Add("BTC.trade", client3)
+	idx.Add("odin.BTC.trade", client1)
+	idx.Add("odin.BTC.trade", client2)
+	idx.Add("odin.BTC.trade", client3)
 
-	if idx.Count("BTC.trade") != 3 {
-		t.Errorf("Count should be 3, got %d", idx.Count("BTC.trade"))
+	if idx.Count("odin.BTC.trade") != 3 {
+		t.Errorf("Count should be 3, got %d", idx.Count("odin.BTC.trade"))
 	}
 }
 
@@ -285,7 +285,7 @@ func TestSubscriptionIndex_AddMultiple(t *testing.T) {
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
-	channels := []string{"BTC.trade", "ETH.trade", "SOL.liquidity"}
+	channels := []string{"odin.BTC.trade", "odin.ETH.trade", "odin.SOL.liquidity"}
 	idx.AddMultiple(channels, client)
 
 	for _, ch := range channels {
@@ -301,15 +301,15 @@ func TestSubscriptionIndex_Remove(t *testing.T) {
 	client1 := &Client{id: 1}
 	client2 := &Client{id: 2}
 
-	idx.Add("BTC.trade", client1)
-	idx.Add("BTC.trade", client2)
-	idx.Remove("BTC.trade", client1)
+	idx.Add("odin.BTC.trade", client1)
+	idx.Add("odin.BTC.trade", client2)
+	idx.Remove("odin.BTC.trade", client1)
 
-	if idx.Count("BTC.trade") != 1 {
-		t.Errorf("Count should be 1 after remove, got %d", idx.Count("BTC.trade"))
+	if idx.Count("odin.BTC.trade") != 1 {
+		t.Errorf("Count should be 1 after remove, got %d", idx.Count("odin.BTC.trade"))
 	}
 
-	clients := idx.Get("BTC.trade")
+	clients := idx.Get("odin.BTC.trade")
 	if len(clients) != 1 || clients[0] != client2 {
 		t.Error("Should only have client2 remaining")
 	}
@@ -321,7 +321,7 @@ func TestSubscriptionIndex_Remove_NonExistent(t *testing.T) {
 	client := &Client{id: 1}
 
 	// Should not panic
-	idx.Remove("BTC.trade", client)
+	idx.Remove("odin.BTC.trade", client)
 	idx.Remove("nonexistent", client)
 }
 
@@ -330,14 +330,14 @@ func TestSubscriptionIndex_Remove_LastClient(t *testing.T) {
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
-	idx.Add("BTC.trade", client)
-	idx.Remove("BTC.trade", client)
+	idx.Add("odin.BTC.trade", client)
+	idx.Remove("odin.BTC.trade", client)
 
-	if idx.Count("BTC.trade") != 0 {
-		t.Errorf("Count should be 0 after removing last client, got %d", idx.Count("BTC.trade"))
+	if idx.Count("odin.BTC.trade") != 0 {
+		t.Errorf("Count should be 0 after removing last client, got %d", idx.Count("odin.BTC.trade"))
 	}
 
-	clients := idx.Get("BTC.trade")
+	clients := idx.Get("odin.BTC.trade")
 	if clients != nil {
 		t.Error("Get should return nil for empty channel")
 	}
@@ -348,17 +348,17 @@ func TestSubscriptionIndex_RemoveMultiple(t *testing.T) {
 	idx := NewSubscriptionIndex()
 	client := &Client{id: 1}
 
-	idx.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity"}, client)
-	idx.RemoveMultiple([]string{"BTC.trade", "SOL.liquidity"}, client)
+	idx.AddMultiple([]string{"odin.BTC.trade", "odin.ETH.trade", "odin.SOL.liquidity"}, client)
+	idx.RemoveMultiple([]string{"odin.BTC.trade", "odin.SOL.liquidity"}, client)
 
-	if idx.Count("BTC.trade") != 0 {
-		t.Error("BTC.trade should have no subscribers")
+	if idx.Count("odin.BTC.trade") != 0 {
+		t.Error("odin.BTC.trade should have no subscribers")
 	}
-	if idx.Count("ETH.trade") != 1 {
-		t.Error("ETH.trade should still have subscriber")
+	if idx.Count("odin.ETH.trade") != 1 {
+		t.Error("odin.ETH.trade should still have subscriber")
 	}
-	if idx.Count("SOL.liquidity") != 0 {
-		t.Error("SOL.liquidity should have no subscribers")
+	if idx.Count("odin.SOL.liquidity") != 0 {
+		t.Error("odin.SOL.liquidity should have no subscribers")
 	}
 }
 
@@ -369,15 +369,15 @@ func TestSubscriptionIndex_RemoveClient(t *testing.T) {
 	client2 := &Client{id: 2}
 
 	// Client1 subscribes to multiple channels
-	idx.AddMultiple([]string{"BTC.trade", "ETH.trade", "SOL.liquidity"}, client1)
+	idx.AddMultiple([]string{"odin.BTC.trade", "odin.ETH.trade", "odin.SOL.liquidity"}, client1)
 	// Client2 also subscribes to some
-	idx.AddMultiple([]string{"BTC.trade", "ETH.trade"}, client2)
+	idx.AddMultiple([]string{"odin.BTC.trade", "odin.ETH.trade"}, client2)
 
 	// Remove client1 from all channels
 	idx.RemoveClient(client1)
 
 	// client1 should be gone from all channels
-	for _, ch := range []string{"BTC.trade", "ETH.trade", "SOL.liquidity"} {
+	for _, ch := range []string{"odin.BTC.trade", "odin.ETH.trade", "odin.SOL.liquidity"} {
 		clients := idx.Get(ch)
 		for _, c := range clients {
 			if c == client1 {
@@ -387,7 +387,7 @@ func TestSubscriptionIndex_RemoveClient(t *testing.T) {
 	}
 
 	// client2 should still be in its channels
-	if idx.Count("BTC.trade") != 1 || idx.Count("ETH.trade") != 1 {
+	if idx.Count("odin.BTC.trade") != 1 || idx.Count("odin.ETH.trade") != 1 {
 		t.Error("client2 should still be subscribed")
 	}
 }
@@ -533,8 +533,8 @@ func TestConnectionPool_Get_SubscriptionsClear(t *testing.T) {
 	pool := NewConnectionPool(100, 256)
 
 	client := pool.Get()
-	client.subscriptions.Add("BTC.trade")
-	client.subscriptions.Add("ETH.trade")
+	client.subscriptions.Add("odin.BTC.trade")
+	client.subscriptions.Add("odin.ETH.trade")
 
 	// Return and get again
 	pool.Put(client)
@@ -605,16 +605,16 @@ func TestConnectionPool_ThreadSafety(t *testing.T) {
 func BenchmarkSubscriptionSet_Add(b *testing.B) {
 	set := NewSubscriptionSet()
 	for b.Loop() {
-		set.Add("BTC.trade")
+		set.Add("odin.BTC.trade")
 	}
 }
 
 func BenchmarkSubscriptionSet_Has(b *testing.B) {
 	set := NewSubscriptionSet()
-	set.Add("BTC.trade")
+	set.Add("odin.BTC.trade")
 
 	for b.Loop() {
-		_ = set.Has("BTC.trade")
+		_ = set.Has("odin.BTC.trade")
 	}
 }
 
@@ -626,18 +626,18 @@ func BenchmarkSubscriptionIndex_Add(b *testing.B) {
 	}
 
 	for i := 0; b.Loop(); i++ {
-		idx.Add("BTC.trade", clients[i%100])
+		idx.Add("odin.BTC.trade", clients[i%100])
 	}
 }
 
 func BenchmarkSubscriptionIndex_Get(b *testing.B) {
 	idx := NewSubscriptionIndex()
 	for i := range 1000 {
-		idx.Add("BTC.trade", &Client{id: int64(i)})
+		idx.Add("odin.BTC.trade", &Client{id: int64(i)})
 	}
 
 	for b.Loop() {
-		_ = idx.Get("BTC.trade")
+		_ = idx.Get("odin.BTC.trade")
 	}
 }
 

@@ -1,0 +1,376 @@
+asyncapi: 3.0.0
+
+info:
+  title: Odin Redpanda Event Publishing API
+  version: 1.0.0
+  description: |
+    Describes how external services (CDC pipelines, backend services) publish events to
+    Redpanda/Kafka that get broadcast to WebSocket clients via the Odin platform.
+
+    ## Topic Naming
+
+    Redpanda topics follow the format: `{namespace}.{tenant}.{category}`
+
+    - **namespace**: Environment — `local`, `dev`, `stag`, `prod`
+    - **tenant**: Tenant identifier — e.g., `odin`, `acme`
+    - **category**: Event category — e.g., `trade`, `balances`, `orderbook`
+
+    Built by: `kafka.BuildTopicName(namespace, tenantID, category)`
+
+    ## Message Format
+
+    External services publish Kafka records with:
+
+    | Field | Format | Example |
+    |-------|--------|---------|
+    | **Topic** | `{namespace}.{tenant}.{category}` | `prod.odin.trade` |
+    | **Key** | `{tenant}.{identifier}.{category}` | `odin.BTC.trade` |
+    | **Value** | JSON payload (arbitrary, schema owned by publisher) | `{"price": 50000}` |
+
+    ### Key
+
+    The Kafka message key determines:
+    1. **Kafka partition** — messages with the same key go to the same partition (ordering guarantee)
+    2. **Broadcast channel** — the WebSocket server uses the key as the subscription index lookup key and as the `channel` field in the message envelope sent to clients
+
+    ### Value
+
+    The value is opaque to the WebSocket platform. It is forwarded as-is to subscribed clients
+    in the `data` field of the message envelope. Payload schemas are owned by the publishing
+    service, not defined in this spec.
+
+    ## Optional Headers (added by ws-server producer)
+
+    | Header | Description |
+    |--------|-------------|
+    | `client_id` | WebSocket client that published (only for client-published messages) |
+    | `source` | Origin service (e.g., `ws-server`) |
+    | `timestamp` | ISO 8601 timestamp |
+
+    ## How Events Reach Clients
+
+    ```
+    External Service
+      -> Redpanda topic: prod.odin.trade (Key: odin.BTC.trade, Value: {...})
+      -> ws-server consumer reads message
+      -> Broadcast to clients subscribed to "odin.BTC.trade"
+      -> Client receives: { "type": "message", "channel": "odin.BTC.trade", "data": {...} }
+    ```
+
+    No channel transformation occurs. The Kafka key is used as-is for subscription matching
+    and as the channel in the client message envelope.
+
+    ## Provisioning Requirement
+
+    Topics must be provisioned before use via the provisioning API. Each tenant has a set of
+    categories stored in the `tenant_categories` table. Publishing to an unprovisioned category
+    returns `topic_not_provisioned`.
+
+    ## Channel Naming Conventions
+
+    | Context | Format | Example |
+    |---------|--------|---------|
+    | Client channel | `{tenant}.{identifier}.{category}` | `odin.BTC.trade` |
+    | Subscription index key | `{tenant}.{identifier}.{category}` | `odin.BTC.trade` |
+    | Kafka topic | `{namespace}.{tenant}.{category}` | `local.odin.trade` |
+    | Kafka key | `{tenant}.{identifier}.{category}` | `odin.BTC.trade` |
+
+    ## Internal Publisher Connection (Odin)
+
+    CDC pipelines and internal services connect to Redpanda via Kubernetes internal networking.
+
+    ### Connection
+
+    | Setting | Value |
+    |---------|-------|
+    | Broker | `redpanda.odin-infra.svc.cluster.local:9092` |
+    | Protocol | Kafka (plaintext internal) |
+
+    > **Note:** Confirm the actual broker address with DevOps.
+
+    > **Authentication:** TBD — currently relies on Kubernetes network isolation.
+
+    ### Publishing Requirements
+
+    To publish events that reach WebSocket clients:
+
+    1. **Topic**: `{namespace}.{tenant}.{category}`
+       - `namespace`: Environment (`local`, `dev`, `stag`, `prod`)
+       - `tenant`: Always `odin` for Odin platform
+       - `category`: Event category (must be provisioned)
+
+    2. **Key**: `{tenant}.{identifier}.{category}`
+       - This becomes the WebSocket channel clients subscribe to
+       - Same key = same Kafka partition = message ordering guaranteed
+       - Use `all` as identifier for aggregate channels (e.g., `odin.all.trade` for all trades)
+
+    3. **Value**: JSON payload (opaque to ws-server, forwarded as-is to clients)
+
+    ### Example: CDC Trade Events (TypeScript)
+
+    ```typescript
+    import { Kafka } from 'kafkajs';
+
+    // NOTE: Confirm actual broker address with DevOps
+    const kafka = new Kafka({
+      brokers: ['redpanda.odin-infra.svc.cluster.local:9092']
+    });
+
+    const producer = kafka.producer();
+    await producer.connect();
+
+    // Publish to a specific token channel
+    await producer.send({
+      topic: 'prod.odin.trade',
+      messages: [{
+        key: 'odin.BTC.trade',  // Clients subscribe to "odin.BTC.trade"
+        value: JSON.stringify({
+          token: 'BTC',
+          price: 50000,
+          volume: 1.5,
+          timestamp: Date.now()
+        })
+      }]
+    });
+
+    // Publish to the aggregate "all trades" channel
+    await producer.send({
+      topic: 'prod.odin.trade',
+      messages: [{
+        key: 'odin.all.trade',  // Clients subscribe to "odin.all.trade" for all trades
+        value: JSON.stringify({
+          token: 'BTC',
+          price: 50000,
+          volume: 1.5,
+          timestamp: Date.now()
+        })
+      }]
+    });
+    ```
+
+    WebSocket clients subscribed to `odin.BTC.trade` receive:
+
+    ```json
+    {
+      "type": "message",
+      "seq": 1234,
+      "ts": 1707235200000,
+      "channel": "odin.BTC.trade",
+      "data": { "token": "BTC", "price": 50000, "volume": 1.5, "timestamp": 1707235200000 }
+    }
+    ```
+
+    ### Optional Headers
+
+    Headers are metadata for observability (not required by ws-server):
+
+    | Header | Purpose |
+    |--------|---------|
+    | `source` | Identifies publishing service (e.g., `cdc-pipeline`) |
+    | `timestamp` | Publish timestamp for latency debugging |
+
+  contact:
+    name: Odin Platform Team
+  license:
+    name: Proprietary
+
+servers:
+  redpanda:
+    host: "{host}:{port}"
+    protocol: kafka
+    description: >
+      Redpanda/Kafka broker. External services publish events here that are consumed
+      by the WebSocket server and broadcast to subscribed clients.
+
+  redpanda-internal:
+    host: "redpanda.odin-infra.svc.cluster.local:9092"
+    protocol: kafka
+    description: |
+      Internal Redpanda access for CDC pipelines and backend services.
+      Accessible only within the Kubernetes cluster. No authentication required
+      (relies on Kubernetes network isolation).
+
+      NOTE: Confirm actual broker address with DevOps.
+
+channels:
+  tenantEvents:
+    address: "{namespace}.{tenant}.{category}"
+    description: >
+      Parameterized Redpanda topic. Categories are provisioned per-tenant via the
+      provisioning API (stored in the tenant_categories table). Common categories
+      include trade, balances, and orderbook, but tenants can provision any category.
+    parameters:
+      namespace:
+        description: "Environment: local, dev, stag, prod"
+      tenant:
+        description: "Tenant identifier (e.g., odin, acme)"
+      category:
+        description: "Event category (e.g., trade, balances, orderbook)"
+    messages:
+      event:
+        $ref: "#/components/messages/event"
+
+operations:
+  publishEvent:
+    action: send
+    channel:
+      $ref: "#/channels/tenantEvents"
+    summary: Publish an event to a Redpanda topic
+    description: |
+      External services publish events to Redpanda topics that the WebSocket server
+      consumes and broadcasts to subscribed clients.
+
+      The Kafka record key determines both the partition (for ordering) and the
+      broadcast channel (for subscription matching). The value is forwarded as-is
+      to WebSocket clients in the message envelope's `data` field.
+    messages:
+      - $ref: "#/channels/tenantEvents/messages/event"
+
+  consumeEvent:
+    action: receive
+    channel:
+      $ref: "#/channels/tenantEvents"
+    summary: WebSocket server consumes events for broadcast
+    description: >
+      The WebSocket server's Kafka consumer reads events from Redpanda topics and
+      broadcasts them to all clients subscribed to the channel matching the Kafka
+      record key.
+    messages:
+      - $ref: "#/channels/tenantEvents/messages/event"
+
+components:
+  schemas:
+    CDCPublishRequest:
+      type: object
+      description: |
+        CDC publish request structure for TypeScript/KafkaJS.
+        This is the format used by CDC pipelines to publish events to Redpanda.
+      required:
+        - topic
+        - messages
+      properties:
+        topic:
+          type: string
+          description: "Redpanda topic: {namespace}.{tenant}.{category}"
+          examples:
+            - "prod.odin.trade"
+            - "prod.odin.liquidity"
+        messages:
+          type: array
+          items:
+            type: object
+            required:
+              - key
+              - value
+            properties:
+              key:
+                type: string
+                description: "Channel key: {tenant}.{identifier}.{category} — becomes the WebSocket channel. Use 'all' as identifier for aggregate channels."
+                examples:
+                  - "odin.BTC.trade"
+                  - "odin.all.trade"
+                  - "odin.ETH.liquidity"
+              value:
+                type: string
+                description: JSON-stringified payload (forwarded as-is to WebSocket clients)
+              headers:
+                type: object
+                description: Optional metadata headers for observability
+                properties:
+                  source:
+                    type: string
+                    description: Publishing service identifier
+                    examples:
+                      - "cdc-pipeline"
+                      - "price-indexer"
+                  timestamp:
+                    type: string
+                    description: ISO 8601 or Unix milliseconds timestamp
+      examples:
+        - topic: "prod.odin.trade"
+          messages:
+            - key: "odin.BTC.trade"
+              value: '{"token":"BTC","price":50000,"volume":1.5}'
+              headers:
+                source: "cdc-pipeline"
+        - topic: "prod.odin.trade"
+          messages:
+            - key: "odin.all.trade"
+              value: '{"token":"BTC","price":50000,"volume":1.5}'
+              headers:
+                source: "cdc-pipeline"
+
+    KafkaEvent:
+      type: object
+      description: >
+        A Kafka record published to a Redpanda topic. The key determines partition
+        assignment and broadcast channel. The value is opaque to the platform.
+      properties:
+        key:
+          type: string
+          description: >
+            Kafka record key in format {tenant}.{identifier}.{category}.
+            Determines partition assignment (ordering) and broadcast channel
+            (subscription matching). Use "all" as identifier for aggregate channels.
+          examples:
+            - "odin.BTC.trade"
+            - "odin.all.trade"
+            - "acme.ETH.orderbook"
+        value:
+          type: object
+          description: >
+            Arbitrary JSON payload. Schema is owned by the publishing service.
+            Forwarded as-is to WebSocket clients in the message envelope data field.
+          examples:
+            - { "price": 50000, "volume": 1.5 }
+            - { "token": "ETH", "poolId": "abc123", "liquidity": "1000000" }
+        headers:
+          type: object
+          description: Optional Kafka headers (added by ws-server for client-published messages).
+          properties:
+            client_id:
+              type: string
+              description: WebSocket client that published (only for client-published messages).
+            source:
+              type: string
+              description: Origin service identifier.
+              examples:
+                - "ws-server"
+            timestamp:
+              type: string
+              format: date-time
+              description: ISO 8601 timestamp.
+
+  messages:
+    event:
+      name: event
+      title: Tenant Event
+      summary: An event published to a tenant's Redpanda topic.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/KafkaEvent"
+      examples:
+        - name: tradeEvent
+          summary: A trade event for BTC on tenant odin
+          payload:
+            key: "odin.BTC.trade"
+            value:
+              token: BTC
+              price: 50000
+              amount_btc: 1500000000
+        - name: allTradesEvent
+          summary: An aggregate trade event broadcast to all trades subscribers
+          payload:
+            key: "odin.all.trade"
+            value:
+              token: BTC
+              price: 50000
+              amount_btc: 1500000000
+        - name: liquidityEvent
+          summary: A liquidity event for ETH on tenant acme
+          payload:
+            key: "acme.ETH.liquidity"
+            value:
+              token: ETH
+              poolId: abc123
+              liquidity: "1000000"

@@ -28,6 +28,8 @@ const (
 	RespTypePublishError      = "publish_error"
 	RespTypeReconnectAck      = "reconnect_ack"
 	RespTypeReconnectError    = "reconnect_error"
+	RespTypeSubscribeError    = "subscribe_error"
+	RespTypeUnsubscribeError  = "unsubscribe_error"
 )
 
 // ClientMessage is the standard envelope for client→server messages.
