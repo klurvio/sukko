@@ -37,6 +37,11 @@ includes:
     taskfile: ./taskfiles/wsloadtest/Taskfile.yml
     dir: .
 
+  # wspublisher
+  wspublisher:
+    taskfile: ./taskfiles/wspublisher/Taskfile.yml
+    dir: .
+
 tasks:
   default:
     desc: Show available commands
@@ -62,6 +67,10 @@ tasks:
       - echo "=== PROVISIONING ==="
       - echo "  task provisioning:db:migrate    - Run DB migrations"
       - echo "  task provisioning:api:tenant:list - List tenants"
+      - echo ""
+      - echo "=== LOAD TESTING ==="
+      - echo "  task wsloadtest       - WebSocket load testing commands"
+      - echo "  task wspublisher      - Kafka message publisher commands"
       - echo ""
       - echo "=== DETAILED COMMANDS ==="
       - echo "  task k8s              - Kubernetes commands"
@@ -146,3 +155,26 @@ tasks:
     desc: Bundle AsyncAPI spec into single file
     cmds:
       - task: k8s:common:asyncapi:bundle
+
+  # ===========================================================================
+  # wspublisher Shortcuts
+  # ===========================================================================
+  publish:local:
+    desc: Run wspublisher locally
+    cmds:
+      - task: wspublisher:local:run
+
+  publish:deploy:
+    desc: Deploy wspublisher to GCE VM
+    cmds:
+      - task: wspublisher:remote:deploy
+
+  publish:destroy:
+    desc: Destroy wspublisher GCE VM
+    cmds:
+      - task: wspublisher:remote:destroy
+
+  publish:logs:
+    desc: View wspublisher VM logs
+    cmds:
+      - task: wspublisher:remote:logs

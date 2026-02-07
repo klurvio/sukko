@@ -1,0 +1,34 @@
+# =============================================================================
+# wspublisher Remote Tasks (GCE VM)
+# =============================================================================
+
+version: "3"
+
+vars:
+  DEPLOY_DIR: "{{.ROOT_DIR}}/deployments/wspublisher"
+
+tasks:
+  deploy:
+    desc: Deploy wspublisher GCE VM
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - chmod +x *.sh
+      - ./deploy.sh
+
+  destroy:
+    desc: Destroy wspublisher GCE VM
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - ./destroy.sh
+
+  logs:
+    desc: View wspublisher VM logs
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - ./logs.sh
+
+  ssh:
+    desc: SSH into wspublisher VM
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - ./ssh.sh

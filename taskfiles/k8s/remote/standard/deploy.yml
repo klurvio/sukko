@@ -1,0 +1,65 @@
+# =============================================================================
+# GKE Standard - Deployment Tasks
+# =============================================================================
+
+version: "3"
+
+vars:
+  ENV: '{{.ENV | default "develop"}}'
+  NAMESPACE: 'odin-std-{{.ENV}}'
+  VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/odin/values/standard/{{.ENV}}.yaml"
+  TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.ENV}}"
+
+tasks:
+  default:
+    desc: Deploy/upgrade Helm release (runs migrations first)
+    vars:
+      REDPANDA_IP:
+        sh: terraform -chdir={{.TF_DIR}} output -raw redpanda_external_ip 2>/dev/null || echo ""
+    cmds:
+      - task: k8s:remote:standard:connect
+      - task: k8s:remote:standard:migrate
+      - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/client-ws.asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml
+      - |
+        HELM_CMD="helm upgrade --install odin {{.ROOT_DIR}}/deployments/helm/odin -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace"
+        if [ -n "{{.REDPANDA_IP}}" ]; then
+          echo "Using Redpanda static IP: {{.REDPANDA_IP}}"
+          HELM_CMD="$HELM_CMD --set redpanda.externalAccess.advertisedHost={{.REDPANDA_IP}} --set redpanda.externalAccess.loadBalancerIP={{.REDPANDA_IP}}"
+        else
+          echo "Warning: No Redpanda static IP found. External publisher access may not work."
+        fi
+        eval $HELM_CMD
+
+  develop:
+    desc: Deploy to develop
+    cmds:
+      - task: default
+        vars: { ENV: develop }
+
+  staging:
+    desc: Deploy to staging
+    cmds:
+      - task: default
+        vars: { ENV: staging }
+
+  production:
+    desc: Deploy to production
+    prompt: "This will deploy to PRODUCTION. Are you sure?"
+    cmds:
+      - task: default
+        vars: { ENV: production }
+
+  diff:
+    desc: Show diff before upgrade
+    cmds:
+      - helm diff upgrade odin {{.ROOT_DIR}}/deployments/helm/odin -f {{.VALUES_FILE}} -n {{.NAMESPACE}}
+
+  down:
+    desc: Uninstall Helm release
+    cmds:
+      - helm uninstall odin -n {{.NAMESPACE}} || true
+
+  rollback:
+    desc: Rollback to previous release
+    cmds:
+      - helm rollback odin -n {{.NAMESPACE}}

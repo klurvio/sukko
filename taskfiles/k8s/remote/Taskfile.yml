@@ -6,7 +6,7 @@ version: "3"
 
 includes:
   standard:
-    taskfile: ./standard.yml
+    taskfile: ./standard/Taskfile.yml
     dir: "{{.ROOT_DIR}}"
 
 tasks:
@@ -16,10 +16,9 @@ tasks:
       - 'echo "Remote Kubernetes deployment tasks"'
       - 'echo ""'
       - 'echo "=== GKE Standard (Spot VMs, 60-90% cheaper) ==="'
-      - 'echo "  task k8s:remote:standard:deploy ENV=develop"'
-      - 'echo "  task k8s:remote:standard:deploy ENV=staging"'
-      - 'echo "  task k8s:remote:standard:deploy ENV=production"'
-      - 'echo "  task k8s:remote:standard:status"'
-      - 'echo "  task k8s:remote:standard:tf:init"'
+      - 'echo "  task k8s:remote:standard                    - Show all commands"'
+      - 'echo "  task k8s:remote:standard:setup ENV=develop  - Full setup"'
+      - 'echo "  task k8s:remote:standard:deploy ENV=staging - Deploy only"'
+      - 'echo "  task k8s:remote:standard:status             - Show status"'
       - 'echo ""'
       - 'echo "Note: Autopilot support can be added in the future"'

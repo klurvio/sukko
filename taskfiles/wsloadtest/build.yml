@@ -1,0 +1,33 @@
+# =============================================================================
+# wsloadtest Build Tasks
+# =============================================================================
+
+version: "3"
+
+vars:
+  WSLOADTEST_DIR: "{{.ROOT_DIR}}/wsloadtest"
+  PROJECT: "trim-array-480700-j7"
+
+tasks:
+  default:
+    desc: Build wsloadtest binary
+    dir: "{{.WSLOADTEST_DIR}}"
+    cmds:
+      - go build -o wsloadtest .
+      - 'echo "Built wsloadtest binary"'
+
+  docker:
+    desc: Build wsloadtest Docker image
+    dir: "{{.WSLOADTEST_DIR}}"
+    cmds:
+      - docker build -t wsloadtest:latest .
+      - 'echo "Built wsloadtest:latest"'
+
+  push:
+    desc: Build and push to Artifact Registry
+    dir: "{{.WSLOADTEST_DIR}}"
+    cmds:
+      - docker buildx build --platform linux/amd64
+          -t us-central1-docker.pkg.dev/{{.PROJECT}}/odin/wsloadtest:latest
+          -f Dockerfile . --push
+      - 'echo "Pushed to Artifact Registry"'

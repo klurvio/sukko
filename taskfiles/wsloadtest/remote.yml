@@ -1,0 +1,34 @@
+# =============================================================================
+# wsloadtest Remote Tasks (GCE VM)
+# =============================================================================
+
+version: "3"
+
+vars:
+  DEPLOY_DIR: "{{.ROOT_DIR}}/deployments/wsloadtest"
+
+tasks:
+  deploy:
+    desc: Deploy wsloadtest GCE VM
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - chmod +x *.sh
+      - ./deploy.sh
+
+  destroy:
+    desc: Destroy wsloadtest GCE VM
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - ./destroy.sh
+
+  logs:
+    desc: View wsloadtest VM logs
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - ./logs.sh
+
+  ssh:
+    desc: SSH into wsloadtest VM
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - ./ssh.sh

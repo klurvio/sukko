@@ -1,0 +1,33 @@
+# =============================================================================
+# wspublisher Build Tasks
+# =============================================================================
+
+version: "3"
+
+vars:
+  WSPUBLISHER_DIR: "{{.ROOT_DIR}}/wspublisher"
+  PROJECT: "trim-array-480700-j7"
+
+tasks:
+  default:
+    desc: Build wspublisher binary
+    dir: "{{.WSPUBLISHER_DIR}}"
+    cmds:
+      - go build -o wspublisher .
+      - 'echo "Built wspublisher binary"'
+
+  docker:
+    desc: Build wspublisher Docker image
+    dir: "{{.WSPUBLISHER_DIR}}"
+    cmds:
+      - docker build -t wspublisher:latest .
+      - 'echo "Built wspublisher:latest"'
+
+  push:
+    desc: Build and push to Artifact Registry
+    dir: "{{.WSPUBLISHER_DIR}}"
+    cmds:
+      - docker buildx build --platform linux/amd64
+          -t us-central1-docker.pkg.dev/{{.PROJECT}}/odin/wspublisher:latest
+          -f Dockerfile . --push
+      - 'echo "Pushed to Artifact Registry"'

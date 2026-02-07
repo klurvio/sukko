@@ -1,0 +1,28 @@
+# =============================================================================
+# Local Cluster Lifecycle Tasks
+# =============================================================================
+
+version: "3"
+
+vars:
+  CLUSTER_NAME: odin-ws-local
+  NAMESPACE: odin-local
+  KIND_CONFIG: "{{.ROOT_DIR}}/deployments/k8s/local/kind-config.yaml"
+
+tasks:
+  create:
+    desc: Create Kind cluster
+    cmds:
+      - kind create cluster --config {{.KIND_CONFIG}} --name {{.CLUSTER_NAME}} || true
+      - kubectl config use-context kind-{{.CLUSTER_NAME}}
+      - kubectl create namespace {{.NAMESPACE}} --dry-run=client -o yaml | kubectl apply -f -
+
+  delete:
+    desc: Delete Kind cluster
+    cmds:
+      - kind delete cluster --name {{.CLUSTER_NAME}}
+
+  context:
+    desc: Switch to Kind cluster context
+    cmds:
+      - kubectl config use-context kind-{{.CLUSTER_NAME}}

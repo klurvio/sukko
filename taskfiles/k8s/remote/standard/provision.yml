@@ -1,0 +1,101 @@
+# =============================================================================
+# GKE Standard - Provisioning API Tasks
+# =============================================================================
+
+version: "3"
+
+vars:
+  ENV: '{{.ENV | default "develop"}}'
+  NAMESPACE: 'odin-std-{{.ENV}}'
+
+tasks:
+  quick-setup:
+    desc: Create test tenant with topics
+    vars:
+      PROVISIONING_IP:
+        sh: kubectl get svc odin-provisioning -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+    cmds:
+      - |
+        if [ -z "{{.PROVISIONING_IP}}" ]; then
+          echo "Provisioning service not available via LoadBalancer. Using port-forward..."
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082 &
+          PF_PID=$!
+          sleep 2
+          task provisioning:api:quick-setup PROVISIONING_URL="http://localhost:8082" TENANT_ID="{{.TENANT_ID | default (printf "%s-test" .ENV)}}"
+          kill $PF_PID 2>/dev/null || true
+        else
+          task provisioning:api:quick-setup PROVISIONING_URL="http://{{.PROVISIONING_IP}}:8082" TENANT_ID="{{.TENANT_ID | default (printf "%s-test" .ENV)}}"
+        fi
+
+  tenant:list:
+    desc: List tenants
+    vars:
+      PROVISIONING_IP:
+        sh: kubectl get svc odin-provisioning -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+    cmds:
+      - |
+        if [ -z "{{.PROVISIONING_IP}}" ]; then
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082 &
+          PF_PID=$!
+          sleep 2
+          task provisioning:api:tenant:list PROVISIONING_URL="http://localhost:8082"
+          kill $PF_PID 2>/dev/null || true
+        else
+          task provisioning:api:tenant:list PROVISIONING_URL="http://{{.PROVISIONING_IP}}:8082"
+        fi
+
+  tenant:get:
+    desc: Get tenant details
+    requires:
+      vars: [TENANT_ID]
+    vars:
+      PROVISIONING_IP:
+        sh: kubectl get svc odin-provisioning -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+    cmds:
+      - |
+        if [ -z "{{.PROVISIONING_IP}}" ]; then
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082 &
+          PF_PID=$!
+          sleep 2
+          task provisioning:api:tenant:get PROVISIONING_URL="http://localhost:8082" TENANT_ID="{{.TENANT_ID}}"
+          kill $PF_PID 2>/dev/null || true
+        else
+          task provisioning:api:tenant:get PROVISIONING_URL="http://{{.PROVISIONING_IP}}:8082" TENANT_ID="{{.TENANT_ID}}"
+        fi
+
+  topics:create:
+    desc: Create topics for tenant
+    requires:
+      vars: [TENANT_ID]
+    vars:
+      PROVISIONING_IP:
+        sh: kubectl get svc odin-provisioning -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+    cmds:
+      - |
+        if [ -z "{{.PROVISIONING_IP}}" ]; then
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082 &
+          PF_PID=$!
+          sleep 2
+          task provisioning:api:topics:create PROVISIONING_URL="http://localhost:8082" TENANT_ID="{{.TENANT_ID}}"
+          kill $PF_PID 2>/dev/null || true
+        else
+          task provisioning:api:topics:create PROVISIONING_URL="http://{{.PROVISIONING_IP}}:8082" TENANT_ID="{{.TENANT_ID}}"
+        fi
+
+  health:
+    desc: Check provisioning API health
+    vars:
+      PROVISIONING_IP:
+        sh: kubectl get svc odin-provisioning -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+    cmds:
+      - |
+        if [ -z "{{.PROVISIONING_IP}}" ]; then
+          echo "Provisioning service not available via LoadBalancer. Using port-forward..."
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-provisioning 8082:8082 &
+          PF_PID=$!
+          sleep 2
+          curl -s http://localhost:8082/health | jq
+          kill $PF_PID 2>/dev/null || true
+        else
+          curl -s http://{{.PROVISIONING_IP}}:8082/health | jq
+        fi

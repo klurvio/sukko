@@ -1,0 +1,24 @@
+# =============================================================================
+# Local Build & Image Tasks
+# =============================================================================
+
+version: "3"
+
+vars:
+  CLUSTER_NAME: odin-ws-local
+  NAMESPACE: odin-local
+
+tasks:
+  default:
+    desc: Build and load images into Kind
+    cmds:
+      - task: build:all
+      - kind load docker-image odin-ws:latest --name {{.CLUSTER_NAME}}
+      - kind load docker-image odin-gateway:latest --name {{.CLUSTER_NAME}}
+
+  reload:
+    desc: Rebuild images, run migrations, and restart pods
+    cmds:
+      - task: default
+      - task: k8s:local:migrate
+      - kubectl rollout restart deployment -n {{.NAMESPACE}}

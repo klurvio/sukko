@@ -1,0 +1,62 @@
+# =============================================================================
+# wsloadtest Local Tasks (Kind cluster)
+# =============================================================================
+
+version: "3"
+
+vars:
+  WSLOADTEST_DIR: "{{.ROOT_DIR}}/wsloadtest"
+  NAMESPACE: "odin-local"
+  LOCAL_PORT: "3006"
+
+tasks:
+  run:
+    desc: Run wsloadtest locally (CONNECTIONS=100, DURATION=1m, RAMP=10)
+    dir: "{{.WSLOADTEST_DIR}}"
+    vars:
+      CONNECTIONS: '{{.CONNECTIONS | default "100"}}'
+      DURATION: '{{.DURATION | default "1m"}}'
+      RAMP: '{{.RAMP | default "10"}}'
+    cmds:
+      - task: ensure-port-forward
+      - |
+        ./wsloadtest \
+          -url ws://localhost:{{.LOCAL_PORT}}/ws \
+          -health http://localhost:{{.LOCAL_PORT}}/health \
+          -connections {{.CONNECTIONS}} \
+          -ramp-rate {{.RAMP}} \
+          -duration {{.DURATION}} \
+          -tenant odin
+
+  quick:
+    desc: Quick smoke test (10 connections, 30 seconds)
+    dir: "{{.WSLOADTEST_DIR}}"
+    cmds:
+      - task: ensure-port-forward
+      - |
+        ./wsloadtest \
+          -url ws://localhost:{{.LOCAL_PORT}}/ws \
+          -health http://localhost:{{.LOCAL_PORT}}/health \
+          -connections 10 \
+          -ramp-rate 5 \
+          -duration 30s \
+          -tenant odin
+
+  ensure-port-forward:
+    desc: Ensure port-forward to ws-gateway is running
+    internal: true
+    cmds:
+      - |
+        if nc -z localhost {{.LOCAL_PORT}} 2>/dev/null; then
+          echo "Port-forward already running on localhost:{{.LOCAL_PORT}}"
+        else
+          echo "Starting port-forward to ws-gateway..."
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-ws-gateway {{.LOCAL_PORT}}:3000 &
+          sleep 2
+          if nc -z localhost {{.LOCAL_PORT}} 2>/dev/null; then
+            echo "Port-forward started on localhost:{{.LOCAL_PORT}}"
+          else
+            echo "ERROR: Failed to start port-forward"
+            exit 1
+          fi
+        fi

@@ -1,0 +1,44 @@
+# =============================================================================
+# wspublisher Taskfile - Main Entry Point
+# =============================================================================
+# Usage: task wspublisher:<category>:<command>
+# Examples:
+#   task wspublisher:build
+#   task wspublisher:local:run
+#   task wspublisher:remote:deploy
+
+version: "3"
+
+includes:
+  build:
+    taskfile: ./build.yml
+    dir: "{{.ROOT_DIR}}"
+  local:
+    taskfile: ./local.yml
+    dir: "{{.ROOT_DIR}}"
+  remote:
+    taskfile: ./remote.yml
+    dir: "{{.ROOT_DIR}}"
+
+tasks:
+  default:
+    desc: Show wspublisher commands
+    silent: true
+    cmds:
+      - 'echo "wspublisher - Kafka/Redpanda Message Publisher"'
+      - 'echo ""'
+      - 'echo "=== Build ==="'
+      - 'echo "  task wspublisher:build          - Build Go binary"'
+      - 'echo "  task wspublisher:build:docker   - Build Docker image"'
+      - 'echo "  task wspublisher:build:push     - Push to Artifact Registry"'
+      - 'echo ""'
+      - 'echo "=== Local (Redpanda) ==="'
+      - 'echo "  task wspublisher:local:run      - Run locally (RATE=10 msg/sec)"'
+      - 'echo ""'
+      - 'echo "  Example: task wspublisher:local:run RATE=100"'
+      - 'echo ""'
+      - 'echo "=== Remote (GCE VM) ==="'
+      - 'echo "  task wspublisher:remote:deploy  - Create GCE VM and run publisher"'
+      - 'echo "  task wspublisher:remote:destroy - Delete GCE VM"'
+      - 'echo "  task wspublisher:remote:logs    - View VM logs"'
+      - 'echo "  task wspublisher:remote:ssh     - SSH into VM"'

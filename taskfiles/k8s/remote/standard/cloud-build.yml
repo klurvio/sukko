@@ -1,0 +1,32 @@
+# =============================================================================
+# GKE Standard - Cloud Build Tasks
+# =============================================================================
+
+version: "3"
+
+vars:
+  PROJECT: "trim-array-480700-j7"
+
+tasks:
+  default:
+    desc: Build images using Google Cloud Build
+    dir: "{{.ROOT_DIR}}"
+    cmds:
+      - 'echo "Submitting build to Cloud Build..."'
+      - gcloud builds submit --config=cloudbuild.yaml --project={{.PROJECT}} .
+
+  status:
+    desc: Show recent Cloud Build status
+    cmds:
+      - gcloud builds list --limit=5 --project={{.PROJECT}}
+
+  logs:
+    desc: Stream logs from latest build
+    cmds:
+      - |
+        BUILD_ID=$(gcloud builds list --limit=1 --format='value(id)' --project={{.PROJECT}})
+        if [ -n "$BUILD_ID" ]; then
+          gcloud builds log $BUILD_ID --stream --project={{.PROJECT}}
+        else
+          echo "No builds found"
+        fi

@@ -1,6 +1,6 @@
 module github.com/Toniq-Labs/odin-ws
 
-go 1.25.1
+go 1.25.7
 
 require (
 	github.com/MicahParks/keyfunc/v3 v3.7.0

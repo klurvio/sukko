@@ -1,0 +1,51 @@
+# =============================================================================
+# GKE Standard - Terraform Tasks
+# =============================================================================
+
+version: "3"
+
+vars:
+  ENV: '{{.ENV | default "develop"}}'
+  TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.ENV}}"
+
+tasks:
+  init:
+    desc: Initialize Terraform
+    cmds:
+      - terraform -chdir={{.TF_DIR}} init
+
+  plan:
+    desc: Plan infrastructure changes
+    cmds:
+      - terraform -chdir={{.TF_DIR}} plan -out=tfplan
+
+  apply:
+    desc: Apply infrastructure
+    cmds:
+      - terraform -chdir={{.TF_DIR}} apply tfplan
+
+  apply-auto:
+    desc: Apply infrastructure (auto-approve)
+    cmds:
+      - terraform -chdir={{.TF_DIR}} apply -auto-approve
+
+  destroy:
+    desc: Destroy infrastructure (DANGEROUS)
+    prompt: 'This will DESTROY the GKE cluster for {{.ENV}}. Are you sure?'
+    cmds:
+      - terraform -chdir={{.TF_DIR}} destroy
+
+  output:
+    desc: Show Terraform outputs
+    cmds:
+      - terraform -chdir={{.TF_DIR}} output
+
+  fmt:
+    desc: Format Terraform files
+    cmds:
+      - terraform fmt -recursive {{.TF_DIR}}
+
+  validate:
+    desc: Validate Terraform configuration
+    cmds:
+      - terraform -chdir={{.TF_DIR}} validate

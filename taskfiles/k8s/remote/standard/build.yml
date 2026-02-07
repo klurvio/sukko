@@ -1,0 +1,53 @@
+# =============================================================================
+# GKE Standard - Build & Push Tasks
+# =============================================================================
+
+version: "3"
+
+vars:
+  ENV: '{{.ENV | default "develop"}}'
+  NAMESPACE: 'odin-std-{{.ENV}}'
+  PROJECT: "trim-array-480700-j7"
+  REGISTRY: 'us-central1-docker.pkg.dev/{{.PROJECT}}/odin'
+
+tasks:
+  default:
+    desc: Build and push all images to Artifact Registry
+    cmds:
+      - 'echo "Building images..."'
+      - task: build:push:all
+        vars:
+          REGISTRY: "{{.REGISTRY}}"
+
+  ws:
+    desc: Build and push ws-server only
+    cmds:
+      - task: build:push:ws-server
+        vars:
+          REGISTRY: "{{.REGISTRY}}"
+
+  gateway:
+    desc: Build and push ws-gateway only
+    cmds:
+      - task: build:push:gateway
+        vars:
+          REGISTRY: "{{.REGISTRY}}"
+
+  reload:
+    desc: Rebuild all images, run migrations, and restart pods
+    cmds:
+      - task: default
+      - task: k8s:remote:standard:migrate
+      - kubectl rollout restart deployment -n {{.NAMESPACE}}
+
+  reload:ws:
+    desc: Rebuild ws-server and restart its pods
+    cmds:
+      - task: ws
+      - task: k8s:remote:standard:observe:reload:ws
+
+  reload:gateway:
+    desc: Rebuild ws-gateway and restart its pods
+    cmds:
+      - task: gateway
+      - task: k8s:remote:standard:observe:reload:gateway

@@ -1,0 +1,129 @@
+# =============================================================================
+# GKE Standard Environment Tasks - Main Entry Point
+# =============================================================================
+# Usage: task k8s:remote:standard:<category>:<command>
+# Examples:
+#   task k8s:remote:standard:deploy ENV=staging
+#   task k8s:remote:standard:status ENV=develop
+
+version: "3"
+
+includes:
+  # Shared utilities
+  helm:
+    taskfile: ../../../shared/helm.yml
+    dir: "{{.ROOT_DIR}}"
+    vars:
+      CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/odin"
+  # Modular tasks
+  tf:
+    taskfile: ./terraform.yml
+    dir: "{{.ROOT_DIR}}"
+  connect:
+    taskfile: ./connect.yml
+    dir: "{{.ROOT_DIR}}"
+  build:
+    taskfile: ./build.yml
+    dir: "{{.ROOT_DIR}}"
+  cloud-build:
+    taskfile: ./cloud-build.yml
+    dir: "{{.ROOT_DIR}}"
+  migrate:
+    taskfile: ./migrate.yml
+    dir: "{{.ROOT_DIR}}"
+  deploy:
+    taskfile: ./deploy.yml
+    dir: "{{.ROOT_DIR}}"
+  observe:
+    taskfile: ./observe.yml
+    dir: "{{.ROOT_DIR}}"
+  pf:
+    taskfile: ./port-forward.yml
+    dir: "{{.ROOT_DIR}}"
+  provision:
+    taskfile: ./provision.yml
+    dir: "{{.ROOT_DIR}}"
+  cost:
+    taskfile: ./cost.yml
+    dir: "{{.ROOT_DIR}}"
+
+vars:
+  ENV: '{{.ENV | default "develop"}}'
+  NAMESPACE: 'odin-std-{{.ENV}}'
+  VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/odin/values/standard/{{.ENV}}.yaml"
+  TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.ENV}}"
+  PROJECT: "trim-array-480700-j7"
+  ZONE: '{{.ZONE | default "us-central1-a"}}'
+  CLUSTER: 'odin-ws-{{.ENV}}'
+  REGISTRY: 'us-central1-docker.pkg.dev/{{.PROJECT}}/odin'
+
+tasks:
+  # ===========================================================================
+  # Help
+  # ===========================================================================
+  default:
+    desc: Show GKE Standard commands
+    silent: true
+    cmds:
+      - 'echo "GKE Standard Environment (Spot VMs)"'
+      - 'echo ""'
+      - 'echo "=== Quick Start ==="'
+      - 'echo "  task k8s:remote:standard:setup ENV=develop   - Full setup (infra + deploy)"'
+      - 'echo "  task k8s:remote:standard:destroy ENV=develop - Full teardown"'
+      - 'echo ""'
+      - 'echo "=== Infrastructure (Terraform) ==="'
+      - 'echo "  task k8s:remote:standard:tf:init             - Initialize Terraform"'
+      - 'echo "  task k8s:remote:standard:tf:plan             - Plan changes"'
+      - 'echo "  task k8s:remote:standard:tf:apply            - Apply changes"'
+      - 'echo ""'
+      - 'echo "=== Build & Deploy ==="'
+      - 'echo "  task k8s:remote:standard:build               - Build and push images"'
+      - 'echo "  task k8s:remote:standard:deploy              - Deploy Helm release"'
+      - 'echo "  task k8s:remote:standard:build:reload        - Rebuild and restart"'
+      - 'echo ""'
+      - 'echo "=== Observability ==="'
+      - 'echo "  task k8s:remote:standard:observe:status      - Show pod/service status"'
+      - 'echo "  task k8s:remote:standard:observe:logs        - Tail ws-server logs"'
+      - 'echo "  task k8s:remote:standard:observe:external-ips - Get external IPs"'
+      - 'echo ""'
+      - 'echo "=== Port Forwarding ==="'
+      - 'echo "  task k8s:remote:standard:pf:gateway          - Forward ws-gateway"'
+      - 'echo "  task k8s:remote:standard:pf:grafana          - Forward Grafana"'
+      - 'echo ""'
+      - 'echo "Note: Set ENV=develop|staging|production for all commands"'
+
+  # ===========================================================================
+  # Top-level Shortcuts
+  # ===========================================================================
+  setup:
+    desc: Complete setup - infrastructure + deploy
+    cmds:
+      - task: tf:init
+      - task: tf:plan
+      - task: tf:apply
+      - task: connect
+      - task: build
+      - task: deploy
+      - task: observe:status
+
+  destroy:
+    desc: Complete teardown - uninstall + destroy infrastructure
+    prompt: 'This will DESTROY everything for {{.ENV}}. Are you sure?'
+    cmds:
+      - task: deploy:down
+      - task: tf:destroy
+
+  status:
+    desc: Show deployment status
+    cmds:
+      - task: observe:status
+
+  logs:
+    desc: Tail ws-server logs
+    cmds:
+      - task: observe:logs
+
+  health:
+    desc: Check environment health
+    cmds:
+      - task: observe:health
