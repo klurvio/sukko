@@ -1,0 +1,148 @@
+# =============================================================================
+# wsloadtest Tasks
+# =============================================================================
+
+version: "3"
+
+vars:
+  DEPLOY_DIR: "{{.ROOT_DIR}}/deployments/wsloadtest"
+  WSLOADTEST_DIR: "{{.ROOT_DIR}}/wsloadtest"
+  # GCP defaults
+  PROJECT: "trim-array-480700-j7"
+  ZONE: "us-central1-a"
+  # Local K8s
+  NAMESPACE: "odin-local"
+  LOCAL_PORT: "3006"
+
+tasks:
+  # ===========================================================================
+  # Top-level task
+  # ===========================================================================
+  default:
+    desc: Show wsloadtest commands
+    silent: true
+    cmds:
+      - echo "wsloadtest - WebSocket Load Testing Tool"
+      - echo ""
+      - echo "=== Build ==="
+      - echo "  task wsloadtest:build          - Build Go binary"
+      - echo "  task wsloadtest:docker         - Build Docker image"
+      - echo "  task wsloadtest:push           - Push to Artifact Registry"
+      - echo ""
+      - echo "=== Local (Kind cluster) ==="
+      - echo "  task wsloadtest:local:run      - Run test (CONNECTIONS=100)"
+      - echo "  task wsloadtest:local:quick    - Quick smoke test (10 conns, 30s)"
+      - echo ""
+      - echo "=== Remote (GCE VM) ==="
+      - echo "  task wsloadtest:remote:deploy  - Create GCE VM and run test"
+      - echo "  task wsloadtest:remote:destroy - Delete GCE VM"
+      - echo "  task wsloadtest:remote:logs    - View VM logs"
+      - echo "  task wsloadtest:remote:ssh     - SSH into VM"
+
+  # ===========================================================================
+  # Build
+  # ===========================================================================
+  build:
+    desc: Build wsloadtest binary
+    dir: "{{.WSLOADTEST_DIR}}"
+    cmds:
+      - go build -o wsloadtest .
+      - echo "Built wsloadtest binary"
+
+  docker:
+    desc: Build wsloadtest Docker image
+    dir: "{{.WSLOADTEST_DIR}}"
+    cmds:
+      - docker build -t wsloadtest:latest .
+      - echo "Built wsloadtest:latest"
+
+  push:
+    desc: Build and push to Artifact Registry
+    dir: "{{.WSLOADTEST_DIR}}"
+    cmds:
+      - docker buildx build --platform linux/amd64
+          -t us-central1-docker.pkg.dev/{{.PROJECT}}/odin/wsloadtest:latest
+          -f Dockerfile . --push
+      - echo "Pushed to Artifact Registry"
+
+  # ===========================================================================
+  # Local (Kind cluster)
+  # ===========================================================================
+  local:run:
+    desc: Run wsloadtest locally (CONNECTIONS=100, DURATION=1m, RAMP=10)
+    dir: "{{.WSLOADTEST_DIR}}"
+    vars:
+      CONNECTIONS: '{{.CONNECTIONS | default "100"}}'
+      DURATION: '{{.DURATION | default "1m"}}'
+      RAMP: '{{.RAMP | default "10"}}'
+    cmds:
+      - task: local:ensure-port-forward
+      - |
+        ./wsloadtest \
+          -url ws://localhost:{{.LOCAL_PORT}}/ws \
+          -health http://localhost:{{.LOCAL_PORT}}/health \
+          -connections {{.CONNECTIONS}} \
+          -ramp-rate {{.RAMP}} \
+          -duration {{.DURATION}} \
+          -tenant odin
+
+  local:quick:
+    desc: Quick smoke test (10 connections, 30 seconds)
+    dir: "{{.WSLOADTEST_DIR}}"
+    cmds:
+      - task: local:ensure-port-forward
+      - |
+        ./wsloadtest \
+          -url ws://localhost:{{.LOCAL_PORT}}/ws \
+          -health http://localhost:{{.LOCAL_PORT}}/health \
+          -connections 10 \
+          -ramp-rate 5 \
+          -duration 30s \
+          -tenant odin
+
+  local:ensure-port-forward:
+    desc: Ensure port-forward to ws-gateway is running
+    internal: true
+    cmds:
+      - |
+        if nc -z localhost {{.LOCAL_PORT}} 2>/dev/null; then
+          echo "Port-forward already running on localhost:{{.LOCAL_PORT}}"
+        else
+          echo "Starting port-forward to ws-gateway..."
+          kubectl port-forward -n {{.NAMESPACE}} svc/odin-ws-gateway {{.LOCAL_PORT}}:3000 &
+          sleep 2
+          if nc -z localhost {{.LOCAL_PORT}} 2>/dev/null; then
+            echo "Port-forward started on localhost:{{.LOCAL_PORT}}"
+          else
+            echo "ERROR: Failed to start port-forward"
+            exit 1
+          fi
+        fi
+
+  # ===========================================================================
+  # Remote (GCE VM)
+  # ===========================================================================
+  remote:deploy:
+    desc: Deploy wsloadtest GCE VM
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - chmod +x *.sh
+      - ./deploy.sh
+
+  remote:destroy:
+    desc: Destroy wsloadtest GCE VM
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - ./destroy.sh
+
+  remote:logs:
+    desc: View wsloadtest VM logs
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - ./logs.sh
+
+  remote:ssh:
+    desc: SSH into wsloadtest VM
+    dir: "{{.DEPLOY_DIR}}"
+    cmds:
+      - ./ssh.sh

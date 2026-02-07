@@ -32,6 +32,11 @@ includes:
     taskfile: ./taskfiles/terraform/Taskfile.yml
     dir: .
 
+  # wsloadtest
+  wsloadtest:
+    taskfile: ./taskfiles/wsloadtest/Taskfile.yml
+    dir: .
+
 tasks:
   default:
     desc: Show available commands

@@ -68,3 +68,6 @@ tfplan
 
 # Go binaries (publisher)
 publisher-go/publisher-go
+
+# wsloadtest config (contains environment-specific values)
+deployments/wsloadtest/config.env
