@@ -319,6 +319,11 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 		p.sharedConsumer = consumer
 		p.sharedTopics = newTopics
 
+		// Start the consumer (critical: must start after creation!)
+		if err := consumer.Start(); err != nil {
+			return fmt.Errorf("failed to start shared consumer: %w", err)
+		}
+
 		p.logger.Info().
 			Strs("topics", topics).
 			Msg("Created shared consumer with initial topics")
