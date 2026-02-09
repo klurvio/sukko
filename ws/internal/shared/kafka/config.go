@@ -10,7 +10,7 @@ import (
 //
 // ENVIRONMENT vs KAFKA_TOPIC_NAMESPACE:
 //
-// ENVIRONMENT: Identifies the deployment environment (develop, staging, production).
+// ENVIRONMENT: Identifies the deployment environment (develop, stging, production).
 //   - Used for: logging, metrics labels, feature flags, operational context
 //   - Example: ENVIRONMENT=develop means "this is the develop deployment"
 //
@@ -25,7 +25,7 @@ import (
 //   - Explicit about intent - clearly shows cross-namespace access
 //   - Safer - can't accidentally affect non-topic environment behavior
 //
-// Valid namespaces (configured via Helm): local, dev, stag, prod
+// Valid namespaces (configured via Helm): local, dev, stg, prod
 //
 // Topic names are built at runtime using BuildTopicName() in topic.go:
 //   BuildTopicName(namespace, tenantID, category) -> "{namespace}.{tenantID}.{category}"
@@ -38,7 +38,7 @@ import (
 // Valid namespaces (configured via Helm):
 //   - local
 //   - dev
-//   - stag
+//   - stg
 //   - prod
 //
 // Empty string defaults to "local" for backward compatibility.

@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "monitoring.labels" . | nindent 4 }}
     app.kubernetes.io/component: promtail
-  {{- if eq .Release.Namespace "odin-dev" "odin-staging" "odin-prod" }}
+  {{- if eq .Release.Namespace "odin-dev" "odin-stg" "odin-prod" }}
   annotations:
     # Required for GKE Autopilot
     autopilot.gke.io/allow-daemonset: "true"

@@ -23,6 +23,13 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-postgresql 5432; do echo "waiting for postgres..."; sleep 2; done']
+        - name: wait-for-redpanda
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-redpanda 9092; do echo "waiting for redpanda..."; sleep 2; done']
       containers:
         - name: {{ .Chart.Name }}
           {{- with .Values.securityContext }}
@@ -89,13 +96,11 @@ spec:
             - name: DB_CONN_MAX_LIFETIME
               value: "{{ .Values.config.dbConnMaxLifetime }}"
 
-            # Kafka/Redpanda settings (optional)
-            {{- if .Values.config.kafkaBrokers }}
+            # Kafka/Redpanda settings
             - name: KAFKA_BROKERS
-              value: "{{ .Values.config.kafkaBrokers }}"
+              value: "{{ .Values.config.kafkaBrokers | default (printf "%s-redpanda:9092" .Release.Name) }}"
             - name: KAFKA_ADMIN_TIMEOUT
               value: "{{ .Values.config.kafkaAdminTimeout }}"
-            {{- end }}
 
             # Topic defaults
             - name: KAFKA_TOPIC_NAMESPACE
@@ -103,7 +108,7 @@ spec:
             - name: DEFAULT_PARTITIONS
               value: "{{ .Values.config.defaultPartitions }}"
             - name: DEFAULT_RETENTION_MS
-              value: "{{ .Values.config.defaultRetentionMs }}"
+              value: "{{ printf "%.0f" .Values.config.defaultRetentionMs }}"
 
             # Tenant quotas
             - name: MAX_TOPICS_PER_TENANT

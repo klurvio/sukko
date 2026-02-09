@@ -24,6 +24,16 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      initContainers:
+        - name: wait-for-nats
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-nats 4222; do echo "waiting for nats..."; sleep 2; done']
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-postgresql 5432; do echo "waiting for postgres..."; sleep 2; done']
+        - name: wait-for-redpanda
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-redpanda 9092; do echo "waiting for redpanda..."; sleep 2; done']
       containers:
         - name: ws-server
           {{- with .Values.securityContext }}
@@ -63,7 +73,7 @@ spec:
             - name: ENVIRONMENT
               value: "{{ .Values.config.environment | default "local" }}"
             # Topic namespace overrides environment for Kafka topic naming
-            # If empty, uses normalized environment (local, dev, staging, main)
+            # If empty, uses normalized environment (local, dev, stg, main)
             - name: KAFKA_TOPIC_NAMESPACE
               value: "{{ .Values.config.kafkaTopicNamespace | default "" }}"
             # Kafka SASL Authentication (for managed services)

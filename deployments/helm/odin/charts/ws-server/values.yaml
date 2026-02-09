@@ -33,11 +33,11 @@ config:
   # All messages are routed to this tenant. Only used when auth is disabled at gateway.
   defaultTenantID: "odin"
   # Environment: deployment environment for logging, metrics, feature flags
-  # Values: develop, staging, production (or local for development)
+  # Values: dev, stg, prod (or local for local development)
   environment: local
   # kafkaTopicNamespace: overrides environment for Kafka topic naming only
-  # If empty, uses normalized environment (local, dev, staging, main)
-  # Set to "main" in develop to consume from production topics for testing
+  # If empty, uses normalized environment (local, dev, stg, main)
+  # Set to "main" in dev to consume from prod topics for testing
   # Topics are generated as: odin.{namespace}.{base}.refined
   kafkaTopicNamespace: ""
   connRateLimit:

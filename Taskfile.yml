@@ -3,13 +3,28 @@ version: "3"
 # =============================================================================
 # Main Taskfile - Entry Point
 # =============================================================================
-# Run 'task' or 'task --list' to see available commands
+# Pattern: {domain}:{service}:{action} [ENV=value]
+#
+# Domains:
+#   local - Kind cluster (no ENV needed)
+#   k8s   - Remote GKE (ENV=dev|stg|prod)
+#   gce   - GCE VMs (ENV=dev|stg|prod)
+#
+# Run 'task --list-all' to see all available tasks
 
 includes:
-  # Shared utilities
-  build:
-    taskfile: ./taskfiles/shared/build.yml
+  # Domain taskfiles
+  local:
+    taskfile: ./taskfiles/local.yml
     dir: .
+  k8s:
+    taskfile: ./taskfiles/k8s.yml
+    dir: .
+  gce:
+    taskfile: ./taskfiles/gce.yml
+    dir: .
+
+  # Shared utilities (environment-independent)
   test:
     taskfile: ./taskfiles/shared/test.yml
     dir: .
@@ -17,164 +32,49 @@ includes:
     taskfile: ./taskfiles/shared/version.yml
     dir: .
 
-  # Provisioning (DB + API)
-  provisioning:
-    taskfile: ./taskfiles/provisioning.yml
-    dir: .
-
-  # Kubernetes
-  k8s:
-    taskfile: ./taskfiles/k8s/Taskfile.yml
-    dir: .
-
-  # Terraform
-  terraform:
-    taskfile: ./taskfiles/terraform/Taskfile.yml
-    dir: .
-
-  # wsloadtest
-  wsloadtest:
-    taskfile: ./taskfiles/wsloadtest/Taskfile.yml
-    dir: .
-
-  # wspublisher
-  wspublisher:
-    taskfile: ./taskfiles/wspublisher/Taskfile.yml
-    dir: .
-
 tasks:
   default:
     desc: Show available commands
     silent: true
     cmds:
-      - echo "ODIN WEBSOCKET SERVER - TASK COMMANDS"
+      - echo "ODIN WEBSOCKET SERVER"
       - echo ""
-      - echo "=== QUICK SHORTCUTS ==="
-      - echo "  task dev              - Start local development (Kind)"
-      - echo "  task dev:deploy       - Deploy to local Kind cluster"
-      - echo "  task dev:status       - Show local cluster status"
+      - echo "=== LOCAL DEVELOPMENT ==="
+      - echo "  task local                     Full setup (Kind + deploy)"
+      - echo "  task local:status              Show pods and services"
+      - echo "  task local:logs                Tail ws-server logs"
+      - echo "  task local:build               Build and reload images"
+      - echo "  task local:provision:create    Create topics + tenant"
+      - echo "  task local:loadtest:smoke      Quick load test"
+      - echo "  task local:publisher:run       Run message publisher"
       - echo ""
-      - echo "=== REMOTE DEPLOYMENT ==="
-      - echo "  task deploy:develop   - Deploy to GKE Standard develop"
-      - echo "  task deploy:staging   - Deploy to GKE Standard staging"
-      - echo "  task deploy:production- Deploy to GKE Standard production"
+      - echo "=== REMOTE KUBERNETES (GKE) ==="
+      - echo "  task k8s:deploy ENV=dev        Deploy to dev"
+      - echo "  task k8s:deploy ENV=stg        Deploy to staging"
+      - echo "  task k8s:deploy ENV=prod       Deploy to production"
+      - echo "  task k8s:status ENV=dev        Show cluster status"
+      - echo "  task k8s:logs ENV=dev          Tail logs"
       - echo ""
-      - echo "=== BUILD & TEST ==="
-      - echo "  task build            - Build all Docker images"
-      - echo "  task test             - Run unit tests"
-      - echo "  task lint             - Lint Helm charts"
+      - echo "=== GCE VMs ==="
+      - echo "  task gce:loadtest:deploy ENV=dev   Deploy load test VM"
+      - echo "  task gce:publisher:deploy ENV=dev  Deploy publisher VM"
       - echo ""
-      - echo "=== PROVISIONING ==="
-      - echo "  task provisioning:db:migrate    - Run DB migrations"
-      - echo "  task provisioning:api:tenant:list - List tenants"
+      - echo "=== TESTING ==="
+      - echo "  task test                      Run unit tests"
+      - echo "  task test:unit                 Run unit tests"
+      - echo "  task test:integration          Run integration tests"
       - echo ""
-      - echo "=== LOAD TESTING ==="
-      - echo "  task wsloadtest       - WebSocket load testing commands"
-      - echo "  task wspublisher      - Kafka message publisher commands"
-      - echo ""
-      - echo "=== DETAILED COMMANDS ==="
-      - echo "  task k8s              - Kubernetes commands"
-      - echo "  task terraform        - Terraform commands"
-      - echo "  task version:info     - Show version info"
-      - echo ""
-      - echo "Run 'task --list-all' to see all available tasks"
+      - echo "Run 'task --list-all' for complete list"
 
   # ===========================================================================
-  # Quick Shortcuts - Local Development
+  # Minimal Shortcuts (to avoid confusion)
   # ===========================================================================
-  dev:
-    desc: Start local development (Kind)
+  local:
+    desc: Full local setup (Kind + deploy)
     cmds:
-      - task: k8s:local:setup
+      - task: local:setup
 
-  dev:deploy:
-    desc: Deploy to local Kind cluster
-    cmds:
-      - task: k8s:local:deploy
-
-  dev:status:
-    desc: Show local cluster status
-    cmds:
-      - task: k8s:local:status
-
-  dev:logs:
-    desc: Tail local ws-server logs
-    cmds:
-      - task: k8s:local:logs
-
-  dev:build:
-    desc: Build and reload local images
-    cmds:
-      - task: k8s:local:build:reload
-
-  # ===========================================================================
-  # Remote Deployment Shortcuts
-  # ===========================================================================
-  deploy:develop:
-    desc: Deploy to GKE Standard develop
-    cmds:
-      - task: k8s:remote:standard:deploy
-        vars: { ENV: develop }
-
-  deploy:staging:
-    desc: Deploy to GKE Standard staging
-    cmds:
-      - task: k8s:remote:standard:deploy
-        vars: { ENV: staging }
-
-  deploy:production:
-    desc: Deploy to GKE Standard production
-    cmds:
-      - task: k8s:remote:standard:deploy
-        vars: { ENV: production }
-
-  # ===========================================================================
-  # Build & Test Shortcuts
-  # ===========================================================================
-  build-all:
-    desc: Build all Docker images
-    aliases: [build]
-    cmds:
-      - task: build:all
-
-  test-all:
+  test:
     desc: Run unit tests
-    aliases: [test]
     cmds:
       - task: test:unit
-
-  lint:
-    desc: Lint Helm charts
-    cmds:
-      - task: k8s:common:helm:lint
-
-  # ===========================================================================
-  # AsyncAPI
-  # ===========================================================================
-  asyncapi:bundle:
-    desc: Bundle AsyncAPI spec into single file
-    cmds:
-      - task: k8s:common:asyncapi:bundle
-
-  # ===========================================================================
-  # wspublisher Shortcuts
-  # ===========================================================================
-  publish:local:
-    desc: Run wspublisher locally
-    cmds:
-      - task: wspublisher:local:run
-
-  publish:deploy:
-    desc: Deploy wspublisher to GCE VM
-    cmds:
-      - task: wspublisher:remote:deploy
-
-  publish:destroy:
-    desc: Destroy wspublisher GCE VM
-    cmds:
-      - task: wspublisher:remote:destroy
-
-  publish:logs:
-    desc: View wspublisher VM logs
-    cmds:
-      - task: wspublisher:remote:logs

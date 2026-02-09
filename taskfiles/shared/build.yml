@@ -43,11 +43,25 @@ tasks:
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f build/gateway/Dockerfile .
 
+  provisioning:
+    desc: Build provisioning Docker image
+    dir: "{{.ROOT_DIR}}/ws"
+    vars:
+      IMAGE: '{{.IMAGE_PREFIX}}{{.PROVISIONING_IMAGE | default "odin-provisioning"}}'
+      TAG: '{{.TAG | default "latest"}}'
+    cmds:
+      - docker build -t {{.IMAGE}}:{{.TAG}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f build/provisioning/Dockerfile .
+
   all:
     desc: Build all Docker images
     cmds:
       - task: ws-server
       - task: gateway
+      - task: provisioning
 
   # Cross-platform build for remote registries (linux/amd64)
   push:ws-server:
@@ -82,6 +96,22 @@ tasks:
           -f build/gateway/Dockerfile .
           --push
 
+  push:provisioning:
+    desc: Build and push provisioning to registry
+    requires:
+      vars: [REGISTRY]
+    dir: "{{.ROOT_DIR}}/ws"
+    vars:
+      TAG: '{{.TAG | default "latest"}}'
+    cmds:
+      - docker buildx build --platform linux/amd64
+          -t {{.REGISTRY}}/odin-provisioning:{{.TAG}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f build/provisioning/Dockerfile .
+          --push
+
   push:all:
     desc: Build and push all images to registry
     requires:
@@ -89,3 +119,4 @@ tasks:
     cmds:
       - task: push:ws-server
       - task: push:gateway
+      - task: push:provisioning

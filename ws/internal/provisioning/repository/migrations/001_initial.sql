@@ -66,9 +66,25 @@ COMMENT ON COLUMN tenant_keys.algorithm IS 'JWT signing algorithm: ES256, RS256,
 COMMENT ON COLUMN tenant_keys.is_active IS 'Whether key is currently valid for verification';
 COMMENT ON COLUMN tenant_keys.revoked_at IS 'Timestamp when key was revoked (NULL if active)';
 
--- NOTE: tenant_topics table REMOVED - replaced by tenant_categories in 003_seed_odin_tenant.sql
--- Topic categories are stored in tenant_categories table (category only, no namespace prefix).
+-- Tenant topic categories (category only, no namespace prefix)
 -- Full topic names are built at runtime: kafka.BuildTopicName(namespace, tenantID, category)
+-- Example: namespace="prod", tenant="odin", category="trade" -> "prod.odin.trade"
+CREATE TABLE tenant_categories (
+    id              SERIAL PRIMARY KEY,
+    tenant_id       TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    category        TEXT NOT NULL,
+    partitions      INT NOT NULL DEFAULT 3,
+    retention_ms    BIGINT NOT NULL DEFAULT 604800000,  -- 7 days
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at      TIMESTAMPTZ,
+
+    UNIQUE(tenant_id, category)
+);
+
+COMMENT ON TABLE tenant_categories IS 'Kafka topic categories per tenant (category only, topic names built at runtime)';
+COMMENT ON COLUMN tenant_categories.category IS 'Category name (e.g., "trade", "balances") - NOT full topic name';
+COMMENT ON COLUMN tenant_categories.partitions IS 'Number of Kafka partitions for this category';
+COMMENT ON COLUMN tenant_categories.retention_ms IS 'Kafka message retention in milliseconds';
 
 -- Resource quotas per tenant
 CREATE TABLE tenant_quotas (
@@ -127,7 +143,9 @@ CREATE INDEX idx_tenant_keys_tenant_active ON tenant_keys(tenant_id)
 CREATE INDEX idx_tenant_keys_lookup ON tenant_keys(key_id, is_active)
     WHERE is_active = true AND revoked_at IS NULL;
 
--- NOTE: idx_tenant_topics_tenant REMOVED - tenant_topics table replaced by tenant_categories
+-- Tenant categories: lookup by tenant (active only)
+CREATE INDEX idx_tenant_categories_tenant ON tenant_categories(tenant_id)
+    WHERE deleted_at IS NULL;
 
 -- Audit log: lookup by tenant and time (for audit queries)
 CREATE INDEX idx_audit_tenant_time ON provisioning_audit(tenant_id, created_at DESC);

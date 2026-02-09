@@ -81,6 +81,8 @@ func main() {
 	topicRepo := repository.NewPostgresTopicRepository(db)
 	quotaRepo := repository.NewPostgresQuotaRepository(db)
 	auditRepo := repository.NewPostgresAuditRepository(db)
+	oidcRepo := repository.NewPostgresOIDCConfigRepository(db)
+	channelRulesRepo := repository.NewPostgresChannelRulesRepository(db)
 
 	// Initialize Kafka admin
 	var kafkaAdmin provisioning.KafkaAdmin
@@ -139,6 +141,8 @@ func main() {
 		TopicStore:           topicRepo,
 		QuotaStore:           quotaRepo,
 		AuditStore:           auditRepo,
+		OIDCConfigStore:      oidcRepo,
+		ChannelRulesStore:    channelRulesRepo,
 		KafkaAdmin:           kafkaAdmin,
 		TopicNamespace:       cfg.TopicNamespace,
 		DefaultPartitions:    cfg.DefaultPartitions,

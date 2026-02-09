@@ -1,0 +1,123 @@
+# =============================================================================
+# GCE VM Tasks (Standalone Services)
+# =============================================================================
+# Domain: gce
+# Pattern: gce:{service}:{action} ENV=dev|stg|prod
+# ENV is required for all commands
+
+version: "3"
+
+vars:
+  GCE_ENV: '{{.ENV | default "dev"}}'
+  GCE_PROJECT: '{{.PROJECT | default "trim-array-480700-j7"}}'
+  GCE_ZONE: '{{.ZONE | default "us-central1-a"}}'
+  GCE_LOADTEST_DIR: "{{.ROOT_DIR}}/deployments/wsloadtest"
+  GCE_PUBLISHER_DIR: "{{.ROOT_DIR}}/deployments/wspublisher"
+  GCE_REGISTRY: 'us-central1-docker.pkg.dev/{{.GCE_PROJECT}}/odin'
+
+tasks:
+  # ===========================================================================
+  # Load Test VM
+  # ===========================================================================
+  loadtest:deploy:
+    desc: Deploy load test VM (create + start)
+    cmds:
+      - |
+        echo "Deploying wsloadtest VM for {{.GCE_ENV}}..."
+        cd {{.GCE_LOADTEST_DIR}} && chmod +x *.sh && ENV={{.GCE_ENV}} ./deploy.sh
+
+  loadtest:destroy:
+    desc: Destroy load test VM
+    cmds:
+      - |
+        echo "Destroying wsloadtest VM for {{.GCE_ENV}}..."
+        cd {{.GCE_LOADTEST_DIR}} && ENV={{.GCE_ENV}} ./destroy.sh
+
+  loadtest:run:
+    desc: Run/restart loadtest (CONNECTIONS=100 DURATION=1m)
+    vars:
+      CONNECTIONS: '{{.CONNECTIONS | default "100"}}'
+      DURATION: '{{.DURATION | default "1m"}}'
+    cmds:
+      - |
+        echo "Running wsloadtest on VM for {{.GCE_ENV}}..."
+        VM_NAME="wsloadtest-{{.GCE_ENV}}"
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --command="
+          docker stop wsloadtest 2>/dev/null || true
+          docker run -d --rm --name wsloadtest \
+            -e CONNECTIONS={{.CONNECTIONS}} \
+            -e DURATION={{.DURATION}} \
+            {{.GCE_REGISTRY}}/wsloadtest:latest
+        "
+
+  loadtest:stop:
+    desc: Stop loadtest container
+    cmds:
+      - |
+        echo "Stopping wsloadtest on VM for {{.GCE_ENV}}..."
+        VM_NAME="wsloadtest-{{.GCE_ENV}}"
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --command="docker stop wsloadtest 2>/dev/null || true"
+
+  loadtest:logs:
+    desc: View load test logs
+    cmds:
+      - cd {{.GCE_LOADTEST_DIR}} && ENV={{.GCE_ENV}} ./logs.sh
+
+  loadtest:ssh:
+    desc: SSH into load test VM
+    cmds:
+      - |
+        VM_NAME="wsloadtest-{{.GCE_ENV}}"
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}}
+
+  # ===========================================================================
+  # Publisher VM
+  # ===========================================================================
+  publisher:deploy:
+    desc: Deploy publisher VM (create + start)
+    cmds:
+      - |
+        echo "Deploying wspublisher VM for {{.GCE_ENV}}..."
+        cd {{.GCE_PUBLISHER_DIR}} && chmod +x *.sh && ENV={{.GCE_ENV}} ./deploy.sh
+
+  publisher:destroy:
+    desc: Destroy publisher VM
+    cmds:
+      - |
+        echo "Destroying wspublisher VM for {{.GCE_ENV}}..."
+        cd {{.GCE_PUBLISHER_DIR}} && ENV={{.GCE_ENV}} ./destroy.sh
+
+  publisher:run:
+    desc: Run/restart publisher (RATE=10 msg/sec)
+    vars:
+      RATE: '{{.RATE | default "10"}}'
+    cmds:
+      - |
+        echo "Running wspublisher on VM for {{.GCE_ENV}}..."
+        VM_NAME="wspublisher-{{.GCE_ENV}}"
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --command="
+          docker stop wspublisher 2>/dev/null || true
+          docker run -d --rm --name wspublisher \
+            -e POISSON_LAMBDA={{.RATE}} \
+            {{.GCE_REGISTRY}}/wspublisher:latest
+        "
+
+  publisher:stop:
+    desc: Stop publisher container
+    cmds:
+      - |
+        echo "Stopping wspublisher on VM for {{.GCE_ENV}}..."
+        VM_NAME="wspublisher-{{.GCE_ENV}}"
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --command="docker stop wspublisher 2>/dev/null || true"
+
+  publisher:logs:
+    desc: View publisher logs
+    cmds:
+      - cd {{.GCE_PUBLISHER_DIR}} && ENV={{.GCE_ENV}} ./logs.sh
+
+  publisher:ssh:
+    desc: SSH into publisher VM
+    cmds:
+      - |
+        VM_NAME="wspublisher-{{.GCE_ENV}}"
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}}

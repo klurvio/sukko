@@ -5,7 +5,11 @@
 global:
   namespace: odin-local
   provisioning:
-    databaseUrl: "postgres://odin:odin_local_dev@odin-local-postgresql:5432/odin_provisioning?sslmode=disable"
+    databaseUrl: "postgres://odin:odin_local_dev@odin-postgresql:5432/odin_provisioning?sslmode=disable"
+
+# Kernel tuning not needed for local (Kind runs in Docker)
+kernelTuning:
+  enabled: false
 
 # WebSocket Gateway - Handles auth and permission filtering
 ws-gateway:
@@ -100,60 +104,7 @@ redpanda:
       memory: "384Mi"  # 256M + overhead for container
   storage:
     enabled: false  # Use emptyDir for local
-  # Topic configuration for local development
-  # Topics use environment-prefixed naming: odin.{env}.{base} and odin.{env}.{base}.refined
-  # Fewer partitions for Kind hardware constraints
-  topics:
-    # Regular topics (publisher → external service)
-    - name: odin.local.trade
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.liquidity
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.balances
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.metadata
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.social
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.community
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.creation
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.analytics
-      partitions: 1
-      replicationFactor: 1
-    # Refined topics (external service → ws-server)
-    - name: odin.local.trade.refined
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.liquidity.refined
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.balances.refined
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.metadata.refined
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.social.refined
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.community.refined
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.creation.refined
-      partitions: 1
-      replicationFactor: 1
-    - name: odin.local.analytics.refined
-      partitions: 1
-      replicationFactor: 1
+  # Topics created via Provisioning API (single source of truth)
 
 # Valkey - Disabled (using NATS instead)
 valkey:
@@ -243,7 +194,7 @@ provisioning:
     logFormat: pretty
     authEnabled: false  # No auth for local provisioning
     topicNamespace: local
-    kafkaBrokers: ""  # Uses dynamic default
+    # kafkaBrokers: defaults to {release-name}-redpanda:9092
   resources:
     requests:
       cpu: "50m"
