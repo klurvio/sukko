@@ -219,11 +219,12 @@ tasks:
           --add-host=host.docker.internal:host-gateway \
           -e WS_URL=ws://host.docker.internal:{{.LOCAL_GATEWAY_PORT}}/ws \
           -e HEALTH_URL=http://host.docker.internal:{{.LOCAL_GATEWAY_PORT}}/health \
-          -e CONNECTIONS={{.CONNECTIONS}} \
+          -e TARGET_CONNECTIONS={{.CONNECTIONS}} \
           -e RAMP_RATE={{.RAMP}} \
           -e DURATION={{.DURATION}} \
-          -e TENANT=odin \
-          -e CHANNELS=odin.all.trade \
+          -e TENANT_ID=odin \
+          -e CHANNELS=odin.BTC.trade,odin.ETH.trade,odin.SOL.trade \
+          -e CHANNELS_PER_CLIENT=1 \
           wsloadtest:latest
 
   loadtest:smoke:

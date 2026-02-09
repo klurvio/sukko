@@ -71,10 +71,10 @@ ws-server:
 
   resources:
     requests:
-      cpu: "500m"
+      cpu: "250m"
       memory: "256Mi"
     limits:
-      cpu: "1"
+      cpu: "2"
       memory: "512Mi"
   service:
     type: NodePort
@@ -93,8 +93,8 @@ redpanda:
   # External access for local publisher via port-forward
   externalAccess:
     enabled: true
-    advertisedHost: localhost  # Publisher connects via port-forward
-    containerPort: 19092       # External listener port inside container
+    advertisedHost: host.docker.internal  # Docker containers use this to reach host
+    containerPort: 19092                   # External listener port inside container
   resources:
     requests:
       cpu: "250m"
