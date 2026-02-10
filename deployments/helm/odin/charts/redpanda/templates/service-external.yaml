@@ -5,6 +5,10 @@ metadata:
   name: {{ include "redpanda.fullname" . }}-external
   labels:
     {{- include "redpanda.labels" . | nindent 4 }}
+  {{- if .Values.externalAccess.annotations }}
+  annotations:
+    {{- toYaml .Values.externalAccess.annotations | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.externalAccess.type }}
   {{- if .Values.externalAccess.loadBalancerIP }}

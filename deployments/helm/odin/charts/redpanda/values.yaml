@@ -40,6 +40,7 @@ externalAccess:
   nodePort: ""        # Only used if type is NodePort
   advertisedHost: ""  # External IP or hostname (required for external producers)
   loadBalancerIP: ""  # Static IP for LoadBalancer (from Terraform google_compute_address)
+  annotations: {}     # e.g. {"cloud.google.com/load-balancer-type": "Internal"}
   # External listener port inside container (maps to kafkaPort on LoadBalancer)
   containerPort: 19092
 

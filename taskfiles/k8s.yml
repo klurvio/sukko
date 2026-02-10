@@ -14,8 +14,9 @@ vars:
   K8S_CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/odin"
   K8S_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/odin/values/standard/{{.K8S_ENV}}.yaml"
   K8S_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.K8S_ENV}}"
+  K8S_FOUNDATION_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/foundation"
   K8S_MIGRATIONS_DIR: "{{.ROOT_DIR}}/ws/internal/provisioning/repository/migrations"
-  K8S_PROJECT: '{{.PROJECT | default "trim-array-480700-j7"}}'
+  K8S_PROJECT: '{{.PROJECT | default "odin-9e902"}}'
   K8S_ZONE: '{{.ZONE | default "us-central1-a"}}'
   K8S_CLUSTER: 'odin-ws-{{.K8S_ENV}}'
   K8S_REGISTRY: 'us-central1-docker.pkg.dev/{{.K8S_PROJECT}}/odin'
@@ -34,8 +35,11 @@ tasks:
   # Core Cluster Operations
   # ===========================================================================
   setup:
-    desc: Full setup (TF + deploy)
+    desc: Full setup (foundation + cluster + build + deploy)
     cmds:
+      - task: foundation:init
+      - task: foundation:plan
+      - task: foundation:apply
       - task: tf:init
       - task: tf:plan
       - task: tf:apply
@@ -54,15 +58,21 @@ tasks:
   deploy:
     desc: Deploy/upgrade Helm release
     vars:
+      GATEWAY_IP:
+        sh: terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_external_ip 2>/dev/null || echo ""
       REDPANDA_IP:
-        sh: terraform -chdir={{.K8S_TF_DIR}} output -raw redpanda_external_ip 2>/dev/null || echo ""
+        sh: terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw redpanda_internal_ip 2>/dev/null || echo ""
     cmds:
       - task: connect
       - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/client-ws.asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml
       - |
         HELM_CMD="helm upgrade --install {{.K8S_RELEASE_NAME}} {{.K8S_CHART_PATH}} -f {{.K8S_VALUES_FILE}} -n {{.K8S_NAMESPACE}} --create-namespace"
+        if [ -n "{{.GATEWAY_IP}}" ]; then
+          echo "Using Gateway static IP: {{.GATEWAY_IP}}"
+          HELM_CMD="$HELM_CMD --set ws-gateway.service.loadBalancerIP={{.GATEWAY_IP}}"
+        fi
         if [ -n "{{.REDPANDA_IP}}" ]; then
-          echo "Using Redpanda static IP: {{.REDPANDA_IP}}"
+          echo "Using Redpanda internal IP: {{.REDPANDA_IP}}"
           HELM_CMD="$HELM_CMD --set redpanda.externalAccess.advertisedHost={{.REDPANDA_IP}} --set redpanda.externalAccess.loadBalancerIP={{.REDPANDA_IP}}"
         fi
         eval $HELM_CMD
@@ -142,10 +152,12 @@ tasks:
     desc: Get external IPs for services
     cmds:
       - |
-        WS_GATEWAY_IP=$(kubectl get svc {{.K8S_RELEASE_NAME}}-ws-gateway -n {{.K8S_NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
-        REDPANDA_IP=$(kubectl get svc {{.K8S_RELEASE_NAME}}-redpanda-external -n {{.K8S_NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
-        echo "# External IPs for {{.K8S_ENV}}"
-        echo "WS_URL=ws://$WS_GATEWAY_IP:443/ws"
+        GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_external_ip 2>/dev/null || echo "not set")
+        REDPANDA_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw redpanda_internal_ip 2>/dev/null || echo "not set")
+        echo "Gateway (public):        $GATEWAY_IP"
+        echo "Redpanda (VPC-internal): $REDPANDA_IP"
+        echo ""
+        echo "WS_URL=wss://$GATEWAY_IP:443/ws"
         echo "KAFKA_BROKERS=$REDPANDA_IP:9092"
 
   # ===========================================================================
@@ -219,7 +231,25 @@ tasks:
         echo "Done."
 
   # ===========================================================================
-  # Terraform
+  # Foundation (VPC, static IPs - persists across cluster lifecycle)
+  # ===========================================================================
+  foundation:init:
+    desc: Initialize foundation Terraform
+    cmds:
+      - terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} init
+
+  foundation:plan:
+    desc: Plan foundation changes
+    cmds:
+      - terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} plan -out=tfplan
+
+  foundation:apply:
+    desc: Apply foundation (VPC, static IPs)
+    cmds:
+      - terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} apply tfplan
+
+  # ===========================================================================
+  # Terraform (cluster)
   # ===========================================================================
   tf:init:
     desc: Initialize Terraform

@@ -61,6 +61,34 @@ variable "services_cidr" {
 }
 
 # =============================================================================
+# External VPC (optional - when set, skip VPC/subnet/firewall/IP creation)
+# =============================================================================
+
+variable "external_vpc_id" {
+  description = "External VPC ID (skip VPC creation if set)"
+  type        = string
+  default     = ""
+}
+
+variable "external_vpc_name" {
+  description = "External VPC name"
+  type        = string
+  default     = ""
+}
+
+variable "external_subnet_id" {
+  description = "External subnet ID (skip subnet creation if set)"
+  type        = string
+  default     = ""
+}
+
+variable "external_subnet_name" {
+  description = "External subnet name"
+  type        = string
+  default     = ""
+}
+
+# =============================================================================
 # Node Pool Configuration
 # =============================================================================
 

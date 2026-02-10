@@ -1,0 +1,104 @@
+# =============================================================================
+# Foundation Module
+# =============================================================================
+# Long-lived resources that persist across cluster lifecycle:
+# - Shared VPC with subnets for WS and CDC clusters
+# - Static IPs for gateway (external) and redpanda (internal)
+# - Firewall rules for internal traffic and health checks
+
+# =============================================================================
+# Shared VPC Network
+# =============================================================================
+
+resource "google_compute_network" "vpc" {
+  name                    = var.vpc_name
+  auto_create_subnetworks = false
+  project                 = var.project_id
+}
+
+# =============================================================================
+# Subnets
+# =============================================================================
+
+resource "google_compute_subnetwork" "ws" {
+  name          = "${var.vpc_name}-ws-subnet"
+  ip_cidr_range = var.ws_subnet_cidr
+  region        = var.region
+  network       = google_compute_network.vpc.id
+  project       = var.project_id
+
+  secondary_ip_range {
+    range_name    = "pods"
+    ip_cidr_range = var.ws_pods_cidr
+  }
+
+  secondary_ip_range {
+    range_name    = "services"
+    ip_cidr_range = var.ws_services_cidr
+  }
+
+  private_ip_google_access = true
+}
+
+# =============================================================================
+# Static IPs
+# =============================================================================
+
+resource "google_compute_address" "gateway_external" {
+  name         = "odin-gateway-external"
+  region       = var.region
+  address_type = "EXTERNAL"
+  project      = var.project_id
+}
+
+resource "google_compute_address" "redpanda_internal" {
+  name         = "odin-redpanda-internal"
+  region       = var.region
+  address_type = "INTERNAL"
+  subnetwork   = google_compute_subnetwork.ws.id
+  project      = var.project_id
+}
+
+# =============================================================================
+# Firewall Rules
+# =============================================================================
+
+resource "google_compute_firewall" "internal" {
+  name    = "${var.vpc_name}-allow-internal"
+  network = google_compute_network.vpc.name
+  project = var.project_id
+
+  allow {
+    protocol = "tcp"
+    ports    = ["0-65535"]
+  }
+
+  allow {
+    protocol = "udp"
+    ports    = ["0-65535"]
+  }
+
+  allow {
+    protocol = "icmp"
+  }
+
+  source_ranges = [
+    var.ws_subnet_cidr,
+    var.ws_pods_cidr,
+    var.ws_services_cidr,
+  ]
+}
+
+# Allow health checks from GCP load balancers
+resource "google_compute_firewall" "health_checks" {
+  name    = "${var.vpc_name}-allow-health-checks"
+  network = google_compute_network.vpc.name
+  project = var.project_id
+
+  allow {
+    protocol = "tcp"
+  }
+
+  # GCP health check IP ranges
+  source_ranges = ["35.191.0.0/16", "130.211.0.0/22"]
+}

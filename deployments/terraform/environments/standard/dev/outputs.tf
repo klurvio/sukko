@@ -69,7 +69,12 @@ output "kubeconfig_command" {
   value       = "gcloud container clusters get-credentials ${module.gke.cluster_name} --zone ${var.zone} --project ${var.project_id}"
 }
 
-output "redpanda_external_ip" {
-  description = "The static external IP for Redpanda LoadBalancer"
-  value       = module.gke.redpanda_external_ip
+output "gateway_external_ip" {
+  description = "The static external IP for Gateway LoadBalancer"
+  value       = data.terraform_remote_state.foundation.outputs.gateway_external_ip
+}
+
+output "redpanda_internal_ip" {
+  description = "The static internal IP for Redpanda LoadBalancer"
+  value       = data.terraform_remote_state.foundation.outputs.redpanda_internal_ip
 }

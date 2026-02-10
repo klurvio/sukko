@@ -31,12 +31,12 @@ output "cluster_location" {
 
 output "network_name" {
   description = "The name of the VPC network"
-  value       = google_compute_network.vpc.name
+  value       = local.vpc_name
 }
 
 output "subnet_name" {
   description = "The name of the subnet"
-  value       = google_compute_subnetwork.subnet.name
+  value       = local.subnet_name
 }
 
 output "node_pool_name" {
@@ -46,5 +46,5 @@ output "node_pool_name" {
 
 output "redpanda_external_ip" {
   description = "The static external IP for Redpanda LoadBalancer"
-  value       = google_compute_address.redpanda_external.address
+  value       = local.create_static_ips ? google_compute_address.redpanda_external[0].address : ""
 }

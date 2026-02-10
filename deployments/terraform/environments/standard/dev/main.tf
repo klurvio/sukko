@@ -2,6 +2,15 @@
 # GKE Standard - Develop Environment
 # =============================================================================
 
+# Foundation layer provides VPC, subnets, and static IPs that persist
+# across cluster destroy/recreate cycles.
+data "terraform_remote_state" "foundation" {
+  backend = "local"
+  config = {
+    path = "${path.module}/../foundation/terraform.tfstate"
+  }
+}
+
 module "gke" {
   source = "../../modules/gke-standard-cluster"
 
@@ -19,6 +28,12 @@ module "gke" {
   subnet_cidr   = var.subnet_cidr
   pods_cidr     = var.pods_cidr
   services_cidr = var.services_cidr
+
+  # Use foundation VPC instead of creating one
+  external_vpc_id      = data.terraform_remote_state.foundation.outputs.vpc_id
+  external_vpc_name    = data.terraform_remote_state.foundation.outputs.vpc_name
+  external_subnet_id   = data.terraform_remote_state.foundation.outputs.ws_subnet_id
+  external_subnet_name = data.terraform_remote_state.foundation.outputs.ws_subnet_name
 
   # Node Pool
   node_machine_type  = var.node_machine_type

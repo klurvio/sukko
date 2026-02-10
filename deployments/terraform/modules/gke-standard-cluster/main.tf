@@ -5,20 +5,38 @@
 # Cost-optimized: Spot VMs provide 60-90% savings over regular VMs
 
 # =============================================================================
-# VPC Network
+# Locals - Conditional VPC/IP creation
+# =============================================================================
+# When external_vpc_id is set, the module uses a pre-existing VPC from the
+# foundation layer instead of creating its own. This lets static IPs and
+# firewall rules survive cluster destroy/recreate cycles.
+
+locals {
+  create_vpc        = var.external_vpc_id == ""
+  create_static_ips = var.external_vpc_id == ""
+  vpc_name          = local.create_vpc ? google_compute_network.vpc[0].name : var.external_vpc_name
+  vpc_id            = local.create_vpc ? google_compute_network.vpc[0].id : var.external_vpc_id
+  subnet_name       = local.create_vpc ? google_compute_subnetwork.subnet[0].name : var.external_subnet_name
+  subnet_id         = local.create_vpc ? google_compute_subnetwork.subnet[0].id : var.external_subnet_id
+}
+
+# =============================================================================
+# VPC Network (skipped when external VPC provided)
 # =============================================================================
 
 resource "google_compute_network" "vpc" {
+  count                   = local.create_vpc ? 1 : 0
   name                    = var.network_name
   auto_create_subnetworks = false
   project                 = var.project_id
 }
 
 resource "google_compute_subnetwork" "subnet" {
+  count         = local.create_vpc ? 1 : 0
   name          = "${var.network_name}-subnet"
   ip_cidr_range = var.subnet_cidr
   region        = var.region
-  network       = google_compute_network.vpc.id
+  network       = google_compute_network.vpc[0].id
   project       = var.project_id
 
   # Secondary ranges for GKE pods and services
@@ -42,7 +60,7 @@ resource "google_compute_subnetwork" "subnet" {
 resource "google_compute_router" "router" {
   name    = "${var.cluster_name}-router"
   region  = var.region
-  network = google_compute_network.vpc.id
+  network = local.vpc_id
   project = var.project_id
 }
 
@@ -65,8 +83,9 @@ resource "google_compute_router_nat" "nat" {
 # =============================================================================
 
 resource "google_compute_firewall" "internal" {
+  count   = local.create_vpc ? 1 : 0
   name    = "${var.network_name}-allow-internal"
-  network = google_compute_network.vpc.name
+  network = google_compute_network.vpc[0].name
   project = var.project_id
 
   allow {
@@ -88,8 +107,9 @@ resource "google_compute_firewall" "internal" {
 
 # Allow health checks from GCP load balancers
 resource "google_compute_firewall" "health_checks" {
+  count   = local.create_vpc ? 1 : 0
   name    = "${var.network_name}-allow-health-checks"
-  network = google_compute_network.vpc.name
+  network = google_compute_network.vpc[0].name
   project = var.project_id
 
   allow {
@@ -115,8 +135,8 @@ resource "google_container_cluster" "primary" {
   initial_node_count       = 1
 
   # Network configuration
-  network    = google_compute_network.vpc.name
-  subnetwork = google_compute_subnetwork.subnet.name
+  network    = local.vpc_name
+  subnetwork = local.subnet_name
 
   ip_allocation_policy {
     cluster_secondary_range_name  = "pods"
@@ -272,6 +292,7 @@ resource "google_container_node_pool" "primary" {
 # Reserved IPs ensure consistent addresses across redeploys
 
 resource "google_compute_address" "redpanda_external" {
+  count        = local.create_static_ips ? 1 : 0
   name         = "${var.cluster_name}-redpanda-external"
   region       = var.region
   address_type = "EXTERNAL"

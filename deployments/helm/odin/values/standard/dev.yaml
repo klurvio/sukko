@@ -11,7 +11,7 @@
 
 global:
   namespace: odin-dev
-  imageRegistry: "us-central1-docker.pkg.dev/trim-array-480700-j7/odin"
+  imageRegistry: "us-central1-docker.pkg.dev/odin-9e902/odin"
 
 # =============================================================================
 # WebSocket Gateway
@@ -46,6 +46,7 @@ ws-gateway:
     type: LoadBalancer
     port: 443
     targetPort: 3000
+    loadBalancerIP: ""  # Injected via --set at deploy time
 
   # Spot VM tolerations
   tolerations:
@@ -160,6 +161,8 @@ redpanda:
   externalAccess:
     enabled: true
     type: LoadBalancer
+    annotations:
+      cloud.google.com/load-balancer-type: "Internal"
 
 # =============================================================================
 # Valkey - Disabled (using NATS)

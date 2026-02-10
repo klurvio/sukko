@@ -3,7 +3,7 @@
 # =============================================================================
 
 # Project Configuration
-project_id = "trim-array-480700-j7"
+project_id = "odin-9e902"
 
 # Region & Zone
 region = "us-central1"
