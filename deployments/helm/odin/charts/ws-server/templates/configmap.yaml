@@ -39,6 +39,11 @@ data:
   # Metrics
   METRICS_INTERVAL: "{{ .Values.config.metricsInterval }}"
 
+  # WebSocket ping/pong timing
+  WS_PONG_WAIT: {{ .Values.config.pongWait | quote }}
+  WS_PING_PERIOD: {{ .Values.config.pingPeriod | quote }}
+  WS_WRITE_WAIT: {{ .Values.config.writeWait | quote }}
+
   # Goroutine limit (safety valve against runaway goroutine growth)
   # Each connection uses ~10 goroutines (read/write pumps + proxy)
   # Formula: maxGoroutines = (clusterMaxConnections / replicaCount) * 10 + 5000 (system overhead)

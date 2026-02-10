@@ -162,11 +162,11 @@ func TestConfig_Validate_Channels(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		channels   string
+		name        string
+		channels    string
 		identifiers string
-		categories string
-		wantErr    bool
+		categories  string
+		wantErr     bool
 	}{
 		{"static channels valid", "odin.BTC.trade", "", "", false},
 		{"static channels invalid format", "invalid", "", "", true},

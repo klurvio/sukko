@@ -301,6 +301,10 @@ func main() {
 			LogLevel:        types.LogLevel(cfg.LogLevel),
 			LogFormat:       types.LogFormat(cfg.LogFormat),
 
+			// WebSocket ping/pong timing
+			PongWait:   cfg.PongWait,
+			PingPeriod: cfg.PingPeriod,
+			WriteWait:  cfg.WriteWait,
 		}
 
 		// Get shared consumer for replay (from multi-tenant pool)

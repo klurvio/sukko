@@ -171,8 +171,9 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 	// ws-server is a dumb broadcaster - no auth logic here
 
 	// Initialize Pump with adapters for testability
+	// Timing values come from environment config (envDefault provides defaults)
 	s.pump = NewPump(
-		DefaultPumpConfig(),
+		NewPumpConfig(config.PongWait, config.PingPeriod, config.WriteWait, logger),
 		NewZerologAdapter(logger),
 		logger, // ZerologLogger for panic recovery
 		NewRateLimiterAdapter(s.rateLimiter),

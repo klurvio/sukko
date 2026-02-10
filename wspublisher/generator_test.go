@@ -136,7 +136,7 @@ func TestGenerator_NextMessage(t *testing.T) {
 	}
 
 	// Check payload is valid JSON
-	var payload map[string]interface{}
+	var payload map[string]any
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		t.Fatalf("failed to unmarshal payload: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestGenerator_NextMessage_DifferentCategories(t *testing.T) {
 				t.Fatalf("NextMessage failed: %v", err)
 			}
 
-			var payload map[string]interface{}
+			var payload map[string]any
 			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 				t.Fatalf("failed to unmarshal payload: %v", err)
 			}
@@ -202,7 +202,7 @@ func TestGenerator_MessageDistribution(t *testing.T) {
 
 	counts := make(map[string]int)
 	total := 10000
-	for i := 0; i < total; i++ {
+	for range total {
 		msg, err := g.NextMessage()
 		if err != nil {
 			t.Fatalf("NextMessage failed: %v", err)
@@ -225,7 +225,7 @@ func TestGenerator_RandomAddress(t *testing.T) {
 	cfg := &Config{}
 	g := NewGenerator(cfg)
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		addr := g.randomAddress()
 		if !strings.HasPrefix(addr, "0x") {
 			t.Errorf("address should start with 0x: %s", addr)

@@ -27,13 +27,33 @@ type PumpConfig struct {
 	PingPeriod time.Duration
 }
 
-// DefaultPumpConfig returns the default pump configuration.
-func DefaultPumpConfig() PumpConfig {
-	pongWait := 30 * time.Second
+// FallbackPingPeriodRatio is the ratio used to calculate PingPeriod from PongWait
+// when an invalid configuration is provided (PingPeriod >= PongWait).
+// 75% (3/4) provides a 25% buffer for network round-trip latency.
+// Example: 60s PongWait * 0.75 = 45s PingPeriod = 15s buffer
+const (
+	FallbackPingPeriodRatio = 3
+	FallbackPingPeriodDenom = 4
+)
+
+// NewPumpConfig creates a PumpConfig with the specified timeouts.
+// If pingPeriod >= pongWait (invalid), logs a warning and falls back to 75% ratio.
+func NewPumpConfig(pongWait, pingPeriod, writeWait time.Duration, logger zerolog.Logger) PumpConfig {
+	// Validation: pingPeriod must be less than pongWait
+	if pingPeriod >= pongWait {
+		correctedPingPeriod := (pongWait * FallbackPingPeriodRatio) / FallbackPingPeriodDenom
+		logger.Warn().
+			Dur("configured_ping_period", pingPeriod).
+			Dur("configured_pong_wait", pongWait).
+			Dur("corrected_ping_period", correctedPingPeriod).
+			Msg("PingPeriod >= PongWait is invalid, using 75% ratio")
+		pingPeriod = correctedPingPeriod
+	}
+
 	return PumpConfig{
 		PongWait:   pongWait,
-		WriteWait:  5 * time.Second,
-		PingPeriod: (pongWait * 9) / 10, // 27 seconds
+		WriteWait:  writeWait,
+		PingPeriod: pingPeriod,
 	}
 }
 

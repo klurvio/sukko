@@ -142,7 +142,7 @@ func TestStats_ConcurrentAccess(t *testing.T) {
 	done := make(chan struct{})
 
 	// Simulate concurrent access
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		go func() {
 			stats.ActiveConnections.Add(1)
 			stats.TotalCreated.Add(1)
@@ -154,7 +154,7 @@ func TestStats_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		<-done
 	}
 

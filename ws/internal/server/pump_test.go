@@ -22,27 +22,132 @@ import (
 // PumpConfig Tests
 // =============================================================================
 
-func TestDefaultPumpConfig(t *testing.T) {
-	t.Parallel()
-	config := DefaultPumpConfig()
-
-	if config.PongWait != 30*time.Second {
-		t.Errorf("PongWait: got %v, want 30s", config.PongWait)
-	}
-	if config.WriteWait != 5*time.Second {
-		t.Errorf("WriteWait: got %v, want 5s", config.WriteWait)
-	}
-	if config.PingPeriod != 27*time.Second {
-		t.Errorf("PingPeriod: got %v, want 27s", config.PingPeriod)
+// testPumpConfig returns a PumpConfig with test values matching production defaults.
+// These values match the envDefault values in platform/server_config.go:
+//   - PongWait: 60s, PingPeriod: 45s, WriteWait: 5s
+func testPumpConfig() PumpConfig {
+	return PumpConfig{
+		PongWait:   60 * time.Second,
+		PingPeriod: 45 * time.Second,
+		WriteWait:  5 * time.Second,
 	}
 }
 
 func TestPumpConfig_PingLessThanPong(t *testing.T) {
 	t.Parallel()
-	config := DefaultPumpConfig()
+	config := testPumpConfig()
 
 	if config.PingPeriod >= config.PongWait {
 		t.Errorf("PingPeriod (%v) should be less than PongWait (%v)", config.PingPeriod, config.PongWait)
+	}
+}
+
+func TestNewPumpConfig(t *testing.T) {
+	t.Parallel()
+
+	// writeWait is the test value for WriteWait parameter
+	const writeWait = 5 * time.Second
+
+	tests := []struct {
+		name           string
+		pongWait       time.Duration
+		pingPeriod     time.Duration
+		writeWait      time.Duration
+		wantPongWait   time.Duration
+		wantPingPeriod time.Duration
+		wantWriteWait  time.Duration
+		wantWarning    bool
+	}{
+		{
+			name:           "valid_config_60s_45s",
+			pongWait:       60 * time.Second,
+			pingPeriod:     45 * time.Second,
+			writeWait:      writeWait,
+			wantPongWait:   60 * time.Second,
+			wantPingPeriod: 45 * time.Second,
+			wantWriteWait:  writeWait,
+			wantWarning:    false,
+		},
+		{
+			name:           "valid_config_120s_90s",
+			pongWait:       120 * time.Second,
+			pingPeriod:     90 * time.Second,
+			writeWait:      writeWait,
+			wantPongWait:   120 * time.Second,
+			wantPingPeriod: 90 * time.Second,
+			wantWriteWait:  writeWait,
+			wantWarning:    false,
+		},
+		{
+			name:           "pingPeriod_equals_pongWait_falls_back_to_75_percent",
+			pongWait:       60 * time.Second,
+			pingPeriod:     60 * time.Second,
+			writeWait:      writeWait,
+			wantPongWait:   60 * time.Second,
+			wantPingPeriod: 45 * time.Second, // 75% of 60s
+			wantWriteWait:  writeWait,
+			wantWarning:    true,
+		},
+		{
+			name:           "pingPeriod_exceeds_pongWait_falls_back_to_75_percent",
+			pongWait:       60 * time.Second,
+			pingPeriod:     90 * time.Second,
+			writeWait:      writeWait,
+			wantPongWait:   60 * time.Second,
+			wantPingPeriod: 45 * time.Second, // 75% of 60s
+			wantWriteWait:  writeWait,
+			wantWarning:    true,
+		},
+		{
+			name:           "small_values_with_valid_ratio",
+			pongWait:       20 * time.Second,
+			pingPeriod:     10 * time.Second,
+			writeWait:      writeWait,
+			wantPongWait:   20 * time.Second,
+			wantPingPeriod: 10 * time.Second,
+			wantWriteWait:  writeWait,
+			wantWarning:    false,
+		},
+		{
+			name:           "custom_writeWait_value",
+			pongWait:       60 * time.Second,
+			pingPeriod:     45 * time.Second,
+			writeWait:      10 * time.Second,
+			wantPongWait:   60 * time.Second,
+			wantPingPeriod: 45 * time.Second,
+			wantWriteWait:  10 * time.Second,
+			wantWarning:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Use zerolog with buffer to capture warnings
+			var buf bytes.Buffer
+			logger := zerolog.New(&buf).Level(zerolog.WarnLevel)
+
+			cfg := NewPumpConfig(tt.pongWait, tt.pingPeriod, tt.writeWait, logger)
+
+			if cfg.PongWait != tt.wantPongWait {
+				t.Errorf("PongWait = %v, want %v", cfg.PongWait, tt.wantPongWait)
+			}
+			if cfg.PingPeriod != tt.wantPingPeriod {
+				t.Errorf("PingPeriod = %v, want %v", cfg.PingPeriod, tt.wantPingPeriod)
+			}
+			if cfg.WriteWait != tt.wantWriteWait {
+				t.Errorf("WriteWait = %v, want %v", cfg.WriteWait, tt.wantWriteWait)
+			}
+
+			hasWarning := buf.Len() > 0
+			if tt.wantWarning && !hasWarning {
+				t.Error("Expected warning log for invalid config, got none")
+			}
+			if !tt.wantWarning && hasWarning {
+				t.Errorf("Expected no warning log for valid config, got: %s", buf.String())
+			}
+		})
 	}
 }
 
@@ -52,7 +157,7 @@ func TestPumpConfig_PingLessThanPong(t *testing.T) {
 
 func TestNewPump_NilDependencies(t *testing.T) {
 	t.Parallel()
-	config := DefaultPumpConfig()
+	config := testPumpConfig()
 	stats := &types.Stats{}
 
 	pump := NewPump(config, nil, zerolog.Logger{}, nil, nil, stats, nil)
@@ -67,7 +172,7 @@ func TestNewPump_NilDependencies(t *testing.T) {
 
 func TestNewPump_AllDependencies(t *testing.T) {
 	t.Parallel()
-	config := DefaultPumpConfig()
+	config := testPumpConfig()
 	mockLogger := newTestMockLogger()
 	mockRateLimiter := newTestMockRateLimiter()
 	mockAuditLogger := newTestMockAuditLogger()
@@ -655,7 +760,7 @@ func TestReadLoop_TextMessage_ProcessedCorrectly(t *testing.T) {
 
 	stats := &types.Stats{}
 	pump := &Pump{
-		Config: DefaultPumpConfig(),
+		Config: testPumpConfig(),
 		Stats:  stats,
 	}
 
@@ -705,7 +810,7 @@ func TestReadLoop_PingFrame_SendsPongResponse(t *testing.T) {
 
 	stats := &types.Stats{}
 	pump := &Pump{
-		Config: DefaultPumpConfig(),
+		Config: testPumpConfig(),
 		Stats:  stats,
 	}
 
@@ -753,7 +858,7 @@ func TestReadLoop_PongFrame_RefreshesDeadline(t *testing.T) {
 
 	stats := &types.Stats{}
 	pump := &Pump{
-		Config: DefaultPumpConfig(),
+		Config: testPumpConfig(),
 		Stats:  stats,
 	}
 
@@ -785,7 +890,7 @@ func TestReadLoop_CloseFrame_ExitsGracefully(t *testing.T) {
 
 	stats := &types.Stats{}
 	pump := &Pump{
-		Config: DefaultPumpConfig(),
+		Config: testPumpConfig(),
 		Stats:  stats,
 	}
 
@@ -820,7 +925,7 @@ func TestReadLoop_ContextCancellation_ExitsWithServerShutdown(t *testing.T) {
 
 	stats := &types.Stats{}
 	pump := &Pump{
-		Config: DefaultPumpConfig(),
+		Config: testPumpConfig(),
 		Stats:  stats,
 	}
 
@@ -872,7 +977,7 @@ func TestReadLoop_ReadError_CallsDisconnectFn(t *testing.T) {
 
 	stats := &types.Stats{}
 	pump := &Pump{
-		Config: DefaultPumpConfig(),
+		Config: testPumpConfig(),
 		Stats:  stats,
 	}
 
@@ -923,7 +1028,7 @@ func TestReadLoop_RateLimiting_BlocksExcessiveMessages(t *testing.T) {
 
 	stats := &types.Stats{}
 	pump := &Pump{
-		Config:      DefaultPumpConfig(),
+		Config:      testPumpConfig(),
 		Stats:       stats,
 		RateLimiter: mockRateLimiter,
 		Logger:      newTestMockLogger(),

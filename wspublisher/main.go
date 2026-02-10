@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -48,7 +49,7 @@ func main() {
 		cancel()
 	}()
 
-	if err := runner.Run(ctx); err != nil && err != context.Canceled {
+	if err := runner.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error().Err(err).Msg("runner error")
 		os.Exit(1)
 	}

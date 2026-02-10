@@ -55,16 +55,14 @@ func (r *LoadRunner) Run(ctx context.Context) error {
 			r.logger.Warn().Err(err).Msg("Server health check failed, continuing anyway")
 		}
 
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
+		r.wg.Go(func() {
 			defer func() {
 				if rec := recover(); rec != nil {
 					r.logger.Error().Interface("panic", rec).Msg("Panic in health checker")
 				}
 			}()
 			healthChecker.Run(r.ctx)
-		}()
+		})
 	}
 
 	// Start stats reporter
@@ -136,7 +134,7 @@ func (r *LoadRunner) rampUp() error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	for i := 0; i < r.config.TargetConnections; i++ {
+	for i := range r.config.TargetConnections {
 		select {
 		case <-r.ctx.Done():
 			return r.ctx.Err()
@@ -172,7 +170,7 @@ func (r *LoadRunner) createConnection(id int) error {
 	channels := r.selectChannels()
 
 	// Create connection wrapper
-	c := NewConnection(r.ctx, id, conn, channels, r.stats, r.logger)
+	c := NewConnection(r.ctx, id, conn, channels, r.stats, r.logger, r.config.PongWait, r.config.PingPeriod)
 
 	// Store connection
 	r.mu.Lock()
@@ -206,15 +204,12 @@ func (r *LoadRunner) selectChannels() []string {
 
 	case "random":
 		// Pick random subset of channels
-		n := r.config.ChannelsPerClient
-		if n > len(r.config.Channels) {
-			n = len(r.config.Channels)
-		}
+		n := min(r.config.ChannelsPerClient, len(r.config.Channels))
 
 		// Shuffle and take first n
 		perm := rand.Perm(len(r.config.Channels))
 		selected := make([]string, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			selected[i] = r.config.Channels[perm[i]]
 		}
 		return selected

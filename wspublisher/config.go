@@ -30,7 +30,7 @@ type Config struct {
 	// Dynamic channel generation (used if CHANNELS is empty)
 	ChannelPattern string `env:"CHANNEL_PATTERN" envDefault:"{tenant}.{identifier}.{category}"` // Pattern for channels
 	TenantID       string `env:"TENANT_ID" envDefault:"odin"`
-	Identifiers    string `env:"IDENTIFIERS" envDefault:"BTC,ETH,SOL,all"` // Token symbols or "all" for aggregate
+	Identifiers    string `env:"IDENTIFIERS" envDefault:"BTC,ETH,SOL,all"`          // Token symbols or "all" for aggregate
 	Categories     string `env:"CATEGORIES" envDefault:"trade,liquidity,orderbook"` // Event categories (synced with wsloadtest)
 
 	// Timing settings

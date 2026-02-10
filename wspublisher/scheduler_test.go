@@ -10,7 +10,7 @@ func TestPoissonScheduler_NextDelay(t *testing.T) {
 
 	var totalDelay time.Duration
 	samples := 10000
-	for i := 0; i < samples; i++ {
+	for range samples {
 		delay := s.NextDelay()
 		if delay < 0 {
 			t.Errorf("got negative delay: %v", delay)
@@ -33,7 +33,7 @@ func TestPoissonScheduler_Distribution(t *testing.T) {
 
 	// Verify delays vary
 	delays := make(map[time.Duration]int)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		delays[s.NextDelay()]++
 	}
 
@@ -54,7 +54,7 @@ func TestUniformScheduler_NextDelay(t *testing.T) {
 	max := 100 * time.Millisecond
 	s := NewUniformScheduler(min, max)
 
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		delay := s.NextDelay()
 		if delay < min {
 			t.Errorf("delay %v < min %v", delay, min)
@@ -72,7 +72,7 @@ func TestUniformScheduler_Distribution(t *testing.T) {
 
 	var total time.Duration
 	samples := 10000
-	for i := 0; i < samples; i++ {
+	for range samples {
 		total += s.NextDelay()
 	}
 
@@ -99,7 +99,7 @@ func TestBurstScheduler_Pattern(t *testing.T) {
 	s := NewBurstScheduler(burstCount, burstPause)
 
 	// First burst: 4 short delays then 1 pause
-	for i := 0; i < burstCount; i++ {
+	for i := range burstCount {
 		delay := s.NextDelay()
 		if i < burstCount-1 {
 			if delay > 10*time.Millisecond {

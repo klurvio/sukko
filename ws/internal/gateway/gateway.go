@@ -24,12 +24,12 @@ import (
 // Gateway handles WebSocket connections, authenticating clients and proxying
 // to the ws-server backend with permission-based channel filtering.
 type Gateway struct {
-	config        *platform.GatewayConfig
-	validator     *auth.MultiTenantValidator
-	keyRegistry   auth.KeyRegistry        // For cleanup on shutdown
-	dbConn        *sql.DB                 // For cleanup on shutdown
-	oidcCloser    *auth.OIDCKeyfuncResult // For OIDC keyfunc cleanup on shutdown
-	permissions   *PermissionChecker
+	config      *platform.GatewayConfig
+	validator   *auth.MultiTenantValidator
+	keyRegistry auth.KeyRegistry        // For cleanup on shutdown
+	dbConn      *sql.DB                 // For cleanup on shutdown
+	oidcCloser  *auth.OIDCKeyfuncResult // For OIDC keyfunc cleanup on shutdown
+	permissions *PermissionChecker
 	connTracker *TenantConnectionTracker // Per-tenant connection tracking
 	logger      zerolog.Logger
 
@@ -421,8 +421,8 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Claims:           claims, // nil when auth disabled — proxy won't use it
 		TenantID:         tenantID,
 		Permissions:      gw.permissions,
-		Logger:          gw.logger.With().Str("principal", principal).Logger(),
-		MessageTimeout:  gw.config.MessageTimeout,
+		Logger:           gw.logger.With().Str("principal", principal).Logger(),
+		MessageTimeout:   gw.config.MessageTimeout,
 		PublishRateLimit: gw.config.PublishRateLimit,
 		PublishBurst:     gw.config.PublishBurst,
 		MaxPublishSize:   gw.config.MaxPublishSize,

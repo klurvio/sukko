@@ -20,6 +20,21 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// WebSocket ping/pong validation constants.
+// These define the minimum acceptable values to prevent misconfiguration.
+const (
+	// MinPongWait is the minimum allowed timeout for receiving a pong response.
+	// Values under 10s cause spurious disconnects because the ping must traverse
+	// the full proxy chain (8 hops in local dev: client → gateway → ws-server →
+	// shard and back) within this window.
+	MinPongWait = 10 * time.Second
+
+	// MinPingPeriod is the minimum allowed interval for sending pings.
+	// Values under 5s create excessive ping traffic (>20% of connection
+	// lifetime becomes ping/pong overhead) and provide no reliability benefit.
+	MinPingPeriod = 5 * time.Second
+)
+
 // ServerConfig holds all server configuration
 // Tags:
 //
@@ -252,6 +267,35 @@ type ServerConfig struct {
 	// Default: 60s (good balance for most deployments)
 	TopicRefreshInterval time.Duration `env:"TOPIC_REFRESH_INTERVAL" envDefault:"60s"`
 
+	// WebSocket Ping/Pong Configuration
+	//
+	// These settings control the keep-alive mechanism between the shard and clients.
+	// In a proxied architecture (gateway → ws-server → shard), pings travel through
+	// multiple hops, requiring a larger buffer than direct connections.
+	//
+	// Buffer = PongWait - PingPeriod
+	// The buffer must accommodate the round-trip time through all proxies.
+	// With 8 network hops (local Kind + port-forward), 15+ seconds is recommended.
+	//
+	// Example with defaults (60s/45s):
+	//   - Shard sends ping at t=0
+	//   - Ping travels: Shard → ShardProxy → ws-server → Gateway → Client
+	//   - Client sends pong
+	//   - Pong travels: Client → Gateway → ws-server → ShardProxy → Shard
+	//   - If pong arrives by t=60s, connection is healthy
+	//   - 15 second buffer for network latency, GC pauses, etc.
+	//
+	// Common issues:
+	//   - Buffer too small (<5s): Connections drop during GC pauses or network hiccups
+	//   - PingPeriod >= PongWait: Invalid, ping would always timeout
+	//
+	PongWait   time.Duration `env:"WS_PONG_WAIT" envDefault:"60s"`
+	PingPeriod time.Duration `env:"WS_PING_PERIOD" envDefault:"45s"`
+
+	// WriteWait is the timeout for WebSocket write operations.
+	// 5s is sufficient for local writes; network latency is handled by TCP.
+	WriteWait time.Duration `env:"WS_WRITE_WAIT" envDefault:"5s"`
+
 	// Database Connection Pool (for provisioning database when multi-tenant enabled)
 	ProvisioningDBMaxOpenConns    int           `env:"PROVISIONING_DB_MAX_OPEN_CONNS" envDefault:"5"`
 	ProvisioningDBMaxIdleConns    int           `env:"PROVISIONING_DB_MAX_IDLE_CONNS" envDefault:"2"`
@@ -435,6 +479,24 @@ func (c *ServerConfig) Validate() error {
 		return fmt.Errorf("PROVISIONING_DB_MAX_OPEN_CONNS must be >= 1, got %d", c.ProvisioningDBMaxOpenConns)
 	}
 
+	// WebSocket ping/pong validation
+	// Values come from environment config with sensible defaults via envDefault.
+	// See MinPongWait and MinPingPeriod constants for rationale on minimum values.
+	// PingPeriod < PongWait is required for the buffer to exist.
+	if c.PongWait < MinPongWait {
+		return fmt.Errorf("WS_PONG_WAIT must be >= %v, got %v", MinPongWait, c.PongWait)
+	}
+	if c.PingPeriod < MinPingPeriod {
+		return fmt.Errorf("WS_PING_PERIOD must be >= %v, got %v", MinPingPeriod, c.PingPeriod)
+	}
+	if c.PingPeriod >= c.PongWait {
+		return fmt.Errorf("WS_PING_PERIOD (%v) must be < WS_PONG_WAIT (%v)", c.PingPeriod, c.PongWait)
+	}
+	// WriteWait should be reasonable (1-30 seconds)
+	if c.WriteWait < time.Second || c.WriteWait > 30*time.Second {
+		return fmt.Errorf("WS_WRITE_WAIT must be 1s-30s, got %v", c.WriteWait)
+	}
+
 	return nil
 }
 
@@ -517,6 +579,11 @@ func (c *ServerConfig) Print() {
 	fmt.Printf("Topic Refresh:       %s\n", c.TopicRefreshInterval)
 	fmt.Printf("DB Max Open Conns:   %d\n", c.ProvisioningDBMaxOpenConns)
 	fmt.Printf("DB Max Idle Conns:   %d\n", c.ProvisioningDBMaxIdleConns)
+	fmt.Println("\n=== WebSocket Ping/Pong ===")
+	fmt.Printf("Pong Wait:           %s\n", c.PongWait)
+	fmt.Printf("Ping Period:         %s\n", c.PingPeriod)
+	fmt.Printf("Write Wait:          %s\n", c.WriteWait)
+	fmt.Printf("Buffer:              %s\n", c.PongWait-c.PingPeriod)
 	fmt.Println("\n=== Monitoring ===")
 	fmt.Printf("Metrics Interval: %s\n", c.MetricsInterval)
 	fmt.Printf("CPU Poll Interval: %s\n", c.CPUPollInterval)
@@ -575,5 +642,8 @@ func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 		Dur("topic_refresh_interval", c.TopicRefreshInterval).
 		Int("provisioning_db_max_open_conns", c.ProvisioningDBMaxOpenConns).
 		Str("default_tenant_id", c.DefaultTenantID).
+		Dur("ws_pong_wait", c.PongWait).
+		Dur("ws_ping_period", c.PingPeriod).
+		Dur("ws_write_wait", c.WriteWait).
 		Msg("Server configuration loaded")
 }

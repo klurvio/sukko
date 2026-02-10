@@ -79,6 +79,11 @@ type ServerConfig struct {
 	HTTPWriteTimeout time.Duration // HTTP server write timeout (default: 15s)
 	HTTPIdleTimeout  time.Duration // HTTP server idle timeout (default: 60s)
 
+	// WebSocket ping/pong timing
+	PongWait   time.Duration // Timeout for pong response (default: 60s)
+	PingPeriod time.Duration // How often to send pings (default: 45s)
+	WriteWait  time.Duration // Timeout for write operations (default: 5s)
+
 	// Logging configuration
 	LogLevel  LogLevel  // Log level (default: info)
 	LogFormat LogFormat // Log format (default: json)

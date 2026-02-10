@@ -14,25 +14,17 @@ nodes:
       - containerPort: 30000
         hostPort: 3000
         protocol: TCP
-      # WebSocket Server (internal, for testing)
-      - containerPort: 30080
-        hostPort: 3005
-        protocol: TCP
       # Provisioning API (tenant management)
       - containerPort: 30081
         hostPort: 8081
         protocol: TCP
-      # Grafana
+      # Redpanda (Kafka broker for publisher)
+      - containerPort: 31092
+        hostPort: 9092
+        protocol: TCP
+      # Grafana (metrics dashboard)
       - containerPort: 30300
         hostPort: 3010
-        protocol: TCP
-      # Prometheus
-      - containerPort: 30090
-        hostPort: 9090
-        protocol: TCP
-      # Redpanda Console
-      - containerPort: 30800
-        hostPort: 8080
         protocol: TCP
 
 # Enable pod security admission (for Autopilot parity)

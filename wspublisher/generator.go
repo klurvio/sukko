@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -76,7 +78,7 @@ type Message struct {
 // NextMessage generates a random message for a random channel.
 func (g *Generator) NextMessage() (*Message, error) {
 	if len(g.channels) == 0 {
-		return nil, fmt.Errorf("no channels configured")
+		return nil, errors.New("no channels configured")
 	}
 
 	// Pick random channel (this becomes the Kafka key)
@@ -120,7 +122,7 @@ func (g *Generator) channelToTopic(channel string) (string, error) {
 }
 
 // generatePayload creates a random payload based on the channel category.
-func (g *Generator) generatePayload(channel string) map[string]interface{} {
+func (g *Generator) generatePayload(channel string) map[string]any {
 	parts := strings.Split(channel, ".")
 	category := parts[len(parts)-1]
 	identifier := ""
@@ -129,7 +131,7 @@ func (g *Generator) generatePayload(channel string) map[string]interface{} {
 	}
 
 	// Base payload with timestamp
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"timestamp": time.Now().UnixMilli(),
 	}
 
@@ -143,14 +145,14 @@ func (g *Generator) generatePayload(channel string) map[string]interface{} {
 	case "liquidity":
 		payload["token"] = identifier
 		payload["poolId"] = fmt.Sprintf("pool_%d", g.rng.Intn(100))
-		payload["liquidity"] = fmt.Sprintf("%d", g.rng.Intn(10000000))
+		payload["liquidity"] = strconv.Itoa(g.rng.Intn(10000000))
 	case "orderbook":
 		payload["token"] = identifier
 		payload["bids"] = g.randomOrders(5)
 		payload["asks"] = g.randomOrders(5)
 	case "balances":
 		payload["address"] = g.randomAddress()
-		payload["balance"] = fmt.Sprintf("%d", g.rng.Intn(1000000))
+		payload["balance"] = strconv.Itoa(g.rng.Intn(1000000))
 	default:
 		payload["data"] = g.randomHex(32)
 	}
@@ -173,10 +175,10 @@ func (g *Generator) randomSide() string {
 	return "sell"
 }
 
-func (g *Generator) randomOrders(n int) []map[string]interface{} {
-	orders := make([]map[string]interface{}, n)
-	for i := 0; i < n; i++ {
-		orders[i] = map[string]interface{}{
+func (g *Generator) randomOrders(n int) []map[string]any {
+	orders := make([]map[string]any, n)
+	for i := range n {
+		orders[i] = map[string]any{
 			"price":  g.randomPrice(),
 			"amount": g.randomAmount(),
 		}

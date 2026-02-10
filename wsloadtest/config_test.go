@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -50,8 +51,18 @@ func TestConfig_Validate(t *testing.T) {
 		},
 		{
 			name:    "invalid_log_level",
-			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "all", LogLevel: "invalid"},
+			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "all", LogLevel: "invalid", PongWait: 60 * time.Second, PingPeriod: 45 * time.Second},
 			wantErr: "invalid log level",
+		},
+		{
+			name:    "ping_period_equals_pong_wait",
+			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "all", LogLevel: "info", PongWait: 60 * time.Second, PingPeriod: 60 * time.Second},
+			wantErr: "WS_PING_PERIOD",
+		},
+		{
+			name:    "ping_period_exceeds_pong_wait",
+			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "all", LogLevel: "info", PongWait: 60 * time.Second, PingPeriod: 90 * time.Second},
+			wantErr: "WS_PING_PERIOD",
 		},
 		{
 			name: "valid_config",
@@ -64,6 +75,8 @@ func TestConfig_Validate(t *testing.T) {
 				SubscriptionMode:  "random",
 				ChannelsPerClient: 1,
 				LogLevel:          "info",
+				PongWait:          120 * time.Second,
+				PingPeriod:        90 * time.Second,
 			},
 			wantErr: "",
 		},
@@ -131,6 +144,8 @@ func TestConfig_ValidateChannels(t *testing.T) {
 				Channels:          tt.channels,
 				SubscriptionMode:  "all",
 				LogLevel:          "info",
+				PongWait:          120 * time.Second,
+				PingPeriod:        90 * time.Second,
 			}
 			err := cfg.Validate()
 			if tt.wantErr == "" {
@@ -161,6 +176,8 @@ func TestConfig_ValidateSubscriptionModes(t *testing.T) {
 				SubscriptionMode:  mode,
 				ChannelsPerClient: 1,
 				LogLevel:          "info",
+				PongWait:          120 * time.Second,
+				PingPeriod:        90 * time.Second,
 			}
 			if err := cfg.Validate(); err != nil {
 				t.Errorf("unexpected error for mode %s: %v", mode, err)

@@ -44,6 +44,10 @@ func newValidServerConfig() *ServerConfig {
 		ProvisioningDatabaseURL:    "postgres://user:pass@localhost:5432/provisioning?sslmode=disable",
 		TopicRefreshInterval:       60 * time.Second,
 		ProvisioningDBMaxOpenConns: 5,
+		// WebSocket ping/pong (required)
+		PongWait:   60 * time.Second,
+		PingPeriod: 45 * time.Second,
+		WriteWait:  5 * time.Second,
 	}
 }
 
@@ -384,5 +388,157 @@ func TestServerConfig_Validate_HysteresisGap(t *testing.T) {
 	cfg.CPURejectThresholdLower = 76.0
 	if err := cfg.Validate(); err == nil {
 		t.Error("Negative gap (lower > upper) should be invalid")
+	}
+}
+
+func TestServerConfig_Validate_PingPong(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		pongWait    time.Duration
+		pingPeriod  time.Duration
+		shouldError bool
+		errorField  string
+	}{
+		{
+			name:        "valid_60s_45s",
+			pongWait:    60 * time.Second,
+			pingPeriod:  45 * time.Second,
+			shouldError: false,
+		},
+		{
+			name:        "valid_120s_90s",
+			pongWait:    120 * time.Second,
+			pingPeriod:  90 * time.Second,
+			shouldError: false,
+		},
+		{
+			name:        "pongWait_too_small",
+			pongWait:    MinPongWait - 1*time.Second, // Below minimum
+			pingPeriod:  MinPingPeriod,
+			shouldError: true,
+			errorField:  "WS_PONG_WAIT",
+		},
+		{
+			name:        "pingPeriod_too_small",
+			pongWait:    60 * time.Second,
+			pingPeriod:  MinPingPeriod - 1*time.Second, // Below minimum
+			shouldError: true,
+			errorField:  "WS_PING_PERIOD",
+		},
+		{
+			name:        "pingPeriod_equals_pongWait",
+			pongWait:    60 * time.Second,
+			pingPeriod:  60 * time.Second,
+			shouldError: true,
+			errorField:  "WS_PING_PERIOD",
+		},
+		{
+			name:        "pingPeriod_exceeds_pongWait",
+			pongWait:    60 * time.Second,
+			pingPeriod:  90 * time.Second,
+			shouldError: true,
+			errorField:  "WS_PING_PERIOD",
+		},
+		{
+			name:        "minimum_valid_values",
+			pongWait:    MinPongWait,
+			pingPeriod:  MinPingPeriod,
+			shouldError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := newValidServerConfig()
+			cfg.PongWait = tt.pongWait
+			cfg.PingPeriod = tt.pingPeriod
+
+			err := cfg.Validate()
+
+			if tt.shouldError {
+				if err == nil {
+					t.Errorf("expected error containing %q, got nil", tt.errorField)
+				} else if !strings.Contains(err.Error(), tt.errorField) {
+					t.Errorf("expected error containing %q, got %q", tt.errorField, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("expected no error, got %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_WriteWait(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		writeWait   time.Duration
+		shouldError bool
+	}{
+		{
+			name:        "valid_5s",
+			writeWait:   5 * time.Second,
+			shouldError: false,
+		},
+		{
+			name:        "valid_10s",
+			writeWait:   10 * time.Second,
+			shouldError: false,
+		},
+		{
+			name:        "valid_minimum_1s",
+			writeWait:   1 * time.Second,
+			shouldError: false,
+		},
+		{
+			name:        "valid_maximum_30s",
+			writeWait:   30 * time.Second,
+			shouldError: false,
+		},
+		{
+			name:        "too_small",
+			writeWait:   500 * time.Millisecond,
+			shouldError: true,
+		},
+		{
+			name:        "too_large",
+			writeWait:   31 * time.Second,
+			shouldError: true,
+		},
+		{
+			name:        "zero",
+			writeWait:   0,
+			shouldError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := newValidServerConfig()
+			cfg.WriteWait = tt.writeWait
+
+			err := cfg.Validate()
+
+			if tt.shouldError {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if !strings.Contains(err.Error(), "WS_WRITE_WAIT") {
+					t.Errorf("expected error containing WS_WRITE_WAIT, got %q", err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("expected no error, got %v", err)
+				}
+			}
+		})
 	}
 }

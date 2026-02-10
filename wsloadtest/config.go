@@ -22,6 +22,10 @@ type Config struct {
 	SustainDuration   time.Duration
 	ConnectionTimeout time.Duration
 
+	// WebSocket ping/pong timing
+	PongWait   time.Duration // Timeout for pong response
+	PingPeriod time.Duration // How often to send pings
+
 	// Subscriptions
 	Channels          []string
 	SubscriptionMode  string
@@ -84,6 +88,11 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	// Validate ping/pong timing
+	if c.PingPeriod >= c.PongWait {
+		return fmt.Errorf("WS_PING_PERIOD (%v) must be less than WS_PONG_WAIT (%v)", c.PingPeriod, c.PongWait)
+	}
+
 	return nil
 }
 
@@ -115,6 +124,10 @@ func ParseConfig() (*Config, error) {
 	flag.IntVar(&cfg.RampRate, "ramp-rate", getEnvInt("RAMP_RATE", 100), "Connections per second during ramp-up")
 	flag.DurationVar(&cfg.SustainDuration, "duration", getEnvDuration("DURATION", 30*time.Minute), "Sustain duration")
 	flag.DurationVar(&cfg.ConnectionTimeout, "timeout", getEnvDuration("CONNECTION_TIMEOUT", 10*time.Second), "Connection timeout")
+
+	// WebSocket ping/pong flags
+	flag.DurationVar(&cfg.PongWait, "pong-wait", getEnvDuration("WS_PONG_WAIT", 120*time.Second), "Timeout for pong response")
+	flag.DurationVar(&cfg.PingPeriod, "ping-period", getEnvDuration("WS_PING_PERIOD", 90*time.Second), "How often to send pings")
 
 	// Subscription flags
 	defaultChannels := "odin.all.trade,odin.BTC.trade,odin.ETH.trade,odin.SOL.trade,odin.BTC.orderbook,odin.ETH.liquidity"

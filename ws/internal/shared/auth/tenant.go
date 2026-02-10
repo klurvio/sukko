@@ -221,7 +221,7 @@ func (t *TenantIsolator) CheckTopicAccess(ctx context.Context, claims *Claims, t
 		Resource:       topic,
 		ClaimsTenant:   topicResult.ClaimsTenant,
 		ResourceTenant: topicResult.TopicTenant,
-		IsShared: topicResult.IsSharedTopic,
+		IsShared:       topicResult.IsSharedTopic,
 		Duration:       time.Since(start),
 	}
 
@@ -267,8 +267,8 @@ func (t *TenantIsolator) logAccess(ctx context.Context, result *AccessCheckResul
 			Resource:       result.Resource,
 			ClaimsTenant:   result.ClaimsTenant,
 			ResourceTenant: result.ResourceTenant,
-			Reason:   result.Reason,
-			IsShared: result.IsShared,
+			Reason:         result.Reason,
+			IsShared:       result.IsShared,
 			Duration:       result.Duration,
 		})
 	}
@@ -281,8 +281,8 @@ type AuditEntry struct {
 	Resource       string
 	ClaimsTenant   string
 	ResourceTenant string
-	Reason   string
-	IsShared bool
+	Reason         string
+	IsShared       bool
 	Duration       time.Duration
 }
 

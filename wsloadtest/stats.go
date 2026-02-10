@@ -82,7 +82,7 @@ func (s *Stats) RecordChannelMessage(channel string) {
 // GetErrorCounts returns a snapshot of error counts
 func (s *Stats) GetErrorCounts() map[string]int64 {
 	counts := make(map[string]int64)
-	s.ErrorCounts.Range(func(key, value interface{}) bool {
+	s.ErrorCounts.Range(func(key, value any) bool {
 		counts[key.(string)] = value.(*atomic.Int64).Load()
 		return true
 	})
@@ -92,7 +92,7 @@ func (s *Stats) GetErrorCounts() map[string]int64 {
 // GetChannelCounts returns a snapshot of per-channel message counts
 func (s *Stats) GetChannelCounts() map[string]int64 {
 	counts := make(map[string]int64)
-	s.ChannelCounts.Range(func(key, value interface{}) bool {
+	s.ChannelCounts.Range(func(key, value any) bool {
 		counts[key.(string)] = value.(*atomic.Int64).Load()
 		return true
 	})

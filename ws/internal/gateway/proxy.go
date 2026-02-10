@@ -345,19 +345,20 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 	// 1. Tenant prefix and channel format validation (always — filter out invalid channels)
 	channels := make([]string, 0, len(subData.Channels))
 	for _, ch := range subData.Channels {
-		if !p.validateChannelTenant(ch) {
+		switch {
+		case !p.validateChannelTenant(ch):
 			RecordChannelCheck("denied")
 			RecordAccessDenial("channel", "wrong_tenant")
 			p.logger.Warn().
 				Str("channel", ch).
 				Msg("Subscription denied: wrong tenant prefix")
-		} else if len(strings.Split(ch, ".")) < protocol.MinInternalChannelParts {
+		case len(strings.Split(ch, ".")) < protocol.MinInternalChannelParts:
 			RecordChannelCheck("denied")
 			RecordAccessDenial("channel", "invalid_format")
 			p.logger.Warn().
 				Str("channel", ch).
 				Msg("Subscription denied: invalid channel format")
-		} else {
+		default:
 			channels = append(channels, ch)
 		}
 	}

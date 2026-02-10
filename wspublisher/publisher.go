@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -78,7 +79,7 @@ func (p *Publisher) Publish(ctx context.Context, msg *Message) error {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
-		return fmt.Errorf("publisher is closed")
+		return errors.New("publisher is closed")
 	}
 	p.mu.Unlock()
 

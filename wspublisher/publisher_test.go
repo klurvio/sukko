@@ -19,7 +19,7 @@ func TestMessage_Structure(t *testing.T) {
 		t.Errorf("unexpected key: %s", msg.Key)
 	}
 
-	var payload map[string]interface{}
+	var payload map[string]any
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		t.Fatalf("failed to unmarshal payload: %v", err)
 	}

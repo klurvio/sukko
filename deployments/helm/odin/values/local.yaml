@@ -47,6 +47,11 @@ ws-server:
     logLevel: debug
     logFormat: pretty
     environment: local  # Topic naming: odin.local.{base}.refined
+    # Lenient timeouts for local development (multiple proxies, port-forward)
+    # 30s buffer (vs 15s production) handles kubectl port-forward flakiness,
+    # Docker Desktop overhead, Kind networking, and debugger pauses
+    pongWait: "120s"
+    pingPeriod: "90s"
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:
@@ -90,10 +95,12 @@ ws-server:
 redpanda:
   enabled: true
   memory: "256M"  # Redpanda process memory (must be < container limit)
-  # External access for local publisher via port-forward
+  # External access via Kind NodePort (no port-forward needed)
   externalAccess:
     enabled: true
-    advertisedHost: host.docker.internal  # Docker containers use this to reach host
+    type: NodePort                         # Fixed NodePort for Kind mapping
+    nodePort: 31092                        # Kind maps 31092 → 9092 on host
+    advertisedHost: host.docker.internal   # Docker containers use this to reach host
     containerPort: 19092                   # External listener port inside container
   resources:
     requests:
@@ -142,6 +149,9 @@ monitoring:
         memory: "256Mi"
   grafana:
     enabled: true
+    service:
+      type: NodePort
+      nodePort: 30300
     resources:
       requests:
         cpu: "50m"

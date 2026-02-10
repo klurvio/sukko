@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -79,7 +80,7 @@ func (h *HealthChecker) WaitForHealthy(ctx context.Context, timeout time.Duratio
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for server to become healthy")
+			return errors.New("timeout waiting for server to become healthy")
 		case <-ticker.C:
 			if err := h.Check(ctx); err == nil {
 				return nil

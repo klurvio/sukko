@@ -17,11 +17,11 @@ import (
 //	extractChannelTenant("acme.BTC.trade", ".") → "acme"
 //	extractChannelTenant("channel", ".") → ""
 func extractChannelTenant(channel, separator string) string {
-	idx := strings.Index(channel, separator)
-	if idx == -1 {
+	before, _, ok := strings.Cut(channel, separator)
+	if !ok {
 		return ""
 	}
-	return channel[:idx]
+	return before
 }
 
 // IsSharedChannel checks if a channel pattern indicates a shared (cross-tenant) channel.

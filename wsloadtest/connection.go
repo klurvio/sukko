@@ -17,12 +17,6 @@ const (
 	// Time allowed to write a message to the peer
 	writeWait = 10 * time.Second
 
-	// Time allowed to read the next pong message from the peer
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period (must be less than pongWait)
-	pingPeriod = (pongWait * 9) / 10
-
 	// Maximum message size allowed from peer
 	maxMessageSize = 512 * 1024 // 512KB
 )
@@ -38,6 +32,10 @@ type Connection struct {
 	channels   []string
 	subscribed atomic.Bool
 
+	// WebSocket ping/pong timing
+	pongWait   time.Duration
+	pingPeriod time.Duration
+
 	// Lifecycle
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -48,7 +46,7 @@ type Connection struct {
 }
 
 // NewConnection creates a new connection
-func NewConnection(ctx context.Context, id int, ws *websocket.Conn, channels []string, stats *Stats, logger zerolog.Logger) *Connection {
+func NewConnection(ctx context.Context, id int, ws *websocket.Conn, channels []string, stats *Stats, logger zerolog.Logger, pongWait, pingPeriod time.Duration) *Connection {
 	connCtx, cancel := context.WithCancel(ctx)
 	return &Connection{
 		id:          id,
@@ -56,6 +54,8 @@ func NewConnection(ctx context.Context, id int, ws *websocket.Conn, channels []s
 		channels:    channels,
 		stats:       stats,
 		logger:      logger.With().Int("conn_id", id).Logger(),
+		pongWait:    pongWait,
+		pingPeriod:  pingPeriod,
 		ctx:         connCtx,
 		cancel:      cancel,
 		connectedAt: time.Now(),
@@ -106,9 +106,9 @@ func (c *Connection) readPump() {
 	defer c.Close()
 
 	c.ws.SetReadLimit(maxMessageSize)
-	c.ws.SetReadDeadline(time.Now().Add(pongWait))
+	c.ws.SetReadDeadline(time.Now().Add(c.pongWait))
 	c.ws.SetPongHandler(func(string) error {
-		c.ws.SetReadDeadline(time.Now().Add(pongWait))
+		c.ws.SetReadDeadline(time.Now().Add(c.pongWait))
 		return nil
 	})
 
@@ -144,7 +144,7 @@ func (c *Connection) writePump() {
 	}()
 	defer c.Close()
 
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(c.pingPeriod)
 	defer ticker.Stop()
 
 	for {

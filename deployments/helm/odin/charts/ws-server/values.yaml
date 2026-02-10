@@ -55,6 +55,12 @@ config:
   logLevel: info
   logFormat: json
   metricsInterval: "15s"
+  # WebSocket Ping/Pong Configuration
+  # Controls keep-alive timing between shard and clients.
+  # Buffer = pongWait - pingPeriod (should be >= 15s for proxied architectures)
+  pongWait: "60s"     # Timeout for pong response
+  pingPeriod: "45s"   # How often to send pings
+  writeWait: "5s"     # Timeout for write operations
 
 # Alerting Configuration
 # See pkg/alerting/config.go for full documentation

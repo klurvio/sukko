@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -52,7 +53,7 @@ func main() {
 	// Create and run load runner
 	runner := NewLoadRunner(config, logger)
 	if err := runner.Run(ctx); err != nil {
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			logger.Error().Err(err).Msg("Load test failed")
 			os.Exit(1)
 		}

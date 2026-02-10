@@ -56,7 +56,7 @@ func TestStats_TopicCounts(t *testing.T) {
 
 	// Verify via topicCounts map
 	var topic1Count, topic2Count int64
-	s.topicCounts.Range(func(k, v interface{}) bool {
+	s.topicCounts.Range(func(k, v any) bool {
 		count := v.(*atomic.Int64).Load()
 		switch k.(string) {
 		case "topic1":
@@ -84,7 +84,7 @@ func TestStats_ChannelCounts(t *testing.T) {
 	s.RecordSuccess("topic", "ch2", 100)
 
 	var ch1Count, ch2Count int64
-	s.channelCounts.Range(func(k, v interface{}) bool {
+	s.channelCounts.Range(func(k, v any) bool {
 		count := v.(*atomic.Int64).Load()
 		switch k.(string) {
 		case "ch1":
@@ -107,7 +107,7 @@ func TestStats_Rate(t *testing.T) {
 	log := zerolog.New(os.Stdout).Level(zerolog.Disabled)
 	s := NewStats(log)
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		s.RecordSuccess("topic", "channel", 100)
 	}
 
@@ -142,9 +142,9 @@ func TestStats_ConcurrentAccess(t *testing.T) {
 	workers := 10
 	iterations := 1000
 
-	for i := 0; i < workers; i++ {
+	for range workers {
 		go func() {
-			for j := 0; j < iterations; j++ {
+			for j := range iterations {
 				s.RecordSuccess("topic", "channel", 100)
 				if j%3 == 0 {
 					s.RecordFailure()
@@ -154,7 +154,7 @@ func TestStats_ConcurrentAccess(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < workers; i++ {
+	for range workers {
 		<-done
 	}
 

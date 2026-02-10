@@ -72,7 +72,7 @@ func (s *Stats) LogFinal() {
 
 	// Log per-topic breakdown
 	topics := make(map[string]int64)
-	s.topicCounts.Range(func(k, v interface{}) bool {
+	s.topicCounts.Range(func(k, v any) bool {
 		topics[k.(string)] = v.(*atomic.Int64).Load()
 		return true
 	})
