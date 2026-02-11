@@ -47,7 +47,7 @@ gcloud config set project odin-9e902
 gcloud auth configure-docker us-central1-docker.pkg.dev
 
 # Create Artifact Registry (if not exists)
-gcloud artifacts repositories create odin \
+gcloud artifacts repositories create odin-ws \
   --project=odin-9e902 --location=us-central1 --repository-format=docker
 ```
 
@@ -109,8 +109,8 @@ task k8s:port-forward:grafana ENV=dev
 | Action | File |
 |--------|------|
 | CREATE | `deployments/terraform/modules/foundation/{main,variables,outputs}.tf` |
-| CREATE | `deployments/terraform/environments/standard/foundation/{main,variables,outputs,versions}.tf` |
-| CREATE | `deployments/terraform/environments/standard/foundation/terraform.tfvars` |
+| CREATE | `deployments/terraform/environments/standard/dev-foundation/{main,variables,outputs,versions}.tf` |
+| CREATE | `deployments/terraform/environments/standard/dev-foundation/terraform.tfvars` |
 | MODIFY | `deployments/terraform/modules/gke-standard-cluster/{main,variables,outputs}.tf` |
 | MODIFY | `deployments/terraform/environments/standard/dev/{main,outputs}.tf` |
 | MODIFY | `deployments/helm/odin/charts/ws-gateway/{templates/service.yaml,values.yaml}` |

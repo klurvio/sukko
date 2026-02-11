@@ -5,7 +5,7 @@
 # Static IPs survive cluster lifecycle changes.
 
 module "foundation" {
-  source = "../../modules/foundation"
+  source = "../../../modules/foundation"
 
   project_id = var.project_id
   region     = var.region

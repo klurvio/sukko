@@ -10,8 +10,8 @@
 #     -n odin-dev --create-namespace
 
 global:
-  namespace: odin-dev
-  imageRegistry: "us-central1-docker.pkg.dev/odin-9e902/odin"
+  namespace: odin-ws-dev
+  imageRegistry: "us-central1-docker.pkg.dev/odin-9e902/odin-ws"
 
 # =============================================================================
 # WebSocket Gateway
@@ -163,6 +163,54 @@ redpanda:
     type: LoadBalancer
     annotations:
       cloud.google.com/load-balancer-type: "Internal"
+
+# =============================================================================
+# Provisioning Service
+# =============================================================================
+provisioning:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: odin-provisioning
+    tag: latest
+    pullPolicy: Always
+
+  config:
+    logLevel: info
+    logFormat: json
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+
+# =============================================================================
+# PostgreSQL - Provisioning Database
+# =============================================================================
+postgresql:
+  enabled: true
+  auth:
+    database: odin_provisioning
+    username: odin
+    # password: injected via --set at deploy time (auto-generated)
+  persistence:
+    enabled: true
+    size: 1Gi
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
 
 # =============================================================================
 # Valkey - Disabled (using NATS)

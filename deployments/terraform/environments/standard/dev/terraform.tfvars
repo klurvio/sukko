@@ -12,7 +12,7 @@ zone   = "us-central1-a"
 # Cluster Configuration
 cluster_name = "odin-ws-dev"
 environment  = "dev"
-namespace    = "odin-dev"
+namespace    = "odin-ws-dev"
 network_name = "odin-ws-dev-vpc"
 
 # Node Pool Configuration

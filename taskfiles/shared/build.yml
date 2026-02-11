@@ -118,5 +118,11 @@ tasks:
       vars: [REGISTRY]
     cmds:
       - task: push:ws-server
+        vars:
+          REGISTRY: "{{.REGISTRY}}"
       - task: push:gateway
+        vars:
+          REGISTRY: "{{.REGISTRY}}"
       - task: push:provisioning
+        vars:
+          REGISTRY: "{{.REGISTRY}}"

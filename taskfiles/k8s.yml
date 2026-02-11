@@ -9,21 +9,22 @@ version: "3"
 
 vars:
   K8S_ENV: '{{.ENV | default "dev"}}'
-  K8S_NAMESPACE: 'odin-{{.K8S_ENV}}'
+  K8S_NAMESPACE: 'odin-ws-{{.K8S_ENV}}'
   K8S_RELEASE_NAME: odin
   K8S_CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/odin"
   K8S_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/odin/values/standard/{{.K8S_ENV}}.yaml"
   K8S_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.K8S_ENV}}"
-  K8S_FOUNDATION_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/foundation"
+  K8S_FOUNDATION_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.K8S_ENV}}-foundation"
   K8S_MIGRATIONS_DIR: "{{.ROOT_DIR}}/ws/internal/provisioning/repository/migrations"
   K8S_PROJECT: '{{.PROJECT | default "odin-9e902"}}'
   K8S_ZONE: '{{.ZONE | default "us-central1-a"}}'
   K8S_CLUSTER: 'odin-ws-{{.K8S_ENV}}'
-  K8S_REGISTRY: 'us-central1-docker.pkg.dev/{{.K8S_PROJECT}}/odin'
+  K8S_REGISTRY: 'us-central1-docker.pkg.dev/{{.K8S_PROJECT}}/odin-ws'
   # Ports
   K8S_GATEWAY_PORT: 3006
   K8S_GRAFANA_PORT: 3000
   K8S_PROMETHEUS_PORT: 9090
+  K8S_PG_LOCAL_PORT: 54321
 
 includes:
   build:
@@ -75,6 +76,14 @@ tasks:
           echo "Using Redpanda internal IP: {{.REDPANDA_IP}}"
           HELM_CMD="$HELM_CMD --set redpanda.externalAccess.advertisedHost={{.REDPANDA_IP}} --set redpanda.externalAccess.loadBalancerIP={{.REDPANDA_IP}}"
         fi
+        DB_PASSWORD=$(kubectl get secret {{.K8S_RELEASE_NAME}}-postgresql -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.postgresql-password}' 2>/dev/null | base64 --decode 2>/dev/null)
+        if [ -z "$DB_PASSWORD" ]; then
+          DB_PASSWORD=$(openssl rand -hex 16)
+          echo "Generated new PostgreSQL password"
+        else
+          echo "Reusing existing PostgreSQL password from cluster"
+        fi
+        HELM_CMD="$HELM_CMD --set postgresql.auth.password=$DB_PASSWORD"
         eval $HELM_CMD
       - task: wait-for-db
       - task: db:migrate
@@ -215,20 +224,6 @@ tasks:
     cmds:
       - kubectl exec -n {{.K8S_NAMESPACE}} {{.K8S_RELEASE_NAME}}-redpanda-0 -- rpk topic list
 
-  provision:delete:
-    desc: Delete topics + tenant
-    cmds:
-      - |
-        echo "Deleting test topics for {{.K8S_ENV}}..."
-        kubectl exec -n {{.K8S_NAMESPACE}} {{.K8S_RELEASE_NAME}}-redpanda-0 -- \
-          rpk topic delete {{.K8S_NAMESPACE}}.odin.trade || true
-        for ID in BTC ETH SOL DOGE SHIB PEPE WIF BONK; do
-          for CAT in trade liquidity orderbook; do
-            kubectl exec -n {{.K8S_NAMESPACE}} {{.K8S_RELEASE_NAME}}-redpanda-0 -- \
-              rpk topic delete {{.K8S_NAMESPACE}}.odin.$ID.$CAT || true
-          done
-        done
-        echo "Done."
 
   # ===========================================================================
   # Foundation (VPC, static IPs - persists across cluster lifecycle)
@@ -280,20 +275,30 @@ tasks:
     cmds:
       - |
         echo "Running migrations for {{.K8S_ENV}}..."
-        DB_URL=$(kubectl get secret {{.K8S_RELEASE_NAME}}-provisioning-db -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.database-url}' 2>/dev/null | base64 -d)
-        if [ -z "$DB_URL" ]; then
-          echo "Error: Could not get database URL from secret"
-          exit 1
-        fi
-        atlas migrate apply --url "$DB_URL" --dir "file://{{.K8S_MIGRATIONS_DIR}}"
+        # Kill any stale port-forward on this port
+        lsof -ti:{{.K8S_PG_LOCAL_PORT}} | xargs kill 2>/dev/null || true
+        sleep 1
+        # Port-forward PostgreSQL to localhost for local atlas access
+        kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-postgresql {{.K8S_PG_LOCAL_PORT}}:5432 &
+        PF_PID=$!
+        sleep 2
+        # Read password from secret
+        DB_PASS=$(kubectl get secret {{.K8S_RELEASE_NAME}}-postgresql -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.postgresql-password}' | base64 --decode)
+        DB_URL="postgres://odin:${DB_PASS}@localhost:{{.K8S_PG_LOCAL_PORT}}/odin_provisioning?sslmode=disable"
+        # atlas returns 0 on success, 2 when no pending migrations
+        atlas migrate apply --url "$DB_URL" --dir "file://{{.K8S_MIGRATIONS_DIR}}" || test $? -eq 2
+        kill $PF_PID 2>/dev/null || true
 
   db:status:
     desc: Show migration status
     cmds:
       - |
-        DB_URL=$(kubectl get secret {{.K8S_RELEASE_NAME}}-provisioning-db -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.database-url}' 2>/dev/null | base64 -d)
-        if [ -z "$DB_URL" ]; then
-          echo "Error: Could not get database URL from secret"
-          exit 1
-        fi
+        lsof -ti:{{.K8S_PG_LOCAL_PORT}} | xargs kill 2>/dev/null || true
+        sleep 1
+        kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-postgresql {{.K8S_PG_LOCAL_PORT}}:5432 &
+        PF_PID=$!
+        sleep 2
+        DB_PASS=$(kubectl get secret {{.K8S_RELEASE_NAME}}-postgresql -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.postgresql-password}' | base64 --decode)
+        DB_URL="postgres://odin:${DB_PASS}@localhost:{{.K8S_PG_LOCAL_PORT}}/odin_provisioning?sslmode=disable"
         atlas migrate status --url "$DB_URL" --dir "file://{{.K8S_MIGRATIONS_DIR}}"
+        kill $PF_PID 2>/dev/null || true

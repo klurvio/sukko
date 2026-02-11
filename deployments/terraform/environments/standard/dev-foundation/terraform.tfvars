@@ -5,7 +5,7 @@
 # Project Configuration
 project_id = "odin-9e902"
 region     = "us-central1"
-vpc_name   = "odin-dev-vpc"
+vpc_name   = "odin-ws-dev-vpc"
 
 # WS cluster subnet (non-overlapping CIDRs)
 ws_subnet_cidr   = "10.0.0.0/20"

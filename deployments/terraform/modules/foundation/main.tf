@@ -2,7 +2,7 @@
 # Foundation Module
 # =============================================================================
 # Long-lived resources that persist across cluster lifecycle:
-# - Shared VPC with subnets for WS and CDC clusters
+# - VPC with WS cluster subnet
 # - Static IPs for gateway (external) and redpanda (internal)
 # - Firewall rules for internal traffic and health checks
 
@@ -45,14 +45,14 @@ resource "google_compute_subnetwork" "ws" {
 # =============================================================================
 
 resource "google_compute_address" "gateway_external" {
-  name         = "odin-gateway-external"
+  name         = "${var.vpc_name}-gateway-external"
   region       = var.region
   address_type = "EXTERNAL"
   project      = var.project_id
 }
 
 resource "google_compute_address" "redpanda_internal" {
-  name         = "odin-redpanda-internal"
+  name         = "${var.vpc_name}-redpanda-internal"
   region       = var.region
   address_type = "INTERNAL"
   subnetwork   = google_compute_subnetwork.ws.id
@@ -90,6 +90,7 @@ resource "google_compute_firewall" "internal" {
 }
 
 # Allow health checks from GCP load balancers
+# Safe without target_tags: this VPC is dedicated to odin-ws, so all instances are GKE nodes.
 resource "google_compute_firewall" "health_checks" {
   name    = "${var.vpc_name}-allow-health-checks"
   network = google_compute_network.vpc.name

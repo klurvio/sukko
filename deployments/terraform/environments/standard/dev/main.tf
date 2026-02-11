@@ -7,12 +7,12 @@
 data "terraform_remote_state" "foundation" {
   backend = "local"
   config = {
-    path = "${path.module}/../foundation/terraform.tfstate"
+    path = "${path.module}/../dev-foundation/terraform.tfstate"
   }
 }
 
 module "gke" {
-  source = "../../modules/gke-standard-cluster"
+  source = "../../../modules/gke-standard-cluster"
 
   # Project
   project_id = var.project_id
