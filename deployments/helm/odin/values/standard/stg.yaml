@@ -77,9 +77,9 @@ ws-server:
     logLevel: info
     logFormat: json
     environment: stg  # Deployment environment for logging/metrics
-    # kafkaTopicNamespace: defaults to "stg" (normalized from "stg")
+    # kafkaTopicNamespace: defaults to "stg"
     # Uncomment to consume from production topics for testing:
-    # kafkaTopicNamespace: main
+    # kafkaTopicNamespace: prod
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:

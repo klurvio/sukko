@@ -49,7 +49,7 @@ config:
   kafkaBrokers: ""
   kafkaAdminTimeout: "30s"
 
-  # Topic defaults
+  # Topic defaults (valid values: local, dev, stg, prod)
   topicNamespace: "prod"
   defaultPartitions: 3
   defaultRetentionMs: 604800000  # 7 days

@@ -36,9 +36,8 @@ config:
   # Values: dev, stg, prod (or local for local development)
   environment: local
   # kafkaTopicNamespace: overrides environment for Kafka topic naming only
-  # If empty, uses normalized environment (local, dev, stg, main)
-  # Set to "main" in dev to consume from prod topics for testing
-  # Topics are generated as: odin.{namespace}.{base}.refined
+  # If empty, uses environment (local, dev, stg, prod)
+  # Set to "prod" in dev to consume from prod topics for testing
   kafkaTopicNamespace: ""
   connRateLimit:
     enabled: true

@@ -179,6 +179,7 @@ provisioning:
   config:
     logLevel: info
     logFormat: json
+    topicNamespace: dev
 
   resources:
     requests:

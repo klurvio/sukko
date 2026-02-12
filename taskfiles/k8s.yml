@@ -24,7 +24,8 @@ vars:
   K8S_GATEWAY_PORT: 3006
   K8S_GRAFANA_PORT: 3000
   K8S_PROMETHEUS_PORT: 9090
-  K8S_PG_LOCAL_PORT: 54321
+  K8S_PG_LOCAL_PORT: 45432
+  K8S_PROVISIONING_LOCAL_PORT: 48080
 
 includes:
   build:
@@ -200,29 +201,87 @@ tasks:
   # Provisioning (Kafka topics + DB tenant)
   # ===========================================================================
   provision:create:
-    desc: Create topic + tenant + categories
-    cmds:
-      - kubectl exec -n {{.K8S_NAMESPACE}} {{.K8S_RELEASE_NAME}}-redpanda-0 -- rpk topic create {{.K8S_NAMESPACE}}.odin.trade -p 3 2>/dev/null || true
-      - 'echo "Topic ready: {{.K8S_NAMESPACE}}.odin.trade"'
-
-  provision:loadtest:
-    desc: Create 24 load test topics
+    desc: Create odin tenant + Kafka topics + channel rules
     cmds:
       - |
-        echo "Creating load test topics for {{.K8S_ENV}}..."
-        for ID in BTC ETH SOL DOGE SHIB PEPE WIF BONK; do
-          for CAT in trade liquidity orderbook; do
-            kubectl exec -n {{.K8S_NAMESPACE}} {{.K8S_RELEASE_NAME}}-redpanda-0 -- \
-              rpk topic create {{.K8S_NAMESPACE}}.odin.$ID.$CAT -p 3 2>/dev/null || true
-            echo "Topic ready: {{.K8S_NAMESPACE}}.odin.$ID.$CAT"
-          done
+        lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
+        sleep 1
+        kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-provisioning {{.K8S_PROVISIONING_LOCAL_PORT}}:8080 &
+        PF_PID=$!
+        sleep 2
+
+        API="http://localhost:{{.K8S_PROVISIONING_LOCAL_PORT}}"
+
+        # Wait for provisioning API
+        echo "Checking provisioning API..."
+        for i in $(seq 1 10); do
+          if curl -sf $API/health >/dev/null 2>&1; then
+            echo "Provisioning API ready"
+            break
+          fi
+          echo "Waiting for provisioning API..."
+          sleep 1
         done
-        echo "Done. 24 topics ready."
+
+        if ! curl -sf $API/health >/dev/null 2>&1; then
+          echo "ERROR: Provisioning API not accessible at $API"
+          kill $PF_PID 2>/dev/null || true
+          exit 1
+        fi
+
+        # Create tenant
+        echo "Creating tenant..."
+        RESULT=$(curl -sf -X POST $API/api/v1/tenants \
+          -H "Content-Type: application/json" \
+          -d '{"id": "odin", "name": "Odin Trading Platform"}' 2>&1) || {
+          if echo "$RESULT" | grep -q "already exists"; then
+            echo "Tenant already exists, continuing..."
+          else
+            echo "Tenant creation response: $RESULT"
+          fi
+        }
+        echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
+
+        # Create Kafka topics (same 8 categories as local)
+        echo "Creating Kafka topics..."
+        RESULT=$(curl -sf -X POST $API/api/v1/tenants/odin/topics \
+          -H "Content-Type: application/json" \
+          -d '{"categories": ["trade", "liquidity", "metadata", "social", "community", "creation", "analytics", "balances"]}' 2>&1) || {
+          echo "Topic creation failed: $RESULT"
+        }
+        echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
+
+        # Set channel rules
+        echo "Setting channel rules..."
+        RESULT=$(curl -sf -X PUT $API/api/v1/tenants/odin/channel-rules \
+          -H "Content-Type: application/json" \
+          -d '{"public_patterns": ["*.metadata"], "user_scoped_patterns": ["balances.{subject}"], "group_scoped_patterns": []}' 2>&1) || {
+          echo "Channel rules failed: $RESULT"
+        }
+        echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
+
+        echo "Provisioning complete"
+        kill $PF_PID 2>/dev/null || true
 
   provision:status:
-    desc: List topics + tenants
+    desc: Show tenants and topics via provisioning API
     cmds:
-      - kubectl exec -n {{.K8S_NAMESPACE}} {{.K8S_RELEASE_NAME}}-redpanda-0 -- rpk topic list
+      - |
+        lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
+        sleep 1
+        kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-provisioning {{.K8S_PROVISIONING_LOCAL_PORT}}:8080 &
+        PF_PID=$!
+        sleep 2
+        API="http://localhost:{{.K8S_PROVISIONING_LOCAL_PORT}}"
+        echo "=== Tenants ==="
+        curl -s $API/api/v1/tenants | jq .
+        echo ""
+        echo "=== Topics (odin) ==="
+        curl -s $API/api/v1/tenants/odin/topics | jq .
+        echo ""
+        echo "=== Channel Rules (odin) ==="
+        curl -s $API/api/v1/tenants/odin/channel-rules | jq .
+        kill $PF_PID 2>/dev/null || true
 
 
   # ===========================================================================

@@ -204,7 +204,7 @@ resource "google_container_cluster" "primary" {
 # =============================================================================
 
 resource "google_container_node_pool" "primary" {
-  name     = "${var.cluster_name}-primary-pool"
+  name     = "primary-pool"
   location = var.zone
   cluster  = google_container_cluster.primary.name
   project  = var.project_id
