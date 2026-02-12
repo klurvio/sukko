@@ -56,6 +56,16 @@ tasks:
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f build/provisioning/Dockerfile .
 
+  loadtest:
+    desc: Build wsloadtest image
+    cmds:
+      - docker build -t wsloadtest:latest {{.ROOT_DIR}}/wsloadtest
+
+  publisher:
+    desc: Build wspublisher image
+    cmds:
+      - docker build -t wspublisher:latest {{.ROOT_DIR}}/wspublisher
+
   all:
     desc: Build all Docker images
     cmds:
@@ -112,6 +122,32 @@ tasks:
           -f build/provisioning/Dockerfile .
           --push
 
+  push:loadtest:
+    desc: Build and push wsloadtest to registry
+    requires:
+      vars: [REGISTRY]
+    dir: "{{.ROOT_DIR}}/wsloadtest"
+    vars:
+      TAG: '{{.TAG | default "latest"}}'
+    cmds:
+      - docker buildx build --platform linux/amd64
+          -t {{.REGISTRY}}/wsloadtest:{{.TAG}}
+          .
+          --push
+
+  push:publisher:
+    desc: Build and push wspublisher to registry
+    requires:
+      vars: [REGISTRY]
+    dir: "{{.ROOT_DIR}}/wspublisher"
+    vars:
+      TAG: '{{.TAG | default "latest"}}'
+    cmds:
+      - docker buildx build --platform linux/amd64
+          -t {{.REGISTRY}}/wspublisher:{{.TAG}}
+          .
+          --push
+
   push:all:
     desc: Build and push all images to registry
     requires:
@@ -124,5 +160,11 @@ tasks:
         vars:
           REGISTRY: "{{.REGISTRY}}"
       - task: push:provisioning
+        vars:
+          REGISTRY: "{{.REGISTRY}}"
+      - task: push:loadtest
+        vars:
+          REGISTRY: "{{.REGISTRY}}"
+      - task: push:publisher
         vars:
           REGISTRY: "{{.REGISTRY}}"

@@ -7,22 +7,11 @@ get_metadata() {
     -H "Metadata-Flavor: Google" 2>/dev/null || echo ""
 }
 
-# Get all metadata
-WS_URL=$(get_metadata WS_URL)
-TARGET_CONNECTIONS=$(get_metadata TARGET_CONNECTIONS)
-RAMP_RATE=$(get_metadata RAMP_RATE)
-DURATION=$(get_metadata DURATION)
 REGISTRY=$(get_metadata REGISTRY)
-IMAGE_TAG=$(get_metadata IMAGE_TAG)
-
-# Defaults
-REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/trim-array-480700-j7/odin}"
-IMAGE_TAG="${IMAGE_TAG:-latest}"
+REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/odin-9e902/odin-ws}"
 
 echo "=== wsloadtest VM startup ==="
-echo "Target: $WS_URL"
-echo "Connections: $TARGET_CONNECTIONS, Ramp: $RAMP_RATE/s, Duration: $DURATION"
-echo "Image: $REGISTRY/wsloadtest:$IMAGE_TAG"
+echo "Registry: $REGISTRY"
 
 # Tune kernel for high connections
 echo "Tuning kernel parameters..."
@@ -35,7 +24,7 @@ net.core.netdev_max_backlog = 65535
 EOF
 sysctl -p
 
-# Set ulimits for current shell
+# Set ulimits
 ulimit -n 1000000
 
 # Install Docker
@@ -46,15 +35,8 @@ apt-get update -qq && apt-get install -y -qq docker.io
 echo "Authenticating to Artifact Registry..."
 gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
-# Pull and run wsloadtest
-echo "Starting wsloadtest..."
-docker run --rm \
-  --ulimit nofile=1000000:1000000 \
-  -e WS_URL="$WS_URL" \
-  -e TARGET_CONNECTIONS="$TARGET_CONNECTIONS" \
-  -e RAMP_RATE="$RAMP_RATE" \
-  -e DURATION="$DURATION" \
-  -e LOG_LEVEL=info \
-  "$REGISTRY/wsloadtest:$IMAGE_TAG"
+# Pre-pull image so loadtest:run starts faster
+echo "Pre-pulling wsloadtest image..."
+docker pull "$REGISTRY/wsloadtest:latest"
 
-echo "=== wsloadtest completed ==="
+echo "=== VM ready. Use 'task gce:loadtest:run' to start the test ==="

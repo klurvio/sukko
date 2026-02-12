@@ -41,7 +41,7 @@ fi
 # Defaults
 VM_NAME="${VM_NAME:-wsloadtest-vm}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
-REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/odin}"
+REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/odin-ws}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 TARGET_CONNECTIONS="${TARGET_CONNECTIONS:-5000}"
 RAMP_RATE="${RAMP_RATE:-100}"

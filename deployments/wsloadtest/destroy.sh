@@ -10,7 +10,7 @@ if [ -f "$CONFIG_FILE" ]; then
   source "$CONFIG_FILE"
 fi
 
-PROJECT="${PROJECT:-trim-array-480700-j7}"
+PROJECT="${PROJECT:-odin-9e902}"
 ZONE="${ZONE:-us-central1-a}"
 VM_NAME="${VM_NAME:-wsloadtest-vm}"
 

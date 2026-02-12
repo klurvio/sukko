@@ -41,7 +41,7 @@ fi
 # Defaults
 VM_NAME="${VM_NAME:-wspublisher-vm}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
-REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/odin}"
+REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/odin-ws}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 KAFKA_NAMESPACE="${KAFKA_NAMESPACE:-stag}"
 RATE="${RATE:-100}"
