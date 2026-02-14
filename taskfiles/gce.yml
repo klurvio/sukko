@@ -7,6 +7,11 @@
 
 version: "3"
 
+includes:
+  build:
+    taskfile: ./shared/build.yml
+    dir: "{{.ROOT_DIR}}"
+
 vars:
   GCE_ENV: '{{.ENV | default "dev"}}'
   GCE_PROJECT: '{{.PROJECT | default "odin-9e902"}}'
@@ -28,6 +33,7 @@ tasks:
       SUBNET_NAME:
         sh: terraform -chdir={{.GCE_FOUNDATION_TF_DIR}} output -raw ws_subnet_name 2>/dev/null || echo ""
     cmds:
+      - gcloud services enable iap.googleapis.com --project={{.GCE_PROJECT}} --quiet
       - |
         VM_NAME="wsloadtest-{{.GCE_ENV}}"
 
@@ -79,6 +85,7 @@ tasks:
           --zone={{.GCE_ZONE}} \
           --quiet
         echo "VM deleted."
+      - gcloud services disable iap.googleapis.com --project={{.GCE_PROJECT}} --quiet --force
 
   loadtest:run:
     desc: Run/restart loadtest (CONNECTIONS=5000 DURATION=10m)
@@ -93,7 +100,7 @@ tasks:
         VM_NAME="wsloadtest-{{.GCE_ENV}}"
         WS_URL="ws://{{.GATEWAY_IP}}:443/ws"
         echo "Running wsloadtest on $VM_NAME (target: $WS_URL)..."
-        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --command="
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --tunnel-through-iap --command="
           docker stop wsloadtest 2>/dev/null || true
           docker run -d --rm --name wsloadtest \
             --ulimit nofile=1000000:1000000 \
@@ -104,6 +111,8 @@ tasks:
             -e TENANT_ID=odin \
             -e CHANNELS=odin.BTC.trade,odin.ETH.trade,odin.SOL.trade \
             -e CHANNELS_PER_CLIENT=1 \
+            -e WS_PONG_WAIT=60s \
+            -e WS_PING_PERIOD=45s \
             -e LOG_LEVEL=info \
             {{.GCE_REGISTRY}}/wsloadtest:latest
         "
@@ -114,7 +123,7 @@ tasks:
       - |
         echo "Stopping wsloadtest on VM for {{.GCE_ENV}}..."
         VM_NAME="wsloadtest-{{.GCE_ENV}}"
-        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --command="docker stop wsloadtest 2>/dev/null || true"
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --tunnel-through-iap --command="docker stop wsloadtest 2>/dev/null || true"
 
   loadtest:logs:
     desc: View load test logs
@@ -130,7 +139,7 @@ tasks:
     cmds:
       - |
         VM_NAME="wsloadtest-{{.GCE_ENV}}"
-        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}}
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --tunnel-through-iap
 
   # ===========================================================================
   # Publisher VM
@@ -143,6 +152,7 @@ tasks:
       SUBNET_NAME:
         sh: terraform -chdir={{.GCE_FOUNDATION_TF_DIR}} output -raw ws_subnet_name 2>/dev/null || echo ""
     cmds:
+      - gcloud services enable iap.googleapis.com --project={{.GCE_PROJECT}} --quiet
       - |
         VM_NAME="wspublisher-{{.GCE_ENV}}"
 
@@ -194,6 +204,7 @@ tasks:
           --zone={{.GCE_ZONE}} \
           --quiet
         echo "VM deleted."
+      - gcloud services disable iap.googleapis.com --project={{.GCE_PROJECT}} --quiet --force
 
   publisher:run:
     desc: Run/restart publisher (RATE=100 msg/sec)
@@ -207,7 +218,7 @@ tasks:
         VM_NAME="wspublisher-{{.GCE_ENV}}"
         KAFKA_BROKERS="{{.REDPANDA_IP}}:9092"
         echo "Running wspublisher on $VM_NAME (brokers: $KAFKA_BROKERS, rate: {{.RATE}} msg/s)..."
-        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --command="
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --tunnel-through-iap --command="
           docker stop wspublisher 2>/dev/null || true
           docker run -d --rm --name wspublisher \
             -e KAFKA_BROKERS=$KAFKA_BROKERS \
@@ -228,7 +239,7 @@ tasks:
       - |
         echo "Stopping wspublisher on VM for {{.GCE_ENV}}..."
         VM_NAME="wspublisher-{{.GCE_ENV}}"
-        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --command="docker stop wspublisher 2>/dev/null || true"
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --tunnel-through-iap --command="docker stop wspublisher 2>/dev/null || true"
 
   publisher:logs:
     desc: View publisher logs
@@ -244,4 +255,17 @@ tasks:
     cmds:
       - |
         VM_NAME="wspublisher-{{.GCE_ENV}}"
-        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}}
+        gcloud compute ssh $VM_NAME --zone={{.GCE_ZONE}} --project={{.GCE_PROJECT}} --tunnel-through-iap
+
+  # ===========================================================================
+  # Build (wrappers around shared/build.yml push tasks)
+  # ===========================================================================
+  publisher:build:
+    desc: Build and push publisher image
+    cmds:
+      - task: build:push:publisher
+
+  loadtest:build:
+    desc: Build and push loadtest image
+    cmds:
+      - task: build:push:loadtest

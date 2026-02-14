@@ -89,6 +89,20 @@ resource "google_compute_firewall" "internal" {
   ]
 }
 
+# Allow SSH via IAP tunneling (for GCE VMs without public IPs)
+resource "google_compute_firewall" "iap_ssh" {
+  name    = "${var.vpc_name}-allow-iap-ssh"
+  network = google_compute_network.vpc.name
+  project = var.project_id
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  source_ranges = ["35.235.240.0/20"]
+}
+
 # Allow health checks from GCP load balancers
 # Safe without target_tags: this VPC is dedicated to odin-ws, so all instances are GKE nodes.
 resource "google_compute_firewall" "health_checks" {

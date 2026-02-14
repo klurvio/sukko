@@ -191,7 +191,19 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 						ws.Cipher(payload, hdr.Mask, 0)
 					}
 				}
-				_ = wsutil.WriteServerMessage(c.conn, ws.OpPong, payload)
+				select {
+				case c.control <- payload:
+					if p.Logger != nil {
+						p.Logger.Debug().Int64("client_id", c.id).Msg("Received ping, queued pong")
+					}
+				default:
+					// Control channel full — drop this pong. The client's next ping will trigger
+					// another pong attempt. This is safe: WriteLoop drains control with priority,
+					// so a full channel means 2 pongs are already queued and will be written shortly.
+					if p.Logger != nil {
+						p.Logger.Debug().Int64("client_id", c.id).Msg("Control channel full, dropped pong")
+					}
+				}
 				continue
 			}
 			// Handle close
@@ -200,6 +212,9 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 			}
 			// Handle pong - deadline already refreshed, discard payload
 			if hdr.OpCode == ws.OpPong {
+				if p.Logger != nil {
+					p.Logger.Debug().Int64("client_id", c.id).Msg("Received pong from client")
+				}
 				_ = reader.Discard()
 				continue
 			}
@@ -285,9 +300,39 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 	}()
 
 	for {
+		// Priority: drain pong responses first (they're time-sensitive)
+		select {
+		case payload := <-c.control:
+			_ = c.conn.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
+			if err := wsutil.WriteServerMessage(c.conn, ws.OpPong, payload); err != nil {
+				if p.Logger != nil {
+					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send pong")
+				}
+				return
+			}
+			if p.Logger != nil {
+				p.Logger.Debug().Int64("client_id", c.id).Msg("Sent pong to client")
+			}
+			continue
+		default:
+		}
+
+		// Normal select: data, control, ping, or shutdown
 		select {
 		case <-ctx.Done():
 			return
+
+		case payload := <-c.control:
+			_ = c.conn.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
+			if err := wsutil.WriteServerMessage(c.conn, ws.OpPong, payload); err != nil {
+				if p.Logger != nil {
+					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send pong")
+				}
+				return
+			}
+			if p.Logger != nil {
+				p.Logger.Debug().Int64("client_id", c.id).Msg("Sent pong to client")
+			}
 
 		case message, ok := <-c.send:
 			if !ok {
@@ -378,6 +423,9 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send ping")
 				}
 				return
+			}
+			if p.Logger != nil {
+				p.Logger.Debug().Int64("client_id", c.id).Msg("Sent ping to client")
 			}
 		}
 	}

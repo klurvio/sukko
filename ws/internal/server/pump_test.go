@@ -809,15 +809,18 @@ func TestReadLoop_PingFrame_SendsPongResponse(t *testing.T) {
 	mockConn.setReadData(frameData)
 
 	stats := &types.Stats{}
+	mockLogger := newTestMockLogger()
 	pump := &Pump{
 		Config: testPumpConfig(),
 		Stats:  stats,
+		Logger: mockLogger,
 	}
 
 	client := &Client{
 		id:            1,
 		conn:          mockConn,
 		send:          make(chan []byte, 10),
+		control:       make(chan []byte, controlChannelSize),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
 	}
@@ -825,21 +828,14 @@ func TestReadLoop_PingFrame_SendsPongResponse(t *testing.T) {
 	ctx := context.Background()
 	pump.ReadLoop(ctx, client, nil, nil)
 
-	// Verify pong was written
-	writtenData := mockConn.getWrittenData()
-	if len(writtenData) == 0 {
-		t.Error("Expected pong response to be written")
-	}
-
-	// Parse the written frame to verify it's a pong
-	reader := bytes.NewReader(writtenData)
-	header, err := ws.ReadHeader(reader)
-	if err != nil {
-		t.Fatalf("Failed to read written header: %v", err)
-	}
-
-	if header.OpCode != ws.OpPong {
-		t.Errorf("Expected OpPong, got %v", header.OpCode)
+	// Verify pong payload was queued to control channel (not written directly to conn)
+	select {
+	case payload := <-client.control:
+		if string(payload) != string(pingPayload) {
+			t.Errorf("Pong payload mismatch: got %q, want %q", string(payload), string(pingPayload))
+		}
+	default:
+		t.Error("Expected pong payload to be queued to control channel")
 	}
 }
 
@@ -1058,5 +1054,436 @@ func TestReadLoop_RateLimiting_BlocksExcessiveMessages(t *testing.T) {
 	// Rate limiter should have been called 3 times
 	if mockRateLimiter.getCallCount() != 3 {
 		t.Errorf("Expected 3 rate limiter calls, got %d", mockRateLimiter.getCallCount())
+	}
+}
+
+func TestReadLoop_PingFrame_ControlChannelFull_DropsWithLog(t *testing.T) {
+	t.Parallel()
+	// Create 3 ping frames (control channel cap is 2, so 3rd should be dropped)
+	pingFrame := createWebSocketFrame(ws.OpPing, []byte{})
+	closeFrame := createWebSocketFrame(ws.OpClose, []byte{})
+	frameData := slices.Concat(pingFrame, pingFrame, pingFrame, closeFrame)
+
+	mockConn := newTestMockConn()
+	mockConn.setReadData(frameData)
+
+	mockLogger := newTestMockLogger()
+	stats := &types.Stats{}
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  stats,
+		Logger: mockLogger,
+	}
+
+	client := &Client{
+		id:            1,
+		conn:          mockConn,
+		send:          make(chan []byte, 10),
+		control:       make(chan []byte, controlChannelSize),
+		subscriptions: NewSubscriptionSet(),
+		seqGen:        messaging.NewSequenceGenerator(),
+	}
+
+	ctx := context.Background()
+	pump.ReadLoop(ctx, client, nil, nil)
+
+	// Control channel should have exactly controlChannelSize pongs (rest dropped)
+	channelCount := len(client.control)
+	if channelCount != controlChannelSize {
+		t.Errorf("Expected %d pongs in control channel, got %d", controlChannelSize, channelCount)
+	}
+
+	// Verify drop was logged
+	messages := mockLogger.getMessages()
+	foundDrop := false
+	for _, msg := range messages {
+		if msg.message == "Control channel full, dropped pong" {
+			foundDrop = true
+			break
+		}
+	}
+	if !foundDrop {
+		t.Error("Expected 'Control channel full, dropped pong' log message")
+	}
+}
+
+// =============================================================================
+// WriteLoop Tests
+// =============================================================================
+
+func TestWriteLoop_ControlChannel_SendsPong(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockClock := newTestMockClock()
+	mockLogger := newTestMockLogger()
+	stats := &types.Stats{}
+
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  stats,
+		Logger: mockLogger,
+		Clock:  mockClock,
+	}
+
+	pongPayload := []byte("pong-data")
+	client := &Client{
+		id:        1,
+		conn:      mockConn,
+		send:      make(chan []byte, 10),
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+
+	// Pre-load pong into control channel
+	client.control <- pongPayload
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan bool)
+	go func() {
+		pump.WriteLoop(ctx, client)
+		done <- true
+	}()
+
+	// Give WriteLoop time to process the pong via priority select
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WriteLoop did not exit")
+	}
+
+	// Verify pong was written to conn
+	writtenData := mockConn.getWrittenData()
+	if len(writtenData) == 0 {
+		t.Fatal("Expected pong to be written to conn")
+	}
+
+	// Parse the frame to verify it's a pong with correct payload
+	reader := bytes.NewReader(writtenData)
+	header, err := ws.ReadHeader(reader)
+	if err != nil {
+		t.Fatalf("Failed to read written header: %v", err)
+	}
+
+	if header.OpCode != ws.OpPong {
+		t.Errorf("Expected OpPong, got %v", header.OpCode)
+	}
+
+	if header.Length != int64(len(pongPayload)) {
+		t.Errorf("Expected payload length %d, got %d", len(pongPayload), header.Length)
+	}
+}
+
+func TestWriteLoop_ControlChannel_SetsWriteDeadline(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockClock := newTestMockClock()
+	stats := &types.Stats{}
+
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  stats,
+		Clock:  mockClock,
+	}
+
+	client := &Client{
+		id:        1,
+		conn:      mockConn,
+		send:      make(chan []byte, 10),
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+
+	// Pre-load pong
+	client.control <- []byte("pong")
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan bool)
+	go func() {
+		pump.WriteLoop(ctx, client)
+		done <- true
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WriteLoop did not exit")
+	}
+
+	// Verify SetWriteDeadline was called before pong write
+	if mockConn.getWriteDeadlineCount() == 0 {
+		t.Error("Expected SetWriteDeadline to be called before pong write")
+	}
+}
+
+func TestWriteLoop_ControlChannel_WriteError_Returns(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockConn.setWriteErr(io.ErrClosedPipe)
+	mockClock := newTestMockClock()
+	mockLogger := newTestMockLogger()
+	stats := &types.Stats{}
+
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  stats,
+		Logger: mockLogger,
+		Clock:  mockClock,
+	}
+
+	client := &Client{
+		id:        1,
+		conn:      mockConn,
+		send:      make(chan []byte, 10),
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+
+	// Pre-load pong that will fail to write
+	client.control <- []byte("pong")
+
+	ctx := context.Background()
+
+	done := make(chan bool)
+	go func() {
+		pump.WriteLoop(ctx, client)
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Good - WriteLoop exited due to write error
+	case <-time.After(1 * time.Second):
+		t.Fatal("WriteLoop should exit on pong write error")
+	}
+
+	// Verify error was logged
+	messages := mockLogger.getMessages()
+	foundErr := false
+	for _, msg := range messages {
+		if msg.message == "Failed to send pong" {
+			foundErr = true
+			break
+		}
+	}
+	if !foundErr {
+		t.Error("Expected 'Failed to send pong' log message")
+	}
+}
+
+func TestWriteLoop_PingTimer_SendsPing(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockClock := newTestMockClock()
+	mockLogger := newTestMockLogger()
+	stats := &types.Stats{}
+
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  stats,
+		Logger: mockLogger,
+		Clock:  mockClock,
+	}
+
+	client := &Client{
+		id:        1,
+		conn:      mockConn,
+		send:      make(chan []byte, 10),
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan bool)
+	go func() {
+		pump.WriteLoop(ctx, client)
+		done <- true
+	}()
+
+	// Trigger the ping timer
+	time.Sleep(20 * time.Millisecond)
+	mockClock.advance(pump.Config.PingPeriod)
+
+	// Give WriteLoop time to process the tick
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WriteLoop did not exit")
+	}
+
+	// Verify ping was written
+	writtenData := mockConn.getWrittenData()
+	if len(writtenData) == 0 {
+		t.Fatal("Expected ping to be written to conn")
+	}
+
+	// Parse the frame to verify it's a ping
+	reader := bytes.NewReader(writtenData)
+	header, err := ws.ReadHeader(reader)
+	if err != nil {
+		t.Fatalf("Failed to read written header: %v", err)
+	}
+
+	if header.OpCode != ws.OpPing {
+		t.Errorf("Expected OpPing, got %v", header.OpCode)
+	}
+}
+
+func TestWriteLoop_ContextCancellation_Exits(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockClock := newTestMockClock()
+	stats := &types.Stats{}
+
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  stats,
+		Clock:  mockClock,
+	}
+
+	client := &Client{
+		id:        1,
+		conn:      mockConn,
+		send:      make(chan []byte, 10),
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan bool)
+	go func() {
+		pump.WriteLoop(ctx, client)
+		done <- true
+	}()
+
+	// Cancel immediately
+	cancel()
+
+	select {
+	case <-done:
+		// Good - WriteLoop exited
+	case <-time.After(1 * time.Second):
+		t.Fatal("WriteLoop did not exit on context cancellation")
+	}
+}
+
+func TestWriteLoop_SendChannel_WritesMessage(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockClock := newTestMockClock()
+	stats := &types.Stats{}
+
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  stats,
+		Clock:  mockClock,
+	}
+
+	client := &Client{
+		id:        1,
+		conn:      mockConn,
+		send:      make(chan []byte, 10),
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+
+	// Pre-load data message
+	dataMsg := []byte(`{"type":"message","channel":"odin.BTC.trade"}`)
+	client.send <- dataMsg
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan bool)
+	go func() {
+		pump.WriteLoop(ctx, client)
+		done <- true
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WriteLoop did not exit")
+	}
+
+	// Verify data message was written
+	writtenData := mockConn.getWrittenData()
+	if len(writtenData) == 0 {
+		t.Fatal("Expected data message to be written to conn")
+	}
+
+	// Verify stats were updated
+	if stats.MessagesSent.Load() != 1 {
+		t.Errorf("Expected MessagesSent=1, got %d", stats.MessagesSent.Load())
+	}
+}
+
+func TestWriteLoop_SendChannelClosed_SendsClose(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockClock := newTestMockClock()
+	mockLogger := newTestMockLogger()
+	stats := &types.Stats{}
+
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  stats,
+		Logger: mockLogger,
+		Clock:  mockClock,
+	}
+
+	client := &Client{
+		id:        1,
+		conn:      mockConn,
+		send:      make(chan []byte, 10),
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+
+	done := make(chan bool)
+	go func() {
+		pump.WriteLoop(context.Background(), client)
+		done <- true
+	}()
+
+	// Close send channel to signal shutdown
+	time.Sleep(20 * time.Millisecond)
+	close(client.send)
+
+	select {
+	case <-done:
+		// Good - WriteLoop exited
+	case <-time.After(1 * time.Second):
+		t.Fatal("WriteLoop did not exit on send channel close")
+	}
+
+	// Verify close frame was sent
+	writtenData := mockConn.getWrittenData()
+	if len(writtenData) == 0 {
+		t.Fatal("Expected close frame to be written")
+	}
+
+	reader := bytes.NewReader(writtenData)
+	header, err := ws.ReadHeader(reader)
+	if err != nil {
+		t.Fatalf("Failed to read written header: %v", err)
+	}
+
+	if header.OpCode != ws.OpClose {
+		t.Errorf("Expected OpClose, got %v", header.OpCode)
 	}
 }

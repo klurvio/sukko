@@ -12,7 +12,10 @@ vars:
   BUILD_TIME:
     sh: date -u +%Y-%m-%dT%H:%M:%SZ
   # Registry can be overridden for remote builds
+  PROJECT: '{{.PROJECT | default "odin-9e902"}}'
   REGISTRY: '{{.REGISTRY | default ""}}'
+  # PUSH_REGISTRY: defaults to GCP Artifact Registry when REGISTRY is not set
+  PUSH_REGISTRY: '{{.REGISTRY | default (printf "us-central1-docker.pkg.dev/%s/odin-ws" .PROJECT)}}'
   # Image prefix (empty for local, "registry/" for remote)
   IMAGE_PREFIX: '{{if .REGISTRY}}{{.REGISTRY}}/{{end}}'
 
@@ -76,14 +79,12 @@ tasks:
   # Cross-platform build for remote registries (linux/amd64)
   push:ws-server:
     desc: Build and push ws-server to registry
-    requires:
-      vars: [REGISTRY]
     dir: "{{.ROOT_DIR}}/ws"
     vars:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker buildx build --platform linux/amd64
-          -t {{.REGISTRY}}/ws-server:{{.TAG}}
+          -t {{.PUSH_REGISTRY}}/ws-server:{{.TAG}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
@@ -92,14 +93,12 @@ tasks:
 
   push:gateway:
     desc: Build and push ws-gateway to registry
-    requires:
-      vars: [REGISTRY]
     dir: "{{.ROOT_DIR}}/ws"
     vars:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker buildx build --platform linux/amd64
-          -t {{.REGISTRY}}/ws-gateway:{{.TAG}}
+          -t {{.PUSH_REGISTRY}}/ws-gateway:{{.TAG}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
@@ -108,14 +107,12 @@ tasks:
 
   push:provisioning:
     desc: Build and push provisioning to registry
-    requires:
-      vars: [REGISTRY]
     dir: "{{.ROOT_DIR}}/ws"
     vars:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker buildx build --platform linux/amd64
-          -t {{.REGISTRY}}/odin-provisioning:{{.TAG}}
+          -t {{.PUSH_REGISTRY}}/odin-provisioning:{{.TAG}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
@@ -124,47 +121,41 @@ tasks:
 
   push:loadtest:
     desc: Build and push wsloadtest to registry
-    requires:
-      vars: [REGISTRY]
     dir: "{{.ROOT_DIR}}/wsloadtest"
     vars:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker buildx build --platform linux/amd64
-          -t {{.REGISTRY}}/wsloadtest:{{.TAG}}
+          -t {{.PUSH_REGISTRY}}/wsloadtest:{{.TAG}}
           .
           --push
 
   push:publisher:
     desc: Build and push wspublisher to registry
-    requires:
-      vars: [REGISTRY]
     dir: "{{.ROOT_DIR}}/wspublisher"
     vars:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker buildx build --platform linux/amd64
-          -t {{.REGISTRY}}/wspublisher:{{.TAG}}
+          -t {{.PUSH_REGISTRY}}/wspublisher:{{.TAG}}
           .
           --push
 
   push:all:
     desc: Build and push all images to registry
-    requires:
-      vars: [REGISTRY]
     cmds:
       - task: push:ws-server
         vars:
-          REGISTRY: "{{.REGISTRY}}"
+          PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"
       - task: push:gateway
         vars:
-          REGISTRY: "{{.REGISTRY}}"
+          PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"
       - task: push:provisioning
         vars:
-          REGISTRY: "{{.REGISTRY}}"
+          PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"
       - task: push:loadtest
         vars:
-          REGISTRY: "{{.REGISTRY}}"
+          PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"
       - task: push:publisher
         vars:
-          REGISTRY: "{{.REGISTRY}}"
+          PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"

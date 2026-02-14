@@ -46,7 +46,7 @@ type Server struct {
 	config        types.ServerConfig // Immutable after creation
 	logger        zerolog.Logger     // Structured logger for all server events
 	listener      net.Listener       // TCP listener for accepting connections
-	kafkaConsumer *kafka.Consumer    // Kafka/Redpanda consumer for market data (managed by KafkaConsumerPool)
+	kafkaConsumer *kafka.Consumer    // Kafka/Redpanda consumer for market data (managed by MultiTenantConsumerPool)
 	kafkaProducer *kafka.Producer    // Kafka/Redpanda producer for client message publishing (optional)
 
 	// Connection management
@@ -91,7 +91,7 @@ type Server struct {
 //   - Rate limiters (per-client and per-IP if enabled)
 //   - Resource guard for CPU-based backpressure
 //
-// Note: Kafka consumption is handled by KafkaConsumerPool (shared pool mode).
+// Note: Kafka consumption is handled by MultiTenantConsumerPool.
 // The server receives a reference to the shared consumer for metrics only.
 func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -150,7 +150,7 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 		Int("broadcast_rate_limit", config.MaxBroadcastsPerSec).
 		Msg("Server initialized with ResourceGuard")
 
-	// In shared pool mode, the KafkaConsumerPool handles Kafka consumption.
+	// The MultiTenantConsumerPool handles Kafka consumption.
 	// Shards receive a reference to the shared consumer for metrics/replay only.
 	// The shared consumer is started/stopped by the pool, not by individual servers.
 	if config.SharedKafkaConsumer != nil {
@@ -242,7 +242,7 @@ func (s *Server) Start() error {
 		Str("address", s.config.Addr).
 		Msg("Server listening")
 
-	// Note: Kafka consumer is managed by KafkaConsumerPool in shared pool mode.
+	// Note: Kafka consumer is managed by MultiTenantConsumerPool.
 	// Individual servers don't start/stop the consumer - they just hold a reference
 	// for metrics and replay operations. The pool handles lifecycle.
 
@@ -328,7 +328,7 @@ func (s *Server) Shutdown() error {
 		}
 	}
 
-	// Note: Kafka consumer lifecycle is managed by KafkaConsumerPool.
+	// Note: Kafka consumer lifecycle is managed by MultiTenantConsumerPool.
 	// Servers don't stop the shared consumer - the pool handles it during shutdown.
 
 	// Count current connections

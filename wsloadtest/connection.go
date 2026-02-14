@@ -109,6 +109,7 @@ func (c *Connection) readPump() {
 	c.ws.SetReadDeadline(time.Now().Add(c.pongWait))
 	c.ws.SetPongHandler(func(string) error {
 		c.ws.SetReadDeadline(time.Now().Add(c.pongWait))
+		c.logger.Debug().Msg("Received pong, refreshed read deadline")
 		return nil
 	})
 
@@ -156,6 +157,7 @@ func (c *Connection) writePump() {
 				c.logger.Debug().Err(err).Msg("Ping error")
 				return
 			}
+			c.logger.Debug().Msg("Sent ping to server")
 		}
 	}
 }

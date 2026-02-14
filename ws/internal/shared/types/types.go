@@ -35,8 +35,8 @@ type ServerConfig struct {
 	Addr                string
 	KafkaBrokers        []string
 	ConsumerGroup       string
-	Environment         string // Environment for logging (topic naming handled by KafkaConsumerPool)
-	SharedKafkaConsumer any    // Shared Kafka consumer reference (managed by KafkaConsumerPool)
+	Environment         string // Environment for logging (topic naming handled by MultiTenantConsumerPool)
+	SharedKafkaConsumer any    // Shared Kafka consumer reference (managed by MultiTenantConsumerPool)
 	KafkaProducer       any    // Kafka producer for client message publishing (optional)
 	MaxConnections      int
 

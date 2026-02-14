@@ -562,6 +562,126 @@ func TestMultiTenantPool_TopicTracking(t *testing.T) {
 }
 
 // =============================================================================
+// updateSharedConsumer Topic Tracking Tests
+// =============================================================================
+
+func TestMultiTenantPool_TopicRemoval_NilConsumer(t *testing.T) {
+	t.Parallel()
+	logger := zerolog.New(nil).Level(zerolog.Disabled)
+	registry := &mockTenantRegistry{}
+	bus := &mockBroadcastBus{}
+	guard := &mockResourceGuard{}
+
+	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
+		Brokers:       []string{"localhost:9092"},
+		Namespace:     "prod",
+		Registry:      registry,
+		BroadcastBus:  bus,
+		ResourceGuard: guard,
+		Logger:        logger,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Simulate: pool had tracked topics but consumer is nil (defensive path)
+	pool.sharedTopics = map[string]bool{
+		"prod.acme.trade":      true,
+		"prod.bigcorp.trade":   true,
+		"prod.acme.liquidity":  true,
+	}
+
+	// Call with empty topics — all existing topics should be removed
+	// sharedConsumer is nil, so the nil guard should prevent panic
+	err = pool.updateSharedConsumer(context.Background(), []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// All topics should be removed from tracking map
+	if len(pool.sharedTopics) != 0 {
+		t.Errorf("sharedTopics: got %d, want 0 (topics: %v)", len(pool.sharedTopics), pool.sharedTopics)
+	}
+}
+
+func TestMultiTenantPool_TopicRemoval_Partial(t *testing.T) {
+	t.Parallel()
+	logger := zerolog.New(nil).Level(zerolog.Disabled)
+	registry := &mockTenantRegistry{}
+	bus := &mockBroadcastBus{}
+	guard := &mockResourceGuard{}
+
+	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
+		Brokers:       []string{"localhost:9092"},
+		Namespace:     "prod",
+		Registry:      registry,
+		BroadcastBus:  bus,
+		ResourceGuard: guard,
+		Logger:        logger,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Simulate: pool tracks 3 topics, sharedConsumer is nil (defensive path)
+	pool.sharedTopics = map[string]bool{
+		"prod.acme.trade":     true,
+		"prod.bigcorp.trade":  true,
+		"prod.acme.liquidity": true,
+	}
+
+	// Call with only 1 topic remaining — 2 should be removed
+	err = pool.updateSharedConsumer(context.Background(), []string{"prod.acme.trade"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only prod.acme.trade should remain
+	if len(pool.sharedTopics) != 1 {
+		t.Errorf("sharedTopics: got %d, want 1 (topics: %v)", len(pool.sharedTopics), pool.sharedTopics)
+	}
+	if !pool.sharedTopics["prod.acme.trade"] {
+		t.Error("expected prod.acme.trade to remain in sharedTopics")
+	}
+	if pool.sharedTopics["prod.bigcorp.trade"] {
+		t.Error("expected prod.bigcorp.trade to be removed from sharedTopics")
+	}
+	if pool.sharedTopics["prod.acme.liquidity"] {
+		t.Error("expected prod.acme.liquidity to be removed from sharedTopics")
+	}
+}
+
+func TestMultiTenantPool_TopicDiff_NoChanges(t *testing.T) {
+	t.Parallel()
+	logger := zerolog.New(nil).Level(zerolog.Disabled)
+	registry := &mockTenantRegistry{}
+	bus := &mockBroadcastBus{}
+	guard := &mockResourceGuard{}
+
+	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
+		Brokers:       []string{"localhost:9092"},
+		Namespace:     "prod",
+		Registry:      registry,
+		BroadcastBus:  bus,
+		ResourceGuard: guard,
+		Logger:        logger,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// No shared consumer, no topics — should be a no-op
+	err = pool.updateSharedConsumer(context.Background(), []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(pool.sharedTopics) != 0 {
+		t.Errorf("sharedTopics: got %d, want 0", len(pool.sharedTopics))
+	}
+}
+
+// =============================================================================
 // Ensure interface implementations
 // =============================================================================
 

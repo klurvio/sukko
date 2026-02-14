@@ -349,6 +349,9 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 		p.logger.Info().
 			Strs("topics", toRemove).
 			Msg("Topics removed from shared consumer (tenant deprovisioned)")
+		if p.sharedConsumer != nil {
+			p.sharedConsumer.PauseFetchTopics(toRemove...)
+		}
 		for _, topic := range toRemove {
 			delete(p.sharedTopics, topic)
 		}

@@ -10,6 +10,14 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
 )
 
+// controlChannelSize is the buffer size for the pong control channel.
+// Each client ping produces exactly 1 pong. WriteLoop drains this channel with
+// priority (sub-millisecond), so at most 1 pong is pending at any time. Cap of 2
+// provides headroom if a data batch write briefly delays the drain. If the channel
+// is ever full, the pong is dropped with a log and the next client ping retries.
+// This works correctly regardless of PingPeriod configuration.
+const controlChannelSize = 2
+
 // Client represents a WebSocket client connection with message reliability features
 // Enhanced from basic WebSocket to production-grade trading platform client
 //
@@ -45,6 +53,7 @@ type Client struct {
 	conn      net.Conn    // Underlying TCP connection
 	server    *Server     // Reference to parent server
 	send      chan []byte // Buffered channel for outgoing messages (configurable via WS_CLIENT_SEND_BUFFER_SIZE)
+	control   chan []byte // Buffered channel for pong payloads (ReadLoop → WriteLoop)
 	closeOnce sync.Once   // Ensures connection is only closed once
 
 	// Message reliability fields
@@ -125,7 +134,8 @@ func NewConnectionPool(maxSize int, bufferSize int) *ConnectionPool {
 			client := &Client{
 				// Buffer size now configurable via WS_CLIENT_SEND_BUFFER_SIZE
 				// Default: 512 (reduced from 1024 to cut heap size by 50%)
-				send: make(chan []byte, cp.bufferSize),
+				send:    make(chan []byte, cp.bufferSize),
+				control: make(chan []byte, controlChannelSize),
 			}
 
 			return client
@@ -143,6 +153,12 @@ func (p *ConnectionPool) Get() *Client {
 		select {
 		case <-client.send:
 			// Drain any pending messages from previous connection
+		default:
+		}
+
+		// Drain stale pongs from previous connection
+		select {
+		case <-client.control:
 		default:
 		}
 

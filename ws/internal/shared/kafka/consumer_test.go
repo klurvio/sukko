@@ -425,6 +425,42 @@ func TestBroadcastFunc_Signature(t *testing.T) {
 }
 
 // =============================================================================
+// PauseFetchTopics Tests
+// =============================================================================
+
+func TestConsumer_PauseFetchTopics_EmptyTopics(t *testing.T) {
+	t.Parallel()
+	// Empty topics should be a no-op and not panic with nil client
+	consumer := &Consumer{}
+	consumer.PauseFetchTopics()
+}
+
+func TestConsumer_PauseFetchTopics_EmptySlice(t *testing.T) {
+	t.Parallel()
+	// Explicit empty slice should also be a no-op
+	consumer := &Consumer{}
+	consumer.PauseFetchTopics([]string{}...)
+}
+
+// =============================================================================
+// AddConsumeTopics Tests
+// =============================================================================
+
+func TestConsumer_AddConsumeTopics_EmptyTopics(t *testing.T) {
+	t.Parallel()
+	// Empty topics should be a no-op and not panic with nil client
+	consumer := &Consumer{}
+	consumer.AddConsumeTopics()
+}
+
+func TestConsumer_AddConsumeTopics_EmptySlice(t *testing.T) {
+	t.Parallel()
+	// Explicit empty slice should also be a no-op
+	consumer := &Consumer{}
+	consumer.AddConsumeTopics([]string{}...)
+}
+
+// =============================================================================
 // ResourceGuard Interface Tests
 // =============================================================================
 

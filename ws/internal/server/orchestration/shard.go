@@ -37,7 +37,7 @@ type ShardConfig struct {
 	AdvertiseAddr       string // Address advertised to LoadBalancer (e.g., localhost:3002)
 	ServerConfig        types.ServerConfig
 	BroadcastBus        broadcast.Bus // Reference to the central bus
-	SharedKafkaConsumer any           // Shared Kafka consumer (managed by KafkaConsumerPool)
+	SharedKafkaConsumer any           // Shared Kafka consumer (managed by MultiTenantConsumerPool)
 	KafkaProducer       any           // Kafka producer for client message publishing (optional)
 	Logger              zerolog.Logger
 	MaxConnections      int
@@ -48,7 +48,7 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create a server.Server instance for this shard
-	// Kafka consumption is handled by KafkaConsumerPool, not individual shards
+	// Kafka consumption is handled by MultiTenantConsumerPool, not individual shards
 	serverConfig := cfg.ServerConfig
 	serverConfig.MaxConnections = cfg.MaxConnections           // Override with shard-specific limit
 	serverConfig.SharedKafkaConsumer = cfg.SharedKafkaConsumer // Pass shared consumer for metrics

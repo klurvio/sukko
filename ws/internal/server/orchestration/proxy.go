@@ -216,6 +216,17 @@ func (p *ShardProxy) copyMessages(src, dst net.Conn, direction string, maskOutpu
 			return
 		}
 
+		// Log control frames for ping/pong tracing
+		if header.OpCode == ws.OpPing {
+			p.logger.Debug().
+				Str("direction", direction).
+				Msg("Forwarded ping frame")
+		} else if header.OpCode == ws.OpPong {
+			p.logger.Debug().
+				Str("direction", direction).
+				Msg("Forwarded pong frame")
+		}
+
 		// Forward all other frames (text, binary, ping, pong) as-is
 		outHeader := ws.Header{
 			Fin:    header.Fin,

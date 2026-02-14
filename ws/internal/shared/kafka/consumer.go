@@ -323,6 +323,29 @@ func (c *Consumer) AddConsumeTopics(topics ...string) {
 	}
 }
 
+// PauseFetchTopics stops the consumer from fetching the given topics.
+// This is used to stop consuming deprovisioned tenant topics without
+// triggering a rebalance. Paused topics persist until the consumer restarts.
+//
+// Note: franz-go does not support removing topics from a group consumer.
+// PauseFetchTopics is the best available alternative — it eliminates
+// fetch bandwidth waste while keeping the consumer group stable.
+//
+// Thread Safety: Safe for concurrent use.
+func (c *Consumer) PauseFetchTopics(topics ...string) {
+	if len(topics) == 0 {
+		return
+	}
+
+	c.client.PauseFetchTopics(topics...)
+
+	if c.logger != nil {
+		c.logger.Info().
+			Strs("topics", topics).
+			Msg("Paused fetching from deprovisioned topics")
+	}
+}
+
 // consumeLoop continuously polls for messages
 func (c *Consumer) consumeLoop() {
 	// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)

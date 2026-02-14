@@ -314,15 +314,16 @@ func (m *testMockAuditLogger) hasEvent(eventName string) bool {
 
 // testMockConn implements net.Conn for testing WebSocket frame handling.
 type testMockConn struct {
-	mu           sync.Mutex
-	readBuf      []byte
-	readPos      int
-	readErr      error
-	writeBuf     []byte
-	writeErr     error
-	closed       bool
-	deadlines    []time.Time
-	readDeadline time.Time
+	mu             sync.Mutex
+	readBuf        []byte
+	readPos        int
+	readErr        error
+	writeBuf       []byte
+	writeErr       error
+	closed         bool
+	deadlines      []time.Time
+	readDeadline   time.Time
+	writeDeadlines []time.Time
 }
 
 func newTestMockConn() *testMockConn {
@@ -392,7 +393,10 @@ func (c *testMockConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-func (c *testMockConn) SetWriteDeadline(_ time.Time) error {
+func (c *testMockConn) SetWriteDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.writeDeadlines = append(c.writeDeadlines, t)
 	return nil
 }
 
@@ -423,4 +427,16 @@ func (c *testMockConn) getDeadlineCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.deadlines)
+}
+
+func (c *testMockConn) setWriteErr(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.writeErr = err
+}
+
+func (c *testMockConn) getWriteDeadlineCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.writeDeadlines)
 }

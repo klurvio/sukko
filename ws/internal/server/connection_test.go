@@ -546,6 +546,45 @@ func TestConnectionPool_Get_SubscriptionsClear(t *testing.T) {
 	}
 }
 
+func TestConnectionPool_Get_ControlChannelInitialized(t *testing.T) {
+	t.Parallel()
+	pool := NewConnectionPool(100, 256)
+
+	client := pool.Get()
+	if client == nil {
+		t.Fatal("Get should return non-nil client")
+	}
+
+	if client.control == nil {
+		t.Error("control channel should be initialized")
+	}
+	if cap(client.control) != controlChannelSize {
+		t.Errorf("control channel capacity should be %d, got %d", controlChannelSize, cap(client.control))
+	}
+}
+
+func TestConnectionPool_Get_ControlChannelDrained(t *testing.T) {
+	t.Parallel()
+	pool := NewConnectionPool(100, 256)
+
+	client := pool.Get()
+
+	// Simulate stale pong from previous connection
+	client.control <- []byte("stale-pong")
+
+	// Return and get again
+	pool.Put(client)
+	client2 := pool.Get()
+
+	// Control channel should be drained
+	select {
+	case <-client2.control:
+		t.Error("control channel should be drained on reuse")
+	default:
+		// Good - channel is empty
+	}
+}
+
 func TestConnectionPool_Put(t *testing.T) {
 	t.Parallel()
 	pool := NewConnectionPool(100, 256)
