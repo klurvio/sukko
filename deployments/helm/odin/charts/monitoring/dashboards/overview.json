@@ -254,7 +254,7 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "ws_kafka_connected",
+          "expr": "ws_kafka_connected and on(instance) up{job=\"ws-server\"}",
           "legendFormat": "__auto",
           "refId": "A"
         }
@@ -316,8 +316,13 @@
       "targets": [
         {
           "expr": "sum(ws_connections_active)",
-          "legendFormat": "__auto",
+          "legendFormat": "ws-server",
           "refId": "A"
+        },
+        {
+          "expr": "sum(gateway_connections_active)",
+          "legendFormat": "gateway",
+          "refId": "B"
         }
       ],
       "title": "Active Connections",
@@ -526,11 +531,104 @@
       "targets": [
         {
           "expr": "sum(ws_connections_active) by (pod)",
-          "legendFormat": "{{pod}}",
+          "legendFormat": "ws: {{pod}}",
           "refId": "A"
+        },
+        {
+          "expr": "sum(gateway_connections_active) by (pod)",
+          "legendFormat": "gw: {{pod}}",
+          "refId": "B"
         }
       ],
       "title": "Active Connections by Pod",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "id": 32,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull", "mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "expr": "sum by (tenant_id)(gateway_tenant_connections_active)",
+          "legendFormat": "Active: {{tenant_id}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (tenant_id)(rate(gateway_tenant_connections_rejected_total[1m]))",
+          "legendFormat": "Rejected/sec: {{tenant_id}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Gateway Tenant Connections",
       "type": "timeseries"
     },
     {
@@ -609,13 +707,18 @@
       "targets": [
         {
           "expr": "sum(rate(ws_messages_sent_total[1m]))",
-          "legendFormat": "Sent",
+          "legendFormat": "WS Sent (total)",
           "refId": "A"
         },
         {
           "expr": "sum(rate(ws_messages_received_total[1m]))",
-          "legendFormat": "Received",
+          "legendFormat": "WS Received (total)",
           "refId": "B"
+        },
+        {
+          "expr": "sum by (topic)(rate(ws_kafka_messages_received_total[1m]))",
+          "legendFormat": "Kafka: {{topic}}",
+          "refId": "C"
         }
       ],
       "title": "Message Throughput",
@@ -710,13 +813,23 @@
       "targets": [
         {
           "expr": "sum(rate(vectorized_cluster_partition_bytes_produced_total[1m]))",
-          "legendFormat": "Bytes Produced",
+          "legendFormat": "Bytes Produced (total)",
           "refId": "A"
         },
         {
           "expr": "sum(rate(vectorized_cluster_partition_bytes_fetched_total[1m]))",
-          "legendFormat": "Bytes Fetched",
+          "legendFormat": "Bytes Fetched (total)",
           "refId": "B"
+        },
+        {
+          "expr": "sum by (topic)(rate(vectorized_cluster_partition_bytes_produced_total[1m]))",
+          "legendFormat": "Produced: {{topic}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum by (topic)(rate(vectorized_cluster_partition_bytes_fetched_total[1m]))",
+          "legendFormat": "Fetched: {{topic}}",
+          "refId": "D"
         }
       ],
       "title": "Redpanda Throughput",
@@ -797,14 +910,24 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "rate(ws_kafka_messages_received_total[1m])",
-          "legendFormat": "Messages Received/sec",
+          "expr": "sum(rate(ws_kafka_messages_received_total[1m]))",
+          "legendFormat": "Received (total)",
           "refId": "A"
         },
         {
-          "expr": "rate(ws_kafka_messages_dropped_total[1m])",
-          "legendFormat": "Messages Dropped/sec",
+          "expr": "sum(rate(ws_kafka_messages_dropped_total[1m]))",
+          "legendFormat": "Dropped (total)",
           "refId": "B"
+        },
+        {
+          "expr": "sum by (topic, consumer_group)(rate(ws_kafka_messages_received_total[1m]))",
+          "legendFormat": "{{consumer_group}}: {{topic}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum by (topic, consumer_group)(rate(ws_kafka_messages_dropped_total[1m]))",
+          "legendFormat": "Dropped: {{consumer_group}}/{{topic}}",
+          "refId": "D"
         }
       ],
       "title": "Kafka Consumer (ws-server)",

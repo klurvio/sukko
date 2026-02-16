@@ -63,6 +63,12 @@ func GetSystemMonitor(logger zerolog.Logger) *SystemMonitor {
 			Timestamp: time.Now(),
 		}
 
+		// Set cgroup memory limit once at startup
+		memLimit, err := platform.GetMemoryLimit()
+		if err == nil && memLimit > 0 {
+			memoryLimitBytes.Set(float64(memLimit))
+		}
+
 		logger.Info().
 			Str("cpu_mode", systemMonitorInstance.cpuMonitor.Mode()).
 			Float64("cpu_allocation", systemMonitorInstance.cpuMonitor.GetAllocation()).
@@ -163,6 +169,8 @@ func (sm *SystemMonitor) updateMetrics() {
 	CPUUsagePercent.Set(cpuPercent)
 	CPUContainerPercent.Set(cpuPercent)
 	CPUAllocationCores.Set(sm.cpuMonitor.GetAllocation())
+	memoryUsageBytes.Set(float64(mem.Alloc))
+	goroutinesActive.Set(float64(goroutines))
 
 	if hostCPU, err := sm.cpuMonitor.GetHostPercent(); err == nil {
 		CPUHostPercent.Set(hostCPU)

@@ -61,9 +61,8 @@ type Server struct {
 	connectionRateLimiter *limits.ConnectionRateLimiter // Per-IP and global connection throttling
 
 	// Monitoring
-	auditLogger      *audit.Logger         // Security and operational audit events
-	metricsCollector *metrics.Collector    // Prometheus metrics collector
-	resourceGuard    *limits.ResourceGuard // CPU-aware backpressure with hysteresis
+	auditLogger   *audit.Logger         // Security and operational audit events
+	resourceGuard *limits.ResourceGuard // CPU-aware backpressure with hysteresis
 
 	// Lifecycle
 	ctx          context.Context    // Root context for all server goroutines
@@ -125,7 +124,6 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 	// Production: Set ALERT_ENABLED=true and ALERT_SLACK_WEBHOOK_URL for Slack alerts
 	alerter := alerting.NewFromEnv()
 	s.auditLogger = audit.NewFromEnvWithAlerter(alerter)
-	s.metricsCollector = metrics.NewCollector(s)
 
 	// Initialize ResourceGuard with static configuration
 	s.resourceGuard = limits.NewResourceGuard(config, logger, &s.stats.CurrentConnections)
@@ -185,19 +183,14 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 	return s, nil
 }
 
-// GetConfig implements metrics.ServerMetrics interface
+// GetConfig returns the server's immutable configuration.
 func (s *Server) GetConfig() types.ServerConfig {
 	return s.config
 }
 
-// GetStats implements metrics.ServerMetrics interface
+// GetStats returns the server's runtime statistics.
 func (s *Server) GetStats() *types.Stats {
 	return s.stats
-}
-
-// GetKafkaConsumer implements metrics.ServerMetrics interface
-func (s *Server) GetKafkaConsumer() any {
-	return s.kafkaConsumer
 }
 
 // Start begins accepting WebSocket connections on the configured address.
@@ -278,9 +271,6 @@ func (s *Server) Start() error {
 	// Start metrics collection
 	s.wg.Add(1)
 	go s.collectMetrics()
-
-	// Start Prometheus metrics collector
-	s.metricsCollector.Start()
 
 	// Start memory monitoring
 	s.wg.Add(1)

@@ -234,6 +234,7 @@ func main() {
 				logger.Fatalf("Failed to start multi-tenant consumer pool: %v", err)
 			}
 
+			metrics.SetKafkaConnected(true)
 			logger.Printf("Multi-tenant consumer pool started (refresh: %v)", cfg.TopicRefreshInterval)
 		} else {
 			logger.Printf("Kafka consumer DISABLED (KAFKA_CONSUMER_ENABLED=false) — connection-only mode for loadtesting")

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 // =============================================================================
@@ -147,6 +148,31 @@ func TestNewConsumer_NoResourceGuard(t *testing.T) {
 }
 
 // =============================================================================
+// ConsumerGroup Field Tests
+// =============================================================================
+
+func TestConsumer_ConsumerGroupField(t *testing.T) {
+	t.Parallel()
+	// Verify consumerGroup is stored on the struct for metrics labels.
+	// NewConsumer() requires a real Kafka broker, so we test the field directly.
+	consumer := &Consumer{consumerGroup: "odin-shared-dev"}
+
+	if consumer.consumerGroup != "odin-shared-dev" {
+		t.Errorf("consumerGroup = %q, want %q", consumer.consumerGroup, "odin-shared-dev")
+	}
+}
+
+func TestConsumer_ConsumerGroupField_Empty(t *testing.T) {
+	t.Parallel()
+	// Empty consumer group should not panic (metrics will use empty string label)
+	consumer := &Consumer{consumerGroup: ""}
+
+	if consumer.consumerGroup != "" {
+		t.Errorf("consumerGroup = %q, want empty", consumer.consumerGroup)
+	}
+}
+
+// =============================================================================
 // ConsumerConfig Fields Tests
 // =============================================================================
 
@@ -212,9 +238,9 @@ func TestConsumer_IncrementProcessed(t *testing.T) {
 	t.Parallel()
 	consumer := &Consumer{}
 
-	consumer.incrementProcessed()
-	consumer.incrementProcessed()
-	consumer.incrementProcessed()
+	consumer.incrementProcessed("test-topic")
+	consumer.incrementProcessed("test-topic")
+	consumer.incrementProcessed("test-topic")
 
 	processed, _, _ := consumer.GetMetrics()
 	if processed != 3 {
@@ -239,10 +265,10 @@ func TestConsumer_IncrementDropped(t *testing.T) {
 	t.Parallel()
 	consumer := &Consumer{}
 
-	consumer.incrementDropped()
-	consumer.incrementDropped()
-	consumer.incrementDropped()
-	consumer.incrementDropped()
+	consumer.incrementDropped("test-topic")
+	consumer.incrementDropped("test-topic")
+	consumer.incrementDropped("test-topic")
+	consumer.incrementDropped("test-topic")
 
 	_, _, dropped := consumer.GetMetrics()
 	if dropped != 4 {
@@ -254,12 +280,39 @@ func TestConsumer_GetDroppedCount(t *testing.T) {
 	t.Parallel()
 	consumer := &Consumer{}
 
-	consumer.incrementDropped()
-	consumer.incrementDropped()
+	consumer.incrementDropped("test-topic")
+	consumer.incrementDropped("test-topic")
 
 	count := consumer.getDroppedCount()
 	if count != 2 {
 		t.Errorf("getDroppedCount() = %d, want 2", count)
+	}
+}
+
+func TestConsumer_IncrementProcessed_MultipleTopics(t *testing.T) {
+	t.Parallel()
+	consumer := &Consumer{}
+
+	consumer.incrementProcessed("odin.dev.trade")
+	consumer.incrementProcessed("odin.dev.liquidity")
+	consumer.incrementProcessed("odin.dev.trade")
+
+	processed, _, _ := consumer.GetMetrics()
+	if processed != 3 {
+		t.Errorf("processed = %d, want 3", processed)
+	}
+}
+
+func TestConsumer_IncrementDropped_MultipleTopics(t *testing.T) {
+	t.Parallel()
+	consumer := &Consumer{}
+
+	consumer.incrementDropped("odin.dev.trade")
+	consumer.incrementDropped("odin.dev.liquidity")
+
+	_, _, dropped := consumer.GetMetrics()
+	if dropped != 2 {
+		t.Errorf("dropped = %d, want 2", dropped)
 	}
 }
 
@@ -292,7 +345,7 @@ func TestConsumer_Metrics_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range opsPerGoroutine {
-				consumer.incrementProcessed()
+				consumer.incrementProcessed("test-topic")
 			}
 		}()
 	}
@@ -312,7 +365,7 @@ func TestConsumer_Metrics_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range opsPerGoroutine {
-				consumer.incrementDropped()
+				consumer.incrementDropped("test-topic")
 			}
 		}()
 	}
@@ -330,6 +383,103 @@ func TestConsumer_Metrics_Concurrent(t *testing.T) {
 	}
 	if dropped != expected {
 		t.Errorf("dropped = %d, want %d", dropped, expected)
+	}
+}
+
+// =============================================================================
+// PrepareMessage Tests
+// =============================================================================
+
+func TestConsumer_PrepareMessage_IncludesTopic(t *testing.T) {
+	t.Parallel()
+	logger := zerolog.Nop()
+	guard := newMockResourceGuard()
+
+	consumer := &Consumer{
+		logger:        &logger,
+		resourceGuard: guard,
+		ctx:           context.Background(),
+		consumerGroup: "odin-shared-dev",
+	}
+
+	record := &kgo.Record{
+		Topic: "odin.dev.trade",
+		Key:   []byte("BTC.trade"),
+		Value: []byte(`{"price":"50000"}`),
+	}
+
+	msg := consumer.prepareMessage(record)
+	if msg == nil {
+		t.Fatal("prepareMessage returned nil")
+	}
+
+	if msg.topic != "odin.dev.trade" {
+		t.Errorf("msg.topic = %q, want %q", msg.topic, "odin.dev.trade")
+	}
+	if msg.subject != "BTC.trade" {
+		t.Errorf("msg.subject = %q, want %q", msg.subject, "BTC.trade")
+	}
+	if string(msg.message) != `{"price":"50000"}` {
+		t.Errorf("msg.message = %q, want %q", msg.message, `{"price":"50000"}`)
+	}
+}
+
+func TestConsumer_PrepareMessage_EmptyKey_ReturnNil(t *testing.T) {
+	t.Parallel()
+	logger := zerolog.Nop()
+	guard := newMockResourceGuard()
+
+	consumer := &Consumer{
+		logger:        &logger,
+		resourceGuard: guard,
+		ctx:           context.Background(),
+		consumerGroup: "test-group",
+	}
+
+	record := &kgo.Record{
+		Topic: "odin.dev.trade",
+		Key:   []byte(""),
+		Value: []byte(`{"price":"50000"}`),
+	}
+
+	msg := consumer.prepareMessage(record)
+	if msg != nil {
+		t.Error("prepareMessage should return nil for empty key")
+	}
+
+	_, failed, _ := consumer.GetMetrics()
+	if failed != 1 {
+		t.Errorf("failed = %d, want 1 (should increment on empty key)", failed)
+	}
+}
+
+func TestConsumer_PrepareMessage_RateLimited_DropsWithTopic(t *testing.T) {
+	t.Parallel()
+	logger := zerolog.Nop()
+	guard := newMockResourceGuard()
+	guard.allowKafka = false
+
+	consumer := &Consumer{
+		logger:        &logger,
+		resourceGuard: guard,
+		ctx:           context.Background(),
+		consumerGroup: "test-group",
+	}
+
+	record := &kgo.Record{
+		Topic: "odin.dev.trade",
+		Key:   []byte("BTC.trade"),
+		Value: []byte(`{"price":"50000"}`),
+	}
+
+	msg := consumer.prepareMessage(record)
+	if msg != nil {
+		t.Error("prepareMessage should return nil when rate limited")
+	}
+
+	_, _, dropped := consumer.GetMetrics()
+	if dropped != 1 {
+		t.Errorf("dropped = %d, want 1", dropped)
 	}
 }
 

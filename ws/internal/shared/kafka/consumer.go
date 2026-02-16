@@ -86,6 +86,7 @@ type Consumer struct {
 	messagesDropped   uint64       // Rate limited or CPU paused
 	batchesSent       uint64       // Number of batches sent
 	mu                sync.RWMutex // Protects metrics fields
+	consumerGroup     string       // Consumer group ID for metrics labels
 }
 
 // ConsumerConfig holds configuration for creating a Kafka consumer.
@@ -250,6 +251,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		batchSize:     batchSize,
 		batchTimeout:  batchTimeout,
 		batchEnabled:  batchEnabled,
+		consumerGroup: cfg.ConsumerGroup,
 	}
 
 	if batchEnabled {
@@ -368,6 +370,7 @@ func (c *Consumer) consumeLoop() {
 
 	// Batching enabled: accumulate messages and flush periodically
 	type batchedMessage struct {
+		topic   string
 		subject string
 		message []byte
 	}
@@ -384,7 +387,7 @@ func (c *Consumer) consumeLoop() {
 		// Send all messages in batch
 		for _, msg := range batch {
 			c.broadcast(msg.subject, msg.message)
-			c.incrementProcessed()
+			c.incrementProcessed(msg.topic)
 		}
 
 		c.incrementBatches()
@@ -480,6 +483,7 @@ func (c *Consumer) consumeLoopUnbatched() {
 // prepareMessage validates and prepares a message for batching
 // Returns nil if message should be dropped (rate limited, invalid, etc.)
 func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
+	topic   string
 	subject string
 	message []byte
 } {
@@ -488,7 +492,7 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
 	// ============================================================================
 	allow, waitDuration := c.resourceGuard.AllowKafkaMessage(c.ctx)
 	if !allow {
-		c.incrementDropped()
+		c.incrementDropped(record.Topic)
 
 		// Log every 100th drop to avoid log spam
 		dropped := c.getDroppedCount()
@@ -548,9 +552,11 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
 	}
 
 	return &struct {
+		topic   string
 		subject string
 		message []byte
 	}{
+		topic:   record.Topic,
 		subject: subject,
 		message: record.Value,
 	}
@@ -572,7 +578,7 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 	// If rate limit exceeded, drop message and let Kafka handle redelivery
 	allow, waitDuration := c.resourceGuard.AllowKafkaMessage(c.ctx)
 	if !allow {
-		c.incrementDropped()
+		c.incrementDropped(record.Topic)
 
 		// Log every 100th drop to avoid log spam
 		dropped := c.getDroppedCount()
@@ -658,7 +664,7 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 	c.broadcast(subject, record.Value)
 
 	// Increment processed count after successful broadcast
-	c.incrementProcessed()
+	c.incrementProcessed(record.Topic)
 
 	// DEBUG level: Zero overhead in production (LOG_LEVEL=info)
 	c.logger.Debug().
@@ -676,11 +682,11 @@ func (c *Consumer) GetMetrics() (processed, failed, dropped uint64) {
 	return c.messagesProcessed, c.messagesFailed, c.messagesDropped
 }
 
-func (c *Consumer) incrementProcessed() {
+func (c *Consumer) incrementProcessed(topic string) {
 	c.mu.Lock()
 	c.messagesProcessed++
 	c.mu.Unlock()
-	metrics.IncrementKafkaMessages()
+	metrics.IncrementKafkaMessages(topic, c.consumerGroup)
 }
 
 func (c *Consumer) incrementFailed() {
@@ -689,11 +695,11 @@ func (c *Consumer) incrementFailed() {
 	c.mu.Unlock()
 }
 
-func (c *Consumer) incrementDropped() {
+func (c *Consumer) incrementDropped(topic string) {
 	c.mu.Lock()
 	c.messagesDropped++
 	c.mu.Unlock()
-	metrics.IncrementKafkaDropped()
+	metrics.IncrementKafkaDropped(topic, c.consumerGroup)
 }
 
 func (c *Consumer) getDroppedCount() uint64 {

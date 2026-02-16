@@ -4,7 +4,6 @@ package metrics
 
 import (
 	"net/http"
-	"runtime"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -12,7 +11,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
@@ -190,15 +188,15 @@ var (
 		Help: "Kafka consumer status (1=running, 0=stopped)",
 	})
 
-	kafkaMessagesReceived = promauto.NewCounter(prometheus.CounterOpts{
+	kafkaMessagesReceived = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_kafka_messages_received_total",
 		Help: "Total number of messages received from Kafka",
-	})
+	}, []string{"topic", "consumer_group"})
 
-	kafkaMessagesDropped = promauto.NewCounter(prometheus.CounterOpts{
+	kafkaMessagesDropped = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_kafka_messages_dropped_total",
 		Help: "Total number of Kafka messages dropped due to backpressure",
-	})
+	}, []string{"topic", "consumer_group"})
 
 	kafkaMessagesPublished = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "ws_kafka_messages_published_total",
@@ -287,11 +285,6 @@ func UpdateConnectionMetrics() {
 func SetAggregatedConnectionMetrics(totalConnections, totalMaxConnections int64) {
 	connectionsActive.Set(float64(totalConnections))
 	connectionsMax.Set(float64(totalMaxConnections))
-}
-
-// SetMaxConnections sets the maximum connections gauge.
-func SetMaxConnections(maxConns int) {
-	connectionsMax.Set(float64(maxConns))
 }
 
 // RecordDisconnect tracks a disconnect with reason, initiator, and duration.
@@ -396,30 +389,6 @@ func RecordClientBufferSizeWithStats(stats *types.Stats, bufferLen, bufferCap in
 }
 
 // =============================================================================
-// System Helper Functions
-// =============================================================================
-
-// SetMemoryUsage sets the current memory usage.
-func SetMemoryUsage(bytes float64) {
-	memoryUsageBytes.Set(bytes)
-}
-
-// SetMemoryLimit sets the memory limit.
-func SetMemoryLimit(bytes float64) {
-	memoryLimitBytes.Set(bytes)
-}
-
-// SetCPUUsage sets the CPU usage percentage.
-func SetCPUUsage(percent float64) {
-	CPUUsagePercent.Set(percent)
-}
-
-// SetGoroutines sets the active goroutine count.
-func SetGoroutines(count int) {
-	goroutinesActive.Set(float64(count))
-}
-
-// =============================================================================
 // Kafka Helper Functions
 // =============================================================================
 
@@ -432,14 +401,14 @@ func SetKafkaConnected(connected bool) {
 	}
 }
 
-// IncrementKafkaMessages increments Kafka message counter.
-func IncrementKafkaMessages() {
-	kafkaMessagesReceived.Inc()
+// IncrementKafkaMessages increments Kafka message counter with topic and consumer group labels.
+func IncrementKafkaMessages(topic, consumerGroup string) {
+	kafkaMessagesReceived.WithLabelValues(topic, consumerGroup).Inc()
 }
 
-// IncrementKafkaDropped increments dropped Kafka message counter.
-func IncrementKafkaDropped() {
-	kafkaMessagesDropped.Inc()
+// IncrementKafkaDropped increments dropped Kafka message counter with topic and consumer group labels.
+func IncrementKafkaDropped(topic, consumerGroup string) {
+	kafkaMessagesDropped.WithLabelValues(topic, consumerGroup).Inc()
 }
 
 // IncrementMessagesPublished increments Kafka publish success counter.
@@ -526,104 +495,6 @@ func (a *MultiTenantPoolMetricsAdapter) OnRefresh(success bool, topicsSubscribed
 	} else {
 		multitenantRefreshTotal.WithLabelValues("error").Inc()
 	}
-}
-
-// =============================================================================
-// Metrics Collector
-// =============================================================================
-
-// ServerMetrics is the interface required for metrics collection.
-// Implemented by *Server.
-type ServerMetrics interface {
-	GetConfig() types.ServerConfig
-	GetStats() *types.Stats
-	GetKafkaConsumer() any // Returns kafka.Consumer but we only check if nil
-}
-
-// Collector handles periodic collection of system metrics.
-type Collector struct {
-	server   ServerMetrics
-	stopChan chan struct{}
-}
-
-// NewCollector creates a new Collector for the given server.
-func NewCollector(server ServerMetrics) *Collector {
-	return &Collector{
-		server:   server,
-		stopChan: make(chan struct{}),
-	}
-}
-
-// Start begins collecting metrics periodically.
-func (c *Collector) Start() {
-	config := c.server.GetConfig()
-
-	// Set static metrics
-	connectionsMax.Set(float64(config.MaxConnections))
-
-	// Get memory limit from cgroup
-	memLimit, err := platform.GetMemoryLimit()
-	if err == nil && memLimit > 0 {
-		memoryLimitBytes.Set(float64(memLimit))
-	}
-
-	// Collect metrics at configured interval
-	ticker := time.NewTicker(config.MetricsInterval)
-	go func() {
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				c.collect()
-			case <-c.stopChan:
-				return
-			}
-		}
-	}()
-}
-
-// Stop stops the metrics collector.
-func (c *Collector) Stop() {
-	close(c.stopChan)
-}
-
-// collect gathers current metrics.
-func (c *Collector) collect() {
-	stats := c.server.GetStats()
-
-	// Connection metrics - DISABLED per-shard setting
-	// connectionsActive is now set by LoadBalancer.aggregateMetrics() which sums all shards
-	// This fixes the multi-shard overwrite bug where each shard's collector would overwrite the gauge
-	_ = stats.CurrentConnections.Load() // Keep read for stats object usage
-
-	// Memory metrics
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
-	memoryUsageBytes.Set(float64(mem.Alloc))
-
-	// CPU metrics (estimated)
-	c.estimateCPU()
-
-	// Goroutine metrics
-	goroutinesActive.Set(float64(runtime.NumGoroutine()))
-
-	// Kafka status
-	if c.server.GetKafkaConsumer() != nil {
-		kafkaConnected.Set(1)
-	} else {
-		kafkaConnected.Set(0)
-	}
-}
-
-// estimateCPU gets CPU usage from server stats.
-func (c *Collector) estimateCPU() float64 {
-	// Read CPU percentage from server stats (collected by collectMetrics goroutine)
-	stats := c.server.GetStats()
-	stats.Mu.RLock()
-	cpuPercent := stats.CPUPercent
-	stats.Mu.RUnlock()
-	CPUUsagePercent.Set(cpuPercent)
-	return cpuPercent
 }
 
 // =============================================================================

@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
@@ -57,39 +56,6 @@ func TestServer_GetStats(t *testing.T) {
 	}
 	if got.TotalConnections.Load() != 100 {
 		t.Errorf("GetStats().TotalConnections: got %d, want 100", got.TotalConnections.Load())
-	}
-}
-
-func TestServer_GetKafkaConsumer_Nil(t *testing.T) {
-	t.Parallel()
-	// IMPORTANT: This test documents a Go language behavior, not a bug.
-	//
-	// Go Interface Nil Semantics:
-	// When a nil *kafka.Consumer is returned as interface{}, the interface
-	// itself is NOT nil. This is because interfaces have (type, value) pairs:
-	// - nil interface: (type=nil, value=nil)
-	// - interface holding nil pointer: (type=*kafka.Consumer, value=nil)
-	//
-	// Callers should NOT check "if GetKafkaConsumer() == nil", they should:
-	// 1. Type assert: consumer, ok := GetKafkaConsumer().(*kafka.Consumer)
-	// 2. Then check: if consumer == nil { ... }
-
-	server := &Server{kafkaConsumer: nil}
-
-	got := server.GetKafkaConsumer()
-
-	// Verify the Go nil interface behavior
-	if got == nil {
-		t.Error("Expected non-nil interface (Go behavior: nil pointer in interface != nil)")
-	}
-
-	// Demonstrate the correct way to check for nil
-	consumer, ok := got.(*kafka.Consumer)
-	if !ok {
-		t.Error("Should be able to type assert to *kafka.Consumer")
-	}
-	if consumer != nil {
-		t.Error("Type-asserted value should be nil")
 	}
 }
 
