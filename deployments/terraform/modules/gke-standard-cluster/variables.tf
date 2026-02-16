@@ -168,5 +168,31 @@ variable "deletion_protection" {
   default     = false
 }
 
+# =============================================================================
+# Cloud NAT Port Allocation
+# =============================================================================
+# Increase for environments with high-connection workloads (e.g., loadtest VMs).
+# To reset to defaults: remove the overrides from the environment config and
+# run terraform apply. This only affects NAT port allocation — no impact on
+# the GKE cluster, nodes, or workloads.
+
+variable "nat_min_ports_per_vm" {
+  description = "Minimum NAT source ports per VM. GCP default is 64. Increase for loadtest VMs that need many outbound connections through NAT."
+  type        = number
+  default     = 64
+}
+
+variable "nat_enable_dynamic_port_allocation" {
+  description = "Allow NAT to dynamically allocate ports beyond min_ports_per_vm up to max_ports_per_vm."
+  type        = bool
+  default     = false
+}
+
+variable "nat_max_ports_per_vm" {
+  description = "Maximum NAT source ports per VM when dynamic allocation is enabled."
+  type        = number
+  default     = 32768
+}
+
 # Note: Kernel tuning is now done via DaemonSet in the Helm chart
 # See deployments/k8s/helm/odin/templates/kernel-tuning-daemonset.yaml

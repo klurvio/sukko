@@ -38,6 +38,7 @@ type ServerConfig struct {
 	Environment         string // Environment for logging (topic naming handled by MultiTenantConsumerPool)
 	SharedKafkaConsumer any    // Shared Kafka consumer reference (managed by MultiTenantConsumerPool)
 	KafkaProducer       any    // Kafka producer for client message publishing (optional)
+	KafkaConsumerDisabled bool // True when KAFKA_CONSUMER_ENABLED=false (connection-only mode)
 	MaxConnections      int
 
 	// Static resource limits

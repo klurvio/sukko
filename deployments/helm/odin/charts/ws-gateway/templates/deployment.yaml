@@ -142,9 +142,12 @@ spec:
             - name: ENVIRONMENT
               value: "{{ .Release.Namespace }}"
 
-            # Note: Gateway does not use connection limits (only rate limiting)
-            # MAX_CONNECTIONS, READ_BUFFER_SIZE, etc. are NOT read by gateway code
-            # Capacity control happens at the ws-server level
+            # Per-tenant connection limits (in-memory per pod)
+            # Effective cluster limit = DEFAULT_TENANT_CONNECTION_LIMIT × gateway replica count
+            - name: TENANT_CONNECTION_LIMIT_ENABLED
+              value: "{{ .Values.tenantConnectionLimit.enabled }}"
+            - name: DEFAULT_TENANT_CONNECTION_LIMIT
+              value: "{{ .Values.tenantConnectionLimit.default }}"
 
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}

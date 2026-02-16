@@ -46,10 +46,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	warnings := []string{}
 	errors := []string{}
 
-	// Check Kafka consumer (critical dependency)
+	// Check Kafka consumer (optional — see Degradation Decision Matrix in CODING_GUIDELINES.md)
 	kafkaStatus := "stopped"
 	kafkaHealthy := false
-	if s.kafkaConsumer != nil {
+	if s.config.KafkaConsumerDisabled {
+		kafkaStatus = "disabled"
+		kafkaHealthy = true
+	} else if s.kafkaConsumer != nil {
 		kafkaStatus = "running"
 		kafkaHealthy = true
 	} else {

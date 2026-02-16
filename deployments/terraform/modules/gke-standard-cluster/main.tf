@@ -72,6 +72,11 @@ resource "google_compute_router_nat" "nat" {
   nat_ip_allocate_option             = "AUTO_ONLY"
   source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
 
+  # Port allocation (defaults match GCP defaults: 64 ports, no dynamic allocation)
+  min_ports_per_vm                 = var.nat_min_ports_per_vm
+  enable_dynamic_port_allocation   = var.nat_enable_dynamic_port_allocation
+  max_ports_per_vm                 = var.nat_enable_dynamic_port_allocation ? var.nat_max_ports_per_vm : null
+
   subnetwork {
     name                    = local.subnet_id
     source_ip_ranges_to_nat = ["ALL_IP_RANGES"]

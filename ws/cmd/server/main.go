@@ -187,53 +187,57 @@ func main() {
 			}
 		}
 
-		// Connect to provisioning database for tenant topic discovery
-		var err error
-		provisioningDB, err = sql.Open("postgres", cfg.ProvisioningDatabaseURL)
-		if err != nil {
-			logger.Fatalf("Failed to open provisioning database: %v", err)
-		}
+		if cfg.KafkaConsumerEnabled {
+			// Connect to provisioning database for tenant topic discovery
+			var err error
+			provisioningDB, err = sql.Open("postgres", cfg.ProvisioningDatabaseURL)
+			if err != nil {
+				logger.Fatalf("Failed to open provisioning database: %v", err)
+			}
 
-		// Configure connection pool
-		provisioningDB.SetMaxOpenConns(cfg.ProvisioningDBMaxOpenConns)
-		provisioningDB.SetMaxIdleConns(cfg.ProvisioningDBMaxIdleConns)
-		provisioningDB.SetConnMaxLifetime(cfg.ProvisioningDBConnMaxLifetime)
-		provisioningDB.SetConnMaxIdleTime(cfg.ProvisioningDBConnMaxIdleTime)
+			// Configure connection pool
+			provisioningDB.SetMaxOpenConns(cfg.ProvisioningDBMaxOpenConns)
+			provisioningDB.SetMaxIdleConns(cfg.ProvisioningDBMaxIdleConns)
+			provisioningDB.SetConnMaxLifetime(cfg.ProvisioningDBConnMaxLifetime)
+			provisioningDB.SetConnMaxIdleTime(cfg.ProvisioningDBConnMaxIdleTime)
 
-		// Verify connection (fail fast if DB unreachable)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := provisioningDB.PingContext(ctx); err != nil {
+			// Verify connection (fail fast if DB unreachable)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := provisioningDB.PingContext(ctx); err != nil {
+				cancel()
+				logger.Fatalf("Failed to connect to provisioning database: %v", err)
+			}
 			cancel()
-			logger.Fatalf("Failed to connect to provisioning database: %v", err)
+			logger.Printf("Connected to provisioning database")
+
+			// Create topic registry backed by provisioning database
+			topicRegistry := provisioning.NewTopicRegistry(provisioningDB)
+
+			// Create multi-tenant consumer pool
+			multiTenantPool, err = orchestration.NewMultiTenantConsumerPool(orchestration.MultiTenantPoolConfig{
+				Brokers:         kafkaBrokers,
+				Namespace:       topicNamespace,
+				Registry:        topicRegistry,
+				BroadcastBus:    broadcastBus,
+				ResourceGuard:   resourceGuard,
+				Logger:          poolLogger,
+				RefreshInterval: cfg.TopicRefreshInterval,
+				SASL:            saslConfig,
+				TLS:             tlsConfig,
+				Metrics:         &metrics.MultiTenantPoolMetricsAdapter{},
+			})
+			if err != nil {
+				logger.Fatalf("Failed to create multi-tenant consumer pool: %v", err)
+			}
+
+			if err := multiTenantPool.Start(); err != nil {
+				logger.Fatalf("Failed to start multi-tenant consumer pool: %v", err)
+			}
+
+			logger.Printf("Multi-tenant consumer pool started (refresh: %v)", cfg.TopicRefreshInterval)
+		} else {
+			logger.Printf("Kafka consumer DISABLED (KAFKA_CONSUMER_ENABLED=false) — connection-only mode for loadtesting")
 		}
-		cancel()
-		logger.Printf("Connected to provisioning database")
-
-		// Create topic registry backed by provisioning database
-		topicRegistry := provisioning.NewTopicRegistry(provisioningDB)
-
-		// Create multi-tenant consumer pool
-		multiTenantPool, err = orchestration.NewMultiTenantConsumerPool(orchestration.MultiTenantPoolConfig{
-			Brokers:         kafkaBrokers,
-			Namespace:       topicNamespace,
-			Registry:        topicRegistry,
-			BroadcastBus:    broadcastBus,
-			ResourceGuard:   resourceGuard,
-			Logger:          poolLogger,
-			RefreshInterval: cfg.TopicRefreshInterval,
-			SASL:            saslConfig,
-			TLS:             tlsConfig,
-			Metrics:         &metrics.MultiTenantPoolMetricsAdapter{},
-		})
-		if err != nil {
-			logger.Fatalf("Failed to create multi-tenant consumer pool: %v", err)
-		}
-
-		if err := multiTenantPool.Start(); err != nil {
-			logger.Fatalf("Failed to start multi-tenant consumer pool: %v", err)
-		}
-
-		logger.Printf("Multi-tenant consumer pool started (refresh: %v)", cfg.TopicRefreshInterval)
 
 		// Create shared Kafka producer for client message publishing
 		// Clients can publish messages to Kafka via the "publish" message type
@@ -305,6 +309,9 @@ func main() {
 			PongWait:   cfg.PongWait,
 			PingPeriod: cfg.PingPeriod,
 			WriteWait:  cfg.WriteWait,
+
+			// Kafka consumer toggle (connection-only mode for loadtesting)
+			KafkaConsumerDisabled: !cfg.KafkaConsumerEnabled,
 		}
 
 		// Get shared consumer for replay (from multi-tenant pool)

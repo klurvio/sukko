@@ -92,8 +92,11 @@ rateLimit:
   burst: 100
   rate: 10.0
 
-# Note: Gateway does not use connection limits (only rate limiting)
-# Capacity control happens at the ws-server level via ResourceGuard
+# Per-tenant connection limits (in-memory, per gateway pod)
+# Effective cluster limit = default × replicaCount
+tenantConnectionLimit:
+  enabled: true
+  default: 1000
 
 # Pod Security Context
 podSecurityContext:

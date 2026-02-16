@@ -57,9 +57,9 @@ config:
   # WebSocket Ping/Pong Configuration
   # Controls keep-alive timing between shard and clients.
   # Buffer = pongWait - pingPeriod (should be >= 15s for proxied architectures)
-  pongWait: "60s"     # Timeout for pong response
-  pingPeriod: "45s"   # How often to send pings
-  writeWait: "5s"     # Timeout for write operations
+  pongWait: "60s" # Timeout for pong response
+  pingPeriod: "45s" # How often to send pings
+  writeWait: "5s" # Timeout for write operations
 
 # Alerting Configuration
 # See pkg/alerting/config.go for full documentation
@@ -145,6 +145,10 @@ kafka:
   # Empty = dynamic default ({{ .Release.Name }}-redpanda:9092)
   brokers: ""
   consumerGroup: odin-ws-consumer
+  # Kafka consumer toggle (for loadtesting — connection-only mode)
+  # When false, consumer pool is not started. WebSocket connections still work.
+  # Default: true (normal operation)
+  consumerEnabled: false
   # Topics are generated dynamically based on config.kafkaTopicNamespace (or environment):
   #   odin.{namespace}.trade.refined, odin.{namespace}.liquidity.refined, etc.
   # These are INFRASTRUCTURE topics for the shared broadcast bus.
@@ -158,7 +162,7 @@ kafka:
   # SASL Authentication (for managed Kafka/Redpanda services)
   sasl:
     enabled: false
-    mechanism: scram-sha-256  # scram-sha-256 or scram-sha-512
+    mechanism: scram-sha-256 # scram-sha-256 or scram-sha-512
     username: ""
     # password: Set via existingSecret or directly (not recommended)
     password: ""
@@ -169,8 +173,8 @@ kafka:
   # TLS Encryption (for managed Kafka/Redpanda services)
   tls:
     enabled: false
-    insecureSkipVerify: false  # Skip CA verification (not for production)
-    caPath: ""  # Path to CA certificate (mounted from secret)
+    insecureSkipVerify: false # Skip CA verification (not for production)
+    caPath: "" # Path to CA certificate (mounted from secret)
 
 # Multi-Tenant Consumer Configuration (Required)
 # ws-server queries the provisioning database for tenant topics

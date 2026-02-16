@@ -36,6 +36,15 @@ module "gke" {
   release_channel                 = var.release_channel
   deletion_protection             = var.deletion_protection
 
+  # Cloud NAT: increase ports for loadtest VMs (GCP default: 64 ports/VM)
+  # Each outbound connection through NAT consumes one port. The loadtest VM
+  # needs 10K+ simultaneous connections to the gateway LB, so 64 is insufficient.
+  # Values must be powers of 2 when dynamic allocation is enabled.
+  # Remove these lines to reset to GCP defaults (no cluster impact).
+  nat_min_ports_per_vm               = 16384  # 2^14 — reserved upfront per VM
+  nat_enable_dynamic_port_allocation = true   # scale beyond min up to max as needed
+  nat_max_ports_per_vm               = 32768  # 2^15 — nearest power of 2 >= 30K target
+
   # Note: Kernel tuning is done via DaemonSet in Helm chart
   # See docs/architecture/CONNECTION_LIMITS.md
 }

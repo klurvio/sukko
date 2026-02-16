@@ -47,6 +47,12 @@ type ServerConfig struct {
 	KafkaBrokers  string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"`
 	ConsumerGroup string `env:"KAFKA_CONSUMER_GROUP" envDefault:"ws-server-group"`
 
+	// KafkaConsumerEnabled controls whether the Kafka consumer pool is started.
+	// When false, the consumer pool is not created — no consumer group join, no message
+	// consumption. WebSocket connections still work (connection-only mode for loadtesting).
+	// Default: true
+	KafkaConsumerEnabled bool `env:"KAFKA_CONSUMER_ENABLED" envDefault:"true"`
+
 	// Kafka Security - SASL Authentication
 	//
 	// For connecting to managed Kafka/Redpanda services that require authentication.
@@ -511,6 +517,7 @@ func (c *ServerConfig) Print() {
 	fmt.Printf("Address:         %s\n", c.Addr)
 	fmt.Printf("Kafka Brokers:   %s\n", c.KafkaBrokers)
 	fmt.Printf("Consumer Group:  %s\n", c.ConsumerGroup)
+	fmt.Printf("Consumer Enabled: %v\n", c.KafkaConsumerEnabled)
 	fmt.Println("\n=== Kafka Security ===")
 	fmt.Printf("SASL Enabled:    %v\n", c.KafkaSASLEnabled)
 	if c.KafkaSASLEnabled {
@@ -598,6 +605,7 @@ func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 		Str("addr", c.Addr).
 		Str("kafka_brokers", c.KafkaBrokers).
 		Str("consumer_group", c.ConsumerGroup).
+		Bool("kafka_consumer_enabled", c.KafkaConsumerEnabled).
 		Bool("kafka_sasl_enabled", c.KafkaSASLEnabled).
 		Str("kafka_sasl_mechanism", c.KafkaSASLMechanism).
 		Bool("kafka_sasl_username_set", c.KafkaSASLUsername != "").

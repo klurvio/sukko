@@ -34,6 +34,10 @@ ws-gateway:
     issuerCacheTTL: "5m"
     channelRulesCacheTTL: "1m"
 
+  tenantConnectionLimit:
+    enabled: true
+    default: 5000  # 5000 × 2 gateway pods = 10000 effective
+
   resources:
     requests:
       cpu: "250m"
