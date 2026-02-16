@@ -36,7 +36,7 @@ ws-gateway:
 
   tenantConnectionLimit:
     enabled: true
-    default: 5000  # 5000 × 2 gateway pods = 10000 effective
+    default: 10000  # 10000 × 2 gateway pods = 20000 effective
 
   resources:
     requests:
