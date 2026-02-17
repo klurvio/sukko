@@ -87,6 +87,10 @@ ws-server:
   connectionLimits:
     clusterMaxConnections: 100000
 
+  # Kafka consumer
+  kafka:
+    consumerEnabled: true
+
   # Broadcast Bus - NATS
   broadcast:
     type: nats

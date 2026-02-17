@@ -628,7 +628,7 @@
           "refId": "B"
         }
       ],
-      "title": "Gateway Tenant Connections",
+      "title": "Gateway Odin Connections",
       "type": "timeseries"
     },
     {
