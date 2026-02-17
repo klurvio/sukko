@@ -45,7 +45,7 @@ type ProvisioningConfig struct {
 	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`
 
 	// Topic Defaults
-	TopicNamespace     string `env:"KAFKA_TOPIC_NAMESPACE" envDefault:"prod"`
+	TopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""`
 	ValidNamespaces    string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"` // Comma-separated valid namespace prefixes
 	DefaultPartitions  int    `env:"DEFAULT_PARTITIONS" envDefault:"3"`
 	DefaultRetentionMs int64  `env:"DEFAULT_RETENTION_MS" envDefault:"604800000"` // 7 days
@@ -189,9 +189,9 @@ func (c *ProvisioningConfig) Validate() error {
 	if len(validNS) == 0 {
 		return errors.New("VALID_NAMESPACES must contain at least one namespace")
 	}
-	if !validNS[c.TopicNamespace] {
-		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE must be one of: %s (got: %s)",
-			c.ValidNamespaces, c.TopicNamespace)
+	if c.TopicNamespaceOverride != "" && !validNS[c.TopicNamespaceOverride] {
+		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE must be one of: %s (got: %s)",
+			c.ValidNamespaces, c.TopicNamespaceOverride)
 	}
 
 	// Validate OIDC settings - if one URL is set, both must be set
@@ -207,6 +207,12 @@ func (c *ProvisioningConfig) Validate() error {
 	// Validate CORS settings
 	if c.CORSMaxAge < 0 {
 		return fmt.Errorf("CORS_MAX_AGE must be >= 0, got %d", c.CORSMaxAge)
+	}
+
+	// Prod guard: namespace override is only for dev/stg
+	env := strings.ToLower(strings.TrimSpace(c.Environment))
+	if env == "prod" && c.TopicNamespaceOverride != "" {
+		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE is not allowed in production (environment: %s)", c.Environment)
 	}
 
 	return nil
@@ -237,7 +243,9 @@ func (c *ProvisioningConfig) Print() {
 	}
 	fmt.Printf("TLS Enabled:        %v\n", c.KafkaTLSEnabled)
 	fmt.Println("\n=== Topic Defaults ===")
-	fmt.Printf("Namespace:          %s\n", c.TopicNamespace)
+	if c.TopicNamespaceOverride != "" {
+		fmt.Printf("Namespace Override: %s\n", c.TopicNamespaceOverride)
+	}
 	fmt.Printf("Partitions:         %d\n", c.DefaultPartitions)
 	fmt.Printf("Retention:          %d ms (%d days)\n", c.DefaultRetentionMs, c.DefaultRetentionMs/86400000)
 	fmt.Println("\n=== Tenant Quotas (Defaults) ===")
@@ -268,7 +276,7 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Str("kafka_brokers", c.KafkaBrokers).
 		Bool("kafka_sasl_enabled", c.KafkaSASLEnabled).
 		Bool("kafka_tls_enabled", c.KafkaTLSEnabled).
-		Str("topic_namespace", c.TopicNamespace).
+		Str("topic_namespace_override", c.TopicNamespaceOverride).
 		Int("default_partitions", c.DefaultPartitions).
 		Int64("default_retention_ms", c.DefaultRetentionMs).
 		Int("max_topics_per_tenant", c.MaxTopicsPerTenant).

@@ -41,10 +41,24 @@ data:
         static_configs:
           - targets: ['{{ .Release.Name }}-redpanda:9644']
 
-      # Scrape ws-gateway metrics
+      # Scrape ws-gateway metrics from ALL pods (not via Service which may use different port)
       - job_name: 'ws-gateway'
-        static_configs:
-          - targets: ['{{ .Release.Name }}-ws-gateway:3000']
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - {{ .Release.Namespace }}
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: {{ .Release.Name }}-ws-gateway
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: http
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
         metrics_path: /metrics
 
       # Scrape provisioning metrics

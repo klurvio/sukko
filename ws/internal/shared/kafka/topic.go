@@ -15,7 +15,7 @@ import "fmt"
 //	BuildTopicName("dev", "acme", "analytics") -> "dev.acme.analytics"
 //
 // Components:
-//   - namespace: From KAFKA_TOPIC_NAMESPACE env var (e.g., "local", "dev", "stag", "prod")
+//   - namespace: Resolved via kafka.ResolveNamespace() (e.g., "local", "dev", "stag", "prod")
 //   - tenantID: Tenant identifier (e.g., "odin", "acme")
 //   - category: Topic category (e.g., "trade", "liquidity", "metadata")
 //

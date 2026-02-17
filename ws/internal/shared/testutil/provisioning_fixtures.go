@@ -19,7 +19,7 @@ func NewTestProvisioningConfig() *platform.ProvisioningConfig {
 		DBConnMaxLifetime:     time.Hour,
 		KafkaBrokers:          "",
 		KafkaAdminTimeout:     10 * time.Second,
-		TopicNamespace:        "test",
+		TopicNamespaceOverride: "test",
 		DefaultPartitions:     3,
 		DefaultRetentionMs:    604800000,
 		MaxTopicsPerTenant:    50,

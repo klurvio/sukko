@@ -103,8 +103,8 @@ spec:
               value: "{{ .Values.config.kafkaAdminTimeout }}"
 
             # Topic defaults
-            - name: KAFKA_TOPIC_NAMESPACE
-              value: "{{ .Values.config.topicNamespace }}"
+            - name: KAFKA_TOPIC_NAMESPACE_OVERRIDE
+              value: "{{ .Values.config.kafkaTopicNamespaceOverride | default "" }}"
             - name: DEFAULT_PARTITIONS
               value: "{{ .Values.config.defaultPartitions }}"
             - name: DEFAULT_RETENTION_MS
@@ -130,7 +130,7 @@ spec:
 
             # Environment
             - name: ENVIRONMENT
-              value: "{{ .Release.Namespace }}"
+              value: "{{ .Values.config.environment | default "local" }}"
 
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}

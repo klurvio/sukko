@@ -81,7 +81,7 @@ ws-server:
     logLevel: info
     logFormat: json
     environment: dev  # Deployment environment for logging/metrics
-    # kafkaTopicNamespace: defaults to "dev", override to consume from other envs
+    kafkaTopicNamespaceOverride: prod  # Consume from prod topics
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:
@@ -183,7 +183,8 @@ provisioning:
   config:
     logLevel: info
     logFormat: json
-    topicNamespace: dev
+    environment: dev
+    kafkaTopicNamespaceOverride: prod
 
   resources:
     requests:

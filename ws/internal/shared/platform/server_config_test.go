@@ -11,7 +11,6 @@ func newValidServerConfig() *ServerConfig {
 	return &ServerConfig{
 		Addr:                       ":3002",
 		KafkaBrokers:               "localhost:19092",
-		ConsumerGroup:              "test-group",
 		MemoryLimit:                512 * 1024 * 1024,
 		MaxConnections:             1000,
 		MaxKafkaRate:               1000,
@@ -537,6 +536,44 @@ func TestServerConfig_Validate_WriteWait(t *testing.T) {
 			} else {
 				if err != nil {
 					t.Errorf("expected no error, got %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_ProdOverrideBlocked(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		environment string
+		override    string
+		shouldError bool
+	}{
+		{"prod_with_override", "prod", "dev", true},
+		{"prod_no_override", "prod", "", false},
+		{"dev_with_override", "dev", "prod", false},
+		{"dev_no_override", "dev", "", false},
+		{"PROD_uppercase", "PROD", "dev", true},
+		{"prod_whitespace", " prod ", "dev", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.Environment = tt.environment
+			cfg.KafkaTopicNamespaceOverride = tt.override
+			err := cfg.Validate()
+			if tt.shouldError {
+				if err == nil {
+					t.Error("Should error on prod override")
+				} else if !strings.Contains(err.Error(), "KAFKA_TOPIC_NAMESPACE_OVERRIDE") {
+					t.Errorf("Error should mention KAFKA_TOPIC_NAMESPACE_OVERRIDE: %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Should not error: %v", err)
 				}
 			}
 		})

@@ -8,22 +8,26 @@ import (
 // Topic Namespace Configuration
 // =============================================================================
 //
-// ENVIRONMENT vs KAFKA_TOPIC_NAMESPACE:
+// ENVIRONMENT vs KAFKA_TOPIC_NAMESPACE_OVERRIDE:
 //
-// ENVIRONMENT: Identifies the deployment environment (develop, stging, production).
-//   - Used for: logging, metrics labels, feature flags, operational context
-//   - Example: ENVIRONMENT=develop means "this is the develop deployment"
+// ENVIRONMENT: Identifies the deployment environment (dev, stg, prod).
+//   - Used for: logging, metrics labels, consumer group naming, operational context
+//   - Example: ENVIRONMENT=dev means "this is the dev deployment"
 //
-// KAFKA_TOPIC_NAMESPACE: Identifies which Kafka topic namespace to use.
+// KAFKA_TOPIC_NAMESPACE_OVERRIDE: Overrides ENVIRONMENT for Kafka topic naming only.
 //   - Used for: topic naming only ({namespace}.{tenant}.{category})
-//   - Defaults to: normalized ENVIRONMENT value if not set
-//   - Example: KAFKA_TOPIC_NAMESPACE=prod means "consume from prod.* topics"
+//   - Defaults to: empty (uses normalized ENVIRONMENT value)
+//   - Example: KAFKA_TOPIC_NAMESPACE_OVERRIDE=prod means "consume from prod.* topics"
+//   - NOT allowed in production (startup validation blocks this)
+//
+// Resolution: Use ResolveNamespace(override, environment) to get the effective namespace.
 //
 // Why separate?
-//   - Allows develop environment to consume from prod topics for testing
-//   - Keeps logs/metrics accurate (shows "develop" not "prod")
-//   - Explicit about intent - clearly shows cross-namespace access
+//   - Allows dev/stg environments to consume from prod topics (Odin API always publishes as prod)
+//   - Keeps logs/metrics accurate (shows "dev" not "prod")
+//   - Explicit about intent - "Override" in the name makes cross-env consumption deliberate
 //   - Safer - can't accidentally affect non-topic environment behavior
+//   - Blocked in prod - startup validation prevents override in production
 //
 // Valid namespaces (configured via Helm): local, dev, stg, prod
 //
@@ -48,6 +52,24 @@ func NormalizeEnv(env string) string {
 		return "local"
 	}
 	return env
+}
+
+// ResolveNamespace resolves the effective topic namespace from an override and environment.
+// If override is non-empty, it takes precedence (normalized). Otherwise, falls back to
+// the normalized environment value.
+//
+// This is the single source of truth for namespace resolution — used by both ws-server
+// and provisioning to eliminate duplicated logic.
+//
+// Examples:
+//   - ResolveNamespace("prod", "dev") → "prod" (override wins)
+//   - ResolveNamespace("", "dev") → "dev" (fallback to environment)
+//   - ResolveNamespace("", "") → "local" (NormalizeEnv default)
+func ResolveNamespace(override, environment string) string {
+	if override != "" {
+		return NormalizeEnv(override)
+	}
+	return NormalizeEnv(environment)
 }
 
 // EventType represents different event types

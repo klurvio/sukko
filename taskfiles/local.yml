@@ -166,7 +166,7 @@ tasks:
         echo "Creating Kafka topics..."
         RESULT=$(curl -sf -X POST http://localhost:{{.LOCAL_PROVISIONING_PORT}}/api/v1/tenants/odin/topics \
           -H "Content-Type: application/json" \
-          -d '{"categories": ["trade", "liquidity", "metadata", "social", "community", "creation", "analytics", "balances"]}' 2>&1) || {
+          -d '{"categories": ["trade"]}' 2>&1) || {
           echo "Topic creation failed: $RESULT"
           exit 1
         }

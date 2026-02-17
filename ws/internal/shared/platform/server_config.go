@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -43,9 +44,8 @@ const (
 //	required: Must be provided (no default)
 type ServerConfig struct {
 	// Server basics
-	Addr          string `env:"WS_ADDR" envDefault:":3002"`
-	KafkaBrokers  string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"`
-	ConsumerGroup string `env:"KAFKA_CONSUMER_GROUP" envDefault:"ws-server-group"`
+	Addr         string `env:"WS_ADDR" envDefault:":3002"`
+	KafkaBrokers string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"`
 
 	// KafkaConsumerEnabled controls whether the Kafka consumer pool is started.
 	// When false, the consumer pool is not created — no consumer group join, no message
@@ -162,19 +162,19 @@ type ServerConfig struct {
 	// Environment
 	Environment string `env:"ENVIRONMENT" envDefault:"development"`
 
-	// KafkaTopicNamespace overrides ENVIRONMENT for Kafka topic naming only.
-	// If empty, defaults to normalized ENVIRONMENT value.
-	// Validated against VALID_NAMESPACES (default: local,dev,stag,prod).
+	// KafkaTopicNamespaceOverride overrides ENVIRONMENT for Kafka topic naming only.
+	// If empty, defaults to normalized ENVIRONMENT value via kafka.ResolveNamespace().
+	// NOT allowed in production — startup validation blocks this.
 	//
 	// Use cases:
-	//   - Set to "prod" in develop environment to consume from production topics
-	//   - Keeps logs/metrics accurate (shows "develop" not "prod")
+	//   - Set to "prod" in dev/stg environment to consume from production topics
+	//   - Keeps logs/metrics accurate (shows "dev" not "prod")
 	//
-	// See ws/internal/kafka/config.go for detailed documentation.
-	KafkaTopicNamespace string `env:"KAFKA_TOPIC_NAMESPACE" envDefault:""`
+	// See ws/internal/shared/kafka/config.go for detailed documentation.
+	KafkaTopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""`
 
 	// ValidNamespaces is a comma-separated list of allowed topic namespace prefixes.
-	// Used to validate KafkaTopicNamespace and topic formats at runtime.
+	// Used to validate KafkaTopicNamespaceOverride and topic formats at runtime.
 	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"`
 
 	// DefaultTenantID disables multi-tenant support. All messages
@@ -260,8 +260,8 @@ type ServerConfig struct {
 	// The server uses MultiTenantConsumerPool which:
 	// - Queries the provisioning database for tenant topics
 	// - Manages consumer groups dynamically based on tenant consumer_type:
-	//   - Shared tenants: odin-shared-{namespace} consumer group
-	//   - Dedicated tenants: odin-{tenant_id}-{namespace} consumer group
+	//   - Shared tenants: {env}-shared-consumer consumer group
+	//   - Dedicated tenants: {env}-{tenant_id}-consumer consumer group
 	//
 	// ProvisioningDatabaseURL: PostgreSQL connection string for multi-tenant topic registry
 	// Required - server will fail to start if not set or DB is unreachable
@@ -503,6 +503,12 @@ func (c *ServerConfig) Validate() error {
 		return fmt.Errorf("WS_WRITE_WAIT must be 1s-30s, got %v", c.WriteWait)
 	}
 
+	// Prod guard: namespace override is only for dev/stg
+	env := strings.ToLower(strings.TrimSpace(c.Environment))
+	if env == "prod" && c.KafkaTopicNamespaceOverride != "" {
+		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE is not allowed in production (environment: %s)", c.Environment)
+	}
+
 	return nil
 }
 
@@ -511,12 +517,11 @@ func (c *ServerConfig) Validate() error {
 func (c *ServerConfig) Print() {
 	fmt.Println("=== Server Configuration ===")
 	fmt.Printf("Environment:     %s\n", c.Environment)
-	if c.KafkaTopicNamespace != "" {
-		fmt.Printf("Topic Namespace: %s (override)\n", c.KafkaTopicNamespace)
+	if c.KafkaTopicNamespaceOverride != "" {
+		fmt.Printf("Topic Namespace: %s (override)\n", c.KafkaTopicNamespaceOverride)
 	}
 	fmt.Printf("Address:         %s\n", c.Addr)
 	fmt.Printf("Kafka Brokers:   %s\n", c.KafkaBrokers)
-	fmt.Printf("Consumer Group:  %s\n", c.ConsumerGroup)
 	fmt.Printf("Consumer Enabled: %v\n", c.KafkaConsumerEnabled)
 	fmt.Println("\n=== Kafka Security ===")
 	fmt.Printf("SASL Enabled:    %v\n", c.KafkaSASLEnabled)
@@ -601,10 +606,9 @@ func (c *ServerConfig) Print() {
 func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 	logger.Info().
 		Str("environment", c.Environment).
-		Str("kafka_topic_namespace", c.KafkaTopicNamespace).
+		Str("kafka_topic_namespace_override", c.KafkaTopicNamespaceOverride).
 		Str("addr", c.Addr).
 		Str("kafka_brokers", c.KafkaBrokers).
-		Str("consumer_group", c.ConsumerGroup).
 		Bool("kafka_consumer_enabled", c.KafkaConsumerEnabled).
 		Bool("kafka_sasl_enabled", c.KafkaSASLEnabled).
 		Str("kafka_sasl_mechanism", c.KafkaSASLMechanism).

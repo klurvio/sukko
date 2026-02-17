@@ -73,13 +73,7 @@ func main() {
 	cfg.Print()
 
 	// Resolve effective topic namespace for Kafka
-	// KafkaTopicNamespace overrides Environment for topic naming
-	topicNamespace := cfg.KafkaTopicNamespace
-	if topicNamespace == "" {
-		topicNamespace = kafka.NormalizeEnv(cfg.Environment)
-	} else {
-		topicNamespace = kafka.NormalizeEnv(topicNamespace)
-	}
+	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
 	logger.Printf("Topic namespace: %s (environment: %s)", topicNamespace, cfg.Environment)
 
 	// Initialize SystemMonitor singleton FIRST (before creating any ResourceGuards)
@@ -145,8 +139,8 @@ func main() {
 
 	// Create multi-tenant Kafka consumer pool
 	// Queries provisioning database for tenant topics and manages consumer groups:
-	// - Shared tenants: odin-shared-{namespace} consumer group
-	// - Dedicated tenants: odin-{tenant_id}-{namespace} consumer group
+	// - Shared tenants: {env}-shared-consumer consumer group
+	// - Dedicated tenants: {env}-{tenant_id}-consumer consumer group
 	var multiTenantPool *orchestration.MultiTenantConsumerPool
 	var kafkaProducer *kafka.Producer
 	var provisioningDB *sql.DB
@@ -217,6 +211,7 @@ func main() {
 			multiTenantPool, err = orchestration.NewMultiTenantConsumerPool(orchestration.MultiTenantPoolConfig{
 				Brokers:         kafkaBrokers,
 				Namespace:       topicNamespace,
+				Environment:     kafka.NormalizeEnv(cfg.Environment),
 				Registry:        topicRegistry,
 				BroadcastBus:    broadcastBus,
 				ResourceGuard:   resourceGuard,
@@ -275,9 +270,8 @@ func main() {
 		shardConfig := types.ServerConfig{
 			Addr:           shardBindAddr,
 			KafkaBrokers:   kafkaBrokers,
-			ConsumerGroup:  cfg.ConsumerGroup, // Base consumer group name
-			Environment:    cfg.Environment,   // Environment for logging (topic naming via shared pool)
-			MaxConnections: maxConnsPerShard,  // Shard-specific max connections
+			Environment:    cfg.Environment,  // Environment for logging (topic naming via shared pool)
+			MaxConnections: maxConnsPerShard, // Shard-specific max connections
 
 			MemoryLimit:            cfg.MemoryLimit,
 			MaxKafkaMessagesPerSec: cfg.MaxKafkaRate,

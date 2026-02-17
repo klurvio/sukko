@@ -19,11 +19,11 @@ import (
 // MultiTenantConsumerPool manages Kafka consumers for multi-tenant deployments.
 // It supports two consumer modes:
 //
-//   - Shared: All shared-mode tenants use a single consumer group (odin-shared-{namespace}).
+//   - Shared: All shared-mode tenants use a single consumer group ({env}-shared-consumer).
 //     Topics are discovered via TenantRegistry and hot-added without rebalance.
 //
 //   - Dedicated: Each dedicated-mode tenant gets its own consumer group
-//     (odin-{tenant_id}-{namespace}) for complete isolation.
+//     ({env}-{tenant_id}-consumer) for complete isolation.
 //
 // Topic Discovery:
 //
@@ -35,11 +35,11 @@ import (
 //
 //	MultiTenantConsumerPool
 //	├── SharedConsumer (explicit topics, 60-second refresh)
-//	│   └── Consumer Group: odin-shared-{namespace}
+//	│   └── Consumer Group: {env}-shared-consumer
 //	│   └── Topics: queried from TenantRegistry
 //	│
 //	└── DedicatedConsumers (per-tenant isolation)
-//	    └── Consumer Group: odin-{tenant_id}-{namespace}
+//	    └── Consumer Group: {env}-{tenant_id}-consumer
 //	    └── Topics: from provisioning DB for that tenant
 //
 // Thread Safety: All public methods are safe for concurrent use.
@@ -80,8 +80,13 @@ type MultiTenantPoolConfig struct {
 	Brokers []string
 
 	// Namespace is the topic namespace (e.g., "prod", "dev")
-	// Used for consumer group naming and topic prefixes
+	// Used for topic prefixes
 	Namespace string
+
+	// Environment is the deployment environment (e.g., "dev", "stg", "prod").
+	// Used for consumer group naming: {env}-shared-consumer, {env}-{tenant}-consumer.
+	// If empty, falls back to Namespace for backward compatibility.
+	Environment string
 
 	// Registry provides tenant topic information from the provisioning database
 	Registry kafka.TenantRegistry
@@ -125,6 +130,11 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 	}
 	if config.ResourceGuard == nil {
 		return nil, errors.New("resource guard is required")
+	}
+
+	// Environment fallback: use Namespace if Environment not set
+	if config.Environment == "" {
+		config.Environment = config.Namespace
 	}
 
 	// Default refresh interval (30s for faster topic discovery)
@@ -305,7 +315,7 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 	if p.sharedConsumer == nil && len(topics) > 0 {
 		consumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
 			Brokers:       p.config.Brokers,
-			ConsumerGroup: "odin-shared-" + p.config.Namespace,
+			ConsumerGroup: fmt.Sprintf("%s-shared-consumer", p.config.Environment),
 			Topics:        topics,
 			Logger:        &p.logger,
 			Broadcast:     p.routeMessage,
@@ -398,7 +408,7 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 
 		consumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
 			Brokers:       p.config.Brokers,
-			ConsumerGroup: fmt.Sprintf("odin-%s-%s", tenant.TenantID, p.config.Namespace),
+			ConsumerGroup: fmt.Sprintf("%s-%s-consumer", p.config.Environment, tenant.TenantID),
 			Topics:        tenant.Topics,
 			Logger:        &p.logger,
 			Broadcast:     p.routeMessage,

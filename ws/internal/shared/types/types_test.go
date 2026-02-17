@@ -64,7 +64,6 @@ func TestServerConfig_DefaultFields(t *testing.T) {
 	cfg := ServerConfig{
 		Addr:           ":8080",
 		KafkaBrokers:   []string{"kafka:9092"},
-		ConsumerGroup:  "test-group",
 		MaxConnections: 10000,
 	}
 
@@ -73,9 +72,6 @@ func TestServerConfig_DefaultFields(t *testing.T) {
 	}
 	if len(cfg.KafkaBrokers) != 1 || cfg.KafkaBrokers[0] != "kafka:9092" {
 		t.Errorf("KafkaBrokers: got %v, want [kafka:9092]", cfg.KafkaBrokers)
-	}
-	if cfg.ConsumerGroup != "test-group" {
-		t.Errorf("ConsumerGroup: got %s, want test-group", cfg.ConsumerGroup)
 	}
 	if cfg.MaxConnections != 10000 {
 		t.Errorf("MaxConnections: got %d, want 10000", cfg.MaxConnections)

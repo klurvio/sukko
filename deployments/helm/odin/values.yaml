@@ -195,10 +195,9 @@ ws-server:
     # Empty string = use dynamic default: {{ .Release.Name }}-redpanda:9092
     # Override this for external Kafka/Redpanda
     brokers: ""
-    consumerGroup: odin-ws-consumer
-    # NOTE: Topics are now dynamically determined based on config.environment
-    # ws-server consumes from refined topics: odin.{env}.{base}.refined
-    # Topics are created by Redpanda chart based on redpanda.topics config
+    # NOTE: Topics are dynamically determined by MultiTenantConsumerPool
+    # Consumer groups use {env}-shared-consumer / {env}-{tenant}-consumer pattern
+    # Topics are created via the Provisioning API
 
     # SASL Authentication (for managed Kafka/Redpanda services)
     # Enable this for external/managed Redpanda that requires authentication

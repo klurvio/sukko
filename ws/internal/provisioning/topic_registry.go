@@ -14,7 +14,7 @@ import (
 //
 // Topic names are built at runtime using kafka.BuildTopicName() with the
 // namespace parameter. The database stores only categories (without namespace),
-// making KAFKA_TOPIC_NAMESPACE the single source of truth for namespace.
+// making kafka.ResolveNamespace() the single source of truth for namespace.
 //
 // Thread Safety: All methods are safe for concurrent use (uses database/sql).
 type TopicRegistry struct {

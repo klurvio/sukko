@@ -203,7 +203,7 @@ provisioning:
     logLevel: debug
     logFormat: pretty
     authEnabled: false  # No auth for local provisioning
-    topicNamespace: local
+    environment: local
     # kafkaBrokers: defaults to {release-name}-redpanda:9092
   resources:
     requests:

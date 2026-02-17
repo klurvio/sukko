@@ -34,7 +34,7 @@ type TokenEvent struct {
 }
 
 // BroadcastFunc is called when a message is received
-// Parameters: subject (Kafka Key = broadcast channel), messageJSON
+// Parameters: subject (Kafka Key = broadcast channel, e.g., "odin.BTC.trade"), messageJSON
 type BroadcastFunc func(subject string, message []byte)
 
 // ResourceGuard interface for rate limiting and CPU emergency brake
@@ -541,7 +541,7 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
 	}
 
 	// Extract subject (routing key) from Kafka key
-	// The Kafka Key IS the broadcast subject (e.g., "BTC.trade", "BTC.balances.user123")
+	// The Kafka Key IS the broadcast subject (e.g., "odin.BTC.trade")
 	subject := string(record.Key)
 	if subject == "" {
 		c.logger.Warn().
@@ -636,7 +636,7 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 	}
 
 	// Extract subject (routing key) from Kafka key
-	// The Kafka Key IS the broadcast subject (e.g., "BTC.trade", "BTC.balances.user123")
+	// The Kafka Key IS the broadcast subject (e.g., "odin.BTC.trade")
 	subject := string(record.Key)
 	if subject == "" {
 		c.logger.Warn().

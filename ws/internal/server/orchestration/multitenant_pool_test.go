@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -467,26 +468,35 @@ func TestMultiTenantPool_AtomicCounters(t *testing.T) {
 func TestMultiTenantPool_ConsumerGroupNaming(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		namespace string
-		tenantID  string
-		isShared  bool
-		expected  string
+		name        string
+		environment string
+		namespace   string
+		tenantID    string
+		isShared    bool
+		expected    string
 	}{
-		{"prod", "", true, "odin-shared-prod"},
-		{"dev", "", true, "odin-shared-dev"},
-		{"prod", "acme", false, "odin-acme-prod"},
-		{"dev", "bigcorp", false, "odin-bigcorp-dev"},
-		{"staging", "tenant123", false, "odin-tenant123-staging"},
+		{"dev_env_prod_ns_shared", "dev", "prod", "", true, "dev-shared-consumer"},
+		{"prod_env_prod_ns_shared", "prod", "prod", "", true, "prod-shared-consumer"},
+		{"dev_env_prod_ns_dedicated", "dev", "prod", "odin", false, "dev-odin-consumer"},
+		{"prod_env_prod_ns_dedicated", "prod", "prod", "acme", false, "prod-acme-consumer"},
+		{"empty_env_fallback_shared", "", "dev", "", true, "dev-shared-consumer"},
+		{"empty_env_fallback_dedicated", "", "dev", "tenant1", false, "dev-tenant1-consumer"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			// Simulate the Environment fallback logic from the constructor
+			env := tt.environment
+			if env == "" {
+				env = tt.namespace
+			}
+
 			var result string
 			if tt.isShared {
-				result = "odin-shared-" + tt.namespace
+				result = fmt.Sprintf("%s-shared-consumer", env)
 			} else {
-				result = "odin-" + tt.tenantID + "-" + tt.namespace
+				result = fmt.Sprintf("%s-%s-consumer", env, tt.tenantID)
 			}
 
 			if result != tt.expected {

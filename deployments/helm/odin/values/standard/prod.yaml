@@ -85,7 +85,7 @@ ws-server:
     logLevel: warn
     logFormat: json
     environment: prod  # Deployment environment for logging/metrics
-    # kafkaTopicNamespace defaults to "prod"
+    # No kafkaTopicNamespaceOverride — prod guard blocks override in production
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:

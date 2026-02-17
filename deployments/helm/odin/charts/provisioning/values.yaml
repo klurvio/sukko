@@ -49,8 +49,11 @@ config:
   kafkaBrokers: ""
   kafkaAdminTimeout: "30s"
 
-  # Topic defaults (valid values: local, dev, stg, prod)
-  topicNamespace: "prod"
+  # Environment: deployment environment (local, dev, stg, prod)
+  environment: "local"
+  # kafkaTopicNamespaceOverride: overrides environment for Kafka topic naming
+  # If empty, uses environment
+  kafkaTopicNamespaceOverride: ""
   defaultPartitions: 3
   defaultRetentionMs: 604800000  # 7 days
 

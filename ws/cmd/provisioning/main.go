@@ -20,6 +20,7 @@ import (
 	provkafka "github.com/Toniq-Labs/odin-ws/internal/provisioning/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/repository"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 )
@@ -47,6 +48,10 @@ func main() {
 
 	// Print configuration
 	cfg.Print()
+
+	// Resolve effective topic namespace for Kafka
+	topicNamespace := kafka.ResolveNamespace(cfg.TopicNamespaceOverride, cfg.Environment)
+	logger.Printf("Topic namespace: %s (environment: %s)", topicNamespace, cfg.Environment)
 
 	// Initialize structured logger
 	structuredLogger := logging.NewLogger(logging.LoggerConfig{
@@ -144,7 +149,7 @@ func main() {
 		OIDCConfigStore:      oidcRepo,
 		ChannelRulesStore:    channelRulesRepo,
 		KafkaAdmin:           kafkaAdmin,
-		TopicNamespace:       cfg.TopicNamespace,
+		TopicNamespace:       topicNamespace,
 		DefaultPartitions:    cfg.DefaultPartitions,
 		DefaultRetentionMs:   cfg.DefaultRetentionMs,
 		MaxTopicsPerTenant:   cfg.MaxTopicsPerTenant,

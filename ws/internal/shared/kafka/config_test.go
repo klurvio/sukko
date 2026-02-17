@@ -49,6 +49,38 @@ func TestNormalizeEnv(t *testing.T) {
 }
 
 // =============================================================================
+// ResolveNamespace Tests
+// =============================================================================
+
+func TestResolveNamespace(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		override    string
+		environment string
+		expected    string
+	}{
+		{"override_wins", "prod", "dev", "prod"},
+		{"fallback_to_env", "", "dev", "dev"},
+		{"both_empty_defaults_to_local", "", "", "local"},
+		{"override_normalized", " PROD ", "dev", "prod"},
+		{"env_normalized", "", " DEV ", "dev"},
+		{"override_empty_string", "", "stg", "stg"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := ResolveNamespace(tt.override, tt.environment)
+			if result != tt.expected {
+				t.Errorf("ResolveNamespace(%q, %q) = %q, want %q",
+					tt.override, tt.environment, result, tt.expected)
+			}
+		})
+	}
+}
+
+// =============================================================================
 // TopicToEventType Tests
 // =============================================================================
 
