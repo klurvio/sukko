@@ -21,7 +21,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			Int64("client_id", c.id).
 			Err(err).
 			Msg("Client sent invalid JSON")
-		s.sendErrorToClient(c, protocol.MsgTypeError, "invalid_json", "Message is not valid JSON")
+		s.sendErrorToClient(c, protocol.MsgTypeError, protocol.ErrCodeInvalidJSON, "Message is not valid JSON")
 		return
 	}
 
@@ -93,7 +93,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 				Int64("client_id", c.id).
 				Err(err).
 				Msg("Client sent invalid subscribe request")
-			s.sendErrorToClient(c, protocol.RespTypeSubscribeError, "invalid_request", "Invalid subscribe request format")
+			s.sendErrorToClient(c, protocol.RespTypeSubscribeError, protocol.ErrCodeInvalidRequest, "Invalid subscribe request format")
 			return
 		}
 
@@ -135,7 +135,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 				Int64("client_id", c.id).
 				Err(err).
 				Msg("Client sent invalid unsubscribe request")
-			s.sendErrorToClient(c, protocol.RespTypeUnsubscribeError, "invalid_request", "Invalid unsubscribe request format")
+			s.sendErrorToClient(c, protocol.RespTypeUnsubscribeError, protocol.ErrCodeInvalidRequest, "Invalid unsubscribe request format")
 			return
 		}
 
@@ -205,17 +205,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 			Err(err).
 			Msg("Client sent invalid reconnect request")
 
-		// Send error response
-		errorMsg := map[string]any{
-			"type":    protocol.RespTypeReconnectError,
-			"message": "Invalid reconnect request format",
-		}
-		if errorData, err := json.Marshal(errorMsg); err == nil {
-			select {
-			case c.send <- errorData:
-			default:
-			}
-		}
+		s.sendErrorToClient(c, protocol.RespTypeReconnectError, protocol.ErrCodeInvalidRequest, "Invalid reconnect request format")
 		return
 	}
 
@@ -231,16 +221,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 			Int64("client_id", c.id).
 			Msg("Kafka replay requested but no consumer available")
 
-		errorMsg := map[string]any{
-			"type":    protocol.RespTypeReconnectError,
-			"message": "Message replay not available (no Kafka consumer)",
-		}
-		if errorData, err := json.Marshal(errorMsg); err == nil {
-			select {
-			case c.send <- errorData:
-			default:
-			}
-		}
+		s.sendErrorToClient(c, protocol.RespTypeReconnectError, protocol.ErrCodeNotAvailable, "Message replay not available (no Kafka consumer)")
 		return
 	}
 
@@ -265,16 +246,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 			Err(err).
 			Msg("Failed to replay messages from Kafka")
 
-		errorMsg := map[string]any{
-			"type":    protocol.RespTypeReconnectError,
-			"message": fmt.Sprintf("Failed to replay messages: %v", err),
-		}
-		if errorData, err := json.Marshal(errorMsg); err == nil {
-			select {
-			case c.send <- errorData:
-			default:
-			}
-		}
+		s.sendErrorToClient(c, protocol.RespTypeReconnectError, protocol.ErrCodeReplayFailed, fmt.Sprintf("Failed to replay messages: %v", err))
 		return
 	}
 
@@ -331,8 +303,8 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 }
 
 // sendErrorToClient sends an error response to the client.
-// Used for all error types (message parsing, subscribe, unsubscribe).
-func (s *Server) sendErrorToClient(c *Client, errType, code, message string) {
+// Used for all error types (message parsing, subscribe, unsubscribe, reconnect, publish).
+func (s *Server) sendErrorToClient(c *Client, errType string, code protocol.ErrorCode, message string) {
 	errResp := map[string]any{
 		"type":    errType,
 		"code":    code,

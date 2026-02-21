@@ -608,16 +608,25 @@ channels:
           description: Error response when reconnect/replay fails.
           required:
             - type
+            - code
             - message
           properties:
             type:
               type: string
               const: reconnect_error
+            code:
+              type: string
+              description: Machine-readable error code.
+              enum:
+                - invalid_request
+                - not_available
+                - replay_failed
             message:
               type: string
               description: Human-readable error description.
           examples:
             - type: reconnect_error
+              code: not_available
               message: Message replay not available (no Kafka consumer)
       pong:
         name: pong
@@ -648,25 +657,9 @@ channels:
         contentType: application/json
         payload:
           type: object
-          description: Generic error response.
-          required:
-            - type
-            - message
-          properties:
-            type:
-              type: string
-              const: error
-            message:
-              type: string
-              description: Human-readable error description.
-      messageError:
-        name: messageError
-        title: Message Error
-        summary: Error for malformed messages (invalid JSON).
-        contentType: application/json
-        payload:
-          type: object
-          description: Error response for malformed messages (e.g., invalid JSON).
+          description: >
+            Generic error response. Sent when a client message cannot be parsed
+            (e.g., invalid JSON). The code field identifies the specific error.
           required:
             - type
             - code
@@ -870,15 +863,6 @@ operations:
     summary: Receive a generic error
     messages:
       - $ref: '#/channels/clientReceive/messages/error'
-  receiveMessageError:
-    action: receive
-    channel:
-      $ref: '#/channels/clientReceive'
-    summary: Receive error for malformed messages
-    description: |
-      Received when a client sends a message that is not valid JSON.
-    messages:
-      - $ref: '#/channels/clientReceive/messages/messageError'
   receiveSubscribeError:
     action: receive
     channel:
@@ -1172,16 +1156,25 @@ components:
       description: Error response when reconnect/replay fails.
       required:
         - type
+        - code
         - message
       properties:
         type:
           type: string
           const: reconnect_error
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - invalid_request
+            - not_available
+            - replay_failed
         message:
           type: string
           description: Human-readable error description.
       examples:
         - type: reconnect_error
+          code: not_available
           message: Message replay not available (no Kafka consumer)
     Pong:
       type: object
@@ -1202,20 +1195,9 @@ components:
           ts: 1706000000000
     Error:
       type: object
-      description: Generic error response.
-      required:
-        - type
-        - message
-      properties:
-        type:
-          type: string
-          const: error
-        message:
-          type: string
-          description: Human-readable error description.
-    MessageError:
-      type: object
-      description: Error response for malformed messages (e.g., invalid JSON).
+      description: >
+        Generic error response. Sent when a client message cannot be parsed
+        (e.g., invalid JSON). The code field identifies the specific error.
       required:
         - type
         - code
@@ -1672,16 +1654,25 @@ components:
         description: Error response when reconnect/replay fails.
         required:
           - type
+          - code
           - message
         properties:
           type:
             type: string
             const: reconnect_error
+          code:
+            type: string
+            description: Machine-readable error code.
+            enum:
+              - invalid_request
+              - not_available
+              - replay_failed
           message:
             type: string
             description: Human-readable error description.
         examples:
           - type: reconnect_error
+            code: not_available
             message: Message replay not available (no Kafka consumer)
     pong:
       name: pong
@@ -1712,25 +1703,9 @@ components:
       contentType: application/json
       payload:
         type: object
-        description: Generic error response.
-        required:
-          - type
-          - message
-        properties:
-          type:
-            type: string
-            const: error
-          message:
-            type: string
-            description: Human-readable error description.
-    messageError:
-      name: messageError
-      title: Message Error
-      summary: Error for malformed messages (invalid JSON).
-      contentType: application/json
-      payload:
-        type: object
-        description: Error response for malformed messages (e.g., invalid JSON).
+        description: >
+          Generic error response. Sent when a client message cannot be parsed
+          (e.g., invalid JSON). The code field identifies the specific error.
         required:
           - type
           - code

@@ -151,8 +151,6 @@ channels:
         $ref: "#/components/messages/pong"
       error:
         $ref: "#/components/messages/error"
-      messageError:
-        $ref: "#/components/messages/messageError"
       subscribeError:
         $ref: "#/components/messages/subscribeError"
       unsubscribeError:
@@ -296,16 +294,6 @@ operations:
     summary: Receive a generic error
     messages:
       - $ref: "#/channels/clientReceive/messages/error"
-
-  receiveMessageError:
-    action: receive
-    channel:
-      $ref: "#/channels/clientReceive"
-    summary: Receive error for malformed messages
-    description: >
-      Received when a client sends a message that is not valid JSON.
-    messages:
-      - $ref: "#/channels/clientReceive/messages/messageError"
 
   receiveSubscribeError:
     action: receive
@@ -600,16 +588,25 @@ components:
       description: Error response when reconnect/replay fails.
       required:
         - type
+        - code
         - message
       properties:
         type:
           type: string
           const: reconnect_error
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - invalid_request
+            - not_available
+            - replay_failed
         message:
           type: string
           description: Human-readable error description.
       examples:
         - type: reconnect_error
+          code: not_available
           message: "Message replay not available (no Kafka consumer)"
 
     Pong:
@@ -632,21 +629,9 @@ components:
 
     Error:
       type: object
-      description: Generic error response.
-      required:
-        - type
-        - message
-      properties:
-        type:
-          type: string
-          const: error
-        message:
-          type: string
-          description: Human-readable error description.
-
-    MessageError:
-      type: object
-      description: Error response for malformed messages (e.g., invalid JSON).
+      description: >
+        Generic error response. Sent when a client message cannot be parsed
+        (e.g., invalid JSON). The code field identifies the specific error.
       required:
         - type
         - code
@@ -909,14 +894,6 @@ components:
       contentType: application/json
       payload:
         $ref: "#/components/schemas/Error"
-
-    messageError:
-      name: messageError
-      title: Message Error
-      summary: Error for malformed messages (invalid JSON).
-      contentType: application/json
-      payload:
-        $ref: "#/components/schemas/MessageError"
 
     subscribeError:
       name: subscribeError

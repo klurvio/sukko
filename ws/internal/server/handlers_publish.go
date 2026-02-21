@@ -34,7 +34,7 @@ import (
 func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 	// Check if producer is available
 	if s.kafkaProducer == nil {
-		s.sendPublishError(c, string(protocol.ErrCodeNotAvailable), protocol.PublishErrorMessages[protocol.ErrCodeNotAvailable])
+		s.sendPublishError(c, protocol.ErrCodeNotAvailable, protocol.PublishErrorMessages[protocol.ErrCodeNotAvailable])
 		return
 	}
 
@@ -46,7 +46,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int64("client_id", c.id).
 			Err(err).
 			Msg("Client sent invalid publish request")
-		s.sendPublishError(c, string(protocol.ErrCodeInvalidRequest), protocol.PublishErrorMessages[protocol.ErrCodeInvalidRequest])
+		s.sendPublishError(c, protocol.ErrCodeInvalidRequest, protocol.PublishErrorMessages[protocol.ErrCodeInvalidRequest])
 		return
 	}
 
@@ -56,7 +56,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
 			Msg("Client sent invalid channel format")
-		s.sendPublishError(c, string(protocol.ErrCodeInvalidChannel), protocol.PublishErrorMessages[protocol.ErrCodeInvalidChannel])
+		s.sendPublishError(c, protocol.ErrCodeInvalidChannel, protocol.PublishErrorMessages[protocol.ErrCodeInvalidChannel])
 		return
 	}
 
@@ -67,7 +67,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int("size", len(pubReq.Data)).
 			Int("max_size", protocol.DefaultMaxPublishSize).
 			Msg("Client publish message too large")
-		s.sendPublishError(c, string(protocol.ErrCodeMessageTooLarge), protocol.PublishErrorMessages[protocol.ErrCodeMessageTooLarge])
+		s.sendPublishError(c, protocol.ErrCodeMessageTooLarge, protocol.PublishErrorMessages[protocol.ErrCodeMessageTooLarge])
 		return
 	}
 
@@ -77,7 +77,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
 			Msg("Client publish rate limited")
-		s.sendPublishError(c, string(protocol.ErrCodeRateLimited), protocol.PublishErrorMessages[protocol.ErrCodeRateLimited])
+		s.sendPublishError(c, protocol.ErrCodeRateLimited, protocol.PublishErrorMessages[protocol.ErrCodeRateLimited])
 		s.stats.RateLimitedMessages.Add(1)
 		metrics.IncrementRateLimitedMessages()
 		return
@@ -105,7 +105,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			code = protocol.ErrCodeServiceUnavailable
 		}
 
-		s.sendPublishError(c, string(code), protocol.PublishErrorMessages[code])
+		s.sendPublishError(c, code, protocol.PublishErrorMessages[code])
 		metrics.IncrementPublishErrors()
 		return
 	}
@@ -141,19 +141,6 @@ func (s *Server) sendPublishAck(c *Client, channel string) {
 }
 
 // sendPublishError sends a publish error response to the client.
-func (s *Server) sendPublishError(c *Client, code, message string) {
-	errResp := map[string]any{
-		"type":    protocol.RespTypePublishError,
-		"code":    code,
-		"message": message,
-	}
-
-	if data, err := json.Marshal(errResp); err == nil {
-		select {
-		case c.send <- data:
-			// Error sent
-		default:
-			// Client buffer full
-		}
-	}
+func (s *Server) sendPublishError(c *Client, code protocol.ErrorCode, message string) {
+	s.sendErrorToClient(c, protocol.RespTypePublishError, code, message)
 }

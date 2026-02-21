@@ -2,42 +2,57 @@ package protocol
 
 import "errors"
 
-// PublishErrorCode represents error codes for publish operations.
-// These codes are part of the public API and documented in AsyncAPI spec.
-type PublishErrorCode string
+// ErrorCode represents machine-readable error codes for all error response types.
+// Used across error, subscribe_error, unsubscribe_error, publish_error,
+// and reconnect_error responses.
+type ErrorCode string
 
 const (
-	// ErrCodeNotAvailable indicates publishing is disabled on this server.
-	ErrCodeNotAvailable PublishErrorCode = "not_available"
+	// General error codes (used across multiple response types).
 
-	// ErrCodeInvalidRequest indicates malformed publish request.
-	ErrCodeInvalidRequest PublishErrorCode = "invalid_request"
+	// ErrCodeInvalidJSON indicates a client message is not valid JSON.
+	ErrCodeInvalidJSON ErrorCode = "invalid_json"
+
+	// ErrCodeInvalidRequest indicates a malformed request.
+	// Used by subscribe_error, unsubscribe_error, reconnect_error, publish_error.
+	ErrCodeInvalidRequest ErrorCode = "invalid_request"
+
+	// ErrCodeNotAvailable indicates the requested feature is not available.
+	// Used by publish_error and reconnect_error.
+	ErrCodeNotAvailable ErrorCode = "not_available"
+
+	// Publish-specific error codes.
 
 	// ErrCodeInvalidChannel indicates invalid channel format.
 	// Channel must have format: {tenant}.{identifier}.{category}
-	ErrCodeInvalidChannel PublishErrorCode = "invalid_channel"
+	ErrCodeInvalidChannel ErrorCode = "invalid_channel"
 
 	// ErrCodeMessageTooLarge indicates payload exceeds size limit.
-	ErrCodeMessageTooLarge PublishErrorCode = "message_too_large"
+	ErrCodeMessageTooLarge ErrorCode = "message_too_large"
 
 	// ErrCodeRateLimited indicates publish rate limit exceeded.
-	ErrCodeRateLimited PublishErrorCode = "rate_limited"
+	ErrCodeRateLimited ErrorCode = "rate_limited"
 
 	// ErrCodePublishFailed indicates Kafka publish failed.
-	ErrCodePublishFailed PublishErrorCode = "publish_failed"
+	ErrCodePublishFailed ErrorCode = "publish_failed"
 
 	// ErrCodeForbidden indicates not authorized to publish to channel.
-	ErrCodeForbidden PublishErrorCode = "forbidden"
+	ErrCodeForbidden ErrorCode = "forbidden"
 
 	// ErrCodeTopicNotProvisioned indicates the category topic doesn't exist.
-	ErrCodeTopicNotProvisioned PublishErrorCode = "topic_not_provisioned"
+	ErrCodeTopicNotProvisioned ErrorCode = "topic_not_provisioned"
 
 	// ErrCodeServiceUnavailable indicates Kafka is unavailable (circuit open).
-	ErrCodeServiceUnavailable PublishErrorCode = "service_unavailable"
+	ErrCodeServiceUnavailable ErrorCode = "service_unavailable"
+
+	// Reconnect-specific error codes.
+
+	// ErrCodeReplayFailed indicates Kafka message replay failed.
+	ErrCodeReplayFailed ErrorCode = "replay_failed"
 )
 
-// PublishErrorMessages provides human-readable messages for error codes.
-var PublishErrorMessages = map[PublishErrorCode]string{
+// PublishErrorMessages provides human-readable messages for publish error codes.
+var PublishErrorMessages = map[ErrorCode]string{
 	ErrCodeNotAvailable:        "Publishing is not enabled on this server",
 	ErrCodeInvalidRequest:      "Invalid publish request format",
 	ErrCodeInvalidChannel:      "Channel must have format: tenant.identifier.category",
@@ -50,7 +65,7 @@ var PublishErrorMessages = map[PublishErrorCode]string{
 }
 
 // Sentinel errors for internal use.
-// These are used internally and mapped to PublishErrorCode for client responses.
+// These are used internally and mapped to ErrorCode for client responses.
 var (
 	// ErrInvalidChannel indicates the channel format is invalid.
 	ErrInvalidChannel = errors.New("invalid channel format")

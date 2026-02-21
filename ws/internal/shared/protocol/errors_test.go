@@ -9,11 +9,12 @@ import (
 // Error Code Constants Tests
 // =============================================================================
 
-func TestPublishErrorCode_Values(t *testing.T) {
+func TestErrorCode_Values(t *testing.T) {
 	t.Parallel()
-	expectedCodes := map[PublishErrorCode]string{
-		ErrCodeNotAvailable:        "not_available",
+	expectedCodes := map[ErrorCode]string{
+		ErrCodeInvalidJSON:         "invalid_json",
 		ErrCodeInvalidRequest:      "invalid_request",
+		ErrCodeNotAvailable:        "not_available",
 		ErrCodeInvalidChannel:      "invalid_channel",
 		ErrCodeMessageTooLarge:     "message_too_large",
 		ErrCodeRateLimited:         "rate_limited",
@@ -21,6 +22,7 @@ func TestPublishErrorCode_Values(t *testing.T) {
 		ErrCodeForbidden:           "forbidden",
 		ErrCodeTopicNotProvisioned: "topic_not_provisioned",
 		ErrCodeServiceUnavailable:  "service_unavailable",
+		ErrCodeReplayFailed:        "replay_failed",
 	}
 
 	for code, expected := range expectedCodes {
@@ -30,11 +32,12 @@ func TestPublishErrorCode_Values(t *testing.T) {
 	}
 }
 
-func TestPublishErrorCode_UniqueValues(t *testing.T) {
+func TestErrorCode_UniqueValues(t *testing.T) {
 	t.Parallel()
-	codes := []PublishErrorCode{
-		ErrCodeNotAvailable,
+	codes := []ErrorCode{
+		ErrCodeInvalidJSON,
 		ErrCodeInvalidRequest,
+		ErrCodeNotAvailable,
 		ErrCodeInvalidChannel,
 		ErrCodeMessageTooLarge,
 		ErrCodeRateLimited,
@@ -42,9 +45,10 @@ func TestPublishErrorCode_UniqueValues(t *testing.T) {
 		ErrCodeForbidden,
 		ErrCodeTopicNotProvisioned,
 		ErrCodeServiceUnavailable,
+		ErrCodeReplayFailed,
 	}
 
-	seen := make(map[PublishErrorCode]bool)
+	seen := make(map[ErrorCode]bool)
 	for _, code := range codes {
 		if seen[code] {
 			t.Errorf("Duplicate error code: %q", code)
@@ -53,9 +57,9 @@ func TestPublishErrorCode_UniqueValues(t *testing.T) {
 	}
 }
 
-func TestPublishErrorCode_TypeConversion(t *testing.T) {
+func TestErrorCode_TypeConversion(t *testing.T) {
 	t.Parallel()
-	// Verify that PublishErrorCode can be converted to/from string
+	// Verify that ErrorCode can be converted to/from string
 	code := ErrCodeRateLimited
 	strVal := string(code)
 
@@ -64,9 +68,9 @@ func TestPublishErrorCode_TypeConversion(t *testing.T) {
 	}
 
 	// Convert back
-	converted := PublishErrorCode(strVal)
+	converted := ErrorCode(strVal)
 	if converted != ErrCodeRateLimited {
-		t.Errorf("PublishErrorCode(%q) = %q, want %q", strVal, converted, ErrCodeRateLimited)
+		t.Errorf("ErrorCode(%q) = %q, want %q", strVal, converted, ErrCodeRateLimited)
 	}
 }
 
@@ -76,7 +80,7 @@ func TestPublishErrorCode_TypeConversion(t *testing.T) {
 
 func TestPublishErrorMessages_AllCodesHaveMessages(t *testing.T) {
 	t.Parallel()
-	codes := []PublishErrorCode{
+	codes := []ErrorCode{
 		ErrCodeNotAvailable,
 		ErrCodeInvalidRequest,
 		ErrCodeInvalidChannel,
@@ -112,7 +116,7 @@ func TestPublishErrorMessages_NoEmptyMessages(t *testing.T) {
 func TestPublishErrorMessages_Specific(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
-		code    PublishErrorCode
+		code    ErrorCode
 		message string
 	}{
 		{ErrCodeNotAvailable, "Publishing is not enabled on this server"},

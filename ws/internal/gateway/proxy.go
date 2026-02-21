@@ -489,7 +489,7 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 // Returns nil bytes to signal that the message should NOT be forwarded to backend.
 //
 //nolint:unparam // Always returns nil bytes by design - indicates message should not be forwarded
-func (p *Proxy) sendPublishErrorToClient(code protocol.PublishErrorCode) ([]byte, error) {
+func (p *Proxy) sendPublishErrorToClient(code protocol.ErrorCode) ([]byte, error) {
 	errMsg := map[string]string{
 		"type":    protocol.RespTypePublishError,
 		"code":    string(code),
