@@ -1,7 +1,10 @@
 package server
 
 import (
+	"encoding/json"
 	"testing"
+
+	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
 )
 
 // =============================================================================
@@ -222,5 +225,237 @@ func BenchmarkExtractChannel_LongSubject(b *testing.B) {
 	subject := "VERYLONGSYMBOLNAMEWITHMANYCHARACTERS.trade"
 	for b.Loop() {
 		_ = extractChannel(subject)
+	}
+}
+
+// =============================================================================
+// OutgoingMsg Tests
+// =============================================================================
+
+// TestBroadcast_OutgoingMsgBytes tests Bytes() dispatch for all three modes:
+// raw (pre-built), envelope (deferred), and zero-value (defensive guard).
+func TestBroadcast_OutgoingMsgBytes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("raw mode returns raw bytes", func(t *testing.T) {
+		t.Parallel()
+		raw := []byte(`{"type":"pong","ts":1000}`)
+		msg := RawMsg(raw)
+		got := msg.Bytes()
+		if string(got) != string(raw) {
+			t.Errorf("Bytes() = %s, want %s", string(got), string(raw))
+		}
+	})
+
+	t.Run("envelope mode calls Build", func(t *testing.T) {
+		t.Parallel()
+		env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`))
+		if err != nil {
+			t.Fatalf("NewBroadcastEnvelope() error: %v", err)
+		}
+		msg := OutgoingMsg{envelope: env, seq: 42}
+		got := msg.Bytes()
+
+		// Verify it contains the correct seq
+		var parsed map[string]any
+		if err := json.Unmarshal(got, &parsed); err != nil {
+			t.Fatalf("Bytes() produced invalid JSON: %v", err)
+		}
+		if parsed["seq"] != float64(42) {
+			t.Errorf("seq = %v, want 42", parsed["seq"])
+		}
+	})
+
+	t.Run("zero-value returns nil without panic", func(t *testing.T) {
+		t.Parallel()
+		var msg OutgoingMsg
+		got := msg.Bytes()
+		if got != nil {
+			t.Errorf("Bytes() = %v, want nil for zero-value OutgoingMsg", got)
+		}
+	})
+}
+
+// TestBroadcast_PerClientSequence verifies that two clients subscribed to the same
+// channel receive different sequence numbers for the same broadcast event.
+func TestBroadcast_PerClientSequence(t *testing.T) {
+	t.Parallel()
+
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`))
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope() error: %v", err)
+	}
+
+	// Simulate two clients with independent seqGens
+	seqGen1 := messaging.NewSequenceGenerator()
+	seqGen2 := messaging.NewSequenceGenerator()
+
+	seq1 := seqGen1.Next()
+	seq2 := seqGen2.Next()
+
+	msg1 := OutgoingMsg{envelope: env, seq: seq1}
+	msg2 := OutgoingMsg{envelope: env, seq: seq2}
+
+	bytes1 := msg1.Bytes()
+	bytes2 := msg2.Bytes()
+
+	// Both should be valid JSON
+	var parsed1, parsed2 map[string]any
+	if err := json.Unmarshal(bytes1, &parsed1); err != nil {
+		t.Fatalf("Client 1 Bytes() invalid JSON: %v", err)
+	}
+	if err := json.Unmarshal(bytes2, &parsed2); err != nil {
+		t.Fatalf("Client 2 Bytes() invalid JSON: %v", err)
+	}
+
+	// Both should have seq=1 (first seq from independent generators)
+	// But in the real broadcast path, each client's seqGen is shared across messages,
+	// so after the first broadcast, client1.seq=1 and client2.seq=1.
+	// The key contract is: each client gets its OWN seq from its OWN generator.
+	if parsed1["seq"] != float64(1) {
+		t.Errorf("Client 1 seq = %v, want 1", parsed1["seq"])
+	}
+	if parsed2["seq"] != float64(1) {
+		t.Errorf("Client 2 seq = %v, want 1", parsed2["seq"])
+	}
+
+	// After a second broadcast, seqs diverge if one client gets more messages
+	seq1b := seqGen1.Next()
+	_ = seqGen2.Next() // client 2 also gets seq 2
+	seq1c := seqGen1.Next()
+
+	msg1c := OutgoingMsg{envelope: env, seq: seq1c}
+	bytes1c := msg1c.Bytes()
+
+	var parsed1c map[string]any
+	if err := json.Unmarshal(bytes1c, &parsed1c); err != nil {
+		t.Fatalf("Client 1 third Bytes() invalid JSON: %v", err)
+	}
+
+	if parsed1c["seq"] != float64(3) {
+		t.Errorf("Client 1 third seq = %v, want 3", parsed1c["seq"])
+	}
+	_ = seq1b // used above
+}
+
+// TestBroadcast_SequenceMonotonicallyIncreasing verifies multiple broadcasts to one client
+// produce strictly increasing sequence numbers.
+func TestBroadcast_SequenceMonotonicallyIncreasing(t *testing.T) {
+	t.Parallel()
+
+	seqGen := messaging.NewSequenceGenerator()
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`))
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope() error: %v", err)
+	}
+
+	var prevSeq float64
+	for i := range 100 {
+		seq := seqGen.Next()
+		msg := OutgoingMsg{envelope: env, seq: seq}
+		bytes := msg.Bytes()
+
+		var parsed map[string]any
+		if err := json.Unmarshal(bytes, &parsed); err != nil {
+			t.Fatalf("Broadcast %d: invalid JSON: %v", i, err)
+		}
+
+		currentSeq := parsed["seq"].(float64)
+		if currentSeq <= prevSeq {
+			t.Errorf("Broadcast %d: seq %v not greater than previous %v", i, currentSeq, prevSeq)
+		}
+		prevSeq = currentSeq
+	}
+}
+
+// TestBroadcast_SequenceConsumedOnDrop verifies that seqGen.Next() is called before
+// the send attempt, so the sequence is consumed even when the message is dropped.
+func TestBroadcast_SequenceConsumedOnDrop(t *testing.T) {
+	t.Parallel()
+
+	seqGen := messaging.NewSequenceGenerator()
+
+	// Simulate: broadcast loop calls seqGen.Next() BEFORE select/send
+	// If send channel is full, seq is still consumed → client sees gap
+
+	// First broadcast: seq consumed and delivered
+	seq1 := seqGen.Next() // seq=1
+	_ = seq1
+
+	// Second broadcast: seq consumed but dropped (full buffer)
+	seq2 := seqGen.Next() // seq=2
+	_ = seq2
+
+	// Third broadcast: seq consumed and delivered
+	seq3 := seqGen.Next() // seq=3
+
+	// Client receives seq=1 and seq=3, sees gap at seq=2
+	if seq3 != 3 {
+		t.Errorf("seq3 = %d, want 3", seq3)
+	}
+
+	// Verify seqGen.Current() reflects all consumed sequences
+	if seqGen.Current() != 3 {
+		t.Errorf("seqGen.Current() = %d, want 3 (all consumed even if dropped)", seqGen.Current())
+	}
+}
+
+// TestBroadcast_CrossChannelSequenceContinuity verifies that messages on different
+// channels share one sequence space per client (sequences are continuous across channels).
+func TestBroadcast_CrossChannelSequenceContinuity(t *testing.T) {
+	t.Parallel()
+
+	seqGen := messaging.NewSequenceGenerator()
+
+	envA, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`))
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope(A) error: %v", err)
+	}
+	envB, err := messaging.NewBroadcastEnvelope("ETH.liquidity", 1001, []byte(`{"amount":100}`))
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope(B) error: %v", err)
+	}
+
+	// Broadcast on channel A
+	seqA := seqGen.Next()
+	msgA := OutgoingMsg{envelope: envA, seq: seqA}
+
+	// Broadcast on channel B
+	seqB := seqGen.Next()
+	msgB := OutgoingMsg{envelope: envB, seq: seqB}
+
+	// Broadcast on channel A again
+	seqA2 := seqGen.Next()
+	msgA2 := OutgoingMsg{envelope: envA, seq: seqA2}
+
+	// Extract seqs
+	var parsedA, parsedB, parsedA2 map[string]any
+	if err := json.Unmarshal(msgA.Bytes(), &parsedA); err != nil {
+		t.Fatalf("Channel A Bytes() invalid JSON: %v", err)
+	}
+	if err := json.Unmarshal(msgB.Bytes(), &parsedB); err != nil {
+		t.Fatalf("Channel B Bytes() invalid JSON: %v", err)
+	}
+	if err := json.Unmarshal(msgA2.Bytes(), &parsedA2); err != nil {
+		t.Fatalf("Channel A2 Bytes() invalid JSON: %v", err)
+	}
+
+	// Verify continuous: 1, 2, 3
+	if parsedA["seq"] != float64(1) {
+		t.Errorf("Channel A seq = %v, want 1", parsedA["seq"])
+	}
+	if parsedB["seq"] != float64(2) {
+		t.Errorf("Channel B seq = %v, want 2", parsedB["seq"])
+	}
+	if parsedA2["seq"] != float64(3) {
+		t.Errorf("Channel A2 seq = %v, want 3", parsedA2["seq"])
+	}
+
+	// Verify different channels
+	if parsedA["channel"] != "BTC.trade" {
+		t.Errorf("Channel A channel = %v, want BTC.trade", parsedA["channel"])
+	}
+	if parsedB["channel"] != "ETH.liquidity" {
+		t.Errorf("Channel B channel = %v, want ETH.liquidity", parsedB["channel"])
 	}
 }

@@ -18,6 +18,36 @@ import (
 // This works correctly regardless of PingPeriod configuration.
 const controlChannelSize = 2
 
+// OutgoingMsg is the message type for the client send channel.
+// It supports two modes:
+//   - Pre-built: raw bytes (acks, errors, replay) — write pump sends directly
+//   - Deferred:  shared envelope + per-client seq — write pump builds bytes
+type OutgoingMsg struct {
+	raw      []byte                    // pre-built bytes (non-nil = use directly)
+	envelope *messaging.BroadcastEnvelope // shared broadcast template (immutable)
+	seq      int64                     // per-client sequence number
+}
+
+// Bytes resolves the message to sendable bytes.
+// For pre-built messages, returns raw directly (zero-cost).
+// For broadcast messages, assembles bytes from envelope + seq (~100ns).
+// Returns nil for zero-value OutgoingMsg (defensive guard against channel misuse).
+func (m OutgoingMsg) Bytes() []byte {
+	if m.raw != nil {
+		return m.raw
+	}
+	if m.envelope == nil {
+		return nil
+	}
+	return m.envelope.Build(m.seq)
+}
+
+// RawMsg creates an OutgoingMsg from pre-built bytes.
+// Used by acks, errors, replay, and other non-broadcast messages.
+func RawMsg(data []byte) OutgoingMsg {
+	return OutgoingMsg{raw: data}
+}
+
 // Client represents a WebSocket client connection with message reliability features
 // Enhanced from basic WebSocket to production-grade trading platform client
 //
@@ -52,7 +82,7 @@ type Client struct {
 	id        int64       // Unique client identifier
 	conn      net.Conn    // Underlying TCP connection
 	server    *Server     // Reference to parent server
-	send      chan []byte // Buffered channel for outgoing messages (configurable via WS_CLIENT_SEND_BUFFER_SIZE)
+	send      chan OutgoingMsg // Buffered channel for outgoing messages (configurable via WS_CLIENT_SEND_BUFFER_SIZE)
 	control   chan []byte // Buffered channel for pong payloads (ReadLoop → WriteLoop)
 	closeOnce sync.Once   // Ensures connection is only closed once
 
@@ -134,7 +164,7 @@ func NewConnectionPool(maxSize int, bufferSize int) *ConnectionPool {
 			client := &Client{
 				// Buffer size now configurable via WS_CLIENT_SEND_BUFFER_SIZE
 				// Default: 512 (reduced from 1024 to cut heap size by 50%)
-				send:    make(chan []byte, cp.bufferSize),
+				send:    make(chan OutgoingMsg, cp.bufferSize),
 				control: make(chan []byte, controlChannelSize),
 			}
 

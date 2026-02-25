@@ -508,11 +508,11 @@ func TestClientBufferIteration_WithSyncMap(t *testing.T) {
 	for i := range 10 {
 		client := &Client{
 			id:   int64(i),
-			send: make(chan []byte, 256),
+			send: make(chan OutgoingMsg, 256),
 		}
 		// Fill buffer to varying levels
 		for range i * 25 {
-			client.send <- []byte("msg")
+			client.send <- RawMsg([]byte("msg"))
 		}
 		clients.Store(client, true)
 	}

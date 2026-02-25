@@ -120,7 +120,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.0.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-02-17
+**Version**: 1.1.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-02-25
 
 ### I. No Hardcoded Values, No Magic Strings
 
@@ -157,6 +157,12 @@ All configuration MUST be validated at startup with clear error messages. Hyster
 ### IX. Testing
 
 Tests MUST be table-driven for multiple cases. Mocks MUST use interfaces. `t.Parallel()` MUST NOT be used on tests with shared resources (databases, external services, `*_shared_test.go`). Edge cases MUST be covered (empty, nil, max values, error paths).
+
+**Test coverage for all changes is mandatory:**
+- **Bug fixes** MUST update or add unit tests that reproduce the bug and verify the fix. If existing tests missed the bug, they MUST be strengthened.
+- **Enhancements and refactors** MUST update existing tests to reflect the changed behavior and add tests for any new code paths introduced.
+- **New features** MUST include comprehensive unit tests covering: happy path, error paths, edge cases, and concurrency safety (where applicable).
+- No code change (bug fix, enhancement, refactor, or feature) MUST be considered complete without corresponding test updates. Untested code changes are forbidden.
 
 ### X. Security
 

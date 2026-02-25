@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"slices"
 	"strings"
 	"time"
@@ -96,41 +95,23 @@ func (s *Server) Broadcast(subject string, message []byte) {
 	totalCount := len(subscribers)
 	successCount := 0
 
-	// CRITICAL OPTIMIZATION: Serialize message ONCE for all clients
-	// Without this optimization (old code):
-	//   - 6,590 clients × 25 msg/sec = 164,750 json.Marshal() calls/sec
-	//   - 164,750 × 600µs (2 serializations) = 98.85 CPU seconds/second
-	//   - On 1 core: 9,885% CPU needed → plateaus at ~6.5K connections
+	// Pre-compute broadcast envelope template (shared across all write pump goroutines).
+	// Write-pump deferred assembly: broadcast loop stays O(1) per client (~25ns),
+	// byte assembly (~100ns) is parallelized across write pump goroutines.
 	//
-	// With this optimization:
-	//   - 25 msg/sec × 1 marshal/msg = 25 json.Marshal() calls/sec
-	//   - 25 × 300µs = 7.5ms CPU/second = 0.75% CPU
-	//   - Result: 99.92% reduction in serialization overhead
-	//
-	// Trade-off: All clients receive seq=0 instead of unique sequence numbers
-	// This is acceptable because:
-	//   - Replay functionality still works (clients store messages)
-	//   - Sequence numbers weren't critical for this use case
-	//   - Performance gain: 6.5K → 12K connections @ 30% CPU
-	baseEnvelope := &messaging.MessageEnvelope{
-		Type:      "message", // Standard type for broadcast messages (industry standard)
-		Seq:       0,         // Shared sequence for all clients (acceptable for 12K capacity)
-		Timestamp: time.Now().UnixMilli(),
-		Channel:   channel, // Explicit tenant-prefixed channel (e.g., "odin.BTC.trade")
-		Priority:  messaging.PriorityHigh,
-		Data:      json.RawMessage(message),
-	}
-
-	// Serialize ONCE for all clients (not once per client!)
-	sharedData, err := baseEnvelope.Serialize()
+	// Performance vs old shared-serialization (seq=0):
+	//   - Broadcast loop: ~25ns/client (up from ~15ns — atomic increment is negligible)
+	//   - Byte assembly: ~100ns/client (deferred to write pumps, parallelized)
+	//   - Enables client-side gap detection (seq>0, monotonically increasing)
+	envelope, err := messaging.NewBroadcastEnvelope(channel, time.Now().UnixMilli(), message)
 	if err != nil {
 		metrics.RecordSerializationError(pkgmetrics.SeverityCritical)
 		s.logger.Error().
 			Err(err).
 			Str("channel", channel).
 			Int("subscribers", totalCount).
-			Msg("Failed to serialize broadcast message - affects all subscribers")
-		return // Cannot broadcast if serialization fails
+			Msg("Failed to prepare broadcast envelope")
+		return
 	}
 
 	// Iterate ONLY subscribed clients (not all clients!)
@@ -146,14 +127,17 @@ func (s *Server) Broadcast(subject string, message []byte) {
 			continue
 		}
 
+		// Assign sequence BEFORE send attempt — consumed even if dropped.
+		// Client sees gap (e.g., 5 → 7) if message is dropped, enabling gap detection.
+		seq := client.seqGen.Next()
+
 		// Attempt to send - COMPLETELY NON-BLOCKING
 		// Critical fix: Do not use time.After() which blocks the entire broadcast
 		// Instead, immediately detect full buffers and mark client as slow
-		// Send pre-serialized data (same bytes for all clients - zero per-client marshaling)
+		// Send lightweight struct — write pump builds final bytes via envelope.Build(seq)
 		select {
-		case client.send <- sharedData:
-			// Success - message queued for writePump to send
-			// Reset failure counter (client is healthy)
+		case client.send <- OutgoingMsg{envelope: envelope, seq: seq}:
+			// Success — lightweight struct sent to write pump for deferred assembly
 			client.sendAttempts.Store(0)
 			client.lastMessageSentAt = time.Now()
 			successCount++
@@ -162,6 +146,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 			s.logger.Debug().
 				Int64("client_id", client.id).
 				Str("channel", channel).
+				Int64("seq", seq).
 				Msg("Broadcast to client")
 
 		default:

@@ -724,7 +724,7 @@ func TestServer_SubscriptionFlow_NotAffectedByProducerField(t *testing.T) {
 	client := &Client{
 		id:            1,
 		subscriptions: NewSubscriptionSet(),
-		send:          make(chan []byte, 10),
+		send:          make(chan OutgoingMsg, 10),
 	}
 
 	// Test subscription operations

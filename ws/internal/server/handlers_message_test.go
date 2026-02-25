@@ -367,18 +367,18 @@ func TestSubscriptionAck_JSONFormat(t *testing.T) {
 func TestClientSendBuffer_NonBlocking(t *testing.T) {
 	t.Parallel()
 	client := &Client{
-		send: make(chan []byte, 2), // Small buffer
+		send: make(chan OutgoingMsg, 2), // Small buffer
 	}
 
 	// Fill the buffer
-	client.send <- []byte("msg1")
-	client.send <- []byte("msg2")
+	client.send <- RawMsg([]byte("msg1"))
+	client.send <- RawMsg([]byte("msg2"))
 
 	// Non-blocking send should not block
 	data := []byte("msg3")
 	var sent bool
 	select {
-	case client.send <- data:
+	case client.send <- RawMsg(data):
 		sent = true
 	default:
 		// Buffer is full, send would block
@@ -392,13 +392,13 @@ func TestClientSendBuffer_NonBlocking(t *testing.T) {
 func TestClientSendBuffer_Drain(t *testing.T) {
 	t.Parallel()
 	client := &Client{
-		send: make(chan []byte, 3),
+		send: make(chan OutgoingMsg, 3),
 	}
 
 	// Add messages
-	client.send <- []byte("msg1")
-	client.send <- []byte("msg2")
-	client.send <- []byte("msg3")
+	client.send <- RawMsg([]byte("msg1"))
+	client.send <- RawMsg([]byte("msg2"))
+	client.send <- RawMsg([]byte("msg3"))
 
 	// Drain
 	count := 0
@@ -652,16 +652,16 @@ func TestHandleClientMessage_ErrorResponses(t *testing.T) {
 			// Minimal client setup
 			client := &Client{
 				id:            1,
-				send:          make(chan []byte, 16),
+				send:          make(chan OutgoingMsg, 16),
 				subscriptions: NewSubscriptionSet(),
 			}
 
 			server.handleClientMessage(client, []byte(tt.input))
 
 			select {
-			case respBytes := <-client.send:
+			case respMsg := <-client.send:
 				var resp map[string]any
-				if err := json.Unmarshal(respBytes, &resp); err != nil {
+				if err := json.Unmarshal(respMsg.Bytes(), &resp); err != nil {
 					t.Fatalf("Failed to unmarshal response: %v", err)
 				}
 				if resp["type"] != tt.wantType {

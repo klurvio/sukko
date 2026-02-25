@@ -54,7 +54,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 		if data, err := json.Marshal(pong); err == nil {
 			select {
-			case c.send <- data:
+			case c.send <- RawMsg(data):
 				// Sent
 			default:
 				// If can't send pong, client buffer is full
@@ -118,7 +118,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 		if data, err := json.Marshal(ack); err == nil {
 			select {
-			case c.send <- data:
+			case c.send <- RawMsg(data):
 				// Ack sent successfully
 			default:
 				// Client buffer full - skip ack (not critical)
@@ -160,7 +160,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 		if data, err := json.Marshal(ack); err == nil {
 			select {
-			case c.send <- data:
+			case c.send <- RawMsg(data):
 				// Ack sent successfully
 			default:
 				// Client buffer full - skip ack (not critical)
@@ -266,7 +266,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 		envelopeData, err := envelope.Serialize()
 		if err == nil {
 			select {
-			case c.send <- envelopeData:
+			case c.send <- RawMsg(envelopeData):
 				replayedCount++
 			default:
 				s.logger.Warn().
@@ -287,7 +287,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 
 	if ackData, err := json.Marshal(ackMsg); err == nil {
 		select {
-		case c.send <- ackData:
+		case c.send <- RawMsg(ackData):
 		default:
 		}
 	}
@@ -313,7 +313,7 @@ func (s *Server) sendErrorToClient(c *Client, errType string, code protocol.Erro
 
 	if data, err := json.Marshal(errResp); err == nil {
 		select {
-		case c.send <- data:
+		case c.send <- RawMsg(data):
 			// Error sent
 		default:
 			// Client buffer full - non-blocking per graceful degradation guidelines

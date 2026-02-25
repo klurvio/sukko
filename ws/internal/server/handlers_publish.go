@@ -132,7 +132,7 @@ func (s *Server) sendPublishAck(c *Client, channel string) {
 
 	if data, err := json.Marshal(ack); err == nil {
 		select {
-		case c.send <- data:
+		case c.send <- RawMsg(data):
 			// Ack sent successfully
 		default:
 			// Client buffer full - skip ack (not critical, message was published)

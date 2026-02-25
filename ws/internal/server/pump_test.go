@@ -258,7 +258,7 @@ func TestPump_HandleRateLimitExceeded_LogsWarning(t *testing.T) {
 
 	client := &Client{
 		id:   12345,
-		send: make(chan []byte, 10),
+		send: make(chan OutgoingMsg, 10),
 	}
 
 	pump.handleRateLimitExceeded(client)
@@ -294,7 +294,7 @@ func TestPump_HandleRateLimitExceeded_AuditLog(t *testing.T) {
 
 	client := &Client{
 		id:   12345,
-		send: make(chan []byte, 10),
+		send: make(chan OutgoingMsg, 10),
 	}
 
 	pump.handleRateLimitExceeded(client)
@@ -320,7 +320,7 @@ func TestPump_HandleRateLimitExceeded_SendsError(t *testing.T) {
 
 	client := &Client{
 		id:   12345,
-		send: make(chan []byte, 10),
+		send: make(chan OutgoingMsg, 10),
 	}
 
 	pump.handleRateLimitExceeded(client)
@@ -328,7 +328,7 @@ func TestPump_HandleRateLimitExceeded_SendsError(t *testing.T) {
 	select {
 	case msg := <-client.send:
 		var parsed map[string]any
-		if err := json.Unmarshal(msg, &parsed); err != nil {
+		if err := json.Unmarshal(msg.Bytes(), &parsed); err != nil {
 			t.Fatalf("Failed to parse sent message: %v", err)
 		}
 		if parsed["code"] != "RATE_LIMIT_EXCEEDED" {
@@ -351,9 +351,9 @@ func TestPump_HandleRateLimitExceeded_FullBuffer(t *testing.T) {
 
 	client := &Client{
 		id:   12345,
-		send: make(chan []byte, 1),
+		send: make(chan OutgoingMsg, 1),
 	}
-	client.send <- []byte("existing message")
+	client.send <- RawMsg([]byte("existing message"))
 
 	done := make(chan bool)
 	go func() {
@@ -381,7 +381,7 @@ func TestPump_HandleRateLimitExceeded_UpdatesStats(t *testing.T) {
 
 	client := &Client{
 		id:   12345,
-		send: make(chan []byte, 10),
+		send: make(chan OutgoingMsg, 10),
 	}
 
 	initialCount := stats.RateLimitedMessages.Load()
@@ -576,7 +576,7 @@ func TestPump_HandleRateLimitExceeded_Concurrent(t *testing.T) {
 			defer wg.Done()
 			client := &Client{
 				id:   int64(id),
-				send: make(chan []byte, 10),
+				send: make(chan OutgoingMsg, 10),
 			}
 			pump.handleRateLimitExceeded(client)
 		}(i)
@@ -767,7 +767,7 @@ func TestReadLoop_TextMessage_ProcessedCorrectly(t *testing.T) {
 	client := &Client{
 		id:            1,
 		conn:          mockConn,
-		send:          make(chan []byte, 10),
+		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
 	}
@@ -819,7 +819,7 @@ func TestReadLoop_PingFrame_SendsPongResponse(t *testing.T) {
 	client := &Client{
 		id:            1,
 		conn:          mockConn,
-		send:          make(chan []byte, 10),
+		send:          make(chan OutgoingMsg, 10),
 		control:       make(chan []byte, controlChannelSize),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
@@ -861,7 +861,7 @@ func TestReadLoop_PongFrame_RefreshesDeadline(t *testing.T) {
 	client := &Client{
 		id:            1,
 		conn:          mockConn,
-		send:          make(chan []byte, 10),
+		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
 	}
@@ -893,7 +893,7 @@ func TestReadLoop_CloseFrame_ExitsGracefully(t *testing.T) {
 	client := &Client{
 		id:            1,
 		conn:          mockConn,
-		send:          make(chan []byte, 10),
+		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
 	}
@@ -928,7 +928,7 @@ func TestReadLoop_ContextCancellation_ExitsWithServerShutdown(t *testing.T) {
 	client := &Client{
 		id:            1,
 		conn:          mockConn,
-		send:          make(chan []byte, 10),
+		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
 	}
@@ -980,7 +980,7 @@ func TestReadLoop_ReadError_CallsDisconnectFn(t *testing.T) {
 	client := &Client{
 		id:            1,
 		conn:          mockConn,
-		send:          make(chan []byte, 10),
+		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
 	}
@@ -1033,7 +1033,7 @@ func TestReadLoop_RateLimiting_BlocksExcessiveMessages(t *testing.T) {
 	client := &Client{
 		id:            1,
 		conn:          mockConn,
-		send:          make(chan []byte, 10),
+		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
 	}
@@ -1078,7 +1078,7 @@ func TestReadLoop_PingFrame_ControlChannelFull_DropsWithLog(t *testing.T) {
 	client := &Client{
 		id:            1,
 		conn:          mockConn,
-		send:          make(chan []byte, 10),
+		send:          make(chan OutgoingMsg, 10),
 		control:       make(chan []byte, controlChannelSize),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
@@ -1129,7 +1129,7 @@ func TestWriteLoop_ControlChannel_SendsPong(t *testing.T) {
 	client := &Client{
 		id:        1,
 		conn:      mockConn,
-		send:      make(chan []byte, 10),
+		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
 	}
@@ -1192,7 +1192,7 @@ func TestWriteLoop_ControlChannel_SetsWriteDeadline(t *testing.T) {
 	client := &Client{
 		id:        1,
 		conn:      mockConn,
-		send:      make(chan []byte, 10),
+		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
 	}
@@ -1241,7 +1241,7 @@ func TestWriteLoop_ControlChannel_WriteError_Returns(t *testing.T) {
 	client := &Client{
 		id:        1,
 		conn:      mockConn,
-		send:      make(chan []byte, 10),
+		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
 	}
@@ -1295,7 +1295,7 @@ func TestWriteLoop_PingTimer_SendsPing(t *testing.T) {
 	client := &Client{
 		id:        1,
 		conn:      mockConn,
-		send:      make(chan []byte, 10),
+		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
 	}
@@ -1355,7 +1355,7 @@ func TestWriteLoop_ContextCancellation_Exits(t *testing.T) {
 	client := &Client{
 		id:        1,
 		conn:      mockConn,
-		send:      make(chan []byte, 10),
+		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
 	}
@@ -1394,14 +1394,14 @@ func TestWriteLoop_SendChannel_WritesMessage(t *testing.T) {
 	client := &Client{
 		id:        1,
 		conn:      mockConn,
-		send:      make(chan []byte, 10),
+		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
 	}
 
 	// Pre-load data message
 	dataMsg := []byte(`{"type":"message","channel":"odin.BTC.trade"}`)
-	client.send <- dataMsg
+	client.send <- RawMsg(dataMsg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -1449,7 +1449,7 @@ func TestWriteLoop_SendChannelClosed_SendsClose(t *testing.T) {
 	client := &Client{
 		id:        1,
 		conn:      mockConn,
-		send:      make(chan []byte, 10),
+		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
 	}

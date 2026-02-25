@@ -407,7 +407,7 @@ func TestDisconnectClient_Integration(t *testing.T) {
 	// Create a client
 	client := &Client{
 		id:            12345,
-		send:          make(chan []byte, 256),
+		send:          make(chan OutgoingMsg, 256),
 		seqGen:        messaging.NewSequenceGenerator(),
 		subscriptions: NewSubscriptionSet(),
 		connectedAt:   time.Now().Add(-5 * time.Second),
@@ -548,12 +548,12 @@ func TestClient_SendBufferMetrics(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			client := &Client{
-				send: make(chan []byte, tt.bufferCap),
+				send: make(chan OutgoingMsg, tt.bufferCap),
 			}
 
 			// Fill buffer
 			for range tt.fillCount {
-				client.send <- []byte("msg")
+				client.send <- RawMsg([]byte("msg"))
 			}
 
 			bufferLen := len(client.send)

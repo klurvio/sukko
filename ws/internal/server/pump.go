@@ -270,7 +270,7 @@ func (p *Pump) handleRateLimitExceeded(c *Client) {
 	// Send error to client
 	errorMsg := CreateRateLimitErrorMessage()
 	select {
-	case c.send <- errorMsg:
+	case c.send <- RawMsg(errorMsg):
 	default:
 		// Client buffer full
 	}
@@ -334,7 +334,7 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 				p.Logger.Debug().Int64("client_id", c.id).Msg("Sent pong to client")
 			}
 
-		case message, ok := <-c.send:
+		case msg, ok := <-c.send:
 			if !ok {
 				if p.Logger != nil {
 					p.Logger.Debug().Int64("client_id", c.id).Msg("Send channel closed")
@@ -352,6 +352,13 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 				return
 			}
 			_ = c.conn.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
+
+			// Resolve OutgoingMsg to bytes: raw passthrough or envelope.Build(seq)
+			message := msg.Bytes()
+			if message == nil {
+				// Zero-value OutgoingMsg — skip to avoid writing empty WebSocket frame
+				continue
+			}
 
 			// Batch metrics
 			var batchMsgCount int64 = 1
@@ -372,15 +379,19 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 			n := len(c.send)
 		batchLoop:
 			for range n {
-				var batchMsg []byte
+				var batchOutgoing OutgoingMsg
 				var batchOk bool
 				select {
-				case batchMsg, batchOk = <-c.send:
+				case batchOutgoing, batchOk = <-c.send:
 					if !batchOk {
 						break batchLoop
 					}
 				default:
 					break batchLoop
+				}
+				batchMsg := batchOutgoing.Bytes()
+				if batchMsg == nil {
+					continue
 				}
 				err := wsutil.WriteServerMessage(writer, ws.OpText, batchMsg)
 				if err != nil {
