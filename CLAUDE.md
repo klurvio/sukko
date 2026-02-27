@@ -120,7 +120,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.1.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-02-25
+**Version**: 1.2.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-02-27
 
 ### I. No Hardcoded Values, No Magic Strings
 
@@ -148,7 +148,46 @@ Every significant operation MUST have Prometheus metrics. Metric names MUST use 
 
 ### VII. Concurrency Safety
 
-All goroutines MUST be managed with `context.Context` + `sync.WaitGroup` for lifecycle control. Mutex critical sections MUST be minimal. `sync/atomic` MUST be used for simple counters instead of mutex. Channel operations MUST be non-blocking (`select` with `default`) where appropriate. `sync.Pool` MUST be used for frequent allocations in hot paths.
+This is a high-performance WebSocket server handling thousands of concurrent connections per pod. Incorrect concurrency primitives cause panics, deadlocks, goroutine leaks, and silent data corruption. Every concurrent pattern MUST follow the established patterns below.
+
+**Goroutine Lifecycle** — All goroutines MUST follow this exact launch sequence:
+1. `wg.Add(1)` MUST be called BEFORE the `go` statement — never inside the goroutine. Calling `Add()` inside the goroutine is a race condition: `Done()` can execute before `Add()`, causing `Wait()` to return prematurely.
+2. `defer logging.RecoverPanic(...)` MUST be the FIRST `defer` inside the goroutine body.
+3. `defer wg.Done()` MUST be the SECOND `defer` inside the goroutine body. Using `defer` (not inline) guarantees execution on panic or early return.
+4. The goroutine MUST check `ctx.Done()` in its main loop via `select` for shutdown signaling.
+5. `wg.Wait()` MUST be called in the shutdown/stop path to ensure all goroutines have exited before resources are released.
+
+Shutdown ordering MUST be: cancel context → `wg.Wait()` for goroutines → close channels → release resources. Reversing this order (e.g., closing a channel before its goroutine exits) causes panics.
+
+**Channels** — Channel type MUST match usage pattern:
+- **Signal/stop channels** (`chan struct{}`): Used for shutdown signaling. MUST be closed by exactly one goroutine. If multiple goroutines may attempt close, MUST use `sync.Once` to guard the `close()` call. Sending on a closed channel panics — this is unrecoverable in production.
+- **Data channels** (e.g., `chan OutgoingMsg`): MUST be buffered with a size matching throughput requirements. Unbuffered channels MUST NOT be used in hot paths (message distribution, broadcast fan-out) because a single slow receiver blocks all senders.
+- **Semaphore channels** (`chan struct{}` with capacity = limit): Used for resource limiting (max connections, max goroutines). Acquire MUST be non-blocking (`select` with `default` case) to reject callers at capacity rather than queueing them indefinitely.
+- **Fan-out sends** (broadcast to multiple subscribers): MUST use non-blocking `select` with `default` to skip slow consumers. Dropped messages MUST be counted via Prometheus metrics (`_dropped_total`). A single slow subscriber MUST NOT block delivery to all other subscribers.
+- **Channel close rules**: Only the sender side MUST close a channel — never the receiver. After closing, no further sends are permitted (panic). When a channel may be closed from multiple code paths, guard with `sync.Once`. When draining a channel before reuse (e.g., `sync.Pool`), use `select` with `default` in a loop.
+
+**WaitGroups** — `sync.WaitGroup` is for goroutine lifecycle tracking only:
+- MUST be used to track that all spawned goroutines have completed before shutdown proceeds.
+- `wg.Add(N)` MUST be called before launching N goroutines, in the launching goroutine's execution context.
+- `wg.Done()` MUST always be called via `defer` to guarantee execution on all exit paths.
+- `wg.Wait()` SHOULD have a timeout mechanism (e.g., wrapper with `context.WithTimeout`) to detect stuck goroutines during shutdown rather than hanging indefinitely.
+- WaitGroups MUST NOT be reused after `Wait()` returns for a given set of goroutines.
+
+**Mutexes** — Locks MUST protect data, not code:
+- `sync.RWMutex` MUST be used for read-heavy data (caches, subscription maps, metrics snapshots) where reads vastly outnumber writes. `sync.Mutex` MUST be used only when writes are as frequent as reads.
+- Critical sections MUST be minimal: lock → read/write shared data → unlock. Mutexes MUST NOT be held across I/O operations (network calls, disk reads, channel sends, HTTP requests). Holding a lock across I/O blocks all other goroutines waiting for that lock, destroying throughput.
+- `defer mu.Unlock()` / `defer mu.RUnlock()` MUST be used to prevent deadlocks from early returns or panics. Inline `Unlock()` without defer is forbidden.
+- Nested mutex acquisition (locking mutex A while holding mutex B) MUST follow a consistent global ordering to prevent deadlocks. If ordering cannot be guaranteed, restructure to avoid nesting.
+- Mutex values MUST NOT be copied. Structs containing a mutex MUST be passed by pointer and MUST NOT be assigned by value.
+
+**Atomics** — Lock-free operations for hot-path counters and flags:
+- `atomic.Int64` MUST be used for hot-path counters (messages sent/received, bytes, connection counts) instead of mutex-protected `int64`. Lock contention on frequently-incremented counters degrades throughput under load.
+- `atomic.Bool` MUST be used for status flags read frequently in hot paths (health status, circuit breaker state, shutdown flag).
+- `atomic.Value` SHOULD be used for periodic snapshot caching (e.g., subscriber lists rebuilt on subscription change, read lock-free on every broadcast). `Store()` replaces the snapshot; readers use `Load()` with zero contention.
+
+**sync.Pool** — `sync.Pool` MUST be used for frequent allocations in hot paths (per-connection `Client` objects, message buffers). Objects retrieved via `Get()` MUST be fully reset before reuse: drain all channels (non-blocking `select` loop), clear all maps, zero all fields. Returning a partially-reset object causes state leakage between connections.
+
+**sync.Once** — `sync.Once` MUST be used when an operation must execute exactly once across concurrent goroutines: connection close (`net.Conn.Close()`), channel close, singleton initialization. Calling `Close()` twice on a `net.Conn` or a channel panics — `sync.Once` prevents this.
 
 ### VIII. Configuration Validation
 
