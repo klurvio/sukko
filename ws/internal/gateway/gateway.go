@@ -415,17 +415,19 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Create and run proxy
 	proxy := NewProxy(ProxyConfig{
-		ClientConn:       clientConn,
-		BackendConn:      backendConn,
-		AuthEnabled:      gw.config.AuthEnabled,
-		Claims:           claims, // nil when auth disabled — proxy won't use it
-		TenantID:         tenantID,
-		Permissions:      gw.permissions,
-		Logger:           gw.logger.With().Str("principal", principal).Logger(),
-		MessageTimeout:   gw.config.MessageTimeout,
-		PublishRateLimit: gw.config.PublishRateLimit,
-		PublishBurst:     gw.config.PublishBurst,
-		MaxPublishSize:   gw.config.MaxPublishSize,
+		ClientConn:              clientConn,
+		BackendConn:             backendConn,
+		AuthEnabled:             gw.config.AuthEnabled,
+		Claims:                  claims, // nil when auth disabled — proxy won't use it
+		TenantID:                tenantID,
+		Permissions:             gw.permissions,
+		Validator:               gw.validator,
+		AuthRefreshRateInterval: gw.config.AuthRefreshRateInterval,
+		Logger:                  gw.logger.With().Str("principal", principal).Logger(),
+		MessageTimeout:          gw.config.MessageTimeout,
+		PublishRateLimit:        gw.config.PublishRateLimit,
+		PublishBurst:            gw.config.PublishBurst,
+		MaxPublishSize:          gw.config.MaxPublishSize,
 	})
 	proxy.Run()
 

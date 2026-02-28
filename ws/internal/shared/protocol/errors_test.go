@@ -12,17 +12,14 @@ import (
 func TestErrorCode_Values(t *testing.T) {
 	t.Parallel()
 	expectedCodes := map[ErrorCode]string{
-		ErrCodeInvalidJSON:         "invalid_json",
 		ErrCodeInvalidRequest:      "invalid_request",
 		ErrCodeNotAvailable:        "not_available",
 		ErrCodeInvalidChannel:      "invalid_channel",
 		ErrCodeMessageTooLarge:     "message_too_large",
 		ErrCodeRateLimited:         "rate_limited",
-		ErrCodePublishFailed:       "publish_failed",
 		ErrCodeForbidden:           "forbidden",
 		ErrCodeTopicNotProvisioned: "topic_not_provisioned",
 		ErrCodeServiceUnavailable:  "service_unavailable",
-		ErrCodeReplayFailed:        "replay_failed",
 	}
 
 	for code, expected := range expectedCodes {
@@ -35,17 +32,14 @@ func TestErrorCode_Values(t *testing.T) {
 func TestErrorCode_UniqueValues(t *testing.T) {
 	t.Parallel()
 	codes := []ErrorCode{
-		ErrCodeInvalidJSON,
 		ErrCodeInvalidRequest,
 		ErrCodeNotAvailable,
 		ErrCodeInvalidChannel,
 		ErrCodeMessageTooLarge,
 		ErrCodeRateLimited,
-		ErrCodePublishFailed,
 		ErrCodeForbidden,
 		ErrCodeTopicNotProvisioned,
 		ErrCodeServiceUnavailable,
-		ErrCodeReplayFailed,
 	}
 
 	seen := make(map[ErrorCode]bool)
@@ -86,7 +80,7 @@ func TestPublishErrorMessages_AllCodesHaveMessages(t *testing.T) {
 		ErrCodeInvalidChannel,
 		ErrCodeMessageTooLarge,
 		ErrCodeRateLimited,
-		ErrCodePublishFailed,
+		"publish_failed",
 		ErrCodeForbidden,
 		ErrCodeTopicNotProvisioned,
 		ErrCodeServiceUnavailable,
@@ -124,7 +118,7 @@ func TestPublishErrorMessages_Specific(t *testing.T) {
 		{ErrCodeInvalidChannel, "Channel must have format: tenant.identifier.category"},
 		{ErrCodeMessageTooLarge, "Message exceeds maximum size limit"},
 		{ErrCodeRateLimited, "Publish rate limit exceeded"},
-		{ErrCodePublishFailed, "Failed to publish message"},
+		{"publish_failed", "Failed to publish message"},
 		{ErrCodeForbidden, "Not authorized to publish to this channel"},
 		{ErrCodeTopicNotProvisioned, "Category is not provisioned for your tenant"},
 		{ErrCodeServiceUnavailable, "Service temporarily unavailable, please retry"},
@@ -151,7 +145,6 @@ func TestSentinelErrors_NotNil(t *testing.T) {
 		ErrInvalidChannel,
 		ErrTopicNotProvisioned,
 		ErrServiceUnavailable,
-		ErrProducerClosed,
 	}
 
 	for _, err := range sentinelErrors {
@@ -167,7 +160,6 @@ func TestSentinelErrors_UniqueMessages(t *testing.T) {
 		ErrInvalidChannel,
 		ErrTopicNotProvisioned,
 		ErrServiceUnavailable,
-		ErrProducerClosed,
 	}
 
 	seen := make(map[string]bool)
@@ -186,7 +178,6 @@ func TestSentinelErrors_ErrorInterface(t *testing.T) {
 	var _ = ErrInvalidChannel
 	var _ = ErrTopicNotProvisioned
 	var _ = ErrServiceUnavailable
-	var _ = ErrProducerClosed
 
 	// Verify Error() returns non-empty strings
 	testCases := []struct {
@@ -196,7 +187,6 @@ func TestSentinelErrors_ErrorInterface(t *testing.T) {
 		{"ErrInvalidChannel", ErrInvalidChannel},
 		{"ErrTopicNotProvisioned", ErrTopicNotProvisioned},
 		{"ErrServiceUnavailable", ErrServiceUnavailable},
-		{"ErrProducerClosed", ErrProducerClosed},
 	}
 
 	for _, tc := range testCases {
@@ -219,7 +209,6 @@ func TestSentinelErrors_SpecificMessages(t *testing.T) {
 		{ErrInvalidChannel, "invalid channel format"},
 		{ErrTopicNotProvisioned, "topic not provisioned"},
 		{ErrServiceUnavailable, "service unavailable"},
-		{ErrProducerClosed, "producer is closed"},
 	}
 
 	for _, tc := range testCases {
@@ -242,7 +231,6 @@ func TestSentinelErrors_ErrorsIs(t *testing.T) {
 		{"ErrInvalidChannel", ErrInvalidChannel},
 		{"ErrTopicNotProvisioned", ErrTopicNotProvisioned},
 		{"ErrServiceUnavailable", ErrServiceUnavailable},
-		{"ErrProducerClosed", ErrProducerClosed},
 	}
 
 	for _, tc := range testCases {
@@ -262,7 +250,6 @@ func TestSentinelErrors_NotEqual(t *testing.T) {
 		ErrInvalidChannel,
 		ErrTopicNotProvisioned,
 		ErrServiceUnavailable,
-		ErrProducerClosed,
 	}
 
 	for i, err1 := range allErrors {

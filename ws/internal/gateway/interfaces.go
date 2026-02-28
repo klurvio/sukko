@@ -5,8 +5,15 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
+
+// TokenValidator validates JWT tokens and returns claims.
+// The existing auth.MultiTenantValidator satisfies this interface.
+type TokenValidator interface {
+	ValidateToken(ctx context.Context, tokenString string) (*auth.Claims, error)
+}
 
 // TenantRegistry provides tenant lookup for gateway authentication.
 // Defined here (consumer) per coding guidelines: "accept interfaces, return concrete types"

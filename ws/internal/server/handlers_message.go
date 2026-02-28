@@ -21,12 +21,12 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			Int64("client_id", c.id).
 			Err(err).
 			Msg("Client sent invalid JSON")
-		s.sendErrorToClient(c, protocol.MsgTypeError, protocol.ErrCodeInvalidJSON, "Message is not valid JSON")
+		s.sendErrorToClient(c, MsgTypeError, ErrCodeInvalidJSON, "Message is not valid JSON")
 		return
 	}
 
 	switch req.Type {
-	case protocol.MsgTypeReconnect:
+	case MsgTypeReconnect:
 		// KAFKA-BASED RECONNECTION (replaces old in-memory replay buffer)
 		// Client reconnecting after disconnect, requesting missed messages from Kafka
 		//
@@ -41,14 +41,14 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 		// Implementation: See handleKafkaReconnect() below
 		s.handleKafkaReconnect(c, req.Data)
 
-	case protocol.MsgTypeHeartbeat:
+	case MsgTypeHeartbeat:
 		// Client keep-alive ping
 		// Some older browsers/libraries don't support WebSocket ping/pong
 		// So they send application-level heartbeats
 		//
 		// We respond with current server time (helps detect clock skew)
 		pong := map[string]any{
-			"type": protocol.MsgTypePong,
+			"type": MsgTypePong,
 			"ts":   time.Now().UnixMilli(),
 		}
 
@@ -93,7 +93,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 				Int64("client_id", c.id).
 				Err(err).
 				Msg("Client sent invalid subscribe request")
-			s.sendErrorToClient(c, protocol.RespTypeSubscribeError, protocol.ErrCodeInvalidRequest, "Invalid subscribe request format")
+			s.sendErrorToClient(c, RespTypeSubscribeError, protocol.ErrCodeInvalidRequest, "Invalid subscribe request format")
 			return
 		}
 
@@ -111,7 +111,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 		// Send acknowledgment to client
 		ack := map[string]any{
-			"type":       protocol.RespTypeSubscriptionAck,
+			"type":       RespTypeSubscriptionAck,
 			"subscribed": subReq.Channels,
 			"count":      c.subscriptions.Count(),
 		}
@@ -128,14 +128,14 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 	case protocol.MsgTypeUnsubscribe:
 		// Client unsubscribing from channels
 		// Message format: {"type": "unsubscribe", "data": {"channels": ["BTC"]}}
-		var unsubReq protocol.UnsubscribeData
+		var unsubReq UnsubscribeData
 
 		if err := json.Unmarshal(req.Data, &unsubReq); err != nil {
 			s.logger.Warn().
 				Int64("client_id", c.id).
 				Err(err).
 				Msg("Client sent invalid unsubscribe request")
-			s.sendErrorToClient(c, protocol.RespTypeUnsubscribeError, protocol.ErrCodeInvalidRequest, "Invalid unsubscribe request format")
+			s.sendErrorToClient(c, RespTypeUnsubscribeError, protocol.ErrCodeInvalidRequest, "Invalid unsubscribe request format")
 			return
 		}
 
@@ -153,7 +153,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 		// Send acknowledgment to client
 		ack := map[string]any{
-			"type":         protocol.RespTypeUnsubscriptionAck,
+			"type":         RespTypeUnsubscriptionAck,
 			"unsubscribed": unsubReq.Channels,
 			"count":        c.subscriptions.Count(),
 		}
@@ -205,7 +205,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 			Err(err).
 			Msg("Client sent invalid reconnect request")
 
-		s.sendErrorToClient(c, protocol.RespTypeReconnectError, protocol.ErrCodeInvalidRequest, "Invalid reconnect request format")
+		s.sendErrorToClient(c, RespTypeReconnectError, protocol.ErrCodeInvalidRequest, "Invalid reconnect request format")
 		return
 	}
 
@@ -221,7 +221,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 			Int64("client_id", c.id).
 			Msg("Kafka replay requested but no consumer available")
 
-		s.sendErrorToClient(c, protocol.RespTypeReconnectError, protocol.ErrCodeNotAvailable, "Message replay not available (no Kafka consumer)")
+		s.sendErrorToClient(c, RespTypeReconnectError, protocol.ErrCodeNotAvailable, "Message replay not available (no Kafka consumer)")
 		return
 	}
 
@@ -246,7 +246,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 			Err(err).
 			Msg("Failed to replay messages from Kafka")
 
-		s.sendErrorToClient(c, protocol.RespTypeReconnectError, protocol.ErrCodeReplayFailed, fmt.Sprintf("Failed to replay messages: %v", err))
+		s.sendErrorToClient(c, RespTypeReconnectError, ErrCodeReplayFailed, fmt.Sprintf("Failed to replay messages: %v", err))
 		return
 	}
 
@@ -255,7 +255,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 	for _, msg := range replayedMsgs {
 		// Wrap in message envelope with sequence number
 		envelope := &messaging.MessageEnvelope{
-			Type:      protocol.MsgTypeMessage, // Standard type for broadcast messages
+			Type:      MsgTypeMessage, // Standard type for broadcast messages
 			Seq:       c.seqGen.Next(),         // Generate unique sequence number for this client
 			Timestamp: time.Now().UnixMilli(),
 			Channel:   msg.Subject, // Channel from Kafka Key (e.g., "odin.BTC.trade")
@@ -279,7 +279,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 
 	// Send acknowledgment with replay statistics
 	ackMsg := map[string]any{
-		"type":              protocol.RespTypeReconnectAck,
+		"type":              RespTypeReconnectAck,
 		"status":            "completed",
 		"messages_replayed": replayedCount,
 		"message":           fmt.Sprintf("Replayed %d missed messages", replayedCount),

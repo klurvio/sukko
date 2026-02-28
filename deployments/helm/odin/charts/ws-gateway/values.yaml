@@ -47,6 +47,9 @@ config:
   dbConnMaxIdleTime: "1m"
   dbPingTimeout: "5s"
 
+  # Auth refresh rate interval (minimum time between auth refreshes per connection)
+  authRefreshRateInterval: "30s"
+
   # Backend ws-server URL (empty = dynamic default)
   # Dynamic default: ws://{{ .Release.Name }}-ws-server:3001/ws
   backendURL: ""

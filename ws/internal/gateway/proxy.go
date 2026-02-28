@@ -1,8 +1,11 @@
 package gateway
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"slices"
@@ -19,11 +22,18 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
+// authValidationTimeout is the context timeout for token validation during auth refresh.
+const authValidationTimeout = 5 * time.Second
+
+// defaultAuthRefreshInterval is the fallback minimum time between auth refreshes per connection.
+const defaultAuthRefreshInterval = 30 * time.Second
+
 // Proxy handles bidirectional WebSocket message forwarding between client and backend.
-// It intercepts subscribe and publish messages to:
+// It intercepts subscribe, publish, and auth refresh messages to:
 // - Validate tenant prefix on all channels (always)
 // - Filter subscribe channels based on permissions (auth only)
 // - Validate publish rate limits and message size
+// - Refresh JWT tokens mid-connection without disconnecting (auth only)
 type Proxy struct {
 	clientConn    net.Conn
 	clientWriteMu sync.Mutex // protects all writes to clientConn
@@ -34,8 +44,16 @@ type Proxy struct {
 
 	// Auth (only used when authEnabled=true)
 	claims      *auth.Claims
+	claimsMu    sync.RWMutex // protects claims and subscribedChannels
 	permissions *PermissionChecker
 	authEnabled bool
+	validator   TokenValidator
+
+	// Auth refresh rate limiting
+	authLimiter *rate.Limiter
+
+	// Backend→client subscription tracking for forced unsubscription on auth refresh
+	subscribedChannels map[string]struct{}
 
 	// Tenant (always set — from JWT when auth enabled, from config when disabled)
 	tenantID string
@@ -56,6 +74,10 @@ type ProxyConfig struct {
 	AuthEnabled bool
 	Claims      *auth.Claims
 	Permissions *PermissionChecker
+	Validator   TokenValidator
+
+	// Auth refresh rate interval (minimum time between auth refreshes)
+	AuthRefreshRateInterval time.Duration
 
 	// Tenant (always set — from JWT or config)
 	TenantID string
@@ -85,17 +107,26 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 		maxPublishSize = protocol.DefaultMaxPublishSize
 	}
 
+	// Auth refresh rate limiter: 1 request per AuthRefreshRateInterval
+	authRefreshInterval := cfg.AuthRefreshRateInterval
+	if authRefreshInterval == 0 {
+		authRefreshInterval = defaultAuthRefreshInterval
+	}
+
 	return &Proxy{
-		clientConn:     cfg.ClientConn,
-		backendConn:    cfg.BackendConn,
-		logger:         cfg.Logger,
-		messageTimeout: cfg.MessageTimeout,
-		authEnabled:    cfg.AuthEnabled,
-		claims:         cfg.Claims,
-		permissions:    cfg.Permissions,
-		tenantID:       cfg.TenantID,
-		publishLimiter: rate.NewLimiter(rate.Limit(publishRateLimit), publishBurst),
-		maxPublishSize: maxPublishSize,
+		clientConn:         cfg.ClientConn,
+		backendConn:        cfg.BackendConn,
+		logger:             cfg.Logger,
+		messageTimeout:     cfg.MessageTimeout,
+		authEnabled:        cfg.AuthEnabled,
+		claims:             cfg.Claims,
+		permissions:        cfg.Permissions,
+		validator:          cfg.Validator,
+		tenantID:           cfg.TenantID,
+		publishLimiter:     rate.NewLimiter(rate.Limit(publishRateLimit), publishBurst),
+		maxPublishSize:     maxPublishSize,
+		authLimiter:        rate.NewLimiter(rate.Every(authRefreshInterval), 1),
+		subscribedChannels: make(map[string]struct{}),
 	}
 }
 
@@ -234,6 +265,11 @@ func (p *Proxy) proxyBackendToClient(errChan chan error) {
 			return
 		}
 
+		// Track subscription acks from backend (observational — always forward to client)
+		if header.OpCode == ws.OpText && p.authEnabled {
+			p.trackSubscriptionResponse(payload)
+		}
+
 		// Record message metrics
 		RecordMessage("backend_to_client", len(payload))
 
@@ -307,6 +343,50 @@ func (p *Proxy) sendCloseToClient(payload []byte) {
 	p.forwardCloseFrame(p.clientConn, payload, false)
 }
 
+// trackSubscriptionResponse observes backend→client subscription ack/unsubscription ack
+// messages and updates the subscribedChannels map. This is observational — messages are
+// always forwarded to the client regardless.
+//
+// Uses a fast byte check to skip 99%+ of broadcast messages without JSON parsing:
+// only messages containing "_ack" in the first 80 bytes are candidates.
+func (p *Proxy) trackSubscriptionResponse(payload []byte) {
+	// Fast path: skip messages that can't be subscription acks
+	prefixLen := min(80, len(payload))
+	if !bytes.Contains(payload[:prefixLen], []byte("_ack")) {
+		return
+	}
+
+	// Partial parse to extract the type field
+	var msg struct {
+		Type       string   `json:"type"`
+		Subscribed []string `json:"subscribed,omitempty"`
+		// unsubscription_ack uses "unsubscribed" field
+		Unsubscribed []string `json:"unsubscribed,omitempty"`
+	}
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		return
+	}
+
+	switch msg.Type {
+	case "subscription_ack":
+		if len(msg.Subscribed) > 0 {
+			p.claimsMu.Lock()
+			for _, ch := range msg.Subscribed {
+				p.subscribedChannels[ch] = struct{}{}
+			}
+			p.claimsMu.Unlock()
+		}
+	case "unsubscription_ack":
+		if len(msg.Unsubscribed) > 0 {
+			p.claimsMu.Lock()
+			for _, ch := range msg.Unsubscribed {
+				delete(p.subscribedChannels, ch)
+			}
+			p.claimsMu.Unlock()
+		}
+	}
+}
+
 // interceptClientMessage intercepts client messages for subscribe and publish requests.
 func (p *Proxy) interceptClientMessage(msg []byte) ([]byte, error) {
 	// Defensive guard — tenantID is always set in practice (from JWT or config default).
@@ -326,6 +406,8 @@ func (p *Proxy) interceptClientMessage(msg []byte) ([]byte, error) {
 		return p.interceptSubscribe(clientMsg)
 	case protocol.MsgTypePublish:
 		return p.interceptPublish(clientMsg)
+	case MsgTypeAuth:
+		return p.interceptAuthRefresh(clientMsg)
 	default:
 		return msg, nil
 	}
@@ -365,13 +447,18 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 
 	// 2. Permission filtering (auth only — never runs when auth disabled)
 	if p.authEnabled {
+		// Read claims under lock — may be swapped by auth refresh
+		p.claimsMu.RLock()
+		currentClaims := p.claims
+		p.claimsMu.RUnlock()
+
 		// Strip tenant prefix locally for permission matching — patterns like *.trade
 		// operate on the non-tenant portion (e.g., "BTC.trade" from "odin.BTC.trade")
 		stripped := make([]string, len(channels))
 		for i, ch := range channels {
 			stripped[i] = p.stripTenantPrefix(ch)
 		}
-		allowedStripped := p.permissions.FilterChannels(p.claims, stripped)
+		allowedStripped := p.permissions.FilterChannels(currentClaims, stripped)
 
 		// Map allowed stripped names back to full tenant-prefixed channels
 		allowed := make([]string, 0, len(allowedStripped))
@@ -381,7 +468,7 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 
 		// Log denied channels and record metrics
 		for _, ch := range channels {
-			if contains(allowed, ch) {
+			if slices.Contains(allowed, ch) {
 				RecordChannelCheck("allowed")
 			} else {
 				RecordChannelCheck("denied")
@@ -510,7 +597,193 @@ func (p *Proxy) sendPublishErrorToClient(code protocol.ErrorCode) ([]byte, error
 	return nil, nil
 }
 
-// contains checks if a string slice contains a value.
-func contains(slice []string, val string) bool {
-	return slices.Contains(slice, val)
+// interceptAuthRefresh handles mid-connection JWT token refresh.
+// Validates the new token, checks tenant match, swaps claims, and forces
+// unsubscription from channels no longer permitted under the new token.
+func (p *Proxy) interceptAuthRefresh(clientMsg protocol.ClientMessage) ([]byte, error) {
+	start := time.Now()
+	defer func() {
+		RecordAuthRefreshLatency(time.Since(start).Seconds())
+	}()
+
+	// 1. Check if auth is enabled
+	if !p.authEnabled {
+		RecordAuthRefresh("not_available")
+		return p.sendAuthErrorToClient(AuthErrNotAvailable, AuthErrorMessages[AuthErrNotAvailable])
+	}
+
+	// 2. Rate limit check
+	if !p.authLimiter.Allow() {
+		RecordAuthRefresh("rate_limited")
+		return p.sendAuthErrorToClient(AuthErrRateLimited, AuthErrorMessages[AuthErrRateLimited])
+	}
+
+	// 3. Parse auth data
+	var authData AuthData
+	if err := json.Unmarshal(clientMsg.Data, &authData); err != nil || authData.Token == "" {
+		RecordAuthRefresh("invalid_token")
+		return p.sendAuthErrorToClient(AuthErrInvalidToken, AuthErrorMessages[AuthErrInvalidToken])
+	}
+
+	// 4. Validate the new token
+	if p.validator == nil {
+		RecordAuthRefresh("not_available")
+		return p.sendAuthErrorToClient(AuthErrNotAvailable, AuthErrorMessages[AuthErrNotAvailable])
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), authValidationTimeout)
+	defer cancel()
+
+	newClaims, err := p.validator.ValidateToken(ctx, authData.Token)
+	if err != nil {
+		code := AuthErrInvalidToken
+		if errors.Is(err, auth.ErrTokenExpired) {
+			code = AuthErrTokenExpired
+		}
+		RecordAuthRefresh(code)
+		return p.sendAuthErrorToClient(code, AuthErrorMessages[code])
+	}
+
+	// 5. Verify tenant match — cannot switch tenants mid-connection
+	if newClaims.TenantID != p.tenantID {
+		p.logger.Warn().
+			Str("connection_tenant", p.tenantID).
+			Str("token_tenant", newClaims.TenantID).
+			Msg("Auth refresh tenant mismatch")
+		RecordAuthRefresh("tenant_mismatch")
+		return p.sendAuthErrorToClient(AuthErrTenantMismatch, AuthErrorMessages[AuthErrTenantMismatch])
+	}
+
+	// 6. Force unsubscribe from channels no longer permitted
+	revoked := p.forceUnsubscribeRevokedChannels(newClaims)
+
+	// 7. Swap claims (lock is brief — no I/O)
+	p.claimsMu.Lock()
+	p.claims = newClaims
+	p.claimsMu.Unlock()
+
+	// 8. Send auth_ack to client
+	var exp int64
+	if newClaims.ExpiresAt != nil {
+		exp = newClaims.ExpiresAt.Unix()
+	}
+	ackResp := AuthAckResponse{
+		Type: RespTypeAuthAck,
+		Data: AuthAckData{Exp: exp},
+	}
+	ackBytes, err := json.Marshal(ackResp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal auth ack: %w", err)
+	}
+	if sendErr := p.sendToClient(ws.OpText, ackBytes, true); sendErr != nil {
+		p.logger.Warn().Err(sendErr).Msg("Failed to send auth ack to client")
+	}
+
+	// 9. Record metrics and log
+	RecordAuthRefresh("success")
+
+	p.logger.Info().
+		Str("subject", newClaims.Subject).
+		Int("revoked_channels", len(revoked)).
+		Int64("new_exp", exp).
+		Msg("Auth refresh successful")
+
+	return nil, nil
 }
+
+// forceUnsubscribeRevokedChannels checks which currently subscribed channels are
+// no longer permitted under the new claims, and sends a synthetic unsubscribe
+// to the backend for those channels.
+//
+// Uses two-phase pattern (Constitution VII — no mutex across I/O):
+// Phase A (under lock): collect revoked channels, update tracking map
+// Phase B (lock released): send synthetic unsubscribe to backend, notify client
+func (p *Proxy) forceUnsubscribeRevokedChannels(newClaims *auth.Claims) []string {
+	// Phase A: collect revoked channels under lock
+	p.claimsMu.Lock()
+	var revoked []string
+	for ch := range p.subscribedChannels {
+		stripped := p.stripTenantPrefix(ch)
+		if !p.permissions.CanSubscribe(newClaims, stripped) {
+			revoked = append(revoked, ch)
+		}
+	}
+	// Remove revoked from tracking while still under lock
+	for _, ch := range revoked {
+		delete(p.subscribedChannels, ch)
+	}
+	p.claimsMu.Unlock()
+
+	if len(revoked) == 0 {
+		return nil
+	}
+
+	// Phase B: I/O operations with lock released
+
+	// Send synthetic unsubscribe to backend (fire-and-forget)
+	unsubMsg := protocol.ClientMessage{
+		Type: protocol.MsgTypeUnsubscribe,
+	}
+	unsubData, err := json.Marshal(protocol.SubscribeData{Channels: revoked})
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to marshal forced unsubscribe data")
+	} else {
+		unsubMsg.Data = unsubData
+		msgBytes, marshalErr := json.Marshal(unsubMsg)
+		if marshalErr != nil {
+			p.logger.Warn().Err(marshalErr).Msg("Failed to marshal forced unsubscribe message")
+		} else {
+			// Forward to backend — fire-and-forget, don't wait for ack
+			if fwdErr := p.forwardFrame(p.backendConn, ws.OpText, msgBytes, true, true); fwdErr != nil {
+				p.logger.Warn().Err(fwdErr).Msg("Failed to send forced unsubscribe to backend")
+			}
+		}
+	}
+
+	// Send unsubscription_ack to client
+	clientAck := map[string]any{
+		"type":         "unsubscription_ack",
+		"unsubscribed": revoked,
+		"forced":       true,
+	}
+	ackBytes, ackErr := json.Marshal(clientAck)
+	if ackErr != nil {
+		p.logger.Warn().Err(ackErr).Msg("Failed to marshal forced unsubscription ack")
+	} else {
+		if sendErr := p.sendToClient(ws.OpText, ackBytes, true); sendErr != nil {
+			p.logger.Warn().Err(sendErr).Msg("Failed to send forced unsubscription ack to client")
+		}
+	}
+
+	// Record metrics
+	RecordForcedUnsubscription()
+
+	p.logger.Info().
+		Strs("revoked_channels", revoked).
+		Msg("Forced unsubscription due to auth refresh")
+
+	return revoked
+}
+
+// sendAuthErrorToClient sends an auth_error response to the client.
+// Returns nil bytes to signal that the message should NOT be forwarded to backend.
+//
+//nolint:unparam // Always returns nil bytes by design
+func (p *Proxy) sendAuthErrorToClient(code, message string) ([]byte, error) {
+	errResp := AuthErrorResponse{
+		Type: RespTypeAuthError,
+		Data: AuthErrorData{
+			Code:    code,
+			Message: message,
+		},
+	}
+	errBytes, err := json.Marshal(errResp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal auth error: %w", err)
+	}
+	if sendErr := p.sendToClient(ws.OpText, errBytes, true); sendErr != nil {
+		p.logger.Warn().Err(sendErr).Msg("Failed to send auth error to client")
+	}
+	return nil, nil
+}
+

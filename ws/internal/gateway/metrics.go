@@ -50,6 +50,26 @@ var authLatency = promauto.NewHistogram(prometheus.HistogramOpts{
 })
 
 // =============================================================================
+// Auth Refresh Metrics
+// =============================================================================
+
+var authRefreshTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "gateway_auth_refresh_total",
+	Help: "Auth refresh attempts by result",
+}, []string{"result"}) // success, invalid_token, token_expired, tenant_mismatch, rate_limited, not_available
+
+var authRefreshLatency = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "gateway_auth_refresh_latency_seconds",
+	Help:    "Auth refresh processing latency",
+	Buckets: pkgmetrics.AuthLatencyBuckets,
+})
+
+var forcedUnsubscriptionsTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "gateway_forced_unsubscriptions_total",
+	Help: "Total forced unsubscriptions due to auth refresh permission changes",
+})
+
+// =============================================================================
 // Permission Metrics
 // =============================================================================
 
@@ -265,6 +285,21 @@ func RecordKeyCacheRefresh(success bool) {
 // RecordAccessDenial records an access denial with resource type and reason.
 func RecordAccessDenial(resourceType, reason string) {
 	accessDenials.WithLabelValues(resourceType, reason).Inc()
+}
+
+// RecordAuthRefresh records an auth refresh attempt result.
+func RecordAuthRefresh(result string) {
+	authRefreshTotal.WithLabelValues(result).Inc()
+}
+
+// RecordAuthRefreshLatency records auth refresh processing latency.
+func RecordAuthRefreshLatency(seconds float64) {
+	authRefreshLatency.Observe(seconds)
+}
+
+// RecordForcedUnsubscription records a forced unsubscription event.
+func RecordForcedUnsubscription() {
+	forcedUnsubscriptionsTotal.Inc()
 }
 
 // RecordPublishResult records a publish message interception result.

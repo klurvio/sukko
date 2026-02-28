@@ -7,11 +7,11 @@ import "errors"
 // and reconnect_error responses.
 type ErrorCode string
 
+// Shared error codes used by both gateway and server.
+// Server-only error codes (ErrCodeInvalidJSON, ErrCodePublishFailed, ErrCodeReplayFailed)
+// live in ws/internal/server/protocol.go.
 const (
 	// General error codes (used across multiple response types).
-
-	// ErrCodeInvalidJSON indicates a client message is not valid JSON.
-	ErrCodeInvalidJSON ErrorCode = "invalid_json"
 
 	// ErrCodeInvalidRequest indicates a malformed request.
 	// Used by subscribe_error, unsubscribe_error, reconnect_error, publish_error.
@@ -33,9 +33,6 @@ const (
 	// ErrCodeRateLimited indicates publish rate limit exceeded.
 	ErrCodeRateLimited ErrorCode = "rate_limited"
 
-	// ErrCodePublishFailed indicates Kafka publish failed.
-	ErrCodePublishFailed ErrorCode = "publish_failed"
-
 	// ErrCodeForbidden indicates not authorized to publish to channel.
 	ErrCodeForbidden ErrorCode = "forbidden"
 
@@ -44,11 +41,6 @@ const (
 
 	// ErrCodeServiceUnavailable indicates Kafka is unavailable (circuit open).
 	ErrCodeServiceUnavailable ErrorCode = "service_unavailable"
-
-	// Reconnect-specific error codes.
-
-	// ErrCodeReplayFailed indicates Kafka message replay failed.
-	ErrCodeReplayFailed ErrorCode = "replay_failed"
 )
 
 // PublishErrorMessages provides human-readable messages for publish error codes.
@@ -58,7 +50,7 @@ var PublishErrorMessages = map[ErrorCode]string{
 	ErrCodeInvalidChannel:      "Channel must have format: tenant.identifier.category",
 	ErrCodeMessageTooLarge:     "Message exceeds maximum size limit",
 	ErrCodeRateLimited:         "Publish rate limit exceeded",
-	ErrCodePublishFailed:       "Failed to publish message",
+	"publish_failed":           "Failed to publish message",
 	ErrCodeForbidden:           "Not authorized to publish to this channel",
 	ErrCodeTopicNotProvisioned: "Category is not provisioned for your tenant",
 	ErrCodeServiceUnavailable:  "Service temporarily unavailable, please retry",
@@ -75,7 +67,4 @@ var (
 
 	// ErrServiceUnavailable indicates Kafka is unavailable.
 	ErrServiceUnavailable = errors.New("service unavailable")
-
-	// ErrProducerClosed indicates the producer has been closed.
-	ErrProducerClosed = errors.New("producer is closed")
 )

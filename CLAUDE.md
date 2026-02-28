@@ -120,11 +120,11 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.2.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-02-27
+**Version**: 1.3.2 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-02-28
 
-### I. No Hardcoded Values, No Magic Strings
+### I. Configuration
 
-Every configurable parameter MUST be externalized via environment variables with `env:` struct tags and sensible `envDefault:` values. Helm values MUST expose all env vars. Magic numbers MUST be named constants or configuration. Magic strings (URLs, broker addresses, topic names, tenant IDs, namespace prefixes) MUST NOT be hardcoded — they MUST come from configuration or be constructed from configured values. Hardcoded values like `const maxConnections = 1000` or `kafkaBrokers = "localhost:9092"` are forbidden.
+Every configurable parameter MUST be externalized via environment variables with `env:` struct tags and sensible `envDefault:` values. Helm values MUST expose all env vars. Magic numbers MUST be named constants or configuration. Magic strings (URLs, broker addresses, topic names, tenant IDs, namespace prefixes) MUST NOT be hardcoded — they MUST come from configuration or be constructed from configured values. All configuration MUST be validated at startup with clear error messages. Hysteresis thresholds MUST enforce `lower < upper`. Enum values MUST be validated against allowed sets. Invalid configuration MUST cause immediate startup failure, not silent degradation.
 
 ### II. Defense in Depth
 
@@ -140,7 +140,7 @@ Optional dependencies MUST use noop implementations or nil-guarded feature flags
 
 ### V. Structured Logging
 
-All logging MUST use zerolog with structured fields (Str, Int, Dur, Err). Appropriate log levels MUST be used (Debug/Info/Warn/Error/Fatal). All goroutines MUST have panic recovery via `defer logging.RecoverPanic()` as the FIRST defer. No `log.Printf` or `fmt.Println`.
+All logging MUST use zerolog with structured fields (Str, Int, Dur, Err). Appropriate log levels MUST be used (Debug/Info/Warn/Error/Fatal). No `log.Printf` or `fmt.Println`. Panic recovery logging is mandated by VII (Goroutine Lifecycle step 2).
 
 ### VI. Observability
 
@@ -149,6 +149,8 @@ Every significant operation MUST have Prometheus metrics. Metric names MUST use 
 ### VII. Concurrency Safety
 
 This is a high-performance WebSocket server handling thousands of concurrent connections per pod. Incorrect concurrency primitives cause panics, deadlocks, goroutine leaks, and silent data corruption. Every concurrent pattern MUST follow the established patterns below.
+
+**Design Preference** — Prefer goroutine ownership over shared memory with locks. When a piece of state needs concurrent access, the first choice SHOULD be a dedicated goroutine that owns the state and communicates via channels (Go proverb: "share memory by communicating"). Mutexes are acceptable for simple read-heavy caches (`sync.RWMutex`) and atomic counters, but for stateful operations (connection lifecycle, subscription tracking, auth flow), a single-owner goroutine with channel-based communication is safer and eliminates lock-ordering concerns.
 
 **Goroutine Lifecycle** — All goroutines MUST follow this exact launch sequence:
 1. `wg.Add(1)` MUST be called BEFORE the `go` statement — never inside the goroutine. Calling `Add()` inside the goroutine is a race condition: `Done()` can execute before `Add()`, causing `Wait()` to return prematurely.
@@ -166,10 +168,7 @@ Shutdown ordering MUST be: cancel context → `wg.Wait()` for goroutines → clo
 - **Fan-out sends** (broadcast to multiple subscribers): MUST use non-blocking `select` with `default` to skip slow consumers. Dropped messages MUST be counted via Prometheus metrics (`_dropped_total`). A single slow subscriber MUST NOT block delivery to all other subscribers.
 - **Channel close rules**: Only the sender side MUST close a channel — never the receiver. After closing, no further sends are permitted (panic). When a channel may be closed from multiple code paths, guard with `sync.Once`. When draining a channel before reuse (e.g., `sync.Pool`), use `select` with `default` in a loop.
 
-**WaitGroups** — `sync.WaitGroup` is for goroutine lifecycle tracking only:
-- MUST be used to track that all spawned goroutines have completed before shutdown proceeds.
-- `wg.Add(N)` MUST be called before launching N goroutines, in the launching goroutine's execution context.
-- `wg.Done()` MUST always be called via `defer` to guarantee execution on all exit paths.
+**WaitGroups** — `sync.WaitGroup` is for goroutine lifecycle tracking only. The `Add`/`Done`/`Wait` sequence is defined in Goroutine Lifecycle above. Additional constraints:
 - `wg.Wait()` SHOULD have a timeout mechanism (e.g., wrapper with `context.WithTimeout`) to detect stuck goroutines during shutdown rather than hanging indefinitely.
 - WaitGroups MUST NOT be reused after `Wait()` returns for a given set of goroutines.
 
@@ -187,13 +186,14 @@ Shutdown ordering MUST be: cancel context → `wg.Wait()` for goroutines → clo
 
 **sync.Pool** — `sync.Pool` MUST be used for frequent allocations in hot paths (per-connection `Client` objects, message buffers). Objects retrieved via `Get()` MUST be fully reset before reuse: drain all channels (non-blocking `select` loop), clear all maps, zero all fields. Returning a partially-reset object causes state leakage between connections.
 
-**sync.Once** — `sync.Once` MUST be used when an operation must execute exactly once across concurrent goroutines: connection close (`net.Conn.Close()`), channel close, singleton initialization. Calling `Close()` twice on a `net.Conn` or a channel panics — `sync.Once` prevents this.
+**sync.Once** — `sync.Once` MUST be used when an operation must execute exactly once across concurrent goroutines: connection close (`net.Conn.Close()`) and singleton initialization. Calling `Close()` twice on a `net.Conn` panics — `sync.Once` prevents this. Channel close guarding is covered in Channels close rules above.
 
-### VIII. Configuration Validation
+**Message Pipeline Protection** — The message delivery pipeline (ingestion → broadcast bus → shard fan-out → per-client write pump → WebSocket write) is the critical hot path. Feature-level operations (auth refresh, subscription management, metrics collection, provisioning lookups, OIDC validation) MUST NOT introduce blocking on this path. Specifically:
+- Locks acquired for feature operations MUST NOT be held while calling into the pipeline (`forwardFrame`, `sendToClient`, `bus.Publish`, write pump sends).
+- Feature operations that run on the client→backend goroutine MUST complete without waiting for backend responses when the wait would stall message reads from the client.
+- Backend→client forwarding MUST remain non-blocking: observational interception (subscription tracking, metrics) MUST NOT add latency that degrades broadcast throughput.
 
-All configuration MUST be validated at startup with clear error messages. Hysteresis thresholds MUST enforce `lower < upper`. Enum values MUST be validated against allowed sets. Invalid configuration MUST cause immediate startup failure, not silent degradation.
-
-### IX. Testing
+### VIII. Testing
 
 Tests MUST be table-driven for multiple cases. Mocks MUST use interfaces. `t.Parallel()` MUST NOT be used on tests with shared resources (databases, external services, `*_shared_test.go`). Edge cases MUST be covered (empty, nil, max values, error paths).
 
@@ -203,13 +203,17 @@ Tests MUST be table-driven for multiple cases. Mocks MUST use interfaces. `t.Par
 - **New features** MUST include comprehensive unit tests covering: happy path, error paths, edge cases, and concurrency safety (where applicable).
 - No code change (bug fix, enhancement, refactor, or feature) MUST be considered complete without corresponding test updates. Untested code changes are forbidden.
 
-### X. Security
+### IX. Security
 
-Input validation MUST occur at ALL boundaries. Rate limiting MUST be applied at multiple levels (global, per-IP, per-tenant). Secrets MUST never appear in logs or error messages. JWT validation MUST verify expiration and issuer. `//nolint` or `#nosec` MUST include thorough written justification.
+Rate limiting MUST be applied at multiple levels (global, per-IP, per-tenant). Secrets MUST never appear in logs or error messages. JWT validation MUST verify expiration and issuer. `//nolint` or `#nosec` MUST include thorough written justification. Input validation at boundaries is mandated by II.
 
-### XI. Shared Code Consolidation
+### X. Shared Code Consolidation
 
-Before writing any new utility, `internal/shared/` MUST be checked for existing implementations. Duplicate functions, error definitions, constants, and types across packages are forbidden. HTTP utilities MUST use `shared/httputil/`. Auth helpers MUST use `shared/auth/`. New shared code MUST have tests.
+Before writing any new utility, `internal/shared/` MUST be checked for existing implementations. Duplicate functions, error definitions, constants, and types across packages are forbidden. HTTP utilities MUST use `shared/httputil/`. Auth helpers MUST use `shared/auth/`. New shared code MUST have tests. Conversely, types, functions, constants, interfaces, and structs used by only one service MUST live in that service's package — never in `internal/shared/`, even if they serve a similar purpose to shared types. The shared package is exclusively for code referenced by multiple services. Service-specific code in shared violates separation of concern and creates false coupling.
+
+### XI. Prior Art Research
+
+Before designing any new feature or protocol extension, the implementation approach MUST be informed by how established real-time/WebSocket services have solved the same problem. Reference services: Pusher Channels, Ably, Socket.IO, Phoenix Channels, Centrifugo, NATS WebSocket. Research MUST identify: (1) the common industry pattern for the feature, (2) edge cases and failure modes that mature implementations handle, (3) where Odin's architecture requires deviation from the common pattern — with documented rationale for the deviation. "Not invented here" solutions to solved problems are forbidden.
 
 ### Governance
 

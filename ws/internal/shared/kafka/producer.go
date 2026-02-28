@@ -29,8 +29,10 @@ var (
 	ErrInvalidChannel      = protocol.ErrInvalidChannel
 	ErrTopicNotProvisioned = protocol.ErrTopicNotProvisioned
 	ErrServiceUnavailable  = protocol.ErrServiceUnavailable
-	ErrProducerClosed      = protocol.ErrProducerClosed
 )
+
+// ErrProducerClosed is defined locally — it's a producer concern, not a shared protocol type.
+var ErrProducerClosed = errors.New("producer is closed")
 
 // ProducerStats holds metrics for the producer.
 type ProducerStats struct {

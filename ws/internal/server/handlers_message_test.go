@@ -10,7 +10,6 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
 // =============================================================================
@@ -622,19 +621,19 @@ func TestHandleClientMessage_ErrorResponses(t *testing.T) {
 		{
 			name:     "invalid_json",
 			input:    `{invalid json`,
-			wantType: protocol.MsgTypeError,
+			wantType: MsgTypeError,
 			wantCode: "invalid_json",
 		},
 		{
 			name:     "invalid_subscribe_data",
 			input:    `{"type":"subscribe","data":"not an object"}`,
-			wantType: protocol.RespTypeSubscribeError,
+			wantType: RespTypeSubscribeError,
 			wantCode: "invalid_request",
 		},
 		{
 			name:     "invalid_unsubscribe_data",
 			input:    `{"type":"unsubscribe","data":"not an object"}`,
-			wantType: protocol.RespTypeUnsubscribeError,
+			wantType: RespTypeUnsubscribeError,
 			wantCode: "invalid_request",
 		},
 	}

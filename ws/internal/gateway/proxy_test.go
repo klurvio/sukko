@@ -47,16 +47,18 @@ func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatter
 		tenantID = claims.TenantID
 	}
 	return &Proxy{
-		clientConn:     nil, // Not needed for interception tests
-		backendConn:    nil, // Not needed for interception tests
-		authEnabled:    true,
-		claims:         claims,
-		tenantID:       tenantID,
-		permissions:    pc,
-		logger:         zerolog.Nop(),
-		messageTimeout: 60 * time.Second,
-		publishLimiter: rate.NewLimiter(10, 100), // 10/sec, 100 burst
-		maxPublishSize: 64 * 1024,                // 64KB
+		clientConn:         nil, // Not needed for interception tests
+		backendConn:        nil, // Not needed for interception tests
+		authEnabled:        true,
+		claims:             claims,
+		tenantID:           tenantID,
+		permissions:        pc,
+		logger:             zerolog.Nop(),
+		messageTimeout:     60 * time.Second,
+		publishLimiter:     rate.NewLimiter(10, 100), // 10/sec, 100 burst
+		maxPublishSize:     64 * 1024,                // 64KB
+		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
+		subscribedChannels: make(map[string]struct{}),
 	}
 }
 
@@ -64,16 +66,18 @@ func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatter
 // Sets authEnabled=false with a default tenantID (mimics gateway auth-disabled path).
 func newTestProxyNoAuth(tenantID string) *Proxy {
 	return &Proxy{
-		clientConn:     nil,
-		backendConn:    nil,
-		authEnabled:    false,
-		claims:         nil,
-		tenantID:       tenantID,
-		permissions:    nil,
-		logger:         zerolog.Nop(),
-		messageTimeout: 60 * time.Second,
-		publishLimiter: rate.NewLimiter(10, 100),
-		maxPublishSize: 64 * 1024,
+		clientConn:         nil,
+		backendConn:        nil,
+		authEnabled:        false,
+		claims:             nil,
+		tenantID:           tenantID,
+		permissions:        nil,
+		logger:             zerolog.Nop(),
+		messageTimeout:     60 * time.Second,
+		publishLimiter:     rate.NewLimiter(10, 100),
+		maxPublishSize:     64 * 1024,
+		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
+		subscribedChannels: make(map[string]struct{}),
 	}
 }
 
@@ -483,35 +487,6 @@ func TestProxy_InterceptClientMessage_MalformedSubscribeData(t *testing.T) {
 	// Should pass through unchanged on parse error
 	if string(result) != input {
 		t.Errorf("Malformed subscribe data should pass through.\nGot:  %s\nWant: %s", result, input)
-	}
-}
-
-func TestContains(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name  string
-		slice []string
-		val   string
-		want  bool
-	}{
-		{"found at start", []string{"a", "b", "c"}, "a", true},
-		{"found at middle", []string{"a", "b", "c"}, "b", true},
-		{"found at end", []string{"a", "b", "c"}, "c", true},
-		{"not found", []string{"a", "b", "c"}, "d", false},
-		{"empty slice", []string{}, "a", false},
-		{"nil slice", nil, "a", false},
-		{"empty string found", []string{"", "a"}, "", true},
-		{"empty string not in slice", []string{"a", "b"}, "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := contains(tt.slice, tt.val)
-			if got != tt.want {
-				t.Errorf("contains(%v, %q) = %v, want %v", tt.slice, tt.val, got, tt.want)
-			}
-		})
 	}
 }
 

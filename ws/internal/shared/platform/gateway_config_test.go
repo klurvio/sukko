@@ -33,6 +33,7 @@ func newValidGatewayConfig() *GatewayConfig {
 		RateLimitEnabled:        true,
 		RateLimitBurst:          100,
 		RateLimitRate:           10.0,
+		AuthRefreshRateInterval: 30 * time.Second,
 		LogLevel:                "info",
 		LogFormat:               "json",
 		Environment:             "test",

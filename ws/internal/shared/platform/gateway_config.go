@@ -94,6 +94,9 @@ type GatewayConfig struct {
 	PublishBurst     int     `env:"GATEWAY_PUBLISH_BURST" envDefault:"100"`       // Burst capacity
 	MaxPublishSize   int     `env:"GATEWAY_MAX_PUBLISH_SIZE" envDefault:"65536"`  // Max message size (64KB)
 
+	// Auth refresh settings
+	AuthRefreshRateInterval time.Duration `env:"GATEWAY_AUTH_REFRESH_RATE_INTERVAL" envDefault:"30s"`
+
 	// Logging
 	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
 	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
@@ -183,6 +186,10 @@ func (c *GatewayConfig) Validate() error {
 		return fmt.Errorf("DB_MAX_IDLE_CONNS (%d) cannot exceed DB_MAX_OPEN_CONNS (%d)", c.DBMaxIdleConns, c.DBMaxOpenConns)
 	}
 
+	if c.AuthRefreshRateInterval < time.Second {
+		return fmt.Errorf("GATEWAY_AUTH_REFRESH_RATE_INTERVAL must be >= 1s, got %v", c.AuthRefreshRateInterval)
+	}
+
 	if c.BackendURL == "" {
 		return errors.New("GATEWAY_BACKEND_URL is required")
 	}
@@ -224,6 +231,7 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		Bool("rate_limit_enabled", c.RateLimitEnabled).
 		Int("rate_limit_burst", c.RateLimitBurst).
 		Float64("rate_limit_rate", c.RateLimitRate).
+		Dur("auth_refresh_rate_interval", c.AuthRefreshRateInterval).
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat)
 

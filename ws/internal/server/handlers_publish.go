@@ -95,7 +95,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Msg("Failed to publish message to Kafka")
 
 		// Map specific errors to error codes
-		code := protocol.ErrCodePublishFailed
+		code := ErrCodePublishFailed
 		switch {
 		case errors.Is(err, protocol.ErrInvalidChannel):
 			code = protocol.ErrCodeInvalidChannel
