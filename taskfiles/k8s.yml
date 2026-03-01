@@ -64,6 +64,9 @@ tasks:
         sh: terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_external_ip 2>/dev/null || echo ""
       REDPANDA_IP:
         sh: terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw redpanda_internal_ip 2>/dev/null || echo ""
+      # Detect if PostgreSQL is enabled from the env values file
+      PG_ENABLED:
+        sh: grep -E '^\s+enabled:\s+true' {{.K8S_VALUES_FILE}} 2>/dev/null | head -1 | grep -c 'true' || echo "0"
     cmds:
       - task: connect
       - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/client-ws.asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml
@@ -77,17 +80,28 @@ tasks:
           echo "Using Redpanda internal IP: {{.REDPANDA_IP}}"
           HELM_CMD="$HELM_CMD --set redpanda.externalAccess.advertisedHost={{.REDPANDA_IP}} --set redpanda.externalAccess.loadBalancerIP={{.REDPANDA_IP}}"
         fi
-        DB_PASSWORD=$(kubectl get secret {{.K8S_RELEASE_NAME}}-postgresql -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.postgresql-password}' 2>/dev/null | base64 --decode 2>/dev/null)
-        if [ -z "$DB_PASSWORD" ]; then
-          DB_PASSWORD=$(openssl rand -hex 16)
-          echo "Generated new PostgreSQL password"
+        # PostgreSQL password handling (only when PostgreSQL is enabled)
+        PG_ENABLED=$(grep -c 'postgresql:' {{.K8S_VALUES_FILE}} 2>/dev/null && grep -A1 'postgresql:' {{.K8S_VALUES_FILE}} | grep -c 'enabled: true' || echo "0")
+        if [ "$PG_ENABLED" -gt 0 ]; then
+          DB_PASSWORD=$(kubectl get secret {{.K8S_RELEASE_NAME}}-postgresql -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.postgresql-password}' 2>/dev/null | base64 --decode 2>/dev/null)
+          if [ -z "$DB_PASSWORD" ]; then
+            DB_PASSWORD=$(openssl rand -hex 16)
+            echo "Generated new PostgreSQL password"
+          else
+            echo "Reusing existing PostgreSQL password from cluster"
+          fi
+          HELM_CMD="$HELM_CMD --set postgresql.auth.password=$DB_PASSWORD --set global.postgresql.enabled=true"
         else
-          echo "Reusing existing PostgreSQL password from cluster"
+          echo "Using SQLite (default) — skipping PostgreSQL setup"
         fi
-        HELM_CMD="$HELM_CMD --set postgresql.auth.password=$DB_PASSWORD"
         eval $HELM_CMD
-      - task: wait-for-db
-      - task: db:migrate
+      - |
+        # Only wait for DB and migrate when PostgreSQL is enabled
+        PG_ENABLED=$(grep -A1 'postgresql:' {{.K8S_VALUES_FILE}} 2>/dev/null | grep -c 'enabled: true' || echo "0")
+        if [ "$PG_ENABLED" -gt 0 ]; then
+          task k8s:wait-for-db ENV={{.K8S_ENV}}
+          task k8s:db:migrate ENV={{.K8S_ENV}}
+        fi
 
   connect:
     desc: Connect kubectl to cluster
@@ -330,9 +344,15 @@ tasks:
   # Database
   # ===========================================================================
   db:migrate:
-    desc: Run database migrations
+    desc: Run database migrations (PostgreSQL only — SQLite auto-migrates)
     cmds:
       - |
+        # Check if PostgreSQL is enabled
+        PG_ENABLED=$(grep -A1 'postgresql:' {{.K8S_VALUES_FILE}} 2>/dev/null | grep -c 'enabled: true' || echo "0")
+        if [ "$PG_ENABLED" -eq 0 ]; then
+          echo "SQLite mode — migrations are applied automatically at startup. Skipping."
+          exit 0
+        fi
         echo "Running migrations for {{.K8S_ENV}}..."
         # Kill any stale port-forward on this port
         lsof -ti:{{.K8S_PG_LOCAL_PORT}} | xargs kill 2>/dev/null || true
@@ -349,9 +369,14 @@ tasks:
         kill $PF_PID 2>/dev/null || true
 
   db:status:
-    desc: Show migration status
+    desc: Show migration status (PostgreSQL only)
     cmds:
       - |
+        PG_ENABLED=$(grep -A1 'postgresql:' {{.K8S_VALUES_FILE}} 2>/dev/null | grep -c 'enabled: true' || echo "0")
+        if [ "$PG_ENABLED" -eq 0 ]; then
+          echo "SQLite mode — migrations are managed automatically. Skipping."
+          exit 0
+        fi
         lsof -ti:{{.K8S_PG_LOCAL_PORT}} | xargs kill 2>/dev/null || true
         sleep 1
         kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-postgresql {{.K8S_PG_LOCAL_PORT}}:5432 &
@@ -361,3 +386,26 @@ tasks:
         DB_URL="postgres://odin:${DB_PASS}@localhost:{{.K8S_PG_LOCAL_PORT}}/odin_provisioning?sslmode=disable"
         atlas migrate status --url "$DB_URL" --dir "file://{{.K8S_MIGRATIONS_DIR}}"
         kill $PF_PID 2>/dev/null || true
+
+  db:setup-external:
+    desc: Set up external PostgreSQL secret for provisioning
+    cmds:
+      - |
+        if [ -z "{{.URL}}" ]; then
+          echo "ERROR: URL is required. Usage: task k8s:db:setup-external URL='postgres://user:pass@host:5432/odin' ENV=dev"
+          exit 1
+        fi
+        if ! echo "{{.URL}}" | grep -q '^postgres://'; then
+          echo "ERROR: URL must start with postgres://"
+          exit 1
+        fi
+        echo "Creating external database secret in {{.K8S_NAMESPACE}}..."
+        kubectl create secret generic provisioning-external-db \
+          --from-literal=database-url="{{.URL}}" \
+          -n {{.K8S_NAMESPACE}} \
+          --dry-run=client -o yaml | kubectl apply -f -
+        echo ""
+        echo "Secret created. Add the following to your Helm values file:"
+        echo "  provisioning:"
+        echo "    externalDatabase:"
+        echo '      existingSecret: "provisioning-external-db"'

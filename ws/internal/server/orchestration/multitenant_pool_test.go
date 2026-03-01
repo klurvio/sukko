@@ -226,7 +226,7 @@ func TestMultiTenantPool_DefaultRefreshInterval(t *testing.T) {
 		BroadcastBus:  bus,
 		ResourceGuard: guard,
 		Logger:        logger,
-		// RefreshInterval not set - should use default
+		// RefreshInterval not set - should use default (5m safety net)
 	}
 
 	pool, err := NewMultiTenantConsumerPool(config)
@@ -234,8 +234,8 @@ func TestMultiTenantPool_DefaultRefreshInterval(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if pool.refreshInterval != 30*time.Second {
-		t.Errorf("refreshInterval: got %v, want 30s", pool.refreshInterval)
+	if pool.refreshInterval != 5*time.Minute {
+		t.Errorf("refreshInterval: got %v, want 5m0s", pool.refreshInterval)
 	}
 }
 

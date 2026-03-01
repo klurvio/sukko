@@ -5,8 +5,6 @@
 # The parent odin chart overrides these via Helm's global value merge.
 global:
   imageRegistry: ""
-  provisioning:
-    existingSecret: ""
 
 enabled: true
 
@@ -54,12 +52,22 @@ config:
   logLevel: info
   logFormat: json
   metricsInterval: "15s"
+  # CPU polling interval for protection decisions (ShouldPauseKafka, ShouldAcceptConnection)
+  # Separate from metricsInterval for faster spike detection
+  cpuPollInterval: "1s"
   # WebSocket Ping/Pong Configuration
   # Controls keep-alive timing between shard and clients.
   # Buffer = pongWait - pingPeriod (should be >= 15s for proxied architectures)
   pongWait: "60s" # Timeout for pong response
   pingPeriod: "45s" # How often to send pings
   writeWait: "5s" # Timeout for write operations
+
+  # gRPC connection to provisioning service
+  # Empty = dynamic default: {{ .Release.Name }}-provisioning-grpc:9090
+  # Receives tenant topics via gRPC streaming from provisioning service
+  provisioningGRPCAddr: ""
+  provisioningGRPCReconnectDelay: "1s"
+  provisioningGRPCReconnectMaxDelay: "30s"
 
 # Alerting Configuration
 # See pkg/alerting/config.go for full documentation
@@ -97,12 +105,6 @@ connectionLimits:
   # Cluster-wide max connections (ResourceGuard enforces actual limits at runtime)
   # Formula: WS_MAX_CONNECTIONS = clusterMaxConnections / replicaCount
   clusterMaxConnections: 100000
-  # Read/write buffer sizes per connection (affects memory usage)
-  # Lower = less memory, higher = better throughput for large messages
-  readBufferSize: 4096
-  writeBufferSize: 4096
-  # Maximum message size in bytes (prevents memory exhaustion from large messages)
-  maxMessageSize: 65536
 
 # Pod Security Context
 # Note: Node-level kernel tuning handles ulimits (see CONNECTION_LIMITS.md)
@@ -147,7 +149,7 @@ kafka:
   # Kafka consumer toggle (for loadtesting — connection-only mode)
   # When false, consumer pool is not started. WebSocket connections still work.
   # Default: true (normal operation)
-  consumerEnabled: false
+  consumerEnabled: true
   # Topics are generated dynamically based on kafkaTopicNamespaceOverride (or environment):
   #   {namespace}.{tenant}.{category} (e.g., prod.odin.trade)
   # Tenant-specific topics are created via the Provisioning API.
@@ -174,19 +176,6 @@ kafka:
     enabled: false
     insecureSkipVerify: false # Skip CA verification (not for production)
     caPath: "" # Path to CA certificate (mounted from secret)
-
-# Multi-Tenant Consumer Configuration (Required)
-# ws-server queries the provisioning database for tenant topics
-# and manages consumer groups dynamically based on tenant consumer_type
-multiTenant:
-  # Topic refresh interval - how often to query DB for new tenant topics
-  # Lower values = faster topic discovery, higher DB load
-  topicRefreshInterval: "60s"
-  # Database connection pool settings
-  dbMaxOpenConns: 5
-  dbMaxIdleConns: 2
-  dbConnMaxLifetime: "5m"
-  dbConnMaxIdleTime: "1m"
 
 resources:
   requests:

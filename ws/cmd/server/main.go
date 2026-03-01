@@ -2,8 +2,6 @@
 package main
 
 import (
-	"context"
-	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -15,10 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/lib/pq" // PostgreSQL driver
 	_ "go.uber.org/automaxprocs"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/server/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
@@ -26,6 +22,7 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/provapi"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
@@ -138,12 +135,12 @@ func main() {
 	broadcastBus.Run()
 
 	// Create multi-tenant Kafka consumer pool
-	// Queries provisioning database for tenant topics and manages consumer groups:
+	// Receives tenant topics via gRPC streaming from provisioning service and manages consumer groups:
 	// - Shared tenants: {env}-shared-consumer consumer group
 	// - Dedicated tenants: {env}-{tenant_id}-consumer consumer group
 	var multiTenantPool *orchestration.MultiTenantConsumerPool
 	var kafkaProducer *kafka.Producer
-	var provisioningDB *sql.DB
+	var topicRegistry *provapi.StreamTopicRegistry
 
 	if len(kafkaBrokers) > 0 {
 		// Create resource guard for CPU brake (shared across pool)
@@ -182,55 +179,46 @@ func main() {
 		}
 
 		if cfg.KafkaConsumerEnabled {
-			// Connect to provisioning database for tenant topic discovery
+			// Create gRPC stream-backed topic registry for tenant topic discovery
 			var err error
-			provisioningDB, err = sql.Open("postgres", cfg.ProvisioningDatabaseURL)
+			topicRegistry, err = provapi.NewStreamTopicRegistry(provapi.StreamTopicRegistryConfig{
+				GRPCAddr:          cfg.ProvisioningGRPCAddr,
+				Namespace:         topicNamespace,
+				ReconnectDelay:    cfg.GRPCReconnectDelay,
+				ReconnectMaxDelay: cfg.GRPCReconnectMaxDelay,
+				MetricPrefix:      "ws",
+				Logger:            poolLogger,
+			})
 			if err != nil {
-				logger.Fatalf("Failed to open provisioning database: %v", err)
+				logger.Fatalf("Failed to create stream topic registry: %v", err)
 			}
-
-			// Configure connection pool
-			provisioningDB.SetMaxOpenConns(cfg.ProvisioningDBMaxOpenConns)
-			provisioningDB.SetMaxIdleConns(cfg.ProvisioningDBMaxIdleConns)
-			provisioningDB.SetConnMaxLifetime(cfg.ProvisioningDBConnMaxLifetime)
-			provisioningDB.SetConnMaxIdleTime(cfg.ProvisioningDBConnMaxIdleTime)
-
-			// Verify connection (fail fast if DB unreachable)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if err := provisioningDB.PingContext(ctx); err != nil {
-				cancel()
-				logger.Fatalf("Failed to connect to provisioning database: %v", err)
-			}
-			cancel()
-			logger.Printf("Connected to provisioning database")
-
-			// Create topic registry backed by provisioning database
-			topicRegistry := provisioning.NewTopicRegistry(provisioningDB)
 
 			// Create multi-tenant consumer pool
 			multiTenantPool, err = orchestration.NewMultiTenantConsumerPool(orchestration.MultiTenantPoolConfig{
-				Brokers:         kafkaBrokers,
-				Namespace:       topicNamespace,
-				Environment:     kafka.NormalizeEnv(cfg.Environment),
-				Registry:        topicRegistry,
-				BroadcastBus:    broadcastBus,
-				ResourceGuard:   resourceGuard,
-				Logger:          poolLogger,
-				RefreshInterval: cfg.TopicRefreshInterval,
-				SASL:            saslConfig,
-				TLS:             tlsConfig,
-				Metrics:         &metrics.MultiTenantPoolMetricsAdapter{},
+				Brokers:       kafkaBrokers,
+				Namespace:     topicNamespace,
+				Environment:   kafka.NormalizeEnv(cfg.Environment),
+				Registry:      topicRegistry,
+				BroadcastBus:  broadcastBus,
+				ResourceGuard: resourceGuard,
+				Logger:        poolLogger,
+				SASL:          saslConfig,
+				TLS:           tlsConfig,
+				Metrics:       &metrics.MultiTenantPoolMetricsAdapter{},
 			})
 			if err != nil {
 				logger.Fatalf("Failed to create multi-tenant consumer pool: %v", err)
 			}
+
+			// Wire gRPC stream topic registry to trigger on-demand pool refresh
+			topicRegistry.SetOnUpdate(multiTenantPool.RefreshTopics)
 
 			if err := multiTenantPool.Start(); err != nil {
 				logger.Fatalf("Failed to start multi-tenant consumer pool: %v", err)
 			}
 
 			metrics.SetKafkaConnected(true)
-			logger.Printf("Multi-tenant consumer pool started (refresh: %v)", cfg.TopicRefreshInterval)
+			logger.Printf("Multi-tenant consumer pool started (gRPC topic streaming)")
 		} else {
 			logger.Printf("Kafka consumer DISABLED (KAFKA_CONSUMER_ENABLED=false) — connection-only mode for loadtesting")
 		}
@@ -377,10 +365,10 @@ func main() {
 		}
 	}
 
-	// Close provisioning database connection
-	if provisioningDB != nil {
-		if err := provisioningDB.Close(); err != nil {
-			logger.Printf("Error closing provisioning database: %v", err)
+	// Close gRPC stream topic registry
+	if topicRegistry != nil {
+		if err := topicRegistry.Close(); err != nil {
+			logger.Printf("Error closing stream topic registry: %v", err)
 		}
 	}
 

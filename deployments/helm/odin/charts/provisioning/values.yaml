@@ -5,11 +5,12 @@
 # The parent odin chart overrides these via Helm's global value merge.
 global:
   imageRegistry: ""
-  provisioning:
-    existingSecret: ""
+  postgresql:
+    enabled: false
 
 enabled: true
 
+# MUST be 1 with SQLite. Scale horizontally only with PostgreSQL.
 replicaCount: 1
 
 image:
@@ -19,8 +20,26 @@ image:
 
 config:
   port: 8080
+  grpcPort: 9090
   logLevel: info
   logFormat: json
+
+  # Provisioning mode: "api" (database-backed REST API) or "config" (YAML file)
+  provisioningMode: "api"
+
+  # Config file path (only used when provisioningMode=config)
+  configFilePath: "/etc/odin/tenants.yaml"
+  # Name of ConfigMap containing the YAML config file (for K8s deployments)
+  # Required when provisioningMode=config in K8s
+  configFileConfigMap: ""
+
+  # Auto-migrate database schema on startup
+  autoMigrate: true
+
+  # Admin token for API authentication (optional)
+  # When set, Bearer token auth is enabled for the REST API
+  # Must be >= 16 characters in non-dev environments
+  adminToken: ""
 
   # Authentication - set to false for internal-only deployment
   authEnabled: false
@@ -40,11 +59,6 @@ config:
   httpWriteTimeout: "15s"
   httpIdleTimeout: "60s"
 
-  # Database connection pool
-  dbMaxOpenConns: 25
-  dbMaxIdleConns: 5
-  dbConnMaxLifetime: "5m"
-
   # Kafka/Redpanda settings (optional)
   kafkaBrokers: ""
   kafkaAdminTimeout: "30s"
@@ -60,14 +74,65 @@ config:
   # Tenant quotas
   maxTopicsPerTenant: 50
   maxPartitionsPerTenant: 200
+  maxStorageBytes: 10737418240       # 10GB
+  producerByteRate: 10485760         # 10MB/s
+  consumerByteRate: 52428800         # 50MB/s
   deprovisionGraceDays: 30
+
+  # Admin auth rate limiting
+  adminAuthFailureThreshold: 10
+  adminAuthBlockDuration: "60s"
+  adminAuthCleanupInterval: "5m"
+  adminAuthCleanupMaxAge: "2m"
+
+  # Topic namespace validation
+  validNamespaces: "local,dev,stag,prod"
 
   # Rate limiting
   apiRateLimitPerMin: 60
 
+  # Key registry (JWT validation when auth enabled)
+  keyRegistryRefreshInterval: "1m"
+  keyRegistryQueryTimeout: "5s"
+
+  # Graceful shutdown
+  shutdownTimeout: "30s"
+
   # Lifecycle manager
   lifecycleManagerEnabled: true
   lifecycleCheckInterval: "1h"
+
+# Database settings (SQLite local storage)
+database:
+  # SQLite database file path (only used when DATABASE_DRIVER=sqlite)
+  sqlitePath: "/data/odin.db"
+  # PostgreSQL connection pool (only used when DATABASE_DRIVER=postgres)
+  maxOpenConns: 25
+  maxIdleConns: 5
+  connMaxLifetime: "5m"
+
+# External PostgreSQL (optional — overrides SQLite default)
+# When set, DATABASE_DRIVER is auto-derived as "postgres"
+externalDatabase:
+  # Direct URL (for dev/testing)
+  url: ""
+  # Use existing K8s secret (recommended for production)
+  existingSecret: ""
+  existingSecretKey: "database-url"
+
+# Persistent storage for SQLite (auto-enabled when using SQLite)
+persistence:
+  enabled: true
+  size: 1Gi
+  accessMode: ReadWriteOnce
+
+# Ingress (optional — expose provisioning API externally)
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tls: []
+  annotations: {}
 
 # Pod Security Context
 podSecurityContext:

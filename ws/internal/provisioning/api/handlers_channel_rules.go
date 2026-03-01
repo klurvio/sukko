@@ -68,7 +68,7 @@ func (h *Handler) SetChannelRules(w http.ResponseWriter, r *http.Request) {
 	// Set via service (upsert)
 	if err := h.service.SetChannelRules(r.Context(), tenantID, rules); err != nil {
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to set channel rules")
-		httputil.WriteError(w, http.StatusInternalServerError, "SET_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "SET_FAILED", err.Error())
 		return
 	}
 
@@ -92,7 +92,7 @@ func (h *Handler) DeleteChannelRules(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to delete channel rules")
-		httputil.WriteError(w, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
 		return
 	}
 

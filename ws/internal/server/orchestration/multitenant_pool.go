@@ -63,6 +63,7 @@ type MultiTenantConsumerPool struct {
 
 	// Refresh management
 	refreshInterval time.Duration
+	refreshCh       chan struct{} // Signal channel for on-demand refresh
 	lastRefresh     time.Time
 
 	// Internal metrics (also exposed via Prometheus if callback is set)
@@ -137,10 +138,10 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		config.Environment = config.Namespace
 	}
 
-	// Default refresh interval (30s for faster topic discovery)
+	// Default refresh interval (5m safety net; real-time updates via gRPC stream)
 	refreshInterval := config.RefreshInterval
 	if refreshInterval == 0 {
-		refreshInterval = 30 * time.Second
+		refreshInterval = 5 * time.Minute
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -156,6 +157,7 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		sharedTopics:       make(map[string]bool),
 		dedicatedConsumers: make(map[string]*kafka.Consumer),
 		refreshInterval:    refreshInterval,
+		refreshCh:          make(chan struct{}, 1), // Buffered to avoid blocking senders
 	}
 
 	pool.logger.Info().
@@ -209,6 +211,7 @@ func (p *MultiTenantConsumerPool) Start() error {
 }
 
 // refreshLoop periodically checks for new tenant topics.
+// Also listens for on-demand refresh signals from RefreshTopics().
 func (p *MultiTenantConsumerPool) refreshLoop() {
 	defer logging.RecoverPanic(p.logger, "refreshLoop", nil)
 	defer p.wg.Done()
@@ -225,9 +228,27 @@ func (p *MultiTenantConsumerPool) refreshLoop() {
 				p.refreshErrors.Add(1)
 				p.logger.Error().
 					Err(err).
-					Msg("Topic refresh failed")
+					Msg("Topic refresh failed (periodic)")
+			}
+		case <-p.refreshCh:
+			if err := p.refreshTopics(p.ctx); err != nil {
+				p.refreshErrors.Add(1)
+				p.logger.Error().
+					Err(err).
+					Msg("Topic refresh failed (on-demand)")
 			}
 		}
+	}
+}
+
+// RefreshTopics triggers an on-demand topic refresh.
+// Non-blocking: if a refresh is already pending, this is a no-op.
+func (p *MultiTenantConsumerPool) RefreshTopics() {
+	select {
+	case p.refreshCh <- struct{}{}:
+		p.logger.Debug().Msg("On-demand topic refresh triggered")
+	default:
+		// Refresh already pending, skip
 	}
 }
 

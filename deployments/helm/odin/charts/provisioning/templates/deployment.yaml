@@ -1,4 +1,20 @@
 {{- if .Values.enabled }}
+{{- /*
+  Auto-derive DATABASE_DRIVER from values:
+  - If externalDatabase.url or externalDatabase.existingSecret is set → postgres
+  - If global.postgresql.enabled → postgres
+  - Otherwise → sqlite (default)
+*/ -}}
+{{- $dbDriver := "sqlite" -}}
+{{- if or .Values.externalDatabase.url .Values.externalDatabase.existingSecret -}}
+  {{- $dbDriver = "postgres" -}}
+{{- else if .Values.global.postgresql.enabled -}}
+  {{- $dbDriver = "postgres" -}}
+{{- end -}}
+{{- /* Guard: SQLite requires exactly 1 replica */ -}}
+{{- if and (eq $dbDriver "sqlite") (gt (int .Values.replicaCount) 1) -}}
+  {{- fail "replicaCount must be 1 when using SQLite (default). Use PostgreSQL for horizontal scaling." -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,9 +40,13 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       initContainers:
+        {{- if eq $dbDriver "postgres" }}
+        {{- if not (or .Values.externalDatabase.url .Values.externalDatabase.existingSecret) }}
         - name: wait-for-postgres
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-postgresql 5432; do echo "waiting for postgres..."; sleep 2; done']
+        {{- end }}
+        {{- end }}
         - name: wait-for-redpanda
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-redpanda 9092; do echo "waiting for redpanda..."; sleep 2; done']
@@ -42,21 +62,71 @@ spec:
             - name: http
               containerPort: {{ .Values.config.port }}
               protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.config.grpcPort }}
+              protocol: TCP
           env:
             # Server configuration
             - name: PROVISIONING_ADDR
               value: ":{{ .Values.config.port }}"
+            - name: GRPC_PORT
+              value: "{{ .Values.config.grpcPort }}"
             - name: LOG_LEVEL
               value: "{{ .Values.config.logLevel }}"
             - name: LOG_FORMAT
               value: "{{ .Values.config.logFormat }}"
 
-            # Database URL from secret
+            # Provisioning mode
+            - name: PROVISIONING_MODE
+              value: "{{ .Values.config.provisioningMode }}"
+            - name: AUTO_MIGRATE
+              value: "{{ .Values.config.autoMigrate }}"
+
+            # Database driver (auto-derived)
+            - name: DATABASE_DRIVER
+              value: "{{ $dbDriver }}"
+
+            {{- if eq $dbDriver "sqlite" }}
+            # SQLite database path
+            - name: DATABASE_PATH
+              value: "{{ .Values.database.sqlitePath }}"
+            {{- else }}
+            # PostgreSQL connection
             - name: DATABASE_URL
+              {{- if .Values.externalDatabase.existingSecret }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.global.provisioning.existingSecret | default (printf "%s-provisioning-db" .Release.Name) }}
+                  name: {{ .Values.externalDatabase.existingSecret }}
+                  key: {{ .Values.externalDatabase.existingSecretKey | default "database-url" }}
+              {{- else if .Values.externalDatabase.url }}
+              value: "{{ .Values.externalDatabase.url }}"
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-provisioning-db" .Release.Name }}
                   key: database-url
+              {{- end }}
+            # PostgreSQL connection pool
+            - name: DB_MAX_OPEN_CONNS
+              value: "{{ .Values.database.maxOpenConns }}"
+            - name: DB_MAX_IDLE_CONNS
+              value: "{{ .Values.database.maxIdleConns }}"
+            - name: DB_CONN_MAX_LIFETIME
+              value: "{{ .Values.database.connMaxLifetime }}"
+            {{- end }}
+
+            # Config file path (used when provisioningMode=config)
+            - name: PROVISIONING_CONFIG_PATH
+              value: "{{ .Values.config.configFilePath }}"
+
+            # Admin token authentication
+            {{- if .Values.config.adminToken }}
+            - name: PROVISIONING_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "provisioning.fullname" . }}-admin-token
+                  key: admin-token
+            {{- end }}
 
             # Authentication
             - name: AUTH_ENABLED
@@ -88,14 +158,6 @@ spec:
             - name: HTTP_IDLE_TIMEOUT
               value: "{{ .Values.config.httpIdleTimeout }}"
 
-            # Database connection pool
-            - name: DB_MAX_OPEN_CONNS
-              value: "{{ .Values.config.dbMaxOpenConns }}"
-            - name: DB_MAX_IDLE_CONNS
-              value: "{{ .Values.config.dbMaxIdleConns }}"
-            - name: DB_CONN_MAX_LIFETIME
-              value: "{{ .Values.config.dbConnMaxLifetime }}"
-
             # Kafka/Redpanda settings
             - name: KAFKA_BROKERS
               value: "{{ .Values.config.kafkaBrokers | default (printf "%s-redpanda:9092" .Release.Name) }}"
@@ -115,8 +177,28 @@ spec:
               value: "{{ .Values.config.maxTopicsPerTenant }}"
             - name: MAX_PARTITIONS_PER_TENANT
               value: "{{ .Values.config.maxPartitionsPerTenant }}"
+            - name: MAX_STORAGE_BYTES
+              value: "{{ printf "%.0f" .Values.config.maxStorageBytes }}"
+            - name: PRODUCER_BYTE_RATE
+              value: "{{ printf "%.0f" .Values.config.producerByteRate }}"
+            - name: CONSUMER_BYTE_RATE
+              value: "{{ printf "%.0f" .Values.config.consumerByteRate }}"
             - name: DEPROVISION_GRACE_DAYS
               value: "{{ .Values.config.deprovisionGraceDays }}"
+
+            # Admin auth rate limiting
+            - name: ADMIN_AUTH_FAILURE_THRESHOLD
+              value: "{{ .Values.config.adminAuthFailureThreshold }}"
+            - name: ADMIN_AUTH_BLOCK_DURATION
+              value: "{{ .Values.config.adminAuthBlockDuration }}"
+            - name: ADMIN_AUTH_CLEANUP_INTERVAL
+              value: "{{ .Values.config.adminAuthCleanupInterval }}"
+            - name: ADMIN_AUTH_CLEANUP_MAX_AGE
+              value: "{{ .Values.config.adminAuthCleanupMaxAge }}"
+
+            # Topic namespace validation
+            - name: VALID_NAMESPACES
+              value: "{{ .Values.config.validNamespaces }}"
 
             # Rate limiting
             - name: API_RATE_LIMIT_PER_MIN
@@ -128,16 +210,58 @@ spec:
             - name: LIFECYCLE_CHECK_INTERVAL
               value: "{{ .Values.config.lifecycleCheckInterval }}"
 
+            # Key registry (JWT validation)
+            - name: KEY_REGISTRY_REFRESH_INTERVAL
+              value: "{{ .Values.config.keyRegistryRefreshInterval }}"
+            - name: KEY_REGISTRY_QUERY_TIMEOUT
+              value: "{{ .Values.config.keyRegistryQueryTimeout }}"
+
+            # Graceful shutdown
+            - name: SHUTDOWN_TIMEOUT
+              value: "{{ .Values.config.shutdownTimeout }}"
+
             # Environment
             - name: ENVIRONMENT
               value: "{{ .Values.config.environment | default "local" }}"
 
+          {{- if eq $dbDriver "sqlite" }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
+          {{- if and (eq .Values.config.provisioningMode "config") .Values.config.configFileConfigMap }}
+          volumeMounts:
+            {{- if eq $dbDriver "sqlite" }}
+            {{- /* already mounted above */ -}}
+            {{- else }}
+            - name: config-file
+              mountPath: {{ dir .Values.config.configFilePath }}
+              readOnly: true
+            {{- end }}
+          {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      {{- if or (eq $dbDriver "sqlite") (and (eq .Values.config.provisioningMode "config") .Values.config.configFileConfigMap) }}
+      volumes:
+        {{- if eq $dbDriver "sqlite" }}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "provisioning.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- if and (eq .Values.config.provisioningMode "config") .Values.config.configFileConfigMap }}
+        - name: config-file
+          configMap:
+            name: {{ .Values.config.configFileConfigMap }}
+        {{- end }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

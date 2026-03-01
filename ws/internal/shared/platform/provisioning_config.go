@@ -23,11 +23,31 @@ type ProvisioningConfig struct {
 	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
 	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
 
-	// Database
-	DatabaseURL       string        `env:"DATABASE_URL,required"`
+	// Provisioning Mode: "api" (database-backed, default) or "config" (file-backed)
+	ProvisioningMode string `env:"PROVISIONING_MODE" envDefault:"api"`
+	ConfigFilePath   string `env:"PROVISIONING_CONFIG_PATH"`
+
+	// Database — driver auto-detected from Helm values, not set directly by developers.
+	// sqlite (default, embedded) or postgres (opt-in via Helm postgresql.enabled or externalDatabase).
+	DatabaseDriver    string        `env:"DATABASE_DRIVER" envDefault:"sqlite"`
+	DatabaseURL       string        `env:"DATABASE_URL"`
+	DatabasePath      string        `env:"DATABASE_PATH" envDefault:"odin.db"`
+	AutoMigrate       bool          `env:"AUTO_MIGRATE" envDefault:"true"`
 	DBMaxOpenConns    int           `env:"DB_MAX_OPEN_CONNS" envDefault:"25"`
 	DBMaxIdleConns    int           `env:"DB_MAX_IDLE_CONNS" envDefault:"5"`
 	DBConnMaxLifetime time.Duration `env:"DB_CONN_MAX_LIFETIME" envDefault:"5m"`
+
+	// gRPC — internal service-to-service communication port
+	GRPCPort int `env:"GRPC_PORT" envDefault:"9090"`
+
+	// Admin Authentication — opaque admin token for operator access (separate from tenant JWT)
+	AdminToken string `env:"PROVISIONING_ADMIN_TOKEN"`
+
+	// Admin Auth Rate Limiting
+	AdminAuthFailureThreshold int           `env:"ADMIN_AUTH_FAILURE_THRESHOLD" envDefault:"10"`
+	AdminAuthBlockDuration    time.Duration `env:"ADMIN_AUTH_BLOCK_DURATION" envDefault:"60s"`
+	AdminAuthCleanupInterval  time.Duration `env:"ADMIN_AUTH_CLEANUP_INTERVAL" envDefault:"5m"`
+	AdminAuthCleanupMaxAge    time.Duration `env:"ADMIN_AUTH_CLEANUP_MAX_AGE" envDefault:"2m"`
 
 	// Kafka/Redpanda Admin
 	KafkaBrokers      string        `env:"KAFKA_BROKERS"`
@@ -69,6 +89,13 @@ type ProvisioningConfig struct {
 	HTTPReadTimeout  time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"15s"`
 	HTTPWriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"15s"`
 	HTTPIdleTimeout  time.Duration `env:"HTTP_IDLE_TIMEOUT" envDefault:"60s"`
+
+	// Key Registry (for JWT validation in API mode with auth enabled)
+	KeyRegistryRefreshInterval time.Duration `env:"KEY_REGISTRY_REFRESH_INTERVAL" envDefault:"1m"`
+	KeyRegistryQueryTimeout    time.Duration `env:"KEY_REGISTRY_QUERY_TIMEOUT" envDefault:"5s"`
+
+	// Graceful shutdown timeout
+	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"30s"`
 
 	// Authentication (requires DATABASE_URL for key registry)
 	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"false"`
@@ -129,8 +156,41 @@ func (c *ProvisioningConfig) Validate() error {
 	if c.Addr == "" {
 		return errors.New("PROVISIONING_ADDR is required")
 	}
-	if c.DatabaseURL == "" {
-		return errors.New("DATABASE_URL is required")
+
+	// Provisioning mode validation
+	validModes := map[string]bool{"api": true, "config": true}
+	if !validModes[c.ProvisioningMode] {
+		return fmt.Errorf("PROVISIONING_MODE must be one of: api, config (got: %s)", c.ProvisioningMode)
+	}
+
+	// Mode-dependent validation
+	if c.ProvisioningMode == "config" {
+		if c.ConfigFilePath == "" {
+			return errors.New("PROVISIONING_CONFIG_PATH is required when PROVISIONING_MODE=config")
+		}
+	} else {
+		// API mode — validate database config
+		validDrivers := map[string]bool{"sqlite": true, "postgres": true}
+		if !validDrivers[c.DatabaseDriver] {
+			return fmt.Errorf("DATABASE_DRIVER must be one of: sqlite, postgres (got: %s)", c.DatabaseDriver)
+		}
+		if c.DatabaseDriver == "postgres" && c.DatabaseURL == "" {
+			return errors.New("DATABASE_URL is required when DATABASE_DRIVER=postgres")
+		}
+	}
+
+	// gRPC port validation
+	if c.GRPCPort < 1 || c.GRPCPort > 65535 {
+		return fmt.Errorf("GRPC_PORT must be between 1 and 65535, got %d", c.GRPCPort)
+	}
+
+	// Admin token validation
+	if c.AdminToken != "" && len(c.AdminToken) < 16 {
+		env := strings.ToLower(strings.TrimSpace(c.Environment))
+		if env != "dev" && env != "development" && env != "local" {
+			return fmt.Errorf("PROVISIONING_ADMIN_TOKEN must be at least 16 characters in non-development environments (got %d)", len(c.AdminToken))
+		}
+		// In dev: warning is logged at startup, not a validation error
 	}
 
 	// Range checks
@@ -150,16 +210,18 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("API_RATE_LIMIT_PER_MIN must be > 0, got %d", c.APIRateLimitPerMinute)
 	}
 
-	// Database pool validation
-	if c.DBMaxOpenConns < 1 {
-		return fmt.Errorf("DB_MAX_OPEN_CONNS must be > 0, got %d", c.DBMaxOpenConns)
-	}
-	if c.DBMaxIdleConns < 0 {
-		return fmt.Errorf("DB_MAX_IDLE_CONNS must be >= 0, got %d", c.DBMaxIdleConns)
-	}
-	if c.DBMaxIdleConns > c.DBMaxOpenConns {
-		return fmt.Errorf("DB_MAX_IDLE_CONNS (%d) must be <= DB_MAX_OPEN_CONNS (%d)",
-			c.DBMaxIdleConns, c.DBMaxOpenConns)
+	// Database pool validation (only relevant for postgres in API mode)
+	if c.ProvisioningMode == "api" && c.DatabaseDriver == "postgres" {
+		if c.DBMaxOpenConns < 1 {
+			return fmt.Errorf("DB_MAX_OPEN_CONNS must be > 0, got %d", c.DBMaxOpenConns)
+		}
+		if c.DBMaxIdleConns < 0 {
+			return fmt.Errorf("DB_MAX_IDLE_CONNS must be >= 0, got %d", c.DBMaxIdleConns)
+		}
+		if c.DBMaxIdleConns > c.DBMaxOpenConns {
+			return fmt.Errorf("DB_MAX_IDLE_CONNS (%d) must be <= DB_MAX_OPEN_CONNS (%d)",
+				c.DBMaxIdleConns, c.DBMaxOpenConns)
+		}
 	}
 
 	// Enum checks
@@ -228,11 +290,25 @@ func (c *ProvisioningConfig) Print() {
 	fmt.Println("=== Provisioning Service Configuration ===")
 	fmt.Printf("Environment:        %s\n", c.Environment)
 	fmt.Printf("Address:            %s\n", c.Addr)
+	fmt.Printf("Provisioning Mode:  %s\n", c.ProvisioningMode)
+	fmt.Printf("gRPC Port:          %d\n", c.GRPCPort)
+	if c.AdminToken != "" {
+		fmt.Printf("Admin Token:        [REDACTED]\n")
+	}
+	if c.ProvisioningMode == "config" {
+		fmt.Printf("Config File:        %s\n", c.ConfigFilePath)
+	}
 	fmt.Println("\n=== Database ===")
-	fmt.Printf("Database URL:       %s\n", maskDatabaseURL(c.DatabaseURL))
-	fmt.Printf("Max Open Conns:     %d\n", c.DBMaxOpenConns)
-	fmt.Printf("Max Idle Conns:     %d\n", c.DBMaxIdleConns)
-	fmt.Printf("Conn Max Lifetime:  %s\n", c.DBConnMaxLifetime)
+	fmt.Printf("Database Driver:    %s\n", c.DatabaseDriver)
+	if c.DatabaseDriver == "postgres" {
+		fmt.Printf("Database URL:       %s\n", maskDatabaseURL(c.DatabaseURL))
+		fmt.Printf("Max Open Conns:     %d\n", c.DBMaxOpenConns)
+		fmt.Printf("Max Idle Conns:     %d\n", c.DBMaxIdleConns)
+		fmt.Printf("Conn Max Lifetime:  %s\n", c.DBConnMaxLifetime)
+	} else {
+		fmt.Printf("Database Path:      %s\n", c.DatabasePath)
+	}
+	fmt.Printf("Auto Migrate:       %v\n", c.AutoMigrate)
 	fmt.Println("\n=== Kafka/Redpanda ===")
 	fmt.Printf("Brokers:            %s\n", c.KafkaBrokers)
 	fmt.Printf("Admin Timeout:      %s\n", c.KafkaAdminTimeout)
@@ -273,6 +349,10 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 	event := logger.Info().
 		Str("environment", c.Environment).
 		Str("addr", c.Addr).
+		Str("provisioning_mode", c.ProvisioningMode).
+		Str("database_driver", c.DatabaseDriver).
+		Int("grpc_port", c.GRPCPort).
+		Bool("auto_migrate", c.AutoMigrate).
 		Str("kafka_brokers", c.KafkaBrokers).
 		Bool("kafka_sasl_enabled", c.KafkaSASLEnabled).
 		Bool("kafka_tls_enabled", c.KafkaTLSEnabled).
@@ -283,9 +363,6 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Int("max_partitions_per_tenant", c.MaxPartitionsPerTenant).
 		Int("deprovision_grace_days", c.DeprovisionGraceDays).
 		Int("api_rate_limit_per_min", c.APIRateLimitPerMinute).
-		Int("db_max_open_conns", c.DBMaxOpenConns).
-		Int("db_max_idle_conns", c.DBMaxIdleConns).
-		Dur("db_conn_max_lifetime", c.DBConnMaxLifetime).
 		Dur("http_read_timeout", c.HTTPReadTimeout).
 		Dur("http_write_timeout", c.HTTPWriteTimeout).
 		Dur("http_idle_timeout", c.HTTPIdleTimeout).
@@ -294,6 +371,23 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Int("cors_max_age", c.CORSMaxAge).
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat)
+
+	// Admin token — redact, never log the value
+	if c.AdminToken != "" {
+		event = event.Str("admin_token", "[REDACTED]")
+	}
+
+	// Mode-specific fields
+	if c.ProvisioningMode == "config" {
+		event = event.Str("config_file_path", c.ConfigFilePath)
+	} else if c.DatabaseDriver == "postgres" {
+		event = event.
+			Int("db_max_open_conns", c.DBMaxOpenConns).
+			Int("db_max_idle_conns", c.DBMaxIdleConns).
+			Dur("db_conn_max_lifetime", c.DBConnMaxLifetime)
+	} else {
+		event = event.Str("database_path", c.DatabasePath)
+	}
 
 	// Add OIDC-specific fields when enabled
 	if c.OIDCEnabled() {

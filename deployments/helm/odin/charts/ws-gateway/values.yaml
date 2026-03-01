@@ -5,8 +5,6 @@
 # The parent odin chart overrides these via Helm's global value merge.
 global:
   imageRegistry: ""
-  provisioning:
-    existingSecret: ""
 
 enabled: true
 
@@ -28,7 +26,7 @@ config:
   logFormat: json
 
   # Authentication - set to false to disable JWT validation
-  # When enabled, uses multi-tenant asymmetric key validation from provisioning database
+  # When enabled, uses multi-tenant asymmetric key validation via gRPC streaming from provisioning service
   authEnabled: false
 
   # Default tenant ID — disables multi-tenant support.
@@ -37,15 +35,6 @@ config:
 
   # Multi-tenant auth settings (only used when authEnabled: true)
   requireTenantId: true
-  keyCacheRefreshInterval: "1m"
-  keyCacheQueryTimeout: "5s"
-
-  # Database connection pool settings (only used when authEnabled: true)
-  dbMaxOpenConns: 10
-  dbMaxIdleConns: 5
-  dbConnMaxLifetime: "5m"
-  dbConnMaxIdleTime: "1m"
-  dbPingTimeout: "5s"
 
   # Auth refresh rate interval (minimum time between auth refreshes per connection)
   authRefreshRateInterval: "30s"
@@ -60,9 +49,7 @@ config:
   # Per-Tenant Channel Rules (Feature Flag)
   perTenantChannelRulesEnabled: false
 
-  # TenantRegistry Cache Settings
-  issuerCacheTTL: "5m"
-  channelRulesCacheTTL: "1m"
+  # TenantRegistry Cache Settings (OIDC keyfunc cache)
   oidcKeyfuncCacheTTL: "1h"
 
   # JWKS Fetch Settings
@@ -72,6 +59,12 @@ config:
   # Fallback Channel Rules
   fallbackPublicChannels:
     - "*.metadata"
+
+  # gRPC connection to provisioning service
+  # Empty = dynamic default: {{ .Release.Name }}-provisioning-grpc:9090
+  provisioningGRPCAddr: ""
+  provisioningGRPCReconnectDelay: "1s"
+  provisioningGRPCReconnectMaxDelay: "30s"
 
 # Channel permission patterns
 permissions:

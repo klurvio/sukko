@@ -2,6 +2,7 @@ package api //nolint:revive // api is a common package name for HTTP handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -10,8 +11,19 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning/configstore"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+)
+
+// NOTE: httputil.WriteJSON errors are assigned to _ throughout this file.
+// If WriteJSON fails, the client has disconnected and the HTTP response is
+// already committed — there is no way to communicate a secondary error.
+
+// Pagination defaults for list endpoints.
+const (
+	defaultPageLimit = 50  // Default number of items per page
+	maxPageLimit     = 100 // Maximum allowed items per page
 )
 
 // Handler provides HTTP handlers for provisioning operations.
@@ -26,6 +38,16 @@ func NewHandler(svc *provisioning.Service, logger zerolog.Logger) *Handler {
 		service: svc,
 		logger:  logger,
 	}
+}
+
+// writeServiceError writes an error response, returning 405 for ErrReadOnlyMode
+// (config file mode) and the given default status for other errors.
+func (h *Handler) writeServiceError(w http.ResponseWriter, err error, defaultStatus int, code, msg string) {
+	if errors.Is(err, configstore.ErrReadOnlyMode) {
+		httputil.WriteError(w, http.StatusMethodNotAllowed, "READ_ONLY_MODE", err.Error())
+		return
+	}
+	httputil.WriteError(w, defaultStatus, code, msg)
 }
 
 // Health returns basic health status.
@@ -60,7 +82,7 @@ func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error().Err(err).Str("tenant_id", req.TenantID).Msg("Failed to create tenant")
 		RecordTenantOperation("create", "error")
-		httputil.WriteError(w, http.StatusInternalServerError, "CREATE_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "CREATE_FAILED", err.Error())
 		return
 	}
 
@@ -112,7 +134,7 @@ func (h *Handler) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 
 	tenant, err := h.service.UpdateTenant(r.Context(), tenantID, req)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "UPDATE_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "UPDATE_FAILED", err.Error())
 		return
 	}
 
@@ -125,7 +147,7 @@ func (h *Handler) SuspendTenant(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.SuspendTenant(r.Context(), tenantID); err != nil {
 		RecordTenantOperation("suspend", "error")
-		httputil.WriteError(w, http.StatusInternalServerError, "SUSPEND_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "SUSPEND_FAILED", err.Error())
 		return
 	}
 
@@ -139,7 +161,7 @@ func (h *Handler) ReactivateTenant(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.ReactivateTenant(r.Context(), tenantID); err != nil {
 		RecordTenantOperation("reactivate", "error")
-		httputil.WriteError(w, http.StatusInternalServerError, "REACTIVATE_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "REACTIVATE_FAILED", err.Error())
 		return
 	}
 
@@ -153,7 +175,7 @@ func (h *Handler) DeprovisionTenant(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.DeprovisionTenant(r.Context(), tenantID); err != nil {
 		RecordTenantOperation("deprovision", "error")
-		httputil.WriteError(w, http.StatusInternalServerError, "DEPROVISION_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "DEPROVISION_FAILED", err.Error())
 		return
 	}
 
@@ -173,7 +195,7 @@ func (h *Handler) CreateKey(w http.ResponseWriter, r *http.Request) {
 
 	key, err := h.service.CreateKey(r.Context(), tenantID, req)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "CREATE_KEY_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "CREATE_KEY_FAILED", err.Error())
 		return
 	}
 
@@ -202,7 +224,7 @@ func (h *Handler) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	keyID := chi.URLParam(r, "keyID")
 
 	if err := h.service.RevokeKey(r.Context(), tenantID, keyID); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "REVOKE_KEY_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "REVOKE_KEY_FAILED", err.Error())
 		return
 	}
 
@@ -235,7 +257,7 @@ func (h *Handler) CreateTopics(w http.ResponseWriter, r *http.Request) {
 
 	topics, err := h.service.CreateTopics(r.Context(), tenantID, req.Categories)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "CREATE_TOPICS_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "CREATE_TOPICS_FAILED", err.Error())
 		return
 	}
 
@@ -292,7 +314,7 @@ func (h *Handler) UpdateQuota(w http.ResponseWriter, r *http.Request) {
 
 	quota, err := h.service.UpdateQuota(r.Context(), tenantID, req)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "UPDATE_QUOTA_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "UPDATE_QUOTA_FAILED", err.Error())
 		return
 	}
 
@@ -321,12 +343,12 @@ func (h *Handler) GetAuditLog(w http.ResponseWriter, r *http.Request) {
 // parseListOptions extracts pagination options from query params.
 func parseListOptions(r *http.Request) provisioning.ListOptions {
 	opts := provisioning.ListOptions{
-		Limit:  50,
+		Limit:  defaultPageLimit,
 		Offset: 0,
 	}
 
 	if limit := r.URL.Query().Get("limit"); limit != "" {
-		if l, err := strconv.Atoi(limit); err == nil && l > 0 && l <= 100 {
+		if l, err := strconv.Atoi(limit); err == nil && l > 0 && l <= maxPageLimit {
 			opts.Limit = l
 		}
 	}

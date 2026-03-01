@@ -28,9 +28,9 @@ spec:
         - name: wait-for-ws-server
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-ws-server 3001; do echo "waiting for ws-server..."; sleep 2; done']
-        - name: wait-for-postgres
+        - name: wait-for-provisioning
           image: busybox:1.36
-          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-postgresql 5432; do echo "waiting for postgres..."; sleep 2; done']
+          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-provisioning-grpc {{ .Values.config.port | default 9090 }}; do echo "waiting for provisioning gRPC..."; sleep 2; done']
       containers:
         - name: {{ .Chart.Name }}
           {{- with .Values.securityContext }}
@@ -66,37 +66,27 @@ spec:
               value: "ws://{{ .Release.Name }}-ws-server:3001/ws"
               {{- end }}
 
-            # Authentication (multi-tenant with asymmetric keys)
+            # Authentication (multi-tenant with asymmetric keys via gRPC)
             - name: AUTH_ENABLED
               value: "{{ .Values.config.authEnabled }}"
             - name: DEFAULT_TENANT_ID
               value: "{{ .Values.config.defaultTenantID }}"
             {{- if .Values.config.authEnabled }}
-            # Provisioning database URL - required when auth is enabled
-            - name: PROVISIONING_DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.global.provisioning.existingSecret | default (printf "%s-provisioning-db" .Release.Name) }}
-                  key: database-url
-            # Multi-tenant settings
             - name: REQUIRE_TENANT_ID
               value: "{{ .Values.config.requireTenantId }}"
-            - name: KEY_CACHE_REFRESH_INTERVAL
-              value: "{{ .Values.config.keyCacheRefreshInterval }}"
-            - name: KEY_CACHE_QUERY_TIMEOUT
-              value: "{{ .Values.config.keyCacheQueryTimeout }}"
-            # Database connection pool settings
-            - name: DB_MAX_OPEN_CONNS
-              value: "{{ .Values.config.dbMaxOpenConns }}"
-            - name: DB_MAX_IDLE_CONNS
-              value: "{{ .Values.config.dbMaxIdleConns }}"
-            - name: DB_CONN_MAX_LIFETIME
-              value: "{{ .Values.config.dbConnMaxLifetime }}"
-            - name: DB_CONN_MAX_IDLE_TIME
-              value: "{{ .Values.config.dbConnMaxIdleTime }}"
-            - name: DB_PING_TIMEOUT
-              value: "{{ .Values.config.dbPingTimeout }}"
             {{- end }}
+
+            # Provisioning gRPC connection
+            - name: PROVISIONING_GRPC_ADDR
+              {{- if .Values.config.provisioningGRPCAddr }}
+              value: "{{ .Values.config.provisioningGRPCAddr }}"
+              {{- else }}
+              value: "{{ .Release.Name }}-provisioning-grpc:9090"
+              {{- end }}
+            - name: PROVISIONING_GRPC_RECONNECT_DELAY
+              value: "{{ .Values.config.provisioningGRPCReconnectDelay | default "1s" }}"
+            - name: PROVISIONING_GRPC_RECONNECT_MAX_DELAY
+              value: "{{ .Values.config.provisioningGRPCReconnectMaxDelay | default "30s" }}"
 
             # Permission patterns
             - name: GATEWAY_PUBLIC_PATTERNS
@@ -129,10 +119,6 @@ spec:
               value: {{ .Values.config.multiIssuerOIDCEnabled | quote }}
             - name: GATEWAY_PER_TENANT_CHANNEL_RULES
               value: {{ .Values.config.perTenantChannelRulesEnabled | quote }}
-            - name: GATEWAY_ISSUER_CACHE_TTL
-              value: {{ .Values.config.issuerCacheTTL | quote }}
-            - name: GATEWAY_CHANNEL_RULES_CACHE_TTL
-              value: {{ .Values.config.channelRulesCacheTTL | quote }}
             - name: GATEWAY_OIDC_KEYFUNC_CACHE_TTL
               value: {{ .Values.config.oidcKeyfuncCacheTTL | quote }}
             - name: GATEWAY_JWKS_FETCH_TIMEOUT

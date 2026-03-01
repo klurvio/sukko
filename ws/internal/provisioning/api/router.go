@@ -27,6 +27,10 @@ type RouterConfig struct {
 	// Validator validates JWT tokens. Required when AuthEnabled is true.
 	Validator *auth.MultiTenantValidator
 
+	// AdminAuth provides admin token authentication middleware.
+	// When set, admin token auth is checked before JWT auth.
+	AdminAuth *AdminAuth
+
 	// CORS configuration
 	CORSAllowedOrigins []string // Allowed origins (e.g., ["http://localhost:3000"])
 	CORSMaxAge         int      // Preflight cache duration in seconds
@@ -66,7 +70,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Apply auth middleware if enabled
+		// Apply admin token auth first (falls through to JWT on mismatch)
+		if cfg.AdminAuth != nil {
+			r.Use(cfg.AdminAuth.Middleware())
+		}
+
+		// Apply JWT auth middleware if enabled
 		if cfg.AuthEnabled && cfg.Validator != nil {
 			r.Use(AuthMiddleware(cfg.Validator, cfg.Logger))
 		}

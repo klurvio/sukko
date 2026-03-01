@@ -9,6 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning/eventbus"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
@@ -24,6 +25,7 @@ type ServiceConfig struct {
 	OIDCConfigStore   OIDCConfigStore
 	ChannelRulesStore ChannelRulesStore
 	KafkaAdmin        KafkaAdmin
+	EventBus          *eventbus.Bus
 	Logger            zerolog.Logger
 
 	// Topic configuration
@@ -32,7 +34,10 @@ type ServiceConfig struct {
 	DefaultRetentionMs int64
 
 	// Quota defaults
-	MaxTopicsPerTenant int
+	MaxTopicsPerTenant   int
+	MaxStorageBytes      int64
+	DefaultProducerRate  int64
+	DefaultConsumerRate  int64
 
 	// Lifecycle
 	DeprovisionGraceDays int
@@ -48,6 +53,7 @@ type Service struct {
 	oidcConfigs  OIDCConfigStore
 	channelRules ChannelRulesStore
 	kafka        KafkaAdmin
+	eventBus     *eventbus.Bus
 	logger       zerolog.Logger
 	config       ServiceConfig
 }
@@ -63,6 +69,7 @@ func NewService(cfg ServiceConfig) *Service {
 		oidcConfigs:  cfg.OIDCConfigStore,
 		channelRules: cfg.ChannelRulesStore,
 		kafka:        cfg.KafkaAdmin,
+		eventBus:     cfg.EventBus,
 		logger:       cfg.Logger,
 		config:       cfg,
 	}
@@ -103,9 +110,9 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		TenantID:         tenant.ID,
 		MaxTopics:        s.config.MaxTopicsPerTenant,
 		MaxPartitions:    s.config.MaxTopicsPerTenant * s.config.DefaultPartitions,
-		MaxStorageBytes:  10 * 1024 * 1024 * 1024, // 10GB
-		ProducerByteRate: 10 * 1024 * 1024,        // 10MB/s
-		ConsumerByteRate: 50 * 1024 * 1024,        // 50MB/s
+		MaxStorageBytes:  s.config.MaxStorageBytes,
+		ProducerByteRate: s.config.DefaultProducerRate,
+		ConsumerByteRate: s.config.DefaultConsumerRate,
 	}
 	if err := s.quotas.Create(ctx, quota); err != nil {
 		s.logger.Error().Err(err).Str("tenant_id", tenant.ID).Msg("Failed to create quotas")
@@ -163,6 +170,9 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		Str("name", tenant.Name).
 		Msg("Tenant created")
 
+	s.emitEvent(eventbus.TopicsChanged)
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return response, nil
 }
 
@@ -206,6 +216,8 @@ func (s *Service) UpdateTenant(ctx context.Context, tenantID string, req UpdateT
 		"consumer_type": tenant.ConsumerType,
 	})
 
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return tenant, nil
 }
 
@@ -218,6 +230,10 @@ func (s *Service) SuspendTenant(ctx context.Context, tenantID string) error {
 	s.auditLog(ctx, tenantID, ActionSuspendTenant, nil)
 
 	s.logger.Info().Str("tenant_id", tenantID).Msg("Tenant suspended")
+
+	s.emitEvent(eventbus.TopicsChanged)
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return nil
 }
 
@@ -230,6 +246,10 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 	s.auditLog(ctx, tenantID, ActionReactivateTenant, nil)
 
 	s.logger.Info().Str("tenant_id", tenantID).Msg("Tenant reactivated")
+
+	s.emitEvent(eventbus.TopicsChanged)
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return nil
 }
 
@@ -318,6 +338,8 @@ func (s *Service) CreateKey(ctx context.Context, tenantID string, req CreateKeyR
 		Str("key_id", key.KeyID).
 		Msg("Key created")
 
+	s.emitEvent(eventbus.KeysChanged)
+
 	return key, nil
 }
 
@@ -350,6 +372,8 @@ func (s *Service) RevokeKey(ctx context.Context, tenantID, keyID string) error {
 		Str("key_id", keyID).
 		Msg("Key revoked")
 
+	s.emitEvent(eventbus.KeysChanged)
+
 	return nil
 }
 
@@ -369,7 +393,14 @@ func (s *Service) CreateTopics(ctx context.Context, tenantID string, categories 
 		return nil, fmt.Errorf("tenant is not active: %s", tenant.Status)
 	}
 
-	return s.createTopicsForTenant(ctx, tenantID, categories)
+	topics, err := s.createTopicsForTenant(ctx, tenantID, categories)
+	if err != nil {
+		return nil, err
+	}
+
+	s.emitEvent(eventbus.TopicsChanged)
+
+	return topics, nil
 }
 
 // ListTopics returns all topic categories for a tenant.
@@ -525,6 +556,15 @@ func (s *Service) auditLog(ctx context.Context, tenantID, action string, details
 	}
 }
 
+// emitEvent publishes a provisioning change event to the event bus.
+// Nil-guarded — does nothing if no event bus is configured.
+func (s *Service) emitEvent(eventType eventbus.EventType) {
+	if s.eventBus == nil {
+		return
+	}
+	s.eventBus.Publish(eventbus.Event{Type: eventType})
+}
+
 // WithActor adds actor information to context.
 // This is an alias for auth.WithActor for backwards compatibility.
 var WithActor = auth.WithActor
@@ -563,6 +603,8 @@ func (s *Service) CreateOIDCConfig(ctx context.Context, config *types.TenantOIDC
 		Str("tenant_id", config.TenantID).
 		Str("issuer_url", config.IssuerURL).
 		Msg("OIDC config created")
+
+	s.emitEvent(eventbus.TenantConfigChanged)
 
 	return nil
 }
@@ -604,6 +646,8 @@ func (s *Service) UpdateOIDCConfig(ctx context.Context, config *types.TenantOIDC
 		Bool("enabled", config.Enabled).
 		Msg("OIDC config updated")
 
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return nil
 }
 
@@ -631,6 +675,8 @@ func (s *Service) DeleteOIDCConfig(ctx context.Context, tenantID string) error {
 	s.logger.Info().
 		Str("tenant_id", tenantID).
 		Msg("OIDC config deleted")
+
+	s.emitEvent(eventbus.TenantConfigChanged)
 
 	return nil
 }
@@ -680,6 +726,8 @@ func (s *Service) SetChannelRules(ctx context.Context, tenantID string, rules *t
 		Int("group_mappings", len(rules.GroupMappings)).
 		Msg("Channel rules set")
 
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return nil
 }
 
@@ -704,6 +752,8 @@ func (s *Service) DeleteChannelRules(ctx context.Context, tenantID string) error
 	s.logger.Info().
 		Str("tenant_id", tenantID).
 		Msg("Channel rules deleted")
+
+	s.emitEvent(eventbus.TenantConfigChanged)
 
 	return nil
 }

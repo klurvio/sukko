@@ -67,6 +67,8 @@ ws/
 │       ├── protocol/    # WebSocket protocol types
 │       ├── types/       # Core type definitions
 │       └── testutil/    # Shared test utilities
+├── proto/               # Protobuf definitions (buf-managed)
+│   └── odin/provisioning/v1/ # Provisioning gRPC service
 deployments/
 ├── helm/odin/           # Helm charts (ws-server, ws-gateway, monitoring, etc.)
 │   ├── charts/          # Subchart definitions
@@ -81,6 +83,7 @@ docs/architecture/       # Plans, findings, session handoffs
 - **Go 1.22+** with modern features (any, slices, maps, for range N, errors.Join)
 - **franz-go** for Kafka/Redpanda consumption (consumer groups, partition management)
 - **NATS** for inter-pod broadcast (publish/subscribe)
+- **gRPC** + **protobuf** for internal service-to-service communication (buf for codegen)
 - **gorilla/websocket** for WebSocket connections
 - **zerolog** for structured logging
 - **Prometheus** for metrics (promauto registration)
@@ -120,7 +123,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.3.2 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-02-28
+**Version**: 1.4.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-02-28
 
 ### I. Configuration
 
@@ -144,7 +147,7 @@ All logging MUST use zerolog with structured fields (Str, Int, Dur, Err). Approp
 
 ### VI. Observability
 
-Every significant operation MUST have Prometheus metrics. Metric names MUST use `ws_` prefix (server) or `gateway_` prefix (gateway) with units (`_seconds`, `_bytes`, `_total`). Labels MUST be used sparingly to avoid cardinality explosion. Histograms MUST be used for latency, not summaries.
+Every significant operation MUST have Prometheus metrics. Metric names MUST use `ws_` prefix (server), `gateway_` prefix (gateway), or `provisioning_` prefix (provisioning service) with units (`_seconds`, `_bytes`, `_total`). Labels MUST be used sparingly to avoid cardinality explosion. Histograms MUST be used for latency, not summaries.
 
 ### VII. Concurrency Safety
 
@@ -214,6 +217,23 @@ Before writing any new utility, `internal/shared/` MUST be checked for existing 
 ### XI. Prior Art Research
 
 Before designing any new feature or protocol extension, the implementation approach MUST be informed by how established real-time/WebSocket services have solved the same problem. Reference services: Pusher Channels, Ably, Socket.IO, Phoenix Channels, Centrifugo, NATS WebSocket. Research MUST identify: (1) the common industry pattern for the feature, (2) edge cases and failure modes that mature implementations handle, (3) where Odin's architecture requires deviation from the common pattern — with documented rationale for the deviation. "Not invented here" solutions to solved problems are forbidden.
+
+### XII. API Design
+
+**REST** — All external-facing APIs (admin, CLI, third-party) MUST use REST over HTTP/JSON.
+- Endpoints MUST be versioned via URL path (`/api/v1/`). Health, readiness, and metrics endpoints MUST be at root level (no version).
+- Routes MUST be resource-oriented: `POST` (create, 201), `GET` (read, 200), `PATCH` (partial update, 200), `PUT` (full replace, 200), `DELETE` (remove, 200). State-change actions use `POST` on sub-resources (`/suspend`, `/reactivate`).
+- Error responses MUST use the `httputil.ErrorResponse` format: `{"code": "UPPER_SNAKE_CASE", "message": "human-readable"}`. HTTP status codes MUST map to semantics: 400 validation, 401 authn, 403 authz, 404 not found, 409 conflict, 500 internal.
+- List endpoints MUST support pagination (`?limit=N&offset=M`) with defaults and max caps. Responses: `{items, total, limit, offset}`.
+- All response writing MUST use `shared/httputil/` helpers (`WriteJSON`, `WriteError`). Raw `w.Write()` in handlers is forbidden.
+
+**gRPC** — All internal service-to-service communication MUST use gRPC with protobuf.
+- Proto files MUST live in `ws/proto/` with package naming `odin.{service}.v1`. Style: `PascalCase` messages/services, `snake_case` fields, `UPPER_SNAKE_CASE` enums. Code generation via `buf generate`; generated code committed to repo. `buf lint` MUST pass in CI.
+- Server-side streaming MUST be used for real-time data push (watch/subscribe). Unary RPCs for request-response.
+- gRPC status codes MUST map to domain semantics: `NotFound`, `InvalidArgument`, `FailedPrecondition` (state conflict), `Internal`, `Unavailable` (temporary). Context via `status.Errorf()`.
+- gRPC servers MUST run on a dedicated port, separate from HTTP. Both listeners MUST support graceful shutdown.
+- Interceptors MUST handle: panic recovery (first), structured logging, Prometheus metrics (latency histograms, call counters).
+- Stream clients MUST reconnect with exponential backoff and jitter, serve stale cache during disconnection, and reflect stream health in service health endpoints.
 
 ### Governance
 

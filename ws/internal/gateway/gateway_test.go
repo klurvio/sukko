@@ -37,14 +37,10 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 		LogLevel:                "info",
 		LogFormat:               "json",
 		Environment:             "test",
-		KeyCacheRefreshInterval: 1 * time.Minute,
-		KeyCacheQueryTimeout:    5 * time.Second,
-		RequireTenantID:         true,
-		DBMaxOpenConns:          10,
-		DBMaxIdleConns:          5,
-		DBConnMaxLifetime:       5 * time.Minute,
-		DBConnMaxIdleTime:       1 * time.Minute,
-		DBPingTimeout:           5 * time.Second,
+		RequireTenantID:       true,
+		ProvisioningGRPCAddr:  "localhost:9090",
+		GRPCReconnectDelay:    1 * time.Second,
+		GRPCReconnectMaxDelay: 30 * time.Second,
 	}
 }
 
@@ -91,17 +87,16 @@ func TestNew_AuthDisabled(t *testing.T) {
 	}
 }
 
-func TestNew_AuthEnabled_RequiresDatabase(t *testing.T) {
+func TestNew_AuthEnabled_ConfigValidation(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
 	cfg.AuthEnabled = true
-	cfg.ProvisioningDBURL = "" // No database URL
-	logger := newTestLogger()
+	cfg.ProvisioningGRPCAddr = "" // No gRPC address
 
-	// Should fail because no database URL is provided
-	_, err := New(cfg, logger)
+	// Config validation should catch missing gRPC address
+	err := cfg.Validate()
 	if err == nil {
-		t.Error("New() should fail when auth is enabled without database URL")
+		t.Error("Validate() should fail when auth is enabled without gRPC address")
 	}
 }
 

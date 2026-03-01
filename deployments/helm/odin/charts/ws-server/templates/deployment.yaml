@@ -28,9 +28,9 @@ spec:
         - name: wait-for-nats
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-nats 4222; do echo "waiting for nats..."; sleep 2; done']
-        - name: wait-for-postgres
+        - name: wait-for-provisioning
           image: busybox:1.36
-          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-postgresql 5432; do echo "waiting for postgres..."; sleep 2; done']
+          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-provisioning-grpc 9090; do echo "waiting for provisioning gRPC..."; sleep 2; done']
         - name: wait-for-redpanda
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-redpanda 9092; do echo "waiting for redpanda..."; sleep 2; done']
@@ -134,34 +134,22 @@ spec:
             - name: NATS_PASSWORD
               value: "{{ .Values.nats.password }}"
             {{- end }}
-            # Multi-Tenant Consumer (Required)
-            # Provisioning database URL - reads tenant topics for dynamic consumer groups
-            - name: PROVISIONING_DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.global.provisioning.existingSecret | default (printf "%s-provisioning-db" .Release.Name) }}
-                  key: database-url
-            - name: TOPIC_REFRESH_INTERVAL
-              value: "{{ .Values.multiTenant.topicRefreshInterval | default "60s" }}"
-            - name: PROVISIONING_DB_MAX_OPEN_CONNS
-              value: "{{ .Values.multiTenant.dbMaxOpenConns | default 5 }}"
-            - name: PROVISIONING_DB_MAX_IDLE_CONNS
-              value: "{{ .Values.multiTenant.dbMaxIdleConns | default 2 }}"
-            - name: PROVISIONING_DB_CONN_MAX_LIFETIME
-              value: "{{ .Values.multiTenant.dbConnMaxLifetime | default "5m" }}"
-            - name: PROVISIONING_DB_CONN_MAX_IDLE_TIME
-              value: "{{ .Values.multiTenant.dbConnMaxIdleTime | default "1m" }}"
+            # Provisioning gRPC connection (receives tenant topics via streaming)
+            - name: PROVISIONING_GRPC_ADDR
+              {{- if .Values.config.provisioningGRPCAddr }}
+              value: "{{ .Values.config.provisioningGRPCAddr }}"
+              {{- else }}
+              value: "{{ .Release.Name }}-provisioning-grpc:9090"
+              {{- end }}
+            - name: PROVISIONING_GRPC_RECONNECT_DELAY
+              value: "{{ .Values.config.provisioningGRPCReconnectDelay | default "1s" }}"
+            - name: PROVISIONING_GRPC_RECONNECT_MAX_DELAY
+              value: "{{ .Values.config.provisioningGRPCReconnectMaxDelay | default "30s" }}"
             # Connection Limits (application-level safety valve)
             # WS_MAX_CONNECTIONS = clusterMaxConnections / replicaCount (per-pod limit)
             # ResourceGuard enforces actual limits based on CPU/memory at runtime
             - name: WS_MAX_CONNECTIONS
               value: {{ div (.Values.connectionLimits.clusterMaxConnections | required "connectionLimits.clusterMaxConnections is required") (.Values.replicaCount | default 1) | quote }}
-            - name: READ_BUFFER_SIZE
-              value: "{{ .Values.connectionLimits.readBufferSize | default 4096 }}"
-            - name: WRITE_BUFFER_SIZE
-              value: "{{ .Values.connectionLimits.writeBufferSize | default 4096 }}"
-            - name: MAX_MESSAGE_SIZE
-              value: "{{ .Values.connectionLimits.maxMessageSize | default 65536 }}"
             # Alerting Configuration
             - name: ALERT_ENABLED
               value: "{{ .Values.alerting.enabled | default false }}"

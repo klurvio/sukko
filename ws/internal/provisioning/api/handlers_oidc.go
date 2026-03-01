@@ -45,7 +45,7 @@ func (h *Handler) CreateOIDCConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to create OIDC config")
-		httputil.WriteError(w, http.StatusInternalServerError, "CREATE_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "CREATE_FAILED", err.Error())
 		return
 	}
 
@@ -124,7 +124,7 @@ func (h *Handler) UpdateOIDCConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to update OIDC config")
-		httputil.WriteError(w, http.StatusInternalServerError, "UPDATE_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "UPDATE_FAILED", err.Error())
 		return
 	}
 
@@ -148,7 +148,7 @@ func (h *Handler) DeleteOIDCConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to delete OIDC config")
-		httputil.WriteError(w, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
+		h.writeServiceError(w, err, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
 		return
 	}
 

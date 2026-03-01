@@ -39,10 +39,10 @@ func newValidServerConfig() *ServerConfig {
 		ValkeyDB:                   0,
 		ClientSendBufferSize:       512,
 		SlowClientMaxAttempts:      3,
-		// Multi-tenant consumer (required)
-		ProvisioningDatabaseURL:    "postgres://user:pass@localhost:5432/provisioning?sslmode=disable",
-		TopicRefreshInterval:       60 * time.Second,
-		ProvisioningDBMaxOpenConns: 5,
+		// Provisioning gRPC (required for topic discovery)
+		ProvisioningGRPCAddr:  "localhost:9090",
+		GRPCReconnectDelay:    1 * time.Second,
+		GRPCReconnectMaxDelay: 30 * time.Second,
 		// WebSocket ping/pong (required)
 		PongWait:   60 * time.Second,
 		PingPeriod: 45 * time.Second,

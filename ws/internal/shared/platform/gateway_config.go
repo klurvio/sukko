@@ -32,8 +32,10 @@ type GatewayConfig struct {
 	// are routed to this tenant. Only used when AUTH_ENABLED=false.
 	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
 
-	// Provisioning database connection (required when auth is enabled)
-	ProvisioningDBURL string `env:"PROVISIONING_DATABASE_URL"`
+	// Provisioning service gRPC connection (provides keys, OIDC config, channel rules via streaming)
+	ProvisioningGRPCAddr  string        `env:"PROVISIONING_GRPC_ADDR" envDefault:"localhost:9090"`
+	GRPCReconnectDelay    time.Duration `env:"PROVISIONING_GRPC_RECONNECT_DELAY" envDefault:"1s"`
+	GRPCReconnectMaxDelay time.Duration `env:"PROVISIONING_GRPC_RECONNECT_MAX_DELAY" envDefault:"30s"`
 
 	// OIDC/JWKS support (external IdP tokens)
 	// OIDC is enabled when both IssuerURL and JWKSURL are set
@@ -46,13 +48,11 @@ type GatewayConfig struct {
 	MultiIssuerOIDCEnabled bool `env:"GATEWAY_MULTI_ISSUER_OIDC_ENABLED" envDefault:"false"`
 
 	// Per-tenant channel rules (Feature Flag)
-	// When enabled, channel permissions come from per-tenant rules in the database
+	// When enabled, channel permissions come from per-tenant rules via gRPC streaming
 	PerTenantChannelRulesEnabled bool `env:"GATEWAY_PER_TENANT_CHANNEL_RULES" envDefault:"false"`
 
-	// TenantRegistry cache settings (used when multi-issuer OIDC is enabled)
-	IssuerCacheTTL       time.Duration `env:"GATEWAY_ISSUER_CACHE_TTL" envDefault:"5m"`
-	ChannelRulesCacheTTL time.Duration `env:"GATEWAY_CHANNEL_RULES_CACHE_TTL" envDefault:"1m"`
-	OIDCKeyfuncCacheTTL  time.Duration `env:"GATEWAY_OIDC_KEYFUNC_CACHE_TTL" envDefault:"1h"`
+	// OIDC keyfunc cache settings (per-issuer JWKS key caching — not affected by gRPC migration)
+	OIDCKeyfuncCacheTTL time.Duration `env:"GATEWAY_OIDC_KEYFUNC_CACHE_TTL" envDefault:"1h"`
 
 	// JWKS fetch settings
 	JWKSFetchTimeout    time.Duration `env:"GATEWAY_JWKS_FETCH_TIMEOUT" envDefault:"10s"`
@@ -61,21 +61,10 @@ type GatewayConfig struct {
 	// Fallback channel rules (when tenant has none configured)
 	FallbackPublicChannels []string `env:"GATEWAY_FALLBACK_PUBLIC_CHANNELS" envSeparator:"," envDefault:"*.metadata"`
 
-	// Key cache settings
-	KeyCacheRefreshInterval time.Duration `env:"KEY_CACHE_REFRESH_INTERVAL" envDefault:"1m"`
-	KeyCacheQueryTimeout    time.Duration `env:"KEY_CACHE_QUERY_TIMEOUT" envDefault:"5s"`
-
 	// Multi-tenant settings
 	RequireTenantID              bool `env:"REQUIRE_TENANT_ID" envDefault:"true"`
 	DefaultTenantConnectionLimit int  `env:"DEFAULT_TENANT_CONNECTION_LIMIT" envDefault:"1000"`
 	TenantConnectionLimitEnabled bool `env:"TENANT_CONNECTION_LIMIT_ENABLED" envDefault:"true"`
-
-	// Database connection pool settings
-	DBMaxOpenConns    int           `env:"DB_MAX_OPEN_CONNS" envDefault:"10"`
-	DBMaxIdleConns    int           `env:"DB_MAX_IDLE_CONNS" envDefault:"5"`
-	DBConnMaxLifetime time.Duration `env:"DB_CONN_MAX_LIFETIME" envDefault:"5m"`
-	DBConnMaxIdleTime time.Duration `env:"DB_CONN_MAX_IDLE_TIME" envDefault:"1m"`
-	DBPingTimeout     time.Duration `env:"DB_PING_TIMEOUT" envDefault:"5s"`
 
 	// Permissions - channel patterns
 	// Patterns support wildcards: *.trade matches BTC.trade, *.trade.* matches BTC.trade.user123
@@ -134,15 +123,24 @@ func (c *GatewayConfig) Validate() error {
 		return fmt.Errorf("GATEWAY_PORT must be between 1 and 65535, got %d", c.Port)
 	}
 
-	// Require provisioning database when auth is enabled
+	// Require provisioning gRPC address when auth is enabled
 	if c.AuthEnabled {
-		if c.ProvisioningDBURL == "" {
-			return errors.New("PROVISIONING_DATABASE_URL is required when AUTH_ENABLED=true")
+		if c.ProvisioningGRPCAddr == "" {
+			return errors.New("PROVISIONING_GRPC_ADDR is required when AUTH_ENABLED=true")
 		}
 	} else {
 		if c.DefaultTenantID == "" {
 			return errors.New("DEFAULT_TENANT_ID is required when AUTH_ENABLED=false")
 		}
+	}
+
+	// Validate gRPC reconnection settings
+	if c.GRPCReconnectDelay < 100*time.Millisecond {
+		return fmt.Errorf("PROVISIONING_GRPC_RECONNECT_DELAY must be >= 100ms, got %v", c.GRPCReconnectDelay)
+	}
+	if c.GRPCReconnectMaxDelay < c.GRPCReconnectDelay {
+		return fmt.Errorf("PROVISIONING_GRPC_RECONNECT_MAX_DELAY (%v) must be >= PROVISIONING_GRPC_RECONNECT_DELAY (%v)",
+			c.GRPCReconnectMaxDelay, c.GRPCReconnectDelay)
 	}
 
 	// Validate OIDC settings - if one URL is set, both must be set
@@ -157,33 +155,12 @@ func (c *GatewayConfig) Validate() error {
 
 	// Validate multi-issuer OIDC settings
 	if c.MultiIssuerOIDCEnabled {
-		if c.IssuerCacheTTL < time.Second {
-			return fmt.Errorf("GATEWAY_ISSUER_CACHE_TTL must be >= 1s, got %v", c.IssuerCacheTTL)
-		}
 		if c.JWKSFetchTimeout < time.Second {
 			return fmt.Errorf("GATEWAY_JWKS_FETCH_TIMEOUT must be >= 1s, got %v", c.JWKSFetchTimeout)
 		}
 		if c.OIDCKeyfuncCacheTTL < time.Second {
 			return fmt.Errorf("GATEWAY_OIDC_KEYFUNC_CACHE_TTL must be >= 1s, got %v", c.OIDCKeyfuncCacheTTL)
 		}
-	}
-
-	// Validate per-tenant channel rules settings
-	if c.PerTenantChannelRulesEnabled {
-		if c.ChannelRulesCacheTTL < time.Second {
-			return fmt.Errorf("GATEWAY_CHANNEL_RULES_CACHE_TTL must be >= 1s, got %v", c.ChannelRulesCacheTTL)
-		}
-	}
-
-	// Validate DB pool settings
-	if c.DBMaxOpenConns < 1 {
-		return fmt.Errorf("DB_MAX_OPEN_CONNS must be at least 1, got %d", c.DBMaxOpenConns)
-	}
-	if c.DBMaxIdleConns < 0 {
-		return fmt.Errorf("DB_MAX_IDLE_CONNS must be non-negative, got %d", c.DBMaxIdleConns)
-	}
-	if c.DBMaxIdleConns > c.DBMaxOpenConns {
-		return fmt.Errorf("DB_MAX_IDLE_CONNS (%d) cannot exceed DB_MAX_OPEN_CONNS (%d)", c.DBMaxIdleConns, c.DBMaxOpenConns)
 	}
 
 	if c.AuthRefreshRateInterval < time.Second {
@@ -244,17 +221,9 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 	if c.AuthEnabled {
 		event = event.
 			Bool("require_tenant_id", c.RequireTenantID).
-			Dur("key_cache_refresh_interval", c.KeyCacheRefreshInterval).
-			Dur("key_cache_query_timeout", c.KeyCacheQueryTimeout).
-			Int("db_max_open_conns", c.DBMaxOpenConns).
-			Int("db_max_idle_conns", c.DBMaxIdleConns).
-			Dur("db_conn_max_lifetime", c.DBConnMaxLifetime).
-			Dur("db_conn_max_idle_time", c.DBConnMaxIdleTime).
-			Dur("db_ping_timeout", c.DBPingTimeout)
-		// Don't log the DB URL for security
-		if c.ProvisioningDBURL != "" {
-			event = event.Bool("provisioning_db_configured", true)
-		}
+			Str("provisioning_grpc_addr", c.ProvisioningGRPCAddr).
+			Dur("grpc_reconnect_delay", c.GRPCReconnectDelay).
+			Dur("grpc_reconnect_max_delay", c.GRPCReconnectMaxDelay)
 	}
 
 	// Add OIDC-specific fields when enabled
@@ -272,7 +241,6 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 	if c.MultiIssuerOIDCEnabled {
 		event = event.
 			Bool("multi_issuer_oidc_enabled", true).
-			Dur("issuer_cache_ttl", c.IssuerCacheTTL).
 			Dur("oidc_keyfunc_cache_ttl", c.OIDCKeyfuncCacheTTL).
 			Dur("jwks_fetch_timeout", c.JWKSFetchTimeout).
 			Dur("jwks_refresh_interval", c.JWKSRefreshInterval)
@@ -282,19 +250,18 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 	if c.PerTenantChannelRulesEnabled {
 		event = event.
 			Bool("per_tenant_channel_rules_enabled", true).
-			Dur("channel_rules_cache_ttl", c.ChannelRulesCacheTTL).
 			Strs("fallback_public_channels", c.FallbackPublicChannels)
 	}
 
 	event.Msg("Gateway configuration loaded")
 }
 
-// MultiIssuerOIDCReady returns true if multi-issuer OIDC is enabled and configured.
+// MultiIssuerOIDCReady returns true if multi-issuer OIDC is enabled and provisioning gRPC is configured.
 func (c *GatewayConfig) MultiIssuerOIDCReady() bool {
-	return c.MultiIssuerOIDCEnabled && c.ProvisioningDBURL != ""
+	return c.MultiIssuerOIDCEnabled && c.ProvisioningGRPCAddr != ""
 }
 
-// PerTenantChannelRulesReady returns true if per-tenant channel rules are enabled and configured.
+// PerTenantChannelRulesReady returns true if per-tenant channel rules are enabled and provisioning gRPC is configured.
 func (c *GatewayConfig) PerTenantChannelRulesReady() bool {
-	return c.PerTenantChannelRulesEnabled && c.ProvisioningDBURL != ""
+	return c.PerTenantChannelRulesEnabled && c.ProvisioningGRPCAddr != ""
 }

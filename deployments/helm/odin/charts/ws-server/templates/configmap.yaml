@@ -39,6 +39,9 @@ data:
   # Metrics
   METRICS_INTERVAL: "{{ .Values.config.metricsInterval }}"
 
+  # CPU polling (for protection decisions — faster spike detection)
+  CPU_POLL_INTERVAL: "{{ .Values.config.cpuPollInterval }}"
+
   # WebSocket ping/pong timing
   WS_PONG_WAIT: {{ .Values.config.pongWait | quote }}
   WS_PING_PERIOD: {{ .Values.config.pingPeriod | quote }}
