@@ -59,9 +59,11 @@ data:
   # Only used when auth is disabled at the gateway level.
   DEFAULT_TENANT_ID: "{{ .Values.config.defaultTenantID | default "odin" }}"
 
+  # Topic refresh interval (safety-net periodic re-sync from registry)
+  TOPIC_REFRESH_INTERVAL: {{ .Values.config.topicRefreshInterval | quote }}
+
+  {{- if eq (.Values.messageBackend | default "direct") "kafka" }}
   # Kafka consumer toggle (connection-only mode for loadtesting)
   KAFKA_CONSUMER_ENABLED: "{{ .Values.kafka.consumerEnabled }}"
-
-  # Kafka topics (comma-separated)
-  KAFKA_TOPICS: "{{ join "," .Values.kafka.topics }}"
+  {{- end }}
 {{- end }}

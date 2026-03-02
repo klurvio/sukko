@@ -123,7 +123,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.4.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-02-28
+**Version**: 1.4.2 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-02
 
 ### I. Configuration
 
@@ -238,6 +238,7 @@ Before designing any new feature or protocol extension, the implementation appro
 ### Governance
 
 - This constitution supersedes all other ad-hoc practices in the codebase.
+- **Correctness over pattern**: When existing code is incorrect — whether it violates the constitution, Go best practices, robustness principles, testability, Go idioms, readability, security, or performance — correctness wins. NEVER replicate a broken pattern just because the codebase uses it. Broken code is not precedent; it is a bug. Code MUST be evaluated against: (1) this constitution, (2) Go best practices and idioms, (3) robustness and error handling correctness, (4) testability, (5) readability, (6) security, (7) performance. If a pre-existing deficiency is discovered during a change, fix both the new code and the pre-existing deficiency.
 - Amendments require documentation in this section and a version bump.
 - All code changes MUST verify compliance with these principles.
 - MINOR version bump for adding/expanding principles; PATCH for wording changes; MAJOR for removing or redefining principles.

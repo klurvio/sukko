@@ -36,10 +36,9 @@ type ShardConfig struct {
 	Addr                string // Address for this shard to bind/listen on (e.g., 0.0.0.0:3002)
 	AdvertiseAddr       string // Address advertised to LoadBalancer (e.g., localhost:3002)
 	ServerConfig        types.ServerConfig
-	BroadcastBus        broadcast.Bus // Reference to the central bus
-	SharedKafkaConsumer any           // Shared Kafka consumer (managed by MultiTenantConsumerPool)
-	KafkaProducer       any           // Kafka producer for client message publishing (optional)
-	Logger              zerolog.Logger
+	BroadcastBus   broadcast.Bus // Reference to the central bus
+	MessageBackend any           // Pluggable message backend (backend.MessageBackend)
+	Logger         zerolog.Logger
 	MaxConnections      int
 }
 
@@ -50,22 +49,11 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 	// Create a server.Server instance for this shard
 	// Kafka consumption is handled by MultiTenantConsumerPool, not individual shards
 	serverConfig := cfg.ServerConfig
-	serverConfig.MaxConnections = cfg.MaxConnections           // Override with shard-specific limit
-	serverConfig.SharedKafkaConsumer = cfg.SharedKafkaConsumer // Pass shared consumer for metrics
-	serverConfig.KafkaProducer = cfg.KafkaProducer             // Pass shared producer for client publishing
-
-	// Create broadcast function that will publish to the central bus
-	// instead of directly broadcasting to local clients
-	// The subject (Kafka Key) IS the broadcast channel
-	broadcastToBusFunc := func(subject string, message []byte) {
-		cfg.BroadcastBus.Publish(&broadcast.Message{
-			Subject: subject,
-			Payload: message,
-		})
-	}
+	serverConfig.MaxConnections = cfg.MaxConnections  // Override with shard-specific limit
+	serverConfig.MessageBackend = cfg.MessageBackend  // Pass pluggable message backend
 
 	// Create the server.Server instance
-	shardServer, err := server.NewServer(serverConfig, broadcastToBusFunc) // Pass the bus-publishing broadcast func
+	shardServer, err := server.NewServer(serverConfig)
 
 	if err != nil {
 		cancel()

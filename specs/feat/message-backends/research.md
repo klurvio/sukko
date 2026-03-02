@@ -36,7 +36,7 @@ The consumer pool runs independently (started in `main.go`, pushes to broadcast 
 ```go
 type MessageBackend interface {
     Start(ctx context.Context) error
-    Publish(ctx context.Context, clientID string, channel string, data json.RawMessage) error
+    Publish(ctx context.Context, clientID int64, channel string, data []byte) error
     Replay(ctx context.Context, req ReplayRequest) ([]ReplayMessage, error)
     IsHealthy() bool
     Shutdown(ctx context.Context) error

@@ -63,15 +63,11 @@ func TestServerConfig_DefaultFields(t *testing.T) {
 	t.Parallel()
 	cfg := ServerConfig{
 		Addr:           ":8080",
-		KafkaBrokers:   []string{"kafka:9092"},
 		MaxConnections: 10000,
 	}
 
 	if cfg.Addr != ":8080" {
 		t.Errorf("Addr: got %s, want :8080", cfg.Addr)
-	}
-	if len(cfg.KafkaBrokers) != 1 || cfg.KafkaBrokers[0] != "kafka:9092" {
-		t.Errorf("KafkaBrokers: got %v, want [kafka:9092]", cfg.KafkaBrokers)
 	}
 	if cfg.MaxConnections != 10000 {
 		t.Errorf("MaxConnections: got %d, want 10000", cfg.MaxConnections)

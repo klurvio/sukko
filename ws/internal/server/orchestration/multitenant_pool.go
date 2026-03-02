@@ -14,6 +14,7 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // MultiTenantConsumerPool manages Kafka consumers for multi-tenant deployments.
@@ -45,7 +46,7 @@ import (
 // Thread Safety: All public methods are safe for concurrent use.
 type MultiTenantConsumerPool struct {
 	config       MultiTenantPoolConfig
-	registry     kafka.TenantRegistry
+	registry     types.TenantRegistry
 	broadcastBus broadcast.Bus
 	logger       zerolog.Logger
 	ctx          context.Context
@@ -90,7 +91,7 @@ type MultiTenantPoolConfig struct {
 	Environment string
 
 	// Registry provides tenant topic information from the provisioning database
-	Registry kafka.TenantRegistry
+	Registry types.TenantRegistry
 
 	// BroadcastBus receives consumed messages for distribution to WebSocket clients
 	BroadcastBus broadcast.Bus
@@ -255,7 +256,6 @@ func (p *MultiTenantConsumerPool) RefreshTopics() {
 // refreshTopics queries the registry for current tenant topics and updates consumers.
 func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 	p.refreshCount.Add(1)
-	p.lastRefresh = time.Now()
 
 	// Get shared tenant topics
 	sharedTopics, err := p.registry.GetSharedTenantTopics(ctx, p.config.Namespace)
@@ -277,6 +277,8 @@ func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	p.lastRefresh = time.Now()
 
 	// Update shared consumer
 	if err := p.updateSharedConsumer(ctx, sharedTopics); err != nil {
@@ -394,7 +396,7 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 // updateDedicatedConsumers creates, updates, or removes dedicated consumers.
 //
 //nolint:unparam // error return is for interface consistency and future error handling
-func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, tenants []kafka.TenantTopics) error {
+func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, tenants []types.TenantTopics) error {
 	// Build tenant set
 	activeTenants := make(map[string]bool, len(tenants))
 	for _, t := range tenants {
@@ -530,6 +532,10 @@ func (p *MultiTenantConsumerPool) Stop() error {
 
 // GetMetrics returns current pool metrics.
 func (p *MultiTenantConsumerPool) GetMetrics() MultiTenantPoolMetrics {
+	p.mu.RLock()
+	lastRefresh := p.lastRefresh
+	p.mu.RUnlock()
+
 	return MultiTenantPoolMetrics{
 		MessagesRouted:   p.messagesRouted.Load(),
 		MessagesDropped:  p.messagesDropped.Load(),
@@ -537,7 +543,7 @@ func (p *MultiTenantConsumerPool) GetMetrics() MultiTenantPoolMetrics {
 		DedicatedCount:   p.dedicatedCount.Load(),
 		RefreshCount:     p.refreshCount.Load(),
 		RefreshErrors:    p.refreshErrors.Load(),
-		LastRefresh:      p.lastRefresh,
+		LastRefresh:      lastRefresh,
 	}
 }
 

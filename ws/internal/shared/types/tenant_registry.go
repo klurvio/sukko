@@ -1,6 +1,4 @@
-// Package kafka provides Kafka/Redpanda consumer integration with resource-aware
-// message processing.
-package kafka
+package types
 
 import (
 	"context"
@@ -39,13 +37,13 @@ type TenantRegistry interface {
 	GetDedicatedTenants(ctx context.Context, namespace string) ([]TenantTopics, error)
 }
 
-// TenantTopics represents a tenant and its associated Kafka topics.
+// TenantTopics represents a tenant and its associated topics.
 // Used by dedicated consumers to isolate tenant traffic.
 type TenantTopics struct {
 	// TenantID is the unique identifier for the tenant (e.g., "acme")
 	TenantID string
 
-	// Topics is the list of Kafka topics for this tenant
+	// Topics is the list of topics for this tenant
 	// Format: {namespace}.{tenant_id}.{category} (e.g., "prod.acme.trade")
 	Topics []string
 }

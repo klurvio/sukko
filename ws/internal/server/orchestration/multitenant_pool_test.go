@@ -11,16 +11,17 @@ import (
 
 	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // =============================================================================
 // Mock Implementations
 // =============================================================================
 
-// mockTenantRegistry implements kafka.TenantRegistry for testing
+// mockTenantRegistry implements types.TenantRegistry for testing
 type mockTenantRegistry struct {
 	sharedTopics     []string
-	dedicatedTenants []kafka.TenantTopics
+	dedicatedTenants []types.TenantTopics
 	err              error
 	callCount        int64
 	mu               sync.Mutex
@@ -36,7 +37,7 @@ func (m *mockTenantRegistry) GetSharedTenantTopics(_ context.Context, _ string) 
 	return m.sharedTopics, nil
 }
 
-func (m *mockTenantRegistry) GetDedicatedTenants(_ context.Context, _ string) ([]kafka.TenantTopics, error) {
+func (m *mockTenantRegistry) GetDedicatedTenants(_ context.Context, _ string) ([]types.TenantTopics, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
@@ -695,6 +696,6 @@ func TestMultiTenantPool_TopicDiff_NoChanges(t *testing.T) {
 // Ensure interface implementations
 // =============================================================================
 
-var _ kafka.TenantRegistry = (*mockTenantRegistry)(nil)
+var _ types.TenantRegistry = (*mockTenantRegistry)(nil)
 var _ broadcast.Bus = (*mockBroadcastBus)(nil)
 var _ kafka.ResourceGuard = (*mockResourceGuard)(nil)

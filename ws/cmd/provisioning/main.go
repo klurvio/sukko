@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -26,7 +25,6 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/configstore"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/eventbus"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/grpcserver"
-	provkafka "github.com/Toniq-Labs/odin-ws/internal/provisioning/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/repository"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
@@ -153,49 +151,9 @@ func main() {
 		oidcRepo := repository.NewPostgresOIDCConfigRepository(db)
 		channelRulesRepo := repository.NewPostgresChannelRulesRepository(db)
 
-		// Initialize Kafka admin
-		var kafkaAdmin provisioning.KafkaAdmin
-		if cfg.KafkaBrokers != "" {
-			brokers := strings.Split(cfg.KafkaBrokers, ",")
-			for i := range brokers {
-				brokers[i] = strings.TrimSpace(brokers[i])
-			}
-
-			adminCfg := provkafka.AdminConfig{
-				Brokers: brokers,
-				Timeout: cfg.KafkaAdminTimeout,
-				Logger:  structuredLogger,
-			}
-
-			if cfg.KafkaSASLEnabled {
-				adminCfg.SASL = &provkafka.SASLConfig{
-					Mechanism: cfg.KafkaSASLMechanism,
-					Username:  cfg.KafkaSASLUsername,
-					Password:  cfg.KafkaSASLPassword,
-				}
-			}
-
-			if cfg.KafkaTLSEnabled {
-				adminCfg.TLS = &provkafka.TLSConfig{
-					Enabled:            true,
-					InsecureSkipVerify: cfg.KafkaTLSInsecure,
-					CAPath:             cfg.KafkaTLSCAPath,
-				}
-			}
-
-			admin, err := provkafka.NewAdmin(adminCfg)
-			if err != nil {
-				logger.Printf("Warning: Failed to connect to Kafka, using noop admin: %v", err)
-				kafkaAdmin = provisioning.NewNoopKafkaAdmin()
-			} else {
-				kafkaAdmin = admin
-				logger.Printf("Kafka admin connected to %v", brokers)
-				defer admin.Close()
-			}
-		} else {
-			kafkaAdmin = provisioning.NewNoopKafkaAdmin()
-			logger.Printf("Kafka admin disabled (no brokers configured)")
-		}
+		// Kafka admin disabled — topic creation is handled by ws-server's KafkaBackend
+		kafkaAdmin := provisioning.NewNoopKafkaAdmin()
+		logger.Printf("Kafka admin disabled (topic creation moved to ws-server)")
 
 		svc = provisioning.NewService(provisioning.ServiceConfig{
 			TenantStore:          tenantRepo,

@@ -2,15 +2,20 @@ package broadcast
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 )
 
 // valkeyBus implements Bus using Valkey/Redis Pub/Sub.
@@ -59,6 +64,30 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 
 	busLogger := logger.With().Str("component", "broadcast_bus").Str("backend", "valkey").Logger()
 
+	// Build TLS config for managed Valkey/Redis services
+	var tlsCfg *tls.Config
+	if vcfg.TLSEnabled {
+		tlsCfg = &tls.Config{
+			InsecureSkipVerify: vcfg.TLSInsecure, //nolint:gosec // Controlled by configuration for dev/testing environments
+			MinVersion:         tls.VersionTLS12,
+		}
+		if vcfg.TLSCAPath != "" {
+			caCert, err := os.ReadFile(vcfg.TLSCAPath)
+			if err != nil {
+				return nil, fmt.Errorf("valkey broadcast: read CA cert: %w", err)
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(caCert) {
+				return nil, fmt.Errorf("valkey broadcast: parse CA cert from %s", vcfg.TLSCAPath)
+			}
+			tlsCfg.RootCAs = pool
+		}
+		busLogger.Info().
+			Bool("insecure", vcfg.TLSInsecure).
+			Str("ca_path", vcfg.TLSCAPath).
+			Msg("Valkey broadcast TLS enabled")
+	}
+
 	// Create Valkey client
 	var client *redis.Client
 	if len(vcfg.Addrs) == 1 {
@@ -72,6 +101,9 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 			Addr:     vcfg.Addrs[0],
 			Password: vcfg.Password,
 			DB:       vcfg.DB,
+
+			// TLS
+			TLSConfig: tlsCfg,
 
 			// Connection pooling
 			PoolSize:     50,
@@ -100,6 +132,9 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 			SentinelAddrs: vcfg.Addrs,
 			Password:      vcfg.Password,
 			DB:            vcfg.DB,
+
+			// TLS
+			TLSConfig: tlsCfg,
 
 			// Connection pooling
 			PoolSize:     50,
@@ -317,6 +352,7 @@ func (b *valkeyBus) GetMetrics() Metrics {
 
 // receiveLoop receives messages from Valkey and fans out to local subscribers.
 func (b *valkeyBus) receiveLoop() {
+	defer logging.RecoverPanic(b.logger, "valkeyBus.receiveLoop", nil)
 	defer b.wg.Done()
 
 	ch := b.pubsub.Channel()
@@ -461,6 +497,7 @@ func (b *valkeyBus) reconnect() bool {
 
 // healthCheckLoop periodically pings Valkey to verify connectivity.
 func (b *valkeyBus) healthCheckLoop() {
+	defer logging.RecoverPanic(b.logger, "valkeyBus.healthCheckLoop", nil)
 	defer b.wg.Done()
 
 	ticker := time.NewTicker(10 * time.Second)

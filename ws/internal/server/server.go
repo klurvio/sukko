@@ -7,7 +7,7 @@
 //   - CPU-aware resource guards with hysteresis
 //   - Subscription indexing for efficient message routing (93% CPU savings)
 //   - Graceful shutdown with connection draining
-//   - Integration with Kafka/Redpanda for message consumption
+//   - Integration with pluggable message backends
 package server
 
 import (
@@ -22,19 +22,19 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
 	"github.com/Toniq-Labs/odin-ws/internal/server/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/audit"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // Server is the main WebSocket server that manages client connections, message
-// broadcasting, and resource protection. It integrates with Kafka/Redpanda for
-// real-time message consumption and uses subscription-based filtering to route
+// broadcasting, and resource protection. It integrates with pluggable message
+// backends for message ingestion and uses subscription-based filtering to route
 // messages only to interested clients.
 //
 // Thread Safety: All public methods are safe for concurrent use. Internal state
@@ -43,11 +43,10 @@ import (
 // Lifecycle: Create with NewServer, start with Start, stop with Shutdown.
 // The server supports graceful shutdown with configurable connection draining.
 type Server struct {
-	config        types.ServerConfig // Immutable after creation
-	logger        zerolog.Logger     // Structured logger for all server events
-	listener      net.Listener       // TCP listener for accepting connections
-	kafkaConsumer *kafka.Consumer    // Kafka/Redpanda consumer for market data (managed by MultiTenantConsumerPool)
-	kafkaProducer *kafka.Producer    // Kafka/Redpanda producer for client message publishing (optional)
+	config  types.ServerConfig      // Immutable after creation
+	logger  zerolog.Logger          // Structured logger for all server events
+	listener net.Listener           // TCP listener for accepting connections
+	backend backend.MessageBackend  // Pluggable message backend (direct, kafka, nats)
 
 	// Connection management
 	connections       *ConnectionPool    // Pre-allocated connection pool
@@ -81,8 +80,6 @@ type Server struct {
 }
 
 // NewServer creates a new WebSocket server with the provided configuration.
-// The broadcastToBusFunc is called for each message consumed from Kafka to
-// distribute it across server instances via the BroadcastBus.
 //
 // The server initializes:
 //   - Connection pool with pre-allocated client slots
@@ -90,9 +87,8 @@ type Server struct {
 //   - Rate limiters (per-client and per-IP if enabled)
 //   - Resource guard for CPU-based backpressure
 //
-// Note: Kafka consumption is handled by MultiTenantConsumerPool.
-// The server receives a reference to the shared consumer for metrics only.
-func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error) {
+// Message ingestion is handled by the pluggable MessageBackend passed via config.
+func NewServer(config types.ServerConfig) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Initialize structured logger
@@ -148,21 +144,15 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 		Int("broadcast_rate_limit", config.MaxBroadcastsPerSec).
 		Msg("Server initialized with ResourceGuard")
 
-	// The MultiTenantConsumerPool handles Kafka consumption.
-	// Shards receive a reference to the shared consumer for metrics/replay only.
-	// The shared consumer is started/stopped by the pool, not by individual servers.
-	if config.SharedKafkaConsumer != nil {
-		s.kafkaConsumer = config.SharedKafkaConsumer.(*kafka.Consumer)
-		logger.Info().Msg("Using shared Kafka consumer (managed by pool)")
-	}
-
-	// Initialize Kafka producer for client message publishing (optional)
-	// If configured, clients can publish messages to Kafka via the "publish" message type
-	if config.KafkaProducer != nil {
-		s.kafkaProducer = config.KafkaProducer.(*kafka.Producer)
-		logger.Info().
-			Str("namespace", s.kafkaProducer.Namespace()).
-			Msg("Kafka producer enabled for client message publishing")
+	// Initialize pluggable message backend (direct, kafka, nats)
+	if config.MessageBackend != nil {
+		mb, ok := config.MessageBackend.(backend.MessageBackend)
+		if !ok {
+			cancel()
+			return nil, fmt.Errorf("MessageBackend (type %T) does not implement backend.MessageBackend interface", config.MessageBackend)
+		}
+		s.backend = mb
+		logger.Info().Str("backend_type", fmt.Sprintf("%T", mb)).Msg("Message backend configured")
 	}
 
 	// NOTE: Authentication is now handled by ws-gateway

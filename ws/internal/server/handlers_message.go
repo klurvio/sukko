@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
 	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
+
+// defaultReplayTimeout is the maximum time allowed for a backend replay operation.
+const defaultReplayTimeout = 5 * time.Second
 
 // Client message handlers
 func (s *Server) handleClientMessage(c *Client, data []byte) {
@@ -27,19 +31,11 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 	switch req.Type {
 	case MsgTypeReconnect:
-		// KAFKA-BASED RECONNECTION (replaces old in-memory replay buffer)
-		// Client reconnecting after disconnect, requesting missed messages from Kafka
-		//
-		// Message format: {"type": "reconnect", "data": {"client_id": "abc123", "last_offset": 12345}}
-		//
-		// This uses Kafka's offset tracking for proper message replay:
-		// - Survives server restarts (offsets in Kafka, not RAM)
-		// - 7 days of history (not just 40 seconds)
-		// - Zero RAM overhead (no duplicate message storage)
-		// - Scales horizontally (any server can replay from Kafka)
-		//
-		// Implementation: See handleKafkaReconnect() below
-		s.handleKafkaReconnect(c, req.Data)
+		// BACKEND-BASED RECONNECTION
+		// Client reconnecting after disconnect, requesting missed messages from message backend.
+		// Supports Kafka offset-based replay and JetStream sequence-based replay.
+		// Direct mode has no replay (returns immediately).
+		s.handleReconnect(c, req.Data)
 
 	case MsgTypeHeartbeat:
 		// Client keep-alive ping
@@ -168,16 +164,14 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 		}
 
 	case protocol.MsgTypePublish:
-		// Client publishing a message to Kafka
+		// Client publishing a message via the message backend
 		// Message format: {"type": "publish", "data": {"channel": "community.group123.chat", "data": {...}}}
 		//
 		// This enables bidirectional WebSocket messaging:
-		// - Clients can publish messages to Kafka topics
-		// - Messages are stored with channel as key for partitioning
-		// - Other clients subscribed to the channel receive the message via Kafka consumer
+		// - Clients can publish messages through the configured backend
+		// - Messages are routed to subscribers via the backend's consume loop
 		//
 		// Security: Authentication is handled by ws-gateway before requests reach here.
-		// The client_id in Kafka headers is the server-verified identity, not client-claimed.
 		s.handleClientPublish(c, req.Data)
 
 	default:
@@ -190,13 +184,11 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 	}
 }
 
-// handleHealth provides enhanced health checks with detailed status
-// Returns: healthy, degraded (warnings), or unhealthy (errors)
-
-func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
+// handleReconnect handles client reconnection using the message backend's replay capability.
+func (s *Server) handleReconnect(c *Client, data []byte) {
 	var reconnectReq struct {
 		ClientID   string           `json:"client_id"`   // Persistent client identifier
-		LastOffset map[string]int64 `json:"last_offset"` // Last Kafka offset per topic
+		LastOffset map[string]int64 `json:"last_offset"` // Last position per topic/stream
 	}
 
 	if err := json.Unmarshal(data, &reconnectReq); err != nil {
@@ -213,67 +205,73 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 		Int64("client_id", c.id).
 		Str("persistent_id", reconnectReq.ClientID).
 		Interface("last_offsets", reconnectReq.LastOffset).
-		Msg("Client requesting Kafka-based reconnection")
+		Msg("Client requesting message replay")
 
-	// Check if Kafka consumer is available for replay
-	if s.kafkaConsumer == nil {
+	// Check if backend is available for replay
+	if s.backend == nil {
 		s.logger.Warn().
 			Int64("client_id", c.id).
-			Msg("Kafka replay requested but no consumer available")
+			Msg("Message replay requested but no backend available")
 
-		s.sendErrorToClient(c, RespTypeReconnectError, protocol.ErrCodeNotAvailable, "Message replay not available (no Kafka consumer)")
+		s.sendErrorToClient(c, RespTypeReconnectError, protocol.ErrCodeNotAvailable, "Message replay not available (no backend configured)")
 		return
 	}
 
 	// Get client's subscriptions for filtering
 	subscriptions := c.subscriptions.List()
 
-	// Create context with timeout for replay operation (5 seconds max)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Create context with timeout for replay operation
+	ctx, cancel := context.WithTimeout(s.ctx, defaultReplayTimeout)
 	defer cancel()
 
-	// Perform replay from Kafka
-	replayedMsgs, err := s.kafkaConsumer.ReplayFromOffsets(
-		ctx,
-		reconnectReq.LastOffset,
-		100,           // Max 100 messages to prevent overwhelming client
-		subscriptions, // Only send messages for subscribed channels
-	)
+	// Perform replay from backend
+	replayedMsgs, err := s.backend.Replay(ctx, backend.ReplayRequest{
+		Positions:     reconnectReq.LastOffset,
+		MaxMessages:   backend.DefaultMaxReplayMessages,
+		Subscriptions: subscriptions,
+	})
 
 	if err != nil {
-		s.logger.Warn().
+		s.logger.Error().
 			Int64("client_id", c.id).
 			Err(err).
-			Msg("Failed to replay messages from Kafka")
+			Msg("Failed to replay messages from backend")
 
-		s.sendErrorToClient(c, RespTypeReconnectError, ErrCodeReplayFailed, fmt.Sprintf("Failed to replay messages: %v", err))
+		s.sendErrorToClient(c, RespTypeReconnectError, ErrCodeReplayFailed, "Message replay failed")
 		return
 	}
 
 	// Send replayed messages to client
 	replayedCount := 0
+replayLoop:
 	for _, msg := range replayedMsgs {
 		// Wrap in message envelope with sequence number
 		envelope := &messaging.MessageEnvelope{
-			Type:      MsgTypeMessage, // Standard type for broadcast messages
-			Seq:       c.seqGen.Next(),         // Generate unique sequence number for this client
+			Type:      MsgTypeMessage,
+			Seq:       c.seqGen.Next(),
 			Timestamp: time.Now().UnixMilli(),
-			Channel:   msg.Subject, // Channel from Kafka Key (e.g., "odin.BTC.trade")
+			Channel:   msg.Subject,
 			Priority:  messaging.PriorityNormal,
 			Data:      json.RawMessage(msg.Data),
 		}
 
 		envelopeData, err := envelope.Serialize()
-		if err == nil {
-			select {
-			case c.send <- RawMsg(envelopeData):
-				replayedCount++
-			default:
-				s.logger.Warn().
-					Int64("client_id", c.id).
-					Msg("Client send buffer full during replay")
-				break
-			}
+		if err != nil {
+			s.logger.Warn().
+				Err(err).
+				Int64("client_id", c.id).
+				Str("channel", msg.Subject).
+				Msg("Failed to serialize replay message")
+			continue
+		}
+		select {
+		case c.send <- RawMsg(envelopeData):
+			replayedCount++
+		default:
+			s.logger.Warn().
+				Int64("client_id", c.id).
+				Msg("Client send buffer full during replay, stopping")
+			break replayLoop
 		}
 	}
 
@@ -295,7 +293,7 @@ func (s *Server) handleKafkaReconnect(c *Client, data []byte) {
 	s.logger.Info().
 		Int64("client_id", c.id).
 		Int("messages_replayed", replayedCount).
-		Msg("Kafka replay completed successfully")
+		Msg("Message replay completed successfully")
 
 	// Increment reconnect counter for monitoring
 	s.stats.MessageReplayRequests.Add(1)

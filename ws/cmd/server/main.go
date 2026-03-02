@@ -2,21 +2,23 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"runtime"
-	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	_ "go.uber.org/automaxprocs"
 
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend/directbackend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend/jetstreambackend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend/kafkabackend"
 	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
-	"github.com/Toniq-Labs/odin-ws/internal/server/limits"
 	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 	"github.com/Toniq-Labs/odin-ws/internal/server/orchestration"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
@@ -25,18 +27,6 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/shared/provapi"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
-
-// Helper function to split broker string
-func splitBrokers(brokers string) []string {
-	result := []string{}
-	for b := range strings.SplitSeq(brokers, ",") {
-		trimmed := strings.TrimSpace(b)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
-}
 
 func main() {
 	var (
@@ -69,10 +59,6 @@ func main() {
 	// Print human-readable config for startup logs
 	cfg.Print()
 
-	// Resolve effective topic namespace for Kafka
-	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
-	logger.Printf("Topic namespace: %s (environment: %s)", topicNamespace, cfg.Environment)
-
 	// Initialize SystemMonitor singleton FIRST (before creating any ResourceGuards)
 	// This ensures all ResourceGuards share the same system metrics source
 	structuredLogger := logging.NewLogger(logging.LoggerConfig{
@@ -83,12 +69,6 @@ func main() {
 	systemMonitor := metrics.GetSystemMonitor(structuredLogger)
 	systemMonitor.StartMonitoring(cfg.MetricsInterval, cfg.CPUPollInterval)
 	logger.Printf("SystemMonitor started (metrics: %v, cpu poll: %v)", cfg.MetricsInterval, cfg.CPUPollInterval)
-
-	// Create and configure server with loaded configuration
-	kafkaBrokers := []string{}
-	if cfg.KafkaBrokers != "" {
-		kafkaBrokers = splitBrokers(cfg.KafkaBrokers)
-	}
 
 	// Calculate max connections per shard
 	maxConnsPerShard := cfg.MaxConnections / *numShards
@@ -110,11 +90,14 @@ func main() {
 		BufferSize:      1024,
 		ShutdownTimeout: 5 * time.Second,
 		Valkey: broadcast.ValkeyConfig{
-			Addrs:      cfg.ValkeyAddrs,
-			MasterName: cfg.ValkeyMasterName,
-			Password:   cfg.ValkeyPassword,
-			DB:         cfg.ValkeyDB,
-			Channel:    cfg.ValkeyChannel,
+			Addrs:       cfg.ValkeyAddrs,
+			MasterName:  cfg.ValkeyMasterName,
+			Password:    cfg.ValkeyPassword,
+			DB:          cfg.ValkeyDB,
+			Channel:     cfg.ValkeyChannel,
+			TLSEnabled:  cfg.ValkeyTLSEnabled,
+			TLSInsecure: cfg.ValkeyTLSInsecure,
+			TLSCAPath:   cfg.ValkeyTLSCAPath,
 		},
 		NATS: broadcast.NATSConfig{
 			URLs:        cfg.NATSURLs,
@@ -123,6 +106,9 @@ func main() {
 			Token:       cfg.NATSToken,
 			User:        cfg.NATSUser,
 			Password:    cfg.NATSPassword,
+			TLSEnabled:  cfg.NATSTLSEnabled,
+			TLSInsecure: cfg.NATSTLSInsecure,
+			TLSCAPath:   cfg.NATSTLSCAPath,
 		},
 	}
 
@@ -134,118 +120,92 @@ func main() {
 	logger.Printf("BroadcastBus initialized (type: %s)", cfg.BroadcastType)
 	broadcastBus.Run()
 
-	// Create multi-tenant Kafka consumer pool
-	// Receives tenant topics via gRPC streaming from provisioning service and manages consumer groups:
-	// - Shared tenants: {env}-shared-consumer consumer group
-	// - Dedicated tenants: {env}-{tenant_id}-consumer consumer group
-	var multiTenantPool *orchestration.MultiTenantConsumerPool
-	var kafkaProducer *kafka.Producer
-	var topicRegistry *provapi.StreamTopicRegistry
-
-	if len(kafkaBrokers) > 0 {
-		// Create resource guard for CPU brake (shared across pool)
-		poolLogger := logging.NewLogger(logging.LoggerConfig{
+	// Create pluggable message backend based on MESSAGE_BACKEND env var
+	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
+	var msgBackend backend.MessageBackend
+	switch cfg.MessageBackend {
+	case "direct":
+		msgBackend, err = directbackend.New(broadcastBus, structuredLogger)
+	case "kafka":
+		msgBackend, err = kafkabackend.New(kafkabackend.Config{
+			Brokers:                  kafkabackend.SplitBrokers(cfg.KafkaBrokers),
+			Namespace:                topicNamespace,
+			Environment:              cfg.Environment,
+			SASLEnabled:              cfg.KafkaSASLEnabled,
+			SASLMechanism:            cfg.KafkaSASLMechanism,
+			SASLUsername:             cfg.KafkaSASLUsername,
+			SASLPassword:             cfg.KafkaSASLPassword,
+			TLSEnabled:               cfg.KafkaTLSEnabled,
+			TLSInsecure:              cfg.KafkaTLSInsecure,
+			TLSCAPath:                cfg.KafkaTLSCAPath,
+			KafkaConsumerEnabled:     cfg.KafkaConsumerEnabled,
+			DefaultTenantID:          cfg.DefaultTenantID,
+			DefaultPartitions:        cfg.KafkaDefaultPartitions,
+			DefaultReplicationFactor: cfg.KafkaDefaultReplicationFactor,
+			MaxKafkaMessagesPerSec:   cfg.MaxKafkaRate,
+			MaxBroadcastsPerSec:      cfg.MaxBroadcastRate,
+			CPUPauseThreshold:        cfg.CPUPauseThreshold,
+			CPUPauseThresholdLower:   cfg.CPUPauseThresholdLower,
+			CPURejectThreshold:       cfg.CPURejectThreshold,
+			CPURejectThresholdLower:  cfg.CPURejectThresholdLower,
+			LogLevel:                 cfg.LogLevel,
+			LogFormat:                cfg.LogFormat,
+			ProvisioningGRPCAddr:     cfg.ProvisioningGRPCAddr,
+			GRPCReconnectDelay:       cfg.GRPCReconnectDelay,
+			GRPCReconnectMaxDelay:    cfg.GRPCReconnectMaxDelay,
+			TopicRefreshInterval:     cfg.TopicRefreshInterval,
+			BroadcastBus:             broadcastBus,
+		})
+	case "nats":
+		// Create a StreamTopicRegistry for tenant discovery via gRPC
+		registryLogger := logging.NewLogger(logging.LoggerConfig{
 			Level:       logging.LogLevel(cfg.LogLevel),
 			Format:      logging.LogFormat(cfg.LogFormat),
 			ServiceName: "ws-server",
 		})
-		resourceGuard := limits.NewResourceGuard(types.ServerConfig{
-			MaxKafkaMessagesPerSec:  cfg.MaxKafkaRate,
-			MaxBroadcastsPerSec:     cfg.MaxBroadcastRate,
-			CPUPauseThreshold:       cfg.CPUPauseThreshold,
-			CPUPauseThresholdLower:  cfg.CPUPauseThresholdLower,
-			CPURejectThreshold:      cfg.CPURejectThreshold,
-			CPURejectThresholdLower: cfg.CPURejectThresholdLower,
-		}, poolLogger, &atomic.Int64{}) // Pool only uses CPU brake/rate limiting, not connection admission
-
-		// Build SASL config if enabled
-		var saslConfig *kafka.SASLConfig
-		if cfg.KafkaSASLEnabled {
-			saslConfig = &kafka.SASLConfig{
-				Mechanism: cfg.KafkaSASLMechanism,
-				Username:  cfg.KafkaSASLUsername,
-				Password:  cfg.KafkaSASLPassword,
-			}
-		}
-
-		// Build TLS config if enabled
-		var tlsConfig *kafka.TLSConfig
-		if cfg.KafkaTLSEnabled {
-			tlsConfig = &kafka.TLSConfig{
-				Enabled:            true,
-				InsecureSkipVerify: cfg.KafkaTLSInsecure,
-				CAPath:             cfg.KafkaTLSCAPath,
-			}
-		}
-
-		if cfg.KafkaConsumerEnabled {
-			// Create gRPC stream-backed topic registry for tenant topic discovery
-			var err error
-			topicRegistry, err = provapi.NewStreamTopicRegistry(provapi.StreamTopicRegistryConfig{
-				GRPCAddr:          cfg.ProvisioningGRPCAddr,
-				Namespace:         topicNamespace,
-				ReconnectDelay:    cfg.GRPCReconnectDelay,
-				ReconnectMaxDelay: cfg.GRPCReconnectMaxDelay,
-				MetricPrefix:      "ws",
-				Logger:            poolLogger,
-			})
-			if err != nil {
-				logger.Fatalf("Failed to create stream topic registry: %v", err)
-			}
-
-			// Create multi-tenant consumer pool
-			multiTenantPool, err = orchestration.NewMultiTenantConsumerPool(orchestration.MultiTenantPoolConfig{
-				Brokers:       kafkaBrokers,
-				Namespace:     topicNamespace,
-				Environment:   kafka.NormalizeEnv(cfg.Environment),
-				Registry:      topicRegistry,
-				BroadcastBus:  broadcastBus,
-				ResourceGuard: resourceGuard,
-				Logger:        poolLogger,
-				SASL:          saslConfig,
-				TLS:           tlsConfig,
-				Metrics:       &metrics.MultiTenantPoolMetricsAdapter{},
-			})
-			if err != nil {
-				logger.Fatalf("Failed to create multi-tenant consumer pool: %v", err)
-			}
-
-			// Wire gRPC stream topic registry to trigger on-demand pool refresh
-			topicRegistry.SetOnUpdate(multiTenantPool.RefreshTopics)
-
-			if err := multiTenantPool.Start(); err != nil {
-				logger.Fatalf("Failed to start multi-tenant consumer pool: %v", err)
-			}
-
-			metrics.SetKafkaConnected(true)
-			logger.Printf("Multi-tenant consumer pool started (gRPC topic streaming)")
-		} else {
-			logger.Printf("Kafka consumer DISABLED (KAFKA_CONSUMER_ENABLED=false) — connection-only mode for loadtesting")
-		}
-
-		// Create shared Kafka producer for client message publishing
-		// Clients can publish messages to Kafka via the "publish" message type
-		producerLogger := logging.NewLogger(logging.LoggerConfig{
-			Level:       logging.LogLevel(cfg.LogLevel),
-			Format:      logging.LogFormat(cfg.LogFormat),
-			ServiceName: "ws-server",
+		topicRegistry, regErr := provapi.NewStreamTopicRegistry(provapi.StreamTopicRegistryConfig{
+			GRPCAddr:          cfg.ProvisioningGRPCAddr,
+			Namespace:         topicNamespace,
+			ReconnectDelay:    cfg.GRPCReconnectDelay,
+			ReconnectMaxDelay: cfg.GRPCReconnectMaxDelay,
+			MetricPrefix:      "ws",
+			Logger:            registryLogger,
 		})
-
-		kafkaProducer, err = kafka.NewProducer(kafka.ProducerConfig{
-			Brokers:        kafkaBrokers,
-			TopicNamespace: topicNamespace,
-			// ClientID auto-generated with hostname (odin-ws-producer-{hostname})
-			Logger:          &producerLogger,
-			SASL:            saslConfig,
-			TLS:             tlsConfig,
-			DefaultTenantID: cfg.DefaultTenantID,
-		})
-		if err != nil {
-			logger.Fatalf("Failed to create Kafka producer: %v", err)
+		if regErr != nil {
+			logger.Fatalf("Failed to create topic registry for JetStream: %v", regErr)
 		}
 
-		logger.Printf("Kafka producer initialized (namespace: %s)", kafkaProducer.Namespace())
+		msgBackend, err = jetstreambackend.New(jetstreambackend.Config{
+			URLs:            jetstreambackend.SplitURLs(cfg.NATSJetStreamURLs),
+			Token:           cfg.NATSJetStreamToken,
+			User:            cfg.NATSJetStreamUser,
+			Password:        cfg.NATSJetStreamPassword,
+			TLSEnabled:      cfg.NATSJetStreamTLSEnabled,
+			TLSInsecure:     cfg.NATSJetStreamTLSInsecure,
+			TLSCAPath:       cfg.NATSJetStreamTLSCAPath,
+			Replicas:        cfg.NATSJetStreamReplicas,
+			MaxAge:          cfg.NATSJetStreamMaxAge,
+			Namespace:       topicNamespace,
+			BroadcastBus:    broadcastBus,
+			Registry:        topicRegistry,
+			RefreshInterval: cfg.TopicRefreshInterval,
+			LogLevel:        cfg.LogLevel,
+			LogFormat:       cfg.LogFormat,
+		})
+	default:
+		logger.Fatalf("Unknown message backend: %q (valid: direct, kafka, nats)", cfg.MessageBackend)
 	}
+	if err != nil {
+		logger.Fatalf("Failed to create message backend: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := msgBackend.Start(ctx); err != nil {
+		logger.Fatalf("Failed to start message backend: %v", err)
+	}
+	logger.Printf("Message backend started (type: %s)", cfg.MessageBackend)
 
 	// Create and start shards
 	shards := make([]*orchestration.Shard, *numShards)
@@ -257,9 +217,8 @@ func main() {
 
 		shardConfig := types.ServerConfig{
 			Addr:           shardBindAddr,
-			KafkaBrokers:   kafkaBrokers,
-			Environment:    cfg.Environment,  // Environment for logging (topic naming via shared pool)
-			MaxConnections: maxConnsPerShard, // Shard-specific max connections
+			Environment:    cfg.Environment,
+			MaxConnections: maxConnsPerShard,
 
 			MemoryLimit:            cfg.MemoryLimit,
 			MaxKafkaMessagesPerSec: cfg.MaxKafkaRate,
@@ -284,6 +243,12 @@ func main() {
 			// Slow client detection
 			SlowClientMaxAttempts: cfg.SlowClientMaxAttempts,
 
+			// TCP/HTTP tuning (trading platform burst tolerance)
+			TCPListenBacklog: cfg.TCPListenBacklog,
+			HTTPReadTimeout:  cfg.HTTPReadTimeout,
+			HTTPWriteTimeout: cfg.HTTPWriteTimeout,
+			HTTPIdleTimeout:  cfg.HTTPIdleTimeout,
+
 			MetricsInterval: cfg.MetricsInterval,
 			LogLevel:        types.LogLevel(cfg.LogLevel),
 			LogFormat:       types.LogFormat(cfg.LogFormat),
@@ -292,27 +257,17 @@ func main() {
 			PongWait:   cfg.PongWait,
 			PingPeriod: cfg.PingPeriod,
 			WriteWait:  cfg.WriteWait,
-
-			// Kafka consumer toggle (connection-only mode for loadtesting)
-			KafkaConsumerDisabled: !cfg.KafkaConsumerEnabled,
-		}
-
-		// Get shared consumer for replay (from multi-tenant pool)
-		var sharedConsumer any
-		if multiTenantPool != nil {
-			sharedConsumer = multiTenantPool.GetSharedConsumer()
 		}
 
 		shard, err := orchestration.NewShard(orchestration.ShardConfig{
-			ID:                  i,
-			Addr:                shardBindAddr,      // Bind address for listening
-			AdvertiseAddr:       shardAdvertiseAddr, // Address for LoadBalancer connections
-			ServerConfig:        shardConfig,
-			BroadcastBus:        broadcastBus,   // Pass reference to bus, shard will subscribe internally
-			SharedKafkaConsumer: sharedConsumer, // Shared consumer for metrics (managed by pool)
-			KafkaProducer:       kafkaProducer,  // Shared producer for client publishing (optional)
-			Logger:              logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: "ws-server"}),
-			MaxConnections:      maxConnsPerShard,
+			ID:             i,
+			Addr:           shardBindAddr,
+			AdvertiseAddr:  shardAdvertiseAddr,
+			ServerConfig:   shardConfig,
+			BroadcastBus:   broadcastBus,
+			MessageBackend: msgBackend,
+			Logger:         logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: "ws-server"}),
+			MaxConnections: maxConnsPerShard,
 		})
 		if err != nil {
 			logger.Fatalf("Failed to create shard %d: %v", i, err)
@@ -358,25 +313,11 @@ func main() {
 		}
 	}
 
-	// Shutdown multi-tenant consumer pool (before BroadcastBus)
-	if multiTenantPool != nil {
-		if err := multiTenantPool.Stop(); err != nil {
-			logger.Printf("Error stopping multi-tenant consumer pool: %v", err)
-		}
-	}
-
-	// Close gRPC stream topic registry
-	if topicRegistry != nil {
-		if err := topicRegistry.Close(); err != nil {
-			logger.Printf("Error closing stream topic registry: %v", err)
-		}
-	}
-
-	// Shutdown Kafka producer
-	if kafkaProducer != nil {
-		if err := kafkaProducer.Close(); err != nil {
-			logger.Printf("Error closing Kafka producer: %v", err)
-		}
+	// Shutdown message backend (stops pool, producer, registry)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+	if err := msgBackend.Shutdown(shutdownCtx); err != nil {
+		logger.Printf("Error shutting down message backend: %v", err)
 	}
 
 	// Shutdown BroadcastBus

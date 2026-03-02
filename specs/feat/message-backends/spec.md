@@ -2,7 +2,7 @@
 
 **Branch**: `feat/message-backends`
 **Created**: 2026-02-27
-**Status**: Draft
+**Status**: Implemented
 
 ## Context
 
@@ -66,7 +66,7 @@ Clients connect and interact with Odin identically regardless of the message bac
 ### Edge Cases
 
 - What happens when the message backend is unavailable at startup? The server MUST fail fast with a clear error (Kafka connection refused, NATS unreachable). Exception: direct mode has no external dependency and always starts.
-- What happens when the message backend becomes unavailable mid-operation? Kafka: circuit breaker opens, publishes fail with `service_unavailable`. NATS JetStream: same pattern. Direct: cannot happen (in-process).
+- What happens when the message backend becomes unavailable mid-operation? Kafka: circuit breaker opens, publishes fail with `service_unavailable`. NATS JetStream: the nats.go client handles reconnection automatically with configurable backoff; application-level circuit breaker is not needed — publishes fail with wrapped errors during disconnection. Direct: cannot happen (in-process).
 - What happens when a client requests replay in direct mode? The server returns `reconnect_ack` with `messages_replayed: 0`. No error — the feature is simply not available.
 - What happens when switching backends on an existing deployment? Message history is not migrated between backends. The switch is a clean cut — new messages use the new backend.
 - What happens with multi-tenant isolation in direct mode? Tenant isolation at the channel level (subscription filtering, permission checks) still works. There is no topic-level isolation because there are no topics.
@@ -91,7 +91,7 @@ Clients connect and interact with Odin identically regardless of the message bac
 
 **Kafka/Redpanda Mode**
 
-- **FR-020**: In Kafka mode, the server MUST behave identically to the current implementation — consumer groups, producer, multi-tenant pool, and offset-based replay are all preserved.
+- **FR-020**: In Kafka mode, the server MUST preserve the existing behavior: consumer group-based ingestion, producer-based publishing, and offset-based replay. The `KafkaBackend` wraps the existing `MultiTenantConsumerPool` and `Producer` without behavioral changes.
 - **FR-021**: Kafka mode MUST be activated when `MESSAGE_BACKEND=kafka` is explicitly set.
 
 **NATS JetStream Mode**
@@ -111,8 +111,9 @@ Clients connect and interact with Odin identically regardless of the message bac
 - **NFR-001**: Switching message backends MUST require only a configuration change (`MESSAGE_BACKEND`). No code changes, no recompilation.
 - **NFR-002**: Direct mode MUST add zero latency compared to the current Kafka path for client-to-client messaging (messages skip external systems entirely).
 - **NFR-003**: The message backend abstraction MUST NOT degrade performance of the existing Kafka path. The abstraction layer overhead MUST be less than 1 microsecond per message.
-- **NFR-004**: NATS JetStream mode MUST support at least 10,000 messages/second throughput per stream.
+- **NFR-004**: NATS JetStream mode MUST support at least 10,000 messages/second throughput per stream. Verification via load test is deferred to the performance validation phase.
 - **NFR-005**: Each message backend MUST expose health status and operational metrics via the existing Prometheus metrics system.
+- **NFR-006**: The periodic topic/stream refresh interval MUST be configurable via `TOPIC_REFRESH_INTERVAL` (default: 60s). This applies to both Kafka and NATS JetStream backends as a safety net for missed gRPC stream events.
 
 ### Key Entities
 
@@ -125,7 +126,7 @@ Clients connect and interact with Odin identically regardless of the message bac
 - **SC-002**: The existing Kafka integration passes all current tests when `MESSAGE_BACKEND=kafka` with no behavioral changes.
 - **SC-003**: NATS JetStream mode supports publish, subscribe, and replay with sequence-based message recovery.
 - **SC-004**: A developer can go from zero to a working real-time pub/sub system in under 60 seconds with a single binary and a config file.
-- **SC-005**: All three backends pass the same integration test suite for core pub/sub operations (subscribe, publish, receive).
+- **SC-005**: All three backends pass the same integration test suite for core pub/sub operations (subscribe, publish, receive). **Note**: Each backend has unit tests verifying interface compliance. A shared integration test suite requiring live Kafka/NATS infrastructure is deferred to the integration testing phase.
 
 ## Clarifications
 
@@ -134,6 +135,16 @@ Clients connect and interact with Odin identically regardless of the message bac
 - Q: Should HTTP ingestion (POST /v1/publish) be included? → A: **No.** All backends are client-to-client only. External system ingestion into Kafka/NATS is outside Odin's scope — external systems use their own Kafka/NATS clients directly. No special Odin code needed.
 - Q: Should single-pod / in-memory broadcast be in this spec? → A: **No.** All message backends support multi-pod deployment via the existing broadcast bus (NATS Core / Valkey). The broadcast bus is out of scope for this spec.
 - Q: Do the backends support managed/cloud services? → A: **Yes.** Kafka mode already supports SASL + TLS for managed services (Confluent Cloud, AWS MSK, Redpanda Cloud). NATS JetStream mode includes TLS + auth config for managed NATS (Synadia Cloud). Operators point the config at their managed service URLs and provide credentials — no special "managed" mode needed.
+- Q: How should the multi-tenant consumer pool relate to the MessageBackend abstraction? → A: **Each backend owns its own ingestion/isolation strategy.** Kafka wraps the existing `MultiTenantConsumerPool` internally (shared/dedicated consumer groups). JetStream uses stream-per-tenant for natural isolation. Direct mode has no ingestion layer. The ws-server only interacts with the `MessageBackend` interface — pool management is an internal implementation detail of each backend.
+- Q: Who creates backend-specific resources (Kafka topics, JetStream streams) when tenants are provisioned? → A: **The ws-server's MessageBackend creates resources on demand** when it receives tenant config from the provisioning gRPC stream (`WatchTopics`). Provisioning stays backend-agnostic — it only manages tenant metadata. This does NOT affect hot paths: resource creation is a cold-path operation (tenant onboarding), while message publish/consume only touches pre-existing resources.
+- Q: In direct mode, does the ws-server need its own publish permission check? → A: **No, the gateway's check is sufficient.** The gateway validates channel permissions before forwarding. Defense-in-depth is provided by NetworkPolicy (only gateway can reach ws-server). No duplicate auth logic in ws-server — keeps the publish hot path minimal.
+- Q: How should tenant topics map to JetStream streams and subjects? → A: **Stream-per-tenant.** One JetStream stream per tenant (e.g., `prod-acme`) capturing all their subjects via wildcard (`prod.acme.>`). Each category is a subject within the stream (e.g., `prod.acme.trade`, `prod.acme.liquidity`). One durable consumer per stream. This provides natural noisy-tenant isolation (separate storage per tenant, separate stream limits) with fewer resources than Kafka's topic-per-category model.
+- Q: When both broadcast bus and message backend use NATS, should they share a connection? → A: **No, separate connections.** Each component manages its own NATS connection independently. This allows pointing at different NATS clusters (e.g., JetStream on a dedicated cluster, Core on a lightweight one) and simplifies lifecycle management.
+- Q: Should the `wait-for-provisioning` init container be conditional on the message backend? → A: **Remove it entirely.** The `StreamTopicRegistry` already handles reconnection with exponential backoff — it's a soft dependency that connects asynchronously. The pod starts immediately; topic data appears when provisioning connects. Direct mode never creates a registry (zero impact). The `wait-for-nats` init container is conditional on `broadcast.type=nats` (only needed when NATS is the broadcast bus). The `wait-for-redpanda` stays conditional on kafka mode (KafkaBackend fails fast if brokers unreachable).
+- Q: How should the KafkaBackend's on-demand topic creation integrate with the `SetOnUpdate` callback? → A: **Use the existing `func()` (no arguments) observer/signal pattern.** The callback signals "topics changed" — `ensureTopicsExist()` reads from `registry.GetSharedTenantTopics()` and `GetDedicatedTenants()` to discover topics, then creates missing ones via `kadm.Client`. This matches how `pool.RefreshTopics()` already works (reads from registry internally). The callback is a signal, not a data delivery — Go idiomatic pull model.
+- Q: Should the provisioning service's KafkaAdmin be kept for Kafka topic creation, or should all backend resource creation move to ws-server? → A: **Remove KafkaAdmin from provisioning entirely.**
+- Q: How do clients obtain stream sequence numbers for JetStream replay? → A: **Replay position propagation is deferred to a future spec.** The Replay API works correctly when clients provide valid positions. The mechanism for clients to discover these positions (embedding backend-specific sequences in broadcast messages) is a cross-cutting concern that applies to both Kafka and JetStream backends. The current implementation supports replay when clients supply positions via the `reconnect.last_offset` field.
+- Q: Where is TLS required in the system? → A: **Only for managed external services.** TLS is required for: (1) managed provisioning DB (Cloud SQL — handled outside this spec), (2) managed broadcast bus (NATS/Valkey — FR-050, FR-051), and (3) managed message backend (Kafka SASL/TLS already exists, JetStream TLS config added). No TLS is needed for internal pod-to-pod communication within the cluster. All backend resource creation (Kafka topics, JetStream streams) is the ws-server's MessageBackend responsibility. Provisioning only records tenant metadata (categories) in the database and notifies via gRPC stream. The ws-server's KafkaBackend creates Kafka topics on demand when it discovers new categories from the provisioning gRPC stream. This makes provisioning fully backend-agnostic — it has no knowledge of Kafka, JetStream, or direct mode.
 
 ## Out of Scope
 

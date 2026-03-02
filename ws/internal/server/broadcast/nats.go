@@ -2,9 +2,12 @@ package broadcast
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,6 +15,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
+
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 )
 
 // natsBus implements Bus using NATS Core Pub/Sub.
@@ -77,6 +82,30 @@ func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 		opts = append(opts, nats.Name(ncfg.Name))
 	} else {
 		opts = append(opts, nats.Name("odin-ws-broadcast"))
+	}
+
+	// TLS configuration for managed NATS services
+	if ncfg.TLSEnabled {
+		tc := &tls.Config{
+			InsecureSkipVerify: ncfg.TLSInsecure, //nolint:gosec // Controlled by configuration for dev/testing environments
+			MinVersion:         tls.VersionTLS12,
+		}
+		if ncfg.TLSCAPath != "" {
+			caCert, err := os.ReadFile(ncfg.TLSCAPath)
+			if err != nil {
+				return nil, fmt.Errorf("nats broadcast: read CA cert: %w", err)
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(caCert) {
+				return nil, fmt.Errorf("nats broadcast: parse CA cert from %s", ncfg.TLSCAPath)
+			}
+			tc.RootCAs = pool
+		}
+		opts = append(opts, nats.Secure(tc))
+		busLogger.Info().
+			Bool("insecure", ncfg.TLSInsecure).
+			Str("ca_path", ncfg.TLSCAPath).
+			Msg("NATS broadcast TLS enabled")
 	}
 
 	// Authentication options
@@ -403,6 +432,7 @@ func (b *natsBus) fanOut(msg *Message) {
 
 // healthCheckLoop periodically checks NATS connection health.
 func (b *natsBus) healthCheckLoop() {
+	defer logging.RecoverPanic(b.logger, "natsBus.healthCheckLoop", nil)
 	defer b.wg.Done()
 
 	ticker := time.NewTicker(10 * time.Second)

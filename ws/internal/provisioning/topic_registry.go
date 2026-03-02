@@ -6,9 +6,10 @@ import (
 	"fmt"
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
-// TopicRegistry implements kafka.TenantRegistry using PostgreSQL.
+// TopicRegistry implements types.TenantRegistry using PostgreSQL.
 // It queries the provisioning database to provide tenant topic information
 // for the multi-tenant consumer pool.
 //
@@ -74,7 +75,7 @@ func (r *TopicRegistry) GetSharedTenantTopics(ctx context.Context, namespace str
 // Only returns tenants where:
 //   - status = 'active'
 //   - consumer_type = 'dedicated'
-func (r *TopicRegistry) GetDedicatedTenants(ctx context.Context, namespace string) ([]kafka.TenantTopics, error) {
+func (r *TopicRegistry) GetDedicatedTenants(ctx context.Context, namespace string) ([]types.TenantTopics, error) {
 	// First, get all dedicated tenants
 	tenantsQuery := `
 		SELECT id
@@ -112,7 +113,7 @@ func (r *TopicRegistry) GetDedicatedTenants(ctx context.Context, namespace strin
 		ORDER BY category
 	`
 
-	result := make([]kafka.TenantTopics, 0, len(tenantIDs))
+	result := make([]types.TenantTopics, 0, len(tenantIDs))
 	for _, tenantID := range tenantIDs {
 		topics, err := r.getCategoriesForTenant(ctx, categoriesQuery, namespace, tenantID)
 		if err != nil {
@@ -121,7 +122,7 @@ func (r *TopicRegistry) GetDedicatedTenants(ctx context.Context, namespace strin
 
 		// Only include tenants with topics
 		if len(topics) > 0 {
-			result = append(result, kafka.TenantTopics{
+			result = append(result, types.TenantTopics{
 				TenantID: tenantID,
 				Topics:   topics,
 			})
@@ -157,5 +158,5 @@ func (r *TopicRegistry) getCategoriesForTenant(ctx context.Context, query, names
 	return topics, nil
 }
 
-// Ensure TopicRegistry implements kafka.TenantRegistry.
-var _ kafka.TenantRegistry = (*TopicRegistry)(nil)
+// Ensure TopicRegistry implements types.TenantRegistry.
+var _ types.TenantRegistry = (*TopicRegistry)(nil)

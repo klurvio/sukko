@@ -3,7 +3,7 @@ package provisioning
 import (
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // =============================================================================
@@ -12,8 +12,8 @@ import (
 
 func TestTopicRegistry_ImplementsInterface(t *testing.T) {
 	t.Parallel()
-	// Compile-time check that TopicRegistry implements kafka.TenantRegistry
-	var _ kafka.TenantRegistry = (*TopicRegistry)(nil)
+	// Compile-time check that TopicRegistry implements types.TenantRegistry
+	var _ types.TenantRegistry = (*TopicRegistry)(nil)
 }
 
 // =============================================================================
@@ -22,7 +22,7 @@ func TestTopicRegistry_ImplementsInterface(t *testing.T) {
 
 func TestTenantTopics_Fields(t *testing.T) {
 	t.Parallel()
-	tt := kafka.TenantTopics{
+	tt := types.TenantTopics{
 		TenantID: "acme",
 		Topics:   []string{"prod.acme.trade", "prod.acme.liquidity"},
 	}
@@ -182,7 +182,7 @@ func TestQueryResult_MultipleTopics(t *testing.T) {
 func TestQueryResult_TenantGrouping(t *testing.T) {
 	t.Parallel()
 	// Test grouping topics by tenant
-	tenants := []kafka.TenantTopics{
+	tenants := []types.TenantTopics{
 		{TenantID: "acme", Topics: []string{"prod.acme.trade", "prod.acme.liquidity"}},
 		{TenantID: "bigcorp", Topics: []string{"prod.bigcorp.trade"}},
 	}
@@ -192,7 +192,7 @@ func TestQueryResult_TenantGrouping(t *testing.T) {
 	}
 
 	// Find acme tenant
-	var acme *kafka.TenantTopics
+	var acme *types.TenantTopics
 	for i := range tenants {
 		if tenants[i].TenantID == "acme" {
 			acme = &tenants[i]
@@ -216,13 +216,13 @@ func TestQueryResult_TenantGrouping(t *testing.T) {
 func TestTopicRegistry_TenantWithNoTopics(t *testing.T) {
 	t.Parallel()
 	// Dedicated tenants with no topics should not be included
-	tenants := []kafka.TenantTopics{
+	tenants := []types.TenantTopics{
 		{TenantID: "acme", Topics: []string{"prod.acme.trade"}},
 		{TenantID: "empty", Topics: []string{}}, // No topics
 	}
 
 	// Filter out tenants with no topics (as the real implementation does)
-	filtered := make([]kafka.TenantTopics, 0)
+	filtered := make([]types.TenantTopics, 0)
 	for _, tenant := range tenants {
 		if len(tenant.Topics) > 0 {
 			filtered = append(filtered, tenant)

@@ -14,8 +14,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	provisioningv1 "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // StreamTopicRegistryConfig configures the gRPC stream-backed topic registry.
@@ -29,13 +29,13 @@ type StreamTopicRegistryConfig struct {
 	Logger            zerolog.Logger
 }
 
-// StreamTopicRegistry implements kafka.TenantRegistry backed by a gRPC
+// StreamTopicRegistry implements types.TenantRegistry backed by a gRPC
 // streaming connection to the provisioning service. It caches topic data
 // and notifies via callback when topics change.
 type StreamTopicRegistry struct {
 	mu               sync.RWMutex
 	sharedTopics     []string
-	dedicatedTenants []kafka.TenantTopics
+	dedicatedTenants []types.TenantTopics
 	namespace        string
 	onUpdate         func()
 
@@ -106,16 +106,16 @@ func (r *StreamTopicRegistry) GetSharedTenantTopics(_ context.Context, _ string)
 }
 
 // GetDedicatedTenants returns tenants that require dedicated consumers.
-func (r *StreamTopicRegistry) GetDedicatedTenants(_ context.Context, _ string) ([]kafka.TenantTopics, error) {
+func (r *StreamTopicRegistry) GetDedicatedTenants(_ context.Context, _ string) ([]types.TenantTopics, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	// Return a copy to avoid data races
-	result := make([]kafka.TenantTopics, len(r.dedicatedTenants))
+	result := make([]types.TenantTopics, len(r.dedicatedTenants))
 	for i, dt := range r.dedicatedTenants {
 		topics := make([]string, len(dt.Topics))
 		copy(topics, dt.Topics)
-		result[i] = kafka.TenantTopics{
+		result[i] = types.TenantTopics{
 			TenantID: dt.TenantID,
 			Topics:   topics,
 		}
@@ -225,18 +225,22 @@ func (r *StreamTopicRegistry) applyTopicUpdate(resp *provisioningv1.WatchTopicsR
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.sharedTopics = resp.SharedTopics
+	// Copy proto response slices to avoid sharing backing arrays (defense in depth)
+	r.sharedTopics = make([]string, len(resp.SharedTopics))
+	copy(r.sharedTopics, resp.SharedTopics)
 
-	r.dedicatedTenants = make([]kafka.TenantTopics, 0, len(resp.DedicatedTenants))
+	r.dedicatedTenants = make([]types.TenantTopics, 0, len(resp.DedicatedTenants))
 	for _, dt := range resp.DedicatedTenants {
-		r.dedicatedTenants = append(r.dedicatedTenants, kafka.TenantTopics{
+		topics := make([]string, len(dt.Topics))
+		copy(topics, dt.Topics)
+		r.dedicatedTenants = append(r.dedicatedTenants, types.TenantTopics{
 			TenantID: dt.TenantId,
-			Topics:   dt.Topics,
+			Topics:   topics,
 		})
 	}
 
 	return r.onUpdate
 }
 
-// Ensure StreamTopicRegistry implements kafka.TenantRegistry.
-var _ kafka.TenantRegistry = (*StreamTopicRegistry)(nil)
+// Ensure StreamTopicRegistry implements types.TenantRegistry.
+var _ types.TenantRegistry = (*StreamTopicRegistry)(nil)

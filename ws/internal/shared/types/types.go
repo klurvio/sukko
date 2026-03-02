@@ -32,13 +32,10 @@ const (
 
 // ServerConfig contains the configuration for the WebSocket server
 type ServerConfig struct {
-	Addr         string
-	KafkaBrokers []string
-	Environment  string // Environment for logging (topic naming handled by MultiTenantConsumerPool)
-	SharedKafkaConsumer any    // Shared Kafka consumer reference (managed by MultiTenantConsumerPool)
-	KafkaProducer       any    // Kafka producer for client message publishing (optional)
-	KafkaConsumerDisabled bool // True when KAFKA_CONSUMER_ENABLED=false (connection-only mode)
-	MaxConnections      int
+	Addr           string
+	Environment    string // Environment for logging (topic naming handled by backend)
+	MessageBackend any    // Pluggable message backend (backend.MessageBackend)
+	MaxConnections int
 
 	// Static resource limits
 	// Note: CPU limit is detected automatically via automaxprocs reading cgroup

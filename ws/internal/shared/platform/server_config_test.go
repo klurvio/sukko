@@ -10,6 +10,7 @@ import (
 func newValidServerConfig() *ServerConfig {
 	return &ServerConfig{
 		Addr:                       ":3002",
+		MessageBackend:             "direct",
 		KafkaBrokers:               "localhost:19092",
 		MemoryLimit:                512 * 1024 * 1024,
 		MaxConnections:             1000,
@@ -39,6 +40,14 @@ func newValidServerConfig() *ServerConfig {
 		ValkeyDB:                   0,
 		ClientSendBufferSize:       512,
 		SlowClientMaxAttempts:      3,
+		// Topic refresh interval (required for kafka/nats backends)
+		TopicRefreshInterval: 60 * time.Second,
+		// NATS JetStream defaults (needed when tests switch to nats backend)
+		NATSJetStreamReplicas: 1,
+		NATSJetStreamMaxAge:   24 * time.Hour,
+		// Kafka topic defaults (needed when tests switch to kafka backend)
+		KafkaDefaultPartitions:        1,
+		KafkaDefaultReplicationFactor: 1,
 		// Provisioning gRPC (required for topic discovery)
 		ProvisioningGRPCAddr:  "localhost:9090",
 		GRPCReconnectDelay:    1 * time.Second,
@@ -539,6 +548,203 @@ func TestServerConfig_Validate_WriteWait(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestServerConfig_Validate_MessageBackend(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		backend     string
+		jsURLs      string
+		shouldError bool
+		errorField  string
+	}{
+		{"direct", "direct", "", false, ""},
+		{"kafka", "kafka", "", false, ""},
+		{"nats with urls", "nats", "nats://localhost:4222", false, ""},
+		{"nats without urls", "nats", "", true, "NATS_JETSTREAM_URLS"},
+		{"invalid backend", "redis", "", true, "MESSAGE_BACKEND"},
+		{"empty backend", "", "", true, "MESSAGE_BACKEND"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.MessageBackend = tt.backend
+			cfg.NATSJetStreamURLs = tt.jsURLs
+
+			err := cfg.Validate()
+			if tt.shouldError {
+				if err == nil {
+					t.Error("Should error")
+				} else if tt.errorField != "" && !strings.Contains(err.Error(), tt.errorField) {
+					t.Errorf("Error should mention %s: %v", tt.errorField, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Should not error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_NATSJetStreamBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		replicas   int
+		maxAge     time.Duration
+		wantErr    bool
+		errContain string
+	}{
+		{"valid defaults", 1, 24 * time.Hour, false, ""},
+		{"valid 3 replicas", 3, 1 * time.Hour, false, ""},
+		{"zero replicas", 0, 24 * time.Hour, true, "NATS_JETSTREAM_REPLICAS"},
+		{"negative replicas", -1, 24 * time.Hour, true, "NATS_JETSTREAM_REPLICAS"},
+		{"zero max age", 1, 0, true, "NATS_JETSTREAM_MAX_AGE"},
+		{"too small max age", 1, 30 * time.Second, true, "NATS_JETSTREAM_MAX_AGE"},
+		{"min valid max age", 1, 1 * time.Minute, false, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.MessageBackend = "nats"
+			cfg.NATSJetStreamURLs = "nats://localhost:4222"
+			cfg.NATSJetStreamReplicas = tt.replicas
+			cfg.NATSJetStreamMaxAge = tt.maxAge
+
+			err := cfg.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error")
+				} else if tt.errContain != "" && !strings.Contains(err.Error(), tt.errContain) {
+					t.Errorf("error should contain %q, got: %v", tt.errContain, err)
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_TopicRefreshInterval(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		backend  string
+		interval time.Duration
+		wantErr  bool
+	}{
+		{"kafka valid", "kafka", 60 * time.Second, false},
+		{"nats valid", "nats", 30 * time.Second, false},
+		{"direct skips validation", "direct", 0, false},
+		{"kafka zero", "kafka", 0, true},
+		{"kafka too small", "kafka", 500 * time.Millisecond, true},
+		{"kafka min valid", "kafka", 1 * time.Second, false},
+		{"nats zero", "nats", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.MessageBackend = tt.backend
+			cfg.TopicRefreshInterval = tt.interval
+			if tt.backend == "nats" {
+				cfg.NATSJetStreamURLs = "nats://localhost:4222"
+			}
+
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Error("expected error")
+			} else if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_KafkaTopicDefaults(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name              string
+		partitions        int
+		replicationFactor int
+		shouldError       bool
+		errorField        string
+	}{
+		{"valid defaults", 1, 1, false, ""},
+		{"valid higher values", 6, 3, false, ""},
+		{"zero partitions", 0, 1, true, "KAFKA_DEFAULT_PARTITIONS"},
+		{"negative partitions", -1, 1, true, "KAFKA_DEFAULT_PARTITIONS"},
+		{"zero replication", 1, 0, true, "KAFKA_DEFAULT_REPLICATION_FACTOR"},
+		{"negative replication", 1, -1, true, "KAFKA_DEFAULT_REPLICATION_FACTOR"},
+		{"both zero", 0, 0, true, "KAFKA_DEFAULT_PARTITIONS"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.MessageBackend = "kafka"
+			cfg.KafkaDefaultPartitions = tt.partitions
+			cfg.KafkaDefaultReplicationFactor = tt.replicationFactor
+
+			err := cfg.Validate()
+			if tt.shouldError {
+				if err == nil {
+					t.Error("Should error")
+				} else if tt.errorField != "" && !strings.Contains(err.Error(), tt.errorField) {
+					t.Errorf("Error should mention %s: %v", tt.errorField, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Should not error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_KafkaTopicDefaults_SkippedForDirect(t *testing.T) {
+	t.Parallel()
+	// Zero partitions with direct backend should NOT error (validation is skipped)
+	cfg := newValidServerConfig()
+	cfg.MessageBackend = "direct"
+	cfg.KafkaDefaultPartitions = 0
+	cfg.KafkaDefaultReplicationFactor = 0
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Kafka topic defaults with direct backend should not error: %v", err)
+	}
+}
+
+func TestServerConfig_Validate_KafkaSASL_OnlyWithKafkaBackend(t *testing.T) {
+	t.Parallel()
+
+	// SASL enabled with direct backend should NOT error (SASL validation is skipped)
+	cfg := newValidServerConfig()
+	cfg.MessageBackend = "direct"
+	cfg.KafkaSASLEnabled = true
+	// Deliberately leave SASL fields empty
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("SASL with direct backend should not error: %v", err)
+	}
+
+	// SASL enabled with kafka backend SHOULD error (missing credentials)
+	cfg2 := newValidServerConfig()
+	cfg2.MessageBackend = "kafka"
+	cfg2.KafkaSASLEnabled = true
+	cfg2.KafkaSASLMechanism = "scram-sha-256"
+	// Missing username/password
+	if err := cfg2.Validate(); err == nil {
+		t.Error("SASL with kafka backend and missing credentials should error")
 	}
 }
 

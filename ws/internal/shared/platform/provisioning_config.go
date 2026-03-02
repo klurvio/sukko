@@ -49,21 +49,6 @@ type ProvisioningConfig struct {
 	AdminAuthCleanupInterval  time.Duration `env:"ADMIN_AUTH_CLEANUP_INTERVAL" envDefault:"5m"`
 	AdminAuthCleanupMaxAge    time.Duration `env:"ADMIN_AUTH_CLEANUP_MAX_AGE" envDefault:"2m"`
 
-	// Kafka/Redpanda Admin
-	KafkaBrokers      string        `env:"KAFKA_BROKERS"`
-	KafkaAdminTimeout time.Duration `env:"KAFKA_ADMIN_TIMEOUT" envDefault:"30s"`
-
-	// Kafka Security - SASL Authentication
-	KafkaSASLEnabled   bool   `env:"KAFKA_SASL_ENABLED" envDefault:"false"`
-	KafkaSASLMechanism string `env:"KAFKA_SASL_MECHANISM"`
-	KafkaSASLUsername  string `env:"KAFKA_SASL_USERNAME"`
-	KafkaSASLPassword  string `env:"KAFKA_SASL_PASSWORD"`
-
-	// Kafka Security - TLS Encryption
-	KafkaTLSEnabled  bool   `env:"KAFKA_TLS_ENABLED" envDefault:"false"`
-	KafkaTLSInsecure bool   `env:"KAFKA_TLS_INSECURE" envDefault:"false"`
-	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`
-
 	// Topic Defaults
 	TopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""`
 	ValidNamespaces    string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"` // Comma-separated valid namespace prefixes
@@ -233,19 +218,6 @@ func (c *ProvisioningConfig) Validate() error {
 		return err
 	}
 
-	// Kafka SASL validation
-	if c.KafkaSASLEnabled {
-		if err := ValidateKafkaSASLMechanism(c.KafkaSASLMechanism); err != nil {
-			return err
-		}
-		if c.KafkaSASLUsername == "" {
-			return errors.New("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLED=true")
-		}
-		if c.KafkaSASLPassword == "" {
-			return errors.New("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
-		}
-	}
-
 	// Topic namespace validation (config-driven)
 	validNS := parseNamespaces(c.ValidNamespaces)
 	if len(validNS) == 0 {
@@ -309,15 +281,6 @@ func (c *ProvisioningConfig) Print() {
 		fmt.Printf("Database Path:      %s\n", c.DatabasePath)
 	}
 	fmt.Printf("Auto Migrate:       %v\n", c.AutoMigrate)
-	fmt.Println("\n=== Kafka/Redpanda ===")
-	fmt.Printf("Brokers:            %s\n", c.KafkaBrokers)
-	fmt.Printf("Admin Timeout:      %s\n", c.KafkaAdminTimeout)
-	fmt.Printf("SASL Enabled:       %v\n", c.KafkaSASLEnabled)
-	if c.KafkaSASLEnabled {
-		fmt.Printf("SASL Mechanism:     %s\n", c.KafkaSASLMechanism)
-		fmt.Printf("SASL Username:      %s\n", c.KafkaSASLUsername)
-	}
-	fmt.Printf("TLS Enabled:        %v\n", c.KafkaTLSEnabled)
 	fmt.Println("\n=== Topic Defaults ===")
 	if c.TopicNamespaceOverride != "" {
 		fmt.Printf("Namespace Override: %s\n", c.TopicNamespaceOverride)
@@ -353,9 +316,6 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Str("database_driver", c.DatabaseDriver).
 		Int("grpc_port", c.GRPCPort).
 		Bool("auto_migrate", c.AutoMigrate).
-		Str("kafka_brokers", c.KafkaBrokers).
-		Bool("kafka_sasl_enabled", c.KafkaSASLEnabled).
-		Bool("kafka_tls_enabled", c.KafkaTLSEnabled).
 		Str("topic_namespace_override", c.TopicNamespaceOverride).
 		Int("default_partitions", c.DefaultPartitions).
 		Int64("default_retention_ms", c.DefaultRetentionMs).

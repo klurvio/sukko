@@ -281,6 +281,149 @@ func TestParseReconnectRequest_MissingClientID(t *testing.T) {
 	}
 }
 
+func TestParseReconnectRequest_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	data := json.RawMessage(`{invalid json}`)
+
+	_, _, err := parseReconnectRequest(data)
+
+	if err == nil {
+		t.Error("Expected error for invalid JSON")
+	}
+}
+
+func TestParseReconnectRequest_NullOffsets(t *testing.T) {
+	t.Parallel()
+	data := json.RawMessage(`{"client_id": "abc123", "last_offset": null}`)
+
+	clientID, offsets, err := parseReconnectRequest(data)
+
+	if err != nil {
+		t.Fatalf("parseReconnectRequest failed: %v", err)
+	}
+	if clientID != "abc123" {
+		t.Errorf("clientID: got %q, want %q", clientID, "abc123")
+	}
+	if offsets != nil {
+		t.Errorf("offsets: got %v, want nil", offsets)
+	}
+}
+
+// =============================================================================
+// MessageEnvelope Serialize Format Tests (replay context)
+// =============================================================================
+
+func TestMessageEnvelope_Serialize_ReplayFormat(t *testing.T) {
+	t.Parallel()
+
+	// Verify that MessageEnvelope.Serialize() produces valid JSON matching
+	// the format used in handleReconnect for replay messages.
+	envelope := &messaging.MessageEnvelope{
+		Type:      MsgTypeMessage,
+		Seq:       42,
+		Timestamp: 1709337600000,
+		Channel:   "acme.BTC.trade",
+		Priority:  messaging.PriorityNormal,
+		Data:      json.RawMessage(`{"price":"50000"}`),
+	}
+
+	data, err := envelope.Serialize()
+	if err != nil {
+		t.Fatalf("Serialize failed: %v", err)
+	}
+
+	// Parse the serialized output and verify fields
+	var parsed struct {
+		Type    string          `json:"type"`
+		Seq     int64           `json:"seq"`
+		Ts      int64           `json:"ts"`
+		Channel string          `json:"channel"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal serialized envelope failed: %v", err)
+	}
+
+	if parsed.Type != MsgTypeMessage {
+		t.Errorf("type: got %q, want %q", parsed.Type, MsgTypeMessage)
+	}
+	if parsed.Seq != 42 {
+		t.Errorf("seq: got %d, want 42", parsed.Seq)
+	}
+	if parsed.Ts != 1709337600000 {
+		t.Errorf("ts: got %d, want 1709337600000", parsed.Ts)
+	}
+	if parsed.Channel != "acme.BTC.trade" {
+		t.Errorf("channel: got %q, want %q", parsed.Channel, "acme.BTC.trade")
+	}
+	if string(parsed.Data) != `{"price":"50000"}` {
+		t.Errorf("data: got %s, want %s", parsed.Data, `{"price":"50000"}`)
+	}
+}
+
+func TestMessageEnvelope_Serialize_NilData(t *testing.T) {
+	t.Parallel()
+
+	envelope := &messaging.MessageEnvelope{
+		Type:      MsgTypeMessage,
+		Seq:       1,
+		Timestamp: 1709337600000,
+		Channel:   "acme.BTC.trade",
+		Data:      nil,
+	}
+
+	data, err := envelope.Serialize()
+	if err != nil {
+		t.Fatalf("Serialize with nil data failed: %v", err)
+	}
+
+	// Verify it produces valid JSON
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal serialized envelope with nil data failed: %v", err)
+	}
+}
+
+// =============================================================================
+// Reconnect Ack Response Tests
+// =============================================================================
+
+func TestReconnectAck_JSONFormat(t *testing.T) {
+	t.Parallel()
+
+	ackMsg := map[string]any{
+		"type":              RespTypeReconnectAck,
+		"status":            "completed",
+		"messages_replayed": 5,
+		"message":           "Replayed 5 missed messages",
+	}
+
+	data, err := json.Marshal(ackMsg)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	var parsed struct {
+		Type             string `json:"type"`
+		Status           string `json:"status"`
+		MessagesReplayed int    `json:"messages_replayed"`
+		Message          string `json:"message"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+
+	if parsed.Type != RespTypeReconnectAck {
+		t.Errorf("type: got %q, want %q", parsed.Type, RespTypeReconnectAck)
+	}
+	if parsed.Status != "completed" {
+		t.Errorf("status: got %q, want %q", parsed.Status, "completed")
+	}
+	if parsed.MessagesReplayed != 5 {
+		t.Errorf("messages_replayed: got %d, want 5", parsed.MessagesReplayed)
+	}
+}
+
 // =============================================================================
 // Pong Response Tests
 // =============================================================================

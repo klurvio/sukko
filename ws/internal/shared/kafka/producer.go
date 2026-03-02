@@ -18,6 +18,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/sony/gobreaker/v2"
 	"github.com/twmb/franz-go/pkg/kgo"
+
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 
 	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
@@ -52,7 +54,7 @@ type ProducerConfig struct {
 	TLS  *TLSConfig  // TLS encryption (nil = no TLS, for local dev)
 
 	// Topic validation (optional - if nil, topics are not validated)
-	TenantRegistry TenantRegistry // Registry to validate provisioned topics
+	TenantRegistry types.TenantRegistry // Registry to validate provisioned topics
 
 	// Circuit breaker settings (optional - sensible defaults provided)
 	CircuitBreakerTimeout      time.Duration // Time before half-open (default: 30s)
@@ -95,7 +97,7 @@ type Producer struct {
 	circuitBreaker *gobreaker.CircuitBreaker[any]
 
 	// Topic validation
-	tenantRegistry    TenantRegistry
+	tenantRegistry    types.TenantRegistry
 	provisionedTopics map[string]bool
 	topicCacheMu      sync.RWMutex
 	topicCacheExpiry  time.Time
@@ -300,12 +302,14 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 // The channel must already be in internal format (tenant-prefixed) after gateway mapping.
 // Example: channel "acme.BTC.trade" → topic "prod.acme.trade", key "acme.BTC.trade"
 func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, data []byte) error {
-	p.mu.RLock()
-	if p.closed {
-		p.mu.RUnlock()
+	closed := func() bool {
+		p.mu.RLock()
+		defer p.mu.RUnlock()
+		return p.closed
+	}()
+	if closed {
 		return ErrProducerClosed
 	}
-	p.mu.RUnlock()
 
 	// Execute through circuit breaker
 	_, err := p.circuitBreaker.Execute(func() (any, error) {
@@ -543,13 +547,18 @@ func (p *Producer) CircuitBreakerState() gobreaker.State {
 // Close gracefully shuts down the producer.
 // It flushes any buffered messages and closes the Kafka client.
 func (p *Producer) Close() error {
-	p.mu.Lock()
-	if p.closed {
-		p.mu.Unlock()
+	alreadyClosed := func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.closed {
+			return true
+		}
+		p.closed = true
+		return false
+	}()
+	if alreadyClosed {
 		return nil
 	}
-	p.closed = true
-	p.mu.Unlock()
 
 	p.cancel()
 	p.client.Close()

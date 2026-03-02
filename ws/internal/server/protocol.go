@@ -38,9 +38,9 @@ const (
 	// ErrCodeInvalidJSON indicates a client message is not valid JSON.
 	ErrCodeInvalidJSON protocol.ErrorCode = "invalid_json"
 
-	// ErrCodePublishFailed indicates Kafka publish failed.
+	// ErrCodePublishFailed indicates backend publish failed.
 	ErrCodePublishFailed protocol.ErrorCode = "publish_failed"
 
-	// ErrCodeReplayFailed indicates Kafka message replay failed.
+	// ErrCodeReplayFailed indicates backend message replay failed.
 	ErrCodeReplayFailed protocol.ErrorCode = "replay_failed"
 )

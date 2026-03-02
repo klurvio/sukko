@@ -646,27 +646,13 @@ func TestConnectionSemaphore_Behavior(t *testing.T) {
 }
 
 // =============================================================================
-// Regression Tests - Producer doesn't affect existing functionality
+// Regression Tests - Backend doesn't affect existing functionality
 // =============================================================================
 
-func TestServer_BroadcastFunctionality_NotAffectedByProducerField(t *testing.T) {
+func TestServer_BroadcastFunctionality_NotAffectedByBackendField(t *testing.T) {
 	t.Parallel()
-	// Regression test: Adding kafkaProducer field to Server struct
-	// must not affect the broadcast functionality
-	//
-	// The Server struct now has a kafkaProducer field that is always set
-	// when Kafka brokers are configured. This test ensures the broadcast
-	// mechanism still works correctly.
-
-	var broadcastCalled bool
-	var broadcastSubject string
-	var broadcastPayload []byte
-
-	mockBroadcast := func(subject string, payload []byte) {
-		broadcastCalled = true
-		broadcastSubject = subject
-		broadcastPayload = payload
-	}
+	// Regression test: Adding backend field to Server struct
+	// must not affect the broadcast functionality.
 
 	config := types.ServerConfig{
 		Addr:           ":0",
@@ -675,7 +661,7 @@ func TestServer_BroadcastFunctionality_NotAffectedByProducerField(t *testing.T) 
 		LogFormat:      types.LogFormatJSON,
 	}
 
-	server, err := NewServer(config, mockBroadcast)
+	server, err := NewServer(config)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -695,17 +681,12 @@ func TestServer_BroadcastFunctionality_NotAffectedByProducerField(t *testing.T) 
 	}
 
 	// The key test: server didn't panic and is functional
-	_ = broadcastCalled
-	_ = broadcastSubject
-	_ = broadcastPayload
 }
 
-func TestServer_SubscriptionFlow_NotAffectedByProducerField(t *testing.T) {
+func TestServer_SubscriptionFlow_NotAffectedByBackendField(t *testing.T) {
 	t.Parallel()
 	// Regression test: Subscription flow must work correctly
-	// even with producer field present in Server struct
-
-	mockBroadcast := func(_ string, _ []byte) {}
+	// even with backend field present in Server struct
 
 	config := types.ServerConfig{
 		Addr:           ":0",
@@ -714,7 +695,7 @@ func TestServer_SubscriptionFlow_NotAffectedByProducerField(t *testing.T) {
 		LogFormat:      types.LogFormatJSON,
 	}
 
-	server, err := NewServer(config, mockBroadcast)
+	server, err := NewServer(config)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

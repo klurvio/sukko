@@ -135,6 +135,11 @@ type ValkeyConfig struct {
 
 	// Channel is the pub/sub channel name (default: "ws.broadcast")
 	Channel string
+
+	// TLS for managed Valkey/Redis services (ElastiCache, Memorystore, Upstash, etc.)
+	TLSEnabled  bool
+	TLSInsecure bool   // Skip TLS verification (not for production)
+	TLSCAPath   string // Custom CA certificate path
 }
 
 // NATSConfig holds NATS-specific configuration.
@@ -165,6 +170,11 @@ type NATSConfig struct {
 
 	// MaxReconnects is the maximum number of reconnect attempts (-1 for unlimited)
 	MaxReconnects int
+
+	// TLS for managed NATS services (Synadia Cloud, etc.)
+	TLSEnabled  bool
+	TLSInsecure bool   // Skip TLS verification (not for production)
+	TLSCAPath   string // Custom CA certificate path
 }
 
 // DefaultConfig returns a Config with sensible defaults.

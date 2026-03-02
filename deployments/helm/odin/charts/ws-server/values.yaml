@@ -20,6 +20,7 @@ config:
   basePort: 3002
   lbAddr: ":3001"
   maxKafkaRate: 1000
+  # Note: Go envDefault is 20; Helm uses 25 for deployed environments with higher throughput
   maxBroadcastRate: 25
   # Slow Client Detection
   # When a client's send buffer is full, tracks consecutive failed send attempts.
@@ -39,6 +40,9 @@ config:
   kafkaTopicNamespaceOverride: ""
   connRateLimit:
     enabled: true
+    # Note: Go envDefaults are ipBurst=10, ipRate=1.0 (restrictive for local dev).
+    # Helm uses higher values for deployed environments behind load balancers
+    # where multiple clients share source IPs (SNAT/Cloud NAT).
     ipBurst: 100
     ipRate: 100.0
     globalBurst: 300
@@ -68,6 +72,10 @@ config:
   provisioningGRPCAddr: ""
   provisioningGRPCReconnectDelay: "1s"
   provisioningGRPCReconnectMaxDelay: "30s"
+  # Topic refresh interval — periodic re-sync of tenant topics/streams from registry.
+  # Safety net; primary updates come from gRPC stream. Catches missed events.
+  # Applies to both Kafka and NATS JetStream backends.
+  topicRefreshInterval: "60s"
 
 # Alerting Configuration
 # See pkg/alerting/config.go for full documentation
@@ -122,6 +130,15 @@ securityContext:
       - ALL
   readOnlyRootFilesystem: true
 
+# Message Backend: "direct", "kafka", or "nats"
+# - direct: Messages flow directly to broadcast bus. No persistence, no replay.
+#   Zero external dependencies beyond the broadcast bus. Default for lowest friction.
+# - kafka: Full Kafka/Redpanda integration. Persistence, offset-based replay,
+#   multi-tenant consumer isolation. Requires Kafka infrastructure.
+# - nats: NATS JetStream persistent streams. Sequence-based replay,
+#   stream-per-tenant isolation. Lighter than Kafka.
+messageBackend: direct
+
 # Broadcast Bus Configuration
 broadcast:
   # Backend type: "valkey" or "nats"
@@ -133,6 +150,11 @@ valkey:
   masterName: mymaster
   db: 0
   channel: ws.broadcast
+  # TLS Encryption (for managed Valkey/Redis: ElastiCache, Memorystore, Upstash)
+  tls:
+    enabled: false
+    insecureSkipVerify: false
+    caPath: ""
 
 nats:
   # Empty = dynamic default (nats://{{ .Release.Name }}-nats:4222)
@@ -142,6 +164,36 @@ nats:
   token: ""
   user: ""
   password: ""
+  # Use existing secret for token/password (recommended for production)
+  existingSecret: ""
+  existingSecretTokenKey: "nats-token"
+  existingSecretPasswordKey: "nats-password"
+  # TLS Encryption (for managed NATS: Synadia Cloud, etc.)
+  tls:
+    enabled: false
+    insecureSkipVerify: false
+    caPath: ""
+
+# NATS JetStream Configuration (only when messageBackend=nats)
+# Persistent message streams with sequence-based replay.
+# Each tenant gets its own stream for noisy-tenant isolation.
+jetstream:
+  # Empty = dynamic default (nats://{{ .Release.Name }}-nats:4222)
+  urls: ""
+  token: ""
+  user: ""
+  password: ""
+  # Use existing secret for token/password (recommended for production)
+  existingSecret: ""
+  existingSecretTokenKey: "nats-jetstream-token"
+  existingSecretPasswordKey: "nats-jetstream-password"
+  replicas: 1
+  maxAge: "24h"
+  # TLS Encryption (for managed NATS JetStream: Synadia Cloud, etc.)
+  tls:
+    enabled: false
+    insecureSkipVerify: false
+    caPath: ""
 
 kafka:
   # Empty = dynamic default ({{ .Release.Name }}-redpanda:9092)
@@ -159,6 +211,10 @@ kafka:
   # Example: main.acme-corp.trade, main.acme-corp.liquidity
   # These are created via the Provisioning API when tenants are onboarded.
   # See docs/architecture/MULTI_TENANT_AUTH.md for details.
+
+  # Kafka topic defaults (for on-demand topic creation by KafkaBackend)
+  defaultPartitions: 1
+  defaultReplicationFactor: 1
 
   # SASL Authentication (for managed Kafka/Redpanda services)
   sasl:

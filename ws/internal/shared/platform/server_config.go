@@ -44,7 +44,20 @@ const (
 //	required: Must be provided (no default)
 type ServerConfig struct {
 	// Server basics
-	Addr         string `env:"WS_ADDR" envDefault:":3002"`
+	Addr string `env:"WS_ADDR" envDefault:":3002"`
+
+	// Message Backend Selection
+	//
+	// Controls which message ingestion/persistence layer the ws-server uses.
+	// - "direct": Messages flow directly to broadcast bus. No persistence, no replay.
+	//   Zero external dependencies beyond the broadcast bus. Default for lowest friction.
+	// - "kafka": Full Kafka/Redpanda integration. Persistence, offset-based replay,
+	//   multi-tenant consumer isolation. Requires Kafka infrastructure.
+	// - "nats": NATS JetStream persistent streams. Sequence-based replay,
+	//   stream-per-tenant isolation. Lighter than Kafka.
+	MessageBackend string `env:"MESSAGE_BACKEND" envDefault:"direct"`
+
+	// Kafka Configuration (only used when MESSAGE_BACKEND=kafka)
 	KafkaBrokers string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"`
 
 	// KafkaConsumerEnabled controls whether the Kafka consumer pool is started.
@@ -76,6 +89,10 @@ type ServerConfig struct {
 	KafkaTLSEnabled  bool   `env:"KAFKA_TLS_ENABLED" envDefault:"false"`
 	KafkaTLSInsecure bool   `env:"KAFKA_TLS_INSECURE" envDefault:"false"`
 	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`
+
+	// Kafka Topic Defaults (for on-demand topic creation by KafkaBackend)
+	KafkaDefaultPartitions        int `env:"KAFKA_DEFAULT_PARTITIONS" envDefault:"1"`
+	KafkaDefaultReplicationFactor int `env:"KAFKA_DEFAULT_REPLICATION_FACTOR" envDefault:"1"`
 
 	// Resource limits
 	// Note: CPU limit is detected automatically via automaxprocs reading cgroup
@@ -254,6 +271,39 @@ type ServerConfig struct {
 	NATSToken       string   `env:"NATS_TOKEN"`
 	NATSUser        string   `env:"NATS_USER"`
 	NATSPassword    string   `env:"NATS_PASSWORD"`
+
+	// NATS Broadcast Bus TLS (for managed NATS: Synadia Cloud, etc.)
+	NATSTLSEnabled  bool   `env:"NATS_TLS_ENABLED" envDefault:"false"`
+	NATSTLSInsecure bool   `env:"NATS_TLS_INSECURE" envDefault:"false"`
+	NATSTLSCAPath   string `env:"NATS_TLS_CA_PATH"`
+
+	// Valkey Broadcast Bus TLS (for managed Valkey/Redis: ElastiCache, Memorystore, Upstash, etc.)
+	ValkeyTLSEnabled  bool   `env:"VALKEY_TLS_ENABLED" envDefault:"false"`
+	ValkeyTLSInsecure bool   `env:"VALKEY_TLS_INSECURE" envDefault:"false"`
+	ValkeyTLSCAPath   string `env:"VALKEY_TLS_CA_PATH"`
+
+	// NATS JetStream Configuration (only used when MESSAGE_BACKEND=nats)
+	//
+	// Connects to an external NATS server with JetStream enabled for persistent
+	// message streams and sequence-based replay. Each tenant gets its own stream
+	// for natural noisy-tenant isolation.
+	NATSJetStreamURLs        string        `env:"NATS_JETSTREAM_URLS"`                              // Comma-separated NATS URLs
+	NATSJetStreamToken       string        `env:"NATS_JETSTREAM_TOKEN"`                             // Auth token
+	NATSJetStreamUser        string        `env:"NATS_JETSTREAM_USER"`                              // Username
+	NATSJetStreamPassword    string        `env:"NATS_JETSTREAM_PASSWORD"`                          // Password
+	NATSJetStreamReplicas    int           `env:"NATS_JETSTREAM_REPLICAS" envDefault:"1"`            // Stream replicas
+	NATSJetStreamMaxAge      time.Duration `env:"NATS_JETSTREAM_MAX_AGE" envDefault:"24h"`           // Message retention
+	NATSJetStreamTLSEnabled  bool          `env:"NATS_JETSTREAM_TLS_ENABLED" envDefault:"false"`     // TLS for managed NATS (Synadia Cloud, etc.)
+	NATSJetStreamTLSInsecure bool          `env:"NATS_JETSTREAM_TLS_INSECURE" envDefault:"false"`    // Skip TLS verification (not for production)
+	NATSJetStreamTLSCAPath   string        `env:"NATS_JETSTREAM_TLS_CA_PATH"`                       // Custom CA certificate path
+
+	// Topic Refresh Interval
+	//
+	// How often to periodically re-sync tenant topics/streams from the registry.
+	// This is a safety net — primary updates come from the gRPC stream. The periodic
+	// refresh catches any events missed during transient disconnects.
+	// Applies to both Kafka (MultiTenantConsumerPool) and NATS JetStream backends.
+	TopicRefreshInterval time.Duration `env:"TOPIC_REFRESH_INTERVAL" envDefault:"60s"`
 
 	// Multi-Tenant Consumer Configuration (Required)
 	//
@@ -447,8 +497,42 @@ func (c *ServerConfig) Validate() error {
 	// NOTE: Authentication is now handled by ws-gateway
 	// No auth config validation needed in ws-server
 
-	// Kafka SASL validation
-	if c.KafkaSASLEnabled {
+	// Message backend validation
+	validBackends := map[string]bool{"direct": true, "kafka": true, "nats": true}
+	if !validBackends[c.MessageBackend] {
+		return fmt.Errorf("MESSAGE_BACKEND must be one of: direct, kafka, nats (got: %q)", c.MessageBackend)
+	}
+
+	// NATS JetStream validation (when MESSAGE_BACKEND=nats)
+	if c.MessageBackend == "nats" {
+		if c.NATSJetStreamURLs == "" {
+			return errors.New("NATS_JETSTREAM_URLS is required when MESSAGE_BACKEND=nats")
+		}
+		if c.NATSJetStreamReplicas < 1 {
+			return fmt.Errorf("NATS_JETSTREAM_REPLICAS must be >= 1, got %d", c.NATSJetStreamReplicas)
+		}
+		if c.NATSJetStreamMaxAge < 1*time.Minute {
+			return fmt.Errorf("NATS_JETSTREAM_MAX_AGE must be >= 1m, got %v", c.NATSJetStreamMaxAge)
+		}
+	}
+
+	// Topic refresh interval validation (applies to kafka and nats backends)
+	if c.MessageBackend != "direct" && c.TopicRefreshInterval < 1*time.Second {
+		return fmt.Errorf("TOPIC_REFRESH_INTERVAL must be >= 1s, got %v", c.TopicRefreshInterval)
+	}
+
+	// Kafka topic defaults validation (only relevant when MESSAGE_BACKEND=kafka)
+	if c.MessageBackend == "kafka" {
+		if c.KafkaDefaultPartitions < 1 {
+			return fmt.Errorf("KAFKA_DEFAULT_PARTITIONS must be >= 1, got %d", c.KafkaDefaultPartitions)
+		}
+		if c.KafkaDefaultReplicationFactor < 1 {
+			return fmt.Errorf("KAFKA_DEFAULT_REPLICATION_FACTOR must be >= 1, got %d", c.KafkaDefaultReplicationFactor)
+		}
+	}
+
+	// Kafka SASL validation (only relevant when MESSAGE_BACKEND=kafka)
+	if c.MessageBackend == "kafka" && c.KafkaSASLEnabled {
 		if err := ValidateKafkaSASLMechanism(c.KafkaSASLMechanism); err != nil {
 			return err
 		}
@@ -512,6 +596,7 @@ func (c *ServerConfig) Print() {
 		fmt.Printf("Topic Namespace: %s (override)\n", c.KafkaTopicNamespaceOverride)
 	}
 	fmt.Printf("Address:         %s\n", c.Addr)
+	fmt.Printf("Message Backend: %s\n", c.MessageBackend)
 	fmt.Printf("Kafka Brokers:   %s\n", c.KafkaBrokers)
 	fmt.Printf("Consumer Enabled: %v\n", c.KafkaConsumerEnabled)
 	fmt.Println("\n=== Kafka Security ===")
@@ -572,6 +657,19 @@ func (c *ServerConfig) Print() {
 		fmt.Printf("Subject:         %s\n", c.NATSSubject)
 		fmt.Printf("Token Auth:      %v\n", c.NATSToken != "")
 		fmt.Printf("User Auth:       %v\n", c.NATSUser != "")
+		fmt.Printf("TLS Enabled:     %v\n", c.NATSTLSEnabled)
+	}
+	if c.BroadcastType == "valkey" && c.ValkeyTLSEnabled {
+		fmt.Printf("Valkey TLS:      %v\n", c.ValkeyTLSEnabled)
+	}
+	if c.MessageBackend == "nats" {
+		fmt.Println("\n=== NATS JetStream ===")
+		fmt.Printf("JetStream URLs:  %s\n", c.NATSJetStreamURLs)
+		fmt.Printf("Replicas:        %d\n", c.NATSJetStreamReplicas)
+		fmt.Printf("Max Age:         %s\n", c.NATSJetStreamMaxAge)
+		fmt.Printf("TLS Enabled:     %v\n", c.NATSJetStreamTLSEnabled)
+		fmt.Printf("Token Auth:      %v\n", c.NATSJetStreamToken != "")
+		fmt.Printf("User Auth:       %v\n", c.NATSJetStreamUser != "")
 	}
 	fmt.Println("\n=== Client Buffers ===")
 	fmt.Printf("Send Buffer:     %d slots (~%dKB/client)\n", c.ClientSendBufferSize, c.ClientSendBufferSize/2)
@@ -598,6 +696,7 @@ func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 		Str("environment", c.Environment).
 		Str("kafka_topic_namespace_override", c.KafkaTopicNamespaceOverride).
 		Str("addr", c.Addr).
+		Str("message_backend", c.MessageBackend).
 		Str("kafka_brokers", c.KafkaBrokers).
 		Bool("kafka_consumer_enabled", c.KafkaConsumerEnabled).
 		Bool("kafka_sasl_enabled", c.KafkaSASLEnabled).
@@ -640,7 +739,19 @@ func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 		Str("nats_subject", c.NATSSubject).
 		Bool("nats_token_set", c.NATSToken != "").
 		Bool("nats_user_set", c.NATSUser != "").
+		Bool("nats_tls_enabled", c.NATSTLSEnabled).
+		Bool("valkey_tls_enabled", c.ValkeyTLSEnabled).
+		Str("nats_jetstream_urls", c.NATSJetStreamURLs).
+		Int("nats_jetstream_replicas", c.NATSJetStreamReplicas).
+		Dur("nats_jetstream_max_age", c.NATSJetStreamMaxAge).
+		Bool("nats_jetstream_tls_enabled", c.NATSJetStreamTLSEnabled).
+		Bool("nats_jetstream_token_set", c.NATSJetStreamToken != "").
+		Bool("nats_jetstream_user_set", c.NATSJetStreamUser != "").
 		Int("client_send_buffer_size", c.ClientSendBufferSize).
+		Int("slow_client_max_attempts", c.SlowClientMaxAttempts).
+		Int("kafka_default_partitions", c.KafkaDefaultPartitions).
+		Int("kafka_default_replication_factor", c.KafkaDefaultReplicationFactor).
+		Dur("topic_refresh_interval", c.TopicRefreshInterval).
 		Str("provisioning_grpc_addr", c.ProvisioningGRPCAddr).
 		Dur("grpc_reconnect_delay", c.GRPCReconnectDelay).
 		Dur("grpc_reconnect_max_delay", c.GRPCReconnectMaxDelay).

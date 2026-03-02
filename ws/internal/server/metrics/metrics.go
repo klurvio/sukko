@@ -210,6 +210,48 @@ var (
 )
 
 // =============================================================================
+// Backend-Agnostic Metrics
+// =============================================================================
+
+var (
+	backendMessagesPublished = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_backend_messages_published_total",
+		Help: "Total messages published through the message backend",
+	}, []string{"backend"})
+
+	backendMessagesConsumed = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_backend_messages_consumed_total",
+		Help: "Total messages consumed from the message backend",
+	}, []string{"backend"})
+
+	backendPublishErrors = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_backend_publish_errors_total",
+		Help: "Total publish errors by message backend",
+	}, []string{"backend"})
+
+	backendReplayRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_backend_replay_requests_total",
+		Help: "Total replay requests by message backend",
+	}, []string{"backend"})
+
+	backendReplayMessages = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_backend_replay_messages_total",
+		Help: "Total messages replayed by message backend",
+	}, []string{"backend"})
+
+	backendPublishLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "ws_backend_publish_latency_seconds",
+		Help:    "Publish latency by message backend",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"backend"})
+
+	backendHealthy = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "ws_backend_healthy",
+		Help: "Message backend health status (1=healthy, 0=unhealthy)",
+	}, []string{"backend"})
+)
+
+// =============================================================================
 // Capacity Metrics
 // =============================================================================
 
@@ -419,6 +461,49 @@ func IncrementMessagesPublished() {
 // IncrementPublishErrors increments Kafka publish error counter.
 func IncrementPublishErrors() {
 	kafkaPublishErrors.Inc()
+}
+
+// =============================================================================
+// Backend Helper Functions
+// =============================================================================
+
+// RecordBackendPublish increments the backend publish counter.
+func RecordBackendPublish(backend string) {
+	backendMessagesPublished.WithLabelValues(backend).Inc()
+}
+
+// RecordBackendConsume increments the backend consume counter.
+func RecordBackendConsume(backend string) {
+	backendMessagesConsumed.WithLabelValues(backend).Inc()
+}
+
+// RecordBackendPublishError increments the backend publish error counter.
+func RecordBackendPublishError(backend string) {
+	backendPublishErrors.WithLabelValues(backend).Inc()
+}
+
+// RecordBackendReplayRequest increments the backend replay request counter.
+func RecordBackendReplayRequest(backend string) {
+	backendReplayRequests.WithLabelValues(backend).Inc()
+}
+
+// RecordBackendReplayMessages increments the replay messages counter.
+func RecordBackendReplayMessages(backend string, count int) {
+	backendReplayMessages.WithLabelValues(backend).Add(float64(count))
+}
+
+// RecordBackendPublishLatency records publish latency for a backend.
+func RecordBackendPublishLatency(backend string, seconds float64) {
+	backendPublishLatency.WithLabelValues(backend).Observe(seconds)
+}
+
+// SetBackendHealthy sets the backend health gauge.
+func SetBackendHealthy(backend string, healthy bool) {
+	if healthy {
+		backendHealthy.WithLabelValues(backend).Set(1)
+	} else {
+		backendHealthy.WithLabelValues(backend).Set(0)
+	}
 }
 
 // =============================================================================
