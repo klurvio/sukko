@@ -124,21 +124,6 @@ redpanda:
     annotations:
       cloud.google.com/load-balancer-type: "Internal"
 
-# ── PostgreSQL ──────────────────────────────────────────────────────
-postgresql:
-  enabled: true
-  auth:
-    database: odin_provisioning
-    username: odin
-  persistence:
-    enabled: true
-    size: 1Gi
-  tolerations:
-    - key: "cloud.google.com/gke-spot"
-      operator: "Equal"
-      value: "true"
-      effect: "NoSchedule"
-
 # ── NATS ────────────────────────────────────────────────────────────
 nats:
   enabled: true

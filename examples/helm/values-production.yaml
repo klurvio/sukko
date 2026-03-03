@@ -64,6 +64,7 @@ ws-server:
 provisioning:
   replicaCount: 2
   environment: prod
+  databaseDriver: postgres
   # External PostgreSQL (required for multi-replica)
   externalDatabase:
     existingSecret: "provisioning-db-credentials"  # K8s secret containing database URL

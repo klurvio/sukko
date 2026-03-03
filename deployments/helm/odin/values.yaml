@@ -7,14 +7,52 @@
 # 1. Minimal (default):    direct + NATS broadcast + SQLite
 #    → Just `helm install odin .` — no external dependencies needed
 #
-# 2. Kafka mode:           Set ws-server.messageBackend=kafka, enable redpanda
-#    → See examples/helm/values-kafka.yaml
+# ── Kafka/Redpanda message backend ──────────────────────────────────
+# Copy this block to enable Kafka ingestion via in-cluster Redpanda:
 #
-# 3. NATS JetStream mode:  Set ws-server.messageBackend=nats, enable jetstream
-#    → See examples/helm/values-nats-jetstream.yaml
+# ws-server:
+#   messageBackend: kafka
+# redpanda:
+#   enabled: true
 #
-# 4. Production mode:      External Kafka + PostgreSQL + auth + autoscaling
-#    → See examples/helm/values-production.yaml
+# For external/managed Kafka, use instead:
+#
+# ws-server:
+#   messageBackend: kafka
+#   kafka:
+#     brokers: "your-kafka-host:9092"
+#
+# ── NATS JetStream message backend ──────────────────────────────────
+# Copy this block for lightweight persistent streaming:
+#
+# ws-server:
+#   messageBackend: nats
+# nats:
+#   jetstream:
+#     enabled: true
+#
+# ── Valkey broadcast bus ────────────────────────────────────────────
+# Copy this block to replace NATS with Valkey for broadcast:
+#
+# ws-server:
+#   broadcastType: valkey
+# valkey:
+#   enabled: true
+#
+# ── PostgreSQL provisioning database ────────────────────────────────
+# Copy this block for production-grade storage:
+#
+# provisioning:
+#   databaseDriver: postgres
+# postgresql:
+#   enabled: true
+#
+# For external PostgreSQL, use instead:
+#
+# provisioning:
+#   databaseDriver: postgres
+#   externalDatabase:
+#     existingSecret: "my-db-credentials"
 #
 # Go envDefault values are the source of truth for application config.
 # Override any setting via extraEnv on each service.
@@ -24,9 +62,6 @@ global:
   imageRegistry: ""
   labels:
     app.kubernetes.io/part-of: odin
-  # PostgreSQL bundled (default: false → SQLite in provisioning)
-  postgresql:
-    enabled: false
 
 # =============================================================================
 # Kernel Tuning DaemonSet
@@ -84,8 +119,7 @@ ws-server:
     pullPolicy: IfNotPresent
   # Mode selections (Go defaults: direct + nats)
   messageBackend: direct
-  broadcast:
-    type: nats
+  broadcastType: nats
   connectionLimits:
     clusterMaxConnections: 100000
   resources:
@@ -118,7 +152,9 @@ provisioning:
     repository: odin-provisioning
     tag: latest
     pullPolicy: IfNotPresent
-  # External PostgreSQL (optional — overrides SQLite default)
+  # Database driver: "sqlite" (Go default) or "postgres"
+  databaseDriver: sqlite
+  # External PostgreSQL (when databaseDriver=postgres without postgresql.enabled)
   externalDatabase:
     url: ""
     existingSecret: ""

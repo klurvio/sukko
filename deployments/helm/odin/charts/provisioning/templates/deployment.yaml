@@ -1,16 +1,5 @@
 {{- if .Values.enabled }}
-{{- /*
-  Auto-derive DATABASE_DRIVER from values:
-  - If externalDatabase.url or externalDatabase.existingSecret is set → postgres
-  - If global.postgresql.enabled → postgres
-  - Otherwise → sqlite (default)
-*/ -}}
-{{- $dbDriver := "sqlite" -}}
-{{- if or .Values.externalDatabase.url .Values.externalDatabase.existingSecret -}}
-  {{- $dbDriver = "postgres" -}}
-{{- else if .Values.global.postgresql.enabled -}}
-  {{- $dbDriver = "postgres" -}}
-{{- end -}}
+{{- $dbDriver := .Values.databaseDriver | default "sqlite" -}}
 {{- /* Guard: SQLite requires exactly 1 replica */ -}}
 {{- if and (eq $dbDriver "sqlite") (gt (int .Values.replicaCount) 1) -}}
   {{- fail "replicaCount must be 1 when using SQLite (default). Use PostgreSQL for horizontal scaling." -}}
@@ -72,9 +61,11 @@ spec:
             - name: ENVIRONMENT
               value: {{ .Values.environment | default "local" | quote }}
 
-            # Database driver (auto-derived from externalDatabase presence)
+            # Database driver (only injected when non-default)
+            {{- if ne $dbDriver "sqlite" }}
             - name: DATABASE_DRIVER
               value: {{ $dbDriver | quote }}
+            {{- end }}
 
             {{- if eq $dbDriver "sqlite" }}
             # SQLite database path

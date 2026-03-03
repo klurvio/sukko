@@ -1,8 +1,5 @@
 {{- if .Values.enabled }}
-{{- $broadcastType := "nats" }}
-{{- if .Values.broadcast }}
-  {{- $broadcastType = .Values.broadcast.type | default "nats" }}
-{{- end }}
+{{- $broadcastType := .Values.broadcastType | default "nats" }}
 {{- $needsKafka := eq (.Values.messageBackend | default "direct") "kafka" -}}
 {{- $needsJetStream := eq (.Values.messageBackend | default "direct") "nats" -}}
 apiVersion: batch/v1
@@ -49,13 +46,13 @@ spec:
           env:
             - name: ENVIRONMENT
               value: {{ .Values.environment | default "local" | quote }}
-            {{- if .Values.messageBackend }}
+            {{- if and .Values.messageBackend (ne .Values.messageBackend "direct") }}
             - name: MESSAGE_BACKEND
               value: {{ .Values.messageBackend | quote }}
             {{- end }}
-            {{- if .Values.broadcast }}
+            {{- if ne $broadcastType "nats" }}
             - name: BROADCAST_TYPE
-              value: {{ .Values.broadcast.type | default "nats" | quote }}
+              value: {{ $broadcastType | quote }}
             {{- end }}
             - name: NATS_URLS
               value: {{ .Values.nats.urls | default (printf "nats://%s-nats:4222" .Release.Name) | quote }}
@@ -144,7 +141,7 @@ spec:
             {{- end }}
 
             {{- if eq $broadcastType "valkey" }}
-            # Valkey (only when broadcast.type=valkey)
+            # Valkey (only when broadcastType=valkey)
             - name: VALKEY_ADDRS
               value: {{ .Values.valkey.addrs | default (printf "%s-valkey:6379" .Release.Name) | quote }}
             {{- if .Values.valkey.password }}

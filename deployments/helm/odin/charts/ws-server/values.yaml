@@ -31,8 +31,7 @@ messageBackend: direct
 
 # Broadcast Bus: "nats" (Go default) or "valkey"
 # Inter-pod pub/sub for message fan-out across server instances.
-broadcast:
-  type: nats
+broadcastType: nats
 
 # Cluster-wide max WebSocket connections. Per-pod = cluster / replicaCount.
 connectionLimits:
