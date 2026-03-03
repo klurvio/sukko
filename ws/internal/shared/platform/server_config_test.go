@@ -18,14 +18,14 @@ func newValidServerConfig() *ServerConfig {
 		MaxBroadcastRate:           100,
 		MaxGoroutines:              1000,
 		ConnectionRateLimitEnabled: true,
-		ConnRateLimitIPBurst:       10,
-		ConnRateLimitIPRate:        1.0,
+		ConnRateLimitIPBurst:       100,
+		ConnRateLimitIPRate:        100.0,
 		ConnRateLimitGlobalBurst:   300,
 		ConnRateLimitGlobalRate:    50.0,
 		CPURejectThreshold:         75.0,
-		CPURejectThresholdLower:    65.0,
+		CPURejectThresholdLower:    65.0, // Explicit: non-zero skips auto-compute
 		CPUPauseThreshold:          80.0,
-		CPUPauseThresholdLower:     70.0,
+		CPUPauseThresholdLower:     70.0, // Explicit: non-zero skips auto-compute
 		TCPListenBacklog:           2048,
 		HTTPReadTimeout:            15 * time.Second,
 		HTTPWriteTimeout:           15 * time.Second,
@@ -34,10 +34,9 @@ func newValidServerConfig() *ServerConfig {
 		CPUPollInterval:            1 * time.Second,
 		LogLevel:                   "info",
 		LogFormat:                  "json",
-		ValkeyAddrs:                []string{"localhost:26379"},
-		ValkeyMasterName:           "mymaster",
-		ValkeyChannel:              "ws.broadcast",
-		ValkeyDB:                   0,
+		BroadcastType:              "nats",
+		NATSURLs:                   []string{"nats://localhost:4222"},
+		NATSSubject:                "ws.broadcast",
 		ClientSendBufferSize:       512,
 		SlowClientMaxAttempts:      3,
 		// Topic refresh interval (required for kafka/nats backends)
@@ -237,6 +236,7 @@ func TestServerConfig_Validate_Valkey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidServerConfig()
+			cfg.BroadcastType = "valkey"
 			cfg.ValkeyAddrs = tt.addrs
 			cfg.ValkeyDB = tt.db
 			cfg.ValkeyChannel = tt.channel
@@ -254,6 +254,79 @@ func TestServerConfig_Validate_Valkey(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestServerConfig_Validate_BroadcastType(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		bType       string
+		shouldError bool
+	}{
+		{"nats", "nats", false},
+		{"valkey", "valkey", false},
+		{"redis", "redis", false},
+		{"empty", "", true},
+		{"invalid", "rabbitmq", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.BroadcastType = tt.bType
+			if tt.bType == "valkey" || tt.bType == "redis" {
+				cfg.ValkeyAddrs = []string{"localhost:26379"}
+				cfg.ValkeyMasterName = "mymaster"
+				cfg.ValkeyChannel = "ws.broadcast"
+			}
+			err := cfg.Validate()
+			if tt.shouldError && err == nil {
+				t.Error("Should error")
+			}
+			if !tt.shouldError && err != nil {
+				t.Errorf("Should not error: %v", err)
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_HysteresisAutoCompute(t *testing.T) {
+	t.Parallel()
+
+	// When lower = 0 (sentinel), auto-compute as upper - 10
+	cfg := newValidServerConfig()
+	cfg.CPURejectThreshold = 60.0
+	cfg.CPURejectThresholdLower = 0 // sentinel
+	cfg.CPUPauseThreshold = 70.0
+	cfg.CPUPauseThresholdLower = 0 // sentinel
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Auto-compute should produce valid config: %v", err)
+	}
+	if cfg.CPURejectThresholdLower != 50.0 {
+		t.Errorf("CPURejectThresholdLower should be 50.0 (auto: 60-10), got %.1f", cfg.CPURejectThresholdLower)
+	}
+	if cfg.CPUPauseThresholdLower != 60.0 {
+		t.Errorf("CPUPauseThresholdLower should be 60.0 (auto: 70-10), got %.1f", cfg.CPUPauseThresholdLower)
+	}
+
+	// When lower is explicitly set (non-zero), it is NOT overridden
+	cfg2 := newValidServerConfig()
+	cfg2.CPURejectThreshold = 75.0
+	cfg2.CPURejectThresholdLower = 60.0 // explicit
+	cfg2.CPUPauseThreshold = 80.0
+	cfg2.CPUPauseThresholdLower = 65.0 // explicit
+
+	if err := cfg2.Validate(); err != nil {
+		t.Errorf("Explicit lower thresholds should be valid: %v", err)
+	}
+	if cfg2.CPURejectThresholdLower != 60.0 {
+		t.Errorf("Explicit CPURejectThresholdLower should remain 60.0, got %.1f", cfg2.CPURejectThresholdLower)
+	}
+	if cfg2.CPUPauseThresholdLower != 65.0 {
+		t.Errorf("Explicit CPUPauseThresholdLower should remain 65.0, got %.1f", cfg2.CPUPauseThresholdLower)
 	}
 }
 

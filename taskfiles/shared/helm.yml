@@ -59,3 +59,29 @@ tasks:
       vars: [NAMESPACE]
     cmds:
       - helm rollback odin -n {{.NAMESPACE}}
+
+  lint:examples:
+    desc: Lint and template-render all example Helm values files
+    vars:
+      EXAMPLES_DIR: '{{.ROOT_DIR}}/examples/helm'
+    cmds:
+      - |
+        ERRORS=0
+        for f in {{.EXAMPLES_DIR}}/values-*.yaml; do
+          [ -f "$f" ] || continue
+          NAME=$(basename "$f")
+          echo "=== Linting with $NAME ==="
+          if ! helm lint {{.CHART_PATH}} -f "$f"; then
+            ERRORS=$((ERRORS + 1))
+          fi
+          echo "=== Templating with $NAME ==="
+          if ! helm template odin {{.CHART_PATH}} -f "$f" > /dev/null; then
+            ERRORS=$((ERRORS + 1))
+          fi
+          echo ""
+        done
+        if [ $ERRORS -gt 0 ]; then
+          echo "FAILED: $ERRORS error(s) found"
+          exit 1
+        fi
+        echo "All example values files passed lint and template checks"

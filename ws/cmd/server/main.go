@@ -30,10 +30,11 @@ import (
 
 func main() {
 	var (
-		debug     = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
-		numShards = flag.Int("shards", 3, "number of shards to run")
-		basePort  = flag.Int("base-port", 3002, "base port for shards (e.g., 3002, 3003, ...)")
-		lbAddr    = flag.String("lb-addr", ":3005", "address for the load balancer to listen on")
+		debug          = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
+		validateConfig = flag.Bool("validate-config", false, "validate configuration and exit")
+		numShards      = flag.Int("shards", 3, "number of shards to run")
+		basePort       = flag.Int("base-port", 3002, "base port for shards (e.g., 3002, 3003, ...)")
+		lbAddr         = flag.String("lb-addr", ":3005", "address for the load balancer to listen on")
 	)
 	flag.Parse()
 
@@ -54,6 +55,13 @@ func main() {
 	if *debug {
 		cfg.LogLevel = "debug"
 		logger.Printf("Debug mode enabled via flag")
+	}
+
+	// --validate-config: validate and exit
+	if *validateConfig {
+		cfg.Print()
+		logger.Println("Configuration is valid.")
+		os.Exit(0)
 	}
 
 	// Print human-readable config for startup logs
@@ -288,6 +296,7 @@ func main() {
 		HTTPReadTimeout:  cfg.HTTPReadTimeout,
 		HTTPWriteTimeout: cfg.HTTPWriteTimeout,
 		HTTPIdleTimeout:  cfg.HTTPIdleTimeout,
+		ConfigHandler:    platform.ConfigHandler(cfg),
 	})
 	if err != nil {
 		logger.Fatalf("Failed to create load balancer: %v", err)

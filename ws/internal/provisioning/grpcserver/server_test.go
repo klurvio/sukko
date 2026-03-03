@@ -3,6 +3,7 @@ package grpcserver_test
 import (
 	"context"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,9 +14,10 @@ import (
 
 	provisioningv1 "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning/configstore"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/eventbus"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/grpcserver"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/testutil"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 const bufSize = 1024 * 1024
@@ -26,21 +28,132 @@ MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEVs/o5+uQbTjL3chynL4wXgUg2R9
 q9UU8I5mEovUf86QZ7kOBIjJwqnzD1omageEHWwHdBO6B+dFabmdT9POxg==
 -----END PUBLIC KEY-----`
 
-// noopKafkaAdmin satisfies provisioning.KafkaAdmin for tests.
-type noopKafkaAdmin struct{}
+// mockOIDCConfigStore is a minimal in-memory OIDCConfigStore for gRPC server tests.
+type mockOIDCConfigStore struct {
+	mu      sync.RWMutex
+	configs map[string]*types.TenantOIDCConfig
+}
 
-func (n *noopKafkaAdmin) CreateTopic(_ context.Context, _ string, _ int, _ map[string]string) error {
+func newMockOIDCConfigStore() *mockOIDCConfigStore {
+	return &mockOIDCConfigStore{configs: make(map[string]*types.TenantOIDCConfig)}
+}
+
+func (m *mockOIDCConfigStore) Create(_ context.Context, config *types.TenantOIDCConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.configs[config.TenantID] = config
 	return nil
 }
-func (n *noopKafkaAdmin) DeleteTopic(_ context.Context, _ string) error    { return nil }
-func (n *noopKafkaAdmin) TopicExists(_ context.Context, _ string) (bool, error) { return true, nil }
-func (n *noopKafkaAdmin) SetTopicConfig(_ context.Context, _ string, _ map[string]string) error {
+
+func (m *mockOIDCConfigStore) Get(_ context.Context, tenantID string) (*types.TenantOIDCConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if cfg, ok := m.configs[tenantID]; ok {
+		return cfg, nil
+	}
+	return nil, types.ErrOIDCNotConfigured
+}
+
+func (m *mockOIDCConfigStore) GetByIssuer(_ context.Context, issuerURL string) (*types.TenantOIDCConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, cfg := range m.configs {
+		if cfg.IssuerURL == issuerURL {
+			return cfg, nil
+		}
+	}
+	return nil, types.ErrIssuerNotFound
+}
+
+func (m *mockOIDCConfigStore) Update(_ context.Context, config *types.TenantOIDCConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.configs[config.TenantID] = config
 	return nil
 }
-func (n *noopKafkaAdmin) CreateACL(_ context.Context, _ provisioning.ACLBinding) error { return nil }
-func (n *noopKafkaAdmin) DeleteACL(_ context.Context, _ provisioning.ACLBinding) error { return nil }
-func (n *noopKafkaAdmin) SetQuota(_ context.Context, _ string, _ provisioning.QuotaConfig) error {
+
+func (m *mockOIDCConfigStore) Delete(_ context.Context, tenantID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.configs, tenantID)
 	return nil
+}
+
+func (m *mockOIDCConfigStore) ListEnabled(_ context.Context) ([]*types.TenantOIDCConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []*types.TenantOIDCConfig
+	for _, cfg := range m.configs {
+		if cfg.Enabled {
+			result = append(result, cfg)
+		}
+	}
+	return result, nil
+}
+
+// mockChannelRulesStore is a minimal in-memory ChannelRulesStore for gRPC server tests.
+type mockChannelRulesStore struct {
+	mu    sync.RWMutex
+	rules map[string]*types.TenantChannelRules
+}
+
+func newMockChannelRulesStore() *mockChannelRulesStore {
+	return &mockChannelRulesStore{rules: make(map[string]*types.TenantChannelRules)}
+}
+
+func (m *mockChannelRulesStore) Create(_ context.Context, tenantID string, rules *types.ChannelRules) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rules[tenantID] = &types.TenantChannelRules{
+		TenantID: tenantID,
+		Rules:    *rules,
+	}
+	return nil
+}
+
+func (m *mockChannelRulesStore) Get(_ context.Context, tenantID string) (*types.TenantChannelRules, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if r, ok := m.rules[tenantID]; ok {
+		return r, nil
+	}
+	return nil, types.ErrChannelRulesNotFound
+}
+
+func (m *mockChannelRulesStore) GetRules(_ context.Context, tenantID string) (*types.ChannelRules, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if r, ok := m.rules[tenantID]; ok {
+		return &r.Rules, nil
+	}
+	return nil, types.ErrChannelRulesNotFound
+}
+
+func (m *mockChannelRulesStore) Update(_ context.Context, tenantID string, rules *types.ChannelRules) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rules[tenantID] = &types.TenantChannelRules{
+		TenantID: tenantID,
+		Rules:    *rules,
+	}
+	return nil
+}
+
+func (m *mockChannelRulesStore) Delete(_ context.Context, tenantID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.rules, tenantID)
+	return nil
+}
+
+func (m *mockChannelRulesStore) List(_ context.Context) ([]*types.TenantChannelRules, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []*types.TenantChannelRules
+	for _, r := range m.rules {
+		result = append(result, r)
+	}
+	return result, nil
 }
 
 // testEnv holds all test infrastructure.
@@ -56,26 +169,72 @@ func (te *testEnv) close() {
 	te.conn.Close()
 }
 
-// setupTestEnv creates a gRPC server with a configstore-backed service on bufconn.
-func setupTestEnv(t *testing.T, cfg *configstore.ConfigFile) *testEnv {
+// setupTestEnv creates a gRPC server with mock-store-backed service on bufconn.
+func setupTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 
 	logger := zerolog.Nop()
 
-	// Build in-memory stores from config
-	stores := configstore.BuildStores(cfg, logger)
+	// Build mock stores and seed test data
+	tenantStore := testutil.NewMockTenantStore()
+	keyStore := testutil.NewMockKeyStore()
+	topicStore := testutil.NewMockTopicStore()
+	quotaStore := testutil.NewMockQuotaStore()
+	auditStore := testutil.NewMockAuditStore()
+	oidcStore := newMockOIDCConfigStore()
+	channelRulesStore := newMockChannelRulesStore()
+
+	ctx := context.Background()
+
+	// Seed tenant
+	tenant := testutil.NewTestTenant("test-tenant")
+	if err := tenantStore.Create(ctx, tenant); err != nil {
+		t.Fatalf("seed tenant: %v", err)
+	}
+
+	// Seed key
+	key := testutil.NewTestTenantKey("key-one", "test-tenant")
+	key.Algorithm = "ES256"
+	key.PublicKey = testPublicKeyPEM
+	if err := keyStore.Create(ctx, key); err != nil {
+		t.Fatalf("seed key: %v", err)
+	}
+
+	// Seed topic category
+	topic := testutil.NewTestTenantTopic("test-tenant", "trade")
+	if err := topicStore.Create(ctx, topic); err != nil {
+		t.Fatalf("seed topic: %v", err)
+	}
+
+	// Seed OIDC config
+	if err := oidcStore.Create(ctx, &types.TenantOIDCConfig{
+		TenantID:  "test-tenant",
+		IssuerURL: "https://auth.example.com",
+		Audience:  "my-api",
+		Enabled:   true,
+	}); err != nil {
+		t.Fatalf("seed OIDC: %v", err)
+	}
+
+	// Seed channel rules
+	if err := channelRulesStore.Create(ctx, "test-tenant", &types.ChannelRules{
+		Public:  []string{"*.trade"},
+		Default: []string{"news"},
+	}); err != nil {
+		t.Fatalf("seed channel rules: %v", err)
+	}
 
 	bus := eventbus.New(logger)
 
 	svc := provisioning.NewService(provisioning.ServiceConfig{
-		TenantStore:       stores.TenantStore(),
-		KeyStore:          stores.KeyStore(),
-		TopicStore:        stores.TopicStore(),
-		QuotaStore:        stores.QuotaStore(),
-		AuditStore:        stores.AuditStore(),
-		OIDCConfigStore:   stores.OIDCConfigStore(),
-		ChannelRulesStore: stores.ChannelRulesStore(),
-		KafkaAdmin:        &noopKafkaAdmin{},
+		TenantStore:       tenantStore,
+		KeyStore:          keyStore,
+		TopicStore:        topicStore,
+		QuotaStore:        quotaStore,
+		AuditStore:        auditStore,
+		OIDCConfigStore:   oidcStore,
+		ChannelRulesStore: channelRulesStore,
+		KafkaAdmin:        testutil.NewMockKafkaAdmin(),
 		EventBus:          bus,
 		Logger:            logger,
 		TopicNamespace:    "test",
@@ -124,40 +283,8 @@ func setupTestEnv(t *testing.T, cfg *configstore.ConfigFile) *testEnv {
 	}
 }
 
-func testConfigWithTenant() *configstore.ConfigFile {
-	active := true
-	return &configstore.ConfigFile{
-		Tenants: []configstore.TenantConfig{
-			{
-				ID:   "test-tenant",
-				Name: "Test Tenant",
-				Categories: []configstore.CategoryConfig{
-					{Name: "trade", Partitions: 3},
-				},
-				Keys: []configstore.KeyConfig{
-					{
-						ID:        "key-one",
-						Algorithm: "ES256",
-						PublicKey: testPublicKeyPEM,
-						Active:    &active,
-					},
-				},
-				OIDC: &configstore.OIDCConfig{
-					IssuerURL: "https://auth.example.com",
-					Audience:  "my-api",
-					Enabled:   &active,
-				},
-				ChannelRules: &configstore.ChannelRulesConfig{
-					PublicChannels:  []string{"*.trade"},
-					DefaultChannels: []string{"news"},
-				},
-			},
-		},
-	}
-}
-
 func TestWatchKeys_Snapshot(t *testing.T) {
-	env := setupTestEnv(t, testConfigWithTenant())
+	env := setupTestEnv(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -193,7 +320,7 @@ func TestWatchKeys_Snapshot(t *testing.T) {
 }
 
 func TestWatchKeys_Delta(t *testing.T) {
-	env := setupTestEnv(t, testConfigWithTenant())
+	env := setupTestEnv(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -228,7 +355,7 @@ func TestWatchKeys_Delta(t *testing.T) {
 }
 
 func TestWatchTenantConfig_Snapshot(t *testing.T) {
-	env := setupTestEnv(t, testConfigWithTenant())
+	env := setupTestEnv(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -272,7 +399,7 @@ func TestWatchTenantConfig_Snapshot(t *testing.T) {
 }
 
 func TestWatchTopics_Snapshot(t *testing.T) {
-	env := setupTestEnv(t, testConfigWithTenant())
+	env := setupTestEnv(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -306,7 +433,7 @@ func TestWatchTopics_Snapshot(t *testing.T) {
 }
 
 func TestStream_ContextCancellation(t *testing.T) {
-	env := setupTestEnv(t, testConfigWithTenant())
+	env := setupTestEnv(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 

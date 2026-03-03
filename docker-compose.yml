@@ -1,0 +1,106 @@
+# Odin WebSocket Infrastructure — Local Development
+#
+# Start: docker compose up
+# Stop:  docker compose down
+# Reset: docker compose down -v
+#
+# Default mode: direct + NATS broadcast + SQLite (zero config needed)
+# All application config uses Go envDefault values.
+# Only inter-service wiring env vars are set here.
+
+services:
+  # ─── NATS (broadcast bus) ──────────────────────────────────────────
+  nats:
+    image: nats:2.10-alpine
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 4222"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ─── Provisioning API ─────────────────────────────────────────────
+  provisioning:
+    build:
+      context: ./ws
+      dockerfile: build/provisioning/Dockerfile
+      args:
+        COMMIT_HASH: ${COMMIT_HASH:-local}
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    volumes:
+      - provisioning-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # ─── WebSocket Server ─────────────────────────────────────────────
+  ws-server:
+    build:
+      context: ./ws
+      dockerfile: build/server/Dockerfile
+      args:
+        COMMIT_HASH: ${COMMIT_HASH:-local}
+    ports:
+      - "3005:3005"
+    environment:
+      # Inter-service wiring (only overrides needed)
+      NATS_URLS: "nats://nats:4222"
+      PROVISIONING_GRPC_ADDR: "provisioning:9090"
+    depends_on:
+      nats:
+        condition: service_healthy
+      provisioning:
+        condition: service_healthy
+
+  # ─── WebSocket Gateway ────────────────────────────────────────────
+  ws-gateway:
+    build:
+      context: ./ws
+      dockerfile: build/gateway/Dockerfile
+      args:
+        COMMIT_HASH: ${COMMIT_HASH:-local}
+    ports:
+      - "3000:3000"
+    environment:
+      # Inter-service wiring (only overrides needed)
+      GATEWAY_BACKEND_URL: "ws://ws-server:3005/ws"
+      PROVISIONING_GRPC_ADDR: "provisioning:9090"
+    depends_on:
+      - ws-server
+
+# ─── Mode Overrides (uncomment to enable) ──────────────────────────
+#
+# Kafka/Redpanda mode:
+#   Add a redpanda service and set on ws-server:
+#     MESSAGE_BACKEND: "kafka"
+#     KAFKA_BROKERS: "redpanda:9092"
+#
+# NATS JetStream mode:
+#   Set on ws-server:
+#     MESSAGE_BACKEND: "nats"
+#     NATS_JETSTREAM_URLS: "nats://nats:4222"
+#
+# PostgreSQL mode:
+#   Add a postgres service and set on provisioning:
+#     DATABASE_DRIVER: "postgres"
+#     DATABASE_URL: "postgres://odin:odin@postgres:5432/odin_provisioning?sslmode=disable"
+#
+# Valkey broadcast mode:
+#   Add a valkey service and set on ws-server:
+#     BROADCAST_TYPE: "valkey"
+#     VALKEY_ADDRS: "valkey:6379"
+#
+# Authentication:
+#   Set on ws-gateway:
+#     AUTH_ENABLED: "true"
+
+volumes:
+  provisioning-data:

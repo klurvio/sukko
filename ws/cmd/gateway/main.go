@@ -5,10 +5,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -25,6 +27,9 @@ var (
 )
 
 func main() {
+	validateConfig := flag.Bool("validate-config", false, "validate configuration and exit")
+	flag.Parse()
+
 	// Initialize logger using shared logging package
 	logger := logging.NewLogger(logging.LoggerConfig{
 		Level:       logging.LogLevel(os.Getenv("LOG_LEVEL")),
@@ -46,6 +51,12 @@ func main() {
 
 	config.LogConfig(logger)
 
+	// --validate-config: validate and exit
+	if *validateConfig {
+		logger.Info().Msg("Configuration is valid.")
+		os.Exit(0)
+	}
+
 	// Create gateway
 	gw, err := gateway.New(config, logger)
 	if err != nil {
@@ -64,32 +75,45 @@ func main() {
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
+	// Context for goroutine lifecycle — cancel() signals server error to main
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start server in goroutine
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
 		defer logging.RecoverPanic(logger, "http.ListenAndServe", nil)
+		defer wg.Done()
 		logger.Info().
 			Int("port", config.Port).
 			Msg("Gateway listening")
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal().Err(err).Msg("Server failed")
+			logger.Error().Err(err).Msg("Server failed")
+			cancel()
 		}
 	}()
 
-	// Wait for shutdown signal
-	sig := <-shutdown
-	logger.Info().
-		Str("signal", sig.String()).
-		Msg("Shutdown signal received")
+	// Wait for shutdown signal or server error
+	select {
+	case sig := <-shutdown:
+		logger.Info().
+			Str("signal", sig.String()).
+			Msg("Shutdown signal received")
+	case <-ctx.Done():
+		logger.Info().Msg("Shutdown triggered by server error")
+	}
 
 	// Graceful shutdown with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
 
-	if err := server.Shutdown(ctx); err != nil {
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error().Err(err).Msg("Server shutdown error")
 	}
 
+	wg.Wait()
 	logger.Info().Msg("Gateway stopped")
 }
 

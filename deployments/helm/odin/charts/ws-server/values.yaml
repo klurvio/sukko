@@ -1,8 +1,7 @@
 # Default values for ws-server subchart
-# These can be overridden from the parent chart
+# Go envDefault values are the source of truth for application config.
+# Override any setting via extraEnv. See /config endpoint for current values.
 
-# Global values — sensible defaults for standalone linting.
-# The parent odin chart overrides these via Helm's global value merge.
 global:
   imageRegistry: ""
 
@@ -15,112 +14,73 @@ image:
   tag: latest
   pullPolicy: IfNotPresent
 
-config:
-  shards: 2
-  basePort: 3002
-  lbAddr: ":3001"
-  maxKafkaRate: 1000
-  # Note: Go envDefault is 20; Helm uses 25 for deployed environments with higher throughput
-  maxBroadcastRate: 25
-  # Slow Client Detection
-  # When a client's send buffer is full, tracks consecutive failed send attempts.
-  # After this many consecutive failures, the client is disconnected.
-  # Range: 1-10 (1 = aggressive, 10 = very lenient)
-  # Industry: Coinbase=2, Binance=unlimited, FIX=5s timeout
-  slowClientMaxAttempts: 3
-  # Default tenant ID — disables multi-tenant support.
-  # All messages are routed to this tenant. Only used when auth is disabled at gateway.
-  defaultTenantID: "odin"
-  # Environment: deployment environment for logging, metrics, feature flags
-  # Values: dev, stg, prod (or local for local development)
-  environment: local
-  # kafkaTopicNamespaceOverride: overrides environment for Kafka topic naming only
-  # If empty, uses environment (local, dev, stg, prod)
-  # Set to "prod" in dev to consume from prod topics for testing
-  kafkaTopicNamespaceOverride: ""
-  connRateLimit:
-    enabled: true
-    # Note: Go envDefaults are ipBurst=10, ipRate=1.0 (restrictive for local dev).
-    # Helm uses higher values for deployed environments behind load balancers
-    # where multiple clients share source IPs (SNAT/Cloud NAT).
-    ipBurst: 100
-    ipRate: 100.0
-    globalBurst: 300
-    globalRate: 50.0
-  cpuRejectThreshold: 60.0
-  cpuPauseThreshold: 70.0
-  tcpListenBacklog: 2048
-  httpReadTimeout: "15s"
-  httpWriteTimeout: "15s"
-  httpIdleTimeout: "60s"
-  logLevel: info
-  logFormat: json
-  metricsInterval: "15s"
-  # CPU polling interval for protection decisions (ShouldPauseKafka, ShouldAcceptConnection)
-  # Separate from metricsInterval for faster spike detection
-  cpuPollInterval: "1s"
-  # WebSocket Ping/Pong Configuration
-  # Controls keep-alive timing between shard and clients.
-  # Buffer = pongWait - pingPeriod (should be >= 15s for proxied architectures)
-  pongWait: "60s" # Timeout for pong response
-  pingPeriod: "45s" # How often to send pings
-  writeWait: "5s" # Timeout for write operations
+# Deployment identity — drives Kafka topic namespace, consumer group naming.
+# Free-form string; Odin convention: local, dev, stg, prod
+# environment: local
 
-  # gRPC connection to provisioning service
-  # Empty = dynamic default: {{ .Release.Name }}-provisioning-grpc:9090
-  # Receives tenant topics via gRPC streaming from provisioning service
-  provisioningGRPCAddr: ""
-  provisioningGRPCReconnectDelay: "1s"
-  provisioningGRPCReconnectMaxDelay: "30s"
-  # Topic refresh interval — periodic re-sync of tenant topics/streams from registry.
-  # Safety net; primary updates come from gRPC stream. Catches missed events.
-  # Applies to both Kafka and NATS JetStream backends.
-  topicRefreshInterval: "60s"
+# Server CLI flags (binary args, not env vars)
+shards: 2
+basePort: 3002
+lbAddr: ":3001"
 
-# Alerting Configuration
-# See pkg/alerting/config.go for full documentation
-alerting:
-  # Enable alerting (default: false)
-  enabled: false
-  # Minimum level for alerts: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  minLevel: WARNING
-  # Slack configuration (optional)
-  slack:
-    # Webhook URL for Slack notifications
-    webhookUrl: ""
-    # Channel to post to (optional, uses webhook default)
-    channel: ""
-    # Username for bot (default: AlertBot)
-    username: "AlertBot"
-  # Rate limiting to prevent alert spam
-  rateLimit:
-    # Time window for rate limiting
-    window: "5m"
-    # Maximum alerts per window
-    max: 3
-  # Also output alerts to console (useful for debugging)
-  consoleEnabled: false
+# Message Backend: "direct" (Go default), "kafka", or "nats"
+#   direct — in-process broadcast, zero external deps, no persistence
+#   kafka  — Kafka/Redpanda, persistence, offset-based replay
+#   nats   — NATS JetStream, lighter persistent streaming
+messageBackend: direct
 
-# Audit Logging Configuration
-# See pkg/audit/config.go for full documentation
-audit:
-  # Minimum level for audit logs: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  minLevel: INFO
+# Broadcast Bus: "nats" (Go default) or "valkey"
+# Inter-pod pub/sub for message fan-out across server instances.
+broadcast:
+  type: nats
 
-# Connection Limits Configuration
-# See docs/architecture/CONNECTION_LIMITS.md for details
+# Cluster-wide max WebSocket connections. Per-pod = cluster / replicaCount.
 connectionLimits:
-  # Cluster-wide max connections (ResourceGuard enforces actual limits at runtime)
-  # Formula: WS_MAX_CONNECTIONS = clusterMaxConnections / replicaCount
   clusterMaxConnections: 100000
 
-# Pod Security Context
-# Note: Node-level kernel tuning handles ulimits (see CONNECTION_LIMITS.md)
+# --- Infrastructure Connections ---
+# Empty values auto-wire to in-cluster services via release name.
+# Only set for external services or custom addresses.
+kafka:
+  # brokers: ""  # Auto: {{ .Release.Name }}-redpanda:9092
+  sasl:
+    enabled: false
+    # mechanism: scram-sha-256
+    # username: ""
+    existingSecret: ""
+    existingSecretKey: "kafka-sasl-password"
+  tls:
+    enabled: false
+
+nats:
+  # urls: ""  # Auto: nats://{{ .Release.Name }}-nats:4222
+  existingSecret: ""
+  existingSecretTokenKey: "nats-token"
+  existingSecretPasswordKey: "nats-password"
+  tls:
+    enabled: false
+
+jetstream:
+  # urls: ""  # Auto: nats://{{ .Release.Name }}-nats:4222
+  existingSecret: ""
+  existingSecretTokenKey: "nats-jetstream-token"
+  existingSecretPasswordKey: "nats-jetstream-password"
+  tls:
+    enabled: false
+
+valkey:
+  # addrs: ""  # Auto: {{ .Release.Name }}-valkey:6379
+  tls:
+    enabled: false
+
+# Override any Go envDefault. See /config endpoint for all available settings.
+# Example: { LOG_LEVEL: "debug", WS_PONG_WAIT: "120s" }
+extraEnv: {}
+
+# --- Kubernetes Resources ---
 podSecurityContext:
   fsGroup: 1000
 
-# Container Security Context
-# Dockerfile creates non-root user (odin:1000) in /app directory
 securityContext:
   runAsNonRoot: true
   runAsUser: 1000
@@ -129,109 +89,6 @@ securityContext:
     drop:
       - ALL
   readOnlyRootFilesystem: true
-
-# Message Backend: "direct", "kafka", or "nats"
-# - direct: Messages flow directly to broadcast bus. No persistence, no replay.
-#   Zero external dependencies beyond the broadcast bus. Default for lowest friction.
-# - kafka: Full Kafka/Redpanda integration. Persistence, offset-based replay,
-#   multi-tenant consumer isolation. Requires Kafka infrastructure.
-# - nats: NATS JetStream persistent streams. Sequence-based replay,
-#   stream-per-tenant isolation. Lighter than Kafka.
-messageBackend: direct
-
-# Broadcast Bus Configuration
-broadcast:
-  # Backend type: "valkey" or "nats"
-  type: valkey
-
-valkey:
-  # Empty = dynamic default ({{ .Release.Name }}-valkey:6379)
-  addrs: ""
-  masterName: mymaster
-  db: 0
-  channel: ws.broadcast
-  # TLS Encryption (for managed Valkey/Redis: ElastiCache, Memorystore, Upstash)
-  tls:
-    enabled: false
-    insecureSkipVerify: false
-    caPath: ""
-
-nats:
-  # Empty = dynamic default (nats://{{ .Release.Name }}-nats:4222)
-  urls: ""
-  clusterMode: false
-  subject: ws.broadcast
-  token: ""
-  user: ""
-  password: ""
-  # Use existing secret for token/password (recommended for production)
-  existingSecret: ""
-  existingSecretTokenKey: "nats-token"
-  existingSecretPasswordKey: "nats-password"
-  # TLS Encryption (for managed NATS: Synadia Cloud, etc.)
-  tls:
-    enabled: false
-    insecureSkipVerify: false
-    caPath: ""
-
-# NATS JetStream Configuration (only when messageBackend=nats)
-# Persistent message streams with sequence-based replay.
-# Each tenant gets its own stream for noisy-tenant isolation.
-jetstream:
-  # Empty = dynamic default (nats://{{ .Release.Name }}-nats:4222)
-  urls: ""
-  token: ""
-  user: ""
-  password: ""
-  # Use existing secret for token/password (recommended for production)
-  existingSecret: ""
-  existingSecretTokenKey: "nats-jetstream-token"
-  existingSecretPasswordKey: "nats-jetstream-password"
-  replicas: 1
-  maxAge: "24h"
-  # TLS Encryption (for managed NATS JetStream: Synadia Cloud, etc.)
-  tls:
-    enabled: false
-    insecureSkipVerify: false
-    caPath: ""
-
-kafka:
-  # Empty = dynamic default ({{ .Release.Name }}-redpanda:9092)
-  brokers: ""
-  # Kafka consumer toggle (for loadtesting — connection-only mode)
-  # When false, consumer pool is not started. WebSocket connections still work.
-  # Default: true (normal operation)
-  consumerEnabled: true
-  # Topics are generated dynamically based on kafkaTopicNamespaceOverride (or environment):
-  #   {namespace}.{tenant}.{category} (e.g., prod.odin.trade)
-  # Tenant-specific topics are created via the Provisioning API.
-  #
-  # For MULTI-TENANT deployments:
-  # Tenant-specific topics use format: {namespace}.{tenant_id}.{category}
-  # Example: main.acme-corp.trade, main.acme-corp.liquidity
-  # These are created via the Provisioning API when tenants are onboarded.
-  # See docs/architecture/MULTI_TENANT_AUTH.md for details.
-
-  # Kafka topic defaults (for on-demand topic creation by KafkaBackend)
-  defaultPartitions: 1
-  defaultReplicationFactor: 1
-
-  # SASL Authentication (for managed Kafka/Redpanda services)
-  sasl:
-    enabled: false
-    mechanism: scram-sha-256 # scram-sha-256 or scram-sha-512
-    username: ""
-    # password: Set via existingSecret or directly (not recommended)
-    password: ""
-    # Use existing secret for password (recommended for production)
-    existingSecret: ""
-    existingSecretKey: "kafka-sasl-password"
-
-  # TLS Encryption (for managed Kafka/Redpanda services)
-  tls:
-    enabled: false
-    insecureSkipVerify: false # Skip CA verification (not for production)
-    caPath: "" # Path to CA certificate (mounted from secret)
 
 resources:
   requests:
@@ -262,11 +119,6 @@ service:
   port: 3001
   nodePort: 30080
 
-# Session Affinity - DISABLED by default
-# With gateway acting as proxy, the "client IP" is the gateway pod IP,
-# not the actual client. This causes all traffic from one gateway to
-# go to a single ws-server pod, breaking load distribution.
-# Only enable if clients connect directly to ws-server (no gateway).
 sessionAffinity:
   enabled: false
   timeoutSeconds: 10800
@@ -277,10 +129,8 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 
-# Network Policy - Restrict access to gateway only
 networkPolicy:
   enabled: true
-  # Allow Prometheus to scrape metrics
   allowPrometheus: true
 
 podAnnotations: {}

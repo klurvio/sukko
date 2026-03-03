@@ -25,6 +25,9 @@ includes:
     dir: .
 
   # Shared utilities (environment-independent)
+  helm:
+    taskfile: ./taskfiles/shared/helm.yml
+    dir: .
   test:
     taskfile: ./taskfiles/shared/test.yml
     dir: .

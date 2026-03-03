@@ -43,7 +43,9 @@ type LoadBalancer struct {
 	httpWriteTimeout time.Duration
 	httpIdleTimeout  time.Duration
 
-	ctx    context.Context
+	configHandler http.HandlerFunc
+
+	ctx context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
@@ -58,6 +60,9 @@ type LoadBalancerConfig struct {
 	HTTPReadTimeout  time.Duration
 	HTTPWriteTimeout time.Duration
 	HTTPIdleTimeout  time.Duration
+
+	// ConfigHandler serves the /config endpoint (set via platform.ConfigHandler)
+	ConfigHandler http.HandlerFunc
 }
 
 // NewLoadBalancer creates a new LoadBalancer instance.
@@ -98,6 +103,7 @@ func NewLoadBalancer(cfg LoadBalancerConfig) (*LoadBalancer, error) {
 		httpReadTimeout:  cfg.HTTPReadTimeout,
 		httpWriteTimeout: cfg.HTTPWriteTimeout,
 		httpIdleTimeout:  cfg.HTTPIdleTimeout,
+		configHandler:    cfg.ConfigHandler,
 		ctx:              ctx,
 		cancel:           cancel,
 	}
@@ -113,6 +119,9 @@ func (lb *LoadBalancer) Start() error {
 	mux.HandleFunc("/ws", lb.handleWebSocket)
 	mux.HandleFunc("/health", lb.handleHealth)
 	mux.HandleFunc("/version", version.Handler("ws-server"))
+	if lb.configHandler != nil {
+		mux.HandleFunc("/config", lb.configHandler)
+	}
 	mux.HandleFunc("/metrics", metrics.HandleMetrics)
 
 	server := &http.Server{
@@ -150,6 +159,7 @@ func (lb *LoadBalancer) Start() error {
 // runMetricsAggregation periodically aggregates metrics from all shards
 // This fixes the bug where per-shard collectors overwrite each other's metrics
 func (lb *LoadBalancer) runMetricsAggregation() {
+	defer logging.RecoverPanic(lb.logger, "loadbalancer.runMetricsAggregation", nil)
 	defer lb.wg.Done()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()

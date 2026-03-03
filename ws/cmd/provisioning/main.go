@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -13,16 +12,12 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"google.golang.org/grpc"
 
 	provisioningv1 "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/api"
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning/configstore"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/eventbus"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/grpcserver"
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning/repository"
@@ -32,26 +27,10 @@ import (
 	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 )
 
-// Config reload metrics.
-var (
-	configReloadTotal = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "provisioning_config_reload_total",
-		Help: "Total number of config file reload attempts.",
-	})
-	configReloadFailures = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "provisioning_config_reload_failures_total",
-		Help: "Total number of failed config file reload attempts.",
-	})
-	configReloadDuration = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name:    "provisioning_config_reload_duration_seconds",
-		Help:    "Duration of config file reload operations.",
-		Buckets: prometheus.DefBuckets,
-	})
-)
-
 func main() {
 	var (
-		debug = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
+		debug          = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
+		validateConfig = flag.Bool("validate-config", false, "validate configuration and exit")
 	)
 	flag.Parse()
 
@@ -73,6 +52,12 @@ func main() {
 	// Print configuration
 	cfg.Print()
 
+	// --validate-config: validate and exit
+	if *validateConfig {
+		logger.Println("Configuration is valid.")
+		os.Exit(0)
+	}
+
 	// Resolve effective topic namespace for Kafka
 	topicNamespace := kafka.ResolveNamespace(cfg.TopicNamespaceOverride, cfg.Environment)
 	logger.Printf("Topic namespace: %s (environment: %s)", topicNamespace, cfg.Environment)
@@ -87,100 +72,61 @@ func main() {
 	// Create event bus for gRPC streaming notifications
 	bus := eventbus.New(structuredLogger)
 
-	// Initialize stores and service based on provisioning mode
-	var svc *provisioning.Service
-	var configLoader *configstore.Loader
-	var db *sql.DB // non-nil only in API mode
-
-	switch cfg.ProvisioningMode {
-	case "config":
-		// Config file mode — read-only, in-memory stores from YAML
-		configLoader = configstore.NewLoader(cfg.ConfigFilePath, structuredLogger)
-		if err := configLoader.Load(); err != nil {
-			logger.Fatalf("Failed to load config file: %v", err)
-		}
-
-		stores := configLoader.Stores()
-		svc = provisioning.NewService(provisioning.ServiceConfig{
-			TenantStore:          stores.TenantStore(),
-			KeyStore:             stores.KeyStore(),
-			TopicStore:           stores.TopicStore(),
-			QuotaStore:           stores.QuotaStore(),
-			AuditStore:           stores.AuditStore(),
-			OIDCConfigStore:      stores.OIDCConfigStore(),
-			ChannelRulesStore:    stores.ChannelRulesStore(),
-			KafkaAdmin:           provisioning.NewNoopKafkaAdmin(),
-			EventBus:             bus,
-			TopicNamespace:       topicNamespace,
-			DefaultPartitions:    cfg.DefaultPartitions,
-			DefaultRetentionMs:   cfg.DefaultRetentionMs,
-			MaxTopicsPerTenant:   cfg.MaxTopicsPerTenant,
-			MaxStorageBytes:      cfg.MaxStorageBytes,
-			DefaultProducerRate:  cfg.ProducerByteRate,
-			DefaultConsumerRate:  cfg.ConsumerByteRate,
-			DeprovisionGraceDays: cfg.DeprovisionGraceDays,
-			Logger:               structuredLogger,
-		})
-		logger.Printf("Config file mode: loaded from %s", cfg.ConfigFilePath)
-
-	default: // "api" mode — database-backed
-		// Open database using factory (supports both SQLite and PostgreSQL)
-		var err error
-		db, err = repository.OpenDatabase(repository.DatabaseConfig{
-			Driver:          cfg.DatabaseDriver,
-			URL:             cfg.DatabaseURL,
-			Path:            cfg.DatabasePath,
-			AutoMigrate:     cfg.AutoMigrate,
-			MaxOpenConns:    cfg.DBMaxOpenConns,
-			MaxIdleConns:    cfg.DBMaxIdleConns,
-			ConnMaxLifetime: cfg.DBConnMaxLifetime,
-			Logger:          structuredLogger,
-		})
-		if err != nil {
-			logger.Fatalf("Failed to open database: %v", err)
-		}
-		defer func() { _ = db.Close() }()
-		logger.Printf("Database opened (driver: %s)", cfg.DatabaseDriver)
-
-		// Initialize repositories
-		tenantRepo := repository.NewPostgresTenantRepository(db)
-		keyRepo := repository.NewPostgresKeyRepository(db)
-		topicRepo := repository.NewPostgresTopicRepository(db)
-		quotaRepo := repository.NewPostgresQuotaRepository(db)
-		auditRepo := repository.NewPostgresAuditRepository(db)
-		oidcRepo := repository.NewPostgresOIDCConfigRepository(db)
-		channelRulesRepo := repository.NewPostgresChannelRulesRepository(db)
-
-		// Kafka admin disabled — topic creation is handled by ws-server's KafkaBackend
-		kafkaAdmin := provisioning.NewNoopKafkaAdmin()
-		logger.Printf("Kafka admin disabled (topic creation moved to ws-server)")
-
-		svc = provisioning.NewService(provisioning.ServiceConfig{
-			TenantStore:          tenantRepo,
-			KeyStore:             keyRepo,
-			TopicStore:           topicRepo,
-			QuotaStore:           quotaRepo,
-			AuditStore:           auditRepo,
-			OIDCConfigStore:      oidcRepo,
-			ChannelRulesStore:    channelRulesRepo,
-			KafkaAdmin:           kafkaAdmin,
-			EventBus:             bus,
-			TopicNamespace:       topicNamespace,
-			DefaultPartitions:    cfg.DefaultPartitions,
-			DefaultRetentionMs:   cfg.DefaultRetentionMs,
-			MaxTopicsPerTenant:   cfg.MaxTopicsPerTenant,
-			MaxStorageBytes:      cfg.MaxStorageBytes,
-			DefaultProducerRate:  cfg.ProducerByteRate,
-			DefaultConsumerRate:  cfg.ConsumerByteRate,
-			DeprovisionGraceDays: cfg.DeprovisionGraceDays,
-			Logger:               structuredLogger,
-		})
+	// Open database using factory (supports both SQLite and PostgreSQL)
+	db, err := repository.OpenDatabase(repository.DatabaseConfig{
+		Driver:          cfg.DatabaseDriver,
+		URL:             cfg.DatabaseURL,
+		Path:            cfg.DatabasePath,
+		AutoMigrate:     cfg.AutoMigrate,
+		MaxOpenConns:    cfg.DBMaxOpenConns,
+		MaxIdleConns:    cfg.DBMaxIdleConns,
+		ConnMaxLifetime: cfg.DBConnMaxLifetime,
+		Logger:          structuredLogger,
+	})
+	if err != nil {
+		logger.Fatalf("Failed to open database: %v", err)
 	}
+	defer func() { _ = db.Close() }()
+	logger.Printf("Database opened (driver: %s)", cfg.DatabaseDriver)
 
-	// Set up authentication if enabled (requires database — API mode only)
+	// Initialize repositories
+	tenantRepo := repository.NewPostgresTenantRepository(db)
+	keyRepo := repository.NewPostgresKeyRepository(db)
+	topicRepo := repository.NewPostgresTopicRepository(db)
+	quotaRepo := repository.NewPostgresQuotaRepository(db)
+	auditRepo := repository.NewPostgresAuditRepository(db)
+	oidcRepo := repository.NewPostgresOIDCConfigRepository(db)
+	channelRulesRepo := repository.NewPostgresChannelRulesRepository(db)
+
+	// Kafka admin disabled — topic creation is handled by ws-server's KafkaBackend
+	kafkaAdmin := provisioning.NewNoopKafkaAdmin()
+	logger.Printf("Kafka admin disabled (topic creation moved to ws-server)")
+
+	svc := provisioning.NewService(provisioning.ServiceConfig{
+		TenantStore:          tenantRepo,
+		KeyStore:             keyRepo,
+		TopicStore:           topicRepo,
+		QuotaStore:           quotaRepo,
+		AuditStore:           auditRepo,
+		OIDCConfigStore:      oidcRepo,
+		ChannelRulesStore:    channelRulesRepo,
+		KafkaAdmin:           kafkaAdmin,
+		EventBus:             bus,
+		TopicNamespace:       topicNamespace,
+		DefaultPartitions:    cfg.DefaultPartitions,
+		DefaultRetentionMs:   cfg.DefaultRetentionMs,
+		MaxTopicsPerTenant:   cfg.MaxTopicsPerTenant,
+		MaxStorageBytes:      cfg.MaxStorageBytes,
+		DefaultProducerRate:  cfg.ProducerByteRate,
+		DefaultConsumerRate:  cfg.ConsumerByteRate,
+		DeprovisionGraceDays: cfg.DeprovisionGraceDays,
+		Logger:               structuredLogger,
+	})
+
+	// Set up authentication if enabled
 	var validator *auth.MultiTenantValidator
 	var oidcCloser *auth.OIDCKeyfuncResult
-	if cfg.AuthEnabled && db != nil {
+	if cfg.AuthEnabled {
 		// Create key registry from existing database connection
 		keyRegistry, err := auth.NewPostgresKeyRegistry(auth.PostgresKeyRegistryConfig{
 			DB:              db,
@@ -265,6 +211,7 @@ func main() {
 		AdminAuth:          adminAuth,
 		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
 		CORSMaxAge:         cfg.CORSMaxAge,
+		ConfigHandler:      platform.ConfigHandler(cfg),
 	})
 
 	// Create HTTP server
@@ -305,45 +252,6 @@ func main() {
 		logger.Printf("Lifecycle manager started (interval: %s)", cfg.LifecycleCheckInterval)
 	}
 
-	// Start SIGHUP reload handler for config file mode
-	if configLoader != nil {
-		sighupCh := make(chan os.Signal, 1)
-		signal.Notify(sighupCh, syscall.SIGHUP)
-
-		wg.Add(1)
-		go func() {
-			defer logging.RecoverPanic(structuredLogger, "sighup_handler", nil)
-			defer wg.Done()
-
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-sighupCh:
-					structuredLogger.Info().Msg("SIGHUP received, reloading config file")
-					configReloadTotal.Inc()
-
-					start := time.Now()
-					if err := configLoader.Reload(); err != nil {
-						configReloadFailures.Inc()
-						configReloadDuration.Observe(time.Since(start).Seconds())
-						structuredLogger.Error().Err(err).Msg("Config file reload failed, keeping previous config")
-						continue
-					}
-					configReloadDuration.Observe(time.Since(start).Seconds())
-
-					// Publish all event types to notify gRPC stream subscribers
-					bus.Publish(eventbus.Event{Type: eventbus.KeysChanged})
-					bus.Publish(eventbus.Event{Type: eventbus.TenantConfigChanged})
-					bus.Publish(eventbus.Event{Type: eventbus.TopicsChanged})
-
-					structuredLogger.Info().Msg("Config file reloaded successfully")
-				}
-			}
-		}()
-		logger.Printf("SIGHUP reload handler registered for config file mode")
-	}
-
 	// Start gRPC server in goroutine
 	wg.Add(1)
 	go func() {
@@ -351,7 +259,8 @@ func main() {
 		defer wg.Done()
 		logger.Printf("Starting gRPC server on %s", grpcAddr)
 		if err := grpcSrv.Serve(grpcListener); err != nil {
-			logger.Fatalf("gRPC server error: %v", err)
+			structuredLogger.Error().Err(err).Msg("gRPC server error")
+			cancel()
 		}
 	}()
 
@@ -362,14 +271,18 @@ func main() {
 		defer wg.Done()
 		logger.Printf("Starting provisioning HTTP service on %s", cfg.Addr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatalf("HTTP server error: %v", err)
+			structuredLogger.Error().Err(err).Msg("HTTP server error")
+			cancel()
 		}
 	}()
 
-	// Wait for interrupt signal
+	// Wait for interrupt signal or context cancellation (from server error)
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	<-sigCh
+	select {
+	case <-sigCh:
+	case <-ctx.Done():
+	}
 
 	logger.Println("Shutting down provisioning service...")
 

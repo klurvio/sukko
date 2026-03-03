@@ -62,7 +62,6 @@ func TestNewBus_ValkeyType(t *testing.T) {
 	}{
 		{"valkey", "valkey", "valkey"},
 		{"redis", "redis", "valkey"}, // redis is alias for valkey
-		{"empty", "", "valkey"},      // empty defaults to valkey
 	}
 
 	logger := zerolog.Nop()

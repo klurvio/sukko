@@ -23,14 +23,10 @@ type ProvisioningConfig struct {
 	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
 	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
 
-	// Provisioning Mode: "api" (database-backed, default) or "config" (file-backed)
-	ProvisioningMode string `env:"PROVISIONING_MODE" envDefault:"api"`
-	ConfigFilePath   string `env:"PROVISIONING_CONFIG_PATH"`
-
 	// Database — driver auto-detected from Helm values, not set directly by developers.
 	// sqlite (default, embedded) or postgres (opt-in via Helm postgresql.enabled or externalDatabase).
 	DatabaseDriver    string        `env:"DATABASE_DRIVER" envDefault:"sqlite"`
-	DatabaseURL       string        `env:"DATABASE_URL"`
+	DatabaseURL       string        `env:"DATABASE_URL" redact:"true"`
 	DatabasePath      string        `env:"DATABASE_PATH" envDefault:"odin.db"`
 	AutoMigrate       bool          `env:"AUTO_MIGRATE" envDefault:"true"`
 	DBMaxOpenConns    int           `env:"DB_MAX_OPEN_CONNS" envDefault:"25"`
@@ -41,7 +37,7 @@ type ProvisioningConfig struct {
 	GRPCPort int `env:"GRPC_PORT" envDefault:"9090"`
 
 	// Admin Authentication — opaque admin token for operator access (separate from tenant JWT)
-	AdminToken string `env:"PROVISIONING_ADMIN_TOKEN"`
+	AdminToken string `env:"PROVISIONING_ADMIN_TOKEN" redact:"true"`
 
 	// Admin Auth Rate Limiting
 	AdminAuthFailureThreshold int           `env:"ADMIN_AUTH_FAILURE_THRESHOLD" envDefault:"10"`
@@ -95,8 +91,11 @@ type ProvisioningConfig struct {
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
 	CORSMaxAge         int      `env:"CORS_MAX_AGE" envDefault:"3600"`
 
-	// Environment
-	Environment string `env:"ENVIRONMENT" envDefault:"development"`
+	// Environment — deployment identity label, used for Kafka topic namespace, consumer
+	// group naming, and safety guards. Free-form: any string works as deployment identity.
+	// Odin uses: local | dev | stg | prod by convention. "prod" blocks KAFKA_TOPIC_NAMESPACE_OVERRIDE;
+	// "dev"/"development"/"local" relaxes admin token length requirements.
+	Environment string `env:"ENVIRONMENT" envDefault:"local"`
 }
 
 // LoadProvisioningConfig reads provisioning service configuration from .env file
@@ -142,26 +141,13 @@ func (c *ProvisioningConfig) Validate() error {
 		return errors.New("PROVISIONING_ADDR is required")
 	}
 
-	// Provisioning mode validation
-	validModes := map[string]bool{"api": true, "config": true}
-	if !validModes[c.ProvisioningMode] {
-		return fmt.Errorf("PROVISIONING_MODE must be one of: api, config (got: %s)", c.ProvisioningMode)
+	// Database driver validation
+	validDrivers := map[string]bool{"sqlite": true, "postgres": true}
+	if !validDrivers[c.DatabaseDriver] {
+		return fmt.Errorf("[CONFIG ERROR] DATABASE_DRIVER=%q is invalid (valid: sqlite, postgres)", c.DatabaseDriver)
 	}
-
-	// Mode-dependent validation
-	if c.ProvisioningMode == "config" {
-		if c.ConfigFilePath == "" {
-			return errors.New("PROVISIONING_CONFIG_PATH is required when PROVISIONING_MODE=config")
-		}
-	} else {
-		// API mode — validate database config
-		validDrivers := map[string]bool{"sqlite": true, "postgres": true}
-		if !validDrivers[c.DatabaseDriver] {
-			return fmt.Errorf("DATABASE_DRIVER must be one of: sqlite, postgres (got: %s)", c.DatabaseDriver)
-		}
-		if c.DatabaseDriver == "postgres" && c.DatabaseURL == "" {
-			return errors.New("DATABASE_URL is required when DATABASE_DRIVER=postgres")
-		}
+	if c.DatabaseDriver == "postgres" && c.DatabaseURL == "" {
+		return errors.New("[CONFIG ERROR] DATABASE_URL is required when DATABASE_DRIVER=postgres")
 	}
 
 	// gRPC port validation
@@ -195,8 +181,8 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("API_RATE_LIMIT_PER_MIN must be > 0, got %d", c.APIRateLimitPerMinute)
 	}
 
-	// Database pool validation (only relevant for postgres in API mode)
-	if c.ProvisioningMode == "api" && c.DatabaseDriver == "postgres" {
+	// Database pool validation (only relevant for postgres)
+	if c.DatabaseDriver == "postgres" {
 		if c.DBMaxOpenConns < 1 {
 			return fmt.Errorf("DB_MAX_OPEN_CONNS must be > 0, got %d", c.DBMaxOpenConns)
 		}
@@ -262,13 +248,9 @@ func (c *ProvisioningConfig) Print() {
 	fmt.Println("=== Provisioning Service Configuration ===")
 	fmt.Printf("Environment:        %s\n", c.Environment)
 	fmt.Printf("Address:            %s\n", c.Addr)
-	fmt.Printf("Provisioning Mode:  %s\n", c.ProvisioningMode)
 	fmt.Printf("gRPC Port:          %d\n", c.GRPCPort)
 	if c.AdminToken != "" {
 		fmt.Printf("Admin Token:        [REDACTED]\n")
-	}
-	if c.ProvisioningMode == "config" {
-		fmt.Printf("Config File:        %s\n", c.ConfigFilePath)
 	}
 	fmt.Println("\n=== Database ===")
 	fmt.Printf("Database Driver:    %s\n", c.DatabaseDriver)
@@ -312,7 +294,6 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 	event := logger.Info().
 		Str("environment", c.Environment).
 		Str("addr", c.Addr).
-		Str("provisioning_mode", c.ProvisioningMode).
 		Str("database_driver", c.DatabaseDriver).
 		Int("grpc_port", c.GRPCPort).
 		Bool("auto_migrate", c.AutoMigrate).
@@ -337,10 +318,8 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		event = event.Str("admin_token", "[REDACTED]")
 	}
 
-	// Mode-specific fields
-	if c.ProvisioningMode == "config" {
-		event = event.Str("config_file_path", c.ConfigFilePath)
-	} else if c.DatabaseDriver == "postgres" {
+	// Database-specific fields
+	if c.DatabaseDriver == "postgres" {
 		event = event.
 			Int("db_max_open_conns", c.DBMaxOpenConns).
 			Int("db_max_idle_conns", c.DBMaxIdleConns).

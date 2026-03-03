@@ -26,7 +26,8 @@ type GatewayConfig struct {
 	MessageTimeout time.Duration `env:"GATEWAY_MESSAGE_TIMEOUT" envDefault:"60s"`
 
 	// Authentication (multi-tenant with asymmetric keys)
-	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"true"`
+	// TODO: Change envDefault to "true" when odin-api auth integration is production-ready
+	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"false"`
 
 	// DefaultTenantID disables multi-tenant support. All connections
 	// are routed to this tenant. Only used when AUTH_ENABLED=false.
@@ -90,8 +91,10 @@ type GatewayConfig struct {
 	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
 	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
 
-	// Environment
-	Environment string `env:"ENVIRONMENT" envDefault:"development"`
+	// Environment — deployment identity label, used for Kafka topic namespace, consumer
+	// group naming, and safety guards. Free-form: any string works as deployment identity.
+	// Odin uses: local | dev | stg | prod by convention.
+	Environment string `env:"ENVIRONMENT" envDefault:"local"`
 }
 
 // LoadGatewayConfig reads gateway configuration from environment variables.

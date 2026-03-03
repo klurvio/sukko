@@ -93,13 +93,13 @@ docs/architecture/       # Plans, findings, session handoffs
 - **Docker** multi-stage builds → Google Artifact Registry
 
 ### Configuration Pattern
-All configuration uses `caarlos0/env` struct tags:
+All configuration uses `caarlos0/env` struct tags. Go `envDefault` values are the single source of truth for defaults:
 ```go
 type Config struct {
     Port int `env:"GATEWAY_PORT" envDefault:"3000"`
 }
 ```
-Helm values inject env vars via deployment templates. Env var names in Go MUST match Helm template values.
+Helm and Docker Compose override via env vars only when a deployment needs a non-default value. Helm templates auto-wire Kubernetes service discovery (e.g., `{{ .Release.Name }}-nats`). Env var names in Go MUST match Helm template values.
 
 ## Commit Message Format
 
@@ -123,11 +123,11 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.4.2 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-02
+**Version**: 1.5.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-02
 
 ### I. Configuration
 
-Every configurable parameter MUST be externalized via environment variables with `env:` struct tags and sensible `envDefault:` values. Helm values MUST expose all env vars. Magic numbers MUST be named constants or configuration. Magic strings (URLs, broker addresses, topic names, tenant IDs, namespace prefixes) MUST NOT be hardcoded — they MUST come from configuration or be constructed from configured values. All configuration MUST be validated at startup with clear error messages. Hysteresis thresholds MUST enforce `lower < upper`. Enum values MUST be validated against allowed sets. Invalid configuration MUST cause immediate startup failure, not silent degradation.
+Every configurable parameter MUST be externalized via environment variables with `env:` struct tags. Go `envDefault:` values are the **single source of truth** for all configuration defaults — they MUST reflect production-intended values. Helm values and Docker Compose MUST NOT duplicate Go defaults; they override via env vars ONLY when a deployment requires a value different from the Go default (e.g., Kubernetes service discovery addresses, mode selections, resource-derived limits). Helm templates MUST NOT compute derived values — derived configuration MUST be computed in Go. Magic numbers MUST be named constants or configuration. Magic strings (URLs, broker addresses, topic names, tenant IDs, namespace prefixes) MUST NOT be hardcoded — they MUST come from configuration or be constructed from configured values. All configuration MUST be validated at startup with clear error messages. Hysteresis thresholds MUST enforce `lower < upper`. Enum values MUST be validated against allowed sets. Invalid configuration MUST cause immediate startup failure, not silent degradation.
 
 ### II. Defense in Depth
 

@@ -1,8 +1,7 @@
 # Default values for ws-gateway subchart
-# These can be overridden from the parent chart
+# Go envDefault values are the source of truth for application config.
+# Override any setting via extraEnv. See /config endpoint for current values.
 
-# Global values — sensible defaults for standalone linting.
-# The parent odin chart overrides these via Helm's global value merge.
 global:
   imageRegistry: ""
 
@@ -15,70 +14,37 @@ image:
   tag: latest
   pullPolicy: IfNotPresent
 
-config:
-  port: 3000
-  readTimeout: "15s"
-  writeTimeout: "15s"
-  idleTimeout: "60s"
-  dialTimeout: "10s"
-  messageTimeout: "60s"
-  logLevel: info
-  logFormat: json
+# Deployment identity — drives logging, metrics namespacing.
+# Free-form string; Odin convention: local, dev, stg, prod
+# environment: local
 
-  # Authentication - set to false to disable JWT validation
-  # When enabled, uses multi-tenant asymmetric key validation via gRPC streaming from provisioning service
-  authEnabled: false
+# Feature flags (all default false in Go, set via extraEnv when needed)
+# AUTH_ENABLED: "true"                         — JWT validation via provisioning gRPC
+# GATEWAY_MULTI_ISSUER_OIDC_ENABLED: "true"    — per-tenant OIDC issuers
+# GATEWAY_PER_TENANT_CHANNEL_RULES: "true"     — per-tenant channel access rules
 
-  # Default tenant ID — disables multi-tenant support.
-  # All connections are routed to this tenant. Only used when authEnabled: false.
-  defaultTenantID: "odin"
-
-  # Multi-tenant auth settings (only used when authEnabled: true)
-  requireTenantId: true
-
-  # Auth refresh rate interval (minimum time between auth refreshes per connection)
-  authRefreshRateInterval: "30s"
-
-  # Backend ws-server URL (empty = dynamic default)
-  # Dynamic default: ws://{{ .Release.Name }}-ws-server:3001/ws
-  backendURL: ""
-
-  # Multi-Issuer OIDC (Feature Flag)
-  multiIssuerOIDCEnabled: false
-
-  # Per-Tenant Channel Rules (Feature Flag)
-  perTenantChannelRulesEnabled: false
-
-  # TenantRegistry Cache Settings (OIDC keyfunc cache)
-  oidcKeyfuncCacheTTL: "1h"
-
-  # JWKS Fetch Settings
-  jwksFetchTimeout: "10s"
-  jwksRefreshInterval: "1h"
-
-  # Fallback Channel Rules
-  fallbackPublicChannels:
-    - "*.metadata"
-
-  # gRPC connection to provisioning service
-  # Empty = dynamic default: {{ .Release.Name }}-provisioning-grpc:9090
-  provisioningGRPCAddr: ""
-  provisioningGRPCReconnectDelay: "1s"
-  provisioningGRPCReconnectMaxDelay: "30s"
-
-# Channel permission patterns
+# Channel permission patterns (must match Go envDefault — template always injects these)
 permissions:
-  # Public channels - any authenticated user can subscribe
   public:
     - "*.trade"
     - "*.liquidity"
     - "*.metadata"
-  # User-scoped channels - JWT.sub must match {principal}
+    - "*.analytics"
+    - "*.creation"
+    - "*.social"
+    - "all.trade"
+    - "all.liquidity"
+    - "all.metadata"
+    - "all.analytics"
+    - "all.creation"
+    - "all.social"
   userScoped:
+    - "*.balances.{principal}"
+    - "*.trade.{principal}"
     - "balances.{principal}"
     - "notifications.{principal}"
-  # Group-scoped channels - JWT.groups must contain {group_id}
   groupScoped:
+    - "*.community.{group_id}"
     - "community.{group_id}"
     - "social.{group_id}"
 
@@ -89,17 +55,18 @@ rateLimit:
   rate: 10.0
 
 # Per-tenant connection limits (in-memory, per gateway pod)
-# Effective cluster limit = default × replicaCount
 tenantConnectionLimit:
   enabled: true
   default: 1000
 
-# Pod Security Context
+# Override any Go envDefault. See /config endpoint for all available settings.
+# Example: { LOG_LEVEL: "debug", GATEWAY_DIAL_TIMEOUT: "30s", AUTH_ENABLED: "true" }
+extraEnv: {}
+
+# --- Kubernetes Resources ---
 podSecurityContext:
   fsGroup: 1000
 
-# Container Security Context
-# Dockerfile creates non-root user (odin:1000) in /app directory
 securityContext:
   runAsNonRoot: true
   runAsUser: 1000

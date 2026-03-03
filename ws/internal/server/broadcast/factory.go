@@ -18,8 +18,7 @@ func NewBus(cfg Config, logger zerolog.Logger) (Bus, error) {
 	}
 
 	switch cfg.Type {
-	case "valkey", "redis", "":
-		// Default to Valkey (also accept "redis" for compatibility)
+	case "valkey", "redis":
 		return newValkeyBus(cfg, logger)
 	case "nats":
 		return newNATSBus(cfg, logger)

@@ -4,6 +4,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -244,7 +245,7 @@ func (gw *Gateway) Close() error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("close errors: %v", errs)
+		return errors.Join(errs...)
 	}
 	return nil
 }
@@ -436,6 +437,7 @@ func (gw *Gateway) NewServer() *http.Server {
 	mux.HandleFunc("/ws", gw.HandleWebSocket)
 	mux.HandleFunc("/health", gw.HandleHealth)
 	mux.HandleFunc("/version", version.Handler("gateway"))
+	mux.HandleFunc("/config", platform.ConfigHandler(gw.config))
 	mux.HandleFunc("/metrics", HandleMetrics)
 
 	return &http.Server{

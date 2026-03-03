@@ -10,7 +10,6 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		Addr:                   ":8080",
 		LogLevel:               "info",
 		LogFormat:              "json",
-		ProvisioningMode:       "api",
 		DatabaseDriver:         "sqlite",
 		DatabasePath:           "odin.db",
 		AutoMigrate:            true,
@@ -25,7 +24,7 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		APIRateLimitPerMinute:  60,
 		ValidNamespaces:        "local,dev,stag,prod",
 		TopicNamespaceOverride: "",
-		Environment:            "development",
+		Environment:            "local",
 		CORSAllowedOrigins:     []string{"http://localhost:3000"},
 		CORSMaxAge:             3600,
 	}
@@ -36,53 +35,6 @@ func TestProvisioningConfig_Validate_Valid(t *testing.T) {
 	cfg := newValidProvisioningConfig()
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Valid config should not error: %v", err)
-	}
-}
-
-func TestProvisioningConfig_Validate_ProvisioningMode(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name        string
-		mode        string
-		shouldError bool
-	}{
-		{"api mode", "api", false},
-		{"config mode with path", "config", false},
-		{"invalid mode", "invalid", true},
-		{"empty mode", "", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := newValidProvisioningConfig()
-			cfg.ProvisioningMode = tt.mode
-			if tt.mode == "config" {
-				cfg.ConfigFilePath = "/etc/odin/tenants.yaml"
-			}
-			err := cfg.Validate()
-			if tt.shouldError && err == nil {
-				t.Error("Should error")
-			}
-			if !tt.shouldError && err != nil {
-				t.Errorf("Should not error: %v", err)
-			}
-		})
-	}
-}
-
-func TestProvisioningConfig_Validate_ConfigModeRequiresPath(t *testing.T) {
-	t.Parallel()
-	cfg := newValidProvisioningConfig()
-	cfg.ProvisioningMode = "config"
-	cfg.ConfigFilePath = ""
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Error("Should error when config mode without path")
-	}
-	if !strings.Contains(err.Error(), "PROVISIONING_CONFIG_PATH") {
-		t.Errorf("Error should mention PROVISIONING_CONFIG_PATH: %v", err)
 	}
 }
 

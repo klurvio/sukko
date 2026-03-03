@@ -28,9 +28,23 @@ spec:
         - name: wait-for-ws-server
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-ws-server 3001; do echo "waiting for ws-server..."; sleep 2; done']
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "50m"
+              memory: "32Mi"
         - name: wait-for-provisioning
           image: busybox:1.36
-          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-provisioning-grpc {{ .Values.config.port | default 9090 }}; do echo "waiting for provisioning gRPC..."; sleep 2; done']
+          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-provisioning-grpc 9090; do echo "waiting for provisioning gRPC..."; sleep 2; done']
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "50m"
+              memory: "32Mi"
       containers:
         - name: {{ .Chart.Name }}
           {{- with .Values.securityContext }}
@@ -41,103 +55,46 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: {{ .Values.config.port }}
+              containerPort: 3000
               protocol: TCP
           env:
-            # Server configuration
-            - name: GATEWAY_PORT
-              value: "{{ .Values.config.port }}"
-            - name: GATEWAY_READ_TIMEOUT
-              value: "{{ .Values.config.readTimeout }}"
-            - name: GATEWAY_WRITE_TIMEOUT
-              value: "{{ .Values.config.writeTimeout }}"
-            - name: GATEWAY_IDLE_TIMEOUT
-              value: "{{ .Values.config.idleTimeout }}"
-            - name: GATEWAY_DIAL_TIMEOUT
-              value: "{{ .Values.config.dialTimeout }}"
-            - name: GATEWAY_MESSAGE_TIMEOUT
-              value: "{{ .Values.config.messageTimeout }}"
+            # Deployment identity
+            - name: ENVIRONMENT
+              value: {{ .Values.environment | default "local" | quote }}
 
-            # Backend URL (dynamic default if not specified)
+            # Auto-wired service addresses (Kubernetes service discovery)
             - name: GATEWAY_BACKEND_URL
-              {{- if .Values.config.backendURL }}
-              value: "{{ .Values.config.backendURL }}"
-              {{- else }}
-              value: "ws://{{ .Release.Name }}-ws-server:3001/ws"
-              {{- end }}
-
-            # Authentication (multi-tenant with asymmetric keys via gRPC)
-            - name: AUTH_ENABLED
-              value: "{{ .Values.config.authEnabled }}"
-            - name: DEFAULT_TENANT_ID
-              value: "{{ .Values.config.defaultTenantID }}"
-            {{- if .Values.config.authEnabled }}
-            - name: REQUIRE_TENANT_ID
-              value: "{{ .Values.config.requireTenantId }}"
-            {{- end }}
-
-            # Provisioning gRPC connection
+              value: {{ .Values.backendURL | default (printf "ws://%s-ws-server:3001/ws" .Release.Name) | quote }}
             - name: PROVISIONING_GRPC_ADDR
-              {{- if .Values.config.provisioningGRPCAddr }}
-              value: "{{ .Values.config.provisioningGRPCAddr }}"
-              {{- else }}
-              value: "{{ .Release.Name }}-provisioning-grpc:9090"
-              {{- end }}
-            - name: PROVISIONING_GRPC_RECONNECT_DELAY
-              value: "{{ .Values.config.provisioningGRPCReconnectDelay | default "1s" }}"
-            - name: PROVISIONING_GRPC_RECONNECT_MAX_DELAY
-              value: "{{ .Values.config.provisioningGRPCReconnectMaxDelay | default "30s" }}"
+              value: {{ .Values.provisioningGRPCAddr | default (printf "%s-provisioning-grpc:9090" .Release.Name) | quote }}
 
             # Permission patterns
             - name: GATEWAY_PUBLIC_PATTERNS
-              value: "{{ join "," .Values.permissions.public }}"
+              value: {{ .Values.permissions.public | join "," | quote }}
             - name: GATEWAY_USER_SCOPED_PATTERNS
-              value: "{{ join "," .Values.permissions.userScoped }}"
+              value: {{ .Values.permissions.userScoped | join "," | quote }}
             - name: GATEWAY_GROUP_SCOPED_PATTERNS
-              value: "{{ join "," .Values.permissions.groupScoped }}"
+              value: {{ .Values.permissions.groupScoped | join "," | quote }}
 
             # Rate limiting
             - name: GATEWAY_RATE_LIMIT_ENABLED
-              value: "{{ .Values.rateLimit.enabled }}"
+              value: {{ .Values.rateLimit.enabled | quote }}
             - name: GATEWAY_RATE_LIMIT_BURST
-              value: "{{ .Values.rateLimit.burst }}"
+              value: {{ .Values.rateLimit.burst | quote }}
             - name: GATEWAY_RATE_LIMIT_RATE
-              value: "{{ .Values.rateLimit.rate }}"
+              value: {{ .Values.rateLimit.rate | quote }}
 
-            # Auth refresh
-            - name: GATEWAY_AUTH_REFRESH_RATE_INTERVAL
-              value: {{ .Values.config.authRefreshRateInterval | quote }}
-
-            # Logging
-            - name: LOG_LEVEL
-              value: "{{ .Values.config.logLevel }}"
-            - name: LOG_FORMAT
-              value: "{{ .Values.config.logFormat }}"
-
-            # Multi-Issuer OIDC / Per-Tenant Channel Rules
-            - name: GATEWAY_MULTI_ISSUER_OIDC_ENABLED
-              value: {{ .Values.config.multiIssuerOIDCEnabled | quote }}
-            - name: GATEWAY_PER_TENANT_CHANNEL_RULES
-              value: {{ .Values.config.perTenantChannelRulesEnabled | quote }}
-            - name: GATEWAY_OIDC_KEYFUNC_CACHE_TTL
-              value: {{ .Values.config.oidcKeyfuncCacheTTL | quote }}
-            - name: GATEWAY_JWKS_FETCH_TIMEOUT
-              value: {{ .Values.config.jwksFetchTimeout | quote }}
-            - name: GATEWAY_JWKS_REFRESH_INTERVAL
-              value: {{ .Values.config.jwksRefreshInterval | quote }}
-            - name: GATEWAY_FALLBACK_PUBLIC_CHANNELS
-              value: {{ .Values.config.fallbackPublicChannels | join "," | quote }}
-
-            # Environment
-            - name: ENVIRONMENT
-              value: "{{ .Release.Namespace }}"
-
-            # Per-tenant connection limits (in-memory per pod)
-            # Effective cluster limit = DEFAULT_TENANT_CONNECTION_LIMIT × gateway replica count
+            # Per-tenant connection limits
             - name: TENANT_CONNECTION_LIMIT_ENABLED
-              value: "{{ .Values.tenantConnectionLimit.enabled }}"
+              value: {{ .Values.tenantConnectionLimit.enabled | quote }}
             - name: DEFAULT_TENANT_CONNECTION_LIMIT
-              value: "{{ .Values.tenantConnectionLimit.default }}"
+              value: {{ .Values.tenantConnectionLimit.default | quote }}
+
+            # Extra env overrides from values
+            {{- range $key, $val := .Values.extraEnv }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
 
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}

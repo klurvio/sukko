@@ -2,7 +2,6 @@ package api //nolint:revive // api is a common package name for HTTP handlers
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning/configstore"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
 	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
 )
@@ -40,13 +38,8 @@ func NewHandler(svc *provisioning.Service, logger zerolog.Logger) *Handler {
 	}
 }
 
-// writeServiceError writes an error response, returning 405 for ErrReadOnlyMode
-// (config file mode) and the given default status for other errors.
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error, defaultStatus int, code, msg string) {
-	if errors.Is(err, configstore.ErrReadOnlyMode) {
-		httputil.WriteError(w, http.StatusMethodNotAllowed, "READ_ONLY_MODE", err.Error())
-		return
-	}
+// writeServiceError writes an error response with the given status and code.
+func (h *Handler) writeServiceError(w http.ResponseWriter, _ error, defaultStatus int, code, msg string) {
 	httputil.WriteError(w, defaultStatus, code, msg)
 }
 

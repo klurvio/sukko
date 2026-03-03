@@ -19,7 +19,7 @@ spec:
             matchLabels:
               app.kubernetes.io/name: ws-gateway
       ports:
-        - port: {{ .Values.config.lbAddr | trimPrefix ":" | default "3001" }}
+        - port: {{ .Values.service.port | default 3001 }}
           protocol: TCP
     # Allow Prometheus scraping (metrics endpoint)
     {{- if .Values.networkPolicy.allowPrometheus }}
@@ -28,7 +28,7 @@ spec:
             matchLabels:
               app.kubernetes.io/component: prometheus
       ports:
-        - port: {{ .Values.config.lbAddr | trimPrefix ":" | default "3001" }}
+        - port: {{ .Values.service.port | default 3001 }}
           protocol: TCP
     {{- end }}
 {{- end }}

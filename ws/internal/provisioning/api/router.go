@@ -34,6 +34,9 @@ type RouterConfig struct {
 	// CORS configuration
 	CORSAllowedOrigins []string // Allowed origins (e.g., ["http://localhost:3000"])
 	CORSMaxAge         int      // Preflight cache duration in seconds
+
+	// ConfigHandler serves the /config endpoint (set via platform.ConfigHandler)
+	ConfigHandler http.HandlerFunc
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -66,6 +69,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/health", h.Health)
 	r.Get("/ready", h.Ready)
 	r.Get("/version", version.Handler("provisioning"))
+	if cfg.ConfigHandler != nil {
+		r.Get("/config", cfg.ConfigHandler)
+	}
 	r.Get("/metrics", h.Metrics)
 
 	// API v1 routes

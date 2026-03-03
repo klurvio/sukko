@@ -1,0 +1,30 @@
+# Odin — Kafka/Redpanda Mode
+#
+# Enables persistent message streaming via Kafka protocol.
+# Tenant-specific topics with offset-based replay.
+#
+# Usage:
+#   helm install odin deployments/helm/odin -f examples/helm/values-kafka.yaml
+
+ws-server:
+  # Switch message backend to Kafka
+  messageBackend: kafka
+
+  # Broadcast bus stays as NATS (default) for inter-pod fan-out.
+  # Kafka handles persistence; NATS handles real-time broadcast.
+
+  # Uncomment for external Kafka (skip in-cluster Redpanda):
+  # kafka:
+  #   brokers: "kafka-1:9092,kafka-2:9092,kafka-3:9092"
+  #   sasl:
+  #     enabled: true
+  #     mechanism: scram-sha-256
+  #     username: "odin-ws"
+  #     existingSecret: "kafka-credentials"
+  #     existingSecretKey: "password"
+  #   tls:
+  #     enabled: true
+
+# Enable in-cluster Redpanda (Kafka-compatible broker)
+redpanda:
+  enabled: true

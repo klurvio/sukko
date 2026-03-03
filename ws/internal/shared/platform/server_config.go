@@ -77,7 +77,7 @@ type ServerConfig struct {
 	KafkaSASLEnabled   bool   `env:"KAFKA_SASL_ENABLED" envDefault:"false"`
 	KafkaSASLMechanism string `env:"KAFKA_SASL_MECHANISM"` // scram-sha-256 or scram-sha-512
 	KafkaSASLUsername  string `env:"KAFKA_SASL_USERNAME"`
-	KafkaSASLPassword  string `env:"KAFKA_SASL_PASSWORD"`
+	KafkaSASLPassword  string `env:"KAFKA_SASL_PASSWORD" redact:"true"`
 
 	// Kafka Security - TLS Encryption
 	//
@@ -104,13 +104,13 @@ type ServerConfig struct {
 
 	// Rate limiting
 	MaxKafkaRate     int `env:"WS_MAX_KAFKA_RATE" envDefault:"1000"` // Kafka message consumption rate
-	MaxBroadcastRate int `env:"WS_MAX_BROADCAST_RATE" envDefault:"20"`
+	MaxBroadcastRate int `env:"WS_MAX_BROADCAST_RATE" envDefault:"25"`
 	MaxGoroutines    int `env:"WS_MAX_GOROUTINES" envDefault:"100000"`
 
 	// Connection rate limiting (DoS protection)
 	ConnectionRateLimitEnabled bool    `env:"CONN_RATE_LIMIT_ENABLED" envDefault:"true"`
-	ConnRateLimitIPBurst       int     `env:"CONN_RATE_LIMIT_IP_BURST" envDefault:"10"`
-	ConnRateLimitIPRate        float64 `env:"CONN_RATE_LIMIT_IP_RATE" envDefault:"1.0"`
+	ConnRateLimitIPBurst       int     `env:"CONN_RATE_LIMIT_IP_BURST" envDefault:"100"`
+	ConnRateLimitIPRate        float64 `env:"CONN_RATE_LIMIT_IP_RATE" envDefault:"100.0"`
 	ConnRateLimitGlobalBurst   int     `env:"CONN_RATE_LIMIT_GLOBAL_BURST" envDefault:"300"`
 	ConnRateLimitGlobalRate    float64 `env:"CONN_RATE_LIMIT_GLOBAL_RATE" envDefault:"50.0"`
 
@@ -140,10 +140,10 @@ type ServerConfig struct {
 	//
 	// The 10% gap is the "hysteresis band" that provides stability.
 	//
-	CPURejectThreshold      float64 `env:"WS_CPU_REJECT_THRESHOLD" envDefault:"60.0"`       // Upper: start rejecting above this %
-	CPURejectThresholdLower float64 `env:"WS_CPU_REJECT_THRESHOLD_LOWER" envDefault:"50.0"` // Lower: stop rejecting below this %
-	CPUPauseThreshold       float64 `env:"WS_CPU_PAUSE_THRESHOLD" envDefault:"70.0"`        // Upper: pause Kafka above this %
-	CPUPauseThresholdLower  float64 `env:"WS_CPU_PAUSE_THRESHOLD_LOWER" envDefault:"60.0"`  // Lower: resume Kafka below this %
+	CPURejectThreshold      float64 `env:"WS_CPU_REJECT_THRESHOLD" envDefault:"60.0"`      // Upper: start rejecting above this %
+	CPURejectThresholdLower float64 `env:"WS_CPU_REJECT_THRESHOLD_LOWER" envDefault:"0"` // Lower: stop rejecting below this % (0 = auto: upper - 10)
+	CPUPauseThreshold       float64 `env:"WS_CPU_PAUSE_THRESHOLD" envDefault:"70.0"`     // Upper: pause Kafka above this %
+	CPUPauseThresholdLower  float64 `env:"WS_CPU_PAUSE_THRESHOLD_LOWER" envDefault:"0"`  // Lower: resume Kafka below this % (0 = auto: upper - 10)
 
 	// TCP/Network Tuning (Burst Tolerance)
 	//
@@ -176,8 +176,11 @@ type ServerConfig struct {
 	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
 	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
 
-	// Environment
-	Environment string `env:"ENVIRONMENT" envDefault:"development"`
+	// Environment — deployment identity label, used for Kafka topic namespace, consumer
+	// group naming, and safety guards. Free-form: any string works as deployment identity.
+	// Odin uses: local | dev | stg | prod by convention. "prod" blocks KAFKA_TOPIC_NAMESPACE_OVERRIDE;
+	// "dev"/"development"/"local" relaxes admin token length requirements.
+	Environment string `env:"ENVIRONMENT" envDefault:"local"`
 
 	// KafkaTopicNamespaceOverride overrides ENVIRONMENT for Kafka topic naming only.
 	// If empty, defaults to normalized ENVIRONMENT value via kafka.ResolveNamespace().
@@ -205,7 +208,7 @@ type ServerConfig struct {
 	// Supports both self-hosted Sentinel (3 addresses) and single instance (1 address)
 	ValkeyAddrs      []string `env:"VALKEY_ADDRS" envSeparator:","`
 	ValkeyMasterName string   `env:"VALKEY_MASTER_NAME" envDefault:"mymaster"`
-	ValkeyPassword   string   `env:"VALKEY_PASSWORD"`
+	ValkeyPassword   string   `env:"VALKEY_PASSWORD" redact:"true"`
 	ValkeyDB         int      `env:"VALKEY_DB" envDefault:"0"`
 	ValkeyChannel    string   `env:"VALKEY_CHANNEL" envDefault:"ws.broadcast"`
 
@@ -240,15 +243,15 @@ type ServerConfig struct {
 
 	// Broadcast Bus Configuration
 	//
-	// BroadcastType: Backend for inter-instance messaging ("valkey" or "nats")
-	// - valkey: Redis-compatible Pub/Sub (default, ~1-2ms latency)
-	// - nats: NATS Core Pub/Sub (sub-millisecond latency, fire-and-forget)
+	// BroadcastType: Backend for inter-instance messaging ("nats" or "valkey")
+	// - nats: NATS Core Pub/Sub (default, sub-millisecond latency, fire-and-forget)
+	// - valkey: Redis-compatible Pub/Sub (~1-2ms latency)
 	//
 	// When switching backends:
 	// 1. Set BROADCAST_TYPE to the new backend
-	// 2. Configure the corresponding backend settings (VALKEY_* or NATS_*)
+	// 2. Configure the corresponding backend settings (NATS_* or VALKEY_*)
 	// 3. Restart all instances to use the same backend
-	BroadcastType string `env:"BROADCAST_TYPE" envDefault:"valkey"`
+	BroadcastType string `env:"BROADCAST_TYPE" envDefault:"nats"`
 
 	// NATS Configuration (for BroadcastBus when BROADCAST_TYPE=nats)
 	//
@@ -268,9 +271,9 @@ type ServerConfig struct {
 	NATSURLs        []string `env:"NATS_URLS" envSeparator:","`
 	NATSClusterMode bool     `env:"NATS_CLUSTER_MODE" envDefault:"false"`
 	NATSSubject     string   `env:"NATS_SUBJECT" envDefault:"ws.broadcast"`
-	NATSToken       string   `env:"NATS_TOKEN"`
+	NATSToken       string   `env:"NATS_TOKEN" redact:"true"`
 	NATSUser        string   `env:"NATS_USER"`
-	NATSPassword    string   `env:"NATS_PASSWORD"`
+	NATSPassword    string   `env:"NATS_PASSWORD" redact:"true"`
 
 	// NATS Broadcast Bus TLS (for managed NATS: Synadia Cloud, etc.)
 	NATSTLSEnabled  bool   `env:"NATS_TLS_ENABLED" envDefault:"false"`
@@ -288,9 +291,9 @@ type ServerConfig struct {
 	// message streams and sequence-based replay. Each tenant gets its own stream
 	// for natural noisy-tenant isolation.
 	NATSJetStreamURLs        string        `env:"NATS_JETSTREAM_URLS"`                              // Comma-separated NATS URLs
-	NATSJetStreamToken       string        `env:"NATS_JETSTREAM_TOKEN"`                             // Auth token
+	NATSJetStreamToken       string        `env:"NATS_JETSTREAM_TOKEN" redact:"true"`               // Auth token
 	NATSJetStreamUser        string        `env:"NATS_JETSTREAM_USER"`                              // Username
-	NATSJetStreamPassword    string        `env:"NATS_JETSTREAM_PASSWORD"`                          // Password
+	NATSJetStreamPassword    string        `env:"NATS_JETSTREAM_PASSWORD" redact:"true"`            // Password
 	NATSJetStreamReplicas    int           `env:"NATS_JETSTREAM_REPLICAS" envDefault:"1"`            // Stream replicas
 	NATSJetStreamMaxAge      time.Duration `env:"NATS_JETSTREAM_MAX_AGE" envDefault:"24h"`           // Message retention
 	NATSJetStreamTLSEnabled  bool          `env:"NATS_JETSTREAM_TLS_ENABLED" envDefault:"false"`     // TLS for managed NATS (Synadia Cloud, etc.)
@@ -414,6 +417,23 @@ func (c *ServerConfig) Validate() error {
 		return fmt.Errorf("WS_CPU_PAUSE_THRESHOLD_LOWER must be 0-100, got %.1f", c.CPUPauseThresholdLower)
 	}
 
+	// Auto-compute lower thresholds when not explicitly set (0 = auto).
+	// Developers CAN still set lower explicitly via env var for custom bands.
+	if c.CPURejectThresholdLower == 0 {
+		c.CPURejectThresholdLower = c.CPURejectThreshold - 10.0
+	}
+	if c.CPUPauseThresholdLower == 0 {
+		c.CPUPauseThresholdLower = c.CPUPauseThreshold - 10.0
+	}
+
+	// Post-auto-compute range validation
+	if c.CPURejectThresholdLower < 0 {
+		return fmt.Errorf("[CONFIG ERROR] auto-computed WS_CPU_REJECT_THRESHOLD_LOWER is negative (%.1f); set WS_CPU_REJECT_THRESHOLD >= 10 or set lower explicitly", c.CPURejectThresholdLower)
+	}
+	if c.CPUPauseThresholdLower < 0 {
+		return fmt.Errorf("[CONFIG ERROR] auto-computed WS_CPU_PAUSE_THRESHOLD_LOWER is negative (%.1f); set WS_CPU_PAUSE_THRESHOLD >= 10 or set lower explicitly", c.CPUPauseThresholdLower)
+	}
+
 	// Logical checks
 	if c.CPUPauseThreshold < c.CPURejectThreshold {
 		return fmt.Errorf("WS_CPU_PAUSE_THRESHOLD (%.1f) must be >= WS_CPU_REJECT_THRESHOLD (%.1f)",
@@ -440,14 +460,13 @@ func (c *ServerConfig) Validate() error {
 	}
 
 	// Broadcast bus configuration validation
-	// Empty defaults to "valkey" (same as envDefault in struct tag)
-	validBroadcastTypes := map[string]bool{"valkey": true, "redis": true, "nats": true, "": true}
+	validBroadcastTypes := map[string]bool{"valkey": true, "redis": true, "nats": true}
 	if !validBroadcastTypes[c.BroadcastType] {
-		return fmt.Errorf("BROADCAST_TYPE must be one of: valkey, nats (got: %s)", c.BroadcastType)
+		return fmt.Errorf("[CONFIG ERROR] BROADCAST_TYPE=%q is invalid (valid: nats, valkey)", c.BroadcastType)
 	}
 
 	// Valkey-specific validation (when BROADCAST_TYPE=valkey or redis)
-	if c.BroadcastType == "valkey" || c.BroadcastType == "redis" || c.BroadcastType == "" {
+	if c.BroadcastType == "valkey" || c.BroadcastType == "redis" {
 		if len(c.ValkeyAddrs) == 0 {
 			return fmt.Errorf("VALKEY_ADDRS is required when BROADCAST_TYPE=%s", c.BroadcastType)
 		}
@@ -500,7 +519,7 @@ func (c *ServerConfig) Validate() error {
 	// Message backend validation
 	validBackends := map[string]bool{"direct": true, "kafka": true, "nats": true}
 	if !validBackends[c.MessageBackend] {
-		return fmt.Errorf("MESSAGE_BACKEND must be one of: direct, kafka, nats (got: %q)", c.MessageBackend)
+		return fmt.Errorf("[CONFIG ERROR] MESSAGE_BACKEND=%q is invalid (valid: direct, kafka, nats)", c.MessageBackend)
 	}
 
 	// NATS JetStream validation (when MESSAGE_BACKEND=nats)
@@ -645,7 +664,7 @@ func (c *ServerConfig) Print() {
 	fmt.Printf("Default Tenant:  %s\n", c.DefaultTenantID)
 	fmt.Println("\n=== Broadcast Bus ===")
 	fmt.Printf("Type:            %s\n", c.BroadcastType)
-	if c.BroadcastType == "valkey" || c.BroadcastType == "redis" || c.BroadcastType == "" {
+	if c.BroadcastType == "valkey" || c.BroadcastType == "redis" {
 		fmt.Printf("Valkey Addrs:    %v\n", c.ValkeyAddrs)
 		fmt.Printf("Master Name:     %s\n", c.ValkeyMasterName)
 		fmt.Printf("Channel:         %s\n", c.ValkeyChannel)
