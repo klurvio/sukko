@@ -62,8 +62,8 @@ Remove tests for hardcoded mappings, keep only:
 
 #### 3. Update Helm Default Values
 **Files**:
-- `deployments/helm/odin/charts/ws-server/values.yaml`
-- `deployments/helm/odin/charts/provisioning/values.yaml`
+- `deployments/helm/sukko/charts/ws-server/values.yaml`
+- `deployments/helm/sukko/charts/provisioning/values.yaml`
 
 Ensure defaults are explicit normalized values:
 - `local` (not "development")

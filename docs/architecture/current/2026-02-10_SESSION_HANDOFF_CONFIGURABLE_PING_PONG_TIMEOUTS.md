@@ -47,9 +47,9 @@ The plan includes:
 | `ws/internal/server/pump_test.go` | Update test expectations |
 | `ws/internal/server/server.go` | Use config values with fallback logging |
 | `ws/cmd/server/main.go` | Copy fields to shardConfig |
-| `deployments/helm/odin/charts/ws-server/values.yaml` | Add config |
-| `deployments/helm/odin/charts/ws-server/templates/configmap.yaml` | Map env vars |
-| `deployments/helm/odin/values/local.yaml` | Set lenient local values |
+| `deployments/helm/sukko/charts/ws-server/values.yaml` | Add config |
+| `deployments/helm/sukko/charts/ws-server/templates/configmap.yaml` | Map env vars |
+| `deployments/helm/sukko/values/local.yaml` | Set lenient local values |
 
 ### 4. Reviewed Plan Against Coding Guidelines
 
@@ -257,10 +257,10 @@ task local:deploy
 task local:loadtest:run CONNECTIONS=1 DURATION=60m
 
 # Check ws-server logs for ping/pong configuration
-kubectl logs -n odin-local -l app.kubernetes.io/name=ws-server | grep -E "(pong|ping|Ping|Pong)"
+kubectl logs -n sukko-local -l app.kubernetes.io/name=ws-server | grep -E "(pong|ping|Ping|Pong)"
 
 # Verify no disconnects
-kubectl logs -n odin-local -l app.kubernetes.io/name=ws-server --tail=1000 | grep disconnect
+kubectl logs -n sukko-local -l app.kubernetes.io/name=ws-server --tail=1000 | grep disconnect
 
 # Run tests after implementation
 cd ws && go test ./internal/server/... -v -run "Pump"

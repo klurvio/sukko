@@ -39,7 +39,7 @@ After completing the explicit channels refactor (Tasks #10–#15), a review iden
 
 ## Task 2: Add `MinInternalChannelParts` check to `interceptSubscribe`
 
-**Problem:** `interceptPublish` validates channels have >= 3 dot-separated parts (`proxy.go:437`), but `interceptSubscribe` does not. Malformed channels like `"odin."` or `"odin.x"` pass tenant validation and reach the backend.
+**Problem:** `interceptPublish` validates channels have >= 3 dot-separated parts (`proxy.go:437`), but `interceptSubscribe` does not. Malformed channels like `"sukko."` or `"sukko.x"` pass tenant validation and reach the backend.
 
 **File:** `ws/internal/gateway/proxy.go`
 
@@ -127,7 +127,7 @@ No new imports needed (`strings` and `protocol` already imported).
 
 **Add test:**
 
-- `TestExtractChannelTenant` — test the new standalone function with cases: `"odin.BTC.trade"` → `"odin"`, `"BTC.trade"` → `"BTC"`, `""` → `""`, `"nodotshere"` → `""`
+- `TestExtractChannelTenant` — test the new standalone function with cases: `"sukko.BTC.trade"` → `"sukko"`, `"BTC.trade"` → `"BTC"`, `""` → `""`, `"nodotshere"` → `""`
 
 ### 3d. `ws/internal/shared/auth/tenant_test.go` — Remove stale tests
 
@@ -150,12 +150,12 @@ No new imports needed (`strings` and `protocol` already imported).
 **Change comment examples:**
 
 ```
-"BTC.trade"                → "odin.BTC.trade"
-"all.trade"                → "odin.all.trade"
-"ETH.liquidity"            → "odin.ETH.liquidity"
-"BTC.balances.user123"     → "odin.BTC.balances.user123"
-case "BTC.trade":          → case "odin.BTC.trade":
-case "all.trade":          → case "odin.all.trade":
+"BTC.trade"                → "sukko.BTC.trade"
+"all.trade"                → "sukko.all.trade"
+"ETH.liquidity"            → "sukko.ETH.liquidity"
+"BTC.balances.user123"     → "sukko.BTC.balances.user123"
+case "BTC.trade":          → case "sukko.BTC.trade":
+case "all.trade":          → case "sukko.all.trade":
 ```
 
 ---

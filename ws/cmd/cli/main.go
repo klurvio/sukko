@@ -1,10 +1,10 @@
-// CLI tool for Odin WS provisioning management.
+// CLI tool for Sukko provisioning management.
 package main
 
 import (
 	"os"
 
-	"github.com/Toniq-Labs/odin-ws/cmd/cli/commands"
+	"github.com/klurvio/sukko/cmd/cli/commands"
 )
 
 func main() {

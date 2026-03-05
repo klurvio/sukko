@@ -104,11 +104,11 @@ The fix works correctly regardless of PingPeriod/PongWait configuration. No new 
 
 ```bash
 # Run existing tests before changes
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws && go test ./internal/server/ -run TestReadLoop -v
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws && go test ./internal/server/ -run TestPump -v
+cd /Volumes/Dev/Codev/Toniq/sukko/ws && go test ./internal/server/ -run TestReadLoop -v
+cd /Volumes/Dev/Codev/Toniq/sukko/ws && go test ./internal/server/ -run TestPump -v
 
 # After implementation
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws && go test ./internal/server/ -v
+cd /Volumes/Dev/Codev/Toniq/sukko/ws && go test ./internal/server/ -v
 
 # Build and deploy for verification
 task gce:loadtest:build

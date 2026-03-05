@@ -209,7 +209,7 @@ func TestHandleClientMessage_ErrorResponses(t *testing.T) {
 import (
     "io"
     "github.com/rs/zerolog"
-    "github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
+    "github.com/Toniq-Labs/sukko/internal/shared/protocol"
 )
 ```
 

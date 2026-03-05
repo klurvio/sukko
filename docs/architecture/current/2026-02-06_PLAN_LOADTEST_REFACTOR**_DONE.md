@@ -10,7 +10,7 @@
 
 The existing `loadtest/` tool has the core features needed but requires refactoring to:
 1. Follow the coding guidelines (no global state, structured logging, config validation)
-2. Support explicit tenant-prefixed channels (`odin.BTC.trade`)
+2. Support explicit tenant-prefixed channels (`sukko.BTC.trade`)
 3. Add proper unit tests
 4. Improve code organization
 5. Align with the AsyncAPI spec (`ws/docs/asyncapi/bundled.yaml`)
@@ -29,8 +29,8 @@ All message formats must conform to `ws/docs/asyncapi/bundled.yaml`:
 
 | Type | Format | Reference |
 |------|--------|-----------|
-| `subscribe` | `{"type":"subscribe","data":{"channels":["odin.BTC.trade"]}}` | `#/components/messages/subscribe` |
-| `unsubscribe` | `{"type":"unsubscribe","data":{"channels":["odin.BTC.trade"]}}` | `#/components/messages/unsubscribe` |
+| `subscribe` | `{"type":"subscribe","data":{"channels":["sukko.BTC.trade"]}}` | `#/components/messages/subscribe` |
+| `unsubscribe` | `{"type":"unsubscribe","data":{"channels":["sukko.BTC.trade"]}}` | `#/components/messages/unsubscribe` |
 | `heartbeat` | `{"type":"heartbeat","data":{}}` | `#/components/messages/heartbeat` |
 
 ### Server → Client Messages
@@ -48,7 +48,7 @@ All message formats must conform to `ws/docs/asyncapi/bundled.yaml`:
 Per AsyncAPI spec:
 - Format: `{tenant}.{identifier}.{category}`
 - Minimum 3 dot-separated parts
-- Examples: `odin.BTC.trade`, `odin.all.liquidity`, `odin.ETH.metadata`
+- Examples: `sukko.BTC.trade`, `sukko.all.liquidity`, `sukko.ETH.metadata`
 
 ---
 
@@ -72,7 +72,7 @@ Per AsyncAPI spec:
 | No configuration validation | "Configuration Validation" | Add `Validate()` method |
 | Uses `log.Printf` | "Structured Logging with zerolog" | Switch to zerolog |
 | Emojis in output | "Only use emojis if user requests" | Remove emojis |
-| Old channel format (`BTC.trade`) | Explicit channels refactor | Use `odin.BTC.trade` |
+| Old channel format (`BTC.trade`) | Explicit channels refactor | Use `sukko.BTC.trade` |
 | 836-line single file | Maintainability | Split into logical files |
 | No unit tests | "Testing" guidelines | Add table-driven tests |
 | Uses gorilla/websocket | Consistency with project | Keep gorilla (acceptable for client) |
@@ -122,12 +122,12 @@ type Config struct {
     ConnectionTimeout time.Duration `env:"CONNECTION_TIMEOUT" envDefault:"10s"`
 
     // Subscriptions (explicit tenant-prefixed channels per AsyncAPI spec)
-    Channels          []string `env:"CHANNELS" envDefault:"odin.all.trade,odin.BTC.trade,odin.ETH.trade,odin.SOL.trade,odin.BTC.orderbook,odin.ETH.liquidity"`
+    Channels          []string `env:"CHANNELS" envDefault:"sukko.all.trade,sukko.BTC.trade,sukko.ETH.trade,sukko.SOL.trade,sukko.BTC.orderbook,sukko.ETH.liquidity"`
     SubscriptionMode  string   `env:"SUBSCRIPTION_MODE" envDefault:"random"`
     ChannelsPerClient int      `env:"CHANNELS_PER_CLIENT" envDefault:"3"`
 
     // Authentication
-    TenantID  string `env:"TENANT_ID" envDefault:"odin"`  // For JWT token generation
+    TenantID  string `env:"TENANT_ID" envDefault:"sukko"`  // For JWT token generation
     Token     string `env:"JWT_TOKEN"`
     JWTSecret string `env:"JWT_SECRET"`
     Principal string `env:"PRINCIPAL" envDefault:"loadtest-user"`
@@ -146,9 +146,9 @@ Channels must be explicit tenant-prefixed format per AsyncAPI spec:
 ```
 
 Examples:
-- `odin.BTC.trade` — BTC trades for tenant odin
-- `odin.ETH.liquidity` — ETH liquidity for tenant odin
-- `odin.all.trade` — All trades (aggregate channel)
+- `sukko.BTC.trade` — BTC trades for tenant sukko
+- `sukko.ETH.liquidity` — ETH liquidity for tenant sukko
+- `sukko.all.trade` — All trades (aggregate channel)
 
 ### Configuration Validation
 ```go
@@ -422,7 +422,7 @@ func TestConfig_Validate(t *testing.T) {
         },
         {
             name:    "invalid_subscription_mode",
-            config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "invalid"},
+            config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"sukko.BTC.trade"}, SubscriptionMode: "invalid"},
             wantErr: "SUBSCRIPTION_MODE must be all/single/random",
         },
         {
@@ -432,17 +432,17 @@ func TestConfig_Validate(t *testing.T) {
         },
         {
             name:    "channels_per_client_zero",
-            config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "random", ChannelsPerClient: 0},
+            config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"sukko.BTC.trade"}, SubscriptionMode: "random", ChannelsPerClient: 0},
             wantErr: "CHANNELS_PER_CLIENT must be >= 1",
         },
         {
             name:    "channels_per_client_exceeds_channels",
-            config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "random", ChannelsPerClient: 5},
+            config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"sukko.BTC.trade"}, SubscriptionMode: "random", ChannelsPerClient: 5},
             wantErr: "CHANNELS_PER_CLIENT (5) cannot exceed number of channels (1)",
         },
         {
             name:    "invalid_log_level",
-            config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "all", LogLevel: "invalid"},
+            config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"sukko.BTC.trade"}, SubscriptionMode: "all", LogLevel: "invalid"},
             wantErr: "invalid log level",
         },
         {
@@ -451,8 +451,8 @@ func TestConfig_Validate(t *testing.T) {
                 WSURL:             "ws://localhost",
                 TargetConnections: 100,
                 RampRate:          10,
-                Channels:          []string{"odin.BTC.trade"},
-                TenantID:          "odin",
+                Channels:          []string{"sukko.BTC.trade"},
+                TenantID:          "sukko",
                 SubscriptionMode:  "random",
                 ChannelsPerClient: 1,
                 LogLevel:          "info",
@@ -492,12 +492,12 @@ func TestConfig_ValidateChannels(t *testing.T) {
     }{
         {
             name:     "valid_channels",
-            channels: []string{"odin.BTC.trade", "odin.ETH.liquidity"},
+            channels: []string{"sukko.BTC.trade", "sukko.ETH.liquidity"},
             wantErr:  "",
         },
         {
             name:     "valid_aggregate_channel",
-            channels: []string{"odin.all.trade"},
+            channels: []string{"sukko.all.trade"},
             wantErr:  "",
         },
         {
@@ -512,7 +512,7 @@ func TestConfig_ValidateChannels(t *testing.T) {
         },
         {
             name:     "mixed_valid_invalid",
-            channels: []string{"odin.BTC.trade", "invalid"},
+            channels: []string{"sukko.BTC.trade", "invalid"},
             wantErr:  "must have format {tenant}.{identifier}.{category}",
         },
     }
@@ -553,7 +553,7 @@ func TestSubscribeMessage_Marshal(t *testing.T) {
         Type: MsgTypeSubscribe,
     }
     data := SubscribeData{
-        Channels: []string{"odin.BTC.trade", "odin.ETH.trade"},
+        Channels: []string{"sukko.BTC.trade", "sukko.ETH.trade"},
     }
     dataBytes, _ := json.Marshal(data)
     msg.Data = dataBytes
@@ -564,7 +564,7 @@ func TestSubscribeMessage_Marshal(t *testing.T) {
     }
 
     // Verify it matches AsyncAPI spec format
-    want := `{"type":"subscribe","data":{"channels":["odin.BTC.trade","odin.ETH.trade"]}}`
+    want := `{"type":"subscribe","data":{"channels":["sukko.BTC.trade","sukko.ETH.trade"]}}`
     if string(got) != want {
         t.Errorf("Marshal = %s, want %s", got, want)
     }
@@ -573,7 +573,7 @@ func TestSubscribeMessage_Marshal(t *testing.T) {
 func TestSubscriptionAck_Unmarshal(t *testing.T) {
     t.Parallel()
 
-    input := `{"type":"subscription_ack","subscribed":["odin.BTC.trade"],"count":5}`
+    input := `{"type":"subscription_ack","subscribed":["sukko.BTC.trade"],"count":5}`
 
     var ack SubscriptionAck
     if err := json.Unmarshal([]byte(input), &ack); err != nil {
@@ -583,8 +583,8 @@ func TestSubscriptionAck_Unmarshal(t *testing.T) {
     if ack.Type != RespTypeSubscriptionAck {
         t.Errorf("Type = %s, want %s", ack.Type, RespTypeSubscriptionAck)
     }
-    if len(ack.Subscribed) != 1 || ack.Subscribed[0] != "odin.BTC.trade" {
-        t.Errorf("Subscribed = %v, want [odin.BTC.trade]", ack.Subscribed)
+    if len(ack.Subscribed) != 1 || ack.Subscribed[0] != "sukko.BTC.trade" {
+        t.Errorf("Subscribed = %v, want [sukko.BTC.trade]", ack.Subscribed)
     }
     if ack.Count != 5 {
         t.Errorf("Count = %d, want 5", ack.Count)
@@ -594,7 +594,7 @@ func TestSubscriptionAck_Unmarshal(t *testing.T) {
 func TestMessageEnvelope_Unmarshal(t *testing.T) {
     t.Parallel()
 
-    input := `{"type":"message","seq":1234,"ts":1706000000000,"channel":"odin.BTC.trade","data":{"price":50000}}`
+    input := `{"type":"message","seq":1234,"ts":1706000000000,"channel":"sukko.BTC.trade","data":{"price":50000}}`
 
     var env MessageEnvelope
     if err := json.Unmarshal([]byte(input), &env); err != nil {
@@ -607,8 +607,8 @@ func TestMessageEnvelope_Unmarshal(t *testing.T) {
     if env.Seq != 1234 {
         t.Errorf("Seq = %d, want 1234", env.Seq)
     }
-    if env.Channel != "odin.BTC.trade" {
-        t.Errorf("Channel = %s, want odin.BTC.trade", env.Channel)
+    if env.Channel != "sukko.BTC.trade" {
+        t.Errorf("Channel = %s, want sukko.BTC.trade", env.Channel)
     }
 }
 ```
@@ -677,12 +677,12 @@ func parseConfig() (*Config, error) {
     flag.DurationVar(&cfg.ConnectionTimeout, "timeout", getEnvDuration("CONNECTION_TIMEOUT", 10*time.Second), "Connection timeout")
 
     // Subscription flags
-    channelsStr := flag.String("channels", getEnv("CHANNELS", "odin.all.trade,odin.BTC.trade,odin.ETH.trade,odin.SOL.trade,odin.BTC.orderbook,odin.ETH.liquidity"), "Comma-separated channels (format: tenant.identifier.category)")
+    channelsStr := flag.String("channels", getEnv("CHANNELS", "sukko.all.trade,sukko.BTC.trade,sukko.ETH.trade,sukko.SOL.trade,sukko.BTC.orderbook,sukko.ETH.liquidity"), "Comma-separated channels (format: tenant.identifier.category)")
     flag.StringVar(&cfg.SubscriptionMode, "mode", getEnv("SUBSCRIPTION_MODE", "random"), "Subscription mode: all/single/random")
     flag.IntVar(&cfg.ChannelsPerClient, "channels-per-client", getEnvInt("CHANNELS_PER_CLIENT", 3), "Channels per client (for random mode)")
 
     // Auth flags
-    flag.StringVar(&cfg.TenantID, "tenant", getEnv("TENANT_ID", "odin"), "Tenant ID for JWT token generation")
+    flag.StringVar(&cfg.TenantID, "tenant", getEnv("TENANT_ID", "sukko"), "Tenant ID for JWT token generation")
     flag.StringVar(&cfg.Token, "token", getEnv("JWT_TOKEN", ""), "Pre-generated JWT token")
     flag.StringVar(&cfg.JWTSecret, "jwt-secret", getEnv("JWT_SECRET", ""), "JWT secret to generate tokens")
     flag.StringVar(&cfg.Principal, "principal", getEnv("PRINCIPAL", "loadtest-user"), "Principal for JWT")
@@ -723,10 +723,10 @@ func parseConfig() (*Config, error) {
 | `-ramp-rate` | `RAMP_RATE` | `100` | Connections per second during ramp-up |
 | `-duration` | `DURATION` | `30m` | Sustain duration after ramp-up |
 | `-timeout` | `CONNECTION_TIMEOUT` | `10s` | Connection timeout |
-| `-channels` | `CHANNELS` | `odin.all.trade,odin.BTC.trade,...` (6 channels) | Comma-separated channels |
+| `-channels` | `CHANNELS` | `sukko.all.trade,sukko.BTC.trade,...` (6 channels) | Comma-separated channels |
 | `-mode` | `SUBSCRIPTION_MODE` | `random` | all/single/random |
 | `-channels-per-client` | `CHANNELS_PER_CLIENT` | `3` | Channels per client (random mode) |
-| `-tenant` | `TENANT_ID` | `odin` | Tenant for JWT generation |
+| `-tenant` | `TENANT_ID` | `sukko` | Tenant for JWT generation |
 | `-token` | `JWT_TOKEN` | - | Pre-generated JWT token |
 | `-jwt-secret` | `JWT_SECRET` | - | JWT secret for token generation |
 | `-principal` | `PRINCIPAL` | `loadtest-user` | Principal for JWT |
@@ -746,8 +746,8 @@ func parseConfig() (*Config, error) {
 ### Subscription Test with Multiple Channels (GKE Target)
 ```bash
 ./wsloadtest \
-  -url wss://ws.odin.example.com/ws \
-  -channels "odin.all.trade,odin.BTC.trade,odin.ETH.trade,odin.SOL.trade,odin.BTC.orderbook,odin.ETH.liquidity" \
+  -url wss://ws.sukko.example.com/ws \
+  -channels "sukko.all.trade,sukko.BTC.trade,sukko.ETH.trade,sukko.SOL.trade,sukko.BTC.orderbook,sukko.ETH.liquidity" \
   -mode random \
   -channels-per-client 3 \
   -connections 5000 \
@@ -757,9 +757,9 @@ func parseConfig() (*Config, error) {
 
 ### Aggregate Channel Test (all trades)
 ```bash
-# All clients subscribe to odin.all.trade
+# All clients subscribe to sukko.all.trade
 ./wsloadtest \
-  -channels "odin.all.trade" \
+  -channels "sukko.all.trade" \
   -mode all \
   -connections 500 \
   -ramp-rate 100
@@ -769,8 +769,8 @@ func parseConfig() (*Config, error) {
 ```bash
 # 500 connections per second from GCE instance
 ./wsloadtest \
-  -url wss://ws.odin.example.com/ws \
-  -channels "odin.all.trade,odin.BTC.trade,odin.ETH.trade,odin.SOL.trade,odin.BTC.orderbook,odin.ETH.liquidity" \
+  -url wss://ws.sukko.example.com/ws \
+  -channels "sukko.all.trade,sukko.BTC.trade,sukko.ETH.trade,sukko.SOL.trade,sukko.BTC.orderbook,sukko.ETH.liquidity" \
   -connections 10000 \
   -ramp-rate 500 \
   -duration 15m
@@ -780,9 +780,9 @@ func parseConfig() (*Config, error) {
 ```bash
 ./wsloadtest \
   -jwt-secret "your-32-character-secret-here" \
-  -tenant odin \
+  -tenant sukko \
   -principal loadtest-user \
-  -channels "odin.BTC.trade" \
+  -channels "sukko.BTC.trade" \
   -connections 1000
 ```
 
@@ -790,7 +790,7 @@ func parseConfig() (*Config, error) {
 ```bash
 ./wsloadtest \
   -url ws://localhost:3000/ws \
-  -channels "odin.BTC.trade" \
+  -channels "sukko.BTC.trade" \
   -mode all \
   -connections 5 \
   -ramp-rate 1 \
@@ -802,9 +802,9 @@ Expected output (debug level):
 ```
 INF Starting ramp-up target_connections=5 ramp_rate=1
 DBG Connection established id=1
-DBG Sending subscribe channels=["odin.BTC.trade"] id=1
-DBG Received subscription_ack subscribed=["odin.BTC.trade"] count=1 id=1
-DBG Received message channel=odin.BTC.trade seq=1 id=1
+DBG Sending subscribe channels=["sukko.BTC.trade"] id=1
+DBG Received subscription_ack subscribed=["sukko.BTC.trade"] count=1 id=1
+DBG Received message channel=sukko.BTC.trade seq=1 id=1
 ...
 ```
 
@@ -862,7 +862,7 @@ go vet ./...        # No vet issues
 # Integration test (local, auth disabled)
 ./wsloadtest \
   -url ws://localhost:3000/ws \
-  -channels "odin.all.trade,odin.BTC.trade,odin.ETH.trade" \
+  -channels "sukko.all.trade,sukko.BTC.trade,sukko.ETH.trade" \
   -connections 10 \
   -ramp-rate 5 \
   -duration 30s \
@@ -870,8 +870,8 @@ go vet ./...        # No vet issues
 
 # Production test (GKE target from e2-standard-8)
 ./wsloadtest \
-  -url wss://ws.odin.example.com/ws \
-  -channels "odin.all.trade,odin.BTC.trade,odin.ETH.trade,odin.SOL.trade,odin.BTC.orderbook,odin.ETH.liquidity" \
+  -url wss://ws.sukko.example.com/ws \
+  -channels "sukko.all.trade,sukko.BTC.trade,sukko.ETH.trade,sukko.SOL.trade,sukko.BTC.orderbook,sukko.ETH.liquidity" \
   -connections 5000 \
   -ramp-rate 100 \
   -duration 10m \
@@ -960,12 +960,12 @@ net.ipv4.tcp_max_syn_backlog = 65535
 
 | Channel | Description |
 |---------|-------------|
-| `odin.all.trade` | Aggregate trades (all tokens) |
-| `odin.BTC.trade` | BTC trades |
-| `odin.ETH.trade` | ETH trades |
-| `odin.SOL.trade` | SOL trades |
-| `odin.BTC.orderbook` | BTC orderbook updates |
-| `odin.ETH.liquidity` | ETH liquidity updates |
+| `sukko.all.trade` | Aggregate trades (all tokens) |
+| `sukko.BTC.trade` | BTC trades |
+| `sukko.ETH.trade` | ETH trades |
+| `sukko.SOL.trade` | SOL trades |
+| `sukko.BTC.orderbook` | BTC orderbook updates |
+| `sukko.ETH.liquidity` | ETH liquidity updates |
 
 ---
 

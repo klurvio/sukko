@@ -1,6 +1,6 @@
 # GKE Standard - Develop Environment
 
-Deploy the Odin WebSocket infrastructure to GKE Standard develop cluster with Spot VMs for cost-optimized development and testing.
+Deploy the Sukko WebSocket infrastructure to GKE Standard develop cluster with Spot VMs for cost-optimized development and testing.
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ task k8s:standard:setup GKE_STD_ENV=develop
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    GKE Standard Cluster (odin-ws-develop)                    │
+│                    GKE Standard Cluster (sukko-develop)                    │
 │                         Zone: us-central1-a                                  │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │              Node Pool (2x e2-standard-4 Spot VMs)                     │  │
@@ -41,7 +41,7 @@ task k8s:standard:setup GKE_STD_ENV=develop
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │                         Namespace: odin-std-develop                     │ │
+│  │                         Namespace: sukko-std-develop                     │ │
 │  │                                                                         │ │
 │  │  ┌─────────────┐      ┌─────────────┐      ┌───────────────┐           │ │
 │  │  │ ws-gateway  │─────▶│  ws-server  │◀─────│   Redpanda    │           │ │
@@ -70,8 +70,8 @@ External Access:
 
 | Setting | Value |
 |---------|-------|
-| Cluster Name | `odin-ws-develop` |
-| Namespace | `odin-std-develop` |
+| Cluster Name | `sukko-develop` |
+| Namespace | `sukko-std-develop` |
 | Zone | `us-central1-a` |
 | Node Count | 2 (fixed) |
 | Instance Type | e2-standard-4 (Spot) |
@@ -217,7 +217,7 @@ task k8s:standard:health GKE_STD_ENV=develop
 task k8s:standard:setup GKE_STD_ENV=develop
 
 # Wait for pods
-kubectl get pods -n odin-std-develop -w
+kubectl get pods -n sukko-std-develop -w
 ```
 
 ### 2. Code Changes
@@ -248,7 +248,7 @@ Publisher and loadtest run on a **separate GCP VM** and connect to the K8s clust
 
 ```
 ┌─────────────────────────────────┐         ┌─────────────────────────────┐
-│   GCP VM (odin-tools-dev)       │         │   K8s Cluster (develop)     │
+│   GCP VM (sukko-tools-dev)       │         │   K8s Cluster (develop)     │
 │   e2-standard-8                 │         │                             │
 │                                 │         │                             │
 │  ┌───────────┐  ┌────────────┐  │         │  ┌─────────────────────┐   │
@@ -268,7 +268,7 @@ Publisher and loadtest run on a **separate GCP VM** and connect to the K8s clust
 task k8s:standard:external-ips GKE_STD_ENV=develop
 ```
 
-Note the EXTERNAL-IP for `odin-ws-gateway` and `odin-redpanda-external`.
+Note the EXTERNAL-IP for `sukko-gateway` and `sukko-redpanda-external`.
 
 ### 2. Configure Environment
 
@@ -365,7 +365,7 @@ task k8s:standard:events GKE_STD_ENV=develop
 ```bash
 kubectl get nodes
 kubectl describe nodes
-kubectl get events -n odin-std-develop
+kubectl get events -n sukko-std-develop
 ```
 
 ### Spot preemption issues
@@ -398,7 +398,7 @@ task k8s:standard:tf:init GKE_STD_ENV=develop
 
 | File | Purpose |
 |------|---------|
-| `deployments/k8s/helm/odin/values/standard/develop.yaml` | Helm values |
+| `deployments/k8s/helm/sukko/values/standard/develop.yaml` | Helm values |
 | `deployments/terraform/gke-standard/develop/` | Terraform config |
 | `taskfiles/k8s/standard.yml` | Task definitions |
 

@@ -9,7 +9,7 @@ The 2,184 limit is for **client WebSocket connections**, NOT NATS connections.
 
 ### Actual Connections in Container
 ```bash
-$ docker exec odin-ws-go-2 ss -tan | grep ESTAB
+$ docker exec sukko-go-2 ss -tan | grep ESTAB
 
 192.168.160.4:42170  →  192.168.160.2:4222   [NATS connection - ONE]
                                                ↑
@@ -21,7 +21,7 @@ $ docker exec odin-ws-go-2 ss -tan | grep ESTAB
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Container: odin-ws-go-2 (512MB memory limit)               │
+│  Container: sukko-go-2 (512MB memory limit)               │
 │                                                              │
 │  ┌──────────────────────────────────────────────┐           │
 │  │  Go Server Process                           │           │
@@ -29,7 +29,7 @@ $ docker exec odin-ws-go-2 ss -tan | grep ESTAB
 │  │  ┌─────────────────────────────────────┐    │           │
 │  │  │  NATS Connection: 1                  │    │           │
 │  │  │  Memory: ~5MB (part of 128MB overhead)   │           │
-│  │  │  Role: Subscribe to "odin.token.>"   │    │           │
+│  │  │  Role: Subscribe to "sukko.token.>"   │    │           │
 │  │  └─────────────────────────────────────┘    │           │
 │  │                                               │           │
 │  │  ┌─────────────────────────────────────┐    │           │
@@ -68,8 +68,8 @@ Total memory accounting:
                  │
                  ↓
 ┌──────────────────────────────────────────────────────────────────────┐
-│ 2. NATS Server (odin-nats container)                                │
-│    Topic: "odin.token.BTCUSD"                                        │
+│ 2. NATS Server (sukko-nats container)                                │
+│    Topic: "sukko.token.BTCUSD"                                        │
 │    Payload: {"symbol":"BTCUSD","price":50000,"timestamp":...}       │
 └────────────────┬─────────────────────────────────────────────────────┘
                  │
@@ -77,10 +77,10 @@ Total memory accounting:
                  │
                  ↓
 ┌──────────────────────────────────────────────────────────────────────┐
-│ 3. Go Server (odin-ws-go-2) - NATS Subscriber                       │
+│ 3. Go Server (sukko-go-2) - NATS Subscriber                       │
 │    server.go:135                                                     │
 │                                                                      │
-│    natsConn.Subscribe("odin.token.>", func(msg *nats.Msg) {         │
+│    natsConn.Subscribe("sukko.token.>", func(msg *nats.Msg) {         │
 │        s.workerPool.Submit(func() {                                 │
 │            s.broadcast(msg.Data)  // Broadcast to ALL clients       │
 │        })                                                            │

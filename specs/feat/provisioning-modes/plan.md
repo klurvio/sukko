@@ -4,7 +4,7 @@
 
 ## Summary
 
-Add three provisioning modes to Odin WS: (1) embedded SQLite as default database, (2) YAML config file mode for static deployments, (3) a CLI tool for tenant management. Decouple gateway and ws-server from direct database access by replacing polling-based DB queries with gRPC server-side streaming from the provisioning service. The provisioning service exposes two interfaces: gRPC (internal, port 9090) for real-time data push to gateway/ws-server, and REST (external, port 8080) for CLI and admin UI.
+Add three provisioning modes to Sukko: (1) embedded SQLite as default database, (2) YAML config file mode for static deployments, (3) a CLI tool for tenant management. Decouple gateway and ws-server from direct database access by replacing polling-based DB queries with gRPC server-side streaming from the provisioning service. The provisioning service exposes two interfaces: gRPC (internal, port 9090) for real-time data push to gateway/ws-server, and REST (external, port 8080) for CLI and admin UI.
 
 ## Technical Context
 
@@ -114,14 +114,14 @@ plugins:
 
 ### 1.2 Proto Definitions
 
-**New file**: `ws/proto/odin/provisioning/v1/provisioning.proto`
+**New file**: `ws/proto/sukko/provisioning/v1/provisioning.proto`
 
 ```protobuf
 syntax = "proto3";
 
-package odin.provisioning.v1;
+package sukko.provisioning.v1;
 
-option go_package = "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1;provisioningv1";
+option go_package = "github.com/Toniq-Labs/sukko/gen/proto/sukko/provisioning/v1;provisioningv1";
 
 // Internal service — streaming provisioning data to gateway and ws-server.
 service ProvisioningInternal {
@@ -202,10 +202,10 @@ message DedicatedTenant {
 ### 1.3 Generated Code
 
 Run `buf generate` to produce:
-- `ws/gen/proto/odin/provisioning/v1/provisioning.pb.go`
-- `ws/gen/proto/odin/provisioning/v1/provisioning_grpc.pb.go`
+- `ws/gen/proto/sukko/provisioning/v1/provisioning.pb.go`
+- `ws/gen/proto/sukko/provisioning/v1/provisioning_grpc.pb.go`
 
-**New directory**: `ws/gen/proto/odin/provisioning/v1/` — committed to repo.
+**New directory**: `ws/gen/proto/sukko/provisioning/v1/` — committed to repo.
 
 ### 1.4 gRPC Server on Provisioning Service
 
@@ -642,7 +642,7 @@ Lightweight runner (~80 lines):
 type DatabaseConfig struct {
     Driver      string        // "sqlite" or "postgres"
     URL         string        // PostgreSQL connection URL
-    Path        string        // SQLite file path (default: "odin.db")
+    Path        string        // SQLite file path (default: "sukko.db")
     AutoMigrate bool          // Run embedded migrations on startup
     MaxOpenConns   int
     MaxIdleConns   int
@@ -664,7 +664,7 @@ SQLite-specific setup:
 Change `DATABASE_URL` from `required` to optional. Add:
 ```go
 DatabaseDriver string `env:"DATABASE_DRIVER" envDefault:"sqlite"`
-DatabasePath   string `env:"DATABASE_PATH" envDefault:"odin.db"`
+DatabasePath   string `env:"DATABASE_PATH" envDefault:"sukko.db"`
 AutoMigrate    bool   `env:"AUTO_MIGRATE" envDefault:"true"`
 ```
 
@@ -872,7 +872,7 @@ Map `ErrReadOnlyMode` → HTTP 405 Method Not Allowed with message `"write opera
 
 ## Phase 7: CLI Tool
 
-**Goal**: Create an `odin` CLI binary for tenant management via REST API.
+**Goal**: Create an `sukko` CLI binary for tenant management via REST API.
 
 ### 7.1 CLI Structure
 
@@ -916,7 +916,7 @@ func (c *AdminClient) GetTenant(ctx, id) (*Tenant, error)
 
 **Modified file**: `ws/go.mod` — Add `github.com/spf13/cobra`
 
-**New file**: `ws/build/cli/Dockerfile` — Multi-stage build producing `odin` binary
+**New file**: `ws/build/cli/Dockerfile` — Multi-stage build producing `sukko` binary
 
 ---
 
@@ -924,7 +924,7 @@ func (c *AdminClient) GetTenant(ctx, id) (*Tenant, error)
 
 ### 8.1 Provisioning Service Helm Chart
 
-**Modified files**: `deployments/helm/odin/charts/provisioning/values.yaml`, `templates/deployment.yaml`
+**Modified files**: `deployments/helm/sukko/charts/provisioning/values.yaml`, `templates/deployment.yaml`
 
 **Values structure** (developer-facing, high-level):
 ```yaml
@@ -940,13 +940,13 @@ config:
 # Bundled PostgreSQL: set postgresql.enabled: true in parent chart
 # External PostgreSQL: set externalDatabase.url or .existingSecret below
 database:
-  sqlitePath: "/data/odin.db"
+  sqlitePath: "/data/sukko.db"
   maxOpenConns: 25
   maxIdleConns: 5
   connMaxLifetime: "5m"
 
 externalDatabase:
-  url: ""                       # postgres://user:pass@host:5432/odin?sslmode=require
+  url: ""                       # postgres://user:pass@host:5432/sukko?sslmode=require
   existingSecret: ""            # K8s secret name containing "database-url" key
   existingSecretKey: "database-url"
 ```
@@ -990,7 +990,7 @@ externalDatabase:
 ```
 
 This ensures:
-- **SQLite (default)**: Nothing to configure. `DATABASE_DRIVER=sqlite`, `DATABASE_PATH=/data/odin.db`.
+- **SQLite (default)**: Nothing to configure. `DATABASE_DRIVER=sqlite`, `DATABASE_PATH=/data/sukko.db`.
 - **Bundled PostgreSQL**: Developer sets `postgresql.enabled: true` in parent values. Helm auto-constructs `DATABASE_URL` from the subchart's service name and auto-generated password (same as today's flow in `taskfiles/k8s.yml`).
 - **External PostgreSQL**: Developer provides `externalDatabase.url` or `.existingSecret`. Only scenario requiring a developer-provided value.
 
@@ -998,21 +998,21 @@ Additional changes:
 - Database pool settings (`DB_MAX_OPEN_CONNS`, `DB_MAX_IDLE_CONNS`, `DB_CONN_MAX_LIFETIME`) now reference `database.*` values (moved from `config.*`). Only injected when `$dbDriver == postgres` — SQLite doesn't use pool settings.
 - gRPC port in container ports and service
 - Volume mount for SQLite: `/data/` backed by PVC (only when `$dbDriver == sqlite`)
-- Config mode volume mount: when `config.provisioningMode == "config"` and `config.configFileConfigMap` is set, mount the ConfigMap as a volume at `config.configFilePath` (default `/etc/odin/tenants.yaml`)
+- Config mode volume mount: when `config.provisioningMode == "config"` and `config.configFileConfigMap` is set, mount the ConfigMap as a volume at `config.configFilePath` (default `/etc/sukko/tenants.yaml`)
 - Conditional init containers: `wait-for-postgres` only when `$dbDriver == postgres` and not external; `wait-for-redpanda` always (Kafka still needed)
 
-**New file**: `deployments/helm/odin/charts/provisioning/templates/pvc.yaml`
+**New file**: `deployments/helm/sukko/charts/provisioning/templates/pvc.yaml`
 - PVC for SQLite storage (only when `$dbDriver == "sqlite"`)
 - Default: 1Gi, `ReadWriteOnce`
 
-**New file**: `deployments/helm/odin/charts/provisioning/templates/service-grpc.yaml`
+**New file**: `deployments/helm/sukko/charts/provisioning/templates/service-grpc.yaml`
 - ClusterIP service exposing gRPC port (internal only)
 
-**New file**: `deployments/helm/odin/charts/provisioning/templates/secret-admin-token.yaml`
+**New file**: `deployments/helm/sukko/charts/provisioning/templates/secret-admin-token.yaml`
 - Only rendered when `config.adminToken` is set
 - Stores admin token as a Kubernetes Secret for secure injection into deployment
 
-**New file**: `deployments/helm/odin/charts/provisioning/templates/ingress.yaml`
+**New file**: `deployments/helm/sukko/charts/provisioning/templates/ingress.yaml`
 - Only rendered when `ingress.enabled: true`
 - Standard Ingress resource with configurable `className`, `host`, TLS, and annotations
 - Values note: when Ingress is enabled, `config.adminToken` SHOULD be set for security
@@ -1029,7 +1029,7 @@ Additional values for `values.yaml`:
 {{- end }}
 ```
 
-**Modified file**: `deployments/helm/odin/values.yaml` (parent chart)
+**Modified file**: `deployments/helm/sukko/values.yaml` (parent chart)
 
 Add `global.postgresql.enabled` so provisioning subchart can detect bundled PostgreSQL:
 ```yaml
@@ -1051,7 +1051,7 @@ provisioning:
 
 ### 8.2 Gateway Helm Chart
 
-**Modified files**: `deployments/helm/odin/charts/ws-gateway/values.yaml`, `templates/deployment.yaml`
+**Modified files**: `deployments/helm/sukko/charts/ws-gateway/values.yaml`, `templates/deployment.yaml`
 
 Remove:
 - `PROVISIONING_DATABASE_URL` env var and secret reference
@@ -1067,7 +1067,7 @@ Add:
 
 ### 8.3 ws-server Helm Chart
 
-**Modified files**: `deployments/helm/odin/charts/ws-server/values.yaml`, `templates/deployment.yaml`
+**Modified files**: `deployments/helm/sukko/charts/ws-server/values.yaml`, `templates/deployment.yaml`
 
 Same pattern as gateway:
 - Remove: `PROVISIONING_DATABASE_URL`, `PROVISIONING_DB_*`, `wait-for-postgres`
@@ -1087,7 +1087,7 @@ VOLUME ["/data"]
 
 **New file**: `ws/build/cli/Dockerfile`
 
-Same multi-stage pattern. Builds `odin` binary. No server — just the CLI.
+Same multi-stage pattern. Builds `sukko` binary. No server — just the CLI.
 
 ### 8.6 Taskfile Updates
 
@@ -1105,7 +1105,7 @@ The Taskfile currently unconditionally handles PostgreSQL (password generation, 
 **External DB setup command (T047c)**:
 - New task: `k8s:db:setup-external` accepting `URL` variable (required).
 - Flow: validate URL format (`postgres://`), create K8s secret `provisioning-external-db` in `K8S_NAMESPACE`, print instruction to set `provisioning.externalDatabase.existingSecret` in Helm values.
-- Usage: `task k8s:db:setup-external URL="postgres://user:pass@host:5432/odin" ENV=dev`.
+- Usage: `task k8s:db:setup-external URL="postgres://user:pass@host:5432/sukko" ENV=dev`.
 
 ---
 
@@ -1184,8 +1184,8 @@ Test with `grpc.NewServer()` + `bufconn` (in-memory gRPC):
 |------|---------|
 | `ws/buf.yaml` | Buf configuration |
 | `ws/buf.gen.yaml` | Buf code generation config |
-| `ws/proto/odin/provisioning/v1/provisioning.proto` | Protobuf definitions |
-| `ws/gen/proto/odin/provisioning/v1/*.pb.go` | Generated protobuf/gRPC code |
+| `ws/proto/sukko/provisioning/v1/provisioning.proto` | Protobuf definitions |
+| `ws/gen/proto/sukko/provisioning/v1/*.pb.go` | Generated protobuf/gRPC code |
 | `ws/internal/provisioning/eventbus/bus.go` | In-process event bus |
 | `ws/internal/provisioning/grpcserver/server.go` | gRPC stream handlers |
 | `ws/internal/provisioning/grpcserver/interceptors.go` | gRPC interceptors |
@@ -1207,10 +1207,10 @@ Test with `grpc.NewServer()` + `bufconn` (in-memory gRPC):
 | `ws/cmd/cli/main.go` | CLI entrypoint |
 | `ws/cmd/cli/commands/*.go` | CLI commands (8 files) |
 | `ws/build/cli/Dockerfile` | CLI Docker build |
-| `deployments/helm/odin/charts/provisioning/templates/pvc.yaml` | SQLite PVC |
-| `deployments/helm/odin/charts/provisioning/templates/service-grpc.yaml` | gRPC service |
-| `deployments/helm/odin/charts/provisioning/templates/secret-admin-token.yaml` | Admin token Secret |
-| `deployments/helm/odin/charts/provisioning/templates/ingress.yaml` | Optional Ingress |
+| `deployments/helm/sukko/charts/provisioning/templates/pvc.yaml` | SQLite PVC |
+| `deployments/helm/sukko/charts/provisioning/templates/service-grpc.yaml` | gRPC service |
+| `deployments/helm/sukko/charts/provisioning/templates/secret-admin-token.yaml` | Admin token Secret |
+| `deployments/helm/sukko/charts/provisioning/templates/ingress.yaml` | Optional Ingress |
 
 ### Modified Files (~17)
 
@@ -1228,12 +1228,12 @@ Test with `grpc.NewServer()` + `bufconn` (in-memory gRPC):
 | `ws/cmd/server/main.go` | Remove DB, use gRPC stream topic registry |
 | `ws/internal/server/orchestration/multitenant_pool.go` | Add onUpdate callback support |
 | `ws/build/provisioning/Dockerfile` | Add gRPC port, SQLite volume |
-| `deployments/helm/odin/charts/provisioning/values.yaml` | gRPC, SQLite, config mode fields |
-| `deployments/helm/odin/charts/provisioning/templates/deployment.yaml` | New env vars, ports, PVC |
-| `deployments/helm/odin/charts/ws-gateway/values.yaml` | Remove DB, add gRPC |
-| `deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml` | Remove DB env, add gRPC env |
-| `deployments/helm/odin/charts/ws-server/values.yaml` | Remove DB, add gRPC |
-| `deployments/helm/odin/charts/ws-server/templates/deployment.yaml` | Remove DB env, add gRPC env |
+| `deployments/helm/sukko/charts/provisioning/values.yaml` | gRPC, SQLite, config mode fields |
+| `deployments/helm/sukko/charts/provisioning/templates/deployment.yaml` | New env vars, ports, PVC |
+| `deployments/helm/sukko/charts/ws-gateway/values.yaml` | Remove DB, add gRPC |
+| `deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml` | Remove DB env, add gRPC env |
+| `deployments/helm/sukko/charts/ws-server/values.yaml` | Remove DB, add gRPC |
+| `deployments/helm/sukko/charts/ws-server/templates/deployment.yaml` | Remove DB env, add gRPC env |
 
 ### Test Files (~17)
 
@@ -1282,7 +1282,7 @@ Notes:
 
 ## Verification Steps
 
-**Phase 1**: `grpcurl -plaintext localhost:9090 list` shows `odin.provisioning.v1.ProvisioningInternal`.
+**Phase 1**: `grpcurl -plaintext localhost:9090 list` shows `sukko.provisioning.v1.ProvisioningInternal`.
 
 **Phase 2**: Create a tenant via REST → event bus logs `KeysChanged` and `TopicsChanged`.
 
@@ -1290,11 +1290,11 @@ Notes:
 
 **Phase 4**: ws-server starts with `PROVISIONING_GRPC_ADDR=localhost:9090`. `MultiTenantConsumerPool` discovers topics. Topic refresh logs successful.
 
-**Phase 5**: Provisioning starts with no `DATABASE_URL` → creates `odin.db`. `PRAGMA journal_mode` returns `wal`. All API operations work.
+**Phase 5**: Provisioning starts with no `DATABASE_URL` → creates `sukko.db`. `PRAGMA journal_mode` returns `wal`. All API operations work.
 
 **Phase 6**: `PROVISIONING_MODE=config PROVISIONING_CONFIG_PATH=tenants.yaml` → serves data from YAML. `kill -HUP $PID` reloads. Write operations return 405.
 
-**Phase 7**: `odin tenant list --api-url http://localhost:8080` returns tenants. `odin config validate --file tenants.yaml` validates.
+**Phase 7**: `sukko tenant list --api-url http://localhost:8080` returns tenants. `sukko config validate --file tenants.yaml` validates.
 
 **Phase 8**: `helm install` deploys with SQLite by default. Gateway/ws-server connect via gRPC. No `wait-for-postgres`.
 
@@ -1302,18 +1302,18 @@ Notes:
 
 ```bash
 # API mode with SQLite (default)
-./odin-provisioning  # Creates odin.db, listens on :8080 (REST) + :9090 (gRPC)
+./sukko-provisioning  # Creates sukko.db, listens on :8080 (REST) + :9090 (gRPC)
 
 # CLI creates tenant
-odin tenant create --id acme --name "Acme Corp" --category trade
+sukko tenant create --id acme --name "Acme Corp" --category trade
 
 # Gateway connects via gRPC
-PROVISIONING_GRPC_ADDR=localhost:9090 ./odin-gateway
+PROVISIONING_GRPC_ADDR=localhost:9090 ./sukko-gateway
 
 # ws-server discovers topics via gRPC
-PROVISIONING_GRPC_ADDR=localhost:9090 ./odin-ws-server
+PROVISIONING_GRPC_ADDR=localhost:9090 ./sukko-server
 
 # Config mode
-odin config export --file tenants.yaml
-PROVISIONING_MODE=config PROVISIONING_CONFIG_PATH=tenants.yaml ./odin-provisioning
+sukko config export --file tenants.yaml
+PROVISIONING_MODE=config PROVISIONING_CONFIG_PATH=tenants.yaml ./sukko-provisioning
 ```

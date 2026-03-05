@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
+	"github.com/klurvio/sukko/internal/server/backend"
 )
 
 // Compile-time interface check.
@@ -100,49 +100,49 @@ func TestStreamName(t *testing.T) {
 			name:      "simple namespace and tenant",
 			namespace: "dev",
 			tenantID:  "acme",
-			want:      "ODIN_DEV_ACME",
+			want:      "SUKKO_DEV_ACME",
 		},
 		{
 			name:      "hyphenated namespace",
 			namespace: "my-namespace",
 			tenantID:  "tenant1",
-			want:      "ODIN_MY_NAMESPACE_TENANT1",
+			want:      "SUKKO_MY_NAMESPACE_TENANT1",
 		},
 		{
 			name:      "hyphenated tenant",
 			namespace: "prod",
 			tenantID:  "my-tenant",
-			want:      "ODIN_PROD_MY_TENANT",
+			want:      "SUKKO_PROD_MY_TENANT",
 		},
 		{
 			name:      "both hyphenated",
 			namespace: "ns-one",
 			tenantID:  "tenant-two",
-			want:      "ODIN_NS_ONE_TENANT_TWO",
+			want:      "SUKKO_NS_ONE_TENANT_TWO",
 		},
 		{
 			name:      "already uppercase",
 			namespace: "PROD",
 			tenantID:  "ACME",
-			want:      "ODIN_PROD_ACME",
+			want:      "SUKKO_PROD_ACME",
 		},
 		{
 			name:      "mixed case",
 			namespace: "Dev",
 			tenantID:  "Acme",
-			want:      "ODIN_DEV_ACME",
+			want:      "SUKKO_DEV_ACME",
 		},
 		{
 			name:      "empty namespace",
 			namespace: "",
 			tenantID:  "acme",
-			want:      "ODIN__ACME",
+			want:      "SUKKO__ACME",
 		},
 		{
 			name:      "empty tenant",
 			namespace: "dev",
 			tenantID:  "",
-			want:      "ODIN_DEV_",
+			want:      "SUKKO_DEV_",
 		},
 	}
 

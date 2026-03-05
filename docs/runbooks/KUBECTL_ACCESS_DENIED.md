@@ -33,7 +33,7 @@ If cluster shows `RUNNING`, the issue is likely IP authorization.
 ### 2. Check master authorized networks config
 
 ```bash
-gcloud container clusters describe odin-ws-develop \
+gcloud container clusters describe sukko-develop \
   --zone us-central1-a \
   --project trim-array-480700-j7 \
   --format="yaml(masterAuthorizedNetworksConfig)"
@@ -62,13 +62,13 @@ If your IP is not in the `cidrBlocks` list, you're blocked.
 
 ```bash
 # Get current authorized IPs first
-EXISTING_CIDRS=$(gcloud container clusters describe odin-ws-develop \
+EXISTING_CIDRS=$(gcloud container clusters describe sukko-develop \
   --zone us-central1-a \
   --project trim-array-480700-j7 \
   --format="value(masterAuthorizedNetworksConfig.cidrBlocks[].cidrBlock)" | tr '\n' ',')
 
 # Add your IP
-gcloud container clusters update odin-ws-develop \
+gcloud container clusters update sukko-develop \
   --zone us-central1-a \
   --project trim-array-480700-j7 \
   --enable-master-authorized-networks \
@@ -78,7 +78,7 @@ gcloud container clusters update odin-ws-develop \
 Or if you know there's only one existing IP (e.g., `175.41.169.97/32`):
 
 ```bash
-gcloud container clusters update odin-ws-develop \
+gcloud container clusters update sukko-develop \
   --zone us-central1-a \
   --project trim-array-480700-j7 \
   --enable-master-authorized-networks \
@@ -88,7 +88,7 @@ gcloud container clusters update odin-ws-develop \
 ### Option B: Disable master authorized networks entirely
 
 ```bash
-gcloud container clusters update odin-ws-develop \
+gcloud container clusters update sukko-develop \
   --zone us-central1-a \
   --project trim-array-480700-j7 \
   --no-enable-master-authorized-networks
@@ -99,7 +99,7 @@ This allows access from any IP. Suitable for dev clusters.
 ### After fixing, refresh kubeconfig
 
 ```bash
-gcloud container clusters get-credentials odin-ws-develop \
+gcloud container clusters get-credentials sukko-develop \
   --zone us-central1-a \
   --project trim-array-480700-j7
 ```

@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-10
 **Status:** Implemented
-**Project ID:** odin-9e902
+**Project ID:** sukko-9e902
 
 ---
 
@@ -43,12 +43,12 @@ Static IPs are owned by the foundation layer. Destroying and recreating the clus
 ```bash
 # Authenticate
 gcloud auth login
-gcloud config set project odin-9e902
+gcloud config set project sukko-9e902
 gcloud auth configure-docker us-central1-docker.pkg.dev
 
 # Create Artifact Registry (if not exists)
-gcloud artifacts repositories create odin-ws \
-  --project=odin-9e902 --location=us-central1 --repository-format=docker
+gcloud artifacts repositories create sukko \
+  --project=sukko-9e902 --location=us-central1 --repository-format=docker
 ```
 
 ### Full setup (foundation + cluster + build + deploy + migrate)
@@ -113,7 +113,7 @@ task k8s:port-forward:grafana ENV=dev
 | CREATE | `deployments/terraform/environments/standard/dev-foundation/terraform.tfvars` |
 | MODIFY | `deployments/terraform/modules/gke-standard-cluster/{main,variables,outputs}.tf` |
 | MODIFY | `deployments/terraform/environments/standard/dev/{main,outputs}.tf` |
-| MODIFY | `deployments/helm/odin/charts/ws-gateway/{templates/service.yaml,values.yaml}` |
-| MODIFY | `deployments/helm/odin/charts/redpanda/{templates/service-external.yaml,values.yaml}` |
-| MODIFY | `deployments/helm/odin/values/standard/dev.yaml` |
+| MODIFY | `deployments/helm/sukko/charts/ws-gateway/{templates/service.yaml,values.yaml}` |
+| MODIFY | `deployments/helm/sukko/charts/redpanda/{templates/service-external.yaml,values.yaml}` |
+| MODIFY | `deployments/helm/sukko/values/standard/dev.yaml` |
 | MODIFY | `taskfiles/k8s.yml` |

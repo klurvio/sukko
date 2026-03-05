@@ -24,15 +24,15 @@ versions:
     migration_guide: null
     docker_images:
       ws-server:
-        - odin-ws-server:v1.0.0
-        - odin-ws-server:v1.0
-        - odin-ws-server:v1
-        - odin-ws-server:latest
+        - sukko-server:v1.0.0
+        - sukko-server:v1.0
+        - sukko-server:v1
+        - sukko-server:latest
       publisher:
-        - odin-publisher:v2.0.0
-        - odin-publisher:v2.0
-        - odin-publisher:v2
-        - odin-publisher:latest
+        - sukko-publisher:v2.0.0
+        - sukko-publisher:v2.0
+        - sukko-publisher:v2
+        - sukko-publisher:latest
 
   # Example future version (template)
   v1.1.0:
@@ -151,24 +151,24 @@ kafka_topics_versions:
   v1:
     description: "8 topics, 12 partitions each, flat structure"
     topics:
-      - odin.trades
-      - odin.liquidity
-      - odin.balances
-      - odin.metadata
-      - odin.social
-      - odin.community
-      - odin.creation
-      - odin.analytics
+      - sukko.trades
+      - sukko.liquidity
+      - sukko.balances
+      - sukko.metadata
+      - sukko.social
+      - sukko.community
+      - sukko.creation
+      - sukko.analytics
     partitions: 12
     replicas: 1
 
   v2:
     description: "Hierarchical topics with metadata (planned)"
     topics:
-      - odin.v2.token.{symbol}.trade
-      - odin.v2.token.{symbol}.liquidity
-      - odin.v2.user.{userId}.balance
-      - odin.v2.meta.{type}
+      - sukko.v2.token.{symbol}.trade
+      - sukko.v2.token.{symbol}.liquidity
+      - sukko.v2.user.{userId}.balance
+      - sukko.v2.meta.{type}
     features:
       - "Topic templating with variables"
       - "Message envelopes with metadata"

@@ -2,11 +2,11 @@
 
 ## Overview
 
-Odin supports two authentication flows for WebSocket connections:
+Sukko supports two authentication flows for WebSocket connections:
 
 | Flow | Token Issuer | Use Case |
 |------|--------------|----------|
-| **Tenant-Signed JWT** | Tenant's backend (using keys from provisioning) | Odin internal, full control |
+| **Tenant-Signed JWT** | Tenant's backend (using keys from provisioning) | Sukko internal, full control |
 | **OIDC** | Tenant's Identity Provider (Auth0, Okta, Azure AD) | Third-party tenants |
 
 ## Feature Flags
@@ -40,7 +40,7 @@ When disabled, the gateway uses:
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  Odin Platform                                                           │
+│  Sukko Platform                                                           │
 │                                                                          │
 │  ┌────────────────┐         ┌────────────────┐         ┌──────────────┐ │
 │  │  Provisioning  │         │  Gateway       │         │  WS Server   │ │
@@ -63,12 +63,12 @@ When disabled, the gateway uses:
 
 ## Authentication Flows
 
-### Flow 1: Odin Internal (Tenant-Signed JWT)
+### Flow 1: Sukko Internal (Tenant-Signed JWT)
 
-For Odin's own use, where `odin-api` issues tokens with full control over claims.
+For Sukko's own use, where `sukko-api` issues tokens with full control over claims.
 
 ```
-User                    odin-api                    Gateway
+User                    sukko-api                    Gateway
 ─────────────────────────────────────────────────────────────
   │                         │                          │
   │──── Authenticate ──────►│                          │
@@ -76,7 +76,7 @@ User                    odin-api                    Gateway
   │                         │ Generate JWT:            │
   │                         │ {                        │
   │                         │   "sub": "user123",      │
-  │                         │   "tenant_id": "odin",   │
+  │                         │   "tenant_id": "sukko",   │
   │                         │   "channels": ["BTC.*"], │ ◄── Dynamic claims
   │                         │   "tier": "premium"      │
   │                         │ }                        │
@@ -95,7 +95,7 @@ User                    odin-api                    Gateway
 **Characteristics:**
 - Full control over claims (channels, tiers, permissions)
 - No external IdP dependency
-- Claims set dynamically per user by odin-api
+- Claims set dynamically per user by sukko-api
 
 ### Flow 2: Third-Party Tenants (OIDC)
 
@@ -226,7 +226,7 @@ Response:
 
 ## Where Groups Come From
 
-**Groups are NOT managed by Odin.** They come from the tenant's existing identity infrastructure.
+**Groups are NOT managed by Sukko.** They come from the tenant's existing identity infrastructure.
 
 ### Enterprise Tenants
 
@@ -285,15 +285,15 @@ Select: Security groups ✓
 ```
 Day 1: IT Admin Setup (one-time, ~10 minutes)
 ────────────────────────────────────────────────────────────────────────
-1. Add Odin as application in IdP                              (5 min)
-2. Enable "groups" claim for Odin app                          (1 min)
-3. Configure group→channel mapping in Odin Provisioning API    (5 min)
+1. Add Sukko as application in IdP                              (5 min)
+2. Enable "groups" claim for Sukko app                          (1 min)
+3. Configure group→channel mapping in Sukko Provisioning API    (5 min)
 
 Day 2+: User Access (fully automatic)
 ────────────────────────────────────────────────────────────────────────
 Alice is added to "Trading Team" in Active Directory
   ↓ (automatic AD→IdP sync)
-Alice logs into Odin via company SSO
+Alice logs into Sukko via company SSO
   ↓ (automatic)
 IdP issues JWT with groups: ["Trading Team"]
   ↓ (automatic)
@@ -301,7 +301,7 @@ Gateway maps "Trading Team" → ["*.trade", "*.liquidity"]
   ↓ (automatic)
 Alice can subscribe to trade and liquidity channels
 
-NO PER-USER CONFIGURATION IN ODIN.
+NO PER-USER CONFIGURATION IN SUKKO.
 ```
 
 ## Tenant Onboarding
@@ -334,7 +334,7 @@ Authorization: Bearer <admin-token>
 {
   "issuer_url": "https://acme.auth0.com/",
   "jwks_url": "",                          # Optional, defaults to {issuer}/.well-known/jwks.json
-  "audience": "odin-ws",                   # Optional, validates "aud" claim
+  "audience": "sukko",                   # Optional, validates "aud" claim
   "enabled": true
 }
 
@@ -348,7 +348,7 @@ Authorization: Bearer <admin-token>
 
 {
   "issuer_url": "https://acme.auth0.com/",
-  "audience": "odin-ws-v2",
+  "audience": "sukko-v2",
   "enabled": true
 }
 
@@ -385,13 +385,13 @@ Authorization: Bearer <admin-token>
 ### Step 4: Tenant Configures Their IdP
 
 Tenant's IT admin (one-time):
-1. Add Odin as an application in their IdP
+1. Add Sukko as an application in their IdP
 2. Configure to include `groups` claim in tokens
 3. Set audience to match registered audience
 
 ### Step 5: Users Connect
 
-Users authenticate via their company SSO and connect to Odin. No further configuration needed.
+Users authenticate via their company SSO and connect to Sukko. No further configuration needed.
 
 ## Database Schema
 
@@ -573,7 +573,7 @@ func (pc *TenantPermissionChecker) CanSubscribe(ctx context.Context, claims *aut
 |-------|---------|
 | Signature verification | Ensure token wasn't tampered with |
 | Issuer validation | Only accept tokens from registered IdPs |
-| Audience validation | Ensure token was issued for Odin |
+| Audience validation | Ensure token was issued for Sukko |
 | Expiration check | Reject expired tokens |
 
 ### Channel Access
@@ -652,15 +652,15 @@ All metrics are defined in `internal/gateway/metrics.go`:
 | `gateway_jwks_fetch_total` | Counter | `issuer`, `result` | JWKS endpoint fetches |
 | `gateway_jwks_fetch_latency_seconds` | Histogram | `issuer` | JWKS fetch latency |
 
-## Comparison: Odin vs Third-Party
+## Comparison: Sukko vs Third-Party
 
-| Aspect | Odin (Internal) | Third-Party (OIDC) |
+| Aspect | Sukko (Internal) | Third-Party (OIDC) |
 |--------|-----------------|-------------------|
-| Token issuer | odin-api | Tenant's IdP |
+| Token issuer | sukko-api | Tenant's IdP |
 | Signing keys | From provisioning | IdP's keys (JWKS) |
 | Claims control | Full (dynamic) | IdP provides groups |
 | Channel authorization | Claims in token | Group→Channel mapping |
-| User management | odin-api | Tenant's IdP |
+| User management | sukko-api | Tenant's IdP |
 | Setup effort | None | One-time IdP config |
 
 ## Troubleshooting

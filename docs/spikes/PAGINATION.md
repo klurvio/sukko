@@ -274,9 +274,9 @@ LIMIT 50;
 
 ---
 
-## Odin-Specific Recommendations
+## Sukko-Specific Recommendations
 
-For the Odin WebSocket system, here's the recommended approach:
+For the Sukko WebSocket system, here's the recommended approach:
 
 ### REST API Design
 

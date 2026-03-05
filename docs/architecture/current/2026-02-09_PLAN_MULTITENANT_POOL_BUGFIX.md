@@ -11,7 +11,7 @@ When `shared_topics=0` at startup (database not yet populated or timing issue), 
 
 ### Symptoms
 - `messages_received=0` in loadtest despite publisher working
-- Consumer group `odin-shared-local` shows as `Dead` with 0 members
+- Consumer group `sukko-shared-local` shows as `Dead` with 0 members
 - No "Starting Kafka consumer" log after "Created shared consumer with initial topics"
 - Connection times out after 61 seconds (ping/pong timeout)
 
@@ -97,7 +97,7 @@ return nil
 
 5. Check consumer group is active:
    ```bash
-   kubectl exec -n odin-local odin-redpanda-0 -- rpk group describe odin-shared-local
+   kubectl exec -n sukko-local sukko-redpanda-0 -- rpk group describe sukko-shared-local
    ```
    Should show `STATE: Stable` with 1 member.
 

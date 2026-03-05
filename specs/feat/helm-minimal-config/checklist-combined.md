@@ -27,7 +27,7 @@
 - [ ] CHK010 Are Docker Compose service names consistent with Helm auto-wired address templates (`nats`, `provisioning`, `ws-server`)? [Consistency]
 - [ ] CHK011 Are port numbers consistent across Docker Compose (3000, 3001, 8080, 9090) and Helm service definitions? [Consistency]
 - [ ] CHK012 Is `provisioning.enabled` default consistent between parent values.yaml (plan says `true`) and current chart (currently `false`)? [Consistency]
-- [ ] CHK013 Are validation hook Job container commands consistent with actual binary names in Dockerfiles (`./odin-ws`, `./odin-gateway`, `./odin-provisioning`)? [Consistency]
+- [ ] CHK013 Are validation hook Job container commands consistent with actual binary names in Dockerfiles (`./sukko`, `./sukko-gateway`, `./sukko-provisioning`)? [Consistency]
 
 ### Measurability
 

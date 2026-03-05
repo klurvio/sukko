@@ -1,6 +1,0 @@
-apiVersion: v2
-name: postgresql
-description: PostgreSQL database for Odin provisioning service
-type: application
-version: 1.0.0
-appVersion: "16"

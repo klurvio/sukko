@@ -14,9 +14,9 @@ graph TB
         end
 
         subgraph "WS-Server Cluster"
-            WS1[WS Instance 1<br/>odin-ws-go-1<br/>e2-medium]
-            WS2[WS Instance 2<br/>odin-ws-go-2<br/>e2-medium]
-            WSN[WS Instance N<br/>odin-ws-go-N<br/>e2-medium]
+            WS1[WS Instance 1<br/>sukko-go-1<br/>e2-medium]
+            WS2[WS Instance 2<br/>sukko-go-2<br/>e2-medium]
+            WSN[WS Instance N<br/>sukko-go-N<br/>e2-medium]
 
             subgraph "Inside Each WS Instance"
                 S1[Shard 1<br/>Hash: 0-1999]
@@ -32,7 +32,7 @@ graph TB
             KAFKA[Redpanda/Kafka<br/>Topic: 'events'<br/>Partitions: 3]
         end
 
-        subgraph "Backend Services - odin-backend (e2-standard-4)"
+        subgraph "Backend Services - sukko-backend (e2-standard-4)"
             PUB[Publisher Service<br/>Port 3003<br/>Sends events to Kafka]
 
             subgraph "Monitoring Stack"
@@ -43,7 +43,7 @@ graph TB
         end
 
         subgraph "Load Testing"
-            LT[Load Test Runner<br/>odin-loadtest<br/>e2-standard-2]
+            LT[Load Test Runner<br/>sukko-loadtest<br/>e2-standard-2]
         end
     end
 
@@ -226,10 +226,10 @@ flowchart LR
 
 ```mermaid
 graph TB
-    subgraph "GCP Project: odin-ws-server"
+    subgraph "GCP Project: sukko-server"
         subgraph "us-central1-a Zone"
 
-            subgraph "odin-backend (e2-standard-4)"
+            subgraph "sukko-backend (e2-standard-4)"
                 BE1[Docker Compose:<br/>- Redpanda :9092, :9644<br/>- Publisher :3003<br/>- Prometheus :9090<br/>- Grafana :3005]
             end
 
@@ -237,15 +237,15 @@ graph TB
                 RED1[Docker Compose:<br/>- Redis :6379<br/>- Redis Exporter :9121]
             end
 
-            subgraph "odin-ws-go-1 (e2-medium)"
+            subgraph "sukko-go-1 (e2-medium)"
                 WS1[Go Binary:<br/>- WS Server :8080<br/>- Metrics :3004<br/>- 5 Shards<br/>- Connects to Redis]
             end
 
-            subgraph "odin-ws-go-2 (e2-medium)"
+            subgraph "sukko-go-2 (e2-medium)"
                 WS2[Go Binary:<br/>- WS Server :8080<br/>- Metrics :3004<br/>- 5 Shards<br/>- Connects to Redis]
             end
 
-            subgraph "odin-loadtest (e2-standard-2)"
+            subgraph "sukko-loadtest (e2-standard-2)"
                 LT1[Load Test Runner]
             end
 

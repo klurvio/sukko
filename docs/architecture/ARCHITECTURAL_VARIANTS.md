@@ -104,7 +104,7 @@ Regional hubs:    ws-multi (high throughput)
 
 **Structure:**
 ```
-odin-ws/
+sukko/
 ├── cmd/
 │   ├── ws-single/              # Single-core binary
 │   │   ├── main.go
@@ -189,7 +189,7 @@ CMD ["./ws-single"]
 
 **Structure:**
 ```
-odin-ws/
+sukko/
 ├── ws-single/                  # Completely independent
 │   ├── go.mod
 │   ├── *.go
@@ -208,10 +208,10 @@ odin-ws/
 **Go Modules:**
 ```go
 // ws-single/go.mod
-module github.com/Toniq-Labs/odin-ws/ws-single
+module github.com/Toniq-Labs/sukko/ws-single
 
 // ws-multi/go.mod
-module github.com/Toniq-Labs/odin-ws/ws-multi
+module github.com/Toniq-Labs/sukko/ws-multi
 ```
 
 **Build Commands:**
@@ -389,7 +389,7 @@ cd ws && go run main.go
 ### Phase 2: Create Directory Structure
 
 ```bash
-cd /Volumes/Dev/Codev/Toniq/odin-ws
+cd /Volumes/Dev/Codev/Toniq/sukko
 
 # Create new structure
 mkdir -p cmd/ws-single cmd/ws-multi
@@ -408,8 +408,8 @@ mkdir -p pkg/metrics pkg/logger pkg/kafka
 package main
 
 import (
-    "github.com/Toniq-Labs/odin-ws/internal/single"
-    "github.com/Toniq-Labs/odin-ws/pkg/logger"
+    "github.com/Toniq-Labs/sukko/internal/single"
+    "github.com/Toniq-Labs/sukko/pkg/logger"
 )
 
 func main() {
@@ -441,9 +441,9 @@ mv ws/kafka/ pkg/kafka/
 package single
 
 import (
-    "github.com/Toniq-Labs/odin-ws/internal/shared"
-    "github.com/Toniq-Labs/odin-ws/pkg/metrics"
-    "github.com/Toniq-Labs/odin-ws/pkg/kafka"
+    "github.com/Toniq-Labs/sukko/internal/shared"
+    "github.com/Toniq-Labs/sukko/pkg/metrics"
+    "github.com/Toniq-Labs/sukko/pkg/kafka"
 )
 ```
 
@@ -474,7 +474,7 @@ go build -o bin/ws-single ./cmd/ws-single
 ./bin/ws-single
 
 # Docker build
-docker build -f cmd/ws-single/Dockerfile -t odin-ws-single:test .
+docker build -f cmd/ws-single/Dockerfile -t sukko-single:test .
 ```
 
 ### Phase 5: Create Multi-Core (From Scratch)
@@ -490,8 +490,8 @@ package main
 
 import (
     "runtime"
-    "github.com/Toniq-Labs/odin-ws/internal/multi"
-    "github.com/Toniq-Labs/odin-ws/pkg/logger"
+    "github.com/Toniq-Labs/sukko/internal/multi"
+    "github.com/Toniq-Labs/sukko/pkg/logger"
 )
 
 func main() {
@@ -510,8 +510,8 @@ package multi
 
 import (
     "sync"
-    "github.com/Toniq-Labs/odin-ws/internal/shared"
-    "github.com/Toniq-Labs/odin-ws/pkg/metrics"
+    "github.com/Toniq-Labs/sukko/internal/shared"
+    "github.com/Toniq-Labs/sukko/pkg/metrics"
 )
 
 type Server struct {
@@ -555,7 +555,7 @@ services:
     build:
       context: ../../
       dockerfile: cmd/ws-single/Dockerfile
-    container_name: odin-ws-single
+    container_name: sukko-single
     ports:
       - "3005:3002"
     env_file:
@@ -573,7 +573,7 @@ services:
     build:
       context: ../../
       dockerfile: cmd/ws-multi/Dockerfile
-    container_name: odin-ws-multi
+    container_name: sukko-multi
     ports:
       - "3006:3002"
     env_file:
@@ -633,12 +633,12 @@ cpu_cores: 4
 # GCP Instance 1
 services:
   ws-single:
-    image: odin-ws-single:v1.0.0
+    image: sukko-single:v1.0.0
 
 # GCP Instance 2  
 services:
   ws-multi:
-    image: odin-ws-multi:v0.1.0
+    image: sukko-multi:v0.1.0
 
 # Load balancer splits traffic 50/50
 # Compare metrics in Grafana
@@ -709,12 +709,12 @@ bench:compare:
 images:build:single:
   desc: Build single-core Docker image
   cmds:
-    - docker build -f cmd/ws-single/Dockerfile -t odin-ws-single:{{.VERSION}} .
+    - docker build -f cmd/ws-single/Dockerfile -t sukko-single:{{.VERSION}} .
 
 images:build:multi:
   desc: Build multi-core Docker image
   cmds:
-    - docker build -f cmd/ws-multi/Dockerfile -t odin-ws-multi:{{.VERSION}} .
+    - docker build -f cmd/ws-multi/Dockerfile -t sukko-multi:{{.VERSION}} .
 ```
 
 ---
@@ -730,7 +730,7 @@ images:build:multi:
 ### Recommended Structure
 
 ```
-odin-ws/
+sukko/
 ├── cmd/
 │   ├── ws-single/     # Current: Single-core (production)
 │   └── ws-multi/      # Future: Multi-core (experimental)

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"reflect"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/httputil"
 )
 
 // ConfigHandler returns an http.HandlerFunc that serves the runtime configuration

@@ -1,6 +1,6 @@
 # Kafka Topic Lifecycle Management
 
-This document describes how to add or remove Kafka topics in the Odin WebSocket infrastructure.
+This document describes how to add or remove Kafka topics in the Sukko WebSocket infrastructure.
 
 ## Overview
 
@@ -23,14 +23,14 @@ The ws-server uses a **static topic list** defined at compile time. Topics are s
 │              ┌───────┴───────┐                                      │
 │              │    Topics     │                                      │
 │              ├───────────────┤                                      │
-│              │ odin.trades   │                                      │
-│              │ odin.liquidity│                                      │
-│              │ odin.balances │                                      │
-│              │ odin.metadata │                                      │
-│              │ odin.social   │                                      │
-│              │ odin.community│                                      │
-│              │ odin.creation │                                      │
-│              │ odin.analytics│                                      │
+│              │ sukko.trades   │                                      │
+│              │ sukko.liquidity│                                      │
+│              │ sukko.balances │                                      │
+│              │ sukko.metadata │                                      │
+│              │ sukko.social   │                                      │
+│              │ sukko.community│                                      │
+│              │ sukko.creation │                                      │
+│              │ sukko.analytics│                                      │
 │              └───────────────┘                                      │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -45,10 +45,10 @@ The ws-server uses a **static topic list** defined at compile time. Topics are s
 ```go
 // Add new topic constant
 const (
-    TopicTrades     = "odin.trades"
-    TopicLiquidity  = "odin.liquidity"
+    TopicTrades     = "sukko.trades"
+    TopicLiquidity  = "sukko.liquidity"
     // ... existing topics ...
-    TopicNewFeature = "odin.newfeature"  // ← ADD
+    TopicNewFeature = "sukko.newfeature"  // ← ADD
 )
 
 // Add to AllTopics()
@@ -75,21 +75,21 @@ func TopicToEventType(topic string) string {
 }
 ```
 
-#### B. Update Helm values (`deployments/k8s/helm/odin/values.yaml`)
+#### B. Update Helm values (`deployments/k8s/helm/sukko/values.yaml`)
 
 ```yaml
 ws-server:
   kafka:
     topics:
-      - odin.trades
-      - odin.liquidity
+      - sukko.trades
+      - sukko.liquidity
       # ... existing topics ...
-      - odin.newfeature  # ← ADD
+      - sukko.newfeature  # ← ADD
 
 redpanda:
   topics:
     # ... existing topics ...
-    - name: odin.newfeature  # ← ADD (for auto-creation)
+    - name: sukko.newfeature  # ← ADD (for auto-creation)
       partitions: 12
       replicationFactor: 1
 ```
@@ -133,16 +133,16 @@ redpanda:
 
 ```bash
 # 1. Update Helm charts (creates topic + deploys ws-server)
-helm upgrade odin ./deployments/k8s/helm/odin \
+helm upgrade sukko ./deployments/k8s/helm/sukko \
   -f values-production.yaml \
-  -n odin-prod
+  -n sukko-prod
 
 # 2. Verify topic exists
-kubectl exec -n odin-prod odin-redpanda-0 -- \
+kubectl exec -n sukko-prod sukko-redpanda-0 -- \
   rpk topic list | grep newfeature
 
 # 3. Verify ws-server is consuming (check for partition assignment)
-kubectl logs -n odin-prod -l app.kubernetes.io/name=ws-server | \
+kubectl logs -n sukko-prod -l app.kubernetes.io/name=ws-server | \
   grep "Partitions assigned"
 
 # 4. Deploy publisher (separate deployment)
@@ -177,7 +177,7 @@ kubectl logs -n odin-prod -l app.kubernetes.io/name=ws-server | \
 │                         │                                           │
 │                         ▼                                           │
 │  4. DELETE TOPIC (optional)                                         │
-│     └── rpk topic delete odin.deprecated                            │
+│     └── rpk topic delete sukko.deprecated                            │
 │     └── Or keep for audit trail                                     │
 │                                                                     │
 │  ✓ Zero message loss                                                │
@@ -199,13 +199,13 @@ Remove from Helm values:
 
 ```bash
 # Check consumer lag before removing
-kubectl exec -n odin-prod odin-redpanda-0 -- \
-  rpk group describe odin-ws-consumer
+kubectl exec -n sukko-prod sukko-redpanda-0 -- \
+  rpk group describe sukko-consumer
 
 # Output should show LAG=0 for the topic being removed:
 # TOPIC              PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
-# odin.deprecated    0          12345           12345           0  ← Ready
-# odin.deprecated    1          6789            6789            0  ← Ready
+# sukko.deprecated    0          12345           12345           0  ← Ready
+# sukko.deprecated    1          6789            6789            0  ← Ready
 ```
 
 ---
@@ -251,16 +251,16 @@ If you need to add a topic urgently and cannot wait for full deployment:
 
 ```bash
 # 1. Create topic manually
-kubectl exec -n odin-prod odin-redpanda-0 -- \
-  rpk topic create odin.emergency -p 12 -r 1
+kubectl exec -n sukko-prod sukko-redpanda-0 -- \
+  rpk topic create sukko.emergency -p 12 -r 1
 
 # 2. Messages will buffer in Kafka until ws-server is updated
 #    Default retention: 7 days
 
 # 3. Deploy ws-server with updated code as soon as possible
-helm upgrade odin ./deployments/k8s/helm/odin \
+helm upgrade sukko ./deployments/k8s/helm/sukko \
   -f values-production.yaml \
-  -n odin-prod
+  -n sukko-prod
 ```
 
 ### Recovering Missed Messages
@@ -269,8 +269,8 @@ If messages were published before ws-server was subscribed (wrong deployment ord
 
 ```bash
 # 1. Check earliest available offset
-kubectl exec -n odin-prod odin-redpanda-0 -- \
-  rpk topic consume odin.newfeature --offset start -n 1
+kubectl exec -n sukko-prod sukko-redpanda-0 -- \
+  rpk topic consume sukko.newfeature --offset start -n 1
 
 # 2. Options:
 #    a) Accept the loss (if messages are not critical)
@@ -278,8 +278,8 @@ kubectl exec -n odin-prod odin-redpanda-0 -- \
 #    c) Reset consumer group offset (dangerous - may cause duplicates)
 
 # Reset to earliest (use with caution):
-kubectl exec -n odin-prod odin-redpanda-0 -- \
-  rpk group seek odin-ws-consumer --to start --topics odin.newfeature
+kubectl exec -n sukko-prod sukko-redpanda-0 -- \
+  rpk group seek sukko-consumer --to start --topics sukko.newfeature
 ```
 
 ---
@@ -300,7 +300,7 @@ kubectl exec -n odin-prod odin-redpanda-0 -- \
 - [ ] Verify topic exists: `rpk topic list`
 - [ ] Verify ws-server logs show partition assignment
 - [ ] Deploy publisher with new topic support
-- [ ] Monitor consumer lag: `rpk group describe odin-ws-consumer`
+- [ ] Monitor consumer lag: `rpk group describe sukko-consumer`
 ```
 
 ### Removing Topic Checklist
@@ -308,7 +308,7 @@ kubectl exec -n odin-prod odin-redpanda-0 -- \
 ```markdown
 - [ ] Announce deprecation to team
 - [ ] Stop publisher from writing to topic
-- [ ] Verify lag is 0: `rpk group describe odin-ws-consumer`
+- [ ] Verify lag is 0: `rpk group describe sukko-consumer`
 - [ ] Remove from `ws/internal/kafka/config.go`:
     - [ ] Delete constant
     - [ ] Remove from `AllTopics()`
@@ -317,7 +317,7 @@ kubectl exec -n odin-prod odin-redpanda-0 -- \
 - [ ] Update AsyncAPI spec if applicable
 - [ ] Commit and push changes
 - [ ] Deploy Helm chart
-- [ ] Optionally delete topic: `rpk topic delete odin.deprecated`
+- [ ] Optionally delete topic: `rpk topic delete sukko.deprecated`
 - [ ] Update documentation
 ```
 
@@ -354,7 +354,7 @@ kubectl exec -n odin-prod odin-redpanda-0 -- \
 
 2. **Check consumer group subscription:**
    ```bash
-   rpk group describe odin-ws-consumer
+   rpk group describe sukko-consumer
    ```
 
 3. **Check ws-server logs:**
@@ -370,7 +370,7 @@ kubectl exec -n odin-prod odin-redpanda-0 -- \
 
 1. **Check message rate:**
    ```bash
-   rpk topic consume odin.newtopic --offset end -f '%t %p %o\n'
+   rpk topic consume sukko.newtopic --offset end -f '%t %p %o\n'
    ```
 
 2. **Check ws-server resource usage:**

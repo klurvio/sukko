@@ -115,21 +115,21 @@ handlers_message.go: s.kafkaConsumer == nil
 | `ws/internal/shared/types/types.go` | Added `KafkaConsumerDisabled bool` to ServerConfig (L41) |
 | `ws/cmd/server/main.go` | Wrapped provisioning DB + pool creation (L190-240) in `if cfg.KafkaConsumerEnabled`; added flag to shard config (L314) |
 | `ws/internal/server/handlers_http.go` | 3-way health check: disabled/running/stopped (L49-62) |
-| `deployments/helm/odin/charts/ws-server/values.yaml` | Added `consumerEnabled: true` under kafka section (L148-151) |
-| `deployments/helm/odin/charts/ws-server/templates/configmap.yaml` | Added `KAFKA_CONSUMER_ENABLED` env var (L59-60) |
+| `deployments/helm/sukko/charts/ws-server/values.yaml` | Added `consumerEnabled: true` under kafka section (L148-151) |
+| `deployments/helm/sukko/charts/ws-server/templates/configmap.yaml` | Added `KAFKA_CONSUMER_ENABLED` env var (L59-60) |
 | `docs/architecture/current/2026-02-14_PLAN_KAFKA_CONSUMER_TOGGLE.md` | Updated plan with compliance table, expanded guard scope, Helm section |
 
 ## Commands for Next Session
 
 ```bash
 # Commit the changes
-cd /Volumes/Dev/Codev/Toniq/odin-ws
+cd /Volumes/Dev/Codev/Toniq/sukko
 git add ws/internal/shared/platform/server_config.go \
         ws/internal/shared/types/types.go \
         ws/cmd/server/main.go \
         ws/internal/server/handlers_http.go \
-        deployments/helm/odin/charts/ws-server/values.yaml \
-        deployments/helm/odin/charts/ws-server/templates/configmap.yaml
+        deployments/helm/sukko/charts/ws-server/values.yaml \
+        deployments/helm/sukko/charts/ws-server/templates/configmap.yaml
 git commit -m "feat: add KAFKA_CONSUMER_ENABLED toggle for connection-only loadtesting"
 
 # Deploy publisher VM (was preempted)
@@ -139,10 +139,10 @@ task gce:publisher:deploy ENV=dev
 task gce:loadtest:run ENV=dev CONNECTIONS=500 DURATION=30m RAMP=5
 
 # Disable consumer for isolated connection test
-kubectl set env deployment/ws-server KAFKA_CONSUMER_ENABLED=false -n odin-ws-dev
+kubectl set env deployment/ws-server KAFKA_CONSUMER_ENABLED=false -n sukko-dev
 
 # Re-enable consumer after test
-kubectl set env deployment/ws-server KAFKA_CONSUMER_ENABLED=true -n odin-ws-dev
+kubectl set env deployment/ws-server KAFKA_CONSUMER_ENABLED=true -n sukko-dev
 
 # Apply NAT fix to stg
 task k8s:tf:init ENV=stg
@@ -154,4 +154,4 @@ task k8s:tf:apply ENV=stg
 
 1. **`kafka_connected` metric**: Pre-existing nil interface bug means it always reports 1. Should this be fixed separately?
 2. **Loadtest at 30K connections**: Will the 2 gateway pods + 2 ws-server pods handle 30K? May need to scale replicas or node resources.
-3. **`KAFKA_CONSUMER_GROUP` env var**: Set to `odin-ws-consumer` in Helm but the code constructs `odin-shared-dev` from namespace. The env var appears unused — should it be removed?
+3. **`KAFKA_CONSUMER_GROUP` env var**: Set to `sukko-consumer` in Helm but the code constructs `sukko-shared-dev` from namespace. The env var appears unused — should it be removed?

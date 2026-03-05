@@ -42,14 +42,14 @@ task gcp:deployment:rebuild:ws
 # If deployments/v1/gcp/.env.gcp doesn't exist or GIT_PAT is empty
 task gcp:deployment:setup:backend
 # Shows: ⚠️  Using public clone (no PAT) - will fail for private repos
-#        git clone https://github.com/Toniq-Labs/odin-ws.git
+#        git clone https://github.com/Toniq-Labs/sukko.git
 ```
 
 **With PAT (automatic from deployments/v1/gcp/.env.gcp):**
 ```bash
 task gcp:deployment:setup:backend
 # Shows: ✅ Using authenticated clone (PAT provided)
-#        git clone https://ghp_xxxxx@github.com/Toniq-Labs/odin-ws.git
+#        git clone https://ghp_xxxxx@github.com/Toniq-Labs/sukko.git
 ```
 
 ---
@@ -58,7 +58,7 @@ task gcp:deployment:setup:backend
 
 **Location**: `.env.gcp` (not committed - see .gitignore)  
 **Token**: `your_github_pat_here` (replace with actual read-only PAT)  
-**Repository**: `https://github.com/Toniq-Labs/odin-ws`  
+**Repository**: `https://github.com/Toniq-Labs/sukko`  
 **Scope**: Read-only access (cannot push)
 
 **Security:**

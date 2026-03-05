@@ -24,17 +24,17 @@ func TestTrackSubscriptionResponse_SubscriptionAck(t *testing.T) {
 	t.Parallel()
 	proxy := newTrackingTestProxy()
 
-	payload := []byte(`{"type":"subscription_ack","subscribed":["odin.BTC.trade","odin.ETH.trade"],"count":2}`)
+	payload := []byte(`{"type":"subscription_ack","subscribed":["sukko.BTC.trade","sukko.ETH.trade"],"count":2}`)
 	proxy.trackSubscriptionResponse(payload)
 
 	if len(proxy.subscribedChannels) != 2 {
 		t.Fatalf("Expected 2 subscribed channels, got %d", len(proxy.subscribedChannels))
 	}
-	if _, ok := proxy.subscribedChannels["odin.BTC.trade"]; !ok {
-		t.Error("Expected odin.BTC.trade in subscribedChannels")
+	if _, ok := proxy.subscribedChannels["sukko.BTC.trade"]; !ok {
+		t.Error("Expected sukko.BTC.trade in subscribedChannels")
 	}
-	if _, ok := proxy.subscribedChannels["odin.ETH.trade"]; !ok {
-		t.Error("Expected odin.ETH.trade in subscribedChannels")
+	if _, ok := proxy.subscribedChannels["sukko.ETH.trade"]; !ok {
+		t.Error("Expected sukko.ETH.trade in subscribedChannels")
 	}
 }
 
@@ -43,20 +43,20 @@ func TestTrackSubscriptionResponse_UnsubscriptionAck(t *testing.T) {
 	proxy := newTrackingTestProxy()
 
 	// Pre-populate
-	proxy.subscribedChannels["odin.BTC.trade"] = struct{}{}
-	proxy.subscribedChannels["odin.ETH.trade"] = struct{}{}
+	proxy.subscribedChannels["sukko.BTC.trade"] = struct{}{}
+	proxy.subscribedChannels["sukko.ETH.trade"] = struct{}{}
 
-	payload := []byte(`{"type":"unsubscription_ack","unsubscribed":["odin.BTC.trade"],"count":1}`)
+	payload := []byte(`{"type":"unsubscription_ack","unsubscribed":["sukko.BTC.trade"],"count":1}`)
 	proxy.trackSubscriptionResponse(payload)
 
 	if len(proxy.subscribedChannels) != 1 {
 		t.Fatalf("Expected 1 subscribed channel, got %d", len(proxy.subscribedChannels))
 	}
-	if _, ok := proxy.subscribedChannels["odin.BTC.trade"]; ok {
-		t.Error("odin.BTC.trade should have been removed")
+	if _, ok := proxy.subscribedChannels["sukko.BTC.trade"]; ok {
+		t.Error("sukko.BTC.trade should have been removed")
 	}
-	if _, ok := proxy.subscribedChannels["odin.ETH.trade"]; !ok {
-		t.Error("odin.ETH.trade should still be present")
+	if _, ok := proxy.subscribedChannels["sukko.ETH.trade"]; !ok {
+		t.Error("sukko.ETH.trade should still be present")
 	}
 }
 
@@ -65,7 +65,7 @@ func TestTrackSubscriptionResponse_IgnoresBroadcast(t *testing.T) {
 	proxy := newTrackingTestProxy()
 
 	// Broadcast message — no "_ack" in first 80 bytes, should be skipped
-	payload := []byte(`{"type":"message","seq":1,"channel":"odin.BTC.trade","data":{"price":50000}}`)
+	payload := []byte(`{"type":"message","seq":1,"channel":"sukko.BTC.trade","data":{"price":50000}}`)
 	proxy.trackSubscriptionResponse(payload)
 
 	if len(proxy.subscribedChannels) != 0 {
@@ -91,7 +91,7 @@ func TestTrackSubscriptionResponse_DuplicateAdd(t *testing.T) {
 	proxy := newTrackingTestProxy()
 
 	// First subscription
-	payload := []byte(`{"type":"subscription_ack","subscribed":["odin.BTC.trade"],"count":1}`)
+	payload := []byte(`{"type":"subscription_ack","subscribed":["sukko.BTC.trade"],"count":1}`)
 	proxy.trackSubscriptionResponse(payload)
 
 	// Duplicate subscription
@@ -107,7 +107,7 @@ func TestTrackSubscriptionResponse_RemoveNonexistent(t *testing.T) {
 	proxy := newTrackingTestProxy()
 
 	// Unsubscribe from channel that was never subscribed
-	payload := []byte(`{"type":"unsubscription_ack","unsubscribed":["odin.BTC.trade"],"count":0}`)
+	payload := []byte(`{"type":"unsubscription_ack","unsubscribed":["sukko.BTC.trade"],"count":0}`)
 	proxy.trackSubscriptionResponse(payload)
 
 	if len(proxy.subscribedChannels) != 0 {
@@ -120,7 +120,7 @@ func TestTrackSubscriptionResponse_IgnoresOtherAckTypes(t *testing.T) {
 	proxy := newTrackingTestProxy()
 
 	// publish_ack contains "_ack" but should not affect tracking
-	payload := []byte(`{"type":"publish_ack","channel":"odin.BTC.trade","status":"accepted"}`)
+	payload := []byte(`{"type":"publish_ack","channel":"sukko.BTC.trade","status":"accepted"}`)
 	proxy.trackSubscriptionResponse(payload)
 
 	if len(proxy.subscribedChannels) != 0 {

@@ -7,7 +7,7 @@
 ## Target Directory Structure
 
 ```
-odin-ws/
+sukko/
 ├── cmd/
 │   └── ws-single/                    # Single-core binary (for now)
 │       ├── main.go                   110 lines (move from ws/main.go)
@@ -162,9 +162,9 @@ package main
 import (
     "os"
     
-    "github.com/Toniq-Labs/odin-ws/internal/single/core"
-    "github.com/Toniq-Labs/odin-ws/internal/single/monitoring"
-    "github.com/Toniq-Labs/odin-ws/internal/single/platform"
+    "github.com/Toniq-Labs/sukko/internal/single/core"
+    "github.com/Toniq-Labs/sukko/internal/single/monitoring"
+    "github.com/Toniq-Labs/sukko/internal/single/platform"
 )
 
 func main() {
@@ -192,18 +192,18 @@ func main() {
 **Current ws/server.go imports:**
 ```go
 import (
-    "github.com/Toniq-Labs/odin-ws/kafka"
+    "github.com/Toniq-Labs/sukko/kafka"
 )
 ```
 
 **After moving to internal/single/core/server.go:**
 ```go
 import (
-    "github.com/Toniq-Labs/odin-ws/internal/single/kafka"
-    "github.com/Toniq-Labs/odin-ws/internal/single/messaging"
-    "github.com/Toniq-Labs/odin-ws/internal/single/limits"
-    "github.com/Toniq-Labs/odin-ws/internal/single/monitoring"
-    "github.com/Toniq-Labs/odin-ws/internal/single/platform"
+    "github.com/Toniq-Labs/sukko/internal/single/kafka"
+    "github.com/Toniq-Labs/sukko/internal/single/messaging"
+    "github.com/Toniq-Labs/sukko/internal/single/limits"
+    "github.com/Toniq-Labs/sukko/internal/single/monitoring"
+    "github.com/Toniq-Labs/sukko/internal/single/platform"
 )
 ```
 

@@ -11,9 +11,9 @@
 
 | Environment | Mode | Topics | Channels/Keys |
 |-------------|------|--------|---------------|
-| **Local** | testing | `local.odin.trade` | `odin.all.trade` |
-| **Remote** | official dev | `{namespace}.odin.trade` | `odin.all.trade` |
-| **Remote** | smoke test | `{namespace}.odin.trade` | `odin.all.trade` |
+| **Local** | testing | `local.sukko.trade` | `sukko.all.trade` |
+| **Remote** | official dev | `{namespace}.sukko.trade` | `sukko.all.trade` |
+| **Remote** | smoke test | `{namespace}.sukko.trade` | `sukko.all.trade` |
 | **Remote** | load test | Multiple topics | Multiple channels |
 
 ---
@@ -47,7 +47,7 @@ k8s:remote:standard:provision:delete     - Delete all test topics
 ```
 
 - **namespace**: Environment prefix (`local`, `std-develop`, `std-staging`, etc.)
-- **tenant**: Tenant ID (`odin`)
+- **tenant**: Tenant ID (`sukko`)
 - **category**: Data category (`trade`, `liquidity`, `orderbook`, etc.)
 
 ---
@@ -60,7 +60,7 @@ k8s:remote:standard:provision:delete     - Delete all test topics
 provision:topics:
   desc: Create Redpanda topics for local testing
   cmds:
-    - kubectl exec -n {{.LOCAL_NAMESPACE}} {{.LOCAL_RELEASE_NAME}}-redpanda-0 -- rpk topic create local.odin.trade -p 3
+    - kubectl exec -n {{.LOCAL_NAMESPACE}} {{.LOCAL_RELEASE_NAME}}-redpanda-0 -- rpk topic create local.sukko.trade -p 3
 
 provision:status:
   desc: List Redpanda topics
@@ -70,7 +70,7 @@ provision:status:
 provision:delete:
   desc: Delete all topics (cleanup)
   cmds:
-    - kubectl exec -n {{.LOCAL_NAMESPACE}} {{.LOCAL_RELEASE_NAME}}-redpanda-0 -- rpk topic delete local.odin.trade
+    - kubectl exec -n {{.LOCAL_NAMESPACE}} {{.LOCAL_RELEASE_NAME}}-redpanda-0 -- rpk topic delete local.sukko.trade
 ```
 
 ### Remote Official Dev
@@ -79,7 +79,7 @@ provision:delete:
 provision:official:
   desc: Create official dev topic
   cmds:
-    - kubectl exec -n {{.STD_NAMESPACE}} {{.STD_RELEASE_NAME}}-redpanda-0 -- rpk topic create {{.STD_NAMESPACE}}.odin.trade -p 3
+    - kubectl exec -n {{.STD_NAMESPACE}} {{.STD_RELEASE_NAME}}-redpanda-0 -- rpk topic create {{.STD_NAMESPACE}}.sukko.trade -p 3
 ```
 
 ### Remote Smoke Test
@@ -101,7 +101,7 @@ provision:loadtest:
       for ID in BTC ETH SOL DOGE SHIB PEPE WIF BONK; do
         for CAT in trade liquidity orderbook; do
           kubectl exec -n {{.STD_NAMESPACE}} {{.STD_RELEASE_NAME}}-redpanda-0 -- \
-            rpk topic create {{.STD_NAMESPACE}}.odin.$ID.$CAT -p 3
+            rpk topic create {{.STD_NAMESPACE}}.sukko.$ID.$CAT -p 3
         done
       done
 ```
@@ -112,12 +112,12 @@ provision:loadtest:
 
 ### Local (via kubectl exec)
 ```bash
-kubectl exec -n odin-local odin-redpanda-0 -- rpk topic list
+kubectl exec -n sukko-local sukko-redpanda-0 -- rpk topic list
 ```
 
 ### Remote (via kubectl exec)
 ```bash
-kubectl exec -n odin-std-develop odin-redpanda-0 -- rpk topic list
+kubectl exec -n sukko-std-develop sukko-redpanda-0 -- rpk topic list
 ```
 
 ---
@@ -140,13 +140,13 @@ kubectl exec -n odin-std-develop odin-redpanda-0 -- rpk topic list
 | WIF, BONK | trade, liquidity, orderbook | 6 |
 | **Total** | | **24 topics** |
 
-Channel pattern: `odin.{identifier}.{category}` (e.g., `odin.BTC.trade`)
+Channel pattern: `sukko.{identifier}.{category}` (e.g., `sukko.BTC.trade`)
 
 ---
 
 ## Verification
 
-1. `task k8s:local:provision:topics` creates `local.odin.trade`
+1. `task k8s:local:provision:topics` creates `local.sukko.trade`
 2. `task k8s:local:provision:status` lists the topic
 3. `task k8s:remote:standard:provision:smoke` creates single topic
 4. `task k8s:remote:standard:provision:loadtest` creates 24 topics

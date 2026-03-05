@@ -14,11 +14,11 @@ includes:
 
 vars:
   GCE_ENV: '{{.ENV | default "dev"}}'
-  GCE_PROJECT: '{{.PROJECT | default "odin-9e902"}}'
+  GCE_PROJECT: '{{.PROJECT | default "sukko-9e902"}}'
   GCE_ZONE: '{{.ZONE | default "us-central1-a"}}'
   GCE_LOADTEST_DIR: "{{.ROOT_DIR}}/deployments/wsloadtest"
   GCE_PUBLISHER_DIR: "{{.ROOT_DIR}}/deployments/wspublisher"
-  GCE_REGISTRY: 'us-central1-docker.pkg.dev/{{.GCE_PROJECT}}/odin-ws'
+  GCE_REGISTRY: 'us-central1-docker.pkg.dev/{{.GCE_PROJECT}}/sukko'
   GCE_FOUNDATION_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.GCE_ENV}}-foundation"
 
 tasks:
@@ -108,8 +108,8 @@ tasks:
             -e TARGET_CONNECTIONS={{.CONNECTIONS}} \
             -e RAMP_RATE={{.RAMP}} \
             -e DURATION={{.DURATION}} \
-            -e TENANT_ID=odin \
-            -e CHANNELS=odin.BTC.trade,odin.ETH.trade,odin.SOL.trade \
+            -e TENANT_ID=sukko \
+            -e CHANNELS=sukko.BTC.trade,sukko.ETH.trade,sukko.SOL.trade \
             -e CHANNELS_PER_CLIENT=1 \
             -e WS_PONG_WAIT=60s \
             -e WS_PING_PERIOD=45s \
@@ -226,7 +226,7 @@ tasks:
             -e TIMING_MODE=poisson \
             -e POISSON_LAMBDA={{.RATE}} \
             -e DURATION={{.DURATION}} \
-            -e TENANT_ID=odin \
+            -e TENANT_ID=sukko \
             -e IDENTIFIERS=BTC,ETH,SOL,all \
             -e CATEGORIES=trade,liquidity,orderbook \
             -e LOG_LEVEL=info \

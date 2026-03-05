@@ -132,7 +132,7 @@ func DefaultPumpConfig() PumpConfig {
 
 ### 3. Add Helm Configuration
 
-**File:** `deployments/helm/odin/charts/ws-server/values.yaml`
+**File:** `deployments/helm/sukko/charts/ws-server/values.yaml`
 
 ```yaml
 config:
@@ -200,9 +200,9 @@ Example with 50% ratio (very safe):
 | `ws/internal/shared/platform/server_config.go` | Add `PongWait` and `PingPeriod` config fields |
 | `ws/internal/server/pump.go` | Accept config values, update defaults |
 | `ws/cmd/server/main.go` | Pass config to pump |
-| `deployments/helm/odin/charts/ws-server/values.yaml` | Add configurable values |
-| `deployments/helm/odin/charts/ws-server/templates/configmap.yaml` | Map env vars |
-| `deployments/helm/odin/values/local.yaml` | Set lenient values for local dev |
+| `deployments/helm/sukko/charts/ws-server/values.yaml` | Add configurable values |
+| `deployments/helm/sukko/charts/ws-server/templates/configmap.yaml` | Map env vars |
+| `deployments/helm/sukko/values/local.yaml` | Set lenient values for local dev |
 
 ---
 

@@ -8,18 +8,18 @@
 version: "3"
 
 vars:
-  LOCAL_CLUSTER_NAME: odin-ws-local
-  LOCAL_NAMESPACE: odin-local
-  LOCAL_RELEASE_NAME: odin
+  LOCAL_CLUSTER_NAME: sukko-local
+  LOCAL_NAMESPACE: sukko-local
+  LOCAL_RELEASE_NAME: sukko
   LOCAL_KIND_CONFIG: "{{.ROOT_DIR}}/deployments/k8s/local/kind-config.yaml"
-  LOCAL_CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/odin"
-  LOCAL_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/odin/values/local.yaml"
-  LOCAL_DB_URL: "postgres://odin:odin_local_dev@localhost:5432/odin_provisioning?sslmode=disable"
+  LOCAL_CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/sukko"
+  LOCAL_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/sukko/values/local.yaml"
+  LOCAL_DB_URL: "postgres://sukko:sukko_local_dev@localhost:5432/sukko_provisioning?sslmode=disable"
   LOCAL_MIGRATIONS_DIR: "{{.ROOT_DIR}}/ws/internal/provisioning/repository/migrations"
   # Images
-  LOCAL_WS_IMAGE: odin-ws
-  LOCAL_GATEWAY_IMAGE: odin-gateway
-  LOCAL_PROVISIONING_IMAGE: odin-provisioning
+  LOCAL_WS_IMAGE: sukko
+  LOCAL_GATEWAY_IMAGE: sukko-gateway
+  LOCAL_PROVISIONING_IMAGE: sukko-provisioning
   LOCAL_IMAGE_TAG: latest
   # Ports (must match Kind extraPortMappings in deployments/k8s/local/kind-config.yaml)
   LOCAL_GATEWAY_PORT: 3000      # Kind: containerPort 30000 → hostPort 3000
@@ -127,7 +127,7 @@ tasks:
   # Provisioning (Kafka topics + DB tenant)
   # ===========================================================================
   provision:create:
-    desc: Create odin tenant + Kafka topics + channel rules
+    desc: Create sukko tenant + Kafka topics + channel rules
     cmds:
       - |
         set -e
@@ -152,7 +152,7 @@ tasks:
         echo "Creating tenant..."
         RESULT=$(curl -sf -X POST http://localhost:{{.LOCAL_PROVISIONING_PORT}}/api/v1/tenants \
           -H "Content-Type: application/json" \
-          -d '{"id": "odin", "name": "Odin Trading Platform"}' 2>&1) || {
+          -d '{"id": "sukko", "name": "Sukko Trading Platform"}' 2>&1) || {
           # Tenant might already exist - check if it's a conflict error
           if echo "$RESULT" | grep -q "already exists"; then
             echo "Tenant already exists, continuing..."
@@ -164,7 +164,7 @@ tasks:
 
         # Create Kafka topics
         echo "Creating Kafka topics..."
-        RESULT=$(curl -sf -X POST http://localhost:{{.LOCAL_PROVISIONING_PORT}}/api/v1/tenants/odin/topics \
+        RESULT=$(curl -sf -X POST http://localhost:{{.LOCAL_PROVISIONING_PORT}}/api/v1/tenants/sukko/topics \
           -H "Content-Type: application/json" \
           -d '{"categories": ["trade"]}' 2>&1) || {
           echo "Topic creation failed: $RESULT"
@@ -174,7 +174,7 @@ tasks:
 
         # Set channel rules
         echo "Setting channel rules..."
-        RESULT=$(curl -sf -X PUT http://localhost:{{.LOCAL_PROVISIONING_PORT}}/api/v1/tenants/odin/channel-rules \
+        RESULT=$(curl -sf -X PUT http://localhost:{{.LOCAL_PROVISIONING_PORT}}/api/v1/tenants/sukko/channel-rules \
           -H "Content-Type: application/json" \
           -d '{"public_patterns": ["*.metadata"], "user_scoped_patterns": ["balances.{subject}"], "group_scoped_patterns": []}' 2>&1) || {
           echo "Channel rules failed: $RESULT"
@@ -195,9 +195,9 @@ tasks:
         curl -s http://localhost:{{.LOCAL_PROVISIONING_PORT}}/api/v1/tenants | jq .
 
   provision:delete:
-    desc: Delete all local.odin.* topics
+    desc: Delete all local.sukko.* topics
     cmds:
-      - kubectl exec -n {{.LOCAL_NAMESPACE}} {{.LOCAL_RELEASE_NAME}}-redpanda-0 -- rpk topic delete -r 'local.odin.*' || true
+      - kubectl exec -n {{.LOCAL_NAMESPACE}} {{.LOCAL_RELEASE_NAME}}-redpanda-0 -- rpk topic delete -r 'local.sukko.*' || true
       - 'echo "Deleted Kafka topics"'
 
   # ===========================================================================
@@ -219,8 +219,8 @@ tasks:
           -e TARGET_CONNECTIONS={{.CONNECTIONS}} \
           -e RAMP_RATE={{.RAMP}} \
           -e DURATION={{.DURATION}} \
-          -e TENANT_ID=odin \
-          -e CHANNELS=odin.BTC.trade,odin.ETH.trade,odin.SOL.trade \
+          -e TENANT_ID=sukko \
+          -e CHANNELS=sukko.BTC.trade,sukko.ETH.trade,sukko.SOL.trade \
           -e CHANNELS_PER_CLIENT=1 \
           -e WS_PONG_WAIT=120s \
           -e WS_PING_PERIOD=90s \
@@ -258,7 +258,7 @@ tasks:
           -e TIMING_MODE=poisson \
           -e POISSON_LAMBDA={{.RATE}} \
           -e DURATION=0 \
-          -e TENANT_ID=odin \
+          -e TENANT_ID=sukko \
           -e IDENTIFIERS=BTC,ETH,SOL \
           -e CATEGORIES=trade \
           -e LOG_LEVEL=info \

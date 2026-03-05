@@ -7,7 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/kafka"
 )
 
 // LifecycleManager handles background tenant lifecycle operations.

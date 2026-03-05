@@ -78,15 +78,15 @@ type MessageEnvelope struct {
 	// Channel identifies which subscription channel this message is from
 	// This allows clients to route messages to the appropriate handler
 	// Examples:
-	//   "odin.BTC.trade"     - Trade events for BTC
-	//   "odin.all.trade"     - All trade events (aggregate)
-	//   "odin.ETH.liquidity" - Liquidity events for ETH
-	//   "odin.BTC.balances.user123" - User-scoped balance updates
+	//   "sukko.BTC.trade"     - Trade events for BTC
+	//   "sukko.all.trade"     - All trade events (aggregate)
+	//   "sukko.ETH.liquidity" - Liquidity events for ETH
+	//   "sukko.BTC.balances.user123" - User-scoped balance updates
 	//
 	// Client code pattern:
 	//   switch (message.channel) {
-	//     case "odin.BTC.trade": handleBTCTrade(message.data)
-	//     case "odin.all.trade": handleAllTrades(message.data)
+	//     case "sukko.BTC.trade": handleBTCTrade(message.data)
+	//     case "sukko.all.trade": handleAllTrades(message.data)
 	//   }
 	Channel string `json:"channel"`
 
@@ -102,10 +102,10 @@ type MessageEnvelope struct {
 	// Stored as json.RawMessage to avoid double-encoding
 	// Server doesn't need to parse Kafka messages, just wrap and forward
 	//
-	// Example for "odin.BTC.trade" channel:
+	// Example for "sukko.BTC.trade" channel:
 	//   {"token": "BTC", "price": 45000, "amount_btc": 1500000000}
 	//
-	// Example for "odin.ETH.liquidity" channel:
+	// Example for "sukko.ETH.liquidity" channel:
 	//   {"token": "ETH", "poolId": "abc123", "liquidity": "1000000"}
 	Data json.RawMessage `json:"data"`
 }
@@ -161,7 +161,7 @@ func (s *SequenceGenerator) Reset() {
 // Parameters:
 //
 //	data     - Raw message payload from Kafka (JSON bytes)
-//	channel  - Channel this message is from ("odin.BTC.trade", "odin.all.trade", etc.)
+//	channel  - Channel this message is from ("sukko.BTC.trade", "sukko.all.trade", etc.)
 //	priority - Delivery priority (CRITICAL, HIGH, NORMAL)
 //	seqGen   - Per-client sequence generator
 //
@@ -171,7 +171,7 @@ func (s *SequenceGenerator) Reset() {
 //
 // Example usage:
 //
-//	envelope, _ := WrapMessage(kafkaData, "odin.BTC.trade", PRIORITY_HIGH, client.seqGen)
+//	envelope, _ := WrapMessage(kafkaData, "sukko.BTC.trade", PRIORITY_HIGH, client.seqGen)
 //	jsonBytes, _ := envelope.Serialize()
 //	client.send <- jsonBytes
 func WrapMessage(data []byte, channel string, priority MessagePriority, seqGen *SequenceGenerator) (*MessageEnvelope, error) {
@@ -190,7 +190,7 @@ func WrapMessage(data []byte, channel string, priority MessagePriority, seqGen *
 //
 // Returns JSON in format:
 //
-//	{"type":"message","seq":1,"ts":1234567890,"channel":"odin.BTC.trade","data":{...}}
+//	{"type":"message","seq":1,"ts":1234567890,"channel":"sukko.BTC.trade","data":{...}}
 //
 // Error handling:
 // - Should never fail in production (envelope fields are always valid JSON)

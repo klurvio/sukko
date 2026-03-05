@@ -1,4 +1,4 @@
-# Odin WebSocket Service - Production Architecture
+# Sukko WebSocket Service - Production Architecture
 
 > **Version**: 1.0
 > **Date**: 2025-12-04
@@ -6,7 +6,7 @@
 
 ## Overview
 
-Production architecture for the Odin WebSocket service using Cloudflare as the edge layer and Kubernetes for orchestration. This design prioritizes simplicity, security, and scalability while remaining flexible for future multi-tenant support.
+Production architecture for the Sukko WebSocket service using Cloudflare as the edge layer and Kubernetes for orchestration. This design prioritizes simplicity, security, and scalability while remaining flexible for future multi-tenant support.
 
 ## Architecture Diagram
 
@@ -144,14 +144,14 @@ Production architecture for the Odin WebSocket service using Cloudflare as the e
 ```yaml
 # values-production.yaml
 global:
-  namespace: odin-prod
+  namespace: sukko-prod
 
 ws-server:
   enabled: true
   replicaCount: 3
 
   image:
-    repository: gcr.io/your-project/odin-ws
+    repository: gcr.io/your-project/sukko
     tag: "1.0.0"
     pullPolicy: Always
 
@@ -364,7 +364,7 @@ type Config struct {
 ### JavaScript Example
 
 ```javascript
-class OdinWebSocket {
+class SukkoWebSocket {
     constructor(url, token) {
         this.url = url;
         this.token = token;
@@ -417,9 +417,9 @@ class OdinWebSocket {
 }
 
 // Usage
-const ws = new OdinWebSocket('wss://ws.yourdomain.com/ws', 'jwt-token-here');
+const ws = new SukkoWebSocket('wss://ws.yourdomain.com/ws', 'jwt-token-here');
 ws.onAuthenticated = () => {
-    ws.subscribe(['odin.trades', 'odin.liquidity']);
+    ws.subscribe(['sukko.trades', 'sukko.liquidity']);
 };
 ws.onMessage = (msg) => {
     console.log('Received:', msg);

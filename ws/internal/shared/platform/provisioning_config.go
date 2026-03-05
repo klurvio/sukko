@@ -27,7 +27,7 @@ type ProvisioningConfig struct {
 	// sqlite (default, embedded) or postgres (opt-in via Helm postgresql.enabled or externalDatabase).
 	DatabaseDriver    string        `env:"DATABASE_DRIVER" envDefault:"sqlite"`
 	DatabaseURL       string        `env:"DATABASE_URL" redact:"true"`
-	DatabasePath      string        `env:"DATABASE_PATH" envDefault:"odin.db"`
+	DatabasePath      string        `env:"DATABASE_PATH" envDefault:"sukko.db"`
 	AutoMigrate       bool          `env:"AUTO_MIGRATE" envDefault:"true"`
 	DBMaxOpenConns    int           `env:"DB_MAX_OPEN_CONNS" envDefault:"25"`
 	DBMaxIdleConns    int           `env:"DB_MAX_IDLE_CONNS" envDefault:"5"`
@@ -93,7 +93,7 @@ type ProvisioningConfig struct {
 
 	// Environment — deployment identity label, used for Kafka topic namespace, consumer
 	// group naming, and safety guards. Free-form: any string works as deployment identity.
-	// Odin uses: local | dev | stg | prod by convention. "prod" blocks KAFKA_TOPIC_NAMESPACE_OVERRIDE;
+	// Sukko uses: local | dev | stg | prod by convention. "prod" blocks KAFKA_TOPIC_NAMESPACE_OVERRIDE;
 	// "dev"/"development"/"local" relaxes admin token length requirements.
 	Environment string `env:"ENVIRONMENT" envDefault:"local"`
 }

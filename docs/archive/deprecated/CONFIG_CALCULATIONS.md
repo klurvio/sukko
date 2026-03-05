@@ -340,7 +340,7 @@ environment:
   - WS_CPU_PAUSE_THRESHOLD=80.0   # Pause NATS at 80% CPU
 
   # JetStream config
-  - JS_STREAM_NAME=ODIN_TOKENS
+  - JS_STREAM_NAME=SUKKO_TOKENS
   - JS_CONSUMER_NAME=ws-server
   - JS_STREAM_MAX_AGE=30s         # 30 second message retention
   - JS_STREAM_MAX_MSGS=100000     # 100k message limit

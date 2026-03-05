@@ -78,15 +78,15 @@ func TestEnvOrDefault(t *testing.T) {
 	// Not parallel: subtest uses t.Setenv which modifies the environment.
 
 	t.Run("returns default when env not set", func(t *testing.T) {
-		result := envOrDefault("ODIN_TEST_NONEXISTENT_KEY_XYZ", "fallback")
+		result := envOrDefault("SUKKO_TEST_NONEXISTENT_KEY_XYZ", "fallback")
 		if result != "fallback" {
 			t.Errorf("envOrDefault() = %q, want %q", result, "fallback")
 		}
 	})
 
 	t.Run("returns env when set", func(t *testing.T) {
-		t.Setenv("ODIN_TEST_CLI_ENV_VAR", "from-env")
-		result := envOrDefault("ODIN_TEST_CLI_ENV_VAR", "fallback")
+		t.Setenv("SUKKO_TEST_CLI_ENV_VAR", "from-env")
+		result := envOrDefault("SUKKO_TEST_CLI_ENV_VAR", "fallback")
 		if result != "from-env" {
 			t.Errorf("envOrDefault() = %q, want %q", result, "from-env")
 		}

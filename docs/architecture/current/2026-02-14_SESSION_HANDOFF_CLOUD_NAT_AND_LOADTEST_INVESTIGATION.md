@@ -23,7 +23,7 @@
 
 ### 2. Redpanda Consumer Investigation (NO BUG - working correctly)
 
-- ws-server consumer group is `odin-shared-dev` (constructed as `"odin-shared-" + namespace` in code, NOT from `KAFKA_CONSUMER_GROUP` env var)
+- ws-server consumer group is `sukko-shared-dev` (constructed as `"sukko-shared-" + namespace` in code, NOT from `KAFKA_CONSUMER_GROUP` env var)
 - Confirmed by matching pod IPs (`10.1.0.38`, `10.1.0.39`) to consumer group members
 - Consumer has LAG=0 on all topics — fully caught up
 - Dashboard showed 0 messages/sec because **publisher wasn't running**, not a consumer bug
@@ -57,17 +57,17 @@ google_compute_router_nat.nat updated in-place:
 
 ```go
 // multitenant_pool.go:308
-ConsumerGroup: "odin-shared-" + p.config.Namespace  // e.g., "odin-shared-dev"
+ConsumerGroup: "sukko-shared-" + p.config.Namespace  // e.g., "sukko-shared-dev"
 
 // Dedicated tenants:
-ConsumerGroup: fmt.Sprintf("odin-%s-%s", tenant.TenantID, p.config.Namespace)
+ConsumerGroup: fmt.Sprintf("sukko-%s-%s", tenant.TenantID, p.config.Namespace)
 ```
 
 ### Redpanda consumer groups in dev
 
 ```
-odin-shared-dev          ← ws-server (2 members)
-odin-cdc-consumer-server ← CDC pipeline
+sukko-shared-dev          ← ws-server (2 members)
+sukko-cdc-consumer-server ← CDC pipeline
 nestjs-group-client      ← nestjs app
 1                        ← unknown
 ```
@@ -126,14 +126,14 @@ nestjs-group-client      ← nestjs app
 
 ```bash
 # Check if loadtest VM is ready
-gcloud compute ssh wsloadtest-dev --zone=us-central1-a --project=odin-9e902 \
+gcloud compute ssh wsloadtest-dev --zone=us-central1-a --project=sukko-9e902 \
   --tunnel-through-iap --command="docker images | grep wsloadtest"
 
 # Run loadtest (start small, scale up)
 task gce:loadtest:run ENV=dev CONNECTIONS=500 DURATION=30m RAMP=5
 
 # Check loadtest logs
-gcloud compute ssh wsloadtest-dev --zone=us-central1-a --project=odin-9e902 \
+gcloud compute ssh wsloadtest-dev --zone=us-central1-a --project=sukko-9e902 \
   --tunnel-through-iap --command="docker logs wsloadtest --tail=20"
 
 # Start publisher for message throughput
@@ -148,5 +148,5 @@ task k8s:tf:apply ENV=stg
 ## Open Questions
 
 1. **Loadtest at 30K connections**: Will the 2 gateway pods + 2 ws-server pods handle 30K? May need to scale replicas or node resources.
-2. **`KAFKA_CONSUMER_GROUP` env var**: Set to `odin-ws-consumer` but the code constructs `odin-shared-dev`. The env var appears unused — should it be removed or is it used elsewhere?
+2. **`KAFKA_CONSUMER_GROUP` env var**: Set to `sukko-consumer` but the code constructs `sukko-shared-dev`. The env var appears unused — should it be removed or is it used elsewhere?
 3. **`KAFKA_TOPIC_NAMESPACE` empty**: The env var is empty but the code derives `dev` from the environment. The Helm comment says "defaults to dev" — should it be set explicitly for clarity?

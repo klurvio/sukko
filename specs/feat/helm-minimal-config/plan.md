@@ -84,7 +84,7 @@ Existing validation (lower < upper) still applies after auto-compute.
 Change `AuthEnabled` envDefault from `"true"` to `"false"`:
 
 ```go
-// TODO: Change envDefault to "true" when odin-api auth integration is production-ready
+// TODO: Change envDefault to "true" when sukko-api auth integration is production-ready
 AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"false"`
 ```
 
@@ -192,7 +192,7 @@ import (
     "net/http"
     "reflect"
 
-    "odin-ws/internal/shared/httputil"
+    "sukko/internal/shared/httputil"
 )
 
 // ConfigHandler returns an http.HandlerFunc that serves the effective runtime
@@ -360,7 +360,7 @@ curl -s http://localhost:3000/config  # gateway (redacted)
 
 ### 3.1 — Rewrite ws-server/values.yaml (FR-001, FR-002, FR-005a)
 
-**File**: `deployments/helm/odin/charts/ws-server/values.yaml`
+**File**: `deployments/helm/sukko/charts/ws-server/values.yaml`
 
 Strip from 292 → ~85 lines. Keep ONLY:
 
@@ -371,7 +371,7 @@ podSecurityContext, securityContext, autoscaling, networkPolicy
 podAnnotations, nodeSelector, tolerations, affinity
 
 # Deployment identity (always injected — drives Kafka topic namespace, consumer groups)
-# environment: local  # any string; Odin uses: local | dev | stg | prod
+# environment: local  # any string; Sukko uses: local | dev | stg | prod
 
 # Mode selection (commented — Go defaults apply when unset)
 # messageBackend: direct  # direct | kafka | nats
@@ -409,7 +409,7 @@ config: {}
 
 ### 3.2 — Rewrite ws-server ConfigMap Template
 
-**File**: `deployments/helm/odin/charts/ws-server/templates/configmap.yaml`
+**File**: `deployments/helm/sukko/charts/ws-server/templates/configmap.yaml`
 
 Strip from 69 → ~20 lines. Only emit:
 
@@ -428,7 +428,7 @@ Remove ALL lines that set env vars matching Go defaults.
 
 ### 3.3 — Rewrite ws-server Deployment Template
 
-**File**: `deployments/helm/odin/charts/ws-server/templates/deployment.yaml`
+**File**: `deployments/helm/sukko/charts/ws-server/templates/deployment.yaml`
 
 Reduce env section from ~200 to ~80 lines. Keep only:
 
@@ -461,7 +461,7 @@ These can still be overridden by developers via the `extraEnv` map in ConfigMap.
 
 ### 3.4 — Rewrite ws-gateway/values.yaml
 
-**File**: `deployments/helm/odin/charts/ws-gateway/values.yaml`
+**File**: `deployments/helm/sukko/charts/ws-gateway/values.yaml`
 
 Strip from 154 → ~55 lines. Keep ONLY:
 
@@ -472,7 +472,7 @@ podSecurityContext, securityContext, autoscaling
 podAnnotations, nodeSelector, tolerations, affinity
 
 # Deployment identity
-# environment: local  # any string; Odin uses: local | dev | stg | prod
+# environment: local  # any string; Sukko uses: local | dev | stg | prod
 
 # Feature flags (commented — Go defaults apply)
 # config:
@@ -495,7 +495,7 @@ extraEnv: {}
 
 ### 3.5 — Update ws-gateway Templates
 
-**File**: `deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml`
+**File**: `deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml`
 
 Same pattern as ws-server:
 - Only set auto-wired addresses (`GATEWAY_BACKEND_URL`, `PROVISIONING_GRPC_ADDR`)
@@ -505,7 +505,7 @@ Same pattern as ws-server:
 
 ### 3.6 — Rewrite provisioning/values.yaml
 
-**File**: `deployments/helm/odin/charts/provisioning/values.yaml`
+**File**: `deployments/helm/sukko/charts/provisioning/values.yaml`
 
 Strip from 187 → ~65 lines. Keep ONLY:
 
@@ -516,7 +516,7 @@ podSecurityContext, securityContext, persistence, ingress
 podAnnotations, nodeSelector, tolerations, affinity
 
 # Deployment identity
-# environment: local  # any string; Odin uses: local | dev | stg | prod
+# environment: local  # any string; Sukko uses: local | dev | stg | prod
 
 # PostgreSQL (commented — SQLite by default)
 # externalDatabase:
@@ -531,7 +531,7 @@ Remove: provisioningMode, configFilePath, configFileConfigMap (FR-007a), all con
 
 ### 3.7 — Update provisioning Templates
 
-**File**: `deployments/helm/odin/charts/provisioning/templates/deployment.yaml`
+**File**: `deployments/helm/sukko/charts/provisioning/templates/deployment.yaml`
 
 - Remove `PROVISIONING_MODE` and `PROVISIONING_CONFIG_PATH` injection
 - Remove config file volume mount logic
@@ -540,7 +540,7 @@ Remove: provisioningMode, configFilePath, configFileConfigMap (FR-007a), all con
 
 ### 3.8 — Rewrite Parent values.yaml with Decision Guide (FR-003, FR-017)
 
-**File**: `deployments/helm/odin/values.yaml`
+**File**: `deployments/helm/sukko/values.yaml`
 
 Strip from 568 → ~180 lines. Structure:
 
@@ -548,7 +548,7 @@ Strip from 568 → ~180 lines. Structure:
 # =============================================================================
 # DEPLOYMENT MODE GUIDE
 # =============================================================================
-# Zero-config (default): helm install odin ./deployments/helm/odin
+# Zero-config (default): helm install sukko ./deployments/helm/sukko
 #   → direct messages, NATS broadcast, SQLite provisioning
 #
 # Local dev (Docker Compose): docker compose up
@@ -585,10 +585,10 @@ Strip from 568 → ~180 lines. Structure:
 # =============================================================================
 
 global:
-  namespace: odin
+  namespace: sukko
   imageRegistry: ""
   labels:
-    app.kubernetes.io/part-of: odin
+    app.kubernetes.io/part-of: sukko
   postgresql:
     enabled: false
 
@@ -619,7 +619,7 @@ Remove ALL subchart config overrides from parent (FR-003).
 
 ### 3.9 — Add Pre-Install Validation Hook Templates (FR-015)
 
-**CREATE** `deployments/helm/odin/charts/ws-server/templates/validate-config-job.yaml`:
+**CREATE** `deployments/helm/sukko/charts/ws-server/templates/validate-config-job.yaml`:
 
 ```yaml
 {{- if .Values.enabled }}
@@ -638,7 +638,7 @@ spec:
       containers:
         - name: validate
           image: "{{ image }}"
-          command: ["./odin-ws", "--validate-config"]
+          command: ["./sukko", "--validate-config"]
           envFrom:
             - configMapRef:
                 name: {{ include "ws-server.fullname" . }}-config
@@ -653,11 +653,11 @@ Same pattern for ws-gateway and provisioning.
 
 ### Phase 3 Verification
 ```bash
-helm lint deployments/helm/odin/charts/ws-server
-helm lint deployments/helm/odin/charts/ws-gateway
-helm lint deployments/helm/odin/charts/provisioning
-helm lint deployments/helm/odin
-helm template odin deployments/helm/odin  # Verify rendered manifests
+helm lint deployments/helm/sukko/charts/ws-server
+helm lint deployments/helm/sukko/charts/ws-gateway
+helm lint deployments/helm/sukko/charts/provisioning
+helm lint deployments/helm/sukko
+helm template sukko deployments/helm/sukko  # Verify rendered manifests
 ```
 
 ---
@@ -750,8 +750,8 @@ volumes:
 #   image: postgres:16-alpine
 #   environment:
 #     POSTGRES_DB: odin_provisioning
-#     POSTGRES_USER: odin
-#     POSTGRES_PASSWORD: odin
+#     POSTGRES_USER: sukko
+#     POSTGRES_PASSWORD: sukko
 #   ports: ["5432:5432"]
 #
 # NATS JetStream mode:
@@ -780,7 +780,7 @@ volumes:
 **CREATE** `examples/helm/values-minimal.yaml`:
 ```yaml
 # Zero-config: direct messages + NATS broadcast + SQLite
-# This is what you get with: helm install odin ./deployments/helm/odin
+# This is what you get with: helm install sukko ./deployments/helm/sukko
 # (No overrides needed — shown here for documentation)
 ```
 
@@ -841,9 +841,9 @@ helm:lint:examples:
   desc: Validate example Helm values files
   cmds:
     - for: [minimal, kafka, nats-jetstream, production]
-      cmd: helm lint deployments/helm/odin -f examples/helm/values-{{.ITEM}}.yaml
+      cmd: helm lint deployments/helm/sukko -f examples/helm/values-{{.ITEM}}.yaml
     - for: [minimal, kafka, nats-jetstream, production]
-      cmd: helm template odin deployments/helm/odin -f examples/helm/values-{{.ITEM}}.yaml > /dev/null
+      cmd: helm template sukko deployments/helm/sukko -f examples/helm/values-{{.ITEM}}.yaml > /dev/null
 ```
 
 This target can be added to CI and run locally during development.
@@ -853,20 +853,20 @@ This target can be added to CI and run locally during development.
 docker compose config  # Validate Docker Compose syntax
 docker compose build   # Verify Dockerfiles work
 for f in examples/helm/values-*.yaml; do
-  helm lint deployments/helm/odin -f "$f"
+  helm lint deployments/helm/sukko -f "$f"
 done
-helm template odin deployments/helm/odin -f examples/helm/values-kafka.yaml
+helm template sukko deployments/helm/sukko -f examples/helm/values-kafka.yaml
 ```
 
 ---
 
-## Phase 5: Odin Internal Deployment Update
+## Phase 5: Sukko Internal Deployment Update
 
-**Goal**: Update Odin's environment overrides to work with new Helm structure. Create migration checklist.
+**Goal**: Update Sukko's environment overrides to work with new Helm structure. Create migration checklist.
 
 ### 5.1 — Rewrite Environment Overrides (FR-004, FR-021)
 
-**MODIFY** `deployments/helm/odin/values/standard/dev.yaml`:
+**MODIFY** `deployments/helm/sukko/values/standard/dev.yaml`:
 Strip from 326 → ~60 lines. Keep ONLY:
 - global (namespace, imageRegistry)
 - Service replicas, image tags, pullPolicy
@@ -879,8 +879,8 @@ Strip from 326 → ~60 lines. Keep ONLY:
 
 Remove ALL config.* fields that now match Go defaults.
 
-**MODIFY** `deployments/helm/odin/values/standard/stg.yaml` (same pattern)
-**MODIFY** `deployments/helm/odin/values/standard/prod.yaml` (same pattern, if exists)
+**MODIFY** `deployments/helm/sukko/values/standard/stg.yaml` (same pattern)
+**MODIFY** `deployments/helm/sukko/values/standard/prod.yaml` (same pattern, if exists)
 
 ### 5.2 — Update Taskfile Targets (FR-021)
 
@@ -911,11 +911,11 @@ Document every default that changed:
 ### Phase 5 Verification
 ```bash
 # Verify existing dev deployment renders correctly
-helm template odin deployments/helm/odin \
-  -f deployments/helm/odin/values/standard/dev.yaml \
+helm template sukko deployments/helm/sukko \
+  -f deployments/helm/sukko/values/standard/dev.yaml \
   --debug 2>&1 | head -50
 
-helm lint deployments/helm/odin -f deployments/helm/odin/values/standard/dev.yaml
+helm lint deployments/helm/sukko -f deployments/helm/sukko/values/standard/dev.yaml
 ```
 
 ---
@@ -928,14 +928,14 @@ cd ws && go vet ./...
 cd ws && go test ./...
 
 # Helm
-helm lint deployments/helm/odin
-helm lint deployments/helm/odin/charts/ws-server
-helm lint deployments/helm/odin/charts/ws-gateway
-helm lint deployments/helm/odin/charts/provisioning
+helm lint deployments/helm/sukko
+helm lint deployments/helm/sukko/charts/ws-server
+helm lint deployments/helm/sukko/charts/ws-gateway
+helm lint deployments/helm/sukko/charts/provisioning
 
 # Examples
 for f in examples/helm/values-*.yaml; do
-  helm lint deployments/helm/odin -f "$f"
+  helm lint deployments/helm/sukko -f "$f"
 done
 
 # Docker Compose
@@ -966,9 +966,9 @@ curl -s http://localhost:3000/config | jq .  # gateway (redacted)
 | `examples/helm/values-kafka.yaml` | FR-011 |
 | `examples/helm/values-nats-jetstream.yaml` | FR-011 |
 | `examples/helm/values-production.yaml` | FR-011 |
-| `deployments/helm/odin/charts/ws-server/templates/validate-config-job.yaml` | FR-015 |
-| `deployments/helm/odin/charts/ws-gateway/templates/validate-config-job.yaml` | FR-015 |
-| `deployments/helm/odin/charts/provisioning/templates/validate-config-job.yaml` | FR-015 |
+| `deployments/helm/sukko/charts/ws-server/templates/validate-config-job.yaml` | FR-015 |
+| `deployments/helm/sukko/charts/ws-gateway/templates/validate-config-job.yaml` | FR-015 |
+| `deployments/helm/sukko/charts/provisioning/templates/validate-config-job.yaml` | FR-015 |
 | `specs/feat/helm-minimal-config/migration-checklist.md` | NFR-004 |
 
 ### MODIFY (27 files)
@@ -987,18 +987,18 @@ curl -s http://localhost:3000/config | jq .  # gateway (redacted)
 | `ws/cmd/gateway/main.go` | FR-014 |
 | `ws/cmd/provisioning/main.go` | FR-007a, FR-014 |
 | `ws/cmd/cli/commands/config.go` | FR-007a |
-| `deployments/helm/odin/values.yaml` | FR-003, FR-017 |
-| `deployments/helm/odin/charts/ws-server/values.yaml` | FR-001, FR-002 |
-| `deployments/helm/odin/charts/ws-server/templates/configmap.yaml` | FR-001 |
-| `deployments/helm/odin/charts/ws-server/templates/deployment.yaml` | FR-001, FR-010 |
-| `deployments/helm/odin/charts/ws-gateway/values.yaml` | FR-001, FR-002 |
-| `deployments/helm/odin/charts/ws-gateway/templates/configmap.yaml` | FR-001 |
-| `deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml` | FR-001 |
-| `deployments/helm/odin/charts/provisioning/values.yaml` | FR-001, FR-007a |
-| `deployments/helm/odin/charts/provisioning/templates/deployment.yaml` | FR-007a |
-| `deployments/helm/odin/values/standard/dev.yaml` | FR-004, FR-021 |
-| `deployments/helm/odin/values/standard/stg.yaml` | FR-004, FR-021 |
-| `deployments/helm/odin/values/standard/prod.yaml` | FR-004, FR-021 |
+| `deployments/helm/sukko/values.yaml` | FR-003, FR-017 |
+| `deployments/helm/sukko/charts/ws-server/values.yaml` | FR-001, FR-002 |
+| `deployments/helm/sukko/charts/ws-server/templates/configmap.yaml` | FR-001 |
+| `deployments/helm/sukko/charts/ws-server/templates/deployment.yaml` | FR-001, FR-010 |
+| `deployments/helm/sukko/charts/ws-gateway/values.yaml` | FR-001, FR-002 |
+| `deployments/helm/sukko/charts/ws-gateway/templates/configmap.yaml` | FR-001 |
+| `deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml` | FR-001 |
+| `deployments/helm/sukko/charts/provisioning/values.yaml` | FR-001, FR-007a |
+| `deployments/helm/sukko/charts/provisioning/templates/deployment.yaml` | FR-007a |
+| `deployments/helm/sukko/values/standard/dev.yaml` | FR-004, FR-021 |
+| `deployments/helm/sukko/values/standard/stg.yaml` | FR-004, FR-021 |
+| `deployments/helm/sukko/values/standard/prod.yaml` | FR-004, FR-021 |
 | `taskfiles/k8s.yml` | FR-021 |
 | `taskfiles/local.yml` | FR-021 |
 

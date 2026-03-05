@@ -1,10 +1,10 @@
-# Implementation Plan: TypeScript SDK for Odin WS
+# Implementation Plan: TypeScript SDK for Sukko
 
 **Branch**: `feat/typescript-sdk` | **Date**: 2026-02-26 | **Spec**: `specs/feat/typescript-sdk/spec.md`
 
 ## Summary
 
-Build `@sukko/ws-sdk`, a zero-dependency TypeScript client library for the Odin WS real-time data platform. The SDK encapsulates the full WebSocket protocol (subscribe, unsubscribe, publish, reconnect, heartbeat), provides automatic reconnection with message replay, proactive token refresh via graceful reconnect, sequence gap detection, and typed error handling. Published to public npm as dual ESM/CJS with full type definitions.
+Build `@sukko/ws-sdk`, a zero-dependency TypeScript client library for the Sukko real-time data platform. The SDK encapsulates the full WebSocket protocol (subscribe, unsubscribe, publish, reconnect, heartbeat), provides automatic reconnection with message replay, proactive token refresh via graceful reconnect, sequence gap detection, and typed error handling. Published to public npm as dual ESM/CJS with full type definitions.
 
 ## Technical Context
 
@@ -15,7 +15,7 @@ Build `@sukko/ws-sdk`, a zero-dependency TypeScript client library for the Odin 
 **Lint**: Biome
 **Package**: `@sukko/ws-sdk` on public npm with provenance
 **Module formats**: ESM (primary) + CJS (fallback)
-**Repository**: Separate repo, sibling of `odin-ws`
+**Repository**: Separate repo, sibling of `sukko`
 
 ## Constitution Compliance
 
@@ -97,7 +97,7 @@ Note: `TOKEN_REFRESH` is an internal sub-state of `CONNECTED`. Externally it app
 
 ### 1.1 Repository Setup
 
-Create new repository `sukko-ws-sdk` as a sibling of `odin-ws`:
+Create new repository `sukko-ws-sdk` as a sibling of `sukko`:
 
 ```
 ../sukko-ws-sdk/
@@ -140,7 +140,7 @@ Create new repository `sukko-ws-sdk` as a sibling of `odin-ws`:
 {
   "name": "@sukko/ws-sdk",
   "version": "0.1.0",
-  "description": "TypeScript SDK for Odin WS real-time data platform",
+  "description": "TypeScript SDK for Sukko real-time data platform",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -667,7 +667,7 @@ export type {
 
 ### 5.3 `tests/helpers/mock-server.ts`
 
-Utility wrapping `vitest-websocket-mock` with Odin WS protocol awareness:
+Utility wrapping `vitest-websocket-mock` with Sukko protocol awareness:
 - `mockServer.expectSubscribe(channels)` → auto-respond with `subscription_ack`
 - `mockServer.sendMessage(channel, data, seq)` → send typed broadcast
 - `mockServer.sendError(code, message)` → send error response
@@ -763,7 +763,7 @@ Each phase is independently testable. Protocol layer has zero dependencies on co
 4. `npm run check:exports` — publint + attw pass
 5. `npm pack --dry-run` — only `dist/` files included
 6. Bundle size check — `dist/index.js` < 15KB gzipped
-7. Integration test against live Odin WS instance (manual, pre-release)
+7. Integration test against live Sukko instance (manual, pre-release)
 
 ## Resource Impact
 

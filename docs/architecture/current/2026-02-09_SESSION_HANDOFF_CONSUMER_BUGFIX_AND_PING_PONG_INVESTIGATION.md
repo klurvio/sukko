@@ -131,11 +131,11 @@ pingPeriod = (pongWait * 9) / 10  // 54 seconds
 
 ### Kafka Consumer Status (Working)
 ```
-Consumer group: odin-shared-local
+Consumer group: sukko-shared-local
 State: Stable
 Members: 1
 LAG: 2
-Topics: local.odin.{trade,liquidity,metadata,social,community,creation,analytics,balances}
+Topics: local.sukko.{trade,liquidity,metadata,social,community,creation,analytics,balances}
 ```
 
 ---
@@ -210,10 +210,10 @@ task local:deploy
 task local:loadtest:run CONNECTIONS=1 DURATION=60m
 
 # Check consumer group
-kubectl exec -n odin-local odin-redpanda-0 -- rpk group describe odin-shared-local
+kubectl exec -n sukko-local sukko-redpanda-0 -- rpk group describe sukko-shared-local
 
 # Check ws-server logs
-kubectl logs -n odin-local -l app.kubernetes.io/name=ws-server --tail=100
+kubectl logs -n sukko-local -l app.kubernetes.io/name=ws-server --tail=100
 
 # Restart port-forwards if needed
 task local:port-forward:start

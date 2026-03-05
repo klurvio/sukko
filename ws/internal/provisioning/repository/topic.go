@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/klurvio/sukko/internal/provisioning"
 )
 
 // PostgresTopicRepository implements TopicStore using PostgreSQL.

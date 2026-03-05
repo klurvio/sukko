@@ -1068,13 +1068,13 @@ BROADCAST_BUS_TYPE=nats NATS_URL=nats://localhost:4222 ./ws-multi --shards=3 --b
 sleep 5
 
 # Connect test clients
-./test-client --addr=ws://localhost:3005 --count=1000 --subscribe=odin.BTC.trades &
-./test-client --addr=ws://localhost:3015 --count=1000 --subscribe=odin.BTC.trades &
+./test-client --addr=ws://localhost:3005 --count=1000 --subscribe=sukko.BTC.trades &
+./test-client --addr=ws://localhost:3015 --count=1000 --subscribe=sukko.BTC.trades &
 
 sleep 2
 
 # Publish test message to Kafka
-echo '{"symbol":"BTC","price":50000}' | kafka-console-producer --topic odin.trades
+echo '{"symbol":"BTC","price":50000}' | kafka-console-producer --topic sukko.trades
 
 # Verify all 2000 clients received message
 RECEIVED=$(grep "Received message" test-client.log | wc -l)

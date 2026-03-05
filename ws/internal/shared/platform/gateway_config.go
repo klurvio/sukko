@@ -26,12 +26,12 @@ type GatewayConfig struct {
 	MessageTimeout time.Duration `env:"GATEWAY_MESSAGE_TIMEOUT" envDefault:"60s"`
 
 	// Authentication (multi-tenant with asymmetric keys)
-	// TODO: Change envDefault to "true" when odin-api auth integration is production-ready
+	// TODO: Change envDefault to "true" when sukko-api auth integration is production-ready
 	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"false"`
 
 	// DefaultTenantID disables multi-tenant support. All connections
 	// are routed to this tenant. Only used when AUTH_ENABLED=false.
-	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
+	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
 
 	// Provisioning service gRPC connection (provides keys, OIDC config, channel rules via streaming)
 	ProvisioningGRPCAddr  string        `env:"PROVISIONING_GRPC_ADDR" envDefault:"localhost:9090"`
@@ -93,7 +93,7 @@ type GatewayConfig struct {
 
 	// Environment — deployment identity label, used for Kafka topic namespace, consumer
 	// group naming, and safety guards. Free-form: any string works as deployment identity.
-	// Odin uses: local | dev | stg | prod by convention.
+	// Sukko uses: local | dev | stg | prod by convention.
 	Environment string `env:"ENVIRONMENT" envDefault:"local"`
 }
 

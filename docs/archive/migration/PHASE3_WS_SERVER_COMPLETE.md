@@ -57,7 +57,7 @@ January 5, 2025
 - Added: `kafkaConsumer *kafka.Consumer`, `kafkaPaused`
 
 **NewServer() initialization:**
-- Created broadcast callback function that formats subject as `odin.token.{tokenID}.{eventType}`
+- Created broadcast callback function that formats subject as `sukko.token.{tokenID}.{eventType}`
 - Initialized Kafka consumer with all 8 topics
 - Removed all NATS/JetStream initialization code (~100 lines)
 
@@ -129,8 +129,8 @@ Redpanda → franz-go consumer → broadcast callback → broadcast() → Client
 The broadcast callback creates NATS-style subjects for backward compatibility:
 ```go
 broadcastFunc := func(tokenID string, eventType string, message []byte) {
-    // Format: "odin.token.{tokenID}.{eventType}"
-    subject := fmt.Sprintf("odin.token.%s.%s", tokenID, eventType)
+    // Format: "sukko.token.{tokenID}.{eventType}"
+    subject := fmt.Sprintf("sukko.token.%s.%s", tokenID, eventType)
     s.broadcast(subject, message)
 }
 ```

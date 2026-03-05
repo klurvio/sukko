@@ -107,9 +107,9 @@ Fire-and-forget rationale: waiting for backend ack would block the client→back
 9. **Server-side liveness proxy** — Centrifugo's refresh proxy delegates token validation to the application backend, keeping the WebSocket server stateless.
 10. **Atomic permission application** — Permission changes from refresh should be applied atomically — no window where old permissions are partially active.
 
-**Decision**: Odin's design aligns with Camp 1 (Ably/Centrifugo pattern). Key design choices informed by prior art:
+**Decision**: Sukko's design aligns with Camp 1 (Ably/Centrifugo pattern). Key design choices informed by prior art:
 - Gateway-side interception (like Centrifugo's refresh proxy — WebSocket server stays auth-unaware).
 - Forced unsubscription on permission downgrade (similar to Ably's channel FAILED transition, but using `unsubscription_ack` for consistency with existing protocol).
-- Fire-and-forget backend unsub (Odin-specific — Ably/Centrifugo own their subscription state; Odin's gateway proxies to a separate backend).
+- Fire-and-forget backend unsub (Sukko-specific — Ably/Centrifugo own their subscription state; Sukko's gateway proxies to a separate backend).
 - No server-initiated refresh in v1 (documented in spec Out of Scope — can be added later following Ably's auth callback pattern).
-- No per-subscription tokens (Odin uses connection-level claims with channel-level permission checks, simpler than Centrifugo's model).
+- No per-subscription tokens (Sukko uses connection-level claims with channel-level permission checks, simpler than Centrifugo's model).

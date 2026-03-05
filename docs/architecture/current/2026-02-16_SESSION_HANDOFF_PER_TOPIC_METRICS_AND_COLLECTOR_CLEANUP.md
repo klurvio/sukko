@@ -20,7 +20,7 @@
 
 2. **`ws/internal/shared/kafka/consumer.go`** — Added `consumerGroup string` field to `Consumer` struct (set from `cfg.ConsumerGroup` in NewConsumer). Added `topic string` field to `batchedMessage` struct and `prepareMessage` return type. Changed `incrementProcessed()` and `incrementDropped()` to accept `topic string`. Updated all 4 call sites (line 387 batch flush, line 491 prepareMessage rate limit, line 575 processRecord rate limit, line 661 processRecord success).
 
-3. **`deployments/helm/odin/charts/monitoring/dashboards/overview.json`** — Updated Message Throughput (id:11), Redpanda Throughput (id:20), Kafka Consumer (id:21), Active Connections stat (id:4), Active Connections by Pod (id:10) panels with per-topic/gateway queries. Added new "Gateway Tenant Connections" panel (id:32).
+3. **`deployments/helm/sukko/charts/monitoring/dashboards/overview.json`** — Updated Message Throughput (id:11), Redpanda Throughput (id:20), Kafka Consumer (id:21), Active Connections stat (id:4), Active Connections by Pod (id:10) panels with per-topic/gateway queries. Added new "Gateway Tenant Connections" panel (id:32).
 
 ### Part B: Collector Removal (Completed)
 
@@ -122,17 +122,17 @@ Audited all changes against `docs/architecture/CODING_GUIDELINES.md`:
 | `ws/internal/server/server.go` | Removed metricsCollector field/creation/start, removed GetKafkaConsumer() |
 | `ws/internal/server/server_test.go` | Removed TestServer_GetKafkaConsumer_Nil, removed kafka import |
 | `ws/cmd/server/main.go` | Added metrics.SetKafkaConnected(true) after pool starts |
-| `deployments/helm/odin/charts/monitoring/dashboards/overview.json` | Per-topic queries + gateway panels + new Gateway Tenant Connections panel (id:32) |
+| `deployments/helm/sukko/charts/monitoring/dashboards/overview.json` | Per-topic queries + gateway panels + new Gateway Tenant Connections panel (id:32) |
 | `docs/architecture/current/2026-02-15_PLAN_PER_TOPIC_GRAFANA_METRICS.md` | Status → Implemented |
 
 ## Commands for Next Session
 
 ```bash
 # 1. Run tests (FIRST — verify new prepareMessage tests pass)
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws && go test ./...
+cd /Volumes/Dev/Codev/Toniq/sukko/ws && go test ./...
 
 # 2. If tests pass, commit
-cd /Volumes/Dev/Codev/Toniq/odin-ws
+cd /Volumes/Dev/Codev/Toniq/sukko
 git add ws/internal/server/metrics/metrics.go \
         ws/internal/server/metrics/system_monitor.go \
         ws/internal/server/server.go \
@@ -140,14 +140,14 @@ git add ws/internal/server/metrics/metrics.go \
         ws/internal/shared/kafka/consumer.go \
         ws/internal/shared/kafka/consumer_test.go \
         ws/cmd/server/main.go \
-        deployments/helm/odin/charts/monitoring/dashboards/overview.json
+        deployments/helm/sukko/charts/monitoring/dashboards/overview.json
 git commit -m "feat: add per-topic Kafka metrics and remove legacy Collector"
 
 # 3. Deploy
 task k8s:build:push:ws-server ENV=dev && task k8s:deploy ENV=dev
 
 # 4. Verify metrics
-kubectl port-forward -n odin-ws-dev svc/ws-server 3005:3005
+kubectl port-forward -n sukko-dev svc/ws-server 3005:3005
 curl -s localhost:3005/metrics | grep ws_kafka_messages_received_total
 # Should show topic and consumer_group labels
 

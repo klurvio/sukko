@@ -168,7 +168,7 @@ const subscriber = redis.createClient();
 const publisher = redis.createClient();
 
 // Worker 1 receives message from NATS
-natsClient.subscribe('odin.token.>', (msg) => {
+natsClient.subscribe('sukko.token.>', (msg) => {
     // Publish to Redis for all workers
     publisher.publish('broadcasts', JSON.stringify(msg));
 });

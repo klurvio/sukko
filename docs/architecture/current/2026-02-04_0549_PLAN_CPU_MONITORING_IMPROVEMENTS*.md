@@ -478,7 +478,7 @@ func (s *Server) ShedIdleConnections(idleThreshold time.Duration) int {
 
 ## Industry Standard Comparison
 
-| Feature | Odin-WS | Coinbase | Discord | Binance |
+| Feature | Sukko-WS | Coinbase | Discord | Binance |
 |---------|---------|----------|---------|---------|
 | Container-aware CPU | Yes | Unknown | Yes | Unknown |
 | Hysteresis | Yes (10% band) | No | No | No |
@@ -486,7 +486,7 @@ func (s *Server) ShedIdleConnections(idleThreshold time.Duration) int {
 | Adaptive rate limiting | Planned | No | Yes | No |
 | Connection shedding | Planned | Unknown | Yes | No |
 
-**Assessment:** Odin-WS is ahead of most industry implementations with container-aware measurement and hysteresis. Adding adaptive rate limiting and connection shedding would make it best-in-class.
+**Assessment:** Sukko-WS is ahead of most industry implementations with container-aware measurement and hysteresis. Adding adaptive rate limiting and connection shedding would make it best-in-class.
 
 ---
 

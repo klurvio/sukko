@@ -140,9 +140,9 @@ Add to deployment script (`taskfiles/v1/gcp/deployment.yml`):
 ```bash
 # After WS server setup, add tuning step:
 echo "🔧 Tuning TCP stack for burst tolerance..."
-gcloud compute ssh odin-ws-go \\
+gcloud compute ssh sukko-go \\
   --zone=us-central1-a \\
-  --project=odin-ws-server \\
+  --project=sukko-server \\
   --command="sudo bash -c '
     # Increase TCP connection backlog
     sysctl -w net.core.somaxconn=4096

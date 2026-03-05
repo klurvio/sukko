@@ -35,7 +35,7 @@ task up
 
 The taskfiles automatically detect `WS_MODE` and use the appropriate:
 - Docker Compose file (`docker-compose.yml` vs `docker-compose.multi.yml`)
-- Container name (`odin-ws-local` vs `odin-ws-multi-local`)
+- Container name (`sukko-local` vs `sukko-multi-local`)
 - Configuration (`overrides.env` vs `overrides.multi.env`)
 
 ## Architecture Comparison
@@ -188,23 +188,23 @@ View in Grafana: http://localhost:3011 (admin/admin)
 ### Check Current Mode
 ```bash
 # In container
-docker exec odin-ws-local env | grep WS_MODE      # Single-core
-docker exec odin-ws-multi-local env | grep WS_MODE  # Multi-core
+docker exec sukko-local env | grep WS_MODE      # Single-core
+docker exec sukko-multi-local env | grep WS_MODE  # Multi-core
 ```
 
 ### Verify Architecture (Multi-core)
 ```bash
 # Check shard processes
-docker exec odin-ws-multi-local ps aux | grep odin-ws-multi
+docker exec sukko-multi-local ps aux | grep sukko-multi
 
 # Check internal ports (should see 3002, 3003, 3004, 3005)
-docker exec odin-ws-multi-local netstat -tlnp
+docker exec sukko-multi-local netstat -tlnp
 ```
 
 ### Switch Not Working?
 - Ensure `.env.local` has `WS_MODE` set correctly
 - Stop all containers: `task local:deploy:stop`
-- Verify no orphaned containers: `docker ps -a | grep odin-ws`
+- Verify no orphaned containers: `docker ps -a | grep sukko`
 - Restart: `task local:deploy:quick-start`
 
 ## GCP Production Deployment
@@ -215,11 +215,11 @@ SSH into your GCP ws-server instance and edit `.env.production`:
 
 ```bash
 # SSH into instance
-gcloud compute ssh odin-ws-go --zone=us-central1-a
+gcloud compute ssh sukko-go --zone=us-central1-a
 
 # Edit .env.production
 sudo su - deploy
-cd /home/deploy/odin-ws/deployments/v1/gcp/distributed/ws-server
+cd /home/deploy/sukko/deployments/v1/gcp/distributed/ws-server
 nano .env.production
 
 # Change this line:
@@ -252,13 +252,13 @@ The taskfiles automatically:
 **Single-Core (WS_MODE=single)**:
 - Instance: e2-standard-4 (4 vCPU, 16GB RAM)
 - Used: 1 CPU, 14.5GB RAM
-- Container: `odin-ws-go`
+- Container: `sukko-go`
 - Max Connections: 12,000
 
 **Multi-Core (WS_MODE=multi)**:
 - Instance: e2-standard-4 (4 vCPU, 16GB RAM)
 - Used: 3 CPUs (1 per shard), 14.5GB RAM
-- Container: `odin-ws-multi`
+- Container: `sukko-multi`
 - Max Connections: 12,000+ (4K per shard)
 
 Both modes use the same external port (3004) and connect to the same backend instance.

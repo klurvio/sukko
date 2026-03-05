@@ -428,22 +428,22 @@ End-to-end proxy test: connect → subscribe → auth refresh → verify subscri
 
 ### 5.1 Helm values
 
-**Modify**: `deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml`
+**Modify**: `deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml`
 - Add `GATEWAY_AUTH_REFRESH_RATE_INTERVAL` env var.
 
-**Modify**: `deployments/helm/odin/charts/ws-gateway/values.yaml`
+**Modify**: `deployments/helm/sukko/charts/ws-gateway/values.yaml`
 - Add `authRefreshRateInterval: "30s"` under gateway config section.
 
-**Modify**: `deployments/helm/odin/values/standard/dev.yaml` (if gateway values overridden)
+**Modify**: `deployments/helm/sukko/values/standard/dev.yaml` (if gateway values overridden)
 - Add auth refresh config if needed.
 
 ### Files changed (Phase 5)
 
 | Action | File |
 |--------|------|
-| Modify | `deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml` |
-| Modify | `deployments/helm/odin/charts/ws-gateway/values.yaml` |
-| Modify | `deployments/helm/odin/values/standard/dev.yaml` (if applicable) |
+| Modify | `deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml` |
+| Modify | `deployments/helm/sukko/charts/ws-gateway/values.yaml` |
+| Modify | `deployments/helm/sukko/values/standard/dev.yaml` (if applicable) |
 
 ---
 
@@ -464,7 +464,7 @@ cd ws && go test ./...
 
 ### After Phase 5 (Helm)
 ```bash
-helm lint deployments/helm/odin/charts/ws-gateway
+helm lint deployments/helm/sukko/charts/ws-gateway
 ```
 
 ### Manual verification (dev environment)
@@ -499,8 +499,8 @@ helm lint deployments/helm/odin/charts/ws-gateway
 | **Create** | `ws/internal/gateway/auth_refresh_test.go` | 4 |
 | **Create** | `ws/internal/gateway/subscription_tracking_test.go` | 4 |
 | Modify | `ws/internal/gateway/proxy_test.go` | 4 |
-| Modify | `deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml` | 5 |
-| Modify | `deployments/helm/odin/charts/ws-gateway/values.yaml` | 5 |
+| Modify | `deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml` | 5 |
+| Modify | `deployments/helm/sukko/charts/ws-gateway/values.yaml` | 5 |
 
 **New files**: 5 | **Modified files**: 14 | **Total**: 19
 

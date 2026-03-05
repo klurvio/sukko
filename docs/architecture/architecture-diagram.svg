@@ -22,7 +22,7 @@
   <rect width="1200" height="1400" fill="#f8f9fa"/>
 
   <!-- Title -->
-  <text x="600" y="35" text-anchor="middle" class="title">Odin WebSocket Service - Production Architecture</text>
+  <text x="600" y="35" text-anchor="middle" class="title">Sukko WebSocket Service - Production Architecture</text>
 
   <!-- CLIENTS -->
   <rect x="300" y="70" width="600" height="60" rx="8" fill="#e3f2fd" stroke="#1976d2" class="box"/>

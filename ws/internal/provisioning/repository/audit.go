@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/klurvio/sukko/internal/provisioning"
 )
 
 // PostgresAuditRepository implements AuditStore using PostgreSQL.

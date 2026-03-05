@@ -22,14 +22,14 @@ January 5, 2025
 - Token event payload interface
 
 **Event Type Distribution:**
-- **odin.trades**: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
-- **odin.liquidity**: LIQUIDITY_ADDED, LIQUIDITY_REMOVED, LIQUIDITY_REBALANCED
-- **odin.metadata**: METADATA_UPDATED, TOKEN_NAME_CHANGED, TOKEN_FLAGS_CHANGED
-- **odin.social**: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
-- **odin.community**: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED, FAVORITE_TOGGLED
-- **odin.creation**: TOKEN_CREATED, TOKEN_LISTED
-- **odin.analytics**: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED, ANALYTICS_RECALCULATED, TRENDING_UPDATED
-- **odin.balances**: BALANCE_UPDATED, TRANSFER_COMPLETED
+- **sukko.trades**: TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED
+- **sukko.liquidity**: LIQUIDITY_ADDED, LIQUIDITY_REMOVED, LIQUIDITY_REBALANCED
+- **sukko.metadata**: METADATA_UPDATED, TOKEN_NAME_CHANGED, TOKEN_FLAGS_CHANGED
+- **sukko.social**: TWITTER_VERIFIED, SOCIAL_LINKS_UPDATED
+- **sukko.community**: COMMENT_POSTED, COMMENT_PINNED, COMMENT_UPVOTED, FAVORITE_TOGGLED
+- **sukko.creation**: TOKEN_CREATED, TOKEN_LISTED
+- **sukko.analytics**: PRICE_DELTA_UPDATED, HOLDER_COUNT_UPDATED, ANALYTICS_RECALCULATED, TRENDING_UPDATED
+- **sukko.balances**: BALANCE_UPDATED, TRANSFER_COMPLETED
 
 #### RedpandaPublisher Class (`redpanda-publisher.ts`)
 - **Features:**
@@ -41,7 +41,7 @@ January 5, 2025
   - Health check endpoint
 
 - **Configuration:**
-  - Client ID: `odin-publisher`
+  - Client ID: `sukko-publisher`
   - Max in-flight requests: 5
   - Transaction timeout: 30s
   - Auto topic creation: disabled (topics pre-created)
@@ -94,9 +94,9 @@ January 5, 2025
 
 #### Test Results
 ✅ **All topics verified working:**
-- `odin.trades` - Receiving TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED events
-- `odin.liquidity` - Receiving LIQUIDITY_ADDED, LIQUIDITY_REMOVED events
-- `odin.community` - Receiving COMMENT_POSTED events
+- `sukko.trades` - Receiving TRADE_EXECUTED, BUY_COMPLETED, SELL_COMPLETED events
+- `sukko.liquidity` - Receiving LIQUIDITY_ADDED, LIQUIDITY_REMOVED events
+- `sukko.community` - Receiving COMMENT_POSTED events
 - All 8 topics created with correct configurations
 
 ✅ **Publisher health check:**
@@ -126,23 +126,23 @@ January 5, 2025
 ## Files Created/Modified
 
 ### Created Files
-1. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/types/event-types.ts`
-2. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/redpanda-publisher.ts`
-3. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/event-simulator.ts`
-4. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/api-server.ts`
-5. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/index.ts`
-6. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/tsconfig.json`
-7. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/.env.example`
+1. `/Volumes/Dev/Codev/Toniq/sukko/publisher/types/event-types.ts`
+2. `/Volumes/Dev/Codev/Toniq/sukko/publisher/redpanda-publisher.ts`
+3. `/Volumes/Dev/Codev/Toniq/sukko/publisher/event-simulator.ts`
+4. `/Volumes/Dev/Codev/Toniq/sukko/publisher/api-server.ts`
+5. `/Volumes/Dev/Codev/Toniq/sukko/publisher/index.ts`
+6. `/Volumes/Dev/Codev/Toniq/sukko/publisher/tsconfig.json`
+7. `/Volumes/Dev/Codev/Toniq/sukko/publisher/.env.example`
 
 ### Modified Files
-1. `/Volumes/Dev/Codev/Toniq/odin-ws/publisher/package.json`
+1. `/Volumes/Dev/Codev/Toniq/sukko/publisher/package.json`
    - Removed: `nats@^2.19.0`
    - Added: `kafkajs@^2.2.4`
    - Updated version: 1.0.0 → 2.0.0
    - Changed main entry: `publisher.js` → `index.js`
    - Updated dev script: `publisher.ts` → `index.ts`
 
-2. `/Volumes/Dev/Codev/Toniq/odin-ws/scripts/setup-redpanda-topics.sh`
+2. `/Volumes/Dev/Codev/Toniq/sukko/scripts/setup-redpanda-topics.sh`
    - Fixed to use `docker exec` for rpk commands
    - Simplified from associative array to sequential calls
    - Added better error handling and output formatting
@@ -231,13 +231,13 @@ curl http://localhost:3001/health
 
 ```bash
 # Consume from specific topic
-docker exec redpanda-local rpk topic consume odin.trades --num 10
+docker exec redpanda-local rpk topic consume sukko.trades --num 10
 
 # List all topics
 docker exec redpanda-local rpk topic list
 
 # Describe topic
-docker exec redpanda-local rpk topic describe odin.trades
+docker exec redpanda-local rpk topic describe sukko.trades
 ```
 
 ## Known Issues & Warnings

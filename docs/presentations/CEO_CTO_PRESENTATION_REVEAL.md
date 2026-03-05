@@ -1,5 +1,5 @@
 ---
-title: Odin WebSocket System
+title: Sukko WebSocket System
 theme: black
 revealOptions:
   transition: slide
@@ -7,7 +7,7 @@ revealOptions:
   hash: true
 ---
 
-# Odin WebSocket System
+# Sukko WebSocket System
 
 ## Real-Time Streaming Infrastructure
 
@@ -68,7 +68,7 @@ Every 2-3 seconds, EVERY user asks: "Any updates?"
 Server PUSHES updates instantly when data changes
 
 ┌──────────┐                    ┌─────────────┐
-│  10,000  │◄──── WebSocket ────│    Odin     │◄──── Kafka ────┐
+│  10,000  │◄──── WebSocket ────│    Sukko     │◄──── Kafka ────┐
 │  Users   │     (persistent)   │  WS Server  │                │
 │          │                    │             │          ┌─────┴─────┐
 └──────────┘                    └─────────────┘          │ Data      │
@@ -192,7 +192,7 @@ With NATS Broadcast Bus:
 |  +-------------+    +------+------+    +-------------+                      |
 |                            |                                                |
 |                     +------v------+    +-------------+                      |
-|                     |  Redpanda   |<---|CDC Odin API|                       |
+|                     |  Redpanda   |<---|CDC Sukko API|                       |
 |                     |   (Kafka)   |    | (Publisher) |                      |
 |                     +-------------+    +-------------+                      |
 |                                                                             |
@@ -428,11 +428,11 @@ Load increases
 
 ```
 Topic Format:   {env}.{tenant}.{category}
-Example:        main.odin.trade
+Example:        main.sukko.trade
 
 Client sees:    all.trade
-Server maps:    odin.all.trade  (tenant from JWT)
-Kafka topic:    main.odin.trade
+Server maps:    sukko.all.trade  (tenant from JWT)
+Kafka topic:    main.sukko.trade
 ```
 
 ---

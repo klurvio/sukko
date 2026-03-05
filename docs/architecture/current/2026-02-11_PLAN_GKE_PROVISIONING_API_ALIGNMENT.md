@@ -40,14 +40,14 @@ Both use a `4` prefix to avoid conflicts while clearly mapping to their service 
   provision:create:
     desc: Create topic + tenant + categories
     cmds:
-      - kubectl exec -n {{.K8S_NAMESPACE}} {{.K8S_RELEASE_NAME}}-redpanda-0 -- rpk topic create {{.K8S_NAMESPACE}}.odin.trade -p 3 2>/dev/null || true
-      - 'echo "Topic ready: {{.K8S_NAMESPACE}}.odin.trade"'
+      - kubectl exec -n {{.K8S_NAMESPACE}} {{.K8S_RELEASE_NAME}}-redpanda-0 -- rpk topic create {{.K8S_NAMESPACE}}.sukko.trade -p 3 2>/dev/null || true
+      - 'echo "Topic ready: {{.K8S_NAMESPACE}}.sukko.trade"'
 ```
 
 **Replace with:**
 ```yaml
   provision:create:
-    desc: Create odin tenant + Kafka topics + channel rules
+    desc: Create sukko tenant + Kafka topics + channel rules
     cmds:
       - |
         lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
@@ -79,7 +79,7 @@ Both use a `4` prefix to avoid conflicts while clearly mapping to their service 
         echo "Creating tenant..."
         RESULT=$(curl -sf -X POST $API/api/v1/tenants \
           -H "Content-Type: application/json" \
-          -d '{"id": "odin", "name": "Odin Trading Platform"}' 2>&1) || {
+          -d '{"id": "sukko", "name": "Sukko Trading Platform"}' 2>&1) || {
           if echo "$RESULT" | grep -q "already exists"; then
             echo "Tenant already exists, continuing..."
           else
@@ -90,7 +90,7 @@ Both use a `4` prefix to avoid conflicts while clearly mapping to their service 
 
         # Create Kafka topics (same 8 categories as local)
         echo "Creating Kafka topics..."
-        RESULT=$(curl -sf -X POST $API/api/v1/tenants/odin/topics \
+        RESULT=$(curl -sf -X POST $API/api/v1/tenants/sukko/topics \
           -H "Content-Type: application/json" \
           -d '{"categories": ["trade", "liquidity", "metadata", "social", "community", "creation", "analytics", "balances"]}' 2>&1) || {
           echo "Topic creation failed: $RESULT"
@@ -99,7 +99,7 @@ Both use a `4` prefix to avoid conflicts while clearly mapping to their service 
 
         # Set channel rules
         echo "Setting channel rules..."
-        RESULT=$(curl -sf -X PUT $API/api/v1/tenants/odin/channel-rules \
+        RESULT=$(curl -sf -X PUT $API/api/v1/tenants/sukko/channel-rules \
           -H "Content-Type: application/json" \
           -d '{"public_patterns": ["*.metadata"], "user_scoped_patterns": ["balances.{subject}"], "group_scoped_patterns": []}' 2>&1) || {
           echo "Channel rules failed: $RESULT"
@@ -148,11 +148,11 @@ the loadtest publisher just publishes to those existing topics.
         echo "=== Tenants ==="
         curl -s $API/api/v1/tenants | jq .
         echo ""
-        echo "=== Topics (odin) ==="
-        curl -s $API/api/v1/tenants/odin/topics | jq .
+        echo "=== Topics (sukko) ==="
+        curl -s $API/api/v1/tenants/sukko/topics | jq .
         echo ""
-        echo "=== Channel Rules (odin) ==="
-        curl -s $API/api/v1/tenants/odin/channel-rules | jq .
+        echo "=== Channel Rules (sukko) ==="
+        curl -s $API/api/v1/tenants/sukko/channel-rules | jq .
         kill $PF_PID 2>/dev/null || true
 ```
 

@@ -11,7 +11,7 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		LogLevel:               "info",
 		LogFormat:              "json",
 		DatabaseDriver:         "sqlite",
-		DatabasePath:           "odin.db",
+		DatabasePath:           "sukko.db",
 		AutoMigrate:            true,
 		GRPCPort:               9090,
 		DBMaxOpenConns:         25,

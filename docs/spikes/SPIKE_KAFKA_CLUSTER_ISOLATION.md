@@ -13,7 +13,7 @@ This spike investigates potential data contamination issues when using aggregate
 ### Key Questions
 
 1. Can DEV and PROD trades contaminate each other when using `all.trade` as a Kafka key?
-2. Does topic namespace separation (`odin.dev.*` vs `odin.main.*`) provide sufficient isolation?
+2. Does topic namespace separation (`sukko.dev.*` vs `sukko.main.*`) provide sufficient isolation?
 3. Does using separate Redpanda clusters per environment eliminate contamination risk?
 4. Are there hot partition concerns with aggregate channel keys?
 5. If we implement sharded aggregates, how does it affect gateway filtering and client subscriptions?
@@ -25,7 +25,7 @@ This spike investigates potential data contamination issues when using aggregate
 ### Current Architecture
 
 Publishers send messages to Redpanda with:
-- **Topic**: `odin.{namespace}.{base}` (e.g., `odin.main.trade`)
+- **Topic**: `sukko.{namespace}.{base}` (e.g., `sukko.main.trade`)
 - **Key**: Broadcast subject (e.g., `BTC.trade`, `all.trade`)
 - **Value**: JSON message payload
 
@@ -39,8 +39,8 @@ To support "subscribe to all" use cases, publishers emit to both specific and ag
 
 ```
 Publisher sends TWO messages for each trade:
-1. Topic: odin.main.trade, Key: BTC.trade    → specific subscribers
-2. Topic: odin.main.trade, Key: all.trade    → aggregate subscribers
+1. Topic: sukko.main.trade, Key: BTC.trade    → specific subscribers
+2. Topic: sukko.main.trade, Key: all.trade    → aggregate subscribers
 ```
 
 ### Current Configuration
@@ -54,8 +54,8 @@ DEV environment is configured with `KAFKA_TOPIC_NAMESPACE=main` to use productio
 ### Scenario 1: Same Cluster, Different Topic Namespaces
 
 ```
-DEV Publisher  → odin.dev.trade   [Key: all.trade] → Partition X in dev topic
-PROD Publisher → odin.main.trade  [Key: all.trade] → Partition Y in main topic
+DEV Publisher  → sukko.dev.trade   [Key: all.trade] → Partition X in dev topic
+PROD Publisher → sukko.main.trade  [Key: all.trade] → Partition Y in main topic
 ```
 
 | Aspect | Assessment |
@@ -69,8 +69,8 @@ PROD Publisher → odin.main.trade  [Key: all.trade] → Partition Y in main top
 ### Scenario 2: Same Cluster, Same Topic Namespace (Misconfiguration)
 
 ```
-DEV Publisher  → odin.main.trade  [Key: all.trade] → Partition Z
-PROD Publisher → odin.main.trade  [Key: all.trade] → Partition Z (SAME!)
+DEV Publisher  → sukko.main.trade  [Key: all.trade] → Partition Z
+PROD Publisher → sukko.main.trade  [Key: all.trade] → Partition Z (SAME!)
 ```
 
 | Aspect | Assessment |
@@ -86,12 +86,12 @@ PROD Publisher → odin.main.trade  [Key: all.trade] → Partition Z (SAME!)
 ```
 DEV Environment:
   └── Redpanda Cluster A (redpanda-dev:9092)
-        └── Topic: odin.main.trade
+        └── Topic: sukko.main.trade
               └── Partitions: [DEV messages only]
 
 PROD Environment:
   └── Redpanda Cluster B (redpanda-prod:9092)
-        └── Topic: odin.main.trade
+        └── Topic: sukko.main.trade
               └── Partitions: [PROD messages only]
 ```
 
@@ -112,13 +112,13 @@ With separate Redpanda clusters per environment, the following are completely in
 | Component | DEV Cluster | PROD Cluster | Shared? |
 |-----------|-------------|--------------|---------|
 | Broker addresses | `redpanda-dev:9092` | `redpanda-prod:9092` | No |
-| Topic `odin.main.trade` | Exists in DEV | Exists in PROD | No |
+| Topic `sukko.main.trade` | Exists in DEV | Exists in PROD | No |
 | Partition space | DEV partitions | PROD partitions | No |
 | Key `all.trade` hash | DEV partition N | PROD partition M | No |
 | Consumer group offsets | DEV offset storage | PROD offset storage | No |
 | Message retention | DEV retention policy | PROD retention policy | No |
 
-The topic name `odin.main.trade` in Cluster A has **zero relationship** to `odin.main.trade` in Cluster B. They are as separate as two PostgreSQL databases that happen to have tables with the same name.
+The topic name `sukko.main.trade` in Cluster A has **zero relationship** to `sukko.main.trade` in Cluster B. They are as separate as two PostgreSQL databases that happen to have tables with the same name.
 
 ### Why Use Same Namespace Across Environments?
 
@@ -138,7 +138,7 @@ Even with proper isolation, the `all.trade` aggregate key creates a hot partitio
 ### Partition Distribution
 
 ```
-Topic: odin.main.trade (8 partitions)
+Topic: sukko.main.trade (8 partitions)
 
 Key: BTC.trade   → hash → Partition 3
 Key: ETH.trade   → hash → Partition 7
@@ -192,8 +192,8 @@ Client subscribes to all shards or uses wildcard matching.
 #### Option C: Separate Aggregate Topic
 
 ```
-Specific: Topic=odin.main.trade, Key=BTC.trade
-Aggregate: Topic=odin.main.trade.aggregate, Key=all.trade
+Specific: Topic=sukko.main.trade, Key=BTC.trade
+Aggregate: Topic=sukko.main.trade.aggregate, Key=all.trade
 ```
 
 Configure aggregate topic with more partitions and different retention.
@@ -325,7 +325,7 @@ The key insight: separate two concerns:
 shard := hash(tokenID) % NUM_SHARDS
 
 record := &kgo.Record{
-    Topic: "odin.main.trade",
+    Topic: "sukko.main.trade",
     Key:   []byte(fmt.Sprintf("all.trade.%d", shard)),  // Partitioning key
     Headers: []kgo.RecordHeader{
         {Key: "broadcast-subject", Value: []byte("all.trade")},  // Broadcast subject
@@ -460,7 +460,7 @@ Add monitoring for the partition receiving `all.trade` messages:
 ```yaml
 # Prometheus alert example
 - alert: AggregatePartitionLag
-  expr: kafka_consumer_group_lag{topic="odin.main.trade", partition="5"} > 10000
+  expr: kafka_consumer_group_lag{topic="sukko.main.trade", partition="5"} > 10000
   for: 5m
   labels:
     severity: warning

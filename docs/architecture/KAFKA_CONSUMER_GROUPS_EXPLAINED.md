@@ -16,7 +16,7 @@ A common misconception is that topics are assigned to consumers. In reality:
 - **Partitions** are the actual unit of assignment and parallelism
 
 ```
-Consumer Group: odin-ws-consumer
+Consumer Group: sukko-consumer
 │
 ├── Pod 1 (10.1.0.30)
 │   ├── trade.refined      [Partition 0]
@@ -42,14 +42,14 @@ If a topic has multiple partitions, multiple consumers in the same group can con
 ### 1 Partition = 1 Consumer Max
 
 ```
-Topic: odin.main.trade.refined
+Topic: sukko.main.trade.refined
 └── Partition 0 → Pod 1 only (Pod 2 is idle for this topic)
 ```
 
 ### 2 Partitions = 2 Consumers Can Work in Parallel
 
 ```
-Topic: odin.main.trade.refined
+Topic: sukko.main.trade.refined
 ├── Partition 0 → Pod 1
 └── Partition 1 → Pod 2
 ```
@@ -128,7 +128,7 @@ Partition 0 (message M1)
 
 | Consumer Group | Purpose |
 |----------------|---------|
-| `odin-ws-consumer` | Broadcast to clients via NATS |
+| `sukko-consumer` | Broadcast to clients via NATS |
 | `analytics-consumer` | Write to analytics DB |
 | `audit-consumer` | Write to audit log |
 
@@ -136,23 +136,23 @@ Only one group broadcasts to clients. No duplicates.
 
 ---
 
-## Current Setup (odin-ws)
+## Current Setup (sukko)
 
 ```bash
 # Check consumer group
-kubectl exec -n odin-std-develop odin-redpanda-0 -- rpk group describe odin-ws-consumer
+kubectl exec -n sukko-std-develop sukko-redpanda-0 -- rpk group describe sukko-consumer
 ```
 
 Output:
 ```
-GROUP        odin-ws-consumer
+GROUP        sukko-consumer
 STATE        Stable
 MEMBERS      2
 BALANCER     cooperative-sticky
 
 TOPIC                        PARTITION  MEMBER-ID    HOST
-odin.main.trade.refined      0          kgo-aa53...  10.1.0.30
-odin.main.analytics.refined  0          kgo-cf62...  10.1.0.31
+sukko.main.trade.refined      0          kgo-aa53...  10.1.0.30
+sukko.main.analytics.refined  0          kgo-cf62...  10.1.0.31
 ...
 ```
 

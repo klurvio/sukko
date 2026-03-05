@@ -6,7 +6,7 @@
 
 ## Context
 
-Odin WS authenticates clients via JWT at WebSocket upgrade time only. Once a connection is established, the tenant identity and permissions are fixed for the session lifetime. There is no protocol-level mechanism for a client to send a refreshed token on an existing connection.
+Sukko authenticates clients via JWT at WebSocket upgrade time only. Once a connection is established, the tenant identity and permissions are fixed for the session lifetime. There is no protocol-level mechanism for a client to send a refreshed token on an existing connection.
 
 This creates a hard limitation: when a JWT approaches expiry, the only option is to disconnect and reconnect with a fresh token. This causes:
 

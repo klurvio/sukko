@@ -97,7 +97,7 @@ if s.config.KafkaConsumerDisabled {
 }
 ```
 
-### 5. Helm chart (`deployments/helm/odin/charts/ws-server/`)
+### 5. Helm chart (`deployments/helm/sukko/charts/ws-server/`)
 
 **`values.yaml`** — add under `kafka:` section (after `consumerGroup`, line 147):
 ```yaml

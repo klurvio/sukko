@@ -17,7 +17,7 @@ The per-client `SequenceGenerator` exists and works correctly — it is already 
 ## User Scenarios
 
 ### Scenario 1 - Client-side Gap Detection (Priority: P1)
-A WebSocket client subscribes to `odin.BTC.trade` and receives a stream of messages. The client tracks the `seq` field to detect if any messages were dropped (e.g., due to slow-client buffer overflow or network issues). When a gap is detected, the client can alert the user or request a replay.
+A WebSocket client subscribes to `sukko.BTC.trade` and receives a stream of messages. The client tracks the `seq` field to detect if any messages were dropped (e.g., due to slow-client buffer overflow or network issues). When a gap is detected, the client can alert the user or request a replay.
 
 **Acceptance Criteria**:
 1. **Given** a connected client subscribed to a channel, **When** broadcast messages are delivered, **Then** each message MUST contain a monotonically increasing `seq` value unique to that client connection (starting at 1).
@@ -50,8 +50,8 @@ When a client reconnects and receives Kafka-based replay messages, the sequence 
 - **FR-003**: Sequence numbers MUST be consistent across all message types a client receives (broadcast, replay, control) — one sequence space per connection.
 - **FR-004**: The wire format MUST be byte-identical to what `json.Marshal(MessageEnvelope{...})` produces, with the only difference being `seq` containing the real per-client value instead of `0`. The field order MUST remain: `type`, `seq`, `ts`, `channel`, `data`. The `channel` value MUST be properly JSON-escaped. Example:
   ```
-  Before: {"type":"message","seq":0,"ts":1708903200000,"channel":"odin.BTC.trade","data":{...}}
-  After:  {"type":"message","seq":1234,"ts":1708903200000,"channel":"odin.BTC.trade","data":{...}}
+  Before: {"type":"message","seq":0,"ts":1708903200000,"channel":"sukko.BTC.trade","data":{...}}
+  After:  {"type":"message","seq":1234,"ts":1708903200000,"channel":"sukko.BTC.trade","data":{...}}
   ```
 
 ### Non-Functional Requirements

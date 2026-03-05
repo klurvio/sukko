@@ -9,17 +9,17 @@ version: "3"
 
 vars:
   K8S_ENV: '{{.ENV | default "dev"}}'
-  K8S_NAMESPACE: 'odin-ws-{{.K8S_ENV}}'
-  K8S_RELEASE_NAME: odin
-  K8S_CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/odin"
-  K8S_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/odin/values/standard/{{.K8S_ENV}}.yaml"
+  K8S_NAMESPACE: 'sukko-{{.K8S_ENV}}'
+  K8S_RELEASE_NAME: sukko
+  K8S_CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/sukko"
+  K8S_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/sukko/values/standard/{{.K8S_ENV}}.yaml"
   K8S_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.K8S_ENV}}"
   K8S_FOUNDATION_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.K8S_ENV}}-foundation"
   K8S_MIGRATIONS_DIR: "{{.ROOT_DIR}}/ws/internal/provisioning/repository/migrations"
-  K8S_PROJECT: '{{.PROJECT | default "odin-9e902"}}'
+  K8S_PROJECT: '{{.PROJECT | default "sukko-9e902"}}'
   K8S_ZONE: '{{.ZONE | default "us-central1-a"}}'
-  K8S_CLUSTER: 'odin-ws-{{.K8S_ENV}}'
-  K8S_REGISTRY: 'us-central1-docker.pkg.dev/{{.K8S_PROJECT}}/odin-ws'
+  K8S_CLUSTER: 'sukko-{{.K8S_ENV}}'
+  K8S_REGISTRY: 'us-central1-docker.pkg.dev/{{.K8S_PROJECT}}/sukko'
   # Ports
   K8S_GATEWAY_PORT: 3006
   K8S_GRAFANA_PORT: 3000
@@ -215,7 +215,7 @@ tasks:
   # Provisioning (Kafka topics + DB tenant)
   # ===========================================================================
   provision:create:
-    desc: Create odin tenant + Kafka topics + channel rules
+    desc: Create sukko tenant + Kafka topics + channel rules
     cmds:
       - |
         lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
@@ -247,7 +247,7 @@ tasks:
         echo "Creating tenant..."
         RESULT=$(curl -sf -X POST $API/api/v1/tenants \
           -H "Content-Type: application/json" \
-          -d '{"id": "odin", "name": "Odin Trading Platform"}' 2>&1) || {
+          -d '{"id": "sukko", "name": "Sukko Trading Platform"}' 2>&1) || {
           if echo "$RESULT" | grep -q "already exists"; then
             echo "Tenant already exists, continuing..."
           else
@@ -258,7 +258,7 @@ tasks:
 
         # Create Kafka topics (same 8 categories as local)
         echo "Creating Kafka topics..."
-        RESULT=$(curl -sf -X POST $API/api/v1/tenants/odin/topics \
+        RESULT=$(curl -sf -X POST $API/api/v1/tenants/sukko/topics \
           -H "Content-Type: application/json" \
           -d '{"categories": ["trade"]}' 2>&1) || {
           echo "Topic creation failed: $RESULT"
@@ -267,7 +267,7 @@ tasks:
 
         # Set channel rules
         echo "Setting channel rules..."
-        RESULT=$(curl -sf -X PUT $API/api/v1/tenants/odin/channel-rules \
+        RESULT=$(curl -sf -X PUT $API/api/v1/tenants/sukko/channel-rules \
           -H "Content-Type: application/json" \
           -d '{"public_patterns": ["*.metadata"], "user_scoped_patterns": ["balances.{subject}"], "group_scoped_patterns": []}' 2>&1) || {
           echo "Channel rules failed: $RESULT"
@@ -290,11 +290,11 @@ tasks:
         echo "=== Tenants ==="
         curl -s $API/api/v1/tenants | jq .
         echo ""
-        echo "=== Topics (odin) ==="
-        curl -s $API/api/v1/tenants/odin/topics | jq .
+        echo "=== Topics (sukko) ==="
+        curl -s $API/api/v1/tenants/sukko/topics | jq .
         echo ""
-        echo "=== Channel Rules (odin) ==="
-        curl -s $API/api/v1/tenants/odin/channel-rules | jq .
+        echo "=== Channel Rules (sukko) ==="
+        curl -s $API/api/v1/tenants/sukko/channel-rules | jq .
         kill $PF_PID 2>/dev/null || true
 
 
@@ -363,7 +363,7 @@ tasks:
         sleep 2
         # Read password from secret
         DB_PASS=$(kubectl get secret {{.K8S_RELEASE_NAME}}-postgresql -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.postgresql-password}' | base64 --decode)
-        DB_URL="postgres://odin:${DB_PASS}@localhost:{{.K8S_PG_LOCAL_PORT}}/odin_provisioning?sslmode=disable"
+        DB_URL="postgres://sukko:${DB_PASS}@localhost:{{.K8S_PG_LOCAL_PORT}}/sukko_provisioning?sslmode=disable"
         # atlas returns 0 on success, 2 when no pending migrations
         atlas migrate apply --url "$DB_URL" --dir "file://{{.K8S_MIGRATIONS_DIR}}" || test $? -eq 2
         kill $PF_PID 2>/dev/null || true
@@ -383,7 +383,7 @@ tasks:
         PF_PID=$!
         sleep 2
         DB_PASS=$(kubectl get secret {{.K8S_RELEASE_NAME}}-postgresql -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.postgresql-password}' | base64 --decode)
-        DB_URL="postgres://odin:${DB_PASS}@localhost:{{.K8S_PG_LOCAL_PORT}}/odin_provisioning?sslmode=disable"
+        DB_URL="postgres://sukko:${DB_PASS}@localhost:{{.K8S_PG_LOCAL_PORT}}/sukko_provisioning?sslmode=disable"
         atlas migrate status --url "$DB_URL" --dir "file://{{.K8S_MIGRATIONS_DIR}}"
         kill $PF_PID 2>/dev/null || true
 
@@ -392,7 +392,7 @@ tasks:
     cmds:
       - |
         if [ -z "{{.URL}}" ]; then
-          echo "ERROR: URL is required. Usage: task k8s:db:setup-external URL='postgres://user:pass@host:5432/odin' ENV=dev"
+          echo "ERROR: URL is required. Usage: task k8s:db:setup-external URL='postgres://user:pass@host:5432/sukko' ENV=dev"
           exit 1
         fi
         if ! echo "{{.URL}}" | grep -q '^postgres://'; then

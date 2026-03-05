@@ -95,7 +95,7 @@ Total: 4/4 tests passed
 **Use Case**: Testing worst-case subscription overhead (minimal fanout reduction)
 
 ```bash
-# Default behavior - all clients subscribe to BTC.trade,ETH.trade,SOL.trade,ODIN.trade,DOGE.trade
+# Default behavior - all clients subscribe to BTC.trade,ETH.trade,SOL.trade,SUKKO.trade,DOGE.trade
 TARGET_CONNECTIONS=5000 DURATION=300 node scripts/sustained-load-test.cjs
 
 # Or explicitly set with multiple event types
@@ -122,7 +122,7 @@ SUBSCRIPTION_MODE=all CHANNELS=BTC.trade,BTC.liquidity,ETH.trade,ETH.analytics \
 
 ```bash
 # Each client subscribes to ONE hierarchical channel (round-robin distribution)
-SUBSCRIPTION_MODE=single CHANNELS=BTC.trade,ETH.trade,SOL.trade,ODIN.trade,DOGE.trade \
+SUBSCRIPTION_MODE=single CHANNELS=BTC.trade,ETH.trade,SOL.trade,SUKKO.trade,DOGE.trade \
   TARGET_CONNECTIONS=10000 DURATION=300 node scripts/sustained-load-test.cjs
 ```
 
@@ -130,7 +130,7 @@ SUBSCRIPTION_MODE=single CHANNELS=BTC.trade,ETH.trade,SOL.trade,ODIN.trade,DOGE.
 - Client 0: subscribes to BTC.trade
 - Client 1: subscribes to ETH.trade
 - Client 2: subscribes to SOL.trade
-- Client 3: subscribes to ODIN.trade
+- Client 3: subscribes to SUKKO.trade
 - Client 4: subscribes to DOGE.trade
 - Client 5: subscribes to BTC.trade (wraps around)
 - ...
@@ -149,7 +149,7 @@ SUBSCRIPTION_MODE=single CHANNELS=BTC.trade,ETH.trade,SOL.trade,ODIN.trade,DOGE.
 ```
 🔔 Subscriptions:
    Mode:         single
-   Channels:     BTC.trade,ETH.trade,SOL.trade,ODIN.trade,DOGE.trade (5 total)
+   Channels:     BTC.trade,ETH.trade,SOL.trade,SUKKO.trade,DOGE.trade (5 total)
    Sent:         10,000
    Confirmed:    10,000
    Success Rate: 100.0%
@@ -172,7 +172,7 @@ SUBSCRIPTION_MODE=single CHANNELS=BTC.trade,ETH.trade,SOL.trade,ODIN.trade,DOGE.
 ```bash
 # Each client subscribes to 2 random hierarchical channels
 SUBSCRIPTION_MODE=random CHANNELS_PER_CLIENT=2 \
-  CHANNELS=BTC.trade,ETH.trade,SOL.trade,BTC.liquidity,ETH.analytics,SOL.social,ODIN.trade,DOGE.analytics \
+  CHANNELS=BTC.trade,ETH.trade,SOL.trade,BTC.liquidity,ETH.analytics,SOL.social,SUKKO.trade,DOGE.analytics \
   TARGET_CONNECTIONS=10000 DURATION=300 node scripts/sustained-load-test.cjs
 ```
 
@@ -312,7 +312,7 @@ SUBSCRIPTION_MODE=single TARGET_CONNECTIONS=15000 DURATION=300 \
 ```bash
 # Simulate 10K production users with realistic distribution
 SUBSCRIPTION_MODE=random CHANNELS_PER_CLIENT=2 \
-  CHANNELS=BTC,ETH,SOL,ODIN,DOGE,ADA,DOT,AVAX,MATIC,LINK \
+  CHANNELS=BTC,ETH,SOL,SUKKO,DOGE,ADA,DOT,AVAX,MATIC,LINK \
   TARGET_CONNECTIONS=10000 DURATION=600 \
   node scripts/sustained-load-test.cjs
 ```
@@ -340,7 +340,7 @@ SUBSCRIPTION_MODE=random CHANNELS_PER_CLIENT=2 \
 
 🔔 Subscriptions:
    Mode:         single
-   Channels:     BTC,ETH,SOL,ODIN,DOGE
+   Channels:     BTC,ETH,SOL,SUKKO,DOGE
    Sent:         10000                      ← One per client
    Confirmed:    10000                      ← Should match sent
    Success Rate: 100.0%                     ← Should be 100%
@@ -383,7 +383,7 @@ SUBSCRIPTION_MODE=random CHANNELS_PER_CLIENT=2 \
 **Debug Steps:**
 ```bash
 # Check server logs for subscription messages
-docker logs odin-ws-go | grep -i subscribe
+docker logs sukko-go | grep -i subscribe
 
 # Test with single client manually
 wscat -c ws://localhost:3004/ws
@@ -415,7 +415,7 @@ wscat -c ws://localhost:3004/ws
 echo $SUBSCRIPTION_MODE  # Should be 'single' for best reduction
 
 # 3. Check server broadcast logs (enable debug logging)
-docker exec odin-ws-go grep "Subscription filtering" /logs
+docker exec sukko-go grep "Subscription filtering" /logs
 
 # 4. Count subscribers per channel (should be ~2000 for 10K clients / 5 channels)
 ```
@@ -465,7 +465,7 @@ After validating subscription filtering locally:
 | `TARGET_CONNECTIONS` | `18000` | Number of connections to create |
 | `RAMP_RATE` | `100` | Connections per second during ramp-up |
 | `DURATION` | `1800` | Sustain duration in seconds (30 min) |
-| `CHANNELS` | `BTC.trade,ETH.trade,SOL.trade,ODIN.trade,DOGE.trade` | Comma-separated hierarchical channel list (SYMBOL.EVENT_TYPE) |
+| `CHANNELS` | `BTC.trade,ETH.trade,SOL.trade,SUKKO.trade,DOGE.trade` | Comma-separated hierarchical channel list (SYMBOL.EVENT_TYPE) |
 | `SUBSCRIPTION_MODE` | `all` | Distribution: `all`, `single`, `random` |
 | `CHANNELS_PER_CLIENT` | `3` | Channels per client (random mode only) |
 
@@ -498,7 +498,7 @@ SUBSCRIPTION_MODE=single TARGET_CONNECTIONS=10000 DURATION=300 \
 
 # Realistic test (random 2 event types per client) - 10K connections
 SUBSCRIPTION_MODE=random CHANNELS_PER_CLIENT=2 \
-  CHANNELS=BTC.trade,ETH.trade,SOL.analytics,ODIN.social \
+  CHANNELS=BTC.trade,ETH.trade,SOL.analytics,SUKKO.social \
   TARGET_CONNECTIONS=10000 DURATION=300 node scripts/sustained-load-test.cjs
 
 # Dashboard simulation (price + analytics for 3 tokens) - 10K connections

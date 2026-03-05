@@ -1,21 +1,21 @@
 # Token Data Update Events
 
-This document catalogs every known backend event that mutates token-derived data surfaced in the Odin front-end. Use it to design websocket topics or fan-out flows between the API (publisher), NATS, websocket server, and clients.
+This document catalogs every known backend event that mutates token-derived data surfaced in the Sukko front-end. Use it to design websocket topics or fan-out flows between the API (publisher), NATS, websocket server, and clients.
 
 ## How to Read
 - **Trigger** – What action occurs in the system.
 - **Source** – Component or API performing the action.
-- **Affected Fields** – Token fields (per `/Volumes/Dev/Codev/Toniq/odin/src/app/models/token.ts`) updated as a result.
+- **Affected Fields** – Token fields (per `/Volumes/Dev/Codev/Toniq/sukko/src/app/models/token.ts`) updated as a result.
 - **Consumers** – Front-end screens/components depending on the data.
 
 ## 1. Trading Lifecycle
 - **Trigger**: Buy token with BTC
-  - **Source**: `CanisterContextProvider.odin.buyTokenWithBtc()` (`/Volumes/Dev/Codev/Toniq/odin/src/app/services/CanisterContextProvider.tsx`) invoked from `QuickBuy` (`/Volumes/Dev/Codev/Toniq/odin/src/app/components/TokenTable/QuickBuy.tsx`) or trade flows (`/Volumes/Dev/Codev/Toniq/odin/src/app/components/TokenPlaceTxn/TokenPlaceTxn.tsx`).
+  - **Source**: `CanisterContextProvider.sukko.buyTokenWithBtc()` (`/Volumes/Dev/Codev/Toniq/sukko/src/app/services/CanisterContextProvider.tsx`) invoked from `QuickBuy` (`/Volumes/Dev/Codev/Toniq/sukko/src/app/components/TokenTable/QuickBuy.tsx`) or trade flows (`/Volumes/Dev/Codev/Toniq/sukko/src/app/components/TokenPlaceTxn/TokenPlaceTxn.tsx`).
   - **Affected Fields**: `price`, `marketcap`, `volume`, `swap_volume`, `swap_volume_24`, `buy_count`, `holder_count`, `sold`, `last_action_time`, `btc_liquidity`, `token_liquidity`, `liquidity_threshold`, `price_*`, `price_delta_*`, derived `bonding_curve`, `ownership`, `progress`, and user liquidity fields (`user_lp_tokens`, `user_btc_liquidity`, `user_token_liquidity`).
   - **Consumers**: `TokenTable`, `TokenPage` detail tab, quick buy widgets, liquidity health.
 
 - **Trigger**: Sell token for BTC
-  - **Source**: `CanisterContextProvider.odin.sellTokenForBtc()` (same entry points as above).
+  - **Source**: `CanisterContextProvider.sukko.sellTokenForBtc()` (same entry points as above).
   - **Affected Fields**: `price`, `marketcap`, `volume`, `swap_volume`, `swap_volume_24`, `sell_count`, `holder_count`, `sold`, `last_action_time`, liquidity metrics, price history deltas, derived numbers.
   - **Consumers**: Same as buy events.
 
@@ -31,12 +31,12 @@ This document catalogs every known backend event that mutates token-derived data
 
 ## 2. Liquidity Lifecycle
 - **Trigger**: Add liquidity
-  - **Source**: `CanisterContextProvider.odin.addLiquidity()` invoked within `TokenPlaceTxn` when `TradeActionEnum.Add`.
+  - **Source**: `CanisterContextProvider.sukko.addLiquidity()` invoked within `TokenPlaceTxn` when `TradeActionEnum.Add`.
   - **Affected Fields**: `btc_liquidity`, `token_liquidity`, `liquidity_threshold`, user liquidity fields, potentially `price`, `marketcap`, `swap_volume_*`, `last_action_time` if backend records as activity.
   - **Consumers**: `TokenTable`, liquidity dashboards, liquidity health widgets.
 
 - **Trigger**: Remove liquidity
-  - **Source**: `CanisterContextProvider.odin.removeLiquidity()` from `TokenPlaceTxn` (`TradeActionEnum.Remove`).
+  - **Source**: `CanisterContextProvider.sukko.removeLiquidity()` from `TokenPlaceTxn` (`TradeActionEnum.Remove`).
   - **Affected Fields**: Same liquidity metrics as add; may affect overall price/liquidity-derived fields.
   - **Consumers**: Same as above.
 
@@ -47,12 +47,12 @@ This document catalogs every known backend event that mutates token-derived data
 
 ## 3. Metadata & Verification
 - **Trigger**: Token metadata update (name/ticker/description/socials/verified)
-  - **Source**: `api.token.updateToken()` called via `ManageTokenDialog` (`/Volumes/Dev/Codev/Toniq/odin/src/app/components/Dialogs/ManageTokenDialog/ManageTokenDialog.tsx`).
+  - **Source**: `api.token.updateToken()` called via `ManageTokenDialog` (`/Volumes/Dev/Codev/Toniq/sukko/src/app/components/Dialogs/ManageTokenDialog/ManageTokenDialog.tsx`).
   - **Affected Fields**: `name`, `ticker`, `description`, `twitter`, `telegram`, `website`, `verified`.
   - **Consumers**: `TokenTable`, token header, sharing dialogs.
 
 - **Trigger**: Twitter verification
-  - **Source**: `api.token.verifyTwitter()` (OAuth callback at `/Volumes/Dev/Codev/Toniq/odin/src/app/oauth/twitter/page.tsx`).
+  - **Source**: `api.token.verifyTwitter()` (OAuth callback at `/Volumes/Dev/Codev/Toniq/sukko/src/app/oauth/twitter/page.tsx`).
   - **Affected Fields**: `twitter_verified` and possibly `twitter` metadata.
   - **Consumers**: Token badges, filters requiring verified social accounts.
 
@@ -63,7 +63,7 @@ This document catalogs every known backend event that mutates token-derived data
 
 ## 4. Comments & Community Activity
 - **Trigger**: Post comment / community comment
-  - **Source**: `api.token.addCommentForToken()` via `TokenCommentForm` (`/Volumes/Dev/Codev/Toniq/odin/src/app/components/TokenCommentForm/TokenCommentForm.tsx`).
+  - **Source**: `api.token.addCommentForToken()` via `TokenCommentForm` (`/Volumes/Dev/Codev/Toniq/sukko/src/app/components/TokenCommentForm/TokenCommentForm.tsx`).
   - **Affected Fields**: `comment_count`, `last_comment_time`, potentially `last_action_time`.
   - **Consumers**: Token comment feeds, metrics displayed in table and detail.
 
@@ -90,7 +90,7 @@ This document catalogs every known backend event that mutates token-derived data
 
 ## 6. Token Creation & Listing
 - **Trigger**: Create new token
-  - **Source**: `CanisterContextProvider.odin.createToken()` (UI flow not shown in detail).
+  - **Source**: `CanisterContextProvider.sukko.createToken()` (UI flow not shown in detail).
   - **Affected Fields**: New token row inserted with metadata, initial liquidity, `created_time`, etc.
   - **Consumers**: `TokenTable`, token discovery components, route watchers (new entries).
 
@@ -121,11 +121,11 @@ This document catalogs every known backend event that mutates token-derived data
 - Websocket server should fan out payloads containing minimal diff or full token snapshot, depending on client needs.
 - Consider separate channels/topics for token list updates, token detail (per-token), user-specific streams (favorites, balances), and comment-related updates.
 - Reference files:
-  - Token model: `/Volumes/Dev/Codev/Toniq/odin/src/app/models/token.ts`
-  - Trade UI/calls: `/Volumes/Dev/Codev/Toniq/odin/src/app/components/TokenTable/QuickBuy.tsx`, `/Volumes/Dev/Codev/Toniq/odin/src/app/components/TokenPlaceTxn/TokenPlaceTxn.tsx`, `/Volumes/Dev/Codev/Toniq/odin/src/app/services/CanisterContextProvider.tsx`
-  - Metadata update: `/Volumes/Dev/Codev/Toniq/odin/src/app/components/Dialogs/ManageTokenDialog/ManageTokenDialog.tsx`
-  - Comments: `/Volumes/Dev/Codev/Toniq/odin/src/app/components/TokenCommentForm/TokenCommentForm.tsx`
-  - Favorites: `/Volumes/Dev/Codev/Toniq/odin/src/components/Pollers/UserFavoritesPoller.tsx`
-  - Token polling: `/Volumes/Dev/Codev/Toniq/odin/src/app/tokens/page.tsx`
+  - Token model: `/Volumes/Dev/Codev/Toniq/sukko/src/app/models/token.ts`
+  - Trade UI/calls: `/Volumes/Dev/Codev/Toniq/sukko/src/app/components/TokenTable/QuickBuy.tsx`, `/Volumes/Dev/Codev/Toniq/sukko/src/app/components/TokenPlaceTxn/TokenPlaceTxn.tsx`, `/Volumes/Dev/Codev/Toniq/sukko/src/app/services/CanisterContextProvider.tsx`
+  - Metadata update: `/Volumes/Dev/Codev/Toniq/sukko/src/app/components/Dialogs/ManageTokenDialog/ManageTokenDialog.tsx`
+  - Comments: `/Volumes/Dev/Codev/Toniq/sukko/src/app/components/TokenCommentForm/TokenCommentForm.tsx`
+  - Favorites: `/Volumes/Dev/Codev/Toniq/sukko/src/components/Pollers/UserFavoritesPoller.tsx`
+  - Token polling: `/Volumes/Dev/Codev/Toniq/sukko/src/app/tokens/page.tsx`
 
 Keep this document up to date as backend capabilities evolve so websocket topics stay aligned with actual mutating events.

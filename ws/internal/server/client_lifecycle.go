@@ -3,7 +3,7 @@ package server
 import (
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/server/metrics"
 )
 
 // Client connection lifecycle management

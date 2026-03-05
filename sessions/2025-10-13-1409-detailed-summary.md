@@ -781,9 +781,9 @@ Changes:
 ```bash
 M docs/production/IMPLEMENTATION_PLAN.md
 M isolated/ws-go/docker-compose.yml
-M publisher/config/odin.config.ts
+M publisher/config/sukko.config.ts
 M publisher/publisher.ts
-M publisher/types/odin.types.ts
+M publisher/types/sukko.types.ts
 M scripts/sustained-load-test.cjs              ← This session
 M src/connection.go
 M src/server.go
@@ -793,7 +793,7 @@ M taskfiles/isolated-setup.yml
 **Untracked Files** (Not Yet Added):
 ```bash
 ?? docs/isolation/INSTANCE_ISOLATION_PLAN_V2.md
-?? docs/production/ODIN_API_IMPROVEMENTS.md
+?? docs/production/SUKKO_API_IMPROVEMENTS.md
 ?? docs/testing/                                ← This session
 ?? scripts/test-subscription-filtering.cjs
 ```
@@ -1120,7 +1120,7 @@ CONNECTION_TIMEOUT_MS: parseInt(process.env.CONNECTION_TIMEOUT) || 10000,
 │   └── SUBSCRIPTION_FILTERING_TESTS.md (existing)
 ├── production/
 │   ├── IMPLEMENTATION_PLAN.md
-│   ├── ODIN_API_IMPROVEMENTS.md
+│   ├── SUKKO_API_IMPROVEMENTS.md
 │   └── ...
 ├── isolation/
 │   └── ...
@@ -2139,8 +2139,8 @@ feat: Make connection timeout configurable for accurate load testing
 
 **Session Conducted By**: AI Assistant (Claude)
 **Session Date**: October 13, 2025
-**Project**: WebSocket Server (ws-go) - ODIN Token Real-Time Updates
-**Repository**: `/Volumes/Dev/Codev/Toniq/odin-ws`
+**Project**: WebSocket Server (ws-go) - SUKKO Token Real-Time Updates
+**Repository**: `/Volumes/Dev/Codev/Toniq/sukko`
 
 **For Questions About This Session**:
 - See: `docs/testing/CONNECTION_TIMEOUT_ANALYSIS.md` for technical details

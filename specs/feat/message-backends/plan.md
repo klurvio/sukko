@@ -430,7 +430,7 @@ type JetStreamBackend struct {
 
 ### Stream Strategy
 
-- One stream per tenant: `ODIN_{namespace}_{tenant}` (e.g., `ODIN_DEV_ACME`)
+- One stream per tenant: `SUKKO_{namespace}_{tenant}` (e.g., `SUKKO_DEV_ACME`)
 - Stream names are uppercase-normalized with hyphens replaced by underscores (e.g., `my-namespace` → `MY_NAMESPACE`, `tenant-one` → `TENANT_ONE`). This is handled by `streamName()`.
 - Subject filter: `{namespace}.{tenant}.>` captures all categories for that tenant
 - Retention: `MaxAge` from config (default 24h)
@@ -561,10 +561,10 @@ Existing Kafka-specific metrics remain for Kafka mode. New metrics provide backe
 
 | Action | File | Description |
 |--------|------|-------------|
-| MODIFY | `deployments/helm/odin/charts/ws-server/templates/deployment.yaml` | Remove `wait-for-provisioning` init container (soft dependency — gRPC client reconnects asynchronously). Make `wait-for-redpanda` conditional on `messageBackend: kafka`. Add conditional `wait-for-nats-jetstream` for `messageBackend: nats` (separate from broadcast bus NATS). The `wait-for-nats` init container is conditional on `broadcast.type=nats` (only needed when NATS is the broadcast bus). Add `MESSAGE_BACKEND`, NATS JetStream config, and broadcast bus TLS env vars. |
-| MODIFY | `deployments/helm/odin/charts/ws-server/templates/configmap.yaml` | Remove dead `KAFKA_TOPICS` entry. Make Kafka-specific entries conditional on `messageBackend: kafka`. |
-| MODIFY | `deployments/helm/odin/charts/ws-server/values.yaml` | Add `messageBackend: direct`, JetStream config, and broadcast bus TLS config |
-| MODIFY | `deployments/helm/odin/values/standard/dev.yaml` | Set `messageBackend: kafka` for dev (preserve current behavior) |
+| MODIFY | `deployments/helm/sukko/charts/ws-server/templates/deployment.yaml` | Remove `wait-for-provisioning` init container (soft dependency — gRPC client reconnects asynchronously). Make `wait-for-redpanda` conditional on `messageBackend: kafka`. Add conditional `wait-for-nats-jetstream` for `messageBackend: nats` (separate from broadcast bus NATS). The `wait-for-nats` init container is conditional on `broadcast.type=nats` (only needed when NATS is the broadcast bus). Add `MESSAGE_BACKEND`, NATS JetStream config, and broadcast bus TLS env vars. |
+| MODIFY | `deployments/helm/sukko/charts/ws-server/templates/configmap.yaml` | Remove dead `KAFKA_TOPICS` entry. Make Kafka-specific entries conditional on `messageBackend: kafka`. |
+| MODIFY | `deployments/helm/sukko/charts/ws-server/values.yaml` | Add `messageBackend: direct`, JetStream config, and broadcast bus TLS config |
+| MODIFY | `deployments/helm/sukko/values/standard/dev.yaml` | Set `messageBackend: kafka` for dev (preserve current behavior) |
 
 ### Helm Values
 
@@ -656,5 +656,5 @@ After Phase 4 (integration):
 
 After Phase 9 (Helm):
 ```bash
-helm lint deployments/helm/odin/charts/ws-server
+helm lint deployments/helm/sukko/charts/ws-server
 ```

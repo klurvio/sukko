@@ -8,7 +8,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  odin-ws-server (e2-small, us-central1-a)          │
+│  sukko-server (e2-small, us-central1-a)          │
 │  All services on one instance                       │
 │                                                      │
 │  ┌──────────────────────────────────────────────┐  │
@@ -35,7 +35,7 @@
 
 ```
 ┌────────────────────────────────────────────┐
-│  odin-ws-go (e2-small, us-central1-a)     │
+│  sukko-go (e2-small, us-central1-a)     │
 │  Dedicated WebSocket server                │
 │                                             │
 │  ┌─────────────────────────────────────┐  │
@@ -53,7 +53,7 @@
                     │
                     ▼
 ┌────────────────────────────────────────────┐
-│  odin-backend (e2-small, us-central1-a)   │
+│  sukko-backend (e2-small, us-central1-a)   │
 │  Supporting services                       │
 │                                             │
 │  ┌─────────────────────────────────────┐  │
@@ -85,27 +85,27 @@
 1. **Verify current setup**:
    ```bash
    # SSH into current instance
-   gcloud compute ssh odin-ws-server --zone=us-central1-a
+   gcloud compute ssh sukko-server --zone=us-central1-a
 
    # Check running containers
    docker compose ps
 
    # Verify NATS connectivity
-   docker exec odin-nats nats server list
+   docker exec sukko-nats nats server list
    ```
 
 2. **Backup current config**:
    ```bash
    # From local machine
    mkdir -p backups/$(date +%Y%m%d)
-   scp odin-ws-server:/path/to/docker-compose.yml backups/$(date +%Y%m%d)/
+   scp sukko-server:/path/to/docker-compose.yml backups/$(date +%Y%m%d)/
    ```
 
 ### Step 1: Create New ws-go Instance (30 min)
 
 **1.1 Create instance**:
 ```bash
-gcloud compute instances create odin-ws-go \
+gcloud compute instances create sukko-go \
   --machine-type=e2-small \
   --zone=us-central1-a \
   --network=default \
@@ -127,17 +127,17 @@ gcloud compute instances create odin-ws-go \
 **1.2 Wait for instance ready**:
 ```bash
 # Check instance status
-gcloud compute instances describe odin-ws-go --zone=us-central1-a
+gcloud compute instances describe sukko-go --zone=us-central1-a
 
 # Get internal IP (for NATS connection)
-WS_GO_INTERNAL_IP=$(gcloud compute instances describe odin-ws-go \
+WS_GO_INTERNAL_IP=$(gcloud compute instances describe sukko-go \
   --zone=us-central1-a \
   --format='get(networkInterfaces[0].networkIP)')
 
 echo "ws-go internal IP: $WS_GO_INTERNAL_IP"
 
 # Get external IP (for testing)
-WS_GO_EXTERNAL_IP=$(gcloud compute instances describe odin-ws-go \
+WS_GO_EXTERNAL_IP=$(gcloud compute instances describe sukko-go \
   --zone=us-central1-a \
   --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
 
@@ -175,13 +175,13 @@ gcloud compute firewall-rules create allow-nats-internal \
 
 **2.1 SSH into backend instance**:
 ```bash
-gcloud compute ssh odin-ws-server --zone=us-central1-a
+gcloud compute ssh sukko-server --zone=us-central1-a
 ```
 
 **2.2 Add network tags**:
 ```bash
 # From local machine
-gcloud compute instances add-tags odin-ws-server \
+gcloud compute instances add-tags sukko-server \
   --tags=backend,monitoring \
   --zone=us-central1-a
 ```
@@ -197,7 +197,7 @@ services:
   # NATS - now exposed on 0.0.0.0 for external access
   nats:
     image: nats:2.12-alpine
-    container_name: odin-nats
+    container_name: sukko-nats
     ports:
       - "0.0.0.0:4222:4222"  # Changed from 127.0.0.1 to allow external access
       - "127.0.0.1:8222:8222"  # Monitoring (local only)
@@ -208,7 +208,7 @@ services:
     volumes:
       - nats_data:/data
     networks:
-      - odin-network
+      - sukko-network
     restart: unless-stopped
     deploy:
       resources:
@@ -221,14 +221,14 @@ services:
     build:
       context: ./publisher
       dockerfile: Dockerfile
-    container_name: odin-publisher
+    container_name: sukko-publisher
     ports:
       - "127.0.0.1:3003:3003"
     environment:
       - NATS_URL=nats://nats:4222
       - PORT=3003
     networks:
-      - odin-network
+      - sukko-network
     depends_on:
       - nats
     restart: unless-stopped
@@ -241,7 +241,7 @@ services:
   # Prometheus - scrapes ws-go on different instance
   prometheus:
     image: prom/prometheus:v3.6.0
-    container_name: odin-prometheus
+    container_name: sukko-prometheus
     ports:
       - "127.0.0.1:9091:9090"
     volumes:
@@ -252,7 +252,7 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=7d'
     networks:
-      - odin-network
+      - sukko-network
     restart: unless-stopped
     deploy:
       resources:
@@ -263,7 +263,7 @@ services:
   # Grafana
   grafana:
     image: grafana/grafana:12.2.0
-    container_name: odin-grafana
+    container_name: sukko-grafana
     ports:
       - "0.0.0.0:3010:3000"  # External access for UI
     volumes:
@@ -273,7 +273,7 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
     networks:
-      - odin-network
+      - sukko-network
     depends_on:
       - prometheus
       - loki
@@ -287,7 +287,7 @@ services:
   # Loki
   loki:
     image: grafana/loki:3.3.2
-    container_name: odin-loki
+    container_name: sukko-loki
     ports:
       - "127.0.0.1:3101:3100"
     volumes:
@@ -295,7 +295,7 @@ services:
       - loki_data:/loki
     command: -config.file=/etc/loki/loki-config.yml
     networks:
-      - odin-network
+      - sukko-network
     restart: unless-stopped
     deploy:
       resources:
@@ -306,14 +306,14 @@ services:
   # Promtail - collects logs from ws-go via network
   promtail:
     image: grafana/promtail:3.3.2
-    container_name: odin-promtail
+    container_name: sukko-promtail
     volumes:
       - ./promtail-config.yml:/etc/promtail/promtail-config.yml
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock
     command: -config.file=/etc/promtail/promtail-config.yml
     networks:
-      - odin-network
+      - sukko-network
     depends_on:
       - loki
     restart: unless-stopped
@@ -324,7 +324,7 @@ services:
           memory: 128M
 
 networks:
-  odin-network:
+  sukko-network:
     driver: bridge
 
 volumes:
@@ -348,7 +348,7 @@ scrape_configs:
     static_configs:
       - targets: ['${WS_GO_INTERNAL_IP}:3002']
         labels:
-          instance: 'odin-ws-go'
+          instance: 'sukko-go'
           service: 'websocket'
 
   # Local services
@@ -371,7 +371,7 @@ docker compose down
 docker compose -f docker-compose.backend.yml up -d
 
 # Verify NATS is accessible
-docker exec odin-nats nats server list
+docker exec sukko-nats nats server list
 
 # Test NATS from external (should work)
 # From another terminal on local machine:
@@ -382,7 +382,7 @@ curl http://${BACKEND_EXTERNAL_IP}:8222/varz
 
 **3.1 SSH into new ws-go instance**:
 ```bash
-gcloud compute ssh odin-ws-go --zone=us-central1-a
+gcloud compute ssh sukko-go --zone=us-central1-a
 ```
 
 **3.2 Create project directory**:
@@ -395,13 +395,13 @@ cd ~/ws-poc
 ```bash
 # From local machine
 gcloud compute scp --recurse \
-  /Volumes/Dev/Codev/Toniq/odin-ws/src \
-  odin-ws-go:~/ws-poc/ \
+  /Volumes/Dev/Codev/Toniq/sukko/src \
+  sukko-go:~/ws-poc/ \
   --zone=us-central1-a
 
 gcloud compute scp \
-  /Volumes/Dev/Codev/Toniq/odin-ws/docker-compose.yml \
-  odin-ws-go:~/ws-poc/ \
+  /Volumes/Dev/Codev/Toniq/sukko/docker-compose.yml \
+  sukko-go:~/ws-poc/ \
   --zone=us-central1-a
 ```
 
@@ -411,7 +411,7 @@ gcloud compute scp \
 cd ~/ws-poc
 
 # Get backend internal IP
-BACKEND_INTERNAL_IP=$(gcloud compute instances describe odin-ws-server \
+BACKEND_INTERNAL_IP=$(gcloud compute instances describe sukko-server \
   --zone=us-central1-a \
   --format='get(networkInterfaces[0].networkIP)')
 
@@ -421,11 +421,11 @@ services:
     build:
       context: ./src
       dockerfile: Dockerfile
-    container_name: odin-ws-go
+    container_name: sukko-go
     ports:
       - "0.0.0.0:3004:3002"  # WebSocket + metrics port
     command:
-      ["./odin-ws-server", "-addr", ":3002", "-nats", "nats://${BACKEND_INTERNAL_IP}:4222"]
+      ["./sukko-server", "-addr", ":3002", "-nats", "nats://${BACKEND_INTERNAL_IP}:4222"]
     environment:
       # Full instance resources available
       - WS_CPU_LIMIT=1.8
@@ -476,14 +476,14 @@ docker compose -f docker-compose.wsgo.yml logs -f
 
 # Should see:
 # ✅ Connected to NATS at nats://10.x.x.x:4222
-# ✅ Subscribed to JetStream: odin.token.>
+# ✅ Subscribed to JetStream: sukko.token.>
 # ✅ Server listening on :3002
 ```
 
 **3.6 Verify connectivity**:
 ```bash
 # Check NATS connection
-docker exec odin-ws-go sh -c "netstat -an | grep 4222"
+docker exec sukko-go sh -c "netstat -an | grep 4222"
 # Should see: ESTABLISHED connection to backend IP:4222
 
 # Test health endpoint
@@ -499,10 +499,10 @@ curl http://${WS_GO_EXTERNAL_IP}:3004/health
 **4.1 Update test script to point to new instance**:
 ```bash
 # From local machine
-cd /Volumes/Dev/Codev/Toniq/odin-ws
+cd /Volumes/Dev/Codev/Toniq/sukko
 
 # Get ws-go external IP
-WS_GO_IP=$(gcloud compute instances describe odin-ws-go \
+WS_GO_IP=$(gcloud compute instances describe sukko-go \
   --zone=us-central1-a \
   --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
 
@@ -518,7 +518,7 @@ node scripts/sustained-load-test.cjs
 # taskfiles/test.yml
 vars:
   WS_GO_IP:
-    sh: gcloud compute instances describe odin-ws-go --zone=us-central1-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
+    sh: gcloud compute instances describe sukko-go --zone=us-central1-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
 
 tasks:
   test:light:
@@ -533,7 +533,7 @@ tasks:
 ```bash
 # Access Grafana
 # Get backend external IP
-BACKEND_IP=$(gcloud compute instances describe odin-ws-server \
+BACKEND_IP=$(gcloud compute instances describe sukko-server \
   --zone=us-central1-a \
   --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
 
@@ -548,7 +548,7 @@ echo "Prometheus: http://${BACKEND_IP}:9091"
 ```bash
 # Check Loki is receiving ws-go logs
 # In Grafana → Explore → Loki
-# Query: {instance="odin-ws-go"}
+# Query: {instance="sukko-go"}
 ```
 
 ---
@@ -574,13 +574,13 @@ If issues occur:
 
 1. **Stop ws-go on new instance**:
    ```bash
-   gcloud compute ssh odin-ws-go --zone=us-central1-a
+   gcloud compute ssh sukko-go --zone=us-central1-a
    docker compose -f docker-compose.wsgo.yml down
    ```
 
 2. **Restart original setup**:
    ```bash
-   gcloud compute ssh odin-ws-server --zone=us-central1-a
+   gcloud compute ssh sukko-server --zone=us-central1-a
    docker compose -f docker-compose.yml up -d
    ```
 

@@ -361,7 +361,7 @@ type GatewayConfig struct {
 
 ### Helm Values
 
-**File:** `deployments/helm/odin/charts/ws-gateway/values.yaml`
+**File:** `deployments/helm/sukko/charts/ws-gateway/values.yaml`
 
 ```yaml
 config:
@@ -392,10 +392,10 @@ config:
 | `ws/internal/gateway/proxy.go` | Add ping/pong handling, intercept frames |
 | `ws/internal/gateway/gateway.go` | Pass config to proxy |
 | `ws/internal/server/pump.go` | Relax timeouts, optional ping/pong |
-| `deployments/helm/odin/charts/ws-gateway/values.yaml` | Add config values |
-| `deployments/helm/odin/charts/ws-gateway/templates/configmap.yaml` | Map env vars |
-| `deployments/helm/odin/charts/ws-server/values.yaml` | Update shard timeouts |
-| `deployments/helm/odin/values/local.yaml` | Set lenient local values |
+| `deployments/helm/sukko/charts/ws-gateway/values.yaml` | Add config values |
+| `deployments/helm/sukko/charts/ws-gateway/templates/configmap.yaml` | Map env vars |
+| `deployments/helm/sukko/charts/ws-server/values.yaml` | Update shard timeouts |
+| `deployments/helm/sukko/values/local.yaml` | Set lenient local values |
 
 ---
 
@@ -465,7 +465,7 @@ task local:deploy
 task local:loadtest:run CONNECTIONS=1 DURATION=60m
 
 # Monitor for disconnects
-kubectl logs -n odin-local -l app.kubernetes.io/name=ws-gateway -f | grep -E "(ping|pong|disconnect)"
+kubectl logs -n sukko-local -l app.kubernetes.io/name=ws-gateway -f | grep -E "(ping|pong|disconnect)"
 ```
 
 ### Verification Checklist

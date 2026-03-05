@@ -1,6 +1,6 @@
 # GKE Standard - Staging Environment
 
-Deploy the Odin WebSocket infrastructure to GKE Standard staging cluster. Production-like configuration with Spot VMs for cost savings.
+Deploy the Sukko WebSocket infrastructure to GKE Standard staging cluster. Production-like configuration with Spot VMs for cost savings.
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ task k8s:standard:setup GKE_STD_ENV=staging
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    GKE Standard Cluster (odin-ws-staging)                    │
+│                    GKE Standard Cluster (sukko-staging)                    │
 │                         Zone: us-central1-a                                  │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │              Node Pool (2x e2-standard-4 Spot VMs)                     │  │
@@ -41,7 +41,7 @@ task k8s:standard:setup GKE_STD_ENV=staging
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │                         Namespace: odin-std-staging                     │ │
+│  │                         Namespace: sukko-std-staging                     │ │
 │  │                                                                         │ │
 │  │  ┌─────────────┐      ┌─────────────┐      ┌───────────────┐           │ │
 │  │  │ ws-gateway  │─────▶│  ws-server  │◀─────│   Redpanda    │           │ │
@@ -70,8 +70,8 @@ External Access:
 
 | Setting | Value |
 |---------|-------|
-| Cluster Name | `odin-ws-staging` |
-| Namespace | `odin-std-staging` |
+| Cluster Name | `sukko-staging` |
+| Namespace | `sukko-std-staging` |
 | Zone | `us-central1-a` |
 | Node Count | 2 (fixed) |
 | Instance Type | e2-standard-4 (Spot) |
@@ -333,7 +333,7 @@ Same as develop - Spot VMs provide 60-90% cost savings with potential preemption
 ```bash
 kubectl get nodes
 kubectl describe nodes
-kubectl get events -n odin-std-staging
+kubectl get events -n sukko-std-staging
 ```
 
 ### No data after restart
@@ -344,17 +344,17 @@ This is expected - staging uses ephemeral storage. Kafka topics are recreated au
 
 ```bash
 # Check Redpanda pod status
-kubectl get pods -n odin-std-staging -l app.kubernetes.io/name=redpanda
+kubectl get pods -n sukko-std-staging -l app.kubernetes.io/name=redpanda
 
 # Check service
-kubectl get svc -n odin-std-staging | grep redpanda
+kubectl get svc -n sukko-std-staging | grep redpanda
 ```
 
 ## File Locations
 
 | File | Purpose |
 |------|---------|
-| `deployments/k8s/helm/odin/values/standard/staging.yaml` | Helm values |
+| `deployments/k8s/helm/sukko/values/standard/staging.yaml` | Helm values |
 | `deployments/terraform/gke-standard/staging/` | Terraform config |
 | `taskfiles/k8s/standard.yml` | Task definitions |
 

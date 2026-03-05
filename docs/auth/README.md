@@ -1,6 +1,6 @@
 # Authentication System
 
-This document describes the authentication system used in the Odin API.
+This document describes the authentication system used in the Sukko API.
 
 ## Overview
 

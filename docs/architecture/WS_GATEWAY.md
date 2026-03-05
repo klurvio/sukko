@@ -19,7 +19,7 @@ The **ws-gateway** service:
      │                        │ • Proxy     │                  │ • No auth  │
      ▼                        └─────────────┘                  └────────────┘
 ┌──────────┐                         │
-│ odin-api │ ◄───────────────────────┘ (same JWT secret)
+│ sukko-api │ ◄───────────────────────┘ (same JWT secret)
 │ (tokens) │
 └──────────┘
 ```
@@ -57,7 +57,7 @@ Kafka topics are shared, WebSocket channels are scoped:
 ```
 Kafka Topic:                     WebSocket Channels:
 ┌────────────────────────┐       ┌─────────────────────────┐
-│ odin.balances          │ ────► │ balances.user1          │
+│ sukko.balances          │ ────► │ balances.user1          │
 │ (ALL user updates)     │       │ balances.user2          │
 │                        │       │ balances.userN          │
 │ Message:               │       └─────────────────────────┘
@@ -65,7 +65,7 @@ Kafka Topic:                     WebSocket Channels:
 └────────────────────────┘       ws-server routes by user_id
 ```
 
-- **Kafka**: Few topics (`odin.balances`, `odin.community`, etc.)
+- **Kafka**: Few topics (`sukko.balances`, `sukko.community`, etc.)
 - **WebSocket channels**: Many (per-user, per-group) - just map entries
 - **Routing**: ws-server extracts ID from message payload, broadcasts to correct channel
 
@@ -88,8 +88,8 @@ type Claims struct {
 | `ws/internal/gateway/permissions.go` | Channel permission validation |
 | `ws/internal/gateway/proxy.go` | WebSocket proxy (reuse SlotAwareProxy pattern) |
 | `ws/internal/gateway/config.go` | Configuration loading |
-| `deployments/k8s/helm/odin/charts/ws-gateway/` | Helm subchart |
-| `deployments/k8s/helm/odin/charts/ws-server/templates/networkpolicy.yaml` | Restrict access to gateway only |
+| `deployments/k8s/helm/sukko/charts/ws-gateway/` | Helm subchart |
+| `deployments/k8s/helm/sukko/charts/ws-server/templates/networkpolicy.yaml` | Restrict access to gateway only |
 
 ## Files to Modify
 
@@ -99,10 +99,10 @@ type Claims struct {
 | `ws/internal/wsserver/handlers_ws.go` | Remove all auth validation code |
 | `ws/internal/wsserver/server.go` | Remove token monitor, auth config |
 | `ws/cmd/server/main.go` | Remove auth-related env var loading |
-| `deployments/k8s/helm/odin/values.yaml` | Add ws-gateway config, remove ws-server auth config |
-| `deployments/k8s/helm/odin/Chart.yaml` | Add ws-gateway dependency |
-| `deployments/k8s/helm/odin/charts/ws-server/values.yaml` | Remove auth section |
-| `deployments/k8s/helm/odin/charts/ws-server/templates/deployment.yaml` | Remove auth env vars |
+| `deployments/k8s/helm/sukko/values.yaml` | Add ws-gateway config, remove ws-server auth config |
+| `deployments/k8s/helm/sukko/Chart.yaml` | Add ws-gateway dependency |
+| `deployments/k8s/helm/sukko/charts/ws-server/values.yaml` | Remove auth section |
+| `deployments/k8s/helm/sukko/charts/ws-server/templates/deployment.yaml` | Remove auth env vars |
 
 ## Implementation Steps
 
@@ -222,7 +222,7 @@ func (gw *Gateway) interceptClientMessage(msg []byte, claims *Claims) ([]byte, e
 
      config:
        port: 3000
-       wsServerURL: "ws://odin-ws-server:3001/ws"
+       wsServerURL: "ws://sukko-server:3001/ws"
        logLevel: info
 
      permissions:
@@ -332,7 +332,7 @@ server:
   writeTimeout: 15s
 
 backend:
-  url: "ws://odin-ws-server:3001/ws"
+  url: "ws://sukko-server:3001/ws"
   dialTimeout: 10s
 
 auth:
@@ -372,8 +372,8 @@ logging:
 
 3. **Local testing**
    ```bash
-   # Get token from odin-api first
-   TOKEN=$(curl -s -X POST http://odin-api/auth -d '...' | jq -r '.token')
+   # Get token from sukko-api first
+   TOKEN=$(curl -s -X POST http://sukko-api/auth -d '...' | jq -r '.token')
 
    # No token - rejected
    wscat -c "ws://localhost:3000/ws"
@@ -400,11 +400,11 @@ logging:
 
 ## Token Issuance
 
-JWT tokens are issued by **odin-api** (Firebase Functions). The flow is:
+JWT tokens are issued by **sukko-api** (Firebase Functions). The flow is:
 
-1. Client authenticates with IC Principal to odin-api
-2. odin-api validates the IC Principal
-3. odin-api issues a JWT token with claims:
+1. Client authenticates with IC Principal to sukko-api
+2. sukko-api validates the IC Principal
+3. sukko-api issues a JWT token with claims:
    - `sub`: User's principal ID
    - `tenant_id`: Tenant identifier
    - `groups`: List of group IDs (for group-scoped channels)
@@ -412,8 +412,8 @@ JWT tokens are issued by **odin-api** (Firebase Functions). The flow is:
 
 ## Dependencies
 
-- odin-api must include `groups` in JWT claims for group-scoped channels
-- Same `JWT_SECRET` shared between odin-api (issuer) and ws-gateway (validator)
+- sukko-api must include `groups` in JWT claims for group-scoped channels
+- Same `JWT_SECRET` shared between sukko-api (issuer) and ws-gateway (validator)
 
 ## Local Development
 

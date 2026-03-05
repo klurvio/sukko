@@ -1,0 +1,140 @@
+# =============================================================================
+# Sukko WebSocket Infrastructure - Staging Environment
+# =============================================================================
+# Production-like configuration for staging tests
+# Target: ~90K total connections (3 nodes × 2 pods × 15K)
+# See docs/architecture/CONNECTION_LIMITS.md for details
+
+global:
+  namespace: sukko-staging
+
+# =============================================================================
+# WebSocket Gateway - Staging
+# =============================================================================
+ws-gateway:
+  replicaCount: 2
+
+  # Connection limits (near-production)
+  connectionLimits:
+    maxConnections: 15000
+    readBufferSize: 4096
+    writeBufferSize: 4096
+    maxMessageSize: 65536
+
+  # Production-like resources
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# =============================================================================
+# WebSocket Server - Staging
+# =============================================================================
+ws-server:
+  replicaCount: 2
+
+  config:
+    shards: 2
+    logLevel: info
+    environment: staging  # Topic naming: sukko.staging.{base}.refined
+
+  # Connection limits (ResourceGuard enforces actual limits at runtime)
+  connectionLimits:
+    clusterMaxConnections: 100000
+    readBufferSize: 4096
+    writeBufferSize: 4096
+    maxMessageSize: 65536
+
+  # Production-like resources
+  resources:
+    requests:
+      cpu: "1"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+
+  # Enable autoscaling for staging tests
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+
+# =============================================================================
+# Redpanda - Staging
+# =============================================================================
+redpanda:
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+  storage:
+    size: 5Gi
+
+# =============================================================================
+# NATS - Staging
+# =============================================================================
+nats:
+  replicaCount: 1
+
+  cluster:
+    enabled: false
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "64Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+# =============================================================================
+# Monitoring - Staging
+# =============================================================================
+monitoring:
+  enabled: true
+
+  prometheus:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    retention: "7d"
+    service:
+      type: NodePort
+      nodePort: 30090
+
+  grafana:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "250m"
+        memory: "512Mi"
+    service:
+      type: NodePort
+      nodePort: 30300
+
+  loki:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    retention: "168h"  # 7 days

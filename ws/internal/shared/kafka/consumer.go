@@ -23,7 +23,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/server/metrics"
 )
 
 // TokenEvent represents an event from Redpanda
@@ -34,7 +34,7 @@ type TokenEvent struct {
 }
 
 // BroadcastFunc is called when a message is received
-// Parameters: subject (Kafka Key = broadcast channel, e.g., "odin.BTC.trade"), messageJSON
+// Parameters: subject (Kafka Key = broadcast channel, e.g., "sukko.BTC.trade"), messageJSON
 type BroadcastFunc func(subject string, message []byte)
 
 // ResourceGuard interface for rate limiting and CPU emergency brake
@@ -541,7 +541,7 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
 	}
 
 	// Extract subject (routing key) from Kafka key
-	// The Kafka Key IS the broadcast subject (e.g., "odin.BTC.trade")
+	// The Kafka Key IS the broadcast subject (e.g., "sukko.BTC.trade")
 	subject := string(record.Key)
 	if subject == "" {
 		c.logger.Warn().
@@ -636,7 +636,7 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 	}
 
 	// Extract subject (routing key) from Kafka key
-	// The Kafka Key IS the broadcast subject (e.g., "odin.BTC.trade")
+	// The Kafka Key IS the broadcast subject (e.g., "sukko.BTC.trade")
 	subject := string(record.Key)
 	if subject == "" {
 		c.logger.Warn().
@@ -754,8 +754,8 @@ type ReplayMessage struct {
 //	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 //	defer cancel()
 //	messages, err := consumer.ReplayFromOffsets(ctx, map[string]int64{
-//	    "odin.trades": 12345,  // Start from offset 12345
-//	    "odin.liquidity": 67890,
+//	    "sukko.trades": 12345,  // Start from offset 12345
+//	    "sukko.liquidity": 67890,
 //	}, 100, []string{"BTC.trade", "ETH.trade"})
 func (c *Consumer) ReplayFromOffsets(
 	ctx context.Context,

@@ -1,4 +1,4 @@
-# Feature Specification: TypeScript SDK for Odin WS
+# Feature Specification: TypeScript SDK for Sukko
 
 **Branch**: `feat/typescript-sdk`
 **Created**: 2026-02-26
@@ -6,15 +6,15 @@
 
 ## Context
 
-Odin WS is a multi-tenant WebSocket infrastructure platform for real-time data distribution. Today, consumers must implement the WebSocket protocol manually — constructing message envelopes, handling authentication, tracking subscriptions, detecting sequence gaps, managing reconnection with offset replay, and interpreting error codes. This is error-prone and creates duplicated effort across every client application.
+Sukko is a multi-tenant WebSocket infrastructure platform for real-time data distribution. Today, consumers must implement the WebSocket protocol manually — constructing message envelopes, handling authentication, tracking subscriptions, detecting sequence gaps, managing reconnection with offset replay, and interpreting error codes. This is error-prone and creates duplicated effort across every client application.
 
-A TypeScript SDK provides a typed, ergonomic client library that encapsulates the full Odin WS protocol. TypeScript is the primary language of client applications consuming Odin WS data (trading dashboards, admin tools, monitoring UIs). The SDK eliminates protocol-level boilerplate and gives consumers a reliable, well-tested interface to the platform.
+A TypeScript SDK provides a typed, ergonomic client library that encapsulates the full Sukko protocol. TypeScript is the primary language of client applications consuming Sukko data (trading dashboards, admin tools, monitoring UIs). The SDK eliminates protocol-level boilerplate and gives consumers a reliable, well-tested interface to the platform.
 
 ## User Scenarios
 
 ### Scenario 1 - Subscribe to Real-Time Data (Priority: P1)
 
-A developer building a trading dashboard connects to Odin WS, authenticates with a JWT, subscribes to multiple channels, and receives broadcast messages with typed payloads.
+A developer building a trading dashboard connects to Sukko, authenticates with a JWT, subscribes to multiple channels, and receives broadcast messages with typed payloads.
 
 **Acceptance Criteria**:
 1. **Given** a valid JWT and server URL, **When** the developer creates a client and calls `connect()`, **Then** a WebSocket connection is established with the JWT passed as authentication.
@@ -125,7 +125,7 @@ The developer receives structured, typed errors for all failure modes.
 - **SC-001**: A developer can go from `npm install` to receiving live messages in under 10 lines of code.
 - **SC-002**: SDK correctly handles all 11 server response types as defined in the AsyncAPI spec.
 - **SC-003**: Automatic reconnection with replay recovers from network disruptions without data loss (within Kafka retention window and replay limits).
-- **SC-004**: SDK passes integration tests against a live Odin WS instance (subscribe, receive, publish, reconnect flows).
+- **SC-004**: SDK passes integration tests against a live Sukko instance (subscribe, receive, publish, reconnect flows).
 - **SC-005**: SDK is published to npm with full TypeScript type definitions, README with usage examples, and API reference documentation.
 - **SC-006**: SDK is published to the public npm registry under `@sukko/ws-sdk` with full TypeScript type definitions, README with usage examples, and API reference documentation.
 
@@ -137,11 +137,11 @@ The developer receives structured, typed errors for all failure modes.
 - **Offline message queuing**: Messages published while disconnected are rejected, not queued. Offline queuing introduces ordering complexity that is out of scope.
 - **Custom serialization**: The SDK uses JSON. Binary protocols (MessagePack, Protobuf) are not supported.
 - **WebSocket polyfill bundling**: The SDK uses the native `WebSocket` API. Consumers in environments without native support (e.g., older Node.js) must provide their own polyfill.
-- **Codegen pipeline**: Auto-generation of TypeScript protocol types from the AsyncAPI spec in odin-ws is a separate infrastructure task, not part of this SDK spec.
+- **Codegen pipeline**: Auto-generation of TypeScript protocol types from the AsyncAPI spec in sukko is a separate infrastructure task, not part of this SDK spec.
 
 ## Clarifications
 
 - Q: Should the SDK accept a token refresh callback or emit an event for manual re-auth? → A: **Both — proactive `getToken` callback with lazy fallback on reconnect.** SDK reads JWT `exp` and calls the developer-provided async `getToken` ~30s before expiry to send a new token over the existing connection (no disconnection). On reconnect, `getToken` is also called as a safety net. Throwing `UnauthorizedError` from the callback signals permanent auth failure. This follows the industry standard pattern used by Ably (`authCallback`) and Centrifugo (`getToken`).
 - Q: Should the SDK be published to a public or private npm registry? → A: **Public npm under `@sukko/ws-sdk`.**
-- Q: Should the SDK live in this monorepo or a separate repository? → A: **Separate repository as a sibling of odin-ws, with TypeScript protocol types auto-generated from the AsyncAPI spec in this monorepo.** Independent versioning/CI while keeping protocol types in sync via codegen.
-- Q: What is the public product name for the WebSocket SaaS? → A: **Sukko.** All public SDK types use `Sukko` prefix: `SukkoClient`, `SukkoEvents`, `SukkoError`. Internal platform remains "Odin WS".
+- Q: Should the SDK live in this monorepo or a separate repository? → A: **Separate repository as a sibling of sukko, with TypeScript protocol types auto-generated from the AsyncAPI spec in this monorepo.** Independent versioning/CI while keeping protocol types in sync via codegen.
+- Q: What is the public product name for the WebSocket SaaS? → A: **Sukko.** All public SDK types use `Sukko` prefix: `SukkoClient`, `SukkoEvents`, `SukkoError`. Internal platform remains "Sukko".

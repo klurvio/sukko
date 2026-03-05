@@ -8,7 +8,7 @@
 
 ## Problem Statement
 
-Client-published messages currently go to a single `odin.{namespace}.client-events` topic which:
+Client-published messages currently go to a single `sukko.{namespace}.client-events` topic which:
 1. **Is not consumed** by ws-server - messages are lost
 2. **Doesn't follow multi-tenant topic pattern** - should be `{namespace}.{tenant}.{category}`
 3. **Uses hardcoded topic name** - should be provisioned via provisioning service
@@ -29,7 +29,7 @@ Align client publish flow with CDC flow:
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │   CDC Service ─────────────┐                                         │
-│   (Odin-specific,          │  Topic building happens HERE            │
+│   (Sukko-specific,          │  Topic building happens HERE            │
 │    direct to Redpanda)     │  CDC builds: prod.acme.trade            │
 │                            ▼                                         │
 │                    ┌──────────────────┐                              │
@@ -51,7 +51,7 @@ Align client publish flow with CDC flow:
 
 | Source | Topic Building Location | Process |
 |--------|------------------------|---------|
-| **CDC (Odin)** | CDC service (external) | CDC builds `prod.acme.trade`, publishes directly to Redpanda |
+| **CDC (Sukko)** | CDC service (external) | CDC builds `prod.acme.trade`, publishes directly to Redpanda |
 | **Client Publish** | ws-server Producer | Gateway maps channel, Server extracts tenant/category, builds topic |
 
 **Flow comparison:**

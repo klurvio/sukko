@@ -10,12 +10,12 @@
 
 ### Design Decision: Explicit Channels
 
-Channels now always include the tenant prefix. Clients send `odin.BTC.trade`, not `BTC.trade`.
+Channels now always include the tenant prefix. Clients send `sukko.BTC.trade`, not `BTC.trade`.
 
-**Why:** The previous implicit approach (client sends `BTC.trade`, gateway prepends `odin.`, server strips `odin.` on output) created unnecessary complexity — a ChannelMapper component, prepend/strip on every message, nil guards throughout, and an ack consistency bug where acks didn't strip but broadcasts did. Industry platforms that use implicit channels (Ably, Pusher) do so because they silo infrastructure per tenant. Odin-ws shares a single server process across tenants, making explicit channels the simpler path — similar to Slack/Discord where the tenant (workspace/guild) is part of the channel identifier.
+**Why:** The previous implicit approach (client sends `BTC.trade`, gateway prepends `sukko.`, server strips `sukko.` on output) created unnecessary complexity — a ChannelMapper component, prepend/strip on every message, nil guards throughout, and an ack consistency bug where acks didn't strip but broadcasts did. Industry platforms that use implicit channels (Ably, Pusher) do so because they silo infrastructure per tenant. Sukko-ws shares a single server process across tenants, making explicit channels the simpler path — similar to Slack/Discord where the tenant (workspace/guild) is part of the channel identifier.
 
 **What changes:**
-- Clients include tenant in all channel names: `odin.BTC.trade`
+- Clients include tenant in all channel names: `sukko.BTC.trade`
 - Gateway **validates** tenant prefix (instead of transforming)
 - Server uses channels as-is (no stripping in broadcast or acks)
 - `ChannelMapper` usage removed from server and gateway
@@ -95,7 +95,7 @@ func (p *Proxy) validateChannelTenant(channel string) bool {
 }
 
 // stripTenantPrefix removes the tenant prefix from a channel for permission matching.
-// "odin.BTC.trade" → "BTC.trade". Only used locally in the gateway for permission checks —
+// "sukko.BTC.trade" → "BTC.trade". Only used locally in the gateway for permission checks —
 // the full tenant-prefixed channel is always forwarded to the server.
 func (p *Proxy) stripTenantPrefix(channel string) string {
     return strings.TrimPrefix(channel, p.tenantID+".")
@@ -153,9 +153,9 @@ Access check simplifies to:
 
 | Before | After |
 |--------|-------|
-| Client sends `BTC.trade` | Client sends `odin.BTC.trade` |
-| Gateway prepends → `odin.BTC.trade` | Gateway validates prefix, forwards as-is |
-| Server strips → `BTC.trade` for client | Server sends `odin.BTC.trade` as-is |
+| Client sends `BTC.trade` | Client sends `sukko.BTC.trade` |
+| Gateway prepends → `sukko.BTC.trade` | Gateway validates prefix, forwards as-is |
+| Server strips → `BTC.trade` for client | Server sends `sukko.BTC.trade` as-is |
 | Min client channel parts: 2 | Min channel parts: 3 (everywhere) |
 | Min internal channel parts: 3 | Same constant, one format |
 
@@ -197,7 +197,7 @@ servers:
   gateway:
     host: "{host}:{port}"
     protocol: wss
-    description: Odin WebSocket Gateway
+    description: Sukko WebSocket Gateway
     security:
       - $ref: '#/components/securitySchemes/bearerToken'
       - $ref: '#/components/securitySchemes/queryToken'
@@ -228,7 +228,7 @@ Channel format: `{tenant}.{identifier}.{category}` (minimum 3 dot-separated part
 ```json
 {
   "type": "subscribe",
-  "data": { "channels": ["odin.BTC.trade", "odin.ETH.orderbook"] }
+  "data": { "channels": ["sukko.BTC.trade", "sukko.ETH.orderbook"] }
 }
 ```
 - When auth enabled: channels filtered by permission rules (see Channel Permissions below)
@@ -238,7 +238,7 @@ Channel format: `{tenant}.{identifier}.{category}` (minimum 3 dot-separated part
 ```json
 {
   "type": "unsubscribe",
-  "data": { "channels": ["odin.BTC.trade"] }
+  "data": { "channels": ["sukko.BTC.trade"] }
 }
 ```
 
@@ -246,7 +246,7 @@ Channel format: `{tenant}.{identifier}.{category}` (minimum 3 dot-separated part
 ```json
 {
   "type": "publish",
-  "data": { "channel": "odin.BTC.trade", "data": { "price": 50000 } }
+  "data": { "channel": "sukko.BTC.trade", "data": { "price": 50000 } }
 }
 ```
 - Max payload: 64KB (`data` field)
@@ -258,7 +258,7 @@ Channel format: `{tenant}.{identifier}.{category}` (minimum 3 dot-separated part
 ```json
 {
   "type": "reconnect",
-  "data": { "client_id": "abc123", "last_offset": {"local.odin.trade": 12345} }
+  "data": { "client_id": "abc123", "last_offset": {"local.sukko.trade": 12345} }
 }
 ```
 - `client_id`: persistent client identifier for reconnection
@@ -279,7 +279,7 @@ Channel format: `{tenant}.{identifier}.{category}` (minimum 3 dot-separated part
   "type": "message",
   "seq": 1234,
   "ts": 1706000000000,
-  "channel": "odin.BTC.trade",
+  "channel": "sukko.BTC.trade",
   "data": { "price": 50000, "volume": 1.5 }
 }
 ```
@@ -289,21 +289,21 @@ Channel format: `{tenant}.{identifier}.{category}` (minimum 3 dot-separated part
 
 #### `subscription_ack`
 ```json
-{ "type": "subscription_ack", "subscribed": ["odin.BTC.trade"], "count": 5 }
+{ "type": "subscription_ack", "subscribed": ["sukko.BTC.trade"], "count": 5 }
 ```
 - `subscribed`: channels as provided (with tenant prefix)
 - `count`: total active subscription count for this connection
 
 #### `unsubscription_ack`
 ```json
-{ "type": "unsubscription_ack", "unsubscribed": ["odin.BTC.trade"], "count": 4 }
+{ "type": "unsubscription_ack", "unsubscribed": ["sukko.BTC.trade"], "count": 4 }
 ```
 - `unsubscribed`: channels as provided (with tenant prefix)
 - `count`: total active subscription count for this connection
 
 #### `publish_ack`
 ```json
-{ "type": "publish_ack", "channel": "odin.BTC.trade", "status": "accepted" }
+{ "type": "publish_ack", "channel": "sukko.BTC.trade", "status": "accepted" }
 ```
 - `channel`: as provided (with tenant prefix)
 - `status`: always `"accepted"`
@@ -367,12 +367,12 @@ The gateway performs validation in two stages:
 Channel must start with `{tenant_id}.` matching the JWT's `tenant_id` (auth enabled) or `DefaultTenantID` (auth disabled). Channels with wrong tenant prefix are silently filtered out.
 
 **Stage 2 — Pattern matching (auth enabled only):**
-The gateway strips the tenant prefix locally and matches the remaining portion against permission patterns. Patterns operate on the non-tenant portion of the channel (e.g., `odin.BTC.trade` → match `BTC.trade` against `*.trade`).
+The gateway strips the tenant prefix locally and matches the remaining portion against permission patterns. Patterns operate on the non-tenant portion of the channel (e.g., `sukko.BTC.trade` → match `BTC.trade` against `*.trade`).
 
 | Pattern Type | Config Key | Format | Example | Behavior |
 |--------------|-----------|--------|---------|----------|
-| Public | `publicPatterns` | Wildcard glob | `*.trade` | Anyone can subscribe (matches `BTC.trade` from `odin.BTC.trade`) |
-| User-scoped | `userScopedPatterns` | `{principal}` placeholder | `balances.{principal}` | Only the JWT subject can subscribe (e.g., `odin.balances.user123` requires `sub=user123`) |
+| Public | `publicPatterns` | Wildcard glob | `*.trade` | Anyone can subscribe (matches `BTC.trade` from `sukko.BTC.trade`) |
+| User-scoped | `userScopedPatterns` | `{principal}` placeholder | `balances.{principal}` | Only the JWT subject can subscribe (e.g., `sukko.balances.user123` requires `sub=user123`) |
 | Group-scoped | `groupScopedPatterns` | `{group_id}` placeholder | `community.{group_id}` | Only members of the group can subscribe (matched against JWT `groups` claim) |
 
 Channels not matching any pattern are denied. Permission patterns remain unchanged from previous config — they never included tenant prefixes.
@@ -459,7 +459,7 @@ Documents how external services (CDC pipelines, backend services) publish events
 ```
 
 - `namespace`: environment — `local`, `dev`, `stag`, `prod`
-- `tenant`: tenant identifier — e.g., `odin`, `acme`
+- `tenant`: tenant identifier — e.g., `sukko`, `acme`
 - `category`: event category — e.g., `trade`, `balances`, `orderbook`
 
 Built by: `kafka.BuildTopicName(namespace, tenantID, category)`
@@ -470,8 +470,8 @@ External services publish Kafka records with:
 
 | Field | Format | Example |
 |-------|--------|---------|
-| **Topic** | `{namespace}.{tenant}.{category}` | `prod.odin.trade` |
-| **Key** | `{tenant}.{identifier}.{category}` | `odin.BTC.trade` |
+| **Topic** | `{namespace}.{tenant}.{category}` | `prod.sukko.trade` |
+| **Key** | `{tenant}.{identifier}.{category}` | `sukko.BTC.trade` |
 | **Value** | JSON payload (arbitrary, schema owned by publisher) | `{"price": 50000, "volume": 1.5}` |
 
 The Key determines:
@@ -492,10 +492,10 @@ The Value is opaque to the WebSocket platform. It is forwarded as-is to subscrib
 
 ```
 External Service
-  → Redpanda topic: prod.odin.trade (Key: odin.BTC.trade, Value: {...})
+  → Redpanda topic: prod.sukko.trade (Key: sukko.BTC.trade, Value: {...})
   → ws-server consumer reads message
-  → Broadcast to clients subscribed to "odin.BTC.trade"
-  → Client receives: { "type": "message", "channel": "odin.BTC.trade", "data": {...} }
+  → Broadcast to clients subscribed to "sukko.BTC.trade"
+  → Client receives: { "type": "message", "channel": "sukko.BTC.trade", "data": {...} }
 ```
 
 No channel transformation occurs. The Kafka key is used as-is for subscription matching and as the channel in the client envelope.
@@ -517,7 +517,7 @@ channels:
       namespace:
         description: "Environment: local, dev, stag, prod"
       tenant:
-        description: "Tenant identifier (e.g., odin, acme)"
+        description: "Tenant identifier (e.g., sukko, acme)"
       category:
         description: "Event category (e.g., trade, balances)"
     messages:
@@ -570,10 +570,10 @@ With explicit channels, there is one channel format used everywhere:
 
 | Context | Format | Example |
 |---------|--------|---------|
-| Client channel | `{tenant}.{identifier}.{category}` | `odin.BTC.trade` |
-| Subscription index key | `{tenant}.{identifier}.{category}` | `odin.BTC.trade` |
-| Kafka topic | `{namespace}.{tenant}.{category}` | `local.odin.trade` |
-| Kafka key | `{tenant}.{identifier}.{category}` | `odin.BTC.trade` |
+| Client channel | `{tenant}.{identifier}.{category}` | `sukko.BTC.trade` |
+| Subscription index key | `{tenant}.{identifier}.{category}` | `sukko.BTC.trade` |
+| Kafka topic | `{namespace}.{tenant}.{category}` | `local.sukko.trade` |
+| Kafka key | `{tenant}.{identifier}.{category}` | `sukko.BTC.trade` |
 
 ### Rate Limits and Constraints to Document
 

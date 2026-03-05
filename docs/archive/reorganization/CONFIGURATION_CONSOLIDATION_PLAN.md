@@ -98,7 +98,7 @@ METRICS_INTERVAL=15s
 **kafka-topics.env:**
 ```bash
 # Kafka topics (single source of truth)
-KAFKA_TOPICS=odin.trades,odin.liquidity,odin.balances,odin.metadata,odin.social,odin.community,odin.creation,odin.analytics
+KAFKA_TOPICS=sukko.trades,sukko.liquidity,sukko.balances,sukko.metadata,sukko.social,sukko.community,sukko.creation,sukko.analytics
 KAFKA_PARTITIONS=12
 KAFKA_REPLICAS=1
 ```
@@ -159,14 +159,14 @@ shared:
   
   kafka:
     topics:
-      - odin.trades
-      - odin.liquidity
-      - odin.balances
-      - odin.metadata
-      - odin.social
-      - odin.community
-      - odin.creation
-      - odin.analytics
+      - sukko.trades
+      - sukko.liquidity
+      - sukko.balances
+      - sukko.metadata
+      - sukko.social
+      - sukko.community
+      - sukko.creation
+      - sukko.analytics
     partitions: 12
     replicas: 1
   
@@ -526,9 +526,9 @@ shared:
   
   kafka:
     topics:
-      - name: odin.trades
+      - name: sukko.trades
         retention: 30s
-      - name: odin.liquidity
+      - name: sukko.liquidity
         retention: 60s
       # ... etc
 ```

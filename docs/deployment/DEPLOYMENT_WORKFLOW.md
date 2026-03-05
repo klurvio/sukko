@@ -51,22 +51,22 @@ This will:
 
 ```bash
 # SSH to the VM
-gcloud compute ssh odin-ws-go --zone=us-central1-a
+gcloud compute ssh sukko-go --zone=us-central1-a
 
 # Switch to deploy user and edit .env
 sudo -i -u deploy
-cd ~/odin-ws/deployments/v1/gcp/distributed/ws
+cd ~/sukko/deployments/v1/gcp/distributed/ws
 nano .env.production  # or vim
 
 # Restart the container
-docker restart odin-ws-multi
+docker restart sukko-multi
 ```
 
 #### Option B: Via gcloud command
 
 ```bash
-gcloud compute ssh odin-ws-go --zone=us-central1-a \
-  --command="sudo -u deploy docker restart odin-ws-multi"
+gcloud compute ssh sukko-go --zone=us-central1-a \
+  --command="sudo -u deploy docker restart sukko-multi"
 ```
 
 ---
@@ -145,7 +145,7 @@ Use these when only environment variables changed (no code changes).
 
 ## Service-Specific Commands
 
-### WebSocket Server (odin-ws-go)
+### WebSocket Server (sukko-go)
 
 ```bash
 # Rebuild and restart (code changes)
@@ -171,7 +171,7 @@ task gcp:redis:logs
 task gcp:redis:health
 ```
 
-### Backend (odin-backend)
+### Backend (sukko-backend)
 
 ```bash
 # Rebuild and restart (code changes)
@@ -190,9 +190,9 @@ task gcp:logs:backend
 
 | VM | Config Path |
 |----|-------------|
-| odin-ws-go | `/home/deploy/odin-ws/deployments/v1/gcp/distributed/ws/.env.production` |
-| ws-redis | `/home/deploy/odin-ws/deployments/v1/gcp/distributed/redis/.env` |
-| odin-backend | `/home/deploy/odin-ws/deployments/v1/gcp/distributed/backend/.env` |
+| sukko-go | `/home/deploy/sukko/deployments/v1/gcp/distributed/ws/.env.production` |
+| ws-redis | `/home/deploy/sukko/deployments/v1/gcp/distributed/redis/.env` |
+| sukko-backend | `/home/deploy/sukko/deployments/v1/gcp/distributed/backend/.env` |
 
 ---
 
@@ -202,7 +202,7 @@ task gcp:logs:backend
 
 ```bash
 # View container start time
-gcloud compute ssh odin-ws-go --zone=us-central1-a \
+gcloud compute ssh sukko-go --zone=us-central1-a \
   --command="sudo -u deploy docker ps --format 'table {{.Names}}\t{{.Status}}'"
 
 # Check logs for startup message
@@ -216,8 +216,8 @@ task gcp:logs:ws
 curl http://<WS_IP>:3004/health | jq
 
 # Look for config in startup logs
-gcloud compute ssh odin-ws-go --zone=us-central1-a \
-  --command="sudo -u deploy docker logs odin-ws-multi 2>&1 | head -50"
+gcloud compute ssh sukko-go --zone=us-central1-a \
+  --command="sudo -u deploy docker logs sukko-multi 2>&1 | head -50"
 ```
 
 ---
@@ -228,11 +228,11 @@ gcloud compute ssh odin-ws-go --zone=us-central1-a \
 
 ```bash
 # Check container logs
-gcloud compute ssh odin-ws-go --zone=us-central1-a \
-  --command="sudo -u deploy docker logs odin-ws-multi --tail=100"
+gcloud compute ssh sukko-go --zone=us-central1-a \
+  --command="sudo -u deploy docker logs sukko-multi --tail=100"
 
 # Check if image built correctly
-gcloud compute ssh odin-ws-go --zone=us-central1-a \
+gcloud compute ssh sukko-go --zone=us-central1-a \
   --command="sudo -u deploy docker images | grep ws"
 ```
 
@@ -246,11 +246,11 @@ gcloud compute ssh odin-ws-go --zone=us-central1-a \
 
 ```bash
 # SSH to VM
-gcloud compute ssh odin-ws-go --zone=us-central1-a
+gcloud compute ssh sukko-go --zone=us-central1-a
 
 # Switch to deploy user
 sudo -i -u deploy
-cd ~/odin-ws
+cd ~/sukko
 
 # Checkout previous commit
 git log --oneline -5  # find the commit to rollback to

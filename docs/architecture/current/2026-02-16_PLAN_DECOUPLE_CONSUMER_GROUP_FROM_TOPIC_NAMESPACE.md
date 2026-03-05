@@ -2,12 +2,12 @@
 
 ## Context
 
-The Odin API (external) always publishes to `prod.odin.{category}` — it conforms to the topic naming pattern `{env}.{tenant}.{category}` but its env is always `prod`. Non-prod environments need to consume this data via a namespace override. Four problems exist:
+The Sukko API (external) always publishes to `prod.sukko.{category}` — it conforms to the topic naming pattern `{env}.{tenant}.{category}` but its env is always `prod`. Non-prod environments need to consume this data via a namespace override. Four problems exist:
 
 1. **Naming**: `kafkaTopicNamespace` doesn't signal it's an override — easy to misconfigure
 2. **Provisioning mismatch**: ws-server and provisioning have separate, independently configured namespace values — they can silently diverge
 3. **No prod guard**: Nothing prevents setting the override in prod
-4. **Consumer group naming**: Consumer group uses `odin-shared-{namespace}` / `odin-{tenant}-{namespace}` — the format is inconsistent and doesn't start with environment
+4. **Consumer group naming**: Consumer group uses `sukko-shared-{namespace}` / `sukko-{tenant}-{namespace}` — the format is inconsistent and doesn't start with environment
 
 ### Architecture Context
 
@@ -23,25 +23,25 @@ The namespace override does NOT affect message routing. The namespace only appea
 
 | Context | Format | Example |
 |---|---|---|
-| Kafka topic | `{namespace}.{tenant}.{category}` | `prod.odin.trade` |
-| Kafka key (= routing key) | `{tenant}.{identifier}.{category}` | `odin.BTC.trade` |
-| Client subscription | `{tenant}.{identifier}.{category}` | `odin.BTC.trade` |
+| Kafka topic | `{namespace}.{tenant}.{category}` | `prod.sukko.trade` |
+| Kafka key (= routing key) | `{tenant}.{identifier}.{category}` | `sukko.BTC.trade` |
+| Client subscription | `{tenant}.{identifier}.{category}` | `sukko.BTC.trade` |
 
-**Flow**: Consumer reads from `prod.odin.trade` → extracts Kafka key `odin.BTC.trade` → broadcasts to clients subscribed to `odin.BTC.trade`. The topic name (and its namespace prefix) is discarded for routing. Whether the source topic is `prod.odin.trade` or `dev.odin.trade`, a message with key `odin.BTC.trade` reaches the same subscribers.
+**Flow**: Consumer reads from `prod.sukko.trade` → extracts Kafka key `sukko.BTC.trade` → broadcasts to clients subscribed to `sukko.BTC.trade`. The topic name (and its namespace prefix) is discarded for routing. Whether the source topic is `prod.sukko.trade` or `dev.sukko.trade`, a message with key `sukko.BTC.trade` reaches the same subscribers.
 
-The tenant prefix in the Kafka key (`odin.`) serves as both self-documentation and a security boundary. The ws-gateway already enforces tenant prefix validation on subscribe and publish (always active) — clients can only access channels matching their tenant. The ws-server treats the key as an opaque string for exact-match routing.
+The tenant prefix in the Kafka key (`sukko.`) serves as both self-documentation and a security boundary. The ws-gateway already enforces tenant prefix validation on subscribe and publish (always active) — clients can only access channels matching their tenant. The ws-server treats the key as an opaque string for exact-match routing.
 
 **Goal**: Rename with "override", align provisioning, block override in prod, adopt `{env}-{identifier}-consumer` group naming, and remove dead code.
 
 ## Consumer Group Naming Convention
 
 ### Old Pattern
-- Shared: `odin-shared-{namespace}` (e.g., `odin-shared-prod`)
-- Dedicated: `odin-{tenant}-{namespace}` (e.g., `odin-acme-prod`)
+- Shared: `sukko-shared-{namespace}` (e.g., `sukko-shared-prod`)
+- Dedicated: `sukko-{tenant}-{namespace}` (e.g., `sukko-acme-prod`)
 
 ### New Pattern: `{env}-{identifier}-consumer`
 - Shared: `{env}-shared-consumer` (e.g., `dev-shared-consumer`)
-- Dedicated: `{env}-{tenant}-consumer` (e.g., `dev-odin-consumer`)
+- Dedicated: `{env}-{tenant}-consumer` (e.g., `dev-sukko-consumer`)
 
 **Rationale**:
 - Environment first → easy to filter: `rpk group list | grep ^dev-`
@@ -55,7 +55,7 @@ The tenant prefix in the Kafka key (`odin.`) serves as both self-documentation a
 | Type | Pattern | Dev Example | Prod Example |
 |---|---|---|---|
 | Shared | `{env}-shared-consumer` | `dev-shared-consumer` | `prod-shared-consumer` |
-| Dedicated | `{env}-{tenant}-consumer` | `dev-odin-consumer` | `prod-odin-consumer` |
+| Dedicated | `{env}-{tenant}-consumer` | `dev-sukko-consumer` | `prod-sukko-consumer` |
 
 ## Changes
 
@@ -106,7 +106,7 @@ if topicNamespace == "" {
 topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
 ```
 
-**`deployments/helm/odin/charts/ws-server/values.yaml`** (line 41):
+**`deployments/helm/sukko/charts/ws-server/values.yaml`** (line 41):
 ```yaml
 # Before:
 kafkaTopicNamespace: ""
@@ -115,7 +115,7 @@ kafkaTopicNamespace: ""
 kafkaTopicNamespaceOverride: ""
 ```
 
-**`deployments/helm/odin/charts/ws-server/templates/deployment.yaml`** (lines 75-78):
+**`deployments/helm/sukko/charts/ws-server/templates/deployment.yaml`** (lines 75-78):
 ```yaml
 # Before:
 - name: KAFKA_TOPIC_NAMESPACE
@@ -189,7 +189,7 @@ logger.Printf("Topic namespace: %s (environment: %s)", topicNamespace, cfg.Envir
 ```
 Pass resolved `topicNamespace` to `provisioning.NewService()`.
 
-**`deployments/helm/odin/charts/provisioning/values.yaml`** (line 53):
+**`deployments/helm/sukko/charts/provisioning/values.yaml`** (line 53):
 ```yaml
 # Before:
 topicNamespace: "prod"
@@ -199,7 +199,7 @@ environment: "local"
 kafkaTopicNamespaceOverride: ""
 ```
 
-**`deployments/helm/odin/charts/provisioning/templates/deployment.yaml`**:
+**`deployments/helm/sukko/charts/provisioning/templates/deployment.yaml`**:
 ```yaml
 # Before (lines 106-107):
 - name: KAFKA_TOPIC_NAMESPACE
@@ -376,12 +376,12 @@ if config.Environment == "" {
 Change consumer group construction (2 lines):
 ```go
 // Before (line 308):
-ConsumerGroup: "odin-shared-" + p.config.Namespace,
+ConsumerGroup: "sukko-shared-" + p.config.Namespace,
 // After:
 ConsumerGroup: fmt.Sprintf("%s-shared-consumer", p.config.Environment),
 
 // Before (line 401):
-ConsumerGroup: fmt.Sprintf("odin-%s-%s", tenant.TenantID, p.config.Namespace),
+ConsumerGroup: fmt.Sprintf("sukko-%s-%s", tenant.TenantID, p.config.Namespace),
 // After:
 ConsumerGroup: fmt.Sprintf("%s-%s-consumer", p.config.Environment, tenant.TenantID),
 ```
@@ -408,18 +408,18 @@ Environment: kafka.NormalizeEnv(cfg.Environment),
 **`ws/internal/server/orchestration/multitenant_pool_test.go`** (line 467):
 - Update `TestMultiTenantPool_ConsumerGroupNaming` with new pattern
 - Test cases:
-  - `{env:"dev", ns:"prod"}` → shared: `dev-shared-consumer`, dedicated: `dev-odin-consumer`
-  - `{env:"prod", ns:"prod"}` → shared: `prod-shared-consumer`, dedicated: `prod-odin-consumer`
+  - `{env:"dev", ns:"prod"}` → shared: `dev-shared-consumer`, dedicated: `dev-sukko-consumer`
+  - `{env:"prod", ns:"prod"}` → shared: `prod-shared-consumer`, dedicated: `prod-sukko-consumer`
   - `{env:"", ns:"dev"}` → fallback: shared: `dev-shared-consumer` (Environment falls back to Namespace)
 
 ### Part 5: Helm environment values
 
-**`deployments/helm/odin/values/standard/dev.yaml`**:
+**`deployments/helm/sukko/values/standard/dev.yaml`**:
 ```yaml
 ws-server:
   config:
     environment: dev
-    kafkaTopicNamespaceOverride: prod  # Consume from prod.odin.* (Odin API data)
+    kafkaTopicNamespaceOverride: prod  # Consume from prod.sukko.* (Sukko API data)
 
 provisioning:
   config:
@@ -427,12 +427,12 @@ provisioning:
     kafkaTopicNamespaceOverride: prod  # Create topics in prod namespace
 ```
 
-**`deployments/helm/odin/values/standard/stg.yaml`**:
+**`deployments/helm/sukko/values/standard/stg.yaml`**:
 ```yaml
 ws-server:
   config:
     environment: stg
-    kafkaTopicNamespaceOverride: prod  # Consume from prod.odin.* (Odin API data)
+    kafkaTopicNamespaceOverride: prod  # Consume from prod.sukko.* (Sukko API data)
 
 provisioning:
   config:
@@ -440,9 +440,9 @@ provisioning:
     kafkaTopicNamespaceOverride: prod  # Create topics in prod namespace
 ```
 
-**`deployments/helm/odin/values/standard/prod.yaml`**: Verify NO override is set (and it would fail fast if someone added one).
+**`deployments/helm/sukko/values/standard/prod.yaml`**: Verify NO override is set (and it would fail fast if someone added one).
 
-**`deployments/helm/odin/values/local.yaml`**: Update provisioning's `topicNamespace: local` → `environment: local`.
+**`deployments/helm/sukko/values/local.yaml`**: Update provisioning's `topicNamespace: local` → `environment: local`.
 
 ### Part 6: Dead code cleanup
 
@@ -460,17 +460,17 @@ Remove unused `KAFKA_CONSUMER_GROUP` from all references:
 - `ws/internal/shared/types/types_test.go`: Remove `ConsumerGroup` references from `TestServerConfig_DefaultFields` (lines 67, 77-78)
 
 **Helm:**
-- `deployments/helm/odin/charts/ws-server/values.yaml`: Remove `consumerGroup` (line 147)
-- `deployments/helm/odin/charts/ws-server/templates/deployment.yaml`: Remove `KAFKA_CONSUMER_GROUP` env var (lines 70-71)
+- `deployments/helm/sukko/charts/ws-server/values.yaml`: Remove `consumerGroup` (line 147)
+- `deployments/helm/sukko/charts/ws-server/templates/deployment.yaml`: Remove `KAFKA_CONSUMER_GROUP` env var (lines 70-71)
 
 ### Part 7: Provisioning — only create "trade" category
 
-The provisioning taskfiles currently create 8 categories for the "odin" tenant:
+The provisioning taskfiles currently create 8 categories for the "sukko" tenant:
 ```
 trade, liquidity, metadata, social, community, creation, analytics, balances
 ```
 
-Only `trade` is actually used by the Odin API. The other 7 create empty topics in Redpanda.
+Only `trade` is actually used by the Sukko API. The other 7 create empty topics in Redpanda.
 
 **`taskfiles/k8s.yml`** (line 249):
 ```bash
@@ -569,39 +569,39 @@ if tenantID == "shared" {
 
 ## Post-Deploy: Cleanup old consumer groups and topics
 
-After deploying and verifying `prod.odin.*` consumption works:
+After deploying and verifying `prod.sukko.*` consumption works:
 ```bash
 # Delete old-format consumer groups
-rpk group delete odin-shared-dev odin-shared-prod
+rpk group delete sukko-shared-dev sukko-shared-prod
 
 # Delete orphaned dev-prefixed topics (if any exist)
-rpk topic delete dev.odin.trade dev.odin.liquidity dev.odin.balances \
-    dev.odin.community dev.odin.creation dev.odin.metadata \
-    dev.odin.social dev.odin.analytics
+rpk topic delete dev.sukko.trade dev.sukko.liquidity dev.sukko.balances \
+    dev.sukko.community dev.sukko.creation dev.sukko.metadata \
+    dev.sukko.social dev.sukko.analytics
 
-# Investigate odin.main.trade (84.9 B/s — unknown origin)
-rpk topic describe odin.main.trade
+# Investigate sukko.main.trade (84.9 B/s — unknown origin)
+rpk topic describe sukko.main.trade
 ```
 
 ## Key Behavior After Deploy
 
 | Environment | Override | Topics | Consumer Group (Shared) | Consumer Group (Dedicated) |
 |---|---|---|---|---|
-| dev | `prod` | `prod.odin.trade` | `dev-shared-consumer` | `dev-odin-consumer` |
-| stg | `prod` | `prod.odin.trade` | `stg-shared-consumer` | `stg-odin-consumer` |
-| prod | (blocked) | `prod.odin.trade` | `prod-shared-consumer` | `prod-odin-consumer` |
+| dev | `prod` | `prod.sukko.trade` | `dev-shared-consumer` | `dev-sukko-consumer` |
+| stg | `prod` | `prod.sukko.trade` | `stg-shared-consumer` | `stg-sukko-consumer` |
+| prod | (blocked) | `prod.sukko.trade` | `prod-shared-consumer` | `prod-sukko-consumer` |
 
 ## Verification
 
 1. `cd ws && go test ./...` — all tests pass
 2. `go vet ./...` — clean
 3. `task k8s:deploy ENV=dev`
-4. Check logs: `kubectl logs -n odin-ws-dev -l app.kubernetes.io/name=ws-server --tail=50 | grep "Topic namespace"`
+4. Check logs: `kubectl logs -n sukko-dev -l app.kubernetes.io/name=ws-server --tail=50 | grep "Topic namespace"`
    → `Topic namespace: prod (environment: dev)`
 5. Check consumer groups: `rpk group list | grep ^dev-`
    → `dev-shared-consumer`
-6. Check Prometheus: `ws_kafka_messages_received_total` shows `topic="prod.odin.trade"` with `consumer_group="dev-shared-consumer"`
-7. Grafana: Redpanda Throughput shows non-zero `Fetched: prod.odin.trade`
+6. Check Prometheus: `ws_kafka_messages_received_total` shows `topic="prod.sukko.trade"` with `consumer_group="dev-shared-consumer"`
+7. Grafana: Redpanda Throughput shows non-zero `Fetched: prod.sukko.trade`
 
 ## Coding Guidelines Compliance
 
@@ -632,13 +632,13 @@ rpk topic describe odin.main.trade
 | 10 | `ws/internal/shared/kafka/config_test.go` | Add `TestResolveNamespace` |
 | 11 | `ws/internal/shared/types/types.go` | Remove dead ConsumerGroup field |
 | 12 | `ws/internal/shared/types/types_test.go` | Remove ConsumerGroup from `TestServerConfig_DefaultFields` |
-| 13 | `ws/internal/shared/kafka/consumer.go` | Fix Kafka key format in comments (`odin.BTC.trade`) |
-| 14 | `deployments/helm/odin/charts/ws-server/values.yaml` | Rename config, remove dead consumerGroup |
-| 15 | `deployments/helm/odin/charts/ws-server/templates/deployment.yaml` | Update env vars |
-| 16 | `deployments/helm/odin/charts/provisioning/values.yaml` | Add environment, replace topicNamespace |
-| 17 | `deployments/helm/odin/charts/provisioning/templates/deployment.yaml` | Update env vars |
-| 18 | `deployments/helm/odin/values/standard/dev.yaml` | Set override for both services |
-| 19 | `deployments/helm/odin/values/standard/stg.yaml` | Update provisioning config |
-| 20 | `deployments/helm/odin/values/local.yaml` | Update provisioning config |
+| 13 | `ws/internal/shared/kafka/consumer.go` | Fix Kafka key format in comments (`sukko.BTC.trade`) |
+| 14 | `deployments/helm/sukko/charts/ws-server/values.yaml` | Rename config, remove dead consumerGroup |
+| 15 | `deployments/helm/sukko/charts/ws-server/templates/deployment.yaml` | Update env vars |
+| 16 | `deployments/helm/sukko/charts/provisioning/values.yaml` | Add environment, replace topicNamespace |
+| 17 | `deployments/helm/sukko/charts/provisioning/templates/deployment.yaml` | Update env vars |
+| 18 | `deployments/helm/sukko/values/standard/dev.yaml` | Set override for both services |
+| 19 | `deployments/helm/sukko/values/standard/stg.yaml` | Update provisioning config |
+| 20 | `deployments/helm/sukko/values/local.yaml` | Update provisioning config |
 | 21 | `taskfiles/k8s.yml` | Reduce provisioning categories to `["trade"]` only |
 | 22 | `taskfiles/local.yml` | Reduce provisioning categories to `["trade"]` only |

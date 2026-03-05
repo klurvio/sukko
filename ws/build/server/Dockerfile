@@ -21,10 +21,10 @@ ARG BUILD_TIME=unknown
 # CGO_ENABLED=0 ensures a static binary without C dependencies
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.Version=${VERSION}' \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.CommitHash=${COMMIT_HASH}' \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.BuildTime=${BUILD_TIME}'" \
-    -o /odin-ws ./cmd/server
+    -X 'github.com/klurvio/sukko/internal/shared/version.Version=${VERSION}' \
+    -X 'github.com/klurvio/sukko/internal/shared/version.CommitHash=${COMMIT_HASH}' \
+    -X 'github.com/klurvio/sukko/internal/shared/version.BuildTime=${BUILD_TIME}'" \
+    -o /sukko-server ./cmd/server
 
 # Stage 2: Create the final, minimal image
 FROM alpine:latest
@@ -33,19 +33,19 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 
 # Create non-root user for security
-RUN addgroup -g 1000 -S odin && \
-    adduser -u 1000 -S odin -G odin
+RUN addgroup -g 1000 -S sukko && \
+    adduser -u 1000 -S sukko -G sukko
 
 WORKDIR /app
 
 # Copy the static binary from the builder stage
-COPY --from=builder /odin-ws .
+COPY --from=builder /sukko-server .
 
 # Ensure binary is executable
-RUN chmod +x /app/odin-ws && chown odin:odin /app/odin-ws
+RUN chmod +x /app/sukko-server && chown sukko:sukko /app/sukko-server
 
 # Switch to non-root user
-USER odin
+USER sukko
 
 # Expose the load balancer port (default 3005)
 EXPOSE 3005
@@ -56,4 +56,4 @@ EXPOSE 3005
 # --base-port: Base port for shards (default: 3002)
 # --lb-addr: Load balancer address (default: :3005)
 # --debug: Enable debug logging
-CMD ["./odin-ws", "--shards=3", "--base-port=3002", "--lb-addr=:3005"]
+CMD ["./sukko-server", "--shards=3", "--base-port=3002", "--lb-addr=:3005"]

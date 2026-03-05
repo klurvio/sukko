@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
+	"github.com/klurvio/sukko/internal/shared/alerting"
 )
 
 func TestEventConstants(t *testing.T) {

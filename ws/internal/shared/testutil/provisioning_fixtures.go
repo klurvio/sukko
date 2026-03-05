@@ -3,8 +3,8 @@ package testutil
 import (
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // NewTestProvisioningConfig creates a ProvisioningConfig with safe defaults for testing.

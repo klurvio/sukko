@@ -1,5 +1,5 @@
 // Package testutil provides testing assertion helpers, mock implementations,
-// and concurrent test utilities for the odin-ws project.
+// and concurrent test utilities for the sukko-ws project.
 package testutil
 
 import (

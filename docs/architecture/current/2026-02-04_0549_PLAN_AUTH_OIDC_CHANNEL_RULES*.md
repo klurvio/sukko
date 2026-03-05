@@ -247,7 +247,7 @@ import (
 
     "github.com/rs/zerolog"
 
-    "github.com/Toniq-Labs/odin-ws/internal/shared/types"
+    "github.com/Toniq-Labs/sukko/internal/shared/types"
 )
 
 // NoopTenantRegistry provides fallback when database is unavailable.
@@ -750,7 +750,7 @@ package gateway
 import (
     "context"
 
-    "github.com/Toniq-Labs/odin-ws/internal/shared/types"
+    "github.com/Toniq-Labs/sukko/internal/shared/types"
 )
 
 // TenantRegistry provides tenant lookup for gateway authentication.
@@ -783,8 +783,8 @@ import (
 
     "github.com/rs/zerolog"
 
-    "github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-    "github.com/Toniq-Labs/odin-ws/internal/shared/types"
+    "github.com/Toniq-Labs/sukko/internal/shared/auth"
+    "github.com/Toniq-Labs/sukko/internal/shared/types"
 )
 
 // TenantPermissionChecker validates channel permissions using per-tenant rules.

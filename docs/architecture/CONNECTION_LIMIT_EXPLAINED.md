@@ -275,7 +275,7 @@ Recommended: Option 2 (fewer instances, easier to manage)
 
 ### Check current connection limit:
 ```bash
-docker logs odin-ws-go-2 2>&1 | grep "Calculated max"
+docker logs sukko-go-2 2>&1 | grep "Calculated max"
 # Output: Calculated max connections: 2184 (based on 180KB per connection + 128MB overhead)
 ```
 

@@ -3,7 +3,7 @@ package gateway
 import (
 	"slices"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/auth"
 )
 
 // Note: This package uses auth.MatchWildcard for pattern matching and

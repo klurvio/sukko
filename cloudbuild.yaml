@@ -16,7 +16,7 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/odin/ws-server:${_TAG}'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/sukko/ws-server:${_TAG}'
       - '--build-arg'
       - 'VERSION=${_TAG}'
       - '--build-arg'
@@ -34,7 +34,7 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/odin/ws-gateway:${_TAG}'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/sukko/ws-gateway:${_TAG}'
       - '--build-arg'
       - 'VERSION=${_TAG}'
       - '--build-arg'
@@ -48,8 +48,8 @@ steps:
 
 # Images to push to Artifact Registry
 images:
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/odin/ws-server:${_TAG}'
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/odin/ws-gateway:${_TAG}'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sukko/ws-server:${_TAG}'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sukko/ws-gateway:${_TAG}'
 
 options:
   logging: CLOUD_LOGGING_ONLY

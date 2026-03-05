@@ -228,7 +228,7 @@ REDIS_CHANNEL=ws.broadcast
 ### Update .env file
 
 ```bash
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws
+cd /Volumes/Dev/Codev/Toniq/sukko/ws
 
 # Create/update .env
 cat >> .env <<EOF
@@ -245,7 +245,7 @@ EOF
 
 ```bash
 # Run ws-server locally
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws
+cd /Volumes/Dev/Codev/Toniq/sukko/ws
 go run cmd/multi/main.go
 
 # Expected logs:
@@ -291,7 +291,7 @@ wscat -c ws://localhost:3005
 Connected to ws://localhost:3005
 
 # Subscribe to a topic
-> {"action":"subscribe","topic":"odin.token.BTC.trade"}
+> {"action":"subscribe","topic":"sukko.token.BTC.trade"}
 ```
 
 **Terminal 2** (connect to Instance 2):
@@ -300,14 +300,14 @@ wscat -c ws://localhost:3006
 Connected to ws://localhost:3006
 
 # Subscribe to same topic
-> {"action":"subscribe","topic":"odin.token.BTC.trade"}
+> {"action":"subscribe","topic":"sukko.token.BTC.trade"}
 ```
 
 **Terminal 3** (simulate Kafka message to Instance 1):
 ```bash
 # Publish to Redis (simulating Kafka → Instance 1 → Redis)
 redis-cli -h 10.128.0.10 -a $REDIS_PASSWORD PUBLISH ws.broadcast \
-  '{"subject":"odin.token.BTC.trade","message":{"price":50000,"volume":1.5}}'
+  '{"subject":"sukko.token.BTC.trade","message":{"price":50000,"volume":1.5}}'
 ```
 
 **Expected Result**:

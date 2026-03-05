@@ -51,7 +51,7 @@ Complete restructure of project organization:
    - `k8s/remote/standard.yml` - GKE Standard (was `k8s/standard.yml`)
 
 3. **Moved Helm chart**:
-   - `deployments/k8s/helm/odin/` → `deployments/helm/odin/`
+   - `deployments/k8s/helm/sukko/` → `deployments/helm/sukko/`
    - `deployments/k8s/environments/local/kind-config.yaml` → `deployments/k8s/local/kind-config.yaml`
 
 4. **Reorganized Terraform**:
@@ -124,7 +124,7 @@ After reorganization, module source paths changed:
 ## Current State
 
 - All taskfiles reorganized and working
-- Helm chart at new location: `deployments/helm/odin/`
+- Helm chart at new location: `deployments/helm/sukko/`
 - Terraform at new location: `deployments/terraform/environments/standard/`
 - Legacy files deleted
 - Root Taskfile has clean shortcuts
@@ -147,12 +147,12 @@ After reorganization, module source paths changed:
 ## Files Modified
 
 ### Helm Chart (OIDC Config)
-- `deployments/helm/odin/charts/ws-gateway/values.yaml` - Added OIDC config section
-- `deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml` - Added 8 env vars
-- `deployments/helm/odin/values/local.yaml` - Added OIDC config
-- `deployments/helm/odin/values/standard/develop.yaml` - Added OIDC config
-- `deployments/helm/odin/values/standard/staging.yaml` - Added OIDC config
-- `deployments/helm/odin/values/standard/production.yaml` - Added OIDC config
+- `deployments/helm/sukko/charts/ws-gateway/values.yaml` - Added OIDC config section
+- `deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml` - Added 8 env vars
+- `deployments/helm/sukko/values/local.yaml` - Added OIDC config
+- `deployments/helm/sukko/values/standard/develop.yaml` - Added OIDC config
+- `deployments/helm/sukko/values/standard/staging.yaml` - Added OIDC config
+- `deployments/helm/sukko/values/standard/production.yaml` - Added OIDC config
 
 ### Taskfiles (New)
 - `taskfiles/shared/build.yml`
@@ -197,7 +197,7 @@ task dev                              # Test local setup
 task k8s:local:status                 # Check status
 
 # If testing OIDC
-# Edit deployments/helm/odin/values/standard/develop.yaml
+# Edit deployments/helm/sukko/values/standard/develop.yaml
 # Set multiIssuerOIDCEnabled: true
 task deploy:develop
 ```

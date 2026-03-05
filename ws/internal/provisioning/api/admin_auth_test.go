@@ -9,7 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/auth"
 )
 
 func newTestAdminAuth(token string) (*AdminAuth, context.CancelFunc) {

@@ -156,7 +156,7 @@ If 5ms contention occurs during SYN-ACK:
 
 **Evidence from architecture:**
 ```
-Client → Internet → GCP Load Balancer → odin-ws-go (Server)
+Client → Internet → GCP Load Balancer → sukko-go (Server)
                     ↑
                     Connection tracking state
                     Brief contention during burst

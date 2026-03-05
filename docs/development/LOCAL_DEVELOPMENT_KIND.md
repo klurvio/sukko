@@ -1,6 +1,6 @@
 # Local Development with Kind
 
-This guide covers setting up a local Kubernetes development environment using [Kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) for the Odin WebSocket infrastructure.
+This guide covers setting up a local Kubernetes development environment using [Kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) for the Sukko WebSocket infrastructure.
 
 ## Prerequisites
 
@@ -39,7 +39,7 @@ task k8s:local:setup
 ```
 
 This command:
-1. Creates a Kind cluster named `odin-ws-local`
+1. Creates a Kind cluster named `sukko-local`
 2. Switches kubectl context to the Kind cluster
 3. Builds ws-server and ws-gateway Docker images
 4. Loads images into Kind
@@ -49,9 +49,9 @@ This command:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    Kind Cluster (odin-ws-local)                       │
+│                    Kind Cluster (sukko-local)                       │
 │  ┌────────────────────────────────────────────────────────────────┐  │
-│  │                    Namespace: odin-local                        │  │
+│  │                    Namespace: sukko-local                        │  │
 │  │                                                                 │  │
 │  │  ┌─────────────┐      ┌─────────────┐      ┌───────────────┐   │  │
 │  │  │ ws-gateway  │─────▶│  ws-server  │◀─────│   Redpanda    │   │  │
@@ -179,7 +179,7 @@ task k8s:local:test:ws
 task k8s:local:setup
 
 # Wait for pods to be ready
-kubectl get pods -n odin-local -w
+kubectl get pods -n sukko-local -w
 ```
 
 ### 2. Make Code Changes
@@ -225,7 +225,7 @@ Located at: `deployments/k8s/environments/local/kind-config.yaml`
 ```yaml
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: odin-ws-local
+name: sukko-local
 
 nodes:
   - role: control-plane
@@ -242,7 +242,7 @@ nodes:
 
 ### Helm Values (Local)
 
-Located at: `deployments/k8s/helm/odin/values/local.yaml`
+Located at: `deployments/k8s/helm/sukko/values/local.yaml`
 
 Key settings for local development:
 - Single shard (M1 Mac optimized)
@@ -254,7 +254,7 @@ Key settings for local development:
 
 ## Helm Charts
 
-The Odin umbrella chart includes:
+The Sukko umbrella chart includes:
 
 | Chart | Purpose | Enabled |
 |-------|---------|---------|
@@ -267,7 +267,7 @@ The Odin umbrella chart includes:
 
 ### Enabling/Disabling Components
 
-Edit `deployments/k8s/helm/odin/values/local.yaml`:
+Edit `deployments/k8s/helm/sukko/values/local.yaml`:
 
 ```yaml
 ws-gateway:
@@ -384,7 +384,7 @@ If pods deploy to GKE instead of Kind:
 kubectl config current-context
 
 # Switch to Kind context
-kubectl config use-context kind-odin-ws-local
+kubectl config use-context kind-sukko-local
 
 # Or re-run setup (auto-switches context)
 task k8s:local:deploy
@@ -394,13 +394,13 @@ task k8s:local:deploy
 
 ```bash
 # Check pod status
-kubectl get pods -n odin-local
+kubectl get pods -n sukko-local
 
 # Describe failing pod
-kubectl describe pod <pod-name> -n odin-local
+kubectl describe pod <pod-name> -n sukko-local
 
 # Check events
-kubectl get events -n odin-local --sort-by='.lastTimestamp'
+kubectl get events -n sukko-local --sort-by='.lastTimestamp'
 ```
 
 ### Image Not Found
@@ -410,7 +410,7 @@ kubectl get events -n odin-local --sort-by='.lastTimestamp'
 task k8s:local:build
 
 # Verify image exists
-docker exec -it odin-ws-local-control-plane crictl images | grep odin
+docker exec -it sukko-local-control-plane crictl images | grep sukko
 ```
 
 ### Port Already in Use
@@ -434,7 +434,7 @@ docker ps
 kind get clusters
 
 # Check if Kind container is running
-docker ps --filter name=odin-ws-local
+docker ps --filter name=sukko-local
 
 # Recreate if needed
 task k8s:local:destroy
@@ -445,7 +445,7 @@ task k8s:local:setup
 
 ```bash
 # Update Helm dependencies
-helm dependency update deployments/k8s/helm/odin
+helm dependency update deployments/k8s/helm/sukko
 
 # Lint charts
 task k8s:common:helm:lint
@@ -480,7 +480,7 @@ task k8s:local:build:reload
 
 ```bash
 # Terminal 1: Watch pods
-kubectl get pods -n odin-local -w
+kubectl get pods -n sukko-local -w
 
 # Terminal 2: Watch logs
 task k8s:local:logs
@@ -502,7 +502,7 @@ task k8s:local:setup
 Monitor Kind resource consumption:
 
 ```bash
-docker stats odin-ws-local-control-plane
+docker stats sukko-local-control-plane
 ```
 
 ## File Locations
@@ -510,9 +510,9 @@ docker stats odin-ws-local-control-plane
 | File | Purpose |
 |------|---------|
 | `deployments/k8s/environments/local/kind-config.yaml` | Kind cluster configuration |
-| `deployments/k8s/helm/odin/values/local.yaml` | Local Helm values |
-| `deployments/k8s/helm/odin/Chart.yaml` | Umbrella chart definition |
-| `deployments/k8s/helm/odin/charts/*/` | Sub-charts |
+| `deployments/k8s/helm/sukko/values/local.yaml` | Local Helm values |
+| `deployments/k8s/helm/sukko/Chart.yaml` | Umbrella chart definition |
+| `deployments/k8s/helm/sukko/charts/*/` | Sub-charts |
 | `taskfiles/k8s/local.yml` | Local task definitions |
 | `ws/build/server/Dockerfile` | ws-server container image |
 | `ws/build/gateway/Dockerfile` | ws-gateway container image |

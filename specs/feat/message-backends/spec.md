@@ -6,13 +6,13 @@
 
 ## Context
 
-Odin WS currently requires Kafka/Redpanda as its message ingestion and persistence layer. External data enters the system via Kafka consumers, client-published messages are routed through Kafka, and message replay on reconnection reads from Kafka offsets. This creates a hard dependency on Kafka infrastructure for every deployment.
+Sukko currently requires Kafka/Redpanda as its message ingestion and persistence layer. External data enters the system via Kafka consumers, client-published messages are routed through Kafka, and message replay on reconnection reads from Kafka offsets. This creates a hard dependency on Kafka infrastructure for every deployment.
 
 The inter-pod broadcast layer (NATS Core / Valkey) is already abstracted behind a `Bus` interface — switching between NATS and Valkey is a configuration change. But the ingestion layer (Kafka) has no such abstraction. The consumer, producer, multi-tenant pool, and replay logic are all tightly coupled to franz-go.
 
 This limits the product in three ways:
 
-1. **High barrier to entry** — teams without existing Kafka infrastructure must set up a Kafka/Redpanda cluster just to evaluate Odin. Competitors like Pusher require zero backend infrastructure.
+1. **High barrier to entry** — teams without existing Kafka infrastructure must set up a Kafka/Redpanda cluster just to evaluate Sukko. Competitors like Pusher require zero backend infrastructure.
 2. **Over-provisioned for simple use cases** — a team that only needs real-time publish/subscribe (no persistence, no replay) still needs Kafka running.
 3. **No middle ground** — teams that want persistence and replay but find Kafka too heavy have no lighter alternative.
 
@@ -28,7 +28,7 @@ The message backend is selected via a single configuration value. The rest of th
 
 ### Scenario 1 — Direct Mode: Zero-Infrastructure Pub/Sub (Priority: P1)
 
-A developer evaluating Odin runs the server without Kafka or NATS JetStream. Clients connect, subscribe, and publish messages to each other in real time. The only infrastructure requirement is the broadcast bus (NATS Core or Valkey) for inter-pod communication.
+A developer evaluating Sukko runs the server without Kafka or NATS JetStream. Clients connect, subscribe, and publish messages to each other in real time. The only infrastructure requirement is the broadcast bus (NATS Core or Valkey) for inter-pod communication.
 
 **Acceptance Criteria**:
 1. **Given** `MESSAGE_BACKEND=direct`, **When** the ws-server starts, **Then** it starts successfully without any Kafka or NATS JetStream connection. The only requirement is the inter-pod broadcast bus (NATS Core or Valkey).
@@ -37,7 +37,7 @@ A developer evaluating Odin runs the server without Kafka or NATS JetStream. Cli
 
 ### Scenario 2 — Kafka/Redpanda: Full Persistence and Replay (Priority: P1)
 
-An operator runs Odin with Kafka/Redpanda for production-grade persistence, replay, and multi-tenant consumer isolation. This is the current behavior, preserved exactly.
+An operator runs Sukko with Kafka/Redpanda for production-grade persistence, replay, and multi-tenant consumer isolation. This is the current behavior, preserved exactly.
 
 **Acceptance Criteria**:
 1. **Given** `MESSAGE_BACKEND=kafka`, **When** the ws-server starts, **Then** it connects to Kafka brokers, starts consumer groups, and begins consuming messages — identical to current behavior.
@@ -46,7 +46,7 @@ An operator runs Odin with Kafka/Redpanda for production-grade persistence, repl
 
 ### Scenario 3 — NATS JetStream: Lightweight Persistence (Priority: P2)
 
-An operator runs Odin with NATS JetStream for message persistence and replay without the operational overhead of Kafka.
+An operator runs Sukko with NATS JetStream for message persistence and replay without the operational overhead of Kafka.
 
 **Acceptance Criteria**:
 1. **Given** `MESSAGE_BACKEND=nats`, **When** the ws-server starts, **Then** it connects to NATS with JetStream enabled, creates streams for configured tenants/topics, and begins consuming messages.
@@ -56,7 +56,7 @@ An operator runs Odin with NATS JetStream for message persistence and replay wit
 
 ### Scenario 4 — Backend-Agnostic Client Experience (Priority: P1)
 
-Clients connect and interact with Odin identically regardless of the message backend. The WebSocket protocol is unchanged.
+Clients connect and interact with Sukko identically regardless of the message backend. The WebSocket protocol is unchanged.
 
 **Acceptance Criteria**:
 1. **Given** any message backend, **When** a client subscribes, publishes, or unsubscribes, **Then** the WebSocket protocol messages and responses are identical.
@@ -132,7 +132,7 @@ Clients connect and interact with Odin identically regardless of the message bac
 
 - Q: Should embedded NATS server be included in this spec? → A: **No.** Embedding NATS in-process prevents horizontal scaling — each pod would have an isolated server with no shared streams. NATS JetStream always connects to an external NATS server. The broadcast bus is also out of scope for this spec.
 - Q: What should the default value of MESSAGE_BACKEND be? → A: **`direct`**. No production deployments exist yet, so backward compatibility is not a concern. Default to the lowest-friction path (zero dependencies).
-- Q: Should HTTP ingestion (POST /v1/publish) be included? → A: **No.** All backends are client-to-client only. External system ingestion into Kafka/NATS is outside Odin's scope — external systems use their own Kafka/NATS clients directly. No special Odin code needed.
+- Q: Should HTTP ingestion (POST /v1/publish) be included? → A: **No.** All backends are client-to-client only. External system ingestion into Kafka/NATS is outside Sukko's scope — external systems use their own Kafka/NATS clients directly. No special Sukko code needed.
 - Q: Should single-pod / in-memory broadcast be in this spec? → A: **No.** All message backends support multi-pod deployment via the existing broadcast bus (NATS Core / Valkey). The broadcast bus is out of scope for this spec.
 - Q: Do the backends support managed/cloud services? → A: **Yes.** Kafka mode already supports SASL + TLS for managed services (Confluent Cloud, AWS MSK, Redpanda Cloud). NATS JetStream mode includes TLS + auth config for managed NATS (Synadia Cloud). Operators point the config at their managed service URLs and provide credentials — no special "managed" mode needed.
 - Q: How should the multi-tenant consumer pool relate to the MessageBackend abstraction? → A: **Each backend owns its own ingestion/isolation strategy.** Kafka wraps the existing `MultiTenantConsumerPool` internally (shared/dedicated consumer groups). JetStream uses stream-per-tenant for natural isolation. Direct mode has no ingestion layer. The ws-server only interacts with the `MessageBackend` interface — pool management is an internal implementation detail of each backend.

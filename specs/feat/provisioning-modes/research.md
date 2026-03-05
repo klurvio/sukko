@@ -90,7 +90,7 @@ repository/
 - Provisioning service runs two listeners: gRPC (port 9090) + HTTP (port 8080)
 - Gateway and ws-server connect via gRPC streaming
 - CLI and admin UI use REST API
-- Proto files in `ws/proto/odin/provisioning/v1/`
+- Proto files in `ws/proto/sukko/provisioning/v1/`
 - Code generation via `buf generate`
 - Dependencies: `google.golang.org/grpc`, `google.golang.org/protobuf`, `buf.build/gen/go/...`
 

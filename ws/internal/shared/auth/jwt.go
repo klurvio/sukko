@@ -43,7 +43,7 @@ type Claims struct {
 }
 
 // AppID returns the subject (app ID) from the token.
-// The app ID identifies the connecting application (e.g., "odin-web", "trading-bot-1").
+// The app ID identifies the connecting application (e.g., "sukko-web", "trading-bot-1").
 func (c *Claims) AppID() string {
 	return c.Subject
 }

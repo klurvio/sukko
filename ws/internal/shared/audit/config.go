@@ -4,7 +4,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
+	"github.com/klurvio/sukko/internal/shared/alerting"
 )
 
 // Config holds configuration for creating an audit logger.

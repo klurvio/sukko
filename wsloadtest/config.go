@@ -130,13 +130,13 @@ func ParseConfig() (*Config, error) {
 	flag.DurationVar(&cfg.PingPeriod, "ping-period", getEnvDuration("WS_PING_PERIOD", 90*time.Second), "How often to send pings")
 
 	// Subscription flags
-	defaultChannels := "odin.all.trade,odin.BTC.trade,odin.ETH.trade,odin.SOL.trade,odin.BTC.orderbook,odin.ETH.liquidity"
+	defaultChannels := "sukko.all.trade,sukko.BTC.trade,sukko.ETH.trade,sukko.SOL.trade,sukko.BTC.orderbook,sukko.ETH.liquidity"
 	channelsStr := flag.String("channels", getEnv("CHANNELS", defaultChannels), "Comma-separated channels (format: tenant.identifier.category)")
 	flag.StringVar(&cfg.SubscriptionMode, "mode", getEnv("SUBSCRIPTION_MODE", "random"), "Subscription mode: all/single/random")
 	flag.IntVar(&cfg.ChannelsPerClient, "channels-per-client", getEnvInt("CHANNELS_PER_CLIENT", 3), "Channels per client (for random mode)")
 
 	// Auth flags
-	flag.StringVar(&cfg.TenantID, "tenant", getEnv("TENANT_ID", "odin"), "Tenant ID for JWT token generation")
+	flag.StringVar(&cfg.TenantID, "tenant", getEnv("TENANT_ID", "sukko"), "Tenant ID for JWT token generation")
 	flag.StringVar(&cfg.Token, "token", getEnv("JWT_TOKEN", ""), "Pre-generated JWT token")
 	flag.StringVar(&cfg.JWTSecret, "jwt-secret", getEnv("JWT_SECRET", ""), "JWT secret to generate tokens")
 	flag.StringVar(&cfg.Principal, "principal", getEnv("PRINCIPAL", "loadtest-user"), "Principal for JWT")

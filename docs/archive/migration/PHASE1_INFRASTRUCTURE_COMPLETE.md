@@ -39,14 +39,14 @@
 
 **Topics Created:**
 ```
-odin.trades      - 30s retention, 12 partitions
-odin.liquidity   - 1min retention, 12 partitions
-odin.metadata    - 1hr retention, 12 partitions
-odin.social      - 1hr retention, 12 partitions
-odin.community   - 5min retention, 12 partitions
-odin.creation    - 1hr retention, 12 partitions
-odin.analytics   - 5min retention, 12 partitions
-odin.balances    - 30s retention, 12 partitions
+sukko.trades      - 30s retention, 12 partitions
+sukko.liquidity   - 1min retention, 12 partitions
+sukko.metadata    - 1hr retention, 12 partitions
+sukko.social      - 1hr retention, 12 partitions
+sukko.community   - 5min retention, 12 partitions
+sukko.creation    - 1hr retention, 12 partitions
+sukko.analytics   - 5min retention, 12 partitions
+sukko.balances    - 30s retention, 12 partitions
 ```
 
 ### 3. Local Testing Setup
@@ -100,7 +100,7 @@ sudo docker ps | grep redpanda
 sudo docker logs redpanda
 
 # Create topics
-cd /home/deploy/odin-ws
+cd /home/deploy/sukko
 ./scripts/setup-redpanda-topics.sh localhost:9092
 
 # Verify
@@ -154,10 +154,10 @@ docker exec redpanda rpk cluster health
 docker exec redpanda rpk topic list
 
 # Describe specific topic
-docker exec redpanda rpk topic describe odin.trades
+docker exec redpanda rpk topic describe sukko.trades
 
 # Check all configurations
-for topic in odin.trades odin.liquidity odin.metadata odin.social odin.community odin.creation odin.analytics odin.balances; do
+for topic in sukko.trades sukko.liquidity sukko.metadata sukko.social sukko.community sukko.creation sukko.analytics sukko.balances; do
   echo "=== $topic ==="
   docker exec redpanda rpk topic describe $topic
   echo ""
@@ -288,7 +288,7 @@ docker-compose restart redpanda
 docker exec redpanda rpk cluster health
 
 # Try manual creation
-docker exec redpanda rpk topic create odin.trades \
+docker exec redpanda rpk topic create sukko.trades \
   --partitions 12 \
   --replicas 1 \
   --config retention.ms=30000

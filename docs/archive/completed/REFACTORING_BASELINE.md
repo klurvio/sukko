@@ -33,7 +33,7 @@ Errors:               0 (0.00%)
 ### Subscription Performance
 ```
 Mode:                 all (every client subscribes to all 5 channels)
-Channels:             [BTC.trade, ETH.trade, SOL.trade, ODIN.trade, DOGE.trade]
+Channels:             [BTC.trade, ETH.trade, SOL.trade, SUKKO.trade, DOGE.trade]
 Subscriptions Sent:   3,941
 Confirmed:            3,931 (99.7%)
 Failed:               0

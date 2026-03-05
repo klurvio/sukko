@@ -70,11 +70,11 @@
 
 ## Phase 5 — Helm & Deploy Verification
 
-- [x] T025 [P] Add `GATEWAY_AUTH_REFRESH_RATE_INTERVAL` env var to `deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml`, sourcing from values. Add `authRefreshRateInterval: "30s"` to `deployments/helm/odin/charts/ws-gateway/values.yaml` under the gateway config section.
+- [x] T025 [P] Add `GATEWAY_AUTH_REFRESH_RATE_INTERVAL` env var to `deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml`, sourcing from values. Add `authRefreshRateInterval: "30s"` to `deployments/helm/sukko/charts/ws-gateway/values.yaml` under the gateway config section.
 
-- [x] T026 [P] Add auth refresh config to `deployments/helm/odin/values/standard/dev.yaml` if gateway values are overridden there. Check if the file has gateway-specific overrides; if so, add `authRefreshRateInterval` to match.
+- [x] T026 [P] Add auth refresh config to `deployments/helm/sukko/values/standard/dev.yaml` if gateway values are overridden there. Check if the file has gateway-specific overrides; if so, add `authRefreshRateInterval` to match.
 
-- [x] T027 Verify Helm: run `helm lint deployments/helm/odin/charts/ws-gateway`. Confirm no lint errors.
+- [x] T027 Verify Helm: run `helm lint deployments/helm/sukko/charts/ws-gateway`. Confirm no lint errors.
 
 ---
 

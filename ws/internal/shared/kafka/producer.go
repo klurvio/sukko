@@ -19,10 +19,10 @@ import (
 	"github.com/sony/gobreaker/v2"
 	"github.com/twmb/franz-go/pkg/kgo"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/shared/types"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // Re-export sentinel errors from protocol package for backward compatibility.
@@ -46,7 +46,7 @@ type ProducerStats struct {
 type ProducerConfig struct {
 	Brokers        []string        // Kafka/Redpanda broker addresses (required)
 	TopicNamespace string          // Topic namespace: "local", "dev", "staging", "prod" (required)
-	ClientID       string          // Client ID for Kafka connection (optional, defaults to "odin-ws-producer-{hostname}")
+	ClientID       string          // Client ID for Kafka connection (optional, defaults to "sukko-producer-{hostname}")
 	Logger         *zerolog.Logger // Structured logger (optional)
 
 	// Security configuration for managed Kafka/Redpanda services
@@ -121,14 +121,14 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 
 	// Set defaults
 	// Auto-generate client ID with hostname for per-instance observability
-	// Example: "odin-ws-producer-odin-ws-7f8d9c4b5-abc123" in Kubernetes
+	// Example: "sukko-producer-sukko-7f8d9c4b5-abc123" in Kubernetes
 	clientID := cfg.ClientID
 	if clientID == "" {
 		hostname, err := os.Hostname()
 		if err != nil {
 			hostname = "unknown"
 		}
-		clientID = "odin-ws-producer-" + hostname
+		clientID = "sukko-producer-" + hostname
 	}
 	batchMaxBytes := cfg.BatchMaxBytes
 	if batchMaxBytes == 0 {
@@ -417,11 +417,11 @@ func parseChannel(channel string) (tenant, category string, err error) {
 // parseChannelWithDefault extracts tenant and category, using default tenant if needed.
 // Handles channels with fewer than 3 parts by prepending the default tenant.
 //
-// Examples with DefaultTenantID = "odin":
+// Examples with DefaultTenantID = "sukko":
 //
-//	"odin.BTC.trade"  → tenant: "odin", category: "trade" (3+ parts: explicit tenant)
-//	"BTC.trade"       → tenant: "odin", category: "trade" (2 parts: use default)
-//	"trade"           → tenant: "odin", category: "trade" (1 part: use default)
+//	"sukko.BTC.trade"  → tenant: "sukko", category: "trade" (3+ parts: explicit tenant)
+//	"BTC.trade"       → tenant: "sukko", category: "trade" (2 parts: use default)
+//	"trade"           → tenant: "sukko", category: "trade" (1 part: use default)
 func (p *Producer) parseChannelWithDefault(channel string) (tenant, category string, err error) {
 	parts := strings.Split(channel, ".")
 

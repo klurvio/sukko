@@ -19,7 +19,7 @@ Load testing hit a wall at ~2K connections. The gateway logs show "tenant connec
 
 ### 1. Expose tenant connection limit in gateway Helm chart
 
-**`deployments/helm/odin/charts/ws-gateway/values.yaml`** -- Added section:
+**`deployments/helm/sukko/charts/ws-gateway/values.yaml`** -- Added section:
 ```yaml
 # Per-tenant connection limits (in-memory, per gateway pod)
 # Effective cluster limit = default × replicaCount
@@ -28,7 +28,7 @@ tenantConnectionLimit:
   default: 1000
 ```
 
-**`deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml`** -- Replaced misleading comment with env vars:
+**`deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml`** -- Replaced misleading comment with env vars:
 ```yaml
 # Per-tenant connection limits (in-memory per pod)
 # Effective cluster limit = DEFAULT_TENANT_CONNECTION_LIMIT × gateway replica count
@@ -40,7 +40,7 @@ tenantConnectionLimit:
 
 ### 2. Set 20K capacity in dev values
 
-**`deployments/helm/odin/values/standard/dev.yaml`** -- Added under `ws-gateway:`:
+**`deployments/helm/sukko/values/standard/dev.yaml`** -- Added under `ws-gateway:`:
 ```yaml
   tenantConnectionLimit:
     enabled: true
@@ -55,14 +55,14 @@ tenantConnectionLimit:
 ---
 
 ## Files Modified
-- `deployments/helm/odin/charts/ws-gateway/values.yaml` -- Added `tenantConnectionLimit` defaults
-- `deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml` -- Added 2 env vars, fixed misleading comment
-- `deployments/helm/odin/values/standard/dev.yaml` -- Set `default: 10000`
+- `deployments/helm/sukko/charts/ws-gateway/values.yaml` -- Added `tenantConnectionLimit` defaults
+- `deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml` -- Added 2 env vars, fixed misleading comment
+- `deployments/helm/sukko/values/standard/dev.yaml` -- Set `default: 10000`
 
 ---
 
 ## Verification
 1. `task k8s:deploy ENV=dev` (config-only change, no image rebuild needed)
-2. Check gateway logs confirm new limit: `kubectl logs -n odin-ws-dev -l app.kubernetes.io/name=ws-gateway --tail=5 | grep "tenant"`
+2. Check gateway logs confirm new limit: `kubectl logs -n sukko-dev -l app.kubernetes.io/name=ws-gateway --tail=5 | grep "tenant"`
 3. Run load test targeting 20K connections
 4. No "tenant connection limit exceeded" until > 20K

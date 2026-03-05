@@ -34,7 +34,7 @@ All server parameters can be configured via environment variables.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `JS_STREAM_NAME` | `ODIN_TOKENS` | Name of JetStream stream for token updates |
+| `JS_STREAM_NAME` | `SUKKO_TOKENS` | Name of JetStream stream for token updates |
 | `JS_STREAM_MAX_AGE` | `30s` | Maximum age of messages in stream (e.g., `1m`, `5m`) |
 | `JS_STREAM_MAX_MSGS` | `100000` | Maximum number of messages in stream |
 | `JS_STREAM_MAX_BYTES` | `52428800` | Maximum bytes in stream (default: 50MB) |
@@ -124,7 +124,7 @@ services:
       - SAFETY_MARGIN=0.9
 
       # JetStream configuration
-      - JS_STREAM_NAME=ODIN_TOKENS
+      - JS_STREAM_NAME=SUKKO_TOKENS
       - JS_STREAM_MAX_AGE=30s
       - JS_STREAM_MAX_MSGS=100000
       - JS_STREAM_MAX_BYTES=52428800
@@ -146,7 +146,7 @@ Server logs will show active configuration on startup:
 [WS]   CPU Pause Threshold: 85.0%
 [WS]   CPU Target Max: 70.0%
 [WS]   Capacity Range: 50 - 10000 connections
-[WS]   JetStream Stream: ODIN_TOKENS (max age: 30s)
+[WS]   JetStream Stream: SUKKO_TOKENS (max age: 30s)
 [WS]   Monitoring: metrics=15s, capacity=30s
 ```
 

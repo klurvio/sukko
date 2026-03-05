@@ -27,10 +27,10 @@
 
 | Environment | KAFKA_TOPIC_NAMESPACE | Topic Example |
 |-------------|----------------------|---------------|
-| local | `local` | `local.odin.trade` |
-| dev | `dev` | `dev.odin.trade` |
-| stg | `stg` | `stg.odin.trade` |
-| prod | `prod` | `prod.odin.trade` |
+| local | `local` | `local.sukko.trade` |
+| dev | `dev` | `dev.sukko.trade` |
+| stg | `stg` | `stg.sukko.trade` |
+| prod | `prod` | `prod.sukko.trade` |
 
 ---
 
@@ -39,7 +39,7 @@
 ### 1. Delete topics-job.yaml
 
 ```bash
-rm deployments/helm/odin/charts/redpanda/templates/topics-job.yaml
+rm deployments/helm/sukko/charts/redpanda/templates/topics-job.yaml
 ```
 
 ### 2. Remove topics from Helm values
@@ -69,7 +69,7 @@ ws-server:
 
 In `taskfiles/local.yml`, remove:
 ```yaml
-- kubectl exec ... -- rpk topic create local.odin.trade -p 3 2>/dev/null || true
+- kubectl exec ... -- rpk topic create local.sukko.trade -p 3 2>/dev/null || true
 ```
 
 ### 5. Update code comments (stag → stg)
@@ -114,7 +114,7 @@ In `ws/internal/shared/kafka/config.go`, update valid namespaces:
 
 ```bash
 # Delete old topics
-kubectl exec -n odin-local odin-redpanda-0 -- rpk topic delete -r '.*'
+kubectl exec -n sukko-local sukko-redpanda-0 -- rpk topic delete -r '.*'
 
 # Redeploy
 task local:deploy
@@ -122,7 +122,7 @@ task local:deploy
 # Create topics via API
 task local:provision:create
 
-# Verify topics are named correctly (local.odin.*)
+# Verify topics are named correctly (local.sukko.*)
 task local:provision:status
 
 # Test publisher

@@ -16,7 +16,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // natsBus implements Bus using NATS Core Pub/Sub.
@@ -81,7 +81,7 @@ func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 	if ncfg.Name != "" {
 		opts = append(opts, nats.Name(ncfg.Name))
 	} else {
-		opts = append(opts, nats.Name("odin-ws-broadcast"))
+		opts = append(opts, nats.Name("sukko-broadcast"))
 	}
 
 	// TLS configuration for managed NATS services

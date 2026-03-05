@@ -1,12 +1,12 @@
 # Deployments Guidelines
 
-Reference for adding and maintaining deployment configurations in the Odin WebSocket project.
+Reference for adding and maintaining deployment configurations in the Sukko WebSocket project.
 
 ## Directory Structure
 
 ```
 deployments/
-├── helm/odin/                    # Helm chart (K8s deployments)
+├── helm/sukko/                    # Helm chart (K8s deployments)
 │   ├── Chart.yaml                # Chart metadata + dependencies
 │   ├── values.yaml               # Base/default values
 │   ├── values/
@@ -46,10 +46,10 @@ deployments/
 
 | Environment | Short | Namespace | Cluster Name | Helm Values |
 |-------------|-------|-----------|--------------|-------------|
-| Local (Kind) | local | `odin-local` | `odin-ws-local` | `values/local.yaml` |
-| Development | dev | `odin-dev` | `odin-ws-dev` | `values/standard/dev.yaml` |
-| Staging | stg | `odin-stg` | `odin-ws-stg` | `values/standard/stg.yaml` |
-| Production | prod | `odin-prod` | `odin-ws-prod` | `values/standard/prod.yaml` |
+| Local (Kind) | local | `sukko-local` | `sukko-local` | `values/local.yaml` |
+| Development | dev | `sukko-dev` | `sukko-dev` | `values/standard/dev.yaml` |
+| Staging | stg | `sukko-stg` | `sukko-stg` | `values/standard/stg.yaml` |
+| Production | prod | `sukko-prod` | `sukko-prod` | `values/standard/prod.yaml` |
 
 ## Helm Values Hierarchy
 
@@ -112,7 +112,7 @@ ws-server:
 ### Step 1: Create Chart Structure
 
 ```bash
-mkdir -p deployments/helm/odin/charts/my-service/templates
+mkdir -p deployments/helm/sukko/charts/my-service/templates
 ```
 
 ```yaml
@@ -242,7 +242,7 @@ my-service:
 ### Step 7: Update Dependencies
 
 ```bash
-cd deployments/helm/odin
+cd deployments/helm/sukko
 helm dependency update
 ```
 
@@ -359,10 +359,10 @@ region = "us-central1"
 zone   = "us-central1-a"
 
 # Cluster Configuration
-cluster_name = "odin-ws-{env}"
+cluster_name = "sukko-{env}"
 environment  = "{env}"
-namespace    = "odin-{env}"
-network_name = "odin-ws-{env}-vpc"
+namespace    = "sukko-{env}"
+network_name = "sukko-{env}-vpc"
 
 # Node Pool Configuration
 node_machine_type = "e2-standard-4"
@@ -394,11 +394,11 @@ Topics are defined in environment values files:
 redpanda:
   topics:
     # Regular topics (publisher → external service)
-    - name: odin.main.trade
+    - name: sukko.main.trade
       partitions: 1
       replicationFactor: 1
     # Refined topics (external service → ws-server)
-    - name: odin.main.trade.refined
+    - name: sukko.main.trade.refined
       partitions: 1
       replicationFactor: 1
 ```
@@ -406,12 +406,12 @@ redpanda:
 ### Topic Naming Convention
 
 ```
-odin.{namespace}.{category}[.refined]
+sukko.{namespace}.{category}[.refined]
 ```
 
 | Component | Description | Examples |
 |-----------|-------------|----------|
-| `odin` | Fixed prefix | - |
+| `sukko` | Fixed prefix | - |
 | `namespace` | Topic namespace | `local`, `main`, `stg` |
 | `category` | Data category | `trade`, `liquidity`, `balances` |
 | `.refined` | Suffix for processed topics | ws-server consumes these |
@@ -420,10 +420,10 @@ odin.{namespace}.{category}[.refined]
 
 | Environment | Topic Namespace | Example Topic |
 |-------------|-----------------|---------------|
-| local | `local` | `odin.local.trade.refined` |
-| dev | `main` | `odin.main.trade.refined` |
-| stg | `stg` | `odin.stg.trade.refined` |
-| prod | `main` | `odin.main.trade.refined` |
+| local | `local` | `sukko.local.trade.refined` |
+| dev | `main` | `sukko.main.trade.refined` |
+| stg | `stg` | `sukko.stg.trade.refined` |
+| prod | `main` | `sukko.main.trade.refined` |
 
 Note: `dev` uses `main` namespace to test against production topics.
 
@@ -435,15 +435,15 @@ Note: `dev` uses `main` namespace to test against production topics.
 
 ```yaml
 # Use consistent naming
-namespace: odin-{env}
-cluster_name: odin-ws-{env}
+namespace: sukko-{env}
+cluster_name: sukko-{env}
 
 # Set sensible defaults in subchart values.yaml
 replicaCount: 1  # Override in environment files
 
 # Use global values for shared config
 global:
-  imageRegistry: "us-central1-docker.pkg.dev/project/odin"
+  imageRegistry: "us-central1-docker.pkg.dev/project/sukko"
 
 # Document non-obvious settings
 config:
@@ -456,14 +456,14 @@ config:
 
 ```yaml
 # Don't hardcode environment-specific values in base
-namespace: odin-dev  # BAD - should be in dev.yaml only
+namespace: sukko-dev  # BAD - should be in dev.yaml only
 
 # Don't duplicate across environments
 # Instead, set in values.yaml and override only what differs
 
 # Don't use inconsistent naming
-cluster: odin-ws-development  # BAD - use odin-ws-dev
-namespace: odin-std-dev       # BAD - use odin-dev
+cluster: sukko-development  # BAD - use sukko-dev
+namespace: sukko-std-dev       # BAD - use sukko-dev
 ```
 
 ---
@@ -534,8 +534,8 @@ resources:
 ### Environment Changes
 
 - [ ] Used short env names (`dev`, `stg`, `prod`)
-- [ ] Consistent namespace pattern (`odin-{env}`)
-- [ ] Consistent cluster pattern (`odin-ws-{env}`)
+- [ ] Consistent namespace pattern (`sukko-{env}`)
+- [ ] Consistent cluster pattern (`sukko-{env}`)
 - [ ] Updated all affected environments
 
 ---
@@ -546,18 +546,18 @@ resources:
 
 ```bash
 # Validate chart
-helm lint deployments/helm/odin
+helm lint deployments/helm/sukko
 
 # Preview rendered templates
-helm template odin deployments/helm/odin -f deployments/helm/odin/values/local.yaml
+helm template sukko deployments/helm/sukko -f deployments/helm/sukko/values/local.yaml
 
 # Update dependencies
-helm dependency update deployments/helm/odin
+helm dependency update deployments/helm/sukko
 
 # Deploy
-helm upgrade --install odin deployments/helm/odin \
-  -f deployments/helm/odin/values/standard/dev.yaml \
-  -n odin-dev --create-namespace
+helm upgrade --install sukko deployments/helm/sukko \
+  -f deployments/helm/sukko/values/standard/dev.yaml \
+  -n sukko-dev --create-namespace
 ```
 
 ### Terraform Commands

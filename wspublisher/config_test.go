@@ -168,7 +168,7 @@ func TestConfig_Validate_Channels(t *testing.T) {
 		categories  string
 		wantErr     bool
 	}{
-		{"static channels valid", "odin.BTC.trade", "", "", false},
+		{"static channels valid", "sukko.BTC.trade", "", "", false},
 		{"static channels invalid format", "invalid", "", "", true},
 		{"dynamic generation valid", "", "BTC,ETH", "trade", false},
 		{"dynamic missing identifiers", "", "", "trade", true},
@@ -250,8 +250,8 @@ func TestConfig_GetChannels(t *testing.T) {
 		expected []string
 	}{
 		{"empty", "", nil},
-		{"single", "odin.BTC.trade", []string{"odin.BTC.trade"}},
-		{"multiple", "odin.BTC.trade, odin.ETH.trade", []string{"odin.BTC.trade", "odin.ETH.trade"}},
+		{"single", "sukko.BTC.trade", []string{"sukko.BTC.trade"}},
+		{"multiple", "sukko.BTC.trade, sukko.ETH.trade", []string{"sukko.BTC.trade", "sukko.ETH.trade"}},
 	}
 
 	for _, tt := range tests {

@@ -28,7 +28,7 @@ These Go `envDefault` values must be updated to match Helm production-intended v
 ### Fields to Remove from Helm (Match Go Defaults)
 
 **ws-server** (~50 fields removable):
-- config.*: shards(2), basePort(3002), lbAddr(:3001), maxKafkaRate(1000), slowClientMaxAttempts(3), defaultTenantID(odin), cpuRejectThreshold(60.0), cpuPauseThreshold(70.0), tcpListenBacklog(2048), httpRead/Write/IdleTimeout(15s/15s/60s), logLevel(info), logFormat(json), metricsInterval(15s), cpuPollInterval(1s), pongWait(60s), pingPeriod(45s), writeWait(5s), provisioningGRPCReconnectDelay(1s), provisioningGRPCReconnectMaxDelay(30s), topicRefreshInterval(60s)
+- config.*: shards(2), basePort(3002), lbAddr(:3001), maxKafkaRate(1000), slowClientMaxAttempts(3), defaultTenantID(sukko), cpuRejectThreshold(60.0), cpuPauseThreshold(70.0), tcpListenBacklog(2048), httpRead/Write/IdleTimeout(15s/15s/60s), logLevel(info), logFormat(json), metricsInterval(15s), cpuPollInterval(1s), pongWait(60s), pingPeriod(45s), writeWait(5s), provisioningGRPCReconnectDelay(1s), provisioningGRPCReconnectMaxDelay(30s), topicRefreshInterval(60s)
 - All alerting.* fields (Go defaults)
 - All audit.* fields (Go defaults)
 - valkey.masterName(mymaster), valkey.db(0), valkey.channel(ws.broadcast)
@@ -83,9 +83,9 @@ This requires:
 ### Docker Compose Approach
 
 Dockerfiles build: ws/build/{server,gateway,provisioning}/Dockerfile
-- Server entry: `./odin-ws --shards=3 --base-port=3002 --lb-addr=:3005`
-- Gateway entry: `./odin-gateway`
-- Provisioning entry: `./odin-provisioning`
+- Server entry: `./sukko --shards=3 --base-port=3002 --lb-addr=:3005`
+- Gateway entry: `./sukko-gateway`
+- Provisioning entry: `./sukko-provisioning`
 
 Docker Compose services:
 1. `nats` — official nats:2.10-alpine

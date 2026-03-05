@@ -18,7 +18,7 @@
 ## 📁 New Directory Structure
 
 ```
-odin-ws/
+sukko/
 ├── Taskfile.yml                    # Main orchestrator (updated)
 ├── taskfiles/
 │   ├── old/                        # Archive old NATS-based taskfiles
@@ -313,7 +313,7 @@ task local:stats:publisher
 task local:stats:ws
 task local:stats:ips
 task local:stats:topics
-task local:stats:consume TOPIC=odin.trades NUM=10
+task local:stats:consume TOPIC=sukko.trades NUM=10
 task local:stats:monitor:live
 ```
 

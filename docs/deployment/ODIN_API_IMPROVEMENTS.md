@@ -1,4 +1,4 @@
-# Odin API Improvements: Real-Time Price Delta Architecture
+# Sukko API Improvements: Real-Time Price Delta Architecture
 
 **Document Status:** Planning
 **Priority:** High
@@ -31,15 +31,15 @@ Current price delta updates are delayed by up to 60 seconds due to scheduler-bas
 4. syncTokenPriceDelta() queries DB for all tokens
 5. Calculates deltas for 200 tokens
 6. Updates token records in DB
-7. Publishes to NATS: odin.token.{SYMBOL}.analytics
+7. Publishes to NATS: sukko.token.{SYMBOL}.analytics
 8. WebSocket broadcasts to clients
 ```
 
 ### Performance Metrics
 - **Latency:** 0-60 seconds stale data
 - **DB Load:** 800 queries/minute (13 queries/sec)
-- **Scheduler Job:** `odin_scheduler` runs every 1 minute
-- **Code Location:** `/Volumes/Dev/Codev/Toniq/odin-api/functions/src/main.ts:211-214`
+- **Scheduler Job:** `sukko_scheduler` runs every 1 minute
+- **Code Location:** `/Volumes/Dev/Codev/Toniq/sukko-api/functions/src/main.ts:211-214`
 
 ### Code Reference
 ```typescript
@@ -66,7 +66,7 @@ const syncTokenPriceDelta = wrapper(
 ```
 1. Trade executes → Trade event handler
 2. Calculate price deltas immediately (in-memory cache)
-3. Publish to NATS: odin.token.{SYMBOL}.trade (with deltas)
+3. Publish to NATS: sukko.token.{SYMBOL}.trade (with deltas)
 4. WebSocket broadcasts to clients
 5. Total latency: <100ms
 ```
@@ -86,12 +86,12 @@ const syncTokenPriceDelta = wrapper(
 **Objective:** Support 8-channel event types in WebSocket server
 
 **Changes Required:**
-- ✅ WebSocket server: Update `extractChannel()` to support `odin.token.BTC.trade`
+- ✅ WebSocket server: Update `extractChannel()` to support `sukko.token.BTC.trade`
 - ✅ WebSocket server: Update subscription matching logic
 - ✅ WebSocket server: Update test suite
 - ⏳ **No API changes required yet**
 
-**Status:** In progress at `/Volumes/Dev/Codev/Toniq/odin-ws`
+**Status:** In progress at `/Volumes/Dev/Codev/Toniq/sukko`
 
 ---
 
@@ -101,7 +101,7 @@ const syncTokenPriceDelta = wrapper(
 
 #### 2.1 Create Price Delta Calculator Service
 
-**File:** `/Volumes/Dev/Codev/Toniq/odin-api/functions/src/tokens/tokens-price-delta.service.ts` (new)
+**File:** `/Volumes/Dev/Codev/Toniq/sukko-api/functions/src/tokens/tokens-price-delta.service.ts` (new)
 
 ```typescript
 import { Injectable } from '@nestjs/common';
@@ -235,7 +235,7 @@ export class TokensPriceDeltaService {
 
 #### 2.2 Integrate into Trade Handler
 
-**File:** `/Volumes/Dev/Codev/Toniq/odin-api/functions/src/tokens/tokens.service.ts`
+**File:** `/Volumes/Dev/Codev/Toniq/sukko-api/functions/src/tokens/tokens.service.ts`
 
 ```typescript
 import { TokensPriceDeltaService } from './tokens-price-delta.service';
@@ -292,11 +292,11 @@ export class TokensService {
 
     // 4. Publish to hierarchical channel
     await this.natsService.publish(
-      `odin.token.${trade.symbol}.trade`,
+      `sukko.token.${trade.symbol}.trade`,
       JSON.stringify(payload)
     );
 
-    console.log(`[Trade] Published to odin.token.${trade.symbol}.trade`, {
+    console.log(`[Trade] Published to sukko.token.${trade.symbol}.trade`, {
       price: trade.price,
       deltas: deltas,
     });
@@ -340,7 +340,7 @@ async executeTrade(tradeData) {
 
 #### 2.4 Update Tokens Module
 
-**File:** `/Volumes/Dev/Codev/Toniq/odin-api/functions/src/tokens/tokens.module.ts`
+**File:** `/Volumes/Dev/Codev/Toniq/sukko-api/functions/src/tokens/tokens.module.ts`
 
 ```typescript
 import { TokensPriceDeltaService } from './tokens-price-delta.service';
@@ -421,7 +421,7 @@ ws.subscribe(['BTC.analytics'])            // Heavy metrics (optional)
 
 **After 2-4 weeks of monitoring:**
 
-**File:** `/Volumes/Dev/Codev/Toniq/odin-api/functions/src/main.ts`
+**File:** `/Volumes/Dev/Codev/Toniq/sukko-api/functions/src/main.ts`
 
 ```typescript
 // Lines 202-214 - Comment out or remove
@@ -508,13 +508,13 @@ Total: ~3.4 queries/second (vs 13.3 currently)
 
 **Current:**
 ```
-odin.token.*.analytics: 200 messages/minute (batch updates)
+sukko.token.*.analytics: 200 messages/minute (batch updates)
 ```
 
 **Phase 2:**
 ```
-odin.token.*.trade: 720 messages/minute (real-time)
-odin.token.*.analytics: 200 messages/minute (non-price metrics)
+sukko.token.*.trade: 720 messages/minute (real-time)
+sukko.token.*.analytics: 200 messages/minute (non-price metrics)
 
 Total: 920 messages/minute (+360%)
 ```
@@ -535,7 +535,7 @@ With filtering (avg 2 tokens per client):
 
 ### Unit Tests
 
-**File:** `/Volumes/Dev/Codev/Toniq/odin-api/functions/src/tokens/tokens-price-delta.service.spec.ts`
+**File:** `/Volumes/Dev/Codev/Toniq/sukko-api/functions/src/tokens/tokens-price-delta.service.spec.ts`
 
 ```typescript
 describe('TokensPriceDeltaService', () => {
@@ -582,7 +582,7 @@ describe('Trade with Price Deltas', () => {
 
     // Assert: NATS message published
     expect(natsPublish).toHaveBeenCalledWith(
-      'odin.token.BTC.trade',
+      'sukko.token.BTC.trade',
       expect.objectContaining({
         price: 120,
         price_delta_5m: 9.09,  // (120-110)/110 = +9.09%
@@ -657,7 +657,7 @@ If Phase 2 causes issues:
 ## Related Documents
 
 - [Hierarchical Channel Taxonomy](./HIERARCHICAL_CHANNELS.md) - WebSocket server changes
-- [Token Update Events](../../odin/docs/token-update-events.md) - Event catalog
+- [Token Update Events](../../sukko/docs/token-update-events.md) - Event catalog
 - [Subscription Filtering Tests](../testing/SUBSCRIPTION_FILTERING_TESTS.md) - Test guide
 
 ---
@@ -673,7 +673,7 @@ If Phase 2 causes issues:
 - ✅ Use in-memory cache (not Redis) for Phase 2
 - ✅ Keep scheduler for heavy analytics (holder counts, etc.)
 - ✅ Backwards compatibility: legacy subscriptions get all events
-- ✅ Event format: Hierarchical `odin.token.{SYMBOL}.{EVENT_TYPE}`
+- ✅ Event format: Hierarchical `sukko.token.{SYMBOL}.{EVENT_TYPE}`
 
 ---
 

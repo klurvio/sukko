@@ -409,7 +409,7 @@ cd ws && go vet ./...
 ```bash
 task k8s:build:push:ws-server ENV=dev
 task k8s:deploy ENV=dev
-kubectl logs -n odin-ws-dev -l app.kubernetes.io/name=ws-server --tail=50
+kubectl logs -n sukko-dev -l app.kubernetes.io/name=ws-server --tail=50
 ```
 
 Verify in client WebSocket messages: `"seq"` field is > 0 and incrementing.

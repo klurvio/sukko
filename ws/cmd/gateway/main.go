@@ -14,9 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/gateway"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/gateway"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // Version information (set by build flags)

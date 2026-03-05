@@ -53,7 +53,7 @@ Removed empty "System Helper Functions" section header in `metrics.go:391-393` (
 
 **Problem:** Grafana "Kafka Connected" panel showed 2 UP + 1 DOWN, persisting across all time ranges.
 
-**Root cause:** The provisioning service (`job="provisioning"`, `instance="odin-provisioning:8080"`) also exports `ws_kafka_connected` metric with value 0. It's a different service, not a stale pod.
+**Root cause:** The provisioning service (`job="provisioning"`, `instance="sukko-provisioning:8080"`) also exports `ws_kafka_connected` metric with value 0. It's a different service, not a stale pod.
 
 **Fix:** Updated the panel query in `overview.json`:
 ```
@@ -72,11 +72,11 @@ Per-topic Redpanda Throughput panel revealed a critical configuration mismatch:
 
 | Topic | Produced | Fetched | Source |
 |---|---|---|---|
-| `odin.main.trade` | 84.9 B/s | 84.9 B/s | Unknown origin (legacy?) |
-| `prod.odin.trade` | 8.13 B/s | **0 B** | Odin API (real data) |
-| `dev.odin.*` (8 topics) | 0 B | 0 B | Provisioning service created these |
+| `sukko.main.trade` | 84.9 B/s | 84.9 B/s | Unknown origin (legacy?) |
+| `prod.sukko.trade` | 8.13 B/s | **0 B** | Sukko API (real data) |
+| `dev.sukko.*` (8 topics) | 0 B | 0 B | Provisioning service created these |
 
-**Root cause:** ws-server and provisioning both use `kafkaTopicNamespace: dev`, so they subscribe to `dev.odin.*` topics (empty). The real Odin API publishes to `prod.odin.*`.
+**Root cause:** ws-server and provisioning both use `kafkaTopicNamespace: dev`, so they subscribe to `dev.sukko.*` topics (empty). The real Sukko API publishes to `prod.sukko.*`.
 
 ### 6. Topic Namespace Migration Plan (Written, Pending Approval)
 
@@ -84,8 +84,8 @@ Created plan at `/Users/redadaya/.claude/plans/wiggly-twirling-unicorn.md`:
 - Change `kafkaTopicNamespace` to `prod` for both ws-server and provisioning in `values/standard/dev.yaml`
 - No code changes needed — purely Helm values
 - wspublisher stays on `dev` namespace (user preference)
-- Optional cleanup of orphaned `dev.odin.*` topics and consumer groups
-- `odin.main.trade` flagged for investigation
+- Optional cleanup of orphaned `dev.sukko.*` topics and consumer groups
+- `sukko.main.trade` flagged for investigation
 
 ## Key Decisions & Context
 
@@ -94,7 +94,7 @@ Created plan at `/Users/redadaya/.claude/plans/wiggly-twirling-unicorn.md`:
 | `ws_kafka_connected` filter uses `and on(instance) up{job="ws-server"}` | Excludes provisioning service's metric (different job). Works because `and` matches label values, and provisioning has no matching `up` in ws-server job. |
 | Grafana dashboard reload via API | ConfigMap was updated by Helm deploy but Grafana caches dashboards. `POST /api/admin/provisioning/dashboards/reload` forces re-read. |
 | Both ws-server AND provisioning switch to `prod` namespace | DB stores only categories (namespace-agnostic), but provisioning service creates Kafka topics via AdminClient using the namespace. Must match to keep future provisioning consistent. |
-| wspublisher stays on `dev` namespace | User wants independent testing capability. wspublisher publishes fake data to `dev.odin.*`, separate from real Odin API data on `prod.odin.*`. |
+| wspublisher stays on `dev` namespace | User wants independent testing capability. wspublisher publishes fake data to `dev.sukko.*`, separate from real Sukko API data on `prod.sukko.*`. |
 
 ## Current State
 
@@ -102,7 +102,7 @@ Created plan at `/Users/redadaya/.claude/plans/wiggly-twirling-unicorn.md`:
 - **Not committed**: All code changes are unstaged
 - **Dashboard fixes**: Kafka Connected filter + empty section header removal — unstaged
 - **Topic namespace plan**: Written but NOT yet approved or executed
-- **`odin.main.trade`**: Unknown origin, 84.9 B/s traffic, needs investigation
+- **`sukko.main.trade`**: Unknown origin, 84.9 B/s traffic, needs investigation
 
 ## Next Steps
 
@@ -112,13 +112,13 @@ Created plan at `/Users/redadaya/.claude/plans/wiggly-twirling-unicorn.md`:
 3. **Deploy** — `task k8s:deploy ENV=dev`
 
 ### Near Term
-4. **Verify** ws-server consumes from `prod.odin.trade` (check logs + Grafana)
-5. **Investigate `odin.main.trade`** — who produces 84.9 B/s? Who consumes? Use `rpk topic describe` and `rpk group list`
-6. **Clean up orphaned topics** — delete `dev.odin.*` topics and `odin-shared-dev` consumer group
+4. **Verify** ws-server consumes from `prod.sukko.trade` (check logs + Grafana)
+5. **Investigate `sukko.main.trade`** — who produces 84.9 B/s? Who consumes? Use `rpk topic describe` and `rpk group list`
+6. **Clean up orphaned topics** — delete `dev.sukko.*` topics and `sukko-shared-dev` consumer group
 
 ### Future Considerations
 - `ws/internal/server/metrics.go` `collectMetrics()` — another legacy dual-writer for memory (uses gopsutil). Noted in plan as future cleanup.
-- `odin.dev.trade` (old format) vs `dev.odin.trade` (new format) — duplicate topic naming patterns exist in Redpanda
+- `sukko.dev.trade` (old format) vs `dev.sukko.trade` (new format) — duplicate topic naming patterns exist in Redpanda
 - Internal Redpanda topics (`__consumer_offsets`, `connect_offsets`, etc.) visible in dashboard — could filter with `topic!~"__.*|connect_.*|controller"`
 
 ## Files Modified (This Session)
@@ -126,7 +126,7 @@ Created plan at `/Users/redadaya/.claude/plans/wiggly-twirling-unicorn.md`:
 | File | Change |
 |---|---|
 | `ws/internal/server/metrics/metrics.go` | Removed empty "System Helper Functions" section header |
-| `deployments/helm/odin/charts/monitoring/dashboards/overview.json` | Fixed Kafka Connected query to filter out provisioning service |
+| `deployments/helm/sukko/charts/monitoring/dashboards/overview.json` | Fixed Kafka Connected query to filter out provisioning service |
 
 *Note: All other files were modified in the previous session (per-topic metrics + Collector removal). See `2026-02-16_SESSION_HANDOFF_PER_TOPIC_METRICS_AND_COLLECTOR_CLEANUP.md` for full list.*
 
@@ -134,7 +134,7 @@ Created plan at `/Users/redadaya/.claude/plans/wiggly-twirling-unicorn.md`:
 
 ```bash
 # 1. Commit all changes (per-topic metrics + Collector removal + dashboard fixes)
-cd /Volumes/Dev/Codev/Toniq/odin-ws
+cd /Volumes/Dev/Codev/Toniq/sukko
 git add ws/internal/server/metrics/metrics.go \
         ws/internal/server/metrics/system_monitor.go \
         ws/internal/server/server.go \
@@ -142,11 +142,11 @@ git add ws/internal/server/metrics/metrics.go \
         ws/internal/shared/kafka/consumer.go \
         ws/internal/shared/kafka/consumer_test.go \
         ws/cmd/server/main.go \
-        deployments/helm/odin/charts/monitoring/dashboards/overview.json
+        deployments/helm/sukko/charts/monitoring/dashboards/overview.json
 git commit -m "feat: add per-topic Kafka metrics and remove legacy Collector"
 
 # 2. Execute namespace plan (after approval)
-# Edit deployments/helm/odin/values/standard/dev.yaml:
+# Edit deployments/helm/sukko/values/standard/dev.yaml:
 #   ws-server: kafkaTopicNamespace: prod
 #   provisioning: topicNamespace: prod
 
@@ -154,20 +154,20 @@ git commit -m "feat: add per-topic Kafka metrics and remove legacy Collector"
 task k8s:deploy ENV=dev
 
 # 4. Verify namespace change
-kubectl logs -n odin-ws-dev -l app.kubernetes.io/name=ws-server --tail=50 | grep "Topic namespace"
+kubectl logs -n sukko-dev -l app.kubernetes.io/name=ws-server --tail=50 | grep "Topic namespace"
 # Should show: Topic namespace: prod (environment: dev)
 
 # 5. Verify metrics
 curl -s -u admin:admin 'http://localhost:3000/api/datasources/proxy/uid/prometheus/api/v1/query?query=ws_kafka_messages_received_total' | python3 -m json.tool
-# Should show topic="prod.odin.trade" consumer_group="odin-shared-prod"
+# Should show topic="prod.sukko.trade" consumer_group="sukko-shared-prod"
 
-# 6. Investigate odin.main.trade
-rpk topic describe odin.main.trade
+# 6. Investigate sukko.main.trade
+rpk topic describe sukko.main.trade
 rpk group list | grep main
 ```
 
 ## Open Questions
 
-1. **`odin.main.trade`** — 84.9 B/s produced AND fetched. Who is producing? Who is consuming? "main" is not in the valid namespaces list (`local,dev,stag,prod`). Might be from a previous code version or manual creation.
+1. **`sukko.main.trade`** — 84.9 B/s produced AND fetched. Who is producing? Who is consuming? "main" is not in the valid namespaces list (`local,dev,stag,prod`). Might be from a previous code version or manual creation.
 2. **Topic cleanup** — User unsure about deleting orphaned topics. Recommend cleanup after verifying prod consumption works, but non-blocking.
-3. **`odin.dev.trade` vs `dev.odin.trade`** — Both exist in Redpanda. `odin.dev.trade` is old naming format, `dev.odin.trade` is new. Both are 0 B. Can be cleaned up together.
+3. **`sukko.dev.trade` vs `dev.sukko.trade`** — Both exist in Redpanda. `sukko.dev.trade` is old naming format, `dev.sukko.trade` is new. Both are 0 B. Can be cleaned up together.

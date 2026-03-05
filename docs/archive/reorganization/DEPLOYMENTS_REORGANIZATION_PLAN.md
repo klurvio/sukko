@@ -220,7 +220,7 @@ rmdir deployments/gcp-distributed
 **Template:**
 ```yaml
 # WebSocket Server - Kafka/Redpanda Setup
-# Instance: odin-ws-go (dedicated e2-standard-4)
+# Instance: sukko-go (dedicated e2-standard-4)
 # Connects to Kafka on backend instance via internal network
 #
 # DEPLOYMENT:
@@ -232,7 +232,7 @@ services:
     build:
       context: ../../../ws
       dockerfile: Dockerfile
-    container_name: odin-ws-go
+    container_name: sukko-go
     ports:
       - "0.0.0.0:3004:3002"
     env_file:
@@ -250,7 +250,7 @@ services:
 
   promtail:
     image: grafana/promtail:3.3.2
-    container_name: odin-ws-promtail
+    container_name: sukko-promtail
     volumes:
       - ./promtail-config.yml:/etc/promtail/promtail-config.yml
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
@@ -270,7 +270,7 @@ services:
 **Template:**
 ```bash
 # WebSocket Server Production Configuration (Kafka/Redpanda)
-# Instance: odin-ws-go (4 vCPU, 16GB RAM)
+# Instance: sukko-go (4 vCPU, 16GB RAM)
 # Configuration: 12K connections @ 1 core
 
 ENVIRONMENT=production
@@ -305,7 +305,7 @@ WS_CPU_PAUSE_THRESHOLD=80.0
 
 # KAFKA CONSUMER
 KAFKA_GROUP_ID=ws-server-production
-KAFKA_TOPICS=odin.trades,odin.liquidity,odin.balances,odin.metadata,odin.social,odin.community,odin.creation,odin.analytics
+KAFKA_TOPICS=sukko.trades,sukko.liquidity,sukko.balances,sukko.metadata,sukko.social,sukko.community,sukko.creation,sukko.analytics
 
 # MONITORING
 METRICS_INTERVAL=15s
@@ -338,12 +338,12 @@ This directory contains Kafka-based GCP production deployments that have replace
 
 ### Distributed (2 instances)
 
-**Backend Instance (odin-backend - e2-small)**
+**Backend Instance (sukko-backend - e2-small)**
 - Redpanda (Kafka-compatible broker)
 - Publisher (event generator)
 - Prometheus, Grafana, Loki, Promtail (observability)
 
-**WS Server Instance (odin-ws-go - e2-standard-4)**
+**WS Server Instance (sukko-go - e2-standard-4)**
 - WebSocket server (Kafka consumer)
 - Promtail (log shipping to backend Loki)
 
@@ -380,8 +380,8 @@ See respective README files in subdirectories.
 ## Architecture
 
 **Two GCP instances:**
-1. Backend (odin-backend - e2-small): Kafka, Publisher, Monitoring
-2. WS Server (odin-ws-go - e2-standard-4): WebSocket server
+1. Backend (sukko-backend - e2-small): Kafka, Publisher, Monitoring
+2. WS Server (sukko-go - e2-standard-4): WebSocket server
 
 ## Prerequisites
 
@@ -394,20 +394,20 @@ See respective README files in subdirectories.
 
 ### 1. Deploy Backend
 
-SSH into odin-backend:
+SSH into sukko-backend:
 
 ```bash
 # Set variables
 export EXTERNAL_IP=$(curl -s ifconfig.me)
 
 # Deploy
-cd /path/to/odin-ws/deployments/gcp/distributed/backend
+cd /path/to/sukko/deployments/gcp/distributed/backend
 docker-compose up -d
 
 # Create Kafka topics
 docker exec redpanda rpk topic create \\
-  odin.trades odin.liquidity odin.balances odin.metadata \\
-  odin.social odin.community odin.creation odin.analytics \\
+  sukko.trades sukko.liquidity sukko.balances sukko.metadata \\
+  sukko.social sukko.community sukko.creation sukko.analytics \\
   --partitions 12 --replicas 1
 
 # Verify
@@ -425,14 +425,14 @@ hostname -I | awk '{print $1}'
 
 ### 3. Deploy WS Server
 
-SSH into odin-ws-go:
+SSH into sukko-go:
 
 ```bash
 # Set backend internal IP
 export BACKEND_INTERNAL_IP=10.128.0.2
 
 # Deploy
-cd /path/to/odin-ws/deployments/gcp/distributed/ws-server
+cd /path/to/sukko/deployments/gcp/distributed/ws-server
 docker-compose up -d
 
 # Verify

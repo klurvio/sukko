@@ -42,14 +42,14 @@
 **Verified:**
 - `taskfiles/shared/` created with build.yml, test.yml, helm.yml, version.yml
 - `taskfiles/k8s/local/` and `taskfiles/k8s/remote/` hierarchy created
-- `deployments/helm/odin/` moved from `deployments/k8s/helm/odin/`
+- `deployments/helm/sukko/` moved from `deployments/k8s/helm/sukko/`
 - `deployments/terraform/environments/standard/` created
 - Legacy directories removed (gcp/, local/, shared/)
 - Root Taskfile.yml updated with clean shortcuts
 
 ### 4. Cleanup
 
-- Removed `deployments/helm/odin/values/autopilot/` (unused, can recreate if needed)
+- Removed `deployments/helm/sukko/values/autopilot/` (unused, can recreate if needed)
 
 ## Key Decisions & Context
 
@@ -136,7 +136,7 @@ task provisioning:db:status
 - Verify provisioning API tasks work end-to-end
 
 ### Future Considerations
-- If Autopilot is needed, recreate `deployments/helm/odin/values/autopilot/`
+- If Autopilot is needed, recreate `deployments/helm/sukko/values/autopilot/`
 - Consider adding more provisioning API tasks as needed
 
 ## Files Modified
@@ -152,7 +152,7 @@ task provisioning:db:status
 | File | Reason |
 |------|--------|
 | `taskfiles/provisioning-api.yml` | Consolidated into provisioning.yml |
-| `deployments/helm/odin/values/autopilot/` | Not in use |
+| `deployments/helm/sukko/values/autopilot/` | Not in use |
 
 ### Plans Updated
 | File | Status |

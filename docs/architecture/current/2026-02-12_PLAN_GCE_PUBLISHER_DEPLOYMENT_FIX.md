@@ -3,8 +3,8 @@
 ## Context
 
 The GCE publisher tasks (`taskfiles/gce.yml` publisher section) and shell scripts (`deployments/wspublisher/`) have the same issues as wsloadtest:
-- Wrong project ID (`trim-array-480700-j7` → should be `odin-9e902`)
-- Wrong registry repo (`odin` → should be `odin-ws`)
+- Wrong project ID (`trim-array-480700-j7` → should be `sukko-9e902`)
+- Wrong registry repo (`sukko` → should be `sukko`)
 - `publisher:run` doesn't pass `KAFKA_BROKERS` or other required env vars to the container
 - `publisher:deploy` shells out to `deploy.sh` which requires a `config.env` file
 - No build/push task for wspublisher image
@@ -133,7 +133,7 @@ The current task only passes `POISSON_LAMBDA` — it's missing `KAFKA_BROKERS`, 
             -e TIMING_MODE=poisson \
             -e POISSON_LAMBDA={{.RATE}} \
             -e DURATION={{.DURATION}} \
-            -e TENANT_ID=odin \
+            -e TENANT_ID=sukko \
             -e IDENTIFIERS=BTC,ETH,SOL,all \
             -e CATEGORIES=trade,liquidity,orderbook \
             -e LOG_LEVEL=info \
@@ -219,21 +219,21 @@ Update to reflect correct project and dev defaults:
 # =============================================================================
 
 # GCP Project
-PROJECT=odin-9e902
+PROJECT=sukko-9e902
 
 # Zone for VM
 ZONE=us-central1-a
 
 # Network (must match Redpanda cluster's VPC)
-NETWORK=odin-ws-dev-vpc
-SUBNET=odin-ws-dev-vpc-subnet
+NETWORK=sukko-dev-vpc
+SUBNET=sukko-dev-vpc-subnet
 
 # VM Settings (smaller than wsloadtest - not connection-heavy)
 MACHINE_TYPE=e2-standard-2
 VM_NAME=wspublisher-dev
 
 # Container image
-REGISTRY=us-central1-docker.pkg.dev/${PROJECT}/odin-ws
+REGISTRY=us-central1-docker.pkg.dev/${PROJECT}/sukko
 IMAGE_TAG=latest
 
 # Kafka/Redpanda Settings (REQUIRED)
@@ -246,7 +246,7 @@ RATE=100              # Messages per second
 DURATION=0            # Run duration (0=infinite)
 
 # Channel Settings (optional - uses defaults if not set)
-# TENANT_ID=odin
+# TENANT_ID=sukko
 # IDENTIFIERS=BTC,ETH,SOL,all
 # CATEGORIES=trade,liquidity,orderbook
 ```
@@ -258,16 +258,16 @@ DURATION=0            # Run duration (0=infinite)
 These scripts are now secondary to the taskfile (which is self-contained), but fix for consistency:
 
 **`deployments/wspublisher/deploy.sh`** line 44:
-- `REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/odin}"` → `REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/odin-ws}"`
+- `REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/sukko}"` → `REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/sukko}"`
 
 **`deployments/wspublisher/destroy.sh`** line 13:
-- `PROJECT="${PROJECT:-trim-array-480700-j7}"` → `PROJECT="${PROJECT:-odin-9e902}"`
+- `PROJECT="${PROJECT:-trim-array-480700-j7}"` → `PROJECT="${PROJECT:-sukko-9e902}"`
 
 **`deployments/wspublisher/logs.sh`** line 10:
-- `PROJECT="${PROJECT:-trim-array-480700-j7}"` → `PROJECT="${PROJECT:-odin-9e902}"`
+- `PROJECT="${PROJECT:-trim-array-480700-j7}"` → `PROJECT="${PROJECT:-sukko-9e902}"`
 
 **`deployments/wspublisher/ssh.sh`** line 10:
-- `PROJECT="${PROJECT:-trim-array-480700-j7}"` → `PROJECT="${PROJECT:-odin-9e902}"`
+- `PROJECT="${PROJECT:-trim-array-480700-j7}"` → `PROJECT="${PROJECT:-sukko-9e902}"`
 
 **`deployments/wspublisher/startup-script.sh`** — rewrite to only do docker install + image pre-pull (no auto-run):
 ```bash
@@ -281,7 +281,7 @@ get_metadata() {
 }
 
 REGISTRY=$(get_metadata REGISTRY)
-REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/odin-9e902/odin-ws}"
+REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/sukko-9e902/sukko}"
 
 echo "=== wspublisher VM startup ==="
 echo "Registry: $REGISTRY"
@@ -325,7 +325,7 @@ task k8s:build ENV=dev  # push:all now includes wspublisher
 
 # 2. Deploy publisher VM (docker install + image pre-pull only)
 task gce:publisher:deploy ENV=dev
-# Expected: VM created in odin-ws-dev-vpc, no publisher running yet
+# Expected: VM created in sukko-dev-vpc, no publisher running yet
 
 # 3. Check startup logs (docker install, image pull)
 task gce:publisher:logs ENV=dev

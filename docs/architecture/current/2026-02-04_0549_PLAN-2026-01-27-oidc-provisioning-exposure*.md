@@ -28,7 +28,7 @@ OIDC keyfunc construction helper:
 type OIDCConfig struct {
     IssuerURL string  // e.g., "https://your-app.auth0.com/"
     JWKSURL   string  // e.g., "https://your-app.auth0.com/.well-known/jwks.json"
-    Audience  string  // e.g., "https://api.odin.io"
+    Audience  string  // e.g., "https://api.sukko.io"
 }
 
 type OIDCKeyfuncResult struct {
@@ -212,7 +212,7 @@ After existing DB setup:
 ### 4.1 New subchart structure
 
 ```
-deployments/k8s/helm/odin/charts/provisioning/
+deployments/k8s/helm/sukko/charts/provisioning/
   Chart.yaml
   values.yaml
   templates/
@@ -244,8 +244,8 @@ Database URL sourced from the shared provisioning secret (same as gateway):
 
 ### 4.3 Add to parent chart
 
-**File**: `deployments/k8s/helm/odin/Chart.yaml` — add provisioning dependency
-**File**: `deployments/k8s/helm/odin/values.yaml` — add provisioning section
+**File**: `deployments/k8s/helm/sukko/Chart.yaml` — add provisioning dependency
+**File**: `deployments/k8s/helm/sukko/values.yaml` — add provisioning section
 
 ### 4.4 Dockerfile
 
@@ -283,8 +283,8 @@ Same pattern as `ws/build/gateway/Dockerfile`: multi-stage build, non-root user,
 | `ws/internal/gateway/gateway.go` | Wire OIDC in `setupValidator()`, add `oidcCloser` + `Close()` |
 | `ws/internal/provisioning/api/router.go` | CORS middleware, CORS fields in `RouterConfig` |
 | `ws/cmd/provisioning/main.go` | Wire auth, OIDC, CORS into startup |
-| `deployments/k8s/helm/odin/Chart.yaml` | Add provisioning dependency |
-| `deployments/k8s/helm/odin/values.yaml` | Add provisioning section |
+| `deployments/k8s/helm/sukko/Chart.yaml` | Add provisioning dependency |
+| `deployments/k8s/helm/sukko/values.yaml` | Add provisioning section |
 
 ---
 
@@ -308,8 +308,8 @@ go test ./... -count=1 -short                            # all tests pass
 go test ./internal/auth/ -v -run TestMultiTenantValidator_OIDC  # OIDC-specific tests
 
 # Helm
-helm lint deployments/k8s/helm/odin/charts/provisioning
-helm lint deployments/k8s/helm/odin
+helm lint deployments/k8s/helm/sukko/charts/provisioning
+helm lint deployments/k8s/helm/sukko
 ```
 
 ### Backward Compatibility

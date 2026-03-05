@@ -1,6 +1,6 @@
 # GKE Standard Deployment with Spot VMs
 
-Deploy odin-ws to GKE Standard cluster with Spot VMs for 60-90% cost savings compared to GKE Autopilot.
+Deploy sukko to GKE Standard cluster with Spot VMs for 60-90% cost savings compared to GKE Autopilot.
 
 ## Cost Comparison
 
@@ -239,7 +239,7 @@ Spot VMs are discounted compute instances that Google can reclaim (preempt) when
 | **Availability** | Can be preempted with 30s notice | Always available |
 | **Best for** | Dev/staging, stateless workloads | Production with strict uptime |
 
-**Why Spot VMs work well for odin-ws:**
+**Why Spot VMs work well for sukko:**
 - WebSocket servers can gracefully disconnect clients during preemption
 - Kubernetes automatically reschedules pods to new nodes
 - The Helm chart includes `PodDisruptionBudgets` to maintain minimum availability
@@ -259,7 +259,7 @@ taint_spot_nodes = false  # Set true for dedicated Spot handling
 
 ### Resource Allocation
 
-Values files are located in `deployments/k8s/helm/odin/values/standard/`:
+Values files are located in `deployments/k8s/helm/sukko/values/standard/`:
 - `develop.yaml` - Minimal resources, fixed replicas
 - `staging.yaml` - Production-like config, fixed replicas
 - `production.yaml` - Autoscaling, persistent storage, NATS cluster

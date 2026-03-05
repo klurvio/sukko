@@ -274,7 +274,7 @@ type BroadcastBus interface {
 
 // BroadcastMessage is the payload sent through the broadcast bus.
 type BroadcastMessage struct {
-	Subject string `json:"subject"` // e.g., "odin.token.BTC.trade"
+	Subject string `json:"subject"` // e.g., "sukko.token.BTC.trade"
 	Message []byte `json:"message"` // Raw message bytes (pre-serialized)
 }
 ```
@@ -3391,9 +3391,9 @@ task gcp:redis:test-connection
 ## References
 
 **Internal Documentation**:
-- `/Volumes/Dev/Codev/Toniq/odin-ws/docs/spikes/SPIKE_EXTERNAL_BROADCAST_BUS.md` - Original NATS vs Redis comparison
-- `/Volumes/Dev/Codev/Toniq/odin-ws/docs/architecture/HORIZONTAL_SCALING_PLAN.md` - Multi-instance scaling strategy
-- `/Volumes/Dev/Codev/Toniq/odin-ws/ws/internal/multi/broadcast.go` - Current in-memory implementation
+- `/Volumes/Dev/Codev/Toniq/sukko/docs/spikes/SPIKE_EXTERNAL_BROADCAST_BUS.md` - Original NATS vs Redis comparison
+- `/Volumes/Dev/Codev/Toniq/sukko/docs/architecture/HORIZONTAL_SCALING_PLAN.md` - Multi-instance scaling strategy
+- `/Volumes/Dev/Codev/Toniq/sukko/ws/internal/multi/broadcast.go` - Current in-memory implementation
 
 **External Resources**:
 - Redis Pub/Sub Documentation: https://redis.io/docs/manual/pubsub/

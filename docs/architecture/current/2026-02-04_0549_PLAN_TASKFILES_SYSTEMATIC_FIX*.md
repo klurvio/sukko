@@ -164,7 +164,7 @@ includes:
   helm:
     taskfile: ../shared/helm.yml
     vars:
-      CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/odin"
+      CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/sukko"
       # VALUES_FILE and NAMESPACE set by caller
 ```
 

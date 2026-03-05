@@ -57,7 +57,7 @@ Redpanda has a `--mode dev-container` flag specifically for development/testing 
 
 ## Files to Modify
 
-### 1. `deployments/helm/odin/charts/redpanda/templates/statefulset.yaml`
+### 1. `deployments/helm/sukko/charts/redpanda/templates/statefulset.yaml`
 
 Add `developerMode` conditional:
 
@@ -78,7 +78,7 @@ command:
   # ... rest of args
 ```
 
-### 2. `deployments/helm/odin/charts/redpanda/values.yaml`
+### 2. `deployments/helm/sukko/charts/redpanda/values.yaml`
 
 Add default:
 
@@ -88,7 +88,7 @@ Add default:
 developerMode: false
 ```
 
-### 3. `deployments/helm/odin/values/local.yaml`
+### 3. `deployments/helm/sukko/values/local.yaml`
 
 Enable developer mode:
 
@@ -193,7 +193,7 @@ To silence this warning, add `admin_api_require_auth: false` to redpanda.yaml co
 
 2. **Check logs:**
    ```bash
-   kubectl logs -n odin-local odin-redpanda-0 | head -50
+   kubectl logs -n sukko-local sukko-redpanda-0 | head -50
    ```
 
 3. **Should NOT see:**
@@ -210,6 +210,6 @@ To silence this warning, add `admin_api_require_auth: false` to redpanda.yaml co
 
 | File | Change |
 |------|--------|
-| `deployments/helm/odin/charts/redpanda/templates/statefulset.yaml` | Add `--mode=dev-container` conditional |
-| `deployments/helm/odin/charts/redpanda/values.yaml` | Add `developerMode: false` default |
-| `deployments/helm/odin/values/local.yaml` | Set `developerMode: true` |
+| `deployments/helm/sukko/charts/redpanda/templates/statefulset.yaml` | Add `--mode=dev-container` conditional |
+| `deployments/helm/sukko/charts/redpanda/values.yaml` | Add `developerMode: false` default |
+| `deployments/helm/sukko/values/local.yaml` | Set `developerMode: true` |

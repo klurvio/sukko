@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package sukko.provisioning.v1;
+
+option go_package = "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1;provisioningv1";
+
+// Internal service — streaming provisioning data to gateway and ws-server.
+service ProvisioningInternalService {
+  // Stream active keys — snapshot on connect, deltas on change.
+  rpc WatchKeys(WatchKeysRequest) returns (stream WatchKeysResponse);
+
+  // Stream tenant config (OIDC, channel rules) — snapshot on connect, deltas on change.
+  rpc WatchTenantConfig(WatchTenantConfigRequest) returns (stream WatchTenantConfigResponse);
+
+  // Stream topic discovery — snapshot on connect, deltas on change.
+  rpc WatchTopics(WatchTopicsRequest) returns (stream WatchTopicsResponse);
+}
+
+message WatchKeysRequest {}
+
+message WatchKeysResponse {
+  bool is_snapshot = 1;           // true = full state, false = delta
+  repeated KeyInfo keys = 2;      // All active keys (snapshot) or changed keys (delta)
+  repeated string removed_key_ids = 3; // Key IDs removed (delta only)
+}
+
+message KeyInfo {
+  string key_id = 1;
+  string tenant_id = 2;
+  string algorithm = 3;           // ES256, RS256, EdDSA
+  string public_key_pem = 4;
+  bool is_active = 5;
+  int64 expires_at_unix = 6;      // 0 = no expiry
+}
+
+message WatchTenantConfigRequest {}
+
+message WatchTenantConfigResponse {
+  bool is_snapshot = 1;
+  repeated TenantConfig tenants = 2;
+  repeated string removed_tenant_ids = 3;
+}
+
+message TenantConfig {
+  string tenant_id = 1;
+  OIDCConfig oidc = 2;            // nil = no OIDC
+  ChannelRules channel_rules = 3; // nil = no rules
+}
+
+message OIDCConfig {
+  string issuer_url = 1;
+  string jwks_url = 2;
+  string audience = 3;
+  bool enabled = 4;
+}
+
+message ChannelRules {
+  repeated string public_channels = 1;
+  map<string, GroupChannels> group_mappings = 2;
+  repeated string default_channels = 3;
+}
+
+message GroupChannels {
+  repeated string channels = 1;
+}
+
+message WatchTopicsRequest {
+  string namespace = 1;           // Topic namespace (e.g., "prod")
+}
+
+message WatchTopicsResponse {
+  bool is_snapshot = 1;
+  repeated string shared_topics = 2;
+  repeated DedicatedTenant dedicated_tenants = 3;
+}
+
+message DedicatedTenant {
+  string tenant_id = 1;
+  repeated string topics = 2;
+}

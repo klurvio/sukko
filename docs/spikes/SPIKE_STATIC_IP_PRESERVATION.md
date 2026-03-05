@@ -105,7 +105,7 @@ deployments/terraform/gke-standard/
 resource "google_compute_address" "redpanda_external" {
   for_each = toset(var.environments)  # ["develop", "staging", "production"]
 
-  name         = "odin-ws-${each.key}-redpanda-external"
+  name         = "sukko-${each.key}-redpanda-external"
   region       = var.region
   address_type = "EXTERNAL"
   project      = var.project_id
@@ -118,7 +118,7 @@ resource "google_compute_address" "redpanda_external" {
 resource "google_compute_address" "gateway_external" {
   for_each = toset(var.environments)
 
-  name         = "odin-ws-${each.key}-gateway-external"
+  name         = "sukko-${each.key}-gateway-external"
   region       = var.region
   address_type = "EXTERNAL"
   project      = var.project_id
@@ -142,7 +142,7 @@ output "gateway_external_ips" {
 data "terraform_remote_state" "foundation" {
   backend = "gcs"  # or "local"
   config = {
-    bucket = "odin-terraform-state"
+    bucket = "sukko-terraform-state"
     prefix = "foundation"
   }
 }
@@ -248,13 +248,13 @@ Internal IPs require a subnet reference. Since the IP must outlive the cluster, 
 ```hcl
 # VPC must be in foundation for internal IP to reference it
 resource "google_compute_network" "vpc" {
-  name                    = "odin-ws-vpc"
+  name                    = "sukko-vpc"
   auto_create_subnetworks = false
   project                 = var.project_id
 }
 
 resource "google_compute_subnetwork" "subnet" {
-  name          = "odin-ws-subnet"
+  name          = "sukko-subnet"
   ip_cidr_range = "10.0.0.0/20"
   region        = var.region
   network       = google_compute_network.vpc.id
@@ -275,7 +275,7 @@ resource "google_compute_subnetwork" "subnet" {
 resource "google_compute_address" "redpanda_internal" {
   for_each = toset(var.environments)
 
-  name         = "odin-ws-${each.key}-redpanda-internal"
+  name         = "sukko-${each.key}-redpanda-internal"
   region       = var.region
   address_type = "INTERNAL"
   subnetwork   = google_compute_subnetwork.subnet.id
@@ -387,7 +387,7 @@ This is essentially Section 2 (Internal IP) extended to work across VPCs/cluster
                               ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  Redpanda Cluster Layer                                                     │
-│  ├─ GKE Cluster (odin-ws-*) using VPC from foundation                       │
+│  ├─ GKE Cluster (sukko-*) using VPC from foundation                       │
 │  └─ Internal LoadBalancer (binds to internal static IP)                     │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -402,7 +402,7 @@ This is essentially Section 2 (Internal IP) extended to work across VPCs/cluster
 │                                   │         │                                   │
 │  ┌─────────────────────────┐      │ PEERING │      ┌─────────────────────────┐  │
 │  │ Publisher GKE Cluster   │      │ (FREE)  │      │ Redpanda GKE Cluster    │  │
-│  │                         │      │         │      │ (odin-ws-develop)       │  │
+│  │                         │      │         │      │ (sukko-develop)       │  │
 │  │  ┌───────────────────┐  │      │         │      │  ┌───────────────────┐  │  │
 │  │  │ Publisher Pod     │  │      │         │      │  │ Internal LB       │  │  │
 │  │  │ (Kafka producer)  │◄─┼──────┼─────────┼──────┼─►│ 10.0.100.50:9092  │  │  │
@@ -438,13 +438,13 @@ When running multiple GKE clusters that need to communicate, plan CIDRs carefull
 ```hcl
 # Cluster VPC (in foundation so it persists)
 resource "google_compute_network" "cluster_vpc" {
-  name                    = "odin-ws-cluster-vpc"
+  name                    = "sukko-cluster-vpc"
   auto_create_subnetworks = false
   project                 = var.project_id
 }
 
 resource "google_compute_subnetwork" "cluster_subnet" {
-  name          = "odin-ws-cluster-subnet"
+  name          = "sukko-cluster-subnet"
   ip_cidr_range = "10.0.0.0/20"  # Must NOT overlap with publisher VPC
   region        = var.region
   network       = google_compute_network.cluster_vpc.id
@@ -478,7 +478,7 @@ resource "google_compute_network_peering" "publisher_to_cluster" {
 resource "google_compute_address" "redpanda_internal" {
   for_each = toset(var.environments)
 
-  name         = "odin-ws-${each.key}-redpanda-internal"
+  name         = "sukko-${each.key}-redpanda-internal"
   region       = var.region
   address_type = "INTERNAL"
   subnetwork   = google_compute_subnetwork.cluster_subnet.id
@@ -552,7 +552,7 @@ resource "google_compute_firewall" "allow_kafka_from_publisher_cluster" {
   ]
 
   # Target the internal load balancer / Redpanda nodes
-  target_tags = ["redpanda", "gke-odin-ws-develop"]
+  target_tags = ["redpanda", "gke-sukko-develop"]
 }
 ```
 
@@ -792,7 +792,7 @@ To migrate without losing the current IP:
    cd deployments/terraform/gke-standard/foundation
    terraform init
    terraform import 'google_compute_address.redpanda_external["develop"]' \
-     projects/{project}/regions/us-central1/addresses/odin-ws-develop-redpanda-external
+     projects/{project}/regions/us-central1/addresses/sukko-develop-redpanda-external
    ```
 
 3. **Remove IP from cluster state:**
@@ -817,7 +817,7 @@ To migrate without losing the current IP:
 
 1. `terraform plan` in foundation shows no changes
 2. `terraform plan` in cluster shows no changes to IP resources
-3. `kubectl get svc odin-redpanda-external` shows correct IP
+3. `kubectl get svc sukko-redpanda-external` shows correct IP
 4. Destroy and recreate cluster - IP is preserved
 5. Publisher can still connect after recreation
 

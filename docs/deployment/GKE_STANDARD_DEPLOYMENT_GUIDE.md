@@ -1,6 +1,6 @@
 # GKE Standard Deployment Guide
 
-Complete guide for deploying odin-ws to GKE Standard with Spot VMs, including all fixes and lessons learned from the initial deployment.
+Complete guide for deploying sukko to GKE Standard with Spot VMs, including all fixes and lessons learned from the initial deployment.
 
 ## Table of Contents
 
@@ -104,8 +104,8 @@ kubectl get nodes
 
 # Expected output:
 # NAME                                     STATUS   ROLES    AGE   VERSION
-# gke-odin-ws-develop-...-40k3            Ready    <none>   5m    v1.33.x
-# gke-odin-ws-develop-...-z27l            Ready    <none>   5m    v1.33.x
+# gke-sukko-develop-...-40k3            Ready    <none>   5m    v1.33.x
+# gke-sukko-develop-...-z27l            Ready    <none>   5m    v1.33.x
 ```
 
 ### Fix Applied: Maintenance Policy
@@ -134,11 +134,11 @@ gcloud services enable cloudbuild.googleapis.com --project=trim-array-480700-j7
 gcloud services enable artifactregistry.googleapis.com --project=trim-array-480700-j7
 
 # Create Docker repository
-gcloud artifacts repositories create odin \
+gcloud artifacts repositories create sukko \
   --repository-format=docker \
   --location=us-central1 \
   --project=trim-array-480700-j7 \
-  --description="Odin WebSocket Server images"
+  --description="Sukko WebSocket Server images"
 
 # Grant Cloud Build permission to push images
 PROJECT_NUMBER=$(gcloud projects describe trim-array-480700-j7 --format='value(projectNumber)')
@@ -151,7 +151,7 @@ gcloud projects add-iam-policy-binding trim-array-480700-j7 \
 
 ```bash
 # List images in repository
-gcloud artifacts docker images list us-central1-docker.pkg.dev/trim-array-480700-j7/odin
+gcloud artifacts docker images list us-central1-docker.pkg.dev/trim-array-480700-j7/sukko
 ```
 
 ---
@@ -252,9 +252,9 @@ image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}
 ```
 
 **Files modified:**
-- `deployments/k8s/helm/odin/charts/ws-server/templates/deployment.yaml`
-- `deployments/k8s/helm/odin/charts/ws-gateway/templates/deployment.yaml`
-- `deployments/k8s/helm/odin/charts/publisher/templates/deployment.yaml`
+- `deployments/k8s/helm/sukko/charts/ws-server/templates/deployment.yaml`
+- `deployments/k8s/helm/sukko/charts/ws-gateway/templates/deployment.yaml`
+- `deployments/k8s/helm/sukko/charts/publisher/templates/deployment.yaml`
 
 ---
 
@@ -267,7 +267,7 @@ image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}
 task k8s:gke-standard:status
 
 # Detailed pod info
-kubectl get pods -n odin-std-develop -o wide
+kubectl get pods -n sukko-std-develop -o wide
 
 # All pods should show: Running, READY 1/1
 ```
@@ -276,19 +276,19 @@ kubectl get pods -n odin-std-develop -o wide
 
 ```bash
 # List services with external IPs
-kubectl get svc -n odin-std-develop
+kubectl get svc -n sukko-std-develop
 
 # Expected LoadBalancer services:
-# odin-ws-gateway      LoadBalancer   x.x.x.x   443:xxxxx/TCP
-# odin-ws-server       LoadBalancer   x.x.x.x   3001:xxxxx/TCP
-# odin-redpanda-external LoadBalancer x.x.x.x   9092:xxxxx/TCP
+# sukko-gateway      LoadBalancer   x.x.x.x   443:xxxxx/TCP
+# sukko-server       LoadBalancer   x.x.x.x   3001:xxxxx/TCP
+# sukko-redpanda-external LoadBalancer x.x.x.x   9092:xxxxx/TCP
 ```
 
 ### Health Check
 
 ```bash
 # Via port-forward (bypasses firewall)
-kubectl port-forward -n odin-std-develop svc/odin-ws-server 3001:3001 &
+kubectl port-forward -n sukko-std-develop svc/sukko-server 3001:3001 &
 curl http://localhost:3001/health
 
 # Expected response:
@@ -318,7 +318,7 @@ task k8s:gke-standard:logs:all
 
 **Check:**
 ```bash
-kubectl describe pod -n odin-std-develop <pod-name> | grep -A5 "Warning"
+kubectl describe pod -n sukko-std-develop <pod-name> | grep -A5 "Warning"
 ```
 
 **Common causes:**
@@ -331,8 +331,8 @@ kubectl describe pod -n odin-std-develop <pod-name> | grep -A5 "Warning"
 **Symptom:** Pods crash with `exec format error` in logs
 
 ```bash
-kubectl logs -n odin-std-develop <pod-name>
-# exec ./odin-ws: exec format error
+kubectl logs -n sukko-std-develop <pod-name>
+# exec ./sukko: exec format error
 ```
 
 **Cause:** Image built for wrong architecture (arm64 on Mac, but GKE needs amd64)
@@ -340,14 +340,14 @@ kubectl logs -n odin-std-develop <pod-name>
 **Fix:** Use Cloud Build instead of local Docker:
 ```bash
 task k8s:gke-standard:cloud-build
-kubectl rollout restart deployment -n odin-std-develop
+kubectl rollout restart deployment -n sukko-std-develop
 ```
 
 ### CrashLoopBackOff
 
 **Check logs:**
 ```bash
-kubectl logs -n odin-std-develop <pod-name> --previous
+kubectl logs -n sukko-std-develop <pod-name> --previous
 ```
 
 **Common causes:**
@@ -366,18 +366,18 @@ gcloud compute firewall-rules list --project=trim-array-480700-j7
 
 **Fix:** Create ingress rule (if missing):
 ```bash
-gcloud compute firewall-rules create allow-odin-ingress \
+gcloud compute firewall-rules create allow-sukko-ingress \
   --project=trim-array-480700-j7 \
   --allow=tcp:443,tcp:3001,tcp:9092 \
   --source-ranges=0.0.0.0/0 \
-  --target-tags=gke-odin-ws-develop
+  --target-tags=gke-sukko-develop
 ```
 
 ### Restart Deployments
 
 After updating images or configs:
 ```bash
-kubectl rollout restart deployment -n odin-std-develop
+kubectl rollout restart deployment -n sukko-std-develop
 ```
 
 ---
@@ -451,8 +451,8 @@ task k8s:gke-standard:tf:destroy       # Destroy infrastructure
 | `taskfiles/k8s/gke-standard.yml` | All task commands |
 | `cloudbuild.yaml` | Cloud Build configuration |
 | `deployments/terraform/gke-standard/develop/` | Terraform for develop |
-| `deployments/k8s/helm/odin/values/standard/develop.yaml` | Helm values for develop |
-| `deployments/k8s/helm/odin/charts/*/templates/` | Helm templates |
+| `deployments/k8s/helm/sukko/values/standard/develop.yaml` | Helm values for develop |
+| `deployments/k8s/helm/sukko/charts/*/templates/` | Helm templates |
 
 ---
 

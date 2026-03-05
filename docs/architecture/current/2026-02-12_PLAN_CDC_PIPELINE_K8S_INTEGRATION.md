@@ -1,4 +1,4 @@
-# Plan: Integrate odin-cdc into odin-ws K8s Cluster
+# Plan: Integrate sukko-cdc into sukko K8s Cluster
 
 **Date:** 2026-02-12
 **Status:** Planning
@@ -8,13 +8,13 @@
 
 ## Context
 
-The odin-cdc pipeline currently runs in its own separate GKE cluster (`odin-cdc-cluster` in project `trim-array-480700-j7`). It captures MySQL binlog changes from a CloudSQL read replica via Debezium, transforms them through a Node.js consumer, and publishes refined events to Redpanda. This is the production data source that replaces `wspublisher` (synthetic test data).
+The sukko-cdc pipeline currently runs in its own separate GKE cluster (`sukko-cdc-cluster` in project `trim-array-480700-j7`). It captures MySQL binlog changes from a CloudSQL read replica via Debezium, transforms them through a Node.js consumer, and publishes refined events to Redpanda. This is the production data source that replaces `wspublisher` (synthetic test data).
 
-**Goal:** Consolidate odin-cdc into the odin-ws cluster (`odin-ws-dev` in project `odin-9e902`) so all services live in one cluster, reducing operational overhead and cost.
+**Goal:** Consolidate sukko-cdc into the sukko cluster (`sukko-dev` in project `sukko-9e902`) so all services live in one cluster, reducing operational overhead and cost.
 
 **Data flow after integration:**
 ```
-CloudSQL Read Replica -> Debezium -> Redpanda-CDC -> odin-cdc consumer -> Redpanda-WS (existing) -> ws-server -> WebSocket clients
+CloudSQL Read Replica -> Debezium -> Redpanda-CDC -> sukko-cdc consumer -> Redpanda-WS (existing) -> ws-server -> WebSocket clients
 ```
 
 Two Redpanda instances are required:
@@ -23,21 +23,21 @@ Two Redpanda instances are required:
 
 ---
 
-## Phase 0: Move odin-cdc Source Code into odin-ws
+## Phase 0: Move sukko-cdc Source Code into sukko
 
-The odin-cdc consumer code currently lives in a separate repository. As part of this consolidation, we will move it into the odin-ws monorepo rather than using a git submodule.
+The sukko-cdc consumer code currently lives in a separate repository. As part of this consolidation, we will move it into the sukko monorepo rather than using a git submodule.
 
 ### Why monorepo over git submodule
 
 - **Atomic cross-service changes** -- The open question about adding `TARGET_KAFKA_BROKER` support to the consumer is a perfect example. With a submodule, this requires coordinated PRs across two repos. In-repo it's one commit that touches both the consumer code and its Helm chart.
-- **Shared tooling** -- Taskfile, Helm charts, Terraform, CI (`cloudbuild.yaml`) all live in odin-ws. A submodule would need its own build plumbing or awkward cross-repo path references.
+- **Shared tooling** -- Taskfile, Helm charts, Terraform, CI (`cloudbuild.yaml`) all live in sukko. A submodule would need its own build plumbing or awkward cross-repo path references.
 - **Consistent deployment lifecycle** -- `task k8s:deploy` deploys everything. A submodule adds a `git submodule update` step and version drift risk (detached HEAD, forgotten updates).
-- **No independent release cadence** -- odin-cdc doesn't have its own team or consumers outside odin-ws. It exists solely to feed data into ws-server. There's no benefit to repo-level isolation.
+- **No independent release cadence** -- sukko-cdc doesn't have its own team or consumers outside sukko. It exists solely to feed data into ws-server. There's no benefit to repo-level isolation.
 - **Small footprint** -- The consumer is a lightweight Node.js app, not a large independent product.
 
 ### Placement: `cdc/` at repo root
 
-The odin-ws repo structure separates services by language/runtime:
+The sukko repo structure separates services by language/runtime:
 ```
 ws/              # Go module -- gateway, server, provisioning (shared go.mod)
 wsloadtest/      # Go standalone service
@@ -50,15 +50,15 @@ cdc/             # Node.js -- CDC consumer (new)
 - Follows the same pattern as `wsloadtest/` and `wspublisher/` -- standalone services get their own top-level directory
 - Short, clean name matching the existing convention
 
-The directory will contain the consumer source, `package.json`, `Dockerfile`, and any CDC-specific config. The old odin-cdc repository can be archived once migration is verified.
+The directory will contain the consumer source, `package.json`, `Dockerfile`, and any CDC-specific config. The old sukko-cdc repository can be archived once migration is verified.
 
 ### Migration steps
 
-1. Copy source files from odin-cdc repo into `cdc/`
+1. Copy source files from sukko-cdc repo into `cdc/`
 2. Verify `Dockerfile` builds correctly in the new location
 3. Update `cloudbuild.yaml` if needed to build the cdc image from the new path
 4. Update Helm chart image reference to point to the new build artifact
-5. Archive the old odin-cdc repository
+5. Archive the old sukko-cdc repository
 
 ---
 
@@ -137,16 +137,16 @@ module "gke" {
 
 ---
 
-## Phase 1.5: Terraform -- VPC Peering for odin-api Cross-VPC Access
+## Phase 1.5: Terraform -- VPC Peering for sukko-api Cross-VPC Access
 
-odin-api lives in a separate VPC within the same GCP project. It needs to publish events to Redpanda-WS in the odin-ws cluster VPC. VPC Peering is the optimal approach: free (no egress charges for same-region peered traffic), traffic stays on Google's private backbone, and a single firewall rule scopes access down to the Redpanda port.
+sukko-api lives in a separate VPC within the same GCP project. It needs to publish events to Redpanda-WS in the sukko cluster VPC. VPC Peering is the optimal approach: free (no egress charges for same-region peered traffic), traffic stays on Google's private backbone, and a single firewall rule scopes access down to the Redpanda port.
 
 ### 1.5.1 VPC Peering resource
 
 **`deployments/terraform/modules/foundation/variables.tf`** -- Add:
 ```hcl
 variable "peer_vpc_self_link" {
-  description = "Self link of the VPC to peer with (e.g., odin-api VPC). Empty = no peering."
+  description = "Self link of the VPC to peer with (e.g., sukko-api VPC). Empty = no peering."
   type        = string
   default     = ""
 }
@@ -162,9 +162,9 @@ resource "google_compute_network_peering" "ws_to_api" {
 }
 ```
 
-Note: The reverse peering (api VPC -> ws VPC) must also be created in the odin-api Terraform config. VPC peering is bidirectional but requires a resource on each side.
+Note: The reverse peering (api VPC -> ws VPC) must also be created in the sukko-api Terraform config. VPC peering is bidirectional but requires a resource on each side.
 
-### 1.5.2 Firewall rule -- allow odin-api to Redpanda only
+### 1.5.2 Firewall rule -- allow sukko-api to Redpanda only
 
 **`deployments/terraform/modules/foundation/main.tf`** -- Add:
 ```hcl
@@ -179,10 +179,10 @@ resource "google_compute_firewall" "allow_api_to_redpanda" {
     ports    = ["30092"]  # Redpanda NodePort
   }
 
-  source_ranges = [var.peer_vpc_subnet_cidr]  # odin-api subnet CIDR
+  source_ranges = [var.peer_vpc_subnet_cidr]  # sukko-api subnet CIDR
   target_tags   = ["gke-node"]                # Only GKE nodes
 
-  description = "Allow odin-api VPC to reach Redpanda-WS via NodePort"
+  description = "Allow sukko-api VPC to reach Redpanda-WS via NodePort"
 }
 ```
 
@@ -197,7 +197,7 @@ variable "peer_vpc_subnet_cidr" {
 
 ### 1.5.3 Expose Redpanda-WS via NodePort
 
-The existing Redpanda-WS Helm chart may need a NodePort service (or the existing service updated) so odin-api can reach it via `<GKE-node-internal-IP>:<NodePort>`. The internal node IPs are routable across peered VPCs.
+The existing Redpanda-WS Helm chart may need a NodePort service (or the existing service updated) so sukko-api can reach it via `<GKE-node-internal-IP>:<NodePort>`. The internal node IPs are routable across peered VPCs.
 
 Alternatively, an **Internal Load Balancer** (ILB) can front the Redpanda service for a stable internal IP, avoiding node IP dependency:
 ```hcl
@@ -219,16 +219,16 @@ Then in the Redpanda Helm chart, add a `LoadBalancer` service with `cloud.google
 ```hcl
 module "foundation" {
   # ... existing args ...
-  peer_vpc_self_link  = "projects/odin-9e902/global/networks/<odin-api-vpc-name>"
-  peer_vpc_subnet_cidr = "<odin-api-subnet-cidr>"  # e.g., "10.x.x.x/xx"
+  peer_vpc_self_link  = "projects/sukko-9e902/global/networks/<sukko-api-vpc-name>"
+  peer_vpc_subnet_cidr = "<sukko-api-subnet-cidr>"  # e.g., "10.x.x.x/xx"
 }
 ```
 
 ### Open questions for this phase
 
-- What is the odin-api VPC name and subnet CIDR?
-- Does odin-api's Terraform config live in a separate state? The reverse peering resource needs to be added there.
-- NodePort vs Internal Load Balancer: NodePort is simpler but ties odin-api to node IPs. ILB gives a stable IP but adds ~$0.025/hr (~$18/mo). For dev, NodePort is likely fine.
+- What is the sukko-api VPC name and subnet CIDR?
+- Does sukko-api's Terraform config live in a separate state? The reverse peering resource needs to be added there.
+- NodePort vs Internal Load Balancer: NodePort is simpler but ties sukko-api to node IPs. ILB gives a stable IP but adds ~$0.025/hr (~$18/mo). For dev, NodePort is likely fine.
 
 ---
 
@@ -238,7 +238,7 @@ Add 3 new subcharts following the existing pattern (e.g., `redpanda/`, `provisio
 
 ### 2.1 `redpanda-cdc` subchart
 
-**Directory:** `deployments/helm/odin/charts/redpanda-cdc/`
+**Directory:** `deployments/helm/sukko/charts/redpanda-cdc/`
 
 Clone from existing `redpanda/` subchart with these differences:
 - Chart name: `redpanda-cdc`
@@ -256,11 +256,11 @@ Clone from existing `redpanda/` subchart with these differences:
 - `templates/statefulset.yaml` (same pattern, port 9093)
 - `templates/service.yaml` (ClusterIP only)
 
-**Result:** Service DNS `odin-redpanda-cdc:9093`
+**Result:** Service DNS `sukko-redpanda-cdc:9093`
 
 ### 2.2 `debezium` subchart
 
-**Directory:** `deployments/helm/odin/charts/debezium/`
+**Directory:** `deployments/helm/sukko/charts/debezium/`
 
 **Files to create:**
 - `Chart.yaml` (appVersion: "2.7.3")
@@ -269,13 +269,13 @@ Clone from existing `redpanda/` subchart with these differences:
 - `templates/deployment.yaml`
 - `templates/service.yaml` (ClusterIP, port 8083)
 
-**Key deployment spec** (derived from `odin-cdc/k8s/odin-cdc.yaml` lines 13-64):
+**Key deployment spec** (derived from `sukko-cdc/k8s/sukko-cdc.yaml` lines 13-64):
 - Image: `debezium/connect:2.7.3.Final`
 - Port: 8083
-- Init container: wait for `odin-redpanda-cdc:9093`
+- Init container: wait for `sukko-redpanda-cdc:9093`
 - Env vars:
   - `BOOTSTRAP_SERVERS`: `{{ .Release.Name }}-redpanda-cdc:9093`
-  - `GROUP_ID`: `odin-cdc-connect`
+  - `GROUP_ID`: `sukko-cdc-connect`
   - `CONFIG_STORAGE_TOPIC`: `connect_configs`
   - `OFFSET_STORAGE_TOPIC`: `connect_offsets`
   - `STATUS_STORAGE_TOPIC`: `connect_status`
@@ -286,7 +286,7 @@ Clone from existing `redpanda/` subchart with these differences:
 
 ### 2.3 `cdc-consumer` subchart
 
-**Directory:** `deployments/helm/odin/charts/cdc-consumer/`
+**Directory:** `deployments/helm/sukko/charts/cdc-consumer/`
 
 **Files to create:**
 - `Chart.yaml`
@@ -294,22 +294,22 @@ Clone from existing `redpanda/` subchart with these differences:
 - `templates/_helpers.tpl`
 - `templates/deployment.yaml`
 
-**Key deployment spec** (derived from `odin-cdc/k8s/odin-cdc.yaml` lines 80-117):
-- Image: `gcr.io/trim-array-480700-j7/odin-cdc:latest` (external registry initially)
+**Key deployment spec** (derived from `sukko-cdc/k8s/sukko-cdc.yaml` lines 80-117):
+- Image: `gcr.io/trim-array-480700-j7/sukko-cdc:latest` (external registry initially)
 - `imagePullPolicy: Always`
-- Init containers: wait for both `odin-redpanda-cdc:9093` AND `odin-redpanda:9092`
+- Init containers: wait for both `sukko-redpanda-cdc:9093` AND `sukko-redpanda:9092`
 - Env vars:
   - `KAFKA_BROKER`: `{{ .Release.Name }}-redpanda-cdc:9093` (source: raw CDC)
-  - `KAFKA_CONSUMER_GROUP`: `odin-cdc-consumer`
-- `envFrom`: secretRef to `odin-cdc-env` secret (DATABASE_URL, API keys, etc.)
+  - `KAFKA_CONSUMER_GROUP`: `sukko-cdc-consumer`
+- `envFrom`: secretRef to `sukko-cdc-env` secret (DATABASE_URL, API keys, etc.)
 - Resources: 50m/300m CPU, 64Mi/128Mi RAM (from existing manifest)
-- ServiceAccount: `odin-cdc-sa` (optional, for Workload Identity if needed later)
+- ServiceAccount: `sukko-cdc-sa` (optional, for Workload Identity if needed later)
 
-**Open question:** The existing odin-cdc consumer reads from and writes to the SAME Redpanda. In the new architecture, it reads from Redpanda-CDC and writes to Redpanda-WS. This may require a `TARGET_KAFKA_BROKER` env var pointing to `odin-redpanda:9092`. Need to verify if the odin-cdc consumer code supports separate source/target brokers, or if this needs a code change in odin-cdc.
+**Open question:** The existing sukko-cdc consumer reads from and writes to the SAME Redpanda. In the new architecture, it reads from Redpanda-CDC and writes to Redpanda-WS. This may require a `TARGET_KAFKA_BROKER` env var pointing to `sukko-redpanda:9092`. Need to verify if the sukko-cdc consumer code supports separate source/target brokers, or if this needs a code change in sukko-cdc.
 
 ### 2.4 Update parent Chart.yaml
 
-**`deployments/helm/odin/Chart.yaml`** -- Add 3 new dependencies:
+**`deployments/helm/sukko/Chart.yaml`** -- Add 3 new dependencies:
 ```yaml
 dependencies:
   # ... existing ...
@@ -326,7 +326,7 @@ dependencies:
 
 ### 2.5 CDC secret template
 
-**`deployments/helm/odin/templates/cdc-secret.yaml`** -- For the odin-cdc consumer secrets (DATABASE_URL, API keys). Following the pattern of `provisioning-db-secret.yaml`.
+**`deployments/helm/sukko/templates/cdc-secret.yaml`** -- For the sukko-cdc consumer secrets (DATABASE_URL, API keys). Following the pattern of `provisioning-db-secret.yaml`.
 
 ---
 
@@ -334,7 +334,7 @@ dependencies:
 
 ### 3.1 Base values.yaml
 
-**`deployments/helm/odin/values.yaml`** -- Add disabled defaults:
+**`deployments/helm/sukko/values.yaml`** -- Add disabled defaults:
 ```yaml
 # CDC Pipeline (disabled by default)
 redpanda-cdc:
@@ -347,7 +347,7 @@ cdc-consumer:
 
 ### 3.2 GKE Dev values
 
-**`deployments/helm/odin/values/standard/dev.yaml`** -- Add enabled CDC config:
+**`deployments/helm/sukko/values/standard/dev.yaml`** -- Add enabled CDC config:
 ```yaml
 redpanda-cdc:
   enabled: true
@@ -371,10 +371,10 @@ cdc-consumer:
   enabled: true
   replicaCount: 1
   image:
-    repository: gcr.io/trim-array-480700-j7/odin-cdc
+    repository: gcr.io/trim-array-480700-j7/sukko-cdc
     tag: latest
   secrets:
-    existingSecret: "odin-cdc-env"
+    existingSecret: "sukko-cdc-env"
   resources:
     requests: { cpu: "50m", memory: "64Mi" }
     limits:   { cpu: "300m", memory: "128Mi" }
@@ -383,7 +383,7 @@ cdc-consumer:
 
 ### 3.3 Local values (disabled)
 
-**`deployments/helm/odin/values/local.yaml`** -- CDC disabled (no CloudSQL locally):
+**`deployments/helm/sukko/values/local.yaml`** -- CDC disabled (no CloudSQL locally):
 ```yaml
 redpanda-cdc:
   enabled: false
@@ -428,7 +428,7 @@ cdc:connector:status:
   desc: Check Debezium connector status
 
 cdc:secrets:create:
-  desc: Create/update odin-cdc-env secret
+  desc: Create/update sukko-cdc-env secret
   # Interactive prompt for DB credentials + API keys
 ```
 
@@ -441,7 +441,7 @@ Update `deploy` task vars to read `NAT_IP` from foundation outputs.
 **`deployments/cdc/mysql-connector.json`** -- Connector registration payload:
 ```json
 {
-  "name": "odin-mysql-cdc",
+  "name": "sukko-mysql-cdc",
   "config": {
     "connector.class": "io.debezium.connector.mysql.MySqlConnector",
     "tasks.max": "1",
@@ -449,11 +449,11 @@ Update `deploy` task vars to read `NAT_IP` from foundation outputs.
     "database.port": "3306",
     "database.user": "debezium",
     "database.password": "<from-secret>",
-    "topic.prefix": "odin",
+    "topic.prefix": "sukko",
     "database.include.list": "main,dev",
     "table.include.list": "main.trade,dev.trade",
-    "schema.history.internal.kafka.bootstrap.servers": "odin-redpanda-cdc:9093",
-    "schema.history.internal.kafka.topic": "odin.schema.history",
+    "schema.history.internal.kafka.bootstrap.servers": "sukko-redpanda-cdc:9093",
+    "schema.history.internal.kafka.topic": "sukko.schema.history",
     "snapshot.mode": "schema_only",
     "snapshot.locking.mode": "none",
     "database.ssl.mode": "preferred",
@@ -471,7 +471,7 @@ Update `deploy` task vars to read `NAT_IP` from foundation outputs.
 
 1. **Terraform foundation** -- Apply to create NAT static IP
 2. **Whitelist NAT IP** on CloudSQL read replica firewall (manual step in `trim-array-480700-j7` project)
-3. **Create k8s secret** -- `kubectl create secret generic odin-cdc-env -n odin-ws-dev --from-env-file=.env.cdc`
+3. **Create k8s secret** -- `kubectl create secret generic sukko-cdc-env -n sukko-dev --from-env-file=.env.cdc`
 4. **Helm deploy** -- `task k8s:deploy ENV=dev` (deploys all 3 new subcharts)
 5. **Register connector** -- `task k8s:cdc:connector:register ENV=dev`
 6. **Verify pipeline** -- Check logs, verify events flow through
@@ -491,25 +491,25 @@ Update `deploy` task vars to read `NAT_IP` from foundation outputs.
 
 ## Open Questions (to address during implementation)
 
-1. **Source/target broker separation in odin-cdc consumer**: Does the consumer code support writing to a different Kafka broker than it reads from? If `KAFKA_BROKER` is the only env var, the consumer may need a code change to add `TARGET_KAFKA_BROKER` support. Otherwise, both Redpandas would need to be the same instance (defeating the two-Redpanda design).
+1. **Source/target broker separation in sukko-cdc consumer**: Does the consumer code support writing to a different Kafka broker than it reads from? If `KAFKA_BROKER` is the only env var, the consumer may need a code change to add `TARGET_KAFKA_BROKER` support. Otherwise, both Redpandas would need to be the same instance (defeating the two-Redpanda design).
 
-2. **Image registry migration** (partially resolved): With the consumer code moved into odin-ws, we can build the image in the `odin-9e902` project's Artifact Registry (`us-central1-docker.pkg.dev/odin-9e902/odin-ws/cdc-consumer`). Initially the Helm chart can still reference the old image at `gcr.io/trim-array-480700-j7/odin-cdc` while we set up the new build pipeline via `cloudbuild.yaml`.
+2. **Image registry migration** (partially resolved): With the consumer code moved into sukko, we can build the image in the `sukko-9e902` project's Artifact Registry (`us-central1-docker.pkg.dev/sukko-9e902/sukko/cdc-consumer`). Initially the Helm chart can still reference the old image at `gcr.io/trim-array-480700-j7/sukko-cdc` while we set up the new build pipeline via `cloudbuild.yaml`.
 
 ---
 
 ## Files to Create
-- `cdc/` -- odin-cdc consumer source code (moved from separate repo)
-- `deployments/helm/odin/charts/redpanda-cdc/` (5 files)
-- `deployments/helm/odin/charts/debezium/` (5 files)
-- `deployments/helm/odin/charts/cdc-consumer/` (4 files)
-- `deployments/helm/odin/templates/cdc-secret.yaml`
+- `cdc/` -- sukko-cdc consumer source code (moved from separate repo)
+- `deployments/helm/sukko/charts/redpanda-cdc/` (5 files)
+- `deployments/helm/sukko/charts/debezium/` (5 files)
+- `deployments/helm/sukko/charts/cdc-consumer/` (4 files)
+- `deployments/helm/sukko/templates/cdc-secret.yaml`
 - `deployments/cdc/mysql-connector.json`
 
 ## Files to Modify
-- `deployments/helm/odin/Chart.yaml` -- Add 3 subchart dependencies
-- `deployments/helm/odin/values.yaml` -- Add disabled CDC defaults
-- `deployments/helm/odin/values/standard/dev.yaml` -- Add enabled CDC config
-- `deployments/helm/odin/values/local.yaml` -- Add disabled CDC config
+- `deployments/helm/sukko/Chart.yaml` -- Add 3 subchart dependencies
+- `deployments/helm/sukko/values.yaml` -- Add disabled CDC defaults
+- `deployments/helm/sukko/values/standard/dev.yaml` -- Add enabled CDC config
+- `deployments/helm/sukko/values/local.yaml` -- Add disabled CDC config
 - `deployments/terraform/modules/foundation/main.tf` -- Add NAT static IP + VPC peering + firewall rule
 - `deployments/terraform/modules/foundation/variables.tf` -- Add peer VPC variables
 - `deployments/terraform/modules/foundation/outputs.tf` -- Add NAT outputs

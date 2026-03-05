@@ -318,7 +318,7 @@ Shard-1:3002 Shard-2:3003 Shard-3:3004 (shared backend pool)
 
 **Option B: Replicate Current Setup (Simpler)**
 
-1. Clone `odin-ws-go` instance 10 times
+1. Clone `sukko-go` instance 10 times
 2. Each runs LoadBalancer + 3 shards
 3. GCP LB distributes traffic
 4. Independent shard pools per instance
@@ -340,7 +340,7 @@ Shard-1:3002 Shard-2:3003 Shard-3:3004 (shared backend pool)
 WS_MODE=loadbalancer  # Run LB only, no shards
 
 # Command line
-./odin-ws-multi --mode=loadbalancer --lb-addr=:3001 \
+./sukko-multi --mode=loadbalancer --lb-addr=:3001 \
   --backend-urls=ws://shard-1:3002/ws,ws://shard-2:3003/ws,...
 ```
 
@@ -348,7 +348,7 @@ WS_MODE=loadbalancer  # Run LB only, no shards
 ```bash
 WS_MODE=shard  # Run shards only, no LB
 
-./odin-ws-multi --mode=shard --shards=7 --base-port=3002
+./sukko-multi --mode=shard --shards=7 --base-port=3002
 ```
 
 **Step 3: Deploy with GCP managed instance group**

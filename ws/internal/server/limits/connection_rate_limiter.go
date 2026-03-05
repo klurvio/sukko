@@ -7,7 +7,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/server/metrics"
 )
 
 // ConnectionRateLimiter provides DoS protection through rate limiting of connection attempts.

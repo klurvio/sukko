@@ -14,8 +14,8 @@ Update KinD (local) and GKE Standard (remote) deployment configurations with the
 
 | File | Purpose |
 |------|---------|
-| `deployments/k8s/helm/odin/charts/ws-gateway/values.yaml` | Add new config defaults |
-| `deployments/k8s/helm/odin/charts/ws-gateway/templates/deployment.yaml` | Add env vars to pod |
+| `deployments/k8s/helm/sukko/charts/ws-gateway/values.yaml` | Add new config defaults |
+| `deployments/k8s/helm/sukko/charts/ws-gateway/templates/deployment.yaml` | Add env vars to pod |
 
 ### New Configuration Values to Add
 
@@ -70,7 +70,7 @@ config:
 
 ### Local (KinD)
 
-**File:** `deployments/k8s/helm/odin/values/local.yaml`
+**File:** `deployments/k8s/helm/sukko/values/local.yaml`
 
 ```yaml
 ws-gateway:
@@ -85,7 +85,7 @@ ws-gateway:
 
 ### GKE Standard - Develop
 
-**File:** `deployments/k8s/helm/odin/values/standard/develop.yaml`
+**File:** `deployments/k8s/helm/sukko/values/standard/develop.yaml`
 
 ```yaml
 ws-gateway:
@@ -98,7 +98,7 @@ ws-gateway:
 
 ### GKE Standard - Staging
 
-**File:** `deployments/k8s/helm/odin/values/standard/staging.yaml`
+**File:** `deployments/k8s/helm/sukko/values/standard/staging.yaml`
 
 ```yaml
 ws-gateway:
@@ -111,7 +111,7 @@ ws-gateway:
 
 ### GKE Standard - Production
 
-**File:** `deployments/k8s/helm/odin/values/standard/production.yaml`
+**File:** `deployments/k8s/helm/sukko/values/standard/production.yaml`
 
 ```yaml
 ws-gateway:
@@ -407,7 +407,7 @@ tasks:
       - kubectl config use-context kind-{{.LOCAL_CLUSTER}}
       - task: migrate
       - task: common:asyncapi:bundle
-      - helm upgrade --install odin {{.LOCAL_HELM_CHART}} -f {{.LOCAL_VALUES}} -n {{.LOCAL_NS}} --create-namespace
+      - helm upgrade --install sukko {{.LOCAL_HELM_CHART}} -f {{.LOCAL_VALUES}} -n {{.LOCAL_NS}} --create-namespace
 
   # Update existing build:reload task
   build:reload:
@@ -425,7 +425,7 @@ tasks:
         # Port-forward postgres if not already running
         if ! nc -z localhost 5432 2>/dev/null; then
           echo "Starting port-forward to postgres..."
-          kubectl port-forward -n {{.LOCAL_NS}} svc/odin-provisioning-db 5432:5432 &
+          kubectl port-forward -n {{.LOCAL_NS}} svc/sukko-provisioning-db 5432:5432 &
           sleep 2
         fi
       - DATABASE_URL="{{.LOCAL_DB_URL}}" task provisioning:db:migrate
@@ -434,7 +434,7 @@ tasks:
   port-forward:provisioning:
     desc: Port forward provisioning API
     cmds:
-      - kubectl port-forward -n {{.LOCAL_NS}} svc/odin-provisioning 8082:8082
+      - kubectl port-forward -n {{.LOCAL_NS}} svc/sukko-provisioning 8082:8082
 
   provision:quick-setup:
     desc: Create test tenant with topics (local)
@@ -473,7 +473,7 @@ tasks:
       - task: migrate
       - task: common:asyncapi:bundle
       - |
-        HELM_CMD="helm upgrade --install odin {{.GKE_STD_CHART}} -f {{.GKE_STD_VALUES}} -n {{.GKE_STD_NS}} --create-namespace"
+        HELM_CMD="helm upgrade --install sukko {{.GKE_STD_CHART}} -f {{.GKE_STD_VALUES}} -n {{.GKE_STD_NS}} --create-namespace"
         if [ -n "{{.REDPANDA_IP}}" ]; then
           echo "Using Redpanda static IP: {{.REDPANDA_IP}}"
           HELM_CMD="$HELM_CMD --set redpanda.externalAccess.advertisedHost={{.REDPANDA_IP}} --set redpanda.externalAccess.loadBalancerIP={{.REDPANDA_IP}}"
@@ -495,7 +495,7 @@ tasks:
       DB_URL:
         sh: |
           # Get database URL from secret
-          kubectl get secret odin-provisioning-db -n {{.GKE_STD_NS}} -o jsonpath='{.data.database-url}' | base64 -d
+          kubectl get secret sukko-provisioning-db -n {{.GKE_STD_NS}} -o jsonpath='{.data.database-url}' | base64 -d
     cmds:
       - |
         echo "Running migrations for {{.GKE_STD_ENV}}..."
@@ -506,12 +506,12 @@ tasks:
     desc: Create test tenant with topics (GKE)
     vars:
       PROVISIONING_IP:
-        sh: kubectl get svc odin-provisioning -n {{.GKE_STD_NS}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+        sh: kubectl get svc sukko-provisioning -n {{.GKE_STD_NS}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
     cmds:
       - |
         if [ -z "{{.PROVISIONING_IP}}" ]; then
           echo "Provisioning service IP not available. Using port-forward..."
-          kubectl port-forward -n {{.GKE_STD_NS}} svc/odin-provisioning 8082:8082 &
+          kubectl port-forward -n {{.GKE_STD_NS}} svc/sukko-provisioning 8082:8082 &
           sleep 2
           PROVISIONING_URL="http://localhost:8082"
         else
@@ -523,11 +523,11 @@ tasks:
     desc: List tenants (GKE)
     vars:
       PROVISIONING_IP:
-        sh: kubectl get svc odin-provisioning -n {{.GKE_STD_NS}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
+        sh: kubectl get svc sukko-provisioning -n {{.GKE_STD_NS}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ""
     cmds:
       - |
         if [ -z "{{.PROVISIONING_IP}}" ]; then
-          kubectl port-forward -n {{.GKE_STD_NS}} svc/odin-provisioning 8082:8082 &
+          kubectl port-forward -n {{.GKE_STD_NS}} svc/sukko-provisioning 8082:8082 &
           sleep 2
           PROVISIONING_URL="http://localhost:8082"
         else
@@ -541,18 +541,18 @@ tasks:
 ## Part 5: Implementation Order
 
 ### Step 1: Update Helm Chart Base Values
-1. Edit `deployments/k8s/helm/odin/charts/ws-gateway/values.yaml`
+1. Edit `deployments/k8s/helm/sukko/charts/ws-gateway/values.yaml`
 2. Add new config section with OIDC/channel rules settings
 
 ### Step 2: Update Deployment Template
-1. Edit `deployments/k8s/helm/odin/charts/ws-gateway/templates/deployment.yaml`
+1. Edit `deployments/k8s/helm/sukko/charts/ws-gateway/templates/deployment.yaml`
 2. Add new environment variables
 
 ### Step 3: Update Environment Values
-1. Edit `deployments/k8s/helm/odin/values/local.yaml`
-2. Edit `deployments/k8s/helm/odin/values/standard/develop.yaml`
-3. Edit `deployments/k8s/helm/odin/values/standard/staging.yaml`
-4. Edit `deployments/k8s/helm/odin/values/standard/production.yaml`
+1. Edit `deployments/k8s/helm/sukko/values/local.yaml`
+2. Edit `deployments/k8s/helm/sukko/values/standard/develop.yaml`
+3. Edit `deployments/k8s/helm/sukko/values/standard/staging.yaml`
+4. Edit `deployments/k8s/helm/sukko/values/standard/production.yaml`
 
 ### Step 4: Consolidate Provisioning Taskfile
 1. Update `taskfiles/provisioning.yml` with both `db:` and `api:` namespaces
@@ -624,12 +624,12 @@ task k8s:standard:migrate
 
 | File | Action |
 |------|--------|
-| `deployments/k8s/helm/odin/charts/ws-gateway/values.yaml` | Modify |
-| `deployments/k8s/helm/odin/charts/ws-gateway/templates/deployment.yaml` | Modify |
-| `deployments/k8s/helm/odin/values/local.yaml` | Modify |
-| `deployments/k8s/helm/odin/values/standard/develop.yaml` | Modify |
-| `deployments/k8s/helm/odin/values/standard/staging.yaml` | Modify |
-| `deployments/k8s/helm/odin/values/standard/production.yaml` | Modify |
+| `deployments/k8s/helm/sukko/charts/ws-gateway/values.yaml` | Modify |
+| `deployments/k8s/helm/sukko/charts/ws-gateway/templates/deployment.yaml` | Modify |
+| `deployments/k8s/helm/sukko/values/local.yaml` | Modify |
+| `deployments/k8s/helm/sukko/values/standard/develop.yaml` | Modify |
+| `deployments/k8s/helm/sukko/values/standard/staging.yaml` | Modify |
+| `deployments/k8s/helm/sukko/values/standard/production.yaml` | Modify |
 | `taskfiles/provisioning.yml` | Modify (consolidate db + api) |
 | `taskfiles/k8s/local.yml` | Modify (add migrate, api tasks) |
 | `taskfiles/k8s/standard.yml` | Modify (add migrate, api tasks) |

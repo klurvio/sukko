@@ -2,7 +2,7 @@
 // All events are logged as JSON for easy parsing by log aggregation tools.
 package audit
 
-import "github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
+import "github.com/klurvio/sukko/internal/shared/alerting"
 
 // ClientLogger is a helper for logging events related to a specific client.
 // It automatically includes the client ID in all logged events.

@@ -193,7 +193,7 @@ task k8s
 task build
 
 # If implementing CPU monitoring plan
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws
+cd /Volumes/Dev/Codev/Toniq/sukko/ws
 go test -v ./internal/shared/platform/...
 go test -v ./internal/server/limits/...
 

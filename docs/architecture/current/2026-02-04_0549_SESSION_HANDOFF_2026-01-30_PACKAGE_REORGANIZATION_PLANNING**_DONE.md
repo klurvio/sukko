@@ -146,7 +146,7 @@ internal/server/metrics/
 
 ```bash
 # Start implementation
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws
+cd /Volumes/Dev/Codev/Toniq/sukko/ws
 
 # Read the plan
 cat PLAN-extract-shared-packages.md
@@ -167,10 +167,10 @@ None - plan is complete and ready for execution.
 
 ## Reference Files
 
-- Plan: `/Volumes/Dev/Codev/Toniq/odin-ws/ws/PLAN-extract-shared-packages.md`
-- Source (logging): `/Volumes/Dev/Codev/Toniq/odin-ws/ws/internal/monitoring/logger.go`
-- Source (alerting): `/Volumes/Dev/Codev/Toniq/odin-ws/ws/internal/monitoring/alerting.go`
-- Source (audit): `/Volumes/Dev/Codev/Toniq/odin-ws/ws/internal/monitoring/audit_logger.go`
-- Source (metrics): `/Volumes/Dev/Codev/Toniq/odin-ws/ws/internal/monitoring/metrics.go`
-- Source (system monitor): `/Volumes/Dev/Codev/Toniq/odin-ws/ws/internal/monitoring/system_monitor.go`
-- Guidelines: `/Volumes/Dev/Codev/Toniq/odin-ws/docs/architecture/CODING_GUIDELINES.md`
+- Plan: `/Volumes/Dev/Codev/Toniq/sukko/ws/PLAN-extract-shared-packages.md`
+- Source (logging): `/Volumes/Dev/Codev/Toniq/sukko/ws/internal/monitoring/logger.go`
+- Source (alerting): `/Volumes/Dev/Codev/Toniq/sukko/ws/internal/monitoring/alerting.go`
+- Source (audit): `/Volumes/Dev/Codev/Toniq/sukko/ws/internal/monitoring/audit_logger.go`
+- Source (metrics): `/Volumes/Dev/Codev/Toniq/sukko/ws/internal/monitoring/metrics.go`
+- Source (system monitor): `/Volumes/Dev/Codev/Toniq/sukko/ws/internal/monitoring/system_monitor.go`
+- Guidelines: `/Volumes/Dev/Codev/Toniq/sukko/docs/architecture/CODING_GUIDELINES.md`

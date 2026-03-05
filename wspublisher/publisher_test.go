@@ -7,15 +7,15 @@ import (
 
 func TestMessage_Structure(t *testing.T) {
 	msg := &Message{
-		Topic:   "local.odin.trade",
-		Key:     "odin.BTC.trade",
+		Topic:   "local.sukko.trade",
+		Key:     "sukko.BTC.trade",
 		Payload: json.RawMessage(`{"token":"BTC","price":50000}`),
 	}
 
-	if msg.Topic != "local.odin.trade" {
+	if msg.Topic != "local.sukko.trade" {
 		t.Errorf("unexpected topic: %s", msg.Topic)
 	}
-	if msg.Key != "odin.BTC.trade" {
+	if msg.Key != "sukko.BTC.trade" {
 		t.Errorf("unexpected key: %s", msg.Key)
 	}
 
@@ -42,20 +42,20 @@ func TestMessage_TopicKeyRelationship(t *testing.T) {
 		{
 			name:          "trade channel",
 			namespace:     "local",
-			key:           "odin.BTC.trade",
-			expectedTopic: "local.odin.trade",
+			key:           "sukko.BTC.trade",
+			expectedTopic: "local.sukko.trade",
 		},
 		{
 			name:          "liquidity channel",
 			namespace:     "dev",
-			key:           "odin.ETH.liquidity",
-			expectedTopic: "dev.odin.liquidity",
+			key:           "sukko.ETH.liquidity",
+			expectedTopic: "dev.sukko.liquidity",
 		},
 		{
 			name:          "aggregate channel",
 			namespace:     "stag",
-			key:           "odin.all.trade",
-			expectedTopic: "stag.odin.trade",
+			key:           "sukko.all.trade",
+			expectedTopic: "stag.sukko.trade",
 		},
 		{
 			name:          "different tenant",

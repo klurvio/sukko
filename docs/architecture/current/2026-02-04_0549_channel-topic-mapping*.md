@@ -4,7 +4,7 @@
 
 ## Overview
 
-This document explains the relationship between **channels** (WebSocket routing) and **topics** (Kafka messaging) in the Odin WebSocket infrastructure.
+This document explains the relationship between **channels** (WebSocket routing) and **topics** (Kafka messaging) in the Sukko WebSocket infrastructure.
 
 ---
 
@@ -260,7 +260,7 @@ client.publish("NEWTOKEN.trade", data); // → acme.NEWTOKEN.trade
 
 ### Why Not Hardcode Topics?
 
-The `allTopicBases` in `config.go` was used for legacy "odin" infrastructure topics. For multi-tenant deployments:
+The `allTopicBases` in `config.go` was used for legacy "sukko" infrastructure topics. For multi-tenant deployments:
 
 1. **Each tenant chooses their categories** - not all tenants need all categories
 2. **Topics are stored in database** - queried via `TenantRegistry`

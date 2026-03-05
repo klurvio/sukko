@@ -11,7 +11,7 @@
 When `AUTH_ENABLED=false`, the system should continue to function for development and testing without authentication. This plan documents which features work, which are unavailable, and the minimal changes needed.
 
 **Key finding:** Most features already work correctly when auth is disabled. Three issues need fixing:
-1. Publish channel mapping uses wrong tenant (`anonymous` instead of `odin`)
+1. Publish channel mapping uses wrong tenant (`anonymous` instead of `sukko`)
 2. Subscribe channel mapping is bypassed entirely, causing subscription/broadcast mismatch
 3. Auth data (`auth.Claims`) is inspected even when auth is disabled — routing should be separate from auth
 
@@ -42,7 +42,7 @@ if p.channelMapper != nil && p.claims != nil && p.claims.TenantID != "" {
     internalChannel = p.channelMapper.MapToInternal(p.claims, pubData.Channel)
 }
 ```
-When `TenantID = "anonymous"`, channels become `anonymous.BTC.trade` instead of `odin.BTC.trade`, breaking Kafka topic routing.
+When `TenantID = "anonymous"`, channels become `anonymous.BTC.trade` instead of `sukko.BTC.trade`, breaking Kafka topic routing.
 
 **2. Subscribe channel mapping bypassed (`proxy.go:291-294`):**
 ```go
@@ -50,7 +50,7 @@ if p.claims == nil || p.claims.Subject == "anonymous" {
     return msg, nil  // Bypass ALL interception including channel mapping
 }
 ```
-When auth disabled, subscriptions pass through unchanged. Client subscribes to `BTC.trade`, but CDC publishes with Key = `odin.BTC.trade`. The broadcast subject won't match the subscription.
+When auth disabled, subscriptions pass through unchanged. Client subscribes to `BTC.trade`, but CDC publishes with Key = `sukko.BTC.trade`. The broadcast subject won't match the subscription.
 
 ---
 
@@ -97,14 +97,14 @@ Add to Helm values and gateway config:
 ws-gateway:
   config:
     authEnabled: false
-    defaultTenantId: "odin"  # Used when auth disabled
+    defaultTenantId: "sukko"  # Used when auth disabled
 ```
 
 ```go
 // gateway_config.go
 // DefaultTenantID disables multi-tenant support. All connections
 // are routed to this tenant. Only used when AUTH_ENABLED=false.
-DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
+DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
 ```
 
 ### Code Change
@@ -127,7 +127,7 @@ if gw.config.AuthEnabled {
     // No auth = no claims object
     claims = nil
     principal = "anonymous"
-    tenantID = gw.config.DefaultTenantID  // "odin"
+    tenantID = gw.config.DefaultTenantID  // "sukko"
 }
 
 // Connection tracking uses tenantID directly (not claims)
@@ -165,7 +165,7 @@ proxy := NewProxy(ProxyConfig{
 ```go
 // DefaultTenantID disables multi-tenant support. All connections
 // are routed to this tenant. Only used when AUTH_ENABLED=false.
-DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
+DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
 ```
 
 ### Phase 2: Separate Identity from Auth in Gateway
@@ -176,12 +176,12 @@ Refactor `HandleWebSocket` to resolve `principal` and `tenantID` as local variab
 
 ### Phase 3: Add Helm Value
 
-**File:** `deployments/helm/odin/values/local.yaml`
+**File:** `deployments/helm/sukko/values/local.yaml`
 
 ```yaml
 ws-gateway:
   config:
-    defaultTenantId: "odin"
+    defaultTenantId: "sukko"
 ```
 
 ### Phase 4: Startup Warning
@@ -335,9 +335,9 @@ if p.authEnabled && p.channelMapper != nil {
 ```
 
 **Why this works:**
-1. When auth disabled: `authEnabled=false`, `tenantID="odin"` (from config)
+1. When auth disabled: `authEnabled=false`, `tenantID="sukko"` (from config)
 2. No `auth.Claims` inspected — filtering and access checks skipped entirely
-3. Channel mapping uses `p.tenantID` directly: `BTC.trade` → `odin.BTC.trade`
+3. Channel mapping uses `p.tenantID` directly: `BTC.trade` → `sukko.BTC.trade`
 4. When auth enabled: `authEnabled=true`, `tenantID=claims.TenantID` (from JWT)
 5. Full filtering and access checks run against real JWT claims
 6. Same mapping logic, different source for tenantID
@@ -357,9 +357,9 @@ if p.authEnabled && p.channelMapper != nil {
 | `server/broadcast.go` | Strip tenant prefix before envelope | Yes |
 | `shared/kafka/producer.go` | Add `DefaultTenantID`, update `parseChannel` | No |
 | `cmd/server/main.go` | Pass `DefaultTenantID` from platform config to `ProducerConfig` | No |
-| `values/local.yaml` | Add `defaultTenantId: "odin"` | No |
+| `values/local.yaml` | Add `defaultTenantId: "sukko"` | No |
 
-**Removable** = specific to odin CDC flow. When SaaS client-to-client is the primary flow, set `ChannelMapper` to nil and these lines become dead code to delete.
+**Removable** = specific to sukko CDC flow. When SaaS client-to-client is the primary flow, set `ChannelMapper` to nil and these lines become dead code to delete.
 
 ---
 
@@ -372,33 +372,33 @@ if p.authEnabled && p.channelMapper != nil {
 ```
 TenantRegistry.GetSharedTenantTopics(namespace)
   → queries tenant_categories table
-  → builds topics: kafka.BuildTopicName("local", "odin", "trade") → "local.odin.trade"
+  → builds topics: kafka.BuildTopicName("local", "sukko", "trade") → "local.sukko.trade"
 ```
 
 **Message flow (corrected):**
 ```
-Kafka Topic: local.odin.trade
-Kafka Key:   odin.BTC.trade     ← internal channel WITH tenant prefix (for partitioning)
+Kafka Topic: local.sukko.trade
+Kafka Key:   sukko.BTC.trade     ← internal channel WITH tenant prefix (for partitioning)
 Kafka Value: {...}              ← message payload
 
 Consumer reads:
-  record.Topic = "local.odin.trade"  (from TenantRegistry - already has tenant)
-  record.Key   = "odin.BTC.trade"    (internal channel = broadcast subject)
+  record.Topic = "local.sukko.trade"  (from TenantRegistry - already has tenant)
+  record.Key   = "sukko.BTC.trade"    (internal channel = broadcast subject)
   record.Value = {...}
 
 Broadcast to clients:
-  subject = "odin.BTC.trade"         (clients must subscribe to internal channel format)
+  subject = "sukko.BTC.trade"         (clients must subscribe to internal channel format)
 ```
 
-**Key insight:** The Kafka Key is the INTERNAL channel format (with tenant prefix). Clients subscribe to internal format after gateway mapping: `BTC.trade` → `odin.BTC.trade`. The consumer broadcasts to `odin.BTC.trade`, matching the mapped subscription.
+**Key insight:** The Kafka Key is the INTERNAL channel format (with tenant prefix). Clients subscribe to internal format after gateway mapping: `BTC.trade` → `sukko.BTC.trade`. The consumer broadcasts to `sukko.BTC.trade`, matching the mapped subscription.
 
-**Why this works:** With the gateway fix (not bypassing channel mapping for anonymous), subscriptions are mapped to internal format even when auth is disabled. So client subscribes to `BTC.trade`, gateway maps to `odin.BTC.trade`, and broadcast matches.
+**Why this works:** With the gateway fix (not bypassing channel mapping for anonymous), subscriptions are mapped to internal format even when auth is disabled. So client subscribes to `BTC.trade`, gateway maps to `sukko.BTC.trade`, and broadcast matches.
 
 ### Reverse Mapping in Broadcast (Removable)
 
-There is currently no conversion from internal channel (`odin.BTC.trade`) back to implicit client channel (`BTC.trade`) in the broadcast path. Clients receive `channel: "odin.BTC.trade"` in message envelopes instead of `channel: "BTC.trade"`.
+There is currently no conversion from internal channel (`sukko.BTC.trade`) back to implicit client channel (`BTC.trade`) in the broadcast path. Clients receive `channel: "sukko.BTC.trade"` in message envelopes instead of `channel: "BTC.trade"`.
 
-**Why this exists:** The odin tenant's CDC pipeline publishes directly to Redpanda with tenant-prefixed keys (`odin.BTC.trade`). The consumer uses the Kafka Key as the broadcast subject. Without reverse mapping, the tenant prefix leaks to clients.
+**Why this exists:** The sukko tenant's CDC pipeline publishes directly to Redpanda with tenant-prefixed keys (`sukko.BTC.trade`). The consumer uses the Kafka Key as the broadcast subject. Without reverse mapping, the tenant prefix leaks to clients.
 
 **Why it's removable:** In a pure client-to-client SaaS flow, messages go:
 ```
@@ -418,7 +418,7 @@ if s.channelMapper != nil {
 }
 
 baseEnvelope := &messaging.MessageEnvelope{
-    Channel: clientChannel,  // "BTC.trade" (stripped) or "odin.BTC.trade" (pass-through)
+    Channel: clientChannel,  // "BTC.trade" (stripped) or "sukko.BTC.trade" (pass-through)
     // ...
 }
 ```
@@ -435,7 +435,7 @@ if config.ChannelMapper != nil {
 }
 ```
 
-**Note:** Subscription index continues to use INTERNAL format (`odin.BTC.trade`) for matching. Only the envelope channel sent to clients is stripped. This keeps broadcast O(1) lookup unchanged.
+**Note:** Subscription index continues to use INTERNAL format (`sukko.BTC.trade`) for matching. Only the envelope channel sent to clients is stripped. This keeps broadcast O(1) lookup unchanged.
 
 ---
 
@@ -446,7 +446,7 @@ if config.ChannelMapper != nil {
 **`producer.go:parseChannel()`** expects 3+ parts:
 ```go
 // Channel format: {tenant}.{identifier}.{category}
-// "odin.BTC.trade" → tenant: "odin", category: "trade"
+// "sukko.BTC.trade" → tenant: "sukko", category: "trade"
 
 func parseChannel(channel string) (tenant, category string, err error) {
     parts := strings.Split(channel, ".")
@@ -473,7 +473,7 @@ type ProducerConfig struct {
 
     // DefaultTenantID is used when channel has no tenant prefix.
     // For channels like "BTC.trade", prepends this tenant.
-    // Default: "odin"
+    // Default: "sukko"
     DefaultTenantID string
 }
 ```
@@ -483,10 +483,10 @@ type ProducerConfig struct {
 ```go
 // parseChannelWithDefault extracts tenant and category, using default if needed.
 //
-// Examples with DefaultTenantID = "odin":
-//   "odin.BTC.trade"  → tenant: "odin", category: "trade" (explicit tenant)
-//   "BTC.trade"       → tenant: "odin", category: "trade" (2 parts: use default)
-//   "trade"           → tenant: "odin", category: "trade" (1 part: use default)
+// Examples with DefaultTenantID = "sukko":
+//   "sukko.BTC.trade"  → tenant: "sukko", category: "trade" (explicit tenant)
+//   "BTC.trade"       → tenant: "sukko", category: "trade" (2 parts: use default)
+//   "trade"           → tenant: "sukko", category: "trade" (1 part: use default)
 //
 func (p *Producer) parseChannelWithDefault(channel string) (tenant, category string, err error) {
     parts := strings.Split(channel, ".")
@@ -509,9 +509,9 @@ func (p *Producer) parseChannelWithDefault(channel string) (tenant, category str
 
 | Input Channel | Tenant | Category | Built Topic |
 |---------------|--------|----------|-------------|
-| `odin.BTC.trade` | `odin` | `trade` | `local.odin.trade` |
-| `BTC.trade` | `odin` (default) | `trade` | `local.odin.trade` |
-| `trade` | `odin` (default) | `trade` | `local.odin.trade` |
+| `sukko.BTC.trade` | `sukko` | `trade` | `local.sukko.trade` |
+| `BTC.trade` | `sukko` (default) | `trade` | `local.sukko.trade` |
+| `trade` | `sukko` (default) | `trade` | `local.sukko.trade` |
 
 ### Files to Change
 
@@ -531,25 +531,25 @@ func (p *Producer) parseChannelWithDefault(channel string) (tenant, category str
 ```go
 // DefaultTenantID disables multi-tenant support. All connections
 // are routed to this tenant. Only used when AUTH_ENABLED=false.
-DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
+DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
 ```
 
 **Server Config (`server_config.go`):**
 ```go
 // DefaultTenantID disables multi-tenant support. All messages
 // are routed to this tenant. Only used when AUTH_ENABLED=false.
-DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
+DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
 ```
 
 **Producer Config (`producer.go`):**
 ```go
-DefaultTenantID string // Default: "odin"
+DefaultTenantID string // Default: "sukko"
 ```
 
 **Helm Values (`local.yaml`):**
 ```yaml
 global:
-  defaultTenantId: "odin"
+  defaultTenantId: "sukko"
 
 ws-gateway:
   config:

@@ -1,4 +1,4 @@
-resource "google_artifact_registry_repository" "odin" {
+resource "google_artifact_registry_repository" "sukko" {
   location      = var.region
   repository_id = var.repository_id
   description   = var.description
@@ -31,7 +31,7 @@ resource "google_artifact_registry_repository_iam_member" "gke_reader" {
 
   project    = var.project_id
   location   = var.region
-  repository = google_artifact_registry_repository.odin.name
+  repository = google_artifact_registry_repository.sukko.name
   role       = "roles/artifactregistry.reader"
   member     = "serviceAccount:${each.value}"
 }
@@ -42,7 +42,7 @@ resource "google_artifact_registry_repository_iam_member" "cicd_writer" {
 
   project    = var.project_id
   location   = var.region
-  repository = google_artifact_registry_repository.odin.name
+  repository = google_artifact_registry_repository.sukko.name
   role       = "roles/artifactregistry.writer"
   member     = "serviceAccount:${each.value}"
 }

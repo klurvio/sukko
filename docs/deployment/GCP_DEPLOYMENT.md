@@ -100,7 +100,7 @@ gcloud --version
 gcloud auth login
 
 # Create new project (or use existing)
-export PROJECT_ID="odin-ws-server"
+export PROJECT_ID="sukko-server"
 gcloud config set project $PROJECT_ID
 
 # Set default region/zone
@@ -166,7 +166,7 @@ gcloud compute firewall-rules list --filter="name~'allow-'"
 ```bash
 # Create VM 
 # Note $ZONE has to be defined
-gcloud compute instances create odin-ws-server \
+gcloud compute instances create sukko-server \
   --zone=$ZONE \
   --machine-type=e2-medium \
   --image-family=ubuntu-2404-lts-amd64 \
@@ -189,7 +189,7 @@ echo "Waiting for instance to start..."
 sleep 120
 
 # Get external IP
-export EXTERNAL_IP=$(gcloud compute instances describe odin-ws-server \
+export EXTERNAL_IP=$(gcloud compute instances describe sukko-server \
   --zone=$ZONE \
   --format="get(networkInterfaces[0].accessConfigs[0].natIP)")
 
@@ -213,21 +213,21 @@ echo "Grafana URL: http://$EXTERNAL_IP:3010"
 ```bash
 # Create static IP
 # Note $REGION has to be defined
-gcloud compute addresses create odin-ws-static-ip --region=$REGION
+gcloud compute addresses create sukko-static-ip --region=$REGION
 
 # Get the IP address
-STATIC_IP=$(gcloud compute addresses describe odin-ws-static-ip \
+STATIC_IP=$(gcloud compute addresses describe sukko-static-ip \
   --region=$REGION \
   --format="get(address)")
 
 echo "Static IP: $STATIC_IP"
 
 # Assign to instance
-gcloud compute instances delete-access-config odin-ws-server \
+gcloud compute instances delete-access-config sukko-server \
   --access-config-name="external-nat" \
   --zone=$ZONE
 
-gcloud compute instances add-access-config odin-ws-server \
+gcloud compute instances add-access-config sukko-server \
   --access-config-name="external-nat" \
   --address=$STATIC_IP \
   --zone=$ZONE
@@ -247,19 +247,19 @@ echo "Static IP assigned: $EXTERNAL_IP"
 **Manual:**
 ```bash
 # SSH into instance
-gcloud compute ssh odin-ws-server --zone=$ZONE
+gcloud compute ssh sukko-server --zone=$ZONE
 
 # Switch to deploy user
 sudo su - deploy
 
 # Clone repository
-git clone https://github.com/yourorg/odin-ws.git
-cd odin-ws
+git clone https://github.com/yourorg/sukko.git
+cd sukko
 
 # Create production environment file
 cat > .env.production << 'EOF'
 NATS_URL=nats://nats:4222
-TOKENS=BTC,ETH,SOL,DOGE,ODIN
+TOKENS=BTC,ETH,SOL,DOGE,SUKKO
 PORT=3003
 NODE_ENV=production
 GF_SECURITY_ADMIN_PASSWORD=CHANGE_THIS_STRONG_PASSWORD
@@ -358,13 +358,13 @@ docker compose ps
 
 # Expected output: All containers should be "Up"
 # NAME                COMMAND                  SERVICE      STATUS
-# odin-ws-go          "./odin-ws-server"       ws-go        Up
-# odin-nats           "nats-server ..."        nats         Up
-# odin-publisher      "node dist/publisher.js" publisher    Up
-# odin-prometheus     "/bin/prometheus ..."    prometheus   Up
-# odin-grafana        "/run.sh"                grafana      Up
-# odin-loki           "/usr/bin/loki ..."      loki         Up
-# odin-promtail       "/usr/bin/promtail ..."  promtail     Up
+# sukko-go          "./sukko-server"       ws-go        Up
+# sukko-nats           "nats-server ..."        nats         Up
+# sukko-publisher      "node dist/publisher.js" publisher    Up
+# sukko-prometheus     "/bin/prometheus ..."    prometheus   Up
+# sukko-grafana        "/run.sh"                grafana      Up
+# sukko-loki           "/usr/bin/loki ..."      loki         Up
+# sukko-promtail       "/usr/bin/promtail ..."  promtail     Up
 
 # Check logs
 docker compose logs -f ws-go
@@ -384,9 +384,9 @@ curl http://localhost:3004/health | jq '.'
 exit
 
 # Create systemd service
-sudo tee /etc/systemd/system/odin-ws.service > /dev/null << 'EOF'
+sudo tee /etc/systemd/system/sukko.service > /dev/null << 'EOF'
 [Unit]
-Description=Odin WebSocket Server
+Description=Sukko WebSocket Server
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -394,7 +394,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/home/deploy/odin-ws
+WorkingDirectory=/home/deploy/sukko
 ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 User=deploy
@@ -406,13 +406,13 @@ WantedBy=multi-user.target
 EOF
 
 # Replace placeholder with actual IP
-sudo sed -i "s/%EXTERNAL_IP%/$EXTERNAL_IP/" /etc/systemd/system/odin-ws.service
+sudo sed -i "s/%EXTERNAL_IP%/$EXTERNAL_IP/" /etc/systemd/system/sukko.service
 
 # Enable service
 sudo systemctl daemon-reload
-sudo systemctl enable odin-ws
-sudo systemctl start odin-ws
-sudo systemctl status odin-ws
+sudo systemctl enable sukko
+sudo systemctl start sukko
+sudo systemctl status sukko
 
 # Exit SSH
 exit
@@ -481,7 +481,7 @@ wscat -c ws://$EXTERNAL_IP:3004/ws
 
 ```bash
 # From your local machine (where you have the code)
-cd /Volumes/Dev/Codev/Toniq/odin-ws
+cd /Volumes/Dev/Codev/Toniq/sukko
 
 # Update stress test script to use your IP
 # Edit scripts/stress-test-high-load.cjs
@@ -502,11 +502,11 @@ open http://$EXTERNAL_IP:3010
 
 ```bash
 # SSH to instance
-gcloud compute ssh odin-ws-server --zone=$ZONE
+gcloud compute ssh sukko-server --zone=$ZONE
 
 # View all logs
 sudo su - deploy
-cd odin-ws
+cd sukko
 docker compose logs -f
 
 # View specific service
@@ -539,7 +539,7 @@ open http://$EXTERNAL_IP:3010
 
 ```bash
 # View VM metrics
-echo "https://console.cloud.google.com/compute/instancesDetail/zones/$ZONE/instances/odin-ws-server?project=$PROJECT_ID&tab=monitoring"
+echo "https://console.cloud.google.com/compute/instancesDetail/zones/$ZONE/instances/sukko-server?project=$PROJECT_ID&tab=monitoring"
 
 # CPU, memory, disk, network
 # Auto-collected by Google Cloud
@@ -553,11 +553,11 @@ echo "https://console.cloud.google.com/compute/instancesDetail/zones/$ZONE/insta
 
 ```bash
 # SSH to instance
-gcloud compute ssh odin-ws-server --zone=$ZONE
+gcloud compute ssh sukko-server --zone=$ZONE
 
 # Switch to deploy user
 sudo su - deploy
-cd odin-ws
+cd sukko
 
 # Pull latest code
 git pull origin main
@@ -575,13 +575,13 @@ curl http://localhost:3004/health | jq '.'
 
 ```bash
 # SSH to instance
-gcloud compute ssh odin-ws-server --zone=$ZONE
+gcloud compute ssh sukko-server --zone=$ZONE
 
 # Create backup directory
 sudo mkdir -p /backups
 
 # Backup script
-sudo tee /opt/backup-odin.sh > /dev/null << 'EOF'
+sudo tee /opt/backup-sukko.sh > /dev/null << 'EOF'
 #!/bin/bash
 BACKUP_DIR=/backups
 DATE=$(date +%Y%m%d-%H%M%S)
@@ -590,13 +590,13 @@ mkdir -p $BACKUP_DIR
 
 # Backup Prometheus data
 docker run --rm \
-  -v odin-ws_prometheus_data:/data \
+  -v sukko_prometheus_data:/data \
   -v $BACKUP_DIR:/backup \
   alpine tar czf /backup/prometheus-$DATE.tar.gz /data
 
 # Backup Grafana data
 docker run --rm \
-  -v odin-ws_grafana_data:/data \
+  -v sukko_grafana_data:/data \
   -v $BACKUP_DIR:/backup \
   alpine tar czf /backup/grafana-$DATE.tar.gz /data
 
@@ -606,26 +606,26 @@ find $BACKUP_DIR -name "*.tar.gz" -mtime +7 -delete
 echo "Backup completed: $DATE"
 EOF
 
-sudo chmod +x /opt/backup-odin.sh
+sudo chmod +x /opt/backup-sukko.sh
 
 # Run backup manually
-sudo /opt/backup-odin.sh
+sudo /opt/backup-sukko.sh
 
 # Schedule daily backup (2 AM)
 sudo crontab -e
-# Add: 0 2 * * * /opt/backup-odin.sh >> /var/log/odin-backup.log 2>&1
+# Add: 0 2 * * * /opt/backup-sukko.sh >> /var/log/sukko-backup.log 2>&1
 ```
 
 ### Restart Services
 
 ```bash
 # Restart all
-gcloud compute ssh odin-ws-server --zone=$ZONE --command="sudo systemctl restart odin-ws"
+gcloud compute ssh sukko-server --zone=$ZONE --command="sudo systemctl restart sukko"
 
 # Or SSH in and restart specific service
-gcloud compute ssh odin-ws-server --zone=$ZONE
+gcloud compute ssh sukko-server --zone=$ZONE
 sudo su - deploy
-cd odin-ws
+cd sukko
 docker compose restart ws-go
 ```
 
@@ -633,7 +633,7 @@ docker compose restart ws-go
 
 ```bash
 # SSH to instance
-gcloud compute ssh odin-ws-server --zone=$ZONE
+gcloud compute ssh sukko-server --zone=$ZONE
 
 # Check system resources
 htop  # If installed: sudo apt install htop
@@ -662,7 +662,7 @@ When you have a domain:
 #    ws.yourdomain.com  A  $EXTERNAL_IP
 
 # 3. SSH to instance
-gcloud compute ssh odin-ws-server --zone=$ZONE
+gcloud compute ssh sukko-server --zone=$ZONE
 
 # 4. Install Nginx + Certbot
 sudo apt install -y nginx certbot python3-certbot-nginx
@@ -749,32 +749,32 @@ When you need to scale beyond 1 VM:
 
 ```bash
 # 1. Create instance template from existing VM
-gcloud compute instance-templates create odin-ws-template \
-  --source-instance=odin-ws-server \
+gcloud compute instance-templates create sukko-template \
+  --source-instance=sukko-server \
   --source-instance-zone=$ZONE
 
 # 2. Create managed instance group
-gcloud compute instance-groups managed create odin-ws-group \
-  --base-instance-name=odin-ws \
-  --template=odin-ws-template \
+gcloud compute instance-groups managed create sukko-group \
+  --base-instance-name=sukko \
+  --template=sukko-template \
   --size=3 \
   --zone=$ZONE
 
 # 3. Create health check
-gcloud compute health-checks create http odin-ws-health \
+gcloud compute health-checks create http sukko-health \
   --port=3004 \
   --request-path=/health
 
 # 4. Create backend service
-gcloud compute backend-services create odin-ws-backend \
+gcloud compute backend-services create sukko-backend \
   --protocol=HTTP \
-  --health-checks=odin-ws-health \
+  --health-checks=sukko-health \
   --global \
   --session-affinity=CLIENT_IP
 
 # 5. Add instance group to backend
-gcloud compute backend-services add-backend odin-ws-backend \
-  --instance-group=odin-ws-group \
+gcloud compute backend-services add-backend sukko-backend \
+  --instance-group=sukko-group \
   --instance-group-zone=$ZONE \
   --global
 
@@ -856,9 +856,9 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_ID: odin-ws-server
+  PROJECT_ID: sukko-server
   ZONE: us-central1-a
-  INSTANCE: odin-ws-server
+  INSTANCE: sukko-server
 
 jobs:
   deploy:
@@ -880,7 +880,7 @@ jobs:
         run: |
           gcloud compute ssh $INSTANCE \
             --zone=$ZONE \
-            --command="sudo su - deploy -c 'cd odin-ws && \
+            --command="sudo su - deploy -c 'cd sukko && \
               git pull origin main && \
               docker compose -f docker-compose.yml -f docker-compose.prod.yml build && \
               docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d'"
@@ -918,7 +918,7 @@ jobs:
 ```bash
 # Use preemptible/spot instance (60-91% cheaper)
 # Warning: Can be terminated at any time, not for production
-gcloud compute instances create odin-ws-server \
+gcloud compute instances create sukko-server \
   --zone=$ZONE \
   --machine-type=e2-medium \
   --provisioning-model=SPOT \
@@ -941,7 +941,7 @@ gcloud compute instances create odin-ws-server \
 gcloud compute firewall-rules list | grep allow-websocket
 
 # Check if container is running
-gcloud compute ssh odin-ws-server --zone=$ZONE
+gcloud compute ssh sukko-server --zone=$ZONE
 docker compose ps
 
 # Check logs
@@ -955,11 +955,11 @@ netstat -tlnp | grep 3004
 
 ```bash
 # SSH to instance
-gcloud compute ssh odin-ws-server --zone=$ZONE
+gcloud compute ssh sukko-server --zone=$ZONE
 
 # Check logs
 sudo su - deploy
-cd odin-ws
+cd sukko
 docker compose logs
 
 # Check disk space
@@ -979,11 +979,11 @@ docker stats
 htop
 
 # Upgrade VM if needed
-gcloud compute instances stop odin-ws-server --zone=$ZONE
-gcloud compute instances set-machine-type odin-ws-server \
+gcloud compute instances stop sukko-server --zone=$ZONE
+gcloud compute instances set-machine-type sukko-server \
   --machine-type=e2-standard-2 \
   --zone=$ZONE
-gcloud compute instances start odin-ws-server --zone=$ZONE
+gcloud compute instances start sukko-server --zone=$ZONE
 ```
 
 ---
@@ -994,33 +994,33 @@ gcloud compute instances start odin-ws-server --zone=$ZONE
 
 ```bash
 # SSH
-gcloud compute ssh odin-ws-server --zone=us-central1-a
+gcloud compute ssh sukko-server --zone=us-central1-a
 
 # Get IP
-gcloud compute instances describe odin-ws-server \
+gcloud compute instances describe sukko-server \
   --zone=us-central1-a \
   --format="get(networkInterfaces[0].accessConfigs[0].natIP)"
 
 # View logs
-gcloud compute ssh odin-ws-server --zone=us-central1-a \
-  --command="sudo su - deploy -c 'cd odin-ws && docker compose logs -f'"
+gcloud compute ssh sukko-server --zone=us-central1-a \
+  --command="sudo su - deploy -c 'cd sukko && docker compose logs -f'"
 
 # Restart services
-gcloud compute ssh odin-ws-server --zone=us-central1-a \
-  --command="sudo systemctl restart odin-ws"
+gcloud compute ssh sukko-server --zone=us-central1-a \
+  --command="sudo systemctl restart sukko"
 
 # Stop VM (save money when not using)
-gcloud compute instances stop odin-ws-server --zone=us-central1-a
+gcloud compute instances stop sukko-server --zone=us-central1-a
 
 # Start VM
-gcloud compute instances start odin-ws-server --zone=us-central1-a
+gcloud compute instances start sukko-server --zone=us-central1-a
 ```
 
 ### URLs
 
 ```bash
 # Get your IP first
-IP=$(gcloud compute instances describe odin-ws-server \
+IP=$(gcloud compute instances describe sukko-server \
   --zone=us-central1-a \
   --format="get(networkInterfaces[0].accessConfigs[0].natIP)")
 

@@ -111,8 +111,8 @@ These already exist in Prometheus but are NOT shown on the CPU/Memory panels:
 | `ws/internal/server/metrics/system_monitor.go` | Singleton, cgroup CPU measurement, Prometheus gauge updates |
 | `ws/internal/server/metrics/metrics.go` | Collector.estimateCPU() overwrites gauge; metric definitions |
 | `ws/internal/server/limits/resource_guard.go` | Per-request CPU check; copies to serverStats every 15s |
-| `deployments/helm/odin/charts/monitoring/dashboards/overview.json` | Grafana panels for CPU (id:30) and Memory (id:31) |
-| `deployments/helm/odin/charts/monitoring/values.yaml` | `scrapeInterval: "15s"` |
+| `deployments/helm/sukko/charts/monitoring/dashboards/overview.json` | Grafana panels for CPU (id:30) and Memory (id:31) |
+| `deployments/helm/sukko/charts/monitoring/values.yaml` | `scrapeInterval: "15s"` |
 
 ## Potential Fixes
 

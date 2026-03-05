@@ -24,7 +24,7 @@
 │  │  (Kafka)           │   Publishes  │  (Go binary)         │   │
 │  │                    │   to random  │                      │   │
 │  │  Topics:           │   channels   │  Run locally or      │   │
-│  │  local.odin.*      │              │  in container        │   │
+│  │  local.sukko.*      │              │  in container        │   │
 │  └────────────────────┘              └──────────────────────┘   │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -70,7 +70,7 @@ wspublisher/
 | `CHANNEL_PATTERN` | No | `{tenant}.{identifier}.{category}` | Pattern for dynamic channels |
 | `IDENTIFIERS` | No | `BTC,ETH,SOL,all` | Identifiers for pattern |
 | `CATEGORIES` | No | `trade,liquidity,orderbook` | Categories for pattern (synced with wsloadtest) |
-| `TENANT_ID` | No | `odin` | Default tenant in channels |
+| `TENANT_ID` | No | `sukko` | Default tenant in channels |
 | `TIMING_MODE` | No | `poisson` | poisson/uniform/burst |
 | `POISSON_LAMBDA` | No | `100` | Events/second for Poisson |
 | `MIN_INTERVAL` | No | `10ms` | Min interval for uniform |
@@ -118,10 +118,10 @@ Following the [asyncapi spec](../../ws/docs/asyncapi/redpanda.asyncapi.yaml):
 
 ```
 Topic: {namespace}.{tenant}.{category}
-       local.odin.trade
+       local.sukko.trade
 
 Key:   {tenant}.{identifier}.{category}
-       odin.BTC.trade
+       sukko.BTC.trade
 
 Value: JSON payload (opaque, forwarded as-is to clients)
 {
@@ -143,7 +143,7 @@ wspublisher and wsloadtest use the same channel format and defaults:
 
 | Tool | Default Channels |
 |------|------------------|
-| wsloadtest | `odin.all.trade,odin.BTC.trade,odin.ETH.trade,odin.SOL.trade,odin.BTC.orderbook,odin.ETH.liquidity` |
+| wsloadtest | `sukko.all.trade,sukko.BTC.trade,sukko.ETH.trade,sukko.SOL.trade,sukko.BTC.orderbook,sukko.ETH.liquidity` |
 | wspublisher | Generated from: IDENTIFIERS=`BTC,ETH,SOL,all` × CATEGORIES=`trade,liquidity,orderbook` |
 
 Both follow the asyncapi spec channel format: `{tenant}.{identifier}.{category}`
@@ -169,7 +169,7 @@ go build -o wspublisher .
 # Run locally (connects to local Redpanda)
 KAFKA_BROKERS=localhost:19092 \
 KAFKA_NAMESPACE=local \
-CHANNELS=odin.BTC.trade,odin.ETH.trade \
+CHANNELS=sukko.BTC.trade,sukko.ETH.trade \
 TIMING_MODE=poisson \
 POISSON_LAMBDA=100 \
 DURATION=1m \
@@ -179,7 +179,7 @@ DURATION=1m \
 docker build -t wspublisher .
 docker run -e KAFKA_BROKERS=host.docker.internal:19092 \
            -e KAFKA_NAMESPACE=local \
-           -e CHANNELS=odin.BTC.trade,odin.ETH.trade \
+           -e CHANNELS=sukko.BTC.trade,sukko.ETH.trade \
            wspublisher
 ```
 

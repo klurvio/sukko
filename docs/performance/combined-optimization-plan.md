@@ -800,7 +800,7 @@ func StartMultiMode(config Config) error {
 services:
   redis:
     image: redis:7-alpine
-    container_name: odin-redis
+    container_name: sukko-redis
     ports:
       - "6379:6379"
     command: >
@@ -1026,9 +1026,9 @@ func TestConnectionRegistry_TTLExpiry(t *testing.T) {
 ./loadtest --connections 1000 --verify-routing
 
 # Test 2: Redis failover handling
-docker stop odin-redis  # Kill Redis
+docker stop sukko-redis  # Kill Redis
 ./loadtest --connections 1000  # Should still work (broadcast fallback)
-docker start odin-redis  # Restore
+docker start sukko-redis  # Restore
 
 # Test 3: Load test with metrics
 ./loadtest --connections 12000 --track-dispatch-metrics

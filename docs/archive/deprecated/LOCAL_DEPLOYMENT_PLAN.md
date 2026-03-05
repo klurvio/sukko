@@ -5,7 +5,7 @@ Create a local deployment that mirrors the GCP distributed setup as closely as p
 
 ## Current GCP Architecture
 
-### Instance 1: Backend (odin-backend - e2-small)
+### Instance 1: Backend (sukko-backend - e2-small)
 - **Redpanda** (Kafka/streaming) - 4GB, 2 CPUs
 - **Redpanda Console** (UI) - 256MB, 0.2 CPUs
 - **Publisher** (Event generator) - 256MB, 0.3 CPUs
@@ -16,7 +16,7 @@ Create a local deployment that mirrors the GCP distributed setup as closely as p
 
 **Total Resources**: ~5.5GB RAM, ~3.3 CPUs
 
-### Instance 2: WS Server (odin-ws-go - e2-standard-4)
+### Instance 2: WS Server (sukko-go - e2-standard-4)
 - **WS Server** (Go WebSocket) - 14.5GB, 1 CPU
 - **Promtail** (Log shipper) - 512MB, 1 CPU
 
@@ -174,7 +174,7 @@ deployments/
    - Use container names for service discovery
 
 2. **Docker Network**:
-   - Create named network: `odin-local`
+   - Create named network: `sukko-local`
    - Attach all services to network
    - Enable service name DNS resolution
 

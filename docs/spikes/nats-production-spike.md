@@ -36,7 +36,7 @@ resources:
     memory: "256Mi"
 ```
 
-### How NATS is Used in Odin
+### How NATS is Used in Sukko
 
 NATS serves as the **BroadcastBus** for ws-server:
 - Pub/sub messaging between ws-server replicas

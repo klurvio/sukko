@@ -22,7 +22,7 @@
 
 - [x] T006 [P] Remove CLI config commands in `ws/cmd/cli/commands/config.go` — remove `configInitCmd`, `configValidateCmd`, `configExportCmd`, and `configCmd` parent. Delete the file if nothing remains after removal.
 
-- [x] T007 [P] Fix AUTH_ENABLED default and align ENVIRONMENT in `ws/internal/shared/platform/gateway_config.go` — (1) change `AuthEnabled` envDefault from `"true"` to `"false"`, add TODO comment: `// TODO: Change envDefault to "true" when odin-api auth integration is production-ready` (FR-018a). (2) Change `Environment` envDefault from `"development"` to `"local"` (FR-005b — same change as T001 for server, must be consistent across all three configs). Update `ws/internal/shared/platform/gateway_config_test.go` if existing tests depend on AUTH_ENABLED=true default or ENVIRONMENT=development.
+- [x] T007 [P] Fix AUTH_ENABLED default and align ENVIRONMENT in `ws/internal/shared/platform/gateway_config.go` — (1) change `AuthEnabled` envDefault from `"true"` to `"false"`, add TODO comment: `// TODO: Change envDefault to "true" when sukko-api auth integration is production-ready` (FR-018a). (2) Change `Environment` envDefault from `"development"` to `"local"` (FR-005b — same change as T001 for server, must be consistent across all three configs). Update `ws/internal/shared/platform/gateway_config_test.go` if existing tests depend on AUTH_ENABLED=true default or ENVIRONMENT=development.
 
 - [x] T008 Add `--validate-config` flag to all three binaries. Modify `ws/cmd/server/main.go`: add `flag.Bool("validate-config", ...)`, parse flags, after config load+validate: if flag set, print "Configuration valid" and `os.Exit(0)`. Same pattern for `ws/cmd/gateway/main.go` (add flag import and parsing before env.Parse) and `ws/cmd/provisioning/main.go`. Depends on: T005.
 
@@ -72,39 +72,39 @@ cd ws && go test ./internal/shared/platform/...
 
 **Goal**: Reduce subchart values.yaml to K8s-required fields. Rewrite templates to only inject non-default env vars.
 
-**Checkpoint**: `helm lint deployments/helm/odin/charts/ws-server && helm lint deployments/helm/odin/charts/ws-gateway && helm lint deployments/helm/odin/charts/provisioning && helm lint deployments/helm/odin`
+**Checkpoint**: `helm lint deployments/helm/sukko/charts/ws-server && helm lint deployments/helm/sukko/charts/ws-gateway && helm lint deployments/helm/sukko/charts/provisioning && helm lint deployments/helm/sukko`
 
-- [x] T020 [P] Rewrite `deployments/helm/odin/charts/ws-server/values.yaml` — strip from 292 to ~85 lines. Keep: enabled, replicaCount, image, resources, probes, service, pod/security contexts, autoscaling, networkPolicy, podAnnotations, nodeSelector, tolerations, affinity, connectionLimits.clusterMaxConnections. Add commented `# environment: local` field (deployment identity — drives Kafka topic namespace, consumer groups; any string, Odin uses local/dev/stg/prod). Add `extraEnv: {}` escape hatch. Remove all config.* fields that match Go defaults (shards, basePort, lbAddr, maxKafkaRate, slowClientMaxAttempts, defaultTenantID, CPU thresholds, timeouts, log settings, metrics interval, ping/pong, provisioning reconnect, topic refresh). Remove all alerting.*, audit.* sections. Keep minimal nested defaults for template nil-safety: `kafka: { sasl: { enabled: false }, tls: { enabled: false } }`, `nats: { tls: { enabled: false } }`, etc. Add comments documenting valid values for mode selections.
+- [x] T020 [P] Rewrite `deployments/helm/sukko/charts/ws-server/values.yaml` — strip from 292 to ~85 lines. Keep: enabled, replicaCount, image, resources, probes, service, pod/security contexts, autoscaling, networkPolicy, podAnnotations, nodeSelector, tolerations, affinity, connectionLimits.clusterMaxConnections. Add commented `# environment: local` field (deployment identity — drives Kafka topic namespace, consumer groups; any string, Sukko uses local/dev/stg/prod). Add `extraEnv: {}` escape hatch. Remove all config.* fields that match Go defaults (shards, basePort, lbAddr, maxKafkaRate, slowClientMaxAttempts, defaultTenantID, CPU thresholds, timeouts, log settings, metrics interval, ping/pong, provisioning reconnect, topic refresh). Remove all alerting.*, audit.* sections. Keep minimal nested defaults for template nil-safety: `kafka: { sasl: { enabled: false }, tls: { enabled: false } }`, `nats: { tls: { enabled: false } }`, etc. Add comments documenting valid values for mode selections.
 
-- [x] T021 [P] Rewrite `deployments/helm/odin/charts/ws-gateway/values.yaml` — strip from 154 to ~55 lines. Keep: enabled, replicaCount, image, resources, probes, service, pod/security contexts, autoscaling, podAnnotations, nodeSelector, tolerations, affinity, permissions (public/userScoped/groupScoped patterns). Add commented `# environment: local` field. Add `extraEnv: {}`. Remove all config.* fields that match Go defaults (timeouts, log settings, auth refresh, OIDC cache, JWKS settings, provisioning reconnect). Add comments for feature flags (authEnabled, multiIssuerOIDCEnabled, perTenantChannelRulesEnabled). Note: authEnabled defaults false per FR-018a.
+- [x] T021 [P] Rewrite `deployments/helm/sukko/charts/ws-gateway/values.yaml` — strip from 154 to ~55 lines. Keep: enabled, replicaCount, image, resources, probes, service, pod/security contexts, autoscaling, podAnnotations, nodeSelector, tolerations, affinity, permissions (public/userScoped/groupScoped patterns). Add commented `# environment: local` field. Add `extraEnv: {}`. Remove all config.* fields that match Go defaults (timeouts, log settings, auth refresh, OIDC cache, JWKS settings, provisioning reconnect). Add comments for feature flags (authEnabled, multiIssuerOIDCEnabled, perTenantChannelRulesEnabled). Note: authEnabled defaults false per FR-018a.
 
-- [x] T022 [P] Rewrite `deployments/helm/odin/charts/provisioning/values.yaml` — strip from 187 to ~65 lines. Keep: enabled, replicaCount, image, resources, probes, service, pod/security contexts, persistence, ingress, podAnnotations, nodeSelector, tolerations, affinity. Add commented `# environment: local` field. Add `extraEnv: {}`. Remove: provisioningMode, configFilePath, configFileConfigMap (FR-007a), all config.* fields matching Go defaults (log settings, autoMigrate, authEnabled, timeouts, quota defaults, lifecycle settings, admin auth, key registry, shutdown timeout), database pool settings. Add commented `externalDatabase:` section for PostgreSQL.
+- [x] T022 [P] Rewrite `deployments/helm/sukko/charts/provisioning/values.yaml` — strip from 187 to ~65 lines. Keep: enabled, replicaCount, image, resources, probes, service, pod/security contexts, persistence, ingress, podAnnotations, nodeSelector, tolerations, affinity. Add commented `# environment: local` field. Add `extraEnv: {}`. Remove: provisioningMode, configFilePath, configFileConfigMap (FR-007a), all config.* fields matching Go defaults (log settings, autoMigrate, authEnabled, timeouts, quota defaults, lifecycle settings, admin auth, key registry, shutdown timeout), database pool settings. Add commented `externalDatabase:` section for PostgreSQL.
 
-- [x] T023 Rewrite `deployments/helm/odin/charts/ws-server/templates/configmap.yaml` — strip from 69 to ~20 lines. Keep only: WS_MAX_CONNECTIONS (computed from connectionLimits.clusterMaxConnections / replicaCount), WS_MAX_GOROUTINES (computed). Add `extraEnv` range loop: `{{- range $key, $val := .Values.extraEnv }}`. Remove all lines that set env vars matching Go defaults. Depends on: T020.
+- [x] T023 Rewrite `deployments/helm/sukko/charts/ws-server/templates/configmap.yaml` — strip from 69 to ~20 lines. Keep only: WS_MAX_CONNECTIONS (computed from connectionLimits.clusterMaxConnections / replicaCount), WS_MAX_GOROUTINES (computed). Add `extraEnv` range loop: `{{- range $key, $val := .Values.extraEnv }}`. Remove all lines that set env vars matching Go defaults. Depends on: T020.
 
-- [x] T024 Rewrite `deployments/helm/odin/charts/ws-server/templates/deployment.yaml` env section — reduce env vars from ~200 to ~80 lines. Keep: deployment identity (ENVIRONMENT — always injected: `{{ .Values.environment | default "local" }}`), mode selection (MESSAGE_BACKEND, BROADCAST_TYPE — only if set in values), auto-wired addresses (NATS_URLS, PROVISIONING_GRPC_ADDR, KAFKA_BROKERS conditional, NATS_JETSTREAM_URLS conditional, VALKEY_ADDRS conditional), conditional SASL/TLS blocks. Remove: all alerting/audit env vars, DEFAULT_TENANT_ID, all rate limit/timeout/ping-pong/CPU threshold vars, TOPIC_REFRESH_INTERVAL, KAFKA_CONSUMER_ENABLED, KAFKA_DEFAULT_*. Remove hysteresis `{{ sub }}` computation (Go auto-computes). Remove PROVISIONING_MODE injection. Depends on: T020, T023.
+- [x] T024 Rewrite `deployments/helm/sukko/charts/ws-server/templates/deployment.yaml` env section — reduce env vars from ~200 to ~80 lines. Keep: deployment identity (ENVIRONMENT — always injected: `{{ .Values.environment | default "local" }}`), mode selection (MESSAGE_BACKEND, BROADCAST_TYPE — only if set in values), auto-wired addresses (NATS_URLS, PROVISIONING_GRPC_ADDR, KAFKA_BROKERS conditional, NATS_JETSTREAM_URLS conditional, VALKEY_ADDRS conditional), conditional SASL/TLS blocks. Remove: all alerting/audit env vars, DEFAULT_TENANT_ID, all rate limit/timeout/ping-pong/CPU threshold vars, TOPIC_REFRESH_INTERVAL, KAFKA_CONSUMER_ENABLED, KAFKA_DEFAULT_*. Remove hysteresis `{{ sub }}` computation (Go auto-computes). Remove PROVISIONING_MODE injection. Depends on: T020, T023.
 
-- [x] T025 Rewrite `deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml` env section — same pattern as ws-server: ENVIRONMENT always injected (`{{ .Values.environment | default "local" }}`), auto-wired addresses (GATEWAY_BACKEND_URL, PROVISIONING_GRPC_ADDR), mode flags (AUTH_ENABLED, feature flags — only if set), conditional TLS/auth blocks. Remove all config.* env vars matching Go defaults. Depends on: T021.
+- [x] T025 Rewrite `deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml` env section — same pattern as ws-server: ENVIRONMENT always injected (`{{ .Values.environment | default "local" }}`), auto-wired addresses (GATEWAY_BACKEND_URL, PROVISIONING_GRPC_ADDR), mode flags (AUTH_ENABLED, feature flags — only if set), conditional TLS/auth blocks. Remove all config.* env vars matching Go defaults. Depends on: T021.
 
-- [x] T026 [P] Update `deployments/helm/odin/charts/ws-gateway/templates/configmap.yaml` — align with new pattern (extraEnv range loop only, or delete if no computed values needed for gateway).
+- [x] T026 [P] Update `deployments/helm/sukko/charts/ws-gateway/templates/configmap.yaml` — align with new pattern (extraEnv range loop only, or delete if no computed values needed for gateway).
 
-- [x] T027 Rewrite `deployments/helm/odin/charts/provisioning/templates/deployment.yaml` — remove PROVISIONING_MODE and PROVISIONING_CONFIG_PATH env var injection, remove config file volume mount logic. Only set: DATABASE_DRIVER (auto-derived from externalDatabase presence), DATABASE_URL (from secret), ENVIRONMENT, auto-wired addresses. Add extraEnv inline in deployment env section (provisioning has no configmap template): `{{- range $key, $val := .Values.extraEnv }}` loop in the `env:` block. Depends on: T022.
+- [x] T027 Rewrite `deployments/helm/sukko/charts/provisioning/templates/deployment.yaml` — remove PROVISIONING_MODE and PROVISIONING_CONFIG_PATH env var injection, remove config file volume mount logic. Only set: DATABASE_DRIVER (auto-derived from externalDatabase presence), DATABASE_URL (from secret), ENVIRONMENT, auto-wired addresses. Add extraEnv inline in deployment env section (provisioning has no configmap template): `{{- range $key, $val := .Values.extraEnv }}` loop in the `env:` block. Depends on: T022.
 
-- [x] T028 Rewrite parent `deployments/helm/odin/values.yaml` with decision guide — strip from 568 to ~180 lines. Add commented deployment mode guide at top (FR-017): zero-config defaults, Docker Compose local dev, Kafka mode, JetStream mode, PostgreSQL mode, Valkey mode. Reference examples/helm/ files. Keep: global settings, service enables (ws-gateway, ws-server, provisioning.enabled=true), infrastructure subchart enables (nats.enabled=true, jetstream.enabled=false, redpanda.enabled=false, valkey.enabled=false, postgresql.enabled=false, monitoring.enabled=true). Remove ALL subchart config overrides that duplicate subchart defaults (FR-003). Depends on: T020, T021, T022.
+- [x] T028 Rewrite parent `deployments/helm/sukko/values.yaml` with decision guide — strip from 568 to ~180 lines. Add commented deployment mode guide at top (FR-017): zero-config defaults, Docker Compose local dev, Kafka mode, JetStream mode, PostgreSQL mode, Valkey mode. Reference examples/helm/ files. Keep: global settings, service enables (ws-gateway, ws-server, provisioning.enabled=true), infrastructure subchart enables (nats.enabled=true, jetstream.enabled=false, redpanda.enabled=false, valkey.enabled=false, postgresql.enabled=false, monitoring.enabled=true). Remove ALL subchart config overrides that duplicate subchart defaults (FR-003). Depends on: T020, T021, T022.
 
-- [x] T029 Create validation hook `deployments/helm/odin/charts/ws-server/templates/validate-config-job.yaml` — Helm pre-install/pre-upgrade Job that runs `./odin-ws --validate-config` with same env vars as deployment. `helm.sh/hook-weight: "-5"`, `hook-delete-policy: before-hook-creation,hook-succeeded`, `backoffLimit: 0`. Depends on: T024.
+- [x] T029 Create validation hook `deployments/helm/sukko/charts/ws-server/templates/validate-config-job.yaml` — Helm pre-install/pre-upgrade Job that runs `./sukko --validate-config` with same env vars as deployment. `helm.sh/hook-weight: "-5"`, `hook-delete-policy: before-hook-creation,hook-succeeded`, `backoffLimit: 0`. Depends on: T024.
 
-- [x] T030 [P] Create validation hook `deployments/helm/odin/charts/ws-gateway/templates/validate-config-job.yaml` — same pattern as T029 for gateway binary. Depends on: T025.
+- [x] T030 [P] Create validation hook `deployments/helm/sukko/charts/ws-gateway/templates/validate-config-job.yaml` — same pattern as T029 for gateway binary. Depends on: T025.
 
-- [x] T031 [P] Create validation hook `deployments/helm/odin/charts/provisioning/templates/validate-config-job.yaml` — same pattern as T029 for provisioning binary. Depends on: T027.
+- [x] T031 [P] Create validation hook `deployments/helm/sukko/charts/provisioning/templates/validate-config-job.yaml` — same pattern as T029 for provisioning binary. Depends on: T027.
 
 **Phase 3 verification**:
 ```bash
-helm lint deployments/helm/odin/charts/ws-server
-helm lint deployments/helm/odin/charts/ws-gateway
-helm lint deployments/helm/odin/charts/provisioning
-helm lint deployments/helm/odin
-helm template odin deployments/helm/odin
+helm lint deployments/helm/sukko/charts/ws-server
+helm lint deployments/helm/sukko/charts/ws-gateway
+helm lint deployments/helm/sukko/charts/provisioning
+helm lint deployments/helm/sukko
+helm template sukko deployments/helm/sukko
 ```
 
 ---
@@ -113,7 +113,7 @@ helm template odin deployments/helm/odin
 
 **Goal**: `docker compose up` → working WebSocket in 30 seconds. Example values for each mode.
 
-**Checkpoint**: `docker compose config && for f in examples/helm/values-*.yaml; do helm lint deployments/helm/odin -f "$f"; done`
+**Checkpoint**: `docker compose config && for f in examples/helm/values-*.yaml; do helm lint deployments/helm/sukko -f "$f"; done`
 
 - [x] T032 Create `docker-compose.yml` at repo root — four services: (1) nats (nats:2.10-alpine, ports 4222+8222, healthcheck), (2) provisioning (build from ws/build/provisioning/Dockerfile, ports 8080+9090, healthcheck on /health, build args for COMMIT_HASH), (3) ws-server (build from ws/build/server/Dockerfile, ports 3001, depends_on nats+provisioning healthy, build args for COMMIT_HASH), (4) ws-gateway (build from ws/build/gateway/Dockerfile, port 3000, depends_on ws-server). **Minimal env vars**: only inter-service wiring (NATS_URLS, PROVISIONING_GRPC_ADDR, GATEWAY_BACKEND_URL) — all other config uses Go envDefaults after Phase 1 alignment. Add provisioning-data volume. Add commented-out mode override blocks: Redpanda+MESSAGE_BACKEND=kafka, PostgreSQL+DATABASE_DRIVER=postgres, NATS JetStream+MESSAGE_BACKEND=nats, Valkey+BROADCAST_TYPE=valkey, Auth (AUTH_ENABLED=true).
 
@@ -131,23 +131,23 @@ helm template odin deployments/helm/odin
 ```bash
 docker compose config
 docker compose build
-for f in examples/helm/values-*.yaml; do helm lint deployments/helm/odin -f "$f"; done
-helm template odin deployments/helm/odin -f examples/helm/values-kafka.yaml
+for f in examples/helm/values-*.yaml; do helm lint deployments/helm/sukko -f "$f"; done
+helm template sukko deployments/helm/sukko -f examples/helm/values-kafka.yaml
 ```
 
 ---
 
-## Phase 5: Odin Internal Deployment Update
+## Phase 5: Sukko Internal Deployment Update
 
-**Goal**: Update Odin's environment overrides and Taskfiles for new Helm structure.
+**Goal**: Update Sukko's environment overrides and Taskfiles for new Helm structure.
 
-**Checkpoint**: `helm lint deployments/helm/odin -f deployments/helm/odin/values/standard/dev.yaml`
+**Checkpoint**: `helm lint deployments/helm/sukko -f deployments/helm/sukko/values/standard/dev.yaml`
 
-- [x] T037 Rewrite `deployments/helm/odin/values/standard/dev.yaml` — strip from 326 to ~60 lines. Keep only: global (namespace, imageRegistry), service replicas and image tags, deployment identity (`environment: dev` on all three services — drives Kafka topic namespace, consumer groups), mode selections (messageBackend: kafka, broadcast.type: nats), infrastructure enables (redpanda, nats, postgresql), resources, tolerations (Spot VMs), service types. Move any non-default tuning to extraEnv. Remove all config.* fields matching Go defaults. Depends on: T028.
+- [x] T037 Rewrite `deployments/helm/sukko/values/standard/dev.yaml` — strip from 326 to ~60 lines. Keep only: global (namespace, imageRegistry), service replicas and image tags, deployment identity (`environment: dev` on all three services — drives Kafka topic namespace, consumer groups), mode selections (messageBackend: kafka, broadcast.type: nats), infrastructure enables (redpanda, nats, postgresql), resources, tolerations (Spot VMs), service types. Move any non-default tuning to extraEnv. Remove all config.* fields matching Go defaults. Depends on: T028.
 
-- [x] T038 [P] Rewrite `deployments/helm/odin/values/standard/stg.yaml` — same pattern as dev.yaml. Strip to deployment-level settings, deployment identity (`environment: stg` on all three services), mode selections, infrastructure topology only. Depends on: T028.
+- [x] T038 [P] Rewrite `deployments/helm/sukko/values/standard/stg.yaml` — same pattern as dev.yaml. Strip to deployment-level settings, deployment identity (`environment: stg` on all three services), mode selections, infrastructure topology only. Depends on: T028.
 
-- [x] T039 [P] Rewrite `deployments/helm/odin/values/standard/prod.yaml` — same pattern. Deployment identity (`environment: prod` on all three services — triggers Kafka namespace override guard), production resources, replicas, external service URLs, TLS/SASL config. Depends on: T028.
+- [x] T039 [P] Rewrite `deployments/helm/sukko/values/standard/prod.yaml` — same pattern. Deployment identity (`environment: prod` on all three services — triggers Kafka namespace override guard), production resources, replicas, external service URLs, TLS/SASL config. Depends on: T028.
 
 - [x] T040 Update Taskfile targets in `taskfiles/k8s.yml` and `taskfiles/local.yml` — remove references to `provisioningMode`, update any `--set` flags that reference removed values.yaml fields. Ensure `helm upgrade` commands work with new values structure. Also check `taskfiles/gce.yml` for Terraform references to changed fields. Depends on: T037.
 
@@ -175,7 +175,7 @@ helm template odin deployments/helm/odin -f examples/helm/values-kafka.yaml
 | 2: Config Introspection | T010–T016 | T010, T011, T012, T013 parallel; T014, T015, T016 after T010 |
 | 3: Helm Cleanup | T020–T031 | T020, T021, T022, T026 parallel; T023→T024, T025, T027, T028 depend on values; T029–T031 after templates |
 | 4: Docker Compose & Examples | T032–T036b | T033, T034, T035, T036 parallel; T032 independent; T036b after examples |
-| 5: Odin Internal | T037–T041 | T038, T039 parallel; T037→T040 sequential; T041 independent |
+| 5: Sukko Internal | T037–T041 | T038, T039 parallel; T037→T040 sequential; T041 independent |
 | 6: Verification | T042 | — |
 
 **Total**: 40 tasks (6 phases)

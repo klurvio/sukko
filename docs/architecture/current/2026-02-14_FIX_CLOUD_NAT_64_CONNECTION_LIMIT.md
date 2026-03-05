@@ -29,8 +29,8 @@ Publisher VM:    VM -> Redpanda internal IP (10.x.x.x:9092)         (no NAT, not
 ```
 Resource: google_compute_router_nat.nat
 File:     deployments/terraform/modules/gke-standard-cluster/main.tf:67-84
-Name:     odin-ws-dev-nat
-Router:   odin-ws-dev-router
+Name:     sukko-dev-nat
+Router:   sukko-dev-router
 Region:   us-central1
 
 Missing settings (using GCP defaults):
@@ -45,10 +45,10 @@ Missing settings (using GCP defaults):
 Apply directly to the dev NAT. Does not affect stg/prod.
 
 ```bash
-gcloud compute routers nats update odin-ws-dev-nat \
-  --router=odin-ws-dev-router \
+gcloud compute routers nats update sukko-dev-nat \
+  --router=sukko-dev-router \
   --region=us-central1 \
-  --project=odin-9e902 \
+  --project=sukko-9e902 \
   --min-ports-per-vm=16384 \
   --enable-dynamic-port-allocation \
   --max-ports-per-vm=30000
@@ -131,7 +131,7 @@ Stg/prod remain on defaults (64 ports, no dynamic allocation) unless explicitly 
 - **Browser clients**: Inbound traffic to the LoadBalancer does not traverse Cloud NAT.
 - **Publisher VM**: Connects to Redpanda via internal VPC IP — never touches NAT.
 - **GKE cluster**: Subnet has `private_ip_google_access = true` for image pulls. Cloud NAT is redundant for GKE nodes.
-- **Other VPCs/clusters**: Change scoped to `odin-ws-dev-vpc` only.
+- **Other VPCs/clusters**: Change scoped to `sukko-dev-vpc` only.
 - **Existing connections**: Cloud NAT port updates are non-disruptive — applied to new port mappings only.
 - **Cost**: Negligible. Port reservation doesn't add cost; only data processed through NAT is billed.
 

@@ -21,7 +21,7 @@ CDC (Change Data Capture) pipelines publish events directly to Redpanda via inte
 Added section documenting:
 - Kubernetes broker address (placeholder, confirm with DevOps)
 - Publishing requirements (topic, key, value format)
-- Aggregate channel convention: `odin.all.trade` for all trades
+- Aggregate channel convention: `sukko.all.trade` for all trades
 - TypeScript/KafkaJS code examples
 - Optional headers for observability
 
@@ -30,7 +30,7 @@ Added section documenting:
 ```yaml
 servers:
   redpanda-internal:
-    host: "redpanda.odin-infra.svc.cluster.local:9092"
+    host: "redpanda.sukko-infra.svc.cluster.local:9092"
     protocol: kafka
     description: |
       Internal Redpanda access for CDC pipelines and backend services.
@@ -40,11 +40,11 @@ servers:
 
 #### C. CDC Publish Schema
 
-Added `CDCPublishRequest` schema documenting the TypeScript/KafkaJS publish structure with examples for both specific (`odin.BTC.trade`) and aggregate (`odin.all.trade`) channels.
+Added `CDCPublishRequest` schema documenting the TypeScript/KafkaJS publish structure with examples for both specific (`sukko.BTC.trade`) and aggregate (`sukko.all.trade`) channels.
 
 #### D. Updated Examples
 
-Added `odin.all.trade` examples to:
+Added `sukko.all.trade` examples to:
 - `CDCPublishRequest` schema
 - `KafkaEvent` schema
 - `event` message examples
@@ -57,12 +57,12 @@ Added `odin.all.trade` examples to:
 
 | Type | Key Format | Example |
 |------|------------|---------|
-| Specific token | `{tenant}.{symbol}.{category}` | `odin.BTC.trade` |
-| Aggregate (all) | `{tenant}.all.{category}` | `odin.all.trade` |
+| Specific token | `{tenant}.{symbol}.{category}` | `sukko.BTC.trade` |
+| Aggregate (all) | `{tenant}.all.{category}` | `sukko.all.trade` |
 
 ### Topic Format
 
-`{namespace}.{tenant}.{category}` — e.g., `prod.odin.trade`
+`{namespace}.{tenant}.{category}` — e.g., `prod.sukko.trade`
 
 ---
 

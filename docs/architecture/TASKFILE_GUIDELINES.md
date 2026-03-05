@@ -1,6 +1,6 @@
 # Taskfile Guidelines
 
-Reference for adding and maintaining tasks in the Odin WebSocket project.
+Reference for adding and maintaining tasks in the Sukko WebSocket project.
 
 ## Command Pattern
 
@@ -44,15 +44,15 @@ Each domain uses a unique prefix to avoid conflicts:
 ```yaml
 # local.yml
 vars:
-  LOCAL_NAMESPACE: odin-local
-  LOCAL_CLUSTER_NAME: odin-ws-local
+  LOCAL_NAMESPACE: sukko-local
+  LOCAL_CLUSTER_NAME: sukko-local
   LOCAL_GATEWAY_PORT: 3006
 
 # k8s.yml
 vars:
   K8S_ENV: '{{.ENV | default "dev"}}'
-  K8S_NAMESPACE: 'odin-{{.K8S_ENV}}'
-  K8S_CLUSTER: 'odin-ws-{{.K8S_ENV}}'
+  K8S_NAMESPACE: 'sukko-{{.K8S_ENV}}'
+  K8S_CLUSTER: 'sukko-{{.K8S_ENV}}'
 
 # gce.yml
 vars:
@@ -156,7 +156,7 @@ scale:
   vars:
     REPLICAS: '{{.REPLICAS | default "2"}}'
   cmds:
-    - kubectl scale deployment odin-ws-server -n {{.K8S_NAMESPACE}} --replicas={{.REPLICAS}}
+    - kubectl scale deployment sukko-server -n {{.K8S_NAMESPACE}} --replicas={{.REPLICAS}}
 ```
 
 Usage: `task k8s:scale ENV=dev REPLICAS=3`
@@ -200,7 +200,7 @@ Usage: `task local:logs:provisioning`
 
 ```yaml
 # Use domain-prefixed variables
-LOCAL_NAMESPACE: odin-local
+LOCAL_NAMESPACE: sukko-local
 
 # Use default values for optional params
 REPLICAS: '{{.REPLICAS | default "2"}}'
@@ -218,11 +218,11 @@ cmds:
 
 ```yaml
 # Don't use generic variable names
-NAMESPACE: odin-local  # BAD - use LOCAL_NAMESPACE
+NAMESPACE: sukko-local  # BAD - use LOCAL_NAMESPACE
 
 # Don't hardcode values
 cmds:
-  - kubectl get pods -n odin-local  # BAD - use {{.LOCAL_NAMESPACE}}
+  - kubectl get pods -n sukko-local  # BAD - use {{.LOCAL_NAMESPACE}}
 
 # Don't create top-level shortcuts (except task local and task test)
 deploy:  # BAD - use local:deploy or k8s:deploy

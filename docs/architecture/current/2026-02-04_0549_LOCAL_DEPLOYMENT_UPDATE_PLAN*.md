@@ -59,7 +59,7 @@ Consistent with existing chart structure (valkey, nats). Works offline, easy to 
 
 ### Step 1: Create PostgreSQL Subchart
 
-Create `deployments/helm/odin/charts/postgresql/`:
+Create `deployments/helm/sukko/charts/postgresql/`:
 
 ```
 charts/postgresql/
@@ -76,7 +76,7 @@ charts/postgresql/
 ```yaml
 apiVersion: v2
 name: postgresql
-description: PostgreSQL database for Odin provisioning
+description: PostgreSQL database for Sukko provisioning
 type: application
 version: 1.0.0
 appVersion: "16"
@@ -92,8 +92,8 @@ image:
   pullPolicy: IfNotPresent
 
 auth:
-  database: odin_provisioning
-  username: odin
+  database: sukko_provisioning
+  username: sukko
   password: ""
   existingSecret: ""
 
@@ -227,7 +227,7 @@ spec:
 
 ### Step 2: Add PostgreSQL to Parent Chart
 
-Update `deployments/helm/odin/Chart.yaml`:
+Update `deployments/helm/sukko/Chart.yaml`:
 
 ```yaml
 dependencies:
@@ -241,7 +241,7 @@ dependencies:
 
 ### Step 3: Update local.yaml
 
-Add provisioning and postgresql configuration to `deployments/helm/odin/values/local.yaml`.
+Add provisioning and postgresql configuration to `deployments/helm/sukko/values/local.yaml`.
 
 **Add to end of file:**
 ```yaml
@@ -249,9 +249,9 @@ Add provisioning and postgresql configuration to `deployments/helm/odin/values/l
 postgresql:
   enabled: true
   auth:
-    database: odin_provisioning
-    username: odin
-    password: odin_local_dev  # OK for local dev only
+    database: sukko_provisioning
+    username: sukko
+    password: sukko_local_dev  # OK for local dev only
   resources:
     requests:
       cpu: "100m"
@@ -288,9 +288,9 @@ provisioning:
 **Update existing `global:` section** (add `provisioning` subsection):
 ```yaml
 global:
-  namespace: odin-local
+  namespace: sukko-local
   provisioning:
-    databaseUrl: "postgres://odin:odin_local_dev@odin-local-postgresql:5432/odin_provisioning?sslmode=disable"
+    databaseUrl: "postgres://sukko:sukko_local_dev@sukko-local-postgresql:5432/sukko_provisioning?sslmode=disable"
 ```
 
 **Notes:**
@@ -311,7 +311,7 @@ Update `deployments/k8s/local/kind-config.yaml`:
 ```yaml
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: odin-ws-local
+name: sukko-local
 
 nodes:
   - role: control-plane
@@ -353,7 +353,7 @@ kubeadmConfigPatches:
 
 ### Step 5: Update Prometheus ConfigMap
 
-Add scrape targets for gateway and provisioning in `deployments/helm/odin/charts/monitoring/templates/prometheus-configmap.yaml`:
+Add scrape targets for gateway and provisioning in `deployments/helm/sukko/charts/monitoring/templates/prometheus-configmap.yaml`:
 
 ```yaml
       # Scrape ws-gateway metrics
@@ -445,23 +445,23 @@ curl -X PUT http://localhost:8081/api/v1/tenants/acme/channel-rules \
 
 ```bash
 # Navigate to deployments
-cd /Volumes/Dev/Codev/Toniq/odin-ws/deployments
+cd /Volumes/Dev/Codev/Toniq/sukko/deployments
 
 # Delete existing cluster (required for port mapping changes)
-kind delete cluster --name odin-ws-local
+kind delete cluster --name sukko-local
 
 # Create cluster with updated config
 kind create cluster --config k8s/local/kind-config.yaml
 
 # Update Helm dependencies (picks up new postgresql chart)
-cd helm/odin
+cd helm/sukko
 helm dependency update
 
 # Install chart with local values
-helm install odin-local . -f values/local.yaml -n odin-local --create-namespace
+helm install sukko-local . -f values/local.yaml -n sukko-local --create-namespace
 
 # Wait for pods
-kubectl get pods -n odin-local -w
+kubectl get pods -n sukko-local -w
 
 # Test endpoints
 curl http://localhost:3000/health   # Gateway
@@ -472,7 +472,7 @@ curl http://localhost:8081/health   # Provisioning
 curl http://localhost:8081/api/v1/tenants
 
 # View logs
-kubectl logs -n odin-local -l app.kubernetes.io/name=provisioning -f
+kubectl logs -n sukko-local -l app.kubernetes.io/name=provisioning -f
 ```
 
 ---
@@ -493,13 +493,13 @@ kubectl logs -n odin-local -l app.kubernetes.io/name=provisioning -f
 
 ```bash
 # Delete cluster
-kind delete cluster --name odin-ws-local
+kind delete cluster --name sukko-local
 
 # Revert config files
-git checkout HEAD -- deployments/helm/odin/values/local.yaml
+git checkout HEAD -- deployments/helm/sukko/values/local.yaml
 git checkout HEAD -- deployments/k8s/local/kind-config.yaml
 
 # Recreate with previous config
 kind create cluster --config deployments/k8s/local/kind-config.yaml
-helm install odin-local deployments/helm/odin -f deployments/helm/odin/values/local.yaml -n odin-local --create-namespace
+helm install sukko-local deployments/helm/sukko -f deployments/helm/sukko/values/local.yaml -n sukko-local --create-namespace
 ```

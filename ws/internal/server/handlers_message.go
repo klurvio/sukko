@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
-	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/server/backend"
+	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // defaultReplayTimeout is the maximum time allowed for a backend replay operation.
@@ -60,10 +60,10 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 	case protocol.MsgTypeSubscribe:
 		// Client subscribing to hierarchical channels (tenant.symbol.eventType)
-		// Message format: {"type": "subscribe", "data": {"channels": ["odin.BTC.trade", "odin.ETH.trade", "odin.BTC.analytics"]}}
+		// Message format: {"type": "subscribe", "data": {"channels": ["sukko.BTC.trade", "sukko.ETH.trade", "sukko.BTC.analytics"]}}
 		//
 		// Channel format: "{TENANT}.{SYMBOL}.{EVENT_TYPE}"
-		// - TENANT: Tenant identifier (odin, acme, etc.)
+		// - TENANT: Tenant identifier (sukko, acme, etc.)
 		// - SYMBOL: Token symbol (BTC, ETH, SOL, etc.)
 		// - EVENT_TYPE: One of 8 types (trade, liquidity, metadata, social, favorites, creation, analytics, balances)
 		//
@@ -74,9 +74,9 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 		// - Better UX: Clients see only relevant updates
 		//
 		// Example use cases:
-		// - Trading client: ["odin.BTC.trade", "odin.ETH.trade"] - Only price updates
-		// - Dashboard: ["odin.BTC.trade", "odin.BTC.analytics", "odin.ETH.trade", "odin.ETH.analytics"] - Prices + metrics
-		// - Social app: ["odin.BTC.social", "odin.ETH.social"] - Only comments/reactions
+		// - Trading client: ["sukko.BTC.trade", "sukko.ETH.trade"] - Only price updates
+		// - Dashboard: ["sukko.BTC.trade", "sukko.BTC.analytics", "sukko.ETH.trade", "sukko.ETH.analytics"] - Prices + metrics
+		// - Social app: ["sukko.BTC.social", "sukko.ETH.social"] - Only comments/reactions
 		//
 		// Performance impact (10K clients, 200 tokens, 12 msg/sec):
 		// - Without filtering: 12 × 8 events × 10K = 960K writes/sec (CPU overload)

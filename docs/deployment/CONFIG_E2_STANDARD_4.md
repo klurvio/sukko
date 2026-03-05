@@ -24,7 +24,7 @@ Cost:          $72/month (~$0.0984/hour)
 # =============================================================================
 # WebSocket Server Production Configuration
 # =============================================================================
-# Instance: odin-ws-go (e2-standard-4: 4 vCPU, 16GB RAM)
+# Instance: sukko-go (e2-standard-4: 4 vCPU, 16GB RAM)
 # Purpose: Handle 15,000 concurrent WebSocket connections
 # Location: GCP us-central1
 
@@ -87,7 +87,7 @@ WS_CPU_PAUSE_THRESHOLD=80.0
 # =============================================================================
 # JETSTREAM
 # =============================================================================
-JS_STREAM_NAME=ODIN_TOKENS
+JS_STREAM_NAME=SUKKO_TOKENS
 JS_CONSUMER_NAME=ws-server
 JS_STREAM_MAX_AGE=30s
 JS_STREAM_MAX_MSGS=100000
@@ -220,7 +220,7 @@ Recommendations:
 ### 1. Create Instance (if new)
 
 ```bash
-gcloud compute instances create odin-ws-go \
+gcloud compute instances create sukko-go \
   --zone=us-central1-a \
   --machine-type=e2-standard-4 \
   --boot-disk-size=20GB \
@@ -234,15 +234,15 @@ gcloud compute instances create odin-ws-go \
 
 ```bash
 # Stop instance
-gcloud compute instances stop odin-ws-go --zone=us-central1-a
+gcloud compute instances stop sukko-go --zone=us-central1-a
 
 # Resize to e2-standard-4
-gcloud compute instances set-machine-type odin-ws-go \
+gcloud compute instances set-machine-type sukko-go \
   --zone=us-central1-a \
   --machine-type=e2-standard-4
 
 # Start instance
-gcloud compute instances start odin-ws-go --zone=us-central1-a
+gcloud compute instances start sukko-go --zone=us-central1-a
 ```
 
 ### 3. Deploy Configuration
@@ -414,12 +414,12 @@ Cost per 1K conns:   $6.00/month
 
 2. **Stop instance**
    ```bash
-   gcloud compute instances stop odin-ws-go --zone=us-central1-a
+   gcloud compute instances stop sukko-go --zone=us-central1-a
    ```
 
 3. **Resize instance**
    ```bash
-   gcloud compute instances set-machine-type odin-ws-go \
+   gcloud compute instances set-machine-type sukko-go \
      --zone=us-central1-a \
      --machine-type=e2-standard-4
    ```
@@ -434,7 +434,7 @@ Cost per 1K conns:   $6.00/month
 
 5. **Start instance**
    ```bash
-   gcloud compute instances start odin-ws-go --zone=us-central1-a
+   gcloud compute instances start sukko-go --zone=us-central1-a
    ```
 
 6. **Deploy new configuration**

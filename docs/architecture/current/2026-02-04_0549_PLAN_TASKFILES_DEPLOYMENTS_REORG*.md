@@ -36,7 +36,7 @@ deployments/
 │   └── v2/                    # GCP v2 configs
 ├── k8s/
 │   ├── environments/local/    # Kind config only
-│   └── helm/odin/
+│   └── helm/sukko/
 │       └── values/
 │           ├── local.yaml
 │           ├── autopilot/{develop,staging,production}.yaml
@@ -71,7 +71,7 @@ deployments/
 | Issue | Impact |
 |-------|--------|
 | **Inconsistent naming** | `gke-autopilot` vs `autopilot/`, `gke-standard` vs `standard/` |
-| **Deep nesting** | `deployments/k8s/helm/odin/` is 4 levels deep |
+| **Deep nesting** | `deployments/k8s/helm/sukko/` is 4 levels deep |
 | **Legacy directories** | `gcp/v1/`, `gcp/v2/`, `local/` are obsolete |
 | **Terraform scattered** | Modules in two places: `terraform/modules/` and `gke-standard/modules/` |
 | **No clear environment naming** | `dev-staging` vs `develop` inconsistency |
@@ -116,7 +116,7 @@ taskfiles/
 ```
 deployments/
 ├── helm/                           # Helm charts (simplified path)
-│   └── odin/
+│   └── sukko/
 │       ├── Chart.yaml
 │       ├── values.yaml             # Base defaults
 │       ├── charts/                 # Subcharts
@@ -179,7 +179,7 @@ tasks:
     desc: Build ws-server Docker image
     dir: "{{.ROOT_DIR}}/ws"
     cmds:
-      - docker build -t {{.IMAGE_NAME | default "odin-ws"}}:{{.TAG | default "latest"}}
+      - docker build -t {{.IMAGE_NAME | default "sukko"}}:{{.TAG | default "latest"}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
@@ -189,7 +189,7 @@ tasks:
     desc: Build ws-gateway Docker image
     dir: "{{.ROOT_DIR}}/ws"
     cmds:
-      - docker build -t {{.IMAGE_NAME | default "odin-gateway"}}:{{.TAG | default "latest"}}
+      - docker build -t {{.IMAGE_NAME | default "sukko-gateway"}}:{{.TAG | default "latest"}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
@@ -207,7 +207,7 @@ tasks:
 version: "3"
 
 vars:
-  CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/odin"
+  CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/sukko"
 
 tasks:
   lint:
@@ -218,7 +218,7 @@ tasks:
   template:
     desc: Dry-run render templates
     cmds:
-      - helm template odin {{.CHART_PATH}} -f {{.VALUES_FILE}}
+      - helm template sukko {{.CHART_PATH}} -f {{.VALUES_FILE}}
 
   deps:
     desc: Update Helm dependencies
@@ -228,12 +228,12 @@ tasks:
   diff:
     desc: Show diff before upgrade
     cmds:
-      - helm diff upgrade odin {{.CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}}
+      - helm diff upgrade sukko {{.CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}}
 
   upgrade:
     desc: Upgrade/install Helm release
     cmds:
-      - helm upgrade --install odin {{.CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace {{.EXTRA_ARGS}}
+      - helm upgrade --install sukko {{.CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace {{.EXTRA_ARGS}}
 ```
 
 ### k8s/local/kind.yml (Simplified)
@@ -246,11 +246,11 @@ includes:
   helm:
     taskfile: ../../shared/helm.yml
     vars:
-      VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/odin/values/local.yaml"
-      NAMESPACE: odin-local
+      VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/sukko/values/local.yaml"
+      NAMESPACE: sukko-local
 
 vars:
-  CLUSTER_NAME: odin-ws-local
+  CLUSTER_NAME: sukko-local
   KIND_CONFIG: "{{.ROOT_DIR}}/deployments/k8s/local/kind-config.yaml"
 
 tasks:
@@ -271,8 +271,8 @@ tasks:
     desc: Build and load images into Kind
     cmds:
       - task: build:all
-      - kind load docker-image odin-ws:latest --name {{.CLUSTER_NAME}}
-      - kind load docker-image odin-gateway:latest --name {{.CLUSTER_NAME}}
+      - kind load docker-image sukko:latest --name {{.CLUSTER_NAME}}
+      - kind load docker-image sukko-gateway:latest --name {{.CLUSTER_NAME}}
 
   # Deploy (composes helm + migrations)
   deploy:
@@ -309,8 +309,8 @@ tasks:
   push:
     desc: Push images to registry
     cmds:
-      - docker tag odin-ws:latest {{.REGISTRY}}/ws-server:latest
-      - docker tag odin-gateway:latest {{.REGISTRY}}/ws-gateway:latest
+      - docker tag sukko:latest {{.REGISTRY}}/ws-server:latest
+      - docker tag sukko-gateway:latest {{.REGISTRY}}/ws-gateway:latest
       - docker push {{.REGISTRY}}/ws-server:latest
       - docker push {{.REGISTRY}}/ws-gateway:latest
 
@@ -349,15 +349,15 @@ includes:
     taskfile: ./common.yml
     vars:
       REGISTRY: "{{.GKE_STD_REGISTRY}}"
-      VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/odin/values/standard/{{.ENV}}.yaml"
-      NAMESPACE: "odin-std-{{.ENV}}"
+      VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/sukko/values/standard/{{.ENV}}.yaml"
+      NAMESPACE: "sukko-std-{{.ENV}}"
 
 vars:
   ENV: '{{.ENV | default "develop"}}'
   GKE_STD_PROJECT: 'trim-array-480700-j7'
   GKE_STD_ZONE: 'us-central1-a'
-  GKE_STD_CLUSTER: 'odin-ws-{{.ENV}}'
-  GKE_STD_REGISTRY: 'us-central1-docker.pkg.dev/{{.GKE_STD_PROJECT}}/odin'
+  GKE_STD_CLUSTER: 'sukko-{{.ENV}}'
+  GKE_STD_REGISTRY: 'us-central1-docker.pkg.dev/{{.GKE_STD_PROJECT}}/sukko'
 
 tasks:
   connect:
@@ -548,7 +548,7 @@ tasks:
 
 | Current | New |
 |---------|-----|
-| `deployments/k8s/helm/odin/` | `deployments/helm/odin/` |
+| `deployments/k8s/helm/sukko/` | `deployments/helm/sukko/` |
 | `deployments/k8s/environments/local/` | `deployments/k8s/local/` |
 | `deployments/terraform/gke-standard/` | `deployments/terraform/environments/standard/` |
 | `deployments/terraform/gke-autopilot/` | `deployments/terraform/environments/autopilot/` |

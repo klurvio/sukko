@@ -250,7 +250,7 @@ Istio or Linkerd provide:
 ### Helm Values
 
 ```yaml
-# deployments/k8s/helm/odin/charts/ws-server/values.yaml
+# deployments/k8s/helm/sukko/charts/ws-server/values.yaml
 sessionAffinity:
   enabled: false        # MUST be false when using gateway proxy
   timeoutSeconds: 10800 # Only applies if enabled

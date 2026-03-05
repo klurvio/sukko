@@ -195,4 +195,4 @@ variable "nat_max_ports_per_vm" {
 }
 
 # Note: Kernel tuning is now done via DaemonSet in the Helm chart
-# See deployments/k8s/helm/odin/templates/kernel-tuning-daemonset.yaml
+# See deployments/k8s/helm/sukko/templates/kernel-tuning-daemonset.yaml

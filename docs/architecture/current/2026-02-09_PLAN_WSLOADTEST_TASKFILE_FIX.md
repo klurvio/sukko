@@ -28,7 +28,7 @@ vars:
   DEPLOY_DIR: "{{.ROOT_DIR}}/deployments/wsloadtest"
   WSLOADTEST_DIR: "{{.ROOT_DIR}}/wsloadtest"
   PROJECT: "trim-array-480700-j7"
-  NAMESPACE: "odin-local"  # Conflicts with k8s taskfiles!
+  NAMESPACE: "sukko-local"  # Conflicts with k8s taskfiles!
   LOCAL_PORT: "3006"
 ```
 
@@ -39,7 +39,7 @@ vars:
   LOADTEST_DIR: "{{.USER_WORKING_DIR}}/wsloadtest"
   LOADTEST_DEPLOY_DIR: "{{.USER_WORKING_DIR}}/deployments/wsloadtest"
   LOADTEST_PROJECT: "trim-array-480700-j7"
-  LOADTEST_NAMESPACE: "odin-local"
+  LOADTEST_NAMESPACE: "sukko-local"
   LOADTEST_PORT: "3006"
 ```
 
@@ -88,7 +88,7 @@ vars:
   LOADTEST_DIR: "{{.USER_WORKING_DIR}}/wsloadtest"
   LOADTEST_DEPLOY_DIR: "{{.USER_WORKING_DIR}}/deployments/wsloadtest"
   LOADTEST_PROJECT: "trim-array-480700-j7"
-  LOADTEST_NAMESPACE: "odin-local"
+  LOADTEST_NAMESPACE: "sukko-local"
   LOADTEST_PORT: "3006"
 
 tasks:
@@ -108,7 +108,7 @@ tasks:
     desc: Build and push to Artifact Registry
     cmds:
       - docker buildx build --platform linux/amd64
-          -t us-central1-docker.pkg.dev/{{.LOADTEST_PROJECT}}/odin/wsloadtest:latest
+          -t us-central1-docker.pkg.dev/{{.LOADTEST_PROJECT}}/sukko/wsloadtest:latest
           -f {{.LOADTEST_DIR}}/Dockerfile {{.LOADTEST_DIR}} --push
       - 'echo "Pushed to Artifact Registry"'
 
@@ -128,8 +128,8 @@ tasks:
           -e CONNECTIONS={{.CONNECTIONS}} \
           -e RAMP_RATE={{.RAMP}} \
           -e DURATION={{.DURATION}} \
-          -e TENANT=odin \
-          -e CHANNELS=odin.all.trade \
+          -e TENANT=sukko \
+          -e CHANNELS=sukko.all.trade \
           wsloadtest:latest
 
   local:quick:

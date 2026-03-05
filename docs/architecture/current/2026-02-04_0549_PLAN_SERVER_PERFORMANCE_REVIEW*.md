@@ -344,7 +344,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 ```bash
 # Run all tests with coverage
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws
+cd /Volumes/Dev/Codev/Toniq/sukko/ws
 go test -cover ./internal/server/...
 
 # Run benchmarks (if added)

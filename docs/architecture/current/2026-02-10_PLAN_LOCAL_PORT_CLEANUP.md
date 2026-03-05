@@ -50,7 +50,7 @@ LOCAL_GRAFANA_PORT: 3010      # Kind: 30300→3010
 
 ### 1. Set Fixed NodePort for Redpanda in Local Values
 
-**File:** `deployments/helm/odin/values/local.yaml`
+**File:** `deployments/helm/sukko/values/local.yaml`
 
 Change Redpanda external access to use NodePort with a fixed port:
 ```yaml
@@ -144,7 +144,7 @@ Keep port-forward logic only in these tasks since they're infrequent.
 
 | File | Changes |
 |------|---------|
-| `deployments/helm/odin/values/local.yaml` | Set Redpanda `type: NodePort` with `nodePort: 31092` |
+| `deployments/helm/sukko/values/local.yaml` | Set Redpanda `type: NodePort` with `nodePort: 31092` |
 | `deployments/k8s/local/kind-config.yaml` | Replace 6 mappings with 4 (gateway, provisioning, redpanda, grafana) |
 | `taskfiles/local.yml` | Remove all port-forward logic except for PostgreSQL; delete `port-forward:start/stop` tasks |
 

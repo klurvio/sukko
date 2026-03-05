@@ -77,8 +77,8 @@ When a client reconnects and wants to recover missed messages:
   "data": {
     "client_id": "client-12345",
     "last_offset": {
-      "odin.token.events": 1250,
-      "odin.market.updates": 3420
+      "sukko.token.events": 1250,
+      "sukko.market.updates": 3420
     }
   }
 }
@@ -302,7 +302,7 @@ onMessage(envelope) {
 
 ### Automated Testing
 
-See `/Volumes/Dev/Codev/Toniq/odin-ws/docs/testing/replay-test-plan.md` (to be created) for:
+See `/Volumes/Dev/Codev/Toniq/sukko/docs/testing/replay-test-plan.md` (to be created) for:
 - Unit tests for `ReplayFromOffsets`
 - Integration tests for reconnect handler
 - Load tests for concurrent replay requests
@@ -404,7 +404,7 @@ Track these metrics for replay health:
 grep "Using shared Kafka consumer" /var/log/ws-server.log
 
 # Check Kafka offsets
-rpk topic describe odin.token.events
+rpk topic describe sukko.token.events
 
 # Check client subscriptions
 # (add logging to handleKafkaReconnect)

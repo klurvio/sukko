@@ -53,7 +53,7 @@ Redpanda Operator is a Kubernetes operator that manages Redpanda clusters using 
 **Current (Helm chart):**
 ```
 GKE Cluster
-└── odin-staging namespace
+└── sukko-staging namespace
     ├── ws-gateway (Deployment)
     ├── ws-server (Deployment)
     ├── redpanda (StatefulSet)  ← managed by Helm subchart
@@ -67,7 +67,7 @@ GKE Cluster
 │   └── cert-manager pods
 ├── redpanda-system namespace
 │   └── redpanda-operator pod  ← watches for Redpanda CRDs
-└── odin-staging namespace
+└── sukko-staging namespace
     ├── ws-gateway (Deployment)
     ├── ws-server (Deployment)
     ├── redpanda (StatefulSet)  ← managed by Operator via CRD
@@ -99,7 +99,7 @@ The operator uses two main CRDs:
 apiVersion: cluster.redpanda.com/v1alpha2
 kind: Redpanda
 metadata:
-  name: odin-redpanda
+  name: sukko-redpanda
 spec:
   chartRef:
     chartVersion: 5.9.x
@@ -126,7 +126,7 @@ spec:
 apiVersion: cluster.redpanda.com/v1alpha2
 kind: Topic
 metadata:
-  name: odin-trades
+  name: sukko-trades
 spec:
   partitions: 12
   replicationFactor: 3
@@ -149,9 +149,9 @@ Redpanda provides an official migration guide from Helm to Operator:
 
 | Component | Current (Helm) | With Operator |
 |-----------|----------------|---------------|
-| Internal Kafka | `odin-redpanda:9093` | `odin-redpanda.{namespace}.svc.cluster.local:9093` |
-| Admin API | `odin-redpanda:9644` | Same pattern |
-| Schema Registry | `odin-redpanda:8081` | Same pattern |
+| Internal Kafka | `sukko-redpanda:9093` | `sukko-redpanda.{namespace}.svc.cluster.local:9093` |
+| Admin API | `sukko-redpanda:9644` | Same pattern |
+| Schema Registry | `sukko-redpanda:8081` | Same pattern |
 
 **Impact:** ws-server `KAFKA_BROKERS` config needs update.
 
@@ -302,7 +302,7 @@ Operator reads zone labels from nodes.
 2. [ ] Set up cert-manager in staging cluster
 3. [ ] Install Redpanda Operator in staging
 4. [ ] Create Redpanda CRD for staging environment
-5. [ ] Create Topic CRDs for all 8 odin.* topics
+5. [ ] Create Topic CRDs for all 8 sukko.* topics
 6. [ ] Update ws-server Helm values for Operator
 7. [ ] Test migration in staging
 8. [ ] Document runbooks for day-2 operations

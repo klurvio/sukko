@@ -1,6 +1,6 @@
 # GKE Standard - Production Environment
 
-Deploy the Odin WebSocket infrastructure to GKE Standard production cluster with autoscaling, NATS clustering, and persistent storage.
+Deploy the Sukko WebSocket infrastructure to GKE Standard production cluster with autoscaling, NATS clustering, and persistent storage.
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ task k8s:standard:setup GKE_STD_ENV=production
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                   GKE Standard Cluster (odin-ws-production)                  │
+│                   GKE Standard Cluster (sukko-production)                  │
 │                         Zone: us-central1-a                                  │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │        Node Pool (1-5 e2-standard-4 Spot VMs, Autoscaling)             │  │
@@ -41,7 +41,7 @@ task k8s:standard:setup GKE_STD_ENV=production
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │                       Namespace: odin-std-production                    │ │
+│  │                       Namespace: sukko-std-production                    │ │
 │  │                                                                         │ │
 │  │  ┌─────────────┐      ┌─────────────┐      ┌───────────────┐           │ │
 │  │  │ ws-gateway  │─────▶│  ws-server  │◀─────│   Redpanda    │           │ │
@@ -72,8 +72,8 @@ External Access:
 
 | Setting | Value |
 |---------|-------|
-| Cluster Name | `odin-ws-production` |
-| Namespace | `odin-std-production` |
+| Cluster Name | `sukko-production` |
+| Namespace | `sukko-std-production` |
 | Zone | `us-central1-a` |
 | Node Count | 1-5 (autoscaling) |
 | Instance Type | e2-standard-4 (Spot) |
@@ -227,7 +227,7 @@ Port-forward runs in foreground. Press Ctrl+C to stop.
 
 ```bash
 # Check HPA status
-kubectl get hpa -n odin-std-production
+kubectl get hpa -n sukko-std-production
 ```
 
 ### Cluster Autoscaler
@@ -258,7 +258,7 @@ Topics use replication factor 2 for durability:
 
 ```yaml
 topics:
-  - name: odin.trades
+  - name: sukko.trades
     partitions: 4
     replicationFactor: 2
 ```
@@ -280,7 +280,7 @@ Ensure minimum availability during node maintenance or Spot preemption:
 
 - [ ] Changes tested in staging
 - [ ] Images built and pushed
-- [ ] Backup current state: `helm history odin -n odin-std-production`
+- [ ] Backup current state: `helm history sukko -n sukko-std-production`
 - [ ] Team notified
 
 ### 2. Deploy
@@ -300,10 +300,10 @@ task k8s:standard:deploy:production
 
 ```bash
 # Watch rollout
-kubectl rollout status deployment -n odin-std-production
+kubectl rollout status deployment -n sukko-std-production
 
 # Check HPA scaling
-kubectl get hpa -n odin-std-production -w
+kubectl get hpa -n sukko-std-production -w
 
 # Monitor events
 task k8s:standard:events GKE_STD_ENV=production
@@ -327,7 +327,7 @@ task k8s:standard:rollback GKE_STD_ENV=production
 
 ## Publishing Events
 
-Production receives events from the actual odin-api, not test publisher.
+Production receives events from the actual sukko-api, not test publisher.
 
 ### Get Redpanda External IP
 
@@ -335,7 +335,7 @@ Production receives events from the actual odin-api, not test publisher.
 task k8s:standard:external-ips GKE_STD_ENV=production
 ```
 
-Configure odin-api to publish to `<REDPANDA_IP>:9092`.
+Configure sukko-api to publish to `<REDPANDA_IP>:9092`.
 
 ## Load Testing Production
 
@@ -396,7 +396,7 @@ task gcp:v2:loadtest:logs ENV=production
 
 ```bash
 # Watch HPA scaling
-kubectl get hpa -n odin-std-production -w
+kubectl get hpa -n sukko-std-production -w
 
 # Grafana dashboards
 task k8s:standard:port-forward:grafana GKE_STD_ENV=production
@@ -430,7 +430,7 @@ Production uses Spot VMs for cost savings. This is acceptable because:
 
 ```bash
 # Watch for preemption events
-kubectl get events -n odin-std-production --field-selector reason=Preempted
+kubectl get events -n sukko-std-production --field-selector reason=Preempted
 
 # Check node churn
 kubectl get nodes -o wide
@@ -478,10 +478,10 @@ task k8s:standard:cost:info GKE_STD_ENV=production
 
 ```bash
 # Check HPA metrics
-kubectl describe hpa -n odin-std-production
+kubectl describe hpa -n sukko-std-production
 
 # Verify metrics-server
-kubectl top pods -n odin-std-production
+kubectl top pods -n sukko-std-production
 ```
 
 ### Pods pending (no nodes)
@@ -492,7 +492,7 @@ kubectl get events -n kube-system | grep cluster-autoscaler
 
 # Check node pool
 gcloud container node-pools describe default-pool \
-  --cluster=odin-ws-production \
+  --cluster=sukko-production \
   --zone=us-central1-a
 ```
 
@@ -500,15 +500,15 @@ gcloud container node-pools describe default-pool \
 
 ```bash
 # Check NATS cluster status
-kubectl exec -n odin-std-production odin-nats-0 -- nats-server --help
-kubectl logs -n odin-std-production -l app.kubernetes.io/name=nats
+kubectl exec -n sukko-std-production sukko-nats-0 -- nats-server --help
+kubectl logs -n sukko-std-production -l app.kubernetes.io/name=nats
 ```
 
 ### Redpanda replication lag
 
 ```bash
 # Check partition status
-kubectl exec -n odin-std-production odin-redpanda-0 -- \
+kubectl exec -n sukko-std-production sukko-redpanda-0 -- \
   rpk cluster partitions status
 ```
 
@@ -516,17 +516,17 @@ kubectl exec -n odin-std-production odin-redpanda-0 -- \
 
 ```bash
 # Check PVCs
-kubectl get pvc -n odin-std-production
+kubectl get pvc -n sukko-std-production
 
 # Describe for events
-kubectl describe pvc -n odin-std-production
+kubectl describe pvc -n sukko-std-production
 ```
 
 ## File Locations
 
 | File | Purpose |
 |------|---------|
-| `deployments/k8s/helm/odin/values/standard/production.yaml` | Helm values |
+| `deployments/k8s/helm/sukko/values/standard/production.yaml` | Helm values |
 | `deployments/terraform/gke-standard/production/` | Terraform config |
 | `taskfiles/k8s/standard.yml` | Task definitions |
 

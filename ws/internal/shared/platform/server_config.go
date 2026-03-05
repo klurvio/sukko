@@ -178,7 +178,7 @@ type ServerConfig struct {
 
 	// Environment — deployment identity label, used for Kafka topic namespace, consumer
 	// group naming, and safety guards. Free-form: any string works as deployment identity.
-	// Odin uses: local | dev | stg | prod by convention. "prod" blocks KAFKA_TOPIC_NAMESPACE_OVERRIDE;
+	// Sukko uses: local | dev | stg | prod by convention. "prod" blocks KAFKA_TOPIC_NAMESPACE_OVERRIDE;
 	// "dev"/"development"/"local" relaxes admin token length requirements.
 	Environment string `env:"ENVIRONMENT" envDefault:"local"`
 
@@ -199,7 +199,7 @@ type ServerConfig struct {
 
 	// DefaultTenantID disables multi-tenant support. All messages
 	// are routed to this tenant. Only used when AUTH_ENABLED=false.
-	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
+	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
 
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy

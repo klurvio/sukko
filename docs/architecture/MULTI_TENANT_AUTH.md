@@ -28,15 +28,15 @@ Each tenant has their own key pair:
 
 ```
 ┌─────────────────┐                      ┌─────────────────┐
-│  Tenant (Odin)  │                      │     Gateway     │
+│  Tenant (Sukko)  │                      │     Gateway     │
 │                 │                      │                 │
 │  Has: private   │                      │  Has: tenant's  │
 │       key       │                      │       public key│
 │                 │                      │                 │
 │  1. User logs   │                      │                 │
-│     into Odin   │                      │                 │
+│     into Sukko   │                      │                 │
 │                 │                      │                 │
-│  2. Odin signs  │      JWT Token       │  3. Gateway     │
+│  2. Sukko signs  │      JWT Token       │  3. Gateway     │
 │     JWT with    │ ──────────────────►  │     validates   │
 │     private key │                      │     with public │
 │                 │                      │     key         │
@@ -55,7 +55,7 @@ Each tenant has their own key pair:
 {
   "alg": "ES256",
   "typ": "JWT",
-  "kid": "odin-prod-2026"
+  "kid": "sukko-prod-2026"
 }
 ```
 
@@ -105,7 +105,7 @@ All configuration is via environment variables, managed through Helm charts.
 
 ### Gateway Configuration
 
-**Helm Values** (`deployments/k8s/helm/odin/charts/ws-gateway/values.yaml`):
+**Helm Values** (`deployments/k8s/helm/sukko/charts/ws-gateway/values.yaml`):
 
 ```yaml
 config:
@@ -151,7 +151,7 @@ ws-gateway:
 
 Create the database secret:
 ```bash
-kubectl create secret generic odin-provisioning-db \
+kubectl create secret generic sukko-provisioning-db \
   --from-literal=database-url="postgres://user:pass@host:5432/provisioning?sslmode=require"
 ```
 

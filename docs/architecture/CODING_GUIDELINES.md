@@ -1,6 +1,6 @@
-# Odin WebSocket Server - Coding Guidelines
+# Sukko WebSocket Server - Coding Guidelines
 
-This document establishes coding standards for the Odin WebSocket server codebase. All contributors must follow these guidelines to ensure code is **robust**, **testable**, **secure**, **performant**, and **maintainable**.
+This document establishes coding standards for the Sukko WebSocket server codebase. All contributors must follow these guidelines to ensure code is **robust**, **testable**, **secure**, **performant**, and **maintainable**.
 
 ---
 
@@ -384,7 +384,7 @@ func getClientIP(r *http.Request) string { ... }
 func writeJSON(w http.ResponseWriter, status int, data any) { ... }
 
 // GOOD - Shared utilities
-import "github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
+import "github.com/Toniq-Labs/sukko/internal/shared/httputil"
 
 token := httputil.ExtractBearerToken(r)
 clientIP := httputil.GetClientIP(r)

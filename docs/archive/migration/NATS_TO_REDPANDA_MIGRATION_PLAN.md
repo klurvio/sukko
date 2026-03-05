@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Replace NATS JetStream with Redpanda to implement coarse-grained event channels for the Odin WebSocket system. The migration includes:
+Replace NATS JetStream with Redpanda to implement coarse-grained event channels for the Sukko WebSocket system. The migration includes:
 
 - **8 event types** mapped to 8 Redpanda topics
 - **Subscription bundles** (TRADING, FULL_MARKET, COMMUNITY, etc.)
@@ -27,9 +27,9 @@ Replace NATS JetStream with Redpanda to implement coarse-grained event channels 
 API Backend (Elixir)
     ↓ Events
 Publisher (Node.js + NATS)
-    ↓ Subject: odin.token.{SYMBOL}.{EVENT}
+    ↓ Subject: sukko.token.{SYMBOL}.{EVENT}
 NATS JetStream
-    ↓ Subscribe: odin.token.>
+    ↓ Subscribe: sukko.token.>
 WS Server (Go)
     ↓ Broadcast: {SYMBOL}.trade only
 12,000 WebSocket Clients
@@ -72,14 +72,14 @@ Based on `/docs/events/TOKEN_UPDATE_EVENTS.md`:
 
 | Event Category | Topic | NATS Subject (old) | Events Included |
 |----------------|-------|-------------------|-----------------|
-| **1. Trading** | `odin.trades` | `odin.token.{TOKEN}.trade` | Buy, sell, external trades |
-| **2. Liquidity** | `odin.liquidity` | `odin.token.{TOKEN}.liquidity` | Add/remove liquidity, rebalances |
-| **3. Metadata** | `odin.metadata` | `odin.token.{TOKEN}.metadata` | Name, ticker, description, flags |
-| **4. Social** | `odin.social` | `odin.token.{TOKEN}.social` | Twitter verification, social links |
-| **5. Community** | `odin.community` | `odin.token.{TOKEN}.community` | Comments, pins, upvotes, favorites |
-| **6. Creation** | `odin.creation` | `odin.token.{TOKEN}.creation` | Token creation, initial listing |
-| **7. Analytics** | `odin.analytics` | `odin.token.{TOKEN}.analytics` | Price deltas, holder counts, trending |
-| **8. Balances** | `odin.balances` | `odin.token.{TOKEN}.balances` | User balance updates |
+| **1. Trading** | `sukko.trades` | `sukko.token.{TOKEN}.trade` | Buy, sell, external trades |
+| **2. Liquidity** | `sukko.liquidity` | `sukko.token.{TOKEN}.liquidity` | Add/remove liquidity, rebalances |
+| **3. Metadata** | `sukko.metadata` | `sukko.token.{TOKEN}.metadata` | Name, ticker, description, flags |
+| **4. Social** | `sukko.social` | `sukko.token.{TOKEN}.social` | Twitter verification, social links |
+| **5. Community** | `sukko.community` | `sukko.token.{TOKEN}.community` | Comments, pins, upvotes, favorites |
+| **6. Creation** | `sukko.creation` | `sukko.token.{TOKEN}.creation` | Token creation, initial listing |
+| **7. Analytics** | `sukko.analytics` | `sukko.token.{TOKEN}.analytics` | Price deltas, holder counts, trending |
+| **8. Balances** | `sukko.balances` | `sukko.token.{TOKEN}.balances` | User balance updates |
 
 ---
 
@@ -89,14 +89,14 @@ Based on `/docs/events/TOKEN_UPDATE_EVENTS.md`:
 
 ```
 Topics (8 total):
-├── odin.trades        (high volume, 30s retention)
-├── odin.liquidity     (medium volume, 1min retention)
-├── odin.metadata      (low volume, 1hr retention)
-├── odin.social        (low volume, 1hr retention)
-├── odin.community     (medium volume, 5min retention)
-├── odin.creation      (very low volume, 1hr retention)
-├── odin.analytics     (high volume, 5min retention)
-└── odin.balances      (high volume, 30s retention)
+├── sukko.trades        (high volume, 30s retention)
+├── sukko.liquidity     (medium volume, 1min retention)
+├── sukko.metadata      (low volume, 1hr retention)
+├── sukko.social        (low volume, 1hr retention)
+├── sukko.community     (medium volume, 5min retention)
+├── sukko.creation      (very low volume, 1hr retention)
+├── sukko.analytics     (high volume, 5min retention)
+└── sukko.balances      (high volume, 30s retention)
 
 Message Structure:
   Key: {TOKEN_ID}        (e.g., "BTC", "ETH")
@@ -257,7 +257,7 @@ services:
     build:
       context: ../../publisher
       dockerfile: Dockerfile
-    container_name: odin-publisher
+    container_name: sukko-publisher
     restart: unless-stopped
     ports:
       - "3003:3003"
@@ -303,14 +303,14 @@ BROKERS=${KAFKA_BROKERS:-localhost:19092}
 
 # Topic configurations: name -> retention.ms
 declare -A TOPICS=(
-  ["odin.trades"]="30000"         # 30s
-  ["odin.liquidity"]="60000"      # 1min
-  ["odin.metadata"]="3600000"     # 1hr
-  ["odin.social"]="3600000"       # 1hr
-  ["odin.community"]="300000"     # 5min
-  ["odin.creation"]="3600000"     # 1hr
-  ["odin.analytics"]="300000"     # 5min
-  ["odin.balances"]="30000"       # 30s
+  ["sukko.trades"]="30000"         # 30s
+  ["sukko.liquidity"]="60000"      # 1min
+  ["sukko.metadata"]="3600000"     # 1hr
+  ["sukko.social"]="3600000"       # 1hr
+  ["sukko.community"]="300000"     # 5min
+  ["sukko.creation"]="3600000"     # 1hr
+  ["sukko.analytics"]="300000"     # 5min
+  ["sukko.balances"]="30000"       # 30s
 )
 
 for topic in "${!TOPICS[@]}"; do
@@ -385,7 +385,7 @@ open http://backend-ip:8080
 
 ```json
 {
-  "name": "odin-publisher",
+  "name": "sukko-publisher",
   "version": "2.0.0",
   "type": "module",
   "scripts": {
@@ -424,43 +424,43 @@ File: `publisher/types/event-types.ts`
 ```typescript
 export const EVENT_TYPE_TOPICS = {
   // Trading events
-  TRADE_EXECUTED: 'odin.trades',
-  BUY_COMPLETED: 'odin.trades',
-  SELL_COMPLETED: 'odin.trades',
+  TRADE_EXECUTED: 'sukko.trades',
+  BUY_COMPLETED: 'sukko.trades',
+  SELL_COMPLETED: 'sukko.trades',
   
   // Liquidity events
-  LIQUIDITY_ADDED: 'odin.liquidity',
-  LIQUIDITY_REMOVED: 'odin.liquidity',
-  LIQUIDITY_REBALANCED: 'odin.liquidity',
+  LIQUIDITY_ADDED: 'sukko.liquidity',
+  LIQUIDITY_REMOVED: 'sukko.liquidity',
+  LIQUIDITY_REBALANCED: 'sukko.liquidity',
   
   // Metadata events
-  METADATA_UPDATED: 'odin.metadata',
-  TOKEN_NAME_CHANGED: 'odin.metadata',
-  TOKEN_FLAGS_CHANGED: 'odin.metadata',
+  METADATA_UPDATED: 'sukko.metadata',
+  TOKEN_NAME_CHANGED: 'sukko.metadata',
+  TOKEN_FLAGS_CHANGED: 'sukko.metadata',
   
   // Social events
-  TWITTER_VERIFIED: 'odin.social',
-  SOCIAL_LINKS_UPDATED: 'odin.social',
+  TWITTER_VERIFIED: 'sukko.social',
+  SOCIAL_LINKS_UPDATED: 'sukko.social',
   
   // Community events
-  COMMENT_POSTED: 'odin.community',
-  COMMENT_PINNED: 'odin.community',
-  COMMENT_UPVOTED: 'odin.community',
-  FAVORITE_TOGGLED: 'odin.community',
+  COMMENT_POSTED: 'sukko.community',
+  COMMENT_PINNED: 'sukko.community',
+  COMMENT_UPVOTED: 'sukko.community',
+  FAVORITE_TOGGLED: 'sukko.community',
   
   // Creation events
-  TOKEN_CREATED: 'odin.creation',
-  TOKEN_LISTED: 'odin.creation',
+  TOKEN_CREATED: 'sukko.creation',
+  TOKEN_LISTED: 'sukko.creation',
   
   // Analytics events
-  PRICE_DELTA_UPDATED: 'odin.analytics',
-  HOLDER_COUNT_UPDATED: 'odin.analytics',
-  ANALYTICS_RECALCULATED: 'odin.analytics',
-  TRENDING_UPDATED: 'odin.analytics',
+  PRICE_DELTA_UPDATED: 'sukko.analytics',
+  HOLDER_COUNT_UPDATED: 'sukko.analytics',
+  ANALYTICS_RECALCULATED: 'sukko.analytics',
+  TRENDING_UPDATED: 'sukko.analytics',
   
   // Balance events
-  BALANCE_UPDATED: 'odin.balances',
-  TRANSFER_COMPLETED: 'odin.balances',
+  BALANCE_UPDATED: 'sukko.balances',
+  TRANSFER_COMPLETED: 'sukko.balances',
 } as const;
 
 export type EventType = keyof typeof EVENT_TYPE_TOPICS;
@@ -639,7 +639,7 @@ import { EventType } from './types/event-types.js';
 
 export class EventSimulator {
   private publisher: RedpandaPublisher;
-  private tokens = ['BTC', 'ETH', 'SOL', 'ODIN', 'DOGE'];
+  private tokens = ['BTC', 'ETH', 'SOL', 'SUKKO', 'DOGE'];
   private intervalId: NodeJS.Timeout | null = null;
   private isRunning = false;
 
@@ -826,7 +826,7 @@ async function main() {
   // Initialize publisher
   const publisher = new RedpandaPublisher({
     brokers: (process.env.KAFKA_BROKERS || 'localhost:19092').split(','),
-    clientId: 'odin-publisher',
+    clientId: 'sukko-publisher',
     compression: CompressionTypes.Snappy,
   });
 
@@ -902,7 +902,7 @@ curl -X POST http://localhost:3003/control \
 **Update `ws/go.mod`:**
 
 ```go
-module odin-ws
+module sukko
 
 go 1.25.1
 
@@ -951,14 +951,14 @@ type Config struct {
     KafkaGroupID string `env:"KAFKA_GROUP_ID" envDefault:"ws-server"`
     
     // Topics (all 8)
-    TopicTrades     string `env:"KAFKA_TOPIC_TRADES" envDefault:"odin.trades"`
-    TopicLiquidity  string `env:"KAFKA_TOPIC_LIQUIDITY" envDefault:"odin.liquidity"`
-    TopicMetadata   string `env:"KAFKA_TOPIC_METADATA" envDefault:"odin.metadata"`
-    TopicSocial     string `env:"KAFKA_TOPIC_SOCIAL" envDefault:"odin.social"`
-    TopicCommunity  string `env:"KAFKA_TOPIC_COMMUNITY" envDefault:"odin.community"`
-    TopicCreation   string `env:"KAFKA_TOPIC_CREATION" envDefault:"odin.creation"`
-    TopicAnalytics  string `env:"KAFKA_TOPIC_ANALYTICS" envDefault:"odin.analytics"`
-    TopicBalances   string `env:"KAFKA_TOPIC_BALANCES" envDefault:"odin.balances"`
+    TopicTrades     string `env:"KAFKA_TOPIC_TRADES" envDefault:"sukko.trades"`
+    TopicLiquidity  string `env:"KAFKA_TOPIC_LIQUIDITY" envDefault:"sukko.liquidity"`
+    TopicMetadata   string `env:"KAFKA_TOPIC_METADATA" envDefault:"sukko.metadata"`
+    TopicSocial     string `env:"KAFKA_TOPIC_SOCIAL" envDefault:"sukko.social"`
+    TopicCommunity  string `env:"KAFKA_TOPIC_COMMUNITY" envDefault:"sukko.community"`
+    TopicCreation   string `env:"KAFKA_TOPIC_CREATION" envDefault:"sukko.creation"`
+    TopicAnalytics  string `env:"KAFKA_TOPIC_ANALYTICS" envDefault:"sukko.analytics"`
+    TopicBalances   string `env:"KAFKA_TOPIC_BALANCES" envDefault:"sukko.balances"`
     
     // Resource limits
     CPULimit    float64 `env:"WS_CPU_LIMIT" envDefault:"1.0"`
@@ -1219,7 +1219,7 @@ func (kc *KafkaConsumer) processRecord(record *kgo.Record) bool {
     
     // STEP 3: Build channel name: {TOKEN}.{EVENT_TYPE}
     // Record key = token ID (e.g., "BTC")
-    // Record topic maps to event type (e.g., "odin.trades" → "trade")
+    // Record topic maps to event type (e.g., "sukko.trades" → "trade")
     tokenID := string(record.Key)
     eventType := kc.config.TopicToEventType(record.Topic)
     channel := fmt.Sprintf("%s.%s", tokenID, eventType)
@@ -1470,8 +1470,8 @@ KAFKA_BROKERS=10.128.0.9:9092  # Backend internal IP
 KAFKA_GROUP_ID=ws-server
 
 # Topics (use defaults from config.go)
-# KAFKA_TOPIC_TRADES=odin.trades
-# KAFKA_TOPIC_LIQUIDITY=odin.liquidity
+# KAFKA_TOPIC_TRADES=sukko.trades
+# KAFKA_TOPIC_LIQUIDITY=sukko.liquidity
 # ... etc
 
 # Capacity

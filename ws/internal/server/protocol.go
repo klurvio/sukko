@@ -3,7 +3,7 @@
 // Shared types (used by both gateway and server) remain in shared/protocol.
 package server
 
-import "github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
+import "github.com/klurvio/sukko/internal/shared/protocol"
 
 // Message type constants for client→server messages handled only by the server.
 const (

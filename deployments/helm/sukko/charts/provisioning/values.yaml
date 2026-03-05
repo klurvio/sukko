@@ -1,0 +1,107 @@
+# Default values for provisioning subchart
+# Go envDefault values are the source of truth for application config.
+# Override any setting via extraEnv. See /config endpoint for current values.
+
+global:
+  imageRegistry: ""
+  postgresql:
+    enabled: false
+
+enabled: true
+
+# MUST be 1 with SQLite (default). Scale horizontally only with PostgreSQL.
+replicaCount: 1
+
+image:
+  repository: sukko-provisioning
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Deployment identity — drives Kafka topic namespace.
+# Free-form string; Sukko convention: local, dev, stg, prod
+# environment: local
+
+# Admin token for API authentication (optional).
+# When set, creates K8s secret and enables bearer token auth.
+# Must be >= 16 characters in non-dev environments.
+adminToken: ""
+
+# Database: SQLite by default. Set externalDatabase to use PostgreSQL.
+database:
+  # SQLite file path (only when DATABASE_DRIVER=sqlite)
+  sqlitePath: "/data/sukko.db"
+
+# External PostgreSQL (auto-derives DATABASE_DRIVER=postgres when set)
+externalDatabase:
+  url: ""
+  existingSecret: ""
+  existingSecretKey: "database-url"
+
+# Persistent storage for SQLite (auto-enabled when using SQLite)
+persistence:
+  enabled: true
+  size: 1Gi
+  accessMode: ReadWriteOnce
+
+# Ingress (expose provisioning API externally)
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tls: []
+  annotations: {}
+
+# Override any Go envDefault. See /config endpoint for all available settings.
+# Example: { LOG_LEVEL: "debug", AUTH_ENABLED: "true", CORS_ALLOWED_ORIGINS: "https://admin.example.com" }
+extraEnv: {}
+
+# --- Kubernetes Resources ---
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8080
+  initialDelaySeconds: 3
+  periodSeconds: 5
+  timeoutSeconds: 2
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+  grpcPort: 9090
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

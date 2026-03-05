@@ -196,7 +196,7 @@ type Config struct {
     JSStreamMaxMsgs   int64         `env:"JS_STREAM_MAX_MSGS" envDefault:"100000"`
     JSStreamMaxBytes  int64         `env:"JS_STREAM_MAX_BYTES" envDefault:"52428800"` // 50MB
     JSConsumerAckWait time.Duration `env:"JS_CONSUMER_ACK_WAIT" envDefault:"30s"`
-    JSStreamName      string        `env:"JS_STREAM_NAME" envDefault:"ODIN_TOKENS"`
+    JSStreamName      string        `env:"JS_STREAM_NAME" envDefault:"SUKKO_TOKENS"`
     JSConsumerName    string        `env:"JS_CONSUMER_NAME" envDefault:"ws-server"`
 
     // Monitoring
@@ -431,7 +431,7 @@ WS_CPU_PAUSE_THRESHOLD=80.0
 # NATS JetStream settings for reliable message delivery
 
 # Stream name (should match publisher)
-JS_STREAM_NAME=ODIN_TOKENS
+JS_STREAM_NAME=SUKKO_TOKENS
 
 # Consumer name (unique per ws-server instance)
 JS_CONSUMER_NAME=ws-server
@@ -580,7 +580,7 @@ func main() {
 #### Step 3.1: Create `isolated/ws-go/.env.production`
 
 ```bash
-# Production configuration for odin-ws-go instance
+# Production configuration for sukko-go instance
 # Instance: e2-standard-2 (2 vCPU, 8GB RAM)
 
 ENVIRONMENT=production
@@ -606,7 +606,7 @@ WS_CPU_REJECT_THRESHOLD=75.0
 WS_CPU_PAUSE_THRESHOLD=80.0
 
 # JetStream
-JS_STREAM_NAME=ODIN_TOKENS
+JS_STREAM_NAME=SUKKO_TOKENS
 JS_CONSUMER_NAME=ws-server
 JS_STREAM_MAX_AGE=30s
 JS_STREAM_MAX_MSGS=100000
@@ -638,11 +638,11 @@ services:
     build:
       context: ./src
       dockerfile: Dockerfile
-    container_name: odin-ws-go
+    container_name: sukko-go
     ports:
       - "0.0.0.0:3004:3002"
     command:
-      - "./odin-ws-server"
+      - "./sukko-server"
     env_file:
       - .env.production    # All config in one file!
     restart: unless-stopped
@@ -713,7 +713,7 @@ function loadConfig(defaults = {}) {
     CONNECTION_TIMEOUT: getEnv('CONNECTION_TIMEOUT', defaults.CONNECTION_TIMEOUT || 10000, parseInt),
 
     // Subscriptions
-    CHANNELS: getEnv('CHANNELS', defaults.CHANNELS || 'BTC.trade,ETH.trade,SOL.trade,ODIN.trade,DOGE.trade'),
+    CHANNELS: getEnv('CHANNELS', defaults.CHANNELS || 'BTC.trade,ETH.trade,SOL.trade,SUKKO.trade,DOGE.trade'),
     SUBSCRIPTION_MODE: getEnv('SUBSCRIPTION_MODE', defaults.SUBSCRIPTION_MODE || 'all'),
     CHANNELS_PER_CLIENT: getEnv('CHANNELS_PER_CLIENT', defaults.CHANNELS_PER_CLIENT || 3, parseInt),
 

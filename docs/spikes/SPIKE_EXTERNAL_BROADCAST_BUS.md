@@ -709,7 +709,7 @@ type BroadcastBus interface {
 
 // BroadcastMessage represents a message to broadcast
 type BroadcastMessage struct {
-    Subject string `json:"subject"` // e.g., "odin.token.BTC.trade"
+    Subject string `json:"subject"` // e.g., "sukko.token.BTC.trade"
     Message []byte `json:"message"` // Raw message data
 }
 ```

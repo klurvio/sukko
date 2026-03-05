@@ -34,7 +34,7 @@ This document assesses two approaches for external publishers to send messages t
 
 ### Problem Statement
 
-External services (publisher VM, other clusters) need to send messages to Redpanda running in the odin-ws-* Kubernetes cluster. The current approach exposes Redpanda externally via LoadBalancer, which raises concerns about:
+External services (publisher VM, other clusters) need to send messages to Redpanda running in the sukko-* Kubernetes cluster. The current approach exposes Redpanda externally via LoadBalancer, which raises concerns about:
 
 1. **Security:** Kafka protocol exposed to the internet
 2. **Complexity:** Static IP and `advertisedHost` configuration
@@ -59,7 +59,7 @@ External services (publisher VM, other clusters) need to send messages to Redpan
 │                                                                              │
 │   ┌─────────────────┐                                                       │
 │   │ Publisher VM    │                                                       │
-│   │ (odin-tools)    │                                                       │
+│   │ (sukko-tools)    │                                                       │
 │   │                 │                                                       │
 │   │ KAFKA_BROKERS=  │                                                       │
 │   │ 34.72.x.x:9092  │───────────────────┐                                   │
@@ -76,11 +76,11 @@ External services (publisher VM, other clusters) need to send messages to Redpan
                                           │ EXPOSED TO INTERNET
                                           ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  odin-ws-develop cluster                                                     │
+│  sukko-develop cluster                                                     │
 │                                                                              │
 │   ┌─────────────────────────────┐                                           │
 │   │ LoadBalancer Service        │                                           │
-│   │ odin-redpanda-external      │                                           │
+│   │ sukko-redpanda-external      │                                           │
 │   │ IP: 34.72.x.x (static)      │◄── Kafka exposed to internet             │
 │   │ Port: 9092                  │                                           │
 │   └──────────────┬──────────────┘                                           │
@@ -90,7 +90,7 @@ External services (publisher VM, other clusters) need to send messages to Redpan
 │   │ Redpanda                    │     │ ws-server       │                   │
 │   │ ├── external: 19092         │◄────│ (consumer)      │                   │
 │   │ └── internal: 9092          │     │                 │                   │
-│   │                             │     │ odin-redpanda   │                   │
+│   │                             │     │ sukko-redpanda   │                   │
 │   │ advertisedHost: 34.72.x.x   │     │ :9092 (internal)│                   │
 │   └─────────────────────────────┘     └─────────────────┘                   │
 │                                                                              │
@@ -113,7 +113,7 @@ resource "google_compute_address" "redpanda_external" {
 **Helm deployment:**
 ```bash
 # taskfiles/k8s/standard.yml
-helm upgrade --install odin ./chart \
+helm upgrade --install sukko ./chart \
   --set redpanda.externalAccess.loadBalancerIP=${REDPANDA_IP} \
   --set redpanda.externalAccess.advertisedHost=${REDPANDA_IP}
 ```
@@ -122,7 +122,7 @@ helm upgrade --install odin ./chart \
 ```yaml
 # StatefulSet command args
 --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
---advertise-kafka-addr=internal://odin-redpanda:9092,external://34.72.x.x:9092
+--advertise-kafka-addr=internal://sukko-redpanda:9092,external://34.72.x.x:9092
 ```
 
 ### Concerns with Current Approach
@@ -145,7 +145,7 @@ helm upgrade --install odin ./chart \
 │                    GCP Resources (Terraform)                     │
 │                                                                  │
 │  google_compute_address.redpanda_external                       │
-│  ├── name: "odin-ws-develop-redpanda-external"                  │
+│  ├── name: "sukko-develop-redpanda-external"                  │
 │  ├── address: "34.72.x.x"                                       │
 │  └── lifecycle: INDEPENDENT of K8s resources                    │
 │                           │                                      │
@@ -154,14 +154,14 @@ helm upgrade --install odin ./chart \
 ├─────────────────────────────────────────────────────────────────┤
 │                    K8s Resources (Helm)                          │
 │                                                                  │
-│  Service/odin-redpanda-external                                 │
+│  Service/sukko-redpanda-external                                 │
 │  ├── spec.loadBalancerIP: "34.72.x.x" ◄── requests this IP     │
 │  └── status.loadBalancer.ingress[0].ip: "34.72.x.x"            │
 │                           │                                      │
 │                           │ routes to                            │
 │                           ▼                                      │
-│  StatefulSet/odin-redpanda                                      │
-│  └── Pod/odin-redpanda-0  ◄── this restarts during upgrade     │
+│  StatefulSet/sukko-redpanda                                      │
+│  └── Pod/sukko-redpanda-0  ◄── this restarts during upgrade     │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -206,7 +206,7 @@ Step 3: StatefulSet rolling update
         T+60s   Pod running (new version), readiness passed
 
 Step 4: Clients reconnect
-        - Internal (ws-server): reconnects to odin-redpanda:9092
+        - Internal (ws-server): reconnects to sukko-redpanda:9092
         - External (publisher): reconnects to 34.72.x.x:9092 (SAME IP)
 
 RESULT: No IP change, no client reconfiguration needed
@@ -225,7 +225,7 @@ DOWNTIME: ~30-60 seconds (single replica)
 │                                                                              │
 │   ┌─────────────────┐                                                       │
 │   │ Publisher VM    │                                                       │
-│   │ (odin-tools)    │                                                       │
+│   │ (sukko-tools)    │                                                       │
 │   │                 │                                                       │
 │   │ NATS client     │◄── Simple TCP, no broker discovery                   │
 │   │ nats://x.x.x.x  │───────────────────┐                                   │
@@ -242,11 +242,11 @@ DOWNTIME: ~30-60 seconds (single replica)
                                           │ Simpler, stateless
                                           ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  odin-ws-develop cluster                                                     │
+│  sukko-develop cluster                                                     │
 │                                                                              │
 │   ┌─────────────────────────────┐                                           │
 │   │ LoadBalancer Service        │                                           │
-│   │ odin-nats-external          │◄── Only NATS exposed (simpler)           │
+│   │ sukko-nats-external          │◄── Only NATS exposed (simpler)           │
 │   │ IP: 34.72.x.x               │                                           │
 │   │ Port: 4222                  │                                           │
 │   └──────────────┬──────────────┘                                           │
@@ -263,7 +263,7 @@ DOWNTIME: ~30-60 seconds (single replica)
 │   │ NATS-to-Kafka Bridge        │◄── NEW COMPONENT                          │
 │   │ (Deployment, 2+ replicas)   │                                           │
 │   │                             │                                           │
-│   │ Subscribes: odin.>          │                                           │
+│   │ Subscribes: sukko.>          │                                           │
 │   │ Produces to: Redpanda       │                                           │
 │   └──────────────┬──────────────┘                                           │
 │                  │                                                           │
@@ -273,7 +273,7 @@ DOWNTIME: ~30-60 seconds (single replica)
 │   │ Redpanda                    │     │ ws-server       │                   │
 │   │ ClusterIP ONLY              │◄────│ (consumer)      │                   │
 │   │ NO external listener        │     │                 │                   │
-│   │ NO LoadBalancer             │     │ odin-redpanda   │                   │
+│   │ NO LoadBalancer             │     │ sukko-redpanda   │                   │
 │   │                             │     │ :9092           │                   │
 │   └─────────────────────────────┘     └─────────────────┘                   │
 │                                                                              │
@@ -371,7 +371,7 @@ The static IP configuration moves from Helm `--set` to the Redpanda CRD:
 apiVersion: cluster.redpanda.com/v1alpha2
 kind: Redpanda
 metadata:
-  name: odin-redpanda
+  name: sukko-redpanda
 spec:
   clusterSpec:
     external:
@@ -468,7 +468,7 @@ Use: Strimzi Kafka Bridge or similar proxy
 #### 1. Create NATS External Service
 
 ```yaml
-# deployments/k8s/helm/odin/charts/nats/templates/service-external.yaml
+# deployments/k8s/helm/sukko/charts/nats/templates/service-external.yaml
 {{- if .Values.externalAccess.enabled }}
 apiVersion: v1
 kind: Service
@@ -500,14 +500,14 @@ import (
 )
 
 func main() {
-    nc, _ := nats.Connect("nats://odin-nats:4222")
+    nc, _ := nats.Connect("nats://sukko-nats:4222")
 
     producer, _ := kafka.NewProducer(&kafka.ConfigMap{
-        "bootstrap.servers": "odin-redpanda:9092",
+        "bootstrap.servers": "sukko-redpanda:9092",
     })
 
-    // Subscribe to all odin.* subjects
-    nc.Subscribe("odin.>", func(msg *nats.Msg) {
+    // Subscribe to all sukko.* subjects
+    nc.Subscribe("sukko.>", func(msg *nats.Msg) {
         topic := msg.Subject
         key := msg.Header.Get("key")
 
@@ -525,7 +525,7 @@ func main() {
 #### 3. Deploy Bridge
 
 ```yaml
-# deployments/k8s/helm/odin/charts/nats-kafka-bridge/templates/deployment.yaml
+# deployments/k8s/helm/sukko/charts/nats-kafka-bridge/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -539,12 +539,12 @@ spec:
     spec:
       containers:
         - name: bridge
-          image: odin/nats-kafka-bridge:latest
+          image: sukko/nats-kafka-bridge:latest
           env:
             - name: NATS_URL
-              value: "nats://odin-nats:4222"
+              value: "nats://sukko-nats:4222"
             - name: KAFKA_BROKERS
-              value: "odin-redpanda:9092"
+              value: "sukko-redpanda:9092"
 ```
 
 #### 4. Remove Redpanda External Access

@@ -82,7 +82,7 @@ Implement the Shared Helper Functions Consolidation Plan - eliminate duplicate h
 
 ```bash
 # Build all packages
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws
+cd /Volumes/Dev/Codev/Toniq/sukko/ws
 go build ./...
 
 # Run all tests
@@ -176,7 +176,7 @@ eaaffc5 feat[86aeyd4d5]: add oidc and channel rules for multi-tenant
 
 ```bash
 # Start here - verify current state
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws
+cd /Volumes/Dev/Codev/Toniq/sukko/ws
 go build ./...
 go test ./... -short
 

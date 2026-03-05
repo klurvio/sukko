@@ -94,8 +94,8 @@
 Your `server.go` already configures JetStream:
 
 ```go
-// Stream name: "ODIN_TOKENS" (line 199)
-// Subject: "odin.token.>" (line 253)
+// Stream name: "SUKKO_TOKENS" (line 199)
+// Subject: "sukko.token.>" (line 253)
 // Retention: 30 seconds (line 57)
 // Max messages: 100,000 (line 58)
 // Max bytes: 50MB (line 59)
@@ -103,22 +103,22 @@ Your `server.go` already configures JetStream:
 
 ### Recommended JetStream Topics
 
-**Per-Token Updates** (Hierarchical Format: `odin.token.{SYMBOL}.{EVENT_TYPE}`):
+**Per-Token Updates** (Hierarchical Format: `sukko.token.{SYMBOL}.{EVENT_TYPE}`):
 ```
-odin.token.{SYMBOL}.trade        - Trade executed (buy/sell)
-odin.token.{SYMBOL}.liquidity    - Liquidity added/removed
-odin.token.{SYMBOL}.metadata     - Token name, description, socials updated
-odin.token.{SYMBOL}.social       - Comments, reactions, community activity
-odin.token.{SYMBOL}.favorites    - User favorited/unfavorited
-odin.token.{SYMBOL}.creation     - New token created
-odin.token.{SYMBOL}.analytics    - Analytics snapshots
-odin.token.{SYMBOL}.balances     - Holder balance changes
+sukko.token.{SYMBOL}.trade        - Trade executed (buy/sell)
+sukko.token.{SYMBOL}.liquidity    - Liquidity added/removed
+sukko.token.{SYMBOL}.metadata     - Token name, description, socials updated
+sukko.token.{SYMBOL}.social       - Comments, reactions, community activity
+sukko.token.{SYMBOL}.favorites    - User favorited/unfavorited
+sukko.token.{SYMBOL}.creation     - New token created
+sukko.token.{SYMBOL}.analytics    - Analytics snapshots
+sukko.token.{SYMBOL}.balances     - Holder balance changes
 ```
 
 **Global Topics**:
 ```
-odin.global.trending              - Top 100 trending (every 5 sec)
-odin.global.new_listing           - New token created
+sukko.global.trending              - Top 100 trending (every 5 sec)
+sukko.global.new_listing           - New token created
 ```
 
 **Why JetStream for this use case**:
@@ -133,10 +133,10 @@ odin.global.new_listing           - New token created
 ```javascript
 // Backend creates stream once (or use Synadia UI)
 const stream = {
-  name: "ODIN_TOKENS",
+  name: "SUKKO_TOKENS",
   subjects: [
-    "odin.token.>",      // All token updates
-    "odin.global.>"      // Global updates
+    "sukko.token.>",      // All token updates
+    "sukko.global.>"      // Global updates
   ],
   retention: "limits",   // Discard oldest when limit reached
   max_age: 30_000_000_000, // 30 seconds (nanoseconds)
@@ -162,7 +162,7 @@ const stream = {
 **1.1 Sign up for Synadia Cloud** (5 minutes)
 - Go to https://www.synadia.com/cloud
 - Create free account
-- Create JetStream stream: "ODIN_TOKENS"
+- Create JetStream stream: "SUKKO_TOKENS"
 - Get connection URL + credentials
 
 **1.2 Deploy ws-go to GCP** (2-3 hours)
@@ -227,7 +227,7 @@ Add to `message.go`:
 ```go
 type SubscribeMessage struct {
     Type     string   `json:"type"`     // "subscribe"
-    Channels []string `json:"channels"` // ["odin.token.abc.update", ...]
+    Channels []string `json:"channels"` // ["sukko.token.abc.update", ...]
 }
 
 type UnsubscribeMessage struct {
@@ -241,8 +241,8 @@ Update `server.go` NATS handler:
 // Current (line 253): broadcasts to ALL clients
 // Change to: filter by subscription
 
-sub, err := s.natsJS.Subscribe("odin.token.>", func(msg *nats.Msg) {
-    subject := msg.Subject // "odin.token.abc123.update"
+sub, err := s.natsJS.Subscribe("sukko.token.>", func(msg *nats.Msg) {
+    subject := msg.Subject // "sukko.token.abc123.update"
 
     // Count how many clients want this message
     var sentCount int64
@@ -337,7 +337,7 @@ Publish after trade:
 // After trade completes
 const token = await getUpdatedToken(tokenId);
 
-await js.publish(`odin.token.${tokenId}.update`, sc.encode(JSON.stringify({
+await js.publish(`sukko.token.${tokenId}.update`, sc.encode(JSON.stringify({
   id: token.id,
   price: token.price,
   volume: token.volume,
@@ -359,7 +359,7 @@ await js.publish(`odin.token.${tokenId}.update`, sc.encode(JSON.stringify({
 setInterval(async () => {
   const trending = await getTrendingTokens(100);
 
-  await js.publish('odin.global.trending', sc.encode(JSON.stringify({
+  await js.publish('sukko.global.trending', sc.encode(JSON.stringify({
     type: 'trending_update',
     data: { top_100: trending }
   })));
@@ -374,7 +374,7 @@ setInterval(async () => {
 
 Create `lib/websocket-client.ts`:
 ```typescript
-export class OdinWebSocket {
+export class SukkoWebSocket {
   private ws: WebSocket | null = null;
   private subscriptions = new Set<string>();
   private listeners = new Map<string, Function[]>();
@@ -438,10 +438,10 @@ export class OdinWebSocket {
 
 ```typescript
 export function useTokenWebSocket() {
-  const [ws, setWs] = useState<OdinWebSocket | null>(null);
+  const [ws, setWs] = useState<SukkoWebSocket | null>(null);
 
   useEffect(() => {
-    const socket = new OdinWebSocket();
+    const socket = new SukkoWebSocket();
     socket.connect(WS_URL, authToken);
     setWs(socket);
 
@@ -464,12 +464,12 @@ function TokenList() {
   useEffect(() => {
     if (!ws) return;
 
-    ws.subscribe(['odin.global.trending']);
+    ws.subscribe(['sukko.global.trending']);
     ws.on('trending_update', (data) => {
       setTrending(data.top_100);
     });
 
-    return () => ws.unsubscribe(['odin.global.trending']);
+    return () => ws.unsubscribe(['sukko.global.trending']);
   }, [ws]);
 
   return <div>{/* Render trending */}</div>;
@@ -483,14 +483,14 @@ function TokenDetail({ tokenId }: { tokenId: string }) {
   useEffect(() => {
     if (!ws) return;
 
-    ws.subscribe([`odin.token.${tokenId}.update`]);
+    ws.subscribe([`sukko.token.${tokenId}.update`]);
     ws.on('token_update', (data) => {
       if (data.id === tokenId) {
         setToken(data);
       }
     });
 
-    return () => ws.unsubscribe([`odin.token.${tokenId}.update`]);
+    return () => ws.unsubscribe([`sukko.token.${tokenId}.update`]);
   }, [ws, tokenId]);
 
   return <div>Price: {token?.price}</div>;
@@ -536,7 +536,7 @@ services:
       - NATS_CREDS_FILE=/etc/nats/synadia.creds
 
       # JetStream config (already in code)
-      - JS_STREAM_NAME=ODIN_TOKENS
+      - JS_STREAM_NAME=SUKKO_TOKENS
       - JS_CONSUMER_NAME=ws-server
       - JS_STREAM_MAX_AGE=30s
       - JS_STREAM_MAX_MSGS=100000
@@ -1184,7 +1184,7 @@ sysctl net.netfilter.nf_conntrack_max net.netfilter.nf_conntrack_count
 
 ```bash
 # Apply immediately (test-runner instance)
-gcloud compute ssh odin-test-runner --command='
+gcloud compute ssh sukko-test-runner --command='
   # Increase ephemeral port range (2.3x more ports)
   sudo sysctl -w net.ipv4.ip_local_port_range="1024 65535"
 
@@ -1386,23 +1386,23 @@ Result: **Timeout, not rejection** → 0 in server metrics but failure on client
 
 ```bash
 # During test - watch memory usage real-time
-gcloud compute ssh odin-ws-go --command='
-  watch -n 1 "docker stats --no-stream | grep odin-ws-go"
+gcloud compute ssh sukko-go --command='
+  watch -n 1 "docker stats --no-stream | grep sukko-go"
 '
 
 # Expected output at plateau:
 # NAME         CPU %    MEM USAGE / LIMIT      MEM %
-# odin-ws-go   60.0%    6.95GiB / 7.0GiB       99.3%
+# sukko-go   60.0%    6.95GiB / 7.0GiB       99.3%
 
 # Check GC pressure
-gcloud compute ssh odin-ws-go --command='
-  docker logs odin-ws-go 2>&1 | grep -i "gc pause"
+gcloud compute ssh sukko-go --command='
+  docker logs sukko-go 2>&1 | grep -i "gc pause"
 '
 # High GC pause times (>50ms) indicate memory pressure
 
 # Verify no memory leaks after test
-gcloud compute ssh odin-ws-go --command='
-  docker stats --no-stream odin-ws-go
+gcloud compute ssh sukko-go --command='
+  docker stats --no-stream sukko-go
 '
 # Memory should drop to baseline (~200-300MB) after connections close
 ```

@@ -247,8 +247,8 @@ Environment-derived variables:
 # k8s.yml
 vars:
   K8S_ENV: '{{.ENV | default "dev"}}'
-  K8S_NAMESPACE: 'odin-{{.K8S_ENV}}'
-  K8S_CLUSTER: 'odin-ws-{{.K8S_ENV}}'
+  K8S_NAMESPACE: 'sukko-{{.K8S_ENV}}'
+  K8S_CLUSTER: 'sukko-{{.K8S_ENV}}'
 ```
 
 **Environment Names:**
@@ -261,7 +261,7 @@ vars:
 **Local (Kind) Resource Constraints:** *(already configured)*
 - 1 replica per service (ws-server, ws-gateway, provisioning, etc.)
 - Minimal resource requests/limits for M1 MacBook
-- See `deployments/helm/odin/values/local.yaml`
+- See `deployments/helm/sukko/values/local.yaml`
 
 ---
 
@@ -392,9 +392,9 @@ vars:
 ### Helm Values (rename)
 | From | To |
 |------|-----|
-| `deployments/helm/odin/values/standard/develop.yaml` | `dev.yaml` |
-| `deployments/helm/odin/values/standard/staging.yaml` | `stg.yaml` |
-| `deployments/helm/odin/values/standard/production.yaml` | `prod.yaml` |
+| `deployments/helm/sukko/values/standard/develop.yaml` | `dev.yaml` |
+| `deployments/helm/sukko/values/standard/staging.yaml` | `stg.yaml` |
+| `deployments/helm/sukko/values/standard/production.yaml` | `prod.yaml` |
 
 ### Terraform (rename directories)
 | From | To |

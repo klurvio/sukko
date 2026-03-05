@@ -18,7 +18,7 @@ Current architecture builds topic names at runtime in multiple places:
 - **Provisioning** (`service.go:495`): `fmt.Sprintf("%s.%s.%s", s.config.TopicNamespace, tenantID, category)`
 - **TenantRegistry** (after plan): Will also build topic names
 
-The database should store **categories only** (e.g., `trade`), not full topic names with namespace (e.g., `prod.odin.trade`). This makes `KAFKA_TOPIC_NAMESPACE` the single source of truth.
+The database should store **categories only** (e.g., `trade`), not full topic names with namespace (e.g., `prod.sukko.trade`). This makes `KAFKA_TOPIC_NAMESPACE` the single source of truth.
 
 **To avoid code duplication**, create a shared `BuildTopicName()` function that all three use.
 
@@ -35,7 +35,7 @@ The database should store **categories only** (e.g., `trade`), not full topic na
 -- tenant_topics table stores namespace-prefixed names
 -- This is WRONG - namespace should be runtime config
 INSERT INTO tenant_topics (topic_name, category, ...)
-VALUES ('prod.odin.trade', 'trade', ...);  -- ❌ Hardcodes 'prod'
+VALUES ('prod.sukko.trade', 'trade', ...);  -- ❌ Hardcodes 'prod'
 ```
 
 ### TenantRegistry filters by namespace prefix
@@ -45,9 +45,9 @@ query := `SELECT topic_name FROM tenant_topics WHERE topic_name LIKE $1`
 namespacePrefix := namespace + ".%"  // e.g., "dev.%"
 ```
 
-**Problem:** If migration seeds `prod.odin.trade` but runtime uses `KAFKA_TOPIC_NAMESPACE=dev`:
+**Problem:** If migration seeds `prod.sukko.trade` but runtime uses `KAFKA_TOPIC_NAMESPACE=dev`:
 - Query filters for `dev.%`
-- DB only has `prod.odin.trade`
+- DB only has `prod.sukko.trade`
 - **Result: No topics found!**
 
 ---
@@ -77,14 +77,14 @@ namespacePrefix := namespace + ".%"  // e.g., "dev.%"
                     │ tenant_categories│
                     │ (no namespace)   │
                     │                  │
-                    │ tenant: odin     │
+                    │ tenant: sukko     │
                     │ category: trade  │
                     └─────────────────┘
 ```
 
 | Current | Target |
 |---------|--------|
-| `tenant_topics.topic_name = 'prod.odin.trade'` | `tenant_categories.category = 'trade'` |
+| `tenant_topics.topic_name = 'prod.sukko.trade'` | `tenant_categories.category = 'trade'` |
 | `WHERE topic_name LIKE 'prod.%'` | `SELECT category` + build in code |
 | Namespace in data | Namespace from `KAFKA_TOPIC_NAMESPACE` config |
 | Hardcoded `TopicBase*` constants | Query `TenantRegistry` |
@@ -94,7 +94,7 @@ namespacePrefix := namespace + ".%"  // e.g., "dev.%"
 
 ## Phase 1: Modify Migration to Use tenant_categories Table
 
-**File:** `ws/internal/provisioning/repository/migrations/003_seed_odin_tenant.sql`
+**File:** `ws/internal/provisioning/repository/migrations/003_seed_sukko_tenant.sql`
 
 **Note:** Nothing is deployed yet, so we modify the existing migration directly instead of creating a new one.
 
@@ -102,10 +102,10 @@ namespacePrefix := namespace + ".%"  // e.g., "dev.%"
 
 1. **Add `tenant_categories` table** (stores categories without namespace)
 2. **Remove `tenant_topics` seeding** (no longer store full topic names)
-3. **Seed categories only** for odin tenant
+3. **Seed categories only** for sukko tenant
 
 ```sql
--- Add to 003_seed_odin_tenant.sql (replace tenant_topics seeding)
+-- Add to 003_seed_sukko_tenant.sql (replace tenant_topics seeding)
 
 -- ====================
 -- TENANT CATEGORIES TABLE
@@ -126,19 +126,19 @@ CREATE INDEX IF NOT EXISTS idx_tenant_categories_tenant
     ON tenant_categories(tenant_id) WHERE deleted_at IS NULL;
 
 -- ====================
--- ODIN TENANT CATEGORIES (no namespace - built at runtime)
+-- SUKKO TENANT CATEGORIES (no namespace - built at runtime)
 -- ====================
 
 INSERT INTO tenant_categories (tenant_id, category, partitions, retention_ms, created_at)
 VALUES
-    ('odin', 'trade', 3, 604800000, NOW()),
-    ('odin', 'liquidity', 3, 604800000, NOW()),
-    ('odin', 'metadata', 3, 604800000, NOW()),
-    ('odin', 'social', 3, 604800000, NOW()),
-    ('odin', 'community', 3, 604800000, NOW()),
-    ('odin', 'creation', 3, 604800000, NOW()),
-    ('odin', 'analytics', 3, 604800000, NOW()),
-    ('odin', 'balances', 3, 604800000, NOW())
+    ('sukko', 'trade', 3, 604800000, NOW()),
+    ('sukko', 'liquidity', 3, 604800000, NOW()),
+    ('sukko', 'metadata', 3, 604800000, NOW()),
+    ('sukko', 'social', 3, 604800000, NOW()),
+    ('sukko', 'community', 3, 604800000, NOW()),
+    ('sukko', 'creation', 3, 604800000, NOW()),
+    ('sukko', 'analytics', 3, 604800000, NOW()),
+    ('sukko', 'balances', 3, 604800000, NOW())
 ON CONFLICT (tenant_id, category) DO NOTHING;
 
 -- Remove the old tenant_topics seeding (full topic names with namespace)
@@ -172,11 +172,11 @@ import "fmt"
 // This is the single source of truth for topic name format.
 //
 // Format: {namespace}.{tenantID}.{category}
-// Example: BuildTopicName("prod", "odin", "trade") -> "prod.odin.trade"
+// Example: BuildTopicName("prod", "sukko", "trade") -> "prod.sukko.trade"
 //
 // Components:
 //   - namespace: From KAFKA_TOPIC_NAMESPACE env var (e.g., "local", "dev", "prod")
-//   - tenantID: Tenant identifier (e.g., "odin", "acme")
+//   - tenantID: Tenant identifier (e.g., "sukko", "acme")
 //   - category: Topic category (e.g., "trade", "liquidity")
 func BuildTopicName(namespace, tenantID, category string) string {
     return fmt.Sprintf("%s.%s.%s", namespace, tenantID, category)
@@ -188,7 +188,7 @@ func BuildTopicName(namespace, tenantID, category string) string {
 - `service.go`: `return kafka.BuildTopicName(s.config.TopicNamespace, tenantID, category)`
 - `topic_registry.go`: `topic := kafka.BuildTopicName(namespace, tenantID, category)`
 
-**Also remove:** `GetTopic()` function in `config.go` (wrong format: `odin.{env}.{base}`, unused in production)
+**Also remove:** `GetTopic()` function in `config.go` (wrong format: `sukko.{env}.{base}`, unused in production)
 
 **Status:** ✅ Implemented
 
@@ -251,7 +251,7 @@ Currently there are two tables tracking topics:
 
 | Table | Written By | Read By |
 |-------|------------|---------|
-| `tenant_categories` | Migration only (odin seed) | TenantRegistry (consumer/producer) |
+| `tenant_categories` | Migration only (sukko seed) | TenantRegistry (consumer/producer) |
 | `tenant_topics` | Provisioning Service (API) | Provisioning Service only |
 
 **Bug:** When new tenants are created via API:
@@ -259,7 +259,7 @@ Currently there are two tables tracking topics:
 - TenantRegistry reads from `tenant_categories`
 - **New tenants' topics won't be discovered!**
 
-It only works for odin because odin is seeded in the migration.
+It only works for sukko because sukko is seeded in the migration.
 
 ### Current State (Broken)
 
@@ -316,7 +316,7 @@ It only works for odin because odin is seeded in the migration.
 ```go
 type TenantTopic struct {
     TenantID    string
-    TopicName   string  // Full name like "prod.odin.trade"
+    TopicName   string  // Full name like "prod.sukko.trade"
     Category    string
     Partitions  int
     RetentionMs int64
@@ -455,7 +455,7 @@ for _, topic := range topics {
 
 Remove or comment out:
 ```sql
--- REMOVED: tenant_topics table (replaced by tenant_categories in 003_seed_odin_tenant.sql)
+-- REMOVED: tenant_topics table (replaced by tenant_categories in 003_seed_sukko_tenant.sql)
 -- CREATE TABLE tenant_topics (...)
 -- CREATE INDEX idx_tenant_topics_tenant ON tenant_topics(tenant_id)
 ```
@@ -472,7 +472,7 @@ Remove or comment out:
 Since nothing is deployed yet (per the plan notes), we can:
 1. Modify migrations directly (no new migration needed)
 2. Drop `tenant_topics` table definition from `001_initial.sql`
-3. Keep `tenant_categories` in `003_seed_odin_tenant.sql`
+3. Keep `tenant_categories` in `003_seed_sukko_tenant.sql`
 
 ### Verification
 
@@ -544,7 +544,7 @@ go test ./internal/provisioning/...
 //   - Con: franz-go specific (not portable to other Kafka clients)
 //   - Con: If migrating clients, would need full resubscription approach
 //
-// This is the right choice for odin-ws because:
+// This is the right choice for sukko because:
 //   - Topics are dynamically provisioned per-tenant
 //   - WS-server needs to discover new topics without downtime
 //   - We're committed to franz-go as our Kafka client
@@ -588,7 +588,7 @@ if len(toAdd) > 0 {
 | `AllTopicBases()` function | No callers after bundles removed |
 | `AllTopics(env)` function | Use `TenantRegistry.GetSharedTenantTopics()` |
 | `EventTypeToTopicBase()` | Unused in production; `publisher-go` has own copy |
-| `GetTopic(env, base)` | Wrong format (`odin.{env}.{base}`), unused in production |
+| `GetTopic(env, base)` | Wrong format (`sukko.{env}.{base}`), unused in production |
 
 **Keep:**
 | Item | Reason |
@@ -679,7 +679,7 @@ This is now included in Phase 4. Since nothing is deployed yet, we remove `tenan
 - `CREATE INDEX idx_tenant_topics_tenant` statement
 - Associated comments
 
-The `tenant_categories` table in `003_seed_odin_tenant.sql` becomes the single source of truth.
+The `tenant_categories` table in `003_seed_sukko_tenant.sql` becomes the single source of truth.
 
 ---
 
@@ -689,7 +689,7 @@ The `tenant_categories` table in `003_seed_odin_tenant.sql` becomes the single s
 
 | File | Action | Status |
 |------|--------|--------|
-| `migrations/003_seed_odin_tenant.sql` | Add `tenant_categories` table, seed odin categories | ✅ Done |
+| `migrations/003_seed_sukko_tenant.sql` | Add `tenant_categories` table, seed sukko categories | ✅ Done |
 | `shared/kafka/topic.go` | NEW - shared `BuildTopicName()` function | ✅ Done |
 | `provisioning/topic_registry.go` | Query `tenant_categories`, use `BuildTopicName()` | ✅ Done |
 | `shared/kafka/consumer.go` | Add `AddConsumeTopics()` method | ✅ Done |
@@ -739,7 +739,7 @@ Before deploying Phase 8 changes that remove hardcoded fallback:
 - [ ] Verify `TenantRegistry` is wired up in server initialization
 - [ ] Verify `KAFKA_TOPIC_NAMESPACE` is set in all environments
 - [ ] Verify migration has run successfully
-- [ ] Verify `tenant_categories` has expected rows: `SELECT * FROM tenant_categories WHERE tenant_id = 'odin'`
+- [ ] Verify `tenant_categories` has expected rows: `SELECT * FROM tenant_categories WHERE tenant_id = 'sukko'`
 - [ ] Test in staging: `GetSharedTenantTopics()` returns expected topics
 - [ ] Verify Helm values have `provisioning.database` configured
 
@@ -749,7 +749,7 @@ Before deploying Phase 8 changes that remove hardcoded fallback:
 
 ### Unit Tests
 ```bash
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws
+cd /Volumes/Dev/Codev/Toniq/sukko/ws
 go test ./internal/shared/kafka/...
 go test ./internal/server/orchestration/...
 go test ./internal/provisioning/...
@@ -778,8 +778,8 @@ export KAFKA_TOPIC_NAMESPACE=test
 # 2. Verify server is healthy
 curl -s http://localhost:8080/health | jq .
 
-# 3. Check initial topics (odin tenant categories)
-# Server logs should show: "Subscribed to topics" with test.odin.*
+# 3. Check initial topics (sukko tenant categories)
+# Server logs should show: "Subscribed to topics" with test.sukko.*
 
 # 4. Create new tenant with custom category via provisioning API
 curl -X POST http://localhost:8081/api/v1/tenants \
@@ -871,8 +871,8 @@ When consumers change their subscription, Kafka triggers a "rebalance":
 **Finding:** Uses wrong topic format, unused in production.
 
 **Evidence:**
-- `GetTopic("dev", "trade")` → `odin.dev.trade` (wrong: `{tenant}.{ns}.{category}`)
-- Correct format is: `dev.odin.trade` (`{ns}.{tenant}.{category}`)
+- `GetTopic("dev", "trade")` → `sukko.dev.trade` (wrong: `{tenant}.{ns}.{category}`)
+- Correct format is: `dev.sukko.trade` (`{ns}.{tenant}.{category}`)
 - Only called in tests and `bundles.go` (being deleted)
 - Replaced by `BuildTopicName()` with correct format
 

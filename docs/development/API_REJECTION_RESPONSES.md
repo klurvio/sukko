@@ -427,16 +427,16 @@ function calculateBackoff(baseDelay, retryCount, maxDelay = 60000) {
 
 ```bash
 # Rate limit rejections
-docker logs odin-ws-multi 2>&1 | grep "rate limit exceeded"
+docker logs sukko-multi 2>&1 | grep "rate limit exceeded"
 
 # ResourceGuard rejections
-docker logs odin-ws-multi 2>&1 | grep "rejected by ResourceGuard"
+docker logs sukko-multi 2>&1 | grep "rejected by ResourceGuard"
 
 # Backend dial failures
-docker logs odin-ws-multi 2>&1 | grep "Backend dial failed"
+docker logs sukko-multi 2>&1 | grep "Backend dial failed"
 
 # Shard slot exhaustion
-docker logs odin-ws-multi 2>&1 | grep "No available slots in shard"
+docker logs sukko-multi 2>&1 | grep "No available slots in shard"
 ```
 
 ### Prometheus Metrics

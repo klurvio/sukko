@@ -65,7 +65,7 @@ This plan details the **isolated testing architecture** for validating WebSocket
 │                  GCP Testing Environment (us-central1-a)             │
 │                                                                      │
 │  ┌──────────────────────────┐          ┌─────────────────────────┐ │
-│  │  odin-ws-go              │          │  odin-backend           │ │
+│  │  sukko-go              │          │  sukko-backend           │ │
 │  │  (e2-standard-2)         │          │  (e2-small)             │ │
 │  │  2 vCPU, 8 GB RAM        │          │  2 vCPU, 2 GB RAM       │ │
 │  │                          │          │                         │ │
@@ -93,7 +93,7 @@ This plan details the **isolated testing architecture** for validating WebSocket
 │         │                               │         ▲               │ │
 │         │                               │         │ http://:3010  │ │
 │  ┌──────┴───────────────────────────┐  │         │               │ │
-│  │  odin-test-runner                │  │  ┌──────────────────┐  │ │
+│  │  sukko-test-runner                │  │  ┌──────────────────┐  │ │
 │  │  (e2-micro)                      │  │  │ Publisher        │  │ │
 │  │  0.25-2 vCPU burstable, 1GB RAM  │  │  │ (test traffic)   │  │ │
 │  │                                   │  │  │ 0.2 CPU, 128M    │  │ │
@@ -207,7 +207,7 @@ func (s *Server) broadcast(message []byte) {
 ```go
 // server.go - New subscription-aware broadcast
 func (s *Server) broadcast(subject string, message []byte) {
-    // Extract channel from NATS subject: "odin.token.BTC.trade" → "BTC.trade"
+    // Extract channel from NATS subject: "sukko.token.BTC.trade" → "BTC.trade"
     channel := extractChannel(subject)
 
     s.clients.Range(func(key, value interface{}) bool {
@@ -356,7 +356,7 @@ func (c *Client) handleSubscribe(channels []string) {
 
 6. **Extract channel from NATS subject**:
 ```go
-// Extract "BTC.trade" from "odin.token.BTC.trade"
+// Extract "BTC.trade" from "sukko.token.BTC.trade"
 func extractChannel(subject string) string {
     parts := strings.Split(subject, ".")
     if len(parts) >= 4 {
@@ -371,7 +371,7 @@ func extractChannel(subject string) string {
 // In handleNATSMessage()
 msg, err := subscription.NextMsg(1 * time.Second)
 if err == nil {
-    subject := msg.Subject  // e.g., "odin.token.BTC.trade"
+    subject := msg.Subject  // e.g., "sukko.token.BTC.trade"
     s.broadcast(subject, msg.Data)  // Pass subject to broadcast
 }
 ```
@@ -409,11 +409,11 @@ services:
     build:
       context: ./src
       dockerfile: Dockerfile
-    container_name: odin-ws-go
+    container_name: sukko-go
     ports:
       - "0.0.0.0:3004:3002"
     command:
-      - "./odin-ws-server"
+      - "./sukko-server"
       - "-addr"
       - ":3002"
       - "-nats"
@@ -465,7 +465,7 @@ services:
 
   promtail:
     image: grafana/promtail:3.3.2
-    container_name: odin-ws-promtail
+    container_name: sukko-promtail
     volumes:
       - ./promtail-config.yml:/etc/promtail/promtail-config.yml
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
@@ -499,7 +499,7 @@ vars:
 
 **Steps**:
 1. Stop current ws-go container: `task -t taskfiles/isolated-setup.yml stop:ws-go`
-2. Delete e2-medium instance: `gcloud compute instances delete odin-ws-go --zone=us-central1-a`
+2. Delete e2-medium instance: `gcloud compute instances delete sukko-go --zone=us-central1-a`
 3. Create e2-standard-2 instance: Update taskfile, run `task create:ws-go`
 4. Deploy updated code with subscription filtering: `task deploy:ws-go`
 5. Test capacity: `task test:remote:capacity:10k`
@@ -509,7 +509,7 @@ vars:
 ### Option B: Blue-Green Deployment (Zero Downtime)
 
 **Steps**:
-1. Create new instance `odin-ws-go-v2` (e2-standard-2)
+1. Create new instance `sukko-go-v2` (e2-standard-2)
 2. Deploy code with subscription filtering
 3. Test new instance thoroughly
 4. Switch DNS/load balancer to new instance
@@ -574,9 +574,9 @@ vars:
 wscat -c ws://34.61.200.145:3004/ws
 
 # Send: {"type":"subscribe","channels":["BTC.trade","ETH.trade"]}
-# Publish to odin.token.BTC.trade → should receive
-# Publish to odin.token.SOL.trade → should NOT receive
-# Publish to odin.token.BTC.liquidity → should NOT receive (different event type)
+# Publish to sukko.token.BTC.trade → should receive
+# Publish to sukko.token.SOL.trade → should NOT receive
+# Publish to sukko.token.BTC.liquidity → should NOT receive (different event type)
 ```
 
 **Test 2: Load Test with Filtering** (10 min)

@@ -300,7 +300,7 @@ PingPeriod: cfg.PingPeriod,
 
 ### 8. Update Helm Values
 
-**File:** `deployments/helm/odin/charts/ws-server/values.yaml`
+**File:** `deployments/helm/sukko/charts/ws-server/values.yaml`
 
 Add after `metricsInterval` (~line 57):
 
@@ -314,7 +314,7 @@ Add after `metricsInterval` (~line 57):
 
 ### 9. Update Helm ConfigMap
 
-**File:** `deployments/helm/odin/charts/ws-server/templates/configmap.yaml`
+**File:** `deployments/helm/sukko/charts/ws-server/templates/configmap.yaml`
 
 Add after `METRICS_INTERVAL` (~line 40):
 
@@ -326,7 +326,7 @@ Add after `METRICS_INTERVAL` (~line 40):
 
 ### 10. Update Local Values
 
-**File:** `deployments/helm/odin/values/local.yaml`
+**File:** `deployments/helm/sukko/values/local.yaml`
 
 Add to existing `ws-server.config` section (after `environment: local`, ~line 49):
 
@@ -354,9 +354,9 @@ ws-server:
 | `ws/internal/server/pump_test.go` | Update `TestDefaultPumpConfig` expected values (30s→60s, 27s→45s) |
 | `ws/internal/server/server.go` | Use `config.PongWait/PingPeriod` instead of `DefaultPumpConfig()` |
 | `ws/cmd/server/main.go` | Copy `PongWait`, `PingPeriod` from platform to types config |
-| `deployments/helm/odin/charts/ws-server/values.yaml` | Add `pongWait`, `pingPeriod` config values |
-| `deployments/helm/odin/charts/ws-server/templates/configmap.yaml` | Map `WS_PONG_WAIT`, `WS_PING_PERIOD` env vars |
-| `deployments/helm/odin/values/local.yaml` | Set lenient local values (120s/90s) |
+| `deployments/helm/sukko/charts/ws-server/values.yaml` | Add `pongWait`, `pingPeriod` config values |
+| `deployments/helm/sukko/charts/ws-server/templates/configmap.yaml` | Map `WS_PONG_WAIT`, `WS_PING_PERIOD` env vars |
+| `deployments/helm/sukko/values/local.yaml` | Set lenient local values (120s/90s) |
 
 ---
 
@@ -579,7 +579,7 @@ task local:deploy
 task local:loadtest:run CONNECTIONS=1 DURATION=60m
 
 # Verify no disconnects
-kubectl logs -n odin-local -l app.kubernetes.io/name=ws-server --tail=1000 | grep disconnect
+kubectl logs -n sukko-local -l app.kubernetes.io/name=ws-server --tail=1000 | grep disconnect
 ```
 
 ### 5. Verification Checklist

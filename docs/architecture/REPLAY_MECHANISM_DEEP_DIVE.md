@@ -829,7 +829,7 @@ rateLimitedMessages > 0:
 ### Server Logs
 
 ```bash
-$ docker logs odin-ws-go-2 | grep replay
+$ docker logs sukko-go-2 | grep replay
 
 📬 Client 42 requesting replay: seq 1000 to 1050
 📬 Replaying 50 messages to client 42

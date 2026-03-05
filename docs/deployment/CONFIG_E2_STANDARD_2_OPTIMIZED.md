@@ -40,7 +40,7 @@ Cost:          $24/month (~$0.033/hour)
 # =============================================================================
 # WebSocket Server Production Configuration (OPTIMIZED)
 # =============================================================================
-# Instance: odin-ws-go (e2-standard-2: 2 vCPU, 8GB RAM)
+# Instance: sukko-go (e2-standard-2: 2 vCPU, 8GB RAM)
 # Purpose: Handle 12,000 concurrent WebSocket connections
 # Location: GCP us-central1
 # Optimizations: Send buffer reduction + SubscriptionIndex
@@ -117,7 +117,7 @@ WS_CPU_PAUSE_THRESHOLD=80.0
 # =============================================================================
 # JETSTREAM
 # =============================================================================
-JS_STREAM_NAME=ODIN_TOKENS
+JS_STREAM_NAME=SUKKO_TOKENS
 JS_CONSUMER_NAME=ws-server
 JS_STREAM_MAX_AGE=30s
 JS_STREAM_MAX_MSGS=100000
@@ -286,7 +286,7 @@ grep "s.subscriptionIndex.Get(channel)" src/server.go
 ### 2. Create Instance (if new)
 
 ```bash
-gcloud compute instances create odin-ws-go \
+gcloud compute instances create sukko-go \
   --zone=us-central1-a \
   --machine-type=e2-standard-2 \
   --boot-disk-size=20GB \
@@ -300,7 +300,7 @@ gcloud compute instances create odin-ws-go \
 
 ```bash
 # Copy the .env.production configuration above to:
-# /Volumes/Dev/Codev/Toniq/odin-ws/isolated/ws-go/.env.production
+# /Volumes/Dev/Codev/Toniq/sukko/isolated/ws-go/.env.production
 
 # Deploy using task
 task gcp2:deploy:ws-go

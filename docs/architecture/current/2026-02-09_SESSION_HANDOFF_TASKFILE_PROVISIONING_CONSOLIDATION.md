@@ -12,7 +12,7 @@ Consolidate taskfiles and make Provisioning API the single source of truth for K
 
 ### 1. Topic Naming Fix
 - Removed Helm topics-job.yaml (was creating topics with wrong format)
-- Removed seed migration `003_seed_odin_tenant.sql` (no more DB seeding)
+- Removed seed migration `003_seed_sukko_tenant.sql` (no more DB seeding)
 - Moved `tenant_categories` table schema to `001_initial.sql`
 - Provisioning API now creates both DB records AND Kafka topics
 
@@ -26,7 +26,7 @@ Consolidate taskfiles and make Provisioning API the single source of truth for K
 - Fixed dynamic default for `kafkaBrokers`: `{{ .Values.config.kafkaBrokers | default (printf "%s-redpanda:9092" .Release.Name) }}`
 
 ### 4. Taskfile Fixes
-- Fixed tenant creation: `{"id": "odin", "name": "..."}` (was missing `id` field)
+- Fixed tenant creation: `{"id": "sukko", "name": "..."}` (was missing `id` field)
 - Fixed topics creation: `{"categories": [...]}` (was using `topics` field)
 - Removed auto port-forward from `task local:setup`
 - Suppressed node-config warning in asyncapi bundling
@@ -53,10 +53,10 @@ Consolidate taskfiles and make Provisioning API the single source of truth for K
 {namespace}.{tenant}.{category}
 ```
 - namespace: local, dev, stg, prod
-- tenant: odin
+- tenant: sukko
 - category: trade, liquidity, metadata, etc.
 
-Example: `local.odin.trade`
+Example: `local.sukko.trade`
 
 ## Technical Details
 
@@ -64,14 +64,14 @@ Example: `local.odin.trade`
 ```bash
 # Create tenant
 POST /api/v1/tenants
-{"id": "odin", "name": "Odin Trading Platform"}
+{"id": "sukko", "name": "Sukko Trading Platform"}
 
 # Create topics (field is "categories", not "topics")
-POST /api/v1/tenants/odin/topics
+POST /api/v1/tenants/sukko/topics
 {"categories": ["trade", "liquidity", "metadata", "social", "community", "creation", "analytics", "balances"]}
 
 # Set channel rules
-PUT /api/v1/tenants/odin/channel-rules
+PUT /api/v1/tenants/sukko/channel-rules
 {"public_patterns": ["*.metadata"], "user_scoped_patterns": ["balances.{subject}"], "group_scoped_patterns": []}
 ```
 
@@ -90,7 +90,7 @@ initContainers:
 | ws-server CrashLoopBackOff on startup | Added init containers to wait for dependencies |
 | Topics not created in Kafka | Fixed kafkaBrokers default in provisioning deployment |
 | "channel rules store not configured" | Added channelRulesRepo to service initialization |
-| Tenant creation failed (empty ID) | Fixed request body to include `"id": "odin"` |
+| Tenant creation failed (empty ID) | Fixed request body to include `"id": "sukko"` |
 | Topics creation returned empty | Fixed field name from `topics` to `categories` |
 
 ## Current State
@@ -100,19 +100,19 @@ initContainers:
 - `task local:deploy` - Deploys Helm and runs migrations
 - `task local:provision:create` - Creates tenant + 8 Kafka topics
 - `task local:provision:status` - Shows topics and tenants
-- All 8 topics created: local.odin.{trade,liquidity,metadata,social,community,creation,analytics,balances}
+- All 8 topics created: local.sukko.{trade,liquidity,metadata,social,community,creation,analytics,balances}
 
 **Verified:**
 ```
 NAME                  PARTITIONS  REPLICAS
-local.odin.analytics  3           1
-local.odin.balances   3           1
-local.odin.community  3           1
-local.odin.creation   3           1
-local.odin.liquidity  3           1
-local.odin.metadata   3           1
-local.odin.social     3           1
-local.odin.trade      3           1
+local.sukko.analytics  3           1
+local.sukko.balances   3           1
+local.sukko.community  3           1
+local.sukko.creation   3           1
+local.sukko.liquidity  3           1
+local.sukko.metadata   3           1
+local.sukko.social     3           1
+local.sukko.trade      3           1
 ```
 
 ## Next Steps
@@ -134,12 +134,12 @@ local.odin.trade      3           1
 |------|--------|
 | `ws/cmd/provisioning/main.go` | Added OIDC and channel rules stores |
 | `ws/internal/provisioning/repository/migrations/001_initial.sql` | Added tenant_categories table |
-| `ws/internal/provisioning/repository/migrations/003_seed_odin_tenant.sql` | Deleted |
-| `deployments/helm/odin/charts/ws-server/templates/deployment.yaml` | Added init containers |
-| `deployments/helm/odin/charts/ws-gateway/templates/deployment.yaml` | Added init containers |
-| `deployments/helm/odin/charts/provisioning/templates/deployment.yaml` | Added init containers, fixed kafkaBrokers default |
-| `deployments/helm/odin/charts/redpanda/templates/topics-job.yaml` | Deleted |
-| `deployments/helm/odin/values/local.yaml` | Removed topics section, updated comments |
+| `ws/internal/provisioning/repository/migrations/003_seed_sukko_tenant.sql` | Deleted |
+| `deployments/helm/sukko/charts/ws-server/templates/deployment.yaml` | Added init containers |
+| `deployments/helm/sukko/charts/ws-gateway/templates/deployment.yaml` | Added init containers |
+| `deployments/helm/sukko/charts/provisioning/templates/deployment.yaml` | Added init containers, fixed kafkaBrokers default |
+| `deployments/helm/sukko/charts/redpanda/templates/topics-job.yaml` | Deleted |
+| `deployments/helm/sukko/values/local.yaml` | Removed topics section, updated comments |
 | `taskfiles/local.yml` | Fixed provision:create API calls |
 
 ## Commands for Next Session

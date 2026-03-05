@@ -79,8 +79,8 @@ For replay: `DirectBackend.Replay()` returns `nil, nil` — no messages, no erro
 - **Publish** → `js.Publish(ctx, subject, data)` — synchronous, returns ack with sequence number.
 - **Replay** → `consumer.FetchBySequence(startSeq)` or create ordered consumer starting from a sequence.
 
-Stream naming: `ODIN_{namespace}_{tenant}_{category}` (e.g., `ODIN_dev_acme_trade`).
-Subject naming: `odin.{tenant}.{identifier}.{category}` (matches existing channel format).
+Stream naming: `SUKKO_{namespace}_{tenant}_{category}` (e.g., `SUKKO_dev_acme_trade`).
+Subject naming: `sukko.{tenant}.{identifier}.{category}` (matches existing channel format).
 
 **Decision**: `JetStreamBackend` manages streams per tenant/category (mirroring Kafka topics). It creates a push subscription that routes messages to the broadcast bus, similar to how the Kafka consumer pool works. For replay, it uses ordered consumers starting from a given sequence number.
 
@@ -90,11 +90,11 @@ Subject naming: `odin.{tenant}.{identifier}.{category}` (matches existing channe
 
 **Finding**: JetStream streams can filter by subject. Two approaches:
 
-1. **Stream-per-tenant**: Each tenant gets its own stream (e.g., `ODIN_dev_acme`). Subjects within the stream use wildcards: `odin.acme.>`. Strong isolation, independent retention.
+1. **Stream-per-tenant**: Each tenant gets its own stream (e.g., `SUKKO_dev_acme`). Subjects within the stream use wildcards: `sukko.acme.>`. Strong isolation, independent retention.
 
-2. **Stream-per-category**: A single stream with subject filtering (e.g., `ODIN_dev_trade` captures `odin.*.*.trade`). Simpler but weaker isolation — all tenants share retention and limits.
+2. **Stream-per-category**: A single stream with subject filtering (e.g., `SUKKO_dev_trade` captures `sukko.*.*.trade`). Simpler but weaker isolation — all tenants share retention and limits.
 
-**Decision**: Stream-per-tenant (option 1). This matches Kafka's topic-per-tenant model and provides the same isolation guarantees. Stream subjects use `odin.{tenant}.>` wildcards. This is a P2 feature so detailed design will be in the JetStream implementation phase.
+**Decision**: Stream-per-tenant (option 1). This matches Kafka's topic-per-tenant model and provides the same isolation guarantees. Stream subjects use `sukko.{tenant}.>` wildcards. This is a P2 feature so detailed design will be in the JetStream implementation phase.
 
 ## R6. Replay Abstraction — Offsets vs Sequences
 

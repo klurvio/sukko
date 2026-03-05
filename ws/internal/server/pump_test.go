@@ -14,8 +14,8 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // =============================================================================
@@ -1400,7 +1400,7 @@ func TestWriteLoop_SendChannel_WritesMessage(t *testing.T) {
 	}
 
 	// Pre-load data message
-	dataMsg := []byte(`{"type":"message","channel":"odin.BTC.trade"}`)
+	dataMsg := []byte(`{"type":"message","channel":"sukko.BTC.trade"}`)
 	client.send <- RawMsg(dataMsg)
 
 	ctx, cancel := context.WithCancel(context.Background())

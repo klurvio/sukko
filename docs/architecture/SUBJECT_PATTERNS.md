@@ -48,7 +48,7 @@ The gateway validates client subscriptions against allowed patterns. Patterns us
 ### Public Channel
 
 ```
-Topic: odin.main.trade.refined
+Topic: sukko.main.trade.refined
 Key:   "BTC.trade"
 Value: {"price": "50000.00", "volume": "1.5", "timestamp": 1705123456789}
 ```
@@ -58,7 +58,7 @@ Result: All clients subscribed to `BTC.trade` receive the message.
 ### User-scoped Channel
 
 ```
-Topic: odin.main.balances.refined
+Topic: sukko.main.balances.refined
 Key:   "BTC.balances.user123"
 Value: {"available": "10.5", "locked": "2.0", "total": "12.5"}
 ```
@@ -68,7 +68,7 @@ Result: Only the client with `JWT.sub = "user123"` can subscribe to and receive 
 ### Group-scoped Channel
 
 ```
-Topic: odin.main.community.refined
+Topic: sukko.main.community.refined
 Key:   "23sz.community.crypto-traders"
 Value: {"message": "Hello!", "author": "user456", "timestamp": 1705123456789}
 ```
@@ -142,12 +142,12 @@ When publishing a trade event, CDC sends TWO messages:
 
 ```
 # Message 1: Specific channel
-Topic: odin.main.trade.refined
+Topic: sukko.main.trade.refined
 Key:   "BTC.trade"
 Value: {"token": "BTC", "price": "50000.00", ...}
 
 # Message 2: Aggregate channel (same Value)
-Topic: odin.main.trade.refined
+Topic: sukko.main.trade.refined
 Key:   "all.trade"
 Value: {"token": "BTC", "price": "50000.00", ...}
 ```

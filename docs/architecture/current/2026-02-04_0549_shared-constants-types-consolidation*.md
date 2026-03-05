@@ -228,7 +228,7 @@ func ValidateKafkaSASLMechanism(mechanism string) error
 
 ```bash
 # Build all packages
-cd /Volumes/Dev/Codev/Toniq/odin-ws/ws
+cd /Volumes/Dev/Codev/Toniq/sukko/ws
 go build ./...
 
 # Run all tests

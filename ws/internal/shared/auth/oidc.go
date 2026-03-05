@@ -26,7 +26,7 @@ type OIDCConfig struct {
 	// Required when OIDC is enabled.
 	JWKSURL string
 
-	// Audience is the expected audience claim (e.g., "https://api.odin.io").
+	// Audience is the expected audience claim (e.g., "https://api.sukko.io").
 	// If set, tokens must contain this audience.
 	Audience string
 }

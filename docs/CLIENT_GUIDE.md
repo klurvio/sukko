@@ -1,6 +1,6 @@
 # WebSocket Client Guide
 
-This guide explains how to connect to the Odin WebSocket server, subscribe to channels, and handle messages.
+This guide explains how to connect to the Sukko WebSocket server, subscribe to channels, and handle messages.
 
 ## Table of Contents
 
@@ -109,16 +109,16 @@ Client                    Gateway                   Server
 
 ## Multi-Tenant Architecture
 
-Odin WebSocket uses a multi-tenant architecture where each organization (tenant) has isolated access.
+Sukko WebSocket uses a multi-tenant architecture where each organization (tenant) has isolated access.
 
 ### How It Works
 
 1. **Your organization** generates JWT tokens signed with your private key
-2. **Odin Gateway** validates tokens using your registered public key
+2. **Sukko Gateway** validates tokens using your registered public key
 3. **Tenant isolation** ensures you only access your organization's data
 
 ```
-Your Application                       Odin Gateway
+Your Application                       Sukko Gateway
      │                                      │
      │  1. Sign JWT with                    │
      │     your private key                 │
@@ -194,7 +194,7 @@ You never see the tenant prefix - it's added automatically based on your JWT.
 
 ### Key Registration
 
-To use Odin WebSocket:
+To use Sukko WebSocket:
 
 1. **Generate a key pair** (ES256 recommended):
    ```bash
@@ -202,7 +202,7 @@ To use Odin WebSocket:
    openssl ec -in private.pem -pubout -out public.pem
    ```
 
-2. **Register your public key** with Odin (via provisioning API or admin portal)
+2. **Register your public key** with Sukko (via provisioning API or admin portal)
 
 3. **Sign tokens** with your private key (keep this secret!)
 
@@ -625,7 +625,7 @@ window.addEventListener('beforeunload', () => {
 ## Complete Example
 
 ```javascript
-class OdinWebSocketClient {
+class SukkoWebSocketClient {
   constructor(url, token) {
     this.url = url;
     this.token = token;
@@ -777,7 +777,7 @@ class OdinWebSocketClient {
 }
 
 // Usage
-const client = new OdinWebSocketClient(
+const client = new SukkoWebSocketClient(
   'wss://ws.example.com/ws',
   'YOUR_JWT_TOKEN'
 );

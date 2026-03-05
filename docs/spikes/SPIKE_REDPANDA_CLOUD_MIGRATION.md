@@ -58,7 +58,7 @@ ConsumerGroup string `env:"KAFKA_CONSUMER_GROUP" envDefault:"ws-server-group"`
 ```bash
 # scripts/v1/local/setup-redpanda-topics.sh
 # Uses rpk CLI to create topics
-rpk topic create "odin.trades" \
+rpk topic create "sukko.trades" \
   --partitions 12 \
   --replicas 1 \
   --topic-config "retention.ms=30000"
@@ -84,7 +84,7 @@ rpk topic create "odin.trades" \
 # Via Redpanda Cloud Console (https://cloud.redpanda.com)
 # 1. Sign up / Log in
 # 2. Create new cluster
-#    - Name: odin-production
+#    - Name: sukko-production
 #    - Region: us-central1 (match your GCP region)
 #    - Tier: Dedicated (for production) or Serverless (for dev/test)
 #    - Throughput: 10 MB/s (adjust based on needs)
@@ -94,7 +94,7 @@ rpk topic create "odin.trades" \
 
 **Cluster Configuration Recommendations**:
 ```yaml
-Cluster Name: odin-production
+Cluster Name: sukko-production
 Cloud Provider: GCP
 Region: us-central1 (or your GCP region for low latency)
 Availability: Multi-AZ (3 zones for HA)
@@ -123,7 +123,7 @@ SASL_MECHANISM=SCRAM-SHA-256
 **Option 1: Redpanda Cloud Console (Easiest)**
 
 Navigate to Topics → Create Topic:
-- Name: `odin.trades`
+- Name: `sukko.trades`
 - Partitions: `12`
 - Retention: `30 seconds`
 - Cleanup Policy: `delete`
@@ -151,7 +151,7 @@ export RPK_USER="<username>"
 export RPK_PASS="<password>"
 
 # Create topics (same script, different target)
-rpk topic create odin.trades \
+rpk topic create sukko.trades \
   --partitions 12 \
   --topic-config retention.ms=30000 \
   --topic-config compression.type=snappy
@@ -204,14 +204,14 @@ create_topic() {
 }
 
 # Create all topics (same as local)
-create_topic "odin.trades" "30000"
-create_topic "odin.liquidity" "60000"
-create_topic "odin.metadata" "3600000"
-create_topic "odin.social" "3600000"
-create_topic "odin.community" "300000"
-create_topic "odin.creation" "3600000"
-create_topic "odin.analytics" "300000"
-create_topic "odin.balances" "30000"
+create_topic "sukko.trades" "30000"
+create_topic "sukko.liquidity" "60000"
+create_topic "sukko.metadata" "3600000"
+create_topic "sukko.social" "3600000"
+create_topic "sukko.community" "300000"
+create_topic "sukko.creation" "3600000"
+create_topic "sukko.analytics" "300000"
+create_topic "sukko.balances" "30000"
 
 echo "✅ Setup complete!"
 rpk topic list
@@ -313,7 +313,7 @@ KAFKA_TLS_ENABLED=true
 # ========================================
 # TOPICS (unchanged)
 # ========================================
-KAFKA_TOPICS=odin.trades,odin.liquidity,odin.balances,odin.metadata,odin.social,odin.community,odin.creation,odin.analytics
+KAFKA_TOPICS=sukko.trades,sukko.liquidity,sukko.balances,sukko.metadata,sukko.social,sukko.community,sukko.creation,sukko.analytics
 KAFKA_PARTITIONS=12
 KAFKA_REPLICAS=3  # Redpanda Cloud uses 3 replicas by default
 ```
@@ -339,7 +339,7 @@ docker logs ws-server 2>&1 | grep "Kafka"
 # - Clients receive messages
 
 # 5. Monitor Redpanda Cloud Console
-# Navigate to: Cluster → Topics → odin.trades
+# Navigate to: Cluster → Topics → sukko.trades
 # Verify: Messages appearing, consumer group active
 ```
 
@@ -355,7 +355,7 @@ rpk group describe ws-server-group
 # MEMBERS         1 (or 2+ if multi-instance)
 # COORDINATOR     <broker-id>
 # PARTITION       TOPIC           LAG
-# 0-11            odin.trades     0
+# 0-11            sukko.trades     0
 ```
 
 #### Step 3.3: Performance Baseline
@@ -654,8 +654,8 @@ Dedicated Tier 2:
 **Validation**:
 ```bash
 # Measure latency before/after
-time docker exec redpanda rpk topic produce odin.trades  # Local: ~1ms
-time rpk topic produce odin.trades  # Cloud: ~5-10ms (same region)
+time docker exec redpanda rpk topic produce sukko.trades  # Local: ~1ms
+time rpk topic produce sukko.trades  # Cloud: ~5-10ms (same region)
 ```
 
 ### Risk 2: SASL/TLS Overhead
@@ -716,8 +716,8 @@ export KAFKA_SASL_PASSWORD=$(gcloud secrets versions access latest --secret=redp
 **Validation**:
 ```bash
 # Compare local vs cloud topics
-docker exec redpanda rpk topic describe odin.trades
-rpk topic describe odin.trades
+docker exec redpanda rpk topic describe sukko.trades
+rpk topic describe sukko.trades
 
 # Verify:
 # - Partitions: 12 ✅
@@ -784,7 +784,7 @@ scrape_configs:
 **Verify After Migration**:
 ```promql
 # Consumer lag (should be near zero)
-kafka_consumer_lag{topic="odin.trades"} < 100
+kafka_consumer_lag{topic="sukko.trades"} < 100
 
 # Connection health
 kafka_consumer_connected{broker=~".*cloud.*"} == 1

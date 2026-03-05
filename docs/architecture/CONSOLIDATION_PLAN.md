@@ -53,9 +53,9 @@ Move each package and update all imports:
 **Import path changes:**
 ```go
 // Before
-"github.com/Toniq-Labs/odin-ws/pkg/alerting"
+"github.com/Toniq-Labs/sukko/pkg/alerting"
 // After
-"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
+"github.com/Toniq-Labs/sukko/internal/shared/alerting"
 ```
 
 After moving, delete the empty `pkg/` directory.
@@ -100,17 +100,17 @@ After moving, delete the empty `pkg/` directory.
 
 **pkg/ → internal/shared/ (Step 1):**
 ```go
-"github.com/Toniq-Labs/odin-ws/pkg/<package>"
+"github.com/Toniq-Labs/sukko/pkg/<package>"
 →
-"github.com/Toniq-Labs/odin-ws/internal/shared/<package>"
+"github.com/Toniq-Labs/sukko/internal/shared/<package>"
 ```
 For packages: `alerting`, `audit`, `logging`, `metrics`
 
 **internal/shared/ → internal/server/ (Steps 2-4):**
 ```go
-"github.com/Toniq-Labs/odin-ws/internal/shared/<package>"
+"github.com/Toniq-Labs/sukko/internal/shared/<package>"
 →
-"github.com/Toniq-Labs/odin-ws/internal/server/<package>"
+"github.com/Toniq-Labs/sukko/internal/server/<package>"
 ```
 For packages: `broadcast`, `limits`, `messaging`
 
@@ -121,7 +121,7 @@ For packages: `broadcast`, `limits`, `messaging`
 3. Verify no remaining references to old import paths:
    ```bash
    grep -r "shared/broadcast\|shared/limits\|shared/messaging" internal/
-   grep -r "odin-ws/pkg/" .
+   grep -r "sukko/pkg/" .
    ```
 
 ## Risks & Mitigations

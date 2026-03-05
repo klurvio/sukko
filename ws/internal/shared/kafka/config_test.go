@@ -91,14 +91,14 @@ func TestTopicToEventType_NewFormat(t *testing.T) {
 		topic    string
 		expected string
 	}{
-		{"prod.odin.trade", "trade"},
-		{"dev.odin.liquidity", "liquidity"},
+		{"prod.sukko.trade", "trade"},
+		{"dev.sukko.liquidity", "liquidity"},
 		{"stag.acme.metadata", "metadata"},
 		{"local.tenant1.social", "social"},
-		{"prod.odin.community", "community"},
+		{"prod.sukko.community", "community"},
 		{"dev.acme.creation", "creation"},
 		{"stag.tenant2.analytics", "analytics"},
-		{"prod.odin.balances", "balances"},
+		{"prod.sukko.balances", "balances"},
 	}
 
 	for _, tt := range tests {
@@ -114,19 +114,19 @@ func TestTopicToEventType_NewFormat(t *testing.T) {
 
 func TestTopicToEventType_LegacyFormat(t *testing.T) {
 	t.Parallel()
-	// Legacy format: odin.{env}.{category}
+	// Legacy format: sukko.{env}.{category}
 	tests := []struct {
 		topic    string
 		expected string
 	}{
-		{"odin.dev.trade", "trade"},
-		{"odin.local.liquidity", "liquidity"},
-		{"odin.staging.metadata", "metadata"},
-		{"odin.prod.social", "social"},
-		{"odin.dev.community", "community"},
-		{"odin.local.creation", "creation"},
-		{"odin.staging.analytics", "analytics"},
-		{"odin.prod.balances", "balances"},
+		{"sukko.dev.trade", "trade"},
+		{"sukko.local.liquidity", "liquidity"},
+		{"sukko.staging.metadata", "metadata"},
+		{"sukko.prod.social", "social"},
+		{"sukko.dev.community", "community"},
+		{"sukko.local.creation", "creation"},
+		{"sukko.staging.analytics", "analytics"},
+		{"sukko.prod.balances", "balances"},
 	}
 
 	for _, tt := range tests {
@@ -142,13 +142,13 @@ func TestTopicToEventType_LegacyFormat(t *testing.T) {
 
 func TestTopicToEventType_OldLegacyFormat(t *testing.T) {
 	t.Parallel()
-	// Very old legacy format: odin.{category}
+	// Very old legacy format: sukko.{category}
 	tests := []struct {
 		topic    string
 		expected string
 	}{
-		{"odin.trades", "trades"},
-		{"odin.liquidity", "liquidity"},
+		{"sukko.trades", "trades"},
+		{"sukko.liquidity", "liquidity"},
 	}
 
 	for _, tt := range tests {

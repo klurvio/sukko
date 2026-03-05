@@ -1,4 +1,4 @@
-# Odin WebSocket Server - Development Environment Setup
+# Sukko WebSocket Server - Development Environment Setup
 
 **Date:** 2026-01-17
 
@@ -6,7 +6,7 @@
 
 ## What Is This?
 
-Odin WebSocket Server provides real-time data streaming for the trading platform. It pushes live updates (trades, price changes, liquidity, etc.) to connected clients instantly, rather than clients polling the API repeatedly.
+Sukko WebSocket Server provides real-time data streaming for the trading platform. It pushes live updates (trades, price changes, liquidity, etc.) to connected clients instantly, rather than clients polling the API repeatedly.
 
 ---
 
@@ -14,14 +14,14 @@ Odin WebSocket Server provides real-time data streaming for the trading platform
 
 ```
 ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-│odin-api-cdc │ ───▶ │  Redpanda   │ ───▶ │   odin-ws   │ ───▶ Clients
+│sukko-api-cdc │ ───▶ │  Redpanda   │ ───▶ │   sukko   │ ───▶ Clients
 │    (CDC)    │      │  (messages) │      │ (websocket) │
 └─────────────┘      └─────────────┘      └─────────────┘
 ```
 
-- **odin-api-cdc** captures database changes (new trade, price update, etc.) and publishes them as events
+- **sukko-api-cdc** captures database changes (new trade, price update, etc.) and publishes them as events
 - **Redpanda** queues and delivers messages
-- **odin-ws** pushes updates to connected browser/mobile clients in real-time
+- **sukko** pushes updates to connected browser/mobile clients in real-time
 
 ---
 
@@ -29,7 +29,7 @@ Odin WebSocket Server provides real-time data streaming for the trading platform
 
 - Sub-100ms message delivery from backend to clients
 - Self-hosted infrastructure works reliably (Redpanda, NATS, monitoring stack)
-- Integrated with odin-api-cdc and odin-explorer (as client) - validated and working
+- Integrated with sukko-api-cdc and sukko-explorer (as client) - validated and working
 
 ---
 
@@ -40,7 +40,7 @@ The POC is running on a Migs' personal free-tier GCP account. Risks of staying:
 - **Quotas & limits** - Free tier has strict resource limits
 - **No SLA** - Can be suspended without notice
 - **Data on personal account** - Company data shouldn't live on personal infrastructure
-- **Blocks progress** - Can't onboard real users or integrate with production odin-api
+- **Blocks progress** - Can't onboard real users or integrate with production sukko-api
 
 ---
 
@@ -48,7 +48,7 @@ The POC is running on a Migs' personal free-tier GCP account. Risks of staying:
 
 | Phase | Environment | Purpose |
 |-------|-------------|---------|
-| ✅ Done | POC (free-tier) | Validate architecture, integrate with odin-api-cdc and odin-explorer |
+| ✅ Done | POC (free-tier) | Validate architecture, integrate with sukko-api-cdc and sukko-explorer |
 | 👉 Now | Development | Move to company infrastructure, continue iteration |
 | Next | Staging | Pre-production testing |
 | Future | Production | Live users |
@@ -59,7 +59,7 @@ The POC is running on a Migs' personal free-tier GCP account. Risks of staying:
 
 ### 1. GCP Project Access
 
-- [ ] Create a GCP project for Odin development (or provide an existing one)
+- [ ] Create a GCP project for Sukko development (or provide an existing one)
 - [ ] Add Red and Migs as project members
 - [ ] Link the project to the company billing account
 

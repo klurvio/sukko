@@ -14,8 +14,8 @@ Remove dedicated consumer functionality from `MultiTenantConsumerPool`, keeping 
 ## Current State
 
 The `MultiTenantConsumerPool` supports two consumer modes:
-- **Shared**: All shared-mode tenants use a single consumer group (`odin-shared-{namespace}`)
-- **Dedicated**: Each dedicated-mode tenant gets its own consumer group (`odin-{tenant_id}-{namespace}`)
+- **Shared**: All shared-mode tenants use a single consumer group (`sukko-shared-{namespace}`)
+- **Dedicated**: Each dedicated-mode tenant gets its own consumer group (`sukko-{tenant_id}-{namespace}`)
 
 This is over-engineered for our current needs - we only use shared mode.
 

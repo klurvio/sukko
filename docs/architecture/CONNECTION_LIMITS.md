@@ -1,6 +1,6 @@
 # WebSocket Connection Limits
 
-This document describes the connection limit configuration for the odin-ws WebSocket infrastructure, including industry standards, our implementation, and environment-specific settings.
+This document describes the connection limit configuration for the sukko WebSocket infrastructure, including industry standards, our implementation, and environment-specific settings.
 
 ## Overview
 
@@ -60,7 +60,7 @@ sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216"
 sysctl -w net.ipv4.tcp_wmem="4096 65536 16777216"
 ```
 
-**Location**: `deployments/k8s/helm/odin/templates/kernel-tuning-daemonset.yaml`
+**Location**: `deployments/k8s/helm/sukko/templates/kernel-tuning-daemonset.yaml`
 
 **Configuration**: `kernelTuning.enabled` in values.yaml (default: true)
 
@@ -82,7 +82,7 @@ containers:
     # ulimits set via init container or runtime
 ```
 
-**Location**: `deployments/k8s/helm/odin/charts/ws-server/values.yaml`
+**Location**: `deployments/k8s/helm/sukko/charts/ws-server/values.yaml`
 
 ### 3. Application Level
 
@@ -205,11 +205,11 @@ container_memory_usage_bytes / ws_connections_active
 
 | File | Purpose |
 |------|---------|
-| `deployments/k8s/helm/odin/templates/kernel-tuning-daemonset.yaml` | Node kernel tuning via DaemonSet |
-| `deployments/k8s/helm/odin/charts/ws-server/values.yaml` | Pod connection limits, resources |
-| `deployments/k8s/helm/odin/charts/ws-gateway/values.yaml` | Gateway connection limits |
-| `deployments/k8s/helm/odin/values.yaml` | Base configuration |
-| `deployments/k8s/helm/odin/values-{env}.yaml` | Environment-specific overrides |
+| `deployments/k8s/helm/sukko/templates/kernel-tuning-daemonset.yaml` | Node kernel tuning via DaemonSet |
+| `deployments/k8s/helm/sukko/charts/ws-server/values.yaml` | Pod connection limits, resources |
+| `deployments/k8s/helm/sukko/charts/ws-gateway/values.yaml` | Gateway connection limits |
+| `deployments/k8s/helm/sukko/values.yaml` | Base configuration |
+| `deployments/k8s/helm/sukko/values-{env}.yaml` | Environment-specific overrides |
 
 ## Troubleshooting
 

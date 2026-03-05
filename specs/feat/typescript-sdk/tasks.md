@@ -2,7 +2,7 @@
 
 **Branch**: `feat/typescript-sdk` | **Generated**: 2026-02-26
 **Plan**: `specs/feat/typescript-sdk/plan.md`
-**Repo**: `../sukko-ws-sdk/` (sibling of `odin-ws`)
+**Repo**: `../sukko-ws-sdk/` (sibling of `sukko`)
 
 ---
 

@@ -1,7 +1,7 @@
 # Versioning Strategy - Comprehensive Plan
 
 ## Overview
-This document outlines a comprehensive versioning strategy for the entire Odin WebSocket deployment stack, enabling safe evolution, easy rollbacks, and parallel version deployments.
+This document outlines a comprehensive versioning strategy for the entire Sukko WebSocket deployment stack, enabling safe evolution, easy rollbacks, and parallel version deployments.
 
 ## Problem Statement
 When configuration, deployments, or application code changes in the future, we need:
@@ -64,10 +64,10 @@ ARG COMMIT_HASH=unknown
 ARG BUILD_TIME=unknown
 
 RUN go build -ldflags="-s -w \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/version.Version=${VERSION}' \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/version.CommitHash=${COMMIT_HASH}' \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/version.BuildTime=${BUILD_TIME}'" \
-    -o /odin-ws ./cmd/server
+    -X 'github.com/Toniq-Labs/sukko/internal/version.Version=${VERSION}' \
+    -X 'github.com/Toniq-Labs/sukko/internal/version.CommitHash=${COMMIT_HASH}' \
+    -X 'github.com/Toniq-Labs/sukko/internal/version.BuildTime=${BUILD_TIME}'" \
+    -o /sukko ./cmd/server
 ```
 
 The taskfiles automatically populate these values:
@@ -93,9 +93,9 @@ ws/internal/version/
 - **Load testing** - `/loadtest` directory (tools version with stack)
 
 ### 2. Docker Images
-- `odin-ws:v1.0.0` (ws-server)
-- `odin-auth:v1.0.0` (auth-service)
-- `odin-publisher:v1.0.0`
+- `sukko:v1.0.0` (ws-server)
+- `sukko-auth:v1.0.0` (auth-service)
+- `sukko-publisher:v1.0.0`
 
 ### 3. Configuration Stack
 - **Shared configs** - `deployments/shared/`
@@ -117,7 +117,7 @@ ws/internal/version/
 
 ### Option A: Versioned Deployments Directory (RECOMMENDED)
 ```
-odin-ws/
+sukko/
 ├── VERSION                           # Root version file
 ├── CHANGELOG.md                      # Version changelog
 ├── ws/                               # Application code (git versioned)
@@ -178,33 +178,33 @@ odin-ws/
 
 ### Image Naming Convention
 ```
-odin-ws-server:v{MAJOR}.{MINOR}.{PATCH}
-odin-publisher:v{MAJOR}.{MINOR}.{PATCH}
+sukko-server:v{MAJOR}.{MINOR}.{PATCH}
+sukko-publisher:v{MAJOR}.{MINOR}.{PATCH}
 ```
 
 ### Multi-Tag Strategy
 Each build creates 4 tags:
 ```bash
 # Example: Building v1.2.3
-docker build -t odin-ws-server:v1.2.3 .    # Specific version (immutable)
-docker tag odin-ws-server:v1.2.3 odin-ws-server:v1.2    # Minor version (mutable)
-docker tag odin-ws-server:v1.2.3 odin-ws-server:v1      # Major version (mutable)
-docker tag odin-ws-server:v1.2.3 odin-ws-server:latest  # Latest stable (mutable)
+docker build -t sukko-server:v1.2.3 .    # Specific version (immutable)
+docker tag sukko-server:v1.2.3 sukko-server:v1.2    # Minor version (mutable)
+docker tag sukko-server:v1.2.3 sukko-server:v1      # Major version (mutable)
+docker tag sukko-server:v1.2.3 sukko-server:latest  # Latest stable (mutable)
 ```
 
 ### Usage in docker-compose
 ```yaml
 # Production: Pin to specific patch version
 ws-server:
-  image: odin-ws-server:v1.2.3
+  image: sukko-server:v1.2.3
 
 # Staging: Pin to minor version (get patches)
 ws-server:
-  image: odin-ws-server:v1.2
+  image: sukko-server:v1.2
 
 # Development: Use major version or latest
 ws-server:
-  image: odin-ws-server:v1
+  image: sukko-server:v1
 ```
 
 ## Version Metadata Files
@@ -451,11 +451,11 @@ tasks:
         
         echo "Building ws-server:$VERSION"
         cd ws
-        docker build -t odin-ws-server:$VERSION .
-        docker tag odin-ws-server:$VERSION odin-ws-server:$MINOR
-        docker tag odin-ws-server:$VERSION odin-ws-server:$MAJOR
-        docker tag odin-ws-server:$VERSION odin-ws-server:latest
-        echo "✅ Built odin-ws-server with tags: $VERSION, $MINOR, $MAJOR, latest"
+        docker build -t sukko-server:$VERSION .
+        docker tag sukko-server:$VERSION sukko-server:$MINOR
+        docker tag sukko-server:$VERSION sukko-server:$MAJOR
+        docker tag sukko-server:$VERSION sukko-server:latest
+        echo "✅ Built sukko-server with tags: $VERSION, $MINOR, $MAJOR, latest"
 
   _build_publisher_image:
     internal: true
@@ -467,11 +467,11 @@ tasks:
         
         echo "Building publisher:v$VERSION"
         cd publisher
-        docker build -t odin-publisher:v$VERSION .
-        docker tag odin-publisher:v$VERSION odin-publisher:$MINOR
-        docker tag odin-publisher:v$VERSION odin-publisher:$MAJOR
-        docker tag odin-publisher:v$VERSION odin-publisher:latest
-        echo "✅ Built odin-publisher with tags: v$VERSION, $MINOR, $MAJOR, latest"
+        docker build -t sukko-publisher:v$VERSION .
+        docker tag sukko-publisher:v$VERSION sukko-publisher:$MINOR
+        docker tag sukko-publisher:v$VERSION sukko-publisher:$MAJOR
+        docker tag sukko-publisher:v$VERSION sukko-publisher:latest
+        echo "✅ Built sukko-publisher with tags: v$VERSION, $MINOR, $MAJOR, latest"
 
   changelog:add:
     desc: Add entry to CHANGELOG.md

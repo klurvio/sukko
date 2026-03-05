@@ -120,7 +120,7 @@ func (c *Consumer) incrementDropped(topic string) {
 | `processRecord()` rate limit (line 575) | `c.incrementDropped()` | `c.incrementDropped(record.Topic)` |
 | `incrementFailed()` (line 546) | unchanged | unchanged (no Prometheus metric) |
 
-### 3. `deployments/helm/odin/charts/monitoring/dashboards/overview.json` — Dashboard updates
+### 3. `deployments/helm/sukko/charts/monitoring/dashboards/overview.json` — Dashboard updates
 
 **Message Throughput panel** (id: 11, line 595) — add per-topic Kafka ingestion lines:
 ```json
@@ -281,7 +281,7 @@ func (s *Server) GetKafkaConsumer() any {
 
 **Remove `kafka` import** if no other test references it (line 9):
 ```go
-"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+"github.com/Toniq-Labs/sukko/internal/shared/kafka"
 ```
 
 ### 8. `ws/cmd/server/main.go` — Set kafka connected status

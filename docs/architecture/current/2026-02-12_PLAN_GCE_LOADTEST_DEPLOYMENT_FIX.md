@@ -3,8 +3,8 @@
 ## Context
 
 The GCE loadtest tasks (`taskfiles/gce.yml`) and shell scripts (`deployments/wsloadtest/`) have several issues that prevent deploying the loadtest VM against the dev GKE cluster:
-- Wrong project ID (`trim-array-480700-j7` → should be `odin-9e902`)
-- Wrong registry repo (`odin` → should be `odin-ws`)
+- Wrong project ID (`trim-array-480700-j7` → should be `sukko-9e902`)
+- Wrong registry repo (`sukko` → should be `sukko`)
 - `loadtest:run` doesn't pass WS_URL or other required env vars to the container
 - `deploy.sh` requires a `config.env` file but `gce.yml` bypasses it with inline commands
 - No build/push task for wsloadtest image
@@ -32,16 +32,16 @@ The GCE loadtest tasks (`taskfiles/gce.yml`) and shell scripts (`deployments/wsl
 ```
 **To:**
 ```yaml
-  GCE_PROJECT: '{{.PROJECT | default "odin-9e902"}}'
+  GCE_PROJECT: '{{.PROJECT | default "sukko-9e902"}}'
 ```
 
 **Change:**
 ```yaml
-  GCE_REGISTRY: 'us-central1-docker.pkg.dev/{{.GCE_PROJECT}}/odin'
+  GCE_REGISTRY: 'us-central1-docker.pkg.dev/{{.GCE_PROJECT}}/sukko'
 ```
 **To:**
 ```yaml
-  GCE_REGISTRY: 'us-central1-docker.pkg.dev/{{.GCE_PROJECT}}/odin-ws'
+  GCE_REGISTRY: 'us-central1-docker.pkg.dev/{{.GCE_PROJECT}}/sukko'
 ```
 
 ### 1b. Add foundation TF dir and dynamic vars
@@ -127,8 +127,8 @@ The current task just shells out to `deploy.sh` which requires `config.env`. Ins
             -e TARGET_CONNECTIONS={{.CONNECTIONS}} \
             -e RAMP_RATE={{.RAMP}} \
             -e DURATION={{.DURATION}} \
-            -e TENANT_ID=odin \
-            -e CHANNELS=odin.BTC.trade,odin.ETH.trade,odin.SOL.trade \
+            -e TENANT_ID=sukko \
+            -e CHANNELS=sukko.BTC.trade,sukko.ETH.trade,sukko.SOL.trade \
             -e CHANNELS_PER_CLIENT=1 \
             -e LOG_LEVEL=info \
             {{.GCE_REGISTRY}}/wsloadtest:latest
@@ -205,14 +205,14 @@ Add `push:loadtest` to the `push:all` task:
 
 Update to reflect correct project and dev network:
 ```
-PROJECT=odin-9e902
+PROJECT=sukko-9e902
 ZONE=us-central1-a
-NETWORK=odin-ws-dev-vpc
-SUBNET=odin-ws-dev-vpc-subnet
+NETWORK=sukko-dev-vpc
+SUBNET=sukko-dev-vpc-subnet
 WS_URL=
 MACHINE_TYPE=e2-standard-8
 VM_NAME=wsloadtest-dev
-REGISTRY=us-central1-docker.pkg.dev/${PROJECT}/odin-ws
+REGISTRY=us-central1-docker.pkg.dev/${PROJECT}/sukko
 IMAGE_TAG=latest
 TARGET_CONNECTIONS=5000
 RAMP_RATE=100
@@ -226,13 +226,13 @@ DURATION=10m
 These scripts are now secondary to the taskfile (which is self-contained), but fix them for consistency:
 
 **`deployments/wsloadtest/deploy.sh`** line 44:
-- `REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/odin}"` → `REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/odin-ws}"`
+- `REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/sukko}"` → `REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/sukko}"`
 
 **`deployments/wsloadtest/destroy.sh`** line 13:
-- `PROJECT="${PROJECT:-trim-array-480700-j7}"` → `PROJECT="${PROJECT:-odin-9e902}"`
+- `PROJECT="${PROJECT:-trim-array-480700-j7}"` → `PROJECT="${PROJECT:-sukko-9e902}"`
 
 **`deployments/wsloadtest/logs.sh`** line 10:
-- `PROJECT="${PROJECT:-trim-array-480700-j7}"` → `PROJECT="${PROJECT:-odin-9e902}"`
+- `PROJECT="${PROJECT:-trim-array-480700-j7}"` → `PROJECT="${PROJECT:-sukko-9e902}"`
 
 **`deployments/wsloadtest/startup-script.sh`** — rewrite to only do kernel tuning, docker install, and image pre-pull (no auto-run):
 ```bash
@@ -246,7 +246,7 @@ get_metadata() {
 }
 
 REGISTRY=$(get_metadata REGISTRY)
-REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/odin-9e902/odin-ws}"
+REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/sukko-9e902/sukko}"
 
 echo "=== wsloadtest VM startup ==="
 echo "Registry: $REGISTRY"
@@ -290,7 +290,7 @@ task k8s:build ENV=dev  # push:all now includes wsloadtest
 
 # 2. Deploy loadtest VM (kernel tuning + docker install + image pre-pull only)
 task gce:loadtest:deploy ENV=dev
-# Expected: VM created in odin-ws-dev-vpc, no loadtest running yet
+# Expected: VM created in sukko-dev-vpc, no loadtest running yet
 
 # 3. Check startup logs (kernel tuning, docker install, image pull)
 task gce:loadtest:logs ENV=dev

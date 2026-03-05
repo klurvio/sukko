@@ -10,7 +10,7 @@
 
 1. Implement the local port cleanup plan - remove port-forward dependencies for Kind development
 2. Investigate the 210-second WebSocket disconnect issue (ping/pong timeout)
-3. Create deployment plan for GCP dev environment in project `odin-9e902`
+3. Create deployment plan for GCP dev environment in project `sukko-9e902`
 4. Update configuration files for new GCP project
 
 ---
@@ -50,7 +50,7 @@ The pong must traverse 8 network hops and is getting lost.
 
 ### 3. GCP Dev Deployment Plan (Complete)
 
-Created comprehensive deployment plan for project `odin-9e902`.
+Created comprehensive deployment plan for project `sukko-9e902`.
 
 ### 4. Configuration Updates (Complete)
 
@@ -70,7 +70,7 @@ Updated all config files to use new GCP project ID.
 
 2. **Ping/Pong Issue**: The superseded plan (`2026-02-10_PLAN_GATEWAY_PING_PONG.md`) was rejected because moving ping/pong to gateway is NOT industry standard. The current approach relies on transparent frame proxying, which has issues.
 
-3. **GCP Project Isolation**: New deployment uses completely separate GKE cluster `odin-ws-dev` to avoid any impact on production resources in `odin-9e902`.
+3. **GCP Project Isolation**: New deployment uses completely separate GKE cluster `sukko-dev` to avoid any impact on production resources in `sukko-9e902`.
 
 4. **Channel Rules API Mismatch**: The provisioning API expects `public` and `group_mappings` but the taskfile sends `public_patterns` and `user_scoped_patterns`. This is a minor bug to fix later.
 
@@ -102,10 +102,10 @@ WS_PING_PERIOD: 90s
 ### GCP Project Configuration
 
 ```
-Project ID: odin-9e902
-Cluster Name: odin-ws-dev
-Namespace: odin-dev
-Registry: us-central1-docker.pkg.dev/odin-9e902/odin
+Project ID: sukko-9e902
+Cluster Name: sukko-dev
+Namespace: sukko-dev
+Registry: us-central1-docker.pkg.dev/sukko-9e902/sukko
 Zone: us-central1-a
 ```
 
@@ -124,7 +124,7 @@ Zone: us-central1-a
 
 ### Issue 3: Old Project ID in Configs
 **Problem:** Config files referenced old project `trim-array-480700-j7`
-**Solution:** Updated terraform.tfvars, dev.yaml, and k8s.yml to use `odin-9e902`
+**Solution:** Updated terraform.tfvars, dev.yaml, and k8s.yml to use `sukko-9e902`
 
 ---
 
@@ -158,12 +158,12 @@ Branch: `refactor/taskfile-provisioning-consolidation`
 ### Near Term
 2. **Deploy to GCP dev** - Follow plan in `2026-02-10_PLAN_GCP_DEV_DEPLOYMENT.md`:
    ```bash
-   gcloud config set project odin-9e902
+   gcloud config set project sukko-9e902
    gcloud container clusters list  # Verify existing resources
    task k8s:setup ENV=dev
    ```
 
-3. **Create Artifact Registry** in odin-9e902 if it doesn't exist
+3. **Create Artifact Registry** in sukko-9e902 if it doesn't exist
 
 ### Future Considerations
 4. Fix channel rules API request format in taskfile
@@ -176,13 +176,13 @@ Branch: `refactor/taskfile-provisioning-consolidation`
 
 | File | Description |
 |------|-------------|
-| `deployments/helm/odin/values/local.yaml` | Added Redpanda NodePort, Grafana NodePort, ping/pong config |
+| `deployments/helm/sukko/values/local.yaml` | Added Redpanda NodePort, Grafana NodePort, ping/pong config |
 | `deployments/k8s/local/kind-config.yaml` | Reduced to 4 port mappings |
 | `taskfiles/local.yml` | Removed port-forward tasks, simplified provisioning |
 | `ws/internal/gateway/proxy.go` | Fixed if-else-chain lint issue |
-| `deployments/terraform/environments/standard/dev/terraform.tfvars` | Updated project_id to odin-9e902 |
-| `deployments/helm/odin/values/standard/dev.yaml` | Updated imageRegistry for odin-9e902 |
-| `taskfiles/k8s.yml` | Updated K8S_PROJECT default to odin-9e902 |
+| `deployments/terraform/environments/standard/dev/terraform.tfvars` | Updated project_id to sukko-9e902 |
+| `deployments/helm/sukko/values/standard/dev.yaml` | Updated imageRegistry for sukko-9e902 |
+| `taskfiles/k8s.yml` | Updated K8S_PROJECT default to sukko-9e902 |
 | `docs/architecture/current/2026-02-10_PLAN_GCP_DEV_DEPLOYMENT.md` | Created GCP deployment plan |
 
 ---
@@ -204,7 +204,7 @@ task local:loadtest:run CONNECTIONS=1 DURATION=10m RAMP=1
 
 ### GCP Deployment
 ```bash
-gcloud config set project odin-9e902
+gcloud config set project sukko-9e902
 gcloud container clusters list  # CHECK EXISTING FIRST!
 task k8s:setup ENV=dev
 ```

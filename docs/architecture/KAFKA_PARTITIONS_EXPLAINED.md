@@ -149,7 +149,7 @@ A **consumer group** is a set of consumers that work together to consume a topic
 #### Scenario 1: One Instance (Current)
 
 ```
-Kafka Topic: odin.trades
+Kafka Topic: sukko.trades
 ┌─────────────┬─────────────┬─────────────┬─────────────┐
 │ Partition 0 │ Partition 1 │ Partition 2 │ Partition 3 │
 │ [M1][M5]    │ [M2][M6]    │ [M3][M7]    │ [M4][M8]    │
@@ -172,7 +172,7 @@ Kafka Topic: odin.trades
 #### Scenario 2: Two Instances Join
 
 ```
-Kafka Topic: odin.trades
+Kafka Topic: sukko.trades
 ┌─────────────┬─────────────┬─────────────┬─────────────┐
 │ Partition 0 │ Partition 1 │ Partition 2 │ Partition 3 │
 │ [M1][M5]    │ [M2][M6]    │ [M3][M7]    │ [M4][M8]    │
@@ -200,7 +200,7 @@ Consumer Group: ws-server-group (2 members)
 #### Scenario 3: Three Instances Join
 
 ```
-Kafka Topic: odin.trades (4 partitions)
+Kafka Topic: sukko.trades (4 partitions)
 
 Consumer Group: ws-server-group (3 members)
   - Consumer A (Instance 1): Partition 0
@@ -217,7 +217,7 @@ Instance 3: Receives messages from Partitions 2 AND 3
 #### Scenario 4: Five Instances Join (Over-Provisioned)
 
 ```
-Kafka Topic: odin.trades (4 partitions)
+Kafka Topic: sukko.trades (4 partitions)
 
 Consumer Group: ws-server-group (5 members)
   - Consumer A (Instance 1): Partition 0
@@ -240,14 +240,14 @@ Instance 5 sits IDLE (no work to do)
 **All topics configured with 12 partitions each** (configured in `deployments/v1/shared/kafka-topics.env`):
 
 ```
-1. odin.trades       → 12 partitions
-2. odin.liquidity    → 12 partitions
-3. odin.metadata     → 12 partitions
-4. odin.social       → 12 partitions
-5. odin.community    → 12 partitions
-6. odin.creation     → 12 partitions
-7. odin.analytics    → 12 partitions
-8. odin.balances     → 12 partitions
+1. sukko.trades       → 12 partitions
+2. sukko.liquidity    → 12 partitions
+3. sukko.metadata     → 12 partitions
+4. sukko.social       → 12 partitions
+5. sukko.community    → 12 partitions
+6. sukko.creation     → 12 partitions
+7. sukko.analytics    → 12 partitions
+8. sukko.balances     → 12 partitions
 
 TOTAL: 96 partitions across 8 topics
 ```
@@ -387,13 +387,13 @@ Use FEWER partitions (3-6) when:
   ├─ Very low traffic topic (<100 msg/sec)
   ├─ Strong ordering requirements (fewer partitions = easier ordering)
   ├─ Small team/simple deployment (1-2 instances max)
-  └─ Example: odin.metadata (if very low volume)
+  └─ Example: sukko.metadata (if very low volume)
 
 Use MORE partitions (24-30) when:
   ├─ Extremely high traffic (>10,000 msg/sec)
   ├─ Need to scale to 10+ instances
   ├─ Messages are very small (high msg/sec, low MB/sec)
-  └─ Example: If odin.trades becomes 100x volume
+  └─ Example: If sukko.trades becomes 100x volume
 
 Keep 12 partitions when:
   ├─ Medium-high traffic (100-10,000 msg/sec) ← Your case
@@ -446,7 +446,7 @@ Netflix:
   ├─ User actions: 12 partitions
   └─ Metadata updates: 3 partitions
 
-Your system (Odin):
+Your system (Sukko):
   ├─ Trades: 12 partitions (medium-high volume, real-time)
   ├─ Liquidity: 12 partitions (medium volume, frequent updates)
   └─ Social: 12 partitions (lower volume, but keep consistent)
@@ -500,14 +500,14 @@ Member: Consumer-vm1-abc123
 
 Assigned Partitions: ALL 96
 ┌─────────────────────────────────────────────────────────┐
-│ odin.trades:      [0,1,2,3,4,5,6,7,8,9,10,11]          │
-│ odin.liquidity:   [0,1,2,3,4,5,6,7,8,9,10,11]          │
-│ odin.metadata:    [0,1,2,3,4,5,6,7,8,9,10,11]          │
-│ odin.social:      [0,1,2,3,4,5,6,7,8,9,10,11]          │
-│ odin.community:   [0,1,2,3,4,5,6,7,8,9,10,11]          │
-│ odin.creation:    [0,1,2,3,4,5,6,7,8,9,10,11]          │
-│ odin.analytics:   [0,1,2,3,4,5,6,7,8,9,10,11]          │
-│ odin.balances:    [0,1,2,3,4,5,6,7,8,9,10,11]          │
+│ sukko.trades:      [0,1,2,3,4,5,6,7,8,9,10,11]          │
+│ sukko.liquidity:   [0,1,2,3,4,5,6,7,8,9,10,11]          │
+│ sukko.metadata:    [0,1,2,3,4,5,6,7,8,9,10,11]          │
+│ sukko.social:      [0,1,2,3,4,5,6,7,8,9,10,11]          │
+│ sukko.community:   [0,1,2,3,4,5,6,7,8,9,10,11]          │
+│ sukko.creation:    [0,1,2,3,4,5,6,7,8,9,10,11]          │
+│ sukko.analytics:   [0,1,2,3,4,5,6,7,8,9,10,11]          │
+│ sukko.balances:    [0,1,2,3,4,5,6,7,8,9,10,11]          │
 └─────────────────────────────────────────────────────────┘
 
 Result: Instance 1 processes 100% of all messages
@@ -523,27 +523,27 @@ Members: Consumer-vm1-abc123, Consumer-vm2-def456
 
 INSTANCE 1 Assigned Partitions: 48
 ┌──────────────────────────────────────────────────────────┐
-│ odin.trades:      [0,2,4,6,8,10]       ← 6 of 12        │
-│ odin.liquidity:   [0,2,4,6,8,10]       ← 6 of 12        │
-│ odin.metadata:    [0,2,4,6,8,10]       ← 6 of 12        │
-│ odin.social:      [0,2,4,6,8,10]       ← 6 of 12        │
-│ odin.community:   [0,2,4,6,8,10]       ← 6 of 12        │
-│ odin.creation:    [0,2,4,6,8,10]       ← 6 of 12        │
-│ odin.analytics:   [0,2,4,6,8,10]       ← 6 of 12        │
-│ odin.balances:    [0,2,4,6,8,10]       ← 6 of 12        │
+│ sukko.trades:      [0,2,4,6,8,10]       ← 6 of 12        │
+│ sukko.liquidity:   [0,2,4,6,8,10]       ← 6 of 12        │
+│ sukko.metadata:    [0,2,4,6,8,10]       ← 6 of 12        │
+│ sukko.social:      [0,2,4,6,8,10]       ← 6 of 12        │
+│ sukko.community:   [0,2,4,6,8,10]       ← 6 of 12        │
+│ sukko.creation:    [0,2,4,6,8,10]       ← 6 of 12        │
+│ sukko.analytics:   [0,2,4,6,8,10]       ← 6 of 12        │
+│ sukko.balances:    [0,2,4,6,8,10]       ← 6 of 12        │
 └──────────────────────────────────────────────────────────┘
 Total: 48 partitions (50% of 96)
 
 INSTANCE 2 Assigned Partitions: 48
 ┌──────────────────────────────────────────────────────────┐
-│ odin.trades:      [1,3,5,7,9,11]       ← 6 of 12        │
-│ odin.liquidity:   [1,3,5,7,9,11]       ← 6 of 12        │
-│ odin.metadata:    [1,3,5,7,9,11]       ← 6 of 12        │
-│ odin.social:      [1,3,5,7,9,11]       ← 6 of 12        │
-│ odin.community:   [1,3,5,7,9,11]       ← 6 of 12        │
-│ odin.creation:    [1,3,5,7,9,11]       ← 6 of 12        │
-│ odin.analytics:   [1,3,5,7,9,11]       ← 6 of 12        │
-│ odin.balances:    [1,3,5,7,9,11]       ← 6 of 12        │
+│ sukko.trades:      [1,3,5,7,9,11]       ← 6 of 12        │
+│ sukko.liquidity:   [1,3,5,7,9,11]       ← 6 of 12        │
+│ sukko.metadata:    [1,3,5,7,9,11]       ← 6 of 12        │
+│ sukko.social:      [1,3,5,7,9,11]       ← 6 of 12        │
+│ sukko.community:   [1,3,5,7,9,11]       ← 6 of 12        │
+│ sukko.creation:    [1,3,5,7,9,11]       ← 6 of 12        │
+│ sukko.analytics:   [1,3,5,7,9,11]       ← 6 of 12        │
+│ sukko.balances:    [1,3,5,7,9,11]       ← 6 of 12        │
 └──────────────────────────────────────────────────────────┘
 Total: 48 partitions (50% of 96)
 
@@ -560,13 +560,13 @@ Let's trace a specific message:
 
 ```
 PRODUCER publishes:
-  Topic: odin.trades
+  Topic: sukko.trades
   Key: "BTC"  (token ID)
   Value: {"price": 50000, "volume": 1.5, ...}
 
   Kafka calculates: hash("BTC") % 4 = Partition 2
 
-  Message written to: odin.trades-2
+  Message written to: sukko.trades-2
 
 CONSUMPTION:
   ✓ Instance 1 is assigned partition 2
@@ -580,11 +580,11 @@ CONSUMPTION:
 
 ```
 MESSAGE 1:
-  Topic: odin.trades
+  Topic: sukko.trades
   Key: "BTC"
   Kafka calculates: hash("BTC") % 4 = Partition 2
 
-  Message written to: odin.trades-2
+  Message written to: sukko.trades-2
 
   ✓ Instance 1 is assigned partition 2 (from assignment above)
   ✓ Instance 1 consumes message
@@ -597,11 +597,11 @@ MESSAGE 1:
 ────────────────────────────────────────────────
 
 MESSAGE 2:
-  Topic: odin.trades
+  Topic: sukko.trades
   Key: "ETH"
   Kafka calculates: hash("ETH") % 4 = Partition 1
 
-  Message written to: odin.trades-1
+  Message written to: sukko.trades-1
 
   ✗ Instance 1 is NOT assigned partition 1
   ✓ Instance 2 is assigned partition 1
@@ -624,7 +624,7 @@ Kafka supports different strategies for assigning partitions:
 Partitions divided by topic, then split among consumers:
 
 ```
-Topic: odin.trades (partitions 0, 1, 2, 3)
+Topic: sukko.trades (partitions 0, 1, 2, 3)
 Consumers: 2
 
 Range assignment:
@@ -687,8 +687,8 @@ T=10.1s: REBALANCE PHASE 1 - Revocation
   [4] Coordinator sends "Revoke" to Instance 1
       ├─ Instance 1 STOPS consuming
       ├─ Commits current offsets to Kafka:
-      │   odin.trades-0: offset 5000
-      │   odin.trades-1: offset 4800
+      │   sukko.trades-0: offset 5000
+      │   sukko.trades-1: offset 4800
       │   ... (all 22 partitions)
       └─ Waits for new assignment
 
@@ -706,12 +706,12 @@ T=10.5s: REBALANCE PHASE 2 - Assignment
 T=11s: REBALANCE PHASE 3 - Resume
   ↓
   [8] Instance 1 receives assignment
-      ├─ Assigned: odin.trades [0, 2], odin.liquidity [0, 2], ...
+      ├─ Assigned: sukko.trades [0, 2], sukko.liquidity [0, 2], ...
       ├─ Looks up last committed offsets
-      └─ Resumes from: odin.trades-0 offset 5000, etc.
+      └─ Resumes from: sukko.trades-0 offset 5000, etc.
 
   [9] Instance 2 receives assignment
-      ├─ Assigned: odin.trades [1, 3], odin.liquidity [1], ...
+      ├─ Assigned: sukko.trades [1, 3], sukko.liquidity [1], ...
       ├─ No previous offsets (new consumer)
       └─ Starts from: END (configured as "latest")
 
@@ -744,7 +744,7 @@ T=11.5s: Consumption resumes
 ### Visualizing Offset Management
 
 ```
-Kafka Partition: odin.trades-0
+Kafka Partition: sukko.trades-0
 ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
 │ 100 │ 101 │ 102 │ 103 │ 104 │ 105 │ 106 │ 107 │ ...
 └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘
@@ -778,19 +778,19 @@ STEP 1: Producer publishes
   ├─ Token: "BTC"
   ├─ Event: "trade"
   ├─ Data: {"price": 50000, ...}
-  └─ Kafka writes to: odin.trades-2 (hash("BTC") % 4 = 2)
+  └─ Kafka writes to: sukko.trades-2 (hash("BTC") % 4 = 2)
 
 STEP 2: Kafka partition assignment
   ├─ Instance 1 owns: partitions [0, 2]  ← Includes partition 2!
   └─ Instance 2 owns: partitions [1, 3]
 
 STEP 3: Instance 1's consumer fetches
-  ├─ Consumer reads from odin.trades-2
+  ├─ Consumer reads from sukko.trades-2
   ├─ Gets message: {"token": "BTC", "event": "trade", ...}
   └─ Calls: routeMessage("BTC", "trade", data)
 
 STEP 4: routeMessage() in Instance 1
-  ├─ Creates subject: "odin.token.BTC.trade"
+  ├─ Creates subject: "sukko.token.BTC.trade"
   ├─ Creates BroadcastMessage
   └─ Calls: broadcastBus.Publish(msg)
       │
@@ -843,7 +843,7 @@ MISMATCH:         Kafka distributes messages across instances,
 
 ```go
 func (p *KafkaConsumerPool) routeMessage(tokenID string, eventType string, message []byte) {
-    subject := fmt.Sprintf("odin.token.%s.%s", tokenID, eventType)
+    subject := fmt.Sprintf("sukko.token.%s.%s", tokenID, eventType)
     broadcastMsg := &BroadcastMessage{
         Subject: subject,
         Message: message,
@@ -986,7 +986,7 @@ ALL messages ALL messages ✅
 
 ```
 Your Setup:
-├─ 8 Kafka topics (odin.trades, odin.liquidity, etc.)
+├─ 8 Kafka topics (sukko.trades, sukko.liquidity, etc.)
 ├─ 12 partitions per topic = 96 partitions total
 ├─ 1 consumer group: "ws-server-group"
 └─ N instances (you want 2+)
