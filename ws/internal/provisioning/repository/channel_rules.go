@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/shared/types"
@@ -28,12 +29,13 @@ func (r *PostgresChannelRulesRepository) Create(ctx context.Context, tenantID st
 		return fmt.Errorf("marshal rules: %w", err)
 	}
 
+	now := time.Now()
 	query := `
 		INSERT INTO tenant_channel_rules (tenant_id, rules, created_at, updated_at)
-		VALUES ($1, $2, NOW(), NOW())
+		VALUES ($1, $2, $3, $3)
 	`
 
-	_, err = r.db.ExecContext(ctx, query, tenantID, rulesJSON)
+	_, err = r.db.ExecContext(ctx, query, tenantID, rulesJSON, now)
 	if err != nil {
 		return fmt.Errorf("create channel rules: %w", err)
 	}
@@ -90,14 +92,15 @@ func (r *PostgresChannelRulesRepository) Update(ctx context.Context, tenantID st
 	}
 
 	// Use upsert (INSERT ON CONFLICT) to handle both create and update
+	now := time.Now()
 	query := `
 		INSERT INTO tenant_channel_rules (tenant_id, rules, created_at, updated_at)
-		VALUES ($1, $2, NOW(), NOW())
+		VALUES ($1, $2, $3, $3)
 		ON CONFLICT (tenant_id)
-		DO UPDATE SET rules = $2, updated_at = NOW()
+		DO UPDATE SET rules = $2, updated_at = $3
 	`
 
-	_, err = r.db.ExecContext(ctx, query, tenantID, rulesJSON)
+	_, err = r.db.ExecContext(ctx, query, tenantID, rulesJSON, now)
 	if err != nil {
 		return fmt.Errorf("update channel rules: %w", err)
 	}

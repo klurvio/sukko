@@ -13,16 +13,16 @@ CREATE TABLE IF NOT EXISTS tenant_oidc_config (
     jwks_url        TEXT CHECK(jwks_url IS NULL OR jwks_url LIKE 'https://%'),
     audience        TEXT CHECK(audience IS NULL OR length(audience) <= 256),
     enabled         INTEGER NOT NULL DEFAULT 1,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at      DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Tenant channel access rules
 CREATE TABLE IF NOT EXISTS tenant_channel_rules (
     tenant_id       TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
     rules           TEXT NOT NULL DEFAULT '{"public": [], "group_mappings": {}, "default": []}',
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at      DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 -- ====================

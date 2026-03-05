@@ -141,11 +141,12 @@ func (r *PostgresKeyRepository) ListByTenant(ctx context.Context, tenantID strin
 func (r *PostgresKeyRepository) Revoke(ctx context.Context, keyID string) error {
 	query := `
 		UPDATE tenant_keys
-		SET is_active = false, revoked_at = NOW()
+		SET is_active = false, revoked_at = $2
 		WHERE key_id = $1 AND is_active = true
 	`
 
-	result, err := r.db.ExecContext(ctx, query, keyID)
+	now := time.Now()
+	result, err := r.db.ExecContext(ctx, query, keyID, now)
 	if err != nil {
 		return fmt.Errorf("revoke key: %w", err)
 	}
@@ -165,11 +166,12 @@ func (r *PostgresKeyRepository) Revoke(ctx context.Context, keyID string) error 
 func (r *PostgresKeyRepository) RevokeAllForTenant(ctx context.Context, tenantID string) error {
 	query := `
 		UPDATE tenant_keys
-		SET is_active = false, revoked_at = NOW()
+		SET is_active = false, revoked_at = $2
 		WHERE tenant_id = $1 AND is_active = true
 	`
 
-	_, err := r.db.ExecContext(ctx, query, tenantID)
+	now := time.Now()
+	_, err := r.db.ExecContext(ctx, query, tenantID, now)
 	if err != nil {
 		return fmt.Errorf("revoke keys for tenant: %w", err)
 	}
@@ -185,10 +187,11 @@ func (r *PostgresKeyRepository) GetActiveKeys(ctx context.Context) ([]*provision
 		FROM tenant_keys
 		WHERE is_active = true
 		  AND revoked_at IS NULL
-		  AND (expires_at IS NULL OR expires_at > NOW())
+		  AND (expires_at IS NULL OR expires_at > $1)
 	`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	now := time.Now()
+	rows, err := r.db.QueryContext(ctx, query, now)
 	if err != nil {
 		return nil, fmt.Errorf("query active keys: %w", err)
 	}

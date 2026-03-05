@@ -102,13 +102,14 @@ func (r *PostgresTopicRepository) ListByTenant(ctx context.Context, tenantID str
 
 // MarkDeleted marks a topic category as deleted.
 func (r *PostgresTopicRepository) MarkDeleted(ctx context.Context, tenantID, category string) error {
+	now := time.Now()
 	query := `
 		UPDATE tenant_categories
-		SET deleted_at = NOW()
+		SET deleted_at = $3
 		WHERE tenant_id = $1 AND category = $2 AND deleted_at IS NULL
 	`
 
-	result, err := r.db.ExecContext(ctx, query, tenantID, category)
+	result, err := r.db.ExecContext(ctx, query, tenantID, category, now)
 	if err != nil {
 		return fmt.Errorf("mark category deleted: %w", err)
 	}

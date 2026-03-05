@@ -73,7 +73,11 @@ func openSQLite(cfg DatabaseConfig) (*sql.DB, error) {
 		return nil, fmt.Errorf("DATABASE_PATH is required for sqlite driver")
 	}
 
-	db, err := sql.Open("sqlite", cfg.Path)
+	// DSN parameters:
+	// _time_format=sqlite  → write time.Time as "YYYY-MM-DD HH:MM:SS±HH:MM"
+	// _texttotime          → scan DATETIME/DATE/TIMESTAMP TEXT columns back to time.Time
+	dsn := fmt.Sprintf("file:%s?_time_format=sqlite&_texttotime=1", cfg.Path)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}

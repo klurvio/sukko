@@ -112,15 +112,17 @@ func (r *PostgresTenantRepository) Get(ctx context.Context, tenantID string) (*p
 func (r *PostgresTenantRepository) Update(ctx context.Context, tenant *provisioning.Tenant) error {
 	query := `
 		UPDATE tenants
-		SET name = $2, consumer_type = $3, metadata = $4, updated_at = NOW()
+		SET name = $2, consumer_type = $3, metadata = $4, updated_at = $5
 		WHERE id = $1 AND status != 'deleted'
 	`
 
+	now := time.Now()
 	result, err := r.db.ExecContext(ctx, query,
 		tenant.ID,
 		tenant.Name,
 		tenant.ConsumerType,
 		tenant.Metadata,
+		now,
 	)
 	if err != nil {
 		return fmt.Errorf("update tenant: %w", err)
@@ -228,35 +230,37 @@ func (r *PostgresTenantRepository) UpdateStatus(ctx context.Context, tenantID st
 	var query string
 	var args []any
 
+	now := time.Now()
+
 	switch status {
 	case provisioning.StatusSuspended:
 		query = `
 			UPDATE tenants
-			SET status = $2, suspended_at = NOW(), updated_at = NOW()
+			SET status = $2, suspended_at = $3, updated_at = $3
 			WHERE id = $1 AND status = 'active'
 		`
-		args = []any{tenantID, status}
+		args = []any{tenantID, status, now}
 	case provisioning.StatusActive:
 		query = `
 			UPDATE tenants
-			SET status = $2, suspended_at = NULL, updated_at = NOW()
+			SET status = $2, suspended_at = NULL, updated_at = $3
 			WHERE id = $1 AND status IN ('suspended')
 		`
-		args = []any{tenantID, status}
+		args = []any{tenantID, status, now}
 	case provisioning.StatusDeprovisioning:
 		query = `
 			UPDATE tenants
-			SET status = $2, updated_at = NOW()
+			SET status = $2, updated_at = $3
 			WHERE id = $1 AND status IN ('active', 'suspended')
 		`
-		args = []any{tenantID, status}
+		args = []any{tenantID, status, now}
 	case provisioning.StatusDeleted:
 		query = `
 			UPDATE tenants
-			SET status = $2, deleted_at = NOW(), updated_at = NOW()
+			SET status = $2, deleted_at = $3, updated_at = $3
 			WHERE id = $1 AND status = 'deprovisioning'
 		`
-		args = []any{tenantID, status}
+		args = []any{tenantID, status, now}
 	default:
 		return fmt.Errorf("invalid status transition to: %s", status)
 	}
@@ -281,11 +285,12 @@ func (r *PostgresTenantRepository) UpdateStatus(ctx context.Context, tenantID st
 func (r *PostgresTenantRepository) SetDeprovisionAt(ctx context.Context, tenantID string, deprovisionAt *provisioning.Time) error {
 	query := `
 		UPDATE tenants
-		SET deprovision_at = $2, updated_at = NOW()
+		SET deprovision_at = $2, updated_at = $3
 		WHERE id = $1 AND status = 'deprovisioning'
 	`
 
-	result, err := r.db.ExecContext(ctx, query, tenantID, deprovisionAt)
+	now := time.Now()
+	result, err := r.db.ExecContext(ctx, query, tenantID, deprovisionAt, now)
 	if err != nil {
 		return fmt.Errorf("set deprovision_at: %w", err)
 	}
@@ -309,10 +314,11 @@ func (r *PostgresTenantRepository) GetTenantsForDeletion(ctx context.Context) ([
 		FROM tenants
 		WHERE status = 'deprovisioning'
 		  AND deprovision_at IS NOT NULL
-		  AND deprovision_at <= NOW()
+		  AND deprovision_at <= $1
 	`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	now := time.Now()
+	rows, err := r.db.QueryContext(ctx, query, now)
 	if err != nil {
 		return nil, fmt.Errorf("query tenants for deletion: %w", err)
 	}

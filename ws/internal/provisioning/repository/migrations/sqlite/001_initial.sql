@@ -13,11 +13,11 @@ CREATE TABLE IF NOT EXISTS tenants (
     status          TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'suspended', 'deprovisioning', 'deleted')),
     consumer_type   TEXT NOT NULL DEFAULT 'shared' CHECK(consumer_type IN ('shared', 'dedicated')),
     metadata        TEXT NOT NULL DEFAULT '{}',
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    suspended_at    TEXT,
-    deprovision_at  TEXT,
-    deleted_at      TEXT
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    suspended_at    DATETIME,
+    deprovision_at  DATETIME,
+    deleted_at      DATETIME
 );
 
 -- Tenant public keys for JWT validation
@@ -27,9 +27,9 @@ CREATE TABLE IF NOT EXISTS tenant_keys (
     algorithm       TEXT NOT NULL CHECK(algorithm IN ('ES256', 'RS256', 'EdDSA')),
     public_key      TEXT NOT NULL CHECK(length(public_key) > 0),
     is_active       INTEGER NOT NULL DEFAULT 1,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at      TEXT,
-    revoked_at      TEXT
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    expires_at      DATETIME,
+    revoked_at      DATETIME
 );
 
 -- Tenant topic categories
@@ -39,8 +39,8 @@ CREATE TABLE IF NOT EXISTS tenant_categories (
     category        TEXT NOT NULL,
     partitions      INTEGER NOT NULL DEFAULT 3,
     retention_ms    INTEGER NOT NULL DEFAULT 604800000,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    deleted_at      TEXT,
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    deleted_at      DATETIME,
 
     UNIQUE(tenant_id, category)
 );
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS tenant_quotas (
     max_storage_bytes       INTEGER NOT NULL DEFAULT 10737418240 CHECK(max_storage_bytes >= 0),
     producer_byte_rate      INTEGER NOT NULL DEFAULT 10485760 CHECK(producer_byte_rate >= 0),
     consumer_byte_rate      INTEGER NOT NULL DEFAULT 52428800 CHECK(consumer_byte_rate >= 0),
-    updated_at              TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at              DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Audit log (append-only)
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS provisioning_audit (
     actor_type      TEXT NOT NULL DEFAULT 'user' CHECK(actor_type IN ('user', 'system', 'api_key')),
     ip_address      TEXT,
     details         TEXT NOT NULL DEFAULT '{}',
-    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 -- ====================
