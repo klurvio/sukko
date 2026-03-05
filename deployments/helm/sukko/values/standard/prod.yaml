@@ -31,7 +31,7 @@ ws-gateway:
       memory: "512Mi"
   service:
     type: LoadBalancer
-    port: 443
+    port: 80
     targetPort: 3000
   tolerations:
     - key: "cloud.google.com/gke-spot"

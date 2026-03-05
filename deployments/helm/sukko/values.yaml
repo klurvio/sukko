@@ -69,7 +69,7 @@ ws-gateway:
       memory: "256Mi"
   service:
     type: LoadBalancer
-    port: 443
+    port: 80
     targetPort: 3000
 
 # =============================================================================

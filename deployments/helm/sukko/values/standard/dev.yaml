@@ -32,7 +32,7 @@ ws-gateway:
       memory: "256Mi"
   service:
     type: LoadBalancer
-    port: 443
+    port: 80
     targetPort: 3000
     loadBalancerIP: ""  # Injected via --set at deploy time
   tolerations:
@@ -125,19 +125,10 @@ redpanda:
       cloud.google.com/load-balancer-type: "Internal"
 
 # ── PostgreSQL ──────────────────────────────────────────────────────
+# Disabled: provisioning uses SQLite by default (global.postgresql.enabled=false).
+# Enable and set global.postgresql.enabled=true to switch provisioning to PostgreSQL.
 postgresql:
-  enabled: true
-  auth:
-    database: sukko_provisioning
-    username: sukko
-  persistence:
-    enabled: true
-    size: 1Gi
-  tolerations:
-    - key: "cloud.google.com/gke-spot"
-      operator: "Equal"
-      value: "true"
-      effect: "NoSchedule"
+  enabled: false
 
 # ── NATS ────────────────────────────────────────────────────────────
 nats:

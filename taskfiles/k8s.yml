@@ -181,7 +181,7 @@ tasks:
         echo "Gateway (public):        $GATEWAY_IP"
         echo "Redpanda (VPC-internal): $REDPANDA_IP"
         echo ""
-        echo "WS_URL=wss://$GATEWAY_IP:443/ws"
+        echo "WS_URL=ws://$GATEWAY_IP/ws"
         echo "KAFKA_BROKERS=$REDPANDA_IP:9092"
 
   # ===========================================================================
