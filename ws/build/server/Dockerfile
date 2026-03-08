@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -X 'github.com/klurvio/sukko/internal/shared/version.Version=${VERSION}' \
     -X 'github.com/klurvio/sukko/internal/shared/version.CommitHash=${COMMIT_HASH}' \
     -X 'github.com/klurvio/sukko/internal/shared/version.BuildTime=${BUILD_TIME}'" \
-    -o /sukko-server ./cmd/server
+    -o /sukko ./cmd/server
 
 # Stage 2: Create the final, minimal image
 FROM alpine:latest
@@ -39,10 +39,10 @@ RUN addgroup -g 1000 -S sukko && \
 WORKDIR /app
 
 # Copy the static binary from the builder stage
-COPY --from=builder /sukko-server .
+COPY --from=builder /sukko .
 
 # Ensure binary is executable
-RUN chmod +x /app/sukko-server && chown sukko:sukko /app/sukko-server
+RUN chmod +x /app/sukko && chown sukko:sukko /app/sukko
 
 # Switch to non-root user
 USER sukko
@@ -56,4 +56,4 @@ EXPOSE 3005
 # --base-port: Base port for shards (default: 3002)
 # --lb-addr: Load balancer address (default: :3005)
 # --debug: Enable debug logging
-CMD ["./sukko-server", "--shards=3", "--base-port=3002", "--lb-addr=:3005"]
+CMD ["./sukko", "--shards=3", "--base-port=3002", "--lb-addr=:3005"]

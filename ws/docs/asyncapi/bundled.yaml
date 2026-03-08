@@ -1,6 +1,6 @@
 asyncapi: 3.0.0
 info:
-  title: Odin WebSocket Client API
+  title: Sukko WebSocket Client API
   version: 1.0.0
   description: >
     Real-time WebSocket API for subscribing to market data and publishing
@@ -187,7 +187,7 @@ info:
     | Publish validation | Gateway validates tenant + permissions | Server
     validates Kafka routing |
   contact:
-    name: Odin Platform Team
+    name: Sukko Platform Team
   license:
     name: Proprietary
 servers:
@@ -195,7 +195,7 @@ servers:
     host: '{host}:{port}'
     protocol: wss
     description: >-
-      Odin WebSocket Gateway — authenticates connections, validates tenant
+      Sukko WebSocket Gateway — authenticates connections, validates tenant
       isolation, and proxies to the internal WebSocket server.
     security:
       - type: http

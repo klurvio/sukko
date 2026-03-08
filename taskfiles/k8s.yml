@@ -212,10 +212,10 @@ tasks:
       - kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-monitoring-prometheus {{.K8S_PROMETHEUS_PORT}}:9090
 
   # ===========================================================================
-  # Provisioning (Kafka topics + DB tenant)
+  # Provisioning (routing rules + DB tenant)
   # ===========================================================================
   provision:create:
-    desc: Create sukko tenant + Kafka topics + channel rules
+    desc: Create sukko tenant + routing rules + channel rules
     cmds:
       - |
         lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
@@ -256,12 +256,12 @@ tasks:
         }
         echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
 
-        # Create Kafka topics (same 8 categories as local)
-        echo "Creating Kafka topics..."
-        RESULT=$(curl -sf -X POST $API/api/v1/tenants/sukko/topics \
+        # Set routing rules
+        echo "Setting routing rules..."
+        RESULT=$(curl -sf -X PUT $API/api/v1/tenants/sukko/routing-rules \
           -H "Content-Type: application/json" \
-          -d '{"categories": ["trade"]}' 2>&1) || {
-          echo "Topic creation failed: $RESULT"
+          -d '{"rules": [{"pattern": "*.trade", "topic_suffix": "trade"}]}' 2>&1) || {
+          echo "Routing rules failed: $RESULT"
         }
         echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
 
@@ -278,7 +278,7 @@ tasks:
         kill $PF_PID 2>/dev/null || true
 
   provision:status:
-    desc: Show tenants and topics via provisioning API
+    desc: Show tenants and routing rules via provisioning API
     cmds:
       - |
         lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
@@ -290,8 +290,8 @@ tasks:
         echo "=== Tenants ==="
         curl -s $API/api/v1/tenants | jq .
         echo ""
-        echo "=== Topics (sukko) ==="
-        curl -s $API/api/v1/tenants/sukko/topics | jq .
+        echo "=== Routing Rules (sukko) ==="
+        curl -s $API/api/v1/tenants/sukko/routing-rules | jq .
         echo ""
         echo "=== Channel Rules (sukko) ==="
         curl -s $API/api/v1/tenants/sukko/channel-rules | jq .

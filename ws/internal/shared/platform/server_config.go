@@ -144,6 +144,7 @@ type ServerConfig struct {
 	CPURejectThresholdLower float64 `env:"WS_CPU_REJECT_THRESHOLD_LOWER" envDefault:"0"` // Lower: stop rejecting below this % (0 = auto: upper - 10)
 	CPUPauseThreshold       float64 `env:"WS_CPU_PAUSE_THRESHOLD" envDefault:"70.0"`     // Upper: pause Kafka above this %
 	CPUPauseThresholdLower  float64 `env:"WS_CPU_PAUSE_THRESHOLD_LOWER" envDefault:"0"`  // Lower: resume Kafka below this % (0 = auto: upper - 10)
+	CPUEWMABeta             float64 `env:"WS_CPU_EWMA_BETA" envDefault:"0.8"`            // EWMA decay factor for CPU smoothing (0-1, higher = smoother)
 
 	// TCP/Network Tuning (Burst Tolerance)
 	//
@@ -416,6 +417,9 @@ func (c *ServerConfig) Validate() error {
 	if c.CPUPauseThresholdLower < 0 || c.CPUPauseThresholdLower > 100 {
 		return fmt.Errorf("WS_CPU_PAUSE_THRESHOLD_LOWER must be 0-100, got %.1f", c.CPUPauseThresholdLower)
 	}
+	if c.CPUEWMABeta <= 0 || c.CPUEWMABeta >= 1 {
+		return fmt.Errorf("WS_CPU_EWMA_BETA must be between 0 and 1 exclusive, got %.2f", c.CPUEWMABeta)
+	}
 
 	// Auto-compute lower thresholds when not explicitly set (0 = auto).
 	// Developers CAN still set lower explicitly via env var for custom bands.
@@ -651,6 +655,7 @@ func (c *ServerConfig) Print() {
 	fmt.Printf("CPU Pause (upper):     %.1f%%\n", c.CPUPauseThreshold)
 	fmt.Printf("CPU Pause (lower):     %.1f%%\n", c.CPUPauseThresholdLower)
 	fmt.Printf("CPU Pause Band:        %.1f%%\n", c.CPUPauseThreshold-c.CPUPauseThresholdLower)
+	fmt.Printf("CPU EWMA Beta:         %.2f (~%.0f sample window)\n", c.CPUEWMABeta, 1/(1-c.CPUEWMABeta))
 	fmt.Println("\n=== TCP/Network Tuning ===")
 	fmt.Printf("Listen Backlog:  %d\n", c.TCPListenBacklog)
 	fmt.Printf("Read Timeout:    %s\n", c.HTTPReadTimeout)

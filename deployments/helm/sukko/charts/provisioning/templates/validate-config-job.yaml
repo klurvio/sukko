@@ -1,10 +1,5 @@
 {{- if .Values.enabled }}
-{{- $dbDriver := "sqlite" -}}
-{{- if or .Values.externalDatabase.url .Values.externalDatabase.existingSecret -}}
-  {{- $dbDriver = "postgres" -}}
-{{- else if .Values.global.postgresql.enabled -}}
-  {{- $dbDriver = "postgres" -}}
-{{- end -}}
+{{- $dbDriver := .Values.databaseDriver | default "sqlite" -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -47,8 +42,10 @@ spec:
           env:
             - name: ENVIRONMENT
               value: {{ .Values.environment | default "local" | quote }}
+            {{- if ne $dbDriver "sqlite" }}
             - name: DATABASE_DRIVER
               value: {{ $dbDriver | quote }}
+            {{- end }}
             {{- if eq $dbDriver "sqlite" }}
             - name: DATABASE_PATH
               value: {{ .Values.database.sqlitePath | quote }}

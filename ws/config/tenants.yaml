@@ -8,13 +8,13 @@
 
 tenants:
   - id: "sukko-internal"
-    name: "Odin Internal"
+    name: "Sukko Internal"
     apps:
       - id: "sukko-web"
-        name: "Odin Web Dashboard"
+        name: "Sukko Web Dashboard"
         secret_env: "APP_SECRET_SUKKO_WEB"
       - id: "sukko-mobile"
-        name: "Odin Mobile App"
+        name: "Sukko Mobile App"
         secret_env: "APP_SECRET_SUKKO_MOBILE"
 
   # Example external tenant (uncomment to use)

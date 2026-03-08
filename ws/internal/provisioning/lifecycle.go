@@ -8,6 +8,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // LifecycleManager handles background tenant lifecycle operations.
@@ -61,6 +63,7 @@ func (lm *LifecycleManager) Stop() {
 
 // run is the main loop that periodically processes tenant deletions.
 func (lm *LifecycleManager) run() {
+	defer logging.RecoverPanic(lm.logger, "lifecycle_manager", nil)
 	defer lm.wg.Done()
 
 	// Run immediately on start, then on interval
@@ -120,37 +123,33 @@ func (lm *LifecycleManager) processDeletions() {
 func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) error {
 	tenantID := tenant.ID
 
-	// 1. Delete Kafka topics
-	topics, err := lm.service.topics.ListByTenant(ctx, tenantID)
-	if err != nil {
-		lm.logger.Warn().
-			Err(err).
-			Str("tenant_id", tenantID).
-			Msg("Failed to list topics for deletion, continuing anyway")
-	} else {
-		for _, topic := range topics {
-			if topic.DeletedAt != nil {
-				continue // Already marked deleted
-			}
+	// 1. Delete Kafka topics derived from routing rules (nil-guarded: store is optional)
+	if lm.service.routingRules != nil {
+		rules, err := lm.service.routingRules.Get(ctx, tenantID)
+		if err != nil {
+			lm.logger.Warn().
+				Err(err).
+				Str("tenant_id", tenantID).
+				Msg("Failed to get routing rules for topic deletion, continuing anyway")
+		} else {
+			for _, suffix := range types.UniqueTopicSuffixes(rules) {
+				topicName := kafka.BuildTopicName(lm.service.config.TopicNamespace, tenantID, suffix)
 
-			// Build topic name at runtime
-			topicName := kafka.BuildTopicName(lm.service.config.TopicNamespace, tenantID, topic.Category)
-
-			// Delete from Kafka
-			if err := lm.service.kafka.DeleteTopic(ctx, topicName); err != nil {
-				lm.logger.Warn().
-					Err(err).
-					Str("topic", topicName).
-					Msg("Failed to delete Kafka topic, continuing anyway")
+				if err := lm.service.kafka.DeleteTopic(ctx, topicName); err != nil {
+					lm.logger.Warn().
+						Err(err).
+						Str("topic", topicName).
+						Msg("Failed to delete Kafka topic, continuing anyway")
+				}
 			}
+		}
 
-			// Mark as deleted in database
-			if err := lm.service.topics.MarkDeleted(ctx, tenantID, topic.Category); err != nil {
-				lm.logger.Warn().
-					Err(err).
-					Str("topic", topicName).
-					Msg("Failed to mark topic as deleted")
-			}
+		// Delete routing rules from database
+		if err := lm.service.routingRules.Delete(ctx, tenantID); err != nil {
+			lm.logger.Warn().
+				Err(err).
+				Str("tenant_id", tenantID).
+				Msg("Failed to delete routing rules, continuing anyway")
 		}
 	}
 

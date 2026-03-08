@@ -338,6 +338,10 @@ const (
 	// Channel rules actions
 	ActionSetChannelRules    = "set_channel_rules"
 	ActionDeleteChannelRules = "delete_channel_rules"
+
+	// Routing rules actions
+	ActionSetRoutingRules    = "set_routing_rules"
+	ActionDeleteRoutingRules = "delete_routing_rules"
 )
 
 // Actor type constants.

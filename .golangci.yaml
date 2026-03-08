@@ -66,7 +66,7 @@ formatters:
     goimports:
       # Put local imports after 3rd-party packages
       local-prefixes:
-        - github.com/Toniq-Labs
+        - github.com/klurvio
 
 linters-settings:
   errcheck:

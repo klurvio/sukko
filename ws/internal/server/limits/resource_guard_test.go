@@ -13,10 +13,18 @@ import (
 
 // mockSystemMonitor allows controlled CPU values for testing
 type mockSystemMonitor struct {
-	cpuPercent float64
+	cpuPercent         float64
+	smoothedCPUPercent float64
 }
 
 func (m *mockSystemMonitor) GetCPUPercent() float64 {
+	return m.cpuPercent
+}
+
+func (m *mockSystemMonitor) GetSmoothedCPUPercent() float64 {
+	if m.smoothedCPUPercent != 0 {
+		return m.smoothedCPUPercent
+	}
 	return m.cpuPercent
 }
 
@@ -397,6 +405,50 @@ func TestHysteresisConfigInStats(t *testing.T) {
 	}
 	if stats["cpu_pause_threshold_lower"].(float64) != 70.0 {
 		t.Errorf("cpu_pause_threshold_lower: got %v, want 70.0", stats["cpu_pause_threshold_lower"])
+	}
+}
+
+// TestSmoothedCPUUsedOverRaw verifies that ShouldAcceptConnection and
+// ShouldPauseKafka use GetSmoothedCPUPercent (not GetCPUPercent) for decisions.
+// This is critical: raw CPU spikes to 100% but smoothed stays at 30%.
+func TestSmoothedCPUUsedOverRaw(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockSystemMonitor{
+		cpuPercent:         100.0, // Raw: spike to 100%
+		smoothedCPUPercent: 30.0,  // Smoothed: only 30%
+	}
+
+	var connCount atomic.Int64
+	logger := logging.NewLogger(logging.LoggerConfig{
+		Level:  logging.LogLevelError,
+		Format: logging.LogFormatJSON,
+	})
+
+	config := types.ServerConfig{
+		MaxConnections:          1000,
+		MemoryLimit:             1024 * 1024 * 1024,
+		MaxGoroutines:           10000,
+		CPURejectThreshold:      75.0,
+		CPURejectThresholdLower: 65.0,
+		CPUPauseThreshold:       80.0,
+		CPUPauseThresholdLower:  70.0,
+		MaxKafkaMessagesPerSec:  1000,
+		MaxBroadcastsPerSec:     100,
+	}
+
+	rg := NewResourceGuardWithMonitor(config, logger, &connCount, mock)
+
+	// With raw CPU=100% but smoothed=30%, connection should be ACCEPTED
+	// (smoothed 30% < reject threshold 75%)
+	accept, reason := rg.ShouldAcceptConnection()
+	if !accept {
+		t.Errorf("Should accept (smoothed 30%% < 75%% threshold), rejected with: %s", reason)
+	}
+
+	// Kafka should NOT be paused (smoothed 30% < pause threshold 80%)
+	if rg.ShouldPauseKafka() {
+		t.Error("Should not pause Kafka (smoothed 30% < 80% threshold)")
 	}
 }
 

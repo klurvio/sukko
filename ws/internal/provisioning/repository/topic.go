@@ -159,5 +159,5 @@ func (r *PostgresTopicRepository) CountPartitionsByTenant(ctx context.Context, t
 	return count, nil
 }
 
-// Ensure PostgresTopicRepository implements TopicStore.
-var _ provisioning.TopicStore = (*PostgresTopicRepository)(nil)
+// NOTE: PostgresTopicRepository methods are retained for backward compatibility.
+// The TopicStore interface was removed; topic management now uses RoutingRulesStore.

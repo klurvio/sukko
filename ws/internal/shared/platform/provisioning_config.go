@@ -63,6 +63,9 @@ type ProvisioningConfig struct {
 	LifecycleCheckInterval  time.Duration `env:"LIFECYCLE_CHECK_INTERVAL" envDefault:"1h"`
 	LifecycleManagerEnabled bool          `env:"LIFECYCLE_MANAGER_ENABLED" envDefault:"true"`
 
+	// Routing Rules
+	MaxRoutingRules int `env:"MAX_ROUTING_RULES" envDefault:"100"` // Max routing rules per tenant
+
 	// Rate Limiting
 	APIRateLimitPerMinute int `env:"API_RATE_LIMIT_PER_MIN" envDefault:"60"`
 
@@ -176,6 +179,9 @@ func (c *ProvisioningConfig) Validate() error {
 	}
 	if c.DeprovisionGraceDays < 0 {
 		return fmt.Errorf("DEPROVISION_GRACE_DAYS must be >= 0, got %d", c.DeprovisionGraceDays)
+	}
+	if c.MaxRoutingRules < 1 {
+		return fmt.Errorf("MAX_ROUTING_RULES must be > 0, got %d", c.MaxRoutingRules)
 	}
 	if c.APIRateLimitPerMinute < 1 {
 		return fmt.Errorf("API_RATE_LIMIT_PER_MIN must be > 0, got %d", c.APIRateLimitPerMinute)

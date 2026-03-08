@@ -45,6 +45,12 @@ message TenantConfig {
   string tenant_id = 1;
   OIDCConfig oidc = 2;            // nil = no OIDC
   ChannelRules channel_rules = 3; // nil = no rules
+  repeated TopicRoutingRule routing_rules = 4;
+}
+
+message TopicRoutingRule {
+  string pattern = 1;
+  string topic_suffix = 2;
 }
 
 message OIDCConfig {
@@ -58,6 +64,9 @@ message ChannelRules {
   repeated string public_channels = 1;
   map<string, GroupChannels> group_mappings = 2;
   repeated string default_channels = 3;
+  repeated string publish_public_channels = 4;
+  map<string, GroupChannels> publish_group_mappings = 5;
+  repeated string publish_default_channels = 6;
 }
 
 message GroupChannels {

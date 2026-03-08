@@ -14,7 +14,7 @@ import (
 
 func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 	t.Parallel()
-	// Channel must have at least 3 parts in internal format: {tenant}.{identifier}.{category}
+	// Channel must have at least 2 parts in internal format: {tenant_id}.{suffix}
 	// These are internal (mapped) channels, not client channels
 	validChannels := []string{
 		"tenant.community.chat",
@@ -42,16 +42,13 @@ func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 
 func TestIsValidPublishChannel_InvalidFormats(t *testing.T) {
 	t.Parallel()
-	// Internal channels must have at least 3 parts: {tenant}.{identifier}.{category}
-	// 2-part channels are client format (before gateway mapping)
+	// Internal channels must have at least 2 parts: {tenant}.{suffix}
 	invalidChannels := []struct {
 		channel string
 		reason  string
 	}{
 		{"", "empty string"},
 		{"singletopic", "no dot separator"},
-		{"a.b", "only 2 parts (client format, not internal)"},
-		{"BTC.trade", "only 2 parts (needs tenant prefix)"},
 		{".chat", "empty first part"},
 		{"community.", "empty last part"},
 		{"community..chat", "empty middle part"},
@@ -75,14 +72,14 @@ func TestIsValidPublishChannel_InvalidFormats(t *testing.T) {
 
 func TestIsValidPublishChannel_EdgeCases(t *testing.T) {
 	t.Parallel()
-	// Internal channels require at least 3 parts: {tenant}.{identifier}.{category}
+	// Internal channels require at least 2 parts: {tenant}.{suffix}
 	testCases := []struct {
 		channel string
 		valid   bool
 		desc    string
 	}{
-		{"a.b", false, "2 parts is client format, not internal"},
-		{"a.b.c", true, "minimum 3 parts (internal format)"},
+		{"a.b", true, "minimum 2 parts (tenant.suffix)"},
+		{"a.b.c", true, "3 parts (tenant.suffix with sub-parts)"},
 		{"ab.cd.ef", true, "two letter parts"},
 		{"123.456.789", true, "numeric parts"},
 		{"a-b.c-d.e-f", true, "hyphens allowed"},

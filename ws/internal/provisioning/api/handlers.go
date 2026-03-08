@@ -2,6 +2,7 @@ package api //nolint:revive // api is a common package name for HTTP handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -11,7 +12,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/shared/httputil"
-	"github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // NOTE: httputil.WriteJSON errors are assigned to _ throughout this file.
@@ -238,48 +239,68 @@ func (h *Handler) GetActiveKeys(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// CreateTopics creates topics for a tenant.
-func (h *Handler) CreateTopics(w http.ResponseWriter, r *http.Request) {
+// GetRoutingRules returns routing rules for a tenant.
+func (h *Handler) GetRoutingRules(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
 
-	var req provisioning.CreateTopicsRequest
+	rules, err := h.service.GetRoutingRules(r.Context(), tenantID)
+	if err != nil {
+		if errors.Is(err, types.ErrRoutingRulesNotFound) {
+			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "No routing rules configured")
+			return
+		}
+		httputil.WriteError(w, http.StatusInternalServerError, "GET_ROUTING_RULES_FAILED", "Failed to retrieve routing rules")
+		return
+	}
+
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"rules": rules,
+	})
+}
+
+// SetRoutingRules creates or updates routing rules for a tenant.
+func (h *Handler) SetRoutingRules(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+
+	var req provisioning.SetRoutingRulesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
 
-	topics, err := h.service.CreateTopics(r.Context(), tenantID, req.Categories)
-	if err != nil {
-		h.writeServiceError(w, err, http.StatusInternalServerError, "CREATE_TOPICS_FAILED", err.Error())
+	// Boundary validation (defense in depth)
+	if err := types.ValidateRoutingRules(req.Rules); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
 		return
 	}
 
-	// Build full topic names at runtime
-	namespace := h.service.TopicNamespace()
-	topicNames := make([]string, len(topics))
-	for i, t := range topics {
-		topicNames[i] = kafka.BuildTopicName(namespace, tenantID, t.Category)
+	if err := h.service.SetRoutingRules(r.Context(), tenantID, req.Rules); err != nil {
+		h.writeServiceError(w, err, http.StatusInternalServerError, "SET_ROUTING_RULES_FAILED", "Failed to set routing rules")
+		return
 	}
 
-	RecordTopicCreated(len(topics))
-	_ = httputil.WriteJSON(w, http.StatusCreated, map[string]any{
-		"topics": topicNames,
+	RecordRoutingRulesSet()
+
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"rules": req.Rules,
 	})
 }
 
-// ListTopics returns all topics for a tenant.
-func (h *Handler) ListTopics(w http.ResponseWriter, r *http.Request) {
+// DeleteRoutingRules deletes routing rules for a tenant.
+func (h *Handler) DeleteRoutingRules(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
 
-	topics, err := h.service.ListTopics(r.Context(), tenantID)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "LIST_TOPICS_FAILED", err.Error())
+	if err := h.service.DeleteRoutingRules(r.Context(), tenantID); err != nil {
+		if errors.Is(err, types.ErrRoutingRulesNotFound) {
+			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "No routing rules configured")
+			return
+		}
+		httputil.WriteError(w, http.StatusInternalServerError, "DELETE_ROUTING_RULES_FAILED", "Failed to delete routing rules")
 		return
 	}
 
-	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
-		"topics": topics,
-	})
+	RecordRoutingRulesDeleted()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // GetQuota returns quotas for a tenant.

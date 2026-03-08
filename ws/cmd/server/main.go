@@ -75,6 +75,7 @@ func main() {
 		ServiceName: "ws-server",
 	})
 	systemMonitor := metrics.GetSystemMonitor(structuredLogger)
+	systemMonitor.SetEWMABeta(cfg.CPUEWMABeta)
 	systemMonitor.StartMonitoring(cfg.MetricsInterval, cfg.CPUPollInterval)
 	logger.Printf("SystemMonitor started (metrics: %v, cpu poll: %v)", cfg.MetricsInterval, cfg.CPUPollInterval)
 

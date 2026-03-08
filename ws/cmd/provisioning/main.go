@@ -92,7 +92,7 @@ func main() {
 	// Initialize repositories
 	tenantRepo := repository.NewPostgresTenantRepository(db)
 	keyRepo := repository.NewPostgresKeyRepository(db)
-	topicRepo := repository.NewPostgresTopicRepository(db)
+	routingRulesRepo := repository.NewPostgresRoutingRulesRepository(db)
 	quotaRepo := repository.NewPostgresQuotaRepository(db)
 	auditRepo := repository.NewPostgresAuditRepository(db)
 	oidcRepo := repository.NewPostgresOIDCConfigRepository(db)
@@ -105,7 +105,7 @@ func main() {
 	svc := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:          tenantRepo,
 		KeyStore:             keyRepo,
-		TopicStore:           topicRepo,
+		RoutingRulesStore:    routingRulesRepo,
 		QuotaStore:           quotaRepo,
 		AuditStore:           auditRepo,
 		OIDCConfigStore:      oidcRepo,
@@ -120,6 +120,7 @@ func main() {
 		DefaultProducerRate:  cfg.ProducerByteRate,
 		DefaultConsumerRate:  cfg.ConsumerByteRate,
 		DeprovisionGraceDays: cfg.DeprovisionGraceDays,
+		MaxRoutingRules:      cfg.MaxRoutingRules,
 		Logger:               structuredLogger,
 	})
 

@@ -1,4 +1,4 @@
-// CLI tool for Sukko provisioning management.
+// CLI tool for Sukko WS provisioning management.
 package main
 
 import (

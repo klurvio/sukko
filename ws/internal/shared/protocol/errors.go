@@ -24,7 +24,7 @@ const (
 	// Publish-specific error codes.
 
 	// ErrCodeInvalidChannel indicates invalid channel format.
-	// Channel must have format: {tenant}.{identifier}.{category}
+	// Channel must have format: {tenant_id}.{suffix} (minimum 2 parts).
 	ErrCodeInvalidChannel ErrorCode = "invalid_channel"
 
 	// ErrCodeMessageTooLarge indicates payload exceeds size limit.
@@ -41,19 +41,27 @@ const (
 
 	// ErrCodeServiceUnavailable indicates Kafka is unavailable (circuit open).
 	ErrCodeServiceUnavailable ErrorCode = "service_unavailable"
+
+	// ErrCodeNoRoutingRules indicates no topic routing rules are configured for the tenant.
+	ErrCodeNoRoutingRules ErrorCode = "no_routing_rules"
+
+	// ErrCodeNoMatchingRoute indicates no routing rule matched the channel suffix.
+	ErrCodeNoMatchingRoute ErrorCode = "no_matching_route"
 )
 
 // PublishErrorMessages provides human-readable messages for publish error codes.
 var PublishErrorMessages = map[ErrorCode]string{
 	ErrCodeNotAvailable:        "Publishing is not enabled on this server",
 	ErrCodeInvalidRequest:      "Invalid publish request format",
-	ErrCodeInvalidChannel:      "Channel must have format: tenant.identifier.category",
+	ErrCodeInvalidChannel:      "Channel must have format: {tenant_id}.{suffix}",
 	ErrCodeMessageTooLarge:     "Message exceeds maximum size limit",
 	ErrCodeRateLimited:         "Publish rate limit exceeded",
 	"publish_failed":           "Failed to publish message",
 	ErrCodeForbidden:           "Not authorized to publish to this channel",
 	ErrCodeTopicNotProvisioned: "Category is not provisioned for your tenant",
 	ErrCodeServiceUnavailable:  "Service temporarily unavailable, please retry",
+	ErrCodeNoRoutingRules:      "No topic routing rules configured for tenant",
+	ErrCodeNoMatchingRoute:     "No matching topic routing rule for channel",
 }
 
 // Sentinel errors for internal use.

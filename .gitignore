@@ -1,5 +1,5 @@
 # Go binaries
-src/odin-ws-server
+src/sukko-server
 src/server
 
 # Go build artifacts
@@ -71,3 +71,9 @@ publisher-go/publisher-go
 
 # wsloadtest config (contains environment-specific values)
 deployments/wsloadtest/config.env
+
+# Project docs (local only)
+docs
+handoffs
+sessions
+specs

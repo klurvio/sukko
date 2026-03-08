@@ -200,7 +200,7 @@ task local:provision:status
 ### Check database
 
 ```bash
-kubectl exec -n sukko-local -it $(kubectl get pods -n sukko-local -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}') -- psql -U sukko -d odin_provisioning
+kubectl exec -n sukko-local -it $(kubectl get pods -n sukko-local -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}') -- psql -U sukko -d sukko_provisioning
 
 # Query tenants
 SELECT * FROM tenants;

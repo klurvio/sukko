@@ -44,33 +44,6 @@ externalAccess:
   # External listener port inside container (maps to kafkaPort on LoadBalancer)
   containerPort: 19092
 
-# Topic configuration (matches v1 deployment)
-topics:
-  - name: sukko.trades
-    partitions: 12
-    replicationFactor: 1
-  - name: sukko.liquidity
-    partitions: 12
-    replicationFactor: 1
-  - name: sukko.balances
-    partitions: 12
-    replicationFactor: 1
-  - name: sukko.metadata
-    partitions: 12
-    replicationFactor: 1
-  - name: sukko.social
-    partitions: 12
-    replicationFactor: 1
-  - name: sukko.community
-    partitions: 12
-    replicationFactor: 1
-  - name: sukko.creation
-    partitions: 12
-    replicationFactor: 1
-  - name: sukko.analytics
-    partitions: 12
-    replicationFactor: 1
-
 # Pod Security Context
 # Redpanda image runs as "redpanda" user (UID 101)
 # fsGroup ensures PVC is accessible by the redpanda user

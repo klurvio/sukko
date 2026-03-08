@@ -219,7 +219,7 @@ func (s *Server) WatchTopics(req *provisioningv1.WatchTopicsRequest, stream grpc
 	}
 }
 
-// loadTenantConfigs loads all tenant OIDC configs and channel rules.
+// loadTenantConfigs loads all tenant OIDC configs, channel rules, and routing rules.
 func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.TenantConfig, error) {
 	tenants, _, err := s.service.ListTenants(ctx, provisioning.ListOptions{Limit: maxTenantsFetchLimit})
 	if err != nil {
@@ -254,6 +254,12 @@ func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.Tenan
 			tc.ChannelRules = convertChannelRules(&channelRules.Rules)
 		}
 
+		// Load routing rules (optional)
+		routingRules, err := s.service.GetRoutingRules(ctx, tenant.ID)
+		if err == nil && len(routingRules) > 0 {
+			tc.RoutingRules = convertRoutingRules(routingRules)
+		}
+
 		configs = append(configs, tc)
 	}
 
@@ -275,14 +281,16 @@ func (s *Server) loadTopicsUpdate(ctx context.Context, namespace string) (*provi
 			continue
 		}
 
-		categories, err := s.service.ListTopics(ctx, tenant.ID)
+		rules, err := s.service.GetRoutingRules(ctx, tenant.ID)
 		if err != nil {
+			s.logger.Debug().Err(err).Str("tenant_id", tenant.ID).
+				Msg("Skipping tenant in topics update: no routing rules")
 			continue
 		}
 
 		var topics []string
-		for _, cat := range categories {
-			topic := kafka.BuildTopicName(namespace, tenant.ID, cat.Category)
+		for _, suffix := range types.UniqueTopicSuffixes(rules) {
+			topic := kafka.BuildTopicName(namespace, tenant.ID, suffix)
 			topics = append(topics, topic)
 		}
 
@@ -324,6 +332,18 @@ func convertKeys(keys []*provisioning.TenantKey) []*provisioningv1.KeyInfo {
 			ki.ExpiresAtUnix = k.ExpiresAt.Unix()
 		}
 		result = append(result, ki)
+	}
+	return result
+}
+
+// convertRoutingRules converts types.TopicRoutingRule to proto TopicRoutingRule.
+func convertRoutingRules(rules []types.TopicRoutingRule) []*provisioningv1.TopicRoutingRule {
+	result := make([]*provisioningv1.TopicRoutingRule, 0, len(rules))
+	for _, r := range rules {
+		result = append(result, &provisioningv1.TopicRoutingRule{
+			Pattern:     r.Pattern,
+			TopicSuffix: r.TopicSuffix,
+		})
 	}
 	return result
 }

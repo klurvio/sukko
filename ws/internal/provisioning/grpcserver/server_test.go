@@ -178,7 +178,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	// Build mock stores and seed test data
 	tenantStore := testutil.NewMockTenantStore()
 	keyStore := testutil.NewMockKeyStore()
-	topicStore := testutil.NewMockTopicStore()
+	routingRulesStore := testutil.NewMockRoutingRulesStore()
 	quotaStore := testutil.NewMockQuotaStore()
 	auditStore := testutil.NewMockAuditStore()
 	oidcStore := newMockOIDCConfigStore()
@@ -200,10 +200,11 @@ func setupTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("seed key: %v", err)
 	}
 
-	// Seed topic category
-	topic := testutil.NewTestTenantTopic("test-tenant", "trade")
-	if err := topicStore.Create(ctx, topic); err != nil {
-		t.Fatalf("seed topic: %v", err)
+	// Seed routing rules
+	if err := routingRulesStore.Set(ctx, "test-tenant", []types.TopicRoutingRule{
+		{Pattern: "*.trade", TopicSuffix: "trade"},
+	}); err != nil {
+		t.Fatalf("seed routing rules: %v", err)
 	}
 
 	// Seed OIDC config
@@ -229,7 +230,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	svc := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:       tenantStore,
 		KeyStore:          keyStore,
-		TopicStore:        topicStore,
+		RoutingRulesStore: routingRulesStore,
 		QuotaStore:        quotaStore,
 		AuditStore:        auditStore,
 		OIDCConfigStore:   oidcStore,
@@ -395,6 +396,17 @@ func TestWatchTenantConfig_Snapshot(t *testing.T) {
 	}
 	if len(tc.ChannelRules.PublicChannels) != 1 || tc.ChannelRules.PublicChannels[0] != "*.trade" {
 		t.Errorf("public channels = %v, want [*.trade]", tc.ChannelRules.PublicChannels)
+	}
+
+	// Verify routing rules are included in the snapshot
+	if len(tc.RoutingRules) != 1 {
+		t.Fatalf("expected 1 routing rule in snapshot, got %d", len(tc.RoutingRules))
+	}
+	if tc.RoutingRules[0].Pattern != "*.trade" {
+		t.Errorf("routing rule pattern = %q, want %q", tc.RoutingRules[0].Pattern, "*.trade")
+	}
+	if tc.RoutingRules[0].TopicSuffix != "trade" {
+		t.Errorf("routing rule topic suffix = %q, want %q", tc.RoutingRules[0].TopicSuffix, "trade")
 	}
 }
 

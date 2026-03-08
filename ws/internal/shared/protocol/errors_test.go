@@ -20,6 +20,8 @@ func TestErrorCode_Values(t *testing.T) {
 		ErrCodeForbidden:           "forbidden",
 		ErrCodeTopicNotProvisioned: "topic_not_provisioned",
 		ErrCodeServiceUnavailable:  "service_unavailable",
+		ErrCodeNoRoutingRules:      "no_routing_rules",
+		ErrCodeNoMatchingRoute:     "no_matching_route",
 	}
 
 	for code, expected := range expectedCodes {
@@ -40,6 +42,8 @@ func TestErrorCode_UniqueValues(t *testing.T) {
 		ErrCodeForbidden,
 		ErrCodeTopicNotProvisioned,
 		ErrCodeServiceUnavailable,
+		ErrCodeNoRoutingRules,
+		ErrCodeNoMatchingRoute,
 	}
 
 	seen := make(map[ErrorCode]bool)
@@ -84,6 +88,8 @@ func TestPublishErrorMessages_AllCodesHaveMessages(t *testing.T) {
 		ErrCodeForbidden,
 		ErrCodeTopicNotProvisioned,
 		ErrCodeServiceUnavailable,
+		ErrCodeNoRoutingRules,
+		ErrCodeNoMatchingRoute,
 	}
 
 	for _, code := range codes {
@@ -115,13 +121,15 @@ func TestPublishErrorMessages_Specific(t *testing.T) {
 	}{
 		{ErrCodeNotAvailable, "Publishing is not enabled on this server"},
 		{ErrCodeInvalidRequest, "Invalid publish request format"},
-		{ErrCodeInvalidChannel, "Channel must have format: tenant.identifier.category"},
+		{ErrCodeInvalidChannel, "Channel must have format: {tenant_id}.{suffix}"},
 		{ErrCodeMessageTooLarge, "Message exceeds maximum size limit"},
 		{ErrCodeRateLimited, "Publish rate limit exceeded"},
 		{"publish_failed", "Failed to publish message"},
 		{ErrCodeForbidden, "Not authorized to publish to this channel"},
 		{ErrCodeTopicNotProvisioned, "Category is not provisioned for your tenant"},
 		{ErrCodeServiceUnavailable, "Service temporarily unavailable, please retry"},
+		{ErrCodeNoRoutingRules, "No topic routing rules configured for tenant"},
+		{ErrCodeNoMatchingRoute, "No matching topic routing rule for channel"},
 	}
 
 	for _, tc := range testCases {

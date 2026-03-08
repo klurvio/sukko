@@ -30,6 +30,18 @@ var DefaultPlaceholders = map[string]PlaceholderFunc{
 	"tenant":    func(c *Claims) string { return c.TenantID },
 	"sub":       func(c *Claims) string { return c.Subject },
 	"app_id":    func(c *Claims) string { return c.Subject },
+	"principal": func(c *Claims) string { return c.Subject },
+}
+
+// PlaceholderNames returns the keys of DefaultPlaceholders.
+// Used by types.ChannelRules.ValidateWithPlaceholders() to validate
+// placeholder tokens without importing auth from types (leaf package).
+func PlaceholderNames() []string {
+	names := make([]string, 0, len(DefaultPlaceholders))
+	for name := range DefaultPlaceholders {
+		names = append(names, name)
+	}
+	return names
 }
 
 // NewPlaceholderResolver creates a resolver with default built-in placeholders.

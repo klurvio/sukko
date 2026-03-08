@@ -24,16 +24,13 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- $broadcastType := "nats" }}
-      {{- if .Values.broadcast }}
-        {{- $broadcastType = .Values.broadcast.type | default "nats" }}
-      {{- end }}
+      {{- $broadcastType := .Values.broadcastType | default "nats" }}
       {{- $needsNatsBroadcast := eq $broadcastType "nats" }}
       {{- $needsKafka := eq (.Values.messageBackend | default "direct") "kafka" }}
       {{- $needsJetStream := eq (.Values.messageBackend | default "direct") "nats" }}
       {{- if or $needsNatsBroadcast $needsKafka $needsJetStream }}
       initContainers:
-        {{- if $needsNatsBroadcast }}
+        {{- if and $needsNatsBroadcast (not .Values.nats.urls) }}
         - name: wait-for-nats
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-nats 4222; do echo "waiting for nats..."; sleep 2; done']
@@ -45,7 +42,7 @@ spec:
               cpu: "50m"
               memory: "32Mi"
         {{- end }}
-        {{- if $needsKafka }}
+        {{- if and $needsKafka (not .Values.kafka.brokers) }}
         - name: wait-for-redpanda
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-redpanda 9092; do echo "waiting for redpanda..."; sleep 2; done']
@@ -57,7 +54,7 @@ spec:
               cpu: "50m"
               memory: "32Mi"
         {{- end }}
-        {{- if $needsJetStream }}
+        {{- if and $needsJetStream (not .Values.jetstream.urls) }}
         - name: wait-for-nats-jetstream
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-nats 4222; do echo "waiting for nats jetstream..."; sleep 2; done']
@@ -104,14 +101,14 @@ spec:
             - name: ENVIRONMENT
               value: {{ .Values.environment | default "local" | quote }}
 
-            # Mode selections (only injected when set — Go defaults apply otherwise)
-            {{- if .Values.messageBackend }}
+            # Mode selections (only injected when non-default — Go defaults apply otherwise)
+            {{- if and .Values.messageBackend (ne .Values.messageBackend "direct") }}
             - name: MESSAGE_BACKEND
               value: {{ .Values.messageBackend | quote }}
             {{- end }}
-            {{- if .Values.broadcast }}
+            {{- if ne $broadcastType "nats" }}
             - name: BROADCAST_TYPE
-              value: {{ .Values.broadcast.type | default "nats" | quote }}
+              value: {{ $broadcastType | quote }}
             {{- end }}
 
             # Auto-wired service addresses (Kubernetes service discovery)
@@ -202,7 +199,7 @@ spec:
             {{- end }}
 
             {{- if eq $broadcastType "valkey" }}
-            # Valkey (only when broadcast.type=valkey)
+            # Valkey (only when broadcastType=valkey)
             - name: VALKEY_ADDRS
               value: {{ .Values.valkey.addrs | default (printf "%s-valkey:6379" .Release.Name) | quote }}
             {{- if .Values.valkey.password }}

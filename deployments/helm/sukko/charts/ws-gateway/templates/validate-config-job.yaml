@@ -46,14 +46,6 @@ spec:
             - name: PROVISIONING_GRPC_ADDR
               value: {{ .Values.provisioningGRPCAddr | default (printf "%s-provisioning-grpc:9090" .Release.Name) | quote }}
 
-            # Permission patterns
-            - name: GATEWAY_PUBLIC_PATTERNS
-              value: {{ .Values.permissions.public | join "," | quote }}
-            - name: GATEWAY_USER_SCOPED_PATTERNS
-              value: {{ .Values.permissions.userScoped | join "," | quote }}
-            - name: GATEWAY_GROUP_SCOPED_PATTERNS
-              value: {{ .Values.permissions.groupScoped | join "," | quote }}
-
             # Rate limiting
             - name: GATEWAY_RATE_LIMIT_ENABLED
               value: {{ .Values.rateLimit.enabled | quote }}

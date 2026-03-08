@@ -1,11 +1,6 @@
 {{- if .Values.enabled }}
-{{- /* Only create PVC when using SQLite (no external or bundled PostgreSQL) */ -}}
-{{- $dbDriver := "sqlite" -}}
-{{- if or .Values.externalDatabase.url .Values.externalDatabase.existingSecret -}}
-  {{- $dbDriver = "postgres" -}}
-{{- else if .Values.global.postgresql.enabled -}}
-  {{- $dbDriver = "postgres" -}}
-{{- end -}}
+{{- /* Only create PVC when using SQLite */ -}}
+{{- $dbDriver := .Values.databaseDriver | default "sqlite" -}}
 {{- if and (eq $dbDriver "sqlite") .Values.persistence.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim

@@ -18,8 +18,8 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "sukko",
-	Short: "Sukko provisioning CLI",
-	Long:  "CLI tool for managing tenants, keys, topics, and channel rules in the Sukko platform.",
+	Short: "Sukko WS provisioning CLI",
+	Long:  "CLI tool for managing tenants, keys, topics, and channel rules in the Sukko WS platform.",
 }
 
 func init() {

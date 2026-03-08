@@ -1,6 +1,10 @@
 package provisioning
 
-import "time"
+import (
+	"time"
+
+	"github.com/klurvio/sukko/internal/shared/types"
+)
 
 // CreateTenantRequest is the request to create a new tenant.
 type CreateTenantRequest struct {
@@ -16,9 +20,6 @@ type CreateTenantRequest struct {
 	// Metadata is optional key-value data.
 	Metadata Metadata `json:"metadata,omitempty"`
 
-	// Categories are the topic categories to create initially (optional).
-	Categories []string `json:"categories,omitempty"`
-
 	// PublicKey is the initial public key to register (optional).
 	PublicKey *CreateKeyRequest `json:"public_key,omitempty"`
 }
@@ -30,19 +31,6 @@ type CreateTenantResponse struct {
 
 	// Key is the registered key (if provided).
 	Key *TenantKey `json:"key,omitempty"`
-
-	// Topics are the created topic names.
-	Topics []string `json:"topics,omitempty"`
-
-	// ACL describes the created ACL.
-	ACL *ACLInfo `json:"acl,omitempty"`
-}
-
-// ACLInfo describes an ACL for API responses.
-type ACLInfo struct {
-	Principal  string   `json:"principal"`
-	Pattern    string   `json:"pattern"`
-	Operations []string `json:"operations"`
 }
 
 // UpdateTenantRequest is the request to update a tenant.
@@ -72,16 +60,10 @@ type CreateKeyRequest struct {
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
-// CreateTopicsRequest is the request to create topics.
-type CreateTopicsRequest struct {
-	// Categories are the topic categories to create.
-	Categories []string `json:"categories"`
-
-	// Partitions overrides the default partition count (optional).
-	Partitions *int `json:"partitions,omitempty"`
-
-	// RetentionMs overrides the default retention (optional).
-	RetentionMs *int64 `json:"retention_ms,omitempty"`
+// SetRoutingRulesRequest is the request to set routing rules for a tenant.
+type SetRoutingRulesRequest struct {
+	// Rules are the ordered topic routing rules.
+	Rules []types.TopicRoutingRule `json:"rules"`
 }
 
 // UpdateQuotaRequest is the request to update quotas.

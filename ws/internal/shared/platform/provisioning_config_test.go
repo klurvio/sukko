@@ -20,6 +20,7 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		DefaultRetentionMs:     604800000,
 		MaxTopicsPerTenant:     50,
 		MaxPartitionsPerTenant: 200,
+		MaxRoutingRules:        100,
 		DeprovisionGraceDays:   30,
 		APIRateLimitPerMinute:  60,
 		ValidNamespaces:        "local,dev,stag,prod",
@@ -123,6 +124,36 @@ func TestProvisioningConfig_Validate_GRPCPort(t *testing.T) {
 			t.Parallel()
 			cfg := newValidProvisioningConfig()
 			cfg.GRPCPort = tt.port
+			err := cfg.Validate()
+			if tt.shouldError && err == nil {
+				t.Error("Should error")
+			}
+			if !tt.shouldError && err != nil {
+				t.Errorf("Should not error: %v", err)
+			}
+		})
+	}
+}
+
+func TestProvisioningConfig_Validate_MaxRoutingRules(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		value       int
+		shouldError bool
+	}{
+		{"valid default", 100, false},
+		{"valid min", 1, false},
+		{"valid large", 1000, false},
+		{"zero", 0, true},
+		{"negative", -1, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidProvisioningConfig()
+			cfg.MaxRoutingRules = tt.value
 			err := cfg.Validate()
 			if tt.shouldError && err == nil {
 				t.Error("Should error")

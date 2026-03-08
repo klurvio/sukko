@@ -42,10 +42,15 @@ var (
 		Help: "Current number of active keys",
 	})
 
-	// Topic operations
-	topicsCreated = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "provisioning_topics_created_total",
-		Help: "Total number of topics created",
+	// Routing rules operations
+	routingRulesSet = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "provisioning_routing_rules_set_total",
+		Help: "Total number of routing rules set operations",
+	})
+
+	routingRulesDeleted = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "provisioning_routing_rules_deleted_total",
+		Help: "Total number of routing rules delete operations",
 	})
 
 	// API request metrics
@@ -102,9 +107,14 @@ func SetActiveKeys(count int) {
 	keysActive.Set(float64(count))
 }
 
-// RecordTopicCreated increments the topic created counter.
-func RecordTopicCreated(count int) {
-	topicsCreated.Add(float64(count))
+// RecordRoutingRulesSet increments the routing rules set counter.
+func RecordRoutingRulesSet() {
+	routingRulesSet.Inc()
+}
+
+// RecordRoutingRulesDeleted increments the routing rules deleted counter.
+func RecordRoutingRulesDeleted() {
+	routingRulesDeleted.Inc()
 }
 
 // RecordAPIRequest records an API request with its result.

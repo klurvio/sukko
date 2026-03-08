@@ -154,6 +154,13 @@ var (
 		Help: "CPU usage as percentage of total host CPUs (for reference)",
 	})
 
+	// CPUSmoothedPercent tracks EWMA-smoothed CPU usage for load-shedding decisions.
+	// Smoothing prevents transient spikes from triggering false emergency brakes.
+	CPUSmoothedPercent = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "ws_cpu_smoothed_percent",
+		Help: "EWMA-smoothed CPU usage percentage used for load-shedding decisions",
+	})
+
 	// CPUAllocationCores tracks the number of CPU cores allocated to the container.
 	CPUAllocationCores = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "ws_cpu_allocation_cores",

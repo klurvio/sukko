@@ -4,8 +4,6 @@
 
 global:
   imageRegistry: ""
-  postgresql:
-    enabled: false
 
 enabled: true
 
@@ -26,12 +24,15 @@ image:
 # Must be >= 16 characters in non-dev environments.
 adminToken: ""
 
-# Database: SQLite by default. Set externalDatabase to use PostgreSQL.
+# Database driver: "sqlite" (Go default) or "postgres"
+# Set databaseDriver: postgres with postgresql.enabled or externalDatabase.
+databaseDriver: sqlite
+
 database:
-  # SQLite file path (only when DATABASE_DRIVER=sqlite)
+  # SQLite file path (only when databaseDriver=sqlite)
   sqlitePath: "/data/sukko.db"
 
-# External PostgreSQL (auto-derives DATABASE_DRIVER=postgres when set)
+# External PostgreSQL (when databaseDriver=postgres without postgresql.enabled)
 externalDatabase:
   url: ""
   existingSecret: ""

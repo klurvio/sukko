@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Starting Odin WebSocket PoC Development Environment"
+echo "🚀 Starting Sukko WebSocket PoC Development Environment"
 echo "=================================================="
 
 # Colors for output

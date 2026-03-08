@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -15,18 +16,32 @@ import (
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
+// Sentinel errors for tenant ID validation.
+var (
+	ErrTenantIDContainsDots     = errors.New("tenant ID must not contain dots")
+	ErrTenantIDUnderscorePrefix = errors.New("tenant ID must not start with underscore")
+)
+
+const (
+	// msPerDay is the number of milliseconds in one day.
+	msPerDay = 24 * 60 * 60 * 1000
+
+	// kafkaRetentionMsKey is the Kafka topic config key for message retention.
+	kafkaRetentionMsKey = "retention.ms"
+)
+
 // ServiceConfig holds the configuration for the provisioning service.
 type ServiceConfig struct {
-	TenantStore       TenantStore
-	KeyStore          KeyStore
-	TopicStore        TopicStore
-	QuotaStore        QuotaStore
-	AuditStore        AuditStore
-	OIDCConfigStore   OIDCConfigStore
-	ChannelRulesStore ChannelRulesStore
-	KafkaAdmin        KafkaAdmin
-	EventBus          *eventbus.Bus
-	Logger            zerolog.Logger
+	TenantStore        TenantStore
+	KeyStore           KeyStore
+	RoutingRulesStore  RoutingRulesStore
+	QuotaStore         QuotaStore
+	AuditStore         AuditStore
+	OIDCConfigStore    OIDCConfigStore
+	ChannelRulesStore  ChannelRulesStore
+	KafkaAdmin         KafkaAdmin
+	EventBus           *eventbus.Bus
+	Logger             zerolog.Logger
 
 	// Topic configuration
 	TopicNamespace     string
@@ -41,13 +56,17 @@ type ServiceConfig struct {
 
 	// Lifecycle
 	DeprovisionGraceDays int
+
+	// MaxRoutingRules limits the number of routing rules per tenant.
+	// Wired from env var MAX_ROUTING_RULES (default: 100).
+	MaxRoutingRules int
 }
 
 // Service provides tenant lifecycle management and provisioning operations.
 type Service struct {
 	tenants      TenantStore
 	keys         KeyStore
-	topics       TopicStore
+	routingRules RoutingRulesStore
 	quotas       QuotaStore
 	audit        AuditStore
 	oidcConfigs  OIDCConfigStore
@@ -63,7 +82,7 @@ func NewService(cfg ServiceConfig) *Service {
 	return &Service{
 		tenants:      cfg.TenantStore,
 		keys:         cfg.KeyStore,
-		topics:       cfg.TopicStore,
+		routingRules: cfg.RoutingRulesStore,
 		quotas:       cfg.QuotaStore,
 		audit:        cfg.AuditStore,
 		oidcConfigs:  cfg.OIDCConfigStore,
@@ -100,6 +119,16 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		return nil, fmt.Errorf("invalid tenant: %w", err)
 	}
 
+	// FR-008: Tenant IDs must not contain dots (used as channel separator)
+	if strings.Contains(req.TenantID, ".") {
+		return nil, fmt.Errorf("%w: %s", ErrTenantIDContainsDots, req.TenantID)
+	}
+
+	// FR-009: Tenant IDs must not start with underscore (reserved for system)
+	if strings.HasPrefix(req.TenantID, "_") {
+		return nil, fmt.Errorf("%w: %s", ErrTenantIDUnderscorePrefix, req.TenantID)
+	}
+
 	// Create tenant record
 	if err := s.tenants.Create(ctx, tenant); err != nil {
 		return nil, fmt.Errorf("create tenant: %w", err)
@@ -121,7 +150,6 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 
 	response := &CreateTenantResponse{
 		Tenant: tenant,
-		Topics: []string{},
 	}
 
 	// Register initial key if provided
@@ -143,26 +171,10 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		response.Key = key
 	}
 
-	// Create initial topics if categories provided
-	if len(req.Categories) > 0 {
-		topics, err := s.createTopicsForTenant(ctx, tenant.ID, req.Categories)
-		if err != nil {
-			s.logger.Error().Err(err).Str("tenant_id", tenant.ID).Msg("Failed to create topics")
-			// Don't fail - topics can be created later
-		} else {
-			for _, t := range topics {
-				// Build topic name at runtime for response
-				topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.ID, t.Category)
-				response.Topics = append(response.Topics, topicName)
-			}
-		}
-	}
-
 	// Audit log
 	s.auditLog(ctx, tenant.ID, ActionCreateTenant, Metadata{
 		"name":          tenant.Name,
 		"consumer_type": tenant.ConsumerType,
-		"categories":    req.Categories,
 	})
 
 	s.logger.Info().
@@ -273,18 +285,24 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string) error 
 	}
 
 	// Update topic retention to grace period (Kafka will delete after)
-	topics, _ := s.topics.ListByTenant(ctx, tenantID)
-	gracePeriodMs := int64(s.config.DeprovisionGraceDays * 24 * 60 * 60 * 1000)
-	for _, topic := range topics {
-		// Build topic name at runtime
-		topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, topic.Category)
-		if err := s.kafka.SetTopicConfig(ctx, topicName, map[string]string{
-			"retention.ms": strconv.FormatInt(gracePeriodMs, 10),
-		}); err != nil {
-			s.logger.Error().Err(err).
-				Str("tenant_id", tenantID).
-				Str("topic", topicName).
-				Msg("Failed to update topic retention")
+	if s.routingRules != nil {
+		rules, err := s.routingRules.Get(ctx, tenantID)
+		if err != nil {
+			s.logger.Warn().Err(err).Str("tenant_id", tenantID).
+				Msg("Failed to get routing rules for topic retention update")
+		} else {
+			gracePeriodMs := int64(s.config.DeprovisionGraceDays) * msPerDay
+			for _, suffix := range types.UniqueTopicSuffixes(rules) {
+				topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
+				if err := s.kafka.SetTopicConfig(ctx, topicName, map[string]string{
+					kafkaRetentionMsKey: strconv.FormatInt(gracePeriodMs, 10),
+				}); err != nil {
+					s.logger.Error().Err(err).
+						Str("tenant_id", tenantID).
+						Str("topic", topicName).
+						Msg("Failed to update topic retention")
+				}
+			}
 		}
 	}
 
@@ -382,34 +400,6 @@ func (s *Service) GetActiveKeys(ctx context.Context) ([]*TenantKey, error) {
 	return s.keys.GetActiveKeys(ctx)
 }
 
-// CreateTopics creates topics for a tenant.
-func (s *Service) CreateTopics(ctx context.Context, tenantID string, categories []string) ([]*TenantTopic, error) {
-	// Verify tenant exists and is active
-	tenant, err := s.tenants.Get(ctx, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	if tenant.Status != StatusActive {
-		return nil, fmt.Errorf("tenant is not active: %s", tenant.Status)
-	}
-
-	topics, err := s.createTopicsForTenant(ctx, tenantID, categories)
-	if err != nil {
-		return nil, err
-	}
-
-	s.emitEvent(eventbus.TopicsChanged)
-
-	return topics, nil
-}
-
-// ListTopics returns all topic categories for a tenant.
-// Note: TenantTopic.Category contains the category name. To get the full topic name,
-// use kafka.BuildTopicName(service.TopicNamespace(), tenantID, category).
-func (s *Service) ListTopics(ctx context.Context, tenantID string) ([]*TenantTopic, error) {
-	return s.topics.ListByTenant(ctx, tenantID)
-}
-
 // TopicNamespace returns the configured Kafka topic namespace.
 // Used to build full topic names: {namespace}.{tenantID}.{category}
 func (s *Service) TopicNamespace() string {
@@ -469,70 +459,6 @@ func (s *Service) UpdateQuota(ctx context.Context, tenantID string, req UpdateQu
 // GetAuditLog returns audit entries for a tenant.
 func (s *Service) GetAuditLog(ctx context.Context, tenantID string, opts ListOptions) ([]*AuditEntry, int, error) {
 	return s.audit.ListByTenant(ctx, tenantID, opts)
-}
-
-// createTopicsForTenant creates topics for the given categories.
-func (s *Service) createTopicsForTenant(ctx context.Context, tenantID string, categories []string) ([]*TenantTopic, error) {
-	created := []*TenantTopic{}
-
-	for _, category := range categories {
-		if err := s.createSingleTopic(ctx, tenantID, category); err != nil {
-			topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, category)
-			s.logger.Error().Err(err).Str("topic", topicName).Msg("Failed to create topic")
-			continue
-		}
-		created = append(created, &TenantTopic{
-			TenantID:    tenantID,
-			Category:    category,
-			Partitions:  s.config.DefaultPartitions,
-			RetentionMs: s.config.DefaultRetentionMs,
-		})
-	}
-
-	// Create ACL for tenant
-	if len(created) > 0 {
-		acl := ACLBinding{
-			Principal:    "User:" + tenantID,
-			ResourceType: "TOPIC",
-			ResourceName: fmt.Sprintf("%s.%s.", s.config.TopicNamespace, tenantID),
-			PatternType:  "PREFIXED",
-			Operation:    "ALL",
-			Permission:   "ALLOW",
-		}
-		if err := s.kafka.CreateACL(ctx, acl); err != nil {
-			s.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to create ACL")
-		}
-	}
-
-	return created, nil
-}
-
-// createSingleTopic creates a single Kafka topic and records the category in the database.
-// Topic name is built at runtime using kafka.BuildTopicName(namespace, tenantID, category).
-func (s *Service) createSingleTopic(ctx context.Context, tenantID, category string) error {
-	// Build topic name at runtime
-	topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, category)
-
-	// Create in Kafka
-	config := map[string]string{
-		"retention.ms": strconv.FormatInt(s.config.DefaultRetentionMs, 10),
-	}
-	if err := s.kafka.CreateTopic(ctx, topicName, s.config.DefaultPartitions, config); err != nil {
-		return fmt.Errorf("create kafka topic: %w", err)
-	}
-
-	// Record category in database (not full topic name)
-	topic := &TenantTopic{
-		TenantID:    tenantID,
-		Category:    category,
-		Partitions:  s.config.DefaultPartitions,
-		RetentionMs: s.config.DefaultRetentionMs,
-	}
-	if err := s.topics.Create(ctx, topic); err != nil {
-		return fmt.Errorf("record category: %w", err)
-	}
-
-	return nil
 }
 
 // auditLog records an audit entry.
@@ -754,6 +680,83 @@ func (s *Service) DeleteChannelRules(ctx context.Context, tenantID string) error
 		Msg("Channel rules deleted")
 
 	s.emitEvent(eventbus.TenantConfigChanged)
+
+	return nil
+}
+
+// GetRoutingRules retrieves routing rules for a tenant.
+func (s *Service) GetRoutingRules(ctx context.Context, tenantID string) ([]types.TopicRoutingRule, error) {
+	if s.routingRules == nil {
+		return nil, errors.New("routing rules store not configured")
+	}
+
+	return s.routingRules.Get(ctx, tenantID)
+}
+
+// SetRoutingRules creates or updates routing rules for a tenant.
+func (s *Service) SetRoutingRules(ctx context.Context, tenantID string, rules []types.TopicRoutingRule) error {
+	if s.routingRules == nil {
+		return errors.New("routing rules store not configured")
+	}
+
+	// Verify tenant exists and is active
+	tenant, err := s.tenants.Get(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if tenant.Status != StatusActive {
+		return fmt.Errorf("tenant is not active: %s", tenant.Status)
+	}
+
+	// Enforce configurable count limit (default from env var MAX_ROUTING_RULES)
+	maxRules := s.config.MaxRoutingRules
+	if len(rules) > maxRules {
+		return fmt.Errorf("%w: got %d, max %d", types.ErrTooManyRoutingRules, len(rules), maxRules)
+	}
+
+	// Validate rule structure (patterns, suffixes, no placeholders)
+	if err := types.ValidateRoutingRules(rules); err != nil {
+		return fmt.Errorf("invalid routing rules: %w", err)
+	}
+
+	// Upsert in store
+	if err := s.routingRules.Set(ctx, tenantID, rules); err != nil {
+		return fmt.Errorf("set routing rules: %w", err)
+	}
+
+	s.auditLog(ctx, tenantID, ActionSetRoutingRules, Metadata{
+		"rule_count": len(rules),
+	})
+
+	s.logger.Info().
+		Str("tenant_id", tenantID).
+		Int("rule_count", len(rules)).
+		Msg("Routing rules set")
+
+	s.emitEvent(eventbus.TenantConfigChanged)
+	s.emitEvent(eventbus.TopicsChanged)
+
+	return nil
+}
+
+// DeleteRoutingRules deletes routing rules for a tenant.
+func (s *Service) DeleteRoutingRules(ctx context.Context, tenantID string) error {
+	if s.routingRules == nil {
+		return errors.New("routing rules store not configured")
+	}
+
+	if err := s.routingRules.Delete(ctx, tenantID); err != nil {
+		return fmt.Errorf("delete routing rules: %w", err)
+	}
+
+	s.auditLog(ctx, tenantID, ActionDeleteRoutingRules, nil)
+
+	s.logger.Info().
+		Str("tenant_id", tenantID).
+		Msg("Routing rules deleted")
+
+	s.emitEvent(eventbus.TenantConfigChanged)
+	s.emitEvent(eventbus.TopicsChanged)
 
 	return nil
 }

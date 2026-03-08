@@ -17,6 +17,7 @@ import (
 // This allows for dependency injection and easier testing
 type SystemMonitorInterface interface {
 	GetCPUPercent() float64
+	GetSmoothedCPUPercent() float64
 	GetMemoryBytes() int64
 	GetGoroutines() int
 	GetMetrics() metrics.SystemMetrics
@@ -221,8 +222,9 @@ func NewResourceGuardWithMonitor(config types.ServerConfig, logger zerolog.Logge
 //   - reason: human-readable rejection reason (if rejected)
 func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 	// Query current resource metrics from SystemMonitor (single source of truth)
+	// Use EWMA-smoothed CPU to prevent transient spikes from triggering false rejections
 	currentConns := rg.currentConns.Load()
-	currentCPU := rg.systemMonitor.GetCPUPercent()
+	currentCPU := rg.systemMonitor.GetSmoothedCPUPercent()
 	currentMemory := rg.systemMonitor.GetMemoryBytes()
 	currentGoros := rg.systemMonitor.GetGoroutines()
 
@@ -319,7 +321,8 @@ func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 //   - Pause when CPU > CPUPauseThreshold (upper, default 80%)
 //   - Resume when CPU < CPUPauseThresholdLower (lower, default 70%)
 func (rg *ResourceGuard) ShouldPauseKafka() bool {
-	currentCPU := rg.systemMonitor.GetCPUPercent()
+	// Use EWMA-smoothed CPU to prevent transient spikes from triggering false pauses
+	currentCPU := rg.systemMonitor.GetSmoothedCPUPercent()
 	currentlyPausing := rg.isPausingKafka.Load()
 
 	if currentlyPausing {

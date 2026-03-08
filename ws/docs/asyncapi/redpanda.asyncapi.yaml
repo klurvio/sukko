@@ -1,11 +1,11 @@
 asyncapi: 3.0.0
 
 info:
-  title: Odin Redpanda Event Publishing API
+  title: Sukko Redpanda Event Publishing API
   version: 1.0.0
   description: |
     Describes how external services (CDC pipelines, backend services) publish events to
-    Redpanda/Kafka that get broadcast to WebSocket clients via the Odin platform.
+    Redpanda/Kafka that get broadcast to WebSocket clients via the Sukko platform.
 
     ## Topic Naming
 
@@ -75,7 +75,7 @@ info:
     | Kafka topic | `{namespace}.{tenant}.{category}` | `local.sukko.trade` |
     | Kafka key | `{tenant}.{identifier}.{category}` | `sukko.BTC.trade` |
 
-    ## Internal Publisher Connection (Odin)
+    ## Internal Publisher Connection (Sukko)
 
     CDC pipelines and internal services connect to Redpanda via Kubernetes internal networking.
 
@@ -170,7 +170,7 @@ info:
     | `timestamp` | Publish timestamp for latency debugging |
 
   contact:
-    name: Odin Platform Team
+    name: Sukko Platform Team
   license:
     name: Proprietary
 

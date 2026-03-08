@@ -26,6 +26,7 @@ func newValidServerConfig() *ServerConfig {
 		CPURejectThresholdLower:    65.0, // Explicit: non-zero skips auto-compute
 		CPUPauseThreshold:          80.0,
 		CPUPauseThresholdLower:     70.0, // Explicit: non-zero skips auto-compute
+		CPUEWMABeta:                0.8,
 		TCPListenBacklog:           2048,
 		HTTPReadTimeout:            15 * time.Second,
 		HTTPWriteTimeout:           15 * time.Second,
@@ -149,6 +150,41 @@ func TestServerConfig_Validate_CPUThresholds(t *testing.T) {
 				if err != nil {
 					t.Errorf("Should not error: %v", err)
 				}
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_CPUEWMABeta(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		value       float64
+		shouldError bool
+	}{
+		{"valid default", 0.8, false},
+		{"valid low", 0.1, false},
+		{"valid high", 0.99, false},
+		{"zero", 0.0, true},
+		{"one", 1.0, true},
+		{"negative", -0.5, true},
+		{"greater than one", 1.5, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.CPUEWMABeta = tt.value
+			err := cfg.Validate()
+			if tt.shouldError && err == nil {
+				t.Error("Should error")
+			}
+			if tt.shouldError && err != nil && !strings.Contains(err.Error(), "WS_CPU_EWMA_BETA") {
+				t.Errorf("Error should mention WS_CPU_EWMA_BETA: %v", err)
+			}
+			if !tt.shouldError && err != nil {
+				t.Errorf("Should not error: %v", err)
 			}
 		})
 	}

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Sukko is a multi-tenant WebSocket infrastructure platform built in Go. It provides real-time data distribution for trading/market data via a gateway → server → client pipeline, with Kafka/Redpanda ingestion and NATS broadcast.
+Sukko WS is a multi-tenant WebSocket infrastructure platform built in Go. It provides real-time data distribution for trading/market data via a gateway → server → client pipeline, with Kafka/Redpanda ingestion and NATS broadcast.
 
 **Services:**
 - **ws-gateway** — WebSocket reverse proxy with JWT auth, tenant isolation, rate limiting, connection tracking
@@ -41,8 +41,7 @@ kubectl logs -n sukko-dev -l app.kubernetes.io/name=ws-gateway --tail=50
 
 ### Data Flow
 ```
-Publishers → ws-gateway (auth, rate limiting) → ws-server (ingestion)
-    → Redpanda (Kafka) → ws-server (franz-go consumer)
+Sukko API → Redpanda (Kafka) → ws-server (franz-go consumer)
     → NATS broadcast bus → ws-server shards → WebSocket clients
                                     ↑
                               ws-gateway (reverse proxy, auth, rate limiting)
@@ -71,7 +70,7 @@ ws/
 ├── proto/               # Protobuf definitions (buf-managed)
 │   └── sukko/provisioning/v1/ # Provisioning gRPC service
 deployments/
-├── helm/sukko/          # Helm charts (ws-server, ws-gateway, monitoring, etc.)
+├── helm/sukko/           # Helm charts (ws-server, ws-gateway, monitoring, etc.)
 │   ├── charts/          # Subchart definitions
 │   └── values/standard/ # Environment overrides (dev.yaml, stg.yaml)
 ├── terraform/           # GKE, Cloud NAT, VPC, static IPs
@@ -81,7 +80,7 @@ docs/architecture/       # Plans, findings, session handoffs
 ```
 
 ### Key Technologies
-- **Go 1.26+** with modern features (any, slices, maps, for range N, errors.Join, errors.AsType[T], new(expr), self-referential generics, reflect iterators)
+- **Go 1.22+** with modern features (any, slices, maps, for range N, errors.Join)
 - **franz-go** for Kafka/Redpanda consumption (consumer groups, partition management)
 - **NATS** for inter-pod broadcast (publish/subscribe)
 - **gRPC** + **protobuf** for internal service-to-service communication (buf for codegen)
@@ -104,14 +103,14 @@ Helm and Docker Compose override via env vars only when a deployment needs a non
 
 ## Commit Message Format
 
-Conventional commits with GitHub Issue number required:
+Conventional commits with ClickUp ID required:
 ```
-type[#issue]: subject (min 4 chars)
+type[clickup-id]: subject (min 4 chars)
 
 Examples:
-feat[#42]: add tenant connection tracking
-fix[#15]: resolve kafka consumer offset reset
-refactor[#78]: remove legacy metrics collector
+feat[86bz7g64n]: add tenant connection tracking
+fix[abc123]: resolve kafka consumer offset reset
+refactor[86aew4m4f]: remove legacy metrics collector
 ```
 
 Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
@@ -124,7 +123,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.5.2 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-04
+**Version**: 1.5.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-02
 
 ### I. Configuration
 

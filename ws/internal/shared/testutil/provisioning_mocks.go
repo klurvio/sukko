@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // MockTenantStore is an in-memory mock implementation of TenantStore.
@@ -352,6 +353,73 @@ func (m *MockTopicStore) CountPartitionsByTenant(_ context.Context, tenantID str
 		}
 	}
 	return count, nil
+}
+
+// MockRoutingRulesStore is an in-memory mock implementation of RoutingRulesStore.
+type MockRoutingRulesStore struct {
+	mu    sync.RWMutex
+	rules map[string][]types.TopicRoutingRule // key: tenantID
+
+	GetErr    error
+	SetErr    error
+	DeleteErr error
+}
+
+// NewMockRoutingRulesStore creates a new MockRoutingRulesStore.
+func NewMockRoutingRulesStore() *MockRoutingRulesStore {
+	return &MockRoutingRulesStore{
+		rules: make(map[string][]types.TopicRoutingRule),
+	}
+}
+
+// Get implements RoutingRulesStore.Get for testing.
+func (m *MockRoutingRulesStore) Get(_ context.Context, tenantID string) ([]types.TopicRoutingRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.GetErr != nil {
+		return nil, m.GetErr
+	}
+	rules, ok := m.rules[tenantID]
+	if !ok {
+		return nil, types.ErrRoutingRulesNotFound
+	}
+	return rules, nil
+}
+
+// Set implements RoutingRulesStore.Set for testing.
+func (m *MockRoutingRulesStore) Set(_ context.Context, tenantID string, rules []types.TopicRoutingRule) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.SetErr != nil {
+		return m.SetErr
+	}
+	m.rules[tenantID] = rules
+	return nil
+}
+
+// Delete implements RoutingRulesStore.Delete for testing.
+func (m *MockRoutingRulesStore) Delete(_ context.Context, tenantID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.DeleteErr != nil {
+		return m.DeleteErr
+	}
+	if _, ok := m.rules[tenantID]; !ok {
+		return types.ErrRoutingRulesNotFound
+	}
+	delete(m.rules, tenantID)
+	return nil
+}
+
+// ListAll implements RoutingRulesStore.ListAll for testing.
+func (m *MockRoutingRulesStore) ListAll(_ context.Context) (map[string][]types.TopicRoutingRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make(map[string][]types.TopicRoutingRule, len(m.rules))
+	for k, v := range m.rules {
+		result[k] = v
+	}
+	return result, nil
 }
 
 // MockQuotaStore is an in-memory mock implementation of QuotaStore.

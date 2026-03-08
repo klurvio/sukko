@@ -83,7 +83,7 @@ DURATION=5m \
 # Dynamic channel generation
 KAFKA_BROKERS=localhost:19092 \
 KAFKA_NAMESPACE=local \
-TENANT_ID` | `sukko \
+TENANT_ID=sukko \
 IDENTIFIERS=BTC,ETH,SOL,all \
 CATEGORIES=trade,liquidity,orderbook \
 ./wspublisher

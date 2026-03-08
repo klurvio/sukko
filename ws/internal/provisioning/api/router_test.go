@@ -1,10 +1,13 @@
 package api_test
 
 import (
+	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +21,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/api"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/testutil"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // generateTestECKey generates an ECDSA P-256 key pair for testing.
@@ -57,10 +61,18 @@ func createTestToken(t *testing.T, keyID string, privateKey *ecdsa.PrivateKey, c
 
 // newTestService creates a provisioning service with mock stores.
 func newTestService() *provisioning.Service {
+	return newTestServiceWithStores(
+		testutil.NewMockTenantStore(),
+		testutil.NewMockRoutingRulesStore(),
+	)
+}
+
+// newTestServiceWithStores creates a provisioning service with specific mock stores.
+func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStore *testutil.MockRoutingRulesStore) *provisioning.Service {
 	return provisioning.NewService(provisioning.ServiceConfig{
-		TenantStore:          testutil.NewMockTenantStore(),
+		TenantStore:          tenantStore,
 		KeyStore:             testutil.NewMockKeyStore(),
-		TopicStore:           testutil.NewMockTopicStore(),
+		RoutingRulesStore:    routingStore,
 		QuotaStore:           testutil.NewMockQuotaStore(),
 		AuditStore:           testutil.NewMockAuditStore(),
 		KafkaAdmin:           testutil.NewMockKafkaAdmin(),
@@ -68,6 +80,7 @@ func newTestService() *provisioning.Service {
 		DefaultPartitions:    3,
 		DefaultRetentionMs:   604800000,
 		MaxTopicsPerTenant:   50,
+		MaxRoutingRules:      100,
 		DeprovisionGraceDays: 30,
 		Logger:               zerolog.Nop(),
 	})
@@ -616,6 +629,282 @@ func TestRouter_HealthEndpoints_NoAuth(t *testing.T) {
 
 			if rec.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Routing Rules Endpoint Tests (W8)
+// =============================================================================
+
+func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
+	t.Parallel()
+
+	tenantStore := testutil.NewMockTenantStore()
+	routingStore := testutil.NewMockRoutingRulesStore()
+	svc := newTestServiceWithStores(tenantStore, routingStore)
+
+	// Pre-create a tenant so service calls succeed
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+
+	router := api.NewRouter(api.RouterConfig{
+		Service:     svc,
+		Logger:      zerolog.Nop(),
+		AuthEnabled: false,
+	})
+
+	// 1. GET routing rules — not found initially
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET (empty) status = %d, want %d; body: %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+
+	// 2. PUT routing rules
+	rules := provisioning.SetRoutingRulesRequest{
+		Rules: []types.TopicRoutingRule{
+			{Pattern: "*.trade", TopicSuffix: "trade"},
+			{Pattern: "*.orderbook", TopicSuffix: "orderbook"},
+		},
+	}
+	body, _ := json.Marshal(rules)
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("PUT status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	// 3. GET routing rules — should find them now
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET (after set) status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var getResp struct {
+		Rules []types.TopicRoutingRule `json:"rules"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("failed to parse GET response: %v", err)
+	}
+	if len(getResp.Rules) != 2 {
+		t.Errorf("expected 2 rules, got %d", len(getResp.Rules))
+	}
+
+	// 4. DELETE routing rules
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("DELETE status = %d, want %d; body: %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+
+	// 5. GET after delete — should be not found again
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET (after delete) status = %d, want %d; body: %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
+func TestRouter_RoutingRules_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	tenantStore := testutil.NewMockTenantStore()
+	routingStore := testutil.NewMockRoutingRulesStore()
+	svc := newTestServiceWithStores(tenantStore, routingStore)
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+
+	router := api.NewRouter(api.RouterConfig{
+		Service:     svc,
+		Logger:      zerolog.Nop(),
+		AuthEnabled: false,
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules",
+		bytes.NewReader([]byte(`{invalid json}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestRouter_RoutingRules_InvalidRules(t *testing.T) {
+	t.Parallel()
+
+	tenantStore := testutil.NewMockTenantStore()
+	routingStore := testutil.NewMockRoutingRulesStore()
+	svc := newTestServiceWithStores(tenantStore, routingStore)
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+
+	router := api.NewRouter(api.RouterConfig{
+		Service:     svc,
+		Logger:      zerolog.Nop(),
+		AuthEnabled: false,
+	})
+
+	// Empty rules should fail validation
+	rules := provisioning.SetRoutingRulesRequest{
+		Rules: []types.TopicRoutingRule{},
+	}
+	body, _ := json.Marshal(rules)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestRouter_RoutingRules_DeleteNonexistent(t *testing.T) {
+	t.Parallel()
+
+	tenantStore := testutil.NewMockTenantStore()
+	routingStore := testutil.NewMockRoutingRulesStore()
+	svc := newTestServiceWithStores(tenantStore, routingStore)
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+
+	router := api.NewRouter(api.RouterConfig{
+		Service:     svc,
+		Logger:      zerolog.Nop(),
+		AuthEnabled: false,
+	})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d; body: %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
+func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
+	t.Parallel()
+
+	registry := auth.NewStaticKeyRegistry()
+	ecPEM, privateKey := generateTestECKey(t)
+	keyInfo := &auth.KeyInfo{
+		KeyID:        "test-key-1",
+		TenantID:     "test-tenant",
+		Algorithm:    "ES256",
+		PublicKeyPEM: ecPEM,
+		IsActive:     true,
+	}
+	if err := registry.AddKey(keyInfo); err != nil {
+		t.Fatalf("AddKey failed: %v", err)
+	}
+
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry: registry,
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator failed: %v", err)
+	}
+
+	tenantStore := testutil.NewMockTenantStore()
+	routingStore := testutil.NewMockRoutingRulesStore()
+	svc := newTestServiceWithStores(tenantStore, routingStore)
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+
+	router := api.NewRouter(api.RouterConfig{
+		Service:     svc,
+		Logger:      zerolog.Nop(),
+		AuthEnabled: true,
+		Validator:   validator,
+	})
+
+	tests := []struct {
+		name          string
+		roles         []string
+		method        string
+		wantForbidden bool // true = expect 403, false = expect auth to pass (any non-401/403)
+	}{
+		{
+			name:          "user cannot PUT routing rules",
+			roles:         []string{"user"},
+			method:        http.MethodPut,
+			wantForbidden: true,
+		},
+		{
+			name:          "admin can PUT routing rules",
+			roles:         []string{"admin"},
+			method:        http.MethodPut,
+			wantForbidden: false,
+		},
+		{
+			name:          "user cannot DELETE routing rules",
+			roles:         []string{"user"},
+			method:        http.MethodDelete,
+			wantForbidden: true,
+		},
+		{
+			name:          "user can GET routing rules",
+			roles:         []string{"user"},
+			method:        http.MethodGet,
+			wantForbidden: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			claims := &auth.Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject:   "user-123",
+					ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+					IssuedAt:  jwt.NewNumericDate(time.Now()),
+				},
+				TenantID: "test-tenant",
+				Roles:    tt.roles,
+			}
+			token := createTestToken(t, "test-key-1", privateKey, claims)
+
+			var body *bytes.Reader
+			if tt.method == http.MethodPut {
+				rules := provisioning.SetRoutingRulesRequest{
+					Rules: []types.TopicRoutingRule{
+						{Pattern: "*.trade", TopicSuffix: "trade"},
+					},
+				}
+				b, _ := json.Marshal(rules)
+				body = bytes.NewReader(b)
+			} else {
+				body = bytes.NewReader(nil)
+			}
+
+			req := httptest.NewRequest(tt.method, "/api/v1/tenants/test-tenant/routing-rules", body)
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if tt.wantForbidden {
+				if rec.Code != http.StatusForbidden {
+					t.Errorf("status = %d, want %d; body: %s", rec.Code, http.StatusForbidden, rec.Body.String())
+				}
+			} else {
+				// Verify auth passes (not 401/403)
+				if rec.Code == http.StatusUnauthorized || rec.Code == http.StatusForbidden {
+					t.Errorf("expected auth to pass, got status %d; body: %s", rec.Code, rec.Body.String())
+				}
 			}
 		})
 	}

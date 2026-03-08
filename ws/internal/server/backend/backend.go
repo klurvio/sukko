@@ -1,4 +1,4 @@
-// Package backend provides the pluggable message backend abstraction for Sukko.
+// Package backend provides the pluggable message backend abstraction for Sukko WS.
 //
 // The MessageBackend interface decouples the ws-server from any specific message
 // ingestion system. Three implementations are provided:

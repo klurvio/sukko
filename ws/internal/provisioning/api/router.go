@@ -123,10 +123,16 @@ func NewRouter(cfg RouterConfig) http.Handler {
 					r.Delete("/{keyID}", h.RevokeKey)
 				})
 
-				// Topic management
-				r.Route("/topics", func(r chi.Router) {
-					r.Post("/", h.CreateTopics)
-					r.Get("/", h.ListTopics)
+				// Routing rules management (admin-only for set/delete)
+				r.Route("/routing-rules", func(r chi.Router) {
+					r.Get("/", h.GetRoutingRules)
+					r.Group(func(r chi.Router) {
+						if cfg.AuthEnabled {
+							r.Use(RequireRole("admin", "system"))
+						}
+						r.Put("/", h.SetRoutingRules)
+						r.Delete("/", h.DeleteRoutingRules)
+					})
 				})
 
 				// Quota management

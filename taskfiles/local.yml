@@ -124,10 +124,10 @@ tasks:
       - kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n {{.LOCAL_NAMESPACE}} --timeout=120s
 
   # ===========================================================================
-  # Provisioning (Kafka topics + DB tenant)
+  # Provisioning (routing rules + DB tenant)
   # ===========================================================================
   provision:create:
-    desc: Create sukko tenant + Kafka topics + channel rules
+    desc: Create sukko tenant + routing rules + channel rules
     cmds:
       - |
         set -e
@@ -162,12 +162,12 @@ tasks:
         }
         echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
 
-        # Create Kafka topics
-        echo "Creating Kafka topics..."
-        RESULT=$(curl -sf -X POST http://localhost:{{.LOCAL_PROVISIONING_PORT}}/api/v1/tenants/sukko/topics \
+        # Set routing rules
+        echo "Setting routing rules..."
+        RESULT=$(curl -sf -X PUT http://localhost:{{.LOCAL_PROVISIONING_PORT}}/api/v1/tenants/sukko/routing-rules \
           -H "Content-Type: application/json" \
-          -d '{"categories": ["trade"]}' 2>&1) || {
-          echo "Topic creation failed: $RESULT"
+          -d '{"rules": [{"pattern": "*.trade", "topic_suffix": "trade"}]}' 2>&1) || {
+          echo "Routing rules failed: $RESULT"
           exit 1
         }
         echo "$RESULT" | jq .
@@ -185,7 +185,7 @@ tasks:
         echo "Provisioning complete"
 
   provision:status:
-    desc: List Kafka topics + tenants
+    desc: List Kafka topics + tenants + routing rules
     cmds:
       - |
         echo "=== Kafka Topics ==="
@@ -193,6 +193,9 @@ tasks:
         echo ""
         echo "=== Tenants ==="
         curl -s http://localhost:{{.LOCAL_PROVISIONING_PORT}}/api/v1/tenants | jq .
+        echo ""
+        echo "=== Routing Rules (sukko) ==="
+        curl -s http://localhost:{{.LOCAL_PROVISIONING_PORT}}/api/v1/tenants/sukko/routing-rules | jq .
 
   provision:delete:
     desc: Delete all local.sukko.* topics

@@ -57,24 +57,21 @@ type KeyStore interface {
 	GetActiveKeys(ctx context.Context) ([]*TenantKey, error)
 }
 
-// TopicStore handles topic category tracking operations.
-// Note: Stores categories in tenant_categories table. Full topic names are built
-// at runtime using kafka.BuildTopicName(namespace, tenantID, category).
-type TopicStore interface {
-	// Create records a provisioned topic category.
-	Create(ctx context.Context, topic *TenantTopic) error
+// RoutingRulesStore handles per-tenant topic routing rules persistence.
+// Rules are stored as a JSONB array of {pattern, topic_suffix} objects.
+type RoutingRulesStore interface {
+	// Get retrieves routing rules for a tenant.
+	// Returns types.ErrRoutingRulesNotFound if not found.
+	Get(ctx context.Context, tenantID string) ([]types.TopicRoutingRule, error)
 
-	// ListByTenant returns all topic categories for a tenant.
-	ListByTenant(ctx context.Context, tenantID string) ([]*TenantTopic, error)
+	// Set creates or updates routing rules for a tenant (upsert).
+	Set(ctx context.Context, tenantID string, rules []types.TopicRoutingRule) error
 
-	// MarkDeleted marks a topic category as deleted.
-	MarkDeleted(ctx context.Context, tenantID, category string) error
+	// Delete deletes routing rules for a tenant.
+	Delete(ctx context.Context, tenantID string) error
 
-	// CountByTenant returns the number of active topic categories for a tenant.
-	CountByTenant(ctx context.Context, tenantID string) (int, error)
-
-	// CountPartitionsByTenant returns the total partitions for a tenant.
-	CountPartitionsByTenant(ctx context.Context, tenantID string) (int, error)
+	// ListAll returns routing rules for all tenants.
+	ListAll(ctx context.Context) (map[string][]types.TopicRoutingRule, error)
 }
 
 // QuotaStore handles tenant quota operations.
