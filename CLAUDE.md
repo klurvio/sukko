@@ -103,14 +103,14 @@ Helm and Docker Compose override via env vars only when a deployment needs a non
 
 ## Commit Message Format
 
-Conventional commits with ClickUp ID required:
+Conventional commits with GitHub issue number required:
 ```
-type[clickup-id]: subject (min 4 chars)
+type[#issue]: subject (min 4 chars)
 
 Examples:
-feat[86bz7g64n]: add tenant connection tracking
-fix[abc123]: resolve kafka consumer offset reset
-refactor[86aew4m4f]: remove legacy metrics collector
+feat[#42]: add tenant connection tracking
+fix[#15]: resolve kafka consumer offset reset
+refactor[#7]: remove legacy metrics collector
 ```
 
 Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
