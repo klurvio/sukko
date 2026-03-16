@@ -5,6 +5,12 @@ import "context"
 // contextKey is a private type for context keys to avoid collisions.
 type contextKey string
 
+// DefaultActor is the default actor identifier when no actor is set in context.
+const DefaultActor = "system"
+
+// DefaultActorType is the default actor type when no actor type is set in context.
+const DefaultActorType = "system"
+
 // Context keys for authentication information.
 const (
 	claimsKey    contextKey = "auth.claims"
@@ -48,18 +54,18 @@ func GetActor(ctx context.Context) string {
 			return actor
 		}
 	}
-	return "system"
+	return DefaultActor
 }
 
 // GetActorType retrieves actor type from context.
-// Returns "system" if no actor type is present.
+// Returns DefaultActorType if no actor type is present.
 func GetActorType(ctx context.Context) string {
 	if v := ctx.Value(actorTypeKey); v != nil {
 		if actorType, ok := v.(string); ok {
 			return actorType
 		}
 	}
-	return "system"
+	return DefaultActorType
 }
 
 // GetClientIPFromContext retrieves client IP from context.

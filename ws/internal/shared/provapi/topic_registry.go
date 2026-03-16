@@ -13,9 +13,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/types"
+	provisioningv1 "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // StreamTopicRegistryConfig configures the gRPC stream-backed topic registry.
@@ -141,7 +141,10 @@ func (r *StreamTopicRegistry) State() int32 {
 func (r *StreamTopicRegistry) Close() error {
 	r.cancel()
 	r.wg.Wait()
-	return r.conn.Close()
+	if err := r.conn.Close(); err != nil {
+		return fmt.Errorf("close topic registry gRPC connection: %w", err)
+	}
+	return nil
 }
 
 // streamLoop runs the gRPC stream with reconnection logic.
@@ -152,8 +155,8 @@ func (r *StreamTopicRegistry) streamLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			r.streamState.Store(0)
-			r.streamStateGauge.Set(0)
+			r.streamState.Store(streamStateDisconnected)
+			r.streamStateGauge.Set(streamStateDisconnected)
 			return
 		default:
 		}
@@ -163,8 +166,8 @@ func (r *StreamTopicRegistry) streamLoop(ctx context.Context) {
 		})
 		if err != nil {
 			r.logger.Warn().Err(err).Dur("retry_in", delay).Msg("failed to start WatchTopics stream")
-			r.streamState.Store(0)
-			r.streamStateGauge.Set(0)
+			r.streamState.Store(streamStateDisconnected)
+			r.streamStateGauge.Set(streamStateDisconnected)
 
 			select {
 			case <-ctx.Done():
@@ -178,8 +181,8 @@ func (r *StreamTopicRegistry) streamLoop(ctx context.Context) {
 			continue
 		}
 
-		r.streamState.Store(1)
-		r.streamStateGauge.Set(1)
+		r.streamState.Store(streamStateConnected)
+		r.streamStateGauge.Set(streamStateConnected)
 		delay = r.config.ReconnectDelay
 
 		r.logger.Info().Str("namespace", r.namespace).Msg("WatchTopics stream connected")
@@ -188,8 +191,8 @@ func (r *StreamTopicRegistry) streamLoop(ctx context.Context) {
 			resp, err := stream.Recv()
 			if err != nil {
 				r.logger.Warn().Err(err).Msg("WatchTopics stream disconnected")
-				r.streamState.Store(0)
-				r.streamStateGauge.Set(0)
+				r.streamState.Store(streamStateDisconnected)
+				r.streamStateGauge.Set(streamStateDisconnected)
 				break
 			}
 
@@ -208,9 +211,9 @@ func (r *StreamTopicRegistry) updateTopics(resp *provisioningv1.WatchTopicsRespo
 	onUpdate := r.applyTopicUpdate(resp)
 
 	r.logger.Debug().
-		Bool("snapshot", resp.IsSnapshot).
-		Int("shared_topics", len(resp.SharedTopics)).
-		Int("dedicated_tenants", len(resp.DedicatedTenants)).
+		Bool("snapshot", resp.GetIsSnapshot()).
+		Int("shared_topics", len(resp.GetSharedTopics())).
+		Int("dedicated_tenants", len(resp.GetDedicatedTenants())).
 		Msg("topic cache updated")
 
 	// Notify callback (e.g., consumer pool refresh)
@@ -226,15 +229,15 @@ func (r *StreamTopicRegistry) applyTopicUpdate(resp *provisioningv1.WatchTopicsR
 	defer r.mu.Unlock()
 
 	// Copy proto response slices to avoid sharing backing arrays (defense in depth)
-	r.sharedTopics = make([]string, len(resp.SharedTopics))
-	copy(r.sharedTopics, resp.SharedTopics)
+	r.sharedTopics = make([]string, len(resp.GetSharedTopics()))
+	copy(r.sharedTopics, resp.GetSharedTopics())
 
-	r.dedicatedTenants = make([]types.TenantTopics, 0, len(resp.DedicatedTenants))
-	for _, dt := range resp.DedicatedTenants {
-		topics := make([]string, len(dt.Topics))
-		copy(topics, dt.Topics)
+	r.dedicatedTenants = make([]types.TenantTopics, 0, len(resp.GetDedicatedTenants()))
+	for _, dt := range resp.GetDedicatedTenants() {
+		topics := make([]string, len(dt.GetTopics()))
+		copy(topics, dt.GetTopics())
 		r.dedicatedTenants = append(r.dedicatedTenants, types.TenantTopics{
-			TenantID: dt.TenantId,
+			TenantID: dt.GetTenantId(),
 			Topics:   topics,
 		})
 	}

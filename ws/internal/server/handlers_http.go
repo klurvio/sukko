@@ -22,13 +22,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current metrics
-	s.stats.Mu.RLock()
-	cpuPercent := s.stats.CPUPercent
-	memoryMB := s.stats.MemoryMB
-	s.stats.Mu.RUnlock()
+	cpuPercent, memoryMB := s.stats.ResourceMetrics()
 
 	currentConns := s.stats.CurrentConnections.Load()
-	maxConns := int64(s.config.MaxConnections) // Static configuration
+	maxConns := int64(s.maxConns) // Static configuration
 	slowClients := s.stats.SlowClientsDisconnected.Load()
 	totalConns := s.stats.TotalConnections.Load()
 
@@ -177,7 +174,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 				"healthy":    cpuHealthy,
 			},
 			"limits": map[string]any{
-				"max_connections":  s.config.MaxConnections,
+				"max_connections":  s.maxConns,
 				"max_goroutines":   s.config.MaxGoroutines,
 				"cpu_threshold":    s.config.CPURejectThreshold,
 				"memory_limit_mb":  memLimitMB,
@@ -196,30 +193,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // getObservabilityStats returns Phase 2 observability metrics for /health endpoint
 func (s *Server) getObservabilityStats() map[string]any {
-	// Get disconnect stats
-	s.stats.DisconnectsMu.RLock()
-	disconnects := make(map[string]int64)
-	totalDisconnects := int64(0)
-	for reason, count := range s.stats.DisconnectsByReason {
-		disconnects[reason] = count
-		totalDisconnects += count
-	}
-	s.stats.DisconnectsMu.RUnlock()
+	// Get disconnect stats (returns snapshot copy)
+	disconnects, totalDisconnects := s.stats.GetDisconnectsByReason()
 
-	// Get dropped broadcast stats
-	s.stats.DropsMu.RLock()
-	droppedBroadcasts := make(map[string]int64)
-	totalDropped := int64(0)
-	for channel, count := range s.stats.DroppedBroadcastsByChannel {
-		droppedBroadcasts[channel] = count
-		totalDropped += count
-	}
-	s.stats.DropsMu.RUnlock()
+	// Get dropped broadcast stats (returns snapshot copy)
+	droppedBroadcasts, totalDropped := s.stats.GetDroppedBroadcastsByChannel()
 
-	// Calculate buffer saturation statistics
-	s.stats.BuffersMu.RLock()
-	bufferStats := calculateBufferStats(s.stats.BufferSaturationSamples)
-	s.stats.BuffersMu.RUnlock()
+	// Calculate buffer saturation statistics (returns snapshot copy)
+	bufferStats := calculateBufferStats(s.stats.GetBufferSaturationSamples())
 
 	return map[string]any{
 		"disconnects": map[string]any{

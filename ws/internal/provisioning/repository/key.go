@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 )
 
 // PostgresKeyRepository implements KeyStore using PostgreSQL.

@@ -26,10 +26,10 @@ func TestMatchWildcard(t *testing.T) {
 		{name: "prefix wildcard fails no suffix", pattern: "*.trade", value: "trade", want: false},
 
 		// Suffix wildcard: prefix.*
-		{name: "suffix wildcard matches", pattern: "sukko.*", value: "sukko.trades", want: true},
-		{name: "suffix wildcard matches longer", pattern: "sukko.*", value: "sukko.trades.live", want: true},
-		{name: "suffix wildcard fails wrong prefix", pattern: "sukko.*", value: "acme.trades", want: false},
-		{name: "suffix wildcard fails no prefix", pattern: "sukko.*", value: "trades", want: false},
+		{name: "suffix wildcard matches", pattern: "odin.*", value: "odin.trades", want: true},
+		{name: "suffix wildcard matches longer", pattern: "odin.*", value: "odin.trades.live", want: true},
+		{name: "suffix wildcard fails wrong prefix", pattern: "odin.*", value: "acme.trades", want: false},
+		{name: "suffix wildcard fails no prefix", pattern: "odin.*", value: "trades", want: false},
 
 		// Middle wildcard: prefix*suffix
 		{name: "middle wildcard matches", pattern: "foo*bar", value: "fooXXXbar", want: true},

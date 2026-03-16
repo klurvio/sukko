@@ -145,7 +145,7 @@ func TestBroadcastEnvelope_FieldOrder(t *testing.T) {
 		t.Fatalf("Missing field in output: %s", result)
 	}
 
-	if !(typeIdx < seqIdx && seqIdx < tsIdx && tsIdx < channelIdx && channelIdx < dataIdx) {
+	if typeIdx >= seqIdx || seqIdx >= tsIdx || tsIdx >= channelIdx || channelIdx >= dataIdx {
 		t.Errorf("Field order incorrect. Expected type < seq < ts < channel < data, got positions: type=%d, seq=%d, ts=%d, channel=%d, data=%d",
 			typeIdx, seqIdx, tsIdx, channelIdx, dataIdx)
 	}
@@ -350,10 +350,8 @@ func TestBroadcastEnvelope_Concurrent(t *testing.T) {
 	const numGoroutines = 100
 
 	for i := range numGoroutines {
-		wg.Add(1)
-		go func(seq int64) {
-			defer wg.Done()
-
+		seq := int64(i + 1)
+		wg.Go(func() {
 			got := env.Build(seq)
 
 			// Verify each result matches json.Marshal
@@ -372,7 +370,7 @@ func TestBroadcastEnvelope_Concurrent(t *testing.T) {
 			if string(got) != string(expected) {
 				t.Errorf("Concurrent Build(%d) mismatch:\n  got:  %s\n  want: %s", seq, string(got), string(expected))
 			}
-		}(int64(i + 1))
+		})
 	}
 
 	wg.Wait()

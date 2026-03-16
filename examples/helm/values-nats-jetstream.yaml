@@ -1,10 +1,10 @@
-# Sukko — NATS JetStream Mode
+# Odin — NATS JetStream Mode
 #
 # Enables persistent message streaming via NATS JetStream.
 # Lighter than Kafka. Stream-per-tenant isolation with sequence-based replay.
 #
 # Usage:
-#   helm install sukko deployments/helm/sukko -f examples/helm/values-nats-jetstream.yaml
+#   helm install odin deployments/helm/odin -f examples/helm/values-nats-jetstream.yaml
 
 ws-server:
   # Switch message backend to NATS JetStream

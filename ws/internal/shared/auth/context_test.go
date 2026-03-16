@@ -44,9 +44,9 @@ func TestWithActor_GetActor(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	// Default actor is "system"
-	if got := GetActor(ctx); got != "system" {
-		t.Errorf("GetActor(empty context) = %q, want %q", got, "system")
+	// Default actor is DefaultActor
+	if got := GetActor(ctx); got != DefaultActor {
+		t.Errorf("GetActor(empty context) = %q, want %q", got, DefaultActor)
 	}
 
 	// Add actor
@@ -62,9 +62,9 @@ func TestGetActorType(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	// Default actor type is "system"
-	if got := GetActorType(ctx); got != "system" {
-		t.Errorf("GetActorType(empty context) = %q, want %q", got, "system")
+	// Default actor type is DefaultActorType
+	if got := GetActorType(ctx); got != DefaultActorType {
+		t.Errorf("GetActorType(empty context) = %q, want %q", got, DefaultActorType)
 	}
 
 	// Add actor with type

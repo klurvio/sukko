@@ -1,5 +1,5 @@
 // Package api provides HTTP handlers for the provisioning service.
-package api //nolint:revive // api is a common package name for HTTP handlers
+package api
 
 import (
 	"net/http"
@@ -9,9 +9,9 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/provisioning"
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/version"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/version"
 )
 
 // RouterConfig holds configuration for the HTTP router.
@@ -76,6 +76,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
+		// Apply rate limiting if configured
+		if cfg.RateLimit > 0 {
+			r.Use(RateLimitMiddleware(cfg.RateLimit))
+		}
+
 		// Apply admin token auth first (falls through to JWT on mismatch)
 		if cfg.AdminAuth != nil {
 			r.Use(cfg.AdminAuth.Middleware())

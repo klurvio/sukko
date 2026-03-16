@@ -1,47 +1,71 @@
 package platform
 
-import "fmt"
+import (
+	"fmt"
+	"time"
 
-// ValidLogLevels are the supported log levels.
-var ValidLogLevels = map[string]bool{
-	"debug": true,
-	"info":  true,
-	"warn":  true,
-	"error": true,
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+)
+
+// Shared validation bounds used across gateway, server, and provisioning configs.
+const (
+	// Size bounds.
+	MinFrameSize      = 1024
+	MaxFrameSizeLimit = 10 * 1024 * 1024 // 10MB
+	MinMemoryLimit    = 64 * 1024 * 1024 // 64MB
+	MinStorageBytes   = 1048576          // 1MB
+	MinByteRate       = 1024
+	MinMaxGoroutines  = 100
+	MaxPort           = 65535
+
+	// Duration bounds for HTTP timeouts.
+	MinTimeout          = time.Second
+	MaxReadWriteTimeout = 120 * time.Second
+	MaxIdleTimeout      = 300 * time.Second
+	MaxDialTimeout      = 60 * time.Second
+	MaxMessageTimeout   = 300 * time.Second
+)
+
+// validLogLevels derived from logging.LogLevel constants (single source of truth).
+var validLogLevels = map[logging.LogLevel]bool{
+	logging.LogLevelDebug: true,
+	logging.LogLevelInfo:  true,
+	logging.LogLevelWarn:  true,
+	logging.LogLevelError: true,
+	logging.LogLevelFatal: true,
 }
 
-// ValidLogFormats are the supported log formats.
-var ValidLogFormats = map[string]bool{
-	"json":   true,
-	"text":   true,
-	"pretty": true,
+// validLogFormats derived from logging.LogFormat constants (single source of truth).
+var validLogFormats = map[logging.LogFormat]bool{
+	logging.LogFormatJSON:   true,
+	logging.LogFormatPretty: true,
 }
 
-// ValidKafkaSASLMechanisms are the supported SASL mechanisms.
-var ValidKafkaSASLMechanisms = map[string]bool{
+// validKafkaSASLMechanisms — no external constants package; hand-coded, unexported.
+var validKafkaSASLMechanisms = map[string]bool{
 	"scram-sha-256": true,
 	"scram-sha-512": true,
 }
 
-// ValidateLogLevel checks if the log level is valid.
-func ValidateLogLevel(level string) error {
-	if !ValidLogLevels[level] {
-		return fmt.Errorf("LOG_LEVEL must be one of: debug, info, warn, error (got: %s)", level)
+// validateLogLevel checks if the log level is valid.
+func validateLogLevel(level string) error {
+	if !validLogLevels[logging.LogLevel(level)] {
+		return fmt.Errorf("LOG_LEVEL must be one of: debug, info, warn, error, fatal (got: %s)", level)
 	}
 	return nil
 }
 
-// ValidateLogFormat checks if the log format is valid.
-func ValidateLogFormat(format string) error {
-	if !ValidLogFormats[format] {
-		return fmt.Errorf("LOG_FORMAT must be one of: json, text, pretty (got: %s)", format)
+// validateLogFormat checks if the log format is valid.
+func validateLogFormat(format string) error {
+	if !validLogFormats[logging.LogFormat(format)] {
+		return fmt.Errorf("LOG_FORMAT must be one of: json, pretty (got: %s)", format)
 	}
 	return nil
 }
 
-// ValidateKafkaSASLMechanism checks if the SASL mechanism is valid.
-func ValidateKafkaSASLMechanism(mechanism string) error {
-	if !ValidKafkaSASLMechanisms[mechanism] {
+// validateKafkaSASLMechanism checks if the SASL mechanism is valid.
+func validateKafkaSASLMechanism(mechanism string) error {
+	if !validKafkaSASLMechanisms[mechanism] {
 		return fmt.Errorf("KAFKA_SASL_MECHANISM must be 'scram-sha-256' or 'scram-sha-512', got: %s", mechanism)
 	}
 	return nil

@@ -1,10 +1,10 @@
-# Sukko — Kafka/Redpanda Mode
+# Odin — Kafka/Redpanda Mode
 #
 # Enables persistent message streaming via Kafka protocol.
 # Tenant-specific topics with offset-based replay.
 #
 # Usage:
-#   helm install sukko deployments/helm/sukko -f examples/helm/values-kafka.yaml
+#   helm install odin deployments/helm/odin -f examples/helm/values-kafka.yaml
 
 ws-server:
   # Switch message backend to Kafka
@@ -19,7 +19,7 @@ ws-server:
   #   sasl:
   #     enabled: true
   #     mechanism: scram-sha-256
-  #     username: "sukko"
+  #     username: "odin-ws"
   #     existingSecret: "kafka-credentials"
   #     existingSecretKey: "password"
   #   tls:

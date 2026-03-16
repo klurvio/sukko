@@ -10,11 +10,11 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/server/broadcast"
-	"github.com/klurvio/sukko/internal/shared/kafka"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // MultiTenantConsumerPool manages Kafka consumers for multi-tenant deployments.
@@ -106,6 +106,19 @@ type MultiTenantPoolConfig struct {
 	// Default: 60 seconds
 	RefreshInterval time.Duration
 
+	// Consumer batch tuning
+	KafkaBatchSize    int
+	KafkaBatchTimeout time.Duration
+
+	// Consumer transport tuning
+	KafkaFetchMaxWait              time.Duration
+	KafkaFetchMinBytes             int32
+	KafkaFetchMaxBytes             int32
+	KafkaSessionTimeout            time.Duration
+	KafkaRebalanceTimeout          time.Duration
+	KafkaReplayFetchMaxBytes       int32
+	KafkaBackpressureCheckInterval time.Duration
+
 	// Security configuration for managed Kafka/Redpanda services
 	SASL *kafka.SASLConfig
 	TLS  *kafka.TLSConfig
@@ -139,12 +152,6 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		config.Environment = config.Namespace
 	}
 
-	// Default refresh interval (5m safety net; real-time updates via gRPC stream)
-	refreshInterval := config.RefreshInterval
-	if refreshInterval == 0 {
-		refreshInterval = 5 * time.Minute
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	pool := &MultiTenantConsumerPool{
@@ -157,13 +164,13 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		metrics:            config.Metrics,
 		sharedTopics:       make(map[string]bool),
 		dedicatedConsumers: make(map[string]*kafka.Consumer),
-		refreshInterval:    refreshInterval,
+		refreshInterval:    config.RefreshInterval,
 		refreshCh:          make(chan struct{}, 1), // Buffered to avoid blocking senders
 	}
 
 	pool.logger.Info().
 		Str("namespace", config.Namespace).
-		Dur("refresh_interval", refreshInterval).
+		Dur("refresh_interval", config.RefreshInterval).
 		Msg("Multi-tenant consumer pool initialized")
 
 	return pool, nil
@@ -338,13 +345,23 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 	if p.sharedConsumer == nil && len(topics) > 0 {
 		consumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
 			Brokers:       p.config.Brokers,
-			ConsumerGroup: fmt.Sprintf("%s-shared-consumer", p.config.Environment),
+			ConsumerGroup: p.config.Environment + "-shared-consumer",
 			Topics:        topics,
 			Logger:        &p.logger,
 			Broadcast:     p.routeMessage,
 			ResourceGuard: p.config.ResourceGuard,
 			SASL:          p.config.SASL,
 			TLS:           p.config.TLS,
+			BatchSize:     p.config.KafkaBatchSize,
+			BatchTimeout:  p.config.KafkaBatchTimeout,
+			// Transport tuning
+			FetchMaxWait:              p.config.KafkaFetchMaxWait,
+			FetchMinBytes:             p.config.KafkaFetchMinBytes,
+			FetchMaxBytes:             p.config.KafkaFetchMaxBytes,
+			SessionTimeout:            p.config.KafkaSessionTimeout,
+			RebalanceTimeout:          p.config.KafkaRebalanceTimeout,
+			ReplayFetchMaxBytes:       p.config.KafkaReplayFetchMaxBytes,
+			BackpressureCheckInterval: p.config.KafkaBackpressureCheckInterval,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create shared consumer: %w", err)
@@ -438,6 +455,16 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 			ResourceGuard: p.config.ResourceGuard,
 			SASL:          p.config.SASL,
 			TLS:           p.config.TLS,
+			BatchSize:     p.config.KafkaBatchSize,
+			BatchTimeout:  p.config.KafkaBatchTimeout,
+			// Transport tuning
+			FetchMaxWait:              p.config.KafkaFetchMaxWait,
+			FetchMinBytes:             p.config.KafkaFetchMinBytes,
+			FetchMaxBytes:             p.config.KafkaFetchMaxBytes,
+			SessionTimeout:            p.config.KafkaSessionTimeout,
+			RebalanceTimeout:          p.config.KafkaRebalanceTimeout,
+			ReplayFetchMaxBytes:       p.config.KafkaReplayFetchMaxBytes,
+			BackpressureCheckInterval: p.config.KafkaBackpressureCheckInterval,
 		})
 		if err != nil {
 			p.logger.Error().
@@ -481,8 +508,9 @@ func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte) {
 		Payload: message,
 	})
 
-	// Log periodic metrics
-	if routed := p.messagesRouted.Load(); routed%1000 == 0 {
+	// Log periodic metrics (sample every Nth message to avoid log spam)
+	const logRoutingMetricsInterval = 1000
+	if routed := p.messagesRouted.Load(); routed%logRoutingMetricsInterval == 0 {
 		p.logger.Debug().
 			Uint64("routed", routed).
 			Uint64("dropped", p.messagesDropped.Load()).

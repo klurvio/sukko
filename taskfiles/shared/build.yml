@@ -12,10 +12,10 @@ vars:
   BUILD_TIME:
     sh: date -u +%Y-%m-%dT%H:%M:%SZ
   # Registry can be overridden for remote builds
-  PROJECT: '{{.PROJECT | default "sukko-9e902"}}'
+  PROJECT: '{{.PROJECT | default "odin-9e902"}}'
   REGISTRY: '{{.REGISTRY | default ""}}'
   # PUSH_REGISTRY: defaults to GCP Artifact Registry when REGISTRY is not set
-  PUSH_REGISTRY: '{{.REGISTRY | default (printf "us-central1-docker.pkg.dev/%s/sukko" .PROJECT)}}'
+  PUSH_REGISTRY: '{{.REGISTRY | default (printf "us-central1-docker.pkg.dev/%s/odin-ws" .PROJECT)}}'
   # Image prefix (empty for local, "registry/" for remote)
   IMAGE_PREFIX: '{{if .REGISTRY}}{{.REGISTRY}}/{{end}}'
 
@@ -24,7 +24,7 @@ tasks:
     desc: Build ws-server Docker image
     dir: "{{.ROOT_DIR}}/ws"
     vars:
-      IMAGE: '{{.IMAGE_PREFIX}}{{.WS_SERVER_IMAGE | default "sukko"}}'
+      IMAGE: '{{.IMAGE_PREFIX}}{{.WS_SERVER_IMAGE | default "odin-ws"}}'
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker build -t {{.IMAGE}}:{{.TAG}}
@@ -37,7 +37,7 @@ tasks:
     desc: Build ws-gateway Docker image
     dir: "{{.ROOT_DIR}}/ws"
     vars:
-      IMAGE: '{{.IMAGE_PREFIX}}{{.GATEWAY_IMAGE | default "sukko-gateway"}}'
+      IMAGE: '{{.IMAGE_PREFIX}}{{.GATEWAY_IMAGE | default "odin-gateway"}}'
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker build -t {{.IMAGE}}:{{.TAG}}
@@ -50,7 +50,7 @@ tasks:
     desc: Build provisioning Docker image
     dir: "{{.ROOT_DIR}}/ws"
     vars:
-      IMAGE: '{{.IMAGE_PREFIX}}{{.PROVISIONING_IMAGE | default "sukko-provisioning"}}'
+      IMAGE: '{{.IMAGE_PREFIX}}{{.PROVISIONING_IMAGE | default "odin-provisioning"}}'
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker build -t {{.IMAGE}}:{{.TAG}}
@@ -60,10 +60,10 @@ tasks:
           -f build/provisioning/Dockerfile .
 
   cli:
-    desc: Build sukko CLI Docker image
+    desc: Build odin CLI Docker image
     dir: "{{.ROOT_DIR}}/ws"
     vars:
-      IMAGE: '{{.IMAGE_PREFIX}}{{.CLI_IMAGE | default "sukko-cli"}}'
+      IMAGE: '{{.IMAGE_PREFIX}}{{.CLI_IMAGE | default "odin-cli"}}'
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker build -t {{.IMAGE}}:{{.TAG}}
@@ -126,7 +126,7 @@ tasks:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker buildx build --platform linux/amd64
-          -t {{.PUSH_REGISTRY}}/sukko-provisioning:{{.TAG}}
+          -t {{.PUSH_REGISTRY}}/odin-provisioning:{{.TAG}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
@@ -140,7 +140,7 @@ tasks:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker buildx build --platform linux/amd64
-          -t {{.PUSH_REGISTRY}}/sukko-cli:{{.TAG}}
+          -t {{.PUSH_REGISTRY}}/odin-cli:{{.TAG}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
@@ -179,11 +179,5 @@ tasks:
         vars:
           PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"
       - task: push:provisioning
-        vars:
-          PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"
-      - task: push:loadtest
-        vars:
-          PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"
-      - task: push:publisher
         vars:
           PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"

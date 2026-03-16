@@ -2,9 +2,7 @@ package metrics
 
 // Error severity levels for metrics and logging.
 const (
-	SeverityWarning  = "warning"  // Non-critical, service continues
 	SeverityCritical = "critical" // Critical but recoverable
-	SeverityFatal    = "fatal"    // Service cannot continue
 )
 
 // Error types for categorization.
@@ -13,7 +11,6 @@ const (
 	ErrorTypeBroadcast     = "broadcast"
 	ErrorTypeSerialization = "serialization"
 	ErrorTypeConnection    = "connection"
-	ErrorTypeHealth        = "health"
 )
 
 // Disconnect reasons - standardized constants for categorization.

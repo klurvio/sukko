@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/klurvio/sukko/internal/server/backend"
-	"github.com/klurvio/sukko/internal/server/messaging"
-	"github.com/klurvio/sukko/internal/server/metrics"
-	"github.com/klurvio/sukko/internal/shared/protocol"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
-
-// defaultReplayTimeout is the maximum time allowed for a backend replay operation.
-const defaultReplayTimeout = 5 * time.Second
 
 // Client message handlers
 func (s *Server) handleClientMessage(c *Client, data []byte) {
@@ -25,7 +22,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			Int64("client_id", c.id).
 			Err(err).
 			Msg("Client sent invalid JSON")
-		s.sendErrorToClient(c, MsgTypeError, ErrCodeInvalidJSON, "Message is not valid JSON")
+		s.sendErrorToClient(c, MsgTypeError, protocol.ErrCodeInvalidJSON, "Message is not valid JSON")
 		return
 	}
 
@@ -60,10 +57,10 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 	case protocol.MsgTypeSubscribe:
 		// Client subscribing to hierarchical channels (tenant.symbol.eventType)
-		// Message format: {"type": "subscribe", "data": {"channels": ["sukko.BTC.trade", "sukko.ETH.trade", "sukko.BTC.analytics"]}}
+		// Message format: {"type": "subscribe", "data": {"channels": ["odin.BTC.trade", "odin.ETH.trade", "odin.BTC.analytics"]}}
 		//
 		// Channel format: "{TENANT}.{SYMBOL}.{EVENT_TYPE}"
-		// - TENANT: Tenant identifier (sukko, acme, etc.)
+		// - TENANT: Tenant identifier (odin, acme, etc.)
 		// - SYMBOL: Token symbol (BTC, ETH, SOL, etc.)
 		// - EVENT_TYPE: One of 8 types (trade, liquidity, metadata, social, favorites, creation, analytics, balances)
 		//
@@ -74,9 +71,9 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 		// - Better UX: Clients see only relevant updates
 		//
 		// Example use cases:
-		// - Trading client: ["sukko.BTC.trade", "sukko.ETH.trade"] - Only price updates
-		// - Dashboard: ["sukko.BTC.trade", "sukko.BTC.analytics", "sukko.ETH.trade", "sukko.ETH.analytics"] - Prices + metrics
-		// - Social app: ["sukko.BTC.social", "sukko.ETH.social"] - Only comments/reactions
+		// - Trading client: ["odin.BTC.trade", "odin.ETH.trade"] - Only price updates
+		// - Dashboard: ["odin.BTC.trade", "odin.BTC.analytics", "odin.ETH.trade", "odin.ETH.analytics"] - Prices + metrics
+		// - Social app: ["odin.BTC.social", "odin.ETH.social"] - Only comments/reactions
 		//
 		// Performance impact (10K clients, 200 tokens, 12 msg/sec):
 		// - Without filtering: 12 × 8 events × 10K = 960K writes/sec (CPU overload)
@@ -221,13 +218,13 @@ func (s *Server) handleReconnect(c *Client, data []byte) {
 	subscriptions := c.subscriptions.List()
 
 	// Create context with timeout for replay operation
-	ctx, cancel := context.WithTimeout(s.ctx, defaultReplayTimeout)
+	ctx, cancel := context.WithTimeout(s.ctx, s.config.ReplayTimeout)
 	defer cancel()
 
 	// Perform replay from backend
 	replayedMsgs, err := s.backend.Replay(ctx, backend.ReplayRequest{
 		Positions:     reconnectReq.LastOffset,
-		MaxMessages:   backend.DefaultMaxReplayMessages,
+		MaxMessages:   s.config.MaxReplayMessages,
 		Subscriptions: subscriptions,
 	})
 
@@ -237,7 +234,7 @@ func (s *Server) handleReconnect(c *Client, data []byte) {
 			Err(err).
 			Msg("Failed to replay messages from backend")
 
-		s.sendErrorToClient(c, RespTypeReconnectError, ErrCodeReplayFailed, "Message replay failed")
+		s.sendErrorToClient(c, RespTypeReconnectError, protocol.ErrCodeReplayFailed, "Message replay failed")
 		return
 	}
 

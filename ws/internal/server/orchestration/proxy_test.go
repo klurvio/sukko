@@ -19,7 +19,7 @@ func TestShardProxy_NewShardProxy(t *testing.T) {
 	backendURL, _ := url.Parse("ws://localhost:3001/ws")
 	logger := zerolog.Nop()
 
-	proxy := NewShardProxy(shard, backendURL, logger)
+	proxy := NewShardProxy(shard, backendURL, logger, 10*time.Second, 60*time.Second)
 
 	if proxy == nil {
 		t.Fatal("NewShardProxy should return non-nil proxy")
@@ -32,20 +32,20 @@ func TestShardProxy_NewShardProxy(t *testing.T) {
 	}
 }
 
-func TestShardProxy_DefaultTimeouts(t *testing.T) {
+func TestShardProxy_ExplicitTimeouts(t *testing.T) {
 	t.Parallel()
 
 	shard := &Shard{ID: 1}
 	backendURL, _ := url.Parse("ws://localhost:3001/ws")
 	logger := zerolog.Nop()
 
-	proxy := NewShardProxy(shard, backendURL, logger)
+	proxy := NewShardProxy(shard, backendURL, logger, 15*time.Second, 90*time.Second)
 
-	// Check default timeouts
-	if proxy.dialTimeout != 10*time.Second {
-		t.Errorf("dialTimeout: got %v, want 10s", proxy.dialTimeout)
+	// Check explicit timeouts
+	if proxy.dialTimeout != 15*time.Second {
+		t.Errorf("dialTimeout: got %v, want 15s", proxy.dialTimeout)
 	}
-	if proxy.messageTimeout != 60*time.Second {
-		t.Errorf("messageTimeout: got %v, want 60s", proxy.messageTimeout)
+	if proxy.messageTimeout != 90*time.Second {
+		t.Errorf("messageTimeout: got %v, want 90s", proxy.messageTimeout)
 	}
 }

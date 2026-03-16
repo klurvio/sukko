@@ -8,8 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/klurvio/sukko/internal/provisioning"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 )
 
 // PostgresRoutingRulesRepository implements RoutingRulesStore using PostgreSQL/SQLite.
@@ -23,19 +22,19 @@ func NewPostgresRoutingRulesRepository(db *sql.DB) *PostgresRoutingRulesReposito
 }
 
 // Get retrieves routing rules for a tenant.
-func (r *PostgresRoutingRulesRepository) Get(ctx context.Context, tenantID string) ([]types.TopicRoutingRule, error) {
+func (r *PostgresRoutingRulesRepository) Get(ctx context.Context, tenantID string) ([]provisioning.TopicRoutingRule, error) {
 	query := `SELECT rules FROM tenant_routing_rules WHERE tenant_id = $1`
 
 	var rulesJSON []byte
 	err := r.db.QueryRowContext(ctx, query, tenantID).Scan(&rulesJSON)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, types.ErrRoutingRulesNotFound
+			return nil, provisioning.ErrRoutingRulesNotFound
 		}
 		return nil, fmt.Errorf("query routing rules: %w", err)
 	}
 
-	var rules []types.TopicRoutingRule
+	var rules []provisioning.TopicRoutingRule
 	if err := json.Unmarshal(rulesJSON, &rules); err != nil {
 		return nil, fmt.Errorf("unmarshal routing rules: %w", err)
 	}
@@ -44,7 +43,7 @@ func (r *PostgresRoutingRulesRepository) Get(ctx context.Context, tenantID strin
 }
 
 // Set creates or updates routing rules for a tenant (upsert).
-func (r *PostgresRoutingRulesRepository) Set(ctx context.Context, tenantID string, rules []types.TopicRoutingRule) error {
+func (r *PostgresRoutingRulesRepository) Set(ctx context.Context, tenantID string, rules []provisioning.TopicRoutingRule) error {
 	rulesJSON, err := json.Marshal(rules)
 	if err != nil {
 		return fmt.Errorf("marshal routing rules: %w", err)
@@ -79,23 +78,23 @@ func (r *PostgresRoutingRulesRepository) Delete(ctx context.Context, tenantID st
 		return fmt.Errorf("get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return types.ErrRoutingRulesNotFound
+		return provisioning.ErrRoutingRulesNotFound
 	}
 
 	return nil
 }
 
 // ListAll returns routing rules for all tenants.
-func (r *PostgresRoutingRulesRepository) ListAll(ctx context.Context) (map[string][]types.TopicRoutingRule, error) {
+func (r *PostgresRoutingRulesRepository) ListAll(ctx context.Context) (map[string][]provisioning.TopicRoutingRule, error) {
 	query := `SELECT tenant_id, rules FROM tenant_routing_rules`
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query all routing rules: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() { _ = rows.Close() }() // Close error non-actionable on read-only result set
 
-	result := make(map[string][]types.TopicRoutingRule)
+	result := make(map[string][]provisioning.TopicRoutingRule)
 	for rows.Next() {
 		var tenantID string
 		var rulesJSON []byte
@@ -104,7 +103,7 @@ func (r *PostgresRoutingRulesRepository) ListAll(ctx context.Context) (map[strin
 			return nil, fmt.Errorf("scan routing rules: %w", err)
 		}
 
-		var rules []types.TopicRoutingRule
+		var rules []provisioning.TopicRoutingRule
 		if err := json.Unmarshal(rulesJSON, &rules); err != nil {
 			return nil, fmt.Errorf("unmarshal routing rules for tenant %s: %w", tenantID, err)
 		}

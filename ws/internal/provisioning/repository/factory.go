@@ -1,7 +1,9 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -70,7 +72,7 @@ func OpenDatabase(cfg DatabaseConfig) (*sql.DB, error) {
 
 func openSQLite(cfg DatabaseConfig) (*sql.DB, error) {
 	if cfg.Path == "" {
-		return nil, fmt.Errorf("DATABASE_PATH is required for sqlite driver")
+		return nil, errors.New("DATABASE_PATH is required for sqlite driver")
 	}
 
 	// DSN parameters:
@@ -84,14 +86,14 @@ func openSQLite(cfg DatabaseConfig) (*sql.DB, error) {
 
 	// SQLite pragmas for production use
 	pragmas := []string{
-		"PRAGMA journal_mode=WAL",       // Write-Ahead Logging for concurrent reads
-		"PRAGMA busy_timeout=5000",      // Wait 5s on lock contention
-		"PRAGMA foreign_keys=ON",        // Enforce FK constraints
-		"PRAGMA synchronous=NORMAL",     // Good durability with WAL
-		"PRAGMA cache_size=-20000",      // 20MB page cache
+		"PRAGMA journal_mode=WAL",   // Write-Ahead Logging for concurrent reads
+		"PRAGMA busy_timeout=5000",  // Wait 5s on lock contention
+		"PRAGMA foreign_keys=ON",    // Enforce FK constraints
+		"PRAGMA synchronous=NORMAL", // Good durability with WAL
+		"PRAGMA cache_size=-20000",  // 20MB page cache
 	}
 	for _, pragma := range pragmas {
-		if _, err := db.Exec(pragma); err != nil {
+		if _, err := db.ExecContext(context.Background(), pragma); err != nil {
 			_ = db.Close()
 			return nil, fmt.Errorf("set %s: %w", pragma, err)
 		}
@@ -100,7 +102,7 @@ func openSQLite(cfg DatabaseConfig) (*sql.DB, error) {
 	// SQLite is single-writer; limit pool to 1 writer + readers
 	db.SetMaxOpenConns(1)
 
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite database: %w", err)
 	}
@@ -110,7 +112,7 @@ func openSQLite(cfg DatabaseConfig) (*sql.DB, error) {
 
 func openPostgres(cfg DatabaseConfig) (*sql.DB, error) {
 	if cfg.URL == "" {
-		return nil, fmt.Errorf("DATABASE_URL is required for postgres driver")
+		return nil, errors.New("DATABASE_URL is required for postgres driver")
 	}
 
 	db, err := sql.Open("postgres", cfg.URL)
@@ -132,7 +134,7 @@ func openPostgres(cfg DatabaseConfig) (*sql.DB, error) {
 		db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
 	}
 
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping postgres database: %w", err)
 	}

@@ -12,11 +12,10 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"time"
 
-	"github.com/klurvio/sukko/internal/gateway"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/gateway"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 )
 
 // Version information (set by build flags)
@@ -81,10 +80,8 @@ func main() {
 
 	// Start server in goroutine
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		defer logging.RecoverPanic(logger, "http.ListenAndServe", nil)
-		defer wg.Done()
 		logger.Info().
 			Int("port", config.Port).
 			Msg("Gateway listening")
@@ -93,7 +90,7 @@ func main() {
 			logger.Error().Err(err).Msg("Server failed")
 			cancel()
 		}
-	}()
+	})
 
 	// Wait for shutdown signal or server error
 	select {
@@ -106,7 +103,7 @@ func main() {
 	}
 
 	// Graceful shutdown with timeout
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
 	defer shutdownCancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
@@ -119,6 +116,7 @@ func main() {
 
 func init() {
 	// Print banner
+	//nolint:forbidigo // startup banner is visual stdout output printed before logger init, not operational logging
 	fmt.Print(`
  _      ______       _____       __
 | | /| / / __/______/ ___/___ _ / /_ ___  _    __ ___ _ __ __

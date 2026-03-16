@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
-	"github.com/klurvio/sukko/internal/server/backend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
 )
 
 // Compile-time interface check.
@@ -100,49 +99,49 @@ func TestStreamName(t *testing.T) {
 			name:      "simple namespace and tenant",
 			namespace: "dev",
 			tenantID:  "acme",
-			want:      "SUKKO_DEV_ACME",
+			want:      "ODIN_DEV_ACME",
 		},
 		{
 			name:      "hyphenated namespace",
 			namespace: "my-namespace",
 			tenantID:  "tenant1",
-			want:      "SUKKO_MY_NAMESPACE_TENANT1",
+			want:      "ODIN_MY_NAMESPACE_TENANT1",
 		},
 		{
 			name:      "hyphenated tenant",
 			namespace: "prod",
 			tenantID:  "my-tenant",
-			want:      "SUKKO_PROD_MY_TENANT",
+			want:      "ODIN_PROD_MY_TENANT",
 		},
 		{
 			name:      "both hyphenated",
 			namespace: "ns-one",
 			tenantID:  "tenant-two",
-			want:      "SUKKO_NS_ONE_TENANT_TWO",
+			want:      "ODIN_NS_ONE_TENANT_TWO",
 		},
 		{
 			name:      "already uppercase",
 			namespace: "PROD",
 			tenantID:  "ACME",
-			want:      "SUKKO_PROD_ACME",
+			want:      "ODIN_PROD_ACME",
 		},
 		{
 			name:      "mixed case",
 			namespace: "Dev",
 			tenantID:  "Acme",
-			want:      "SUKKO_DEV_ACME",
+			want:      "ODIN_DEV_ACME",
 		},
 		{
 			name:      "empty namespace",
 			namespace: "",
 			tenantID:  "acme",
-			want:      "SUKKO__ACME",
+			want:      "ODIN__ACME",
 		},
 		{
 			name:      "empty tenant",
 			namespace: "dev",
 			tenantID:  "",
-			want:      "SUKKO_DEV_",
+			want:      "ODIN_DEV_",
 		},
 	}
 
@@ -158,70 +157,6 @@ func TestStreamName(t *testing.T) {
 				t.Errorf("streamName(%q) = %q, want %q", tt.tenantID, got, tt.want)
 			}
 		})
-	}
-}
-
-// =============================================================================
-// Constants Validation Tests
-// =============================================================================
-
-func TestConstants_Defaults(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		got   time.Duration
-		check func(time.Duration) bool
-		desc  string
-	}{
-		{
-			name:  "defaultMaxAge is 24h",
-			got:   defaultMaxAge,
-			check: func(d time.Duration) bool { return d == 24*time.Hour },
-			desc:  "24h",
-		},
-		{
-			name:  "defaultReconnectWait is positive",
-			got:   defaultReconnectWait,
-			check: func(d time.Duration) bool { return d > 0 },
-			desc:  "> 0",
-		},
-		{
-			name:  "defaultAckWait is positive",
-			got:   defaultAckWait,
-			check: func(d time.Duration) bool { return d > 0 },
-			desc:  "> 0",
-		},
-		{
-			name:  "defaultRefreshInterval is positive",
-			got:   defaultRefreshInterval,
-			check: func(d time.Duration) bool { return d > 0 },
-			desc:  "> 0",
-		},
-		{
-			name:  "defaultReplayFetchWait is positive",
-			got:   defaultReplayFetchWait,
-			check: func(d time.Duration) bool { return d > 0 },
-			desc:  "> 0",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if !tt.check(tt.got) {
-				t.Errorf("%s = %v, want %s", tt.name, tt.got, tt.desc)
-			}
-		})
-	}
-}
-
-func TestConstants_MaxDeliver(t *testing.T) {
-	t.Parallel()
-
-	if defaultMaxDeliver < 1 {
-		t.Errorf("defaultMaxDeliver = %d, want >= 1", defaultMaxDeliver)
 	}
 }
 

@@ -1,11 +1,12 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
 	"io/fs"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -69,19 +70,22 @@ type migration struct {
 }
 
 func (m *Migrator) ensureMigrationsTable() error {
-	_, err := m.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+	_, err := m.db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS schema_migrations (
 		name       TEXT PRIMARY KEY,
 		applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`)
-	return err
+	if err != nil {
+		return fmt.Errorf("create schema_migrations table: %w", err)
+	}
+	return nil
 }
 
 func (m *Migrator) getApplied() (map[string]bool, error) {
-	rows, err := m.db.Query("SELECT name FROM schema_migrations")
+	rows, err := m.db.QueryContext(context.Background(), "SELECT name FROM schema_migrations")
 	if err != nil {
 		return nil, fmt.Errorf("query schema_migrations: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	applied := make(map[string]bool)
 	for rows.Next() {
@@ -91,7 +95,10 @@ func (m *Migrator) getApplied() (map[string]bool, error) {
 		}
 		applied[name] = true
 	}
-	return applied, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate schema_migrations rows: %w", err)
+	}
+	return applied, nil
 }
 
 func (m *Migrator) readMigrations() ([]migration, error) {
@@ -115,8 +122,8 @@ func (m *Migrator) readMigrations() ([]migration, error) {
 	}
 
 	// Sort entries by name to ensure correct order
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() < entries[j].Name()
+	slices.SortFunc(entries, func(a, b fs.DirEntry) int {
+		return strings.Compare(a.Name(), b.Name())
 	})
 
 	var migrations []migration
@@ -140,7 +147,7 @@ func (m *Migrator) readMigrations() ([]migration, error) {
 }
 
 func (m *Migrator) applyMigration(mig migration) error {
-	tx, err := m.db.Begin()
+	tx, err := m.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
@@ -151,14 +158,17 @@ func (m *Migrator) applyMigration(mig migration) error {
 	}()
 
 	// Execute the migration SQL
-	if _, err = tx.Exec(mig.sql); err != nil {
+	if _, err = tx.ExecContext(context.Background(), mig.sql); err != nil {
 		return fmt.Errorf("execute SQL: %w", err)
 	}
 
 	// Record the migration
-	if _, err = tx.Exec("INSERT INTO schema_migrations (name) VALUES (?)", mig.name); err != nil {
+	if _, err = tx.ExecContext(context.Background(), "INSERT INTO schema_migrations (name) VALUES (?)", mig.name); err != nil {
 		return fmt.Errorf("record migration: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration: %w", err)
+	}
+	return nil
 }

@@ -2,8 +2,6 @@ package provisioning
 
 import (
 	"time"
-
-	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // CreateTenantRequest is the request to create a new tenant.
@@ -63,7 +61,7 @@ type CreateKeyRequest struct {
 // SetRoutingRulesRequest is the request to set routing rules for a tenant.
 type SetRoutingRulesRequest struct {
 	// Rules are the ordered topic routing rules.
-	Rules []types.TopicRoutingRule `json:"rules"`
+	Rules []TopicRoutingRule `json:"rules"`
 }
 
 // UpdateQuotaRequest is the request to update quotas.

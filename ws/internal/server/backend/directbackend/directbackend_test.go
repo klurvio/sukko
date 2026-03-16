@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/server/backend"
-	"github.com/klurvio/sukko/internal/server/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
 )
 
 // Compile-time interface check.
@@ -28,9 +28,9 @@ func (m *mockBus) Publish(msg *broadcast.Message) {
 }
 
 func (m *mockBus) Subscribe() <-chan *broadcast.Message { return make(chan *broadcast.Message) }
-func (m *mockBus) Run()                                {}
+func (m *mockBus) Run()                                 {}
 func (m *mockBus) Shutdown()                            {}
-func (m *mockBus) ShutdownWithContext(context.Context)   {}
+func (m *mockBus) ShutdownWithContext(context.Context)  {}
 func (m *mockBus) IsHealthy() bool                      { return true }
 func (m *mockBus) GetMetrics() broadcast.Metrics        { return broadcast.Metrics{} }
 

@@ -8,6 +8,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -21,9 +22,21 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/logging"
+	provisioningv1 "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+)
+
+// Stream state constants for the gRPC streaming connection gauge.
+const (
+	streamStateDisconnected = 0
+	streamStateConnected    = 1
+)
+
+// Jitter constants for exponential backoff reconnection.
+const (
+	jitterBase  = 0.75 // Minimum jitter multiplier (75% of delay)
+	jitterRange = 0.25 // Additional random jitter range (up to 25%)
 )
 
 // StreamKeyRegistryConfig configures the gRPC stream-backed key registry.
@@ -53,8 +66,8 @@ type StreamKeyRegistry struct {
 	wg     sync.WaitGroup
 
 	// Prometheus metrics (registered with prefix)
-	streamStateGauge    prometheus.Gauge
-	reconnectsCounter   prometheus.Counter
+	streamStateGauge  prometheus.Gauge
+	reconnectsCounter prometheus.Counter
 }
 
 // NewStreamKeyRegistry creates a new gRPC stream-backed key registry.
@@ -150,9 +163,17 @@ func (r *StreamKeyRegistry) Stats() auth.KeyRegistryStats {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	var active int
+	now := time.Now()
+	for _, k := range r.keysByID {
+		if k.IsActive && k.RevokedAt == nil && (k.ExpiresAt == nil || k.ExpiresAt.After(now)) {
+			active++
+		}
+	}
+
 	return auth.KeyRegistryStats{
 		TotalKeys:  len(r.keysByID),
-		ActiveKeys: len(r.keysByID),
+		ActiveKeys: active,
 	}
 }
 
@@ -165,7 +186,10 @@ func (r *StreamKeyRegistry) State() int32 {
 func (r *StreamKeyRegistry) Close() error {
 	r.cancel()
 	r.wg.Wait()
-	return r.conn.Close()
+	if err := r.conn.Close(); err != nil {
+		return fmt.Errorf("close key registry gRPC connection: %w", err)
+	}
+	return nil
 }
 
 // streamLoop runs the gRPC stream with reconnection logic.
@@ -176,8 +200,8 @@ func (r *StreamKeyRegistry) streamLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			r.streamState.Store(0)
-			r.streamStateGauge.Set(0)
+			r.streamState.Store(streamStateDisconnected)
+			r.streamStateGauge.Set(streamStateDisconnected)
 			return
 		default:
 		}
@@ -185,8 +209,8 @@ func (r *StreamKeyRegistry) streamLoop(ctx context.Context) {
 		stream, err := client.WatchKeys(ctx, &provisioningv1.WatchKeysRequest{})
 		if err != nil {
 			r.logger.Warn().Err(err).Dur("retry_in", delay).Msg("failed to start WatchKeys stream")
-			r.streamState.Store(0)
-			r.streamStateGauge.Set(0)
+			r.streamState.Store(streamStateDisconnected)
+			r.streamStateGauge.Set(streamStateDisconnected)
 
 			select {
 			case <-ctx.Done():
@@ -200,8 +224,8 @@ func (r *StreamKeyRegistry) streamLoop(ctx context.Context) {
 			continue
 		}
 
-		r.streamState.Store(1)
-		r.streamStateGauge.Set(1)
+		r.streamState.Store(streamStateConnected)
+		r.streamStateGauge.Set(streamStateConnected)
 		delay = r.config.ReconnectDelay // Reset on successful connect
 
 		r.logger.Info().Msg("WatchKeys stream connected")
@@ -211,8 +235,8 @@ func (r *StreamKeyRegistry) streamLoop(ctx context.Context) {
 			resp, err := stream.Recv()
 			if err != nil {
 				r.logger.Warn().Err(err).Msg("WatchKeys stream disconnected")
-				r.streamState.Store(0)
-				r.streamStateGauge.Set(0)
+				r.streamState.Store(streamStateDisconnected)
+				r.streamStateGauge.Set(streamStateDisconnected)
 				break
 			}
 
@@ -226,14 +250,14 @@ func (r *StreamKeyRegistry) updateKeys(resp *provisioningv1.WatchKeysResponse) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if resp.IsSnapshot {
+	if resp.GetIsSnapshot() {
 		// Full replacement
-		r.keysByID = make(map[string]*auth.KeyInfo, len(resp.Keys))
+		r.keysByID = make(map[string]*auth.KeyInfo, len(resp.GetKeys()))
 		r.keysByTenant = make(map[string][]*auth.KeyInfo)
 	}
 
 	// Remove keys
-	for _, keyID := range resp.RemovedKeyIds {
+	for _, keyID := range resp.GetRemovedKeyIds() {
 		if existing, ok := r.keysByID[keyID]; ok {
 			delete(r.keysByID, keyID)
 			// Remove from tenant list
@@ -248,17 +272,17 @@ func (r *StreamKeyRegistry) updateKeys(resp *provisioningv1.WatchKeysResponse) {
 	}
 
 	// Add/update keys
-	for _, ki := range resp.Keys {
+	for _, ki := range resp.GetKeys() {
 		keyInfo, err := protoToKeyInfo(ki)
 		if err != nil {
-			r.logger.Warn().Err(err).Str("key_id", ki.KeyId).Msg("failed to parse key")
+			r.logger.Warn().Err(err).Str("key_id", ki.GetKeyId()).Msg("failed to parse key")
 			continue
 		}
 
 		r.keysByID[keyInfo.KeyID] = keyInfo
 
 		// Update tenant index
-		if resp.IsSnapshot {
+		if resp.GetIsSnapshot() {
 			r.keysByTenant[keyInfo.TenantID] = append(r.keysByTenant[keyInfo.TenantID], keyInfo)
 		} else {
 			// For deltas, replace existing or append
@@ -278,29 +302,29 @@ func (r *StreamKeyRegistry) updateKeys(resp *provisioningv1.WatchKeysResponse) {
 	}
 
 	r.logger.Debug().
-		Bool("snapshot", resp.IsSnapshot).
+		Bool("snapshot", resp.GetIsSnapshot()).
 		Int("keys", len(r.keysByID)).
 		Msg("key cache updated")
 }
 
 // protoToKeyInfo converts a proto KeyInfo to auth.KeyInfo.
 func protoToKeyInfo(ki *provisioningv1.KeyInfo) (*auth.KeyInfo, error) {
-	pubKey, err := parsePEMPublicKey(ki.PublicKeyPem)
+	pubKey, err := parsePEMPublicKey(ki.GetPublicKeyPem())
 	if err != nil {
 		return nil, fmt.Errorf("parse public key: %w", err)
 	}
 
 	info := &auth.KeyInfo{
-		KeyID:        ki.KeyId,
-		TenantID:     ki.TenantId,
-		Algorithm:    ki.Algorithm,
+		KeyID:        ki.GetKeyId(),
+		TenantID:     ki.GetTenantId(),
+		Algorithm:    ki.GetAlgorithm(),
 		PublicKey:    pubKey,
-		PublicKeyPEM: ki.PublicKeyPem,
-		IsActive:     ki.IsActive,
+		PublicKeyPEM: ki.GetPublicKeyPem(),
+		IsActive:     ki.GetIsActive(),
 	}
 
-	if ki.ExpiresAtUnix > 0 {
-		t := time.Unix(ki.ExpiresAtUnix, 0)
+	if ki.GetExpiresAtUnix() > 0 {
+		t := time.Unix(ki.GetExpiresAtUnix(), 0)
 		info.ExpiresAt = &t
 	}
 
@@ -311,20 +335,21 @@ func protoToKeyInfo(ki *provisioningv1.KeyInfo) (*auth.KeyInfo, error) {
 func parsePEMPublicKey(pemStr string) (crypto.PublicKey, error) {
 	block, _ := pem.Decode([]byte(pemStr))
 	if block == nil {
-		return nil, fmt.Errorf("failed to decode PEM block")
+		return nil, errors.New("failed to decode PEM block")
 	}
 
-	return x509.ParsePKIXPublicKey(block.Bytes)
+	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse PKIX public key: %w", err)
+	}
+	return key, nil
 }
 
 // backoff calculates the next backoff delay with jitter, capped at maxDelay.
 func backoff(current, maxDelay time.Duration) time.Duration {
-	next := time.Duration(float64(current) * 2)
-	if next > maxDelay {
-		next = maxDelay
-	}
+	next := min(time.Duration(float64(current)*2), maxDelay)
 	// Add jitter: 75%-100% of calculated delay
-	jitter := 0.75 + rand.Float64()*0.25
+	jitter := jitterBase + rand.Float64()*jitterRange //nolint:gosec // G404: jitter for backoff delay does not need cryptographic randomness
 	return time.Duration(math.Round(float64(next) * jitter))
 }
 

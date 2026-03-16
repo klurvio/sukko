@@ -1,4 +1,4 @@
-# Sukko WebSocket Server
+# Odin WebSocket Server
 
 Multi-tenant WebSocket server with Kafka/Redpanda pub/sub for real-time data streaming.
 
@@ -178,7 +178,7 @@ wscat -c ws://localhost:3006/ws
 
 Subscribe to a channel:
 ```json
-{"type":"subscribe","channels":["sukko.all.trade"]}
+{"type":"subscribe","channels":["odin.all.trade"]}
 ```
 
 ## Troubleshooting
@@ -200,7 +200,7 @@ task local:provision:status
 ### Check database
 
 ```bash
-kubectl exec -n sukko-local -it $(kubectl get pods -n sukko-local -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}') -- psql -U sukko -d sukko_provisioning
+kubectl exec -n odin-local -it $(kubectl get pods -n odin-local -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}') -- psql -U odin -d odin_provisioning
 
 # Query tenants
 SELECT * FROM tenants;

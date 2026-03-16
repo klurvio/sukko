@@ -13,9 +13,9 @@ func TestStats_RecordSuccess(t *testing.T) {
 	log := zerolog.New(os.Stdout).Level(zerolog.Disabled)
 	s := NewStats(log)
 
-	s.RecordSuccess("local.sukko.trade", "sukko.BTC.trade", 100)
-	s.RecordSuccess("local.sukko.trade", "sukko.BTC.trade", 150)
-	s.RecordSuccess("local.sukko.liquidity", "sukko.ETH.liquidity", 200)
+	s.RecordSuccess("local.odin.trade", "odin.BTC.trade", 100)
+	s.RecordSuccess("local.odin.trade", "odin.BTC.trade", 150)
+	s.RecordSuccess("local.odin.liquidity", "odin.ETH.liquidity", 200)
 
 	if s.messagesPublished.Load() != 3 {
 		t.Errorf("expected 3 messages, got %d", s.messagesPublished.Load())

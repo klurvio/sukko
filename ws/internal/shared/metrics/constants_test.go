@@ -9,9 +9,7 @@ func TestSeverityConstants(t *testing.T) {
 		name  string
 		value string
 	}{
-		{"SeverityWarning", SeverityWarning},
 		{"SeverityCritical", SeverityCritical},
-		{"SeverityFatal", SeverityFatal},
 	}
 
 	for _, tt := range tests {
@@ -35,7 +33,6 @@ func TestErrorTypeConstants(t *testing.T) {
 		{"ErrorTypeBroadcast", ErrorTypeBroadcast},
 		{"ErrorTypeSerialization", ErrorTypeSerialization},
 		{"ErrorTypeConnection", ErrorTypeConnection},
-		{"ErrorTypeHealth", ErrorTypeHealth},
 	}
 
 	for _, tt := range tests {

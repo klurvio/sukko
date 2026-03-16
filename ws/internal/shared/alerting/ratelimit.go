@@ -30,32 +30,15 @@ type alertState struct {
 // RateLimitConfig holds configuration for rate limiting.
 type RateLimitConfig struct {
 	// Window is the time window for rate limiting.
-	// Default: 5 minutes.
 	Window time.Duration
 
 	// Max is the maximum number of identical alerts within the window.
-	// Default: 3.
 	Max int
 }
 
-// NewRateLimitedAlerter creates a rate-limited alerter with default settings.
-// Default: 3 alerts per 5 minutes per unique alert key.
-func NewRateLimitedAlerter(alerter Alerter) *RateLimitedAlerter {
-	return NewRateLimitedAlerterWithConfig(alerter, RateLimitConfig{
-		Window: 5 * time.Minute,
-		Max:    3,
-	})
-}
-
 // NewRateLimitedAlerterWithConfig creates a rate-limited alerter with custom config.
+// Config values MUST be validated (e.g., via ServerConfig.Validate()) before calling.
 func NewRateLimitedAlerterWithConfig(alerter Alerter, cfg RateLimitConfig) *RateLimitedAlerter {
-	if cfg.Window == 0 {
-		cfg.Window = 5 * time.Minute
-	}
-	if cfg.Max == 0 {
-		cfg.Max = 3
-	}
-
 	return &RateLimitedAlerter{
 		alerter:     alerter,
 		window:      cfg.Window,

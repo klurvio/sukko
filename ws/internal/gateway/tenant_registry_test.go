@@ -7,7 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 func TestNoopTenantRegistry_GetTenantByIssuer(t *testing.T) {

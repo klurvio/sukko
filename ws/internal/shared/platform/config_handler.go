@@ -1,10 +1,11 @@
 package platform
 
 import (
+	"maps"
 	"net/http"
 	"reflect"
 
-	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
 )
 
 // ConfigHandler returns an http.HandlerFunc that serves the runtime configuration
@@ -27,7 +28,7 @@ func RedactConfig(cfg any) map[string]any {
 	result := make(map[string]any)
 
 	v := reflect.ValueOf(cfg)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if v.Kind() != reflect.Struct {
@@ -50,16 +51,14 @@ func RedactConfig(cfg any) map[string]any {
 		val := v.Field(i)
 
 		// Dereference pointer fields before struct check
-		if val.Kind() == reflect.Ptr && !val.IsNil() {
+		if val.Kind() == reflect.Pointer && !val.IsNil() {
 			val = val.Elem()
 		}
 
 		// Recurse into nested structs to ensure redaction tags are applied
 		if val.Kind() == reflect.Struct {
 			nested := RedactConfig(val.Interface())
-			for nk, nv := range nested {
-				result[nk] = nv
-			}
+			maps.Copy(result, nested)
 			continue
 		}
 

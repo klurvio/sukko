@@ -11,7 +11,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/shared/types"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // MultiIssuerOIDCConfig configures the multi-issuer OIDC validator.
@@ -57,13 +58,11 @@ func NewMultiIssuerOIDC(cfg MultiIssuerOIDCConfig) (*MultiIssuerOIDC, error) {
 	if cfg.Registry == nil {
 		return nil, errors.New("registry is required")
 	}
-
-	// Set defaults
-	if cfg.KeyfuncCacheTTL == 0 {
-		cfg.KeyfuncCacheTTL = 1 * time.Hour
+	if cfg.KeyfuncCacheTTL <= 0 {
+		return nil, errors.New("KeyfuncCacheTTL must be > 0")
 	}
-	if cfg.JWKSFetchTimeout == 0 {
-		cfg.JWKSFetchTimeout = 10 * time.Second
+	if cfg.JWKSFetchTimeout <= 0 {
+		return nil, errors.New("JWKSFetchTimeout must be > 0")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -135,11 +134,11 @@ func (m *MultiIssuerOIDC) createKeyfunc(ctx context.Context, issuerURL string) (
 	kf, err := keyfunc.NewDefaultCtx(refreshCtx, []string{jwksURL})
 	if err != nil {
 		cancelRefresh()
-		RecordJWKSFetch(issuerURL, "error", time.Since(fetchStart))
+		RecordJWKSFetch(issuerURL, pkgmetrics.ResultError, time.Since(fetchStart))
 		return nil, fmt.Errorf("create keyfunc for %s: %w", jwksURL, err)
 	}
 
-	RecordJWKSFetch(issuerURL, "success", time.Since(fetchStart))
+	RecordJWKSFetch(issuerURL, pkgmetrics.ResultSuccess, time.Since(fetchStart))
 
 	// Lock for write and check again (double-checked locking)
 	m.keyfuncCacheMu.Lock()
@@ -168,7 +167,11 @@ func (m *MultiIssuerOIDC) createKeyfunc(ctx context.Context, issuerURL string) (
 // GetTenantByIssuer returns the tenant ID for an issuer URL.
 // This is a pass-through to the registry for convenience.
 func (m *MultiIssuerOIDC) GetTenantByIssuer(ctx context.Context, issuerURL string) (string, error) {
-	return m.registry.GetTenantByIssuer(ctx, issuerURL)
+	tenantID, err := m.registry.GetTenantByIssuer(ctx, issuerURL)
+	if err != nil {
+		return "", fmt.Errorf("get tenant by issuer: %w", err)
+	}
+	return tenantID, nil
 }
 
 // InvalidateIssuer removes a cached keyfunc for an issuer.

@@ -1,20 +1,20 @@
-# Sukko — Minimal Configuration (Zero Config)
+# Odin — Minimal Configuration (Zero Config)
 #
 # This is the default mode. You don't need this file — it exists as documentation.
-# `helm install sukko deployments/helm/sukko` works with no overrides.
+# `helm install odin deployments/helm/odin` works with no overrides.
 #
 # What you get:
 #   - Message backend: direct (in-process, no persistence)
 #   - Broadcast bus: NATS (inter-pod pub/sub)
 #   - Database: SQLite (single-replica provisioning)
-#   - Auth: disabled (all connections use default tenant "sukko")
+#   - Auth: disabled (all connections use default tenant "odin")
 #
 # Go envDefault values provide all application config.
 # Only Kubernetes deployment fields (replicas, resources, probes) are in values.yaml.
 # Override any application setting via extraEnv on each service.
 #
 # Usage:
-#   helm install sukko deployments/helm/sukko
+#   helm install odin deployments/helm/odin
 #
 # All defaults are production-safe for single-node deployments.
 # For multi-node or persistent messaging, see:

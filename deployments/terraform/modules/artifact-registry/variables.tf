@@ -11,13 +11,13 @@ variable "region" {
 variable "repository_id" {
   description = "Repository ID (name)"
   type        = string
-  default     = "sukko"
+  default     = "odin"
 }
 
 variable "description" {
   description = "Description of the repository"
   type        = string
-  default     = "Container images for Sukko WebSocket infrastructure"
+  default     = "Container images for Odin WebSocket infrastructure"
 }
 
 variable "gke_service_accounts" {

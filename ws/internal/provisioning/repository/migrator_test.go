@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -27,12 +28,12 @@ func openTestSQLite(t *testing.T) *sql.DB {
 		"PRAGMA foreign_keys=ON",
 	}
 	for _, p := range pragmas {
-		if _, err := db.Exec(p); err != nil {
+		if _, err := db.ExecContext(context.Background(), p); err != nil {
 			t.Fatalf("set %s: %v", p, err)
 		}
 	}
 
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
@@ -48,7 +49,7 @@ func TestMigrator_CreatesTable(t *testing.T) {
 
 	// Verify table exists
 	var name string
-	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&name)
+	err := db.QueryRowContext(context.Background(), "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&name)
 	if err != nil {
 		t.Fatalf("schema_migrations table not created: %v", err)
 	}
@@ -66,7 +67,7 @@ func TestMigrator_AppliesMigrations(t *testing.T) {
 
 	// Verify migrations were recorded
 	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
 	if count == 0 {
@@ -75,7 +76,7 @@ func TestMigrator_AppliesMigrations(t *testing.T) {
 
 	// Verify tables were created by migration (e.g., tenants table)
 	var tableName string
-	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='tenants'").Scan(&tableName)
+	err := db.QueryRowContext(context.Background(), "SELECT name FROM sqlite_master WHERE type='table' AND name='tenants'").Scan(&tableName)
 	if err != nil {
 		t.Fatal("tenants table should have been created by migration")
 	}
@@ -93,7 +94,7 @@ func TestMigrator_Idempotent(t *testing.T) {
 	}
 
 	var count1 int
-	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count1); err != nil {
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count1); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
 
@@ -103,7 +104,7 @@ func TestMigrator_Idempotent(t *testing.T) {
 	}
 
 	var count2 int
-	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count2); err != nil {
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count2); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
 

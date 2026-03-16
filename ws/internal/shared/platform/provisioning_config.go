@@ -3,6 +3,7 @@ package platform
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -18,16 +19,16 @@ import (
 //	envDefault: Default value if not set
 //	required: Must be provided (no default)
 type ProvisioningConfig struct {
+	BaseConfig
+
 	// Server
-	Addr      string `env:"PROVISIONING_ADDR" envDefault:":8080"`
-	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
-	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
+	Addr string `env:"PROVISIONING_ADDR" envDefault:":8080"`
 
 	// Database — driver auto-detected from Helm values, not set directly by developers.
 	// sqlite (default, embedded) or postgres (opt-in via Helm postgresql.enabled or externalDatabase).
 	DatabaseDriver    string        `env:"DATABASE_DRIVER" envDefault:"sqlite"`
 	DatabaseURL       string        `env:"DATABASE_URL" redact:"true"`
-	DatabasePath      string        `env:"DATABASE_PATH" envDefault:"sukko.db"`
+	DatabasePath      string        `env:"DATABASE_PATH" envDefault:"odin.db"`
 	AutoMigrate       bool          `env:"AUTO_MIGRATE" envDefault:"true"`
 	DBMaxOpenConns    int           `env:"DB_MAX_OPEN_CONNS" envDefault:"25"`
 	DBMaxIdleConns    int           `env:"DB_MAX_IDLE_CONNS" envDefault:"5"`
@@ -47,9 +48,9 @@ type ProvisioningConfig struct {
 
 	// Topic Defaults
 	TopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""`
-	ValidNamespaces    string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"` // Comma-separated valid namespace prefixes
-	DefaultPartitions  int    `env:"DEFAULT_PARTITIONS" envDefault:"3"`
-	DefaultRetentionMs int64  `env:"DEFAULT_RETENTION_MS" envDefault:"604800000"` // 7 days
+	ValidNamespaces        string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"` // Comma-separated valid namespace prefixes
+	DefaultPartitions      int    `env:"DEFAULT_PARTITIONS" envDefault:"3"`
+	DefaultRetentionMs     int64  `env:"DEFAULT_RETENTION_MS" envDefault:"604800000"` // 7 days
 
 	// Quotas (defaults per tenant)
 	MaxTopicsPerTenant     int   `env:"MAX_TOPICS_PER_TENANT" envDefault:"50"`
@@ -94,11 +95,9 @@ type ProvisioningConfig struct {
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
 	CORSMaxAge         int      `env:"CORS_MAX_AGE" envDefault:"3600"`
 
-	// Environment — deployment identity label, used for Kafka topic namespace, consumer
-	// group naming, and safety guards. Free-form: any string works as deployment identity.
-	// Sukko uses: local | dev | stg | prod by convention. "prod" blocks KAFKA_TOPIC_NAMESPACE_OVERRIDE;
-	// "dev"/"development"/"local" relaxes admin token length requirements.
-	Environment string `env:"ENVIRONMENT" envDefault:"local"`
+	// Provisioning-specific externalized constants
+	MaxTenantsFetchLimit int           `env:"PROVISIONING_MAX_TENANTS_FETCH_LIMIT" envDefault:"10000"`
+	DeletionTimeout      time.Duration `env:"PROVISIONING_DELETION_TIMEOUT" envDefault:"5m"`
 }
 
 // LoadProvisioningConfig reads provisioning service configuration from .env file
@@ -110,7 +109,7 @@ func LoadProvisioningConfig(logger *zerolog.Logger) (*ProvisioningConfig, error)
 		if logger != nil {
 			logger.Info().Msg("No .env file found (using environment variables only)")
 		} else {
-			fmt.Println("Info: No .env file found (using environment variables only)")
+			_, _ = fmt.Fprintln(os.Stdout, "Info: No .env file found (using environment variables only)")
 		}
 	} else {
 		if logger != nil {
@@ -154,8 +153,8 @@ func (c *ProvisioningConfig) Validate() error {
 	}
 
 	// gRPC port validation
-	if c.GRPCPort < 1 || c.GRPCPort > 65535 {
-		return fmt.Errorf("GRPC_PORT must be between 1 and 65535, got %d", c.GRPCPort)
+	if c.GRPCPort < 1 || c.GRPCPort > MaxPort {
+		return fmt.Errorf("GRPC_PORT must be between 1 and %d, got %d", MaxPort, c.GRPCPort)
 	}
 
 	// Admin token validation
@@ -201,12 +200,8 @@ func (c *ProvisioningConfig) Validate() error {
 		}
 	}
 
-	// Enum checks
-	if err := ValidateLogLevel(c.LogLevel); err != nil {
-		return err
-	}
-
-	if err := ValidateLogFormat(c.LogFormat); err != nil {
+	// Shared field validation (LogLevel, LogFormat, Environment)
+	if err := c.BaseConfig.Validate(); err != nil {
 		return err
 	}
 
@@ -241,6 +236,78 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE is not allowed in production (environment: %s)", c.Environment)
 	}
 
+	// DB connection max lifetime (only relevant for postgres)
+	if c.DatabaseDriver == "postgres" && c.DBConnMaxLifetime < time.Minute {
+		return fmt.Errorf("DB_CONN_MAX_LIFETIME must be >= 1m when DATABASE_DRIVER=postgres, got %s", c.DBConnMaxLifetime)
+	}
+
+	// Topic retention
+	if c.DefaultRetentionMs < 60000 {
+		return fmt.Errorf("DEFAULT_RETENTION_MS must be >= 60000 (1 minute), got %d", c.DefaultRetentionMs)
+	}
+
+	// Quota minimums
+	if c.MaxStorageBytes < MinStorageBytes {
+		return fmt.Errorf("MAX_STORAGE_BYTES must be >= %d (1MB), got %d", MinStorageBytes, c.MaxStorageBytes)
+	}
+	if c.ProducerByteRate < MinByteRate {
+		return fmt.Errorf("PRODUCER_BYTE_RATE must be >= %d, got %d", MinByteRate, c.ProducerByteRate)
+	}
+	if c.ConsumerByteRate < MinByteRate {
+		return fmt.Errorf("CONSUMER_BYTE_RATE must be >= %d, got %d", MinByteRate, c.ConsumerByteRate)
+	}
+
+	// Admin auth rate limiting
+	if c.AdminAuthFailureThreshold < 1 {
+		return fmt.Errorf("ADMIN_AUTH_FAILURE_THRESHOLD must be >= 1, got %d", c.AdminAuthFailureThreshold)
+	}
+	if c.AdminAuthBlockDuration < time.Second {
+		return fmt.Errorf("ADMIN_AUTH_BLOCK_DURATION must be >= 1s, got %s", c.AdminAuthBlockDuration)
+	}
+	if c.AdminAuthCleanupInterval < time.Second {
+		return fmt.Errorf("ADMIN_AUTH_CLEANUP_INTERVAL must be >= 1s, got %s", c.AdminAuthCleanupInterval)
+	}
+	if c.AdminAuthCleanupMaxAge < time.Second {
+		return fmt.Errorf("ADMIN_AUTH_CLEANUP_MAX_AGE must be >= 1s, got %s", c.AdminAuthCleanupMaxAge)
+	}
+
+	// HTTP timeouts
+	if c.HTTPReadTimeout < MinTimeout || c.HTTPReadTimeout > MaxReadWriteTimeout {
+		return fmt.Errorf("HTTP_READ_TIMEOUT must be between %v and %v, got %s", MinTimeout, MaxReadWriteTimeout, c.HTTPReadTimeout)
+	}
+	if c.HTTPWriteTimeout < MinTimeout || c.HTTPWriteTimeout > MaxReadWriteTimeout {
+		return fmt.Errorf("HTTP_WRITE_TIMEOUT must be between %v and %v, got %s", MinTimeout, MaxReadWriteTimeout, c.HTTPWriteTimeout)
+	}
+	if c.HTTPIdleTimeout < MinTimeout || c.HTTPIdleTimeout > MaxIdleTimeout {
+		return fmt.Errorf("HTTP_IDLE_TIMEOUT must be between %v and %v, got %s", MinTimeout, MaxIdleTimeout, c.HTTPIdleTimeout)
+	}
+
+	// Key registry
+	if c.KeyRegistryRefreshInterval < time.Second {
+		return fmt.Errorf("KEY_REGISTRY_REFRESH_INTERVAL must be >= 1s, got %s", c.KeyRegistryRefreshInterval)
+	}
+	if c.KeyRegistryQueryTimeout < time.Second {
+		return fmt.Errorf("KEY_REGISTRY_QUERY_TIMEOUT must be >= 1s, got %s", c.KeyRegistryQueryTimeout)
+	}
+
+	// Graceful shutdown
+	if c.ShutdownTimeout < time.Second {
+		return fmt.Errorf("SHUTDOWN_TIMEOUT must be >= 1s, got %s", c.ShutdownTimeout)
+	}
+
+	// Lifecycle check interval (only when lifecycle manager is enabled)
+	if c.LifecycleManagerEnabled && c.LifecycleCheckInterval < time.Minute {
+		return fmt.Errorf("LIFECYCLE_CHECK_INTERVAL must be >= 1m when LIFECYCLE_MANAGER_ENABLED=true, got %s", c.LifecycleCheckInterval)
+	}
+
+	// Provisioning-specific externalized fields
+	if c.MaxTenantsFetchLimit < 1 {
+		return fmt.Errorf("PROVISIONING_MAX_TENANTS_FETCH_LIMIT must be > 0, got %d", c.MaxTenantsFetchLimit)
+	}
+	if c.DeletionTimeout <= 0 {
+		return fmt.Errorf("PROVISIONING_DELETION_TIMEOUT must be > 0, got %v", c.DeletionTimeout)
+	}
+
 	return nil
 }
 
@@ -250,49 +317,52 @@ func (c *ProvisioningConfig) OIDCEnabled() bool {
 }
 
 // Print logs provisioning configuration for debugging (human-readable format).
+// Uses fmt.Fprint* to os.Stdout for startup display before zerolog is initialized.
+// fmt.Fprint* errors are non-actionable: writing to os.Stdout cannot be retried or reported.
 func (c *ProvisioningConfig) Print() {
-	fmt.Println("=== Provisioning Service Configuration ===")
-	fmt.Printf("Environment:        %s\n", c.Environment)
-	fmt.Printf("Address:            %s\n", c.Addr)
-	fmt.Printf("gRPC Port:          %d\n", c.GRPCPort)
+	w := os.Stdout
+	_, _ = fmt.Fprintln(w, "=== Provisioning Service Configuration ===")
+	_, _ = fmt.Fprintf(w, "Environment:        %s\n", c.Environment)
+	_, _ = fmt.Fprintf(w, "Address:            %s\n", c.Addr)
+	_, _ = fmt.Fprintf(w, "gRPC Port:          %d\n", c.GRPCPort)
 	if c.AdminToken != "" {
-		fmt.Printf("Admin Token:        [REDACTED]\n")
+		_, _ = fmt.Fprintf(w, "Admin Token:        [REDACTED]\n")
 	}
-	fmt.Println("\n=== Database ===")
-	fmt.Printf("Database Driver:    %s\n", c.DatabaseDriver)
+	_, _ = fmt.Fprintln(w, "\n=== Database ===")
+	_, _ = fmt.Fprintf(w, "Database Driver:    %s\n", c.DatabaseDriver)
 	if c.DatabaseDriver == "postgres" {
-		fmt.Printf("Database URL:       %s\n", maskDatabaseURL(c.DatabaseURL))
-		fmt.Printf("Max Open Conns:     %d\n", c.DBMaxOpenConns)
-		fmt.Printf("Max Idle Conns:     %d\n", c.DBMaxIdleConns)
-		fmt.Printf("Conn Max Lifetime:  %s\n", c.DBConnMaxLifetime)
+		_, _ = fmt.Fprintf(w, "Database URL:       %s\n", maskDatabaseURL(c.DatabaseURL))
+		_, _ = fmt.Fprintf(w, "Max Open Conns:     %d\n", c.DBMaxOpenConns)
+		_, _ = fmt.Fprintf(w, "Max Idle Conns:     %d\n", c.DBMaxIdleConns)
+		_, _ = fmt.Fprintf(w, "Conn Max Lifetime:  %s\n", c.DBConnMaxLifetime)
 	} else {
-		fmt.Printf("Database Path:      %s\n", c.DatabasePath)
+		_, _ = fmt.Fprintf(w, "Database Path:      %s\n", c.DatabasePath)
 	}
-	fmt.Printf("Auto Migrate:       %v\n", c.AutoMigrate)
-	fmt.Println("\n=== Topic Defaults ===")
+	_, _ = fmt.Fprintf(w, "Auto Migrate:       %v\n", c.AutoMigrate)
+	_, _ = fmt.Fprintln(w, "\n=== Topic Defaults ===")
 	if c.TopicNamespaceOverride != "" {
-		fmt.Printf("Namespace Override: %s\n", c.TopicNamespaceOverride)
+		_, _ = fmt.Fprintf(w, "Namespace Override: %s\n", c.TopicNamespaceOverride)
 	}
-	fmt.Printf("Partitions:         %d\n", c.DefaultPartitions)
-	fmt.Printf("Retention:          %d ms (%d days)\n", c.DefaultRetentionMs, c.DefaultRetentionMs/86400000)
-	fmt.Println("\n=== Tenant Quotas (Defaults) ===")
-	fmt.Printf("Max Topics:         %d\n", c.MaxTopicsPerTenant)
-	fmt.Printf("Max Partitions:     %d\n", c.MaxPartitionsPerTenant)
-	fmt.Printf("Max Storage:        %d MB\n", c.MaxStorageBytes/(1024*1024))
-	fmt.Printf("Producer Rate:      %d MB/s\n", c.ProducerByteRate/(1024*1024))
-	fmt.Printf("Consumer Rate:      %d MB/s\n", c.ConsumerByteRate/(1024*1024))
-	fmt.Println("\n=== Tenant Lifecycle ===")
-	fmt.Printf("Grace Period:       %d days\n", c.DeprovisionGraceDays)
-	fmt.Println("\n=== Rate Limiting ===")
-	fmt.Printf("API Rate Limit:     %d req/min\n", c.APIRateLimitPerMinute)
-	fmt.Println("\n=== HTTP Server ===")
-	fmt.Printf("Read Timeout:       %s\n", c.HTTPReadTimeout)
-	fmt.Printf("Write Timeout:      %s\n", c.HTTPWriteTimeout)
-	fmt.Printf("Idle Timeout:       %s\n", c.HTTPIdleTimeout)
-	fmt.Println("\n=== Logging ===")
-	fmt.Printf("Level:              %s\n", c.LogLevel)
-	fmt.Printf("Format:             %s\n", c.LogFormat)
-	fmt.Println("==========================================")
+	_, _ = fmt.Fprintf(w, "Partitions:         %d\n", c.DefaultPartitions)
+	_, _ = fmt.Fprintf(w, "Retention:          %d ms (%d days)\n", c.DefaultRetentionMs, c.DefaultRetentionMs/86400000)
+	_, _ = fmt.Fprintln(w, "\n=== Tenant Quotas (Defaults) ===")
+	_, _ = fmt.Fprintf(w, "Max Topics:         %d\n", c.MaxTopicsPerTenant)
+	_, _ = fmt.Fprintf(w, "Max Partitions:     %d\n", c.MaxPartitionsPerTenant)
+	_, _ = fmt.Fprintf(w, "Max Storage:        %d MB\n", c.MaxStorageBytes/(1024*1024))
+	_, _ = fmt.Fprintf(w, "Producer Rate:      %d MB/s\n", c.ProducerByteRate/(1024*1024))
+	_, _ = fmt.Fprintf(w, "Consumer Rate:      %d MB/s\n", c.ConsumerByteRate/(1024*1024))
+	_, _ = fmt.Fprintln(w, "\n=== Tenant Lifecycle ===")
+	_, _ = fmt.Fprintf(w, "Grace Period:       %d days\n", c.DeprovisionGraceDays)
+	_, _ = fmt.Fprintln(w, "\n=== Rate Limiting ===")
+	_, _ = fmt.Fprintf(w, "API Rate Limit:     %d req/min\n", c.APIRateLimitPerMinute)
+	_, _ = fmt.Fprintln(w, "\n=== HTTP Server ===")
+	_, _ = fmt.Fprintf(w, "Read Timeout:       %s\n", c.HTTPReadTimeout)
+	_, _ = fmt.Fprintf(w, "Write Timeout:      %s\n", c.HTTPWriteTimeout)
+	_, _ = fmt.Fprintf(w, "Idle Timeout:       %s\n", c.HTTPIdleTimeout)
+	_, _ = fmt.Fprintln(w, "\n=== Logging ===")
+	_, _ = fmt.Fprintf(w, "Level:              %s\n", c.LogLevel)
+	_, _ = fmt.Fprintf(w, "Format:             %s\n", c.LogFormat)
+	_, _ = fmt.Fprintln(w, "==========================================")
 }
 
 // LogConfig logs provisioning configuration using structured logging.

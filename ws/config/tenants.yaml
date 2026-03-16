@@ -7,15 +7,15 @@
 # 3. Run: kubectl rollout restart deployment/auth-service
 
 tenants:
-  - id: "sukko-internal"
-    name: "Sukko Internal"
+  - id: "odin-internal"
+    name: "Odin Internal"
     apps:
-      - id: "sukko-web"
-        name: "Sukko Web Dashboard"
-        secret_env: "APP_SECRET_SUKKO_WEB"
-      - id: "sukko-mobile"
-        name: "Sukko Mobile App"
-        secret_env: "APP_SECRET_SUKKO_MOBILE"
+      - id: "odin-web"
+        name: "Odin Web Dashboard"
+        secret_env: "APP_SECRET_ODIN_WEB"
+      - id: "odin-mobile"
+        name: "Odin Mobile App"
+        secret_env: "APP_SECRET_ODIN_MOBILE"
 
   # Example external tenant (uncomment to use)
   # - id: "acme-corp"

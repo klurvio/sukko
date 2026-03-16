@@ -125,6 +125,7 @@ type PolicyEngine struct {
 	tenantIsolator *TenantIsolator
 	defaultEffect  Effect
 	auditLogger    AuditLogger
+	regexCache     sync.Map // map[string]*regexp.Regexp
 }
 
 // PolicyEngineConfig configures the policy engine.
@@ -173,7 +174,7 @@ func WithPolicyAuditLogger(logger AuditLogger) PolicyEngineOption {
 }
 
 // NewPolicyEngine creates a new policy engine.
-func NewPolicyEngine(config PolicyEngineConfig, opts ...PolicyEngineOption) *PolicyEngine {
+func NewPolicyEngine(config PolicyEngineConfig, opts ...PolicyEngineOption) (*PolicyEngine, error) {
 	if config.DefaultEffect == "" {
 		config.DefaultEffect = EffectDeny
 	}
@@ -196,15 +197,19 @@ func NewPolicyEngine(config PolicyEngineConfig, opts ...PolicyEngineOption) *Pol
 
 	// Compile patterns
 	for _, rule := range e.rules {
-		e.compileRule(rule)
+		if err := e.compileRule(rule); err != nil {
+			return nil, fmt.Errorf("compile rule %q: %w", rule.ID, err)
+		}
 	}
-	for _, rules := range e.tenantRules {
+	for tenantID, rules := range e.tenantRules {
 		for _, rule := range rules {
-			e.compileRule(rule)
+			if err := e.compileRule(rule); err != nil {
+				return nil, fmt.Errorf("compile tenant %q rule %q: %w", tenantID, rule.ID, err)
+			}
 		}
 	}
 
-	return e
+	return e, nil
 }
 
 // sortRules sorts rules by priority (highest first).
@@ -221,9 +226,9 @@ func (e *PolicyEngine) sortRules() {
 }
 
 // compileRule compiles the channel pattern regex.
-func (e *PolicyEngine) compileRule(rule *PermissionRule) {
+func (e *PolicyEngine) compileRule(rule *PermissionRule) error {
 	if rule.Match.ChannelPattern == "" {
-		return
+		return nil
 	}
 
 	// Convert pattern to regex
@@ -247,9 +252,11 @@ func (e *PolicyEngine) compileRule(rule *PermissionRule) {
 	pattern = "^" + pattern + "$"
 
 	re, err := regexp.Compile(pattern)
-	if err == nil {
-		rule.compiledPattern = re
+	if err != nil {
+		return fmt.Errorf("compile channel pattern %q: %w", rule.Match.ChannelPattern, err)
 	}
+	rule.compiledPattern = re
+	return nil
 }
 
 // AuthzRequest represents an authorization request.
@@ -468,7 +475,9 @@ func (e *PolicyEngine) evaluateCondition(cond Condition, claims *Claims, capture
 	case ConditionTypeChannel:
 		return e.evaluateChannelCondition(cond, captures)
 	case ConditionTypeTime:
-		// Time-based conditions not yet implemented
+		// TODO: Time-based conditions not yet implemented.
+		// When implemented, should support: time_of_day, day_of_week, date_range.
+		// Returns false (fail-secure) for any time condition until implemented.
 		return false
 	default:
 		return false
@@ -513,7 +522,7 @@ func (e *PolicyEngine) evaluateAttributeCondition(cond Condition, claims *Claims
 func (e *PolicyEngine) evaluateChannelCondition(cond Condition, captures map[string]string) bool {
 	captureValue, ok := captures[cond.Field]
 	if !ok {
-		return cond.Op == OpExists && false
+		return false
 	}
 	return e.compareValues(captureValue, cond.Op, cond.Value)
 }
@@ -562,9 +571,16 @@ func (e *PolicyEngine) compareValues(fieldValue any, op Operator, condValue any)
 	case OpMatches:
 		fieldStr := fmt.Sprintf("%v", fieldValue)
 		condStr := fmt.Sprintf("%v", condValue)
-		re, err := regexp.Compile(condStr)
-		if err != nil {
-			return false
+		var re *regexp.Regexp
+		if cached, ok := e.regexCache.Load(condStr); ok {
+			re = cached.(*regexp.Regexp)
+		} else {
+			compiled, err := regexp.Compile(condStr)
+			if err != nil {
+				return false
+			}
+			re = compiled
+			e.regexCache.Store(condStr, re)
 		}
 		return re.MatchString(fieldStr)
 
@@ -584,13 +600,16 @@ func (e *PolicyEngine) compareValues(fieldValue any, op Operator, condValue any)
 }
 
 // AddRule adds a rule to the engine.
-func (e *PolicyEngine) AddRule(rule *PermissionRule) {
+func (e *PolicyEngine) AddRule(rule *PermissionRule) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	e.compileRule(rule)
+	if err := e.compileRule(rule); err != nil {
+		return fmt.Errorf("add rule %q: %w", rule.ID, err)
+	}
 	e.rules = append(e.rules, rule)
 	e.sortRules()
+	return nil
 }
 
 // RemoveRule removes a rule by ID.

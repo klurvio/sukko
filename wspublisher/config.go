@@ -25,11 +25,11 @@ type Config struct {
 
 	// Channel settings - follows asyncapi spec: {tenant}.{identifier}.{category}
 	// Similar to wsloadtest CHANNELS format
-	Channels string `env:"CHANNELS"` // Static channel list (comma-separated), e.g., "sukko.BTC.trade,sukko.ETH.trade"
+	Channels string `env:"CHANNELS"` // Static channel list (comma-separated), e.g., "odin.BTC.trade,odin.ETH.trade"
 
 	// Dynamic channel generation (used if CHANNELS is empty)
 	ChannelPattern string `env:"CHANNEL_PATTERN" envDefault:"{tenant}.{identifier}.{category}"` // Pattern for channels
-	TenantID       string `env:"TENANT_ID" envDefault:"sukko"`
+	TenantID       string `env:"TENANT_ID" envDefault:"odin"`
 	Identifiers    string `env:"IDENTIFIERS" envDefault:"BTC,ETH,SOL,all"`          // Token symbols or "all" for aggregate
 	Categories     string `env:"CATEGORIES" envDefault:"trade,liquidity,orderbook"` // Event categories (synced with wsloadtest)
 

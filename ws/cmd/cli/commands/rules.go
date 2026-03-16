@@ -58,7 +58,7 @@ var rulesSetCmd = &cobra.Command{
 		tenantID, _ := cmd.Flags().GetString("tenant")
 		rulesFile, _ := cmd.Flags().GetString("rules-file")
 
-		data, err := os.ReadFile(rulesFile)
+		data, err := os.ReadFile(rulesFile) //nolint:gosec // G304: CLI reads user-specified file path from --rules-file flag
 		if err != nil {
 			return fmt.Errorf("read rules file: %w", err)
 		}

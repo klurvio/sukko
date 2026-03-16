@@ -37,11 +37,8 @@ var (
 )
 
 // NewTenantConnectionTracker creates a new connection tracker.
+// Config values MUST be validated (e.g., via GatewayConfig.Validate()) before calling.
 func NewTenantConnectionTracker(defaultLimit int) *TenantConnectionTracker {
-	if defaultLimit <= 0 {
-		defaultLimit = 1000 // Sensible default
-	}
-
 	return &TenantConnectionTracker{
 		connections:  make(map[string]*atomic.Int64),
 		limits:       make(map[string]int),

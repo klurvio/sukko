@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
 )
 
 // PostgresTenantRepository implements TenantStore using PostgreSQL.
@@ -21,7 +21,10 @@ func NewPostgresTenantRepository(db *sql.DB) *PostgresTenantRepository {
 
 // Ping verifies database connectivity.
 func (r *PostgresTenantRepository) Ping(ctx context.Context) error {
-	return r.db.PingContext(ctx)
+	if err := r.db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping database: %w", err)
+	}
+	return nil
 }
 
 // Create creates a new tenant record.
@@ -166,7 +169,6 @@ func (r *PostgresTenantRepository) List(ctx context.Context, opts provisioning.L
 	}
 	offset := max(opts.Offset, 0)
 
-	//nolint:gosec // whereClause is built from known conditions using parameterized values, safe from SQL injection
 	query := fmt.Sprintf(`
 		SELECT id, name, status, consumer_type, metadata, created_at, updated_at,
 		       suspended_at, deprovision_at, deleted_at

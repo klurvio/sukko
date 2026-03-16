@@ -9,9 +9,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/server/broadcast"
-	"github.com/klurvio/sukko/internal/shared/kafka"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // =============================================================================
@@ -213,7 +213,7 @@ func TestMultiTenantPoolConfig_Validation(t *testing.T) {
 	}
 }
 
-func TestMultiTenantPool_DefaultRefreshInterval(t *testing.T) {
+func TestMultiTenantPool_ExplicitRefreshInterval(t *testing.T) {
 	t.Parallel()
 	logger := zerolog.New(nil).Level(zerolog.Disabled)
 	registry := &mockTenantRegistry{}
@@ -221,13 +221,13 @@ func TestMultiTenantPool_DefaultRefreshInterval(t *testing.T) {
 	guard := &mockResourceGuard{}
 
 	config := MultiTenantPoolConfig{
-		Brokers:       []string{"localhost:9092"},
-		Namespace:     "prod",
-		Registry:      registry,
-		BroadcastBus:  bus,
-		ResourceGuard: guard,
-		Logger:        logger,
-		// RefreshInterval not set - should use default (5m safety net)
+		Brokers:         []string{"localhost:9092"},
+		Namespace:       "prod",
+		Registry:        registry,
+		BroadcastBus:    bus,
+		ResourceGuard:   guard,
+		Logger:          logger,
+		RefreshInterval: 5 * time.Minute,
 	}
 
 	pool, err := NewMultiTenantConsumerPool(config)
@@ -478,7 +478,7 @@ func TestMultiTenantPool_ConsumerGroupNaming(t *testing.T) {
 	}{
 		{"dev_env_prod_ns_shared", "dev", "prod", "", true, "dev-shared-consumer"},
 		{"prod_env_prod_ns_shared", "prod", "prod", "", true, "prod-shared-consumer"},
-		{"dev_env_prod_ns_dedicated", "dev", "prod", "sukko", false, "dev-sukko-consumer"},
+		{"dev_env_prod_ns_dedicated", "dev", "prod", "odin", false, "dev-odin-consumer"},
 		{"prod_env_prod_ns_dedicated", "prod", "prod", "acme", false, "prod-acme-consumer"},
 		{"empty_env_fallback_shared", "", "dev", "", true, "dev-shared-consumer"},
 		{"empty_env_fallback_dedicated", "", "dev", "tenant1", false, "dev-tenant1-consumer"},
@@ -495,7 +495,7 @@ func TestMultiTenantPool_ConsumerGroupNaming(t *testing.T) {
 
 			var result string
 			if tt.isShared {
-				result = fmt.Sprintf("%s-shared-consumer", env)
+				result = env + "-shared-consumer"
 			} else {
 				result = fmt.Sprintf("%s-%s-consumer", env, tt.tenantID)
 			}
@@ -597,9 +597,9 @@ func TestMultiTenantPool_TopicRemoval_NilConsumer(t *testing.T) {
 
 	// Simulate: pool had tracked topics but consumer is nil (defensive path)
 	pool.sharedTopics = map[string]bool{
-		"prod.acme.trade":      true,
-		"prod.bigcorp.trade":   true,
-		"prod.acme.liquidity":  true,
+		"prod.acme.trade":     true,
+		"prod.bigcorp.trade":  true,
+		"prod.acme.liquidity": true,
 	}
 
 	// Call with empty topics — all existing topics should be removed

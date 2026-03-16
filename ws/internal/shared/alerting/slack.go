@@ -17,6 +17,7 @@ type SlackAlerter struct {
 	serviceName string
 	environment string
 	httpClient  *http.Client
+	timeout     time.Duration
 }
 
 // SlackConfig holds configuration for SlackAlerter.
@@ -29,30 +30,17 @@ type SlackConfig struct {
 	Timeout     time.Duration
 }
 
-// NewSlackAlerter creates a Slack alerter with the given webhook configuration.
-func NewSlackAlerter(webhookURL, channel, username string) *SlackAlerter {
-	return &SlackAlerter{
-		webhookURL: webhookURL,
-		channel:    channel,
-		username:   username,
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-	}
-}
-
 // NewSlackAlerterWithConfig creates a Slack alerter with full configuration.
+// Config values MUST be validated (e.g., via ServerConfig.Validate()) before calling.
 func NewSlackAlerterWithConfig(cfg SlackConfig) *SlackAlerter {
-	timeout := cfg.Timeout
-	if timeout == 0 {
-		timeout = 5 * time.Second
-	}
-
 	return &SlackAlerter{
 		webhookURL:  cfg.WebhookURL,
 		channel:     cfg.Channel,
 		username:    cfg.Username,
 		serviceName: cfg.ServiceName,
 		environment: cfg.Environment,
-		httpClient:  &http.Client{Timeout: timeout},
+		httpClient:  &http.Client{Timeout: cfg.Timeout},
+		timeout:     cfg.Timeout,
 	}
 }
 
@@ -115,16 +103,16 @@ func (s *SlackAlerter) Alert(level Level, message string, metadata map[string]an
 
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
-		return
+		return // Marshal error non-actionable; alerting must not break the service
 	}
 
 	// Send to Slack (with timeout)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.webhookURL, bytes.NewBuffer(jsonPayload))
 	if err != nil {
-		return
+		return // Request creation error non-actionable; alerting must not break the service
 	}
 	req.Header.Set("Content-Type", "application/json")
 

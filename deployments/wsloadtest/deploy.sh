@@ -28,7 +28,7 @@ ERRORS=()
 [ -z "${ZONE:-}" ] && ERRORS+=("ZONE is required")
 [ -z "${NETWORK:-}" ] && ERRORS+=("NETWORK is required")
 [ -z "${SUBNET:-}" ] && ERRORS+=("SUBNET is required")
-[ -z "${WS_URL:-}" ] && ERRORS+=("WS_URL is required (get via: kubectl get svc sukko-gateway -n <ns> -o jsonpath='{.status.loadBalancer.ingress[0].ip}')")
+[ -z "${WS_URL:-}" ] && ERRORS+=("WS_URL is required (get via: kubectl get svc odin-ws-gateway -n <ns> -o jsonpath='{.status.loadBalancer.ingress[0].ip}')")
 
 if [ ${#ERRORS[@]} -gt 0 ]; then
   echo "ERROR: Missing required configuration:"
@@ -41,7 +41,7 @@ fi
 # Defaults
 VM_NAME="${VM_NAME:-wsloadtest-vm}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
-REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/sukko}"
+REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/$PROJECT/odin-ws}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 TARGET_CONNECTIONS="${TARGET_CONNECTIONS:-5000}"
 RAMP_RATE="${RAMP_RATE:-100}"

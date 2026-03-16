@@ -1,4 +1,4 @@
-# Sukko — Production Configuration
+# Odin — Production Configuration
 #
 # Full production setup with:
 #   - External Kafka for persistent messaging
@@ -7,7 +7,7 @@
 #   - Autoscaling and resource tuning
 #
 # Usage:
-#   helm install sukko deployments/helm/sukko -f examples/helm/values-production.yaml \
+#   helm install odin deployments/helm/odin -f examples/helm/values-production.yaml \
 #     --set ws-server.kafka.brokers=kafka-1:9092 \
 #     --set ws-server.kafka.sasl.existingSecret=my-kafka-secret
 
@@ -42,7 +42,7 @@ ws-server:
     sasl:
       enabled: true
       mechanism: scram-sha-256
-      username: "sukko"
+      username: "odin-ws"
       existingSecret: ""  # Set via --set
       existingSecretKey: "kafka-sasl-password"
     tls:

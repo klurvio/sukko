@@ -34,7 +34,7 @@ variable "environment" {
 }
 
 variable "namespace" {
-  description = "Kubernetes namespace for sukko resources"
+  description = "Kubernetes namespace for odin resources"
   type        = string
 }
 

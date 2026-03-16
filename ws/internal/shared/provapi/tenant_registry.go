@@ -13,9 +13,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/types"
+	provisioningv1 "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // StreamTenantRegistryConfig configures the gRPC stream-backed tenant registry.
@@ -135,7 +135,10 @@ func (r *StreamTenantRegistry) State() int32 {
 func (r *StreamTenantRegistry) Close() error {
 	r.cancel()
 	r.wg.Wait()
-	return r.conn.Close()
+	if err := r.conn.Close(); err != nil {
+		return fmt.Errorf("close tenant registry gRPC connection: %w", err)
+	}
+	return nil
 }
 
 // streamLoop runs the gRPC stream with reconnection logic.
@@ -146,8 +149,8 @@ func (r *StreamTenantRegistry) streamLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			r.streamState.Store(0)
-			r.streamStateGauge.Set(0)
+			r.streamState.Store(streamStateDisconnected)
+			r.streamStateGauge.Set(streamStateDisconnected)
 			return
 		default:
 		}
@@ -155,8 +158,8 @@ func (r *StreamTenantRegistry) streamLoop(ctx context.Context) {
 		stream, err := client.WatchTenantConfig(ctx, &provisioningv1.WatchTenantConfigRequest{})
 		if err != nil {
 			r.logger.Warn().Err(err).Dur("retry_in", delay).Msg("failed to start WatchTenantConfig stream")
-			r.streamState.Store(0)
-			r.streamStateGauge.Set(0)
+			r.streamState.Store(streamStateDisconnected)
+			r.streamStateGauge.Set(streamStateDisconnected)
 
 			select {
 			case <-ctx.Done():
@@ -170,8 +173,8 @@ func (r *StreamTenantRegistry) streamLoop(ctx context.Context) {
 			continue
 		}
 
-		r.streamState.Store(1)
-		r.streamStateGauge.Set(1)
+		r.streamState.Store(streamStateConnected)
+		r.streamStateGauge.Set(streamStateConnected)
 		delay = r.config.ReconnectDelay
 
 		r.logger.Info().Msg("WatchTenantConfig stream connected")
@@ -180,8 +183,8 @@ func (r *StreamTenantRegistry) streamLoop(ctx context.Context) {
 			resp, err := stream.Recv()
 			if err != nil {
 				r.logger.Warn().Err(err).Msg("WatchTenantConfig stream disconnected")
-				r.streamState.Store(0)
-				r.streamStateGauge.Set(0)
+				r.streamState.Store(streamStateDisconnected)
+				r.streamStateGauge.Set(streamStateDisconnected)
 				break
 			}
 
@@ -195,14 +198,14 @@ func (r *StreamTenantRegistry) updateTenantConfigs(resp *provisioningv1.WatchTen
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if resp.IsSnapshot {
+	if resp.GetIsSnapshot() {
 		r.issuerToTenant = make(map[string]string)
 		r.oidcConfigs = make(map[string]*types.TenantOIDCConfig)
 		r.channelRules = make(map[string]*types.ChannelRules)
 	}
 
 	// Remove tenants
-	for _, tenantID := range resp.RemovedTenantIds {
+	for _, tenantID := range resp.GetRemovedTenantIds() {
 		// Remove OIDC config and issuer mapping
 		if cfg, ok := r.oidcConfigs[tenantID]; ok {
 			delete(r.issuerToTenant, cfg.IssuerURL)
@@ -212,41 +215,41 @@ func (r *StreamTenantRegistry) updateTenantConfigs(resp *provisioningv1.WatchTen
 	}
 
 	// Add/update tenants
-	for _, tc := range resp.Tenants {
+	for _, tc := range resp.GetTenants() {
 		// OIDC config
-		if tc.Oidc != nil && tc.Oidc.Enabled {
+		if tc.GetOidc() != nil && tc.GetOidc().GetEnabled() {
 			oidcCfg := &types.TenantOIDCConfig{
-				TenantID:  tc.TenantId,
-				IssuerURL: tc.Oidc.IssuerUrl,
-				JWKSURL:   tc.Oidc.JwksUrl,
-				Audience:  tc.Oidc.Audience,
-				Enabled:   tc.Oidc.Enabled,
+				TenantID:  tc.GetTenantId(),
+				IssuerURL: tc.GetOidc().GetIssuerUrl(),
+				JWKSURL:   tc.GetOidc().GetJwksUrl(),
+				Audience:  tc.GetOidc().GetAudience(),
+				Enabled:   tc.GetOidc().GetEnabled(),
 			}
 
 			// Remove old issuer mapping if updating
-			if old, ok := r.oidcConfigs[tc.TenantId]; ok {
+			if old, ok := r.oidcConfigs[tc.GetTenantId()]; ok {
 				delete(r.issuerToTenant, old.IssuerURL)
 			}
 
-			r.oidcConfigs[tc.TenantId] = oidcCfg
-			r.issuerToTenant[tc.Oidc.IssuerUrl] = tc.TenantId
+			r.oidcConfigs[tc.GetTenantId()] = oidcCfg
+			r.issuerToTenant[tc.GetOidc().GetIssuerUrl()] = tc.GetTenantId()
 		} else {
 			// OIDC disabled or nil — remove
-			if old, ok := r.oidcConfigs[tc.TenantId]; ok {
+			if old, ok := r.oidcConfigs[tc.GetTenantId()]; ok {
 				delete(r.issuerToTenant, old.IssuerURL)
-				delete(r.oidcConfigs, tc.TenantId)
+				delete(r.oidcConfigs, tc.GetTenantId())
 			}
 		}
 
 		// Channel rules
-		if tc.ChannelRules != nil {
-			rules := protoToChannelRules(tc.ChannelRules)
-			r.channelRules[tc.TenantId] = rules
+		if tc.GetChannelRules() != nil {
+			rules := protoToChannelRules(tc.GetChannelRules())
+			r.channelRules[tc.GetTenantId()] = rules
 		}
 	}
 
 	r.logger.Debug().
-		Bool("snapshot", resp.IsSnapshot).
+		Bool("snapshot", resp.GetIsSnapshot()).
 		Int("oidc_configs", len(r.oidcConfigs)).
 		Int("channel_rules", len(r.channelRules)).
 		Msg("tenant config cache updated")
@@ -255,14 +258,23 @@ func (r *StreamTenantRegistry) updateTenantConfigs(resp *provisioningv1.WatchTen
 // protoToChannelRules converts proto ChannelRules to types.ChannelRules.
 func protoToChannelRules(cr *provisioningv1.ChannelRules) *types.ChannelRules {
 	rules := &types.ChannelRules{
-		Public:  cr.PublicChannels,
-		Default: cr.DefaultChannels,
+		Public:         cr.GetPublicChannels(),
+		Default:        cr.GetDefaultChannels(),
+		PublishPublic:  cr.GetPublishPublicChannels(),
+		PublishDefault: cr.GetPublishDefaultChannels(),
 	}
 
-	if len(cr.GroupMappings) > 0 {
-		rules.GroupMappings = make(map[string][]string, len(cr.GroupMappings))
-		for group, gc := range cr.GroupMappings {
-			rules.GroupMappings[group] = gc.Channels
+	if len(cr.GetGroupMappings()) > 0 {
+		rules.GroupMappings = make(map[string][]string, len(cr.GetGroupMappings()))
+		for group, gc := range cr.GetGroupMappings() {
+			rules.GroupMappings[group] = gc.GetChannels()
+		}
+	}
+
+	if len(cr.GetPublishGroupMappings()) > 0 {
+		rules.PublishGroupMappings = make(map[string][]string, len(cr.GetPublishGroupMappings()))
+		for group, gc := range cr.GetPublishGroupMappings() {
+			rules.PublishGroupMappings[group] = gc.GetChannels()
 		}
 	}
 

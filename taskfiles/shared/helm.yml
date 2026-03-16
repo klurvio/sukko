@@ -5,7 +5,7 @@
 version: "3"
 
 vars:
-  CHART_PATH: '{{.CHART_PATH | default (printf "%s/deployments/helm/sukko" .ROOT_DIR)}}'
+  CHART_PATH: '{{.CHART_PATH | default (printf "%s/deployments/helm/odin" .ROOT_DIR)}}'
   VALUES_FILE: '{{.VALUES_FILE | default ""}}'
   NAMESPACE: '{{.NAMESPACE | default "default"}}'
 
@@ -20,9 +20,9 @@ tasks:
     cmds:
       - |
         if [ -n "{{.VALUES_FILE}}" ]; then
-          helm template sukko {{.CHART_PATH}} -f {{.VALUES_FILE}}
+          helm template odin {{.CHART_PATH}} -f {{.VALUES_FILE}}
         else
-          helm template sukko {{.CHART_PATH}}
+          helm template odin {{.CHART_PATH}}
         fi
 
   deps:
@@ -35,7 +35,7 @@ tasks:
     requires:
       vars: [VALUES_FILE, NAMESPACE]
     cmds:
-      - helm diff upgrade sukko {{.CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}}
+      - helm diff upgrade odin {{.CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}}
 
   upgrade:
     desc: Upgrade/install Helm release
@@ -44,21 +44,21 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
     cmds:
-      - helm upgrade --install sukko {{.CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace {{.EXTRA_ARGS}}
+      - helm upgrade --install odin {{.CHART_PATH}} -f {{.VALUES_FILE}} -n {{.NAMESPACE}} --create-namespace {{.EXTRA_ARGS}}
 
   uninstall:
     desc: Uninstall Helm release
     requires:
       vars: [NAMESPACE]
     cmds:
-      - helm uninstall sukko -n {{.NAMESPACE}} || true
+      - helm uninstall odin -n {{.NAMESPACE}} || true
 
   rollback:
     desc: Rollback to previous release
     requires:
       vars: [NAMESPACE]
     cmds:
-      - helm rollback sukko -n {{.NAMESPACE}}
+      - helm rollback odin -n {{.NAMESPACE}}
 
   lint:examples:
     desc: Lint and template-render all example Helm values files
@@ -75,7 +75,7 @@ tasks:
             ERRORS=$((ERRORS + 1))
           fi
           echo "=== Templating with $NAME ==="
-          if ! helm template sukko {{.CHART_PATH}} -f "$f" > /dev/null; then
+          if ! helm template odin {{.CHART_PATH}} -f "$f" > /dev/null; then
             ERRORS=$((ERRORS + 1))
           fi
           echo ""

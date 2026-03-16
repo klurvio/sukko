@@ -12,12 +12,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
-	"github.com/klurvio/sukko/internal/provisioning"
-	"github.com/klurvio/sukko/internal/provisioning/eventbus"
-	"github.com/klurvio/sukko/internal/provisioning/grpcserver"
-	"github.com/klurvio/sukko/internal/shared/testutil"
-	"github.com/klurvio/sukko/internal/shared/types"
+	provisioningv1 "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning/eventbus"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning/grpcserver"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning/testutil"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 const bufSize = 1024 * 1024
@@ -149,7 +149,7 @@ func (m *mockChannelRulesStore) Delete(_ context.Context, tenantID string) error
 func (m *mockChannelRulesStore) List(_ context.Context) ([]*types.TenantChannelRules, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var result []*types.TenantChannelRules
+	result := make([]*types.TenantChannelRules, 0, len(m.rules))
 	for _, r := range m.rules {
 		result = append(result, r)
 	}
@@ -162,11 +162,6 @@ type testEnv struct {
 	client provisioningv1.ProvisioningInternalServiceClient
 	cancel context.CancelFunc
 	conn   *grpc.ClientConn
-}
-
-func (te *testEnv) close() {
-	te.cancel()
-	te.conn.Close()
 }
 
 // setupTestEnv creates a gRPC server with mock-store-backed service on bufconn.
@@ -201,7 +196,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	}
 
 	// Seed routing rules
-	if err := routingRulesStore.Set(ctx, "test-tenant", []types.TopicRoutingRule{
+	if err := routingRulesStore.Set(ctx, "test-tenant", []provisioning.TopicRoutingRule{
 		{Pattern: "*.trade", TopicSuffix: "trade"},
 	}); err != nil {
 		t.Fatalf("seed routing rules: %v", err)
@@ -227,7 +222,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	bus := eventbus.New(logger)
 
-	svc := provisioning.NewService(provisioning.ServiceConfig{
+	svc, svcErr := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:       tenantStore,
 		KeyStore:          keyStore,
 		RoutingRulesStore: routingRulesStore,
@@ -240,8 +235,13 @@ func setupTestEnv(t *testing.T) *testEnv {
 		Logger:            logger,
 		TopicNamespace:    "test",
 	})
+	if svcErr != nil {
+		t.Fatalf("NewService: %v", svcErr)
+	}
 
-	srv := grpcserver.NewServer(svc, bus, logger)
+	srv := grpcserver.NewServer(svc, bus, logger, grpcserver.ServerConfig{
+		MaxTenantsFetchLimit: 10000,
+	})
 
 	// Create bufconn listener
 	lis := bufconn.Listen(bufSize)
@@ -250,9 +250,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	provisioningv1.RegisterProvisioningInternalServiceServer(gs, srv)
 
 	go func() {
-		if err := gs.Serve(lis); err != nil {
-			// Server stopped
-		}
+		_ = gs.Serve(lis) // Error non-actionable: server stopped by t.Cleanup
 	}()
 
 	_, cancel := context.WithCancel(context.Background())
@@ -272,7 +270,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	t.Cleanup(func() {
 		cancel()
-		conn.Close()
+		_ = conn.Close()
 		gs.Stop()
 	})
 
@@ -284,7 +282,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	}
 }
 
-func TestWatchKeys_Snapshot(t *testing.T) {
+func TestWatchKeys_Snapshot(t *testing.T) { //nolint:paralleltest // uses shared gRPC test server
 	env := setupTestEnv(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -300,27 +298,27 @@ func TestWatchKeys_Snapshot(t *testing.T) {
 		t.Fatalf("Recv() error = %v", err)
 	}
 
-	if !resp.IsSnapshot {
+	if !resp.GetIsSnapshot() {
 		t.Error("first message should be a snapshot")
 	}
 
-	if len(resp.Keys) != 1 {
-		t.Fatalf("expected 1 key in snapshot, got %d", len(resp.Keys))
+	if len(resp.GetKeys()) != 1 {
+		t.Fatalf("expected 1 key in snapshot, got %d", len(resp.GetKeys()))
 	}
 
-	key := resp.Keys[0]
-	if key.KeyId != "key-one" {
-		t.Errorf("key ID = %q, want %q", key.KeyId, "key-one")
+	key := resp.GetKeys()[0]
+	if key.GetKeyId() != "key-one" {
+		t.Errorf("key ID = %q, want %q", key.GetKeyId(), "key-one")
 	}
-	if key.TenantId != "test-tenant" {
-		t.Errorf("key tenant ID = %q, want %q", key.TenantId, "test-tenant")
+	if key.GetTenantId() != "test-tenant" {
+		t.Errorf("key tenant ID = %q, want %q", key.GetTenantId(), "test-tenant")
 	}
-	if key.Algorithm != "ES256" {
-		t.Errorf("key algorithm = %q, want %q", key.Algorithm, "ES256")
+	if key.GetAlgorithm() != "ES256" {
+		t.Errorf("key algorithm = %q, want %q", key.GetAlgorithm(), "ES256")
 	}
 }
 
-func TestWatchKeys_Delta(t *testing.T) {
+func TestWatchKeys_Delta(t *testing.T) { //nolint:paralleltest // uses shared gRPC test server
 	env := setupTestEnv(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -346,16 +344,16 @@ func TestWatchKeys_Delta(t *testing.T) {
 		t.Fatalf("Recv delta error = %v", err)
 	}
 
-	if resp.IsSnapshot {
+	if resp.GetIsSnapshot() {
 		t.Error("second message should be a delta, not snapshot")
 	}
 
-	if len(resp.Keys) != 1 {
-		t.Errorf("expected 1 key in delta, got %d", len(resp.Keys))
+	if len(resp.GetKeys()) != 1 {
+		t.Errorf("expected 1 key in delta, got %d", len(resp.GetKeys()))
 	}
 }
 
-func TestWatchTenantConfig_Snapshot(t *testing.T) {
+func TestWatchTenantConfig_Snapshot(t *testing.T) { //nolint:paralleltest // uses shared gRPC test server
 	env := setupTestEnv(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -371,46 +369,46 @@ func TestWatchTenantConfig_Snapshot(t *testing.T) {
 		t.Fatalf("Recv() error = %v", err)
 	}
 
-	if !resp.IsSnapshot {
+	if !resp.GetIsSnapshot() {
 		t.Error("first message should be a snapshot")
 	}
 
-	if len(resp.Tenants) != 1 {
-		t.Fatalf("expected 1 tenant config in snapshot, got %d", len(resp.Tenants))
+	if len(resp.GetTenants()) != 1 {
+		t.Fatalf("expected 1 tenant config in snapshot, got %d", len(resp.GetTenants()))
 	}
 
-	tc := resp.Tenants[0]
-	if tc.TenantId != "test-tenant" {
-		t.Errorf("tenant ID = %q, want %q", tc.TenantId, "test-tenant")
+	tc := resp.GetTenants()[0]
+	if tc.GetTenantId() != "test-tenant" {
+		t.Errorf("tenant ID = %q, want %q", tc.GetTenantId(), "test-tenant")
 	}
 
-	if tc.Oidc == nil {
+	if tc.GetOidc() == nil {
 		t.Fatal("expected OIDC config, got nil")
 	}
-	if tc.Oidc.IssuerUrl != "https://auth.example.com" {
-		t.Errorf("issuer URL = %q, want %q", tc.Oidc.IssuerUrl, "https://auth.example.com")
+	if tc.GetOidc().GetIssuerUrl() != "https://auth.example.com" {
+		t.Errorf("issuer URL = %q, want %q", tc.GetOidc().GetIssuerUrl(), "https://auth.example.com")
 	}
 
-	if tc.ChannelRules == nil {
+	if tc.GetChannelRules() == nil {
 		t.Fatal("expected channel rules, got nil")
 	}
-	if len(tc.ChannelRules.PublicChannels) != 1 || tc.ChannelRules.PublicChannels[0] != "*.trade" {
-		t.Errorf("public channels = %v, want [*.trade]", tc.ChannelRules.PublicChannels)
+	if len(tc.GetChannelRules().GetPublicChannels()) != 1 || tc.GetChannelRules().GetPublicChannels()[0] != "*.trade" {
+		t.Errorf("public channels = %v, want [*.trade]", tc.GetChannelRules().GetPublicChannels())
 	}
 
 	// Verify routing rules are included in the snapshot
-	if len(tc.RoutingRules) != 1 {
-		t.Fatalf("expected 1 routing rule in snapshot, got %d", len(tc.RoutingRules))
+	if len(tc.GetRoutingRules()) != 1 {
+		t.Fatalf("expected 1 routing rule in snapshot, got %d", len(tc.GetRoutingRules()))
 	}
-	if tc.RoutingRules[0].Pattern != "*.trade" {
-		t.Errorf("routing rule pattern = %q, want %q", tc.RoutingRules[0].Pattern, "*.trade")
+	if tc.GetRoutingRules()[0].GetPattern() != "*.trade" {
+		t.Errorf("routing rule pattern = %q, want %q", tc.GetRoutingRules()[0].GetPattern(), "*.trade")
 	}
-	if tc.RoutingRules[0].TopicSuffix != "trade" {
-		t.Errorf("routing rule topic suffix = %q, want %q", tc.RoutingRules[0].TopicSuffix, "trade")
+	if tc.GetRoutingRules()[0].GetTopicSuffix() != "trade" {
+		t.Errorf("routing rule topic suffix = %q, want %q", tc.GetRoutingRules()[0].GetTopicSuffix(), "trade")
 	}
 }
 
-func TestWatchTopics_Snapshot(t *testing.T) {
+func TestWatchTopics_Snapshot(t *testing.T) { //nolint:paralleltest // uses shared gRPC test server
 	env := setupTestEnv(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -428,23 +426,23 @@ func TestWatchTopics_Snapshot(t *testing.T) {
 		t.Fatalf("Recv() error = %v", err)
 	}
 
-	if !resp.IsSnapshot {
+	if !resp.GetIsSnapshot() {
 		t.Error("first message should be a snapshot")
 	}
 
 	// Default consumer type is shared, so topics should be in SharedTopics
-	if len(resp.SharedTopics) != 1 {
-		t.Fatalf("expected 1 shared topic, got %d", len(resp.SharedTopics))
+	if len(resp.GetSharedTopics()) != 1 {
+		t.Fatalf("expected 1 shared topic, got %d", len(resp.GetSharedTopics()))
 	}
 
 	// Topic name should follow the pattern: namespace.tenantID.category
 	expectedTopic := "test.test-tenant.trade"
-	if resp.SharedTopics[0] != expectedTopic {
-		t.Errorf("shared topic = %q, want %q", resp.SharedTopics[0], expectedTopic)
+	if resp.GetSharedTopics()[0] != expectedTopic {
+		t.Errorf("shared topic = %q, want %q", resp.GetSharedTopics()[0], expectedTopic)
 	}
 }
 
-func TestStream_ContextCancellation(t *testing.T) {
+func TestStream_ContextCancellation(t *testing.T) { //nolint:paralleltest // uses shared gRPC test server
 	env := setupTestEnv(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

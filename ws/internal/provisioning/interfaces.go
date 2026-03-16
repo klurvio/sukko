@@ -5,7 +5,7 @@ package provisioning
 import (
 	"context"
 
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // TenantStore handles tenant persistence operations.
@@ -61,17 +61,17 @@ type KeyStore interface {
 // Rules are stored as a JSONB array of {pattern, topic_suffix} objects.
 type RoutingRulesStore interface {
 	// Get retrieves routing rules for a tenant.
-	// Returns types.ErrRoutingRulesNotFound if not found.
-	Get(ctx context.Context, tenantID string) ([]types.TopicRoutingRule, error)
+	// Returns ErrRoutingRulesNotFound if not found.
+	Get(ctx context.Context, tenantID string) ([]TopicRoutingRule, error)
 
 	// Set creates or updates routing rules for a tenant (upsert).
-	Set(ctx context.Context, tenantID string, rules []types.TopicRoutingRule) error
+	Set(ctx context.Context, tenantID string, rules []TopicRoutingRule) error
 
 	// Delete deletes routing rules for a tenant.
 	Delete(ctx context.Context, tenantID string) error
 
 	// ListAll returns routing rules for all tenants.
-	ListAll(ctx context.Context) (map[string][]types.TopicRoutingRule, error)
+	ListAll(ctx context.Context) (map[string][]TopicRoutingRule, error)
 }
 
 // QuotaStore handles tenant quota operations.

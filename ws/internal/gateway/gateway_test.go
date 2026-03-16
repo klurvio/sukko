@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,37 +11,54 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/httputil"
-	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 )
 
 // newTestGatewayConfig returns a gateway config with auth disabled for testing.
 // Auth requires a database connection, so most unit tests run with auth disabled.
 func newTestGatewayConfig() *platform.GatewayConfig {
 	return &platform.GatewayConfig{
-		Port:                    3000,
-		ReadTimeout:             15 * time.Second,
-		WriteTimeout:            15 * time.Second,
-		IdleTimeout:             60 * time.Second,
-		BackendURL:              "ws://localhost:3001/ws",
-		DialTimeout:             10 * time.Second,
-		MessageTimeout:          60 * time.Second,
-		AuthEnabled:             false,  // Disabled by default for unit tests
-		DefaultTenantID:         "sukko", // Required when auth disabled
-		PublicPatterns:          []string{"*.trade"},
-		UserScopedPatterns:      []string{"balances.{principal}"},
-		GroupScopedPatterns:     []string{"community.{group_id}"},
-		RateLimitEnabled:        true,
-		RateLimitBurst:          100,
-		RateLimitRate:           10.0,
-		LogLevel:                "info",
-		LogFormat:               "json",
-		Environment:             "test",
-		RequireTenantID:       true,
-		ProvisioningGRPCAddr:  "localhost:9090",
-		GRPCReconnectDelay:    1 * time.Second,
-		GRPCReconnectMaxDelay: 30 * time.Second,
+		BaseConfig: platform.BaseConfig{
+			LogLevel:    "info",
+			LogFormat:   "json",
+			Environment: "test",
+		},
+		Port:                         3000,
+		ReadTimeout:                  15 * time.Second,
+		WriteTimeout:                 15 * time.Second,
+		IdleTimeout:                  60 * time.Second,
+		BackendURL:                   "ws://localhost:3001/ws",
+		DialTimeout:                  10 * time.Second,
+		MessageTimeout:               60 * time.Second,
+		AuthEnabled:                  false,  // Disabled by default for unit tests
+		DefaultTenantID:              "odin", // Required when auth disabled
+		PublicPatterns:               []string{"*.trade"},
+		UserScopedPatterns:           []string{"balances.{principal}"},
+		GroupScopedPatterns:          []string{"community.{group_id}"},
+		RateLimitEnabled:             true,
+		RateLimitBurst:               100,
+		RateLimitRate:                10.0,
+		PublishRateLimit:             10.0,
+		PublishBurst:                 100,
+		MaxPublishSize:               65536,
+		MaxFrameSize:                 1048576,
+		TenantConnectionLimitEnabled: true,
+		DefaultTenantConnectionLimit: 1000,
+		AuthRefreshRateInterval:      30 * time.Second,
+		AuthValidationTimeout:        5 * time.Second,
+		ShutdownTimeout:              30 * time.Second,
+		IssuerCacheTTL:               5 * time.Minute,
+		ChannelRulesCacheTTL:         1 * time.Minute,
+		RegistryQueryTimeout:         5 * time.Second,
+		OIDCKeyfuncCacheTTL:          1 * time.Hour,
+		JWKSFetchTimeout:             10 * time.Second,
+		JWKSRefreshInterval:          1 * time.Hour,
+		RequireTenantID:              true,
+		ProvisioningGRPCAddr:         "localhost:9090",
+		GRPCReconnectDelay:           1 * time.Second,
+		GRPCReconnectMaxDelay:        30 * time.Second,
 	}
 }
 
@@ -167,7 +185,7 @@ func TestExtractBearerToken(t *testing.T) {
 				url += "?token=" + tt.queryToken
 			}
 
-			req := httptest.NewRequest(http.MethodGet, url, nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 			if tt.authHeader != "" {
 				req.Header.Set("Authorization", tt.authHeader)
 			}
@@ -191,7 +209,7 @@ func TestGateway_HandleHealth(t *testing.T) {
 	}
 	defer func() { _ = gw.Close() }()
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 
 	gw.HandleHealth(w, req)
@@ -290,7 +308,7 @@ func TestGateway_HandleWebSocket_NoToken_WithMockValidator(t *testing.T) {
 
 	gw := newGatewayWithMockValidator(cfg, logger, validator)
 
-	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws", nil)
 	w := httptest.NewRecorder()
 
 	gw.HandleWebSocket(w, req)
@@ -323,7 +341,7 @@ func TestGateway_HandleWebSocket_InvalidToken_WithMockValidator(t *testing.T) {
 
 	gw := newGatewayWithMockValidator(cfg, logger, validator)
 
-	req := httptest.NewRequest(http.MethodGet, "/ws?token=invalid-token", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws?token=invalid-token", nil)
 	w := httptest.NewRecorder()
 
 	gw.HandleWebSocket(w, req)

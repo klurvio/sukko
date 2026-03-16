@@ -9,17 +9,20 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
-	"github.com/klurvio/sukko/internal/provisioning"
-	"github.com/klurvio/sukko/internal/provisioning/eventbus"
-	"github.com/klurvio/sukko/internal/shared/kafka"
-	"github.com/klurvio/sukko/internal/shared/types"
+	provisioningv1 "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning/eventbus"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
-// maxTenantsFetchLimit is the upper bound for listing all tenants in bulk
-// operations (snapshot/delta loading). This prevents unbounded queries while
-// being high enough to cover all tenants in practice.
-const maxTenantsFetchLimit = 10000
+// ServerConfig holds configuration for the gRPC stream server.
+type ServerConfig struct {
+	// MaxTenantsFetchLimit is the upper bound for listing all tenants in bulk
+	// operations (snapshot/delta loading). This prevents unbounded queries while
+	// being high enough to cover all tenants in practice.
+	MaxTenantsFetchLimit int
+}
 
 // Server implements the ProvisioningInternalServiceServer gRPC interface.
 // It streams provisioning data (keys, tenant config, topics) to gateway and ws-server
@@ -27,17 +30,19 @@ const maxTenantsFetchLimit = 10000
 type Server struct {
 	provisioningv1.UnimplementedProvisioningInternalServiceServer
 
-	service  *provisioning.Service
-	eventBus *eventbus.Bus
-	logger   zerolog.Logger
+	service              *provisioning.Service
+	eventBus             *eventbus.Bus
+	logger               zerolog.Logger
+	maxTenantsFetchLimit int
 }
 
 // NewServer creates a new gRPC stream server.
-func NewServer(service *provisioning.Service, eventBus *eventbus.Bus, logger zerolog.Logger) *Server {
+func NewServer(service *provisioning.Service, eventBus *eventbus.Bus, logger zerolog.Logger, cfg ServerConfig) *Server {
 	return &Server{
-		service:  service,
-		eventBus: eventBus,
-		logger:   logger.With().Str("component", "grpc_server").Logger(),
+		service:              service,
+		eventBus:             eventBus,
+		logger:               logger.With().Str("component", "grpc_server").Logger(),
+		maxTenantsFetchLimit: cfg.MaxTenantsFetchLimit,
 	}
 }
 
@@ -178,8 +183,8 @@ func (s *Server) WatchTopics(req *provisioningv1.WatchTopicsRequest, stream grpc
 	}
 
 	logger.Info().
-		Int("shared_topics", len(topicsResp.SharedTopics)).
-		Int("dedicated_tenants", len(topicsResp.DedicatedTenants)).
+		Int("shared_topics", len(topicsResp.GetSharedTopics())).
+		Int("dedicated_tenants", len(topicsResp.GetDedicatedTenants())).
 		Msg("sent topics snapshot")
 
 	// Subscribe to event bus for changes
@@ -212,8 +217,8 @@ func (s *Server) WatchTopics(req *provisioningv1.WatchTopicsRequest, stream grpc
 			}
 
 			logger.Debug().
-				Int("shared_topics", len(updatedTopics.SharedTopics)).
-				Int("dedicated_tenants", len(updatedTopics.DedicatedTenants)).
+				Int("shared_topics", len(updatedTopics.GetSharedTopics())).
+				Int("dedicated_tenants", len(updatedTopics.GetDedicatedTenants())).
 				Msg("sent topics delta")
 		}
 	}
@@ -221,7 +226,7 @@ func (s *Server) WatchTopics(req *provisioningv1.WatchTopicsRequest, stream grpc
 
 // loadTenantConfigs loads all tenant OIDC configs, channel rules, and routing rules.
 func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.TenantConfig, error) {
-	tenants, _, err := s.service.ListTenants(ctx, provisioning.ListOptions{Limit: maxTenantsFetchLimit})
+	tenants, _, err := s.service.ListTenants(ctx, provisioning.ListOptions{Limit: s.maxTenantsFetchLimit})
 	if err != nil {
 		return nil, fmt.Errorf("list tenants: %w", err)
 	}
@@ -268,7 +273,7 @@ func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.Tenan
 
 // loadTopicsUpdate builds a WatchTopicsResponse from service data.
 func (s *Server) loadTopicsUpdate(ctx context.Context, namespace string) (*provisioningv1.WatchTopicsResponse, error) {
-	tenants, _, err := s.service.ListTenants(ctx, provisioning.ListOptions{Limit: maxTenantsFetchLimit})
+	tenants, _, err := s.service.ListTenants(ctx, provisioning.ListOptions{Limit: s.maxTenantsFetchLimit})
 	if err != nil {
 		return nil, fmt.Errorf("list tenants: %w", err)
 	}
@@ -289,7 +294,7 @@ func (s *Server) loadTopicsUpdate(ctx context.Context, namespace string) (*provi
 		}
 
 		var topics []string
-		for _, suffix := range types.UniqueTopicSuffixes(rules) {
+		for _, suffix := range provisioning.UniqueTopicSuffixes(rules) {
 			topic := kafka.BuildTopicName(namespace, tenant.ID, suffix)
 			topics = append(topics, topic)
 		}
@@ -336,8 +341,8 @@ func convertKeys(keys []*provisioning.TenantKey) []*provisioningv1.KeyInfo {
 	return result
 }
 
-// convertRoutingRules converts types.TopicRoutingRule to proto TopicRoutingRule.
-func convertRoutingRules(rules []types.TopicRoutingRule) []*provisioningv1.TopicRoutingRule {
+// convertRoutingRules converts provisioning.TopicRoutingRule to proto TopicRoutingRule.
+func convertRoutingRules(rules []provisioning.TopicRoutingRule) []*provisioningv1.TopicRoutingRule {
 	result := make([]*provisioningv1.TopicRoutingRule, 0, len(rules))
 	for _, r := range rules {
 		result = append(result, &provisioningv1.TopicRoutingRule{

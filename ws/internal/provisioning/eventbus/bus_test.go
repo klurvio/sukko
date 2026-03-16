@@ -108,12 +108,13 @@ func TestBus_NonBlockingFanOut_SlowSubscriber(t *testing.T) {
 
 	// Fast subscriber should still receive events (first subscriberBufferSize)
 	received := 0
+drain:
 	for range subscriberBufferSize {
 		select {
 		case <-fastCh:
 			received++
 		case <-time.After(time.Second):
-			break
+			break drain
 		}
 	}
 
@@ -190,9 +191,7 @@ func TestBus_ConcurrentPublishSubscribe(t *testing.T) {
 
 	// Concurrent subscribers
 	for range numGoroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			id, ch := bus.Subscribe()
 			defer bus.Unsubscribe(id)
 
@@ -204,18 +203,16 @@ func TestBus_ConcurrentPublishSubscribe(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	// Concurrent publishers
 	for range numGoroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range eventsPerGoroutine {
 				bus.Publish(Event{Type: KeysChanged})
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

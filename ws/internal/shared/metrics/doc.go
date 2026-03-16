@@ -1,4 +1,4 @@
-// Package metrics provides shared monitoring utilities for Sukko WebSocket services.
+// Package metrics provides shared monitoring utilities for Odin WebSocket services.
 //
 // This package standardizes histogram bucket definitions, label value constants,
 // and callback interfaces used across server, gateway, and provisioning services.
@@ -27,7 +27,6 @@
 //   - CacheMetrics: Cache hit/miss/refresh tracking
 //   - AccessDenialMetrics: Permission denial recording
 //   - PoolMetrics: Multi-tenant pool metrics
-//   - DisconnectMetrics: Disconnect event recording
 //
 // Each interface has a corresponding Noop* implementation for optional metrics.
 //
@@ -35,7 +34,7 @@
 //
 // Import with an alias to avoid conflicts with service-specific metrics:
 //
-//	import pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
+//	import pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 //
 //	var latency = prometheus.NewHistogram(prometheus.HistogramOpts{
 //	    Name:    "my_latency_seconds",

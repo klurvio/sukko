@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Metrics Collection Script for Sukko WebSocket Servers
+# Metrics Collection Script for Odin WebSocket Servers
 # Collects metrics from both Node.js and Go servers
 
 set -e
@@ -10,7 +10,7 @@ GO_PORT=${GO_PORT:-3002}
 METRICS_DIR=${METRICS_DIR:-metrics}
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-echo "📊 Sukko WebSocket Metrics Collection"
+echo "📊 Odin WebSocket Metrics Collection"
 echo "===================================="
 echo "Timestamp: $(date)"
 echo "Node.js Port: $NODE_PORT"
@@ -74,7 +74,7 @@ echo ""
 # Generate summary
 echo "📋 Generating collection summary..."
 cat > "$METRICS_DIR/collection_summary_$TIMESTAMP.txt" << EOF
-Sukko WebSocket Metrics Collection Summary
+Odin WebSocket Metrics Collection Summary
 =========================================
 Collection Time: $(date)
 Timestamp: $TIMESTAMP

@@ -1,6 +1,9 @@
-// Gateway-only auth refresh protocol constants and types.
-// These are used exclusively by the ws-gateway for mid-connection JWT refresh
-// and MUST NOT be imported by the server.
+// Package gateway implements the WebSocket reverse proxy with JWT auth,
+// tenant isolation, rate limiting, and connection tracking.
+//
+// Auth refresh protocol constants and types in this file are used exclusively
+// by the ws-gateway for mid-connection JWT refresh and MUST NOT be imported
+// by the server.
 package gateway
 
 // Auth message type constants.

@@ -91,17 +91,17 @@ func TestStats_RecordChannelMessage(t *testing.T) {
 
 	stats := NewStats()
 
-	stats.RecordChannelMessage("sukko.BTC.trade")
-	stats.RecordChannelMessage("sukko.BTC.trade")
-	stats.RecordChannelMessage("sukko.ETH.trade")
+	stats.RecordChannelMessage("odin.BTC.trade")
+	stats.RecordChannelMessage("odin.BTC.trade")
+	stats.RecordChannelMessage("odin.ETH.trade")
 
 	counts := stats.GetChannelCounts()
 
-	if counts["sukko.BTC.trade"] != 2 {
-		t.Errorf("sukko.BTC.trade count = %d, want 2", counts["sukko.BTC.trade"])
+	if counts["odin.BTC.trade"] != 2 {
+		t.Errorf("odin.BTC.trade count = %d, want 2", counts["odin.BTC.trade"])
 	}
-	if counts["sukko.ETH.trade"] != 1 {
-		t.Errorf("sukko.ETH.trade count = %d, want 1", counts["sukko.ETH.trade"])
+	if counts["odin.ETH.trade"] != 1 {
+		t.Errorf("odin.ETH.trade count = %d, want 1", counts["odin.ETH.trade"])
 	}
 
 	// Total messages should be 3
@@ -148,7 +148,7 @@ func TestStats_ConcurrentAccess(t *testing.T) {
 			stats.TotalCreated.Add(1)
 			stats.MessagesReceived.Add(1)
 			stats.RecordError("test_error")
-			stats.RecordChannelMessage("sukko.BTC.trade")
+			stats.RecordChannelMessage("odin.BTC.trade")
 			done <- struct{}{}
 		}()
 	}

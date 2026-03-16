@@ -25,6 +25,7 @@ func simulateEWMA(sm *SystemMonitor, samples []float64) []float64 {
 }
 
 func TestComputeEWMA(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		beta    float64
@@ -135,6 +136,7 @@ func TestComputeEWMA(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			sm := newTestMonitor(tt.beta)
 			results := simulateEWMA(sm, tt.samples)
 			tt.check(t, results)
@@ -142,38 +144,8 @@ func TestComputeEWMA(t *testing.T) {
 	}
 }
 
-func TestSetEWMABeta(t *testing.T) {
-	tests := []struct {
-		name         string
-		initialBeta  float64
-		newBeta      float64
-		expectedBeta float64 // what beta should be after the call
-	}{
-		{"valid update", DefaultEWMABeta, 0.95, 0.95},
-		{"valid low beta", DefaultEWMABeta, 0.1, 0.1},
-		{"reject zero", DefaultEWMABeta, 0.0, DefaultEWMABeta},
-		{"reject one", DefaultEWMABeta, 1.0, DefaultEWMABeta},
-		{"reject negative", DefaultEWMABeta, -0.5, DefaultEWMABeta},
-		{"reject greater than one", DefaultEWMABeta, 1.5, DefaultEWMABeta},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sm := newTestMonitor(tt.initialBeta)
-			sm.SetEWMABeta(tt.newBeta)
-
-			sm.mu.RLock()
-			got := sm.ewmaBeta
-			sm.mu.RUnlock()
-
-			if got != tt.expectedBeta {
-				t.Errorf("SetEWMABeta(%.2f): got %.2f, want %.2f", tt.newBeta, got, tt.expectedBeta)
-			}
-		})
-	}
-}
-
 func TestGetSmoothedCPUPercent(t *testing.T) {
+	t.Parallel()
 	sm := newTestMonitor(0.8)
 	sm.metrics.CPUSmoothed = 42.5
 

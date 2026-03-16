@@ -5,16 +5,25 @@ import (
 	"testing"
 )
 
+func mustNewTopicIsolator(t *testing.T, config TopicIsolationConfig) *TopicIsolator {
+	t.Helper()
+	iso, err := NewTopicIsolator(config)
+	if err != nil {
+		t.Fatalf("NewTopicIsolator() unexpected error: %v", err)
+	}
+	return iso
+}
+
 func TestNewTopicIsolator(t *testing.T) {
 	t.Parallel()
 	t.Run("with default config", func(t *testing.T) {
 		t.Parallel()
-		iso := NewTopicIsolator(DefaultTopicIsolationConfig())
+		iso := mustNewTopicIsolator(t, DefaultTopicIsolationConfig())
 		if iso == nil {
 			t.Fatal("expected non-nil isolator")
 		}
-		if iso.config.Environment != "prod" {
-			t.Errorf("expected environment 'prod', got %q", iso.config.Environment)
+		if iso.config.Environment != "local" {
+			t.Errorf("expected environment 'local', got %q", iso.config.Environment)
 		}
 		if iso.config.Separator != "." {
 			t.Errorf("expected separator '.', got %q", iso.config.Separator)
@@ -23,24 +32,24 @@ func TestNewTopicIsolator(t *testing.T) {
 
 	t.Run("with empty separator defaults to dot", func(t *testing.T) {
 		t.Parallel()
-		iso := NewTopicIsolator(TopicIsolationConfig{Separator: ""})
+		iso := mustNewTopicIsolator(t, TopicIsolationConfig{Environment: "local", Separator: ""})
 		if iso.config.Separator != "." {
 			t.Errorf("expected separator '.', got %q", iso.config.Separator)
 		}
 	})
 
-	t.Run("with empty environment defaults to prod", func(t *testing.T) {
+	t.Run("with empty environment returns error", func(t *testing.T) {
 		t.Parallel()
-		iso := NewTopicIsolator(TopicIsolationConfig{Environment: ""})
-		if iso.config.Environment != "prod" {
-			t.Errorf("expected environment 'prod', got %q", iso.config.Environment)
+		_, err := NewTopicIsolator(TopicIsolationConfig{Environment: ""})
+		if err == nil {
+			t.Fatal("expected error for empty environment")
 		}
 	})
 }
 
 func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
 	t.Parallel()
-	iso := NewTopicIsolator(TopicIsolationConfig{
+	iso := mustNewTopicIsolator(t, TopicIsolationConfig{
 		Environment:         "prod",
 		TenantPosition:      1,
 		Separator:           ".",
@@ -141,7 +150,7 @@ func TestTopicIsolator_CheckTopicAccess(t *testing.T) {
 
 func TestTopicIsolator_CheckTopicAccess_Flags(t *testing.T) {
 	t.Parallel()
-	iso := NewTopicIsolator(TopicIsolationConfig{
+	iso := mustNewTopicIsolator(t, TopicIsolationConfig{
 		Environment:         "prod",
 		TenantPosition:      1,
 		Separator:           ".",
@@ -161,7 +170,7 @@ func TestTopicIsolator_CheckTopicAccess_Flags(t *testing.T) {
 
 func TestTopicIsolator_ExtractTenantFromTopic(t *testing.T) {
 	t.Parallel()
-	iso := NewTopicIsolator(DefaultTopicIsolationConfig())
+	iso := mustNewTopicIsolator(t, DefaultTopicIsolationConfig())
 
 	tests := []struct {
 		topic    string
@@ -189,7 +198,7 @@ func TestTopicIsolator_ExtractTenantFromTopic(t *testing.T) {
 
 func TestTopicIsolator_BuildTopicName(t *testing.T) {
 	t.Parallel()
-	iso := NewTopicIsolator(TopicIsolationConfig{
+	iso := mustNewTopicIsolator(t, TopicIsolationConfig{
 		Environment:    "prod",
 		TenantPosition: 1,
 		Separator:      ".",
@@ -219,7 +228,7 @@ func TestTopicIsolator_BuildTopicName(t *testing.T) {
 
 func TestTopicIsolator_BuildTopicNameWithEnv(t *testing.T) {
 	t.Parallel()
-	iso := NewTopicIsolator(DefaultTopicIsolationConfig())
+	iso := mustNewTopicIsolator(t, DefaultTopicIsolationConfig())
 
 	result := iso.BuildTopicNameWithEnv("dev", "acme", "trade")
 	expected := "dev.acme.trade"
@@ -231,7 +240,7 @@ func TestTopicIsolator_BuildTopicNameWithEnv(t *testing.T) {
 
 func TestTopicIsolator_ParseTopic(t *testing.T) {
 	t.Parallel()
-	iso := NewTopicIsolator(DefaultTopicIsolationConfig())
+	iso := mustNewTopicIsolator(t, DefaultTopicIsolationConfig())
 
 	tests := []struct {
 		topic     string
@@ -274,7 +283,7 @@ func TestTopicIsolator_ParseTopic(t *testing.T) {
 
 func TestTopicIsolator_ValidateTopicFormat(t *testing.T) {
 	t.Parallel()
-	iso := NewTopicIsolator(DefaultTopicIsolationConfig())
+	iso := mustNewTopicIsolator(t, DefaultTopicIsolationConfig())
 
 	tests := []struct {
 		topic         string
@@ -315,7 +324,7 @@ func TestTopicIsolator_ValidateTopicFormat(t *testing.T) {
 
 func TestTopicIsolator_CanPublish_CanConsume(t *testing.T) {
 	t.Parallel()
-	iso := NewTopicIsolator(DefaultTopicIsolationConfig())
+	iso := mustNewTopicIsolator(t, DefaultTopicIsolationConfig())
 
 	claims := &Claims{TenantID: "acme"}
 
@@ -338,7 +347,7 @@ func TestTopicIsolator_CanPublish_CanConsume(t *testing.T) {
 
 func TestTopicIsolator_BuildTopicPrefix(t *testing.T) {
 	t.Parallel()
-	iso := NewTopicIsolator(TopicIsolationConfig{
+	iso := mustNewTopicIsolator(t, TopicIsolationConfig{
 		Environment: "prod",
 		Separator:   ".",
 	})
@@ -353,7 +362,7 @@ func TestTopicIsolator_BuildTopicPrefix(t *testing.T) {
 
 func TestTopicIsolator_ListAllowedTopicPatterns(t *testing.T) {
 	t.Parallel()
-	iso := NewTopicIsolator(TopicIsolationConfig{
+	iso := mustNewTopicIsolator(t, TopicIsolationConfig{
 		Environment:         "prod",
 		Separator:           ".",
 		SharedTopicPatterns: []string{"prod.shared.*"},
@@ -419,8 +428,8 @@ func TestDefaultTopicIsolationConfig(t *testing.T) {
 	t.Parallel()
 	config := DefaultTopicIsolationConfig()
 
-	if config.Environment != "prod" {
-		t.Errorf("expected environment 'prod', got %q", config.Environment)
+	if config.Environment != "local" {
+		t.Errorf("expected environment 'local', got %q", config.Environment)
 	}
 	if config.TenantPosition != 1 {
 		t.Errorf("expected tenant position 1, got %d", config.TenantPosition)
@@ -443,7 +452,7 @@ func TestDefaultTopicIsolationConfig(t *testing.T) {
 
 func TestTopicIsolator_FailSecure(t *testing.T) {
 	t.Parallel()
-	iso := NewTopicIsolator(TopicIsolationConfig{
+	iso := mustNewTopicIsolator(t, TopicIsolationConfig{
 		Environment:         "prod",
 		TenantPosition:      1,
 		Separator:           ".",

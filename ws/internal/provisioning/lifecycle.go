@@ -2,22 +2,24 @@ package provisioning
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/shared/kafka"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 )
 
 // LifecycleManager handles background tenant lifecycle operations.
 // It periodically processes tenants that are past their deprovisioning deadline.
 type LifecycleManager struct {
-	service  *Service
-	interval time.Duration
-	logger   zerolog.Logger
+	service         *Service
+	interval        time.Duration
+	deletionTimeout time.Duration
+	logger          zerolog.Logger
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -25,30 +27,37 @@ type LifecycleManager struct {
 
 // LifecycleManagerConfig configures the lifecycle manager.
 type LifecycleManagerConfig struct {
-	Service  *Service
-	Interval time.Duration // How often to check for tenants to delete
-	Logger   zerolog.Logger
+	Service         *Service
+	Interval        time.Duration // How often to check for tenants to delete
+	DeletionTimeout time.Duration // Timeout for each deletion processing cycle
+	Logger          zerolog.Logger
 }
 
 // NewLifecycleManager creates a new lifecycle manager.
-func NewLifecycleManager(cfg LifecycleManagerConfig) *LifecycleManager {
-	interval := cfg.Interval
-	if interval == 0 {
-		interval = 1 * time.Hour // Default: check every hour
+// Returns an error if Service is nil or durations are non-positive.
+func NewLifecycleManager(cfg LifecycleManagerConfig) (*LifecycleManager, error) {
+	if cfg.Service == nil {
+		return nil, errors.New("lifecycle manager: service is required")
+	}
+	if cfg.Interval <= 0 {
+		return nil, errors.New("lifecycle manager: interval must be positive")
+	}
+	if cfg.DeletionTimeout <= 0 {
+		return nil, errors.New("lifecycle manager: deletion timeout must be positive")
 	}
 
 	return &LifecycleManager{
-		service:  cfg.Service,
-		interval: interval,
-		logger:   cfg.Logger.With().Str("component", "lifecycle_manager").Logger(),
-		stopCh:   make(chan struct{}),
-	}
+		service:         cfg.Service,
+		interval:        cfg.Interval,
+		deletionTimeout: cfg.DeletionTimeout,
+		logger:          cfg.Logger.With().Str("component", "lifecycle_manager").Logger(),
+		stopCh:          make(chan struct{}),
+	}, nil
 }
 
 // Start begins the background lifecycle processing.
 func (lm *LifecycleManager) Start() {
-	lm.wg.Add(1)
-	go lm.run()
+	lm.wg.Go(lm.run)
 	lm.logger.Info().
 		Dur("interval", lm.interval).
 		Msg("Lifecycle manager started")
@@ -64,7 +73,6 @@ func (lm *LifecycleManager) Stop() {
 // run is the main loop that periodically processes tenant deletions.
 func (lm *LifecycleManager) run() {
 	defer logging.RecoverPanic(lm.logger, "lifecycle_manager", nil)
-	defer lm.wg.Done()
 
 	// Run immediately on start, then on interval
 	lm.processDeletions()
@@ -84,7 +92,7 @@ func (lm *LifecycleManager) run() {
 
 // processDeletions finds and deletes tenants past their deprovisioning deadline.
 func (lm *LifecycleManager) processDeletions() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), lm.deletionTimeout)
 	defer cancel()
 
 	// Get tenants ready for deletion
@@ -132,7 +140,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 				Str("tenant_id", tenantID).
 				Msg("Failed to get routing rules for topic deletion, continuing anyway")
 		} else {
-			for _, suffix := range types.UniqueTopicSuffixes(rules) {
+			for _, suffix := range UniqueTopicSuffixes(rules) {
 				topicName := kafka.BuildTopicName(lm.service.config.TopicNamespace, tenantID, suffix)
 
 				if err := lm.service.kafka.DeleteTopic(ctx, topicName); err != nil {
@@ -204,7 +212,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 
 	// 4. Update tenant status to deleted
 	if err := lm.service.tenants.UpdateStatus(ctx, tenantID, StatusDeleted); err != nil {
-		return err
+		return fmt.Errorf("update tenant status to deleted: %w", err)
 	}
 
 	return nil

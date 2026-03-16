@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/klurvio/sukko/internal/provisioning"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 	"github.com/rs/zerolog"
 )
 
@@ -27,11 +27,11 @@ func TestOpenDatabase_SQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDatabase() error = %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Verify WAL mode
 	var journalMode string
-	if err := db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
+	if err := db.QueryRowContext(context.Background(), "PRAGMA journal_mode").Scan(&journalMode); err != nil {
 		t.Fatalf("query journal_mode: %v", err)
 	}
 	if journalMode != "wal" {
@@ -40,14 +40,14 @@ func TestOpenDatabase_SQLite(t *testing.T) {
 
 	// Verify schema_migrations table exists
 	var tableName string
-	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&tableName)
+	err = db.QueryRowContext(context.Background(), "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&tableName)
 	if err != nil {
 		t.Fatalf("schema_migrations table not found: %v", err)
 	}
 
 	// Verify migrations were applied
 	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
 	if count == 0 {
@@ -108,12 +108,12 @@ func TestOpenDatabase_SQLite_TimestampRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDatabase() error = %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// --- tenants table: non-nullable + nullable timestamps ---
 
 	// Insert a tenant using datetime('now') defaults
-	_, err = db.Exec(`INSERT INTO tenants (id, name, status, consumer_type, metadata) VALUES ('t1', 'Test', 'active', 'shared', '{}')`)
+	_, err = db.ExecContext(context.Background(), `INSERT INTO tenants (id, name, status, consumer_type, metadata) VALUES ('t1', 'Test', 'active', 'shared', '{}')`)
 	if err != nil {
 		t.Fatalf("insert tenant: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestOpenDatabase_SQLite_TimestampRoundTrip(t *testing.T) {
 	// Scan back and verify non-nullable timestamps
 	var createdAt, updatedAt time.Time
 	var suspendedAt sql.NullTime
-	err = db.QueryRow(`SELECT created_at, updated_at, suspended_at FROM tenants WHERE id = 't1'`).
+	err = db.QueryRowContext(context.Background(), `SELECT created_at, updated_at, suspended_at FROM tenants WHERE id = 't1'`).
 		Scan(&createdAt, &updatedAt, &suspendedAt)
 	if err != nil {
 		t.Fatalf("scan tenant timestamps: %v", err)
@@ -138,12 +138,12 @@ func TestOpenDatabase_SQLite_TimestampRoundTrip(t *testing.T) {
 	}
 
 	// Update suspended_at to a non-NULL value and verify it scans
-	_, err = db.Exec(`UPDATE tenants SET suspended_at = datetime('now') WHERE id = 't1'`)
+	_, err = db.ExecContext(context.Background(), `UPDATE tenants SET suspended_at = datetime('now') WHERE id = 't1'`)
 	if err != nil {
 		t.Fatalf("update suspended_at: %v", err)
 	}
 
-	err = db.QueryRow(`SELECT suspended_at FROM tenants WHERE id = 't1'`).Scan(&suspendedAt)
+	err = db.QueryRowContext(context.Background(), `SELECT suspended_at FROM tenants WHERE id = 't1'`).Scan(&suspendedAt)
 	if err != nil {
 		t.Fatalf("scan suspended_at after update: %v", err)
 	}
@@ -157,14 +157,14 @@ func TestOpenDatabase_SQLite_TimestampRoundTrip(t *testing.T) {
 	// --- tenant_keys table: NullTime for expires_at/revoked_at ---
 
 	// Insert a key with NULL nullable timestamps
-	_, err = db.Exec(`INSERT INTO tenant_keys (key_id, tenant_id, algorithm, public_key, is_active) VALUES ('k1', 't1', 'ES256', 'testkey', 1)`)
+	_, err = db.ExecContext(context.Background(), `INSERT INTO tenant_keys (key_id, tenant_id, algorithm, public_key, is_active) VALUES ('k1', 't1', 'ES256', 'testkey', 1)`)
 	if err != nil {
 		t.Fatalf("insert tenant_key: %v", err)
 	}
 
 	var keyCreatedAt time.Time
 	var expiresAt, revokedAt sql.NullTime
-	err = db.QueryRow(`SELECT created_at, expires_at, revoked_at FROM tenant_keys WHERE key_id = 'k1'`).
+	err = db.QueryRowContext(context.Background(), `SELECT created_at, expires_at, revoked_at FROM tenant_keys WHERE key_id = 'k1'`).
 		Scan(&keyCreatedAt, &expiresAt, &revokedAt)
 	if err != nil {
 		t.Fatalf("scan tenant_key timestamps: %v", err)
@@ -196,7 +196,7 @@ func TestOpenDatabase_SQLite_RepositoryWriteOps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDatabase() error = %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 
@@ -318,11 +318,11 @@ func TestOpenDatabase_SQLite_NoAutoMigrate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDatabase() error = %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// schema_migrations should not exist
 	var tableName string
-	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&tableName)
+	err = db.QueryRowContext(context.Background(), "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&tableName)
 	if err == nil {
 		t.Error("schema_migrations should not exist when AutoMigrate=false")
 	}

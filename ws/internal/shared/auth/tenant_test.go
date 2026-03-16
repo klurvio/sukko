@@ -5,11 +5,20 @@ import (
 	"testing"
 )
 
+func mustNewTenantIsolator(t *testing.T, config TenantIsolationConfig, opts ...TenantIsolatorOption) *TenantIsolator {
+	t.Helper()
+	iso, err := NewTenantIsolator(config, opts...)
+	if err != nil {
+		t.Fatalf("NewTenantIsolator() unexpected error: %v", err)
+	}
+	return iso
+}
+
 func TestNewTenantIsolator(t *testing.T) {
 	t.Parallel()
 	t.Run("with default config", func(t *testing.T) {
 		t.Parallel()
-		iso := NewTenantIsolator(DefaultTenantIsolationConfig())
+		iso := mustNewTenantIsolator(t, DefaultTenantIsolationConfig())
 		if iso == nil {
 			t.Fatal("expected non-nil isolator")
 		}
@@ -21,7 +30,7 @@ func TestNewTenantIsolator(t *testing.T) {
 	t.Run("with custom audit logger", func(t *testing.T) {
 		t.Parallel()
 		logger := &testAuditLogger{}
-		iso := NewTenantIsolator(
+		iso := mustNewTenantIsolator(t,
 			DefaultTenantIsolationConfig(),
 			WithAuditLogger(logger),
 		)
@@ -31,9 +40,48 @@ func TestNewTenantIsolator(t *testing.T) {
 	})
 }
 
+func TestNewTenantIsolator_Errors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty environment without custom TopicIsolator returns error", func(t *testing.T) {
+		t.Parallel()
+		_, err := NewTenantIsolator(TenantIsolationConfig{Environment: ""})
+		if err == nil {
+			t.Fatal("expected error for empty environment")
+		}
+	})
+
+	t.Run("with custom TopicIsolator skips environment requirement", func(t *testing.T) {
+		t.Parallel()
+		customIso := mustNewTopicIsolator(t, TopicIsolationConfig{Environment: "prod"})
+		iso, err := NewTenantIsolator(
+			TenantIsolationConfig{},
+			WithTopicIsolator(customIso),
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if iso.topicIsolator != customIso {
+			t.Error("expected custom topic isolator to be used")
+		}
+	})
+
+	t.Run("WithTopicIsolator(nil) still requires environment", func(t *testing.T) {
+		t.Parallel()
+		_, err := NewTenantIsolator(
+			TenantIsolationConfig{},
+			WithTopicIsolator(nil),
+		)
+		if err == nil {
+			t.Fatal("expected error when nil TopicIsolator and no environment")
+		}
+	})
+}
+
 func TestTenantIsolator_CheckChannelAccess(t *testing.T) {
 	t.Parallel()
-	iso := NewTenantIsolator(TenantIsolationConfig{
+	iso := mustNewTenantIsolator(t, TenantIsolationConfig{
+		Environment:           "local",
 		SharedChannelPatterns: []string{"system.*", "broadcast.*"},
 		AuditDenials:          true,
 	})
@@ -128,7 +176,8 @@ func TestTenantIsolator_CheckChannelAccess(t *testing.T) {
 
 func TestTenantIsolator_CheckTopicAccess(t *testing.T) {
 	t.Parallel()
-	iso := NewTenantIsolator(TenantIsolationConfig{
+	iso := mustNewTenantIsolator(t, TenantIsolationConfig{
+		Environment:         "local",
 		SharedTopicPatterns: []string{"prod.shared.*"},
 	})
 
@@ -197,11 +246,11 @@ func TestTenantIsolator_CheckTopicAccess(t *testing.T) {
 
 func TestTenantIsolator_BuildTopicName(t *testing.T) {
 	t.Parallel()
-	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
+	iso := mustNewTenantIsolator(t, DefaultTenantIsolationConfig())
 
 	result := iso.BuildTopicName("acme", "trade")
 
-	expected := "prod.acme.trade"
+	expected := "local.acme.trade"
 	if result != expected {
 		t.Errorf("BuildTopicName() = %q, want %q", result, expected)
 	}
@@ -209,7 +258,7 @@ func TestTenantIsolator_BuildTopicName(t *testing.T) {
 
 func TestTenantIsolator_GetTenantFromTopic(t *testing.T) {
 	t.Parallel()
-	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
+	iso := mustNewTenantIsolator(t, DefaultTenantIsolationConfig())
 
 	result := iso.GetTenantFromTopic("prod.acme.trade")
 
@@ -221,7 +270,7 @@ func TestTenantIsolator_GetTenantFromTopic(t *testing.T) {
 
 func TestTenantIsolator_CanAccessResource(t *testing.T) {
 	t.Parallel()
-	iso := NewTenantIsolator(DefaultTenantIsolationConfig())
+	iso := mustNewTenantIsolator(t, DefaultTenantIsolationConfig())
 
 	claims := &Claims{TenantID: "acme"}
 
@@ -249,8 +298,9 @@ func TestTenantIsolator_AuditLogging(t *testing.T) {
 	t.Parallel()
 	logger := &testAuditLogger{}
 
-	iso := NewTenantIsolator(
+	iso := mustNewTenantIsolator(t,
 		TenantIsolationConfig{
+			Environment:    "local",
 			AuditDenials:   true,
 			AuditAllAccess: true,
 		},
@@ -275,7 +325,8 @@ func TestTenantIsolator_AuditLogging(t *testing.T) {
 
 func TestTenantIsolator_ResultFlags(t *testing.T) {
 	t.Parallel()
-	iso := NewTenantIsolator(TenantIsolationConfig{
+	iso := mustNewTenantIsolator(t, TenantIsolationConfig{
+		Environment:           "local",
 		SharedChannelPatterns: []string{"system.*"},
 	})
 

@@ -6,14 +6,14 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 // LoggerConfig holds logger configuration.
 type LoggerConfig struct {
 	Level       LogLevel  // Minimum log level
 	Format      LogFormat // Output format
-	ServiceName string    // Service name for log identification (e.g., "ws-server", "ws-gateway")
+	ServiceName string    // Service name for log identification (required)
+	Writer      io.Writer // Output destination (nil defaults to os.Stdout)
 }
 
 // NewLogger creates a structured logger configured for Loki integration.
@@ -38,9 +38,25 @@ type LoggerConfig struct {
 //	    Int("connections", 100).
 //	    Msg("Server started")
 func NewLogger(config LoggerConfig) zerolog.Logger {
-	var output io.Writer = os.Stdout
+	if config.ServiceName == "" {
+		panic("LoggerConfig.ServiceName is required")
+	}
 
-	// Set log level
+	// Determine output writer (default: stdout)
+	output := config.Writer
+	if output == nil {
+		output = os.Stdout
+	}
+
+	// Apply pretty format wrapper if requested
+	if config.Format == LogFormatPretty {
+		output = zerolog.ConsoleWriter{
+			Out:        output,
+			TimeFormat: time.RFC3339,
+		}
+	}
+
+	// Map LogLevel to zerolog.Level
 	var level zerolog.Level
 	switch config.Level {
 	case LogLevelDebug:
@@ -56,36 +72,26 @@ func NewLogger(config LoggerConfig) zerolog.Logger {
 	default:
 		level = zerolog.InfoLevel
 	}
-	zerolog.SetGlobalLevel(level)
 
-	// Set format
-	if config.Format == LogFormatPretty {
-		output = zerolog.ConsoleWriter{
-			Out:        os.Stdout,
-			TimeFormat: time.RFC3339,
-		}
-	}
-
-	// Determine service name (default to "ws-server" for backwards compatibility)
-	serviceName := config.ServiceName
-	if serviceName == "" {
-		serviceName = "ws-server"
-	}
-
-	// Create logger with timestamp and caller info
+	// Per-logger level — no global state mutation
 	logger := zerolog.New(output).
+		Level(level).
 		With().
 		Timestamp().
 		Caller().
-		Str("service", serviceName).
+		Str("service", config.ServiceName).
 		Logger()
 
 	return logger
 }
 
-// InitGlobalLogger initializes the global logger.
-// This should be called once at application startup.
-func InitGlobalLogger(config LoggerConfig) {
-	logger := NewLogger(config)
-	log.Logger = logger
+// BootstrapLogger creates a minimal zerolog logger for use before configuration
+// is loaded. Uses info level and JSON format with no config dependency.
+func BootstrapLogger(serviceName string) zerolog.Logger {
+	return zerolog.New(os.Stdout).
+		Level(zerolog.InfoLevel).
+		With().
+		Timestamp().
+		Str("service", serviceName).
+		Logger()
 }

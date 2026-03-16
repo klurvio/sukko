@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
 )
 
 // =============================================================================
@@ -128,7 +128,7 @@ func TestExtractChannel_InvalidSubjects(t *testing.T) {
 		},
 		{
 			name:    "Single part (no dots)",
-			subject: "sukko",
+			subject: "odin",
 		},
 		{
 			name:    "No dots",

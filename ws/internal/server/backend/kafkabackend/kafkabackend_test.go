@@ -10,8 +10,8 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kerr"
 
-	"github.com/klurvio/sukko/internal/server/backend"
-	"github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/kafka"
 )
 
 // Compile-time interface check.

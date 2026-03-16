@@ -22,6 +22,9 @@ func TestErrorCode_Values(t *testing.T) {
 		ErrCodeServiceUnavailable:  "service_unavailable",
 		ErrCodeNoRoutingRules:      "no_routing_rules",
 		ErrCodeNoMatchingRoute:     "no_matching_route",
+		ErrCodeInvalidJSON:         "invalid_json",
+		ErrCodePublishFailed:       "publish_failed",
+		ErrCodeReplayFailed:        "replay_failed",
 	}
 
 	for code, expected := range expectedCodes {
@@ -44,6 +47,9 @@ func TestErrorCode_UniqueValues(t *testing.T) {
 		ErrCodeServiceUnavailable,
 		ErrCodeNoRoutingRules,
 		ErrCodeNoMatchingRoute,
+		ErrCodeInvalidJSON,
+		ErrCodePublishFailed,
+		ErrCodeReplayFailed,
 	}
 
 	seen := make(map[ErrorCode]bool)
@@ -84,7 +90,7 @@ func TestPublishErrorMessages_AllCodesHaveMessages(t *testing.T) {
 		ErrCodeInvalidChannel,
 		ErrCodeMessageTooLarge,
 		ErrCodeRateLimited,
-		"publish_failed",
+		ErrCodePublishFailed,
 		ErrCodeForbidden,
 		ErrCodeTopicNotProvisioned,
 		ErrCodeServiceUnavailable,
@@ -93,20 +99,16 @@ func TestPublishErrorMessages_AllCodesHaveMessages(t *testing.T) {
 	}
 
 	for _, code := range codes {
-		msg, exists := PublishErrorMessages[code]
-		if !exists {
-			t.Errorf("No message for error code %q", code)
-			continue
-		}
+		msg := PublishErrorMessage(code)
 		if msg == "" {
-			t.Errorf("Empty message for error code %q", code)
+			t.Errorf("No message for error code %q", code)
 		}
 	}
 }
 
 func TestPublishErrorMessages_NoEmptyMessages(t *testing.T) {
 	t.Parallel()
-	for code, msg := range PublishErrorMessages {
+	for code, msg := range publishErrorMessages {
 		if msg == "" {
 			t.Errorf("Empty message for error code %q", code)
 		}
@@ -124,7 +126,7 @@ func TestPublishErrorMessages_Specific(t *testing.T) {
 		{ErrCodeInvalidChannel, "Channel must have format: {tenant_id}.{suffix}"},
 		{ErrCodeMessageTooLarge, "Message exceeds maximum size limit"},
 		{ErrCodeRateLimited, "Publish rate limit exceeded"},
-		{"publish_failed", "Failed to publish message"},
+		{ErrCodePublishFailed, "Failed to publish message"},
 		{ErrCodeForbidden, "Not authorized to publish to this channel"},
 		{ErrCodeTopicNotProvisioned, "Category is not provisioned for your tenant"},
 		{ErrCodeServiceUnavailable, "Service temporarily unavailable, please retry"},
@@ -135,9 +137,9 @@ func TestPublishErrorMessages_Specific(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(string(tc.code), func(t *testing.T) {
 			t.Parallel()
-			msg := PublishErrorMessages[tc.code]
+			msg := PublishErrorMessage(tc.code)
 			if msg != tc.message {
-				t.Errorf("PublishErrorMessages[%q] = %q, want %q", tc.code, msg, tc.message)
+				t.Errorf("PublishErrorMessage(%q) = %q, want %q", tc.code, msg, tc.message)
 			}
 		})
 	}
@@ -273,9 +275,9 @@ func TestSentinelErrors_NotEqual(t *testing.T) {
 // Benchmark Tests
 // =============================================================================
 
-func BenchmarkPublishErrorMessages_Lookup(b *testing.B) {
+func BenchmarkPublishErrorMessage_Lookup(b *testing.B) {
 	for b.Loop() {
-		_ = PublishErrorMessages[ErrCodeRateLimited]
+		_ = PublishErrorMessage(ErrCodeRateLimited)
 	}
 }
 

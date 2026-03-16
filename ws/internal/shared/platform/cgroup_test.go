@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -46,7 +47,11 @@ func parseMemoryLimit(v2Data, v1Data string, v2Exists, v1Exists bool) (int64, er
 	if v2Exists && v2Data != "" {
 		limitStr := strings.TrimSpace(v2Data)
 		if limitStr != "max" {
-			return strconv.ParseInt(limitStr, 10, 64)
+			v, err := strconv.ParseInt(limitStr, 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("parse cgroup v2 memory limit: %w", err)
+			}
+			return v, nil
 		}
 		// "max" means unlimited
 		return 0, nil
@@ -55,7 +60,11 @@ func parseMemoryLimit(v2Data, v1Data string, v2Exists, v1Exists bool) (int64, er
 	// Fallback to cgroup v1
 	if v1Exists && v1Data != "" {
 		limitStr := strings.TrimSpace(v1Data)
-		return strconv.ParseInt(limitStr, 10, 64)
+		v, err := strconv.ParseInt(limitStr, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse cgroup v1 memory limit: %w", err)
+		}
+		return v, nil
 	}
 
 	// No cgroup limits found
@@ -181,7 +190,7 @@ func TestParseMemoryLimit_InvalidV1Format(t *testing.T) {
 func readMemoryLimitFromPath(path string, isV2 bool) (int64, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // Test helper, path is from controlled test temp directory
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("read memory limit file: %w", err)
 	}
 
 	limitStr := strings.TrimSpace(string(data))
@@ -190,7 +199,11 @@ func readMemoryLimitFromPath(path string, isV2 bool) (int64, error) {
 		return 0, nil // unlimited
 	}
 
-	return strconv.ParseInt(limitStr, 10, 64)
+	v, parseErr := strconv.ParseInt(limitStr, 10, 64)
+	if parseErr != nil {
+		return 0, fmt.Errorf("parse memory limit value: %w", parseErr)
+	}
+	return v, nil
 }
 
 func TestReadMemoryLimitFromPath_V2_WithLimit(t *testing.T) {

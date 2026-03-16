@@ -6,9 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/klurvio/sukko/internal/server/metrics"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
 )
 
 // mockSystemMonitor allows controlled CPU values for testing
@@ -142,20 +141,22 @@ func TestCPURejectHysteresis(t *testing.T) {
 
 			var connCount atomic.Int64
 			logger := logging.NewLogger(logging.LoggerConfig{
-				Level:  logging.LogLevelError, // Quiet for tests
-				Format: logging.LogFormatJSON,
+				Level:       logging.LogLevelError, // Quiet for tests
+				Format:      logging.LogFormatJSON,
+				ServiceName: "ws-server",
 			})
 
-			config := types.ServerConfig{
-				MaxConnections:          1000, // High limit, won't trigger
-				MemoryLimit:             1024 * 1024 * 1024,
-				MaxGoroutines:           10000,
-				CPURejectThreshold:      tt.upperThreshold,
-				CPURejectThresholdLower: tt.lowerThreshold,
-				CPUPauseThreshold:       90.0, // Won't affect this test
-				CPUPauseThresholdLower:  80.0,
-				MaxKafkaMessagesPerSec:  1000,
-				MaxBroadcastsPerSec:     100,
+			config := ResourceGuardConfig{
+				MaxConnections:           1000, // High limit, won't trigger
+				MemoryLimit:              1024 * 1024 * 1024,
+				MaxGoroutines:            10000,
+				CPURejectThreshold:       tt.upperThreshold,
+				CPURejectThresholdLower:  tt.lowerThreshold,
+				CPUPauseThreshold:        90.0, // Won't affect this test
+				CPUPauseThresholdLower:   80.0,
+				MaxKafkaMessagesPerSec:   1000,
+				MaxBroadcastsPerSec:      100,
+				RateLimitBurstMultiplier: 2,
 			}
 
 			// Use the new constructor with mock monitor
@@ -236,20 +237,22 @@ func TestCPUPauseKafkaHysteresis(t *testing.T) {
 
 			var connCount atomic.Int64
 			logger := logging.NewLogger(logging.LoggerConfig{
-				Level:  logging.LogLevelError, // Quiet for tests
-				Format: logging.LogFormatJSON,
+				Level:       logging.LogLevelError, // Quiet for tests
+				Format:      logging.LogFormatJSON,
+				ServiceName: "ws-server",
 			})
 
-			config := types.ServerConfig{
-				MaxConnections:          1000,
-				MemoryLimit:             1024 * 1024 * 1024,
-				MaxGoroutines:           10000,
-				CPURejectThreshold:      90.0,
-				CPURejectThresholdLower: 80.0,
-				CPUPauseThreshold:       tt.upperThreshold,
-				CPUPauseThresholdLower:  tt.lowerThreshold,
-				MaxKafkaMessagesPerSec:  1000,
-				MaxBroadcastsPerSec:     100,
+			config := ResourceGuardConfig{
+				MaxConnections:           1000,
+				MemoryLimit:              1024 * 1024 * 1024,
+				MaxGoroutines:            10000,
+				CPURejectThreshold:       90.0,
+				CPURejectThresholdLower:  80.0,
+				CPUPauseThreshold:        tt.upperThreshold,
+				CPUPauseThresholdLower:   tt.lowerThreshold,
+				MaxKafkaMessagesPerSec:   1000,
+				MaxBroadcastsPerSec:      100,
+				RateLimitBurstMultiplier: 2,
 			}
 
 			// Use the new constructor with mock monitor
@@ -279,20 +282,22 @@ func TestHysteresisStateVisibility(t *testing.T) {
 	var connCount atomic.Int64
 	connCount.Store(5)
 	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevelInfo,
-		Format: logging.LogFormatJSON,
+		Level:       logging.LogLevelInfo,
+		Format:      logging.LogFormatJSON,
+		ServiceName: "ws-server",
 	})
 
-	config := types.ServerConfig{
-		MaxConnections:          1000,
-		MemoryLimit:             1024 * 1024 * 1024,
-		MaxGoroutines:           10000,
-		CPURejectThreshold:      75.0,
-		CPURejectThresholdLower: 65.0,
-		CPUPauseThreshold:       80.0,
-		CPUPauseThresholdLower:  70.0,
-		MaxKafkaMessagesPerSec:  1000,
-		MaxBroadcastsPerSec:     100,
+	config := ResourceGuardConfig{
+		MaxConnections:           1000,
+		MemoryLimit:              1024 * 1024 * 1024,
+		MaxGoroutines:            10000,
+		CPURejectThreshold:       75.0,
+		CPURejectThresholdLower:  65.0,
+		CPUPauseThreshold:        80.0,
+		CPUPauseThresholdLower:   70.0,
+		MaxKafkaMessagesPerSec:   1000,
+		MaxBroadcastsPerSec:      100,
+		RateLimitBurstMultiplier: 2,
 	}
 
 	rg := NewResourceGuard(config, logger, &connCount)
@@ -340,20 +345,22 @@ func TestHysteresisInitialState(t *testing.T) {
 	// Test that hysteresis starts in accepting/running state (not rejecting/pausing)
 	var connCount atomic.Int64
 	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevelInfo,
-		Format: logging.LogFormatJSON,
+		Level:       logging.LogLevelInfo,
+		Format:      logging.LogFormatJSON,
+		ServiceName: "ws-server",
 	})
 
-	config := types.ServerConfig{
-		MaxConnections:          1000,
-		MemoryLimit:             1024 * 1024 * 1024,
-		MaxGoroutines:           10000,
-		CPURejectThreshold:      75.0,
-		CPURejectThresholdLower: 65.0,
-		CPUPauseThreshold:       80.0,
-		CPUPauseThresholdLower:  70.0,
-		MaxKafkaMessagesPerSec:  1000,
-		MaxBroadcastsPerSec:     100,
+	config := ResourceGuardConfig{
+		MaxConnections:           1000,
+		MemoryLimit:              1024 * 1024 * 1024,
+		MaxGoroutines:            10000,
+		CPURejectThreshold:       75.0,
+		CPURejectThresholdLower:  65.0,
+		CPUPauseThreshold:        80.0,
+		CPUPauseThresholdLower:   70.0,
+		MaxKafkaMessagesPerSec:   1000,
+		MaxBroadcastsPerSec:      100,
+		RateLimitBurstMultiplier: 2,
 	}
 
 	rg := NewResourceGuard(config, logger, &connCount)
@@ -374,20 +381,22 @@ func TestHysteresisConfigInStats(t *testing.T) {
 	// Test that threshold configs are exposed in GetStats()
 	var connCount atomic.Int64
 	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevelInfo,
-		Format: logging.LogFormatJSON,
+		Level:       logging.LogLevelInfo,
+		Format:      logging.LogFormatJSON,
+		ServiceName: "ws-server",
 	})
 
-	config := types.ServerConfig{
-		MaxConnections:          1000,
-		MemoryLimit:             1024 * 1024 * 1024,
-		MaxGoroutines:           10000,
-		CPURejectThreshold:      75.0,
-		CPURejectThresholdLower: 65.0,
-		CPUPauseThreshold:       80.0,
-		CPUPauseThresholdLower:  70.0,
-		MaxKafkaMessagesPerSec:  1000,
-		MaxBroadcastsPerSec:     100,
+	config := ResourceGuardConfig{
+		MaxConnections:           1000,
+		MemoryLimit:              1024 * 1024 * 1024,
+		MaxGoroutines:            10000,
+		CPURejectThreshold:       75.0,
+		CPURejectThresholdLower:  65.0,
+		CPUPauseThreshold:        80.0,
+		CPUPauseThresholdLower:   70.0,
+		MaxKafkaMessagesPerSec:   1000,
+		MaxBroadcastsPerSec:      100,
+		RateLimitBurstMultiplier: 2,
 	}
 
 	rg := NewResourceGuard(config, logger, &connCount)
@@ -421,20 +430,22 @@ func TestSmoothedCPUUsedOverRaw(t *testing.T) {
 
 	var connCount atomic.Int64
 	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevelError,
-		Format: logging.LogFormatJSON,
+		Level:       logging.LogLevelError,
+		Format:      logging.LogFormatJSON,
+		ServiceName: "ws-server",
 	})
 
-	config := types.ServerConfig{
-		MaxConnections:          1000,
-		MemoryLimit:             1024 * 1024 * 1024,
-		MaxGoroutines:           10000,
-		CPURejectThreshold:      75.0,
-		CPURejectThresholdLower: 65.0,
-		CPUPauseThreshold:       80.0,
-		CPUPauseThresholdLower:  70.0,
-		MaxKafkaMessagesPerSec:  1000,
-		MaxBroadcastsPerSec:     100,
+	config := ResourceGuardConfig{
+		MaxConnections:           1000,
+		MemoryLimit:              1024 * 1024 * 1024,
+		MaxGoroutines:            10000,
+		CPURejectThreshold:       75.0,
+		CPURejectThresholdLower:  65.0,
+		CPUPauseThreshold:        80.0,
+		CPUPauseThresholdLower:   70.0,
+		MaxKafkaMessagesPerSec:   1000,
+		MaxBroadcastsPerSec:      100,
+		RateLimitBurstMultiplier: 2,
 	}
 
 	rg := NewResourceGuardWithMonitor(config, logger, &connCount, mock)
@@ -566,20 +577,22 @@ func TestResourceGuard_AllowBroadcast(t *testing.T) {
 	t.Parallel()
 	var connCount atomic.Int64
 	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevelError, // Quiet
-		Format: logging.LogFormatJSON,
+		Level:       logging.LogLevelError, // Quiet
+		Format:      logging.LogFormatJSON,
+		ServiceName: "ws-server",
 	})
 
-	config := types.ServerConfig{
-		MaxConnections:          1000,
-		MemoryLimit:             1024 * 1024 * 1024,
-		MaxGoroutines:           10000,
-		CPURejectThreshold:      90.0,
-		CPURejectThresholdLower: 80.0,
-		CPUPauseThreshold:       95.0,
-		CPUPauseThresholdLower:  85.0,
-		MaxKafkaMessagesPerSec:  1000,
-		MaxBroadcastsPerSec:     10, // Low limit for testing
+	config := ResourceGuardConfig{
+		MaxConnections:           1000,
+		MemoryLimit:              1024 * 1024 * 1024,
+		MaxGoroutines:            10000,
+		CPURejectThreshold:       90.0,
+		CPURejectThresholdLower:  80.0,
+		CPUPauseThreshold:        95.0,
+		CPUPauseThresholdLower:   85.0,
+		MaxKafkaMessagesPerSec:   1000,
+		MaxBroadcastsPerSec:      10, // Low limit for testing
+		RateLimitBurstMultiplier: 2,
 	}
 
 	rg := NewResourceGuard(config, logger, &connCount)
@@ -603,20 +616,22 @@ func TestResourceGuard_AllowKafkaMessage(t *testing.T) {
 	t.Parallel()
 	var connCount atomic.Int64
 	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevelError,
-		Format: logging.LogFormatJSON,
+		Level:       logging.LogLevelError,
+		Format:      logging.LogFormatJSON,
+		ServiceName: "ws-server",
 	})
 
-	config := types.ServerConfig{
-		MaxConnections:          1000,
-		MemoryLimit:             1024 * 1024 * 1024,
-		MaxGoroutines:           10000,
-		CPURejectThreshold:      90.0,
-		CPURejectThresholdLower: 80.0,
-		CPUPauseThreshold:       95.0,
-		CPUPauseThresholdLower:  85.0,
-		MaxKafkaMessagesPerSec:  10, // Low limit for testing
-		MaxBroadcastsPerSec:     100,
+	config := ResourceGuardConfig{
+		MaxConnections:           1000,
+		MemoryLimit:              1024 * 1024 * 1024,
+		MaxGoroutines:            10000,
+		CPURejectThreshold:       90.0,
+		CPURejectThresholdLower:  80.0,
+		CPUPauseThreshold:        95.0,
+		CPUPauseThresholdLower:   85.0,
+		MaxKafkaMessagesPerSec:   10, // Low limit for testing
+		MaxBroadcastsPerSec:      100,
+		RateLimitBurstMultiplier: 2,
 	}
 
 	rg := NewResourceGuard(config, logger, &connCount)
@@ -641,20 +656,22 @@ func TestResourceGuard_AllowKafkaMessage_WaitDuration(t *testing.T) {
 	t.Parallel()
 	var connCount atomic.Int64
 	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevelError,
-		Format: logging.LogFormatJSON,
+		Level:       logging.LogLevelError,
+		Format:      logging.LogFormatJSON,
+		ServiceName: "ws-server",
 	})
 
-	config := types.ServerConfig{
-		MaxConnections:          1000,
-		MemoryLimit:             1024 * 1024 * 1024,
-		MaxGoroutines:           10000,
-		CPURejectThreshold:      90.0,
-		CPURejectThresholdLower: 80.0,
-		CPUPauseThreshold:       95.0,
-		CPUPauseThresholdLower:  85.0,
-		MaxKafkaMessagesPerSec:  10,
-		MaxBroadcastsPerSec:     100,
+	config := ResourceGuardConfig{
+		MaxConnections:           1000,
+		MemoryLimit:              1024 * 1024 * 1024,
+		MaxGoroutines:            10000,
+		CPURejectThreshold:       90.0,
+		CPURejectThresholdLower:  80.0,
+		CPUPauseThreshold:        95.0,
+		CPUPauseThresholdLower:   85.0,
+		MaxKafkaMessagesPerSec:   10,
+		MaxBroadcastsPerSec:      100,
+		RateLimitBurstMultiplier: 2,
 	}
 
 	rg := NewResourceGuard(config, logger, &connCount)
@@ -684,20 +701,22 @@ func TestResourceGuard_ShouldAcceptConnection_MaxConnections(t *testing.T) {
 	var connCount atomic.Int64
 	connCount.Store(100) // At limit
 	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevelError,
-		Format: logging.LogFormatJSON,
+		Level:       logging.LogLevelError,
+		Format:      logging.LogFormatJSON,
+		ServiceName: "ws-server",
 	})
 
-	config := types.ServerConfig{
-		MaxConnections:          100, // Set limit to current count
-		MemoryLimit:             1024 * 1024 * 1024,
-		MaxGoroutines:           10000,
-		CPURejectThreshold:      90.0,
-		CPURejectThresholdLower: 80.0,
-		CPUPauseThreshold:       95.0,
-		CPUPauseThresholdLower:  85.0,
-		MaxKafkaMessagesPerSec:  1000,
-		MaxBroadcastsPerSec:     100,
+	config := ResourceGuardConfig{
+		MaxConnections:           100, // Set limit to current count
+		MemoryLimit:              1024 * 1024 * 1024,
+		MaxGoroutines:            10000,
+		CPURejectThreshold:       90.0,
+		CPURejectThresholdLower:  80.0,
+		CPUPauseThreshold:        95.0,
+		CPUPauseThresholdLower:   85.0,
+		MaxKafkaMessagesPerSec:   1000,
+		MaxBroadcastsPerSec:      100,
+		RateLimitBurstMultiplier: 2,
 	}
 
 	rg := NewResourceGuard(config, logger, &connCount)
@@ -716,20 +735,22 @@ func TestResourceGuard_ShouldAcceptConnection_BelowLimit(t *testing.T) {
 	var connCount atomic.Int64
 	connCount.Store(50) // Below limit
 	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevelError,
-		Format: logging.LogFormatJSON,
+		Level:       logging.LogLevelError,
+		Format:      logging.LogFormatJSON,
+		ServiceName: "ws-server",
 	})
 
-	config := types.ServerConfig{
-		MaxConnections:          100,
-		MemoryLimit:             1024 * 1024 * 1024,
-		MaxGoroutines:           10000,
-		CPURejectThreshold:      99.0, // High to avoid CPU rejection
-		CPURejectThresholdLower: 98.0,
-		CPUPauseThreshold:       99.5,
-		CPUPauseThresholdLower:  99.0,
-		MaxKafkaMessagesPerSec:  1000,
-		MaxBroadcastsPerSec:     100,
+	config := ResourceGuardConfig{
+		MaxConnections:           100,
+		MemoryLimit:              1024 * 1024 * 1024,
+		MaxGoroutines:            10000,
+		CPURejectThreshold:       99.0, // High to avoid CPU rejection
+		CPURejectThresholdLower:  98.0,
+		CPUPauseThreshold:        99.5,
+		CPUPauseThresholdLower:   99.0,
+		MaxKafkaMessagesPerSec:   1000,
+		MaxBroadcastsPerSec:      100,
+		RateLimitBurstMultiplier: 2,
 	}
 
 	rg := NewResourceGuard(config, logger, &connCount)
@@ -749,20 +770,22 @@ func TestResourceGuard_GetStats_AllFields(t *testing.T) {
 	var connCount atomic.Int64
 	connCount.Store(42)
 	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevelError,
-		Format: logging.LogFormatJSON,
+		Level:       logging.LogLevelError,
+		Format:      logging.LogFormatJSON,
+		ServiceName: "ws-server",
 	})
 
-	config := types.ServerConfig{
-		MaxConnections:          1000,
-		MemoryLimit:             512 * 1024 * 1024,
-		MaxGoroutines:           5000,
-		CPURejectThreshold:      75.0,
-		CPURejectThresholdLower: 65.0,
-		CPUPauseThreshold:       80.0,
-		CPUPauseThresholdLower:  70.0,
-		MaxKafkaMessagesPerSec:  1000,
-		MaxBroadcastsPerSec:     100,
+	config := ResourceGuardConfig{
+		MaxConnections:           1000,
+		MemoryLimit:              512 * 1024 * 1024,
+		MaxGoroutines:            5000,
+		CPURejectThreshold:       75.0,
+		CPURejectThresholdLower:  65.0,
+		CPUPauseThreshold:        80.0,
+		CPUPauseThresholdLower:   70.0,
+		MaxKafkaMessagesPerSec:   1000,
+		MaxBroadcastsPerSec:      100,
+		RateLimitBurstMultiplier: 2,
 	}
 
 	rg := NewResourceGuard(config, logger, &connCount)

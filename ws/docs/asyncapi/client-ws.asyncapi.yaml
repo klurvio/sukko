@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 
 info:
-  title: Sukko WebSocket Client API
+  title: Odin WebSocket Client API
   version: 1.0.0
   description: |
     Real-time WebSocket API for subscribing to market data and publishing events.
@@ -24,7 +24,7 @@ info:
 
     - Minimum 3 dot-separated parts
     - The tenant prefix must match the authenticated tenant (JWT `tenant_id`) or the default tenant (when auth is disabled)
-    - Examples: `sukko.BTC.trade`, `sukko.ETH.orderbook`, `acme.balances.user123`
+    - Examples: `odin.BTC.trade`, `odin.ETH.orderbook`, `acme.balances.user123`
 
     ## Connection Lifecycle
 
@@ -65,8 +65,8 @@ info:
 
     | Pattern Type | Config Key | Format | Example | Behavior |
     |--------------|-----------|--------|---------|----------|
-    | Public | `publicPatterns` | Wildcard glob | `*.trade` | Anyone can subscribe (matches `BTC.trade` from `sukko.BTC.trade`) |
-    | User-scoped | `userScopedPatterns` | `{principal}` placeholder | `balances.{principal}` | Only the JWT subject can subscribe (`sukko.balances.user123` requires `sub=user123`) |
+    | Public | `publicPatterns` | Wildcard glob | `*.trade` | Anyone can subscribe (matches `BTC.trade` from `odin.BTC.trade`) |
+    | User-scoped | `userScopedPatterns` | `{principal}` placeholder | `balances.{principal}` | Only the JWT subject can subscribe (`odin.balances.user123` requires `sub=user123`) |
     | Group-scoped | `groupScopedPatterns` | `{group_id}` placeholder | `community.{group_id}` | Only group members can subscribe (matched against JWT `groups` claim) |
 
     Channels not matching any pattern are denied.
@@ -96,7 +96,7 @@ info:
     | Publish validation | Gateway validates tenant + permissions | Server validates Kafka routing |
 
   contact:
-    name: Sukko Platform Team
+    name: Odin Platform Team
   license:
     name: Proprietary
 
@@ -104,7 +104,7 @@ servers:
   gateway:
     host: "{host}:{port}"
     protocol: wss
-    description: Sukko WebSocket Gateway — authenticates connections, validates tenant isolation, and proxies to the internal WebSocket server.
+    description: Odin WebSocket Gateway — authenticates connections, validates tenant isolation, and proxies to the internal WebSocket server.
     security:
       - $ref: "#/components/securitySchemes/bearerToken"
       - $ref: "#/components/securitySchemes/queryToken"
@@ -360,7 +360,7 @@ components:
             type: string
           description: "Channels to subscribe to. Format: {tenant}.{identifier}.{category}"
           examples:
-            - ["sukko.BTC.trade", "sukko.ETH.orderbook"]
+            - ["odin.BTC.trade", "odin.ETH.orderbook"]
 
     UnsubscribeData:
       type: object
@@ -374,7 +374,7 @@ components:
             type: string
           description: "Channels to unsubscribe from. Format: {tenant}.{identifier}.{category}"
           examples:
-            - ["sukko.BTC.trade"]
+            - ["odin.BTC.trade"]
 
     PublishData:
       type: object
@@ -387,7 +387,7 @@ components:
           type: string
           description: "Target channel. Format: {tenant}.{identifier}.{category}"
           examples:
-            - "sukko.BTC.trade"
+            - "odin.BTC.trade"
         data:
           type: object
           description: Arbitrary JSON payload (max 64KB).
@@ -413,7 +413,7 @@ components:
             format: int64
           description: Map of Kafka topic to last received offset.
           examples:
-            - { "local.sukko.trade": 12345 }
+            - { "local.odin.trade": 12345 }
 
     MessageEnvelope:
       type: object
@@ -441,7 +441,7 @@ components:
           type: string
           description: "Channel this message was broadcast on. Format: {tenant}.{identifier}.{category}"
           examples:
-            - "sukko.BTC.trade"
+            - "odin.BTC.trade"
         data:
           type: object
           description: Message payload (schema owned by the publishing service).
@@ -449,7 +449,7 @@ components:
         - type: message
           seq: 1234
           ts: 1706000000000
-          channel: "sukko.BTC.trade"
+          channel: "odin.BTC.trade"
           data: { "price": 50000, "volume": 1.5 }
 
     SubscriptionAck:
@@ -473,7 +473,7 @@ components:
           description: Total active subscription count for this connection.
       examples:
         - type: subscription_ack
-          subscribed: ["sukko.BTC.trade"]
+          subscribed: ["odin.BTC.trade"]
           count: 5
 
     UnsubscriptionAck:
@@ -497,7 +497,7 @@ components:
           description: Total active subscription count for this connection.
       examples:
         - type: unsubscription_ack
-          unsubscribed: ["sukko.BTC.trade"]
+          unsubscribed: ["odin.BTC.trade"]
           count: 4
 
     PublishAck:
@@ -520,7 +520,7 @@ components:
           description: Always "accepted" on success.
       examples:
         - type: publish_ack
-          channel: "sukko.BTC.trade"
+          channel: "odin.BTC.trade"
           status: accepted
 
     PublishError:
@@ -724,8 +724,8 @@ components:
             type: subscribe
             data:
               channels:
-                - "sukko.BTC.trade"
-                - "sukko.ETH.orderbook"
+                - "odin.BTC.trade"
+                - "odin.ETH.orderbook"
 
     unsubscribe:
       name: unsubscribe
@@ -749,7 +749,7 @@ components:
             type: unsubscribe
             data:
               channels:
-                - "sukko.BTC.trade"
+                - "odin.BTC.trade"
 
     publish:
       name: publish
@@ -772,7 +772,7 @@ components:
           payload:
             type: publish
             data:
-              channel: "sukko.BTC.trade"
+              channel: "odin.BTC.trade"
               data:
                 price: 50000
                 volume: 1.5
@@ -800,7 +800,7 @@ components:
             data:
               client_id: "abc123"
               last_offset:
-                "local.sukko.trade": 12345
+                "local.odin.trade": 12345
 
     heartbeat:
       name: heartbeat

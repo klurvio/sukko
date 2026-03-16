@@ -1,4 +1,4 @@
-package api //nolint:revive // api is a common package name for HTTP handlers
+package api
 
 import (
 	"context"
@@ -13,9 +13,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/httputil"
-	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
 // AdminAuthConfig holds rate limiting configuration for admin token authentication.
@@ -28,16 +29,6 @@ type AdminAuthConfig struct {
 	CleanupInterval time.Duration
 	// CleanupMaxAge is the max age for entries before cleanup.
 	CleanupMaxAge time.Duration
-}
-
-// DefaultAdminAuthConfig returns default values for admin auth rate limiting.
-func DefaultAdminAuthConfig() AdminAuthConfig {
-	return AdminAuthConfig{
-		FailureThreshold: 10,
-		BlockDuration:    60 * time.Second,
-		CleanupInterval:  5 * time.Minute,
-		CleanupMaxAge:    2 * time.Minute,
-	}
 }
 
 // Prometheus metrics for admin token auth.
@@ -54,6 +45,8 @@ var (
 )
 
 // ipFailure tracks auth failures for a single IP.
+// Instances are immutable once stored in the sync.Map — updates
+// store a new *ipFailure rather than mutating fields in place.
 type ipFailure struct {
 	count   int
 	resetAt time.Time
@@ -87,10 +80,8 @@ func NewAdminAuth(ctx context.Context, wg *sync.WaitGroup, adminToken string, au
 
 	// Start cleanup goroutine only if admin auth is enabled
 	if adminToken != "" {
-		wg.Add(1)
-		go func() {
+		wg.Go(func() {
 			defer logging.RecoverPanic(aa.logger, "admin_auth_cleanup", nil)
-			defer wg.Done()
 
 			ticker := time.NewTicker(authCfg.CleanupInterval)
 			defer ticker.Stop()
@@ -103,7 +94,7 @@ func NewAdminAuth(ctx context.Context, wg *sync.WaitGroup, adminToken string, au
 					aa.cleanupFailures()
 				}
 			}
-		}()
+		})
 	}
 
 	return aa
@@ -153,7 +144,7 @@ func (aa *AdminAuth) Middleware() func(http.Handler) http.Handler {
 				ctx := auth.WithClaims(r.Context(), adminClaims)
 				ctx = auth.WithActor(ctx, "admin", "admin", clientIP)
 
-				adminAuthTotal.WithLabelValues("success").Inc()
+				adminAuthTotal.WithLabelValues(pkgmetrics.AuthStatusSuccess).Inc()
 
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
@@ -161,7 +152,7 @@ func (aa *AdminAuth) Middleware() func(http.Handler) http.Handler {
 
 			// Token didn't match — record failure and fall through to JWT auth
 			aa.recordFailure(clientIP)
-			adminAuthTotal.WithLabelValues("fallthrough").Inc()
+			adminAuthTotal.WithLabelValues(adminAuthResultFallthrough).Inc()
 
 			next.ServeHTTP(w, r)
 		})
@@ -193,27 +184,31 @@ func (aa *AdminAuth) isRateLimited(ip string) bool {
 }
 
 // recordFailure tracks an auth failure for an IP.
+// Uses immutable snapshots: reads the current value, then stores a new
+// *ipFailure with the updated count. This eliminates data races because
+// sync.Map operations are synchronized and we never mutate stored values.
 func (aa *AdminAuth) recordFailure(ip string) {
 	now := time.Now()
+	resetAt := now.Add(aa.config.BlockDuration)
+	fresh := &ipFailure{count: 1, resetAt: resetAt}
 
-	v, loaded := aa.failures.LoadOrStore(ip, &ipFailure{
-		count:   1,
-		resetAt: now.Add(aa.config.BlockDuration),
-	})
-
-	if loaded {
-		f := v.(*ipFailure)
-		// If past reset time, start fresh
-		if now.After(f.resetAt) {
-			aa.failures.Store(ip, &ipFailure{
-				count:   1,
-				resetAt: now.Add(aa.config.BlockDuration),
-			})
-			return
-		}
-		f.count++
-		f.resetAt = now.Add(aa.config.BlockDuration)
+	v, loaded := aa.failures.LoadOrStore(ip, fresh)
+	if !loaded {
+		return // new entry stored
 	}
+
+	f := v.(*ipFailure)
+	if now.After(f.resetAt) {
+		// Expired — replace with fresh entry
+		aa.failures.Store(ip, fresh)
+		return
+	}
+
+	// Store a new immutable snapshot with incremented count
+	aa.failures.Store(ip, &ipFailure{
+		count:   f.count + 1,
+		resetAt: resetAt,
+	})
 }
 
 // cleanupFailures removes expired rate limit entries to prevent unbounded memory growth.

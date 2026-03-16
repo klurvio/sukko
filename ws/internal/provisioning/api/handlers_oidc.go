@@ -1,4 +1,4 @@
-package api //nolint:revive // api is a common package name for HTTP handlers
+package api
 
 import (
 	"encoding/json"
@@ -7,9 +7,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/klurvio/sukko/internal/provisioning"
-	"github.com/klurvio/sukko/internal/shared/httputil"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // CreateOIDCConfig creates OIDC configuration for a tenant.
@@ -45,7 +45,7 @@ func (h *Handler) CreateOIDCConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to create OIDC config")
-		h.writeServiceError(w, err, http.StatusInternalServerError, "CREATE_FAILED", err.Error())
+		h.writeServiceError(w, err, "CREATE_FAILED", "Failed to create OIDC config")
 		return
 	}
 
@@ -68,7 +68,8 @@ func (h *Handler) GetOIDCConfig(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "OIDC not configured for this tenant")
 			return
 		}
-		httputil.WriteError(w, http.StatusInternalServerError, "GET_FAILED", err.Error())
+		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to get OIDC config")
+		httputil.WriteError(w, http.StatusInternalServerError, "GET_FAILED", "Failed to get OIDC config")
 		return
 	}
 
@@ -93,7 +94,8 @@ func (h *Handler) UpdateOIDCConfig(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "OIDC not configured for this tenant")
 			return
 		}
-		httputil.WriteError(w, http.StatusInternalServerError, "GET_FAILED", err.Error())
+		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to get OIDC config for update")
+		httputil.WriteError(w, http.StatusInternalServerError, "GET_FAILED", "Failed to get OIDC config")
 		return
 	}
 
@@ -124,7 +126,7 @@ func (h *Handler) UpdateOIDCConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to update OIDC config")
-		h.writeServiceError(w, err, http.StatusInternalServerError, "UPDATE_FAILED", err.Error())
+		h.writeServiceError(w, err, "UPDATE_FAILED", "Failed to update OIDC config")
 		return
 	}
 
@@ -148,7 +150,7 @@ func (h *Handler) DeleteOIDCConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to delete OIDC config")
-		h.writeServiceError(w, err, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
+		h.writeServiceError(w, err, "DELETE_FAILED", "Failed to delete OIDC config")
 		return
 	}
 

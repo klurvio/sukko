@@ -3,7 +3,6 @@ package broadcast
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/rs/zerolog"
 )
@@ -146,21 +145,5 @@ func TestNewBus_NATSMissingURLs(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "URL") {
 		t.Errorf("Error should mention URL requirement: %v", err)
-	}
-}
-
-func TestConfig_Defaults(t *testing.T) {
-	t.Parallel()
-	// Verify that DefaultConfig returns sensible values
-	cfg := DefaultConfig()
-
-	if cfg.BufferSize != 1024 {
-		t.Errorf("BufferSize: got %d, want 1024", cfg.BufferSize)
-	}
-	if cfg.ShutdownTimeout != 5*time.Second {
-		t.Errorf("ShutdownTimeout: got %v, want 5s", cfg.ShutdownTimeout)
-	}
-	if cfg.Type != "valkey" {
-		t.Errorf("Type: got %s, want valkey", cfg.Type)
 	}
 }

@@ -47,7 +47,7 @@ var keyCreateCmd = &cobra.Command{
 		keyID, _ := cmd.Flags().GetString("key-id")
 		expiresAt, _ := cmd.Flags().GetString("expires-at")
 
-		pubKey, err := os.ReadFile(pubKeyFile)
+		pubKey, err := os.ReadFile(pubKeyFile) //nolint:gosec // G304: CLI reads user-specified file path from --public-key-file flag
 		if err != nil {
 			return fmt.Errorf("read public key file: %w", err)
 		}

@@ -11,24 +11,6 @@ import (
 	"time"
 )
 
-func TestNewSlackAlerter(t *testing.T) {
-	t.Parallel()
-	alerter := NewSlackAlerter("https://hooks.slack.com/services/test", "#alerts", "AlertBot")
-
-	if alerter == nil {
-		t.Fatal("NewSlackAlerter should return non-nil")
-	}
-	if alerter.webhookURL != "https://hooks.slack.com/services/test" {
-		t.Errorf("webhookURL mismatch: %s", alerter.webhookURL)
-	}
-	if alerter.channel != "#alerts" {
-		t.Errorf("channel mismatch: %s", alerter.channel)
-	}
-	if alerter.username != "AlertBot" {
-		t.Errorf("username mismatch: %s", alerter.username)
-	}
-}
-
 func TestNewSlackAlerterWithConfig(t *testing.T) {
 	t.Parallel()
 	alerter := NewSlackAlerterWithConfig(SlackConfig{
@@ -62,7 +44,11 @@ func TestSlackAlerter_SkipsEmptyWebhook(t *testing.T) {
 	defer server.Close()
 
 	// Create alerter with empty webhook URL
-	alerter := NewSlackAlerter("", "#alerts", "AlertBot")
+	alerter := NewSlackAlerterWithConfig(SlackConfig{
+		Channel:  "#alerts",
+		Username: "AlertBot",
+		Timeout:  5 * time.Second,
+	})
 
 	alerter.Alert(ERROR, "Test", nil)
 
@@ -92,7 +78,12 @@ func TestSlackAlerter_SendsToWebhook(t *testing.T) {
 	}))
 	defer server.Close()
 
-	alerter := NewSlackAlerter(server.URL, "#test-channel", "TestBot")
+	alerter := NewSlackAlerterWithConfig(SlackConfig{
+		WebhookURL: server.URL,
+		Channel:    "#test-channel",
+		Username:   "TestBot",
+		Timeout:    5 * time.Second,
+	})
 
 	alerter.Alert(ERROR, "Test alert message", map[string]any{
 		"server":      "ws-1",
@@ -139,6 +130,7 @@ func TestSlackAlerter_IncludesServiceContext(t *testing.T) {
 		Username:    "Bot",
 		ServiceName: "ws-gateway",
 		Environment: "staging",
+		Timeout:     5 * time.Second,
 	})
 
 	alerter.Alert(WARNING, "Test message", nil)
@@ -231,7 +223,9 @@ func TestSlackAlerter_getEmoji(t *testing.T) {
 
 func TestSlackAlerter_ImplementsInterface(t *testing.T) {
 	t.Parallel()
-	var alerter Alerter = NewSlackAlerter("", "", "")
+	var alerter Alerter = NewSlackAlerterWithConfig(SlackConfig{
+		Timeout: 5 * time.Second,
+	})
 
 	// Should not panic even with empty config
 	alerter.Alert(ERROR, "Test", nil)

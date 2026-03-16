@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
 )
 
 // =============================================================================

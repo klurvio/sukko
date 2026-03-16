@@ -1,16 +1,22 @@
 package gateway
 
 import (
+	"context"
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
+	"net"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gobwas/ws"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/protocol"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
 // testClaims creates auth.Claims with the given subject for testing.
@@ -55,6 +61,7 @@ func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatter
 		permissions:        pc,
 		logger:             zerolog.Nop(),
 		messageTimeout:     60 * time.Second,
+		maxFrameSize:       protocol.DefaultMaxFrameSize,
 		publishLimiter:     rate.NewLimiter(10, 100), // 10/sec, 100 burst
 		maxPublishSize:     64 * 1024,                // 64KB
 		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
@@ -74,6 +81,7 @@ func newTestProxyNoAuth(tenantID string) *Proxy {
 		permissions:        nil,
 		logger:             zerolog.Nop(),
 		messageTimeout:     60 * time.Second,
+		maxFrameSize:       protocol.DefaultMaxFrameSize,
 		publishLimiter:     rate.NewLimiter(10, 100),
 		maxPublishSize:     64 * 1024,
 		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
@@ -84,11 +92,11 @@ func newTestProxyNoAuth(tenantID string) *Proxy {
 func TestProxy_InterceptClientMessage_AuthDisabled(t *testing.T) {
 	t.Parallel()
 	// Auth disabled: no permission filtering, tenant prefix validated
-	proxy := newTestProxyNoAuth("sukko")
+	proxy := newTestProxyNoAuth("odin")
 
 	// Explicit channels: clients include tenant prefix
-	input := `{"type":"subscribe","data":{"channels":["sukko.secret.channel","sukko.forbidden.data"]}}`
-	result, err := proxy.interceptClientMessage([]byte(input))
+	input := `{"type":"subscribe","data":{"channels":["odin.secret.channel","odin.forbidden.data"]}}`
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
 
 	if err != nil {
 		t.Fatalf("interceptClientMessage() error = %v", err)
@@ -104,7 +112,7 @@ func TestProxy_InterceptClientMessage_AuthDisabled(t *testing.T) {
 	}
 
 	// All channels with correct tenant prefix pass through (no permission filtering)
-	expected := []string{"sukko.secret.channel", "sukko.forbidden.data"}
+	expected := []string{"odin.secret.channel", "odin.forbidden.data"}
 	if len(data.Channels) != len(expected) {
 		t.Errorf("Expected %d channels, got %d: %v", len(expected), len(data.Channels), data.Channels)
 	}
@@ -118,11 +126,11 @@ func TestProxy_InterceptClientMessage_AuthDisabled(t *testing.T) {
 func TestProxy_InterceptClientMessage_AuthDisabledPublish(t *testing.T) {
 	t.Parallel()
 	// Auth disabled: tenant prefix validated, no access check
-	proxy := newTestProxyNoAuth("sukko")
+	proxy := newTestProxyNoAuth("odin")
 
 	// Explicit channels: clients include tenant prefix
-	input := `{"type":"publish","data":{"channel":"sukko.BTC.trade","data":{"price":50000}}}`
-	result, err := proxy.interceptClientMessage([]byte(input))
+	input := `{"type":"publish","data":{"channel":"odin.BTC.trade","data":{"price":50000}}}`
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
 
 	if err != nil {
 		t.Fatalf("interceptClientMessage() error = %v", err)
@@ -142,7 +150,7 @@ func TestProxy_InterceptClientMessage_AuthDisabledPublish(t *testing.T) {
 		t.Fatalf("Failed to parse publish data: %v", err)
 	}
 	// Channel should be unchanged (explicit tenant prefix)
-	expectedChannel := "sukko.BTC.trade"
+	expectedChannel := "odin.BTC.trade"
 	if pubData.Channel != expectedChannel {
 		t.Errorf("Channel = %q, want %q", pubData.Channel, expectedChannel)
 	}
@@ -168,7 +176,7 @@ func TestProxy_InterceptClientMessage_EmptyTenantBypass(t *testing.T) {
 	}
 
 	input := `{"type":"subscribe","data":{"channels":["secret.channel"]}}`
-	result, err := proxy.interceptClientMessage([]byte(input))
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
 
 	if err != nil {
 		t.Fatalf("interceptClientMessage() error = %v", err)
@@ -194,7 +202,7 @@ func TestProxy_InterceptClientMessage_NonJSON(t *testing.T) {
 	for _, input := range inputs {
 		t.Run(input, func(t *testing.T) {
 			t.Parallel()
-			result, _ := proxy.interceptClientMessage([]byte(input))
+			result, _ := proxy.interceptClientMessage(context.Background(), []byte(input))
 			if string(result) != input {
 				t.Errorf("Non-JSON should pass through unchanged.\nGot:  %s\nWant: %s", result, input)
 			}
@@ -216,7 +224,7 @@ func TestProxy_InterceptClientMessage_NonSubscribeNonPublish(t *testing.T) {
 	for _, input := range messages {
 		t.Run(input, func(t *testing.T) {
 			t.Parallel()
-			result, _ := proxy.interceptClientMessage([]byte(input))
+			result, _ := proxy.interceptClientMessage(context.Background(), []byte(input))
 			if string(result) != input {
 				t.Errorf("Non-subscribe/non-publish should pass through unchanged.\nGot:  %s\nWant: %s", result, input)
 			}
@@ -230,7 +238,7 @@ func TestProxy_InterceptClientMessage_PublishValidatesChannel(t *testing.T) {
 
 	// Publish with explicit tenant-prefixed channel
 	input := `{"type":"publish","data":{"channel":"test-tenant.BTC.trade","data":{"msg":"test"}}}`
-	result, err := proxy.interceptClientMessage([]byte(input))
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
 
 	if err != nil {
 		t.Fatalf("interceptClientMessage() error = %v", err)
@@ -262,7 +270,7 @@ func TestProxy_InterceptClientMessage_AllAllowed(t *testing.T) {
 
 	// Explicit channels: clients include tenant prefix
 	input := `{"type":"subscribe","data":{"channels":["test-tenant.BTC.trade","test-tenant.ETH.liquidity"]}}`
-	result, err := proxy.interceptClientMessage([]byte(input))
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
 
 	if err != nil {
 		t.Fatalf("interceptClientMessage() error = %v", err)
@@ -296,7 +304,7 @@ func TestProxy_InterceptClientMessage_SomeFiltered(t *testing.T) {
 	// Explicit channels: some allowed by permissions, some not
 	// "secret.channel" doesn't match *.trade pattern, so it's denied by permissions
 	input := `{"type":"subscribe","data":{"channels":["test-tenant.BTC.trade","test-tenant.secret.channel","test-tenant.ETH.trade"]}}`
-	result, err := proxy.interceptClientMessage([]byte(input))
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
 
 	if err != nil {
 		t.Fatalf("interceptClientMessage() error = %v", err)
@@ -331,7 +339,7 @@ func TestProxy_InterceptClientMessage_AllFiltered(t *testing.T) {
 
 	// Explicit channels with correct tenant prefix but not matching *.trade pattern
 	input := `{"type":"subscribe","data":{"channels":["test-tenant.secret.channel","test-tenant.forbidden.data"]}}`
-	result, err := proxy.interceptClientMessage([]byte(input))
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
 
 	if err != nil {
 		t.Fatalf("interceptClientMessage() error = %v", err)
@@ -393,7 +401,7 @@ func TestProxy_InterceptClientMessage_UserScoped(t *testing.T) {
 			inputMsg := protocol.ClientMessage{Type: "subscribe", Data: dataBytes}
 			input, _ := json.Marshal(inputMsg)
 
-			result, err := proxy.interceptClientMessage(input)
+			result, err := proxy.interceptClientMessage(context.Background(), input)
 			if err != nil {
 				t.Fatalf("interceptClientMessage() error = %v", err)
 			}
@@ -454,7 +462,7 @@ func TestProxy_InterceptClientMessage_GroupScoped(t *testing.T) {
 			inputMsg := protocol.ClientMessage{Type: "subscribe", Data: dataBytes}
 			input, _ := json.Marshal(inputMsg)
 
-			result, err := proxy.interceptClientMessage(input)
+			result, err := proxy.interceptClientMessage(context.Background(), input)
 			if err != nil {
 				t.Fatalf("interceptClientMessage() error = %v", err)
 			}
@@ -482,7 +490,7 @@ func TestProxy_InterceptClientMessage_MalformedSubscribeData(t *testing.T) {
 
 	// Valid subscribe type but malformed data
 	input := `{"type":"subscribe","data":"not-an-object"}`
-	result, _ := proxy.interceptClientMessage([]byte(input))
+	result, _ := proxy.interceptClientMessage(context.Background(), []byte(input))
 
 	// Should pass through unchanged on parse error
 	if string(result) != input {
@@ -496,7 +504,7 @@ func BenchmarkInterceptClientMessage_PassThrough(b *testing.B) {
 	input := []byte(`{"type":"subscribe","data":{"channels":["test-tenant.BTC.trade","test-tenant.ETH.trade"]}}`)
 
 	for b.Loop() {
-		_, _ = proxy.interceptClientMessage(input)
+		_, _ = proxy.interceptClientMessage(context.Background(), input)
 	}
 }
 
@@ -505,6 +513,274 @@ func BenchmarkInterceptClientMessage_Filtered(b *testing.B) {
 	input := []byte(`{"type":"subscribe","data":{"channels":["test-tenant.BTC.trade","test-tenant.secret.channel","test-tenant.ETH.trade"]}}`)
 
 	for b.Loop() {
-		_, _ = proxy.interceptClientMessage(input)
+		_, _ = proxy.interceptClientMessage(context.Background(), input)
 	}
+}
+
+// writeWSFrame writes a WebSocket frame header + payload to conn.
+// mask=true for client→server frames, false for server→client.
+func writeWSFrame(conn net.Conn, opCode ws.OpCode, payload []byte, mask bool) error {
+	header := ws.Header{
+		Fin:    true,
+		OpCode: opCode,
+		Length: int64(len(payload)),
+	}
+	if mask {
+		header.Masked = true
+		header.Mask = ws.NewMask()
+		ws.Cipher(payload, header.Mask, 0)
+	}
+	if err := ws.WriteHeader(conn, header); err != nil {
+		return fmt.Errorf("write header: %w", err)
+	}
+	if len(payload) > 0 {
+		if _, err := conn.Write(payload); err != nil {
+			return fmt.Errorf("write payload: %w", err)
+		}
+	}
+	return nil
+}
+
+// writeOversizedFrameHeader writes a WebSocket frame header with a declared length
+// exceeding maxFrameSize but does NOT write the payload (simulates OOM attack vector).
+func writeOversizedFrameHeader(conn net.Conn, declaredLength int64, mask bool) error {
+	header := ws.Header{
+		Fin:    true,
+		OpCode: ws.OpText,
+		Length: declaredLength,
+	}
+	if mask {
+		header.Masked = true
+		header.Mask = ws.NewMask()
+	}
+	if err := ws.WriteHeader(conn, header); err != nil {
+		return fmt.Errorf("write oversized frame header: %w", err)
+	}
+	return nil
+}
+
+// newRunTestProxy creates a Proxy with net.Pipe connections for Run() tests.
+func newRunTestProxy(maxFrameSize int, messageTimeout time.Duration) (*Proxy, net.Conn, net.Conn) {
+	clientConn, clientRemote := net.Pipe()
+	backendConn, backendRemote := net.Pipe()
+
+	proxy := &Proxy{
+		clientConn:         clientConn,
+		backendConn:        backendConn,
+		authEnabled:        false,
+		tenantID:           "test-tenant",
+		logger:             zerolog.Nop(),
+		messageTimeout:     messageTimeout,
+		maxFrameSize:       maxFrameSize,
+		publishLimiter:     rate.NewLimiter(10, 100),
+		maxPublishSize:     64 * 1024,
+		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
+		subscribedChannels: make(map[string]struct{}),
+	}
+
+	return proxy, clientRemote, backendRemote
+}
+
+func TestProxy_FrameSizeValidation_ClientExceedsMax(t *testing.T) {
+	t.Parallel()
+	maxSize := 1024 // 1KB for testing
+	proxy, clientRemote, backendRemote := newRunTestProxy(maxSize, 0)
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
+
+	// Drain backend side to prevent blocking
+	go drainConn(backendRemote)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		proxy.Run(context.Background())
+	}()
+
+	// Write oversized header from client, then drain close frame response.
+	// net.Pipe is full-duplex: writes and reads on the same conn use separate streams.
+	go func() {
+		_ = writeOversizedFrameHeader(clientRemote, int64(maxSize+1), true)
+		drainConn(clientRemote) // drain close frame sent back by proxy
+	}()
+
+	select {
+	case <-done:
+		// Proxy exited — expected
+	case <-time.After(5 * time.Second):
+		t.Fatal("Proxy did not exit after oversized client frame")
+	}
+}
+
+func TestProxy_FrameSizeValidation_BackendExceedsMax(t *testing.T) {
+	t.Parallel()
+	maxSize := 1024
+	proxy, clientRemote, backendRemote := newRunTestProxy(maxSize, 0)
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
+
+	// Drain client side to prevent blocking
+	go drainConn(clientRemote)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		proxy.Run(context.Background())
+	}()
+
+	// Send oversized frame from backend side (no masking — server→client)
+	err := writeOversizedFrameHeader(backendRemote, int64(maxSize+1), false)
+	if err != nil {
+		t.Fatalf("Failed to write oversized header: %v", err)
+	}
+
+	select {
+	case <-done:
+		// Proxy exited — expected
+	case <-time.After(5 * time.Second):
+		t.Fatal("Proxy did not exit after oversized backend frame")
+	}
+}
+
+func TestProxy_FrameSizeValidation_NormalFrameAllowed(t *testing.T) {
+	t.Parallel()
+	maxSize := 1024
+	proxy, clientRemote, backendRemote := newRunTestProxy(maxSize, 0)
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
+
+	// Drain proxy responses to client (close frames, etc.)
+	// net.Pipe is full-duplex: reads here don't interfere with writes below.
+	go drainConn(clientRemote)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		proxy.Run(context.Background())
+	}()
+
+	// Send a normal-sized text frame from client (masked)
+	payload := []byte(`{"type":"ping"}`)
+	if err := writeWSFrame(clientRemote, ws.OpText, payload, true); err != nil {
+		t.Fatalf("Failed to write frame: %v", err)
+	}
+
+	// Read the forwarded frame on backend side
+	header, err := ws.ReadHeader(backendRemote)
+	if err != nil {
+		t.Fatalf("Failed to read forwarded header: %v", err)
+	}
+	if header.Length == 0 {
+		t.Fatal("Expected non-zero forwarded payload")
+	}
+
+	// Read payload
+	buf := make([]byte, header.Length)
+	if _, err := backendRemote.Read(buf); err != nil {
+		t.Fatalf("Failed to read forwarded payload: %v", err)
+	}
+
+	// Unmask if needed
+	if header.Masked {
+		ws.Cipher(buf, header.Mask, 0)
+	}
+
+	// Verify payload content
+	if !strings.Contains(string(buf), "ping") {
+		t.Errorf("Expected forwarded payload to contain 'ping', got %q", string(buf))
+	}
+
+	// Close client to end proxy
+	closeBody := make([]byte, 2)
+	binary.BigEndian.PutUint16(closeBody, uint16(ws.StatusNormalClosure))
+	if err := writeWSFrame(clientRemote, ws.OpClose, closeBody, true); err != nil {
+		t.Fatalf("Failed to send close: %v", err)
+	}
+
+	// Drain remaining backend data (forwarded close frame)
+	go drainConn(backendRemote)
+
+	select {
+	case <-done:
+		// Proxy exited normally
+	case <-time.After(5 * time.Second):
+		t.Fatal("Proxy did not exit after close frame")
+	}
+}
+
+func TestProxy_MessageTimeout_ClientStall(t *testing.T) {
+	t.Parallel()
+	// Very short timeout to trigger quickly in test
+	timeout := 100 * time.Millisecond
+	proxy, clientRemote, backendRemote := newRunTestProxy(protocol.DefaultMaxFrameSize, timeout)
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
+
+	// Drain both sides to prevent blocking
+	go drainConn(backendRemote)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		proxy.Run(context.Background())
+	}()
+
+	// Don't send anything from client — let it stall
+	select {
+	case <-done:
+		// Proxy exited due to timeout — expected
+	case <-time.After(5 * time.Second):
+		t.Fatal("Proxy did not exit after client message timeout")
+	}
+}
+
+func TestProxy_MessageTimeout_BackendStall(t *testing.T) {
+	t.Parallel()
+	timeout := 100 * time.Millisecond
+	proxy, clientRemote, backendRemote := newRunTestProxy(protocol.DefaultMaxFrameSize, timeout)
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
+
+	// Drain client side
+	go drainConn(clientRemote)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		proxy.Run(context.Background())
+	}()
+
+	// Don't send anything from backend — let it stall
+	select {
+	case <-done:
+		// Proxy exited due to timeout — expected
+	case <-time.After(5 * time.Second):
+		t.Fatal("Proxy did not exit after backend message timeout")
+	}
+}
+
+func TestProxy_ContextCancellation(t *testing.T) {
+	t.Parallel()
+	proxy, clientRemote, backendRemote := newRunTestProxy(protocol.DefaultMaxFrameSize, 0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		proxy.Run(ctx)
+	}()
+
+	// Cancel context to simulate shutdown
+	cancel()
+
+	select {
+	case <-done:
+		// Proxy exited due to context cancellation — expected
+	case <-time.After(5 * time.Second):
+		t.Fatal("Proxy did not exit after context cancellation")
+	}
+
+	_ = clientRemote.Close()
+	_ = backendRemote.Close()
 }

@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
-	"github.com/klurvio/sukko/internal/shared/auth"
+	provisioningv1 "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 )
 
 // testPublicKeyPEM is a valid EC P-256 public key for tests.
@@ -106,6 +106,9 @@ func TestKeyRegistry_Snapshot(t *testing.T) {
 		stats := r.Stats()
 		if stats.TotalKeys != 2 {
 			t.Errorf("TotalKeys = %d, want 2", stats.TotalKeys)
+		}
+		if stats.ActiveKeys != 2 {
+			t.Errorf("ActiveKeys = %d, want 2", stats.ActiveKeys)
 		}
 	})
 }
@@ -286,6 +289,31 @@ func TestKeyRegistry_ExpiredKey(t *testing.T) {
 	}
 }
 
+func TestKeyRegistry_StatsActiveCount(t *testing.T) {
+	t.Parallel()
+	r := newTestKeyRegistry()
+
+	expired := time.Now().Add(-1 * time.Hour).Unix()
+
+	r.updateKeys(&provisioningv1.WatchKeysResponse{
+		IsSnapshot: true,
+		Keys: []*provisioningv1.KeyInfo{
+			{KeyId: "active-1", TenantId: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
+			{KeyId: "active-2", TenantId: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
+			{KeyId: "inactive", TenantId: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: false},
+			{KeyId: "expired", TenantId: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true, ExpiresAtUnix: expired},
+		},
+	})
+
+	stats := r.Stats()
+	if stats.TotalKeys != 4 {
+		t.Errorf("TotalKeys = %d, want 4", stats.TotalKeys)
+	}
+	if stats.ActiveKeys != 2 {
+		t.Errorf("ActiveKeys = %d, want 2 (should exclude inactive and expired)", stats.ActiveKeys)
+	}
+}
+
 func TestParsePEMPublicKey(t *testing.T) {
 	t.Parallel()
 
@@ -314,11 +342,11 @@ func TestBackoff(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		current  time.Duration
-		max      time.Duration
-		wantMin  time.Duration
-		wantMax  time.Duration
+		name    string
+		current time.Duration
+		max     time.Duration
+		wantMin time.Duration
+		wantMax time.Duration
 	}{
 		{
 			name:    "doubles with jitter",

@@ -11,7 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
 // PostgresTenantRegistryConfig configures the PostgreSQL-backed tenant registry.
@@ -73,16 +73,14 @@ func NewPostgresTenantRegistry(cfg PostgresTenantRegistryConfig) (*PostgresTenan
 	if cfg.DB == nil {
 		return nil, errors.New("database connection is required")
 	}
-
-	// Set defaults
-	if cfg.IssuerCacheTTL == 0 {
-		cfg.IssuerCacheTTL = 5 * time.Minute
+	if cfg.IssuerCacheTTL <= 0 {
+		return nil, errors.New("IssuerCacheTTL must be > 0")
 	}
-	if cfg.ChannelRulesCacheTTL == 0 {
-		cfg.ChannelRulesCacheTTL = 1 * time.Minute
+	if cfg.ChannelRulesCacheTTL <= 0 {
+		return nil, errors.New("ChannelRulesCacheTTL must be > 0")
 	}
-	if cfg.QueryTimeout == 0 {
-		cfg.QueryTimeout = 5 * time.Second
+	if cfg.QueryTimeout <= 0 {
+		return nil, errors.New("QueryTimeout must be > 0")
 	}
 
 	registry := &PostgresTenantRegistry{
@@ -195,7 +193,7 @@ func (r *PostgresTenantRegistry) GetOIDCConfig(ctx context.Context, tenantID str
 		return nil, fmt.Errorf("validate cached config: %w", err)
 	}
 
-	// Update cache
+	// Update cache (reuses issuer cache TTL — both are tenant config with similar staleness tolerance)
 	r.oidcConfigCacheMu.Lock()
 	r.oidcConfigCache[tenantID] = &oidcConfigCacheEntry{
 		config:    &config,
@@ -214,7 +212,7 @@ func (r *PostgresTenantRegistry) GetChannelRules(ctx context.Context, tenantID s
 	r.channelRulesCacheMu.RUnlock()
 
 	if ok && time.Now().Before(entry.expiresAt) {
-		channelRulesLookupTotal.WithLabelValues(tenantID, "cache").Inc()
+		channelRulesLookupTotal.WithLabelValues(tenantID, LookupSourceCache).Inc()
 		return entry.rules, nil
 	}
 
@@ -257,7 +255,7 @@ func (r *PostgresTenantRegistry) GetChannelRules(ctx context.Context, tenantID s
 	}
 	r.channelRulesCacheMu.Unlock()
 
-	channelRulesLookupTotal.WithLabelValues(tenantID, "database").Inc()
+	channelRulesLookupTotal.WithLabelValues(tenantID, LookupSourceDatabase).Inc()
 	return &rules, nil
 }
 

@@ -18,7 +18,8 @@ type MultiTenantValidatorConfig struct {
 	// RequireTenantID requires tokens to have a tenant_id claim.
 	RequireTenantID bool
 
-	// RequireKeyID requires tokens to have a kid header.
+	// RequireKeyID is accepted for API compatibility but has no effect.
+	// Tenant tokens always require a kid header; OIDC tokens use the OIDC keyfunc.
 	RequireKeyID bool
 
 	// AllowedAlgorithms restricts which algorithms are accepted.
@@ -43,7 +44,6 @@ type MultiTenantValidatorConfig struct {
 type MultiTenantValidator struct {
 	keyRegistry       KeyRegistry
 	requireTenantID   bool
-	requireKeyID      bool
 	allowedAlgorithms map[string]bool
 
 	// OIDC support
@@ -73,7 +73,6 @@ func NewMultiTenantValidator(cfg MultiTenantValidatorConfig) (*MultiTenantValida
 	return &MultiTenantValidator{
 		keyRegistry:       cfg.KeyRegistry,
 		requireTenantID:   cfg.RequireTenantID,
-		requireKeyID:      cfg.RequireKeyID,
 		allowedAlgorithms: allowedAlgos,
 		oidcIssuer:        cfg.OIDCIssuer,
 		oidcAudience:      cfg.OIDCAudience,
@@ -92,9 +91,15 @@ func (v *MultiTenantValidator) ValidateToken(ctx context.Context, tokenString st
 	// Track whether this is an OIDC token for post-parse audience validation
 	var isOIDCToken bool
 
+	// Derive valid methods from allowedAlgorithms map
+	validMethods := make([]string, 0, len(v.allowedAlgorithms))
+	for alg := range v.allowedAlgorithms {
+		validMethods = append(validMethods, alg)
+	}
+
 	// Parse with claims and keyfunc that routes based on issuer
 	parser := jwt.NewParser(
-		jwt.WithValidMethods([]string{"ES256", "RS256", "EdDSA", "RS384", "RS512", "ES384", "ES512"}),
+		jwt.WithValidMethods(validMethods),
 	)
 
 	token, err := parser.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (any, error) {
@@ -110,9 +115,6 @@ func (v *MultiTenantValidator) ValidateToken(ctx context.Context, tokenString st
 		// Tenant token flow - requires kid header and key registry lookup
 		kidRaw, ok := token.Header["kid"]
 		if !ok {
-			if v.requireKeyID {
-				return nil, errors.New("missing kid header")
-			}
 			return nil, errors.New("missing kid header")
 		}
 

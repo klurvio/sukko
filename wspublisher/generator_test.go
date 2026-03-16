@@ -8,7 +8,7 @@ import (
 
 func TestGenerator_ResolveChannels_Static(t *testing.T) {
 	cfg := &Config{
-		Channels:       "sukko.BTC.trade,sukko.ETH.liquidity",
+		Channels:       "odin.BTC.trade,odin.ETH.liquidity",
 		KafkaNamespace: "local",
 	}
 	g := NewGenerator(cfg)
@@ -17,11 +17,11 @@ func TestGenerator_ResolveChannels_Static(t *testing.T) {
 	if len(channels) != 2 {
 		t.Fatalf("expected 2 channels, got %d", len(channels))
 	}
-	if channels[0] != "sukko.BTC.trade" {
-		t.Errorf("expected sukko.BTC.trade, got %s", channels[0])
+	if channels[0] != "odin.BTC.trade" {
+		t.Errorf("expected odin.BTC.trade, got %s", channels[0])
 	}
-	if channels[1] != "sukko.ETH.liquidity" {
-		t.Errorf("expected sukko.ETH.liquidity, got %s", channels[1])
+	if channels[1] != "odin.ETH.liquidity" {
+		t.Errorf("expected odin.ETH.liquidity, got %s", channels[1])
 	}
 }
 
@@ -56,7 +56,7 @@ func TestGenerator_ResolveChannels_Dynamic(t *testing.T) {
 func TestGenerator_ResolveChannels_CustomPattern(t *testing.T) {
 	cfg := &Config{
 		ChannelPattern: "{category}.{tenant}.{identifier}",
-		TenantID:       "sukko",
+		TenantID:       "odin",
 		Identifiers:    "BTC",
 		Categories:     "trade",
 		KafkaNamespace: "local",
@@ -67,15 +67,15 @@ func TestGenerator_ResolveChannels_CustomPattern(t *testing.T) {
 	if len(channels) != 1 {
 		t.Fatalf("expected 1 channel, got %d", len(channels))
 	}
-	if channels[0] != "trade.sukko.BTC" {
-		t.Errorf("expected trade.sukko.BTC, got %s", channels[0])
+	if channels[0] != "trade.odin.BTC" {
+		t.Errorf("expected trade.odin.BTC, got %s", channels[0])
 	}
 }
 
 func TestGenerator_ChannelToTopic(t *testing.T) {
 	cfg := &Config{
 		KafkaNamespace: "local",
-		TenantID:       "sukko",
+		TenantID:       "odin",
 	}
 	g := NewGenerator(cfg)
 
@@ -83,10 +83,10 @@ func TestGenerator_ChannelToTopic(t *testing.T) {
 		channel       string
 		expectedTopic string
 	}{
-		{"sukko.BTC.trade", "local.sukko.trade"},
-		{"sukko.ETH.liquidity", "local.sukko.liquidity"},
+		{"odin.BTC.trade", "local.odin.trade"},
+		{"odin.ETH.liquidity", "local.odin.liquidity"},
 		{"acme.SOL.orderbook", "local.acme.orderbook"},
-		{"sukko.all.trade", "local.sukko.trade"},
+		{"odin.all.trade", "local.odin.trade"},
 	}
 
 	for _, tt := range tests {
@@ -114,9 +114,9 @@ func TestGenerator_ChannelToTopic_InvalidFormat(t *testing.T) {
 
 func TestGenerator_NextMessage(t *testing.T) {
 	cfg := &Config{
-		Channels:       "sukko.BTC.trade",
+		Channels:       "odin.BTC.trade",
 		KafkaNamespace: "local",
-		TenantID:       "sukko",
+		TenantID:       "odin",
 	}
 	g := NewGenerator(cfg)
 
@@ -126,13 +126,13 @@ func TestGenerator_NextMessage(t *testing.T) {
 	}
 
 	// Check topic follows spec: {namespace}.{tenant}.{category}
-	if msg.Topic != "local.sukko.trade" {
-		t.Errorf("expected topic local.sukko.trade, got %s", msg.Topic)
+	if msg.Topic != "local.odin.trade" {
+		t.Errorf("expected topic local.odin.trade, got %s", msg.Topic)
 	}
 
 	// Check key follows spec: {tenant}.{identifier}.{category}
-	if msg.Key != "sukko.BTC.trade" {
-		t.Errorf("expected key sukko.BTC.trade, got %s", msg.Key)
+	if msg.Key != "odin.BTC.trade" {
+		t.Errorf("expected key odin.BTC.trade, got %s", msg.Key)
 	}
 
 	// Check payload is valid JSON
@@ -160,10 +160,10 @@ func TestGenerator_NextMessage_DifferentCategories(t *testing.T) {
 		channel        string
 		expectedFields []string
 	}{
-		{"sukko.BTC.trade", []string{"token", "price", "volume", "side"}},
-		{"sukko.ETH.liquidity", []string{"token", "poolId", "liquidity"}},
-		{"sukko.SOL.orderbook", []string{"token", "bids", "asks"}},
-		{"sukko.user123.balances", []string{"address", "balance"}},
+		{"odin.BTC.trade", []string{"token", "price", "volume", "side"}},
+		{"odin.ETH.liquidity", []string{"token", "poolId", "liquidity"}},
+		{"odin.SOL.orderbook", []string{"token", "bids", "asks"}},
+		{"odin.user123.balances", []string{"address", "balance"}},
 	}
 
 	for _, tt := range categories {

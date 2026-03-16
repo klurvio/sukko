@@ -2,19 +2,12 @@ package logging
 
 import (
 	"bytes"
-	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
 )
-
-// resetGlobalLevel resets zerolog's global level to Trace for tests.
-// This must be called at the start of any test that verifies log output.
-func resetGlobalLevel() {
-	zerolog.SetGlobalLevel(zerolog.TraceLevel)
-}
 
 // =============================================================================
 // NewLogger Tests
@@ -24,8 +17,9 @@ func TestNewLogger_DefaultLevel(t *testing.T) {
 	t.Parallel()
 	// Test with empty level defaults to info
 	logger := NewLogger(LoggerConfig{
-		Level:  "", // Empty defaults to info
-		Format: LogFormatJSON,
+		Level:       "", // Empty defaults to info
+		Format:      LogFormatJSON,
+		ServiceName: "test-service",
 	})
 
 	// Logger should be created without panic
@@ -46,8 +40,9 @@ func TestNewLogger_AllLevels(t *testing.T) {
 		t.Run(string(level), func(t *testing.T) {
 			t.Parallel()
 			logger := NewLogger(LoggerConfig{
-				Level:  level,
-				Format: LogFormatJSON,
+				Level:       level,
+				Format:      LogFormatJSON,
+				ServiceName: "test-service",
 			})
 
 			// Logger should be created without panic
@@ -58,13 +53,15 @@ func TestNewLogger_AllLevels(t *testing.T) {
 
 func TestNewLogger_JSONFormat(t *testing.T) {
 	t.Parallel()
-	resetGlobalLevel()
 
 	var buf bytes.Buffer
-	// Create logger directly to write to buffer (bypass NewLogger's global level setting)
-	logger := zerolog.New(&buf).With().Logger()
+	logger := NewLogger(LoggerConfig{
+		Level:       LogLevelInfo,
+		Format:      LogFormatJSON,
+		ServiceName: "test-service",
+		Writer:      &buf,
+	})
 
-	// Log a test message
 	logger.Info().Str("test", "value").Msg("test message")
 
 	output := buf.String()
@@ -78,14 +75,14 @@ func TestNewLogger_JSONFormat(t *testing.T) {
 
 func TestNewLogger_IncludesServiceField(t *testing.T) {
 	t.Parallel()
-	resetGlobalLevel()
 
 	var buf bytes.Buffer
-
-	// Create logger that writes to buffer
-	logger := zerolog.New(&buf).With().
-		Str("service", "ws-server").
-		Logger()
+	logger := NewLogger(LoggerConfig{
+		Level:       LogLevelInfo,
+		Format:      LogFormatJSON,
+		ServiceName: "ws-server",
+		Writer:      &buf,
+	})
 
 	logger.Info().Msg("test")
 
@@ -97,14 +94,14 @@ func TestNewLogger_IncludesServiceField(t *testing.T) {
 
 func TestNewLogger_CustomServiceName(t *testing.T) {
 	t.Parallel()
-	resetGlobalLevel()
 
 	var buf bytes.Buffer
-
-	// Create logger that writes to buffer with custom service name
-	logger := zerolog.New(&buf).With().
-		Str("service", "ws-gateway").
-		Logger()
+	logger := NewLogger(LoggerConfig{
+		Level:       LogLevelInfo,
+		Format:      LogFormatJSON,
+		ServiceName: "ws-gateway",
+		Writer:      &buf,
+	})
 
 	logger.Info().Msg("test")
 
@@ -114,113 +111,97 @@ func TestNewLogger_CustomServiceName(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// LogError Tests
-// =============================================================================
-
-func TestLogError_LogsError(t *testing.T) {
+func TestNewLogger_PanicsOnEmptyServiceName(t *testing.T) {
 	t.Parallel()
-	resetGlobalLevel()
 
-	var buf bytes.Buffer
-	logger := zerolog.New(&buf)
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("NewLogger should panic on empty ServiceName")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("panic value should be string, got %T", r)
+		}
+		if !strings.Contains(msg, "ServiceName") {
+			t.Errorf("panic message should mention ServiceName: %s", msg)
+		}
+	}()
 
-	testErr := errors.New("test error")
-	LogError(logger, testErr, "Something went wrong", nil)
+	NewLogger(LoggerConfig{})
+}
 
-	output := buf.String()
-	if !strings.Contains(output, "test error") {
-		t.Errorf("Should contain error message: %s", output)
+func TestNewLogger_LevelFiltering(t *testing.T) {
+	t.Parallel()
+
+	// Create two loggers at different levels writing to separate buffers
+	var debugBuf, warnBuf bytes.Buffer
+	debugLogger := NewLogger(LoggerConfig{
+		Level:       LogLevelDebug,
+		Format:      LogFormatJSON,
+		ServiceName: "test-debug",
+		Writer:      &debugBuf,
+	})
+	warnLogger := NewLogger(LoggerConfig{
+		Level:       LogLevelWarn,
+		Format:      LogFormatJSON,
+		ServiceName: "test-warn",
+		Writer:      &warnBuf,
+	})
+
+	tests := []struct {
+		name     string
+		logger   zerolog.Logger
+		buf      *bytes.Buffer
+		logFunc  func(zerolog.Logger)
+		expectOK bool
+	}{
+		{"debug_on_debug_logger", debugLogger, &debugBuf, func(l zerolog.Logger) { l.Debug().Msg("debug msg") }, true},
+		{"info_on_debug_logger", debugLogger, &debugBuf, func(l zerolog.Logger) { l.Info().Msg("info msg") }, true},
+		{"debug_on_warn_logger", warnLogger, &warnBuf, func(l zerolog.Logger) { l.Debug().Msg("debug msg") }, false},
+		{"info_on_warn_logger", warnLogger, &warnBuf, func(l zerolog.Logger) { l.Info().Msg("info msg") }, false},
+		{"warn_on_warn_logger", warnLogger, &warnBuf, func(l zerolog.Logger) { l.Warn().Msg("warn msg") }, true},
 	}
-	if !strings.Contains(output, "Something went wrong") {
-		t.Errorf("Should contain log message: %s", output)
+
+	for _, tt := range tests { //nolint:paralleltest // subtests share debugBuf/warnBuf — cannot run in parallel
+		t.Run(tt.name, func(t *testing.T) {
+			tt.buf.Reset()
+			tt.logFunc(tt.logger)
+			hasOutput := tt.buf.Len() > 0
+			if hasOutput != tt.expectOK {
+				t.Errorf("expected output=%v, got output=%v (buf=%q)", tt.expectOK, hasOutput, tt.buf.String())
+			}
+		})
 	}
 }
 
-func TestLogError_WithFields(t *testing.T) {
+func TestNewLogger_DefaultWriter(t *testing.T) {
 	t.Parallel()
-	resetGlobalLevel()
 
-	var buf bytes.Buffer
-	logger := zerolog.New(&buf)
-
-	testErr := errors.New("test error")
-	fields := map[string]any{
-		"client_id":    123,
-		"message_size": 1024,
-	}
-	LogError(logger, testErr, "Broadcast failed", fields)
-
-	output := buf.String()
-	if !strings.Contains(output, "client_id") {
-		t.Errorf("Should contain client_id field: %s", output)
-	}
-	if !strings.Contains(output, "message_size") {
-		t.Errorf("Should contain message_size field: %s", output)
-	}
+	// Should not panic with nil Writer (defaults to stdout)
+	logger := NewLogger(LoggerConfig{
+		Level:       LogLevelInfo,
+		Format:      LogFormatJSON,
+		ServiceName: "test-service",
+	})
+	_ = logger
 }
 
-func TestLogError_NilFields(t *testing.T) {
+func TestNewLogger_PrettyFormatWithWriter(t *testing.T) {
 	t.Parallel()
-	resetGlobalLevel()
 
 	var buf bytes.Buffer
-	logger := zerolog.New(&buf)
+	logger := NewLogger(LoggerConfig{
+		Level:       LogLevelInfo,
+		Format:      LogFormatPretty,
+		ServiceName: "test-service",
+		Writer:      &buf,
+	})
 
-	testErr := errors.New("test error")
+	logger.Info().Msg("pretty test")
 
-	// Should not panic with nil fields
-	LogError(logger, testErr, "Test message", nil)
-
-	output := buf.String()
-	if output == "" {
-		t.Error("Should produce log output")
-	}
-}
-
-// =============================================================================
-// LogErrorWithStack Tests
-// =============================================================================
-
-func TestLogErrorWithStack_IncludesStackTrace(t *testing.T) {
-	t.Parallel()
-	resetGlobalLevel()
-
-	var buf bytes.Buffer
-	logger := zerolog.New(&buf)
-
-	testErr := errors.New("test error")
-	LogErrorWithStack(logger, testErr, "Panic recovered", nil)
-
-	output := buf.String()
-	if !strings.Contains(output, "stack_trace") {
-		t.Errorf("Should include stack_trace field: %s", output)
-	}
-	if !strings.Contains(output, "test error") {
-		t.Errorf("Should contain error message: %s", output)
-	}
-}
-
-func TestLogErrorWithStack_WithFields(t *testing.T) {
-	t.Parallel()
-	resetGlobalLevel()
-
-	var buf bytes.Buffer
-	logger := zerolog.New(&buf)
-
-	testErr := errors.New("unexpected nil pointer")
-	fields := map[string]any{
-		"function": "processMessage",
-		"line":     42,
-	}
-	LogErrorWithStack(logger, testErr, "Critical error", fields)
-
-	output := buf.String()
-	if !strings.Contains(output, "stack_trace") {
-		t.Errorf("Should include stack_trace: %s", output)
-	}
-	if !strings.Contains(output, "function") {
-		t.Errorf("Should include function field: %s", output)
+	if buf.Len() == 0 {
+		t.Error("Pretty format with Writer should produce output in the buffer")
 	}
 }
 
@@ -230,7 +211,6 @@ func TestLogErrorWithStack_WithFields(t *testing.T) {
 
 func TestRecoverPanic_CapturesPanic(t *testing.T) {
 	t.Parallel()
-	resetGlobalLevel()
 
 	var buf bytes.Buffer
 	logger := zerolog.New(&buf)
@@ -254,7 +234,6 @@ func TestRecoverPanic_CapturesPanic(t *testing.T) {
 
 func TestRecoverPanic_WithContextFields(t *testing.T) {
 	t.Parallel()
-	resetGlobalLevel()
 
 	var buf bytes.Buffer
 	logger := zerolog.New(&buf)
@@ -277,7 +256,6 @@ func TestRecoverPanic_WithContextFields(t *testing.T) {
 
 func TestRecoverPanic_NoPanic(t *testing.T) {
 	t.Parallel()
-	resetGlobalLevel()
 
 	var buf bytes.Buffer
 	logger := zerolog.New(&buf)
@@ -295,7 +273,6 @@ func TestRecoverPanic_NoPanic(t *testing.T) {
 
 func TestRecoverPanic_ServerStaysRunning(t *testing.T) {
 	t.Parallel()
-	resetGlobalLevel()
 
 	var buf bytes.Buffer
 	logger := zerolog.New(&buf)
@@ -327,22 +304,6 @@ func TestRecoverPanic_ServerStaysRunning(t *testing.T) {
 }
 
 // =============================================================================
-// RecoverPanicAny Tests
-// =============================================================================
-
-func TestRecoverPanicAny_NilLogger(t *testing.T) {
-	t.Parallel()
-
-	// Should not panic with nil logger
-	func() {
-		defer RecoverPanicAny(nil, "testGoroutine", nil)
-		panic("test panic")
-	}()
-
-	// Test passes if we get here without crashing
-}
-
-// =============================================================================
 // LoggerConfig Tests
 // =============================================================================
 
@@ -359,19 +320,6 @@ func TestLoggerConfig_Fields(t *testing.T) {
 	if config.Format != LogFormatPretty {
 		t.Errorf("Format: got %s, want pretty", config.Format)
 	}
-}
-
-// =============================================================================
-// InitGlobalLogger Tests
-// =============================================================================
-
-func TestInitGlobalLogger_SetsGlobalLogger(t *testing.T) {
-	t.Parallel()
-	// Just verify it doesn't panic
-	InitGlobalLogger(LoggerConfig{
-		Level:  LogLevelInfo,
-		Format: LogFormatJSON,
-	})
 }
 
 // =============================================================================

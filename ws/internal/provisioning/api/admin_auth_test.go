@@ -1,4 +1,4 @@
-package api //nolint:revive // api is a common package name for HTTP handlers
+package api
 
 import (
 	"context"
@@ -6,17 +6,25 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 )
 
+const testFailureThreshold = 10
+
 func newTestAdminAuth(token string) (*AdminAuth, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called in the returned cleanup function
 	var wg sync.WaitGroup
 	logger := zerolog.Nop()
-	aa := NewAdminAuth(ctx, &wg, token, DefaultAdminAuthConfig(), logger)
+	aa := NewAdminAuth(ctx, &wg, token, AdminAuthConfig{
+		FailureThreshold: testFailureThreshold,
+		BlockDuration:    60 * time.Second,
+		CleanupInterval:  5 * time.Minute,
+		CleanupMaxAge:    2 * time.Minute,
+	}, logger)
 	return aa, func() {
 		aa.Close()
 		cancel()
@@ -36,7 +44,7 @@ func TestAdminAuth_ValidToken(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 	req.Header.Set("Authorization", "Bearer my-admin-token-12345")
 	rr := httptest.NewRecorder()
 
@@ -73,7 +81,7 @@ func TestAdminAuth_InvalidToken_FallsThrough(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 	req.Header.Set("Authorization", "Bearer wrong-token")
 	rr := httptest.NewRecorder()
 
@@ -94,12 +102,12 @@ func TestAdminAuth_EmptyToken_Disabled(t *testing.T) {
 	defer cleanup()
 
 	handlerCalled := false
-	handler := aa.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := aa.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		handlerCalled = true
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 	req.Header.Set("Authorization", "Bearer some-token")
 	rr := httptest.NewRecorder()
 
@@ -117,12 +125,12 @@ func TestAdminAuth_NoAuthHeader(t *testing.T) {
 	defer cleanup()
 
 	handlerCalled := false
-	handler := aa.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := aa.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		handlerCalled = true
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -138,14 +146,13 @@ func TestAdminAuth_RateLimiting(t *testing.T) {
 	aa, cleanup := newTestAdminAuth("my-admin-token-12345")
 	defer cleanup()
 
-	handler := aa.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := aa.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	// Send FailureThreshold failures
-	defaults := DefaultAdminAuthConfig()
-	for range defaults.FailureThreshold {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	for range testFailureThreshold {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 		req.Header.Set("Authorization", "Bearer wrong-token")
 		req.RemoteAddr = "192.168.1.1:1234"
 		rr := httptest.NewRecorder()
@@ -153,7 +160,7 @@ func TestAdminAuth_RateLimiting(t *testing.T) {
 	}
 
 	// Next request from same IP should be rate limited
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 	req.Header.Set("Authorization", "Bearer wrong-token")
 	req.RemoteAddr = "192.168.1.1:1234"
 	rr := httptest.NewRecorder()
@@ -164,7 +171,7 @@ func TestAdminAuth_RateLimiting(t *testing.T) {
 	}
 
 	// Different IP should not be rate limited
-	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 	req2.Header.Set("Authorization", "Bearer wrong-token")
 	req2.RemoteAddr = "10.0.0.1:1234"
 	rr2 := httptest.NewRecorder()
@@ -182,13 +189,13 @@ func TestAdminAuth_ValidTokenAfterFailures(t *testing.T) {
 	aa, cleanup := newTestAdminAuth(token)
 	defer cleanup()
 
-	handler := aa.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := aa.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	// Send some failures (below threshold)
 	for range 5 {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 		req.Header.Set("Authorization", "Bearer wrong-token")
 		req.RemoteAddr = "192.168.1.1:1234"
 		rr := httptest.NewRecorder()
@@ -196,7 +203,7 @@ func TestAdminAuth_ValidTokenAfterFailures(t *testing.T) {
 	}
 
 	// Valid token should still work
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.RemoteAddr = "192.168.1.1:1234"
 	rr := httptest.NewRecorder()
@@ -220,7 +227,7 @@ func TestAdminAuth_BearerCaseInsensitive(t *testing.T) {
 	}))
 
 	// "bearer" lowercase should also work
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 	req.Header.Set("Authorization", "bearer my-admin-token-12345")
 	rr := httptest.NewRecorder()
 

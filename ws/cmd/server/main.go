@@ -5,62 +5,61 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"runtime"
 	"syscall"
-	"time"
 
 	_ "go.uber.org/automaxprocs"
 
-	"github.com/klurvio/sukko/internal/server/backend"
-	"github.com/klurvio/sukko/internal/server/backend/directbackend"
-	"github.com/klurvio/sukko/internal/server/backend/jetstreambackend"
-	"github.com/klurvio/sukko/internal/server/backend/kafkabackend"
-	"github.com/klurvio/sukko/internal/server/broadcast"
-	"github.com/klurvio/sukko/internal/server/metrics"
-	"github.com/klurvio/sukko/internal/server/orchestration"
-	"github.com/klurvio/sukko/internal/shared/kafka"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/platform"
-	"github.com/klurvio/sukko/internal/shared/provapi"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend/directbackend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend/jetstreambackend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend/kafkabackend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/server/orchestration"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/provapi"
 )
 
 func main() {
-	var (
-		debug          = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
-		validateConfig = flag.Bool("validate-config", false, "validate configuration and exit")
-		numShards      = flag.Int("shards", 3, "number of shards to run")
-		basePort       = flag.Int("base-port", 3002, "base port for shards (e.g., 3002, 3003, ...)")
-		lbAddr         = flag.String("lb-addr", ":3005", "address for the load balancer to listen on")
-	)
-	flag.Parse()
-
-	// Create basic logger for startup
-	logger := log.New(os.Stdout, "[WS-MULTI] ", log.LstdFlags)
+	// Bootstrap logger for pre-config startup (zerolog without config dependency)
+	bootLogger := logging.BootstrapLogger("ws-server")
 
 	// automaxprocs automatically sets GOMAXPROCS based on container CPU limits
 	maxProcs := runtime.GOMAXPROCS(0)
-	logger.Printf("GOMAXPROCS: %d (via automaxprocs - rounds down to integer)", maxProcs)
+	bootLogger.Info().Int("gomaxprocs", maxProcs).Msg("GOMAXPROCS set via automaxprocs (rounds down to integer)")
 
 	// Load configuration from .env file and environment variables
 	cfg, err := platform.LoadServerConfig(nil) // Pass nil for now, structured logger created after
 	if err != nil {
-		logger.Fatalf("Failed to load configuration: %v", err)
+		bootLogger.Fatal().Err(err).Msg("Failed to load configuration")
 	}
+
+	// CLI flags use env var config as defaults (CLI overrides env overrides envDefault)
+	var (
+		debug          = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
+		validateConfig = flag.Bool("validate-config", false, "validate configuration and exit")
+		numShards      = flag.Int("shards", cfg.NumShards, "number of shards to run")
+		basePort       = flag.Int("base-port", cfg.BasePort, "base port for shards (e.g., 3002, 3003, ...)")
+		lbAddr         = flag.String("lb-addr", cfg.LBAddr, "address for the load balancer to listen on")
+	)
+	flag.Parse()
 
 	// Override debug mode if flag set
 	if *debug {
 		cfg.LogLevel = "debug"
-		logger.Printf("Debug mode enabled via flag")
+		bootLogger.Info().Msg("Debug mode enabled via flag")
 	}
 
 	// --validate-config: validate and exit
 	if *validateConfig {
 		cfg.Print()
-		logger.Println("Configuration is valid.")
+		bootLogger.Info().Msg("Configuration is valid")
 		os.Exit(0)
 	}
 
@@ -74,17 +73,23 @@ func main() {
 		Format:      logging.LogFormat(cfg.LogFormat),
 		ServiceName: "ws-server",
 	})
-	systemMonitor := metrics.GetSystemMonitor(structuredLogger)
-	systemMonitor.SetEWMABeta(cfg.CPUEWMABeta)
+	systemMonitor := metrics.GetSystemMonitor(structuredLogger, cfg.CPUEWMABeta)
 	systemMonitor.StartMonitoring(cfg.MetricsInterval, cfg.CPUPollInterval)
-	logger.Printf("SystemMonitor started (metrics: %v, cpu poll: %v)", cfg.MetricsInterval, cfg.CPUPollInterval)
+	structuredLogger.Info().
+		Dur("metrics_interval", cfg.MetricsInterval).
+		Dur("cpu_poll_interval", cfg.CPUPollInterval).
+		Msg("SystemMonitor started")
 
 	// Calculate max connections per shard
 	maxConnsPerShard := cfg.MaxConnections / *numShards
 	if maxConnsPerShard == 0 {
 		maxConnsPerShard = 1 // Ensure at least 1 connection per shard
 	}
-	logger.Printf("Total Max Connections: %d, Shards: %d, Max Connections per Shard: %d", cfg.MaxConnections, *numShards, maxConnsPerShard)
+	structuredLogger.Info().
+		Int("total_max_connections", cfg.MaxConnections).
+		Int("shards", *numShards).
+		Int("max_connections_per_shard", maxConnsPerShard).
+		Msg("Shard capacity calculated")
 
 	// Initialize central BroadcastBus (configurable backend: Valkey or NATS)
 	busLogger := logging.NewLogger(logging.LoggerConfig{
@@ -96,37 +101,60 @@ func main() {
 	// Build broadcast config based on BROADCAST_TYPE
 	busCfg := broadcast.Config{
 		Type:            cfg.BroadcastType,
-		BufferSize:      1024,
-		ShutdownTimeout: 5 * time.Second,
+		BufferSize:      cfg.BroadcastBufferSize,
+		ShutdownTimeout: cfg.BroadcastShutdownTimeout,
 		Valkey: broadcast.ValkeyConfig{
-			Addrs:       cfg.ValkeyAddrs,
-			MasterName:  cfg.ValkeyMasterName,
-			Password:    cfg.ValkeyPassword,
-			DB:          cfg.ValkeyDB,
-			Channel:     cfg.ValkeyChannel,
-			TLSEnabled:  cfg.ValkeyTLSEnabled,
-			TLSInsecure: cfg.ValkeyTLSInsecure,
-			TLSCAPath:   cfg.ValkeyTLSCAPath,
+			Addrs:                     cfg.ValkeyAddrs,
+			MasterName:                cfg.ValkeyMasterName,
+			Password:                  cfg.ValkeyPassword,
+			DB:                        cfg.ValkeyDB,
+			Channel:                   cfg.ValkeyChannel,
+			TLSEnabled:                cfg.ValkeyTLSEnabled,
+			TLSInsecure:               cfg.ValkeyTLSInsecure,
+			TLSCAPath:                 cfg.ValkeyTLSCAPath,
+			PoolSize:                  cfg.ValkeyPoolSize,
+			MinIdleConns:              cfg.ValkeyMinIdleConns,
+			DialTimeout:               cfg.ValkeyDialTimeout,
+			ReadTimeout:               cfg.ValkeyReadTimeout,
+			WriteTimeout:              cfg.ValkeyWriteTimeout,
+			MaxRetries:                cfg.ValkeyMaxRetries,
+			MinRetryBackoff:           cfg.ValkeyMinRetryBackoff,
+			MaxRetryBackoff:           cfg.ValkeyMaxRetryBackoff,
+			PublishTimeout:            cfg.ValkeyPublishTimeout,
+			StartupPingTimeout:        cfg.ValkeyStartupPingTimeout,
+			ReconnectInitialBackoff:   cfg.ValkeyReconnectInitialBackoff,
+			ReconnectMaxBackoff:       cfg.ValkeyReconnectMaxBackoff,
+			ReconnectMaxAttempts:      cfg.ValkeyReconnectMaxAttempts,
+			HealthCheckInterval:       cfg.ValkeyHealthCheckInterval,
+			HealthCheckTimeout:        cfg.ValkeyHealthCheckTimeout,
+			PublishStalenessThreshold: cfg.ValkeyPublishStalenessThreshold,
 		},
 		NATS: broadcast.NATSConfig{
-			URLs:        cfg.NATSURLs,
-			ClusterMode: cfg.NATSClusterMode,
-			Subject:     cfg.NATSSubject,
-			Token:       cfg.NATSToken,
-			User:        cfg.NATSUser,
-			Password:    cfg.NATSPassword,
-			TLSEnabled:  cfg.NATSTLSEnabled,
-			TLSInsecure: cfg.NATSTLSInsecure,
-			TLSCAPath:   cfg.NATSTLSCAPath,
+			URLs:                cfg.NATSURLs,
+			ClusterMode:         cfg.NATSClusterMode,
+			Subject:             cfg.NATSSubject,
+			Token:               cfg.NATSToken,
+			User:                cfg.NATSUser,
+			Password:            cfg.NATSPassword,
+			TLSEnabled:          cfg.NATSTLSEnabled,
+			TLSInsecure:         cfg.NATSTLSInsecure,
+			TLSCAPath:           cfg.NATSTLSCAPath,
+			ReconnectWait:       cfg.NATSReconnectWait,
+			MaxReconnects:       cfg.NATSMaxReconnects,
+			ReconnectBufSize:    cfg.NATSReconnectBufSize,
+			PingInterval:        cfg.NATSPingInterval,
+			MaxPingsOutstanding: cfg.NATSMaxPingsOutstanding,
+			HealthCheckInterval: cfg.NATSHealthCheckInterval,
+			FlushTimeout:        cfg.NATSFlushTimeout,
 		},
 	}
 
 	broadcastBus, err := broadcast.NewBus(busCfg, busLogger)
 	if err != nil {
-		logger.Fatalf("Failed to create BroadcastBus: %v", err)
+		structuredLogger.Fatal().Err(err).Msg("Failed to create BroadcastBus")
 	}
 
-	logger.Printf("BroadcastBus initialized (type: %s)", cfg.BroadcastType)
+	structuredLogger.Info().Str("type", cfg.BroadcastType).Msg("BroadcastBus initialized")
 	broadcastBus.Run()
 
 	// Create pluggable message backend based on MESSAGE_BACKEND env var
@@ -151,19 +179,39 @@ func main() {
 			DefaultTenantID:          cfg.DefaultTenantID,
 			DefaultPartitions:        cfg.KafkaDefaultPartitions,
 			DefaultReplicationFactor: cfg.KafkaDefaultReplicationFactor,
-			MaxKafkaMessagesPerSec:   cfg.MaxKafkaRate,
-			MaxBroadcastsPerSec:      cfg.MaxBroadcastRate,
+			MaxKafkaMessagesPerSec:   cfg.MaxKafkaMessagesPerSec,
+			MaxBroadcastsPerSec:      cfg.MaxBroadcastsPerSec,
+			RateLimitBurstMultiplier: cfg.RateLimitBurstMultiplier,
 			CPUPauseThreshold:        cfg.CPUPauseThreshold,
 			CPUPauseThresholdLower:   cfg.CPUPauseThresholdLower,
 			CPURejectThreshold:       cfg.CPURejectThreshold,
 			CPURejectThresholdLower:  cfg.CPURejectThresholdLower,
-			LogLevel:                 cfg.LogLevel,
-			LogFormat:                cfg.LogFormat,
+			Logger:                   structuredLogger,
 			ProvisioningGRPCAddr:     cfg.ProvisioningGRPCAddr,
 			GRPCReconnectDelay:       cfg.GRPCReconnectDelay,
 			GRPCReconnectMaxDelay:    cfg.GRPCReconnectMaxDelay,
 			TopicRefreshInterval:     cfg.TopicRefreshInterval,
+			TopicCreationTimeout:     cfg.TopicCreationTimeout,
 			BroadcastBus:             broadcastBus,
+			// Kafka producer tuning
+			ProducerBatchMaxBytes:             cfg.KafkaProducerBatchMaxBytes,
+			ProducerMaxBufferedRecs:           cfg.KafkaProducerMaxBufferedRecords,
+			ProducerRecordRetries:             cfg.KafkaProducerRecordRetries,
+			ProducerCircuitBreakerTimeout:     cfg.KafkaProducerCBTimeout,
+			ProducerCircuitBreakerMaxFailures: cfg.KafkaProducerCBMaxFailures,
+			ProducerCircuitBreakerHalfOpen:    cfg.KafkaProducerCBHalfOpenReqs,
+			ProducerTopicCacheTTL:             cfg.KafkaProducerTopicCacheTTL,
+			// Kafka consumer tuning
+			KafkaBatchSize:    cfg.KafkaBatchSize,
+			KafkaBatchTimeout: cfg.KafkaBatchTimeout,
+			// Kafka consumer transport tuning
+			KafkaFetchMaxWait:              cfg.KafkaFetchMaxWait,
+			KafkaFetchMinBytes:             cfg.KafkaFetchMinBytes,
+			KafkaFetchMaxBytes:             cfg.KafkaFetchMaxBytes,
+			KafkaSessionTimeout:            cfg.KafkaSessionTimeout,
+			KafkaRebalanceTimeout:          cfg.KafkaRebalanceTimeout,
+			KafkaReplayFetchMaxBytes:       cfg.KafkaReplayFetchMaxBytes,
+			KafkaBackpressureCheckInterval: cfg.KafkaBackpressureCheckInterval,
 		})
 	case "nats":
 		// Create a StreamTopicRegistry for tenant discovery via gRPC
@@ -181,7 +229,7 @@ func main() {
 			Logger:            registryLogger,
 		})
 		if regErr != nil {
-			logger.Fatalf("Failed to create topic registry for JetStream: %v", regErr)
+			structuredLogger.Fatal().Err(regErr).Msg("Failed to create topic registry for JetStream")
 		}
 
 		msgBackend, err = jetstreambackend.New(jetstreambackend.Config{
@@ -193,28 +241,38 @@ func main() {
 			TLSInsecure:     cfg.NATSJetStreamTLSInsecure,
 			TLSCAPath:       cfg.NATSJetStreamTLSCAPath,
 			Replicas:        cfg.NATSJetStreamReplicas,
-			MaxAge:          cfg.NATSJetStreamMaxAge,
+			MaxAge:          cfg.JetStreamMaxAge,
 			Namespace:       topicNamespace,
 			BroadcastBus:    broadcastBus,
 			Registry:        topicRegistry,
-			RefreshInterval: cfg.TopicRefreshInterval,
+			RefreshInterval: cfg.JetStreamRefreshInterval,
 			LogLevel:        cfg.LogLevel,
 			LogFormat:       cfg.LogFormat,
+			ReconnectWait:   cfg.JetStreamReconnectWait,
+			MaxDeliver:      cfg.JetStreamMaxDeliver,
+			AckWait:         cfg.JetStreamAckWait,
+			RefreshTimeout:  cfg.JetStreamRefreshTimeout,
+			ReplayFetchWait: cfg.JetStreamReplayFetchWait,
 		})
 	default:
-		logger.Fatalf("Unknown message backend: %q (valid: direct, kafka, nats)", cfg.MessageBackend)
+		structuredLogger.Fatal().Str("backend", cfg.MessageBackend).Msg("Unknown message backend (valid: direct, kafka, nats)")
 	}
 	if err != nil {
-		logger.Fatalf("Failed to create message backend: %v", err)
+		structuredLogger.Fatal().Err(err).Str("backend", cfg.MessageBackend).Msg("Failed to create message backend")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	if err := msgBackend.Start(ctx); err != nil {
-		logger.Fatalf("Failed to start message backend: %v", err)
+		structuredLogger.Fatal().Err(err).Str("backend", cfg.MessageBackend).Msg("Failed to start message backend")
 	}
-	logger.Printf("Message backend started (type: %s)", cfg.MessageBackend)
+	structuredLogger.Info().Str("backend", cfg.MessageBackend).Msg("Message backend started")
+
+	// Initialize alerter from validated config
+	alertCfg := cfg.AlertConfig()
+	alertCfg.Logger = structuredLogger
+	alerter := alerting.NewFromConfig(alertCfg)
 
 	// Create and start shards
 	shards := make([]*orchestration.Shard, *numShards)
@@ -224,66 +282,23 @@ func main() {
 		// Advertise address: 127.0.0.1 (IPv4 loopback) for LoadBalancer to connect to
 		shardAdvertiseAddr := fmt.Sprintf("127.0.0.1:%d", *basePort+i)
 
-		shardConfig := types.ServerConfig{
-			Addr:           shardBindAddr,
-			Environment:    cfg.Environment,
-			MaxConnections: maxConnsPerShard,
-
-			MemoryLimit:            cfg.MemoryLimit,
-			MaxKafkaMessagesPerSec: cfg.MaxKafkaRate,
-			MaxBroadcastsPerSec:    cfg.MaxBroadcastRate,
-			MaxGoroutines:          cfg.MaxGoroutines,
-
-			// Connection rate limiting (DoS protection)
-			ConnectionRateLimitEnabled: cfg.ConnectionRateLimitEnabled,
-			ConnRateLimitIPBurst:       cfg.ConnRateLimitIPBurst,
-			ConnRateLimitIPRate:        cfg.ConnRateLimitIPRate,
-			ConnRateLimitGlobalBurst:   cfg.ConnRateLimitGlobalBurst,
-			ConnRateLimitGlobalRate:    cfg.ConnRateLimitGlobalRate,
-
-			CPURejectThreshold:      cfg.CPURejectThreshold,
-			CPURejectThresholdLower: cfg.CPURejectThresholdLower,
-			CPUPauseThreshold:       cfg.CPUPauseThreshold,
-			CPUPauseThresholdLower:  cfg.CPUPauseThresholdLower,
-
-			// Client buffer configuration
-			ClientSendBufferSize: cfg.ClientSendBufferSize,
-
-			// Slow client detection
-			SlowClientMaxAttempts: cfg.SlowClientMaxAttempts,
-
-			// TCP/HTTP tuning (trading platform burst tolerance)
-			TCPListenBacklog: cfg.TCPListenBacklog,
-			HTTPReadTimeout:  cfg.HTTPReadTimeout,
-			HTTPWriteTimeout: cfg.HTTPWriteTimeout,
-			HTTPIdleTimeout:  cfg.HTTPIdleTimeout,
-
-			MetricsInterval: cfg.MetricsInterval,
-			LogLevel:        types.LogLevel(cfg.LogLevel),
-			LogFormat:       types.LogFormat(cfg.LogFormat),
-
-			// WebSocket ping/pong timing
-			PongWait:   cfg.PongWait,
-			PingPeriod: cfg.PingPeriod,
-			WriteWait:  cfg.WriteWait,
-		}
-
 		shard, err := orchestration.NewShard(orchestration.ShardConfig{
 			ID:             i,
 			Addr:           shardBindAddr,
 			AdvertiseAddr:  shardAdvertiseAddr,
-			ServerConfig:   shardConfig,
+			Config:         cfg,
 			BroadcastBus:   broadcastBus,
 			MessageBackend: msgBackend,
+			Alerter:        alerter,
 			Logger:         logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: "ws-server"}),
 			MaxConnections: maxConnsPerShard,
 		})
 		if err != nil {
-			logger.Fatalf("Failed to create shard %d: %v", i, err)
+			structuredLogger.Fatal().Err(err).Int("shard_id", i).Msg("Failed to create shard")
 		}
 
 		if err := shard.Start(); err != nil {
-			logger.Fatalf("Failed to start shard %d: %v", i, err)
+			structuredLogger.Fatal().Err(err).Int("shard_id", i).Msg("Failed to start shard")
 		}
 		shards[i] = shard
 	}
@@ -294,16 +309,19 @@ func main() {
 		Shards: shards,
 		Logger: logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: "ws-server"}),
 		// TCP/HTTP tuning for trading platform burst tolerance
-		HTTPReadTimeout:  cfg.HTTPReadTimeout,
-		HTTPWriteTimeout: cfg.HTTPWriteTimeout,
-		HTTPIdleTimeout:  cfg.HTTPIdleTimeout,
-		ConfigHandler:    platform.ConfigHandler(cfg),
+		HTTPReadTimeout:            cfg.HTTPReadTimeout,
+		HTTPWriteTimeout:           cfg.HTTPWriteTimeout,
+		HTTPIdleTimeout:            cfg.HTTPIdleTimeout,
+		ConfigHandler:              platform.ConfigHandler(cfg),
+		ShardDialTimeout:           cfg.ShardDialTimeout,
+		ShardMessageTimeout:        cfg.ShardMessageTimeout,
+		MetricsAggregationInterval: cfg.MetricsAggregationInterval,
 	})
 	if err != nil {
-		logger.Fatalf("Failed to create load balancer: %v", err)
+		structuredLogger.Fatal().Err(err).Msg("Failed to create load balancer")
 	}
 	if err := lb.Start(); err != nil {
-		logger.Fatalf("Failed to start load balancer: %v", err)
+		structuredLogger.Fatal().Err(err).Msg("Failed to start load balancer")
 	}
 
 	// Wait for interrupt signal
@@ -311,7 +329,7 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
 
-	logger.Println("Shutting down multi-core server...")
+	structuredLogger.Info().Msg("Shutting down multi-core server")
 
 	// Shutdown LoadBalancer
 	lb.Shutdown()
@@ -319,15 +337,15 @@ func main() {
 	// Shutdown shards
 	for _, shard := range shards {
 		if err := shard.Shutdown(); err != nil {
-			logger.Printf("Error during shard %d shutdown: %v", shard.ID, err)
+			structuredLogger.Error().Err(err).Int("shard_id", shard.ID).Msg("Error during shard shutdown")
 		}
 	}
 
 	// Shutdown message backend (stops pool, producer, registry)
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownGracePeriod)
 	defer shutdownCancel()
 	if err := msgBackend.Shutdown(shutdownCtx); err != nil {
-		logger.Printf("Error shutting down message backend: %v", err)
+		structuredLogger.Error().Err(err).Msg("Error shutting down message backend")
 	}
 
 	// Shutdown BroadcastBus
@@ -335,7 +353,7 @@ func main() {
 
 	// Shutdown SystemMonitor
 	systemMonitor.Shutdown()
-	logger.Println("SystemMonitor shut down")
+	structuredLogger.Info().Msg("SystemMonitor shut down")
 
-	logger.Println("Multi-core server gracefully shut down.")
+	structuredLogger.Info().Msg("Multi-core server gracefully shut down")
 }

@@ -14,6 +14,8 @@ import (
 
 // GatewayConfig holds gateway configuration loaded from environment variables.
 type GatewayConfig struct {
+	BaseConfig
+
 	// Server settings
 	Port         int           `env:"GATEWAY_PORT" envDefault:"3000"`
 	ReadTimeout  time.Duration `env:"GATEWAY_READ_TIMEOUT" envDefault:"15s"`
@@ -25,13 +27,17 @@ type GatewayConfig struct {
 	DialTimeout    time.Duration `env:"GATEWAY_DIAL_TIMEOUT" envDefault:"10s"`
 	MessageTimeout time.Duration `env:"GATEWAY_MESSAGE_TIMEOUT" envDefault:"60s"`
 
+	// MaxFrameSize is the maximum allowed WebSocket frame size in bytes.
+	// Frames exceeding this are rejected before payload allocation to prevent OOM.
+	MaxFrameSize int `env:"GATEWAY_MAX_FRAME_SIZE" envDefault:"1048576"` // 1MB = protocol.DefaultMaxFrameSize
+
 	// Authentication (multi-tenant with asymmetric keys)
-	// TODO: Change envDefault to "true" when sukko-api auth integration is production-ready
+	// TODO: Change envDefault to "true" when odin-api auth integration is production-ready
 	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"false"`
 
 	// DefaultTenantID disables multi-tenant support. All connections
 	// are routed to this tenant. Only used when AUTH_ENABLED=false.
-	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
+	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
 
 	// Provisioning service gRPC connection (provides keys, OIDC config, channel rules via streaming)
 	ProvisioningGRPCAddr  string        `env:"PROVISIONING_GRPC_ADDR" envDefault:"localhost:9090"`
@@ -82,19 +88,21 @@ type GatewayConfig struct {
 	// Publish-specific settings
 	PublishRateLimit float64 `env:"GATEWAY_PUBLISH_RATE_LIMIT" envDefault:"10.0"` // Messages per second
 	PublishBurst     int     `env:"GATEWAY_PUBLISH_BURST" envDefault:"100"`       // Burst capacity
-	MaxPublishSize   int     `env:"GATEWAY_MAX_PUBLISH_SIZE" envDefault:"65536"`  // Max message size (64KB)
+	MaxPublishSize   int     `env:"GATEWAY_MAX_PUBLISH_SIZE" envDefault:"65536"`  // Max message size (64KB = protocol.DefaultMaxPublishSize)
 
 	// Auth refresh settings
 	AuthRefreshRateInterval time.Duration `env:"GATEWAY_AUTH_REFRESH_RATE_INTERVAL" envDefault:"30s"`
 
-	// Logging
-	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
-	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
+	// Auth validation timeout for intercepting auth refresh operations
+	AuthValidationTimeout time.Duration `env:"GATEWAY_AUTH_VALIDATION_TIMEOUT" envDefault:"5s"`
 
-	// Environment — deployment identity label, used for Kafka topic namespace, consumer
-	// group naming, and safety guards. Free-form: any string works as deployment identity.
-	// Sukko uses: local | dev | stg | prod by convention.
-	Environment string `env:"ENVIRONMENT" envDefault:"local"`
+	// Graceful shutdown timeout
+	ShutdownTimeout time.Duration `env:"GATEWAY_SHUTDOWN_TIMEOUT" envDefault:"30s"`
+
+	// Tenant registry cache TTLs (postgres-backed registry)
+	IssuerCacheTTL       time.Duration `env:"GATEWAY_ISSUER_CACHE_TTL" envDefault:"5m"`
+	ChannelRulesCacheTTL time.Duration `env:"GATEWAY_CHANNEL_RULES_CACHE_TTL" envDefault:"1m"`
+	RegistryQueryTimeout time.Duration `env:"GATEWAY_REGISTRY_QUERY_TIMEOUT" envDefault:"5s"`
 }
 
 // LoadGatewayConfig reads gateway configuration from environment variables.
@@ -122,8 +130,32 @@ func LoadGatewayConfig(logger *zerolog.Logger) (*GatewayConfig, error) {
 
 // Validate checks gateway configuration for errors.
 func (c *GatewayConfig) Validate() error {
-	if c.Port < 1 || c.Port > 65535 {
-		return fmt.Errorf("GATEWAY_PORT must be between 1 and 65535, got %d", c.Port)
+	if c.Port < 1 || c.Port > MaxPort {
+		return fmt.Errorf("GATEWAY_PORT must be between 1 and %d, got %d", MaxPort, c.Port)
+	}
+
+	// MaxFrameSize validation (1KB-10MB, default already applied above)
+	if c.MaxFrameSize < MinFrameSize || c.MaxFrameSize > MaxFrameSizeLimit {
+		return fmt.Errorf("GATEWAY_MAX_FRAME_SIZE must be between %d and %d, got %d", MinFrameSize, MaxFrameSizeLimit, c.MaxFrameSize)
+	}
+
+	// HTTP timeout validation
+	if c.ReadTimeout < MinTimeout || c.ReadTimeout > MaxReadWriteTimeout {
+		return fmt.Errorf("GATEWAY_READ_TIMEOUT must be %v-%v, got %v", MinTimeout, MaxReadWriteTimeout, c.ReadTimeout)
+	}
+	if c.WriteTimeout < MinTimeout || c.WriteTimeout > MaxReadWriteTimeout {
+		return fmt.Errorf("GATEWAY_WRITE_TIMEOUT must be %v-%v, got %v", MinTimeout, MaxReadWriteTimeout, c.WriteTimeout)
+	}
+	if c.IdleTimeout < MinTimeout || c.IdleTimeout > MaxIdleTimeout {
+		return fmt.Errorf("GATEWAY_IDLE_TIMEOUT must be %v-%v, got %v", MinTimeout, MaxIdleTimeout, c.IdleTimeout)
+	}
+
+	// Backend connection validation
+	if c.DialTimeout < MinTimeout || c.DialTimeout > MaxDialTimeout {
+		return fmt.Errorf("GATEWAY_DIAL_TIMEOUT must be %v-%v, got %v", MinTimeout, MaxDialTimeout, c.DialTimeout)
+	}
+	if c.MessageTimeout < MinTimeout || c.MessageTimeout > MaxMessageTimeout {
+		return fmt.Errorf("GATEWAY_MESSAGE_TIMEOUT must be %v-%v, got %v", MinTimeout, MaxMessageTimeout, c.MessageTimeout)
 	}
 
 	// Require provisioning gRPC address when auth is enabled
@@ -178,12 +210,56 @@ func (c *GatewayConfig) Validate() error {
 		return errors.New("GATEWAY_PUBLIC_PATTERNS must have at least one pattern")
 	}
 
-	if err := ValidateLogLevel(c.LogLevel); err != nil {
+	if err := c.BaseConfig.Validate(); err != nil {
 		return err
 	}
 
-	if err := ValidateLogFormat(c.LogFormat); err != nil {
-		return err
+	// Rate limit validation (when enabled)
+	if c.RateLimitEnabled {
+		if c.RateLimitBurst < 1 {
+			return fmt.Errorf("GATEWAY_RATE_LIMIT_BURST must be >= 1, got %d", c.RateLimitBurst)
+		}
+		if c.RateLimitRate <= 0 {
+			return fmt.Errorf("GATEWAY_RATE_LIMIT_RATE must be > 0, got %f", c.RateLimitRate)
+		}
+	}
+
+	// Publish settings validation
+	if c.PublishBurst < 1 {
+		return fmt.Errorf("GATEWAY_PUBLISH_BURST must be >= 1, got %d", c.PublishBurst)
+	}
+	if c.PublishRateLimit <= 0 {
+		return fmt.Errorf("GATEWAY_PUBLISH_RATE_LIMIT must be > 0, got %f", c.PublishRateLimit)
+	}
+	if c.MaxPublishSize < MinFrameSize || c.MaxPublishSize > MaxFrameSizeLimit {
+		return fmt.Errorf("GATEWAY_MAX_PUBLISH_SIZE must be %d-%d, got %d", MinFrameSize, MaxFrameSizeLimit, c.MaxPublishSize)
+	}
+
+	// JWKS refresh interval (when multi-issuer enabled)
+	if c.MultiIssuerOIDCEnabled && c.JWKSRefreshInterval < time.Minute {
+		return fmt.Errorf("GATEWAY_JWKS_REFRESH_INTERVAL must be >= 1m, got %v", c.JWKSRefreshInterval)
+	}
+
+	// Tenant connection limit (when enabled)
+	if c.TenantConnectionLimitEnabled && c.DefaultTenantConnectionLimit < 1 {
+		return fmt.Errorf("DEFAULT_TENANT_CONNECTION_LIMIT must be >= 1, got %d", c.DefaultTenantConnectionLimit)
+	}
+
+	// New externalized duration fields (FR-026a: reject non-positive)
+	if c.AuthValidationTimeout <= 0 {
+		return fmt.Errorf("GATEWAY_AUTH_VALIDATION_TIMEOUT must be > 0, got %v", c.AuthValidationTimeout)
+	}
+	if c.ShutdownTimeout <= 0 {
+		return fmt.Errorf("GATEWAY_SHUTDOWN_TIMEOUT must be > 0, got %v", c.ShutdownTimeout)
+	}
+	if c.IssuerCacheTTL <= 0 {
+		return fmt.Errorf("GATEWAY_ISSUER_CACHE_TTL must be > 0, got %v", c.IssuerCacheTTL)
+	}
+	if c.ChannelRulesCacheTTL <= 0 {
+		return fmt.Errorf("GATEWAY_CHANNEL_RULES_CACHE_TTL must be > 0, got %v", c.ChannelRulesCacheTTL)
+	}
+	if c.RegistryQueryTimeout <= 0 {
+		return fmt.Errorf("GATEWAY_REGISTRY_QUERY_TIMEOUT must be > 0, got %v", c.RegistryQueryTimeout)
 	}
 
 	return nil
@@ -211,6 +287,7 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		Bool("rate_limit_enabled", c.RateLimitEnabled).
 		Int("rate_limit_burst", c.RateLimitBurst).
 		Float64("rate_limit_rate", c.RateLimitRate).
+		Int("max_frame_size", c.MaxFrameSize).
 		Dur("auth_refresh_rate_interval", c.AuthRefreshRateInterval).
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat)

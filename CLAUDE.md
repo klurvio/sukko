@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Sukko WS is a multi-tenant WebSocket infrastructure platform built in Go. It provides real-time data distribution for trading/market data via a gateway → server → client pipeline, with Kafka/Redpanda ingestion and NATS broadcast.
+Odin WS is a multi-tenant WebSocket infrastructure platform built in Go. It provides real-time data distribution for trading/market data via a gateway → server → client pipeline, with Kafka/Redpanda ingestion and NATS broadcast.
 
 **Services:**
 - **ws-gateway** — WebSocket reverse proxy with JWT auth, tenant isolation, rate limiting, connection tracking
@@ -15,7 +15,7 @@ Sukko WS is a multi-tenant WebSocket infrastructure platform built in Go. It pro
 
 ```bash
 # Go
-cd ws && go test ./...          # Run all tests
+cd ws && go test -race ./...    # Run all tests with race detector
 cd ws && go vet ./...           # Static analysis
 cd ws && go build ./cmd/server  # Build ws-server
 cd ws && go build ./cmd/gateway # Build gateway
@@ -26,22 +26,22 @@ task k8s:deploy ENV=dev         # Helm deploy to GKE
 task k8s:build:push:ws-server ENV=dev  # Build single service
 
 # Helm
-helm lint deployments/helm/sukko/charts/ws-server
-helm lint deployments/helm/sukko/charts/ws-gateway
+helm lint deployments/helm/odin/charts/ws-server
+helm lint deployments/helm/odin/charts/ws-gateway
 
 # Terraform
 cd deployments/terraform/environments/standard/dev && terraform plan
 
 # Logs
-kubectl logs -n sukko-dev -l app.kubernetes.io/name=ws-server --tail=50
-kubectl logs -n sukko-dev -l app.kubernetes.io/name=ws-gateway --tail=50
+kubectl logs -n odin-ws-dev -l app.kubernetes.io/name=ws-server --tail=50
+kubectl logs -n odin-ws-dev -l app.kubernetes.io/name=ws-gateway --tail=50
 ```
 
 ## Architecture
 
 ### Data Flow
 ```
-Sukko API → Redpanda (Kafka) → ws-server (franz-go consumer)
+Odin API → Redpanda (Kafka) → ws-server (franz-go consumer)
     → NATS broadcast bus → ws-server shards → WebSocket clients
                                     ↑
                               ws-gateway (reverse proxy, auth, rate limiting)
@@ -68,9 +68,9 @@ ws/
 │       ├── types/       # Core type definitions
 │       └── testutil/    # Shared test utilities
 ├── proto/               # Protobuf definitions (buf-managed)
-│   └── sukko/provisioning/v1/ # Provisioning gRPC service
+│   └── odin/provisioning/v1/ # Provisioning gRPC service
 deployments/
-├── helm/sukko/           # Helm charts (ws-server, ws-gateway, monitoring, etc.)
+├── helm/odin/           # Helm charts (ws-server, ws-gateway, monitoring, etc.)
 │   ├── charts/          # Subchart definitions
 │   └── values/standard/ # Environment overrides (dev.yaml, stg.yaml)
 ├── terraform/           # GKE, Cloud NAT, VPC, static IPs
@@ -93,24 +93,31 @@ docs/architecture/       # Plans, findings, session handoffs
 - **Docker** multi-stage builds → Google Artifact Registry
 
 ### Configuration Pattern
-All configuration uses `caarlos0/env` struct tags. Go `envDefault` values are the single source of truth for defaults:
+All configuration uses `caarlos0/env` struct tags. Go `envDefault` values are the single source of truth for defaults. Fields shared across services live in `platform.BaseConfig` (embedded by each service config):
 ```go
-type Config struct {
-    Port int `env:"GATEWAY_PORT" envDefault:"3000"`
+type BaseConfig struct {
+    LogLevel    string `env:"LOG_LEVEL" envDefault:"info"`
+    LogFormat   string `env:"LOG_FORMAT" envDefault:"json"`
+    Environment string `env:"ENVIRONMENT" envDefault:"local"`
+}
+
+type ServerConfig struct {
+    BaseConfig // embedded — fields promoted, parsed transparently by caarlos0/env
+    Port int   `env:"SERVER_PORT" envDefault:"8080"`
 }
 ```
 Helm and Docker Compose override via env vars only when a deployment needs a non-default value. Helm templates auto-wire Kubernetes service discovery (e.g., `{{ .Release.Name }}-nats`). Env var names in Go MUST match Helm template values.
 
 ## Commit Message Format
 
-Conventional commits with GitHub issue number required:
+Conventional commits:
 ```
-type[#issue]: subject (min 4 chars)
+type: subject (min 4 chars)
 
 Examples:
-feat[#42]: add tenant connection tracking
-fix[#15]: resolve kafka consumer offset reset
-refactor[#7]: remove legacy metrics collector
+feat: add tenant connection tracking
+fix: resolve kafka consumer offset reset
+refactor: remove legacy metrics collector
 ```
 
 Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
@@ -123,11 +130,11 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.5.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-02
+**Version**: 1.8.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-16
 
 ### I. Configuration
 
-Every configurable parameter MUST be externalized via environment variables with `env:` struct tags. Go `envDefault:` values are the **single source of truth** for all configuration defaults — they MUST reflect production-intended values. Helm values and Docker Compose MUST NOT duplicate Go defaults; they override via env vars ONLY when a deployment requires a value different from the Go default (e.g., Kubernetes service discovery addresses, mode selections, resource-derived limits). Helm templates MUST NOT compute derived values — derived configuration MUST be computed in Go. Magic numbers MUST be named constants or configuration. Magic strings (URLs, broker addresses, topic names, tenant IDs, namespace prefixes) MUST NOT be hardcoded — they MUST come from configuration or be constructed from configured values. All configuration MUST be validated at startup with clear error messages. Hysteresis thresholds MUST enforce `lower < upper`. Enum values MUST be validated against allowed sets. Invalid configuration MUST cause immediate startup failure, not silent degradation.
+Every configurable parameter MUST be externalized via environment variables with `env:` struct tags. Go `envDefault:` values are the **single source of truth** for all configuration defaults — they MUST reflect production-intended values. Helm values and Docker Compose MUST NOT duplicate Go defaults; they override via env vars ONLY when a deployment requires a value different from the Go default (e.g., Kubernetes service discovery addresses, mode selections, resource-derived limits). Helm templates MUST NOT compute derived values — derived configuration MUST be computed in Go. Magic numbers MUST be named constants or configuration. Magic strings (URLs, broker addresses, topic names, tenant IDs, namespace prefixes) MUST NOT be hardcoded — they MUST come from configuration or be constructed from configured values. All configuration MUST be validated at startup with clear error messages. Hysteresis thresholds MUST enforce `lower < upper`. Enum values MUST be validated against allowed sets. Invalid configuration MUST cause immediate startup failure, not silent degradation. Configuration fields shared across multiple services (e.g., `Environment`, `LogLevel`, `LogFormat`) MUST be defined once in `platform.BaseConfig` and embedded by each service config — never duplicated across config structs. Shared and internal packages MUST NOT define their own defaults for deployment-level or runtime-critical settings (e.g., environment, namespace, tenant ID); they MUST receive these values from callers. Constructors and initializers that accept configuration from external or unvalidated sources MUST validate required fields and return an error when critical values are missing or empty — silent defaulting that could cause the system to run with wrong state is forbidden. Constructors that receive config structs already validated by the platform config layer (`Validate()` at startup) are exempt from re-validation; the config layer is the single validation boundary for deployment-level settings. CLI flags (e.g., `flag.Int`) MUST use layered defaults: load config from env vars first, then use the config value as the flag default — so the precedence is CLI flag > env var > `envDefault`. CLI flags MUST NOT define their own independent defaults; doing so creates a second source of truth that diverges from the env var config. Example: `flag.Int("shards", cfg.NumShards, "...")` where `cfg.NumShards` comes from `env:"WS_NUM_SHARDS" envDefault:"3"`.
 
 ### II. Defense in Depth
 
@@ -198,7 +205,7 @@ Shutdown ordering MUST be: cancel context → `wg.Wait()` for goroutines → clo
 
 ### VIII. Testing
 
-Tests MUST be table-driven for multiple cases. Mocks MUST use interfaces. `t.Parallel()` MUST NOT be used on tests with shared resources (databases, external services, `*_shared_test.go`). Edge cases MUST be covered (empty, nil, max values, error paths).
+Tests MUST be run with Go's race detector (`-race` flag) in local development and CI. The race detector is the primary automated enforcement mechanism for VII (Concurrency Safety). Test runs without `-race` MUST NOT be considered passing. Tests MUST be table-driven for multiple cases. Mocks MUST use interfaces. `t.Parallel()` MUST NOT be used on tests with shared resources (databases, external services, `*_shared_test.go`). Edge cases MUST be covered (empty, nil, max values, error paths).
 
 **Test coverage for all changes is mandatory:**
 - **Bug fixes** MUST update or add unit tests that reproduce the bug and verify the fix. If existing tests missed the bug, they MUST be strengthened.
@@ -216,7 +223,7 @@ Before writing any new utility, `internal/shared/` MUST be checked for existing 
 
 ### XI. Prior Art Research
 
-Before designing any new feature or protocol extension, the implementation approach MUST be informed by how established real-time/WebSocket services have solved the same problem. Reference services: Pusher Channels, Ably, Socket.IO, Phoenix Channels, Centrifugo, NATS WebSocket. Research MUST identify: (1) the common industry pattern for the feature, (2) edge cases and failure modes that mature implementations handle, (3) where Sukko's architecture requires deviation from the common pattern — with documented rationale for the deviation. "Not invented here" solutions to solved problems are forbidden.
+Before designing any new feature or protocol extension, the implementation approach MUST be informed by how established real-time/WebSocket services have solved the same problem. Reference services: Pusher Channels, Ably, Socket.IO, Phoenix Channels, Centrifugo, NATS WebSocket. Research MUST identify: (1) the common industry pattern for the feature, (2) edge cases and failure modes that mature implementations handle, (3) where Odin's architecture requires deviation from the common pattern — with documented rationale for the deviation. "Not invented here" solutions to solved problems are forbidden.
 
 ### XII. API Design
 
@@ -228,7 +235,7 @@ Before designing any new feature or protocol extension, the implementation appro
 - All response writing MUST use `shared/httputil/` helpers (`WriteJSON`, `WriteError`). Raw `w.Write()` in handlers is forbidden.
 
 **gRPC** — All internal service-to-service communication MUST use gRPC with protobuf.
-- Proto files MUST live in `ws/proto/` with package naming `sukko.{service}.v1`. Style: `PascalCase` messages/services, `snake_case` fields, `UPPER_SNAKE_CASE` enums. Code generation via `buf generate`; generated code committed to repo. `buf lint` MUST pass in CI.
+- Proto files MUST live in `ws/proto/` with package naming `odin.{service}.v1`. Style: `PascalCase` messages/services, `snake_case` fields, `UPPER_SNAKE_CASE` enums. Code generation via `buf generate`; generated code committed to repo. `buf lint` MUST pass in CI.
 - Server-side streaming MUST be used for real-time data push (watch/subscribe). Unary RPCs for request-response.
 - gRPC status codes MUST map to domain semantics: `NotFound`, `InvalidArgument`, `FailedPrecondition` (state conflict), `Internal`, `Unavailable` (temporary). Context via `status.Errorf()`.
 - gRPC servers MUST run on a dedicated port, separate from HTTP. Both listeners MUST support graceful shutdown.

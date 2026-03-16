@@ -221,11 +221,18 @@ type RateLimiter struct {
 	// Map of clientID → TokenBucket
 	// Automatically cleans up on disconnect (RemoveClient called from readPump defer)
 	clients sync.Map // map[int64]*TokenBucket
+
+	burstLimit float64 // Per-client burst capacity
+	ratePerSec float64 // Per-client sustained rate per second
 }
 
-// NewRateLimiter creates a rate limiter for managing client limits
-func NewRateLimiter() *RateLimiter {
-	return &RateLimiter{}
+// NewRateLimiter creates a rate limiter for managing client limits.
+// burstLimit is the per-client burst capacity; ratePerSec is the sustained rate.
+func NewRateLimiter(burstLimit int, ratePerSec float64) *RateLimiter {
+	return &RateLimiter{
+		burstLimit: float64(burstLimit),
+		ratePerSec: ratePerSec,
+	}
 }
 
 // CheckLimit verifies if client can perform action
@@ -256,7 +263,7 @@ func NewRateLimiter() *RateLimiter {
 func (rl *RateLimiter) CheckLimit(clientID int64) bool {
 	// Get existing bucket or create new one
 	// LoadOrStore is atomic: Only one goroutine creates bucket for new client
-	bucket, _ := rl.clients.LoadOrStore(clientID, NewTokenBucket(100, 10))
+	bucket, _ := rl.clients.LoadOrStore(clientID, NewTokenBucket(rl.burstLimit, rl.ratePerSec))
 
 	return bucket.(*TokenBucket).TryConsume(1)
 }

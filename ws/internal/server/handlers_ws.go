@@ -7,8 +7,8 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/server/metrics"
-	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
 )
 
 // WebSocket upgrade handler
@@ -67,7 +67,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn().
 			Str("client_ip", clientIP).
 			Int64("current_connections", currentConnections).
-			Int("max_connections", s.config.MaxConnections).
+			Int("max_connections", s.maxConns).
 			Str("reason", reason).
 			Dur("elapsed_ms", time.Since(startTime)).
 			Msg("Connection rejected by ResourceGuard")
@@ -82,7 +82,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		s.logger.Debug().
 			Str("client_ip", clientIP).
 			Int64("current_connections", s.stats.CurrentConnections.Load()).
-			Int("max_connections", s.config.MaxConnections).
+			Int("max_connections", s.maxConns).
 			Msg("ResourceGuard accepted connection")
 	}
 
@@ -90,10 +90,20 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// ws-server is a dumb broadcaster - no auth logic here
 	// Network security is enforced via Kubernetes NetworkPolicy
 
-	// Try to acquire connection slot (blocking, no timeout)
-	// In multi-core mode with LoadBalancer, capacity control happens at LB level
-	// This semaphore just ensures we don't exceed shard capacity
-	s.connectionsSem <- struct{}{}
+	// Try to acquire connection slot (non-blocking)
+	// Rejects immediately at capacity rather than queueing indefinitely
+	select {
+	case s.connectionsSem <- struct{}{}:
+		// Acquired connection slot
+	default:
+		s.logger.Warn().
+			Str("client_ip", clientIP).
+			Int("max_connections", s.maxConns).
+			Msg("Connection rejected: at capacity")
+		metrics.ConnectionsFailed.Inc()
+		http.Error(w, "Server at capacity", http.StatusServiceUnavailable)
+		return
+	}
 
 	// DEBUG: Log before upgrade attempt
 	upgradeStart := time.Now()
@@ -108,7 +118,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		<-s.connectionsSem // Release slot
 		// DEBUG: Enhanced upgrade failure logging
-		s.auditLogger.Error("WebSocketUpgradeFailed", "Failed to upgrade HTTP connection to WebSocket", map[string]any{
+		s.alertLogger.Error("WebSocketUpgradeFailed", "Failed to upgrade HTTP connection to WebSocket", map[string]any{
 			"error":            err.Error(),
 			"remoteAddr":       r.RemoteAddr,
 			"client_ip":        clientIP,
@@ -155,6 +165,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Dur("total_setup_time_ms", time.Since(startTime)).
 		Msg("Client connected successfully - pumps starting")
 
+	s.wg.Add(2)
 	go s.writePump(client)
 	go s.readPump(client)
 }

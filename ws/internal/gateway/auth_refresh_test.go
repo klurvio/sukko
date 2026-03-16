@@ -12,8 +12,8 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/protocol"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
 // drainConn reads and discards all data from a connection until it closes.
@@ -54,19 +54,21 @@ func newAuthTestProxy(validator TokenValidator, claims *auth.Claims) (*Proxy, ne
 	)
 
 	proxy := &Proxy{
-		clientConn:         clientConn,
-		backendConn:        backendConn,
-		authEnabled:        true,
-		claims:             claims,
-		tenantID:           tenantID,
-		permissions:        pc,
-		validator:          validator,
-		logger:             zerolog.Nop(),
-		messageTimeout:     60 * time.Second,
-		publishLimiter:     rate.NewLimiter(10, 100),
-		maxPublishSize:     64 * 1024,
-		authLimiter:        rate.NewLimiter(rate.Every(100*time.Millisecond), 1), // Fast for tests
-		subscribedChannels: make(map[string]struct{}),
+		clientConn:            clientConn,
+		backendConn:           backendConn,
+		authEnabled:           true,
+		claims:                claims,
+		tenantID:              tenantID,
+		permissions:           pc,
+		validator:             validator,
+		logger:                zerolog.Nop(),
+		messageTimeout:        60 * time.Second,
+		maxFrameSize:          protocol.DefaultMaxFrameSize,
+		publishLimiter:        rate.NewLimiter(10, 100),
+		maxPublishSize:        64 * 1024,
+		authLimiter:           rate.NewLimiter(rate.Every(100*time.Millisecond), 1), // Fast for tests
+		authValidationTimeout: 5 * time.Second,
+		subscribedChannels:    make(map[string]struct{}),
 	}
 
 	return proxy, clientRemote, backendRemote
@@ -87,15 +89,15 @@ func TestInterceptAuthRefresh_ValidToken(t *testing.T) {
 	}
 	validator := &mockTokenValidator{claims: newClaims}
 	proxy, clientRemote, backendRemote := newAuthTestProxy(validator, oldClaims)
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 	go drainConn(clientRemote)
 
 	msg := protocol.ClientMessage{
 		Type: MsgTypeAuth,
 		Data: json.RawMessage(`{"token":"valid-jwt-token"}`),
 	}
-	result, err := proxy.interceptAuthRefresh(msg)
+	result, err := proxy.interceptAuthRefresh(context.Background(), msg)
 
 	if err != nil {
 		t.Fatalf("interceptAuthRefresh error: %v", err)
@@ -120,15 +122,15 @@ func TestInterceptAuthRefresh_ExpiredToken(t *testing.T) {
 	}
 	validator := &mockTokenValidator{err: auth.ErrTokenExpired}
 	proxy, clientRemote, backendRemote := newAuthTestProxy(validator, oldClaims)
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 	go drainConn(clientRemote)
 
 	msg := protocol.ClientMessage{
 		Type: MsgTypeAuth,
 		Data: json.RawMessage(`{"token":"expired-token"}`),
 	}
-	result, err := proxy.interceptAuthRefresh(msg)
+	result, err := proxy.interceptAuthRefresh(context.Background(), msg)
 
 	if err != nil {
 		t.Fatalf("interceptAuthRefresh error: %v", err)
@@ -153,15 +155,15 @@ func TestInterceptAuthRefresh_InvalidToken(t *testing.T) {
 	}
 	validator := &mockTokenValidator{err: auth.ErrInvalidToken}
 	proxy, clientRemote, backendRemote := newAuthTestProxy(validator, oldClaims)
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 	go drainConn(clientRemote)
 
 	msg := protocol.ClientMessage{
 		Type: MsgTypeAuth,
 		Data: json.RawMessage(`{"token":"bad-signature"}`),
 	}
-	result, _ := proxy.interceptAuthRefresh(msg)
+	result, _ := proxy.interceptAuthRefresh(context.Background(), msg)
 
 	if result != nil {
 		t.Error("Expected nil result")
@@ -180,15 +182,15 @@ func TestInterceptAuthRefresh_TenantMismatch(t *testing.T) {
 	}
 	validator := &mockTokenValidator{claims: newClaims}
 	proxy, clientRemote, backendRemote := newAuthTestProxy(validator, oldClaims)
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 	go drainConn(clientRemote)
 
 	msg := protocol.ClientMessage{
 		Type: MsgTypeAuth,
 		Data: json.RawMessage(`{"token":"different-tenant-token"}`),
 	}
-	result, _ := proxy.interceptAuthRefresh(msg)
+	result, _ := proxy.interceptAuthRefresh(context.Background(), msg)
 
 	if result != nil {
 		t.Error("Expected nil result")
@@ -217,8 +219,8 @@ func TestInterceptAuthRefresh_RateLimited(t *testing.T) {
 	}
 	validator := &mockTokenValidator{claims: newClaims}
 	proxy, clientRemote, backendRemote := newAuthTestProxy(validator, claims)
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 	go drainConn(clientRemote)
 
 	// Use a very slow rate limiter
@@ -230,10 +232,10 @@ func TestInterceptAuthRefresh_RateLimited(t *testing.T) {
 	}
 
 	// First call succeeds (consumes the burst token)
-	_, _ = proxy.interceptAuthRefresh(msg)
+	_, _ = proxy.interceptAuthRefresh(context.Background(), msg)
 
 	// Second call should be rate limited
-	result, err := proxy.interceptAuthRefresh(msg)
+	result, err := proxy.interceptAuthRefresh(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("Expected nil error, got: %v", err)
 	}
@@ -245,16 +247,17 @@ func TestInterceptAuthRefresh_RateLimited(t *testing.T) {
 func TestInterceptAuthRefresh_AuthDisabled(t *testing.T) {
 	t.Parallel()
 	clientConn, clientRemote := net.Pipe()
-	defer clientRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
 
 	proxy := &Proxy{
-		clientConn:         clientConn,
-		authEnabled:        false,
-		logger:             zerolog.Nop(),
-		subscribedChannels: make(map[string]struct{}),
-		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
-		publishLimiter:     rate.NewLimiter(10, 100),
-		maxPublishSize:     64 * 1024,
+		clientConn:            clientConn,
+		authEnabled:           false,
+		logger:                zerolog.Nop(),
+		subscribedChannels:    make(map[string]struct{}),
+		authLimiter:           rate.NewLimiter(rate.Every(30*time.Second), 1),
+		authValidationTimeout: 5 * time.Second,
+		publishLimiter:        rate.NewLimiter(10, 100),
+		maxPublishSize:        64 * 1024,
 	}
 
 	go drainConn(clientRemote)
@@ -263,7 +266,7 @@ func TestInterceptAuthRefresh_AuthDisabled(t *testing.T) {
 		Type: MsgTypeAuth,
 		Data: json.RawMessage(`{"token":"any-token"}`),
 	}
-	result, err := proxy.interceptAuthRefresh(msg)
+	result, err := proxy.interceptAuthRefresh(context.Background(), msg)
 
 	if err != nil {
 		t.Fatalf("Expected nil error, got: %v", err)
@@ -281,15 +284,15 @@ func TestInterceptAuthRefresh_EmptyToken(t *testing.T) {
 	}
 	validator := &mockTokenValidator{claims: claims}
 	proxy, clientRemote, backendRemote := newAuthTestProxy(validator, claims)
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 	go drainConn(clientRemote)
 
 	msg := protocol.ClientMessage{
 		Type: MsgTypeAuth,
 		Data: json.RawMessage(`{"token":""}`),
 	}
-	result, _ := proxy.interceptAuthRefresh(msg)
+	result, _ := proxy.interceptAuthRefresh(context.Background(), msg)
 
 	if result != nil {
 		t.Error("Expected nil result for empty token")
@@ -304,15 +307,15 @@ func TestInterceptAuthRefresh_MissingData(t *testing.T) {
 	}
 	validator := &mockTokenValidator{claims: claims}
 	proxy, clientRemote, backendRemote := newAuthTestProxy(validator, claims)
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 	go drainConn(clientRemote)
 
 	msg := protocol.ClientMessage{
 		Type: MsgTypeAuth,
 		Data: json.RawMessage(`{}`),
 	}
-	result, _ := proxy.interceptAuthRefresh(msg)
+	result, _ := proxy.interceptAuthRefresh(context.Background(), msg)
 
 	if result != nil {
 		t.Error("Expected nil result for missing data")
@@ -327,15 +330,15 @@ func TestInterceptAuthRefresh_NilValidator(t *testing.T) {
 	}
 	proxy, clientRemote, backendRemote := newAuthTestProxy(nil, claims)
 	proxy.validator = nil
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 	go drainConn(clientRemote)
 
 	msg := protocol.ClientMessage{
 		Type: MsgTypeAuth,
 		Data: json.RawMessage(`{"token":"valid-token"}`),
 	}
-	result, err := proxy.interceptAuthRefresh(msg)
+	result, err := proxy.interceptAuthRefresh(context.Background(), msg)
 
 	if err != nil {
 		t.Fatalf("Expected nil error, got: %v", err)
@@ -353,15 +356,15 @@ func TestInterceptAuthRefresh_ValidatorError(t *testing.T) {
 	}
 	validator := &mockTokenValidator{err: errors.New("unexpected error")}
 	proxy, clientRemote, backendRemote := newAuthTestProxy(validator, claims)
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 	go drainConn(clientRemote)
 
 	msg := protocol.ClientMessage{
 		Type: MsgTypeAuth,
 		Data: json.RawMessage(`{"token":"some-token"}`),
 	}
-	result, _ := proxy.interceptAuthRefresh(msg)
+	result, _ := proxy.interceptAuthRefresh(context.Background(), msg)
 
 	if result != nil {
 		t.Error("Expected nil result for validator error")
@@ -419,8 +422,8 @@ func TestForceUnsubscribeRevokedChannels_PartialRevocation(t *testing.T) {
 
 	clientConn, clientRemote := net.Pipe()
 	backendConn, backendRemote := net.Pipe()
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 
 	proxy := &Proxy{
 		clientConn:  clientConn,
@@ -474,8 +477,8 @@ func TestForceUnsubscribeRevokedChannels_AllRevoked(t *testing.T) {
 
 	clientConn, clientRemote := net.Pipe()
 	backendConn, backendRemote := net.Pipe()
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 
 	// No patterns allowed
 	pc := NewPermissionChecker(nil, nil, nil)
@@ -572,22 +575,23 @@ func BenchmarkInterceptAuthRefresh(b *testing.B) {
 
 	clientConn, clientRemote := net.Pipe()
 	backendConn, backendRemote := net.Pipe()
-	defer clientRemote.Close()
-	defer backendRemote.Close()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
 
 	proxy := &Proxy{
-		clientConn:         clientConn,
-		backendConn:        backendConn,
-		authEnabled:        true,
-		claims:             claims,
-		tenantID:           "test-tenant",
-		permissions:        NewPermissionChecker([]string{"*.trade"}, nil, nil),
-		validator:          validator,
-		logger:             zerolog.Nop(),
-		publishLimiter:     rate.NewLimiter(10, 100),
-		maxPublishSize:     64 * 1024,
-		authLimiter:        rate.NewLimiter(rate.Inf, 1), // No rate limit for benchmarks
-		subscribedChannels: make(map[string]struct{}),
+		clientConn:            clientConn,
+		backendConn:           backendConn,
+		authEnabled:           true,
+		claims:                claims,
+		tenantID:              "test-tenant",
+		permissions:           NewPermissionChecker([]string{"*.trade"}, nil, nil),
+		validator:             validator,
+		logger:                zerolog.Nop(),
+		publishLimiter:        rate.NewLimiter(10, 100),
+		maxPublishSize:        64 * 1024,
+		authLimiter:           rate.NewLimiter(rate.Inf, 1), // No rate limit for benchmarks
+		authValidationTimeout: 5 * time.Second,
+		subscribedChannels:    make(map[string]struct{}),
 	}
 
 	msg := protocol.ClientMessage{
@@ -599,6 +603,6 @@ func BenchmarkInterceptAuthRefresh(b *testing.B) {
 	go drainConn(clientRemote)
 
 	for b.Loop() {
-		_, _ = proxy.interceptAuthRefresh(msg)
+		_, _ = proxy.interceptAuthRefresh(context.Background(), msg)
 	}
 }

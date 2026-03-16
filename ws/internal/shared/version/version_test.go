@@ -1,6 +1,7 @@
 package version
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -90,7 +91,7 @@ func TestHandler(t *testing.T) {
 			t.Parallel()
 			handler := Handler(tt.serviceName)
 
-			req := httptest.NewRequest(http.MethodGet, "/version", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/version", nil)
 			rec := httptest.NewRecorder()
 
 			handler(rec, req)

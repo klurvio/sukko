@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/spf13/cobra"
 )
@@ -84,8 +85,8 @@ var tenantListCmd = &cobra.Command{
 		status, _ := cmd.Flags().GetString("status")
 
 		params := map[string]string{
-			"limit":  fmt.Sprintf("%d", limit),
-			"offset": fmt.Sprintf("%d", offset),
+			"limit":  strconv.Itoa(limit),
+			"offset": strconv.Itoa(offset),
 		}
 		if status != "" {
 			params["status"] = status

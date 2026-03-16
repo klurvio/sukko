@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 )
 
 // SystemMonitor is a singleton that centralizes system resource monitoring.
@@ -18,12 +18,6 @@ var (
 	systemMonitorInstance *SystemMonitor
 	systemMonitorOnce     sync.Once
 )
-
-// DefaultEWMABeta is the EWMA decay factor for CPU smoothing.
-// At 1-second sample intervals, beta=0.8 gives an effective ~5-second window
-// (1/(1-beta) = 5 samples), matching go-zero's production tuning.
-// Higher values (0.9 = ~10s window) are more conservative but slower to react.
-const DefaultEWMABeta = 0.8
 
 // SystemMetrics holds current system resource measurements.
 type SystemMetrics struct {
@@ -47,8 +41,8 @@ type SystemMonitor struct {
 	metrics SystemMetrics
 
 	// EWMA state
-	ewmaBeta       float64 // Decay factor (0-1), higher = smoother
-	ewmaInitialized bool   // Whether first sample has been received
+	ewmaBeta        float64 // Decay factor (0-1), higher = smoother
+	ewmaInitialized bool    // Whether first sample has been received
 
 	// Lifecycle
 	ctx    context.Context
@@ -57,15 +51,22 @@ type SystemMonitor struct {
 }
 
 // GetSystemMonitor returns the singleton SystemMonitor instance.
-// First call initializes the monitor with the provided logger.
-func GetSystemMonitor(logger zerolog.Logger) *SystemMonitor {
+// The initializing call (from main) MUST pass ewmaBeta from validated config.
+// Subsequent calls (from shards, resource guards) omit ewmaBeta and get the
+// existing instance — logger is ignored on subsequent calls.
+func GetSystemMonitor(logger zerolog.Logger, ewmaBeta ...float64) *SystemMonitor {
 	systemMonitorOnce.Do(func() {
 		ctx, cancel := context.WithCancel(context.Background())
+
+		var beta float64
+		if len(ewmaBeta) > 0 {
+			beta = ewmaBeta[0]
+		}
 
 		systemMonitorInstance = &SystemMonitor{
 			cpuMonitor: platform.NewCPUMonitor(logger),
 			logger:     logger.With().Str("component", "system_monitor").Logger(),
-			ewmaBeta:   DefaultEWMABeta,
+			ewmaBeta:   beta,
 			ctx:        ctx,
 			cancel:     cancel,
 		}
@@ -84,31 +85,11 @@ func GetSystemMonitor(logger zerolog.Logger) *SystemMonitor {
 		logger.Info().
 			Str("cpu_mode", systemMonitorInstance.cpuMonitor.Mode()).
 			Float64("cpu_allocation", systemMonitorInstance.cpuMonitor.GetAllocation()).
+			Float64("ewma_beta", beta).
 			Msg("SystemMonitor singleton initialized")
 	})
 
 	return systemMonitorInstance
-}
-
-// SetEWMABeta configures the EWMA decay factor for CPU smoothing.
-// Must be called before StartMonitoring. Values closer to 1.0 produce
-// smoother (slower-reacting) output; values closer to 0.0 track raw CPU more closely.
-// Beta must be in the open interval (0, 1). Invalid values are rejected with a warning.
-func (sm *SystemMonitor) SetEWMABeta(beta float64) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	if beta <= 0 || beta >= 1 {
-		sm.logger.Warn().
-			Float64("ewma_beta", beta).
-			Float64("current_beta", sm.ewmaBeta).
-			Msg("Invalid EWMA beta (must be 0 < beta < 1), keeping current value")
-		return
-	}
-	sm.ewmaBeta = beta
-	sm.logger.Info().
-		Float64("ewma_beta", beta).
-		Float64("effective_window_samples", 1/(1-beta)).
-		Msg("CPU EWMA smoothing configured")
 }
 
 // StartMonitoring begins periodic system metric updates with two tickers:
@@ -154,7 +135,10 @@ func (sm *SystemMonitor) updateCPUOnly() {
 	if err != nil {
 		// Graceful degradation: keep the previous CPU reading rather than
 		// reporting zero, which would incorrectly release load-shedding.
+		sm.logger.Warn().Err(err).Msg("Failed to update CPU, using previous value")
+		sm.mu.RLock()
 		cpuPercent = sm.metrics.CPUPercent
+		sm.mu.RUnlock()
 	}
 
 	sm.mu.Lock()
@@ -183,7 +167,9 @@ func (sm *SystemMonitor) updateMetrics() {
 	cpuPercent, throttleStats, err := sm.cpuMonitor.GetPercent()
 	if err != nil {
 		sm.logger.Error().Err(err).Msg("Failed to get CPU usage")
-		cpuPercent = 0
+		sm.mu.RLock()
+		cpuPercent = sm.metrics.CPUPercent
+		sm.mu.RUnlock()
 	}
 
 	var mem runtime.MemStats
@@ -257,7 +243,7 @@ func (sm *SystemMonitor) GetSmoothedCPUPercent() float64 {
 }
 
 // computeEWMA calculates the EWMA-smoothed CPU value.
-// Must be called with sm.mu held.
+// Must be called with sm.mu write-locked.
 func (sm *SystemMonitor) computeEWMA(rawCPU float64) float64 {
 	if !sm.ewmaInitialized {
 		sm.ewmaInitialized = true

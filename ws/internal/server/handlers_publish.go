@@ -4,15 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
-	"github.com/klurvio/sukko/internal/server/metrics"
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/protocol"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
-
-// defaultPublishTimeout is the timeout for backend publish operations.
-const defaultPublishTimeout = 5 * time.Second
 
 // handleClientPublish processes a client publish request.
 // It validates the request, checks rate limits, and publishes via the message backend.
@@ -31,7 +27,7 @@ const defaultPublishTimeout = 5 * time.Second
 func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 	// Check if backend is available
 	if s.backend == nil {
-		s.sendPublishError(c, protocol.ErrCodeNotAvailable, protocol.PublishErrorMessages[protocol.ErrCodeNotAvailable])
+		s.sendPublishError(c, protocol.ErrCodeNotAvailable, protocol.PublishErrorMessage(protocol.ErrCodeNotAvailable))
 		return
 	}
 
@@ -43,7 +39,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int64("client_id", c.id).
 			Err(err).
 			Msg("Client sent invalid publish request")
-		s.sendPublishError(c, protocol.ErrCodeInvalidRequest, protocol.PublishErrorMessages[protocol.ErrCodeInvalidRequest])
+		s.sendPublishError(c, protocol.ErrCodeInvalidRequest, protocol.PublishErrorMessage(protocol.ErrCodeInvalidRequest))
 		return
 	}
 
@@ -53,7 +49,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
 			Msg("Client sent invalid channel format")
-		s.sendPublishError(c, protocol.ErrCodeInvalidChannel, protocol.PublishErrorMessages[protocol.ErrCodeInvalidChannel])
+		s.sendPublishError(c, protocol.ErrCodeInvalidChannel, protocol.PublishErrorMessage(protocol.ErrCodeInvalidChannel))
 		return
 	}
 
@@ -64,7 +60,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int("size", len(pubReq.Data)).
 			Int("max_size", protocol.DefaultMaxPublishSize).
 			Msg("Client publish message too large")
-		s.sendPublishError(c, protocol.ErrCodeMessageTooLarge, protocol.PublishErrorMessages[protocol.ErrCodeMessageTooLarge])
+		s.sendPublishError(c, protocol.ErrCodeMessageTooLarge, protocol.PublishErrorMessage(protocol.ErrCodeMessageTooLarge))
 		return
 	}
 
@@ -74,14 +70,14 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
 			Msg("Client publish rate limited")
-		s.sendPublishError(c, protocol.ErrCodeRateLimited, protocol.PublishErrorMessages[protocol.ErrCodeRateLimited])
+		s.sendPublishError(c, protocol.ErrCodeRateLimited, protocol.PublishErrorMessage(protocol.ErrCodeRateLimited))
 		s.stats.RateLimitedMessages.Add(1)
 		metrics.IncrementRateLimitedMessages()
 		return
 	}
 
 	// Publish to backend with timeout
-	ctx, cancel := context.WithTimeout(s.ctx, defaultPublishTimeout)
+	ctx, cancel := context.WithTimeout(s.ctx, s.config.PublishTimeout)
 	defer cancel()
 
 	if err := s.backend.Publish(ctx, c.id, pubReq.Channel, pubReq.Data); err != nil {
@@ -92,7 +88,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Msg("Failed to publish message to backend")
 
 		// Map specific errors to error codes
-		code := ErrCodePublishFailed
+		code := protocol.ErrCodePublishFailed
 		switch {
 		case errors.Is(err, protocol.ErrInvalidChannel):
 			code = protocol.ErrCodeInvalidChannel
@@ -102,7 +98,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			code = protocol.ErrCodeServiceUnavailable
 		}
 
-		s.sendPublishError(c, code, protocol.PublishErrorMessages[code])
+		s.sendPublishError(c, code, protocol.PublishErrorMessage(code))
 		// Backend-agnostic publish error metrics are recorded inside each backend's Publish()
 		return
 	}

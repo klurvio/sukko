@@ -9,14 +9,6 @@ import (
 // NewBus creates a new Bus based on the configuration type.
 // Returns an error if the configuration is invalid or connection fails.
 func NewBus(cfg Config, logger zerolog.Logger) (Bus, error) {
-	// Apply defaults
-	if cfg.BufferSize == 0 {
-		cfg.BufferSize = 1024
-	}
-	if cfg.ShutdownTimeout == 0 {
-		cfg.ShutdownTimeout = DefaultConfig().ShutdownTimeout
-	}
-
 	switch cfg.Type {
 	case "valkey", "redis":
 		return newValkeyBus(cfg, logger)

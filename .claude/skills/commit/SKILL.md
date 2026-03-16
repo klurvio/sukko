@@ -1,50 +1,35 @@
 ---
 name: commit
-description: Create a commit following Conventional Commits format with GitHub issue number
+description: Create a commit following Conventional Commits format
 user-invocable: true
 ---
 
 # Create Commit
 
-Create a commit following Conventional Commits format with GitHub issue number.
+Create a commit following Conventional Commits format.
 
 ## Usage
 
 ```
-/commit [github-issue-number]
+/commit
 ```
-
-Examples:
-- `/commit 42` - Use the specified issue number
-- `/commit` - Will offer to reuse the previous commit's issue number or enter a new one
 
 ## Format
 
 ```
-type[#issue]: subject (min 4 chars)
+type: subject (min 4 chars)
 
 optional body with more details
 ```
 
 ## Instructions
 
-1. **Determine the GitHub issue number**:
-   - If provided as argument (`{{args}}`), use that issue number
-   - If no issue number is provided:
-     - Run `git log -1 --oneline` to check the previous commit for an issue number
-     - Extract the issue number from the commit message format `type[#issue]: subject`
-     - Ask the user with two options:
-       - Use the previous commit's issue number (show it if found)
-       - Enter a different issue number
-     - If no previous issue number exists, ask the user to provide one
-   - A GitHub issue number is **required** — do not proceed without one
-
-2. **Check for and remove binary files from remote**:
+1. **Check for and remove binary files from remote**:
    ```bash
    git ls-files | xargs -I {} sh -c 'file --mime "{}" 2>/dev/null | grep -q "charset=binary" && echo "{}"' | xargs -r git rm --cached
    ```
 
-3. **Stage all non-binary changes**:
+2. **Stage all non-binary changes**:
    - Stage modified/deleted tracked files: `git add -u`
    - Stage new untracked files (excluding binaries):
      ```bash
@@ -54,19 +39,19 @@ optional body with more details
      done
      ```
 
-4. **Gather git context** by running these commands in parallel:
+3. **Gather git context** by running these commands in parallel:
    - `git diff --cached --stat` - Summary of staged changes
    - `git diff --cached` - Full diff of staged changes
    - `git branch --show-current` - Get current branch name
 
-5. **If nothing is staged**, inform the user there's nothing to commit
+4. **If nothing is staged**, inform the user there's nothing to commit
 
-6. **Analyze the staged changes** to understand:
+5. **Analyze the staged changes** to understand:
    - What type of change this is (feat, fix, refactor, etc.)
    - What the change does in plain language
    - Whether a detailed body is needed
 
-7. **Determine the commit type**:
+6. **Determine the commit type**:
    - `feat` - A new feature
    - `fix` - A bug fix
    - `docs` - Documentation only changes
@@ -79,29 +64,29 @@ optional body with more details
    - `chore` - Other changes that don't modify src or test files
    - `revert` - Reverts a previous commit
 
-8. **Generate the commit message**:
-   - First line: `type[#issue]: subject` (subject must be at least 4 characters)
+7. **Generate the commit message**:
+   - First line: `type: subject` (subject must be at least 4 characters)
    - Use imperative mood ("add" not "added" or "adds")
    - Don't capitalize first letter
    - No period at the end
    - Keep subject concise (50 characters or less)
    - If changes are complex, add a blank line followed by a body explaining what and why
-   - If breaking change, add `!` after brackets: `type[#issue]!: subject`
+   - If breaking change, add `!` after type: `type!: subject`
 
-9. **Create the commit** using a HEREDOC for proper formatting:
+8. **Create the commit** using a HEREDOC for proper formatting:
     ```bash
     git commit -m "$(cat <<'EOF'
-    type[#issue]: subject
+    type: subject
 
     Optional body with more details.
     EOF
     )"
     ```
 
-10. **Push to remote**: `git push`
+9. **Push to remote**: `git push`
     - Only ask for confirmation if push fails
 
-11. **Verify** by running `git log -1` to show the created commit
+10. **Verify** by running `git log -1` to show the created commit
 
 ## Important
 

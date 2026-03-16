@@ -7,11 +7,13 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/server"
-	"github.com/klurvio/sukko/internal/server/broadcast"
-	"github.com/klurvio/sukko/internal/server/metrics"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
 )
 
 // Shard represents a single instance of the WebSocket server, running on its own core.
@@ -32,14 +34,15 @@ type Shard struct {
 
 // ShardConfig holds configuration for a single Shard
 type ShardConfig struct {
-	ID                  int
-	Addr                string // Address for this shard to bind/listen on (e.g., 0.0.0.0:3002)
-	AdvertiseAddr       string // Address advertised to LoadBalancer (e.g., localhost:3002)
-	ServerConfig        types.ServerConfig
-	BroadcastBus   broadcast.Bus // Reference to the central bus
-	MessageBackend any           // Pluggable message backend (backend.MessageBackend)
+	ID             int
+	Addr           string // Address for this shard to bind/listen on (e.g., 0.0.0.0:3002)
+	AdvertiseAddr  string // Address advertised to LoadBalancer (e.g., localhost:3002)
+	Config         *platform.ServerConfig
+	BroadcastBus   broadcast.Bus          // Reference to the central bus
+	MessageBackend backend.MessageBackend // Pluggable message backend
+	Alerter        alerting.Alerter       // Shared alerter instance
 	Logger         zerolog.Logger
-	MaxConnections      int
+	MaxConnections int
 }
 
 // NewShard creates a new Shard instance
@@ -48,12 +51,12 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 
 	// Create a server.Server instance for this shard
 	// Kafka consumption is handled by MultiTenantConsumerPool, not individual shards
-	serverConfig := cfg.ServerConfig
-	serverConfig.MaxConnections = cfg.MaxConnections  // Override with shard-specific limit
-	serverConfig.MessageBackend = cfg.MessageBackend  // Pass pluggable message backend
-
-	// Create the server.Server instance
-	shardServer, err := server.NewServer(serverConfig)
+	shardServer, err := server.NewServer(server.Params{
+		Config:         cfg.Config,
+		Addr:           cfg.Addr,
+		MaxConnections: cfg.MaxConnections,
+		Backend:        cfg.MessageBackend,
+	}, cfg.Alerter)
 
 	if err != nil {
 		cancel()
@@ -101,18 +104,21 @@ func (s *Shard) Start() error {
 	return nil
 }
 
-// Shutdown gracefully stops the shard
+// Shutdown gracefully stops the shard.
+// Ordering: cancel context → shutdown server → wait for goroutines (Constitution VII).
 func (s *Shard) Shutdown() error {
 	s.logger.Info().Msg("Shutting down shard")
 
-	// Stop the underlying shared server
+	// Cancel context first to signal broadcast listener to stop
+	s.cancel()
+
+	// Stop the underlying shared server (has its own shutdown sequence)
 	if err := s.server.Shutdown(); err != nil {
 		s.logger.Error().Err(err).Msg("Error during shared server shutdown")
 	}
 
-	// Cancel context to stop broadcast listener
-	s.cancel()
-	s.wg.Wait() // Wait for broadcast listener to finish
+	// Wait for shard goroutines (broadcast listener) to finish
+	s.wg.Wait()
 
 	s.logger.Info().Msg("Shard shut down")
 	return nil

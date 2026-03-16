@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -21,19 +22,19 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 
-	"github.com/klurvio/sukko/internal/server/backend"
-	"github.com/klurvio/sukko/internal/server/broadcast"
-	"github.com/klurvio/sukko/internal/server/limits"
-	"github.com/klurvio/sukko/internal/server/metrics"
-	"github.com/klurvio/sukko/internal/server/orchestration"
-	"github.com/klurvio/sukko/internal/shared/kafka"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/provapi"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/server/limits"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/server/orchestration"
+	kafkautil "github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/provapi"
 )
 
-// defaultTopicCreationTimeout is the timeout for admin topic creation operations.
-const defaultTopicCreationTimeout = 30 * time.Second
+// backendName identifies this backend in metrics labels and logging.
+const backendName = "kafka"
 
 // KafkaBackend wraps the existing Kafka/Redpanda consumer pool and producer
 // behind the MessageBackend interface. It provides full persistence,
@@ -50,7 +51,8 @@ type KafkaBackend struct {
 
 	defaultPartitions        int
 	defaultReplicationFactor int
-	namespace                string // topic namespace for registry queries
+	namespace                string        // topic namespace for registry queries
+	topicCreationTimeout     time.Duration // timeout for admin topic creation
 }
 
 // Config contains all configuration for the Kafka backend.
@@ -68,7 +70,7 @@ type Config struct {
 	// SASL authentication
 	SASLEnabled   bool
 	SASLMechanism string
-	SASLUsername   string
+	SASLUsername  string
 	SASLPassword  string
 
 	// TLS encryption
@@ -85,25 +87,50 @@ type Config struct {
 	// Default tenant ID for channels without tenant prefix
 	DefaultTenantID string
 
+	// TopicCreationTimeout is the timeout for admin topic creation operations.
+	TopicCreationTimeout time.Duration
+
 	// Kafka admin topic defaults
 	DefaultPartitions        int
 	DefaultReplicationFactor int
 	DefaultRetentionMs       int64
 
 	// ResourceGuard fields
-	MaxKafkaMessagesPerSec  int
-	MaxBroadcastsPerSec     int
-	CPUPauseThreshold       float64
-	CPUPauseThresholdLower  float64
-	CPURejectThreshold      float64
-	CPURejectThresholdLower float64
+	MaxKafkaMessagesPerSec   int
+	MaxBroadcastsPerSec      int
+	RateLimitBurstMultiplier int
+	CPUPauseThreshold        float64
+	CPUPauseThresholdLower   float64
+	CPURejectThreshold       float64
+	CPURejectThresholdLower  float64
 
 	// Broadcast bus for message distribution
 	BroadcastBus broadcast.Bus
 
-	// Logging
-	LogLevel  string
-	LogFormat string
+	// Logger is the structured logger passed by the caller.
+	Logger zerolog.Logger
+
+	// Kafka producer tuning
+	ProducerBatchMaxBytes             int
+	ProducerMaxBufferedRecs           int
+	ProducerRecordRetries             int
+	ProducerCircuitBreakerTimeout     time.Duration
+	ProducerCircuitBreakerMaxFailures int
+	ProducerCircuitBreakerHalfOpen    int
+	ProducerTopicCacheTTL             time.Duration
+
+	// Kafka consumer batch tuning
+	KafkaBatchSize    int
+	KafkaBatchTimeout time.Duration
+
+	// Kafka consumer transport tuning
+	KafkaFetchMaxWait              time.Duration
+	KafkaFetchMinBytes             int32
+	KafkaFetchMaxBytes             int32
+	KafkaSessionTimeout            time.Duration
+	KafkaRebalanceTimeout          time.Duration
+	KafkaReplayFetchMaxBytes       int32
+	KafkaBackpressureCheckInterval time.Duration
 
 	// Provisioning gRPC connection
 	ProvisioningGRPCAddr  string
@@ -122,16 +149,12 @@ func New(cfg Config) (*KafkaBackend, error) {
 		return nil, errors.New("kafka backend: broadcast bus is required when consumer is enabled")
 	}
 
-	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:       logging.LogLevel(cfg.LogLevel),
-		Format:      logging.LogFormat(cfg.LogFormat),
-		ServiceName: "ws-server",
-	}).With().Str("component", "kafka-backend").Logger()
+	logger := cfg.Logger.With().Str("component", "kafka-backend").Logger()
 
 	// Resolve topic namespace
-	topicNamespace := kafka.ResolveNamespace("", cfg.Environment)
+	topicNamespace := kafkautil.ResolveNamespace("", cfg.Environment)
 	if cfg.Namespace != "" {
-		topicNamespace = kafka.ResolveNamespace(cfg.Namespace, cfg.Environment)
+		topicNamespace = kafkautil.ResolveNamespace(cfg.Namespace, cfg.Environment)
 	}
 
 	// Build SASL config if enabled
@@ -154,20 +177,15 @@ func New(cfg Config) (*KafkaBackend, error) {
 		}
 	}
 
-	defaultPartitions := cfg.DefaultPartitions
-	if defaultPartitions < 1 {
-		defaultPartitions = 1
-	}
-	defaultReplicationFactor := cfg.DefaultReplicationFactor
-	if defaultReplicationFactor < 1 {
-		defaultReplicationFactor = 1
-	}
+	defaultPartitions := max(cfg.DefaultPartitions, 1)
+	defaultReplicationFactor := max(cfg.DefaultReplicationFactor, 1)
 
 	kb := &KafkaBackend{
 		logger:                   logger,
 		defaultPartitions:        defaultPartitions,
 		defaultReplicationFactor: defaultReplicationFactor,
 		namespace:                topicNamespace,
+		topicCreationTimeout:     cfg.TopicCreationTimeout,
 	}
 
 	// Create Kafka admin client for on-demand topic creation (uses same brokers/auth)
@@ -183,19 +201,22 @@ func New(cfg Config) (*KafkaBackend, error) {
 	kb.adminClient = kadm.NewClient(adminKgoClient)
 
 	// Create Kafka producer for client message publishing
-	producerLogger := logging.NewLogger(logging.LoggerConfig{
-		Level:       logging.LogLevel(cfg.LogLevel),
-		Format:      logging.LogFormat(cfg.LogFormat),
-		ServiceName: "ws-server",
-	})
+	producerLogger := cfg.Logger
 
 	kb.producer, err = kafka.NewProducer(kafka.ProducerConfig{
-		Brokers:         cfg.Brokers,
-		TopicNamespace:  topicNamespace,
-		Logger:          &producerLogger,
-		SASL:            saslConfig,
-		TLS:             tlsConfig,
-		DefaultTenantID: cfg.DefaultTenantID,
+		Brokers:                    cfg.Brokers,
+		TopicNamespace:             topicNamespace,
+		Logger:                     &producerLogger,
+		SASL:                       saslConfig,
+		TLS:                        tlsConfig,
+		DefaultTenantID:            cfg.DefaultTenantID,
+		BatchMaxBytes:              int32(min(cfg.ProducerBatchMaxBytes, math.MaxInt32)), //nolint:gosec // Bounds validated in ServerConfig.Validate()
+		MaxBufferedRecs:            cfg.ProducerMaxBufferedRecs,
+		RecordRetries:              cfg.ProducerRecordRetries,
+		CircuitBreakerTimeout:      cfg.ProducerCircuitBreakerTimeout,
+		CircuitBreakerMaxFailures:  uint32(min(cfg.ProducerCircuitBreakerMaxFailures, math.MaxUint32)), //nolint:gosec // Bounds validated in ServerConfig.Validate()
+		CircuitBreakerHalfOpenReqs: uint32(min(cfg.ProducerCircuitBreakerHalfOpen, math.MaxUint32)),    //nolint:gosec // Bounds validated in ServerConfig.Validate()
+		TopicCacheTTL:              cfg.ProducerTopicCacheTTL,
 	})
 	if err != nil {
 		kb.kgoClient.Close()
@@ -208,18 +229,15 @@ func New(cfg Config) (*KafkaBackend, error) {
 
 	if cfg.KafkaConsumerEnabled {
 		// Create resource guard for CPU brake (shared across pool)
-		poolLogger := logging.NewLogger(logging.LoggerConfig{
-			Level:       logging.LogLevel(cfg.LogLevel),
-			Format:      logging.LogFormat(cfg.LogFormat),
-			ServiceName: "ws-server",
-		})
-		resourceGuard := limits.NewResourceGuard(types.ServerConfig{
-			MaxKafkaMessagesPerSec:  cfg.MaxKafkaMessagesPerSec,
-			MaxBroadcastsPerSec:     cfg.MaxBroadcastsPerSec,
-			CPUPauseThreshold:       cfg.CPUPauseThreshold,
-			CPUPauseThresholdLower:  cfg.CPUPauseThresholdLower,
-			CPURejectThreshold:      cfg.CPURejectThreshold,
-			CPURejectThresholdLower: cfg.CPURejectThresholdLower,
+		poolLogger := cfg.Logger
+		resourceGuard := limits.NewResourceGuard(limits.ResourceGuardConfig{
+			MaxKafkaMessagesPerSec:   cfg.MaxKafkaMessagesPerSec,
+			MaxBroadcastsPerSec:      cfg.MaxBroadcastsPerSec,
+			RateLimitBurstMultiplier: cfg.RateLimitBurstMultiplier,
+			CPUPauseThreshold:        cfg.CPUPauseThreshold,
+			CPUPauseThresholdLower:   cfg.CPUPauseThresholdLower,
+			CPURejectThreshold:       cfg.CPURejectThreshold,
+			CPURejectThresholdLower:  cfg.CPURejectThresholdLower,
 		}, poolLogger, &atomic.Int64{})
 
 		// Create gRPC stream-backed topic registry for tenant topic discovery
@@ -232,28 +250,38 @@ func New(cfg Config) (*KafkaBackend, error) {
 			Logger:            poolLogger,
 		})
 		if err != nil {
-			kb.producer.Close()
+			_ = kb.producer.Close() // Best-effort cleanup; already returning constructor error
 			kb.kgoClient.Close()
 			return nil, fmt.Errorf("kafka backend: create topic registry: %w", err)
 		}
 
 		// Create multi-tenant consumer pool
 		kb.pool, err = orchestration.NewMultiTenantConsumerPool(orchestration.MultiTenantPoolConfig{
-			Brokers:         cfg.Brokers,
-			Namespace:       topicNamespace,
-			Environment:     kafka.NormalizeEnv(cfg.Environment),
-			Registry:        kb.topicRegistry,
-			BroadcastBus:    cfg.BroadcastBus,
-			ResourceGuard:   resourceGuard,
-			Logger:          poolLogger,
-			SASL:            saslConfig,
-			TLS:             tlsConfig,
-			RefreshInterval: cfg.TopicRefreshInterval,
-			Metrics:         &metrics.MultiTenantPoolMetricsAdapter{},
+			Brokers:           cfg.Brokers,
+			Namespace:         topicNamespace,
+			Environment:       strings.ToLower(strings.TrimSpace(cfg.Environment)),
+			Registry:          kb.topicRegistry,
+			BroadcastBus:      cfg.BroadcastBus,
+			ResourceGuard:     resourceGuard,
+			Logger:            poolLogger,
+			SASL:              saslConfig,
+			TLS:               tlsConfig,
+			RefreshInterval:   cfg.TopicRefreshInterval,
+			KafkaBatchSize:    cfg.KafkaBatchSize,
+			KafkaBatchTimeout: cfg.KafkaBatchTimeout,
+			// Consumer transport tuning
+			KafkaFetchMaxWait:              cfg.KafkaFetchMaxWait,
+			KafkaFetchMinBytes:             cfg.KafkaFetchMinBytes,
+			KafkaFetchMaxBytes:             cfg.KafkaFetchMaxBytes,
+			KafkaSessionTimeout:            cfg.KafkaSessionTimeout,
+			KafkaRebalanceTimeout:          cfg.KafkaRebalanceTimeout,
+			KafkaReplayFetchMaxBytes:       cfg.KafkaReplayFetchMaxBytes,
+			KafkaBackpressureCheckInterval: cfg.KafkaBackpressureCheckInterval,
+			Metrics:                        &metrics.MultiTenantPoolMetricsAdapter{},
 		})
 		if err != nil {
-			kb.topicRegistry.Close()
-			kb.producer.Close()
+			_ = kb.topicRegistry.Close() // Best-effort cleanup; already returning constructor error
+			_ = kb.producer.Close()      // Best-effort cleanup; already returning constructor error
 			kb.kgoClient.Close()
 			return nil, fmt.Errorf("kafka backend: create consumer pool: %w", err)
 		}
@@ -263,13 +291,11 @@ func New(cfg Config) (*KafkaBackend, error) {
 		kb.topicRegistry.SetOnUpdate(func() {
 			// Run asynchronously to avoid blocking the gRPC stream receive goroutine.
 			// ensureTopicsExist has its own 30s timeout; RefreshTopics is non-blocking.
-			kb.wg.Add(1)
-			go func() {
+			kb.wg.Go(func() {
 				defer logging.RecoverPanic(kb.logger, "topic_update", nil)
-				defer kb.wg.Done()
 				kb.ensureTopicsExist()
 				kb.pool.RefreshTopics()
-			}()
+			})
 		})
 
 		logger.Info().
@@ -286,7 +312,7 @@ func New(cfg Config) (*KafkaBackend, error) {
 
 // Start begins the Kafka backend's consumption loop.
 // For the consumer pool, this starts topic discovery and message consumption.
-func (kb *KafkaBackend) Start(ctx context.Context) error {
+func (kb *KafkaBackend) Start(_ context.Context) error {
 	if kb.pool != nil {
 		if err := kb.pool.Start(); err != nil {
 			return fmt.Errorf("kafka backend start: %w", err)
@@ -296,7 +322,7 @@ func (kb *KafkaBackend) Start(ctx context.Context) error {
 	}
 
 	kb.healthy.Store(true)
-	metrics.SetBackendHealthy("kafka", true)
+	metrics.SetBackendHealthy(backendName, true)
 	return nil
 }
 
@@ -310,19 +336,19 @@ func (kb *KafkaBackend) Publish(ctx context.Context, clientID int64, channel str
 	}
 	start := time.Now()
 	err := kb.producer.Publish(ctx, clientID, channel, data)
-	metrics.RecordBackendPublishLatency("kafka", time.Since(start).Seconds())
+	metrics.RecordBackendPublishLatency(backendName, time.Since(start).Seconds())
 	if err != nil {
-		metrics.RecordBackendPublishError("kafka")
+		metrics.RecordBackendPublishError(backendName)
 		return fmt.Errorf("kafka backend publish: %w", err)
 	}
-	metrics.RecordBackendPublish("kafka")
+	metrics.RecordBackendPublish(backendName)
 	return nil
 }
 
 // Replay returns messages from the specified offsets for client reconnection.
 // Delegates to the shared consumer's ReplayFromOffsets method.
 func (kb *KafkaBackend) Replay(ctx context.Context, req backend.ReplayRequest) ([]backend.ReplayMessage, error) {
-	metrics.RecordBackendReplayRequest("kafka")
+	metrics.RecordBackendReplayRequest(backendName)
 
 	if kb.pool == nil {
 		return nil, nil
@@ -347,7 +373,7 @@ func (kb *KafkaBackend) Replay(ctx context.Context, req backend.ReplayRequest) (
 		}
 	}
 
-	metrics.RecordBackendReplayMessages("kafka", len(messages))
+	metrics.RecordBackendReplayMessages(backendName, len(messages))
 	return messages, nil
 }
 
@@ -360,7 +386,7 @@ func (kb *KafkaBackend) IsHealthy() bool {
 // Stops pool, closes producer, closes topic registry (continues on individual failures per Constitution IV).
 func (kb *KafkaBackend) Shutdown(ctx context.Context) error {
 	kb.healthy.Store(false)
-	metrics.SetBackendHealthy("kafka", false)
+	metrics.SetBackendHealthy(backendName, false)
 
 	// Close topic registry FIRST to stop gRPC stream and prevent new SetOnUpdate callbacks.
 	// This must happen before wg.Wait to prevent wg.Add after wg.Wait returns.
@@ -420,7 +446,7 @@ func (kb *KafkaBackend) ensureTopicsExist() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTopicCreationTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), kb.topicCreationTimeout)
 	defer cancel()
 
 	// Collect all topics from registry
@@ -447,8 +473,8 @@ func (kb *KafkaBackend) ensureTopicsExist() {
 	}
 
 	// Create topics (kadm handles TopicAlreadyExists gracefully)
-	partitions := int32(kb.defaultPartitions)
-	replicationFactor := int16(kb.defaultReplicationFactor)
+	partitions := int32(kb.defaultPartitions)               //nolint:gosec // G115: partition count is validated at config load time and always small
+	replicationFactor := int16(kb.defaultReplicationFactor) //nolint:gosec // G115: replication factor is validated at config load time and always small
 
 	resp, err := kb.adminClient.CreateTopics(ctx, partitions, replicationFactor, nil, allTopics...)
 	if err != nil {

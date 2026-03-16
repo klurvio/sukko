@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🛑 Stopping Sukko WebSocket PoC Development Environment"
+echo "🛑 Stopping Odin WebSocket PoC Development Environment"
 echo "===================================================="
 
 # Colors for output

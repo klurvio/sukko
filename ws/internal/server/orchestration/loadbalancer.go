@@ -1,3 +1,5 @@
+// Package orchestration provides multi-tenant consumer pool management,
+// shard-based connection distribution, and load balancing for ws-server.
 package orchestration
 
 import (
@@ -13,9 +15,10 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/server/metrics"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/version"
+	"github.com/Toniq-Labs/odin-ws/internal/server"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/version"
 )
 
 // ShardMetrics defines the interface for shard load balancing metrics.
@@ -43,9 +46,10 @@ type LoadBalancer struct {
 	httpWriteTimeout time.Duration
 	httpIdleTimeout  time.Duration
 
-	configHandler http.HandlerFunc
+	configHandler              http.HandlerFunc
+	metricsAggregationInterval time.Duration
 
-	ctx context.Context
+	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
@@ -63,6 +67,13 @@ type LoadBalancerConfig struct {
 
 	// ConfigHandler serves the /config endpoint (set via platform.ConfigHandler)
 	ConfigHandler http.HandlerFunc
+
+	// Shard proxy timeouts
+	ShardDialTimeout    time.Duration
+	ShardMessageTimeout time.Duration
+
+	// MetricsAggregationInterval controls how often shard metrics are aggregated.
+	MetricsAggregationInterval time.Duration
 }
 
 // NewLoadBalancer creates a new LoadBalancer instance.
@@ -85,7 +96,7 @@ func NewLoadBalancer(cfg LoadBalancerConfig) (*LoadBalancer, error) {
 		}
 		// Create ShardProxy that forwards connections to the shard
 		// Capacity control is handled by the shard's ResourceGuard
-		proxies[i] = NewShardProxy(shard, shardURL, cfg.Logger)
+		proxies[i] = NewShardProxy(shard, shardURL, cfg.Logger, cfg.ShardDialTimeout, cfg.ShardMessageTimeout)
 
 		// Log proxy target (one-time, no performance impact)
 		cfg.Logger.Info().
@@ -100,12 +111,13 @@ func NewLoadBalancer(cfg LoadBalancerConfig) (*LoadBalancer, error) {
 		proxies: proxies,
 		logger:  cfg.Logger.With().Str("component", "load_balancer").Logger(),
 		// Store HTTP timeouts from config
-		httpReadTimeout:  cfg.HTTPReadTimeout,
-		httpWriteTimeout: cfg.HTTPWriteTimeout,
-		httpIdleTimeout:  cfg.HTTPIdleTimeout,
-		configHandler:    cfg.ConfigHandler,
-		ctx:              ctx,
-		cancel:           cancel,
+		httpReadTimeout:            cfg.HTTPReadTimeout,
+		httpWriteTimeout:           cfg.HTTPWriteTimeout,
+		httpIdleTimeout:            cfg.HTTPIdleTimeout,
+		configHandler:              cfg.ConfigHandler,
+		metricsAggregationInterval: cfg.MetricsAggregationInterval,
+		ctx:                        ctx,
+		cancel:                     cancel,
 	}
 
 	return lb, nil
@@ -132,7 +144,7 @@ func (lb *LoadBalancer) Start() error {
 		ReadTimeout:    lb.httpReadTimeout,
 		WriteTimeout:   lb.httpWriteTimeout,
 		IdleTimeout:    lb.httpIdleTimeout,
-		MaxHeaderBytes: 1 << 20,
+		MaxHeaderBytes: server.DefaultHTTPMaxHeaderBytes,
 	}
 
 	lb.wg.Add(1)
@@ -161,7 +173,7 @@ func (lb *LoadBalancer) Start() error {
 func (lb *LoadBalancer) runMetricsAggregation() {
 	defer logging.RecoverPanic(lb.logger, "loadbalancer.runMetricsAggregation", nil)
 	defer lb.wg.Done()
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(lb.metricsAggregationInterval)
 	defer ticker.Stop()
 
 	for {
@@ -381,8 +393,7 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(statusCode)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		// Can't do much here since WriteHeader already called
-		// Log error for debugging
-		_ = err
+		// WriteHeader already sent — can't change status code, just log for debugging
+		lb.logger.Error().Err(err).Msg("Failed to encode health response")
 	}
 }

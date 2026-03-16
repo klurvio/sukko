@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -156,7 +157,7 @@ func TestConfigHandler_Returns200JSON(t *testing.T) {
 	}
 
 	handler := ConfigHandler(cfg)
-	req := httptest.NewRequest(http.MethodGet, "/config", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/config", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)

@@ -1,20 +1,23 @@
 // Package api provides HTTP handlers and middleware for the provisioning service.
-package api //nolint:revive // api is a common package name for HTTP handlers
+package api
 
 import (
 	"context"
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog"
+	"golang.org/x/time/rate"
 
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
 // Context key for actor information (tenant_id:user_id format).
@@ -33,15 +36,26 @@ func LoggingMiddleware(logger zerolog.Logger) func(http.Handler) http.Handler {
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
 			defer func() { //nolint:contextcheck // Context is captured from r which is in scope
+				elapsed := time.Since(start)
+
 				logger.Info().
 					Str("method", r.Method).
 					Str("path", r.URL.Path).
 					Str("remote_addr", r.RemoteAddr).
 					Int("status", ww.Status()).
 					Int("bytes", ww.BytesWritten()).
-					Dur("duration", time.Since(start)).
+					Dur("duration", elapsed).
 					Str("request_id", middleware.GetReqID(r.Context())).
 					Msg("HTTP request")
+
+				// Record API metrics using route pattern to avoid cardinality explosion
+				routePattern := chi.RouteContext(r.Context()).RoutePattern()
+				if routePattern == "" {
+					routePattern = r.URL.Path
+				}
+				statusStr := strconv.Itoa(ww.Status())
+				RecordAPIRequest(routePattern, r.Method, statusStr)
+				RecordAPILatency(routePattern, r.Method, elapsed.Seconds())
 			}()
 
 			next.ServeHTTP(ww, r)
@@ -78,20 +92,29 @@ func AuthMiddleware(validator *auth.MultiTenantValidator, logger zerolog.Logger)
 					Str("path", r.URL.Path).
 					Msg("Token validation failed")
 
+				var reason string
 				switch {
 				case errors.Is(err, auth.ErrMissingToken):
+					reason = authFailureReasonMissingToken
 					httputil.WriteError(w, http.StatusUnauthorized, "MISSING_TOKEN", "Token required")
 				case errors.Is(err, auth.ErrTokenExpired):
+					reason = authFailureReasonTokenExpired
 					httputil.WriteError(w, http.StatusUnauthorized, "TOKEN_EXPIRED", "Token has expired")
 				case errors.Is(err, auth.ErrKeyNotFound):
+					reason = authFailureReasonKeyNotFound
 					httputil.WriteError(w, http.StatusUnauthorized, "KEY_NOT_FOUND", "Signing key not found")
 				case errors.Is(err, auth.ErrKeyRevoked):
+					reason = authFailureReasonKeyRevoked
 					httputil.WriteError(w, http.StatusUnauthorized, "KEY_REVOKED", "Signing key has been revoked")
 				default:
+					reason = authFailureReasonInvalidToken
 					httputil.WriteError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Token validation failed")
 				}
+				RecordAuthAttempt(authResultFailure, reason)
 				return
 			}
+
+			RecordAuthAttempt(pkgmetrics.AuthStatusSuccess, "")
 
 			// Build actor string for audit logging
 			actor := claims.TenantID + ":" + claims.Subject
@@ -128,6 +151,7 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 				return
 			}
 
+			RecordAuthorizationDenial(authzDenialInsufficientRole)
 			httputil.WriteError(w, http.StatusForbidden, "INSUFFICIENT_ROLE", "Required role: "+strings.Join(roles, " or "))
 		})
 	}
@@ -160,6 +184,7 @@ func RequireTenant() func(http.Handler) http.Handler {
 
 			// Check tenant match
 			if claims.TenantID != tenantID {
+				RecordAuthorizationDenial(authzDenialTenantMismatch)
 				httputil.WriteError(w, http.StatusForbidden, "TENANT_MISMATCH", "Cannot access other tenant's resources")
 				return
 			}
@@ -178,4 +203,20 @@ func GetClaimsFromContext(ctx context.Context) *auth.Claims {
 func GetActorFromContext(ctx context.Context) string {
 	actor, _ := ctx.Value(ActorContextKey).(string)
 	return actor
+}
+
+// RateLimitMiddleware applies a global token-bucket rate limit to all requests.
+// Uses golang.org/x/time/rate which allows requestsPerMinute/60 requests per second
+// with a burst equal to requestsPerMinute to absorb short spikes.
+func RateLimitMiddleware(requestsPerMinute int) func(http.Handler) http.Handler {
+	limiter := rate.NewLimiter(rate.Limit(float64(requestsPerMinute)/60.0), requestsPerMinute)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !limiter.Allow() {
+				httputil.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "API rate limit exceeded")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

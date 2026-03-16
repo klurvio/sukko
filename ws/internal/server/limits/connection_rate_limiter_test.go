@@ -8,20 +8,32 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// testBaseConfig returns a ConnectionRateLimiterConfig with safe defaults for testing.
+// Tests override individual fields as needed.
+func testBaseConfig() ConnectionRateLimiterConfig {
+	return ConnectionRateLimiterConfig{
+		IPBurst:         10,
+		IPRate:          1.0,
+		IPTTL:           5 * time.Minute,
+		GlobalBurst:     300,
+		GlobalRate:      50.0,
+		CleanupInterval: 1 * time.Minute,
+		Logger:          zerolog.Nop(),
+	}
+}
+
 // =============================================================================
 // NewConnectionRateLimiter Tests
 // =============================================================================
 
-func TestNewConnectionRateLimiter_Defaults(t *testing.T) {
+func TestNewConnectionRateLimiter_ExplicitConfig(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		Logger: zerolog.Nop(),
-	})
+	cfg := testBaseConfig()
+	limiter := NewConnectionRateLimiter(cfg)
 	defer limiter.Stop()
 
 	stats := limiter.GetStats()
 
-	// Check defaults were applied
 	if stats["ip_burst"].(int) != 10 {
 		t.Errorf("ip_burst: got %v, want 10", stats["ip_burst"])
 	}
@@ -38,14 +50,13 @@ func TestNewConnectionRateLimiter_Defaults(t *testing.T) {
 
 func TestNewConnectionRateLimiter_CustomConfig(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		IPBurst:     20,
-		IPRate:      2.0,
-		IPTTL:       10 * time.Minute,
-		GlobalBurst: 500,
-		GlobalRate:  100.0,
-		Logger:      zerolog.Nop(),
-	})
+	cfg := testBaseConfig()
+	cfg.IPBurst = 20
+	cfg.IPRate = 2.0
+	cfg.IPTTL = 10 * time.Minute
+	cfg.GlobalBurst = 500
+	cfg.GlobalRate = 100.0
+	limiter := NewConnectionRateLimiter(cfg)
 	defer limiter.Stop()
 
 	stats := limiter.GetStats()
@@ -70,13 +81,9 @@ func TestNewConnectionRateLimiter_CustomConfig(t *testing.T) {
 
 func TestCheckConnectionAllowed_NewIP(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		IPBurst:     10,
-		IPRate:      1.0,
-		GlobalBurst: 100,
-		GlobalRate:  50.0,
-		Logger:      zerolog.Nop(),
-	})
+	cfg := testBaseConfig()
+	cfg.GlobalBurst = 100
+	limiter := NewConnectionRateLimiter(cfg)
 	defer limiter.Stop()
 
 	// First connection from new IP should succeed
@@ -87,13 +94,12 @@ func TestCheckConnectionAllowed_NewIP(t *testing.T) {
 
 func TestCheckConnectionAllowed_IPBurstLimit(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		IPBurst:     5,
-		IPRate:      0.1, // Very slow refill
-		GlobalBurst: 100,
-		GlobalRate:  100.0,
-		Logger:      zerolog.Nop(),
-	})
+	cfg := testBaseConfig()
+	cfg.IPBurst = 5
+	cfg.IPRate = 0.1
+	cfg.GlobalBurst = 100
+	cfg.GlobalRate = 100.0
+	limiter := NewConnectionRateLimiter(cfg)
 	defer limiter.Stop()
 
 	ip := "192.168.1.1"
@@ -113,13 +119,12 @@ func TestCheckConnectionAllowed_IPBurstLimit(t *testing.T) {
 
 func TestCheckConnectionAllowed_GlobalBurstLimit(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		IPBurst:     100, // High per-IP limit
-		IPRate:      10.0,
-		GlobalBurst: 5,   // Low global limit
-		GlobalRate:  0.1, // Very slow refill
-		Logger:      zerolog.Nop(),
-	})
+	cfg := testBaseConfig()
+	cfg.IPBurst = 100
+	cfg.IPRate = 10.0
+	cfg.GlobalBurst = 5
+	cfg.GlobalRate = 0.1
+	limiter := NewConnectionRateLimiter(cfg)
 	defer limiter.Stop()
 
 	// Use different IPs to not hit per-IP limit
@@ -139,13 +144,12 @@ func TestCheckConnectionAllowed_GlobalBurstLimit(t *testing.T) {
 
 func TestCheckConnectionAllowed_SeparateIPBuckets(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		IPBurst:     3,
-		IPRate:      0.1,
-		GlobalBurst: 100,
-		GlobalRate:  100.0,
-		Logger:      zerolog.Nop(),
-	})
+	cfg := testBaseConfig()
+	cfg.IPBurst = 3
+	cfg.IPRate = 0.1
+	cfg.GlobalBurst = 100
+	cfg.GlobalRate = 100.0
+	limiter := NewConnectionRateLimiter(cfg)
 	defer limiter.Stop()
 
 	// Exhaust IP1's burst
@@ -166,27 +170,24 @@ func TestCheckConnectionAllowed_SeparateIPBuckets(t *testing.T) {
 
 func TestCheckConnectionAllowed_Concurrent(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		IPBurst:     100,
-		IPRate:      10.0,
-		GlobalBurst: 1000,
-		GlobalRate:  100.0,
-		Logger:      zerolog.Nop(),
-	})
+	cfg := testBaseConfig()
+	cfg.IPBurst = 100
+	cfg.IPRate = 10.0
+	cfg.GlobalBurst = 1000
+	cfg.GlobalRate = 100.0
+	limiter := NewConnectionRateLimiter(cfg)
 	defer limiter.Stop()
 
 	var wg sync.WaitGroup
 
 	// Multiple goroutines making concurrent connection attempts
 	for i := range 50 {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			ip := "192.168.1." + string(rune('0'+(id%10)))
+		wg.Go(func() {
+			ip := "192.168.1." + string(rune('0'+(i%10)))
 			for range 10 {
 				limiter.CheckConnectionAllowed(ip)
 			}
-		}(i)
+		})
 	}
 
 	wg.Wait()
@@ -199,11 +200,9 @@ func TestCheckConnectionAllowed_Concurrent(t *testing.T) {
 
 func TestGetStats_TrackedIPs(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		IPBurst:     10,
-		GlobalBurst: 100,
-		Logger:      zerolog.Nop(),
-	})
+	cfg := testBaseConfig()
+	cfg.GlobalBurst = 100
+	limiter := NewConnectionRateLimiter(cfg)
 	defer limiter.Stop()
 
 	// Initially no tracked IPs
@@ -225,14 +224,7 @@ func TestGetStats_TrackedIPs(t *testing.T) {
 
 func TestGetStats_ReturnsAllFields(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		IPBurst:     10,
-		IPRate:      1.0,
-		IPTTL:       5 * time.Minute,
-		GlobalBurst: 300,
-		GlobalRate:  50.0,
-		Logger:      zerolog.Nop(),
-	})
+	limiter := NewConnectionRateLimiter(testBaseConfig())
 	defer limiter.Stop()
 
 	stats := limiter.GetStats()
@@ -251,14 +243,10 @@ func TestGetStats_ReturnsAllFields(t *testing.T) {
 
 func TestCleanup_RemovesStaleIPs(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		IPBurst:     10,
-		IPRate:      1.0,
-		IPTTL:       100 * time.Millisecond, // Very short TTL for testing
-		GlobalBurst: 100,
-		GlobalRate:  50.0,
-		Logger:      zerolog.Nop(),
-	})
+	cfg := testBaseConfig()
+	cfg.IPTTL = 100 * time.Millisecond // Very short TTL for testing
+	cfg.GlobalBurst = 100
+	limiter := NewConnectionRateLimiter(cfg)
 	defer limiter.Stop()
 
 	// Create IP entries
@@ -286,14 +274,10 @@ func TestCleanup_RemovesStaleIPs(t *testing.T) {
 
 func TestCleanup_KeepsRecentIPs(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		IPBurst:     10,
-		IPRate:      1.0,
-		IPTTL:       1 * time.Second, // Longer TTL
-		GlobalBurst: 100,
-		GlobalRate:  50.0,
-		Logger:      zerolog.Nop(),
-	})
+	cfg := testBaseConfig()
+	cfg.IPTTL = 1 * time.Second
+	cfg.GlobalBurst = 100
+	limiter := NewConnectionRateLimiter(cfg)
 	defer limiter.Stop()
 
 	// Create IP entries
@@ -314,11 +298,9 @@ func TestCleanup_KeepsRecentIPs(t *testing.T) {
 
 func TestStop_StopsCleanupGoroutine(t *testing.T) {
 	t.Parallel()
-	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-		IPBurst:     10,
-		GlobalBurst: 100,
-		Logger:      zerolog.Nop(),
-	})
+	cfg := testBaseConfig()
+	cfg.GlobalBurst = 100
+	limiter := NewConnectionRateLimiter(cfg)
 
 	// Stop should not panic and should return quickly
 	done := make(chan struct{})

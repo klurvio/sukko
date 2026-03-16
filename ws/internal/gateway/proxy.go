@@ -17,16 +17,11 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/protocol"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
-
-// authValidationTimeout is the context timeout for token validation during auth refresh.
-const authValidationTimeout = 5 * time.Second
-
-// defaultAuthRefreshInterval is the fallback minimum time between auth refreshes per connection.
-const defaultAuthRefreshInterval = 30 * time.Second
 
 // Proxy handles bidirectional WebSocket message forwarding between client and backend.
 // It intercepts subscribe, publish, and auth refresh messages to:
@@ -41,6 +36,7 @@ type Proxy struct {
 	logger        zerolog.Logger
 
 	messageTimeout time.Duration
+	maxFrameSize   int
 
 	// Auth (only used when authEnabled=true)
 	claims      *auth.Claims
@@ -50,7 +46,8 @@ type Proxy struct {
 	validator   TokenValidator
 
 	// Auth refresh rate limiting
-	authLimiter *rate.Limiter
+	authLimiter           *rate.Limiter
+	authValidationTimeout time.Duration
 
 	// Backend→client subscription tracking for forced unsubscription on auth refresh
 	subscribedChannels map[string]struct{}
@@ -79,60 +76,48 @@ type ProxyConfig struct {
 	// Auth refresh rate interval (minimum time between auth refreshes)
 	AuthRefreshRateInterval time.Duration
 
+	// AuthValidationTimeout is the context timeout for token validation during auth refresh.
+	AuthValidationTimeout time.Duration
+
 	// Tenant (always set — from JWT or config)
 	TenantID string
 
 	// Publish rate limiting (tokens per second, burst size)
-	// Default: 10/sec, 100 burst
 	PublishRateLimit float64
 	PublishBurst     int
 
-	// Max publish message size in bytes (default: 64KB)
+	// Max publish message size in bytes.
 	MaxPublishSize int
+
+	// MaxFrameSize is the maximum allowed WebSocket frame size in bytes.
+	MaxFrameSize int
 }
 
 // NewProxy creates a new proxy for a client-backend connection pair.
+// All config values must be set by the caller (sourced from gateway config envDefaults).
 func NewProxy(cfg ProxyConfig) *Proxy {
-	// Set defaults using shared constants
-	publishRateLimit := cfg.PublishRateLimit
-	if publishRateLimit == 0 {
-		publishRateLimit = protocol.DefaultPublishRateLimit
-	}
-	publishBurst := cfg.PublishBurst
-	if publishBurst == 0 {
-		publishBurst = protocol.DefaultPublishBurst
-	}
-	maxPublishSize := cfg.MaxPublishSize
-	if maxPublishSize == 0 {
-		maxPublishSize = protocol.DefaultMaxPublishSize
-	}
-
-	// Auth refresh rate limiter: 1 request per AuthRefreshRateInterval
-	authRefreshInterval := cfg.AuthRefreshRateInterval
-	if authRefreshInterval == 0 {
-		authRefreshInterval = defaultAuthRefreshInterval
-	}
-
 	return &Proxy{
-		clientConn:         cfg.ClientConn,
-		backendConn:        cfg.BackendConn,
-		logger:             cfg.Logger,
-		messageTimeout:     cfg.MessageTimeout,
-		authEnabled:        cfg.AuthEnabled,
-		claims:             cfg.Claims,
-		permissions:        cfg.Permissions,
-		validator:          cfg.Validator,
-		tenantID:           cfg.TenantID,
-		publishLimiter:     rate.NewLimiter(rate.Limit(publishRateLimit), publishBurst),
-		maxPublishSize:     maxPublishSize,
-		authLimiter:        rate.NewLimiter(rate.Every(authRefreshInterval), 1),
-		subscribedChannels: make(map[string]struct{}),
+		clientConn:            cfg.ClientConn,
+		backendConn:           cfg.BackendConn,
+		logger:                cfg.Logger,
+		messageTimeout:        cfg.MessageTimeout,
+		maxFrameSize:          cfg.MaxFrameSize,
+		authEnabled:           cfg.AuthEnabled,
+		claims:                cfg.Claims,
+		permissions:           cfg.Permissions,
+		validator:             cfg.Validator,
+		tenantID:              cfg.TenantID,
+		publishLimiter:        rate.NewLimiter(rate.Limit(cfg.PublishRateLimit), cfg.PublishBurst),
+		maxPublishSize:        cfg.MaxPublishSize,
+		authLimiter:           rate.NewLimiter(rate.Every(cfg.AuthRefreshRateInterval), 1),
+		authValidationTimeout: cfg.AuthValidationTimeout,
+		subscribedChannels:    make(map[string]struct{}),
 	}
 }
 
 // Run starts bidirectional message forwarding.
-// Blocks until either connection closes or errors.
-func (p *Proxy) Run() {
+// Blocks until either connection closes, errors, or context is cancelled.
+func (p *Proxy) Run(ctx context.Context) {
 	errChan := make(chan error, 2)
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -141,22 +126,26 @@ func (p *Proxy) Run() {
 	go func() {
 		defer logging.RecoverPanic(p.logger, "proxyClientToBackend", nil)
 		defer wg.Done()
-		p.proxyClientToBackend(errChan)
+		p.proxyClientToBackend(ctx, errChan)
 	}()
 
 	// Backend -> Client (pass-through)
 	go func() {
 		defer logging.RecoverPanic(p.logger, "proxyBackendToClient", nil)
 		defer wg.Done()
-		p.proxyBackendToClient(errChan)
+		p.proxyBackendToClient(ctx, errChan)
 	}()
 
-	// Wait for first error (connection close)
-	err := <-errChan
-	if err != nil && !errors.Is(err, io.EOF) {
-		p.logger.Warn().Err(err).Msg("Connection closed with error")
-	} else {
-		p.logger.Debug().Msg("Connection closed normally")
+	// Wait for first error or context cancellation
+	select {
+	case err := <-errChan:
+		if err != nil && !errors.Is(err, io.EOF) {
+			p.logger.Warn().Err(err).Msg("Connection closed with error")
+		} else {
+			p.logger.Debug().Msg("Connection closed normally")
+		}
+	case <-ctx.Done():
+		p.logger.Info().Msg("Context cancelled, closing proxy")
 	}
 
 	// Close both connections to unblock waiting goroutines
@@ -170,16 +159,41 @@ func (p *Proxy) Run() {
 // proxyClientToBackend forwards messages from client to backend,
 // intercepting subscribe messages to filter channels.
 // Handles all frame types including ping/pong transparently.
-func (p *Proxy) proxyClientToBackend(errChan chan error) {
+func (p *Proxy) proxyClientToBackend(ctx context.Context, errChan chan error) {
 	for {
+		// Set read deadline for message timeout enforcement (FR-002).
+		// Guard: messageTimeout is validated >= 1s at startup (Validate()), but check > 0
+		// as defense-in-depth for test code that bypasses config validation.
+		if p.messageTimeout > 0 {
+			_ = p.clientConn.SetReadDeadline(time.Now().Add(p.messageTimeout)) // Intentional: deadline errors handled by ReadHeader
+		}
+
 		// Read frame header
 		header, err := ws.ReadHeader(p.clientConn)
 		if err != nil {
+			// Check for context cancellation (shutdown signal)
+			if ctx.Err() != nil {
+				errChan <- ctx.Err()
+				return
+			}
 			if !errors.Is(err, io.EOF) {
-				RecordProxyError("client_read_error")
+				RecordProxyError(ProxyErrorClientRead)
 				p.logger.Debug().Err(err).Msg("Client read error")
 			}
 			errChan <- err
+			return
+		}
+
+		// Validate frame size before allocation (FR-001)
+		if header.Length > int64(p.maxFrameSize) {
+			RecordProxyError(ProxyErrorFrameTooLarge)
+			p.logger.Warn().
+				Int64("frame_size", header.Length).
+				Int("max_frame_size", p.maxFrameSize).
+				Msg("Client frame exceeds maximum size")
+			closeBody := ws.NewCloseFrameBody(ws.StatusMessageTooBig, "Frame too large")
+			p.sendCloseToClient(closeBody)
+			errChan <- fmt.Errorf("client frame size %d exceeds max %d", header.Length, p.maxFrameSize)
 			return
 		}
 
@@ -187,7 +201,7 @@ func (p *Proxy) proxyClientToBackend(errChan chan error) {
 		payload := make([]byte, header.Length)
 		if header.Length > 0 {
 			if _, err := io.ReadFull(p.clientConn, payload); err != nil {
-				RecordProxyError("client_read_error")
+				RecordProxyError(ProxyErrorClientRead)
 				p.logger.Debug().Err(err).Msg("Client payload read error")
 				errChan <- err
 				return
@@ -209,7 +223,10 @@ func (p *Proxy) proxyClientToBackend(errChan chan error) {
 
 		// For text frames, intercept and possibly modify (subscribe filtering, publish mapping)
 		if header.OpCode == ws.OpText {
-			payload, _ = p.interceptClientMessage(payload)
+			// Intentional: errors from interception are handled internally by sending
+			// error responses directly to the client (e.g., publish errors, auth errors).
+			// A nil payload signals the message was consumed and should not be forwarded.
+			payload, _ = p.interceptClientMessage(ctx, payload)
 			// If payload is nil, message was handled (e.g., error sent to client)
 			if payload == nil {
 				continue
@@ -217,11 +234,11 @@ func (p *Proxy) proxyClientToBackend(errChan chan error) {
 		}
 
 		// Record message metrics
-		RecordMessage("client_to_backend", len(payload))
+		RecordMessage(DirectionClientToBackend, len(payload))
 
 		// Forward frame to backend (re-mask for server)
 		if err := p.forwardFrame(p.backendConn, header.OpCode, payload, header.Fin, true); err != nil {
-			RecordProxyError("backend_write_error")
+			RecordProxyError(ProxyErrorBackendWrite)
 			p.logger.Debug().Err(err).Msg("Backend write error")
 			errChan <- err
 			return
@@ -231,16 +248,38 @@ func (p *Proxy) proxyClientToBackend(errChan chan error) {
 
 // proxyBackendToClient forwards messages from backend to client (pass-through).
 // Handles all frame types including ping/pong transparently.
-func (p *Proxy) proxyBackendToClient(errChan chan error) {
+func (p *Proxy) proxyBackendToClient(ctx context.Context, errChan chan error) {
 	for {
+		// Set read deadline for message timeout enforcement (FR-002).
+		// Guard: see proxyClientToBackend — defense-in-depth for test code bypassing config validation.
+		if p.messageTimeout > 0 {
+			_ = p.backendConn.SetReadDeadline(time.Now().Add(p.messageTimeout)) // Intentional: deadline errors handled by ReadHeader
+		}
+
 		// Read frame header
 		header, err := ws.ReadHeader(p.backendConn)
 		if err != nil {
+			// Check for context cancellation (shutdown signal)
+			if ctx.Err() != nil {
+				errChan <- ctx.Err()
+				return
+			}
 			if !errors.Is(err, io.EOF) {
-				RecordProxyError("backend_read_error")
+				RecordProxyError(ProxyErrorBackendRead)
 				p.logger.Debug().Err(err).Msg("Backend read error")
 			}
 			errChan <- err
+			return
+		}
+
+		// Validate frame size before allocation (FR-001)
+		if header.Length > int64(p.maxFrameSize) {
+			RecordProxyError(ProxyErrorFrameTooLarge)
+			p.logger.Warn().
+				Int64("frame_size", header.Length).
+				Int("max_frame_size", p.maxFrameSize).
+				Msg("Backend frame exceeds maximum size")
+			errChan <- fmt.Errorf("backend frame size %d exceeds max %d", header.Length, p.maxFrameSize)
 			return
 		}
 
@@ -248,7 +287,7 @@ func (p *Proxy) proxyBackendToClient(errChan chan error) {
 		payload := make([]byte, header.Length)
 		if header.Length > 0 {
 			if _, err := io.ReadFull(p.backendConn, payload); err != nil {
-				RecordProxyError("backend_read_error")
+				RecordProxyError(ProxyErrorBackendRead)
 				p.logger.Debug().Err(err).Msg("Backend payload read error")
 				errChan <- err
 				return
@@ -271,11 +310,11 @@ func (p *Proxy) proxyBackendToClient(errChan chan error) {
 		}
 
 		// Record message metrics
-		RecordMessage("backend_to_client", len(payload))
+		RecordMessage(DirectionBackendToClient, len(payload))
 
 		// Forward all frames to client (server->client: no masking)
 		if err := p.sendToClient(header.OpCode, payload, header.Fin); err != nil {
-			RecordProxyError("client_write_error")
+			RecordProxyError(ProxyErrorClientWrite)
 			p.logger.Debug().Err(err).Msg("Client write error")
 			errChan <- err
 			return
@@ -299,11 +338,11 @@ func (p *Proxy) forwardFrame(dst net.Conn, opCode ws.OpCode, payload []byte, fin
 	}
 
 	if err := ws.WriteHeader(dst, header); err != nil {
-		return err
+		return fmt.Errorf("write frame header: %w", err)
 	}
 	if len(payload) > 0 {
 		if _, err := dst.Write(payload); err != nil {
-			return err
+			return fmt.Errorf("write frame payload: %w", err)
 		}
 	}
 	return nil
@@ -321,8 +360,10 @@ func (p *Proxy) forwardCloseFrame(dst net.Conn, payload []byte, mask bool) {
 		header.Mask = ws.NewMask()
 		ws.Cipher(payload, header.Mask, 0)
 	}
+	// Best-effort: connection is closing, write errors are expected and non-recoverable.
 	_ = ws.WriteHeader(dst, header)
 	if len(payload) > 0 {
+		// Best-effort: connection is closing, write errors are expected and non-recoverable.
 		_, _ = dst.Write(payload)
 	}
 }
@@ -388,7 +429,7 @@ func (p *Proxy) trackSubscriptionResponse(payload []byte) {
 }
 
 // interceptClientMessage intercepts client messages for subscribe and publish requests.
-func (p *Proxy) interceptClientMessage(msg []byte) ([]byte, error) {
+func (p *Proxy) interceptClientMessage(ctx context.Context, msg []byte) ([]byte, error) {
 	// Defensive guard — tenantID is always set in practice (from JWT or config default).
 	// This only triggers if config has empty DefaultTenantID AND auth is disabled.
 	if p.tenantID == "" {
@@ -407,7 +448,7 @@ func (p *Proxy) interceptClientMessage(msg []byte) ([]byte, error) {
 	case protocol.MsgTypePublish:
 		return p.interceptPublish(clientMsg)
 	case MsgTypeAuth:
-		return p.interceptAuthRefresh(clientMsg)
+		return p.interceptAuthRefresh(ctx, clientMsg)
 	default:
 		return msg, nil
 	}
@@ -421,7 +462,11 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 	var subData protocol.SubscribeData
 	if err := json.Unmarshal(clientMsg.Data, &subData); err != nil {
 		p.logger.Warn().Err(err).Msg("Failed to parse subscribe data")
-		return json.Marshal(clientMsg)
+		data, marshalErr := json.Marshal(clientMsg)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("marshal subscribe passthrough: %w", marshalErr)
+		}
+		return data, nil
 	}
 
 	// 1. Tenant prefix and channel format validation (always — filter out invalid channels)
@@ -429,14 +474,14 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 	for _, ch := range subData.Channels {
 		switch {
 		case !p.validateChannelTenant(ch):
-			RecordChannelCheck("denied")
-			RecordAccessDenial("channel", "wrong_tenant")
+			RecordChannelCheck(ChannelCheckDenied)
+			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonWrongTenant)
 			p.logger.Warn().
 				Str("channel", ch).
 				Msg("Subscription denied: wrong tenant prefix")
-		case len(strings.Split(ch, ".")) < protocol.MinInternalChannelParts:
-			RecordChannelCheck("denied")
-			RecordAccessDenial("channel", "invalid_format")
+		case strings.Count(ch, ".")+1 < protocol.MinInternalChannelParts:
+			RecordChannelCheck(ChannelCheckDenied)
+			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonInvalidFormat)
 			p.logger.Warn().
 				Str("channel", ch).
 				Msg("Subscription denied: invalid channel format")
@@ -453,7 +498,7 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 		p.claimsMu.RUnlock()
 
 		// Strip tenant prefix locally for permission matching — patterns like *.trade
-		// operate on the non-tenant portion (e.g., "BTC.trade" from "sukko.BTC.trade")
+		// operate on the non-tenant portion (e.g., "BTC.trade" from "odin.BTC.trade")
 		stripped := make([]string, len(channels))
 		for i, ch := range channels {
 			stripped[i] = p.stripTenantPrefix(ch)
@@ -469,10 +514,10 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 		// Log denied channels and record metrics
 		for _, ch := range channels {
 			if slices.Contains(allowed, ch) {
-				RecordChannelCheck("allowed")
+				RecordChannelCheck(ChannelCheckAllowed)
 			} else {
-				RecordChannelCheck("denied")
-				RecordAccessDenial("channel", "unauthorized")
+				RecordChannelCheck(ChannelCheckDenied)
+				RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonUnauthorized)
 				p.logger.Warn().
 					Str("channel", ch).
 					Msg("Subscription denied")
@@ -486,13 +531,21 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 	modifiedData := protocol.SubscribeData{Channels: channels}
 	dataBytes, err := json.Marshal(modifiedData)
 	if err != nil {
-		return json.Marshal(clientMsg)
+		data, marshalErr := json.Marshal(clientMsg)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("marshal subscribe fallback: %w", marshalErr)
+		}
+		return data, nil
 	}
 
-	return json.Marshal(protocol.ClientMessage{
+	data, marshalErr := json.Marshal(protocol.ClientMessage{
 		Type: protocol.MsgTypeSubscribe,
 		Data: dataBytes,
 	})
+	if marshalErr != nil {
+		return nil, fmt.Errorf("marshal subscribe message: %w", marshalErr)
+	}
+	return data, nil
 }
 
 // validateChannelTenant checks that the channel's tenant prefix matches the connection's tenant.
@@ -502,7 +555,7 @@ func (p *Proxy) validateChannelTenant(channel string) bool {
 }
 
 // stripTenantPrefix removes the tenant prefix from a channel for permission matching.
-// "sukko.BTC.trade" → "BTC.trade". Only used locally in the gateway for permission checks —
+// "odin.BTC.trade" → "BTC.trade". Only used locally in the gateway for permission checks —
 // the full tenant-prefixed channel is always forwarded to the server.
 func (p *Proxy) stripTenantPrefix(channel string) string {
 	return strings.TrimPrefix(channel, p.tenantID+".")
@@ -566,10 +619,14 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 		Str("channel", pubData.Channel).
 		Msg("Publish channel validated")
 
-	RecordPublishResult(p.tenantID, "success")
+	RecordPublishResult(p.tenantID, pkgmetrics.ResultSuccess)
 
 	// Forward original message as-is (no channel transformation)
-	return json.Marshal(clientMsg)
+	data, err := json.Marshal(clientMsg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal publish message: %w", err)
+	}
+	return data, nil
 }
 
 // sendPublishErrorToClient sends a publish error directly to the client WebSocket.
@@ -580,12 +637,12 @@ func (p *Proxy) sendPublishErrorToClient(code protocol.ErrorCode) ([]byte, error
 	errMsg := map[string]string{
 		"type":    protocol.RespTypePublishError,
 		"code":    string(code),
-		"message": protocol.PublishErrorMessages[code],
+		"message": protocol.PublishErrorMessage(code),
 	}
 
 	errBytes, err := json.Marshal(errMsg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal publish error: %w", err)
 	}
 
 	// Send error directly to client (mutex-protected - may race with proxyBackendToClient)
@@ -600,7 +657,7 @@ func (p *Proxy) sendPublishErrorToClient(code protocol.ErrorCode) ([]byte, error
 // interceptAuthRefresh handles mid-connection JWT token refresh.
 // Validates the new token, checks tenant match, swaps claims, and forces
 // unsubscription from channels no longer permitted under the new token.
-func (p *Proxy) interceptAuthRefresh(clientMsg protocol.ClientMessage) ([]byte, error) {
+func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.ClientMessage) ([]byte, error) {
 	start := time.Now()
 	defer func() {
 		RecordAuthRefreshLatency(time.Since(start).Seconds())
@@ -608,33 +665,33 @@ func (p *Proxy) interceptAuthRefresh(clientMsg protocol.ClientMessage) ([]byte, 
 
 	// 1. Check if auth is enabled
 	if !p.authEnabled {
-		RecordAuthRefresh("not_available")
+		RecordAuthRefresh(AuthErrNotAvailable)
 		return p.sendAuthErrorToClient(AuthErrNotAvailable, AuthErrorMessages[AuthErrNotAvailable])
 	}
 
 	// 2. Rate limit check
 	if !p.authLimiter.Allow() {
-		RecordAuthRefresh("rate_limited")
+		RecordAuthRefresh(AuthErrRateLimited)
 		return p.sendAuthErrorToClient(AuthErrRateLimited, AuthErrorMessages[AuthErrRateLimited])
 	}
 
 	// 3. Parse auth data
 	var authData AuthData
 	if err := json.Unmarshal(clientMsg.Data, &authData); err != nil || authData.Token == "" {
-		RecordAuthRefresh("invalid_token")
+		RecordAuthRefresh(AuthErrInvalidToken)
 		return p.sendAuthErrorToClient(AuthErrInvalidToken, AuthErrorMessages[AuthErrInvalidToken])
 	}
 
 	// 4. Validate the new token
 	if p.validator == nil {
-		RecordAuthRefresh("not_available")
+		RecordAuthRefresh(AuthErrNotAvailable)
 		return p.sendAuthErrorToClient(AuthErrNotAvailable, AuthErrorMessages[AuthErrNotAvailable])
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), authValidationTimeout)
+	validationCtx, cancel := context.WithTimeout(ctx, p.authValidationTimeout)
 	defer cancel()
 
-	newClaims, err := p.validator.ValidateToken(ctx, authData.Token)
+	newClaims, err := p.validator.ValidateToken(validationCtx, authData.Token)
 	if err != nil {
 		code := AuthErrInvalidToken
 		if errors.Is(err, auth.ErrTokenExpired) {
@@ -650,7 +707,7 @@ func (p *Proxy) interceptAuthRefresh(clientMsg protocol.ClientMessage) ([]byte, 
 			Str("connection_tenant", p.tenantID).
 			Str("token_tenant", newClaims.TenantID).
 			Msg("Auth refresh tenant mismatch")
-		RecordAuthRefresh("tenant_mismatch")
+		RecordAuthRefresh(AuthErrTenantMismatch)
 		return p.sendAuthErrorToClient(AuthErrTenantMismatch, AuthErrorMessages[AuthErrTenantMismatch])
 	}
 
@@ -680,7 +737,7 @@ func (p *Proxy) interceptAuthRefresh(clientMsg protocol.ClientMessage) ([]byte, 
 	}
 
 	// 9. Record metrics and log
-	RecordAuthRefresh("success")
+	RecordAuthRefresh(pkgmetrics.AuthStatusSuccess)
 
 	p.logger.Info().
 		Str("subject", newClaims.Subject).
@@ -786,4 +843,3 @@ func (p *Proxy) sendAuthErrorToClient(code, message string) ([]byte, error) {
 	}
 	return nil, nil
 }
-

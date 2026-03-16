@@ -1,9 +1,11 @@
-// Server-only protocol constants and types.
-// These are used exclusively by the ws-server and MUST NOT be imported by the gateway.
-// Shared types (used by both gateway and server) remain in shared/protocol.
+// Package server implements the core WebSocket server with sharded connections,
+// Kafka consumption, and NATS broadcast.
+//
+// Protocol constants and types in this file are used exclusively by the
+// ws-server and MUST NOT be imported by the gateway. Shared types (used by
+// both gateway and server) remain in shared/protocol. All ErrorCode constants
+// (including server-originated ones) are defined in shared/protocol/errors.go.
 package server
-
-import "github.com/klurvio/sukko/internal/shared/protocol"
 
 // Message type constants for client→server messages handled only by the server.
 const (
@@ -32,15 +34,3 @@ const (
 type UnsubscribeData struct {
 	Channels []string `json:"channels"`
 }
-
-// Server-only error codes.
-const (
-	// ErrCodeInvalidJSON indicates a client message is not valid JSON.
-	ErrCodeInvalidJSON protocol.ErrorCode = "invalid_json"
-
-	// ErrCodePublishFailed indicates backend publish failed.
-	ErrCodePublishFailed protocol.ErrorCode = "publish_failed"
-
-	// ErrCodeReplayFailed indicates backend message replay failed.
-	ErrCodeReplayFailed protocol.ErrorCode = "replay_failed"
-)

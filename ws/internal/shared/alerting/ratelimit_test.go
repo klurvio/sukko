@@ -5,22 +5,6 @@ import (
 	"time"
 )
 
-func TestNewRateLimitedAlerter(t *testing.T) {
-	t.Parallel()
-	mock := &mockAlerter{}
-	rl := NewRateLimitedAlerter(mock)
-
-	if rl == nil {
-		t.Fatal("NewRateLimitedAlerter should return non-nil")
-	}
-	if rl.window != 5*time.Minute {
-		t.Errorf("Default window should be 5 minutes, got %v", rl.window)
-	}
-	if rl.max != 3 {
-		t.Errorf("Default max should be 3, got %d", rl.max)
-	}
-}
-
 func TestNewRateLimitedAlerterWithConfig(t *testing.T) {
 	t.Parallel()
 	mock := &mockAlerter{}
@@ -191,7 +175,10 @@ func TestRateLimitedAlerter_SendsSuppressionNotice(t *testing.T) {
 
 func TestRateLimitedAlerter_ImplementsInterface(t *testing.T) {
 	t.Parallel()
-	var alerter Alerter = NewRateLimitedAlerter(&mockAlerter{})
+	var alerter Alerter = NewRateLimitedAlerterWithConfig(&mockAlerter{}, RateLimitConfig{
+		Window: 5 * time.Minute,
+		Max:    3,
+	})
 
 	alerter.Alert(ERROR, "Test", nil)
 }

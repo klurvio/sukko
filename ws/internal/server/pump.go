@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"runtime/debug"
 	"time"
@@ -14,17 +15,21 @@ import (
 	"github.com/gobwas/ws/wsutil"
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/server/metrics"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/server/stats"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
-// PumpConfig holds timing configuration for pump operations.
+// PumpConfig holds timing and rate limit configuration for pump operations.
 type PumpConfig struct {
 	PongWait   time.Duration
 	WriteWait  time.Duration
 	PingPeriod time.Duration
+
+	// Per-client message rate limit values (for log messages and error responses)
+	ClientMsgBurstLimit int
+	ClientMsgRatePerSec float64
 }
 
 // FallbackPingPeriodRatio is the ratio used to calculate PingPeriod from PongWait
@@ -64,19 +69,19 @@ type Pump struct {
 	Logger        Logger
 	ZerologLogger zerolog.Logger // For panic recovery (zerolog-specific)
 	RateLimiter   RateLimiter
-	AuditLogger   AuditLogger
-	Stats         *types.Stats
+	AlertLogger   AlertLogger
+	Stats         *stats.Stats
 	Clock         Clock
 }
 
 // NewPump creates a Pump with the given dependencies.
-func NewPump(config PumpConfig, logger Logger, zerologLogger zerolog.Logger, rateLimiter RateLimiter, auditLogger AuditLogger, stats *types.Stats, clock Clock) *Pump {
+func NewPump(config PumpConfig, logger Logger, zerologLogger zerolog.Logger, rateLimiter RateLimiter, alertLogger AlertLogger, stats *stats.Stats, clock Clock) *Pump {
 	return &Pump{
 		Config:        config,
 		Logger:        logger,
 		ZerologLogger: zerologLogger,
 		RateLimiter:   rateLimiter,
-		AuditLogger:   auditLogger,
+		AlertLogger:   alertLogger,
 		Stats:         stats,
 		Clock:         clock,
 	}
@@ -255,20 +260,20 @@ func (p *Pump) handleRateLimitExceeded(c *Client) {
 	if p.Logger != nil {
 		p.Logger.Warn().
 			Int64("client_id", c.id).
-			Int("burst_limit", 100).
-			Int("rate_limit_per_sec", 10).
+			Int("burst_limit", p.Config.ClientMsgBurstLimit).
+			Int("rate_limit_per_sec", int(p.Config.ClientMsgRatePerSec)).
 			Msg("Client rate limited")
 	}
 
-	if p.AuditLogger != nil {
-		p.AuditLogger.Warning("ClientRateLimited", "Client exceeded rate limit", map[string]any{
+	if p.AlertLogger != nil {
+		p.AlertLogger.Warning("ClientRateLimited", "Client exceeded rate limit", map[string]any{
 			"clientID": c.id,
-			"limit":    "100 burst, 10/sec sustained",
+			"limit":    fmt.Sprintf("%d burst, %g/sec sustained", p.Config.ClientMsgBurstLimit, p.Config.ClientMsgRatePerSec),
 		})
 	}
 
 	// Send error to client
-	errorMsg := CreateRateLimitErrorMessage()
+	errorMsg := CreateRateLimitErrorMessage(p.Config.ClientMsgRatePerSec)
 	select {
 	case c.send <- RawMsg(errorMsg):
 	default:
@@ -473,12 +478,13 @@ func (p *Pump) recordSendTimeoutDrops(c *Client, failedCount int) {
 // =============================================================================
 
 // CreateRateLimitErrorMessage creates the error response for rate limiting.
-func CreateRateLimitErrorMessage() []byte {
+func CreateRateLimitErrorMessage(ratePerSec float64) []byte {
 	msg := map[string]any{
 		"type":    "error",
 		"code":    "RATE_LIMIT_EXCEEDED",
-		"message": "Too many messages, please slow down (limit: 10/sec)",
+		"message": fmt.Sprintf("Too many messages, please slow down (limit: %g/sec)", ratePerSec),
 	}
+	// Error impossible: marshaling map[string]any with only string values
 	data, _ := json.Marshal(msg)
 	return data
 }

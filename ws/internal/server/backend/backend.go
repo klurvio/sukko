@@ -1,4 +1,4 @@
-// Package backend provides the pluggable message backend abstraction for Sukko WS.
+// Package backend provides the pluggable message backend abstraction for Odin WS.
 //
 // The MessageBackend interface decouples the ws-server from any specific message
 // ingestion system. Three implementations are provided:
@@ -42,9 +42,6 @@ type MessageBackend interface {
 	// Shutdown gracefully stops the backend.
 	Shutdown(ctx context.Context) error
 }
-
-// DefaultMaxReplayMessages is the maximum number of messages replayed on reconnect.
-const DefaultMaxReplayMessages = 100
 
 // Sentinel errors for expected backend conditions.
 var (

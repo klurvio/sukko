@@ -10,10 +10,10 @@ region = "us-central1"
 zone   = "us-central1-a"
 
 # Cluster Configuration
-cluster_name = "sukko-prod"
+cluster_name = "odin-ws-prod"
 environment  = "prod"
-namespace    = "sukko-prod"
-network_name = "sukko-prod-vpc"
+namespace    = "odin-prod"
+network_name = "odin-ws-prod-vpc"
 
 # Node Pool Configuration
 node_machine_type = "e2-standard-4"

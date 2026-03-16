@@ -1,17 +1,17 @@
 ---
 name: create-pr
-description: Create a pull request to main branch with auto-generated description from GitHub issue
+description: Create a pull request to main branch with auto-generated description from ClickUp task
 user-invocable: true
 ---
 
 # Create Pull Request
 
-Create a pull request to the `main` branch with an auto-generated description based on branch changes and GitHub issue context.
+Create a pull request to the `main` branch with an auto-generated description based on branch changes and ClickUp task context.
 
 ## Usage
 
 ```
-/create-pr [github-issue-number]
+/create-pr [clickup-task-id]
 ```
 
 ## Instructions
@@ -22,29 +22,31 @@ Create a pull request to the `main` branch with an auto-generated description ba
    - `git diff main...HEAD --stat` - Get summary of file changes
    - `git diff main...HEAD` - Get full diff (for understanding changes)
 
-2. **Extract GitHub issue number**:
-   - If provided as argument (`{{args}}`), use that issue number
-   - Otherwise, extract from commit messages: `type[#issue]: description`
-   - If no issue number found, ask the user to provide one
+2. **Extract ClickUp task ID**:
+   - If provided as argument (`{{args}}`), use that task ID
+   - Otherwise, extract from commit messages: `type[task-id]: description`
+   - Task IDs are alphanumeric strings that may include hyphens/underscores
+   - If no task ID found, ask the user to provide one
 
-3. **Fetch GitHub issue context** using `gh`:
-   - Run `gh issue view <issue-number>` to get:
-     - Issue title and body
-     - Labels and milestone
+3. **Fetch ClickUp task context** using MCP tools:
+   - Workspace ID: `9003098945`
+   - Use `clickup_get_task` with the task ID and workspace_id to get:
+     - Task name and description
+     - Status and priority
      - Acceptance criteria or requirements
-   - Run `gh issue view <issue-number> --comments` to get additional context from discussions
+   - Use `clickup_get_task_comments` to get additional context from task discussions
    - This provides the "why" behind the changes
 
 4. **Analyze all context** to understand:
-   - What feature/fix/refactor this PR implements (from GitHub issue)
-   - The original requirements and acceptance criteria
+   - What feature/fix/refactor this PR implements (from ClickUp task)
+   - The original requirements and acceptance criteria (from ClickUp)
    - Which files and modules are affected (from git diff)
    - The scope and impact of changes
 
 5. **Generate the PR description**:
-   - **Summary**: 1-2 sentences explaining what this PR does and why (informed by GitHub issue)
-   - **Changes**: Bullet points for each logical change, aligned with issue requirements
-   - **Issue**: Reference the GitHub issue using `Closes #<number>` or `Fixes #<number>`
+   - **Summary**: 1-2 sentences explaining what this PR does and why (informed by ClickUp task)
+   - **Changes**: Bullet points for each logical change, aligned with task requirements
+   - **ClickUp Task**: Link to the ClickUp task using format `https://app.clickup.com/t/TASK_ID`
    - **Testing**: How changes were tested / verification steps
    - **Deploy Notes**: Any special deployment steps (image rebuild, config-only, Terraform apply)
 
@@ -58,8 +60,8 @@ Create a pull request to the `main` branch with an auto-generated description ba
    - [change 1]
    - [change 2]
 
-   ## Issue
-   Closes #ISSUE_NUMBER
+   ## ClickUp Task
+   https://app.clickup.com/t/TASK_ID
 
    ## Testing
    [verification steps]
@@ -70,17 +72,18 @@ Create a pull request to the `main` branch with an auto-generated description ba
    )"
    ```
 
-   - Title format: `type[#issue]: short description`
+   - Title format: `type[task-id]: short description`
    - Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `perf`
-   - Use the GitHub issue title to inform the PR title description
+   - Use the ClickUp task name to inform the title description
 
 7. **Return the PR URL** to the user after creation.
 
 ## Notes
 
-- GitHub issue context is essential — it provides the "why" and acceptance criteria
-- If no GitHub issue number is found, warn the user and ask if they want to proceed without it
+- ClickUp task context is essential — it provides the "why" and acceptance criteria
+- If no ClickUp task ID is found, warn the user and ask if they want to proceed without it
 - If the branch has no commits ahead of main, inform the user
 - If there are uncommitted changes, warn the user before creating the PR
 - Keep the summary concise but informative
-- Use `Closes #N` in the PR body to auto-close the issue when the PR is merged
+- ClickUp workspace ID: `9003098945`
+- ClickUp task link format: `https://app.clickup.com/t/TASK_ID`

@@ -1,6 +1,6 @@
 # wsloadtest
 
-WebSocket load testing tool for the Sukko platform. Tests connections, subscriptions, and message throughput.
+WebSocket load testing tool for the Odin platform. Tests connections, subscriptions, and message throughput.
 
 ## Build
 
@@ -27,7 +27,7 @@ go build -o wsloadtest .
 | `-channels` | `CHANNELS` | 6 default channels | Comma-separated channels |
 | `-mode` | `SUBSCRIPTION_MODE` | `random` | all/single/random |
 | `-channels-per-client` | `CHANNELS_PER_CLIENT` | `3` | Channels per client (random mode) |
-| `-tenant` | `TENANT_ID` | `sukko` | Tenant for JWT generation |
+| `-tenant` | `TENANT_ID` | `odin` | Tenant for JWT generation |
 | `-token` | `JWT_TOKEN` | - | Pre-generated JWT token |
 | `-jwt-secret` | `JWT_SECRET` | - | JWT secret for token generation |
 | `-principal` | `PRINCIPAL` | `loadtest-user` | Principal for JWT |
@@ -37,12 +37,12 @@ go build -o wsloadtest .
 
 ### Default Channels
 
-- `sukko.all.trade` - Aggregate trades (all tokens)
-- `sukko.BTC.trade` - BTC trades
-- `sukko.ETH.trade` - ETH trades
-- `sukko.SOL.trade` - SOL trades
-- `sukko.BTC.orderbook` - BTC orderbook updates
-- `sukko.ETH.liquidity` - ETH liquidity updates
+- `odin.all.trade` - Aggregate trades (all tokens)
+- `odin.BTC.trade` - BTC trades
+- `odin.ETH.trade` - ETH trades
+- `odin.SOL.trade` - SOL trades
+- `odin.BTC.orderbook` - BTC orderbook updates
+- `odin.ETH.liquidity` - ETH liquidity updates
 
 ## Examples
 
@@ -56,7 +56,7 @@ go build -o wsloadtest .
 
 ```bash
 ./wsloadtest \
-  -url wss://ws.sukko.example.com/ws \
+  -url wss://ws.odin.example.com/ws \
   -connections 5000 \
   -ramp-rate 100 \
   -duration 10m \

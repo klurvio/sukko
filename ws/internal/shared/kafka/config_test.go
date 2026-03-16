@@ -5,50 +5,6 @@ import (
 )
 
 // =============================================================================
-// NormalizeEnv Tests
-// =============================================================================
-
-func TestNormalizeEnv(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		// Pass-through behavior (no mapping, just normalize)
-		{"local", "local"},
-		{"dev", "dev"},
-		{"stag", "stag"},
-		{"staging", "staging"}, // pass-through (no mapping)
-		{"prod", "prod"},
-		{"custom", "custom"},
-		{"main", "main"},
-
-		// Empty string defaults to local
-		{"", "local"},
-
-		// Whitespace trimming
-		{"  dev  ", "dev"},
-		{"  prod  ", "prod"},
-
-		// Lowercase conversion
-		{"DEV", "dev"},
-		{"PROD", "prod"},
-		{"LOCAL", "local"},
-		{"STAG", "stag"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			t.Parallel()
-			result := NormalizeEnv(tt.input)
-			if result != tt.expected {
-				t.Errorf("NormalizeEnv(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
-// =============================================================================
 // ResolveNamespace Tests
 // =============================================================================
 
@@ -62,7 +18,7 @@ func TestResolveNamespace(t *testing.T) {
 	}{
 		{"override_wins", "prod", "dev", "prod"},
 		{"fallback_to_env", "", "dev", "dev"},
-		{"both_empty_defaults_to_local", "", "", "local"},
+		{"both_empty", "", "", ""},
 		{"override_normalized", " PROD ", "dev", "prod"},
 		{"env_normalized", "", " DEV ", "dev"},
 		{"override_empty_string", "", "stg", "stg"},
@@ -91,14 +47,14 @@ func TestTopicToEventType_NewFormat(t *testing.T) {
 		topic    string
 		expected string
 	}{
-		{"prod.sukko.trade", "trade"},
-		{"dev.sukko.liquidity", "liquidity"},
+		{"prod.odin.trade", "trade"},
+		{"dev.odin.liquidity", "liquidity"},
 		{"stag.acme.metadata", "metadata"},
 		{"local.tenant1.social", "social"},
-		{"prod.sukko.community", "community"},
+		{"prod.odin.community", "community"},
 		{"dev.acme.creation", "creation"},
 		{"stag.tenant2.analytics", "analytics"},
-		{"prod.sukko.balances", "balances"},
+		{"prod.odin.balances", "balances"},
 	}
 
 	for _, tt := range tests {
@@ -114,19 +70,19 @@ func TestTopicToEventType_NewFormat(t *testing.T) {
 
 func TestTopicToEventType_LegacyFormat(t *testing.T) {
 	t.Parallel()
-	// Legacy format: sukko.{env}.{category}
+	// Legacy format: odin.{env}.{category}
 	tests := []struct {
 		topic    string
 		expected string
 	}{
-		{"sukko.dev.trade", "trade"},
-		{"sukko.local.liquidity", "liquidity"},
-		{"sukko.staging.metadata", "metadata"},
-		{"sukko.prod.social", "social"},
-		{"sukko.dev.community", "community"},
-		{"sukko.local.creation", "creation"},
-		{"sukko.staging.analytics", "analytics"},
-		{"sukko.prod.balances", "balances"},
+		{"odin.dev.trade", "trade"},
+		{"odin.local.liquidity", "liquidity"},
+		{"odin.staging.metadata", "metadata"},
+		{"odin.prod.social", "social"},
+		{"odin.dev.community", "community"},
+		{"odin.local.creation", "creation"},
+		{"odin.staging.analytics", "analytics"},
+		{"odin.prod.balances", "balances"},
 	}
 
 	for _, tt := range tests {
@@ -142,13 +98,13 @@ func TestTopicToEventType_LegacyFormat(t *testing.T) {
 
 func TestTopicToEventType_OldLegacyFormat(t *testing.T) {
 	t.Parallel()
-	// Very old legacy format: sukko.{category}
+	// Very old legacy format: odin.{category}
 	tests := []struct {
 		topic    string
 		expected string
 	}{
-		{"sukko.trades", "trades"},
-		{"sukko.liquidity", "liquidity"},
+		{"odin.trades", "trades"},
+		{"odin.liquidity", "liquidity"},
 	}
 
 	for _, tt := range tests {

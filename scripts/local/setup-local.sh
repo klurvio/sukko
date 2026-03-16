@@ -7,7 +7,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "🚀 Setting up Sukko WebSocket local development environment..."
+echo "🚀 Setting up Odin WebSocket local development environment..."
 echo ""
 
 # Check if Docker is running

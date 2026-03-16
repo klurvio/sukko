@@ -8,13 +8,13 @@ import (
 func TestNewSubscribeMessage(t *testing.T) {
 	t.Parallel()
 
-	channels := []string{"sukko.BTC.trade", "sukko.ETH.trade"}
+	channels := []string{"odin.BTC.trade", "odin.ETH.trade"}
 	got, err := NewSubscribeMessage(channels)
 	if err != nil {
 		t.Fatalf("NewSubscribeMessage error: %v", err)
 	}
 
-	want := `{"type":"subscribe","data":{"channels":["sukko.BTC.trade","sukko.ETH.trade"]}}`
+	want := `{"type":"subscribe","data":{"channels":["odin.BTC.trade","odin.ETH.trade"]}}`
 	if string(got) != want {
 		t.Errorf("NewSubscribeMessage = %s, want %s", got, want)
 	}
@@ -23,13 +23,13 @@ func TestNewSubscribeMessage(t *testing.T) {
 func TestNewUnsubscribeMessage(t *testing.T) {
 	t.Parallel()
 
-	channels := []string{"sukko.BTC.trade"}
+	channels := []string{"odin.BTC.trade"}
 	got, err := NewUnsubscribeMessage(channels)
 	if err != nil {
 		t.Fatalf("NewUnsubscribeMessage error: %v", err)
 	}
 
-	want := `{"type":"unsubscribe","data":{"channels":["sukko.BTC.trade"]}}`
+	want := `{"type":"unsubscribe","data":{"channels":["odin.BTC.trade"]}}`
 	if string(got) != want {
 		t.Errorf("NewUnsubscribeMessage = %s, want %s", got, want)
 	}
@@ -52,7 +52,7 @@ func TestNewHeartbeatMessage(t *testing.T) {
 func TestSubscriptionAck_Unmarshal(t *testing.T) {
 	t.Parallel()
 
-	input := `{"type":"subscription_ack","subscribed":["sukko.BTC.trade"],"count":5}`
+	input := `{"type":"subscription_ack","subscribed":["odin.BTC.trade"],"count":5}`
 
 	var ack SubscriptionAck
 	if err := json.Unmarshal([]byte(input), &ack); err != nil {
@@ -62,8 +62,8 @@ func TestSubscriptionAck_Unmarshal(t *testing.T) {
 	if ack.Type != RespTypeSubscriptionAck {
 		t.Errorf("Type = %s, want %s", ack.Type, RespTypeSubscriptionAck)
 	}
-	if len(ack.Subscribed) != 1 || ack.Subscribed[0] != "sukko.BTC.trade" {
-		t.Errorf("Subscribed = %v, want [sukko.BTC.trade]", ack.Subscribed)
+	if len(ack.Subscribed) != 1 || ack.Subscribed[0] != "odin.BTC.trade" {
+		t.Errorf("Subscribed = %v, want [odin.BTC.trade]", ack.Subscribed)
 	}
 	if ack.Count != 5 {
 		t.Errorf("Count = %d, want 5", ack.Count)
@@ -73,7 +73,7 @@ func TestSubscriptionAck_Unmarshal(t *testing.T) {
 func TestUnsubscriptionAck_Unmarshal(t *testing.T) {
 	t.Parallel()
 
-	input := `{"type":"unsubscription_ack","unsubscribed":["sukko.BTC.trade"],"count":4}`
+	input := `{"type":"unsubscription_ack","unsubscribed":["odin.BTC.trade"],"count":4}`
 
 	var ack UnsubscriptionAck
 	if err := json.Unmarshal([]byte(input), &ack); err != nil {
@@ -83,8 +83,8 @@ func TestUnsubscriptionAck_Unmarshal(t *testing.T) {
 	if ack.Type != RespTypeUnsubscriptionAck {
 		t.Errorf("Type = %s, want %s", ack.Type, RespTypeUnsubscriptionAck)
 	}
-	if len(ack.Unsubscribed) != 1 || ack.Unsubscribed[0] != "sukko.BTC.trade" {
-		t.Errorf("Unsubscribed = %v, want [sukko.BTC.trade]", ack.Unsubscribed)
+	if len(ack.Unsubscribed) != 1 || ack.Unsubscribed[0] != "odin.BTC.trade" {
+		t.Errorf("Unsubscribed = %v, want [odin.BTC.trade]", ack.Unsubscribed)
 	}
 	if ack.Count != 4 {
 		t.Errorf("Count = %d, want 4", ack.Count)
@@ -94,7 +94,7 @@ func TestUnsubscriptionAck_Unmarshal(t *testing.T) {
 func TestMessageEnvelope_Unmarshal(t *testing.T) {
 	t.Parallel()
 
-	input := `{"type":"message","seq":1234,"ts":1706000000000,"channel":"sukko.BTC.trade","data":{"price":50000}}`
+	input := `{"type":"message","seq":1234,"ts":1706000000000,"channel":"odin.BTC.trade","data":{"price":50000}}`
 
 	var env MessageEnvelope
 	if err := json.Unmarshal([]byte(input), &env); err != nil {
@@ -110,8 +110,8 @@ func TestMessageEnvelope_Unmarshal(t *testing.T) {
 	if env.Ts != 1706000000000 {
 		t.Errorf("Ts = %d, want 1706000000000", env.Ts)
 	}
-	if env.Channel != "sukko.BTC.trade" {
-		t.Errorf("Channel = %s, want sukko.BTC.trade", env.Channel)
+	if env.Channel != "odin.BTC.trade" {
+		t.Errorf("Channel = %s, want odin.BTC.trade", env.Channel)
 	}
 }
 

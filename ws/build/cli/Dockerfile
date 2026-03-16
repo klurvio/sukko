@@ -1,5 +1,5 @@
 # Stage 1: Build the CLI binary
-FROM golang:1.25.7-alpine AS builder
+FROM golang:1.26.0-alpine AS builder
 
 WORKDIR /app
 
@@ -19,25 +19,25 @@ ARG BUILD_TIME=unknown
 # CGO_ENABLED=0 ensures a static binary without C dependencies
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w \
-    -X 'github.com/klurvio/sukko/internal/shared/version.Version=${VERSION}' \
-    -X 'github.com/klurvio/sukko/internal/shared/version.CommitHash=${COMMIT_HASH}' \
-    -X 'github.com/klurvio/sukko/internal/shared/version.BuildTime=${BUILD_TIME}'" \
-    -o /sukko ./cmd/cli
+    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.Version=${VERSION}' \
+    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.CommitHash=${COMMIT_HASH}' \
+    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.BuildTime=${BUILD_TIME}'" \
+    -o /odin ./cmd/cli
 
 # Stage 2: Minimal image with just the binary
 FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates
 
-RUN addgroup -g 1000 -S sukko && \
-    adduser -u 1000 -S sukko -G sukko
+RUN addgroup -g 1000 -S odin && \
+    adduser -u 1000 -S odin -G odin
 
 WORKDIR /app
 
-COPY --from=builder /sukko .
+COPY --from=builder /odin .
 
-RUN chmod +x /app/sukko && chown sukko:sukko /app/sukko
+RUN chmod +x /app/odin && chown odin:odin /app/odin
 
-USER sukko
+USER odin
 
-ENTRYPOINT ["./sukko"]
+ENTRYPOINT ["./odin"]

@@ -12,11 +12,12 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/httputil"
-	"github.com/klurvio/sukko/internal/shared/platform"
-	"github.com/klurvio/sukko/internal/shared/provapi"
-	"github.com/klurvio/sukko/internal/shared/version"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/provapi"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/version"
 )
 
 // Gateway handles WebSocket connections, authenticating clients and proxying
@@ -259,7 +260,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Record connection attempt and track disconnect reason for metrics
 	RecordConnection()
-	closeReason := "normal"
+	closeReason := CloseReasonNormal
 	defer func() {
 		RecordDisconnection(closeReason, time.Since(startTime))
 	}()
@@ -276,8 +277,8 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// Extract token from query parameter or Authorization header
 		token := httputil.ExtractBearerToken(r)
 		if token == "" {
-			RecordAuthValidation("failed", time.Since(authStart))
-			closeReason = "no_token"
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+			closeReason = CloseReasonNoToken
 			gw.logger.Warn().
 				Str("remote_addr", remoteAddr).
 				Msg("Connection rejected: no token provided")
@@ -289,8 +290,8 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		var err error
 		claims, err = gw.validator.ValidateToken(ctx, token)
 		if err != nil {
-			RecordAuthValidation("failed", time.Since(authStart))
-			closeReason = "invalid_token"
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+			closeReason = CloseReasonInvalidToken
 			gw.logger.Warn().
 				Err(err).
 				Str("remote_addr", remoteAddr).
@@ -298,7 +299,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
 			return
 		}
-		RecordAuthValidation("success", time.Since(authStart))
+		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
 
 		principal = claims.Subject
 		tenantID = claims.TenantID
@@ -310,7 +311,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			Str("remote_addr", remoteAddr).
 			Msg("Token validated successfully")
 	} else {
-		RecordAuthValidation("skipped", 0)
+		RecordAuthValidation(pkgmetrics.AuthStatusSkipped, 0)
 		// No auth = no claims object
 		claims = nil
 		principal = "anonymous"
@@ -326,7 +327,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Check per-tenant connection limits
 	if gw.connTracker != nil && tenantID != "" {
 		if !gw.connTracker.TryAcquire(tenantID) {
-			closeReason = "tenant_limit_exceeded"
+			closeReason = CloseReasonTenantLimitExceeded
 			gw.logger.Warn().
 				Str("tenant_id", tenantID).
 				Str("remote_addr", remoteAddr).
@@ -343,7 +344,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Upgrade client connection to WebSocket using gobwas/ws
 	clientConn, _, _, err := ws.UpgradeHTTP(r, w)
 	if err != nil {
-		closeReason = "upgrade_failed"
+		closeReason = CloseReasonUpgradeFailed
 		gw.logger.Warn().
 			Err(err).
 			Str("remote_addr", remoteAddr).
@@ -359,8 +360,8 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	dialStart := time.Now()
 	backendConn, _, _, err := ws.Dial(dialCtx, gw.config.BackendURL)
 	if err != nil {
-		RecordBackendConnect("failed", time.Since(dialStart))
-		closeReason = "backend_unavailable"
+		RecordBackendConnect(pkgmetrics.ResultFailed, time.Since(dialStart))
+		closeReason = CloseReasonBackendUnavailable
 		gw.logger.Error().
 			Err(err).
 			Str("backend_url", gw.config.BackendURL).
@@ -372,7 +373,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		_ = ws.WriteFrame(clientConn, ws.NewCloseFrame(closeFrame))
 		return
 	}
-	RecordBackendConnect("success", time.Since(dialStart))
+	RecordBackendConnect(pkgmetrics.ResultSuccess, time.Since(dialStart))
 	defer func() { _ = backendConn.Close() }()
 
 	gw.logger.Info().
@@ -392,13 +393,15 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Permissions:             gw.permissions,
 		Validator:               gw.validator,
 		AuthRefreshRateInterval: gw.config.AuthRefreshRateInterval,
+		AuthValidationTimeout:   gw.config.AuthValidationTimeout,
 		Logger:                  gw.logger.With().Str("principal", principal).Logger(),
 		MessageTimeout:          gw.config.MessageTimeout,
 		PublishRateLimit:        gw.config.PublishRateLimit,
 		PublishBurst:            gw.config.PublishBurst,
 		MaxPublishSize:          gw.config.MaxPublishSize,
+		MaxFrameSize:            gw.config.MaxFrameSize,
 	})
-	proxy.Run()
+	proxy.Run(ctx)
 
 	gw.logger.Info().
 		Str("principal", principal).
@@ -424,9 +427,9 @@ func (gw *Gateway) HandleHealth(w http.ResponseWriter, _ *http.Request) {
 
 	// Always return 200 to avoid unnecessary restarts during transient disconnects
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{
-		"status":                    status,
-		"service":                   "ws-gateway",
-		"provisioning_keys_stream":  keysStream,
+		"status":                     status,
+		"service":                    "ws-gateway",
+		"provisioning_keys_stream":   keysStream,
 		"provisioning_config_stream": configStream,
 	})
 }

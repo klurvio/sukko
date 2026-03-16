@@ -1,59 +1,82 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 )
 
 func init() {
-	rootCmd.AddCommand(categoryCmd)
-	categoryCmd.AddCommand(categoryCreateCmd, categoryListCmd)
+	rootCmd.AddCommand(routingRulesCmd)
+	routingRulesCmd.AddCommand(routingRulesGetCmd, routingRulesSetCmd, routingRulesDeleteCmd)
 
-	categoryCreateCmd.Flags().String("tenant", "", "Tenant ID (required)")
-	categoryCreateCmd.Flags().StringSlice("name", nil, "Category names (required, repeatable)")
-	categoryCreateCmd.Flags().Int("partitions", 0, "Number of partitions (optional)")
-	categoryCreateCmd.Flags().Int64("retention-ms", 0, "Retention in milliseconds (optional)")
-	_ = categoryCreateCmd.MarkFlagRequired("tenant")
-	_ = categoryCreateCmd.MarkFlagRequired("name")
+	routingRulesGetCmd.Flags().String("tenant", "", "Tenant ID (required)")
+	_ = routingRulesGetCmd.MarkFlagRequired("tenant")
 
-	categoryListCmd.Flags().String("tenant", "", "Tenant ID (required)")
-	_ = categoryListCmd.MarkFlagRequired("tenant")
+	routingRulesSetCmd.Flags().String("tenant", "", "Tenant ID (required)")
+	routingRulesSetCmd.Flags().String("rules-file", "", "Path to JSON routing rules file (required)")
+	_ = routingRulesSetCmd.MarkFlagRequired("tenant")
+	_ = routingRulesSetCmd.MarkFlagRequired("rules-file")
+
+	routingRulesDeleteCmd.Flags().String("tenant", "", "Tenant ID (required)")
+	_ = routingRulesDeleteCmd.MarkFlagRequired("tenant")
 }
 
-var categoryCmd = &cobra.Command{
-	Use:   "category",
-	Short: "Manage topic categories",
+var routingRulesCmd = &cobra.Command{
+	Use:   "routing-rules",
+	Short: "Manage topic routing rules",
 }
 
-var categoryCreateCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Create topic categories",
+var routingRulesGetCmd = &cobra.Command{
+	Use:   "get",
+	Short: "Get routing rules for a tenant",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID, _ := cmd.Flags().GetString("tenant")
-		names, _ := cmd.Flags().GetStringSlice("name")
 
-		req := map[string]any{
-			"categories": names,
-		}
-
-		result, err := newClient().CreateCategory(tenantID, req)
+		result, err := newClient().GetRoutingRules(tenantID)
 		if err != nil {
-			return fmt.Errorf("create categories: %w", err)
+			return fmt.Errorf("get routing rules: %w", err)
 		}
 		return printOutput(result, output)
 	},
 }
 
-var categoryListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List categories for a tenant",
+var routingRulesSetCmd = &cobra.Command{
+	Use:   "set",
+	Short: "Set routing rules for a tenant from a JSON file",
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		tenantID, _ := cmd.Flags().GetString("tenant")
+		rulesFile, _ := cmd.Flags().GetString("rules-file")
+
+		data, err := os.ReadFile(rulesFile) //nolint:gosec // G304: CLI reads user-specified file path from --rules-file flag
+		if err != nil {
+			return fmt.Errorf("read rules file: %w", err)
+		}
+
+		var req map[string]any
+		if err := json.Unmarshal(data, &req); err != nil {
+			return fmt.Errorf("parse rules file: %w", err)
+		}
+
+		result, err := newClient().SetRoutingRules(tenantID, req)
+		if err != nil {
+			return fmt.Errorf("set routing rules: %w", err)
+		}
+		return printOutput(result, output)
+	},
+}
+
+var routingRulesDeleteCmd = &cobra.Command{
+	Use:   "delete",
+	Short: "Delete routing rules for a tenant",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID, _ := cmd.Flags().GetString("tenant")
 
-		result, err := newClient().ListCategories(tenantID)
+		result, err := newClient().DeleteRoutingRules(tenantID)
 		if err != nil {
-			return fmt.Errorf("list categories: %w", err)
+			return fmt.Errorf("delete routing rules: %w", err)
 		}
 		return printOutput(result, output)
 	},

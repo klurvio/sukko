@@ -2,6 +2,7 @@ package httputil
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -9,7 +10,10 @@ import (
 func WriteJSON(w http.ResponseWriter, status int, data any) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	return json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		return fmt.Errorf("encode JSON response: %w", err)
+	}
+	return nil
 }
 
 // ErrorResponse represents a standard API error response.
@@ -22,12 +26,12 @@ type ErrorResponse struct {
 func WriteError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(ErrorResponse{Code: code, Message: message})
+	_ = json.NewEncoder(w).Encode(ErrorResponse{Code: code, Message: message}) // best-effort: client may have disconnected
 }
 
 // WriteHealthOK writes a standard health check response.
 func WriteHealthOK(w http.ResponseWriter, serviceName string) {
-	_ = WriteJSON(w, http.StatusOK, map[string]string{
+	_ = WriteJSON(w, http.StatusOK, map[string]string{ // best-effort: client may have disconnected
 		"status":  "ok",
 		"service": serviceName,
 	})

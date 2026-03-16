@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/klurvio/sukko/internal/shared/protocol"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
 // Sentinel errors for channel validation.
@@ -78,10 +78,11 @@ func ValidateInternalChannel(channel string) error {
 		return err
 	}
 
-	parts := strings.Split(channel, ".")
-	if len(parts) < protocol.MinInternalChannelParts {
-		return fmt.Errorf("%w: need at least %d, got %d",
-			ErrInsufficientChannelParts, protocol.MinInternalChannelParts, len(parts))
+	// Count parts by counting separators (avoids redundant strings.Split)
+	parts := strings.Count(channel, ".") + 1
+	if parts < protocol.MinInternalChannelParts {
+		return fmt.Errorf("%w: internal channel requires at least %d parts, got %d",
+			ErrInsufficientChannelParts, protocol.MinInternalChannelParts, parts)
 	}
 
 	return nil

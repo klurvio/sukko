@@ -2,45 +2,22 @@ package server
 
 import (
 	"encoding/json"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server/stats"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
 )
 
 // =============================================================================
-// Server Configuration Tests
+// Server Stats Tests
 // =============================================================================
-
-func TestServer_GetConfig(t *testing.T) {
-	t.Parallel()
-	config := types.ServerConfig{
-		Addr:           ":8080",
-		MaxConnections: 1000,
-		LogLevel:       "info",
-	}
-
-	server := &Server{config: config}
-
-	got := server.GetConfig()
-
-	if got.Addr != ":8080" {
-		t.Errorf("GetConfig().Addr: got %s, want :8080", got.Addr)
-	}
-	if got.MaxConnections != 1000 {
-		t.Errorf("GetConfig().MaxConnections: got %d, want 1000", got.MaxConnections)
-	}
-	if got.LogLevel != "info" {
-		t.Errorf("GetConfig().LogLevel: got %s, want info", got.LogLevel)
-	}
-}
 
 func TestServer_GetStats(t *testing.T) {
 	t.Parallel()
-	stats := &types.Stats{
-		StartTime: time.Now(),
-	}
+	stats := stats.NewStats()
 	stats.CurrentConnections.Store(42)
 	stats.TotalConnections.Store(100)
 
@@ -65,7 +42,7 @@ func TestServer_GetStats(t *testing.T) {
 
 func TestServer_Stats_ConcurrentUpdates(t *testing.T) {
 	t.Parallel()
-	stats := &types.Stats{}
+	stats := stats.NewStats()
 	server := &Server{stats: stats}
 
 	const numGoroutines = 100
@@ -646,6 +623,56 @@ func TestConnectionSemaphore_Behavior(t *testing.T) {
 }
 
 // =============================================================================
+// NewServer Validation Tests
+// =============================================================================
+
+func TestNewServer_ValidatesParams(t *testing.T) {
+	t.Parallel()
+	validConfig := newTestServerConfig()
+
+	tests := []struct {
+		name   string
+		params Params
+		errMsg string
+	}{
+		{
+			name:   "nil config",
+			params: Params{Addr: ":0", MaxConnections: 1},
+			errMsg: "Config must not be nil",
+		},
+		{
+			name:   "empty addr",
+			params: Params{Config: validConfig, Addr: "", MaxConnections: 1},
+			errMsg: "Addr must not be empty",
+		},
+		{
+			name:   "zero max connections",
+			params: Params{Config: validConfig, Addr: ":0", MaxConnections: 0},
+			errMsg: "MaxConnections must be > 0",
+		},
+		{
+			name:   "negative max connections",
+			params: Params{Config: validConfig, Addr: ":0", MaxConnections: -1},
+			errMsg: "MaxConnections must be > 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv, err := NewServer(tt.params, &alerting.NoopAlerter{})
+			if err == nil {
+				_ = srv.Shutdown()
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.errMsg) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
+			}
+		})
+	}
+}
+
+// =============================================================================
 // Regression Tests - Backend doesn't affect existing functionality
 // =============================================================================
 
@@ -654,14 +681,12 @@ func TestServer_BroadcastFunctionality_NotAffectedByBackendField(t *testing.T) {
 	// Regression test: Adding backend field to Server struct
 	// must not affect the broadcast functionality.
 
-	config := types.ServerConfig{
-		Addr:           ":0",
-		MaxConnections: 100,
-		LogLevel:       types.LogLevelInfo,
-		LogFormat:      types.LogFormatJSON,
-	}
+	params := newTestParams()
+	params.Addr = ":0"
+	params.MaxConnections = 100
+	params.Config.LogLevel = "info" // Avoid SetGlobalLevel(Error) contaminating parallel tests
 
-	server, err := NewServer(config)
+	server, err := NewServer(params, &alerting.NoopAlerter{})
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -688,14 +713,12 @@ func TestServer_SubscriptionFlow_NotAffectedByBackendField(t *testing.T) {
 	// Regression test: Subscription flow must work correctly
 	// even with backend field present in Server struct
 
-	config := types.ServerConfig{
-		Addr:           ":0",
-		MaxConnections: 100,
-		LogLevel:       types.LogLevelInfo,
-		LogFormat:      types.LogFormatJSON,
-	}
+	params := newTestParams()
+	params.Addr = ":0"
+	params.MaxConnections = 100
+	params.Config.LogLevel = "info" // Avoid SetGlobalLevel(Error) contaminating parallel tests
 
-	server, err := NewServer(config)
+	server, err := NewServer(params, &alerting.NoopAlerter{})
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

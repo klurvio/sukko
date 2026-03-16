@@ -11,10 +11,13 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/server/backend"
-	"github.com/klurvio/sukko/internal/server/broadcast"
-	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
 )
+
+// backendName identifies this backend in metrics labels and logging.
+const backendName = "direct"
 
 // DirectBackend routes client-published messages directly to the broadcast bus
 // with zero external dependencies. No persistence, no replay.
@@ -37,14 +40,14 @@ func New(bus broadcast.Bus, logger zerolog.Logger) (*DirectBackend, error) {
 }
 
 // Start is a no-op for direct mode (no consumption loop needed).
-func (db *DirectBackend) Start(ctx context.Context) error {
+func (db *DirectBackend) Start(_ context.Context) error {
 	db.logger.Info().Msg("Direct backend started (no external dependencies)")
-	metrics.SetBackendHealthy("direct", true)
+	metrics.SetBackendHealthy(backendName, true)
 	return nil
 }
 
 // Publish sends a message directly to the broadcast bus.
-func (db *DirectBackend) Publish(ctx context.Context, clientID int64, channel string, data []byte) error {
+func (db *DirectBackend) Publish(_ context.Context, _ int64, channel string, data []byte) error {
 	if channel == "" {
 		return fmt.Errorf("%w: channel is required", backend.ErrPublishFailed)
 	}
@@ -53,14 +56,14 @@ func (db *DirectBackend) Publish(ctx context.Context, clientID int64, channel st
 		Subject: channel,
 		Payload: data,
 	})
-	metrics.RecordBackendPublishLatency("direct", time.Since(start).Seconds())
-	metrics.RecordBackendPublish("direct")
+	metrics.RecordBackendPublishLatency(backendName, time.Since(start).Seconds())
+	metrics.RecordBackendPublish(backendName)
 	return nil
 }
 
 // Replay returns nil, nil — direct mode has no persistence and cannot replay.
-func (db *DirectBackend) Replay(ctx context.Context, req backend.ReplayRequest) ([]backend.ReplayMessage, error) {
-	metrics.RecordBackendReplayRequest("direct")
+func (db *DirectBackend) Replay(_ context.Context, _ backend.ReplayRequest) ([]backend.ReplayMessage, error) {
+	metrics.RecordBackendReplayRequest(backendName)
 	return nil, nil
 }
 
@@ -70,8 +73,8 @@ func (db *DirectBackend) IsHealthy() bool {
 }
 
 // Shutdown is a no-op for direct mode.
-func (db *DirectBackend) Shutdown(ctx context.Context) error {
-	metrics.SetBackendHealthy("direct", false)
+func (db *DirectBackend) Shutdown(_ context.Context) error {
+	metrics.SetBackendHealthy(backendName, false)
 	db.logger.Info().Msg("Direct backend shut down")
 	return nil
 }

@@ -1,0 +1,43 @@
+{{- if and .Values.enabled .Values.grafana.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "monitoring.fullname" . }}-grafana-dashboards-provider
+  labels:
+    {{- include "monitoring.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'odin-dashboards'
+        orgId: 1
+        folder: 'Odin'
+        folderUid: 'odin'
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "monitoring.fullname" . }}-grafana-dashboards
+  labels:
+    {{- include "monitoring.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  overview.json: |
+    {{ .Files.Get "dashboards/overview.json" | nindent 4 }}
+  websocket.json: |
+    {{ .Files.Get "dashboards/websocket.json" | nindent 4 }}
+  redpanda.json: |
+    {{ .Files.Get "dashboards/redpanda.json" | nindent 4 }}
+  nats.json: |
+    {{ .Files.Get "dashboards/nats.json" | nindent 4 }}
+  logs.json: |
+    {{ .Files.Get "dashboards/logs.json" | nindent 4 }}
+{{- end }}

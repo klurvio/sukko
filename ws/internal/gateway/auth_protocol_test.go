@@ -13,7 +13,7 @@ func TestAuthData_UnmarshalJSON(t *testing.T) {
 		wantToken string
 		wantErr   bool
 	}{
-		{
+		{ //nolint:gosec // G101: test JWT fixture, not a real credential
 			name:      "valid_token",
 			input:     `{"token":"eyJhbGciOiJFUzI1NiJ9.test.sig"}`,
 			wantToken: "eyJhbGciOiJFUzI1NiJ9.test.sig",
@@ -145,7 +145,7 @@ func TestAuthErrorCodes_AllValid(t *testing.T) {
 
 func TestAuthData_JSONRoundTrip(t *testing.T) {
 	t.Parallel()
-	original := AuthData{Token: "eyJhbGciOiJFUzI1NiJ9.payload.signature"}
+	original := AuthData{Token: "eyJhbGciOiJFUzI1NiJ9.payload.signature"} //nolint:gosec // G101: test JWT fixture, not a real credential
 
 	data, err := json.Marshal(original)
 	if err != nil {

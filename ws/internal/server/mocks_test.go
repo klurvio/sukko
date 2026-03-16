@@ -241,38 +241,27 @@ func (m *testMockRateLimiter) getCallCount() int {
 	return len(m.callHistory)
 }
 
-// testMockAuditLogger captures audit events for testing.
-type testMockAuditLogger struct {
+// testMockAlertLogger captures alert events for testing.
+type testMockAlertLogger struct {
 	mu     sync.Mutex
-	events []testAuditEvent
+	events []testAlertEvent
 }
 
-type testAuditEvent struct {
+type testAlertEvent struct {
 	level    string
 	event    string
 	message  string
 	metadata map[string]any
 }
 
-func newTestMockAuditLogger() *testMockAuditLogger {
-	return &testMockAuditLogger{events: make([]testAuditEvent, 0)}
+func newTestMockAlertLogger() *testMockAlertLogger {
+	return &testMockAlertLogger{events: make([]testAlertEvent, 0)}
 }
 
-func (m *testMockAuditLogger) Warning(event, message string, metadata map[string]any) {
+func (m *testMockAlertLogger) Info(event, message string, metadata map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.events = append(m.events, testAuditEvent{
-		level:    "warning",
-		event:    event,
-		message:  message,
-		metadata: metadata,
-	})
-}
-
-func (m *testMockAuditLogger) Info(event, message string, metadata map[string]any) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.events = append(m.events, testAuditEvent{
+	m.events = append(m.events, testAlertEvent{
 		level:    "info",
 		event:    event,
 		message:  message,
@@ -280,10 +269,32 @@ func (m *testMockAuditLogger) Info(event, message string, metadata map[string]an
 	})
 }
 
-func (m *testMockAuditLogger) Critical(event, message string, metadata map[string]any) {
+func (m *testMockAlertLogger) Warning(event, message string, metadata map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.events = append(m.events, testAuditEvent{
+	m.events = append(m.events, testAlertEvent{
+		level:    "warning",
+		event:    event,
+		message:  message,
+		metadata: metadata,
+	})
+}
+
+func (m *testMockAlertLogger) Error(event, message string, metadata map[string]any) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = append(m.events, testAlertEvent{
+		level:    "error",
+		event:    event,
+		message:  message,
+		metadata: metadata,
+	})
+}
+
+func (m *testMockAlertLogger) Critical(event, message string, metadata map[string]any) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = append(m.events, testAlertEvent{
 		level:    "critical",
 		event:    event,
 		message:  message,
@@ -291,13 +302,13 @@ func (m *testMockAuditLogger) Critical(event, message string, metadata map[strin
 	})
 }
 
-func (m *testMockAuditLogger) eventCount() int {
+func (m *testMockAlertLogger) eventCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.events)
 }
 
-func (m *testMockAuditLogger) hasEvent(eventName string) bool {
+func (m *testMockAlertLogger) hasEvent(eventName string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, e := range m.events {

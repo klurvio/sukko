@@ -17,11 +17,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/provisioning"
-	"github.com/klurvio/sukko/internal/provisioning/api"
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/testutil"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning/api"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning/eventbus"
+	"github.com/Toniq-Labs/odin-ws/internal/provisioning/testutil"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
 )
 
 // generateTestECKey generates an ECDSA P-256 key pair for testing.
@@ -45,11 +45,11 @@ func generateTestECKey(t *testing.T) (string, *ecdsa.PrivateKey) {
 }
 
 // createTestToken creates a signed JWT token for testing.
-func createTestToken(t *testing.T, keyID string, privateKey *ecdsa.PrivateKey, claims *auth.Claims) string {
+func createTestToken(t *testing.T, privateKey *ecdsa.PrivateKey, claims *auth.Claims) string {
 	t.Helper()
 
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	token.Header["kid"] = keyID
+	token.Header["kid"] = "test-key-1"
 
 	tokenString, err := token.SignedString(privateKey)
 	if err != nil {
@@ -69,13 +69,14 @@ func newTestService() *provisioning.Service {
 
 // newTestServiceWithStores creates a provisioning service with specific mock stores.
 func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStore *testutil.MockRoutingRulesStore) *provisioning.Service {
-	return provisioning.NewService(provisioning.ServiceConfig{
+	svc, err := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:          tenantStore,
 		KeyStore:             testutil.NewMockKeyStore(),
 		RoutingRulesStore:    routingStore,
 		QuotaStore:           testutil.NewMockQuotaStore(),
 		AuditStore:           testutil.NewMockAuditStore(),
 		KafkaAdmin:           testutil.NewMockKafkaAdmin(),
+		EventBus:             eventbus.New(zerolog.Nop()),
 		TopicNamespace:       "test",
 		DefaultPartitions:    3,
 		DefaultRetentionMs:   604800000,
@@ -84,6 +85,10 @@ func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStor
 		DeprovisionGraceDays: 30,
 		Logger:               zerolog.Nop(),
 	})
+	if err != nil {
+		panic("newTestServiceWithStores: " + err.Error())
+	}
+	return svc
 }
 
 func TestRouter_CORSPreflight(t *testing.T) {
@@ -133,7 +138,7 @@ func TestRouter_CORSPreflight(t *testing.T) {
 			})
 
 			// Create preflight OPTIONS request
-			req := httptest.NewRequest(http.MethodOptions, "/api/v1/tenants", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodOptions, "/api/v1/tenants", nil)
 			req.Header.Set("Origin", tt.origin)
 			req.Header.Set("Access-Control-Request-Method", "POST")
 			req.Header.Set("Access-Control-Request-Headers", "Authorization, Content-Type")
@@ -184,7 +189,7 @@ func TestRouter_CORSHeaders_OnActualRequest(t *testing.T) {
 	})
 
 	// Make an actual GET request with Origin header
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
 
 	rec := httptest.NewRecorder()
@@ -248,7 +253,7 @@ func TestRouter_AuthDisabled_APIWorksWithoutToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req := httptest.NewRequestWithContext(context.Background(), tt.method, tt.path, nil)
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 
@@ -292,7 +297,7 @@ func TestRouter_AuthEnabled_RequiresToken(t *testing.T) {
 	})
 
 	// Request without token should fail
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -344,10 +349,10 @@ func TestRouter_AuthEnabled_ValidToken(t *testing.T) {
 		Roles:    []string{"admin"},
 	}
 
-	token := createTestToken(t, "test-key-1", privateKey, claims)
+	token := createTestToken(t, privateKey, claims)
 
 	// Request with valid token should succeed
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -400,10 +405,10 @@ func TestRouter_AuthEnabled_ExpiredToken(t *testing.T) {
 		Roles:    []string{"admin"},
 	}
 
-	token := createTestToken(t, "test-key-1", privateKey, claims)
+	token := createTestToken(t, privateKey, claims)
 
 	// Request with expired token should fail
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -449,7 +454,7 @@ func TestRouter_AuthEnabled_InvalidToken(t *testing.T) {
 		name  string
 		token string
 	}{
-		{
+		{ //nolint:gosec // G101: test fixture, not a real credential
 			name:  "malformed token",
 			token: "not-a-valid-jwt",
 		},
@@ -467,7 +472,7 @@ func TestRouter_AuthEnabled_InvalidToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants", nil)
 			if tt.token != "" {
 				req.Header.Set("Authorization", tt.token)
 			}
@@ -578,9 +583,9 @@ func TestRouter_AuthEnabled_RoleRequirement(t *testing.T) {
 				Roles:    tt.roles,
 			}
 
-			token := createTestToken(t, "test-key-1", privateKey, claims)
+			token := createTestToken(t, privateKey, claims)
 
-			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req := httptest.NewRequestWithContext(context.Background(), tt.method, tt.path, nil)
 			req.Header.Set("Authorization", "Bearer "+token)
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
@@ -623,7 +628,7 @@ func TestRouter_HealthEndpoints_NoAuth(t *testing.T) {
 		t.Run(tt.path, func(t *testing.T) {
 			t.Parallel()
 
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, tt.path, nil)
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 
@@ -655,7 +660,7 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 	})
 
 	// 1. GET routing rules — not found initially
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -665,13 +670,13 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 
 	// 2. PUT routing rules
 	rules := provisioning.SetRoutingRulesRequest{
-		Rules: []types.TopicRoutingRule{
+		Rules: []provisioning.TopicRoutingRule{
 			{Pattern: "*.trade", TopicSuffix: "trade"},
 			{Pattern: "*.orderbook", TopicSuffix: "orderbook"},
 		},
 	}
 	body, _ := json.Marshal(rules)
-	req = httptest.NewRequest(http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules", bytes.NewReader(body))
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -681,7 +686,7 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 	}
 
 	// 3. GET routing rules — should find them now
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -690,7 +695,7 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 	}
 
 	var getResp struct {
-		Rules []types.TopicRoutingRule `json:"rules"`
+		Rules []provisioning.TopicRoutingRule `json:"rules"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &getResp); err != nil {
 		t.Fatalf("failed to parse GET response: %v", err)
@@ -700,16 +705,16 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 	}
 
 	// 4. DELETE routing rules
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/tenants/test-tenant/routing-rules", nil)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNoContent {
-		t.Errorf("DELETE status = %d, want %d; body: %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Errorf("DELETE status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
 	// 5. GET after delete — should be not found again
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -732,7 +737,7 @@ func TestRouter_RoutingRules_InvalidJSON(t *testing.T) {
 		AuthEnabled: false,
 	})
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules",
 		bytes.NewReader([]byte(`{invalid json}`)))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -759,10 +764,10 @@ func TestRouter_RoutingRules_InvalidRules(t *testing.T) {
 
 	// Empty rules should fail validation
 	rules := provisioning.SetRoutingRulesRequest{
-		Rules: []types.TopicRoutingRule{},
+		Rules: []provisioning.TopicRoutingRule{},
 	}
 	body, _ := json.Marshal(rules)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -786,7 +791,7 @@ func TestRouter_RoutingRules_DeleteNonexistent(t *testing.T) {
 		AuthEnabled: false,
 	})
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/tenants/test-tenant/routing-rules", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -875,12 +880,12 @@ func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
 				TenantID: "test-tenant",
 				Roles:    tt.roles,
 			}
-			token := createTestToken(t, "test-key-1", privateKey, claims)
+			token := createTestToken(t, privateKey, claims)
 
 			var body *bytes.Reader
 			if tt.method == http.MethodPut {
 				rules := provisioning.SetRoutingRulesRequest{
-					Rules: []types.TopicRoutingRule{
+					Rules: []provisioning.TopicRoutingRule{
 						{Pattern: "*.trade", TopicSuffix: "trade"},
 					},
 				}
@@ -890,7 +895,7 @@ func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
 				body = bytes.NewReader(nil)
 			}
 
-			req := httptest.NewRequest(tt.method, "/api/v1/tenants/test-tenant/routing-rules", body)
+			req := httptest.NewRequestWithContext(context.Background(), tt.method, "/api/v1/tenants/test-tenant/routing-rules", body)
 			req.Header.Set("Authorization", "Bearer "+token)
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()

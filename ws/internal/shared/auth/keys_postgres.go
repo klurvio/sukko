@@ -12,8 +12,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/shared/logging"
-	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
 )
 
 // PostgresKeyRegistryConfig configures the PostgresKeyRegistry.
@@ -56,8 +56,9 @@ type PostgresKeyRegistry struct {
 	refreshErrors atomic.Int64
 
 	// Lifecycle
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	closeOnce sync.Once
+	stopCh    chan struct{}
+	wg        sync.WaitGroup
 }
 
 // NewPostgresKeyRegistry creates a new PostgresKeyRegistry.
@@ -65,12 +66,11 @@ func NewPostgresKeyRegistry(cfg PostgresKeyRegistryConfig) (*PostgresKeyRegistry
 	if cfg.DB == nil {
 		return nil, errors.New("database connection is required")
 	}
-
-	if cfg.RefreshInterval == 0 {
-		cfg.RefreshInterval = 1 * time.Minute
+	if cfg.RefreshInterval <= 0 {
+		return nil, errors.New("RefreshInterval must be > 0")
 	}
-	if cfg.QueryTimeout == 0 {
-		cfg.QueryTimeout = 5 * time.Second
+	if cfg.QueryTimeout <= 0 {
+		return nil, errors.New("QueryTimeout must be > 0")
 	}
 
 	r := &PostgresKeyRegistry{
@@ -195,7 +195,9 @@ func (r *PostgresKeyRegistry) Stats() KeyRegistryStats {
 
 // Close stops background refresh and releases resources.
 func (r *PostgresKeyRegistry) Close() error {
-	close(r.stopCh)
+	r.closeOnce.Do(func() {
+		close(r.stopCh)
+	})
 	r.wg.Wait()
 	return nil
 }
@@ -241,11 +243,11 @@ func (r *PostgresKeyRegistry) refreshCache(ctx context.Context) error {
 		JOIN tenants t ON tk.tenant_id = t.id
 		WHERE tk.is_active = true
 		  AND tk.revoked_at IS NULL
-		  AND (tk.expires_at IS NULL OR tk.expires_at > NOW())
+		  AND (tk.expires_at IS NULL OR tk.expires_at > $1)
 		  AND t.status = 'active'
 	`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, time.Now())
 	if err != nil {
 		return fmt.Errorf("query keys: %w", err)
 	}
@@ -398,11 +400,11 @@ func (r *PostgresKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenan
 		WHERE tk.tenant_id = $1
 		  AND tk.is_active = true
 		  AND tk.revoked_at IS NULL
-		  AND (tk.expires_at IS NULL OR tk.expires_at > NOW())
+		  AND (tk.expires_at IS NULL OR tk.expires_at > $2)
 		  AND t.status = 'active'
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, tenantID)
+	rows, err := r.db.QueryContext(ctx, query, tenantID, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("query keys: %w", err)
 	}
@@ -422,6 +424,7 @@ func (r *PostgresKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenan
 			&expiresAt,
 			&revokedAt,
 		); err != nil {
+			r.logger.Warn().Err(err).Msg("Failed to scan tenant key row")
 			continue
 		}
 
@@ -435,6 +438,11 @@ func (r *PostgresKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenan
 		// Parse the public key
 		pub, err := ParsePublicKey(key.PublicKeyPEM, key.Algorithm)
 		if err != nil {
+			r.logger.Warn().
+				Str("key_id", key.KeyID).
+				Str("algorithm", key.Algorithm).
+				Err(err).
+				Msg("Failed to parse public key")
 			continue
 		}
 		key.PublicKey = pub
@@ -442,7 +450,10 @@ func (r *PostgresKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenan
 		keys = append(keys, &key)
 	}
 
-	return keys, rows.Err()
+	if err := rows.Err(); err != nil {
+		return keys, fmt.Errorf("iterate tenant keys rows: %w", err)
+	}
+	return keys, nil
 }
 
 // Ensure PostgresKeyRegistry implements KeyRegistryWithRefresh.

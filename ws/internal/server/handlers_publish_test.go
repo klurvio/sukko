@@ -2,10 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
-	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/protocol"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
 )
 
 // =============================================================================
@@ -21,13 +22,13 @@ func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 		"acme.group.123.message",
 		"test.user.abc.notification",
 		"org.app.feature.event",
-		"a.b.c",                   // Minimum valid: 3 parts
+		"a.b.c",                   // 3 parts (valid)
 		"a.b.c.d.e.f",             // Many parts is fine
 		"tenant.BTC.trade",        // Uppercase
 		"acme.btc-usdt.orderbook", // Hyphen in part
 		"test.user_123.settings",  // Underscore in part
 		"tenant.v1.api.request",   // Version prefix
-		"io.toniq.sukko.events",    // Reverse domain notation
+		"io.toniq.odin.events",    // Reverse domain notation
 	}
 
 	for _, channel := range validChannels {
@@ -109,8 +110,10 @@ func parsePublishRequest(data json.RawMessage) (channel string, payload json.Raw
 		Channel string          `json:"channel"`
 		Data    json.RawMessage `json:"data"`
 	}
-	err = json.Unmarshal(data, &req)
-	return req.Channel, req.Data, err
+	if err = json.Unmarshal(data, &req); err != nil {
+		return "", nil, fmt.Errorf("unmarshal publish request: %w", err)
+	}
+	return req.Channel, req.Data, nil
 }
 
 func TestParsePublishRequest_Valid(t *testing.T) {

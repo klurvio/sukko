@@ -2,7 +2,9 @@
 package auth
 
 import (
+	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -41,6 +43,7 @@ func PlaceholderNames() []string {
 	for name := range DefaultPlaceholders {
 		names = append(names, name)
 	}
+	slices.Sort(names)
 	return names
 }
 
@@ -141,6 +144,7 @@ type MatchResult struct {
 	Captures   map[string]string // Extracted placeholder values
 	Literal    string            // The literal portion of the pattern
 	Normalized string            // Channel with placeholders replaced
+	Error      error             // Non-nil if pattern compilation failed
 }
 
 // MatchPattern checks if a channel matches a pattern with placeholders.
@@ -156,15 +160,14 @@ func MatchPattern(pattern, channel string) *MatchResult {
 		Captures: make(map[string]string),
 	}
 
-	// Convert pattern to regex, capturing placeholder values
-	regexPattern := placeholderRegex.ReplaceAllStringFunc(pattern, func(match string) string {
+	// Escape dots first (before placeholder/wildcard replacement)
+	regexPattern := strings.ReplaceAll(pattern, ".", `\.`)
+
+	// Replace placeholders with named capture groups
+	regexPattern = placeholderRegex.ReplaceAllStringFunc(regexPattern, func(match string) string {
 		name := match[1 : len(match)-1]
-		// Use named capture group
 		return `(?P<` + name + `>[^.]+)`
 	})
-
-	// Escape dots in the literal parts (dots are regex special chars)
-	regexPattern = strings.ReplaceAll(regexPattern, ".", `\.`)
 
 	// Allow wildcards
 	regexPattern = strings.ReplaceAll(regexPattern, "*", `[^.]+`)
@@ -174,6 +177,7 @@ func MatchPattern(pattern, channel string) *MatchResult {
 
 	re, err := regexp.Compile(regexPattern)
 	if err != nil {
+		result.Error = fmt.Errorf("compile channel pattern %q: %w", pattern, err)
 		return result
 	}
 

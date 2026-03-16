@@ -40,7 +40,7 @@ tasks:
     desc: Show available commands
     silent: true
     cmds:
-      - echo "SUKKO WEBSOCKET SERVER"
+      - echo "ODIN WEBSOCKET SERVER"
       - echo ""
       - echo "=== LOCAL DEVELOPMENT ==="
       - echo "  task local                     Full setup (Kind + deploy)"

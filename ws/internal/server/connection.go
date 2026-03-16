@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
 )
 
 // controlChannelSize is the buffer size for the pong control channel.
@@ -23,9 +23,9 @@ const controlChannelSize = 2
 //   - Pre-built: raw bytes (acks, errors, replay) — write pump sends directly
 //   - Deferred:  shared envelope + per-client seq — write pump builds bytes
 type OutgoingMsg struct {
-	raw      []byte                    // pre-built bytes (non-nil = use directly)
+	raw      []byte                       // pre-built bytes (non-nil = use directly)
 	envelope *messaging.BroadcastEnvelope // shared broadcast template (immutable)
-	seq      int64                     // per-client sequence number
+	seq      int64                        // per-client sequence number
 }
 
 // Bytes resolves the message to sendable bytes.
@@ -79,12 +79,13 @@ func RawMsg(data []byte) OutgoingMsg {
 // Trade-off: Memory vs slow-client tolerance. Smaller buffer = less GC = lower CPU spikes
 type Client struct {
 	// Basic WebSocket fields
-	id        int64       // Unique client identifier
-	conn      net.Conn    // Underlying TCP connection
-	server    *Server     // Reference to parent server
-	send      chan OutgoingMsg // Buffered channel for outgoing messages (configurable via WS_CLIENT_SEND_BUFFER_SIZE)
-	control   chan []byte // Buffered channel for pong payloads (ReadLoop → WriteLoop)
-	closeOnce sync.Once   // Ensures connection is only closed once
+	id         int64            // Unique client identifier
+	conn       net.Conn         // Underlying TCP connection
+	server     *Server          // Reference to parent server
+	send       chan OutgoingMsg // Buffered channel for outgoing messages (configurable via WS_CLIENT_SEND_BUFFER_SIZE)
+	control    chan []byte      // Buffered channel for pong payloads (ReadLoop → WriteLoop)
+	closeOnce  sync.Once        // Ensures connection is only closed once
+	sendClosed atomic.Bool      // Guards close(send) from double-close
 
 	// Message reliability fields
 	// Sequence generator - creates monotonically increasing message IDs
@@ -135,6 +136,14 @@ type Client struct {
 	remoteAddr string // Client's remote IP address for logging
 }
 
+// closeSend safely closes the send channel exactly once.
+// Uses atomic CAS to prevent double-close panics during concurrent shutdown.
+func (c *Client) closeSend() {
+	if c.sendClosed.CompareAndSwap(false, true) {
+		close(c.send)
+	}
+}
+
 // ConnectionPool manages a pool of reusable client objects
 type ConnectionPool struct {
 	pool       sync.Pool
@@ -142,18 +151,15 @@ type ConnectionPool struct {
 	bufferSize int
 }
 
-// NewConnectionPool creates a connection pool with configurable buffer size
-// bufferSize: per-client send channel buffer (default: 512, range: 64-4096)
+// NewConnectionPool creates a connection pool with configurable buffer size.
+// Config values MUST be validated (e.g., via ServerConfig.Validate()) before calling.
+//
+// bufferSize: per-client send channel buffer (range: 64-4096)
 //
 // Buffer sizing at 125 msg/sec broadcast rate (25 msg/sec × 5 channel subscriptions):
 // - 512 slots: ~256KB/client, 4.1s buffer, ~3.5GB heap at 13.5K clients (default)
 // - 1024 slots: ~512KB/client, 8.2s buffer, ~6.9GB heap at 13.5K clients
 func NewConnectionPool(maxSize int, bufferSize int) *ConnectionPool {
-	// Apply sensible defaults if not specified
-	if bufferSize <= 0 {
-		bufferSize = 512 // Default: reduced from 1024 to cut GC pressure
-	}
-
 	cp := &ConnectionPool{
 		maxSize:    maxSize,
 		bufferSize: bufferSize,
@@ -179,18 +185,31 @@ func NewConnectionPool(maxSize int, bufferSize int) *ConnectionPool {
 func (p *ConnectionPool) Get() *Client {
 	v := p.pool.Get()
 	if client, ok := v.(*Client); ok {
-		// Reset/drain send channel
-		select {
-		case <-client.send:
-			// Drain any pending messages from previous connection
-		default:
+		// Recreate send channel if it was closed (e.g., during force shutdown)
+		if client.sendClosed.Load() {
+			client.send = make(chan OutgoingMsg, p.bufferSize)
+			client.sendClosed.Store(false)
+		} else {
+			// Drain all pending messages from previous connection
+			for {
+				select {
+				case <-client.send:
+				default:
+					goto sendDrained
+				}
+			}
+		sendDrained:
 		}
 
 		// Drain stale pongs from previous connection
-		select {
-		case <-client.control:
-		default:
+		for {
+			select {
+			case <-client.control:
+			default:
+				goto controlDrained
+			}
 		}
+	controlDrained:
 
 		// Initialize or reset sequence generator
 		// Each new connection gets fresh sequence starting at 1

@@ -17,11 +17,11 @@ echo -e "${YELLOW}=== WebSocket Auth Test ===${NC}\n"
 
 # Configuration
 # Note: Kind maps NodePort 30080 → host port 3005
-# Auth-service requires port-forward: kubectl port-forward -n sukko-local svc/sukko-auth-service 3002:3002
+# Auth-service requires port-forward: kubectl port-forward -n odin-local svc/odin-auth-service 3002:3002
 AUTH_URL="${AUTH_URL:-http://localhost:3002}"
 WS_URL="${WS_URL:-ws://localhost:3005}"
-APP_ID="sukko-web"
-APP_SECRET="change-me-sukko-web-secret"
+APP_ID="odin-web"
+APP_SECRET="change-me-odin-web-secret"
 
 # Step 1: Get JWT token from auth-service
 echo -e "${YELLOW}1. Getting JWT token from auth-service...${NC}"

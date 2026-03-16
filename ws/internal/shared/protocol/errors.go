@@ -7,9 +7,7 @@ import "errors"
 // and reconnect_error responses.
 type ErrorCode string
 
-// Shared error codes used by both gateway and server.
-// Server-only error codes (ErrCodeInvalidJSON, ErrCodePublishFailed, ErrCodeReplayFailed)
-// live in ws/internal/server/protocol.go.
+// Error codes used by both gateway and server.
 const (
 	// General error codes (used across multiple response types).
 
@@ -47,21 +45,39 @@ const (
 
 	// ErrCodeNoMatchingRoute indicates no routing rule matched the channel suffix.
 	ErrCodeNoMatchingRoute ErrorCode = "no_matching_route"
+
+	// Server-originated error codes (used only by ws-server, but typed as
+	// shared ErrorCode and referenced by the shared error message map).
+
+	// ErrCodeInvalidJSON indicates a client message is not valid JSON.
+	ErrCodeInvalidJSON ErrorCode = "invalid_json"
+
+	// ErrCodePublishFailed indicates backend publish failed.
+	ErrCodePublishFailed ErrorCode = "publish_failed"
+
+	// ErrCodeReplayFailed indicates backend message replay failed.
+	ErrCodeReplayFailed ErrorCode = "replay_failed"
 )
 
-// PublishErrorMessages provides human-readable messages for publish error codes.
-var PublishErrorMessages = map[ErrorCode]string{
+// publishErrorMessages maps error codes to human-readable messages for publish errors.
+var publishErrorMessages = map[ErrorCode]string{
 	ErrCodeNotAvailable:        "Publishing is not enabled on this server",
 	ErrCodeInvalidRequest:      "Invalid publish request format",
 	ErrCodeInvalidChannel:      "Channel must have format: {tenant_id}.{suffix}",
 	ErrCodeMessageTooLarge:     "Message exceeds maximum size limit",
 	ErrCodeRateLimited:         "Publish rate limit exceeded",
-	"publish_failed":           "Failed to publish message",
+	ErrCodePublishFailed:       "Failed to publish message",
 	ErrCodeForbidden:           "Not authorized to publish to this channel",
 	ErrCodeTopicNotProvisioned: "Category is not provisioned for your tenant",
 	ErrCodeServiceUnavailable:  "Service temporarily unavailable, please retry",
 	ErrCodeNoRoutingRules:      "No topic routing rules configured for tenant",
 	ErrCodeNoMatchingRoute:     "No matching topic routing rule for channel",
+}
+
+// PublishErrorMessage returns the human-readable message for a publish error code.
+// Returns an empty string for unknown codes.
+func PublishErrorMessage(code ErrorCode) string {
+	return publishErrorMessages[code]
 }
 
 // Sentinel errors for internal use.

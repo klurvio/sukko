@@ -19,23 +19,15 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/server/backend"
-	"github.com/klurvio/sukko/internal/server/broadcast"
-	"github.com/klurvio/sukko/internal/server/metrics"
-	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
+	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
+	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
 )
 
-// Default configuration constants.
-const (
-	defaultReconnectWait   = 2 * time.Second
-	defaultMaxDeliver      = 3
-	defaultAckWait         = 30 * time.Second
-	defaultRefreshTimeout  = 30 * time.Second
-	defaultRefreshInterval = 60 * time.Second
-	defaultReplayFetchWait = 2 * time.Second
-	defaultMaxAge          = 24 * time.Hour
-)
+// backendName identifies this backend in metrics labels and logging.
+const backendName = "nats"
 
 // JetStreamBackend uses NATS JetStream for persistent message streams
 // with sequence-based replay. It supports multi-tenant stream isolation
@@ -58,9 +50,14 @@ type JetStreamBackend struct {
 	consumers   map[string]jetstream.ConsumeContext
 	consumersMu sync.Mutex
 
-	refreshInterval time.Duration
-	logger          zerolog.Logger
-	healthy         atomic.Bool
+	refreshInterval   time.Duration
+	refreshTimeout    time.Duration
+	maxReplayMessages int
+	maxDeliver        int
+	ackWait           time.Duration
+	replayFetchWait   time.Duration
+	logger            zerolog.Logger
+	healthy           atomic.Bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -90,6 +87,22 @@ type Config struct {
 	Registry        types.TenantRegistry
 	RefreshInterval time.Duration // How often to refresh streams from registry
 
+	// MaxReplayMessages caps the number of messages returned per replay request.
+	MaxReplayMessages int
+
+	// NATS connection tuning
+	ReconnectWait time.Duration // Wait between reconnect attempts
+
+	// Consumer tuning
+	MaxDeliver int           // Max delivery attempts per message
+	AckWait    time.Duration // Max wait for message acknowledgment
+
+	// Refresh tuning
+	RefreshTimeout time.Duration // Timeout for stream refresh operations
+
+	// Replay tuning
+	ReplayFetchWait time.Duration // Max wait for replay fetch operations
+
 	// Logging
 	LogLevel  string
 	LogFormat string
@@ -118,8 +131,8 @@ func New(cfg Config) (*JetStreamBackend, error) {
 
 	// Build NATS connection options
 	opts := []nats.Option{
-		nats.Name("sukko-jetstream"),
-		nats.ReconnectWait(defaultReconnectWait),
+		nats.Name("odin-ws-jetstream"),
+		nats.ReconnectWait(cfg.ReconnectWait),
 		nats.MaxReconnects(-1), // Reconnect forever
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			if err != nil {
@@ -172,41 +185,35 @@ func New(cfg Config) (*JetStreamBackend, error) {
 		return nil, fmt.Errorf("jetstream backend: create JetStream context: %w", err)
 	}
 
-	replicas := cfg.Replicas
-	if replicas < 1 {
-		replicas = 1
-	}
-	maxAge := cfg.MaxAge
-	if maxAge == 0 {
-		maxAge = defaultMaxAge
-	}
-	refreshInterval := cfg.RefreshInterval
-	if refreshInterval == 0 {
-		refreshInterval = defaultRefreshInterval
-	}
+	replicas := max(cfg.Replicas, 1)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is stored in jsb.cancel and called in Shutdown()
 
 	jsb := &JetStreamBackend{
-		conn:            conn,
-		js:              js,
-		bus:             cfg.BroadcastBus,
-		registry:        cfg.Registry,
-		namespace:       cfg.Namespace,
-		replicas:        replicas,
-		maxAge:          maxAge,
-		streams:         make(map[string]jetstream.Stream),
-		consumers:       make(map[string]jetstream.ConsumeContext),
-		refreshInterval: refreshInterval,
-		logger:          logger,
-		ctx:             ctx,
-		cancel:          cancel,
+		conn:              conn,
+		js:                js,
+		bus:               cfg.BroadcastBus,
+		registry:          cfg.Registry,
+		namespace:         cfg.Namespace,
+		replicas:          replicas,
+		maxAge:            cfg.MaxAge,
+		streams:           make(map[string]jetstream.Stream),
+		consumers:         make(map[string]jetstream.ConsumeContext),
+		refreshInterval:   cfg.RefreshInterval,
+		refreshTimeout:    cfg.RefreshTimeout,
+		maxReplayMessages: cfg.MaxReplayMessages,
+		maxDeliver:        cfg.MaxDeliver,
+		ackWait:           cfg.AckWait,
+		replayFetchWait:   cfg.ReplayFetchWait,
+		logger:            logger,
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 
 	logger.Info().
 		Str("urls", urlStr).
 		Int("replicas", replicas).
-		Dur("max_age", maxAge).
+		Dur("max_age", cfg.MaxAge).
 		Msg("NATS JetStream backend created")
 
 	return jsb, nil
@@ -221,15 +228,13 @@ func (jsb *JetStreamBackend) Start(ctx context.Context) error {
 	}
 
 	// Start refresh loop
-	jsb.wg.Add(1)
-	go func() {
+	jsb.wg.Go(func() {
 		defer logging.RecoverPanic(jsb.logger, "jetstream_refresh_loop", nil)
-		defer jsb.wg.Done()
 		jsb.refreshLoop()
-	}()
+	})
 
 	jsb.healthy.Store(true)
-	metrics.SetBackendHealthy("nats", true)
+	metrics.SetBackendHealthy(backendName, true)
 	jsb.logger.Info().Msg("JetStream backend started")
 	return nil
 }
@@ -246,13 +251,13 @@ func (jsb *JetStreamBackend) Publish(ctx context.Context, clientID int64, channe
 
 	start := time.Now()
 	_, err := jsb.js.Publish(ctx, subject, data)
-	metrics.RecordBackendPublishLatency("nats", time.Since(start).Seconds())
+	metrics.RecordBackendPublishLatency(backendName, time.Since(start).Seconds())
 	if err != nil {
-		metrics.RecordBackendPublishError("nats")
+		metrics.RecordBackendPublishError(backendName)
 		return fmt.Errorf("jetstream publish: %w", err)
 	}
 
-	metrics.RecordBackendPublish("nats")
+	metrics.RecordBackendPublish(backendName)
 	jsb.logger.Debug().
 		Int64("client_id", clientID).
 		Str("channel", channel).
@@ -266,7 +271,7 @@ func (jsb *JetStreamBackend) Publish(ctx context.Context, clientID int64, channe
 // For each stream/position entry, it creates an ordered consumer starting from
 // sequence+1 and fetches up to MaxMessages.
 func (jsb *JetStreamBackend) Replay(ctx context.Context, req backend.ReplayRequest) ([]backend.ReplayMessage, error) {
-	metrics.RecordBackendReplayRequest("nats")
+	metrics.RecordBackendReplayRequest(backendName)
 
 	if len(req.Positions) == 0 {
 		return nil, nil
@@ -275,7 +280,7 @@ func (jsb *JetStreamBackend) Replay(ctx context.Context, req backend.ReplayReque
 	var allMessages []backend.ReplayMessage
 	remaining := req.MaxMessages
 	if remaining <= 0 {
-		remaining = backend.DefaultMaxReplayMessages
+		remaining = jsb.maxReplayMessages
 	}
 
 	// Build subscription filter for matching
@@ -336,7 +341,7 @@ func (jsb *JetStreamBackend) Replay(ctx context.Context, req backend.ReplayReque
 		}
 
 		// Fetch messages
-		msgs, err := consumer.Fetch(remaining, jetstream.FetchMaxWait(defaultReplayFetchWait))
+		msgs, err := consumer.Fetch(remaining, jetstream.FetchMaxWait(jsb.replayFetchWait))
 		if err != nil && !errors.Is(err, jetstream.ErrNoMessages) {
 			jsb.logger.Warn().
 				Err(err).
@@ -379,7 +384,7 @@ func (jsb *JetStreamBackend) Replay(ctx context.Context, req backend.ReplayReque
 		Int("streams_failed", streamsFailed).
 		Int("messages_replayed", len(allMessages)).
 		Msg("Replay completed")
-	metrics.RecordBackendReplayMessages("nats", len(allMessages))
+	metrics.RecordBackendReplayMessages(backendName, len(allMessages))
 	return allMessages, nil
 }
 
@@ -392,7 +397,7 @@ func (jsb *JetStreamBackend) IsHealthy() bool {
 // Cancels context, waits for goroutines, stops consumers, drains connection.
 func (jsb *JetStreamBackend) Shutdown(ctx context.Context) error {
 	jsb.healthy.Store(false)
-	metrics.SetBackendHealthy("nats", false)
+	metrics.SetBackendHealthy(backendName, false)
 	jsb.cancel()
 
 	// Wait for refresh loop to stop (with timeout from caller's ctx)
@@ -455,7 +460,7 @@ func (jsb *JetStreamBackend) refreshStreams(parentCtx context.Context) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(parentCtx, defaultRefreshTimeout)
+	ctx, cancel := context.WithTimeout(parentCtx, jsb.refreshTimeout)
 	defer cancel()
 
 	// Get shared topics
@@ -585,14 +590,14 @@ func (jsb *JetStreamBackend) startStreamConsumer(name string, stream jetstream.S
 	jsb.consumersMu.Unlock()
 
 	// Phase 2: Create consumer without holding any lock (network I/O)
-	consumerName := "sukko-" + name
+	consumerName := "odin-ws-" + name
 	consumer, err := stream.CreateOrUpdateConsumer(jsb.ctx, jetstream.ConsumerConfig{
 		Name:          consumerName,
 		Durable:       consumerName,
 		DeliverPolicy: jetstream.DeliverNewPolicy,
 		AckPolicy:     jetstream.AckExplicitPolicy,
-		MaxDeliver:    defaultMaxDeliver,
-		AckWait:       defaultAckWait,
+		MaxDeliver:    jsb.maxDeliver,
+		AckWait:       jsb.ackWait,
 	})
 	if err != nil {
 		jsb.logger.Error().
@@ -610,7 +615,7 @@ func (jsb *JetStreamBackend) startStreamConsumer(name string, stream jetstream.S
 			Subject: msg.Subject(),
 			Payload: msg.Data(),
 		})
-		metrics.RecordBackendConsume("nats")
+		metrics.RecordBackendConsume(backendName)
 
 		// Acknowledge message
 		if err := msg.Ack(); err != nil {
@@ -640,11 +645,11 @@ func (jsb *JetStreamBackend) startStreamConsumer(name string, stream jetstream.S
 }
 
 // streamName builds a stream name for a tenant.
-// Format: SUKKO_{namespace}_{tenantID} (uppercase, hyphens replaced with underscores).
+// Format: ODIN_{namespace}_{tenantID} (uppercase, hyphens replaced with underscores).
 func (jsb *JetStreamBackend) streamName(tenantID string) string {
 	ns := strings.ToUpper(strings.ReplaceAll(jsb.namespace, "-", "_"))
 	tid := strings.ToUpper(strings.ReplaceAll(tenantID, "-", "_"))
-	return "SUKKO_" + ns + "_" + tid
+	return "ODIN_" + ns + "_" + tid
 }
 
 // SplitURLs splits a comma-separated NATS URL string into individual addresses.

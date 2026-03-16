@@ -62,7 +62,11 @@ func (m Metadata) Value() (driver.Value, error) {
 	if m == nil {
 		return "{}", nil
 	}
-	return json.Marshal(m)
+	data, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("marshal metadata: %w", err)
+	}
+	return data, nil
 }
 
 // Scan implements sql.Scanner for database retrieval.
@@ -75,7 +79,10 @@ func (m *Metadata) Scan(value any) error {
 	if !ok {
 		return fmt.Errorf("expected []byte, got %T", value)
 	}
-	return json.Unmarshal(b, m)
+	if err := json.Unmarshal(b, m); err != nil {
+		return fmt.Errorf("unmarshal metadata: %w", err)
+	}
+	return nil
 }
 
 // Tenant represents a tenant in the system.
@@ -232,33 +239,6 @@ func (k *TenantKey) IsExpired() bool {
 		return false
 	}
 	return k.ExpiresAt.Before(time.Now())
-}
-
-// TenantTopic represents a provisioned Kafka topic category.
-// Note: Full topic names are built at runtime using kafka.BuildTopicName(namespace, tenantID, category).
-// Only the category is stored in the database (tenant_categories table).
-type TenantTopic struct {
-	// ID is the database ID.
-	ID int64 `json:"id,omitempty"`
-
-	// TenantID is the owning tenant.
-	TenantID string `json:"tenant_id"`
-
-	// Category is the topic category (e.g., "trade", "liquidity").
-	// Full topic name is built at runtime: {namespace}.{tenant_id}.{category}
-	Category string `json:"category"`
-
-	// Partitions is the number of partitions.
-	Partitions int `json:"partitions"`
-
-	// RetentionMs is the retention period in milliseconds.
-	RetentionMs int64 `json:"retention_ms"`
-
-	// CreatedAt is when the topic was provisioned.
-	CreatedAt time.Time `json:"created_at"`
-
-	// DeletedAt is when the topic was deleted (soft delete).
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
 // TenantQuota represents resource quotas for a tenant.

@@ -104,7 +104,7 @@ resource "google_compute_firewall" "iap_ssh" {
 }
 
 # Allow health checks from GCP load balancers
-# Safe without target_tags: this VPC is dedicated to sukko, so all instances are GKE nodes.
+# Safe without target_tags: this VPC is dedicated to odin-ws, so all instances are GKE nodes.
 resource "google_compute_firewall" "health_checks" {
   name    = "${var.vpc_name}-allow-health-checks"
   network = google_compute_network.vpc.name

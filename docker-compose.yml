@@ -1,4 +1,4 @@
-# Sukko WebSocket Infrastructure — Local Development
+# Odin WebSocket Infrastructure — Local Development
 #
 # Start: docker compose up
 # Stop:  docker compose down
@@ -91,7 +91,7 @@ services:
 # PostgreSQL mode:
 #   Add a postgres service and set on provisioning:
 #     DATABASE_DRIVER: "postgres"
-#     DATABASE_URL: "postgres://sukko:sukko@postgres:5432/sukko_provisioning?sslmode=disable"
+#     DATABASE_URL: "postgres://odin:odin@postgres:5432/odin_provisioning?sslmode=disable"
 #
 # Valkey broadcast mode:
 #   Add a valkey service and set on ws-server:

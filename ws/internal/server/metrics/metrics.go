@@ -10,8 +10,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
-	"github.com/klurvio/sukko/internal/shared/types"
+	"github.com/Toniq-Labs/odin-ws/internal/server/stats"
+	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+)
+
+// Buffer percentile label values (package-local).
+const bufferPercentileAll = "all"
+
+// Resource type label values for capacity metrics (package-local).
+const (
+	resourceCPU    = "cpu"
+	resourceMemory = "memory"
 )
 
 // =============================================================================
@@ -82,6 +91,11 @@ var (
 // Reliability Metrics
 // =============================================================================
 
+// slowClientAttemptsBuckets defines histogram buckets for tracking send attempts
+// before a slow client is disconnected. Values 1-5 cover common disconnect counts,
+// 10 and 20 capture outliers.
+var slowClientAttemptsBuckets = []float64{1, 2, 3, 4, 5, 10, 20}
+
 var (
 	slowClientsDisconnected = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "ws_slow_clients_disconnected_total",
@@ -117,7 +131,7 @@ var (
 	slowClientAttempts = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name:    "ws_slow_client_attempts_before_disconnect",
 		Help:    "Distribution of send attempts before slow client disconnect",
-		Buckets: []float64{1, 2, 3, 4, 5, 10, 20},
+		Buckets: slowClientAttemptsBuckets,
 	})
 )
 
@@ -249,7 +263,7 @@ var (
 	backendPublishLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "ws_backend_publish_latency_seconds",
 		Help:    "Publish latency by message backend",
-		Buckets: prometheus.DefBuckets,
+		Buckets: pkgmetrics.APILatencyBuckets,
 	}, []string{"backend"})
 
 	backendHealthy = promauto.NewGaugeVec(prometheus.GaugeOpts{
@@ -343,13 +357,11 @@ func RecordDisconnect(reason, initiatedBy string, duration time.Duration) {
 }
 
 // RecordDisconnectWithStats tracks a disconnect and updates both Prometheus and Stats.
-func RecordDisconnectWithStats(stats *types.Stats, reason, initiatedBy string, duration time.Duration) {
+func RecordDisconnectWithStats(stats *stats.Stats, reason, initiatedBy string, duration time.Duration) {
 	disconnectsTotal.WithLabelValues(reason, initiatedBy).Inc()
 	connectionDuration.WithLabelValues(reason).Observe(duration.Seconds())
 
-	stats.DisconnectsMu.Lock()
-	stats.DisconnectsByReason[reason]++
-	stats.DisconnectsMu.Unlock()
+	stats.RecordDisconnect(reason)
 }
 
 // =============================================================================
@@ -406,12 +418,10 @@ func RecordDroppedBroadcast(channel, reason string) {
 }
 
 // RecordDroppedBroadcastWithStats tracks a dropped broadcast and updates Stats.
-func RecordDroppedBroadcastWithStats(stats *types.Stats, channel, reason string) {
+func RecordDroppedBroadcastWithStats(stats *stats.Stats, channel, reason string) {
 	droppedBroadcastsDetailed.WithLabelValues(channel, reason).Inc()
 
-	stats.DropsMu.Lock()
-	stats.DroppedBroadcastsByChannel[channel]++
-	stats.DropsMu.Unlock()
+	stats.RecordDroppedBroadcast(channel)
 }
 
 // RecordSlowClientAttempt records send attempts before slow client disconnect.
@@ -421,20 +431,15 @@ func RecordSlowClientAttempt(attempts int) {
 
 // RecordClientBufferSize samples a client's send buffer usage.
 func RecordClientBufferSize(bufferLen, _ int) {
-	clientSendBufferSize.WithLabelValues("all").Observe(float64(bufferLen))
+	clientSendBufferSize.WithLabelValues(bufferPercentileAll).Observe(float64(bufferLen))
 }
 
 // RecordClientBufferSizeWithStats samples buffer and updates Stats.
-func RecordClientBufferSizeWithStats(stats *types.Stats, bufferLen, bufferCap int) {
-	clientSendBufferSize.WithLabelValues("all").Observe(float64(bufferLen))
+func RecordClientBufferSizeWithStats(stats *stats.Stats, bufferLen, bufferCap, maxSamples int) {
+	clientSendBufferSize.WithLabelValues(bufferPercentileAll).Observe(float64(bufferLen))
 
 	usagePercent := int(float64(bufferLen) / float64(bufferCap) * 100)
-	stats.BuffersMu.Lock()
-	stats.BufferSaturationSamples = append(stats.BufferSaturationSamples, usagePercent)
-	if len(stats.BufferSaturationSamples) > 100 {
-		stats.BufferSaturationSamples = stats.BufferSaturationSamples[1:]
-	}
-	stats.BuffersMu.Unlock()
+	stats.AddBufferSample(usagePercent, maxSamples)
 }
 
 // =============================================================================
@@ -530,8 +535,8 @@ func IncrementCapacityRejection(reason string) {
 
 // UpdateCapacityHeadroom updates available resource headroom.
 func UpdateCapacityHeadroom(cpuHeadroom, memHeadroom float64) {
-	capacityAvailableHeadroom.WithLabelValues("cpu").Set(cpuHeadroom)
-	capacityAvailableHeadroom.WithLabelValues("memory").Set(memHeadroom)
+	capacityAvailableHeadroom.WithLabelValues(resourceCPU).Set(cpuHeadroom)
+	capacityAvailableHeadroom.WithLabelValues(resourceMemory).Set(memHeadroom)
 }
 
 // =============================================================================
@@ -581,11 +586,11 @@ func (a *MultiTenantPoolMetricsAdapter) OnMessageRouted() {
 // OnRefresh records a topic refresh operation and updates gauges.
 func (a *MultiTenantPoolMetricsAdapter) OnRefresh(success bool, topicsSubscribed, dedicatedConsumers int) {
 	if success {
-		multitenantRefreshTotal.WithLabelValues("success").Inc()
+		multitenantRefreshTotal.WithLabelValues(pkgmetrics.ResultSuccess).Inc()
 		multitenantTopicsSubscribed.Set(float64(topicsSubscribed))
 		multitenantDedicatedConsumers.Set(float64(dedicatedConsumers))
 	} else {
-		multitenantRefreshTotal.WithLabelValues("error").Inc()
+		multitenantRefreshTotal.WithLabelValues(pkgmetrics.ResultError).Inc()
 	}
 }
 

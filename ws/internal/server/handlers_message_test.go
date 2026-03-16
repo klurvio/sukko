@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -9,7 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
 )
 
 // =============================================================================
@@ -23,8 +24,10 @@ func parseClientMessage(data []byte) (msgType string, msgData json.RawMessage, e
 		Type string          `json:"type"`
 		Data json.RawMessage `json:"data"`
 	}
-	err = json.Unmarshal(data, &req)
-	return req.Type, req.Data, err
+	if err = json.Unmarshal(data, &req); err != nil {
+		return "", nil, fmt.Errorf("unmarshal client message: %w", err)
+	}
+	return req.Type, req.Data, nil
 }
 
 func TestParseClientMessage_Subscribe(t *testing.T) {
@@ -155,8 +158,10 @@ func parseSubscribeRequest(data json.RawMessage) ([]string, error) {
 	var subReq struct {
 		Channels []string `json:"channels"`
 	}
-	err := json.Unmarshal(data, &subReq)
-	return subReq.Channels, err
+	if err := json.Unmarshal(data, &subReq); err != nil {
+		return nil, fmt.Errorf("unmarshal subscribe request: %w", err)
+	}
+	return subReq.Channels, nil
 }
 
 func TestParseSubscribeRequest_SingleChannel(t *testing.T) {
@@ -225,8 +230,10 @@ func parseReconnectRequest(data json.RawMessage) (clientID string, lastOffsets m
 		ClientID   string           `json:"client_id"`
 		LastOffset map[string]int64 `json:"last_offset"`
 	}
-	err = json.Unmarshal(data, &req)
-	return req.ClientID, req.LastOffset, err
+	if err = json.Unmarshal(data, &req); err != nil {
+		return "", nil, fmt.Errorf("unmarshal reconnect request: %w", err)
+	}
+	return req.ClientID, req.LastOffset, nil
 }
 
 func TestParseReconnectRequest_Valid(t *testing.T) {
