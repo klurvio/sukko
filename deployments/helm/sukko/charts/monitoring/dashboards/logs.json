@@ -25,9 +25,9 @@
       "icon": "external link",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["odin"],
+      "tags": ["sukko"],
       "targetBlank": true,
-      "title": "Odin Dashboards",
+      "title": "Sukko Dashboards",
       "type": "dashboards"
     }
   ],
@@ -297,7 +297,7 @@
   ],
   "refresh": "5s",
   "schemaVersion": 39,
-  "tags": ["odin", "logs", "websocket", "monitoring"],
+  "tags": ["sukko", "logs", "websocket", "monitoring"],
   "templating": {
     "list": []
   },
@@ -307,8 +307,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Odin - Logs",
-  "uid": "odin-logs",
+  "title": "Sukko - Logs",
+  "uid": "sukko-logs",
   "version": 1,
   "weekStart": ""
 }

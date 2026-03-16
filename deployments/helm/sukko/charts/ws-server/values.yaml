@@ -10,12 +10,12 @@ enabled: true
 replicaCount: 1
 
 image:
-  repository: odin-ws
+  repository: sukko-server
   tag: latest
   pullPolicy: IfNotPresent
 
 # Deployment identity — drives Kafka topic namespace, consumer group naming.
-# Free-form string; Odin convention: local, dev, stg, prod
+# Free-form string; Sukko convention: local, dev, stg, prod
 # environment: local
 
 # Server CLI flags (binary args, not env vars)

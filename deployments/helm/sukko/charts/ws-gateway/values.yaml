@@ -10,12 +10,12 @@ enabled: true
 replicaCount: 2
 
 image:
-  repository: odin-gateway
+  repository: sukko-gateway
   tag: latest
   pullPolicy: IfNotPresent
 
 # Deployment identity — drives logging, metrics namespacing.
-# Free-form string; Odin convention: local, dev, stg, prod
+# Free-form string; Sukko convention: local, dev, stg, prod
 # environment: local
 
 # Feature flags (all default false in Go, set via extraEnv when needed)

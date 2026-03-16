@@ -15,7 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // valkeyBus implements Bus using Valkey/Redis Pub/Sub.

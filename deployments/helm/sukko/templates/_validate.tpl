@@ -1,4 +1,4 @@
-{{- define "odin.validate" -}}
+{{- define "sukko.validate" -}}
 {{- /*
   Infrastructure validation guards.
   Catch mode/infrastructure mismatches at helm template time

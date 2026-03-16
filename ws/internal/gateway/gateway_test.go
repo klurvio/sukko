@@ -11,9 +11,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // newTestGatewayConfig returns a gateway config with auth disabled for testing.
@@ -33,7 +33,7 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 		DialTimeout:                  10 * time.Second,
 		MessageTimeout:               60 * time.Second,
 		AuthEnabled:                  false,  // Disabled by default for unit tests
-		DefaultTenantID:              "odin", // Required when auth disabled
+		DefaultTenantID:              "sukko", // Required when auth disabled
 		PublicPatterns:               []string{"*.trade"},
 		UserScopedPatterns:           []string{"balances.{principal}"},
 		GroupScopedPatterns:          []string{"community.{group_id}"},

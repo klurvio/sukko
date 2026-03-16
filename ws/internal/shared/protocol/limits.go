@@ -34,7 +34,7 @@ const (
 // the format {tenant_id}.{suffix} instead of {tenant_id}.{identifier}.{category}.
 // The old 3-part format ({tenant_id}.{token_id}.{category}) was tied to the
 // removed category-based topic system. The new format allows flexible topic
-// suffixes defined by routing rules (e.g., "odin.BTC.trade", "odin.metadata").
+// suffixes defined by routing rules (e.g., "sukko.BTC.trade", "sukko.metadata").
 const (
 	// MinInternalChannelParts is the minimum parts for channels: {tenant_id}.{suffix}
 	MinInternalChannelParts = 2

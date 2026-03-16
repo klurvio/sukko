@@ -4,7 +4,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
 // Auth attempt result values (package-local).

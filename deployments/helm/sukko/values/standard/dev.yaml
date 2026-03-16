@@ -5,13 +5,13 @@
 # Fixed 2 nodes, minimal resources, Redpanda for Kafka ingestion.
 #
 # Usage:
-#   helm upgrade --install odin ./deployments/helm/odin \
-#     -f ./deployments/helm/odin/values/standard/dev.yaml \
-#     -n odin-ws-dev --create-namespace
+#   helm upgrade --install sukko ./deployments/helm/sukko \
+#     -f ./deployments/helm/sukko/values/standard/dev.yaml \
+#     -n sukko-dev --create-namespace
 
 global:
-  namespace: odin-ws-dev
-  imageRegistry: "us-central1-docker.pkg.dev/odin-9e902/odin-ws"
+  namespace: sukko-dev
+  imageRegistry: "us-central1-docker.pkg.dev/sukko-9e90./sukko-server"
 
 # ── Gateway ─────────────────────────────────────────────────────────
 ws-gateway:
@@ -77,7 +77,7 @@ provisioning:
   replicaCount: 1
   environment: dev
   image:
-    repository: odin-provisioning
+    repository: sukko-provisioning
     tag: latest
     pullPolicy: Always
   resources:

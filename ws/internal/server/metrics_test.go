@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/stats"
+	"github.com/klurvio/sukko/internal/server/stats"
 )
 
 // =============================================================================

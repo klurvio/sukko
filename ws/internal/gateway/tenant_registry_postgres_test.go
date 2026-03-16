@@ -11,7 +11,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // newTestPostgresRegistry creates a PostgresTenantRegistry with short cache TTLs for testing.

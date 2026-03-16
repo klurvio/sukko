@@ -1,11 +1,11 @@
 # =============================================================================
-# Odin WebSocket Infrastructure - Base Values
+# Sukko WebSocket Infrastructure - Base Values
 # =============================================================================
 #
 # DEPLOYMENT MODES (zero-config defaults work out of the box):
 #
 # 1. Minimal (default):    direct + NATS broadcast + SQLite
-#    → Just `helm install odin .` — no external dependencies needed
+#    → Just `helm install sukko .` — no external dependencies needed
 #
 # ── Kafka/Redpanda message backend ──────────────────────────────────
 # Copy this block to enable Kafka ingestion via in-cluster Redpanda:
@@ -58,10 +58,10 @@
 # Override any setting via extraEnv on each service.
 
 global:
-  namespace: odin
+  namespace: sukko
   imageRegistry: ""
   labels:
-    app.kubernetes.io/part-of: odin
+    app.kubernetes.io/part-of: sukko
 
 # =============================================================================
 # Kernel Tuning DaemonSet
@@ -76,7 +76,7 @@ ws-gateway:
   enabled: true
   replicaCount: 2
   image:
-    repository: odin-gateway
+    repository: sukko-gateway
     tag: latest
     pullPolicy: IfNotPresent
   resources:
@@ -98,7 +98,7 @@ ws-server:
   enabled: true
   replicaCount: 1
   image:
-    repository: odin-ws
+    repository: sukko-server
     tag: latest
     pullPolicy: IfNotPresent
   # Mode selections (Go defaults: direct + nats)
@@ -133,7 +133,7 @@ provisioning:
   enabled: true
   replicaCount: 1
   image:
-    repository: odin-provisioning
+    repository: sukko-provisioning
     tag: latest
     pullPolicy: IfNotPresent
   # Database driver: "sqlite" (Go default) or "postgres"

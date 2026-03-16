@@ -1,12 +1,12 @@
 # =============================================================================
-# Odin WebSocket Infrastructure - Develop Environment
+# Sukko WebSocket Infrastructure - Develop Environment
 # =============================================================================
 # Cost-effective configuration for development testing
 # Target: ~40K total connections (2 nodes × 2 pods × 10K)
 # See docs/architecture/CONNECTION_LIMITS.md for details
 
 global:
-  namespace: odin-develop
+  namespace: sukko-develop
 
 # =============================================================================
 # WebSocket Gateway - Develop
@@ -39,7 +39,7 @@ ws-server:
   config:
     shards: 2
     logLevel: debug  # More verbose for development
-    environment: dev  # Topic naming: odin.dev.{base}.refined
+    environment: dev  # Topic naming: sukko.dev.{base}.refined
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:

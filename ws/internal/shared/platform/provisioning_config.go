@@ -28,7 +28,7 @@ type ProvisioningConfig struct {
 	// sqlite (default, embedded) or postgres (opt-in via Helm postgresql.enabled or externalDatabase).
 	DatabaseDriver    string        `env:"DATABASE_DRIVER" envDefault:"sqlite"`
 	DatabaseURL       string        `env:"DATABASE_URL" redact:"true"`
-	DatabasePath      string        `env:"DATABASE_PATH" envDefault:"odin.db"`
+	DatabasePath      string        `env:"DATABASE_PATH" envDefault:"sukko.db"`
 	AutoMigrate       bool          `env:"AUTO_MIGRATE" envDefault:"true"`
 	DBMaxOpenConns    int           `env:"DB_MAX_OPEN_CONNS" envDefault:"25"`
 	DBMaxIdleConns    int           `env:"DB_MAX_IDLE_CONNS" envDefault:"5"`

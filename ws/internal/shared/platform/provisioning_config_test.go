@@ -15,7 +15,7 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		},
 		Addr:                       ":8080",
 		DatabaseDriver:             "sqlite",
-		DatabasePath:               "odin.db",
+		DatabasePath:               "sukko.db",
 		AutoMigrate:                true,
 		GRPCPort:                   9090,
 		DBMaxOpenConns:             25,

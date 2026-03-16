@@ -3,7 +3,7 @@ package alerting
 import (
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // MultiAlerter sends alerts to multiple alerters.

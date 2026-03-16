@@ -76,7 +76,7 @@ func TestProducerConfig_Defaults(t *testing.T) {
 		TopicNamespace: "test",
 	}
 
-	// Default ClientID should be empty (will be set to "odin-ws-producer" in NewProducer)
+	// Default ClientID should be empty (will be set to "sukko-producer" in NewProducer)
 	if cfg.ClientID != "" {
 		t.Errorf("Default ClientID = %q, want empty string", cfg.ClientID)
 	}

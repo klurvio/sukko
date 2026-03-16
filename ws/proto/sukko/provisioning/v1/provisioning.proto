@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package odin.provisioning.v1;
+package sukko.provisioning.v1;
 
-option go_package = "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1;provisioningv1";
+option go_package = "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1;provisioningv1";
 
 // Internal service — streaming provisioning data to gateway and ws-server.
 service ProvisioningInternalService {

@@ -1,2 +1,2 @@
 {{- /* This template only performs validation — no resources rendered */ -}}
-{{- include "odin.validate" . -}}
+{{- include "sukko.validate" . -}}

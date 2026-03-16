@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/klurvio/sukko/internal/provisioning"
 )
 
 // MockTenantStore is an in-memory mock implementation of TenantStore.

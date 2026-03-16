@@ -13,7 +13,7 @@ type BaseConfig struct {
 
 	// Environment — deployment identity label, used for Kafka topic namespace, consumer
 	// group naming, and safety guards. Free-form: any string works as deployment identity.
-	// Odin uses: local | dev | stg | prod by convention.
+	// Sukko uses: local | dev | stg | prod by convention.
 	Environment string `env:"ENVIRONMENT" envDefault:"local"`
 }
 

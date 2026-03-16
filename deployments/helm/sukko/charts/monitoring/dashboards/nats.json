@@ -25,9 +25,9 @@
       "icon": "external link",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["odin"],
+      "tags": ["sukko"],
       "targetBlank": true,
-      "title": "Odin Dashboards",
+      "title": "Sukko Dashboards",
       "type": "dashboards"
     }
   ],
@@ -900,7 +900,7 @@
   ],
   "refresh": "15s",
   "schemaVersion": 39,
-  "tags": ["odin", "nats", "messaging", "broadcast"],
+  "tags": ["sukko", "nats", "messaging", "broadcast"],
   "templating": {
     "list": []
   },
@@ -910,8 +910,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Odin - NATS",
-  "uid": "odin-nats",
+  "title": "Sukko - NATS",
+  "uid": "sukko-nats",
   "version": 1,
   "weekStart": ""
 }

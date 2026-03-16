@@ -76,7 +76,7 @@ spec:
           image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
-            - "./odin-ws"
+            - "./sukko-server"
           args:
             - "--shards={{ .Values.shards }}"
             - "--base-port={{ .Values.basePort }}"

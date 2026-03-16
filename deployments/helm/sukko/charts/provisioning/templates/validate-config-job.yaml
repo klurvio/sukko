@@ -30,7 +30,7 @@ spec:
           {{- end }}
           image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["./odin-provisioning"]
+          command: ["./sukko-provisioning"]
           args: ["--validate-config"]
           resources:
             requests:

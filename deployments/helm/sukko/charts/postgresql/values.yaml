@@ -9,8 +9,8 @@ image:
   pullPolicy: IfNotPresent
 
 auth:
-  database: odin_provisioning
-  username: odin
+  database: sukko_provisioning
+  username: sukko
   # Password - override in values file, never commit real passwords
   password: ""
   # Use existing secret instead of creating one

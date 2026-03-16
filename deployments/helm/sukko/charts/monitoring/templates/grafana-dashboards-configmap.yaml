@@ -11,10 +11,10 @@ data:
   dashboards.yaml: |
     apiVersion: 1
     providers:
-      - name: 'odin-dashboards'
+      - name: 'sukko-dashboards'
         orgId: 1
-        folder: 'Odin'
-        folderUid: 'odin'
+        folder: 'Sukko'
+        folderUid: 'sukko'
         type: file
         disableDeletion: false
         updateIntervalSeconds: 30

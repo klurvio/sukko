@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: odin/provisioning/v1/provisioning.proto
+// source: sukko/provisioning/v1/provisioning.proto
 
 package provisioningv1
 
@@ -29,7 +29,7 @@ type WatchKeysRequest struct {
 
 func (x *WatchKeysRequest) Reset() {
 	*x = WatchKeysRequest{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[0]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -41,7 +41,7 @@ func (x *WatchKeysRequest) String() string {
 func (*WatchKeysRequest) ProtoMessage() {}
 
 func (x *WatchKeysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[0]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -54,7 +54,7 @@ func (x *WatchKeysRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchKeysRequest.ProtoReflect.Descriptor instead.
 func (*WatchKeysRequest) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{0}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{0}
 }
 
 type WatchKeysResponse struct {
@@ -68,7 +68,7 @@ type WatchKeysResponse struct {
 
 func (x *WatchKeysResponse) Reset() {
 	*x = WatchKeysResponse{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[1]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -80,7 +80,7 @@ func (x *WatchKeysResponse) String() string {
 func (*WatchKeysResponse) ProtoMessage() {}
 
 func (x *WatchKeysResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[1]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -93,7 +93,7 @@ func (x *WatchKeysResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchKeysResponse.ProtoReflect.Descriptor instead.
 func (*WatchKeysResponse) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{1}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *WatchKeysResponse) GetIsSnapshot() bool {
@@ -131,7 +131,7 @@ type KeyInfo struct {
 
 func (x *KeyInfo) Reset() {
 	*x = KeyInfo{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[2]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -143,7 +143,7 @@ func (x *KeyInfo) String() string {
 func (*KeyInfo) ProtoMessage() {}
 
 func (x *KeyInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[2]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -156,7 +156,7 @@ func (x *KeyInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyInfo.ProtoReflect.Descriptor instead.
 func (*KeyInfo) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{2}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *KeyInfo) GetKeyId() string {
@@ -209,7 +209,7 @@ type WatchTenantConfigRequest struct {
 
 func (x *WatchTenantConfigRequest) Reset() {
 	*x = WatchTenantConfigRequest{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[3]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -221,7 +221,7 @@ func (x *WatchTenantConfigRequest) String() string {
 func (*WatchTenantConfigRequest) ProtoMessage() {}
 
 func (x *WatchTenantConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[3]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -234,7 +234,7 @@ func (x *WatchTenantConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchTenantConfigRequest.ProtoReflect.Descriptor instead.
 func (*WatchTenantConfigRequest) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{3}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{3}
 }
 
 type WatchTenantConfigResponse struct {
@@ -248,7 +248,7 @@ type WatchTenantConfigResponse struct {
 
 func (x *WatchTenantConfigResponse) Reset() {
 	*x = WatchTenantConfigResponse{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[4]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -260,7 +260,7 @@ func (x *WatchTenantConfigResponse) String() string {
 func (*WatchTenantConfigResponse) ProtoMessage() {}
 
 func (x *WatchTenantConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[4]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -273,7 +273,7 @@ func (x *WatchTenantConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchTenantConfigResponse.ProtoReflect.Descriptor instead.
 func (*WatchTenantConfigResponse) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{4}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *WatchTenantConfigResponse) GetIsSnapshot() bool {
@@ -309,7 +309,7 @@ type TenantConfig struct {
 
 func (x *TenantConfig) Reset() {
 	*x = TenantConfig{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[5]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -321,7 +321,7 @@ func (x *TenantConfig) String() string {
 func (*TenantConfig) ProtoMessage() {}
 
 func (x *TenantConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[5]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -334,7 +334,7 @@ func (x *TenantConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TenantConfig.ProtoReflect.Descriptor instead.
 func (*TenantConfig) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{5}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *TenantConfig) GetTenantId() string {
@@ -375,7 +375,7 @@ type TopicRoutingRule struct {
 
 func (x *TopicRoutingRule) Reset() {
 	*x = TopicRoutingRule{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[6]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -387,7 +387,7 @@ func (x *TopicRoutingRule) String() string {
 func (*TopicRoutingRule) ProtoMessage() {}
 
 func (x *TopicRoutingRule) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[6]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -400,7 +400,7 @@ func (x *TopicRoutingRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TopicRoutingRule.ProtoReflect.Descriptor instead.
 func (*TopicRoutingRule) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{6}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *TopicRoutingRule) GetPattern() string {
@@ -429,7 +429,7 @@ type OIDCConfig struct {
 
 func (x *OIDCConfig) Reset() {
 	*x = OIDCConfig{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[7]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -441,7 +441,7 @@ func (x *OIDCConfig) String() string {
 func (*OIDCConfig) ProtoMessage() {}
 
 func (x *OIDCConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[7]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -454,7 +454,7 @@ func (x *OIDCConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OIDCConfig.ProtoReflect.Descriptor instead.
 func (*OIDCConfig) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{7}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *OIDCConfig) GetIssuerUrl() string {
@@ -499,7 +499,7 @@ type ChannelRules struct {
 
 func (x *ChannelRules) Reset() {
 	*x = ChannelRules{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[8]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -511,7 +511,7 @@ func (x *ChannelRules) String() string {
 func (*ChannelRules) ProtoMessage() {}
 
 func (x *ChannelRules) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[8]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -524,7 +524,7 @@ func (x *ChannelRules) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelRules.ProtoReflect.Descriptor instead.
 func (*ChannelRules) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{8}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ChannelRules) GetPublicChannels() []string {
@@ -578,7 +578,7 @@ type GroupChannels struct {
 
 func (x *GroupChannels) Reset() {
 	*x = GroupChannels{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[9]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -590,7 +590,7 @@ func (x *GroupChannels) String() string {
 func (*GroupChannels) ProtoMessage() {}
 
 func (x *GroupChannels) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[9]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -603,7 +603,7 @@ func (x *GroupChannels) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupChannels.ProtoReflect.Descriptor instead.
 func (*GroupChannels) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{9}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GroupChannels) GetChannels() []string {
@@ -622,7 +622,7 @@ type WatchTopicsRequest struct {
 
 func (x *WatchTopicsRequest) Reset() {
 	*x = WatchTopicsRequest{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[10]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -634,7 +634,7 @@ func (x *WatchTopicsRequest) String() string {
 func (*WatchTopicsRequest) ProtoMessage() {}
 
 func (x *WatchTopicsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[10]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -647,7 +647,7 @@ func (x *WatchTopicsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchTopicsRequest.ProtoReflect.Descriptor instead.
 func (*WatchTopicsRequest) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{10}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *WatchTopicsRequest) GetNamespace() string {
@@ -668,7 +668,7 @@ type WatchTopicsResponse struct {
 
 func (x *WatchTopicsResponse) Reset() {
 	*x = WatchTopicsResponse{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[11]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -680,7 +680,7 @@ func (x *WatchTopicsResponse) String() string {
 func (*WatchTopicsResponse) ProtoMessage() {}
 
 func (x *WatchTopicsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[11]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -693,7 +693,7 @@ func (x *WatchTopicsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchTopicsResponse.ProtoReflect.Descriptor instead.
 func (*WatchTopicsResponse) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{11}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WatchTopicsResponse) GetIsSnapshot() bool {
@@ -727,7 +727,7 @@ type DedicatedTenant struct {
 
 func (x *DedicatedTenant) Reset() {
 	*x = DedicatedTenant{}
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[12]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -739,7 +739,7 @@ func (x *DedicatedTenant) String() string {
 func (*DedicatedTenant) ProtoMessage() {}
 
 func (x *DedicatedTenant) ProtoReflect() protoreflect.Message {
-	mi := &file_odin_provisioning_v1_provisioning_proto_msgTypes[12]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -752,7 +752,7 @@ func (x *DedicatedTenant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DedicatedTenant.ProtoReflect.Descriptor instead.
 func (*DedicatedTenant) Descriptor() ([]byte, []int) {
-	return file_odin_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{12}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DedicatedTenant) GetTenantId() string {
@@ -769,16 +769,16 @@ func (x *DedicatedTenant) GetTopics() []string {
 	return nil
 }
 
-var File_odin_provisioning_v1_provisioning_proto protoreflect.FileDescriptor
+var File_sukko_provisioning_v1_provisioning_proto protoreflect.FileDescriptor
 
-const file_odin_provisioning_v1_provisioning_proto_rawDesc = "" +
+const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"\n" +
-	"'odin/provisioning/v1/provisioning.proto\x12\x14odin.provisioning.v1\"\x12\n" +
-	"\x10WatchKeysRequest\"\x8f\x01\n" +
+	"(sukko/provisioning/v1/provisioning.proto\x12\x15sukko.provisioning.v1\"\x12\n" +
+	"\x10WatchKeysRequest\"\x90\x01\n" +
 	"\x11WatchKeysResponse\x12\x1f\n" +
 	"\vis_snapshot\x18\x01 \x01(\bR\n" +
-	"isSnapshot\x121\n" +
-	"\x04keys\x18\x02 \x03(\v2\x1d.odin.provisioning.v1.KeyInfoR\x04keys\x12&\n" +
+	"isSnapshot\x122\n" +
+	"\x04keys\x18\x02 \x03(\v2\x1e.sukko.provisioning.v1.KeyInfoR\x04keys\x12&\n" +
 	"\x0fremoved_key_ids\x18\x03 \x03(\tR\rremovedKeyIds\"\xc6\x01\n" +
 	"\aKeyInfo\x12\x15\n" +
 	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12\x1b\n" +
@@ -787,17 +787,17 @@ const file_odin_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"\x0epublic_key_pem\x18\x04 \x01(\tR\fpublicKeyPem\x12\x1b\n" +
 	"\tis_active\x18\x05 \x01(\bR\bisActive\x12&\n" +
 	"\x0fexpires_at_unix\x18\x06 \x01(\x03R\rexpiresAtUnix\"\x1a\n" +
-	"\x18WatchTenantConfigRequest\"\xa8\x01\n" +
+	"\x18WatchTenantConfigRequest\"\xa9\x01\n" +
 	"\x19WatchTenantConfigResponse\x12\x1f\n" +
 	"\vis_snapshot\x18\x01 \x01(\bR\n" +
-	"isSnapshot\x12<\n" +
-	"\atenants\x18\x02 \x03(\v2\".odin.provisioning.v1.TenantConfigR\atenants\x12,\n" +
-	"\x12removed_tenant_ids\x18\x03 \x03(\tR\x10removedTenantIds\"\xf7\x01\n" +
+	"isSnapshot\x12=\n" +
+	"\atenants\x18\x02 \x03(\v2#.sukko.provisioning.v1.TenantConfigR\atenants\x12,\n" +
+	"\x12removed_tenant_ids\x18\x03 \x03(\tR\x10removedTenantIds\"\xfa\x01\n" +
 	"\fTenantConfig\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x124\n" +
-	"\x04oidc\x18\x02 \x01(\v2 .odin.provisioning.v1.OIDCConfigR\x04oidc\x12G\n" +
-	"\rchannel_rules\x18\x03 \x01(\v2\".odin.provisioning.v1.ChannelRulesR\fchannelRules\x12K\n" +
-	"\rrouting_rules\x18\x04 \x03(\v2&.odin.provisioning.v1.TopicRoutingRuleR\froutingRules\"O\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x125\n" +
+	"\x04oidc\x18\x02 \x01(\v2!.sukko.provisioning.v1.OIDCConfigR\x04oidc\x12H\n" +
+	"\rchannel_rules\x18\x03 \x01(\v2#.sukko.provisioning.v1.ChannelRulesR\fchannelRules\x12L\n" +
+	"\rrouting_rules\x18\x04 \x03(\v2'.sukko.provisioning.v1.TopicRoutingRuleR\froutingRules\"O\n" +
 	"\x10TopicRoutingRule\x12\x18\n" +
 	"\apattern\x18\x01 \x01(\tR\apattern\x12!\n" +
 	"\ftopic_suffix\x18\x02 \x01(\tR\vtopicSuffix\"|\n" +
@@ -807,84 +807,84 @@ const file_odin_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"issuer_url\x18\x01 \x01(\tR\tissuerUrl\x12\x19\n" +
 	"\bjwks_url\x18\x02 \x01(\tR\ajwksUrl\x12\x1a\n" +
 	"\baudience\x18\x03 \x01(\tR\baudience\x12\x18\n" +
-	"\aenabled\x18\x04 \x01(\bR\aenabled\"\xfb\x04\n" +
+	"\aenabled\x18\x04 \x01(\bR\aenabled\"\xff\x04\n" +
 	"\fChannelRules\x12'\n" +
-	"\x0fpublic_channels\x18\x01 \x03(\tR\x0epublicChannels\x12\\\n" +
-	"\x0egroup_mappings\x18\x02 \x03(\v25.odin.provisioning.v1.ChannelRules.GroupMappingsEntryR\rgroupMappings\x12)\n" +
+	"\x0fpublic_channels\x18\x01 \x03(\tR\x0epublicChannels\x12]\n" +
+	"\x0egroup_mappings\x18\x02 \x03(\v26.sukko.provisioning.v1.ChannelRules.GroupMappingsEntryR\rgroupMappings\x12)\n" +
 	"\x10default_channels\x18\x03 \x03(\tR\x0fdefaultChannels\x126\n" +
-	"\x17publish_public_channels\x18\x04 \x03(\tR\x15publishPublicChannels\x12r\n" +
-	"\x16publish_group_mappings\x18\x05 \x03(\v2<.odin.provisioning.v1.ChannelRules.PublishGroupMappingsEntryR\x14publishGroupMappings\x128\n" +
-	"\x18publish_default_channels\x18\x06 \x03(\tR\x16publishDefaultChannels\x1ae\n" +
+	"\x17publish_public_channels\x18\x04 \x03(\tR\x15publishPublicChannels\x12s\n" +
+	"\x16publish_group_mappings\x18\x05 \x03(\v2=.sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntryR\x14publishGroupMappings\x128\n" +
+	"\x18publish_default_channels\x18\x06 \x03(\tR\x16publishDefaultChannels\x1af\n" +
 	"\x12GroupMappingsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x129\n" +
-	"\x05value\x18\x02 \x01(\v2#.odin.provisioning.v1.GroupChannelsR\x05value:\x028\x01\x1al\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12:\n" +
+	"\x05value\x18\x02 \x01(\v2$.sukko.provisioning.v1.GroupChannelsR\x05value:\x028\x01\x1am\n" +
 	"\x19PublishGroupMappingsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x129\n" +
-	"\x05value\x18\x02 \x01(\v2#.odin.provisioning.v1.GroupChannelsR\x05value:\x028\x01\"+\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12:\n" +
+	"\x05value\x18\x02 \x01(\v2$.sukko.provisioning.v1.GroupChannelsR\x05value:\x028\x01\"+\n" +
 	"\rGroupChannels\x12\x1a\n" +
 	"\bchannels\x18\x01 \x03(\tR\bchannels\"2\n" +
 	"\x12WatchTopicsRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"\xaf\x01\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"\xb0\x01\n" +
 	"\x13WatchTopicsResponse\x12\x1f\n" +
 	"\vis_snapshot\x18\x01 \x01(\bR\n" +
 	"isSnapshot\x12#\n" +
-	"\rshared_topics\x18\x02 \x03(\tR\fsharedTopics\x12R\n" +
-	"\x11dedicated_tenants\x18\x03 \x03(\v2%.odin.provisioning.v1.DedicatedTenantR\x10dedicatedTenants\"F\n" +
+	"\rshared_topics\x18\x02 \x03(\tR\fsharedTopics\x12S\n" +
+	"\x11dedicated_tenants\x18\x03 \x03(\v2&.sukko.provisioning.v1.DedicatedTenantR\x10dedicatedTenants\"F\n" +
 	"\x0fDedicatedTenant\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x16\n" +
-	"\x06topics\x18\x02 \x03(\tR\x06topics2\xdb\x02\n" +
-	"\x1bProvisioningInternalService\x12^\n" +
-	"\tWatchKeys\x12&.odin.provisioning.v1.WatchKeysRequest\x1a'.odin.provisioning.v1.WatchKeysResponse0\x01\x12v\n" +
-	"\x11WatchTenantConfig\x12..odin.provisioning.v1.WatchTenantConfigRequest\x1a/.odin.provisioning.v1.WatchTenantConfigResponse0\x01\x12d\n" +
-	"\vWatchTopics\x12(.odin.provisioning.v1.WatchTopicsRequest\x1a).odin.provisioning.v1.WatchTopicsResponse0\x01BMZKgithub.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1;provisioningv1b\x06proto3"
+	"\x06topics\x18\x02 \x03(\tR\x06topics2\xe1\x02\n" +
+	"\x1bProvisioningInternalService\x12`\n" +
+	"\tWatchKeys\x12'.sukko.provisioning.v1.WatchKeysRequest\x1a(.sukko.provisioning.v1.WatchKeysResponse0\x01\x12x\n" +
+	"\x11WatchTenantConfig\x12/.sukko.provisioning.v1.WatchTenantConfigRequest\x1a0.sukko.provisioning.v1.WatchTenantConfigResponse0\x01\x12f\n" +
+	"\vWatchTopics\x12).sukko.provisioning.v1.WatchTopicsRequest\x1a*.sukko.provisioning.v1.WatchTopicsResponse0\x01BIZGgithub.com/klurvio/sukko/gen/proto/sukko/provisioning/v1;provisioningv1b\x06proto3"
 
 var (
-	file_odin_provisioning_v1_provisioning_proto_rawDescOnce sync.Once
-	file_odin_provisioning_v1_provisioning_proto_rawDescData []byte
+	file_sukko_provisioning_v1_provisioning_proto_rawDescOnce sync.Once
+	file_sukko_provisioning_v1_provisioning_proto_rawDescData []byte
 )
 
-func file_odin_provisioning_v1_provisioning_proto_rawDescGZIP() []byte {
-	file_odin_provisioning_v1_provisioning_proto_rawDescOnce.Do(func() {
-		file_odin_provisioning_v1_provisioning_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_odin_provisioning_v1_provisioning_proto_rawDesc), len(file_odin_provisioning_v1_provisioning_proto_rawDesc)))
+func file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP() []byte {
+	file_sukko_provisioning_v1_provisioning_proto_rawDescOnce.Do(func() {
+		file_sukko_provisioning_v1_provisioning_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_sukko_provisioning_v1_provisioning_proto_rawDesc), len(file_sukko_provisioning_v1_provisioning_proto_rawDesc)))
 	})
-	return file_odin_provisioning_v1_provisioning_proto_rawDescData
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescData
 }
 
-var file_odin_provisioning_v1_provisioning_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
-var file_odin_provisioning_v1_provisioning_proto_goTypes = []any{
-	(*WatchKeysRequest)(nil),          // 0: odin.provisioning.v1.WatchKeysRequest
-	(*WatchKeysResponse)(nil),         // 1: odin.provisioning.v1.WatchKeysResponse
-	(*KeyInfo)(nil),                   // 2: odin.provisioning.v1.KeyInfo
-	(*WatchTenantConfigRequest)(nil),  // 3: odin.provisioning.v1.WatchTenantConfigRequest
-	(*WatchTenantConfigResponse)(nil), // 4: odin.provisioning.v1.WatchTenantConfigResponse
-	(*TenantConfig)(nil),              // 5: odin.provisioning.v1.TenantConfig
-	(*TopicRoutingRule)(nil),          // 6: odin.provisioning.v1.TopicRoutingRule
-	(*OIDCConfig)(nil),                // 7: odin.provisioning.v1.OIDCConfig
-	(*ChannelRules)(nil),              // 8: odin.provisioning.v1.ChannelRules
-	(*GroupChannels)(nil),             // 9: odin.provisioning.v1.GroupChannels
-	(*WatchTopicsRequest)(nil),        // 10: odin.provisioning.v1.WatchTopicsRequest
-	(*WatchTopicsResponse)(nil),       // 11: odin.provisioning.v1.WatchTopicsResponse
-	(*DedicatedTenant)(nil),           // 12: odin.provisioning.v1.DedicatedTenant
-	nil,                               // 13: odin.provisioning.v1.ChannelRules.GroupMappingsEntry
-	nil,                               // 14: odin.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
+var file_sukko_provisioning_v1_provisioning_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_sukko_provisioning_v1_provisioning_proto_goTypes = []any{
+	(*WatchKeysRequest)(nil),          // 0: sukko.provisioning.v1.WatchKeysRequest
+	(*WatchKeysResponse)(nil),         // 1: sukko.provisioning.v1.WatchKeysResponse
+	(*KeyInfo)(nil),                   // 2: sukko.provisioning.v1.KeyInfo
+	(*WatchTenantConfigRequest)(nil),  // 3: sukko.provisioning.v1.WatchTenantConfigRequest
+	(*WatchTenantConfigResponse)(nil), // 4: sukko.provisioning.v1.WatchTenantConfigResponse
+	(*TenantConfig)(nil),              // 5: sukko.provisioning.v1.TenantConfig
+	(*TopicRoutingRule)(nil),          // 6: sukko.provisioning.v1.TopicRoutingRule
+	(*OIDCConfig)(nil),                // 7: sukko.provisioning.v1.OIDCConfig
+	(*ChannelRules)(nil),              // 8: sukko.provisioning.v1.ChannelRules
+	(*GroupChannels)(nil),             // 9: sukko.provisioning.v1.GroupChannels
+	(*WatchTopicsRequest)(nil),        // 10: sukko.provisioning.v1.WatchTopicsRequest
+	(*WatchTopicsResponse)(nil),       // 11: sukko.provisioning.v1.WatchTopicsResponse
+	(*DedicatedTenant)(nil),           // 12: sukko.provisioning.v1.DedicatedTenant
+	nil,                               // 13: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
+	nil,                               // 14: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
 }
-var file_odin_provisioning_v1_provisioning_proto_depIdxs = []int32{
-	2,  // 0: odin.provisioning.v1.WatchKeysResponse.keys:type_name -> odin.provisioning.v1.KeyInfo
-	5,  // 1: odin.provisioning.v1.WatchTenantConfigResponse.tenants:type_name -> odin.provisioning.v1.TenantConfig
-	7,  // 2: odin.provisioning.v1.TenantConfig.oidc:type_name -> odin.provisioning.v1.OIDCConfig
-	8,  // 3: odin.provisioning.v1.TenantConfig.channel_rules:type_name -> odin.provisioning.v1.ChannelRules
-	6,  // 4: odin.provisioning.v1.TenantConfig.routing_rules:type_name -> odin.provisioning.v1.TopicRoutingRule
-	13, // 5: odin.provisioning.v1.ChannelRules.group_mappings:type_name -> odin.provisioning.v1.ChannelRules.GroupMappingsEntry
-	14, // 6: odin.provisioning.v1.ChannelRules.publish_group_mappings:type_name -> odin.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
-	12, // 7: odin.provisioning.v1.WatchTopicsResponse.dedicated_tenants:type_name -> odin.provisioning.v1.DedicatedTenant
-	9,  // 8: odin.provisioning.v1.ChannelRules.GroupMappingsEntry.value:type_name -> odin.provisioning.v1.GroupChannels
-	9,  // 9: odin.provisioning.v1.ChannelRules.PublishGroupMappingsEntry.value:type_name -> odin.provisioning.v1.GroupChannels
-	0,  // 10: odin.provisioning.v1.ProvisioningInternalService.WatchKeys:input_type -> odin.provisioning.v1.WatchKeysRequest
-	3,  // 11: odin.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:input_type -> odin.provisioning.v1.WatchTenantConfigRequest
-	10, // 12: odin.provisioning.v1.ProvisioningInternalService.WatchTopics:input_type -> odin.provisioning.v1.WatchTopicsRequest
-	1,  // 13: odin.provisioning.v1.ProvisioningInternalService.WatchKeys:output_type -> odin.provisioning.v1.WatchKeysResponse
-	4,  // 14: odin.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:output_type -> odin.provisioning.v1.WatchTenantConfigResponse
-	11, // 15: odin.provisioning.v1.ProvisioningInternalService.WatchTopics:output_type -> odin.provisioning.v1.WatchTopicsResponse
+var file_sukko_provisioning_v1_provisioning_proto_depIdxs = []int32{
+	2,  // 0: sukko.provisioning.v1.WatchKeysResponse.keys:type_name -> sukko.provisioning.v1.KeyInfo
+	5,  // 1: sukko.provisioning.v1.WatchTenantConfigResponse.tenants:type_name -> sukko.provisioning.v1.TenantConfig
+	7,  // 2: sukko.provisioning.v1.TenantConfig.oidc:type_name -> sukko.provisioning.v1.OIDCConfig
+	8,  // 3: sukko.provisioning.v1.TenantConfig.channel_rules:type_name -> sukko.provisioning.v1.ChannelRules
+	6,  // 4: sukko.provisioning.v1.TenantConfig.routing_rules:type_name -> sukko.provisioning.v1.TopicRoutingRule
+	13, // 5: sukko.provisioning.v1.ChannelRules.group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
+	14, // 6: sukko.provisioning.v1.ChannelRules.publish_group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
+	12, // 7: sukko.provisioning.v1.WatchTopicsResponse.dedicated_tenants:type_name -> sukko.provisioning.v1.DedicatedTenant
+	9,  // 8: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry.value:type_name -> sukko.provisioning.v1.GroupChannels
+	9,  // 9: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry.value:type_name -> sukko.provisioning.v1.GroupChannels
+	0,  // 10: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:input_type -> sukko.provisioning.v1.WatchKeysRequest
+	3,  // 11: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:input_type -> sukko.provisioning.v1.WatchTenantConfigRequest
+	10, // 12: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:input_type -> sukko.provisioning.v1.WatchTopicsRequest
+	1,  // 13: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:output_type -> sukko.provisioning.v1.WatchKeysResponse
+	4,  // 14: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:output_type -> sukko.provisioning.v1.WatchTenantConfigResponse
+	11, // 15: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:output_type -> sukko.provisioning.v1.WatchTopicsResponse
 	13, // [13:16] is the sub-list for method output_type
 	10, // [10:13] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
@@ -892,26 +892,26 @@ var file_odin_provisioning_v1_provisioning_proto_depIdxs = []int32{
 	0,  // [0:10] is the sub-list for field type_name
 }
 
-func init() { file_odin_provisioning_v1_provisioning_proto_init() }
-func file_odin_provisioning_v1_provisioning_proto_init() {
-	if File_odin_provisioning_v1_provisioning_proto != nil {
+func init() { file_sukko_provisioning_v1_provisioning_proto_init() }
+func file_sukko_provisioning_v1_provisioning_proto_init() {
+	if File_sukko_provisioning_v1_provisioning_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_odin_provisioning_v1_provisioning_proto_rawDesc), len(file_odin_provisioning_v1_provisioning_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sukko_provisioning_v1_provisioning_proto_rawDesc), len(file_sukko_provisioning_v1_provisioning_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_odin_provisioning_v1_provisioning_proto_goTypes,
-		DependencyIndexes: file_odin_provisioning_v1_provisioning_proto_depIdxs,
-		MessageInfos:      file_odin_provisioning_v1_provisioning_proto_msgTypes,
+		GoTypes:           file_sukko_provisioning_v1_provisioning_proto_goTypes,
+		DependencyIndexes: file_sukko_provisioning_v1_provisioning_proto_depIdxs,
+		MessageInfos:      file_sukko_provisioning_v1_provisioning_proto_msgTypes,
 	}.Build()
-	File_odin_provisioning_v1_provisioning_proto = out.File
-	file_odin_provisioning_v1_provisioning_proto_goTypes = nil
-	file_odin_provisioning_v1_provisioning_proto_depIdxs = nil
+	File_sukko_provisioning_v1_provisioning_proto = out.File
+	file_sukko_provisioning_v1_provisioning_proto_goTypes = nil
+	file_sukko_provisioning_v1_provisioning_proto_depIdxs = nil
 }

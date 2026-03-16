@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
+	"github.com/klurvio/sukko/internal/server/backend"
 )
 
 // mockBackend is a minimal MessageBackend implementation for interface contract tests.

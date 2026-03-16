@@ -32,12 +32,12 @@ type GatewayConfig struct {
 	MaxFrameSize int `env:"GATEWAY_MAX_FRAME_SIZE" envDefault:"1048576"` // 1MB = protocol.DefaultMaxFrameSize
 
 	// Authentication (multi-tenant with asymmetric keys)
-	// TODO: Change envDefault to "true" when odin-api auth integration is production-ready
+	// TODO: Change envDefault to "true" when sukko-api auth integration is production-ready
 	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"false"`
 
 	// DefaultTenantID disables multi-tenant support. All connections
 	// are routed to this tenant. Only used when AUTH_ENABLED=false.
-	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
+	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
 
 	// Provisioning service gRPC connection (provides keys, OIDC config, channel rules via streaming)
 	ProvisioningGRPCAddr  string        `env:"PROVISIONING_GRPC_ADDR" envDefault:"localhost:9090"`

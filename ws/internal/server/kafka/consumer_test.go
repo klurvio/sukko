@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
 
-	kafkautil "github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
+	kafkautil "github.com/klurvio/sukko/internal/shared/kafka"
 )
 
 // =============================================================================
@@ -55,7 +55,7 @@ func TestNewConsumer_NoBrokers(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "odin", "trade")},
+		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
 		Logger:        &logger,
 		Broadcast:     broadcast,
 		ResourceGuard: guard,
@@ -76,7 +76,7 @@ func TestNewConsumer_NoConsumerGroup(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "",
-		Topics:        []string{kafkautil.BuildTopicName("test", "odin", "trade")},
+		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
 		Logger:        &logger,
 		Broadcast:     broadcast,
 		ResourceGuard: guard,
@@ -117,7 +117,7 @@ func TestNewConsumer_NoBroadcast(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "odin", "trade")},
+		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
 		Logger:        &logger,
 		Broadcast:     nil,
 		ResourceGuard: guard,
@@ -137,7 +137,7 @@ func TestNewConsumer_NoResourceGuard(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "odin", "trade")},
+		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
 		Logger:        &logger,
 		Broadcast:     broadcast,
 		ResourceGuard: nil,
@@ -157,7 +157,7 @@ func TestNewConsumer_NoLogger(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "odin", "trade")},
+		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
 		Logger:        nil,
 		Broadcast:     broadcast,
 		ResourceGuard: guard,
@@ -177,10 +177,10 @@ func TestConsumer_ConsumerGroupField(t *testing.T) {
 	t.Parallel()
 	// Verify consumerGroup is stored on the struct for metrics labels.
 	// NewConsumer() requires a real Kafka broker, so we test the field directly.
-	consumer := &Consumer{consumerGroup: "odin-shared-dev"}
+	consumer := &Consumer{consumerGroup: "sukko-shared-dev"}
 
-	if consumer.consumerGroup != "odin-shared-dev" {
-		t.Errorf("consumerGroup = %q, want %q", consumer.consumerGroup, "odin-shared-dev")
+	if consumer.consumerGroup != "sukko-shared-dev" {
+		t.Errorf("consumerGroup = %q, want %q", consumer.consumerGroup, "sukko-shared-dev")
 	}
 }
 
@@ -203,7 +203,7 @@ func TestConsumerConfig_BatchDefaults(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "odin", "trade")},
+		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
 	}
 
 	// Default BatchSize should be 0 (will be set to 50 in NewConsumer)
@@ -222,7 +222,7 @@ func TestConsumerConfig_CustomBatch(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "odin", "trade")},
+		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
 		BatchSize:     100,
 		BatchTimeout:  20 * time.Millisecond,
 	}
@@ -315,9 +315,9 @@ func TestConsumer_IncrementProcessed_MultipleTopics(t *testing.T) {
 	t.Parallel()
 	consumer := &Consumer{}
 
-	consumer.incrementProcessed("odin.dev.trade")
-	consumer.incrementProcessed("odin.dev.liquidity")
-	consumer.incrementProcessed("odin.dev.trade")
+	consumer.incrementProcessed("sukko.dev.trade")
+	consumer.incrementProcessed("sukko.dev.liquidity")
+	consumer.incrementProcessed("sukko.dev.trade")
 
 	processed, _, _ := consumer.GetMetrics()
 	if processed != 3 {
@@ -329,8 +329,8 @@ func TestConsumer_IncrementDropped_MultipleTopics(t *testing.T) {
 	t.Parallel()
 	consumer := &Consumer{}
 
-	consumer.incrementDropped("odin.dev.trade")
-	consumer.incrementDropped("odin.dev.liquidity")
+	consumer.incrementDropped("sukko.dev.trade")
+	consumer.incrementDropped("sukko.dev.liquidity")
 
 	_, _, dropped := consumer.GetMetrics()
 	if dropped != 2 {
@@ -421,11 +421,11 @@ func TestConsumer_PrepareMessage_IncludesTopic(t *testing.T) {
 		logger:        &logger,
 		resourceGuard: guard,
 		ctx:           context.Background(),
-		consumerGroup: "odin-shared-dev",
+		consumerGroup: "sukko-shared-dev",
 	}
 
 	record := &kgo.Record{
-		Topic: "odin.dev.trade",
+		Topic: "sukko.dev.trade",
 		Key:   []byte("BTC.trade"),
 		Value: []byte(`{"price":"50000"}`),
 	}
@@ -435,8 +435,8 @@ func TestConsumer_PrepareMessage_IncludesTopic(t *testing.T) {
 		t.Fatal("prepareMessage returned nil")
 	}
 
-	if msg.topic != "odin.dev.trade" {
-		t.Errorf("msg.topic = %q, want %q", msg.topic, "odin.dev.trade")
+	if msg.topic != "sukko.dev.trade" {
+		t.Errorf("msg.topic = %q, want %q", msg.topic, "sukko.dev.trade")
 	}
 	if msg.subject != "BTC.trade" {
 		t.Errorf("msg.subject = %q, want %q", msg.subject, "BTC.trade")
@@ -459,7 +459,7 @@ func TestConsumer_PrepareMessage_EmptyKey_ReturnNil(t *testing.T) {
 	}
 
 	record := &kgo.Record{
-		Topic: "odin.dev.trade",
+		Topic: "sukko.dev.trade",
 		Key:   []byte(""),
 		Value: []byte(`{"price":"50000"}`),
 	}
@@ -489,7 +489,7 @@ func TestConsumer_PrepareMessage_RateLimited_DropsWithTopic(t *testing.T) {
 	}
 
 	record := &kgo.Record{
-		Topic: "odin.dev.trade",
+		Topic: "sukko.dev.trade",
 		Key:   []byte("BTC.trade"),
 		Value: []byte(`{"price":"50000"}`),
 	}
@@ -538,15 +538,15 @@ func TestTokenEvent_Fields(t *testing.T) {
 func TestReplayMessage_Fields(t *testing.T) {
 	t.Parallel()
 	msg := ReplayMessage{
-		Topic:     kafkautil.BuildTopicName("test", "odin", "trade"),
+		Topic:     kafkautil.BuildTopicName("test", "sukko", "trade"),
 		Partition: 0,
 		Offset:    12345,
 		Subject:   "BTC.trade",
 		Data:      []byte(`{"price":"100.50"}`),
 	}
 
-	if msg.Topic != kafkautil.BuildTopicName("test", "odin", "trade") {
-		t.Errorf("Topic = %s, want %s", msg.Topic, kafkautil.BuildTopicName("test", "odin", "trade"))
+	if msg.Topic != kafkautil.BuildTopicName("test", "sukko", "trade") {
+		t.Errorf("Topic = %s, want %s", msg.Topic, kafkautil.BuildTopicName("test", "sukko", "trade"))
 	}
 	if msg.Partition != 0 {
 		t.Errorf("Partition = %d, want 0", msg.Partition)

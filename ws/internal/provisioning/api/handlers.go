@@ -10,9 +10,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/shared/httputil"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
 // NOTE: httputil.WriteJSON errors are assigned to _ throughout this file.

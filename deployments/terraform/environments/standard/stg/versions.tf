@@ -15,7 +15,7 @@ terraform {
   # Uncomment to use GCS backend for remote state
   # backend "gcs" {
   #   bucket = "your-terraform-state-bucket"
-  #   prefix = "odin-ws/gke-standard/staging"
+  #   prefix = "sukko/gke-standard/staging"
   # }
 }
 

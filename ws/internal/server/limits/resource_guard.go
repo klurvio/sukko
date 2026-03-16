@@ -10,9 +10,9 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/server/stats"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/server/stats"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // SystemMonitorInterface defines the interface for system monitoring

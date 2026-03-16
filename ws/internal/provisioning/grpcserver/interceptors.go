@@ -11,8 +11,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
 // Prometheus metrics for gRPC.

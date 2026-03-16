@@ -15,8 +15,8 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // testClaims creates auth.Claims with the given subject for testing.
@@ -92,10 +92,10 @@ func newTestProxyNoAuth(tenantID string) *Proxy {
 func TestProxy_InterceptClientMessage_AuthDisabled(t *testing.T) {
 	t.Parallel()
 	// Auth disabled: no permission filtering, tenant prefix validated
-	proxy := newTestProxyNoAuth("odin")
+	proxy := newTestProxyNoAuth("sukko")
 
 	// Explicit channels: clients include tenant prefix
-	input := `{"type":"subscribe","data":{"channels":["odin.secret.channel","odin.forbidden.data"]}}`
+	input := `{"type":"subscribe","data":{"channels":["sukko.secret.channel","sukko.forbidden.data"]}}`
 	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
 
 	if err != nil {
@@ -112,7 +112,7 @@ func TestProxy_InterceptClientMessage_AuthDisabled(t *testing.T) {
 	}
 
 	// All channels with correct tenant prefix pass through (no permission filtering)
-	expected := []string{"odin.secret.channel", "odin.forbidden.data"}
+	expected := []string{"sukko.secret.channel", "sukko.forbidden.data"}
 	if len(data.Channels) != len(expected) {
 		t.Errorf("Expected %d channels, got %d: %v", len(expected), len(data.Channels), data.Channels)
 	}
@@ -126,10 +126,10 @@ func TestProxy_InterceptClientMessage_AuthDisabled(t *testing.T) {
 func TestProxy_InterceptClientMessage_AuthDisabledPublish(t *testing.T) {
 	t.Parallel()
 	// Auth disabled: tenant prefix validated, no access check
-	proxy := newTestProxyNoAuth("odin")
+	proxy := newTestProxyNoAuth("sukko")
 
 	// Explicit channels: clients include tenant prefix
-	input := `{"type":"publish","data":{"channel":"odin.BTC.trade","data":{"price":50000}}}`
+	input := `{"type":"publish","data":{"channel":"sukko.BTC.trade","data":{"price":50000}}}`
 	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
 
 	if err != nil {
@@ -150,7 +150,7 @@ func TestProxy_InterceptClientMessage_AuthDisabledPublish(t *testing.T) {
 		t.Fatalf("Failed to parse publish data: %v", err)
 	}
 	// Channel should be unchanged (explicit tenant prefix)
-	expectedChannel := "odin.BTC.trade"
+	expectedChannel := "sukko.BTC.trade"
 	if pubData.Channel != expectedChannel {
 		t.Errorf("Channel = %q, want %q", pubData.Channel, expectedChannel)
 	}

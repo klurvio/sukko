@@ -9,9 +9,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
-	"github.com/Toniq-Labs/odin-ws/internal/server/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/server/broadcast"
+	"github.com/klurvio/sukko/internal/server/kafka"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // =============================================================================
@@ -478,7 +478,7 @@ func TestMultiTenantPool_ConsumerGroupNaming(t *testing.T) {
 	}{
 		{"dev_env_prod_ns_shared", "dev", "prod", "", true, "dev-shared-consumer"},
 		{"prod_env_prod_ns_shared", "prod", "prod", "", true, "prod-shared-consumer"},
-		{"dev_env_prod_ns_dedicated", "dev", "prod", "odin", false, "dev-odin-consumer"},
+		{"dev_env_prod_ns_dedicated", "dev", "prod", "sukko", false, "dev-sukko-consumer"},
 		{"prod_env_prod_ns_dedicated", "prod", "prod", "acme", false, "prod-acme-consumer"},
 		{"empty_env_fallback_shared", "", "dev", "", true, "dev-shared-consumer"},
 		{"empty_env_fallback_dedicated", "", "dev", "tenant1", false, "dev-tenant1-consumer"},

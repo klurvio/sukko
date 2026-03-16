@@ -5,13 +5,13 @@
 # Autoscaling 1-5 nodes, higher replicas, persistent storage, NATS cluster.
 #
 # Usage:
-#   helm upgrade --install odin ./deployments/helm/odin \
-#     -f ./deployments/helm/odin/values/standard/prod.yaml \
-#     -n odin-ws-prod --create-namespace
+#   helm upgrade --install sukko ./deployments/helm/sukko \
+#     -f ./deployments/helm/sukko/values/standard/prod.yaml \
+#     -n sukko-prod --create-namespace
 
 global:
-  namespace: odin-ws-prod
-  imageRegistry: "us-central1-docker.pkg.dev/YOUR_PROJECT/odin-ws"
+  namespace: sukko-prod
+  imageRegistry: "us-central1-docker.pkg.dev/YOUR_PROJEC./sukko-server"
 
 # ── Gateway ─────────────────────────────────────────────────────────
 ws-gateway:
@@ -89,7 +89,7 @@ provisioning:
   replicaCount: 1
   environment: prod
   image:
-    repository: odin-provisioning
+    repository: sukko-provisioning
     tag: latest
     pullPolicy: IfNotPresent
   extraEnv:

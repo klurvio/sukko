@@ -7,13 +7,13 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server"
-	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
-	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/server"
+	"github.com/klurvio/sukko/internal/server/backend"
+	"github.com/klurvio/sukko/internal/server/broadcast"
+	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/shared/alerting"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // Shard represents a single instance of the WebSocket server, running on its own core.

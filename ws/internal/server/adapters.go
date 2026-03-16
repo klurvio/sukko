@@ -9,7 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
+	"github.com/klurvio/sukko/internal/shared/alerting"
 )
 
 // =============================================================================

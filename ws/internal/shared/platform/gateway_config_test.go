@@ -22,7 +22,7 @@ func newValidGatewayConfig() *GatewayConfig {
 		DialTimeout:                  10 * time.Second,
 		MessageTimeout:               60 * time.Second,
 		AuthEnabled:                  false,  // Disabled by default for tests
-		DefaultTenantID:              "odin", // Required when auth disabled
+		DefaultTenantID:              "sukko", // Required when auth disabled
 		ProvisioningGRPCAddr:         "localhost:9090",
 		GRPCReconnectDelay:           1 * time.Second,
 		GRPCReconnectMaxDelay:        30 * time.Second,
@@ -216,7 +216,7 @@ func TestGatewayConfig_Validate_PublicPatterns(t *testing.T) {
 		shouldError bool
 	}{
 		{"single pattern", []string{"*.trade"}, false},
-		{"multiple patterns", []string{"*.trade", "*.liquidity", "odin.*"}, false},
+		{"multiple patterns", []string{"*.trade", "*.liquidity", "sukko.*"}, false},
 		{"empty slice", []string{}, true},
 		{"nil slice", nil, true},
 	}

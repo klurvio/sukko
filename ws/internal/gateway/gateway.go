@@ -12,12 +12,12 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/provapi"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/version"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/httputil"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/provapi"
+	"github.com/klurvio/sukko/internal/shared/version"
 )
 
 // Gateway handles WebSocket connections, authenticating clients and proxying

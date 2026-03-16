@@ -10,8 +10,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/stats"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/server/stats"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
 // Buffer percentile label values (package-local).

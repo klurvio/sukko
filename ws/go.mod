@@ -1,4 +1,4 @@
-module github.com/Toniq-Labs/odin-ws
+module github.com/klurvio/sukko
 
 go 1.26.0
 

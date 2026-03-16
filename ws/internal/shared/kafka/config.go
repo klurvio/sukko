@@ -23,7 +23,7 @@ import (
 // Resolution: Use ResolveNamespace(override, environment) to get the effective namespace.
 //
 // Why separate?
-//   - Allows dev/stg environments to consume from prod topics (Odin API always publishes as prod)
+//   - Allows dev/stg environments to consume from prod topics (Sukko API always publishes as prod)
 //   - Keeps logs/metrics accurate (shows "dev" not "prod")
 //   - Explicit about intent - "Override" in the name makes cross-env consumption deliberate
 //   - Safer - can't accidentally affect non-topic environment behavior
@@ -96,19 +96,19 @@ const (
 //
 // Example:
 //
-//	"prod.odin.trade" -> "trade"
+//	"prod.sukko.trade" -> "trade"
 //	"dev.acme.balances" -> "balances"
-//	"odin.dev.trade" (legacy) -> "trade"
+//	"sukko.dev.trade" (legacy) -> "trade"
 func TopicToEventType(topic string) string {
 	// Handle new format: {namespace}.{tenant}.{category}
-	// Handle legacy format: odin.{env}.{category}
+	// Handle legacy format: sukko.{env}.{category}
 	parts := strings.Split(topic, ".")
 	if len(parts) >= 3 {
 		return parts[len(parts)-1] // Return last part (category)
 	}
 
-	// Handle legacy format with odin. prefix
-	topic = strings.TrimPrefix(topic, "odin.")
+	// Handle legacy format with sukko. prefix
+	topic = strings.TrimPrefix(topic, "sukko.")
 	if _, after, found := strings.Cut(topic, "."); found {
 		return after
 	}

@@ -11,12 +11,12 @@ enabled: true
 replicaCount: 1
 
 image:
-  repository: odin-provisioning
+  repository: sukko-provisioning
   tag: latest
   pullPolicy: IfNotPresent
 
 # Deployment identity — drives Kafka topic namespace.
-# Free-form string; Odin convention: local, dev, stg, prod
+# Free-form string; Sukko convention: local, dev, stg, prod
 # environment: local
 
 # Admin token for API authentication (optional).
@@ -30,7 +30,7 @@ databaseDriver: sqlite
 
 database:
   # SQLite file path (only when databaseDriver=sqlite)
-  sqlitePath: "/data/odin.db"
+  sqlitePath: "/data/sukko.db"
 
 # External PostgreSQL (when databaseDriver=postgres without postgresql.enabled)
 externalDatabase:

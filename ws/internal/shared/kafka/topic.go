@@ -11,12 +11,12 @@ import "fmt"
 //
 // Example:
 //
-//	BuildTopicName("prod", "odin", "trade") -> "prod.odin.trade"
+//	BuildTopicName("prod", "sukko", "trade") -> "prod.sukko.trade"
 //	BuildTopicName("dev", "acme", "analytics") -> "dev.acme.analytics"
 //
 // Components:
 //   - namespace: Resolved via kafka.ResolveNamespace() (e.g., "local", "dev", "stag", "prod")
-//   - tenantID: Tenant identifier (e.g., "odin", "acme")
+//   - tenantID: Tenant identifier (e.g., "sukko", "acme")
 //   - category: Topic category (e.g., "trade", "liquidity", "metadata")
 //
 // This function is used by:

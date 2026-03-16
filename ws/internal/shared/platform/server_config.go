@@ -22,7 +22,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
+	"github.com/klurvio/sukko/internal/shared/alerting"
 )
 
 // WebSocket ping/pong validation constants.
@@ -223,7 +223,7 @@ type ServerConfig struct {
 
 	// DefaultTenantID disables multi-tenant support. All messages
 	// are routed to this tenant. Only used when AUTH_ENABLED=false.
-	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"odin"`
+	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
 
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy

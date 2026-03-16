@@ -31,7 +31,7 @@ func TestConfig_Validate(t *testing.T) {
 		},
 		{
 			name:    "invalid_subscription_mode",
-			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "invalid"},
+			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"sukko.BTC.trade"}, SubscriptionMode: "invalid"},
 			wantErr: "SUBSCRIPTION_MODE must be all/single/random",
 		},
 		{
@@ -41,27 +41,27 @@ func TestConfig_Validate(t *testing.T) {
 		},
 		{
 			name:    "channels_per_client_zero",
-			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "random", ChannelsPerClient: 0},
+			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"sukko.BTC.trade"}, SubscriptionMode: "random", ChannelsPerClient: 0},
 			wantErr: "CHANNELS_PER_CLIENT must be >= 1",
 		},
 		{
 			name:    "channels_per_client_exceeds_channels",
-			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "random", ChannelsPerClient: 5},
+			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"sukko.BTC.trade"}, SubscriptionMode: "random", ChannelsPerClient: 5},
 			wantErr: "CHANNELS_PER_CLIENT (5) cannot exceed number of channels (1)",
 		},
 		{
 			name:    "invalid_log_level",
-			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "all", LogLevel: "invalid", PongWait: 60 * time.Second, PingPeriod: 45 * time.Second},
+			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"sukko.BTC.trade"}, SubscriptionMode: "all", LogLevel: "invalid", PongWait: 60 * time.Second, PingPeriod: 45 * time.Second},
 			wantErr: "invalid log level",
 		},
 		{
 			name:    "ping_period_equals_pong_wait",
-			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "all", LogLevel: "info", PongWait: 60 * time.Second, PingPeriod: 60 * time.Second},
+			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"sukko.BTC.trade"}, SubscriptionMode: "all", LogLevel: "info", PongWait: 60 * time.Second, PingPeriod: 60 * time.Second},
 			wantErr: "WS_PING_PERIOD",
 		},
 		{
 			name:    "ping_period_exceeds_pong_wait",
-			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"odin.BTC.trade"}, SubscriptionMode: "all", LogLevel: "info", PongWait: 60 * time.Second, PingPeriod: 90 * time.Second},
+			config:  Config{WSURL: "ws://localhost", TargetConnections: 1, RampRate: 1, Channels: []string{"sukko.BTC.trade"}, SubscriptionMode: "all", LogLevel: "info", PongWait: 60 * time.Second, PingPeriod: 90 * time.Second},
 			wantErr: "WS_PING_PERIOD",
 		},
 		{
@@ -70,8 +70,8 @@ func TestConfig_Validate(t *testing.T) {
 				WSURL:             "ws://localhost",
 				TargetConnections: 100,
 				RampRate:          10,
-				Channels:          []string{"odin.BTC.trade"},
-				TenantID:          "odin",
+				Channels:          []string{"sukko.BTC.trade"},
+				TenantID:          "sukko",
 				SubscriptionMode:  "random",
 				ChannelsPerClient: 1,
 				LogLevel:          "info",
@@ -109,12 +109,12 @@ func TestConfig_ValidateChannels(t *testing.T) {
 	}{
 		{
 			name:     "valid_channels",
-			channels: []string{"odin.BTC.trade", "odin.ETH.liquidity"},
+			channels: []string{"sukko.BTC.trade", "sukko.ETH.liquidity"},
 			wantErr:  "",
 		},
 		{
 			name:     "valid_aggregate_channel",
-			channels: []string{"odin.all.trade"},
+			channels: []string{"sukko.all.trade"},
 			wantErr:  "",
 		},
 		{
@@ -129,7 +129,7 @@ func TestConfig_ValidateChannels(t *testing.T) {
 		},
 		{
 			name:     "mixed_valid_invalid",
-			channels: []string{"odin.BTC.trade", "invalid"},
+			channels: []string{"sukko.BTC.trade", "invalid"},
 			wantErr:  "must have format {tenant}.{identifier}.{category}",
 		},
 	}
@@ -172,7 +172,7 @@ func TestConfig_ValidateSubscriptionModes(t *testing.T) {
 				WSURL:             "ws://localhost",
 				TargetConnections: 1,
 				RampRate:          1,
-				Channels:          []string{"odin.BTC.trade"},
+				Channels:          []string{"sukko.BTC.trade"},
 				SubscriptionMode:  mode,
 				ChannelsPerClient: 1,
 				LogLevel:          "info",

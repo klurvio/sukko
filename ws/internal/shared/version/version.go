@@ -1,9 +1,9 @@
 // Package version provides build-time version information.
 // Variables are set via ldflags during build:
 //
-//	-X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.Version=v1.0.0'
-//	-X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.CommitHash=abc123'
-//	-X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.BuildTime=2024-01-15T10:30:00Z'
+//	-X 'github.com/klurvio/sukko/internal/shared/version.Version=v1.0.0'
+//	-X 'github.com/klurvio/sukko/internal/shared/version.CommitHash=abc123'
+//	-X 'github.com/klurvio/sukko/internal/shared/version.BuildTime=2024-01-15T10:30:00Z'
 package version
 
 // Build-time variables (set via ldflags).

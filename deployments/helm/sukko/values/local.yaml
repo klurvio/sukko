@@ -3,9 +3,9 @@
 # =============================================================================
 
 global:
-  namespace: odin-local
+  namespace: sukko-local
   provisioning:
-    databaseUrl: "postgres://odin:odin_local_dev@odin-postgresql:5432/odin_provisioning?sslmode=disable"
+    databaseUrl: "postgres://sukko:sukko_local_dev@sukko-postgresql:5432/sukko_provisioning?sslmode=disable"
 
 # Kernel tuning not needed for local (Kind runs in Docker)
 kernelTuning:
@@ -38,7 +38,7 @@ ws-server:
   enabled: true
   replicaCount: 1
   shards: 1          # Single shard for M1
-  environment: local  # Topic naming: odin.local.{base}.refined
+  environment: local  # Topic naming: sukko.local.{base}.refined
   broadcastType: nats  # NATS for high performance
   extraEnv:
     LOG_LEVEL: "debug"
@@ -55,12 +55,12 @@ ws-server:
 
   # NATS config (single node for local dev)
   nats:
-    urls: ""  # Uses dynamic default: nats://odin-local-nats:4222
+    urls: ""  # Uses dynamic default: nats://sukko-local-nats:4222
     clusterMode: false  # Single node for local
 
   # Kafka/Redpanda - Self-hosted in cluster (no auth needed)
   kafka:
-    brokers: ""  # Uses dynamic default: odin-local-redpanda:9092
+    brokers: ""  # Uses dynamic default: sukko-local-redpanda:9092
     # SASL/TLS disabled for local self-hosted Redpanda (defaults from base values)
 
   # NOTE: Auth is now handled by ws-gateway
@@ -80,8 +80,8 @@ ws-server:
     enabled: false
 
 # Auth Service - REMOVED
-# Token issuance is now handled by odin-api
-# For local testing, use a test JWT or mock odin-api
+# Token issuance is now handled by sukko-api
+# For local testing, use a test JWT or mock sukko-api
 
 # Redpanda - Reduced resources for kind
 redpanda:
@@ -174,9 +174,9 @@ monitoring:
 postgresql:
   enabled: true
   auth:
-    database: odin_provisioning
-    username: odin
-    password: odin_local_dev  # OK for local dev only
+    database: sukko_provisioning
+    username: sukko
+    password: sukko_local_dev  # OK for local dev only
   resources:
     requests:
       cpu: "100m"

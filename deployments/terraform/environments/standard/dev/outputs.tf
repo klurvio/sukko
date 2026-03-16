@@ -45,7 +45,7 @@ output "subnet_name" {
 }
 
 output "namespace" {
-  description = "The Kubernetes namespace for odin"
+  description = "The Kubernetes namespace for sukko"
   value       = var.namespace
 }
 

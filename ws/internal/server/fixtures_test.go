@@ -3,7 +3,7 @@ package server
 import (
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // newTestServerConfig creates a *platform.ServerConfig with safe defaults for testing.

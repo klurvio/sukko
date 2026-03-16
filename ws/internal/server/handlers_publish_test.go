@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // =============================================================================
@@ -28,7 +28,7 @@ func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 		"acme.btc-usdt.orderbook", // Hyphen in part
 		"test.user_123.settings",  // Underscore in part
 		"tenant.v1.api.request",   // Version prefix
-		"io.toniq.odin.events",    // Reverse domain notation
+		"io.toniq.sukko.events",    // Reverse domain notation
 	}
 
 	for _, channel := range validChannels {

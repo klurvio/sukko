@@ -17,10 +17,10 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // Proxy handles bidirectional WebSocket message forwarding between client and backend.
@@ -498,7 +498,7 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 		p.claimsMu.RUnlock()
 
 		// Strip tenant prefix locally for permission matching — patterns like *.trade
-		// operate on the non-tenant portion (e.g., "BTC.trade" from "odin.BTC.trade")
+		// operate on the non-tenant portion (e.g., "BTC.trade" from "sukko.BTC.trade")
 		stripped := make([]string, len(channels))
 		for i, ch := range channels {
 			stripped[i] = p.stripTenantPrefix(ch)
@@ -555,7 +555,7 @@ func (p *Proxy) validateChannelTenant(channel string) bool {
 }
 
 // stripTenantPrefix removes the tenant prefix from a channel for permission matching.
-// "odin.BTC.trade" → "BTC.trade". Only used locally in the gateway for permission checks —
+// "sukko.BTC.trade" → "BTC.trade". Only used locally in the gateway for permission checks —
 // the full tenant-prefixed channel is always forwarded to the server.
 func (p *Proxy) stripTenantPrefix(channel string) string {
 	return strings.TrimPrefix(channel, p.tenantID+".")

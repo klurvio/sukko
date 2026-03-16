@@ -10,10 +10,10 @@ region = "us-central1"
 zone   = "us-central1-a"
 
 # Cluster Configuration
-cluster_name = "odin-ws-stg"
+cluster_name = "sukko-stg"
 environment  = "stg"
-namespace    = "odin-stg"
-network_name = "odin-ws-stg-vpc"
+namespace    = "sukko-stg"
+network_name = "sukko-stg-vpc"
 
 # Node Pool Configuration
 node_machine_type = "e2-standard-4"

@@ -3,13 +3,13 @@ package gateway
 import (
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/auth"
 )
 
 func TestPermissionChecker_CanSubscribe_PublicChannels(t *testing.T) {
 	t.Parallel()
 	pc := NewPermissionChecker(
-		[]string{"*.trade", "*.liquidity", "odin.*"},
+		[]string{"*.trade", "*.liquidity", "sukko.*"},
 		[]string{},
 		[]string{},
 	)
@@ -27,8 +27,8 @@ func TestPermissionChecker_CanSubscribe_PublicChannels(t *testing.T) {
 		{"BTC.trade matches *.trade", "BTC.trade", true},
 		{"ETH.trade matches *.trade", "ETH.trade", true},
 		{"SOL.liquidity matches *.liquidity", "SOL.liquidity", true},
-		{"odin.trades matches odin.*", "odin.trades", true},
-		{"odin.metadata matches odin.*", "odin.metadata", true},
+		{"sukko.trades matches sukko.*", "sukko.trades", true},
+		{"sukko.metadata matches sukko.*", "sukko.metadata", true},
 		{"unknown.channel denied", "unknown.channel", false},
 		{"balances.user123 denied (no user pattern)", "balances.user123", false},
 	}
@@ -190,9 +190,9 @@ func TestMatchWildcard(t *testing.T) {
 		{"*.trade", "BTC.liquidity", false},
 
 		// Suffix wildcard prefix.*
-		{"odin.*", "odin.trades", true},
-		{"odin.*", "odin.metadata", true},
-		{"odin.*", "other.trades", false},
+		{"sukko.*", "sukko.trades", true},
+		{"sukko.*", "sukko.metadata", true},
+		{"sukko.*", "other.trades", false},
 
 		// Middle wildcard prefix*suffix
 		{"BTC*trade", "BTC.trade", true},

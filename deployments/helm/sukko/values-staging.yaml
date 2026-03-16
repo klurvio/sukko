@@ -1,12 +1,12 @@
 # =============================================================================
-# Odin WebSocket Infrastructure - Staging Environment
+# Sukko WebSocket Infrastructure - Staging Environment
 # =============================================================================
 # Production-like configuration for staging tests
 # Target: ~90K total connections (3 nodes × 2 pods × 15K)
 # See docs/architecture/CONNECTION_LIMITS.md for details
 
 global:
-  namespace: odin-staging
+  namespace: sukko-staging
 
 # =============================================================================
 # WebSocket Gateway - Staging
@@ -39,7 +39,7 @@ ws-server:
   config:
     shards: 2
     logLevel: info
-    environment: staging  # Topic naming: odin.staging.{base}.refined
+    environment: staging  # Topic naming: sukko.staging.{base}.refined
 
   # Connection limits (ResourceGuard enforces actual limits at runtime)
   connectionLimits:

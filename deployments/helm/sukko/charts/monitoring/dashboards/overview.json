@@ -25,9 +25,9 @@
       "icon": "external link",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["odin"],
+      "tags": ["sukko"],
       "targetBlank": true,
-      "title": "Odin Dashboards",
+      "title": "Sukko Dashboards",
       "type": "dashboards"
     }
   ],
@@ -628,7 +628,7 @@
           "refId": "B"
         }
       ],
-      "title": "Gateway Odin Connections",
+      "title": "Gateway Sukko Connections",
       "type": "timeseries"
     },
     {
@@ -1359,7 +1359,7 @@
   ],
   "refresh": "15s",
   "schemaVersion": 39,
-  "tags": ["odin", "overview", "websocket"],
+  "tags": ["sukko", "overview", "websocket"],
   "templating": {
     "list": []
   },
@@ -1369,8 +1369,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Odin - Infrastructure Overview",
-  "uid": "odin-overview",
+  "title": "Sukko - Infrastructure Overview",
+  "uid": "sukko-overview",
   "version": 1,
   "weekStart": ""
 }

@@ -536,7 +536,7 @@ func TestMultiTenantValidator_OIDCRouting(t *testing.T) {
 	}
 
 	const oidcIssuer = "https://auth.example.com/"
-	const oidcAudience = "https://api.odin.io"
+	const oidcAudience = "https://api.sukko.io"
 
 	tests := []struct {
 		name        string
@@ -685,7 +685,7 @@ func TestMultiTenantValidator_OIDCDisabled_FallsBackToTenantKeys(t *testing.T) {
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
 		KeyRegistry:  registry,
 		OIDCIssuer:   "https://auth.example.com/",
-		OIDCAudience: "https://api.odin.io",
+		OIDCAudience: "https://api.sukko.io",
 		OIDCKeyfunc:  nil, // OIDC disabled
 	})
 	if err != nil {
@@ -737,7 +737,7 @@ func TestMultiTenantValidator_OIDCKeyfuncFailure_DoesNotBreakTenantKeys(t *testi
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
 		KeyRegistry:  registry,
 		OIDCIssuer:   "https://auth.example.com/",
-		OIDCAudience: "https://api.odin.io",
+		OIDCAudience: "https://api.sukko.io",
 		OIDCKeyfunc:  mockFailingOIDCKeyfunc(),
 	})
 	if err != nil {

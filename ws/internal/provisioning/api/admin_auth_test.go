@@ -10,7 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/auth"
 )
 
 const testFailureThreshold = 10

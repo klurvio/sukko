@@ -3,7 +3,7 @@ package version
 import (
 	"net/http"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/httputil"
 )
 
 // Handler returns an http.HandlerFunc for the /version endpoint.

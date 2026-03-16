@@ -18,7 +18,7 @@ package platform
 const DefaultAuthEnabled = "false"
 
 // DefaultTenantID is the fallback tenant ID shared across gateway and server.
-const DefaultTenantID = "odin"
+const DefaultTenantID = "sukko"
 
 // Provisioning gRPC connection defaults shared across gateway and server.
 const (

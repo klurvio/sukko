@@ -1,12 +1,12 @@
 # =============================================================================
-# Odin WebSocket Infrastructure - Production Environment
+# Sukko WebSocket Infrastructure - Production Environment
 # =============================================================================
 # High-availability configuration for production workloads
 # Target: ~120K+ total connections (3+ nodes × 3 pods × 20K)
 # See docs/architecture/CONNECTION_LIMITS.md for details
 
 global:
-  namespace: odin-production
+  namespace: sukko-production
 
 # =============================================================================
 # WebSocket Gateway - Production
@@ -49,7 +49,7 @@ ws-server:
   config:
     shards: 2
     logLevel: warn  # Reduce log volume in production
-    environment: prod  # Topic naming: odin.prod.{base}.refined
+    environment: prod  # Topic naming: sukko.prod.{base}.refined
 
     # Tighter rate limiting for production
     connRateLimit:
@@ -108,7 +108,7 @@ nats:
 
   cluster:
     enabled: true
-    name: "odin-nats-cluster"
+    name: "sukko-nats-cluster"
 
   auth:
     enabled: true

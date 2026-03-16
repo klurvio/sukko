@@ -25,9 +25,9 @@
       "icon": "external link",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["odin"],
+      "tags": ["sukko"],
       "targetBlank": true,
-      "title": "Odin Dashboards",
+      "title": "Sukko Dashboards",
       "type": "dashboards"
     }
   ],
@@ -822,7 +822,7 @@
   ],
   "refresh": "15s",
   "schemaVersion": 39,
-  "tags": ["odin", "redpanda", "kafka", "messaging"],
+  "tags": ["sukko", "redpanda", "kafka", "messaging"],
   "templating": {
     "list": []
   },
@@ -832,8 +832,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Odin - Redpanda",
-  "uid": "odin-redpanda",
+  "title": "Sukko - Redpanda",
+  "uid": "sukko-redpanda",
   "version": 1,
   "weekStart": ""
 }

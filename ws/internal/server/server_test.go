@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/stats"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
+	"github.com/klurvio/sukko/internal/server/stats"
+	"github.com/klurvio/sukko/internal/shared/alerting"
 )
 
 // =============================================================================

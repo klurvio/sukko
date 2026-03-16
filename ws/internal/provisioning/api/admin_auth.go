@@ -13,10 +13,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
 // AdminAuthConfig holds rate limiting configuration for admin token authentication.

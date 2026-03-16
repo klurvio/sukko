@@ -1,4 +1,4 @@
-module github.com/toniq/odin-ws/wspublisher
+module github.com/klurvio/sukko/wspublisher
 
 go 1.26.0
 

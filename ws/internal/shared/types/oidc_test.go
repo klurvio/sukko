@@ -30,7 +30,7 @@ func TestTenantOIDCConfig_Validate(t *testing.T) {
 				TenantID:  "acme-corp",
 				IssuerURL: "https://acme.auth0.com/",
 				JWKSURL:   "https://acme.auth0.com/.well-known/jwks.json",
-				Audience:  "https://api.odin.io",
+				Audience:  "https://api.sukko.io",
 				Enabled:   true,
 			},
 			wantErr: nil,

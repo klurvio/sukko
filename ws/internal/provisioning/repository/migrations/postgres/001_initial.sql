@@ -68,7 +68,7 @@ COMMENT ON COLUMN tenant_keys.revoked_at IS 'Timestamp when key was revoked (NUL
 
 -- Tenant topic categories (category only, no namespace prefix)
 -- Full topic names are built at runtime: kafka.BuildTopicName(namespace, tenantID, category)
--- Example: namespace="prod", tenant="odin", category="trade" -> "prod.odin.trade"
+-- Example: namespace="prod", tenant="sukko", category="trade" -> "prod.sukko.trade"
 CREATE TABLE tenant_categories (
     id              SERIAL PRIMARY KEY,
     tenant_id       TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

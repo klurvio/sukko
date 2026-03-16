@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	provisioningv1 "github.com/Toniq-Labs/odin-ws/gen/proto/odin/provisioning/v1"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
+	"github.com/klurvio/sukko/internal/shared/auth"
 )
 
 // testPublicKeyPEM is a valid EC P-256 public key for tests.

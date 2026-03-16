@@ -3,17 +3,17 @@
 # =============================================================================
 
 # Project Configuration
-project_id = "odin-9e902"
+project_id = "sukko-9e902"
 
 # Region & Zone
 region = "us-central1"
 zone   = "us-central1-a"
 
 # Cluster Configuration
-cluster_name = "odin-ws-dev"
+cluster_name = "sukko-dev"
 environment  = "dev"
-namespace    = "odin-ws-dev"
-network_name = "odin-ws-dev-vpc"
+namespace    = "sukko-dev"
+network_name = "sukko-dev-vpc"
 
 # Node Pool Configuration
 node_machine_type = "e2-standard-4"

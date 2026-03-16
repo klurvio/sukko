@@ -4,7 +4,7 @@ package testutil
 import (
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/klurvio/sukko/internal/provisioning"
 )
 
 // NewTestTenant creates a test tenant with the given ID.

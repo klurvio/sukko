@@ -25,9 +25,9 @@
       "icon": "external link",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["odin"],
+      "tags": ["sukko"],
       "targetBlank": true,
-      "title": "Odin Dashboards",
+      "title": "Sukko Dashboards",
       "type": "dashboards"
     }
   ],
@@ -1134,7 +1134,7 @@
   ],
   "refresh": "15s",
   "schemaVersion": 39,
-  "tags": ["odin", "websocket", "monitoring"],
+  "tags": ["sukko", "websocket", "monitoring"],
   "templating": {
     "list": []
   },
@@ -1144,8 +1144,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Odin - WebSocket Server",
-  "uid": "odin-websocket",
+  "title": "Sukko - WebSocket Server",
+  "uid": "sukko-websocket",
   "version": 1,
   "weekStart": ""
 }

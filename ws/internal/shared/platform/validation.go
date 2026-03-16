@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // Shared validation bounds used across gateway, server, and provisioning configs.

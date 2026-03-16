@@ -13,7 +13,7 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // ShardProxy is a WebSocket proxy that forwards connections to a backend shard.

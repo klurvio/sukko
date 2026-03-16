@@ -12,26 +12,26 @@ func TestBuildTopicName(t *testing.T) {
 		expected  string
 	}{
 		// Standard cases
-		{"prod", "odin", "trade", "prod.odin.trade"},
-		{"dev", "odin", "liquidity", "dev.odin.liquidity"},
+		{"prod", "sukko", "trade", "prod.sukko.trade"},
+		{"dev", "sukko", "liquidity", "dev.sukko.liquidity"},
 		{"stag", "acme", "metadata", "stag.acme.metadata"},
 		{"local", "test", "analytics", "local.test.analytics"},
 
 		// All 8 default categories
-		{"prod", "odin", "trade", "prod.odin.trade"},
-		{"prod", "odin", "liquidity", "prod.odin.liquidity"},
-		{"prod", "odin", "metadata", "prod.odin.metadata"},
-		{"prod", "odin", "social", "prod.odin.social"},
-		{"prod", "odin", "community", "prod.odin.community"},
-		{"prod", "odin", "creation", "prod.odin.creation"},
-		{"prod", "odin", "analytics", "prod.odin.analytics"},
-		{"prod", "odin", "balances", "prod.odin.balances"},
+		{"prod", "sukko", "trade", "prod.sukko.trade"},
+		{"prod", "sukko", "liquidity", "prod.sukko.liquidity"},
+		{"prod", "sukko", "metadata", "prod.sukko.metadata"},
+		{"prod", "sukko", "social", "prod.sukko.social"},
+		{"prod", "sukko", "community", "prod.sukko.community"},
+		{"prod", "sukko", "creation", "prod.sukko.creation"},
+		{"prod", "sukko", "analytics", "prod.sukko.analytics"},
+		{"prod", "sukko", "balances", "prod.sukko.balances"},
 
 		// Edge cases
-		{"", "odin", "trade", ".odin.trade"},         // Empty namespace
+		{"", "sukko", "trade", ".sukko.trade"},         // Empty namespace
 		{"prod", "", "trade", "prod..trade"},         // Empty tenant
-		{"prod", "odin", "", "prod.odin."},           // Empty category
-		{"PROD", "ODIN", "TRADE", "PROD.ODIN.TRADE"}, // Uppercase (preserved)
+		{"prod", "sukko", "", "prod.sukko."},           // Empty category
+		{"PROD", "SUKKO", "TRADE", "PROD.SUKKO.TRADE"}, // Uppercase (preserved)
 	}
 
 	for _, tt := range tests {
@@ -48,6 +48,6 @@ func TestBuildTopicName(t *testing.T) {
 
 func BenchmarkBuildTopicName(b *testing.B) {
 	for b.Loop() {
-		_ = BuildTopicName("prod", "odin", "trade")
+		_ = BuildTopicName("prod", "sukko", "trade")
 	}
 }

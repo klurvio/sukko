@@ -15,9 +15,9 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/httputil"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
 // Context key for actor information (tenant_id:user_id format).

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // =============================================================================

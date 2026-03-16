@@ -25,10 +25,10 @@ data:
         pipeline_stages:
           - cri: {}
         relabel_configs:
-          # Only scrape pods in the odin namespace
+          # Only scrape pods in the sukko namespace
           - source_labels: [__meta_kubernetes_namespace]
             action: keep
-            regex: odin.*
+            regex: sukko.*
           # Use pod name as job label
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod

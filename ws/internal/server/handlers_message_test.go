@@ -10,7 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
+	"github.com/klurvio/sukko/internal/server/messaging"
 )
 
 // =============================================================================

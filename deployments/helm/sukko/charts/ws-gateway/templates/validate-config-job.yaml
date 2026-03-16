@@ -29,7 +29,7 @@ spec:
           {{- end }}
           image: "{{- if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{- end }}{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["./odin-gateway"]
+          command: ["./sukko-gateway"]
           args: ["--validate-config"]
           resources:
             requests:

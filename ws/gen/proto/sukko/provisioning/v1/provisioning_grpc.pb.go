@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             (unknown)
-// source: odin/provisioning/v1/provisioning.proto
+// source: sukko/provisioning/v1/provisioning.proto
 
 package provisioningv1
 
@@ -19,9 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ProvisioningInternalService_WatchKeys_FullMethodName         = "/odin.provisioning.v1.ProvisioningInternalService/WatchKeys"
-	ProvisioningInternalService_WatchTenantConfig_FullMethodName = "/odin.provisioning.v1.ProvisioningInternalService/WatchTenantConfig"
-	ProvisioningInternalService_WatchTopics_FullMethodName       = "/odin.provisioning.v1.ProvisioningInternalService/WatchTopics"
+	ProvisioningInternalService_WatchKeys_FullMethodName         = "/sukko.provisioning.v1.ProvisioningInternalService/WatchKeys"
+	ProvisioningInternalService_WatchTenantConfig_FullMethodName = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTenantConfig"
+	ProvisioningInternalService_WatchTopics_FullMethodName       = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTopics"
 )
 
 // ProvisioningInternalServiceClient is the client API for ProvisioningInternalService service.
@@ -193,7 +193,7 @@ type ProvisioningInternalService_WatchTopicsServer = grpc.ServerStreamingServer[
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var ProvisioningInternalService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "odin.provisioning.v1.ProvisioningInternalService",
+	ServiceName: "sukko.provisioning.v1.ProvisioningInternalService",
 	HandlerType: (*ProvisioningInternalServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
@@ -213,5 +213,5 @@ var ProvisioningInternalService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "odin/provisioning/v1/provisioning.proto",
+	Metadata: "sukko/provisioning/v1/provisioning.proto",
 }

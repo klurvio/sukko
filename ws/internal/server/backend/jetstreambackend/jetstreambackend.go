@@ -19,11 +19,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/backend"
-	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/server/backend"
+	"github.com/klurvio/sukko/internal/server/broadcast"
+	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // backendName identifies this backend in metrics labels and logging.
@@ -131,7 +131,7 @@ func New(cfg Config) (*JetStreamBackend, error) {
 
 	// Build NATS connection options
 	opts := []nats.Option{
-		nats.Name("odin-ws-jetstream"),
+		nats.Name("sukko-jetstream"),
 		nats.ReconnectWait(cfg.ReconnectWait),
 		nats.MaxReconnects(-1), // Reconnect forever
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
@@ -590,7 +590,7 @@ func (jsb *JetStreamBackend) startStreamConsumer(name string, stream jetstream.S
 	jsb.consumersMu.Unlock()
 
 	// Phase 2: Create consumer without holding any lock (network I/O)
-	consumerName := "odin-ws-" + name
+	consumerName := "sukko-" + name
 	consumer, err := stream.CreateOrUpdateConsumer(jsb.ctx, jetstream.ConsumerConfig{
 		Name:          consumerName,
 		Durable:       consumerName,
@@ -645,11 +645,11 @@ func (jsb *JetStreamBackend) startStreamConsumer(name string, stream jetstream.S
 }
 
 // streamName builds a stream name for a tenant.
-// Format: ODIN_{namespace}_{tenantID} (uppercase, hyphens replaced with underscores).
+// Format: SUKKO_{namespace}_{tenantID} (uppercase, hyphens replaced with underscores).
 func (jsb *JetStreamBackend) streamName(tenantID string) string {
 	ns := strings.ToUpper(strings.ReplaceAll(jsb.namespace, "-", "_"))
 	tid := strings.ToUpper(strings.ReplaceAll(tenantID, "-", "_"))
-	return "ODIN_" + ns + "_" + tid
+	return "SUKKO_" + ns + "_" + tid
 }
 
 // SplitURLs splits a comma-separated NATS URL string into individual addresses.

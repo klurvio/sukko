@@ -8,7 +8,7 @@ get_metadata() {
 }
 
 REGISTRY=$(get_metadata REGISTRY)
-REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/odin-9e902/odin-ws}"
+REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/sukko-9e902/sukko}"
 
 echo "=== wsloadtest VM startup ==="
 echo "Registry: $REGISTRY"

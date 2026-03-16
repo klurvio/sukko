@@ -1,4 +1,4 @@
-module github.com/anthropics/odin-ws/wsloadtest
+module github.com/klurvio/sukko/wsloadtest
 
 go 1.26.0
 

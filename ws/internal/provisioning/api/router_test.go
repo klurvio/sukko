@@ -17,11 +17,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning/api"
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning/eventbus"
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning/testutil"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/provisioning/api"
+	"github.com/klurvio/sukko/internal/provisioning/eventbus"
+	"github.com/klurvio/sukko/internal/provisioning/testutil"
+	"github.com/klurvio/sukko/internal/shared/auth"
 )
 
 // generateTestECKey generates an ECDSA P-256 key pair for testing.
