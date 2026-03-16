@@ -6,7 +6,7 @@
 //   - Environment variable parsing with defaults via caarlos0/env
 //   - Optional .env file loading via godotenv
 //   - Cgroup v1/v2 CPU and memory limit detection
-//   - Automatic GOMAXPROCS configuration via automaxprocs
+//   - Container-aware GOMAXPROCS (Go 1.25+ runtime)
 package platform
 
 import (
@@ -51,7 +51,7 @@ type ServerConfig struct {
 
 	// Server basics
 	Addr      string `env:"WS_ADDR" envDefault:":3002"`
-	NumShards int    `env:"WS_NUM_SHARDS" envDefault:"3"`   // Number of server shards
+	NumShards int    `env:"WS_NUM_SHARDS" envDefault:"1"`   // Number of server shards
 	BasePort  int    `env:"WS_BASE_PORT" envDefault:"3002"` // Base port for shard binding (3002, 3003, ...)
 	LBAddr    string `env:"WS_LB_ADDR" envDefault:":3005"`  // Load balancer listen address
 
@@ -104,7 +104,7 @@ type ServerConfig struct {
 	KafkaDefaultReplicationFactor int `env:"KAFKA_DEFAULT_REPLICATION_FACTOR" envDefault:"1"`
 
 	// Resource limits
-	// Note: CPU limit is detected automatically via automaxprocs reading cgroup
+	// Note: CPU limit is detected automatically by Go runtime reading cgroup (Go 1.25+)
 	// WS_CPU_LIMIT env var is only used by Docker to set the container limit
 	MemoryLimit int64 `env:"WS_MEMORY_LIMIT" envDefault:"536870912"` // 512MB
 
@@ -1078,7 +1078,7 @@ func (c *ServerConfig) Print() {
 		_, _ = fmt.Fprintf(os.Stdout, "TLS CA Path:     %s\n", c.KafkaTLSCAPath)
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "\n=== Resource Limits ===")
-	_, _ = fmt.Fprintf(os.Stdout, "GOMAXPROCS:      %d (from cgroup via automaxprocs)\n", runtime.GOMAXPROCS(0))
+	_, _ = fmt.Fprintf(os.Stdout, "GOMAXPROCS:      %d (container-aware, Go runtime)\n", runtime.GOMAXPROCS(0))
 	_, _ = fmt.Fprintf(os.Stdout, "Memory Limit:    %d MB\n", c.MemoryLimit/(1024*1024))
 	_, _ = fmt.Fprintf(os.Stdout, "Max Connections: %d\n", c.MaxConnections)
 	_, _ = fmt.Fprintln(os.Stdout, "\n=== Rate Limits ===")

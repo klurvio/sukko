@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync"
 	"syscall"
 
@@ -41,6 +42,7 @@ func main() {
 		Str("commit", CommitHash).
 		Str("build_time", BuildTime).
 		Msg("Starting ws-gateway")
+	logger.Info().Int("gomaxprocs", runtime.GOMAXPROCS(0)).Msg("GOMAXPROCS set by Go runtime (container-aware)")
 
 	// Load configuration
 	config, err := platform.LoadGatewayConfig(&logger)

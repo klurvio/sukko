@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync"
 	"syscall"
 
@@ -68,6 +69,8 @@ func main() {
 		Format:      logging.LogFormat(cfg.LogFormat),
 		ServiceName: "provisioning-service",
 	})
+
+	structuredLogger.Info().Int("gomaxprocs", runtime.GOMAXPROCS(0)).Msg("GOMAXPROCS set by Go runtime (container-aware)")
 
 	// Create event bus for gRPC streaming notifications
 	bus := eventbus.New(structuredLogger)

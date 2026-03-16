@@ -15,7 +15,7 @@ func newValidServerConfig() *ServerConfig {
 			Environment: "local",
 		},
 		Addr:                        ":3002",
-		NumShards:                   3,
+		NumShards:                   1,
 		BasePort:                    3002,
 		LBAddr:                      ":3005",
 		RateLimitBurstMultiplier:    2,

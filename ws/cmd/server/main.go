@@ -10,8 +10,6 @@ import (
 	"runtime"
 	"syscall"
 
-	_ "go.uber.org/automaxprocs"
-
 	"github.com/klurvio/sukko/internal/server/backend"
 	"github.com/klurvio/sukko/internal/server/backend/directbackend"
 	"github.com/klurvio/sukko/internal/server/backend/jetstreambackend"
@@ -30,9 +28,9 @@ func main() {
 	// Bootstrap logger for pre-config startup (zerolog without config dependency)
 	bootLogger := logging.BootstrapLogger("ws-server")
 
-	// automaxprocs automatically sets GOMAXPROCS based on container CPU limits
+	// Go 1.25+ runtime automatically sets GOMAXPROCS from container cgroup CPU limits
 	maxProcs := runtime.GOMAXPROCS(0)
-	bootLogger.Info().Int("gomaxprocs", maxProcs).Msg("GOMAXPROCS set via automaxprocs (rounds down to integer)")
+	bootLogger.Info().Int("gomaxprocs", maxProcs).Msg("GOMAXPROCS set by Go runtime (container-aware)")
 
 	// Load configuration from .env file and environment variables
 	cfg, err := platform.LoadServerConfig(nil) // Pass nil for now, structured logger created after
