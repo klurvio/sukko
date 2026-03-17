@@ -51,9 +51,6 @@ USER sukko
 EXPOSE 3005
 
 # Command to run the application
-# Flags can be overridden via docker-compose command section:
-# --shards: Number of worker shards (default: 3)
-# --base-port: Base port for shards (default: 3002)
-# --lb-addr: Load balancer address (default: :3005)
-# --debug: Enable debug logging
-CMD ["./sukko-server", "--shards=3", "--base-port=3002", "--lb-addr=:3005"]
+# All configuration is driven by environment variables (see platform.ServerConfig).
+# Override via env vars: WS_NUM_SHARDS, WS_BASE_PORT, WS_LB_ADDR, etc.
+CMD ["./sukko-server"]

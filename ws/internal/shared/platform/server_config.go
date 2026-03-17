@@ -15,7 +15,6 @@ import (
 	"math"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -48,6 +47,9 @@ const (
 //	required: Must be provided (no default)
 type ServerConfig struct {
 	BaseConfig
+	ProvisioningClientConfig
+	KafkaNamespaceConfig
+	HTTPTimeoutConfig
 
 	// Server basics
 	Addr      string `env:"WS_ADDR" envDefault:":3002"`
@@ -176,10 +178,7 @@ type ServerConfig struct {
 	// REVERT: Set TCP_LISTEN_BACKLOG=0 to disable custom backlog (use Go defaults)
 	//         Set HTTP_*_TIMEOUT to lower values if needed
 	//
-	TCPListenBacklog int           `env:"TCP_LISTEN_BACKLOG" envDefault:"2048"` // TCP accept queue size (0 = Go default ~128)
-	HTTPReadTimeout  time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"15s"`   // HTTP server read timeout
-	HTTPWriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"15s"`  // HTTP server write timeout
-	HTTPIdleTimeout  time.Duration `env:"HTTP_IDLE_TIMEOUT" envDefault:"60s"`   // HTTP server idle timeout
+	TCPListenBacklog int `env:"TCP_LISTEN_BACKLOG" envDefault:"2048"` // TCP accept queue size (0 = Go default ~128)
 
 	// Monitoring
 	MetricsInterval time.Duration `env:"METRICS_INTERVAL" envDefault:"15s"`
@@ -206,27 +205,9 @@ type ServerConfig struct {
 	AlertRateLimitMax    int           `env:"ALERT_RATE_LIMIT_MAX" envDefault:"3"`
 	AlertConsoleEnabled  bool          `env:"ALERT_CONSOLE_ENABLED" envDefault:"false"`
 
-	// KafkaTopicNamespaceOverride overrides ENVIRONMENT for Kafka topic naming only.
-	// If empty, defaults to normalized ENVIRONMENT value via kafka.ResolveNamespace().
-	// NOT allowed in production — startup validation blocks this.
-	//
-	// Use cases:
-	//   - Set to "prod" in dev/stg environment to consume from production topics
-	//   - Keeps logs/metrics accurate (shows "dev" not "prod")
-	//
-	// See ws/internal/shared/kafka/config.go for detailed documentation.
-	KafkaTopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""`
-
-	// ValidNamespaces is a comma-separated list of allowed topic namespace prefixes.
-	// Used to validate KafkaTopicNamespaceOverride and topic formats at runtime.
-	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"`
-
 	// DefaultTenantID disables multi-tenant support. All messages
 	// are routed to this tenant. Only used when AUTH_ENABLED=false.
 	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
-
-	// NOTE: Authentication is now handled by ws-gateway
-	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 
 	// Valkey Configuration (for BroadcastBus when BROADCAST_TYPE=valkey)
 	// Supports both self-hosted Sentinel (3 addresses) and single instance (1 address)
@@ -331,19 +312,6 @@ type ServerConfig struct {
 	// refresh catches any events missed during transient disconnects.
 	// Applies to both Kafka (MultiTenantConsumerPool) and NATS JetStream backends.
 	TopicRefreshInterval time.Duration `env:"TOPIC_REFRESH_INTERVAL" envDefault:"60s"`
-
-	// Multi-Tenant Consumer Configuration (Required)
-	//
-	// The server uses MultiTenantConsumerPool which:
-	// - Receives tenant topics via gRPC streaming from the provisioning service
-	// - Manages consumer groups dynamically based on tenant consumer_type:
-	//   - Shared tenants: {env}-shared-consumer consumer group
-	//   - Dedicated tenants: {env}-{tenant_id}-consumer consumer group
-	//
-	// ProvisioningGRPCAddr: Address of the provisioning gRPC service for topic discovery
-	ProvisioningGRPCAddr  string        `env:"PROVISIONING_GRPC_ADDR" envDefault:"localhost:9090"`
-	GRPCReconnectDelay    time.Duration `env:"PROVISIONING_GRPC_RECONNECT_DELAY" envDefault:"1s"`
-	GRPCReconnectMaxDelay time.Duration `env:"PROVISIONING_GRPC_RECONNECT_MAX_DELAY" envDefault:"30s"`
 
 	// WebSocket Ping/Pong Configuration
 	//
@@ -631,14 +599,8 @@ func (c *ServerConfig) Validate() error {
 	}
 
 	// HTTP timeout validation
-	if c.HTTPReadTimeout < MinTimeout || c.HTTPReadTimeout > MaxReadWriteTimeout {
-		return fmt.Errorf("HTTP_READ_TIMEOUT must be %v-%v, got %v", MinTimeout, MaxReadWriteTimeout, c.HTTPReadTimeout)
-	}
-	if c.HTTPWriteTimeout < MinTimeout || c.HTTPWriteTimeout > MaxReadWriteTimeout {
-		return fmt.Errorf("HTTP_WRITE_TIMEOUT must be %v-%v, got %v", MinTimeout, MaxReadWriteTimeout, c.HTTPWriteTimeout)
-	}
-	if c.HTTPIdleTimeout < MinTimeout || c.HTTPIdleTimeout > MaxIdleTimeout {
-		return fmt.Errorf("HTTP_IDLE_TIMEOUT must be %v-%v, got %v", MinTimeout, MaxIdleTimeout, c.HTTPIdleTimeout)
+	if err := c.HTTPTimeoutConfig.Validate(); err != nil {
+		return err
 	}
 
 	// Metrics interval validation
@@ -760,15 +722,8 @@ func (c *ServerConfig) Validate() error {
 	// KafkaTLSInsecure is allowed but should be warned about in production
 
 	// Provisioning gRPC validation (required for topic discovery)
-	if c.ProvisioningGRPCAddr == "" {
-		return errors.New("PROVISIONING_GRPC_ADDR is required")
-	}
-	if c.GRPCReconnectDelay < 100*time.Millisecond {
-		return fmt.Errorf("PROVISIONING_GRPC_RECONNECT_DELAY must be >= 100ms, got %v", c.GRPCReconnectDelay)
-	}
-	if c.GRPCReconnectMaxDelay < c.GRPCReconnectDelay {
-		return fmt.Errorf("PROVISIONING_GRPC_RECONNECT_MAX_DELAY (%v) must be >= PROVISIONING_GRPC_RECONNECT_DELAY (%v)",
-			c.GRPCReconnectMaxDelay, c.GRPCReconnectDelay)
+	if err := c.ProvisioningClientConfig.Validate(); err != nil {
+		return err
 	}
 
 	// WebSocket ping/pong validation
@@ -1011,10 +966,9 @@ func (c *ServerConfig) Validate() error {
 		return fmt.Errorf("NATS_MAX_RECONNECTS must be >= -1, got %d", c.NATSMaxReconnects)
 	}
 
-	// Prod guard: namespace override is only for dev/stg
-	env := strings.ToLower(strings.TrimSpace(c.Environment))
-	if env == "prod" && c.KafkaTopicNamespaceOverride != "" {
-		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE is not allowed in production (environment: %s)", c.Environment)
+	// Kafka namespace validation (includes prod guard)
+	if err := c.KafkaNamespaceConfig.Validate(c.Environment); err != nil {
+		return err
 	}
 
 	// Alerting validation (conditional on enabled)

@@ -14,18 +14,22 @@ func newValidGatewayConfig() *GatewayConfig {
 			LogFormat:   "json",
 			Environment: "test",
 		},
-		Port:                         3000,
-		ReadTimeout:                  15 * time.Second,
-		WriteTimeout:                 15 * time.Second,
-		IdleTimeout:                  60 * time.Second,
-		BackendURL:                   "ws://localhost:3001/ws",
-		DialTimeout:                  10 * time.Second,
-		MessageTimeout:               60 * time.Second,
-		AuthEnabled:                  false,  // Disabled by default for tests
-		DefaultTenantID:              "sukko", // Required when auth disabled
-		ProvisioningGRPCAddr:         "localhost:9090",
-		GRPCReconnectDelay:           1 * time.Second,
-		GRPCReconnectMaxDelay:        30 * time.Second,
+		AuthConfig: AuthConfig{
+			AuthEnabled: false, // Disabled by default for tests
+		},
+		ProvisioningClientConfig: ProvisioningClientConfig{
+			ProvisioningGRPCAddr:  "localhost:9090",
+			GRPCReconnectDelay:    1 * time.Second,
+			GRPCReconnectMaxDelay: 30 * time.Second,
+		},
+		Port:            3000,
+		ReadTimeout:     15 * time.Second,
+		WriteTimeout:    15 * time.Second,
+		IdleTimeout:     60 * time.Second,
+		BackendURL:      "ws://localhost:3001/ws",
+		DialTimeout:     10 * time.Second,
+		MessageTimeout:  60 * time.Second,
+		DefaultTenantID: "sukko", // Required when auth disabled
 		RequireTenantID:              true,
 		PublicPatterns:               []string{"*.trade"},
 		UserScopedPatterns:           []string{"balances.{principal}"},
@@ -161,6 +165,8 @@ func TestGatewayConfig_Validate_GRPCReconnectSettings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidGatewayConfig()
+			cfg.AuthEnabled = true // GRPC validation runs when auth is enabled
+			cfg.DefaultTenantID = "" // Not required when auth is enabled
 			cfg.GRPCReconnectDelay = tt.delay
 			cfg.GRPCReconnectMaxDelay = tt.maxDelay
 			err := cfg.Validate()

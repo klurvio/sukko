@@ -15,6 +15,9 @@ import (
 // GatewayConfig holds gateway configuration loaded from environment variables.
 type GatewayConfig struct {
 	BaseConfig
+	AuthConfig
+	ProvisioningClientConfig
+	OIDCConfig
 
 	// Server settings
 	Port         int           `env:"GATEWAY_PORT" envDefault:"3000"`
@@ -31,24 +34,9 @@ type GatewayConfig struct {
 	// Frames exceeding this are rejected before payload allocation to prevent OOM.
 	MaxFrameSize int `env:"GATEWAY_MAX_FRAME_SIZE" envDefault:"1048576"` // 1MB = protocol.DefaultMaxFrameSize
 
-	// Authentication (multi-tenant with asymmetric keys)
-	// TODO: Change envDefault to "true" when sukko-api auth integration is production-ready
-	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"false"`
-
 	// DefaultTenantID disables multi-tenant support. All connections
 	// are routed to this tenant. Only used when AUTH_ENABLED=false.
 	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
-
-	// Provisioning service gRPC connection (provides keys, OIDC config, channel rules via streaming)
-	ProvisioningGRPCAddr  string        `env:"PROVISIONING_GRPC_ADDR" envDefault:"localhost:9090"`
-	GRPCReconnectDelay    time.Duration `env:"PROVISIONING_GRPC_RECONNECT_DELAY" envDefault:"1s"`
-	GRPCReconnectMaxDelay time.Duration `env:"PROVISIONING_GRPC_RECONNECT_MAX_DELAY" envDefault:"30s"`
-
-	// OIDC/JWKS support (external IdP tokens)
-	// OIDC is enabled when both IssuerURL and JWKSURL are set
-	OIDCIssuerURL string `env:"OIDC_ISSUER_URL"`
-	OIDCAudience  string `env:"OIDC_AUDIENCE"`
-	OIDCJWKSURL   string `env:"OIDC_JWKS_URL"`
 
 	// Multi-issuer OIDC (Feature Flag)
 	// When enabled, each tenant can register their own IdP via provisioning API
@@ -158,10 +146,10 @@ func (c *GatewayConfig) Validate() error {
 		return fmt.Errorf("GATEWAY_MESSAGE_TIMEOUT must be %v-%v, got %v", MinTimeout, MaxMessageTimeout, c.MessageTimeout)
 	}
 
-	// Require provisioning gRPC address when auth is enabled
+	// Auth-dependent validation
 	if c.AuthEnabled {
-		if c.ProvisioningGRPCAddr == "" {
-			return errors.New("PROVISIONING_GRPC_ADDR is required when AUTH_ENABLED=true")
+		if err := c.ProvisioningClientConfig.Validate(); err != nil {
+			return err
 		}
 	} else {
 		if c.DefaultTenantID == "" {
@@ -169,23 +157,9 @@ func (c *GatewayConfig) Validate() error {
 		}
 	}
 
-	// Validate gRPC reconnection settings
-	if c.GRPCReconnectDelay < 100*time.Millisecond {
-		return fmt.Errorf("PROVISIONING_GRPC_RECONNECT_DELAY must be >= 100ms, got %v", c.GRPCReconnectDelay)
-	}
-	if c.GRPCReconnectMaxDelay < c.GRPCReconnectDelay {
-		return fmt.Errorf("PROVISIONING_GRPC_RECONNECT_MAX_DELAY (%v) must be >= PROVISIONING_GRPC_RECONNECT_DELAY (%v)",
-			c.GRPCReconnectMaxDelay, c.GRPCReconnectDelay)
-	}
-
-	// Validate OIDC settings - if one URL is set, both must be set
-	hasIssuer := c.OIDCIssuerURL != ""
-	hasJWKS := c.OIDCJWKSURL != ""
-	if hasIssuer != hasJWKS {
-		if !hasIssuer {
-			return errors.New("OIDC_ISSUER_URL is required when OIDC_JWKS_URL is set")
-		}
-		return errors.New("OIDC_JWKS_URL is required when OIDC_ISSUER_URL is set")
+	// Validate OIDC settings
+	if err := c.OIDCConfig.Validate(); err != nil {
+		return err
 	}
 
 	// Validate multi-issuer OIDC settings
@@ -263,11 +237,6 @@ func (c *GatewayConfig) Validate() error {
 	}
 
 	return nil
-}
-
-// OIDCEnabled returns true if OIDC is configured (both IssuerURL and JWKSURL are set).
-func (c *GatewayConfig) OIDCEnabled() bool {
-	return c.OIDCIssuerURL != "" && c.OIDCJWKSURL != ""
 }
 
 // LogConfig logs gateway configuration using structured logging.

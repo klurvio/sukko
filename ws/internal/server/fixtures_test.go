@@ -64,9 +64,11 @@ func newTestServerConfig() *platform.ServerConfig {
 		ClientSendBufferSize: 512,
 
 		// Timeouts
-		HTTPReadTimeout:  30 * time.Second,
-		HTTPWriteTimeout: 30 * time.Second,
-		HTTPIdleTimeout:  120 * time.Second,
+		HTTPTimeoutConfig: platform.HTTPTimeoutConfig{
+			HTTPReadTimeout:  30 * time.Second,
+			HTTPWriteTimeout: 30 * time.Second,
+			HTTPIdleTimeout:  120 * time.Second,
+		},
 
 		// Monitoring
 		MetricsInterval: 15 * time.Second,

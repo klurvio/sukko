@@ -13,6 +13,15 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 			LogFormat:   "json",
 			Environment: "local",
 		},
+		KafkaNamespaceConfig: KafkaNamespaceConfig{
+			ValidNamespaces:             "local,dev,stag,prod",
+			KafkaTopicNamespaceOverride: "",
+		},
+		HTTPTimeoutConfig: HTTPTimeoutConfig{
+			HTTPReadTimeout:  15 * time.Second,
+			HTTPWriteTimeout: 15 * time.Second,
+			HTTPIdleTimeout:  60 * time.Second,
+		},
 		Addr:                       ":8080",
 		DatabaseDriver:             "sqlite",
 		DatabasePath:               "sukko.db",
@@ -37,14 +46,9 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		AdminAuthBlockDuration:     60 * time.Second,
 		AdminAuthCleanupInterval:   5 * time.Minute,
 		AdminAuthCleanupMaxAge:     2 * time.Minute,
-		HTTPReadTimeout:            15 * time.Second,
-		HTTPWriteTimeout:           15 * time.Second,
-		HTTPIdleTimeout:            60 * time.Second,
 		KeyRegistryRefreshInterval: time.Minute,
 		KeyRegistryQueryTimeout:    5 * time.Second,
 		ShutdownTimeout:            30 * time.Second,
-		ValidNamespaces:            "local,dev,stag,prod",
-		TopicNamespaceOverride:     "",
 		CORSAllowedOrigins:         []string{"http://localhost:3000"},
 		CORSMaxAge:                 3600,
 		MaxTenantsFetchLimit:       100,
@@ -205,7 +209,7 @@ func TestProvisioningConfig_Validate_ProdOverrideBlocked(t *testing.T) {
 			t.Parallel()
 			cfg := newValidProvisioningConfig()
 			cfg.Environment = tt.environment
-			cfg.TopicNamespaceOverride = tt.override
+			cfg.KafkaTopicNamespaceOverride = tt.override
 			err := cfg.Validate()
 			if tt.shouldError {
 				if err == nil {

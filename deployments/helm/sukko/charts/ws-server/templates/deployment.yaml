@@ -77,10 +77,6 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             - "./sukko-server"
-          args:
-            - "--shards={{ .Values.shards }}"
-            - "--base-port={{ .Values.basePort }}"
-            - "--lb-addr={{ .Values.lbAddr }}"
           ports:
             - name: http
               containerPort: 3001
@@ -100,6 +96,14 @@ spec:
             # Deployment identity
             - name: ENVIRONMENT
               value: {{ .Values.environment | default "local" | quote }}
+
+            # Server topology (override Go envDefaults for Kubernetes deployments)
+            - name: WS_NUM_SHARDS
+              value: {{ .Values.shards | quote }}
+            - name: WS_BASE_PORT
+              value: {{ .Values.basePort | quote }}
+            - name: WS_LB_ADDR
+              value: {{ .Values.lbAddr | quote }}
 
             # Mode selections (only injected when non-default — Go defaults apply otherwise)
             {{- if and .Values.messageBackend (ne .Values.messageBackend "direct") }}

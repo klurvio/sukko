@@ -29,20 +29,21 @@ import (
 )
 
 func main() {
-	var (
-		debug          = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
-		validateConfig = flag.Bool("validate-config", false, "validate configuration and exit")
-	)
-	flag.Parse()
-
 	// Create basic logger for startup
 	logger := log.New(os.Stdout, "[PROVISIONING] ", log.LstdFlags)
 
-	// Load configuration
+	// Load configuration first (env vars + envDefaults)
 	cfg, err := platform.LoadProvisioningConfig(nil)
 	if err != nil {
 		logger.Fatalf("Failed to load configuration: %v", err)
 	}
+
+	// CLI flags use env var config as defaults (CLI overrides env overrides envDefault)
+	var (
+		debug          = flag.Bool("debug", cfg.LogLevel == "debug", "enable debug logging (overrides LOG_LEVEL)")
+		validateConfig = flag.Bool("validate-config", false, "validate configuration and exit")
+	)
+	flag.Parse()
 
 	// Override debug mode if flag set
 	if *debug {
@@ -60,7 +61,7 @@ func main() {
 	}
 
 	// Resolve effective topic namespace for Kafka
-	topicNamespace := kafka.ResolveNamespace(cfg.TopicNamespaceOverride, cfg.Environment)
+	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
 	logger.Printf("Topic namespace: %s (environment: %s)", topicNamespace, cfg.Environment)
 
 	// Initialize structured logger

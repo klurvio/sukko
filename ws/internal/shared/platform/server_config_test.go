@@ -14,6 +14,9 @@ func newValidServerConfig() *ServerConfig {
 			LogFormat:   "json",
 			Environment: "local",
 		},
+		KafkaNamespaceConfig: KafkaNamespaceConfig{
+			ValidNamespaces: "local,dev,stag,prod",
+		},
 		Addr:                        ":3002",
 		NumShards:                   1,
 		BasePort:                    3002,
@@ -37,9 +40,11 @@ func newValidServerConfig() *ServerConfig {
 		CPUPauseThresholdLower:      70.0, // Explicit: non-zero skips auto-compute
 		CPUEWMABeta:                 0.8,
 		TCPListenBacklog:            2048,
-		HTTPReadTimeout:             15 * time.Second,
-		HTTPWriteTimeout:            15 * time.Second,
-		HTTPIdleTimeout:             60 * time.Second,
+		HTTPTimeoutConfig: HTTPTimeoutConfig{
+			HTTPReadTimeout:  15 * time.Second,
+			HTTPWriteTimeout: 15 * time.Second,
+			HTTPIdleTimeout:  60 * time.Second,
+		},
 		MetricsInterval:             15 * time.Second,
 		CPUPollInterval:             1 * time.Second,
 		BroadcastType:               "nats",
@@ -60,9 +65,11 @@ func newValidServerConfig() *ServerConfig {
 		KafkaDefaultPartitions:        1,
 		KafkaDefaultReplicationFactor: 1,
 		// Provisioning gRPC (required for topic discovery)
-		ProvisioningGRPCAddr:  "localhost:9090",
-		GRPCReconnectDelay:    1 * time.Second,
-		GRPCReconnectMaxDelay: 30 * time.Second,
+		ProvisioningClientConfig: ProvisioningClientConfig{
+			ProvisioningGRPCAddr:  "localhost:9090",
+			GRPCReconnectDelay:    1 * time.Second,
+			GRPCReconnectMaxDelay: 30 * time.Second,
+		},
 		// WebSocket ping/pong (required)
 		PongWait:   60 * time.Second,
 		PingPeriod: 45 * time.Second,

@@ -25,6 +25,9 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 			LogFormat:   "json",
 			Environment: "test",
 		},
+		AuthConfig: platform.AuthConfig{
+			AuthEnabled: false, // Disabled by default for unit tests
+		},
 		Port:                         3000,
 		ReadTimeout:                  15 * time.Second,
 		WriteTimeout:                 15 * time.Second,
@@ -32,7 +35,6 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 		BackendURL:                   "ws://localhost:3001/ws",
 		DialTimeout:                  10 * time.Second,
 		MessageTimeout:               60 * time.Second,
-		AuthEnabled:                  false,  // Disabled by default for unit tests
 		DefaultTenantID:              "sukko", // Required when auth disabled
 		PublicPatterns:               []string{"*.trade"},
 		UserScopedPatterns:           []string{"balances.{principal}"},
@@ -56,9 +58,11 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 		JWKSFetchTimeout:             10 * time.Second,
 		JWKSRefreshInterval:          1 * time.Hour,
 		RequireTenantID:              true,
-		ProvisioningGRPCAddr:         "localhost:9090",
-		GRPCReconnectDelay:           1 * time.Second,
-		GRPCReconnectMaxDelay:        30 * time.Second,
+		ProvisioningClientConfig: platform.ProvisioningClientConfig{
+			ProvisioningGRPCAddr:  "localhost:9090",
+			GRPCReconnectDelay:    1 * time.Second,
+			GRPCReconnectMaxDelay: 30 * time.Second,
+		},
 	}
 }
 

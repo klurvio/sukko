@@ -40,7 +40,7 @@ func main() {
 
 	// CLI flags use env var config as defaults (CLI overrides env overrides envDefault)
 	var (
-		debug          = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
+		debug          = flag.Bool("debug", cfg.LogLevel == "debug", "enable debug logging (overrides LOG_LEVEL)")
 		validateConfig = flag.Bool("validate-config", false, "validate configuration and exit")
 		numShards      = flag.Int("shards", cfg.NumShards, "number of shards to run")
 		basePort       = flag.Int("base-port", cfg.BasePort, "base port for shards (e.g., 3002, 3003, ...)")

@@ -10,8 +10,12 @@ import (
 // for shared environment variables are consistent across GatewayConfig,
 // ServerConfig, and ProvisioningConfig.
 //
-// This catches drift when someone updates a default in one config but forgets
-// the other(s). The expected values come from the constants in defaults.go.
+// Most shared defaults are now structurally guaranteed by sub-config embedding
+// (AuthConfig, ProvisioningClientConfig, KafkaNamespaceConfig, HTTPTimeoutConfig).
+// This test only verifies defaults that are NOT structurally guaranteed:
+//   - DEFAULT_TENANT_ID: defined independently in GatewayConfig and ServerConfig
+//   - HTTP timeout semantic consistency: gateway uses GATEWAY_*_TIMEOUT env vars,
+//     server/provisioning use HTTP_*_TIMEOUT — different names, same intended defaults
 func TestSharedDefaultsConsistency(t *testing.T) {
 	t.Parallel()
 
@@ -20,112 +24,21 @@ func TestSharedDefaultsConsistency(t *testing.T) {
 	serverDefaults := extractEnvDefaults(reflect.TypeFor[ServerConfig]())
 	provisioningDefaults := extractEnvDefaults(reflect.TypeFor[ProvisioningConfig]())
 
-	// Shared env vars and their expected default values (from defaults.go constants).
-	// LOG_LEVEL, LOG_FORMAT, and ENVIRONMENT are structurally guaranteed by BaseConfig
-	// embedding — no need to verify them here. The reflection recurses into embedded
-	// structs, so all three configs share the same BaseConfig defaults by construction.
-
-	sharedExpectations := []struct {
-		envVar   string
-		expected string
-		configs  []struct {
-			name     string
-			defaults map[string]string
-		}
+	// DEFAULT_TENANT_ID: shared between gateway and server (not via embedding)
+	for _, cfg := range []struct {
+		name     string
+		defaults map[string]string
 	}{
-		// Default tenant ID (gateway and server)
-		{
-			envVar:   "DEFAULT_TENANT_ID",
-			expected: DefaultTenantID,
-			configs: []struct {
-				name     string
-				defaults map[string]string
-			}{
-				{"GatewayConfig", gatewayDefaults},
-				{"ServerConfig", serverDefaults},
-			},
-		},
-		// Provisioning gRPC (gateway and server)
-		{
-			envVar:   "PROVISIONING_GRPC_ADDR",
-			expected: DefaultProvisioningGRPCAddr,
-			configs: []struct {
-				name     string
-				defaults map[string]string
-			}{
-				{"GatewayConfig", gatewayDefaults},
-				{"ServerConfig", serverDefaults},
-			},
-		},
-		{
-			envVar:   "PROVISIONING_GRPC_RECONNECT_DELAY",
-			expected: DefaultGRPCReconnectDelay,
-			configs: []struct {
-				name     string
-				defaults map[string]string
-			}{
-				{"GatewayConfig", gatewayDefaults},
-				{"ServerConfig", serverDefaults},
-			},
-		},
-		{
-			envVar:   "PROVISIONING_GRPC_RECONNECT_MAX_DELAY",
-			expected: DefaultGRPCReconnectMaxDelay,
-			configs: []struct {
-				name     string
-				defaults map[string]string
-			}{
-				{"GatewayConfig", gatewayDefaults},
-				{"ServerConfig", serverDefaults},
-			},
-		},
-		// Auth enabled (gateway and provisioning)
-		{
-			envVar:   "AUTH_ENABLED",
-			expected: DefaultAuthEnabled,
-			configs: []struct {
-				name     string
-				defaults map[string]string
-			}{
-				{"GatewayConfig", gatewayDefaults},
-				{"ProvisioningConfig", provisioningDefaults},
-			},
-		},
-		// Kafka/Namespace (server and provisioning)
-		{
-			envVar:   "KAFKA_TOPIC_NAMESPACE_OVERRIDE",
-			expected: DefaultKafkaTopicNamespaceOverride,
-			configs: []struct {
-				name     string
-				defaults map[string]string
-			}{
-				{"ServerConfig", serverDefaults},
-				{"ProvisioningConfig", provisioningDefaults},
-			},
-		},
-		{
-			envVar:   "VALID_NAMESPACES",
-			expected: DefaultValidNamespaces,
-			configs: []struct {
-				name     string
-				defaults map[string]string
-			}{
-				{"ServerConfig", serverDefaults},
-				{"ProvisioningConfig", provisioningDefaults},
-			},
-		},
-	}
-
-	for _, tc := range sharedExpectations {
-		for _, cfg := range tc.configs {
-			got, ok := cfg.defaults[tc.envVar]
-			if !ok {
-				t.Errorf("%s: env var %s not found in struct", cfg.name, tc.envVar)
-				continue
-			}
-			if got != tc.expected {
-				t.Errorf("%s: envDefault for %s = %q, want %q (from defaults.go)", cfg.name, tc.envVar, got, tc.expected)
-			}
+		{"GatewayConfig", gatewayDefaults},
+		{"ServerConfig", serverDefaults},
+	} {
+		got, ok := cfg.defaults["DEFAULT_TENANT_ID"]
+		if !ok {
+			t.Errorf("%s: env var DEFAULT_TENANT_ID not found in struct", cfg.name)
+			continue
+		}
+		if got != DefaultTenantID {
+			t.Errorf("%s: envDefault for DEFAULT_TENANT_ID = %q, want %q (from defaults.go)", cfg.name, got, DefaultTenantID)
 		}
 	}
 

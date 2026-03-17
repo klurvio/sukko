@@ -20,6 +20,10 @@ import (
 //	required: Must be provided (no default)
 type ProvisioningConfig struct {
 	BaseConfig
+	AuthConfig
+	OIDCConfig
+	KafkaNamespaceConfig
+	HTTPTimeoutConfig
 
 	// Server
 	Addr string `env:"PROVISIONING_ADDR" envDefault:":8080"`
@@ -47,10 +51,8 @@ type ProvisioningConfig struct {
 	AdminAuthCleanupMaxAge    time.Duration `env:"ADMIN_AUTH_CLEANUP_MAX_AGE" envDefault:"2m"`
 
 	// Topic Defaults
-	TopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""`
-	ValidNamespaces        string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"` // Comma-separated valid namespace prefixes
-	DefaultPartitions      int    `env:"DEFAULT_PARTITIONS" envDefault:"3"`
-	DefaultRetentionMs     int64  `env:"DEFAULT_RETENTION_MS" envDefault:"604800000"` // 7 days
+	DefaultPartitions  int   `env:"DEFAULT_PARTITIONS" envDefault:"3"`
+	DefaultRetentionMs int64 `env:"DEFAULT_RETENTION_MS" envDefault:"604800000"` // 7 days
 
 	// Quotas (defaults per tenant)
 	MaxTopicsPerTenant     int   `env:"MAX_TOPICS_PER_TENANT" envDefault:"50"`
@@ -70,26 +72,12 @@ type ProvisioningConfig struct {
 	// Rate Limiting
 	APIRateLimitPerMinute int `env:"API_RATE_LIMIT_PER_MIN" envDefault:"60"`
 
-	// HTTP Server
-	HTTPReadTimeout  time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"15s"`
-	HTTPWriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"15s"`
-	HTTPIdleTimeout  time.Duration `env:"HTTP_IDLE_TIMEOUT" envDefault:"60s"`
-
 	// Key Registry (for JWT validation in API mode with auth enabled)
 	KeyRegistryRefreshInterval time.Duration `env:"KEY_REGISTRY_REFRESH_INTERVAL" envDefault:"1m"`
 	KeyRegistryQueryTimeout    time.Duration `env:"KEY_REGISTRY_QUERY_TIMEOUT" envDefault:"5s"`
 
 	// Graceful shutdown timeout
 	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"30s"`
-
-	// Authentication (requires DATABASE_URL for key registry)
-	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"false"`
-
-	// OIDC/JWKS support (external IdP tokens)
-	// OIDC is enabled when both IssuerURL and JWKSURL are set
-	OIDCIssuerURL string `env:"OIDC_ISSUER_URL"`
-	OIDCAudience  string `env:"OIDC_AUDIENCE"`
-	OIDCJWKSURL   string `env:"OIDC_JWKS_URL"`
 
 	// CORS settings
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
@@ -205,35 +193,19 @@ func (c *ProvisioningConfig) Validate() error {
 		return err
 	}
 
-	// Topic namespace validation (config-driven)
-	validNS := parseNamespaces(c.ValidNamespaces)
-	if len(validNS) == 0 {
-		return errors.New("VALID_NAMESPACES must contain at least one namespace")
-	}
-	if c.TopicNamespaceOverride != "" && !validNS[c.TopicNamespaceOverride] {
-		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE must be one of: %s (got: %s)",
-			c.ValidNamespaces, c.TopicNamespaceOverride)
+	// Topic namespace validation (includes prod guard)
+	if err := c.KafkaNamespaceConfig.Validate(c.Environment); err != nil {
+		return err
 	}
 
-	// Validate OIDC settings - if one URL is set, both must be set
-	hasIssuer := c.OIDCIssuerURL != ""
-	hasJWKS := c.OIDCJWKSURL != ""
-	if hasIssuer != hasJWKS {
-		if !hasIssuer {
-			return errors.New("OIDC_ISSUER_URL is required when OIDC_JWKS_URL is set")
-		}
-		return errors.New("OIDC_JWKS_URL is required when OIDC_ISSUER_URL is set")
+	// Validate OIDC settings
+	if err := c.OIDCConfig.Validate(); err != nil {
+		return err
 	}
 
 	// Validate CORS settings
 	if c.CORSMaxAge < 0 {
 		return fmt.Errorf("CORS_MAX_AGE must be >= 0, got %d", c.CORSMaxAge)
-	}
-
-	// Prod guard: namespace override is only for dev/stg
-	env := strings.ToLower(strings.TrimSpace(c.Environment))
-	if env == "prod" && c.TopicNamespaceOverride != "" {
-		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE is not allowed in production (environment: %s)", c.Environment)
 	}
 
 	// DB connection max lifetime (only relevant for postgres)
@@ -272,14 +244,8 @@ func (c *ProvisioningConfig) Validate() error {
 	}
 
 	// HTTP timeouts
-	if c.HTTPReadTimeout < MinTimeout || c.HTTPReadTimeout > MaxReadWriteTimeout {
-		return fmt.Errorf("HTTP_READ_TIMEOUT must be between %v and %v, got %s", MinTimeout, MaxReadWriteTimeout, c.HTTPReadTimeout)
-	}
-	if c.HTTPWriteTimeout < MinTimeout || c.HTTPWriteTimeout > MaxReadWriteTimeout {
-		return fmt.Errorf("HTTP_WRITE_TIMEOUT must be between %v and %v, got %s", MinTimeout, MaxReadWriteTimeout, c.HTTPWriteTimeout)
-	}
-	if c.HTTPIdleTimeout < MinTimeout || c.HTTPIdleTimeout > MaxIdleTimeout {
-		return fmt.Errorf("HTTP_IDLE_TIMEOUT must be between %v and %v, got %s", MinTimeout, MaxIdleTimeout, c.HTTPIdleTimeout)
+	if err := c.HTTPTimeoutConfig.Validate(); err != nil {
+		return err
 	}
 
 	// Key registry
@@ -311,11 +277,6 @@ func (c *ProvisioningConfig) Validate() error {
 	return nil
 }
 
-// OIDCEnabled returns true if OIDC is configured (both IssuerURL and JWKSURL are set).
-func (c *ProvisioningConfig) OIDCEnabled() bool {
-	return c.OIDCIssuerURL != "" && c.OIDCJWKSURL != ""
-}
-
 // Print logs provisioning configuration for debugging (human-readable format).
 // Uses fmt.Fprint* to os.Stdout for startup display before zerolog is initialized.
 // fmt.Fprint* errors are non-actionable: writing to os.Stdout cannot be retried or reported.
@@ -340,8 +301,8 @@ func (c *ProvisioningConfig) Print() {
 	}
 	_, _ = fmt.Fprintf(w, "Auto Migrate:       %v\n", c.AutoMigrate)
 	_, _ = fmt.Fprintln(w, "\n=== Topic Defaults ===")
-	if c.TopicNamespaceOverride != "" {
-		_, _ = fmt.Fprintf(w, "Namespace Override: %s\n", c.TopicNamespaceOverride)
+	if c.KafkaTopicNamespaceOverride != "" {
+		_, _ = fmt.Fprintf(w, "Namespace Override: %s\n", c.KafkaTopicNamespaceOverride)
 	}
 	_, _ = fmt.Fprintf(w, "Partitions:         %d\n", c.DefaultPartitions)
 	_, _ = fmt.Fprintf(w, "Retention:          %d ms (%d days)\n", c.DefaultRetentionMs, c.DefaultRetentionMs/86400000)
@@ -373,7 +334,7 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Str("database_driver", c.DatabaseDriver).
 		Int("grpc_port", c.GRPCPort).
 		Bool("auto_migrate", c.AutoMigrate).
-		Str("topic_namespace_override", c.TopicNamespaceOverride).
+		Str("topic_namespace_override", c.KafkaTopicNamespaceOverride).
 		Int("default_partitions", c.DefaultPartitions).
 		Int64("default_retention_ms", c.DefaultRetentionMs).
 		Int("max_topics_per_tenant", c.MaxTopicsPerTenant).

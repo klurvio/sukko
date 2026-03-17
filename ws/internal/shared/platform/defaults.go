@@ -8,35 +8,25 @@ package platform
 // these constants. This catches drift when someone updates a default in one config but
 // forgets the others.
 //
-// Note: LogLevel, LogFormat, and Environment defaults are structurally guaranteed by
-// BaseConfig embedding and are NOT tracked here.
+// Structurally guaranteed defaults (NOT tracked here):
+//   - LogLevel, LogFormat, Environment — via BaseConfig embedding
+//   - AuthEnabled — via AuthConfig embedding (gateway + provisioning)
+//   - ProvisioningGRPCAddr, GRPCReconnectDelay, GRPCReconnectMaxDelay — via ProvisioningClientConfig embedding (gateway + server)
+//   - KafkaTopicNamespaceOverride, ValidNamespaces — via KafkaNamespaceConfig embedding (server + provisioning)
+//   - HTTPReadTimeout, HTTPWriteTimeout, HTTPIdleTimeout — via HTTPTimeoutConfig embedding (server + provisioning)
 //
 // Helm overrides are unaffected — services read env vars via caarlos0/env struct tags
 // as before. These constants are never referenced in production code paths.
 
-// DefaultAuthEnabled is the authentication toggle shared across gateway and provisioning.
-const DefaultAuthEnabled = "false"
-
 // DefaultTenantID is the fallback tenant ID shared across gateway and server.
+// NOT structurally guaranteed — defined independently in both configs.
 const DefaultTenantID = "sukko"
 
-// Provisioning gRPC connection defaults shared across gateway and server.
-const (
-	DefaultProvisioningGRPCAddr  = "localhost:9090"
-	DefaultGRPCReconnectDelay    = "1s"
-	DefaultGRPCReconnectMaxDelay = "30s"
-)
-
-// HTTP timeout defaults shared across all three services.
-// Gateway uses different env var names (GATEWAY_*_TIMEOUT) but the same default values.
+// HTTP timeout defaults for semantic consistency verification.
+// Gateway uses GATEWAY_*_TIMEOUT env vars; server/provisioning use HTTP_*_TIMEOUT
+// (from HTTPTimeoutConfig). Different env var names but same intended defaults.
 const (
 	DefaultHTTPReadTimeout  = "15s"
 	DefaultHTTPWriteTimeout = "15s"
 	DefaultHTTPIdleTimeout  = "60s"
-)
-
-// Kafka/Namespace defaults shared across server and provisioning.
-const (
-	DefaultKafkaTopicNamespaceOverride = ""
-	DefaultValidNamespaces             = "local,dev,stag,prod"
 )
