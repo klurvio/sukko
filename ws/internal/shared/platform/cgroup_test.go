@@ -188,7 +188,7 @@ func TestParseMemoryLimit_InvalidV1Format(t *testing.T) {
 // readMemoryLimitFromPath reads memory limit from a specific file path
 // This is a testable version of the file reading logic
 func readMemoryLimitFromPath(path string, isV2 bool) (int64, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // Test helper, path is from controlled test temp directory
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, fmt.Errorf("read memory limit file: %w", err)
 	}
@@ -212,7 +212,7 @@ func TestReadMemoryLimitFromPath_V2_WithLimit(t *testing.T) {
 	memMaxPath := filepath.Join(tmpDir, "memory.max")
 
 	// Write 256MB limit
-	err := os.WriteFile(memMaxPath, []byte("268435456\n"), 0600)
+	err := os.WriteFile(memMaxPath, []byte("268435456\n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestReadMemoryLimitFromPath_V2_Max(t *testing.T) {
 	tmpDir := t.TempDir()
 	memMaxPath := filepath.Join(tmpDir, "memory.max")
 
-	err := os.WriteFile(memMaxPath, []byte("max\n"), 0600)
+	err := os.WriteFile(memMaxPath, []byte("max\n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestReadMemoryLimitFromPath_V1(t *testing.T) {
 	memLimitPath := filepath.Join(tmpDir, "memory.limit_in_bytes")
 
 	// Write 2GB limit
-	err := os.WriteFile(memLimitPath, []byte("2147483648\n"), 0600)
+	err := os.WriteFile(memLimitPath, []byte("2147483648\n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestReadMemoryLimitFromPath_EmptyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	emptyPath := filepath.Join(tmpDir, "empty")
 
-	err := os.WriteFile(emptyPath, []byte(""), 0600)
+	err := os.WriteFile(emptyPath, []byte(""), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestReadMemoryLimitFromPath_WhitespaceOnly(t *testing.T) {
 	tmpDir := t.TempDir()
 	wsPath := filepath.Join(tmpDir, "whitespace")
 
-	err := os.WriteFile(wsPath, []byte("   \n  \t  \n"), 0600)
+	err := os.WriteFile(wsPath, []byte("   \n  \t  \n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -456,7 +456,7 @@ func BenchmarkParseMemoryLimit_V1(b *testing.B) {
 func BenchmarkReadMemoryLimitFromPath(b *testing.B) {
 	tmpDir := b.TempDir()
 	memMaxPath := filepath.Join(tmpDir, "memory.max")
-	_ = os.WriteFile(memMaxPath, []byte("536870912\n"), 0600)
+	_ = os.WriteFile(memMaxPath, []byte("536870912\n"), 0o600)
 
 	for b.Loop() {
 		_, _ = readMemoryLimitFromPath(memMaxPath, true)

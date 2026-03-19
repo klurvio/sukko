@@ -29,7 +29,7 @@ func TestBuildTopicName(t *testing.T) {
 
 		// Edge cases
 		{"", "sukko", "trade", ".sukko.trade"},         // Empty namespace
-		{"prod", "", "trade", "prod..trade"},         // Empty tenant
+		{"prod", "", "trade", "prod..trade"},           // Empty tenant
 		{"prod", "sukko", "", "prod.sukko."},           // Empty category
 		{"PROD", "SUKKO", "TRADE", "PROD.SUKKO.TRADE"}, // Uppercase (preserved)
 	}

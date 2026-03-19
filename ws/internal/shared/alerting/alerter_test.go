@@ -29,7 +29,7 @@ func (m *mockAlerter) getAlerts() int {
 	return m.alertCount
 }
 
-func (m *mockAlerter) getLastAlert() (Level, string, map[string]any) {
+func (m *mockAlerter) getLastAlert() (level Level, msg string, meta map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.lastLevel, m.lastMsg, m.lastMeta

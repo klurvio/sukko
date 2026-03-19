@@ -546,7 +546,7 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
 
 			select {
 			case <-c.ctx.Done():
-				return nil // Context cancelled, exit gracefully
+				return nil // Context canceled, exit gracefully
 			case <-time.After(c.backpressureCheckInterval):
 				// Check CPU again
 			}
@@ -638,7 +638,7 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 
 			select {
 			case <-c.ctx.Done():
-				// Context cancelled (shutdown), exit gracefully
+				// Context canceled (shutdown), exit gracefully
 				return
 			case <-time.After(c.backpressureCheckInterval):
 				// Check CPU again after short wait
@@ -842,8 +842,8 @@ func (c *Consumer) ReplayFromOffsets(
 		case <-ctx.Done():
 			c.logger.Warn().
 				Int("messages_read", messagesRead).
-				Msg("Replay cancelled by context timeout")
-			return messages, fmt.Errorf("replay cancelled: %w", ctx.Err())
+				Msg("Replay canceled by context timeout")
+			return messages, fmt.Errorf("replay canceled: %w", ctx.Err())
 		default:
 		}
 

@@ -34,7 +34,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// Use actual configured limits
 	memLimitMB := float64(s.config.MemoryLimit) / 1024.0 / 1024.0 // Convert bytes to MB
-	goroutinesCurrent := resourceStats["goroutines_current"].(int)
+	goroutinesCurrent, _ := resourceStats["goroutines_current"].(int)
 	goroutinesLimit := s.config.MaxGoroutines
 
 	// Calculate health status

@@ -38,7 +38,7 @@ func (m *mockTokenValidator) ValidateToken(_ context.Context, _ string) (*auth.C
 
 // newAuthTestProxy creates a Proxy configured for auth refresh tests.
 // Uses net.Pipe for client/backend connections so sendToClient works.
-func newAuthTestProxy(validator TokenValidator, claims *auth.Claims) (*Proxy, net.Conn, net.Conn) {
+func newAuthTestProxy(validator TokenValidator, claims *auth.Claims) (proxy *Proxy, client, backend net.Conn) {
 	clientConn, clientRemote := net.Pipe()
 	backendConn, backendRemote := net.Pipe()
 
@@ -53,7 +53,7 @@ func newAuthTestProxy(validator TokenValidator, claims *auth.Claims) (*Proxy, ne
 		[]string{},
 	)
 
-	proxy := &Proxy{
+	proxy = &Proxy{
 		clientConn:            clientConn,
 		backendConn:           backendConn,
 		authEnabled:           true,

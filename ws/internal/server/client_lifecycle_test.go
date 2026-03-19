@@ -183,19 +183,19 @@ func TestStats_CurrentConnectionsDecrement(t *testing.T) {
 
 func TestStats_CurrentConnectionsDecrement_Concurrent(t *testing.T) {
 	t.Parallel()
-	stats := stats.NewStats()
-	stats.CurrentConnections.Store(1000)
+	s := stats.NewStats()
+	s.CurrentConnections.Store(1000)
 
 	var wg sync.WaitGroup
 	for range 1000 {
 		wg.Go(func() {
-			stats.CurrentConnections.Add(-1)
+			s.CurrentConnections.Add(-1)
 		})
 	}
 	wg.Wait()
 
-	if stats.CurrentConnections.Load() != 0 {
-		t.Errorf("CurrentConnections: got %d, want 0", stats.CurrentConnections.Load())
+	if s.CurrentConnections.Load() != 0 {
+		t.Errorf("CurrentConnections: got %d, want 0", s.CurrentConnections.Load())
 	}
 }
 
@@ -321,12 +321,12 @@ func TestDisconnectClient_Integration(t *testing.T) {
 	t.Parallel()
 	// Create minimal server with required components
 	logger := zerolog.Nop()
-	stats := stats.NewStats()
-	stats.CurrentConnections.Store(1)
+	s := stats.NewStats()
+	s.CurrentConnections.Store(1)
 
 	server := &Server{
 		logger:            logger,
-		stats:             stats,
+		stats:             s,
 		connections:       NewConnectionPool(100, 256),
 		connectionsSem:    make(chan struct{}, 100),
 		subscriptionIndex: NewSubscriptionIndex(),
@@ -357,8 +357,8 @@ func TestDisconnectClient_Integration(t *testing.T) {
 	server.disconnectClient(client, pkgmetrics.DisconnectReadError, pkgmetrics.InitiatedByClient)
 
 	// Verify stats updated
-	if stats.CurrentConnections.Load() != 0 {
-		t.Errorf("CurrentConnections should be 0, got %d", stats.CurrentConnections.Load())
+	if s.CurrentConnections.Load() != 0 {
+		t.Errorf("CurrentConnections should be 0, got %d", s.CurrentConnections.Load())
 	}
 
 	// Verify client removed from subscription index

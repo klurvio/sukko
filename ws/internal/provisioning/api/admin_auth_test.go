@@ -16,7 +16,7 @@ import (
 const testFailureThreshold = 10
 
 func newTestAdminAuth(token string) (*AdminAuth, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called in the returned cleanup function
+	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	logger := zerolog.Nop()
 	aa := NewAdminAuth(ctx, &wg, token, AdminAuthConfig{

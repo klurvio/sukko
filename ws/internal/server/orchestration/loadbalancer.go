@@ -136,7 +136,7 @@ func (lb *LoadBalancer) Start() error {
 	}
 	mux.HandleFunc("/metrics", metrics.HandleMetrics)
 
-	server := &http.Server{
+	httpServer := &http.Server{
 		Addr:    lb.addr,
 		Handler: mux,
 		// Timeouts now configurable for trading platform burst tolerance
@@ -153,8 +153,8 @@ func (lb *LoadBalancer) Start() error {
 		defer logging.RecoverPanic(lb.logger, "loadbalancer.ListenAndServe", nil)
 
 		defer lb.wg.Done()
-		lb.logger.Info().Str("address", server.Addr).Msg("LoadBalancer listening")
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		lb.logger.Info().Str("address", httpServer.Addr).Msg("LoadBalancer listening")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			lb.logger.Error().Err(err).Msg("LoadBalancer HTTP server error")
 		}
 	}()
@@ -233,12 +233,12 @@ func (lb *LoadBalancer) handleWebSocket(w http.ResponseWriter, r *http.Request) 
 // It also respects the WS_MAX_CONNECTIONS limit per shard.
 func (lb *LoadBalancer) selectShard() (int, *Shard) {
 	// Convert to interface slice for testable selection logic
-	metrics := make([]ShardMetrics, len(lb.shards))
+	shardMetrics := make([]ShardMetrics, len(lb.shards))
 	for i, s := range lb.shards {
-		metrics[i] = s
+		shardMetrics[i] = s
 	}
 
-	idx := SelectShardByMetrics(metrics)
+	idx := SelectShardByMetrics(shardMetrics)
 	if idx < 0 {
 		return -1, nil
 	}

@@ -357,11 +357,11 @@ func RecordDisconnect(reason, initiatedBy string, duration time.Duration) {
 }
 
 // RecordDisconnectWithStats tracks a disconnect and updates both Prometheus and Stats.
-func RecordDisconnectWithStats(stats *stats.Stats, reason, initiatedBy string, duration time.Duration) {
+func RecordDisconnectWithStats(s *stats.Stats, reason, initiatedBy string, duration time.Duration) {
 	disconnectsTotal.WithLabelValues(reason, initiatedBy).Inc()
 	connectionDuration.WithLabelValues(reason).Observe(duration.Seconds())
 
-	stats.RecordDisconnect(reason)
+	s.RecordDisconnect(reason)
 }
 
 // =============================================================================
@@ -418,10 +418,10 @@ func RecordDroppedBroadcast(channel, reason string) {
 }
 
 // RecordDroppedBroadcastWithStats tracks a dropped broadcast and updates Stats.
-func RecordDroppedBroadcastWithStats(stats *stats.Stats, channel, reason string) {
+func RecordDroppedBroadcastWithStats(s *stats.Stats, channel, reason string) {
 	droppedBroadcastsDetailed.WithLabelValues(channel, reason).Inc()
 
-	stats.RecordDroppedBroadcast(channel)
+	s.RecordDroppedBroadcast(channel)
 }
 
 // RecordSlowClientAttempt records send attempts before slow client disconnect.
@@ -435,11 +435,11 @@ func RecordClientBufferSize(bufferLen, _ int) {
 }
 
 // RecordClientBufferSizeWithStats samples buffer and updates Stats.
-func RecordClientBufferSizeWithStats(stats *stats.Stats, bufferLen, bufferCap, maxSamples int) {
+func RecordClientBufferSizeWithStats(s *stats.Stats, bufferLen, bufferCap, maxSamples int) {
 	clientSendBufferSize.WithLabelValues(bufferPercentileAll).Observe(float64(bufferLen))
 
 	usagePercent := int(float64(bufferLen) / float64(bufferCap) * 100)
-	stats.AddBufferSample(usagePercent, maxSamples)
+	s.AddBufferSample(usagePercent, maxSamples)
 }
 
 // =============================================================================

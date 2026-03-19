@@ -334,14 +334,16 @@ func (e *PolicyEngine) Authorize(req *AuthzRequest) *AuthzResult {
 
 	// Evaluate rules in priority order
 	for _, rule := range rules {
-		if matched, captures := e.matchRule(rule, req, resolvedChannel); matched {
-			result.Allowed = rule.Effect == EffectAllow
-			result.MatchedRule = rule
-			result.Captures = captures
-			result.Reason = "matched rule: " + rule.ID
-			result.Duration = time.Since(start)
-			return result
+		matched, captures := e.matchRule(rule, req, resolvedChannel)
+		if !matched {
+			continue
 		}
+		result.Allowed = rule.Effect == EffectAllow
+		result.MatchedRule = rule
+		result.Captures = captures
+		result.Reason = "matched rule: " + rule.ID
+		result.Duration = time.Since(start)
+		return result
 	}
 
 	// No rule matched - use default effect
@@ -377,8 +379,8 @@ func (e *PolicyEngine) getApplicableRules(claims *Claims) []*PermissionRule {
 }
 
 // matchRule checks if a rule matches the request.
-func (e *PolicyEngine) matchRule(rule *PermissionRule, req *AuthzRequest, channel string) (bool, map[string]string) {
-	captures := make(map[string]string)
+func (e *PolicyEngine) matchRule(rule *PermissionRule, req *AuthzRequest, channel string) (matched bool, captures map[string]string) {
+	captures = make(map[string]string)
 
 	// Check action
 	if !e.actionMatches(rule.Actions, req.Action) {
@@ -573,7 +575,7 @@ func (e *PolicyEngine) compareValues(fieldValue any, op Operator, condValue any)
 		condStr := fmt.Sprintf("%v", condValue)
 		var re *regexp.Regexp
 		if cached, ok := e.regexCache.Load(condStr); ok {
-			re = cached.(*regexp.Regexp)
+			re, _ = cached.(*regexp.Regexp)
 		} else {
 			compiled, err := regexp.Compile(condStr)
 			if err != nil {

@@ -265,7 +265,8 @@ func (rl *RateLimiter) CheckLimit(clientID int64) bool {
 	// LoadOrStore is atomic: Only one goroutine creates bucket for new client
 	bucket, _ := rl.clients.LoadOrStore(clientID, NewTokenBucket(rl.burstLimit, rl.ratePerSec))
 
-	return bucket.(*TokenBucket).TryConsume(1)
+	tb, _ := bucket.(*TokenBucket)
+	return tb.TryConsume(1)
 }
 
 // RemoveClient cleans up rate limit state on disconnect

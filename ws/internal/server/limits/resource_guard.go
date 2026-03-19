@@ -438,18 +438,18 @@ func (rg *ResourceGuard) ReleaseGoroutine() {
 // The SystemMonitor handles all actual measurement work.
 func (rg *ResourceGuard) UpdateResources(serverStats *stats.Stats) {
 	// Get metrics from SystemMonitor (single source of truth)
-	metrics := rg.systemMonitor.GetMetrics()
+	sysMetrics := rg.systemMonitor.GetMetrics()
 
 	// Copy to server stats (for health endpoint)
 	if serverStats != nil {
-		serverStats.SetResourceMetrics(metrics.CPUPercent, metrics.MemoryMB)
+		serverStats.SetResourceMetrics(sysMetrics.CPUPercent, sysMetrics.MemoryMB)
 	}
 
 	rg.logger.Debug().
-		Float64("cpu_percent", metrics.CPUPercent).
-		Float64("memory_mb", metrics.MemoryMB).
+		Float64("cpu_percent", sysMetrics.CPUPercent).
+		Float64("memory_mb", sysMetrics.MemoryMB).
 		Int64("connections", rg.currentConns.Load()).
-		Int("goroutines", metrics.Goroutines).
+		Int("goroutines", sysMetrics.Goroutines).
 		Msg("Server stats updated from SystemMonitor")
 }
 
@@ -501,21 +501,21 @@ func (rg *ResourceGuard) StartMonitoring(ctx context.Context, wg *sync.WaitGroup
 
 // GetStats returns current resource statistics for debugging
 func (rg *ResourceGuard) GetStats() map[string]any {
-	metrics := rg.systemMonitor.GetMetrics()
+	sysMetrics := rg.systemMonitor.GetMetrics()
 
 	return map[string]any{
 		"max_connections":            rg.config.MaxConnections,
 		"current_connections":        rg.currentConns.Load(),
-		"cpu_percent":                metrics.CPUPercent,
+		"cpu_percent":                sysMetrics.CPUPercent,
 		"cpu_reject_threshold":       rg.config.CPURejectThreshold,
 		"cpu_reject_threshold_lower": rg.config.CPURejectThresholdLower,
 		"cpu_rejecting":              rg.isRejectingCPU.Load(), // current hysteresis state
 		"cpu_pause_threshold":        rg.config.CPUPauseThreshold,
 		"cpu_pause_threshold_lower":  rg.config.CPUPauseThresholdLower,
 		"cpu_pausing_kafka":          rg.isPausingKafka.Load(), // current hysteresis state
-		"memory_bytes":               metrics.MemoryBytes,
+		"memory_bytes":               sysMetrics.MemoryBytes,
 		"memory_limit_bytes":         rg.config.MemoryLimit,
-		"goroutines_current":         metrics.Goroutines,
+		"goroutines_current":         sysMetrics.Goroutines,
 		"goroutines_limit":           rg.config.MaxGoroutines,
 		"kafka_rate_limit":           rg.config.MaxKafkaMessagesPerSec,
 		"broadcast_rate_limit":       rg.config.MaxBroadcastsPerSec,

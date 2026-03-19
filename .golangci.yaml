@@ -61,8 +61,8 @@ linters:
     errcheck:
       # Check for errors returned from type assertions
       check-type-assertions: true
-      # Allow explicit _ = expr (intentional error discard, standard cobra pattern)
-      check-blank: true
+      # Allow explicit _ = expr (intentional error discard per Constitution III)
+      check-blank: false
 
     exhaustive:
       # Check switch statements over enums

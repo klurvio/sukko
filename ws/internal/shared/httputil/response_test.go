@@ -1,6 +1,7 @@
 package httputil
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -76,7 +77,7 @@ func TestWriteJSON(t *testing.T) {
 
 			gotBytes, _ := json.Marshal(got)
 			wantBytes, _ := json.Marshal(want)
-			if string(gotBytes) != string(wantBytes) {
+			if !bytes.Equal(gotBytes, wantBytes) {
 				t.Errorf("WriteJSON() body = %s, want %s", gotBytes, wantBytes)
 			}
 		})

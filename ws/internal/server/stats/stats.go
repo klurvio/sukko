@@ -61,7 +61,7 @@ func NewStats() *Stats {
 }
 
 // SetResourceMetrics updates the CPU and memory metrics.
-func (s *Stats) SetResourceMetrics(cpuPercent float64, memoryMB float64) {
+func (s *Stats) SetResourceMetrics(cpuPercent, memoryMB float64) {
 	s.mu.Lock()
 	s.cpuPercent = cpuPercent
 	s.memoryMB = memoryMB
@@ -69,7 +69,7 @@ func (s *Stats) SetResourceMetrics(cpuPercent float64, memoryMB float64) {
 }
 
 // ResourceMetrics returns the current CPU and memory metrics.
-func (s *Stats) ResourceMetrics() (cpuPercent float64, memoryMB float64) {
+func (s *Stats) ResourceMetrics() (cpuPercent, memoryMB float64) {
 	s.mu.RLock()
 	cpuPercent = s.cpuPercent
 	memoryMB = s.memoryMB
@@ -118,7 +118,7 @@ func (s *Stats) GetDroppedBroadcastsByChannel() (channels map[string]int64, tota
 }
 
 // AddBufferSample records a buffer saturation sample, maintaining a sliding window of maxSamples.
-func (s *Stats) AddBufferSample(usagePercent int, maxSamples int) {
+func (s *Stats) AddBufferSample(usagePercent, maxSamples int) {
 	s.buffersMu.Lock()
 	s.bufferSaturationSamples = append(s.bufferSaturationSamples, usagePercent)
 	if len(s.bufferSaturationSamples) > maxSamples {

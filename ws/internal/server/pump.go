@@ -75,14 +75,14 @@ type Pump struct {
 }
 
 // NewPump creates a Pump with the given dependencies.
-func NewPump(config PumpConfig, logger Logger, zerologLogger zerolog.Logger, rateLimiter RateLimiter, alertLogger AlertLogger, stats *stats.Stats, clock Clock) *Pump {
+func NewPump(config PumpConfig, logger Logger, zerologLogger zerolog.Logger, rateLimiter RateLimiter, alertLogger AlertLogger, pumpStats *stats.Stats, clock Clock) *Pump {
 	return &Pump{
 		Config:        config,
 		Logger:        logger,
 		ZerologLogger: zerologLogger,
 		RateLimiter:   rateLimiter,
 		AlertLogger:   alertLogger,
-		Stats:         stats,
+		Stats:         pumpStats,
 		Clock:         clock,
 	}
 }

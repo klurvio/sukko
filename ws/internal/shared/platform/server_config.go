@@ -438,7 +438,6 @@ type ServerConfig struct {
 
 // LoadServerConfig reads server configuration from .env file and environment variables
 // Priority: ENV vars > .env file > defaults
-//
 func LoadServerConfig(logger zerolog.Logger) (*ServerConfig, error) {
 	// Load .env file (optional - OK if it doesn't exist)
 	// In production (Docker), we use environment variables directly

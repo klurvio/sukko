@@ -185,7 +185,7 @@ func (v *MultiTenantValidator) ValidateToken(ctx context.Context, tokenString st
 
 // ValidateTokenForTenant validates a token and ensures it belongs to the specified tenant.
 // This is useful for endpoint-specific validation where the tenant is known.
-func (v *MultiTenantValidator) ValidateTokenForTenant(ctx context.Context, tokenString string, expectedTenant string) (*Claims, error) {
+func (v *MultiTenantValidator) ValidateTokenForTenant(ctx context.Context, tokenString, expectedTenant string) (*Claims, error) {
 	claims, err := v.ValidateToken(ctx, tokenString)
 	if err != nil {
 		return nil, err

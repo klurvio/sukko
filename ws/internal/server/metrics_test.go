@@ -355,21 +355,21 @@ func TestHighSaturationPercentage(t *testing.T) {
 
 func TestStats_MemoryUpdate_ThreadSafe(t *testing.T) {
 	t.Parallel()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	var wg sync.WaitGroup
 
 	// Simulate concurrent memory updates
 	for i := range 100 {
 		wg.Go(func() {
-			stats.SetResourceMetrics(0, float64(i))
+			s.SetResourceMetrics(0, float64(i))
 		})
 	}
 
 	wg.Wait()
 
 	// Verify we can read the value
-	_, mem := stats.ResourceMetrics()
+	_, mem := s.ResourceMetrics()
 
 	// Value should be between 0 and 99
 	if mem < 0 || mem > 99 {
@@ -383,29 +383,29 @@ func TestStats_MemoryUpdate_ThreadSafe(t *testing.T) {
 
 func TestStats_CurrentConnections_Atomic(t *testing.T) {
 	t.Parallel()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	var wg sync.WaitGroup
 
 	// 100 increments
 	for range 100 {
 		wg.Go(func() {
-			stats.CurrentConnections.Add(1)
+			s.CurrentConnections.Add(1)
 		})
 	}
 
 	// 50 decrements
 	for range 50 {
 		wg.Go(func() {
-			stats.CurrentConnections.Add(-1)
+			s.CurrentConnections.Add(-1)
 		})
 	}
 
 	wg.Wait()
 
 	expected := int64(50)
-	if stats.CurrentConnections.Load() != expected {
-		t.Errorf("CurrentConnections: got %d, want %d", stats.CurrentConnections.Load(), expected)
+	if s.CurrentConnections.Load() != expected {
+		t.Errorf("CurrentConnections: got %d, want %d", s.CurrentConnections.Load(), expected)
 	}
 }
 
@@ -576,18 +576,18 @@ func BenchmarkBufferUsagePercent(b *testing.B) {
 }
 
 func BenchmarkStatsMemoryUpdate(b *testing.B) {
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	for i := 0; b.Loop(); i++ {
-		stats.SetResourceMetrics(0, float64(i))
+		s.SetResourceMetrics(0, float64(i))
 	}
 }
 
 func BenchmarkStatsConnectionsAtomic(b *testing.B) {
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	for b.Loop() {
-		stats.CurrentConnections.Add(1)
-		stats.CurrentConnections.Add(-1)
+		s.CurrentConnections.Add(1)
+		s.CurrentConnections.Add(-1)
 	}
 }

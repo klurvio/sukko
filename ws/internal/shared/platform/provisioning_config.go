@@ -139,8 +139,8 @@ func (c *ProvisioningConfig) Validate() error {
 
 	// Admin token validation
 	if c.AdminToken != "" && len(c.AdminToken) < 16 {
-		env := strings.ToLower(strings.TrimSpace(c.Environment))
-		if env != "dev" && env != "development" && env != "local" {
+		envName := strings.ToLower(strings.TrimSpace(c.Environment))
+		if envName != "dev" && envName != "development" && envName != "local" {
 			return fmt.Errorf("PROVISIONING_ADMIN_TOKEN must be at least 16 characters in non-development environments (got %d)", len(c.AdminToken))
 		}
 		// In dev: warning is logged at startup, not a validation error

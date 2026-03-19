@@ -116,7 +116,7 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 }
 
 // Run starts bidirectional message forwarding.
-// Blocks until either connection closes, errors, or context is cancelled.
+// Blocks until either connection closes, errors, or context is canceled.
 func (p *Proxy) Run(ctx context.Context) {
 	errChan := make(chan error, 2)
 	var wg sync.WaitGroup
@@ -145,7 +145,7 @@ func (p *Proxy) Run(ctx context.Context) {
 			p.logger.Debug().Msg("Connection closed normally")
 		}
 	case <-ctx.Done():
-		p.logger.Info().Msg("Context cancelled, closing proxy")
+		p.logger.Info().Msg("Context canceled, closing proxy")
 	}
 
 	// Close both connections to unblock waiting goroutines
@@ -324,7 +324,7 @@ func (p *Proxy) proxyBackendToClient(ctx context.Context, errChan chan error) {
 
 // forwardFrame forwards a WebSocket frame to the destination.
 // If mask is true, the frame will be masked (required for client->server frames).
-func (p *Proxy) forwardFrame(dst net.Conn, opCode ws.OpCode, payload []byte, fin bool, mask bool) error {
+func (p *Proxy) forwardFrame(dst net.Conn, opCode ws.OpCode, payload []byte, fin, mask bool) error {
 	header := ws.Header{
 		Fin:    fin,
 		OpCode: opCode,

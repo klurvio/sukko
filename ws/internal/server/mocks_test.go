@@ -76,7 +76,7 @@ func (e *testMockLogEvent) Int(key string, val int) LogEvent {
 	return e
 }
 
-func (e *testMockLogEvent) Str(key string, val string) LogEvent {
+func (e *testMockLogEvent) Str(key, val string) LogEvent {
 	if e.fields == nil {
 		e.fields = make(map[string]any)
 	}

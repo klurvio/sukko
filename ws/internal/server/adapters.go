@@ -67,7 +67,7 @@ func (e *ZerologEventAdapter) Int(key string, val int) LogEvent {
 }
 
 // Str adds a string field to the log event.
-func (e *ZerologEventAdapter) Str(key string, val string) LogEvent {
+func (e *ZerologEventAdapter) Str(key, val string) LogEvent {
 	e.event = e.event.Str(key, val)
 	return e
 }

@@ -18,7 +18,7 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:  "sukko",
+	Use:   "sukko",
 	Short: "Sukko WS provisioning CLI",
 	Long:  "CLI tool for managing tenants, keys, topics, and channel rules in the Sukko WS platform.",
 }
