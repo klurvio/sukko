@@ -91,18 +91,12 @@ type ProvisioningConfig struct {
 // LoadProvisioningConfig reads provisioning service configuration from .env file
 // and environment variables.
 // Priority: ENV vars > .env file > defaults
-func LoadProvisioningConfig(logger *zerolog.Logger) (*ProvisioningConfig, error) {
+func LoadProvisioningConfig(logger zerolog.Logger) (*ProvisioningConfig, error) {
 	// Load .env file (optional)
 	if err := godotenv.Load(); err != nil {
-		if logger != nil {
-			logger.Info().Msg("No .env file found (using environment variables only)")
-		} else {
-			_, _ = fmt.Fprintln(os.Stdout, "Info: No .env file found (using environment variables only)")
-		}
+		logger.Info().Msg("No .env file found (using environment variables only)")
 	} else {
-		if logger != nil {
-			logger.Info().Msg("Loaded configuration from .env file")
-		}
+		logger.Info().Msg("Loaded configuration from .env file")
 	}
 
 	cfg := &ProvisioningConfig{}
@@ -117,9 +111,7 @@ func LoadProvisioningConfig(logger *zerolog.Logger) (*ProvisioningConfig, error)
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
-	if logger != nil {
-		logger.Info().Msg("Configuration loaded and validated successfully")
-	}
+	logger.Info().Msg("Configuration loaded and validated successfully")
 
 	return cfg, nil
 }

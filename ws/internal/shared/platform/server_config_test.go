@@ -432,7 +432,7 @@ func TestServerConfig_Validate_BroadcastType(t *testing.T) {
 	}{
 		{"nats", "nats", false},
 		{"valkey", "valkey", false},
-		{"redis", "redis", false},
+		{"redis rejected", "redis", true},
 		{"empty", "", true},
 		{"invalid", "rabbitmq", true},
 	}
@@ -442,7 +442,7 @@ func TestServerConfig_Validate_BroadcastType(t *testing.T) {
 			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.BroadcastType = tt.bType
-			if tt.bType == "valkey" || tt.bType == "redis" {
+			if tt.bType == "valkey" {
 				cfg.ValkeyAddrs = []string{"localhost:26379"}
 				cfg.ValkeyMasterName = "mymaster"
 				cfg.ValkeyChannel = "ws.broadcast"

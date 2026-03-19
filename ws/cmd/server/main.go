@@ -33,7 +33,7 @@ func main() {
 	bootLogger.Info().Int("gomaxprocs", maxProcs).Msg("GOMAXPROCS set by Go runtime (container-aware)")
 
 	// Load configuration from .env file and environment variables
-	cfg, err := platform.LoadServerConfig(nil) // Pass nil for now, structured logger created after
+	cfg, err := platform.LoadServerConfig(bootLogger)
 	if err != nil {
 		bootLogger.Fatal().Err(err).Msg("Failed to load configuration")
 	}
@@ -89,13 +89,6 @@ func main() {
 		Int("max_connections_per_shard", maxConnsPerShard).
 		Msg("Shard capacity calculated")
 
-	// Initialize central BroadcastBus (configurable backend: Valkey or NATS)
-	busLogger := logging.NewLogger(logging.LoggerConfig{
-		Level:       logging.LogLevel(cfg.LogLevel),
-		Format:      logging.LogFormat(cfg.LogFormat),
-		ServiceName: "ws-server",
-	})
-
 	// Build broadcast config based on BROADCAST_TYPE
 	busCfg := broadcast.Config{
 		Type:            cfg.BroadcastType,
@@ -147,7 +140,7 @@ func main() {
 		},
 	}
 
-	broadcastBus, err := broadcast.NewBus(busCfg, busLogger)
+	broadcastBus, err := broadcast.NewBus(busCfg, structuredLogger)
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create BroadcastBus")
 	}
@@ -213,18 +206,13 @@ func main() {
 		})
 	case "nats":
 		// Create a StreamTopicRegistry for tenant discovery via gRPC
-		registryLogger := logging.NewLogger(logging.LoggerConfig{
-			Level:       logging.LogLevel(cfg.LogLevel),
-			Format:      logging.LogFormat(cfg.LogFormat),
-			ServiceName: "ws-server",
-		})
 		topicRegistry, regErr := provapi.NewStreamTopicRegistry(provapi.StreamTopicRegistryConfig{
 			GRPCAddr:          cfg.ProvisioningGRPCAddr,
 			Namespace:         topicNamespace,
 			ReconnectDelay:    cfg.GRPCReconnectDelay,
 			ReconnectMaxDelay: cfg.GRPCReconnectMaxDelay,
 			MetricPrefix:      "ws",
-			Logger:            registryLogger,
+			Logger:            structuredLogger,
 		})
 		if regErr != nil {
 			structuredLogger.Fatal().Err(regErr).Msg("Failed to create topic registry for JetStream")
@@ -328,6 +316,7 @@ func main() {
 	<-sigCh
 
 	structuredLogger.Info().Msg("Shutting down multi-core server")
+	cancel() // Signal ctx.Done() to all goroutines using ctx
 
 	// Shutdown LoadBalancer
 	lb.Shutdown()

@@ -439,22 +439,15 @@ type ServerConfig struct {
 // LoadServerConfig reads server configuration from .env file and environment variables
 // Priority: ENV vars > .env file > defaults
 //
-// Optional logger parameter for structured logging. If nil, logs to stdout.
-func LoadServerConfig(logger *zerolog.Logger) (*ServerConfig, error) {
+func LoadServerConfig(logger zerolog.Logger) (*ServerConfig, error) {
 	// Load .env file (optional - OK if it doesn't exist)
 	// In production (Docker), we use environment variables directly
 	// In development, .env file provides convenience
 	if err := godotenv.Load(); err != nil {
 		// Only log, don't fail - we can run without .env file
-		if logger != nil {
-			logger.Info().Msg("No .env file found (using environment variables only)")
-		} else {
-			_, _ = fmt.Fprintln(os.Stdout, "Info: No .env file found (using environment variables only)")
-		}
+		logger.Info().Msg("No .env file found (using environment variables only)")
 	} else {
-		if logger != nil {
-			logger.Info().Msg("Loaded configuration from .env file")
-		}
+		logger.Info().Msg("Loaded configuration from .env file")
 	}
 
 	cfg := &ServerConfig{}
@@ -473,9 +466,7 @@ func LoadServerConfig(logger *zerolog.Logger) (*ServerConfig, error) {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
-	if logger != nil {
-		logger.Info().Msg("Configuration loaded and validated successfully")
-	}
+	logger.Info().Msg("Configuration loaded and validated successfully")
 
 	return cfg, nil
 }
@@ -614,13 +605,13 @@ func (c *ServerConfig) Validate() error {
 	}
 
 	// Broadcast bus configuration validation
-	validBroadcastTypes := map[string]bool{"valkey": true, "redis": true, "nats": true}
+	validBroadcastTypes := map[string]bool{"valkey": true, "nats": true}
 	if !validBroadcastTypes[c.BroadcastType] {
 		return fmt.Errorf("[CONFIG ERROR] BROADCAST_TYPE=%q is invalid (valid: nats, valkey)", c.BroadcastType)
 	}
 
-	// Valkey-specific validation (when BROADCAST_TYPE=valkey or redis)
-	if c.BroadcastType == "valkey" || c.BroadcastType == "redis" {
+	// Valkey-specific validation (when BROADCAST_TYPE=valkey)
+	if c.BroadcastType == "valkey" {
 		if len(c.ValkeyAddrs) == 0 {
 			return fmt.Errorf("VALKEY_ADDRS is required when BROADCAST_TYPE=%s", c.BroadcastType)
 		}
@@ -1066,7 +1057,7 @@ func (c *ServerConfig) Print() {
 	_, _ = fmt.Fprintf(os.Stdout, "Default Tenant:  %s\n", c.DefaultTenantID)
 	_, _ = fmt.Fprintln(os.Stdout, "\n=== Broadcast Bus ===")
 	_, _ = fmt.Fprintf(os.Stdout, "Type:            %s\n", c.BroadcastType)
-	if c.BroadcastType == "valkey" || c.BroadcastType == "redis" {
+	if c.BroadcastType == "valkey" {
 		_, _ = fmt.Fprintf(os.Stdout, "Valkey Addrs:    %v\n", c.ValkeyAddrs)
 		_, _ = fmt.Fprintf(os.Stdout, "Master Name:     %s\n", c.ValkeyMasterName)
 		_, _ = fmt.Fprintf(os.Stdout, "Channel:         %s\n", c.ValkeyChannel)

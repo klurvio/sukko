@@ -1,12 +1,12 @@
 ---
 name: lint
-description: Comprehensive linting for Go code, Kubernetes manifests, and Taskfiles
+description: Auto-fix lint and formatting issues locally
 user-invocable: true
 ---
 
 # Lint
 
-Comprehensive linting for Go code, Kubernetes manifests, and Taskfiles.
+Auto-fix lint and formatting issues locally. CI detects violations — this skill fixes them.
 
 ## Usage
 
@@ -15,43 +15,46 @@ Comprehensive linting for Go code, Kubernetes manifests, and Taskfiles.
 ```
 
 Examples:
-- `/lint` - Lint the entire codebase
-- `/lint middleware/` - Lint only the middleware package
-- `/lint middleware/authentication.go` - Lint a specific file
-- `/lint middleware/ keycloakclient/` - Lint multiple packages
+- `/lint` - Fix the entire codebase
+- `/lint ws/internal/server/` - Fix a package
+- `/lint ws/internal/shared/kafka/consumer.go` - Fix a specific file
 
 ## Target Resolution
 
 1. **Determine the target** from `{{args}}`:
-   - If arguments provided, use them as the lint target(s)
-   - If no arguments, lint the entire codebase (`./...` / `.`)
+   - If arguments provided, use them as the target(s)
+   - If no arguments, target the entire codebase (`./...` / `.`)
 2. **Set `TARGET`** for commands below:
    - Entire codebase: `TARGET=./...` and `FMT_TARGET=.`
-   - Directory (e.g., `middleware/`): `TARGET=./middleware/...` and `FMT_TARGET=middleware/`
-   - File (e.g., `middleware/auth.go`): `TARGET=./middleware/auth.go` and `FMT_TARGET=middleware/auth.go`
+   - Directory (e.g., `server/`): `TARGET=./server/...` and `FMT_TARGET=server/`
+   - File (e.g., `server/hub.go`): `TARGET=./server/hub.go` and `FMT_TARGET=server/hub.go`
    - Multiple paths: apply each command to all targets
 
 ## Workflow
 
-1. **Go Linting & Modernization**
-   - Run golangci-lint with auto-fix: `golangci-lint run --fix $TARGET`
-   - Format code: `gofmt -w $FMT_TARGET`
-   - Simplify code: `gofmt -s -w $FMT_TARGET`
-   - Run `go fix ./...` to apply built-in modernizers automatically (Go 1.26+)
-   - Tidy dependencies: `go mod tidy` (only when linting entire codebase)
-   - Run detection commands from "Go Modernization Patterns" section scoped to `$FMT_TARGET`
-   - Review each detection hit and apply modern patterns where applicable
-   - **IMPORTANT: Do NOT add `t.Parallel()` to tests in `*_shared_test.go` files or tests that use shared resources (databases, Redis, external services)**
-   - Fix any modernization improvements found
+### 1. Quick Fix
 
-2. **Taskfile Linting** (only when linting entire codebase, if yamllint is installed)
-   - Lint all Taskfiles: `yamllint -c .yamllint.yaml Taskfile.yml taskfiles/`
-   - If .yamllint.yaml doesn't exist, use: `yamllint -d relaxed Taskfile.yml taskfiles/`
+Run these in sequence:
 
-3. **Summary**
-   - Report all issues found
-   - Show count of auto-fixed issues
-   - List any remaining issues that need manual attention
+1. `golangci-lint run --fix $TARGET` — auto-fix lint + modernization issues
+2. `gofmt -s -w $FMT_TARGET` — simplify + format
+3. `go fix $TARGET` — apply Go built-in modernizers (Go 1.26+)
+4. `go mod tidy` — only when targeting the entire codebase
+
+Report summary:
+
+```
+## Lint Summary
+
+- golangci-lint --fix: X issues auto-fixed, Y remaining
+- gofmt: formatted
+- go fix: applied
+- Remaining issues: [list any that need manual fixing]
+```
+
+### 2. Modernize
+
+Run detection commands from "Go Modernization Patterns" below scoped to `$FMT_TARGET`. Review each detection hit and apply modern patterns where applicable.
 
 ## Go Modernization Patterns
 
@@ -176,10 +179,10 @@ grep -rn "= new(" --include="*.go" $FMT_TARGET
   - `strings.FieldsSeq(s)` instead of `strings.Fields(s)` when iterating
   - `strings.FieldsFuncSeq(s, f)` instead of `strings.FieldsFunc(s, f)` when iterating
   - Same functions available in `bytes` package: `bytes.Lines`, `bytes.SplitSeq`, `bytes.SplitAfterSeq`, `bytes.FieldsSeq`, `bytes.FieldsFuncSeq`
-- **Benchmark loops** — `for b.Loop() { ... }` instead of `for i := 0; i < b.N; i++ { ... }` — more efficient, setup/cleanup runs once per `-count`, prevents compiler from optimizing away results
-- **Cleanup over finalizers** — `runtime.AddCleanup(obj, cleanupFunc)` instead of `runtime.SetFinalizer(obj, f)` — supports multiple cleanups per object, no leak cycles, doesn't delay object freeing
-- **Filesystem sandboxing** — `os.OpenRoot(dir)` to restrict filesystem operations within a directory, prevents path traversal attacks
-- **JSON `omitzero` tag** — `json:"field,omitzero"` instead of `json:"field,omitempty"` for clearer zero-value omission (works with `IsZero()` method)
+- **Benchmark loops** — `for b.Loop() { ... }` instead of `for i := 0; i < b.N; i++ { ... }`
+- **Cleanup over finalizers** — `runtime.AddCleanup(obj, cleanupFunc)` instead of `runtime.SetFinalizer(obj, f)`
+- **Filesystem sandboxing** — `os.OpenRoot(dir)` to restrict filesystem operations within a directory
+- **JSON `omitzero` tag** — `json:"field,omitzero"` instead of `json:"field,omitempty"` for clearer zero-value omission
 - **Generic type aliases** — `type Container[T any] = []T` now fully supported
 - **`testing.T.Context()`** / **`testing.B.Context()`** — returns a context canceled when the test completes
 - **`testing.T.Chdir(dir)`** — temporarily changes working directory for the duration of a test
@@ -187,72 +190,29 @@ grep -rn "= new(" --include="*.go" $FMT_TARGET
 
 ### Go 1.25+ (WaitGroup.Go, synctest & FlightRecorder)
 
-- **`sync.WaitGroup.Go(func())`** instead of the `wg.Add(1); go func() { defer wg.Done(); ... }()` pattern — handles Add/Done automatically
-- **`testing/synctest.Test(t, func(t *testing.T))`** — test concurrent code in an isolated bubble with virtualized time, use `synctest.Wait()` to wait for all goroutines to block
-- **`net/http.CrossOriginProtection(handler)`** — CSRF protection using Fetch metadata (no tokens needed)
-- **`hash.Cloner` interface** — all standard hash functions now implement `Clone()` for duplicating hash state
-- **`runtime/trace.FlightRecorder`** — lightweight in-memory ring buffer for capturing runtime execution traces, snapshot with `WriteTo()`
-- **`testing.T.Attr(key, value)`** — emit structured test attributes to log output
-- **`testing.T.Output()`** — returns an `io.Writer` for writing to test output without line numbers
-- **Container-aware GOMAXPROCS** — runtime automatically respects cgroup CPU limits and updates dynamically
-- **`go vet` `waitgroup` analyzer** — reports misplaced `sync.WaitGroup.Add()` calls
-- **`go vet` `hostport` analyzer** — reports `fmt.Sprintf("%s:%d", host, port)` and suggests `net.JoinHostPort()`
+- **`sync.WaitGroup.Go(func())`** instead of the `wg.Add(1); go func() { defer wg.Done(); ... }()` pattern
+- **`testing/synctest.Test(t, func(t *testing.T))`** — test concurrent code with virtualized time
+- **`net/http.CrossOriginProtection(handler)`** — CSRF protection using Fetch metadata
+- **`hash.Cloner` interface** — all standard hash functions implement `Clone()`
+- **`runtime/trace.FlightRecorder`** — lightweight in-memory ring buffer for runtime traces
+- **`testing.T.Attr(key, value)`** — emit structured test attributes
+- **`testing.T.Output()`** — returns an `io.Writer` for writing to test output
+- **Container-aware GOMAXPROCS** — runtime respects cgroup CPU limits
 
 ### Go 1.26+ (new(expr), errors.AsType & go fix modernizers)
 
-- **`new(expr)` with initializer** — `new(calculateAge(birth))` instead of `p := new(int); *p = calculateAge(birth)` — especially useful for optional pointer fields in structs
-- **`errors.AsType[T](err)`** — generic, type-safe alternative to `errors.As(err, &target)` — no need to declare a target variable
+- **`new(expr)` with initializer** — `new(calculateAge(birth))` instead of `p := new(int); *p = calculateAge(birth)`
+- **`errors.AsType[T](err)`** — generic, type-safe alternative to `errors.As(err, &target)`
 - **`slog.NewMultiHandler(h1, h2, ...)`** — broadcast log records to multiple handlers
-- **`bytes.Buffer.Peek(n)`** — inspect next n bytes without advancing the read position
-- **`reflect.Type.Fields()`** / **`reflect.Type.Methods()`** — iterator-based field/method enumeration instead of `Field(i)` loops
+- **`bytes.Buffer.Peek(n)`** — inspect next n bytes without advancing
+- **`reflect.Type.Fields()`** / **`reflect.Type.Methods()`** — iterator-based enumeration
 - **`reflect.Value.Fields()`** / **`reflect.Value.Methods()`** — same for values
-- **`testing.T.ArtifactDir()`** — dedicated directory for test output files (persisted with `-artifacts` flag)
-- **Self-referential generic type parameters** — generic types can now refer to themselves in their own type parameter list
-- **Green Tea GC enabled by default** — 10–40% lower GC overhead for most programs
-- **`go fix ./...`** — rewritten modernizer tool that applies dozens of safe code modernizations automatically using the analysis framework
-- **~30% lower cgo overhead** — reduced baseline cost for cgo calls
+- **`testing.T.ArtifactDir()`** — dedicated directory for test output files
+- **`go fix ./...`** — rewritten modernizer tool that applies dozens of safe code modernizations
 
-## Test Parallelization Rules
+## Notes
 
-**CRITICAL: Do NOT add `t.Parallel()` to tests that use shared resources.**
-
-Shared resource tests include:
-
-- Tests in `*_shared_test.go` files
-- Tests that interact with databases (PostgreSQL, MySQL, etc.)
-- Tests that use Redis or other caches
-- Tests that use external services or APIs
-- Integration tests that modify shared state
-- Tests that use test containers or Docker
-
-Only add `t.Parallel()` to:
-
-- Pure unit tests with no external dependencies
-- Tests that use only in-memory state
-- Tests with isolated mocks/stubs
-
-When in doubt, do NOT add `t.Parallel()`.
-
-## Output Format
-
-After linting, provide a summary:
-
-```
-## Lint Summary
-
-### Go
-- golangci-lint: X issues (Y auto-fixed)
-- Modernization: Z patterns updated
-- t.Parallel(): N tests parallelized (excluded M shared resource tests)
-
-### Taskfiles
-- yamllint: OK | N warnings | N errors
-```
-
-## Important Notes
-
-- Always run `golangci-lint --fix` first to auto-fix what can be fixed
-- The .golangci.yaml config in the repo root defines linting rules
-- **NEVER add `t.Parallel()` to tests in `*_shared_test.go` files or tests using shared resources**
-- yamllint checks YAML syntax in Taskfiles (optional, install with `brew install yamllint`)
-- Report issues clearly so they can be manually addressed
+- All lint rules and modernization checks are defined in `.golangci.yaml`
+- Linters include: `modernize`, `intrange`, `copyloopvar`, `perfsprint`, `usestdlibvars`, `gocritic`, and more
+- Do not modify generated code (`*.pb.go`)
+- If issues remain after auto-fix, list them for the user to decide on manual fixes

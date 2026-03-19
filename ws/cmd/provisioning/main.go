@@ -5,7 +5,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -29,13 +28,13 @@ import (
 )
 
 func main() {
-	// Create basic logger for startup
-	logger := log.New(os.Stdout, "[PROVISIONING] ", log.LstdFlags)
+	// Bootstrap logger for pre-config startup (zerolog without config dependency)
+	bootLogger := logging.BootstrapLogger("provisioning")
 
 	// Load configuration first (env vars + envDefaults)
-	cfg, err := platform.LoadProvisioningConfig(nil)
+	cfg, err := platform.LoadProvisioningConfig(bootLogger)
 	if err != nil {
-		logger.Fatalf("Failed to load configuration: %v", err)
+		bootLogger.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
 	// CLI flags use env var config as defaults (CLI overrides env overrides envDefault)
@@ -48,7 +47,7 @@ func main() {
 	// Override debug mode if flag set
 	if *debug {
 		cfg.LogLevel = "debug"
-		logger.Printf("Debug mode enabled via flag")
+		bootLogger.Info().Msg("Debug mode enabled via flag")
 	}
 
 	// Print configuration
@@ -56,13 +55,13 @@ func main() {
 
 	// --validate-config: validate and exit
 	if *validateConfig {
-		logger.Println("Configuration is valid.")
+		bootLogger.Info().Msg("Configuration is valid")
 		os.Exit(0)
 	}
 
 	// Resolve effective topic namespace for Kafka
 	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
-	logger.Printf("Topic namespace: %s (environment: %s)", topicNamespace, cfg.Environment)
+	bootLogger.Info().Str("namespace", topicNamespace).Str("environment", cfg.Environment).Msg("Topic namespace resolved")
 
 	// Initialize structured logger
 	structuredLogger := logging.NewLogger(logging.LoggerConfig{
