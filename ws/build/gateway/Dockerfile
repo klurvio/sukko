@@ -33,7 +33,7 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 
 # Create non-root user for security
-RUN 0 && \
+RUN addgroup -S sukko && \
     adduser -u 1000 -S sukko -G sukko
 
 WORKDIR /app
