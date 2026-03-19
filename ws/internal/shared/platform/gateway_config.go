@@ -95,12 +95,10 @@ type GatewayConfig struct {
 
 // LoadGatewayConfig reads gateway configuration from environment variables.
 // Optionally loads from .env file if present.
-func LoadGatewayConfig(logger *zerolog.Logger) (*GatewayConfig, error) {
+func LoadGatewayConfig(logger zerolog.Logger) (*GatewayConfig, error) {
 	// Load .env file (optional)
 	if err := godotenv.Load(); err != nil {
-		if logger != nil {
-			logger.Debug().Msg("No .env file found (using environment variables only)")
-		}
+		logger.Debug().Msg("No .env file found (using environment variables only)")
 	}
 
 	cfg := &GatewayConfig{}

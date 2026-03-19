@@ -1,0 +1,74 @@
+# =============================================================================
+# CI — Push & PR Validation
+# =============================================================================
+# Runs on every push and pull request.
+# Jobs: test, lint (parallel).
+
+name: CI
+
+on:
+  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Test — go vet + go test -race
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ws
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: ws/go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test -race -count=1 -timeout=10m ./...
+
+  # ---------------------------------------------------------------------------
+  # Lint — golangci-lint + verify auto-fixable issues
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ws
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: ws/go.mod
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
+        with:
+          version: latest
+          working-directory: ws
+
+      - name: Verify auto-fixable issues are resolved
+        run: |
+          golangci-lint run --fix ./... || true
+          gofmt -s -w .
+          go fix ./... || true
+          go mod tidy
+          if [ -n "$(git diff)" ]; then
+            echo "::error::Code has auto-fixable issues. Run '/lint' locally and commit the changes."
+            git diff --stat
+            exit 1
+          fi

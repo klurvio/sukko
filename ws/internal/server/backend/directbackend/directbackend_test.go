@@ -1,6 +1,7 @@
 package directbackend
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
@@ -157,7 +158,7 @@ func TestPublish(t *testing.T) {
 			if msg.Subject != tt.channel {
 				t.Errorf("Subject: got %q, want %q", msg.Subject, tt.channel)
 			}
-			if string(msg.Payload) != string(tt.data) {
+			if !bytes.Equal(msg.Payload, tt.data) {
 				t.Errorf("Payload: got %q, want %q", msg.Payload, tt.data)
 			}
 		})

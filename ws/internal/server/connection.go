@@ -159,7 +159,7 @@ type ConnectionPool struct {
 // Buffer sizing at 125 msg/sec broadcast rate (25 msg/sec × 5 channel subscriptions):
 // - 512 slots: ~256KB/client, 4.1s buffer, ~3.5GB heap at 13.5K clients (default)
 // - 1024 slots: ~512KB/client, 8.2s buffer, ~6.9GB heap at 13.5K clients
-func NewConnectionPool(maxSize int, bufferSize int) *ConnectionPool {
+func NewConnectionPool(maxSize, bufferSize int) *ConnectionPool {
 	cp := &ConnectionPool{
 		maxSize:    maxSize,
 		bufferSize: bufferSize,
@@ -410,7 +410,9 @@ func (idx *SubscriptionIndex) Add(channel string, client *Client) {
 	// Load current snapshot (may be nil for new channel)
 	var currentSlice []*Client
 	if v := atomicVal.Load(); v != nil {
-		currentSlice = v.([]*Client)
+		if cs, ok := v.([]*Client); ok {
+			currentSlice = cs
+		}
 	}
 
 	// Check if client already subscribed (avoid duplicates)
@@ -445,7 +447,9 @@ func (idx *SubscriptionIndex) AddMultiple(channels []string, client *Client) {
 		// Load current snapshot
 		var currentSlice []*Client
 		if v := atomicVal.Load(); v != nil {
-			currentSlice = v.([]*Client)
+			if cs, ok := v.([]*Client); ok {
+				currentSlice = cs
+			}
 		}
 
 		// Check if client already subscribed
@@ -477,25 +481,29 @@ func (idx *SubscriptionIndex) Remove(channel string, client *Client) {
 	if v == nil {
 		return
 	}
-	currentSlice := v.([]*Client)
+	currentSlice, ok := v.([]*Client)
+	if !ok {
+		return
+	}
 
 	// Find client in slice
 	for i, existing := range currentSlice {
-		if existing == client {
-			// Create new slice without this client (copy-on-write)
-			newSlice := make([]*Client, len(currentSlice)-1)
-			copy(newSlice, currentSlice[:i])
-			copy(newSlice[i:], currentSlice[i+1:])
-
-			// If slice is now empty, remove the channel entry
-			if len(newSlice) == 0 {
-				delete(idx.subscribers, channel)
-			} else {
-				// Atomically swap the new snapshot
-				atomicVal.Store(newSlice)
-			}
-			return
+		if existing != client {
+			continue
 		}
+		// Create new slice without this client (copy-on-write)
+		newSlice := make([]*Client, len(currentSlice)-1)
+		copy(newSlice, currentSlice[:i])
+		copy(newSlice[i:], currentSlice[i+1:])
+
+		// If slice is now empty, remove the channel entry
+		if len(newSlice) == 0 {
+			delete(idx.subscribers, channel)
+		} else {
+			// Atomically swap the new snapshot
+			atomicVal.Store(newSlice)
+		}
+		return
 	}
 }
 
@@ -516,22 +524,26 @@ func (idx *SubscriptionIndex) RemoveMultiple(channels []string, client *Client) 
 		if v == nil {
 			continue
 		}
-		currentSlice := v.([]*Client)
+		currentSlice, ok := v.([]*Client)
+		if !ok {
+			continue
+		}
 
 		// Find and remove client
 		for i, existing := range currentSlice {
-			if existing == client {
-				newSlice := make([]*Client, len(currentSlice)-1)
-				copy(newSlice, currentSlice[:i])
-				copy(newSlice[i:], currentSlice[i+1:])
-
-				if len(newSlice) == 0 {
-					delete(idx.subscribers, channel)
-				} else {
-					atomicVal.Store(newSlice)
-				}
-				break
+			if existing != client {
+				continue
 			}
+			newSlice := make([]*Client, len(currentSlice)-1)
+			copy(newSlice, currentSlice[:i])
+			copy(newSlice[i:], currentSlice[i+1:])
+
+			if len(newSlice) == 0 {
+				delete(idx.subscribers, channel)
+			} else {
+				atomicVal.Store(newSlice)
+			}
+			break
 		}
 	}
 }
@@ -548,21 +560,25 @@ func (idx *SubscriptionIndex) RemoveClient(client *Client) {
 		if v == nil {
 			continue
 		}
-		currentSlice := v.([]*Client)
+		currentSlice, ok := v.([]*Client)
+		if !ok {
+			continue
+		}
 
 		for i, existing := range currentSlice {
-			if existing == client {
-				newSlice := make([]*Client, len(currentSlice)-1)
-				copy(newSlice, currentSlice[:i])
-				copy(newSlice[i:], currentSlice[i+1:])
-
-				if len(newSlice) == 0 {
-					delete(idx.subscribers, channel)
-				} else {
-					atomicVal.Store(newSlice)
-				}
-				break
+			if existing != client {
+				continue
 			}
+			newSlice := make([]*Client, len(currentSlice)-1)
+			copy(newSlice, currentSlice[:i])
+			copy(newSlice[i:], currentSlice[i+1:])
+
+			if len(newSlice) == 0 {
+				delete(idx.subscribers, channel)
+			} else {
+				atomicVal.Store(newSlice)
+			}
+			break
 		}
 	}
 }

@@ -370,7 +370,7 @@ func (b *valkeyBus) receiveLoop() {
 	for {
 		select {
 		case <-b.ctx.Done():
-			b.logger.Info().Msg("Valkey receive loop stopping (context cancelled)")
+			b.logger.Info().Msg("Valkey receive loop stopping (context canceled)")
 			return
 
 		case valkeyMsg, ok := <-ch:

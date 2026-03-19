@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"sync"
@@ -115,7 +116,7 @@ func TestBroadcastEnvelope_MatchesJsonMarshal(t *testing.T) {
 				t.Fatalf("json.Marshal() error: %v", err)
 			}
 
-			if string(got) != string(expected) {
+			if !bytes.Equal(got, expected) {
 				t.Errorf("Build() output mismatch:\n  got:  %s\n  want: %s", string(got), string(expected))
 			}
 		})
@@ -208,7 +209,7 @@ func TestBroadcastEnvelope_ChannelEscaping(t *testing.T) {
 				t.Fatalf("json.Marshal() error: %v", err)
 			}
 
-			if string(got) != string(expected) {
+			if !bytes.Equal(got, expected) {
 				t.Errorf("Channel escaping mismatch for %q:\n  got:  %s\n  want: %s", tt.channel, string(got), string(expected))
 			}
 		})
@@ -244,7 +245,7 @@ func TestBroadcastEnvelope_NilPayload(t *testing.T) {
 		t.Fatalf("json.Marshal() error: %v", err)
 	}
 
-	if string(got) != string(expected) {
+	if !bytes.Equal(got, expected) {
 		t.Errorf("Nil payload mismatch:\n  got:  %s\n  want: %s", string(got), string(expected))
 	}
 }
@@ -297,7 +298,7 @@ func TestBroadcastEnvelope_LargePayload(t *testing.T) {
 		t.Fatalf("json.Marshal() error: %v", err)
 	}
 
-	if string(got) != string(expected) {
+	if !bytes.Equal(got, expected) {
 		t.Errorf("Large payload mismatch: got len=%d, want len=%d", len(got), len(expected))
 	}
 }
@@ -367,7 +368,7 @@ func TestBroadcastEnvelope_Concurrent(t *testing.T) {
 				return
 			}
 
-			if string(got) != string(expected) {
+			if !bytes.Equal(got, expected) {
 				t.Errorf("Concurrent Build(%d) mismatch:\n  got:  %s\n  want: %s", seq, string(got), string(expected))
 			}
 		})

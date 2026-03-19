@@ -335,7 +335,7 @@ func ExtractTenantContext(claims *Claims) *TenantContext {
 
 // CanAccessResource is a convenience method for quick access checks.
 // Returns true if the claims can access the resource.
-func (t *TenantIsolator) CanAccessResource(claims *Claims, resource string, resourceType string, action AccessAction) bool {
+func (t *TenantIsolator) CanAccessResource(claims *Claims, resource, resourceType string, action AccessAction) bool {
 	ctx := context.Background()
 
 	switch resourceType {

@@ -196,7 +196,7 @@ func TestSubscriptionSet_ThreadSafety(t *testing.T) {
 	for i := range 10 {
 		wg.Go(func() {
 			for range iterations {
-				set.Add("channel" + string(rune('A'+i))) //nolint:gosec // G115: test loop counter 0-9, no overflow risk
+				set.Add("channel" + string(rune('A'+i)))
 			}
 		})
 	}

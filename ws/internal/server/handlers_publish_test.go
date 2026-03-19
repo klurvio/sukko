@@ -28,7 +28,7 @@ func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 		"acme.btc-usdt.orderbook", // Hyphen in part
 		"test.user_123.settings",  // Underscore in part
 		"tenant.v1.api.request",   // Version prefix
-		"io.toniq.sukko.events",    // Reverse domain notation
+		"io.toniq.sukko.events",   // Reverse domain notation
 	}
 
 	for _, channel := range validChannels {

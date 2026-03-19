@@ -76,7 +76,7 @@ func (s *Server) WatchKeys(_ *provisioningv1.WatchKeysRequest, stream grpc.Serve
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Debug().Msg("stream context cancelled")
+			logger.Debug().Msg("stream context canceled")
 			return nil
 
 		case event, ok := <-events:
@@ -135,7 +135,7 @@ func (s *Server) WatchTenantConfig(_ *provisioningv1.WatchTenantConfigRequest, s
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Debug().Msg("stream context cancelled")
+			logger.Debug().Msg("stream context canceled")
 			return nil
 
 		case event, ok := <-events:
@@ -194,7 +194,7 @@ func (s *Server) WatchTopics(req *provisioningv1.WatchTopicsRequest, stream grpc
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Debug().Msg("stream context cancelled")
+			logger.Debug().Msg("stream context canceled")
 			return nil
 
 		case event, ok := <-events:

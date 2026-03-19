@@ -158,14 +158,14 @@ func TestNewPumpConfig(t *testing.T) {
 func TestNewPump_NilDependencies(t *testing.T) {
 	t.Parallel()
 	config := testPumpConfig()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
-	pump := NewPump(config, nil, zerolog.Logger{}, nil, nil, stats, nil)
+	pump := NewPump(config, nil, zerolog.Logger{}, nil, nil, s, nil)
 
 	if pump == nil {
 		t.Fatal("NewPump returned nil")
 	}
-	if pump.Stats != stats {
+	if pump.Stats != s {
 		t.Error("Stats not set correctly")
 	}
 }
@@ -177,7 +177,7 @@ func TestNewPump_AllDependencies(t *testing.T) {
 	mockRateLimiter := newTestMockRateLimiter()
 	mockAlertLogger := newTestMockAlertLogger()
 	mockClock := newTestMockClock()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := NewPump(
 		config,
@@ -185,7 +185,7 @@ func TestNewPump_AllDependencies(t *testing.T) {
 		zerolog.Logger{},
 		mockRateLimiter,
 		mockAlertLogger,
-		stats,
+		s,
 		mockClock,
 	)
 
@@ -235,7 +235,7 @@ func TestCreateRateLimitErrorMessage_Consistency(t *testing.T) {
 	msg1 := CreateRateLimitErrorMessage(10)
 	msg2 := CreateRateLimitErrorMessage(10)
 
-	if string(msg1) != string(msg2) {
+	if !bytes.Equal(msg1, msg2) {
 		t.Error("CreateRateLimitErrorMessage should return consistent output")
 	}
 }
@@ -248,12 +248,12 @@ func TestPump_HandleRateLimitExceeded_LogsWarning(t *testing.T) {
 	t.Parallel()
 	mockLogger := newTestMockLogger()
 	mockAlertLogger := newTestMockAlertLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Logger:      mockLogger,
 		AlertLogger: mockAlertLogger,
-		Stats:       stats,
+		Stats:       s,
 	}
 
 	client := &Client{
@@ -284,12 +284,12 @@ func TestPump_HandleRateLimitExceeded_AlertLog(t *testing.T) {
 	t.Parallel()
 	mockLogger := newTestMockLogger()
 	mockAlertLogger := newTestMockAlertLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Logger:      mockLogger,
 		AlertLogger: mockAlertLogger,
-		Stats:       stats,
+		Stats:       s,
 	}
 
 	client := &Client{
@@ -311,11 +311,11 @@ func TestPump_HandleRateLimitExceeded_AlertLog(t *testing.T) {
 func TestPump_HandleRateLimitExceeded_SendsError(t *testing.T) {
 	t.Parallel()
 	mockLogger := newTestMockLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Logger: mockLogger,
-		Stats:  stats,
+		Stats:  s,
 	}
 
 	client := &Client{
@@ -342,11 +342,11 @@ func TestPump_HandleRateLimitExceeded_SendsError(t *testing.T) {
 func TestPump_HandleRateLimitExceeded_FullBuffer(t *testing.T) {
 	t.Parallel()
 	mockLogger := newTestMockLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Logger: mockLogger,
-		Stats:  stats,
+		Stats:  s,
 	}
 
 	client := &Client{
@@ -372,11 +372,11 @@ func TestPump_HandleRateLimitExceeded_FullBuffer(t *testing.T) {
 func TestPump_HandleRateLimitExceeded_UpdatesStats(t *testing.T) {
 	t.Parallel()
 	mockLogger := newTestMockLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Logger: mockLogger,
-		Stats:  stats,
+		Stats:  s,
 	}
 
 	client := &Client{
@@ -384,12 +384,12 @@ func TestPump_HandleRateLimitExceeded_UpdatesStats(t *testing.T) {
 		send: make(chan OutgoingMsg, 10),
 	}
 
-	initialCount := stats.RateLimitedMessages.Load()
+	initialCount := s.RateLimitedMessages.Load()
 
 	pump.handleRateLimitExceeded(client)
 
-	if stats.RateLimitedMessages.Load() != initialCount+1 {
-		t.Errorf("RateLimitedMessages: got %d, want %d", stats.RateLimitedMessages.Load(), initialCount+1)
+	if s.RateLimitedMessages.Load() != initialCount+1 {
+		t.Errorf("RateLimitedMessages: got %d, want %d", s.RateLimitedMessages.Load(), initialCount+1)
 	}
 }
 
@@ -560,11 +560,11 @@ func TestRealClock_After(t *testing.T) {
 func TestPump_HandleRateLimitExceeded_Concurrent(t *testing.T) {
 	t.Parallel()
 	mockLogger := newTestMockLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Logger: mockLogger,
-		Stats:  stats,
+		Stats:  s,
 	}
 
 	const numGoroutines = 100
@@ -584,8 +584,8 @@ func TestPump_HandleRateLimitExceeded_Concurrent(t *testing.T) {
 
 	wg.Wait()
 
-	if stats.RateLimitedMessages.Load() != numGoroutines {
-		t.Errorf("RateLimitedMessages: got %d, want %d", stats.RateLimitedMessages.Load(), numGoroutines)
+	if s.RateLimitedMessages.Load() != numGoroutines {
+		t.Errorf("RateLimitedMessages: got %d, want %d", s.RateLimitedMessages.Load(), numGoroutines)
 	}
 }
 
@@ -598,7 +598,7 @@ func TestPump_RateLimitingFlow(t *testing.T) {
 	mockLogger := newTestMockLogger()
 	mockRateLimiter := newTestMockRateLimiter()
 	mockAlertLogger := newTestMockAlertLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	mockRateLimiter.setAllowCount(5)
 
@@ -606,7 +606,7 @@ func TestPump_RateLimitingFlow(t *testing.T) {
 		Logger:      mockLogger,
 		RateLimiter: mockRateLimiter,
 		AlertLogger: mockAlertLogger,
-		Stats:       stats,
+		Stats:       s,
 	}
 
 	clientID := int64(12345)
@@ -690,7 +690,7 @@ func TestZerologEventAdapter_Chaining_ProducesOutput(t *testing.T) {
 	output := buf.String()
 
 	// Verify the chained call produced output
-	if len(output) == 0 {
+	if output == "" {
 		t.Error("Chained method call did not produce output")
 	}
 
@@ -758,10 +758,10 @@ func TestReadLoop_TextMessage_ProcessedCorrectly(t *testing.T) {
 	mockConn := newTestMockConn()
 	mockConn.setReadData(frameData)
 
-	stats := stats.NewStats()
+	s := stats.NewStats()
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 	}
 
 	client := &Client{
@@ -785,13 +785,13 @@ func TestReadLoop_TextMessage_ProcessedCorrectly(t *testing.T) {
 		t.Error("Expected text message to be processed")
 	}
 
-	if string(receivedMsg) != string(textPayload) {
+	if !bytes.Equal(receivedMsg, textPayload) {
 		t.Errorf("Message mismatch: got %s, want %s", string(receivedMsg), string(textPayload))
 	}
 
 	// Verify stats were updated
-	if stats.MessagesReceived.Load() != 1 {
-		t.Errorf("MessagesReceived: got %d, want 1", stats.MessagesReceived.Load())
+	if s.MessagesReceived.Load() != 1 {
+		t.Errorf("MessagesReceived: got %d, want 1", s.MessagesReceived.Load())
 	}
 }
 
@@ -808,11 +808,11 @@ func TestReadLoop_PingFrame_SendsPongResponse(t *testing.T) {
 	mockConn := newTestMockConn()
 	mockConn.setReadData(frameData)
 
-	stats := stats.NewStats()
+	s := stats.NewStats()
 	mockLogger := newTestMockLogger()
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 		Logger: mockLogger,
 	}
 
@@ -831,7 +831,7 @@ func TestReadLoop_PingFrame_SendsPongResponse(t *testing.T) {
 	// Verify pong payload was queued to control channel (not written directly to conn)
 	select {
 	case payload := <-client.control:
-		if string(payload) != string(pingPayload) {
+		if !bytes.Equal(payload, pingPayload) {
 			t.Errorf("Pong payload mismatch: got %q, want %q", string(payload), string(pingPayload))
 		}
 	default:
@@ -852,10 +852,10 @@ func TestReadLoop_PongFrame_RefreshesDeadline(t *testing.T) {
 	mockConn := newTestMockConn()
 	mockConn.setReadData(frameData)
 
-	stats := stats.NewStats()
+	s := stats.NewStats()
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 	}
 
 	client := &Client{
@@ -884,10 +884,10 @@ func TestReadLoop_CloseFrame_ExitsGracefully(t *testing.T) {
 	mockConn := newTestMockConn()
 	mockConn.setReadData(closeFrame)
 
-	stats := stats.NewStats()
+	s := stats.NewStats()
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 	}
 
 	client := &Client{
@@ -919,10 +919,10 @@ func TestReadLoop_ContextCancellation_ExitsWithServerShutdown(t *testing.T) {
 	mockConn := newTestMockConn()
 	mockConn.setReadError(io.EOF) // Will return EOF when read buffer is empty
 
-	stats := stats.NewStats()
+	s := stats.NewStats()
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 	}
 
 	client := &Client{
@@ -971,10 +971,10 @@ func TestReadLoop_ReadError_CallsDisconnectFn(t *testing.T) {
 	mockConn := newTestMockConn()
 	mockConn.setReadError(io.ErrUnexpectedEOF)
 
-	stats := stats.NewStats()
+	s := stats.NewStats()
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 	}
 
 	client := &Client{
@@ -1022,10 +1022,10 @@ func TestReadLoop_RateLimiting_BlocksExcessiveMessages(t *testing.T) {
 	mockRateLimiter := newTestMockRateLimiter()
 	mockRateLimiter.setAllowCount(1) // Only allow first message
 
-	stats := stats.NewStats()
+	s := stats.NewStats()
 	pump := &Pump{
 		Config:      testPumpConfig(),
-		Stats:       stats,
+		Stats:       s,
 		RateLimiter: mockRateLimiter,
 		Logger:      newTestMockLogger(),
 	}
@@ -1068,10 +1068,10 @@ func TestReadLoop_PingFrame_ControlChannelFull_DropsWithLog(t *testing.T) {
 	mockConn.setReadData(frameData)
 
 	mockLogger := newTestMockLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 		Logger: mockLogger,
 	}
 
@@ -1116,11 +1116,11 @@ func TestWriteLoop_ControlChannel_SendsPong(t *testing.T) {
 	mockConn := newTestMockConn()
 	mockClock := newTestMockClock()
 	mockLogger := newTestMockLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 		Logger: mockLogger,
 		Clock:  mockClock,
 	}
@@ -1181,11 +1181,11 @@ func TestWriteLoop_ControlChannel_SetsWriteDeadline(t *testing.T) {
 	t.Parallel()
 	mockConn := newTestMockConn()
 	mockClock := newTestMockClock()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 		Clock:  mockClock,
 	}
 
@@ -1229,11 +1229,11 @@ func TestWriteLoop_ControlChannel_WriteError_Returns(t *testing.T) {
 	mockConn.setWriteErr(io.ErrClosedPipe)
 	mockClock := newTestMockClock()
 	mockLogger := newTestMockLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 		Logger: mockLogger,
 		Clock:  mockClock,
 	}
@@ -1283,11 +1283,11 @@ func TestWriteLoop_PingTimer_SendsPing(t *testing.T) {
 	mockConn := newTestMockConn()
 	mockClock := newTestMockClock()
 	mockLogger := newTestMockLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 		Logger: mockLogger,
 		Clock:  mockClock,
 	}
@@ -1344,11 +1344,11 @@ func TestWriteLoop_ContextCancellation_Exits(t *testing.T) {
 	t.Parallel()
 	mockConn := newTestMockConn()
 	mockClock := newTestMockClock()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 		Clock:  mockClock,
 	}
 
@@ -1383,11 +1383,11 @@ func TestWriteLoop_SendChannel_WritesMessage(t *testing.T) {
 	t.Parallel()
 	mockConn := newTestMockConn()
 	mockClock := newTestMockClock()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 		Clock:  mockClock,
 	}
 
@@ -1427,8 +1427,8 @@ func TestWriteLoop_SendChannel_WritesMessage(t *testing.T) {
 	}
 
 	// Verify stats were updated
-	if stats.MessagesSent.Load() != 1 {
-		t.Errorf("Expected MessagesSent=1, got %d", stats.MessagesSent.Load())
+	if s.MessagesSent.Load() != 1 {
+		t.Errorf("Expected MessagesSent=1, got %d", s.MessagesSent.Load())
 	}
 }
 
@@ -1437,11 +1437,11 @@ func TestWriteLoop_SendChannelClosed_SendsClose(t *testing.T) {
 	mockConn := newTestMockConn()
 	mockClock := newTestMockClock()
 	mockLogger := newTestMockLogger()
-	stats := stats.NewStats()
+	s := stats.NewStats()
 
 	pump := &Pump{
 		Config: testPumpConfig(),
-		Stats:  stats,
+		Stats:  s,
 		Logger: mockLogger,
 		Clock:  mockClock,
 	}

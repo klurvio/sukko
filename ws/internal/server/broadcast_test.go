@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -242,7 +243,7 @@ func TestBroadcast_OutgoingMsgBytes(t *testing.T) {
 		raw := []byte(`{"type":"pong","ts":1000}`)
 		msg := RawMsg(raw)
 		got := msg.Bytes()
-		if string(got) != string(raw) {
+		if !bytes.Equal(got, raw) {
 			t.Errorf("Bytes() = %s, want %s", string(got), string(raw))
 		}
 	})
@@ -353,10 +354,10 @@ func TestBroadcast_SequenceMonotonicallyIncreasing(t *testing.T) {
 	for i := range 100 {
 		seq := seqGen.Next()
 		msg := OutgoingMsg{envelope: env, seq: seq}
-		bytes := msg.Bytes()
+		msgBytes := msg.Bytes()
 
 		var parsed map[string]any
-		if err := json.Unmarshal(bytes, &parsed); err != nil {
+		if err := json.Unmarshal(msgBytes, &parsed); err != nil {
 			t.Fatalf("Broadcast %d: invalid JSON: %v", i, err)
 		}
 

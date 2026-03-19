@@ -251,7 +251,7 @@ func TestReadCPUQuota_V2_WithQuota(t *testing.T) {
 
 	// Create cpu.max file with quota
 	cpuMaxPath := filepath.Join(tmpDir, "cpu.max")
-	err := os.WriteFile(cpuMaxPath, []byte("200000 100000\n"), 0600)
+	err := os.WriteFile(cpuMaxPath, []byte("200000 100000\n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestReadCPUQuota_V2_NoQuota(t *testing.T) {
 
 	// Create cpu.max file with "max" (no limit)
 	cpuMaxPath := filepath.Join(tmpDir, "cpu.max")
-	err := os.WriteFile(cpuMaxPath, []byte("max 100000\n"), 0600)
+	err := os.WriteFile(cpuMaxPath, []byte("max 100000\n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestReadCPUQuota_V2_InvalidFormat(t *testing.T) {
 
 	// Create cpu.max file with invalid format
 	cpuMaxPath := filepath.Join(tmpDir, "cpu.max")
-	err := os.WriteFile(cpuMaxPath, []byte("invalid\n"), 0600)
+	err := os.WriteFile(cpuMaxPath, []byte("invalid\n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -318,12 +318,12 @@ func TestReadCPUQuota_V1_WithQuota(t *testing.T) {
 	quotaPath := filepath.Join(tmpDir, "cpu.cfs_quota_us")
 	periodPath := filepath.Join(tmpDir, "cpu.cfs_period_us")
 
-	err := os.WriteFile(quotaPath, []byte("150000\n"), 0600)
+	err := os.WriteFile(quotaPath, []byte("150000\n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create quota file: %v", err)
 	}
 
-	err = os.WriteFile(periodPath, []byte("100000\n"), 0600)
+	err = os.WriteFile(periodPath, []byte("100000\n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create period file: %v", err)
 	}
@@ -349,12 +349,12 @@ func TestReadCPUQuota_V1_NoLimit(t *testing.T) {
 	quotaPath := filepath.Join(tmpDir, "cpu.cfs_quota_us")
 	periodPath := filepath.Join(tmpDir, "cpu.cfs_period_us")
 
-	err := os.WriteFile(quotaPath, []byte("-1\n"), 0600)
+	err := os.WriteFile(quotaPath, []byte("-1\n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create quota file: %v", err)
 	}
 
-	err = os.WriteFile(periodPath, []byte("100000\n"), 0600)
+	err = os.WriteFile(periodPath, []byte("100000\n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create period file: %v", err)
 	}
@@ -395,7 +395,7 @@ nr_periods 100
 nr_throttled 5
 throttled_usec 500000
 `
-	err := os.WriteFile(cpuStatPath, []byte(content), 0600)
+	err := os.WriteFile(cpuStatPath, []byte(content), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestReadCPUUsage_V2_MissingUsageUsec(t *testing.T) {
 	content := `user_usec 1000000000
 system_usec 234567890
 `
-	err := os.WriteFile(cpuStatPath, []byte(content), 0600)
+	err := os.WriteFile(cpuStatPath, []byte(content), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestReadCPUUsage_V1(t *testing.T) {
 	// Create cpuacct.usage file (nanoseconds)
 	cpuacctPath := filepath.Join(tmpDir, "cpuacct.usage")
 	// 1234567890000 nanoseconds = 1234567890 microseconds
-	err := os.WriteFile(cpuacctPath, []byte("1234567890000\n"), 0600)
+	err := os.WriteFile(cpuacctPath, []byte("1234567890000\n"), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -474,7 +474,7 @@ nr_periods 1000
 nr_throttled 50
 throttled_usec 5000000
 `
-	err := os.WriteFile(cpuStatPath, []byte(content), 0600)
+	err := os.WriteFile(cpuStatPath, []byte(content), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -506,7 +506,7 @@ func TestReadThrottleStats_V1(t *testing.T) {
 nr_throttled 100
 throttled_time 3000000000
 `
-	err := os.WriteFile(cpuStatPath, []byte(content), 0600)
+	err := os.WriteFile(cpuStatPath, []byte(content), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -546,7 +546,7 @@ func TestReadThrottleStats_PartialData(t *testing.T) {
 	cpuStatPath := filepath.Join(tmpDir, "cpu.stat")
 	content := `nr_periods 500
 `
-	err := os.WriteFile(cpuStatPath, []byte(content), 0600)
+	err := os.WriteFile(cpuStatPath, []byte(content), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
@@ -765,7 +765,7 @@ func BenchmarkCPUMonitor_GetAllocation_Host(b *testing.B) {
 func BenchmarkReadCPUQuota_V2(b *testing.B) {
 	tmpDir := b.TempDir()
 	cpuMaxPath := filepath.Join(tmpDir, "cpu.max")
-	_ = os.WriteFile(cpuMaxPath, []byte("200000 100000\n"), 0600)
+	_ = os.WriteFile(cpuMaxPath, []byte("200000 100000\n"), 0o600)
 
 	for b.Loop() {
 		_, _, _ = readCPUQuota(tmpDir, 2)
@@ -779,7 +779,7 @@ func BenchmarkReadCPUUsage_V2(b *testing.B) {
 user_usec 1000000000
 system_usec 234567890
 `
-	_ = os.WriteFile(cpuStatPath, []byte(content), 0600)
+	_ = os.WriteFile(cpuStatPath, []byte(content), 0o600)
 
 	for b.Loop() {
 		_, _ = readCPUUsage(tmpDir, 2)
@@ -794,7 +794,7 @@ nr_periods 1000
 nr_throttled 50
 throttled_usec 5000000
 `
-	_ = os.WriteFile(cpuStatPath, []byte(content), 0600)
+	_ = os.WriteFile(cpuStatPath, []byte(content), 0o600)
 
 	for b.Loop() {
 		_, _ = readThrottleStats(tmpDir, 2)

@@ -298,7 +298,7 @@ func (jsb *JetStreamBackend) Replay(ctx context.Context, req backend.ReplayReque
 
 		// Check if caller has timed out before starting next stream fetch
 		if err := ctx.Err(); err != nil {
-			jsb.logger.Debug().Err(err).Msg("Replay cancelled by caller")
+			jsb.logger.Debug().Err(err).Msg("Replay canceled by caller")
 			break
 		}
 

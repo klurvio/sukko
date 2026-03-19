@@ -27,34 +27,46 @@ var (
 )
 
 func main() {
-	validateConfig := flag.Bool("validate-config", false, "validate configuration and exit")
-	flag.Parse()
+	// Bootstrap logger for pre-config startup (zerolog without config dependency)
+	bootLogger := logging.BootstrapLogger("ws-gateway")
 
-	// Initialize logger using shared logging package
-	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:       logging.LogLevel(os.Getenv("LOG_LEVEL")),
-		Format:      logging.LogFormat(os.Getenv("LOG_FORMAT")),
-		ServiceName: "ws-gateway",
-	})
-
-	logger.Info().
+	bootLogger.Info().
 		Str("version", Version).
 		Str("commit", CommitHash).
 		Str("build_time", BuildTime).
 		Msg("Starting ws-gateway")
-	logger.Info().Int("gomaxprocs", runtime.GOMAXPROCS(0)).Msg("GOMAXPROCS set by Go runtime (container-aware)")
+	bootLogger.Info().Int("gomaxprocs", runtime.GOMAXPROCS(0)).Msg("GOMAXPROCS set by Go runtime (container-aware)")
 
 	// Load configuration
-	config, err := platform.LoadGatewayConfig(&logger)
+	config, err := platform.LoadGatewayConfig(bootLogger)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("Failed to load configuration")
+		bootLogger.Fatal().Err(err).Msg("Failed to load configuration")
 	}
+
+	// CLI flags use env var config as defaults (CLI overrides env overrides envDefault)
+	var (
+		debug          = flag.Bool("debug", config.LogLevel == "debug", "enable debug logging (overrides LOG_LEVEL)")
+		validateConfig = flag.Bool("validate-config", false, "validate configuration and exit")
+	)
+	flag.Parse()
+
+	// Override debug mode if flag set
+	if *debug {
+		config.LogLevel = "debug"
+	}
+
+	// Create structured logger from config (after flags parsed)
+	logger := logging.NewLogger(logging.LoggerConfig{
+		Level:       logging.LogLevel(config.LogLevel),
+		Format:      logging.LogFormat(config.LogFormat),
+		ServiceName: "ws-gateway",
+	})
 
 	config.LogConfig(logger)
 
 	// --validate-config: validate and exit
 	if *validateConfig {
-		logger.Info().Msg("Configuration is valid.")
+		logger.Info().Msg("Configuration is valid")
 		os.Exit(0)
 	}
 

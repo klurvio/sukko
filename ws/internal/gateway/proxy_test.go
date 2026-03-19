@@ -560,11 +560,11 @@ func writeOversizedFrameHeader(conn net.Conn, declaredLength int64, mask bool) e
 }
 
 // newRunTestProxy creates a Proxy with net.Pipe connections for Run() tests.
-func newRunTestProxy(maxFrameSize int, messageTimeout time.Duration) (*Proxy, net.Conn, net.Conn) {
+func newRunTestProxy(maxFrameSize int, messageTimeout time.Duration) (proxy *Proxy, client, backend net.Conn) {
 	clientConn, clientRemote := net.Pipe()
 	backendConn, backendRemote := net.Pipe()
 
-	proxy := &Proxy{
+	proxy = &Proxy{
 		clientConn:         clientConn,
 		backendConn:        backendConn,
 		authEnabled:        false,

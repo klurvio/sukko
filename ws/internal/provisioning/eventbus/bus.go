@@ -68,15 +68,16 @@ func New(logger zerolog.Logger) *Bus {
 
 // Subscribe registers a new subscriber and returns its ID and event channel.
 // The caller must call Unsubscribe when done to prevent resource leaks.
-func (b *Bus) Subscribe() (int, <-chan Event) {
+func (b *Bus) Subscribe() (id int, ch <-chan Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	id := b.nextID
+	id = b.nextID
 	b.nextID++
 
-	ch := make(chan Event, subscriberBufferSize)
-	b.subscribers[id] = ch
+	bidiCh := make(chan Event, subscriberBufferSize)
+	b.subscribers[id] = bidiCh
+	ch = bidiCh
 
 	b.logger.Debug().Int("subscriber_id", id).Msg("subscriber registered")
 

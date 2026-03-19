@@ -171,7 +171,10 @@ func (aa *AdminAuth) isRateLimited(ip string) bool {
 		return false
 	}
 
-	f := v.(*ipFailure)
+	f, ok2 := v.(*ipFailure)
+	if !ok2 {
+		return false
+	}
 	now := time.Now()
 
 	// If past the reset time, the entry has expired
@@ -197,8 +200,8 @@ func (aa *AdminAuth) recordFailure(ip string) {
 		return // new entry stored
 	}
 
-	f := v.(*ipFailure)
-	if now.After(f.resetAt) {
+	f, _ := v.(*ipFailure)
+	if f == nil || now.After(f.resetAt) {
 		// Expired — replace with fresh entry
 		aa.failures.Store(ip, fresh)
 		return
@@ -217,7 +220,10 @@ func (aa *AdminAuth) cleanupFailures() {
 	removed := 0
 
 	aa.failures.Range(func(key, value any) bool {
-		f := value.(*ipFailure)
+		f, _ := value.(*ipFailure)
+		if f == nil {
+			return true
+		}
 		if f.resetAt.Before(cutoff) {
 			aa.failures.Delete(key)
 			removed++

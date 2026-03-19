@@ -91,18 +91,12 @@ type ProvisioningConfig struct {
 // LoadProvisioningConfig reads provisioning service configuration from .env file
 // and environment variables.
 // Priority: ENV vars > .env file > defaults
-func LoadProvisioningConfig(logger *zerolog.Logger) (*ProvisioningConfig, error) {
+func LoadProvisioningConfig(logger zerolog.Logger) (*ProvisioningConfig, error) {
 	// Load .env file (optional)
 	if err := godotenv.Load(); err != nil {
-		if logger != nil {
-			logger.Info().Msg("No .env file found (using environment variables only)")
-		} else {
-			_, _ = fmt.Fprintln(os.Stdout, "Info: No .env file found (using environment variables only)")
-		}
+		logger.Info().Msg("No .env file found (using environment variables only)")
 	} else {
-		if logger != nil {
-			logger.Info().Msg("Loaded configuration from .env file")
-		}
+		logger.Info().Msg("Loaded configuration from .env file")
 	}
 
 	cfg := &ProvisioningConfig{}
@@ -117,9 +111,7 @@ func LoadProvisioningConfig(logger *zerolog.Logger) (*ProvisioningConfig, error)
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
-	if logger != nil {
-		logger.Info().Msg("Configuration loaded and validated successfully")
-	}
+	logger.Info().Msg("Configuration loaded and validated successfully")
 
 	return cfg, nil
 }
@@ -147,8 +139,8 @@ func (c *ProvisioningConfig) Validate() error {
 
 	// Admin token validation
 	if c.AdminToken != "" && len(c.AdminToken) < 16 {
-		env := strings.ToLower(strings.TrimSpace(c.Environment))
-		if env != "dev" && env != "development" && env != "local" {
+		envName := strings.ToLower(strings.TrimSpace(c.Environment))
+		if envName != "dev" && envName != "development" && envName != "local" {
 			return fmt.Errorf("PROVISIONING_ADMIN_TOKEN must be at least 16 characters in non-development environments (got %d)", len(c.AdminToken))
 		}
 		// In dev: warning is logged at startup, not a validation error

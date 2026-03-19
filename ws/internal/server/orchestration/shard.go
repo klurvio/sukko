@@ -168,9 +168,9 @@ func (s *Shard) GetAddr() string {
 // GetSystemStats returns system-wide CPU and memory metrics.
 // Since all shards run in the same process, these metrics are shared.
 // Queries directly from SystemMonitor singleton (single source of truth).
-func (s *Shard) GetSystemStats() (cpuPercent float64, memoryMB float64) {
+func (s *Shard) GetSystemStats() (cpuPercent, memoryMB float64) {
 	// Get SystemMonitor singleton (all shards share the same instance)
 	systemMonitor := metrics.GetSystemMonitor(s.logger)
-	metrics := systemMonitor.GetMetrics()
-	return metrics.CPUPercent, metrics.MemoryMB
+	sysMetrics := systemMonitor.GetMetrics()
+	return sysMetrics.CPUPercent, sysMetrics.MemoryMB
 }

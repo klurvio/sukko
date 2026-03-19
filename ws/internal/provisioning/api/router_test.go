@@ -454,7 +454,7 @@ func TestRouter_AuthEnabled_InvalidToken(t *testing.T) {
 		name  string
 		token string
 	}{
-		{ //nolint:gosec // G101: test fixture, not a real credential
+		{
 			name:  "malformed token",
 			token: "not-a-valid-jwt",
 		},

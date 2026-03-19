@@ -116,7 +116,7 @@ type KeyRegistryStats struct {
 }
 
 // ParsePublicKey parses a PEM-encoded public key and validates it matches the algorithm.
-func ParsePublicKey(pemData string, algorithm string) (crypto.PublicKey, error) {
+func ParsePublicKey(pemData, algorithm string) (crypto.PublicKey, error) {
 	block, _ := pem.Decode([]byte(pemData))
 	if block == nil {
 		return nil, errors.New("failed to decode PEM block")

@@ -45,7 +45,7 @@ func TestExtractBearerToken(t *testing.T) {
 			header:    "Basic abc123",
 			wantToken: "",
 		},
-		{ //nolint:gosec // G101: test fixture with Bearer token, not a real credential
+		{
 			name:      "Authorization header with extra spaces",
 			query:     "",
 			header:    "Bearer   token-with-spaces",

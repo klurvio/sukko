@@ -17,15 +17,15 @@ import (
 
 func TestServer_GetStats(t *testing.T) {
 	t.Parallel()
-	stats := stats.NewStats()
-	stats.CurrentConnections.Store(42)
-	stats.TotalConnections.Store(100)
+	s := stats.NewStats()
+	s.CurrentConnections.Store(42)
+	s.TotalConnections.Store(100)
 
-	server := &Server{stats: stats}
+	server := &Server{stats: s}
 
 	got := server.GetStats()
 
-	if got != stats {
+	if got != s {
 		t.Error("GetStats() should return the same stats instance")
 	}
 	if got.CurrentConnections.Load() != 42 {
@@ -42,8 +42,8 @@ func TestServer_GetStats(t *testing.T) {
 
 func TestServer_Stats_ConcurrentUpdates(t *testing.T) {
 	t.Parallel()
-	stats := stats.NewStats()
-	server := &Server{stats: stats}
+	s := stats.NewStats()
+	server := &Server{stats: s}
 
 	const numGoroutines = 100
 	const numUpdates = 1000
@@ -700,8 +700,8 @@ func TestServer_BroadcastFunctionality_NotAffectedByBackendField(t *testing.T) {
 	// without panic and the subscription mechanisms work.
 
 	// Verify server metrics are accessible (another regression check)
-	stats := server.GetStats()
-	if stats == nil {
+	serverStats := server.GetStats()
+	if serverStats == nil {
 		t.Error("GetStats() returned nil")
 	}
 
