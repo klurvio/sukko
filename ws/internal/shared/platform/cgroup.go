@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -38,7 +39,11 @@ func GetMemoryLimit() (int64, error) {
 	if data, err := os.ReadFile("/sys/fs/cgroup/memory.max"); err == nil {
 		limitStr := strings.TrimSpace(string(data))
 		if limitStr != "max" {
-			return strconv.ParseInt(limitStr, 10, 64)
+			limit, err := strconv.ParseInt(limitStr, 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("parse cgroup v2 memory limit: %w", err)
+			}
+			return limit, nil
 		}
 	}
 
@@ -47,7 +52,11 @@ func GetMemoryLimit() (int64, error) {
 	// Format: "536870912" (always a number, never "max")
 	if data, err := os.ReadFile("/sys/fs/cgroup/memory/memory.limit_in_bytes"); err == nil {
 		limitStr := strings.TrimSpace(string(data))
-		return strconv.ParseInt(limitStr, 10, 64)
+		limit, err := strconv.ParseInt(limitStr, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse cgroup v1 memory limit: %w", err)
+		}
+		return limit, nil
 	}
 
 	// If no cgroup limits found, return 0 (no limit detected)

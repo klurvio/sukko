@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // SystemMonitor is a singleton that centralizes system resource monitoring.
@@ -22,6 +22,7 @@ var (
 // SystemMetrics holds current system resource measurements.
 type SystemMetrics struct {
 	CPUPercent    float64                // Current CPU usage percentage (container-aware)
+	CPUSmoothed   float64                // EWMA-smoothed CPU percentage (for load-shedding decisions)
 	MemoryBytes   int64                  // Current memory usage in bytes
 	MemoryMB      float64                // Current memory usage in MB
 	Goroutines    int                    // Current goroutine count
@@ -39,6 +40,10 @@ type SystemMonitor struct {
 	mu      sync.RWMutex
 	metrics SystemMetrics
 
+	// EWMA state
+	ewmaBeta        float64 // Decay factor (0-1), higher = smoother
+	ewmaInitialized bool    // Whether first sample has been received
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -46,14 +51,22 @@ type SystemMonitor struct {
 }
 
 // GetSystemMonitor returns the singleton SystemMonitor instance.
-// First call initializes the monitor with the provided logger.
-func GetSystemMonitor(logger zerolog.Logger) *SystemMonitor {
+// The initializing call (from main) MUST pass ewmaBeta from validated config.
+// Subsequent calls (from shards, resource guards) omit ewmaBeta and get the
+// existing instance — logger is ignored on subsequent calls.
+func GetSystemMonitor(logger zerolog.Logger, ewmaBeta ...float64) *SystemMonitor {
 	systemMonitorOnce.Do(func() {
 		ctx, cancel := context.WithCancel(context.Background())
+
+		var beta float64
+		if len(ewmaBeta) > 0 {
+			beta = ewmaBeta[0]
+		}
 
 		systemMonitorInstance = &SystemMonitor{
 			cpuMonitor: platform.NewCPUMonitor(logger),
 			logger:     logger.With().Str("component", "system_monitor").Logger(),
+			ewmaBeta:   beta,
 			ctx:        ctx,
 			cancel:     cancel,
 		}
@@ -72,6 +85,7 @@ func GetSystemMonitor(logger zerolog.Logger) *SystemMonitor {
 		logger.Info().
 			Str("cpu_mode", systemMonitorInstance.cpuMonitor.Mode()).
 			Float64("cpu_allocation", systemMonitorInstance.cpuMonitor.GetAllocation()).
+			Float64("ewma_beta", beta).
 			Msg("SystemMonitor singleton initialized")
 	})
 
@@ -119,18 +133,26 @@ func (sm *SystemMonitor) StartMonitoring(metricsInterval, cpuPollInterval time.D
 func (sm *SystemMonitor) updateCPUOnly() {
 	cpuPercent, throttleStats, err := sm.cpuMonitor.GetPercent()
 	if err != nil {
-		cpuPercent = sm.metrics.CPUPercent // Keep previous value
+		// Graceful degradation: keep the previous CPU reading rather than
+		// reporting zero, which would incorrectly release load-shedding.
+		sm.logger.Warn().Err(err).Msg("Failed to update CPU, using previous value")
+		sm.mu.RLock()
+		cpuPercent = sm.metrics.CPUPercent
+		sm.mu.RUnlock()
 	}
 
 	sm.mu.Lock()
 	sm.metrics.CPUPercent = cpuPercent
+	sm.metrics.CPUSmoothed = sm.computeEWMA(cpuPercent)
 	sm.metrics.ThrottleStats = throttleStats
 	sm.metrics.Timestamp = time.Now()
+	smoothed := sm.metrics.CPUSmoothed
 	sm.mu.Unlock()
 
 	// Update Prometheus CPU metrics
 	CPUUsagePercent.Set(cpuPercent)
 	CPUContainerPercent.Set(cpuPercent)
+	CPUSmoothedPercent.Set(smoothed)
 
 	if throttleStats.NrThrottled > 0 {
 		CPUThrottleEventsTotal.Add(float64(throttleStats.NrThrottled))
@@ -145,7 +167,9 @@ func (sm *SystemMonitor) updateMetrics() {
 	cpuPercent, throttleStats, err := sm.cpuMonitor.GetPercent()
 	if err != nil {
 		sm.logger.Error().Err(err).Msg("Failed to get CPU usage")
-		cpuPercent = 0
+		sm.mu.RLock()
+		cpuPercent = sm.metrics.CPUPercent
+		sm.mu.RUnlock()
 	}
 
 	var mem runtime.MemStats
@@ -154,8 +178,10 @@ func (sm *SystemMonitor) updateMetrics() {
 	goroutines := runtime.NumGoroutine()
 
 	sm.mu.Lock()
+	smoothed := sm.computeEWMA(cpuPercent)
 	sm.metrics = SystemMetrics{
 		CPUPercent:    cpuPercent,
+		CPUSmoothed:   smoothed,
 		MemoryBytes:   int64(mem.Alloc), //nolint:gosec // Memory allocation fits in int64
 		MemoryMB:      float64(mem.Alloc) / (1024 * 1024),
 		Goroutines:    goroutines,
@@ -168,6 +194,7 @@ func (sm *SystemMonitor) updateMetrics() {
 	// Update Prometheus metrics
 	CPUUsagePercent.Set(cpuPercent)
 	CPUContainerPercent.Set(cpuPercent)
+	CPUSmoothedPercent.Set(smoothed)
 	CPUAllocationCores.Set(sm.cpuMonitor.GetAllocation())
 	memoryUsageBytes.Set(float64(mem.Alloc))
 	goroutinesActive.Set(float64(goroutines))
@@ -199,11 +226,30 @@ func (sm *SystemMonitor) GetMetrics() SystemMetrics {
 	return sm.metrics
 }
 
-// GetCPUPercent returns the current CPU usage percentage.
+// GetCPUPercent returns the current raw (unsmoothed) CPU usage percentage.
 func (sm *SystemMonitor) GetCPUPercent() float64 {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return sm.metrics.CPUPercent
+}
+
+// GetSmoothedCPUPercent returns the EWMA-smoothed CPU percentage.
+// This should be used for load-shedding decisions (ResourceGuard) to avoid
+// false triggers from transient CPU spikes.
+func (sm *SystemMonitor) GetSmoothedCPUPercent() float64 {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.metrics.CPUSmoothed
+}
+
+// computeEWMA calculates the EWMA-smoothed CPU value.
+// Must be called with sm.mu write-locked.
+func (sm *SystemMonitor) computeEWMA(rawCPU float64) float64 {
+	if !sm.ewmaInitialized {
+		sm.ewmaInitialized = true
+		return rawCPU
+	}
+	return sm.metrics.CPUSmoothed*sm.ewmaBeta + rawCPU*(1-sm.ewmaBeta)
 }
 
 // GetMemoryBytes returns the current memory usage in bytes.

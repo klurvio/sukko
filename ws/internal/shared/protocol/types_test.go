@@ -11,7 +11,7 @@ import (
 
 func TestMessageTypeConstants_Values(t *testing.T) {
 	t.Parallel()
-	// Client→server message types
+	// Client→server message types (shared across gateway and server)
 	if MsgTypeSubscribe != "subscribe" {
 		t.Errorf("MsgTypeSubscribe = %q, want %q", MsgTypeSubscribe, "subscribe")
 	}
@@ -21,46 +21,19 @@ func TestMessageTypeConstants_Values(t *testing.T) {
 	if MsgTypePublish != "publish" {
 		t.Errorf("MsgTypePublish = %q, want %q", MsgTypePublish, "publish")
 	}
-	if MsgTypeReconnect != "reconnect" {
-		t.Errorf("MsgTypeReconnect = %q, want %q", MsgTypeReconnect, "reconnect")
-	}
-	if MsgTypeHeartbeat != "heartbeat" {
-		t.Errorf("MsgTypeHeartbeat = %q, want %q", MsgTypeHeartbeat, "heartbeat")
-	}
-}
-
-func TestServerMessageTypeConstants_Values(t *testing.T) {
-	t.Parallel()
-	// Server→client message types
-	if MsgTypeMessage != "message" {
-		t.Errorf("MsgTypeMessage = %q, want %q", MsgTypeMessage, "message")
-	}
-	if MsgTypePong != "pong" {
-		t.Errorf("MsgTypePong = %q, want %q", MsgTypePong, "pong")
-	}
-	if MsgTypeError != "error" {
-		t.Errorf("MsgTypeError = %q, want %q", MsgTypeError, "error")
-	}
 }
 
 func TestResponseTypeConstants_Values(t *testing.T) {
 	t.Parallel()
+	// Only shared response types remain here; server-only types are in server/protocol.go.
 	expectedTypes := map[string]string{
-		"RespTypeSubscriptionAck":   RespTypeSubscriptionAck,
-		"RespTypeUnsubscriptionAck": RespTypeUnsubscriptionAck,
-		"RespTypePublishAck":        RespTypePublishAck,
-		"RespTypePublishError":      RespTypePublishError,
-		"RespTypeReconnectAck":      RespTypeReconnectAck,
-		"RespTypeReconnectError":    RespTypeReconnectError,
+		"RespTypePublishAck":   RespTypePublishAck,
+		"RespTypePublishError": RespTypePublishError,
 	}
 
 	expected := map[string]string{
-		"RespTypeSubscriptionAck":   "subscription_ack",
-		"RespTypeUnsubscriptionAck": "unsubscription_ack",
-		"RespTypePublishAck":        "publish_ack",
-		"RespTypePublishError":      "publish_error",
-		"RespTypeReconnectAck":      "reconnect_ack",
-		"RespTypeReconnectError":    "reconnect_error",
+		"RespTypePublishAck":   "publish_ack",
+		"RespTypePublishError": "publish_error",
 	}
 
 	for name, actual := range expectedTypes {
@@ -137,7 +110,7 @@ func TestClientMessage_JSONRoundTrip(t *testing.T) {
 func TestClientMessage_EmptyData(t *testing.T) {
 	t.Parallel()
 	msg := ClientMessage{
-		Type: MsgTypeHeartbeat,
+		Type: MsgTypeSubscribe,
 	}
 
 	data, err := json.Marshal(msg)
@@ -146,7 +119,7 @@ func TestClientMessage_EmptyData(t *testing.T) {
 	}
 
 	// Empty data should be omitted due to omitempty tag
-	expected := `{"type":"heartbeat"}`
+	expected := `{"type":"subscribe"}`
 	if string(data) != expected {
 		t.Errorf("Marshal = %s, want %s", string(data), expected)
 	}
@@ -154,15 +127,15 @@ func TestClientMessage_EmptyData(t *testing.T) {
 
 func TestClientMessage_NullData(t *testing.T) {
 	t.Parallel()
-	data := []byte(`{"type":"heartbeat","data":null}`)
+	data := []byte(`{"type":"subscribe","data":null}`)
 
 	var msg ClientMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	if msg.Type != MsgTypeHeartbeat {
-		t.Errorf("Type = %q, want %q", msg.Type, MsgTypeHeartbeat)
+	if msg.Type != MsgTypeSubscribe {
+		t.Errorf("Type = %q, want %q", msg.Type, MsgTypeSubscribe)
 	}
 }
 
@@ -261,41 +234,6 @@ func TestSubscribeData_MultipleChannels(t *testing.T) {
 		if decoded.Channels[i] != ch {
 			t.Errorf("Channels[%d] = %q, want %q", i, decoded.Channels[i], ch)
 		}
-	}
-}
-
-// =============================================================================
-// UnsubscribeData Tests
-// =============================================================================
-
-func TestUnsubscribeData_MarshalJSON(t *testing.T) {
-	t.Parallel()
-	unsub := UnsubscribeData{
-		Channels: []string{"BTC.trade"},
-	}
-
-	data, err := json.Marshal(unsub)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	expected := `{"channels":["BTC.trade"]}`
-	if string(data) != expected {
-		t.Errorf("Marshal = %s, want %s", string(data), expected)
-	}
-}
-
-func TestUnsubscribeData_UnmarshalJSON(t *testing.T) {
-	t.Parallel()
-	data := []byte(`{"channels":["BTC.trade","ETH.orderbook"]}`)
-
-	var unsub UnsubscribeData
-	if err := json.Unmarshal(data, &unsub); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-
-	if len(unsub.Channels) != 2 {
-		t.Errorf("len(Channels) = %d, want 2", len(unsub.Channels))
 	}
 }
 

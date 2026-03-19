@@ -7,9 +7,9 @@ import (
 
 	"github.com/gobwas/ws"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/klurvio/sukko/internal/server/metrics"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
 // extractChannel returns the broadcast subject as the channel for subscription matching.
@@ -65,7 +65,7 @@ func extractChannel(subject string) string {
 // - Result: 160x reduction vs no filtering, 8x reduction vs symbol-only filtering
 func (s *Server) Broadcast(subject string, message []byte) {
 	// Extract hierarchical channel from subject for subscription filtering
-	// Example: "BTC.trade" (new format) or "odin.token.BTC.trade" (legacy) → "BTC.trade"
+	// Example: "BTC.trade" (new format) or "sukko.token.BTC.trade" (legacy) → "BTC.trade"
 	channel := extractChannel(subject)
 
 	// Edge case: If channel is empty (malformed subject), skip broadcast entirely
@@ -207,8 +207,8 @@ func (s *Server) Broadcast(subject string, message []byte) {
 				// Record how many attempts it took before disconnect (for histogram analysis)
 				metrics.RecordSlowClientAttempt(int(attempts))
 
-				// Audit log slow client disconnection
-				s.auditLogger.Warning("SlowClientDisconnected", "Client disconnected for being too slow", map[string]any{
+				// Alert log slow client disconnection
+				s.alertLogger.Warning("SlowClientDisconnected", "Client disconnected for being too slow", map[string]any{
 					"clientID":           client.id,
 					"consecutiveFails":   attempts,
 					"connectionDuration": duration.Seconds(),

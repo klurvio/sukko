@@ -1,6 +1,5 @@
 // Package logging provides structured logging utilities for the WebSocket services
-// including configurable log levels, panic recovery helpers, and error logging
-// with stack trace support.
+// including configurable log levels and panic recovery helpers.
 //
 // This package is designed to be used by all services (server, gateway, provisioning)
 // without pulling in service-specific dependencies.

@@ -3,24 +3,43 @@ package limits
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/server/stats"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // SystemMonitorInterface defines the interface for system monitoring
 // This allows for dependency injection and easier testing
 type SystemMonitorInterface interface {
 	GetCPUPercent() float64
+	GetSmoothedCPUPercent() float64
 	GetMemoryBytes() int64
 	GetGoroutines() int
 	GetMetrics() metrics.SystemMetrics
 	GetCPUAllocation() float64
+}
+
+// ResourceGuardConfig contains only the fields that ResourceGuard reads.
+// This focused config replaces the full ServerConfig dependency, allowing callers
+// to construct it from their own config without importing the full platform config.
+type ResourceGuardConfig struct {
+	MaxConnections           int
+	MemoryLimit              int64
+	MaxKafkaMessagesPerSec   int
+	MaxBroadcastsPerSec      int
+	MaxGoroutines            int
+	RateLimitBurstMultiplier int // Burst capacity as a multiple of steady-state rate
+	CPURejectThreshold       float64
+	CPURejectThresholdLower  float64
+	CPUPauseThreshold        float64
+	CPUPauseThresholdLower   float64
 }
 
 // ResourceGuard enforces static resource limits and prevents server overload.
@@ -47,7 +66,7 @@ type SystemMonitorInterface interface {
 //   - Use hysteresis for CPU thresholds to prevent oscillation
 type ResourceGuard struct {
 	// Static configuration
-	config types.ServerConfig
+	config ResourceGuardConfig
 	logger zerolog.Logger
 
 	// Rate limiters
@@ -130,19 +149,19 @@ func (gl *GoroutineLimiter) Max() int {
 // Example:
 //
 //	guard := NewResourceGuard(config, logger, &server.stats.CurrentConnections)
-func NewResourceGuard(config types.ServerConfig, logger zerolog.Logger, currentConns *atomic.Int64) *ResourceGuard {
+func NewResourceGuard(config ResourceGuardConfig, logger zerolog.Logger, currentConns *atomic.Int64) *ResourceGuard {
 	// Create Kafka rate limiter
 	// Limit: MaxKafkaMessagesPerSec per second
-	// Burst: Allow up to 2x the rate in bursts (for traffic spikes)
+	// Burst: configurable multiplier × rate (for traffic spikes)
 	kafkaLimiter := rate.NewLimiter(
 		rate.Limit(config.MaxKafkaMessagesPerSec),
-		config.MaxKafkaMessagesPerSec*2, // Burst capacity
+		config.MaxKafkaMessagesPerSec*config.RateLimitBurstMultiplier,
 	)
 
 	// Create broadcast rate limiter
 	broadcastLimiter := rate.NewLimiter(
 		rate.Limit(config.MaxBroadcastsPerSec),
-		config.MaxBroadcastsPerSec*2,
+		config.MaxBroadcastsPerSec*config.RateLimitBurstMultiplier,
 	)
 
 	// Create goroutine limiter
@@ -184,15 +203,15 @@ func NewResourceGuard(config types.ServerConfig, logger zerolog.Logger, currentC
 
 // NewResourceGuardWithMonitor creates a ResourceGuard with a custom SystemMonitor
 // This is primarily used for testing to inject mock monitors
-func NewResourceGuardWithMonitor(config types.ServerConfig, logger zerolog.Logger, currentConns *atomic.Int64, monitor SystemMonitorInterface) *ResourceGuard {
+func NewResourceGuardWithMonitor(config ResourceGuardConfig, logger zerolog.Logger, currentConns *atomic.Int64, monitor SystemMonitorInterface) *ResourceGuard {
 	kafkaLimiter := rate.NewLimiter(
 		rate.Limit(config.MaxKafkaMessagesPerSec),
-		config.MaxKafkaMessagesPerSec*2,
+		config.MaxKafkaMessagesPerSec*config.RateLimitBurstMultiplier,
 	)
 
 	broadcastLimiter := rate.NewLimiter(
 		rate.Limit(config.MaxBroadcastsPerSec),
-		config.MaxBroadcastsPerSec*2,
+		config.MaxBroadcastsPerSec*config.RateLimitBurstMultiplier,
 	)
 
 	goroutineLimiter := NewGoroutineLimiter(config.MaxGoroutines)
@@ -221,8 +240,9 @@ func NewResourceGuardWithMonitor(config types.ServerConfig, logger zerolog.Logge
 //   - reason: human-readable rejection reason (if rejected)
 func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 	// Query current resource metrics from SystemMonitor (single source of truth)
+	// Use EWMA-smoothed CPU to prevent transient spikes from triggering false rejections
 	currentConns := rg.currentConns.Load()
-	currentCPU := rg.systemMonitor.GetCPUPercent()
+	currentCPU := rg.systemMonitor.GetSmoothedCPUPercent()
 	currentMemory := rg.systemMonitor.GetMemoryBytes()
 	currentGoros := rg.systemMonitor.GetGoroutines()
 
@@ -319,7 +339,8 @@ func (rg *ResourceGuard) ShouldAcceptConnection() (accept bool, reason string) {
 //   - Pause when CPU > CPUPauseThreshold (upper, default 80%)
 //   - Resume when CPU < CPUPauseThresholdLower (lower, default 70%)
 func (rg *ResourceGuard) ShouldPauseKafka() bool {
-	currentCPU := rg.systemMonitor.GetCPUPercent()
+	// Use EWMA-smoothed CPU to prevent transient spikes from triggering false pauses
+	currentCPU := rg.systemMonitor.GetSmoothedCPUPercent()
 	currentlyPausing := rg.isPausingKafka.Load()
 
 	if currentlyPausing {
@@ -415,16 +436,13 @@ func (rg *ResourceGuard) ReleaseGoroutine() {
 // This method no longer performs measurements - it just copies metrics from the
 // global SystemMonitor singleton to the server's stats structure for health endpoints.
 // The SystemMonitor handles all actual measurement work.
-func (rg *ResourceGuard) UpdateResources(serverStats *types.Stats) {
+func (rg *ResourceGuard) UpdateResources(serverStats *stats.Stats) {
 	// Get metrics from SystemMonitor (single source of truth)
 	metrics := rg.systemMonitor.GetMetrics()
 
 	// Copy to server stats (for health endpoint)
 	if serverStats != nil {
-		serverStats.Mu.Lock()
-		serverStats.CPUPercent = metrics.CPUPercent
-		serverStats.MemoryMB = metrics.MemoryMB
-		serverStats.Mu.Unlock()
+		serverStats.SetResourceMetrics(metrics.CPUPercent, metrics.MemoryMB)
 	}
 
 	rg.logger.Debug().
@@ -440,10 +458,13 @@ func (rg *ResourceGuard) UpdateResources(serverStats *types.Stats) {
 // This method no longer performs measurements - it just periodically copies metrics
 // from SystemMonitor to server stats and updates Prometheus metrics.
 // The SystemMonitor singleton handles all actual CPU/memory measurements.
-func (rg *ResourceGuard) StartMonitoring(ctx context.Context, interval time.Duration, serverStats *types.Stats) {
+//
+// The wg parameter tracks this goroutine's lifecycle for clean shutdown.
+func (rg *ResourceGuard) StartMonitoring(ctx context.Context, wg *sync.WaitGroup, interval time.Duration, serverStats *stats.Stats) {
 	ticker := time.NewTicker(interval)
 
-	go func() {
+	wg.Go(func() {
+		defer logging.RecoverPanic(rg.logger, "ResourceGuard.StartMonitoring", nil)
 		defer ticker.Stop()
 
 		for {
@@ -471,7 +492,7 @@ func (rg *ResourceGuard) StartMonitoring(ctx context.Context, interval time.Dura
 				return
 			}
 		}
-	}()
+	})
 
 	rg.logger.Info().
 		Dur("interval", interval).

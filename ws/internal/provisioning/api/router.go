@@ -1,5 +1,5 @@
 // Package api provides HTTP handlers for the provisioning service.
-package api //nolint:revive // api is a common package name for HTTP handlers
+package api
 
 import (
 	"net/http"
@@ -9,9 +9,9 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/version"
+	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/version"
 )
 
 // RouterConfig holds configuration for the HTTP router.
@@ -27,9 +27,16 @@ type RouterConfig struct {
 	// Validator validates JWT tokens. Required when AuthEnabled is true.
 	Validator *auth.MultiTenantValidator
 
+	// AdminAuth provides admin token authentication middleware.
+	// When set, admin token auth is checked before JWT auth.
+	AdminAuth *AdminAuth
+
 	// CORS configuration
 	CORSAllowedOrigins []string // Allowed origins (e.g., ["http://localhost:3000"])
 	CORSMaxAge         int      // Preflight cache duration in seconds
+
+	// ConfigHandler serves the /config endpoint (set via platform.ConfigHandler)
+	ConfigHandler http.HandlerFunc
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -62,11 +69,24 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/health", h.Health)
 	r.Get("/ready", h.Ready)
 	r.Get("/version", version.Handler("provisioning"))
+	if cfg.ConfigHandler != nil {
+		r.Get("/config", cfg.ConfigHandler)
+	}
 	r.Get("/metrics", h.Metrics)
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Apply auth middleware if enabled
+		// Apply rate limiting if configured
+		if cfg.RateLimit > 0 {
+			r.Use(RateLimitMiddleware(cfg.RateLimit))
+		}
+
+		// Apply admin token auth first (falls through to JWT on mismatch)
+		if cfg.AdminAuth != nil {
+			r.Use(cfg.AdminAuth.Middleware())
+		}
+
+		// Apply JWT auth middleware if enabled
 		if cfg.AuthEnabled && cfg.Validator != nil {
 			r.Use(AuthMiddleware(cfg.Validator, cfg.Logger))
 		}
@@ -108,10 +128,16 @@ func NewRouter(cfg RouterConfig) http.Handler {
 					r.Delete("/{keyID}", h.RevokeKey)
 				})
 
-				// Topic management
-				r.Route("/topics", func(r chi.Router) {
-					r.Post("/", h.CreateTopics)
-					r.Get("/", h.ListTopics)
+				// Routing rules management (admin-only for set/delete)
+				r.Route("/routing-rules", func(r chi.Router) {
+					r.Get("/", h.GetRoutingRules)
+					r.Group(func(r chi.Router) {
+						if cfg.AuthEnabled {
+							r.Use(RequireRole("admin", "system"))
+						}
+						r.Put("/", h.SetRoutingRules)
+						r.Delete("/", h.DeleteRoutingRules)
+					})
 				})
 
 				// Quota management

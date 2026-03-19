@@ -1,4 +1,4 @@
-package api //nolint:revive // api is a common package name for HTTP handlers
+package api
 
 import (
 	"encoding/json"
@@ -7,9 +7,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/httputil"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // GetChannelRules retrieves channel rules for a tenant.
@@ -23,7 +23,8 @@ func (h *Handler) GetChannelRules(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Channel rules not configured for this tenant")
 			return
 		}
-		httputil.WriteError(w, http.StatusInternalServerError, "GET_FAILED", err.Error())
+		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to get channel rules")
+		httputil.WriteError(w, http.StatusInternalServerError, "GET_FAILED", "Failed to get channel rules")
 		return
 	}
 
@@ -68,7 +69,7 @@ func (h *Handler) SetChannelRules(w http.ResponseWriter, r *http.Request) {
 	// Set via service (upsert)
 	if err := h.service.SetChannelRules(r.Context(), tenantID, rules); err != nil {
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to set channel rules")
-		httputil.WriteError(w, http.StatusInternalServerError, "SET_FAILED", err.Error())
+		h.writeServiceError(w, err, "SET_FAILED", "Failed to set channel rules")
 		return
 	}
 
@@ -92,7 +93,7 @@ func (h *Handler) DeleteChannelRules(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to delete channel rules")
-		httputil.WriteError(w, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
+		h.writeServiceError(w, err, "DELETE_FAILED", "Failed to delete channel rules")
 		return
 	}
 
@@ -124,7 +125,8 @@ func (h *Handler) TestAccess(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		httputil.WriteError(w, http.StatusInternalServerError, "GET_FAILED", err.Error())
+		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to get channel rules for access test")
+		httputil.WriteError(w, http.StatusInternalServerError, "GET_FAILED", "Failed to get channel rules")
 		return
 	}
 

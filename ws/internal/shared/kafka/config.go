@@ -23,7 +23,7 @@ import (
 // Resolution: Use ResolveNamespace(override, environment) to get the effective namespace.
 //
 // Why separate?
-//   - Allows dev/stg environments to consume from prod topics (Odin API always publishes as prod)
+//   - Allows dev/stg environments to consume from prod topics (Sukko API always publishes as prod)
 //   - Keeps logs/metrics accurate (shows "dev" not "prod")
 //   - Explicit about intent - "Override" in the name makes cross-env consumption deliberate
 //   - Safer - can't accidentally affect non-topic environment behavior
@@ -36,27 +36,9 @@ import (
 //
 // =============================================================================
 
-// NormalizeEnv normalizes the namespace string (lowercase, trim whitespace).
-// The actual namespace value comes from configuration (Helm charts), not code mapping.
-//
-// Valid namespaces (configured via Helm):
-//   - local
-//   - dev
-//   - stg
-//   - prod
-//
-// Empty string defaults to "local" for backward compatibility.
-func NormalizeEnv(env string) string {
-	env = strings.ToLower(strings.TrimSpace(env))
-	if env == "" {
-		return "local"
-	}
-	return env
-}
-
 // ResolveNamespace resolves the effective topic namespace from an override and environment.
 // If override is non-empty, it takes precedence (normalized). Otherwise, falls back to
-// the normalized environment value.
+// the normalized environment value. Both inputs are lowercased and trimmed.
 //
 // This is the single source of truth for namespace resolution — used by both ws-server
 // and provisioning to eliminate duplicated logic.
@@ -64,12 +46,12 @@ func NormalizeEnv(env string) string {
 // Examples:
 //   - ResolveNamespace("prod", "dev") → "prod" (override wins)
 //   - ResolveNamespace("", "dev") → "dev" (fallback to environment)
-//   - ResolveNamespace("", "") → "local" (NormalizeEnv default)
+//   - ResolveNamespace("", "") → "" (no default — BaseConfig validates non-empty at startup)
 func ResolveNamespace(override, environment string) string {
 	if override != "" {
-		return NormalizeEnv(override)
+		return strings.ToLower(strings.TrimSpace(override))
 	}
-	return NormalizeEnv(environment)
+	return strings.ToLower(strings.TrimSpace(environment))
 }
 
 // EventType represents different event types
@@ -114,19 +96,19 @@ const (
 //
 // Example:
 //
-//	"prod.odin.trade" -> "trade"
+//	"prod.sukko.trade" -> "trade"
 //	"dev.acme.balances" -> "balances"
-//	"odin.dev.trade" (legacy) -> "trade"
+//	"sukko.dev.trade" (legacy) -> "trade"
 func TopicToEventType(topic string) string {
 	// Handle new format: {namespace}.{tenant}.{category}
-	// Handle legacy format: odin.{env}.{category}
+	// Handle legacy format: sukko.{env}.{category}
 	parts := strings.Split(topic, ".")
 	if len(parts) >= 3 {
 		return parts[len(parts)-1] // Return last part (category)
 	}
 
-	// Handle legacy format with odin. prefix
-	topic = strings.TrimPrefix(topic, "odin.")
+	// Handle legacy format with sukko. prefix
+	topic = strings.TrimPrefix(topic, "sukko.")
 	if _, after, found := strings.Cut(topic, "."); found {
 		return after
 	}

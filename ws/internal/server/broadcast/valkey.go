@@ -2,15 +2,20 @@ package broadcast
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
+
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // valkeyBus implements Bus using Valkey/Redis Pub/Sub.
@@ -35,14 +40,23 @@ type valkeyBus struct {
 	publishErrors atomic.Uint64
 	messagesRecv  atomic.Uint64
 
-	shutdownTimeout time.Duration
-	logger          zerolog.Logger
+	shutdownTimeout           time.Duration
+	publishTimeout            time.Duration
+	reconnectInitialBackoff   time.Duration
+	reconnectMaxBackoff       time.Duration
+	reconnectMaxAttempts      int
+	healthCheckInterval       time.Duration
+	healthCheckTimeout        time.Duration
+	publishStalenessThreshold time.Duration
+	logger                    zerolog.Logger
 }
 
 // Compile-time interface check
 var _ Bus = (*valkeyBus)(nil)
 
 // newValkeyBus creates a new Valkey-based broadcast bus.
+// Config values MUST be validated (e.g., via ServerConfig.Validate()) before calling;
+// zero-value durations will panic.
 func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 	vcfg := cfg.Valkey
 
@@ -50,14 +64,31 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 	if len(vcfg.Addrs) == 0 {
 		return nil, errors.New("valkey: at least one address is required (VALKEY_ADDRS)")
 	}
-	if vcfg.MasterName == "" {
-		vcfg.MasterName = "mymaster"
-	}
-	if vcfg.Channel == "" {
-		vcfg.Channel = "ws.broadcast"
-	}
-
 	busLogger := logger.With().Str("component", "broadcast_bus").Str("backend", "valkey").Logger()
+
+	// Build TLS config for managed Valkey/Redis services
+	var tlsCfg *tls.Config
+	if vcfg.TLSEnabled {
+		tlsCfg = &tls.Config{
+			InsecureSkipVerify: vcfg.TLSInsecure, //nolint:gosec // Controlled by configuration for dev/testing environments
+			MinVersion:         tls.VersionTLS12,
+		}
+		if vcfg.TLSCAPath != "" {
+			caCert, err := os.ReadFile(vcfg.TLSCAPath)
+			if err != nil {
+				return nil, fmt.Errorf("valkey broadcast: read CA cert: %w", err)
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(caCert) {
+				return nil, fmt.Errorf("valkey broadcast: parse CA cert from %s", vcfg.TLSCAPath)
+			}
+			tlsCfg.RootCAs = pool
+		}
+		busLogger.Info().
+			Bool("insecure", vcfg.TLSInsecure).
+			Str("ca_path", vcfg.TLSCAPath).
+			Msg("Valkey broadcast TLS enabled")
+	}
 
 	// Create Valkey client
 	var client *redis.Client
@@ -73,19 +104,22 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 			Password: vcfg.Password,
 			DB:       vcfg.DB,
 
+			// TLS
+			TLSConfig: tlsCfg,
+
 			// Connection pooling
-			PoolSize:     50,
-			MinIdleConns: 10,
+			PoolSize:     vcfg.PoolSize,
+			MinIdleConns: vcfg.MinIdleConns,
 
 			// Timeouts
-			DialTimeout:  5 * time.Second,
-			ReadTimeout:  3 * time.Second,
-			WriteTimeout: 3 * time.Second,
+			DialTimeout:  vcfg.DialTimeout,
+			ReadTimeout:  vcfg.ReadTimeout,
+			WriteTimeout: vcfg.WriteTimeout,
 
 			// Retry policy
-			MaxRetries:      3,
-			MinRetryBackoff: 100 * time.Millisecond,
-			MaxRetryBackoff: 1 * time.Second,
+			MaxRetries:      vcfg.MaxRetries,
+			MinRetryBackoff: vcfg.MinRetryBackoff,
+			MaxRetryBackoff: vcfg.MaxRetryBackoff,
 		})
 	} else {
 		// Sentinel failover mode
@@ -101,24 +135,27 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 			Password:      vcfg.Password,
 			DB:            vcfg.DB,
 
+			// TLS
+			TLSConfig: tlsCfg,
+
 			// Connection pooling
-			PoolSize:     50,
-			MinIdleConns: 10,
+			PoolSize:     vcfg.PoolSize,
+			MinIdleConns: vcfg.MinIdleConns,
 
 			// Timeouts
-			DialTimeout:  5 * time.Second,
-			ReadTimeout:  3 * time.Second,
-			WriteTimeout: 3 * time.Second,
+			DialTimeout:  vcfg.DialTimeout,
+			ReadTimeout:  vcfg.ReadTimeout,
+			WriteTimeout: vcfg.WriteTimeout,
 
 			// Retry policy
-			MaxRetries:      3,
-			MinRetryBackoff: 100 * time.Millisecond,
-			MaxRetryBackoff: 1 * time.Second,
+			MaxRetries:      vcfg.MaxRetries,
+			MinRetryBackoff: vcfg.MinRetryBackoff,
+			MaxRetryBackoff: vcfg.MaxRetryBackoff,
 		})
 	}
 
 	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), vcfg.StartupPingTimeout)
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
@@ -131,17 +168,24 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 		Msg("Successfully connected to Valkey")
 
 	// Create context for lifecycle management
-	busCtx, busCancel := context.WithCancel(context.Background())
+	busCtx, busCancel := context.WithCancel(context.Background()) //nolint:gosec // G118: busCancel is stored in bus.cancel and called in Close()
 
 	bus := &valkeyBus{
-		client:          client,
-		channel:         vcfg.Channel,
-		bufferSize:      cfg.BufferSize,
-		subscribers:     make([]chan *Message, 0, 3),
-		ctx:             busCtx,
-		cancel:          busCancel,
-		shutdownTimeout: cfg.ShutdownTimeout,
-		logger:          busLogger,
+		client:                    client,
+		channel:                   vcfg.Channel,
+		bufferSize:                cfg.BufferSize,
+		subscribers:               make([]chan *Message, 0, 3),
+		ctx:                       busCtx,
+		cancel:                    busCancel,
+		shutdownTimeout:           cfg.ShutdownTimeout,
+		publishTimeout:            vcfg.PublishTimeout,
+		reconnectInitialBackoff:   vcfg.ReconnectInitialBackoff,
+		reconnectMaxBackoff:       vcfg.ReconnectMaxBackoff,
+		reconnectMaxAttempts:      vcfg.ReconnectMaxAttempts,
+		healthCheckInterval:       vcfg.HealthCheckInterval,
+		healthCheckTimeout:        vcfg.HealthCheckTimeout,
+		publishStalenessThreshold: vcfg.PublishStalenessThreshold,
+		logger:                    busLogger,
 	}
 
 	bus.healthy.Store(true)
@@ -163,7 +207,7 @@ func (b *valkeyBus) Publish(msg *Message) {
 	}
 
 	// Publish with timeout (non-blocking)
-	ctx, cancel := context.WithTimeout(b.ctx, 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(b.ctx, b.publishTimeout)
 	defer cancel()
 
 	if err := b.client.Publish(ctx, b.channel, payload).Err(); err != nil {
@@ -278,7 +322,7 @@ func (b *valkeyBus) IsHealthy() bool {
 	}
 
 	lastPub := b.lastPublish.Load()
-	if lastPub > 0 && time.Since(time.Unix(lastPub, 0)) > 60*time.Second {
+	if lastPub > 0 && b.publishStalenessThreshold > 0 && time.Since(time.Unix(lastPub, 0)) > b.publishStalenessThreshold {
 		if b.logger.GetLevel() <= zerolog.DebugLevel {
 			b.logger.Debug().
 				Dur("since_last_publish", time.Since(time.Unix(lastPub, 0))).
@@ -317,6 +361,7 @@ func (b *valkeyBus) GetMetrics() Metrics {
 
 // receiveLoop receives messages from Valkey and fans out to local subscribers.
 func (b *valkeyBus) receiveLoop() {
+	defer logging.RecoverPanic(b.logger, "valkeyBus.receiveLoop", nil)
 	defer b.wg.Done()
 
 	ch := b.pubsub.Channel()
@@ -412,9 +457,9 @@ func (b *valkeyBus) fanOut(msg *Message) {
 
 // reconnect attempts to resubscribe to Valkey after connection loss.
 func (b *valkeyBus) reconnect() bool {
-	backoff := 100 * time.Millisecond
-	maxBackoff := 30 * time.Second
-	maxAttempts := 10
+	backoff := b.reconnectInitialBackoff
+	maxBackoff := b.reconnectMaxBackoff
+	maxAttempts := b.reconnectMaxAttempts
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		select {
@@ -427,7 +472,7 @@ func (b *valkeyBus) reconnect() bool {
 				Msg("Attempting to reconnect to Valkey Pub/Sub")
 
 			if b.pubsub != nil {
-				_ = b.pubsub.Close()
+				_ = b.pubsub.Close() // Close error non-actionable during reconnect; new pubsub is created next
 			}
 
 			b.pubsub = b.client.Subscribe(b.ctx, b.channel)
@@ -461,9 +506,10 @@ func (b *valkeyBus) reconnect() bool {
 
 // healthCheckLoop periodically pings Valkey to verify connectivity.
 func (b *valkeyBus) healthCheckLoop() {
+	defer logging.RecoverPanic(b.logger, "valkeyBus.healthCheckLoop", nil)
 	defer b.wg.Done()
 
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(b.healthCheckInterval)
 	defer ticker.Stop()
 
 	for {
@@ -471,7 +517,7 @@ func (b *valkeyBus) healthCheckLoop() {
 		case <-b.ctx.Done():
 			return
 		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(b.ctx, 5*time.Second)
+			ctx, cancel := context.WithTimeout(b.ctx, b.healthCheckTimeout)
 			err := b.client.Ping(ctx).Err()
 			cancel()
 

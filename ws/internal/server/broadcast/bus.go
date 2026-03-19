@@ -135,6 +135,43 @@ type ValkeyConfig struct {
 
 	// Channel is the pub/sub channel name (default: "ws.broadcast")
 	Channel string
+
+	// Connection pooling
+	PoolSize     int // Connection pool size
+	MinIdleConns int // Minimum idle connections in pool
+
+	// Timeouts
+	DialTimeout  time.Duration // Timeout for establishing connections
+	ReadTimeout  time.Duration // Timeout for read operations
+	WriteTimeout time.Duration // Timeout for write operations
+
+	// Retry policy
+	MaxRetries      int           // Maximum number of retries
+	MinRetryBackoff time.Duration // Minimum backoff between retries
+	MaxRetryBackoff time.Duration // Maximum backoff between retries
+
+	// Publish
+	PublishTimeout time.Duration // Timeout for publish operations
+
+	// Startup
+	StartupPingTimeout time.Duration // Timeout for initial connectivity check
+
+	// Reconnection
+	ReconnectInitialBackoff time.Duration // Initial backoff for reconnection attempts
+	ReconnectMaxBackoff     time.Duration // Maximum backoff for reconnection attempts
+	ReconnectMaxAttempts    int           // Maximum number of reconnection attempts
+
+	// Health checks
+	HealthCheckInterval time.Duration // Interval between health checks
+	HealthCheckTimeout  time.Duration // Timeout for each health check
+
+	// Staleness detection
+	PublishStalenessThreshold time.Duration // Log warning if no publish within this window
+
+	// TLS for managed Valkey/Redis services (ElastiCache, Memorystore, Upstash, etc.)
+	TLSEnabled  bool
+	TLSInsecure bool   // Skip TLS verification (not for production)
+	TLSCAPath   string // Custom CA certificate path
 }
 
 // NATSConfig holds NATS-specific configuration.
@@ -165,22 +202,24 @@ type NATSConfig struct {
 
 	// MaxReconnects is the maximum number of reconnect attempts (-1 for unlimited)
 	MaxReconnects int
-}
 
-// DefaultConfig returns a Config with sensible defaults.
-func DefaultConfig() Config {
-	return Config{
-		Type:            "valkey",
-		BufferSize:      1024,
-		ShutdownTimeout: 5 * time.Second,
-		Valkey: ValkeyConfig{
-			MasterName: "mymaster",
-			Channel:    "ws.broadcast",
-		},
-		NATS: NATSConfig{
-			Subject:       "ws.broadcast",
-			ReconnectWait: 2 * time.Second,
-			MaxReconnects: -1, // Unlimited
-		},
-	}
+	// ReconnectBufSize is the NATS reconnection buffer size in bytes
+	ReconnectBufSize int
+
+	// PingInterval is the interval between client-to-server pings
+	PingInterval time.Duration
+
+	// MaxPingsOutstanding is the max outstanding pings before declaring connection stale
+	MaxPingsOutstanding int
+
+	// HealthCheckInterval is the interval for periodic NATS health checks
+	HealthCheckInterval time.Duration
+
+	// FlushTimeout is the timeout for flushing the NATS connection during health checks
+	FlushTimeout time.Duration
+
+	// TLS for managed NATS services (Synadia Cloud, etc.)
+	TLSEnabled  bool
+	TLSInsecure bool   // Skip TLS verification (not for production)
+	TLSCAPath   string // Custom CA certificate path
 }

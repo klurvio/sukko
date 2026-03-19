@@ -6,8 +6,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // TenantPermissionChecker validates channel permissions using per-tenant rules.
@@ -41,9 +41,9 @@ func (pc *TenantPermissionChecker) CanSubscribe(ctx context.Context, claims *aut
 	allowed := auth.MatchAnyWildcard(allowedPatterns, channel)
 
 	// Record metric
-	result := "denied"
+	result := ChannelCheckDenied
 	if allowed {
-		result = "allowed"
+		result = ChannelCheckAllowed
 	}
 	RecordChannelAuthorization(claims.TenantID, result)
 
@@ -80,14 +80,14 @@ func (pc *TenantPermissionChecker) getRulesForTenant(ctx context.Context, tenant
 	if err != nil {
 		if errors.Is(err, types.ErrChannelRulesNotFound) {
 			// Expected: tenant has no custom rules, use fallback
-			RecordChannelRulesLookup(tenantID, "fallback")
+			RecordChannelRulesLookup(tenantID, LookupSourceFallback)
 		} else {
 			// Unexpected error: log and use fallback (graceful degradation)
 			pc.logger.Warn().
 				Err(err).
 				Str("tenant_id", tenantID).
 				Msg("Failed to load channel rules, using fallback")
-			RecordChannelRulesLookup(tenantID, "fallback")
+			RecordChannelRulesLookup(tenantID, LookupSourceFallback)
 		}
 		return pc.fallbackRules
 	}

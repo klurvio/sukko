@@ -1,0 +1,25 @@
+# Sukko — NATS JetStream Mode
+#
+# Enables persistent message streaming via NATS JetStream.
+# Lighter than Kafka. Stream-per-tenant isolation with sequence-based replay.
+#
+# Usage:
+#   helm install sukko deployments/helm/sukko -f examples/helm/values-nats-jetstream.yaml
+
+ws-server:
+  # Switch message backend to NATS JetStream
+  messageBackend: nats
+
+  # Broadcast bus stays as NATS Core (same NATS cluster, different subjects).
+
+  # Uncomment for external NATS JetStream:
+  # jetstream:
+  #   urls: "nats://nats-1:4222,nats://nats-2:4222"
+  #   existingSecret: "nats-credentials"
+  #   tls:
+  #     enabled: true
+
+# Enable JetStream on the in-cluster NATS server
+nats:
+  jetstream:
+    enabled: true

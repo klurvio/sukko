@@ -21,7 +21,7 @@ func TestIssueAndValidateToken(t *testing.T) {
 	secret := "test-secret-key-at-least-32-bytes"
 	v := NewJWTValidator(secret)
 
-	appID := "odin-web"
+	appID := "sukko-web"
 	expiry := 1 * time.Hour
 
 	// Issue token
@@ -112,7 +112,7 @@ func TestClaimsAppID(t *testing.T) {
 	testCases := []struct {
 		appID string
 	}{
-		{"odin-web"},
+		{"sukko-web"},
 		{"trading-bot-1"},
 		{"mobile-app"},
 		{"service-account"},

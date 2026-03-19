@@ -175,7 +175,7 @@ func TestTokenBucket_ZeroTokens(t *testing.T) {
 
 func TestNewRateLimiter(t *testing.T) {
 	t.Parallel()
-	rl := NewRateLimiter()
+	rl := NewRateLimiter(100, 10)
 
 	if rl == nil {
 		t.Fatal("NewRateLimiter should return non-nil")
@@ -184,7 +184,7 @@ func TestNewRateLimiter(t *testing.T) {
 
 func TestRateLimiter_CheckLimit_NewClient(t *testing.T) {
 	t.Parallel()
-	rl := NewRateLimiter()
+	rl := NewRateLimiter(100, 10)
 
 	// First check for a new client should succeed
 	if !rl.CheckLimit(123) {
@@ -194,7 +194,7 @@ func TestRateLimiter_CheckLimit_NewClient(t *testing.T) {
 
 func TestRateLimiter_CheckLimit_SeparateBuckets(t *testing.T) {
 	t.Parallel()
-	rl := NewRateLimiter()
+	rl := NewRateLimiter(100, 10)
 
 	// Exhaust client 1's bucket (default: 100 tokens)
 	for range 100 {
@@ -214,7 +214,7 @@ func TestRateLimiter_CheckLimit_SeparateBuckets(t *testing.T) {
 
 func TestRateLimiter_RemoveClient(t *testing.T) {
 	t.Parallel()
-	rl := NewRateLimiter()
+	rl := NewRateLimiter(100, 10)
 
 	// Create bucket for client
 	rl.CheckLimit(123)
@@ -233,30 +233,26 @@ func TestRateLimiter_RemoveClient(t *testing.T) {
 
 func TestRateLimiter_Concurrent(t *testing.T) {
 	t.Parallel()
-	rl := NewRateLimiter()
+	rl := NewRateLimiter(100, 10)
 
 	var wg sync.WaitGroup
 
 	// Multiple clients making concurrent requests
 	for clientID := int64(1); clientID <= 10; clientID++ {
-		wg.Add(1)
-		go func(id int64) {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 50 {
-				rl.CheckLimit(id)
+				rl.CheckLimit(clientID)
 			}
-		}(clientID)
+		})
 	}
 
 	wg.Wait()
 
 	// Concurrent cleanup
 	for clientID := int64(1); clientID <= 10; clientID++ {
-		wg.Add(1)
-		go func(id int64) {
-			defer wg.Done()
-			rl.RemoveClient(id)
-		}(clientID)
+		wg.Go(func() {
+			rl.RemoveClient(clientID)
+		})
 	}
 
 	wg.Wait()
@@ -264,7 +260,7 @@ func TestRateLimiter_Concurrent(t *testing.T) {
 
 func TestRateLimiter_DefaultLimits(t *testing.T) {
 	t.Parallel()
-	rl := NewRateLimiter()
+	rl := NewRateLimiter(100, 10)
 
 	// Default should be 100 burst, 10/sec sustained
 	// Verify by consuming 100 tokens

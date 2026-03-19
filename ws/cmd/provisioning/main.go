@@ -3,42 +3,47 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
+	"runtime"
+	"sync"
 	"syscall"
-	"time"
 
-	_ "github.com/lib/pq" // PostgreSQL driver
+	"google.golang.org/grpc"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning/api"
-	provkafka "github.com/Toniq-Labs/odin-ws/internal/provisioning/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning/repository"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
+	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/provisioning/api"
+	"github.com/klurvio/sukko/internal/provisioning/eventbus"
+	"github.com/klurvio/sukko/internal/provisioning/grpcserver"
+	"github.com/klurvio/sukko/internal/provisioning/repository"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 func main() {
-	var (
-		debug = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
-	)
-	flag.Parse()
-
 	// Create basic logger for startup
 	logger := log.New(os.Stdout, "[PROVISIONING] ", log.LstdFlags)
 
-	// Load configuration
+	// Load configuration first (env vars + envDefaults)
 	cfg, err := platform.LoadProvisioningConfig(nil)
 	if err != nil {
 		logger.Fatalf("Failed to load configuration: %v", err)
 	}
+
+	// CLI flags use env var config as defaults (CLI overrides env overrides envDefault)
+	var (
+		debug          = flag.Bool("debug", cfg.LogLevel == "debug", "enable debug logging (overrides LOG_LEVEL)")
+		validateConfig = flag.Bool("validate-config", false, "validate configuration and exit")
+	)
+	flag.Parse()
 
 	// Override debug mode if flag set
 	if *debug {
@@ -49,8 +54,14 @@ func main() {
 	// Print configuration
 	cfg.Print()
 
+	// --validate-config: validate and exit
+	if *validateConfig {
+		logger.Println("Configuration is valid.")
+		os.Exit(0)
+	}
+
 	// Resolve effective topic namespace for Kafka
-	topicNamespace := kafka.ResolveNamespace(cfg.TopicNamespaceOverride, cfg.Environment)
+	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
 	logger.Printf("Topic namespace: %s (environment: %s)", topicNamespace, cfg.Environment)
 
 	// Initialize structured logger
@@ -60,102 +71,65 @@ func main() {
 		ServiceName: "provisioning-service",
 	})
 
-	// Connect to PostgreSQL
-	db, err := sql.Open("postgres", cfg.DatabaseURL)
+	structuredLogger.Info().Int("gomaxprocs", runtime.GOMAXPROCS(0)).Msg("GOMAXPROCS set by Go runtime (container-aware)")
+
+	// Create event bus for gRPC streaming notifications
+	bus := eventbus.New(structuredLogger)
+
+	// Open database using factory (supports both SQLite and PostgreSQL)
+	db, err := repository.OpenDatabase(repository.DatabaseConfig{
+		Driver:          cfg.DatabaseDriver,
+		URL:             cfg.DatabaseURL,
+		Path:            cfg.DatabasePath,
+		AutoMigrate:     cfg.AutoMigrate,
+		MaxOpenConns:    cfg.DBMaxOpenConns,
+		MaxIdleConns:    cfg.DBMaxIdleConns,
+		ConnMaxLifetime: cfg.DBConnMaxLifetime,
+		Logger:          structuredLogger,
+	})
 	if err != nil {
-		logger.Fatalf("Failed to open database connection: %v", err)
+		structuredLogger.Fatal().Err(err).Msg("Failed to open database")
 	}
-	defer func() { _ = db.Close() }()
-
-	// Configure connection pool
-	db.SetMaxOpenConns(cfg.DBMaxOpenConns)
-	db.SetMaxIdleConns(cfg.DBMaxIdleConns)
-	db.SetConnMaxLifetime(cfg.DBConnMaxLifetime)
-
-	// Verify database connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		logger.Fatalf("Failed to ping database: %v", err)
-	}
-	logger.Printf("Connected to database")
+	defer func() { _ = db.Close() }() // Close error non-actionable during shutdown
+	structuredLogger.Info().Str("driver", cfg.DatabaseDriver).Msg("Database opened")
 
 	// Initialize repositories
 	tenantRepo := repository.NewPostgresTenantRepository(db)
 	keyRepo := repository.NewPostgresKeyRepository(db)
-	topicRepo := repository.NewPostgresTopicRepository(db)
+	routingRulesRepo := repository.NewPostgresRoutingRulesRepository(db)
 	quotaRepo := repository.NewPostgresQuotaRepository(db)
 	auditRepo := repository.NewPostgresAuditRepository(db)
 	oidcRepo := repository.NewPostgresOIDCConfigRepository(db)
 	channelRulesRepo := repository.NewPostgresChannelRulesRepository(db)
 
-	// Initialize Kafka admin
-	var kafkaAdmin provisioning.KafkaAdmin
-	if cfg.KafkaBrokers != "" {
-		// Parse brokers (comma-separated)
-		brokers := strings.Split(cfg.KafkaBrokers, ",")
-		for i := range brokers {
-			brokers[i] = strings.TrimSpace(brokers[i])
-		}
+	// Kafka admin disabled — topic creation is handled by ws-server's KafkaBackend
+	kafkaAdmin := provisioning.NewNoopKafkaAdmin()
+	structuredLogger.Info().Msg("Kafka admin disabled (topic creation moved to ws-server)")
 
-		// Build Kafka admin config
-		adminCfg := provkafka.AdminConfig{
-			Brokers: brokers,
-			Timeout: cfg.KafkaAdminTimeout,
-			Logger:  structuredLogger,
-		}
-
-		// Add SASL authentication if enabled
-		if cfg.KafkaSASLEnabled {
-			adminCfg.SASL = &provkafka.SASLConfig{
-				Mechanism: cfg.KafkaSASLMechanism,
-				Username:  cfg.KafkaSASLUsername,
-				Password:  cfg.KafkaSASLPassword,
-			}
-		}
-
-		// Add TLS encryption if enabled
-		if cfg.KafkaTLSEnabled {
-			adminCfg.TLS = &provkafka.TLSConfig{
-				Enabled:            true,
-				InsecureSkipVerify: cfg.KafkaTLSInsecure,
-				CAPath:             cfg.KafkaTLSCAPath,
-			}
-		}
-
-		// Create real Kafka admin
-		admin, err := provkafka.NewAdmin(adminCfg)
-		if err != nil {
-			logger.Printf("Warning: Failed to connect to Kafka, using noop admin: %v", err)
-			kafkaAdmin = provisioning.NewNoopKafkaAdmin()
-		} else {
-			kafkaAdmin = admin
-			logger.Printf("Kafka admin connected to %v", brokers)
-			// Ensure cleanup on shutdown
-			defer admin.Close()
-		}
-	} else {
-		kafkaAdmin = provisioning.NewNoopKafkaAdmin()
-		logger.Printf("Kafka admin disabled (no brokers configured)")
-	}
-
-	// Initialize provisioning service
-	svc := provisioning.NewService(provisioning.ServiceConfig{
+	svc, err := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:          tenantRepo,
 		KeyStore:             keyRepo,
-		TopicStore:           topicRepo,
+		RoutingRulesStore:    routingRulesRepo,
 		QuotaStore:           quotaRepo,
 		AuditStore:           auditRepo,
 		OIDCConfigStore:      oidcRepo,
 		ChannelRulesStore:    channelRulesRepo,
 		KafkaAdmin:           kafkaAdmin,
+		EventBus:             bus,
 		TopicNamespace:       topicNamespace,
 		DefaultPartitions:    cfg.DefaultPartitions,
 		DefaultRetentionMs:   cfg.DefaultRetentionMs,
 		MaxTopicsPerTenant:   cfg.MaxTopicsPerTenant,
+		MaxStorageBytes:      cfg.MaxStorageBytes,
+		DefaultProducerRate:  cfg.ProducerByteRate,
+		DefaultConsumerRate:  cfg.ConsumerByteRate,
 		DeprovisionGraceDays: cfg.DeprovisionGraceDays,
+		MaxRoutingRules:      cfg.MaxRoutingRules,
 		Logger:               structuredLogger,
 	})
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to create provisioning service")
+	}
 
 	// Set up authentication if enabled
 	var validator *auth.MultiTenantValidator
@@ -164,14 +138,14 @@ func main() {
 		// Create key registry from existing database connection
 		keyRegistry, err := auth.NewPostgresKeyRegistry(auth.PostgresKeyRegistryConfig{
 			DB:              db,
-			RefreshInterval: 1 * time.Minute,
-			QueryTimeout:    5 * time.Second,
+			RefreshInterval: cfg.KeyRegistryRefreshInterval,
+			QueryTimeout:    cfg.KeyRegistryQueryTimeout,
 			Logger:          structuredLogger.With().Str("component", "key_registry").Logger(),
 		})
 		if err != nil {
-			logger.Fatalf("Failed to create key registry: %v", err)
+			structuredLogger.Fatal().Err(err).Msg("Failed to create key registry")
 		}
-		defer func() { _ = keyRegistry.Close() }()
+		defer func() { _ = keyRegistry.Close() }() // Close error non-actionable during shutdown
 
 		// Build validator config
 		validatorCfg := auth.MultiTenantValidatorConfig{
@@ -211,12 +185,28 @@ func main() {
 		// Create multi-tenant validator
 		validator, err = auth.NewMultiTenantValidator(validatorCfg)
 		if err != nil {
-			logger.Fatalf("Failed to create validator: %v", err)
+			structuredLogger.Fatal().Err(err).Msg("Failed to create validator")
 		}
 
 		structuredLogger.Info().
 			Bool("oidc_enabled", cfg.OIDCEnabled()).
 			Msg("Authentication enabled")
+	}
+
+	// Set up admin auth middleware (if admin token is configured)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var wg sync.WaitGroup
+
+	var adminAuth *api.AdminAuth
+	if cfg.AdminToken != "" {
+		adminAuth = api.NewAdminAuth(ctx, &wg, cfg.AdminToken, api.AdminAuthConfig{
+			FailureThreshold: cfg.AdminAuthFailureThreshold,
+			BlockDuration:    cfg.AdminAuthBlockDuration,
+			CleanupInterval:  cfg.AdminAuthCleanupInterval,
+			CleanupMaxAge:    cfg.AdminAuthCleanupMaxAge,
+		}, structuredLogger)
+		structuredLogger.Info().Msg("Admin token authentication enabled")
 	}
 
 	// Initialize HTTP router
@@ -226,12 +216,14 @@ func main() {
 		RateLimit:          cfg.APIRateLimitPerMinute,
 		AuthEnabled:        cfg.AuthEnabled,
 		Validator:          validator,
+		AdminAuth:          adminAuth,
 		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
 		CORSMaxAge:         cfg.CORSMaxAge,
+		ConfigHandler:      platform.ConfigHandler(cfg),
 	})
 
 	// Create HTTP server
-	server := &http.Server{
+	httpServer := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      router,
 		ReadTimeout:  cfg.HTTPReadTimeout,
@@ -239,42 +231,89 @@ func main() {
 		IdleTimeout:  cfg.HTTPIdleTimeout,
 	}
 
+	// Create gRPC server with interceptors
+	grpcAddr := fmt.Sprintf(":%d", cfg.GRPCPort)
+	grpcListener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", grpcAddr)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Int("port", cfg.GRPCPort).Msg("Failed to listen on gRPC port")
+	}
+
+	grpcSrv := grpc.NewServer(
+		grpc.ChainStreamInterceptor(
+			grpcserver.RecoveryStreamInterceptor(structuredLogger),
+			grpcserver.LoggingStreamInterceptor(structuredLogger),
+			grpcserver.MetricsStreamInterceptor(),
+		),
+	)
+	provisioningv1.RegisterProvisioningInternalServiceServer(grpcSrv, grpcserver.NewServer(svc, bus, structuredLogger, grpcserver.ServerConfig{
+		MaxTenantsFetchLimit: cfg.MaxTenantsFetchLimit,
+	}))
+
 	// Start lifecycle manager (background job for tenant cleanup)
 	var lifecycleManager *provisioning.LifecycleManager
 	if cfg.LifecycleManagerEnabled {
-		lifecycleManager = provisioning.NewLifecycleManager(provisioning.LifecycleManagerConfig{
-			Service:  svc,
-			Interval: cfg.LifecycleCheckInterval,
-			Logger:   structuredLogger,
+		lm, lmErr := provisioning.NewLifecycleManager(provisioning.LifecycleManagerConfig{
+			Service:         svc,
+			Interval:        cfg.LifecycleCheckInterval,
+			DeletionTimeout: cfg.DeletionTimeout,
+			Logger:          structuredLogger,
 		})
+		if lmErr != nil {
+			structuredLogger.Fatal().Err(lmErr).Msg("Failed to create lifecycle manager")
+		}
+		lifecycleManager = lm
 		lifecycleManager.Start()
 		defer lifecycleManager.Stop()
-		logger.Printf("Lifecycle manager started (interval: %s)", cfg.LifecycleCheckInterval)
+		structuredLogger.Info().Dur("interval", cfg.LifecycleCheckInterval).Msg("Lifecycle manager started")
 	}
 
-	// Start server in goroutine
-	go func() {
-		defer logging.RecoverPanic(structuredLogger, "http.ListenAndServe", nil)
-		logger.Printf("Starting provisioning service on %s", cfg.Addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatalf("Server error: %v", err)
+	// Start gRPC server in goroutine
+	wg.Go(func() {
+		defer logging.RecoverPanic(structuredLogger, "grpc.Serve", nil)
+		structuredLogger.Info().Str("addr", grpcAddr).Msg("Starting gRPC server")
+		if err := grpcSrv.Serve(grpcListener); err != nil {
+			structuredLogger.Error().Err(err).Msg("gRPC server error")
+			cancel()
 		}
-	}()
+	})
 
-	// Wait for interrupt signal
+	// Start HTTP server in goroutine
+	wg.Go(func() {
+		defer logging.RecoverPanic(structuredLogger, "http.ListenAndServe", nil)
+		structuredLogger.Info().Str("addr", cfg.Addr).Msg("Starting provisioning HTTP server")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			structuredLogger.Error().Err(err).Msg("HTTP server error")
+			cancel()
+		}
+	})
+
+	// Wait for interrupt signal or context cancellation (from server error)
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	<-sigCh
-
-	logger.Println("Shutting down provisioning service...")
-
-	// Graceful shutdown with timeout
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer shutdownCancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Printf("Error during server shutdown: %v", err)
+	select {
+	case <-sigCh:
+	case <-ctx.Done():
 	}
 
-	logger.Println("Provisioning service gracefully shut down.")
+	structuredLogger.Info().Msg("Shutting down provisioning service")
+
+	// Cancel context to stop admin auth and other background goroutines
+	cancel()
+
+	// Graceful shutdown with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer shutdownCancel()
+
+	// Shutdown HTTP server
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		structuredLogger.Error().Err(err).Msg("Error during HTTP server shutdown")
+	}
+
+	// Graceful stop gRPC server
+	grpcSrv.GracefulStop()
+
+	// Wait for background goroutines (admin auth cleanup, etc.)
+	wg.Wait()
+
+	structuredLogger.Info().Msg("Provisioning service gracefully shut down")
 }

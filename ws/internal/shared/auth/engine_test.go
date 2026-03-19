@@ -7,11 +7,21 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// mustNewPolicyEngine is a test helper that creates a PolicyEngine or fails the test.
+func mustNewPolicyEngine(t *testing.T, config PolicyEngineConfig, opts ...PolicyEngineOption) *PolicyEngine {
+	t.Helper()
+	engine, err := NewPolicyEngine(config, opts...)
+	if err != nil {
+		t.Fatalf("NewPolicyEngine: %v", err)
+	}
+	return engine
+}
+
 func TestNewPolicyEngine(t *testing.T) {
 	t.Parallel()
 	t.Run("with default config", func(t *testing.T) {
 		t.Parallel()
-		engine := NewPolicyEngine(DefaultPolicyEngineConfig())
+		engine := mustNewPolicyEngine(t, DefaultPolicyEngineConfig())
 		if engine == nil {
 			t.Fatal("expected non-nil engine")
 		}
@@ -22,7 +32,7 @@ func TestNewPolicyEngine(t *testing.T) {
 
 	t.Run("with custom default effect", func(t *testing.T) {
 		t.Parallel()
-		engine := NewPolicyEngine(PolicyEngineConfig{
+		engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 			DefaultEffect: EffectAllow,
 		})
 		if engine.defaultEffect != EffectAllow {
@@ -32,7 +42,7 @@ func TestNewPolicyEngine(t *testing.T) {
 
 	t.Run("with rules", func(t *testing.T) {
 		t.Parallel()
-		engine := NewPolicyEngine(PolicyEngineConfig{
+		engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 			Rules: []*PermissionRule{
 				{ID: "rule1", Priority: 10},
 				{ID: "rule2", Priority: 20},
@@ -43,13 +53,28 @@ func TestNewPolicyEngine(t *testing.T) {
 			t.Error("expected rules to be sorted by priority")
 		}
 	})
+
+	t.Run("invalid pattern returns error", func(t *testing.T) {
+		t.Parallel()
+		_, err := NewPolicyEngine(PolicyEngineConfig{
+			Rules: []*PermissionRule{
+				{
+					ID:    "bad-pattern",
+					Match: RuleMatch{ChannelPattern: "[invalid"},
+				},
+			},
+		})
+		if err == nil {
+			t.Error("expected error for invalid regex pattern")
+		}
+	})
 }
 
 func TestPolicyEngine_Authorize_NoRules(t *testing.T) {
 	t.Parallel()
 	t.Run("default deny", func(t *testing.T) {
 		t.Parallel()
-		engine := NewPolicyEngine(PolicyEngineConfig{
+		engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 			DefaultEffect: EffectDeny,
 		})
 
@@ -66,7 +91,7 @@ func TestPolicyEngine_Authorize_NoRules(t *testing.T) {
 
 	t.Run("default allow", func(t *testing.T) {
 		t.Parallel()
-		engine := NewPolicyEngine(PolicyEngineConfig{
+		engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 			DefaultEffect: EffectAllow,
 		})
 
@@ -84,7 +109,7 @@ func TestPolicyEngine_Authorize_NoRules(t *testing.T) {
 
 func TestPolicyEngine_Authorize_ExactMatch(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(PolicyEngineConfig{
+	engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
 			{
@@ -123,7 +148,7 @@ func TestPolicyEngine_Authorize_ExactMatch(t *testing.T) {
 
 func TestPolicyEngine_Authorize_PrefixMatch(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(PolicyEngineConfig{
+	engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
 			{
@@ -162,7 +187,7 @@ func TestPolicyEngine_Authorize_PrefixMatch(t *testing.T) {
 
 func TestPolicyEngine_Authorize_PatternMatch(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(PolicyEngineConfig{
+	engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
 			{
@@ -204,7 +229,7 @@ func TestPolicyEngine_Authorize_PatternMatch(t *testing.T) {
 
 func TestPolicyEngine_Authorize_PlaceholderResolution(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(PolicyEngineConfig{
+	engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
 			{
@@ -250,7 +275,7 @@ func TestPolicyEngine_Authorize_PlaceholderResolution(t *testing.T) {
 
 func TestPolicyEngine_Authorize_ActionFilter(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(PolicyEngineConfig{
+	engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
 			{
@@ -289,7 +314,7 @@ func TestPolicyEngine_Authorize_ActionFilter(t *testing.T) {
 
 func TestPolicyEngine_Authorize_Conditions(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(PolicyEngineConfig{
+	engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
 			{
@@ -336,7 +361,7 @@ func TestPolicyEngine_Authorize_Conditions(t *testing.T) {
 
 func TestPolicyEngine_Authorize_Priority(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(PolicyEngineConfig{
+	engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
 			{
@@ -384,7 +409,7 @@ func TestPolicyEngine_Authorize_Priority(t *testing.T) {
 
 func TestPolicyEngine_Authorize_TenantRules(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(PolicyEngineConfig{
+	engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
 			{
@@ -432,7 +457,7 @@ func TestPolicyEngine_Authorize_TenantRules(t *testing.T) {
 
 func TestPolicyEngine_Authorize_Captures(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(PolicyEngineConfig{
+	engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
 			{
@@ -466,7 +491,7 @@ func TestPolicyEngine_Authorize_Captures(t *testing.T) {
 
 func TestPolicyEngine_Authorize_NegateCondition(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(PolicyEngineConfig{
+	engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
 			{
@@ -513,7 +538,7 @@ func TestPolicyEngine_Authorize_NegateCondition(t *testing.T) {
 
 func TestPolicyEngine_CompareValues(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(DefaultPolicyEngineConfig())
+	engine := mustNewPolicyEngine(t, DefaultPolicyEngineConfig())
 
 	tests := []struct {
 		name       string
@@ -575,7 +600,7 @@ func TestPolicyEngine_CompareValues(t *testing.T) {
 
 func TestPolicyEngine_AddRemoveRule(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(DefaultPolicyEngineConfig())
+	engine := mustNewPolicyEngine(t, DefaultPolicyEngineConfig())
 
 	// Add rule
 	rule := &PermissionRule{
@@ -583,7 +608,9 @@ func TestPolicyEngine_AddRemoveRule(t *testing.T) {
 		Match:  RuleMatch{ChannelPrefix: "test."},
 		Effect: EffectAllow,
 	}
-	engine.AddRule(rule)
+	if err := engine.AddRule(rule); err != nil {
+		t.Fatalf("AddRule: %v", err)
+	}
 
 	// Verify added
 	if got := engine.GetRule("test-rule"); got == nil {
@@ -610,11 +637,20 @@ func TestPolicyEngine_AddRemoveRule(t *testing.T) {
 	if engine.RemoveRule("non-existent") {
 		t.Error("expected removal of non-existent to fail")
 	}
+
+	// AddRule with invalid pattern returns error
+	badRule := &PermissionRule{
+		ID:    "bad-rule",
+		Match: RuleMatch{ChannelPattern: "[invalid"},
+	}
+	if err := engine.AddRule(badRule); err == nil {
+		t.Error("expected AddRule to return error for invalid pattern")
+	}
 }
 
 func TestPolicyEngine_CanSubscribe_CanPublish(t *testing.T) {
 	t.Parallel()
-	engine := NewPolicyEngine(PolicyEngineConfig{
+	engine := mustNewPolicyEngine(t, PolicyEngineConfig{
 		DefaultEffect: EffectDeny,
 		Rules: []*PermissionRule{
 			{
@@ -654,9 +690,12 @@ func TestPolicyEngine_CanSubscribe_CanPublish(t *testing.T) {
 
 func TestPolicyEngine_WithTenantIsolator(t *testing.T) {
 	t.Parallel()
-	isolator := NewTenantIsolator(TenantIsolationConfig{})
+	isolator, err := NewTenantIsolator(TenantIsolationConfig{Environment: "local"})
+	if err != nil {
+		t.Fatalf("NewTenantIsolator() unexpected error: %v", err)
+	}
 
-	engine := NewPolicyEngine(
+	engine := mustNewPolicyEngine(t,
 		PolicyEngineConfig{
 			DefaultEffect: EffectAllow,
 		},

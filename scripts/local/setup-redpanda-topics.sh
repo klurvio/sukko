@@ -9,8 +9,8 @@
 #   ./setup-redpanda-topics.sh local my-redpanda  # local env, custom container
 #
 # Topic naming pattern:
-#   Regular:  odin.{env}.{base}          (e.g., odin.dev.trade)
-#   Refined:  odin.{env}.{base}.refined  (e.g., odin.dev.trade.refined)
+#   Regular:  sukko.{env}.{base}          (e.g., sukko.dev.trade)
+#   Refined:  sukko.{env}.{base}.refined  (e.g., sukko.dev.trade.refined)
 
 set -e
 
@@ -87,8 +87,8 @@ create_topic_pair() {
   local base=$1
   local retention=$2
 
-  local regular="odin.${ENV}.${base}"
-  local refined="odin.${ENV}.${base}.refined"
+  local regular="sukko.${ENV}.${base}"
+  local refined="sukko.${ENV}.${base}.refined"
 
   create_topic "$regular" "$retention"
   create_topic "$refined" "$retention"
@@ -135,9 +135,9 @@ echo "   Failed:  $FAIL_COUNT topics"
 echo "============================================="
 echo ""
 
-# List all odin topics
-echo "Topic List (odin.${ENV}.*):"
-rpk_cmd topic list | grep "odin.${ENV}" || echo "   No topics found"
+# List all sukko topics
+echo "Topic List (sukko.${ENV}.*):"
+rpk_cmd topic list | grep "sukko.${ENV}" || echo "   No topics found"
 echo ""
 
 echo "Setup complete!"
@@ -145,4 +145,4 @@ echo ""
 echo "Next steps:"
 echo "   1. Verify in Redpanda Console: http://localhost:8080"
 echo "   2. Start publisher: ENVIRONMENT=$ENV go run publisher-go/main.go"
-echo "   3. Check messages: docker exec $CONTAINER rpk topic consume odin.${ENV}.trade --num 5"
+echo "   3. Check messages: docker exec $CONTAINER rpk topic consume sukko.${ENV}.trade --num 5"

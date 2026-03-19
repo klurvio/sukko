@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/server/stats"
 )
 
 // =============================================================================
@@ -48,14 +48,15 @@ type RateLimiter interface {
 }
 
 // =============================================================================
-// Audit Logging Interface
+// Alert Logging Interface
 // =============================================================================
 
-// AuditLogger abstracts audit logging for testability.
+// AlertLogger abstracts alert logging for testability.
 // Used for security-relevant events like rate limiting, authentication, etc.
-type AuditLogger interface {
-	Warning(event, message string, metadata map[string]any)
+type AlertLogger interface {
 	Info(event, message string, metadata map[string]any)
+	Warning(event, message string, metadata map[string]any)
+	Error(event, message string, metadata map[string]any)
 	Critical(event, message string, metadata map[string]any)
 }
 
@@ -154,12 +155,12 @@ type KafkaConsumer interface {
 type PumpDependencies struct {
 	Logger            Logger
 	RateLimiter       RateLimiter
-	AuditLogger       AuditLogger
+	AlertLogger       AlertLogger
 	Metrics           MetricsRecorder
 	MessageHandler    MessageHandler
 	DisconnectHandler DisconnectHandler
 	Clock             Clock
-	Stats             *types.Stats
+	Stats             *stats.Stats
 }
 
 // Dependencies holds optional injectable dependencies for Server.

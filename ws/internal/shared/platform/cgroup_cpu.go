@@ -96,11 +96,17 @@ func (cc *ContainerCPU) GetPercent() (percent float64, throttled ThrottleStats, 
 	// Read current CPU usage in microseconds
 	currentUsec, err := readCPUUsage(cc.cgroupPath, cc.cgroupVersion)
 	if err != nil {
-		return 0, ThrottleStats{}, err
+		return 0, ThrottleStats{}, fmt.Errorf("read cpu usage: %w", err)
 	}
 
-	// Calculate CPU usage delta
-	usageDelta := currentUsec - cc.lastCPUUsec
+	// Calculate CPU usage delta.
+	// Guard against counter reset (container restart, cgroup migration) where
+	// currentUsec < lastCPUUsec would wrap around as uint64, producing a
+	// wildly incorrect percentage. On reset, treat as zero usage for this sample.
+	var usageDelta uint64
+	if currentUsec >= cc.lastCPUUsec {
+		usageDelta = currentUsec - cc.lastCPUUsec
+	}
 
 	// Calculate percentage
 	// usageDelta is in microseconds of CPU time consumed
@@ -143,7 +149,7 @@ func detectCgroupPath() (path string, version int, err error) {
 	// Read /proc/self/cgroup to find our cgroup path
 	file, err := os.Open("/proc/self/cgroup")
 	if err != nil {
-		return "", 0, err
+		return "", 0, fmt.Errorf("open /proc/self/cgroup: %w", err)
 	}
 	defer func() { _ = file.Close() }()
 
@@ -182,7 +188,7 @@ func readCPUQuota(cgroupPath string, version int) (quota, period int64, err erro
 		// cgroup v2: /sys/fs/cgroup/.../cpu.max contains "quota period"
 		data, err := os.ReadFile(cgroupPath + "/cpu.max") //nolint:gosec // Path constructed from trusted cgroup detection
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, fmt.Errorf("read cgroup v2 cpu.max: %w", err)
 		}
 
 		fields := strings.Fields(string(data))
@@ -197,12 +203,12 @@ func readCPUQuota(cgroupPath string, version int) (quota, period int64, err erro
 
 		quota, err = strconv.ParseInt(fields[0], 10, 64)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, fmt.Errorf("parse cgroup v2 cpu quota: %w", err)
 		}
 
 		period, err = strconv.ParseInt(fields[1], 10, 64)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, fmt.Errorf("parse cgroup v2 cpu period: %w", err)
 		}
 
 		return quota, period, nil
@@ -211,22 +217,22 @@ func readCPUQuota(cgroupPath string, version int) (quota, period int64, err erro
 	// cgroup v1: separate files
 	quotaData, err := os.ReadFile(cgroupPath + "/cpu.cfs_quota_us") //nolint:gosec // Path constructed from trusted cgroup detection
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("read cgroup v1 cfs_quota_us: %w", err)
 	}
 
 	periodData, err := os.ReadFile(cgroupPath + "/cpu.cfs_period_us") //nolint:gosec // Path constructed from trusted cgroup detection
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("read cgroup v1 cfs_period_us: %w", err)
 	}
 
 	quota, err = strconv.ParseInt(strings.TrimSpace(string(quotaData)), 10, 64)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("parse cgroup v1 cpu quota: %w", err)
 	}
 
 	period, err = strconv.ParseInt(strings.TrimSpace(string(periodData)), 10, 64)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("parse cgroup v1 cpu period: %w", err)
 	}
 
 	return quota, period, nil
@@ -238,7 +244,7 @@ func readCPUUsage(cgroupPath string, version int) (uint64, error) {
 		// cgroup v2: cpu.stat contains "usage_usec NNNNNN"
 		file, err := os.Open(cgroupPath + "/cpu.stat") //nolint:gosec // Path constructed from trusted cgroup detection
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("open cgroup v2 cpu.stat: %w", err)
 		}
 		defer func() { _ = file.Close() }()
 
@@ -248,7 +254,11 @@ func readCPUUsage(cgroupPath string, version int) (uint64, error) {
 			if strings.HasPrefix(line, "usage_usec ") {
 				fields := strings.Fields(line)
 				if len(fields) == 2 {
-					return strconv.ParseUint(fields[1], 10, 64)
+					usec, err := strconv.ParseUint(fields[1], 10, 64)
+					if err != nil {
+						return 0, fmt.Errorf("parse usage_usec value: %w", err)
+					}
+					return usec, nil
 				}
 			}
 		}
@@ -258,12 +268,12 @@ func readCPUUsage(cgroupPath string, version int) (uint64, error) {
 	// cgroup v1: cpuacct.usage contains nanoseconds
 	data, err := os.ReadFile(cgroupPath + "/cpuacct.usage") //nolint:gosec // Path constructed from trusted cgroup detection
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("read cgroup v1 cpuacct.usage: %w", err)
 	}
 
 	nsec, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("parse cpuacct.usage value: %w", err)
 	}
 
 	// Convert nanoseconds to microseconds
@@ -277,7 +287,7 @@ func readThrottleStats(cgroupPath string, version int) (ThrottleStats, error) {
 	if version == 2 {
 		file, err := os.Open(cgroupPath + "/cpu.stat") //nolint:gosec // Path constructed from trusted cgroup detection
 		if err != nil {
-			return stats, err
+			return stats, fmt.Errorf("open cgroup v2 cpu.stat for throttle stats: %w", err)
 		}
 		defer func() { _ = file.Close() }()
 
@@ -305,7 +315,7 @@ func readThrottleStats(cgroupPath string, version int) (ThrottleStats, error) {
 		// cgroup v1: cpu.stat has different format
 		file, err := os.Open(cgroupPath + "/cpu.stat") //nolint:gosec // Path constructed from trusted cgroup detection
 		if err != nil {
-			return stats, err
+			return stats, fmt.Errorf("open cgroup v1 cpu.stat for throttle stats: %w", err)
 		}
 		defer func() { _ = file.Close() }()
 
@@ -403,7 +413,7 @@ func (cm *CPUMonitor) GetPercent() (float64, ThrottleStats, error) {
 	// Fallback to gopsutil for non-containerized
 	cpuPercent, err := cpu.Percent(100*time.Millisecond, false)
 	if err != nil {
-		return 0, ThrottleStats{}, err
+		return 0, ThrottleStats{}, fmt.Errorf("get host cpu percent: %w", err)
 	}
 	if len(cpuPercent) == 0 {
 		return 0, ThrottleStats{}, errors.New("no CPU data")
@@ -415,7 +425,7 @@ func (cm *CPUMonitor) GetPercent() (float64, ThrottleStats, error) {
 func (cm *CPUMonitor) GetHostPercent() (float64, error) {
 	cpuPercent, err := cpu.Percent(100*time.Millisecond, false)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("get host cpu percent: %w", err)
 	}
 	if len(cpuPercent) == 0 {
 		return 0, errors.New("no CPU data")

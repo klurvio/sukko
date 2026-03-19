@@ -1,0 +1,18 @@
+{{- if .Values.enabled }}
+{{- /* Only create PVC when using SQLite */ -}}
+{{- $dbDriver := .Values.databaseDriver | default "sqlite" -}}
+{{- if and (eq $dbDriver "sqlite") .Values.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "provisioning.fullname" . }}-data
+  labels:
+    {{- include "provisioning.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}
+{{- end }}

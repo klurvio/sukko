@@ -8,97 +8,43 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/limits"
-	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/server/limits"
+	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/klurvio/sukko/internal/server/stats"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
 // =============================================================================
 // Buffer Usage Calculation Tests
 // =============================================================================
 
-func TestBufferUsagePercent_Empty(t *testing.T) {
+func TestBufferUsagePercent(t *testing.T) {
 	t.Parallel()
-	bufferLen := 0
-	bufferCap := 512
 
-	percent := float64(bufferLen) / float64(bufferCap) * 100
-
-	if percent != 0 {
-		t.Errorf("percent: got %f, want 0", percent)
+	tests := []struct {
+		name        string
+		bufferLen   int
+		bufferCap   int
+		wantPercent float64
+	}{
+		{"empty", 0, 512, 0},
+		{"half", 256, 512, 50},
+		{"full", 512, 512, 100},
+		{"quarter", 128, 512, 25},
+		{"three_quarters", 384, 512, 75},
+		{"small_buffer_half", 5, 10, 50},
+		{"large_buffer_half", 512, 1024, 50},
 	}
-}
 
-func TestBufferUsagePercent_Half(t *testing.T) {
-	t.Parallel()
-	bufferLen := 256
-	bufferCap := 512
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			percent := float64(tt.bufferLen) / float64(tt.bufferCap) * 100
 
-	percent := float64(bufferLen) / float64(bufferCap) * 100
-
-	if percent != 50 {
-		t.Errorf("percent: got %f, want 50", percent)
-	}
-}
-
-func TestBufferUsagePercent_Full(t *testing.T) {
-	t.Parallel()
-	bufferLen := 512
-	bufferCap := 512
-
-	percent := float64(bufferLen) / float64(bufferCap) * 100
-
-	if percent != 100 {
-		t.Errorf("percent: got %f, want 100", percent)
-	}
-}
-
-func TestBufferUsagePercent_Quarter(t *testing.T) {
-	t.Parallel()
-	bufferLen := 128
-	bufferCap := 512
-
-	percent := float64(bufferLen) / float64(bufferCap) * 100
-
-	if percent != 25 {
-		t.Errorf("percent: got %f, want 25", percent)
-	}
-}
-
-func TestBufferUsagePercent_ThreeQuarters(t *testing.T) {
-	t.Parallel()
-	bufferLen := 384
-	bufferCap := 512
-
-	percent := float64(bufferLen) / float64(bufferCap) * 100
-
-	if percent != 75 {
-		t.Errorf("percent: got %f, want 75", percent)
-	}
-}
-
-func TestBufferUsagePercent_SmallBuffer(t *testing.T) {
-	t.Parallel()
-	bufferLen := 5
-	bufferCap := 10
-
-	percent := float64(bufferLen) / float64(bufferCap) * 100
-
-	if percent != 50 {
-		t.Errorf("percent: got %f, want 50", percent)
-	}
-}
-
-func TestBufferUsagePercent_LargeBuffer(t *testing.T) {
-	t.Parallel()
-	bufferLen := 512
-	bufferCap := 1024
-
-	percent := float64(bufferLen) / float64(bufferCap) * 100
-
-	if percent != 50 {
-		t.Errorf("percent: got %f, want 50", percent)
+			if percent != tt.wantPercent {
+				t.Errorf("percent: got %f, want %f", percent, tt.wantPercent)
+			}
+		})
 	}
 }
 
@@ -106,39 +52,30 @@ func TestBufferUsagePercent_LargeBuffer(t *testing.T) {
 // Connection Duration Tests
 // =============================================================================
 
-func TestConnectionDuration_Calculation(t *testing.T) {
+func TestConnectionDuration(t *testing.T) {
 	t.Parallel()
-	connectedAt := time.Now().Add(-5 * time.Second)
 
-	duration := time.Since(connectedAt)
-
-	// Should be approximately 5 seconds (allow some tolerance)
-	if duration < 4*time.Second || duration > 6*time.Second {
-		t.Errorf("duration: got %v, expected ~5s", duration)
+	tests := []struct {
+		name   string
+		age    time.Duration
+		minDur time.Duration
+		maxDur time.Duration
+	}{
+		{"5_seconds", 5 * time.Second, 4 * time.Second, 6 * time.Second},
+		{"1_hour", 1 * time.Hour, 59 * time.Minute, 61 * time.Minute},
+		{"100_milliseconds", 100 * time.Millisecond, 90 * time.Millisecond, 200 * time.Millisecond},
 	}
-}
 
-func TestConnectionDuration_LongConnection(t *testing.T) {
-	t.Parallel()
-	connectedAt := time.Now().Add(-1 * time.Hour)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			connectedAt := time.Now().Add(-tt.age)
+			duration := time.Since(connectedAt)
 
-	duration := time.Since(connectedAt)
-
-	// Should be approximately 1 hour
-	if duration < 59*time.Minute || duration > 61*time.Minute {
-		t.Errorf("duration: got %v, expected ~1h", duration)
-	}
-}
-
-func TestConnectionDuration_VeryShort(t *testing.T) {
-	t.Parallel()
-	connectedAt := time.Now().Add(-100 * time.Millisecond)
-
-	duration := time.Since(connectedAt)
-
-	// Should be approximately 100ms
-	if duration < 90*time.Millisecond || duration > 200*time.Millisecond {
-		t.Errorf("duration: got %v, expected ~100ms", duration)
+			if duration < tt.minDur || duration > tt.maxDur {
+				t.Errorf("duration: got %v, expected between %v and %v", duration, tt.minDur, tt.maxDur)
+			}
+		})
 	}
 }
 
@@ -187,35 +124,29 @@ func TestClient_SlowClientWarnedFlag(t *testing.T) {
 // Disconnect Reason Constants Tests
 // =============================================================================
 
-func TestDisconnectReasons_Constants(t *testing.T) {
+func TestDisconnectConstants_NotEmpty(t *testing.T) {
 	t.Parallel()
-	// Verify disconnect reason constants are defined correctly
-	reasons := []string{
-		pkgmetrics.DisconnectReadError,
-		pkgmetrics.DisconnectWriteTimeout,
-		pkgmetrics.DisconnectPingTimeout,
-		pkgmetrics.DisconnectServerShutdown,
-		pkgmetrics.DisconnectRateLimitExceeded,
+
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"DisconnectReadError", pkgmetrics.DisconnectReadError},
+		{"DisconnectWriteTimeout", pkgmetrics.DisconnectWriteTimeout},
+		{"DisconnectPingTimeout", pkgmetrics.DisconnectPingTimeout},
+		{"DisconnectServerShutdown", pkgmetrics.DisconnectServerShutdown},
+		{"DisconnectRateLimitExceeded", pkgmetrics.DisconnectRateLimitExceeded},
+		{"InitiatedByClient", pkgmetrics.InitiatedByClient},
+		{"InitiatedByServer", pkgmetrics.InitiatedByServer},
 	}
 
-	for _, reason := range reasons {
-		if reason == "" {
-			t.Error("Disconnect reason constant should not be empty")
-		}
-	}
-}
-
-func TestDisconnectInitiatedBy_Constants(t *testing.T) {
-	t.Parallel()
-	initiators := []string{
-		pkgmetrics.InitiatedByClient,
-		pkgmetrics.InitiatedByServer,
-	}
-
-	for _, initiator := range initiators {
-		if initiator == "" {
-			t.Error("Disconnect initiator constant should not be empty")
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if tt.value == "" {
+				t.Errorf("%s constant should not be empty", tt.name)
+			}
+		})
 	}
 }
 
@@ -225,31 +156,34 @@ func TestDisconnectInitiatedBy_Constants(t *testing.T) {
 
 func TestStats_CurrentConnectionsDecrement(t *testing.T) {
 	t.Parallel()
-	stats := &types.Stats{}
-	stats.CurrentConnections.Store(10)
 
-	stats.CurrentConnections.Add(-1)
-
-	if stats.CurrentConnections.Load() != 9 {
-		t.Errorf("CurrentConnections: got %d, want 9", stats.CurrentConnections.Load())
+	tests := []struct {
+		name    string
+		initial int64
+		want    int64
+	}{
+		{"from_10_to_9", 10, 9},
+		{"from_1_to_0", 1, 0},
+		{"from_100_to_99", 100, 99},
 	}
-}
 
-func TestStats_CurrentConnectionsDecrement_ToZero(t *testing.T) {
-	t.Parallel()
-	stats := &types.Stats{}
-	stats.CurrentConnections.Store(1)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := stats.NewStats()
+			s.CurrentConnections.Store(tt.initial)
+			s.CurrentConnections.Add(-1)
 
-	stats.CurrentConnections.Add(-1)
-
-	if stats.CurrentConnections.Load() != 0 {
-		t.Errorf("CurrentConnections: got %d, want 0", stats.CurrentConnections.Load())
+			if s.CurrentConnections.Load() != tt.want {
+				t.Errorf("CurrentConnections: got %d, want %d", s.CurrentConnections.Load(), tt.want)
+			}
+		})
 	}
 }
 
 func TestStats_CurrentConnectionsDecrement_Concurrent(t *testing.T) {
 	t.Parallel()
-	stats := &types.Stats{}
+	stats := stats.NewStats()
 	stats.CurrentConnections.Store(1000)
 
 	var wg sync.WaitGroup
@@ -387,9 +321,7 @@ func TestDisconnectClient_Integration(t *testing.T) {
 	t.Parallel()
 	// Create minimal server with required components
 	logger := zerolog.Nop()
-	stats := &types.Stats{
-		DisconnectsByReason: make(map[string]int64),
-	}
+	stats := stats.NewStats()
 	stats.CurrentConnections.Store(1)
 
 	server := &Server{
@@ -398,7 +330,7 @@ func TestDisconnectClient_Integration(t *testing.T) {
 		connections:       NewConnectionPool(100, 256),
 		connectionsSem:    make(chan struct{}, 100),
 		subscriptionIndex: NewSubscriptionIndex(),
-		rateLimiter:       limits.NewRateLimiter(),
+		rateLimiter:       limits.NewRateLimiter(100, 10),
 	}
 
 	// Acquire a connection slot

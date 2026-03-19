@@ -1,5 +1,5 @@
 # Stage 1: Build the application
-FROM golang:1.25.7-alpine AS builder
+FROM golang:1.26.0-alpine AS builder
 
 WORKDIR /app
 
@@ -21,10 +21,10 @@ ARG BUILD_TIME=unknown
 # CGO_ENABLED=0 ensures a static binary without C dependencies
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.Version=${VERSION}' \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.CommitHash=${COMMIT_HASH}' \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.BuildTime=${BUILD_TIME}'" \
-    -o /odin-provisioning ./cmd/provisioning
+    -X 'github.com/klurvio/sukko/internal/shared/version.Version=${VERSION}' \
+    -X 'github.com/klurvio/sukko/internal/shared/version.CommitHash=${COMMIT_HASH}' \
+    -X 'github.com/klurvio/sukko/internal/shared/version.BuildTime=${BUILD_TIME}'" \
+    -o /sukko-provisioning ./cmd/provisioning
 
 # Stage 2: Create the final, minimal image
 FROM alpine:latest
@@ -33,31 +33,41 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 
 # Create non-root user for security
-RUN addgroup -g 1000 -S odin && \
-    adduser -u 1000 -S odin -G odin
+RUN 0 && \
+    adduser -u 1000 -S sukko -G sukko
+
+# Create data directory for SQLite
+RUN mkdir -p /data && chown sukko:sukko /data
 
 WORKDIR /app
 
 # Copy the static binary from the builder stage
-COPY --from=builder /odin-provisioning .
+COPY --from=builder /sukko-provisioning .
 
 # Ensure binary is executable
-RUN chmod +x /app/odin-provisioning && chown odin:odin /app/odin-provisioning
+RUN chmod +x /app/sukko-provisioning && chown sukko:sukko /app/sukko-provisioning
 
 # Switch to non-root user
-USER odin
+USER sukko
 
-# Expose the provisioning API port (default 8080)
+# Expose the provisioning API port and gRPC port
 EXPOSE 8080
+EXPOSE 9090
+
+# SQLite data volume
+VOLUME ["/data"]
 
 # Command to run the application
 # Configuration via environment variables:
 # - PROVISIONING_ADDR: Address to listen on (default: :8080)
-# - DATABASE_URL: PostgreSQL connection URL (required)
+# - GRPC_PORT: gRPC server port (default: 9090)
+# - PROVISIONING_MODE: "api" (database) or "config" (YAML file)
+# - DATABASE_DRIVER: "sqlite" (default) or "postgres"
+# - DATABASE_PATH: SQLite file path (default: /data/sukko.db)
+# - DATABASE_URL: PostgreSQL connection URL (required when driver=postgres)
+# - AUTO_MIGRATE: Auto-apply migrations on startup (default: true)
 # - AUTH_ENABLED: Enable JWT authentication (default: false)
-# - OIDC_ISSUER_URL: OIDC issuer URL (enables OIDC when set with JWKS URL)
-# - OIDC_JWKS_URL: OIDC JWKS endpoint URL
-# - CORS_ALLOWED_ORIGINS: Comma-separated allowed origins
+# - PROVISIONING_ADMIN_TOKEN: Admin bearer token for API auth
 # - LOG_LEVEL: debug, info, warn, error
 # - LOG_FORMAT: json, text, pretty
-CMD ["./odin-provisioning"]
+CMD ["./sukko-provisioning"]

@@ -1,0 +1,180 @@
+# =============================================================================
+# Sukko WebSocket Infrastructure - Production Environment
+# =============================================================================
+# High-availability configuration for production workloads
+# Target: ~120K+ total connections (3+ nodes × 3 pods × 20K)
+# See docs/architecture/CONNECTION_LIMITS.md for details
+
+global:
+  namespace: sukko-production
+
+# =============================================================================
+# WebSocket Gateway - Production
+# =============================================================================
+ws-gateway:
+  replicaCount: 3
+
+  config:
+    logLevel: warn  # Reduce log volume in production
+
+  # Connection limits (production capacity)
+  connectionLimits:
+    maxConnections: 20000
+    readBufferSize: 4096
+    writeBufferSize: 4096
+    maxMessageSize: 65536
+
+  # Production resources
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+  # Enable autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+# =============================================================================
+# WebSocket Server - Production
+# =============================================================================
+ws-server:
+  replicaCount: 3
+
+  config:
+    shards: 2
+    logLevel: warn  # Reduce log volume in production
+    environment: prod  # Topic naming: sukko.prod.{base}.refined
+
+    # Tighter rate limiting for production
+    connRateLimit:
+      enabled: true
+      ipBurst: 50
+      ipRate: 50.0
+      globalBurst: 200
+      globalRate: 100.0
+
+  # Connection limits (ResourceGuard enforces actual limits at runtime)
+  connectionLimits:
+    clusterMaxConnections: 100000
+    readBufferSize: 4096
+    writeBufferSize: 4096
+    maxMessageSize: 65536
+
+  # Production resources
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+  # Enable autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+# =============================================================================
+# Redpanda - Production
+# =============================================================================
+redpanda:
+  replicaCount: 3  # HA cluster
+
+  resources:
+    requests:
+      cpu: "1"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+
+  storage:
+    size: 20Gi
+    storageClass: "pd-ssd"  # Use SSD for production
+
+# =============================================================================
+# NATS - Production (HA Cluster)
+# =============================================================================
+nats:
+  replicaCount: 3  # HA cluster
+
+  cluster:
+    enabled: true
+    name: "sukko-nats-cluster"
+
+  auth:
+    enabled: true
+    # token: set via secret
+
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# =============================================================================
+# Monitoring - Production
+# =============================================================================
+monitoring:
+  enabled: true
+
+  prometheus:
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+    retention: "30d"
+    scrapeInterval: "15s"
+    service:
+      type: NodePort
+      nodePort: 30090
+
+  grafana:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    service:
+      type: NodePort
+      nodePort: 30300
+
+  loki:
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    retention: "336h"  # 14 days
+
+# =============================================================================
+# Production Considerations
+# =============================================================================
+# 1. Node kernel tuning: Enabled via Terraform (enable_kernel_tuning=true)
+# 2. Pod security: Non-root user, read-only filesystem, dropped capabilities
+# 3. Network policies: ws-server only accepts connections from ws-gateway
+# 4. Autoscaling: Enabled for ws-gateway and ws-server
+# 5. HA: 3+ replicas for all critical services
+# 6. Monitoring: Full stack with extended retention
+#
+# Capacity calculation:
+# - 3 nodes × 3 ws-server pods × 20K connections = 180K theoretical max
+# - Practical capacity with overhead: ~120K connections
+# - Scale nodes/pods as needed based on monitoring

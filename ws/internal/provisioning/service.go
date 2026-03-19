@@ -5,25 +5,48 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/provisioning/eventbus"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/types"
+)
+
+// Sentinel errors for provisioning operations.
+var (
+	ErrTenantIDContainsDots      = errors.New("tenant ID must not contain dots")
+	ErrTenantIDUnderscorePrefix  = errors.New("tenant ID must not start with underscore")
+	ErrTenantDeleted             = errors.New("cannot modify deleted tenant")
+	ErrTenantNotActive           = errors.New("tenant is not active")
+	ErrKeyNotOwnedByTenant       = errors.New("key does not belong to tenant")
+	ErrOIDCStoreNotConfigured    = errors.New("OIDC config store not configured")
+	ErrChannelRulesNotConfigured = errors.New("channel rules store not configured")
+	ErrRoutingRulesNotConfigured = errors.New("routing rules store not configured")
+)
+
+const (
+	// msPerDay is the number of milliseconds in one day.
+	msPerDay = 24 * 60 * 60 * 1000
+
+	// kafkaRetentionMsKey is the Kafka topic config key for message retention.
+	kafkaRetentionMsKey = "retention.ms"
 )
 
 // ServiceConfig holds the configuration for the provisioning service.
 type ServiceConfig struct {
 	TenantStore       TenantStore
 	KeyStore          KeyStore
-	TopicStore        TopicStore
+	RoutingRulesStore RoutingRulesStore
 	QuotaStore        QuotaStore
 	AuditStore        AuditStore
 	OIDCConfigStore   OIDCConfigStore
 	ChannelRulesStore ChannelRulesStore
 	KafkaAdmin        KafkaAdmin
+	EventBus          *eventbus.Bus
 	Logger            zerolog.Logger
 
 	// Topic configuration
@@ -32,46 +55,79 @@ type ServiceConfig struct {
 	DefaultRetentionMs int64
 
 	// Quota defaults
-	MaxTopicsPerTenant int
+	MaxTopicsPerTenant  int
+	MaxStorageBytes     int64
+	DefaultProducerRate int64
+	DefaultConsumerRate int64
 
 	// Lifecycle
 	DeprovisionGraceDays int
+
+	// MaxRoutingRules limits the number of routing rules per tenant.
+	// Wired from env var MAX_ROUTING_RULES (default: 100).
+	MaxRoutingRules int
 }
 
 // Service provides tenant lifecycle management and provisioning operations.
 type Service struct {
 	tenants      TenantStore
 	keys         KeyStore
-	topics       TopicStore
+	routingRules RoutingRulesStore
 	quotas       QuotaStore
 	audit        AuditStore
 	oidcConfigs  OIDCConfigStore
 	channelRules ChannelRulesStore
 	kafka        KafkaAdmin
+	eventBus     *eventbus.Bus
 	logger       zerolog.Logger
 	config       ServiceConfig
 }
 
 // NewService creates a new provisioning Service.
-func NewService(cfg ServiceConfig) *Service {
+// Returns an error if required stores (TenantStore, KeyStore, QuotaStore,
+// AuditStore, KafkaAdmin, EventBus) are nil.
+func NewService(cfg ServiceConfig) (*Service, error) {
+	if cfg.TenantStore == nil {
+		return nil, errors.New("provisioning service: tenant store is required")
+	}
+	if cfg.KeyStore == nil {
+		return nil, errors.New("provisioning service: key store is required")
+	}
+	if cfg.QuotaStore == nil {
+		return nil, errors.New("provisioning service: quota store is required")
+	}
+	if cfg.AuditStore == nil {
+		return nil, errors.New("provisioning service: audit store is required")
+	}
+	if cfg.KafkaAdmin == nil {
+		return nil, errors.New("provisioning service: kafka admin is required")
+	}
+	if cfg.EventBus == nil {
+		return nil, errors.New("provisioning service: event bus is required")
+	}
+
 	return &Service{
 		tenants:      cfg.TenantStore,
 		keys:         cfg.KeyStore,
-		topics:       cfg.TopicStore,
+		routingRules: cfg.RoutingRulesStore,
 		quotas:       cfg.QuotaStore,
 		audit:        cfg.AuditStore,
 		oidcConfigs:  cfg.OIDCConfigStore,
 		channelRules: cfg.ChannelRulesStore,
 		kafka:        cfg.KafkaAdmin,
+		eventBus:     cfg.EventBus,
 		logger:       cfg.Logger,
 		config:       cfg,
-	}
+	}, nil
 }
 
 // Ready checks if the service is ready to handle requests.
 // Returns nil if database is accessible, otherwise returns the error.
 func (s *Service) Ready(ctx context.Context) error {
-	return s.tenants.Ping(ctx)
+	if err := s.tenants.Ping(ctx); err != nil {
+		return fmt.Errorf("ping tenant store: %w", err)
+	}
+	return nil
 }
 
 // CreateTenant creates a new tenant with optional initial key and topics.
@@ -93,6 +149,16 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		return nil, fmt.Errorf("invalid tenant: %w", err)
 	}
 
+	// FR-008: Tenant IDs must not contain dots (used as channel separator)
+	if strings.Contains(req.TenantID, ".") {
+		return nil, fmt.Errorf("%w: %s", ErrTenantIDContainsDots, req.TenantID)
+	}
+
+	// FR-009: Tenant IDs must not start with underscore (reserved for system)
+	if strings.HasPrefix(req.TenantID, "_") {
+		return nil, fmt.Errorf("%w: %s", ErrTenantIDUnderscorePrefix, req.TenantID)
+	}
+
 	// Create tenant record
 	if err := s.tenants.Create(ctx, tenant); err != nil {
 		return nil, fmt.Errorf("create tenant: %w", err)
@@ -103,9 +169,9 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		TenantID:         tenant.ID,
 		MaxTopics:        s.config.MaxTopicsPerTenant,
 		MaxPartitions:    s.config.MaxTopicsPerTenant * s.config.DefaultPartitions,
-		MaxStorageBytes:  10 * 1024 * 1024 * 1024, // 10GB
-		ProducerByteRate: 10 * 1024 * 1024,        // 10MB/s
-		ConsumerByteRate: 50 * 1024 * 1024,        // 50MB/s
+		MaxStorageBytes:  s.config.MaxStorageBytes,
+		ProducerByteRate: s.config.DefaultProducerRate,
+		ConsumerByteRate: s.config.DefaultConsumerRate,
 	}
 	if err := s.quotas.Create(ctx, quota); err != nil {
 		s.logger.Error().Err(err).Str("tenant_id", tenant.ID).Msg("Failed to create quotas")
@@ -114,7 +180,6 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 
 	response := &CreateTenantResponse{
 		Tenant: tenant,
-		Topics: []string{},
 	}
 
 	// Register initial key if provided
@@ -136,26 +201,10 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		response.Key = key
 	}
 
-	// Create initial topics if categories provided
-	if len(req.Categories) > 0 {
-		topics, err := s.createTopicsForTenant(ctx, tenant.ID, req.Categories)
-		if err != nil {
-			s.logger.Error().Err(err).Str("tenant_id", tenant.ID).Msg("Failed to create topics")
-			// Don't fail - topics can be created later
-		} else {
-			for _, t := range topics {
-				// Build topic name at runtime for response
-				topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.ID, t.Category)
-				response.Topics = append(response.Topics, topicName)
-			}
-		}
-	}
-
 	// Audit log
 	s.auditLog(ctx, tenant.ID, ActionCreateTenant, Metadata{
 		"name":          tenant.Name,
 		"consumer_type": tenant.ConsumerType,
-		"categories":    req.Categories,
 	})
 
 	s.logger.Info().
@@ -163,28 +212,39 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		Str("name", tenant.Name).
 		Msg("Tenant created")
 
+	s.emitEvent(eventbus.TopicsChanged)
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return response, nil
 }
 
 // GetTenant retrieves a tenant by ID.
 func (s *Service) GetTenant(ctx context.Context, tenantID string) (*Tenant, error) {
-	return s.tenants.Get(ctx, tenantID)
+	tenant, err := s.tenants.Get(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get tenant: %w", err)
+	}
+	return tenant, nil
 }
 
 // ListTenants returns tenants matching the given options.
 func (s *Service) ListTenants(ctx context.Context, opts ListOptions) ([]*Tenant, int, error) {
-	return s.tenants.List(ctx, opts)
+	tenants, total, err := s.tenants.List(ctx, opts)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list tenants: %w", err)
+	}
+	return tenants, total, nil
 }
 
 // UpdateTenant updates tenant metadata.
 func (s *Service) UpdateTenant(ctx context.Context, tenantID string, req UpdateTenantRequest) (*Tenant, error) {
 	tenant, err := s.tenants.Get(ctx, tenantID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get tenant: %w", err)
 	}
 
 	if tenant.Status == StatusDeleted {
-		return nil, errors.New("cannot update deleted tenant")
+		return nil, ErrTenantDeleted
 	}
 
 	if req.Name != nil {
@@ -206,6 +266,8 @@ func (s *Service) UpdateTenant(ctx context.Context, tenantID string, req UpdateT
 		"consumer_type": tenant.ConsumerType,
 	})
 
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return tenant, nil
 }
 
@@ -218,6 +280,10 @@ func (s *Service) SuspendTenant(ctx context.Context, tenantID string) error {
 	s.auditLog(ctx, tenantID, ActionSuspendTenant, nil)
 
 	s.logger.Info().Str("tenant_id", tenantID).Msg("Tenant suspended")
+
+	s.emitEvent(eventbus.TopicsChanged)
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return nil
 }
 
@@ -230,6 +296,10 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 	s.auditLog(ctx, tenantID, ActionReactivateTenant, nil)
 
 	s.logger.Info().Str("tenant_id", tenantID).Msg("Tenant reactivated")
+
+	s.emitEvent(eventbus.TopicsChanged)
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return nil
 }
 
@@ -253,18 +323,24 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string) error 
 	}
 
 	// Update topic retention to grace period (Kafka will delete after)
-	topics, _ := s.topics.ListByTenant(ctx, tenantID)
-	gracePeriodMs := int64(s.config.DeprovisionGraceDays * 24 * 60 * 60 * 1000)
-	for _, topic := range topics {
-		// Build topic name at runtime
-		topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, topic.Category)
-		if err := s.kafka.SetTopicConfig(ctx, topicName, map[string]string{
-			"retention.ms": strconv.FormatInt(gracePeriodMs, 10),
-		}); err != nil {
-			s.logger.Error().Err(err).
-				Str("tenant_id", tenantID).
-				Str("topic", topicName).
-				Msg("Failed to update topic retention")
+	if s.routingRules != nil {
+		rules, err := s.routingRules.Get(ctx, tenantID)
+		if err != nil {
+			s.logger.Warn().Err(err).Str("tenant_id", tenantID).
+				Msg("Failed to get routing rules for topic retention update")
+		} else {
+			gracePeriodMs := int64(s.config.DeprovisionGraceDays) * msPerDay
+			for _, suffix := range UniqueTopicSuffixes(rules) {
+				topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
+				if err := s.kafka.SetTopicConfig(ctx, topicName, map[string]string{
+					kafkaRetentionMsKey: strconv.FormatInt(gracePeriodMs, 10),
+				}); err != nil {
+					s.logger.Error().Err(err).
+						Str("tenant_id", tenantID).
+						Str("topic", topicName).
+						Msg("Failed to update topic retention")
+				}
+			}
 		}
 	}
 
@@ -286,10 +362,10 @@ func (s *Service) CreateKey(ctx context.Context, tenantID string, req CreateKeyR
 	// Verify tenant exists and is active
 	tenant, err := s.tenants.Get(ctx, tenantID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get tenant: %w", err)
 	}
 	if tenant.Status != StatusActive {
-		return nil, fmt.Errorf("tenant is not active: %s", tenant.Status)
+		return nil, fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
 	}
 
 	key := &TenantKey{
@@ -318,12 +394,18 @@ func (s *Service) CreateKey(ctx context.Context, tenantID string, req CreateKeyR
 		Str("key_id", key.KeyID).
 		Msg("Key created")
 
+	s.emitEvent(eventbus.KeysChanged)
+
 	return key, nil
 }
 
 // ListKeys returns all keys for a tenant.
 func (s *Service) ListKeys(ctx context.Context, tenantID string) ([]*TenantKey, error) {
-	return s.keys.ListByTenant(ctx, tenantID)
+	keys, err := s.keys.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("list keys: %w", err)
+	}
+	return keys, nil
 }
 
 // RevokeKey revokes a key.
@@ -331,10 +413,10 @@ func (s *Service) RevokeKey(ctx context.Context, tenantID, keyID string) error {
 	// Verify key belongs to tenant
 	key, err := s.keys.Get(ctx, keyID)
 	if err != nil {
-		return err
+		return fmt.Errorf("get key: %w", err)
 	}
 	if key.TenantID != tenantID {
-		return errors.New("key does not belong to tenant")
+		return ErrKeyNotOwnedByTenant
 	}
 
 	if err := s.keys.Revoke(ctx, keyID); err != nil {
@@ -350,33 +432,18 @@ func (s *Service) RevokeKey(ctx context.Context, tenantID, keyID string) error {
 		Str("key_id", keyID).
 		Msg("Key revoked")
 
+	s.emitEvent(eventbus.KeysChanged)
+
 	return nil
 }
 
 // GetActiveKeys returns all active keys (for WS Gateway cache refresh).
 func (s *Service) GetActiveKeys(ctx context.Context) ([]*TenantKey, error) {
-	return s.keys.GetActiveKeys(ctx)
-}
-
-// CreateTopics creates topics for a tenant.
-func (s *Service) CreateTopics(ctx context.Context, tenantID string, categories []string) ([]*TenantTopic, error) {
-	// Verify tenant exists and is active
-	tenant, err := s.tenants.Get(ctx, tenantID)
+	keys, err := s.keys.GetActiveKeys(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get active keys: %w", err)
 	}
-	if tenant.Status != StatusActive {
-		return nil, fmt.Errorf("tenant is not active: %s", tenant.Status)
-	}
-
-	return s.createTopicsForTenant(ctx, tenantID, categories)
-}
-
-// ListTopics returns all topic categories for a tenant.
-// Note: TenantTopic.Category contains the category name. To get the full topic name,
-// use kafka.BuildTopicName(service.TopicNamespace(), tenantID, category).
-func (s *Service) ListTopics(ctx context.Context, tenantID string) ([]*TenantTopic, error) {
-	return s.topics.ListByTenant(ctx, tenantID)
+	return keys, nil
 }
 
 // TopicNamespace returns the configured Kafka topic namespace.
@@ -387,14 +454,18 @@ func (s *Service) TopicNamespace() string {
 
 // GetQuota returns quotas for a tenant.
 func (s *Service) GetQuota(ctx context.Context, tenantID string) (*TenantQuota, error) {
-	return s.quotas.Get(ctx, tenantID)
+	quota, err := s.quotas.Get(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get quota: %w", err)
+	}
+	return quota, nil
 }
 
 // UpdateQuota updates quotas for a tenant.
 func (s *Service) UpdateQuota(ctx context.Context, tenantID string, req UpdateQuotaRequest) (*TenantQuota, error) {
 	quota, err := s.quotas.Get(ctx, tenantID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get quota: %w", err)
 	}
 
 	if req.MaxTopics != nil {
@@ -437,78 +508,18 @@ func (s *Service) UpdateQuota(ctx context.Context, tenantID string, req UpdateQu
 
 // GetAuditLog returns audit entries for a tenant.
 func (s *Service) GetAuditLog(ctx context.Context, tenantID string, opts ListOptions) ([]*AuditEntry, int, error) {
-	return s.audit.ListByTenant(ctx, tenantID, opts)
-}
-
-// createTopicsForTenant creates topics for the given categories.
-func (s *Service) createTopicsForTenant(ctx context.Context, tenantID string, categories []string) ([]*TenantTopic, error) {
-	created := []*TenantTopic{}
-
-	for _, category := range categories {
-		if err := s.createSingleTopic(ctx, tenantID, category); err != nil {
-			topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, category)
-			s.logger.Error().Err(err).Str("topic", topicName).Msg("Failed to create topic")
-			continue
-		}
-		created = append(created, &TenantTopic{
-			TenantID:    tenantID,
-			Category:    category,
-			Partitions:  s.config.DefaultPartitions,
-			RetentionMs: s.config.DefaultRetentionMs,
-		})
+	entries, total, err := s.audit.ListByTenant(ctx, tenantID, opts)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list audit log: %w", err)
 	}
-
-	// Create ACL for tenant
-	if len(created) > 0 {
-		acl := ACLBinding{
-			Principal:    "User:" + tenantID,
-			ResourceType: "TOPIC",
-			ResourceName: fmt.Sprintf("%s.%s.", s.config.TopicNamespace, tenantID),
-			PatternType:  "PREFIXED",
-			Operation:    "ALL",
-			Permission:   "ALLOW",
-		}
-		if err := s.kafka.CreateACL(ctx, acl); err != nil {
-			s.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to create ACL")
-		}
-	}
-
-	return created, nil
-}
-
-// createSingleTopic creates a single Kafka topic and records the category in the database.
-// Topic name is built at runtime using kafka.BuildTopicName(namespace, tenantID, category).
-func (s *Service) createSingleTopic(ctx context.Context, tenantID, category string) error {
-	// Build topic name at runtime
-	topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, category)
-
-	// Create in Kafka
-	config := map[string]string{
-		"retention.ms": strconv.FormatInt(s.config.DefaultRetentionMs, 10),
-	}
-	if err := s.kafka.CreateTopic(ctx, topicName, s.config.DefaultPartitions, config); err != nil {
-		return fmt.Errorf("create kafka topic: %w", err)
-	}
-
-	// Record category in database (not full topic name)
-	topic := &TenantTopic{
-		TenantID:    tenantID,
-		Category:    category,
-		Partitions:  s.config.DefaultPartitions,
-		RetentionMs: s.config.DefaultRetentionMs,
-	}
-	if err := s.topics.Create(ctx, topic); err != nil {
-		return fmt.Errorf("record category: %w", err)
-	}
-
-	return nil
+	return entries, total, nil
 }
 
 // auditLog records an audit entry.
 func (s *Service) auditLog(ctx context.Context, tenantID, action string, details Metadata) {
-	// Get actor type, defaulting to "system" if not set
+	// Get actor type, defaulting to system if not set
 	actorType := auth.GetActorType(ctx)
-	if actorType == "system" {
+	if actorType == auth.DefaultActorType {
 		actorType = ActorTypeSystem
 	}
 
@@ -525,6 +536,12 @@ func (s *Service) auditLog(ctx context.Context, tenantID, action string, details
 	}
 }
 
+// emitEvent publishes a provisioning change event to the event bus.
+// EventBus is guaranteed non-nil by NewService constructor validation.
+func (s *Service) emitEvent(eventType eventbus.EventType) {
+	s.eventBus.Publish(eventbus.Event{Type: eventType})
+}
+
 // WithActor adds actor information to context.
 // This is an alias for auth.WithActor for backwards compatibility.
 var WithActor = auth.WithActor
@@ -532,16 +549,16 @@ var WithActor = auth.WithActor
 // CreateOIDCConfig creates OIDC configuration for a tenant.
 func (s *Service) CreateOIDCConfig(ctx context.Context, config *types.TenantOIDCConfig) error {
 	if s.oidcConfigs == nil {
-		return errors.New("OIDC config store not configured")
+		return ErrOIDCStoreNotConfigured
 	}
 
 	// Verify tenant exists and is active
 	tenant, err := s.tenants.Get(ctx, config.TenantID)
 	if err != nil {
-		return err
+		return fmt.Errorf("get tenant: %w", err)
 	}
 	if tenant.Status != StatusActive {
-		return fmt.Errorf("tenant is not active: %s", tenant.Status)
+		return fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
 	}
 
 	// Validate config
@@ -564,22 +581,28 @@ func (s *Service) CreateOIDCConfig(ctx context.Context, config *types.TenantOIDC
 		Str("issuer_url", config.IssuerURL).
 		Msg("OIDC config created")
 
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return nil
 }
 
 // GetOIDCConfig retrieves OIDC configuration for a tenant.
 func (s *Service) GetOIDCConfig(ctx context.Context, tenantID string) (*types.TenantOIDCConfig, error) {
 	if s.oidcConfigs == nil {
-		return nil, errors.New("OIDC config store not configured")
+		return nil, ErrOIDCStoreNotConfigured
 	}
 
-	return s.oidcConfigs.Get(ctx, tenantID)
+	config, err := s.oidcConfigs.Get(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get OIDC config: %w", err)
+	}
+	return config, nil
 }
 
 // UpdateOIDCConfig updates OIDC configuration for a tenant.
 func (s *Service) UpdateOIDCConfig(ctx context.Context, config *types.TenantOIDCConfig) error {
 	if s.oidcConfigs == nil {
-		return errors.New("OIDC config store not configured")
+		return ErrOIDCStoreNotConfigured
 	}
 
 	// Validate config
@@ -604,19 +627,21 @@ func (s *Service) UpdateOIDCConfig(ctx context.Context, config *types.TenantOIDC
 		Bool("enabled", config.Enabled).
 		Msg("OIDC config updated")
 
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return nil
 }
 
 // DeleteOIDCConfig deletes OIDC configuration for a tenant.
 func (s *Service) DeleteOIDCConfig(ctx context.Context, tenantID string) error {
 	if s.oidcConfigs == nil {
-		return errors.New("OIDC config store not configured")
+		return ErrOIDCStoreNotConfigured
 	}
 
 	// Get existing to verify it exists and for audit log
 	existing, err := s.oidcConfigs.Get(ctx, tenantID)
 	if err != nil {
-		return err
+		return fmt.Errorf("get OIDC config: %w", err)
 	}
 
 	// Delete from store
@@ -632,31 +657,37 @@ func (s *Service) DeleteOIDCConfig(ctx context.Context, tenantID string) error {
 		Str("tenant_id", tenantID).
 		Msg("OIDC config deleted")
 
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return nil
 }
 
 // GetChannelRules retrieves channel rules for a tenant.
 func (s *Service) GetChannelRules(ctx context.Context, tenantID string) (*types.TenantChannelRules, error) {
 	if s.channelRules == nil {
-		return nil, errors.New("channel rules store not configured")
+		return nil, ErrChannelRulesNotConfigured
 	}
 
-	return s.channelRules.Get(ctx, tenantID)
+	rules, err := s.channelRules.Get(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get channel rules: %w", err)
+	}
+	return rules, nil
 }
 
 // SetChannelRules creates or updates channel rules for a tenant.
 func (s *Service) SetChannelRules(ctx context.Context, tenantID string, rules *types.ChannelRules) error {
 	if s.channelRules == nil {
-		return errors.New("channel rules store not configured")
+		return ErrChannelRulesNotConfigured
 	}
 
 	// Verify tenant exists and is active
 	tenant, err := s.tenants.Get(ctx, tenantID)
 	if err != nil {
-		return err
+		return fmt.Errorf("get tenant: %w", err)
 	}
 	if tenant.Status != StatusActive {
-		return fmt.Errorf("tenant is not active: %s", tenant.Status)
+		return fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
 	}
 
 	// Validate rules
@@ -680,18 +711,20 @@ func (s *Service) SetChannelRules(ctx context.Context, tenantID string, rules *t
 		Int("group_mappings", len(rules.GroupMappings)).
 		Msg("Channel rules set")
 
+	s.emitEvent(eventbus.TenantConfigChanged)
+
 	return nil
 }
 
 // DeleteChannelRules deletes channel rules for a tenant.
 func (s *Service) DeleteChannelRules(ctx context.Context, tenantID string) error {
 	if s.channelRules == nil {
-		return errors.New("channel rules store not configured")
+		return ErrChannelRulesNotConfigured
 	}
 
 	// Verify rules exist (will return error if not found)
 	if _, err := s.channelRules.Get(ctx, tenantID); err != nil {
-		return err
+		return fmt.Errorf("get channel rules: %w", err)
 	}
 
 	// Delete from store
@@ -704,6 +737,89 @@ func (s *Service) DeleteChannelRules(ctx context.Context, tenantID string) error
 	s.logger.Info().
 		Str("tenant_id", tenantID).
 		Msg("Channel rules deleted")
+
+	s.emitEvent(eventbus.TenantConfigChanged)
+
+	return nil
+}
+
+// GetRoutingRules retrieves routing rules for a tenant.
+func (s *Service) GetRoutingRules(ctx context.Context, tenantID string) ([]TopicRoutingRule, error) {
+	if s.routingRules == nil {
+		return nil, ErrRoutingRulesNotConfigured
+	}
+
+	rules, err := s.routingRules.Get(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get routing rules: %w", err)
+	}
+	return rules, nil
+}
+
+// SetRoutingRules creates or updates routing rules for a tenant.
+func (s *Service) SetRoutingRules(ctx context.Context, tenantID string, rules []TopicRoutingRule) error {
+	if s.routingRules == nil {
+		return ErrRoutingRulesNotConfigured
+	}
+
+	// Verify tenant exists and is active
+	tenant, err := s.tenants.Get(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("get tenant: %w", err)
+	}
+	if tenant.Status != StatusActive {
+		return fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
+	}
+
+	// Enforce configurable count limit (default from env var MAX_ROUTING_RULES)
+	maxRules := s.config.MaxRoutingRules
+	if len(rules) > maxRules {
+		return fmt.Errorf("%w: got %d, max %d", ErrTooManyRoutingRules, len(rules), maxRules)
+	}
+
+	// Validate rule structure (patterns, suffixes, no placeholders)
+	if err := ValidateRoutingRules(rules); err != nil {
+		return fmt.Errorf("invalid routing rules: %w", err)
+	}
+
+	// Upsert in store
+	if err := s.routingRules.Set(ctx, tenantID, rules); err != nil {
+		return fmt.Errorf("set routing rules: %w", err)
+	}
+
+	s.auditLog(ctx, tenantID, ActionSetRoutingRules, Metadata{
+		"rule_count": len(rules),
+	})
+
+	s.logger.Info().
+		Str("tenant_id", tenantID).
+		Int("rule_count", len(rules)).
+		Msg("Routing rules set")
+
+	s.emitEvent(eventbus.TenantConfigChanged)
+	s.emitEvent(eventbus.TopicsChanged)
+
+	return nil
+}
+
+// DeleteRoutingRules deletes routing rules for a tenant.
+func (s *Service) DeleteRoutingRules(ctx context.Context, tenantID string) error {
+	if s.routingRules == nil {
+		return ErrRoutingRulesNotConfigured
+	}
+
+	if err := s.routingRules.Delete(ctx, tenantID); err != nil {
+		return fmt.Errorf("delete routing rules: %w", err)
+	}
+
+	s.auditLog(ctx, tenantID, ActionDeleteRoutingRules, nil)
+
+	s.logger.Info().
+		Str("tenant_id", tenantID).
+		Msg("Routing rules deleted")
+
+	s.emitEvent(eventbus.TenantConfigChanged)
+	s.emitEvent(eventbus.TopicsChanged)
 
 	return nil
 }

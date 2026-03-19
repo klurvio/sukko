@@ -10,10 +10,11 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/server/broadcast"
+	"github.com/klurvio/sukko/internal/server/kafka"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // MultiTenantConsumerPool manages Kafka consumers for multi-tenant deployments.
@@ -45,7 +46,7 @@ import (
 // Thread Safety: All public methods are safe for concurrent use.
 type MultiTenantConsumerPool struct {
 	config       MultiTenantPoolConfig
-	registry     kafka.TenantRegistry
+	registry     types.TenantRegistry
 	broadcastBus broadcast.Bus
 	logger       zerolog.Logger
 	ctx          context.Context
@@ -63,6 +64,7 @@ type MultiTenantConsumerPool struct {
 
 	// Refresh management
 	refreshInterval time.Duration
+	refreshCh       chan struct{} // Signal channel for on-demand refresh
 	lastRefresh     time.Time
 
 	// Internal metrics (also exposed via Prometheus if callback is set)
@@ -89,7 +91,7 @@ type MultiTenantPoolConfig struct {
 	Environment string
 
 	// Registry provides tenant topic information from the provisioning database
-	Registry kafka.TenantRegistry
+	Registry types.TenantRegistry
 
 	// BroadcastBus receives consumed messages for distribution to WebSocket clients
 	BroadcastBus broadcast.Bus
@@ -103,6 +105,19 @@ type MultiTenantPoolConfig struct {
 	// RefreshInterval controls how often to check for new tenant topics
 	// Default: 60 seconds
 	RefreshInterval time.Duration
+
+	// Consumer batch tuning
+	KafkaBatchSize    int
+	KafkaBatchTimeout time.Duration
+
+	// Consumer transport tuning
+	KafkaFetchMaxWait              time.Duration
+	KafkaFetchMinBytes             int32
+	KafkaFetchMaxBytes             int32
+	KafkaSessionTimeout            time.Duration
+	KafkaRebalanceTimeout          time.Duration
+	KafkaReplayFetchMaxBytes       int32
+	KafkaBackpressureCheckInterval time.Duration
 
 	// Security configuration for managed Kafka/Redpanda services
 	SASL *kafka.SASLConfig
@@ -137,12 +152,6 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		config.Environment = config.Namespace
 	}
 
-	// Default refresh interval (30s for faster topic discovery)
-	refreshInterval := config.RefreshInterval
-	if refreshInterval == 0 {
-		refreshInterval = 30 * time.Second
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	pool := &MultiTenantConsumerPool{
@@ -155,12 +164,13 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		metrics:            config.Metrics,
 		sharedTopics:       make(map[string]bool),
 		dedicatedConsumers: make(map[string]*kafka.Consumer),
-		refreshInterval:    refreshInterval,
+		refreshInterval:    config.RefreshInterval,
+		refreshCh:          make(chan struct{}, 1), // Buffered to avoid blocking senders
 	}
 
 	pool.logger.Info().
 		Str("namespace", config.Namespace).
-		Dur("refresh_interval", refreshInterval).
+		Dur("refresh_interval", config.RefreshInterval).
 		Msg("Multi-tenant consumer pool initialized")
 
 	return pool, nil
@@ -209,6 +219,7 @@ func (p *MultiTenantConsumerPool) Start() error {
 }
 
 // refreshLoop periodically checks for new tenant topics.
+// Also listens for on-demand refresh signals from RefreshTopics().
 func (p *MultiTenantConsumerPool) refreshLoop() {
 	defer logging.RecoverPanic(p.logger, "refreshLoop", nil)
 	defer p.wg.Done()
@@ -225,16 +236,33 @@ func (p *MultiTenantConsumerPool) refreshLoop() {
 				p.refreshErrors.Add(1)
 				p.logger.Error().
 					Err(err).
-					Msg("Topic refresh failed")
+					Msg("Topic refresh failed (periodic)")
+			}
+		case <-p.refreshCh:
+			if err := p.refreshTopics(p.ctx); err != nil {
+				p.refreshErrors.Add(1)
+				p.logger.Error().
+					Err(err).
+					Msg("Topic refresh failed (on-demand)")
 			}
 		}
+	}
+}
+
+// RefreshTopics triggers an on-demand topic refresh.
+// Non-blocking: if a refresh is already pending, this is a no-op.
+func (p *MultiTenantConsumerPool) RefreshTopics() {
+	select {
+	case p.refreshCh <- struct{}{}:
+		p.logger.Debug().Msg("On-demand topic refresh triggered")
+	default:
+		// Refresh already pending, skip
 	}
 }
 
 // refreshTopics queries the registry for current tenant topics and updates consumers.
 func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 	p.refreshCount.Add(1)
-	p.lastRefresh = time.Now()
 
 	// Get shared tenant topics
 	sharedTopics, err := p.registry.GetSharedTenantTopics(ctx, p.config.Namespace)
@@ -256,6 +284,8 @@ func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	p.lastRefresh = time.Now()
 
 	// Update shared consumer
 	if err := p.updateSharedConsumer(ctx, sharedTopics); err != nil {
@@ -315,13 +345,23 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 	if p.sharedConsumer == nil && len(topics) > 0 {
 		consumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
 			Brokers:       p.config.Brokers,
-			ConsumerGroup: fmt.Sprintf("%s-shared-consumer", p.config.Environment),
+			ConsumerGroup: p.config.Environment + "-shared-consumer",
 			Topics:        topics,
 			Logger:        &p.logger,
 			Broadcast:     p.routeMessage,
 			ResourceGuard: p.config.ResourceGuard,
 			SASL:          p.config.SASL,
 			TLS:           p.config.TLS,
+			BatchSize:     p.config.KafkaBatchSize,
+			BatchTimeout:  p.config.KafkaBatchTimeout,
+			// Transport tuning
+			FetchMaxWait:              p.config.KafkaFetchMaxWait,
+			FetchMinBytes:             p.config.KafkaFetchMinBytes,
+			FetchMaxBytes:             p.config.KafkaFetchMaxBytes,
+			SessionTimeout:            p.config.KafkaSessionTimeout,
+			RebalanceTimeout:          p.config.KafkaRebalanceTimeout,
+			ReplayFetchMaxBytes:       p.config.KafkaReplayFetchMaxBytes,
+			BackpressureCheckInterval: p.config.KafkaBackpressureCheckInterval,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create shared consumer: %w", err)
@@ -373,7 +413,7 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 // updateDedicatedConsumers creates, updates, or removes dedicated consumers.
 //
 //nolint:unparam // error return is for interface consistency and future error handling
-func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, tenants []kafka.TenantTopics) error {
+func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, tenants []types.TenantTopics) error {
 	// Build tenant set
 	activeTenants := make(map[string]bool, len(tenants))
 	for _, t := range tenants {
@@ -415,6 +455,16 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 			ResourceGuard: p.config.ResourceGuard,
 			SASL:          p.config.SASL,
 			TLS:           p.config.TLS,
+			BatchSize:     p.config.KafkaBatchSize,
+			BatchTimeout:  p.config.KafkaBatchTimeout,
+			// Transport tuning
+			FetchMaxWait:              p.config.KafkaFetchMaxWait,
+			FetchMinBytes:             p.config.KafkaFetchMinBytes,
+			FetchMaxBytes:             p.config.KafkaFetchMaxBytes,
+			SessionTimeout:            p.config.KafkaSessionTimeout,
+			RebalanceTimeout:          p.config.KafkaRebalanceTimeout,
+			ReplayFetchMaxBytes:       p.config.KafkaReplayFetchMaxBytes,
+			BackpressureCheckInterval: p.config.KafkaBackpressureCheckInterval,
 		})
 		if err != nil {
 			p.logger.Error().
@@ -458,8 +508,9 @@ func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte) {
 		Payload: message,
 	})
 
-	// Log periodic metrics
-	if routed := p.messagesRouted.Load(); routed%1000 == 0 {
+	// Log periodic metrics (sample every Nth message to avoid log spam)
+	const logRoutingMetricsInterval = 1000
+	if routed := p.messagesRouted.Load(); routed%logRoutingMetricsInterval == 0 {
 		p.logger.Debug().
 			Uint64("routed", routed).
 			Uint64("dropped", p.messagesDropped.Load()).
@@ -509,6 +560,10 @@ func (p *MultiTenantConsumerPool) Stop() error {
 
 // GetMetrics returns current pool metrics.
 func (p *MultiTenantConsumerPool) GetMetrics() MultiTenantPoolMetrics {
+	p.mu.RLock()
+	lastRefresh := p.lastRefresh
+	p.mu.RUnlock()
+
 	return MultiTenantPoolMetrics{
 		MessagesRouted:   p.messagesRouted.Load(),
 		MessagesDropped:  p.messagesDropped.Load(),
@@ -516,7 +571,7 @@ func (p *MultiTenantConsumerPool) GetMetrics() MultiTenantPoolMetrics {
 		DedicatedCount:   p.dedicatedCount.Load(),
 		RefreshCount:     p.refreshCount.Load(),
 		RefreshErrors:    p.refreshErrors.Load(),
-		LastRefresh:      p.lastRefresh,
+		LastRefresh:      lastRefresh,
 	}
 }
 

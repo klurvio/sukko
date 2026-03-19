@@ -1,7 +1,5 @@
 package metrics
 
-import "time"
-
 // CacheMetrics is a callback interface for reporting cache metrics.
 // Implementations can report to Prometheus or other monitoring systems.
 type CacheMetrics interface {
@@ -56,17 +54,3 @@ func (NoopPoolMetrics) OnMessageRouted() {}
 
 // OnRefresh implements PoolMetrics.
 func (NoopPoolMetrics) OnRefresh(_ bool, _, _ int) {}
-
-// DisconnectMetrics is a callback interface for recording disconnect events.
-type DisconnectMetrics interface {
-	// OnDisconnect is called when a connection is closed.
-	// reason should be one of the Disconnect* constants.
-	// initiatedBy should be InitiatedByClient or InitiatedByServer.
-	OnDisconnect(reason, initiatedBy string, duration time.Duration)
-}
-
-// NoopDisconnectMetrics is a no-op implementation of DisconnectMetrics.
-type NoopDisconnectMetrics struct{}
-
-// OnDisconnect implements DisconnectMetrics.
-func (NoopDisconnectMetrics) OnDisconnect(_, _ string, _ time.Duration) {}

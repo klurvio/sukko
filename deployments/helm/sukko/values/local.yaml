@@ -1,0 +1,208 @@
+# =============================================================================
+# Local Environment (kind) - M1 MacBook optimized
+# =============================================================================
+
+global:
+  namespace: sukko-local
+  provisioning:
+    databaseUrl: "postgres://sukko:sukko_local_dev@sukko-postgresql:5432/sukko_provisioning?sslmode=disable"
+
+# Kernel tuning not needed for local (Kind runs in Docker)
+kernelTuning:
+  enabled: false
+
+# WebSocket Gateway - Handles auth and permission filtering
+ws-gateway:
+  enabled: true
+  replicaCount: 1
+  extraEnv:
+    LOG_LEVEL: "debug"
+    LOG_FORMAT: "pretty"
+    # Shorter TTLs for development (Go defaults: 5m / 1m)
+    GATEWAY_ISSUER_CACHE_TTL: "30s"
+    GATEWAY_CHANNEL_RULES_CACHE_TTL: "10s"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "64Mi"
+    limits:
+      cpu: "250m"
+      memory: "128Mi"
+  service:
+    type: NodePort
+    port: 3000
+    nodePort: 30000
+
+# WebSocket Server - Dumb broadcaster (no auth)
+ws-server:
+  enabled: true
+  replicaCount: 1
+  shards: 1          # Single shard for M1
+  environment: local  # Topic naming: sukko.local.{base}.refined
+  broadcastType: nats  # NATS for high performance
+  extraEnv:
+    LOG_LEVEL: "debug"
+    LOG_FORMAT: "pretty"
+    # Lenient timeouts for local development (multiple proxies, port-forward)
+    # 30s buffer (vs 15s production) handles kubectl port-forward flakiness,
+    # Docker Desktop overhead, Kind networking, and debugger pauses
+    WS_PONG_WAIT: "120s"
+    WS_PING_PERIOD: "90s"
+
+  # Connection limits (ResourceGuard enforces actual limits at runtime)
+  connectionLimits:
+    clusterMaxConnections: 100000
+
+  # NATS config (single node for local dev)
+  nats:
+    urls: ""  # Uses dynamic default: nats://sukko-local-nats:4222
+    clusterMode: false  # Single node for local
+
+  # Kafka/Redpanda - Self-hosted in cluster (no auth needed)
+  kafka:
+    brokers: ""  # Uses dynamic default: sukko-local-redpanda:9092
+    # SASL/TLS disabled for local self-hosted Redpanda (defaults from base values)
+
+  # NOTE: Auth is now handled by ws-gateway
+  # ws-server is a dumb broadcaster with network-level security
+
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "2"
+      memory: "512Mi"
+  service:
+    type: NodePort
+    nodePort: 30080
+  autoscaling:
+    enabled: false
+
+# Auth Service - REMOVED
+# Token issuance is now handled by sukko-api
+# For local testing, use a test JWT or mock sukko-api
+
+# Redpanda - Reduced resources for kind
+redpanda:
+  enabled: true
+  memory: "256M"  # Redpanda process memory (must be < container limit)
+  # External access via Kind NodePort (no port-forward needed)
+  externalAccess:
+    enabled: true
+    type: NodePort                         # Fixed NodePort for Kind mapping
+    nodePort: 31092                        # Kind maps 31092 → 9092 on host
+    advertisedHost: host.docker.internal   # Docker containers use this to reach host
+    containerPort: 19092                   # External listener port inside container
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "384Mi"  # 256M + overhead for container
+  storage:
+    enabled: false  # Use emptyDir for local
+  # Topics created via Provisioning API (single source of truth)
+
+# Valkey - Disabled (using NATS instead)
+valkey:
+  enabled: false
+  auth:
+    enabled: false
+
+# NATS - Single node for local dev
+nats:
+  enabled: true
+  replicaCount: 1
+  cluster:
+    enabled: false
+  auth:
+    enabled: false
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+
+# Monitoring - Reduced for local
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "100m"
+        memory: "256Mi"
+  grafana:
+    enabled: true
+    service:
+      type: NodePort
+      nodePort: 30300
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "100m"
+        memory: "256Mi"
+  loki:
+    enabled: true
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "100m"
+        memory: "256Mi"
+  promtail:
+    enabled: true
+    resources:
+      requests:
+        cpu: "25m"
+        memory: "32Mi"
+      limits:
+        cpu: "50m"
+        memory: "64Mi"
+
+# PostgreSQL for provisioning database
+postgresql:
+  enabled: true
+  auth:
+    database: sukko_provisioning
+    username: sukko
+    password: sukko_local_dev  # OK for local dev only
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+  persistence:
+    enabled: false  # emptyDir - data lost on restart
+
+# Provisioning API (no auth for local dev)
+provisioning:
+  enabled: true
+  replicaCount: 1
+  environment: local
+  extraEnv:
+    LOG_LEVEL: "debug"
+    LOG_FORMAT: "pretty"
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "250m"
+      memory: "128Mi"
+  service:
+    type: NodePort
+    port: 8080
+    nodePort: 30081

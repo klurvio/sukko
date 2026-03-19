@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -102,6 +103,11 @@ func TestValidateInternalChannel(t *testing.T) {
 		wantErr bool
 	}{
 		{
+			name:    "valid 2-part channel",
+			channel: "acme.trade",
+			wantErr: false,
+		},
+		{
 			name:    "valid 3-part channel",
 			channel: "acme.BTC.trade",
 			wantErr: false,
@@ -117,18 +123,13 @@ func TestValidateInternalChannel(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "only 2 parts",
-			channel: "BTC.trade",
-			wantErr: true,
-		},
-		{
 			name:    "only 1 part",
 			channel: "trade",
 			wantErr: true,
 		},
 		{
 			name:    "empty first part",
-			channel: ".BTC.trade",
+			channel: ".trade",
 			wantErr: true,
 		},
 		{
@@ -138,7 +139,7 @@ func TestValidateInternalChannel(t *testing.T) {
 		},
 		{
 			name:    "empty last part",
-			channel: "acme.BTC.",
+			channel: "acme.trade.",
 			wantErr: true,
 		},
 	}
@@ -156,14 +157,17 @@ func TestValidateInternalChannel(t *testing.T) {
 
 func TestIsValidInternalChannel(t *testing.T) {
 	t.Parallel()
-	// Valid channels
+	// Valid channels (2+ parts)
+	if !IsValidInternalChannel("acme.trade") {
+		t.Error("IsValidInternalChannel('acme.trade') = false, want true")
+	}
 	if !IsValidInternalChannel("acme.BTC.trade") {
 		t.Error("IsValidInternalChannel('acme.BTC.trade') = false, want true")
 	}
 
-	// Invalid channels
-	if IsValidInternalChannel("BTC.trade") {
-		t.Error("IsValidInternalChannel('BTC.trade') = true, want false")
+	// Invalid channels (1 part)
+	if IsValidInternalChannel("trade") {
+		t.Error("IsValidInternalChannel('trade') = true, want false")
 	}
 }
 
@@ -176,6 +180,13 @@ func TestParseInternalChannel(t *testing.T) {
 		wantCategory string
 		wantErr      bool
 	}{
+		{
+			name:         "valid 2-part channel",
+			channel:      "acme.trade",
+			wantTenant:   "acme",
+			wantCategory: "trade",
+			wantErr:      false,
+		},
 		{
 			name:         "valid 3-part channel",
 			channel:      "acme.BTC.trade",
@@ -191,8 +202,8 @@ func TestParseInternalChannel(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name:    "invalid channel (2 parts)",
-			channel: "BTC.trade",
+			name:    "invalid channel (1 part)",
+			channel: "trade",
 			wantErr: true,
 		},
 		{
@@ -218,6 +229,101 @@ func TestParseInternalChannel(t *testing.T) {
 			}
 			if category != tt.wantCategory {
 				t.Errorf("ParseInternalChannel(%q) category = %q, want %q", tt.channel, category, tt.wantCategory)
+			}
+		})
+	}
+}
+
+func TestValidateChannelSegments(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		channel      string
+		wantErr      bool
+		wantSentinel error
+	}{
+		{
+			name:    "valid single segment",
+			channel: "trade",
+			wantErr: false,
+		},
+		{
+			name:    "valid two segments",
+			channel: "acme.trade",
+			wantErr: false,
+		},
+		{
+			name:    "valid three segments",
+			channel: "acme.BTC.trade",
+			wantErr: false,
+		},
+		{
+			name:         "empty channel",
+			channel:      "",
+			wantErr:      true,
+			wantSentinel: ErrEmptyChannel,
+		},
+		{
+			name:         "empty first segment",
+			channel:      ".acme.trade",
+			wantErr:      true,
+			wantSentinel: ErrEmptyChannelSegment,
+		},
+		{
+			name:         "empty middle segment",
+			channel:      "acme..trade",
+			wantErr:      true,
+			wantSentinel: ErrEmptyChannelSegment,
+		},
+		{
+			name:         "empty last segment",
+			channel:      "acme.trade.",
+			wantErr:      true,
+			wantSentinel: ErrEmptyChannelSegment,
+		},
+		{
+			name:         "multiple empty segments",
+			channel:      "acme...trade",
+			wantErr:      true,
+			wantSentinel: ErrEmptyChannelSegment,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateChannelSegments(tt.channel)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateChannelSegments(%q) error = %v, wantErr %v", tt.channel, err, tt.wantErr)
+			}
+			if tt.wantSentinel != nil && err != nil && !errors.Is(err, tt.wantSentinel) {
+				t.Errorf("ValidateChannelSegments(%q) error = %v, want sentinel %v", tt.channel, err, tt.wantSentinel)
+			}
+		})
+	}
+}
+
+func TestValidateInternalChannel_SentinelErrors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		channel      string
+		wantSentinel error
+	}{
+		{"empty", "", ErrEmptyChannel},
+		{"empty_segment", "acme..trade", ErrEmptyChannelSegment},
+		{"single_part", "trade", ErrInsufficientChannelParts},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateInternalChannel(tt.channel)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, tt.wantSentinel) {
+				t.Errorf("ValidateInternalChannel(%q) error = %v, want sentinel %v", tt.channel, err, tt.wantSentinel)
 			}
 		})
 	}

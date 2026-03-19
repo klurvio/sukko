@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+func TestWriteJSON_ErrorPath(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	err := WriteJSON(w, http.StatusOK, make(chan int))
+	if err == nil {
+		t.Fatal("WriteJSON() with unencodable data should return error")
+	}
+}
+
 func TestWriteJSON(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

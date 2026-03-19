@@ -6,9 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // PostgresOIDCConfigRepository implements OIDCConfigStore using PostgreSQL.
@@ -23,9 +24,10 @@ func NewPostgresOIDCConfigRepository(db *sql.DB) *PostgresOIDCConfigRepository {
 
 // Create creates a new OIDC configuration for a tenant.
 func (r *PostgresOIDCConfigRepository) Create(ctx context.Context, config *types.TenantOIDCConfig) error {
+	now := time.Now()
 	query := `
 		INSERT INTO tenant_oidc_config (tenant_id, issuer_url, jwks_url, audience, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, $6)
 	`
 
 	_, err := r.db.ExecContext(ctx, query,
@@ -34,6 +36,7 @@ func (r *PostgresOIDCConfigRepository) Create(ctx context.Context, config *types
 		nullString(config.JWKSURL),
 		nullString(config.Audience),
 		config.Enabled,
+		now,
 	)
 	if err != nil {
 		// Check for unique constraint violation (issuer already exists)
@@ -123,9 +126,10 @@ func (r *PostgresOIDCConfigRepository) GetByIssuer(ctx context.Context, issuerUR
 
 // Update updates an existing OIDC configuration.
 func (r *PostgresOIDCConfigRepository) Update(ctx context.Context, config *types.TenantOIDCConfig) error {
+	now := time.Now()
 	query := `
 		UPDATE tenant_oidc_config
-		SET issuer_url = $2, jwks_url = $3, audience = $4, enabled = $5, updated_at = NOW()
+		SET issuer_url = $2, jwks_url = $3, audience = $4, enabled = $5, updated_at = $6
 		WHERE tenant_id = $1
 	`
 
@@ -135,6 +139,7 @@ func (r *PostgresOIDCConfigRepository) Update(ctx context.Context, config *types
 		nullString(config.JWKSURL),
 		nullString(config.Audience),
 		config.Enabled,
+		now,
 	)
 	if err != nil {
 		// Check for unique constraint violation (issuer already exists for another tenant)

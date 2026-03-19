@@ -86,8 +86,8 @@ func TestDefaultPublishBurst_GreaterThanRateLimit(t *testing.T) {
 
 func TestMinInternalChannelParts_Value(t *testing.T) {
 	t.Parallel()
-	if MinInternalChannelParts != 3 {
-		t.Errorf("MinInternalChannelParts = %d, want 3", MinInternalChannelParts)
+	if MinInternalChannelParts != 2 {
+		t.Errorf("MinInternalChannelParts = %d, want 2", MinInternalChannelParts)
 	}
 }
 

@@ -12,8 +12,8 @@ import (
 
 // Generator creates random channels and messages following the asyncapi spec.
 //
-// Topic format: {namespace}.{tenant}.{category}  (e.g., local.odin.trade)
-// Key format:   {tenant}.{identifier}.{category} (e.g., odin.BTC.trade)
+// Topic format: {namespace}.{tenant}.{category}  (e.g., local.sukko.trade)
+// Key format:   {tenant}.{identifier}.{category} (e.g., sukko.BTC.trade)
 //
 // The key becomes the WebSocket channel that clients subscribe to.
 type Generator struct {

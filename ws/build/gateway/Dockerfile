@@ -1,5 +1,5 @@
 # Stage 1: Build the application
-FROM golang:1.25.7-alpine AS builder
+FROM golang:1.26.0-alpine AS builder
 
 WORKDIR /app
 
@@ -21,10 +21,10 @@ ARG BUILD_TIME=unknown
 # CGO_ENABLED=0 ensures a static binary without C dependencies
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.Version=${VERSION}' \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.CommitHash=${COMMIT_HASH}' \
-    -X 'github.com/Toniq-Labs/odin-ws/internal/shared/version.BuildTime=${BUILD_TIME}'" \
-    -o /odin-gateway ./cmd/gateway
+    -X 'github.com/klurvio/sukko/internal/shared/version.Version=${VERSION}' \
+    -X 'github.com/klurvio/sukko/internal/shared/version.CommitHash=${COMMIT_HASH}' \
+    -X 'github.com/klurvio/sukko/internal/shared/version.BuildTime=${BUILD_TIME}'" \
+    -o /sukko-gateway ./cmd/gateway
 
 # Stage 2: Create the final, minimal image
 FROM alpine:latest
@@ -33,19 +33,19 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 
 # Create non-root user for security
-RUN addgroup -g 1000 -S odin && \
-    adduser -u 1000 -S odin -G odin
+RUN 0 && \
+    adduser -u 1000 -S sukko -G sukko
 
 WORKDIR /app
 
 # Copy the static binary from the builder stage
-COPY --from=builder /odin-gateway .
+COPY --from=builder /sukko-gateway .
 
 # Ensure binary is executable
-RUN chmod +x /app/odin-gateway && chown odin:odin /app/odin-gateway
+RUN chmod +x /app/sukko-gateway && chown sukko:sukko /app/sukko-gateway
 
 # Switch to non-root user
-USER odin
+USER sukko
 
 # Expose the gateway port (default 3000)
 EXPOSE 3000
@@ -57,4 +57,4 @@ EXPOSE 3000
 # - JWT_SECRET: Secret for JWT validation
 # - LOG_LEVEL: debug, info, warn, error
 # - LOG_FORMAT: json, text, pretty
-CMD ["./odin-gateway"]
+CMD ["./sukko-gateway"]

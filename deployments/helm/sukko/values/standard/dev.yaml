@@ -1,0 +1,205 @@
+# =============================================================================
+# GKE Standard - Dev Environment (Spot VMs, Cost-Optimized)
+# =============================================================================
+# Development environment using GKE Standard with Spot VMs for 60-90% cost savings.
+# Fixed 2 nodes, minimal resources, Redpanda for Kafka ingestion.
+#
+# Usage:
+#   helm upgrade --install sukko ./deployments/helm/sukko \
+#     -f ./deployments/helm/sukko/values/standard/dev.yaml \
+#     -n sukko-dev --create-namespace
+
+global:
+  namespace: sukko-dev
+  imageRegistry: "us-central1-docker.pkg.dev/sukko-9e90./sukko-server"
+
+# ── Gateway ─────────────────────────────────────────────────────────
+ws-gateway:
+  replicaCount: 2
+  image:
+    repository: ws-gateway
+    tag: latest
+    pullPolicy: Always
+  extraEnv:
+    DEFAULT_TENANT_CONNECTION_LIMIT: "10000"
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 3000
+    loadBalancerIP: ""  # Injected via --set at deploy time
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# ── WebSocket Server ────────────────────────────────────────────────
+ws-server:
+  replicaCount: 2
+  environment: dev
+  messageBackend: kafka
+  image:
+    repository: ws-server
+    tag: latest
+    pullPolicy: Always
+  connectionLimits:
+    clusterMaxConnections: 100000
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "512Mi"
+  service:
+    type: ClusterIP
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# ── Provisioning ────────────────────────────────────────────────────
+provisioning:
+  replicaCount: 1
+  environment: dev
+  image:
+    repository: sukko-provisioning
+    tag: latest
+    pullPolicy: Always
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+
+# ── Redpanda (Kafka) ───────────────────────────────────────────────
+redpanda:
+  enabled: true
+  replicaCount: 1
+  memory: "768M"
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "768Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+  storage:
+    enabled: true
+    size: 2Gi
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  externalAccess:
+    enabled: true
+    type: LoadBalancer
+    annotations:
+      cloud.google.com/load-balancer-type: "Internal"
+
+# ── PostgreSQL ──────────────────────────────────────────────────────
+# Disabled: provisioning uses SQLite by default (global.postgresql.enabled=false).
+# Enable and set global.postgresql.enabled=true to switch provisioning to PostgreSQL.
+postgresql:
+  enabled: false
+
+# ── NATS ────────────────────────────────────────────────────────────
+nats:
+  enabled: true
+  replicaCount: 1
+  cluster:
+    enabled: false
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+
+# ── Monitoring ──────────────────────────────────────────────────────
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "250m"
+        memory: "512Mi"
+    tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+  grafana:
+    enabled: true
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "100m"
+        memory: "256Mi"
+    tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+  loki:
+    enabled: true
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "100m"
+        memory: "256Mi"
+    tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+  promtail:
+    enabled: true
+    resources:
+      requests:
+        cpu: "25m"
+        memory: "32Mi"
+      limits:
+        cpu: "50m"
+        memory: "64Mi"
+    tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"

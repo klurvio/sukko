@@ -309,6 +309,19 @@ func TestMatchPattern(t *testing.T) {
 	}
 }
 
+func TestMatchPattern_InvalidRegex(t *testing.T) {
+	t.Parallel()
+
+	// Pattern that produces an invalid regex (unmatched bracket after escaping)
+	result := MatchPattern("[invalid", "test")
+	if result.Matched {
+		t.Error("expected no match for invalid pattern")
+	}
+	if result.Error == nil {
+		t.Error("expected Error to be set for invalid pattern")
+	}
+}
+
 func TestBuildPattern(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

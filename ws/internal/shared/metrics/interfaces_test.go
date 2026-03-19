@@ -1,9 +1,6 @@
 package metrics
 
-import (
-	"testing"
-	"time"
-)
+import "testing"
 
 func TestNoopCacheMetrics(t *testing.T) {
 	t.Parallel()
@@ -38,16 +35,6 @@ func TestNoopPoolMetrics(t *testing.T) {
 	m.OnRefresh(false, 0, 0)
 }
 
-func TestNoopDisconnectMetrics(t *testing.T) {
-	t.Parallel()
-
-	// Verify no-op implementations don't panic
-	var m DisconnectMetrics = NoopDisconnectMetrics{}
-
-	m.OnDisconnect(DisconnectReadError, InitiatedByClient, time.Second)
-	m.OnDisconnect(DisconnectServerShutdown, InitiatedByServer, time.Hour)
-}
-
 func TestInterfaceCompliance(t *testing.T) {
 	t.Parallel()
 
@@ -60,7 +47,4 @@ func TestInterfaceCompliance(t *testing.T) {
 
 	var _ PoolMetrics = NoopPoolMetrics{}
 	var _ PoolMetrics = (*NoopPoolMetrics)(nil)
-
-	var _ DisconnectMetrics = NoopDisconnectMetrics{}
-	var _ DisconnectMetrics = (*NoopDisconnectMetrics)(nil)
 }

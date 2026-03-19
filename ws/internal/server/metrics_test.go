@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/server/stats"
 )
 
 // =============================================================================
@@ -144,26 +144,30 @@ func TestMemoryThreshold_Critical(t *testing.T) {
 	t.Parallel()
 	limitMB := 1024.0
 
-	criticalTests := []struct {
+	tests := []struct {
+		name       string
 		usedMB     float64
 		isCritical bool
 	}{
-		{850, false}, // 83%
-		{900, false}, // 87.9%
-		{920, false}, // 89.8%
-		{922, true},  // 90.04%
-		{950, true},  // 92.8%
-		{1000, true}, // 97.7%
-		{1024, true}, // 100%
+		{"83%_not_critical", 850, false},
+		{"88%_not_critical", 900, false},
+		{"90%_not_critical", 920, false},
+		{"90.04%_critical", 922, true},
+		{"93%_critical", 950, true},
+		{"98%_critical", 1000, true},
+		{"100%_critical", 1024, true},
 	}
 
-	for _, tt := range criticalTests {
-		percent := (tt.usedMB / limitMB) * 100
-		isCritical := percent > 90
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			percent := (tt.usedMB / limitMB) * 100
+			isCritical := percent > 90
 
-		if isCritical != tt.isCritical {
-			t.Errorf("usedMB=%f: isCritical got %v, want %v (percent=%.2f)", tt.usedMB, isCritical, tt.isCritical, percent)
-		}
+			if isCritical != tt.isCritical {
+				t.Errorf("usedMB=%f: isCritical got %v, want %v (percent=%.2f)", tt.usedMB, isCritical, tt.isCritical, percent)
+			}
+		})
 	}
 }
 
@@ -171,26 +175,30 @@ func TestMemoryThreshold_Warning(t *testing.T) {
 	t.Parallel()
 	limitMB := 1024.0
 
-	warningTests := []struct {
+	tests := []struct {
+		name      string
 		usedMB    float64
 		isWarning bool
 	}{
-		{700, false}, // 68.4%
-		{800, false}, // 78.1%
-		{820, true},  // 80.1% (> 80, but <= 90)
-		{850, true},  // 83%
-		{900, true},  // 87.9%
-		{920, true},  // 89.8%
-		{922, false}, // 90.04% (critical, not warning)
+		{"68%_not_warning", 700, false},
+		{"78%_not_warning", 800, false},
+		{"80%_warning", 820, true},
+		{"83%_warning", 850, true},
+		{"88%_warning", 900, true},
+		{"90%_warning", 920, true},
+		{"90.04%_critical_not_warning", 922, false},
 	}
 
-	for _, tt := range warningTests {
-		percent := (tt.usedMB / limitMB) * 100
-		isWarning := percent > 80 && percent <= 90
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			percent := (tt.usedMB / limitMB) * 100
+			isWarning := percent > 80 && percent <= 90
 
-		if isWarning != tt.isWarning {
-			t.Errorf("usedMB=%f: isWarning got %v, want %v (percent=%.2f)", tt.usedMB, isWarning, tt.isWarning, percent)
-		}
+			if isWarning != tt.isWarning {
+				t.Errorf("usedMB=%f: isWarning got %v, want %v (percent=%.2f)", tt.usedMB, isWarning, tt.isWarning, percent)
+			}
+		})
 	}
 }
 
@@ -347,27 +355,21 @@ func TestHighSaturationPercentage(t *testing.T) {
 
 func TestStats_MemoryUpdate_ThreadSafe(t *testing.T) {
 	t.Parallel()
-	stats := &types.Stats{}
+	stats := stats.NewStats()
 
 	var wg sync.WaitGroup
 
 	// Simulate concurrent memory updates
 	for i := range 100 {
-		wg.Add(1)
-		go func(val float64) {
-			defer wg.Done()
-			stats.Mu.Lock()
-			stats.MemoryMB = val
-			stats.Mu.Unlock()
-		}(float64(i))
+		wg.Go(func() {
+			stats.SetResourceMetrics(0, float64(i))
+		})
 	}
 
 	wg.Wait()
 
 	// Verify we can read the value
-	stats.Mu.RLock()
-	mem := stats.MemoryMB
-	stats.Mu.RUnlock()
+	_, mem := stats.ResourceMetrics()
 
 	// Value should be between 0 and 99
 	if mem < 0 || mem > 99 {
@@ -381,7 +383,7 @@ func TestStats_MemoryUpdate_ThreadSafe(t *testing.T) {
 
 func TestStats_CurrentConnections_Atomic(t *testing.T) {
 	t.Parallel()
-	stats := &types.Stats{}
+	stats := stats.NewStats()
 
 	var wg sync.WaitGroup
 
@@ -411,43 +413,37 @@ func TestStats_CurrentConnections_Atomic(t *testing.T) {
 // Sample Limit Tests
 // =============================================================================
 
-func TestSampleLimit_MaxSamples(t *testing.T) {
+func TestSampleLimit(t *testing.T) {
 	t.Parallel()
-	maxSamples := 100
 
-	// Simulate sampling with limit
-	samplesCollected := 0
-	totalAvailable := 1000
-
-	for range totalAvailable {
-		if samplesCollected >= maxSamples {
-			break
-		}
-		samplesCollected++
+	tests := []struct {
+		name           string
+		maxSamples     int
+		totalAvailable int
+		expected       int
+	}{
+		{"capped_at_max", 100, 1000, 100},
+		{"fewer_than_max", 100, 50, 50},
+		{"exact_match", 100, 100, 100},
+		{"zero_available", 100, 0, 0},
 	}
 
-	if samplesCollected != maxSamples {
-		t.Errorf("samplesCollected: got %d, want %d", samplesCollected, maxSamples)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			samplesCollected := 0
 
-func TestSampleLimit_LessThanMax(t *testing.T) {
-	t.Parallel()
-	maxSamples := 100
+			for range tt.totalAvailable {
+				if samplesCollected >= tt.maxSamples {
+					break
+				}
+				samplesCollected++
+			}
 
-	// Simulate sampling when fewer clients available
-	samplesCollected := 0
-	totalAvailable := 50
-
-	for range totalAvailable {
-		if samplesCollected >= maxSamples {
-			break
-		}
-		samplesCollected++
-	}
-
-	if samplesCollected != totalAvailable {
-		t.Errorf("samplesCollected: got %d, want %d", samplesCollected, totalAvailable)
+			if samplesCollected != tt.expected {
+				t.Errorf("samplesCollected: got %d, want %d", samplesCollected, tt.expected)
+			}
+		})
 	}
 }
 
@@ -580,17 +576,15 @@ func BenchmarkBufferUsagePercent(b *testing.B) {
 }
 
 func BenchmarkStatsMemoryUpdate(b *testing.B) {
-	stats := &types.Stats{}
+	stats := stats.NewStats()
 
 	for i := 0; b.Loop(); i++ {
-		stats.Mu.Lock()
-		stats.MemoryMB = float64(i)
-		stats.Mu.Unlock()
+		stats.SetResourceMetrics(0, float64(i))
 	}
 }
 
 func BenchmarkStatsConnectionsAtomic(b *testing.B) {
-	stats := &types.Stats{}
+	stats := stats.NewStats()
 
 	for b.Loop() {
 		stats.CurrentConnections.Add(1)

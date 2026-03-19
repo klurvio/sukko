@@ -6,7 +6,19 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/shared/protocol"
+)
+
+// Sentinel errors for channel validation.
+var (
+	// ErrEmptyChannel indicates the channel string is empty.
+	ErrEmptyChannel = errors.New("channel cannot be empty")
+
+	// ErrEmptyChannelSegment indicates a dot-separated segment is empty.
+	ErrEmptyChannelSegment = errors.New("empty channel segment")
+
+	// ErrInsufficientChannelParts indicates the channel has fewer parts than required.
+	ErrInsufficientChannelParts = errors.New("insufficient channel parts")
 )
 
 // extractChannelTenant extracts the tenant prefix from an internal channel name.
@@ -34,29 +46,43 @@ func IsSharedChannel(channel string, sharedPatterns []string) bool {
 	return MatchAnyWildcard(sharedPatterns, channel)
 }
 
-// ValidateInternalChannel validates internal channel format.
-// Internal channels must have at least 3 dot-separated parts: {tenant}.{identifier}.{category}
-// Parts cannot be empty.
-//
-// Examples:
-//   - "acme.BTC.trade" → valid (tenant=acme, identifier=BTC, category=trade)
-//   - "acme.user123.balances" → valid
-//   - "BTC.trade" → invalid (only 2 parts, not tenant-prefixed)
-func ValidateInternalChannel(channel string) error {
+// ValidateChannelSegments checks that no segment of a dot-separated channel is empty.
+// This catches patterns like "acme..trade", ".acme.trade", or "acme.trade.".
+// Used standalone for channel suffixes (any number of segments) and as the base
+// for ValidateInternalChannel (which adds a minimum-parts check).
+func ValidateChannelSegments(channel string) error {
 	if channel == "" {
-		return errors.New("channel cannot be empty")
+		return ErrEmptyChannel
 	}
 
 	parts := strings.Split(channel, ".")
-	if len(parts) < protocol.MinInternalChannelParts {
-		return fmt.Errorf("channel must have at least %d parts: tenant.identifier.category (got %d)",
-			protocol.MinInternalChannelParts, len(parts))
-	}
-
 	for i, part := range parts {
 		if part == "" {
-			return fmt.Errorf("channel part %d cannot be empty", i)
+			return fmt.Errorf("segment %d: %w", i, ErrEmptyChannelSegment)
 		}
+	}
+
+	return nil
+}
+
+// ValidateInternalChannel validates internal channel format.
+// Internal channels must have at least 2 dot-separated parts: {tenant_id}.{suffix}
+// Parts cannot be empty.
+//
+// Examples:
+//   - "acme.trade" → valid (tenant_id=acme, suffix=trade)
+//   - "acme.BTC.trade" → valid (tenant_id=acme, suffix=BTC.trade)
+//   - "trade" → invalid (only 1 part, missing tenant prefix)
+func ValidateInternalChannel(channel string) error {
+	if err := ValidateChannelSegments(channel); err != nil {
+		return err
+	}
+
+	// Count parts by counting separators (avoids redundant strings.Split)
+	parts := strings.Count(channel, ".") + 1
+	if parts < protocol.MinInternalChannelParts {
+		return fmt.Errorf("%w: internal channel requires at least %d parts, got %d",
+			ErrInsufficientChannelParts, protocol.MinInternalChannelParts, parts)
 	}
 
 	return nil

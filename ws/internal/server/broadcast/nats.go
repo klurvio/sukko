@@ -2,9 +2,12 @@ package broadcast
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,6 +15,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
+
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // natsBus implements Bus using NATS Core Pub/Sub.
@@ -36,14 +41,18 @@ type natsBus struct {
 	publishErrors atomic.Uint64
 	messagesRecv  atomic.Uint64
 
-	shutdownTimeout time.Duration
-	logger          zerolog.Logger
+	shutdownTimeout     time.Duration
+	healthCheckInterval time.Duration
+	flushTimeout        time.Duration
+	logger              zerolog.Logger
 }
 
 // Compile-time interface check
 var _ Bus = (*natsBus)(nil)
 
 // newNATSBus creates a new NATS-based broadcast bus.
+// Config values MUST be validated (e.g., via ServerConfig.Validate()) before calling;
+// zero-value durations will panic.
 func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 	ncfg := cfg.NATS
 
@@ -51,32 +60,46 @@ func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 	if len(ncfg.URLs) == 0 {
 		return nil, errors.New("nats: at least one URL is required (NATS_URLS)")
 	}
-	if ncfg.Subject == "" {
-		ncfg.Subject = "ws.broadcast"
-	}
-	if ncfg.ReconnectWait == 0 {
-		ncfg.ReconnectWait = 2 * time.Second
-	}
-	if ncfg.MaxReconnects == 0 {
-		ncfg.MaxReconnects = -1 // Unlimited
-	}
-
 	busLogger := logger.With().Str("component", "broadcast_bus").Str("backend", "nats").Logger()
 
 	// Build NATS connection options
 	opts := []nats.Option{
 		nats.ReconnectWait(ncfg.ReconnectWait),
 		nats.MaxReconnects(ncfg.MaxReconnects),
-		nats.ReconnectBufSize(5 * 1024 * 1024), // 5MB buffer for reconnection
-		nats.PingInterval(10 * time.Second),
-		nats.MaxPingsOutstanding(3),
+		nats.ReconnectBufSize(ncfg.ReconnectBufSize),
+		nats.PingInterval(ncfg.PingInterval),
+		nats.MaxPingsOutstanding(ncfg.MaxPingsOutstanding),
 	}
 
 	// Set client name if provided
 	if ncfg.Name != "" {
 		opts = append(opts, nats.Name(ncfg.Name))
 	} else {
-		opts = append(opts, nats.Name("odin-ws-broadcast"))
+		opts = append(opts, nats.Name("sukko-broadcast"))
+	}
+
+	// TLS configuration for managed NATS services
+	if ncfg.TLSEnabled {
+		tc := &tls.Config{
+			InsecureSkipVerify: ncfg.TLSInsecure, //nolint:gosec // Controlled by configuration for dev/testing environments
+			MinVersion:         tls.VersionTLS12,
+		}
+		if ncfg.TLSCAPath != "" {
+			caCert, err := os.ReadFile(ncfg.TLSCAPath)
+			if err != nil {
+				return nil, fmt.Errorf("nats broadcast: read CA cert: %w", err)
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(caCert) {
+				return nil, fmt.Errorf("nats broadcast: parse CA cert from %s", ncfg.TLSCAPath)
+			}
+			tc.RootCAs = pool
+		}
+		opts = append(opts, nats.Secure(tc))
+		busLogger.Info().
+			Bool("insecure", ncfg.TLSInsecure).
+			Str("ca_path", ncfg.TLSCAPath).
+			Msg("NATS broadcast TLS enabled")
 	}
 
 	// Authentication options
@@ -149,17 +172,19 @@ func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 		Msg("Successfully connected to NATS")
 
 	// Create context for lifecycle management
-	busCtx, busCancel := context.WithCancel(context.Background())
+	busCtx, busCancel := context.WithCancel(context.Background()) //nolint:gosec // G118: busCancel is stored in bus.cancel and called in Close()
 
 	bus := &natsBus{
-		conn:            nc,
-		subject:         ncfg.Subject,
-		bufferSize:      cfg.BufferSize,
-		subscribers:     make([]chan *Message, 0, 3),
-		ctx:             busCtx,
-		cancel:          busCancel,
-		shutdownTimeout: cfg.ShutdownTimeout,
-		logger:          busLogger,
+		conn:                nc,
+		subject:             ncfg.Subject,
+		bufferSize:          cfg.BufferSize,
+		subscribers:         make([]chan *Message, 0, 3),
+		ctx:                 busCtx,
+		cancel:              busCancel,
+		shutdownTimeout:     cfg.ShutdownTimeout,
+		healthCheckInterval: ncfg.HealthCheckInterval,
+		flushTimeout:        ncfg.FlushTimeout,
+		logger:              busLogger,
 	}
 
 	bus.healthy.Store(true)
@@ -403,9 +428,10 @@ func (b *natsBus) fanOut(msg *Message) {
 
 // healthCheckLoop periodically checks NATS connection health.
 func (b *natsBus) healthCheckLoop() {
+	defer logging.RecoverPanic(b.logger, "natsBus.healthCheckLoop", nil)
 	defer b.wg.Done()
 
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(b.healthCheckInterval)
 	defer ticker.Stop()
 
 	for {
@@ -418,7 +444,7 @@ func (b *natsBus) healthCheckLoop() {
 				b.healthy.Store(false)
 			} else {
 				// Flush to ensure connection is active
-				if err := b.conn.FlushTimeout(5 * time.Second); err != nil {
+				if err := b.conn.FlushTimeout(b.flushTimeout); err != nil {
 					b.logger.Error().Err(err).Msg("NATS health check failed: flush timeout")
 					b.healthy.Store(false)
 				} else {

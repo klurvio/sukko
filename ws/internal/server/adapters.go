@@ -9,7 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/audit"
+	"github.com/klurvio/sukko/internal/shared/alerting"
 )
 
 // =============================================================================
@@ -84,32 +84,50 @@ func (e *ZerologEventAdapter) Msg(msg string) {
 }
 
 // =============================================================================
-// Audit Logger Adapter (implements AuditLogger interface)
+// Alert Logger (implements AlertLogger interface)
 // =============================================================================
 
-// AuditLoggerAdapter wraps audit.Logger to implement AuditLogger interface.
-type AuditLoggerAdapter struct {
-	logger *audit.Logger
+// alertLogger implements AlertLogger using zerolog + alerting.Alerter.
+type alertLogger struct {
+	logger  zerolog.Logger
+	alerter alerting.Alerter
 }
 
-// NewAuditLoggerAdapter creates an AuditLogger from audit.Logger.
-func NewAuditLoggerAdapter(logger *audit.Logger) *AuditLoggerAdapter {
-	return &AuditLoggerAdapter{logger: logger}
+// newAlertLogger creates an AlertLogger from a zerolog.Logger and alerting.Alerter.
+func newAlertLogger(logger zerolog.Logger, alerter alerting.Alerter) *alertLogger {
+	return &alertLogger{
+		logger:  logger.With().Str("component", "alert").Logger(),
+		alerter: alerter,
+	}
 }
 
-// Warning logs a warning-level audit event.
-func (a *AuditLoggerAdapter) Warning(event, message string, metadata map[string]any) {
-	a.logger.Warning(event, message, metadata)
+// Info logs an info-level alert event.
+func (a *alertLogger) Info(event, message string, metadata map[string]any) {
+	a.logger.Info().Str("alert_event", event).Fields(metadata).Msg(message)
 }
 
-// Info logs an info-level audit event.
-func (a *AuditLoggerAdapter) Info(event, message string, metadata map[string]any) {
-	a.logger.Info(event, message, metadata)
+// Warning logs a warning-level alert event and fires an alert.
+func (a *alertLogger) Warning(event, message string, metadata map[string]any) {
+	a.logger.Warn().Str("alert_event", event).Fields(metadata).Msg(message)
+	if a.alerter != nil {
+		a.alerter.Alert(alerting.WARNING, message, metadata)
+	}
 }
 
-// Critical logs a critical-level audit event.
-func (a *AuditLoggerAdapter) Critical(event, message string, metadata map[string]any) {
-	a.logger.Critical(event, message, metadata)
+// Error logs an error-level alert event and fires an alert.
+func (a *alertLogger) Error(event, message string, metadata map[string]any) {
+	a.logger.Error().Str("alert_event", event).Fields(metadata).Msg(message)
+	if a.alerter != nil {
+		a.alerter.Alert(alerting.ERROR, message, metadata)
+	}
+}
+
+// Critical logs a critical-level alert event and fires an alert.
+func (a *alertLogger) Critical(event, message string, metadata map[string]any) {
+	a.logger.Error().Str("alert_event", event).Str("severity", "CRITICAL").Fields(metadata).Msg(message)
+	if a.alerter != nil {
+		a.alerter.Alert(alerting.CRITICAL, message, metadata)
+	}
 }
 
 // =============================================================================

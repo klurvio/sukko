@@ -2,10 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // =============================================================================
@@ -14,20 +15,20 @@ import (
 
 func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 	t.Parallel()
-	// Channel must have at least 3 parts in internal format: {tenant}.{identifier}.{category}
+	// Channel must have at least 2 parts in internal format: {tenant_id}.{suffix}
 	// These are internal (mapped) channels, not client channels
 	validChannels := []string{
 		"tenant.community.chat",
 		"acme.group.123.message",
 		"test.user.abc.notification",
 		"org.app.feature.event",
-		"a.b.c",                   // Minimum valid: 3 parts
+		"a.b.c",                   // 3 parts (valid)
 		"a.b.c.d.e.f",             // Many parts is fine
 		"tenant.BTC.trade",        // Uppercase
 		"acme.btc-usdt.orderbook", // Hyphen in part
 		"test.user_123.settings",  // Underscore in part
 		"tenant.v1.api.request",   // Version prefix
-		"io.toniq.odin.events",    // Reverse domain notation
+		"io.toniq.sukko.events",    // Reverse domain notation
 	}
 
 	for _, channel := range validChannels {
@@ -42,16 +43,13 @@ func TestIsValidPublishChannel_ValidFormats(t *testing.T) {
 
 func TestIsValidPublishChannel_InvalidFormats(t *testing.T) {
 	t.Parallel()
-	// Internal channels must have at least 3 parts: {tenant}.{identifier}.{category}
-	// 2-part channels are client format (before gateway mapping)
+	// Internal channels must have at least 2 parts: {tenant}.{suffix}
 	invalidChannels := []struct {
 		channel string
 		reason  string
 	}{
 		{"", "empty string"},
 		{"singletopic", "no dot separator"},
-		{"a.b", "only 2 parts (client format, not internal)"},
-		{"BTC.trade", "only 2 parts (needs tenant prefix)"},
 		{".chat", "empty first part"},
 		{"community.", "empty last part"},
 		{"community..chat", "empty middle part"},
@@ -75,14 +73,14 @@ func TestIsValidPublishChannel_InvalidFormats(t *testing.T) {
 
 func TestIsValidPublishChannel_EdgeCases(t *testing.T) {
 	t.Parallel()
-	// Internal channels require at least 3 parts: {tenant}.{identifier}.{category}
+	// Internal channels require at least 2 parts: {tenant}.{suffix}
 	testCases := []struct {
 		channel string
 		valid   bool
 		desc    string
 	}{
-		{"a.b", false, "2 parts is client format, not internal"},
-		{"a.b.c", true, "minimum 3 parts (internal format)"},
+		{"a.b", true, "minimum 2 parts (tenant.suffix)"},
+		{"a.b.c", true, "3 parts (tenant.suffix with sub-parts)"},
 		{"ab.cd.ef", true, "two letter parts"},
 		{"123.456.789", true, "numeric parts"},
 		{"a-b.c-d.e-f", true, "hyphens allowed"},
@@ -112,8 +110,10 @@ func parsePublishRequest(data json.RawMessage) (channel string, payload json.Raw
 		Channel string          `json:"channel"`
 		Data    json.RawMessage `json:"data"`
 	}
-	err = json.Unmarshal(data, &req)
-	return req.Channel, req.Data, err
+	if err = json.Unmarshal(data, &req); err != nil {
+		return "", nil, fmt.Errorf("unmarshal publish request: %w", err)
+	}
+	return req.Channel, req.Data, nil
 }
 
 func TestParsePublishRequest_Valid(t *testing.T) {

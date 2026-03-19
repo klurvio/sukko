@@ -5,16 +5,18 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"sync"
 	"syscall"
-	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/gateway"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/gateway"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // Version information (set by build flags)
@@ -25,6 +27,9 @@ var (
 )
 
 func main() {
+	validateConfig := flag.Bool("validate-config", false, "validate configuration and exit")
+	flag.Parse()
+
 	// Initialize logger using shared logging package
 	logger := logging.NewLogger(logging.LoggerConfig{
 		Level:       logging.LogLevel(os.Getenv("LOG_LEVEL")),
@@ -37,6 +42,7 @@ func main() {
 		Str("commit", CommitHash).
 		Str("build_time", BuildTime).
 		Msg("Starting ws-gateway")
+	logger.Info().Int("gomaxprocs", runtime.GOMAXPROCS(0)).Msg("GOMAXPROCS set by Go runtime (container-aware)")
 
 	// Load configuration
 	config, err := platform.LoadGatewayConfig(&logger)
@@ -45,6 +51,12 @@ func main() {
 	}
 
 	config.LogConfig(logger)
+
+	// --validate-config: validate and exit
+	if *validateConfig {
+		logger.Info().Msg("Configuration is valid.")
+		os.Exit(0)
+	}
 
 	// Create gateway
 	gw, err := gateway.New(config, logger)
@@ -64,37 +76,49 @@ func main() {
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
+	// Context for goroutine lifecycle — cancel() signals server error to main
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start server in goroutine
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		defer logging.RecoverPanic(logger, "http.ListenAndServe", nil)
 		logger.Info().
 			Int("port", config.Port).
 			Msg("Gateway listening")
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal().Err(err).Msg("Server failed")
+			logger.Error().Err(err).Msg("Server failed")
+			cancel()
 		}
-	}()
+	})
 
-	// Wait for shutdown signal
-	sig := <-shutdown
-	logger.Info().
-		Str("signal", sig.String()).
-		Msg("Shutdown signal received")
+	// Wait for shutdown signal or server error
+	select {
+	case sig := <-shutdown:
+		logger.Info().
+			Str("signal", sig.String()).
+			Msg("Shutdown signal received")
+	case <-ctx.Done():
+		logger.Info().Msg("Shutdown triggered by server error")
+	}
 
 	// Graceful shutdown with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
+	defer shutdownCancel()
 
-	if err := server.Shutdown(ctx); err != nil {
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error().Err(err).Msg("Server shutdown error")
 	}
 
+	wg.Wait()
 	logger.Info().Msg("Gateway stopped")
 }
 
 func init() {
 	// Print banner
+	//nolint:forbidigo // startup banner is visual stdout output printed before logger init, not operational logging
 	fmt.Print(`
  _      ______       _____       __
 | | /| / / __/______/ ___/___ _ / /_ ___  _    __ ___ _ __ __

@@ -13,7 +13,7 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // ShardProxy is a WebSocket proxy that forwards connections to a backend shard.
@@ -30,13 +30,13 @@ type ShardProxy struct {
 }
 
 // NewShardProxy creates a new WebSocket proxy for a specific shard.
-func NewShardProxy(shard *Shard, backendURL *url.URL, logger zerolog.Logger) *ShardProxy {
+func NewShardProxy(shard *Shard, backendURL *url.URL, logger zerolog.Logger, dialTimeout, messageTimeout time.Duration) *ShardProxy {
 	return &ShardProxy{
 		shard:          shard,
 		backendURL:     backendURL,
 		logger:         logger.With().Str("component", "proxy").Int("shard_id", shard.ID).Logger(),
-		dialTimeout:    10 * time.Second,
-		messageTimeout: 60 * time.Second,
+		dialTimeout:    dialTimeout,
+		messageTimeout: messageTimeout,
 	}
 }
 
@@ -56,7 +56,7 @@ func (p *ShardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Msg("Client WebSocket upgrade failed")
 		return
 	}
-	defer func() { _ = clientConn.Close() }()
+	defer func() { _ = clientConn.Close() }() // Close error non-actionable; connection may already be closed by peer
 
 	p.logger.Debug().
 		Str("remote_addr", r.RemoteAddr).
@@ -92,10 +92,10 @@ func (p *ShardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Client receives: WebSocket Close Frame (code: 1011, reason: "Backend unavailable")
 		// See: docs/API_REJECTION_RESPONSES.md (Scenario 6)
 		closeFrame := ws.NewCloseFrameBody(ws.StatusInternalServerError, "Backend unavailable")
-		_ = ws.WriteFrame(clientConn, ws.NewCloseFrame(closeFrame))
+		_ = ws.WriteFrame(clientConn, ws.NewCloseFrame(closeFrame)) // Best-effort error frame; client may already be disconnected
 		return
 	}
-	defer func() { _ = backendConn.Close() }()
+	defer func() { _ = backendConn.Close() }() // Close error non-actionable; connection may already be closed by peer
 
 	// DEBUG: Backend dial successful
 	p.logger.Debug().
@@ -147,8 +147,8 @@ func (p *ShardProxy) proxyMessages(client, backend net.Conn) {
 	}
 
 	// Close both connections to unblock any goroutines waiting on read/write
-	_ = client.Close()
-	_ = backend.Close()
+	_ = client.Close()  // Close error non-actionable; triggers EOF in peer goroutine
+	_ = backend.Close() // Close error non-actionable; triggers EOF in peer goroutine
 
 	// Wait for both goroutines to complete before returning
 	wg.Wait()
@@ -210,18 +210,19 @@ func (p *ShardProxy) copyMessages(src, dst net.Conn, direction string, maskOutpu
 				outHeader.Mask = ws.NewMask()
 				ws.Cipher(payload, outHeader.Mask, 0)
 			}
-			_ = ws.WriteHeader(dst, outHeader)
-			_, _ = dst.Write(payload)
+			_ = ws.WriteHeader(dst, outHeader) // Best-effort close frame forward; connection is terminating
+			_, _ = dst.Write(payload)          // Best-effort close payload; connection is terminating
 			errChan <- nil
 			return
 		}
 
 		// Log control frames for ping/pong tracing
-		if header.OpCode == ws.OpPing {
+		switch header.OpCode { //nolint:exhaustive // only log ping/pong control frames; text/binary/close/continuation handled above
+		case ws.OpPing:
 			p.logger.Debug().
 				Str("direction", direction).
 				Msg("Forwarded ping frame")
-		} else if header.OpCode == ws.OpPong {
+		case ws.OpPong:
 			p.logger.Debug().
 				Str("direction", direction).
 				Msg("Forwarded pong frame")

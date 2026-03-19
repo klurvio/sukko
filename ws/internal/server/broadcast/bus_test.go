@@ -5,37 +5,6 @@ import (
 	"time"
 )
 
-func TestDefaultConfig(t *testing.T) {
-	t.Parallel()
-
-	cfg := DefaultConfig()
-
-	if cfg.Type != "valkey" {
-		t.Errorf("Type: got %s, want valkey", cfg.Type)
-	}
-	if cfg.BufferSize != 1024 {
-		t.Errorf("BufferSize: got %d, want 1024", cfg.BufferSize)
-	}
-	if cfg.ShutdownTimeout != 5*time.Second {
-		t.Errorf("ShutdownTimeout: got %v, want 5s", cfg.ShutdownTimeout)
-	}
-	if cfg.Valkey.MasterName != "mymaster" {
-		t.Errorf("Valkey.MasterName: got %s, want mymaster", cfg.Valkey.MasterName)
-	}
-	if cfg.Valkey.Channel != "ws.broadcast" {
-		t.Errorf("Valkey.Channel: got %s, want ws.broadcast", cfg.Valkey.Channel)
-	}
-	if cfg.NATS.Subject != "ws.broadcast" {
-		t.Errorf("NATS.Subject: got %s, want ws.broadcast", cfg.NATS.Subject)
-	}
-	if cfg.NATS.ReconnectWait != 2*time.Second {
-		t.Errorf("NATS.ReconnectWait: got %v, want 2s", cfg.NATS.ReconnectWait)
-	}
-	if cfg.NATS.MaxReconnects != -1 {
-		t.Errorf("NATS.MaxReconnects: got %d, want -1", cfg.NATS.MaxReconnects)
-	}
-}
-
 func TestMessage_Fields(t *testing.T) {
 	t.Parallel()
 

@@ -7,7 +7,8 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // ConnectionRateLimiter provides DoS protection through rate limiting of connection attempts.
@@ -39,8 +40,9 @@ type ConnectionRateLimiter struct {
 	logger zerolog.Logger // Structured logger with "connection_rate_limiter" component tag
 
 	// Background cleanup - removes stale IP entries to prevent memory leak
-	cleanupTicker *time.Ticker  // Triggers cleanup every minute
-	stopCleanup   chan struct{} // Signals cleanup goroutine to exit
+	cleanupTicker *time.Ticker   // Triggers cleanup every minute
+	stopCleanup   chan struct{}  // Signals cleanup goroutine to exit
+	wg            sync.WaitGroup // Tracks cleanup goroutine for shutdown
 }
 
 // ipLimiterEntry holds a rate limiter and last access time for an IP
@@ -60,44 +62,17 @@ type ConnectionRateLimiterConfig struct {
 	GlobalBurst int     // Max burst connections system-wide (default: 300)
 	GlobalRate  float64 // Sustained connections/sec system-wide (default: 50.0)
 
+	// CleanupInterval controls how often stale IP entries are removed.
+	CleanupInterval time.Duration
+
 	// Logger
 	Logger zerolog.Logger
 }
 
-// NewConnectionRateLimiter creates a new connection rate limiter with the given configuration.
-//
-// Default configuration (if values are zero):
-//   - Per-IP: 10 burst, 1 conn/sec sustained, 5min TTL
-//   - Global: 300 burst, 50 conn/sec sustained
-//
-// Example:
-//
-//	limiter := NewConnectionRateLimiter(ConnectionRateLimiterConfig{
-//	    IPBurst:     10,
-//	    IPRate:      1.0,
-//	    IPTTL:       5 * time.Minute,
-//	    GlobalBurst: 300,
-//	    GlobalRate:  50.0,
-//	    Logger:      logger,
-//	})
+// NewConnectionRateLimiter creates a new connection rate limiter.
+// Config values MUST be validated (e.g., via ServerConfig.Validate()) before calling;
+// zero-value durations will panic.
 func NewConnectionRateLimiter(config ConnectionRateLimiterConfig) *ConnectionRateLimiter {
-	// Apply defaults
-	if config.IPBurst == 0 {
-		config.IPBurst = 10
-	}
-	if config.IPRate == 0 {
-		config.IPRate = 1.0
-	}
-	if config.IPTTL == 0 {
-		config.IPTTL = 5 * time.Minute
-	}
-	if config.GlobalBurst == 0 {
-		config.GlobalBurst = 300
-	}
-	if config.GlobalRate == 0 {
-		config.GlobalRate = 50.0
-	}
-
 	limiter := &ConnectionRateLimiter{
 		ipLimiters:    make(map[string]*ipLimiterEntry),
 		ipBurst:       config.IPBurst,
@@ -110,9 +85,12 @@ func NewConnectionRateLimiter(config ConnectionRateLimiterConfig) *ConnectionRat
 		stopCleanup:   make(chan struct{}),
 	}
 
-	// Start cleanup goroutine (runs every minute to remove stale IP entries)
-	limiter.cleanupTicker = time.NewTicker(1 * time.Minute)
-	go limiter.cleanupLoop()
+	// Start cleanup goroutine with proper lifecycle management
+	limiter.cleanupTicker = time.NewTicker(config.CleanupInterval)
+	limiter.wg.Go(func() {
+		defer logging.RecoverPanic(limiter.logger, "ConnectionRateLimiter.cleanupLoop", nil)
+		limiter.cleanupLoop()
+	})
 
 	limiter.logger.Info().
 		Int("ip_burst", config.IPBurst).
@@ -258,6 +236,7 @@ func (crl *ConnectionRateLimiter) cleanup() {
 func (crl *ConnectionRateLimiter) Stop() {
 	crl.logger.Info().Msg("Stopping ConnectionRateLimiter")
 	close(crl.stopCleanup)
+	crl.wg.Wait()
 }
 
 // GetStats returns current rate limiter statistics for monitoring/debugging.

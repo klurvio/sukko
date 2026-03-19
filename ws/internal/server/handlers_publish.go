@@ -4,15 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/auth"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // handleClientPublish processes a client publish request.
-// It validates the request, checks rate limits, and publishes to Kafka.
+// It validates the request, checks rate limits, and publishes via the message backend.
 //
 // Message format:
 //
@@ -24,17 +23,11 @@ import (
 //	  }
 //	}
 //
-// The message is published to Kafka with:
-//   - Topic: {namespace}.{tenant}.{category} (extracted from channel)
-//   - Key: full channel string (for partitioning - same channel = same partition = ordering)
-//   - Value: raw JSON from client's data field
-//   - Headers: client_id (server-verified), source, timestamp
-//
 // The channel must already be in internal format (tenant-prefixed) after gateway mapping.
 func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
-	// Check if producer is available
-	if s.kafkaProducer == nil {
-		s.sendPublishError(c, protocol.ErrCodeNotAvailable, protocol.PublishErrorMessages[protocol.ErrCodeNotAvailable])
+	// Check if backend is available
+	if s.backend == nil {
+		s.sendPublishError(c, protocol.ErrCodeNotAvailable, protocol.PublishErrorMessage(protocol.ErrCodeNotAvailable))
 		return
 	}
 
@@ -46,7 +39,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int64("client_id", c.id).
 			Err(err).
 			Msg("Client sent invalid publish request")
-		s.sendPublishError(c, protocol.ErrCodeInvalidRequest, protocol.PublishErrorMessages[protocol.ErrCodeInvalidRequest])
+		s.sendPublishError(c, protocol.ErrCodeInvalidRequest, protocol.PublishErrorMessage(protocol.ErrCodeInvalidRequest))
 		return
 	}
 
@@ -56,7 +49,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
 			Msg("Client sent invalid channel format")
-		s.sendPublishError(c, protocol.ErrCodeInvalidChannel, protocol.PublishErrorMessages[protocol.ErrCodeInvalidChannel])
+		s.sendPublishError(c, protocol.ErrCodeInvalidChannel, protocol.PublishErrorMessage(protocol.ErrCodeInvalidChannel))
 		return
 	}
 
@@ -67,7 +60,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int("size", len(pubReq.Data)).
 			Int("max_size", protocol.DefaultMaxPublishSize).
 			Msg("Client publish message too large")
-		s.sendPublishError(c, protocol.ErrCodeMessageTooLarge, protocol.PublishErrorMessages[protocol.ErrCodeMessageTooLarge])
+		s.sendPublishError(c, protocol.ErrCodeMessageTooLarge, protocol.PublishErrorMessage(protocol.ErrCodeMessageTooLarge))
 		return
 	}
 
@@ -77,22 +70,22 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
 			Msg("Client publish rate limited")
-		s.sendPublishError(c, protocol.ErrCodeRateLimited, protocol.PublishErrorMessages[protocol.ErrCodeRateLimited])
+		s.sendPublishError(c, protocol.ErrCodeRateLimited, protocol.PublishErrorMessage(protocol.ErrCodeRateLimited))
 		s.stats.RateLimitedMessages.Add(1)
 		metrics.IncrementRateLimitedMessages()
 		return
 	}
 
-	// Publish to Kafka with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Publish to backend with timeout
+	ctx, cancel := context.WithTimeout(s.ctx, s.config.PublishTimeout)
 	defer cancel()
 
-	if err := s.kafkaProducer.Publish(ctx, c.id, pubReq.Channel, pubReq.Data); err != nil {
+	if err := s.backend.Publish(ctx, c.id, pubReq.Channel, pubReq.Data); err != nil {
 		s.logger.Error().
 			Err(err).
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
-			Msg("Failed to publish message to Kafka")
+			Msg("Failed to publish message to backend")
 
 		// Map specific errors to error codes
 		code := protocol.ErrCodePublishFailed
@@ -105,8 +98,8 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 			code = protocol.ErrCodeServiceUnavailable
 		}
 
-		s.sendPublishError(c, code, protocol.PublishErrorMessages[code])
-		metrics.IncrementPublishErrors()
+		s.sendPublishError(c, code, protocol.PublishErrorMessage(code))
+		// Backend-agnostic publish error metrics are recorded inside each backend's Publish()
 		return
 	}
 
@@ -117,9 +110,9 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 		Int64("client_id", c.id).
 		Str("channel", pubReq.Channel).
 		Int("data_size", len(pubReq.Data)).
-		Msg("Client message published to Kafka")
+		Msg("Client message published to backend")
 
-	metrics.IncrementMessagesPublished()
+	// Backend-agnostic publish metrics are recorded inside each backend's Publish()
 }
 
 // sendPublishAck sends a publish acknowledgment to the client.

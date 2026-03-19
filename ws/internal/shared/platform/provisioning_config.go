@@ -3,6 +3,7 @@ package platform
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -18,37 +19,40 @@ import (
 //	envDefault: Default value if not set
 //	required: Must be provided (no default)
 type ProvisioningConfig struct {
-	// Server
-	Addr      string `env:"PROVISIONING_ADDR" envDefault:":8080"`
-	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
-	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
+	BaseConfig
+	AuthConfig
+	OIDCConfig
+	KafkaNamespaceConfig
+	HTTPTimeoutConfig
 
-	// Database
-	DatabaseURL       string        `env:"DATABASE_URL,required"`
+	// Server
+	Addr string `env:"PROVISIONING_ADDR" envDefault:":8080"`
+
+	// Database — driver auto-detected from Helm values, not set directly by developers.
+	// sqlite (default, embedded) or postgres (opt-in via Helm postgresql.enabled or externalDatabase).
+	DatabaseDriver    string        `env:"DATABASE_DRIVER" envDefault:"sqlite"`
+	DatabaseURL       string        `env:"DATABASE_URL" redact:"true"`
+	DatabasePath      string        `env:"DATABASE_PATH" envDefault:"sukko.db"`
+	AutoMigrate       bool          `env:"AUTO_MIGRATE" envDefault:"true"`
 	DBMaxOpenConns    int           `env:"DB_MAX_OPEN_CONNS" envDefault:"25"`
 	DBMaxIdleConns    int           `env:"DB_MAX_IDLE_CONNS" envDefault:"5"`
 	DBConnMaxLifetime time.Duration `env:"DB_CONN_MAX_LIFETIME" envDefault:"5m"`
 
-	// Kafka/Redpanda Admin
-	KafkaBrokers      string        `env:"KAFKA_BROKERS"`
-	KafkaAdminTimeout time.Duration `env:"KAFKA_ADMIN_TIMEOUT" envDefault:"30s"`
+	// gRPC — internal service-to-service communication port
+	GRPCPort int `env:"GRPC_PORT" envDefault:"9090"`
 
-	// Kafka Security - SASL Authentication
-	KafkaSASLEnabled   bool   `env:"KAFKA_SASL_ENABLED" envDefault:"false"`
-	KafkaSASLMechanism string `env:"KAFKA_SASL_MECHANISM"`
-	KafkaSASLUsername  string `env:"KAFKA_SASL_USERNAME"`
-	KafkaSASLPassword  string `env:"KAFKA_SASL_PASSWORD"`
+	// Admin Authentication — opaque admin token for operator access (separate from tenant JWT)
+	AdminToken string `env:"PROVISIONING_ADMIN_TOKEN" redact:"true"`
 
-	// Kafka Security - TLS Encryption
-	KafkaTLSEnabled  bool   `env:"KAFKA_TLS_ENABLED" envDefault:"false"`
-	KafkaTLSInsecure bool   `env:"KAFKA_TLS_INSECURE" envDefault:"false"`
-	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`
+	// Admin Auth Rate Limiting
+	AdminAuthFailureThreshold int           `env:"ADMIN_AUTH_FAILURE_THRESHOLD" envDefault:"10"`
+	AdminAuthBlockDuration    time.Duration `env:"ADMIN_AUTH_BLOCK_DURATION" envDefault:"60s"`
+	AdminAuthCleanupInterval  time.Duration `env:"ADMIN_AUTH_CLEANUP_INTERVAL" envDefault:"5m"`
+	AdminAuthCleanupMaxAge    time.Duration `env:"ADMIN_AUTH_CLEANUP_MAX_AGE" envDefault:"2m"`
 
 	// Topic Defaults
-	TopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""`
-	ValidNamespaces    string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"` // Comma-separated valid namespace prefixes
-	DefaultPartitions  int    `env:"DEFAULT_PARTITIONS" envDefault:"3"`
-	DefaultRetentionMs int64  `env:"DEFAULT_RETENTION_MS" envDefault:"604800000"` // 7 days
+	DefaultPartitions  int   `env:"DEFAULT_PARTITIONS" envDefault:"3"`
+	DefaultRetentionMs int64 `env:"DEFAULT_RETENTION_MS" envDefault:"604800000"` // 7 days
 
 	// Quotas (defaults per tenant)
 	MaxTopicsPerTenant     int   `env:"MAX_TOPICS_PER_TENANT" envDefault:"50"`
@@ -62,29 +66,26 @@ type ProvisioningConfig struct {
 	LifecycleCheckInterval  time.Duration `env:"LIFECYCLE_CHECK_INTERVAL" envDefault:"1h"`
 	LifecycleManagerEnabled bool          `env:"LIFECYCLE_MANAGER_ENABLED" envDefault:"true"`
 
+	// Routing Rules
+	MaxRoutingRules int `env:"MAX_ROUTING_RULES" envDefault:"100"` // Max routing rules per tenant
+
 	// Rate Limiting
 	APIRateLimitPerMinute int `env:"API_RATE_LIMIT_PER_MIN" envDefault:"60"`
 
-	// HTTP Server
-	HTTPReadTimeout  time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"15s"`
-	HTTPWriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"15s"`
-	HTTPIdleTimeout  time.Duration `env:"HTTP_IDLE_TIMEOUT" envDefault:"60s"`
+	// Key Registry (for JWT validation in API mode with auth enabled)
+	KeyRegistryRefreshInterval time.Duration `env:"KEY_REGISTRY_REFRESH_INTERVAL" envDefault:"1m"`
+	KeyRegistryQueryTimeout    time.Duration `env:"KEY_REGISTRY_QUERY_TIMEOUT" envDefault:"5s"`
 
-	// Authentication (requires DATABASE_URL for key registry)
-	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"false"`
-
-	// OIDC/JWKS support (external IdP tokens)
-	// OIDC is enabled when both IssuerURL and JWKSURL are set
-	OIDCIssuerURL string `env:"OIDC_ISSUER_URL"`
-	OIDCAudience  string `env:"OIDC_AUDIENCE"`
-	OIDCJWKSURL   string `env:"OIDC_JWKS_URL"`
+	// Graceful shutdown timeout
+	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"30s"`
 
 	// CORS settings
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
 	CORSMaxAge         int      `env:"CORS_MAX_AGE" envDefault:"3600"`
 
-	// Environment
-	Environment string `env:"ENVIRONMENT" envDefault:"development"`
+	// Provisioning-specific externalized constants
+	MaxTenantsFetchLimit int           `env:"PROVISIONING_MAX_TENANTS_FETCH_LIMIT" envDefault:"10000"`
+	DeletionTimeout      time.Duration `env:"PROVISIONING_DELETION_TIMEOUT" envDefault:"5m"`
 }
 
 // LoadProvisioningConfig reads provisioning service configuration from .env file
@@ -96,7 +97,7 @@ func LoadProvisioningConfig(logger *zerolog.Logger) (*ProvisioningConfig, error)
 		if logger != nil {
 			logger.Info().Msg("No .env file found (using environment variables only)")
 		} else {
-			fmt.Println("Info: No .env file found (using environment variables only)")
+			_, _ = fmt.Fprintln(os.Stdout, "Info: No .env file found (using environment variables only)")
 		}
 	} else {
 		if logger != nil {
@@ -129,8 +130,28 @@ func (c *ProvisioningConfig) Validate() error {
 	if c.Addr == "" {
 		return errors.New("PROVISIONING_ADDR is required")
 	}
-	if c.DatabaseURL == "" {
-		return errors.New("DATABASE_URL is required")
+
+	// Database driver validation
+	validDrivers := map[string]bool{"sqlite": true, "postgres": true}
+	if !validDrivers[c.DatabaseDriver] {
+		return fmt.Errorf("[CONFIG ERROR] DATABASE_DRIVER=%q is invalid (valid: sqlite, postgres)", c.DatabaseDriver)
+	}
+	if c.DatabaseDriver == "postgres" && c.DatabaseURL == "" {
+		return errors.New("[CONFIG ERROR] DATABASE_URL is required when DATABASE_DRIVER=postgres")
+	}
+
+	// gRPC port validation
+	if c.GRPCPort < 1 || c.GRPCPort > MaxPort {
+		return fmt.Errorf("GRPC_PORT must be between 1 and %d, got %d", MaxPort, c.GRPCPort)
+	}
+
+	// Admin token validation
+	if c.AdminToken != "" && len(c.AdminToken) < 16 {
+		env := strings.ToLower(strings.TrimSpace(c.Environment))
+		if env != "dev" && env != "development" && env != "local" {
+			return fmt.Errorf("PROVISIONING_ADMIN_TOKEN must be at least 16 characters in non-development environments (got %d)", len(c.AdminToken))
+		}
+		// In dev: warning is logged at startup, not a validation error
 	}
 
 	// Range checks
@@ -146,62 +167,40 @@ func (c *ProvisioningConfig) Validate() error {
 	if c.DeprovisionGraceDays < 0 {
 		return fmt.Errorf("DEPROVISION_GRACE_DAYS must be >= 0, got %d", c.DeprovisionGraceDays)
 	}
+	if c.MaxRoutingRules < 1 {
+		return fmt.Errorf("MAX_ROUTING_RULES must be > 0, got %d", c.MaxRoutingRules)
+	}
 	if c.APIRateLimitPerMinute < 1 {
 		return fmt.Errorf("API_RATE_LIMIT_PER_MIN must be > 0, got %d", c.APIRateLimitPerMinute)
 	}
 
-	// Database pool validation
-	if c.DBMaxOpenConns < 1 {
-		return fmt.Errorf("DB_MAX_OPEN_CONNS must be > 0, got %d", c.DBMaxOpenConns)
-	}
-	if c.DBMaxIdleConns < 0 {
-		return fmt.Errorf("DB_MAX_IDLE_CONNS must be >= 0, got %d", c.DBMaxIdleConns)
-	}
-	if c.DBMaxIdleConns > c.DBMaxOpenConns {
-		return fmt.Errorf("DB_MAX_IDLE_CONNS (%d) must be <= DB_MAX_OPEN_CONNS (%d)",
-			c.DBMaxIdleConns, c.DBMaxOpenConns)
+	// Database pool validation (only relevant for postgres)
+	if c.DatabaseDriver == "postgres" {
+		if c.DBMaxOpenConns < 1 {
+			return fmt.Errorf("DB_MAX_OPEN_CONNS must be > 0, got %d", c.DBMaxOpenConns)
+		}
+		if c.DBMaxIdleConns < 0 {
+			return fmt.Errorf("DB_MAX_IDLE_CONNS must be >= 0, got %d", c.DBMaxIdleConns)
+		}
+		if c.DBMaxIdleConns > c.DBMaxOpenConns {
+			return fmt.Errorf("DB_MAX_IDLE_CONNS (%d) must be <= DB_MAX_OPEN_CONNS (%d)",
+				c.DBMaxIdleConns, c.DBMaxOpenConns)
+		}
 	}
 
-	// Enum checks
-	if err := ValidateLogLevel(c.LogLevel); err != nil {
+	// Shared field validation (LogLevel, LogFormat, Environment)
+	if err := c.BaseConfig.Validate(); err != nil {
 		return err
 	}
 
-	if err := ValidateLogFormat(c.LogFormat); err != nil {
+	// Topic namespace validation (includes prod guard)
+	if err := c.KafkaNamespaceConfig.Validate(c.Environment); err != nil {
 		return err
 	}
 
-	// Kafka SASL validation
-	if c.KafkaSASLEnabled {
-		if err := ValidateKafkaSASLMechanism(c.KafkaSASLMechanism); err != nil {
-			return err
-		}
-		if c.KafkaSASLUsername == "" {
-			return errors.New("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLED=true")
-		}
-		if c.KafkaSASLPassword == "" {
-			return errors.New("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
-		}
-	}
-
-	// Topic namespace validation (config-driven)
-	validNS := parseNamespaces(c.ValidNamespaces)
-	if len(validNS) == 0 {
-		return errors.New("VALID_NAMESPACES must contain at least one namespace")
-	}
-	if c.TopicNamespaceOverride != "" && !validNS[c.TopicNamespaceOverride] {
-		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE must be one of: %s (got: %s)",
-			c.ValidNamespaces, c.TopicNamespaceOverride)
-	}
-
-	// Validate OIDC settings - if one URL is set, both must be set
-	hasIssuer := c.OIDCIssuerURL != ""
-	hasJWKS := c.OIDCJWKSURL != ""
-	if hasIssuer != hasJWKS {
-		if !hasIssuer {
-			return errors.New("OIDC_ISSUER_URL is required when OIDC_JWKS_URL is set")
-		}
-		return errors.New("OIDC_JWKS_URL is required when OIDC_ISSUER_URL is set")
+	// Validate OIDC settings
+	if err := c.OIDCConfig.Validate(); err != nil {
+		return err
 	}
 
 	// Validate CORS settings
@@ -209,63 +208,122 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("CORS_MAX_AGE must be >= 0, got %d", c.CORSMaxAge)
 	}
 
-	// Prod guard: namespace override is only for dev/stg
-	env := strings.ToLower(strings.TrimSpace(c.Environment))
-	if env == "prod" && c.TopicNamespaceOverride != "" {
-		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE is not allowed in production (environment: %s)", c.Environment)
+	// DB connection max lifetime (only relevant for postgres)
+	if c.DatabaseDriver == "postgres" && c.DBConnMaxLifetime < time.Minute {
+		return fmt.Errorf("DB_CONN_MAX_LIFETIME must be >= 1m when DATABASE_DRIVER=postgres, got %s", c.DBConnMaxLifetime)
+	}
+
+	// Topic retention
+	if c.DefaultRetentionMs < 60000 {
+		return fmt.Errorf("DEFAULT_RETENTION_MS must be >= 60000 (1 minute), got %d", c.DefaultRetentionMs)
+	}
+
+	// Quota minimums
+	if c.MaxStorageBytes < MinStorageBytes {
+		return fmt.Errorf("MAX_STORAGE_BYTES must be >= %d (1MB), got %d", MinStorageBytes, c.MaxStorageBytes)
+	}
+	if c.ProducerByteRate < MinByteRate {
+		return fmt.Errorf("PRODUCER_BYTE_RATE must be >= %d, got %d", MinByteRate, c.ProducerByteRate)
+	}
+	if c.ConsumerByteRate < MinByteRate {
+		return fmt.Errorf("CONSUMER_BYTE_RATE must be >= %d, got %d", MinByteRate, c.ConsumerByteRate)
+	}
+
+	// Admin auth rate limiting
+	if c.AdminAuthFailureThreshold < 1 {
+		return fmt.Errorf("ADMIN_AUTH_FAILURE_THRESHOLD must be >= 1, got %d", c.AdminAuthFailureThreshold)
+	}
+	if c.AdminAuthBlockDuration < time.Second {
+		return fmt.Errorf("ADMIN_AUTH_BLOCK_DURATION must be >= 1s, got %s", c.AdminAuthBlockDuration)
+	}
+	if c.AdminAuthCleanupInterval < time.Second {
+		return fmt.Errorf("ADMIN_AUTH_CLEANUP_INTERVAL must be >= 1s, got %s", c.AdminAuthCleanupInterval)
+	}
+	if c.AdminAuthCleanupMaxAge < time.Second {
+		return fmt.Errorf("ADMIN_AUTH_CLEANUP_MAX_AGE must be >= 1s, got %s", c.AdminAuthCleanupMaxAge)
+	}
+
+	// HTTP timeouts
+	if err := c.HTTPTimeoutConfig.Validate(); err != nil {
+		return err
+	}
+
+	// Key registry
+	if c.KeyRegistryRefreshInterval < time.Second {
+		return fmt.Errorf("KEY_REGISTRY_REFRESH_INTERVAL must be >= 1s, got %s", c.KeyRegistryRefreshInterval)
+	}
+	if c.KeyRegistryQueryTimeout < time.Second {
+		return fmt.Errorf("KEY_REGISTRY_QUERY_TIMEOUT must be >= 1s, got %s", c.KeyRegistryQueryTimeout)
+	}
+
+	// Graceful shutdown
+	if c.ShutdownTimeout < time.Second {
+		return fmt.Errorf("SHUTDOWN_TIMEOUT must be >= 1s, got %s", c.ShutdownTimeout)
+	}
+
+	// Lifecycle check interval (only when lifecycle manager is enabled)
+	if c.LifecycleManagerEnabled && c.LifecycleCheckInterval < time.Minute {
+		return fmt.Errorf("LIFECYCLE_CHECK_INTERVAL must be >= 1m when LIFECYCLE_MANAGER_ENABLED=true, got %s", c.LifecycleCheckInterval)
+	}
+
+	// Provisioning-specific externalized fields
+	if c.MaxTenantsFetchLimit < 1 {
+		return fmt.Errorf("PROVISIONING_MAX_TENANTS_FETCH_LIMIT must be > 0, got %d", c.MaxTenantsFetchLimit)
+	}
+	if c.DeletionTimeout <= 0 {
+		return fmt.Errorf("PROVISIONING_DELETION_TIMEOUT must be > 0, got %v", c.DeletionTimeout)
 	}
 
 	return nil
 }
 
-// OIDCEnabled returns true if OIDC is configured (both IssuerURL and JWKSURL are set).
-func (c *ProvisioningConfig) OIDCEnabled() bool {
-	return c.OIDCIssuerURL != "" && c.OIDCJWKSURL != ""
-}
-
 // Print logs provisioning configuration for debugging (human-readable format).
+// Uses fmt.Fprint* to os.Stdout for startup display before zerolog is initialized.
+// fmt.Fprint* errors are non-actionable: writing to os.Stdout cannot be retried or reported.
 func (c *ProvisioningConfig) Print() {
-	fmt.Println("=== Provisioning Service Configuration ===")
-	fmt.Printf("Environment:        %s\n", c.Environment)
-	fmt.Printf("Address:            %s\n", c.Addr)
-	fmt.Println("\n=== Database ===")
-	fmt.Printf("Database URL:       %s\n", maskDatabaseURL(c.DatabaseURL))
-	fmt.Printf("Max Open Conns:     %d\n", c.DBMaxOpenConns)
-	fmt.Printf("Max Idle Conns:     %d\n", c.DBMaxIdleConns)
-	fmt.Printf("Conn Max Lifetime:  %s\n", c.DBConnMaxLifetime)
-	fmt.Println("\n=== Kafka/Redpanda ===")
-	fmt.Printf("Brokers:            %s\n", c.KafkaBrokers)
-	fmt.Printf("Admin Timeout:      %s\n", c.KafkaAdminTimeout)
-	fmt.Printf("SASL Enabled:       %v\n", c.KafkaSASLEnabled)
-	if c.KafkaSASLEnabled {
-		fmt.Printf("SASL Mechanism:     %s\n", c.KafkaSASLMechanism)
-		fmt.Printf("SASL Username:      %s\n", c.KafkaSASLUsername)
+	w := os.Stdout
+	_, _ = fmt.Fprintln(w, "=== Provisioning Service Configuration ===")
+	_, _ = fmt.Fprintf(w, "Environment:        %s\n", c.Environment)
+	_, _ = fmt.Fprintf(w, "Address:            %s\n", c.Addr)
+	_, _ = fmt.Fprintf(w, "gRPC Port:          %d\n", c.GRPCPort)
+	if c.AdminToken != "" {
+		_, _ = fmt.Fprintf(w, "Admin Token:        [REDACTED]\n")
 	}
-	fmt.Printf("TLS Enabled:        %v\n", c.KafkaTLSEnabled)
-	fmt.Println("\n=== Topic Defaults ===")
-	if c.TopicNamespaceOverride != "" {
-		fmt.Printf("Namespace Override: %s\n", c.TopicNamespaceOverride)
+	_, _ = fmt.Fprintln(w, "\n=== Database ===")
+	_, _ = fmt.Fprintf(w, "Database Driver:    %s\n", c.DatabaseDriver)
+	if c.DatabaseDriver == "postgres" {
+		_, _ = fmt.Fprintf(w, "Database URL:       %s\n", maskDatabaseURL(c.DatabaseURL))
+		_, _ = fmt.Fprintf(w, "Max Open Conns:     %d\n", c.DBMaxOpenConns)
+		_, _ = fmt.Fprintf(w, "Max Idle Conns:     %d\n", c.DBMaxIdleConns)
+		_, _ = fmt.Fprintf(w, "Conn Max Lifetime:  %s\n", c.DBConnMaxLifetime)
+	} else {
+		_, _ = fmt.Fprintf(w, "Database Path:      %s\n", c.DatabasePath)
 	}
-	fmt.Printf("Partitions:         %d\n", c.DefaultPartitions)
-	fmt.Printf("Retention:          %d ms (%d days)\n", c.DefaultRetentionMs, c.DefaultRetentionMs/86400000)
-	fmt.Println("\n=== Tenant Quotas (Defaults) ===")
-	fmt.Printf("Max Topics:         %d\n", c.MaxTopicsPerTenant)
-	fmt.Printf("Max Partitions:     %d\n", c.MaxPartitionsPerTenant)
-	fmt.Printf("Max Storage:        %d MB\n", c.MaxStorageBytes/(1024*1024))
-	fmt.Printf("Producer Rate:      %d MB/s\n", c.ProducerByteRate/(1024*1024))
-	fmt.Printf("Consumer Rate:      %d MB/s\n", c.ConsumerByteRate/(1024*1024))
-	fmt.Println("\n=== Tenant Lifecycle ===")
-	fmt.Printf("Grace Period:       %d days\n", c.DeprovisionGraceDays)
-	fmt.Println("\n=== Rate Limiting ===")
-	fmt.Printf("API Rate Limit:     %d req/min\n", c.APIRateLimitPerMinute)
-	fmt.Println("\n=== HTTP Server ===")
-	fmt.Printf("Read Timeout:       %s\n", c.HTTPReadTimeout)
-	fmt.Printf("Write Timeout:      %s\n", c.HTTPWriteTimeout)
-	fmt.Printf("Idle Timeout:       %s\n", c.HTTPIdleTimeout)
-	fmt.Println("\n=== Logging ===")
-	fmt.Printf("Level:              %s\n", c.LogLevel)
-	fmt.Printf("Format:             %s\n", c.LogFormat)
-	fmt.Println("==========================================")
+	_, _ = fmt.Fprintf(w, "Auto Migrate:       %v\n", c.AutoMigrate)
+	_, _ = fmt.Fprintln(w, "\n=== Topic Defaults ===")
+	if c.KafkaTopicNamespaceOverride != "" {
+		_, _ = fmt.Fprintf(w, "Namespace Override: %s\n", c.KafkaTopicNamespaceOverride)
+	}
+	_, _ = fmt.Fprintf(w, "Partitions:         %d\n", c.DefaultPartitions)
+	_, _ = fmt.Fprintf(w, "Retention:          %d ms (%d days)\n", c.DefaultRetentionMs, c.DefaultRetentionMs/86400000)
+	_, _ = fmt.Fprintln(w, "\n=== Tenant Quotas (Defaults) ===")
+	_, _ = fmt.Fprintf(w, "Max Topics:         %d\n", c.MaxTopicsPerTenant)
+	_, _ = fmt.Fprintf(w, "Max Partitions:     %d\n", c.MaxPartitionsPerTenant)
+	_, _ = fmt.Fprintf(w, "Max Storage:        %d MB\n", c.MaxStorageBytes/(1024*1024))
+	_, _ = fmt.Fprintf(w, "Producer Rate:      %d MB/s\n", c.ProducerByteRate/(1024*1024))
+	_, _ = fmt.Fprintf(w, "Consumer Rate:      %d MB/s\n", c.ConsumerByteRate/(1024*1024))
+	_, _ = fmt.Fprintln(w, "\n=== Tenant Lifecycle ===")
+	_, _ = fmt.Fprintf(w, "Grace Period:       %d days\n", c.DeprovisionGraceDays)
+	_, _ = fmt.Fprintln(w, "\n=== Rate Limiting ===")
+	_, _ = fmt.Fprintf(w, "API Rate Limit:     %d req/min\n", c.APIRateLimitPerMinute)
+	_, _ = fmt.Fprintln(w, "\n=== HTTP Server ===")
+	_, _ = fmt.Fprintf(w, "Read Timeout:       %s\n", c.HTTPReadTimeout)
+	_, _ = fmt.Fprintf(w, "Write Timeout:      %s\n", c.HTTPWriteTimeout)
+	_, _ = fmt.Fprintf(w, "Idle Timeout:       %s\n", c.HTTPIdleTimeout)
+	_, _ = fmt.Fprintln(w, "\n=== Logging ===")
+	_, _ = fmt.Fprintf(w, "Level:              %s\n", c.LogLevel)
+	_, _ = fmt.Fprintf(w, "Format:             %s\n", c.LogFormat)
+	_, _ = fmt.Fprintln(w, "==========================================")
 }
 
 // LogConfig logs provisioning configuration using structured logging.
@@ -273,19 +331,16 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 	event := logger.Info().
 		Str("environment", c.Environment).
 		Str("addr", c.Addr).
-		Str("kafka_brokers", c.KafkaBrokers).
-		Bool("kafka_sasl_enabled", c.KafkaSASLEnabled).
-		Bool("kafka_tls_enabled", c.KafkaTLSEnabled).
-		Str("topic_namespace_override", c.TopicNamespaceOverride).
+		Str("database_driver", c.DatabaseDriver).
+		Int("grpc_port", c.GRPCPort).
+		Bool("auto_migrate", c.AutoMigrate).
+		Str("topic_namespace_override", c.KafkaTopicNamespaceOverride).
 		Int("default_partitions", c.DefaultPartitions).
 		Int64("default_retention_ms", c.DefaultRetentionMs).
 		Int("max_topics_per_tenant", c.MaxTopicsPerTenant).
 		Int("max_partitions_per_tenant", c.MaxPartitionsPerTenant).
 		Int("deprovision_grace_days", c.DeprovisionGraceDays).
 		Int("api_rate_limit_per_min", c.APIRateLimitPerMinute).
-		Int("db_max_open_conns", c.DBMaxOpenConns).
-		Int("db_max_idle_conns", c.DBMaxIdleConns).
-		Dur("db_conn_max_lifetime", c.DBConnMaxLifetime).
 		Dur("http_read_timeout", c.HTTPReadTimeout).
 		Dur("http_write_timeout", c.HTTPWriteTimeout).
 		Dur("http_idle_timeout", c.HTTPIdleTimeout).
@@ -294,6 +349,21 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Int("cors_max_age", c.CORSMaxAge).
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat)
+
+	// Admin token — redact, never log the value
+	if c.AdminToken != "" {
+		event = event.Str("admin_token", "[REDACTED]")
+	}
+
+	// Database-specific fields
+	if c.DatabaseDriver == "postgres" {
+		event = event.
+			Int("db_max_open_conns", c.DBMaxOpenConns).
+			Int("db_max_idle_conns", c.DBMaxIdleConns).
+			Dur("db_conn_max_lifetime", c.DBConnMaxLifetime)
+	} else {
+		event = event.Str("database_path", c.DatabasePath)
+	}
 
 	// Add OIDC-specific fields when enabled
 	if c.OIDCEnabled() {

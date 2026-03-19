@@ -3,24 +3,24 @@
 # =============================================================================
 
 # Project Configuration
-project_id = "odin-9e902"
+project_id = "sukko-9e902"
 
 # Region & Zone
 region = "us-central1"
 zone   = "us-central1-a"
 
 # Cluster Configuration
-cluster_name = "odin-ws-dev"
+cluster_name = "sukko-dev"
 environment  = "dev"
-namespace    = "odin-ws-dev"
-network_name = "odin-ws-dev-vpc"
+namespace    = "sukko-dev"
+network_name = "sukko-dev-vpc"
 
 # Node Pool Configuration
 node_machine_type = "e2-standard-4"
 node_disk_size_gb = 50
 
-# Spot VMs - 60-90% cheaper
-use_spot_vms     = true
+# On-demand VMs for dev stability (no preemption)
+use_spot_vms     = false
 taint_spot_nodes = false
 
 # Scaling - Single node for POC

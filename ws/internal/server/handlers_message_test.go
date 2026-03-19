@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -9,8 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/messaging"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/server/messaging"
 )
 
 // =============================================================================
@@ -24,8 +24,10 @@ func parseClientMessage(data []byte) (msgType string, msgData json.RawMessage, e
 		Type string          `json:"type"`
 		Data json.RawMessage `json:"data"`
 	}
-	err = json.Unmarshal(data, &req)
-	return req.Type, req.Data, err
+	if err = json.Unmarshal(data, &req); err != nil {
+		return "", nil, fmt.Errorf("unmarshal client message: %w", err)
+	}
+	return req.Type, req.Data, nil
 }
 
 func TestParseClientMessage_Subscribe(t *testing.T) {
@@ -156,8 +158,10 @@ func parseSubscribeRequest(data json.RawMessage) ([]string, error) {
 	var subReq struct {
 		Channels []string `json:"channels"`
 	}
-	err := json.Unmarshal(data, &subReq)
-	return subReq.Channels, err
+	if err := json.Unmarshal(data, &subReq); err != nil {
+		return nil, fmt.Errorf("unmarshal subscribe request: %w", err)
+	}
+	return subReq.Channels, nil
 }
 
 func TestParseSubscribeRequest_SingleChannel(t *testing.T) {
@@ -226,8 +230,10 @@ func parseReconnectRequest(data json.RawMessage) (clientID string, lastOffsets m
 		ClientID   string           `json:"client_id"`
 		LastOffset map[string]int64 `json:"last_offset"`
 	}
-	err = json.Unmarshal(data, &req)
-	return req.ClientID, req.LastOffset, err
+	if err = json.Unmarshal(data, &req); err != nil {
+		return "", nil, fmt.Errorf("unmarshal reconnect request: %w", err)
+	}
+	return req.ClientID, req.LastOffset, nil
 }
 
 func TestParseReconnectRequest_Valid(t *testing.T) {
@@ -279,6 +285,149 @@ func TestParseReconnectRequest_MissingClientID(t *testing.T) {
 	// Missing client_id defaults to empty string
 	if clientID != "" {
 		t.Errorf("clientID: got %q, want empty string", clientID)
+	}
+}
+
+func TestParseReconnectRequest_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	data := json.RawMessage(`{invalid json}`)
+
+	_, _, err := parseReconnectRequest(data)
+
+	if err == nil {
+		t.Error("Expected error for invalid JSON")
+	}
+}
+
+func TestParseReconnectRequest_NullOffsets(t *testing.T) {
+	t.Parallel()
+	data := json.RawMessage(`{"client_id": "abc123", "last_offset": null}`)
+
+	clientID, offsets, err := parseReconnectRequest(data)
+
+	if err != nil {
+		t.Fatalf("parseReconnectRequest failed: %v", err)
+	}
+	if clientID != "abc123" {
+		t.Errorf("clientID: got %q, want %q", clientID, "abc123")
+	}
+	if offsets != nil {
+		t.Errorf("offsets: got %v, want nil", offsets)
+	}
+}
+
+// =============================================================================
+// MessageEnvelope Serialize Format Tests (replay context)
+// =============================================================================
+
+func TestMessageEnvelope_Serialize_ReplayFormat(t *testing.T) {
+	t.Parallel()
+
+	// Verify that MessageEnvelope.Serialize() produces valid JSON matching
+	// the format used in handleReconnect for replay messages.
+	envelope := &messaging.MessageEnvelope{
+		Type:      MsgTypeMessage,
+		Seq:       42,
+		Timestamp: 1709337600000,
+		Channel:   "acme.BTC.trade",
+		Priority:  messaging.PriorityNormal,
+		Data:      json.RawMessage(`{"price":"50000"}`),
+	}
+
+	data, err := envelope.Serialize()
+	if err != nil {
+		t.Fatalf("Serialize failed: %v", err)
+	}
+
+	// Parse the serialized output and verify fields
+	var parsed struct {
+		Type    string          `json:"type"`
+		Seq     int64           `json:"seq"`
+		Ts      int64           `json:"ts"`
+		Channel string          `json:"channel"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal serialized envelope failed: %v", err)
+	}
+
+	if parsed.Type != MsgTypeMessage {
+		t.Errorf("type: got %q, want %q", parsed.Type, MsgTypeMessage)
+	}
+	if parsed.Seq != 42 {
+		t.Errorf("seq: got %d, want 42", parsed.Seq)
+	}
+	if parsed.Ts != 1709337600000 {
+		t.Errorf("ts: got %d, want 1709337600000", parsed.Ts)
+	}
+	if parsed.Channel != "acme.BTC.trade" {
+		t.Errorf("channel: got %q, want %q", parsed.Channel, "acme.BTC.trade")
+	}
+	if string(parsed.Data) != `{"price":"50000"}` {
+		t.Errorf("data: got %s, want %s", parsed.Data, `{"price":"50000"}`)
+	}
+}
+
+func TestMessageEnvelope_Serialize_NilData(t *testing.T) {
+	t.Parallel()
+
+	envelope := &messaging.MessageEnvelope{
+		Type:      MsgTypeMessage,
+		Seq:       1,
+		Timestamp: 1709337600000,
+		Channel:   "acme.BTC.trade",
+		Data:      nil,
+	}
+
+	data, err := envelope.Serialize()
+	if err != nil {
+		t.Fatalf("Serialize with nil data failed: %v", err)
+	}
+
+	// Verify it produces valid JSON
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal serialized envelope with nil data failed: %v", err)
+	}
+}
+
+// =============================================================================
+// Reconnect Ack Response Tests
+// =============================================================================
+
+func TestReconnectAck_JSONFormat(t *testing.T) {
+	t.Parallel()
+
+	ackMsg := map[string]any{
+		"type":              RespTypeReconnectAck,
+		"status":            "completed",
+		"messages_replayed": 5,
+		"message":           "Replayed 5 missed messages",
+	}
+
+	data, err := json.Marshal(ackMsg)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	var parsed struct {
+		Type             string `json:"type"`
+		Status           string `json:"status"`
+		MessagesReplayed int    `json:"messages_replayed"`
+		Message          string `json:"message"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+
+	if parsed.Type != RespTypeReconnectAck {
+		t.Errorf("type: got %q, want %q", parsed.Type, RespTypeReconnectAck)
+	}
+	if parsed.Status != "completed" {
+		t.Errorf("status: got %q, want %q", parsed.Status, "completed")
+	}
+	if parsed.MessagesReplayed != 5 {
+		t.Errorf("messages_replayed: got %d, want 5", parsed.MessagesReplayed)
 	}
 }
 
@@ -622,19 +771,19 @@ func TestHandleClientMessage_ErrorResponses(t *testing.T) {
 		{
 			name:     "invalid_json",
 			input:    `{invalid json`,
-			wantType: protocol.MsgTypeError,
+			wantType: MsgTypeError,
 			wantCode: "invalid_json",
 		},
 		{
 			name:     "invalid_subscribe_data",
 			input:    `{"type":"subscribe","data":"not an object"}`,
-			wantType: protocol.RespTypeSubscribeError,
+			wantType: RespTypeSubscribeError,
 			wantCode: "invalid_request",
 		},
 		{
 			name:     "invalid_unsubscribe_data",
 			input:    `{"type":"unsubscribe","data":"not an object"}`,
-			wantType: protocol.RespTypeUnsubscribeError,
+			wantType: RespTypeUnsubscribeError,
 			wantCode: "invalid_request",
 		},
 	}

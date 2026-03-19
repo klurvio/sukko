@@ -1,35 +1,25 @@
 // Package protocol provides shared WebSocket protocol types, constants, and error codes
 // used by both gateway and server components.
+//
+// Server-only types (MsgTypeReconnect, MsgTypeHeartbeat, MsgTypeMessage, MsgTypePong,
+// MsgTypeError, RespTypeSubscriptionAck, RespTypeUnsubscriptionAck, RespTypeReconnectAck,
+// RespTypeReconnectError, RespTypeSubscribeError, RespTypeUnsubscribeError, UnsubscribeData)
+// live in ws/internal/server/protocol.go.
 package protocol
 
 import "encoding/json"
 
-// Message type constants for client→server messages.
+// Message type constants for client→server messages used by both gateway and server.
 const (
 	MsgTypeSubscribe   = "subscribe"
 	MsgTypeUnsubscribe = "unsubscribe"
 	MsgTypePublish     = "publish"
-	MsgTypeReconnect   = "reconnect"
-	MsgTypeHeartbeat   = "heartbeat"
 )
 
-// Message type constants for server→client messages.
+// Response type constants used by both gateway and server.
 const (
-	MsgTypeMessage = "message"
-	MsgTypePong    = "pong"
-	MsgTypeError   = "error"
-)
-
-// Response type constants for acknowledgments.
-const (
-	RespTypeSubscriptionAck   = "subscription_ack"
-	RespTypeUnsubscriptionAck = "unsubscription_ack"
-	RespTypePublishAck        = "publish_ack"
-	RespTypePublishError      = "publish_error"
-	RespTypeReconnectAck      = "reconnect_ack"
-	RespTypeReconnectError    = "reconnect_error"
-	RespTypeSubscribeError    = "subscribe_error"
-	RespTypeUnsubscribeError  = "unsubscribe_error"
+	RespTypePublishAck   = "publish_ack"
+	RespTypePublishError = "publish_error"
 )
 
 // ClientMessage is the standard envelope for client→server messages.
@@ -43,13 +33,20 @@ type SubscribeData struct {
 	Channels []string `json:"channels"`
 }
 
-// UnsubscribeData is the payload for unsubscribe messages.
-type UnsubscribeData struct {
-	Channels []string `json:"channels"`
-}
-
-// PublishData is the payload for publish messages.
+// PublishData is the client-facing payload for publish messages.
+// This struct is deserialized from raw client WebSocket frames.
+// It MUST NOT contain internal routing fields — use InternalPublishData for gateway→server.
 type PublishData struct {
 	Channel string          `json:"channel"`
 	Data    json.RawMessage `json:"data"`
+}
+
+// InternalPublishData is the gateway→server publish payload with resolved routing.
+// The gateway parses the client's PublishData, resolves routing rules, and constructs
+// this struct for forwarding to the server. The server MUST only read TopicSuffix from
+// InternalPublishData, never from raw client messages.
+type InternalPublishData struct {
+	Channel     string          `json:"channel"`
+	Data        json.RawMessage `json:"data"`
+	TopicSuffix string          `json:"topic_suffix"` // Resolved from tenant routing rules
 }

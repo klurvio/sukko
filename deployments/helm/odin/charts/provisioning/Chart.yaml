@@ -1,6 +1,0 @@
-apiVersion: v2
-name: provisioning
-description: Odin Provisioning API - Multi-tenant management and key provisioning
-type: application
-version: 1.0.0
-appVersion: "1.0.0"

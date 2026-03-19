@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
 // TenantIsolator provides unified tenant isolation for channels and topics.
@@ -21,6 +21,10 @@ type TenantIsolator struct {
 // TenantIsolationConfig configures tenant isolation behavior.
 // Always fail-secure: requests without proper tenant context are rejected.
 type TenantIsolationConfig struct {
+	// Environment is the deployment environment (e.g., "local", "dev", "prod").
+	// Required when no custom TopicIsolator is provided via WithTopicIsolator.
+	Environment string `yaml:"environment" json:"environment"`
+
 	// SharedChannelPatterns are channels accessible by all tenants.
 	SharedChannelPatterns []string `yaml:"shared_channel_patterns" json:"shared_channel_patterns"`
 
@@ -38,6 +42,7 @@ type TenantIsolationConfig struct {
 // Always fail-secure by design - no "non-strict" mode.
 func DefaultTenantIsolationConfig() TenantIsolationConfig {
 	return TenantIsolationConfig{
+		Environment:           "local",
 		SharedChannelPatterns: []string{"system.*"},
 		SharedTopicPatterns:   []string{},
 		AuditDenials:          true,
@@ -56,9 +61,12 @@ func WithAuditLogger(logger AuditLogger) TenantIsolatorOption {
 }
 
 // WithTopicIsolator sets a custom topic isolator.
+// If isolator is nil, the default topic isolator creation proceeds (requires Environment).
 func WithTopicIsolator(isolator *TopicIsolator) TenantIsolatorOption {
 	return func(t *TenantIsolator) {
-		t.topicIsolator = isolator
+		if isolator != nil {
+			t.topicIsolator = isolator
+		}
 	}
 }
 
@@ -70,7 +78,8 @@ func WithAccessDenialMetrics(metrics pkgmetrics.AccessDenialMetrics) TenantIsola
 }
 
 // NewTenantIsolator creates a tenant isolator with the given configuration.
-func NewTenantIsolator(config TenantIsolationConfig, opts ...TenantIsolatorOption) *TenantIsolator {
+// Returns an error if no custom TopicIsolator is provided and Environment is empty.
+func NewTenantIsolator(config TenantIsolationConfig, opts ...TenantIsolatorOption) (*TenantIsolator, error) {
 	t := &TenantIsolator{
 		config:      config,
 		auditLogger: &noopAuditLogger{},
@@ -84,15 +93,19 @@ func NewTenantIsolator(config TenantIsolationConfig, opts ...TenantIsolatorOptio
 
 	// Create default topic isolator if not provided
 	if t.topicIsolator == nil {
-		t.topicIsolator = NewTopicIsolator(TopicIsolationConfig{
-			Environment:         "prod",
+		topicIso, err := NewTopicIsolator(TopicIsolationConfig{
+			Environment:         config.Environment,
 			TenantPosition:      1,
 			Separator:           ".",
 			SharedTopicPatterns: config.SharedTopicPatterns,
 		})
+		if err != nil {
+			return nil, fmt.Errorf("create default topic isolator: %w", err)
+		}
+		t.topicIsolator = topicIso
 	}
 
-	return t
+	return t, nil
 }
 
 // AccessAction represents the type of access being requested.

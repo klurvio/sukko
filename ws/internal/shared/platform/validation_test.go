@@ -3,72 +3,74 @@ package platform
 import (
 	"strings"
 	"testing"
+
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // =============================================================================
-// ValidLogLevels Map Tests
+// validLogLevels Map Tests
 // =============================================================================
 
 func TestValidLogLevels_Contents(t *testing.T) {
 	t.Parallel()
-	expectedLevels := []string{"debug", "info", "warn", "error"}
+	expectedLevels := []string{"debug", "info", "warn", "error", "fatal"}
 
 	for _, level := range expectedLevels {
-		if !ValidLogLevels[level] {
-			t.Errorf("ValidLogLevels[%q] = false, want true", level)
+		if !validLogLevels[logging.LogLevel(level)] {
+			t.Errorf("validLogLevels[%q] = false, want true", level)
 		}
 	}
 
 	// Verify map size
-	if len(ValidLogLevels) != len(expectedLevels) {
-		t.Errorf("len(ValidLogLevels) = %d, want %d", len(ValidLogLevels), len(expectedLevels))
+	if len(validLogLevels) != len(expectedLevels) {
+		t.Errorf("len(validLogLevels) = %d, want %d", len(validLogLevels), len(expectedLevels))
 	}
 }
 
 func TestValidLogLevels_InvalidLevels(t *testing.T) {
 	t.Parallel()
-	invalidLevels := []string{"DEBUG", "INFO", "WARN", "ERROR", "trace", "fatal", ""}
+	invalidLevels := []string{"DEBUG", "INFO", "WARN", "ERROR", "trace", ""}
 
 	for _, level := range invalidLevels {
-		if ValidLogLevels[level] {
-			t.Errorf("ValidLogLevels[%q] = true, want false", level)
+		if validLogLevels[logging.LogLevel(level)] {
+			t.Errorf("validLogLevels[%q] = true, want false", level)
 		}
 	}
 }
 
 // =============================================================================
-// ValidLogFormats Map Tests
+// validLogFormats Map Tests
 // =============================================================================
 
 func TestValidLogFormats_Contents(t *testing.T) {
 	t.Parallel()
-	expectedFormats := []string{"json", "text", "pretty"}
+	expectedFormats := []string{"json", "pretty"}
 
 	for _, format := range expectedFormats {
-		if !ValidLogFormats[format] {
-			t.Errorf("ValidLogFormats[%q] = false, want true", format)
+		if !validLogFormats[logging.LogFormat(format)] {
+			t.Errorf("validLogFormats[%q] = false, want true", format)
 		}
 	}
 
 	// Verify map size
-	if len(ValidLogFormats) != len(expectedFormats) {
-		t.Errorf("len(ValidLogFormats) = %d, want %d", len(ValidLogFormats), len(expectedFormats))
+	if len(validLogFormats) != len(expectedFormats) {
+		t.Errorf("len(validLogFormats) = %d, want %d", len(validLogFormats), len(expectedFormats))
 	}
 }
 
 func TestValidLogFormats_InvalidFormats(t *testing.T) {
 	t.Parallel()
-	invalidFormats := []string{"JSON", "TEXT", "PRETTY", "xml", "console", ""}
+	invalidFormats := []string{"JSON", "TEXT", "PRETTY", "xml", "text", "console", ""}
 
 	for _, format := range invalidFormats {
-		if ValidLogFormats[format] {
-			t.Errorf("ValidLogFormats[%q] = true, want false", format)
+		if validLogFormats[logging.LogFormat(format)] {
+			t.Errorf("validLogFormats[%q] = true, want false", format)
 		}
 	}
 }
 
 // =============================================================================
-// ValidKafkaSASLMechanisms Map Tests
+// validKafkaSASLMechanisms Map Tests
 // =============================================================================
 
 func TestValidKafkaSASLMechanisms_Contents(t *testing.T) {
@@ -76,14 +78,14 @@ func TestValidKafkaSASLMechanisms_Contents(t *testing.T) {
 	expectedMechanisms := []string{"scram-sha-256", "scram-sha-512"}
 
 	for _, mechanism := range expectedMechanisms {
-		if !ValidKafkaSASLMechanisms[mechanism] {
-			t.Errorf("ValidKafkaSASLMechanisms[%q] = false, want true", mechanism)
+		if !validKafkaSASLMechanisms[mechanism] {
+			t.Errorf("validKafkaSASLMechanisms[%q] = false, want true", mechanism)
 		}
 	}
 
 	// Verify map size
-	if len(ValidKafkaSASLMechanisms) != len(expectedMechanisms) {
-		t.Errorf("len(ValidKafkaSASLMechanisms) = %d, want %d", len(ValidKafkaSASLMechanisms), len(expectedMechanisms))
+	if len(validKafkaSASLMechanisms) != len(expectedMechanisms) {
+		t.Errorf("len(validKafkaSASLMechanisms) = %d, want %d", len(validKafkaSASLMechanisms), len(expectedMechanisms))
 	}
 }
 
@@ -92,26 +94,26 @@ func TestValidKafkaSASLMechanisms_InvalidMechanisms(t *testing.T) {
 	invalidMechanisms := []string{"SCRAM-SHA-256", "SCRAM-SHA-512", "plain", "PLAIN", "oauthbearer", ""}
 
 	for _, mechanism := range invalidMechanisms {
-		if ValidKafkaSASLMechanisms[mechanism] {
-			t.Errorf("ValidKafkaSASLMechanisms[%q] = true, want false", mechanism)
+		if validKafkaSASLMechanisms[mechanism] {
+			t.Errorf("validKafkaSASLMechanisms[%q] = true, want false", mechanism)
 		}
 	}
 }
 
 // =============================================================================
-// ValidateLogLevel Tests
+// validateLogLevel Tests
 // =============================================================================
 
 func TestValidateLogLevel_ValidLevels(t *testing.T) {
 	t.Parallel()
-	validLevels := []string{"debug", "info", "warn", "error"}
+	validLevels := []string{"debug", "info", "warn", "error", "fatal"}
 
 	for _, level := range validLevels {
 		t.Run(level, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateLogLevel(level)
+			err := validateLogLevel(level)
 			if err != nil {
-				t.Errorf("ValidateLogLevel(%q) = %v, want nil", level, err)
+				t.Errorf("validateLogLevel(%q) = %v, want nil", level, err)
 			}
 		})
 	}
@@ -119,14 +121,14 @@ func TestValidateLogLevel_ValidLevels(t *testing.T) {
 
 func TestValidateLogLevel_InvalidLevels(t *testing.T) {
 	t.Parallel()
-	invalidLevels := []string{"DEBUG", "trace", "fatal", "invalid", "", "Info", "WARNING"}
+	invalidLevels := []string{"DEBUG", "trace", "invalid", "", "Info", "WARNING"}
 
 	for _, level := range invalidLevels {
 		t.Run(level, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateLogLevel(level)
+			err := validateLogLevel(level)
 			if err == nil {
-				t.Errorf("ValidateLogLevel(%q) = nil, want error", level)
+				t.Errorf("validateLogLevel(%q) = nil, want error", level)
 			}
 		})
 	}
@@ -134,7 +136,7 @@ func TestValidateLogLevel_InvalidLevels(t *testing.T) {
 
 func TestValidateLogLevel_ErrorMessage(t *testing.T) {
 	t.Parallel()
-	err := ValidateLogLevel("invalid_level")
+	err := validateLogLevel("invalid_level")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
@@ -150,22 +152,25 @@ func TestValidateLogLevel_ErrorMessage(t *testing.T) {
 	if !strings.Contains(errMsg, "debug") {
 		t.Errorf("Error message should list valid options, got: %s", errMsg)
 	}
+	if !strings.Contains(errMsg, "fatal") {
+		t.Errorf("Error message should list fatal as valid option, got: %s", errMsg)
+	}
 }
 
 // =============================================================================
-// ValidateLogFormat Tests
+// validateLogFormat Tests
 // =============================================================================
 
 func TestValidateLogFormat_ValidFormats(t *testing.T) {
 	t.Parallel()
-	validFormats := []string{"json", "text", "pretty"}
+	validFormats := []string{"json", "pretty"}
 
 	for _, format := range validFormats {
 		t.Run(format, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateLogFormat(format)
+			err := validateLogFormat(format)
 			if err != nil {
-				t.Errorf("ValidateLogFormat(%q) = %v, want nil", format, err)
+				t.Errorf("validateLogFormat(%q) = %v, want nil", format, err)
 			}
 		})
 	}
@@ -173,14 +178,14 @@ func TestValidateLogFormat_ValidFormats(t *testing.T) {
 
 func TestValidateLogFormat_InvalidFormats(t *testing.T) {
 	t.Parallel()
-	invalidFormats := []string{"JSON", "xml", "console", "", "Text", "PRETTY"}
+	invalidFormats := []string{"JSON", "xml", "text", "console", "", "Text", "PRETTY"}
 
 	for _, format := range invalidFormats {
 		t.Run(format, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateLogFormat(format)
+			err := validateLogFormat(format)
 			if err == nil {
-				t.Errorf("ValidateLogFormat(%q) = nil, want error", format)
+				t.Errorf("validateLogFormat(%q) = nil, want error", format)
 			}
 		})
 	}
@@ -188,7 +193,7 @@ func TestValidateLogFormat_InvalidFormats(t *testing.T) {
 
 func TestValidateLogFormat_ErrorMessage(t *testing.T) {
 	t.Parallel()
-	err := ValidateLogFormat("xml")
+	err := validateLogFormat("xml")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
@@ -207,7 +212,7 @@ func TestValidateLogFormat_ErrorMessage(t *testing.T) {
 }
 
 // =============================================================================
-// ValidateKafkaSASLMechanism Tests
+// validateKafkaSASLMechanism Tests
 // =============================================================================
 
 func TestValidateKafkaSASLMechanism_ValidMechanisms(t *testing.T) {
@@ -217,9 +222,9 @@ func TestValidateKafkaSASLMechanism_ValidMechanisms(t *testing.T) {
 	for _, mechanism := range validMechanisms {
 		t.Run(mechanism, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateKafkaSASLMechanism(mechanism)
+			err := validateKafkaSASLMechanism(mechanism)
 			if err != nil {
-				t.Errorf("ValidateKafkaSASLMechanism(%q) = %v, want nil", mechanism, err)
+				t.Errorf("validateKafkaSASLMechanism(%q) = %v, want nil", mechanism, err)
 			}
 		})
 	}
@@ -232,9 +237,9 @@ func TestValidateKafkaSASLMechanism_InvalidMechanisms(t *testing.T) {
 	for _, mechanism := range invalidMechanisms {
 		t.Run(mechanism, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateKafkaSASLMechanism(mechanism)
+			err := validateKafkaSASLMechanism(mechanism)
 			if err == nil {
-				t.Errorf("ValidateKafkaSASLMechanism(%q) = nil, want error", mechanism)
+				t.Errorf("validateKafkaSASLMechanism(%q) = nil, want error", mechanism)
 			}
 		})
 	}
@@ -242,7 +247,7 @@ func TestValidateKafkaSASLMechanism_InvalidMechanisms(t *testing.T) {
 
 func TestValidateKafkaSASLMechanism_ErrorMessage(t *testing.T) {
 	t.Parallel()
-	err := ValidateKafkaSASLMechanism("plain")
+	err := validateKafkaSASLMechanism("plain")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
@@ -271,9 +276,9 @@ func TestValidation_WhitespaceInputs(t *testing.T) {
 	for _, input := range whitespaceInputs {
 		t.Run("level_"+input, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateLogLevel(input)
+			err := validateLogLevel(input)
 			if err == nil {
-				t.Errorf("ValidateLogLevel(%q) should reject whitespace input", input)
+				t.Errorf("validateLogLevel(%q) should reject whitespace input", input)
 			}
 		})
 	}
@@ -288,9 +293,9 @@ func TestValidation_CaseSensitivity(t *testing.T) {
 		valid    string
 		invalid  string
 	}{
-		{"LogLevel", ValidateLogLevel, "debug", "DEBUG"},
-		{"LogFormat", ValidateLogFormat, "json", "JSON"},
-		{"KafkaSASL", ValidateKafkaSASLMechanism, "scram-sha-256", "SCRAM-SHA-256"},
+		{"LogLevel", validateLogLevel, "debug", "DEBUG"},
+		{"LogFormat", validateLogFormat, "json", "JSON"},
+		{"KafkaSASL", validateKafkaSASLMechanism, "scram-sha-256", "SCRAM-SHA-256"},
 	}
 
 	for _, tc := range testCases {
@@ -315,30 +320,30 @@ func TestValidation_CaseSensitivity(t *testing.T) {
 
 func BenchmarkValidateLogLevel_Valid(b *testing.B) {
 	for b.Loop() {
-		_ = ValidateLogLevel("info")
+		_ = validateLogLevel("info")
 	}
 }
 
 func BenchmarkValidateLogLevel_Invalid(b *testing.B) {
 	for b.Loop() {
-		_ = ValidateLogLevel("invalid")
+		_ = validateLogLevel("invalid")
 	}
 }
 
 func BenchmarkValidateLogFormat_Valid(b *testing.B) {
 	for b.Loop() {
-		_ = ValidateLogFormat("json")
+		_ = validateLogFormat("json")
 	}
 }
 
 func BenchmarkValidateKafkaSASLMechanism_Valid(b *testing.B) {
 	for b.Loop() {
-		_ = ValidateKafkaSASLMechanism("scram-sha-256")
+		_ = validateKafkaSASLMechanism("scram-sha-256")
 	}
 }
 
 func BenchmarkMapLookup_Direct(b *testing.B) {
 	for b.Loop() {
-		_ = ValidLogLevels["info"]
+		_ = validLogLevels[logging.LogLevelInfo]
 	}
 }

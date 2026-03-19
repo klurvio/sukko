@@ -7,8 +7,8 @@ CDC message publisher that publishes to Redpanda/Kafka following the [asyncapi s
 Following the asyncapi spec:
 
 ```
-Topic: {namespace}.{tenant}.{category}    e.g., local.odin.trade
-Key:   {tenant}.{identifier}.{category}   e.g., odin.BTC.trade
+Topic: {namespace}.{tenant}.{category}    e.g., local.sukko.trade
+Key:   {tenant}.{identifier}.{category}   e.g., sukko.BTC.trade
 Value: JSON payload (forwarded as-is to WebSocket clients)
 ```
 
@@ -23,7 +23,7 @@ go build -o wspublisher .
 # Run locally
 KAFKA_BROKERS=localhost:19092 \
 KAFKA_NAMESPACE=local \
-CHANNELS=odin.BTC.trade,odin.ETH.trade,odin.all.trade \
+CHANNELS=sukko.BTC.trade,sukko.ETH.trade,sukko.all.trade \
 ./wspublisher
 ```
 
@@ -42,7 +42,7 @@ CHANNELS=odin.BTC.trade,odin.ETH.trade,odin.all.trade \
 |----------|---------|-------------|
 | `CHANNELS` | - | Static channel list (like wsloadtest) |
 | `CHANNEL_PATTERN` | `{tenant}.{identifier}.{category}` | Pattern for dynamic channels |
-| `TENANT_ID` | `odin` | Tenant for dynamic channels |
+| `TENANT_ID` | `sukko` | Tenant for dynamic channels |
 | `IDENTIFIERS` | `BTC,ETH,SOL,all` | Identifiers for dynamic channels |
 | `CATEGORIES` | `trade,liquidity,orderbook` | Categories for dynamic channels (synced with wsloadtest) |
 
@@ -74,7 +74,7 @@ CHANNELS=odin.BTC.trade,odin.ETH.trade,odin.all.trade \
 # Like wsloadtest channels
 KAFKA_BROKERS=localhost:19092 \
 KAFKA_NAMESPACE=local \
-CHANNELS=odin.all.trade,odin.BTC.trade,odin.ETH.trade,odin.SOL.trade \
+CHANNELS=sukko.all.trade,sukko.BTC.trade,sukko.ETH.trade,sukko.SOL.trade \
 TIMING_MODE=poisson \
 POISSON_LAMBDA=500 \
 DURATION=5m \
@@ -83,7 +83,7 @@ DURATION=5m \
 # Dynamic channel generation
 KAFKA_BROKERS=localhost:19092 \
 KAFKA_NAMESPACE=local \
-TENANT_ID=odin \
+TENANT_ID=sukko \
 IDENTIFIERS=BTC,ETH,SOL,all \
 CATEGORIES=trade,liquidity,orderbook \
 ./wspublisher
@@ -95,6 +95,6 @@ CATEGORIES=trade,liquidity,orderbook \
 docker build -t wspublisher .
 docker run -e KAFKA_BROKERS=host.docker.internal:19092 \
            -e KAFKA_NAMESPACE=local \
-           -e CHANNELS=odin.BTC.trade \
+           -e CHANNELS=sukko.BTC.trade \
            wspublisher
 ```

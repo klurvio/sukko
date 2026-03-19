@@ -3,78 +3,66 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"runtime"
-	"strings"
-	"sync/atomic"
 	"syscall"
-	"time"
 
-	_ "github.com/lib/pq" // PostgreSQL driver
-	_ "go.uber.org/automaxprocs"
-
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/server/broadcast"
-	"github.com/Toniq-Labs/odin-ws/internal/server/limits"
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/server/orchestration"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/platform"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/server/backend"
+	"github.com/klurvio/sukko/internal/server/backend/directbackend"
+	"github.com/klurvio/sukko/internal/server/backend/jetstreambackend"
+	"github.com/klurvio/sukko/internal/server/backend/kafkabackend"
+	"github.com/klurvio/sukko/internal/server/broadcast"
+	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/server/orchestration"
+	"github.com/klurvio/sukko/internal/shared/alerting"
+	"github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
-// Helper function to split broker string
-func splitBrokers(brokers string) []string {
-	result := []string{}
-	for b := range strings.SplitSeq(brokers, ",") {
-		trimmed := strings.TrimSpace(b)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
-}
-
 func main() {
-	var (
-		debug     = flag.Bool("debug", false, "enable debug logging (overrides LOG_LEVEL)")
-		numShards = flag.Int("shards", 3, "number of shards to run")
-		basePort  = flag.Int("base-port", 3002, "base port for shards (e.g., 3002, 3003, ...)")
-		lbAddr    = flag.String("lb-addr", ":3005", "address for the load balancer to listen on")
-	)
-	flag.Parse()
+	// Bootstrap logger for pre-config startup (zerolog without config dependency)
+	bootLogger := logging.BootstrapLogger("ws-server")
 
-	// Create basic logger for startup
-	logger := log.New(os.Stdout, "[WS-MULTI] ", log.LstdFlags)
-
-	// automaxprocs automatically sets GOMAXPROCS based on container CPU limits
+	// Go 1.25+ runtime automatically sets GOMAXPROCS from container cgroup CPU limits
 	maxProcs := runtime.GOMAXPROCS(0)
-	logger.Printf("GOMAXPROCS: %d (via automaxprocs - rounds down to integer)", maxProcs)
+	bootLogger.Info().Int("gomaxprocs", maxProcs).Msg("GOMAXPROCS set by Go runtime (container-aware)")
 
 	// Load configuration from .env file and environment variables
 	cfg, err := platform.LoadServerConfig(nil) // Pass nil for now, structured logger created after
 	if err != nil {
-		logger.Fatalf("Failed to load configuration: %v", err)
+		bootLogger.Fatal().Err(err).Msg("Failed to load configuration")
 	}
+
+	// CLI flags use env var config as defaults (CLI overrides env overrides envDefault)
+	var (
+		debug          = flag.Bool("debug", cfg.LogLevel == "debug", "enable debug logging (overrides LOG_LEVEL)")
+		validateConfig = flag.Bool("validate-config", false, "validate configuration and exit")
+		numShards      = flag.Int("shards", cfg.NumShards, "number of shards to run")
+		basePort       = flag.Int("base-port", cfg.BasePort, "base port for shards (e.g., 3002, 3003, ...)")
+		lbAddr         = flag.String("lb-addr", cfg.LBAddr, "address for the load balancer to listen on")
+	)
+	flag.Parse()
 
 	// Override debug mode if flag set
 	if *debug {
 		cfg.LogLevel = "debug"
-		logger.Printf("Debug mode enabled via flag")
+		bootLogger.Info().Msg("Debug mode enabled via flag")
+	}
+
+	// --validate-config: validate and exit
+	if *validateConfig {
+		cfg.Print()
+		bootLogger.Info().Msg("Configuration is valid")
+		os.Exit(0)
 	}
 
 	// Print human-readable config for startup logs
 	cfg.Print()
-
-	// Resolve effective topic namespace for Kafka
-	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
-	logger.Printf("Topic namespace: %s (environment: %s)", topicNamespace, cfg.Environment)
 
 	// Initialize SystemMonitor singleton FIRST (before creating any ResourceGuards)
 	// This ensures all ResourceGuards share the same system metrics source
@@ -83,22 +71,23 @@ func main() {
 		Format:      logging.LogFormat(cfg.LogFormat),
 		ServiceName: "ws-server",
 	})
-	systemMonitor := metrics.GetSystemMonitor(structuredLogger)
+	systemMonitor := metrics.GetSystemMonitor(structuredLogger, cfg.CPUEWMABeta)
 	systemMonitor.StartMonitoring(cfg.MetricsInterval, cfg.CPUPollInterval)
-	logger.Printf("SystemMonitor started (metrics: %v, cpu poll: %v)", cfg.MetricsInterval, cfg.CPUPollInterval)
-
-	// Create and configure server with loaded configuration
-	kafkaBrokers := []string{}
-	if cfg.KafkaBrokers != "" {
-		kafkaBrokers = splitBrokers(cfg.KafkaBrokers)
-	}
+	structuredLogger.Info().
+		Dur("metrics_interval", cfg.MetricsInterval).
+		Dur("cpu_poll_interval", cfg.CPUPollInterval).
+		Msg("SystemMonitor started")
 
 	// Calculate max connections per shard
 	maxConnsPerShard := cfg.MaxConnections / *numShards
 	if maxConnsPerShard == 0 {
 		maxConnsPerShard = 1 // Ensure at least 1 connection per shard
 	}
-	logger.Printf("Total Max Connections: %d, Shards: %d, Max Connections per Shard: %d", cfg.MaxConnections, *numShards, maxConnsPerShard)
+	structuredLogger.Info().
+		Int("total_max_connections", cfg.MaxConnections).
+		Int("shards", *numShards).
+		Int("max_connections_per_shard", maxConnsPerShard).
+		Msg("Shard capacity calculated")
 
 	// Initialize central BroadcastBus (configurable backend: Valkey or NATS)
 	busLogger := logging.NewLogger(logging.LoggerConfig{
@@ -110,154 +99,178 @@ func main() {
 	// Build broadcast config based on BROADCAST_TYPE
 	busCfg := broadcast.Config{
 		Type:            cfg.BroadcastType,
-		BufferSize:      1024,
-		ShutdownTimeout: 5 * time.Second,
+		BufferSize:      cfg.BroadcastBufferSize,
+		ShutdownTimeout: cfg.BroadcastShutdownTimeout,
 		Valkey: broadcast.ValkeyConfig{
-			Addrs:      cfg.ValkeyAddrs,
-			MasterName: cfg.ValkeyMasterName,
-			Password:   cfg.ValkeyPassword,
-			DB:         cfg.ValkeyDB,
-			Channel:    cfg.ValkeyChannel,
+			Addrs:                     cfg.ValkeyAddrs,
+			MasterName:                cfg.ValkeyMasterName,
+			Password:                  cfg.ValkeyPassword,
+			DB:                        cfg.ValkeyDB,
+			Channel:                   cfg.ValkeyChannel,
+			TLSEnabled:                cfg.ValkeyTLSEnabled,
+			TLSInsecure:               cfg.ValkeyTLSInsecure,
+			TLSCAPath:                 cfg.ValkeyTLSCAPath,
+			PoolSize:                  cfg.ValkeyPoolSize,
+			MinIdleConns:              cfg.ValkeyMinIdleConns,
+			DialTimeout:               cfg.ValkeyDialTimeout,
+			ReadTimeout:               cfg.ValkeyReadTimeout,
+			WriteTimeout:              cfg.ValkeyWriteTimeout,
+			MaxRetries:                cfg.ValkeyMaxRetries,
+			MinRetryBackoff:           cfg.ValkeyMinRetryBackoff,
+			MaxRetryBackoff:           cfg.ValkeyMaxRetryBackoff,
+			PublishTimeout:            cfg.ValkeyPublishTimeout,
+			StartupPingTimeout:        cfg.ValkeyStartupPingTimeout,
+			ReconnectInitialBackoff:   cfg.ValkeyReconnectInitialBackoff,
+			ReconnectMaxBackoff:       cfg.ValkeyReconnectMaxBackoff,
+			ReconnectMaxAttempts:      cfg.ValkeyReconnectMaxAttempts,
+			HealthCheckInterval:       cfg.ValkeyHealthCheckInterval,
+			HealthCheckTimeout:        cfg.ValkeyHealthCheckTimeout,
+			PublishStalenessThreshold: cfg.ValkeyPublishStalenessThreshold,
 		},
 		NATS: broadcast.NATSConfig{
-			URLs:        cfg.NATSURLs,
-			ClusterMode: cfg.NATSClusterMode,
-			Subject:     cfg.NATSSubject,
-			Token:       cfg.NATSToken,
-			User:        cfg.NATSUser,
-			Password:    cfg.NATSPassword,
+			URLs:                cfg.NATSURLs,
+			ClusterMode:         cfg.NATSClusterMode,
+			Subject:             cfg.NATSSubject,
+			Token:               cfg.NATSToken,
+			User:                cfg.NATSUser,
+			Password:            cfg.NATSPassword,
+			TLSEnabled:          cfg.NATSTLSEnabled,
+			TLSInsecure:         cfg.NATSTLSInsecure,
+			TLSCAPath:           cfg.NATSTLSCAPath,
+			ReconnectWait:       cfg.NATSReconnectWait,
+			MaxReconnects:       cfg.NATSMaxReconnects,
+			ReconnectBufSize:    cfg.NATSReconnectBufSize,
+			PingInterval:        cfg.NATSPingInterval,
+			MaxPingsOutstanding: cfg.NATSMaxPingsOutstanding,
+			HealthCheckInterval: cfg.NATSHealthCheckInterval,
+			FlushTimeout:        cfg.NATSFlushTimeout,
 		},
 	}
 
 	broadcastBus, err := broadcast.NewBus(busCfg, busLogger)
 	if err != nil {
-		logger.Fatalf("Failed to create BroadcastBus: %v", err)
+		structuredLogger.Fatal().Err(err).Msg("Failed to create BroadcastBus")
 	}
 
-	logger.Printf("BroadcastBus initialized (type: %s)", cfg.BroadcastType)
+	structuredLogger.Info().Str("type", cfg.BroadcastType).Msg("BroadcastBus initialized")
 	broadcastBus.Run()
 
-	// Create multi-tenant Kafka consumer pool
-	// Queries provisioning database for tenant topics and manages consumer groups:
-	// - Shared tenants: {env}-shared-consumer consumer group
-	// - Dedicated tenants: {env}-{tenant_id}-consumer consumer group
-	var multiTenantPool *orchestration.MultiTenantConsumerPool
-	var kafkaProducer *kafka.Producer
-	var provisioningDB *sql.DB
-
-	if len(kafkaBrokers) > 0 {
-		// Create resource guard for CPU brake (shared across pool)
-		poolLogger := logging.NewLogger(logging.LoggerConfig{
+	// Create pluggable message backend based on MESSAGE_BACKEND env var
+	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
+	var msgBackend backend.MessageBackend
+	switch cfg.MessageBackend {
+	case "direct":
+		msgBackend, err = directbackend.New(broadcastBus, structuredLogger)
+	case "kafka":
+		msgBackend, err = kafkabackend.New(kafkabackend.Config{
+			Brokers:                  kafkabackend.SplitBrokers(cfg.KafkaBrokers),
+			Namespace:                topicNamespace,
+			Environment:              cfg.Environment,
+			SASLEnabled:              cfg.KafkaSASLEnabled,
+			SASLMechanism:            cfg.KafkaSASLMechanism,
+			SASLUsername:             cfg.KafkaSASLUsername,
+			SASLPassword:             cfg.KafkaSASLPassword,
+			TLSEnabled:               cfg.KafkaTLSEnabled,
+			TLSInsecure:              cfg.KafkaTLSInsecure,
+			TLSCAPath:                cfg.KafkaTLSCAPath,
+			KafkaConsumerEnabled:     cfg.KafkaConsumerEnabled,
+			DefaultTenantID:          cfg.DefaultTenantID,
+			DefaultPartitions:        cfg.KafkaDefaultPartitions,
+			DefaultReplicationFactor: cfg.KafkaDefaultReplicationFactor,
+			MaxKafkaMessagesPerSec:   cfg.MaxKafkaMessagesPerSec,
+			MaxBroadcastsPerSec:      cfg.MaxBroadcastsPerSec,
+			RateLimitBurstMultiplier: cfg.RateLimitBurstMultiplier,
+			CPUPauseThreshold:        cfg.CPUPauseThreshold,
+			CPUPauseThresholdLower:   cfg.CPUPauseThresholdLower,
+			CPURejectThreshold:       cfg.CPURejectThreshold,
+			CPURejectThresholdLower:  cfg.CPURejectThresholdLower,
+			Logger:                   structuredLogger,
+			ProvisioningGRPCAddr:     cfg.ProvisioningGRPCAddr,
+			GRPCReconnectDelay:       cfg.GRPCReconnectDelay,
+			GRPCReconnectMaxDelay:    cfg.GRPCReconnectMaxDelay,
+			TopicRefreshInterval:     cfg.TopicRefreshInterval,
+			TopicCreationTimeout:     cfg.TopicCreationTimeout,
+			BroadcastBus:             broadcastBus,
+			// Kafka producer tuning
+			ProducerBatchMaxBytes:             cfg.KafkaProducerBatchMaxBytes,
+			ProducerMaxBufferedRecs:           cfg.KafkaProducerMaxBufferedRecords,
+			ProducerRecordRetries:             cfg.KafkaProducerRecordRetries,
+			ProducerCircuitBreakerTimeout:     cfg.KafkaProducerCBTimeout,
+			ProducerCircuitBreakerMaxFailures: cfg.KafkaProducerCBMaxFailures,
+			ProducerCircuitBreakerHalfOpen:    cfg.KafkaProducerCBHalfOpenReqs,
+			ProducerTopicCacheTTL:             cfg.KafkaProducerTopicCacheTTL,
+			// Kafka consumer tuning
+			KafkaBatchSize:    cfg.KafkaBatchSize,
+			KafkaBatchTimeout: cfg.KafkaBatchTimeout,
+			// Kafka consumer transport tuning
+			KafkaFetchMaxWait:              cfg.KafkaFetchMaxWait,
+			KafkaFetchMinBytes:             cfg.KafkaFetchMinBytes,
+			KafkaFetchMaxBytes:             cfg.KafkaFetchMaxBytes,
+			KafkaSessionTimeout:            cfg.KafkaSessionTimeout,
+			KafkaRebalanceTimeout:          cfg.KafkaRebalanceTimeout,
+			KafkaReplayFetchMaxBytes:       cfg.KafkaReplayFetchMaxBytes,
+			KafkaBackpressureCheckInterval: cfg.KafkaBackpressureCheckInterval,
+		})
+	case "nats":
+		// Create a StreamTopicRegistry for tenant discovery via gRPC
+		registryLogger := logging.NewLogger(logging.LoggerConfig{
 			Level:       logging.LogLevel(cfg.LogLevel),
 			Format:      logging.LogFormat(cfg.LogFormat),
 			ServiceName: "ws-server",
 		})
-		resourceGuard := limits.NewResourceGuard(types.ServerConfig{
-			MaxKafkaMessagesPerSec:  cfg.MaxKafkaRate,
-			MaxBroadcastsPerSec:     cfg.MaxBroadcastRate,
-			CPUPauseThreshold:       cfg.CPUPauseThreshold,
-			CPUPauseThresholdLower:  cfg.CPUPauseThresholdLower,
-			CPURejectThreshold:      cfg.CPURejectThreshold,
-			CPURejectThresholdLower: cfg.CPURejectThresholdLower,
-		}, poolLogger, &atomic.Int64{}) // Pool only uses CPU brake/rate limiting, not connection admission
-
-		// Build SASL config if enabled
-		var saslConfig *kafka.SASLConfig
-		if cfg.KafkaSASLEnabled {
-			saslConfig = &kafka.SASLConfig{
-				Mechanism: cfg.KafkaSASLMechanism,
-				Username:  cfg.KafkaSASLUsername,
-				Password:  cfg.KafkaSASLPassword,
-			}
-		}
-
-		// Build TLS config if enabled
-		var tlsConfig *kafka.TLSConfig
-		if cfg.KafkaTLSEnabled {
-			tlsConfig = &kafka.TLSConfig{
-				Enabled:            true,
-				InsecureSkipVerify: cfg.KafkaTLSInsecure,
-				CAPath:             cfg.KafkaTLSCAPath,
-			}
-		}
-
-		if cfg.KafkaConsumerEnabled {
-			// Connect to provisioning database for tenant topic discovery
-			var err error
-			provisioningDB, err = sql.Open("postgres", cfg.ProvisioningDatabaseURL)
-			if err != nil {
-				logger.Fatalf("Failed to open provisioning database: %v", err)
-			}
-
-			// Configure connection pool
-			provisioningDB.SetMaxOpenConns(cfg.ProvisioningDBMaxOpenConns)
-			provisioningDB.SetMaxIdleConns(cfg.ProvisioningDBMaxIdleConns)
-			provisioningDB.SetConnMaxLifetime(cfg.ProvisioningDBConnMaxLifetime)
-			provisioningDB.SetConnMaxIdleTime(cfg.ProvisioningDBConnMaxIdleTime)
-
-			// Verify connection (fail fast if DB unreachable)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if err := provisioningDB.PingContext(ctx); err != nil {
-				cancel()
-				logger.Fatalf("Failed to connect to provisioning database: %v", err)
-			}
-			cancel()
-			logger.Printf("Connected to provisioning database")
-
-			// Create topic registry backed by provisioning database
-			topicRegistry := provisioning.NewTopicRegistry(provisioningDB)
-
-			// Create multi-tenant consumer pool
-			multiTenantPool, err = orchestration.NewMultiTenantConsumerPool(orchestration.MultiTenantPoolConfig{
-				Brokers:         kafkaBrokers,
-				Namespace:       topicNamespace,
-				Environment:     kafka.NormalizeEnv(cfg.Environment),
-				Registry:        topicRegistry,
-				BroadcastBus:    broadcastBus,
-				ResourceGuard:   resourceGuard,
-				Logger:          poolLogger,
-				RefreshInterval: cfg.TopicRefreshInterval,
-				SASL:            saslConfig,
-				TLS:             tlsConfig,
-				Metrics:         &metrics.MultiTenantPoolMetricsAdapter{},
-			})
-			if err != nil {
-				logger.Fatalf("Failed to create multi-tenant consumer pool: %v", err)
-			}
-
-			if err := multiTenantPool.Start(); err != nil {
-				logger.Fatalf("Failed to start multi-tenant consumer pool: %v", err)
-			}
-
-			metrics.SetKafkaConnected(true)
-			logger.Printf("Multi-tenant consumer pool started (refresh: %v)", cfg.TopicRefreshInterval)
-		} else {
-			logger.Printf("Kafka consumer DISABLED (KAFKA_CONSUMER_ENABLED=false) — connection-only mode for loadtesting")
-		}
-
-		// Create shared Kafka producer for client message publishing
-		// Clients can publish messages to Kafka via the "publish" message type
-		producerLogger := logging.NewLogger(logging.LoggerConfig{
-			Level:       logging.LogLevel(cfg.LogLevel),
-			Format:      logging.LogFormat(cfg.LogFormat),
-			ServiceName: "ws-server",
+		topicRegistry, regErr := provapi.NewStreamTopicRegistry(provapi.StreamTopicRegistryConfig{
+			GRPCAddr:          cfg.ProvisioningGRPCAddr,
+			Namespace:         topicNamespace,
+			ReconnectDelay:    cfg.GRPCReconnectDelay,
+			ReconnectMaxDelay: cfg.GRPCReconnectMaxDelay,
+			MetricPrefix:      "ws",
+			Logger:            registryLogger,
 		})
-
-		kafkaProducer, err = kafka.NewProducer(kafka.ProducerConfig{
-			Brokers:        kafkaBrokers,
-			TopicNamespace: topicNamespace,
-			// ClientID auto-generated with hostname (odin-ws-producer-{hostname})
-			Logger:          &producerLogger,
-			SASL:            saslConfig,
-			TLS:             tlsConfig,
-			DefaultTenantID: cfg.DefaultTenantID,
-		})
-		if err != nil {
-			logger.Fatalf("Failed to create Kafka producer: %v", err)
+		if regErr != nil {
+			structuredLogger.Fatal().Err(regErr).Msg("Failed to create topic registry for JetStream")
 		}
 
-		logger.Printf("Kafka producer initialized (namespace: %s)", kafkaProducer.Namespace())
+		msgBackend, err = jetstreambackend.New(jetstreambackend.Config{
+			URLs:            jetstreambackend.SplitURLs(cfg.NATSJetStreamURLs),
+			Token:           cfg.NATSJetStreamToken,
+			User:            cfg.NATSJetStreamUser,
+			Password:        cfg.NATSJetStreamPassword,
+			TLSEnabled:      cfg.NATSJetStreamTLSEnabled,
+			TLSInsecure:     cfg.NATSJetStreamTLSInsecure,
+			TLSCAPath:       cfg.NATSJetStreamTLSCAPath,
+			Replicas:        cfg.NATSJetStreamReplicas,
+			MaxAge:          cfg.JetStreamMaxAge,
+			Namespace:       topicNamespace,
+			BroadcastBus:    broadcastBus,
+			Registry:        topicRegistry,
+			RefreshInterval: cfg.JetStreamRefreshInterval,
+			LogLevel:        cfg.LogLevel,
+			LogFormat:       cfg.LogFormat,
+			ReconnectWait:   cfg.JetStreamReconnectWait,
+			MaxDeliver:      cfg.JetStreamMaxDeliver,
+			AckWait:         cfg.JetStreamAckWait,
+			RefreshTimeout:  cfg.JetStreamRefreshTimeout,
+			ReplayFetchWait: cfg.JetStreamReplayFetchWait,
+		})
+	default:
+		structuredLogger.Fatal().Str("backend", cfg.MessageBackend).Msg("Unknown message backend (valid: direct, kafka, nats)")
 	}
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Str("backend", cfg.MessageBackend).Msg("Failed to create message backend")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := msgBackend.Start(ctx); err != nil {
+		structuredLogger.Fatal().Err(err).Str("backend", cfg.MessageBackend).Msg("Failed to start message backend")
+	}
+	structuredLogger.Info().Str("backend", cfg.MessageBackend).Msg("Message backend started")
+
+	// Initialize alerter from validated config
+	alertCfg := cfg.AlertConfig()
+	alertCfg.Logger = structuredLogger
+	alerter := alerting.NewFromConfig(alertCfg)
 
 	// Create and start shards
 	shards := make([]*orchestration.Shard, *numShards)
@@ -267,71 +280,23 @@ func main() {
 		// Advertise address: 127.0.0.1 (IPv4 loopback) for LoadBalancer to connect to
 		shardAdvertiseAddr := fmt.Sprintf("127.0.0.1:%d", *basePort+i)
 
-		shardConfig := types.ServerConfig{
-			Addr:           shardBindAddr,
-			KafkaBrokers:   kafkaBrokers,
-			Environment:    cfg.Environment,  // Environment for logging (topic naming via shared pool)
-			MaxConnections: maxConnsPerShard, // Shard-specific max connections
-
-			MemoryLimit:            cfg.MemoryLimit,
-			MaxKafkaMessagesPerSec: cfg.MaxKafkaRate,
-			MaxBroadcastsPerSec:    cfg.MaxBroadcastRate,
-			MaxGoroutines:          cfg.MaxGoroutines,
-
-			// Connection rate limiting (DoS protection)
-			ConnectionRateLimitEnabled: cfg.ConnectionRateLimitEnabled,
-			ConnRateLimitIPBurst:       cfg.ConnRateLimitIPBurst,
-			ConnRateLimitIPRate:        cfg.ConnRateLimitIPRate,
-			ConnRateLimitGlobalBurst:   cfg.ConnRateLimitGlobalBurst,
-			ConnRateLimitGlobalRate:    cfg.ConnRateLimitGlobalRate,
-
-			CPURejectThreshold:      cfg.CPURejectThreshold,
-			CPURejectThresholdLower: cfg.CPURejectThresholdLower,
-			CPUPauseThreshold:       cfg.CPUPauseThreshold,
-			CPUPauseThresholdLower:  cfg.CPUPauseThresholdLower,
-
-			// Client buffer configuration
-			ClientSendBufferSize: cfg.ClientSendBufferSize,
-
-			// Slow client detection
-			SlowClientMaxAttempts: cfg.SlowClientMaxAttempts,
-
-			MetricsInterval: cfg.MetricsInterval,
-			LogLevel:        types.LogLevel(cfg.LogLevel),
-			LogFormat:       types.LogFormat(cfg.LogFormat),
-
-			// WebSocket ping/pong timing
-			PongWait:   cfg.PongWait,
-			PingPeriod: cfg.PingPeriod,
-			WriteWait:  cfg.WriteWait,
-
-			// Kafka consumer toggle (connection-only mode for loadtesting)
-			KafkaConsumerDisabled: !cfg.KafkaConsumerEnabled,
-		}
-
-		// Get shared consumer for replay (from multi-tenant pool)
-		var sharedConsumer any
-		if multiTenantPool != nil {
-			sharedConsumer = multiTenantPool.GetSharedConsumer()
-		}
-
 		shard, err := orchestration.NewShard(orchestration.ShardConfig{
-			ID:                  i,
-			Addr:                shardBindAddr,      // Bind address for listening
-			AdvertiseAddr:       shardAdvertiseAddr, // Address for LoadBalancer connections
-			ServerConfig:        shardConfig,
-			BroadcastBus:        broadcastBus,   // Pass reference to bus, shard will subscribe internally
-			SharedKafkaConsumer: sharedConsumer, // Shared consumer for metrics (managed by pool)
-			KafkaProducer:       kafkaProducer,  // Shared producer for client publishing (optional)
-			Logger:              logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: "ws-server"}),
-			MaxConnections:      maxConnsPerShard,
+			ID:             i,
+			Addr:           shardBindAddr,
+			AdvertiseAddr:  shardAdvertiseAddr,
+			Config:         cfg,
+			BroadcastBus:   broadcastBus,
+			MessageBackend: msgBackend,
+			Alerter:        alerter,
+			Logger:         logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: "ws-server"}),
+			MaxConnections: maxConnsPerShard,
 		})
 		if err != nil {
-			logger.Fatalf("Failed to create shard %d: %v", i, err)
+			structuredLogger.Fatal().Err(err).Int("shard_id", i).Msg("Failed to create shard")
 		}
 
 		if err := shard.Start(); err != nil {
-			logger.Fatalf("Failed to start shard %d: %v", i, err)
+			structuredLogger.Fatal().Err(err).Int("shard_id", i).Msg("Failed to start shard")
 		}
 		shards[i] = shard
 	}
@@ -342,15 +307,19 @@ func main() {
 		Shards: shards,
 		Logger: logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: "ws-server"}),
 		// TCP/HTTP tuning for trading platform burst tolerance
-		HTTPReadTimeout:  cfg.HTTPReadTimeout,
-		HTTPWriteTimeout: cfg.HTTPWriteTimeout,
-		HTTPIdleTimeout:  cfg.HTTPIdleTimeout,
+		HTTPReadTimeout:            cfg.HTTPReadTimeout,
+		HTTPWriteTimeout:           cfg.HTTPWriteTimeout,
+		HTTPIdleTimeout:            cfg.HTTPIdleTimeout,
+		ConfigHandler:              platform.ConfigHandler(cfg),
+		ShardDialTimeout:           cfg.ShardDialTimeout,
+		ShardMessageTimeout:        cfg.ShardMessageTimeout,
+		MetricsAggregationInterval: cfg.MetricsAggregationInterval,
 	})
 	if err != nil {
-		logger.Fatalf("Failed to create load balancer: %v", err)
+		structuredLogger.Fatal().Err(err).Msg("Failed to create load balancer")
 	}
 	if err := lb.Start(); err != nil {
-		logger.Fatalf("Failed to start load balancer: %v", err)
+		structuredLogger.Fatal().Err(err).Msg("Failed to start load balancer")
 	}
 
 	// Wait for interrupt signal
@@ -358,7 +327,7 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
 
-	logger.Println("Shutting down multi-core server...")
+	structuredLogger.Info().Msg("Shutting down multi-core server")
 
 	// Shutdown LoadBalancer
 	lb.Shutdown()
@@ -366,29 +335,15 @@ func main() {
 	// Shutdown shards
 	for _, shard := range shards {
 		if err := shard.Shutdown(); err != nil {
-			logger.Printf("Error during shard %d shutdown: %v", shard.ID, err)
+			structuredLogger.Error().Err(err).Int("shard_id", shard.ID).Msg("Error during shard shutdown")
 		}
 	}
 
-	// Shutdown multi-tenant consumer pool (before BroadcastBus)
-	if multiTenantPool != nil {
-		if err := multiTenantPool.Stop(); err != nil {
-			logger.Printf("Error stopping multi-tenant consumer pool: %v", err)
-		}
-	}
-
-	// Close provisioning database connection
-	if provisioningDB != nil {
-		if err := provisioningDB.Close(); err != nil {
-			logger.Printf("Error closing provisioning database: %v", err)
-		}
-	}
-
-	// Shutdown Kafka producer
-	if kafkaProducer != nil {
-		if err := kafkaProducer.Close(); err != nil {
-			logger.Printf("Error closing Kafka producer: %v", err)
-		}
+	// Shutdown message backend (stops pool, producer, registry)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownGracePeriod)
+	defer shutdownCancel()
+	if err := msgBackend.Shutdown(shutdownCtx); err != nil {
+		structuredLogger.Error().Err(err).Msg("Error shutting down message backend")
 	}
 
 	// Shutdown BroadcastBus
@@ -396,7 +351,7 @@ func main() {
 
 	// Shutdown SystemMonitor
 	systemMonitor.Shutdown()
-	logger.Println("SystemMonitor shut down")
+	structuredLogger.Info().Msg("SystemMonitor shut down")
 
-	logger.Println("Multi-core server gracefully shut down.")
+	structuredLogger.Info().Msg("Multi-core server gracefully shut down")
 }

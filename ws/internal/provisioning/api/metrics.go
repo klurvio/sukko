@@ -1,10 +1,31 @@
-package api //nolint:revive // api is a common package name for HTTP handlers
+package api
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
+)
+
+// Auth attempt result values (package-local).
+const authResultFailure = "failure"
+
+// Auth failure reason values (package-local).
+const (
+	authFailureReasonMissingToken = "missing_token"
+	authFailureReasonTokenExpired = "token_expired"
+	authFailureReasonKeyNotFound  = "key_not_found"
+	authFailureReasonKeyRevoked   = "key_revoked"
+	authFailureReasonInvalidToken = "invalid_token"
+)
+
+// Admin auth result values (package-local).
+const adminAuthResultFallthrough = "fallthrough"
+
+// Authorization denial reason values (package-local).
+const (
+	authzDenialInsufficientRole = "insufficient_role"
+	authzDenialTenantMismatch   = "tenant_mismatch"
 )
 
 // Prometheus metrics for the provisioning service.
@@ -14,11 +35,6 @@ var (
 	tenantsCreated = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "provisioning_tenants_created_total",
 		Help: "Total number of tenants created",
-	})
-
-	tenantsActive = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "provisioning_tenants_active",
-		Help: "Current number of active tenants",
 	})
 
 	tenantOperations = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -37,15 +53,15 @@ var (
 		Help: "Total number of keys revoked",
 	})
 
-	keysActive = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "provisioning_keys_active",
-		Help: "Current number of active keys",
+	// Routing rules operations
+	routingRulesSet = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "provisioning_routing_rules_set_total",
+		Help: "Total number of routing rules set operations",
 	})
 
-	// Topic operations
-	topicsCreated = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "provisioning_topics_created_total",
-		Help: "Total number of topics created",
+	routingRulesDeleted = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "provisioning_routing_rules_deleted_total",
+		Help: "Total number of routing rules delete operations",
 	})
 
 	// API request metrics
@@ -82,11 +98,6 @@ func RecordTenantOperation(operation, result string) {
 	tenantOperations.WithLabelValues(operation, result).Inc()
 }
 
-// SetActiveTenants sets the current active tenant count.
-func SetActiveTenants(count int) {
-	tenantsActive.Set(float64(count))
-}
-
 // RecordKeyCreated increments the key created counter.
 func RecordKeyCreated() {
 	keysCreated.Inc()
@@ -97,14 +108,14 @@ func RecordKeyRevoked() {
 	keysRevoked.Inc()
 }
 
-// SetActiveKeys sets the current active key count.
-func SetActiveKeys(count int) {
-	keysActive.Set(float64(count))
+// RecordRoutingRulesSet increments the routing rules set counter.
+func RecordRoutingRulesSet() {
+	routingRulesSet.Inc()
 }
 
-// RecordTopicCreated increments the topic created counter.
-func RecordTopicCreated(count int) {
-	topicsCreated.Add(float64(count))
+// RecordRoutingRulesDeleted increments the routing rules deleted counter.
+func RecordRoutingRulesDeleted() {
+	routingRulesDeleted.Inc()
 }
 
 // RecordAPIRequest records an API request with its result.

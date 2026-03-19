@@ -3,38 +3,45 @@ package provisioning_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/testutil"
+	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/provisioning/eventbus"
+	"github.com/klurvio/sukko/internal/provisioning/testutil"
 )
 
 func newTestService() (*provisioning.Service, *testutil.MockTenantStore, *testutil.MockKeyStore, *testutil.MockKafkaAdmin) {
 	tenantStore := testutil.NewMockTenantStore()
 	keyStore := testutil.NewMockKeyStore()
-	topicStore := testutil.NewMockTopicStore()
+	routingRulesStore := testutil.NewMockRoutingRulesStore()
 	quotaStore := testutil.NewMockQuotaStore()
 	auditStore := testutil.NewMockAuditStore()
 	kafkaAdmin := testutil.NewMockKafkaAdmin()
 
-	svc := provisioning.NewService(provisioning.ServiceConfig{
+	svc, err := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:          tenantStore,
 		KeyStore:             keyStore,
-		TopicStore:           topicStore,
+		RoutingRulesStore:    routingRulesStore,
 		QuotaStore:           quotaStore,
 		AuditStore:           auditStore,
 		KafkaAdmin:           kafkaAdmin,
+		EventBus:             eventbus.New(zerolog.Nop()),
 		TopicNamespace:       "test",
 		DefaultPartitions:    3,
 		DefaultRetentionMs:   604800000,
 		MaxTopicsPerTenant:   50,
+		MaxRoutingRules:      5,
 		DeprovisionGraceDays: 30,
 		Logger:               zerolog.Nop(),
 	})
+	if err != nil {
+		panic("newTestService: " + err.Error())
+	}
 
 	return svc, tenantStore, keyStore, kafkaAdmin
 }
@@ -66,11 +73,11 @@ func TestService_CreateTenant(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "valid tenant with categories",
+			name: "valid tenant with metadata",
 			req: provisioning.CreateTenantRequest{
-				TenantID:   "gamma-labs",
-				Name:       "Gamma Labs",
-				Categories: []string{"trade", "orderbook"},
+				TenantID: "gamma-labs",
+				Name:     "Gamma Labs",
+				Metadata: provisioning.Metadata{"env": "prod"},
 			},
 			wantErr: false,
 		},
@@ -263,6 +270,40 @@ func TestService_DeprovisionTenant(t *testing.T) {
 	}
 }
 
+func TestService_DeprovisionTenant_WithRoutingRules(t *testing.T) {
+	t.Parallel()
+	svc, tenantStore, _, _ := newTestService()
+
+	// Setup: create tenant and set routing rules
+	tenant := testutil.NewTestTenant("acme-corp")
+	_ = tenantStore.Create(context.Background(), tenant)
+	_ = svc.SetRoutingRules(context.Background(), "acme-corp", []provisioning.TopicRoutingRule{
+		{Pattern: "*.trade", TopicSuffix: "trade"},
+		{Pattern: "*.orderbook", TopicSuffix: "orderbook"},
+	})
+
+	// Deprovision (exercises the retention-update code path for routing rules)
+	err := svc.DeprovisionTenant(context.Background(), "acme-corp")
+	if err != nil {
+		t.Fatalf("failed to deprovision tenant with routing rules: %v", err)
+	}
+
+	// Verify status
+	got, _ := svc.GetTenant(context.Background(), "acme-corp")
+	if got.Status != provisioning.StatusDeprovisioning {
+		t.Errorf("expected status %q, got %q", provisioning.StatusDeprovisioning, got.Status)
+	}
+
+	// Routing rules should still exist (they're cleaned up later by lifecycle manager)
+	rules, err := svc.GetRoutingRules(context.Background(), "acme-corp")
+	if err != nil {
+		t.Fatalf("expected routing rules to still exist after deprovision: %v", err)
+	}
+	if len(rules) != 2 {
+		t.Errorf("expected 2 routing rules, got %d", len(rules))
+	}
+}
+
 func TestService_CreateKey(t *testing.T) {
 	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
@@ -384,39 +425,35 @@ func TestService_RevokeKey_WrongTenant(t *testing.T) {
 	}
 }
 
-func TestService_CreateTopics(t *testing.T) {
+func TestService_SetRoutingRules(t *testing.T) {
 	t.Parallel()
-	svc, tenantStore, _, kafkaAdmin := newTestService()
+	svc, tenantStore, _, _ := newTestService()
 
 	// Setup: create a tenant
 	tenant := testutil.NewTestTenant("acme-corp")
 	_ = tenantStore.Create(context.Background(), tenant)
 
-	// Create topics
-	topics, err := svc.CreateTopics(context.Background(), "acme-corp", []string{"trade", "orderbook"})
+	// Set routing rules
+	rules := []provisioning.TopicRoutingRule{
+		{Pattern: "*.trade", TopicSuffix: "trade"},
+		{Pattern: "*.orderbook", TopicSuffix: "orderbook"},
+	}
+	err := svc.SetRoutingRules(context.Background(), "acme-corp", rules)
 	if err != nil {
-		t.Fatalf("failed to create topics: %v", err)
+		t.Fatalf("failed to set routing rules: %v", err)
 	}
 
-	// Verify topics created
-	if len(topics) != 2 {
-		t.Errorf("expected 2 topics, got %d", len(topics))
+	// Verify rules stored
+	got, err := svc.GetRoutingRules(context.Background(), "acme-corp")
+	if err != nil {
+		t.Fatalf("failed to get routing rules: %v", err)
 	}
-
-	// Verify Kafka topics
-	kafkaTopics := kafkaAdmin.GetTopics()
-	if len(kafkaTopics) != 2 {
-		t.Errorf("expected 2 Kafka topics, got %d", len(kafkaTopics))
-	}
-
-	// Verify ACLs created
-	acls := kafkaAdmin.GetACLs()
-	if len(acls) == 0 {
-		t.Error("expected ACLs to be created")
+	if len(got) != 2 {
+		t.Errorf("expected 2 rules, got %d", len(got))
 	}
 }
 
-func TestService_CreateTopics_SuspendedTenant(t *testing.T) {
+func TestService_SetRoutingRules_SuspendedTenant(t *testing.T) {
 	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
 
@@ -425,13 +462,40 @@ func TestService_CreateTopics_SuspendedTenant(t *testing.T) {
 	tenant.Status = provisioning.StatusSuspended
 	_ = tenantStore.Create(context.Background(), tenant)
 
-	// Try to create topics
-	_, err := svc.CreateTopics(context.Background(), "acme-corp", []string{"trade"})
+	// Try to set routing rules
+	rules := []provisioning.TopicRoutingRule{
+		{Pattern: "*.trade", TopicSuffix: "trade"},
+	}
+	err := svc.SetRoutingRules(context.Background(), "acme-corp", rules)
 	if err == nil {
 		t.Error("expected error for suspended tenant")
 	}
 	if !strings.Contains(err.Error(), "not active") {
 		t.Errorf("expected 'not active' error, got: %v", err)
+	}
+}
+
+func TestService_DeleteRoutingRules(t *testing.T) {
+	t.Parallel()
+	svc, tenantStore, _, _ := newTestService()
+
+	// Setup: create tenant and set rules
+	tenant := testutil.NewTestTenant("acme-corp")
+	_ = tenantStore.Create(context.Background(), tenant)
+	_ = svc.SetRoutingRules(context.Background(), "acme-corp", []provisioning.TopicRoutingRule{
+		{Pattern: "*.trade", TopicSuffix: "trade"},
+	})
+
+	// Delete rules
+	err := svc.DeleteRoutingRules(context.Background(), "acme-corp")
+	if err != nil {
+		t.Fatalf("failed to delete routing rules: %v", err)
+	}
+
+	// Verify rules gone
+	_, err = svc.GetRoutingRules(context.Background(), "acme-corp")
+	if err == nil {
+		t.Error("expected error after deleting routing rules")
 	}
 }
 
@@ -669,5 +733,171 @@ func TestService_CreateTenantWithKey(t *testing.T) {
 	}
 	if resp.Key != nil && resp.Key.KeyID != "initial-key" {
 		t.Errorf("key ID mismatch: got %q, want %q", resp.Key.KeyID, "initial-key")
+	}
+}
+
+// =============================================================================
+// Routing Rules Edge Case Tests (W5)
+// =============================================================================
+
+func TestService_SetRoutingRules_ExceedsMaxLimit(t *testing.T) {
+	t.Parallel()
+	svc, tenantStore, _, _ := newTestService()
+
+	tenant := testutil.NewTestTenant("acme-corp")
+	_ = tenantStore.Create(context.Background(), tenant)
+
+	// MaxRoutingRules is set to 5 in newTestService — create 6 rules to exceed it
+	rules := make([]provisioning.TopicRoutingRule, 6)
+	for i := range rules {
+		rules[i] = provisioning.TopicRoutingRule{
+			Pattern:     fmt.Sprintf("*.suffix%d", i),
+			TopicSuffix: fmt.Sprintf("topic%d", i),
+		}
+	}
+
+	err := svc.SetRoutingRules(context.Background(), "acme-corp", rules)
+	if err == nil {
+		t.Fatal("expected error when exceeding MaxRoutingRules, got nil")
+	}
+	if !errors.Is(err, provisioning.ErrTooManyRoutingRules) {
+		t.Errorf("expected ErrTooManyRoutingRules, got: %v", err)
+	}
+}
+
+func TestService_SetRoutingRules_InvalidRulesPropagated(t *testing.T) {
+	t.Parallel()
+	svc, tenantStore, _, _ := newTestService()
+
+	tenant := testutil.NewTestTenant("acme-corp")
+	_ = tenantStore.Create(context.Background(), tenant)
+
+	// Empty pattern should fail validation
+	rules := []provisioning.TopicRoutingRule{
+		{Pattern: "", TopicSuffix: "trade"},
+	}
+
+	err := svc.SetRoutingRules(context.Background(), "acme-corp", rules)
+	if err == nil {
+		t.Fatal("expected error for invalid rules, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid routing rules") {
+		t.Errorf("expected 'invalid routing rules' in error, got: %v", err)
+	}
+}
+
+func TestService_SetRoutingRules_NilStore(t *testing.T) {
+	t.Parallel()
+
+	// Service without routing rules store
+	svc, err := provisioning.NewService(provisioning.ServiceConfig{
+		TenantStore:          testutil.NewMockTenantStore(),
+		KeyStore:             testutil.NewMockKeyStore(),
+		RoutingRulesStore:    nil, // not configured
+		QuotaStore:           testutil.NewMockQuotaStore(),
+		AuditStore:           testutil.NewMockAuditStore(),
+		KafkaAdmin:           testutil.NewMockKafkaAdmin(),
+		EventBus:             eventbus.New(zerolog.Nop()),
+		TopicNamespace:       "test",
+		DefaultPartitions:    3,
+		DefaultRetentionMs:   604800000,
+		MaxTopicsPerTenant:   50,
+		MaxRoutingRules:      100,
+		DeprovisionGraceDays: 30,
+		Logger:               zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	rules := []provisioning.TopicRoutingRule{
+		{Pattern: "*.trade", TopicSuffix: "trade"},
+	}
+
+	setErr := svc.SetRoutingRules(context.Background(), "acme-corp", rules)
+	if setErr == nil {
+		t.Fatal("expected error for nil routing rules store, got nil")
+	}
+	if !errors.Is(setErr, provisioning.ErrRoutingRulesNotConfigured) {
+		t.Errorf("expected ErrRoutingRulesNotConfigured, got: %v", setErr)
+	}
+
+	// Get should also fail gracefully
+	_, getErr := svc.GetRoutingRules(context.Background(), "acme-corp")
+	if getErr == nil {
+		t.Fatal("expected error for nil routing rules store on Get, got nil")
+	}
+
+	// Delete should also fail gracefully
+	delErr := svc.DeleteRoutingRules(context.Background(), "acme-corp")
+	if delErr == nil {
+		t.Fatal("expected error for nil routing rules store on Delete, got nil")
+	}
+}
+
+func TestService_DeleteRoutingRules_Nonexistent(t *testing.T) {
+	t.Parallel()
+	svc, tenantStore, _, _ := newTestService()
+
+	tenant := testutil.NewTestTenant("acme-corp")
+	_ = tenantStore.Create(context.Background(), tenant)
+
+	// Delete routing rules that don't exist
+	err := svc.DeleteRoutingRules(context.Background(), "acme-corp")
+	if err == nil {
+		t.Fatal("expected error when deleting nonexistent routing rules, got nil")
+	}
+	if !errors.Is(err, provisioning.ErrRoutingRulesNotFound) {
+		t.Errorf("expected ErrRoutingRulesNotFound, got: %v", err)
+	}
+}
+
+func TestService_SetRoutingRules_NonexistentTenant(t *testing.T) {
+	t.Parallel()
+	svc, _, _, _ := newTestService()
+
+	rules := []provisioning.TopicRoutingRule{
+		{Pattern: "*.trade", TopicSuffix: "trade"},
+	}
+
+	err := svc.SetRoutingRules(context.Background(), "nonexistent", rules)
+	if err == nil {
+		t.Fatal("expected error for nonexistent tenant, got nil")
+	}
+}
+
+func TestService_CreateTenant_DotsInID(t *testing.T) {
+	t.Parallel()
+	svc, _, _, _ := newTestService()
+
+	// "acme.corp" is rejected by tenant.Validate() before the dot check
+	// because dots are not valid in tenant IDs (lowercase alphanumeric + hyphens only).
+	_, err := svc.CreateTenant(context.Background(), provisioning.CreateTenantRequest{
+		TenantID: "acme.corp",
+		Name:     "Acme Corp",
+	})
+	if err == nil {
+		t.Fatal("expected error for dots in tenant ID, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid tenant") {
+		t.Errorf("expected 'invalid tenant' error, got: %v", err)
+	}
+}
+
+func TestService_CreateTenant_UnderscorePrefix(t *testing.T) {
+	t.Parallel()
+	svc, _, _, _ := newTestService()
+
+	// "_system" is rejected by tenant.Validate() before the underscore-prefix check
+	// because underscores/leading underscores are not valid in tenant IDs.
+	_, err := svc.CreateTenant(context.Background(), provisioning.CreateTenantRequest{
+		TenantID: "_system",
+		Name:     "System Tenant",
+	})
+	if err == nil {
+		t.Fatal("expected error for underscore prefix, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid tenant") {
+		t.Errorf("expected 'invalid tenant' error, got: %v", err)
 	}
 }

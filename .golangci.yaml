@@ -10,7 +10,7 @@ run:
   # Include test files
   tests: true
   # Go version - matches go.mod
-  go: "1.25"
+  go: "1.26"
 
 output:
   # Sort results by file, line, then column
@@ -21,11 +21,11 @@ linters:
   disable-all: true
   enable:
     # Default linters
-    - errcheck      # Check for unchecked errors
-    - govet         # Go vet checks
-    - ineffassign   # Detects ineffectual assignments
-    - staticcheck   # Staticcheck suite (includes gosimple, stylecheck)
-    - unused        # Check for unused code
+    - errcheck # Check for unchecked errors
+    - govet # Go vet checks
+    - ineffassign # Detects ineffectual assignments
+    - staticcheck # Staticcheck suite (includes gosimple, stylecheck)
+    - unused # Check for unused code
 
     # Additional recommended linters
     - bodyclose     # Check HTTP response body is closed
@@ -34,7 +34,7 @@ linters:
     - errorlint     # Find code that will cause issues with Go 1.13+ error wrapping
     - exhaustive    # Check exhaustiveness of enum switch statements
     - gocritic      # Opinionated linter with many checks
-    - gosec         # Security checks
+    - gosec         # Security checks (Constitution IX)
     - misspell      # Check for spelling mistakes
     - nilerr        # Check for err != nil but returns nil
     - noctx         # Check for http requests without context
@@ -43,22 +43,29 @@ linters:
     - revive        # Fast, configurable linter
     - rowserrcheck  # Check sql.Rows.Err is called
     - sqlclosecheck # Check sql.Rows and sql.Stmt are closed
-    - paralleltest  # Detects missing usage of t.Parallel
+    - paralleltest  # Detects missing t.Parallel() (excluded on *_shared_test.go)
     - unconvert     # Remove unnecessary conversions
     - unparam       # Report unused function parameters
     - wastedassign  # Find wasted assignment statements
 
+    # Constitution-aligned linters
+    - wrapcheck     # Enforce error wrapping at package boundaries (Constitution III)
+    - forbidigo     # Ban fmt.Println, log.Printf — zerolog only (Constitution V)
+    - nolintlint    # Require justification for //nolint directives (Constitution IX)
+    - protogetter   # Protobuf getter best practices (Constitution XII)
+    - tenv          # Detect os.Setenv in tests, suggest t.Setenv (Constitution VIII)
+
     # Go modernization linters
-    - copyloopvar   # Detects places where loop variables are copied
-    - intrange      # Suggests use of integer range syntax (Go 1.22+)
-    - perfsprint    # Check for fmt.Sprintf that can be replaced with string concat
+    - copyloopvar # Detects places where loop variables are copied
+    - intrange # Suggests use of integer range syntax (Go 1.22+)
+    - perfsprint # Check for fmt.Sprintf that can be replaced with string concat
     - usestdlibvars # Detect when http/time constants can be used
-    - modernize     # Suggests modern Go features
+    - modernize # Suggests modern Go features
 
 formatters:
   enable:
-    - gofmt         # Check code formatting
-    - goimports     # Check imports formatting
+    - gofmt # Check code formatting
+    - goimports # Check imports formatting
   settings:
     gofmt:
       # Simplify code
@@ -66,7 +73,7 @@ formatters:
     goimports:
       # Put local imports after 3rd-party packages
       local-prefixes:
-        - github.com/Toniq-Labs
+        - github.com/klurvio
 
 linters-settings:
   errcheck:
@@ -83,27 +90,46 @@ linters-settings:
     # Check switch statements over enums
     default-signifies-exhaustive: true
 
+  # Constitution V: "No log.Printf or fmt.Println" — zerolog only
+  forbidigo:
+    forbid:
+      - p: ^fmt\.Print.*$
+        msg: "use zerolog for logging (Constitution V)"
+      - p: ^log\.Print.*$
+        msg: "use zerolog for logging (Constitution V)"
+      - p: ^log\.Fatal.*$
+        msg: "use zerolog Fatal for logging (Constitution V)"
+      - p: ^log\.Panic.*$
+        msg: "use zerolog Panic for logging (Constitution V)"
+    analyze-types: true
+
+  # Constitution IX: "//nolint or #nosec MUST include thorough written justification"
+  nolintlint:
+    require-explanation: true
+    require-specific: true
+    allow-unused: false
+
   gocritic:
     enabled-tags:
       - diagnostic
       - style
       - performance
     disabled-checks:
-      - hugeParam      # Often not a concern in modern Go
-      - rangeValCopy   # Go 1.22+ handles this
+      - hugeParam # Often not a concern in modern Go
+      - rangeValCopy # Go 1.22+ handles this
 
   gosec:
     # Exclude some checks
     excludes:
-      - G104  # Audit errors not checked (covered by errcheck)
-      - G307  # Deferring unsafe method (often false positive with Close)
+      - G104 # Audit errors not checked (covered by errcheck)
+      - G307 # Deferring unsafe method (often false positive with Close)
 
   govet:
     # Enable all analyzers
     enable-all: true
     disable:
-      - fieldalignment  # Too noisy for most codebases
-      - shadow          # Covered by predeclared
+      - fieldalignment # Too noisy for most codebases
+      - shadow # Covered by predeclared
 
   misspell:
     locale: US
@@ -130,7 +156,7 @@ linters-settings:
       - name: var-naming
       - name: var-declaration
       - name: package-comments
-        disabled: true  # Too strict for internal packages
+        disabled: true # Too strict for internal packages
       - name: range
       - name: receiver-naming
       - name: time-naming
@@ -140,7 +166,7 @@ linters-settings:
       - name: empty-block
       - name: superfluous-else
       - name: unused-parameter
-        disabled: true  # Covered by unparam
+        disabled: true # Covered by unparam
       - name: unreachable-code
       - name: redefines-builtin-id
 
@@ -151,6 +177,24 @@ linters-settings:
   unparam:
     # Check exported functions
     check-exported: false
+
+  # Constitution III: "All errors MUST be wrapped with context"
+  wrapcheck:
+    ignoreSigs:
+      # Allow unwrapped sentinel errors and common patterns
+      - .Errorf(
+      - errors.New(
+      - errors.Unwrap(
+      - errors.Join(
+      - .Wrap(
+      - .Wrapf(
+      - .WithMessage(
+      - .WithMessagef(
+      - .WithStack(
+    ignorePackageGlobs:
+      # Generated code doesn't need wrapping
+      - google.golang.org/protobuf/*
+      - google.golang.org/grpc/status
 
 issues:
   # Maximum issues count per one linter
@@ -167,21 +211,34 @@ issues:
         - gosec
         - unparam
         - prealloc
+        - wrapcheck    # Test errors don't need wrapping
+        - forbidigo    # fmt.Println acceptable in tests for debugging
+        - noctx        # Test HTTP calls don't always need context
 
     # Exclude some staticcheck checks in test files
     - path: _test\.go
-      text: "SA1019"  # Using deprecated function (often needed in tests)
+      text: "SA1019" # Using deprecated function (often needed in tests)
+
+    # Exclude linters from generated protobuf code
+    - path: \.pb\.go$
+      linters:
+        - all
+
+    # Constitution VIII: t.Parallel() MUST NOT be used on shared resource tests
+    - path: _shared_test\.go
+      linters:
+        - paralleltest
 
     # Allow unused parameters in test helpers
     - path: testutil/
       linters:
         - unparam
+        - paralleltest
 
     # Allow init functions in main packages
     - path: cmd/
       linters:
         - gochecknoinits
-
 
     # Exclude lll issues for long lines with go:generate
     - linters:
@@ -198,4 +255,13 @@ severity:
       severity: error
     - linters:
         - govet
+      severity: error
+    - linters:
+        - wrapcheck    # Constitution III: error wrapping is mandatory
+      severity: error
+    - linters:
+        - forbidigo    # Constitution V: zerolog only
+      severity: error
+    - linters:
+        - nolintlint   # Constitution IX: justification required
       severity: error

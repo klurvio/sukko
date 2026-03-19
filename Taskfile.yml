@@ -25,6 +25,9 @@ includes:
     dir: .
 
   # Shared utilities (environment-independent)
+  helm:
+    taskfile: ./taskfiles/shared/helm.yml
+    dir: .
   test:
     taskfile: ./taskfiles/shared/test.yml
     dir: .
@@ -37,7 +40,7 @@ tasks:
     desc: Show available commands
     silent: true
     cmds:
-      - echo "ODIN WEBSOCKET SERVER"
+      - echo "SUKKO WEBSOCKET SERVER"
       - echo ""
       - echo "=== LOCAL DEVELOPMENT ==="
       - echo "  task local                     Full setup (Kind + deploy)"

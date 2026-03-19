@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Toniq-Labs/odin-ws/internal/provisioning"
+	"github.com/klurvio/sukko/internal/provisioning"
 )
 
 // PostgresQuotaRepository implements QuotaStore using PostgreSQL.
@@ -79,10 +79,11 @@ func (r *PostgresQuotaRepository) Create(ctx context.Context, quota *provisionin
 
 // Update updates quota record for a tenant.
 func (r *PostgresQuotaRepository) Update(ctx context.Context, quota *provisioning.TenantQuota) error {
+	now := time.Now()
 	query := `
 		UPDATE tenant_quotas
 		SET max_topics = $2, max_partitions = $3, max_storage_bytes = $4,
-		    producer_byte_rate = $5, consumer_byte_rate = $6, updated_at = NOW()
+		    producer_byte_rate = $5, consumer_byte_rate = $6, updated_at = $7
 		WHERE tenant_id = $1
 	`
 
@@ -93,6 +94,7 @@ func (r *PostgresQuotaRepository) Update(ctx context.Context, quota *provisionin
 		quota.MaxStorageBytes,
 		quota.ProducerByteRate,
 		quota.ConsumerByteRate,
+		now,
 	)
 	if err != nil {
 		return fmt.Errorf("update quota: %w", err)

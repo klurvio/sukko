@@ -101,7 +101,22 @@ if [ -n "$HELM_FILES" ] && command -v helm &> /dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# 4. YAML lint for Taskfiles (only if Taskfiles changed)
+# 4. Buf lint for protobuf files (only if proto files changed)
+# ---------------------------------------------------------------------------
+PROTO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.proto$' || true)
+
+if [ -n "$PROTO_FILES" ] && command -v buf &> /dev/null; then
+  echo -e "\n${YELLOW}[Proto] Running buf lint...${NC}"
+  if (cd ws && buf lint 2>&1); then
+    echo -e "${GREEN}[Proto] buf lint passed${NC}"
+  else
+    echo -e "${RED}[Proto] buf lint failed${NC}"
+    FAILED=1
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 5. YAML lint for Taskfiles (only if Taskfiles changed)
 # ---------------------------------------------------------------------------
 TASK_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(Taskfile\.yml|taskfiles/)' || true)
 
@@ -123,7 +138,7 @@ if [ -n "$TASK_FILES" ] && command -v yamllint &> /dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# 5. Binary file check
+# 6. Binary file check
 # ---------------------------------------------------------------------------
 BINARY_STAGED=$(git diff --cached --name-only --diff-filter=ACM | while read -r f; do
   if file --mime "$f" 2>/dev/null | grep -q "charset=binary"; then
@@ -139,7 +154,7 @@ if [ -n "$BINARY_STAGED" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Secrets check
+# 7. Secrets check
 # ---------------------------------------------------------------------------
 SECRETS_FOUND=$(git diff --cached --diff-filter=ACM -p | grep -iE '(password|secret|api_key|private_key|token)(\s*[:=]\s*["\x27][^\x27"]+)' | grep -v '_test\.go' | grep -v '\.md' | grep -v 'envDefault' | head -5 || true)
 

@@ -9,17 +9,17 @@ version: "3"
 
 vars:
   K8S_ENV: '{{.ENV | default "dev"}}'
-  K8S_NAMESPACE: 'odin-ws-{{.K8S_ENV}}'
-  K8S_RELEASE_NAME: odin
-  K8S_CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/odin"
-  K8S_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/odin/values/standard/{{.K8S_ENV}}.yaml"
+  K8S_NAMESPACE: 'sukko-{{.K8S_ENV}}'
+  K8S_RELEASE_NAME: sukko
+  K8S_CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/sukko"
+  K8S_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/sukko/values/standard/{{.K8S_ENV}}.yaml"
   K8S_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.K8S_ENV}}"
   K8S_FOUNDATION_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/standard/{{.K8S_ENV}}-foundation"
   K8S_MIGRATIONS_DIR: "{{.ROOT_DIR}}/ws/internal/provisioning/repository/migrations"
-  K8S_PROJECT: '{{.PROJECT | default "odin-9e902"}}'
+  K8S_PROJECT: '{{.PROJECT | default "sukko-9e902"}}'
   K8S_ZONE: '{{.ZONE | default "us-central1-a"}}'
-  K8S_CLUSTER: 'odin-ws-{{.K8S_ENV}}'
-  K8S_REGISTRY: 'us-central1-docker.pkg.dev/{{.K8S_PROJECT}}/odin-ws'
+  K8S_CLUSTER: 'sukko-{{.K8S_ENV}}'
+  K8S_REGISTRY: 'us-central1-docker.pkg.dev/{{.K8S_PROJECT}}/sukko'
   # Ports
   K8S_GATEWAY_PORT: 3006
   K8S_GRAFANA_PORT: 3000
@@ -64,6 +64,9 @@ tasks:
         sh: terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_external_ip 2>/dev/null || echo ""
       REDPANDA_IP:
         sh: terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw redpanda_internal_ip 2>/dev/null || echo ""
+      # Detect if PostgreSQL is enabled from the env values file
+      PG_ENABLED:
+        sh: grep -E '^\s+enabled:\s+true' {{.K8S_VALUES_FILE}} 2>/dev/null | head -1 | grep -c 'true' || echo "0"
     cmds:
       - task: connect
       - npx @asyncapi/cli bundle {{.ROOT_DIR}}/ws/docs/asyncapi/client-ws.asyncapi.yaml -o {{.ROOT_DIR}}/ws/docs/asyncapi/bundled.yaml
@@ -77,17 +80,28 @@ tasks:
           echo "Using Redpanda internal IP: {{.REDPANDA_IP}}"
           HELM_CMD="$HELM_CMD --set redpanda.externalAccess.advertisedHost={{.REDPANDA_IP}} --set redpanda.externalAccess.loadBalancerIP={{.REDPANDA_IP}}"
         fi
-        DB_PASSWORD=$(kubectl get secret {{.K8S_RELEASE_NAME}}-postgresql -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.postgresql-password}' 2>/dev/null | base64 --decode 2>/dev/null)
-        if [ -z "$DB_PASSWORD" ]; then
-          DB_PASSWORD=$(openssl rand -hex 16)
-          echo "Generated new PostgreSQL password"
+        # PostgreSQL password handling (only when PostgreSQL is enabled)
+        PG_ENABLED=$(grep -c 'postgresql:' {{.K8S_VALUES_FILE}} 2>/dev/null && grep -A1 'postgresql:' {{.K8S_VALUES_FILE}} | grep -c 'enabled: true' || echo "0")
+        if [ "$PG_ENABLED" -gt 0 ]; then
+          DB_PASSWORD=$(kubectl get secret {{.K8S_RELEASE_NAME}}-postgresql -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.postgresql-password}' 2>/dev/null | base64 --decode 2>/dev/null)
+          if [ -z "$DB_PASSWORD" ]; then
+            DB_PASSWORD=$(openssl rand -hex 16)
+            echo "Generated new PostgreSQL password"
+          else
+            echo "Reusing existing PostgreSQL password from cluster"
+          fi
+          HELM_CMD="$HELM_CMD --set postgresql.auth.password=$DB_PASSWORD --set global.postgresql.enabled=true"
         else
-          echo "Reusing existing PostgreSQL password from cluster"
+          echo "Using SQLite (default) — skipping PostgreSQL setup"
         fi
-        HELM_CMD="$HELM_CMD --set postgresql.auth.password=$DB_PASSWORD"
         eval $HELM_CMD
-      - task: wait-for-db
-      - task: db:migrate
+      - |
+        # Only wait for DB and migrate when PostgreSQL is enabled
+        PG_ENABLED=$(grep -A1 'postgresql:' {{.K8S_VALUES_FILE}} 2>/dev/null | grep -c 'enabled: true' || echo "0")
+        if [ "$PG_ENABLED" -gt 0 ]; then
+          task k8s:wait-for-db ENV={{.K8S_ENV}}
+          task k8s:db:migrate ENV={{.K8S_ENV}}
+        fi
 
   connect:
     desc: Connect kubectl to cluster
@@ -167,7 +181,7 @@ tasks:
         echo "Gateway (public):        $GATEWAY_IP"
         echo "Redpanda (VPC-internal): $REDPANDA_IP"
         echo ""
-        echo "WS_URL=wss://$GATEWAY_IP:443/ws"
+        echo "WS_URL=ws://$GATEWAY_IP/ws"
         echo "KAFKA_BROKERS=$REDPANDA_IP:9092"
 
   # ===========================================================================
@@ -198,10 +212,10 @@ tasks:
       - kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-monitoring-prometheus {{.K8S_PROMETHEUS_PORT}}:9090
 
   # ===========================================================================
-  # Provisioning (Kafka topics + DB tenant)
+  # Provisioning (routing rules + DB tenant)
   # ===========================================================================
   provision:create:
-    desc: Create odin tenant + Kafka topics + channel rules
+    desc: Create sukko tenant + routing rules + channel rules
     cmds:
       - |
         lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
@@ -233,7 +247,7 @@ tasks:
         echo "Creating tenant..."
         RESULT=$(curl -sf -X POST $API/api/v1/tenants \
           -H "Content-Type: application/json" \
-          -d '{"id": "odin", "name": "Odin Trading Platform"}' 2>&1) || {
+          -d '{"id": "sukko", "name": "Sukko Trading Platform"}' 2>&1) || {
           if echo "$RESULT" | grep -q "already exists"; then
             echo "Tenant already exists, continuing..."
           else
@@ -242,18 +256,18 @@ tasks:
         }
         echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
 
-        # Create Kafka topics (same 8 categories as local)
-        echo "Creating Kafka topics..."
-        RESULT=$(curl -sf -X POST $API/api/v1/tenants/odin/topics \
+        # Set routing rules
+        echo "Setting routing rules..."
+        RESULT=$(curl -sf -X PUT $API/api/v1/tenants/sukko/routing-rules \
           -H "Content-Type: application/json" \
-          -d '{"categories": ["trade"]}' 2>&1) || {
-          echo "Topic creation failed: $RESULT"
+          -d '{"rules": [{"pattern": "*.trade", "topic_suffix": "trade"}]}' 2>&1) || {
+          echo "Routing rules failed: $RESULT"
         }
         echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
 
         # Set channel rules
         echo "Setting channel rules..."
-        RESULT=$(curl -sf -X PUT $API/api/v1/tenants/odin/channel-rules \
+        RESULT=$(curl -sf -X PUT $API/api/v1/tenants/sukko/channel-rules \
           -H "Content-Type: application/json" \
           -d '{"public_patterns": ["*.metadata"], "user_scoped_patterns": ["balances.{subject}"], "group_scoped_patterns": []}' 2>&1) || {
           echo "Channel rules failed: $RESULT"
@@ -264,7 +278,7 @@ tasks:
         kill $PF_PID 2>/dev/null || true
 
   provision:status:
-    desc: Show tenants and topics via provisioning API
+    desc: Show tenants and routing rules via provisioning API
     cmds:
       - |
         lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
@@ -276,11 +290,11 @@ tasks:
         echo "=== Tenants ==="
         curl -s $API/api/v1/tenants | jq .
         echo ""
-        echo "=== Topics (odin) ==="
-        curl -s $API/api/v1/tenants/odin/topics | jq .
+        echo "=== Routing Rules (sukko) ==="
+        curl -s $API/api/v1/tenants/sukko/routing-rules | jq .
         echo ""
-        echo "=== Channel Rules (odin) ==="
-        curl -s $API/api/v1/tenants/odin/channel-rules | jq .
+        echo "=== Channel Rules (sukko) ==="
+        curl -s $API/api/v1/tenants/sukko/channel-rules | jq .
         kill $PF_PID 2>/dev/null || true
 
 
@@ -330,9 +344,15 @@ tasks:
   # Database
   # ===========================================================================
   db:migrate:
-    desc: Run database migrations
+    desc: Run database migrations (PostgreSQL only — SQLite auto-migrates)
     cmds:
       - |
+        # Check if PostgreSQL is enabled
+        PG_ENABLED=$(grep -A1 'postgresql:' {{.K8S_VALUES_FILE}} 2>/dev/null | grep -c 'enabled: true' || echo "0")
+        if [ "$PG_ENABLED" -eq 0 ]; then
+          echo "SQLite mode — migrations are applied automatically at startup. Skipping."
+          exit 0
+        fi
         echo "Running migrations for {{.K8S_ENV}}..."
         # Kill any stale port-forward on this port
         lsof -ti:{{.K8S_PG_LOCAL_PORT}} | xargs kill 2>/dev/null || true
@@ -343,21 +363,49 @@ tasks:
         sleep 2
         # Read password from secret
         DB_PASS=$(kubectl get secret {{.K8S_RELEASE_NAME}}-postgresql -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.postgresql-password}' | base64 --decode)
-        DB_URL="postgres://odin:${DB_PASS}@localhost:{{.K8S_PG_LOCAL_PORT}}/odin_provisioning?sslmode=disable"
+        DB_URL="postgres://sukko:${DB_PASS}@localhost:{{.K8S_PG_LOCAL_PORT}}/sukko_provisioning?sslmode=disable"
         # atlas returns 0 on success, 2 when no pending migrations
         atlas migrate apply --url "$DB_URL" --dir "file://{{.K8S_MIGRATIONS_DIR}}" || test $? -eq 2
         kill $PF_PID 2>/dev/null || true
 
   db:status:
-    desc: Show migration status
+    desc: Show migration status (PostgreSQL only)
     cmds:
       - |
+        PG_ENABLED=$(grep -A1 'postgresql:' {{.K8S_VALUES_FILE}} 2>/dev/null | grep -c 'enabled: true' || echo "0")
+        if [ "$PG_ENABLED" -eq 0 ]; then
+          echo "SQLite mode — migrations are managed automatically. Skipping."
+          exit 0
+        fi
         lsof -ti:{{.K8S_PG_LOCAL_PORT}} | xargs kill 2>/dev/null || true
         sleep 1
         kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-postgresql {{.K8S_PG_LOCAL_PORT}}:5432 &
         PF_PID=$!
         sleep 2
         DB_PASS=$(kubectl get secret {{.K8S_RELEASE_NAME}}-postgresql -n {{.K8S_NAMESPACE}} -o jsonpath='{.data.postgresql-password}' | base64 --decode)
-        DB_URL="postgres://odin:${DB_PASS}@localhost:{{.K8S_PG_LOCAL_PORT}}/odin_provisioning?sslmode=disable"
+        DB_URL="postgres://sukko:${DB_PASS}@localhost:{{.K8S_PG_LOCAL_PORT}}/sukko_provisioning?sslmode=disable"
         atlas migrate status --url "$DB_URL" --dir "file://{{.K8S_MIGRATIONS_DIR}}"
         kill $PF_PID 2>/dev/null || true
+
+  db:setup-external:
+    desc: Set up external PostgreSQL secret for provisioning
+    cmds:
+      - |
+        if [ -z "{{.URL}}" ]; then
+          echo "ERROR: URL is required. Usage: task k8s:db:setup-external URL='postgres://user:pass@host:5432/sukko' ENV=dev"
+          exit 1
+        fi
+        if ! echo "{{.URL}}" | grep -q '^postgres://'; then
+          echo "ERROR: URL must start with postgres://"
+          exit 1
+        fi
+        echo "Creating external database secret in {{.K8S_NAMESPACE}}..."
+        kubectl create secret generic provisioning-external-db \
+          --from-literal=database-url="{{.URL}}" \
+          -n {{.K8S_NAMESPACE}} \
+          --dry-run=client -o yaml | kubectl apply -f -
+        echo ""
+        echo "Secret created. Add the following to your Helm values file:"
+        echo "  provisioning:"
+        echo "    externalDatabase:"
+        echo '      existingSecret: "provisioning-external-db"'

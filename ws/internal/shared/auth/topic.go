@@ -56,7 +56,7 @@ type TopicIsolationConfig struct {
 // Always fail-secure: topics without valid tenant are rejected.
 func DefaultTopicIsolationConfig() TopicIsolationConfig {
 	return TopicIsolationConfig{
-		Environment:         "prod",
+		Environment:         "local",
 		TenantPosition:      1, // {env}.{tenant}.{category}
 		Separator:           ".",
 		SharedTopicPatterns: []string{},
@@ -65,14 +65,15 @@ func DefaultTopicIsolationConfig() TopicIsolationConfig {
 }
 
 // NewTopicIsolator creates a topic isolator with the given configuration.
-func NewTopicIsolator(config TopicIsolationConfig) *TopicIsolator {
+// Returns an error if Environment is empty — callers must provide this explicitly.
+func NewTopicIsolator(config TopicIsolationConfig) (*TopicIsolator, error) {
+	if config.Environment == "" {
+		return nil, errors.New("TopicIsolationConfig.Environment must not be empty")
+	}
 	if config.Separator == "" {
 		config.Separator = "."
 	}
-	if config.Environment == "" {
-		config.Environment = "prod"
-	}
-	return &TopicIsolator{config: config}
+	return &TopicIsolator{config: config}, nil
 }
 
 // TopicCheckResult contains the result of a topic access check.

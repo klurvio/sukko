@@ -1,24 +1,22 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // Internal monitoring and metric collection
 func (s *Server) collectMetrics() {
-	// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
 	defer logging.RecoverPanic(s.logger, "collectMetrics", nil)
 
-	defer s.wg.Done()
-
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(s.config.MetricsCollectInterval)
 	defer ticker.Stop()
 
 	// Get current process for memory stats
@@ -45,18 +43,16 @@ func (s *Server) collectMetrics() {
 				memInfo, err := proc.MemoryInfo()
 				if err == nil {
 					memMB := float64(memInfo.RSS) / 1024 / 1024
-					s.stats.Mu.Lock()
-					s.stats.MemoryMB = memMB
-					s.stats.Mu.Unlock()
+					cpuPercent, _ := s.stats.ResourceMetrics()
+					s.stats.SetResourceMetrics(cpuPercent, memMB)
 				}
 			} else {
 				// Fallback to system memory
 				vmem, err := mem.VirtualMemory()
 				if err == nil {
 					memMB := float64(vmem.Used) / 1024 / 1024
-					s.stats.Mu.Lock()
-					s.stats.MemoryMB = memMB
-					s.stats.Mu.Unlock()
+					cpuPercent, _ := s.stats.ResourceMetrics()
+					s.stats.SetResourceMetrics(cpuPercent, memMB)
 				}
 			}
 		}
@@ -64,12 +60,9 @@ func (s *Server) collectMetrics() {
 }
 
 func (s *Server) monitorMemory() {
-	// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
 	defer logging.RecoverPanic(s.logger, "monitorMemory", nil)
 
-	defer s.wg.Done()
-
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(s.config.MemoryMonitorInterval)
 	defer ticker.Stop()
 
 	memLimitMB := float64(s.config.MemoryLimit) / 1024.0 / 1024.0 // Container memory limit from config
@@ -79,24 +72,22 @@ func (s *Server) monitorMemory() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			s.stats.Mu.RLock()
-			memUsedMB := s.stats.MemoryMB
-			s.stats.Mu.RUnlock()
+			_, memUsedMB := s.stats.ResourceMetrics()
 
 			memPercent := (memUsedMB / memLimitMB) * 100
 			currentConns := s.stats.CurrentConnections.Load()
 
-			// Critical threshold: >90%
-			if memPercent > 90 {
-				s.auditLogger.Critical("HighMemoryUsage", "Memory usage above 90%, OOM risk", map[string]any{
+			// Critical threshold
+			if memPercent > float64(s.config.MemoryCriticalPercent) {
+				s.alertLogger.Critical("HighMemoryUsage", fmt.Sprintf("Memory usage above %d%%, OOM risk", s.config.MemoryCriticalPercent), map[string]any{
 					"memory_used_mb":  memUsedMB,
 					"memory_limit_mb": memLimitMB,
 					"percentage":      memPercent,
 					"connections":     currentConns,
 				})
-			} else if memPercent > 80 {
-				// Warning threshold: >80%
-				s.auditLogger.Warning("ModerateMemoryUsage", "Memory usage above 80%", map[string]any{
+			} else if memPercent > float64(s.config.MemoryWarningPercent) {
+				// Warning threshold
+				s.alertLogger.Warning("ModerateMemoryUsage", fmt.Sprintf("Memory usage above %d%%", s.config.MemoryWarningPercent), map[string]any{
 					"memory_used_mb":  memUsedMB,
 					"memory_limit_mb": memLimitMB,
 					"percentage":      memPercent,
@@ -110,13 +101,9 @@ func (s *Server) monitorMemory() {
 // sampleClientBuffers periodically samples client send buffer usage for saturation metrics
 // Samples a subset of clients to avoid expensive iteration over all connections
 func (s *Server) sampleClientBuffers() {
-	// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
 	defer logging.RecoverPanic(s.logger, "sampleClientBuffers", nil)
 
-	defer s.wg.Done()
-
-	// Sample every 10 seconds (balance between granularity and overhead)
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(s.config.BufferSampleInterval)
 	defer ticker.Stop()
 
 	for {
@@ -127,7 +114,7 @@ func (s *Server) sampleClientBuffers() {
 			// Sample up to 100 random clients to avoid iterating all connections
 			// This gives statistically significant buffer saturation data without overhead
 			samplesCollected := 0
-			maxSamples := 100
+			maxSamples := s.config.BufferMaxSamples
 			highSaturationCount := 0 // Track clients near capacity
 
 			s.clients.Range(func(key, _ any) bool {
@@ -144,10 +131,10 @@ func (s *Server) sampleClientBuffers() {
 				bufferLen := len(client.send)
 				bufferCap := cap(client.send)
 				usagePercent := float64(bufferLen) / float64(bufferCap) * 100
-				metrics.RecordClientBufferSizeWithStats(s.stats, bufferLen, bufferCap)
+				metrics.RecordClientBufferSizeWithStats(s.stats, bufferLen, bufferCap, maxSamples)
 
-				// Phase 4: Track high saturation clients
-				if usagePercent >= 90 {
+				// Track high saturation clients
+				if usagePercent >= float64(s.config.BufferHighSaturationPercent) {
 					highSaturationCount++
 				}
 
@@ -155,11 +142,10 @@ func (s *Server) sampleClientBuffers() {
 				return true // Continue iteration
 			})
 
-			// Phase 4: Log warning if many clients are near buffer capacity
+			// Log warning if many clients are near buffer capacity
 			if samplesCollected > 0 {
 				highSaturationPercent := float64(highSaturationCount) / float64(samplesCollected) * 100
-				if highSaturationPercent >= 25 {
-					// Warning: 25%+ of sampled clients are at >90% buffer capacity
+				if highSaturationPercent >= float64(s.config.BufferPopulationWarnPercent) {
 					s.logger.Warn().
 						Int("high_saturation_count", highSaturationCount).
 						Int("total_sampled", samplesCollected).
@@ -167,7 +153,7 @@ func (s *Server) sampleClientBuffers() {
 						Int64("current_connections", s.stats.CurrentConnections.Load()).
 						Msg("High buffer saturation detected across client population")
 
-					s.auditLogger.Warning("HighBufferSaturation", "Many clients near buffer capacity", map[string]any{
+					s.alertLogger.Warning("HighBufferSaturation", "Many clients near buffer capacity", map[string]any{
 						"high_saturation_count": highSaturationCount,
 						"total_sampled":         samplesCollected,
 						"saturation_percent":    highSaturationPercent,

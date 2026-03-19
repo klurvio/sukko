@@ -8,8 +8,64 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
+
+// Channel check result values.
+const (
+	ChannelCheckAllowed = "allowed"
+	ChannelCheckDenied  = "denied"
+)
+
+// AccessDenialResourceChannel is the resource type for channel-level access denials.
+const AccessDenialResourceChannel = "channel"
+
+// Access denial reason values.
+const (
+	AccessDenialReasonWrongTenant   = "wrong_tenant"
+	AccessDenialReasonInvalidFormat = "invalid_format"
+	AccessDenialReasonUnauthorized  = "unauthorized"
+)
+
+// Channel rules lookup source values.
+const (
+	LookupSourceCache    = "cache"
+	LookupSourceDatabase = "database"
+	LookupSourceFallback = "fallback"
+)
+
+// Proxy error type values.
+const (
+	ProxyErrorClientRead    = "client_read_error"
+	ProxyErrorClientWrite   = "client_write_error"
+	ProxyErrorBackendRead   = "backend_read_error"
+	ProxyErrorBackendWrite  = "backend_write_error"
+	ProxyErrorFrameTooLarge = "frame_too_large"
+)
+
+// Message direction values.
+const (
+	DirectionClientToBackend = "client_to_backend"
+	DirectionBackendToClient = "backend_to_client"
+)
+
+// Connection close reason values.
+const (
+	CloseReasonNormal              = "normal"
+	CloseReasonNoToken             = "no_token"
+	CloseReasonInvalidToken        = "invalid_token"
+	CloseReasonTenantLimitExceeded = "tenant_limit_exceeded"
+	CloseReasonUpgradeFailed       = "upgrade_failed"
+	CloseReasonBackendUnavailable  = "backend_unavailable"
+)
+
+// OIDCValidationBuckets defines histogram buckets for OIDC token validation latency.
+// Range: sub-millisecond to 1 second, for auth operations that may involve network calls.
+var OIDCValidationBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0}
+
+// JWKSFetchBuckets defines histogram buckets for JWKS key fetch latency.
+// Range: 100ms to 10 seconds, for network-bound key retrieval operations.
+var JWKSFetchBuckets = []float64{0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}
 
 // Prometheus metrics for the gateway service.
 // Uses gateway_ prefix for service-specific metrics.
@@ -47,6 +103,26 @@ var authLatency = promauto.NewHistogram(prometheus.HistogramOpts{
 	Name:    "gateway_auth_latency_seconds",
 	Help:    "JWT validation latency",
 	Buckets: pkgmetrics.AuthLatencyBuckets,
+})
+
+// =============================================================================
+// Auth Refresh Metrics
+// =============================================================================
+
+var authRefreshTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "gateway_auth_refresh_total",
+	Help: "Auth refresh attempts by result",
+}, []string{"result"}) // success, invalid_token, token_expired, tenant_mismatch, rate_limited, not_available
+
+var authRefreshLatency = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "gateway_auth_refresh_latency_seconds",
+	Help:    "Auth refresh processing latency",
+	Buckets: pkgmetrics.AuthLatencyBuckets,
+})
+
+var forcedUnsubscriptionsTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "gateway_forced_unsubscriptions_total",
+	Help: "Total forced unsubscriptions due to auth refresh permission changes",
 })
 
 // =============================================================================
@@ -152,7 +228,7 @@ var oidcValidationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 var oidcValidationLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Name:    "gateway_oidc_validation_latency_seconds",
 	Help:    "OIDC token validation latency",
-	Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0},
+	Buckets: OIDCValidationBuckets,
 }, []string{"tenant_id"})
 
 var issuerCacheHits = promauto.NewCounter(prometheus.CounterOpts{
@@ -191,7 +267,7 @@ var jwksFetchTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 var jwksFetchLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Name:    "gateway_jwks_fetch_latency_seconds",
 	Help:    "JWKS fetch latency",
-	Buckets: []float64{0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0},
+	Buckets: JWKSFetchBuckets,
 }, []string{"issuer"})
 
 // =============================================================================
@@ -256,15 +332,30 @@ func SetKeyCacheSize(size int) {
 // RecordKeyCacheRefresh records a cache refresh operation.
 func RecordKeyCacheRefresh(success bool) {
 	if success {
-		keyCacheRefreshes.WithLabelValues("success").Inc()
+		keyCacheRefreshes.WithLabelValues(pkgmetrics.ResultSuccess).Inc()
 	} else {
-		keyCacheRefreshes.WithLabelValues("error").Inc()
+		keyCacheRefreshes.WithLabelValues(pkgmetrics.ResultError).Inc()
 	}
 }
 
 // RecordAccessDenial records an access denial with resource type and reason.
 func RecordAccessDenial(resourceType, reason string) {
 	accessDenials.WithLabelValues(resourceType, reason).Inc()
+}
+
+// RecordAuthRefresh records an auth refresh attempt result.
+func RecordAuthRefresh(result string) {
+	authRefreshTotal.WithLabelValues(result).Inc()
+}
+
+// RecordAuthRefreshLatency records auth refresh processing latency.
+func RecordAuthRefreshLatency(seconds float64) {
+	authRefreshLatency.Observe(seconds)
+}
+
+// RecordForcedUnsubscription records a forced unsubscription event.
+func RecordForcedUnsubscription() {
+	forcedUnsubscriptionsTotal.Inc()
 }
 
 // RecordPublishResult records a publish message interception result.
@@ -350,10 +441,10 @@ func (a *KeyCacheMetricsAdapter) OnCacheMiss() {
 // OnCacheRefresh records a cache refresh operation.
 func (a *KeyCacheMetricsAdapter) OnCacheRefresh(success bool, keyCount int) {
 	if success {
-		keyCacheRefreshes.WithLabelValues("success").Inc()
+		keyCacheRefreshes.WithLabelValues(pkgmetrics.ResultSuccess).Inc()
 		keyCacheSize.Set(float64(keyCount))
 	} else {
-		keyCacheRefreshes.WithLabelValues("error").Inc()
+		keyCacheRefreshes.WithLabelValues(pkgmetrics.ResultError).Inc()
 	}
 }
 

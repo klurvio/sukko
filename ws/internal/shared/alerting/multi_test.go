@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 func TestNewMultiAlerter(t *testing.T) {
@@ -11,7 +13,7 @@ func TestNewMultiAlerter(t *testing.T) {
 	alerter1 := &mockAlerter{}
 	alerter2 := &mockAlerter{}
 
-	multi := NewMultiAlerter(alerter1, alerter2)
+	multi := NewMultiAlerter(zerolog.Nop(), alerter1, alerter2)
 
 	if multi == nil {
 		t.Fatal("NewMultiAlerter should return non-nil")
@@ -23,7 +25,7 @@ func TestNewMultiAlerter(t *testing.T) {
 
 func TestNewMultiAlerter_Empty(t *testing.T) {
 	t.Parallel()
-	multi := NewMultiAlerter()
+	multi := NewMultiAlerter(zerolog.Nop())
 
 	if multi == nil {
 		t.Fatal("NewMultiAlerter should return non-nil even with no alerters")
@@ -39,7 +41,7 @@ func TestMultiAlerter_AlertAllAlerters(t *testing.T) {
 	alerter2 := &mockAlerter{}
 	alerter3 := &mockAlerter{}
 
-	multi := NewMultiAlerter(alerter1, alerter2, alerter3)
+	multi := NewMultiAlerter(zerolog.Nop(), alerter1, alerter2, alerter3)
 
 	multi.Alert(ERROR, "Test alert", map[string]any{"key": "value"})
 
@@ -66,7 +68,7 @@ func TestMultiAlerter_RunsInGoroutines(t *testing.T) {
 	}
 	fastAlerter := &mockAlerter{}
 
-	multi := NewMultiAlerter(blockingAlerter, fastAlerter)
+	multi := NewMultiAlerter(zerolog.Nop(), blockingAlerter, fastAlerter)
 
 	start := time.Now()
 	multi.Alert(ERROR, "Test", nil)
@@ -90,7 +92,7 @@ func TestMultiAlerter_RunsInGoroutines(t *testing.T) {
 
 func TestMultiAlerter_ImplementsInterface(t *testing.T) {
 	t.Parallel()
-	var alerter Alerter = NewMultiAlerter(&mockAlerter{})
+	var alerter Alerter = NewMultiAlerter(zerolog.Nop(), &mockAlerter{})
 
 	alerter.Alert(ERROR, "Test", nil)
 }

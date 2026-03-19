@@ -10,8 +10,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/server/stats"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
+)
+
+// Buffer percentile label values (package-local).
+const bufferPercentileAll = "all"
+
+// Resource type label values for capacity metrics (package-local).
+const (
+	resourceCPU    = "cpu"
+	resourceMemory = "memory"
 )
 
 // =============================================================================
@@ -82,6 +91,11 @@ var (
 // Reliability Metrics
 // =============================================================================
 
+// slowClientAttemptsBuckets defines histogram buckets for tracking send attempts
+// before a slow client is disconnected. Values 1-5 cover common disconnect counts,
+// 10 and 20 capture outliers.
+var slowClientAttemptsBuckets = []float64{1, 2, 3, 4, 5, 10, 20}
+
 var (
 	slowClientsDisconnected = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "ws_slow_clients_disconnected_total",
@@ -117,7 +131,7 @@ var (
 	slowClientAttempts = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name:    "ws_slow_client_attempts_before_disconnect",
 		Help:    "Distribution of send attempts before slow client disconnect",
-		Buckets: []float64{1, 2, 3, 4, 5, 10, 20},
+		Buckets: slowClientAttemptsBuckets,
 	})
 )
 
@@ -152,6 +166,13 @@ var (
 	CPUHostPercent = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "ws_cpu_host_percent",
 		Help: "CPU usage as percentage of total host CPUs (for reference)",
+	})
+
+	// CPUSmoothedPercent tracks EWMA-smoothed CPU usage for load-shedding decisions.
+	// Smoothing prevents transient spikes from triggering false emergency brakes.
+	CPUSmoothedPercent = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "ws_cpu_smoothed_percent",
+		Help: "EWMA-smoothed CPU usage percentage used for load-shedding decisions",
 	})
 
 	// CPUAllocationCores tracks the number of CPU cores allocated to the container.
@@ -207,6 +228,48 @@ var (
 		Name: "ws_kafka_publish_errors_total",
 		Help: "Total number of failed publish attempts to Kafka",
 	})
+)
+
+// =============================================================================
+// Backend-Agnostic Metrics
+// =============================================================================
+
+var (
+	backendMessagesPublished = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_backend_messages_published_total",
+		Help: "Total messages published through the message backend",
+	}, []string{"backend"})
+
+	backendMessagesConsumed = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_backend_messages_consumed_total",
+		Help: "Total messages consumed from the message backend",
+	}, []string{"backend"})
+
+	backendPublishErrors = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_backend_publish_errors_total",
+		Help: "Total publish errors by message backend",
+	}, []string{"backend"})
+
+	backendReplayRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_backend_replay_requests_total",
+		Help: "Total replay requests by message backend",
+	}, []string{"backend"})
+
+	backendReplayMessages = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_backend_replay_messages_total",
+		Help: "Total messages replayed by message backend",
+	}, []string{"backend"})
+
+	backendPublishLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "ws_backend_publish_latency_seconds",
+		Help:    "Publish latency by message backend",
+		Buckets: pkgmetrics.APILatencyBuckets,
+	}, []string{"backend"})
+
+	backendHealthy = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "ws_backend_healthy",
+		Help: "Message backend health status (1=healthy, 0=unhealthy)",
+	}, []string{"backend"})
 )
 
 // =============================================================================
@@ -294,13 +357,11 @@ func RecordDisconnect(reason, initiatedBy string, duration time.Duration) {
 }
 
 // RecordDisconnectWithStats tracks a disconnect and updates both Prometheus and Stats.
-func RecordDisconnectWithStats(stats *types.Stats, reason, initiatedBy string, duration time.Duration) {
+func RecordDisconnectWithStats(stats *stats.Stats, reason, initiatedBy string, duration time.Duration) {
 	disconnectsTotal.WithLabelValues(reason, initiatedBy).Inc()
 	connectionDuration.WithLabelValues(reason).Observe(duration.Seconds())
 
-	stats.DisconnectsMu.Lock()
-	stats.DisconnectsByReason[reason]++
-	stats.DisconnectsMu.Unlock()
+	stats.RecordDisconnect(reason)
 }
 
 // =============================================================================
@@ -357,12 +418,10 @@ func RecordDroppedBroadcast(channel, reason string) {
 }
 
 // RecordDroppedBroadcastWithStats tracks a dropped broadcast and updates Stats.
-func RecordDroppedBroadcastWithStats(stats *types.Stats, channel, reason string) {
+func RecordDroppedBroadcastWithStats(stats *stats.Stats, channel, reason string) {
 	droppedBroadcastsDetailed.WithLabelValues(channel, reason).Inc()
 
-	stats.DropsMu.Lock()
-	stats.DroppedBroadcastsByChannel[channel]++
-	stats.DropsMu.Unlock()
+	stats.RecordDroppedBroadcast(channel)
 }
 
 // RecordSlowClientAttempt records send attempts before slow client disconnect.
@@ -372,20 +431,15 @@ func RecordSlowClientAttempt(attempts int) {
 
 // RecordClientBufferSize samples a client's send buffer usage.
 func RecordClientBufferSize(bufferLen, _ int) {
-	clientSendBufferSize.WithLabelValues("all").Observe(float64(bufferLen))
+	clientSendBufferSize.WithLabelValues(bufferPercentileAll).Observe(float64(bufferLen))
 }
 
 // RecordClientBufferSizeWithStats samples buffer and updates Stats.
-func RecordClientBufferSizeWithStats(stats *types.Stats, bufferLen, bufferCap int) {
-	clientSendBufferSize.WithLabelValues("all").Observe(float64(bufferLen))
+func RecordClientBufferSizeWithStats(stats *stats.Stats, bufferLen, bufferCap, maxSamples int) {
+	clientSendBufferSize.WithLabelValues(bufferPercentileAll).Observe(float64(bufferLen))
 
 	usagePercent := int(float64(bufferLen) / float64(bufferCap) * 100)
-	stats.BuffersMu.Lock()
-	stats.BufferSaturationSamples = append(stats.BufferSaturationSamples, usagePercent)
-	if len(stats.BufferSaturationSamples) > 100 {
-		stats.BufferSaturationSamples = stats.BufferSaturationSamples[1:]
-	}
-	stats.BuffersMu.Unlock()
+	stats.AddBufferSample(usagePercent, maxSamples)
 }
 
 // =============================================================================
@@ -422,6 +476,49 @@ func IncrementPublishErrors() {
 }
 
 // =============================================================================
+// Backend Helper Functions
+// =============================================================================
+
+// RecordBackendPublish increments the backend publish counter.
+func RecordBackendPublish(backend string) {
+	backendMessagesPublished.WithLabelValues(backend).Inc()
+}
+
+// RecordBackendConsume increments the backend consume counter.
+func RecordBackendConsume(backend string) {
+	backendMessagesConsumed.WithLabelValues(backend).Inc()
+}
+
+// RecordBackendPublishError increments the backend publish error counter.
+func RecordBackendPublishError(backend string) {
+	backendPublishErrors.WithLabelValues(backend).Inc()
+}
+
+// RecordBackendReplayRequest increments the backend replay request counter.
+func RecordBackendReplayRequest(backend string) {
+	backendReplayRequests.WithLabelValues(backend).Inc()
+}
+
+// RecordBackendReplayMessages increments the replay messages counter.
+func RecordBackendReplayMessages(backend string, count int) {
+	backendReplayMessages.WithLabelValues(backend).Add(float64(count))
+}
+
+// RecordBackendPublishLatency records publish latency for a backend.
+func RecordBackendPublishLatency(backend string, seconds float64) {
+	backendPublishLatency.WithLabelValues(backend).Observe(seconds)
+}
+
+// SetBackendHealthy sets the backend health gauge.
+func SetBackendHealthy(backend string, healthy bool) {
+	if healthy {
+		backendHealthy.WithLabelValues(backend).Set(1)
+	} else {
+		backendHealthy.WithLabelValues(backend).Set(0)
+	}
+}
+
+// =============================================================================
 // Capacity Helper Functions
 // =============================================================================
 
@@ -438,8 +535,8 @@ func IncrementCapacityRejection(reason string) {
 
 // UpdateCapacityHeadroom updates available resource headroom.
 func UpdateCapacityHeadroom(cpuHeadroom, memHeadroom float64) {
-	capacityAvailableHeadroom.WithLabelValues("cpu").Set(cpuHeadroom)
-	capacityAvailableHeadroom.WithLabelValues("memory").Set(memHeadroom)
+	capacityAvailableHeadroom.WithLabelValues(resourceCPU).Set(cpuHeadroom)
+	capacityAvailableHeadroom.WithLabelValues(resourceMemory).Set(memHeadroom)
 }
 
 // =============================================================================
@@ -489,11 +586,11 @@ func (a *MultiTenantPoolMetricsAdapter) OnMessageRouted() {
 // OnRefresh records a topic refresh operation and updates gauges.
 func (a *MultiTenantPoolMetricsAdapter) OnRefresh(success bool, topicsSubscribed, dedicatedConsumers int) {
 	if success {
-		multitenantRefreshTotal.WithLabelValues("success").Inc()
+		multitenantRefreshTotal.WithLabelValues(pkgmetrics.ResultSuccess).Inc()
 		multitenantTopicsSubscribed.Set(float64(topicsSubscribed))
 		multitenantDedicatedConsumers.Set(float64(dedicatedConsumers))
 	} else {
-		multitenantRefreshTotal.WithLabelValues("error").Inc()
+		multitenantRefreshTotal.WithLabelValues(pkgmetrics.ResultError).Inc()
 	}
 }
 

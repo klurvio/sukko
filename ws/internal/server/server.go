@@ -7,11 +7,12 @@
 //   - CPU-aware resource guards with hysteresis
 //   - Subscription indexing for efficient message routing (93% CPU savings)
 //   - Graceful shutdown with connection draining
-//   - Integration with Kafka/Redpanda for message consumption
+//   - Integration with pluggable message backends
 package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -22,19 +23,33 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Toniq-Labs/odin-ws/internal/server/limits"
-	"github.com/Toniq-Labs/odin-ws/internal/server/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/alerting"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/audit"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/kafka"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/logging"
-	pkgmetrics "github.com/Toniq-Labs/odin-ws/internal/shared/metrics"
-	"github.com/Toniq-Labs/odin-ws/internal/shared/types"
+	"github.com/klurvio/sukko/internal/server/backend"
+	"github.com/klurvio/sukko/internal/server/limits"
+	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/server/stats"
+	"github.com/klurvio/sukko/internal/shared/alerting"
+	"github.com/klurvio/sukko/internal/shared/logging"
+	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
+// DefaultHTTPMaxHeaderBytes is the maximum number of bytes the server will
+// read parsing the request header's keys and values, including the request line.
+const DefaultHTTPMaxHeaderBytes = 1 << 20 // 1 MB
+
+// Params bundles the shared platform config with per-shard overrides.
+// Each shard receives the same *platform.ServerConfig pointer plus its own
+// bind address, connection limit, and backend instance.
+type Params struct {
+	Config         *platform.ServerConfig
+	Addr           string                 // Per-shard bind address (e.g., "0.0.0.0:3002")
+	MaxConnections int                    // Per-shard connection limit
+	Backend        backend.MessageBackend // Pluggable message backend instance
+}
+
 // Server is the main WebSocket server that manages client connections, message
-// broadcasting, and resource protection. It integrates with Kafka/Redpanda for
-// real-time message consumption and uses subscription-based filtering to route
+// broadcasting, and resource protection. It integrates with pluggable message
+// backends for message ingestion and uses subscription-based filtering to route
 // messages only to interested clients.
 //
 // Thread Safety: All public methods are safe for concurrent use. Internal state
@@ -43,11 +58,12 @@ import (
 // Lifecycle: Create with NewServer, start with Start, stop with Shutdown.
 // The server supports graceful shutdown with configurable connection draining.
 type Server struct {
-	config        types.ServerConfig // Immutable after creation
-	logger        zerolog.Logger     // Structured logger for all server events
-	listener      net.Listener       // TCP listener for accepting connections
-	kafkaConsumer *kafka.Consumer    // Kafka/Redpanda consumer for market data (managed by MultiTenantConsumerPool)
-	kafkaProducer *kafka.Producer    // Kafka/Redpanda producer for client message publishing (optional)
+	config   *platform.ServerConfig // Shared platform config (immutable)
+	addr     string                 // Per-shard bind address
+	maxConns int                    // Per-shard connection limit
+	logger   zerolog.Logger         // Structured logger for all server events
+	listener net.Listener           // TCP listener for accepting connections
+	backend  backend.MessageBackend // Pluggable message backend (direct, kafka, nats)
 
 	// Connection management
 	connections       *ConnectionPool    // Pre-allocated connection pool
@@ -61,7 +77,7 @@ type Server struct {
 	connectionRateLimiter *limits.ConnectionRateLimiter // Per-IP and global connection throttling
 
 	// Monitoring
-	auditLogger   *audit.Logger         // Security and operational audit events
+	alertLogger   AlertLogger           // Security and operational alert events
 	resourceGuard *limits.ResourceGuard // CPU-aware backpressure with hysteresis
 
 	// Lifecycle
@@ -71,7 +87,7 @@ type Server struct {
 	shuttingDown atomic.Int32       // Atomic flag: 1 = rejecting new connections
 
 	// Stats
-	stats *types.Stats // Runtime statistics and metrics
+	stats *stats.Stats // Runtime statistics and metrics
 
 	// Pump for testable read/write operations
 	pump *Pump // Handles WebSocket read/write with dependency injection
@@ -81,8 +97,6 @@ type Server struct {
 }
 
 // NewServer creates a new WebSocket server with the provided configuration.
-// The broadcastToBusFunc is called for each message consumed from Kafka to
-// distribute it across server instances via the BroadcastBus.
 //
 // The server initializes:
 //   - Connection pool with pre-allocated client slots
@@ -90,79 +104,83 @@ type Server struct {
 //   - Rate limiters (per-client and per-IP if enabled)
 //   - Resource guard for CPU-based backpressure
 //
-// Note: Kafka consumption is handled by MultiTenantConsumerPool.
-// The server receives a reference to the shared consumer for metrics only.
-func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+// Message ingestion is handled by the pluggable MessageBackend passed via params.
+func NewServer(params Params, alerter alerting.Alerter) (*Server, error) {
+	if params.Config == nil {
+		return nil, errors.New("server params: Config must not be nil")
+	}
+	if params.Addr == "" {
+		return nil, errors.New("server params: Addr must not be empty")
+	}
+	if params.MaxConnections < 1 {
+		return nil, fmt.Errorf("server params: MaxConnections must be > 0, got %d", params.MaxConnections)
+	}
+
+	config := params.Config
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118 false positive: cancel is stored in Server.cancel and called in Stop()
 
 	// Initialize structured logger
 	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevel(config.LogLevel),
-		Format: logging.LogFormat(config.LogFormat),
+		Level:       logging.LogLevel(config.LogLevel),
+		Format:      logging.LogFormat(config.LogFormat),
+		ServiceName: "ws-server",
 	})
 
 	s := &Server{
 		config:            config,
+		addr:              params.Addr,
+		maxConns:          params.MaxConnections,
+		backend:           params.Backend,
 		logger:            logger,
 		ctx:               ctx,
 		cancel:            cancel,
-		connections:       NewConnectionPool(config.MaxConnections, config.ClientSendBufferSize),
-		connectionsSem:    make(chan struct{}, config.MaxConnections),
+		connections:       NewConnectionPool(params.MaxConnections, config.ClientSendBufferSize),
+		connectionsSem:    make(chan struct{}, params.MaxConnections),
 		subscriptionIndex: NewSubscriptionIndex(), // Fast channel → subscribers lookup
-		rateLimiter:       limits.NewRateLimiter(),
-		stats: &types.Stats{
-			StartTime:                  time.Now(),
-			DisconnectsByReason:        make(map[string]int64),
-			DroppedBroadcastsByChannel: make(map[string]int64),
-			BufferSaturationSamples:    make([]int, 0, 100),
-		},
+		rateLimiter:       limits.NewRateLimiter(config.ClientMsgBurstLimit, config.ClientMsgRatePerSec),
+		stats:             stats.NewStats(),
 	}
 
-	// Initialize monitoring with environment-based configuration
-	// See pkg/alerting/config.go and pkg/audit/config.go for env var documentation
-	// Default: Console alerter (stdout) for container logging (fluentd/loki/cloudwatch)
-	// Production: Set ALERT_ENABLED=true and ALERT_SLACK_WEBHOOK_URL for Slack alerts
-	alerter := alerting.NewFromEnv()
-	s.auditLogger = audit.NewFromEnvWithAlerter(alerter)
+	// Initialize alert logger with zerolog and provided alerter
+	s.alertLogger = newAlertLogger(logger, alerter)
 
 	// Initialize ResourceGuard with static configuration
-	s.resourceGuard = limits.NewResourceGuard(config, logger, &s.stats.CurrentConnections)
+	s.resourceGuard = limits.NewResourceGuard(limits.ResourceGuardConfig{
+		MaxConnections:           params.MaxConnections,
+		MemoryLimit:              config.MemoryLimit,
+		MaxKafkaMessagesPerSec:   config.MaxKafkaMessagesPerSec,
+		MaxBroadcastsPerSec:      config.MaxBroadcastsPerSec,
+		MaxGoroutines:            config.MaxGoroutines,
+		RateLimitBurstMultiplier: config.RateLimitBurstMultiplier,
+		CPURejectThreshold:       config.CPURejectThreshold,
+		CPURejectThresholdLower:  config.CPURejectThresholdLower,
+		CPUPauseThreshold:        config.CPUPauseThreshold,
+		CPUPauseThresholdLower:   config.CPUPauseThresholdLower,
+	}, logger, &s.stats.CurrentConnections)
 
 	// Initialize connection rate limiter (if enabled)
 	if config.ConnectionRateLimitEnabled {
 		s.connectionRateLimiter = limits.NewConnectionRateLimiter(limits.ConnectionRateLimiterConfig{
-			IPBurst:     config.ConnRateLimitIPBurst,
-			IPRate:      config.ConnRateLimitIPRate,
-			IPTTL:       5 * time.Minute,
-			GlobalBurst: config.ConnRateLimitGlobalBurst,
-			GlobalRate:  config.ConnRateLimitGlobalRate,
-			Logger:      logger,
+			IPBurst:         config.ConnRateLimitIPBurst,
+			IPRate:          config.ConnRateLimitIPRate,
+			IPTTL:           config.ConnRateLimitIPTTL,
+			GlobalBurst:     config.ConnRateLimitGlobalBurst,
+			GlobalRate:      config.ConnRateLimitGlobalRate,
+			CleanupInterval: config.ConnRateLimitCleanupInterval,
+			Logger:          logger,
 		})
 		logger.Info().Msg("Connection rate limiting enabled")
 	}
 
 	logger.Info().
-		Str("addr", config.Addr).
-		Int("max_connections", config.MaxConnections).
+		Str("addr", params.Addr).
+		Int("max_connections", params.MaxConnections).
 		Int("kafka_rate_limit", config.MaxKafkaMessagesPerSec).
 		Int("broadcast_rate_limit", config.MaxBroadcastsPerSec).
 		Msg("Server initialized with ResourceGuard")
 
-	// The MultiTenantConsumerPool handles Kafka consumption.
-	// Shards receive a reference to the shared consumer for metrics/replay only.
-	// The shared consumer is started/stopped by the pool, not by individual servers.
-	if config.SharedKafkaConsumer != nil {
-		s.kafkaConsumer = config.SharedKafkaConsumer.(*kafka.Consumer)
-		logger.Info().Msg("Using shared Kafka consumer (managed by pool)")
-	}
-
-	// Initialize Kafka producer for client message publishing (optional)
-	// If configured, clients can publish messages to Kafka via the "publish" message type
-	if config.KafkaProducer != nil {
-		s.kafkaProducer = config.KafkaProducer.(*kafka.Producer)
-		logger.Info().
-			Str("namespace", s.kafkaProducer.Namespace()).
-			Msg("Kafka producer enabled for client message publishing")
+	if params.Backend != nil {
+		logger.Info().Str("backend_type", fmt.Sprintf("%T", params.Backend)).Msg("Message backend configured")
 	}
 
 	// NOTE: Authentication is now handled by ws-gateway
@@ -170,12 +188,15 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 
 	// Initialize Pump with adapters for testability
 	// Timing values come from environment config (envDefault provides defaults)
+	pumpCfg := NewPumpConfig(config.PongWait, config.PingPeriod, config.WriteWait, logger)
+	pumpCfg.ClientMsgBurstLimit = config.ClientMsgBurstLimit
+	pumpCfg.ClientMsgRatePerSec = config.ClientMsgRatePerSec
 	s.pump = NewPump(
-		NewPumpConfig(config.PongWait, config.PingPeriod, config.WriteWait, logger),
+		pumpCfg,
 		NewZerologAdapter(logger),
 		logger, // ZerologLogger for panic recovery
 		NewRateLimiterAdapter(s.rateLimiter),
-		NewAuditLoggerAdapter(s.auditLogger),
+		s.alertLogger,
 		s.stats,
 		&RealClock{},
 	)
@@ -183,13 +204,8 @@ func NewServer(config types.ServerConfig, _ kafka.BroadcastFunc) (*Server, error
 	return s, nil
 }
 
-// GetConfig returns the server's immutable configuration.
-func (s *Server) GetConfig() types.ServerConfig {
-	return s.config
-}
-
 // GetStats returns the server's runtime statistics.
-func (s *Server) GetStats() *types.Stats {
+func (s *Server) GetStats() *stats.Stats {
 	return s.stats
 }
 
@@ -206,7 +222,7 @@ func (s *Server) GetStats() *types.Stats {
 func (s *Server) Start() error {
 	// Create TCP listener with custom backlog for burst tolerance
 	lc := net.ListenConfig{}
-	listener, err := lc.Listen(s.ctx, "tcp", s.config.Addr)
+	listener, err := lc.Listen(s.ctx, "tcp", s.addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
@@ -219,7 +235,7 @@ func (s *Server) Start() error {
 				// syscall.Listen sets the TCP accept queue size
 				// This allows the OS to queue more pending connections during bursts
 				// Critical for trading platforms where connection timing affects fairness
-				_ = syscall.Listen(int(file.Fd()), s.config.TCPListenBacklog)
+				_ = syscall.Listen(int(file.Fd()), s.config.TCPListenBacklog) //nolint:gosec // G115: file descriptor is always a valid small positive integer
 				_ = file.Close()
 
 				s.logger.Info().
@@ -232,7 +248,7 @@ func (s *Server) Start() error {
 	s.listener = listener
 
 	s.logger.Info().
-		Str("address", s.config.Addr).
+		Str("address", s.addr).
 		Msg("Server listening")
 
 	// Note: Kafka consumer is managed by MultiTenantConsumerPool.
@@ -252,41 +268,34 @@ func (s *Server) Start() error {
 		ReadTimeout:    s.config.HTTPReadTimeout,
 		WriteTimeout:   s.config.HTTPWriteTimeout,
 		IdleTimeout:    s.config.HTTPIdleTimeout,
-		MaxHeaderBytes: 1 << 20,
+		MaxHeaderBytes: DefaultHTTPMaxHeaderBytes,
 	}
 
-	s.wg.Add(1)
-	go func() {
-		// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
+	s.wg.Go(func() {
 		defer logging.RecoverPanic(s.logger, "server.Serve", nil)
-
-		defer s.wg.Done()
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			s.logger.Error().
 				Err(err).
 				Msg("Server accept loop error")
 		}
-	}()
+	})
 
 	// Start metrics collection
-	s.wg.Add(1)
-	go s.collectMetrics()
+	s.wg.Go(s.collectMetrics)
 
 	// Start memory monitoring
-	s.wg.Add(1)
-	go s.monitorMemory()
+	s.wg.Go(s.monitorMemory)
 
 	// Start buffer saturation sampling
-	s.wg.Add(1)
-	go s.sampleClientBuffers()
+	s.wg.Go(s.sampleClientBuffers)
 
 	// Start ResourceGuard monitoring (static limits with safety checks)
 	// Now also updates server stats for unified CPU measurement
-	s.resourceGuard.StartMonitoring(s.ctx, s.config.MetricsInterval, s.stats)
+	s.resourceGuard.StartMonitoring(s.ctx, &s.wg, s.config.MetricsInterval, s.stats)
 
-	s.auditLogger.Info("ServerStarted", "WebSocket server started successfully", map[string]any{
-		"addr":           s.config.Addr,
-		"maxConnections": s.config.MaxConnections,
+	s.alertLogger.Info("ServerStarted", "WebSocket server started successfully", map[string]any{
+		"addr":           s.addr,
+		"maxConnections": s.maxConns,
 	})
 
 	return nil
@@ -325,13 +334,12 @@ func (s *Server) Shutdown() error {
 	currentConns := s.stats.CurrentConnections.Load()
 	s.logger.Info().
 		Int64("active_connections", currentConns).
-		Int("grace_period_sec", 30).
+		Dur("grace_period", s.config.ShutdownGracePeriod).
 		Msg("Draining active connections")
 
 	// Grace period for connection draining
-	gracePeriod := 30 * time.Second
-	drainTimer := time.NewTimer(gracePeriod)
-	checkTicker := time.NewTicker(1 * time.Second)
+	drainTimer := time.NewTimer(s.config.ShutdownGracePeriod)
+	checkTicker := time.NewTicker(s.config.ShutdownCheckInterval)
 	defer checkTicker.Stop()
 	defer drainTimer.Stop()
 
@@ -369,7 +377,7 @@ forceClose:
 			duration := time.Since(client.connectedAt)
 			metrics.RecordDisconnectWithStats(s.stats, pkgmetrics.DisconnectServerShutdown, pkgmetrics.InitiatedByServer, duration)
 
-			close(client.send)
+			client.closeSend()
 		}
 		return true
 	})

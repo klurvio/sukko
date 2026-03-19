@@ -22,13 +22,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current metrics
-	s.stats.Mu.RLock()
-	cpuPercent := s.stats.CPUPercent
-	memoryMB := s.stats.MemoryMB
-	s.stats.Mu.RUnlock()
+	cpuPercent, memoryMB := s.stats.ResourceMetrics()
 
 	currentConns := s.stats.CurrentConnections.Load()
-	maxConns := int64(s.config.MaxConnections) // Static configuration
+	maxConns := int64(s.maxConns) // Static configuration
 	slowClients := s.stats.SlowClientsDisconnected.Load()
 	totalConns := s.stats.TotalConnections.Load()
 
@@ -46,19 +43,20 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	warnings := []string{}
 	errors := []string{}
 
-	// Check Kafka consumer (optional — see Degradation Decision Matrix in CODING_GUIDELINES.md)
-	kafkaStatus := "stopped"
-	kafkaHealthy := false
-	if s.config.KafkaConsumerDisabled {
-		kafkaStatus = "disabled"
-		kafkaHealthy = true
-	} else if s.kafkaConsumer != nil {
-		kafkaStatus = "running"
-		kafkaHealthy = true
-	} else {
-		isHealthy = false
-		errors = append(errors, "Kafka consumer not initialized")
-		s.logger.Error().Msg("Health check failed: Kafka consumer not initialized")
+	// Check message backend health
+	backendStatus := "not_configured"
+	backendHealthy := true // no backend configured is not a failure (direct mode)
+	if s.backend != nil {
+		if s.backend.IsHealthy() {
+			backendStatus = "healthy"
+			backendHealthy = true
+		} else {
+			backendStatus = "unhealthy"
+			backendHealthy = false
+			isHealthy = false
+			errors = append(errors, "Message backend unhealthy")
+			s.logger.Error().Msg("Health check failed: message backend unhealthy")
+		}
 	}
 
 	// Check CPU (against configured reject threshold)
@@ -148,9 +146,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":  status,
 		"healthy": isHealthy,
 		"checks": map[string]any{
-			"kafka": map[string]any{
-				"status":  kafkaStatus,
-				"healthy": kafkaHealthy,
+			"backend": map[string]any{
+				"status":  backendStatus,
+				"healthy": backendHealthy,
 			},
 			"capacity": map[string]any{
 				"current":    currentConns,
@@ -176,12 +174,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 				"healthy":    cpuHealthy,
 			},
 			"limits": map[string]any{
-				"max_connections":  s.config.MaxConnections,
+				"max_connections":  s.maxConns,
 				"max_goroutines":   s.config.MaxGoroutines,
 				"cpu_threshold":    s.config.CPURejectThreshold,
 				"memory_limit_mb":  memLimitMB,
-				"kafka_rate":       resourceStats["kafka_rate_limit"],
-				"broadcast_rate":   resourceStats["broadcast_rate_limit"],
 				"worker_pool_size": resourceStats["worker_pool_size"],
 			},
 		},
@@ -197,30 +193,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // getObservabilityStats returns Phase 2 observability metrics for /health endpoint
 func (s *Server) getObservabilityStats() map[string]any {
-	// Get disconnect stats
-	s.stats.DisconnectsMu.RLock()
-	disconnects := make(map[string]int64)
-	totalDisconnects := int64(0)
-	for reason, count := range s.stats.DisconnectsByReason {
-		disconnects[reason] = count
-		totalDisconnects += count
-	}
-	s.stats.DisconnectsMu.RUnlock()
+	// Get disconnect stats (returns snapshot copy)
+	disconnects, totalDisconnects := s.stats.GetDisconnectsByReason()
 
-	// Get dropped broadcast stats
-	s.stats.DropsMu.RLock()
-	droppedBroadcasts := make(map[string]int64)
-	totalDropped := int64(0)
-	for channel, count := range s.stats.DroppedBroadcastsByChannel {
-		droppedBroadcasts[channel] = count
-		totalDropped += count
-	}
-	s.stats.DropsMu.RUnlock()
+	// Get dropped broadcast stats (returns snapshot copy)
+	droppedBroadcasts, totalDropped := s.stats.GetDroppedBroadcastsByChannel()
 
-	// Calculate buffer saturation statistics
-	s.stats.BuffersMu.RLock()
-	bufferStats := calculateBufferStats(s.stats.BufferSaturationSamples)
-	s.stats.BuffersMu.RUnlock()
+	// Calculate buffer saturation statistics (returns snapshot copy)
+	bufferStats := calculateBufferStats(s.stats.GetBufferSaturationSamples())
 
 	return map[string]any{
 		"disconnects": map[string]any{
@@ -286,19 +266,3 @@ func calculateBufferStats(samples []int) map[string]any {
 		"max":     maxVal,
 	}
 }
-
-// handleKafkaReconnect handles client reconnection using Kafka offset tracking
-// This replaces the old in-memory replay buffer with proper Kafka-based message replay
-//
-// Protocol:
-//
-//	Client sends: {"type": "reconnect", "data": {"client_id": "abc123", "last_offset": {"odin.trades": 12345}}}
-//	Server creates temporary Kafka consumer starting at last_offset per topic
-//	Server reads missed messages and sends to client
-//	Client catches up, resumes normal message flow
-//
-// Benefits over in-memory buffer:
-//   - 7 days of history (vs 40 seconds with in-memory buffer)
-//   - Survives server restarts (offsets in Kafka, not RAM)
-//   - Zero RAM overhead per client (no duplicate storage)
-//   - Scales horizontally (any server can replay from Kafka)

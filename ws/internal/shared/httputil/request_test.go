@@ -1,6 +1,7 @@
 package httputil
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -44,7 +45,7 @@ func TestExtractBearerToken(t *testing.T) {
 			header:    "Basic abc123",
 			wantToken: "",
 		},
-		{
+		{ //nolint:gosec // G101: test fixture with Bearer token, not a real credential
 			name:      "Authorization header with extra spaces",
 			query:     "",
 			header:    "Bearer   token-with-spaces",
@@ -65,7 +66,7 @@ func TestExtractBearerToken(t *testing.T) {
 			if tt.query != "" {
 				url += "?" + tt.query
 			}
-			req := httptest.NewRequest(http.MethodGet, url, nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 			if tt.header != "" {
 				req.Header.Set("Authorization", tt.header)
 			}
@@ -127,7 +128,7 @@ func TestGetClientIP(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", nil)
 			if tt.xff != "" {
 				req.Header.Set("X-Forwarded-For", tt.xff)
 			}
