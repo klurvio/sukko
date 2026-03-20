@@ -60,6 +60,7 @@
 global:
   namespace: sukko
   imageRegistry: ""
+  imagePullSecrets: []
   labels:
     app.kubernetes.io/part-of: sukko
 

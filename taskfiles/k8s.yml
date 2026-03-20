@@ -45,6 +45,23 @@ tasks:
       - helm uninstall {{.K8S_RELEASE_NAME}} -n {{.K8S_NAMESPACE}} || true
       - task: tf:destroy
 
+  setup-pull-secret:
+    desc: Create ghcr.io image pull secret (requires GITHUB_TOKEN env var)
+    cmds:
+      - |
+        if [ -z "$GITHUB_TOKEN" ]; then
+          echo "ERROR: GITHUB_TOKEN env var is required"
+          echo "  export GITHUB_TOKEN=ghp_..."
+          exit 1
+        fi
+        kubectl create namespace {{.K8S_NAMESPACE}} --dry-run=client -o yaml | kubectl apply -f -
+        kubectl create secret docker-registry ghcr-secret \
+          --docker-server=ghcr.io \
+          --docker-username=$(git config user.name || echo "user") \
+          --docker-password=$GITHUB_TOKEN \
+          -n {{.K8S_NAMESPACE}} --dry-run=client -o yaml | kubectl apply -f -
+        echo "Image pull secret 'ghcr-secret' created in {{.K8S_NAMESPACE}}"
+
   deploy:
     desc: Deploy/upgrade Helm release
     vars:
@@ -52,6 +69,7 @@ tasks:
         sh: terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_ip 2>/dev/null || echo ""
     cmds:
       - task: connect
+      - task: setup-pull-secret
       - |
         HELM_CMD="helm upgrade --install {{.K8S_RELEASE_NAME}} {{.K8S_CHART_PATH}} -f {{.K8S_VALUES_FILE}} -n {{.K8S_NAMESPACE}} --create-namespace"
         if [ -n "{{.GATEWAY_IP}}" ]; then

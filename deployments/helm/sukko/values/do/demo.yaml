@@ -12,6 +12,8 @@
 global:
   namespace: sukko-demo
   imageRegistry: "ghcr.io/klurvio"
+  imagePullSecrets:
+    - name: ghcr-secret
 
 # ── Gateway ─────────────────────────────────────────────────────────
 ws-gateway:
