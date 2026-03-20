@@ -15,7 +15,7 @@ global:
 
 # ── Gateway ─────────────────────────────────────────────────────────
 ws-gateway:
-  replicaCount: 2
+  replicaCount: 1
   image:
     tag: latest
     pullPolicy: Always
@@ -23,23 +23,20 @@ ws-gateway:
     DEFAULT_TENANT_CONNECTION_LIMIT: "10000"
   resources:
     requests:
-      cpu: "250m"
+      cpu: "100m"
       memory: "128Mi"
     limits:
-      cpu: "500m"
+      cpu: "250m"
       memory: "256Mi"
   service:
     type: LoadBalancer
     port: 80
     targetPort: 3000
     loadBalancerIP: ""  # Set to terraform output gateway_ip after first apply, or pass via --set in CI
-  podDisruptionBudget:
-    enabled: true
-    minAvailable: 1
 
 # ── WebSocket Server ────────────────────────────────────────────────
 ws-server:
-  replicaCount: 2
+  replicaCount: 1
   environment: demo
   messageBackend: kafka
   image:
@@ -49,16 +46,13 @@ ws-server:
     clusterMaxConnections: 100000
   resources:
     requests:
-      cpu: "500m"
+      cpu: "250m"
       memory: "256Mi"
     limits:
-      cpu: "1"
+      cpu: "500m"
       memory: "512Mi"
   service:
     type: ClusterIP
-  podDisruptionBudget:
-    enabled: true
-    minAvailable: 1
 
 # ── Provisioning ────────────────────────────────────────────────────
 provisioning:
