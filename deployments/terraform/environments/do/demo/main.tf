@@ -11,7 +11,3 @@ module "doks" {
   # Remaining module variables (surge_upgrade, auto_upgrade, maintenance_*,
   # destroy_all_associated_resources) use module defaults.
 }
-
-resource "digitalocean_reserved_ip" "gateway" {
-  region = var.region
-}

@@ -14,11 +14,6 @@ output "cluster_endpoint" {
   sensitive   = true
 }
 
-output "gateway_ip" {
-  description = "Reserved IP for the gateway LoadBalancer"
-  value       = digitalocean_reserved_ip.gateway.ip_address
-}
-
 output "kubeconfig_command" {
   description = "Command to configure kubectl"
   value       = "doctl kubernetes cluster kubeconfig save ${var.cluster_name}"

@@ -13,6 +13,7 @@ vars:
   K8S_CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/sukko"
   K8S_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/sukko/values/do/{{.K8S_ENV}}.yaml"
   K8S_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/do/{{.K8S_ENV}}"
+  K8S_FOUNDATION_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/do/{{.K8S_ENV}}-foundation"
   K8S_CLUSTER: 'sukko-{{.K8S_ENV}}'
   # Ports
   K8S_GATEWAY_PORT: 3006
@@ -25,8 +26,11 @@ tasks:
   # Core Cluster Operations
   # ===========================================================================
   setup:
-    desc: Full setup (terraform + connect + deploy)
+    desc: Full setup (foundation + cluster + connect + deploy)
     cmds:
+      - task: foundation:init
+      - task: foundation:plan
+      - task: foundation:apply
       - task: tf:init
       - task: tf:plan
       - task: tf:apply
@@ -35,7 +39,7 @@ tasks:
       - task: status
 
   destroy:
-    desc: Full teardown
+    desc: Destroy cluster (preserves foundation resources)
     prompt: 'This will DESTROY the DOKS cluster for {{.K8S_ENV}}. Are you sure?'
     cmds:
       - helm uninstall {{.K8S_RELEASE_NAME}} -n {{.K8S_NAMESPACE}} || true
@@ -83,7 +87,7 @@ tasks:
     desc: Check health endpoint via gateway
     cmds:
       - |
-        GATEWAY_IP=$(terraform -chdir={{.K8S_TF_DIR}} output -raw gateway_ip 2>/dev/null || echo "")
+        GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_ip 2>/dev/null || echo "")
         if [ -z "$GATEWAY_IP" ]; then
           GATEWAY_IP=$(kubectl get svc -n {{.K8S_NAMESPACE}} -l app.kubernetes.io/name=ws-gateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
         fi
@@ -115,7 +119,7 @@ tasks:
     desc: Get external IPs for services
     cmds:
       - |
-        GATEWAY_IP=$(terraform -chdir={{.K8S_TF_DIR}} output -raw gateway_ip 2>/dev/null || echo "not set")
+        GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_ip 2>/dev/null || echo "not set")
         echo "Gateway (public): $GATEWAY_IP"
         echo ""
         echo "WS_URL=ws://$GATEWAY_IP/ws"
@@ -223,6 +227,30 @@ tasks:
         echo "=== Channel Rules (sukko) ==="
         curl -s $API/api/v1/tenants/sukko/channel-rules | jq .
         kill $PF_PID 2>/dev/null || true
+
+  # ===========================================================================
+  # Foundation (reserved IP — persists across cluster lifecycle)
+  # ===========================================================================
+  foundation:init:
+    desc: Initialize foundation Terraform
+    cmds:
+      - terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} init
+
+  foundation:plan:
+    desc: Plan foundation changes
+    cmds:
+      - terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} plan -out=tfplan
+
+  foundation:apply:
+    desc: Apply foundation (reserved IP)
+    cmds:
+      - terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} apply tfplan
+
+  foundation:destroy:
+    desc: Destroy foundation (DANGEROUS — loses reserved IP)
+    prompt: 'This will DESTROY the reserved gateway IP for {{.K8S_ENV}}. Are you sure?'
+    cmds:
+      - terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} destroy
 
   # ===========================================================================
   # Terraform (cluster)
