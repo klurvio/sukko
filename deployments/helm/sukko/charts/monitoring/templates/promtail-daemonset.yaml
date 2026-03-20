@@ -6,11 +6,6 @@ metadata:
   labels:
     {{- include "monitoring.labels" . | nindent 4 }}
     app.kubernetes.io/component: promtail
-  {{- if eq .Release.Namespace "sukko-dev" "sukko-stg" "sukko-prod" }}
-  annotations:
-    # Required for GKE Autopilot
-    autopilot.gke.io/allow-daemonset: "true"
-  {{- end }}
 spec:
   selector:
     matchLabels:

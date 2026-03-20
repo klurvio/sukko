@@ -1,17 +1,16 @@
 # =============================================================================
-# DOKS - Dev Environment
+# DOKS - Demo Environment
 # =============================================================================
-# Development environment on DigitalOcean Kubernetes (DOKS).
-# Mirrors GKE dev topology: same services, replica counts, resource allocations.
+# Demo environment on DigitalOcean Kubernetes (DOKS).
 # All backend services ClusterIP only — ws-gateway is the sole LoadBalancer.
 #
 # Usage:
 #   helm upgrade --install sukko ./deployments/helm/sukko \
-#     -f ./deployments/helm/sukko/values/do/dev.yaml \
-#     -n sukko-dev --create-namespace
+#     -f ./deployments/helm/sukko/values/do/demo.yaml \
+#     -n sukko-demo --create-namespace
 
 global:
-  namespace: sukko-dev
+  namespace: sukko-demo
   imageRegistry: "ghcr.io/klurvio"
 
 # ── Gateway ─────────────────────────────────────────────────────────
@@ -33,6 +32,7 @@ ws-gateway:
     type: LoadBalancer
     port: 80
     targetPort: 3000
+    loadBalancerIP: ""  # Set to terraform output gateway_ip after first apply, or pass via --set in CI
   podDisruptionBudget:
     enabled: true
     minAvailable: 1
@@ -40,7 +40,7 @@ ws-gateway:
 # ── WebSocket Server ────────────────────────────────────────────────
 ws-server:
   replicaCount: 2
-  environment: dev
+  environment: demo
   messageBackend: kafka
   image:
     tag: latest
@@ -63,7 +63,7 @@ ws-server:
 # ── Provisioning ────────────────────────────────────────────────────
 provisioning:
   replicaCount: 1
-  environment: dev
+  environment: demo
   image:
     tag: latest
     pullPolicy: Always

@@ -31,7 +31,7 @@ Detect and reduce ambiguity in the active feature spec. This should run BEFORE p
    | Performance | Connection limits, rate limits, resource requests/limits |
    | Integration | Service interactions, failure modes, backpressure |
    | Edge Cases | Crash recovery, rebalancing, pod preemption |
-   | Constraints | GKE limits, Cloud NAT, Spot VM behavior |
+   | Constraints | DOKS limits, node pool sizing, provider quotas |
 
    Mark each: **Clear** / **Partial** / **Missing**
 

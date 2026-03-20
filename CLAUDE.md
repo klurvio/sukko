@@ -21,20 +21,18 @@ cd ws && go build ./cmd/server  # Build ws-server
 cd ws && go build ./cmd/gateway # Build gateway
 
 # Build & Deploy (via Taskfile)
-task k8s:build ENV=dev          # Build + push all images
-task k8s:deploy ENV=dev         # Helm deploy to GKE
-task k8s:build:push:ws-server ENV=dev  # Build single service
+task k8s:deploy ENV=demo        # Helm deploy to DOKS
 
 # Helm
 helm lint deployments/helm/sukko/charts/ws-server
 helm lint deployments/helm/sukko/charts/ws-gateway
 
 # Terraform
-cd deployments/terraform/environments/standard/dev && terraform plan
+cd deployments/terraform/environments/do/demo && terraform plan
 
 # Logs
-kubectl logs -n sukko-dev -l app.kubernetes.io/name=ws-server --tail=50
-kubectl logs -n sukko-dev -l app.kubernetes.io/name=ws-gateway --tail=50
+kubectl logs -n sukko-demo -l app.kubernetes.io/name=ws-server --tail=50
+kubectl logs -n sukko-demo -l app.kubernetes.io/name=ws-gateway --tail=50
 ```
 
 ## Architecture
@@ -72,10 +70,10 @@ ws/
 deployments/
 ├── helm/sukko/           # Helm charts (ws-server, ws-gateway, monitoring, etc.)
 │   ├── charts/          # Subchart definitions
-│   └── values/standard/ # Environment overrides (dev.yaml, stg.yaml)
-├── terraform/           # GKE, Cloud NAT, VPC, static IPs
-│   ├── environments/    # Per-env configs (dev, stg)
-│   └── modules/         # Reusable Terraform modules
+│   └── values/do/       # Environment overrides (demo.yaml)
+├── terraform/           # DOKS cluster, reserved IP
+│   ├── environments/do/demo/  # Demo environment config
+│   └── modules/doks-cluster/  # DOKS cluster module
 docs/architecture/       # Plans, findings, session handoffs
 ```
 
@@ -88,9 +86,9 @@ docs/architecture/       # Plans, findings, session handoffs
 - **zerolog** for structured logging
 - **Prometheus** for metrics (promauto registration)
 - **Helm 3** for Kubernetes deployments
-- **Terraform** for GKE Standard cluster infrastructure
+- **Terraform** for DOKS cluster infrastructure
 - **Taskfile** for build/deploy orchestration
-- **Docker** multi-stage builds → Google Artifact Registry
+- **Docker** multi-stage builds → GitHub Container Registry (ghcr.io)
 
 ### Configuration Pattern
 All configuration uses `caarlos0/env` struct tags. Go `envDefault` values are the single source of truth for defaults. Fields shared across services live in `platform.BaseConfig` (embedded by each service config):

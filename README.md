@@ -36,8 +36,7 @@ All commands follow the pattern: `{domain}:{service}:{action} [ENV=value]`
 | Domain | Description | ENV |
 |--------|-------------|-----|
 | `local` | Kind cluster | Not needed |
-| `k8s` | Remote GKE | `dev`, `stg`, `prod` |
-| `gce` | GCE VMs | `dev`, `stg`, `prod` |
+| `k8s` | Remote DOKS | `demo` |
 
 ## Local Development
 
@@ -93,72 +92,45 @@ task local:port-forward:stop  # Stop all port-forwards
 | Grafana | 3010 | `http://localhost:3010` |
 | Prometheus | 9090 | `http://localhost:9090` |
 
-## Remote Kubernetes (GKE)
+## Remote Kubernetes (DOKS)
 
 ### Deployment
 
 ```bash
-task k8s:deploy ENV=dev       # Deploy to dev
-task k8s:deploy ENV=stg       # Deploy to staging
-task k8s:deploy ENV=prod      # Deploy to production
+task k8s:deploy ENV=demo     # Deploy to demo
 ```
 
 ### Operations
 
 ```bash
-task k8s:status ENV=dev       # Show pods and services
-task k8s:logs ENV=dev         # Tail ws-server logs
-task k8s:health ENV=dev       # Check health endpoint
-task k8s:reload ENV=dev       # Restart pods (no rebuild)
-task k8s:rollback ENV=dev     # Rollback to previous release
+task k8s:status ENV=demo     # Show pods and services
+task k8s:logs ENV=demo       # Tail ws-server logs
+task k8s:health ENV=demo     # Check health endpoint
+task k8s:reload ENV=demo     # Restart pods (no rebuild)
+task k8s:rollback ENV=demo   # Rollback to previous release
 ```
 
 ### Provisioning
 
 ```bash
-task k8s:provision:create ENV=dev   # Create topic + tenant
-task k8s:provision:loadtest ENV=dev # Create 24 load test topics
-task k8s:provision:status ENV=dev   # List topics
+task k8s:provision:create ENV=demo   # Create topic + tenant
+task k8s:provision:status ENV=demo   # List topics
 ```
 
 ### Terraform
 
 ```bash
-task k8s:tf:init ENV=dev      # Initialize Terraform
-task k8s:tf:plan ENV=dev      # Plan changes
-task k8s:tf:apply ENV=dev     # Apply infrastructure
-task k8s:tf:destroy ENV=dev   # Destroy infrastructure
+task k8s:tf:init ENV=demo    # Initialize Terraform
+task k8s:tf:plan ENV=demo    # Plan changes
+task k8s:tf:apply ENV=demo   # Apply infrastructure
+task k8s:tf:destroy ENV=demo # Destroy infrastructure
 ```
 
 ### Port Forwarding
 
 ```bash
-task k8s:port-forward:grafana ENV=dev    # View Grafana locally
-task k8s:port-forward:prometheus ENV=dev # View Prometheus locally
-```
-
-## GCE VMs
-
-### Load Test VM
-
-```bash
-task gce:loadtest:deploy ENV=dev   # Deploy VM
-task gce:loadtest:run ENV=dev      # Run load test
-task gce:loadtest:stop ENV=dev     # Stop load test
-task gce:loadtest:logs ENV=dev     # View logs
-task gce:loadtest:ssh ENV=dev      # SSH into VM
-task gce:loadtest:destroy ENV=dev  # Destroy VM
-```
-
-### Publisher VM
-
-```bash
-task gce:publisher:deploy ENV=dev  # Deploy VM
-task gce:publisher:run ENV=dev     # Run publisher
-task gce:publisher:stop ENV=dev    # Stop publisher
-task gce:publisher:logs ENV=dev    # View logs
-task gce:publisher:ssh ENV=dev     # SSH into VM
-task gce:publisher:destroy ENV=dev # Destroy VM
+task k8s:port-forward:grafana ENV=demo    # View Grafana locally
+task k8s:port-forward:prometheus ENV=demo # View Prometheus locally
 ```
 
 ## Testing
