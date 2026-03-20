@@ -4,6 +4,7 @@
 
 global:
   imageRegistry: ""
+  imagePullSecrets: []
 
 enabled: true
 
