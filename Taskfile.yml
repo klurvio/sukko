@@ -3,12 +3,11 @@ version: "3"
 # =============================================================================
 # Main Taskfile - Entry Point
 # =============================================================================
-# Pattern: {domain}:{service}:{action} [ENV=value]
+# Pattern: {domain}:{action} [ENV=value]
 #
 # Domains:
 #   local - Kind cluster (no ENV needed)
-#   k8s   - Remote GKE (ENV=dev|stg|prod)
-#   gce   - GCE VMs (ENV=dev|stg|prod)
+#   k8s   - Remote DOKS (ENV=demo)
 #
 # Run 'task --list-all' to see all available tasks
 
@@ -19,9 +18,6 @@ includes:
     dir: .
   k8s:
     taskfile: ./taskfiles/k8s.yml
-    dir: .
-  gce:
-    taskfile: ./taskfiles/gce.yml
     dir: .
 
   # Shared utilities (environment-independent)
@@ -51,16 +47,10 @@ tasks:
       - echo "  task local:loadtest:smoke      Quick load test"
       - echo "  task local:publisher:run       Run message publisher"
       - echo ""
-      - echo "=== REMOTE KUBERNETES (GKE) ==="
-      - echo "  task k8s:deploy ENV=dev        Deploy to dev"
-      - echo "  task k8s:deploy ENV=stg        Deploy to staging"
-      - echo "  task k8s:deploy ENV=prod       Deploy to production"
-      - echo "  task k8s:status ENV=dev        Show cluster status"
-      - echo "  task k8s:logs ENV=dev          Tail logs"
-      - echo ""
-      - echo "=== GCE VMs ==="
-      - echo "  task gce:loadtest:deploy ENV=dev   Deploy load test VM"
-      - echo "  task gce:publisher:deploy ENV=dev  Deploy publisher VM"
+      - echo "=== REMOTE KUBERNETES (DOKS) ==="
+      - echo "  task k8s:deploy ENV=demo       Deploy to demo"
+      - echo "  task k8s:status ENV=demo       Show cluster status"
+      - echo "  task k8s:logs ENV=demo         Tail logs"
       - echo ""
       - echo "=== TESTING ==="
       - echo "  task test                      Run unit tests"

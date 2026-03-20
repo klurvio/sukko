@@ -52,7 +52,7 @@ go build -o wsloadtest .
 ./wsloadtest -connections 100 -ramp-rate 10 -duration 1m
 ```
 
-### Production Test (GKE)
+### Remote Test (DOKS)
 
 ```bash
 ./wsloadtest \
