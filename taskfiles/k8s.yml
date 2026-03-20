@@ -47,9 +47,18 @@ tasks:
 
   deploy:
     desc: Deploy/upgrade Helm release
+    vars:
+      GATEWAY_IP:
+        sh: terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_ip 2>/dev/null || echo ""
     cmds:
       - task: connect
-      - helm upgrade --install {{.K8S_RELEASE_NAME}} {{.K8S_CHART_PATH}} -f {{.K8S_VALUES_FILE}} -n {{.K8S_NAMESPACE}} --create-namespace
+      - |
+        HELM_CMD="helm upgrade --install {{.K8S_RELEASE_NAME}} {{.K8S_CHART_PATH}} -f {{.K8S_VALUES_FILE}} -n {{.K8S_NAMESPACE}} --create-namespace"
+        if [ -n "{{.GATEWAY_IP}}" ]; then
+          echo "Using gateway IP: {{.GATEWAY_IP}}"
+          HELM_CMD="$HELM_CMD --set ws-gateway.service.loadBalancerIP={{.GATEWAY_IP}}"
+        fi
+        eval $HELM_CMD
 
   connect:
     desc: Connect kubectl to cluster
