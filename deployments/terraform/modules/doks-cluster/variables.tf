@@ -23,7 +23,7 @@ variable "node_pool_name" {
 variable "node_size" {
   description = "Droplet size for worker nodes"
   type        = string
-  default     = "s-2vcpu-4gb"
+  default     = "s-2vcpu-2gb"
 }
 
 variable "node_count" {
