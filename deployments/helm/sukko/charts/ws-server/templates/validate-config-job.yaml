@@ -41,12 +41,6 @@ spec:
             limits:
               cpu: "100m"
               memory: "64Mi"
-          envFrom:
-            - configMapRef:
-                name: {{ include "ws-server.fullname" . }}-config
-            - secretRef:
-                name: {{ include "ws-server.fullname" . }}-secrets
-                optional: true
           env:
             - name: ENVIRONMENT
               value: {{ .Values.environment | default "local" | quote }}
