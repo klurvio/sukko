@@ -64,12 +64,13 @@ func newTestService() *provisioning.Service {
 	return newTestServiceWithStores(
 		testutil.NewMockTenantStore(),
 		testutil.NewMockRoutingRulesStore(),
+		testutil.NewMockChannelRulesStore(),
 	)
 }
 
 // newTestServiceWithStores creates a provisioning service with specific mock stores.
-func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStore *testutil.MockRoutingRulesStore) *provisioning.Service {
-	svc, err := provisioning.NewService(provisioning.ServiceConfig{
+func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStore *testutil.MockRoutingRulesStore, channelRulesStore ...*testutil.MockChannelRulesStore) *provisioning.Service {
+	cfg := provisioning.ServiceConfig{
 		TenantStore:          tenantStore,
 		KeyStore:             testutil.NewMockKeyStore(),
 		RoutingRulesStore:    routingStore,
@@ -84,7 +85,11 @@ func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStor
 		MaxRoutingRules:      100,
 		DeprovisionGraceDays: 30,
 		Logger:               zerolog.Nop(),
-	})
+	}
+	if len(channelRulesStore) > 0 {
+		cfg.ChannelRulesStore = channelRulesStore[0]
+	}
+	svc, err := provisioning.NewService(cfg)
 	if err != nil {
 		panic("newTestServiceWithStores: " + err.Error())
 	}
@@ -797,6 +802,111 @@ func TestRouter_RoutingRules_DeleteNonexistent(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d; body: %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
+// =============================================================================
+// Channel Rules Endpoint Tests
+// =============================================================================
+
+func TestRouter_ChannelRules_PublishFields(t *testing.T) {
+	t.Parallel()
+
+	tenantStore := testutil.NewMockTenantStore()
+	routingStore := testutil.NewMockRoutingRulesStore()
+	channelRulesStore := testutil.NewMockChannelRulesStore()
+	svc := newTestServiceWithStores(tenantStore, routingStore, channelRulesStore)
+
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("tenant-sub-only"))
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("tenant-sub-pub"))
+
+	router := api.NewRouter(api.RouterConfig{
+		Service:     svc,
+		Logger:      zerolog.Nop(),
+		AuthEnabled: false,
+	})
+
+	tests := []struct {
+		name               string
+		tenantID           string
+		body               string
+		wantPublic         []string
+		wantPublishPublic  []string
+		wantPublishDefault []string
+		wantPublishGroups  map[string][]string
+		wantStatus         int
+	}{
+		{
+			name:               "subscribe-only rules",
+			tenantID:           "tenant-sub-only",
+			body:               `{"public":["general.*"],"group_mappings":{"vip":["room.vip"]},"default":["general.*"]}`,
+			wantPublic:         []string{"general.*"},
+			wantPublishPublic:  []string{},
+			wantPublishDefault: []string{},
+			wantPublishGroups:  map[string][]string{},
+			wantStatus:         http.StatusOK,
+		},
+		{
+			name:               "subscribe and publish rules",
+			tenantID:           "tenant-sub-pub",
+			body:               `{"public":["general.*","dm.{principal}"],"publish_public":["general.*","dm.{principal}"],"publish_group_mappings":{"vip":["room.vip"]},"publish_default":["general.*"]}`,
+			wantPublic:         []string{"general.*", "dm.{principal}"},
+			wantPublishPublic:  []string{"general.*", "dm.{principal}"},
+			wantPublishDefault: []string{"general.*"},
+			wantPublishGroups:  map[string][]string{"vip": {"room.vip"}},
+			wantStatus:         http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// PUT channel rules
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/"+tt.tenantID+"/channel-rules",
+				bytes.NewReader([]byte(tt.body)))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("PUT status = %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+
+			// GET channel rules back and verify publish fields roundtrip
+			req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/"+tt.tenantID+"/channel-rules", nil)
+			rec = httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+			}
+
+			var got struct {
+				Rules struct {
+					Public               []string            `json:"public"`
+					PublishPublic        []string            `json:"publish_public"`
+					PublishDefault       []string            `json:"publish_default"`
+					PublishGroupMappings map[string][]string `json:"publish_group_mappings"`
+				} `json:"rules"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("failed to parse GET response: %v", err)
+			}
+
+			if len(got.Rules.Public) != len(tt.wantPublic) {
+				t.Errorf("public = %v, want %v", got.Rules.Public, tt.wantPublic)
+			}
+			if len(got.Rules.PublishPublic) != len(tt.wantPublishPublic) {
+				t.Errorf("publish_public = %v, want %v", got.Rules.PublishPublic, tt.wantPublishPublic)
+			}
+			if len(got.Rules.PublishDefault) != len(tt.wantPublishDefault) {
+				t.Errorf("publish_default = %v, want %v", got.Rules.PublishDefault, tt.wantPublishDefault)
+			}
+			if len(got.Rules.PublishGroupMappings) != len(tt.wantPublishGroups) {
+				t.Errorf("publish_group_mappings = %v, want %v", got.Rules.PublishGroupMappings, tt.wantPublishGroups)
+			}
+		})
 	}
 }
 

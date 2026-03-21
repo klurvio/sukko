@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // MockTenantStore is an in-memory mock implementation of TenantStore.
@@ -545,4 +546,112 @@ func (m *MockKafkaAdmin) GetACLs() []provisioning.ACLBinding {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.acls
+}
+
+// MockChannelRulesStore is an in-memory mock implementation of ChannelRulesStore.
+type MockChannelRulesStore struct {
+	mu    sync.RWMutex
+	rules map[string]*types.TenantChannelRules
+
+	CreateErr error
+	GetErr    error
+	UpdateErr error
+	DeleteErr error
+}
+
+// NewMockChannelRulesStore creates a new MockChannelRulesStore.
+func NewMockChannelRulesStore() *MockChannelRulesStore {
+	return &MockChannelRulesStore{rules: make(map[string]*types.TenantChannelRules)}
+}
+
+// Create stores channel rules for a tenant.
+func (m *MockChannelRulesStore) Create(_ context.Context, tenantID string, rules *types.ChannelRules) error {
+	if m.CreateErr != nil {
+		return m.CreateErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rules[tenantID] = &types.TenantChannelRules{
+		TenantID:  tenantID,
+		Rules:     *rules,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	return nil
+}
+
+// Get returns channel rules for a tenant.
+func (m *MockChannelRulesStore) Get(_ context.Context, tenantID string) (*types.TenantChannelRules, error) {
+	if m.GetErr != nil {
+		return nil, m.GetErr
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	r, ok := m.rules[tenantID]
+	if !ok {
+		return nil, types.ErrChannelRulesNotFound
+	}
+	return r, nil
+}
+
+// GetRules returns just the rules portion for a tenant.
+func (m *MockChannelRulesStore) GetRules(_ context.Context, tenantID string) (*types.ChannelRules, error) {
+	if m.GetErr != nil {
+		return nil, m.GetErr
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	r, ok := m.rules[tenantID]
+	if !ok {
+		return nil, types.ErrChannelRulesNotFound
+	}
+	return &r.Rules, nil
+}
+
+// Update replaces channel rules for a tenant.
+func (m *MockChannelRulesStore) Update(_ context.Context, tenantID string, rules *types.ChannelRules) error {
+	if m.UpdateErr != nil {
+		return m.UpdateErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	existing, ok := m.rules[tenantID]
+	if ok {
+		existing.Rules = *rules
+		existing.UpdatedAt = now
+	} else {
+		m.rules[tenantID] = &types.TenantChannelRules{
+			TenantID:  tenantID,
+			Rules:     *rules,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+	}
+	return nil
+}
+
+// Delete removes channel rules for a tenant.
+func (m *MockChannelRulesStore) Delete(_ context.Context, tenantID string) error {
+	if m.DeleteErr != nil {
+		return m.DeleteErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.rules[tenantID]; !ok {
+		return types.ErrChannelRulesNotFound
+	}
+	delete(m.rules, tenantID)
+	return nil
+}
+
+// List returns all stored channel rules.
+func (m *MockChannelRulesStore) List(_ context.Context) ([]*types.TenantChannelRules, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]*types.TenantChannelRules, 0, len(m.rules))
+	for _, r := range m.rules {
+		result = append(result, r)
+	}
+	return result, nil
 }

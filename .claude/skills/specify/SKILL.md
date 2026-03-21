@@ -84,7 +84,12 @@ Examples:
    - Requirements are testable and unambiguous
    - Success criteria are measurable
 
-7. **Report completion** with branch name, spec file path, and readiness for next phase (`/clarify` or `/plan-feature`)
+7. **Create timestamp marker** in the spec directory:
+   - Create an empty file named `CREATED_MM-DD-YYYY_HH-MM` (no extension) using the current date/time
+   - Example: `specs/feat/tenant-rate-limiting/CREATED_03-21-2026_15-30`
+   - This allows checking spec creation time from a directory listing without opening files
+
+8. **Report completion** with branch name, spec file path, and readiness for next phase (`/clarify` or `/plan-feature`)
 
 ## Notes
 

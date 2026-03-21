@@ -44,9 +44,12 @@ func (h *Handler) SetChannelRules(w http.ResponseWriter, r *http.Request) {
 
 	// Build rules from request
 	rules := &types.ChannelRules{
-		Public:        req.Public,
-		GroupMappings: req.GroupMappings,
-		Default:       req.Default,
+		Public:               req.Public,
+		GroupMappings:        req.GroupMappings,
+		Default:              req.Default,
+		PublishPublic:        req.PublishPublic,
+		PublishGroupMappings: req.PublishGroupMappings,
+		PublishDefault:       req.PublishDefault,
 	}
 
 	// Initialize nil slices/maps to empty values
@@ -58,6 +61,15 @@ func (h *Handler) SetChannelRules(w http.ResponseWriter, r *http.Request) {
 	}
 	if rules.Default == nil {
 		rules.Default = []string{}
+	}
+	if rules.PublishPublic == nil {
+		rules.PublishPublic = []string{}
+	}
+	if rules.PublishGroupMappings == nil {
+		rules.PublishGroupMappings = make(map[string][]string)
+	}
+	if rules.PublishDefault == nil {
+		rules.PublishDefault = []string{}
 	}
 
 	// Validate rules
@@ -77,6 +89,8 @@ func (h *Handler) SetChannelRules(w http.ResponseWriter, r *http.Request) {
 		Str("tenant_id", tenantID).
 		Int("public_patterns", len(rules.Public)).
 		Int("group_mappings", len(rules.GroupMappings)).
+		Int("publish_public_patterns", len(rules.PublishPublic)).
+		Int("publish_group_mappings", len(rules.PublishGroupMappings)).
 		Msg("Channel rules set")
 
 	_ = httputil.WriteJSON(w, http.StatusOK, rules)

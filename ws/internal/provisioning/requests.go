@@ -119,6 +119,15 @@ type SetChannelRulesRequest struct {
 
 	// Default contains channel patterns allowed when no groups match.
 	Default []string `json:"default,omitempty"`
+
+	// PublishPublic contains channel patterns any authenticated user can publish to.
+	PublishPublic []string `json:"publish_public,omitempty"`
+
+	// PublishGroupMappings maps IdP group names to allowed publish channel patterns.
+	PublishGroupMappings map[string][]string `json:"publish_group_mappings,omitempty"`
+
+	// PublishDefault contains publish channel patterns when no groups match.
+	PublishDefault []string `json:"publish_default,omitempty"`
 }
 
 // TestAccessRequest is the request to test channel access for given groups.
