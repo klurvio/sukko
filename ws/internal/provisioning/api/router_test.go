@@ -856,6 +856,8 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			// PUT channel rules
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/test-tenant/channel-rules",
 				bytes.NewReader([]byte(tt.body)))

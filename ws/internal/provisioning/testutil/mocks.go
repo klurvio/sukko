@@ -564,6 +564,7 @@ func NewMockChannelRulesStore() *MockChannelRulesStore {
 	return &MockChannelRulesStore{rules: make(map[string]*types.TenantChannelRules)}
 }
 
+// Create stores channel rules for a tenant.
 func (m *MockChannelRulesStore) Create(_ context.Context, tenantID string, rules *types.ChannelRules) error {
 	if m.CreateErr != nil {
 		return m.CreateErr
@@ -579,6 +580,7 @@ func (m *MockChannelRulesStore) Create(_ context.Context, tenantID string, rules
 	return nil
 }
 
+// Get returns channel rules for a tenant.
 func (m *MockChannelRulesStore) Get(_ context.Context, tenantID string) (*types.TenantChannelRules, error) {
 	if m.GetErr != nil {
 		return nil, m.GetErr
@@ -592,6 +594,7 @@ func (m *MockChannelRulesStore) Get(_ context.Context, tenantID string) (*types.
 	return r, nil
 }
 
+// GetRules returns just the rules portion for a tenant.
 func (m *MockChannelRulesStore) GetRules(_ context.Context, tenantID string) (*types.ChannelRules, error) {
 	if m.GetErr != nil {
 		return nil, m.GetErr
@@ -605,6 +608,7 @@ func (m *MockChannelRulesStore) GetRules(_ context.Context, tenantID string) (*t
 	return &r.Rules, nil
 }
 
+// Update replaces channel rules for a tenant.
 func (m *MockChannelRulesStore) Update(_ context.Context, tenantID string, rules *types.ChannelRules) error {
 	if m.UpdateErr != nil {
 		return m.UpdateErr
@@ -627,6 +631,7 @@ func (m *MockChannelRulesStore) Update(_ context.Context, tenantID string, rules
 	return nil
 }
 
+// Delete removes channel rules for a tenant.
 func (m *MockChannelRulesStore) Delete(_ context.Context, tenantID string) error {
 	if m.DeleteErr != nil {
 		return m.DeleteErr
@@ -640,6 +645,7 @@ func (m *MockChannelRulesStore) Delete(_ context.Context, tenantID string) error
 	return nil
 }
 
+// List returns all stored channel rules.
 func (m *MockChannelRulesStore) List(_ context.Context) ([]*types.TenantChannelRules, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
