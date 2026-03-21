@@ -91,11 +91,10 @@ jobs:
           helm upgrade --install sukko ./deployments/helm/sukko \
             -f ./deployments/helm/sukko/values/do/demo.yaml \
             -n sukko-demo --create-namespace \
-            --atomic --timeout 10m \
+            --rollback-on-failure --timeout 10m \
             --set ws-gateway.image.tag=${{ github.sha }} \
             --set ws-server.image.tag=${{ github.sha }} \
-            --set provisioning.image.tag=${{ github.sha }} \
-            --set ws-gateway.service.loadBalancerIP=${{ vars.GATEWAY_IP }}
+            --set provisioning.image.tag=${{ github.sha }}
 
       - name: Verify rollout
         run: |

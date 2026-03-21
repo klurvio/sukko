@@ -47,18 +47,9 @@ tasks:
 
   deploy:
     desc: Deploy/upgrade Helm release
-    vars:
-      GATEWAY_IP:
-        sh: terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_ip 2>/dev/null || echo ""
     cmds:
       - task: connect
-      - |
-        HELM_CMD="helm upgrade --install {{.K8S_RELEASE_NAME}} {{.K8S_CHART_PATH}} -f {{.K8S_VALUES_FILE}} -n {{.K8S_NAMESPACE}} --create-namespace"
-        if [ -n "{{.GATEWAY_IP}}" ]; then
-          echo "Using gateway IP: {{.GATEWAY_IP}}"
-          HELM_CMD="$HELM_CMD --set ws-gateway.service.loadBalancerIP={{.GATEWAY_IP}}"
-        fi
-        eval $HELM_CMD
+      - helm upgrade --install {{.K8S_RELEASE_NAME}} {{.K8S_CHART_PATH}} -f {{.K8S_VALUES_FILE}} -n {{.K8S_NAMESPACE}} --create-namespace
 
   connect:
     desc: Connect kubectl to cluster
@@ -96,10 +87,7 @@ tasks:
     desc: Check health endpoint via gateway
     cmds:
       - |
-        GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_ip 2>/dev/null || echo "")
-        if [ -z "$GATEWAY_IP" ]; then
-          GATEWAY_IP=$(kubectl get svc -n {{.K8S_NAMESPACE}} -l app.kubernetes.io/name=ws-gateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-        fi
+        GATEWAY_IP=$(kubectl get svc -n {{.K8S_NAMESPACE}} -l app.kubernetes.io/name=ws-gateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
         if [ -n "$GATEWAY_IP" ]; then
           echo "Gateway IP: $GATEWAY_IP"
           curl -s http://$GATEWAY_IP/health | jq .
@@ -128,7 +116,7 @@ tasks:
     desc: Get external IPs for services
     cmds:
       - |
-        GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_ip 2>/dev/null || echo "not set")
+        GATEWAY_IP=$(kubectl get svc -n {{.K8S_NAMESPACE}} -l app.kubernetes.io/name=ws-gateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "not set")
         echo "Gateway (public): $GATEWAY_IP"
         echo ""
         echo "WS_URL=ws://$GATEWAY_IP/ws"

@@ -7,9 +7,6 @@ metadata:
     {{- include "ws-gateway.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
-  {{- if .Values.service.loadBalancerIP }}
-  loadBalancerIP: {{ .Values.service.loadBalancerIP }}
-  {{- end }}
   ports:
     - port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.targetPort }}

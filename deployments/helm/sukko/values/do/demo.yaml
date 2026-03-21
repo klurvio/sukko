@@ -32,7 +32,6 @@ ws-gateway:
     type: LoadBalancer
     port: 80
     targetPort: 3000
-    loadBalancerIP: ""  # Set to terraform output gateway_ip after first apply, or pass via --set in CI
 
 # ── WebSocket Server ────────────────────────────────────────────────
 ws-server:
