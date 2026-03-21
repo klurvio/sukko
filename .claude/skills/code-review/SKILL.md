@@ -86,6 +86,11 @@ Examples:
    - On each iteration, only review files that were modified in the previous pass
    - Ask the user before each iteration if they want to continue or stop
 
+10. **Create completion marker** when review passes with no remaining issues:
+    - Find the spec directory for the current branch: `specs/[branch-name]/`
+    - If it exists, create an empty file named `COMPLETED` (no extension) in that directory
+    - This allows checking feature completion from a directory listing without opening files
+
 ## Notes
 
 - Always read files before reviewing — never assume code patterns from memory
