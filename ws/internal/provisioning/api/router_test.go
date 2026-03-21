@@ -817,7 +817,8 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 	channelRulesStore := testutil.NewMockChannelRulesStore()
 	svc := newTestServiceWithStores(tenantStore, routingStore, channelRulesStore)
 
-	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("tenant-sub-only"))
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("tenant-sub-pub"))
 
 	router := api.NewRouter(api.RouterConfig{
 		Service:     svc,
@@ -827,6 +828,7 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 
 	tests := []struct {
 		name               string
+		tenantID           string
 		body               string
 		wantPublic         []string
 		wantPublishPublic  []string
@@ -836,6 +838,7 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 	}{
 		{
 			name:               "subscribe-only rules",
+			tenantID:           "tenant-sub-only",
 			body:               `{"public":["general.*"],"group_mappings":{"vip":["room.vip"]},"default":["general.*"]}`,
 			wantPublic:         []string{"general.*"},
 			wantPublishPublic:  []string{},
@@ -845,6 +848,7 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 		},
 		{
 			name:               "subscribe and publish rules",
+			tenantID:           "tenant-sub-pub",
 			body:               `{"public":["general.*","dm.{principal}"],"publish_public":["general.*","dm.{principal}"],"publish_group_mappings":{"vip":["room.vip"]},"publish_default":["general.*"]}`,
 			wantPublic:         []string{"general.*", "dm.{principal}"},
 			wantPublishPublic:  []string{"general.*", "dm.{principal}"},
@@ -859,7 +863,7 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 			t.Parallel()
 
 			// PUT channel rules
-			req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/test-tenant/channel-rules",
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/"+tt.tenantID+"/channel-rules",
 				bytes.NewReader([]byte(tt.body)))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
@@ -870,7 +874,7 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 			}
 
 			// GET channel rules back and verify publish fields roundtrip
-			req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/test-tenant/channel-rules", nil)
+			req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/"+tt.tenantID+"/channel-rules", nil)
 			rec = httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 
