@@ -109,13 +109,10 @@ func NewStreamKeyRegistry(cfg StreamKeyRegistryConfig) (*StreamKeyRegistry, erro
 		}),
 	}
 
-	r.wg.Add(1)
-	go func() {
+	r.wg.Go(func() {
 		defer logging.RecoverPanic(r.logger, "key_registry_stream", nil)
-		defer r.wg.Done()
-
 		r.streamLoop(ctx)
-	}()
+	})
 
 	return r, nil
 }

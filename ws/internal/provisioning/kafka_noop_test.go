@@ -84,16 +84,14 @@ func TestNoopKafkaAdmin_Concurrent(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range 10 {
-		wg.Add(1)
-		go func(n int) {
+		wg.Go(func() {
 			defer logging.RecoverPanic(zerolog.Nop(), "test_noop_kafka_concurrent", nil)
-			defer wg.Done()
-			topic := "topic-" + string(rune('a'+n))
+			topic := "topic-" + string(rune('a'+i))
 			_ = admin.CreateTopic(ctx, topic, 1, nil)
 			_, _ = admin.TopicExists(ctx, topic)
 			_ = admin.DeleteTopic(ctx, topic)
 			_ = admin.CreateACL(ctx, ACLBinding{Principal: topic})
-		}(i)
+		})
 	}
 	wg.Wait()
 }

@@ -98,13 +98,10 @@ func NewStreamTopicRegistry(cfg StreamTopicRegistryConfig) (*StreamTopicRegistry
 		}),
 	}
 
-	r.wg.Add(1)
-	go func() {
+	r.wg.Go(func() {
 		defer logging.RecoverPanic(r.logger, "topic_registry_stream", nil)
-		defer r.wg.Done()
-
 		r.streamLoop(ctx)
-	}()
+	})
 
 	return r, nil
 }

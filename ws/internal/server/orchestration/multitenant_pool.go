@@ -207,8 +207,7 @@ func (p *MultiTenantConsumerPool) Start() error {
 	}
 
 	// Start refresh loop
-	p.wg.Add(1)
-	go p.refreshLoop()
+	p.wg.Go(p.refreshLoop)
 
 	p.logger.Info().
 		Int("shared_topics", len(p.sharedTopics)).
@@ -222,7 +221,6 @@ func (p *MultiTenantConsumerPool) Start() error {
 // Also listens for on-demand refresh signals from RefreshTopics().
 func (p *MultiTenantConsumerPool) refreshLoop() {
 	defer logging.RecoverPanic(p.logger, "refreshLoop", nil)
-	defer p.wg.Done()
 
 	ticker := time.NewTicker(p.refreshInterval)
 	defer ticker.Stop()

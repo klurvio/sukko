@@ -180,12 +180,10 @@ func setupTestEnv(t *testing.T) *testEnv {
 	provisioningv1.RegisterProvisioningInternalServiceServer(gs, srv)
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		defer logging.RecoverPanic(zerolog.Nop(), "grpc_test_server", nil)
-		defer wg.Done()
 		_ = gs.Serve(lis) // Error non-actionable: server stopped by t.Cleanup
-	}()
+	})
 
 	_, cancel := context.WithCancel(context.Background())
 

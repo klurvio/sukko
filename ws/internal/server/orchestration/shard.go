@@ -97,8 +97,7 @@ func (s *Shard) Start() error {
 	}
 
 	// Start goroutine to listen to the central broadcast bus
-	s.wg.Add(1)
-	go s.runBroadcastListener()
+	s.wg.Go(s.runBroadcastListener)
 
 	s.logger.Info().Msg("Shard started")
 	return nil
@@ -131,7 +130,6 @@ func (s *Shard) runBroadcastListener() {
 		"shard_id": s.ID,
 	})
 
-	defer s.wg.Done()
 	s.logger.Info().Msg("Broadcast listener started")
 
 	for {

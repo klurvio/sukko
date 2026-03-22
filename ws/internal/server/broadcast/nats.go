@@ -266,8 +266,7 @@ func (b *natsBus) Run() {
 		Msg("BroadcastBus started (NATS Pub/Sub)")
 
 	// Start health check loop
-	b.wg.Add(1)
-	go b.healthCheckLoop()
+	b.wg.Go(b.healthCheckLoop)
 }
 
 // Shutdown gracefully stops the bus with default timeout.
@@ -429,7 +428,6 @@ func (b *natsBus) fanOut(msg *Message) {
 // healthCheckLoop periodically checks NATS connection health.
 func (b *natsBus) healthCheckLoop() {
 	defer logging.RecoverPanic(b.logger, "natsBus.healthCheckLoop", nil)
-	defer b.wg.Done()
 
 	ticker := time.NewTicker(b.healthCheckInterval)
 	defer ticker.Stop()
