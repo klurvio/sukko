@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -67,7 +68,22 @@ type AdminAuth struct {
 // the middleware is a no-op passthrough. The cleanup goroutine follows
 // Constitution VII lifecycle: wg.Add before go, RecoverPanic first defer,
 // wg.Done second defer.
-func NewAdminAuth(ctx context.Context, wg *sync.WaitGroup, adminToken string, authCfg AdminAuthConfig, logger zerolog.Logger) *AdminAuth {
+func NewAdminAuth(ctx context.Context, wg *sync.WaitGroup, adminToken string, authCfg AdminAuthConfig, logger zerolog.Logger) (*AdminAuth, error) {
+	if adminToken != "" {
+		if authCfg.FailureThreshold <= 0 {
+			return nil, errors.New("admin auth: FailureThreshold must be > 0")
+		}
+		if authCfg.BlockDuration <= 0 {
+			return nil, errors.New("admin auth: BlockDuration must be > 0")
+		}
+		if authCfg.CleanupInterval <= 0 {
+			return nil, errors.New("admin auth: CleanupInterval must be > 0")
+		}
+		if authCfg.CleanupMaxAge <= 0 {
+			return nil, errors.New("admin auth: CleanupMaxAge must be > 0")
+		}
+	}
+
 	cleanupCtx, cancel := context.WithCancel(ctx)
 
 	aa := &AdminAuth{
@@ -97,7 +113,7 @@ func NewAdminAuth(ctx context.Context, wg *sync.WaitGroup, adminToken string, au
 		})
 	}
 
-	return aa
+	return aa, nil
 }
 
 // Middleware returns an HTTP middleware that checks for admin token authentication.

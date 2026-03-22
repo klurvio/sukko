@@ -2,18 +2,25 @@ package gateway
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
 // newTestGatewayConfig returns a gateway config with auth disabled for testing.
@@ -367,5 +374,523 @@ func TestGateway_Close_NilFields(t *testing.T) {
 	// Should not panic when closing gateway with nil streamKeyRegistry and streamTenantRegistry
 	if err := gw.Close(); err != nil {
 		t.Errorf("Close() error = %v, want nil", err)
+	}
+}
+
+// mockAPIKeyLookup implements APIKeyLookup for testing API key auth flows.
+type mockAPIKeyLookup struct {
+	keys map[string]*provapi.APIKeyInfo
+}
+
+func (m *mockAPIKeyLookup) Lookup(apiKey string) (*provapi.APIKeyInfo, bool) {
+	info, ok := m.keys[apiKey]
+	if !ok || !info.IsActive {
+		return nil, false
+	}
+	return info, true
+}
+
+func (m *mockAPIKeyLookup) Close() error { return nil }
+
+// newGatewayWithAPIKeyMock creates a gateway with auth enabled and injects both
+// a mock API key registry and an optional JWT validator. When validator is nil,
+// only API-key auth paths are exercisable.
+func newGatewayWithAPIKeyMock(cfg *platform.GatewayConfig, logger zerolog.Logger, validator *auth.MultiTenantValidator, apiKeys *mockAPIKeyLookup) *Gateway {
+	return &Gateway{
+		config: cfg,
+		permissions: NewPermissionChecker(
+			cfg.PublicPatterns,
+			cfg.UserScopedPatterns,
+			cfg.GroupScopedPatterns,
+		),
+		validator:      validator,
+		apiKeyRegistry: apiKeys,
+		logger:         logger.With().Str("component", "gateway").Logger(),
+	}
+}
+
+// generateTestECKeyForGateway generates an ECDSA P-256 key pair and returns
+// the PEM-encoded public key and private key for signing test JWTs.
+func generateTestECKeyForGateway(t *testing.T) (string, *ecdsa.PrivateKey) {
+	t.Helper()
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate EC key: %v", err)
+	}
+
+	pubBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to marshal public key: %v", err)
+	}
+
+	pemBlock := &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubBytes,
+	}
+	return string(pem.EncodeToMemory(pemBlock)), privateKey
+}
+
+// createTestTokenForGateway creates a signed JWT for testing.
+func createTestTokenForGateway(t *testing.T, key *auth.KeyInfo, privateKey any, claims *auth.Claims) string {
+	t.Helper()
+
+	method, err := auth.GetSigningMethod(key.Algorithm)
+	if err != nil {
+		t.Fatalf("GetSigningMethod failed: %v", err)
+	}
+
+	token := jwt.NewWithClaims(method, claims)
+	token.Header["kid"] = key.KeyID
+
+	tokenString, err := token.SignedString(privateKey)
+	if err != nil {
+		t.Fatalf("Failed to sign token: %v", err)
+	}
+	return tokenString
+}
+
+func TestHandleWebSocket_NoCredentials(t *testing.T) {
+	t.Parallel()
+	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = true
+	logger := newTestLogger()
+
+	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{}}
+	gw := newGatewayWithAPIKeyMock(cfg, logger, nil, mock)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws", nil)
+	w := httptest.NewRecorder()
+
+	gw.HandleWebSocket(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("HandleWebSocket() no credentials status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("Failed to read response body: %v", err)
+	}
+	var errResp map[string]string
+	if err := json.Unmarshal(body, &errResp); err != nil {
+		t.Fatalf("Failed to parse error response: %v", err)
+	}
+	if errResp["code"] != "UNAUTHORIZED" {
+		t.Errorf("error code = %q, want %q", errResp["code"], "UNAUTHORIZED")
+	}
+	if errResp["message"] != "token or api_key required" {
+		t.Errorf("error message = %q, want %q", errResp["message"], "token or api_key required")
+	}
+}
+
+func TestHandleWebSocket_InvalidAPIKey(t *testing.T) {
+	t.Parallel()
+	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = true
+	logger := newTestLogger()
+
+	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
+		"valid-key": {
+			KeyID:    "pk_live_abc",
+			TenantID: "acme",
+			Name:     "test key",
+			IsActive: true,
+		},
+	}}
+	gw := newGatewayWithAPIKeyMock(cfg, logger, nil, mock)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws?api_key=wrong-key", nil)
+	w := httptest.NewRecorder()
+
+	gw.HandleWebSocket(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("HandleWebSocket() invalid API key status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("Failed to read response body: %v", err)
+	}
+	var errResp map[string]string
+	if err := json.Unmarshal(body, &errResp); err != nil {
+		t.Fatalf("Failed to parse error response: %v", err)
+	}
+	if errResp["code"] != "UNAUTHORIZED" {
+		t.Errorf("error code = %q, want %q", errResp["code"], "UNAUTHORIZED")
+	}
+	if errResp["message"] != "invalid api key" {
+		t.Errorf("error message = %q, want %q", errResp["message"], "invalid api key")
+	}
+}
+
+func TestHandleWebSocket_InactiveAPIKey(t *testing.T) {
+	t.Parallel()
+	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = true
+	logger := newTestLogger()
+
+	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
+		"inactive-key": {
+			KeyID:    "pk_live_inactive",
+			TenantID: "acme",
+			Name:     "inactive key",
+			IsActive: false, // Inactive keys should be rejected
+		},
+	}}
+	gw := newGatewayWithAPIKeyMock(cfg, logger, nil, mock)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws?api_key=inactive-key", nil)
+	w := httptest.NewRecorder()
+
+	gw.HandleWebSocket(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("HandleWebSocket() inactive API key status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func TestHandleWebSocket_APIKeyOnly_Valid(t *testing.T) {
+	t.Parallel()
+	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = true
+	cfg.TenantConnectionLimitEnabled = false // Disable to isolate auth testing
+	logger := newTestLogger()
+
+	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
+		"valid-key": {
+			KeyID:    "pk_live_abc",
+			TenantID: "acme",
+			Name:     "test key",
+			IsActive: true,
+		},
+	}}
+	gw := newGatewayWithAPIKeyMock(cfg, logger, nil, mock)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws?api_key=valid-key", nil)
+	w := httptest.NewRecorder()
+
+	gw.HandleWebSocket(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	// A valid API key should pass auth. The request will fail at the WebSocket
+	// upgrade step (httptest.ResponseRecorder doesn't support upgrades), but
+	// critically it must NOT fail with 401. The gobwas/ws upgrader writes
+	// directly to the ResponseWriter and does not set a standard HTTP status on
+	// failure, so the recorder keeps its default 200.
+	if resp.StatusCode == http.StatusUnauthorized {
+		t.Errorf("HandleWebSocket() valid API key should not return 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleWebSocket_APIKeyViaHeader(t *testing.T) {
+	t.Parallel()
+	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = true
+	logger := newTestLogger()
+
+	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
+		"header-key": {
+			KeyID:    "pk_live_header",
+			TenantID: "acme",
+			Name:     "header key",
+			IsActive: true,
+		},
+	}}
+	gw := newGatewayWithAPIKeyMock(cfg, logger, nil, mock)
+
+	// Send API key via X-API-Key header instead of query parameter
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws", nil)
+	req.Header.Set("X-API-Key", "wrong-key")
+	w := httptest.NewRecorder()
+
+	gw.HandleWebSocket(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	// Invalid key via header should return 401
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("HandleWebSocket() invalid API key via header status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func TestHandleWebSocket_APIKeyAndJWT_TenantMismatch(t *testing.T) {
+	t.Parallel()
+	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = true
+	cfg.TenantConnectionLimitEnabled = false
+	logger := newTestLogger()
+
+	// Set up JWT validator with a test key for tenant "acme"
+	registry := auth.NewStaticKeyRegistry()
+	ecPEM, privateKey := generateTestECKeyForGateway(t)
+
+	key := &auth.KeyInfo{
+		KeyID:        "test-key-1",
+		TenantID:     "acme",
+		Algorithm:    "ES256",
+		PublicKeyPEM: ecPEM,
+		IsActive:     true,
+	}
+	if err := registry.AddKey(key); err != nil {
+		t.Fatalf("AddKey failed: %v", err)
+	}
+
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry:     registry,
+		RequireTenantID: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator failed: %v", err)
+	}
+
+	// API key belongs to tenant "globex" (different from JWT tenant "acme")
+	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
+		"globex-key": {
+			KeyID:    "pk_live_globex",
+			TenantID: "globex",
+			Name:     "globex key",
+			IsActive: true,
+		},
+	}}
+	gw := newGatewayWithAPIKeyMock(cfg, logger, validator, mock)
+
+	// Create a valid JWT for tenant "acme"
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-123",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		TenantID: "acme",
+	}
+	tokenString := createTestTokenForGateway(t, key, privateKey, claims)
+
+	// Send both API key (globex) and JWT (acme) — tenant mismatch
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws?token="+tokenString+"&api_key=globex-key", nil)
+	w := httptest.NewRecorder()
+
+	gw.HandleWebSocket(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("HandleWebSocket() tenant mismatch status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("Failed to read response body: %v", err)
+	}
+	var errResp map[string]string
+	if err := json.Unmarshal(body, &errResp); err != nil {
+		t.Fatalf("Failed to parse error response: %v", err)
+	}
+	if errResp["message"] != "api key and token tenant mismatch" {
+		t.Errorf("error message = %q, want %q", errResp["message"], "api key and token tenant mismatch")
+	}
+}
+
+func TestHandleWebSocket_APIKeyAndJWT_TenantMatch(t *testing.T) {
+	t.Parallel()
+	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = true
+	cfg.TenantConnectionLimitEnabled = false
+	logger := newTestLogger()
+
+	// Set up JWT validator with a test key for tenant "acme"
+	registry := auth.NewStaticKeyRegistry()
+	ecPEM, privateKey := generateTestECKeyForGateway(t)
+
+	key := &auth.KeyInfo{
+		KeyID:        "test-key-1",
+		TenantID:     "acme",
+		Algorithm:    "ES256",
+		PublicKeyPEM: ecPEM,
+		IsActive:     true,
+	}
+	if err := registry.AddKey(key); err != nil {
+		t.Fatalf("AddKey failed: %v", err)
+	}
+
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry:     registry,
+		RequireTenantID: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator failed: %v", err)
+	}
+
+	// API key also belongs to tenant "acme" (matching JWT)
+	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
+		"acme-key": {
+			KeyID:    "pk_live_acme",
+			TenantID: "acme",
+			Name:     "acme key",
+			IsActive: true,
+		},
+	}}
+	gw := newGatewayWithAPIKeyMock(cfg, logger, validator, mock)
+
+	// Create a valid JWT for tenant "acme"
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-456",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		TenantID: "acme",
+	}
+	tokenString := createTestTokenForGateway(t, key, privateKey, claims)
+
+	// Send both API key and JWT for same tenant — should pass auth
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws?token="+tokenString+"&api_key=acme-key", nil)
+	w := httptest.NewRecorder()
+
+	gw.HandleWebSocket(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	// Auth should pass; request fails at WebSocket upgrade (not 401)
+	if resp.StatusCode == http.StatusUnauthorized {
+		t.Errorf("HandleWebSocket() matching tenants should not return 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleWebSocket_BothCredentials_InvalidAPIKey(t *testing.T) {
+	t.Parallel()
+	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = true
+	logger := newTestLogger()
+
+	// Set up JWT validator
+	registry := auth.NewStaticKeyRegistry()
+	ecPEM, privateKey := generateTestECKeyForGateway(t)
+
+	key := &auth.KeyInfo{
+		KeyID:        "test-key-1",
+		TenantID:     "acme",
+		Algorithm:    "ES256",
+		PublicKeyPEM: ecPEM,
+		IsActive:     true,
+	}
+	if err := registry.AddKey(key); err != nil {
+		t.Fatalf("AddKey failed: %v", err)
+	}
+
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry:     registry,
+		RequireTenantID: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator failed: %v", err)
+	}
+
+	// Empty API key registry — all keys invalid
+	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{}}
+	gw := newGatewayWithAPIKeyMock(cfg, logger, validator, mock)
+
+	// Create a valid JWT
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-789",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		TenantID: "acme",
+	}
+	tokenString := createTestTokenForGateway(t, key, privateKey, claims)
+
+	// Both credentials present but API key is invalid — should reject before JWT validation
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws?token="+tokenString+"&api_key=bad-key", nil)
+	w := httptest.NewRecorder()
+
+	gw.HandleWebSocket(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("HandleWebSocket() invalid API key with valid JWT status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("Failed to read response body: %v", err)
+	}
+	var errResp map[string]string
+	if err := json.Unmarshal(body, &errResp); err != nil {
+		t.Fatalf("Failed to parse error response: %v", err)
+	}
+	if errResp["message"] != "invalid api key" {
+		t.Errorf("error message = %q, want %q", errResp["message"], "invalid api key")
+	}
+}
+
+func TestHandleWebSocket_BothCredentials_InvalidJWT(t *testing.T) {
+	t.Parallel()
+	cfg := newTestGatewayConfig()
+	cfg.AuthEnabled = true
+	logger := newTestLogger()
+
+	// Set up JWT validator (empty registry — no keys registered, so all tokens fail)
+	registry := auth.NewStaticKeyRegistry()
+
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry:     registry,
+		RequireTenantID: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator failed: %v", err)
+	}
+
+	// Valid API key
+	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
+		"acme-key": {
+			KeyID:    "pk_live_acme",
+			TenantID: "acme",
+			Name:     "acme key",
+			IsActive: true,
+		},
+	}}
+	gw := newGatewayWithAPIKeyMock(cfg, logger, validator, mock)
+
+	// Both credentials: valid API key but garbled JWT
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ws?token=not-a-valid-jwt&api_key=acme-key", nil)
+	w := httptest.NewRecorder()
+
+	gw.HandleWebSocket(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("HandleWebSocket() valid API key + invalid JWT status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("Failed to read response body: %v", err)
+	}
+	var errResp map[string]string
+	if err := json.Unmarshal(body, &errResp); err != nil {
+		t.Fatalf("Failed to parse error response: %v", err)
+	}
+	if errResp["message"] != "invalid token" {
+		t.Errorf("error message = %q, want %q", errResp["message"], "invalid token")
 	}
 }

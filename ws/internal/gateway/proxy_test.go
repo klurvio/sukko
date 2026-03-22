@@ -784,3 +784,183 @@ func TestProxy_ContextCancellation(t *testing.T) {
 	_ = clientRemote.Close()
 	_ = backendRemote.Close()
 }
+
+// newTestProxyAPIKeyOnly creates a Proxy for API-key-only connection testing.
+// Auth is enabled, claims are nil, apiKeyOnly=true.
+func newTestProxyAPIKeyOnly(tenantID string, publicPatterns []string) *Proxy {
+	pc := NewPermissionChecker(publicPatterns, nil, nil)
+	return &Proxy{
+		clientConn:         nil,
+		backendConn:        nil,
+		authEnabled:        true,
+		claims:             nil,
+		tenantID:           tenantID,
+		apiKeyOnly:         true,
+		apiKeyTenantID:     tenantID,
+		permissions:        pc,
+		logger:             zerolog.Nop(),
+		messageTimeout:     60 * time.Second,
+		maxFrameSize:       protocol.DefaultMaxFrameSize,
+		publishLimiter:     rate.NewLimiter(10, 100),
+		maxPublishSize:     64 * 1024,
+		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
+		subscribedChannels: make(map[string]struct{}),
+	}
+}
+
+func TestProxy_APIKeyOnly_PublishRejected(t *testing.T) {
+	t.Parallel()
+
+	// Need net.Pipe because publish rejection sends error to client
+	clientConn, clientRemote := net.Pipe()
+	backendConn, backendRemote := net.Pipe()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
+	go drainConn(clientRemote)
+
+	proxy := &Proxy{
+		clientConn:         clientConn,
+		backendConn:        backendConn,
+		authEnabled:        true,
+		claims:             nil,
+		tenantID:           "sukko",
+		apiKeyOnly:         true,
+		apiKeyTenantID:     "sukko",
+		permissions:        NewPermissionChecker([]string{"*.trade"}, nil, nil),
+		logger:             zerolog.Nop(),
+		messageTimeout:     60 * time.Second,
+		maxFrameSize:       protocol.DefaultMaxFrameSize,
+		publishLimiter:     rate.NewLimiter(10, 100),
+		maxPublishSize:     64 * 1024,
+		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
+		subscribedChannels: make(map[string]struct{}),
+	}
+
+	// API-key-only connections cannot publish
+	input := `{"type":"publish","data":{"channel":"sukko.BTC.trade","data":"price=42000"}}`
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
+	if err != nil {
+		t.Fatalf("interceptClientMessage() error = %v", err)
+	}
+
+	// Result should be nil (message consumed, error sent to client)
+	if result != nil {
+		t.Errorf("expected nil result for API-key-only publish, got %q", string(result))
+	}
+}
+
+func TestProxy_APIKeyOnly_SubscribePublicOnly(t *testing.T) {
+	t.Parallel()
+	proxy := newTestProxyAPIKeyOnly("sukko", []string{"*.trade"})
+
+	// Subscribe to mix of public and non-public channels
+	input := `{"type":"subscribe","data":{"channels":["sukko.BTC.trade","sukko.balances.user123","sukko.ETH.trade"]}}`
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
+	if err != nil {
+		t.Fatalf("interceptClientMessage() error = %v", err)
+	}
+
+	var msg protocol.ClientMessage
+	if err := json.Unmarshal(result, &msg); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+	var data protocol.SubscribeData
+	if err := json.Unmarshal(msg.Data, &data); err != nil {
+		t.Fatalf("Failed to parse data: %v", err)
+	}
+
+	// Only public channels should pass through (nil claims = public only)
+	expected := []string{"sukko.BTC.trade", "sukko.ETH.trade"}
+	if len(data.Channels) != len(expected) {
+		t.Fatalf("expected %d channels, got %d: %v", len(expected), len(data.Channels), data.Channels)
+	}
+	for i, ch := range expected {
+		if data.Channels[i] != ch {
+			t.Errorf("channel[%d] = %q, want %q", i, data.Channels[i], ch)
+		}
+	}
+}
+
+func TestProxy_APIKeyOnly_AuthEscalation(t *testing.T) {
+	t.Parallel()
+
+	// Verify initial state
+	proxy := newTestProxyAPIKeyOnly("test-tenant", []string{"*.trade"})
+	if !proxy.apiKeyOnly {
+		t.Fatal("expected apiKeyOnly=true initially")
+	}
+
+	// After escalation (simulated by setting claims and clearing apiKeyOnly)
+	newClaims := testClaims("user123")
+	proxy.claimsMu.Lock()
+	proxy.claims = newClaims
+	proxy.apiKeyOnly = false
+	proxy.claimsMu.Unlock()
+
+	// Now publish should work
+	input := `{"type":"publish","data":{"channel":"test-tenant.BTC.trade","data":"price=42000"}}`
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
+	if err != nil {
+		t.Fatalf("interceptClientMessage() error = %v", err)
+	}
+
+	// Result should not be nil (message forwarded)
+	if result == nil {
+		t.Error("expected non-nil result after escalation, publish should be allowed")
+	}
+}
+
+func TestProxy_APIKeyOnly_AuthRefreshTenantMismatch(t *testing.T) {
+	t.Parallel()
+
+	// Need net.Pipe because auth refresh sends error response to client
+	clientConn, clientRemote := net.Pipe()
+	backendConn, backendRemote := net.Pipe()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
+	go drainConn(clientRemote)
+
+	proxy := &Proxy{
+		clientConn:            clientConn,
+		backendConn:           backendConn,
+		authEnabled:           true,
+		claims:                nil,
+		tenantID:              "tenant-a",
+		apiKeyOnly:            true,
+		apiKeyTenantID:        "tenant-a",
+		permissions:           NewPermissionChecker([]string{"*.trade"}, nil, nil),
+		logger:                zerolog.Nop(),
+		messageTimeout:        60 * time.Second,
+		maxFrameSize:          protocol.DefaultMaxFrameSize,
+		publishLimiter:        rate.NewLimiter(10, 100),
+		maxPublishSize:        64 * 1024,
+		authLimiter:           rate.NewLimiter(rate.Every(30*time.Second), 1),
+		authValidationTimeout: 5 * time.Second,
+		subscribedChannels:    make(map[string]struct{}),
+		validator: &mockTokenValidator{
+			claims: &auth.Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject: "user123",
+				},
+				TenantID: "tenant-b", // mismatch with apiKeyTenantID
+			},
+		},
+	}
+
+	// Send auth refresh with a token
+	input := `{"type":"auth","data":{"token":"eyJ.mock.token"}}`
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
+	if err != nil {
+		t.Fatalf("interceptClientMessage() error = %v", err)
+	}
+
+	// Result should be nil (error sent to client, not forwarded)
+	if result != nil {
+		t.Errorf("expected nil result for tenant mismatch, got %q", string(result))
+	}
+
+	// apiKeyOnly should still be true (escalation failed)
+	if !proxy.apiKeyOnly {
+		t.Error("apiKeyOnly should still be true after failed escalation")
+	}
+}

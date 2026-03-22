@@ -65,6 +65,9 @@ func NewStreamTopicRegistry(cfg StreamTopicRegistryConfig) (*StreamTopicRegistry
 	if cfg.ReconnectMaxDelay < cfg.ReconnectDelay {
 		return nil, errors.New("stream topic registry: ReconnectMaxDelay must be >= ReconnectDelay")
 	}
+	if cfg.Namespace == "" {
+		return nil, errors.New("stream topic registry: Namespace is required")
+	}
 	if cfg.MetricPrefix == "" {
 		return nil, errors.New("stream topic registry: MetricPrefix is required")
 	}
@@ -95,13 +98,10 @@ func NewStreamTopicRegistry(cfg StreamTopicRegistryConfig) (*StreamTopicRegistry
 		}),
 	}
 
-	r.wg.Add(1)
-	go func() {
+	r.wg.Go(func() {
 		defer logging.RecoverPanic(r.logger, "topic_registry_stream", nil)
-		defer r.wg.Done()
-
 		r.streamLoop(ctx)
-	}()
+	})
 
 	return r, nil
 }

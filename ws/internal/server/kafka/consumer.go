@@ -302,8 +302,7 @@ func (c *Consumer) Start() error {
 	c.logger.Info().Msg("Starting Kafka consumer")
 
 	// Start consumer loop
-	c.wg.Add(1)
-	go c.consumeLoop()
+	c.wg.Go(c.consumeLoop)
 
 	return nil
 }
@@ -379,8 +378,6 @@ func (c *Consumer) PauseFetchTopics(topics ...string) {
 func (c *Consumer) consumeLoop() {
 	// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
 	defer logging.RecoverPanic(*c.logger, "consumeLoop", nil)
-
-	defer c.wg.Done()
 
 	// If batching is disabled, use the old one-by-one processing
 	if !c.batchEnabled {

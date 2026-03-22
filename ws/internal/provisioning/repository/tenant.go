@@ -9,6 +9,9 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
+// defaultListLimit is the fallback page size when the caller provides no limit.
+const defaultListLimit = 50
+
 // PostgresTenantRepository implements TenantStore using PostgreSQL.
 type PostgresTenantRepository struct {
 	db *sql.DB
@@ -136,7 +139,7 @@ func (r *PostgresTenantRepository) Update(ctx context.Context, tenant *provision
 		return fmt.Errorf("get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("tenant not found or deleted: %s", tenant.ID)
+		return fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, tenant.ID)
 	}
 
 	return nil
@@ -165,7 +168,7 @@ func (r *PostgresTenantRepository) List(ctx context.Context, opts provisioning.L
 	// Get page
 	limit := opts.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = defaultListLimit
 	}
 	offset := max(opts.Offset, 0)
 
@@ -277,7 +280,7 @@ func (r *PostgresTenantRepository) UpdateStatus(ctx context.Context, tenantID st
 		return fmt.Errorf("get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("tenant not found or invalid status transition: %s", tenantID)
+		return fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, tenantID)
 	}
 
 	return nil
@@ -302,7 +305,7 @@ func (r *PostgresTenantRepository) SetDeprovisionAt(ctx context.Context, tenantI
 		return fmt.Errorf("get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("tenant not found or not in deprovisioning state: %s", tenantID)
+		return fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, tenantID)
 	}
 
 	return nil

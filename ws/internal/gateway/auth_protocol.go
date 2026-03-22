@@ -16,7 +16,14 @@ const (
 
 	// RespTypeAuthError is sent to the client on failed auth refresh.
 	RespTypeAuthError = "auth_error"
+
+	// RespTypeUnsubscriptionAck is the backend→client unsubscription acknowledgment type.
+	RespTypeUnsubscriptionAck = "unsubscription_ack"
 )
+
+// subscriptionAckPrefixScanLen is the number of bytes to scan for "_ack" in
+// backend messages to skip JSON parsing for non-subscription-ack messages.
+const subscriptionAckPrefixScanLen = 80
 
 // Auth-specific error code constants.
 const (

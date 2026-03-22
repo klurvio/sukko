@@ -170,13 +170,17 @@ func (v *JWTValidator) IssueTokenWithTenant(appID, tenantID string, expiry time.
 		return "", time.Time{}, errors.New("issue token: appID is required")
 	}
 	expiresAt := time.Now().Add(expiry)
+	registered := jwt.RegisteredClaims{
+		Subject:   appID,
+		ExpiresAt: jwt.NewNumericDate(expiresAt),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	}
+	if v.expectedIssuer != "" {
+		registered.Issuer = v.expectedIssuer
+	}
 	claims := &Claims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   appID,
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		},
-		TenantID: tenantID,
+		RegisteredClaims: registered,
+		TenantID:         tenantID,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

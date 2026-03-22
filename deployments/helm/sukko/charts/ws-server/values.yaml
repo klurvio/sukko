@@ -27,11 +27,11 @@ lbAddr: ":3001"
 #   direct — in-process broadcast, zero external deps, no persistence
 #   kafka  — Kafka/Redpanda, persistence, offset-based replay
 #   nats   — NATS JetStream, lighter persistent streaming
-messageBackend: direct
+# messageBackend: direct  # uncomment to override Go default
 
 # Broadcast Bus: "nats" (Go default) or "valkey"
 # Inter-pod pub/sub for message fan-out across server instances.
-broadcastType: nats
+# broadcastType: nats  # uncomment to override Go default
 
 # Cluster-wide max WebSocket connections. Per-pod = cluster / replicaCount.
 connectionLimits:
@@ -88,6 +88,12 @@ securityContext:
     drop:
       - ALL
   readOnlyRootFilesystem: true
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
 
 resources:
   requests:

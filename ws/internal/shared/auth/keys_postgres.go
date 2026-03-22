@@ -93,8 +93,7 @@ func NewPostgresKeyRegistry(cfg PostgresKeyRegistryConfig) (*PostgresKeyRegistry
 	}
 
 	// Start background refresh
-	r.wg.Add(1)
-	go r.backgroundRefresh()
+	r.wg.Go(r.backgroundRefresh)
 
 	return r, nil
 }
@@ -205,7 +204,6 @@ func (r *PostgresKeyRegistry) Close() error {
 // backgroundRefresh periodically refreshes the key cache.
 func (r *PostgresKeyRegistry) backgroundRefresh() {
 	defer logging.RecoverPanic(r.logger, "backgroundRefresh", nil)
-	defer r.wg.Done()
 
 	ticker := time.NewTicker(r.refreshInterval)
 	defer ticker.Stop()

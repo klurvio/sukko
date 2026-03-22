@@ -88,13 +88,10 @@ func NewStreamChannelRulesProvider(cfg StreamChannelRulesProviderConfig) (*Strea
 		}),
 	}
 
-	r.wg.Add(1)
-	go func() {
+	r.wg.Go(func() {
 		defer logging.RecoverPanic(r.logger, "channel_rules_stream", nil)
-		defer r.wg.Done()
-
 		r.streamLoop(ctx)
-	}()
+	})
 
 	return r, nil
 }

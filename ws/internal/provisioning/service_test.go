@@ -26,6 +26,7 @@ func newTestService() (*provisioning.Service, *testutil.MockTenantStore, *testut
 	svc, err := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:          tenantStore,
 		KeyStore:             keyStore,
+		APIKeyStore:          testutil.NewMockAPIKeyStore(),
 		RoutingRulesStore:    routingRulesStore,
 		QuotaStore:           quotaStore,
 		AuditStore:           auditStore,
@@ -421,7 +422,7 @@ func TestService_DeprovisionTenant(t *testing.T) {
 	}
 
 	// Verify keys revoked
-	keys, _ := svc.ListKeys(context.Background(), "acme-corp")
+	keys, _, _ := svc.ListKeys(context.Background(), "acme-corp", provisioning.ListOptions{Limit: 100})
 	for _, k := range keys {
 		if k.IsActive {
 			t.Errorf("key %q should be revoked", k.KeyID)
@@ -952,6 +953,7 @@ func TestService_SetRoutingRules_NilStore(t *testing.T) {
 	svc, err := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:          testutil.NewMockTenantStore(),
 		KeyStore:             testutil.NewMockKeyStore(),
+		APIKeyStore:          testutil.NewMockAPIKeyStore(),
 		RoutingRulesStore:    nil, // not configured
 		QuotaStore:           testutil.NewMockQuotaStore(),
 		AuditStore:           testutil.NewMockAuditStore(),
@@ -1058,5 +1060,269 @@ func TestService_CreateTenant_UnderscorePrefix(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid tenant") {
 		t.Errorf("expected 'invalid tenant' error, got: %v", err)
+	}
+}
+
+// =============================================================================
+// API Key Tests
+// =============================================================================
+
+func newTestServiceWithAPIKeys() (*provisioning.Service, *testutil.MockTenantStore, *testutil.MockKeyStore, *testutil.MockKafkaAdmin, *testutil.MockAPIKeyStore) {
+	tenantStore := testutil.NewMockTenantStore()
+	keyStore := testutil.NewMockKeyStore()
+	apiKeyStore := testutil.NewMockAPIKeyStore()
+	routingRulesStore := testutil.NewMockRoutingRulesStore()
+	quotaStore := testutil.NewMockQuotaStore()
+	auditStore := testutil.NewMockAuditStore()
+	kafkaAdmin := testutil.NewMockKafkaAdmin()
+
+	svc, err := provisioning.NewService(provisioning.ServiceConfig{
+		TenantStore:          tenantStore,
+		KeyStore:             keyStore,
+		APIKeyStore:          apiKeyStore,
+		RoutingRulesStore:    routingRulesStore,
+		QuotaStore:           quotaStore,
+		AuditStore:           auditStore,
+		KafkaAdmin:           kafkaAdmin,
+		EventBus:             eventbus.New(zerolog.Nop()),
+		TopicNamespace:       "test",
+		DefaultPartitions:    3,
+		DefaultRetentionMs:   604800000,
+		MaxTopicsPerTenant:   50,
+		MaxRoutingRules:      5,
+		DeprovisionGraceDays: 30,
+		Logger:               zerolog.Nop(),
+	})
+	if err != nil {
+		panic("newTestServiceWithAPIKeys: " + err.Error())
+	}
+
+	return svc, tenantStore, keyStore, kafkaAdmin, apiKeyStore
+}
+
+func TestService_CreateAPIKey(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		tenantID    string
+		req         provisioning.CreateAPIKeyRequest
+		setupMock   func(*testutil.MockTenantStore)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:     "happy path",
+			tenantID: "acme-corp",
+			req:      provisioning.CreateAPIKeyRequest{Name: "Production Key"},
+			setupMock: func(ts *testutil.MockTenantStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("acme-corp"))
+			},
+			wantErr: false,
+		},
+		{
+			name:     "tenant not active",
+			tenantID: "suspended-corp",
+			req:      provisioning.CreateAPIKeyRequest{Name: "Suspended Key"},
+			setupMock: func(ts *testutil.MockTenantStore) {
+				tenant := testutil.NewTestTenant("suspended-corp")
+				_ = ts.Create(context.Background(), tenant)
+				tenant.Status = provisioning.StatusSuspended
+				_ = ts.Update(context.Background(), tenant)
+			},
+			wantErr:     true,
+			errContains: "not active",
+		},
+		{
+			name:        "tenant not found",
+			tenantID:    "nonexistent",
+			req:         provisioning.CreateAPIKeyRequest{Name: "Ghost Key"},
+			wantErr:     true,
+			errContains: "get tenant",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc, tenantStore, _, _, _ := newTestServiceWithAPIKeys()
+
+			if tt.setupMock != nil {
+				tt.setupMock(tenantStore)
+			}
+
+			key, err := svc.CreateAPIKey(context.Background(), tt.tenantID, tt.req)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q should contain %q", err.Error(), tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if key == nil {
+					t.Fatal("expected key, got nil")
+				}
+				if key.TenantID != tt.tenantID {
+					t.Errorf("tenant ID mismatch: got %q, want %q", key.TenantID, tt.tenantID)
+				}
+				if key.Name != tt.req.Name {
+					t.Errorf("name mismatch: got %q, want %q", key.Name, tt.req.Name)
+				}
+				if key.KeyID == "" {
+					t.Error("expected non-empty key ID")
+				}
+			}
+		})
+	}
+}
+
+func TestService_ListAPIKeys(t *testing.T) {
+	t.Parallel()
+	svc, tenantStore, _, _, _ := newTestServiceWithAPIKeys()
+
+	// Setup: create tenant
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("acme-corp"))
+
+	// Create 2 API keys
+	_, err := svc.CreateAPIKey(context.Background(), "acme-corp", provisioning.CreateAPIKeyRequest{Name: "Key One"})
+	if err != nil {
+		t.Fatalf("failed to create first API key: %v", err)
+	}
+	_, err = svc.CreateAPIKey(context.Background(), "acme-corp", provisioning.CreateAPIKeyRequest{Name: "Key Two"})
+	if err != nil {
+		t.Fatalf("failed to create second API key: %v", err)
+	}
+
+	// List with default pagination
+	keys, total, err := svc.ListAPIKeys(context.Background(), "acme-corp", provisioning.ListOptions{Limit: 50, Offset: 0})
+	if err != nil {
+		t.Fatalf("failed to list API keys: %v", err)
+	}
+	if len(keys) != 2 {
+		t.Errorf("expected 2 API keys, got %d", len(keys))
+	}
+	if total != 2 {
+		t.Errorf("expected total 2, got %d", total)
+	}
+}
+
+func TestService_RevokeAPIKey(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		tenantID    string
+		keyID       string
+		setupMock   func(*testutil.MockTenantStore, *testutil.MockAPIKeyStore) string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:     "happy path",
+			tenantID: "acme-corp",
+			setupMock: func(ts *testutil.MockTenantStore, aks *testutil.MockAPIKeyStore) string {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("acme-corp"))
+				key := &provisioning.APIKey{
+					KeyID:    "pk_live_test123",
+					TenantID: "acme-corp",
+					Name:     "Test Key",
+					IsActive: true,
+				}
+				_ = aks.Create(context.Background(), key)
+				return key.KeyID
+			},
+			wantErr: false,
+		},
+		{
+			name:     "key not found",
+			tenantID: "acme-corp",
+			keyID:    "pk_live_nonexistent",
+			setupMock: func(ts *testutil.MockTenantStore, _ *testutil.MockAPIKeyStore) string {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("acme-corp"))
+				return ""
+			},
+			wantErr:     true,
+			errContains: "api key not found",
+		},
+		{
+			name:     "tenant mismatch",
+			tenantID: "other-corp",
+			setupMock: func(ts *testutil.MockTenantStore, aks *testutil.MockAPIKeyStore) string {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("acme-corp"))
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("other-corp"))
+				key := &provisioning.APIKey{
+					KeyID:    "pk_live_owned_by_acme",
+					TenantID: "acme-corp",
+					Name:     "Acme Key",
+					IsActive: true,
+				}
+				_ = aks.Create(context.Background(), key)
+				return key.KeyID
+			},
+			wantErr:     true,
+			errContains: "does not belong",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc, tenantStore, _, _, apiKeyStore := newTestServiceWithAPIKeys()
+
+			keyID := tt.keyID
+			if tt.setupMock != nil {
+				if id := tt.setupMock(tenantStore, apiKeyStore); id != "" {
+					keyID = id
+				}
+			}
+
+			err := svc.RevokeAPIKey(context.Background(), tt.tenantID, keyID)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q should contain %q", err.Error(), tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestService_GetActiveAPIKeys(t *testing.T) {
+	t.Parallel()
+	svc, tenantStore, _, _, _ := newTestServiceWithAPIKeys()
+
+	// Setup: create tenant
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("acme-corp"))
+
+	// Create 3 API keys
+	for i, name := range []string{"Key A", "Key B", "Key C"} {
+		key, err := svc.CreateAPIKey(context.Background(), "acme-corp", provisioning.CreateAPIKeyRequest{Name: name})
+		if err != nil {
+			t.Fatalf("failed to create API key %d: %v", i, err)
+		}
+		// Revoke the second key to verify it's excluded from active list
+		if i == 1 {
+			if err := svc.RevokeAPIKey(context.Background(), "acme-corp", key.KeyID); err != nil {
+				t.Fatalf("failed to revoke API key: %v", err)
+			}
+		}
+	}
+
+	// Get active keys
+	activeKeys, err := svc.GetActiveAPIKeys(context.Background())
+	if err != nil {
+		t.Fatalf("failed to get active API keys: %v", err)
+	}
+
+	if len(activeKeys) != 2 {
+		t.Errorf("expected 2 active API keys, got %d", len(activeKeys))
 	}
 }

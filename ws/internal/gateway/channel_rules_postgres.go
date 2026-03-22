@@ -29,6 +29,10 @@ type PostgresChannelRulesProviderConfig struct {
 	Logger zerolog.Logger
 }
 
+// maxChannelRulesCacheSize is the maximum number of tenants cached. When exceeded,
+// the cache is cleared and refilled on demand — simple eviction without LRU overhead.
+const maxChannelRulesCacheSize = 10000
+
 // PostgresChannelRulesProvider implements ChannelRulesProvider with PostgreSQL backend and caching.
 type PostgresChannelRulesProvider struct {
 	db                   *sql.DB
@@ -76,13 +80,9 @@ func NewPostgresChannelRulesProvider(cfg PostgresChannelRulesProviderConfig) (*P
 // GetChannelRules returns the channel rules for a tenant.
 func (r *PostgresChannelRulesProvider) GetChannelRules(ctx context.Context, tenantID string) (*types.ChannelRules, error) {
 	// Check cache first
-	r.channelRulesCacheMu.RLock()
-	entry, ok := r.channelRulesCache[tenantID]
-	r.channelRulesCacheMu.RUnlock()
-
-	if ok && time.Now().Before(entry.expiresAt) {
-		RecordChannelRulesLookup(tenantID, LookupSourceCache)
-		return entry.rules, nil
+	if rules, ok := r.getCachedRules(tenantID); ok {
+		RecordChannelRulesLookup(LookupSourceCache)
+		return rules, nil
 	}
 
 	// Query database
@@ -116,24 +116,45 @@ func (r *PostgresChannelRulesProvider) GetChannelRules(ctx context.Context, tena
 		return nil, fmt.Errorf("validate cached rules: %w", err)
 	}
 
-	// Update cache
+	r.setCachedRules(tenantID, &rules)
+
+	RecordChannelRulesLookup(LookupSourceDatabase)
+	return &rules, nil
+}
+
+// getCachedRules returns cached channel rules if present and not expired.
+func (r *PostgresChannelRulesProvider) getCachedRules(tenantID string) (*types.ChannelRules, bool) {
+	r.channelRulesCacheMu.RLock()
+	defer r.channelRulesCacheMu.RUnlock()
+
+	entry, ok := r.channelRulesCache[tenantID]
+	if ok && time.Now().Before(entry.expiresAt) {
+		return entry.rules, true
+	}
+	return nil, false
+}
+
+// setCachedRules stores channel rules in the cache, evicting all entries if the cache is full.
+func (r *PostgresChannelRulesProvider) setCachedRules(tenantID string, rules *types.ChannelRules) {
 	r.channelRulesCacheMu.Lock()
+	defer r.channelRulesCacheMu.Unlock()
+
+	if len(r.channelRulesCache) >= maxChannelRulesCacheSize {
+		r.channelRulesCache = make(map[string]*channelRulesCacheEntry)
+		r.logger.Warn().Int("max_size", maxChannelRulesCacheSize).Msg("Channel rules cache evicted due to size limit")
+	}
 	r.channelRulesCache[tenantID] = &channelRulesCacheEntry{
-		rules:     &rules,
+		rules:     rules,
 		expiresAt: time.Now().Add(r.channelRulesCacheTTL),
 	}
-	r.channelRulesCacheMu.Unlock()
-
-	RecordChannelRulesLookup(tenantID, LookupSourceDatabase)
-	return &rules, nil
 }
 
 // Close clears the cache. The database connection is managed externally.
 func (r *PostgresChannelRulesProvider) Close() error {
 	r.channelRulesCacheMu.Lock()
-	r.channelRulesCache = make(map[string]*channelRulesCacheEntry)
-	r.channelRulesCacheMu.Unlock()
+	defer r.channelRulesCacheMu.Unlock()
 
+	r.channelRulesCache = make(map[string]*channelRulesCacheEntry)
 	r.logger.Debug().Msg("PostgresChannelRulesProvider closed")
 	return nil
 }
@@ -142,8 +163,9 @@ func (r *PostgresChannelRulesProvider) Close() error {
 // Useful when tenant config is updated.
 func (r *PostgresChannelRulesProvider) InvalidateTenantCache(tenantID string) {
 	r.channelRulesCacheMu.Lock()
+	defer r.channelRulesCacheMu.Unlock()
+
 	delete(r.channelRulesCache, tenantID)
-	r.channelRulesCacheMu.Unlock()
 }
 
 // Compile-time check that PostgresChannelRulesProvider implements ChannelRulesProvider.

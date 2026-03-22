@@ -32,22 +32,37 @@ type Handler struct {
 }
 
 // NewHandler creates a new Handler.
-func NewHandler(svc *provisioning.Service, logger zerolog.Logger) *Handler {
+func NewHandler(svc *provisioning.Service, logger zerolog.Logger) (*Handler, error) {
+	if svc == nil {
+		return nil, errors.New("handler: service is required")
+	}
 	return &Handler{
 		service: svc,
 		logger:  logger,
-	}
+	}, nil
 }
 
 // writeServiceError writes an error response, mapping known sentinel errors to appropriate HTTP status codes.
 func (h *Handler) writeServiceError(w http.ResponseWriter, err error, code, msg string) {
 	switch {
+	case errors.Is(err, provisioning.ErrTenantNotFound):
+		httputil.WriteError(w, http.StatusNotFound, "TENANT_NOT_FOUND", "Tenant not found")
 	case errors.Is(err, provisioning.ErrTenantDeleted):
 		httputil.WriteError(w, http.StatusConflict, "TENANT_DELETED", "Cannot modify deleted tenant")
 	case errors.Is(err, provisioning.ErrTenantNotActive):
 		httputil.WriteError(w, http.StatusConflict, "TENANT_NOT_ACTIVE", "Tenant is not active")
 	case errors.Is(err, provisioning.ErrKeyNotOwnedByTenant):
 		httputil.WriteError(w, http.StatusForbidden, "KEY_NOT_OWNED", "Key does not belong to tenant")
+	case errors.Is(err, provisioning.ErrAPIKeyNotFound):
+		httputil.WriteError(w, http.StatusNotFound, "API_KEY_NOT_FOUND", "API key not found")
+	case errors.Is(err, provisioning.ErrAPIKeyNotOwnedByTenant):
+		httputil.WriteError(w, http.StatusForbidden, "API_KEY_NOT_OWNED", "API key does not belong to tenant")
+	case errors.Is(err, provisioning.ErrQuotaNotFound):
+		httputil.WriteError(w, http.StatusNotFound, "QUOTA_NOT_FOUND", "Quota not found")
+	case errors.Is(err, provisioning.ErrKeyNotFound):
+		httputil.WriteError(w, http.StatusNotFound, "KEY_NOT_FOUND", "Key not found")
+	case errors.Is(err, provisioning.ErrInvalidQuota):
+		httputil.WriteError(w, http.StatusBadRequest, "INVALID_QUOTA", err.Error())
 	case errors.Is(err, provisioning.ErrChannelRulesNotConfigured),
 		errors.Is(err, provisioning.ErrRoutingRulesNotConfigured):
 		httputil.WriteError(w, http.StatusNotImplemented, "FEATURE_NOT_CONFIGURED", "Feature store not configured")
@@ -222,11 +237,12 @@ func (h *Handler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	_ = httputil.WriteJSON(w, http.StatusCreated, key)
 }
 
-// ListKeys returns all keys for a tenant.
+// ListKeys returns keys for a tenant with pagination.
 func (h *Handler) ListKeys(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
+	opts := parseListOptions(r)
 
-	keys, err := h.service.ListKeys(r.Context(), tenantID)
+	keys, total, err := h.service.ListKeys(r.Context(), tenantID, opts)
 	if err != nil {
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to list keys")
 		httputil.WriteError(w, http.StatusInternalServerError, "LIST_KEYS_FAILED", "Failed to list keys")
@@ -235,9 +251,9 @@ func (h *Handler) ListKeys(w http.ResponseWriter, r *http.Request) {
 
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"items":  keys,
-		"total":  len(keys),
-		"limit":  len(keys),
-		"offset": 0,
+		"total":  total,
+		"limit":  opts.Limit,
+		"offset": opts.Offset,
 	})
 }
 
@@ -392,6 +408,76 @@ func (h *Handler) GetAuditLog(w http.ResponseWriter, r *http.Request) {
 		"total":  total,
 		"limit":  opts.Limit,
 		"offset": opts.Offset,
+	})
+}
+
+// CreateAPIKey creates a new API key for a tenant.
+func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+
+	var req provisioning.CreateAPIKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		return
+	}
+
+	key, err := h.service.CreateAPIKey(r.Context(), tenantID, req)
+	if err != nil {
+		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to create API key")
+		h.writeServiceError(w, err, "CREATE_API_KEY_FAILED", "Failed to create API key")
+		return
+	}
+
+	RecordAPIKeyCreated()
+	_ = httputil.WriteJSON(w, http.StatusCreated, key)
+}
+
+// ListAPIKeys returns API keys for a tenant with pagination.
+func (h *Handler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	opts := parseListOptions(r)
+
+	keys, total, err := h.service.ListAPIKeys(r.Context(), tenantID, opts)
+	if err != nil {
+		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to list API keys")
+		httputil.WriteError(w, http.StatusInternalServerError, "LIST_API_KEYS_FAILED", "Failed to list API keys")
+		return
+	}
+
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"items":  keys,
+		"total":  total,
+		"limit":  opts.Limit,
+		"offset": opts.Offset,
+	})
+}
+
+// RevokeAPIKey revokes an API key.
+func (h *Handler) RevokeAPIKey(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	keyID := chi.URLParam(r, "keyID")
+
+	if err := h.service.RevokeAPIKey(r.Context(), tenantID, keyID); err != nil {
+		h.logger.Error().Err(err).Str("tenant_id", tenantID).Str("key_id", keyID).Msg("Failed to revoke API key")
+		h.writeServiceError(w, err, "REVOKE_API_KEY_FAILED", "Failed to revoke API key")
+		return
+	}
+
+	RecordAPIKeyRevoked()
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+}
+
+// GetActiveAPIKeys returns all active API keys (for gateway).
+func (h *Handler) GetActiveAPIKeys(w http.ResponseWriter, r *http.Request) {
+	keys, err := h.service.GetActiveAPIKeys(r.Context())
+	if err != nil {
+		h.logger.Error().Err(err).Msg("Failed to get active API keys")
+		httputil.WriteError(w, http.StatusInternalServerError, "GET_API_KEYS_FAILED", "Failed to get active API keys")
+		return
+	}
+
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"keys": keys,
 	})
 }
 

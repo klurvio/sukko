@@ -23,6 +23,15 @@ func ExtractBearerToken(r *http.Request) string {
 	return ""
 }
 
+// ExtractAPIKey extracts the API key from the query parameter "api_key" or X-API-Key header.
+// Checks query parameter first (for WebSocket connections), then header.
+func ExtractAPIKey(r *http.Request) string {
+	if key := r.URL.Query().Get("api_key"); key != "" {
+		return key
+	}
+	return r.Header.Get("X-API-Key")
+}
+
 // GetClientIP extracts the client IP from the request.
 // Checks X-Forwarded-For header first (for load balancers/proxies),
 // then falls back to RemoteAddr.

@@ -52,12 +52,15 @@ const (
 
 // Connection close reason values.
 const (
-	CloseReasonNormal              = "normal"
-	CloseReasonNoToken             = "no_token"
-	CloseReasonInvalidToken        = "invalid_token"
-	CloseReasonTenantLimitExceeded = "tenant_limit_exceeded"
-	CloseReasonUpgradeFailed       = "upgrade_failed"
-	CloseReasonBackendUnavailable  = "backend_unavailable"
+	CloseReasonNormal               = "normal"
+	CloseReasonNoToken              = "no_token"
+	CloseReasonInvalidToken         = "invalid_token"
+	CloseReasonTenantLimitExceeded  = "tenant_limit_exceeded"
+	CloseReasonUpgradeFailed        = "upgrade_failed"
+	CloseReasonBackendUnavailable   = "backend_unavailable"
+	CloseReasonNoCredentials        = "no_credentials"
+	CloseReasonInvalidAPIKey        = "invalid_api_key"
+	CloseReasonAPIKeyTenantMismatch = "api_key_tenant_mismatch" //nolint:gosec // close reason label, not a credential
 )
 
 // Prometheus metrics for the gateway service.
@@ -97,6 +100,21 @@ var authLatency = promauto.NewHistogram(prometheus.HistogramOpts{
 	Help:    "JWT validation latency",
 	Buckets: pkgmetrics.AuthLatencyBuckets,
 })
+
+// =============================================================================
+// API Key Auth Metrics
+// =============================================================================
+
+// API key auth result values.
+const (
+	APIKeyAuthAccepted = "accepted"
+	APIKeyAuthInvalid  = "invalid_key"
+)
+
+var apiKeyAuthTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "gateway_api_key_auth_total",
+	Help: "API key authentication attempts by result",
+}, []string{"result"}) // accepted, invalid_key
 
 // =============================================================================
 // Auth Refresh Metrics
@@ -152,8 +170,8 @@ var proxyErrors = promauto.NewCounterVec(prometheus.CounterOpts{
 
 var publishTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "gateway_publish_total",
-	Help: "Publish message intercepts by tenant and result",
-}, []string{"tenant", "result"}) // success, rate_limited, forbidden, etc.
+	Help: "Publish message intercepts by result",
+}, []string{"result"}) // success, rate_limited, forbidden, etc.
 
 var publishLatency = promauto.NewHistogram(prometheus.HistogramOpts{
 	Name:    "gateway_publish_latency_seconds",
@@ -215,13 +233,13 @@ var keyCacheRefreshes = promauto.NewCounterVec(prometheus.CounterOpts{
 
 var channelRulesLookupTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "gateway_channel_rules_lookup_total",
-	Help: "Channel rules lookups",
-}, []string{"tenant_id", "source"}) // source: cache, database, fallback
+	Help: "Channel rules lookups by source",
+}, []string{"source"}) // source: cache, database, fallback
 
 var channelAuthorizationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "gateway_channel_authorization_total",
-	Help: "Channel authorization decisions",
-}, []string{"tenant_id", "result"}) // result: allowed, denied
+	Help: "Channel authorization decisions by result",
+}, []string{"result"}) // result: allowed, denied
 
 // =============================================================================
 // Helper Functions
@@ -291,6 +309,11 @@ func RecordKeyCacheRefresh(success bool) {
 	}
 }
 
+// RecordAPIKeyAuth records API key authentication result.
+func RecordAPIKeyAuth(result string) {
+	apiKeyAuthTotal.WithLabelValues(result).Inc()
+}
+
 // RecordAccessDenial records an access denial with resource type and reason.
 func RecordAccessDenial(resourceType, reason string) {
 	accessDenials.WithLabelValues(resourceType, reason).Inc()
@@ -312,11 +335,8 @@ func RecordForcedUnsubscription() {
 }
 
 // RecordPublishResult records a publish message interception result.
-func RecordPublishResult(tenant, result string) {
-	if tenant == "" {
-		tenant = "unknown"
-	}
-	publishTotal.WithLabelValues(tenant, result).Inc()
+func RecordPublishResult(result string) {
+	publishTotal.WithLabelValues(result).Inc()
 }
 
 // RecordPublishLatency records the latency of publish message interception.
@@ -325,19 +345,13 @@ func RecordPublishLatency(seconds float64) {
 }
 
 // RecordChannelRulesLookup records a channel rules lookup.
-func RecordChannelRulesLookup(tenantID, source string) {
-	if tenantID == "" {
-		tenantID = "unknown"
-	}
-	channelRulesLookupTotal.WithLabelValues(tenantID, source).Inc()
+func RecordChannelRulesLookup(source string) {
+	channelRulesLookupTotal.WithLabelValues(source).Inc()
 }
 
 // RecordChannelAuthorization records a channel authorization decision.
-func RecordChannelAuthorization(tenantID, result string) {
-	if tenantID == "" {
-		tenantID = "unknown"
-	}
-	channelAuthorizationTotal.WithLabelValues(tenantID, result).Inc()
+func RecordChannelAuthorization(result string) {
+	channelAuthorizationTotal.WithLabelValues(result).Inc()
 }
 
 // AccessDenialMetricsAdapter implements auth.AccessDenialMetrics for Prometheus.

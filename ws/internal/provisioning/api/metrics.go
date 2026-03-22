@@ -53,6 +53,17 @@ var (
 		Help: "Total number of keys revoked",
 	})
 
+	// API key operations
+	apiKeysCreated = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "provisioning_api_keys_created_total",
+		Help: "Total number of API keys created",
+	})
+
+	apiKeysRevoked = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "provisioning_api_keys_revoked_total",
+		Help: "Total number of API keys revoked",
+	})
+
 	// Routing rules operations
 	routingRulesSet = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "provisioning_routing_rules_set_total",
@@ -106,6 +117,16 @@ func RecordKeyCreated() {
 // RecordKeyRevoked increments the key revoked counter.
 func RecordKeyRevoked() {
 	keysRevoked.Inc()
+}
+
+// RecordAPIKeyCreated increments the API key created counter.
+func RecordAPIKeyCreated() {
+	apiKeysCreated.Inc()
+}
+
+// RecordAPIKeyRevoked increments the API key revoked counter.
+func RecordAPIKeyRevoked() {
+	apiKeysRevoked.Inc()
 }
 
 // RecordRoutingRulesSet increments the routing rules set counter.

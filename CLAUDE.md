@@ -78,7 +78,7 @@ docs/architecture/       # Plans, findings, session handoffs
 ```
 
 ### Key Technologies
-- **Go 1.22+** with modern features (any, slices, maps, for range N, errors.Join)
+- **Go 1.26+** with modern features (any, slices, maps, for range N, errors.Join, wg.Go, errors.AsType)
 - **franz-go** for Kafka/Redpanda consumption (consumer groups, partition management)
 - **NATS** for inter-pod broadcast (publish/subscribe)
 - **gRPC** + **protobuf** for internal service-to-service communication (buf for codegen)
@@ -128,7 +128,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.8.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-16
+**Version**: 1.9.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-22
 
 ### I. Configuration
 
@@ -160,12 +160,31 @@ This is a high-performance WebSocket server handling thousands of concurrent con
 
 **Design Preference** — Prefer goroutine ownership over shared memory with locks. When a piece of state needs concurrent access, the first choice SHOULD be a dedicated goroutine that owns the state and communicates via channels (Go proverb: "share memory by communicating"). Mutexes are acceptable for simple read-heavy caches (`sync.RWMutex`) and atomic counters, but for stateful operations (connection lifecycle, subscription tracking, auth flow), a single-owner goroutine with channel-based communication is safer and eliminates lock-ordering concerns.
 
-**Goroutine Lifecycle** — All goroutines MUST follow this exact launch sequence:
-1. `wg.Add(1)` MUST be called BEFORE the `go` statement — never inside the goroutine. Calling `Add()` inside the goroutine is a race condition: `Done()` can execute before `Add()`, causing `Wait()` to return prematurely.
-2. `defer logging.RecoverPanic(...)` MUST be the FIRST `defer` inside the goroutine body.
-3. `defer wg.Done()` MUST be the SECOND `defer` inside the goroutine body. Using `defer` (not inline) guarantees execution on panic or early return.
-4. The goroutine MUST check `ctx.Done()` in its main loop via `select` for shutdown signaling.
-5. `wg.Wait()` MUST be called in the shutdown/stop path to ensure all goroutines have exited before resources are released.
+**Goroutine Lifecycle** — All goroutines MUST be launched via `wg.Go()` (Go 1.25+), which handles `Add(1)` before launch and `Done()` after the function returns. The function passed to `wg.Go()` MUST follow this structure:
+1. `defer logging.RecoverPanic(...)` MUST be the FIRST `defer` inside the function body.
+2. The function MUST NOT call `wg.Done()` — `wg.Go()` calls it automatically. Calling `Done()` inside a `wg.Go()` function causes a double-Done, driving the WaitGroup counter negative and panicking at runtime.
+3. The goroutine MUST check `ctx.Done()` in its main loop via `select` for shutdown signaling.
+4. `wg.Wait()` MUST be called in the shutdown/stop path to ensure all goroutines have exited before resources are released.
+
+**`wg.Go()` with inline closures** (preferred for short-lived or context-capturing goroutines):
+```go
+wg.Go(func() {
+    defer logging.RecoverPanic(logger, "component_name", nil)
+    doWork(ctx)
+})
+```
+
+**`wg.Go()` with named methods** (preferred for long-lived goroutines with their own loops):
+```go
+wg.Go(s.runLoop)
+// Inside runLoop: NO defer wg.Done() — wg.Go handles it.
+func (s *Service) runLoop() {
+    defer logging.RecoverPanic(s.logger, "runLoop", nil)
+    for { select { case <-s.ctx.Done(): return } }
+}
+```
+
+**CRITICAL — Modernization safety rule**: When converting legacy `wg.Add(1); go method()` patterns to `wg.Go(method)`, the `defer wg.Done()` inside the method body MUST be removed in the same change. Failing to do so causes double-Done. Both the call site and the method body MUST be updated atomically — never one without the other.
 
 Shutdown ordering MUST be: cancel context → `wg.Wait()` for goroutines → close channels → release resources. Reversing this order (e.g., closing a channel before its goroutine exits) causes panics.
 
@@ -176,9 +195,10 @@ Shutdown ordering MUST be: cancel context → `wg.Wait()` for goroutines → clo
 - **Fan-out sends** (broadcast to multiple subscribers): MUST use non-blocking `select` with `default` to skip slow consumers. Dropped messages MUST be counted via Prometheus metrics (`_dropped_total`). A single slow subscriber MUST NOT block delivery to all other subscribers.
 - **Channel close rules**: Only the sender side MUST close a channel — never the receiver. After closing, no further sends are permitted (panic). When a channel may be closed from multiple code paths, guard with `sync.Once`. When draining a channel before reuse (e.g., `sync.Pool`), use `select` with `default` in a loop.
 
-**WaitGroups** — `sync.WaitGroup` is for goroutine lifecycle tracking only. The `Add`/`Done`/`Wait` sequence is defined in Goroutine Lifecycle above. Additional constraints:
+**WaitGroups** — `sync.WaitGroup` is for goroutine lifecycle tracking only. `wg.Go(func())` is the ONLY permitted launch pattern — manual `wg.Add(1); go func() { defer wg.Done(); ... }()` is legacy and MUST NOT be introduced in new code. Additional constraints:
 - `wg.Wait()` SHOULD have a timeout mechanism (e.g., wrapper with `context.WithTimeout`) to detect stuck goroutines during shutdown rather than hanging indefinitely.
 - WaitGroups MUST NOT be reused after `Wait()` returns for a given set of goroutines.
+- Functions passed to `wg.Go()` MUST NOT call `wg.Done()` — this is the single most common modernization bug and causes a runtime panic.
 
 **Mutexes** — Locks MUST protect data, not code:
 - `sync.RWMutex` MUST be used for read-heavy data (caches, subscription maps, metrics snapshots) where reads vastly outnumber writes. `sync.Mutex` MUST be used only when writes are as frequent as reads.

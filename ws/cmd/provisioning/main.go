@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -95,6 +96,7 @@ func main() {
 	// Initialize repositories
 	tenantRepo := repository.NewPostgresTenantRepository(db)
 	keyRepo := repository.NewPostgresKeyRepository(db)
+	apiKeyRepo := repository.NewPostgresAPIKeyStore(db)
 	routingRulesRepo := repository.NewPostgresRoutingRulesRepository(db)
 	quotaRepo := repository.NewPostgresQuotaRepository(db)
 	auditRepo := repository.NewPostgresAuditRepository(db)
@@ -107,6 +109,7 @@ func main() {
 	svc, err := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:          tenantRepo,
 		KeyStore:             keyRepo,
+		APIKeyStore:          apiKeyRepo,
 		RoutingRulesStore:    routingRulesRepo,
 		QuotaStore:           quotaRepo,
 		AuditStore:           auditRepo,
@@ -165,17 +168,21 @@ func main() {
 
 	var adminAuth *api.AdminAuth
 	if cfg.AdminToken != "" {
-		adminAuth = api.NewAdminAuth(ctx, &wg, cfg.AdminToken, api.AdminAuthConfig{
+		var err error
+		adminAuth, err = api.NewAdminAuth(ctx, &wg, cfg.AdminToken, api.AdminAuthConfig{
 			FailureThreshold: cfg.AdminAuthFailureThreshold,
 			BlockDuration:    cfg.AdminAuthBlockDuration,
 			CleanupInterval:  cfg.AdminAuthCleanupInterval,
 			CleanupMaxAge:    cfg.AdminAuthCleanupMaxAge,
 		}, structuredLogger)
+		if err != nil {
+			structuredLogger.Fatal().Err(err).Msg("Failed to create admin auth")
+		}
 		structuredLogger.Info().Msg("Admin token authentication enabled")
 	}
 
 	// Initialize HTTP router
-	router := api.NewRouter(api.RouterConfig{
+	router, err := api.NewRouter(api.RouterConfig{
 		Service:            svc,
 		Logger:             structuredLogger,
 		RateLimit:          cfg.APIRateLimitPerMinute,
@@ -186,6 +193,9 @@ func main() {
 		CORSMaxAge:         cfg.CORSMaxAge,
 		ConfigHandler:      platform.ConfigHandler(cfg),
 	})
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")
+	}
 
 	// Create HTTP server
 	httpServer := &http.Server{
@@ -250,7 +260,7 @@ func main() {
 	wg.Go(func() {
 		defer logging.RecoverPanic(structuredLogger, "http.ListenAndServe", nil)
 		structuredLogger.Info().Str("addr", cfg.Addr).Msg("Starting provisioning HTTP server")
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			structuredLogger.Error().Err(err).Msg("HTTP server error")
 			cancel()
 		}

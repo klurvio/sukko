@@ -147,23 +147,18 @@ func (lb *LoadBalancer) Start() error {
 		MaxHeaderBytes: server.DefaultHTTPMaxHeaderBytes,
 	}
 
-	lb.wg.Add(1)
-	go func() {
-		// CRITICAL: Panic recovery must be FIRST defer (executes LAST in LIFO order)
+	lb.wg.Go(func() {
 		defer logging.RecoverPanic(lb.logger, "loadbalancer.ListenAndServe", nil)
-
-		defer lb.wg.Done()
 		lb.logger.Info().Str("address", httpServer.Addr).Msg("LoadBalancer listening")
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			lb.logger.Error().Err(err).Msg("LoadBalancer HTTP server error")
 		}
-	}()
+	})
 
 	lb.logger.Info().Msg("LoadBalancer started")
 
 	// Start metrics aggregation goroutine
-	lb.wg.Add(1)
-	go lb.runMetricsAggregation()
+	lb.wg.Go(lb.runMetricsAggregation)
 
 	return nil
 }
@@ -172,7 +167,6 @@ func (lb *LoadBalancer) Start() error {
 // This fixes the bug where per-shard collectors overwrite each other's metrics
 func (lb *LoadBalancer) runMetricsAggregation() {
 	defer logging.RecoverPanic(lb.logger, "loadbalancer.runMetricsAggregation", nil)
-	defer lb.wg.Done()
 	ticker := time.NewTicker(lb.metricsAggregationInterval)
 	defer ticker.Stop()
 

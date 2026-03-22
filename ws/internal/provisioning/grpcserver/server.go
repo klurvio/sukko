@@ -235,6 +235,67 @@ func (s *Server) WatchTopics(req *provisioningv1.WatchTopicsRequest, stream grpc
 	}
 }
 
+// WatchAPIKeys streams active API keys to the caller. Sends a snapshot on connect,
+// then streams deltas when API keys change via event bus.
+func (s *Server) WatchAPIKeys(_ *provisioningv1.WatchAPIKeysRequest, stream grpc.ServerStreamingServer[provisioningv1.WatchAPIKeysResponse]) error {
+	ctx := stream.Context()
+	logger := s.logger.With().Str("rpc", "WatchAPIKeys").Logger()
+
+	// Load and send initial snapshot
+	keys, err := s.service.GetActiveAPIKeys(ctx)
+	if err != nil {
+		return status.Errorf(codes.Internal, "load active api keys: %v", err)
+	}
+
+	snapshot := &provisioningv1.WatchAPIKeysResponse{
+		IsSnapshot: true,
+		ApiKeys:    convertAPIKeys(keys),
+	}
+	if err := stream.Send(snapshot); err != nil {
+		return status.Errorf(codes.Unavailable, "send api keys snapshot: %v", err)
+	}
+
+	logger.Info().Int("key_count", len(keys)).Msg("sent api keys snapshot")
+
+	// Subscribe to event bus for changes
+	subID, events := s.eventBus.Subscribe()
+	defer s.eventBus.Unsubscribe(subID)
+
+	// Stream deltas on change
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Debug().Msg("stream context canceled")
+			return nil
+
+		case event, ok := <-events:
+			if !ok {
+				return nil
+			}
+			if event.Type != eventbus.APIKeysChanged {
+				continue
+			}
+
+			// Reload all active API keys and send as delta
+			updatedKeys, err := s.service.GetActiveAPIKeys(ctx)
+			if err != nil {
+				logger.Error().Err(err).Msg("failed to reload api keys for delta")
+				continue
+			}
+
+			delta := &provisioningv1.WatchAPIKeysResponse{
+				IsSnapshot: false,
+				ApiKeys:    convertAPIKeys(updatedKeys),
+			}
+			if err := stream.Send(delta); err != nil {
+				return status.Errorf(codes.Unavailable, "send api keys delta: %v", err)
+			}
+
+			logger.Debug().Int("key_count", len(updatedKeys)).Msg("sent api keys delta")
+		}
+	}
+}
+
 // loadTenantConfigs loads all tenant channel rules and routing rules.
 func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.TenantConfig, error) {
 	tenants, _, err := s.service.ListTenants(ctx, provisioning.ListOptions{Limit: s.maxTenantsFetchLimit})
@@ -359,17 +420,42 @@ func convertRoutingRules(rules []provisioning.TopicRoutingRule) []*provisioningv
 	return result
 }
 
+// convertAPIKeys converts provisioning API keys to proto APIKeyInfo messages.
+func convertAPIKeys(keys []*provisioning.APIKey) []*provisioningv1.APIKeyInfo {
+	result := make([]*provisioningv1.APIKeyInfo, 0, len(keys))
+	for _, k := range keys {
+		result = append(result, &provisioningv1.APIKeyInfo{
+			KeyId:    k.KeyID,
+			TenantId: k.TenantID,
+			Name:     k.Name,
+			IsActive: k.IsActive,
+		})
+	}
+	return result
+}
+
 // convertChannelRules converts types.ChannelRules to proto ChannelRules.
 func convertChannelRules(rules *types.ChannelRules) *provisioningv1.ChannelRules {
 	cr := &provisioningv1.ChannelRules{
-		PublicChannels:  rules.Public,
-		DefaultChannels: rules.Default,
+		PublicChannels:         rules.Public,
+		DefaultChannels:        rules.Default,
+		PublishPublicChannels:  rules.PublishPublic,
+		PublishDefaultChannels: rules.PublishDefault,
 	}
 
 	if len(rules.GroupMappings) > 0 {
 		cr.GroupMappings = make(map[string]*provisioningv1.GroupChannels)
 		for group, channels := range rules.GroupMappings {
 			cr.GroupMappings[group] = &provisioningv1.GroupChannels{
+				Channels: channels,
+			}
+		}
+	}
+
+	if len(rules.PublishGroupMappings) > 0 {
+		cr.PublishGroupMappings = make(map[string]*provisioningv1.GroupChannels)
+		for group, channels := range rules.PublishGroupMappings {
+			cr.PublishGroupMappings[group] = &provisioningv1.GroupChannels{
 				Channels: channels,
 			}
 		}

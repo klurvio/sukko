@@ -70,7 +70,7 @@ func (r *PostgresKeyRepository) Get(ctx context.Context, keyID string) (*provisi
 		&revokedAt,
 	)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("key not found: %s", keyID)
+		return nil, fmt.Errorf("%w: %s", provisioning.ErrKeyNotFound, keyID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query key: %w", err)
@@ -86,18 +86,26 @@ func (r *PostgresKeyRepository) Get(ctx context.Context, keyID string) (*provisi
 	return key, nil
 }
 
-// ListByTenant returns all keys for a tenant.
-func (r *PostgresKeyRepository) ListByTenant(ctx context.Context, tenantID string) ([]*provisioning.TenantKey, error) {
+// ListByTenant returns keys for a tenant with pagination.
+func (r *PostgresKeyRepository) ListByTenant(ctx context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.TenantKey, int, error) {
+	// Count total
+	var total int
+	countQuery := `SELECT COUNT(*) FROM tenant_keys WHERE tenant_id = $1`
+	if err := r.db.QueryRowContext(ctx, countQuery, tenantID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count keys: %w", err)
+	}
+
 	query := `
 		SELECT key_id, tenant_id, algorithm, public_key, is_active, created_at, expires_at, revoked_at
 		FROM tenant_keys
 		WHERE tenant_id = $1
 		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, tenantID)
+	rows, err := r.db.QueryContext(ctx, query, tenantID, opts.Limit, opts.Offset)
 	if err != nil {
-		return nil, fmt.Errorf("query keys: %w", err)
+		return nil, 0, fmt.Errorf("query keys: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -117,7 +125,7 @@ func (r *PostgresKeyRepository) ListByTenant(ctx context.Context, tenantID strin
 			&revokedAt,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("scan key: %w", err)
+			return nil, 0, fmt.Errorf("scan key: %w", err)
 		}
 
 		if expiresAt.Valid {
@@ -131,10 +139,10 @@ func (r *PostgresKeyRepository) ListByTenant(ctx context.Context, tenantID strin
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate keys: %w", err)
+		return nil, 0, fmt.Errorf("iterate keys: %w", err)
 	}
 
-	return keys, nil
+	return keys, total, nil
 }
 
 // Revoke revokes a key by setting its revoked_at timestamp.
@@ -156,7 +164,7 @@ func (r *PostgresKeyRepository) Revoke(ctx context.Context, keyID string) error 
 		return fmt.Errorf("get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("key not found or already revoked: %s", keyID)
+		return fmt.Errorf("%w: %s", provisioning.ErrKeyNotFound, keyID)
 	}
 
 	return nil

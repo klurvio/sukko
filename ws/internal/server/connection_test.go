@@ -415,13 +415,11 @@ func TestSubscriptionIndex_ThreadSafety(t *testing.T) {
 
 	// Concurrent adds
 	for i := range 10 {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
+		wg.Go(func() {
 			for range iterations {
-				idx.Add("channel"+string(rune('A'+id%3)), clients[id])
+				idx.Add("channel"+string(rune('A'+i%3)), clients[i])
 			}
-		}(i)
+		})
 	}
 
 	// Concurrent reads

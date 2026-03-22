@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
@@ -21,5 +22,16 @@ type ChannelRulesProvider interface {
 	GetChannelRules(ctx context.Context, tenantID string) (*types.ChannelRules, error)
 
 	// Close releases resources held by the provider.
+	Close() error
+}
+
+// APIKeyLookup provides O(1) API key validation for gateway connections.
+// Implemented by StreamAPIKeyRegistry; defined here to enable mock injection in tests.
+type APIKeyLookup interface {
+	// Lookup returns the API key info for the given key string.
+	// Returns false if the key is not found or not active.
+	Lookup(apiKey string) (*provapi.APIKeyInfo, bool)
+
+	// Close releases resources held by the registry.
 	Close() error
 }

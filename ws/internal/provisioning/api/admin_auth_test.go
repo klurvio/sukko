@@ -19,12 +19,15 @@ func newTestAdminAuth(token string) (*AdminAuth, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	logger := zerolog.Nop()
-	aa := NewAdminAuth(ctx, &wg, token, AdminAuthConfig{
+	aa, err := NewAdminAuth(ctx, &wg, token, AdminAuthConfig{
 		FailureThreshold: testFailureThreshold,
 		BlockDuration:    60 * time.Second,
 		CleanupInterval:  5 * time.Minute,
 		CleanupMaxAge:    2 * time.Minute,
 	}, logger)
+	if err != nil {
+		panic("newTestAdminAuth: " + err.Error())
+	}
 	return aa, func() {
 		aa.Close()
 		cancel()
