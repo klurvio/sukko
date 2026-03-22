@@ -31,10 +31,16 @@ func NewPermissionChecker(publicPatterns, userScopedPatterns, groupScopedPattern
 
 // CanSubscribe checks if the given claims allow subscription to the channel.
 // Returns true if the subscription is allowed, false otherwise.
+// When claims is nil (API-key-only connections), only public channels are allowed.
 func (pc *PermissionChecker) CanSubscribe(claims *auth.Claims, channel string) bool {
-	// Check public patterns first (any authenticated user)
+	// Check public patterns first (any authenticated user or API-key-only)
 	if pc.matchesPublic(channel) {
 		return true
+	}
+
+	// Non-public channels require JWT claims — API-key-only connections (nil claims) are denied.
+	if claims == nil {
+		return false
 	}
 
 	// Check user-scoped patterns (JWT.sub must match principal)

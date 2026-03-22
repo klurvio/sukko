@@ -62,7 +62,7 @@ func (m *MockTenantStore) Get(_ context.Context, tenantID string) (*provisioning
 	defer m.mu.RUnlock()
 	t, ok := m.tenants[tenantID]
 	if !ok {
-		return nil, errors.New("tenant not found")
+		return nil, provisioning.ErrTenantNotFound
 	}
 	return t, nil
 }
@@ -75,7 +75,7 @@ func (m *MockTenantStore) Update(_ context.Context, tenant *provisioning.Tenant)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, exists := m.tenants[tenant.ID]; !exists {
-		return errors.New("tenant not found")
+		return provisioning.ErrTenantNotFound
 	}
 	tenant.UpdatedAt = time.Now()
 	m.tenants[tenant.ID] = tenant
@@ -110,7 +110,7 @@ func (m *MockTenantStore) UpdateStatus(_ context.Context, tenantID string, statu
 	defer m.mu.Unlock()
 	t, ok := m.tenants[tenantID]
 	if !ok {
-		return errors.New("tenant not found")
+		return provisioning.ErrTenantNotFound
 	}
 	t.Status = status
 	t.UpdatedAt = time.Now()
@@ -130,7 +130,7 @@ func (m *MockTenantStore) SetDeprovisionAt(_ context.Context, tenantID string, d
 	defer m.mu.Unlock()
 	t, ok := m.tenants[tenantID]
 	if !ok {
-		return errors.New("tenant not found")
+		return provisioning.ErrTenantNotFound
 	}
 	if deprovisionAt != nil {
 		tt := *deprovisionAt
@@ -197,22 +197,32 @@ func (m *MockKeyStore) Get(_ context.Context, keyID string) (*provisioning.Tenan
 	defer m.mu.RUnlock()
 	k, ok := m.keys[keyID]
 	if !ok {
-		return nil, errors.New("key not found")
+		return nil, provisioning.ErrKeyNotFound
 	}
 	return k, nil
 }
 
 // ListByTenant implements KeyStore.ListByTenant for testing.
-func (m *MockKeyStore) ListByTenant(_ context.Context, tenantID string) ([]*provisioning.TenantKey, error) {
+func (m *MockKeyStore) ListByTenant(_ context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.TenantKey, int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var result []*provisioning.TenantKey
+	var all []*provisioning.TenantKey
 	for _, k := range m.keys {
 		if k.TenantID == tenantID {
-			result = append(result, k)
+			all = append(all, k)
 		}
 	}
-	return result, nil
+	total := len(all)
+
+	// Apply pagination
+	if opts.Offset >= len(all) {
+		return []*provisioning.TenantKey{}, total, nil
+	}
+	all = all[opts.Offset:]
+	if opts.Limit > 0 && opts.Limit < len(all) {
+		all = all[:opts.Limit]
+	}
+	return all, total, nil
 }
 
 // Revoke implements KeyStore.Revoke for testing.
@@ -257,6 +267,107 @@ func (m *MockKeyStore) GetActiveKeys(_ context.Context) ([]*provisioning.TenantK
 	now := time.Now()
 	for _, k := range m.keys {
 		if k.IsActive && (k.ExpiresAt == nil || k.ExpiresAt.After(now)) && k.RevokedAt == nil {
+			result = append(result, k)
+		}
+	}
+	return result, nil
+}
+
+// MockAPIKeyStore is an in-memory mock implementation of APIKeyStore.
+type MockAPIKeyStore struct {
+	mu   sync.RWMutex
+	keys map[string]*provisioning.APIKey
+
+	CreateErr           error
+	GetErr              error
+	RevokeErr           error
+	GetActiveAPIKeysErr error
+}
+
+// NewMockAPIKeyStore creates a new MockAPIKeyStore.
+func NewMockAPIKeyStore() *MockAPIKeyStore {
+	return &MockAPIKeyStore{
+		keys: make(map[string]*provisioning.APIKey),
+	}
+}
+
+// Create implements APIKeyStore.Create for testing.
+func (m *MockAPIKeyStore) Create(_ context.Context, key *provisioning.APIKey) error {
+	if m.CreateErr != nil {
+		return m.CreateErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.keys[key.KeyID]; exists {
+		return errors.New("api key already exists")
+	}
+	k := *key
+	k.CreatedAt = time.Now()
+	k.IsActive = true
+	m.keys[key.KeyID] = &k
+	return nil
+}
+
+// Get implements APIKeyStore.Get for testing.
+func (m *MockAPIKeyStore) Get(_ context.Context, keyID string) (*provisioning.APIKey, error) {
+	if m.GetErr != nil {
+		return nil, m.GetErr
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	k, ok := m.keys[keyID]
+	if !ok {
+		return nil, provisioning.ErrAPIKeyNotFound
+	}
+	return k, nil
+}
+
+// ListByTenant implements APIKeyStore.ListByTenant for testing.
+func (m *MockAPIKeyStore) ListByTenant(_ context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.APIKey, int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var all []*provisioning.APIKey
+	for _, k := range m.keys {
+		if k.TenantID == tenantID {
+			all = append(all, k)
+		}
+	}
+	total := len(all)
+
+	// Apply pagination
+	start := min(opts.Offset, len(all))
+	end := min(start+opts.Limit, len(all))
+
+	return all[start:end], total, nil
+}
+
+// Revoke implements APIKeyStore.Revoke for testing.
+func (m *MockAPIKeyStore) Revoke(_ context.Context, keyID string) error {
+	if m.RevokeErr != nil {
+		return m.RevokeErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k, ok := m.keys[keyID]
+	if !ok {
+		return provisioning.ErrAPIKeyNotFound
+	}
+	now := time.Now()
+	k.IsActive = false
+	k.RevokedAt = &now
+	return nil
+}
+
+// GetActiveAPIKeys implements APIKeyStore.GetActiveAPIKeys for testing.
+func (m *MockAPIKeyStore) GetActiveAPIKeys(_ context.Context) ([]*provisioning.APIKey, error) {
+	if m.GetActiveAPIKeysErr != nil {
+		return nil, m.GetActiveAPIKeysErr
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []*provisioning.APIKey
+	for _, k := range m.keys {
+		if k.IsActive && k.RevokedAt == nil {
 			result = append(result, k)
 		}
 	}
@@ -371,7 +482,7 @@ func (m *MockQuotaStore) Get(_ context.Context, tenantID string) (*provisioning.
 	defer m.mu.RUnlock()
 	q, ok := m.quotas[tenantID]
 	if !ok {
-		return nil, errors.New("quota not found")
+		return nil, provisioning.ErrQuotaNotFound
 	}
 	return q, nil
 }

@@ -65,6 +65,9 @@ func NewStreamTopicRegistry(cfg StreamTopicRegistryConfig) (*StreamTopicRegistry
 	if cfg.ReconnectMaxDelay < cfg.ReconnectDelay {
 		return nil, errors.New("stream topic registry: ReconnectMaxDelay must be >= ReconnectDelay")
 	}
+	if cfg.Namespace == "" {
+		return nil, errors.New("stream topic registry: Namespace is required")
+	}
 	if cfg.MetricPrefix == "" {
 		return nil, errors.New("stream topic registry: MetricPrefix is required")
 	}

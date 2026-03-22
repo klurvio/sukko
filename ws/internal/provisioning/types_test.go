@@ -1,6 +1,8 @@
 package provisioning
 
 import (
+	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 )
@@ -462,4 +464,62 @@ func TestACLConstants(t *testing.T) {
 	if ACLPermissionDeny != "DENY" {
 		t.Errorf("ACLPermissionDeny = %q, want %q", ACLPermissionDeny, "DENY")
 	}
+}
+
+func TestGenerateAPIKeyID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("has pk_live_ prefix", func(t *testing.T) {
+		t.Parallel()
+		key, err := GenerateAPIKeyID()
+		if err != nil {
+			t.Fatalf("GenerateAPIKeyID() error = %v", err)
+		}
+		if !strings.HasPrefix(key, "pk_live_") {
+			t.Errorf("GenerateAPIKeyID() = %q, want pk_live_ prefix", key)
+		}
+	})
+
+	t.Run("sufficient length", func(t *testing.T) {
+		t.Parallel()
+		key, err := GenerateAPIKeyID()
+		if err != nil {
+			t.Fatalf("GenerateAPIKeyID() error = %v", err)
+		}
+		// pk_live_ (8 chars) + base64url of 32 bytes (43 chars) = 51 chars
+		if len(key) < 50 {
+			t.Errorf("GenerateAPIKeyID() length = %d, want >= 50", len(key))
+		}
+	})
+
+	t.Run("uniqueness", func(t *testing.T) {
+		t.Parallel()
+		key1, err := GenerateAPIKeyID()
+		if err != nil {
+			t.Fatalf("GenerateAPIKeyID() key1 error = %v", err)
+		}
+		key2, err := GenerateAPIKeyID()
+		if err != nil {
+			t.Fatalf("GenerateAPIKeyID() key2 error = %v", err)
+		}
+		if key1 == key2 {
+			t.Errorf("GenerateAPIKeyID() produced duplicate keys: %q", key1)
+		}
+	})
+
+	t.Run("entropy - 32 bytes decoded", func(t *testing.T) {
+		t.Parallel()
+		key, err := GenerateAPIKeyID()
+		if err != nil {
+			t.Fatalf("GenerateAPIKeyID() error = %v", err)
+		}
+		encoded := strings.TrimPrefix(key, "pk_live_")
+		decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+		if err != nil {
+			t.Fatalf("base64 decode error = %v", err)
+		}
+		if len(decoded) != 32 {
+			t.Errorf("decoded entropy length = %d bytes, want 32", len(decoded))
+		}
+	})
 }

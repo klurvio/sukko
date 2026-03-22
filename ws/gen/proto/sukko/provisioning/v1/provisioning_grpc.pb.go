@@ -22,6 +22,7 @@ const (
 	ProvisioningInternalService_WatchKeys_FullMethodName         = "/sukko.provisioning.v1.ProvisioningInternalService/WatchKeys"
 	ProvisioningInternalService_WatchTenantConfig_FullMethodName = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTenantConfig"
 	ProvisioningInternalService_WatchTopics_FullMethodName       = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTopics"
+	ProvisioningInternalService_WatchAPIKeys_FullMethodName      = "/sukko.provisioning.v1.ProvisioningInternalService/WatchAPIKeys"
 )
 
 // ProvisioningInternalServiceClient is the client API for ProvisioningInternalService service.
@@ -32,10 +33,12 @@ const (
 type ProvisioningInternalServiceClient interface {
 	// Stream active keys — snapshot on connect, deltas on change.
 	WatchKeys(ctx context.Context, in *WatchKeysRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchKeysResponse], error)
-	// Stream tenant config (channel rules) — snapshot on connect, deltas on change.
+	// Stream tenant config (channel rules, routing rules) — snapshot on connect, deltas on change.
 	WatchTenantConfig(ctx context.Context, in *WatchTenantConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchTenantConfigResponse], error)
 	// Stream topic discovery — snapshot on connect, deltas on change.
 	WatchTopics(ctx context.Context, in *WatchTopicsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchTopicsResponse], error)
+	// Stream active API keys — snapshot on connect, deltas on change.
+	WatchAPIKeys(ctx context.Context, in *WatchAPIKeysRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchAPIKeysResponse], error)
 }
 
 type provisioningInternalServiceClient struct {
@@ -103,6 +106,25 @@ func (c *provisioningInternalServiceClient) WatchTopics(ctx context.Context, in 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ProvisioningInternalService_WatchTopicsClient = grpc.ServerStreamingClient[WatchTopicsResponse]
 
+func (c *provisioningInternalServiceClient) WatchAPIKeys(ctx context.Context, in *WatchAPIKeysRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchAPIKeysResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ProvisioningInternalService_ServiceDesc.Streams[3], ProvisioningInternalService_WatchAPIKeys_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WatchAPIKeysRequest, WatchAPIKeysResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ProvisioningInternalService_WatchAPIKeysClient = grpc.ServerStreamingClient[WatchAPIKeysResponse]
+
 // ProvisioningInternalServiceServer is the server API for ProvisioningInternalService service.
 // All implementations must embed UnimplementedProvisioningInternalServiceServer
 // for forward compatibility.
@@ -111,10 +133,12 @@ type ProvisioningInternalService_WatchTopicsClient = grpc.ServerStreamingClient[
 type ProvisioningInternalServiceServer interface {
 	// Stream active keys — snapshot on connect, deltas on change.
 	WatchKeys(*WatchKeysRequest, grpc.ServerStreamingServer[WatchKeysResponse]) error
-	// Stream tenant config (channel rules) — snapshot on connect, deltas on change.
+	// Stream tenant config (channel rules, routing rules) — snapshot on connect, deltas on change.
 	WatchTenantConfig(*WatchTenantConfigRequest, grpc.ServerStreamingServer[WatchTenantConfigResponse]) error
 	// Stream topic discovery — snapshot on connect, deltas on change.
 	WatchTopics(*WatchTopicsRequest, grpc.ServerStreamingServer[WatchTopicsResponse]) error
+	// Stream active API keys — snapshot on connect, deltas on change.
+	WatchAPIKeys(*WatchAPIKeysRequest, grpc.ServerStreamingServer[WatchAPIKeysResponse]) error
 	mustEmbedUnimplementedProvisioningInternalServiceServer()
 }
 
@@ -133,6 +157,9 @@ func (UnimplementedProvisioningInternalServiceServer) WatchTenantConfig(*WatchTe
 }
 func (UnimplementedProvisioningInternalServiceServer) WatchTopics(*WatchTopicsRequest, grpc.ServerStreamingServer[WatchTopicsResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchTopics not implemented")
+}
+func (UnimplementedProvisioningInternalServiceServer) WatchAPIKeys(*WatchAPIKeysRequest, grpc.ServerStreamingServer[WatchAPIKeysResponse]) error {
+	return status.Error(codes.Unimplemented, "method WatchAPIKeys not implemented")
 }
 func (UnimplementedProvisioningInternalServiceServer) mustEmbedUnimplementedProvisioningInternalServiceServer() {
 }
@@ -189,6 +216,17 @@ func _ProvisioningInternalService_WatchTopics_Handler(srv interface{}, stream gr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ProvisioningInternalService_WatchTopicsServer = grpc.ServerStreamingServer[WatchTopicsResponse]
 
+func _ProvisioningInternalService_WatchAPIKeys_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchAPIKeysRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ProvisioningInternalServiceServer).WatchAPIKeys(m, &grpc.GenericServerStream[WatchAPIKeysRequest, WatchAPIKeysResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ProvisioningInternalService_WatchAPIKeysServer = grpc.ServerStreamingServer[WatchAPIKeysResponse]
+
 // ProvisioningInternalService_ServiceDesc is the grpc.ServiceDesc for ProvisioningInternalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -210,6 +248,11 @@ var ProvisioningInternalService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "WatchTopics",
 			Handler:       _ProvisioningInternalService_WatchTopics_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "WatchAPIKeys",
+			Handler:       _ProvisioningInternalService_WatchAPIKeys_Handler,
 			ServerStreams: true,
 		},
 	},

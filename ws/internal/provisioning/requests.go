@@ -58,6 +58,12 @@ type CreateKeyRequest struct {
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
+// CreateAPIKeyRequest is the request to create a new API key.
+type CreateAPIKeyRequest struct {
+	// Name is an optional human-readable label for the key.
+	Name string `json:"name"`
+}
+
 // SetRoutingRulesRequest is the request to set routing rules for a tenant.
 type SetRoutingRulesRequest struct {
 	// Rules are the ordered topic routing rules.
@@ -80,6 +86,10 @@ type UpdateQuotaRequest struct {
 
 	// ConsumerByteRate is the new consumer rate limit.
 	ConsumerByteRate *int64 `json:"consumer_byte_rate,omitempty"`
+
+	// MaxConnections is the new max concurrent WebSocket connections limit.
+	// 0 means use the system default.
+	MaxConnections *int `json:"max_connections,omitempty"`
 }
 
 // SetChannelRulesRequest is the request to set channel rules for a tenant.

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gobwas/ws"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/auth"
@@ -26,10 +27,12 @@ type Gateway struct {
 	config    *platform.GatewayConfig
 	validator *auth.MultiTenantValidator
 
-	// gRPC stream registries for provisioning data (keys, channel rules)
-	streamKeyRegistry  *provapi.StreamKeyRegistry
-	streamChannelRules *provapi.StreamChannelRulesProvider
+	// gRPC stream registries for provisioning data (keys, channel rules, API keys)
+	streamKeyRegistry    *provapi.StreamKeyRegistry
+	streamChannelRules   *provapi.StreamChannelRulesProvider
+	streamAPIKeyRegistry *provapi.StreamAPIKeyRegistry // concrete for State() in health
 
+	apiKeyRegistry       APIKeyLookup // interface for Lookup() + mock injection in tests
 	channelRulesProvider ChannelRulesProvider
 	permissions          *PermissionChecker
 	connTracker          *TenantConnectionTracker // Per-tenant connection tracking
@@ -116,6 +119,21 @@ func (gw *Gateway) setupValidator() error {
 	}
 	gw.streamKeyRegistry = keyRegistry
 
+	// Create gRPC stream-backed API key registry
+	apiKeyRegistry, err := provapi.NewStreamAPIKeyRegistry(provapi.StreamAPIKeyRegistryConfig{
+		GRPCAddr:          gw.config.ProvisioningGRPCAddr,
+		ReconnectDelay:    gw.config.GRPCReconnectDelay,
+		ReconnectMaxDelay: gw.config.GRPCReconnectMaxDelay,
+		MetricPrefix:      "gateway",
+		Logger:            gw.logger.With().Str("component", "api_key_registry").Logger(),
+	})
+	if err != nil {
+		_ = keyRegistry.Close() // best-effort cleanup during construction failure
+		return fmt.Errorf("create stream api key registry: %w", err)
+	}
+	gw.streamAPIKeyRegistry = apiKeyRegistry
+	gw.apiKeyRegistry = apiKeyRegistry
+
 	// Create gRPC stream-backed channel rules provider
 	channelRulesProvider, err := provapi.NewStreamChannelRulesProvider(provapi.StreamChannelRulesProviderConfig{
 		GRPCAddr:          gw.config.ProvisioningGRPCAddr,
@@ -125,7 +143,8 @@ func (gw *Gateway) setupValidator() error {
 		Logger:            gw.logger.With().Str("component", "channel_rules_provider").Logger(),
 	})
 	if err != nil {
-		_ = keyRegistry.Close() // best-effort cleanup during construction failure
+		_ = apiKeyRegistry.Close() // best-effort cleanup during construction failure
+		_ = keyRegistry.Close()    // best-effort cleanup during construction failure
 		return fmt.Errorf("create stream channel rules provider: %w", err)
 	}
 	gw.streamChannelRules = channelRulesProvider
@@ -141,6 +160,7 @@ func (gw *Gateway) setupValidator() error {
 	validator, err := auth.NewMultiTenantValidator(validatorCfg)
 	if err != nil {
 		_ = channelRulesProvider.Close() // best-effort cleanup during construction failure
+		_ = apiKeyRegistry.Close()       // best-effort cleanup during construction failure
 		_ = keyRegistry.Close()          // best-effort cleanup during construction failure
 		return fmt.Errorf("create validator: %w", err)
 	}
@@ -163,6 +183,12 @@ func (gw *Gateway) Close() error {
 	if gw.streamChannelRules != nil {
 		if err := gw.streamChannelRules.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close stream channel rules provider: %w", err))
+		}
+	}
+
+	if gw.streamAPIKeyRegistry != nil {
+		if err := gw.streamAPIKeyRegistry.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close stream api key registry: %w", err))
 		}
 	}
 
@@ -194,52 +220,139 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve identity (principal, tenantID) and auth (claims) separately.
 	// When auth disabled: claims is nil, principal/tenantID come from config.
-	// When auth enabled: all three come from the validated JWT.
+	// When auth enabled: 4-way branching on credentials provided:
+	//   - Neither token nor API key → reject
+	//   - API key only → public channels, no publish, can escalate via auth refresh
+	//   - JWT only → full access per claims
+	//   - Both → validate both, verify tenant match
 	var claims *auth.Claims
 	var principal string
 	var tenantID string
+	var apiKeyOnly bool
+	var apiKeyTenantID string
 
 	if gw.config.AuthEnabled {
 		authStart := time.Now()
-		// Extract token from query parameter or Authorization header
 		token := httputil.ExtractBearerToken(r)
-		if token == "" {
+		apiKey := httputil.ExtractAPIKey(r)
+
+		switch {
+		case token == "" && apiKey == "":
+			// Neither credential provided
 			RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
-			closeReason = CloseReasonNoToken
+			closeReason = CloseReasonNoCredentials
 			gw.logger.Warn().
 				Str("remote_addr", remoteAddr).
-				Msg("Connection rejected: no token provided")
-			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "token required")
+				Msg("Connection rejected: no credentials provided")
+			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "token or api_key required")
 			return
-		}
 
-		// Validate JWT token using multi-tenant validator
-		var err error
-		claims, err = gw.validator.ValidateToken(ctx, token)
-		if err != nil {
-			RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
-			closeReason = CloseReasonInvalidToken
-			gw.logger.Warn().
-				Err(err).
+		case apiKey != "" && token == "":
+			// API key only — public channels, no publish, can escalate via auth refresh
+			info, ok := gw.apiKeyRegistry.Lookup(apiKey)
+			if !ok {
+				RecordAPIKeyAuth(APIKeyAuthInvalid)
+				RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+				closeReason = CloseReasonInvalidAPIKey
+				gw.logger.Warn().
+					Str("remote_addr", remoteAddr).
+					Msg("Connection rejected: invalid API key")
+				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid api key")
+				return
+			}
+			RecordAPIKeyAuth(APIKeyAuthAccepted)
+			RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
+			tenantID = info.TenantID
+			principal = "anon:" + uuid.NewString()
+			apiKeyOnly = true
+			apiKeyTenantID = info.TenantID
+			// claims remains nil — PermissionChecker allows public channels only
+
+			gw.logger.Debug().
+				Str("principal", principal).
+				Str("tenant_id", tenantID).
 				Str("remote_addr", remoteAddr).
-				Msg("Connection rejected: invalid token")
-			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token")
-			return
+				Msg("API key validated successfully")
+
+		case token != "" && apiKey == "":
+			// JWT only (existing flow)
+			var err error
+			claims, err = gw.validator.ValidateToken(ctx, token)
+			if err != nil {
+				RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+				closeReason = CloseReasonInvalidToken
+				gw.logger.Warn().
+					Err(err).
+					Str("remote_addr", remoteAddr).
+					Msg("Connection rejected: invalid token")
+				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token")
+				return
+			}
+			RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
+			principal = claims.Subject
+			tenantID = claims.TenantID
+
+			gw.logger.Debug().
+				Str("principal", principal).
+				Str("tenant_id", tenantID).
+				Strs("groups", claims.Groups).
+				Str("remote_addr", remoteAddr).
+				Msg("Token validated successfully")
+
+		default:
+			// Both API key and JWT — validate both, verify tenant match
+			info, ok := gw.apiKeyRegistry.Lookup(apiKey)
+			if !ok {
+				RecordAPIKeyAuth(APIKeyAuthInvalid)
+				RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+				closeReason = CloseReasonInvalidAPIKey
+				gw.logger.Warn().
+					Str("remote_addr", remoteAddr).
+					Msg("Connection rejected: invalid API key")
+				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid api key")
+				return
+			}
+			RecordAPIKeyAuth(APIKeyAuthAccepted)
+
+			var err error
+			claims, err = gw.validator.ValidateToken(ctx, token)
+			if err != nil {
+				RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+				closeReason = CloseReasonInvalidToken
+				gw.logger.Warn().
+					Err(err).
+					Str("remote_addr", remoteAddr).
+					Msg("Connection rejected: invalid token")
+				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token")
+				return
+			}
+
+			// Verify JWT tenant matches API key tenant
+			if claims.TenantID != info.TenantID {
+				RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+				closeReason = CloseReasonAPIKeyTenantMismatch
+				gw.logger.Warn().
+					Str("jwt_tenant", claims.TenantID).
+					Str("api_key_tenant", info.TenantID).
+					Str("remote_addr", remoteAddr).
+					Msg("Connection rejected: API key and JWT tenant mismatch")
+				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "api key and token tenant mismatch")
+				return
+			}
+			RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
+			principal = claims.Subject
+			tenantID = claims.TenantID
+			apiKeyTenantID = info.TenantID
+
+			gw.logger.Debug().
+				Str("principal", principal).
+				Str("tenant_id", tenantID).
+				Str("remote_addr", remoteAddr).
+				Msg("API key and token validated successfully")
 		}
-		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
-
-		principal = claims.Subject
-		tenantID = claims.TenantID
-
-		gw.logger.Debug().
-			Str("principal", principal).
-			Str("tenant_id", tenantID).
-			Strs("groups", claims.Groups).
-			Str("remote_addr", remoteAddr).
-			Msg("Token validated successfully")
 	} else {
 		RecordAuthValidation(pkgmetrics.AuthStatusSkipped, 0)
-		// No auth = no claims object
+		// No auth = no claims object, apiKeyRegistry is nil
 		claims = nil
 		principal = "anonymous"
 		tenantID = gw.config.DefaultTenantID
@@ -315,7 +428,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		ClientConn:              clientConn,
 		BackendConn:             backendConn,
 		AuthEnabled:             gw.config.AuthEnabled,
-		Claims:                  claims, // nil when auth disabled — proxy won't use it
+		Claims:                  claims, // nil when auth disabled or API-key-only
 		TenantID:                tenantID,
 		Permissions:             gw.permissions,
 		Validator:               gw.validator,
@@ -327,6 +440,8 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		PublishBurst:            gw.config.PublishBurst,
 		MaxPublishSize:          gw.config.MaxPublishSize,
 		MaxFrameSize:            gw.config.MaxFrameSize,
+		APIKeyOnly:              apiKeyOnly,
+		APIKeyTenantID:          apiKeyTenantID,
 	})
 	proxy.Run(ctx)
 
@@ -336,28 +451,70 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Msg("Client disconnected")
 }
 
-// HandleHealth handles health check requests.
-// Reports stream states for provisioning registries.
+// streamStatus returns the overall status and per-stream states.
+func (gw *Gateway) streamStatus() (status, keysStream, configStream, apiKeysStream string) {
+	status = "ok"
+	keysStream = "connected"
+	configStream = "connected"
+	apiKeysStream = "connected"
+
+	if gw.streamKeyRegistry != nil {
+		if gw.streamKeyRegistry.State() == provapi.StreamStateDisconnected {
+			status = "degraded"
+			keysStream = "disconnected"
+		}
+	} else {
+		keysStream = "disabled"
+	}
+	if gw.streamChannelRules != nil {
+		if gw.streamChannelRules.State() == provapi.StreamStateDisconnected {
+			status = "degraded"
+			configStream = "disconnected"
+		}
+	} else {
+		configStream = "disabled"
+	}
+	if gw.streamAPIKeyRegistry != nil {
+		if gw.streamAPIKeyRegistry.State() == provapi.StreamStateDisconnected {
+			status = "degraded"
+			apiKeysStream = "disconnected"
+		}
+	} else {
+		apiKeysStream = "disabled"
+	}
+	return
+}
+
+// HandleHealth handles liveness checks. Always returns 200 — the process is alive.
+// Use /ready for readiness checks that reflect stream connectivity.
 func (gw *Gateway) HandleHealth(w http.ResponseWriter, _ *http.Request) {
-	status := "ok"
-	keysStream := "connected"
-	configStream := "connected"
+	status, keysStream, configStream, apiKeysStream := gw.streamStatus()
 
-	if gw.streamKeyRegistry != nil && gw.streamKeyRegistry.State() == provapi.StreamStateDisconnected {
-		status = "degraded"
-		keysStream = "disconnected"
-	}
-	if gw.streamChannelRules != nil && gw.streamChannelRules.State() == provapi.StreamStateDisconnected {
-		status = "degraded"
-		configStream = "disconnected"
-	}
-
-	// Always return 200 to avoid unnecessary restarts during transient disconnects
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{
-		"status":                     status,
-		"service":                    "ws-gateway",
-		"provisioning_keys_stream":   keysStream,
-		"provisioning_config_stream": configStream,
+		"status":                       status,
+		"service":                      "ws-gateway",
+		"provisioning_keys_stream":     keysStream,
+		"provisioning_config_stream":   configStream,
+		"provisioning_api_keys_stream": apiKeysStream,
+	})
+}
+
+// HandleReady handles readiness checks. Returns 503 when streams are degraded,
+// signaling Kubernetes to stop routing traffic until connectivity is restored.
+func (gw *Gateway) HandleReady(w http.ResponseWriter, _ *http.Request) {
+	status, keysStream, configStream, apiKeysStream := gw.streamStatus()
+
+	httpStatus := http.StatusOK
+	if status == "degraded" {
+		httpStatus = http.StatusServiceUnavailable
+	}
+
+	_ = httputil.WriteJSON(w, httpStatus, map[string]string{
+		"status":                       status,
+		"service":                      "ws-gateway",
+		"provisioning_keys_stream":     keysStream,
+		"provisioning_config_stream":   configStream,
+		"provisioning_api_keys_stream": apiKeysStream,
 	})
 }
 
@@ -366,6 +523,7 @@ func (gw *Gateway) NewServer() *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", gw.HandleWebSocket)
 	mux.HandleFunc("/health", gw.HandleHealth)
+	mux.HandleFunc("/ready", gw.HandleReady)
 	mux.HandleFunc("/version", version.Handler("gateway"))
 	mux.HandleFunc("/config", platform.ConfigHandler(gw.config))
 	mux.HandleFunc("/metrics", HandleMetrics)

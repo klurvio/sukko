@@ -21,9 +21,8 @@ type LifecycleManager struct {
 	deletionTimeout time.Duration
 	logger          zerolog.Logger
 
-	stopCh   chan struct{}
-	stopOnce sync.Once
-	wg       sync.WaitGroup
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // LifecycleManagerConfig configures the lifecycle manager.
@@ -52,33 +51,35 @@ func NewLifecycleManager(cfg LifecycleManagerConfig) (*LifecycleManager, error) 
 		interval:        cfg.Interval,
 		deletionTimeout: cfg.DeletionTimeout,
 		logger:          cfg.Logger.With().Str("component", "lifecycle_manager").Logger(),
-		stopCh:          make(chan struct{}),
 	}, nil
 }
 
 // Start begins the background lifecycle processing.
 func (lm *LifecycleManager) Start() {
-	lm.wg.Go(lm.run)
+	ctx, cancel := context.WithCancel(context.Background())
+	lm.cancel = cancel
+
+	lm.wg.Go(func() {
+		lm.run(ctx)
+	})
 	lm.logger.Info().
 		Dur("interval", lm.interval).
 		Msg("Lifecycle manager started")
 }
 
-// Stop gracefully stops the lifecycle manager. Safe to call multiple times.
+// Stop gracefully stops the lifecycle manager.
 func (lm *LifecycleManager) Stop() {
-	lm.stopOnce.Do(func() {
-		close(lm.stopCh)
-	})
+	lm.cancel()
 	lm.wg.Wait()
 	lm.logger.Info().Msg("Lifecycle manager stopped")
 }
 
 // run is the main loop that periodically processes tenant deletions.
-func (lm *LifecycleManager) run() {
+func (lm *LifecycleManager) run(ctx context.Context) {
 	defer logging.RecoverPanic(lm.logger, "lifecycle_manager", nil)
 
 	// Run immediately on start, then on interval
-	lm.processDeletions()
+	lm.processDeletions(ctx)
 
 	ticker := time.NewTicker(lm.interval)
 	defer ticker.Stop()
@@ -86,16 +87,16 @@ func (lm *LifecycleManager) run() {
 	for {
 		select {
 		case <-ticker.C:
-			lm.processDeletions()
-		case <-lm.stopCh:
+			lm.processDeletions(ctx)
+		case <-ctx.Done():
 			return
 		}
 	}
 }
 
 // processDeletions finds and deletes tenants past their deprovisioning deadline.
-func (lm *LifecycleManager) processDeletions() {
-	ctx, cancel := context.WithTimeout(context.Background(), lm.deletionTimeout)
+func (lm *LifecycleManager) processDeletions(parent context.Context) {
+	ctx, cancel := context.WithTimeout(parent, lm.deletionTimeout)
 	defer cancel()
 
 	// Get tenants ready for deletion

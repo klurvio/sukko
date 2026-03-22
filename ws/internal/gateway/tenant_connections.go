@@ -73,17 +73,7 @@ func (t *TenantConnectionTracker) GetLimit(tenantID string) int {
 // TryAcquire attempts to acquire a connection slot for the tenant.
 // Returns true if the connection was allowed, false if the limit was reached.
 func (t *TenantConnectionTracker) TryAcquire(tenantID string) bool {
-	t.mu.Lock()
-	counter, exists := t.connections[tenantID]
-	if !exists {
-		counter = &atomic.Int64{}
-		t.connections[tenantID] = counter
-	}
-	limit := t.defaultLimit
-	if l, ok := t.limits[tenantID]; ok && l > 0 {
-		limit = l
-	}
-	t.mu.Unlock()
+	counter, limit := t.getOrCreateCounter(tenantID)
 
 	// Atomically check and increment
 	for {
@@ -101,6 +91,25 @@ func (t *TenantConnectionTracker) TryAcquire(tenantID string) bool {
 		}
 		// CAS failed, retry
 	}
+}
+
+// getOrCreateCounter returns the connection counter and limit for a tenant,
+// creating the counter if it doesn't exist.
+func (t *TenantConnectionTracker) getOrCreateCounter(tenantID string) (counter *atomic.Int64, limit int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	var exists bool
+	counter, exists = t.connections[tenantID]
+	if !exists {
+		counter = &atomic.Int64{}
+		t.connections[tenantID] = counter
+	}
+	limit = t.defaultLimit
+	if l, ok := t.limits[tenantID]; ok && l > 0 {
+		limit = l
+	}
+	return counter, limit
 }
 
 // Release releases a connection slot for the tenant.

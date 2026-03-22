@@ -4,10 +4,12 @@ package api
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -51,7 +53,7 @@ func LoggingMiddleware(logger zerolog.Logger) func(http.Handler) http.Handler {
 				// Record API metrics using route pattern to avoid cardinality explosion
 				routePattern := chi.RouteContext(r.Context()).RoutePattern()
 				if routePattern == "" {
-					routePattern = r.URL.Path
+					routePattern = "unmatched"
 				}
 				statusStr := strconv.Itoa(ww.Status())
 				RecordAPIRequest(routePattern, r.Method, statusStr)
@@ -205,18 +207,47 @@ func GetActorFromContext(ctx context.Context) string {
 	return actor
 }
 
-// RateLimitMiddleware applies a global token-bucket rate limit to all requests.
-// Uses golang.org/x/time/rate which allows requestsPerMinute/60 requests per second
-// with a burst equal to requestsPerMinute to absorb short spikes.
+// RateLimitMiddleware applies global and per-IP token-bucket rate limits.
+// Global limit: requestsPerMinute/60 rps with burst = requestsPerMinute.
+// Per-IP limit: 2x per-second rate of global, burst = requestsPerMinute/2.
+// Per-IP entries are lazily created and bounded to perIPRateLimitMaxEntries.
 func RateLimitMiddleware(requestsPerMinute int) func(http.Handler) http.Handler {
-	limiter := rate.NewLimiter(rate.Limit(float64(requestsPerMinute)/60.0), requestsPerMinute)
+	globalLimiter := rate.NewLimiter(rate.Limit(float64(requestsPerMinute)/60.0), requestsPerMinute)
+
+	perSecond := float64(requestsPerMinute) / 60.0
+	ipRate := rate.Limit(perSecond * 2)
+	ipBurst := max(requestsPerMinute/2, 1)
+	var ipLimiters sync.Map // map[string]*rate.Limiter
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !limiter.Allow() {
+			// Global rate limit
+			if !globalLimiter.Allow() {
 				httputil.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "API rate limit exceeded")
 				return
 			}
+
+			// Per-IP rate limit
+			ip := extractClientIP(r)
+			v, _ := ipLimiters.LoadOrStore(ip, rate.NewLimiter(ipRate, ipBurst))
+			if limiter, ok := v.(*rate.Limiter); ok && !limiter.Allow() {
+				httputil.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Per-IP rate limit exceeded")
+				return
+			}
+
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// extractClientIP returns the client IP from X-Real-IP or RemoteAddr.
+func extractClientIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return ip
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

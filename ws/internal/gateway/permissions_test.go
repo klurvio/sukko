@@ -258,6 +258,66 @@ func TestMatchPatternCaptures(t *testing.T) {
 	}
 }
 
+func TestPermissionChecker_CanSubscribe_NilClaims(t *testing.T) {
+	t.Parallel()
+	pc := NewPermissionChecker(
+		[]string{"*.trade", "*.liquidity"},
+		[]string{"balances.{principal}"},
+		[]string{"community.{group_id}"},
+	)
+
+	tests := []struct {
+		name    string
+		channel string
+		want    bool
+	}{
+		{"nil claims allows public channel", "BTC.trade", true},
+		{"nil claims allows another public channel", "ETH.liquidity", true},
+		{"nil claims denies user-scoped channel", "balances.user123", false},
+		{"nil claims denies group-scoped channel", "community.traders", false},
+		{"nil claims denies unknown channel", "unknown.channel", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := pc.CanSubscribe(nil, tt.channel)
+			if got != tt.want {
+				t.Errorf("CanSubscribe(nil, %q) = %v, want %v", tt.channel, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPermissionChecker_FilterChannels_NilClaims(t *testing.T) {
+	t.Parallel()
+	pc := NewPermissionChecker(
+		[]string{"*.trade"},
+		[]string{"balances.{principal}"},
+		[]string{"community.{group_id}"},
+	)
+
+	input := []string{
+		"BTC.trade",        // allowed (public)
+		"ETH.trade",        // allowed (public)
+		"balances.user123", // denied (user-scoped, nil claims)
+		"community.vip",    // denied (group-scoped, nil claims)
+		"unknown.channel",  // denied (no pattern)
+	}
+
+	got := pc.FilterChannels(nil, input)
+
+	expected := []string{"BTC.trade", "ETH.trade"}
+	if len(got) != len(expected) {
+		t.Fatalf("FilterChannels(nil) returned %d channels, want %d: got %v", len(got), len(expected), got)
+	}
+	for i, ch := range expected {
+		if got[i] != ch {
+			t.Errorf("FilterChannels(nil)[%d] = %q, want %q", i, got[i], ch)
+		}
+	}
+}
+
 func BenchmarkCanSubscribe_Public(b *testing.B) {
 	pc := NewPermissionChecker(
 		[]string{"*.trade", "*.liquidity", "*.metadata"},

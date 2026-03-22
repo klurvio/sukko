@@ -101,9 +101,9 @@ ws-server:
     repository: sukko-server
     tag: latest
     pullPolicy: IfNotPresent
-  # Mode selections (Go defaults: direct + nats)
-  messageBackend: direct
-  broadcastType: nats
+  # Mode selections — Go defaults: direct + nats (override in environment values)
+  # messageBackend: direct
+  # broadcastType: nats
   connectionLimits:
     clusterMaxConnections: 100000
   resources:

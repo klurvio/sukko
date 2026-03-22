@@ -269,6 +269,86 @@ func TestTenantPermissionChecker_NilFallback(t *testing.T) {
 	}
 }
 
+// TestTenantPermissionChecker_CanSubscribe_NilClaims verifies that
+// TenantPermissionChecker returns false for ALL channels when claims are nil,
+// including channels that match public patterns. This is correct because
+// API-key-only connections (which have nil claims) use the global
+// PermissionChecker, not TenantPermissionChecker. TenantPermissionChecker
+// requires claims to resolve the tenant and look up per-tenant rules.
+func TestTenantPermissionChecker_CanSubscribe_NilClaims(t *testing.T) {
+	t.Parallel()
+
+	registry := newMockChannelRulesProvider()
+	registry.channelRules["acme"] = &types.ChannelRules{
+		Public: []string{"*.public", "*.metadata"},
+		GroupMappings: map[string][]string{
+			"traders": {"*.trade"},
+		},
+		Default: []string{"*.basic"},
+	}
+
+	fallback := &types.ChannelRules{
+		Public: []string{"*.fallback"},
+	}
+
+	checker := mustNewTenantPermissionChecker(t, registry, fallback)
+
+	tests := []struct {
+		name    string
+		channel string
+	}{
+		{"public channel denied with nil claims", "BTC.public"},
+		{"metadata channel denied with nil claims", "ETH.metadata"},
+		{"trade channel denied with nil claims", "BTC.trade"},
+		{"basic channel denied with nil claims", "BTC.basic"},
+		{"fallback channel denied with nil claims", "BTC.fallback"},
+		{"arbitrary channel denied with nil claims", "unknown.channel"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := checker.CanSubscribe(context.Background(), nil, tt.channel)
+			if got {
+				t.Errorf("CanSubscribe(ctx, nil, %q) = true, want false", tt.channel)
+			}
+		})
+	}
+}
+
+// TestTenantPermissionChecker_FilterChannels_NilClaims verifies that
+// FilterChannels returns nil when claims are nil, regardless of channel
+// content. API-key-only connections bypass TenantPermissionChecker entirely.
+func TestTenantPermissionChecker_FilterChannels_NilClaims(t *testing.T) {
+	t.Parallel()
+
+	registry := newMockChannelRulesProvider()
+	registry.channelRules["acme"] = &types.ChannelRules{
+		Public: []string{"*.public"},
+		GroupMappings: map[string][]string{
+			"traders": {"*.trade"},
+		},
+	}
+
+	fallback := &types.ChannelRules{
+		Public: []string{"*.fallback"},
+	}
+
+	checker := mustNewTenantPermissionChecker(t, registry, fallback)
+
+	channels := []string{
+		"BTC.public",
+		"BTC.trade",
+		"BTC.fallback",
+		"unknown.channel",
+	}
+
+	got := checker.FilterChannels(context.Background(), nil, channels)
+	if got != nil {
+		t.Errorf("FilterChannels(ctx, nil, channels) = %v, want nil", got)
+	}
+}
+
 func TestDefaultChannelRules(t *testing.T) {
 	t.Parallel()
 

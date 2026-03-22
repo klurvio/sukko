@@ -24,7 +24,9 @@ var (
 	ErrTenantNotActive           = errors.New("tenant is not active")
 	ErrTenantNotFound            = errors.New("tenant not found")
 	ErrQuotaNotFound             = errors.New("quota not found")
+	ErrKeyNotFound               = errors.New("key not found")
 	ErrKeyNotOwnedByTenant       = errors.New("key does not belong to tenant")
+	ErrInvalidQuota              = errors.New("invalid quota")
 	ErrChannelRulesNotConfigured = errors.New("channel rules store not configured")
 	ErrRoutingRulesNotConfigured = errors.New("routing rules store not configured")
 )
@@ -41,6 +43,7 @@ const (
 type ServiceConfig struct {
 	TenantStore       TenantStore
 	KeyStore          KeyStore
+	APIKeyStore       APIKeyStore
 	RoutingRulesStore RoutingRulesStore
 	QuotaStore        QuotaStore
 	AuditStore        AuditStore
@@ -72,6 +75,7 @@ type ServiceConfig struct {
 type Service struct {
 	tenants      TenantStore
 	keys         KeyStore
+	apiKeys      APIKeyStore
 	routingRules RoutingRulesStore
 	quotas       QuotaStore
 	audit        AuditStore
@@ -98,16 +102,23 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	if cfg.AuditStore == nil {
 		return nil, errors.New("provisioning service: audit store is required")
 	}
+	if cfg.APIKeyStore == nil {
+		return nil, errors.New("provisioning service: api key store is required")
+	}
 	if cfg.KafkaAdmin == nil {
 		return nil, errors.New("provisioning service: kafka admin is required")
 	}
 	if cfg.EventBus == nil {
 		return nil, errors.New("provisioning service: event bus is required")
 	}
+	if cfg.TopicNamespace == "" {
+		return nil, errors.New("provisioning service: topic namespace is required")
+	}
 
 	return &Service{
 		tenants:      cfg.TenantStore,
 		keys:         cfg.KeyStore,
+		apiKeys:      cfg.APIKeyStore,
 		routingRules: cfg.RoutingRulesStore,
 		quotas:       cfg.QuotaStore,
 		audit:        cfg.AuditStore,
@@ -255,6 +266,11 @@ func (s *Service) UpdateTenant(ctx context.Context, tenantID string, req UpdateT
 	}
 	if req.Metadata != nil {
 		tenant.Metadata = req.Metadata
+	}
+
+	// Re-validate after applying partial updates (defense in depth)
+	if err := tenant.Validate(); err != nil {
+		return nil, fmt.Errorf("validate updated tenant: %w", err)
 	}
 
 	if err := s.tenants.Update(ctx, tenant); err != nil {
@@ -438,13 +454,13 @@ func (s *Service) CreateKey(ctx context.Context, tenantID string, req CreateKeyR
 	return key, nil
 }
 
-// ListKeys returns all keys for a tenant.
-func (s *Service) ListKeys(ctx context.Context, tenantID string) ([]*TenantKey, error) {
-	keys, err := s.keys.ListByTenant(ctx, tenantID)
+// ListKeys returns keys for a tenant with pagination.
+func (s *Service) ListKeys(ctx context.Context, tenantID string, opts ListOptions) ([]*TenantKey, int, error) {
+	keys, total, err := s.keys.ListByTenant(ctx, tenantID, opts)
 	if err != nil {
-		return nil, fmt.Errorf("list keys: %w", err)
+		return nil, 0, fmt.Errorf("list keys: %w", err)
 	}
-	return keys, nil
+	return keys, total, nil
 }
 
 // RevokeKey revokes a key.
@@ -521,6 +537,15 @@ func (s *Service) UpdateQuota(ctx context.Context, tenantID string, req UpdateQu
 	}
 	if req.ConsumerByteRate != nil {
 		quota.ConsumerByteRate = *req.ConsumerByteRate
+	}
+	if req.MaxConnections != nil {
+		quota.MaxConnections = *req.MaxConnections
+	}
+
+	// Validate non-negative values (defense in depth)
+	if quota.MaxTopics < 0 || quota.MaxPartitions < 0 || quota.MaxStorageBytes < 0 ||
+		quota.ProducerByteRate < 0 || quota.ConsumerByteRate < 0 || quota.MaxConnections < 0 {
+		return nil, fmt.Errorf("%w: values must be non-negative", ErrInvalidQuota)
 	}
 
 	if err := s.quotas.Update(ctx, quota); err != nil {
@@ -745,4 +770,93 @@ func (s *Service) DeleteRoutingRules(ctx context.Context, tenantID string) error
 	s.emitEvent(eventbus.TopicsChanged)
 
 	return nil
+}
+
+// CreateAPIKey generates and registers a new API key for a tenant.
+func (s *Service) CreateAPIKey(ctx context.Context, tenantID string, req CreateAPIKeyRequest) (*APIKey, error) {
+	// Verify tenant exists and is active
+	tenant, err := s.tenants.Get(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get tenant: %w", err)
+	}
+	if tenant.Status != StatusActive {
+		return nil, fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
+	}
+
+	// Generate server-side key ID
+	keyID, err := GenerateAPIKeyID()
+	if err != nil {
+		return nil, fmt.Errorf("generate api key id: %w", err)
+	}
+
+	key := &APIKey{
+		KeyID:    keyID,
+		TenantID: tenantID,
+		Name:     req.Name,
+	}
+
+	if err := s.apiKeys.Create(ctx, key); err != nil {
+		return nil, fmt.Errorf("create api key: %w", err)
+	}
+
+	s.auditLog(ctx, tenantID, ActionCreateAPIKey, Metadata{
+		"key_id": key.KeyID,
+		"name":   key.Name,
+	})
+
+	s.logger.Info().
+		Str("tenant_id", tenantID).
+		Str("key_id", key.KeyID).
+		Msg("API key created")
+
+	s.emitEvent(eventbus.APIKeysChanged)
+
+	return key, nil
+}
+
+// ListAPIKeys returns API keys for a tenant with pagination.
+func (s *Service) ListAPIKeys(ctx context.Context, tenantID string, opts ListOptions) ([]*APIKey, int, error) {
+	keys, total, err := s.apiKeys.ListByTenant(ctx, tenantID, opts)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list api keys: %w", err)
+	}
+	return keys, total, nil
+}
+
+// RevokeAPIKey revokes an API key.
+func (s *Service) RevokeAPIKey(ctx context.Context, tenantID, keyID string) error {
+	// Verify key belongs to tenant
+	key, err := s.apiKeys.Get(ctx, keyID)
+	if err != nil {
+		return fmt.Errorf("get api key: %w", err)
+	}
+	if key.TenantID != tenantID {
+		return ErrAPIKeyNotOwnedByTenant
+	}
+
+	if err := s.apiKeys.Revoke(ctx, keyID); err != nil {
+		return fmt.Errorf("revoke api key: %w", err)
+	}
+
+	s.auditLog(ctx, tenantID, ActionRevokeAPIKey, Metadata{
+		"key_id": keyID,
+	})
+
+	s.logger.Info().
+		Str("tenant_id", tenantID).
+		Str("key_id", keyID).
+		Msg("API key revoked")
+
+	s.emitEvent(eventbus.APIKeysChanged)
+
+	return nil
+}
+
+// GetActiveAPIKeys returns all active API keys (for gateway cache refresh).
+func (s *Service) GetActiveAPIKeys(ctx context.Context) ([]*APIKey, error) {
+	keys, err := s.apiKeys.GetActiveAPIKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get active api keys: %w", err)
+	}
+	return keys, nil
 }

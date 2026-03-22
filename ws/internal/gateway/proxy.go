@@ -33,6 +33,7 @@ type Proxy struct {
 	clientConn    net.Conn
 	clientWriteMu sync.Mutex // protects all writes to clientConn
 	backendConn   net.Conn
+	closeOnce     sync.Once // guards net.Conn.Close() calls (double-close panics)
 	logger        zerolog.Logger
 
 	messageTimeout time.Duration
@@ -54,6 +55,11 @@ type Proxy struct {
 
 	// Tenant (always set — from JWT when auth enabled, from config when disabled)
 	tenantID string
+
+	// API key auth (only set when auth enabled + API-key-only connection)
+	// apiKeyOnly is protected by claimsMu — it is auth state mutated during auth refresh
+	apiKeyOnly     bool   // true when connected via API key without JWT
+	apiKeyTenantID string // tenant from API key (for escalation tenant match)
 
 	// Publish rate limiting and validation
 	publishLimiter *rate.Limiter
@@ -82,6 +88,10 @@ type ProxyConfig struct {
 	// Tenant (always set — from JWT or config)
 	TenantID string
 
+	// API key auth (only set when auth enabled + API-key-only connection)
+	APIKeyOnly     bool   // true when connected via API key without JWT
+	APIKeyTenantID string // tenant from API key (for escalation tenant match)
+
 	// Publish rate limiting (tokens per second, burst size)
 	PublishRateLimit float64
 	PublishBurst     int
@@ -107,6 +117,8 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 		permissions:           cfg.Permissions,
 		validator:             cfg.Validator,
 		tenantID:              cfg.TenantID,
+		apiKeyOnly:            cfg.APIKeyOnly,
+		apiKeyTenantID:        cfg.APIKeyTenantID,
 		publishLimiter:        rate.NewLimiter(rate.Limit(cfg.PublishRateLimit), cfg.PublishBurst),
 		maxPublishSize:        cfg.MaxPublishSize,
 		authLimiter:           rate.NewLimiter(rate.Every(cfg.AuthRefreshRateInterval), 1),
@@ -117,6 +129,12 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 
 // Run starts bidirectional message forwarding.
 // Blocks until either connection closes, errors, or context is canceled.
+//
+// Note: The pump goroutines use blocking net.Conn reads which cannot be
+// multiplexed with select+ctx.Done(). Shutdown is signaled by closing the
+// connections (via closeOnce), which unblocks the reads. The goroutines then
+// check ctx.Err() after read failure. This is the standard Go pattern for
+// net.Conn-based goroutines.
 func (p *Proxy) Run(ctx context.Context) {
 	errChan := make(chan error, 2)
 	var wg sync.WaitGroup
@@ -148,9 +166,13 @@ func (p *Proxy) Run(ctx context.Context) {
 		p.logger.Info().Msg("Context canceled, closing proxy")
 	}
 
-	// Close both connections to unblock waiting goroutines
-	_ = p.clientConn.Close()
-	_ = p.backendConn.Close()
+	// Close both connections to unblock waiting goroutines.
+	// sync.Once guards against double-close: gateway.go defers Close() on both
+	// connections, and this path also closes them to unblock the pump goroutines.
+	p.closeOnce.Do(func() {
+		_ = p.clientConn.Close()
+		_ = p.backendConn.Close()
+	})
 
 	// Wait for both goroutines to complete
 	wg.Wait()
@@ -392,7 +414,7 @@ func (p *Proxy) sendCloseToClient(payload []byte) {
 // only messages containing "_ack" in the first 80 bytes are candidates.
 func (p *Proxy) trackSubscriptionResponse(payload []byte) {
 	// Fast path: skip messages that can't be subscription acks
-	prefixLen := min(80, len(payload))
+	prefixLen := min(subscriptionAckPrefixScanLen, len(payload))
 	if !bytes.Contains(payload[:prefixLen], []byte("_ack")) {
 		return
 	}
@@ -417,7 +439,7 @@ func (p *Proxy) trackSubscriptionResponse(payload []byte) {
 			}
 			p.claimsMu.Unlock()
 		}
-	case "unsubscription_ack":
+	case RespTypeUnsubscriptionAck:
 		if len(msg.Unsubscribed) > 0 {
 			p.claimsMu.Lock()
 			for _, ch := range msg.Unsubscribed {
@@ -433,6 +455,11 @@ func (p *Proxy) interceptClientMessage(ctx context.Context, msg []byte) ([]byte,
 	// Defensive guard — tenantID is always set in practice (from JWT or config default).
 	// This only triggers if config has empty DefaultTenantID AND auth is disabled.
 	if p.tenantID == "" {
+		return msg, nil
+	}
+
+	// Fast path: skip JSON parsing for messages that can't be JSON objects
+	if len(msg) == 0 || msg[0] != '{' {
 		return msg, nil
 	}
 
@@ -572,9 +599,18 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 		RecordPublishLatency(time.Since(start).Seconds())
 	}()
 
+	// Block publish for API-key-only connections (FR-004: read-only until JWT escalation)
+	p.claimsMu.RLock()
+	isAPIKeyOnly := p.apiKeyOnly
+	p.claimsMu.RUnlock()
+	if isAPIKeyOnly {
+		RecordPublishResult(string(protocol.ErrCodeForbidden))
+		return p.sendPublishErrorToClient(protocol.ErrCodeForbidden)
+	}
+
 	// 1. Rate limit check
 	if !p.publishLimiter.Allow() {
-		RecordPublishResult(p.tenantID, string(protocol.ErrCodeRateLimited))
+		RecordPublishResult(string(protocol.ErrCodeRateLimited))
 		return p.sendPublishErrorToClient(protocol.ErrCodeRateLimited)
 	}
 
@@ -582,7 +618,7 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 	var pubData protocol.PublishData
 	if err := json.Unmarshal(clientMsg.Data, &pubData); err != nil {
 		p.logger.Warn().Err(err).Msg("Failed to parse publish data")
-		RecordPublishResult(p.tenantID, string(protocol.ErrCodeInvalidRequest))
+		RecordPublishResult(string(protocol.ErrCodeInvalidRequest))
 		return p.sendPublishErrorToClient(protocol.ErrCodeInvalidRequest)
 	}
 
@@ -592,7 +628,7 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 			Int("size", len(pubData.Data)).
 			Int("max_size", p.maxPublishSize).
 			Msg("Publish message too large")
-		RecordPublishResult(p.tenantID, string(protocol.ErrCodeMessageTooLarge))
+		RecordPublishResult(string(protocol.ErrCodeMessageTooLarge))
 		return p.sendPublishErrorToClient(protocol.ErrCodeMessageTooLarge)
 	}
 
@@ -602,7 +638,7 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 		p.logger.Warn().
 			Str("channel", pubData.Channel).
 			Msg("Invalid publish channel format")
-		RecordPublishResult(p.tenantID, string(protocol.ErrCodeInvalidChannel))
+		RecordPublishResult(string(protocol.ErrCodeInvalidChannel))
 		return p.sendPublishErrorToClient(protocol.ErrCodeInvalidChannel)
 	}
 
@@ -611,7 +647,7 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 		p.logger.Warn().
 			Str("channel", pubData.Channel).
 			Msg("Publish access denied: wrong tenant prefix")
-		RecordPublishResult(p.tenantID, string(protocol.ErrCodeForbidden))
+		RecordPublishResult(string(protocol.ErrCodeForbidden))
 		return p.sendPublishErrorToClient(protocol.ErrCodeForbidden)
 	}
 
@@ -619,7 +655,7 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 		Str("channel", pubData.Channel).
 		Msg("Publish channel validated")
 
-	RecordPublishResult(p.tenantID, pkgmetrics.ResultSuccess)
+	RecordPublishResult(pkgmetrics.ResultSuccess)
 
 	// Forward original message as-is (no channel transformation)
 	data, err := json.Marshal(clientMsg)
@@ -711,13 +747,30 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 		return p.sendAuthErrorToClient(AuthErrTenantMismatch, AuthErrorMessages[AuthErrTenantMismatch])
 	}
 
+	// 5b. If API key tenant is set, verify JWT tenant matches API key tenant
+	if p.apiKeyTenantID != "" && newClaims.TenantID != p.apiKeyTenantID {
+		p.logger.Warn().
+			Str("api_key_tenant", p.apiKeyTenantID).
+			Str("token_tenant", newClaims.TenantID).
+			Msg("Auth refresh: JWT tenant does not match API key tenant")
+		RecordAuthRefresh(AuthErrTenantMismatch)
+		return p.sendAuthErrorToClient(AuthErrTenantMismatch, AuthErrorMessages[AuthErrTenantMismatch])
+	}
+
 	// 6. Force unsubscribe from channels no longer permitted
 	revoked := p.forceUnsubscribeRevokedChannels(newClaims)
 
-	// 7. Swap claims (lock is brief — no I/O)
+	// 7. Swap claims and escalate from API-key-only if applicable (lock is brief — no I/O)
 	p.claimsMu.Lock()
 	p.claims = newClaims
-	p.claimsMu.Unlock()
+	// Escalate from API-key-only to full JWT access (unblocks publish, grants non-public channels)
+	if p.apiKeyOnly {
+		p.apiKeyOnly = false
+		p.claimsMu.Unlock()
+		p.logger.Info().Msg("Escalated from API-key-only to JWT auth")
+	} else {
+		p.claimsMu.Unlock()
+	}
 
 	// 8. Send auth_ack to client
 	var exp int64
@@ -799,7 +852,7 @@ func (p *Proxy) forceUnsubscribeRevokedChannels(newClaims *auth.Claims) []string
 
 	// Send unsubscription_ack to client
 	clientAck := map[string]any{
-		"type":         "unsubscription_ack",
+		"type":         RespTypeUnsubscriptionAck,
 		"unsubscribed": revoked,
 		"forced":       true,
 	}

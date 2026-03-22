@@ -51,7 +51,7 @@ func (pc *TenantPermissionChecker) CanSubscribe(ctx context.Context, claims *aut
 	if allowed {
 		result = ChannelCheckAllowed
 	}
-	RecordChannelAuthorization(claims.TenantID, result)
+	RecordChannelAuthorization(result)
 
 	if !allowed {
 		pc.logger.Debug().
@@ -89,14 +89,14 @@ func (pc *TenantPermissionChecker) getRulesForTenant(ctx context.Context, tenant
 	if err != nil {
 		if errors.Is(err, types.ErrChannelRulesNotFound) {
 			// Expected: tenant has no custom rules, use fallback
-			RecordChannelRulesLookup(tenantID, LookupSourceFallback)
+			RecordChannelRulesLookup(LookupSourceFallback)
 		} else {
 			// Unexpected error: log and use fallback (graceful degradation)
 			pc.logger.Warn().
 				Err(err).
 				Str("tenant_id", tenantID).
 				Msg("Failed to load channel rules, using fallback")
-			RecordChannelRulesLookup(tenantID, LookupSourceErrorFallback)
+			RecordChannelRulesLookup(LookupSourceErrorFallback)
 		}
 		return pc.fallbackRules
 	}

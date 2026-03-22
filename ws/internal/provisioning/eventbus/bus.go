@@ -24,6 +24,9 @@ const (
 	// TopicsChanged indicates that topics or tenant categories changed.
 	TopicsChanged EventType = "topics_changed"
 
+	// APIKeysChanged indicates that API keys were created or revoked.
+	APIKeysChanged EventType = "api_keys_changed"
+
 	// subscriberBufferSize is the capacity of each subscriber's event channel.
 	// Buffered to absorb short bursts without blocking the publisher.
 	subscriberBufferSize = 16

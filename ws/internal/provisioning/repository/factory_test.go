@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -300,6 +301,153 @@ func TestOpenDatabase_SQLite_RepositoryWriteOps(t *testing.T) {
 	}
 	if gotUpdated.UpdatedAt.IsZero() {
 		t.Error("channel rules updated_at should not be zero after Update")
+	}
+}
+
+func TestOpenDatabase_SQLite_APIKeyWriteOps(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test-apikey-ops.db")
+
+	db, err := OpenDatabase(DatabaseConfig{
+		Driver:      "sqlite",
+		Path:        dbPath,
+		AutoMigrate: true,
+		Logger:      zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("OpenDatabase() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+
+	// Create a tenant first (required FK)
+	tenantRepo := NewPostgresTenantRepository(db)
+	tenant := &provisioning.Tenant{
+		ID:           "apikey-tenant",
+		Name:         "API Key Test Tenant",
+		Status:       provisioning.StatusActive,
+		ConsumerType: provisioning.ConsumerShared,
+		Metadata:     provisioning.Metadata{"env": "test"},
+	}
+	if err := tenantRepo.Create(ctx, tenant); err != nil {
+		t.Fatalf("tenant Create: %v", err)
+	}
+
+	store := NewPostgresAPIKeyStore(db)
+
+	// --- Create ---
+	apiKey := &provisioning.APIKey{
+		KeyID:    "pk_live_test001",
+		TenantID: "apikey-tenant",
+		Name:     "Test Key 1",
+	}
+	if err := store.Create(ctx, apiKey); err != nil {
+		t.Fatalf("API key Create: %v", err)
+	}
+
+	// --- Get: verify fields ---
+	got, err := store.Get(ctx, "pk_live_test001")
+	if err != nil {
+		t.Fatalf("API key Get: %v", err)
+	}
+	if got.KeyID != "pk_live_test001" {
+		t.Errorf("KeyID = %q, want %q", got.KeyID, "pk_live_test001")
+	}
+	if got.TenantID != "apikey-tenant" {
+		t.Errorf("TenantID = %q, want %q", got.TenantID, "apikey-tenant")
+	}
+	if got.Name != "Test Key 1" {
+		t.Errorf("Name = %q, want %q", got.Name, "Test Key 1")
+	}
+	if !got.IsActive {
+		t.Error("IsActive should be true after Create")
+	}
+	if got.CreatedAt.IsZero() {
+		t.Error("CreatedAt should not be zero")
+	}
+	if got.RevokedAt != nil {
+		t.Error("RevokedAt should be nil after Create")
+	}
+
+	// --- ListByTenant with pagination ---
+	// Create 2 more keys (3 total)
+	for _, k := range []*provisioning.APIKey{
+		{KeyID: "pk_live_test002", TenantID: "apikey-tenant", Name: "Test Key 2"},
+		{KeyID: "pk_live_test003", TenantID: "apikey-tenant", Name: "Test Key 3"},
+	} {
+		if err := store.Create(ctx, k); err != nil {
+			t.Fatalf("API key Create(%s): %v", k.KeyID, err)
+		}
+	}
+
+	// Page 1: limit=2, offset=0 → 2 items, total=3
+	keys, total, err := store.ListByTenant(ctx, "apikey-tenant", provisioning.ListOptions{Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListByTenant page 1: %v", err)
+	}
+	if len(keys) != 2 {
+		t.Errorf("ListByTenant page 1 items = %d, want 2", len(keys))
+	}
+	if total != 3 {
+		t.Errorf("ListByTenant page 1 total = %d, want 3", total)
+	}
+
+	// Page 2: limit=2, offset=2 → 1 item, total=3
+	keys, total, err = store.ListByTenant(ctx, "apikey-tenant", provisioning.ListOptions{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("ListByTenant page 2: %v", err)
+	}
+	if len(keys) != 1 {
+		t.Errorf("ListByTenant page 2 items = %d, want 1", len(keys))
+	}
+	if total != 3 {
+		t.Errorf("ListByTenant page 2 total = %d, want 3", total)
+	}
+
+	// --- Revoke ---
+	if err := store.Revoke(ctx, "pk_live_test001"); err != nil {
+		t.Fatalf("API key Revoke: %v", err)
+	}
+
+	revoked, err := store.Get(ctx, "pk_live_test001")
+	if err != nil {
+		t.Fatalf("API key Get after Revoke: %v", err)
+	}
+	if revoked.IsActive {
+		t.Error("IsActive should be false after Revoke")
+	}
+	if revoked.RevokedAt == nil {
+		t.Fatal("RevokedAt should be non-nil after Revoke")
+	}
+	if revoked.RevokedAt.IsZero() {
+		t.Error("RevokedAt should not be zero after Revoke")
+	}
+
+	// --- GetActiveAPIKeys: only active keys returned ---
+	activeKeys, err := store.GetActiveAPIKeys(ctx)
+	if err != nil {
+		t.Fatalf("GetActiveAPIKeys: %v", err)
+	}
+	// pk_live_test001 was revoked, so only test002 and test003 should remain
+	if len(activeKeys) != 2 {
+		t.Errorf("GetActiveAPIKeys count = %d, want 2", len(activeKeys))
+	}
+	for _, k := range activeKeys {
+		if k.KeyID == "pk_live_test001" {
+			t.Error("GetActiveAPIKeys should not return revoked key pk_live_test001")
+		}
+	}
+
+	// --- Get not found ---
+	_, err = store.Get(ctx, "pk_live_nonexistent")
+	if err == nil {
+		t.Fatal("expected error for non-existent key")
+	}
+	if !errors.Is(err, provisioning.ErrAPIKeyNotFound) {
+		t.Errorf("Get non-existent error = %v, want %v", err, provisioning.ErrAPIKeyNotFound)
 	}
 }
 

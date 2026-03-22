@@ -14,6 +14,9 @@ service ProvisioningInternalService {
 
   // Stream topic discovery — snapshot on connect, deltas on change.
   rpc WatchTopics(WatchTopicsRequest) returns (stream WatchTopicsResponse);
+
+  // Stream active API keys — snapshot on connect, deltas on change.
+  rpc WatchAPIKeys(WatchAPIKeysRequest) returns (stream WatchAPIKeysResponse);
 }
 
 message WatchKeysRequest {}
@@ -79,4 +82,19 @@ message WatchTopicsResponse {
 message DedicatedTenant {
   string tenant_id = 1;
   repeated string topics = 2;
+}
+
+message WatchAPIKeysRequest {}
+
+message WatchAPIKeysResponse {
+  bool is_snapshot = 1;                    // true = full state, false = delta
+  repeated APIKeyInfo api_keys = 2;        // All active keys (snapshot) or changed keys (delta)
+  repeated string removed_key_ids = 3;     // Key IDs removed (delta only)
+}
+
+message APIKeyInfo {
+  string key_id = 1;      // pk_live_...
+  string tenant_id = 2;
+  string name = 3;
+  bool is_active = 4;
 }

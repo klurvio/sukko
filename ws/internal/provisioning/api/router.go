@@ -2,6 +2,8 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -40,7 +42,11 @@ type RouterConfig struct {
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
-func NewRouter(cfg RouterConfig) http.Handler {
+func NewRouter(cfg RouterConfig) (http.Handler, error) {
+	if cfg.AuthEnabled && cfg.Validator == nil {
+		return nil, errors.New("router: Validator is required when AuthEnabled is true")
+	}
+
 	r := chi.NewRouter()
 
 	// CORS middleware - must be first so preflight OPTIONS requests succeed without auth
@@ -63,7 +69,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Use(middleware.SetHeader("Content-Type", "application/json"))
 
 	// Create handler
-	h := NewHandler(cfg.Service, cfg.Logger)
+	h, err := NewHandler(cfg.Service, cfg.Logger)
+	if err != nil {
+		return nil, fmt.Errorf("create handler: %w", err)
+	}
 
 	// Health endpoints (no auth required)
 	r.Get("/health", h.Health)
@@ -121,11 +130,18 @@ func NewRouter(cfg RouterConfig) http.Handler {
 					r.Post("/reactivate", h.ReactivateTenant)
 				})
 
-				// Key management
+				// Key management (JWT signing keys)
 				r.Route("/keys", func(r chi.Router) {
 					r.Post("/", h.CreateKey)
 					r.Get("/", h.ListKeys)
 					r.Delete("/{keyID}", h.RevokeKey)
+				})
+
+				// API key management
+				r.Route("/api-keys", func(r chi.Router) {
+					r.Post("/", h.CreateAPIKey)
+					r.Get("/", h.ListAPIKeys)
+					r.Delete("/{keyID}", h.RevokeAPIKey)
 				})
 
 				// Routing rules management (admin-only for set/delete)
@@ -175,8 +191,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 				r.Use(RequireRole("system", "admin"))
 			}
 			r.Get("/keys/active", h.GetActiveKeys)
+			r.Get("/api-keys/active", h.GetActiveAPIKeys)
 		})
 	})
 
-	return r
+	return r, nil
 }

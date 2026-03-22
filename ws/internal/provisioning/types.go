@@ -1,7 +1,9 @@
 package provisioning
 
 import (
+	"crypto/rand"
 	"database/sql/driver"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -241,6 +243,51 @@ func (k *TenantKey) IsExpired() bool {
 	return k.ExpiresAt.Before(time.Now())
 }
 
+// APIKey represents a public API key for tenant identification.
+// API keys are public identifiers (like Pusher's app key) — stored plaintext,
+// embedded in frontend code. Security comes from API-key-only connections
+// being restricted to public channels.
+type APIKey struct {
+	// KeyID is the server-generated identifier with pk_live_ prefix.
+	KeyID string `json:"key_id"`
+
+	// TenantID is the owning tenant.
+	TenantID string `json:"tenant_id"`
+
+	// Name is a human-readable label for the key.
+	Name string `json:"name"`
+
+	// IsActive indicates if the key is currently valid.
+	IsActive bool `json:"is_active"`
+
+	// CreatedAt is when the key was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// RevokedAt is when the key was revoked (optional).
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+}
+
+// apiKeyEntropyBytes is the number of random bytes for API key generation (256 bits).
+const apiKeyEntropyBytes = 32
+
+// apiKeyPrefix is the prefix for generated API keys.
+const apiKeyPrefix = "pk_live_"
+
+// GenerateAPIKeyID generates a new API key with the pk_live_ prefix and 256 bits of entropy.
+func GenerateAPIKeyID() (string, error) {
+	b := make([]byte, apiKeyEntropyBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate api key: %w", err)
+	}
+	return apiKeyPrefix + base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// Sentinel errors for API key operations.
+var (
+	ErrAPIKeyNotFound         = errors.New("api key not found")
+	ErrAPIKeyNotOwnedByTenant = errors.New("api key does not belong to this tenant")
+)
+
 // TenantQuota represents resource quotas for a tenant.
 type TenantQuota struct {
 	// TenantID is the tenant these quotas apply to.
@@ -317,6 +364,10 @@ const (
 	// Routing rules actions
 	ActionSetRoutingRules    = "set_routing_rules"
 	ActionDeleteRoutingRules = "delete_routing_rules"
+
+	// API key actions
+	ActionCreateAPIKey = "create_api_key"
+	ActionRevokeAPIKey = "revoke_api_key" //nolint:gosec // audit action label, not a credential
 )
 
 // Actor type constants.

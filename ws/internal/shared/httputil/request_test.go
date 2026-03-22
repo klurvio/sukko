@@ -79,6 +79,72 @@ func TestExtractBearerToken(t *testing.T) {
 	}
 }
 
+func TestExtractAPIKey(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		query   string
+		header  string
+		wantKey string
+	}{
+		{
+			name:    "api_key in query parameter",
+			query:   "api_key=pk_live_abc123",
+			header:  "",
+			wantKey: "pk_live_abc123",
+		},
+		{
+			name:    "api key in X-API-Key header",
+			query:   "",
+			header:  "pk_live_xyz789",
+			wantKey: "pk_live_xyz789",
+		},
+		{
+			name:    "query parameter takes precedence over header",
+			query:   "api_key=pk_live_query",
+			header:  "pk_live_header",
+			wantKey: "pk_live_query",
+		},
+		{
+			name:    "no api key provided",
+			query:   "",
+			header:  "",
+			wantKey: "",
+		},
+		{
+			name:    "empty query parameter falls back to header",
+			query:   "api_key=",
+			header:  "pk_live_fallback",
+			wantKey: "pk_live_fallback",
+		},
+		{
+			name:    "empty header returns empty",
+			query:   "",
+			header:  "",
+			wantKey: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			url := "http://example.com"
+			if tt.query != "" {
+				url += "?" + tt.query
+			}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+			if tt.header != "" {
+				req.Header.Set("X-API-Key", tt.header)
+			}
+
+			got := ExtractAPIKey(req)
+			if got != tt.wantKey {
+				t.Errorf("ExtractAPIKey() = %q, want %q", got, tt.wantKey)
+			}
+		})
+	}
+}
+
 func TestGetClientIP(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

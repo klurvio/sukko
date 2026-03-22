@@ -43,8 +43,8 @@ type KeyStore interface {
 	// Get retrieves a key by ID.
 	Get(ctx context.Context, keyID string) (*TenantKey, error)
 
-	// ListByTenant returns all keys for a tenant.
-	ListByTenant(ctx context.Context, tenantID string) ([]*TenantKey, error)
+	// ListByTenant returns keys for a tenant with pagination.
+	ListByTenant(ctx context.Context, tenantID string, opts ListOptions) ([]*TenantKey, int, error)
 
 	// Revoke revokes a key by setting its revoked_at timestamp.
 	Revoke(ctx context.Context, keyID string) error
@@ -55,6 +55,25 @@ type KeyStore interface {
 	// GetActiveKeys returns all active, non-expired, non-revoked keys.
 	// Used by WS Gateway to refresh its key cache.
 	GetActiveKeys(ctx context.Context) ([]*TenantKey, error)
+}
+
+// APIKeyStore handles API key persistence operations.
+type APIKeyStore interface {
+	// Create creates a new API key record.
+	Create(ctx context.Context, key *APIKey) error
+
+	// Get retrieves an API key by key ID.
+	Get(ctx context.Context, keyID string) (*APIKey, error)
+
+	// ListByTenant returns API keys for a tenant with pagination.
+	ListByTenant(ctx context.Context, tenantID string, opts ListOptions) ([]*APIKey, int, error)
+
+	// Revoke revokes an API key by setting its revoked_at timestamp.
+	Revoke(ctx context.Context, keyID string) error
+
+	// GetActiveAPIKeys returns all active, non-revoked API keys.
+	// Used by the gateway to populate its in-memory lookup map.
+	GetActiveAPIKeys(ctx context.Context) ([]*APIKey, error)
 }
 
 // RoutingRulesStore handles per-tenant topic routing rules persistence.

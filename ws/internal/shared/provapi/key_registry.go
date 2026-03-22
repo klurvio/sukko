@@ -5,9 +5,6 @@ package provapi
 
 import (
 	"context"
-	"crypto"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"math"
@@ -133,6 +130,9 @@ func (r *StreamKeyRegistry) GetKey(_ context.Context, keyID string) (*auth.KeyIn
 		return nil, auth.ErrKeyNotFound
 	}
 
+	if !key.IsActive {
+		return nil, auth.ErrKeyNotFound
+	}
 	if key.RevokedAt != nil {
 		return nil, auth.ErrKeyRevoked
 	}
@@ -322,7 +322,7 @@ func (r *StreamKeyRegistry) updateKeys(resp *provisioningv1.WatchKeysResponse) {
 
 // protoToKeyInfo converts a proto KeyInfo to auth.KeyInfo.
 func protoToKeyInfo(ki *provisioningv1.KeyInfo) (*auth.KeyInfo, error) {
-	pubKey, err := parsePEMPublicKey(ki.GetPublicKeyPem())
+	pubKey, err := auth.ParsePublicKey(ki.GetPublicKeyPem(), ki.GetAlgorithm())
 	if err != nil {
 		return nil, fmt.Errorf("parse public key: %w", err)
 	}
@@ -342,20 +342,6 @@ func protoToKeyInfo(ki *provisioningv1.KeyInfo) (*auth.KeyInfo, error) {
 	}
 
 	return info, nil
-}
-
-// parsePEMPublicKey parses a PEM-encoded public key.
-func parsePEMPublicKey(pemStr string) (crypto.PublicKey, error) {
-	block, _ := pem.Decode([]byte(pemStr))
-	if block == nil {
-		return nil, errors.New("failed to decode PEM block")
-	}
-
-	key, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse PKIX public key: %w", err)
-	}
-	return key, nil
 }
 
 // backoff calculates the next backoff delay with jitter, capped at maxDelay.

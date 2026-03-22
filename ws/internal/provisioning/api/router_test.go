@@ -73,6 +73,7 @@ func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStor
 	cfg := provisioning.ServiceConfig{
 		TenantStore:          tenantStore,
 		KeyStore:             testutil.NewMockKeyStore(),
+		APIKeyStore:          testutil.NewMockAPIKeyStore(),
 		RoutingRulesStore:    routingStore,
 		QuotaStore:           testutil.NewMockQuotaStore(),
 		AuditStore:           testutil.NewMockAuditStore(),
@@ -94,6 +95,16 @@ func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStor
 		panic("newTestServiceWithStores: " + err.Error())
 	}
 	return svc
+}
+
+// mustNewRouter creates a test router, failing the test on error.
+func mustNewRouter(t *testing.T, cfg api.RouterConfig) http.Handler {
+	t.Helper()
+	router, err := api.NewRouter(cfg)
+	if err != nil {
+		t.Fatalf("mustNewRouter: %v", err)
+	}
+	return router
 }
 
 func TestRouter_CORSPreflight(t *testing.T) {
@@ -135,7 +146,7 @@ func TestRouter_CORSPreflight(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			router := api.NewRouter(api.RouterConfig{
+			router := mustNewRouter(t, api.RouterConfig{
 				Service:            newTestService(),
 				Logger:             zerolog.Nop(),
 				CORSAllowedOrigins: tt.allowedOrigins,
@@ -186,7 +197,7 @@ func TestRouter_CORSPreflight(t *testing.T) {
 func TestRouter_CORSHeaders_OnActualRequest(t *testing.T) {
 	t.Parallel()
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:            newTestService(),
 		Logger:             zerolog.Nop(),
 		CORSAllowedOrigins: []string{"http://localhost:3000"},
@@ -216,7 +227,7 @@ func TestRouter_CORSHeaders_OnActualRequest(t *testing.T) {
 func TestRouter_AuthDisabled_APIWorksWithoutToken(t *testing.T) {
 	t.Parallel()
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
 		AuthEnabled: false, // Auth disabled
@@ -294,7 +305,7 @@ func TestRouter_AuthEnabled_RequiresToken(t *testing.T) {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
 	}
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
 		AuthEnabled: true,
@@ -336,7 +347,7 @@ func TestRouter_AuthEnabled_ValidToken(t *testing.T) {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
 	}
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
 		AuthEnabled: true,
@@ -392,7 +403,7 @@ func TestRouter_AuthEnabled_ExpiredToken(t *testing.T) {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
 	}
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
 		AuthEnabled: true,
@@ -448,7 +459,7 @@ func TestRouter_AuthEnabled_InvalidToken(t *testing.T) {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
 	}
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
 		AuthEnabled: true,
@@ -516,7 +527,7 @@ func TestRouter_AuthEnabled_RoleRequirement(t *testing.T) {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
 	}
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
 		AuthEnabled: true,
@@ -614,7 +625,7 @@ func TestRouter_HealthEndpoints_NoAuth(t *testing.T) {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
 	}
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
 		AuthEnabled: true,
@@ -658,7 +669,7 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 	// Pre-create a tenant so service calls succeed
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
 		AuthEnabled: false,
@@ -736,7 +747,7 @@ func TestRouter_RoutingRules_InvalidJSON(t *testing.T) {
 	svc := newTestServiceWithStores(tenantStore, routingStore)
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
 		AuthEnabled: false,
@@ -761,7 +772,7 @@ func TestRouter_RoutingRules_InvalidRules(t *testing.T) {
 	svc := newTestServiceWithStores(tenantStore, routingStore)
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
 		AuthEnabled: false,
@@ -790,7 +801,7 @@ func TestRouter_RoutingRules_DeleteNonexistent(t *testing.T) {
 	svc := newTestServiceWithStores(tenantStore, routingStore)
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
 		AuthEnabled: false,
@@ -820,7 +831,7 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("tenant-sub-only"))
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("tenant-sub-pub"))
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
 		AuthEnabled: false,
@@ -938,7 +949,7 @@ func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
 	svc := newTestServiceWithStores(tenantStore, routingStore)
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-	router := api.NewRouter(api.RouterConfig{
+	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
 		AuthEnabled: true,
@@ -1023,4 +1034,183 @@ func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
 			}
 		})
 	}
+}
+
+// =============================================================================
+// API Key Endpoint Tests
+// =============================================================================
+
+func TestRouter_APIKeys(t *testing.T) {
+	t.Parallel()
+
+	t.Run("create api key - 201", func(t *testing.T) {
+		t.Parallel()
+
+		tenantStore := testutil.NewMockTenantStore()
+		routingStore := testutil.NewMockRoutingRulesStore()
+		svc := newTestServiceWithStores(tenantStore, routingStore)
+
+		_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+
+		router := mustNewRouter(t, api.RouterConfig{
+			Service:     svc,
+			Logger:      zerolog.Nop(),
+			AuthEnabled: false,
+		})
+
+		body, _ := json.Marshal(map[string]string{"name": "test-key"})
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/tenants/test-tenant/api-keys", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusCreated, rec.Body.String())
+		}
+
+		var resp map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+		if _, ok := resp["key_id"]; !ok {
+			t.Error("response missing key_id field")
+		}
+	})
+
+	t.Run("list api keys - 200", func(t *testing.T) {
+		t.Parallel()
+
+		tenantStore := testutil.NewMockTenantStore()
+		routingStore := testutil.NewMockRoutingRulesStore()
+		svc := newTestServiceWithStores(tenantStore, routingStore)
+
+		_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+
+		router := mustNewRouter(t, api.RouterConfig{
+			Service:     svc,
+			Logger:      zerolog.Nop(),
+			AuthEnabled: false,
+		})
+
+		// Create a key first
+		body, _ := json.Marshal(map[string]string{"name": "list-test-key"})
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/tenants/test-tenant/api-keys", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("seed create status = %d, want %d; body: %s", rec.Code, http.StatusCreated, rec.Body.String())
+		}
+
+		// List keys
+		req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/test-tenant/api-keys", nil)
+		rec = httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+
+		var resp struct {
+			Items []map[string]any `json:"items"`
+			Total int              `json:"total"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+		if len(resp.Items) == 0 {
+			t.Error("expected at least 1 item in list, got 0")
+		}
+	})
+
+	t.Run("revoke api key - 200", func(t *testing.T) {
+		t.Parallel()
+
+		tenantStore := testutil.NewMockTenantStore()
+		routingStore := testutil.NewMockRoutingRulesStore()
+		svc := newTestServiceWithStores(tenantStore, routingStore)
+
+		_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+
+		router := mustNewRouter(t, api.RouterConfig{
+			Service:     svc,
+			Logger:      zerolog.Nop(),
+			AuthEnabled: false,
+		})
+
+		// Create a key first
+		body, _ := json.Marshal(map[string]string{"name": "revoke-test-key"})
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/tenants/test-tenant/api-keys", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("seed create status = %d, want %d; body: %s", rec.Code, http.StatusCreated, rec.Body.String())
+		}
+
+		var createResp struct {
+			KeyID string `json:"key_id"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &createResp); err != nil {
+			t.Fatalf("failed to parse create response: %v", err)
+		}
+
+		// Revoke the key
+		req = httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/tenants/test-tenant/api-keys/"+createResp.KeyID, nil)
+		rec = httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+	})
+
+	t.Run("get active api keys - 200", func(t *testing.T) {
+		t.Parallel()
+
+		router := mustNewRouter(t, api.RouterConfig{
+			Service:     newTestService(),
+			Logger:      zerolog.Nop(),
+			AuthEnabled: false,
+		})
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/api-keys/active", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+
+		var resp struct {
+			Keys []map[string]any `json:"keys"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+	})
+
+	t.Run("create api key - tenant not found - 404", func(t *testing.T) {
+		t.Parallel()
+
+		router := mustNewRouter(t, api.RouterConfig{
+			Service:     newTestService(),
+			Logger:      zerolog.Nop(),
+			AuthEnabled: false,
+		})
+
+		body, _ := json.Marshal(map[string]string{"name": "orphan-key"})
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/tenants/nonexistent-tenant/api-keys", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		// The mock tenant store returns ErrTenantNotFound for nonexistent tenants,
+		// which writeServiceError maps to 404.
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want %d; body: %s", rec.Code, http.StatusNotFound, rec.Body.String())
+		}
+	})
 }

@@ -51,8 +51,8 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		ShutdownTimeout:            30 * time.Second,
 		CORSAllowedOrigins:         []string{"http://localhost:3000"},
 		CORSMaxAge:                 3600,
-		MaxTenantsFetchLimit:       100,
-		DeletionTimeout:            30 * time.Second,
+		MaxTenantsFetchLimit:       10000,
+		DeletionTimeout:            5 * time.Minute,
 	}
 }
 

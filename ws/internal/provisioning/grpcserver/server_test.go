@@ -152,6 +152,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	svc, svcErr := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:       tenantStore,
 		KeyStore:          keyStore,
+		APIKeyStore:       testutil.NewMockAPIKeyStore(),
 		RoutingRulesStore: routingRulesStore,
 		QuotaStore:        quotaStore,
 		AuditStore:        auditStore,
@@ -394,5 +395,71 @@ func TestStream_ContextCancellation(t *testing.T) { //nolint:paralleltest // use
 	_, err = stream.Recv()
 	if err == nil {
 		t.Error("expected error after context cancellation")
+	}
+}
+
+func TestWatchAPIKeys_Snapshot(t *testing.T) { //nolint:paralleltest // uses shared gRPC test server
+	env := setupTestEnv(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := env.client.WatchAPIKeys(ctx, &provisioningv1.WatchAPIKeysRequest{})
+	if err != nil {
+		t.Fatalf("WatchAPIKeys() error = %v", err)
+	}
+
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv() error = %v", err)
+	}
+
+	if !resp.GetIsSnapshot() {
+		t.Error("first message should be a snapshot")
+	}
+
+	// No API keys are seeded in setupTestEnv, so snapshot should be empty.
+	if len(resp.GetApiKeys()) != 0 {
+		t.Errorf("expected 0 api keys in snapshot, got %d", len(resp.GetApiKeys()))
+	}
+
+	if len(resp.GetRemovedKeyIds()) != 0 {
+		t.Errorf("expected 0 removed key IDs in snapshot, got %d", len(resp.GetRemovedKeyIds()))
+	}
+}
+
+func TestWatchAPIKeys_Delta(t *testing.T) { //nolint:paralleltest // uses shared gRPC test server
+	env := setupTestEnv(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := env.client.WatchAPIKeys(ctx, &provisioningv1.WatchAPIKeysRequest{})
+	if err != nil {
+		t.Fatalf("WatchAPIKeys() error = %v", err)
+	}
+
+	// Receive snapshot
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv snapshot error = %v", err)
+	}
+
+	// Publish APIKeysChanged event
+	env.bus.Publish(eventbus.Event{Type: eventbus.APIKeysChanged})
+
+	// Receive delta
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv delta error = %v", err)
+	}
+
+	if resp.GetIsSnapshot() {
+		t.Error("second message should be a delta, not snapshot")
+	}
+
+	// No API keys seeded, so delta should also have 0 keys.
+	if len(resp.GetApiKeys()) != 0 {
+		t.Errorf("expected 0 api keys in delta, got %d", len(resp.GetApiKeys()))
 	}
 }

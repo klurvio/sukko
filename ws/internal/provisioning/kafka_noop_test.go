@@ -4,6 +4,10 @@ import (
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/rs/zerolog"
+
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 func TestNoopKafkaAdmin_ImplementsInterface(t *testing.T) {
@@ -82,6 +86,7 @@ func TestNoopKafkaAdmin_Concurrent(t *testing.T) {
 	for i := range 10 {
 		wg.Add(1)
 		go func(n int) {
+			defer logging.RecoverPanic(zerolog.Nop(), "test_noop_kafka_concurrent", nil)
 			defer wg.Done()
 			topic := "topic-" + string(rune('a'+n))
 			_ = admin.CreateTopic(ctx, topic, 1, nil)

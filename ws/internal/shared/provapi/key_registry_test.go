@@ -198,16 +198,13 @@ func TestKeyRegistry_DeltaUpdate(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Key should exist but be inactive
-	key, err := r.GetKey(ctx, "key-1")
-	if err != nil {
-		t.Fatalf("GetKey() error = %v", err)
-	}
-	if key.IsActive {
-		t.Error("key should be inactive after delta update")
+	// GetKey should reject inactive keys (defense in depth)
+	_, err := r.GetKey(ctx, "key-1")
+	if !errors.Is(err, auth.ErrKeyNotFound) {
+		t.Errorf("expected ErrKeyNotFound for inactive key, got %v", err)
 	}
 
-	// GetKeysByTenant should filter inactive keys
+	// GetKeysByTenant should also filter inactive keys
 	activeKeys, err := r.GetKeysByTenant(ctx, "tenant-a")
 	if err != nil {
 		t.Fatalf("GetKeysByTenant() error = %v", err)
@@ -314,25 +311,26 @@ func TestKeyRegistry_StatsActiveCount(t *testing.T) {
 	}
 }
 
-func TestParsePEMPublicKey(t *testing.T) {
+func TestParsePublicKeyViaAuth(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name    string
 		pem     string
+		algo    string
 		wantErr bool
 	}{
-		{"valid EC key", testPublicKeyPEM, false},
-		{"invalid PEM", "not-a-pem", true},
-		{"empty", "", true},
+		{"valid EC key", testPublicKeyPEM, "ES256", false},
+		{"invalid PEM", "not-a-pem", "ES256", true},
+		{"empty", "", "ES256", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := parsePEMPublicKey(tt.pem)
+			_, err := auth.ParsePublicKey(tt.pem, tt.algo)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("parsePEMPublicKey() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("auth.ParsePublicKey() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
