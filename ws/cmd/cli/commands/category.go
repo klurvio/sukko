@@ -35,7 +35,11 @@ var routingRulesGetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID, _ := cmd.Flags().GetString("tenant")
 
-		result, err := newClient().GetRoutingRules(tenantID)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.GetRoutingRules(tenantID)
 		if err != nil {
 			return fmt.Errorf("get routing rules: %w", err)
 		}
@@ -60,7 +64,11 @@ var routingRulesSetCmd = &cobra.Command{
 			return fmt.Errorf("parse rules file: %w", err)
 		}
 
-		result, err := newClient().SetRoutingRules(tenantID, req)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.SetRoutingRules(tenantID, req)
 		if err != nil {
 			return fmt.Errorf("set routing rules: %w", err)
 		}
@@ -74,7 +82,11 @@ var routingRulesDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID, _ := cmd.Flags().GetString("tenant")
 
-		result, err := newClient().DeleteRoutingRules(tenantID)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.DeleteRoutingRules(tenantID)
 		if err != nil {
 			return fmt.Errorf("delete routing rules: %w", err)
 		}

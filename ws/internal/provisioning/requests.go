@@ -82,39 +82,12 @@ type UpdateQuotaRequest struct {
 	ConsumerByteRate *int64 `json:"consumer_byte_rate,omitempty"`
 }
 
-// CreateOIDCConfigRequest is the request to register OIDC configuration.
-type CreateOIDCConfigRequest struct {
-	// IssuerURL is the OIDC issuer URL (required).
-	IssuerURL string `json:"issuer_url"`
-
-	// JWKSURL is the custom JWKS URL (optional, defaults to {issuer}/.well-known/jwks.json).
-	JWKSURL string `json:"jwks_url,omitempty"`
-
-	// Audience is the expected audience claim (optional).
-	Audience string `json:"audience,omitempty"`
-}
-
-// UpdateOIDCConfigRequest is the request to update OIDC configuration.
-type UpdateOIDCConfigRequest struct {
-	// IssuerURL is the new OIDC issuer URL (optional).
-	IssuerURL *string `json:"issuer_url,omitempty"`
-
-	// JWKSURL is the new custom JWKS URL (optional).
-	JWKSURL *string `json:"jwks_url,omitempty"`
-
-	// Audience is the new audience claim (optional).
-	Audience *string `json:"audience,omitempty"`
-
-	// Enabled controls whether the OIDC config is active (optional).
-	Enabled *bool `json:"enabled,omitempty"`
-}
-
 // SetChannelRulesRequest is the request to set channel rules for a tenant.
 type SetChannelRulesRequest struct {
 	// Public contains channel patterns accessible to all authenticated users.
 	Public []string `json:"public,omitempty"`
 
-	// GroupMappings maps IdP group names to allowed channel patterns.
+	// GroupMappings maps group names to allowed channel patterns.
 	GroupMappings map[string][]string `json:"group_mappings,omitempty"`
 
 	// Default contains channel patterns allowed when no groups match.
@@ -123,7 +96,7 @@ type SetChannelRulesRequest struct {
 
 // TestAccessRequest is the request to test channel access for given groups.
 type TestAccessRequest struct {
-	// Groups are the IdP groups to test access for.
+	// Groups are the JWT groups to test access for.
 	Groups []string `json:"groups"`
 }
 

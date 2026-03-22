@@ -29,9 +29,10 @@ const (
 
 // Channel rules lookup source values.
 const (
-	LookupSourceCache    = "cache"
-	LookupSourceDatabase = "database"
-	LookupSourceFallback = "fallback"
+	LookupSourceCache         = "cache"
+	LookupSourceDatabase      = "database"
+	LookupSourceFallback      = "fallback"
+	LookupSourceErrorFallback = "error_fallback" // Fallback due to unexpected provider error
 )
 
 // Proxy error type values.
@@ -58,14 +59,6 @@ const (
 	CloseReasonUpgradeFailed       = "upgrade_failed"
 	CloseReasonBackendUnavailable  = "backend_unavailable"
 )
-
-// OIDCValidationBuckets defines histogram buckets for OIDC token validation latency.
-// Range: sub-millisecond to 1 second, for auth operations that may involve network calls.
-var OIDCValidationBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0}
-
-// JWKSFetchBuckets defines histogram buckets for JWKS key fetch latency.
-// Range: 100ms to 10 seconds, for network-bound key retrieval operations.
-var JWKSFetchBuckets = []float64{0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}
 
 // Prometheus metrics for the gateway service.
 // Uses gateway_ prefix for service-specific metrics.
@@ -217,31 +210,6 @@ var keyCacheRefreshes = promauto.NewCounterVec(prometheus.CounterOpts{
 }, []string{"result"}) // success, error
 
 // =============================================================================
-// Multi-Issuer OIDC Metrics
-// =============================================================================
-
-var oidcValidationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "gateway_oidc_validation_total",
-	Help: "Total OIDC token validations",
-}, []string{"tenant_id", "result"}) // result: success, invalid_signature, unknown_issuer, expired
-
-var oidcValidationLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
-	Name:    "gateway_oidc_validation_latency_seconds",
-	Help:    "OIDC token validation latency",
-	Buckets: OIDCValidationBuckets,
-}, []string{"tenant_id"})
-
-var issuerCacheHits = promauto.NewCounter(prometheus.CounterOpts{
-	Name: "gateway_issuer_cache_hits_total",
-	Help: "Issuer cache hits",
-})
-
-var issuerCacheMisses = promauto.NewCounter(prometheus.CounterOpts{
-	Name: "gateway_issuer_cache_misses_total",
-	Help: "Issuer cache misses",
-})
-
-// =============================================================================
 // Channel Rules Metrics
 // =============================================================================
 
@@ -254,21 +222,6 @@ var channelAuthorizationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "gateway_channel_authorization_total",
 	Help: "Channel authorization decisions",
 }, []string{"tenant_id", "result"}) // result: allowed, denied
-
-// =============================================================================
-// JWKS Fetch Metrics
-// =============================================================================
-
-var jwksFetchTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "gateway_jwks_fetch_total",
-	Help: "JWKS endpoint fetches",
-}, []string{"issuer", "result"}) // result: success, timeout, error
-
-var jwksFetchLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
-	Name:    "gateway_jwks_fetch_latency_seconds",
-	Help:    "JWKS fetch latency",
-	Buckets: JWKSFetchBuckets,
-}, []string{"issuer"})
 
 // =============================================================================
 // Helper Functions
@@ -371,25 +324,6 @@ func RecordPublishLatency(seconds float64) {
 	publishLatency.Observe(seconds)
 }
 
-// RecordOIDCValidation records an OIDC token validation result.
-func RecordOIDCValidation(tenantID, result string, latency time.Duration) {
-	if tenantID == "" {
-		tenantID = "unknown"
-	}
-	oidcValidationTotal.WithLabelValues(tenantID, result).Inc()
-	oidcValidationLatency.WithLabelValues(tenantID).Observe(latency.Seconds())
-}
-
-// RecordIssuerCacheHit records an issuer cache hit.
-func RecordIssuerCacheHit() {
-	issuerCacheHits.Inc()
-}
-
-// RecordIssuerCacheMiss records an issuer cache miss.
-func RecordIssuerCacheMiss() {
-	issuerCacheMisses.Inc()
-}
-
 // RecordChannelRulesLookup records a channel rules lookup.
 func RecordChannelRulesLookup(tenantID, source string) {
 	if tenantID == "" {
@@ -404,15 +338,6 @@ func RecordChannelAuthorization(tenantID, result string) {
 		tenantID = "unknown"
 	}
 	channelAuthorizationTotal.WithLabelValues(tenantID, result).Inc()
-}
-
-// RecordJWKSFetch records a JWKS fetch operation.
-func RecordJWKSFetch(issuer, result string, latency time.Duration) {
-	if issuer == "" {
-		issuer = "unknown"
-	}
-	jwksFetchTotal.WithLabelValues(issuer, result).Inc()
-	jwksFetchLatency.WithLabelValues(issuer).Observe(latency.Seconds())
 }
 
 // AccessDenialMetricsAdapter implements auth.AccessDenialMetrics for Prometheus.

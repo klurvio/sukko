@@ -63,7 +63,11 @@ var keyCreateCmd = &cobra.Command{
 			req["expires_at"] = expiresAt
 		}
 
-		result, err := newClient().CreateKey(tenantID, req)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.CreateKey(tenantID, req)
 		if err != nil {
 			return fmt.Errorf("create key: %w", err)
 		}
@@ -77,7 +81,11 @@ var keyListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID, _ := cmd.Flags().GetString("tenant")
 
-		result, err := newClient().ListKeys(tenantID)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.ListKeys(tenantID)
 		if err != nil {
 			return fmt.Errorf("list keys: %w", err)
 		}
@@ -92,7 +100,11 @@ var keyRevokeCmd = &cobra.Command{
 		tenantID, _ := cmd.Flags().GetString("tenant")
 		keyID, _ := cmd.Flags().GetString("key-id")
 
-		result, err := newClient().RevokeKey(tenantID, keyID)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.RevokeKey(tenantID, keyID)
 		if err != nil {
 			return fmt.Errorf("revoke key: %w", err)
 		}

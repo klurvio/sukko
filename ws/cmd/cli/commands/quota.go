@@ -34,7 +34,11 @@ var quotaGetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID, _ := cmd.Flags().GetString("tenant")
 
-		result, err := newClient().GetQuota(tenantID)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.GetQuota(tenantID)
 		if err != nil {
 			return fmt.Errorf("get quota: %w", err)
 		}
@@ -68,7 +72,11 @@ var quotaUpdateCmd = &cobra.Command{
 			req["max_connections"] = v
 		}
 
-		result, err := newClient().UpdateQuota(tenantID, req)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.UpdateQuota(tenantID, req)
 		if err != nil {
 			return fmt.Errorf("update quota: %w", err)
 		}

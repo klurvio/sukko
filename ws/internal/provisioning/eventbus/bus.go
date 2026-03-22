@@ -18,7 +18,7 @@ const (
 	// KeysChanged indicates that API keys were created, revoked, or modified.
 	KeysChanged EventType = "keys_changed"
 
-	// TenantConfigChanged indicates that tenant OIDC or channel rules changed.
+	// TenantConfigChanged indicates that tenant channel rules or routing rules changed.
 	TenantConfigChanged EventType = "tenant_config_changed"
 
 	// TopicsChanged indicates that topics or tenant categories changed.

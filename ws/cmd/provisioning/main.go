@@ -98,7 +98,6 @@ func main() {
 	routingRulesRepo := repository.NewPostgresRoutingRulesRepository(db)
 	quotaRepo := repository.NewPostgresQuotaRepository(db)
 	auditRepo := repository.NewPostgresAuditRepository(db)
-	oidcRepo := repository.NewPostgresOIDCConfigRepository(db)
 	channelRulesRepo := repository.NewPostgresChannelRulesRepository(db)
 
 	// Kafka admin disabled — topic creation is handled by ws-server's KafkaBackend
@@ -111,7 +110,6 @@ func main() {
 		RoutingRulesStore:    routingRulesRepo,
 		QuotaStore:           quotaRepo,
 		AuditStore:           auditRepo,
-		OIDCConfigStore:      oidcRepo,
 		ChannelRulesStore:    channelRulesRepo,
 		KafkaAdmin:           kafkaAdmin,
 		EventBus:             bus,
@@ -132,7 +130,6 @@ func main() {
 
 	// Set up authentication if enabled
 	var validator *auth.MultiTenantValidator
-	var oidcCloser *auth.OIDCKeyfuncResult
 	if cfg.AuthEnabled {
 		// Create key registry from existing database connection
 		keyRegistry, err := auth.NewPostgresKeyRegistry(auth.PostgresKeyRegistryConfig{
@@ -150,35 +147,6 @@ func main() {
 		validatorCfg := auth.MultiTenantValidatorConfig{
 			KeyRegistry:     keyRegistry,
 			RequireTenantID: true,
-			RequireKeyID:    true,
-		}
-
-		// Set up OIDC keyfunc if configured (graceful degradation on failure)
-		if cfg.OIDCEnabled() {
-			oidcResult, err := auth.NewOIDCKeyfunc(context.Background(), auth.OIDCConfig{
-				IssuerURL: cfg.OIDCIssuerURL,
-				JWKSURL:   cfg.OIDCJWKSURL,
-				Audience:  cfg.OIDCAudience,
-			}, structuredLogger.With().Str("component", "oidc").Logger())
-
-			if err != nil {
-				// Graceful degradation: log warning but continue without OIDC
-				structuredLogger.Warn().
-					Err(err).
-					Str("jwks_url", cfg.OIDCJWKSURL).
-					Msg("Failed to create OIDC keyfunc, continuing without OIDC support")
-			} else {
-				oidcCloser = oidcResult
-				validatorCfg.OIDCKeyfunc = oidcResult.Keyfunc
-				validatorCfg.OIDCIssuer = cfg.OIDCIssuerURL
-				validatorCfg.OIDCAudience = cfg.OIDCAudience
-				defer oidcCloser.Close()
-
-				structuredLogger.Info().
-					Str("issuer_url", cfg.OIDCIssuerURL).
-					Str("jwks_url", cfg.OIDCJWKSURL).
-					Msg("OIDC support enabled")
-			}
 		}
 
 		// Create multi-tenant validator
@@ -187,9 +155,7 @@ func main() {
 			structuredLogger.Fatal().Err(err).Msg("Failed to create validator")
 		}
 
-		structuredLogger.Info().
-			Bool("oidc_enabled", cfg.OIDCEnabled()).
-			Msg("Authentication enabled")
+		structuredLogger.Info().Msg("Authentication enabled")
 	}
 
 	// Set up admin auth middleware (if admin token is configured)
@@ -244,9 +210,13 @@ func main() {
 			grpcserver.MetricsStreamInterceptor(),
 		),
 	)
-	provisioningv1.RegisterProvisioningInternalServiceServer(grpcSrv, grpcserver.NewServer(svc, bus, structuredLogger, grpcserver.ServerConfig{
+	grpcStreamServer, err := grpcserver.NewServer(svc, bus, structuredLogger, grpcserver.ServerConfig{
 		MaxTenantsFetchLimit: cfg.MaxTenantsFetchLimit,
-	}))
+	})
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to create gRPC stream server")
+	}
+	provisioningv1.RegisterProvisioningInternalServiceServer(grpcSrv, grpcStreamServer)
 
 	// Start lifecycle manager (background job for tenant cleanup)
 	var lifecycleManager *provisioning.LifecycleManager

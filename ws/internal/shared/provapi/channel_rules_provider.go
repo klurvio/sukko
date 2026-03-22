@@ -2,6 +2,7 @@ package provapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -18,8 +19,8 @@ import (
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
-// StreamTenantRegistryConfig configures the gRPC stream-backed tenant registry.
-type StreamTenantRegistryConfig struct {
+// StreamChannelRulesProviderConfig configures the gRPC stream-backed channel rules provider.
+type StreamChannelRulesProviderConfig struct {
 	GRPCAddr          string
 	ReconnectDelay    time.Duration
 	ReconnectMaxDelay time.Duration
@@ -27,17 +28,14 @@ type StreamTenantRegistryConfig struct {
 	Logger            zerolog.Logger
 }
 
-// StreamTenantRegistry implements gateway.TenantRegistry backed by a gRPC
-// streaming connection to the provisioning service. It caches tenant OIDC
-// configurations and channel rules.
-type StreamTenantRegistry struct {
-	mu             sync.RWMutex
-	issuerToTenant map[string]string                  // issuerURL → tenantID
-	oidcConfigs    map[string]*types.TenantOIDCConfig // tenantID → config
-	channelRules   map[string]*types.ChannelRules     // tenantID → rules
+// StreamChannelRulesProvider provides per-tenant channel rules backed by a gRPC
+// streaming connection to the provisioning service. Caches rules in memory.
+type StreamChannelRulesProvider struct {
+	mu           sync.RWMutex
+	channelRules map[string]*types.ChannelRules // tenantID → rules
 
 	conn   *grpc.ClientConn
-	config StreamTenantRegistryConfig
+	config StreamChannelRulesProviderConfig
 	logger zerolog.Logger
 
 	streamState atomic.Int32
@@ -50,8 +48,21 @@ type StreamTenantRegistry struct {
 	reconnectsCounter prometheus.Counter
 }
 
-// NewStreamTenantRegistry creates a new gRPC stream-backed tenant registry.
-func NewStreamTenantRegistry(cfg StreamTenantRegistryConfig) (*StreamTenantRegistry, error) {
+// NewStreamChannelRulesProvider creates a new gRPC stream-backed channel rules provider.
+func NewStreamChannelRulesProvider(cfg StreamChannelRulesProviderConfig) (*StreamChannelRulesProvider, error) {
+	if cfg.GRPCAddr == "" {
+		return nil, errors.New("stream channel rules provider: GRPCAddr is required")
+	}
+	if cfg.ReconnectDelay <= 0 {
+		return nil, errors.New("stream channel rules provider: ReconnectDelay must be > 0")
+	}
+	if cfg.ReconnectMaxDelay < cfg.ReconnectDelay {
+		return nil, errors.New("stream channel rules provider: ReconnectMaxDelay must be >= ReconnectDelay")
+	}
+	if cfg.MetricPrefix == "" {
+		return nil, errors.New("stream channel rules provider: MetricPrefix is required")
+	}
+
 	conn, err := grpc.NewClient(cfg.GRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -61,14 +72,12 @@ func NewStreamTenantRegistry(cfg StreamTenantRegistryConfig) (*StreamTenantRegis
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	r := &StreamTenantRegistry{
-		issuerToTenant: make(map[string]string),
-		oidcConfigs:    make(map[string]*types.TenantOIDCConfig),
-		channelRules:   make(map[string]*types.ChannelRules),
-		conn:           conn,
-		config:         cfg,
-		logger:         cfg.Logger.With().Str("component", "stream_tenant_registry").Logger(),
-		cancel:         cancel,
+	r := &StreamChannelRulesProvider{
+		channelRules: make(map[string]*types.ChannelRules),
+		conn:         conn,
+		config:       cfg,
+		logger:       cfg.Logger.With().Str("component", "stream_channel_rules_provider").Logger(),
+		cancel:       cancel,
 		streamStateGauge: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: cfg.MetricPrefix + "_provisioning_config_stream_state",
 			Help: "State of the provisioning config gRPC stream (0=disconnected, 1=connected)",
@@ -81,7 +90,7 @@ func NewStreamTenantRegistry(cfg StreamTenantRegistryConfig) (*StreamTenantRegis
 
 	r.wg.Add(1)
 	go func() {
-		defer logging.RecoverPanic(r.logger, "tenant_registry_stream", nil)
+		defer logging.RecoverPanic(r.logger, "channel_rules_stream", nil)
 		defer r.wg.Done()
 
 		r.streamLoop(ctx)
@@ -90,32 +99,8 @@ func NewStreamTenantRegistry(cfg StreamTenantRegistryConfig) (*StreamTenantRegis
 	return r, nil
 }
 
-// GetTenantByIssuer returns the tenant ID for an OIDC issuer.
-func (r *StreamTenantRegistry) GetTenantByIssuer(_ context.Context, issuerURL string) (string, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	tenantID, ok := r.issuerToTenant[issuerURL]
-	if !ok {
-		return "", types.ErrIssuerNotFound
-	}
-	return tenantID, nil
-}
-
-// GetOIDCConfig returns the OIDC configuration for a tenant.
-func (r *StreamTenantRegistry) GetOIDCConfig(_ context.Context, tenantID string) (*types.TenantOIDCConfig, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	cfg, ok := r.oidcConfigs[tenantID]
-	if !ok {
-		return nil, types.ErrOIDCNotConfigured
-	}
-	return cfg, nil
-}
-
 // GetChannelRules returns the channel rules for a tenant.
-func (r *StreamTenantRegistry) GetChannelRules(_ context.Context, tenantID string) (*types.ChannelRules, error) {
+func (r *StreamChannelRulesProvider) GetChannelRules(_ context.Context, tenantID string) (*types.ChannelRules, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -127,30 +112,30 @@ func (r *StreamTenantRegistry) GetChannelRules(_ context.Context, tenantID strin
 }
 
 // State returns the current stream state (0=disconnected, 1=connected).
-func (r *StreamTenantRegistry) State() int32 {
+func (r *StreamChannelRulesProvider) State() int32 {
 	return r.streamState.Load()
 }
 
 // Close stops the stream and releases resources.
-func (r *StreamTenantRegistry) Close() error {
+func (r *StreamChannelRulesProvider) Close() error {
 	r.cancel()
 	r.wg.Wait()
 	if err := r.conn.Close(); err != nil {
-		return fmt.Errorf("close tenant registry gRPC connection: %w", err)
+		return fmt.Errorf("close channel rules provider gRPC connection: %w", err)
 	}
 	return nil
 }
 
 // streamLoop runs the gRPC stream with reconnection logic.
-func (r *StreamTenantRegistry) streamLoop(ctx context.Context) {
+func (r *StreamChannelRulesProvider) streamLoop(ctx context.Context) {
 	client := provisioningv1.NewProvisioningInternalServiceClient(r.conn)
 	delay := r.config.ReconnectDelay
 
 	for {
 		select {
 		case <-ctx.Done():
-			r.streamState.Store(streamStateDisconnected)
-			r.streamStateGauge.Set(streamStateDisconnected)
+			r.streamState.Store(StreamStateDisconnected)
+			r.streamStateGauge.Set(StreamStateDisconnected)
 			return
 		default:
 		}
@@ -158,8 +143,8 @@ func (r *StreamTenantRegistry) streamLoop(ctx context.Context) {
 		stream, err := client.WatchTenantConfig(ctx, &provisioningv1.WatchTenantConfigRequest{})
 		if err != nil {
 			r.logger.Warn().Err(err).Dur("retry_in", delay).Msg("failed to start WatchTenantConfig stream")
-			r.streamState.Store(streamStateDisconnected)
-			r.streamStateGauge.Set(streamStateDisconnected)
+			r.streamState.Store(StreamStateDisconnected)
+			r.streamStateGauge.Set(StreamStateDisconnected)
 
 			select {
 			case <-ctx.Done():
@@ -173,8 +158,8 @@ func (r *StreamTenantRegistry) streamLoop(ctx context.Context) {
 			continue
 		}
 
-		r.streamState.Store(streamStateConnected)
-		r.streamStateGauge.Set(streamStateConnected)
+		r.streamState.Store(StreamStateConnected)
+		r.streamStateGauge.Set(StreamStateConnected)
 		delay = r.config.ReconnectDelay
 
 		r.logger.Info().Msg("WatchTenantConfig stream connected")
@@ -183,8 +168,8 @@ func (r *StreamTenantRegistry) streamLoop(ctx context.Context) {
 			resp, err := stream.Recv()
 			if err != nil {
 				r.logger.Warn().Err(err).Msg("WatchTenantConfig stream disconnected")
-				r.streamState.Store(streamStateDisconnected)
-				r.streamStateGauge.Set(streamStateDisconnected)
+				r.streamState.Store(StreamStateDisconnected)
+				r.streamStateGauge.Set(StreamStateDisconnected)
 				break
 			}
 
@@ -194,53 +179,21 @@ func (r *StreamTenantRegistry) streamLoop(ctx context.Context) {
 }
 
 // updateTenantConfigs processes a WatchTenantConfigResponse and updates caches.
-func (r *StreamTenantRegistry) updateTenantConfigs(resp *provisioningv1.WatchTenantConfigResponse) {
+func (r *StreamChannelRulesProvider) updateTenantConfigs(resp *provisioningv1.WatchTenantConfigResponse) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if resp.GetIsSnapshot() {
-		r.issuerToTenant = make(map[string]string)
-		r.oidcConfigs = make(map[string]*types.TenantOIDCConfig)
 		r.channelRules = make(map[string]*types.ChannelRules)
 	}
 
 	// Remove tenants
 	for _, tenantID := range resp.GetRemovedTenantIds() {
-		// Remove OIDC config and issuer mapping
-		if cfg, ok := r.oidcConfigs[tenantID]; ok {
-			delete(r.issuerToTenant, cfg.IssuerURL)
-			delete(r.oidcConfigs, tenantID)
-		}
 		delete(r.channelRules, tenantID)
 	}
 
 	// Add/update tenants
 	for _, tc := range resp.GetTenants() {
-		// OIDC config
-		if tc.GetOidc() != nil && tc.GetOidc().GetEnabled() {
-			oidcCfg := &types.TenantOIDCConfig{
-				TenantID:  tc.GetTenantId(),
-				IssuerURL: tc.GetOidc().GetIssuerUrl(),
-				JWKSURL:   tc.GetOidc().GetJwksUrl(),
-				Audience:  tc.GetOidc().GetAudience(),
-				Enabled:   tc.GetOidc().GetEnabled(),
-			}
-
-			// Remove old issuer mapping if updating
-			if old, ok := r.oidcConfigs[tc.GetTenantId()]; ok {
-				delete(r.issuerToTenant, old.IssuerURL)
-			}
-
-			r.oidcConfigs[tc.GetTenantId()] = oidcCfg
-			r.issuerToTenant[tc.GetOidc().GetIssuerUrl()] = tc.GetTenantId()
-		} else {
-			// OIDC disabled or nil — remove
-			if old, ok := r.oidcConfigs[tc.GetTenantId()]; ok {
-				delete(r.issuerToTenant, old.IssuerURL)
-				delete(r.oidcConfigs, tc.GetTenantId())
-			}
-		}
-
 		// Channel rules
 		if tc.GetChannelRules() != nil {
 			rules := protoToChannelRules(tc.GetChannelRules())
@@ -250,7 +203,6 @@ func (r *StreamTenantRegistry) updateTenantConfigs(resp *provisioningv1.WatchTen
 
 	r.logger.Debug().
 		Bool("snapshot", resp.GetIsSnapshot()).
-		Int("oidc_configs", len(r.oidcConfigs)).
 		Int("channel_rules", len(r.channelRules)).
 		Msg("tenant config cache updated")
 }

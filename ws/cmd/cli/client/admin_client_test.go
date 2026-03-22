@@ -2,10 +2,10 @@ package client
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 )
@@ -23,6 +23,7 @@ func TestAdminClient_Tenants(t *testing.T) {
 		wantBody       map[string]any
 		wantErr        bool
 		wantErrContain string
+		wantSentinel   error
 	}{
 		{
 			name:         "CreateTenant sends POST /api/v1/tenants with body",
@@ -92,10 +93,10 @@ func TestAdminClient_Tenants(t *testing.T) {
 			call: func(c *AdminClient) (map[string]any, error) {
 				return c.CreateTenant(map[string]any{"name": ""})
 			},
-			wantMethod:     "POST",
-			wantPath:       "/api/v1/tenants",
-			wantErr:        true,
-			wantErrContain: "API error (HTTP 400)",
+			wantMethod:   "POST",
+			wantPath:     "/api/v1/tenants",
+			wantErr:      true,
+			wantSentinel: ErrAPIBadRequest,
 		},
 	}
 
@@ -129,7 +130,7 @@ func TestAdminClient_Tenants(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			client := New(Config{
+			client, _ := New(Config{
 				BaseURL: srv.URL,
 				Token:   "test-token",
 			})
@@ -140,8 +141,8 @@ func TestAdminClient_Tenants(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected error but got nil")
 				}
-				if tt.wantErrContain != "" && !strings.Contains(err.Error(), tt.wantErrContain) {
-					t.Errorf("error %q does not contain %q", err.Error(), tt.wantErrContain)
+				if tt.wantSentinel != nil && !errors.Is(err, tt.wantSentinel) {
+					t.Errorf("error %q is not %q", err.Error(), tt.wantSentinel)
 				}
 				return
 			}
@@ -225,7 +226,7 @@ func TestAdminClient_Keys(t *testing.T) {
 			wantPath:   "/api/v1/tenants/tenant-5/keys",
 		},
 		{
-			name:         "RevokeKey sends POST /api/v1/tenants/{id}/keys/{keyId}/revoke",
+			name:         "RevokeKey sends DELETE /api/v1/tenants/{id}/keys/{keyId}",
 			serverStatus: http.StatusOK,
 			serverResponse: map[string]any{
 				"revoked": true,
@@ -233,8 +234,8 @@ func TestAdminClient_Keys(t *testing.T) {
 			call: func(c *AdminClient) (map[string]any, error) {
 				return c.RevokeKey("tenant-5", "key-xyz")
 			},
-			wantMethod: "POST",
-			wantPath:   "/api/v1/tenants/tenant-5/keys/key-xyz/revoke",
+			wantMethod: "DELETE",
+			wantPath:   "/api/v1/tenants/tenant-5/keys/key-xyz",
 		},
 	}
 
@@ -258,7 +259,7 @@ func TestAdminClient_Keys(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			client := New(Config{
+			client, _ := New(Config{
 				BaseURL: srv.URL,
 				Token:   "test-token",
 			})
@@ -322,7 +323,7 @@ func TestAdminClient_BearerToken(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			client := New(Config{
+			client, _ := New(Config{
 				BaseURL: srv.URL,
 				Token:   tt.token,
 			})
@@ -347,22 +348,22 @@ func TestAdminClient_ErrorResponse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		serverStatus   int
-		serverBody     string
-		wantErrContain string
+		name         string
+		serverStatus int
+		serverBody   string
+		wantSentinel error
 	}{
 		{
-			name:           "HTTP 400 error",
-			serverStatus:   http.StatusBadRequest,
-			serverBody:     `{"error":"invalid input"}`,
-			wantErrContain: "API error (HTTP 400)",
+			name:         "HTTP 400 error",
+			serverStatus: http.StatusBadRequest,
+			serverBody:   `{"error":"invalid input"}`,
+			wantSentinel: ErrAPIBadRequest,
 		},
 		{
-			name:           "HTTP 500 error",
-			serverStatus:   http.StatusInternalServerError,
-			serverBody:     `{"error":"internal failure"}`,
-			wantErrContain: "API error (HTTP 500)",
+			name:         "HTTP 500 error",
+			serverStatus: http.StatusInternalServerError,
+			serverBody:   `{"error":"internal failure"}`,
+			wantSentinel: ErrAPIInternal,
 		},
 	}
 
@@ -377,7 +378,7 @@ func TestAdminClient_ErrorResponse(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			client := New(Config{
+			client, _ := New(Config{
 				BaseURL: srv.URL,
 				Token:   "test-token",
 			})
@@ -387,10 +388,41 @@ func TestAdminClient_ErrorResponse(t *testing.T) {
 				t.Fatal("expected error but got nil")
 			}
 
-			if !strings.Contains(err.Error(), tt.wantErrContain) {
-				t.Errorf("error %q does not contain %q", err.Error(), tt.wantErrContain)
+			if !errors.Is(err, tt.wantSentinel) {
+				t.Errorf("error %q is not %q", err.Error(), tt.wantSentinel)
 			}
 		})
+	}
+}
+
+func TestAdminClient_EmptyBaseURL(t *testing.T) {
+	t.Parallel()
+
+	_, err := New(Config{BaseURL: ""})
+	if err == nil {
+		t.Fatal("expected error for empty BaseURL, got nil")
+	}
+}
+
+func TestAdminClient_EmptyTenantID(t *testing.T) {
+	t.Parallel()
+
+	c, _ := New(Config{BaseURL: "http://localhost:9999"})
+
+	_, err := c.GetTenant("")
+	if err == nil {
+		t.Fatal("expected error for empty tenantID, got nil")
+	}
+}
+
+func TestAdminClient_EmptyKeyID(t *testing.T) {
+	t.Parallel()
+
+	c, _ := New(Config{BaseURL: "http://localhost:9999"})
+
+	_, err := c.RevokeKey("tenant-1", "")
+	if err == nil {
+		t.Fatal("expected error for empty keyID, got nil")
 	}
 }
 
@@ -418,7 +450,7 @@ func TestAdminClient_DefaultTimeout(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			client := New(Config{
+			client, _ := New(Config{
 				BaseURL: "http://localhost:9999",
 				Timeout: tt.timeout,
 			})

@@ -61,33 +61,6 @@ func (c *ProvisioningClientConfig) Validate() error {
 	return nil
 }
 
-// OIDCConfig holds OIDC/JWKS settings for external IdP token validation.
-// Embedded by gateway and provisioning.
-// OIDC is enabled when both IssuerURL and JWKSURL are set.
-type OIDCConfig struct {
-	OIDCIssuerURL string `env:"OIDC_ISSUER_URL"`
-	OIDCAudience  string `env:"OIDC_AUDIENCE"`
-	OIDCJWKSURL   string `env:"OIDC_JWKS_URL"`
-}
-
-// OIDCEnabled returns true if OIDC is configured (both IssuerURL and JWKSURL are set).
-func (c *OIDCConfig) OIDCEnabled() bool {
-	return c.OIDCIssuerURL != "" && c.OIDCJWKSURL != ""
-}
-
-// Validate checks OIDC config — if one URL is set, both must be set.
-func (c *OIDCConfig) Validate() error {
-	hasIssuer := c.OIDCIssuerURL != ""
-	hasJWKS := c.OIDCJWKSURL != ""
-	if hasIssuer != hasJWKS {
-		if !hasIssuer {
-			return errors.New("OIDC_ISSUER_URL is required when OIDC_JWKS_URL is set")
-		}
-		return errors.New("OIDC_JWKS_URL is required when OIDC_ISSUER_URL is set")
-	}
-	return nil
-}
-
 // HTTPTimeoutConfig holds HTTP server timeout settings.
 // Embedded by server and provisioning (gateway uses GATEWAY_*_TIMEOUT env var names).
 type HTTPTimeoutConfig struct {

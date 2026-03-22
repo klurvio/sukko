@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/rs/zerolog"
@@ -37,13 +38,23 @@ type Server struct {
 }
 
 // NewServer creates a new gRPC stream server.
-func NewServer(service *provisioning.Service, eventBus *eventbus.Bus, logger zerolog.Logger, cfg ServerConfig) *Server {
+func NewServer(service *provisioning.Service, eventBus *eventbus.Bus, logger zerolog.Logger, cfg ServerConfig) (*Server, error) {
+	if service == nil {
+		return nil, errors.New("grpc server: service is required")
+	}
+	if eventBus == nil {
+		return nil, errors.New("grpc server: event bus is required")
+	}
+	if cfg.MaxTenantsFetchLimit <= 0 {
+		return nil, errors.New("grpc server: MaxTenantsFetchLimit must be > 0")
+	}
+
 	return &Server{
 		service:              service,
 		eventBus:             eventBus,
 		logger:               logger.With().Str("component", "grpc_server").Logger(),
 		maxTenantsFetchLimit: cfg.MaxTenantsFetchLimit,
-	}
+	}, nil
 }
 
 // WatchKeys streams active keys to the caller. Sends a snapshot on connect,
@@ -107,7 +118,7 @@ func (s *Server) WatchKeys(_ *provisioningv1.WatchKeysRequest, stream grpc.Serve
 	}
 }
 
-// WatchTenantConfig streams tenant configuration (OIDC, channel rules) to the caller.
+// WatchTenantConfig streams tenant configuration (channel rules, routing rules) to the caller.
 func (s *Server) WatchTenantConfig(_ *provisioningv1.WatchTenantConfigRequest, stream grpc.ServerStreamingServer[provisioningv1.WatchTenantConfigResponse]) error {
 	ctx := stream.Context()
 	logger := s.logger.With().Str("rpc", "WatchTenantConfig").Logger()
@@ -224,7 +235,7 @@ func (s *Server) WatchTopics(req *provisioningv1.WatchTopicsRequest, stream grpc
 	}
 }
 
-// loadTenantConfigs loads all tenant OIDC configs, channel rules, and routing rules.
+// loadTenantConfigs loads all tenant channel rules and routing rules.
 func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.TenantConfig, error) {
 	tenants, _, err := s.service.ListTenants(ctx, provisioning.ListOptions{Limit: s.maxTenantsFetchLimit})
 	if err != nil {
@@ -242,25 +253,20 @@ func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.Tenan
 			TenantId: tenant.ID,
 		}
 
-		// Load OIDC config (optional)
-		oidcConfig, err := s.service.GetOIDCConfig(ctx, tenant.ID)
-		if err == nil && oidcConfig != nil {
-			tc.Oidc = &provisioningv1.OIDCConfig{
-				IssuerUrl: oidcConfig.IssuerURL,
-				JwksUrl:   oidcConfig.JWKSURL,
-				Audience:  oidcConfig.Audience,
-				Enabled:   oidcConfig.Enabled,
-			}
-		}
-
-		// Load channel rules (optional)
+		// Load channel rules (optional — not all tenants have rules configured)
 		channelRules, err := s.service.GetChannelRules(ctx, tenant.ID)
+		if err != nil && !errors.Is(err, types.ErrChannelRulesNotFound) && !errors.Is(err, provisioning.ErrChannelRulesNotConfigured) {
+			s.logger.Warn().Err(err).Str("tenant_id", tenant.ID).Msg("failed to load channel rules")
+		}
 		if err == nil && channelRules != nil {
 			tc.ChannelRules = convertChannelRules(&channelRules.Rules)
 		}
 
-		// Load routing rules (optional)
+		// Load routing rules (optional — not all tenants have rules configured)
 		routingRules, err := s.service.GetRoutingRules(ctx, tenant.ID)
+		if err != nil && !errors.Is(err, provisioning.ErrRoutingRulesNotConfigured) && !errors.Is(err, provisioning.ErrRoutingRulesNotFound) {
+			s.logger.Debug().Err(err).Str("tenant_id", tenant.ID).Msg("failed to load routing rules")
+		}
 		if err == nil && len(routingRules) > 0 {
 			tc.RoutingRules = convertRoutingRules(routingRules)
 		}

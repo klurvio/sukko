@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/klurvio/sukko/internal/shared/logging"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
@@ -35,9 +34,13 @@ func RecoveryStreamInterceptor(logger zerolog.Logger) grpc.StreamServerIntercept
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				logging.RecoverPanic(logger, "grpc_stream_"+info.FullMethod, map[string]any{
-					"method": info.FullMethod,
-				})
+				// Log the panic value directly since recover() already consumed it —
+				// calling RecoverPanic here would call recover() again and get nil.
+				logger.Error().
+					Interface("panic", r).
+					Str("method", info.FullMethod).
+					Str("location", "grpc_stream_"+info.FullMethod).
+					Msg("Recovered from panic in gRPC stream handler")
 				err = status.Errorf(codes.Internal, "internal server error")
 			}
 		}()

@@ -16,6 +16,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/grpcserver"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/provisioning/testutil"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
@@ -27,69 +28,6 @@ const testPublicKeyPEM = `-----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEVs/o5+uQbTjL3chynL4wXgUg2R9
 q9UU8I5mEovUf86QZ7kOBIjJwqnzD1omageEHWwHdBO6B+dFabmdT9POxg==
 -----END PUBLIC KEY-----`
-
-// mockOIDCConfigStore is a minimal in-memory OIDCConfigStore for gRPC server tests.
-type mockOIDCConfigStore struct {
-	mu      sync.RWMutex
-	configs map[string]*types.TenantOIDCConfig
-}
-
-func newMockOIDCConfigStore() *mockOIDCConfigStore {
-	return &mockOIDCConfigStore{configs: make(map[string]*types.TenantOIDCConfig)}
-}
-
-func (m *mockOIDCConfigStore) Create(_ context.Context, config *types.TenantOIDCConfig) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.configs[config.TenantID] = config
-	return nil
-}
-
-func (m *mockOIDCConfigStore) Get(_ context.Context, tenantID string) (*types.TenantOIDCConfig, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if cfg, ok := m.configs[tenantID]; ok {
-		return cfg, nil
-	}
-	return nil, types.ErrOIDCNotConfigured
-}
-
-func (m *mockOIDCConfigStore) GetByIssuer(_ context.Context, issuerURL string) (*types.TenantOIDCConfig, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, cfg := range m.configs {
-		if cfg.IssuerURL == issuerURL {
-			return cfg, nil
-		}
-	}
-	return nil, types.ErrIssuerNotFound
-}
-
-func (m *mockOIDCConfigStore) Update(_ context.Context, config *types.TenantOIDCConfig) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.configs[config.TenantID] = config
-	return nil
-}
-
-func (m *mockOIDCConfigStore) Delete(_ context.Context, tenantID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.configs, tenantID)
-	return nil
-}
-
-func (m *mockOIDCConfigStore) ListEnabled(_ context.Context) ([]*types.TenantOIDCConfig, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var result []*types.TenantOIDCConfig
-	for _, cfg := range m.configs {
-		if cfg.Enabled {
-			result = append(result, cfg)
-		}
-	}
-	return result, nil
-}
 
 // mockChannelRulesStore is a minimal in-memory ChannelRulesStore for gRPC server tests.
 type mockChannelRulesStore struct {
@@ -176,7 +114,6 @@ func setupTestEnv(t *testing.T) *testEnv {
 	routingRulesStore := testutil.NewMockRoutingRulesStore()
 	quotaStore := testutil.NewMockQuotaStore()
 	auditStore := testutil.NewMockAuditStore()
-	oidcStore := newMockOIDCConfigStore()
 	channelRulesStore := newMockChannelRulesStore()
 
 	ctx := context.Background()
@@ -202,16 +139,6 @@ func setupTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("seed routing rules: %v", err)
 	}
 
-	// Seed OIDC config
-	if err := oidcStore.Create(ctx, &types.TenantOIDCConfig{
-		TenantID:  "test-tenant",
-		IssuerURL: "https://auth.example.com",
-		Audience:  "my-api",
-		Enabled:   true,
-	}); err != nil {
-		t.Fatalf("seed OIDC: %v", err)
-	}
-
 	// Seed channel rules
 	if err := channelRulesStore.Create(ctx, "test-tenant", &types.ChannelRules{
 		Public:  []string{"*.trade"},
@@ -228,7 +155,6 @@ func setupTestEnv(t *testing.T) *testEnv {
 		RoutingRulesStore: routingRulesStore,
 		QuotaStore:        quotaStore,
 		AuditStore:        auditStore,
-		OIDCConfigStore:   oidcStore,
 		ChannelRulesStore: channelRulesStore,
 		KafkaAdmin:        testutil.NewMockKafkaAdmin(),
 		EventBus:          bus,
@@ -239,9 +165,12 @@ func setupTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("NewService: %v", svcErr)
 	}
 
-	srv := grpcserver.NewServer(svc, bus, logger, grpcserver.ServerConfig{
+	srv, srvErr := grpcserver.NewServer(svc, bus, logger, grpcserver.ServerConfig{
 		MaxTenantsFetchLimit: 10000,
 	})
+	if srvErr != nil {
+		t.Fatalf("NewServer: %v", srvErr)
+	}
 
 	// Create bufconn listener
 	lis := bufconn.Listen(bufSize)
@@ -249,7 +178,11 @@ func setupTestEnv(t *testing.T) *testEnv {
 	gs := grpc.NewServer()
 	provisioningv1.RegisterProvisioningInternalServiceServer(gs, srv)
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer logging.RecoverPanic(zerolog.Nop(), "grpc_test_server", nil)
+		defer wg.Done()
 		_ = gs.Serve(lis) // Error non-actionable: server stopped by t.Cleanup
 	}()
 
@@ -272,6 +205,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 		cancel()
 		_ = conn.Close()
 		gs.Stop()
+		wg.Wait()
 	})
 
 	return &testEnv{
@@ -380,13 +314,6 @@ func TestWatchTenantConfig_Snapshot(t *testing.T) { //nolint:paralleltest // use
 	tc := resp.GetTenants()[0]
 	if tc.GetTenantId() != "test-tenant" {
 		t.Errorf("tenant ID = %q, want %q", tc.GetTenantId(), "test-tenant")
-	}
-
-	if tc.GetOidc() == nil {
-		t.Fatal("expected OIDC config, got nil")
-	}
-	if tc.GetOidc().GetIssuerUrl() != "https://auth.example.com" {
-		t.Errorf("issuer URL = %q, want %q", tc.GetOidc().GetIssuerUrl(), "https://auth.example.com")
 	}
 
 	if tc.GetChannelRules() == nil {

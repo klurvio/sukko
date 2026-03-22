@@ -1,5 +1,5 @@
 # Stage 1: Build the application
-FROM golang:1.26.0-alpine AS builder
+FROM golang:1.26.1-alpine AS builder
 
 WORKDIR /app
 
@@ -29,7 +29,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Stage 2: Create the final, minimal image
 FROM alpine:latest
 
-# Install ca-certificates for HTTPS connections (OIDC JWKS fetch)
+# Install ca-certificates for HTTPS connections
 RUN apk --no-cache add ca-certificates
 
 # Create non-root user for security

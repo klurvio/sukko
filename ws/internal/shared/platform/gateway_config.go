@@ -17,7 +17,6 @@ type GatewayConfig struct {
 	BaseConfig
 	AuthConfig
 	ProvisioningClientConfig
-	OIDCConfig
 
 	// Server settings
 	Port         int           `env:"GATEWAY_PORT" envDefault:"3000"`
@@ -38,20 +37,9 @@ type GatewayConfig struct {
 	// are routed to this tenant. Only used when AUTH_ENABLED=false.
 	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
 
-	// Multi-issuer OIDC (Feature Flag)
-	// When enabled, each tenant can register their own IdP via provisioning API
-	MultiIssuerOIDCEnabled bool `env:"GATEWAY_MULTI_ISSUER_OIDC_ENABLED" envDefault:"false"`
-
 	// Per-tenant channel rules (Feature Flag)
 	// When enabled, channel permissions come from per-tenant rules via gRPC streaming
 	PerTenantChannelRulesEnabled bool `env:"GATEWAY_PER_TENANT_CHANNEL_RULES" envDefault:"false"`
-
-	// OIDC keyfunc cache settings (per-issuer JWKS key caching — not affected by gRPC migration)
-	OIDCKeyfuncCacheTTL time.Duration `env:"GATEWAY_OIDC_KEYFUNC_CACHE_TTL" envDefault:"1h"`
-
-	// JWKS fetch settings
-	JWKSFetchTimeout    time.Duration `env:"GATEWAY_JWKS_FETCH_TIMEOUT" envDefault:"10s"`
-	JWKSRefreshInterval time.Duration `env:"GATEWAY_JWKS_REFRESH_INTERVAL" envDefault:"1h"`
 
 	// Fallback channel rules (when tenant has none configured)
 	FallbackPublicChannels []string `env:"GATEWAY_FALLBACK_PUBLIC_CHANNELS" envSeparator:"," envDefault:"*.metadata"`
@@ -87,8 +75,7 @@ type GatewayConfig struct {
 	// Graceful shutdown timeout
 	ShutdownTimeout time.Duration `env:"GATEWAY_SHUTDOWN_TIMEOUT" envDefault:"30s"`
 
-	// Tenant registry cache TTLs (postgres-backed registry)
-	IssuerCacheTTL       time.Duration `env:"GATEWAY_ISSUER_CACHE_TTL" envDefault:"5m"`
+	// Channel rules provider cache TTLs
 	ChannelRulesCacheTTL time.Duration `env:"GATEWAY_CHANNEL_RULES_CACHE_TTL" envDefault:"1m"`
 	RegistryQueryTimeout time.Duration `env:"GATEWAY_REGISTRY_QUERY_TIMEOUT" envDefault:"5s"`
 }
@@ -155,21 +142,6 @@ func (c *GatewayConfig) Validate() error {
 		}
 	}
 
-	// Validate OIDC settings
-	if err := c.OIDCConfig.Validate(); err != nil {
-		return err
-	}
-
-	// Validate multi-issuer OIDC settings
-	if c.MultiIssuerOIDCEnabled {
-		if c.JWKSFetchTimeout < time.Second {
-			return fmt.Errorf("GATEWAY_JWKS_FETCH_TIMEOUT must be >= 1s, got %v", c.JWKSFetchTimeout)
-		}
-		if c.OIDCKeyfuncCacheTTL < time.Second {
-			return fmt.Errorf("GATEWAY_OIDC_KEYFUNC_CACHE_TTL must be >= 1s, got %v", c.OIDCKeyfuncCacheTTL)
-		}
-	}
-
 	if c.AuthRefreshRateInterval < time.Second {
 		return fmt.Errorf("GATEWAY_AUTH_REFRESH_RATE_INTERVAL must be >= 1s, got %v", c.AuthRefreshRateInterval)
 	}
@@ -207,11 +179,6 @@ func (c *GatewayConfig) Validate() error {
 		return fmt.Errorf("GATEWAY_MAX_PUBLISH_SIZE must be %d-%d, got %d", MinFrameSize, MaxFrameSizeLimit, c.MaxPublishSize)
 	}
 
-	// JWKS refresh interval (when multi-issuer enabled)
-	if c.MultiIssuerOIDCEnabled && c.JWKSRefreshInterval < time.Minute {
-		return fmt.Errorf("GATEWAY_JWKS_REFRESH_INTERVAL must be >= 1m, got %v", c.JWKSRefreshInterval)
-	}
-
 	// Tenant connection limit (when enabled)
 	if c.TenantConnectionLimitEnabled && c.DefaultTenantConnectionLimit < 1 {
 		return fmt.Errorf("DEFAULT_TENANT_CONNECTION_LIMIT must be >= 1, got %d", c.DefaultTenantConnectionLimit)
@@ -223,9 +190,6 @@ func (c *GatewayConfig) Validate() error {
 	}
 	if c.ShutdownTimeout <= 0 {
 		return fmt.Errorf("GATEWAY_SHUTDOWN_TIMEOUT must be > 0, got %v", c.ShutdownTimeout)
-	}
-	if c.IssuerCacheTTL <= 0 {
-		return fmt.Errorf("GATEWAY_ISSUER_CACHE_TTL must be > 0, got %v", c.IssuerCacheTTL)
 	}
 	if c.ChannelRulesCacheTTL <= 0 {
 		return fmt.Errorf("GATEWAY_CHANNEL_RULES_CACHE_TTL must be > 0, got %v", c.ChannelRulesCacheTTL)
@@ -273,26 +237,6 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 			Dur("grpc_reconnect_max_delay", c.GRPCReconnectMaxDelay)
 	}
 
-	// Add OIDC-specific fields when enabled
-	if c.OIDCEnabled() {
-		event = event.
-			Bool("oidc_enabled", true).
-			Str("oidc_issuer_url", c.OIDCIssuerURL).
-			Str("oidc_jwks_url", c.OIDCJWKSURL)
-		if c.OIDCAudience != "" {
-			event = event.Str("oidc_audience", c.OIDCAudience)
-		}
-	}
-
-	// Add multi-issuer OIDC fields when enabled
-	if c.MultiIssuerOIDCEnabled {
-		event = event.
-			Bool("multi_issuer_oidc_enabled", true).
-			Dur("oidc_keyfunc_cache_ttl", c.OIDCKeyfuncCacheTTL).
-			Dur("jwks_fetch_timeout", c.JWKSFetchTimeout).
-			Dur("jwks_refresh_interval", c.JWKSRefreshInterval)
-	}
-
 	// Add per-tenant channel rules fields when enabled
 	if c.PerTenantChannelRulesEnabled {
 		event = event.
@@ -301,11 +245,6 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 	}
 
 	event.Msg("Gateway configuration loaded")
-}
-
-// MultiIssuerOIDCReady returns true if multi-issuer OIDC is enabled and provisioning gRPC is configured.
-func (c *GatewayConfig) MultiIssuerOIDCReady() bool {
-	return c.MultiIssuerOIDCEnabled && c.ProvisioningGRPCAddr != ""
 }
 
 // PerTenantChannelRulesReady returns true if per-tenant channel rules are enabled and provisioning gRPC is configured.

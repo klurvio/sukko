@@ -13,25 +13,31 @@ import (
 // TenantPermissionChecker validates channel permissions using per-tenant rules.
 // Falls back to default rules when tenant has no custom configuration.
 type TenantPermissionChecker struct {
-	registry      TenantRegistry
+	provider      ChannelRulesProvider
 	fallbackRules *types.ChannelRules
 	logger        zerolog.Logger
 }
 
 // NewTenantPermissionChecker creates a permission checker with fallback rules.
-func NewTenantPermissionChecker(registry TenantRegistry, fallback *types.ChannelRules, logger zerolog.Logger) *TenantPermissionChecker {
+func NewTenantPermissionChecker(provider ChannelRulesProvider, fallback *types.ChannelRules, logger zerolog.Logger) (*TenantPermissionChecker, error) {
+	if provider == nil {
+		return nil, errors.New("channel rules provider is required")
+	}
 	if fallback == nil {
 		fallback = types.NewChannelRules()
 	}
 	return &TenantPermissionChecker{
-		registry:      registry,
+		provider:      provider,
 		fallbackRules: fallback,
 		logger:        logger,
-	}
+	}, nil
 }
 
 // CanSubscribe checks if the claims allow subscription to the channel.
 func (pc *TenantPermissionChecker) CanSubscribe(ctx context.Context, claims *auth.Claims, channel string) bool {
+	if claims == nil {
+		return false
+	}
 	rules := pc.getRulesForTenant(ctx, claims.TenantID)
 
 	// Compute allowed patterns for this user's groups (method on shared type)
@@ -61,6 +67,9 @@ func (pc *TenantPermissionChecker) CanSubscribe(ctx context.Context, claims *aut
 
 // FilterChannels filters a list of channels to only those the claims allow.
 func (pc *TenantPermissionChecker) FilterChannels(ctx context.Context, claims *auth.Claims, channels []string) []string {
+	if claims == nil {
+		return nil
+	}
 	rules := pc.getRulesForTenant(ctx, claims.TenantID)
 	allowedPatterns := rules.ComputeAllowedPatterns(claims.Groups)
 
@@ -76,7 +85,7 @@ func (pc *TenantPermissionChecker) FilterChannels(ctx context.Context, claims *a
 
 // getRulesForTenant returns channel rules for a tenant, falling back to defaults.
 func (pc *TenantPermissionChecker) getRulesForTenant(ctx context.Context, tenantID string) *types.ChannelRules {
-	rules, err := pc.registry.GetChannelRules(ctx, tenantID)
+	rules, err := pc.provider.GetChannelRules(ctx, tenantID)
 	if err != nil {
 		if errors.Is(err, types.ErrChannelRulesNotFound) {
 			// Expected: tenant has no custom rules, use fallback
@@ -87,7 +96,7 @@ func (pc *TenantPermissionChecker) getRulesForTenant(ctx context.Context, tenant
 				Err(err).
 				Str("tenant_id", tenantID).
 				Msg("Failed to load channel rules, using fallback")
-			RecordChannelRulesLookup(tenantID, LookupSourceFallback)
+			RecordChannelRulesLookup(tenantID, LookupSourceErrorFallback)
 		}
 		return pc.fallbackRules
 	}

@@ -22,8 +22,9 @@ var (
 	ErrTenantIDUnderscorePrefix  = errors.New("tenant ID must not start with underscore")
 	ErrTenantDeleted             = errors.New("cannot modify deleted tenant")
 	ErrTenantNotActive           = errors.New("tenant is not active")
+	ErrTenantNotFound            = errors.New("tenant not found")
+	ErrQuotaNotFound             = errors.New("quota not found")
 	ErrKeyNotOwnedByTenant       = errors.New("key does not belong to tenant")
-	ErrOIDCStoreNotConfigured    = errors.New("OIDC config store not configured")
 	ErrChannelRulesNotConfigured = errors.New("channel rules store not configured")
 	ErrRoutingRulesNotConfigured = errors.New("routing rules store not configured")
 )
@@ -43,7 +44,6 @@ type ServiceConfig struct {
 	RoutingRulesStore RoutingRulesStore
 	QuotaStore        QuotaStore
 	AuditStore        AuditStore
-	OIDCConfigStore   OIDCConfigStore
 	ChannelRulesStore ChannelRulesStore
 	KafkaAdmin        KafkaAdmin
 	EventBus          *eventbus.Bus
@@ -75,7 +75,6 @@ type Service struct {
 	routingRules RoutingRulesStore
 	quotas       QuotaStore
 	audit        AuditStore
-	oidcConfigs  OIDCConfigStore
 	channelRules ChannelRulesStore
 	kafka        KafkaAdmin
 	eventBus     *eventbus.Bus
@@ -112,7 +111,6 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		routingRules: cfg.RoutingRulesStore,
 		quotas:       cfg.QuotaStore,
 		audit:        cfg.AuditStore,
-		oidcConfigs:  cfg.OIDCConfigStore,
 		channelRules: cfg.ChannelRulesStore,
 		kafka:        cfg.KafkaAdmin,
 		eventBus:     cfg.EventBus,
@@ -174,8 +172,10 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		ConsumerByteRate: s.config.DefaultConsumerRate,
 	}
 	if err := s.quotas.Create(ctx, quota); err != nil {
+		// Quotas are non-critical: tenant is usable without quotas (they default to unlimited).
+		// Failing the entire CreateTenant for a quota write failure would be worse than
+		// operating without quotas. The error is logged at Error level for operator visibility.
 		s.logger.Error().Err(err).Str("tenant_id", tenant.ID).Msg("Failed to create quotas")
-		// Don't fail - quotas are not critical
 	}
 
 	response := &CreateTenantResponse{
@@ -273,6 +273,17 @@ func (s *Service) UpdateTenant(ctx context.Context, tenantID string, req UpdateT
 
 // SuspendTenant temporarily disables a tenant.
 func (s *Service) SuspendTenant(ctx context.Context, tenantID string) error {
+	tenant, err := s.tenants.Get(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("get tenant: %w", err)
+	}
+	if tenant.Status == StatusDeleted {
+		return ErrTenantDeleted
+	}
+	if tenant.Status != StatusActive {
+		return fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
+	}
+
 	if err := s.tenants.UpdateStatus(ctx, tenantID, StatusSuspended); err != nil {
 		return fmt.Errorf("suspend tenant: %w", err)
 	}
@@ -289,6 +300,17 @@ func (s *Service) SuspendTenant(ctx context.Context, tenantID string) error {
 
 // ReactivateTenant reactivates a suspended tenant.
 func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
+	tenant, err := s.tenants.Get(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("get tenant: %w", err)
+	}
+	if tenant.Status == StatusDeleted {
+		return ErrTenantDeleted
+	}
+	if tenant.Status != StatusSuspended {
+		return fmt.Errorf("%w: current status is %s", ErrTenantNotActive, tenant.Status)
+	}
+
 	if err := s.tenants.UpdateStatus(ctx, tenantID, StatusActive); err != nil {
 		return fmt.Errorf("reactivate tenant: %w", err)
 	}
@@ -305,6 +327,18 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 
 // DeprovisionTenant initiates tenant deletion with grace period.
 func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string) error {
+	// Validate tenant state before deprovisioning
+	tenant, err := s.tenants.Get(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("get tenant: %w", err)
+	}
+	if tenant.Status == StatusDeleted {
+		return ErrTenantDeleted
+	}
+	if tenant.Status == StatusDeprovisioning {
+		return fmt.Errorf("%w: already deprovisioning", ErrTenantNotActive)
+	}
+
 	// Update status to deprovisioning
 	if err := s.tenants.UpdateStatus(ctx, tenantID, StatusDeprovisioning); err != nil {
 		return fmt.Errorf("set deprovisioning status: %w", err)
@@ -313,6 +347,8 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string) error 
 	// Revoke all keys immediately
 	if err := s.keys.RevokeAllForTenant(ctx, tenantID); err != nil {
 		s.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to revoke keys")
+	} else {
+		s.emitEvent(eventbus.KeysChanged)
 	}
 
 	// Set deprovision deadline
@@ -353,6 +389,9 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string) error 
 		Str("tenant_id", tenantID).
 		Time("deprovision_at", deprovisionAt).
 		Msg("Tenant deprovisioning initiated")
+
+	s.emitEvent(eventbus.TopicsChanged)
+	s.emitEvent(eventbus.TenantConfigChanged)
 
 	return nil
 }
@@ -545,122 +584,6 @@ func (s *Service) emitEvent(eventType eventbus.EventType) {
 // WithActor adds actor information to context.
 // This is an alias for auth.WithActor for backwards compatibility.
 var WithActor = auth.WithActor
-
-// CreateOIDCConfig creates OIDC configuration for a tenant.
-func (s *Service) CreateOIDCConfig(ctx context.Context, config *types.TenantOIDCConfig) error {
-	if s.oidcConfigs == nil {
-		return ErrOIDCStoreNotConfigured
-	}
-
-	// Verify tenant exists and is active
-	tenant, err := s.tenants.Get(ctx, config.TenantID)
-	if err != nil {
-		return fmt.Errorf("get tenant: %w", err)
-	}
-	if tenant.Status != StatusActive {
-		return fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
-	}
-
-	// Validate config
-	if err := config.Validate(); err != nil {
-		return fmt.Errorf("invalid OIDC config: %w", err)
-	}
-
-	// Create in store
-	if err := s.oidcConfigs.Create(ctx, config); err != nil {
-		return fmt.Errorf("create OIDC config: %w", err)
-	}
-
-	s.auditLog(ctx, config.TenantID, ActionCreateOIDCConfig, Metadata{
-		"issuer_url": config.IssuerURL,
-		"audience":   config.Audience,
-	})
-
-	s.logger.Info().
-		Str("tenant_id", config.TenantID).
-		Str("issuer_url", config.IssuerURL).
-		Msg("OIDC config created")
-
-	s.emitEvent(eventbus.TenantConfigChanged)
-
-	return nil
-}
-
-// GetOIDCConfig retrieves OIDC configuration for a tenant.
-func (s *Service) GetOIDCConfig(ctx context.Context, tenantID string) (*types.TenantOIDCConfig, error) {
-	if s.oidcConfigs == nil {
-		return nil, ErrOIDCStoreNotConfigured
-	}
-
-	config, err := s.oidcConfigs.Get(ctx, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("get OIDC config: %w", err)
-	}
-	return config, nil
-}
-
-// UpdateOIDCConfig updates OIDC configuration for a tenant.
-func (s *Service) UpdateOIDCConfig(ctx context.Context, config *types.TenantOIDCConfig) error {
-	if s.oidcConfigs == nil {
-		return ErrOIDCStoreNotConfigured
-	}
-
-	// Validate config
-	if err := config.Validate(); err != nil {
-		return fmt.Errorf("invalid OIDC config: %w", err)
-	}
-
-	// Update in store
-	if err := s.oidcConfigs.Update(ctx, config); err != nil {
-		return fmt.Errorf("update OIDC config: %w", err)
-	}
-
-	s.auditLog(ctx, config.TenantID, ActionUpdateOIDCConfig, Metadata{
-		"issuer_url": config.IssuerURL,
-		"audience":   config.Audience,
-		"enabled":    config.Enabled,
-	})
-
-	s.logger.Info().
-		Str("tenant_id", config.TenantID).
-		Str("issuer_url", config.IssuerURL).
-		Bool("enabled", config.Enabled).
-		Msg("OIDC config updated")
-
-	s.emitEvent(eventbus.TenantConfigChanged)
-
-	return nil
-}
-
-// DeleteOIDCConfig deletes OIDC configuration for a tenant.
-func (s *Service) DeleteOIDCConfig(ctx context.Context, tenantID string) error {
-	if s.oidcConfigs == nil {
-		return ErrOIDCStoreNotConfigured
-	}
-
-	// Get existing to verify it exists and for audit log
-	existing, err := s.oidcConfigs.Get(ctx, tenantID)
-	if err != nil {
-		return fmt.Errorf("get OIDC config: %w", err)
-	}
-
-	// Delete from store
-	if err := s.oidcConfigs.Delete(ctx, tenantID); err != nil {
-		return fmt.Errorf("delete OIDC config: %w", err)
-	}
-
-	s.auditLog(ctx, tenantID, ActionDeleteOIDCConfig, Metadata{
-		"issuer_url": existing.IssuerURL,
-	})
-
-	s.logger.Info().
-		Str("tenant_id", tenantID).
-		Msg("OIDC config deleted")
-
-	s.emitEvent(eventbus.TenantConfigChanged)
-
-	return nil
-}
 
 // GetChannelRules retrieves channel rules for a tenant.
 func (s *Service) GetChannelRules(ctx context.Context, tenantID string) (*types.TenantChannelRules, error) {

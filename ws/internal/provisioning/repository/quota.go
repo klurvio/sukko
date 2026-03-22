@@ -39,7 +39,7 @@ func (r *PostgresQuotaRepository) Get(ctx context.Context, tenantID string) (*pr
 		&quota.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("quota not found for tenant: %s", tenantID)
+		return nil, fmt.Errorf("%w: %s", provisioning.ErrQuotaNotFound, tenantID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query quota: %w", err)

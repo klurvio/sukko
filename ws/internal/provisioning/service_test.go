@@ -239,6 +239,165 @@ func TestService_SuspendAndReactivateTenant(t *testing.T) {
 	}
 }
 
+func TestService_SuspendTenant_StateValidation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		status    provisioning.TenantStatus
+		wantErr   error
+		wantNoErr bool
+	}{
+		{
+			name:      "suspend active tenant",
+			status:    provisioning.StatusActive,
+			wantNoErr: true,
+		},
+		{
+			name:    "suspend deleted tenant",
+			status:  provisioning.StatusDeleted,
+			wantErr: provisioning.ErrTenantDeleted,
+		},
+		{
+			name:    "suspend already-suspended tenant",
+			status:  provisioning.StatusSuspended,
+			wantErr: provisioning.ErrTenantNotActive,
+		},
+		{
+			name:    "suspend deprovisioning tenant",
+			status:  provisioning.StatusDeprovisioning,
+			wantErr: provisioning.ErrTenantNotActive,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc, tenantStore, _, _ := newTestService()
+
+			tenant := testutil.NewTestTenant("acme-corp")
+			tenant.Status = tt.status
+			_ = tenantStore.Create(context.Background(), tenant)
+
+			err := svc.SuspendTenant(context.Background(), "acme-corp")
+			if tt.wantNoErr {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("expected %v, got: %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestService_ReactivateTenant_StateValidation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		status    provisioning.TenantStatus
+		wantErr   error
+		wantNoErr bool
+	}{
+		{
+			name:      "reactivate suspended tenant",
+			status:    provisioning.StatusSuspended,
+			wantNoErr: true,
+		},
+		{
+			name:    "reactivate deleted tenant",
+			status:  provisioning.StatusDeleted,
+			wantErr: provisioning.ErrTenantDeleted,
+		},
+		{
+			name:    "reactivate active tenant",
+			status:  provisioning.StatusActive,
+			wantErr: provisioning.ErrTenantNotActive,
+		},
+		{
+			name:    "reactivate deprovisioning tenant",
+			status:  provisioning.StatusDeprovisioning,
+			wantErr: provisioning.ErrTenantNotActive,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc, tenantStore, _, _ := newTestService()
+
+			tenant := testutil.NewTestTenant("acme-corp")
+			tenant.Status = tt.status
+			_ = tenantStore.Create(context.Background(), tenant)
+
+			err := svc.ReactivateTenant(context.Background(), "acme-corp")
+			if tt.wantNoErr {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("expected %v, got: %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestService_DeprovisionTenant_StateValidation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		status    provisioning.TenantStatus
+		wantErr   error
+		wantNoErr bool
+	}{
+		{
+			name:      "deprovision active tenant",
+			status:    provisioning.StatusActive,
+			wantNoErr: true,
+		},
+		{
+			name:      "deprovision suspended tenant",
+			status:    provisioning.StatusSuspended,
+			wantNoErr: true,
+		},
+		{
+			name:    "deprovision deleted tenant",
+			status:  provisioning.StatusDeleted,
+			wantErr: provisioning.ErrTenantDeleted,
+		},
+		{
+			name:    "deprovision already-deprovisioning tenant",
+			status:  provisioning.StatusDeprovisioning,
+			wantErr: provisioning.ErrTenantNotActive,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc, tenantStore, _, _ := newTestService()
+
+			tenant := testutil.NewTestTenant("acme-corp")
+			tenant.Status = tt.status
+			_ = tenantStore.Create(context.Background(), tenant)
+
+			err := svc.DeprovisionTenant(context.Background(), "acme-corp")
+			if tt.wantNoErr {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("expected %v, got: %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
 func TestService_DeprovisionTenant(t *testing.T) {
 	t.Parallel()
 	svc, tenantStore, keyStore, _ := newTestService()

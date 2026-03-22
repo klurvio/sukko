@@ -95,34 +95,8 @@ type AuditStore interface {
 	ListByTenant(ctx context.Context, tenantID string, opts ListOptions) ([]*AuditEntry, int, error)
 }
 
-// OIDCConfigStore handles tenant OIDC configuration persistence.
-// Used for multi-issuer OIDC support where each tenant can register their IdP.
-type OIDCConfigStore interface {
-	// Create creates a new OIDC configuration for a tenant.
-	Create(ctx context.Context, config *types.TenantOIDCConfig) error
-
-	// Get retrieves OIDC configuration by tenant ID.
-	// Returns types.ErrOIDCNotConfigured if not found.
-	Get(ctx context.Context, tenantID string) (*types.TenantOIDCConfig, error)
-
-	// GetByIssuer retrieves OIDC configuration by issuer URL.
-	// This is the hot path for token validation - lookup tenant from issuer.
-	// Returns types.ErrIssuerNotFound if not found.
-	GetByIssuer(ctx context.Context, issuerURL string) (*types.TenantOIDCConfig, error)
-
-	// Update updates an existing OIDC configuration.
-	Update(ctx context.Context, config *types.TenantOIDCConfig) error
-
-	// Delete deletes OIDC configuration for a tenant.
-	Delete(ctx context.Context, tenantID string) error
-
-	// ListEnabled returns all enabled OIDC configurations.
-	// Used by gateway to build issuer→tenant cache.
-	ListEnabled(ctx context.Context) ([]*types.TenantOIDCConfig, error)
-}
-
 // ChannelRulesStore handles per-tenant channel access rules persistence.
-// Used for mapping IdP groups to allowed channel patterns.
+// Used for mapping JWT groups to allowed channel patterns.
 type ChannelRulesStore interface {
 	// Create creates channel rules for a tenant.
 	Create(ctx context.Context, tenantID string, rules *types.ChannelRules) error

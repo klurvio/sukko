@@ -26,19 +26,15 @@ type Gateway struct {
 	config    *platform.GatewayConfig
 	validator *auth.MultiTenantValidator
 
-	// gRPC stream registries for provisioning data (keys, OIDC, channel rules)
+	// gRPC stream registries for provisioning data (keys, channel rules)
 	streamKeyRegistry    *provapi.StreamKeyRegistry
-	streamTenantRegistry *provapi.StreamTenantRegistry
+	streamChannelRules *provapi.StreamChannelRulesProvider
 
-	oidcCloser  *auth.OIDCKeyfuncResult // For OIDC keyfunc cleanup on shutdown
-	permissions *PermissionChecker
-	connTracker *TenantConnectionTracker // Per-tenant connection tracking
-	logger      zerolog.Logger
-
-	// Multi-issuer OIDC support (optional, enabled via config)
-	tenantRegistry    TenantRegistry           // Points to streamTenantRegistry (interface view)
-	multiIssuerOIDC   *MultiIssuerOIDC         // Dynamic JWKS management per issuer
-	tenantPermChecker *TenantPermissionChecker // Per-tenant channel authorization
+	channelRulesProvider ChannelRulesProvider
+	permissions          *PermissionChecker
+	connTracker          *TenantConnectionTracker    // Per-tenant connection tracking
+	tenantPermChecker    *TenantPermissionChecker    // Per-tenant channel authorization
+	logger               zerolog.Logger
 }
 
 // New creates a new Gateway instance.
@@ -78,14 +74,24 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 			Msg("Auth disabled — all connections treated as anonymous, routed to default tenant")
 	}
 
-	// Set up per-tenant channel rules if enabled (requires auth to be enabled first for tenant registry)
-	if config.PerTenantChannelRulesEnabled && gw.tenantRegistry != nil {
+	// Set up per-tenant channel rules if enabled (requires auth to be enabled first for channel rules provider)
+	if config.PerTenantChannelRulesEnabled && gw.channelRulesProvider == nil {
+		gw.logger.Warn().
+			Bool("per_tenant_channel_rules_enabled", true).
+			Bool("auth_enabled", config.AuthEnabled).
+			Msg("Per-tenant channel rules enabled but channel rules provider not available (requires auth); feature inactive")
+	}
+	if config.PerTenantChannelRulesEnabled && gw.channelRulesProvider != nil {
 		fallbackRules := DefaultChannelRules(config.FallbackPublicChannels)
-		gw.tenantPermChecker = NewTenantPermissionChecker(
-			gw.tenantRegistry,
+		permChecker, err := NewTenantPermissionChecker(
+			gw.channelRulesProvider,
 			fallbackRules,
 			gw.logger.With().Str("component", "tenant_permissions").Logger(),
 		)
+		if err != nil {
+			return nil, fmt.Errorf("create tenant permission checker: %w", err)
+		}
+		gw.tenantPermChecker = permChecker
 		gw.logger.Info().
 			Int("fallback_patterns", len(config.FallbackPublicChannels)).
 			Msg("Per-tenant channel rules enabled")
@@ -110,74 +116,32 @@ func (gw *Gateway) setupValidator() error {
 	}
 	gw.streamKeyRegistry = keyRegistry
 
-	// Create gRPC stream-backed tenant registry (for OIDC configs + channel rules)
-	tenantRegistry, err := provapi.NewStreamTenantRegistry(provapi.StreamTenantRegistryConfig{
+	// Create gRPC stream-backed channel rules provider
+	channelRulesProvider, err := provapi.NewStreamChannelRulesProvider(provapi.StreamChannelRulesProviderConfig{
 		GRPCAddr:          gw.config.ProvisioningGRPCAddr,
 		ReconnectDelay:    gw.config.GRPCReconnectDelay,
 		ReconnectMaxDelay: gw.config.GRPCReconnectMaxDelay,
 		MetricPrefix:      "gateway",
-		Logger:            gw.logger.With().Str("component", "tenant_registry").Logger(),
+		Logger:            gw.logger.With().Str("component", "channel_rules_provider").Logger(),
 	})
 	if err != nil {
-		_ = keyRegistry.Close()
-		return fmt.Errorf("create stream tenant registry: %w", err)
+		_ = keyRegistry.Close() // best-effort cleanup during construction failure
+		return fmt.Errorf("create stream channel rules provider: %w", err)
 	}
-	gw.streamTenantRegistry = tenantRegistry
-	gw.tenantRegistry = tenantRegistry
+	gw.streamChannelRules = channelRulesProvider
+	gw.channelRulesProvider = channelRulesProvider
 
 	// Build validator config
 	validatorCfg := auth.MultiTenantValidatorConfig{
 		KeyRegistry:     keyRegistry,
 		RequireTenantID: gw.config.RequireTenantID,
-		RequireKeyID:    true,
-	}
-
-	// Set up multi-issuer OIDC if enabled
-	if gw.config.MultiIssuerOIDCEnabled {
-		if err := gw.setupMultiIssuerOIDC(); err != nil {
-			// Graceful degradation: log warning but continue without multi-issuer
-			gw.logger.Warn().
-				Err(err).
-				Msg("Failed to setup multi-issuer OIDC, continuing with single-issuer or tenant keys only")
-		}
-	}
-
-	// Set up single-issuer OIDC keyfunc if configured (graceful degradation on failure)
-	// This is the legacy single-issuer mode, used when multi-issuer is not enabled
-	if gw.config.OIDCEnabled() && !gw.config.MultiIssuerOIDCEnabled {
-		oidcResult, err := auth.NewOIDCKeyfunc(context.Background(), auth.OIDCConfig{
-			IssuerURL: gw.config.OIDCIssuerURL,
-			JWKSURL:   gw.config.OIDCJWKSURL,
-			Audience:  gw.config.OIDCAudience,
-		}, gw.logger.With().Str("component", "oidc").Logger())
-
-		if err != nil {
-			// Graceful degradation: log warning but continue without OIDC
-			gw.logger.Warn().
-				Err(err).
-				Str("jwks_url", gw.config.OIDCJWKSURL).
-				Msg("Failed to create OIDC keyfunc, continuing without OIDC support")
-		} else {
-			gw.oidcCloser = oidcResult
-			validatorCfg.OIDCKeyfunc = oidcResult.Keyfunc
-			validatorCfg.OIDCIssuer = gw.config.OIDCIssuerURL
-			validatorCfg.OIDCAudience = gw.config.OIDCAudience
-
-			gw.logger.Info().
-				Str("issuer_url", gw.config.OIDCIssuerURL).
-				Str("jwks_url", gw.config.OIDCJWKSURL).
-				Msg("OIDC support enabled (single-issuer mode)")
-		}
 	}
 
 	// Create multi-tenant validator
 	validator, err := auth.NewMultiTenantValidator(validatorCfg)
 	if err != nil {
-		if gw.oidcCloser != nil {
-			gw.oidcCloser.Close()
-		}
-		_ = tenantRegistry.Close()
-		_ = keyRegistry.Close()
+		_ = channelRulesProvider.Close() // best-effort cleanup during construction failure
+		_ = keyRegistry.Close()          // best-effort cleanup during construction failure
 		return fmt.Errorf("create validator: %w", err)
 	}
 	gw.validator = validator
@@ -185,32 +149,7 @@ func (gw *Gateway) setupValidator() error {
 	gw.logger.Info().
 		Str("provisioning_grpc_addr", gw.config.ProvisioningGRPCAddr).
 		Bool("require_tenant_id", gw.config.RequireTenantID).
-		Bool("oidc_enabled", gw.config.OIDCEnabled()).
-		Bool("multi_issuer_oidc_enabled", gw.config.MultiIssuerOIDCEnabled).
 		Msg("Configured multi-tenant authentication via gRPC streaming")
-
-	return nil
-}
-
-// setupMultiIssuerOIDC sets up the MultiIssuerOIDC component using the gRPC
-// stream-backed tenant registry (already created in setupValidator).
-func (gw *Gateway) setupMultiIssuerOIDC() error {
-	// Create MultiIssuerOIDC for dynamic JWKS management
-	multiOIDC, err := NewMultiIssuerOIDC(MultiIssuerOIDCConfig{
-		Registry:         gw.streamTenantRegistry,
-		KeyfuncCacheTTL:  gw.config.OIDCKeyfuncCacheTTL,
-		JWKSFetchTimeout: gw.config.JWKSFetchTimeout,
-		Logger:           gw.logger.With().Str("component", "multi_issuer_oidc").Logger(),
-	})
-	if err != nil {
-		return fmt.Errorf("create multi-issuer OIDC: %w", err)
-	}
-	gw.multiIssuerOIDC = multiOIDC
-
-	gw.logger.Info().
-		Dur("keyfunc_cache_ttl", gw.config.OIDCKeyfuncCacheTTL).
-		Dur("jwks_fetch_timeout", gw.config.JWKSFetchTimeout).
-		Msg("Multi-issuer OIDC enabled with gRPC stream-backed TenantRegistry")
 
 	return nil
 }
@@ -220,22 +159,10 @@ func (gw *Gateway) setupMultiIssuerOIDC() error {
 func (gw *Gateway) Close() error {
 	var errs []error
 
-	// Close multi-issuer OIDC (stops background JWKS refresh for all issuers)
-	if gw.multiIssuerOIDC != nil {
-		if err := gw.multiIssuerOIDC.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close multi-issuer OIDC: %w", err))
-		}
-	}
-
-	// Close OIDC keyfunc (stops background JWKS refresh for single-issuer mode)
-	if gw.oidcCloser != nil {
-		gw.oidcCloser.Close()
-	}
-
 	// Close gRPC stream registries (stops background streams + closes gRPC connections)
-	if gw.streamTenantRegistry != nil {
-		if err := gw.streamTenantRegistry.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close stream tenant registry: %w", err))
+	if gw.streamChannelRules != nil {
+		if err := gw.streamChannelRules.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close stream channel rules provider: %w", err))
 		}
 	}
 
@@ -282,7 +209,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			gw.logger.Warn().
 				Str("remote_addr", remoteAddr).
 				Msg("Connection rejected: no token provided")
-			http.Error(w, "Unauthorized: token required", http.StatusUnauthorized)
+			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "token required")
 			return
 		}
 
@@ -296,7 +223,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				Err(err).
 				Str("remote_addr", remoteAddr).
 				Msg("Connection rejected: invalid token")
-			http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
+			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token")
 			return
 		}
 		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
@@ -334,7 +261,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 				Int64("current_connections", gw.connTracker.GetConnectionCount(tenantID)).
 				Int("limit", gw.connTracker.GetLimit(tenantID)).
 				Msg("Connection rejected: tenant connection limit exceeded")
-			http.Error(w, "Too Many Connections: tenant limit exceeded", http.StatusTooManyRequests)
+			httputil.WriteError(w, http.StatusTooManyRequests, "TENANT_LIMIT_EXCEEDED", "tenant connection limit exceeded")
 			return
 		}
 		// Ensure we release the connection slot on exit
@@ -351,7 +278,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			Msg("WebSocket upgrade failed")
 		return
 	}
-	defer func() { _ = clientConn.Close() }()
+	defer func() { _ = clientConn.Close() }() // best-effort: connection is shutting down
 
 	// Connect to backend ws-server using gobwas/ws
 	dialCtx, cancel := context.WithTimeout(ctx, gw.config.DialTimeout)
@@ -374,7 +301,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	RecordBackendConnect(pkgmetrics.ResultSuccess, time.Since(dialStart))
-	defer func() { _ = backendConn.Close() }()
+	defer func() { _ = backendConn.Close() }() // best-effort: connection is shutting down
 
 	gw.logger.Info().
 		Str("principal", principal).
@@ -416,11 +343,11 @@ func (gw *Gateway) HandleHealth(w http.ResponseWriter, _ *http.Request) {
 	keysStream := "connected"
 	configStream := "connected"
 
-	if gw.streamKeyRegistry != nil && gw.streamKeyRegistry.State() == 0 {
+	if gw.streamKeyRegistry != nil && gw.streamKeyRegistry.State() == provapi.StreamStateDisconnected {
 		status = "degraded"
 		keysStream = "disconnected"
 	}
-	if gw.streamTenantRegistry != nil && gw.streamTenantRegistry.State() == 0 {
+	if gw.streamChannelRules != nil && gw.streamChannelRules.State() == provapi.StreamStateDisconnected {
 		status = "degraded"
 		configStream = "disconnected"
 	}
