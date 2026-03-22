@@ -4,11 +4,16 @@ package commands
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/klurvio/sukko/cmd/cli/client"
+)
+
+// CLI default values. Env vars take precedence via envOrDefault; CLI flags take precedence over env.
+const (
+	defaultAPIURL = "http://localhost:8080"
+	defaultOutput = "table"
 )
 
 var (
@@ -24,9 +29,9 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", envOrDefault("SUKKO_API_URL", "http://localhost:8080"), "Provisioning API base URL")
+	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", envOrDefault("SUKKO_API_URL", defaultAPIURL), "Provisioning API base URL")
 	rootCmd.PersistentFlags().StringVar(&token, "token", os.Getenv("SUKKO_TOKEN"), "Admin authentication token")
-	rootCmd.PersistentFlags().StringVarP(&output, "output", "o", "table", "Output format (json|table)")
+	rootCmd.PersistentFlags().StringVarP(&output, "output", "o", defaultOutput, "Output format (json|table)")
 }
 
 // Execute runs the root command.
@@ -38,12 +43,17 @@ func Execute() error {
 }
 
 // newClient creates an AdminClient from the global flags.
-func newClient() *client.AdminClient {
-	return client.New(client.Config{
+// Returns an error if client creation fails (e.g., empty BaseURL).
+func newClient() (*client.AdminClient, error) {
+	c, err := client.New(client.Config{
 		BaseURL: apiURL,
 		Token:   token,
-		Timeout: 30 * time.Second,
+		Timeout: client.DefaultClientTimeout,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("create admin client: %w", err)
+	}
+	return c, nil
 }
 
 func envOrDefault(key, defaultVal string) string {

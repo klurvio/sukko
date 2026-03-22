@@ -43,7 +43,11 @@ var rulesGetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID, _ := cmd.Flags().GetString("tenant")
 
-		result, err := newClient().GetChannelRules(tenantID)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.GetChannelRules(tenantID)
 		if err != nil {
 			return fmt.Errorf("get channel rules: %w", err)
 		}
@@ -68,7 +72,11 @@ var rulesSetCmd = &cobra.Command{
 			return fmt.Errorf("parse rules file: %w", err)
 		}
 
-		result, err := newClient().SetChannelRules(tenantID, req)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.SetChannelRules(tenantID, req)
 		if err != nil {
 			return fmt.Errorf("set channel rules: %w", err)
 		}
@@ -82,7 +90,11 @@ var rulesDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID, _ := cmd.Flags().GetString("tenant")
 
-		result, err := newClient().DeleteChannelRules(tenantID)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.DeleteChannelRules(tenantID)
 		if err != nil {
 			return fmt.Errorf("delete channel rules: %w", err)
 		}
@@ -101,7 +113,11 @@ var rulesTestCmd = &cobra.Command{
 			"groups": groups,
 		}
 
-		result, err := newClient().TestAccess(tenantID, req)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.TestAccess(tenantID, req)
 		if err != nil {
 			return fmt.Errorf("test access: %w", err)
 		}

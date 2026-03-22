@@ -48,8 +48,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error, code, msg 
 		httputil.WriteError(w, http.StatusConflict, "TENANT_NOT_ACTIVE", "Tenant is not active")
 	case errors.Is(err, provisioning.ErrKeyNotOwnedByTenant):
 		httputil.WriteError(w, http.StatusForbidden, "KEY_NOT_OWNED", "Key does not belong to tenant")
-	case errors.Is(err, provisioning.ErrOIDCStoreNotConfigured),
-		errors.Is(err, provisioning.ErrChannelRulesNotConfigured),
+	case errors.Is(err, provisioning.ErrChannelRulesNotConfigured),
 		errors.Is(err, provisioning.ErrRoutingRulesNotConfigured):
 		httputil.WriteError(w, http.StatusNotImplemented, "FEATURE_NOT_CONFIGURED", "Feature store not configured")
 	case errors.Is(err, provisioning.ErrTooManyRoutingRules):
@@ -106,8 +105,12 @@ func (h *Handler) GetTenant(w http.ResponseWriter, r *http.Request) {
 
 	tenant, err := h.service.GetTenant(r.Context(), tenantID)
 	if err != nil {
+		if errors.Is(err, provisioning.ErrTenantNotFound) {
+			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Tenant not found")
+			return
+		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to get tenant")
-		httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Tenant not found")
+		httputil.WriteError(w, http.StatusInternalServerError, "GET_TENANT_FAILED", "Failed to get tenant")
 		return
 	}
 
@@ -340,8 +343,12 @@ func (h *Handler) GetQuota(w http.ResponseWriter, r *http.Request) {
 
 	quota, err := h.service.GetQuota(r.Context(), tenantID)
 	if err != nil {
+		if errors.Is(err, provisioning.ErrQuotaNotFound) {
+			httputil.WriteError(w, http.StatusNotFound, "QUOTA_NOT_FOUND", "Quota not found")
+			return
+		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to get quota")
-		httputil.WriteError(w, http.StatusNotFound, "QUOTA_NOT_FOUND", "Quota not found")
+		httputil.WriteError(w, http.StatusInternalServerError, "GET_QUOTA_FAILED", "Failed to get quota")
 		return
 	}
 

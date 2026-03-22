@@ -9,7 +9,7 @@ service ProvisioningInternalService {
   // Stream active keys — snapshot on connect, deltas on change.
   rpc WatchKeys(WatchKeysRequest) returns (stream WatchKeysResponse);
 
-  // Stream tenant config (OIDC, channel rules) — snapshot on connect, deltas on change.
+  // Stream tenant config (channel rules, routing rules) — snapshot on connect, deltas on change.
   rpc WatchTenantConfig(WatchTenantConfigRequest) returns (stream WatchTenantConfigResponse);
 
   // Stream topic discovery — snapshot on connect, deltas on change.
@@ -43,7 +43,7 @@ message WatchTenantConfigResponse {
 
 message TenantConfig {
   string tenant_id = 1;
-  OIDCConfig oidc = 2;            // nil = no OIDC
+  reserved 2;                     // was: OIDCConfig oidc (removed)
   ChannelRules channel_rules = 3; // nil = no rules
   repeated TopicRoutingRule routing_rules = 4;
 }
@@ -51,13 +51,6 @@ message TenantConfig {
 message TopicRoutingRule {
   string pattern = 1;
   string topic_suffix = 2;
-}
-
-message OIDCConfig {
-  string issuer_url = 1;
-  string jwks_url = 2;
-  string audience = 3;
-  bool enabled = 4;
 }
 
 message ChannelRules {

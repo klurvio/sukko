@@ -46,12 +46,8 @@ func newValidGatewayConfig() *GatewayConfig {
 		AuthRefreshRateInterval:      30 * time.Second,
 		AuthValidationTimeout:        5 * time.Second,
 		ShutdownTimeout:              30 * time.Second,
-		IssuerCacheTTL:               5 * time.Minute,
 		ChannelRulesCacheTTL:         1 * time.Minute,
 		RegistryQueryTimeout:         5 * time.Second,
-		OIDCKeyfuncCacheTTL:          1 * time.Hour,
-		JWKSFetchTimeout:             10 * time.Second,
-		JWKSRefreshInterval:          1 * time.Hour,
 	}
 }
 
@@ -520,37 +516,6 @@ func TestGatewayConfig_Validate_PublishSettings(t *testing.T) {
 	}
 }
 
-func TestGatewayConfig_Validate_JWKSRefreshInterval(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name        string
-		enabled     bool
-		interval    time.Duration
-		shouldError bool
-	}{
-		{"enabled valid", true, 1 * time.Hour, false},
-		{"enabled min valid", true, 1 * time.Minute, false},
-		{"enabled too small", true, 30 * time.Second, true},
-		{"disabled zero ok", false, 0, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := newValidGatewayConfig()
-			cfg.MultiIssuerOIDCEnabled = tt.enabled
-			cfg.JWKSRefreshInterval = tt.interval
-			err := cfg.Validate()
-			if tt.shouldError && err == nil {
-				t.Error("Should error")
-			}
-			if !tt.shouldError && err != nil {
-				t.Errorf("Should not error: %v", err)
-			}
-		})
-	}
-}
-
 func TestGatewayConfig_Validate_TenantConnectionLimit(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -649,8 +614,6 @@ func TestGatewayConfig_Validate_CacheTTLAndRegistryTimeout(t *testing.T) {
 		shouldError   bool
 		errorContains string
 	}{
-		{"issuer cache TTL valid", func(c *GatewayConfig) { c.IssuerCacheTTL = 5 * time.Minute }, false, ""},
-		{"issuer cache TTL zero", func(c *GatewayConfig) { c.IssuerCacheTTL = 0 }, true, "GATEWAY_ISSUER_CACHE_TTL"},
 		{"channel rules cache TTL valid", func(c *GatewayConfig) { c.ChannelRulesCacheTTL = 1 * time.Minute }, false, ""},
 		{"channel rules cache TTL zero", func(c *GatewayConfig) { c.ChannelRulesCacheTTL = 0 }, true, "GATEWAY_CHANNEL_RULES_CACHE_TTL"},
 		{"registry query timeout valid", func(c *GatewayConfig) { c.RegistryQueryTimeout = 5 * time.Second }, false, ""},

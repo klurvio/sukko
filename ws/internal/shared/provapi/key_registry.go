@@ -29,8 +29,8 @@ import (
 
 // Stream state constants for the gRPC streaming connection gauge.
 const (
-	streamStateDisconnected = 0
-	streamStateConnected    = 1
+	StreamStateDisconnected = 0
+	StreamStateConnected    = 1
 )
 
 // Jitter constants for exponential backoff reconnection.
@@ -73,6 +73,19 @@ type StreamKeyRegistry struct {
 // NewStreamKeyRegistry creates a new gRPC stream-backed key registry.
 // It dials the gRPC server and starts a background goroutine to receive updates.
 func NewStreamKeyRegistry(cfg StreamKeyRegistryConfig) (*StreamKeyRegistry, error) {
+	if cfg.GRPCAddr == "" {
+		return nil, errors.New("stream key registry: GRPCAddr is required")
+	}
+	if cfg.ReconnectDelay <= 0 {
+		return nil, errors.New("stream key registry: ReconnectDelay must be > 0")
+	}
+	if cfg.ReconnectMaxDelay < cfg.ReconnectDelay {
+		return nil, errors.New("stream key registry: ReconnectMaxDelay must be >= ReconnectDelay")
+	}
+	if cfg.MetricPrefix == "" {
+		return nil, errors.New("stream key registry: MetricPrefix is required")
+	}
+
 	conn, err := grpc.NewClient(cfg.GRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -200,8 +213,8 @@ func (r *StreamKeyRegistry) streamLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			r.streamState.Store(streamStateDisconnected)
-			r.streamStateGauge.Set(streamStateDisconnected)
+			r.streamState.Store(StreamStateDisconnected)
+			r.streamStateGauge.Set(StreamStateDisconnected)
 			return
 		default:
 		}
@@ -209,8 +222,8 @@ func (r *StreamKeyRegistry) streamLoop(ctx context.Context) {
 		stream, err := client.WatchKeys(ctx, &provisioningv1.WatchKeysRequest{})
 		if err != nil {
 			r.logger.Warn().Err(err).Dur("retry_in", delay).Msg("failed to start WatchKeys stream")
-			r.streamState.Store(streamStateDisconnected)
-			r.streamStateGauge.Set(streamStateDisconnected)
+			r.streamState.Store(StreamStateDisconnected)
+			r.streamStateGauge.Set(StreamStateDisconnected)
 
 			select {
 			case <-ctx.Done():
@@ -224,8 +237,8 @@ func (r *StreamKeyRegistry) streamLoop(ctx context.Context) {
 			continue
 		}
 
-		r.streamState.Store(streamStateConnected)
-		r.streamStateGauge.Set(streamStateConnected)
+		r.streamState.Store(StreamStateConnected)
+		r.streamStateGauge.Set(StreamStateConnected)
 		delay = r.config.ReconnectDelay // Reset on successful connect
 
 		r.logger.Info().Msg("WatchKeys stream connected")
@@ -235,8 +248,8 @@ func (r *StreamKeyRegistry) streamLoop(ctx context.Context) {
 			resp, err := stream.Recv()
 			if err != nil {
 				r.logger.Warn().Err(err).Msg("WatchKeys stream disconnected")
-				r.streamState.Store(streamStateDisconnected)
-				r.streamStateGauge.Set(streamStateDisconnected)
+				r.streamState.Store(StreamStateDisconnected)
+				r.streamStateGauge.Set(StreamStateDisconnected)
 				break
 			}
 

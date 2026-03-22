@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -18,25 +17,13 @@ type MultiTenantValidatorConfig struct {
 	// RequireTenantID requires tokens to have a tenant_id claim.
 	RequireTenantID bool
 
-	// RequireKeyID is accepted for API compatibility but has no effect.
-	// Tenant tokens always require a kid header; OIDC tokens use the OIDC keyfunc.
-	RequireKeyID bool
-
 	// AllowedAlgorithms restricts which algorithms are accepted.
 	// Empty means all supported algorithms are allowed.
 	AllowedAlgorithms []string
 
-	// OIDCIssuer is the expected issuer URL for OIDC tokens.
-	// Tokens with this issuer are validated via OIDCKeyfunc instead of KeyRegistry.
-	OIDCIssuer string
-
-	// OIDCAudience is the expected audience for OIDC tokens.
-	// If set, OIDC tokens must contain this audience.
-	OIDCAudience string
-
-	// OIDCKeyfunc is the keyfunc from NewOIDCKeyfunc() for OIDC token validation.
-	// If nil, OIDC validation is disabled and all tokens use KeyRegistry.
-	OIDCKeyfunc jwt.Keyfunc
+	// AllowedIssuers restricts which token issuers (iss claim) are accepted.
+	// Empty means issuer verification is skipped (for backward compatibility).
+	AllowedIssuers []string
 }
 
 // MultiTenantValidator validates JWTs using tenant-specific public keys.
@@ -45,11 +32,7 @@ type MultiTenantValidator struct {
 	keyRegistry       KeyRegistry
 	requireTenantID   bool
 	allowedAlgorithms map[string]bool
-
-	// OIDC support
-	oidcIssuer   string
-	oidcAudience string
-	oidcKeyfunc  jwt.Keyfunc
+	allowedIssuers    map[string]bool
 }
 
 // NewMultiTenantValidator creates a new multi-tenant JWT validator.
@@ -70,26 +53,25 @@ func NewMultiTenantValidator(cfg MultiTenantValidatorConfig) (*MultiTenantValida
 		allowedAlgos["EdDSA"] = true
 	}
 
+	allowedIssuers := make(map[string]bool, len(cfg.AllowedIssuers))
+	for _, iss := range cfg.AllowedIssuers {
+		allowedIssuers[iss] = true
+	}
+
 	return &MultiTenantValidator{
 		keyRegistry:       cfg.KeyRegistry,
 		requireTenantID:   cfg.RequireTenantID,
 		allowedAlgorithms: allowedAlgos,
-		oidcIssuer:        cfg.OIDCIssuer,
-		oidcAudience:      cfg.OIDCAudience,
-		oidcKeyfunc:       cfg.OIDCKeyfunc,
+		allowedIssuers:    allowedIssuers,
 	}, nil
 }
 
 // ValidateToken validates a JWT token string and returns the claims if valid.
-// For tenant tokens, the token must have a 'kid' header that identifies the signing key.
-// For OIDC tokens (when issuer matches OIDCIssuer), validation uses the OIDC keyfunc.
+// The token must have a 'kid' header that identifies the signing key in the tenant key registry.
 func (v *MultiTenantValidator) ValidateToken(ctx context.Context, tokenString string) (*Claims, error) {
 	if tokenString == "" {
 		return nil, ErrMissingToken
 	}
-
-	// Track whether this is an OIDC token for post-parse audience validation
-	var isOIDCToken bool
 
 	// Derive valid methods from allowedAlgorithms map
 	validMethods := make([]string, 0, len(v.allowedAlgorithms))
@@ -97,21 +79,12 @@ func (v *MultiTenantValidator) ValidateToken(ctx context.Context, tokenString st
 		validMethods = append(validMethods, alg)
 	}
 
-	// Parse with claims and keyfunc that routes based on issuer
+	// Parse with claims and keyfunc that looks up tenant keys
 	parser := jwt.NewParser(
 		jwt.WithValidMethods(validMethods),
 	)
 
 	token, err := parser.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (any, error) {
-		// Check if this is an OIDC token by examining the issuer claim
-		// The unverified claims are available during keyfunc execution
-		claims, ok := token.Claims.(*Claims)
-		if ok && v.oidcKeyfunc != nil && v.oidcIssuer != "" && claims.Issuer == v.oidcIssuer {
-			// This is an OIDC token - delegate to OIDC keyfunc
-			isOIDCToken = true
-			return v.oidcKeyfunc(token)
-		}
-
 		// Tenant token flow - requires kid header and key registry lookup
 		kidRaw, ok := token.Header["kid"]
 		if !ok {
@@ -167,11 +140,11 @@ func (v *MultiTenantValidator) ValidateToken(ctx context.Context, tokenString st
 		return nil, ErrInvalidToken
 	}
 
-	// Validate audience for OIDC tokens
-	if isOIDCToken && v.oidcAudience != "" {
-		aud, err := claims.GetAudience()
-		if err != nil || !slices.Contains(aud, v.oidcAudience) {
-			return nil, fmt.Errorf("%w: expected %s", ErrInvalidAudience, v.oidcAudience)
+	// Validate issuer if configured
+	if len(v.allowedIssuers) > 0 {
+		issuer, _ := claims.GetIssuer()
+		if issuer == "" || !v.allowedIssuers[issuer] {
+			return nil, fmt.Errorf("%w: issuer %q not allowed", ErrInvalidToken, issuer)
 		}
 	}
 

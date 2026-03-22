@@ -2,6 +2,7 @@ package provapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -55,6 +56,19 @@ type StreamTopicRegistry struct {
 
 // NewStreamTopicRegistry creates a new gRPC stream-backed topic registry.
 func NewStreamTopicRegistry(cfg StreamTopicRegistryConfig) (*StreamTopicRegistry, error) {
+	if cfg.GRPCAddr == "" {
+		return nil, errors.New("stream topic registry: GRPCAddr is required")
+	}
+	if cfg.ReconnectDelay <= 0 {
+		return nil, errors.New("stream topic registry: ReconnectDelay must be > 0")
+	}
+	if cfg.ReconnectMaxDelay < cfg.ReconnectDelay {
+		return nil, errors.New("stream topic registry: ReconnectMaxDelay must be >= ReconnectDelay")
+	}
+	if cfg.MetricPrefix == "" {
+		return nil, errors.New("stream topic registry: MetricPrefix is required")
+	}
+
 	conn, err := grpc.NewClient(cfg.GRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -155,8 +169,8 @@ func (r *StreamTopicRegistry) streamLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			r.streamState.Store(streamStateDisconnected)
-			r.streamStateGauge.Set(streamStateDisconnected)
+			r.streamState.Store(StreamStateDisconnected)
+			r.streamStateGauge.Set(StreamStateDisconnected)
 			return
 		default:
 		}
@@ -166,8 +180,8 @@ func (r *StreamTopicRegistry) streamLoop(ctx context.Context) {
 		})
 		if err != nil {
 			r.logger.Warn().Err(err).Dur("retry_in", delay).Msg("failed to start WatchTopics stream")
-			r.streamState.Store(streamStateDisconnected)
-			r.streamStateGauge.Set(streamStateDisconnected)
+			r.streamState.Store(StreamStateDisconnected)
+			r.streamStateGauge.Set(StreamStateDisconnected)
 
 			select {
 			case <-ctx.Done():
@@ -181,8 +195,8 @@ func (r *StreamTopicRegistry) streamLoop(ctx context.Context) {
 			continue
 		}
 
-		r.streamState.Store(streamStateConnected)
-		r.streamStateGauge.Set(streamStateConnected)
+		r.streamState.Store(StreamStateConnected)
+		r.streamStateGauge.Set(StreamStateConnected)
 		delay = r.config.ReconnectDelay
 
 		r.logger.Info().Str("namespace", r.namespace).Msg("WatchTopics stream connected")
@@ -191,8 +205,8 @@ func (r *StreamTopicRegistry) streamLoop(ctx context.Context) {
 			resp, err := stream.Recv()
 			if err != nil {
 				r.logger.Warn().Err(err).Msg("WatchTopics stream disconnected")
-				r.streamState.Store(streamStateDisconnected)
-				r.streamStateGauge.Set(streamStateDisconnected)
+				r.streamState.Store(StreamStateDisconnected)
+				r.streamStateGauge.Set(StreamStateDisconnected)
 				break
 			}
 

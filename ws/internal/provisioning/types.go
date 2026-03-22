@@ -60,7 +60,7 @@ type Metadata map[string]any
 // Value implements driver.Valuer for database storage.
 func (m Metadata) Value() (driver.Value, error) {
 	if m == nil {
-		return "{}", nil
+		return []byte("{}"), nil
 	}
 	data, err := json.Marshal(m)
 	if err != nil {
@@ -309,11 +309,6 @@ const (
 	ActionCreateTopic       = "create_topic"
 	ActionDeleteTopic       = "delete_topic"
 	ActionUpdateQuota       = "update_quota"
-
-	// OIDC configuration actions
-	ActionCreateOIDCConfig = "create_oidc_config"
-	ActionUpdateOIDCConfig = "update_oidc_config"
-	ActionDeleteOIDCConfig = "delete_oidc_config"
 
 	// Channel rules actions
 	ActionSetChannelRules    = "set_channel_rules"

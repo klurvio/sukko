@@ -51,12 +51,8 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 		AuthRefreshRateInterval:      30 * time.Second,
 		AuthValidationTimeout:        5 * time.Second,
 		ShutdownTimeout:              30 * time.Second,
-		IssuerCacheTTL:               5 * time.Minute,
 		ChannelRulesCacheTTL:         1 * time.Minute,
 		RegistryQueryTimeout:         5 * time.Second,
-		OIDCKeyfuncCacheTTL:          1 * time.Hour,
-		JWKSFetchTimeout:             10 * time.Second,
-		JWKSRefreshInterval:          1 * time.Hour,
 		RequireTenantID:              true,
 		ProvisioningClientConfig: platform.ProvisioningClientConfig{
 			ProvisioningGRPCAddr:  "localhost:9090",
@@ -304,7 +300,6 @@ func TestGateway_HandleWebSocket_NoToken_WithMockValidator(t *testing.T) {
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
-		RequireKeyID:    true,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
@@ -337,7 +332,6 @@ func TestGateway_HandleWebSocket_InvalidToken_WithMockValidator(t *testing.T) {
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
-		RequireKeyID:    true,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
@@ -370,7 +364,7 @@ func TestGateway_Close_NilFields(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	// Should not panic when closing gateway with nil keyRegistry and dbConn
+	// Should not panic when closing gateway with nil streamKeyRegistry and streamTenantRegistry
 	if err := gw.Close(); err != nil {
 		t.Errorf("Close() error = %v, want nil", err)
 	}

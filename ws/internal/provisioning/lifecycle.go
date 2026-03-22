@@ -21,8 +21,9 @@ type LifecycleManager struct {
 	deletionTimeout time.Duration
 	logger          zerolog.Logger
 
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	stopCh   chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
 }
 
 // LifecycleManagerConfig configures the lifecycle manager.
@@ -63,9 +64,11 @@ func (lm *LifecycleManager) Start() {
 		Msg("Lifecycle manager started")
 }
 
-// Stop gracefully stops the lifecycle manager.
+// Stop gracefully stops the lifecycle manager. Safe to call multiple times.
 func (lm *LifecycleManager) Stop() {
-	close(lm.stopCh)
+	lm.stopOnce.Do(func() {
+		close(lm.stopCh)
+	})
 	lm.wg.Wait()
 	lm.logger.Info().Msg("Lifecycle manager stopped")
 }

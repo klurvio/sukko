@@ -1,20 +1,14 @@
 // Package types defines core type definitions used across the WebSocket server.
 package types
 
-// Validation constants for OIDC and channel rules.
+// Validation constants for channel rules.
 // Configurable limits are in platform config; these are fixed protocol limits.
 const (
-	// MaxAudienceLength is the maximum length of an OIDC audience claim.
-	MaxAudienceLength = 256
-
 	// MaxGroupNameLength is the maximum length of a group name in channel rules.
 	MaxGroupNameLength = 128
 
 	// MaxChannelPatternLength is the maximum length of a channel pattern.
 	MaxChannelPatternLength = 256
-
-	// MaxIssuerURLLength is the maximum length of an OIDC issuer URL.
-	MaxIssuerURLLength = 512
 
 	// MaxGroupsPerMapping is the maximum number of groups in a channel rules mapping.
 	MaxGroupsPerMapping = 100

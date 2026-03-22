@@ -1,10 +1,9 @@
 module github.com/klurvio/sukko
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/MicahParks/keyfunc/v3 v3.7.0
 	github.com/caarlos0/env/v11 v11.0.0
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-chi/cors v1.2.2
@@ -28,7 +27,6 @@ require (
 )
 
 require (
-	github.com/MicahParks/jwkset v0.11.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect

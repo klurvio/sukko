@@ -92,7 +92,7 @@ func (r *PostgresTenantRepository) Get(ctx context.Context, tenantID string) (*p
 		&deletedAt,
 	)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("tenant not found: %s", tenantID)
+		return nil, fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, tenantID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query tenant: %w", err)

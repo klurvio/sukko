@@ -35,7 +35,7 @@ func LoggingMiddleware(logger zerolog.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
-			defer func() { //nolint:contextcheck // Context is captured from r which is in scope
+			defer func() { //nolint:contextcheck // False positive: r.Context() is captured via closure from the enclosing HandlerFunc scope; the deferred func accesses the same request context used by next.ServeHTTP.
 				elapsed := time.Since(start)
 
 				logger.Info().

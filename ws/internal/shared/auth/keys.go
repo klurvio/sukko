@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -163,7 +164,9 @@ func GetSigningMethod(algorithm string) (jwt.SigningMethod, error) {
 }
 
 // StaticKeyRegistry is a simple in-memory key registry for testing.
+// Thread-safe for concurrent use.
 type StaticKeyRegistry struct {
+	mu   sync.RWMutex
 	keys map[string]*KeyInfo
 }
 
@@ -184,12 +187,16 @@ func (r *StaticKeyRegistry) AddKey(key *KeyInfo) error {
 		}
 		key.PublicKey = pub
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.keys[key.KeyID] = key
 	return nil
 }
 
 // GetKey retrieves a key by ID.
 func (r *StaticKeyRegistry) GetKey(_ context.Context, keyID string) (*KeyInfo, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	key, ok := r.keys[keyID]
 	if !ok {
 		return nil, ErrKeyNotFound
@@ -208,6 +215,8 @@ func (r *StaticKeyRegistry) GetKey(_ context.Context, keyID string) (*KeyInfo, e
 
 // GetKeysByTenant retrieves all active keys for a tenant.
 func (r *StaticKeyRegistry) GetKeysByTenant(_ context.Context, tenantID string) ([]*KeyInfo, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	var keys []*KeyInfo
 	for _, key := range r.keys {
 		if key.TenantID == tenantID && key.IsValid() {

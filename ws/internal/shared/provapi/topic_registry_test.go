@@ -187,12 +187,12 @@ func TestTopicRegistry_State(t *testing.T) {
 	t.Parallel()
 	r := newTestTopicRegistry()
 
-	if state := r.State(); state != 0 {
-		t.Errorf("initial state = %d, want 0", state)
+	if state := r.State(); state != StreamStateDisconnected {
+		t.Errorf("initial state = %d, want %d", state, StreamStateDisconnected)
 	}
 
-	r.streamState.Store(1)
-	if state := r.State(); state != 1 {
-		t.Errorf("state after Store(1) = %d, want 1", state)
+	r.streamState.Store(StreamStateConnected)
+	if state := r.State(); state != StreamStateConnected {
+		t.Errorf("state after Store = %d, want %d", state, StreamStateConnected)
 	}
 }

@@ -10,10 +10,20 @@ import (
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
+// mustNewTenantPermissionChecker creates a TenantPermissionChecker or fails the test.
+func mustNewTenantPermissionChecker(t *testing.T, provider ChannelRulesProvider, fallback *types.ChannelRules) *TenantPermissionChecker {
+	t.Helper()
+	checker, err := NewTenantPermissionChecker(provider, fallback, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("NewTenantPermissionChecker: %v", err)
+	}
+	return checker
+}
+
 func TestTenantPermissionChecker_CanSubscribe_WithTenantRules(t *testing.T) {
 	t.Parallel()
 
-	registry := newMockTenantRegistry()
+	registry := newMockChannelRulesProvider()
 	registry.channelRules["acme"] = &types.ChannelRules{
 		Public: []string{"*.public", "*.metadata"},
 		GroupMappings: map[string][]string{
@@ -27,7 +37,7 @@ func TestTenantPermissionChecker_CanSubscribe_WithTenantRules(t *testing.T) {
 		Public: []string{"*.fallback"},
 	}
 
-	checker := NewTenantPermissionChecker(registry, fallback, zerolog.Nop())
+	checker := mustNewTenantPermissionChecker(t, registry, fallback)
 
 	tests := []struct {
 		name    string
@@ -142,13 +152,13 @@ func TestTenantPermissionChecker_CanSubscribe_FallbackRules(t *testing.T) {
 	t.Parallel()
 
 	// Registry with no rules for this tenant
-	registry := newMockTenantRegistry()
+	registry := newMockChannelRulesProvider()
 
 	fallback := &types.ChannelRules{
 		Public: []string{"*.fallback", "*.public"},
 	}
 
-	checker := NewTenantPermissionChecker(registry, fallback, zerolog.Nop())
+	checker := mustNewTenantPermissionChecker(t, registry, fallback)
 
 	tests := []struct {
 		name    string
@@ -199,7 +209,7 @@ func TestTenantPermissionChecker_CanSubscribe_FallbackRules(t *testing.T) {
 func TestTenantPermissionChecker_FilterChannels(t *testing.T) {
 	t.Parallel()
 
-	registry := newMockTenantRegistry()
+	registry := newMockChannelRulesProvider()
 	registry.channelRules["acme"] = &types.ChannelRules{
 		Public: []string{"*.public"},
 		GroupMappings: map[string][]string{
@@ -207,7 +217,7 @@ func TestTenantPermissionChecker_FilterChannels(t *testing.T) {
 		},
 	}
 
-	checker := NewTenantPermissionChecker(registry, types.NewChannelRules(), zerolog.Nop())
+	checker := mustNewTenantPermissionChecker(t, registry, types.NewChannelRules())
 
 	claims := &auth.Claims{
 		TenantID: "acme",
@@ -243,9 +253,9 @@ func TestTenantPermissionChecker_FilterChannels(t *testing.T) {
 func TestTenantPermissionChecker_NilFallback(t *testing.T) {
 	t.Parallel()
 
-	registry := newMockTenantRegistry()
+	registry := newMockChannelRulesProvider()
 	// Create with nil fallback - should use empty rules
-	checker := NewTenantPermissionChecker(registry, nil, zerolog.Nop())
+	checker := mustNewTenantPermissionChecker(t, registry, nil)
 
 	claims := &auth.Claims{
 		TenantID: "unknown",

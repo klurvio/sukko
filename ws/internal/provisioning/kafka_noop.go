@@ -1,11 +1,16 @@
 package provisioning
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // NoopKafkaAdmin is a no-op implementation of KafkaAdmin for Phase 1.
 // It records operations in memory but doesn't actually create Kafka resources.
+// Thread-safe for concurrent use from HTTP handlers.
 // Replace with real implementation in Phase 2.
 type NoopKafkaAdmin struct {
+	mu     sync.RWMutex
 	topics map[string]bool
 	acls   []ACLBinding
 }
@@ -20,18 +25,24 @@ func NewNoopKafkaAdmin() *NoopKafkaAdmin {
 
 // CreateTopic records a topic creation (no-op).
 func (n *NoopKafkaAdmin) CreateTopic(_ context.Context, name string, _ int, _ map[string]string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	n.topics[name] = true
 	return nil
 }
 
 // DeleteTopic records a topic deletion (no-op).
 func (n *NoopKafkaAdmin) DeleteTopic(_ context.Context, name string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	delete(n.topics, name)
 	return nil
 }
 
 // TopicExists checks if a topic was recorded (no-op).
 func (n *NoopKafkaAdmin) TopicExists(_ context.Context, name string) (bool, error) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 	_, ok := n.topics[name]
 	return ok, nil
 }
@@ -43,6 +54,8 @@ func (n *NoopKafkaAdmin) SetTopicConfig(_ context.Context, _ string, _ map[strin
 
 // CreateACL records an ACL creation (no-op).
 func (n *NoopKafkaAdmin) CreateACL(_ context.Context, acl ACLBinding) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	n.acls = append(n.acls, acl)
 	return nil
 }

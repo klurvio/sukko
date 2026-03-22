@@ -32,7 +32,7 @@ const (
 type ProvisioningInternalServiceClient interface {
 	// Stream active keys — snapshot on connect, deltas on change.
 	WatchKeys(ctx context.Context, in *WatchKeysRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchKeysResponse], error)
-	// Stream tenant config (OIDC, channel rules) — snapshot on connect, deltas on change.
+	// Stream tenant config (channel rules) — snapshot on connect, deltas on change.
 	WatchTenantConfig(ctx context.Context, in *WatchTenantConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchTenantConfigResponse], error)
 	// Stream topic discovery — snapshot on connect, deltas on change.
 	WatchTopics(ctx context.Context, in *WatchTopicsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchTopicsResponse], error)
@@ -111,7 +111,7 @@ type ProvisioningInternalService_WatchTopicsClient = grpc.ServerStreamingClient[
 type ProvisioningInternalServiceServer interface {
 	// Stream active keys — snapshot on connect, deltas on change.
 	WatchKeys(*WatchKeysRequest, grpc.ServerStreamingServer[WatchKeysResponse]) error
-	// Stream tenant config (OIDC, channel rules) — snapshot on connect, deltas on change.
+	// Stream tenant config (channel rules) — snapshot on connect, deltas on change.
 	WatchTenantConfig(*WatchTenantConfigRequest, grpc.ServerStreamingServer[WatchTenantConfigResponse]) error
 	// Stream topic discovery — snapshot on connect, deltas on change.
 	WatchTopics(*WatchTopicsRequest, grpc.ServerStreamingServer[WatchTopicsResponse]) error

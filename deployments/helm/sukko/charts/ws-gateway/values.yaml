@@ -20,7 +20,6 @@ image:
 
 # Feature flags (all default false in Go, set via extraEnv when needed)
 # AUTH_ENABLED: "true"                         — JWT validation via provisioning gRPC
-# GATEWAY_MULTI_ISSUER_OIDC_ENABLED: "true"    — per-tenant OIDC issuers
 # GATEWAY_PER_TENANT_CHANNEL_RULES: "true"     — per-tenant channel access rules
 
 # Override any Go envDefault. See /config endpoint for all available settings.

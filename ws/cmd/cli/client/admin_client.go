@@ -5,11 +5,23 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
+)
+
+// DefaultClientTimeout is the default HTTP client timeout.
+const DefaultClientTimeout = 30 * time.Second
+
+// Sentinel errors for API responses.
+var (
+	ErrAPIBadRequest = errors.New("API bad request")
+	ErrAPINotFound   = errors.New("API not found")
+	ErrAPIForbidden  = errors.New("API forbidden")
+	ErrAPIInternal   = errors.New("API internal error")
 )
 
 // AdminClient communicates with the provisioning REST API.
@@ -27,10 +39,13 @@ type Config struct {
 }
 
 // New creates a new AdminClient.
-func New(cfg Config) *AdminClient {
+func New(cfg Config) (*AdminClient, error) {
+	if cfg.BaseURL == "" {
+		return nil, errors.New("admin client: BaseURL is required")
+	}
 	timeout := cfg.Timeout
 	if timeout == 0 {
-		timeout = 30 * time.Second
+		timeout = DefaultClientTimeout
 	}
 	return &AdminClient{
 		baseURL: cfg.BaseURL,
@@ -38,7 +53,7 @@ func New(cfg Config) *AdminClient {
 			Timeout: timeout,
 		},
 		token: cfg.Token,
-	}
+	}, nil
 }
 
 // --- Tenants ---
@@ -50,6 +65,9 @@ func (c *AdminClient) CreateTenant(req map[string]any) (map[string]any, error) {
 
 // GetTenant retrieves a tenant by ID.
 func (c *AdminClient) GetTenant(tenantID string) (map[string]any, error) {
+	if tenantID == "" {
+		return nil, errors.New("tenantID is required")
+	}
 	return c.doJSON("GET", "/api/v1/tenants/"+tenantID, nil)
 }
 
@@ -93,7 +111,10 @@ func (c *AdminClient) ListKeys(tenantID string) (map[string]any, error) {
 
 // RevokeKey revokes a key by tenant and key ID.
 func (c *AdminClient) RevokeKey(tenantID, keyID string) (map[string]any, error) {
-	return c.doJSON("POST", "/api/v1/tenants/"+tenantID+"/keys/"+keyID+"/revoke", nil)
+	if tenantID == "" || keyID == "" {
+		return nil, errors.New("tenantID and keyID are required")
+	}
+	return c.doJSON("DELETE", "/api/v1/tenants/"+tenantID+"/keys/"+keyID, nil)
 }
 
 // --- Routing Rules ---
@@ -117,34 +138,12 @@ func (c *AdminClient) DeleteRoutingRules(tenantID string) (map[string]any, error
 
 // GetQuota retrieves the quota for a tenant.
 func (c *AdminClient) GetQuota(tenantID string) (map[string]any, error) {
-	return c.doJSON("GET", "/api/v1/tenants/"+tenantID+"/quota", nil)
+	return c.doJSON("GET", "/api/v1/tenants/"+tenantID+"/quotas", nil)
 }
 
 // UpdateQuota updates the quota for a tenant.
 func (c *AdminClient) UpdateQuota(tenantID string, req map[string]any) (map[string]any, error) {
-	return c.doJSON("PUT", "/api/v1/tenants/"+tenantID+"/quota", req)
-}
-
-// --- OIDC ---
-
-// GetOIDCConfig retrieves the OIDC configuration for a tenant.
-func (c *AdminClient) GetOIDCConfig(tenantID string) (map[string]any, error) {
-	return c.doJSON("GET", "/api/v1/tenants/"+tenantID+"/oidc", nil)
-}
-
-// CreateOIDCConfig creates an OIDC configuration for a tenant.
-func (c *AdminClient) CreateOIDCConfig(tenantID string, req map[string]any) (map[string]any, error) {
-	return c.doJSON("POST", "/api/v1/tenants/"+tenantID+"/oidc", req)
-}
-
-// UpdateOIDCConfig updates the OIDC configuration for a tenant.
-func (c *AdminClient) UpdateOIDCConfig(tenantID string, req map[string]any) (map[string]any, error) {
-	return c.doJSON("PUT", "/api/v1/tenants/"+tenantID+"/oidc", req)
-}
-
-// DeleteOIDCConfig deletes the OIDC configuration for a tenant.
-func (c *AdminClient) DeleteOIDCConfig(tenantID string) (map[string]any, error) {
-	return c.doJSON("DELETE", "/api/v1/tenants/"+tenantID+"/oidc", nil)
+	return c.doJSON("PATCH", "/api/v1/tenants/"+tenantID+"/quotas", req)
 }
 
 // --- Channel Rules ---
@@ -183,7 +182,10 @@ func (c *AdminClient) doJSON(method, path string, body any) (map[string]any, err
 		bodyReader = bytes.NewReader(data)
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), method, c.baseURL+path, bodyReader)
+	// CLI commands are synchronous and short-lived; the HTTP client timeout provides
+	// cancellation. context.TODO marks this as a candidate for context propagation
+	// if the CLI ever needs cancellation (e.g., signal handling).
+	req, err := http.NewRequestWithContext(context.TODO(), method, c.baseURL+path, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -205,7 +207,17 @@ func (c *AdminClient) doJSON(method, path string, body any) (map[string]any, err
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(respBody))
+		body := string(respBody)
+		switch {
+		case resp.StatusCode == http.StatusNotFound:
+			return nil, fmt.Errorf("%w: %s", ErrAPINotFound, body)
+		case resp.StatusCode == http.StatusForbidden:
+			return nil, fmt.Errorf("%w: %s", ErrAPIForbidden, body)
+		case resp.StatusCode >= 400 && resp.StatusCode < 500:
+			return nil, fmt.Errorf("%w (HTTP %d): %s", ErrAPIBadRequest, resp.StatusCode, body)
+		default:
+			return nil, fmt.Errorf("%w (HTTP %d): %s", ErrAPIInternal, resp.StatusCode, body)
+		}
 	}
 
 	var result map[string]any

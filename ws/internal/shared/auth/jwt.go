@@ -13,10 +13,9 @@ import (
 
 // Sentinel errors for authentication failures
 var (
-	ErrInvalidToken    = errors.New("invalid token")
-	ErrTokenExpired    = errors.New("token expired")
-	ErrMissingToken    = errors.New("missing token")
-	ErrInvalidAudience = errors.New("invalid audience")
+	ErrInvalidToken = errors.New("invalid token")
+	ErrTokenExpired = errors.New("token expired")
+	ErrMissingToken = errors.New("missing token")
 )
 
 // Claims represents the JWT claims structure for multi-tenant authentication.
@@ -87,13 +86,34 @@ func (c *Claims) GetAttribute(key string) string {
 // JWTValidator handles JWT token validation and issuance.
 // Thread-safe for concurrent use.
 type JWTValidator struct {
-	secret []byte
+	secret         []byte
+	expectedIssuer string // Optional: if set, validates iss claim
+}
+
+// JWTValidatorConfig configures the JWTValidator.
+type JWTValidatorConfig struct {
+	// Secret is the HMAC signing key (required, should be at least 32 bytes for HS256).
+	Secret string
+
+	// Issuer is the expected iss claim value. If empty, issuer verification is skipped.
+	Issuer string
 }
 
 // NewJWTValidator creates a new JWT validator with the given secret.
 // The secret should be at least 32 bytes for HS256.
-func NewJWTValidator(secret string) *JWTValidator {
-	return &JWTValidator{secret: []byte(secret)}
+func NewJWTValidator(secret string) (*JWTValidator, error) {
+	return NewJWTValidatorWithConfig(JWTValidatorConfig{Secret: secret})
+}
+
+// NewJWTValidatorWithConfig creates a new JWT validator with full configuration.
+func NewJWTValidatorWithConfig(cfg JWTValidatorConfig) (*JWTValidator, error) {
+	if cfg.Secret == "" {
+		return nil, errors.New("JWT validator: secret is required")
+	}
+	return &JWTValidator{
+		secret:         []byte(cfg.Secret),
+		expectedIssuer: cfg.Issuer,
+	}, nil
 }
 
 // ValidateToken validates a JWT token string and returns the claims if valid.
@@ -126,6 +146,14 @@ func (v *JWTValidator) ValidateToken(tokenString string) (*Claims, error) {
 		return nil, ErrInvalidToken
 	}
 
+	// Verify issuer if configured (Constitution IX: JWT validation MUST verify issuer)
+	if v.expectedIssuer != "" {
+		issuer, _ := claims.GetIssuer()
+		if issuer != v.expectedIssuer {
+			return nil, fmt.Errorf("%w: issuer %q not allowed", ErrInvalidToken, issuer)
+		}
+	}
+
 	return claims, nil
 }
 
@@ -138,6 +166,9 @@ func (v *JWTValidator) IssueToken(appID string, expiry time.Duration) (string, t
 // IssueTokenWithTenant creates a new JWT token for an app with tenant ID and expiry duration.
 // Returns the token string, expiry time, and any error.
 func (v *JWTValidator) IssueTokenWithTenant(appID, tenantID string, expiry time.Duration) (string, time.Time, error) {
+	if appID == "" {
+		return "", time.Time{}, errors.New("issue token: appID is required")
+	}
 	expiresAt := time.Now().Add(expiry)
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{

@@ -21,7 +21,6 @@ import (
 type ProvisioningConfig struct {
 	BaseConfig
 	AuthConfig
-	OIDCConfig
 	KafkaNamespaceConfig
 	HTTPTimeoutConfig
 
@@ -190,11 +189,6 @@ func (c *ProvisioningConfig) Validate() error {
 		return err
 	}
 
-	// Validate OIDC settings
-	if err := c.OIDCConfig.Validate(); err != nil {
-		return err
-	}
-
 	// Validate CORS settings
 	if c.CORSMaxAge < 0 {
 		return fmt.Errorf("CORS_MAX_AGE must be >= 0, got %d", c.CORSMaxAge)
@@ -355,17 +349,6 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 			Dur("db_conn_max_lifetime", c.DBConnMaxLifetime)
 	} else {
 		event = event.Str("database_path", c.DatabasePath)
-	}
-
-	// Add OIDC-specific fields when enabled
-	if c.OIDCEnabled() {
-		event = event.
-			Bool("oidc_enabled", true).
-			Str("oidc_issuer_url", c.OIDCIssuerURL).
-			Str("oidc_jwks_url", c.OIDCJWKSURL)
-		if c.OIDCAudience != "" {
-			event = event.Str("oidc_audience", c.OIDCAudience)
-		}
 	}
 
 	event.Msg("Provisioning service configuration loaded")

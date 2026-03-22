@@ -1,6 +1,6 @@
 module github.com/klurvio/sukko/wspublisher
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/caarlos0/env/v10 v10.0.0

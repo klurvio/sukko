@@ -55,7 +55,11 @@ var tenantCreateCmd = &cobra.Command{
 			req["categories"] = categories
 		}
 
-		result, err := newClient().CreateTenant(req)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.CreateTenant(req)
 		if err != nil {
 			return fmt.Errorf("create tenant: %w", err)
 		}
@@ -68,7 +72,11 @@ var tenantGetCmd = &cobra.Command{
 	Short: "Get tenant details",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(_ *cobra.Command, args []string) error {
-		result, err := newClient().GetTenant(args[0])
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.GetTenant(args[0])
 		if err != nil {
 			return fmt.Errorf("get tenant: %w", err)
 		}
@@ -92,7 +100,11 @@ var tenantListCmd = &cobra.Command{
 			params["status"] = status
 		}
 
-		result, err := newClient().ListTenants(params)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.ListTenants(params)
 		if err != nil {
 			return fmt.Errorf("list tenants: %w", err)
 		}
@@ -110,7 +122,11 @@ var tenantUpdateCmd = &cobra.Command{
 			req["name"] = name
 		}
 
-		result, err := newClient().UpdateTenant(args[0], req)
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.UpdateTenant(args[0], req)
 		if err != nil {
 			return fmt.Errorf("update tenant: %w", err)
 		}
@@ -123,7 +139,11 @@ var tenantSuspendCmd = &cobra.Command{
 	Short: "Suspend a tenant",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(_ *cobra.Command, args []string) error {
-		result, err := newClient().SuspendTenant(args[0])
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.SuspendTenant(args[0])
 		if err != nil {
 			return fmt.Errorf("suspend tenant: %w", err)
 		}
@@ -136,7 +156,11 @@ var tenantReactivateCmd = &cobra.Command{
 	Short: "Reactivate a suspended tenant",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(_ *cobra.Command, args []string) error {
-		result, err := newClient().ReactivateTenant(args[0])
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.ReactivateTenant(args[0])
 		if err != nil {
 			return fmt.Errorf("reactivate tenant: %w", err)
 		}
@@ -149,7 +173,11 @@ var tenantDeprovisionCmd = &cobra.Command{
 	Short: "Initiate tenant deletion",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(_ *cobra.Command, args []string) error {
-		result, err := newClient().DeprovisionTenant(args[0])
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		result, err := c.DeprovisionTenant(args[0])
 		if err != nil {
 			return fmt.Errorf("deprovision tenant: %w", err)
 		}
