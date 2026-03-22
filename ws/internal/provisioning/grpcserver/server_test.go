@@ -16,8 +16,8 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/grpcserver"
-	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/provisioning/testutil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 

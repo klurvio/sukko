@@ -27,13 +27,13 @@ type Gateway struct {
 	validator *auth.MultiTenantValidator
 
 	// gRPC stream registries for provisioning data (keys, channel rules)
-	streamKeyRegistry    *provapi.StreamKeyRegistry
+	streamKeyRegistry  *provapi.StreamKeyRegistry
 	streamChannelRules *provapi.StreamChannelRulesProvider
 
 	channelRulesProvider ChannelRulesProvider
 	permissions          *PermissionChecker
-	connTracker          *TenantConnectionTracker    // Per-tenant connection tracking
-	tenantPermChecker    *TenantPermissionChecker    // Per-tenant channel authorization
+	connTracker          *TenantConnectionTracker // Per-tenant connection tracking
+	tenantPermChecker    *TenantPermissionChecker // Per-tenant channel authorization
 	logger               zerolog.Logger
 }
 

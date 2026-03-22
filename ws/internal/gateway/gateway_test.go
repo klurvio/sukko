@@ -300,7 +300,6 @@ func TestGateway_HandleWebSocket_NoToken_WithMockValidator(t *testing.T) {
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
-
 	})
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
@@ -333,7 +332,6 @@ func TestGateway_HandleWebSocket_InvalidToken_WithMockValidator(t *testing.T) {
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
-
 	})
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
