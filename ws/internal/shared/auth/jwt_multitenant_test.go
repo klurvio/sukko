@@ -475,4 +475,3 @@ func TestExtractTenantID(t *testing.T) {
 		t.Errorf("tenantID = %s, want extracted-tenant", tenantID)
 	}
 }
-
