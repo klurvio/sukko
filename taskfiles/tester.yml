@@ -1,0 +1,31 @@
+# =============================================================================
+# Tester Deployment Tasks
+# =============================================================================
+# Pattern: tester:{provider}:{action}
+# Providers: do (DigitalOcean), gcp/aws/azure (future)
+
+version: "3"
+
+tasks:
+  # ===========================================================================
+  # DigitalOcean Provider
+  # ===========================================================================
+  do:deploy:
+    desc: Deploy sukko-tester to DigitalOcean Droplet
+    cmds:
+      - bash {{.ROOT_DIR}}/deployments/tester/do/deploy.sh
+
+  do:destroy:
+    desc: Destroy sukko-tester Droplet
+    cmds:
+      - bash {{.ROOT_DIR}}/deployments/tester/do/destroy.sh
+
+  do:logs:
+    desc: View sukko-tester container logs
+    cmds:
+      - bash {{.ROOT_DIR}}/deployments/tester/do/logs.sh
+
+  do:ssh:
+    desc: SSH into sukko-tester Droplet
+    cmds:
+      - bash {{.ROOT_DIR}}/deployments/tester/do/ssh.sh

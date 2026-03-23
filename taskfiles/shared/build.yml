@@ -72,15 +72,18 @@ tasks:
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f build/cli/Dockerfile .
 
-  loadtest:
-    desc: Build wsloadtest image
+  tester:
+    desc: Build sukko-tester Docker image
+    dir: "{{.ROOT_DIR}}/ws"
+    vars:
+      IMAGE: '{{.IMAGE_PREFIX}}{{.TESTER_IMAGE | default "sukko-tester"}}'
+      TAG: '{{.TAG | default "latest"}}'
     cmds:
-      - docker build -t wsloadtest:latest {{.ROOT_DIR}}/wsloadtest
-
-  publisher:
-    desc: Build wspublisher image
-    cmds:
-      - docker build -t wspublisher:latest {{.ROOT_DIR}}/wspublisher
+      - docker build -t {{.IMAGE}}:{{.TAG}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f build/tester/Dockerfile .
 
   all:
     desc: Build all Docker images
@@ -89,6 +92,7 @@ tasks:
       - task: gateway
       - task: provisioning
       - task: cli
+      - task: tester
 
   # Cross-platform build for remote registries (linux/amd64)
   push:ws-server:
@@ -147,26 +151,18 @@ tasks:
           -f build/cli/Dockerfile .
           --push
 
-  push:loadtest:
-    desc: Build and push wsloadtest to registry
-    dir: "{{.ROOT_DIR}}/wsloadtest"
+  push:tester:
+    desc: Build and push sukko-tester to registry
+    dir: "{{.ROOT_DIR}}/ws"
     vars:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
       - docker buildx build --platform linux/amd64
-          -t {{.PUSH_REGISTRY}}/wsloadtest:{{.TAG}}
-          .
-          --push
-
-  push:publisher:
-    desc: Build and push wspublisher to registry
-    dir: "{{.ROOT_DIR}}/wspublisher"
-    vars:
-      TAG: '{{.TAG | default "latest"}}'
-    cmds:
-      - docker buildx build --platform linux/amd64
-          -t {{.PUSH_REGISTRY}}/wspublisher:{{.TAG}}
-          .
+          -t {{.PUSH_REGISTRY}}/sukko-tester:{{.TAG}}
+          --build-arg VERSION={{.VERSION}}
+          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
+          --build-arg BUILD_TIME={{.BUILD_TIME}}
+          -f build/tester/Dockerfile .
           --push
 
   push:all:
@@ -179,5 +175,8 @@ tasks:
         vars:
           PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"
       - task: push:provisioning
+        vars:
+          PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"
+      - task: push:tester
         vars:
           PUSH_REGISTRY: "{{.PUSH_REGISTRY}}"

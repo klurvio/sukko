@@ -20,6 +20,10 @@ includes:
     taskfile: ./taskfiles/k8s.yml
     dir: .
 
+  tester:
+    taskfile: ./taskfiles/tester.yml
+    dir: .
+
   # Shared utilities (environment-independent)
   helm:
     taskfile: ./taskfiles/shared/helm.yml
@@ -44,8 +48,12 @@ tasks:
       - echo "  task local:logs                Tail ws-server logs"
       - echo "  task local:build               Build and reload images"
       - echo "  task local:provision:create    Create topics + tenant"
-      - echo "  task local:loadtest:smoke      Quick load test"
-      - echo "  task local:publisher:run       Run message publisher"
+      - echo ""
+      - echo "=== TESTER DEPLOYMENT ==="
+      - echo "  task tester:do:deploy          Deploy tester to DO Droplet"
+      - echo "  task tester:do:destroy         Destroy tester Droplet"
+      - echo "  task tester:do:logs            View tester logs"
+      - echo "  task tester:do:ssh             SSH into tester Droplet"
       - echo ""
       - echo "=== REMOTE KUBERNETES (DOKS) ==="
       - echo "  task k8s:deploy ENV=demo       Deploy to demo"
