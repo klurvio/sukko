@@ -12,7 +12,7 @@ import (
 )
 
 func newTestRouter() (http.Handler, *runner.Runner) {
-	r := runner.New(runner.RunnerConfig{
+	r := runner.New(runner.Config{
 		GatewayURL:      "ws://localhost:3000",
 		ProvisioningURL: "http://localhost:8080",
 		Token:           "test-token",
@@ -22,8 +22,10 @@ func newTestRouter() (http.Handler, *runner.Runner) {
 }
 
 func TestHealth(t *testing.T) {
+	t.Parallel()
+
 	handler, _ := newTestRouter()
-	req := httptest.NewRequest("GET", "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -33,8 +35,10 @@ func TestHealth(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
+	t.Parallel()
+
 	handler, _ := newTestRouter()
-	req := httptest.NewRequest("GET", "/version", nil)
+	req := httptest.NewRequest(http.MethodGet, "/version", http.NoBody)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -52,9 +56,11 @@ func TestVersion(t *testing.T) {
 }
 
 func TestStartTest_NoAuth(t *testing.T) {
+	t.Parallel()
+
 	handler, _ := newTestRouter()
 	body := `{"type":"smoke"}`
-	req := httptest.NewRequest("POST", "/api/v1/tests", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -64,9 +70,11 @@ func TestStartTest_NoAuth(t *testing.T) {
 }
 
 func TestStartTest_InvalidType(t *testing.T) {
+	t.Parallel()
+
 	handler, _ := newTestRouter()
 	body := `{"type":"invalid"}`
-	req := httptest.NewRequest("POST", "/api/v1/tests", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer test-auth")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -77,9 +85,11 @@ func TestStartTest_InvalidType(t *testing.T) {
 }
 
 func TestStartTest_MissingType(t *testing.T) {
+	t.Parallel()
+
 	handler, _ := newTestRouter()
 	body := `{}`
-	req := httptest.NewRequest("POST", "/api/v1/tests", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer test-auth")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -90,8 +100,10 @@ func TestStartTest_MissingType(t *testing.T) {
 }
 
 func TestStartTest_InvalidBody(t *testing.T) {
+	t.Parallel()
+
 	handler, _ := newTestRouter()
-	req := httptest.NewRequest("POST", "/api/v1/tests", bytes.NewBufferString("not json"))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString("not json"))
 	req.Header.Set("Authorization", "Bearer test-auth")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -102,9 +114,11 @@ func TestStartTest_InvalidBody(t *testing.T) {
 }
 
 func TestStartTest_Success(t *testing.T) {
+	t.Parallel()
+
 	handler, r := newTestRouter()
 	body := `{"type":"smoke"}`
-	req := httptest.NewRequest("POST", "/api/v1/tests", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer test-auth")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -131,8 +145,10 @@ func TestStartTest_Success(t *testing.T) {
 }
 
 func TestGetTest_NotFound(t *testing.T) {
+	t.Parallel()
+
 	handler, _ := newTestRouter()
-	req := httptest.NewRequest("GET", "/api/v1/tests/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tests/nonexistent", http.NoBody)
 	req.Header.Set("Authorization", "Bearer test-auth")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -143,8 +159,10 @@ func TestGetTest_NotFound(t *testing.T) {
 }
 
 func TestStopTest_NotFound(t *testing.T) {
+	t.Parallel()
+
 	handler, _ := newTestRouter()
-	req := httptest.NewRequest("POST", "/api/v1/tests/nonexistent/stop", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests/nonexistent/stop", http.NoBody)
 	req.Header.Set("Authorization", "Bearer test-auth")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -155,15 +173,17 @@ func TestStopTest_NotFound(t *testing.T) {
 }
 
 func TestAuthMiddleware_EmptyToken(t *testing.T) {
+	t.Parallel()
+
 	// Router with empty auth token — all requests should pass through
-	r := runner.New(runner.RunnerConfig{
+	r := runner.New(runner.Config{
 		GatewayURL:     "ws://localhost:3000",
 		Token:          "test-token",
 		MessageBackend: "direct",
 	}, zerolog.Nop())
 	handler := NewRouter(r, "", zerolog.Nop()) // no auth token
 
-	req := httptest.NewRequest("GET", "/api/v1/tests/any", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tests/any", http.NoBody)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -174,8 +194,10 @@ func TestAuthMiddleware_EmptyToken(t *testing.T) {
 }
 
 func TestAuthMiddleware_WrongToken(t *testing.T) {
+	t.Parallel()
+
 	handler, _ := newTestRouter()
-	req := httptest.NewRequest("GET", "/api/v1/tests/any", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tests/any", http.NoBody)
 	req.Header.Set("Authorization", "Bearer wrong-token")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -186,12 +208,16 @@ func TestAuthMiddleware_WrongToken(t *testing.T) {
 }
 
 func TestStartTest_AllTypes(t *testing.T) {
+	t.Parallel()
+
 	validTypes := []string{"smoke", "load", "stress", "soak", "validate"}
 	for _, typ := range validTypes {
 		t.Run(typ, func(t *testing.T) {
+			t.Parallel()
+
 			handler, r := newTestRouter()
 			body := `{"type":"` + typ + `"}`
-			req := httptest.NewRequest("POST", "/api/v1/tests", bytes.NewBufferString(body))
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
 			req.Header.Set("Authorization", "Bearer test-auth")
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)

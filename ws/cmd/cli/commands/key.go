@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -41,7 +42,7 @@ var keysCreateCmd = &cobra.Command{
 		tenantFlag, _ := cmd.Flags().GetString("tenant")
 		tenantID := resolveTenant(tenantFlag)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 
 		algorithm, _ := cmd.Flags().GetString("algorithm")
@@ -84,7 +85,7 @@ var keysListCmd = &cobra.Command{
 		tenantFlag, _ := cmd.Flags().GetString("tenant")
 		tenantID := resolveTenant(tenantFlag)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 
 		c, err := newClient()
@@ -106,7 +107,7 @@ var keysRevokeCmd = &cobra.Command{
 		tenantFlag, _ := cmd.Flags().GetString("tenant")
 		tenantID := resolveTenant(tenantFlag)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 		keyID, _ := cmd.Flags().GetString("key-id")
 

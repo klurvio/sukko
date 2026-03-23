@@ -172,7 +172,10 @@ func runContextList(cmd *cobra.Command, _ []string) error {
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", marker, ctx.Name, ctx.GatewayURL, ctx.ProvisioningURL, ctx.ActiveTenant)
 	}
-	return w.Flush()
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("flush context list: %w", err)
+	}
+	return nil
 }
 
 func runContextRemove(cmd *cobra.Command, args []string) error {
@@ -217,7 +220,10 @@ func runContextCurrent(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(w, "Admin Token:\t%s\n", secretIndicator(ctx.AdminTokenEnc))
 	fmt.Fprintf(w, "HMAC Secret:\t%s\n", secretIndicator(ctx.HMACSecretEnc))
 	fmt.Fprintf(w, "API Key:\t%s\n", secretIndicator(ctx.APIKeyEnc))
-	return w.Flush()
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("flush context details: %w", err)
+	}
+	return nil
 }
 
 func secretIndicator(enc string) string {

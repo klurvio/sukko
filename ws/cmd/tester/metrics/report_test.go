@@ -10,6 +10,8 @@ import (
 )
 
 func TestReport_WriteJSON(t *testing.T) {
+	t.Parallel()
+
 	r := &Report{
 		TestType: "smoke",
 		Status:   "pass",
@@ -39,10 +41,12 @@ func TestReport_WriteJSON(t *testing.T) {
 }
 
 func TestReport_WriteTable(t *testing.T) {
+	t.Parallel()
+
 	r := &Report{
 		TestType: "load",
 		Status:   "pass",
-		Metrics: MetricsSnapshot{
+		Metrics: Snapshot{
 			Elapsed:           "10s",
 			ConnectionsActive: 50,
 			ConnectionsTotal:  100,
@@ -91,10 +95,12 @@ func TestReport_WriteTable(t *testing.T) {
 }
 
 func TestReport_WriteTable_NoChecks(t *testing.T) {
+	t.Parallel()
+
 	r := &Report{
 		TestType: "soak",
 		Status:   "pass",
-		Metrics:  MetricsSnapshot{Elapsed: "60s"},
+		Metrics:  Snapshot{Elapsed: "60s"},
 	}
 
 	var buf bytes.Buffer
@@ -106,10 +112,12 @@ func TestReport_WriteTable_NoChecks(t *testing.T) {
 }
 
 func TestReport_WriteTable_NoLatency(t *testing.T) {
+	t.Parallel()
+
 	r := &Report{
 		TestType: "smoke",
 		Status:   "pass",
-		Metrics:  MetricsSnapshot{Elapsed: "1s"},
+		Metrics:  Snapshot{Elapsed: "1s"},
 	}
 
 	var buf bytes.Buffer

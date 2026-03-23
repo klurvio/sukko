@@ -77,14 +77,14 @@ per-component status with troubleshooting suggestions on failure.`,
 		httpClient := &http.Client{Timeout: healthHTTPTimeout}
 		ctx := cmd.Context()
 
-		var items []StatusItem
+		items := make([]StatusItem, 0, len(checks))
 		allHealthy := true
 
 		for _, check := range checks {
 			status := "healthy"
 			details := ""
 
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, check.url, nil)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, check.url, http.NoBody)
 			if err != nil {
 				status = "unreachable"
 				details = check.suggest

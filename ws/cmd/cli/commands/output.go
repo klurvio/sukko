@@ -16,7 +16,7 @@ var (
 	colorGreen  = "\033[32m"
 	colorRed    = "\033[31m"
 	colorYellow = "\033[33m"
-	colorCyan   = "\033[36m"
+	colorCyan   = "\033[36m" //nolint:unused // reserved for future status colors
 	colorBold   = "\033[1m"
 )
 
@@ -32,7 +32,7 @@ func init() {
 }
 
 func isTTY() bool {
-	return term.IsTerminal(int(os.Stdout.Fd()))
+	return term.IsTerminal(int(os.Stdout.Fd())) //nolint:gosec // G115: Fd() returns uintptr; safe truncation on all supported platforms
 }
 
 // defaultWriter returns os.Stdout. Used as the default output target for print helpers.

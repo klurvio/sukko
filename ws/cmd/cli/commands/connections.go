@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -43,7 +44,7 @@ use 'sukko test smoke' which orchestrates the tester service.`,
 		tok, apiKey := resolveWSAuth(connToken, connAPIKey)
 
 		if tok == "" && apiKey == "" {
-			return fmt.Errorf("authentication required (use --token or --api-key)")
+			return errors.New("authentication required (use --token or --api-key)")
 		}
 
 		fmt.Fprintf(cmd.OutOrStdout(), "Testing connection to %s...\n", gatewayURL)
@@ -58,7 +59,7 @@ use 'sukko test smoke' which orchestrates the tester service.`,
 		wsClient, err := client.Dial(ctx, gatewayURL, opts...)
 		if err != nil {
 			fmt.Fprintf(cmd.OutOrStdout(), "  Connect: %sFAIL%s (%v)\n", colorRed, colorReset, err)
-			return fmt.Errorf("connection test failed")
+			return errors.New("connection test failed")
 		}
 		defer wsClient.Close()
 		connectTime := time.Since(start)
@@ -69,19 +70,19 @@ use 'sukko test smoke' which orchestrates the tester service.`,
 		testChannel := defaultTestChannel
 		if err := wsClient.Subscribe([]string{testChannel}); err != nil {
 			fmt.Fprintf(cmd.OutOrStdout(), "  Subscribe: %sFAIL%s (%v)\n", colorRed, colorReset, err)
-			return fmt.Errorf("connection test failed")
+			return errors.New("connection test failed")
 		}
 
 		// Read subscription acknowledgment (if any)
 		msg, err := wsClient.ReadMessage()
 		if err != nil {
 			fmt.Fprintf(cmd.OutOrStdout(), "  Subscribe: %sFAIL%s (no response: %v)\n", colorRed, colorReset, err)
-			return fmt.Errorf("connection test failed")
+			return errors.New("connection test failed")
 		}
 
 		if msg.Type == "error" || msg.Type == "subscribe_error" {
 			fmt.Fprintf(cmd.OutOrStdout(), "  Subscribe: %sFAIL%s (%s)\n", colorRed, colorReset, string(msg.Data))
-			return fmt.Errorf("connection test failed")
+			return errors.New("connection test failed")
 		}
 
 		fmt.Fprintf(cmd.OutOrStdout(), "  Subscribe: %sPASS%s (channel: %s)\n", colorGreen, colorReset, testChannel)

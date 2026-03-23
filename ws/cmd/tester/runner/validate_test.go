@@ -9,6 +9,8 @@ import (
 )
 
 func TestRunValidate_DefaultSuite(t *testing.T) {
+	t.Parallel()
+
 	run := &TestRun{
 		ID:        "test-validate-default",
 		Config:    TestConfig{Type: TestValidate, GatewayURL: "ws://invalid:9999"},
@@ -32,6 +34,8 @@ func TestRunValidate_DefaultSuite(t *testing.T) {
 }
 
 func TestRunValidate_UnknownSuite(t *testing.T) {
+	t.Parallel()
+
 	run := &TestRun{
 		ID:        "test-validate-unknown",
 		Config:    TestConfig{Type: TestValidate, Suite: "nonexistent"},
@@ -55,9 +59,13 @@ func TestRunValidate_UnknownSuite(t *testing.T) {
 }
 
 func TestRunValidate_SkipSuites(t *testing.T) {
+	t.Parallel()
+
 	suites := []string{"ordering", "reconnect", "ratelimit"}
 	for _, suite := range suites {
 		t.Run(suite, func(t *testing.T) {
+			t.Parallel()
+
 			run := &TestRun{
 				ID:        "test-" + suite,
 				Config:    TestConfig{Type: TestValidate, Suite: suite},

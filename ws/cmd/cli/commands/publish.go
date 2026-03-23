@@ -95,9 +95,9 @@ func wsDialOpts(token, apiKey string) []client.DialOption {
 }
 
 // resolveWSAuth resolves WebSocket auth from flags, then context.
-func resolveWSAuth(tokenFlag, apiKeyFlag string) (string, string) {
-	tok := tokenFlag
-	apiKey := apiKeyFlag
+func resolveWSAuth(tokenFlag, apiKeyFlag string) (tok, apiKey string) {
+	tok = tokenFlag
+	apiKey = apiKeyFlag
 
 	if resolvedCtx != nil && resolvedStore != nil {
 		if tok == "" {

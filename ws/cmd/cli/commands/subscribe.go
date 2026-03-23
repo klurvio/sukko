@@ -44,19 +44,17 @@ var subscribeCmd = &cobra.Command{
 		}
 		defer wsClient.Close()
 
-		// Close connection when context is cancelled to unblock ReadMessage.
+		// Close connection when context is canceled to unblock ReadMessage.
 		var shutdownWg sync.WaitGroup
-		shutdownWg.Add(1)
-		go func() {
+		shutdownWg.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "panic in shutdown goroutine: %v\n", r)
 				}
 			}()
-			defer shutdownWg.Done()
 			<-ctx.Done()
 			wsClient.Close()
-		}()
+		})
 		defer shutdownWg.Wait()
 
 		if err := wsClient.Subscribe(channels); err != nil {
@@ -72,7 +70,7 @@ var subscribeCmd = &cobra.Command{
 			msg, err := wsClient.ReadMessage()
 			if err != nil {
 				if ctx.Err() != nil {
-					break // cancelled — connection closed by shutdown goroutine
+					break // canceled — connection closed by shutdown goroutine
 				}
 				return fmt.Errorf("read: %w", err)
 			}

@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 // defaultPoolRampRate is the fallback connections-per-second rate when not specified.
 const defaultPoolRampRate = 100
 
+// Pool manages a set of WebSocket client connections.
 type Pool struct {
 	mu             sync.Mutex
 	clients        []*Client
@@ -23,10 +25,12 @@ type Pool struct {
 	logger         zerolog.Logger
 }
 
+// NewPool creates a Pool with the given logger.
 func NewPool(logger zerolog.Logger) *Pool {
 	return &Pool{logger: logger}
 }
 
+// PoolConfig configures connections created during ramp-up.
 type PoolConfig struct {
 	GatewayURL string
 	Token      string
@@ -36,9 +40,9 @@ type PoolConfig struct {
 }
 
 // RampUp creates `count` connections at the given rate (connections per second).
-func (p *Pool) RampUp(ctx context.Context, cfg PoolConfig, count int, rate int) error {
+func (p *Pool) RampUp(ctx context.Context, cfg PoolConfig, count, rate int) error {
 	if cfg.GatewayURL == "" {
-		return fmt.Errorf("ramp up: gateway URL is required")
+		return errors.New("ramp up: gateway URL is required")
 	}
 	if rate <= 0 {
 		rate = defaultPoolRampRate
@@ -48,7 +52,7 @@ func (p *Pool) RampUp(ctx context.Context, cfg PoolConfig, count int, rate int) 
 	for i := range count {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("ramp up: %w", ctx.Err())
 		default:
 		}
 
@@ -73,12 +77,10 @@ func (p *Pool) RampUp(ctx context.Context, cfg PoolConfig, count int, rate int) 
 		}
 
 		// Start read loop
-		p.wg.Add(1)
-		go func() {
+		p.wg.Go(func() {
 			defer logging.RecoverPanic(p.logger, "pool-read-loop", nil)
-			defer p.wg.Done()
 			client.ReadLoop(ctx)
-		}()
+		})
 
 		p.mu.Lock()
 		p.clients = append(p.clients, client)
@@ -93,10 +95,12 @@ func (p *Pool) RampUp(ctx context.Context, cfg PoolConfig, count int, rate int) 
 	return nil
 }
 
+// Active returns the number of currently active connections.
 func (p *Pool) Active() int64 {
 	return p.active.Load()
 }
 
+// Drain closes all connections and waits for read loops to finish.
 func (p *Pool) Drain() {
 	p.mu.Lock()
 	clients := p.clients
@@ -108,12 +112,10 @@ func (p *Pool) Drain() {
 
 	var closeWg sync.WaitGroup
 	for _, c := range clients {
-		closeWg.Add(1)
-		go func() {
+		closeWg.Go(func() {
 			defer logging.RecoverPanic(p.logger, "pool-drain-close", nil)
-			defer closeWg.Done()
 			_ = c.Close() // best-effort: multi-step drain continues on individual close failure
-		}()
+		})
 	}
 	closeWg.Wait()
 	p.active.Add(-int64(len(clients)))
@@ -122,6 +124,7 @@ func (p *Pool) Drain() {
 	p.wg.Wait()
 }
 
+// DrainSummary returns a human-readable summary of the last drain operation.
 func (p *Pool) DrainSummary() string {
 	return fmt.Sprintf("drained %d connections", p.lastDrainCount.Load())
 }

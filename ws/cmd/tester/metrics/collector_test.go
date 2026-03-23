@@ -6,6 +6,8 @@ import (
 )
 
 func TestNewCollector(t *testing.T) {
+	t.Parallel()
+
 	c := NewCollector()
 	if c == nil {
 		t.Fatal("expected non-nil collector")
@@ -17,6 +19,8 @@ func TestNewCollector(t *testing.T) {
 }
 
 func TestCollector_AtomicCounters(t *testing.T) {
+	t.Parallel()
+
 	c := NewCollector()
 
 	c.ConnectionsActive.Add(5)
@@ -52,6 +56,8 @@ func TestCollector_AtomicCounters(t *testing.T) {
 }
 
 func TestCollector_Latency(t *testing.T) {
+	t.Parallel()
+
 	c := NewCollector()
 	c.Latency.Record(10 * time.Millisecond)
 	c.Latency.Record(20 * time.Millisecond)
@@ -63,6 +69,8 @@ func TestCollector_Latency(t *testing.T) {
 }
 
 func TestCollector_Elapsed(t *testing.T) {
+	t.Parallel()
+
 	c := NewCollector()
 	// Snapshot should have a non-empty elapsed string
 	time.Sleep(5 * time.Millisecond)
@@ -73,6 +81,8 @@ func TestCollector_Elapsed(t *testing.T) {
 }
 
 func TestCollector_Reset(t *testing.T) {
+	t.Parallel()
+
 	c := NewCollector()
 	c.ConnectionsActive.Add(5)
 	c.MessagesSent.Add(100)
@@ -92,6 +102,8 @@ func TestCollector_Reset(t *testing.T) {
 }
 
 func TestCollector_SnapshotTimestamp(t *testing.T) {
+	t.Parallel()
+
 	c := NewCollector()
 	before := time.Now()
 	snap := c.Snapshot()
@@ -103,6 +115,8 @@ func TestCollector_SnapshotTimestamp(t *testing.T) {
 }
 
 func TestCollector_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
 	c := NewCollector()
 	done := make(chan struct{})
 

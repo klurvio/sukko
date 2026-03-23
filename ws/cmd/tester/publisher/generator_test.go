@@ -6,6 +6,8 @@ import (
 )
 
 func TestNewGenerator(t *testing.T) {
+	t.Parallel()
+
 	g := NewGenerator()
 	if g == nil {
 		t.Fatal("expected non-nil generator")
@@ -13,6 +15,8 @@ func TestNewGenerator(t *testing.T) {
 }
 
 func TestGenerator_Next(t *testing.T) {
+	t.Parallel()
+
 	g := NewGenerator()
 
 	data, err := g.Next("test.channel")
@@ -39,6 +43,8 @@ func TestGenerator_Next(t *testing.T) {
 }
 
 func TestGenerator_SequenceIncrement(t *testing.T) {
+	t.Parallel()
+
 	g := NewGenerator()
 
 	for i := range 5 {
@@ -58,6 +64,8 @@ func TestGenerator_SequenceIncrement(t *testing.T) {
 }
 
 func TestGenerator_Reset(t *testing.T) {
+	t.Parallel()
+
 	g := NewGenerator()
 
 	// Generate a few messages
@@ -83,6 +91,8 @@ func TestGenerator_Reset(t *testing.T) {
 }
 
 func TestGenerator_ConcurrentNext(t *testing.T) {
+	t.Parallel()
+
 	g := NewGenerator()
 	const goroutines = 10
 	const perGoroutine = 100

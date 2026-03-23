@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -22,6 +23,7 @@ const shutdownReadDeadline = 100 * time.Millisecond
 // Kept short (1s) so the loop re-checks ctx.Done frequently during shutdown.
 const readDeadlineTimeout = 1 * time.Second
 
+// Client is a WebSocket client for the tester service.
 type Client struct {
 	conn      net.Conn
 	closeOnce sync.Once
@@ -30,12 +32,14 @@ type Client struct {
 	mu        sync.Mutex // protects writeJSON only
 }
 
+// Message represents a WebSocket message received from the server.
 type Message struct {
 	Type    string          `json:"type"`
 	Channel string          `json:"channel,omitempty"`
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
+// ConnectConfig holds parameters for establishing a WebSocket connection.
 type ConnectConfig struct {
 	GatewayURL string
 	Token      string
@@ -44,6 +48,7 @@ type ConnectConfig struct {
 	OnMessage  func(Message)
 }
 
+// Connect dials the gateway and returns a connected Client.
 func Connect(ctx context.Context, cfg ConnectConfig) (*Client, error) {
 	wsURL := cfg.GatewayURL + "/ws"
 	header := http.Header{}
@@ -68,6 +73,7 @@ func Connect(ctx context.Context, cfg ConnectConfig) (*Client, error) {
 	return c, nil
 }
 
+// Subscribe sends a subscribe request for the given channels.
 func (c *Client) Subscribe(channels []string) error {
 	return c.writeJSON(map[string]any{
 		"type": "subscribe",
@@ -75,6 +81,7 @@ func (c *Client) Subscribe(channels []string) error {
 	})
 }
 
+// Publish sends a message to the given channel.
 func (c *Client) Publish(channel string, data json.RawMessage) error {
 	return c.writeJSON(map[string]any{
 		"type": "publish",
@@ -82,6 +89,7 @@ func (c *Client) Publish(channel string, data json.RawMessage) error {
 	})
 }
 
+// ReadLoop reads messages until the context is canceled or the connection closes.
 func (c *Client) ReadLoop(ctx context.Context) {
 	for {
 		select {
@@ -120,6 +128,7 @@ func (c *Client) ReadLoop(ctx context.Context) {
 	}
 }
 
+// Close closes the underlying WebSocket connection. Safe to call multiple times.
 func (c *Client) Close() error {
 	var closeErr error
 	c.closeOnce.Do(func() {
@@ -142,7 +151,10 @@ func (c *Client) writeJSON(v any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.conn == nil {
-		return fmt.Errorf("connection closed")
+		return errors.New("connection closed")
 	}
-	return wsutil.WriteClientText(c.conn, data)
+	if err := wsutil.WriteClientText(c.conn, data); err != nil {
+		return fmt.Errorf("write ws message: %w", err)
+	}
+	return nil
 }

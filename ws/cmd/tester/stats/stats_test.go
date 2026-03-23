@@ -7,6 +7,8 @@ import (
 )
 
 func TestNewHistogram(t *testing.T) {
+	t.Parallel()
+
 	h := NewHistogram()
 	if h == nil {
 		t.Fatal("expected non-nil histogram")
@@ -18,6 +20,8 @@ func TestNewHistogram(t *testing.T) {
 }
 
 func TestHistogram_Record(t *testing.T) {
+	t.Parallel()
+
 	h := NewHistogram()
 	h.Record(10 * time.Millisecond)
 	h.Record(20 * time.Millisecond)
@@ -36,6 +40,8 @@ func TestHistogram_Record(t *testing.T) {
 }
 
 func TestHistogram_Snapshot_Percentiles(t *testing.T) {
+	t.Parallel()
+
 	h := NewHistogram()
 	// Record 100 values from 1ms to 100ms
 	for i := 1; i <= 100; i++ {
@@ -62,6 +68,8 @@ func TestHistogram_Snapshot_Percentiles(t *testing.T) {
 }
 
 func TestHistogram_Reset(t *testing.T) {
+	t.Parallel()
+
 	h := NewHistogram()
 	h.Record(10 * time.Millisecond)
 	h.Record(20 * time.Millisecond)
@@ -74,6 +82,8 @@ func TestHistogram_Reset(t *testing.T) {
 }
 
 func TestHistogram_SnapshotEmpty(t *testing.T) {
+	t.Parallel()
+
 	h := NewHistogram()
 	snap := h.Snapshot()
 	if snap.Count != 0 || snap.Min != 0 || snap.Max != 0 || snap.Mean != 0 {
@@ -82,6 +92,8 @@ func TestHistogram_SnapshotEmpty(t *testing.T) {
 }
 
 func TestHistogram_SnapshotSingleValue(t *testing.T) {
+	t.Parallel()
+
 	h := NewHistogram()
 	h.Record(42 * time.Millisecond)
 
@@ -99,6 +111,8 @@ func TestHistogram_SnapshotSingleValue(t *testing.T) {
 }
 
 func TestHistogram_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
 	h := NewHistogram()
 	done := make(chan struct{})
 
@@ -124,6 +138,8 @@ func TestHistogram_ConcurrentAccess(t *testing.T) {
 }
 
 func TestPercentile_BoundaryValues(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		sorted []float64
@@ -139,6 +155,8 @@ func TestPercentile_BoundaryValues(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := percentile(tt.sorted, tt.p)
 			if math.Abs(got-tt.want) > 0.01 {
 				t.Errorf("percentile(%v, %.2f) = %.2f, want %.2f", tt.sorted, tt.p, got, tt.want)

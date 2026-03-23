@@ -47,7 +47,7 @@ func run() error {
 		ServiceName: "sukko-tester",
 	})
 
-	r := runner.New(runner.RunnerConfig{
+	r := runner.New(runner.Config{
 		GatewayURL:      cfg.GatewayURL,
 		ProvisioningURL: cfg.ProvisioningURL,
 		Token:           cfg.AuthToken,
@@ -67,15 +67,13 @@ func run() error {
 	var wg sync.WaitGroup
 	errCh := make(chan error, 1)
 
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		defer logging.RecoverPanic(logger, "http-server", nil)
-		defer wg.Done()
 		logger.Info().Int("port", cfg.Port).Msg("tester API listening")
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- fmt.Errorf("http server: %w", err)
 		}
-	}()
+	})
 
 	// Wait for shutdown signal
 	sigCh := make(chan os.Signal, 1)

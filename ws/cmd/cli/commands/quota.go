@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -32,7 +33,7 @@ var quotaGetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID := resolveTenantFromCmd(cmd)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 
 		c, err := newClient()
@@ -53,7 +54,7 @@ var quotaUpdateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID := resolveTenantFromCmd(cmd)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 
 		req := map[string]any{}
@@ -83,7 +84,7 @@ var quotaUpdateCmd = &cobra.Command{
 		}
 
 		if len(req) == 0 {
-			return fmt.Errorf("at least one quota field must be specified")
+			return errors.New("at least one quota field must be specified")
 		}
 
 		c, err := newClient()

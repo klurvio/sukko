@@ -109,7 +109,7 @@ var statusCmd = &cobra.Command{
 
 func checkHealth(ctx context.Context, url string) string {
 	httpClient := &http.Client{Timeout: statusHTTPTimeout}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return "unreachable"
 	}

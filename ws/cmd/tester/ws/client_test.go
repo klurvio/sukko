@@ -14,6 +14,8 @@ import (
 )
 
 func TestConnect_InvalidURL(t *testing.T) {
+	t.Parallel()
+
 	_, err := Connect(context.Background(), ConnectConfig{
 		GatewayURL: "not-a-url",
 		Logger:     zerolog.Nop(),
@@ -24,6 +26,8 @@ func TestConnect_InvalidURL(t *testing.T) {
 }
 
 func TestConnect_ContextCancelled(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -32,11 +36,13 @@ func TestConnect_ContextCancelled(t *testing.T) {
 		Logger:     zerolog.Nop(),
 	})
 	if err == nil {
-		t.Fatal("expected error for cancelled context")
+		t.Fatal("expected error for canceled context")
 	}
 }
 
 func TestClient_CloseIdempotent(t *testing.T) {
+	t.Parallel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := ws.HTTPUpgrader{}
 		conn, _, _, err := upgrader.Upgrade(r, w)
@@ -70,6 +76,8 @@ func TestClient_CloseIdempotent(t *testing.T) {
 }
 
 func TestClient_Subscribe(t *testing.T) {
+	t.Parallel()
+
 	receivedCh := make(chan map[string]any, 1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +123,8 @@ func TestClient_Subscribe(t *testing.T) {
 }
 
 func TestClient_Publish(t *testing.T) {
+	t.Parallel()
+
 	receivedCh := make(chan map[string]any, 1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -160,6 +170,8 @@ func TestClient_Publish(t *testing.T) {
 }
 
 func TestClient_ReadLoop_OnMessage(t *testing.T) {
+	t.Parallel()
+
 	serverMsg := Message{
 		Type:    "message",
 		Channel: "test.ch",

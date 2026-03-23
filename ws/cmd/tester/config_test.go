@@ -8,6 +8,8 @@ import (
 )
 
 func TestTesterConfig_Validate(t *testing.T) {
+	t.Parallel()
+
 	validConfig := func() TesterConfig {
 		return TesterConfig{
 			BaseConfig: platform.BaseConfig{
@@ -75,6 +77,8 @@ func TestTesterConfig_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cfg := validConfig()
 			tt.modify(&cfg)
 			err := cfg.Validate()
@@ -92,4 +96,3 @@ func TestTesterConfig_Validate(t *testing.T) {
 		})
 	}
 }
-

@@ -8,7 +8,7 @@ import (
 )
 
 func newTestRunner() *Runner {
-	return New(RunnerConfig{
+	return New(Config{
 		GatewayURL:      "ws://localhost:3000",
 		ProvisioningURL: "http://localhost:8080",
 		Token:           "test-token",
@@ -17,6 +17,8 @@ func newTestRunner() *Runner {
 }
 
 func TestNew(t *testing.T) {
+	t.Parallel()
+
 	r := newTestRunner()
 	if r == nil {
 		t.Fatal("expected non-nil runner")
@@ -27,6 +29,8 @@ func TestNew(t *testing.T) {
 }
 
 func TestRunner_Get_NotFound(t *testing.T) {
+	t.Parallel()
+
 	r := newTestRunner()
 	_, err := r.Get("nonexistent")
 	if err == nil {
@@ -38,6 +42,8 @@ func TestRunner_Get_NotFound(t *testing.T) {
 }
 
 func TestRunner_Stop_NotFound(t *testing.T) {
+	t.Parallel()
+
 	r := newTestRunner()
 	err := r.Stop("nonexistent")
 	if err == nil {
@@ -49,6 +55,8 @@ func TestRunner_Stop_NotFound(t *testing.T) {
 }
 
 func TestRunner_Start_DuplicateID(t *testing.T) {
+	t.Parallel()
+
 	r := newTestRunner()
 
 	// Start a test — it will fail to connect but that's OK for this test
@@ -76,6 +84,8 @@ func TestRunner_Start_DuplicateID(t *testing.T) {
 }
 
 func TestRunner_Start_DefaultsFilled(t *testing.T) {
+	t.Parallel()
+
 	r := newTestRunner()
 
 	cfg := TestConfig{
@@ -105,6 +115,8 @@ func TestRunner_Start_DefaultsFilled(t *testing.T) {
 }
 
 func TestRunner_Start_StatusRunning(t *testing.T) {
+	t.Parallel()
+
 	r := newTestRunner()
 	run, err := r.Start("test-status", TestConfig{Type: TestSmoke})
 	if err != nil {
@@ -123,6 +135,8 @@ func TestRunner_Start_StatusRunning(t *testing.T) {
 }
 
 func TestRunner_Get_AfterStart(t *testing.T) {
+	t.Parallel()
+
 	r := newTestRunner()
 	_, err := r.Start("test-get", TestConfig{Type: TestSmoke})
 	if err != nil {
@@ -142,6 +156,8 @@ func TestRunner_Get_AfterStart(t *testing.T) {
 }
 
 func TestTestRun_StatusSnapshot(t *testing.T) {
+	t.Parallel()
+
 	r := newTestRunner()
 	run, err := r.Start("test-snap", TestConfig{Type: TestSmoke})
 	if err != nil {
@@ -161,6 +177,8 @@ func TestTestRun_StatusSnapshot(t *testing.T) {
 }
 
 func TestTestType_Constants(t *testing.T) {
+	t.Parallel()
+
 	// Verify test type constants are defined
 	types := []TestType{TestSmoke, TestLoad, TestStress, TestSoak, TestValidate}
 	for _, tt := range types {
@@ -171,6 +189,8 @@ func TestTestType_Constants(t *testing.T) {
 }
 
 func TestTestStatus_Constants(t *testing.T) {
+	t.Parallel()
+
 	statuses := []TestStatus{StatusPending, StatusRunning, StatusComplete, StatusFailed, StatusStopped}
 	for _, s := range statuses {
 		if s == "" {

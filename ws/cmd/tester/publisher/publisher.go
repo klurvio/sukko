@@ -3,6 +3,7 @@ package publisher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,8 +15,10 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// Mode selects the message publishing transport.
 type Mode string
 
+// ModeDirect publishes via WebSocket; ModeKafka publishes via Kafka.
 const (
 	ModeDirect Mode = "direct"
 	ModeKafka  Mode = "kafka"
@@ -24,6 +27,7 @@ const (
 // gatewayWSPath is the WebSocket endpoint path on the gateway.
 const gatewayWSPath = "/ws"
 
+// Publisher sends test messages to a channel via WebSocket or Kafka.
 type Publisher struct {
 	mu        sync.Mutex // protects publishDirect write serialization only
 	closeOnce sync.Once
@@ -34,6 +38,7 @@ type Publisher struct {
 	conn net.Conn
 }
 
+// Config holds Publisher construction parameters.
 type Config struct {
 	Mode         Mode
 	GatewayURL   string
@@ -42,6 +47,7 @@ type Config struct {
 	Logger       zerolog.Logger
 }
 
+// New creates a Publisher with the given configuration.
 func New(ctx context.Context, cfg Config) (*Publisher, error) {
 	p := &Publisher{
 		mode:      cfg.Mode,
@@ -73,6 +79,7 @@ func New(ctx context.Context, cfg Config) (*Publisher, error) {
 	return p, nil
 }
 
+// Publish sends a single generated message to the given channel.
 func (p *Publisher) Publish(ctx context.Context, channel string) error {
 	data, err := p.generator.Next(channel)
 	if err != nil {
@@ -89,9 +96,10 @@ func (p *Publisher) Publish(ctx context.Context, channel string) error {
 	}
 }
 
+// PublishAtRate publishes messages at the given rate for the specified duration.
 func (p *Publisher) PublishAtRate(ctx context.Context, channel string, rate int, duration time.Duration) error {
 	if rate <= 0 {
-		return fmt.Errorf("rate must be positive")
+		return errors.New("rate must be positive")
 	}
 
 	interval := time.Second / time.Duration(rate)
@@ -103,7 +111,7 @@ func (p *Publisher) PublishAtRate(ctx context.Context, channel string, rate int,
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("publish at rate: %w", ctx.Err())
 		case <-deadline:
 			return nil
 		case <-ticker.C:
@@ -114,6 +122,7 @@ func (p *Publisher) PublishAtRate(ctx context.Context, channel string, rate int,
 	}
 }
 
+// Close closes the publisher connection. Safe to call multiple times.
 func (p *Publisher) Close() error {
 	var closeErr error
 	p.closeOnce.Do(func() {
@@ -147,9 +156,12 @@ func (p *Publisher) publishDirect(channel string, data json.RawMessage) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.conn == nil {
-		return fmt.Errorf("publisher connection closed")
+		return errors.New("publisher connection closed")
 	}
-	return wsutil.WriteClientText(p.conn, payload)
+	if err := wsutil.WriteClientText(p.conn, payload); err != nil {
+		return fmt.Errorf("write ws message: %w", err)
+	}
+	return nil
 }
 
 func (p *Publisher) publishKafka(_ context.Context, channel string, _ json.RawMessage) error {

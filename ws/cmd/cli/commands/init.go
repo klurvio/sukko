@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	clicontext "github.com/klurvio/sukko/cmd/cli/context"
@@ -75,7 +76,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	// Write .sukko/config.json
 	configDir := filepath.Join(".", sukkoConfigDir)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 
@@ -85,7 +86,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}
 
 	configPath := filepath.Join(configDir, sukkoConfigFile)
-	if err := os.WriteFile(configPath, data, 0600); err != nil {
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 
@@ -135,21 +136,18 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func promptChoice(cmd *cobra.Command, label string, options []string, defaultVal string) (string, error) {
+func promptChoice(cmd *cobra.Command, label string, options []string, defaultVal string) (string, error) { //nolint:unparam // error return reserved for future validation; callers already handle it
 	fmt.Fprintf(cmd.OutOrStdout(), "%s (%s) [%s]: ", label, joinOptions(options), defaultVal)
 
 	var input string
-	_, err := fmt.Scanln(&input)
-	if err != nil || strings.TrimSpace(input) == "" {
+	if _, err := fmt.Scanln(&input); err != nil || strings.TrimSpace(input) == "" {
 		// Empty input or EOF (non-interactive/piped): use default. This is intentional
 		// graceful degradation for non-TTY environments (Principle IV).
-		return defaultVal, nil
+		return defaultVal, nil //nolint:nilerr // EOF/empty input is expected in non-TTY; returning default is intentional
 	}
 
-	for _, opt := range options {
-		if input == opt {
-			return input, nil
-		}
+	if slices.Contains(options, input) {
+		return input, nil
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Invalid choice %q, using default %q\n", input, defaultVal)
@@ -159,4 +157,3 @@ func promptChoice(cmd *cobra.Command, label string, options []string, defaultVal
 func joinOptions(options []string) string {
 	return strings.Join(options, "/")
 }
-

@@ -58,7 +58,7 @@ func runSmoke(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metric
 	httpClient := &http.Client{Timeout: healthCheckTimeout}
 	for _, dep := range depChecks {
 		start := time.Now()
-		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, dep.url, nil)
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, dep.url, http.NoBody)
 		if reqErr != nil {
 			checks = append(checks, metrics.CheckResult{
 				Name:   dep.name + " health",

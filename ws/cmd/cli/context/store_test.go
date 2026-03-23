@@ -17,6 +17,8 @@ func newTestStore(t *testing.T) *Store {
 }
 
 func TestStoreAddAndGet(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	ctx := &Context{
@@ -50,6 +52,8 @@ func TestStoreAddAndGet(t *testing.T) {
 }
 
 func TestStoreAddWithEncryptedSecrets(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	tokenEnc, err := store.EncryptSecret("my-admin-token")
@@ -83,6 +87,8 @@ func TestStoreAddWithEncryptedSecrets(t *testing.T) {
 }
 
 func TestStoreAddEmptyName(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	ctx := &Context{Name: ""}
@@ -92,6 +98,8 @@ func TestStoreAddEmptyName(t *testing.T) {
 }
 
 func TestStoreGetNotFound(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	_, err := store.Get("nonexistent")
@@ -101,6 +109,8 @@ func TestStoreGetNotFound(t *testing.T) {
 }
 
 func TestStoreList(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	for _, name := range []string{"alpha", "beta", "gamma"} {
@@ -120,6 +130,8 @@ func TestStoreList(t *testing.T) {
 }
 
 func TestStoreRemove(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	if err := store.Add(&Context{Name: "removeme", GatewayURL: "ws://localhost"}); err != nil {
@@ -137,6 +149,8 @@ func TestStoreRemove(t *testing.T) {
 }
 
 func TestStoreRemoveNotFound(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	err := store.Remove("nonexistent")
@@ -146,6 +160,8 @@ func TestStoreRemoveNotFound(t *testing.T) {
 }
 
 func TestStoreActiveContext(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	if err := store.Add(&Context{Name: "myctx", GatewayURL: "ws://localhost"}); err != nil {
@@ -176,6 +192,8 @@ func TestStoreActiveContext(t *testing.T) {
 }
 
 func TestStoreSetActiveNonexistent(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	err := store.SetActive("nonexistent")
@@ -185,6 +203,8 @@ func TestStoreSetActiveNonexistent(t *testing.T) {
 }
 
 func TestStoreNoActiveContext(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	_, err := store.ActiveName()
@@ -194,6 +214,8 @@ func TestStoreNoActiveContext(t *testing.T) {
 }
 
 func TestStoreRemoveClearsActive(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	if err := store.Add(&Context{Name: "todelete", GatewayURL: "ws://localhost"}); err != nil {
@@ -214,6 +236,8 @@ func TestStoreRemoveClearsActive(t *testing.T) {
 }
 
 func TestStoreFilePermissions(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 
 	if err := store.Add(&Context{Name: "perms", GatewayURL: "ws://localhost"}); err != nil {

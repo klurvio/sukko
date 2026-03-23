@@ -19,7 +19,7 @@ type HealthTarget struct {
 	URL  string
 }
 
-// WaitForHealth polls health endpoints until all return 200 or the context is cancelled.
+// WaitForHealth polls health endpoints until all return 200 or the context is canceled.
 func WaitForHealth(ctx context.Context, w io.Writer, targets []HealthTarget, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -37,14 +37,14 @@ func WaitForHealth(ctx context.Context, w io.Writer, targets []HealthTarget, tim
 	for {
 		select {
 		case <-ctx.Done():
-			var names []string
+			names := make([]string, 0, len(pending))
 			for name := range pending {
 				names = append(names, name)
 			}
 			return fmt.Errorf("health check timeout: services still unhealthy: %v", names)
 		case <-ticker.C:
 			for name, target := range pending {
-				req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.URL, nil)
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.URL, http.NoBody)
 				if err != nil {
 					continue
 				}

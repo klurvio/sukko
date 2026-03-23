@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -114,9 +116,7 @@ func runTest(cmd *cobra.Command, testType string, extra map[string]any) error {
 	_, tok := resolveClientConfig()
 
 	body := map[string]any{"type": testType}
-	for k, v := range extra {
-		body[k] = v
-	}
+	maps.Copy(body, extra)
 
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -142,7 +142,7 @@ func runTest(cmd *cobra.Command, testType string, extra map[string]any) error {
 
 	if resp.StatusCode != http.StatusCreated {
 		var errResp map[string]string
-		json.NewDecoder(resp.Body).Decode(&errResp) //nolint:errcheck // best-effort error decode
+		json.NewDecoder(resp.Body).Decode(&errResp)
 		msg := errResp["message"]
 		if msg == "" {
 			msg = resp.Status
@@ -157,7 +157,7 @@ func runTest(cmd *cobra.Command, testType string, extra map[string]any) error {
 
 	testID, _ := result["id"].(string)
 	if testID == "" {
-		return fmt.Errorf("server response missing test ID")
+		return errors.New("server response missing test ID")
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Test started: %s (type: %s)\n", testID, testType)
 
@@ -174,7 +174,7 @@ func runTest(cmd *cobra.Command, testType string, extra map[string]any) error {
 }
 
 func streamTestMetrics(cmd *cobra.Command, testerURL, testID, tok string) error {
-	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, testerURL+"/api/v1/tests/"+url.PathEscape(testID)+"/metrics", nil)
+	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, testerURL+"/api/v1/tests/"+url.PathEscape(testID)+"/metrics", http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create stream request: %w", err)
 	}
@@ -211,8 +211,8 @@ func streamTestMetrics(cmd *cobra.Command, testerURL, testID, tok string) error 
 			return nil
 		}
 
-		if strings.HasPrefix(line, "data: ") {
-			metricsData := strings.TrimPrefix(line, "data: ")
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			metricsData := after
 			if output == "json" {
 				fmt.Fprintln(cmd.OutOrStdout(), metricsData)
 			} else {
@@ -237,10 +237,10 @@ func printMetricsLine(cmd *cobra.Command, data string) {
 	conns, _ := m["connections_active"].(float64)
 	sent, _ := m["messages_sent"].(float64)
 	recv, _ := m["messages_received"].(float64)
-	errors, _ := m["errors_total"].(float64)
+	errTotal, _ := m["errors_total"].(float64)
 
 	fmt.Fprintf(cmd.OutOrStdout(), "\r[%s] conns=%d sent=%d recv=%d errors=%d",
-		elapsed, int(conns), int(sent), int(recv), int(errors))
+		elapsed, int(conns), int(sent), int(recv), int(errTotal))
 }
 
 func printTestReport(cmd *cobra.Command, data string) {
@@ -299,9 +299,9 @@ func printTestReport(cmd *cobra.Command, data string) {
 			int(sent), int(recv), int(dropped))
 	}
 
-	if errors, ok := report["errors"].([]any); ok && len(errors) > 0 {
+	if errs, ok := report["errors"].([]any); ok && len(errs) > 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "\nErrors:")
-		for _, e := range errors {
+		for _, e := range errs {
 			fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", e)
 		}
 	}

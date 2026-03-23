@@ -63,7 +63,7 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 	}, nil
 }
 
-func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
+func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) { //nolint:unparam // error return reserved for future validation checks that may fail
 	var checks []metrics.CheckResult
 
 	// Test valid JWT
@@ -137,32 +137,20 @@ func validateChannels(ctx context.Context, run *TestRun, logger zerolog.Logger) 
 	return checks, nil
 }
 
-func validateOrdering(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
-	checks := []metrics.CheckResult{{
+func validateOrdering(_ context.Context, _ *TestRun, _ zerolog.Logger) ([]metrics.CheckResult, error) { //nolint:unparam // error return reserved for future implementation
+	return []metrics.CheckResult{{
 		Name: "message ordering", Status: "skip",
-	}}
-	_ = ctx
-	_ = run
-	_ = logger
-	return checks, nil
+	}}, nil
 }
 
-func validateReconnect(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
-	checks := []metrics.CheckResult{{
+func validateReconnect(_ context.Context, _ *TestRun, _ zerolog.Logger) ([]metrics.CheckResult, error) { //nolint:unparam // error return reserved for future implementation
+	return []metrics.CheckResult{{
 		Name: "reconnect recovery", Status: "skip",
-	}}
-	_ = ctx
-	_ = run
-	_ = logger
-	return checks, nil
+	}}, nil
 }
 
-func validateRateLimit(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
-	checks := []metrics.CheckResult{{
+func validateRateLimit(_ context.Context, _ *TestRun, _ zerolog.Logger) ([]metrics.CheckResult, error) { //nolint:unparam // error return reserved for future implementation
+	return []metrics.CheckResult{{
 		Name: "rate limit enforcement", Status: "skip",
-	}}
-	_ = ctx
-	_ = run
-	_ = logger
-	return checks, nil
+	}}, nil
 }

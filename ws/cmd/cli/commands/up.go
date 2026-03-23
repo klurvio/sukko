@@ -16,7 +16,7 @@ const healthTimeout = 120 * time.Second
 // Docker Compose internal service addresses — used by buildComposeConfig
 // to wire services together inside the compose network.
 const (
-	composeDatabaseURL = "postgres://sukko:sukko@postgres:5432/sukko_provisioning?sslmode=disable"
+	composeDatabaseURL = "postgres://sukko:sukko@postgres:5432/sukko_provisioning?sslmode=disable" //nolint:gosec // G101: not a credential — Docker Compose internal connection string with well-known dev defaults
 	composeValkeyAddr  = "valkey:6379"
 	composeKafkaBroker = "redpanda:9092"
 	composeNATSURL     = "nats://nats:4222"
@@ -40,7 +40,7 @@ provisions a default tenant for immediate use.`,
 func runUp(cmd *cobra.Command, _ []string) error {
 	// Read project config
 	configPath := filepath.Join(".", sukkoConfigDir, sukkoConfigFile)
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(configPath) //nolint:gosec // G304: path derived from fixed constant, not user input
 	if err != nil {
 		return fmt.Errorf("read config (run 'sukko init' first): %w", err)
 	}
@@ -110,19 +110,16 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func buildComposeConfig(cfg ProjectConfig) ([]string, map[string]string) {
-	var profiles []string
-	envOverrides := map[string]string{}
+func buildComposeConfig(cfg ProjectConfig) (profiles []string, envOverrides map[string]string) {
+	envOverrides = map[string]string{}
 
-	switch cfg.Database {
-	case "postgres":
+	if cfg.Database == "postgres" {
 		profiles = append(profiles, "postgres")
 		envOverrides["DATABASE_DRIVER"] = "postgres"
 		envOverrides["DATABASE_URL"] = composeDatabaseURL
 	}
 
-	switch cfg.Broadcast {
-	case "valkey":
+	if cfg.Broadcast == "valkey" {
 		profiles = append(profiles, "valkey")
 		envOverrides["BROADCAST_TYPE"] = "valkey"
 		envOverrides["VALKEY_ADDRS"] = composeValkeyAddr

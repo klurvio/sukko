@@ -10,6 +10,8 @@ import (
 )
 
 func TestWaitForHealth_AllHealthy(t *testing.T) {
+	t.Parallel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -34,6 +36,8 @@ func TestWaitForHealth_AllHealthy(t *testing.T) {
 }
 
 func TestWaitForHealth_Timeout(t *testing.T) {
+	t.Parallel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
@@ -54,6 +58,8 @@ func TestWaitForHealth_Timeout(t *testing.T) {
 }
 
 func TestWaitForHealth_ContextCancelled(t *testing.T) {
+	t.Parallel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
@@ -69,11 +75,13 @@ func TestWaitForHealth_ContextCancelled(t *testing.T) {
 	var buf bytes.Buffer
 	err := WaitForHealth(ctx, &buf, targets, 30*time.Second)
 	if err == nil {
-		t.Fatal("expected error from cancelled context")
+		t.Fatal("expected error from canceled context")
 	}
 }
 
 func TestWaitForHealth_EmptyTargets(t *testing.T) {
+	t.Parallel()
+
 	var buf bytes.Buffer
 	err := WaitForHealth(context.Background(), &buf, nil, 5*time.Second)
 	if err != nil {
@@ -82,6 +90,8 @@ func TestWaitForHealth_EmptyTargets(t *testing.T) {
 }
 
 func TestWaitForHealth_PartialHealth(t *testing.T) {
+	t.Parallel()
+
 	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -109,6 +119,8 @@ func TestWaitForHealth_PartialHealth(t *testing.T) {
 }
 
 func TestWaitForHealth_BecomesHealthy(t *testing.T) {
+	t.Parallel()
+
 	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++

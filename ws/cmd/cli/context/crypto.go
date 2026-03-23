@@ -12,9 +12,10 @@ import (
 	"runtime"
 	"strings"
 
-	"golang.org/x/crypto/hkdf"
 	"crypto/sha256"
 	"io"
+
+	"golang.org/x/crypto/hkdf"
 )
 
 const (
@@ -119,15 +120,14 @@ func machineKeyMaterial() ([]byte, error) {
 }
 
 func darwinKeyMaterial() ([]byte, error) {
-	out, err := exec.Command("ioreg", "-rd1", "-c", "IOPlatformExpertDevice").Output()
+	out, err := exec.Command("ioreg", "-rd1", "-c", "IOPlatformExpertDevice").Output() //nolint:noctx // one-shot CLI command; no long-running context to propagate
 	if err != nil {
 		return fallbackKeyMaterial()
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if strings.Contains(line, "IOPlatformUUID") {
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				uuid := strings.Trim(strings.TrimSpace(parts[1]), "\"")
+			if _, after, ok := strings.Cut(line, "="); ok {
+				uuid := strings.Trim(strings.TrimSpace(after), "\"")
 				if uuid != "" {
 					return []byte(uuid), nil
 				}

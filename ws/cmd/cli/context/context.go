@@ -4,14 +4,14 @@ import "fmt"
 
 // Context represents a named environment configuration for the CLI.
 type Context struct {
-	Name             string `json:"name"`
-	GatewayURL       string `json:"gateway_url"`
-	ProvisioningURL  string `json:"provisioning_url"`
-	TesterURL        string `json:"tester_url,omitempty"`
-	AdminTokenEnc    string `json:"admin_token_encrypted,omitempty"`
-	HMACSecretEnc    string `json:"hmac_secret_encrypted,omitempty"`
-	APIKeyEnc        string `json:"api_key_encrypted,omitempty"`
-	ActiveTenant     string `json:"active_tenant,omitempty"`
+	Name            string `json:"name"`
+	GatewayURL      string `json:"gateway_url"`
+	ProvisioningURL string `json:"provisioning_url"`
+	TesterURL       string `json:"tester_url,omitempty"`
+	AdminTokenEnc   string `json:"admin_token_encrypted,omitempty"`
+	HMACSecretEnc   string `json:"hmac_secret_encrypted,omitempty"`
+	APIKeyEnc       string `json:"api_key_encrypted,omitempty"`
+	ActiveTenant    string `json:"active_tenant,omitempty"`
 }
 
 // AdminToken decrypts and returns the admin token.

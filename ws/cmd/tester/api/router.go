@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// NewRouter creates the HTTP handler for the tester API.
 func NewRouter(r *runner.Runner, authToken string, logger zerolog.Logger) http.Handler {
 	mux := http.NewServeMux()
 

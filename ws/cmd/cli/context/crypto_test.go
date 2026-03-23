@@ -5,6 +5,8 @@ import (
 )
 
 func TestEncryptDecryptRoundTrip(t *testing.T) {
+	t.Parallel()
+
 	key, err := DeriveKey()
 	if err != nil {
 		t.Fatalf("DeriveKey: %v", err)
@@ -24,6 +26,8 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			encrypted, err := Encrypt(key, tt.plaintext)
 			if err != nil {
 				t.Fatalf("Encrypt: %v", err)
@@ -46,6 +50,8 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 }
 
 func TestDecryptWrongKey(t *testing.T) {
+	t.Parallel()
+
 	key1 := make([]byte, 32)
 	key2 := make([]byte, 32)
 	key2[0] = 1 // different key
@@ -62,6 +68,8 @@ func TestDecryptWrongKey(t *testing.T) {
 }
 
 func TestDecryptInvalidInput(t *testing.T) {
+	t.Parallel()
+
 	key := make([]byte, 32)
 
 	tests := []struct {
@@ -69,12 +77,14 @@ func TestDecryptInvalidInput(t *testing.T) {
 		input string
 	}{
 		{"invalid base64", "not-valid-base64!!!"},
-		{"too short", "AQID"},                   // 3 bytes, less than nonce
-		{"empty", ""},                            // empty base64
+		{"too short", "AQID"}, // 3 bytes, less than nonce
+		{"empty", ""},         // empty base64
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			_, err := Decrypt(key, tt.input)
 			if err == nil {
 				t.Error("expected error for invalid input")
@@ -84,6 +94,8 @@ func TestDecryptInvalidInput(t *testing.T) {
 }
 
 func TestDeriveKeyDeterministic(t *testing.T) {
+	t.Parallel()
+
 	key1, err := DeriveKey()
 	if err != nil {
 		t.Fatalf("DeriveKey 1: %v", err)
@@ -106,6 +118,8 @@ func TestDeriveKeyDeterministic(t *testing.T) {
 }
 
 func TestEncryptProducesDifferentCiphertexts(t *testing.T) {
+	t.Parallel()
+
 	key, err := DeriveKey()
 	if err != nil {
 		t.Fatalf("DeriveKey: %v", err)

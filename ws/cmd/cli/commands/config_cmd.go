@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	configHTTPTimeout      = 5 * time.Second
-	maxConfigResponseSize  = 1 << 20 // 1MB
+	configHTTPTimeout     = 5 * time.Second
+	maxConfigResponseSize = 1 << 20 // 1MB
 )
 
 var configFormat string
@@ -85,7 +85,7 @@ var configViewCmd = &cobra.Command{
 		url, _ := resolveClientConfig()
 		configURL := strings.TrimRight(url, "/") + "/config"
 
-		req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, configURL, nil)
+		req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, configURL, http.NoBody)
 		if err != nil {
 			return fmt.Errorf("create config request: %w", err)
 		}
@@ -114,27 +114,12 @@ var configViewCmd = &cobra.Command{
 
 // extractConfigEntries uses reflection to read env struct tags from config types.
 func extractConfigEntries() []configEntry {
-	var entries []configEntry
-
-	// Process known config types
-	types := []struct {
-		name string
-		typ  reflect.Type
-	}{
-		{"Base", reflect.TypeOf(platform.BaseConfig{})},
-	}
-
-	for _, t := range types {
-		entries = append(entries, extractFromType(t.typ)...)
-	}
-
-	return entries
+	return extractFromType(reflect.TypeFor[platform.BaseConfig]())
 }
 
 func extractFromType(t reflect.Type) []configEntry {
 	var entries []configEntry
-	for i := range t.NumField() {
-		field := t.Field(i)
+	for field := range t.Fields() {
 
 		// Handle embedded structs
 		if field.Anonymous {

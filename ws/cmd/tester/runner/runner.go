@@ -13,12 +13,14 @@ import (
 
 // Sentinel errors for expected conditions.
 var (
-	ErrTestNotFound     = errors.New("test not found")
+	ErrTestNotFound      = errors.New("test not found")
 	ErrTestAlreadyExists = errors.New("test already exists")
 )
 
+// TestType identifies the kind of test to run.
 type TestType string
 
+// TestSmoke and related constants enumerate the supported test types.
 const (
 	TestSmoke    TestType = "smoke"
 	TestLoad     TestType = "load"
@@ -38,6 +40,7 @@ const (
 // defaultRampRate is the fallback connections-per-second rate when not configured.
 const defaultRampRate = 50
 
+// TestConfig holds the parameters for a test run.
 type TestConfig struct {
 	Type            TestType `json:"type"`
 	GatewayURL      string   `json:"gateway_url"`
@@ -53,8 +56,10 @@ type TestConfig struct {
 	Suite           string   `json:"suite,omitempty"` // for validate type
 }
 
+// TestStatus represents the current state of a test run.
 type TestStatus string
 
+// StatusPending and related constants enumerate test run states.
 const (
 	StatusPending  TestStatus = "pending"
 	StatusRunning  TestStatus = "running"
@@ -63,6 +68,7 @@ const (
 	StatusStopped  TestStatus = "stopped"
 )
 
+// TestRun tracks the state and results of an individual test execution.
 type TestRun struct {
 	ID        string             `json:"id"`
 	Config    TestConfig         `json:"config"`
@@ -80,15 +86,17 @@ func (t *TestRun) StatusSnapshot() (TestStatus, *metrics.Report) {
 	return t.Status, t.Report
 }
 
+// Runner manages concurrent test executions.
 type Runner struct {
 	mu     sync.RWMutex
 	tests  map[string]*TestRun
 	wg     sync.WaitGroup
 	logger zerolog.Logger
-	cfg    RunnerConfig
+	cfg    Config
 }
 
-type RunnerConfig struct {
+// Config holds default settings applied to all test runs.
+type Config struct {
 	GatewayURL      string
 	ProvisioningURL string
 	Token           string
@@ -96,7 +104,8 @@ type RunnerConfig struct {
 	KafkaBrokers    string
 }
 
-func New(cfg RunnerConfig, logger zerolog.Logger) *Runner {
+// New creates a Runner with the given configuration and logger.
+func New(cfg Config, logger zerolog.Logger) *Runner {
 	return &Runner{
 		tests:  make(map[string]*TestRun),
 		logger: logger,
@@ -104,6 +113,7 @@ func New(cfg RunnerConfig, logger zerolog.Logger) *Runner {
 	}
 }
 
+// Start launches a new test run with the given ID and configuration.
 func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -129,7 +139,7 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 		cfg.KafkaBrokers = r.cfg.KafkaBrokers
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in TestRun.cancel and called by Stop()/StopAll()
 
 	run := &TestRun{
 		ID:        id,
@@ -141,8 +151,9 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 
 	r.tests[id] = run
 
-	r.wg.Add(1)
-	go r.execute(ctx, run)
+	r.wg.Go(func() {
+		r.execute(ctx, run)
+	})
 
 	return run, nil
 }
@@ -152,6 +163,7 @@ func (r *Runner) Wait() {
 	r.wg.Wait()
 }
 
+// Stop cancels a running test by ID.
 func (r *Runner) Stop(id string) error {
 	r.mu.RLock()
 	run, ok := r.tests[id]
@@ -174,6 +186,7 @@ func (r *Runner) StopAll() {
 	}
 }
 
+// Get retrieves a test run by ID.
 func (r *Runner) Get(id string) (*TestRun, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -189,7 +202,6 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	logger := r.logger.With().Str("test_id", run.ID).Str("type", string(run.Config.Type)).Logger()
 
 	defer logging.RecoverPanic(logger, "test-execution", map[string]any{"test_id": run.ID})
-	defer r.wg.Done()
 
 	logger.Info().Msg("starting test")
 
@@ -212,7 +224,8 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	}
 
 	run.mu.Lock()
-	if err != nil {
+	switch {
+	case err != nil:
 		run.Status = StatusFailed
 		if report == nil {
 			report = &metrics.Report{
@@ -222,9 +235,9 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 				Errors:   []string{err.Error()},
 			}
 		}
-	} else if ctx.Err() != nil {
+	case ctx.Err() != nil:
 		run.Status = StatusStopped
-	} else {
+	default:
 		run.Status = StatusComplete
 	}
 	run.Report = report

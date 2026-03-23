@@ -87,9 +87,9 @@ func newClient() (*client.AdminClient, error) {
 }
 
 // resolveClientConfig returns the API URL and token, preferring flags over context.
-func resolveClientConfig() (string, string) {
-	url := apiURL
-	tok := token
+func resolveClientConfig() (url, tok string) {
+	url = apiURL
+	tok = token
 
 	// If no flags given, try context
 	if resolvedCtx != nil && resolvedStore != nil {
@@ -136,14 +136,13 @@ func resolveGatewayURL(flagValue string) string {
 
 // wsToHTTP converts a WebSocket URL scheme to HTTP.
 func wsToHTTP(wsURL string) string {
-	switch {
-	case strings.HasPrefix(wsURL, "wss://"):
-		return "https://" + strings.TrimPrefix(wsURL, "wss://")
-	case strings.HasPrefix(wsURL, "ws://"):
-		return "http://" + strings.TrimPrefix(wsURL, "ws://")
-	default:
-		return wsURL
+	if after, ok := strings.CutPrefix(wsURL, "wss://"); ok {
+		return "https://" + after
 	}
+	if after, ok := strings.CutPrefix(wsURL, "ws://"); ok {
+		return "http://" + after
+	}
+	return wsURL
 }
 
 // resolveTesterURL returns the tester URL from: flag > context > default.

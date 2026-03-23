@@ -4,6 +4,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,7 +22,7 @@ type Manager struct {
 // Returns an error if projectDir is empty.
 func NewManager(projectDir string) (*Manager, error) {
 	if projectDir == "" {
-		return nil, fmt.Errorf("project directory must not be empty")
+		return nil, errors.New("project directory must not be empty")
 	}
 	return &Manager{projectDir: projectDir}, nil
 }
@@ -37,13 +38,14 @@ type ServiceStatus struct {
 
 // Up starts services with the given profiles and environment overrides.
 func (m *Manager) Up(ctx context.Context, profiles []string, envOverrides map[string]string) error {
-	args := []string{"compose"}
+	args := make([]string, 0, 1+2*len(profiles)+3)
+	args = append(args, "compose")
 	for _, p := range profiles {
 		args = append(args, "--profile", p)
 	}
 	args = append(args, "up", "-d", "--build")
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := exec.CommandContext(ctx, "docker", args...) //nolint:gosec // G204: args built from fixed strings and validated profile names
 	cmd.Dir = m.projectDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -88,13 +90,13 @@ func (m *Manager) Status(ctx context.Context) ([]ServiceStatus, error) {
 		return nil, fmt.Errorf("docker compose ps: %w", err)
 	}
 
-	if len(strings.TrimSpace(string(out))) == 0 {
+	if strings.TrimSpace(string(out)) == "" {
 		return nil, nil
 	}
 
 	// docker compose ps --format json outputs one JSON object per line
 	var services []ServiceStatus
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -141,5 +143,5 @@ func (m *Manager) IsRunning(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	return len(strings.TrimSpace(string(out))) > 0
+	return strings.TrimSpace(string(out)) != ""
 }

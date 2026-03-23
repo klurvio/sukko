@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -97,13 +98,13 @@ func Generate(cfg GenerateConfig) (string, error) {
 // for cryptographic verification.
 func Decode(tokenString string) (*DecodedToken, error) {
 	if tokenString == "" {
-		return nil, fmt.Errorf("token string is required")
+		return nil, errors.New("token string is required")
 	}
 
 	parser := jwt.NewParser()
 	token, _, err := parser.ParseUnverified(tokenString, jwt.MapClaims{})
 	if err != nil {
-		return &DecodedToken{
+		return &DecodedToken{ //nolint:nilerr // parse error is returned as a field in DecodedToken, not as err
 			Valid: false,
 			Error: err.Error(),
 		}, nil
@@ -133,10 +134,10 @@ func Decode(tokenString string) (*DecodedToken, error) {
 // ValidateWithSecret verifies a JWT using an HMAC secret.
 func ValidateWithSecret(tokenString, secret string) (*DecodedToken, error) {
 	if tokenString == "" {
-		return nil, fmt.Errorf("token string is required")
+		return nil, errors.New("token string is required")
 	}
 	if secret == "" {
-		return nil, fmt.Errorf("secret is required for HMAC validation")
+		return nil, errors.New("secret is required for HMAC validation")
 	}
 
 	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (any, error) {
@@ -191,7 +192,7 @@ func signingMethod(algorithm string) (jwt.SigningMethod, error) {
 
 func signingKey(cfg GenerateConfig) (any, error) {
 	if cfg.Secret != "" && cfg.KeyFile != "" {
-		return nil, fmt.Errorf("cannot specify both --secret and --key-file")
+		return nil, errors.New("cannot specify both --secret and --key-file")
 	}
 
 	switch {
@@ -205,7 +206,7 @@ func signingKey(cfg GenerateConfig) (any, error) {
 	case cfg.KeyFile != "":
 		return loadPrivateKey(cfg.KeyFile)
 	default:
-		return nil, fmt.Errorf("either --secret or --key-file is required")
+		return nil, errors.New("either --secret or --key-file is required")
 	}
 }
 
@@ -234,7 +235,7 @@ func loadPrivateKey(path string) (crypto.PrivateKey, error) {
 		return rsaKey, nil
 	}
 
-	return nil, fmt.Errorf("unsupported key format in %s (pkcs8: %v, ec: %v, pkcs1: %v)", path, pkcs8Err, ecErr, rsaErr)
+	return nil, fmt.Errorf("unsupported key format in %s (pkcs8: %w, ec: %w, pkcs1: %w)", path, pkcs8Err, ecErr, rsaErr)
 }
 
 func mapFromClaims(claims jwt.MapClaims) map[string]any {
@@ -256,5 +257,5 @@ func mapFromClaims(claims jwt.MapClaims) map[string]any {
 var (
 	_ crypto.PrivateKey = (*ecdsa.PrivateKey)(nil)
 	_ crypto.PrivateKey = (*rsa.PrivateKey)(nil)
-	_ crypto.PrivateKey = (ed25519.PrivateKey)(nil)
+	_ crypto.PrivateKey = ed25519.PrivateKey(nil)
 )

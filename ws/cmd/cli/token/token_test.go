@@ -6,6 +6,8 @@ import (
 )
 
 func TestGenerateAndDecodeHMAC(t *testing.T) {
+	t.Parallel()
+
 	secret := "test-secret-minimum-32-bytes!!!!"
 
 	tests := []struct {
@@ -45,6 +47,8 @@ func TestGenerateAndDecodeHMAC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			tokenStr, err := Generate(tt.cfg)
 			if err != nil {
 				t.Fatalf("Generate: %v", err)
@@ -86,6 +90,8 @@ func TestGenerateAndDecodeHMAC(t *testing.T) {
 }
 
 func TestDecodeExpiredToken(t *testing.T) {
+	t.Parallel()
+
 	tokenStr, err := Generate(GenerateConfig{
 		Subject: "user",
 		Secret:  "test-secret-minimum-32-bytes!!!!",
@@ -109,6 +115,8 @@ func TestDecodeExpiredToken(t *testing.T) {
 }
 
 func TestValidateWithSecretWrongSecret(t *testing.T) {
+	t.Parallel()
+
 	tokenStr, err := Generate(GenerateConfig{
 		Subject: "user",
 		Secret:  "correct-secret-minimum-32-bytes!",
@@ -129,6 +137,8 @@ func TestValidateWithSecretWrongSecret(t *testing.T) {
 }
 
 func TestGenerateNoSecret(t *testing.T) {
+	t.Parallel()
+
 	_, err := Generate(GenerateConfig{
 		Subject: "user",
 	})
@@ -138,6 +148,8 @@ func TestGenerateNoSecret(t *testing.T) {
 }
 
 func TestGenerateUnsupportedAlgorithm(t *testing.T) {
+	t.Parallel()
+
 	_, err := Generate(GenerateConfig{
 		Subject:   "user",
 		Secret:    "test-secret",

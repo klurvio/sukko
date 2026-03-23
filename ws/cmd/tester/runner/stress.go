@@ -67,9 +67,14 @@ func runStress(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metri
 		Metrics:  run.Collector.Snapshot(),
 		Checks: []metrics.CheckResult{
 			{
-				Name:   "max connections reached",
-				Status: func() string { if pool.Active() >= int64(maxConnections) { return "pass" }; return "fail" }(),
-				Error:  fmt.Sprintf("reached %d/%d", pool.Active(), maxConnections),
+				Name: "max connections reached",
+				Status: func() string {
+					if pool.Active() >= int64(maxConnections) {
+						return "pass"
+					}
+					return "fail"
+				}(),
+				Error: fmt.Sprintf("reached %d/%d", pool.Active(), maxConnections),
 			},
 		},
 	}, nil

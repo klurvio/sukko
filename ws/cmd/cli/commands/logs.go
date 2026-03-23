@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/klurvio/sukko/cmd/cli/compose"
@@ -28,7 +29,7 @@ to filter (e.g., 'sukko logs ws-gateway ws-server').`,
 		}
 
 		if !mgr.IsRunning(cmd.Context()) {
-			return fmt.Errorf("logs only available for local Docker Compose environments (no compose project running)")
+			return errors.New("logs only available for local Docker Compose environments (no compose project running)")
 		}
 
 		return mgr.Logs(cmd.Context(), args, logsFollow)

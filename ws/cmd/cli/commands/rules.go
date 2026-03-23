@@ -2,6 +2,7 @@ package commands
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -53,7 +54,7 @@ var routingGetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID := resolveTenantFromCmd(cmd)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 
 		c, err := newClient()
@@ -74,7 +75,7 @@ var routingSetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID := resolveTenantFromCmd(cmd)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 
 		rulesFile, _ := cmd.Flags().GetString("file")
@@ -106,7 +107,7 @@ var routingDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID := resolveTenantFromCmd(cmd)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 
 		c, err := newClient()
@@ -134,7 +135,7 @@ var channelsGetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID := resolveTenantFromCmd(cmd)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 
 		c, err := newClient()
@@ -155,7 +156,7 @@ var channelsSetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID := resolveTenantFromCmd(cmd)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 
 		var req map[string]any
@@ -163,7 +164,7 @@ var channelsSetCmd = &cobra.Command{
 		publicPatterns, _ := cmd.Flags().GetStringSlice("public")
 
 		if rulesFile != "" && len(publicPatterns) > 0 {
-			return fmt.Errorf("--file and --public are mutually exclusive")
+			return errors.New("--file and --public are mutually exclusive")
 		}
 
 		if rulesFile != "" {
@@ -179,7 +180,7 @@ var channelsSetCmd = &cobra.Command{
 				"public_patterns": publicPatterns,
 			}
 		} else {
-			return fmt.Errorf("either --file or --public is required")
+			return errors.New("either --file or --public is required")
 		}
 
 		c, err := newClient()
@@ -200,7 +201,7 @@ var channelsDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID := resolveTenantFromCmd(cmd)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 
 		c, err := newClient()
@@ -223,7 +224,7 @@ var rulesTestAccessCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		tenantID := resolveTenantFromCmd(cmd)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+			return errors.New("tenant ID required (use --tenant or set active tenant in context)")
 		}
 
 		sub, _ := cmd.Flags().GetString("sub")

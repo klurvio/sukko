@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -83,7 +84,7 @@ var tenantGetCmd = &cobra.Command{
 		}
 		tenantID = resolveTenant(tenantID)
 		if tenantID == "" {
-			return fmt.Errorf("tenant ID required (provide as argument or set active tenant in context)")
+			return errors.New("tenant ID required (provide as argument or set active tenant in context)")
 		}
 
 		c, err := newClient()

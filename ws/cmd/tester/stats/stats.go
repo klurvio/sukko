@@ -13,12 +13,14 @@ type Histogram struct {
 	samples []float64 // milliseconds
 }
 
+// NewHistogram creates a Histogram with pre-allocated sample storage.
 func NewHistogram() *Histogram {
 	return &Histogram{
 		samples: make([]float64, 0, 1024),
 	}
 }
 
+// Record adds a latency sample to the histogram.
 func (h *Histogram) Record(d time.Duration) {
 	h.mu.Lock()
 	h.samples = append(h.samples, float64(d.Microseconds())/1000.0) // ms
@@ -37,6 +39,7 @@ type Snapshot struct {
 	P999  float64 `json:"p999_ms"`
 }
 
+// Snapshot computes and returns a statistical summary of all recorded samples.
 func (h *Histogram) Snapshot() Snapshot {
 	h.mu.RLock()
 	copied := make([]float64, len(h.samples))
@@ -67,6 +70,7 @@ func (h *Histogram) Snapshot() Snapshot {
 	}
 }
 
+// Reset clears all recorded samples.
 func (h *Histogram) Reset() {
 	h.mu.Lock()
 	h.samples = h.samples[:0]

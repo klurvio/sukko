@@ -13,8 +13,8 @@ const (
 	configDirName    = "sukko"
 	contextsDirName  = "contexts"
 	activeFileName   = "active-context"
-	contextFilePerms = 0600
-	contextDirPerms  = 0700
+	contextFilePerms = 0o600
+	contextDirPerms  = 0o700
 )
 
 // ErrContextNotFound is returned when a named context does not exist.
@@ -26,7 +26,7 @@ var ErrNoActiveContext = errors.New("no active context")
 // validateContextName rejects names that could escape the contexts directory.
 func validateContextName(name string) error {
 	if name == "" {
-		return fmt.Errorf("context name is required")
+		return errors.New("context name is required")
 	}
 	if strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "..") {
 		return fmt.Errorf("invalid context name %q: must not contain path separators or '..'", name)
@@ -93,7 +93,7 @@ func (s *Store) Get(name string) (*Context, error) {
 	}
 
 	path := s.contextPath(name)
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path constructed from validated context name + fixed directory
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("%w: %s", ErrContextNotFound, name)
@@ -155,7 +155,7 @@ func (s *Store) Remove(name string) error {
 	// Best-effort: clear active context pointer if it referenced the removed context.
 	active, err := s.ActiveName()
 	if err == nil && active == name {
-		_ = os.Remove(s.activePath()) //nolint:errcheck // best-effort cleanup of active pointer
+		_ = os.Remove(s.activePath())
 	}
 
 	return nil

@@ -13,6 +13,8 @@ import (
 )
 
 func TestDial_EmptyURL(t *testing.T) {
+	t.Parallel()
+
 	_, err := Dial(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected error for empty URL")
@@ -20,6 +22,8 @@ func TestDial_EmptyURL(t *testing.T) {
 }
 
 func TestDial_InvalidURL(t *testing.T) {
+	t.Parallel()
+
 	_, err := Dial(context.Background(), "not-a-url")
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
@@ -27,16 +31,20 @@ func TestDial_InvalidURL(t *testing.T) {
 }
 
 func TestDial_ContextCancelled(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	_, err := Dial(ctx, "ws://localhost:59999")
 	if err == nil {
-		t.Fatal("expected error for cancelled context")
+		t.Fatal("expected error for canceled context")
 	}
 }
 
 func TestWSClient_CloseIdempotent(t *testing.T) {
+	t.Parallel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := ws.HTTPUpgrader{}
 		conn, _, _, err := upgrader.Upgrade(r, w)
@@ -68,6 +76,8 @@ func TestWSClient_CloseIdempotent(t *testing.T) {
 }
 
 func TestWSClient_SubscribeAndRead(t *testing.T) {
+	t.Parallel()
+
 	serverMsg := ServerMessage{
 		Type:    "message",
 		Channel: "test.channel",
@@ -117,6 +127,8 @@ func TestWSClient_SubscribeAndRead(t *testing.T) {
 }
 
 func TestWSClient_Publish(t *testing.T) {
+	t.Parallel()
+
 	receivedCh := make(chan map[string]any, 1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +171,8 @@ func TestWSClient_Publish(t *testing.T) {
 }
 
 func TestWSClient_SendAuth(t *testing.T) {
+	t.Parallel()
+
 	receivedCh := make(chan map[string]any, 1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +215,8 @@ func TestWSClient_SendAuth(t *testing.T) {
 }
 
 func TestWSClient_Unsubscribe(t *testing.T) {
+	t.Parallel()
+
 	receivedCh := make(chan map[string]any, 1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -243,6 +259,8 @@ func TestWSClient_Unsubscribe(t *testing.T) {
 }
 
 func TestWithToken(t *testing.T) {
+	t.Parallel()
+
 	headerCh := make(chan string, 1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -274,6 +292,8 @@ func TestWithToken(t *testing.T) {
 }
 
 func TestWithAPIKey(t *testing.T) {
+	t.Parallel()
+
 	headerCh := make(chan string, 1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -14,6 +14,8 @@ import (
 )
 
 func TestNew_UnsupportedMode(t *testing.T) {
+	t.Parallel()
+
 	_, err := New(context.Background(), Config{
 		Mode:   "invalid",
 		Logger: zerolog.Nop(),
@@ -24,6 +26,8 @@ func TestNew_UnsupportedMode(t *testing.T) {
 }
 
 func TestNew_DirectMode_InvalidURL(t *testing.T) {
+	t.Parallel()
+
 	_, err := New(context.Background(), Config{
 		Mode:       ModeDirect,
 		GatewayURL: "not-a-url",
@@ -35,6 +39,8 @@ func TestNew_DirectMode_InvalidURL(t *testing.T) {
 }
 
 func TestNew_DirectMode_ContextCancelled(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -44,11 +50,13 @@ func TestNew_DirectMode_ContextCancelled(t *testing.T) {
 		Logger:     zerolog.Nop(),
 	})
 	if err == nil {
-		t.Fatal("expected error for cancelled context")
+		t.Fatal("expected error for canceled context")
 	}
 }
 
 func TestPublisher_CloseIdempotent(t *testing.T) {
+	t.Parallel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := ws.HTTPUpgrader{}
 		conn, _, _, err := upgrader.Upgrade(r, w)
@@ -83,6 +91,8 @@ func TestPublisher_CloseIdempotent(t *testing.T) {
 }
 
 func TestPublisher_PublishAfterClose(t *testing.T) {
+	t.Parallel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := ws.HTTPUpgrader{}
 		conn, _, _, err := upgrader.Upgrade(r, w)
@@ -116,6 +126,8 @@ func TestPublisher_PublishAfterClose(t *testing.T) {
 }
 
 func TestPublisher_Publish_Direct(t *testing.T) {
+	t.Parallel()
+
 	receivedCh := make(chan map[string]any, 1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -163,6 +175,8 @@ func TestPublisher_Publish_Direct(t *testing.T) {
 }
 
 func TestNew_KafkaMode(t *testing.T) {
+	t.Parallel()
+
 	pub, err := New(context.Background(), Config{
 		Mode:         ModeKafka,
 		KafkaBrokers: "localhost:9092",

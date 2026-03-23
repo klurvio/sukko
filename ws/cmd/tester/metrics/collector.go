@@ -22,6 +22,7 @@ type Collector struct {
 	startTime         time.Time
 }
 
+// NewCollector creates a Collector with zeroed counters and a fresh start time.
 func NewCollector() *Collector {
 	return &Collector{
 		Latency:   stats.NewHistogram(),
@@ -29,8 +30,8 @@ func NewCollector() *Collector {
 	}
 }
 
-// MetricsSnapshot is a serializable snapshot of current metrics.
-type MetricsSnapshot struct {
+// Snapshot is a serializable snapshot of current metrics.
+type Snapshot struct {
 	Timestamp         time.Time      `json:"timestamp"`
 	Elapsed           string         `json:"elapsed"`
 	ConnectionsActive int64          `json:"connections_active"`
@@ -43,12 +44,13 @@ type MetricsSnapshot struct {
 	Latency           stats.Snapshot `json:"latency"`
 }
 
-func (c *Collector) Snapshot() MetricsSnapshot {
+// Snapshot returns a point-in-time copy of all collected metrics.
+func (c *Collector) Snapshot() Snapshot {
 	c.mu.RLock()
 	elapsed := time.Since(c.startTime).Round(time.Second).String()
 	c.mu.RUnlock()
 
-	return MetricsSnapshot{
+	return Snapshot{
 		Timestamp:         time.Now(),
 		Elapsed:           elapsed,
 		ConnectionsActive: c.ConnectionsActive.Load(),
@@ -62,6 +64,7 @@ func (c *Collector) Snapshot() MetricsSnapshot {
 	}
 }
 
+// Reset zeroes all counters and restarts the elapsed timer.
 func (c *Collector) Reset() {
 	c.ConnectionsActive.Store(0)
 	c.ConnectionsFailed.Store(0)

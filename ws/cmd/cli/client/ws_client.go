@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -49,7 +50,7 @@ func WithAPIKey(apiKey string) DialOption {
 // Dial connects to the gateway WebSocket endpoint.
 func Dial(ctx context.Context, gatewayURL string, opts ...DialOption) (*WSClient, error) {
 	if gatewayURL == "" {
-		return nil, fmt.Errorf("dial: gateway URL is required")
+		return nil, errors.New("dial: gateway URL is required")
 	}
 
 	cfg := &dialConfig{}
