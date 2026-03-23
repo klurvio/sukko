@@ -74,8 +74,8 @@ func Connect(ctx context.Context, cfg ConnectConfig) (*Client, error) {
 	}
 
 	c := &Client{
-		conn: conn,
-		rw:   rw,
+		conn:   conn,
+		rw:     rw,
 		logger: cfg.Logger,
 		onMsg:  cfg.OnMessage,
 	}
