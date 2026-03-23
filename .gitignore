@@ -1,6 +1,7 @@
 # Go binaries
-src/sukko-server
-src/server
+ws/gateway
+ws/server
+ws/provisioning
 
 # Go build artifacts
 *.exe
@@ -55,9 +56,6 @@ sessions
 
 bin
 
-deployments/v1/gcp/.env.gcp
-old_ws/
-
 # Terraform
 .terraform/
 *.tfstate
@@ -65,14 +63,11 @@ old_ws/
 tfplan
 *.tfplan
 
-# Go binaries (publisher)
-publisher-go/publisher-go
-
 # wsloadtest config (contains environment-specific values)
 deployments/wsloadtest/config.env
 
 # Project docs (local only)
-docs
+./docs
 handoffs
 sessions
 specs
