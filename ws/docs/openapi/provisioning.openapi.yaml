@@ -1,0 +1,1201 @@
+openapi: 3.1.0
+
+info:
+  title: Sukko Provisioning API
+  version: 1.0.0
+  description: |
+    REST API for managing tenants, JWT signing keys, API keys, routing rules,
+    channel rules, and quotas in the Sukko multi-tenant WebSocket platform.
+
+    ## Authentication
+
+    All `/api/v1/` endpoints require authentication via one of:
+    - **Admin token**: `Authorization: Bearer {admin_token}` — checked first, bypasses JWT
+    - **JWT**: `Authorization: Bearer {jwt}` — validated against per-tenant asymmetric keys
+
+    Health, readiness, version, and metrics endpoints require no authentication.
+
+    ## Authorization
+
+    Role-based access control with tenant isolation:
+    - **admin/system**: Full access to all tenants and operations
+    - **tenant owner**: Access to own tenant's resources only (JWT `tenant_id` must match)
+
+    Operations like creating tenants, suspending, and modifying routing rules require `admin` or `system` role.
+
+    ## Pagination
+
+    All list endpoints support `?limit=N&offset=M` with defaults `limit=50, offset=0` (max limit=100).
+    Responses include `{ items, total, limit, offset }`.
+
+    ## Error Format
+
+    All errors return: `{"code": "UPPER_SNAKE_CASE", "message": "human-readable"}`.
+  contact:
+    name: Sukko Platform Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: http://{host}:{port}
+    description: Provisioning service (internal, not publicly exposed)
+    variables:
+      host:
+        default: localhost
+        description: Provisioning service hostname
+      port:
+        default: "8080"
+        description: Provisioning service port
+
+paths:
+  /api/v1/tenants:
+    post:
+      operationId: createTenant
+      summary: Create a new tenant
+      description: Creates a tenant with optional initial JWT signing key. Requires admin or system role.
+      tags: [Tenants]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantRequest"
+      responses:
+        "201":
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateTenantResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Tenant already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    get:
+      operationId: listTenants
+      summary: List all tenants
+      description: Returns paginated list of tenants. Requires admin or system role.
+      tags: [Tenants]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, suspended, deprovisioning, deleted]
+          description: Filter by tenant status
+      responses:
+        "200":
+          description: Paginated tenant list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedTenants"
+
+  /api/v1/tenants/{tenantID}:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+
+    get:
+      operationId: getTenant
+      summary: Get tenant details
+      tags: [Tenants]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Tenant details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    patch:
+      operationId: updateTenant
+      summary: Update tenant
+      description: Partial update — only provided fields are changed.
+      tags: [Tenants]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTenantRequest"
+      responses:
+        "200":
+          description: Tenant updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      operationId: deprovisionTenant
+      summary: Deprovision tenant
+      description: Marks tenant for deletion. Requires admin or system role.
+      tags: [Tenants]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Tenant deprovisioning started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: deprovisioning
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/tenants/{tenantID}/suspend:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+    post:
+      operationId: suspendTenant
+      summary: Suspend tenant
+      description: Suspends an active tenant. Requires admin or system role.
+      tags: [Tenants]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Tenant suspended
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: suspended
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Tenant not in active state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/tenants/{tenantID}/reactivate:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+    post:
+      operationId: reactivateTenant
+      summary: Reactivate tenant
+      description: Reactivates a suspended tenant. Requires admin or system role.
+      tags: [Tenants]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Tenant reactivated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: active
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Tenant not in suspended state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/tenants/{tenantID}/keys:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+
+    post:
+      operationId: createKey
+      summary: Create JWT signing key
+      description: Registers a public key for JWT signature verification. The gateway uses this to validate JWTs from this tenant's clients.
+      tags: [JWT Keys]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKeyRequest"
+      responses:
+        "201":
+          description: Key created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantKey"
+        "400":
+          description: Validation error (invalid PEM, unsupported algorithm)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    get:
+      operationId: listKeys
+      summary: List JWT signing keys
+      tags: [JWT Keys]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated key list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedKeys"
+
+  /api/v1/tenants/{tenantID}/keys/{keyID}:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/keyID"
+
+    delete:
+      operationId: revokeKey
+      summary: Revoke JWT signing key
+      description: Revokes a key. JWTs signed with this key will be rejected.
+      tags: [JWT Keys]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Key revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: revoked
+        "404":
+          description: Key not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/tenants/{tenantID}/api-keys:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+
+    post:
+      operationId: createAPIKey
+      summary: Create API key
+      description: |
+        Creates an API key for WebSocket connections. The key is returned once on creation — store it securely.
+        API keys grant public-channel-only access (no publish). Clients can escalate to full JWT access mid-connection.
+      tags: [API Keys]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAPIKeyRequest"
+      responses:
+        "201":
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKey"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    get:
+      operationId: listAPIKeys
+      summary: List API keys
+      tags: [API Keys]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated API key list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAPIKeys"
+
+  /api/v1/tenants/{tenantID}/api-keys/{keyID}:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/keyID"
+
+    delete:
+      operationId: revokeAPIKey
+      summary: Revoke API key
+      description: Revokes an API key. Existing WebSocket connections using this key are not disconnected but new connections will be rejected.
+      tags: [API Keys]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: API key revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: revoked
+        "404":
+          description: API key not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/tenants/{tenantID}/routing-rules:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+
+    get:
+      operationId: getRoutingRules
+      summary: Get routing rules
+      description: Returns channel-to-Kafka-topic routing rules for the tenant.
+      tags: [Routing Rules]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Routing rules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingRulesResponse"
+        "404":
+          description: No routing rules configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    put:
+      operationId: setRoutingRules
+      summary: Set routing rules
+      description: |
+        Replaces all routing rules for the tenant. Requires admin or system role.
+
+        Rules are evaluated in order — **first match wins**. When a client publishes to a channel, the gateway strips the tenant prefix and matches the remaining suffix against each rule's pattern sequentially. The first matching rule determines the Kafka topic.
+
+        **Constraints**: Max 100 rules. No duplicate patterns (duplicates are unreachable due to first-match-wins). Patterns use `*` wildcard syntax only (no `{}` placeholders).
+      tags: [Routing Rules]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRoutingRulesRequest"
+      responses:
+        "200":
+          description: Rules set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingRulesResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      operationId: deleteRoutingRules
+      summary: Delete routing rules
+      description: Removes all routing rules for the tenant. Requires admin or system role.
+      tags: [Routing Rules]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Rules deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: deleted
+        "404":
+          description: No rules configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/tenants/{tenantID}/channel-rules:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+
+    get:
+      operationId: getChannelRules
+      summary: Get channel rules
+      description: Returns channel access control rules for the tenant.
+      tags: [Channel Rules]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Channel rules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantChannelRules"
+        "404":
+          description: No channel rules configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    put:
+      operationId: setChannelRules
+      summary: Set channel rules
+      description: |
+        Replaces channel access control rules for the tenant. Requires admin or system role.
+        Patterns support wildcards (`*`) and placeholders (`{subject}`, `{group_id}`).
+      tags: [Channel Rules]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetChannelRulesRequest"
+      responses:
+        "200":
+          description: Rules set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantChannelRules"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      operationId: deleteChannelRules
+      summary: Delete channel rules
+      description: Removes channel rules for the tenant. Falls back to global patterns. Requires admin or system role.
+      tags: [Channel Rules]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Rules deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: deleted
+        "404":
+          description: No rules configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/tenants/{tenantID}/quotas:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+
+    get:
+      operationId: getQuota
+      summary: Get tenant quotas
+      tags: [Quotas]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Tenant quotas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantQuota"
+
+    patch:
+      operationId: updateQuota
+      summary: Update tenant quotas
+      description: Partial update — only provided fields are changed. Requires admin or system role.
+      tags: [Quotas]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateQuotaRequest"
+      responses:
+        "200":
+          description: Quotas updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantQuota"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/tenants/{tenantID}/audit:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+
+    get:
+      operationId: getAuditLog
+      summary: Get audit log
+      description: Returns paginated audit trail for the tenant.
+      tags: [Audit]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAuditEntries"
+
+  /api/v1/tenants/{tenantID}/test-access:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+
+    post:
+      operationId: testAccess
+      summary: Test channel access
+      description: Computes which channel patterns would be allowed for given groups. Useful for debugging access rules.
+      tags: [Channel Rules]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                groups:
+                  type: array
+                  items:
+                    type: string
+                  description: JWT groups to test access for
+              required:
+                - groups
+      responses:
+        "200":
+          description: Allowed patterns
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  allowed_patterns:
+                    type: array
+                    items:
+                      type: string
+
+  /api/v1/keys/active:
+    get:
+      operationId: getActiveKeys
+      summary: Get all active JWT keys
+      description: Returns all active, non-expired, non-revoked JWT signing keys across all tenants. Used by the gateway for token validation. Requires system or admin role.
+      tags: [JWT Keys]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Active keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantKey"
+
+  /api/v1/api-keys/active:
+    get:
+      operationId: getActiveAPIKeys
+      summary: Get all active API keys
+      description: Returns all active API keys across all tenants. Used by the gateway for API key validation. Requires system or admin role.
+      tags: [API Keys]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Active API keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/APIKey"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Admin token or JWT. Admin token is checked first; if it doesn't match, JWT validation is used.
+
+  parameters:
+    tenantID:
+      name: tenantID
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Tenant identifier (3-63 chars, lowercase alphanumeric + hyphens)
+
+    keyID:
+      name: keyID
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Key identifier
+
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 50
+        minimum: 1
+        maximum: 100
+      description: Number of items to return
+
+    offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
+      description: Number of items to skip
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code (UPPER_SNAKE_CASE)
+          examples: ["TENANT_NOT_FOUND"]
+        message:
+          type: string
+          description: Human-readable error message
+          examples: ["tenant not found"]
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, suspended, deprovisioning, deleted]
+        consumer_type:
+          type: string
+          enum: [shared, dedicated]
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        suspended_at:
+          type: ["string", "null"]
+          format: date-time
+        deprovision_at:
+          type: ["string", "null"]
+          format: date-time
+        deleted_at:
+          type: ["string", "null"]
+          format: date-time
+
+    CreateTenantRequest:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          minLength: 3
+          maxLength: 63
+          pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+          description: Tenant ID (lowercase alphanumeric + hyphens)
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        consumer_type:
+          type: string
+          enum: [shared, dedicated]
+          default: shared
+          description: Kafka consumer type — shared (pool) or dedicated (per-tenant consumer)
+        metadata:
+          type: object
+          additionalProperties: true
+        public_key:
+          $ref: "#/components/schemas/CreateKeyRequest"
+
+    CreateTenantResponse:
+      type: object
+      properties:
+        tenant:
+          $ref: "#/components/schemas/Tenant"
+        key:
+          $ref: "#/components/schemas/TenantKey"
+          description: Only present if public_key was provided in the request
+
+    UpdateTenantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        consumer_type:
+          type: string
+          enum: [shared, dedicated]
+        metadata:
+          type: object
+          additionalProperties: true
+
+    PaginatedTenants:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tenant"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    TenantKey:
+      type: object
+      properties:
+        key_id:
+          type: string
+        tenant_id:
+          type: string
+        algorithm:
+          type: string
+          enum: [ES256, RS256, EdDSA]
+        public_key:
+          type: string
+          description: PEM-encoded public key
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: ["string", "null"]
+          format: date-time
+        revoked_at:
+          type: ["string", "null"]
+          format: date-time
+
+    CreateKeyRequest:
+      type: object
+      required: [key_id, algorithm, public_key]
+      properties:
+        key_id:
+          type: string
+          minLength: 3
+          maxLength: 63
+          description: Unique key identifier
+        algorithm:
+          type: string
+          enum: [ES256, RS256, EdDSA]
+          description: Signing algorithm
+        public_key:
+          type: string
+          minLength: 50
+          description: PEM-encoded public key
+        expires_at:
+          type: string
+          format: date-time
+          description: Optional key expiration
+
+    PaginatedKeys:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantKey"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    APIKey:
+      type: object
+      properties:
+        key_id:
+          type: string
+          description: "API key value (pk_live_ prefix + random). Only returned in full on creation."
+        tenant_id:
+          type: string
+        name:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: ["string", "null"]
+          format: date-time
+
+    CreateAPIKeyRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Human-readable label for the API key
+
+    PaginatedAPIKeys:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/APIKey"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    RoutingRule:
+      type: object
+      required: [pattern, topic_suffix]
+      description: |
+        Maps a channel suffix pattern to a Kafka topic suffix. Rules are evaluated in order — first match wins. If no rule matches a published channel, the publish is rejected.
+
+        **Pattern syntax**: Supports `*` wildcard which matches any sequence of characters including dots. For example, `rooms.*.messages` matches both `rooms.general.messages` and `rooms.eng.general.messages`. The `{}` placeholder syntax is NOT supported in routing patterns.
+
+        **Topic suffix**: A literal string (no wildcards). The final Kafka topic is constructed as `{tenant_id}.{topic_suffix}`.
+      properties:
+        pattern:
+          type: string
+          maxLength: 256
+          pattern: "^[a-zA-Z0-9.*_-]{1,256}$"
+          description: "Channel suffix pattern with `*` wildcards (e.g., `*.messages`, `rooms.*.presence`). No `{}` placeholders."
+          examples: ["*.messages", "rooms.*.presence", "*.typing"]
+        topic_suffix:
+          type: string
+          maxLength: 128
+          pattern: "^[a-zA-Z0-9._-]{1,128}$"
+          description: "Literal Kafka topic suffix — no wildcards (e.g., `messages`, `rooms.presence`)"
+          examples: ["messages", "rooms.presence", "typing"]
+
+    RoutingRulesResponse:
+      type: object
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutingRule"
+
+    SetRoutingRulesRequest:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/RoutingRule"
+
+    TenantChannelRules:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        rules:
+          $ref: "#/components/schemas/ChannelRules"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ChannelRules:
+      type: object
+      properties:
+        public:
+          type: array
+          items:
+            type: string
+          description: "Channel patterns accessible to all authenticated users (e.g., '*.messages')"
+        group_mappings:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: "Group name → channel patterns mapping"
+        default:
+          type: array
+          items:
+            type: string
+          description: Fallback channel patterns when no group matches
+        publish_public:
+          type: array
+          items:
+            type: string
+          description: Channel patterns anyone can publish to
+        publish_group_mappings:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: "Group name → publish channel patterns"
+        publish_default:
+          type: array
+          items:
+            type: string
+          description: Fallback publish channel patterns
+
+    SetChannelRulesRequest:
+      type: object
+      properties:
+        public:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            maxLength: 256
+        group_mappings:
+          type: object
+          additionalProperties:
+            type: array
+            maxItems: 20
+            items:
+              type: string
+              maxLength: 256
+        default:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            maxLength: 256
+        publish_public:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            maxLength: 256
+        publish_group_mappings:
+          type: object
+          additionalProperties:
+            type: array
+            maxItems: 20
+            items:
+              type: string
+              maxLength: 256
+        publish_default:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            maxLength: 256
+
+    TenantQuota:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        max_topics:
+          type: integer
+        max_partitions:
+          type: integer
+        max_storage_bytes:
+          type: integer
+          format: int64
+        producer_byte_rate:
+          type: integer
+          format: int64
+          description: Max producer throughput in bytes/sec
+        consumer_byte_rate:
+          type: integer
+          format: int64
+          description: Max consumer throughput in bytes/sec
+        max_connections:
+          type: integer
+          description: Max WebSocket connections (0 = system default)
+        updated_at:
+          type: string
+          format: date-time
+
+    UpdateQuotaRequest:
+      type: object
+      properties:
+        max_topics:
+          type: integer
+        max_partitions:
+          type: integer
+        max_storage_bytes:
+          type: integer
+          format: int64
+        producer_byte_rate:
+          type: integer
+          format: int64
+        consumer_byte_rate:
+          type: integer
+          format: int64
+        max_connections:
+          type: integer
+
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        tenant_id:
+          type: string
+        action:
+          type: string
+          description: "Action performed (e.g., 'create_tenant', 'revoke_key', 'set_routing_rules')"
+        actor:
+          type: string
+          description: Principal or user ID that performed the action
+        actor_type:
+          type: string
+          enum: [user, system, api_key]
+        ip_address:
+          type: ["string", "null"]
+        details:
+          type: object
+          additionalProperties: true
+          description: Action-specific metadata
+        created_at:
+          type: string
+          format: date-time
+
+    PaginatedAuditEntries:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer

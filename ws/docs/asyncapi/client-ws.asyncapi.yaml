@@ -2,21 +2,27 @@ asyncapi: 3.0.0
 
 info:
   title: Sukko WebSocket Client API
-  version: 1.0.0
+  version: 1.1.0
   description: |
-    Real-time WebSocket API for subscribing to market data and publishing events.
+    Real-time WebSocket API for subscribing to chat events and publishing messages.
 
     ## Connection
 
-    Connect via WebSocket:
-    - **Authenticated**: `wss://{host}/ws?token={jwt}` or `wss://{host}/ws` with `Authorization: Bearer {jwt}` header
-    - **Unauthenticated** (auth disabled): `wss://{host}/ws` — all connections routed to the default tenant
+    Connect via WebSocket at `wss://{host}/ws` with one of these credential modes:
 
-    The query parameter `token` takes precedence over the `Authorization` header when both are provided.
+    | Mode | Credentials | Access Level |
+    |------|-------------|--------------|
+    | **JWT only** | `?token={jwt}` or `Authorization: Bearer {jwt}` | Full access per JWT claims |
+    | **API key only** | `?api_key={key}` or `X-API-Key: {key}` | Public channels only, no publish |
+    | **JWT + API key** | Both (any combination) | Full JWT access; tenants must match |
+    | **None** (auth disabled) | None | All channels, routed to default tenant |
+    | **None** (auth enabled) | None | Rejected (HTTP 401) |
 
-    ## Health Check
+    Query parameters (`token`, `api_key`) take precedence over headers when both are provided.
 
-    A REST health endpoint is available at `GET /health`, returning `{"status":"ok","service":"ws-gateway"}`.
+    ### API Key Escalation
+
+    API-key-only connections can escalate to full JWT access mid-connection by sending an `auth` message with a valid JWT. On success, the connection gains full JWT permissions (user-scoped channels, group-scoped channels, publish access). The JWT's `tenant_id` must match the API key's tenant.
 
     ## Channel Format
 
@@ -24,7 +30,7 @@ info:
 
     - Minimum 3 dot-separated parts
     - The tenant prefix must match the authenticated tenant (JWT `tenant_id`) or the default tenant (when auth is disabled)
-    - Examples: `sukko.BTC.trade`, `sukko.ETH.orderbook`, `acme.balances.user123`
+    - Examples: `sukko.general.messages`, `sukko.support.typing`, `acme.inbox.user123`
 
     ## Connection Lifecycle
 
@@ -65,11 +71,41 @@ info:
 
     | Pattern Type | Config Key | Format | Example | Behavior |
     |--------------|-----------|--------|---------|----------|
-    | Public | `publicPatterns` | Wildcard glob | `*.trade` | Anyone can subscribe (matches `BTC.trade` from `sukko.BTC.trade`) |
-    | User-scoped | `userScopedPatterns` | `{principal}` placeholder | `balances.{principal}` | Only the JWT subject can subscribe (`sukko.balances.user123` requires `sub=user123`) |
-    | Group-scoped | `groupScopedPatterns` | `{group_id}` placeholder | `community.{group_id}` | Only group members can subscribe (matched against JWT `groups` claim) |
+    | Public | `publicPatterns` | Wildcard glob | `*.messages` | Anyone can subscribe (matches `general.messages` from `sukko.general.messages`) |
+    | User-scoped | `userScopedPatterns` | `{principal}` placeholder | `inbox.{principal}` | Only the JWT subject can subscribe (`sukko.inbox.user123` requires `sub=user123`) |
+    | Group-scoped | `groupScopedPatterns` | `{group_id}` placeholder | `rooms.{group_id}` | Only group members can subscribe (matched against JWT `groups` claim) |
 
     Channels not matching any pattern are denied.
+
+    ### Per-Tenant Channel Rules
+
+    When enabled (`GATEWAY_PER_TENANT_CHANNEL_RULES_ENABLED=true`), channel permission patterns can be configured per-tenant via the provisioning API. Per-tenant rules override global patterns from gateway config. If no per-tenant rules exist for a tenant, the gateway falls back to global patterns or configurable fallback public patterns (`GATEWAY_FALLBACK_PUBLIC_CHANNELS`).
+
+    **API-key-only connections** (no JWT) can only subscribe to public channels — user-scoped and group-scoped patterns require JWT claims.
+
+    ## Topic Mapping Rules
+
+    Published messages are routed to Kafka topics via **topic routing rules** configured per-tenant through the provisioning API. Each rule maps a channel suffix pattern to a literal Kafka topic suffix.
+
+    | Field | Description | Example |
+    |-------|-------------|---------|
+    | `pattern` | Channel suffix glob with `*` wildcards | `rooms.*.messages` |
+    | `topic_suffix` | Literal Kafka topic suffix (no wildcards) | `rooms.messages` |
+
+    **Evaluation**: Rules are evaluated in order — **first match wins**. If no rule matches, the publish is rejected.
+
+    **Wildcard syntax**: `*` matches any sequence of characters including dots. For example, `rooms.*.messages` matches both `rooms.general.messages` and `rooms.eng.general.messages`. The `{}` placeholder syntax is NOT supported in routing patterns (it is only used in channel permission patterns).
+
+    **Example rules**:
+    ```json
+    [
+      {"pattern": "*.messages", "topic_suffix": "messages"},
+      {"pattern": "*.typing", "topic_suffix": "typing"},
+      {"pattern": "rooms.*.presence", "topic_suffix": "rooms.presence"}
+    ]
+    ```
+
+    When a client publishes to `sukko.general.messages`, the gateway strips the tenant prefix (`general.messages`), matches against the first rule (`*.messages`), and routes to Kafka topic `sukko.messages` (tenant prefix + topic suffix).
 
     ## Rate Limits and Constraints
 
@@ -82,6 +118,8 @@ info:
     | Slow client max attempts | 3 | `WS_SLOW_CLIENT_MAX_ATTEMPTS` |
     | Reconnect replay limit | 100 messages | — |
     | Reconnect timeout | 5s | — |
+    | Auth refresh rate | 1 per 30s | `GATEWAY_AUTH_REFRESH_RATE_INTERVAL` |
+    | Auth validation timeout | 5s | `GATEWAY_AUTH_VALIDATION_TIMEOUT` |
     | Min channel parts | 3 | — |
 
     ## Internal Protocol Note
@@ -108,13 +146,15 @@ servers:
     security:
       - $ref: "#/components/securitySchemes/bearerToken"
       - $ref: "#/components/securitySchemes/queryToken"
+      - $ref: "#/components/securitySchemes/apiKey"
+      - $ref: "#/components/securitySchemes/apiKeyQuery"
 
 channels:
   clientSend:
     address: /ws
     description: >
       WebSocket endpoint for client-to-server messages.
-      Clients send subscribe, unsubscribe, publish, reconnect, and heartbeat messages.
+      Clients send subscribe, unsubscribe, publish, reconnect, heartbeat, and auth messages.
     messages:
       subscribe:
         $ref: "#/components/messages/subscribe"
@@ -126,6 +166,8 @@ channels:
         $ref: "#/components/messages/reconnect"
       heartbeat:
         $ref: "#/components/messages/heartbeat"
+      auth:
+        $ref: "#/components/messages/auth"
 
   clientReceive:
     address: /ws
@@ -155,6 +197,10 @@ channels:
         $ref: "#/components/messages/subscribeError"
       unsubscribeError:
         $ref: "#/components/messages/unsubscribeError"
+      authAck:
+        $ref: "#/components/messages/authAck"
+      authError:
+        $ref: "#/components/messages/authError"
 
 operations:
   sendSubscribe:
@@ -315,6 +361,50 @@ operations:
     messages:
       - $ref: "#/channels/clientReceive/messages/unsubscribeError"
 
+  sendAuth:
+    action: send
+    channel:
+      $ref: "#/channels/clientSend"
+    summary: Refresh JWT token or escalate from API-key-only
+    description: |
+      Send a new JWT token to:
+      1. **Refresh** an expiring JWT without disconnecting
+      2. **Escalate** an API-key-only connection to full JWT access
+
+      On success, the server responds with `auth_ack` containing the new expiry.
+      On failure, the server responds with `auth_error`.
+
+      Constraints:
+      - Rate limited to 1 auth refresh per 30 seconds (`GATEWAY_AUTH_REFRESH_RATE_INTERVAL`)
+      - JWT tenant must match the connection's tenant (cannot switch tenants mid-connection)
+      - If the connection has an API key, the JWT tenant must also match the API key's tenant
+      - On successful escalation, previously denied channels are NOT auto-subscribed — client must re-subscribe
+      - On refresh, channels no longer permitted under the new JWT are force-unsubscribed (client receives `unsubscription_ack`)
+    messages:
+      - $ref: "#/channels/clientSend/messages/auth"
+
+  receiveAuthAck:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive auth refresh/escalation acknowledgment
+    description: >
+      Confirms that the auth refresh or escalation was successful.
+      Contains the new token expiration timestamp.
+    messages:
+      - $ref: "#/channels/clientReceive/messages/authAck"
+
+  receiveAuthError:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive auth refresh/escalation error
+    description: >
+      Indicates that the auth refresh or escalation failed.
+      Error codes: invalid_token, token_expired, tenant_mismatch, rate_limited, not_available.
+    messages:
+      - $ref: "#/channels/clientReceive/messages/authError"
+
 components:
   securitySchemes:
     bearerToken:
@@ -326,7 +416,17 @@ components:
       type: httpApiKey
       in: query
       name: token
-      description: "?token={jwt} query parameter — takes precedence over header"
+      description: "?token={jwt} query parameter — takes precedence over Authorization header"
+    apiKey:
+      type: httpApiKey
+      in: header
+      name: X-API-Key
+      description: "X-API-Key header for API key authentication (public channels only, no publish)"
+    apiKeyQuery:
+      type: httpApiKey
+      in: query
+      name: api_key
+      description: "?api_key={key} query parameter — takes precedence over X-API-Key header"
 
   schemas:
     ClientMessage:
@@ -344,9 +444,80 @@ components:
             - publish
             - reconnect
             - heartbeat
+            - auth
         data:
           type: object
           description: Type-specific payload.
+
+    AuthData:
+      type: object
+      description: Payload for auth refresh/escalation messages.
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: JWT token for refresh or escalation from API-key-only to full JWT access.
+          examples:
+            - "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0..."
+
+    AuthAck:
+      type: object
+      description: Acknowledgment after a successful auth refresh or escalation.
+      required:
+        - type
+        - data
+      properties:
+        type:
+          type: string
+          const: auth_ack
+        data:
+          type: object
+          required:
+            - exp
+          properties:
+            exp:
+              type: integer
+              format: int64
+              description: New token expiration in Unix seconds. 0 if token has no expiry.
+      examples:
+        - type: auth_ack
+          data:
+            exp: 1706003600
+
+    AuthError:
+      type: object
+      description: Error response for a failed auth refresh or escalation.
+      required:
+        - type
+        - data
+      properties:
+        type:
+          type: string
+          const: auth_error
+        data:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code.
+              enum:
+                - invalid_token
+                - token_expired
+                - tenant_mismatch
+                - rate_limited
+                - not_available
+            message:
+              type: string
+              description: Human-readable error description.
+      examples:
+        - type: auth_error
+          data:
+            code: tenant_mismatch
+            message: "Token tenant does not match connection tenant"
 
     SubscribeData:
       type: object
@@ -360,7 +531,7 @@ components:
             type: string
           description: "Channels to subscribe to. Format: {tenant}.{identifier}.{category}"
           examples:
-            - ["sukko.BTC.trade", "sukko.ETH.orderbook"]
+            - ["sukko.general.messages", "sukko.support.typing"]
 
     UnsubscribeData:
       type: object
@@ -374,7 +545,7 @@ components:
             type: string
           description: "Channels to unsubscribe from. Format: {tenant}.{identifier}.{category}"
           examples:
-            - ["sukko.BTC.trade"]
+            - ["sukko.general.messages"]
 
     PublishData:
       type: object
@@ -387,12 +558,12 @@ components:
           type: string
           description: "Target channel. Format: {tenant}.{identifier}.{category}"
           examples:
-            - "sukko.BTC.trade"
+            - "sukko.general.messages"
         data:
           type: object
           description: Arbitrary JSON payload (max 64KB).
           examples:
-            - { "price": 50000, "volume": 1.5 }
+            - { "text": "Hello everyone!", "sender": "user123" }
 
     ReconnectData:
       type: object
@@ -413,7 +584,7 @@ components:
             format: int64
           description: Map of Kafka topic to last received offset.
           examples:
-            - { "local.sukko.trade": 12345 }
+            - { "local.sukko.messages": 12345 }
 
     MessageEnvelope:
       type: object
@@ -441,7 +612,7 @@ components:
           type: string
           description: "Channel this message was broadcast on. Format: {tenant}.{identifier}.{category}"
           examples:
-            - "sukko.BTC.trade"
+            - "sukko.general.messages"
         data:
           type: object
           description: Message payload (schema owned by the publishing service).
@@ -449,8 +620,8 @@ components:
         - type: message
           seq: 1234
           ts: 1706000000000
-          channel: "sukko.BTC.trade"
-          data: { "price": 50000, "volume": 1.5 }
+          channel: "sukko.general.messages"
+          data: { "text": "Hello everyone!", "sender": "user123" }
 
     SubscriptionAck:
       type: object
@@ -473,7 +644,7 @@ components:
           description: Total active subscription count for this connection.
       examples:
         - type: subscription_ack
-          subscribed: ["sukko.BTC.trade"]
+          subscribed: ["sukko.general.messages"]
           count: 5
 
     UnsubscriptionAck:
@@ -497,7 +668,7 @@ components:
           description: Total active subscription count for this connection.
       examples:
         - type: unsubscription_ack
-          unsubscribed: ["sukko.BTC.trade"]
+          unsubscribed: ["sukko.general.messages"]
           count: 4
 
     PublishAck:
@@ -520,7 +691,7 @@ components:
           description: Always "accepted" on success.
       examples:
         - type: publish_ack
-          channel: "sukko.BTC.trade"
+          channel: "sukko.general.messages"
           status: accepted
 
     PublishError:
@@ -724,8 +895,8 @@ components:
             type: subscribe
             data:
               channels:
-                - "sukko.BTC.trade"
-                - "sukko.ETH.orderbook"
+                - "sukko.general.messages"
+                - "sukko.support.typing"
 
     unsubscribe:
       name: unsubscribe
@@ -749,7 +920,7 @@ components:
             type: unsubscribe
             data:
               channels:
-                - "sukko.BTC.trade"
+                - "sukko.general.messages"
 
     publish:
       name: publish
@@ -772,10 +943,10 @@ components:
           payload:
             type: publish
             data:
-              channel: "sukko.BTC.trade"
+              channel: "sukko.general.messages"
               data:
-                price: 50000
-                volume: 1.5
+                text: "Hello everyone!"
+                sender: "user123"
 
     reconnect:
       name: reconnect
@@ -800,7 +971,7 @@ components:
             data:
               client_id: "abc123"
               last_offset:
-                "local.sukko.trade": 12345
+                "local.sukko.messages": 12345
 
     heartbeat:
       name: heartbeat
@@ -910,3 +1081,46 @@ components:
       contentType: application/json
       payload:
         $ref: "#/components/schemas/UnsubscribeError"
+
+    auth:
+      name: auth
+      title: Auth Refresh / Escalation
+      summary: Refresh JWT token or escalate from API-key-only to full JWT access.
+      description: >
+        Send a new JWT token to refresh credentials mid-connection without disconnecting.
+        API-key-only connections can send this to escalate to full JWT access (user-scoped channels, publish).
+        The JWT tenant must match the connection's tenant. Rate limited to 1 per 30 seconds.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+        properties:
+          type:
+            type: string
+            const: auth
+          data:
+            $ref: "#/components/schemas/AuthData"
+      examples:
+        - name: authRefreshExample
+          payload:
+            type: auth
+            data:
+              token: "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0..."
+
+    authAck:
+      name: authAck
+      title: Auth Acknowledgment
+      summary: Confirms auth refresh/escalation succeeded.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/AuthAck"
+
+    authError:
+      name: authError
+      title: Auth Error
+      summary: Indicates auth refresh/escalation failed.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/AuthError"
