@@ -65,8 +65,8 @@ bin
 tfplan
 *.tfplan
 
-# wsloadtest config (contains environment-specific values)
-deployments/wsloadtest/config.env
+# Deployment configs (contain environment-specific values)
+deployments/tester/do/config.env
 
 # Project docs (local only)
 ./docs
