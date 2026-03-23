@@ -152,7 +152,7 @@ All logging MUST use zerolog with structured fields (Str, Int, Dur, Err). Approp
 
 ### VI. Observability
 
-Every significant operation MUST have Prometheus metrics. Metric names MUST use `ws_` prefix (server), `gateway_` prefix (gateway), or `provisioning_` prefix (provisioning service) with units (`_seconds`, `_bytes`, `_total`). Labels MUST be used sparingly to avoid cardinality explosion. Histograms MUST be used for latency, not summaries.
+Every significant operation MUST have Prometheus metrics. Metric names MUST use `ws_` prefix (server), `gateway_` prefix (gateway), or `provisioning_` prefix (provisioning service) with units (`_seconds`, `_bytes`, `_total`). Labels MUST be used sparingly to avoid cardinality explosion. Histograms MUST be used for latency, not summaries. **Excluded from Prometheus**: The tester service (`cmd/tester`) is a test/debugging tool, not a production service — it uses its own built-in `metrics.Collector` (atomic counters) and `stats.Histogram` with SSE streaming for real-time observability. Prometheus integration MUST NOT be added to the tester.
 
 ### VII. Concurrency Safety
 

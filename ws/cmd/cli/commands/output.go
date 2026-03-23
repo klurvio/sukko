@@ -3,9 +3,40 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"text/tabwriter"
+
+	"golang.org/x/term"
 )
+
+// ANSI color codes (only used when terminal supports it)
+var (
+	colorReset  = "\033[0m"
+	colorGreen  = "\033[32m"
+	colorRed    = "\033[31m"
+	colorYellow = "\033[33m"
+	colorCyan   = "\033[36m"
+	colorBold   = "\033[1m"
+)
+
+func init() {
+	if !isTTY() {
+		colorReset = ""
+		colorGreen = ""
+		colorRed = ""
+		colorYellow = ""
+		colorCyan = ""
+		colorBold = ""
+	}
+}
+
+func isTTY() bool {
+	return term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+// defaultWriter returns os.Stdout. Used as the default output target for print helpers.
+func defaultWriter() io.Writer { return os.Stdout }
 
 // printOutput renders data in the requested format.
 func printOutput(data any, format string) error {
@@ -18,7 +49,11 @@ func printOutput(data any, format string) error {
 }
 
 func printJSON(data any) error {
-	enc := json.NewEncoder(os.Stdout)
+	return printJSONTo(defaultWriter(), data)
+}
+
+func printJSONTo(out io.Writer, data any) error {
+	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(data); err != nil {
 		return fmt.Errorf("encode JSON: %w", err)
@@ -27,12 +62,16 @@ func printJSON(data any) error {
 }
 
 func printTable(data any) error {
+	return printTableTo(defaultWriter(), data)
+}
+
+func printTableTo(out io.Writer, data any) error {
 	m, ok := data.(map[string]any)
 	if !ok {
-		return printJSON(data)
+		return printJSONTo(out, data)
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 
 	// Handle lists
 	if tenants, ok := m["tenants"].([]any); ok {
@@ -44,7 +83,7 @@ func printTable(data any) error {
 		}
 		_ = w.Flush()
 		if total, ok := m["total"]; ok {
-			_, _ = fmt.Fprintf(os.Stdout, "\nTotal: %v\n", total)
+			_, _ = fmt.Fprintf(out, "\nTotal: %v\n", total)
 		}
 		return nil
 	}
@@ -55,6 +94,17 @@ func printTable(data any) error {
 			km := asMap(k)
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%v\n",
 				asStr(km, "key_id"), asStr(km, "tenant_id"), asStr(km, "algorithm"), km["is_active"])
+		}
+		_ = w.Flush()
+		return nil
+	}
+
+	if apiKeys, ok := m["api_keys"].([]any); ok {
+		_, _ = fmt.Fprintln(w, "KEY_ID\tTENANT_ID\tNAME\tACTIVE\tCREATED_AT")
+		for _, k := range apiKeys {
+			km := asMap(k)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%v\t%s\n",
+				asStr(km, "key_id"), asStr(km, "tenant_id"), asStr(km, "name"), km["is_active"], asStr(km, "created_at"))
 		}
 		_ = w.Flush()
 		return nil
@@ -86,6 +136,41 @@ func printTable(data any) error {
 	}
 	_ = w.Flush()
 	return nil
+}
+
+// printStatus prints a status table with colored status indicators.
+func printStatus(items []StatusItem) {
+	printStatusTo(defaultWriter(), items)
+}
+
+func printStatusTo(out io.Writer, items []StatusItem) {
+	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintf(w, "%sCOMPONENT\tSTATUS\tDETAILS%s\n", colorBold, colorReset)
+	for _, item := range items {
+		status := colorizeStatus(item.Status)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", item.Name, status, item.Details)
+	}
+	_ = w.Flush()
+}
+
+// StatusItem represents a component's health/status.
+type StatusItem struct {
+	Name    string
+	Status  string // "healthy", "unhealthy", "unknown"
+	Details string
+}
+
+func colorizeStatus(status string) string {
+	switch status {
+	case "healthy", "running", "pass":
+		return colorGreen + status + colorReset
+	case "unhealthy", "error", "fail", "exited":
+		return colorRed + status + colorReset
+	case "starting", "degraded", "warning":
+		return colorYellow + status + colorReset
+	default:
+		return status
+	}
 }
 
 func asMap(v any) map[string]any {

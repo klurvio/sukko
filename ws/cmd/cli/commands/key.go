@@ -8,40 +8,42 @@ import (
 )
 
 func init() {
-	rootCmd.AddCommand(keyCmd)
-	keyCmd.AddCommand(keyCreateCmd, keyListCmd, keyRevokeCmd)
+	rootCmd.AddCommand(keysCmd)
+	keysCmd.AddCommand(keysCreateCmd, keysListCmd, keysRevokeCmd)
 
 	// create flags
-	keyCreateCmd.Flags().String("tenant", "", "Tenant ID (required)")
-	keyCreateCmd.Flags().String("algorithm", "", "Signing algorithm: ES256, RS256, EdDSA (required)")
-	keyCreateCmd.Flags().String("public-key-file", "", "Path to PEM public key file (required)")
-	keyCreateCmd.Flags().String("key-id", "", "Key ID (optional, auto-generated if not set)")
-	keyCreateCmd.Flags().String("expires-at", "", "Expiration time (RFC3339)")
-	_ = keyCreateCmd.MarkFlagRequired("tenant")
-	_ = keyCreateCmd.MarkFlagRequired("algorithm")
-	_ = keyCreateCmd.MarkFlagRequired("public-key-file")
+	keysCreateCmd.Flags().String("tenant", "", "Tenant ID (uses active tenant from context if not set)")
+	keysCreateCmd.Flags().String("algorithm", "", "Signing algorithm: ES256, RS256, EdDSA (required)")
+	keysCreateCmd.Flags().String("public-key-file", "", "Path to PEM public key file (required)")
+	keysCreateCmd.Flags().String("key-id", "", "Key ID (optional, auto-generated if not set)")
+	keysCreateCmd.Flags().String("expires-at", "", "Expiration time (RFC3339)")
+	_ = keysCreateCmd.MarkFlagRequired("algorithm")
+	_ = keysCreateCmd.MarkFlagRequired("public-key-file")
 
 	// list flags
-	keyListCmd.Flags().String("tenant", "", "Tenant ID (required)")
-	_ = keyListCmd.MarkFlagRequired("tenant")
+	keysListCmd.Flags().String("tenant", "", "Tenant ID (uses active tenant from context if not set)")
 
 	// revoke flags
-	keyRevokeCmd.Flags().String("tenant", "", "Tenant ID (required)")
-	keyRevokeCmd.Flags().String("key-id", "", "Key ID (required)")
-	_ = keyRevokeCmd.MarkFlagRequired("tenant")
-	_ = keyRevokeCmd.MarkFlagRequired("key-id")
+	keysRevokeCmd.Flags().String("tenant", "", "Tenant ID (uses active tenant from context if not set)")
+	keysRevokeCmd.Flags().String("key-id", "", "Key ID (required)")
+	_ = keysRevokeCmd.MarkFlagRequired("key-id")
 }
 
-var keyCmd = &cobra.Command{
-	Use:   "key",
-	Short: "Manage API keys",
+var keysCmd = &cobra.Command{
+	Use:   "keys",
+	Short: "Manage JWT signing keys",
 }
 
-var keyCreateCmd = &cobra.Command{
+var keysCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Register a new public key",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		tenantID, _ := cmd.Flags().GetString("tenant")
+		tenantFlag, _ := cmd.Flags().GetString("tenant")
+		tenantID := resolveTenant(tenantFlag)
+		if tenantID == "" {
+			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+		}
+
 		algorithm, _ := cmd.Flags().GetString("algorithm")
 		pubKeyFile, _ := cmd.Flags().GetString("public-key-file")
 		keyID, _ := cmd.Flags().GetString("key-id")
@@ -67,7 +69,7 @@ var keyCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		result, err := c.CreateKey(tenantID, req)
+		result, err := c.CreateKey(cmd.Context(), tenantID, req)
 		if err != nil {
 			return fmt.Errorf("create key: %w", err)
 		}
@@ -75,17 +77,21 @@ var keyCreateCmd = &cobra.Command{
 	},
 }
 
-var keyListCmd = &cobra.Command{
+var keysListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List keys for a tenant",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		tenantID, _ := cmd.Flags().GetString("tenant")
+		tenantFlag, _ := cmd.Flags().GetString("tenant")
+		tenantID := resolveTenant(tenantFlag)
+		if tenantID == "" {
+			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+		}
 
 		c, err := newClient()
 		if err != nil {
 			return err
 		}
-		result, err := c.ListKeys(tenantID)
+		result, err := c.ListKeys(cmd.Context(), tenantID)
 		if err != nil {
 			return fmt.Errorf("list keys: %w", err)
 		}
@@ -93,18 +99,22 @@ var keyListCmd = &cobra.Command{
 	},
 }
 
-var keyRevokeCmd = &cobra.Command{
+var keysRevokeCmd = &cobra.Command{
 	Use:   "revoke",
 	Short: "Revoke a key",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		tenantID, _ := cmd.Flags().GetString("tenant")
+		tenantFlag, _ := cmd.Flags().GetString("tenant")
+		tenantID := resolveTenant(tenantFlag)
+		if tenantID == "" {
+			return fmt.Errorf("tenant ID required (use --tenant or set active tenant in context)")
+		}
 		keyID, _ := cmd.Flags().GetString("key-id")
 
 		c, err := newClient()
 		if err != nil {
 			return err
 		}
-		result, err := c.RevokeKey(tenantID, keyID)
+		result, err := c.RevokeKey(cmd.Context(), tenantID, keyID)
 		if err != nil {
 			return fmt.Errorf("revoke key: %w", err)
 		}

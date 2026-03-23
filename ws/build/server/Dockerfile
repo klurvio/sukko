@@ -27,7 +27,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /sukko-server ./cmd/server
 
 # Stage 2: Create the final, minimal image
-FROM alpine:latest
+FROM alpine:3.21
 
 # Install ca-certificates for HTTPS connections (Kafka/Redpanda TLS support)
 RUN apk --no-cache add ca-certificates

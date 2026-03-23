@@ -39,7 +39,7 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 		ReadTimeout:                  15 * time.Second,
 		WriteTimeout:                 15 * time.Second,
 		IdleTimeout:                  60 * time.Second,
-		BackendURL:                   "ws://localhost:3001/ws",
+		BackendURL:                   "ws://localhost:3005/ws",
 		DialTimeout:                  10 * time.Second,
 		MessageTimeout:               60 * time.Second,
 		DefaultTenantID:              "sukko", // Required when auth disabled

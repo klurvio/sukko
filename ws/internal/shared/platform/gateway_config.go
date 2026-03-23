@@ -25,7 +25,7 @@ type GatewayConfig struct {
 	IdleTimeout  time.Duration `env:"GATEWAY_IDLE_TIMEOUT" envDefault:"60s"`
 
 	// Backend ws-server connection
-	BackendURL     string        `env:"GATEWAY_BACKEND_URL" envDefault:"ws://localhost:3001/ws"`
+	BackendURL     string        `env:"GATEWAY_BACKEND_URL" envDefault:"ws://localhost:3005/ws"`
 	DialTimeout    time.Duration `env:"GATEWAY_DIAL_TIMEOUT" envDefault:"10s"`
 	MessageTimeout time.Duration `env:"GATEWAY_MESSAGE_TIMEOUT" envDefault:"60s"`
 

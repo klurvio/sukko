@@ -7,6 +7,12 @@
 # Default mode: direct + NATS broadcast + SQLite (zero config needed)
 # All application config uses Go envDefault values.
 # Only inter-service wiring env vars are set here.
+#
+# Optional infrastructure (activate via Docker Compose profiles):
+#   docker compose --profile kafka up         # Redpanda (Kafka)
+#   docker compose --profile postgres up      # PostgreSQL
+#   docker compose --profile valkey up        # Valkey (Redis-compatible)
+#   docker compose --profile kafka --profile postgres up  # combine profiles
 
 services:
   # ─── NATS (broadcast bus) ──────────────────────────────────────────
@@ -32,6 +38,8 @@ services:
     ports:
       - "8080:8080"
       - "9090:9090"
+    environment:
+      PROVISIONING_ADMIN_TOKEN: "sukko-dev-token"
     volumes:
       - provisioning-data:/data
     healthcheck:
@@ -59,6 +67,12 @@ services:
         condition: service_healthy
       provisioning:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3005/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   # ─── WebSocket Gateway ────────────────────────────────────────────
   ws-gateway:
@@ -74,33 +88,89 @@ services:
       GATEWAY_BACKEND_URL: "ws://ws-server:3005/ws"
       PROVISIONING_GRPC_ADDR: "provisioning:9090"
     depends_on:
-      - ws-server
+      ws-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
-# ─── Mode Overrides (uncomment to enable) ──────────────────────────
-#
-# Kafka/Redpanda mode:
-#   Add a redpanda service and set on ws-server:
-#     MESSAGE_BACKEND: "kafka"
-#     KAFKA_BROKERS: "redpanda:9092"
-#
-# NATS JetStream mode:
-#   Set on ws-server:
-#     MESSAGE_BACKEND: "nats"
-#     NATS_JETSTREAM_URLS: "nats://nats:4222"
-#
-# PostgreSQL mode:
-#   Add a postgres service and set on provisioning:
-#     DATABASE_DRIVER: "postgres"
-#     DATABASE_URL: "postgres://sukko:sukko@postgres:5432/sukko_provisioning?sslmode=disable"
-#
-# Valkey broadcast mode:
-#   Add a valkey service and set on ws-server:
-#     BROADCAST_TYPE: "valkey"
-#     VALKEY_ADDRS: "valkey:6379"
-#
-# Authentication:
-#   Set on ws-gateway:
-#     AUTH_ENABLED: "true"
+  # ─── Tester Service ────────────────────────────────────────────────
+  sukko-tester:
+    build:
+      context: ./ws
+      dockerfile: build/tester/Dockerfile
+      args:
+        COMMIT_HASH: ${COMMIT_HASH:-local}
+    ports:
+      - "8090:8090"
+    environment:
+      GATEWAY_URL: "ws://ws-gateway:3000"
+      PROVISIONING_URL: "http://provisioning:8080"
+      TESTER_AUTH_TOKEN: "sukko-dev-token"
+    depends_on:
+      ws-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8090/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ─── Redpanda (Kafka) — activate with: --profile kafka ─────────────
+  redpanda:
+    profiles: ["kafka"]
+    image: redpandadata/redpanda:v24.1.1
+    ports:
+      - "19092:19092"
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=512M
+      - --overprovisioned
+      - --kafka-addr=0.0.0.0:9092
+      - --advertise-kafka-addr=redpanda:9092
+      - --pandaproxy-addr=0.0.0.0:8082
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── PostgreSQL — activate with: --profile postgres ─────────────────
+  postgres:
+    profiles: ["postgres"]
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: sukko
+      POSTGRES_PASSWORD: sukko
+      POSTGRES_DB: sukko_provisioning
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sukko"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── Valkey — activate with: --profile valkey ───────────────────────
+  valkey:
+    profiles: ["valkey"]
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   provisioning-data:
+  postgres-data:

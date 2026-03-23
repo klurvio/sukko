@@ -25,7 +25,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /sukko ./cmd/cli
 
 # Stage 2: Minimal image with just the binary
-FROM alpine:latest
+FROM alpine:3.21
 
 RUN apk --no-cache add ca-certificates
 

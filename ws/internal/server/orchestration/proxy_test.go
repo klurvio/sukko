@@ -16,7 +16,7 @@ func TestShardProxy_NewShardProxy(t *testing.T) {
 	t.Parallel()
 
 	shard := &Shard{ID: 1}
-	backendURL, _ := url.Parse("ws://localhost:3001/ws")
+	backendURL, _ := url.Parse("ws://localhost:3005/ws") // constant URL in test
 	logger := zerolog.Nop()
 
 	proxy := NewShardProxy(shard, backendURL, logger, 10*time.Second, 60*time.Second)
@@ -36,7 +36,7 @@ func TestShardProxy_ExplicitTimeouts(t *testing.T) {
 	t.Parallel()
 
 	shard := &Shard{ID: 1}
-	backendURL, _ := url.Parse("ws://localhost:3001/ws")
+	backendURL, _ := url.Parse("ws://localhost:3005/ws") // constant URL in test
 	logger := zerolog.Nop()
 
 	proxy := NewShardProxy(shard, backendURL, logger, 15*time.Second, 90*time.Second)
