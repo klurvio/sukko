@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -19,13 +20,10 @@ import (
 // to unblock ReadLoop quickly when the context is canceled.
 const shutdownReadDeadline = 100 * time.Millisecond
 
-// readDeadlineTimeout is the read deadline for WebSocket connections in the read loop.
-// Kept short (1s) so the loop re-checks ctx.Done frequently during shutdown.
-const readDeadlineTimeout = 1 * time.Second
-
 // Client is a WebSocket client for the tester service.
 type Client struct {
 	conn      net.Conn
+	rw        io.ReadWriter // reads from br (if Dial buffered data), writes to conn
 	closeOnce sync.Once
 	logger    zerolog.Logger
 	onMsg     func(Message)
@@ -60,13 +58,24 @@ func Connect(ctx context.Context, cfg ConnectConfig) (*Client, error) {
 	}
 
 	dialer := ws.Dialer{Header: ws.HandshakeHeaderHTTP(header)}
-	conn, _, _, err := dialer.Dial(ctx, wsURL)
+	conn, br, _, err := dialer.Dial(ctx, wsURL)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", wsURL, err)
 	}
 
+	// br may contain bytes buffered during the handshake that haven't been
+	// consumed yet. Use it as the reader so those bytes aren't lost.
+	var rw io.ReadWriter = conn
+	if br != nil {
+		rw = struct {
+			io.Reader
+			io.Writer
+		}{br, conn}
+	}
+
 	c := &Client{
-		conn:   conn,
+		conn: conn,
+		rw:   rw,
 		logger: cfg.Logger,
 		onMsg:  cfg.OnMessage,
 	}
@@ -91,23 +100,18 @@ func (c *Client) Publish(channel string, data json.RawMessage) error {
 
 // ReadLoop reads messages until the context is canceled or the connection closes.
 func (c *Client) ReadLoop(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			// Set a short deadline to unblock any in-progress read quickly
-			if tc, ok := c.conn.(interface{ SetReadDeadline(time.Time) error }); ok {
-				_ = tc.SetReadDeadline(time.Now().Add(shutdownReadDeadline))
-			}
-			return
-		default:
-		}
-
-		// Set read deadline so we periodically re-check ctx.Done
+	// When the context is canceled, set a short deadline to unblock any
+	// in-progress read. This avoids polling with read deadlines (which can
+	// corrupt WebSocket framing if a timeout hits mid-frame).
+	stop := context.AfterFunc(ctx, func() {
 		if tc, ok := c.conn.(interface{ SetReadDeadline(time.Time) error }); ok {
-			_ = tc.SetReadDeadline(time.Now().Add(readDeadlineTimeout)) // error ignored: next read will surface any connection issue
+			_ = tc.SetReadDeadline(time.Now().Add(shutdownReadDeadline))
 		}
+	})
+	defer stop()
 
-		data, err := wsutil.ReadServerText(c.conn)
+	for {
+		data, err := wsutil.ReadServerText(c.rw)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
