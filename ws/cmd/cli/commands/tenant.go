@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -10,7 +11,7 @@ import (
 func init() {
 	rootCmd.AddCommand(tenantCmd)
 	tenantCmd.AddCommand(tenantCreateCmd, tenantGetCmd, tenantListCmd, tenantUpdateCmd,
-		tenantSuspendCmd, tenantReactivateCmd, tenantDeprovisionCmd)
+		tenantSuspendCmd, tenantReactivateCmd, tenantDeprovisionCmd, tenantDeleteCmd)
 
 	// create flags
 	tenantCreateCmd.Flags().String("id", "", "Tenant ID (required)")
@@ -42,6 +43,10 @@ var tenantCreateCmd = &cobra.Command{
 		categories, _ := cmd.Flags().GetStringSlice("category")
 		consumerType, _ := cmd.Flags().GetString("consumer-type")
 
+		if consumerType != "shared" && consumerType != "dedicated" {
+			return fmt.Errorf("invalid consumer-type %q: must be shared or dedicated", consumerType)
+		}
+
 		if name == "" {
 			name = id
 		}
@@ -59,7 +64,7 @@ var tenantCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		result, err := c.CreateTenant(req)
+		result, err := c.CreateTenant(cmd.Context(), req)
 		if err != nil {
 			return fmt.Errorf("create tenant: %w", err)
 		}
@@ -70,13 +75,23 @@ var tenantCreateCmd = &cobra.Command{
 var tenantGetCmd = &cobra.Command{
 	Use:   "get [tenant-id]",
 	Short: "Get tenant details",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(_ *cobra.Command, args []string) error {
+	Long:  "Get tenant details. If no tenant-id is provided, uses the active tenant from context.",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tenantID := ""
+		if len(args) > 0 {
+			tenantID = args[0]
+		}
+		tenantID = resolveTenant(tenantID)
+		if tenantID == "" {
+			return errors.New("tenant ID required (provide as argument or set active tenant in context)")
+		}
+
 		c, err := newClient()
 		if err != nil {
 			return err
 		}
-		result, err := c.GetTenant(args[0])
+		result, err := c.GetTenant(cmd.Context(), tenantID)
 		if err != nil {
 			return fmt.Errorf("get tenant: %w", err)
 		}
@@ -104,7 +119,7 @@ var tenantListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		result, err := c.ListTenants(params)
+		result, err := c.ListTenants(cmd.Context(), params)
 		if err != nil {
 			return fmt.Errorf("list tenants: %w", err)
 		}
@@ -126,7 +141,7 @@ var tenantUpdateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		result, err := c.UpdateTenant(args[0], req)
+		result, err := c.UpdateTenant(cmd.Context(), args[0], req)
 		if err != nil {
 			return fmt.Errorf("update tenant: %w", err)
 		}
@@ -138,12 +153,12 @@ var tenantSuspendCmd = &cobra.Command{
 	Use:   "suspend [tenant-id]",
 	Short: "Suspend a tenant",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(_ *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := newClient()
 		if err != nil {
 			return err
 		}
-		result, err := c.SuspendTenant(args[0])
+		result, err := c.SuspendTenant(cmd.Context(), args[0])
 		if err != nil {
 			return fmt.Errorf("suspend tenant: %w", err)
 		}
@@ -155,12 +170,12 @@ var tenantReactivateCmd = &cobra.Command{
 	Use:   "reactivate [tenant-id]",
 	Short: "Reactivate a suspended tenant",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(_ *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := newClient()
 		if err != nil {
 			return err
 		}
-		result, err := c.ReactivateTenant(args[0])
+		result, err := c.ReactivateTenant(cmd.Context(), args[0])
 		if err != nil {
 			return fmt.Errorf("reactivate tenant: %w", err)
 		}
@@ -170,17 +185,25 @@ var tenantReactivateCmd = &cobra.Command{
 
 var tenantDeprovisionCmd = &cobra.Command{
 	Use:   "deprovision [tenant-id]",
-	Short: "Initiate tenant deletion",
+	Short: "Initiate tenant deletion (grace period)",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(_ *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := newClient()
 		if err != nil {
 			return err
 		}
-		result, err := c.DeprovisionTenant(args[0])
+		result, err := c.DeprovisionTenant(cmd.Context(), args[0])
 		if err != nil {
 			return fmt.Errorf("deprovision tenant: %w", err)
 		}
 		return printOutput(result, output)
 	},
+}
+
+// delete is an alias for deprovision
+var tenantDeleteCmd = &cobra.Command{
+	Use:   "delete [tenant-id]",
+	Short: "Delete a tenant (alias for deprovision)",
+	Args:  cobra.ExactArgs(1),
+	RunE:  tenantDeprovisionCmd.RunE,
 }

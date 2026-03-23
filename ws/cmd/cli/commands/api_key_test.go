@@ -44,7 +44,7 @@ func TestAPIKeyCmd_CreateFlags(t *testing.T) {
 		flag     string
 		required bool
 	}{
-		{"tenant flag is required", "tenant", true},
+		{"tenant flag is optional (context-aware)", "tenant", false},
 		{"name flag is optional", "name", false},
 	}
 
@@ -73,8 +73,9 @@ func TestAPIKeyCmd_ListFlags(t *testing.T) {
 		t.Fatal("--tenant flag not found on list command")
 	}
 
-	if _, ok := f.Annotations[cobraRequiredAnnotation]; !ok {
-		t.Error("--tenant flag should be required on list command")
+	// --tenant is now optional (resolved from context if not provided)
+	if _, ok := f.Annotations[cobraRequiredAnnotation]; ok {
+		t.Error("--tenant flag should be optional (context-aware)")
 	}
 }
 
@@ -86,7 +87,7 @@ func TestAPIKeyCmd_RevokeFlags(t *testing.T) {
 		flag     string
 		required bool
 	}{
-		{"tenant flag is required", "tenant", true},
+		{"tenant flag is optional (context-aware)", "tenant", false},
 		{"key-id flag is required", "key-id", true},
 	}
 

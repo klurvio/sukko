@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +18,7 @@ func TestAdminClient_Tenants(t *testing.T) {
 		name           string
 		serverStatus   int
 		serverResponse map[string]any
-		call           func(c *AdminClient) (map[string]any, error)
+		call           func(ctx context.Context, c *AdminClient) (map[string]any, error)
 		wantMethod     string
 		wantPath       string
 		wantBody       map[string]any
@@ -32,8 +33,8 @@ func TestAdminClient_Tenants(t *testing.T) {
 				"id":   "tenant-1",
 				"name": "Test Tenant",
 			},
-			call: func(c *AdminClient) (map[string]any, error) {
-				return c.CreateTenant(map[string]any{
+			call: func(ctx context.Context, c *AdminClient) (map[string]any, error) {
+				return c.CreateTenant(ctx, map[string]any{
 					"name": "Test Tenant",
 					"tier": "standard",
 				})
@@ -53,8 +54,8 @@ func TestAdminClient_Tenants(t *testing.T) {
 				"name":   "My Tenant",
 				"status": "active",
 			},
-			call: func(c *AdminClient) (map[string]any, error) {
-				return c.GetTenant("tenant-42")
+			call: func(ctx context.Context, c *AdminClient) (map[string]any, error) {
+				return c.GetTenant(ctx, "tenant-42")
 			},
 			wantMethod: "GET",
 			wantPath:   "/api/v1/tenants/tenant-42",
@@ -66,8 +67,8 @@ func TestAdminClient_Tenants(t *testing.T) {
 				"tenants": []any{},
 				"total":   float64(0),
 			},
-			call: func(c *AdminClient) (map[string]any, error) {
-				return c.ListTenants(map[string]string{
+			call: func(ctx context.Context, c *AdminClient) (map[string]any, error) {
+				return c.ListTenants(ctx, map[string]string{
 					"status": "active",
 				})
 			},
@@ -81,8 +82,8 @@ func TestAdminClient_Tenants(t *testing.T) {
 				"id":     "tenant-99",
 				"status": "suspended",
 			},
-			call: func(c *AdminClient) (map[string]any, error) {
-				return c.SuspendTenant("tenant-99")
+			call: func(ctx context.Context, c *AdminClient) (map[string]any, error) {
+				return c.SuspendTenant(ctx, "tenant-99")
 			},
 			wantMethod: "POST",
 			wantPath:   "/api/v1/tenants/tenant-99/suspend",
@@ -90,8 +91,8 @@ func TestAdminClient_Tenants(t *testing.T) {
 		{
 			name:         "API error HTTP 400 returns error",
 			serverStatus: http.StatusBadRequest,
-			call: func(c *AdminClient) (map[string]any, error) {
-				return c.CreateTenant(map[string]any{"name": ""})
+			call: func(ctx context.Context, c *AdminClient) (map[string]any, error) {
+				return c.CreateTenant(ctx, map[string]any{"name": ""})
 			},
 			wantMethod:   "POST",
 			wantPath:     "/api/v1/tenants",
@@ -135,7 +136,7 @@ func TestAdminClient_Tenants(t *testing.T) {
 				Token:   "test-token",
 			})
 
-			result, err := tt.call(client)
+			result, err := tt.call(context.Background(), client)
 
 			if tt.wantErr {
 				if err == nil {
@@ -195,7 +196,7 @@ func TestAdminClient_Keys(t *testing.T) {
 		name           string
 		serverStatus   int
 		serverResponse map[string]any
-		call           func(c *AdminClient) (map[string]any, error)
+		call           func(ctx context.Context, c *AdminClient) (map[string]any, error)
 		wantMethod     string
 		wantPath       string
 	}{
@@ -205,8 +206,8 @@ func TestAdminClient_Keys(t *testing.T) {
 			serverResponse: map[string]any{
 				"key_id": "key-abc",
 			},
-			call: func(c *AdminClient) (map[string]any, error) {
-				return c.CreateKey("tenant-1", map[string]any{
+			call: func(ctx context.Context, c *AdminClient) (map[string]any, error) {
+				return c.CreateKey(ctx, "tenant-1", map[string]any{
 					"label": "my-key",
 				})
 			},
@@ -219,8 +220,8 @@ func TestAdminClient_Keys(t *testing.T) {
 			serverResponse: map[string]any{
 				"keys": []any{},
 			},
-			call: func(c *AdminClient) (map[string]any, error) {
-				return c.ListKeys("tenant-5")
+			call: func(ctx context.Context, c *AdminClient) (map[string]any, error) {
+				return c.ListKeys(ctx, "tenant-5")
 			},
 			wantMethod: "GET",
 			wantPath:   "/api/v1/tenants/tenant-5/keys",
@@ -231,8 +232,8 @@ func TestAdminClient_Keys(t *testing.T) {
 			serverResponse: map[string]any{
 				"revoked": true,
 			},
-			call: func(c *AdminClient) (map[string]any, error) {
-				return c.RevokeKey("tenant-5", "key-xyz")
+			call: func(ctx context.Context, c *AdminClient) (map[string]any, error) {
+				return c.RevokeKey(ctx, "tenant-5", "key-xyz")
 			},
 			wantMethod: "DELETE",
 			wantPath:   "/api/v1/tenants/tenant-5/keys/key-xyz",
@@ -264,7 +265,7 @@ func TestAdminClient_Keys(t *testing.T) {
 				Token:   "test-token",
 			})
 
-			result, err := tt.call(client)
+			result, err := tt.call(context.Background(), client)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -328,7 +329,7 @@ func TestAdminClient_BearerToken(t *testing.T) {
 				Token:   tt.token,
 			})
 
-			_, err := client.GetTenant("test-id")
+			_, err := client.GetTenant(context.Background(), "test-id")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -383,7 +384,7 @@ func TestAdminClient_ErrorResponse(t *testing.T) {
 				Token:   "test-token",
 			})
 
-			_, err := client.GetTenant("any-id")
+			_, err := client.GetTenant(context.Background(), "any-id")
 			if err == nil {
 				t.Fatal("expected error but got nil")
 			}
@@ -409,7 +410,7 @@ func TestAdminClient_EmptyTenantID(t *testing.T) {
 
 	c, _ := New(Config{BaseURL: "http://localhost:9999"})
 
-	_, err := c.GetTenant("")
+	_, err := c.GetTenant(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected error for empty tenantID, got nil")
 	}
@@ -420,7 +421,7 @@ func TestAdminClient_EmptyKeyID(t *testing.T) {
 
 	c, _ := New(Config{BaseURL: "http://localhost:9999"})
 
-	_, err := c.RevokeKey("tenant-1", "")
+	_, err := c.RevokeKey(context.Background(), "tenant-1", "")
 	if err == nil {
 		t.Fatal("expected error for empty keyID, got nil")
 	}

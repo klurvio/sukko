@@ -1,0 +1,160 @@
+package ws
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
+	"github.com/rs/zerolog"
+)
+
+// shutdownReadDeadline is a shorter read deadline used during shutdown
+// to unblock ReadLoop quickly when the context is canceled.
+const shutdownReadDeadline = 100 * time.Millisecond
+
+// readDeadlineTimeout is the read deadline for WebSocket connections in the read loop.
+// Kept short (1s) so the loop re-checks ctx.Done frequently during shutdown.
+const readDeadlineTimeout = 1 * time.Second
+
+// Client is a WebSocket client for the tester service.
+type Client struct {
+	conn      net.Conn
+	closeOnce sync.Once
+	logger    zerolog.Logger
+	onMsg     func(Message)
+	mu        sync.Mutex // protects writeJSON only
+}
+
+// Message represents a WebSocket message received from the server.
+type Message struct {
+	Type    string          `json:"type"`
+	Channel string          `json:"channel,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+// ConnectConfig holds parameters for establishing a WebSocket connection.
+type ConnectConfig struct {
+	GatewayURL string
+	Token      string
+	APIKey     string
+	Logger     zerolog.Logger
+	OnMessage  func(Message)
+}
+
+// Connect dials the gateway and returns a connected Client.
+func Connect(ctx context.Context, cfg ConnectConfig) (*Client, error) {
+	wsURL := cfg.GatewayURL + "/ws"
+	header := http.Header{}
+	if cfg.Token != "" {
+		header.Set("Authorization", "Bearer "+cfg.Token)
+	}
+	if cfg.APIKey != "" {
+		header.Set("X-API-Key", cfg.APIKey)
+	}
+
+	dialer := ws.Dialer{Header: ws.HandshakeHeaderHTTP(header)}
+	conn, _, _, err := dialer.Dial(ctx, wsURL)
+	if err != nil {
+		return nil, fmt.Errorf("dial %s: %w", wsURL, err)
+	}
+
+	c := &Client{
+		conn:   conn,
+		logger: cfg.Logger,
+		onMsg:  cfg.OnMessage,
+	}
+	return c, nil
+}
+
+// Subscribe sends a subscribe request for the given channels.
+func (c *Client) Subscribe(channels []string) error {
+	return c.writeJSON(map[string]any{
+		"type": "subscribe",
+		"data": map[string]any{"channels": channels},
+	})
+}
+
+// Publish sends a message to the given channel.
+func (c *Client) Publish(channel string, data json.RawMessage) error {
+	return c.writeJSON(map[string]any{
+		"type": "publish",
+		"data": map[string]any{"channel": channel, "data": data},
+	})
+}
+
+// ReadLoop reads messages until the context is canceled or the connection closes.
+func (c *Client) ReadLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			// Set a short deadline to unblock any in-progress read quickly
+			if tc, ok := c.conn.(interface{ SetReadDeadline(time.Time) error }); ok {
+				_ = tc.SetReadDeadline(time.Now().Add(shutdownReadDeadline))
+			}
+			return
+		default:
+		}
+
+		// Set read deadline so we periodically re-check ctx.Done
+		if tc, ok := c.conn.(interface{ SetReadDeadline(time.Time) error }); ok {
+			_ = tc.SetReadDeadline(time.Now().Add(readDeadlineTimeout)) // error ignored: next read will surface any connection issue
+		}
+
+		data, err := wsutil.ReadServerText(c.conn)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			c.logger.Debug().Err(err).Msg("read error")
+			return
+		}
+
+		var msg Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			c.logger.Debug().Err(err).Msg("unmarshal error")
+			continue
+		}
+
+		if c.onMsg != nil {
+			c.onMsg(msg)
+		}
+	}
+}
+
+// Close closes the underlying WebSocket connection. Safe to call multiple times.
+func (c *Client) Close() error {
+	var closeErr error
+	c.closeOnce.Do(func() {
+		if c.conn != nil {
+			if err := c.conn.Close(); err != nil {
+				closeErr = fmt.Errorf("close websocket: %w", err)
+			}
+		}
+	})
+	return closeErr
+}
+
+func (c *Client) writeJSON(v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	// Lock held across I/O: gobwas/ws requires write serialization on a single
+	// net.Conn. Acceptable for tester client where concurrent writes are infrequent.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn == nil {
+		return errors.New("connection closed")
+	}
+	if err := wsutil.WriteClientText(c.conn, data); err != nil {
+		return fmt.Errorf("write ws message: %w", err)
+	}
+	return nil
+}

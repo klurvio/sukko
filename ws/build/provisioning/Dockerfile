@@ -27,7 +27,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /sukko-provisioning ./cmd/provisioning
 
 # Stage 2: Create the final, minimal image
-FROM alpine:latest
+FROM alpine:3.21
 
 # Install ca-certificates for HTTPS connections
 RUN apk --no-cache add ca-certificates
@@ -66,8 +66,8 @@ VOLUME ["/data"]
 # - DATABASE_PATH: SQLite file path (default: /data/sukko.db)
 # - DATABASE_URL: PostgreSQL connection URL (required when driver=postgres)
 # - AUTO_MIGRATE: Auto-apply migrations on startup (default: true)
-# - AUTH_ENABLED: Enable JWT authentication (default: false)
+# - AUTH_ENABLED: Enable JWT authentication (default: true)
 # - PROVISIONING_ADMIN_TOKEN: Admin bearer token for API auth
-# - LOG_LEVEL: debug, info, warn, error
-# - LOG_FORMAT: json, text, pretty
+# - LOG_LEVEL: debug, info, warn, error, fatal
+# - LOG_FORMAT: json, pretty
 CMD ["./sukko-provisioning"]

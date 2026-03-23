@@ -27,7 +27,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /sukko-gateway ./cmd/gateway
 
 # Stage 2: Create the final, minimal image
-FROM alpine:latest
+FROM alpine:3.21
 
 # Install ca-certificates for HTTPS connections
 RUN apk --no-cache add ca-certificates
@@ -54,7 +54,6 @@ EXPOSE 3000
 # Configuration via environment variables:
 # - GATEWAY_PORT: Port to listen on (default: 3000)
 # - GATEWAY_BACKEND_URL: ws-server WebSocket URL
-# - JWT_SECRET: Secret for JWT validation
-# - LOG_LEVEL: debug, info, warn, error
-# - LOG_FORMAT: json, text, pretty
+# - LOG_LEVEL: debug, info, warn, error, fatal
+# - LOG_FORMAT: json, pretty
 CMD ["./sukko-gateway"]

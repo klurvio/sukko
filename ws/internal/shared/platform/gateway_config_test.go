@@ -26,7 +26,7 @@ func newValidGatewayConfig() *GatewayConfig {
 		ReadTimeout:                  15 * time.Second,
 		WriteTimeout:                 15 * time.Second,
 		IdleTimeout:                  60 * time.Second,
-		BackendURL:                   "ws://localhost:3001/ws",
+		BackendURL:                   "ws://localhost:3005/ws",
 		DialTimeout:                  10 * time.Second,
 		MessageTimeout:               60 * time.Second,
 		DefaultTenantID:              "sukko", // Required when auth disabled
@@ -188,7 +188,7 @@ func TestGatewayConfig_Validate_BackendURL(t *testing.T) {
 		url         string
 		shouldError bool
 	}{
-		{"valid ws", "ws://localhost:3001/ws", false},
+		{"valid ws", "ws://localhost:3005/ws", false},
 		{"valid wss", "wss://example.com/ws", false},
 		{"valid with port", "ws://127.0.0.1:8080/websocket", false},
 		{"empty", "", true},
