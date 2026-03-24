@@ -16,7 +16,10 @@ ARG COMMIT_HASH=unknown
 ARG BUILD_TIME=unknown
 
 # Build the tester from cmd/tester
-RUN CGO_ENABLED=0 GOOS=linux go build \
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
     -ldflags="-s -w \
     -X 'github.com/klurvio/sukko/internal/shared/version.Version=${VERSION}' \
     -X 'github.com/klurvio/sukko/internal/shared/version.CommitHash=${COMMIT_HASH}' \

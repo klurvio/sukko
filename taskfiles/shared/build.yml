@@ -80,14 +80,14 @@ tasks:
       - task: provisioning
       - task: tester
 
-  # Cross-platform build for remote registries (linux/amd64)
+  # Cross-platform build for remote registries (linux/amd64,linux/arm64)
   push:ws-server:
     desc: Build and push ws-server to registry
     dir: "{{.ROOT_DIR}}/ws"
     vars:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
-      - docker buildx build --platform linux/amd64
+      - docker buildx build --platform linux/amd64,linux/arm64
           -t {{.PUSH_REGISTRY}}/ws-server:{{.TAG}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
@@ -101,7 +101,7 @@ tasks:
     vars:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
-      - docker buildx build --platform linux/amd64
+      - docker buildx build --platform linux/amd64,linux/arm64
           -t {{.PUSH_REGISTRY}}/ws-gateway:{{.TAG}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
@@ -115,7 +115,7 @@ tasks:
     vars:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
-      - docker buildx build --platform linux/amd64
+      - docker buildx build --platform linux/amd64,linux/arm64
           -t {{.PUSH_REGISTRY}}/sukko-provisioning:{{.TAG}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
@@ -129,7 +129,7 @@ tasks:
     vars:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
-      - docker buildx build --platform linux/amd64
+      - docker buildx build --platform linux/amd64,linux/arm64
           -t {{.PUSH_REGISTRY}}/sukko-tester:{{.TAG}}
           --build-arg VERSION={{.VERSION}}
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}

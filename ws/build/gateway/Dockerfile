@@ -19,7 +19,10 @@ ARG BUILD_TIME=unknown
 # Build the gateway from cmd/gateway
 # -ldflags: -s -w strips debug info, -X injects version variables
 # CGO_ENABLED=0 ensures a static binary without C dependencies
-RUN CGO_ENABLED=0 GOOS=linux go build \
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
     -ldflags="-s -w \
     -X 'github.com/klurvio/sukko/internal/shared/version.Version=${VERSION}' \
     -X 'github.com/klurvio/sukko/internal/shared/version.CommitHash=${COMMIT_HASH}' \
