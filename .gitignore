@@ -3,7 +3,6 @@ ws/gateway
 ws/server
 ws/provisioning
 ws/tester
-ws/cli
 
 # Go build artifacts
 *.exe

@@ -59,19 +59,6 @@ tasks:
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f build/provisioning/Dockerfile .
 
-  cli:
-    desc: Build sukko CLI Docker image
-    dir: "{{.ROOT_DIR}}/ws"
-    vars:
-      IMAGE: '{{.IMAGE_PREFIX}}{{.CLI_IMAGE | default "sukko-cli"}}'
-      TAG: '{{.TAG | default "latest"}}'
-    cmds:
-      - docker build -t {{.IMAGE}}:{{.TAG}}
-          --build-arg VERSION={{.VERSION}}
-          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
-          --build-arg BUILD_TIME={{.BUILD_TIME}}
-          -f build/cli/Dockerfile .
-
   tester:
     desc: Build sukko-tester Docker image
     dir: "{{.ROOT_DIR}}/ws"
@@ -91,7 +78,6 @@ tasks:
       - task: ws-server
       - task: gateway
       - task: provisioning
-      - task: cli
       - task: tester
 
   # Cross-platform build for remote registries (linux/amd64,linux/arm64)
@@ -135,20 +121,6 @@ tasks:
           --build-arg COMMIT_HASH={{.COMMIT_HASH}}
           --build-arg BUILD_TIME={{.BUILD_TIME}}
           -f build/provisioning/Dockerfile .
-          --push
-
-  push:cli:
-    desc: Build and push CLI to registry
-    dir: "{{.ROOT_DIR}}/ws"
-    vars:
-      TAG: '{{.TAG | default "latest"}}'
-    cmds:
-      - docker buildx build --platform linux/amd64,linux/arm64
-          -t {{.PUSH_REGISTRY}}/sukko-cli:{{.TAG}}
-          --build-arg VERSION={{.VERSION}}
-          --build-arg COMMIT_HASH={{.COMMIT_HASH}}
-          --build-arg BUILD_TIME={{.BUILD_TIME}}
-          -f build/cli/Dockerfile .
           --push
 
   push:tester:
