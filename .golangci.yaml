@@ -197,11 +197,6 @@ linters:
           - govet
         text: "unusedwrite"
 
-      # CLI commands: cobra MarkFlagRequired/GetString errors are safe to ignore
-      - path: cmd/cli/
-        linters:
-          - errcheck
-
       # Exclude linters from generated protobuf code
       - path: \.pb\.go$
         linters:
