@@ -71,6 +71,12 @@ func LoggingMiddleware(logger zerolog.Logger) func(http.Handler) http.Handler {
 func AuthMiddleware(validator *auth.MultiTenantValidator, logger zerolog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip if already authenticated (e.g., by admin token middleware)
+			if auth.GetClaims(r.Context()) != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// Extract token from Authorization header
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
