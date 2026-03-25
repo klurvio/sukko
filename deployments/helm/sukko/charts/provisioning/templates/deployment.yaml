@@ -61,6 +61,17 @@ spec:
             - name: ENVIRONMENT
               value: {{ .Values.environment | default "local" | quote }}
 
+            # License key (Pro/Enterprise editions)
+            {{- with ((.Values.global).license) }}
+            {{- if .existingSecret }}
+            - name: SUKKO_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret }}
+                  key: {{ .existingSecretKey | default "license-key" }}
+            {{- end }}
+            {{- end }}
+
             # Database driver (only injected when non-default)
             {{- if ne $dbDriver "sqlite" }}
             - name: DATABASE_DRIVER

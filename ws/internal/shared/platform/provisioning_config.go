@@ -10,6 +10,8 @@ import (
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
+
+	"github.com/klurvio/sukko/internal/shared/license"
 )
 
 // ProvisioningConfig holds all provisioning service configuration.
@@ -85,6 +87,15 @@ type ProvisioningConfig struct {
 	// Provisioning-specific externalized constants
 	MaxTenantsFetchLimit int           `env:"PROVISIONING_MAX_TENANTS_FETCH_LIMIT" envDefault:"10000"`
 	DeletionTimeout      time.Duration `env:"PROVISIONING_DELETION_TIMEOUT" envDefault:"5m"`
+
+	// editionManager holds the license-resolved edition and limits.
+	// Set by LoadProvisioningConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.
+	editionManager *license.Manager
+}
+
+// EditionManager returns the license manager for this config.
+func (c *ProvisioningConfig) EditionManager() *license.Manager {
+	return c.editionManager
 }
 
 // LoadProvisioningConfig reads provisioning service configuration from .env file
@@ -105,7 +116,14 @@ func LoadProvisioningConfig(logger zerolog.Logger) (*ProvisioningConfig, error) 
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// Validation
+	// Create license manager before validation — Validate() uses edition gates.
+	mgr, err := license.NewManager(cfg.LicenseKey, logger)
+	if err != nil {
+		return nil, fmt.Errorf("license: %w", err)
+	}
+	cfg.editionManager = mgr
+
+	// Validation (now edition-aware)
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
@@ -260,6 +278,15 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("PROVISIONING_DELETION_TIMEOUT must be > 0, got %v", c.DeletionTimeout)
 	}
 
+	// Edition gates — uses startup-resolved Edition(), not expiry-aware CurrentEdition().
+	if c.editionManager != nil {
+		edition := c.editionManager.Edition()
+
+		if c.DatabaseDriver == "postgres" && !license.EditionHasFeature(edition, license.PostgresDatabase) {
+			return license.NewFeatureError(license.PostgresDatabase, edition)
+		}
+	}
+
 	return nil
 }
 
@@ -268,7 +295,13 @@ func (c *ProvisioningConfig) Validate() error {
 // fmt.Fprint* errors are non-actionable: writing to os.Stdout cannot be retried or reported.
 func (c *ProvisioningConfig) Print() {
 	w := os.Stdout
+	edition := "community"
+	if c.editionManager != nil {
+		edition = c.editionManager.Edition().String()
+	}
+
 	_, _ = fmt.Fprintln(w, "=== Provisioning Service Configuration ===")
+	_, _ = fmt.Fprintf(w, "Edition:            %s\n", edition)
 	_, _ = fmt.Fprintf(w, "Environment:        %s\n", c.Environment)
 	_, _ = fmt.Fprintf(w, "Address:            %s\n", c.Addr)
 	_, _ = fmt.Fprintf(w, "gRPC Port:          %d\n", c.GRPCPort)
@@ -314,7 +347,13 @@ func (c *ProvisioningConfig) Print() {
 
 // LogConfig logs provisioning configuration using structured logging.
 func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
+	edition := "community"
+	if c.editionManager != nil {
+		edition = c.editionManager.Edition().String()
+	}
+
 	event := logger.Info().
+		Str("edition", edition).
 		Str("environment", c.Environment).
 		Str("addr", c.Addr).
 		Str("database_driver", c.DatabaseDriver).

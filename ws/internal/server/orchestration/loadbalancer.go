@@ -17,6 +17,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/server"
 	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/version"
 )
@@ -48,6 +49,7 @@ type LoadBalancer struct {
 
 	configHandler              http.HandlerFunc
 	metricsAggregationInterval time.Duration
+	editionManager             *license.Manager
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -74,6 +76,10 @@ type LoadBalancerConfig struct {
 
 	// MetricsAggregationInterval controls how often shard metrics are aggregated.
 	MetricsAggregationInterval time.Duration
+
+	// EditionManager provides expiry-aware edition limits for /health capacity reporting.
+	// May be nil — edition-aware capacity is skipped when nil.
+	EditionManager *license.Manager
 }
 
 // NewLoadBalancer creates a new LoadBalancer instance.
@@ -116,6 +122,7 @@ func NewLoadBalancer(cfg LoadBalancerConfig) (*LoadBalancer, error) {
 		httpIdleTimeout:            cfg.HTTPIdleTimeout,
 		configHandler:              cfg.ConfigHandler,
 		metricsAggregationInterval: cfg.MetricsAggregationInterval,
+		editionManager:             cfg.EditionManager,
 		ctx:                        ctx,
 		cancel:                     cancel,
 	}
@@ -130,7 +137,7 @@ func (lb *LoadBalancer) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", lb.handleWebSocket)
 	mux.HandleFunc("/health", lb.handleHealth)
-	mux.HandleFunc("/version", version.Handler("ws-server"))
+	mux.HandleFunc("/version", version.Handler("ws-server", lb.editionString()))
 	if lb.configHandler != nil {
 		mux.HandleFunc("/config", lb.configHandler)
 	}
@@ -180,7 +187,8 @@ func (lb *LoadBalancer) runMetricsAggregation() {
 	}
 }
 
-// aggregateMetrics sums connection counts from all shards and updates prometheus metrics
+// aggregateMetrics sums connection counts from all shards and updates prometheus metrics.
+// This is a cold path (runs on a periodic ticker, ~5s interval).
 func (lb *LoadBalancer) aggregateMetrics() {
 	var totalConnections int64
 	var totalMaxConnections int64
@@ -190,7 +198,24 @@ func (lb *LoadBalancer) aggregateMetrics() {
 		totalMaxConnections += int64(shard.GetMaxConnections())
 	}
 
+	// Cap reported capacity to edition limit (monitoring/reporting only).
+	// Actual connection enforcement uses per-shard connectionsSem (sized at startup).
+	if lb.editionManager != nil {
+		editionMax := lb.editionManager.CurrentLimits().MaxTotalConnections
+		if editionMax > 0 && totalMaxConnections > int64(editionMax) {
+			totalMaxConnections = int64(editionMax)
+		}
+	}
+
 	metrics.SetAggregatedConnectionMetrics(totalConnections, totalMaxConnections)
+}
+
+// editionString returns the current edition as a string (for version/health endpoints).
+func (lb *LoadBalancer) editionString() string {
+	if lb.editionManager != nil {
+		return lb.editionManager.Edition().String()
+	}
+	return "community"
 }
 
 // Shutdown gracefully stops the LoadBalancer.
@@ -339,6 +364,14 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Cap reported capacity to edition limit (monitoring/reporting only).
+	if lb.editionManager != nil {
+		editionMax := lb.editionManager.CurrentLimits().MaxTotalConnections
+		if editionMax > 0 && totalMaxConnections > int64(editionMax) {
+			totalMaxConnections = int64(editionMax)
+		}
+	}
+
 	// Calculate capacity percentage
 	var capacityPercent float64
 	if totalMaxConnections > 0 {
@@ -367,7 +400,7 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	response := map[string]any{
 		"status":  status,
 		"healthy": isHealthy,
-		"version": version.Get("ws-server"),
+		"version": version.Get("ws-server", lb.editionString()),
 		"checks": map[string]any{
 			"capacity": map[string]any{
 				"current":    int(totalConnections),

@@ -370,5 +370,16 @@ func (r *PostgresTenantRepository) GetTenantsForDeletion(ctx context.Context) ([
 	return tenants, nil
 }
 
+// Count returns the number of active (non-deleted) tenants.
+// Uses $1 placeholder syntax compatible with both SQLite and PostgreSQL.
+func (r *PostgresTenantRepository) Count(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tenants WHERE status != $1", provisioning.StatusDeleted).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count tenants: %w", err)
+	}
+	return count, nil
+}
+
 // Ensure PostgresTenantRepository implements TenantStore.
 var _ provisioning.TenantStore = (*PostgresTenantRepository)(nil)

@@ -78,6 +78,12 @@ func main() {
 		Dur("cpu_poll_interval", cfg.CPUPollInterval).
 		Msg("SystemMonitor started")
 
+	// Log edition
+	structuredLogger.Info().
+		Str("edition", cfg.EditionManager().Edition().String()).
+		Str("org", cfg.EditionManager().Org()).
+		Msg("Sukko edition resolved")
+
 	// Calculate max connections per shard
 	maxConnsPerShard := cfg.MaxConnections / *numShards
 	if maxConnsPerShard == 0 {
@@ -302,6 +308,7 @@ func main() {
 		ShardDialTimeout:           cfg.ShardDialTimeout,
 		ShardMessageTimeout:        cfg.ShardMessageTimeout,
 		MetricsAggregationInterval: cfg.MetricsAggregationInterval,
+		EditionManager:             cfg.EditionManager(),
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create load balancer")
