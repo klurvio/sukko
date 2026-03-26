@@ -78,13 +78,13 @@ type ServiceConfig struct {
 
 // Service provides tenant lifecycle management and provisioning operations.
 type Service struct {
-	tenants      TenantStore
-	keys         KeyStore
-	apiKeys      APIKeyStore
-	routingRules RoutingRulesStore
-	quotas       QuotaStore
-	audit        AuditStore
-	channelRules ChannelRulesStore
+	tenants        TenantStore
+	keys           KeyStore
+	apiKeys        APIKeyStore
+	routingRules   RoutingRulesStore
+	quotas         QuotaStore
+	audit          AuditStore
+	channelRules   ChannelRulesStore
 	kafka          KafkaAdmin
 	eventBus       *eventbus.Bus
 	logger         zerolog.Logger
@@ -122,13 +122,13 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}
 
 	return &Service{
-		tenants:      cfg.TenantStore,
-		keys:         cfg.KeyStore,
-		apiKeys:      cfg.APIKeyStore,
-		routingRules: cfg.RoutingRulesStore,
-		quotas:       cfg.QuotaStore,
-		audit:        cfg.AuditStore,
-		channelRules: cfg.ChannelRulesStore,
+		tenants:        cfg.TenantStore,
+		keys:           cfg.KeyStore,
+		apiKeys:        cfg.APIKeyStore,
+		routingRules:   cfg.RoutingRulesStore,
+		quotas:         cfg.QuotaStore,
+		audit:          cfg.AuditStore,
+		channelRules:   cfg.ChannelRulesStore,
 		kafka:          cfg.KafkaAdmin,
 		eventBus:       cfg.EventBus,
 		logger:         cfg.Logger,
@@ -173,7 +173,7 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 			return nil, fmt.Errorf("count tenants: %w", err)
 		}
 		if err := limits.CheckTenants(count); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("edition limit: %w", err)
 		}
 	}
 
@@ -742,7 +742,7 @@ func (s *Service) SetRoutingRules(ctx context.Context, tenantID string, rules []
 	if s.editionManager != nil {
 		limits := s.editionManager.CurrentLimits()
 		if err := limits.CheckRoutingRulesPerTenant(len(rules)); err != nil {
-			return err
+			return fmt.Errorf("edition limit: %w", err)
 		}
 	}
 

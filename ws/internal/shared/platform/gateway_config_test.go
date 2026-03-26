@@ -661,6 +661,7 @@ func setGatewayEditionManager(t *testing.T, cfg *GatewayConfig, edition license.
 	cfg.editionManager = mgr
 }
 
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
 func TestGatewayConfig_Validate_EditionGates_Community(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -697,6 +698,7 @@ func TestGatewayConfig_Validate_EditionGates_Community(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
 func TestGatewayConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
 	cfg := newValidGatewayConfig()
 	setGatewayEditionManager(t, cfg, license.Pro)

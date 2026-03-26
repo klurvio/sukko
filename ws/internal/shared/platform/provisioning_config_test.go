@@ -621,6 +621,7 @@ func setProvisioningEditionManager(t *testing.T, cfg *ProvisioningConfig, editio
 	cfg.editionManager = mgr
 }
 
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
 func TestProvisioningConfig_Validate_EditionGates_Community(t *testing.T) {
 	cfg := newValidProvisioningConfig()
 	cfg.DatabaseDriver = "postgres"
@@ -636,6 +637,7 @@ func TestProvisioningConfig_Validate_EditionGates_Community(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
 func TestProvisioningConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
 	cfg := newValidProvisioningConfig()
 	cfg.DatabaseDriver = "postgres"
@@ -647,6 +649,7 @@ func TestProvisioningConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
 func TestProvisioningConfig_Validate_EditionGates_CommunityAcceptsSqlite(t *testing.T) {
 	cfg := newValidProvisioningConfig()
 	cfg.DatabaseDriver = "sqlite"

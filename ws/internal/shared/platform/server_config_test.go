@@ -1435,6 +1435,7 @@ func setServerEditionManager(t *testing.T, cfg *ServerConfig, edition license.Ed
 	cfg.editionManager = mgr
 }
 
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
 func TestServerConfig_Validate_EditionGates_Community(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -1452,8 +1453,14 @@ func TestServerConfig_Validate_EditionGates_Community(t *testing.T) {
 			errSub: "MESSAGE_BACKEND=nats",
 		},
 		{
-			name:   "community rejects alerting",
-			modify: func(c *ServerConfig) { c.AlertEnabled = true; c.AlertSlackWebhookURL = "https://hooks.slack.com/test"; c.AlertSlackTimeout = 5 * time.Second; c.AlertRateLimitWindow = 5 * time.Minute; c.AlertRateLimitMax = 3 },
+			name: "community rejects alerting",
+			modify: func(c *ServerConfig) {
+				c.AlertEnabled = true
+				c.AlertSlackWebhookURL = "https://hooks.slack.com/test"
+				c.AlertSlackTimeout = 5 * time.Second
+				c.AlertRateLimitWindow = 5 * time.Minute
+				c.AlertRateLimitMax = 3
+			},
 			errSub: "ALERT_ENABLED",
 		},
 		{
@@ -1484,6 +1491,7 @@ func TestServerConfig_Validate_EditionGates_Community(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
 func TestServerConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -1498,7 +1506,7 @@ func TestServerConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
 			modify: func(c *ServerConfig) { c.MessageBackend = "nats"; c.NATSJetStreamURLs = "nats://localhost:4222" },
 		},
 		{
-			name:   "pro accepts alerting",
+			name: "pro accepts alerting",
 			modify: func(c *ServerConfig) {
 				c.AlertEnabled = true
 				c.AlertSlackWebhookURL = "https://hooks.slack.com/test"
@@ -1529,11 +1537,12 @@ func TestServerConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
 func TestServerConfig_Validate_EditionGates_ProLimits(t *testing.T) {
 	cfg := newValidServerConfig()
 	setServerEditionManager(t, cfg, license.Pro)
 	cfg.NumShards = 4
-	cfg.MaxConnections = 5000 // 4 * 5000 = 20000 > 10000
+	cfg.MaxConnections = 5000 // total: 4 shards x 5000 = 20K, exceeds Pro limit of 10K
 
 	err := cfg.Validate()
 	if err == nil {
@@ -1544,6 +1553,7 @@ func TestServerConfig_Validate_EditionGates_ProLimits(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
 func TestServerConfig_Validate_EditionGates_EnterpriseAcceptsAll(t *testing.T) {
 	cfg := newValidServerConfig()
 	setServerEditionManager(t, cfg, license.Enterprise)
@@ -1571,6 +1581,7 @@ func TestServerConfig_Validate_EditionGates_NoManager(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
 func TestServerConfig_Validate_EditionGates_FeatureError(t *testing.T) {
 	cfg := newValidServerConfig()
 	setServerEditionManager(t, cfg, license.Community)
