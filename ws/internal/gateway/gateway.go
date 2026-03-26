@@ -15,6 +15,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/license"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/provapi"
@@ -529,6 +530,7 @@ func (gw *Gateway) NewServer() *http.Server {
 		edition = gw.config.EditionManager().Edition().String()
 	}
 	mux.HandleFunc("/version", version.Handler("gateway", edition))
+	mux.HandleFunc("/edition", license.EditionHandler(gw.config.EditionManager(), nil))
 	mux.HandleFunc("/config", platform.ConfigHandler(gw.config))
 	mux.HandleFunc("/metrics", HandleMetrics)
 

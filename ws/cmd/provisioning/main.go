@@ -200,6 +200,7 @@ func main() {
 		CORSMaxAge:         cfg.CORSMaxAge,
 		ConfigHandler:      platform.ConfigHandler(cfg),
 		Edition:            cfg.EditionManager().Edition().String(),
+		EditionManager:     cfg.EditionManager(),
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")

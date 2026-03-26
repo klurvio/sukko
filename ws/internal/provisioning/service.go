@@ -146,6 +146,16 @@ func (s *Service) Ready(ctx context.Context) error {
 	return nil
 }
 
+// CountTenants returns the number of active (non-deleted) tenants.
+// Used by the /edition endpoint for usage reporting.
+func (s *Service) CountTenants(ctx context.Context) (int, error) {
+	count, err := s.tenants.Count(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("count tenants: %w", err)
+	}
+	return count, nil
+}
+
 // CreateTenant creates a new tenant with optional initial key and topics.
 func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*CreateTenantResponse, error) {
 	// Validate tenant
