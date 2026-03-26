@@ -524,7 +524,11 @@ func (gw *Gateway) NewServer() *http.Server {
 	mux.HandleFunc("/ws", gw.HandleWebSocket)
 	mux.HandleFunc("/health", gw.HandleHealth)
 	mux.HandleFunc("/ready", gw.HandleReady)
-	mux.HandleFunc("/version", version.Handler("gateway"))
+	edition := "community"
+	if gw.config.EditionManager() != nil {
+		edition = gw.config.EditionManager().Edition().String()
+	}
+	mux.HandleFunc("/version", version.Handler("gateway", edition))
 	mux.HandleFunc("/config", platform.ConfigHandler(gw.config))
 	mux.HandleFunc("/metrics", HandleMetrics)
 

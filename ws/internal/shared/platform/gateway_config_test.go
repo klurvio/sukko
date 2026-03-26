@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/rs/zerolog"
 )
 
 // newValidGatewayConfig returns a gateway config with all valid defaults for testing.
@@ -635,5 +638,74 @@ func TestGatewayConfig_Validate_CacheTTLAndRegistryTimeout(t *testing.T) {
 				t.Errorf("Should not error: %v", err)
 			}
 		})
+	}
+}
+
+// --- Edition Gate Tests ---
+// MUST NOT use t.Parallel() — tests share license.SetPublicKeyForTesting.
+
+func setGatewayEditionManager(t *testing.T, cfg *GatewayConfig, edition license.Edition) {
+	t.Helper()
+	priv, pub := license.GenerateTestKeyPair()
+	license.SetPublicKeyForTesting(pub)
+	claims := license.Claims{
+		Edition: edition,
+		Org:     "test",
+		Exp:     time.Now().Add(time.Hour).Unix(),
+	}
+	key := license.SignTestLicense(claims, priv)
+	mgr, err := license.NewManager(key, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("create test license manager: %v", err)
+	}
+	cfg.editionManager = mgr
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
+func TestGatewayConfig_Validate_EditionGates_Community(t *testing.T) {
+	tests := []struct {
+		name   string
+		modify func(*GatewayConfig)
+		errSub string
+	}{
+		{
+			name:   "community rejects per-tenant channel rules",
+			modify: func(c *GatewayConfig) { c.PerTenantChannelRulesEnabled = true },
+			errSub: "GATEWAY_PER_TENANT_CHANNEL_RULES",
+		},
+		{
+			name:   "community rejects tenant connection limits",
+			modify: func(c *GatewayConfig) { c.TenantConnectionLimitEnabled = true },
+			errSub: "TENANT_CONNECTION_LIMIT_ENABLED",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newValidGatewayConfig()
+			cfg.PerTenantChannelRulesEnabled = false
+			cfg.TenantConnectionLimitEnabled = false
+			setGatewayEditionManager(t, cfg, license.Community)
+			tt.modify(cfg)
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.errSub) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.errSub)
+			}
+		})
+	}
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
+func TestGatewayConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
+	cfg := newValidGatewayConfig()
+	setGatewayEditionManager(t, cfg, license.Pro)
+	cfg.PerTenantChannelRulesEnabled = true
+	cfg.TenantConnectionLimitEnabled = true
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Pro should accept per-tenant features: %v", err)
 	}
 }

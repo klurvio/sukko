@@ -16,6 +16,12 @@ type BaseConfig struct {
 	// group naming, and safety guards. Free-form: any string works as deployment identity.
 	// Sukko uses: local | dev | stg | prod by convention.
 	Environment string `env:"ENVIRONMENT" envDefault:"local"`
+
+	// LicenseKey is the signed Ed25519 license token that determines the edition
+	// (Community/Pro/Enterprise). Empty = Community. Parsed by license.Manager at startup.
+	// The editionManager field lives on each service config (ServerConfig, GatewayConfig,
+	// ProvisioningConfig) — not here — to avoid BaseConfig depending on the license package.
+	LicenseKey string `env:"SUKKO_LICENSE_KEY" redact:"true"`
 }
 
 // Validate checks that all BaseConfig fields have valid values.

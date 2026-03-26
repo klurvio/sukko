@@ -10,6 +10,8 @@ import (
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
+
+	"github.com/klurvio/sukko/internal/shared/license"
 )
 
 // GatewayConfig holds gateway configuration loaded from environment variables.
@@ -78,6 +80,15 @@ type GatewayConfig struct {
 	// Channel rules provider cache TTLs
 	ChannelRulesCacheTTL time.Duration `env:"GATEWAY_CHANNEL_RULES_CACHE_TTL" envDefault:"1m"`
 	RegistryQueryTimeout time.Duration `env:"GATEWAY_REGISTRY_QUERY_TIMEOUT" envDefault:"5s"`
+
+	// editionManager holds the license-resolved edition and limits.
+	// Set by LoadGatewayConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.
+	editionManager *license.Manager
+}
+
+// EditionManager returns the license manager for this config.
+func (c *GatewayConfig) EditionManager() *license.Manager {
+	return c.editionManager
 }
 
 // LoadGatewayConfig reads gateway configuration from environment variables.
@@ -93,6 +104,13 @@ func LoadGatewayConfig(logger zerolog.Logger) (*GatewayConfig, error) {
 	if err := env.Parse(cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse gateway config: %w", err)
 	}
+
+	// Create license manager before validation — Validate() uses edition gates.
+	mgr, err := license.NewManager(cfg.LicenseKey, logger)
+	if err != nil {
+		return nil, fmt.Errorf("license: %w", err)
+	}
+	cfg.editionManager = mgr
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("gateway config validation failed: %w", err)
@@ -198,12 +216,30 @@ func (c *GatewayConfig) Validate() error {
 		return fmt.Errorf("GATEWAY_REGISTRY_QUERY_TIMEOUT must be > 0, got %v", c.RegistryQueryTimeout)
 	}
 
+	// Edition gates — uses startup-resolved Edition(), not expiry-aware CurrentEdition().
+	if c.editionManager != nil {
+		edition := c.editionManager.Edition()
+
+		if c.PerTenantChannelRulesEnabled && !license.EditionHasFeature(edition, license.PerTenantChannelRules) {
+			return license.NewFeatureError(license.PerTenantChannelRules, edition)
+		}
+		if c.TenantConnectionLimitEnabled && !license.EditionHasFeature(edition, license.PerTenantConnectionLimits) {
+			return license.NewFeatureError(license.PerTenantConnectionLimits, edition)
+		}
+	}
+
 	return nil
 }
 
 // LogConfig logs gateway configuration using structured logging.
 func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
+	edition := "community"
+	if c.editionManager != nil {
+		edition = c.editionManager.Edition().String()
+	}
+
 	event := logger.Info().
+		Str("edition", edition).
 		Str("environment", c.Environment).
 		Int("port", c.Port).
 		Bool("auth_enabled", c.AuthEnabled).

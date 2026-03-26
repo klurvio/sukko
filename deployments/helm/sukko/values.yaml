@@ -63,6 +63,13 @@ global:
   labels:
     app.kubernetes.io/part-of: sukko
 
+  # License key for Pro/Enterprise editions.
+  # Create the secret: kubectl create secret generic sukko-license --from-literal=license-key=eyJ...
+  # Leave empty for Community Edition (no license required).
+  license:
+    existingSecret: ""
+    existingSecretKey: "license-key"
+
 # =============================================================================
 # Kernel Tuning DaemonSet
 # =============================================================================

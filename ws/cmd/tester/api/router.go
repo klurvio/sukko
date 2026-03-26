@@ -24,7 +24,7 @@ func NewRouter(r *runner.Runner, authToken string, logger zerolog.Logger) http.H
 		httputil.WriteHealthOK(w, "sukko-tester")
 	})
 	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
-		info := version.Get("sukko-tester")
+		info := version.Get("sukko-tester", "community")
 		writeJSON(w, http.StatusOK, info)
 	})
 

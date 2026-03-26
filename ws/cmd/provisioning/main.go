@@ -73,6 +73,12 @@ func main() {
 
 	structuredLogger.Info().Int("gomaxprocs", runtime.GOMAXPROCS(0)).Msg("GOMAXPROCS set by Go runtime (container-aware)")
 
+	// Log edition
+	structuredLogger.Info().
+		Str("edition", cfg.EditionManager().Edition().String()).
+		Str("org", cfg.EditionManager().Org()).
+		Msg("Sukko edition resolved")
+
 	// Create event bus for gRPC streaming notifications
 	bus := eventbus.New(structuredLogger)
 
@@ -125,6 +131,7 @@ func main() {
 		DefaultConsumerRate:  cfg.ConsumerByteRate,
 		DeprovisionGraceDays: cfg.DeprovisionGraceDays,
 		MaxRoutingRules:      cfg.MaxRoutingRules,
+		EditionManager:       cfg.EditionManager(),
 		Logger:               structuredLogger,
 	})
 	if err != nil {
@@ -192,6 +199,7 @@ func main() {
 		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
 		CORSMaxAge:         cfg.CORSMaxAge,
 		ConfigHandler:      platform.ConfigHandler(cfg),
+		Edition:            cfg.EditionManager().Edition().String(),
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")

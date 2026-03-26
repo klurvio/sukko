@@ -101,6 +101,17 @@ spec:
             - name: ENVIRONMENT
               value: {{ .Values.environment | default "local" | quote }}
 
+            # License key (Pro/Enterprise editions)
+            {{- with ((.Values.global).license) }}
+            {{- if .existingSecret }}
+            - name: SUKKO_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret }}
+                  key: {{ .existingSecretKey | default "license-key" }}
+            {{- end }}
+            {{- end }}
+
             # Server topology (override Go envDefaults for Kubernetes deployments)
             - name: WS_NUM_SHARDS
               value: {{ .Values.shards | quote }}

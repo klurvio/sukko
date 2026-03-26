@@ -22,6 +22,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/alerting"
+	"github.com/klurvio/sukko/internal/shared/license"
 )
 
 // WebSocket ping/pong validation constants.
@@ -434,6 +435,16 @@ type ServerConfig struct {
 	JetStreamRefreshInterval time.Duration `env:"JETSTREAM_REFRESH_INTERVAL" envDefault:"60s"`
 	JetStreamReplayFetchWait time.Duration `env:"JETSTREAM_REPLAY_FETCH_WAIT" envDefault:"2s"`
 	JetStreamMaxAge          time.Duration `env:"JETSTREAM_MAX_AGE" envDefault:"24h"`
+
+	// editionManager holds the license-resolved edition and limits.
+	// Set by LoadServerConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.
+	editionManager *license.Manager
+}
+
+// EditionManager returns the license manager for this config.
+// Used by cmd/server/main.go to access edition at startup and pass to service constructors.
+func (c *ServerConfig) EditionManager() *license.Manager {
+	return c.editionManager
 }
 
 // LoadServerConfig reads server configuration from .env file and environment variables
@@ -457,10 +468,17 @@ func LoadServerConfig(logger zerolog.Logger) (*ServerConfig, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	// Create license manager before validation — Validate() uses edition gates.
+	mgr, err := license.NewManager(cfg.LicenseKey, logger)
+	if err != nil {
+		return nil, fmt.Errorf("license: %w", err)
+	}
+	cfg.editionManager = mgr
+
 	// Normalize derived fields before validation
 	cfg.Normalize()
 
-	// Validation
+	// Validation (now edition-aware)
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
@@ -977,6 +995,34 @@ func (c *ServerConfig) Validate() error {
 		}
 	}
 
+	// Edition gates — checked after all other validation passes.
+	// Uses startup-resolved Edition()/Limits(), NOT expiry-aware CurrentEdition()/CurrentLimits().
+	// Config validation runs once at startup; runtime gates use CurrentLimits() for mid-flight expiry.
+	if c.editionManager != nil {
+		edition := c.editionManager.Edition()
+		limits := c.editionManager.Limits()
+
+		// Feature gates — fail at startup if config uses gated features (NFR-008)
+		if c.MessageBackend == "kafka" && !license.EditionHasFeature(edition, license.KafkaBackend) {
+			return license.NewFeatureError(license.KafkaBackend, edition)
+		}
+		if c.MessageBackend == "nats" && !license.EditionHasFeature(edition, license.NATSJetStreamBackend) {
+			return license.NewFeatureError(license.NATSJetStreamBackend, edition)
+		}
+		if c.AlertEnabled && !license.EditionHasFeature(edition, license.Alerting) {
+			return license.NewFeatureError(license.Alerting, edition)
+		}
+
+		// Hard limit gates — validate configured capacity doesn't exceed edition limits
+		if err := limits.CheckShards(c.NumShards); err != nil {
+			return fmt.Errorf("edition limit: %w", err)
+		}
+		totalConfiguredConns := c.MaxConnections * c.NumShards
+		if err := limits.CheckTotalConnections(totalConfiguredConns); err != nil {
+			return fmt.Errorf("edition limit: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -1103,7 +1149,13 @@ func (c *ServerConfig) Print() {
 
 // LogConfig logs server configuration using structured logging (Loki-compatible)
 func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
+	edition := "community"
+	if c.editionManager != nil {
+		edition = c.editionManager.Edition().String()
+	}
+
 	logger.Info().
+		Str("edition", edition).
 		Str("environment", c.Environment).
 		Str("kafka_topic_namespace_override", c.KafkaTopicNamespaceOverride).
 		Str("addr", c.Addr).

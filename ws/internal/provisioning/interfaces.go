@@ -33,6 +33,10 @@ type TenantStore interface {
 
 	// GetTenantsForDeletion returns tenants past their deprovision deadline.
 	GetTenantsForDeletion(ctx context.Context) ([]*Tenant, error)
+
+	// Count returns the number of active (non-deleted) tenants.
+	// Used by edition limit enforcement to check tenant count before creation.
+	Count(ctx context.Context) (int, error)
 }
 
 // KeyStore handles public key persistence operations.

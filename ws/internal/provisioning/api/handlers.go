@@ -12,6 +12,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/license"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
@@ -68,8 +69,31 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error, code, msg 
 		httputil.WriteError(w, http.StatusNotImplemented, "FEATURE_NOT_CONFIGURED", "Feature store not configured")
 	case errors.Is(err, provisioning.ErrTooManyRoutingRules):
 		httputil.WriteError(w, http.StatusBadRequest, "TOO_MANY_ROUTING_RULES", "Too many routing rules")
+	case isEditionError(err):
+		writeEditionError(w, err)
 	default:
 		httputil.WriteError(w, http.StatusInternalServerError, code, msg)
+	}
+}
+
+// isEditionError returns true if the error is a license edition limit or feature error.
+func isEditionError(err error) bool {
+	var limitErr *license.EditionLimitError
+	var featureErr *license.EditionFeatureError
+	return errors.As(err, &limitErr) || errors.As(err, &featureErr)
+}
+
+// writeEditionError writes an HTTP 403 response for edition limit/feature errors.
+func writeEditionError(w http.ResponseWriter, err error) {
+	var limitErr *license.EditionLimitError
+	if errors.As(err, &limitErr) {
+		httputil.WriteError(w, http.StatusForbidden, limitErr.Code(), limitErr.Error())
+		return
+	}
+	var featureErr *license.EditionFeatureError
+	if errors.As(err, &featureErr) {
+		httputil.WriteError(w, http.StatusForbidden, featureErr.Code(), featureErr.Error())
+		return
 	}
 }
 

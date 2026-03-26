@@ -75,6 +75,7 @@ jobs:
   # Deploy — Helm upgrade to DOKS demo cluster
   # ===========================================================================
   deploy:
+    if: false # temporarily disabled — cluster torn down
     name: Deploy to demo
     needs: build-and-push
     runs-on: ubuntu-latest

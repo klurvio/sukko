@@ -153,6 +153,19 @@ func (m *MockTenantStore) GetTenantsForDeletion(_ context.Context) ([]*provision
 	return result, nil
 }
 
+// Count returns the number of non-deleted tenants in the mock store.
+func (m *MockTenantStore) Count(_ context.Context) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	count := 0
+	for _, t := range m.tenants {
+		if t.Status != provisioning.StatusDeleted {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // MockKeyStore is an in-memory mock implementation of KeyStore.
 type MockKeyStore struct {
 	mu   sync.RWMutex

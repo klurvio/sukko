@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/rs/zerolog"
 )
 
 func newValidProvisioningConfig() *ProvisioningConfig {
@@ -595,5 +598,64 @@ func TestProvisioningConfig_Validate_DeletionTimeout(t *testing.T) {
 				t.Errorf("Should not error: %v", err)
 			}
 		})
+	}
+}
+
+// --- Edition Gate Tests ---
+// MUST NOT use t.Parallel() — tests share license.SetPublicKeyForTesting.
+
+func setProvisioningEditionManager(t *testing.T, cfg *ProvisioningConfig, edition license.Edition) {
+	t.Helper()
+	priv, pub := license.GenerateTestKeyPair()
+	license.SetPublicKeyForTesting(pub)
+	claims := license.Claims{
+		Edition: edition,
+		Org:     "test",
+		Exp:     time.Now().Add(time.Hour).Unix(),
+	}
+	key := license.SignTestLicense(claims, priv)
+	mgr, err := license.NewManager(key, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("create test license manager: %v", err)
+	}
+	cfg.editionManager = mgr
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
+func TestProvisioningConfig_Validate_EditionGates_Community(t *testing.T) {
+	cfg := newValidProvisioningConfig()
+	cfg.DatabaseDriver = "postgres"
+	cfg.DatabaseURL = "postgres://localhost/test"
+	setProvisioningEditionManager(t, cfg, license.Community)
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Community should reject postgres")
+	}
+	if !strings.Contains(err.Error(), "DATABASE_DRIVER=postgres") {
+		t.Errorf("error %q should mention DATABASE_DRIVER=postgres", err.Error())
+	}
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
+func TestProvisioningConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
+	cfg := newValidProvisioningConfig()
+	cfg.DatabaseDriver = "postgres"
+	cfg.DatabaseURL = "postgres://localhost/test"
+	setProvisioningEditionManager(t, cfg, license.Pro)
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Pro should accept postgres: %v", err)
+	}
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
+func TestProvisioningConfig_Validate_EditionGates_CommunityAcceptsSqlite(t *testing.T) {
+	cfg := newValidProvisioningConfig()
+	cfg.DatabaseDriver = "sqlite"
+	setProvisioningEditionManager(t, cfg, license.Community)
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Community should accept sqlite: %v", err)
 	}
 }

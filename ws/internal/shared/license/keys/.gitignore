@@ -1,0 +1,3 @@
+# Private keys must never be committed.
+# Only the public key (sukko.pub) is embedded in the binary.
+*.key

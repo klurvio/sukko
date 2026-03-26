@@ -64,6 +64,12 @@ func main() {
 
 	config.LogConfig(logger)
 
+	// Log edition
+	logger.Info().
+		Str("edition", config.EditionManager().Edition().String()).
+		Str("org", config.EditionManager().Org()).
+		Msg("Sukko edition resolved")
+
 	// --validate-config: validate and exit
 	if *validateConfig {
 		logger.Info().Msg("Configuration is valid")

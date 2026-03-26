@@ -39,6 +39,9 @@ type RouterConfig struct {
 
 	// ConfigHandler serves the /config endpoint (set via platform.ConfigHandler)
 	ConfigHandler http.HandlerFunc
+
+	// Edition is the current Sukko edition for the /version endpoint.
+	Edition string
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -77,7 +80,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 	// Health endpoints (no auth required)
 	r.Get("/health", h.Health)
 	r.Get("/ready", h.Ready)
-	r.Get("/version", version.Handler("provisioning"))
+	r.Get("/version", version.Handler("provisioning", cfg.Edition))
 	if cfg.ConfigHandler != nil {
 		r.Get("/config", cfg.ConfigHandler)
 	}

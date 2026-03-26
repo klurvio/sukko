@@ -1,9 +1,13 @@
 package platform
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/rs/zerolog"
 )
 
 // newValidServerConfig returns a server config with all valid defaults for testing.
@@ -1406,5 +1410,196 @@ func TestServerConfig_Validate_NATSMaxReconnects(t *testing.T) {
 				t.Errorf("Should not error: %v", err)
 			}
 		})
+	}
+}
+
+// --- Edition Gate Tests ---
+// MUST NOT use t.Parallel() — tests share license.SetPublicKeyForTesting.
+
+// setEditionManager creates a license.Manager from a test license key and assigns
+// it to the config's unexported editionManager field.
+func setServerEditionManager(t *testing.T, cfg *ServerConfig, edition license.Edition) {
+	t.Helper()
+	priv, pub := license.GenerateTestKeyPair()
+	license.SetPublicKeyForTesting(pub)
+	claims := license.Claims{
+		Edition: edition,
+		Org:     "test",
+		Exp:     time.Now().Add(time.Hour).Unix(),
+	}
+	key := license.SignTestLicense(claims, priv)
+	mgr, err := license.NewManager(key, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("create test license manager: %v", err)
+	}
+	cfg.editionManager = mgr
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
+func TestServerConfig_Validate_EditionGates_Community(t *testing.T) {
+	tests := []struct {
+		name   string
+		modify func(*ServerConfig)
+		errSub string
+	}{
+		{
+			name:   "community rejects kafka backend",
+			modify: func(c *ServerConfig) { c.MessageBackend = "kafka" },
+			errSub: "MESSAGE_BACKEND=kafka",
+		},
+		{
+			name:   "community rejects nats backend",
+			modify: func(c *ServerConfig) { c.MessageBackend = "nats"; c.NATSJetStreamURLs = "nats://localhost:4222" },
+			errSub: "MESSAGE_BACKEND=nats",
+		},
+		{
+			name: "community rejects alerting",
+			modify: func(c *ServerConfig) {
+				c.AlertEnabled = true
+				c.AlertSlackWebhookURL = "https://hooks.slack.com/test"
+				c.AlertSlackTimeout = 5 * time.Second
+				c.AlertRateLimitWindow = 5 * time.Minute
+				c.AlertRateLimitMax = 3
+			},
+			errSub: "ALERT_ENABLED",
+		},
+		{
+			name:   "community rejects 2 shards",
+			modify: func(c *ServerConfig) { c.NumShards = 2 },
+			errSub: "shards",
+		},
+		{
+			name:   "community rejects 1000 connections (1000 > 500)",
+			modify: func(c *ServerConfig) { c.MaxConnections = 1000 },
+			errSub: "total_connections",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newValidServerConfig()
+			setServerEditionManager(t, cfg, license.Community)
+			tt.modify(cfg)
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.errSub) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.errSub)
+			}
+		})
+	}
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
+func TestServerConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
+	tests := []struct {
+		name   string
+		modify func(*ServerConfig)
+	}{
+		{
+			name:   "pro accepts kafka backend",
+			modify: func(c *ServerConfig) { c.MessageBackend = "kafka" },
+		},
+		{
+			name:   "pro accepts nats backend",
+			modify: func(c *ServerConfig) { c.MessageBackend = "nats"; c.NATSJetStreamURLs = "nats://localhost:4222" },
+		},
+		{
+			name: "pro accepts alerting",
+			modify: func(c *ServerConfig) {
+				c.AlertEnabled = true
+				c.AlertSlackWebhookURL = "https://hooks.slack.com/test"
+				c.AlertSlackTimeout = 5 * time.Second
+				c.AlertRateLimitWindow = 5 * time.Minute
+				c.AlertRateLimitMax = 3
+			},
+		},
+		{
+			name:   "pro accepts 8 shards",
+			modify: func(c *ServerConfig) { c.NumShards = 8; c.MaxConnections = 500 },
+		},
+		{
+			name:   "pro accepts 10000 connections",
+			modify: func(c *ServerConfig) { c.NumShards = 2; c.MaxConnections = 5000 },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newValidServerConfig()
+			setServerEditionManager(t, cfg, license.Pro)
+			tt.modify(cfg)
+
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
+func TestServerConfig_Validate_EditionGates_ProLimits(t *testing.T) {
+	cfg := newValidServerConfig()
+	setServerEditionManager(t, cfg, license.Pro)
+	cfg.NumShards = 4
+	cfg.MaxConnections = 5000 // total: 4 shards x 5000 = 20K, exceeds Pro limit of 10K
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for 20K connections on Pro (max 10K)")
+	}
+	if !strings.Contains(err.Error(), "total_connections") {
+		t.Errorf("error %q should mention total_connections", err.Error())
+	}
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
+func TestServerConfig_Validate_EditionGates_EnterpriseAcceptsAll(t *testing.T) {
+	cfg := newValidServerConfig()
+	setServerEditionManager(t, cfg, license.Enterprise)
+	cfg.MessageBackend = "kafka"
+	cfg.NumShards = 16
+	cfg.MaxConnections = 50000
+	cfg.AlertEnabled = true
+	cfg.AlertSlackWebhookURL = "https://hooks.slack.com/test"
+	cfg.AlertSlackTimeout = 5 * time.Second
+	cfg.AlertRateLimitWindow = 5 * time.Minute
+	cfg.AlertRateLimitMax = 3
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Enterprise should accept everything: %v", err)
+	}
+}
+
+func TestServerConfig_Validate_EditionGates_NoManager(t *testing.T) {
+	t.Parallel()
+	// No editionManager set → edition gates skipped (backward compatibility)
+	cfg := newValidServerConfig()
+	cfg.MessageBackend = "kafka"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("no manager should skip edition gates: %v", err)
+	}
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
+func TestServerConfig_Validate_EditionGates_FeatureError(t *testing.T) {
+	cfg := newValidServerConfig()
+	setServerEditionManager(t, cfg, license.Community)
+	cfg.MessageBackend = "kafka"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	var featureErr *license.EditionFeatureError
+	if !errors.As(err, &featureErr) {
+		t.Fatalf("expected EditionFeatureError, got %T: %v", err, err)
+	}
+	if featureErr.Feature != license.KafkaBackend {
+		t.Errorf("Feature = %q, want KafkaBackend", featureErr.Feature)
+	}
+	if featureErr.CurrentEdition != license.Community {
+		t.Errorf("CurrentEdition = %q, want Community", featureErr.CurrentEdition)
 	}
 }

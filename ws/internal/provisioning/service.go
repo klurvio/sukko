@@ -13,6 +13,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
@@ -69,21 +70,26 @@ type ServiceConfig struct {
 	// MaxRoutingRules limits the number of routing rules per tenant.
 	// Wired from env var MAX_ROUTING_RULES (default: 100).
 	MaxRoutingRules int
+
+	// EditionManager provides expiry-aware edition limits for runtime gates.
+	// May be nil in tests — edition gates are skipped when nil.
+	EditionManager *license.Manager
 }
 
 // Service provides tenant lifecycle management and provisioning operations.
 type Service struct {
-	tenants      TenantStore
-	keys         KeyStore
-	apiKeys      APIKeyStore
-	routingRules RoutingRulesStore
-	quotas       QuotaStore
-	audit        AuditStore
-	channelRules ChannelRulesStore
-	kafka        KafkaAdmin
-	eventBus     *eventbus.Bus
-	logger       zerolog.Logger
-	config       ServiceConfig
+	tenants        TenantStore
+	keys           KeyStore
+	apiKeys        APIKeyStore
+	routingRules   RoutingRulesStore
+	quotas         QuotaStore
+	audit          AuditStore
+	channelRules   ChannelRulesStore
+	kafka          KafkaAdmin
+	eventBus       *eventbus.Bus
+	logger         zerolog.Logger
+	config         ServiceConfig
+	editionManager *license.Manager
 }
 
 // NewService creates a new provisioning Service.
@@ -116,17 +122,18 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}
 
 	return &Service{
-		tenants:      cfg.TenantStore,
-		keys:         cfg.KeyStore,
-		apiKeys:      cfg.APIKeyStore,
-		routingRules: cfg.RoutingRulesStore,
-		quotas:       cfg.QuotaStore,
-		audit:        cfg.AuditStore,
-		channelRules: cfg.ChannelRulesStore,
-		kafka:        cfg.KafkaAdmin,
-		eventBus:     cfg.EventBus,
-		logger:       cfg.Logger,
-		config:       cfg,
+		tenants:        cfg.TenantStore,
+		keys:           cfg.KeyStore,
+		apiKeys:        cfg.APIKeyStore,
+		routingRules:   cfg.RoutingRulesStore,
+		quotas:         cfg.QuotaStore,
+		audit:          cfg.AuditStore,
+		channelRules:   cfg.ChannelRulesStore,
+		kafka:          cfg.KafkaAdmin,
+		eventBus:       cfg.EventBus,
+		logger:         cfg.Logger,
+		config:         cfg,
+		editionManager: cfg.EditionManager,
 	}, nil
 }
 
@@ -156,6 +163,18 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 
 	if err := tenant.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid tenant: %w", err)
+	}
+
+	// Edition limit: tenant count (uses CurrentLimits() for mid-flight expiry detection)
+	if s.editionManager != nil {
+		limits := s.editionManager.CurrentLimits()
+		count, err := s.tenants.Count(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("count tenants: %w", err)
+		}
+		if err := limits.CheckTenants(count); err != nil {
+			return nil, fmt.Errorf("edition limit: %w", err)
+		}
 	}
 
 	// FR-008: Tenant IDs must not contain dots (used as channel separator)
@@ -717,6 +736,14 @@ func (s *Service) SetRoutingRules(ctx context.Context, tenantID string, rules []
 	}
 	if tenant.Status != StatusActive {
 		return fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
+	}
+
+	// Edition limit: routing rules per tenant (uses CurrentLimits() for mid-flight expiry detection)
+	if s.editionManager != nil {
+		limits := s.editionManager.CurrentLimits()
+		if err := limits.CheckRoutingRulesPerTenant(len(rules)); err != nil {
+			return fmt.Errorf("edition limit: %w", err)
+		}
 	}
 
 	// Enforce configurable count limit (default from env var MAX_ROUTING_RULES)
