@@ -52,11 +52,11 @@ func (e *EditionLimitError) Code() string {
 }
 
 // NewLimitError creates an EditionLimitError.
-func NewLimitError(dimension string, current, max int, edition Edition) *EditionLimitError {
+func NewLimitError(dimension string, current, limit int, edition Edition) *EditionLimitError {
 	return &EditionLimitError{
 		Dimension: dimension,
 		Current:   current,
-		Max:       max,
+		Max:       limit,
 		Edition:   edition,
 	}
 }

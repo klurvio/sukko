@@ -3,6 +3,7 @@ package license
 import "testing"
 
 func TestRequiredEdition(t *testing.T) {
+	t.Parallel()
 	proFeatures := []Feature{
 		KafkaBackend, NATSJetStreamBackend, PostgresDatabase, SSETransport,
 		PerTenantChannelRules, PerTenantConnectionLimits, PerTenantConfigurableQuotas,
@@ -32,6 +33,7 @@ func TestRequiredEdition(t *testing.T) {
 }
 
 func TestEditionHasFeature(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		edition Edition
@@ -56,6 +58,7 @@ func TestEditionHasFeature(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := EditionHasFeature(tt.edition, tt.feature); got != tt.want {
 				t.Errorf("EditionHasFeature(%q, %q) = %v, want %v", tt.edition, tt.feature, got, tt.want)
 			}

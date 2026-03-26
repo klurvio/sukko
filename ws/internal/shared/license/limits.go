@@ -3,22 +3,22 @@ package license
 // Limits defines the hard limits for an edition. A value of 0 means unlimited.
 type Limits struct {
 	// Edition is which edition these limits belong to (included in error messages).
-	Edition Edition `json:"edition,omitempty"`
+	Edition Edition `json:"edition,omitzero"`
 
 	// MaxTenants is the maximum number of active (non-deleted) tenants.
-	MaxTenants int `json:"max_tenants,omitempty"`
+	MaxTenants int `json:"max_tenants,omitzero"`
 
 	// MaxTotalConnections is the maximum total WebSocket connections across all shards.
-	MaxTotalConnections int `json:"max_total_connections,omitempty"`
+	MaxTotalConnections int `json:"max_total_connections,omitzero"`
 
 	// MaxShards is the maximum number of ws-server shards (WS_NUM_SHARDS).
-	MaxShards int `json:"max_shards,omitempty"`
+	MaxShards int `json:"max_shards,omitzero"`
 
 	// MaxTopicsPerTenant is the maximum Kafka/JetStream topics per tenant.
-	MaxTopicsPerTenant int `json:"max_topics_per_tenant,omitempty"`
+	MaxTopicsPerTenant int `json:"max_topics_per_tenant,omitzero"`
 
 	// MaxRoutingRulesPerTenant is the maximum routing rules per tenant.
-	MaxRoutingRulesPerTenant int `json:"max_routing_rules_per_tenant,omitempty"`
+	MaxRoutingRulesPerTenant int `json:"max_routing_rules_per_tenant,omitzero"`
 }
 
 // DefaultLimits returns the hardcoded default limits for the given edition.
@@ -100,25 +100,25 @@ func IsUnlimited(val int) bool {
 // checkCount checks "existing count before adding one more".
 // Used for tenants, topics — where current is the count and you're about to create another.
 // Fails if current >= max (at the limit = can't add).
-func (l Limits) checkCount(dimension string, current, max int) error {
-	if IsUnlimited(max) {
+func (l Limits) checkCount(dimension string, current, limit int) error {
+	if IsUnlimited(limit) {
 		return nil
 	}
-	if current >= max {
-		return NewLimitError(dimension, current, max, l.Edition)
+	if current >= limit {
+		return NewLimitError(dimension, current, limit, l.Edition)
 	}
 	return nil
 }
 
 // checkValue checks "configured or requested value against a ceiling".
 // Used for shards, connections, routing rules — where current IS the value to validate.
-// Fails if current > max (the value itself exceeds the limit).
-func (l Limits) checkValue(dimension string, current, max int) error {
-	if IsUnlimited(max) {
+// Fails if current > limit (the value itself exceeds the limit).
+func (l Limits) checkValue(dimension string, current, limit int) error {
+	if IsUnlimited(limit) {
 		return nil
 	}
-	if current > max {
-		return NewLimitError(dimension, current, max, l.Edition)
+	if current > limit {
+		return NewLimitError(dimension, current, limit, l.Edition)
 	}
 	return nil
 }

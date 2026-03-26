@@ -10,6 +10,7 @@ import (
 
 // MUST NOT use t.Parallel() — tests share package-level publicKey via SetPublicKeyForTesting.
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestParseAndVerify_Valid(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -37,6 +38,7 @@ func TestParseAndVerify_Valid(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestParseAndVerify_Expired(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -61,6 +63,7 @@ func TestParseAndVerify_Expired(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestParseAndVerify_InvalidSignature(t *testing.T) {
 	_, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -76,6 +79,7 @@ func TestParseAndVerify_InvalidSignature(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestParseAndVerify_InvalidFormat(t *testing.T) {
 	_, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -100,6 +104,7 @@ func TestParseAndVerify_InvalidFormat(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestParseAndVerify_InvalidJSON(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -115,6 +120,7 @@ func TestParseAndVerify_InvalidJSON(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestParseAndVerify_WithLimits(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)

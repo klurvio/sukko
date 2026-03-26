@@ -2,7 +2,12 @@
 // The public key is embedded in the Sukko binary; the private key is used
 // only by the License Service.
 //
+// This is a standalone CLI tool, not a production service. It uses fmt for
+// output instead of zerolog (no service context).
+//
 // Usage: go run ./internal/shared/license/genkeys
+//
+//nolint:forbidigo // standalone CLI tool — fmt output is intentional, not a logging violation
 package main
 
 import (
@@ -22,7 +27,7 @@ func main() {
 	pubPath := "internal/shared/license/keys/sukko.pub"
 	privPath := "internal/shared/license/keys/sukko.dev.key"
 
-	if err := os.WriteFile(pubPath, pub, 0o644); err != nil {
+	if err := os.WriteFile(pubPath, pub, 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "write public key: %v\n", err)
 		os.Exit(1)
 	}

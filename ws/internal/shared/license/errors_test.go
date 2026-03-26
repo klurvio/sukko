@@ -7,6 +7,7 @@ import (
 )
 
 func TestEditionLimitError_Error(t *testing.T) {
+	t.Parallel()
 	err := NewLimitError("tenants", 3, 3, Community)
 	msg := err.Error()
 
@@ -18,6 +19,7 @@ func TestEditionLimitError_Error(t *testing.T) {
 }
 
 func TestEditionLimitError_Code(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		dimension string
 		wantCode  string
@@ -37,6 +39,7 @@ func TestEditionLimitError_Code(t *testing.T) {
 }
 
 func TestEditionFeatureError_Error(t *testing.T) {
+	t.Parallel()
 	err := NewFeatureError(KafkaBackend, Community)
 	msg := err.Error()
 
@@ -48,6 +51,7 @@ func TestEditionFeatureError_Error(t *testing.T) {
 }
 
 func TestEditionFeatureError_Code(t *testing.T) {
+	t.Parallel()
 	err := NewFeatureError(KafkaBackend, Community)
 	if got := err.Code(); got != "EDITION_FEATURE_REQUIRED" {
 		t.Errorf("Code() = %q, want EDITION_FEATURE_REQUIRED", got)
@@ -55,6 +59,7 @@ func TestEditionFeatureError_Code(t *testing.T) {
 }
 
 func TestEditionLimitError_ErrorsAs(t *testing.T) {
+	t.Parallel()
 	err := NewLimitError("tenants", 3, 3, Community)
 
 	var limitErr *EditionLimitError
@@ -67,6 +72,7 @@ func TestEditionLimitError_ErrorsAs(t *testing.T) {
 }
 
 func TestEditionFeatureError_ErrorsAs(t *testing.T) {
+	t.Parallel()
 	err := NewFeatureError(KafkaBackend, Community)
 
 	var featureErr *EditionFeatureError

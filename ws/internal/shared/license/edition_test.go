@@ -3,6 +3,7 @@ package license
 import "testing"
 
 func TestEdition_String(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		edition Edition
 		want    string
@@ -20,6 +21,7 @@ func TestEdition_String(t *testing.T) {
 }
 
 func TestEdition_IsAtLeast(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		edition Edition
@@ -48,6 +50,7 @@ func TestEdition_IsAtLeast(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.edition.IsAtLeast(tt.other); got != tt.want {
 				t.Errorf("Edition(%q).IsAtLeast(%q) = %v, want %v", tt.edition, tt.other, got, tt.want)
 			}
@@ -56,6 +59,7 @@ func TestEdition_IsAtLeast(t *testing.T) {
 }
 
 func TestEdition_ZeroValue(t *testing.T) {
+	t.Parallel()
 	var e Edition
 	if e.String() != "community" {
 		t.Errorf("zero Edition.String() = %q, want %q", e.String(), "community")

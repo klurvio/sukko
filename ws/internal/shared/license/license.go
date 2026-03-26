@@ -38,7 +38,7 @@ type Claims struct {
 
 	// Limits contains per-customer limit overrides. Non-zero values override
 	// the edition's DefaultLimits.
-	Limits Limits `json:"limits,omitempty"`
+	Limits Limits `json:"limits,omitzero"`
 }
 
 // IsExpired returns true if the license has passed its expiration date.

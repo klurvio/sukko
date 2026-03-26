@@ -7,6 +7,7 @@ import (
 )
 
 func TestDefaultLimits(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		edition    Edition
 		tenants    int
@@ -19,11 +20,12 @@ func TestDefaultLimits(t *testing.T) {
 		{Community, 3, 500, 1, 10, 10, Community},
 		{Pro, 50, 10000, 8, 50, 100, Pro},
 		{Enterprise, 0, 0, 0, 0, 0, Enterprise},
-		{"", 3, 500, 1, 10, 10, Community},           // empty → Community
+		{"", 3, 500, 1, 10, 10, Community},                 // empty → Community
 		{Edition("unknown"), 3, 500, 1, 10, 10, Community}, // unknown → Community
 	}
 	for _, tt := range tests {
 		t.Run(tt.edition.String(), func(t *testing.T) {
+			t.Parallel()
 			l := DefaultLimits(tt.edition)
 			if l.Edition != tt.wantEdName {
 				t.Errorf("Edition = %q, want %q", l.Edition, tt.wantEdName)
@@ -48,6 +50,7 @@ func TestDefaultLimits(t *testing.T) {
 }
 
 func TestLimits_CheckTenants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		limits  Limits
@@ -62,6 +65,7 @@ func TestLimits_CheckTenants(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := tt.limits.CheckTenants(tt.current)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CheckTenants(%d) error = %v, wantErr %v", tt.current, err, tt.wantErr)
@@ -83,6 +87,7 @@ func TestLimits_CheckTenants(t *testing.T) {
 }
 
 func TestLimits_CheckTotalConnections(t *testing.T) {
+	t.Parallel()
 	community := DefaultLimits(Community)
 	// CheckTotalConnections uses checkValue (>) — configured capacity
 	if err := community.CheckTotalConnections(500); err != nil {
@@ -99,6 +104,7 @@ func TestLimits_CheckTotalConnections(t *testing.T) {
 }
 
 func TestLimits_CheckShards(t *testing.T) {
+	t.Parallel()
 	community := DefaultLimits(Community)
 	// CheckShards uses checkValue (>) not checkCount (>=)
 	// NumShards=1 with MaxShards=1 is allowed (1 is not > 1)
@@ -119,6 +125,7 @@ func TestLimits_CheckShards(t *testing.T) {
 }
 
 func TestLimits_CheckTopicsPerTenant(t *testing.T) {
+	t.Parallel()
 	community := DefaultLimits(Community)
 	if err := community.CheckTopicsPerTenant(9); err != nil {
 		t.Errorf("9 < 10 should pass: %v", err)
@@ -129,6 +136,7 @@ func TestLimits_CheckTopicsPerTenant(t *testing.T) {
 }
 
 func TestLimits_CheckRoutingRulesPerTenant(t *testing.T) {
+	t.Parallel()
 	community := DefaultLimits(Community)
 	// CheckRoutingRulesPerTenant uses checkValue (>) — len(rules) is the requested value
 	if err := community.CheckRoutingRulesPerTenant(10); err != nil {
@@ -140,6 +148,7 @@ func TestLimits_CheckRoutingRulesPerTenant(t *testing.T) {
 }
 
 func TestIsUnlimited(t *testing.T) {
+	t.Parallel()
 	if !IsUnlimited(0) {
 		t.Error("0 should be unlimited")
 	}
@@ -152,6 +161,7 @@ func TestIsUnlimited(t *testing.T) {
 }
 
 func TestLimits_CheckError_Format(t *testing.T) {
+	t.Parallel()
 	limits := DefaultLimits(Community)
 	err := limits.CheckTenants(3)
 	if err == nil {

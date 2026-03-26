@@ -9,6 +9,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// editionHolder wraps an Edition for atomic.Pointer storage.
+type editionHolder struct{ v Edition }
+
+// limitsHolder wraps Limits for atomic.Pointer storage.
+type limitsHolder struct{ v Limits }
+
 // Manager resolves and provides the current edition, limits, and feature gates.
 //
 // It is created once at startup with NewManager and provides two sets of accessors:
@@ -27,12 +33,12 @@ import (
 // deployments detect license expiry without needing a restart.
 type Manager struct {
 	// Startup-resolved values (never change after construction).
-	edition atomic.Value // Edition
-	limits  atomic.Value // Limits
+	edition atomic.Pointer[editionHolder]
+	limits  atomic.Pointer[limitsHolder]
 
 	// Claims from the license key (nil for Community with no key).
 	// Stored even when expired — useful for debugging and Org() access.
-	claims atomic.Value // *Claims
+	claims atomic.Pointer[Claims]
 
 	logger zerolog.Logger
 }
@@ -51,8 +57,8 @@ func NewManager(licenseKey string, logger zerolog.Logger) (*Manager, error) {
 
 	// No license key → Community
 	if licenseKey == "" {
-		m.edition.Store(Community)
-		m.limits.Store(DefaultLimits(Community))
+		m.edition.Store(&editionHolder{Community})
+		m.limits.Store(&limitsHolder{DefaultLimits(Community)})
 		m.logger.Info().Str("edition", Community.String()).Msg("No license key, running as Community edition")
 		return m, nil
 	}
@@ -62,8 +68,8 @@ func NewManager(licenseKey string, logger zerolog.Logger) (*Manager, error) {
 
 	// Handle expired license: degrade to Community (FR-036)
 	if errors.Is(err, ErrLicenseExpired) {
-		m.edition.Store(Community)
-		m.limits.Store(DefaultLimits(Community))
+		m.edition.Store(&editionHolder{Community})
+		m.limits.Store(&limitsHolder{DefaultLimits(Community)})
 		m.claims.Store(claims) // store expired claims for debugging/Org()
 
 		m.logger.Warn().
@@ -85,8 +91,8 @@ func NewManager(licenseKey string, logger zerolog.Logger) (*Manager, error) {
 	edition := claims.Edition.normalize()
 	limits := resolveLimits(edition, claims.Limits)
 
-	m.edition.Store(edition)
-	m.limits.Store(limits)
+	m.edition.Store(&editionHolder{edition})
+	m.limits.Store(&limitsHolder{limits})
 	m.claims.Store(claims)
 
 	m.logger.Info().
@@ -102,13 +108,13 @@ func NewManager(licenseKey string, logger zerolog.Logger) (*Manager, error) {
 // Edition returns the startup-resolved edition. Used by Config.Validate().
 // This value never changes after construction — even if the license expires mid-flight.
 func (m *Manager) Edition() Edition {
-	return m.edition.Load().(Edition)
+	return m.edition.Load().v
 }
 
 // Limits returns the startup-resolved limits. Used by Config.Validate().
 // This value never changes after construction.
 func (m *Manager) Limits() Limits {
-	return m.limits.Load().(Limits)
+	return m.limits.Load().v
 }
 
 // CurrentEdition returns the expiry-aware edition.
@@ -119,7 +125,7 @@ func (m *Manager) CurrentEdition() Edition {
 	if claims != nil && claims.IsExpired() {
 		return Community
 	}
-	return m.edition.Load().(Edition)
+	return m.edition.Load().v
 }
 
 // CurrentLimits returns the expiry-aware limits.
@@ -130,7 +136,7 @@ func (m *Manager) CurrentLimits() Limits {
 	if claims != nil && claims.IsExpired() {
 		return DefaultLimits(Community)
 	}
-	return m.limits.Load().(Limits)
+	return m.limits.Load().v
 }
 
 // HasFeature returns true if the current (expiry-aware) edition includes the feature.
@@ -152,13 +158,9 @@ func (m *Manager) Org() string {
 	return ""
 }
 
-// loadClaims safely loads claims from the atomic value.
+// loadClaims safely loads claims from the atomic pointer.
 func (m *Manager) loadClaims() *Claims {
-	v := m.claims.Load()
-	if v == nil {
-		return nil
-	}
-	return v.(*Claims)
+	return m.claims.Load()
 }
 
 // resolveLimits applies the claims-override-defaults precedence rule.

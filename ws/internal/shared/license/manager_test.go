@@ -12,6 +12,7 @@ import (
 
 var testLogger = zerolog.Nop()
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestNewManager_NoKey(t *testing.T) {
 	m, err := NewManager("", testLogger)
 	if err != nil {
@@ -40,6 +41,7 @@ func TestNewManager_NoKey(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestNewManager_ValidPro(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -70,6 +72,7 @@ func TestNewManager_ValidPro(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestNewManager_ValidEnterprise(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -91,6 +94,7 @@ func TestNewManager_ValidEnterprise(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestNewManager_ExpiredAtStartup(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -124,6 +128,7 @@ func TestNewManager_ExpiredAtStartup(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestNewManager_MidFlightExpiry(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -172,6 +177,7 @@ func TestNewManager_MidFlightExpiry(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestNewManager_InvalidSignature(t *testing.T) {
 	_, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -189,6 +195,7 @@ func TestNewManager_InvalidSignature(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestNewManager_MalformedKey(t *testing.T) {
 	_, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -202,6 +209,7 @@ func TestNewManager_MalformedKey(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestNewManager_LimitsPrecedence(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -233,6 +241,7 @@ func TestNewManager_LimitsPrecedence(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestManager_HasFeature(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
