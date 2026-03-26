@@ -1469,7 +1469,7 @@ func TestServerConfig_Validate_EditionGates_Community(t *testing.T) {
 			errSub: "shards",
 		},
 		{
-			name:   "community rejects 1000 connections (1000 > 500)",
+			name:   "community rejects 1000 total connections (limit 500)",
 			modify: func(c *ServerConfig) { c.MaxConnections = 1000 },
 			errSub: "total_connections",
 		},
@@ -1539,17 +1539,32 @@ func TestServerConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
 
 //nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
 func TestServerConfig_Validate_EditionGates_ProLimits(t *testing.T) {
+	// WS_MAX_CONNECTIONS is the TOTAL (divided across shards in main.go).
+	// The gate checks MaxConnections directly, NOT MaxConnections * NumShards.
 	cfg := newValidServerConfig()
 	setServerEditionManager(t, cfg, license.Pro)
 	cfg.NumShards = 4
-	cfg.MaxConnections = 5000 // total: 4 shards x 5000 = 20K, exceeds Pro limit of 10K
+	cfg.MaxConnections = 15000 // 15K total exceeds Pro limit of 10K
 
 	err := cfg.Validate()
 	if err == nil {
-		t.Fatal("expected error for 20K connections on Pro (max 10K)")
+		t.Fatal("expected error for 15K connections on Pro (max 10K)")
 	}
 	if !strings.Contains(err.Error(), "total_connections") {
 		t.Errorf("error %q should mention total_connections", err.Error())
+	}
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
+func TestServerConfig_Validate_EditionGates_ProAcceptsWithinLimit(t *testing.T) {
+	// 5K total across 4 shards = well within Pro's 10K limit
+	cfg := newValidServerConfig()
+	setServerEditionManager(t, cfg, license.Pro)
+	cfg.NumShards = 4
+	cfg.MaxConnections = 5000
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("5K connections on Pro should pass (max 10K): %v", err)
 	}
 }
 
