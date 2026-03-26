@@ -11,12 +11,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
-//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
-
 func TestEditionHandler_NilManager(t *testing.T) {
+	t.Parallel()
 	handler := EditionHandler(nil, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/edition", nil)
+	req := httptest.NewRequest(http.MethodGet, "/edition", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler(rec, req)
 
@@ -39,6 +38,7 @@ func TestEditionHandler_NilManager(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestEditionHandler_ValidPro(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -52,7 +52,7 @@ func TestEditionHandler_ValidPro(t *testing.T) {
 
 	handler := EditionHandler(mgr, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/edition", nil)
+	req := httptest.NewRequest(http.MethodGet, "/edition", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler(rec, req)
 
@@ -77,6 +77,7 @@ func TestEditionHandler_ValidPro(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestEditionHandler_WithUsage(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -95,7 +96,7 @@ func TestEditionHandler_WithUsage(t *testing.T) {
 
 	handler := EditionHandler(mgr, usageFn)
 
-	req := httptest.NewRequest(http.MethodGet, "/edition", nil)
+	req := httptest.NewRequest(http.MethodGet, "/edition", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler(rec, req)
 
@@ -111,6 +112,7 @@ func TestEditionHandler_WithUsage(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestEditionHandler_ExpiredLicense(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -124,7 +126,7 @@ func TestEditionHandler_ExpiredLicense(t *testing.T) {
 
 	handler := EditionHandler(mgr, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/edition", nil)
+	req := httptest.NewRequest(http.MethodGet, "/edition", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler(rec, req)
 
@@ -141,16 +143,16 @@ func TestEditionHandler_ExpiredLicense(t *testing.T) {
 	if resp.Org != "ExpiredCo" {
 		t.Errorf("Org = %q, want ExpiredCo", resp.Org)
 	}
-	// Limits should be Community (degraded)
 	if resp.Limits.MaxTenants != 3 {
 		t.Errorf("MaxTenants = %d, want 3 (Community degraded)", resp.Limits.MaxTenants)
 	}
 }
 
 func TestEditionHandler_NilUsageFunc(t *testing.T) {
+	t.Parallel()
 	handler := EditionHandler(nil, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/edition", nil)
+	req := httptest.NewRequest(http.MethodGet, "/edition", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler(rec, req)
 
@@ -163,6 +165,7 @@ func TestEditionHandler_NilUsageFunc(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
 func TestEditionHandler_UsageFuncReturnsNil(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
@@ -174,14 +177,13 @@ func TestEditionHandler_UsageFuncReturnsNil(t *testing.T) {
 		t.Fatalf("create manager: %v", err)
 	}
 
-	// Simulate usage func failure (returns nil)
 	usageFn := func(_ context.Context) *EditionUsage {
 		return nil // usage unavailable
 	}
 
 	handler := EditionHandler(mgr, usageFn)
 
-	req := httptest.NewRequest(http.MethodGet, "/edition", nil)
+	req := httptest.NewRequest(http.MethodGet, "/edition", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler(rec, req)
 
@@ -189,7 +191,6 @@ func TestEditionHandler_UsageFuncReturnsNil(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// Edition info still present even though usage failed
 	if resp.Edition != "pro" {
 		t.Errorf("Edition = %q, want pro", resp.Edition)
 	}
