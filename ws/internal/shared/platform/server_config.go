@@ -1017,8 +1017,9 @@ func (c *ServerConfig) Validate() error {
 		if err := limits.CheckShards(c.NumShards); err != nil {
 			return fmt.Errorf("edition limit: %w", err)
 		}
-		totalConfiguredConns := c.MaxConnections * c.NumShards
-		if err := limits.CheckTotalConnections(totalConfiguredConns); err != nil {
+		// WS_MAX_CONNECTIONS is the TOTAL capacity (divided across shards in cmd/server/main.go).
+		// Check it directly — do NOT multiply by NumShards.
+		if err := limits.CheckTotalConnections(c.MaxConnections); err != nil {
 			return fmt.Errorf("edition limit: %w", err)
 		}
 	}
@@ -1046,7 +1047,13 @@ func (c *ServerConfig) AlertConfig() alerting.Config {
 // Print logs server configuration for debugging (human-readable format)
 // For production, use LogConfig() with structured logging
 func (c *ServerConfig) Print() {
+	edition := "community"
+	if c.editionManager != nil {
+		edition = c.editionManager.Edition().String()
+	}
+
 	_, _ = fmt.Fprintln(os.Stdout, "=== Server Configuration ===")
+	_, _ = fmt.Fprintf(os.Stdout, "Edition:         %s\n", edition)
 	_, _ = fmt.Fprintf(os.Stdout, "Environment:     %s\n", c.Environment)
 	if c.KafkaTopicNamespaceOverride != "" {
 		_, _ = fmt.Fprintf(os.Stdout, "Topic Namespace: %s (override)\n", c.KafkaTopicNamespaceOverride)

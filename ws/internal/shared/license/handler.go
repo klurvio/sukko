@@ -46,7 +46,7 @@ type UsageFunc func(ctx context.Context) *EditionUsage
 func EditionHandler(mgr *Manager, usageFn UsageFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if mgr == nil {
-			_ = httputil.WriteJSON(w, http.StatusOK, EditionResponse{
+			_ = httputil.WriteJSON(w, http.StatusOK, EditionResponse{ // WriteJSON error = broken client connection; nothing actionable
 				Edition: Community.String(),
 				Limits:  limitsToResponse(DefaultLimits(Community)),
 			})
@@ -74,7 +74,7 @@ func EditionHandler(mgr *Manager, usageFn UsageFunc) http.HandlerFunc {
 			resp.Usage = usageFn(r.Context())
 		}
 
-		_ = httputil.WriteJSON(w, http.StatusOK, resp)
+		_ = httputil.WriteJSON(w, http.StatusOK, resp) // WriteJSON error = broken client connection; nothing actionable
 	}
 }
 
