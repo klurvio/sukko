@@ -138,6 +138,15 @@ func (lb *LoadBalancer) Start() error {
 	mux.HandleFunc("/ws", lb.handleWebSocket)
 	mux.HandleFunc("/health", lb.handleHealth)
 	mux.HandleFunc("/version", version.Handler("ws-server", lb.editionString()))
+	mux.HandleFunc("/edition", license.EditionHandler(lb.editionManager, func(_ context.Context) *license.EditionUsage {
+		var totalConns int64
+		for _, shard := range lb.shards {
+			totalConns += shard.GetCurrentConnections()
+		}
+		conns := int(totalConns)
+		shards := len(lb.shards)
+		return &license.EditionUsage{Connections: &conns, Shards: &shards}
+	}))
 	if lb.configHandler != nil {
 		mux.HandleFunc("/config", lb.configHandler)
 	}

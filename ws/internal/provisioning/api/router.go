@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/version"
 )
 
@@ -42,6 +44,9 @@ type RouterConfig struct {
 
 	// Edition is the current Sukko edition for the /version endpoint.
 	Edition string
+
+	// EditionManager for the /edition endpoint (expiry-aware).
+	EditionManager *license.Manager
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -81,6 +86,13 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 	r.Get("/health", h.Health)
 	r.Get("/ready", h.Ready)
 	r.Get("/version", version.Handler("provisioning", cfg.Edition))
+	r.Get("/edition", license.EditionHandler(cfg.EditionManager, func(ctx context.Context) *license.EditionUsage {
+		count, err := cfg.Service.CountTenants(ctx)
+		if err != nil {
+			return nil // usage unavailable — edition info still returned without tenant count
+		}
+		return &license.EditionUsage{Tenants: &count}
+	}))
 	if cfg.ConfigHandler != nil {
 		r.Get("/config", cfg.ConfigHandler)
 	}
