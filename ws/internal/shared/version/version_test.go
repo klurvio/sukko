@@ -31,7 +31,7 @@ func TestGet(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			info := Get(tt.serviceName, "community")
+			info := Get(tt.serviceName)
 
 			if info.Service != tt.serviceName {
 				t.Errorf("Get(%q).Service = %q, want %q", tt.serviceName, info.Service, tt.serviceName)
@@ -89,7 +89,7 @@ func TestHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			handler := Handler(tt.serviceName, "pro")
+			handler := Handler(tt.serviceName)
 
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/version", nil)
 			rec := httptest.NewRecorder()
@@ -136,7 +136,6 @@ func TestInfo_JSONSerialization(t *testing.T) {
 		CommitHash: "abc123",
 		BuildTime:  "2024-01-15T10:30:00Z",
 		Service:    "test-service",
-		Edition:    "pro",
 	}
 
 	data, err := json.Marshal(info)
@@ -145,7 +144,7 @@ func TestInfo_JSONSerialization(t *testing.T) {
 	}
 
 	// Verify JSON field names (snake_case)
-	expected := `{"version":"v1.0.0","commit_hash":"abc123","build_time":"2024-01-15T10:30:00Z","service":"test-service","edition":"pro"}`
+	expected := `{"version":"v1.0.0","commit_hash":"abc123","build_time":"2024-01-15T10:30:00Z","service":"test-service"}`
 	if string(data) != expected {
 		t.Errorf("JSON marshal = %s, want %s", string(data), expected)
 	}

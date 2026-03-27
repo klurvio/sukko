@@ -17,22 +17,21 @@ var (
 )
 
 // Info holds version information for JSON serialization.
+// Edition info is served by the separate GET /edition endpoint.
 type Info struct {
 	Version    string `json:"version"`
 	CommitHash string `json:"commit_hash"`
 	BuildTime  string `json:"build_time"`
 	Service    string `json:"service"`
-	Edition    string `json:"edition"`
 }
 
-// Get returns the current version info for the given service name and edition.
-func Get(service, edition string) Info {
+// Get returns the current version info for the given service name.
+func Get(service string) Info {
 	return Info{
 		Version:    Version,
 		CommitHash: CommitHash,
 		BuildTime:  BuildTime,
 		Service:    service,
-		Edition:    edition,
 	}
 }
 

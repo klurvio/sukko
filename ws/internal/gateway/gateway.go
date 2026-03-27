@@ -4,9 +4,12 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gobwas/ws"
@@ -21,6 +24,10 @@ import (
 	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/version"
 )
+
+// wsServerEditionTimeout is the HTTP client timeout for fetching ws-server's /edition.
+// Cold path only — called per /edition request, not on the WebSocket hot path.
+const wsServerEditionTimeout = 2 * time.Second
 
 // Gateway handles WebSocket connections, authenticating clients and proxying
 // to the ws-server backend with permission-based channel filtering.
@@ -38,6 +45,7 @@ type Gateway struct {
 	permissions          *PermissionChecker
 	connTracker          *TenantConnectionTracker // Per-tenant connection tracking
 	tenantPermChecker    *TenantPermissionChecker // Per-tenant channel authorization
+	wsServerHTTPClient   *http.Client             // Reused for ws-server /edition calls (cold path)
 	logger               zerolog.Logger
 }
 
@@ -46,8 +54,9 @@ type Gateway struct {
 // Call Close() to release resources when shutting down.
 func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error) {
 	gw := &Gateway{
-		config: config,
-		logger: logger.With().Str("component", "gateway").Logger(),
+		config:             config,
+		wsServerHTTPClient: &http.Client{Timeout: wsServerEditionTimeout},
+		logger:             logger.With().Str("component", "gateway").Logger(),
 	}
 
 	// Only create permission checker when auth is enabled (used for channel filtering)
@@ -525,12 +534,8 @@ func (gw *Gateway) NewServer() *http.Server {
 	mux.HandleFunc("/ws", gw.HandleWebSocket)
 	mux.HandleFunc("/health", gw.HandleHealth)
 	mux.HandleFunc("/ready", gw.HandleReady)
-	edition := "community"
-	if gw.config.EditionManager() != nil {
-		edition = gw.config.EditionManager().Edition().String()
-	}
-	mux.HandleFunc("/version", version.Handler("gateway", edition))
-	mux.HandleFunc("/edition", license.EditionHandler(gw.config.EditionManager(), nil))
+	mux.HandleFunc("/version", version.Handler("gateway"))
+	mux.HandleFunc("/edition", license.EditionHandler(gw.config.EditionManager(), gw.editionUsage))
 	mux.HandleFunc("/config", platform.ConfigHandler(gw.config))
 	mux.HandleFunc("/metrics", HandleMetrics)
 
@@ -541,4 +546,85 @@ func (gw *Gateway) NewServer() *http.Server {
 		WriteTimeout: gw.config.WriteTimeout,
 		IdleTimeout:  gw.config.IdleTimeout,
 	}
+}
+
+// editionUsage returns connection and shard counts for the /edition endpoint.
+// Connections come from the gateway's own TenantConnectionTracker.
+// Shards are fetched from ws-server's /edition (best-effort via GATEWAY_BACKEND_URL).
+func (gw *Gateway) editionUsage(ctx context.Context) *license.EditionUsage {
+	// Sum connections from all tenants (connTracker may be nil if TENANT_CONNECTION_LIMIT_ENABLED=false)
+	var totalConns int
+	if gw.connTracker != nil {
+		for _, count := range gw.connTracker.GetAllCounts() {
+			totalConns += int(count)
+		}
+	}
+
+	usage := &license.EditionUsage{
+		Connections: &totalConns,
+	}
+
+	// Best-effort: fetch shard count from ws-server
+	shards := gw.fetchWsServerShards(ctx)
+	if shards != nil {
+		usage.Shards = shards
+	}
+
+	return usage
+}
+
+// fetchWsServerShards calls ws-server's /edition to get shard count.
+// Derives the HTTP URL from GATEWAY_BACKEND_URL (ws://host:port/ws → http://host:port/edition).
+// Returns nil on any failure (graceful degradation — Constitution IV).
+func (gw *Gateway) fetchWsServerShards(ctx context.Context) *int {
+	u, err := url.Parse(gw.config.BackendURL)
+	if err != nil {
+		gw.logger.Warn().Err(err).Str("backend_url", gw.config.BackendURL).Msg("Failed to parse backend URL for ws-server /edition")
+		return nil
+	}
+
+	scheme := "http"
+	if u.Scheme == "wss" {
+		scheme = "https"
+	}
+	editionURL := scheme + "://" + u.Host + "/edition"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, editionURL, http.NoBody)
+	if err != nil {
+		gw.logger.Warn().Err(err).Msg("Failed to create ws-server /edition request")
+		return nil
+	}
+
+	resp, err := gw.wsServerHTTPClient.Do(req)
+	if err != nil {
+		gw.logger.Debug().Err(err).Str("url", editionURL).Msg("ws-server /edition unreachable — shards not available")
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		gw.logger.Debug().Int("status", resp.StatusCode).Str("url", editionURL).Msg("ws-server /edition returned non-OK — shards not available")
+		return nil
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
+	if err != nil {
+		gw.logger.Debug().Err(err).Msg("ws-server /edition: body read failed — shards not available")
+		return nil
+	}
+
+	var result struct {
+		Usage *struct {
+			Shards *int `json:"shards"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		gw.logger.Debug().Err(err).Msg("ws-server /edition: JSON parse failed — shards not available")
+		return nil
+	}
+
+	if result.Usage != nil {
+		return result.Usage.Shards
+	}
+	return nil
 }

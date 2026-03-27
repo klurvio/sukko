@@ -385,7 +385,7 @@ func TestService_DeprovisionTenant_StateValidation(t *testing.T) {
 			tenant.Status = tt.status
 			_ = tenantStore.Create(context.Background(), tenant)
 
-			err := svc.DeprovisionTenant(context.Background(), "acme-corp")
+			err := svc.DeprovisionTenant(context.Background(), "acme-corp", false)
 			if tt.wantNoErr {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
@@ -410,7 +410,7 @@ func TestService_DeprovisionTenant(t *testing.T) {
 	_ = keyStore.Create(context.Background(), key)
 
 	// Deprovision
-	err := svc.DeprovisionTenant(context.Background(), "acme-corp")
+	err := svc.DeprovisionTenant(context.Background(), "acme-corp", false)
 	if err != nil {
 		t.Fatalf("failed to deprovision tenant: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestService_DeprovisionTenant_WithRoutingRules(t *testing.T) {
 	})
 
 	// Deprovision (exercises the retention-update code path for routing rules)
-	err := svc.DeprovisionTenant(context.Background(), "acme-corp")
+	err := svc.DeprovisionTenant(context.Background(), "acme-corp", false)
 	if err != nil {
 		t.Fatalf("failed to deprovision tenant with routing rules: %v", err)
 	}
@@ -1324,5 +1324,105 @@ func TestService_GetActiveAPIKeys(t *testing.T) {
 
 	if len(activeKeys) != 2 {
 		t.Errorf("expected 2 active API keys, got %d", len(activeKeys))
+	}
+}
+
+// --- Force-delete tests ---
+
+func TestService_DeprovisionTenant_Force_Active(t *testing.T) {
+	t.Parallel()
+	svc, tenantStore, keyStore, _ := newTestService()
+
+	// Setup: create tenant with key
+	tenant := testutil.NewTestTenant("force-test")
+	_ = tenantStore.Create(context.Background(), tenant)
+	_ = keyStore.Create(context.Background(), &provisioning.TenantKey{
+		KeyID:    "k1",
+		TenantID: "force-test",
+	})
+
+	// Force-delete
+	err := svc.DeprovisionTenant(context.Background(), "force-test", true)
+	if err != nil {
+		t.Fatalf("force-delete failed: %v", err)
+	}
+
+	// Verify status is deleted (not deprovisioning)
+	got, err := tenantStore.Get(context.Background(), "force-test")
+	if err != nil {
+		t.Fatalf("get tenant: %v", err)
+	}
+	if got.Status != provisioning.StatusDeleted {
+		t.Errorf("status = %q, want %q", got.Status, provisioning.StatusDeleted)
+	}
+}
+
+func TestService_DeprovisionTenant_Force_Deprovisioning(t *testing.T) {
+	t.Parallel()
+	svc, tenantStore, _, _ := newTestService()
+
+	// Setup: tenant already in deprovisioning state
+	tenant := testutil.NewTestTenant("deprovisioning-test")
+	tenant.Status = provisioning.StatusDeprovisioning
+	_ = tenantStore.Create(context.Background(), tenant)
+
+	// Force-delete should succeed even on deprovisioning tenant
+	err := svc.DeprovisionTenant(context.Background(), "deprovisioning-test", true)
+	if err != nil {
+		t.Fatalf("force-delete of deprovisioning tenant failed: %v", err)
+	}
+
+	got, err := tenantStore.Get(context.Background(), "deprovisioning-test")
+	if err != nil {
+		t.Fatalf("get tenant: %v", err)
+	}
+	if got.Status != provisioning.StatusDeleted {
+		t.Errorf("status = %q, want %q", got.Status, provisioning.StatusDeleted)
+	}
+}
+
+func TestService_DeprovisionTenant_Force_RevokesAPIKeys(t *testing.T) {
+	t.Parallel()
+	svc, tenantStore, _, _, apiKeyStore := newTestServiceWithAPIKeys()
+
+	// Setup: tenant with active API key
+	tenant := testutil.NewTestTenant("apikey-test")
+	_ = tenantStore.Create(context.Background(), tenant)
+	_ = apiKeyStore.Create(context.Background(), &provisioning.APIKey{
+		KeyID:    "ak1",
+		TenantID: "apikey-test",
+		Name:     "test-key",
+		IsActive: true,
+	})
+
+	// Force-delete
+	err := svc.DeprovisionTenant(context.Background(), "apikey-test", true)
+	if err != nil {
+		t.Fatalf("force-delete failed: %v", err)
+	}
+
+	// Verify API key was revoked
+	key, err := apiKeyStore.Get(context.Background(), "ak1")
+	if err != nil {
+		t.Fatalf("get API key: %v", err)
+	}
+	if key.IsActive {
+		t.Error("API key should be revoked after force-delete")
+	}
+}
+
+func TestService_DeprovisionTenant_Force_DeletedTenantRejected(t *testing.T) {
+	t.Parallel()
+	svc, tenantStore, _, _ := newTestService()
+
+	// Setup: already deleted tenant
+	tenant := testutil.NewTestTenant("deleted-test")
+	tenant.Status = provisioning.StatusDeleted
+	_ = tenantStore.Create(context.Background(), tenant)
+
+	// Force-delete of already-deleted should return error
+	err := svc.DeprovisionTenant(context.Background(), "deleted-test", true)
+	if !errors.Is(err, provisioning.ErrTenantDeleted) {
+		t.Errorf("expected ErrTenantDeleted, got: %v", err)
 	}
 }

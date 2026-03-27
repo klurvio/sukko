@@ -370,8 +370,11 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 	return nil
 }
 
-// DeprovisionTenant initiates tenant deletion with grace period.
-func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string) error {
+// DeprovisionTenant initiates tenant deletion. When force=false, sets status to
+// deprovisioning with a grace period (reactivatable). When force=true, sets status
+// directly to deleted — no grace period, immediate cleanup, no reactivation.
+// Multi-step cleanup continues on individual failures (Constitution IV).
+func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force bool) error {
 	// Validate tenant state before deprovisioning
 	tenant, err := s.tenants.Get(ctx, tenantID)
 	if err != nil {
@@ -380,9 +383,15 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string) error 
 	if tenant.Status == StatusDeleted {
 		return ErrTenantDeleted
 	}
-	if tenant.Status == StatusDeprovisioning {
+	if !force && tenant.Status == StatusDeprovisioning {
 		return fmt.Errorf("%w: already deprovisioning", ErrTenantNotActive)
 	}
+
+	if force {
+		return s.forceDeleteTenant(ctx, tenantID)
+	}
+
+	// --- Grace-period deprovision (existing behavior) ---
 
 	// Update status to deprovisioning
 	if err := s.tenants.UpdateStatus(ctx, tenantID, StatusDeprovisioning); err != nil {
@@ -434,6 +443,94 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string) error 
 		Str("tenant_id", tenantID).
 		Time("deprovision_at", deprovisionAt).
 		Msg("Tenant deprovisioning initiated")
+
+	s.emitEvent(eventbus.TopicsChanged)
+	s.emitEvent(eventbus.TenantConfigChanged)
+
+	return nil
+}
+
+// forceDeleteTenant immediately deletes a tenant — no grace period, no reactivation.
+// Used by test cleanup and admin force-delete. Multi-step cleanup continues on
+// individual failures (Constitution IV).
+func (s *Service) forceDeleteTenant(ctx context.Context, tenantID string) error {
+	// Read routing rules BEFORE deleting them — needed for Kafka topic cleanup below.
+	var topicSuffixes []string
+	if s.routingRules != nil {
+		rules, err := s.routingRules.Get(ctx, tenantID)
+		if err != nil {
+			s.logger.Debug().Err(err).Str("tenant_id", tenantID).
+				Msg("Force-delete: no routing rules to clean up") // not-found is expected
+		} else {
+			topicSuffixes = UniqueTopicSuffixes(rules)
+		}
+	}
+
+	// Set status to deleted immediately
+	if err := s.tenants.UpdateStatus(ctx, tenantID, StatusDeleted); err != nil {
+		return fmt.Errorf("set deleted status: %w", err)
+	}
+
+	// Revoke all JWT signing keys (continue on failure)
+	if err := s.keys.RevokeAllForTenant(ctx, tenantID); err != nil {
+		s.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Force-delete: failed to revoke signing keys")
+	} else {
+		s.emitEvent(eventbus.KeysChanged)
+	}
+
+	// Revoke all API keys (continue on failure — Constitution IX: deleted tenant must not authenticate)
+	if s.apiKeys != nil {
+		if apiKeys, _, err := s.apiKeys.ListByTenant(ctx, tenantID, ListOptions{Limit: 10000}); err != nil {
+			s.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Force-delete: failed to list API keys for revocation")
+		} else {
+			anyRevoked := false
+			for _, key := range apiKeys {
+				if key.IsActive {
+					if err := s.apiKeys.Revoke(ctx, key.KeyID); err != nil {
+						s.logger.Error().Err(err).Str("tenant_id", tenantID).Str("key_id", key.KeyID).
+							Msg("Force-delete: failed to revoke API key")
+					} else {
+						anyRevoked = true
+					}
+				}
+			}
+			if anyRevoked {
+				s.emitEvent(eventbus.KeysChanged)
+			}
+		}
+	}
+
+	// Delete routing rules (continue on failure)
+	if s.routingRules != nil {
+		if err := s.routingRules.Delete(ctx, tenantID); err != nil {
+			s.logger.Debug().Err(err).Str("tenant_id", tenantID).
+				Msg("Force-delete: routing rules delete (not-found is expected)")
+		}
+	}
+
+	// Delete channel rules (continue on failure)
+	if s.channelRules != nil {
+		if err := s.channelRules.Delete(ctx, tenantID); err != nil {
+			s.logger.Debug().Err(err).Str("tenant_id", tenantID).
+				Msg("Force-delete: channel rules delete (not-found is expected)")
+		}
+	}
+
+	// Delete Kafka topics using pre-read suffixes (continue on failure)
+	for _, suffix := range topicSuffixes {
+		topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
+		if err := s.kafka.DeleteTopic(ctx, topicName); err != nil {
+			s.logger.Error().Err(err).
+				Str("tenant_id", tenantID).Str("topic", topicName).
+				Msg("Force-delete: failed to delete topic")
+		}
+	}
+
+	s.auditLog(ctx, tenantID, ActionDeprovisionTenant, Metadata{
+		"force": true,
+	})
+
+	s.logger.Info().Str("tenant_id", tenantID).Msg("Tenant force-deleted")
 
 	s.emitEvent(eventbus.TopicsChanged)
 	s.emitEvent(eventbus.TenantConfigChanged)

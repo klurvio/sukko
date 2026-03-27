@@ -199,7 +199,6 @@ func main() {
 		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
 		CORSMaxAge:         cfg.CORSMaxAge,
 		ConfigHandler:      platform.ConfigHandler(cfg),
-		Edition:            cfg.EditionManager().Edition().String(),
 		EditionManager:     cfg.EditionManager(),
 	})
 	if err != nil {

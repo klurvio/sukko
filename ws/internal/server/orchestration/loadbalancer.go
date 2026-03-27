@@ -137,7 +137,7 @@ func (lb *LoadBalancer) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", lb.handleWebSocket)
 	mux.HandleFunc("/health", lb.handleHealth)
-	mux.HandleFunc("/version", version.Handler("ws-server", lb.editionString()))
+	mux.HandleFunc("/version", version.Handler("ws-server"))
 	mux.HandleFunc("/edition", license.EditionHandler(lb.editionManager, func(_ context.Context) *license.EditionUsage {
 		var totalConns int64
 		for _, shard := range lb.shards {
@@ -217,14 +217,6 @@ func (lb *LoadBalancer) aggregateMetrics() {
 	}
 
 	metrics.SetAggregatedConnectionMetrics(totalConnections, totalMaxConnections)
-}
-
-// editionString returns the current edition as a string (for version/health endpoints).
-func (lb *LoadBalancer) editionString() string {
-	if lb.editionManager != nil {
-		return lb.editionManager.Edition().String()
-	}
-	return "community"
 }
 
 // Shutdown gracefully stops the LoadBalancer.
@@ -409,7 +401,7 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	response := map[string]any{
 		"status":  status,
 		"healthy": isHealthy,
-		"version": version.Get("ws-server", lb.editionString()),
+		"version": version.Get("ws-server"),
 		"checks": map[string]any{
 			"capacity": map[string]any{
 				"current":    int(totalConnections),

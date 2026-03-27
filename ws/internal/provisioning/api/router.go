@@ -42,9 +42,6 @@ type RouterConfig struct {
 	// ConfigHandler serves the /config endpoint (set via platform.ConfigHandler)
 	ConfigHandler http.HandlerFunc
 
-	// Edition is the current Sukko edition for the /version endpoint.
-	Edition string
-
 	// EditionManager for the /edition endpoint (expiry-aware).
 	EditionManager *license.Manager
 }
@@ -85,7 +82,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 	// Health endpoints (no auth required)
 	r.Get("/health", h.Health)
 	r.Get("/ready", h.Ready)
-	r.Get("/version", version.Handler("provisioning", cfg.Edition))
+	r.Get("/version", version.Handler("provisioning"))
 	r.Get("/edition", license.EditionHandler(cfg.EditionManager, func(ctx context.Context) *license.EditionUsage {
 		count, err := cfg.Service.CountTenants(ctx)
 		if err != nil {
