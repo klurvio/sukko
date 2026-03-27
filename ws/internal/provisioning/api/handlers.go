@@ -225,19 +225,25 @@ func (h *Handler) ReactivateTenant(w http.ResponseWriter, r *http.Request) {
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "active"})
 }
 
-// DeprovisionTenant initiates tenant deletion.
+// DeprovisionTenant initiates tenant deletion. With ?force=true, deletes immediately
+// (no grace period, no reactivation). Without force, uses the standard grace period.
 func (h *Handler) DeprovisionTenant(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
+	force := r.URL.Query().Get("force") == "true"
 
-	if err := h.service.DeprovisionTenant(r.Context(), tenantID); err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to deprovision tenant")
+	if err := h.service.DeprovisionTenant(r.Context(), tenantID, force); err != nil {
+		h.logger.Error().Err(err).Str("tenant_id", tenantID).Bool("force", force).Msg("Failed to deprovision tenant")
 		RecordTenantOperation("deprovision", pkgmetrics.ResultError)
 		h.writeServiceError(w, err, "DEPROVISION_FAILED", "Failed to deprovision tenant")
 		return
 	}
 
+	status := "deprovisioning"
+	if force {
+		status = "deleted"
+	}
 	RecordTenantOperation("deprovision", pkgmetrics.ResultSuccess)
-	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deprovisioning"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": status}) // WriteJSON error = broken client connection; nothing actionable
 }
 
 // CreateKey registers a new public key.

@@ -35,6 +35,8 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 		checks, err = validateReconnect(ctx, run, logger)
 	case "ratelimit":
 		checks, err = validateRateLimit(ctx, run, logger)
+	case "edition-limits":
+		checks, err = validateEditionLimits(ctx, run, logger)
 	default:
 		checks = []metrics.CheckResult{{
 			Name:   "unknown suite",
