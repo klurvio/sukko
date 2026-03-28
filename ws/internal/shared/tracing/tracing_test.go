@@ -9,8 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
-func TestInit_Disabled(t *testing.T) {
-	// No t.Parallel() — sets global otel.TracerProvider (Constitution VIII).
+func TestInit_Disabled(t *testing.T) { //nolint:paralleltest // sets global otel.TracerProvider — Constitution VIII
 	cfg := Config{Enabled: false}
 	logger := zerolog.Nop()
 
@@ -27,8 +26,7 @@ func TestInit_Disabled(t *testing.T) {
 	}
 }
 
-func TestInit_Stdout(t *testing.T) {
-	// No t.Parallel() — sets global otel.TracerProvider (Constitution VIII).
+func TestInit_Stdout(t *testing.T) { //nolint:paralleltest // sets global otel.TracerProvider — Constitution VIII
 	cfg := Config{
 		Enabled:      true,
 		ExporterType: "stdout",

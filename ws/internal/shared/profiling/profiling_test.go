@@ -16,7 +16,7 @@ func TestInitPprof_Enabled(t *testing.T) {
 	InitPprof(mux.HandleFunc, true, logger)
 
 	// Verify pprof index handler is registered
-	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", http.NoBody)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -33,7 +33,7 @@ func TestInitPprof_Disabled(t *testing.T) {
 	InitPprof(mux.HandleFunc, false, logger)
 
 	// Verify pprof handlers are NOT registered
-	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", http.NoBody)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

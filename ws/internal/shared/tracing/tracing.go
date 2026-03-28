@@ -71,20 +71,28 @@ func Init(ctx context.Context, cfg Config, logger zerolog.Logger) (shutdown func
 
 // createExporter creates a span exporter based on the configured type.
 func createExporter(ctx context.Context, cfg Config) (sdktrace.SpanExporter, error) {
+	var (
+		exporter sdktrace.SpanExporter
+		err      error
+	)
 	switch cfg.ExporterType {
 	case "otlp-grpc":
-		return otlptracegrpc.New(ctx,
+		exporter, err = otlptracegrpc.New(ctx,
 			otlptracegrpc.WithEndpoint(cfg.Endpoint),
 			otlptracegrpc.WithInsecure(),
 		)
 	case "otlp-http":
-		return otlptracehttp.New(ctx,
+		exporter, err = otlptracehttp.New(ctx,
 			otlptracehttp.WithEndpoint(cfg.Endpoint),
 			otlptracehttp.WithInsecure(),
 		)
 	case "stdout":
-		return stdouttrace.New(stdouttrace.WithPrettyPrint())
+		exporter, err = stdouttrace.New(stdouttrace.WithPrettyPrint())
 	default:
 		return nil, fmt.Errorf("unknown exporter type: %s", cfg.ExporterType)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("create %s exporter: %w", cfg.ExporterType, err)
+	}
+	return exporter, nil
 }
