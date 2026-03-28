@@ -22,6 +22,16 @@ type BaseConfig struct {
 	// The editionManager field lives on each service config (ServerConfig, GatewayConfig,
 	// ProvisioningConfig) — not here — to avoid BaseConfig depending on the license package.
 	LicenseKey string `env:"SUKKO_LICENSE_KEY" redact:"true"`
+
+	// Tracing (OpenTelemetry) — cold-path only, disabled by default.
+	OTELTracingEnabled   bool   `env:"OTEL_TRACING_ENABLED" envDefault:"false"`
+	OTELExporterType     string `env:"OTEL_EXPORTER_TYPE" envDefault:"otlp-grpc"`
+	OTELExporterEndpoint string `env:"OTEL_EXPORTER_ENDPOINT" envDefault:"localhost:4317"`
+
+	// Profiling — pprof endpoints and Pyroscope continuous profiling, disabled by default.
+	PprofEnabled     bool   `env:"PPROF_ENABLED" envDefault:"false"`
+	PyroscopeEnabled bool   `env:"PYROSCOPE_ENABLED" envDefault:"false"`
+	PyroscopeAddr    string `env:"PYROSCOPE_ADDR" envDefault:"http://localhost:4040"`
 }
 
 // Validate checks that all BaseConfig fields have valid values.
@@ -34,6 +44,17 @@ func (c *BaseConfig) Validate() error {
 	}
 	if strings.TrimSpace(c.Environment) == "" {
 		return errors.New("ENVIRONMENT must not be empty")
+	}
+	if c.OTELTracingEnabled {
+		switch c.OTELExporterType {
+		case "otlp-grpc", "otlp-http", "stdout":
+			// valid
+		default:
+			return fmt.Errorf("OTEL_EXPORTER_TYPE must be one of: otlp-grpc, otlp-http, stdout (got: %s)", c.OTELExporterType)
+		}
+		if c.OTELExporterType != "stdout" && c.OTELExporterEndpoint == "" {
+			return errors.New("OTEL_EXPORTER_ENDPOINT is required when OTEL_TRACING_ENABLED=true and exporter is not stdout")
+		}
 	}
 	return nil
 }

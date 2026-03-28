@@ -15,6 +15,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/version"
 )
 
@@ -44,6 +45,10 @@ type RouterConfig struct {
 
 	// EditionManager for the /edition endpoint (expiry-aware).
 	EditionManager *license.Manager
+
+	// PprofEnabled registers /debug/pprof/ handlers when true.
+	// Disabled by default (Constitution IX: debug endpoints must be opt-in).
+	PprofEnabled bool
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -94,6 +99,11 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 		r.Get("/config", cfg.ConfigHandler)
 	}
 	r.Get("/metrics", h.Metrics)
+
+	// Register pprof endpoints if enabled (Constitution IX: opt-in only)
+	profiling.InitPprof(func(pattern string, handler func(http.ResponseWriter, *http.Request)) {
+		r.HandleFunc(pattern, handler)
+	}, cfg.PprofEnabled, cfg.Logger)
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {

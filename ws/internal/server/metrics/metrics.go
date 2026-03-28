@@ -228,6 +228,11 @@ var (
 		Name: "ws_kafka_publish_errors_total",
 		Help: "Total number of failed publish attempts to Kafka",
 	})
+
+	kafkaConsumerLag = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "ws_kafka_consumer_lag",
+		Help: "Kafka consumer lag (high watermark - committed offset) per topic and consumer group.",
+	}, []string{"topic", "consumer_group"})
 )
 
 // =============================================================================
@@ -473,6 +478,12 @@ func IncrementMessagesPublished() {
 // IncrementPublishErrors increments Kafka publish error counter.
 func IncrementPublishErrors() {
 	kafkaPublishErrors.Inc()
+}
+
+// SetKafkaConsumerLag sets the consumer lag for a topic and consumer group.
+// Lag = high watermark - committed offset. Updated on periodic consumer refresh (cold path).
+func SetKafkaConsumerLag(topic, consumerGroup string, lag int64) {
+	kafkaConsumerLag.WithLabelValues(topic, consumerGroup).Set(float64(lag))
 }
 
 // =============================================================================

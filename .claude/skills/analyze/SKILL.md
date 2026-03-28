@@ -18,7 +18,12 @@ Identify inconsistencies, duplications, ambiguities, and underspecified items ac
 
 1. **Load artifacts**:
    - Get current branch: `git branch --show-current`
-   - Load `specs/[branch-name]/spec.md`, `plan.md`, `tasks.md`
+   - Resolve spec directory by searching in order (first match wins):
+     1. `specs/in-progress/[branch-name]/`
+     2. `specs/backlog/[branch-name]/`
+     3. `specs/completed/[branch-name]/`
+     4. `specs/[branch-name]/` (legacy fallback)
+   - Load `{resolved-spec-dir}/spec.md`, `plan.md`, `tasks.md`
    - Load constitution from `CLAUDE.md`
    - If required files are missing, abort and instruct user to run the missing prerequisite
 

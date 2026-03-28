@@ -22,9 +22,14 @@ Examples:
 
 1. **Find the active spec**:
    - Get current branch: `git branch --show-current`
-   - Load `specs/[branch-name]/spec.md`
+   - Resolve spec directory by searching in order (first match wins):
+     1. `specs/in-progress/[branch-name]/`
+     2. `specs/backlog/[branch-name]/`
+     3. `specs/completed/[branch-name]/`
+     4. `specs/[branch-name]/` (legacy fallback)
+   - Load `spec.md` from the resolved directory
    - Load constitution from `CLAUDE.md` (look for `## Constitution` section)
-   - If spec not found, instruct user to run `/specify` first
+   - If spec not found in any location, instruct user to run `/specify` first
 
 2. **Gather project context**:
    - Review relevant existing code to understand current patterns
@@ -54,7 +59,7 @@ Examples:
    - ERROR if violations exist without justification
    - Document any justified violations
 
-5. **Phase 0 — Research** (`specs/[branch-name]/research.md`):
+5. **Phase 0 — Research** (`{resolved-spec-dir}/research.md`):
    - For each NEEDS CLARIFICATION → research and resolve
    - For each technology choice → find best practices in codebase
    - Document decisions with rationale and alternatives considered
@@ -65,7 +70,7 @@ Examples:
    - Define configuration (env vars, Helm values, Terraform variables)
    - Map changes to existing file structure
 
-7. **Write the plan** to `specs/[branch-name]/plan.md`
+7. **Write the plan** to `{resolved-spec-dir}/plan.md`
 
 8. **Re-check constitution** after design phase
 

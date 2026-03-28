@@ -18,43 +18,53 @@ Execute all tasks from the task list, following the defined phases and dependenc
 
 1. **Load implementation context**:
    - Get current branch: `git branch --show-current`
-   - Load `specs/[branch-name]/tasks.md` and `specs/[branch-name]/plan.md`
+   - Resolve spec directory by searching in order (first match wins):
+     1. `specs/in-progress/[branch-name]/`
+     2. `specs/backlog/[branch-name]/`
+     3. `specs/completed/[branch-name]/`
+     4. `specs/[branch-name]/` (legacy fallback)
+   - Load `{resolved-spec-dir}/tasks.md` and `{resolved-spec-dir}/plan.md`
    - Read constitution from `CLAUDE.md`
 
-2. **Parse tasks** and extract:
+2. **Move spec to in-progress** (if not already there):
+   - If the spec was found in `specs/backlog/[branch-name]/`, move it to `specs/in-progress/[branch-name]/`
+   - Create a `STARTED_MM-DD-YYYY_HH-MM` timestamp marker in the spec directory
+   - If already in `specs/in-progress/`, skip this step
+
+3. **Parse tasks** and extract:
    - Task phases, IDs, descriptions, file paths
    - Dependencies and parallel markers [P]
    - Execution order
 
-3. **Execute phase by phase**:
+4. **Execute phase by phase**:
    - Complete each phase before moving to the next
    - Respect dependencies — sequential tasks in order, parallel [P] tasks can overlap
    - Validate at each phase checkpoint
 
-4. **Execution rules**:
+5. **Execution rules**:
    - Config first → Code → Infrastructure → Testing → Deploy & Verify
    - Mark completed tasks as `[x]` in the tasks file
    - Report progress after each completed task
    - Halt if a non-parallel task fails
    - For parallel [P] tasks: continue with successful ones, report failures
 
-5. **Constitution compliance**:
+6. **Constitution compliance**:
    - All code MUST follow the constitution in `CLAUDE.md`
    - Verify error handling, concurrency safety, config externalization, metrics, etc.
    - Flag violations before committing
 
-6. **Go-specific checks**:
+7. **Go-specific checks**:
    - Run `go vet ./...` after code changes
    - Run `go test ./...` to verify tests pass
    - Ensure new env vars match Helm chart values and deployment templates
 
-7. **Completion validation**:
+8. **Completion validation**:
    - Verify all tasks completed
    - Check implementation matches original plan
    - Confirm tests pass
    - List deploy/verification commands
 
-8. **Report**:
+9. **Report**:
    - Summary of completed work
    - Any issues encountered
    - Test results

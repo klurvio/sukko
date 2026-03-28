@@ -18,8 +18,13 @@ Detect and reduce ambiguity in the active feature spec. This should run BEFORE p
 
 1. **Find the active spec**:
    - Get current branch: `git branch --show-current`
-   - Load `specs/[branch-name]/spec.md`
-   - If not found, instruct user to run `/specify` first
+   - Resolve spec directory by searching in order (first match wins):
+     1. `specs/in-progress/[branch-name]/`
+     2. `specs/backlog/[branch-name]/`
+     3. `specs/completed/[branch-name]/`
+     4. `specs/[branch-name]/` (legacy fallback)
+   - Load `spec.md` from the resolved directory
+   - If not found in any location, instruct user to run `/specify` first
 
 2. **Load and scan the spec** for ambiguities across these categories:
 

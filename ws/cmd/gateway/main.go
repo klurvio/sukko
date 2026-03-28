@@ -17,6 +17,8 @@ import (
 	"github.com/klurvio/sukko/internal/gateway"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/profiling"
+	"github.com/klurvio/sukko/internal/shared/tracing"
 )
 
 // Version information (set by build flags)
@@ -26,9 +28,11 @@ var (
 	BuildTime  = "unknown"
 )
 
+const serviceName = "ws-gateway"
+
 func main() {
 	// Bootstrap logger for pre-config startup (zerolog without config dependency)
-	bootLogger := logging.BootstrapLogger("ws-gateway")
+	bootLogger := logging.BootstrapLogger(serviceName)
 
 	bootLogger.Info().
 		Str("version", Version).
@@ -59,7 +63,7 @@ func main() {
 	logger := logging.NewLogger(logging.LoggerConfig{
 		Level:       logging.LogLevel(config.LogLevel),
 		Format:      logging.LogFormat(config.LogFormat),
-		ServiceName: "ws-gateway",
+		ServiceName: serviceName,
 	})
 
 	config.LogConfig(logger)
@@ -75,6 +79,32 @@ func main() {
 		logger.Info().Msg("Configuration is valid")
 		os.Exit(0)
 	}
+
+	// Initialize tracing (cold-path only, noop when disabled)
+	tracingShutdown, err := tracing.Init(context.Background(), tracing.Config{
+		Enabled:      config.OTELTracingEnabled,
+		ExporterType: config.OTELExporterType,
+		Endpoint:     config.OTELExporterEndpoint,
+		ServiceName:  serviceName,
+		Environment:  config.Environment,
+	}, logger)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to initialize tracing")
+	}
+	defer func() { _ = tracingShutdown(context.Background()) }()
+
+	// Initialize Pyroscope continuous profiling (noop when disabled)
+	// pprof endpoints are registered on the gateway's HTTP mux via the gateway
+	pyroscopeStop, err := profiling.InitPyroscope(profiling.PyroscopeConfig{
+		Enabled:     config.PyroscopeEnabled,
+		Addr:        config.PyroscopeAddr,
+		ServiceName: serviceName,
+		Environment: config.Environment,
+	}, logger)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to initialize Pyroscope")
+	}
+	defer pyroscopeStop()
 
 	// Create gateway
 	gw, err := gateway.New(config, logger)

@@ -31,9 +31,9 @@ Examples:
 
 3. **Create branch and directory**:
    - Create and checkout branch: `git checkout -b [prefix/short-name]`
-   - Create spec directory: `specs/[branch-name]/`
+   - Create spec directory: `specs/backlog/[branch-name]/`
 
-4. **Write the specification** to `specs/[branch-name]/spec.md`:
+4. **Write the specification** to `specs/backlog/[branch-name]/spec.md`:
 
    ```markdown
    # Feature Specification: [FEATURE NAME]
@@ -86,7 +86,7 @@ Examples:
 
 7. **Create timestamp marker** in the spec directory:
    - Create an empty file named `CREATED_MM-DD-YYYY_HH-MM` (no extension) using the current date/time
-   - Example: `specs/feat/tenant-rate-limiting/CREATED_03-21-2026_15-30`
+   - Example: `specs/backlog/feat/tenant-rate-limiting/CREATED_03-21-2026_15-30`
    - This allows checking spec creation time from a directory listing without opening files
 
 8. **Report completion** with branch name, spec file path, and readiness for next phase (`/clarify` or `/plan-feature`)

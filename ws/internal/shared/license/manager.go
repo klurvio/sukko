@@ -6,8 +6,18 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 )
+
+// sukko_license_expiry_timestamp is the Unix timestamp of the license expiry.
+// Set once at startup. 0 = no license / Community edition.
+// Enables the LicenseExpiringSoon alert rule: (sukko_license_expiry_timestamp - time()) < 7*86400.
+var licenseExpiryTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "sukko_license_expiry_timestamp",
+	Help: "Unix timestamp of license expiry (0 = no license / Community edition).",
+})
 
 // editionHolder wraps an Edition for atomic.Pointer storage.
 type editionHolder struct{ v Edition }
@@ -59,6 +69,7 @@ func NewManager(licenseKey string, logger zerolog.Logger) (*Manager, error) {
 	if licenseKey == "" {
 		m.edition.Store(&editionHolder{Community})
 		m.limits.Store(&limitsHolder{DefaultLimits(Community)})
+		licenseExpiryTimestamp.Set(0)
 		m.logger.Info().Str("edition", Community.String()).Msg("No license key, running as Community edition")
 		return m, nil
 	}
@@ -72,6 +83,7 @@ func NewManager(licenseKey string, logger zerolog.Logger) (*Manager, error) {
 		m.limits.Store(&limitsHolder{DefaultLimits(Community)})
 		m.claims.Store(claims) // store expired claims for debugging/Org()
 
+		licenseExpiryTimestamp.Set(float64(claims.Exp))
 		m.logger.Warn().
 			Str("edition", Community.String()).
 			Str("original_edition", claims.Edition.String()).
@@ -95,6 +107,7 @@ func NewManager(licenseKey string, logger zerolog.Logger) (*Manager, error) {
 	m.limits.Store(&limitsHolder{limits})
 	m.claims.Store(claims)
 
+	licenseExpiryTimestamp.Set(float64(claims.Exp))
 	m.logger.Info().
 		Str("edition", edition.String()).
 		Str("org", claims.Org).

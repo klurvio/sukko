@@ -21,12 +21,16 @@ import (
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/provapi"
+	"github.com/klurvio/sukko/internal/shared/tracing"
 )
+
+const serviceName = "ws-server"
 
 func main() {
 	// Bootstrap logger for pre-config startup (zerolog without config dependency)
-	bootLogger := logging.BootstrapLogger("ws-server")
+	bootLogger := logging.BootstrapLogger(serviceName)
 
 	// Go 1.25+ runtime automatically sets GOMAXPROCS from container cgroup CPU limits
 	maxProcs := runtime.GOMAXPROCS(0)
@@ -69,7 +73,7 @@ func main() {
 	structuredLogger := logging.NewLogger(logging.LoggerConfig{
 		Level:       logging.LogLevel(cfg.LogLevel),
 		Format:      logging.LogFormat(cfg.LogFormat),
-		ServiceName: "ws-server",
+		ServiceName: serviceName,
 	})
 	systemMonitor := metrics.GetSystemMonitor(structuredLogger, cfg.CPUEWMABeta)
 	systemMonitor.StartMonitoring(cfg.MetricsInterval, cfg.CPUPollInterval)
@@ -83,6 +87,32 @@ func main() {
 		Str("edition", cfg.EditionManager().Edition().String()).
 		Str("org", cfg.EditionManager().Org()).
 		Msg("Sukko edition resolved")
+
+	// Initialize tracing (cold-path only, noop when disabled)
+	tracingShutdown, err := tracing.Init(context.Background(), tracing.Config{
+		Enabled:      cfg.OTELTracingEnabled,
+		ExporterType: cfg.OTELExporterType,
+		Endpoint:     cfg.OTELExporterEndpoint,
+		ServiceName:  serviceName,
+		Environment:  cfg.Environment,
+	}, structuredLogger)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to initialize tracing")
+	}
+	defer func() { _ = tracingShutdown(context.Background()) }()
+
+	// Initialize profiling (Pyroscope continuous profiling, noop when disabled)
+	// pprof endpoints are registered on the LB's HTTP mux (see LoadBalancerConfig.PprofEnabled)
+	pyroscopeStop, err := profiling.InitPyroscope(profiling.PyroscopeConfig{
+		Enabled:     cfg.PyroscopeEnabled,
+		Addr:        cfg.PyroscopeAddr,
+		ServiceName: serviceName,
+		Environment: cfg.Environment,
+	}, structuredLogger)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to initialize Pyroscope")
+	}
+	defer pyroscopeStop()
 
 	// Calculate max connections per shard
 	maxConnsPerShard := cfg.MaxConnections / *numShards
@@ -262,7 +292,7 @@ func main() {
 	structuredLogger.Info().Str("backend", cfg.MessageBackend).Msg("Message backend started")
 
 	// Initialize alerter from validated config
-	alertCfg := cfg.AlertConfig()
+	alertCfg := cfg.AlertConfig(serviceName)
 	alertCfg.Logger = structuredLogger
 	alerter := alerting.NewFromConfig(alertCfg)
 
@@ -282,7 +312,7 @@ func main() {
 			BroadcastBus:   broadcastBus,
 			MessageBackend: msgBackend,
 			Alerter:        alerter,
-			Logger:         logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: "ws-server"}),
+			Logger:         logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: serviceName}),
 			MaxConnections: maxConnsPerShard,
 		})
 		if err != nil {
@@ -299,7 +329,7 @@ func main() {
 	lb, err := orchestration.NewLoadBalancer(orchestration.LoadBalancerConfig{
 		Addr:   *lbAddr,
 		Shards: shards,
-		Logger: logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: "ws-server"}),
+		Logger: logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: serviceName}),
 		// TCP/HTTP tuning for trading platform burst tolerance
 		HTTPReadTimeout:            cfg.HTTPReadTimeout,
 		HTTPWriteTimeout:           cfg.HTTPWriteTimeout,
@@ -309,6 +339,7 @@ func main() {
 		ShardMessageTimeout:        cfg.ShardMessageTimeout,
 		MetricsAggregationInterval: cfg.MetricsAggregationInterval,
 		EditionManager:             cfg.EditionManager(),
+		PprofEnabled:               cfg.PprofEnabled,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create load balancer")

@@ -19,6 +19,7 @@ import (
 	"github.com/klurvio/sukko/internal/server/metrics"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/version"
 )
 
@@ -50,6 +51,7 @@ type LoadBalancer struct {
 	configHandler              http.HandlerFunc
 	metricsAggregationInterval time.Duration
 	editionManager             *license.Manager
+	pprofEnabled               bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -80,6 +82,10 @@ type LoadBalancerConfig struct {
 	// EditionManager provides expiry-aware edition limits for /health capacity reporting.
 	// May be nil — edition-aware capacity is skipped when nil.
 	EditionManager *license.Manager
+
+	// PprofEnabled registers /debug/pprof/ handlers on the LB's HTTP mux when true.
+	// Disabled by default (Constitution IX: debug endpoints must be opt-in).
+	PprofEnabled bool
 }
 
 // NewLoadBalancer creates a new LoadBalancer instance.
@@ -123,6 +129,7 @@ func NewLoadBalancer(cfg LoadBalancerConfig) (*LoadBalancer, error) {
 		configHandler:              cfg.ConfigHandler,
 		metricsAggregationInterval: cfg.MetricsAggregationInterval,
 		editionManager:             cfg.EditionManager,
+		pprofEnabled:               cfg.PprofEnabled,
 		ctx:                        ctx,
 		cancel:                     cancel,
 	}
@@ -151,6 +158,7 @@ func (lb *LoadBalancer) Start() error {
 		mux.HandleFunc("/config", lb.configHandler)
 	}
 	mux.HandleFunc("/metrics", metrics.HandleMetrics)
+	profiling.InitPprof(mux.HandleFunc, lb.pprofEnabled, lb.logger)
 
 	httpServer := &http.Server{
 		Addr:    lb.addr,

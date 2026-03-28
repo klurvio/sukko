@@ -1028,14 +1028,15 @@ func (c *ServerConfig) Validate() error {
 }
 
 // AlertConfig returns an alerting.Config derived from the server configuration.
-func (c *ServerConfig) AlertConfig() alerting.Config {
+// serviceName identifies this service instance in alert messages.
+func (c *ServerConfig) AlertConfig(serviceName string) alerting.Config {
 	return alerting.Config{
 		Enabled:         c.AlertEnabled,
 		MinLevel:        alerting.ParseLevel(c.AlertMinLevel),
 		SlackWebhookURL: c.AlertSlackWebhookURL,
 		SlackChannel:    c.AlertSlackChannel,
 		SlackUsername:   c.AlertSlackUsername,
-		ServiceName:     "ws-server",
+		ServiceName:     serviceName,
 		Environment:     c.Environment,
 		RateLimitWindow: c.AlertRateLimitWindow,
 		RateLimitMax:    c.AlertRateLimitMax,

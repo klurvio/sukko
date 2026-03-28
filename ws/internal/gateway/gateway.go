@@ -15,12 +15,14 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
 
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/license"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/version"
 )
@@ -28,6 +30,12 @@ import (
 // wsServerEditionTimeout is the HTTP client timeout for fetching ws-server's /edition.
 // Cold path only — called per /edition request, not on the WebSocket hot path.
 const wsServerEditionTimeout = 2 * time.Second
+
+// OTEL tracing constants — instrumentation scope and span names.
+const (
+	tracerName           = "github.com/klurvio/sukko/internal/gateway"
+	spanWebSocketUpgrade = "websocket.upgrade"
+)
 
 // Gateway handles WebSocket connections, authenticating clients and proxying
 // to the ws-server backend with permission-based channel filtering.
@@ -220,6 +228,11 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	remoteAddr := r.RemoteAddr
 	ctx := r.Context()
+
+	// Cold-path tracing span for WebSocket upgrade + auth (not the proxy loop).
+	// Noop when tracing disabled (Constitution VI).
+	ctx, span := otel.Tracer(tracerName).Start(ctx, spanWebSocketUpgrade)
+	defer span.End()
 
 	// Record connection attempt and track disconnect reason for metrics
 	RecordConnection()
@@ -538,6 +551,7 @@ func (gw *Gateway) NewServer() *http.Server {
 	mux.HandleFunc("/edition", license.EditionHandler(gw.config.EditionManager(), gw.editionUsage))
 	mux.HandleFunc("/config", platform.ConfigHandler(gw.config))
 	mux.HandleFunc("/metrics", HandleMetrics)
+	profiling.InitPprof(mux.HandleFunc, gw.config.PprofEnabled, gw.logger)
 
 	return &http.Server{
 		Addr:         fmt.Sprintf(":%d", gw.config.Port),

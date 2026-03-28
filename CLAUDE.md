@@ -128,7 +128,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.9.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-22
+**Version**: 1.10.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-28
 
 ### I. Configuration
 
@@ -153,6 +153,8 @@ All logging MUST use zerolog with structured fields (Str, Int, Dur, Err). Approp
 ### VI. Observability
 
 Every significant operation MUST have Prometheus metrics. Metric names MUST use `ws_` prefix (server), `gateway_` prefix (gateway), or `provisioning_` prefix (provisioning service) with units (`_seconds`, `_bytes`, `_total`). Labels MUST be used sparingly to avoid cardinality explosion. Histograms MUST be used for latency, not summaries. **Excluded from Prometheus**: The tester service (`cmd/tester`) is a test/debugging tool, not a production service — it uses its own built-in `metrics.Collector` (atomic counters) and `stats.Histogram` with SSE streaming for real-time observability. Prometheus integration MUST NOT be added to the tester.
+
+**Tracing and Profiling** — Distributed tracing (OpenTelemetry) and continuous profiling (pprof/Pyroscope) are opt-in observability features, disabled by default. When disabled, they MUST have zero performance overhead — no goroutines, no allocations, no network calls. Noop implementations MUST be used (e.g., noop `TracerProvider`). Tracing MUST only instrument cold paths (auth flows, config changes, provisioning API, consumer setup) — per-message hot paths (proxy forwarding, broadcast fan-out, write pump) MUST NOT be traced, as Prometheus histograms already cover per-message latency. If the tracing exporter is slow or unreachable, spans MUST be dropped silently — never queued unboundedly, never blocking callers.
 
 ### VII. Concurrency Safety
 
@@ -233,7 +235,7 @@ Tests MUST be run with Go's race detector (`-race` flag) in local development an
 
 ### IX. Security
 
-Rate limiting MUST be applied at multiple levels (global, per-IP, per-tenant). Secrets MUST never appear in logs or error messages. JWT validation MUST verify expiration and issuer. `//nolint` or `#nosec` MUST include thorough written justification. Input validation at boundaries is mandated by II.
+Rate limiting MUST be applied at multiple levels (global, per-IP, per-tenant). Secrets MUST never appear in logs or error messages. JWT validation MUST verify expiration and issuer. `//nolint` or `#nosec` MUST include thorough written justification. Input validation at boundaries is mandated by II. Debug and profiling endpoints (`/debug/pprof/`) MUST be disabled by default — they expose memory contents, goroutine stacks, and CPU profiles. They MUST only be enabled via explicit opt-in (`PPROF_ENABLED=true`) and SHOULD be restricted to internal networks in production.
 
 ### X. Shared Code Consolidation
 

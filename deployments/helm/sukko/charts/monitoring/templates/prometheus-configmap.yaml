@@ -12,6 +12,16 @@ data:
       scrape_interval: {{ .Values.prometheus.scrapeInterval }}
       evaluation_interval: {{ .Values.prometheus.scrapeInterval }}
 
+    {{- if .Values.alertmanager.enabled }}
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ['{{ include "monitoring.fullname" . }}-alertmanager:{{ .Values.alertmanager.port }}']
+    {{- end }}
+
     scrape_configs:
       # Scrape ws-server metrics from ALL pods (not via Service which load-balances to one)
       - job_name: 'ws-server'
