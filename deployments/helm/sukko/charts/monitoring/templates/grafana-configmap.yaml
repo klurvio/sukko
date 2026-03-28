@@ -25,4 +25,30 @@ data:
         url: http://{{ include "monitoring.fullname" . }}-loki:{{ .Values.loki.port }}
         editable: false
       {{- end }}
+      {{- if .Values.tempo.enabled }}
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://{{ include "monitoring.fullname" . }}-tempo:{{ .Values.tempo.port }}
+        editable: false
+      {{- end }}
+      {{- if .Values.pyroscope.enabled }}
+      - name: Pyroscope
+        type: grafana-pyroscope-datasource
+        uid: pyroscope
+        access: proxy
+        url: http://{{ include "monitoring.fullname" . }}-pyroscope:{{ .Values.pyroscope.port }}
+        editable: false
+      {{- end }}
+      {{- if .Values.alertmanager.enabled }}
+      - name: AlertManager
+        type: alertmanager
+        uid: alertmanager
+        access: proxy
+        url: http://{{ include "monitoring.fullname" . }}-alertmanager:{{ .Values.alertmanager.port }}
+        editable: false
+        jsonData:
+          implementation: prometheus
+      {{- end }}
 {{- end }}

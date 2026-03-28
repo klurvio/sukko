@@ -24,7 +24,12 @@ Examples:
 
 1. **Load feature context**:
    - Get current branch: `git branch --show-current`
-   - Load `specs/[branch-name]/spec.md` and `plan.md`
+   - Resolve spec directory by searching in order (first match wins):
+     1. `specs/in-progress/[branch-name]/`
+     2. `specs/backlog/[branch-name]/`
+     3. `specs/completed/[branch-name]/`
+     4. `specs/[branch-name]/` (legacy fallback)
+   - Load `{resolved-spec-dir}/spec.md` and `plan.md`
    - Read constitution from `CLAUDE.md`
 
 2. **Clarify intent** (up to 3 questions):
@@ -60,7 +65,7 @@ Examples:
    - [ ] CHK001 Are [requirement type] defined for [scenario]? [Quality Dimension]
    ```
 
-6. **Write checklist** to `specs/[branch-name]/checklist-[DOMAIN].md`
+6. **Write checklist** to `{resolved-spec-dir}/checklist-[DOMAIN].md`
 
 7. **Report**: File path, item count, focus areas, suggested next steps
 

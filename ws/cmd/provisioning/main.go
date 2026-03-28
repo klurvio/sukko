@@ -26,11 +26,15 @@ import (
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/profiling"
+	"github.com/klurvio/sukko/internal/shared/tracing"
 )
+
+const serviceName = "provisioning"
 
 func main() {
 	// Bootstrap logger for pre-config startup (zerolog without config dependency)
-	bootLogger := logging.BootstrapLogger("provisioning")
+	bootLogger := logging.BootstrapLogger(serviceName)
 
 	// Load configuration first (env vars + envDefaults)
 	cfg, err := platform.LoadProvisioningConfig(bootLogger)
@@ -68,7 +72,7 @@ func main() {
 	structuredLogger := logging.NewLogger(logging.LoggerConfig{
 		Level:       logging.LogLevel(cfg.LogLevel),
 		Format:      logging.LogFormat(cfg.LogFormat),
-		ServiceName: "provisioning-service",
+		ServiceName: serviceName,
 	})
 
 	structuredLogger.Info().Int("gomaxprocs", runtime.GOMAXPROCS(0)).Msg("GOMAXPROCS set by Go runtime (container-aware)")
@@ -78,6 +82,32 @@ func main() {
 		Str("edition", cfg.EditionManager().Edition().String()).
 		Str("org", cfg.EditionManager().Org()).
 		Msg("Sukko edition resolved")
+
+	// Initialize tracing (cold-path only, noop when disabled)
+	tracingShutdown, err := tracing.Init(context.Background(), tracing.Config{
+		Enabled:      cfg.OTELTracingEnabled,
+		ExporterType: cfg.OTELExporterType,
+		Endpoint:     cfg.OTELExporterEndpoint,
+		ServiceName:  serviceName,
+		Environment:  cfg.Environment,
+	}, structuredLogger)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to initialize tracing")
+	}
+	defer func() { _ = tracingShutdown(context.Background()) }()
+
+	// Initialize profiling (Pyroscope continuous profiling, noop when disabled)
+	// pprof endpoints are registered on the HTTP server mux via the router
+	pyroscopeStop, err := profiling.InitPyroscope(profiling.PyroscopeConfig{
+		Enabled:     cfg.PyroscopeEnabled,
+		Addr:        cfg.PyroscopeAddr,
+		ServiceName: serviceName,
+		Environment: cfg.Environment,
+	}, structuredLogger)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to initialize Pyroscope")
+	}
+	defer pyroscopeStop()
 
 	// Create event bus for gRPC streaming notifications
 	bus := eventbus.New(structuredLogger)
@@ -200,15 +230,19 @@ func main() {
 		CORSMaxAge:         cfg.CORSMaxAge,
 		ConfigHandler:      platform.ConfigHandler(cfg),
 		EditionManager:     cfg.EditionManager(),
+		PprofEnabled:       cfg.PprofEnabled,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")
 	}
 
+	// Wrap router with tracing middleware (noop when tracing disabled)
+	tracedHandler := tracing.HTTPMiddleware(router)
+
 	// Create HTTP server
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
-		Handler:      router,
+		Handler:      tracedHandler,
 		ReadTimeout:  cfg.HTTPReadTimeout,
 		WriteTimeout: cfg.HTTPWriteTimeout,
 		IdleTimeout:  cfg.HTTPIdleTimeout,
@@ -222,6 +256,7 @@ func main() {
 	}
 
 	grpcSrv := grpc.NewServer(
+		tracing.StatsHandler(),
 		grpc.ChainStreamInterceptor(
 			grpcserver.RecoveryStreamInterceptor(structuredLogger),
 			grpcserver.LoggingStreamInterceptor(structuredLogger),

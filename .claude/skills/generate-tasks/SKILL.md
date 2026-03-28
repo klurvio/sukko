@@ -18,8 +18,13 @@ Break the implementation plan into ordered, executable tasks.
 
 1. **Load design documents** from the active feature:
    - Get current branch: `git branch --show-current`
-   - **Required**: `specs/[branch-name]/plan.md`, `specs/[branch-name]/spec.md`
-   - **Optional**: `research.md`
+   - Resolve spec directory by searching in order (first match wins):
+     1. `specs/in-progress/[branch-name]/`
+     2. `specs/backlog/[branch-name]/`
+     3. `specs/completed/[branch-name]/`
+     4. `specs/[branch-name]/` (legacy fallback)
+   - **Required**: `{resolved-spec-dir}/plan.md`, `{resolved-spec-dir}/spec.md`
+   - **Optional**: `{resolved-spec-dir}/research.md`
    - Load constitution from `CLAUDE.md`
 
 2. **Extract from loaded docs**:
@@ -50,7 +55,7 @@ Break the implementation plan into ordered, executable tasks.
    - Within-phase dependencies
    - Parallel opportunities (tasks on different files with no deps)
 
-6. **Write tasks** to `specs/[branch-name]/tasks.md`
+6. **Write tasks** to `{resolved-spec-dir}/tasks.md`
 
 7. **Report**:
    - Total task count and per-phase breakdown

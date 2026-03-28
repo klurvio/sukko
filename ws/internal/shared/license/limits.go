@@ -25,6 +25,9 @@ type Limits struct {
 // These are the published tier limits. License key claims can override them
 // per customer (non-zero claim values take precedence).
 //
+// Keep in sync with editionMatrix in sukko-cli (github.com/klurvio/sukko-cli
+// commands/edition.go). Edition values change ~1-2x/year.
+//
 // Unknown or empty editions default to Community limits — the most restrictive
 // tier is always the safe fallback.
 func DefaultLimits(edition Edition) Limits {

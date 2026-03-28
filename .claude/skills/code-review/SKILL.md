@@ -86,10 +86,16 @@ Examples:
    - On each iteration, only review files that were modified in the previous pass
    - Ask the user before each iteration if they want to continue or stop
 
-10. **Create completion marker** when review passes with no remaining issues:
-    - Find the spec directory for the current branch: `specs/[branch-name]/`
-    - If it exists, create an empty file named `COMPLETED` (no extension) in that directory
-    - This allows checking feature completion from a directory listing without opening files
+10. **Move spec to completed** when review passes with no remaining issues:
+    - Get current branch: `git branch --show-current`
+    - Resolve spec directory by searching in order (first match wins):
+      1. `specs/in-progress/[branch-name]/`
+      2. `specs/backlog/[branch-name]/`
+      3. `specs/completed/[branch-name]/`
+      4. `specs/[branch-name]/` (legacy fallback)
+    - If the spec was found in `specs/in-progress/[branch-name]/` or `specs/backlog/[branch-name]/`, move it to `specs/completed/[branch-name]/`
+    - Create a `COMPLETED_MM-DD-YYYY_HH-MM` timestamp marker in the spec directory
+    - If already in `specs/completed/`, just create the timestamp marker if not present
 
 ## Notes
 
