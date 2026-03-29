@@ -1,5 +1,16 @@
 # Sukko WebSocket Infrastructure — Local Development
 #
+# SOURCE OF TRUTH: This file is the canonical docker-compose definition.
+# It is automatically synced to sukko-cli (compose/docker-compose.yml) via CI,
+# where build: blocks are transformed to image: references for end users.
+# See: .github/workflows/sync-compose.yml
+#
+# Why here and not in sukko-cli?
+# The compose file is coupled to the Go codebase — env var names, ports, healthcheck
+# paths, and service topology must match the Go config contract (platform.BaseConfig,
+# ServerConfig, etc.). Keeping it alongside the code ensures changes to the config
+# contract and compose file happen in the same PR.
+#
 # Start: docker compose up
 # Stop:  docker compose down
 # Reset: docker compose down -v
