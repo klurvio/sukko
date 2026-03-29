@@ -3,6 +3,8 @@ ws/gateway
 ws/server
 ws/provisioning
 ws/tester
+ws/cli
+scripts/compose-transform/compose-transform
 
 # Go build artifacts
 *.exe
