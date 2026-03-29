@@ -48,7 +48,7 @@ tasks:
       - sukko license remove 2>/dev/null || true
       - sukko up
       - sleep 5
-      - sukko test --type validate --subtype edition-limits
+      - sukko test validate --suite edition-limits
       - echo "=== Community edition PASSED ==="
 
   license:pro:
@@ -61,7 +61,7 @@ tasks:
       - sukko license set "{{.TOKEN}}"
       - sukko up
       - sleep 5
-      - sukko test --type validate --subtype edition-limits
+      - sukko test validate --suite edition-limits
       - echo "=== Pro edition PASSED ==="
 
   license:expired:
@@ -74,7 +74,7 @@ tasks:
       - sukko license set "{{.TOKEN}}"
       - sukko up
       - sleep 5
-      - sukko test --type validate --subtype edition-limits
+      - sukko test validate --suite edition-limits
       - echo "=== Expired Pro degradation PASSED ==="
 
   license:teardown:
