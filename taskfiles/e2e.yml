@@ -1,14 +1,15 @@
 # =============================================================================
 # E2E License Testing — Edition Matrix
 # =============================================================================
-# Runs boundary tests across Community, Pro, and expired-Pro editions
+# Runs boundary tests and claims assertions across all editions
 # using sukko-cli against a local docker-compose deployment.
 #
 # Usage:
 #   task e2e:license              Run full matrix
 #   task e2e:license:setup        Start services
 #   task e2e:license:community    Test Community limits (no key)
-#   task e2e:license:pro          Test Pro limits
+#   task e2e:license:pro          Test Pro limits + claims
+#   task e2e:license:enterprise   Test Enterprise (unlimited) + claims
 #   task e2e:license:expired      Test expired Pro → Community degradation
 #   task e2e:license:teardown     Cleanup
 
@@ -17,14 +18,16 @@ version: "3"
 vars:
   DEV_KEY_PATH: ws/internal/shared/license/keys/sukko.dev.key
   GENTOKEN_CMD: cd ws && go run ./internal/shared/license/gentoken
+  PROVISIONING_URL: http://localhost:8080
 
 tasks:
   license:
-    desc: Run full E2E license matrix (Community → Pro → Expired)
+    desc: Run full E2E license matrix (Community → Pro → Enterprise → Expired)
     cmds:
       - task: license:setup
       - task: license:community
       - task: license:pro
+      - task: license:enterprise
       - task: license:expired
       - task: license:teardown
 
@@ -48,11 +51,21 @@ tasks:
       - sukko license remove 2>/dev/null || true
       - sukko up
       - sleep 5
+      # Claims assertion
+      - |
+        echo "Checking /edition claims..."
+        EDITION=$(curl -sf {{.PROVISIONING_URL}}/edition | jq -r '.edition')
+        if [ "$EDITION" != "community" ]; then
+          echo "FAIL: expected edition=community, got $EDITION"
+          exit 1
+        fi
+        echo "  edition: $EDITION ✓"
+      # Boundary tests
       - sukko test validate --suite edition-limits
       - echo "=== Community edition PASSED ==="
 
   license:pro:
-    desc: Test Pro edition
+    desc: Test Pro edition + claims assertion
     vars:
       TOKEN:
         sh: "{{.GENTOKEN_CMD}} --key internal/shared/license/keys/sukko.dev.key --edition pro --org 'E2E Test' --expires +1y"
@@ -61,19 +74,102 @@ tasks:
       - sukko license set "{{.TOKEN}}"
       - sukko up
       - sleep 5
+      # Claims assertion
+      - |
+        echo "Checking /edition claims..."
+        RESPONSE=$(curl -sf {{.PROVISIONING_URL}}/edition)
+        EDITION=$(echo "$RESPONSE" | jq -r '.edition')
+        ORG=$(echo "$RESPONSE" | jq -r '.org')
+        EXPIRED=$(echo "$RESPONSE" | jq -r '.expired')
+        MAX_TENANTS=$(echo "$RESPONSE" | jq -r '.limits.max_tenants')
+        if [ "$EDITION" != "pro" ]; then echo "FAIL: expected edition=pro, got $EDITION"; exit 1; fi
+        if [ "$ORG" != "E2E Test" ]; then echo "FAIL: expected org='E2E Test', got $ORG"; exit 1; fi
+        if [ "$EXPIRED" != "false" ]; then echo "FAIL: expected expired=false, got $EXPIRED"; exit 1; fi
+        if [ "$MAX_TENANTS" != "50" ]; then echo "FAIL: expected max_tenants=50, got $MAX_TENANTS"; exit 1; fi
+        echo "  edition: $EDITION ✓"
+        echo "  org: $ORG ✓"
+        echo "  expired: $EXPIRED ✓"
+        echo "  max_tenants: $MAX_TENANTS ✓"
+      # Boundary tests
       - sukko test validate --suite edition-limits
       - echo "=== Pro edition PASSED ==="
 
-  license:expired:
-    desc: Test expired Pro → Community degradation
+  license:enterprise:
+    desc: Test Enterprise edition (unlimited) + claims assertion
     vars:
       TOKEN:
-        sh: "{{.GENTOKEN_CMD}} --key internal/shared/license/keys/sukko.dev.key --edition pro --org 'E2E Test' --expires -1d 2>/dev/null"
+        sh: "{{.GENTOKEN_CMD}} --key internal/shared/license/keys/sukko.dev.key --edition enterprise --org 'E2E Enterprise' --expires +1y"
+    cmds:
+      - echo "=== Testing Enterprise edition ==="
+      - sukko license set "{{.TOKEN}}"
+      - sukko up
+      - sleep 5
+      # Claims assertion — verify edition, org, and unlimited limits (0)
+      - |
+        echo "Checking /edition claims..."
+        RESPONSE=$(curl -sf {{.PROVISIONING_URL}}/edition)
+        EDITION=$(echo "$RESPONSE" | jq -r '.edition')
+        ORG=$(echo "$RESPONSE" | jq -r '.org')
+        EXPIRED=$(echo "$RESPONSE" | jq -r '.expired')
+        MAX_TENANTS=$(echo "$RESPONSE" | jq -r '.limits.max_tenants')
+        MAX_CONNECTIONS=$(echo "$RESPONSE" | jq -r '.limits.max_total_connections')
+        if [ "$EDITION" != "enterprise" ]; then echo "FAIL: expected edition=enterprise, got $EDITION"; exit 1; fi
+        if [ "$ORG" != "E2E Enterprise" ]; then echo "FAIL: expected org='E2E Enterprise', got $ORG"; exit 1; fi
+        if [ "$EXPIRED" != "false" ]; then echo "FAIL: expected expired=false, got $EXPIRED"; exit 1; fi
+        if [ "$MAX_TENANTS" != "0" ]; then echo "FAIL: expected max_tenants=0 (unlimited), got $MAX_TENANTS"; exit 1; fi
+        if [ "$MAX_CONNECTIONS" != "0" ]; then echo "FAIL: expected max_total_connections=0 (unlimited), got $MAX_CONNECTIONS"; exit 1; fi
+        echo "  edition: $EDITION ✓"
+        echo "  org: $ORG ✓"
+        echo "  expired: $EXPIRED ✓"
+        echo "  max_tenants: $MAX_TENANTS (unlimited) ✓"
+        echo "  max_total_connections: $MAX_CONNECTIONS (unlimited) ✓"
+      # Smoke test — create a few tenants, verify no rejection
+      - |
+        echo "Smoke test: creating tenants (should not be rejected)..."
+        for i in 1 2 3 4 5; do
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" -X POST {{.PROVISIONING_URL}}/api/v1/tenants \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer sukko-dev-token" \
+            -d "{\"id\": \"_e2e_enterprise_$i\", \"name\": \"E2E Enterprise Test $i\"}")
+          if [ "$STATUS" = "403" ]; then
+            echo "FAIL: tenant creation rejected (HTTP 403) — Enterprise should be unlimited"
+            exit 1
+          fi
+        done
+        echo "  5 tenants created without rejection ✓"
+      # Cleanup test tenants
+      - |
+        for i in 1 2 3 4 5; do
+          curl -sf -X DELETE "{{.PROVISIONING_URL}}/api/v1/tenants/_e2e_enterprise_$i?force=true" \
+            -H "Authorization: Bearer sukko-dev-token" > /dev/null 2>&1 || true
+        done
+        echo "  test tenants cleaned up ✓"
+      - echo "=== Enterprise edition PASSED ==="
+
+  license:expired:
+    desc: Test expired Pro → Community degradation + claims assertion
+    vars:
+      TOKEN:
+        sh: "{{.GENTOKEN_CMD}} --key internal/shared/license/keys/sukko.dev.key --edition pro --org 'E2E Expired' --expires -1d 2>/dev/null"
     cmds:
       - echo "=== Testing expired Pro (Community degradation) ==="
       - sukko license set "{{.TOKEN}}"
       - sukko up
       - sleep 5
+      # Claims assertion — should degrade to community with expired=true
+      - |
+        echo "Checking /edition claims..."
+        RESPONSE=$(curl -sf {{.PROVISIONING_URL}}/edition)
+        EDITION=$(echo "$RESPONSE" | jq -r '.edition')
+        EXPIRED=$(echo "$RESPONSE" | jq -r '.expired')
+        MAX_TENANTS=$(echo "$RESPONSE" | jq -r '.limits.max_tenants')
+        if [ "$EDITION" != "community" ]; then echo "FAIL: expected edition=community (degraded), got $EDITION"; exit 1; fi
+        if [ "$EXPIRED" != "true" ]; then echo "FAIL: expected expired=true, got $EXPIRED"; exit 1; fi
+        if [ "$MAX_TENANTS" != "3" ]; then echo "FAIL: expected max_tenants=3 (Community), got $MAX_TENANTS"; exit 1; fi
+        echo "  edition: $EDITION (degraded) ✓"
+        echo "  expired: $EXPIRED ✓"
+        echo "  max_tenants: $MAX_TENANTS (Community limit) ✓"
+      # Boundary tests — should enforce Community limits
       - sukko test validate --suite edition-limits
       - echo "=== Expired Pro degradation PASSED ==="
 
