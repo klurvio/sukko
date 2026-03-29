@@ -74,3 +74,4 @@ deployments/tester/do/config.env
 handoffs
 sessions
 specs
+.sukko/
