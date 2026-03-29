@@ -36,7 +36,7 @@ jobs:
 
       - name: Get installation token
         id: app-token
-        uses: actions/create-github-app-token@21cfef2c9c2a44d64dae3e281a7e3fca8c0c75cf # v2
+        uses: actions/create-github-app-token@7bfa3a4717ef143a604ee0a99d859b8886a96d00 # v1.9.3
         with:
           app-id: ${{ vars.COMPOSE_SYNC_APP_ID }}
           private-key: ${{ secrets.COMPOSE_SYNC_APP_PRIVATE_KEY }}
