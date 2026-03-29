@@ -1,0 +1,84 @@
+# =============================================================================
+# E2E License Testing — Edition Matrix
+# =============================================================================
+# Runs boundary tests across Community, Pro, and expired-Pro editions
+# using sukko-cli against a local docker-compose deployment.
+#
+# Usage:
+#   task e2e:license              Run full matrix
+#   task e2e:license:setup        Start services
+#   task e2e:license:community    Test Community limits (no key)
+#   task e2e:license:pro          Test Pro limits
+#   task e2e:license:expired      Test expired Pro → Community degradation
+#   task e2e:license:teardown     Cleanup
+
+version: "3"
+
+vars:
+  DEV_KEY_PATH: ws/internal/shared/license/keys/sukko.dev.key
+  GENTOKEN_CMD: cd ws && go run ./internal/shared/license/gentoken
+
+tasks:
+  license:
+    desc: Run full E2E license matrix (Community → Pro → Expired)
+    cmds:
+      - task: license:setup
+      - task: license:community
+      - task: license:pro
+      - task: license:expired
+      - task: license:teardown
+
+  license:setup:
+    desc: Auto-generate dev keypair if missing, init and start services
+    cmds:
+      - |
+        if [ ! -f "{{.DEV_KEY_PATH}}" ]; then
+          echo "Dev keypair not found — generating..."
+          cd ws && go run ./internal/shared/license/genkeys
+        else
+          echo "Dev keypair exists"
+        fi
+      - sukko init --defaults 2>/dev/null || true
+      - sukko up
+
+  license:community:
+    desc: Test Community edition (no license key)
+    cmds:
+      - echo "=== Testing Community edition (no key) ==="
+      - sukko license remove 2>/dev/null || true
+      - sukko up
+      - sleep 5
+      - sukko test --type validate --subtype edition-limits
+      - echo "=== Community edition PASSED ==="
+
+  license:pro:
+    desc: Test Pro edition
+    vars:
+      TOKEN:
+        sh: "{{.GENTOKEN_CMD}} --key internal/shared/license/keys/sukko.dev.key --edition pro --org 'E2E Test' --expires +1y"
+    cmds:
+      - echo "=== Testing Pro edition ==="
+      - sukko license set "{{.TOKEN}}"
+      - sukko up
+      - sleep 5
+      - sukko test --type validate --subtype edition-limits
+      - echo "=== Pro edition PASSED ==="
+
+  license:expired:
+    desc: Test expired Pro → Community degradation
+    vars:
+      TOKEN:
+        sh: "{{.GENTOKEN_CMD}} --key internal/shared/license/keys/sukko.dev.key --edition pro --org 'E2E Test' --expires -1d 2>/dev/null"
+    cmds:
+      - echo "=== Testing expired Pro (Community degradation) ==="
+      - sukko license set "{{.TOKEN}}"
+      - sukko up
+      - sleep 5
+      - sukko test --type validate --subtype edition-limits
+      - echo "=== Expired Pro degradation PASSED ==="
+
+  license:teardown:
+    desc: Cleanup after E2E tests
+    cmds:
+      - sukko license remove 2>/dev/null || true
+      - echo "=== E2E license matrix complete ==="
