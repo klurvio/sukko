@@ -19,6 +19,7 @@ import (
 
 // Sentinel errors for provisioning operations.
 var (
+	ErrTenantAlreadyExists       = errors.New("tenant already exists")
 	ErrTenantIDContainsDots      = errors.New("tenant ID must not contain dots")
 	ErrTenantIDUnderscorePrefix  = errors.New("tenant ID must not start with underscore")
 	ErrTenantDeleted             = errors.New("cannot modify deleted tenant")

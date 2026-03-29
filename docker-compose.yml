@@ -52,6 +52,7 @@ services:
     environment:
       PROVISIONING_ADMIN_TOKEN: "sukko-dev-token"
       DATABASE_PATH: /data/sukko.db
+      SUKKO_LICENSE_KEY: "${SUKKO_LICENSE_KEY:-}"
       # Observability (disabled by default, enable with OTEL_TRACING_ENABLED=true)
       OTEL_TRACING_ENABLED: "${OTEL_TRACING_ENABLED:-false}"
       OTEL_EXPORTER_ENDPOINT: "tempo:4317"
@@ -80,6 +81,7 @@ services:
       # Inter-service wiring (only overrides needed)
       NATS_URLS: "nats://nats:4222"
       PROVISIONING_GRPC_ADDR: "provisioning:9090"
+      SUKKO_LICENSE_KEY: "${SUKKO_LICENSE_KEY:-}"
       # Observability (disabled by default, enable with OTEL_TRACING_ENABLED=true)
       OTEL_TRACING_ENABLED: "${OTEL_TRACING_ENABLED:-false}"
       OTEL_EXPORTER_ENDPOINT: "tempo:4317"
@@ -111,6 +113,7 @@ services:
       # Inter-service wiring (only overrides needed)
       GATEWAY_BACKEND_URL: "ws://ws-server:3005/ws"
       PROVISIONING_GRPC_ADDR: "provisioning:9090"
+      SUKKO_LICENSE_KEY: "${SUKKO_LICENSE_KEY:-}"
       # Observability (disabled by default, enable with OTEL_TRACING_ENABLED=true)
       OTEL_TRACING_ENABLED: "${OTEL_TRACING_ENABLED:-false}"
       OTEL_EXPORTER_ENDPOINT: "tempo:4317"

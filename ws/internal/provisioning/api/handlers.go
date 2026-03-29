@@ -46,6 +46,8 @@ func NewHandler(svc *provisioning.Service, logger zerolog.Logger) (*Handler, err
 // writeServiceError writes an error response, mapping known sentinel errors to appropriate HTTP status codes.
 func (h *Handler) writeServiceError(w http.ResponseWriter, err error, code, msg string) {
 	switch {
+	case errors.Is(err, provisioning.ErrTenantAlreadyExists):
+		httputil.WriteError(w, http.StatusConflict, "TENANT_ALREADY_EXISTS", "Tenant already exists")
 	case errors.Is(err, provisioning.ErrTenantNotFound):
 		httputil.WriteError(w, http.StatusNotFound, "TENANT_NOT_FOUND", "Tenant not found")
 	case errors.Is(err, provisioning.ErrTenantDeleted):
