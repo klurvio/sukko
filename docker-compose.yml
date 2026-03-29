@@ -51,6 +51,7 @@ services:
       - "9090:9090"
     environment:
       PROVISIONING_ADMIN_TOKEN: "sukko-dev-token"
+      DATABASE_PATH: /data/sukko.db
       # Observability (disabled by default, enable with OTEL_TRACING_ENABLED=true)
       OTEL_TRACING_ENABLED: "${OTEL_TRACING_ENABLED:-false}"
       OTEL_EXPORTER_ENDPOINT: "tempo:4317"
