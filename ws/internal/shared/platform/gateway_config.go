@@ -49,7 +49,7 @@ type GatewayConfig struct {
 	// Multi-tenant settings
 	RequireTenantID              bool `env:"REQUIRE_TENANT_ID" envDefault:"true"`
 	DefaultTenantConnectionLimit int  `env:"DEFAULT_TENANT_CONNECTION_LIMIT" envDefault:"1000"`
-	TenantConnectionLimitEnabled bool `env:"TENANT_CONNECTION_LIMIT_ENABLED" envDefault:"true"`
+	TenantConnectionLimitEnabled bool `env:"TENANT_CONNECTION_LIMIT_ENABLED" envDefault:"false"`
 
 	// Permissions - channel patterns
 	// Patterns support wildcards: *.trade matches BTC.trade, *.trade.* matches BTC.trade.user123
