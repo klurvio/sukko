@@ -29,7 +29,7 @@ func TestConnectWithRetry_RespectsContextCancellation(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatal("expected error for cancelled context")
+		t.Fatal("expected error for canceled context")
 	}
 	// Should return quickly, not wait for all backoff delays
 	if elapsed > 2*time.Second {

@@ -167,6 +167,84 @@ func (c *ProvisioningClient) GetTenant(ctx context.Context, tenantID, token stri
 	return resp.StatusCode, nil
 }
 
+// SetChannelRules sets channel rules for a tenant via PUT /api/v1/tenants/{id}/channel-rules.
+func (c *ProvisioningClient) SetChannelRules(ctx context.Context, tenantID string, rules map[string]any) error {
+	body, err := json.Marshal(rules)
+	if err != nil {
+		return fmt.Errorf("set channel rules: marshal: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+"/api/v1/tenants/"+tenantID+"/channel-rules", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("set channel rules: build request: %w", err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("set channel rules: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.readError("set channel rules", resp)
+	}
+
+	c.logger.Info().Str("tenant_id", tenantID).Msg("channel rules set")
+	return nil
+}
+
+// SetRoutingRules sets routing rules for a tenant via PUT /api/v1/tenants/{id}/routing-rules.
+func (c *ProvisioningClient) SetRoutingRules(ctx context.Context, tenantID string, rules []map[string]any) error {
+	body, err := json.Marshal(map[string]any{"rules": rules})
+	if err != nil {
+		return fmt.Errorf("set routing rules: marshal: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+"/api/v1/tenants/"+tenantID+"/routing-rules", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("set routing rules: build request: %w", err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("set routing rules: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.readError("set routing rules", resp)
+	}
+
+	c.logger.Info().Str("tenant_id", tenantID).Msg("routing rules set")
+	return nil
+}
+
+// DeleteRoutingRules deletes routing rules for a tenant via DELETE /api/v1/tenants/{id}/routing-rules.
+// Returns nil if rules don't exist (404 is acceptable).
+func (c *ProvisioningClient) DeleteRoutingRules(ctx context.Context, tenantID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/api/v1/tenants/"+tenantID+"/routing-rules", http.NoBody)
+	if err != nil {
+		return fmt.Errorf("delete routing rules: build request: %w", err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete routing rules: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// 200 and 404 are both acceptable — rules may not exist
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+		return c.readError("delete routing rules", resp)
+	}
+
+	c.logger.Info().Str("tenant_id", tenantID).Msg("routing rules deleted")
+	return nil
+}
+
 func (c *ProvisioningClient) setHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
 	if c.adminToken != "" {

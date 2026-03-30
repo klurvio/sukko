@@ -55,7 +55,8 @@ type TestConfig struct {
 	Duration        string   `json:"duration,omitempty"`
 	PublishRate     int      `json:"publish_rate,omitempty"`
 	RampRate        int      `json:"ramp_rate,omitempty"`
-	Suite           string   `json:"suite,omitempty"` // for validate type
+	Suite           string   `json:"suite,omitempty"`        // for validate type
+	ChannelMode     bool     `json:"channel_mode,omitempty"` // for load: distribute across public/user/group channels
 	TenantID        string   `json:"tenant_id,omitempty"`
 }
 
@@ -73,9 +74,9 @@ const (
 
 // TestRun tracks the state and results of an individual test execution.
 type TestRun struct {
-	ID        string             `json:"id"`
-	Config    TestConfig         `json:"config"`
-	Status    TestStatus         `json:"status"`
+	ID               string             `json:"id"`
+	Config           TestConfig         `json:"config"`
+	Status           TestStatus         `json:"status"`
 	Collector        *metrics.Collector `json:"-"`
 	Report           *metrics.Report    `json:"report,omitempty"`
 	mu               sync.RWMutex       `json:"-"`
@@ -237,7 +238,7 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 		logger.Error().Err(authErr).Msg("auth setup failed")
 		return
 	}
-	defer authResult.Cleanup(context.Background())
+	defer authResult.Cleanup(context.Background()) //nolint:contextcheck // NFR-002: cleanup must survive parent cancellation
 
 	// Populate auth state on run for test functions.
 	// Config.TenantID needs mu because getTest reads Config without lock.

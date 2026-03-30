@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
 	"github.com/rs/zerolog"
 )
@@ -101,6 +102,56 @@ func runSmoke(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metric
 				Status:  "pass",
 				Latency: time.Since(start).Round(time.Millisecond).String(),
 			})
+		}
+	}
+
+	// Check 4: Publish round-trip — verify actual message delivery
+	// Uses PubSubEngine to create a fresh connection with message tracking.
+	if run.authResult != nil && run.authResult.ProvClient != nil {
+		// Setup: add catch-all routing rule for publish to work.
+		// Error ignored: if this fails, the publish round-trip check below will
+		// fail with "message not received within timeout" — no silent degradation.
+		_ = run.authResult.ProvClient.SetRoutingRules(ctx, run.authResult.TenantID, []map[string]any{
+			{"pattern": "*.*", "topic_suffix": "smoke-test"},
+		})
+
+		engine := NewPubSubEngine(PubSubEngineConfig{
+			GatewayURL: run.Config.GatewayURL,
+			Logger:     logger,
+		})
+
+		smokeUser, createErr := engine.CreateUser(ctx, run.authResult.Minter, auth.MintOptions{
+			ConnIndex: 99,
+			Subject:   "smoke-pubsub",
+		})
+		if createErr != nil {
+			checks = append(checks, metrics.CheckResult{
+				Name: "publish round-trip", Status: "fail", Error: createErr.Error(),
+			})
+		} else {
+			defer func() { _ = smokeUser.Client.Close() }()
+
+			if subErr := smokeUser.Client.Subscribe([]string{smokeTestChannel}); subErr != nil {
+				checks = append(checks, metrics.CheckResult{
+					Name: "publish round-trip", Status: "fail", Error: subErr.Error(),
+				})
+			} else {
+				time.Sleep(200 * time.Millisecond) // allow subscription to propagate
+				result := engine.PublishAndVerify(ctx, smokeUser, smokeTestChannel, []*TestUser{smokeUser}, []*TestUser{smokeUser})
+				if result.Delivered {
+					checks = append(checks, metrics.CheckResult{
+						Name:    "publish round-trip",
+						Status:  "pass",
+						Latency: result.Latency.Round(time.Millisecond).String(),
+					})
+				} else {
+					checks = append(checks, metrics.CheckResult{
+						Name:   "publish round-trip",
+						Status: "fail",
+						Error:  "message not received within timeout",
+					})
+				}
+			}
 		}
 	}
 

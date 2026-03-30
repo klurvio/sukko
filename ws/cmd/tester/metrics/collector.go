@@ -20,9 +20,17 @@ type Collector struct {
 	AuthRefreshTotal  atomic.Int64
 	AuthRefreshFailed atomic.Int64
 	AuthErrors        atomic.Int64
-	Latency           *stats.Histogram
-	mu                sync.RWMutex
-	startTime         time.Time
+	// Channel-mode metrics (load test with --channels)
+	PublicSent          atomic.Int64
+	PublicReceived      atomic.Int64
+	UserScopedSent      atomic.Int64
+	UserScopedReceived  atomic.Int64
+	GroupScopedSent     atomic.Int64
+	GroupScopedReceived atomic.Int64
+	Misrouted           atomic.Int64
+	Latency             *stats.Histogram
+	mu                  sync.RWMutex
+	startTime           time.Time
 }
 
 // NewCollector creates a Collector with zeroed counters and a fresh start time.
@@ -35,19 +43,26 @@ func NewCollector() *Collector {
 
 // Snapshot is a serializable snapshot of current metrics.
 type Snapshot struct {
-	Timestamp         time.Time      `json:"timestamp"`
-	Elapsed           string         `json:"elapsed"`
-	ConnectionsActive int64          `json:"connections_active"`
-	ConnectionsFailed int64          `json:"connections_failed"`
-	ConnectionsTotal  int64          `json:"connections_total"`
-	MessagesSent      int64          `json:"messages_sent"`
-	MessagesReceived  int64          `json:"messages_received"`
-	MessagesDropped   int64          `json:"messages_dropped"`
-	ErrorsTotal       int64          `json:"errors_total"`
-	AuthRefreshTotal  int64          `json:"auth_refresh_total"`
-	AuthRefreshFailed int64          `json:"auth_refresh_failed"`
-	AuthErrors        int64          `json:"auth_errors"`
-	Latency           stats.Snapshot `json:"latency"`
+	Timestamp           time.Time      `json:"timestamp"`
+	Elapsed             string         `json:"elapsed"`
+	ConnectionsActive   int64          `json:"connections_active"`
+	ConnectionsFailed   int64          `json:"connections_failed"`
+	ConnectionsTotal    int64          `json:"connections_total"`
+	MessagesSent        int64          `json:"messages_sent"`
+	MessagesReceived    int64          `json:"messages_received"`
+	MessagesDropped     int64          `json:"messages_dropped"`
+	ErrorsTotal         int64          `json:"errors_total"`
+	AuthRefreshTotal    int64          `json:"auth_refresh_total"`
+	AuthRefreshFailed   int64          `json:"auth_refresh_failed"`
+	AuthErrors          int64          `json:"auth_errors"`
+	PublicSent          int64          `json:"public_sent,omitzero"`
+	PublicReceived      int64          `json:"public_received,omitzero"`
+	UserScopedSent      int64          `json:"user_scoped_sent,omitzero"`
+	UserScopedReceived  int64          `json:"user_scoped_received,omitzero"`
+	GroupScopedSent     int64          `json:"group_scoped_sent,omitzero"`
+	GroupScopedReceived int64          `json:"group_scoped_received,omitzero"`
+	Misrouted           int64          `json:"misrouted,omitzero"`
+	Latency             stats.Snapshot `json:"latency"`
 }
 
 // Snapshot returns a point-in-time copy of all collected metrics.
@@ -57,19 +72,26 @@ func (c *Collector) Snapshot() Snapshot {
 	c.mu.RUnlock()
 
 	return Snapshot{
-		Timestamp:         time.Now(),
-		Elapsed:           elapsed,
-		ConnectionsActive: c.ConnectionsActive.Load(),
-		ConnectionsFailed: c.ConnectionsFailed.Load(),
-		ConnectionsTotal:  c.ConnectionsTotal.Load(),
-		MessagesSent:      c.MessagesSent.Load(),
-		MessagesReceived:  c.MessagesReceived.Load(),
-		MessagesDropped:   c.MessagesDropped.Load(),
-		ErrorsTotal:       c.ErrorsTotal.Load(),
-		AuthRefreshTotal:  c.AuthRefreshTotal.Load(),
-		AuthRefreshFailed: c.AuthRefreshFailed.Load(),
-		AuthErrors:        c.AuthErrors.Load(),
-		Latency:           c.Latency.Snapshot(),
+		Timestamp:           time.Now(),
+		Elapsed:             elapsed,
+		ConnectionsActive:   c.ConnectionsActive.Load(),
+		ConnectionsFailed:   c.ConnectionsFailed.Load(),
+		ConnectionsTotal:    c.ConnectionsTotal.Load(),
+		MessagesSent:        c.MessagesSent.Load(),
+		MessagesReceived:    c.MessagesReceived.Load(),
+		MessagesDropped:     c.MessagesDropped.Load(),
+		ErrorsTotal:         c.ErrorsTotal.Load(),
+		AuthRefreshTotal:    c.AuthRefreshTotal.Load(),
+		AuthRefreshFailed:   c.AuthRefreshFailed.Load(),
+		AuthErrors:          c.AuthErrors.Load(),
+		PublicSent:          c.PublicSent.Load(),
+		PublicReceived:      c.PublicReceived.Load(),
+		UserScopedSent:      c.UserScopedSent.Load(),
+		UserScopedReceived:  c.UserScopedReceived.Load(),
+		GroupScopedSent:     c.GroupScopedSent.Load(),
+		GroupScopedReceived: c.GroupScopedReceived.Load(),
+		Misrouted:           c.Misrouted.Load(),
+		Latency:             c.Latency.Snapshot(),
 	}
 }
 
@@ -85,6 +107,13 @@ func (c *Collector) Reset() {
 	c.AuthRefreshTotal.Store(0)
 	c.AuthRefreshFailed.Store(0)
 	c.AuthErrors.Store(0)
+	c.PublicSent.Store(0)
+	c.PublicReceived.Store(0)
+	c.UserScopedSent.Store(0)
+	c.UserScopedReceived.Store(0)
+	c.GroupScopedSent.Store(0)
+	c.GroupScopedReceived.Store(0)
+	c.Misrouted.Store(0)
 	c.Latency.Reset()
 	c.mu.Lock()
 	c.startTime = time.Now()

@@ -163,3 +163,91 @@ func TestProvisioningClient_GetTenant(t *testing.T) {
 		t.Errorf("status = %d, want 401", status)
 	}
 }
+
+func TestProvisioningClient_SetChannelRules(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method = %q, want PUT", r.Method)
+		}
+		if r.URL.Path != "/api/v1/tenants/test-t1/channel-rules" {
+			t.Errorf("path = %q, want /api/v1/tenants/test-t1/channel-rules", r.URL.Path)
+		}
+		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+			t.Errorf("content-type = %q, want application/json", ct)
+		}
+		if auth := r.Header.Get("Authorization"); auth != "Bearer test-admin-token" {
+			t.Errorf("auth = %q, want Bearer test-admin-token", auth)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	err := client.SetChannelRules(context.Background(), "test-t1", map[string]any{
+		"public": []string{"general.*"},
+	})
+	if err != nil {
+		t.Fatalf("SetChannelRules: %v", err)
+	}
+}
+
+func TestProvisioningClient_SetRoutingRules(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method = %q, want PUT", r.Method)
+		}
+		if r.URL.Path != "/api/v1/tenants/test-t1/routing-rules" {
+			t.Errorf("path = %q, want /api/v1/tenants/test-t1/routing-rules", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	err := client.SetRoutingRules(context.Background(), "test-t1", []map[string]any{
+		{"pattern": "*.*", "topic_suffix": "test"},
+	})
+	if err != nil {
+		t.Fatalf("SetRoutingRules: %v", err)
+	}
+}
+
+func TestProvisioningClient_DeleteRoutingRules(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method = %q, want DELETE", r.Method)
+		}
+		if r.URL.Path != "/api/v1/tenants/test-t1/routing-rules" {
+			t.Errorf("path = %q, want /api/v1/tenants/test-t1/routing-rules", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	err := client.DeleteRoutingRules(context.Background(), "test-t1")
+	if err != nil {
+		t.Fatalf("DeleteRoutingRules: %v", err)
+	}
+}
+
+func TestProvisioningClient_DeleteRoutingRules_NotFound(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	err := client.DeleteRoutingRules(context.Background(), "test-t1")
+	if err != nil {
+		t.Fatalf("DeleteRoutingRules with 404 should not error, got: %v", err)
+	}
+}

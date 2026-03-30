@@ -37,6 +37,10 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 		checks, err = validateRateLimit(ctx, run, logger)
 	case "edition-limits":
 		checks, err = validateEditionLimits(ctx, run, logger)
+	case "pubsub":
+		checks, err = validatePubSub(ctx, run, logger)
+	case "tenant-isolation":
+		checks, err = validateTenantIsolation(ctx, run, logger)
 	default:
 		checks = []metrics.CheckResult{{
 			Name:   "unknown suite",
@@ -65,7 +69,7 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 	}, nil
 }
 
-func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
+func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) { //nolint:unparam // matches validate suite function signature
 	var checks []metrics.CheckResult
 
 	// Check 1: Valid JWT accepted (with retry for key registry cache race)
@@ -249,15 +253,16 @@ func validateProvisioningJWT(ctx context.Context, run *TestRun, logger zerolog.L
 
 	// GET own tenant with tenant JWT → expect 200
 	status, err := provClient.GetTenant(ctx, run.Config.TenantID, tenantJWT)
-	if err != nil {
+	switch {
+	case err != nil:
 		checks = append(checks, metrics.CheckResult{
 			Name: "provisioning JWT own tenant", Status: "fail", Error: err.Error(),
 		})
-	} else if status == http.StatusOK {
+	case status == http.StatusOK:
 		checks = append(checks, metrics.CheckResult{
 			Name: "provisioning JWT own tenant", Status: "pass",
 		})
-	} else {
+	default:
 		checks = append(checks, metrics.CheckResult{
 			Name: "provisioning JWT own tenant", Status: "fail",
 			Error: fmt.Sprintf("expected 200, got %d", status),
@@ -266,15 +271,16 @@ func validateProvisioningJWT(ctx context.Context, run *TestRun, logger zerolog.L
 
 	// GET other tenant with tenant JWT → expect 403
 	status, err = provClient.GetTenant(ctx, "nonexistent-other-tenant", tenantJWT)
-	if err != nil {
+	switch {
+	case err != nil:
 		checks = append(checks, metrics.CheckResult{
 			Name: "provisioning JWT cross-tenant blocked", Status: "fail", Error: err.Error(),
 		})
-	} else if status == http.StatusForbidden {
+	case status == http.StatusForbidden:
 		checks = append(checks, metrics.CheckResult{
 			Name: "provisioning JWT cross-tenant blocked", Status: "pass",
 		})
-	} else {
+	default:
 		checks = append(checks, metrics.CheckResult{
 			Name: "provisioning JWT cross-tenant blocked", Status: "fail",
 			Error: fmt.Sprintf("expected 403, got %d", status),
@@ -308,22 +314,4 @@ func validateChannels(ctx context.Context, run *TestRun, logger zerolog.Logger) 
 	}
 
 	return checks, nil
-}
-
-func validateOrdering(_ context.Context, _ *TestRun, _ zerolog.Logger) ([]metrics.CheckResult, error) { //nolint:unparam // error return reserved for future implementation
-	return []metrics.CheckResult{{
-		Name: "message ordering", Status: "skip",
-	}}, nil
-}
-
-func validateReconnect(_ context.Context, _ *TestRun, _ zerolog.Logger) ([]metrics.CheckResult, error) { //nolint:unparam // error return reserved for future implementation
-	return []metrics.CheckResult{{
-		Name: "reconnect recovery", Status: "skip",
-	}}, nil
-}
-
-func validateRateLimit(_ context.Context, _ *TestRun, _ zerolog.Logger) ([]metrics.CheckResult, error) { //nolint:unparam // error return reserved for future implementation
-	return []metrics.CheckResult{{
-		Name: "rate limit enforcement", Status: "skip",
-	}}, nil
 }

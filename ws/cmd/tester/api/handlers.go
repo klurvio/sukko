@@ -172,7 +172,7 @@ func (h *handlers) streamMetrics(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ticker.C:
 			snapshot := run.Collector.Snapshot()
-			data, _ := json.Marshal(snapshot)
+			data, _ := json.Marshal(snapshot) // Snapshot is all primitives — marshal cannot fail
 			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
 				return
 			}
@@ -182,7 +182,7 @@ func (h *handlers) streamMetrics(w http.ResponseWriter, r *http.Request) {
 			status, report := run.StatusSnapshot()
 			if status == runner.StatusComplete || status == runner.StatusFailed || status == runner.StatusStopped {
 				if report != nil {
-					finalData, _ := json.Marshal(report)
+					finalData, _ := json.Marshal(report) // Report is all primitives — marshal cannot fail
 					if _, err := fmt.Fprintf(w, "event: complete\ndata: %s\n\n", finalData); err != nil {
 						return
 					}
