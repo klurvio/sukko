@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
@@ -16,6 +17,11 @@ type TesterConfig struct {
 	ProvisioningURL string `env:"PROVISIONING_URL" envDefault:"http://localhost:8080"`
 	KafkaBrokers    string `env:"KAFKA_BROKERS" envDefault:""`
 	MessageBackend  string `env:"MESSAGE_BACKEND" envDefault:"direct"`
+
+	// JWT auth configuration
+	JWTLifetime      time.Duration `env:"TESTER_JWT_LIFETIME" envDefault:"15m"`
+	JWTRefreshBefore time.Duration `env:"TESTER_JWT_REFRESH_BEFORE" envDefault:"2m"`
+	KeyExpiry        time.Duration `env:"TESTER_KEY_EXPIRY" envDefault:"24h"`
 }
 
 func (c *TesterConfig) Validate() error {
@@ -36,6 +42,15 @@ func (c *TesterConfig) Validate() error {
 	}
 	if c.MessageBackend == "kafka" && c.KafkaBrokers == "" {
 		return errors.New("KAFKA_BROKERS required when MESSAGE_BACKEND=kafka")
+	}
+	if c.JWTLifetime <= 0 {
+		return errors.New("TESTER_JWT_LIFETIME must be positive")
+	}
+	if c.JWTRefreshBefore <= 0 || c.JWTRefreshBefore >= c.JWTLifetime {
+		return fmt.Errorf("TESTER_JWT_REFRESH_BEFORE must be positive and less than TESTER_JWT_LIFETIME (%v), got %v", c.JWTLifetime, c.JWTRefreshBefore)
+	}
+	if c.KeyExpiry < c.JWTLifetime {
+		return fmt.Errorf("TESTER_KEY_EXPIRY (%v) must be >= TESTER_JWT_LIFETIME (%v)", c.KeyExpiry, c.JWTLifetime)
 	}
 	return nil
 }

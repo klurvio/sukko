@@ -55,6 +55,32 @@ func TestCollector_AtomicCounters(t *testing.T) {
 	}
 }
 
+func TestCollector_AuthCounters(t *testing.T) {
+	t.Parallel()
+
+	c := NewCollector()
+	c.AuthRefreshTotal.Add(10)
+	c.AuthRefreshFailed.Add(2)
+	c.AuthErrors.Add(3)
+
+	snap := c.Snapshot()
+	if snap.AuthRefreshTotal != 10 {
+		t.Errorf("AuthRefreshTotal = %d, want 10", snap.AuthRefreshTotal)
+	}
+	if snap.AuthRefreshFailed != 2 {
+		t.Errorf("AuthRefreshFailed = %d, want 2", snap.AuthRefreshFailed)
+	}
+	if snap.AuthErrors != 3 {
+		t.Errorf("AuthErrors = %d, want 3", snap.AuthErrors)
+	}
+
+	c.Reset()
+	snap = c.Snapshot()
+	if snap.AuthRefreshTotal != 0 || snap.AuthRefreshFailed != 0 || snap.AuthErrors != 0 {
+		t.Error("auth counters not zeroed after reset")
+	}
+}
+
 func TestCollector_Latency(t *testing.T) {
 	t.Parallel()
 

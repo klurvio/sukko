@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/rs/zerolog"
@@ -54,6 +56,7 @@ type TestConfig struct {
 	PublishRate     int      `json:"publish_rate,omitempty"`
 	RampRate        int      `json:"ramp_rate,omitempty"`
 	Suite           string   `json:"suite,omitempty"` // for validate type
+	TenantID        string   `json:"tenant_id,omitempty"`
 }
 
 // TestStatus represents the current state of a test run.
@@ -73,10 +76,13 @@ type TestRun struct {
 	ID        string             `json:"id"`
 	Config    TestConfig         `json:"config"`
 	Status    TestStatus         `json:"status"`
-	Collector *metrics.Collector `json:"-"`
-	Report    *metrics.Report    `json:"report,omitempty"`
-	mu        sync.RWMutex       `json:"-"`
-	cancel    context.CancelFunc
+	Collector        *metrics.Collector `json:"-"`
+	Report           *metrics.Report    `json:"report,omitempty"`
+	mu               sync.RWMutex       `json:"-"`
+	cancel           context.CancelFunc
+	authResult       *auth.SetupResult `json:"-"`
+	jwtLifetime      time.Duration     `json:"-"`
+	jwtRefreshBefore time.Duration     `json:"-"`
 }
 
 // StatusSnapshot returns the current Status and Report under a read lock.
@@ -97,11 +103,14 @@ type Runner struct {
 
 // Config holds default settings applied to all test runs.
 type Config struct {
-	GatewayURL      string
-	ProvisioningURL string
-	Token           string
-	MessageBackend  string
-	KafkaBrokers    string
+	GatewayURL       string
+	ProvisioningURL  string
+	Token            string
+	MessageBackend   string
+	KafkaBrokers     string
+	JWTLifetime      time.Duration
+	JWTRefreshBefore time.Duration
+	KeyExpiry        time.Duration
 }
 
 // New creates a Runner with the given configuration and logger.
@@ -204,6 +213,41 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	defer logging.RecoverPanic(logger, "test-execution", map[string]any{"test_id": run.ID})
 
 	logger.Info().Msg("starting test")
+
+	// Auth setup: register key + create minter for JWT-authenticated connections
+	authResult, authErr := auth.Setup(ctx, auth.SetupConfig{
+		TestID:          run.ID,
+		TenantID:        run.Config.TenantID,
+		ProvisioningURL: run.Config.ProvisioningURL,
+		AdminToken:      run.Config.Token,
+		JWTLifetime:     r.cfg.JWTLifetime,
+		KeyExpiry:       r.cfg.KeyExpiry,
+		Logger:          logger,
+	})
+	if authErr != nil {
+		run.mu.Lock()
+		run.Status = StatusFailed
+		run.Report = &metrics.Report{
+			TestType: string(run.Config.Type),
+			Status:   "error",
+			Metrics:  run.Collector.Snapshot(),
+			Errors:   []string{fmt.Sprintf("auth setup: %v", authErr)},
+		}
+		run.mu.Unlock()
+		logger.Error().Err(authErr).Msg("auth setup failed")
+		return
+	}
+	defer authResult.Cleanup(context.Background())
+
+	// Populate auth state on run for test functions.
+	// Config.TenantID needs mu because getTest reads Config without lock.
+	// The unexported fields are only accessed from this goroutine chain.
+	run.mu.Lock()
+	run.Config.TenantID = authResult.TenantID
+	run.mu.Unlock()
+	run.authResult = authResult
+	run.jwtLifetime = r.cfg.JWTLifetime
+	run.jwtRefreshBefore = r.cfg.JWTRefreshBefore
 
 	var report *metrics.Report
 	var err error

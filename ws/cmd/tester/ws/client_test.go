@@ -122,6 +122,60 @@ func TestClient_Subscribe(t *testing.T) {
 	}
 }
 
+func TestClient_RefreshToken(t *testing.T) {
+	t.Parallel()
+
+	receivedCh := make(chan map[string]any, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := ws.HTTPUpgrader{}
+		conn, _, _, err := upgrader.Upgrade(r, w)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		data, err := wsutil.ReadClientText(conn)
+		if err != nil {
+			return
+		}
+		var msg map[string]any
+		_ = json.Unmarshal(data, &msg)
+		receivedCh <- msg
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + srv.URL[4:]
+	client, err := Connect(context.Background(), ConnectConfig{
+		GatewayURL: wsURL,
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer client.Close()
+
+	if err := client.RefreshToken("eyJnew.token.here"); err != nil {
+		t.Fatalf("RefreshToken: %v", err)
+	}
+
+	select {
+	case received := <-receivedCh:
+		if received["type"] != "auth" {
+			t.Errorf("type = %v, want auth", received["type"])
+		}
+		data, ok := received["data"].(map[string]any)
+		if !ok {
+			t.Fatal("data is not a map")
+		}
+		if data["token"] != "eyJnew.token.here" {
+			t.Errorf("token = %v, want eyJnew.token.here", data["token"])
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for server to receive message")
+	}
+}
+
 func TestClient_Publish(t *testing.T) {
 	t.Parallel()
 

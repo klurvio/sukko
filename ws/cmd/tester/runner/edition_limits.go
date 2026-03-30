@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
 	testerws "github.com/klurvio/sukko/cmd/tester/ws"
 	"github.com/rs/zerolog"
@@ -61,6 +62,7 @@ func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Log
 	provURL := run.Config.ProvisioningURL
 	gwURL := run.Config.GatewayURL
 	token := run.Config.Token
+	provClient := auth.NewProvisioningClient(provURL, token, logger)
 
 	// Fetch edition info from provisioning (tenants, limits)
 	provInfo, err := fetchEditionFrom(ctx, provURL)
@@ -94,13 +96,13 @@ func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Log
 
 	// Create shared test tenant (used by routing rules check)
 	sharedTenantID := editionTestTenantPrefix + uuid.New().String()[:8]
-	if err := createTestTenant(ctx, provURL, token, sharedTenantID); err != nil {
+	if err := provClient.CreateTenant(ctx, sharedTenantID, "Edition boundary test tenant"); err != nil {
 		return nil, fmt.Errorf("create shared test tenant: %w", err)
 	}
 	defer func() { //nolint:contextcheck // intentional: use background context so cleanup survives parent cancellation
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), editionHTTPTimeout)
 		defer cancel()
-		if delErr := deleteTestTenant(cleanupCtx, provURL, token, sharedTenantID); delErr != nil {
+		if delErr := provClient.DeleteTenant(cleanupCtx, sharedTenantID); delErr != nil {
 			logger.Warn().Err(delErr).Str("tenant_id", sharedTenantID).Msg("Failed to clean up shared test tenant")
 		}
 	}()
@@ -108,7 +110,7 @@ func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Log
 	checks := make([]metrics.CheckResult, 0, 8) //nolint:mnd // pre-allocate for ~8 checks across 4 dimensions
 
 	// Tenant limit boundary
-	tenantChecks := checkTenantLimit(ctx, provURL, token, info, logger)
+	tenantChecks := checkTenantLimit(ctx, provClient, info, logger)
 	checks = append(checks, tenantChecks...)
 
 	// Routing rules limit boundary (uses shared tenant)
@@ -116,7 +118,7 @@ func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Log
 	checks = append(checks, rulesChecks...)
 
 	// Connection limit boundary
-	connChecks := checkConnectionLimit(ctx, gwURL, token, info, logger)
+	connChecks := checkConnectionLimit(ctx, gwURL, run.authResult.TokenFunc, info, logger)
 	checks = append(checks, connChecks...)
 
 	// Shard count verification (read-only)
@@ -128,7 +130,7 @@ func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Log
 
 // --- Boundary checks ---
 
-func checkTenantLimit(ctx context.Context, provURL, token string, info *editionInfo, logger zerolog.Logger) []metrics.CheckResult {
+func checkTenantLimit(ctx context.Context, provClient *auth.ProvisioningClient, info *editionInfo, logger zerolog.Logger) []metrics.CheckResult {
 	maxTenants := info.Limits.MaxTenants
 	if maxTenants == 0 {
 		return []metrics.CheckResult{{Name: "tenant limit", Status: "pass", Latency: "unlimited"}}
@@ -147,7 +149,7 @@ func checkTenantLimit(ctx context.Context, provURL, token string, info *editionI
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), editionHTTPTimeout)
 		defer cancel()
 		for _, id := range created {
-			if err := deleteTestTenant(cleanupCtx, provURL, token, id); err != nil {
+			if err := provClient.DeleteTenant(cleanupCtx, id); err != nil {
 				logger.Warn().Err(err).Str("tenant_id", id).Msg("Failed to clean up test tenant")
 			}
 		}
@@ -160,7 +162,7 @@ func checkTenantLimit(ctx context.Context, provURL, token string, info *editionI
 		allCreated := true
 		for range headroom {
 			tenantID := editionTestTenantPrefix + uuid.New().String()[:8]
-			if err := createTestTenant(ctx, provURL, token, tenantID); err != nil {
+			if err := provClient.CreateTenant(ctx, tenantID, "Edition boundary test tenant"); err != nil {
 				allCreated = false
 				checks = append(checks, metrics.CheckResult{
 					Name: "tenant creation within limit", Status: "fail",
@@ -180,7 +182,7 @@ func checkTenantLimit(ctx context.Context, provURL, token string, info *editionI
 
 	// Attempt one more — expect rejection
 	rejectID := editionTestTenantPrefix + "reject_" + uuid.New().String()[:8]
-	err := createTestTenant(ctx, provURL, token, rejectID)
+	err := provClient.CreateTenant(ctx, rejectID, "Edition rejection test")
 	if err != nil {
 		if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "EDITION_LIMIT") {
 			checks = append(checks, metrics.CheckResult{
@@ -261,7 +263,7 @@ func checkRoutingRulesLimit(ctx context.Context, provURL, token, tenantID string
 
 const maxTestConnections = 100 // cap to avoid resource exhaustion
 
-func checkConnectionLimit(ctx context.Context, gwURL, token string, info *editionInfo, logger zerolog.Logger) []metrics.CheckResult {
+func checkConnectionLimit(ctx context.Context, gwURL string, tokenFunc func(int) string, info *editionInfo, logger zerolog.Logger) []metrics.CheckResult {
 	maxConns := info.Limits.MaxTotalConnections
 	if maxConns == 0 {
 		return []metrics.CheckResult{{Name: "connection limit", Status: "pass", Latency: "unlimited"}}
@@ -282,7 +284,7 @@ func checkConnectionLimit(ctx context.Context, gwURL, token string, info *editio
 	if headroom > 0 {
 		err := pool.RampUp(ctx, testerws.PoolConfig{
 			GatewayURL: gwURL,
-			Token:      token,
+			TokenFunc:  tokenFunc,
 		}, headroom, 50) // 50 connections/sec ramp rate
 		if err != nil {
 			checks = append(checks, metrics.CheckResult{
@@ -309,7 +311,7 @@ func checkConnectionLimit(ctx context.Context, gwURL, token string, info *editio
 	// Attempt one more connection — expect rejection
 	extraClient, err := testerws.Connect(ctx, testerws.ConnectConfig{
 		GatewayURL: gwURL,
-		Token:      token,
+		Token:      tokenFunc(headroom),
 		Logger:     logger,
 	})
 	if err != nil {
@@ -393,64 +395,6 @@ func fetchEditionFrom(ctx context.Context, baseURL string) (*editionResponse, er
 	}
 
 	return &result, nil
-}
-
-func createTestTenant(ctx context.Context, provURL, token, tenantID string) error {
-	body, err := json.Marshal(map[string]string{
-		"id":            tenantID,
-		"name":          "Edition boundary test tenant",
-		"consumer_type": "shared",
-	})
-	if err != nil {
-		return fmt.Errorf("marshal tenant: %w", err)
-	}
-
-	client := &http.Client{Timeout: editionHTTPTimeout}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, provURL+"/api/v1/tenants", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("create tenant: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096)) // best-effort error body
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	return nil
-}
-
-func deleteTestTenant(ctx context.Context, provURL, token, tenantID string) error {
-	client := &http.Client{Timeout: editionHTTPTimeout}
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, provURL+"/api/v1/tenants/"+tenantID+"?force=true", http.NoBody)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("delete tenant: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096)) // best-effort error body
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	return nil
 }
 
 func setTestRoutingRules(ctx context.Context, provURL, token, tenantID string, count int) (int, error) {

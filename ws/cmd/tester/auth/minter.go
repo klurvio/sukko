@@ -1,0 +1,106 @@
+package auth
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/klurvio/sukko/internal/shared/auth"
+)
+
+// defaultJWTLifetime is the default JWT expiration duration.
+const defaultJWTLifetime = 15 * time.Minute
+
+// MinterConfig configures JWT minting for a test run.
+type MinterConfig struct {
+	// Keypair is the ES256 signing keypair.
+	Keypair *Keypair
+
+	// TenantID is the tenant identifier placed in the JWT claims.
+	TenantID string
+
+	// Lifetime is the JWT expiration duration. Defaults to 15m if zero.
+	Lifetime time.Duration
+}
+
+// Minter creates signed JWTs for tester WebSocket connections.
+// Each connection gets a unique sub claim for realistic simulation.
+type Minter struct {
+	keypair  *Keypair
+	tenantID string
+	lifetime time.Duration
+}
+
+// NewMinter creates a Minter from the given configuration.
+func NewMinter(cfg MinterConfig) *Minter {
+	lifetime := cfg.Lifetime
+	if lifetime <= 0 {
+		lifetime = defaultJWTLifetime
+	}
+	return &Minter{
+		keypair:  cfg.Keypair,
+		tenantID: cfg.TenantID,
+		lifetime: lifetime,
+	}
+}
+
+// Mint creates a signed JWT for the given connection index.
+// Each connection gets a unique sub: "tester-{testID}-{connIndex:04d}".
+func (m *Minter) Mint(connIndex int) (string, error) {
+	return m.mintWithOverrides(connIndex, m.tenantID, m.keypair.KeyID, time.Now().Add(m.lifetime))
+}
+
+// TokenFunc returns a function that mints a JWT for a given connection index.
+// Panics on signing error — acceptable for a test tool where key generation
+// is validated at setup time.
+func (m *Minter) TokenFunc() func(int) string {
+	return func(connIndex int) string {
+		token, err := m.Mint(connIndex)
+		if err != nil {
+			panic(fmt.Sprintf("mint JWT for conn %d: %v", connIndex, err))
+		}
+		return token
+	}
+}
+
+// MintExpired creates a JWT with an expiration time in the past.
+// Used for auth rejection testing (FR-008).
+func (m *Minter) MintExpired(connIndex int) (string, error) {
+	return m.mintWithOverrides(connIndex, m.tenantID, m.keypair.KeyID, time.Now().Add(-1*time.Hour))
+}
+
+// MintWithKid creates a JWT with a custom kid header value.
+// Used for auth rejection testing (FR-008) — wrong/nonexistent key.
+func (m *Minter) MintWithKid(connIndex int, kid string) (string, error) {
+	return m.mintWithOverrides(connIndex, m.tenantID, kid, time.Now().Add(m.lifetime))
+}
+
+// MintWithTenant creates a JWT with a custom tenant_id claim.
+// Used for auth rejection testing (FR-008) — tenant mismatch.
+func (m *Minter) MintWithTenant(connIndex int, tenantID string) (string, error) {
+	return m.mintWithOverrides(connIndex, tenantID, m.keypair.KeyID, time.Now().Add(m.lifetime))
+}
+
+func (m *Minter) mintWithOverrides(connIndex int, tenantID, kid string, exp time.Time) (string, error) {
+	now := time.Now()
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   fmt.Sprintf("tester-%s-%04d", strings.TrimPrefix(m.keypair.KeyID, "tester-"), connIndex),
+			ExpiresAt: jwt.NewNumericDate(exp),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+		TenantID: tenantID,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	token.Header["kid"] = kid
+
+	signed, err := token.SignedString(m.keypair.PrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("sign JWT: %w", err)
+	}
+
+	return signed, nil
+}

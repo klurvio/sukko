@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/klurvio/sukko/cmd/tester/metrics"
-	testerws "github.com/klurvio/sukko/cmd/tester/ws"
 	"github.com/rs/zerolog"
 )
 
@@ -16,13 +15,9 @@ const healthCheckTimeout = 5 * time.Second
 func runSmoke(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics.Report, error) {
 	var checks []metrics.CheckResult
 
-	// Check 1: WebSocket connectivity
+	// Check 1: WebSocket connectivity (with retry for key registry cache race)
 	start := time.Now()
-	client, err := testerws.Connect(ctx, testerws.ConnectConfig{
-		GatewayURL: run.Config.GatewayURL,
-		Token:      run.Config.Token,
-		Logger:     logger,
-	})
+	client, err := connectWithRetry(ctx, run.Config.GatewayURL, run.authResult.TokenFunc(0), logger)
 	connectLatency := time.Since(start)
 
 	if err != nil {

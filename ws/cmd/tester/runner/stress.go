@@ -38,7 +38,7 @@ func runStress(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metri
 
 	if err := pool.RampUp(ctx, testerws.PoolConfig{
 		GatewayURL: run.Config.GatewayURL,
-		Token:      run.Config.Token,
+		TokenFunc:  run.authResult.TokenFunc,
 		Channels:   []string{testChannel},
 		OnMessage: func(msg testerws.Message) {
 			run.Collector.MessagesReceived.Add(1)

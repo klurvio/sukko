@@ -98,6 +98,16 @@ func (c *Client) Publish(channel string, data json.RawMessage) error {
 	})
 }
 
+// RefreshToken sends an auth refresh message to the gateway with a new JWT.
+// The gateway responds asynchronously via auth_ack or auth_error messages
+// which are dispatched through the ReadLoop's onMsg callback.
+func (c *Client) RefreshToken(token string) error {
+	return c.writeJSON(map[string]any{
+		"type": "auth",
+		"data": map[string]any{"token": token},
+	})
+}
+
 // ReadLoop reads messages until the context is canceled or the connection closes.
 func (c *Client) ReadLoop(ctx context.Context) {
 	// When the context is canceled, set a short deadline to unblock any

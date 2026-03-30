@@ -207,6 +207,37 @@ func TestAuthMiddleware_WrongToken(t *testing.T) {
 	}
 }
 
+func TestStartTest_TenantIDPassthrough(t *testing.T) {
+	t.Parallel()
+
+	handler, r := newTestRouter()
+	body := `{"type":"smoke","tenant_id":"my-tenant"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusCreated)
+	}
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	id, _ := resp["id"].(string)
+
+	run, err := r.Get(id)
+	if err != nil {
+		t.Fatalf("Get(%q): %v", id, err)
+	}
+
+	if run.Config.TenantID != "my-tenant" {
+		t.Errorf("TenantID = %q, want %q", run.Config.TenantID, "my-tenant")
+	}
+
+	_ = r.Stop(id)
+	r.Wait()
+}
+
 func TestStartTest_AllTypes(t *testing.T) {
 	t.Parallel()
 

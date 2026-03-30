@@ -17,6 +17,9 @@ type Collector struct {
 	MessagesReceived  atomic.Int64
 	MessagesDropped   atomic.Int64
 	ErrorsTotal       atomic.Int64
+	AuthRefreshTotal  atomic.Int64
+	AuthRefreshFailed atomic.Int64
+	AuthErrors        atomic.Int64
 	Latency           *stats.Histogram
 	mu                sync.RWMutex
 	startTime         time.Time
@@ -41,6 +44,9 @@ type Snapshot struct {
 	MessagesReceived  int64          `json:"messages_received"`
 	MessagesDropped   int64          `json:"messages_dropped"`
 	ErrorsTotal       int64          `json:"errors_total"`
+	AuthRefreshTotal  int64          `json:"auth_refresh_total"`
+	AuthRefreshFailed int64          `json:"auth_refresh_failed"`
+	AuthErrors        int64          `json:"auth_errors"`
 	Latency           stats.Snapshot `json:"latency"`
 }
 
@@ -60,6 +66,9 @@ func (c *Collector) Snapshot() Snapshot {
 		MessagesReceived:  c.MessagesReceived.Load(),
 		MessagesDropped:   c.MessagesDropped.Load(),
 		ErrorsTotal:       c.ErrorsTotal.Load(),
+		AuthRefreshTotal:  c.AuthRefreshTotal.Load(),
+		AuthRefreshFailed: c.AuthRefreshFailed.Load(),
+		AuthErrors:        c.AuthErrors.Load(),
 		Latency:           c.Latency.Snapshot(),
 	}
 }
@@ -73,6 +82,9 @@ func (c *Collector) Reset() {
 	c.MessagesReceived.Store(0)
 	c.MessagesDropped.Store(0)
 	c.ErrorsTotal.Store(0)
+	c.AuthRefreshTotal.Store(0)
+	c.AuthRefreshFailed.Store(0)
+	c.AuthErrors.Store(0)
 	c.Latency.Reset()
 	c.mu.Lock()
 	c.startTime = time.Now()

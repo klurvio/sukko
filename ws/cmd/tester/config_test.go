@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
@@ -17,10 +18,13 @@ func TestTesterConfig_Validate(t *testing.T) {
 				LogFormat:   "json",
 				Environment: "test",
 			},
-			Port:            8090,
-			GatewayURL:      "ws://localhost:3000",
-			ProvisioningURL: "http://localhost:8080",
-			MessageBackend:  "direct",
+			Port:             8090,
+			GatewayURL:       "ws://localhost:3000",
+			ProvisioningURL:  "http://localhost:8080",
+			MessageBackend:   "direct",
+			JWTLifetime:      15 * time.Minute,
+			JWTRefreshBefore: 2 * time.Minute,
+			KeyExpiry:        24 * time.Hour,
 		}
 	}
 
@@ -72,6 +76,26 @@ func TestTesterConfig_Validate(t *testing.T) {
 				c.MessageBackend = "kafka"
 				c.KafkaBrokers = "localhost:9092"
 			},
+		},
+		{
+			name:    "JWT lifetime zero",
+			modify:  func(c *TesterConfig) { c.JWTLifetime = 0 },
+			wantErr: "TESTER_JWT_LIFETIME must be positive",
+		},
+		{
+			name:    "JWT refresh before >= lifetime",
+			modify:  func(c *TesterConfig) { c.JWTRefreshBefore = 15 * time.Minute },
+			wantErr: "TESTER_JWT_REFRESH_BEFORE must be positive and less than",
+		},
+		{
+			name:    "JWT refresh before zero",
+			modify:  func(c *TesterConfig) { c.JWTRefreshBefore = 0 },
+			wantErr: "TESTER_JWT_REFRESH_BEFORE must be positive and less than",
+		},
+		{
+			name:    "key expiry less than JWT lifetime",
+			modify:  func(c *TesterConfig) { c.KeyExpiry = 1 * time.Minute },
+			wantErr: "TESTER_KEY_EXPIRY",
 		},
 	}
 

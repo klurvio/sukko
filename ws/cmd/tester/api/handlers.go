@@ -48,6 +48,7 @@ type startTestRequest struct {
 	PublishRate int    `json:"publish_rate,omitempty"`
 	RampRate    int    `json:"ramp_rate,omitempty"`
 	Suite       string `json:"suite,omitempty"`
+	TenantID    string `json:"tenant_id,omitempty"`
 }
 
 func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +88,7 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		PublishRate: req.PublishRate,
 		RampRate:    req.RampRate,
 		Suite:       req.Suite,
+		TenantID:    req.TenantID,
 	}
 
 	run, err := h.runner.Start(testID, cfg)

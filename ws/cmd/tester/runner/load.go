@@ -45,7 +45,7 @@ func runLoad(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 
 	if err := pool.RampUp(ctx, testerws.PoolConfig{
 		GatewayURL: run.Config.GatewayURL,
-		Token:      run.Config.Token,
+		TokenFunc:  run.authResult.TokenFunc,
 		Channels:   []string{testChannel},
 		OnMessage: func(msg testerws.Message) {
 			run.Collector.MessagesReceived.Add(1)
@@ -63,7 +63,7 @@ func runLoad(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 	pub, err := publisher.New(ctx, publisher.Config{
 		Mode:       publisher.Mode(run.Config.MessageBackend),
 		GatewayURL: run.Config.GatewayURL,
-		Token:      run.Config.Token,
+		Token:      run.authResult.TokenFunc(0),
 		Logger:     logger,
 	})
 	if err != nil {

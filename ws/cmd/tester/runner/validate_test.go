@@ -3,19 +3,46 @@ package runner
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
 	"github.com/rs/zerolog"
 )
+
+// testAuthResult creates a minimal SetupResult for unit tests that don't
+// connect to a real gateway. The keypair and minter are real (local-only);
+// only the provisioning client points at a dummy URL.
+func testAuthResult(t *testing.T) *auth.SetupResult {
+	t.Helper()
+
+	kp, err := auth.GenerateKeypair("testval1")
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
+	}
+	minter := auth.NewMinter(auth.MinterConfig{
+		Keypair:  kp,
+		TenantID: "test-tenant",
+		Lifetime: 15 * time.Minute,
+	})
+	return &auth.SetupResult{
+		TenantID:   "test-tenant",
+		Minter:     minter,
+		TokenFunc:  minter.TokenFunc(),
+		ProvClient: auth.NewProvisioningClient("http://invalid:9999", "test-token", zerolog.Nop()),
+		Cleanup:    func(_ context.Context) {},
+	}
+}
 
 func TestRunValidate_DefaultSuite(t *testing.T) {
 	t.Parallel()
 
 	run := &TestRun{
-		ID:        "test-validate-default",
-		Config:    TestConfig{Type: TestValidate, GatewayURL: "ws://invalid:9999"},
-		Status:    StatusRunning,
-		Collector: metrics.NewCollector(),
+		ID:         "test-validate-default",
+		Config:     TestConfig{Type: TestValidate, GatewayURL: "ws://invalid:9999"},
+		Status:     StatusRunning,
+		Collector:  metrics.NewCollector(),
+		authResult: testAuthResult(t),
 	}
 
 	// Default suite is "auth", which requires a real gateway — it will fail,
