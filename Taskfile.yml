@@ -7,7 +7,7 @@ version: "3"
 #
 # Domains:
 #   local - Kind cluster (no ENV needed)
-#   k8s   - Remote DOKS (ENV=demo)
+#   k8s   - Remote K8s (PLATFORM=doks|gke ENV=demo)
 #
 # Run 'task --list-all' to see all available tasks
 
@@ -56,14 +56,13 @@ tasks:
       - echo ""
       - echo "=== TESTER DEPLOYMENT ==="
       - echo "  task tester:do:deploy          Deploy tester to DO Droplet"
-      - echo "  task tester:do:destroy         Destroy tester Droplet"
-      - echo "  task tester:do:logs            View tester logs"
-      - echo "  task tester:do:ssh             SSH into tester Droplet"
+      - echo "  task tester:gce:deploy         Deploy tester to GCE VM"
       - echo ""
-      - echo "=== REMOTE KUBERNETES (DOKS) ==="
-      - echo "  task k8s:deploy ENV=demo       Deploy to demo"
-      - echo "  task k8s:status ENV=demo       Show cluster status"
-      - echo "  task k8s:logs ENV=demo         Tail logs"
+      - echo "=== REMOTE KUBERNETES ==="
+      - echo "  task k8s:deploy PLATFORM=doks ENV=demo    Deploy to DOKS"
+      - echo "  task k8s:deploy PLATFORM=gke ENV=demo     Deploy to GKE"
+      - echo "  task k8s:status ENV=demo                  Show cluster status"
+      - echo "  task k8s:logs ENV=demo                    Tail logs"
       - echo ""
       - echo "=== TESTING ==="
       - echo "  task test                      Run unit tests"
