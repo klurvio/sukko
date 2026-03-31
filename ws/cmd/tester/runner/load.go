@@ -66,20 +66,14 @@ func runLoad(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 	// Phase 2: Sustain — publish at rate
 	logger.Info().Int("rate", publishRate).Str("duration", duration.String()).Msg("sustaining load")
 
-	pub, err := publisher.New(ctx, publisher.Config{
-		Mode:       publisher.Mode(run.Config.MessageBackend),
-		GatewayURL: run.Config.GatewayURL,
-		Token:      run.authResult.TokenFunc(0),
-		Logger:     logger,
-	})
+	pub, err := publisher.NewDirectPublisher(ctx, run.Config.GatewayURL, run.authResult.TokenFunc(0))
 	if err != nil {
 		return nil, fmt.Errorf("create publisher: %w", err)
 	}
 	defer pub.Close() //nolint:errcheck // best-effort cleanup on teardown
 
-	if err := pub.PublishAtRate(ctx, testChannel, publishRate, duration); err != nil && ctx.Err() == nil {
-		logger.Warn().Err(err).Msg("publish error during load test")
-	}
+	gen := publisher.NewGenerator()
+	publishLoop(ctx, pub, gen, testChannel, publishRate, duration, run.Collector, logger)
 
 	// Phase 3: Drain (handled by defer pool.Drain())
 	run.Collector.ConnectionsActive.Store(0)
@@ -154,7 +148,8 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 					Subject:   fmt.Sprintf("load-user-%04d", i),
 				})
 				if err != nil {
-					panic(fmt.Sprintf("mint user-scoped token: %v", err))
+					logger.Error().Err(err).Int("conn", i).Msg("mint user-scoped token failed")
+					return "" // empty token → connection will fail, tracked by pool
 				}
 				return token
 			},
@@ -179,7 +174,8 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 					Groups:    []string{"vip"},
 				})
 				if err != nil {
-					panic(fmt.Sprintf("mint group-scoped token: %v", err))
+					logger.Error().Err(err).Int("conn", i).Msg("mint group-scoped token failed")
+					return "" // empty token → connection will fail, tracked by pool
 				}
 				return token
 			},
@@ -200,16 +196,13 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 	// Phase 2: Sustain — publish to all channel types at rate
 	logger.Info().Int("rate", publishRate).Str("duration", duration.String()).Msg("sustaining channel-mode load")
 
-	pub, err := publisher.New(ctx, publisher.Config{
-		Mode:       publisher.Mode(run.Config.MessageBackend),
-		GatewayURL: run.Config.GatewayURL,
-		Token:      run.authResult.TokenFunc(0),
-		Logger:     logger,
-	})
+	pub, err := publisher.NewDirectPublisher(ctx, run.Config.GatewayURL, run.authResult.TokenFunc(0))
 	if err != nil {
 		return nil, fmt.Errorf("create publisher: %w", err)
 	}
 	defer pub.Close() //nolint:errcheck // best-effort cleanup
+
+	gen := publisher.NewGenerator()
 
 	// Distribute publish rate: 50% public, 50% group.
 	// User-scoped channels are receive-only (each user has a unique dm.<subject> channel —
@@ -228,14 +221,16 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 		case <-ticker.C:
 			// Publish to public channel
 			for range publicRate {
-				if err := pub.Publish(ctx, "general.test"); err == nil {
+				data, _ := gen.Next("general.test") // json.Marshal on literal map of primitives cannot fail
+				if err := pub.Publish(ctx, "general.test", data); err == nil {
 					run.Collector.PublicSent.Add(1)
 					run.Collector.MessagesSent.Add(1)
 				}
 			}
 			// Publish to group channel
 			for range groupRate {
-				if err := pub.Publish(ctx, "room.vip"); err == nil {
+				data, _ := gen.Next("room.vip") // json.Marshal on literal map of primitives cannot fail
+				if err := pub.Publish(ctx, "room.vip", data); err == nil {
 					run.Collector.GroupScopedSent.Add(1)
 					run.Collector.MessagesSent.Add(1)
 				}

@@ -1,3 +1,6 @@
+// Package publisher provides message publishing backends for the tester service.
+// The Publisher interface abstracts direct WebSocket, Kafka, and NATS JetStream
+// publishing so the same test logic works against any backend.
 package publisher
 
 import (
@@ -8,122 +11,80 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-	"github.com/rs/zerolog"
 )
 
-// Mode selects the message publishing transport.
-type Mode string
+// Publisher abstracts message publishing across backends.
+// Implementations: DirectPublisher (WebSocket), ClientPublisher (ws.Client wrapper),
+// KafkaPublisher (franz-go), NATSPublisher (JetStream).
+type Publisher interface {
+	// Publish sends a message to the given channel.
+	// The payload is raw JSON (caller generates it via Generator).
+	Publish(ctx context.Context, channel string, payload []byte) error
 
-// ModeDirect publishes via WebSocket; ModeKafka publishes via Kafka.
-const (
-	ModeDirect Mode = "direct"
-	ModeKafka  Mode = "kafka"
-)
+	// Close releases resources. Safe to call multiple times.
+	Close() error
+}
 
 // gatewayWSPath is the WebSocket endpoint path on the gateway.
 const gatewayWSPath = "/ws"
 
-// Publisher sends test messages to a channel via WebSocket or Kafka.
-type Publisher struct {
-	mu        sync.Mutex // protects publishDirect write serialization only
+// DirectPublisher publishes via a dedicated WebSocket connection to the gateway.
+// Used for load/soak throughput where a separate connection for publishing is needed.
+type DirectPublisher struct {
+	conn      net.Conn
+	mu        sync.Mutex // protects write serialization (gobwas/ws requirement)
 	closeOnce sync.Once
-	mode      Mode
-	generator *Generator
-	logger    zerolog.Logger
-	// Direct mode
-	conn net.Conn
 }
 
-// Config holds Publisher construction parameters.
-type Config struct {
-	Mode         Mode
-	GatewayURL   string
-	KafkaBrokers string
-	Token        string
-	Logger       zerolog.Logger
-}
-
-// New creates a Publisher with the given configuration.
-func New(ctx context.Context, cfg Config) (*Publisher, error) {
-	p := &Publisher{
-		mode:      cfg.Mode,
-		generator: NewGenerator(),
-		logger:    cfg.Logger,
+// NewDirectPublisher connects to the gateway and returns a DirectPublisher.
+func NewDirectPublisher(ctx context.Context, gatewayURL, token string) (*DirectPublisher, error) {
+	wsURL := gatewayURL + gatewayWSPath
+	header := http.Header{}
+	if token != "" {
+		header.Set("Authorization", "Bearer "+token)
 	}
 
-	switch cfg.Mode {
-	case ModeDirect:
-		wsURL := cfg.GatewayURL + gatewayWSPath
-		header := http.Header{}
-		if cfg.Token != "" {
-			header.Set("Authorization", "Bearer "+cfg.Token)
-		}
-		dialer := ws.Dialer{Header: ws.HandshakeHeaderHTTP(header)}
-		conn, _, _, err := dialer.Dial(ctx, wsURL)
-		if err != nil {
-			return nil, fmt.Errorf("dial gateway for publishing: %w", err)
-		}
-		p.conn = conn
-	case ModeKafka:
-		// Kafka publisher would be initialized here with franz-go
-		// For now, log that kafka mode is selected
-		p.logger.Info().Str("brokers", cfg.KafkaBrokers).Msg("kafka publisher initialized")
-	default:
-		return nil, fmt.Errorf("unsupported publisher mode: %s", cfg.Mode)
-	}
-
-	return p, nil
-}
-
-// Publish sends a single generated message to the given channel.
-func (p *Publisher) Publish(ctx context.Context, channel string) error {
-	data, err := p.generator.Next(channel)
+	dialer := ws.Dialer{Header: ws.HandshakeHeaderHTTP(header)}
+	conn, _, _, err := dialer.Dial(ctx, wsURL)
 	if err != nil {
-		return fmt.Errorf("generate message: %w", err)
+		return nil, fmt.Errorf("dial gateway for publishing: %w", err)
 	}
 
-	switch p.mode {
-	case ModeDirect:
-		return p.publishDirect(channel, data)
-	case ModeKafka:
-		return p.publishKafka(ctx, channel, data)
-	default:
-		return fmt.Errorf("unsupported mode: %s", p.mode)
-	}
+	return &DirectPublisher{conn: conn}, nil
 }
 
-// PublishAtRate publishes messages at the given rate for the specified duration.
-func (p *Publisher) PublishAtRate(ctx context.Context, channel string, rate int, duration time.Duration) error {
-	if rate <= 0 {
-		return errors.New("rate must be positive")
+// Publish sends a message to the given channel via WebSocket.
+func (p *DirectPublisher) Publish(_ context.Context, channel string, payload []byte) error {
+	msg := map[string]any{
+		"type": "publish",
+		"data": map[string]any{
+			"channel": channel,
+			"data":    json.RawMessage(payload),
+		},
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
 	}
 
-	interval := time.Second / time.Duration(rate)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	deadline := time.After(duration)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("publish at rate: %w", ctx.Err())
-		case <-deadline:
-			return nil
-		case <-ticker.C:
-			if err := p.Publish(ctx, channel); err != nil {
-				p.logger.Warn().Err(err).Msg("publish failed")
-			}
-		}
+	// Lock held across I/O: gobwas/ws requires write serialization on a single
+	// connection. Acceptable for a test tool with a single publisher goroutine.
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conn == nil {
+		return errors.New("publisher connection closed")
 	}
+	if err := wsutil.WriteClientText(p.conn, data); err != nil {
+		return fmt.Errorf("write ws message: %w", err)
+	}
+	return nil
 }
 
-// Close closes the publisher connection. Safe to call multiple times.
-func (p *Publisher) Close() error {
+// Close closes the WebSocket connection. Safe to call multiple times.
+func (p *DirectPublisher) Close() error {
 	var closeErr error
 	p.closeOnce.Do(func() {
 		p.mu.Lock()
@@ -138,34 +99,5 @@ func (p *Publisher) Close() error {
 	return closeErr
 }
 
-func (p *Publisher) publishDirect(channel string, data json.RawMessage) error {
-	msg := map[string]any{
-		"type": "publish",
-		"data": map[string]any{
-			"channel": channel,
-			"data":    data,
-		},
-	}
-	payload, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	// Lock held across I/O: gobwas/ws requires write serialization on a single
-	// connection. A channel-based writer is unnecessary for a test tool with
-	// a single publisher goroutine.
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.conn == nil {
-		return errors.New("publisher connection closed")
-	}
-	if err := wsutil.WriteClientText(p.conn, payload); err != nil {
-		return fmt.Errorf("write ws message: %w", err)
-	}
-	return nil
-}
-
-func (p *Publisher) publishKafka(_ context.Context, channel string, _ json.RawMessage) error {
-	// TODO: Implement Kafka publishing with franz-go
-	p.logger.Debug().Str("channel", channel).Msg("kafka publish (not yet implemented)")
-	return nil
-}
+// Ensure DirectPublisher implements Publisher.
+var _ Publisher = (*DirectPublisher)(nil)

@@ -41,6 +41,8 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 		checks, err = validatePubSub(ctx, run, logger)
 	case "tenant-isolation":
 		checks, err = validateTenantIsolation(ctx, run, logger)
+	case "provisioning":
+		checks, err = validateProvisioning(ctx, run, logger)
 	default:
 		checks = []metrics.CheckResult{{
 			Name:   "unknown suite",

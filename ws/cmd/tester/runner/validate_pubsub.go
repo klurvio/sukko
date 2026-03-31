@@ -72,7 +72,7 @@ func validatePubSub(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 	defer func() {
 		for _, u := range users {
 			if u != nil && u.Client != nil {
-				_ = u.Client.Close()
+				_ = u.Client.Close() // best-effort: test cleanup, multi-step continues on failure
 			}
 		}
 	}()
@@ -96,22 +96,22 @@ func validatePubSub(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 	var checks []metrics.CheckResult
 
 	// Check 1: Public channel round-trip — all 3 receive
-	result := engine.PublishAndVerify(ctx, userA, "general.test", []*TestUser{userA, userB, userC}, users)
+	result := engine.PublishAndVerify(ctx, userA.AsPublisher(), "general.test", []*TestUser{userA, userB, userC}, users)
 	checks = append(checks, deliveryCheck("public round-trip", result))
 	clearAll(users)
 
 	// Check 2: User-scoped isolation — only userA receives dm.test-user-a
-	result = engine.PublishAndVerify(ctx, userA, "dm.test-user-a", []*TestUser{userA}, users)
+	result = engine.PublishAndVerify(ctx, userA.AsPublisher(), "dm.test-user-a", []*TestUser{userA}, users)
 	checks = append(checks, deliveryCheck("user-scoped isolation", result))
 	clearAll(users)
 
 	// Check 3: Group-scoped vip — only userA receives room.vip
-	result = engine.PublishAndVerify(ctx, userA, "room.vip", []*TestUser{userA}, users)
+	result = engine.PublishAndVerify(ctx, userA.AsPublisher(), "room.vip", []*TestUser{userA}, users)
 	checks = append(checks, deliveryCheck("group-scoped vip", result))
 	clearAll(users)
 
 	// Check 4: Group-scoped traders — only userB receives room.traders
-	result = engine.PublishAndVerify(ctx, userB, "room.traders", []*TestUser{userB}, users)
+	result = engine.PublishAndVerify(ctx, userB.AsPublisher(), "room.traders", []*TestUser{userB}, users)
 	checks = append(checks, deliveryCheck("group-scoped traders", result))
 	clearAll(users)
 

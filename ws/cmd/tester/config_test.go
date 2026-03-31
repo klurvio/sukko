@@ -58,9 +58,9 @@ func TestTesterConfig_Validate(t *testing.T) {
 			wantErr: "PROVISIONING_URL is required",
 		},
 		{
-			name:    "invalid message backend",
+			name:    "invalid message backend grpc",
 			modify:  func(c *TesterConfig) { c.MessageBackend = "grpc" },
-			wantErr: "MESSAGE_BACKEND must be 'direct' or 'kafka'",
+			wantErr: "MESSAGE_BACKEND must be 'direct', 'kafka', or 'nats'",
 		},
 		{
 			name: "kafka without brokers",
@@ -96,6 +96,21 @@ func TestTesterConfig_Validate(t *testing.T) {
 			name:    "key expiry less than JWT lifetime",
 			modify:  func(c *TesterConfig) { c.KeyExpiry = 1 * time.Minute },
 			wantErr: "TESTER_KEY_EXPIRY",
+		},
+		{
+			name: "nats with URLs",
+			modify: func(c *TesterConfig) {
+				c.MessageBackend = "nats"
+				c.NATSJetStreamURLs = "nats://localhost:4222"
+			},
+		},
+		{
+			name: "nats without URLs",
+			modify: func(c *TesterConfig) {
+				c.MessageBackend = "nats"
+				c.NATSJetStreamURLs = ""
+			},
+			wantErr: "NATS_JETSTREAM_URLS required when MESSAGE_BACKEND=nats",
 		},
 	}
 

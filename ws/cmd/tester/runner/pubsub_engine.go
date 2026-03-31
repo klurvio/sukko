@@ -12,7 +12,9 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/cmd/tester/auth"
+	"github.com/klurvio/sukko/cmd/tester/publisher"
 	testerws "github.com/klurvio/sukko/cmd/tester/ws"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // defaultDeliveryTimeout is the maximum time to wait for message delivery.
@@ -84,6 +86,12 @@ func (u *TestUser) ReceivedOrder() []string {
 	return slices.Clone(u.receivedOrder)
 }
 
+// AsPublisher returns a Publisher that publishes via this user's WebSocket connection.
+// Used for authorization + delivery testing — the gateway checks this user's JWT claims.
+func (u *TestUser) AsPublisher() publisher.Publisher {
+	return publisher.NewClientPublisher(u.Client)
+}
+
 // ClearReceived resets the received message tracker. Call between test checks.
 func (u *TestUser) ClearReceived() {
 	u.mu.Lock()
@@ -136,6 +144,14 @@ func (e *PubSubEngine) CreateUser(ctx context.Context, minter *auth.Minter, opts
 	}
 	user.Client = client
 
+	// Start ReadLoop so onMessage callback fires for incoming messages.
+	// Without this, PublishAndVerify delivery checks would time out.
+	// Goroutine lifecycle: bounded to client connection — exits when client.Close() is called.
+	go func() {
+		defer logging.RecoverPanic(e.logger, "pubsub-engine-read-loop", nil)
+		client.ReadLoop(ctx)
+	}()
+
 	return user, nil
 }
 
@@ -152,26 +168,29 @@ type DeliveryResult struct {
 }
 
 // PublishAndVerify publishes a message with a UUID and verifies delivery.
+// The pub argument determines the publish path:
+//   - TestUser.AsPublisher() → publishes via user's WS connection (tests auth+delivery)
+//   - KafkaPublisher/NATSPublisher → publishes via backend (tests delivery only)
+//
 // expectedReceivers are users that SHOULD get the message.
 // allUsers includes ALL connected users (expected + those that should NOT receive).
-// Returns a DeliveryResult with pass/fail details.
 func (e *PubSubEngine) PublishAndVerify(
 	ctx context.Context,
-	fromUser *TestUser,
+	pub publisher.Publisher,
 	channel string,
 	expectedReceivers []*TestUser,
 	allUsers []*TestUser,
 ) DeliveryResult {
 	msgID := uuid.NewString()
-	payload, _ := json.Marshal(map[string]any{
+	payload, _ := json.Marshal(map[string]any{ // json.Marshal on literal map of primitives cannot fail
 		"msg_id": msgID,
 		"ts":     time.Now().UnixMilli(),
 	})
 
 	start := time.Now()
 
-	// Publish
-	if err := fromUser.Client.Publish(channel, payload); err != nil {
+	// Publish via the provided publisher
+	if err := pub.Publish(ctx, channel, payload); err != nil {
 		return DeliveryResult{
 			Channel:   channel,
 			MessageID: msgID,

@@ -10,16 +10,18 @@ import (
 
 // Collector tracks test execution metrics with atomic operations.
 type Collector struct {
-	ConnectionsActive atomic.Int64
-	ConnectionsFailed atomic.Int64
-	ConnectionsTotal  atomic.Int64
-	MessagesSent      atomic.Int64
-	MessagesReceived  atomic.Int64
-	MessagesDropped   atomic.Int64
-	ErrorsTotal       atomic.Int64
-	AuthRefreshTotal  atomic.Int64
-	AuthRefreshFailed atomic.Int64
-	AuthErrors        atomic.Int64
+	ConnectionsActive  atomic.Int64
+	ConnectionsFailed  atomic.Int64
+	ConnectionsTotal   atomic.Int64
+	MessagesSent       atomic.Int64
+	MessagesReceived   atomic.Int64
+	MessagesDropped    atomic.Int64
+	ErrorsTotal        atomic.Int64
+	AuthRefreshTotal   atomic.Int64
+	AuthRefreshFailed  atomic.Int64
+	AuthErrors         atomic.Int64
+	MessagesLost       atomic.Int64
+	MessagesDuplicated atomic.Int64
 	// Channel-mode metrics (load test with --channels)
 	PublicSent          atomic.Int64
 	PublicReceived      atomic.Int64
@@ -55,6 +57,8 @@ type Snapshot struct {
 	AuthRefreshTotal    int64          `json:"auth_refresh_total"`
 	AuthRefreshFailed   int64          `json:"auth_refresh_failed"`
 	AuthErrors          int64          `json:"auth_errors"`
+	MessagesLost        int64          `json:"messages_lost,omitzero"`
+	MessagesDuplicated  int64          `json:"messages_duplicated,omitzero"`
 	PublicSent          int64          `json:"public_sent,omitzero"`
 	PublicReceived      int64          `json:"public_received,omitzero"`
 	UserScopedSent      int64          `json:"user_scoped_sent,omitzero"`
@@ -84,6 +88,8 @@ func (c *Collector) Snapshot() Snapshot {
 		AuthRefreshTotal:    c.AuthRefreshTotal.Load(),
 		AuthRefreshFailed:   c.AuthRefreshFailed.Load(),
 		AuthErrors:          c.AuthErrors.Load(),
+		MessagesLost:        c.MessagesLost.Load(),
+		MessagesDuplicated:  c.MessagesDuplicated.Load(),
 		PublicSent:          c.PublicSent.Load(),
 		PublicReceived:      c.PublicReceived.Load(),
 		UserScopedSent:      c.UserScopedSent.Load(),
@@ -107,6 +113,8 @@ func (c *Collector) Reset() {
 	c.AuthRefreshTotal.Store(0)
 	c.AuthRefreshFailed.Store(0)
 	c.AuthErrors.Store(0)
+	c.MessagesLost.Store(0)
+	c.MessagesDuplicated.Store(0)
 	c.PublicSent.Store(0)
 	c.PublicReceived.Store(0)
 	c.UserScopedSent.Store(0)

@@ -39,7 +39,7 @@ func validateReconnect(ctx context.Context, run *TestRun, logger zerolog.Logger)
 
 	time.Sleep(500 * time.Millisecond) // allow subscription to propagate
 
-	result := engine.PublishAndVerify(ctx, user1, "general.test", []*TestUser{user1}, []*TestUser{user1})
+	result := engine.PublishAndVerify(ctx, user1.AsPublisher(), "general.test", []*TestUser{user1}, []*TestUser{user1})
 	checks = append(checks, deliveryCheck("pre-disconnect delivery", result))
 
 	// Phase 2: Disconnect
@@ -66,7 +66,7 @@ func validateReconnect(ctx context.Context, run *TestRun, logger zerolog.Logger)
 
 	time.Sleep(500 * time.Millisecond)
 
-	result = engine.PublishAndVerify(ctx, user2, "general.test", []*TestUser{user2}, []*TestUser{user2})
+	result = engine.PublishAndVerify(ctx, user2.AsPublisher(), "general.test", []*TestUser{user2}, []*TestUser{user2})
 	checks = append(checks, deliveryCheck("post-reconnect delivery", result))
 
 	return checks, nil
