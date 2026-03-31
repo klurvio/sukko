@@ -1,8 +1,9 @@
 # =============================================================================
 # CI — Push & PR Validation
 # =============================================================================
-# Runs on every push and pull request.
-# Jobs: test, lint (parallel).
+# Runs on every push and pull request — no path filtering.
+# Jobs: test, lint, helm-lint (parallel).
+# Test and lint are required branch protection checks.
 
 name: CI
 
@@ -72,3 +73,17 @@ jobs:
             git diff --stat
             exit 1
           fi
+
+  # ---------------------------------------------------------------------------
+  # Helm Lint — validate Helm chart values
+  # ---------------------------------------------------------------------------
+  helm-lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+
+      - name: Lint DOKS values
+        run: helm lint deployments/helm/sukko -f deployments/helm/sukko/values/do/demo.yaml
