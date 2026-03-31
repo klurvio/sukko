@@ -49,6 +49,7 @@ tasks:
     cmds:
       - echo "=== Testing Community edition (no key) ==="
       - sukko license remove 2>/dev/null || true
+      - sukko down 2>/dev/null || true
       - sukko up
       - sleep 5
       # Claims assertion
@@ -72,6 +73,7 @@ tasks:
     cmds:
       - echo "=== Testing Pro edition ==="
       - sukko license set "{{.TOKEN}}"
+      - sukko down 2>/dev/null || true
       - sukko up
       - sleep 5
       # Claims assertion
@@ -102,6 +104,7 @@ tasks:
     cmds:
       - echo "=== Testing Enterprise edition ==="
       - sukko license set "{{.TOKEN}}"
+      - sukko down 2>/dev/null || true
       - sukko up
       - sleep 5
       # Claims assertion — verify edition, org, and unlimited limits (0)
@@ -154,6 +157,7 @@ tasks:
     cmds:
       - echo "=== Testing expired Pro (Community degradation) ==="
       - sukko license set "{{.TOKEN}}"
+      - sukko down 2>/dev/null || true
       - sukko up
       - sleep 5
       # Claims assertion — should degrade to community with expired=true

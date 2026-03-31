@@ -4,10 +4,20 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/klurvio/sukko/internal/provisioning"
 )
+
+// isDuplicateKeyError detects unique constraint violations from both SQLite and PostgreSQL.
+// SQLite: "UNIQUE constraint failed: tenants.id"
+// PostgreSQL: "duplicate key value violates unique constraint"
+func isDuplicateKeyError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "UNIQUE constraint failed") ||
+		strings.Contains(msg, "duplicate key value violates unique constraint")
+}
 
 // defaultListLimit is the fallback page size when the caller provides no limit.
 const defaultListLimit = 50
@@ -64,6 +74,9 @@ func (r *PostgresTenantRepository) Create(ctx context.Context, tenant *provision
 		tenant.UpdatedAt,
 	)
 	if err != nil {
+		if isDuplicateKeyError(err) {
+			return fmt.Errorf("%w: %s", provisioning.ErrTenantAlreadyExists, tenant.ID)
+		}
 		return fmt.Errorf("insert tenant: %w", err)
 	}
 
