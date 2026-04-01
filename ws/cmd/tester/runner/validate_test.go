@@ -52,11 +52,8 @@ func TestRunValidate_DefaultSuite(t *testing.T) {
 		// Auth validation returns errors as check results, not as err
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if report == nil { //nolint:staticcheck // SA5011: t.Fatal prevents nil deref below
-		t.Fatal("expected non-nil report")
-	}
-	if report.TestType != "validate:auth" { //nolint:staticcheck // SA5011: guarded by t.Fatal above
-		t.Errorf("test type = %q, want validate:auth", report.TestType)
+	if report == nil || report.TestType != "validate:auth" {
+		t.Fatalf("expected report with type validate:auth, got %v", report)
 	}
 }
 
@@ -104,13 +101,11 @@ func TestRunValidate_IntegrationSuites(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if report == nil { //nolint:staticcheck // SA5011: t.Fatal prevents nil deref below
-				t.Fatal("expected non-nil report")
-			}
 			// With invalid gateway URL, all suites should produce check results (not panic)
-			if checks := report.Checks; len(checks) == 0 { //nolint:staticcheck // SA5011: guarded by t.Fatal above
-				t.Fatal("expected check results")
-			} else if checks[0].Status == "" {
+			if report == nil || len(report.Checks) == 0 {
+				t.Fatalf("expected report with checks, got %v", report)
+			}
+			if report.Checks[0].Status == "" {
 				t.Error("expected non-empty check status")
 			}
 		})
