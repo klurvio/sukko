@@ -20,11 +20,8 @@ func TestNew(t *testing.T) {
 	t.Parallel()
 
 	r := newTestRunner()
-	if r == nil { //nolint:staticcheck // SA5011: t.Fatal prevents nil deref below
-		t.Fatal("expected non-nil runner")
-	}
-	if r.tests == nil { //nolint:staticcheck // SA5011: guarded by t.Fatal above
-		t.Error("expected non-nil tests map")
+	if r == nil || r.tests == nil {
+		t.Fatal("expected non-nil runner with initialized tests map")
 	}
 }
 

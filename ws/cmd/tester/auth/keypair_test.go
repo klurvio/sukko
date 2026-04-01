@@ -35,11 +35,8 @@ func TestGenerateKeypair_PEMValid(t *testing.T) {
 	}
 
 	block, _ := pem.Decode([]byte(kp.PublicPEM))
-	if block == nil { //nolint:staticcheck // SA5011: t.Fatal prevents nil deref below
-		t.Fatal("failed to decode PEM block")
-	}
-	if block.Type != "PUBLIC KEY" { //nolint:staticcheck // SA5011: guarded by t.Fatal above
-		t.Errorf("PEM type = %q, want %q", block.Type, "PUBLIC KEY")
+	if block == nil || block.Type != "PUBLIC KEY" {
+		t.Fatalf("PEM decode: got block=%v, want non-nil PUBLIC KEY block", block)
 	}
 
 	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
