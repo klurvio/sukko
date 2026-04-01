@@ -23,7 +23,7 @@ type RegisterKeyRequest struct {
 	KeyID     string     `json:"key_id"`
 	Algorithm string     `json:"algorithm"`
 	PublicKey string     `json:"public_key"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitzero"`
 }
 
 // ProvisioningClient is an HTTP client for the provisioning API.
@@ -245,6 +245,201 @@ func (c *ProvisioningClient) DeleteRoutingRules(ctx context.Context, tenantID st
 	return nil
 }
 
+// ListTenants fetches the tenant list. Returns raw JSON response body.
+func (c *ProvisioningClient) ListTenants(ctx context.Context) ([]byte, error) {
+	return c.doGet(ctx, "/api/v1/tenants", "list tenants")
+}
+
+// UpdateTenant partially updates a tenant via PATCH.
+func (c *ProvisioningClient) UpdateTenant(ctx context.Context, tenantID string, updates map[string]any) error {
+	return c.doPatchJSON(ctx, "/api/v1/tenants/"+tenantID, updates, "update tenant")
+}
+
+// GetTenantByID fetches a tenant using the admin token. Returns raw JSON response body.
+// Unlike GetTenant (which accepts an arbitrary token for JWT testing), this always authenticates
+// as the admin — suitable for validate:provisioning CRUD checks.
+func (c *ProvisioningClient) GetTenantByID(ctx context.Context, tenantID string) ([]byte, error) {
+	return c.doGet(ctx, "/api/v1/tenants/"+tenantID, "get tenant")
+}
+
+// SuspendTenant suspends a tenant via POST /api/v1/tenants/{id}/suspend.
+func (c *ProvisioningClient) SuspendTenant(ctx context.Context, tenantID string) error {
+	return c.doPost(ctx, "/api/v1/tenants/"+tenantID+"/suspend", nil, "suspend tenant")
+}
+
+// ReactivateTenant reactivates a suspended tenant via POST /api/v1/tenants/{id}/reactivate.
+func (c *ProvisioningClient) ReactivateTenant(ctx context.Context, tenantID string) error {
+	return c.doPost(ctx, "/api/v1/tenants/"+tenantID+"/reactivate", nil, "reactivate tenant")
+}
+
+// CreateAPIKey creates an API key for a tenant. Returns raw JSON response body (contains the key value).
+func (c *ProvisioningClient) CreateAPIKey(ctx context.Context, tenantID, name string) ([]byte, error) {
+	body, err := json.Marshal(map[string]string{"name": name})
+	if err != nil {
+		return nil, fmt.Errorf("create api key: marshal: %w", err)
+	}
+	return c.doPostForBody(ctx, "/api/v1/tenants/"+tenantID+"/api-keys", body, "create api key")
+}
+
+// ListAPIKeys lists API keys for a tenant. Returns raw JSON response body.
+func (c *ProvisioningClient) ListAPIKeys(ctx context.Context, tenantID string) ([]byte, error) {
+	return c.doGet(ctx, "/api/v1/tenants/"+tenantID+"/api-keys", "list api keys")
+}
+
+// RevokeAPIKey revokes an API key.
+func (c *ProvisioningClient) RevokeAPIKey(ctx context.Context, tenantID, keyID string) error {
+	return c.doDelete(ctx, "/api/v1/tenants/"+tenantID+"/api-keys/"+keyID, "revoke api key")
+}
+
+// ListKeys lists signing keys for a tenant. Returns raw JSON response body.
+func (c *ProvisioningClient) ListKeys(ctx context.Context, tenantID string) ([]byte, error) {
+	return c.doGet(ctx, "/api/v1/tenants/"+tenantID+"/keys", "list keys")
+}
+
+// GetRoutingRules fetches routing rules for a tenant. Returns raw JSON response body.
+func (c *ProvisioningClient) GetRoutingRules(ctx context.Context, tenantID string) ([]byte, error) {
+	return c.doGet(ctx, "/api/v1/tenants/"+tenantID+"/routing-rules", "get routing rules")
+}
+
+// GetChannelRules fetches channel rules for a tenant. Returns raw JSON response body.
+func (c *ProvisioningClient) GetChannelRules(ctx context.Context, tenantID string) ([]byte, error) {
+	return c.doGet(ctx, "/api/v1/tenants/"+tenantID+"/channel-rules", "get channel rules")
+}
+
+// DeleteChannelRules deletes channel rules for a tenant.
+func (c *ProvisioningClient) DeleteChannelRules(ctx context.Context, tenantID string) error {
+	return c.doDelete(ctx, "/api/v1/tenants/"+tenantID+"/channel-rules", "delete channel rules")
+}
+
+// GetQuota fetches quotas for a tenant. Returns raw JSON response body.
+func (c *ProvisioningClient) GetQuota(ctx context.Context, tenantID string) ([]byte, error) {
+	return c.doGet(ctx, "/api/v1/tenants/"+tenantID+"/quotas", "get quota")
+}
+
+// UpdateQuota partially updates quotas for a tenant via PATCH.
+func (c *ProvisioningClient) UpdateQuota(ctx context.Context, tenantID string, updates map[string]any) error {
+	return c.doPatchJSON(ctx, "/api/v1/tenants/"+tenantID+"/quotas", updates, "update quota")
+}
+
+// GetAuditLog fetches the audit log for a tenant. Returns raw JSON response body.
+func (c *ProvisioningClient) GetAuditLog(ctx context.Context, tenantID string) ([]byte, error) {
+	return c.doGet(ctx, "/api/v1/tenants/"+tenantID+"/audit", "get audit log")
+}
+
+// --- HTTP helpers ---
+
+func (c *ProvisioningClient) doGet(ctx context.Context, path, operation string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("%s: build request: %w", operation, err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", operation, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: HTTP %d: %s", operation, resp.StatusCode, string(body))
+	}
+	if readErr != nil {
+		return nil, fmt.Errorf("%s: read response body: %w", operation, readErr)
+	}
+	return body, nil
+}
+
+func (c *ProvisioningClient) doPost(ctx context.Context, path string, payload []byte, operation string) error {
+	var bodyReader io.Reader = http.NoBody
+	if payload != nil {
+		bodyReader = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bodyReader)
+	if err != nil {
+		return fmt.Errorf("%s: build request: %w", operation, err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s: %w", operation, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return c.readError(operation, resp)
+	}
+	return nil
+}
+
+func (c *ProvisioningClient) doPostForBody(ctx context.Context, path string, payload []byte, operation string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("%s: build request: %w", operation, err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", operation, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("%s: HTTP %d: %s", operation, resp.StatusCode, string(body))
+	}
+	if readErr != nil {
+		return nil, fmt.Errorf("%s: read response body: %w", operation, readErr)
+	}
+	return body, nil
+}
+
+func (c *ProvisioningClient) doDelete(ctx context.Context, path, operation string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("%s: build request: %w", operation, err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s: %w", operation, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.readError(operation, resp)
+	}
+	return nil
+}
+
+func (c *ProvisioningClient) doPatchJSON(ctx context.Context, path string, data map[string]any, operation string) error {
+	body, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("%s: marshal: %w", operation, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("%s: build request: %w", operation, err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s: %w", operation, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.readError(operation, resp)
+	}
+	return nil
+}
+
 func (c *ProvisioningClient) setHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
 	if c.adminToken != "" {
@@ -253,6 +448,6 @@ func (c *ProvisioningClient) setHeaders(req *http.Request) {
 }
 
 func (c *ProvisioningClient) readError(operation string, resp *http.Response) error {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody)) // best-effort: error body for diagnostics only
 	return fmt.Errorf("%s: HTTP %d: %s", operation, resp.StatusCode, string(body))
 }

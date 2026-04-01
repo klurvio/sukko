@@ -79,12 +79,12 @@ func validateTenantIsolation(ctx context.Context, run *TestRun, logger zerolog.L
 	checks := make([]metrics.CheckResult, 0, 2)
 
 	// Check 1: Publish from tenant A → only user A receives
-	result := engine.PublishAndVerify(ctx, userA, "general.test", []*TestUser{userA}, allUsers)
+	result := engine.PublishAndVerify(ctx, userA.AsPublisher(), "general.test", []*TestUser{userA}, allUsers)
 	checks = append(checks, deliveryCheck("tenant A → only A receives", result))
 	clearAll(allUsers)
 
 	// Check 2: Publish from tenant B → only user B receives
-	result = engine.PublishAndVerify(ctx, userB, "general.test", []*TestUser{userB}, allUsers)
+	result = engine.PublishAndVerify(ctx, userB.AsPublisher(), "general.test", []*TestUser{userB}, allUsers)
 	checks = append(checks, deliveryCheck("tenant B → only B receives", result))
 
 	return checks, nil

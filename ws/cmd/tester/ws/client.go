@@ -90,6 +90,14 @@ func (c *Client) Subscribe(channels []string) error {
 	})
 }
 
+// Unsubscribe sends an unsubscribe request for the given channels.
+func (c *Client) Unsubscribe(channels []string) error {
+	return c.writeJSON(map[string]any{
+		"type": "unsubscribe",
+		"data": map[string]any{"channels": channels},
+	})
+}
+
 // Publish sends a message to the given channel.
 func (c *Client) Publish(channel string, data json.RawMessage) error {
 	return c.writeJSON(map[string]any{

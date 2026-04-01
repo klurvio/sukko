@@ -42,22 +42,34 @@ const (
 // defaultRampRate is the fallback connections-per-second rate when not configured.
 const defaultRampRate = 50
 
+// TestContext holds deployment context passed from the CLI.
+// When present, all core fields are required (all-or-nothing).
+type TestContext struct {
+	GatewayURL         string `json:"gateway_url"`
+	ProvisioningURL    string `json:"provisioning_url"`
+	AdminToken         string `json:"-"` // never serialize in API responses
+	Environment        string `json:"environment"`
+	MessageBackendURLs string `json:"message_backend_urls,omitempty"`
+}
+
 // TestConfig holds the parameters for a test run.
 type TestConfig struct {
-	Type            TestType `json:"type"`
-	GatewayURL      string   `json:"gateway_url"`
-	ProvisioningURL string   `json:"provisioning_url,omitempty"`
-	Token           string   `json:"-"` // never serialize auth tokens in API responses
-	APIKey          string   `json:"api_key,omitempty"`
-	MessageBackend  string   `json:"message_backend,omitempty"`
-	KafkaBrokers    string   `json:"kafka_brokers,omitempty"`
-	Connections     int      `json:"connections,omitempty"`
-	Duration        string   `json:"duration,omitempty"`
-	PublishRate     int      `json:"publish_rate,omitempty"`
-	RampRate        int      `json:"ramp_rate,omitempty"`
-	Suite           string   `json:"suite,omitempty"`        // for validate type
-	ChannelMode     bool     `json:"channel_mode,omitempty"` // for load: distribute across public/user/group channels
-	TenantID        string   `json:"tenant_id,omitempty"`
+	Type              TestType     `json:"type"`
+	GatewayURL        string       `json:"gateway_url"`
+	ProvisioningURL   string       `json:"provisioning_url,omitempty"`
+	Token             string       `json:"-"` // never serialize auth tokens in API responses
+	APIKey            string       `json:"api_key,omitempty"`
+	MessageBackend    string       `json:"message_backend,omitempty"`
+	KafkaBrokers      string       `json:"kafka_brokers,omitempty"`
+	NATSJetStreamURLs string       `json:"nats_jetstream_urls,omitempty"`
+	Connections       int          `json:"connections,omitzero"`
+	Duration          string       `json:"duration,omitempty"`
+	PublishRate       int          `json:"publish_rate,omitzero"`
+	RampRate          int          `json:"ramp_rate,omitzero"`
+	Suite             string       `json:"suite,omitempty"`       // for validate type
+	ChannelMode       bool         `json:"channel_mode,omitzero"` // for load: distribute across public/user/group channels
+	TenantID          string       `json:"tenant_id,omitempty"`
+	Context           *TestContext `json:"context,omitzero"`
 }
 
 // TestStatus represents the current state of a test run.
@@ -104,14 +116,15 @@ type Runner struct {
 
 // Config holds default settings applied to all test runs.
 type Config struct {
-	GatewayURL       string
-	ProvisioningURL  string
-	Token            string
-	MessageBackend   string
-	KafkaBrokers     string
-	JWTLifetime      time.Duration
-	JWTRefreshBefore time.Duration
-	KeyExpiry        time.Duration
+	GatewayURL        string
+	ProvisioningURL   string
+	Token             string
+	MessageBackend    string
+	KafkaBrokers      string
+	NATSJetStreamURLs string
+	JWTLifetime       time.Duration
+	JWTRefreshBefore  time.Duration
+	KeyExpiry         time.Duration
 }
 
 // New creates a Runner with the given configuration and logger.
@@ -162,6 +175,7 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 	r.tests[id] = run
 
 	r.wg.Go(func() {
+		defer logging.RecoverPanic(r.logger, "test-runner-dispatch", map[string]any{"test_id": id})
 		r.execute(ctx, run)
 	})
 

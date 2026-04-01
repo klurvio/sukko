@@ -137,7 +137,7 @@ func runSmoke(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metric
 				})
 			} else {
 				time.Sleep(200 * time.Millisecond) // allow subscription to propagate
-				result := engine.PublishAndVerify(ctx, smokeUser, smokeTestChannel, []*TestUser{smokeUser}, []*TestUser{smokeUser})
+				result := engine.PublishAndVerify(ctx, smokeUser.AsPublisher(), smokeTestChannel, []*TestUser{smokeUser}, []*TestUser{smokeUser})
 				if result.Delivered {
 					checks = append(checks, metrics.CheckResult{
 						Name:    "publish round-trip",
