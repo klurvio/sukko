@@ -86,4 +86,4 @@ jobs:
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
 
       - name: Lint DOKS values
-        run: helm lint deployments/helm/sukko -f deployments/helm/sukko/values/do/demo.yaml
+        run: helm lint deployments/helm/sukko -f deployments/helm/sukko/values/doks/demo.yaml
