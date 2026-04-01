@@ -1,0 +1,221 @@
+package auth
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/rs/zerolog"
+)
+
+// mockProvisioning creates an httptest server that tracks calls.
+func mockProvisioning(t *testing.T) (*httptest.Server, *provCalls) {
+	t.Helper()
+	calls := &provCalls{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/tenants":
+			calls.createTenant.Add(1)
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/tenants/") && strings.Contains(r.URL.Path, "/keys/"):
+			calls.revokeKey.Add(1)
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/tenants/"):
+			calls.deleteTenant.Add(1)
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/keys"):
+			calls.registerKey.Add(1)
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	return srv, calls
+}
+
+type provCalls struct {
+	createTenant atomic.Int64
+	deleteTenant atomic.Int64
+	registerKey  atomic.Int64
+	revokeKey    atomic.Int64
+}
+
+func TestSetup_ThrowawayTenant(t *testing.T) {
+	t.Parallel()
+
+	srv, calls := mockProvisioning(t)
+	defer srv.Close()
+
+	result, err := Setup(context.Background(), SetupConfig{
+		TestID:          "abcd1234",
+		ProvisioningURL: srv.URL,
+		AdminToken:      "admin-token",
+		JWTLifetime:     5 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+
+	if result.TenantID != "tester-abcd1234" {
+		t.Errorf("TenantID = %q, want %q", result.TenantID, "tester-abcd1234")
+	}
+	if result.Minter == nil {
+		t.Fatal("Minter is nil")
+	}
+	if result.TokenFunc == nil {
+		t.Fatal("TokenFunc is nil")
+	}
+	if result.Cleanup == nil {
+		t.Fatal("Cleanup is nil")
+	}
+	if calls.createTenant.Load() != 1 {
+		t.Errorf("createTenant calls = %d, want 1", calls.createTenant.Load())
+	}
+	if calls.registerKey.Load() != 1 {
+		t.Errorf("registerKey calls = %d, want 1", calls.registerKey.Load())
+	}
+
+	// TokenFunc should produce a valid token
+	token := result.TokenFunc(0)
+	if token == "" {
+		t.Error("TokenFunc(0) returned empty string")
+	}
+
+	// Cleanup should revoke key and delete tenant
+	result.Cleanup(context.Background())
+	if calls.revokeKey.Load() != 1 {
+		t.Errorf("revokeKey calls = %d, want 1", calls.revokeKey.Load())
+	}
+	if calls.deleteTenant.Load() != 1 {
+		t.Errorf("deleteTenant calls = %d, want 1", calls.deleteTenant.Load())
+	}
+}
+
+func TestSetup_ExistingTenant(t *testing.T) {
+	t.Parallel()
+
+	srv, calls := mockProvisioning(t)
+	defer srv.Close()
+
+	result, err := Setup(context.Background(), SetupConfig{
+		TestID:          "efgh5678",
+		TenantID:        "existing-tenant",
+		ProvisioningURL: srv.URL,
+		AdminToken:      "admin-token",
+	})
+	if err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+
+	if result.TenantID != "existing-tenant" {
+		t.Errorf("TenantID = %q, want %q", result.TenantID, "existing-tenant")
+	}
+	if calls.createTenant.Load() != 0 {
+		t.Errorf("createTenant calls = %d, want 0 (existing tenant)", calls.createTenant.Load())
+	}
+	if calls.registerKey.Load() != 1 {
+		t.Errorf("registerKey calls = %d, want 1", calls.registerKey.Load())
+	}
+
+	// Cleanup should revoke key but NOT delete tenant
+	result.Cleanup(context.Background())
+	if calls.revokeKey.Load() != 1 {
+		t.Errorf("revokeKey calls = %d, want 1", calls.revokeKey.Load())
+	}
+	if calls.deleteTenant.Load() != 0 {
+		t.Errorf("deleteTenant calls = %d, want 0 (existing tenant)", calls.deleteTenant.Load())
+	}
+}
+
+func TestSetup_KeyRegistrationFails_CleansUpTenant(t *testing.T) {
+	t.Parallel()
+
+	var createCalls, deleteCalls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/tenants":
+			createCalls.Add(1)
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/keys"):
+			// Key registration fails
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"code":"INTERNAL","message":"key registration failed"}`))
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/tenants/"):
+			deleteCalls.Add(1)
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	_, err := Setup(context.Background(), SetupConfig{
+		TestID:          "fail1234",
+		ProvisioningURL: srv.URL,
+		AdminToken:      "admin-token",
+	})
+	if err == nil {
+		t.Fatal("expected error when key registration fails")
+	}
+	if !strings.Contains(err.Error(), "register key") {
+		t.Errorf("error = %q, want to contain 'register key'", err.Error())
+	}
+
+	// Throwaway tenant should be cleaned up
+	if createCalls.Load() != 1 {
+		t.Errorf("createTenant calls = %d, want 1", createCalls.Load())
+	}
+	if deleteCalls.Load() != 1 {
+		t.Errorf("deleteTenant calls = %d, want 1 (cleanup after key failure)", deleteCalls.Load())
+	}
+}
+
+func TestSetup_DefaultKeyExpiry(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := mockProvisioning(t)
+	defer srv.Close()
+
+	result, err := Setup(context.Background(), SetupConfig{
+		TestID:          "exp12345",
+		TenantID:        "t1",
+		ProvisioningURL: srv.URL,
+		AdminToken:      "admin-token",
+	})
+	if err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+
+	// Verify minter and cleanup are functional (default key expiry = 24h)
+	if result.Minter == nil {
+		t.Fatal("Minter is nil")
+	}
+	result.Cleanup(context.Background())
+}
+
+func TestSetup_ProvisioningClient_Exposed(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := mockProvisioning(t)
+	defer srv.Close()
+
+	result, err := Setup(context.Background(), SetupConfig{
+		TestID:          "prov1234",
+		TenantID:        "t1",
+		ProvisioningURL: srv.URL,
+		AdminToken:      "admin-token",
+		Logger:          zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+
+	if result.ProvClient == nil {
+		t.Fatal("ProvClient is nil — needed for validate:auth suite")
+	}
+	result.Cleanup(context.Background())
+}

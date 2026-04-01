@@ -41,13 +41,29 @@ func (h *handlers) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// TestContext holds deployment context passed from the CLI.
+// All-or-nothing: when present, core fields are required.
+// SECURITY: This struct is decode-only (request deserialization). It is NEVER serialized
+// in responses — the handler converts to runner.TestContext (which tags AdminToken as json:"-")
+// before any response is written. Do not use this struct in response serialization paths.
+type TestContext struct {
+	GatewayURL         string `json:"gateway_url"`
+	ProvisioningURL    string `json:"provisioning_url"`
+	AdminToken         string `json:"admin_token"`
+	Environment        string `json:"environment"`
+	MessageBackendURLs string `json:"message_backend_urls,omitempty"`
+}
+
 type startTestRequest struct {
-	Type        string `json:"type"`
-	Connections int    `json:"connections,omitempty"`
-	Duration    string `json:"duration,omitempty"`
-	PublishRate int    `json:"publish_rate,omitempty"`
-	RampRate    int    `json:"ramp_rate,omitempty"`
-	Suite       string `json:"suite,omitempty"`
+	Type           string       `json:"type"`
+	Connections    int          `json:"connections,omitempty"`
+	Duration       string       `json:"duration,omitempty"`
+	PublishRate    int          `json:"publish_rate,omitempty"`
+	RampRate       int          `json:"ramp_rate,omitempty"`
+	Suite          string       `json:"suite,omitempty"`
+	TenantID       string       `json:"tenant_id,omitempty"`
+	MessageBackend string       `json:"message_backend,omitempty"`
+	Context        *TestContext `json:"context,omitempty"`
 }
 
 func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +89,19 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate context block (all-or-nothing)
+	if req.Context != nil {
+		if req.Context.GatewayURL == "" || req.Context.ProvisioningURL == "" ||
+			req.Context.AdminToken == "" || req.Context.Environment == "" {
+			httputil.WriteError(w, http.StatusBadRequest, "INCOMPLETE_CONTEXT", "all core context fields required: gateway_url, provisioning_url, admin_token, environment")
+			return
+		}
+		if (req.MessageBackend == "kafka" || req.MessageBackend == "nats") && req.Context.MessageBackendURLs == "" {
+			httputil.WriteError(w, http.StatusBadRequest, "MISSING_BACKEND_URLS", "message_backend_urls required when message_backend is kafka or nats")
+			return
+		}
+	}
+
 	id, err := uuid.NewRandom()
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to generate test ID")
@@ -81,12 +110,23 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 	testID := id.String()[:testIDLength]
 
 	cfg := runner.TestConfig{
-		Type:        runner.TestType(req.Type),
-		Connections: req.Connections,
-		Duration:    req.Duration,
-		PublishRate: req.PublishRate,
-		RampRate:    req.RampRate,
-		Suite:       req.Suite,
+		Type:           runner.TestType(req.Type),
+		Connections:    req.Connections,
+		Duration:       req.Duration,
+		PublishRate:    req.PublishRate,
+		RampRate:       req.RampRate,
+		Suite:          req.Suite,
+		TenantID:       req.TenantID,
+		MessageBackend: req.MessageBackend,
+	}
+	if req.Context != nil {
+		cfg.Context = &runner.TestContext{
+			GatewayURL:         req.Context.GatewayURL,
+			ProvisioningURL:    req.Context.ProvisioningURL,
+			AdminToken:         req.Context.AdminToken,
+			Environment:        req.Context.Environment,
+			MessageBackendURLs: req.Context.MessageBackendURLs,
+		}
 	}
 
 	run, err := h.runner.Start(testID, cfg)
@@ -170,7 +210,7 @@ func (h *handlers) streamMetrics(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ticker.C:
 			snapshot := run.Collector.Snapshot()
-			data, _ := json.Marshal(snapshot)
+			data, _ := json.Marshal(snapshot) // Snapshot is all primitives — marshal cannot fail
 			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
 				return
 			}
@@ -180,7 +220,7 @@ func (h *handlers) streamMetrics(w http.ResponseWriter, r *http.Request) {
 			status, report := run.StatusSnapshot()
 			if status == runner.StatusComplete || status == runner.StatusFailed || status == runner.StatusStopped {
 				if report != nil {
-					finalData, _ := json.Marshal(report)
+					finalData, _ := json.Marshal(report) // Report is all primitives — marshal cannot fail
 					if _, err := fmt.Fprintf(w, "event: complete\ndata: %s\n\n", finalData); err != nil {
 						return
 					}

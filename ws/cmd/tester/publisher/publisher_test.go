@@ -10,51 +10,30 @@ import (
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-	"github.com/rs/zerolog"
 )
 
-func TestNew_UnsupportedMode(t *testing.T) {
+func TestDirectPublisher_InvalidURL(t *testing.T) {
 	t.Parallel()
 
-	_, err := New(context.Background(), Config{
-		Mode:   "invalid",
-		Logger: zerolog.Nop(),
-	})
-	if err == nil {
-		t.Fatal("expected error for unsupported mode")
-	}
-}
-
-func TestNew_DirectMode_InvalidURL(t *testing.T) {
-	t.Parallel()
-
-	_, err := New(context.Background(), Config{
-		Mode:       ModeDirect,
-		GatewayURL: "not-a-url",
-		Logger:     zerolog.Nop(),
-	})
+	_, err := NewDirectPublisher(context.Background(), "not-a-url", "")
 	if err == nil {
 		t.Fatal("expected error for invalid gateway URL")
 	}
 }
 
-func TestNew_DirectMode_ContextCancelled(t *testing.T) {
+func TestDirectPublisher_ContextCancelled(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := New(ctx, Config{
-		Mode:       ModeDirect,
-		GatewayURL: "ws://localhost:59999",
-		Logger:     zerolog.Nop(),
-	})
+	_, err := NewDirectPublisher(ctx, "ws://localhost:59999", "")
 	if err == nil {
 		t.Fatal("expected error for canceled context")
 	}
 }
 
-func TestPublisher_CloseIdempotent(t *testing.T) {
+func TestDirectPublisher_CloseIdempotent(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,11 +52,7 @@ func TestPublisher_CloseIdempotent(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := "ws" + srv.URL[4:]
-	pub, err := New(context.Background(), Config{
-		Mode:       ModeDirect,
-		GatewayURL: wsURL,
-		Logger:     zerolog.Nop(),
-	})
+	pub, err := NewDirectPublisher(context.Background(), wsURL, "")
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
@@ -90,7 +65,7 @@ func TestPublisher_CloseIdempotent(t *testing.T) {
 	}
 }
 
-func TestPublisher_PublishAfterClose(t *testing.T) {
+func TestDirectPublisher_PublishAfterClose(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -109,23 +84,19 @@ func TestPublisher_PublishAfterClose(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := "ws" + srv.URL[4:]
-	pub, err := New(context.Background(), Config{
-		Mode:       ModeDirect,
-		GatewayURL: wsURL,
-		Logger:     zerolog.Nop(),
-	})
+	pub, err := NewDirectPublisher(context.Background(), wsURL, "")
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
 
 	_ = pub.Close()
-	err = pub.Publish(context.Background(), "test.channel")
+	err = pub.Publish(context.Background(), "test.channel", []byte(`{"test":true}`))
 	if err == nil {
 		t.Fatal("expected error publishing after close")
 	}
 }
 
-func TestPublisher_Publish_Direct(t *testing.T) {
+func TestDirectPublisher_Publish(t *testing.T) {
 	t.Parallel()
 
 	receivedCh := make(chan map[string]any, 1)
@@ -149,17 +120,13 @@ func TestPublisher_Publish_Direct(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := "ws" + srv.URL[4:]
-	pub, err := New(context.Background(), Config{
-		Mode:       ModeDirect,
-		GatewayURL: wsURL,
-		Logger:     zerolog.Nop(),
-	})
+	pub, err := NewDirectPublisher(context.Background(), wsURL, "")
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
 	defer pub.Close()
 
-	err = pub.Publish(context.Background(), "test.channel")
+	err = pub.Publish(context.Background(), "test.channel", []byte(`{"seq":1}`))
 	if err != nil {
 		t.Fatalf("publish: %v", err)
 	}
@@ -174,20 +141,50 @@ func TestPublisher_Publish_Direct(t *testing.T) {
 	}
 }
 
-func TestNew_KafkaMode(t *testing.T) {
+func TestDirectPublisher_ImplementsPublisher(t *testing.T) {
+	t.Parallel()
+	var p Publisher = &DirectPublisher{}
+	_ = p
+}
+
+func TestNewPublisher_Factory_UnsupportedMode(t *testing.T) {
 	t.Parallel()
 
-	pub, err := New(context.Background(), Config{
-		Mode:         ModeKafka,
-		KafkaBrokers: "localhost:9092",
-		Logger:       zerolog.Nop(),
+	_, err := NewPublisher(context.Background(), Config{Mode: "invalid"})
+	if err == nil {
+		t.Fatal("expected error for unsupported mode")
+	}
+}
+
+func TestNewPublisher_Factory_DirectMode(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := ws.HTTPUpgrader{}
+		conn, _, _, err := upgrader.Upgrade(r, w)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			if _, err := wsutil.ReadClientText(conn); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + srv.URL[4:]
+	pub, err := NewPublisher(context.Background(), Config{
+		Mode:       "direct",
+		GatewayURL: wsURL,
 	})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("new publisher: %v", err)
 	}
 	defer pub.Close()
 
-	if pub.mode != ModeKafka {
-		t.Errorf("mode = %q, want kafka", pub.mode)
+	if _, ok := pub.(*DirectPublisher); !ok {
+		t.Errorf("expected *DirectPublisher, got %T", pub)
 	}
 }

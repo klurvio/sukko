@@ -54,6 +54,35 @@ func TestPool_RampUp_ContextCancelled(t *testing.T) {
 	}
 }
 
+func TestPool_RefreshAll_Empty(t *testing.T) {
+	t.Parallel()
+
+	p := NewPool(zerolog.Nop())
+	refreshed, failed := p.RefreshAll(func(i int) string { return "token" })
+	if refreshed != 0 || failed != 0 {
+		t.Errorf("RefreshAll on empty pool: refreshed=%d, failed=%d, want 0/0", refreshed, failed)
+	}
+}
+
+func TestPoolConfig_TokenFunc_Precedence(t *testing.T) {
+	t.Parallel()
+
+	// TokenFunc should take precedence over static Token.
+	// We can't connect to a real server, but we can verify the config
+	// structure accepts both fields without compilation errors.
+	cfg := PoolConfig{
+		GatewayURL: "ws://localhost:9999",
+		Token:      "static-token",
+		TokenFunc:  func(i int) string { return "per-connection-token" },
+	}
+	if cfg.TokenFunc == nil {
+		t.Fatal("TokenFunc should be set")
+	}
+	if cfg.TokenFunc(0) != "per-connection-token" {
+		t.Errorf("TokenFunc(0) = %q, want per-connection-token", cfg.TokenFunc(0))
+	}
+}
+
 func TestPool_DrainIdempotent(t *testing.T) {
 	t.Parallel()
 

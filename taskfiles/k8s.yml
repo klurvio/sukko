@@ -1,20 +1,25 @@
 # =============================================================================
-# Remote Kubernetes Tasks (DOKS)
+# Remote Kubernetes Tasks
 # =============================================================================
 # Domain: k8s
-# Pattern: k8s:{action} ENV=demo
+# Pattern: k8s:{action} PLATFORM=doks|gke ENV=demo
+# Default: PLATFORM=doks (backward compatible)
 
 version: "3"
 
 vars:
+  PLATFORM: '{{.PLATFORM | default "doks"}}'
   K8S_ENV: '{{.ENV | default "demo"}}'
   K8S_NAMESPACE: 'sukko-{{.K8S_ENV}}'
   K8S_RELEASE_NAME: sukko
   K8S_CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/sukko"
-  K8S_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/sukko/values/do/{{.K8S_ENV}}.yaml"
-  K8S_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/do/{{.K8S_ENV}}"
-  K8S_FOUNDATION_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/do/{{.K8S_ENV}}-foundation"
+  K8S_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/sukko/values/{{.PLATFORM}}/{{.K8S_ENV}}.yaml"
+  K8S_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/{{.PLATFORM}}/{{.K8S_ENV}}"
+  K8S_FOUNDATION_TF_DIR: "{{.ROOT_DIR}}/deployments/terraform/environments/{{.PLATFORM}}/{{.K8S_ENV}}-foundation"
   K8S_CLUSTER: 'sukko-{{.K8S_ENV}}'
+  # GKE-specific (only needed when PLATFORM=gke)
+  GKE_PROJECT: '{{.GKE_PROJECT | default ""}}'
+  GKE_ZONE: '{{.GKE_ZONE | default "us-central1-a"}}'
   # Ports
   K8S_GATEWAY_PORT: 3006
   K8S_GRAFANA_PORT: 3000
@@ -40,7 +45,7 @@ tasks:
 
   destroy:
     desc: Destroy cluster (preserves foundation resources)
-    prompt: 'This will DESTROY the DOKS cluster for {{.K8S_ENV}}. Are you sure?'
+    prompt: 'This will DESTROY the {{.PLATFORM}} cluster for {{.K8S_ENV}}. Are you sure?'
     cmds:
       - helm uninstall {{.K8S_RELEASE_NAME}} -n {{.K8S_NAMESPACE}} || true
       - task: tf:destroy
@@ -49,12 +54,41 @@ tasks:
     desc: Deploy/upgrade Helm release
     cmds:
       - task: connect
-      - helm upgrade --install {{.K8S_RELEASE_NAME}} {{.K8S_CHART_PATH}} -f {{.K8S_VALUES_FILE}} -n {{.K8S_NAMESPACE}} --create-namespace
+      - |
+        EXTRA_SETS=""
+        if [ "{{.PLATFORM}}" = "gke" ]; then
+          GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_external_ip 2>/dev/null || echo "")
+          if [ -n "$GATEWAY_IP" ]; then
+            EXTRA_SETS="--set ws-gateway.service.loadBalancerIP=$GATEWAY_IP"
+            echo "Using static gateway IP: $GATEWAY_IP"
+          fi
+        fi
+        helm upgrade --install {{.K8S_RELEASE_NAME}} {{.K8S_CHART_PATH}} \
+          -f {{.K8S_VALUES_FILE}} -n {{.K8S_NAMESPACE}} --create-namespace $EXTRA_SETS
 
   connect:
     desc: Connect kubectl to cluster
     cmds:
-      - doctl kubernetes cluster kubeconfig save {{.K8S_CLUSTER}}
+      - |
+        case "{{.PLATFORM}}" in
+          doks)
+            doctl kubernetes cluster kubeconfig save {{.K8S_CLUSTER}}
+            ;;
+          gke)
+            if [ -z "{{.GKE_PROJECT}}" ]; then
+              echo "ERROR: GKE_PROJECT is required for PLATFORM=gke"
+              echo "  Usage: task k8s:connect PLATFORM=gke ENV={{.K8S_ENV}} GKE_PROJECT=your-project"
+              exit 1
+            fi
+            gcloud container clusters get-credentials {{.K8S_CLUSTER}} \
+              --zone {{.GKE_ZONE}} \
+              --project {{.GKE_PROJECT}}
+            ;;
+          *)
+            echo "Unknown platform: {{.PLATFORM}}. Supported: doks, gke"
+            exit 1
+            ;;
+        esac
 
   status:
     desc: Show pods and services
@@ -87,7 +121,7 @@ tasks:
     desc: Check health endpoint via gateway
     cmds:
       - |
-        GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_ip 2>/dev/null || echo "")
+        GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_external_ip 2>/dev/null || echo "")
         if [ -z "$GATEWAY_IP" ]; then
           GATEWAY_IP=$(kubectl get svc -n {{.K8S_NAMESPACE}} -l app.kubernetes.io/name=ws-gateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
         fi
@@ -121,7 +155,7 @@ tasks:
       - |
         GATEWAY_IP=$(kubectl get svc -n {{.K8S_NAMESPACE}} -l app.kubernetes.io/name=ws-gateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
         if [ -z "$GATEWAY_IP" ]; then
-          GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_ip 2>/dev/null || echo "not set")
+          GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_external_ip 2>/dev/null || echo "not set")
         fi
         echo "Gateway (public): $GATEWAY_IP"
         echo ""
@@ -232,7 +266,7 @@ tasks:
         kill $PF_PID 2>/dev/null || true
 
   # ===========================================================================
-  # Foundation (gateway LB — persists across cluster lifecycle)
+  # Foundation (VPC, static IPs — persists across cluster lifecycle)
   # ===========================================================================
   foundation:init:
     desc: Initialize foundation Terraform
@@ -245,13 +279,13 @@ tasks:
       - terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} plan -out=tfplan
 
   foundation:apply:
-    desc: Apply foundation (gateway LB)
+    desc: Apply foundation (VPC, static IPs)
     cmds:
       - terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} apply tfplan
 
   foundation:destroy:
-    desc: Destroy foundation (DANGEROUS — loses gateway LB)
-    prompt: 'This will DESTROY the gateway LB for {{.K8S_ENV}}. Are you sure?'
+    desc: Destroy foundation (DANGEROUS — loses static IPs)
+    prompt: 'This will DESTROY the foundation for {{.PLATFORM}}/{{.K8S_ENV}}. Are you sure?'
     cmds:
       - terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} destroy
 
@@ -275,6 +309,6 @@ tasks:
 
   tf:destroy:
     desc: Destroy infrastructure (DANGEROUS)
-    prompt: 'This will DESTROY the DOKS cluster for {{.K8S_ENV}}. Are you sure?'
+    prompt: 'This will DESTROY the {{.PLATFORM}} cluster for {{.K8S_ENV}}. Are you sure?'
     cmds:
       - terraform -chdir={{.K8S_TF_DIR}} destroy

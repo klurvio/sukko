@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,7 +34,8 @@ func NewPool(logger zerolog.Logger) *Pool {
 // PoolConfig configures connections created during ramp-up.
 type PoolConfig struct {
 	GatewayURL string
-	Token      string
+	Token      string                     // static token (backward compat)
+	TokenFunc  func(connIndex int) string // per-connection token (takes precedence over Token)
 	APIKey     string
 	Channels   []string
 	OnMessage  func(Message)
@@ -56,9 +58,14 @@ func (p *Pool) RampUp(ctx context.Context, cfg PoolConfig, count, rate int) erro
 		default:
 		}
 
+		token := cfg.Token
+		if cfg.TokenFunc != nil {
+			token = cfg.TokenFunc(i)
+		}
+
 		client, err := Connect(ctx, ConnectConfig{
 			GatewayURL: cfg.GatewayURL,
-			Token:      cfg.Token,
+			Token:      token,
 			APIKey:     cfg.APIKey,
 			Logger:     p.logger.With().Int("client", i).Logger(),
 			OnMessage:  cfg.OnMessage,
@@ -122,6 +129,27 @@ func (p *Pool) Drain() {
 
 	// Wait for all read loop goroutines to finish
 	p.wg.Wait()
+}
+
+// RefreshAll sends auth refresh messages to all active connections with freshly
+// minted tokens. Returns the count of successful and failed refreshes.
+// Auth refresh is fire-and-forget at the send level — gateway responses
+// (auth_ack/auth_error) arrive asynchronously via the ReadLoop's onMsg callback.
+func (p *Pool) RefreshAll(tokenFunc func(connIndex int) string) (refreshed, failed int) {
+	p.mu.Lock()
+	clients := slices.Clone(p.clients)
+	p.mu.Unlock()
+
+	for i, c := range clients {
+		token := tokenFunc(i)
+		if err := c.RefreshToken(token); err != nil {
+			p.logger.Warn().Err(err).Int("client", i).Msg("auth refresh failed")
+			failed++
+		} else {
+			refreshed++
+		}
+	}
+	return refreshed, failed
 }
 
 // DrainSummary returns a human-readable summary of the last drain operation.

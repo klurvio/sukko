@@ -55,6 +55,32 @@ func TestCollector_AtomicCounters(t *testing.T) {
 	}
 }
 
+func TestCollector_AuthCounters(t *testing.T) {
+	t.Parallel()
+
+	c := NewCollector()
+	c.AuthRefreshTotal.Add(10)
+	c.AuthRefreshFailed.Add(2)
+	c.AuthErrors.Add(3)
+
+	snap := c.Snapshot()
+	if snap.AuthRefreshTotal != 10 {
+		t.Errorf("AuthRefreshTotal = %d, want 10", snap.AuthRefreshTotal)
+	}
+	if snap.AuthRefreshFailed != 2 {
+		t.Errorf("AuthRefreshFailed = %d, want 2", snap.AuthRefreshFailed)
+	}
+	if snap.AuthErrors != 3 {
+		t.Errorf("AuthErrors = %d, want 3", snap.AuthErrors)
+	}
+
+	c.Reset()
+	snap = c.Snapshot()
+	if snap.AuthRefreshTotal != 0 || snap.AuthRefreshFailed != 0 || snap.AuthErrors != 0 {
+		t.Error("auth counters not zeroed after reset")
+	}
+}
+
 func TestCollector_Latency(t *testing.T) {
 	t.Parallel()
 
@@ -137,5 +163,50 @@ func TestCollector_ConcurrentAccess(t *testing.T) {
 	snap := c.Snapshot()
 	if snap.ConnectionsActive != 1000 {
 		t.Errorf("expected ConnectionsActive=1000, got %d", snap.ConnectionsActive)
+	}
+}
+
+func TestCollector_ChannelModeCounters(t *testing.T) {
+	t.Parallel()
+
+	c := NewCollector()
+	c.PublicSent.Add(10)
+	c.PublicReceived.Add(20)
+	c.UserScopedSent.Add(30)
+	c.UserScopedReceived.Add(40)
+	c.GroupScopedSent.Add(50)
+	c.GroupScopedReceived.Add(60)
+	c.Misrouted.Add(1)
+
+	snap := c.Snapshot()
+	if snap.PublicSent != 10 {
+		t.Errorf("PublicSent = %d, want 10", snap.PublicSent)
+	}
+	if snap.PublicReceived != 20 {
+		t.Errorf("PublicReceived = %d, want 20", snap.PublicReceived)
+	}
+	if snap.UserScopedSent != 30 {
+		t.Errorf("UserScopedSent = %d, want 30", snap.UserScopedSent)
+	}
+	if snap.UserScopedReceived != 40 {
+		t.Errorf("UserScopedReceived = %d, want 40", snap.UserScopedReceived)
+	}
+	if snap.GroupScopedSent != 50 {
+		t.Errorf("GroupScopedSent = %d, want 50", snap.GroupScopedSent)
+	}
+	if snap.GroupScopedReceived != 60 {
+		t.Errorf("GroupScopedReceived = %d, want 60", snap.GroupScopedReceived)
+	}
+	if snap.Misrouted != 1 {
+		t.Errorf("Misrouted = %d, want 1", snap.Misrouted)
+	}
+
+	c.Reset()
+	snap = c.Snapshot()
+	if snap.PublicSent != 0 || snap.PublicReceived != 0 ||
+		snap.UserScopedSent != 0 || snap.UserScopedReceived != 0 ||
+		snap.GroupScopedSent != 0 || snap.GroupScopedReceived != 0 ||
+		snap.Misrouted != 0 {
+		t.Error("channel-mode counters not zeroed after reset")
 	}
 }

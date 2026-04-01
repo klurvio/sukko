@@ -44,10 +44,18 @@ func runSoak(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 
 	if err := pool.RampUp(ctx, testerws.PoolConfig{
 		GatewayURL: run.Config.GatewayURL,
-		Token:      run.Config.Token,
+		TokenFunc:  run.authResult.TokenFunc,
 		Channels:   []string{testChannel},
 		OnMessage: func(msg testerws.Message) {
-			run.Collector.MessagesReceived.Add(1)
+			switch msg.Type {
+			case "auth_ack":
+				run.Collector.AuthRefreshTotal.Add(1)
+			case "auth_error":
+				run.Collector.AuthRefreshFailed.Add(1)
+				logger.Warn().Str("type", msg.Type).Msg("auth refresh rejected by gateway")
+			default:
+				run.Collector.MessagesReceived.Add(1)
+			}
 		},
 	}, connections, rampRate); err != nil {
 		return nil, fmt.Errorf("ramp up: %w", err)
@@ -56,26 +64,51 @@ func runSoak(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 	run.Collector.ConnectionsActive.Store(pool.Active())
 	run.Collector.ConnectionsTotal.Store(pool.Active())
 
-	pub, pubErr := publisher.New(ctx, publisher.Config{
-		Mode:       publisher.Mode(run.Config.MessageBackend),
-		GatewayURL: run.Config.GatewayURL,
-		Token:      run.Config.Token,
-		Logger:     logger,
-	})
+	pub, pubErr := publisher.NewDirectPublisher(ctx, run.Config.GatewayURL, run.authResult.TokenFunc(0))
 	if pubErr != nil {
 		return nil, fmt.Errorf("create publisher: %w", pubErr)
 	}
+	gen := publisher.NewGenerator()
 	defer pub.Close() //nolint:errcheck // best-effort cleanup on teardown
 
-	if err := pub.PublishAtRate(ctx, testChannel, publishRate, duration); err != nil && ctx.Err() == nil {
-		logger.Warn().Err(err).Msg("publish error during soak test")
+	// Sustain phase: publish at rate with periodic token refresh
+	publishInterval := time.Second / time.Duration(publishRate)
+	publishTicker := time.NewTicker(publishInterval)
+	defer publishTicker.Stop()
+
+	refreshInterval := run.jwtLifetime - run.jwtRefreshBefore
+	if refreshInterval <= 0 {
+		refreshInterval = 13 * time.Minute // safe fallback: default 15m lifetime - 2m buffer
 	}
+	refreshTicker := time.NewTicker(refreshInterval)
+	defer refreshTicker.Stop()
 
-	run.Collector.ConnectionsActive.Store(0)
+	deadline := time.After(duration)
 
-	return &metrics.Report{
-		TestType: "soak",
-		Status:   "pass",
-		Metrics:  run.Collector.Snapshot(),
-	}, nil
+	for {
+		select {
+		case <-ctx.Done():
+			run.Collector.ConnectionsActive.Store(0)
+			return &metrics.Report{
+				TestType: "soak",
+				Status:   "stopped",
+				Metrics:  run.Collector.Snapshot(),
+			}, nil
+		case <-deadline:
+			run.Collector.ConnectionsActive.Store(0)
+			return &metrics.Report{
+				TestType: "soak",
+				Status:   "pass",
+				Metrics:  run.Collector.Snapshot(),
+			}, nil
+		case <-publishTicker.C:
+			data, _ := gen.Next(testChannel) // json.Marshal on literal map of primitives cannot fail
+			if err := pub.Publish(ctx, testChannel, data); err != nil {
+				logger.Warn().Err(err).Msg("publish failed")
+			}
+		case <-refreshTicker.C:
+			refreshed, failed := pool.RefreshAll(run.authResult.Minter.TokenFunc())
+			logger.Debug().Int("refreshed", refreshed).Int("failed", failed).Msg("auth refresh cycle")
+		}
+	}
 }
