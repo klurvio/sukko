@@ -114,7 +114,7 @@ func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Log
 	checks = append(checks, tenantChecks...)
 
 	// Routing rules limit boundary (uses shared tenant)
-	rulesChecks := checkRoutingRulesLimit(ctx, provURL, token, sharedTenantID, info, logger)
+	rulesChecks := checkRoutingRulesLimit(ctx, provClient, provURL, token, sharedTenantID, info, logger)
 	checks = append(checks, rulesChecks...)
 
 	// Connection limit boundary
@@ -207,7 +207,7 @@ func checkTenantLimit(ctx context.Context, provClient *auth.ProvisioningClient, 
 	return checks
 }
 
-func checkRoutingRulesLimit(ctx context.Context, provURL, token, tenantID string, info *editionInfo, logger zerolog.Logger) []metrics.CheckResult {
+func checkRoutingRulesLimit(ctx context.Context, provClient *auth.ProvisioningClient, provURL, token, tenantID string, info *editionInfo, logger zerolog.Logger) []metrics.CheckResult {
 	maxRules := info.Limits.MaxRoutingRulesPerTenant
 	if maxRules == 0 {
 		return []metrics.CheckResult{{Name: "routing rules limit", Status: "pass", Latency: "unlimited"}}
@@ -215,7 +215,7 @@ func checkRoutingRulesLimit(ctx context.Context, provURL, token, tenantID string
 
 	defer func() {
 		// Clean up rules on shared tenant
-		if err := deleteRoutingRules(ctx, provURL, token, tenantID); err != nil {
+		if err := provClient.DeleteRoutingRules(ctx, tenantID); err != nil {
 			logger.Debug().Err(err).Str("tenant_id", tenantID).
 				Msg("Routing rules cleanup (not-found is expected)")
 		}
@@ -433,28 +433,4 @@ func setTestRoutingRules(ctx context.Context, provURL, token, tenantID string, c
 	}
 
 	return resp.StatusCode, nil
-}
-
-func deleteRoutingRules(ctx context.Context, provURL, token, tenantID string) error {
-	client := &http.Client{Timeout: editionHTTPTimeout}
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, provURL+"/api/v1/tenants/"+tenantID+"/routing-rules", http.NoBody)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("delete routing rules: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	// 200 and 404 are both acceptable — rules may not exist
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
-		return fmt.Errorf("delete routing rules: HTTP %d", resp.StatusCode)
-	}
-
-	return nil
 }

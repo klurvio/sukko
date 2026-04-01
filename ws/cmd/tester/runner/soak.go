@@ -64,15 +64,11 @@ func runSoak(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 	run.Collector.ConnectionsActive.Store(pool.Active())
 	run.Collector.ConnectionsTotal.Store(pool.Active())
 
-	pub, pubErr := publisher.New(ctx, publisher.Config{
-		Mode:       publisher.Mode(run.Config.MessageBackend),
-		GatewayURL: run.Config.GatewayURL,
-		Token:      run.authResult.TokenFunc(0),
-		Logger:     logger,
-	})
+	pub, pubErr := publisher.NewDirectPublisher(ctx, run.Config.GatewayURL, run.authResult.TokenFunc(0))
 	if pubErr != nil {
 		return nil, fmt.Errorf("create publisher: %w", pubErr)
 	}
+	gen := publisher.NewGenerator()
 	defer pub.Close() //nolint:errcheck // best-effort cleanup on teardown
 
 	// Sustain phase: publish at rate with periodic token refresh
@@ -106,7 +102,8 @@ func runSoak(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 				Metrics:  run.Collector.Snapshot(),
 			}, nil
 		case <-publishTicker.C:
-			if err := pub.Publish(ctx, testChannel); err != nil {
+			data, _ := gen.Next(testChannel) // json.Marshal on literal map of primitives cannot fail
+			if err := pub.Publish(ctx, testChannel, data); err != nil {
 				logger.Warn().Err(err).Msg("publish failed")
 			}
 		case <-refreshTicker.C:

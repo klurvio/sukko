@@ -88,7 +88,7 @@ func Setup(ctx context.Context, cfg SetupConfig) (*SetupResult, error) {
 	keypair, err := GenerateKeypair(cfg.TestID)
 	if err != nil {
 		if createdTenant {
-			cleanupTenant(context.Background(), provClient, tenantID, logger)
+			cleanupTenant(context.Background(), provClient, tenantID, logger) //nolint:contextcheck // cleanup must survive parent cancellation
 		}
 		return nil, fmt.Errorf("auth setup: generate keypair: %w", err)
 	}
@@ -102,7 +102,7 @@ func Setup(ctx context.Context, cfg SetupConfig) (*SetupResult, error) {
 		ExpiresAt: &expiresAt,
 	}); err != nil {
 		if createdTenant {
-			cleanupTenant(context.Background(), provClient, tenantID, logger)
+			cleanupTenant(context.Background(), provClient, tenantID, logger) //nolint:contextcheck // cleanup must survive parent cancellation
 		}
 		return nil, fmt.Errorf("auth setup: register key: %w", err)
 	}

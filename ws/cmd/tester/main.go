@@ -48,14 +48,15 @@ func run() error {
 	})
 
 	r := runner.New(runner.Config{
-		GatewayURL:       cfg.GatewayURL,
-		ProvisioningURL:  cfg.ProvisioningURL,
-		Token:            cfg.AuthToken,
-		MessageBackend:   cfg.MessageBackend,
-		KafkaBrokers:     cfg.KafkaBrokers,
-		JWTLifetime:      cfg.JWTLifetime,
-		JWTRefreshBefore: cfg.JWTRefreshBefore,
-		KeyExpiry:        cfg.KeyExpiry,
+		GatewayURL:        cfg.GatewayURL,
+		ProvisioningURL:   cfg.ProvisioningURL,
+		Token:             cfg.AuthToken,
+		MessageBackend:    cfg.MessageBackend,
+		KafkaBrokers:      cfg.KafkaBrokers,
+		NATSJetStreamURLs: cfg.NATSJetStreamURLs,
+		JWTLifetime:       cfg.JWTLifetime,
+		JWTRefreshBefore:  cfg.JWTRefreshBefore,
+		KeyExpiry:         cfg.KeyExpiry,
 	}, logger)
 
 	handler := api.NewRouter(r, cfg.AuthToken, logger)
@@ -89,6 +90,9 @@ func run() error {
 		return err
 	}
 
+	// Shutdown ordering: cancel tests → stop HTTP → wait for goroutines
+	r.StopAll() // cancel running test contexts first
+
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
@@ -96,9 +100,8 @@ func run() error {
 		return fmt.Errorf("shutdown: %w", err)
 	}
 
-	wg.Wait()
-	r.StopAll()
-	r.Wait()
+	r.Wait()  // wait for test goroutines to finish
+	wg.Wait() // wait for HTTP server goroutine
 	logger.Info().Msg("shutdown complete")
 	return nil
 }

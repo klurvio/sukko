@@ -83,6 +83,51 @@ func (m *Minter) MintWithTenant(connIndex int, tenantID string) (string, error) 
 	return m.mintWithOverrides(connIndex, tenantID, m.keypair.KeyID, time.Now().Add(m.lifetime))
 }
 
+// MintOptions configures custom JWT claims for pub-sub testing.
+// Zero values use defaults (auto-generated subject, minter's tenant, no groups/roles).
+type MintOptions struct {
+	ConnIndex int
+	TenantID  string   // override tenant (empty = use minter's default)
+	Groups    []string // JWT groups claim (for group-scoped channel access)
+	Roles     []string // JWT roles claim (for RBAC)
+	Subject   string   // override subject (empty = auto-generate from connIndex)
+}
+
+// MintWithClaims creates a JWT with custom groups, roles, and subject.
+// Used by the pub-sub engine for multi-user scoping tests.
+func (m *Minter) MintWithClaims(opts MintOptions) (string, error) {
+	tenantID := opts.TenantID
+	if tenantID == "" {
+		tenantID = m.tenantID
+	}
+	subject := opts.Subject
+	if subject == "" {
+		subject = fmt.Sprintf("tester-%s-%04d", strings.TrimPrefix(m.keypair.KeyID, "tester-"), opts.ConnIndex)
+	}
+
+	now := time.Now()
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   subject,
+			ExpiresAt: jwt.NewNumericDate(now.Add(m.lifetime)),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+		TenantID: tenantID,
+		Groups:   opts.Groups,
+		Roles:    opts.Roles,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	token.Header["kid"] = m.keypair.KeyID
+
+	signed, err := token.SignedString(m.keypair.PrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("sign JWT: %w", err)
+	}
+
+	return signed, nil
+}
+
 func (m *Minter) mintWithOverrides(connIndex int, tenantID, kid string, exp time.Time) (string, error) {
 	now := time.Now()
 	claims := &auth.Claims{

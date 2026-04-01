@@ -95,7 +95,7 @@ jobs:
       - name: Helm upgrade
         run: |
           helm upgrade --install sukko ./deployments/helm/sukko \
-            -f ./deployments/helm/sukko/values/do/demo.yaml \
+            -f ./deployments/helm/sukko/values/doks/demo.yaml \
             -n sukko-demo --create-namespace \
             --atomic --timeout 10m \
             --set ws-gateway.image.tag=${{ github.sha }} \

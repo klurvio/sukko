@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -136,7 +137,7 @@ func (p *Pool) Drain() {
 // (auth_ack/auth_error) arrive asynchronously via the ReadLoop's onMsg callback.
 func (p *Pool) RefreshAll(tokenFunc func(connIndex int) string) (refreshed, failed int) {
 	p.mu.Lock()
-	clients := append([]*Client(nil), p.clients...)
+	clients := slices.Clone(p.clients)
 	p.mu.Unlock()
 
 	for i, c := range clients {

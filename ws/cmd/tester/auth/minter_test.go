@@ -198,6 +198,110 @@ func TestMinter_DefaultLifetime(t *testing.T) {
 	}
 }
 
+func TestMinter_MintWithClaims_CustomSubject(t *testing.T) {
+	t.Parallel()
+
+	kp := testKeypair(t)
+	m := NewMinter(MinterConfig{Keypair: kp, TenantID: "t1"})
+
+	tokenStr, err := m.MintWithClaims(MintOptions{Subject: "custom-user"})
+	if err != nil {
+		t.Fatalf("MintWithClaims: %v", err)
+	}
+
+	sub := parseSub(t, tokenStr, &kp.PrivateKey.PublicKey)
+	if sub != "custom-user" {
+		t.Errorf("sub = %q, want %q", sub, "custom-user")
+	}
+}
+
+func TestMinter_MintWithClaims_DefaultSubject(t *testing.T) {
+	t.Parallel()
+
+	kp := testKeypair(t)
+	m := NewMinter(MinterConfig{Keypair: kp, TenantID: "t1"})
+
+	tokenStr, err := m.MintWithClaims(MintOptions{ConnIndex: 7})
+	if err != nil {
+		t.Fatalf("MintWithClaims: %v", err)
+	}
+
+	sub := parseSub(t, tokenStr, &kp.PrivateKey.PublicKey)
+	if !strings.HasSuffix(sub, "-0007") {
+		t.Errorf("sub = %q, want suffix -0007", sub)
+	}
+}
+
+func TestMinter_MintWithClaims_TenantOverride(t *testing.T) {
+	t.Parallel()
+
+	kp := testKeypair(t)
+	m := NewMinter(MinterConfig{Keypair: kp, TenantID: "default-tenant"})
+
+	tokenStr, err := m.MintWithClaims(MintOptions{TenantID: "override-tenant", Subject: "u1"})
+	if err != nil {
+		t.Fatalf("MintWithClaims: %v", err)
+	}
+
+	claims := parseClaims(t, tokenStr, &kp.PrivateKey.PublicKey)
+	if claims.TenantID != "override-tenant" {
+		t.Errorf("tenant_id = %q, want %q", claims.TenantID, "override-tenant")
+	}
+}
+
+func TestMinter_MintWithClaims_DefaultTenant(t *testing.T) {
+	t.Parallel()
+
+	kp := testKeypair(t)
+	m := NewMinter(MinterConfig{Keypair: kp, TenantID: "my-tenant"})
+
+	tokenStr, err := m.MintWithClaims(MintOptions{Subject: "u1"})
+	if err != nil {
+		t.Fatalf("MintWithClaims: %v", err)
+	}
+
+	claims := parseClaims(t, tokenStr, &kp.PrivateKey.PublicKey)
+	if claims.TenantID != "my-tenant" {
+		t.Errorf("tenant_id = %q, want %q", claims.TenantID, "my-tenant")
+	}
+}
+
+func TestMinter_MintWithClaims_GroupsAndRoles(t *testing.T) {
+	t.Parallel()
+
+	kp := testKeypair(t)
+	m := NewMinter(MinterConfig{Keypair: kp, TenantID: "t1"})
+
+	tokenStr, err := m.MintWithClaims(MintOptions{
+		Subject: "u1",
+		Groups:  []string{"vip", "traders"},
+		Roles:   []string{"admin"},
+	})
+	if err != nil {
+		t.Fatalf("MintWithClaims: %v", err)
+	}
+
+	claims := parseClaims(t, tokenStr, &kp.PrivateKey.PublicKey)
+	if len(claims.Groups) != 2 || claims.Groups[0] != "vip" || claims.Groups[1] != "traders" {
+		t.Errorf("groups = %v, want [vip traders]", claims.Groups)
+	}
+	if len(claims.Roles) != 1 || claims.Roles[0] != "admin" {
+		t.Errorf("roles = %v, want [admin]", claims.Roles)
+	}
+}
+
+func parseClaims(t *testing.T, tokenStr string, pubKey *ecdsa.PublicKey) *sharedauth.Claims {
+	t.Helper()
+	claims := &sharedauth.Claims{}
+	_, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (any, error) {
+		return pubKey, nil
+	}, jwt.WithValidMethods([]string{"ES256"}))
+	if err != nil {
+		t.Fatalf("parse JWT: %v", err)
+	}
+	return claims
+}
+
 func parseSub(t *testing.T, tokenStr string, pubKey *ecdsa.PublicKey) string {
 	t.Helper()
 	claims := &sharedauth.Claims{}

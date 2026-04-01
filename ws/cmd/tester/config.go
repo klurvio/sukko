@@ -11,12 +11,13 @@ import (
 // TesterConfig holds configuration for the sukko-tester service.
 type TesterConfig struct {
 	platform.BaseConfig
-	Port            int    `env:"TESTER_PORT" envDefault:"8090"`
-	AuthToken       string `env:"TESTER_AUTH_TOKEN"` // no default — must be explicitly set for production
-	GatewayURL      string `env:"GATEWAY_URL" envDefault:"ws://localhost:3000"`
-	ProvisioningURL string `env:"PROVISIONING_URL" envDefault:"http://localhost:8080"`
-	KafkaBrokers    string `env:"KAFKA_BROKERS" envDefault:""`
-	MessageBackend  string `env:"MESSAGE_BACKEND" envDefault:"direct"`
+	Port              int    `env:"TESTER_PORT" envDefault:"8090"`
+	AuthToken         string `env:"TESTER_AUTH_TOKEN"` // no default — must be explicitly set for production
+	GatewayURL        string `env:"GATEWAY_URL" envDefault:"ws://localhost:3000"`
+	ProvisioningURL   string `env:"PROVISIONING_URL" envDefault:"http://localhost:8080"`
+	KafkaBrokers      string `env:"KAFKA_BROKERS" envDefault:""`
+	NATSJetStreamURLs string `env:"NATS_JETSTREAM_URLS" envDefault:""`
+	MessageBackend    string `env:"MESSAGE_BACKEND" envDefault:"direct"`
 
 	// JWT auth configuration
 	JWTLifetime      time.Duration `env:"TESTER_JWT_LIFETIME" envDefault:"15m"`
@@ -37,11 +38,17 @@ func (c *TesterConfig) Validate() error {
 	if c.ProvisioningURL == "" {
 		return errors.New("PROVISIONING_URL is required")
 	}
-	if c.MessageBackend != "direct" && c.MessageBackend != "kafka" {
-		return fmt.Errorf("MESSAGE_BACKEND must be 'direct' or 'kafka', got %q", c.MessageBackend)
+	switch c.MessageBackend {
+	case "direct", "kafka", "nats":
+		// valid
+	default:
+		return fmt.Errorf("MESSAGE_BACKEND must be 'direct', 'kafka', or 'nats', got %q", c.MessageBackend)
 	}
 	if c.MessageBackend == "kafka" && c.KafkaBrokers == "" {
 		return errors.New("KAFKA_BROKERS required when MESSAGE_BACKEND=kafka")
+	}
+	if c.MessageBackend == "nats" && c.NATSJetStreamURLs == "" {
+		return errors.New("NATS_JETSTREAM_URLS required when MESSAGE_BACKEND=nats")
 	}
 	if c.JWTLifetime <= 0 {
 		return errors.New("TESTER_JWT_LIFETIME must be positive")
