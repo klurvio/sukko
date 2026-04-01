@@ -70,10 +70,11 @@ ws/
 deployments/
 ├── helm/sukko/           # Helm charts (ws-server, ws-gateway, monitoring, etc.)
 │   ├── charts/          # Subchart definitions
-│   └── values/do/       # Environment overrides (demo.yaml)
-├── terraform/           # DOKS cluster, reserved IP
-│   ├── environments/do/demo/  # Demo environment config
-│   └── modules/doks-cluster/  # DOKS cluster module
+│   └── values/doks/     # Environment overrides (demo.yaml)
+├── terraform/           # DOKS + GKE clusters, reserved IPs
+│   ├── environments/doks/demo/ # DOKS demo environment
+│   ├── environments/gke/demo/  # GKE demo environment
+│   └── modules/              # doks-cluster, gke-foundation, gke-standard-cluster
 docs/architecture/       # Plans, findings, session handoffs
 ```
 
