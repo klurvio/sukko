@@ -1,0 +1,72 @@
+# =============================================================================
+# Build Images — Docker images pushed to ghcr.io
+# =============================================================================
+# Triggers on push to main ONLY when ws/ files change (Go source, Dockerfiles,
+# proto, go.mod/go.sum). Skipped entirely for infrastructure-only changes
+# (Helm, Terraform, Taskfile, docs).
+
+name: Build Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ws/**'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-images
+  cancel-in-progress: true
+
+jobs:
+  build-and-push:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: sukko-server
+            dir: server
+          - name: sukko-gateway
+            dir: gateway
+          - name: sukko-provisioning
+            dir: provisioning
+          - name: sukko-tester
+            dir: tester
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Set build time
+        id: meta
+        run: echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ws
+          file: ws/build/${{ matrix.dir }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/klurvio/${{ matrix.name }}:${{ github.sha }}
+            ghcr.io/klurvio/${{ matrix.name }}:latest
+          build-args: |
+            VERSION=${{ github.sha }}
+            COMMIT_HASH=${{ github.sha }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
