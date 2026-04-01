@@ -68,6 +68,7 @@ tfplan
 
 # Deployment configs (contain environment-specific values)
 deployments/tester/do/config.env
+deployments/tester/gce/config.env
 
 # Project docs (local only)
 ./docs
