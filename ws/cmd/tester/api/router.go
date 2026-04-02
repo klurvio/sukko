@@ -27,6 +27,7 @@ func NewRouter(r *runner.Runner, authToken string, logger zerolog.Logger) http.H
 		info := version.Get("sukko-tester")
 		writeJSON(w, http.StatusOK, info)
 	})
+	mux.HandleFunc("GET /api/v1/capabilities", h.getCapabilities)
 
 	// Protected endpoints
 	mux.HandleFunc("POST /api/v1/tests", h.authMiddleware(h.startTest))
