@@ -226,6 +226,9 @@ func (c *GatewayConfig) Validate() error {
 		if c.TenantConnectionLimitEnabled && !license.EditionHasFeature(edition, license.PerTenantConnectionLimits) {
 			return license.NewFeatureError(license.PerTenantConnectionLimits, edition)
 		}
+		if c.OTELTracingEnabled && !license.EditionHasFeature(edition, license.ConnectionTracing) {
+			return license.NewFeatureError(license.ConnectionTracing, edition)
+		}
 	}
 
 	return nil

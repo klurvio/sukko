@@ -163,6 +163,15 @@ func (m *Manager) Claims() *Claims {
 	return m.loadClaims()
 }
 
+// NewTestManager creates a Manager with a fixed edition for testing.
+// It does not require a valid license key — the edition is set directly.
+func NewTestManager(edition Edition) *Manager {
+	m := &Manager{}
+	m.edition.Store(&editionHolder{edition})
+	m.limits.Store(&limitsHolder{DefaultLimits(edition)})
+	return m
+}
+
 // Org returns the licensee organization name, or empty string for Community.
 func (m *Manager) Org() string {
 	if c := m.loadClaims(); c != nil {

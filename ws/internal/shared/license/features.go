@@ -21,6 +21,7 @@ const (
 // Lower number = higher priority. Implemented features use PriorityNone.
 type FeaturePriority int
 
+// FeaturePriority constants for implementation ordering.
 const (
 	PriorityNone     FeaturePriority = 0 // Implemented — no priority needed
 	PriorityCritical FeaturePriority = 1 // Must fix (ungated features)
@@ -124,10 +125,10 @@ var featureMetadata = map[Feature]FeatureInfo{
 
 	// ── Implemented (ungated) — need EditionHasFeature checks ────────────
 
-	PerTenantConfigurableQuotas: {Description: "Per-tenant configurable resource quotas (topics, connections, rules)", Status: StatusUngated, Priority: PriorityCritical},
-	TenantLifecycleManager:      {Description: "Tenant suspend/reactivate lifecycle management", Status: StatusUngated, Priority: PriorityCritical},
-	ConnectionTracing:           {Description: "OpenTelemetry distributed tracing for connections", Status: StatusUngated, Priority: PriorityCritical},
-	AuditLogging:                {Description: "Audit trail of all provisioning API actions", Status: StatusUngated, Priority: PriorityCritical},
+	PerTenantConfigurableQuotas: {Description: "Per-tenant configurable resource quotas (topics, connections, rules)", Status: StatusImplemented, Priority: PriorityNone},
+	TenantLifecycleManager:      {Description: "Tenant suspend/reactivate lifecycle management", Status: StatusImplemented, Priority: PriorityNone},
+	ConnectionTracing:           {Description: "OpenTelemetry distributed tracing for connections", Status: StatusImplemented, Priority: PriorityNone},
+	AuditLogging:                {Description: "Audit trail of all provisioning API actions", Status: StatusImplemented, Priority: PriorityNone},
 
 	// ── Future — Pro ─────────────────────────────────────────────────────
 
