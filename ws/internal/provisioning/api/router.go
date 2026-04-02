@@ -148,6 +148,14 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 						r.Use(RequireRole("admin", "system"))
 					}
 					r.Delete("/", h.DeprovisionTenant)
+				})
+
+				// Tenant lifecycle — requires Pro
+				r.Group(func(r chi.Router) {
+					r.Use(RequireFeature(cfg.EditionManager, license.TenantLifecycleManager))
+					if cfg.AuthEnabled {
+						r.Use(RequireRole("admin", "system"))
+					}
 					r.Post("/suspend", h.SuspendTenant)
 					r.Post("/reactivate", h.ReactivateTenant)
 				})
@@ -178,17 +186,23 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 					})
 				})
 
-				// Quota management
-				r.Get("/quotas", h.GetQuota)
+				// Quota management — requires Pro
 				r.Group(func(r chi.Router) {
-					if cfg.AuthEnabled {
-						r.Use(RequireRole("admin", "system"))
-					}
-					r.Patch("/quotas", h.UpdateQuota)
+					r.Use(RequireFeature(cfg.EditionManager, license.PerTenantConfigurableQuotas))
+					r.Get("/quotas", h.GetQuota)
+					r.Group(func(r chi.Router) {
+						if cfg.AuthEnabled {
+							r.Use(RequireRole("admin", "system"))
+						}
+						r.Patch("/quotas", h.UpdateQuota)
+					})
 				})
 
-				// Audit log
-				r.Get("/audit", h.GetAuditLog)
+				// Audit log — requires Enterprise
+				r.Group(func(r chi.Router) {
+					r.Use(RequireFeature(cfg.EditionManager, license.AuditLogging))
+					r.Get("/audit", h.GetAuditLog)
+				})
 
 				// Channel rules (admin-only for set/delete)
 				r.Route("/channel-rules", func(r chi.Router) {

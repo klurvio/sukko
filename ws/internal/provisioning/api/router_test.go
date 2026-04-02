@@ -22,6 +22,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/testutil"
 	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/license"
 )
 
 // generateTestECKey generates an ECDSA P-256 key pair for testing.
@@ -98,8 +99,13 @@ func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStor
 }
 
 // mustNewRouter creates a test router, failing the test on error.
+// Automatically sets EditionManager to Enterprise if not provided,
+// so all feature gates pass through in existing tests.
 func mustNewRouter(t *testing.T, cfg api.RouterConfig) http.Handler {
 	t.Helper()
+	if cfg.EditionManager == nil {
+		cfg.EditionManager = license.NewTestManager(license.Enterprise)
+	}
 	router, err := api.NewRouter(cfg)
 	if err != nil {
 		t.Fatalf("mustNewRouter: %v", err)

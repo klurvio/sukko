@@ -129,7 +129,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.10.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-03-28
+**Version**: 1.11.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-04-02
 
 ### I. Configuration
 
@@ -262,6 +262,14 @@ Before designing any new feature or protocol extension, the implementation appro
 - gRPC servers MUST run on a dedicated port, separate from HTTP. Both listeners MUST support graceful shutdown.
 - Interceptors MUST handle: panic recovery (first), structured logging, Prometheus metrics (latency histograms, call counters).
 - Stream clients MUST reconnect with exponential backoff and jitter, serve stale cache during disconnection, and reflect stream health in service health endpoints.
+
+### XIII. Feature Gates
+
+Every edition-gated feature MUST be documented in `internal/shared/license/features.go` with: (1) a `Feature` constant with a human-readable string value describing the capability, (2) an entry in `featureEditions` mapping it to the minimum required edition (Community/Pro/Enterprise), (3) a code comment on the constant indicating its status — `// Implemented` or `// Future — not yet implemented`. The `features.go` file is the **single source of truth** for the feature matrix — the docs site auto-generates the editions comparison page from it.
+
+Every implemented gated feature MUST have an `EditionHasFeature()` check at its access boundary (API handler, config validation, or startup gate). Implemented features without gate checks allow Community users to access Pro/Enterprise functionality — this is a security and business logic bug.
+
+New feature implementations MUST check the feature matrix first: if a `Feature` constant exists for the capability being built, the implementation MUST wire the gate check. Adding new gated features MUST follow: (1) add `Feature` constant with `// Future` comment, (2) add `featureEditions` entry, (3) when implementing, add `EditionHasFeature()` check and update comment to `// Implemented`.
 
 ### Governance
 

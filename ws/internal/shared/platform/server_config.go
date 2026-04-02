@@ -1012,6 +1012,9 @@ func (c *ServerConfig) Validate() error {
 		if c.AlertEnabled && !license.EditionHasFeature(edition, license.Alerting) {
 			return license.NewFeatureError(license.Alerting, edition)
 		}
+		if c.OTELTracingEnabled && !license.EditionHasFeature(edition, license.ConnectionTracing) {
+			return license.NewFeatureError(license.ConnectionTracing, edition)
+		}
 
 		// Hard limit gates — validate configured capacity doesn't exceed edition limits
 		if err := limits.CheckShards(c.NumShards); err != nil {

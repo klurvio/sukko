@@ -17,7 +17,7 @@ func TestRequiredEdition(t *testing.T) {
 	}
 
 	enterpriseFeatures := []Feature{
-		WebPushTransport, AdminUISSO, IPAllowlisting, AuditLogging,
+		WebPushTransport, IPAllowlisting, AuditLogging,
 		E2EEncryption, PriorityRouting, CustomQuotaPolicies,
 	}
 	for _, f := range enterpriseFeatures {
@@ -49,12 +49,12 @@ func TestEditionHasFeature(t *testing.T) {
 		{"pro+kafka", Pro, KafkaBackend, true},
 		{"pro+alerting", Pro, Alerting, true},
 		{"pro+webpush", Pro, WebPushTransport, false},
-		{"pro+sso", Pro, AdminUISSO, false},
+		{"pro+audit", Pro, AuditLogging, false},
 
 		// Enterprise can use everything
 		{"enterprise+kafka", Enterprise, KafkaBackend, true},
 		{"enterprise+webpush", Enterprise, WebPushTransport, true},
-		{"enterprise+sso", Enterprise, AdminUISSO, true},
+		{"enterprise+audit", Enterprise, AuditLogging, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
