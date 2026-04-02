@@ -138,12 +138,12 @@ var featureMetadata = map[Feature]FeatureInfo{
 	Analytics:          {Description: "Real-time usage dashboards and metrics", Status: StatusFuture, Priority: PriorityMedium},
 	Webhooks:           {Description: "HTTP webhook delivery as alternative to WebSocket", Status: StatusFuture, Priority: PriorityMedium},
 	ChannelPatternsCEL: {Description: "CEL expressions for complex channel authorization", Status: StatusFuture, Priority: PriorityLow},
-	SSETransport:       {Description: "Server-Sent Events as alternative transport", Status: StatusFuture, Priority: PriorityLow},
+	SSETransport:       {Description: "Server-Sent Events as alternative transport", Status: StatusFuture, Priority: PriorityHigh},
 	DeltaCompression:   {Description: "Send only changed fields in high-frequency updates", Status: StatusFuture, Priority: PriorityLow},
 
 	// ── Future — Enterprise ──────────────────────────────────────────────
 
-	WebPushTransport:    {Description: "Browser push notifications via Web Push API", Status: StatusFuture, Priority: PriorityLow},
+	WebPushTransport:    {Description: "Browser push notifications via Web Push API", Status: StatusFuture, Priority: PriorityHigh},
 	IPAllowlisting:      {Description: "Per-tenant IP allowlisting for connection filtering", Status: StatusFuture, Priority: PriorityLow},
 	E2EEncryption:       {Description: "End-to-end encrypted message delivery", Status: StatusFuture, Priority: PriorityLow},
 	PriorityRouting:     {Description: "Priority-based message delivery under load", Status: StatusFuture, Priority: PriorityLow},
