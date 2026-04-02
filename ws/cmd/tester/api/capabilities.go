@@ -1,0 +1,68 @@
+package api
+
+import (
+	"net/http"
+	"sort"
+
+	"github.com/klurvio/sukko/cmd/tester/runner"
+)
+
+// Capabilities describes the tester's full API surface.
+// Consumed by the CLI for auto-discovery — suites, backends, context fields.
+type Capabilities struct {
+	TestTypes     []TestTypeInfo     `json:"test_types"`
+	Suites        []SuiteInfo        `json:"suites"`
+	Backends      []string           `json:"backends"`
+	ContextFields []ContextFieldInfo `json:"context_fields"`
+}
+
+// TestTypeInfo describes a supported test type.
+type TestTypeInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// SuiteInfo describes a validation suite.
+type SuiteInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// ContextFieldInfo describes a TestContext field.
+type ContextFieldInfo struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Required    bool   `json:"required"`
+	Description string `json:"description"`
+}
+
+func (h *handlers) getCapabilities(w http.ResponseWriter, _ *http.Request) {
+	// Build suites from registry (sorted for stable output)
+	suites := make([]SuiteInfo, 0, len(runner.SuiteRegistry))
+	for _, s := range runner.SuiteRegistry {
+		suites = append(suites, SuiteInfo{Name: s.Name, Description: s.Description})
+	}
+	sort.Slice(suites, func(i, j int) bool { return suites[i].Name < suites[j].Name })
+
+	caps := Capabilities{
+		TestTypes: []TestTypeInfo{
+			{Name: "smoke", Description: "Connectivity and basic message delivery verification"},
+			{Name: "load", Description: "Sustained connection load with configurable publish rate"},
+			{Name: "stress", Description: "Push beyond capacity to verify backpressure and degradation"},
+			{Name: "soak", Description: "Long-running stability test for memory leaks and connection drift"},
+			{Name: "validate", Description: "End-to-end correctness validation suites"},
+		},
+		Suites:   suites,
+		Backends: []string{"direct", "kafka", "nats"},
+		ContextFields: []ContextFieldInfo{
+			{Name: "gateway_url", Type: "string", Required: true, Description: "WebSocket gateway URL (e.g., ws://gateway:3000)"},
+			{Name: "provisioning_url", Type: "string", Required: true, Description: "Provisioning API base URL (e.g., http://provisioning:8080)"},
+			{Name: "admin_token", Type: "string", Required: true, Description: "Admin authentication token for provisioning API"},
+			{Name: "environment", Type: "string", Required: false, Description: "Deployment environment name (e.g., demo, dev, prod)"},
+			{Name: "message_backend_urls", Type: "string", Required: false, Description: "Message backend connection URLs (Kafka brokers or NATS URLs)"},
+		},
+	}
+
+	w.Header().Set("Cache-Control", "max-age=3600")
+	writeJSON(w, http.StatusOK, caps)
+}
