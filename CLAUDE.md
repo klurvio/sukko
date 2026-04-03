@@ -129,7 +129,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.11.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-04-02
+**Version**: 1.11.1 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-04-03
 
 ### I. Configuration
 
@@ -219,7 +219,7 @@ Shutdown ordering MUST be: cancel context → `wg.Wait()` for goroutines → clo
 
 **sync.Once** — `sync.Once` MUST be used when an operation must execute exactly once across concurrent goroutines: connection close (`net.Conn.Close()`) and singleton initialization. Calling `Close()` twice on a `net.Conn` panics — `sync.Once` prevents this. Channel close guarding is covered in Channels close rules above.
 
-**Message Pipeline Protection** — The message delivery pipeline (ingestion → broadcast bus → shard fan-out → per-client write pump → WebSocket write) is the critical hot path. Feature-level operations (auth refresh, subscription management, metrics collection, provisioning lookups, OIDC validation) MUST NOT introduce blocking on this path. Specifically:
+**Message Pipeline Protection** — The message delivery pipeline (ingestion → broadcast bus → shard fan-out → per-client write pump → transport write) is the critical hot path. This applies to all transport types (WebSocket, SSE/gRPC stream, future Web Push). Feature-level operations (auth refresh, subscription management, metrics collection, provisioning lookups, OIDC validation) MUST NOT introduce blocking on this path. Specifically:
 - Locks acquired for feature operations MUST NOT be held while calling into the pipeline (`forwardFrame`, `sendToClient`, `bus.Publish`, write pump sends).
 - Feature operations that run on the client→backend goroutine MUST complete without waiting for backend responses when the wait would stall message reads from the client.
 - Backend→client forwarding MUST remain non-blocking: observational interception (subscription tracking, metrics) MUST NOT add latency that degrades broadcast throughput.
