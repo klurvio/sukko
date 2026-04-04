@@ -392,6 +392,71 @@ func HandleMetrics(w http.ResponseWriter, r *http.Request) {
 	promhttp.Handler().ServeHTTP(w, r)
 }
 
+// =============================================================================
+// SSE + REST Publish Metrics
+// =============================================================================
+
+var (
+	sseConnectionsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gateway_sse_connections_total",
+		Help: "Total number of SSE connections established",
+	})
+
+	sseConnectionsActive = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "gateway_sse_connections_active",
+		Help: "Current number of active SSE connections",
+	})
+
+	sseConnectionDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "gateway_sse_connection_duration_seconds",
+		Help:    "SSE connection duration before disconnect",
+		Buckets: pkgmetrics.ConnectionDurationBuckets,
+	})
+
+	restPublishTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gateway_rest_publish_total",
+		Help: "Total REST publish requests by status",
+	}, []string{"status"})
+
+	restPublishDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "gateway_rest_publish_duration_seconds",
+		Help:    "REST publish request duration",
+		Buckets: pkgmetrics.APILatencyBuckets,
+	})
+
+	serverGRPCState = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "gateway_server_grpc_state",
+		Help: "gRPC connectivity to ws-server (1=connected, 0=disconnected)",
+	})
+)
+
+// RecordSSEConnection records a new SSE connection.
+func RecordSSEConnection() {
+	sseConnectionsTotal.Inc()
+	sseConnectionsActive.Inc()
+}
+
+// RecordSSEDisconnection records an SSE disconnection with duration.
+func RecordSSEDisconnection(duration time.Duration) {
+	sseConnectionsActive.Dec()
+	sseConnectionDuration.Observe(duration.Seconds())
+}
+
+// RecordRestPublish records a REST publish result with latency.
+func RecordRestPublish(status string, duration time.Duration) {
+	restPublishTotal.WithLabelValues(status).Inc()
+	restPublishDuration.Observe(duration.Seconds())
+}
+
+// SetServerGRPCState sets the gRPC connectivity state to ws-server.
+func SetServerGRPCState(connected bool) {
+	if connected {
+		serverGRPCState.Set(1)
+	} else {
+		serverGRPCState.Set(0)
+	}
+}
+
 // Interface compliance checks.
 var (
 	_ pkgmetrics.AccessDenialMetrics = (*AccessDenialMetricsAdapter)(nil)

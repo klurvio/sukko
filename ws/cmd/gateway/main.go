@@ -117,6 +117,25 @@ func main() {
 		}
 	}()
 
+	// Create gRPC client to ws-server (SSE + REST Publish)
+	serverClient, err := gateway.NewServerClient(config.ServerGRPCAddr, logger)
+	if err != nil {
+		logger.Fatal().Err(err).Str("addr", config.ServerGRPCAddr).Msg("Failed to create ws-server gRPC client")
+	}
+	defer func() {
+		if err := serverClient.Close(); err != nil {
+			logger.Error().Err(err).Msg("Server client cleanup error")
+		}
+	}()
+	gw.SetServerClient(serverClient)
+
+	// Create publish rate limiter (background cleanup goroutine)
+	var limiterWg sync.WaitGroup
+	limiterCtx, limiterCancel := context.WithCancel(context.Background())
+	defer limiterCancel()
+	publishLimiter := gateway.NewPublishRateLimiter(limiterCtx, &limiterWg, config.PublishRateLimit, config.PublishBurst, logger)
+	gw.SetPublishRateLimiter(publishLimiter)
+
 	// Create HTTP server
 	server := gw.NewServer()
 
