@@ -113,6 +113,7 @@ services:
       # Inter-service wiring (only overrides needed)
       GATEWAY_BACKEND_URL: "ws://ws-server:3005/ws"
       PROVISIONING_GRPC_ADDR: "provisioning:9090"
+      SERVER_GRPC_ADDR: "ws-server:3006"
       SUKKO_LICENSE_KEY: "${SUKKO_LICENSE_KEY:-}"
       # Observability (disabled by default, enable with OTEL_TRACING_ENABLED=true)
       OTEL_TRACING_ENABLED: "${OTEL_TRACING_ENABLED:-false}"

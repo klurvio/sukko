@@ -85,6 +85,9 @@ spec:
             - name: http
               containerPort: 3001
               protocol: TCP
+            - name: grpc
+              containerPort: 3006
+              protocol: TCP
             {{- range $i := until (int .Values.shards) }}
             - name: shard-{{ $i }}
               containerPort: {{ add $.Values.basePort $i }}

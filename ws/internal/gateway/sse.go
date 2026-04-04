@@ -103,7 +103,7 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 
 	// Record SSE connection
 	RecordSSEConnection()
-	defer RecordSSEDisconnection(time.Since(startTime))
+	defer func() { RecordSSEDisconnection(time.Since(startTime)) }()
 
 	// Set SSE headers (FR-005)
 	w.Header().Set("Content-Type", "text/event-stream")

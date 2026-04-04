@@ -138,7 +138,7 @@ var featureMetadata = map[Feature]FeatureInfo{
 	Analytics:          {Description: "Real-time usage dashboards and metrics", Status: StatusFuture, Priority: PriorityMedium},
 	Webhooks:           {Description: "HTTP webhook delivery as alternative to WebSocket", Status: StatusFuture, Priority: PriorityMedium},
 	ChannelPatternsCEL: {Description: "CEL expressions for complex channel authorization", Status: StatusFuture, Priority: PriorityLow},
-	SSETransport:       {Description: "Server-Sent Events as alternative transport", Status: StatusFuture, Priority: PriorityHigh},
+	SSETransport:       {Description: "SSE transport + REST publish", Status: StatusImplemented, Priority: PriorityNone},
 	DeltaCompression:   {Description: "Send only changed fields in high-frequency updates", Status: StatusFuture, Priority: PriorityLow},
 
 	// ── Future — Enterprise ──────────────────────────────────────────────

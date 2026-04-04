@@ -21,6 +21,10 @@ spec:
       {{- if eq .Values.service.type "NodePort" }}
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
+    - port: 3006
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
   selector:
     {{- include "ws-server.selectorLabels" . | nindent 4 }}
 {{- end }}
