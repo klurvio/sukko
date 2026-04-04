@@ -1,7 +1,6 @@
 package server
 
 import (
-	"net"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -78,9 +77,9 @@ func RawMsg(data []byte) OutgoingMsg {
 //
 // Trade-off: Memory vs slow-client tolerance. Smaller buffer = less GC = lower CPU spikes
 type Client struct {
-	// Basic WebSocket fields
+	// Connection fields
 	id         int64            // Unique client identifier
-	conn       net.Conn         // Underlying TCP connection
+	transport  Transport        // Transport abstraction (WebSocket, gRPC stream, etc.)
 	server     *Server          // Reference to parent server
 	send       chan OutgoingMsg // Buffered channel for outgoing messages (configurable via WS_CLIENT_SEND_BUFFER_SIZE)
 	control    chan []byte      // Buffered channel for pong payloads (ReadLoop → WriteLoop)
@@ -134,6 +133,15 @@ type Client struct {
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 	remoteAddr string // Client's remote IP address for logging
+}
+
+// TransportType returns the transport type of this client for metrics labeling.
+// Returns empty string if transport is nil (client not yet initialized).
+func (c *Client) TransportType() TransportType {
+	if c.transport == nil {
+		return ""
+	}
+	return c.transport.Type()
 }
 
 // closeSend safely closes the send channel exactly once.
@@ -221,6 +229,12 @@ func (p *ConnectionPool) Get() *Client {
 			client.seqGen.Reset()
 		}
 
+		// Reset closeOnce for new connection lifecycle.
+		// sync.Once is a value type — zero value is ready to fire.
+		// Without this, reused clients have closeOnce in "done" state from
+		// the previous connection, causing transport.Close() to be skipped.
+		client.closeOnce = sync.Once{}
+
 		// Initialize slow client detection fields
 		client.lastMessageSentAt = time.Now()
 		client.sendAttempts.Store(0)
@@ -251,7 +265,7 @@ func (p *ConnectionPool) Put(c *Client) {
 	}
 
 	// Reset connection
-	c.conn = nil
+	c.transport = nil
 	c.server = nil
 	c.id = 0
 

@@ -77,6 +77,11 @@ type GatewayConfig struct {
 	// Graceful shutdown timeout
 	ShutdownTimeout time.Duration `env:"GATEWAY_SHUTDOWN_TIMEOUT" envDefault:"30s"`
 
+	// SSE + REST Publish (Pro edition)
+	ServerGRPCAddr       string        `env:"SERVER_GRPC_ADDR" envDefault:"localhost:3006"`         // ws-server gRPC address for RealtimeService
+	SSEKeepAliveInterval time.Duration `env:"SSE_KEEPALIVE_INTERVAL" envDefault:"45s"`              // SSE keepalive comment interval (prevents proxy timeouts)
+	CORSAllowedOrigins   []string      `env:"GATEWAY_CORS_ORIGINS" envDefault:"*" envSeparator:","` // CORS allowed origins (* = all, production: restrict)
+
 	// Channel rules provider cache TTLs
 	ChannelRulesCacheTTL time.Duration `env:"GATEWAY_CHANNEL_RULES_CACHE_TTL" envDefault:"1m"`
 	RegistryQueryTimeout time.Duration `env:"GATEWAY_REGISTRY_QUERY_TIMEOUT" envDefault:"5s"`
@@ -214,6 +219,17 @@ func (c *GatewayConfig) Validate() error {
 	}
 	if c.RegistryQueryTimeout <= 0 {
 		return fmt.Errorf("GATEWAY_REGISTRY_QUERY_TIMEOUT must be > 0, got %v", c.RegistryQueryTimeout)
+	}
+
+	// SSE + REST Publish config validation
+	if c.ServerGRPCAddr == "" {
+		return errors.New("SERVER_GRPC_ADDR must not be empty")
+	}
+	if c.SSEKeepAliveInterval <= 0 {
+		return fmt.Errorf("SSE_KEEPALIVE_INTERVAL must be > 0, got %v", c.SSEKeepAliveInterval)
+	}
+	if len(c.CORSAllowedOrigins) == 0 {
+		return errors.New("GATEWAY_CORS_ORIGINS must have at least one entry")
 	}
 
 	// Edition gates — uses startup-resolved Edition(), not expiry-aware CurrentEdition().

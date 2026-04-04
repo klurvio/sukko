@@ -77,6 +77,8 @@ spec:
               value: {{ .Values.backendURL | default (printf "ws://%s-ws-server:3001/ws" .Release.Name) | quote }}
             - name: PROVISIONING_GRPC_ADDR
               value: {{ .Values.provisioningGRPCAddr | default (printf "%s-provisioning-grpc:9090" .Release.Name) | quote }}
+            - name: SERVER_GRPC_ADDR
+              value: {{ printf "%s-ws-server:3006" .Release.Name | quote }}
 
             # Extra env overrides from values
             # Rate limiting and tenant connection limits use Go envDefault values.

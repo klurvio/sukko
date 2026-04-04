@@ -5,10 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gobwas/ws"
-
 	"github.com/klurvio/sukko/internal/server/messaging"
 	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
@@ -122,7 +121,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 
 		// Check if client already disconnected (race condition protection)
 		// This can happen if client disconnects between getting subscriber list and sending
-		if client.conn == nil {
+		if client.transport == nil {
 			metrics.RecordDroppedBroadcastWithStats(s.stats, channel, pkgmetrics.DropReasonClientDisconnected)
 			continue
 		}
@@ -202,7 +201,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 
 				// Record disconnect metrics with proper categorization (both Prometheus and Stats)
 				duration := time.Since(client.connectedAt)
-				metrics.RecordDisconnectWithStats(s.stats, pkgmetrics.DisconnectWriteTimeout, pkgmetrics.InitiatedByServer, duration)
+				metrics.RecordDisconnectWithStats(s.stats, string(client.TransportType()), pkgmetrics.DisconnectWriteTimeout, pkgmetrics.InitiatedByServer, duration)
 
 				// Record how many attempts it took before disconnect (for histogram analysis)
 				metrics.RecordSlowClientAttempt(int(attempts))
@@ -216,35 +215,15 @@ func (s *Server) Broadcast(subject string, message []byte) {
 					"sequenceNumber":     client.seqGen.Current(),
 				})
 
-				// Send WebSocket close frame with reason code
-				// Close code 1008 = Policy Violation (client too slow)
-				// This helps client-side debugging (clear error message)
-				// Standard close codes:
-				//   1000 = Normal closure
-				//   1001 = Going away (server restart)
-				//   1008 = Policy violation (rate limit, too slow)
-				//   1011 = Internal error
-				// CRITICAL FIX: Capture conn pointer locally to prevent TOCTOU race condition
-				// Race scenario: readPump/writePump may set client.conn = nil between our
-				// nil check and usage, causing panic. Local variable is safe even if
-				// client.conn becomes nil after we capture it.
-				// Additional fix: Use recover() to handle panics from writing to closing connections
-				conn := client.conn
-				if conn != nil {
+				// Close the transport — each transport handles its own close semantics:
+				// WebSocket: sends close frame (1008 Policy Violation) then closes TCP
+				// gRPC: cancels the stream context
+				// Uses logging.RecoverPanic per Constitution V — concurrent close during
+				// active writes could panic on partially-closed connections.
+				if client.transport != nil {
 					func() {
-						defer func() {
-							if r := recover(); r != nil {
-								// Connection was closing/closed, this is expected during shutdown
-								s.logger.Debug().
-									Int64("client_id", client.id).
-									Interface("panic", r).
-									Msg("Recovered from panic writing close frame (connection closing)")
-							}
-						}()
-						closeMsg := ws.NewCloseFrameBody(ws.StatusPolicyViolation, "Client too slow to process messages")
-						// Ignore error - connection might already be closing
-						_ = ws.WriteFrame(conn, ws.NewCloseFrame(closeMsg))
-						_ = conn.Close()
+						defer logging.RecoverPanic(s.logger, "broadcast_slow_client_close", nil)
+						_ = client.transport.Close()
 					}()
 				}
 
@@ -254,7 +233,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 				// - Client app performance issues
 				// - Need to optimize message size/frequency
 				s.stats.SlowClientsDisconnected.Add(1)
-				metrics.IncrementSlowClientDisconnects()
+				metrics.IncrementSlowClientDisconnects(string(client.TransportType()))
 			}
 		}
 	}

@@ -51,6 +51,9 @@ func newValidGatewayConfig() *GatewayConfig {
 		ShutdownTimeout:              30 * time.Second,
 		ChannelRulesCacheTTL:         1 * time.Minute,
 		RegistryQueryTimeout:         5 * time.Second,
+		ServerGRPCAddr:               "localhost:3006",
+		SSEKeepAliveInterval:         45 * time.Second,
+		CORSAllowedOrigins:           []string{"*"},
 	}
 }
 

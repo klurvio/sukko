@@ -87,7 +87,7 @@ task local:port-forward:stop  # Stop all port-forwards
 
 | Service | Port | URL |
 |---------|------|-----|
-| ws-gateway | 3006 | `ws://localhost:3006/ws` |
+| ws-gateway | 3100 | `ws://localhost:3100/ws` |
 | Redpanda | 9092 | `localhost:9092` |
 | Grafana | 3010 | `http://localhost:3010` |
 | Prometheus | 9090 | `http://localhost:9090` |
@@ -145,7 +145,7 @@ task test:integration         # Run integration tests
 
 Connect to WebSocket:
 ```bash
-wscat -c ws://localhost:3006/ws
+wscat -c ws://localhost:3100/ws
 ```
 
 Subscribe to a channel:

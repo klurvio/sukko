@@ -766,7 +766,7 @@ func TestReadLoop_TextMessage_ProcessedCorrectly(t *testing.T) {
 
 	client := &Client{
 		id:            1,
-		conn:          mockConn,
+		transport:     NewWebSocketTransport(mockConn),
 		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
@@ -818,7 +818,7 @@ func TestReadLoop_PingFrame_SendsPongResponse(t *testing.T) {
 
 	client := &Client{
 		id:            1,
-		conn:          mockConn,
+		transport:     NewWebSocketTransport(mockConn),
 		send:          make(chan OutgoingMsg, 10),
 		control:       make(chan []byte, controlChannelSize),
 		subscriptions: NewSubscriptionSet(),
@@ -860,7 +860,7 @@ func TestReadLoop_PongFrame_RefreshesDeadline(t *testing.T) {
 
 	client := &Client{
 		id:            1,
-		conn:          mockConn,
+		transport:     NewWebSocketTransport(mockConn),
 		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
@@ -892,7 +892,7 @@ func TestReadLoop_CloseFrame_ExitsGracefully(t *testing.T) {
 
 	client := &Client{
 		id:            1,
-		conn:          mockConn,
+		transport:     NewWebSocketTransport(mockConn),
 		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
@@ -927,7 +927,7 @@ func TestReadLoop_ContextCancellation_ExitsWithServerShutdown(t *testing.T) {
 
 	client := &Client{
 		id:            1,
-		conn:          mockConn,
+		transport:     NewWebSocketTransport(mockConn),
 		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
@@ -979,7 +979,7 @@ func TestReadLoop_ReadError_CallsDisconnectFn(t *testing.T) {
 
 	client := &Client{
 		id:            1,
-		conn:          mockConn,
+		transport:     NewWebSocketTransport(mockConn),
 		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
@@ -1032,7 +1032,7 @@ func TestReadLoop_RateLimiting_BlocksExcessiveMessages(t *testing.T) {
 
 	client := &Client{
 		id:            1,
-		conn:          mockConn,
+		transport:     NewWebSocketTransport(mockConn),
 		send:          make(chan OutgoingMsg, 10),
 		subscriptions: NewSubscriptionSet(),
 		seqGen:        messaging.NewSequenceGenerator(),
@@ -1077,7 +1077,7 @@ func TestReadLoop_PingFrame_ControlChannelFull_DropsWithLog(t *testing.T) {
 
 	client := &Client{
 		id:            1,
-		conn:          mockConn,
+		transport:     NewWebSocketTransport(mockConn),
 		send:          make(chan OutgoingMsg, 10),
 		control:       make(chan []byte, controlChannelSize),
 		subscriptions: NewSubscriptionSet(),
@@ -1128,7 +1128,7 @@ func TestWriteLoop_ControlChannel_SendsPong(t *testing.T) {
 	pongPayload := []byte("pong-data")
 	client := &Client{
 		id:        1,
-		conn:      mockConn,
+		transport: NewWebSocketTransport(mockConn),
 		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
@@ -1191,7 +1191,7 @@ func TestWriteLoop_ControlChannel_SetsWriteDeadline(t *testing.T) {
 
 	client := &Client{
 		id:        1,
-		conn:      mockConn,
+		transport: NewWebSocketTransport(mockConn),
 		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
@@ -1240,7 +1240,7 @@ func TestWriteLoop_ControlChannel_WriteError_Returns(t *testing.T) {
 
 	client := &Client{
 		id:        1,
-		conn:      mockConn,
+		transport: NewWebSocketTransport(mockConn),
 		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
@@ -1294,7 +1294,7 @@ func TestWriteLoop_PingTimer_SendsPing(t *testing.T) {
 
 	client := &Client{
 		id:        1,
-		conn:      mockConn,
+		transport: NewWebSocketTransport(mockConn),
 		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
@@ -1354,7 +1354,7 @@ func TestWriteLoop_ContextCancellation_Exits(t *testing.T) {
 
 	client := &Client{
 		id:        1,
-		conn:      mockConn,
+		transport: NewWebSocketTransport(mockConn),
 		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
@@ -1393,7 +1393,7 @@ func TestWriteLoop_SendChannel_WritesMessage(t *testing.T) {
 
 	client := &Client{
 		id:        1,
-		conn:      mockConn,
+		transport: NewWebSocketTransport(mockConn),
 		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},
@@ -1448,7 +1448,7 @@ func TestWriteLoop_SendChannelClosed_SendsClose(t *testing.T) {
 
 	client := &Client{
 		id:        1,
-		conn:      mockConn,
+		transport: NewWebSocketTransport(mockConn),
 		send:      make(chan OutgoingMsg, 10),
 		control:   make(chan []byte, controlChannelSize),
 		closeOnce: sync.Once{},

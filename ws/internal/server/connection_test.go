@@ -574,8 +574,8 @@ func TestConnectionPool_Put(t *testing.T) {
 	if client.id != 0 {
 		t.Errorf("id should be reset to 0, got %d", client.id)
 	}
-	if client.conn != nil {
-		t.Error("conn should be nil after Put")
+	if client.transport != nil {
+		t.Error("transport should be nil after Put")
 	}
 	if client.server != nil {
 		t.Error("server should be nil after Put")

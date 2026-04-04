@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gobwas/ws"
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel"
 
@@ -54,7 +53,12 @@ type Gateway struct {
 	connTracker          *TenantConnectionTracker // Per-tenant connection tracking
 	tenantPermChecker    *TenantPermissionChecker // Per-tenant channel authorization
 	wsServerHTTPClient   *http.Client             // Reused for ws-server /edition calls (cold path)
-	logger               zerolog.Logger
+
+	// SSE + REST Publish (Pro edition)
+	serverClient       *ServerClient       // gRPC client to ws-server RealtimeService
+	publishRateLimiter *PublishRateLimiter // Per-tenant + per-IP rate limiting for REST publish
+
+	logger zerolog.Logger
 }
 
 // New creates a new Gateway instance.
@@ -192,6 +196,18 @@ func (gw *Gateway) setupValidator() error {
 	return nil
 }
 
+// SetServerClient sets the gRPC client to ws-server for SSE and REST publish.
+// Called from main.go after the Gateway is created.
+func (gw *Gateway) SetServerClient(client *ServerClient) {
+	gw.serverClient = client
+}
+
+// SetPublishRateLimiter sets the rate limiter for REST publish requests.
+// Called from main.go after the Gateway is created.
+func (gw *Gateway) SetPublishRateLimiter(limiter *PublishRateLimiter) {
+	gw.publishRateLimiter = limiter
+}
+
 // Close releases resources held by the gateway.
 // Should be called during shutdown.
 func (gw *Gateway) Close() error {
@@ -241,151 +257,35 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		RecordDisconnection(closeReason, time.Since(startTime))
 	}()
 
-	// Resolve identity (principal, tenantID) and auth (claims) separately.
-	// When auth disabled: claims is nil, principal/tenantID come from config.
-	// When auth enabled: 4-way branching on credentials provided:
-	//   - Neither token nor API key → reject
-	//   - API key only → public channels, no publish, can escalate via auth refresh
-	//   - JWT only → full access per claims
-	//   - Both → validate both, verify tenant match
-	var claims *auth.Claims
-	var principal string
-	var tenantID string
-	var apiKeyOnly bool
-	var apiKeyTenantID string
-
-	if gw.config.AuthEnabled {
-		authStart := time.Now()
-		token := httputil.ExtractBearerToken(r)
-		apiKey := httputil.ExtractAPIKey(r)
-
+	// Authenticate request — shared across WebSocket, SSE, and REST publish handlers.
+	// Returns validated identity or error. Does NOT write to ResponseWriter.
+	authRes, authErr := gw.authenticateRequest(ctx, r)
+	if authErr != nil {
 		switch {
-		case token == "" && apiKey == "":
-			// Neither credential provided
-			RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+		case errors.Is(authErr, ErrNoCredentials):
 			closeReason = CloseReasonNoCredentials
-			gw.logger.Warn().
-				Str("remote_addr", remoteAddr).
-				Msg("Connection rejected: no credentials provided")
 			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "token or api_key required")
-			return
-
-		case apiKey != "" && token == "":
-			// API key only — public channels, no publish, can escalate via auth refresh
-			info, ok := gw.apiKeyRegistry.Lookup(apiKey)
-			if !ok {
-				RecordAPIKeyAuth(APIKeyAuthInvalid)
-				RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
-				closeReason = CloseReasonInvalidAPIKey
-				gw.logger.Warn().
-					Str("remote_addr", remoteAddr).
-					Msg("Connection rejected: invalid API key")
-				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid api key")
-				return
-			}
-			RecordAPIKeyAuth(APIKeyAuthAccepted)
-			RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
-			tenantID = info.TenantID
-			principal = "anon:" + uuid.NewString()
-			apiKeyOnly = true
-			apiKeyTenantID = info.TenantID
-			// claims remains nil — PermissionChecker allows public channels only
-
-			gw.logger.Debug().
-				Str("principal", principal).
-				Str("tenant_id", tenantID).
-				Str("remote_addr", remoteAddr).
-				Msg("API key validated successfully")
-
-		case token != "" && apiKey == "":
-			// JWT only (existing flow)
-			var err error
-			claims, err = gw.validator.ValidateToken(ctx, token)
-			if err != nil {
-				RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
-				closeReason = CloseReasonInvalidToken
-				gw.logger.Warn().
-					Err(err).
-					Str("remote_addr", remoteAddr).
-					Msg("Connection rejected: invalid token")
-				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token")
-				return
-			}
-			RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
-			principal = claims.Subject
-			tenantID = claims.TenantID
-
-			gw.logger.Debug().
-				Str("principal", principal).
-				Str("tenant_id", tenantID).
-				Strs("groups", claims.Groups).
-				Str("remote_addr", remoteAddr).
-				Msg("Token validated successfully")
-
+		case errors.Is(authErr, ErrInvalidAPIKey):
+			closeReason = CloseReasonInvalidAPIKey
+			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid api key")
+		case errors.Is(authErr, ErrInvalidToken):
+			closeReason = CloseReasonInvalidToken
+			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token")
+		case errors.Is(authErr, ErrTenantMismatch):
+			closeReason = CloseReasonAPIKeyTenantMismatch
+			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "api key and token tenant mismatch")
 		default:
-			// Both API key and JWT — validate both, verify tenant match
-			info, ok := gw.apiKeyRegistry.Lookup(apiKey)
-			if !ok {
-				RecordAPIKeyAuth(APIKeyAuthInvalid)
-				RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
-				closeReason = CloseReasonInvalidAPIKey
-				gw.logger.Warn().
-					Str("remote_addr", remoteAddr).
-					Msg("Connection rejected: invalid API key")
-				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid api key")
-				return
-			}
-			RecordAPIKeyAuth(APIKeyAuthAccepted)
-
-			var err error
-			claims, err = gw.validator.ValidateToken(ctx, token)
-			if err != nil {
-				RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
-				closeReason = CloseReasonInvalidToken
-				gw.logger.Warn().
-					Err(err).
-					Str("remote_addr", remoteAddr).
-					Msg("Connection rejected: invalid token")
-				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token")
-				return
-			}
-
-			// Verify JWT tenant matches API key tenant
-			if claims.TenantID != info.TenantID {
-				RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
-				closeReason = CloseReasonAPIKeyTenantMismatch
-				gw.logger.Warn().
-					Str("jwt_tenant", claims.TenantID).
-					Str("api_key_tenant", info.TenantID).
-					Str("remote_addr", remoteAddr).
-					Msg("Connection rejected: API key and JWT tenant mismatch")
-				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "api key and token tenant mismatch")
-				return
-			}
-			RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
-			principal = claims.Subject
-			tenantID = claims.TenantID
-			apiKeyTenantID = info.TenantID
-
-			gw.logger.Debug().
-				Str("principal", principal).
-				Str("tenant_id", tenantID).
-				Str("remote_addr", remoteAddr).
-				Msg("API key and token validated successfully")
+			closeReason = CloseReasonInvalidToken
+			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", authErr.Error())
 		}
-	} else {
-		RecordAuthValidation(pkgmetrics.AuthStatusSkipped, 0)
-		// No auth = no claims object, apiKeyRegistry is nil
-		claims = nil
-		principal = "anonymous"
-		tenantID = gw.config.DefaultTenantID
-
-		gw.logger.Debug().
-			Str("principal", principal).
-			Str("tenant_id", tenantID).
-			Str("remote_addr", remoteAddr).
-			Msg("Auth disabled - allowing anonymous connection")
+		return
 	}
+
+	claims := authRes.Claims
+	principal := authRes.Principal
+	tenantID := authRes.TenantID
+	apiKeyOnly := authRes.APIKeyOnly
+	apiKeyTenantID := authRes.APIKeyTenantID
 
 	// Check per-tenant connection limits
 	if gw.connTracker != nil && tenantID != "" {
@@ -553,9 +453,17 @@ func (gw *Gateway) NewServer() *http.Server {
 	mux.HandleFunc("/metrics", HandleMetrics)
 	profiling.InitPprof(mux.HandleFunc, gw.config.PprofEnabled, gw.logger)
 
+	// SSE + REST Publish handlers (edition-gated to Pro)
+	gate := RequireFeature(gw.config.EditionManager(), license.SSETransport)
+	mux.HandleFunc("GET /sse", gate(gw.HandleSSE))
+	mux.HandleFunc("POST /api/v1/publish", gate(gw.HandlePublish))
+
+	// Wrap with CORS middleware (gateway-wide, all HTTP endpoints)
+	handler := CORSMiddleware(gw.config.CORSAllowedOrigins)(mux)
+
 	return &http.Server{
 		Addr:         fmt.Sprintf(":%d", gw.config.Port),
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  gw.config.ReadTimeout,
 		WriteTimeout: gw.config.WriteTimeout,
 		IdleTimeout:  gw.config.IdleTimeout,

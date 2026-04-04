@@ -10,6 +10,13 @@ import (
 	"runtime"
 	"syscall"
 
+	"net"
+	"sync"
+
+	"google.golang.org/grpc"
+
+	serverv1 "github.com/klurvio/sukko/gen/proto/sukko/server/v1"
+	"github.com/klurvio/sukko/internal/server"
 	"github.com/klurvio/sukko/internal/server/backend"
 	"github.com/klurvio/sukko/internal/server/backend/directbackend"
 	"github.com/klurvio/sukko/internal/server/backend/jetstreambackend"
@@ -348,6 +355,44 @@ func main() {
 		structuredLogger.Fatal().Err(err).Msg("Failed to start load balancer")
 	}
 
+	// Start gRPC server for RealtimeService (SSE Subscribe + REST Publish)
+	// Runs at orchestration level (single port, not per-shard).
+	grpcAddr := fmt.Sprintf(":%d", cfg.GRPCPort)
+	grpcListener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", grpcAddr)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Str("addr", grpcAddr).Msg("Failed to create gRPC listener")
+	}
+
+	// Collect servers from shards for gRPC service
+	servers := make([]*server.Server, len(shards))
+	for i, shard := range shards {
+		servers[i] = shard.Server()
+	}
+
+	grpcSrv := grpc.NewServer(
+		tracing.StatsHandler(),
+		grpc.ChainUnaryInterceptor(
+			server.RecoveryUnaryInterceptor(structuredLogger),
+			server.LoggingUnaryInterceptor(structuredLogger),
+			server.MetricsUnaryInterceptor(),
+		),
+		grpc.ChainStreamInterceptor(
+			server.RecoveryStreamInterceptor(structuredLogger),
+			server.LoggingStreamInterceptor(structuredLogger),
+			server.MetricsStreamInterceptor(),
+		),
+	)
+	serverv1.RegisterRealtimeServiceServer(grpcSrv, server.NewGRPCService(servers, structuredLogger))
+
+	var grpcWg sync.WaitGroup
+	grpcWg.Go(func() {
+		defer logging.RecoverPanic(structuredLogger, "grpc.Serve", nil)
+		structuredLogger.Info().Str("addr", grpcAddr).Msg("Starting gRPC server")
+		if err := grpcSrv.Serve(grpcListener); err != nil {
+			structuredLogger.Error().Err(err).Msg("gRPC server error")
+		}
+	})
+
 	// Wait for interrupt signal
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
@@ -355,6 +400,11 @@ func main() {
 
 	structuredLogger.Info().Msg("Shutting down multi-core server")
 	cancel() // Signal ctx.Done() to all goroutines using ctx
+
+	// Shutdown gRPC server first (stops accepting new Subscribe/Publish)
+	grpcSrv.GracefulStop()
+	grpcWg.Wait()
+	structuredLogger.Info().Msg("gRPC server stopped")
 
 	// Shutdown LoadBalancer
 	lb.Shutdown()

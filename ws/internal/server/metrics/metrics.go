@@ -28,15 +28,15 @@ const (
 // =============================================================================
 
 var (
-	connectionsTotal = promauto.NewCounter(prometheus.CounterOpts{
+	connectionsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_connections_total",
-		Help: "Total number of WebSocket connections established",
-	})
+		Help: "Total number of connections established by transport type",
+	}, []string{"transport"})
 
-	connectionsActive = promauto.NewGauge(prometheus.GaugeOpts{
+	connectionsActive = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "ws_connections_active",
-		Help: "Current number of active WebSocket connections",
-	})
+		Help: "Current number of active connections by transport type",
+	}, []string{"transport"})
 
 	connectionsMax = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "ws_connections_max",
@@ -51,14 +51,14 @@ var (
 
 	disconnectsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_disconnects_total",
-		Help: "Total disconnections by reason and who initiated",
-	}, []string{"reason", "initiated_by"})
+		Help: "Total disconnections by transport, reason, and who initiated",
+	}, []string{"transport", "reason", "initiated_by"})
 
 	connectionDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "ws_connection_duration_seconds",
-		Help:    "Connection duration before disconnect",
+		Help:    "Connection duration before disconnect by transport and reason",
 		Buckets: pkgmetrics.ConnectionDurationBuckets,
-	}, []string{"reason"})
+	}, []string{"transport", "reason"})
 )
 
 // =============================================================================
@@ -66,10 +66,10 @@ var (
 // =============================================================================
 
 var (
-	messagesSent = promauto.NewCounter(prometheus.CounterOpts{
+	messagesSent = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_messages_sent_total",
-		Help: "Total number of messages sent to clients",
-	})
+		Help: "Total number of messages sent to clients by transport type",
+	}, []string{"transport"})
 
 	messagesReceived = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "ws_messages_received_total",
@@ -97,10 +97,10 @@ var (
 var slowClientAttemptsBuckets = []float64{1, 2, 3, 4, 5, 10, 20}
 
 var (
-	slowClientsDisconnected = promauto.NewCounter(prometheus.CounterOpts{
+	slowClientsDisconnected = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_slow_clients_disconnected_total",
-		Help: "Total number of slow clients disconnected",
-	})
+		Help: "Total number of slow clients disconnected by transport type",
+	}, []string{"transport"})
 
 	rateLimitedMessages = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "ws_rate_limited_messages_total",
@@ -345,26 +345,29 @@ var (
 // =============================================================================
 
 // UpdateConnectionMetrics increments the connection counter.
-func UpdateConnectionMetrics() {
-	connectionsTotal.Inc()
+func UpdateConnectionMetrics(transportType string) {
+	connectionsTotal.WithLabelValues(transportType).Inc()
 }
 
 // SetAggregatedConnectionMetrics sets the aggregated connection metrics from LoadBalancer.
+// Uses empty transport label — aggregated across all transports.
 func SetAggregatedConnectionMetrics(totalConnections, totalMaxConnections int64) {
-	connectionsActive.Set(float64(totalConnections))
+	// Aggregated metrics don't have a transport label — they're set by the LoadBalancer
+	// which sums across all shards and transport types.
+	connectionsActive.WithLabelValues("").Set(float64(totalConnections))
 	connectionsMax.Set(float64(totalMaxConnections))
 }
 
-// RecordDisconnect tracks a disconnect with reason, initiator, and duration.
-func RecordDisconnect(reason, initiatedBy string, duration time.Duration) {
-	disconnectsTotal.WithLabelValues(reason, initiatedBy).Inc()
-	connectionDuration.WithLabelValues(reason).Observe(duration.Seconds())
+// RecordDisconnect tracks a disconnect with transport, reason, initiator, and duration.
+func RecordDisconnect(transportType, reason, initiatedBy string, duration time.Duration) {
+	disconnectsTotal.WithLabelValues(transportType, reason, initiatedBy).Inc()
+	connectionDuration.WithLabelValues(transportType, reason).Observe(duration.Seconds())
 }
 
 // RecordDisconnectWithStats tracks a disconnect and updates both Prometheus and Stats.
-func RecordDisconnectWithStats(s *stats.Stats, reason, initiatedBy string, duration time.Duration) {
-	disconnectsTotal.WithLabelValues(reason, initiatedBy).Inc()
-	connectionDuration.WithLabelValues(reason).Observe(duration.Seconds())
+func RecordDisconnectWithStats(s *stats.Stats, transportType, reason, initiatedBy string, duration time.Duration) {
+	disconnectsTotal.WithLabelValues(transportType, reason, initiatedBy).Inc()
+	connectionDuration.WithLabelValues(transportType, reason).Observe(duration.Seconds())
 
 	s.RecordDisconnect(reason)
 }
@@ -374,9 +377,11 @@ func RecordDisconnectWithStats(s *stats.Stats, reason, initiatedBy string, durat
 // =============================================================================
 
 // UpdateMessageMetrics updates message-related metrics.
-func UpdateMessageMetrics(sent, received int64) {
+// transportType is used for sent metrics (per-transport). Received is transport-agnostic
+// (only WebSocket clients send messages — ReadLoop handles this).
+func UpdateMessageMetrics(transportType string, sent, received int64) {
 	if sent > 0 {
-		messagesSent.Add(float64(sent))
+		messagesSent.WithLabelValues(transportType).Add(float64(sent))
 	}
 	if received > 0 {
 		messagesReceived.Add(float64(received))
@@ -397,9 +402,9 @@ func UpdateBytesMetrics(sent, received int64) {
 // Reliability Helper Functions
 // =============================================================================
 
-// IncrementSlowClientDisconnects increments slow client disconnect counter.
-func IncrementSlowClientDisconnects() {
-	slowClientsDisconnected.Inc()
+// IncrementSlowClientDisconnects increments slow client disconnect counter by transport type.
+func IncrementSlowClientDisconnects(transportType string) {
+	slowClientsDisconnected.WithLabelValues(transportType).Inc()
 }
 
 // IncrementRateLimitedMessages increments rate limited message counter.
