@@ -78,9 +78,9 @@ func RawMsg(data []byte) OutgoingMsg {
 // Trade-off: Memory vs slow-client tolerance. Smaller buffer = less GC = lower CPU spikes
 type Client struct {
 	// Connection fields
-	id        int64     // Unique client identifier
-	transport Transport // Transport abstraction (WebSocket, gRPC stream, etc.)
-	server    *Server   // Reference to parent server
+	id         int64            // Unique client identifier
+	transport  Transport        // Transport abstraction (WebSocket, gRPC stream, etc.)
+	server     *Server          // Reference to parent server
 	send       chan OutgoingMsg // Buffered channel for outgoing messages (configurable via WS_CLIENT_SEND_BUFFER_SIZE)
 	control    chan []byte      // Buffered channel for pong payloads (ReadLoop → WriteLoop)
 	closeOnce  sync.Once        // Ensures connection is only closed once

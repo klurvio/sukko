@@ -55,10 +55,10 @@ func (svc *GRPCService) selectServer() *Server {
 // The gateway validates auth/permissions before calling this RPC.
 func (svc *GRPCService) Publish(ctx context.Context, req *serverv1.PublishRequest) (*serverv1.PublishResponse, error) {
 	// Validate request
-	if req.Channel == "" {
+	if req.GetChannel() == "" {
 		return nil, status.Error(codes.InvalidArgument, "channel is required")
 	}
-	if len(req.Data) == 0 {
+	if len(req.GetData()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "data is required")
 	}
 
@@ -66,23 +66,23 @@ func (svc *GRPCService) Publish(ctx context.Context, req *serverv1.PublishReques
 	s := svc.selectServer()
 
 	// Publish to message backend (routing rules → Kafka topic)
-	if err := s.backend.Publish(ctx, 0, req.Channel, req.Data); err != nil {
+	if err := s.backend.Publish(ctx, 0, req.GetChannel(), req.GetData()); err != nil {
 		svc.logger.Error().Err(err).
-			Str("channel", req.Channel).
-			Str("tenant_id", req.TenantId).
-			Str("principal", req.Principal).
+			Str("channel", req.GetChannel()).
+			Str("tenant_id", req.GetTenantId()).
+			Str("principal", req.GetPrincipal()).
 			Msg("gRPC Publish failed")
 		return nil, status.Errorf(codes.Internal, "publish: %v", err)
 	}
 
 	svc.logger.Debug().
-		Str("channel", req.Channel).
-		Str("tenant_id", req.TenantId).
+		Str("channel", req.GetChannel()).
+		Str("tenant_id", req.GetTenantId()).
 		Msg("gRPC Publish accepted")
 
 	return &serverv1.PublishResponse{
 		Status:  "accepted",
-		Channel: req.Channel,
+		Channel: req.GetChannel(),
 	}, nil
 }
 
@@ -90,7 +90,7 @@ func (svc *GRPCService) Publish(ctx context.Context, req *serverv1.PublishReques
 // Each stream maps to one virtual client in a shard's subscription index.
 func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv1.RealtimeService_SubscribeServer) error {
 	// Validate request
-	if len(req.Channels) == 0 {
+	if len(req.GetChannels()) == 0 {
 		return status.Error(codes.InvalidArgument, "at least one channel is required")
 	}
 
@@ -114,10 +114,10 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 
 	// Create virtual client with gRPC stream transport
 	client := s.connections.Get()
-	client.transport = NewGRPCStreamTransport(stream, cancel, req.RemoteAddr)
+	client.transport = NewGRPCStreamTransport(stream, cancel, req.GetRemoteAddr())
 	client.server = s
 	client.id = s.clientCount.Add(1)
-	client.remoteAddr = req.RemoteAddr
+	client.remoteAddr = req.GetRemoteAddr()
 
 	// Track client
 	s.clients.Store(client, true)
@@ -125,7 +125,7 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 	s.stats.CurrentConnections.Add(1)
 
 	// Register channel subscriptions
-	for _, ch := range req.Channels {
+	for _, ch := range req.GetChannels() {
 		client.subscriptions.Add(ch)
 		s.subscriptionIndex.Add(ch, client)
 	}
@@ -138,10 +138,10 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 
 	svc.logger.Info().
 		Int64("client_id", client.id).
-		Str("tenant_id", req.TenantId).
-		Str("principal", req.Principal).
-		Strs("channels", req.Channels).
-		Str("remote_addr", req.RemoteAddr).
+		Str("tenant_id", req.GetTenantId()).
+		Str("principal", req.GetPrincipal()).
+		Strs("channels", req.GetChannels()).
+		Str("remote_addr", req.GetRemoteAddr()).
 		Msg("SSE Subscribe stream started")
 
 	// Block until stream closes (client disconnect or server shutdown)
@@ -167,10 +167,9 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 
 	svc.logger.Info().
 		Int64("client_id", client.id).
-		Str("tenant_id", req.TenantId).
+		Str("tenant_id", req.GetTenantId()).
 		Dur("connection_duration", duration).
 		Msg("SSE Subscribe stream ended")
 
 	return nil
 }
-

@@ -158,7 +158,7 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 			//
 			// Payload is the full JSON envelope from ws-server — written as-is.
 			// Sequence is used for Last-Event-ID reconnection (FR-007).
-			if _, err := fmt.Fprintf(w, "id: %d\nevent: message\ndata: %s\n\n", resp.Sequence, resp.Payload); err != nil {
+			if _, err := fmt.Fprintf(w, "id: %d\nevent: message\ndata: %s\n\n", resp.GetSequence(), resp.GetPayload()); err != nil {
 				goto done
 			}
 			flusher.Flush()

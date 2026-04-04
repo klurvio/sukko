@@ -56,7 +56,7 @@ type Gateway struct {
 
 	// SSE + REST Publish (Pro edition)
 	serverClient       *ServerClient       // gRPC client to ws-server RealtimeService
-	publishRateLimiter *PublishRateLimiter  // Per-tenant + per-IP rate limiting for REST publish
+	publishRateLimiter *PublishRateLimiter // Per-tenant + per-IP rate limiting for REST publish
 
 	logger zerolog.Logger
 }

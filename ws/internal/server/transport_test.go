@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -21,8 +22,8 @@ type mockConn struct {
 	remoteAddr net.Addr
 }
 
-func (m *mockConn) Read(b []byte) (n int, err error)  { return 0, nil }
-func (m *mockConn) Write(b []byte) (n int, err error)  {
+func (m *mockConn) Read(b []byte) (n int, err error) { return 0, nil }
+func (m *mockConn) Write(b []byte) (n int, err error) {
 	if m.writeErr != nil {
 		return 0, m.writeErr
 	}
@@ -199,9 +200,9 @@ func TestTransportType_Labels(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		tt       TransportType
-		wantStr  string
+		name    string
+		tt      TransportType
+		wantStr string
 	}{
 		{"websocket", TransportWebSocket, "ws"},
 		{"grpc_stream", TransportGRPCStream, "sse"},
@@ -244,9 +245,9 @@ func TestClient_TransportType(t *testing.T) {
 
 // mockSubscribeServer implements RealtimeService_SubscribeServer for testing.
 type mockSubscribeServer struct {
-	mu       sync.Mutex
-	sent     []*serverv1.SubscribeResponse
-	sendErr  error
+	mu      sync.Mutex
+	sent    []*serverv1.SubscribeResponse
+	sendErr error
 }
 
 func (m *mockSubscribeServer) Send(resp *serverv1.SubscribeResponse) error {
@@ -263,9 +264,9 @@ func (m *mockSubscribeServer) Send(resp *serverv1.SubscribeResponse) error {
 func (m *mockSubscribeServer) SendHeader(_ metadata.MD) error { return nil }
 func (m *mockSubscribeServer) SetHeader(_ metadata.MD) error  { return nil }
 func (m *mockSubscribeServer) SetTrailer(_ metadata.MD)       {}
-func (m *mockSubscribeServer) Context() context.Context        { return context.Background() }
-func (m *mockSubscribeServer) SendMsg(_ any) error             { return nil }
-func (m *mockSubscribeServer) RecvMsg(_ any) error             { return nil }
+func (m *mockSubscribeServer) Context() context.Context       { return context.Background() }
+func (m *mockSubscribeServer) SendMsg(_ any) error            { return nil }
+func (m *mockSubscribeServer) RecvMsg(_ any) error            { return nil }
 
 func TestGRPCStreamTransport_Send(t *testing.T) {
 	t.Parallel()
@@ -348,11 +349,11 @@ func TestGRPCStreamTransport_Send_SequenceAndPayload(t *testing.T) {
 	if len(mock.sent) != 1 {
 		t.Fatalf("sent count = %d, want 1", len(mock.sent))
 	}
-	if mock.sent[0].Sequence != 42 {
-		t.Errorf("sequence = %d, want 42", mock.sent[0].Sequence)
+	if mock.sent[0].GetSequence() != 42 {
+		t.Errorf("sequence = %d, want 42", mock.sent[0].GetSequence())
 	}
-	if string(mock.sent[0].Payload) != string(msg.raw) {
-		t.Errorf("payload = %q, want %q", mock.sent[0].Payload, msg.raw)
+	if !bytes.Equal(mock.sent[0].GetPayload(), msg.raw) {
+		t.Errorf("payload = %q, want %q", mock.sent[0].GetPayload(), msg.raw)
 	}
 }
 
@@ -386,10 +387,10 @@ func TestGRPCStreamTransport_SendBatch(t *testing.T) {
 func TestGRPCStreamTransport_Close(t *testing.T) {
 	t.Parallel()
 
-	cancelled := false
+	canceled := false
 	transport := NewGRPCStreamTransport(
 		&mockSubscribeServer{},
-		func() { cancelled = true },
+		func() { canceled = true },
 		"10.0.0.1",
 	)
 
@@ -397,7 +398,7 @@ func TestGRPCStreamTransport_Close(t *testing.T) {
 	if err != nil {
 		t.Errorf("Close error: %v", err)
 	}
-	if !cancelled {
+	if !canceled {
 		t.Error("expected cancel to be called")
 	}
 }

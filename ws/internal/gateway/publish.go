@@ -126,8 +126,8 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 
 	// 7. Return success (FR-015)
 	RecordRestPublish("success", time.Since(startTime))
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{
-		"status":  resp.Status,
-		"channel": resp.Channel,
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{
+		"status":  resp.GetStatus(),
+		"channel": resp.GetChannel(),
 	})
 }

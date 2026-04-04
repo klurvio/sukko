@@ -54,9 +54,9 @@ type ServerConfig struct {
 
 	// Server basics
 	Addr      string `env:"WS_ADDR" envDefault:":3002"`
-	NumShards int    `env:"WS_NUM_SHARDS" envDefault:"1"`   // Number of server shards
-	BasePort  int    `env:"WS_BASE_PORT" envDefault:"3002"` // Base port for shard binding (3002, 3003, ...)
-	LBAddr    string `env:"WS_LB_ADDR" envDefault:":3005"`  // Load balancer listen address
+	NumShards int    `env:"WS_NUM_SHARDS" envDefault:"1"`       // Number of server shards
+	BasePort  int    `env:"WS_BASE_PORT" envDefault:"3002"`     // Base port for shard binding (3002, 3003, ...)
+	LBAddr    string `env:"WS_LB_ADDR" envDefault:":3005"`      // Load balancer listen address
 	GRPCPort  int    `env:"SERVER_GRPC_PORT" envDefault:"3006"` // gRPC server port for RealtimeService (SSE Subscribe + REST Publish)
 
 	// Message Backend Selection

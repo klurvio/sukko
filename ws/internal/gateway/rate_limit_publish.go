@@ -46,7 +46,7 @@ type PublishRateLimiter struct {
 }
 
 // NewPublishRateLimiter creates a rate limiter for REST publish requests.
-// Starts a background cleanup goroutine that exits when ctx is cancelled.
+// Starts a background cleanup goroutine that exits when ctx is canceled.
 func NewPublishRateLimiter(ctx context.Context, wg *sync.WaitGroup, ratePerSec float64, burst int, logger zerolog.Logger) *PublishRateLimiter {
 	pl := &PublishRateLimiter{
 		rateLimit: rate.Limit(ratePerSec),
@@ -85,7 +85,10 @@ func (pl *PublishRateLimiter) allowKey(m *sync.Map, key string, nowUnix int64) b
 	val, loaded := m.LoadOrStore(key, &limiterEntry{
 		limiter: rate.NewLimiter(pl.rateLimit, pl.burst),
 	})
-	entry := val.(*limiterEntry)
+	entry, ok := val.(*limiterEntry)
+	if !ok {
+		return false
+	}
 	entry.lastUsed.Store(nowUnix)
 
 	if !loaded {
@@ -118,7 +121,10 @@ func (pl *PublishRateLimiter) cleanup() {
 
 	cleanMap := func(m *sync.Map) {
 		m.Range(func(key, value any) bool {
-			entry := value.(*limiterEntry)
+			entry, ok := value.(*limiterEntry)
+			if !ok {
+				return true
+			}
 			if entry.lastUsed.Load() < cutoff {
 				m.Delete(key)
 				removed++

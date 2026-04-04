@@ -78,8 +78,8 @@ type GatewayConfig struct {
 	ShutdownTimeout time.Duration `env:"GATEWAY_SHUTDOWN_TIMEOUT" envDefault:"30s"`
 
 	// SSE + REST Publish (Pro edition)
-	ServerGRPCAddr       string        `env:"SERVER_GRPC_ADDR" envDefault:"localhost:3006"`        // ws-server gRPC address for RealtimeService
-	SSEKeepAliveInterval time.Duration `env:"SSE_KEEPALIVE_INTERVAL" envDefault:"45s"`             // SSE keepalive comment interval (prevents proxy timeouts)
+	ServerGRPCAddr       string        `env:"SERVER_GRPC_ADDR" envDefault:"localhost:3006"`         // ws-server gRPC address for RealtimeService
+	SSEKeepAliveInterval time.Duration `env:"SSE_KEEPALIVE_INTERVAL" envDefault:"45s"`              // SSE keepalive comment interval (prevents proxy timeouts)
 	CORSAllowedOrigins   []string      `env:"GATEWAY_CORS_ORIGINS" envDefault:"*" envSeparator:","` // CORS allowed origins (* = all, production: restrict)
 
 	// Channel rules provider cache TTLs
