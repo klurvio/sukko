@@ -44,5 +44,8 @@ func (sc *ServerClient) Close() error {
 	if sc.conn == nil {
 		return nil
 	}
-	return sc.conn.Close()
+	if err := sc.conn.Close(); err != nil {
+		return fmt.Errorf("close server client gRPC connection: %w", err)
+	}
+	return nil
 }

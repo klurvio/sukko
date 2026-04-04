@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -103,9 +104,12 @@ func (t *WebSocketTransport) Send(msg OutgoingMsg) (int, error) {
 		return 0, nil
 	}
 	if err := wsutil.WriteServerMessage(t.writer, ws.OpText, data); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("ws write message: %w", err)
 	}
-	return len(data), t.writer.Flush()
+	if err := t.writer.Flush(); err != nil {
+		return len(data), fmt.Errorf("ws flush: %w", err)
+	}
+	return len(data), nil
 }
 
 // SendBatch writes multiple messages as WebSocket text frames with a single flush.
@@ -119,21 +123,30 @@ func (t *WebSocketTransport) SendBatch(msgs []OutgoingMsg) (int, error) {
 			continue
 		}
 		if err := wsutil.WriteServerMessage(t.writer, ws.OpText, data); err != nil {
-			return total, err
+			return total, fmt.Errorf("ws write batch message: %w", err)
 		}
 		total += len(data)
 	}
-	return total, t.writer.Flush()
+	if err := t.writer.Flush(); err != nil {
+		return total, fmt.Errorf("ws flush batch: %w", err)
+	}
+	return total, nil
 }
 
 // WritePing sends a WebSocket ping frame.
 func (t *WebSocketTransport) WritePing() error {
-	return wsutil.WriteServerMessage(t.conn, ws.OpPing, nil)
+	if err := wsutil.WriteServerMessage(t.conn, ws.OpPing, nil); err != nil {
+		return fmt.Errorf("ws write ping: %w", err)
+	}
+	return nil
 }
 
 // WritePong sends a WebSocket pong frame with the given payload.
 func (t *WebSocketTransport) WritePong(payload []byte) error {
-	return wsutil.WriteServerMessage(t.conn, ws.OpPong, payload)
+	if err := wsutil.WriteServerMessage(t.conn, ws.OpPong, payload); err != nil {
+		return fmt.Errorf("ws write pong: %w", err)
+	}
+	return nil
 }
 
 // Close sends a WebSocket close frame (1008 Policy Violation) and closes the TCP connection.
@@ -143,12 +156,18 @@ func (t *WebSocketTransport) Close() error {
 	}
 	closeMsg := ws.NewCloseFrameBody(ws.StatusPolicyViolation, "connection closed")
 	_ = ws.WriteFrame(t.conn, ws.NewCloseFrame(closeMsg)) // best-effort close frame
-	return t.conn.Close()
+	if err := t.conn.Close(); err != nil {
+		return fmt.Errorf("ws close conn: %w", err)
+	}
+	return nil
 }
 
 // SetWriteDeadline sets the write deadline on the underlying connection.
 func (t *WebSocketTransport) SetWriteDeadline(deadline time.Time) error {
-	return t.conn.SetWriteDeadline(deadline)
+	if err := t.conn.SetWriteDeadline(deadline); err != nil {
+		return fmt.Errorf("ws set write deadline: %w", err)
+	}
+	return nil
 }
 
 // Type returns TransportWebSocket for metrics labeling.
@@ -199,7 +218,7 @@ func (t *GRPCStreamTransport) Send(msg OutgoingMsg) (int, error) {
 		Payload:  data,
 	})
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("grpc stream send: %w", err)
 	}
 	return len(data), nil
 }
