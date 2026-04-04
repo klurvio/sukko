@@ -3,7 +3,6 @@
 package server
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -154,11 +153,22 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 		}
 	}()
 
-	_ = c.conn.SetReadDeadline(p.now().Add(p.Config.PongWait))
+	// Extract underlying net.Conn from WebSocketTransport.
+	// ReadLoop is only called for WebSocket clients — gRPC virtual clients have no read pump.
+	wsTransport, ok := c.transport.(*WebSocketTransport)
+	if !ok {
+		if p.Logger != nil {
+			p.Logger.Error().Int64("client_id", c.id).Msg("ReadLoop called on non-WebSocket transport")
+		}
+		return
+	}
+	conn := wsTransport.Conn()
+
+	_ = conn.SetReadDeadline(p.now().Add(p.Config.PongWait))
 
 	// Create reader for explicit frame handling
 	reader := wsutil.Reader{
-		Source: c.conn,
+		Source: conn,
 		State:  ws.StateServerSide,
 	}
 
@@ -172,16 +182,27 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 		default:
 		}
 
-		// Read next frame header
+		// Read next frame header (BLOCKS until data arrives or conn closes)
 		hdr, err := reader.NextFrame()
 		if err != nil {
-			disconnectReason = pkgmetrics.DisconnectReadError
-			initiatedBy = pkgmetrics.InitiatedByClient
+			// Determine if this was server shutdown or client disconnect.
+			// When the server shuts down: cancel() → WriteLoop exits → closes conn →
+			// NextFrame unblocks with error. The ctx check at the top of the loop
+			// couldn't catch it because NextFrame was blocking. Check ctx NOW to
+			// correctly attribute the disconnect.
+			select {
+			case <-ctx.Done():
+				disconnectReason = pkgmetrics.DisconnectServerShutdown
+				initiatedBy = pkgmetrics.InitiatedByServer
+			default:
+				disconnectReason = pkgmetrics.DisconnectReadError
+				initiatedBy = pkgmetrics.InitiatedByClient
+			}
 			break
 		}
 
 		// Refresh deadline on ANY frame (including pong) - this is the key fix
-		_ = c.conn.SetReadDeadline(p.now().Add(p.Config.PongWait))
+		_ = conn.SetReadDeadline(p.now().Add(p.Config.PongWait))
 
 		// Handle control frames
 		if hdr.OpCode.IsControl() {
@@ -189,7 +210,7 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 			if hdr.OpCode == ws.OpPing {
 				payload := make([]byte, hdr.Length)
 				if hdr.Length > 0 {
-					if _, err := io.ReadFull(c.conn, payload); err != nil {
+					if _, err := io.ReadFull(conn, payload); err != nil {
 						break
 					}
 					if hdr.Masked {
@@ -237,7 +258,7 @@ func (p *Pump) ReadLoop(ctx context.Context, c *Client, disconnectFn func(*Clien
 		// Update stats
 		p.Stats.MessagesReceived.Add(1)
 		p.Stats.BytesReceived.Add(int64(len(msg)))
-		metrics.UpdateMessageMetrics(0, 1)
+		metrics.UpdateMessageMetrics(string(TransportWebSocket), 0, 1)
 		metrics.UpdateBytesMetrics(0, int64(len(msg)))
 
 		if hdr.OpCode == ws.OpText {
@@ -284,22 +305,22 @@ func (p *Pump) handleRateLimitExceeded(c *Client) {
 	metrics.IncrementRateLimitedMessages()
 }
 
-// WriteLoop writes messages to the WebSocket connection.
-// Implements message batching and ping/pong for connection health.
+// WriteLoop writes messages to the client via the Transport interface.
+// Transport-agnostic: works for WebSocket, gRPC stream, and future transports.
+// Implements message batching (via SendBatch) and keepalive (via WritePing).
 func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 	// Panic recovery
 	defer p.recoverPanic("writePump", map[string]any{
 		"client_id": c.id,
 	})
 
-	writer := bufio.NewWriter(c.conn)
 	ticker := p.newTicker(p.Config.PingPeriod)
 
 	defer func() {
 		ticker.Stop()
 		c.closeOnce.Do(func() {
-			if c.conn != nil {
-				_ = c.conn.Close()
+			if c.transport != nil {
+				_ = c.transport.Close()
 			}
 		})
 	}()
@@ -308,8 +329,8 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 		// Priority: drain pong responses first (they're time-sensitive)
 		select {
 		case payload := <-c.control:
-			_ = c.conn.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
-			if err := wsutil.WriteServerMessage(c.conn, ws.OpPong, payload); err != nil {
+			_ = c.transport.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
+			if err := c.transport.WritePong(payload); err != nil {
 				if p.Logger != nil {
 					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send pong")
 				}
@@ -328,8 +349,8 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 			return
 
 		case payload := <-c.control:
-			_ = c.conn.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
-			if err := wsutil.WriteServerMessage(c.conn, ws.OpPong, payload); err != nil {
+			_ = c.transport.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
+			if err := c.transport.WritePong(payload); err != nil {
 				if p.Logger != nil {
 					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send pong")
 				}
@@ -344,97 +365,83 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 				if p.Logger != nil {
 					p.Logger.Debug().Int64("client_id", c.id).Msg("Send channel closed")
 				}
-				// Guard against nil conn (client may already be cleaned up)
-				if c.conn != nil {
-					_ = wsutil.WriteServerMessage(c.conn, ws.OpClose, []byte{})
-				}
+				// Don't call Close() here — deferred closeOnce.Do handles it.
+				// Calling Close() directly + deferred closeOnce = double-close on net.Conn.
 				return
 			}
 
-			// Guard against race condition: connection may be nil if client was
+			// Guard against race condition: transport may be nil if client was
 			// disconnected and returned to pool while message was pending
-			if c.conn == nil {
+			if c.transport == nil {
 				return
 			}
-			_ = c.conn.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
+			_ = c.transport.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
 
-			// Resolve OutgoingMsg to bytes: raw passthrough or envelope.Build(seq)
-			message := msg.Bytes()
-			if message == nil {
-				// Zero-value OutgoingMsg — skip to avoid writing empty WebSocket frame
-				continue
-			}
-
-			// Batch metrics
-			var batchMsgCount int64 = 1
-			batchByteCount := int64(len(message))
-
-			// Write first message
-			err := wsutil.WriteServerMessage(writer, ws.OpText, message)
-			if err != nil {
-				if p.Logger != nil {
-					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to write message")
-				}
-				// Record dropped messages: 1 (current) + remaining in buffer
-				p.recordSendTimeoutDrops(c, 1)
-				return
-			}
-
-			// Batch additional messages
+			// Collect batch: first message + any additional available messages.
+			// Send/SendBatch return accurate byte counts — no double Bytes() call needed.
 			n := len(c.send)
-		batchLoop:
-			for range n {
-				var batchOutgoing OutgoingMsg
-				var batchOk bool
-				select {
-				case batchOutgoing, batchOk = <-c.send:
-					if !batchOk {
-						break batchLoop
-					}
-				default:
-					break batchLoop
-				}
-				batchMsg := batchOutgoing.Bytes()
-				if batchMsg == nil {
-					continue
-				}
-				err := wsutil.WriteServerMessage(writer, ws.OpText, batchMsg)
+			if n == 0 {
+				// Single message — use Send (includes flush)
+				byteCount, err := c.transport.Send(msg)
 				if err != nil {
 					if p.Logger != nil {
-						p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to write message")
+						p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send message")
 					}
-					// Record dropped messages: 1 (current) + remaining in buffer
 					p.recordSendTimeoutDrops(c, 1)
 					return
 				}
-				batchMsgCount++
-				batchByteCount += int64(len(batchMsg))
-			}
 
-			// Flush
-			if err := writer.Flush(); err != nil {
-				if p.Logger != nil {
-					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to flush writer")
+				if byteCount > 0 {
+					transportLabel := string(c.transport.Type())
+					p.Stats.MessagesSent.Add(1)
+					p.Stats.BytesSent.Add(int64(byteCount))
+					metrics.UpdateMessageMetrics(transportLabel, 1, 0)
+					metrics.UpdateBytesMetrics(int64(byteCount), 0)
 				}
-				// Record remaining messages in buffer as dropped
-				p.recordSendTimeoutDrops(c, 0)
-				return
-			}
+			} else {
+				// Batch: collect all available messages
+				batch := make([]OutgoingMsg, 1, 1+n)
+				batch[0] = msg
+			batchLoop:
+				for range n {
+					select {
+					case batchMsg, batchOk := <-c.send:
+						if !batchOk {
+							break batchLoop
+						}
+						batch = append(batch, batchMsg)
+					default:
+						break batchLoop
+					}
+				}
 
-			// Update metrics (once per batch)
-			p.Stats.MessagesSent.Add(batchMsgCount)
-			p.Stats.BytesSent.Add(batchByteCount)
-			metrics.UpdateMessageMetrics(batchMsgCount, 0)
-			metrics.UpdateBytesMetrics(batchByteCount, 0)
+				totalBytes, err := c.transport.SendBatch(batch)
+				if err != nil {
+					if p.Logger != nil {
+						p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send batch")
+					}
+					p.recordSendTimeoutDrops(c, len(batch))
+					return
+				}
+
+				// Message count: batch length (SendBatch skips nil internally,
+				// but all messages from the send channel should have valid data)
+				transportLabel := string(c.transport.Type())
+				batchMsgCount := int64(len(batch))
+				p.Stats.MessagesSent.Add(batchMsgCount)
+				p.Stats.BytesSent.Add(int64(totalBytes))
+				metrics.UpdateMessageMetrics(transportLabel, batchMsgCount, 0)
+				metrics.UpdateBytesMetrics(int64(totalBytes), 0)
+			}
 
 		case <-ticker.C():
-			// Guard against race condition: connection may be nil if client was
+			// Guard against race condition: transport may be nil if client was
 			// disconnected and returned to pool while ticker was pending
-			if c.conn == nil {
+			if c.transport == nil {
 				return
 			}
-			_ = c.conn.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
-			if err := wsutil.WriteServerMessage(c.conn, ws.OpPing, nil); err != nil {
+			_ = c.transport.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
+			if err := c.transport.WritePing(); err != nil {
 				if p.Logger != nil {
 					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send ping")
 				}

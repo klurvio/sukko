@@ -25,6 +25,7 @@ func newValidServerConfig() *ServerConfig {
 		NumShards:                  1,
 		BasePort:                   3002,
 		LBAddr:                     ":3005",
+		GRPCPort:                   3006,
 		RateLimitBurstMultiplier:   2,
 		MessageBackend:             "direct",
 		KafkaBrokers:               "localhost:19092",

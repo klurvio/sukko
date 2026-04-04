@@ -12,7 +12,7 @@ func (s *Server) disconnectClient(c *Client, reason, initiatedBy string) {
 	duration := time.Since(c.connectedAt)
 
 	// Record disconnect metrics (both Prometheus and Stats)
-	metrics.RecordDisconnectWithStats(s.stats, reason, initiatedBy, duration)
+	metrics.RecordDisconnectWithStats(s.stats, string(c.TransportType()), reason, initiatedBy, duration)
 
 	// Log disconnect with enhanced context (Phase 4: Structured logging)
 	bufferLen := len(c.send)
@@ -33,11 +33,11 @@ func (s *Server) disconnectClient(c *Client, reason, initiatedBy string) {
 		Time("connected_at", c.connectedAt).
 		Msg("Client disconnected")
 
-	// Use sync.Once to ensure connection is only closed once
+	// Use sync.Once to ensure transport is only closed once
 	// Prevents race condition with multiple goroutines trying to close
 	c.closeOnce.Do(func() {
-		if c.conn != nil {
-			_ = c.conn.Close()
+		if c.transport != nil {
+			_ = c.transport.Close()
 		}
 	})
 

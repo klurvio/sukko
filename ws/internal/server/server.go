@@ -375,7 +375,7 @@ forceClose:
 		if client, ok := key.(*Client); ok {
 			// Record shutdown disconnect (both Prometheus and Stats)
 			duration := time.Since(client.connectedAt)
-			metrics.RecordDisconnectWithStats(s.stats, pkgmetrics.DisconnectServerShutdown, pkgmetrics.InitiatedByServer, duration)
+			metrics.RecordDisconnectWithStats(s.stats, string(client.TransportType()), pkgmetrics.DisconnectServerShutdown, pkgmetrics.InitiatedByServer, duration)
 
 			client.closeSend()
 		}

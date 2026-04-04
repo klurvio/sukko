@@ -343,7 +343,7 @@ func TestDisconnectClient_Integration(t *testing.T) {
 		seqGen:        messaging.NewSequenceGenerator(),
 		subscriptions: NewSubscriptionSet(),
 		connectedAt:   time.Now().Add(-5 * time.Second),
-		conn:          nil, // No real connection for this test
+		transport:     nil, // No real transport for this test
 	}
 
 	// Store client in server's map

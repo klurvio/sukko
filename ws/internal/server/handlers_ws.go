@@ -9,6 +9,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/server/metrics"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // WebSocket upgrade handler
@@ -145,7 +146,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Msg("WebSocket upgrade successful")
 
 	client := s.connections.Get()
-	client.conn = conn
+	client.transport = NewWebSocketTransport(conn)
 	client.server = s
 	client.id = s.clientCount.Add(1)
 	client.remoteAddr = clientIP
@@ -155,9 +156,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	currentConns := s.stats.CurrentConnections.Add(1)
 
 	// Update Prometheus metrics
-	metrics.UpdateConnectionMetrics()
+	metrics.UpdateConnectionMetrics(string(TransportWebSocket))
 
-	// DEBUG: Client fully initialized, starting pumps
+	// Client fully initialized, starting pumps
 	s.logger.Info().
 		Str("client_ip", clientIP).
 		Int64("client_id", client.id).
@@ -165,9 +166,17 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Dur("total_setup_time_ms", time.Since(startTime)).
 		Msg("Client connected successfully - pumps starting")
 
-	s.wg.Add(2)
-	go s.writePump(client)
-	go s.readPump(client)
+	// Modernized goroutine launch per Constitution VII: wg.Go handles Add(1) + Done().
+	// RecoverPanic is first defer. WriteLoop/ReadLoop already have internal panic recovery
+	// (belt and suspenders — harmless, only fires if inner recovery somehow fails).
+	s.wg.Go(func() {
+		defer logging.RecoverPanic(s.logger, "writePump", nil)
+		s.pump.WriteLoop(s.ctx, client)
+	})
+	s.wg.Go(func() {
+		defer logging.RecoverPanic(s.logger, "readPump", nil)
+		s.pump.ReadLoop(s.ctx, client, s.disconnectClient, s.handleClientMessage)
+	})
 }
 
 // disconnectClient handles client disconnect with proper instrumentation

@@ -148,6 +148,11 @@ func (s *Shard) runBroadcastListener() {
 	}
 }
 
+// Server returns the underlying server instance for gRPC service integration.
+func (s *Shard) Server() *server.Server {
+	return s.server
+}
+
 // GetCurrentConnections returns the current number of active connections for this shard
 func (s *Shard) GetCurrentConnections() int64 {
 	return s.server.GetStats().CurrentConnections.Load()

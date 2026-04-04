@@ -129,7 +129,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.11.1 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-04-03
+**Version**: 1.12.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-04-04
 
 ### I. Configuration
 
@@ -149,7 +149,9 @@ Optional dependencies MUST use noop implementations or nil-guarded feature flags
 
 ### V. Structured Logging
 
-All logging MUST use zerolog with structured fields (Str, Int, Dur, Err). Appropriate log levels MUST be used (Debug/Info/Warn/Error/Fatal). No `log.Printf` or `fmt.Println`. Panic recovery logging is mandated by VII (Goroutine Lifecycle step 2).
+All logging MUST use zerolog with structured fields (Str, Int, Dur, Err). Appropriate log levels MUST be used (Debug/Info/Warn/Error/Fatal). No `log.Printf` or `fmt.Println`.
+
+**Panic Recovery** — All panic recovery MUST use `defer logging.RecoverPanic(...)`. Inline `defer func() { recover() }()` is forbidden — it silently swallows panics without logging, making production debugging impossible. This applies to both goroutine entry points (`wg.Go` functions, per VII) and inline protective wrappers (e.g., closing resources that may panic due to concurrent state).
 
 ### VI. Observability
 
