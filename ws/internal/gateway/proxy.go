@@ -576,9 +576,9 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 }
 
 // validateChannelTenant checks that the channel's tenant prefix matches the connection's tenant.
-// Returns true if channel starts with "{tenantID}." — simple string prefix check.
+// Delegates to shared auth.ValidateChannelTenant for the prefix check.
 func (p *Proxy) validateChannelTenant(channel string) bool {
-	return strings.HasPrefix(channel, p.tenantID+".")
+	return auth.ValidateChannelTenant(channel, p.tenantID)
 }
 
 // stripTenantPrefix removes the tenant prefix from a channel for permission matching.

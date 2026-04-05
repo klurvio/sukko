@@ -34,6 +34,8 @@ jobs:
             dir: gateway
           - name: sukko-provisioning
             dir: provisioning
+          - name: sukko-push
+            dir: push
           - name: sukko-tester
             dir: tester
     steps:

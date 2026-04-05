@@ -58,6 +58,9 @@ type Gateway struct {
 	serverClient       *ServerClient       // gRPC client to ws-server RealtimeService
 	publishRateLimiter *PublishRateLimiter // Per-tenant + per-IP rate limiting for REST publish
 
+	// Web Push (Enterprise edition)
+	pushClient PushForwarder // gRPC client to push service PushService (interface for testability)
+
 	logger zerolog.Logger
 }
 
@@ -208,6 +211,12 @@ func (gw *Gateway) SetPublishRateLimiter(limiter *PublishRateLimiter) {
 	gw.publishRateLimiter = limiter
 }
 
+// SetPushClient sets the gRPC client to the push service for Web Push endpoints.
+// Called from main.go after the Gateway is created.
+func (gw *Gateway) SetPushClient(client PushForwarder) {
+	gw.pushClient = client
+}
+
 // Close releases resources held by the gateway.
 // Should be called during shutdown.
 func (gw *Gateway) Close() error {
@@ -229,6 +238,13 @@ func (gw *Gateway) Close() error {
 	if gw.streamKeyRegistry != nil {
 		if err := gw.streamKeyRegistry.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close stream key registry: %w", err))
+		}
+	}
+
+	// Close push client if it implements io.Closer (PushClient does, test mocks may not).
+	if closer, ok := gw.pushClient.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close push client: %w", err))
 		}
 	}
 
@@ -457,6 +473,12 @@ func (gw *Gateway) NewServer() *http.Server {
 	gate := RequireFeature(gw.config.EditionManager(), license.SSETransport)
 	mux.HandleFunc("GET /sse", gate(gw.HandleSSE))
 	mux.HandleFunc("POST /api/v1/publish", gate(gw.HandlePublish))
+
+	// Web Push handlers (edition-gated to Enterprise)
+	pushGate := RequireFeature(gw.config.EditionManager(), license.WebPushTransport)
+	mux.HandleFunc("POST /api/v1/push/subscribe", pushGate(gw.HandlePushSubscribe))
+	mux.HandleFunc("DELETE /api/v1/push/subscribe", pushGate(gw.HandlePushUnsubscribe))
+	mux.HandleFunc("GET /api/v1/push/vapid-key", pushGate(gw.HandlePushVAPIDKey))
 
 	// Wrap with CORS middleware (gateway-wide, all HTTP endpoints)
 	handler := CORSMiddleware(gw.config.CORSAllowedOrigins)(mux)

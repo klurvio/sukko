@@ -57,9 +57,11 @@ spec:
               containerPort: 3000
               protocol: TCP
           env:
-            # Deployment identity
+            # Deployment identity (only injected when overriding Go envDefault)
+            {{- if .Values.environment }}
             - name: ENVIRONMENT
-              value: {{ .Values.environment | default "local" | quote }}
+              value: {{ .Values.environment | quote }}
+            {{- end }}
 
             # License key (Pro/Enterprise editions)
             {{- with ((.Values.global).license) }}
@@ -79,6 +81,8 @@ spec:
               value: {{ .Values.provisioningGRPCAddr | default (printf "%s-provisioning-grpc:9090" .Release.Name) | quote }}
             - name: SERVER_GRPC_ADDR
               value: {{ printf "%s-ws-server:3006" .Release.Name | quote }}
+            - name: PUSH_GRPC_ADDR
+              value: {{ printf "%s-push-service:3008" .Release.Name | quote }}
 
             # Extra env overrides from values
             # Rate limiting and tenant connection limits use Go envDefault values.

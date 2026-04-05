@@ -84,6 +84,10 @@ type ProvisioningConfig struct {
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
 	CORSMaxAge         int      `env:"CORS_MAX_AGE" envDefault:"3600"`
 
+	// Credentials Encryption — AES-256-GCM key for encrypting push credentials at rest.
+	// Only required when push credentials are stored. Empty is valid for deployments without push.
+	CredentialsEncryptionKey string `env:"CREDENTIALS_ENCRYPTION_KEY" redact:"true"`
+
 	// Provisioning-specific externalized constants
 	MaxTenantsFetchLimit int           `env:"PROVISIONING_MAX_TENANTS_FETCH_LIMIT" envDefault:"10000"`
 	DeletionTimeout      time.Duration `env:"PROVISIONING_DELETION_TIMEOUT" envDefault:"5m"`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
@@ -13,6 +14,7 @@ import (
 	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
+	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
@@ -23,6 +25,14 @@ type ServerConfig struct {
 	// operations (snapshot/delta loading). This prevents unbounded queries while
 	// being high enough to cover all tenants in practice.
 	MaxTenantsFetchLimit int
+
+	// PushCredentialsRepo is the repository for push provider credentials.
+	// Optional — when nil, WatchPushConfig and StorePushCredentials return Unimplemented.
+	PushCredentialsRepo *repository.CredentialsRepository
+
+	// PushChannelConfigRepo is the repository for push channel configurations.
+	// Optional — when nil, WatchPushConfig and StorePushCredentials return Unimplemented.
+	PushChannelConfigRepo *repository.ChannelConfigRepository
 }
 
 // Server implements the ProvisioningInternalServiceServer gRPC interface.
@@ -31,10 +41,12 @@ type ServerConfig struct {
 type Server struct {
 	provisioningv1.UnimplementedProvisioningInternalServiceServer
 
-	service              *provisioning.Service
-	eventBus             *eventbus.Bus
-	logger               zerolog.Logger
-	maxTenantsFetchLimit int
+	service               *provisioning.Service
+	eventBus              *eventbus.Bus
+	logger                zerolog.Logger
+	maxTenantsFetchLimit  int
+	pushCredentialsRepo   *repository.CredentialsRepository
+	pushChannelConfigRepo *repository.ChannelConfigRepository
 }
 
 // NewServer creates a new gRPC stream server.
@@ -50,10 +62,12 @@ func NewServer(service *provisioning.Service, eventBus *eventbus.Bus, logger zer
 	}
 
 	return &Server{
-		service:              service,
-		eventBus:             eventBus,
-		logger:               logger.With().Str("component", "grpc_server").Logger(),
-		maxTenantsFetchLimit: cfg.MaxTenantsFetchLimit,
+		service:               service,
+		eventBus:              eventBus,
+		logger:                logger.With().Str("component", "grpc_server").Logger(),
+		maxTenantsFetchLimit:  cfg.MaxTenantsFetchLimit,
+		pushCredentialsRepo:   cfg.PushCredentialsRepo,
+		pushChannelConfigRepo: cfg.PushChannelConfigRepo,
 	}, nil
 }
 
@@ -294,6 +308,181 @@ func (s *Server) WatchAPIKeys(_ *provisioningv1.WatchAPIKeysRequest, stream grpc
 			logger.Debug().Int("key_count", len(updatedKeys)).Msg("sent api keys delta")
 		}
 	}
+}
+
+// WatchPushConfig streams push configuration (credentials + channel configs) to the caller.
+// Sends a snapshot on connect, then streams deltas when push config changes via event bus.
+func (s *Server) WatchPushConfig(_ *provisioningv1.WatchPushConfigRequest, stream grpc.ServerStreamingServer[provisioningv1.WatchPushConfigResponse]) error {
+	if s.pushCredentialsRepo == nil || s.pushChannelConfigRepo == nil {
+		return status.Error(codes.Unimplemented, "push configuration repositories not configured")
+	}
+
+	ctx := stream.Context()
+	logger := s.logger.With().Str("rpc", "WatchPushConfig").Logger()
+
+	// Load and send initial snapshot
+	resp, err := s.loadPushConfig(ctx)
+	if err != nil {
+		return status.Errorf(codes.Internal, "load push config: %v", err)
+	}
+
+	resp.IsSnapshot = true
+	if err := stream.Send(resp); err != nil {
+		return status.Errorf(codes.Unavailable, "send push config snapshot: %v", err)
+	}
+
+	logger.Info().
+		Int("credential_count", len(resp.GetPushCredentials())).
+		Int("channel_config_count", len(resp.GetPushChannelConfigs())).
+		Msg("sent push config snapshot")
+
+	// Subscribe to event bus for changes
+	subID, events := s.eventBus.Subscribe()
+	defer s.eventBus.Unsubscribe(subID)
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Debug().Msg("stream context canceled")
+			return nil
+
+		case event, ok := <-events:
+			if !ok {
+				return nil
+			}
+			if event.Type != eventbus.PushConfigChanged {
+				continue
+			}
+
+			updatedResp, err := s.loadPushConfig(ctx)
+			if err != nil {
+				logger.Error().Err(err).Msg("failed to reload push config for delta")
+				continue
+			}
+
+			updatedResp.IsSnapshot = false
+			if err := stream.Send(updatedResp); err != nil {
+				return status.Errorf(codes.Unavailable, "send push config delta: %v", err)
+			}
+
+			logger.Debug().
+				Int("credential_count", len(updatedResp.GetPushCredentials())).
+				Int("channel_config_count", len(updatedResp.GetPushChannelConfigs())).
+				Msg("sent push config delta")
+		}
+	}
+}
+
+// StorePushCredentials stores provider credentials for a tenant. If credentials
+// already exist for the tenant+provider combination, they are updated.
+func (s *Server) StorePushCredentials(ctx context.Context, req *provisioningv1.StorePushCredentialsRequest) (*provisioningv1.StorePushCredentialsResponse, error) {
+	if s.pushCredentialsRepo == nil {
+		return nil, status.Error(codes.Unimplemented, "push credentials repository not configured")
+	}
+
+	tenantID := req.GetTenantId()
+	provider := req.GetProvider()
+	credentialData := req.GetCredentialData()
+
+	if tenantID == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if provider == "" {
+		return nil, status.Error(codes.InvalidArgument, "provider is required")
+	}
+	if credentialData == "" {
+		return nil, status.Error(codes.InvalidArgument, "credential_data is required")
+	}
+
+	logger := s.logger.With().
+		Str("rpc", "StorePushCredentials").
+		Str("tenant_id", tenantID).
+		Str("provider", provider).
+		Logger()
+
+	cred := &repository.PushCredential{
+		TenantID:       tenantID,
+		Provider:       provider,
+		CredentialData: credentialData,
+	}
+
+	// Attempt create; if duplicate, update instead.
+	err := s.pushCredentialsRepo.Create(ctx, cred)
+	if err != nil {
+		if !errors.Is(err, repository.ErrCredentialAlreadyExists) {
+			logger.Error().Err(err).Msg("failed to create push credentials")
+			return nil, status.Errorf(codes.Internal, "store push credentials: %v", err)
+		}
+		// Duplicate — update existing credential.
+		if updateErr := s.pushCredentialsRepo.Update(ctx, cred); updateErr != nil {
+			logger.Error().Err(updateErr).Str("create_err", err.Error()).Msg("failed to update push credentials")
+			return nil, status.Errorf(codes.Internal, "update push credentials: %v", updateErr)
+		}
+		logger.Info().Msg("updated existing push credentials")
+	} else {
+		logger.Info().Msg("created push credentials")
+	}
+
+	// Notify watchers
+	s.eventBus.Publish(eventbus.Event{Type: eventbus.PushConfigChanged})
+
+	return &provisioningv1.StorePushCredentialsResponse{Success: true}, nil
+}
+
+// loadPushConfig loads all push credentials and channel configs for streaming.
+func (s *Server) loadPushConfig(ctx context.Context) (*provisioningv1.WatchPushConfigResponse, error) {
+	creds, err := s.pushCredentialsRepo.ListAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list push credentials: %w", err)
+	}
+
+	configs, err := s.pushChannelConfigRepo.ListAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list push channel configs: %w", err)
+	}
+
+	return &provisioningv1.WatchPushConfigResponse{
+		PushCredentials:    convertPushCredentials(creds),
+		PushChannelConfigs: convertPushChannelConfigs(configs),
+	}, nil
+}
+
+// convertPushCredentials converts repository PushCredential to proto PushCredentialInfo.
+func convertPushCredentials(creds []*repository.PushCredential) []*provisioningv1.PushCredentialInfo {
+	result := make([]*provisioningv1.PushCredentialInfo, 0, len(creds))
+	for _, c := range creds {
+		result = append(result, &provisioningv1.PushCredentialInfo{
+			TenantId:       c.TenantID,
+			Provider:       c.Provider,
+			CredentialData: c.CredentialData,
+		})
+	}
+	return result
+}
+
+// convertPushChannelConfigs converts repository PushChannelConfig to proto PushChannelConfig.
+func convertPushChannelConfigs(configs []*repository.PushChannelConfig) []*provisioningv1.PushChannelConfig {
+	result := make([]*provisioningv1.PushChannelConfig, 0, len(configs))
+	for _, c := range configs {
+		result = append(result, &provisioningv1.PushChannelConfig{
+			TenantId:       c.TenantID,
+			Patterns:       c.Patterns,
+			DefaultTtl:     clampInt32(c.DefaultTTL),
+			DefaultUrgency: c.DefaultUrgency,
+		})
+	}
+	return result
+}
+
+// clampInt32 safely converts an int to int32, clamping to math.MaxInt32 on overflow.
+func clampInt32(v int) int32 {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(v) // #nosec G115 — overflow prevented by bounds check above
 }
 
 // loadTenantConfigs loads all tenant channel rules and routing rules.

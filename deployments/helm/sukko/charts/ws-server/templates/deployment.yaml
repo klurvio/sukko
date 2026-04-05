@@ -100,9 +100,11 @@ spec:
                 name: {{ include "ws-server.fullname" . }}-secrets
                 optional: true
           env:
-            # Deployment identity
+            # Deployment identity (only injected when overriding Go envDefault)
+            {{- if .Values.environment }}
             - name: ENVIRONMENT
-              value: {{ .Values.environment | default "local" | quote }}
+              value: {{ .Values.environment | quote }}
+            {{- end }}
 
             # License key (Pro/Enterprise editions)
             {{- with ((.Values.global).license) }}

@@ -36,6 +36,14 @@ type RouterConfig struct {
 	// When set, admin token auth is checked before JWT auth.
 	AdminAuth *AdminAuth
 
+	// PushCredentialHandler handles push credential upload/deletion.
+	// When set, push credential routes are registered.
+	PushCredentialHandler *PushCredentialHandler
+
+	// PushChannelHandler handles push channel config CRUD.
+	// When set, push channel config routes are registered.
+	PushChannelHandler *PushChannelHandler
+
 	// CORS configuration
 	CORSAllowedOrigins []string // Allowed origins (e.g., ["http://localhost:3000"])
 	CORSMaxAge         int      // Preflight cache duration in seconds
@@ -228,6 +236,27 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 			}
 			r.Get("/keys/active", h.GetActiveKeys)
 			r.Get("/api-keys/active", h.GetActiveAPIKeys)
+		})
+
+		// Push notification management — requires Enterprise (WebPushTransport)
+		r.Route("/push", func(r chi.Router) {
+			r.Use(RequireFeature(cfg.EditionManager, license.WebPushTransport))
+			if cfg.AuthEnabled {
+				r.Use(RequireRole("admin", "system"))
+			}
+
+			// Push credentials
+			if cfg.PushCredentialHandler != nil {
+				r.Post("/credentials", cfg.PushCredentialHandler.HandleUploadCredentials)
+				r.Delete("/credentials", cfg.PushCredentialHandler.HandleDeleteCredentials)
+			}
+
+			// Push channel config
+			if cfg.PushChannelHandler != nil {
+				r.Post("/channels", cfg.PushChannelHandler.HandleCreateChannelConfig)
+				r.Get("/channels", cfg.PushChannelHandler.HandleGetChannelConfig)
+				r.Delete("/channels", cfg.PushChannelHandler.HandleDeleteChannelConfig)
+			}
 		})
 	})
 

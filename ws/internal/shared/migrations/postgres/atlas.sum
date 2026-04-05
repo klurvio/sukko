@@ -1,0 +1,10 @@
+h1:RfloKut5XokYmvdBiZ8EXtIT8KPtE78HOVdxiCUw98I=
+001_initial.sql h1:q1NEdj5UnIiGDHj2dDa2nhap1FA0/cWizwYOatJjSto=
+002_oidc_channel_rules.sql h1:DvuqHAT3H7r8qeG2ldGDXN/uoo3GiFS2MmYFsvGEuns=
+003_routing_rules.sql h1:HUzTmXnnmfe2uJzjWV2B+3IFbW9hqKn2C58q0IxZhIA=
+004_drop_oidc.sql h1:I3ZSRQRPwCJoqVyRagXXVNGCaYH0WmYw/1vY86ZhFec=
+005_api_keys.sql h1:qAgCqoClv+b+iSXfkohZyJSyOdaxiFyhkVQG0G2Y1R0=
+006_quota_max_connections.sql h1:v5L98vSNFMhQL3aY8EEUSRfXdU8iIUphfXKp5RNUEbY=
+007_push_credentials.sql h1:S+PMa/7nS/8/IdsYVBXcAwkXWQf4eOEMxpDkrGrFV3o=
+008_push_channel_config.sql h1:rWlhyZNlseHB/7OgFyWBh7F2X61pDdwBPg5jhDPlfgM=
+009_push_subscriptions.sql h1:UTRnWiP3DwukyWCL5ZNpYRxViS3G36o/JM1tdzS+2m8=

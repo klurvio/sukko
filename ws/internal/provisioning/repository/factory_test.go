@@ -202,7 +202,7 @@ func TestOpenDatabase_SQLite_RepositoryWriteOps(t *testing.T) {
 	ctx := context.Background()
 
 	// --- Tenant: Create + Update ---
-	tenantRepo := NewPostgresTenantRepository(db)
+	tenantRepo := NewTenantRepository(db)
 
 	tenant := &provisioning.Tenant{
 		ID:           "test-tenant",
@@ -232,7 +232,7 @@ func TestOpenDatabase_SQLite_RepositoryWriteOps(t *testing.T) {
 	}
 
 	// --- Key: Create + Revoke ---
-	keyRepo := NewPostgresKeyRepository(db)
+	keyRepo := NewKeyRepository(db)
 
 	key := &provisioning.TenantKey{
 		KeyID:     "test-key-001",
@@ -260,7 +260,7 @@ func TestOpenDatabase_SQLite_RepositoryWriteOps(t *testing.T) {
 	}
 
 	// --- Channel Rules: Create + Update (upsert) ---
-	rulesRepo := NewPostgresChannelRulesRepository(db)
+	rulesRepo := NewChannelRulesRepository(db)
 
 	rules := &types.ChannelRules{
 		Public:        []string{"*.trade"},
@@ -324,7 +324,7 @@ func TestOpenDatabase_SQLite_APIKeyWriteOps(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a tenant first (required FK)
-	tenantRepo := NewPostgresTenantRepository(db)
+	tenantRepo := NewTenantRepository(db)
 	tenant := &provisioning.Tenant{
 		ID:           "apikey-tenant",
 		Name:         "API Key Test Tenant",
@@ -336,7 +336,7 @@ func TestOpenDatabase_SQLite_APIKeyWriteOps(t *testing.T) {
 		t.Fatalf("tenant Create: %v", err)
 	}
 
-	store := NewPostgresAPIKeyStore(db)
+	store := NewAPIKeyStore(db)
 
 	// --- Create ---
 	apiKey := &provisioning.APIKey{

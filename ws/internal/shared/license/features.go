@@ -73,7 +73,7 @@ const (
 	// ── Enterprise Features ──────────────────────────────────────────────
 
 	AuditLogging        Feature = "audit logging"
-	WebPushTransport    Feature = "Web Push transport"
+	WebPushTransport    Feature = "Web Push transport" // Implemented
 	IPAllowlisting      Feature = "per-tenant IP allowlisting"
 	E2EEncryption       Feature = "end-to-end encryption"
 	PriorityRouting     Feature = "priority message routing"
@@ -122,6 +122,7 @@ var featureMetadata = map[Feature]FeatureInfo{
 	PerTenantChannelRules:     {Description: "Per-tenant channel subscribe/publish rules", Status: StatusImplemented, Priority: PriorityNone},
 	PerTenantConnectionLimits: {Description: "Per-tenant WebSocket connection limits", Status: StatusImplemented, Priority: PriorityNone},
 	Alerting:                  {Description: "AlertManager integration for Prometheus alerts", Status: StatusImplemented, Priority: PriorityNone},
+	WebPushTransport:          {Description: "Push notifications (Web Push + FCM + APNs)", Status: StatusImplemented, Priority: PriorityNone},
 
 	// ── Implemented (ungated) — need EditionHasFeature checks ────────────
 
@@ -143,7 +144,6 @@ var featureMetadata = map[Feature]FeatureInfo{
 
 	// ── Future — Enterprise ──────────────────────────────────────────────
 
-	WebPushTransport:    {Description: "Browser push notifications via Web Push API", Status: StatusFuture, Priority: PriorityHigh},
 	IPAllowlisting:      {Description: "Per-tenant IP allowlisting for connection filtering", Status: StatusFuture, Priority: PriorityLow},
 	E2EEncryption:       {Description: "End-to-end encrypted message delivery", Status: StatusFuture, Priority: PriorityLow},
 	PriorityRouting:     {Description: "Priority-based message delivery under load", Status: StatusFuture, Priority: PriorityLow},

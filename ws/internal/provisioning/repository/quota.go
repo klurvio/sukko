@@ -9,18 +9,18 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// PostgresQuotaRepository implements QuotaStore using PostgreSQL.
-type PostgresQuotaRepository struct {
+// QuotaRepository implements QuotaStore using database/sql.
+type QuotaRepository struct {
 	db *sql.DB
 }
 
-// NewPostgresQuotaRepository creates a new PostgresQuotaRepository.
-func NewPostgresQuotaRepository(db *sql.DB) *PostgresQuotaRepository {
-	return &PostgresQuotaRepository{db: db}
+// NewQuotaRepository creates a QuotaRepository.
+func NewQuotaRepository(db *sql.DB) *QuotaRepository {
+	return &QuotaRepository{db: db}
 }
 
 // Get retrieves quotas for a tenant.
-func (r *PostgresQuotaRepository) Get(ctx context.Context, tenantID string) (*provisioning.TenantQuota, error) {
+func (r *QuotaRepository) Get(ctx context.Context, tenantID string) (*provisioning.TenantQuota, error) {
 	query := `
 		SELECT tenant_id, max_topics, max_partitions, max_storage_bytes,
 		       producer_byte_rate, consumer_byte_rate, max_connections, updated_at
@@ -50,7 +50,7 @@ func (r *PostgresQuotaRepository) Get(ctx context.Context, tenantID string) (*pr
 }
 
 // Create creates quota record for a tenant.
-func (r *PostgresQuotaRepository) Create(ctx context.Context, quota *provisioning.TenantQuota) error {
+func (r *QuotaRepository) Create(ctx context.Context, quota *provisioning.TenantQuota) error {
 	query := `
 		INSERT INTO tenant_quotas (tenant_id, max_topics, max_partitions, max_storage_bytes,
 		                           producer_byte_rate, consumer_byte_rate, max_connections, updated_at)
@@ -80,7 +80,7 @@ func (r *PostgresQuotaRepository) Create(ctx context.Context, quota *provisionin
 }
 
 // Update updates quota record for a tenant.
-func (r *PostgresQuotaRepository) Update(ctx context.Context, quota *provisioning.TenantQuota) error {
+func (r *QuotaRepository) Update(ctx context.Context, quota *provisioning.TenantQuota) error {
 	now := time.Now()
 	query := `
 		UPDATE tenant_quotas
@@ -114,5 +114,4 @@ func (r *PostgresQuotaRepository) Update(ctx context.Context, quota *provisionin
 	return nil
 }
 
-// Ensure PostgresQuotaRepository implements QuotaStore.
-var _ provisioning.QuotaStore = (*PostgresQuotaRepository)(nil)
+var _ provisioning.QuotaStore = (*QuotaRepository)(nil)

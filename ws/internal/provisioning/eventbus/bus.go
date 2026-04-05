@@ -27,6 +27,9 @@ const (
 	// APIKeysChanged indicates that API keys were created or revoked.
 	APIKeysChanged EventType = "api_keys_changed"
 
+	// PushConfigChanged indicates that push credentials or channel configs changed.
+	PushConfigChanged EventType = "push_config_changed"
+
 	// subscriberBufferSize is the capacity of each subscriber's event channel.
 	// Buffered to absorb short bursts without blocking the publisher.
 	subscriberBufferSize = 16

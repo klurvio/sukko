@@ -9,18 +9,18 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// PostgresKeyRepository implements KeyStore using PostgreSQL.
-type PostgresKeyRepository struct {
+// KeyRepository implements KeyStore using database/sql.
+type KeyRepository struct {
 	db *sql.DB
 }
 
-// NewPostgresKeyRepository creates a new PostgresKeyRepository.
-func NewPostgresKeyRepository(db *sql.DB) *PostgresKeyRepository {
-	return &PostgresKeyRepository{db: db}
+// NewKeyRepository creates a KeyRepository.
+func NewKeyRepository(db *sql.DB) *KeyRepository {
+	return &KeyRepository{db: db}
 }
 
 // Create creates a new key record.
-func (r *PostgresKeyRepository) Create(ctx context.Context, key *provisioning.TenantKey) error {
+func (r *KeyRepository) Create(ctx context.Context, key *provisioning.TenantKey) error {
 	query := `
 		INSERT INTO tenant_keys (key_id, tenant_id, algorithm, public_key, is_active, created_at, expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -49,7 +49,7 @@ func (r *PostgresKeyRepository) Create(ctx context.Context, key *provisioning.Te
 }
 
 // Get retrieves a key by ID.
-func (r *PostgresKeyRepository) Get(ctx context.Context, keyID string) (*provisioning.TenantKey, error) {
+func (r *KeyRepository) Get(ctx context.Context, keyID string) (*provisioning.TenantKey, error) {
 	query := `
 		SELECT key_id, tenant_id, algorithm, public_key, is_active, created_at, expires_at, revoked_at
 		FROM tenant_keys
@@ -87,7 +87,7 @@ func (r *PostgresKeyRepository) Get(ctx context.Context, keyID string) (*provisi
 }
 
 // ListByTenant returns keys for a tenant with pagination.
-func (r *PostgresKeyRepository) ListByTenant(ctx context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.TenantKey, int, error) {
+func (r *KeyRepository) ListByTenant(ctx context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.TenantKey, int, error) {
 	// Count total
 	var total int
 	countQuery := `SELECT COUNT(*) FROM tenant_keys WHERE tenant_id = $1`
@@ -146,7 +146,7 @@ func (r *PostgresKeyRepository) ListByTenant(ctx context.Context, tenantID strin
 }
 
 // Revoke revokes a key by setting its revoked_at timestamp.
-func (r *PostgresKeyRepository) Revoke(ctx context.Context, keyID string) error {
+func (r *KeyRepository) Revoke(ctx context.Context, keyID string) error {
 	query := `
 		UPDATE tenant_keys
 		SET is_active = false, revoked_at = $2
@@ -171,7 +171,7 @@ func (r *PostgresKeyRepository) Revoke(ctx context.Context, keyID string) error 
 }
 
 // RevokeAllForTenant revokes all active keys for a tenant.
-func (r *PostgresKeyRepository) RevokeAllForTenant(ctx context.Context, tenantID string) error {
+func (r *KeyRepository) RevokeAllForTenant(ctx context.Context, tenantID string) error {
 	query := `
 		UPDATE tenant_keys
 		SET is_active = false, revoked_at = $2
@@ -189,7 +189,7 @@ func (r *PostgresKeyRepository) RevokeAllForTenant(ctx context.Context, tenantID
 
 // GetActiveKeys returns all active, non-expired, non-revoked keys.
 // Used by WS Gateway to refresh its key cache.
-func (r *PostgresKeyRepository) GetActiveKeys(ctx context.Context) ([]*provisioning.TenantKey, error) {
+func (r *KeyRepository) GetActiveKeys(ctx context.Context) ([]*provisioning.TenantKey, error) {
 	query := `
 		SELECT key_id, tenant_id, algorithm, public_key, is_active, created_at, expires_at, revoked_at
 		FROM tenant_keys
@@ -241,5 +241,4 @@ func (r *PostgresKeyRepository) GetActiveKeys(ctx context.Context) ([]*provision
 	return keys, nil
 }
 
-// Ensure PostgresKeyRepository implements KeyStore.
-var _ provisioning.KeyStore = (*PostgresKeyRepository)(nil)
+var _ provisioning.KeyStore = (*KeyRepository)(nil)

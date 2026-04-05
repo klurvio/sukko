@@ -21,14 +21,18 @@ func newValidServerConfig() *ServerConfig {
 		KafkaNamespaceConfig: KafkaNamespaceConfig{
 			ValidNamespaces: "local,dev,stag,prod",
 		},
-		Addr:                       ":3002",
-		NumShards:                  1,
-		BasePort:                   3002,
-		LBAddr:                     ":3005",
-		GRPCPort:                   3006,
-		RateLimitBurstMultiplier:   2,
-		MessageBackend:             "direct",
-		KafkaBrokers:               "localhost:19092",
+		Addr:                     ":3002",
+		NumShards:                1,
+		BasePort:                 3002,
+		LBAddr:                   ":3005",
+		GRPCPort:                 3006,
+		RateLimitBurstMultiplier: 2,
+		MessageBackendConfig: MessageBackendConfig{
+			MessageBackend:        "direct",
+			KafkaBrokers:          "localhost:19092",
+			NATSJetStreamReplicas: 1,
+			NATSJetStreamMaxAge:   24 * time.Hour,
+		},
 		MemoryLimit:                512 * 1024 * 1024, // 512MB
 		MaxConnections:             1000,
 		MaxKafkaMessagesPerSec:     1000,
@@ -63,9 +67,6 @@ func newValidServerConfig() *ServerConfig {
 		BufferPopulationWarnPercent: 25,
 		// Topic refresh interval (required for kafka/nats backends)
 		TopicRefreshInterval: 60 * time.Second,
-		// NATS JetStream defaults (needed when tests switch to nats backend)
-		NATSJetStreamReplicas: 1,
-		NATSJetStreamMaxAge:   24 * time.Hour,
 		// Kafka topic defaults (needed when tests switch to kafka backend)
 		KafkaDefaultPartitions:        1,
 		KafkaDefaultReplicationFactor: 1,

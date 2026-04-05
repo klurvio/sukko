@@ -11,18 +11,18 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// PostgresRoutingRulesRepository implements RoutingRulesStore using PostgreSQL/SQLite.
-type PostgresRoutingRulesRepository struct {
+// RoutingRulesRepository implements RoutingRulesStore using database/sql.
+type RoutingRulesRepository struct {
 	db *sql.DB
 }
 
-// NewPostgresRoutingRulesRepository creates a new PostgresRoutingRulesRepository.
-func NewPostgresRoutingRulesRepository(db *sql.DB) *PostgresRoutingRulesRepository {
-	return &PostgresRoutingRulesRepository{db: db}
+// NewRoutingRulesRepository creates a RoutingRulesRepository.
+func NewRoutingRulesRepository(db *sql.DB) *RoutingRulesRepository {
+	return &RoutingRulesRepository{db: db}
 }
 
 // Get retrieves routing rules for a tenant.
-func (r *PostgresRoutingRulesRepository) Get(ctx context.Context, tenantID string) ([]provisioning.TopicRoutingRule, error) {
+func (r *RoutingRulesRepository) Get(ctx context.Context, tenantID string) ([]provisioning.TopicRoutingRule, error) {
 	query := `SELECT rules FROM tenant_routing_rules WHERE tenant_id = $1`
 
 	var rulesJSON []byte
@@ -43,7 +43,7 @@ func (r *PostgresRoutingRulesRepository) Get(ctx context.Context, tenantID strin
 }
 
 // Set creates or updates routing rules for a tenant (upsert).
-func (r *PostgresRoutingRulesRepository) Set(ctx context.Context, tenantID string, rules []provisioning.TopicRoutingRule) error {
+func (r *RoutingRulesRepository) Set(ctx context.Context, tenantID string, rules []provisioning.TopicRoutingRule) error {
 	rulesJSON, err := json.Marshal(rules)
 	if err != nil {
 		return fmt.Errorf("marshal routing rules: %w", err)
@@ -65,7 +65,7 @@ func (r *PostgresRoutingRulesRepository) Set(ctx context.Context, tenantID strin
 }
 
 // Delete deletes routing rules for a tenant.
-func (r *PostgresRoutingRulesRepository) Delete(ctx context.Context, tenantID string) error {
+func (r *RoutingRulesRepository) Delete(ctx context.Context, tenantID string) error {
 	query := `DELETE FROM tenant_routing_rules WHERE tenant_id = $1`
 
 	result, err := r.db.ExecContext(ctx, query, tenantID)
@@ -85,7 +85,7 @@ func (r *PostgresRoutingRulesRepository) Delete(ctx context.Context, tenantID st
 }
 
 // ListAll returns routing rules for all tenants.
-func (r *PostgresRoutingRulesRepository) ListAll(ctx context.Context) (map[string][]provisioning.TopicRoutingRule, error) {
+func (r *RoutingRulesRepository) ListAll(ctx context.Context) (map[string][]provisioning.TopicRoutingRule, error) {
 	query := `SELECT tenant_id, rules FROM tenant_routing_rules`
 
 	rows, err := r.db.QueryContext(ctx, query)
@@ -118,5 +118,4 @@ func (r *PostgresRoutingRulesRepository) ListAll(ctx context.Context) (map[strin
 	return result, nil
 }
 
-// Ensure PostgresRoutingRulesRepository implements RoutingRulesStore.
-var _ provisioning.RoutingRulesStore = (*PostgresRoutingRulesRepository)(nil)
+var _ provisioning.RoutingRulesStore = (*RoutingRulesRepository)(nil)

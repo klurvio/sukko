@@ -9,18 +9,18 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// PostgresAPIKeyStore implements APIKeyStore using PostgreSQL.
-type PostgresAPIKeyStore struct {
+// APIKeyStore implements provisioning.APIKeyStore using database/sql.
+type APIKeyStore struct {
 	db *sql.DB
 }
 
-// NewPostgresAPIKeyStore creates a new PostgresAPIKeyStore.
-func NewPostgresAPIKeyStore(db *sql.DB) *PostgresAPIKeyStore {
-	return &PostgresAPIKeyStore{db: db}
+// NewAPIKeyStore creates an APIKeyStore.
+func NewAPIKeyStore(db *sql.DB) *APIKeyStore {
+	return &APIKeyStore{db: db}
 }
 
 // Create creates a new API key record.
-func (r *PostgresAPIKeyStore) Create(ctx context.Context, key *provisioning.APIKey) error {
+func (r *APIKeyStore) Create(ctx context.Context, key *provisioning.APIKey) error {
 	query := `
 		INSERT INTO api_keys (key_id, tenant_id, name, is_active, created_at)
 		VALUES ($1, $2, $3, $4, $5)
@@ -47,7 +47,7 @@ func (r *PostgresAPIKeyStore) Create(ctx context.Context, key *provisioning.APIK
 }
 
 // Get retrieves an API key by key ID.
-func (r *PostgresAPIKeyStore) Get(ctx context.Context, keyID string) (*provisioning.APIKey, error) {
+func (r *APIKeyStore) Get(ctx context.Context, keyID string) (*provisioning.APIKey, error) {
 	query := `
 		SELECT key_id, tenant_id, name, is_active, created_at, revoked_at
 		FROM api_keys
@@ -80,7 +80,7 @@ func (r *PostgresAPIKeyStore) Get(ctx context.Context, keyID string) (*provision
 }
 
 // ListByTenant returns API keys for a tenant with pagination.
-func (r *PostgresAPIKeyStore) ListByTenant(ctx context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.APIKey, int, error) {
+func (r *APIKeyStore) ListByTenant(ctx context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.APIKey, int, error) {
 	// Count total
 	var total int
 	countQuery := `SELECT COUNT(*) FROM api_keys WHERE tenant_id = $1`
@@ -134,7 +134,7 @@ func (r *PostgresAPIKeyStore) ListByTenant(ctx context.Context, tenantID string,
 }
 
 // Revoke revokes an API key by setting its revoked_at timestamp.
-func (r *PostgresAPIKeyStore) Revoke(ctx context.Context, keyID string) error {
+func (r *APIKeyStore) Revoke(ctx context.Context, keyID string) error {
 	query := `
 		UPDATE api_keys
 		SET is_active = false, revoked_at = $2
@@ -160,7 +160,7 @@ func (r *PostgresAPIKeyStore) Revoke(ctx context.Context, keyID string) error {
 
 // GetActiveAPIKeys returns all active, non-revoked API keys.
 // Used by the gateway to populate its in-memory lookup map.
-func (r *PostgresAPIKeyStore) GetActiveAPIKeys(ctx context.Context) ([]*provisioning.APIKey, error) {
+func (r *APIKeyStore) GetActiveAPIKeys(ctx context.Context) ([]*provisioning.APIKey, error) {
 	query := `
 		SELECT key_id, tenant_id, name, is_active, created_at, revoked_at
 		FROM api_keys
@@ -205,5 +205,4 @@ func (r *PostgresAPIKeyStore) GetActiveAPIKeys(ctx context.Context) ([]*provisio
 	return keys, nil
 }
 
-// Ensure PostgresAPIKeyStore implements APIKeyStore.
-var _ provisioning.APIKeyStore = (*PostgresAPIKeyStore)(nil)
+var _ provisioning.APIKeyStore = (*APIKeyStore)(nil)

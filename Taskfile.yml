@@ -20,6 +20,10 @@ includes:
     taskfile: ./taskfiles/k8s.yml
     dir: .
 
+  push:
+    taskfile: ./taskfiles/push.yml
+    dir: .
+
   tester:
     taskfile: ./taskfiles/tester.yml
     dir: .

@@ -37,24 +37,6 @@ func openTestSQLite(t *testing.T) *sql.DB {
 	return db
 }
 
-func TestMigrator_CreatesTable(t *testing.T) {
-	t.Parallel()
-
-	db := openTestSQLite(t)
-	m := NewMigrator(db, "sqlite", zerolog.Nop())
-
-	if err := m.ensureMigrationsTable(); err != nil {
-		t.Fatalf("ensureMigrationsTable() error = %v", err)
-	}
-
-	// Verify table exists
-	var name string
-	err := db.QueryRowContext(context.Background(), "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&name)
-	if err != nil {
-		t.Fatalf("schema_migrations table not created: %v", err)
-	}
-}
-
 func TestMigrator_AppliesMigrations(t *testing.T) {
 	t.Parallel()
 
@@ -63,6 +45,13 @@ func TestMigrator_AppliesMigrations(t *testing.T) {
 
 	if err := m.Migrate(); err != nil {
 		t.Fatalf("Migrate() error = %v", err)
+	}
+
+	// Verify schema_migrations table was created
+	var name string
+	err := db.QueryRowContext(context.Background(), "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&name)
+	if err != nil {
+		t.Fatal("schema_migrations table should have been created")
 	}
 
 	// Verify migrations were recorded
@@ -76,7 +65,7 @@ func TestMigrator_AppliesMigrations(t *testing.T) {
 
 	// Verify tables were created by migration (e.g., tenants table)
 	var tableName string
-	err := db.QueryRowContext(context.Background(), "SELECT name FROM sqlite_master WHERE type='table' AND name='tenants'").Scan(&tableName)
+	err = db.QueryRowContext(context.Background(), "SELECT name FROM sqlite_master WHERE type='table' AND name='tenants'").Scan(&tableName)
 	if err != nil {
 		t.Fatal("tenants table should have been created by migration")
 	}
@@ -109,21 +98,6 @@ func TestMigrator_Idempotent(t *testing.T) {
 	}
 
 	if count1 != count2 {
-		t.Errorf("migration count changed: %d → %d (should be idempotent)", count1, count2)
-	}
-}
-
-func TestMigrator_InvalidDriver(t *testing.T) {
-	t.Parallel()
-
-	db := openTestSQLite(t)
-	m := NewMigrator(db, "invalid-driver", zerolog.Nop())
-
-	if err := m.ensureMigrationsTable(); err != nil {
-		t.Fatalf("ensureMigrationsTable() error = %v", err)
-	}
-
-	if err := m.Migrate(); err == nil {
-		t.Fatal("expected error for invalid driver")
+		t.Errorf("migration count changed: %d -> %d (should be idempotent)", count1, count2)
 	}
 }

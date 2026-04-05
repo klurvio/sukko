@@ -2,10 +2,9 @@ package repository
 
 import "embed"
 
-// Embedded migration files for both PostgreSQL and SQLite.
+// Embedded migration files for SQLite.
+// PostgreSQL migrations live in internal/shared/migrations/postgres/
+// and are applied externally via Atlas.
 //
-//go:embed migrations/postgres/*.sql
-var postgresMigrations embed.FS
-
 //go:embed migrations/sqlite/*.sql
 var sqliteMigrations embed.FS

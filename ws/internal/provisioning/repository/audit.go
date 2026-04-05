@@ -10,18 +10,18 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// PostgresAuditRepository implements AuditStore using PostgreSQL.
-type PostgresAuditRepository struct {
+// AuditRepository implements AuditStore using database/sql.
+type AuditRepository struct {
 	db *sql.DB
 }
 
-// NewPostgresAuditRepository creates a new PostgresAuditRepository.
-func NewPostgresAuditRepository(db *sql.DB) *PostgresAuditRepository {
-	return &PostgresAuditRepository{db: db}
+// NewAuditRepository creates an AuditRepository.
+func NewAuditRepository(db *sql.DB) *AuditRepository {
+	return &AuditRepository{db: db}
 }
 
 // Log records an audit entry.
-func (r *PostgresAuditRepository) Log(ctx context.Context, entry *provisioning.AuditEntry) error {
+func (r *AuditRepository) Log(ctx context.Context, entry *provisioning.AuditEntry) error {
 	query := `
 		INSERT INTO provisioning_audit (tenant_id, action, actor, actor_type, ip_address, details, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -68,7 +68,7 @@ func (r *PostgresAuditRepository) Log(ctx context.Context, entry *provisioning.A
 }
 
 // ListByTenant returns audit entries for a tenant.
-func (r *PostgresAuditRepository) ListByTenant(ctx context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.AuditEntry, int, error) {
+func (r *AuditRepository) ListByTenant(ctx context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.AuditEntry, int, error) {
 	// Count total
 	countQuery := `SELECT COUNT(*) FROM provisioning_audit WHERE tenant_id = $1`
 	var total int
@@ -134,5 +134,4 @@ func (r *PostgresAuditRepository) ListByTenant(ctx context.Context, tenantID str
 	return entries, total, nil
 }
 
-// Ensure PostgresAuditRepository implements AuditStore.
-var _ provisioning.AuditStore = (*PostgresAuditRepository)(nil)
+var _ provisioning.AuditStore = (*AuditRepository)(nil)

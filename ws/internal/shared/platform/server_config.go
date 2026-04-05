@@ -48,6 +48,7 @@ const (
 //	required: Must be provided (no default)
 type ServerConfig struct {
 	BaseConfig
+	MessageBackendConfig
 	ProvisioningClientConfig
 	KafkaNamespaceConfig
 	HTTPTimeoutConfig
@@ -59,49 +60,11 @@ type ServerConfig struct {
 	LBAddr    string `env:"WS_LB_ADDR" envDefault:":3005"`      // Load balancer listen address
 	GRPCPort  int    `env:"SERVER_GRPC_PORT" envDefault:"3006"` // gRPC server port for RealtimeService (SSE Subscribe + REST Publish)
 
-	// Message Backend Selection
-	//
-	// Controls which message ingestion/persistence layer the ws-server uses.
-	// - "direct": Messages flow directly to broadcast bus. No persistence, no replay.
-	//   Zero external dependencies beyond the broadcast bus. Default for lowest friction.
-	// - "kafka": Full Kafka/Redpanda integration. Persistence, offset-based replay,
-	//   multi-tenant consumer isolation. Requires Kafka infrastructure.
-	// - "nats": NATS JetStream persistent streams. Sequence-based replay,
-	//   stream-per-tenant isolation. Lighter than Kafka.
-	MessageBackend string `env:"MESSAGE_BACKEND" envDefault:"direct"`
-
-	// Kafka Configuration (only used when MESSAGE_BACKEND=kafka)
-	KafkaBrokers string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"`
-
 	// KafkaConsumerEnabled controls whether the Kafka consumer pool is started.
 	// When false, the consumer pool is not created — no consumer group join, no message
 	// consumption. WebSocket connections still work (connection-only mode for loadtesting).
 	// Default: true
 	KafkaConsumerEnabled bool `env:"KAFKA_CONSUMER_ENABLED" envDefault:"true"`
-
-	// Kafka Security - SASL Authentication
-	//
-	// For connecting to managed Kafka/Redpanda services that require authentication.
-	// When KafkaSASLEnabled=false (default), connects without authentication (local dev).
-	//
-	// Supported mechanisms:
-	// - scram-sha-256: SCRAM-SHA-256 (recommended, widely supported)
-	// - scram-sha-512: SCRAM-SHA-512 (stronger, less common)
-	KafkaSASLEnabled   bool   `env:"KAFKA_SASL_ENABLED" envDefault:"false"`
-	KafkaSASLMechanism string `env:"KAFKA_SASL_MECHANISM"` // scram-sha-256 or scram-sha-512
-	KafkaSASLUsername  string `env:"KAFKA_SASL_USERNAME"`
-	KafkaSASLPassword  string `env:"KAFKA_SASL_PASSWORD" redact:"true"`
-
-	// Kafka Security - TLS Encryption
-	//
-	// For encrypted connections to Kafka. Required for most managed services.
-	// When KafkaTLSEnabled=false (default), connects without TLS (local dev).
-	//
-	// KafkaTLSInsecure: Skip server certificate verification (NOT for production)
-	// KafkaTLSCAPath: Path to CA certificate for server verification
-	KafkaTLSEnabled  bool   `env:"KAFKA_TLS_ENABLED" envDefault:"false"`
-	KafkaTLSInsecure bool   `env:"KAFKA_TLS_INSECURE" envDefault:"false"`
-	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`
 
 	// Kafka Topic Defaults (for on-demand topic creation by KafkaBackend)
 	KafkaDefaultPartitions        int `env:"KAFKA_DEFAULT_PARTITIONS" envDefault:"1"`
@@ -291,21 +254,6 @@ type ServerConfig struct {
 	ValkeyTLSEnabled  bool   `env:"VALKEY_TLS_ENABLED" envDefault:"false"`
 	ValkeyTLSInsecure bool   `env:"VALKEY_TLS_INSECURE" envDefault:"false"`
 	ValkeyTLSCAPath   string `env:"VALKEY_TLS_CA_PATH"`
-
-	// NATS JetStream Configuration (only used when MESSAGE_BACKEND=nats)
-	//
-	// Connects to an external NATS server with JetStream enabled for persistent
-	// message streams and sequence-based replay. Each tenant gets its own stream
-	// for natural noisy-tenant isolation.
-	NATSJetStreamURLs        string        `env:"NATS_JETSTREAM_URLS"`                            // Comma-separated NATS URLs
-	NATSJetStreamToken       string        `env:"NATS_JETSTREAM_TOKEN" redact:"true"`             // Auth token
-	NATSJetStreamUser        string        `env:"NATS_JETSTREAM_USER"`                            // Username
-	NATSJetStreamPassword    string        `env:"NATS_JETSTREAM_PASSWORD" redact:"true"`          // Password
-	NATSJetStreamReplicas    int           `env:"NATS_JETSTREAM_REPLICAS" envDefault:"1"`         // Stream replicas
-	NATSJetStreamMaxAge      time.Duration `env:"NATS_JETSTREAM_MAX_AGE" envDefault:"24h"`        // Message retention
-	NATSJetStreamTLSEnabled  bool          `env:"NATS_JETSTREAM_TLS_ENABLED" envDefault:"false"`  // TLS for managed NATS (Synadia Cloud, etc.)
-	NATSJetStreamTLSInsecure bool          `env:"NATS_JETSTREAM_TLS_INSECURE" envDefault:"false"` // Skip TLS verification (not for production)
-	NATSJetStreamTLSCAPath   string        `env:"NATS_JETSTREAM_TLS_CA_PATH"`                     // Custom CA certificate path
 
 	// Topic Refresh Interval
 	//
@@ -682,23 +630,9 @@ func (c *ServerConfig) Validate() error {
 	// NOTE: Authentication is now handled by ws-gateway
 	// No auth config validation needed in ws-server
 
-	// Message backend validation
-	validBackends := map[string]bool{"direct": true, "kafka": true, "nats": true}
-	if !validBackends[c.MessageBackend] {
-		return fmt.Errorf("[CONFIG ERROR] MESSAGE_BACKEND=%q is invalid (valid: direct, kafka, nats)", c.MessageBackend)
-	}
-
-	// NATS JetStream validation (when MESSAGE_BACKEND=nats)
-	if c.MessageBackend == "nats" {
-		if c.NATSJetStreamURLs == "" {
-			return errors.New("NATS_JETSTREAM_URLS is required when MESSAGE_BACKEND=nats")
-		}
-		if c.NATSJetStreamReplicas < 1 {
-			return fmt.Errorf("NATS_JETSTREAM_REPLICAS must be >= 1, got %d", c.NATSJetStreamReplicas)
-		}
-		if c.NATSJetStreamMaxAge < 1*time.Minute {
-			return fmt.Errorf("NATS_JETSTREAM_MAX_AGE must be >= 1m, got %v", c.NATSJetStreamMaxAge)
-		}
+	// Message backend validation (type, Kafka SASL/TLS, NATS JetStream)
+	if err := c.MessageBackendConfig.Validate(); err != nil {
+		return err
 	}
 
 	// Topic refresh interval validation (applies to kafka and nats backends)
@@ -715,23 +649,6 @@ func (c *ServerConfig) Validate() error {
 			return fmt.Errorf("KAFKA_DEFAULT_REPLICATION_FACTOR must be >= 1, got %d", c.KafkaDefaultReplicationFactor)
 		}
 	}
-
-	// Kafka SASL validation (only relevant when MESSAGE_BACKEND=kafka)
-	if c.MessageBackend == "kafka" && c.KafkaSASLEnabled {
-		if err := validateKafkaSASLMechanism(c.KafkaSASLMechanism); err != nil {
-			return err
-		}
-		if c.KafkaSASLUsername == "" {
-			return errors.New("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLED=true")
-		}
-		if c.KafkaSASLPassword == "" {
-			return errors.New("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
-		}
-	}
-
-	// Kafka TLS validation
-	// Note: We don't require CA path - system CA pool is used by default if not specified
-	// KafkaTLSInsecure is allowed but should be warned about in production
 
 	// Provisioning gRPC validation (required for topic discovery)
 	if err := c.ProvisioningClientConfig.Validate(); err != nil {

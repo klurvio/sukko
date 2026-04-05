@@ -78,7 +78,9 @@ type GatewayConfig struct {
 	ShutdownTimeout time.Duration `env:"GATEWAY_SHUTDOWN_TIMEOUT" envDefault:"30s"`
 
 	// SSE + REST Publish (Pro edition)
-	ServerGRPCAddr       string        `env:"SERVER_GRPC_ADDR" envDefault:"localhost:3006"`         // ws-server gRPC address for RealtimeService
+	ServerGRPCAddr string `env:"SERVER_GRPC_ADDR" envDefault:"localhost:3006"` // ws-server gRPC address for RealtimeService
+	// Push service gRPC address for PushService (RegisterDevice, UnregisterDevice, GetVAPIDKey)
+	PushGRPCAddr         string        `env:"PUSH_GRPC_ADDR" envDefault:"localhost:3008"`
 	SSEKeepAliveInterval time.Duration `env:"SSE_KEEPALIVE_INTERVAL" envDefault:"45s"`              // SSE keepalive comment interval (prevents proxy timeouts)
 	CORSAllowedOrigins   []string      `env:"GATEWAY_CORS_ORIGINS" envDefault:"*" envSeparator:","` // CORS allowed origins (* = all, production: restrict)
 
@@ -224,6 +226,9 @@ func (c *GatewayConfig) Validate() error {
 	// SSE + REST Publish config validation
 	if c.ServerGRPCAddr == "" {
 		return errors.New("SERVER_GRPC_ADDR must not be empty")
+	}
+	if c.PushGRPCAddr == "" {
+		return errors.New("PUSH_GRPC_ADDR must not be empty")
 	}
 	if c.SSEKeepAliveInterval <= 0 {
 		return fmt.Errorf("SSE_KEEPALIVE_INTERVAL must be > 0, got %v", c.SSEKeepAliveInterval)
