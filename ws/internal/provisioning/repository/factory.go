@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -38,7 +39,7 @@ type DatabaseConfig struct {
 // If AutoMigrate is true for SQLite, embedded provisioning migrations are applied.
 // For PostgreSQL, migrations are applied externally via Atlas.
 func OpenDatabase(cfg DatabaseConfig) (*sql.DB, error) {
-	return database.Open(database.Config{
+	db, err := database.Open(database.Config{
 		Driver:          cfg.Driver,
 		URL:             cfg.URL,
 		Path:            cfg.Path,
@@ -51,4 +52,8 @@ func OpenDatabase(cfg DatabaseConfig) (*sql.DB, error) {
 		ConnMaxIdleTime: cfg.ConnMaxIdleTime,
 		Logger:          cfg.Logger,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("open provisioning database: %w", err)
+	}
+	return db, nil
 }

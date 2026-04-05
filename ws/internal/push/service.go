@@ -135,12 +135,12 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 
 	pool, err := consumer.NewPool(cfg.ConsumerPool)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create consumer pool: %w", err)
 	}
 
 	wp, err := worker.NewPool(cfg.WorkerPool)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create worker pool: %w", err)
 	}
 
 	refreshInterval := cfg.RefreshInterval
@@ -177,7 +177,7 @@ func (s *Service) Start(ctx context.Context) error {
 	// Start consumer pool with our message handler
 	if err := s.consumerPool.Start(s.ctx, s.handleMessage, topics); err != nil { //nolint:contextcheck // s.ctx derived from ctx on line 167
 		s.workerPool.Stop()
-		return err
+		return fmt.Errorf("start consumer pool: %w", err)
 	}
 
 	// Launch periodic topic refresh

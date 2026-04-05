@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"embed"
+	"fmt"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -58,7 +59,7 @@ func OpenDatabase(cfg DatabaseConfig) (*sql.DB, error) {
 		migrationsDir = "migrations/sqlite"
 	}
 
-	return database.Open(database.Config{
+	db, err := database.Open(database.Config{
 		Driver:          cfg.Driver,
 		URL:             cfg.URL,
 		Path:            cfg.Path,
@@ -71,6 +72,10 @@ func OpenDatabase(cfg DatabaseConfig) (*sql.DB, error) {
 		ConnMaxIdleTime: cfg.ConnMaxIdleTime,
 		Logger:          cfg.Logger,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("open push database: %w", err)
+	}
+	return db, nil
 }
 
 // NewSubscriptionRepository creates a SubscriptionRepository for the given database driver.

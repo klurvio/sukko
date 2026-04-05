@@ -64,22 +64,22 @@ func (c *Config) EditionManager() *license.Manager {
 func (c *Config) Validate() error {
 	// Shared field validation (LogLevel, LogFormat, Environment)
 	if err := c.BaseConfig.Validate(); err != nil {
-		return err
+		return fmt.Errorf("base config: %w", err)
 	}
 
 	// Provisioning client validation (gRPC address, reconnect delays)
 	if err := c.ProvisioningClientConfig.Validate(); err != nil {
-		return err
+		return fmt.Errorf("provisioning client config: %w", err)
 	}
 
 	// Message backend validation (backend type, broker/NATS settings)
 	if err := c.MessageBackendConfig.Validate(); err != nil {
-		return err
+		return fmt.Errorf("message backend config: %w", err)
 	}
 
 	// Topic namespace validation (includes prod guard)
 	if err := c.KafkaNamespaceConfig.Validate(c.Environment); err != nil {
-		return err
+		return fmt.Errorf("kafka namespace config: %w", err)
 	}
 
 	// Push notifications require persistent message ingestion — direct mode has no

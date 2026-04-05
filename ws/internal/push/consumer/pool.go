@@ -370,5 +370,9 @@ func (p *Pool) createClient(topics []string) (*kgo.Client, error) {
 			Msg("Push consumer TLS enabled")
 	}
 
-	return kgo.NewClient(opts...)
+	client, err := kgo.NewClient(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create kafka client: %w", err)
+	}
+	return client, nil
 }

@@ -7,6 +7,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -232,7 +233,7 @@ func (p *Pool) sendWithRetry(prov provider.Provider, job provider.PushJob) error
 
 		// Only retry on rate limiting
 		if !errors.Is(lastErr, provider.ErrRateLimited) {
-			return lastErr
+			return fmt.Errorf("send push notification: %w", lastErr)
 		}
 
 		// Don't sleep after the last attempt
@@ -249,7 +250,7 @@ func (p *Pool) sendWithRetry(prov provider.Provider, job provider.PushJob) error
 		select {
 		case <-time.After(backoff):
 		case <-p.ctx.Done():
-			return p.ctx.Err()
+			return fmt.Errorf("push delivery canceled: %w", p.ctx.Err())
 		}
 
 		// Exponential backoff: 1s, 2s, 4s, ...
@@ -260,5 +261,5 @@ func (p *Pool) sendWithRetry(prov provider.Provider, job provider.PushJob) error
 	}
 
 	jobsFailed.WithLabelValues(job.Platform, "rate_limited").Inc()
-	return lastErr
+	return fmt.Errorf("send push notification after retries: %w", lastErr)
 }
