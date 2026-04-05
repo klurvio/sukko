@@ -2,6 +2,7 @@
 ws/gateway
 ws/server
 ws/provisioning
+ws/push
 ws/tester
 ws/cli
 scripts/compose-transform/compose-transform
