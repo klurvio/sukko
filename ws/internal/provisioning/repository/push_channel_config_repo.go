@@ -2,11 +2,13 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ErrChannelConfigNotFound indicates no push channel config exists for the tenant.
@@ -25,16 +27,15 @@ type PushChannelConfig struct {
 
 // ChannelConfigRepository manages push channel configuration per tenant.
 type ChannelConfigRepository struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
 // NewChannelConfigRepository creates a ChannelConfigRepository.
-func NewChannelConfigRepository(db *sql.DB) *ChannelConfigRepository {
-	return &ChannelConfigRepository{db: db}
+func NewChannelConfigRepository(pool *pgxpool.Pool) *ChannelConfigRepository {
+	return &ChannelConfigRepository{pool: pool}
 }
 
 // Upsert inserts or updates the push channel configuration for a tenant.
-// Uses INSERT ... ON CONFLICT for portable upsert across SQLite and PostgreSQL.
 func (r *ChannelConfigRepository) Upsert(ctx context.Context, config *PushChannelConfig) error {
 	patternsJSON, err := json.Marshal(config.Patterns)
 	if err != nil {
@@ -58,7 +59,7 @@ func (r *ChannelConfigRepository) Upsert(ctx context.Context, config *PushChanne
 		RETURNING id
 	`
 
-	err = r.db.QueryRowContext(ctx, query,
+	err = r.pool.QueryRow(ctx, query,
 		config.TenantID,
 		string(patternsJSON),
 		config.DefaultTTL,
@@ -84,7 +85,7 @@ func (r *ChannelConfigRepository) Get(ctx context.Context, tenantID string) (*Pu
 	config := &PushChannelConfig{}
 	var patternsJSON string
 
-	err := r.db.QueryRowContext(ctx, query, tenantID).Scan(
+	err := r.pool.QueryRow(ctx, query, tenantID).Scan(
 		&config.ID,
 		&config.TenantID,
 		&patternsJSON,
@@ -93,7 +94,7 @@ func (r *ChannelConfigRepository) Get(ctx context.Context, tenantID string) (*Pu
 		&config.CreatedAt,
 		&config.UpdatedAt,
 	)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("tenant %s: %w", tenantID, ErrChannelConfigNotFound)
 	}
 	if err != nil {
@@ -115,11 +116,11 @@ func (r *ChannelConfigRepository) ListAll(ctx context.Context) ([]*PushChannelCo
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query push channel configs: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	configs := []*PushChannelConfig{}
 	for rows.Next() {
@@ -157,16 +158,12 @@ func (r *ChannelConfigRepository) ListAll(ctx context.Context) ([]*PushChannelCo
 func (r *ChannelConfigRepository) Delete(ctx context.Context, tenantID string) error {
 	query := `DELETE FROM push_channel_configs WHERE tenant_id = $1`
 
-	result, err := r.db.ExecContext(ctx, query, tenantID)
+	result, err := r.pool.Exec(ctx, query, tenantID)
 	if err != nil {
 		return fmt.Errorf("delete push channel config: %w", err)
 	}
 
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if affected == 0 {
+	if result.RowsAffected() == 0 {
 		return fmt.Errorf("tenant %s: %w", tenantID, ErrChannelConfigNotFound)
 	}
 

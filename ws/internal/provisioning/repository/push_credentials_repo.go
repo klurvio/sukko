@@ -2,10 +2,12 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ErrCredentialAlreadyExists indicates a push credential already exists for the tenant+provider.
@@ -25,14 +27,14 @@ type PushCredential struct {
 
 // CredentialsRepository manages push credentials with optional at-rest encryption.
 type CredentialsRepository struct {
-	db            *sql.DB
+	pool          *pgxpool.Pool
 	encryptionKey []byte // nil when encryption is disabled (local dev without push)
 }
 
 // NewCredentialsRepository creates a CredentialsRepository. If encryptionKeyStr is empty,
 // encryption is disabled — credentials are stored in plaintext (for local dev without push).
-func NewCredentialsRepository(db *sql.DB, encryptionKeyStr string) (*CredentialsRepository, error) {
-	repo := &CredentialsRepository{db: db}
+func NewCredentialsRepository(pool *pgxpool.Pool, encryptionKeyStr string) (*CredentialsRepository, error) {
+	repo := &CredentialsRepository{pool: pool}
 
 	if encryptionKeyStr != "" {
 		key, err := parseEncryptionKey(encryptionKeyStr)
@@ -68,7 +70,7 @@ func (r *CredentialsRepository) Create(ctx context.Context, cred *PushCredential
 		RETURNING id
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
+	err := r.pool.QueryRow(ctx, query,
 		cred.TenantID,
 		cred.Provider,
 		credData,
@@ -94,14 +96,14 @@ func (r *CredentialsRepository) Get(ctx context.Context, tenantID, provider stri
 	`
 
 	cred := &PushCredential{}
-	err := r.db.QueryRowContext(ctx, query, tenantID, provider).Scan(
+	err := r.pool.QueryRow(ctx, query, tenantID, provider).Scan(
 		&cred.ID,
 		&cred.TenantID,
 		&cred.Provider,
 		&cred.CredentialData,
 		&cred.CreatedAt,
 	)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("tenant %s provider %s: %w", tenantID, provider, ErrCredentialNotFound)
 	}
 	if err != nil {
@@ -129,11 +131,11 @@ func (r *CredentialsRepository) ListByTenant(ctx context.Context, tenantID strin
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, tenantID)
+	rows, err := r.pool.Query(ctx, query, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("query push credentials: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	creds := []*PushCredential{}
 	for rows.Next() {
@@ -176,11 +178,11 @@ func (r *CredentialsRepository) ListAll(ctx context.Context) ([]*PushCredential,
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query all push credentials: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	creds := []*PushCredential{}
 	for rows.Next() {
@@ -233,16 +235,12 @@ func (r *CredentialsRepository) Update(ctx context.Context, cred *PushCredential
 		WHERE tenant_id = $2 AND provider = $3
 	`
 
-	result, err := r.db.ExecContext(ctx, query, credData, cred.TenantID, cred.Provider)
+	result, err := r.pool.Exec(ctx, query, credData, cred.TenantID, cred.Provider)
 	if err != nil {
 		return fmt.Errorf("update push credential: %w", err)
 	}
 
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if affected == 0 {
+	if result.RowsAffected() == 0 {
 		return fmt.Errorf("tenant %s provider %s: %w", cred.TenantID, cred.Provider, ErrCredentialNotFound)
 	}
 
@@ -253,16 +251,12 @@ func (r *CredentialsRepository) Update(ctx context.Context, cred *PushCredential
 func (r *CredentialsRepository) Delete(ctx context.Context, tenantID, provider string) error {
 	query := `DELETE FROM push_credentials WHERE tenant_id = $1 AND provider = $2`
 
-	result, err := r.db.ExecContext(ctx, query, tenantID, provider)
+	result, err := r.pool.Exec(ctx, query, tenantID, provider)
 	if err != nil {
 		return fmt.Errorf("delete push credential: %w", err)
 	}
 
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if affected == 0 {
+	if result.RowsAffected() == 0 {
 		return fmt.Errorf("tenant %s provider %s: %w", tenantID, provider, ErrCredentialNotFound)
 	}
 

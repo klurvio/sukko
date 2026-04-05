@@ -1,5 +1,4 @@
-// Package repository provides push subscription storage with support
-// for SQLite and PostgreSQL backends.
+// Package repository provides push subscription storage backed by PostgreSQL (pgxpool).
 package repository
 
 import (

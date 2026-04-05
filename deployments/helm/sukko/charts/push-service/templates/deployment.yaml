@@ -1,9 +1,4 @@
 {{- if .Values.enabled }}
-{{- $dbDriver := .Values.databaseDriver | default "sqlite" -}}
-{{- /* Guard: SQLite requires exactly 1 replica */ -}}
-{{- if and (eq $dbDriver "sqlite") (gt (int .Values.replicaCount) 1) -}}
-  {{- fail "replicaCount must be 1 when using SQLite (default). Use PostgreSQL for horizontal scaling." -}}
-{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -118,28 +113,18 @@ spec:
             {{- end }}
             {{- end }}
 
-            # Database configuration
-            {{- if ne $dbDriver "sqlite" }}
-            - name: PUSH_DATABASE_DRIVER
-              value: {{ $dbDriver | quote }}
-            {{- end }}
-            {{- if eq $dbDriver "sqlite" }}
-            - name: PUSH_DATABASE_PATH
-              value: {{ .Values.database.sqlitePath | quote }}
-            {{- end }}
-            {{- if eq $dbDriver "postgres" }}
-            - name: PUSH_DATABASE_URL
-              {{- if .Values.externalDatabase.existingSecret }}
+            # PostgreSQL connection
+            - name: DATABASE_URL
+              {{- if .Values.database.existingSecret }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.externalDatabase.existingSecret }}
-                  key: {{ .Values.externalDatabase.existingSecretKey | default "database-url" }}
+                  name: {{ .Values.database.existingSecret }}
+                  key: {{ .Values.database.existingSecretKey | default "database-url" }}
+              {{- else if .Values.database.url }}
+              value: {{ .Values.database.url | quote }}
               {{- else }}
-              value: {{ .Values.externalDatabase.url | quote }}
+              value: {{ printf "postgres://sukko:sukko@%s-postgresql:5432/sukko?sslmode=disable" .Release.Name | quote }}
               {{- end }}
-            - name: PUSH_AUTO_MIGRATE
-              value: "false"
-            {{- end }}
 
             # Push-specific settings (only injected when set)
             {{- if .Values.dryRun }}
@@ -165,23 +150,8 @@ spec:
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if eq $dbDriver "sqlite" }}
-          volumeMounts:
-            - name: data
-              mountPath: /data
-          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-      {{- if eq $dbDriver "sqlite" }}
-      volumes:
-        - name: data
-          {{- if .Values.persistence.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ include "push-service.fullname" . }}-data
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
-      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

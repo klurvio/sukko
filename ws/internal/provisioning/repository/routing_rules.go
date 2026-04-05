@@ -2,23 +2,25 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// RoutingRulesRepository implements RoutingRulesStore using database/sql.
+// RoutingRulesRepository implements RoutingRulesStore using PostgreSQL via pgxpool.
 type RoutingRulesRepository struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
 // NewRoutingRulesRepository creates a RoutingRulesRepository.
-func NewRoutingRulesRepository(db *sql.DB) *RoutingRulesRepository {
-	return &RoutingRulesRepository{db: db}
+func NewRoutingRulesRepository(pool *pgxpool.Pool) *RoutingRulesRepository {
+	return &RoutingRulesRepository{pool: pool}
 }
 
 // Get retrieves routing rules for a tenant.
@@ -26,9 +28,9 @@ func (r *RoutingRulesRepository) Get(ctx context.Context, tenantID string) ([]pr
 	query := `SELECT rules FROM tenant_routing_rules WHERE tenant_id = $1`
 
 	var rulesJSON []byte
-	err := r.db.QueryRowContext(ctx, query, tenantID).Scan(&rulesJSON)
+	err := r.pool.QueryRow(ctx, query, tenantID).Scan(&rulesJSON)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, provisioning.ErrRoutingRulesNotFound
 		}
 		return nil, fmt.Errorf("query routing rules: %w", err)
@@ -56,7 +58,7 @@ func (r *RoutingRulesRepository) Set(ctx context.Context, tenantID string, rules
 		ON CONFLICT (tenant_id) DO UPDATE SET rules = $2, updated_at = $4
 	`
 
-	_, err = r.db.ExecContext(ctx, query, tenantID, rulesJSON, now, now)
+	_, err = r.pool.Exec(ctx, query, tenantID, rulesJSON, now, now)
 	if err != nil {
 		return fmt.Errorf("upsert routing rules: %w", err)
 	}
@@ -68,16 +70,12 @@ func (r *RoutingRulesRepository) Set(ctx context.Context, tenantID string, rules
 func (r *RoutingRulesRepository) Delete(ctx context.Context, tenantID string) error {
 	query := `DELETE FROM tenant_routing_rules WHERE tenant_id = $1`
 
-	result, err := r.db.ExecContext(ctx, query, tenantID)
+	result, err := r.pool.Exec(ctx, query, tenantID)
 	if err != nil {
 		return fmt.Errorf("delete routing rules: %w", err)
 	}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if rows == 0 {
+	if result.RowsAffected() == 0 {
 		return provisioning.ErrRoutingRulesNotFound
 	}
 
@@ -88,11 +86,11 @@ func (r *RoutingRulesRepository) Delete(ctx context.Context, tenantID string) er
 func (r *RoutingRulesRepository) ListAll(ctx context.Context) (map[string][]provisioning.TopicRoutingRule, error) {
 	query := `SELECT tenant_id, rules FROM tenant_routing_rules`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query all routing rules: %w", err)
 	}
-	defer func() { _ = rows.Close() }() // Close error non-actionable on read-only result set
+	defer rows.Close()
 
 	result := make(map[string][]provisioning.TopicRoutingRule)
 	for rows.Next() {

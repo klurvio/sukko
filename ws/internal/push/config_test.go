@@ -31,8 +31,9 @@ func validConfig() Config {
 		KafkaNamespaceConfig: platform.KafkaNamespaceConfig{
 			ValidNamespaces: "local,dev,stag,prod",
 		},
-		DatabaseDriver: "sqlite",
-		DatabasePath:   "test.db",
+		DatabaseConfig: platform.DatabaseConfig{
+			DatabaseURL: "postgres://localhost:5432/push",
+		},
 		WorkerPoolSize: 200,
 		JobQueueSize:   10000,
 		GRPCPort:       3008,
@@ -64,27 +65,11 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: "push notifications require kafka or nats",
 		},
 		{
-			name: "invalid database driver",
+			name: "empty database URL",
 			modify: func(c *Config) {
-				c.DatabaseDriver = "mysql"
-			},
-			wantErr: "invalid",
-		},
-		{
-			name: "postgres driver with empty database URL",
-			modify: func(c *Config) {
-				c.DatabaseDriver = "postgres"
 				c.DatabaseURL = ""
 			},
-			wantErr: "PUSH_DATABASE_URL is required",
-		},
-		{
-			name: "sqlite driver with empty database path",
-			modify: func(c *Config) {
-				c.DatabaseDriver = "sqlite"
-				c.DatabasePath = ""
-			},
-			wantErr: "PUSH_DATABASE_PATH is required",
+			wantErr: "DATABASE_URL is required",
 		},
 		{
 			name: "worker pool size zero",
@@ -133,14 +118,6 @@ func TestConfigValidate(t *testing.T) {
 			modify: func(c *Config) {
 				c.MessageBackend = "nats"
 				c.NATSJetStreamURLs = "nats://localhost:4222"
-			},
-			wantErr: "",
-		},
-		{
-			name: "postgres driver with valid URL passes",
-			modify: func(c *Config) {
-				c.DatabaseDriver = "postgres"
-				c.DatabaseURL = "postgres://localhost:5432/push"
 			},
 			wantErr: "",
 		},

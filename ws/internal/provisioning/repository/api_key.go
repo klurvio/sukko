@@ -2,21 +2,24 @@ package repository
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// APIKeyStore implements provisioning.APIKeyStore using database/sql.
+// APIKeyStore implements provisioning.APIKeyStore using PostgreSQL via pgxpool.
 type APIKeyStore struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
 // NewAPIKeyStore creates an APIKeyStore.
-func NewAPIKeyStore(db *sql.DB) *APIKeyStore {
-	return &APIKeyStore{db: db}
+func NewAPIKeyStore(pool *pgxpool.Pool) *APIKeyStore {
+	return &APIKeyStore{pool: pool}
 }
 
 // Create creates a new API key record.
@@ -32,7 +35,7 @@ func (r *APIKeyStore) Create(ctx context.Context, key *provisioning.APIKey) erro
 	}
 	key.IsActive = true
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.pool.Exec(ctx, query,
 		key.KeyID,
 		key.TenantID,
 		key.Name,
@@ -55,25 +58,20 @@ func (r *APIKeyStore) Get(ctx context.Context, keyID string) (*provisioning.APIK
 	`
 
 	key := &provisioning.APIKey{}
-	var revokedAt sql.NullTime
 
-	err := r.db.QueryRowContext(ctx, query, keyID).Scan(
+	err := r.pool.QueryRow(ctx, query, keyID).Scan(
 		&key.KeyID,
 		&key.TenantID,
 		&key.Name,
 		&key.IsActive,
 		&key.CreatedAt,
-		&revokedAt,
+		&key.RevokedAt,
 	)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, provisioning.ErrAPIKeyNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query api key: %w", err)
-	}
-
-	if revokedAt.Valid {
-		key.RevokedAt = &revokedAt.Time
 	}
 
 	return key, nil
@@ -84,7 +82,7 @@ func (r *APIKeyStore) ListByTenant(ctx context.Context, tenantID string, opts pr
 	// Count total
 	var total int
 	countQuery := `SELECT COUNT(*) FROM api_keys WHERE tenant_id = $1`
-	if err := r.db.QueryRowContext(ctx, countQuery, tenantID).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, countQuery, tenantID).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count api keys: %w", err)
 	}
 
@@ -96,16 +94,15 @@ func (r *APIKeyStore) ListByTenant(ctx context.Context, tenantID string, opts pr
 		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, tenantID, opts.Limit, opts.Offset)
+	rows, err := r.pool.Query(ctx, query, tenantID, opts.Limit, opts.Offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query api keys: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	keys := []*provisioning.APIKey{}
 	for rows.Next() {
 		key := &provisioning.APIKey{}
-		var revokedAt sql.NullTime
 
 		err := rows.Scan(
 			&key.KeyID,
@@ -113,14 +110,10 @@ func (r *APIKeyStore) ListByTenant(ctx context.Context, tenantID string, opts pr
 			&key.Name,
 			&key.IsActive,
 			&key.CreatedAt,
-			&revokedAt,
+			&key.RevokedAt,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan api key: %w", err)
-		}
-
-		if revokedAt.Valid {
-			key.RevokedAt = &revokedAt.Time
 		}
 
 		keys = append(keys, key)
@@ -142,16 +135,12 @@ func (r *APIKeyStore) Revoke(ctx context.Context, keyID string) error {
 	`
 
 	now := time.Now()
-	result, err := r.db.ExecContext(ctx, query, keyID, now)
+	result, err := r.pool.Exec(ctx, query, keyID, now)
 	if err != nil {
 		return fmt.Errorf("revoke api key: %w", err)
 	}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if rows == 0 {
+	if result.RowsAffected() == 0 {
 		return provisioning.ErrAPIKeyNotFound
 	}
 
@@ -168,16 +157,15 @@ func (r *APIKeyStore) GetActiveAPIKeys(ctx context.Context) ([]*provisioning.API
 		  AND revoked_at IS NULL
 	`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query active api keys: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	keys := []*provisioning.APIKey{}
 	for rows.Next() {
 		key := &provisioning.APIKey{}
-		var revokedAt sql.NullTime
 
 		err := rows.Scan(
 			&key.KeyID,
@@ -185,14 +173,10 @@ func (r *APIKeyStore) GetActiveAPIKeys(ctx context.Context) ([]*provisioning.API
 			&key.Name,
 			&key.IsActive,
 			&key.CreatedAt,
-			&revokedAt,
+			&key.RevokedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
-		}
-
-		if revokedAt.Valid {
-			key.RevokedAt = &revokedAt.Time
 		}
 
 		keys = append(keys, key)

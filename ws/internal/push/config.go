@@ -22,13 +22,7 @@ type Config struct {
 	platform.ProvisioningClientConfig
 	platform.MessageBackendConfig
 	platform.KafkaNamespaceConfig
-
-	// Database — driver auto-detected from Helm values, not set directly by developers.
-	// sqlite (default, embedded) or postgres (opt-in via Helm postgresql.enabled or externalDatabase).
-	DatabaseDriver string `env:"PUSH_DATABASE_DRIVER" envDefault:"sqlite"`
-	DatabaseURL    string `env:"PUSH_DATABASE_URL" redact:"true"`
-	DatabasePath   string `env:"PUSH_DATABASE_PATH" envDefault:"sukko-push.db"`
-	AutoMigrate    bool   `env:"PUSH_AUTO_MIGRATE" envDefault:"true"`
+	platform.DatabaseConfig
 
 	// Worker pool for sending push notifications
 	WorkerPoolSize int `env:"PUSH_WORKER_POOL_SIZE" envDefault:"200"`
@@ -89,16 +83,9 @@ func (c *Config) Validate() error {
 		return errors.New("push notifications require kafka or nats message backend")
 	}
 
-	// Database driver validation
-	validDrivers := map[string]bool{"sqlite": true, "postgres": true}
-	if !validDrivers[c.DatabaseDriver] {
-		return fmt.Errorf("[CONFIG ERROR] PUSH_DATABASE_DRIVER=%q is invalid (valid: sqlite, postgres)", c.DatabaseDriver)
-	}
-	if c.DatabaseDriver == "postgres" && c.DatabaseURL == "" {
-		return errors.New("[CONFIG ERROR] PUSH_DATABASE_URL is required when PUSH_DATABASE_DRIVER=postgres")
-	}
-	if c.DatabaseDriver == "sqlite" && c.DatabasePath == "" {
-		return errors.New("[CONFIG ERROR] PUSH_DATABASE_PATH is required when PUSH_DATABASE_DRIVER=sqlite")
+	// Database URL validation (PostgreSQL via pgxpool)
+	if err := c.DatabaseConfig.Validate(); err != nil {
+		return fmt.Errorf("database config: %w", err)
 	}
 
 	// Worker pool validation

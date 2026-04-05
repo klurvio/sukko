@@ -1,5 +1,4 @@
 {{- if .Values.enabled }}
-{{- $dbDriver := .Values.databaseDriver | default "sqlite" -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -42,31 +41,19 @@ spec:
           env:
             - name: ENVIRONMENT
               value: {{ .Values.environment | default "local" | quote }}
-            {{- if ne $dbDriver "sqlite" }}
-            - name: DATABASE_DRIVER
-              value: {{ $dbDriver | quote }}
-            {{- end }}
-            {{- if eq $dbDriver "sqlite" }}
-            - name: DATABASE_PATH
-              value: {{ .Values.database.sqlitePath | quote }}
-            {{- else }}
-            # PostgreSQL connection — use a placeholder URL for validation
-            # (the actual URL comes from secrets at deploy time)
+
+            # PostgreSQL connection
             - name: DATABASE_URL
-              {{- if .Values.externalDatabase.existingSecret }}
+              {{- if .Values.database.existingSecret }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.externalDatabase.existingSecret }}
-                  key: {{ .Values.externalDatabase.existingSecretKey | default "database-url" }}
-              {{- else if .Values.externalDatabase.url }}
-              value: {{ .Values.externalDatabase.url | quote }}
+                  name: {{ .Values.database.existingSecret }}
+                  key: {{ .Values.database.existingSecretKey | default "database-url" }}
+              {{- else if .Values.database.url }}
+              value: {{ .Values.database.url | quote }}
               {{- else }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ printf "%s-provisioning-db" .Release.Name }}
-                  key: database-url
+              value: {{ printf "postgres://sukko:sukko@%s-postgresql:5432/sukko?sslmode=disable" .Release.Name | quote }}
               {{- end }}
-            {{- end }}
 
             # gRPC port (only when overridden from Go default of 9090)
             {{- if and .Values.service.grpcPort (ne (int .Values.service.grpcPort) 9090) }}

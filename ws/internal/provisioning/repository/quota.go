@@ -2,21 +2,24 @@ package repository
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// QuotaRepository implements QuotaStore using database/sql.
+// QuotaRepository implements QuotaStore using PostgreSQL via pgxpool.
 type QuotaRepository struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
 // NewQuotaRepository creates a QuotaRepository.
-func NewQuotaRepository(db *sql.DB) *QuotaRepository {
-	return &QuotaRepository{db: db}
+func NewQuotaRepository(pool *pgxpool.Pool) *QuotaRepository {
+	return &QuotaRepository{pool: pool}
 }
 
 // Get retrieves quotas for a tenant.
@@ -29,7 +32,7 @@ func (r *QuotaRepository) Get(ctx context.Context, tenantID string) (*provisioni
 	`
 
 	quota := &provisioning.TenantQuota{}
-	err := r.db.QueryRowContext(ctx, query, tenantID).Scan(
+	err := r.pool.QueryRow(ctx, query, tenantID).Scan(
 		&quota.TenantID,
 		&quota.MaxTopics,
 		&quota.MaxPartitions,
@@ -39,7 +42,7 @@ func (r *QuotaRepository) Get(ctx context.Context, tenantID string) (*provisioni
 		&quota.MaxConnections,
 		&quota.UpdatedAt,
 	)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %s", provisioning.ErrQuotaNotFound, tenantID)
 	}
 	if err != nil {
@@ -62,7 +65,7 @@ func (r *QuotaRepository) Create(ctx context.Context, quota *provisioning.Tenant
 		quota.UpdatedAt = now
 	}
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.pool.Exec(ctx, query,
 		quota.TenantID,
 		quota.MaxTopics,
 		quota.MaxPartitions,
@@ -89,7 +92,7 @@ func (r *QuotaRepository) Update(ctx context.Context, quota *provisioning.Tenant
 		WHERE tenant_id = $1
 	`
 
-	result, err := r.db.ExecContext(ctx, query,
+	result, err := r.pool.Exec(ctx, query,
 		quota.TenantID,
 		quota.MaxTopics,
 		quota.MaxPartitions,
@@ -103,11 +106,7 @@ func (r *QuotaRepository) Update(ctx context.Context, quota *provisioning.Tenant
 		return fmt.Errorf("update quota: %w", err)
 	}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if rows == 0 {
+	if result.RowsAffected() == 0 {
 		return fmt.Errorf("%w: %s", provisioning.ErrQuotaNotFound, quota.TenantID)
 	}
 

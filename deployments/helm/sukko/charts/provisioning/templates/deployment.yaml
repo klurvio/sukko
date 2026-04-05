@@ -1,9 +1,4 @@
 {{- if .Values.enabled }}
-{{- $dbDriver := .Values.databaseDriver | default "sqlite" -}}
-{{- /* Guard: SQLite requires exactly 1 replica */ -}}
-{{- if and (eq $dbDriver "sqlite") (gt (int .Values.replicaCount) 1) -}}
-  {{- fail "replicaCount must be 1 when using SQLite (default). Use PostgreSQL for horizontal scaling." -}}
-{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,7 +23,7 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if and (eq $dbDriver "postgres") (not (or .Values.externalDatabase.url .Values.externalDatabase.existingSecret)) }}
+      {{- if not (or .Values.database.url .Values.database.existingSecret) }}
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36
@@ -72,33 +67,18 @@ spec:
             {{- end }}
             {{- end }}
 
-            # Database driver (only injected when non-default)
-            {{- if ne $dbDriver "sqlite" }}
-            - name: DATABASE_DRIVER
-              value: {{ $dbDriver | quote }}
-            {{- end }}
-
-            {{- if eq $dbDriver "sqlite" }}
-            # SQLite database path
-            - name: DATABASE_PATH
-              value: {{ .Values.database.sqlitePath | quote }}
-            {{- else }}
             # PostgreSQL connection
             - name: DATABASE_URL
-              {{- if .Values.externalDatabase.existingSecret }}
+              {{- if .Values.database.existingSecret }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.externalDatabase.existingSecret }}
-                  key: {{ .Values.externalDatabase.existingSecretKey | default "database-url" }}
-              {{- else if .Values.externalDatabase.url }}
-              value: {{ .Values.externalDatabase.url | quote }}
+                  name: {{ .Values.database.existingSecret }}
+                  key: {{ .Values.database.existingSecretKey | default "database-url" }}
+              {{- else if .Values.database.url }}
+              value: {{ .Values.database.url | quote }}
               {{- else }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ printf "%s-provisioning-db" .Release.Name }}
-                  key: database-url
+              value: {{ printf "postgres://sukko:sukko@%s-postgresql:5432/sukko?sslmode=disable" .Release.Name | quote }}
               {{- end }}
-            {{- end }}
 
             # gRPC port (only when overridden from Go default of 9090)
             {{- if and .Values.service.grpcPort (ne (int .Values.service.grpcPort) 9090) }}
@@ -121,27 +101,12 @@ spec:
               value: {{ $val | quote }}
             {{- end }}
 
-          {{- if eq $dbDriver "sqlite" }}
-          volumeMounts:
-            - name: data
-              mountPath: /data
-          {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-      {{- if eq $dbDriver "sqlite" }}
-      volumes:
-        - name: data
-          {{- if .Values.persistence.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ include "provisioning.fullname" . }}-data
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
-      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

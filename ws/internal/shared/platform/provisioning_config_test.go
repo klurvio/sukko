@@ -4,9 +4,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/klurvio/sukko/internal/shared/license"
-	"github.com/rs/zerolog"
 )
 
 func newValidProvisioningConfig() *ProvisioningConfig {
@@ -15,6 +12,9 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 			LogLevel:    "info",
 			LogFormat:   "json",
 			Environment: "local",
+		},
+		DatabaseConfig: DatabaseConfig{
+			DatabaseURL: "postgres://test:test@localhost:5432/test",
 		},
 		KafkaNamespaceConfig: KafkaNamespaceConfig{
 			ValidNamespaces:             "local,dev,stag,prod",
@@ -26,13 +26,7 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 			HTTPIdleTimeout:  60 * time.Second,
 		},
 		Addr:                       ":8080",
-		DatabaseDriver:             "sqlite",
-		DatabasePath:               "sukko.db",
-		AutoMigrate:                true,
 		GRPCPort:                   9090,
-		DBMaxOpenConns:             25,
-		DBMaxIdleConns:             5,
-		DBConnMaxLifetime:          5 * time.Minute,
 		DefaultPartitions:          3,
 		DefaultRetentionMs:         604800000,
 		MaxTopicsPerTenant:         50,
@@ -67,25 +61,21 @@ func TestProvisioningConfig_Validate_Valid(t *testing.T) {
 	}
 }
 
-func TestProvisioningConfig_Validate_DatabaseDriver(t *testing.T) {
+func TestProvisioningConfig_Validate_DatabaseURL(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name        string
-		driver      string
 		dbURL       string
 		shouldError bool
 	}{
-		{"sqlite no url", "sqlite", "", false},
-		{"postgres with url", "postgres", "postgres://localhost/db", false},
-		{"postgres without url", "postgres", "", true},
-		{"invalid driver", "mysql", "", true},
+		{"valid url", "postgres://localhost/db", false},
+		{"empty url", "", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidProvisioningConfig()
-			cfg.DatabaseDriver = tt.driver
 			cfg.DatabaseURL = tt.dbURL
 			err := cfg.Validate()
 			if tt.shouldError && err == nil {
@@ -224,40 +214,6 @@ func TestProvisioningConfig_Validate_ProdOverrideBlocked(t *testing.T) {
 				if err != nil {
 					t.Errorf("Should not error: %v", err)
 				}
-			}
-		})
-	}
-}
-
-func TestProvisioningConfig_Validate_DBConnMaxLifetime(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name        string
-		driver      string
-		dbURL       string
-		lifetime    time.Duration
-		shouldError bool
-	}{
-		{"postgres valid default", "postgres", "postgres://localhost/db", 5 * time.Minute, false},
-		{"postgres exactly 1m", "postgres", "postgres://localhost/db", time.Minute, false},
-		{"postgres below 1m", "postgres", "postgres://localhost/db", 30 * time.Second, true},
-		{"postgres zero", "postgres", "postgres://localhost/db", 0, true},
-		{"sqlite ignores low value", "sqlite", "", 0, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := newValidProvisioningConfig()
-			cfg.DatabaseDriver = tt.driver
-			cfg.DatabaseURL = tt.dbURL
-			cfg.DBConnMaxLifetime = tt.lifetime
-			err := cfg.Validate()
-			if tt.shouldError && err == nil {
-				t.Error("Should error")
-			}
-			if !tt.shouldError && err != nil {
-				t.Errorf("Should not error: %v", err)
 			}
 		})
 	}
@@ -601,61 +557,6 @@ func TestProvisioningConfig_Validate_DeletionTimeout(t *testing.T) {
 	}
 }
 
-// --- Edition Gate Tests ---
-// MUST NOT use t.Parallel() — tests share license.SetPublicKeyForTesting.
+// Edition gate tests for PostgresDatabase removed — PostgreSQL is now unconditional for all editions.
 
-func setProvisioningEditionManager(t *testing.T, cfg *ProvisioningConfig, edition license.Edition) {
-	t.Helper()
-	priv, pub := license.GenerateTestKeyPair()
-	license.SetPublicKeyForTesting(pub)
-	claims := license.Claims{
-		Edition: edition,
-		Org:     "test",
-		Exp:     time.Now().Add(time.Hour).Unix(),
-	}
-	key := license.SignTestLicense(claims, priv)
-	mgr, err := license.NewManager(key, zerolog.Nop())
-	if err != nil {
-		t.Fatalf("create test license manager: %v", err)
-	}
-	cfg.editionManager = mgr
-}
-
-//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
-func TestProvisioningConfig_Validate_EditionGates_Community(t *testing.T) {
-	cfg := newValidProvisioningConfig()
-	cfg.DatabaseDriver = "postgres"
-	cfg.DatabaseURL = "postgres://localhost/test"
-	setProvisioningEditionManager(t, cfg, license.Community)
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Community should reject postgres")
-	}
-	if !strings.Contains(err.Error(), "DATABASE_DRIVER=postgres") {
-		t.Errorf("error %q should mention DATABASE_DRIVER=postgres", err.Error())
-	}
-}
-
-//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
-func TestProvisioningConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
-	cfg := newValidProvisioningConfig()
-	cfg.DatabaseDriver = "postgres"
-	cfg.DatabaseURL = "postgres://localhost/test"
-	setProvisioningEditionManager(t, cfg, license.Pro)
-
-	if err := cfg.Validate(); err != nil {
-		t.Errorf("Pro should accept postgres: %v", err)
-	}
-}
-
-//nolint:paralleltest // shares license.SetPublicKeyForTesting via setEditionManager helper
-func TestProvisioningConfig_Validate_EditionGates_CommunityAcceptsSqlite(t *testing.T) {
-	cfg := newValidProvisioningConfig()
-	cfg.DatabaseDriver = "sqlite"
-	setProvisioningEditionManager(t, cfg, license.Community)
-
-	if err := cfg.Validate(); err != nil {
-		t.Errorf("Community should accept sqlite: %v", err)
-	}
-}
+// Edition gate tests for PostgresDatabase removed — PostgreSQL is now unconditional for all editions.

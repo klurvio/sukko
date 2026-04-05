@@ -52,32 +52,23 @@
 {{- end -}}
 
 {{- /* === PostgreSQL === */ -}}
-{{- $databaseDriver := index .Values "provisioning" "databaseDriver" | default "sqlite" -}}
-{{- $extDBUrl := "" -}}
-{{- $extDBSecret := "" -}}
-{{- if index .Values "provisioning" "externalDatabase" -}}
-  {{- $extDBUrl = index .Values "provisioning" "externalDatabase" "url" | default "" -}}
-  {{- $extDBSecret = index .Values "provisioning" "externalDatabase" "existingSecret" | default "" -}}
+{{- $dbUrl := "" -}}
+{{- $dbSecret := "" -}}
+{{- if index .Values "provisioning" "database" -}}
+  {{- $dbUrl = index .Values "provisioning" "database" "url" | default "" -}}
+  {{- $dbSecret = index .Values "provisioning" "database" "existingSecret" | default "" -}}
 {{- end -}}
 {{- $pgEnabled := false -}}
 {{- if .Values.postgresql -}}
   {{- $pgEnabled = .Values.postgresql.enabled | default false -}}
 {{- end -}}
-{{- $hasExternalDB := or $extDBUrl $extDBSecret -}}
+{{- $hasExternalDB := or $dbUrl $dbSecret -}}
 
-{{- /* Guard 7: postgres mode without infrastructure */ -}}
-{{- if and (eq $databaseDriver "postgres") (not $pgEnabled) (not $hasExternalDB) -}}
-  {{- fail "\n[CONFIG ERROR] databaseDriver is 'postgres' but no PostgreSQL infrastructure is configured.\nEither set postgresql.enabled: true (in-cluster) or set provisioning.externalDatabase.url (external)." -}}
-{{- end -}}
+{{- /* Guard 7: (removed — deployment.yaml auto-wires in-cluster PostgreSQL URL as fallback) */ -}}
 
 {{- /* Guard 8: postgresql enabled + external db conflict */ -}}
 {{- if and $pgEnabled $hasExternalDB -}}
-  {{- fail "\n[CONFIG ERROR] Both postgresql.enabled and externalDatabase are set.\nRemove postgresql.enabled (use external) or remove externalDatabase (use in-cluster)." -}}
-{{- end -}}
-
-{{- /* Guard 9: postgresql enabled but mode doesn't use it */ -}}
-{{- if and $pgEnabled (ne $databaseDriver "postgres") -}}
-  {{- fail (printf "\n[CONFIG ERROR] postgresql.enabled is true but databaseDriver is '%s'.\nPostgreSQL will be deployed but unused. Set databaseDriver: postgres to use it, or remove postgresql.enabled." $databaseDriver) -}}
+  {{- fail "\n[CONFIG ERROR] Both postgresql.enabled and provisioning.database are set.\nRemove postgresql.enabled (use external) or remove provisioning.database.url/existingSecret (use in-cluster)." -}}
 {{- end -}}
 
 {{- /* === Reverse External Guards (address set, mode doesn't use it) === */ -}}
@@ -92,10 +83,7 @@
   {{- fail (printf "\n[CONFIG ERROR] valkey.addrs is set but broadcastType is '%s'.\nThe external Valkey address will be ignored. Set broadcastType: valkey to use it, or remove valkey.addrs." $broadcastType) -}}
 {{- end -}}
 
-{{- /* Guard 12: external database without postgres mode */ -}}
-{{- if and $hasExternalDB (ne $databaseDriver "postgres") -}}
-  {{- fail (printf "\n[CONFIG ERROR] externalDatabase is configured but databaseDriver is '%s'.\nThe external database will be ignored and provisioning will use SQLite. Set databaseDriver: postgres to use it, or remove externalDatabase." $databaseDriver) -}}
-{{- end -}}
+{{- /* Guard 12: (removed — databaseDriver concept dropped; PostgreSQL is always required) */ -}}
 
 {{- /* === Deprecation Guards (catch old renamed/removed keys) === */ -}}
 
@@ -106,7 +94,17 @@
 
 {{- /* Guard 14: old global.postgresql.enabled key still present */ -}}
 {{- if .Values.global.postgresql -}}
-  {{- fail "\n[CONFIG ERROR] global.postgresql.enabled is no longer supported.\nSet provisioning.databaseDriver: postgres instead." -}}
+  {{- fail "\n[CONFIG ERROR] global.postgresql.enabled is no longer supported.\nConfigure PostgreSQL via postgresql.enabled (in-cluster) or provisioning.database.existingSecret/url (external)." -}}
+{{- end -}}
+
+{{- /* Guard 15: old provisioning.databaseDriver key still present */ -}}
+{{- if index .Values "provisioning" "databaseDriver" -}}
+  {{- fail "\n[CONFIG ERROR] provisioning.databaseDriver is no longer supported.\nSQLite has been removed. PostgreSQL is now the only database backend.\nRemove databaseDriver and configure PostgreSQL via postgresql.enabled or provisioning.database." -}}
+{{- end -}}
+
+{{- /* Guard 16: old provisioning.externalDatabase key still present */ -}}
+{{- if index .Values "provisioning" "externalDatabase" -}}
+  {{- fail "\n[CONFIG ERROR] provisioning.externalDatabase has been renamed to provisioning.database.\nUpdate your values file to use provisioning.database.url or provisioning.database.existingSecret." -}}
 {{- end -}}
 
 {{- end -}}

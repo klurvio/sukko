@@ -23,21 +23,12 @@ import (
 type ProvisioningConfig struct {
 	BaseConfig
 	AuthConfig
+	DatabaseConfig
 	KafkaNamespaceConfig
 	HTTPTimeoutConfig
 
 	// Server
 	Addr string `env:"PROVISIONING_ADDR" envDefault:":8080"`
-
-	// Database — driver auto-detected from Helm values, not set directly by developers.
-	// sqlite (default, embedded) or postgres (opt-in via Helm postgresql.enabled or externalDatabase).
-	DatabaseDriver    string        `env:"DATABASE_DRIVER" envDefault:"sqlite"`
-	DatabaseURL       string        `env:"DATABASE_URL" redact:"true"`
-	DatabasePath      string        `env:"DATABASE_PATH" envDefault:"sukko.db"`
-	AutoMigrate       bool          `env:"AUTO_MIGRATE" envDefault:"true"`
-	DBMaxOpenConns    int           `env:"DB_MAX_OPEN_CONNS" envDefault:"25"`
-	DBMaxIdleConns    int           `env:"DB_MAX_IDLE_CONNS" envDefault:"5"`
-	DBConnMaxLifetime time.Duration `env:"DB_CONN_MAX_LIFETIME" envDefault:"5m"`
 
 	// gRPC — internal service-to-service communication port
 	GRPCPort int `env:"GRPC_PORT" envDefault:"9090"`
@@ -144,13 +135,11 @@ func (c *ProvisioningConfig) Validate() error {
 		return errors.New("PROVISIONING_ADDR is required")
 	}
 
-	// Database driver validation
-	validDrivers := map[string]bool{"sqlite": true, "postgres": true}
-	if !validDrivers[c.DatabaseDriver] {
-		return fmt.Errorf("[CONFIG ERROR] DATABASE_DRIVER=%q is invalid (valid: sqlite, postgres)", c.DatabaseDriver)
-	}
-	if c.DatabaseDriver == "postgres" && c.DatabaseURL == "" {
-		return errors.New("[CONFIG ERROR] DATABASE_URL is required when DATABASE_DRIVER=postgres")
+	// Database — PostgreSQL is the only supported backend.
+	// Pool tuning (max conns, idle conns, lifetime) is configured via pgxpool URL params:
+	//   ?pool_max_conns=25&pool_min_conns=5&pool_max_conn_lifetime=5m
+	if err := c.DatabaseConfig.Validate(); err != nil {
+		return err
 	}
 
 	// gRPC port validation
@@ -187,20 +176,6 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("API_RATE_LIMIT_PER_MIN must be > 0, got %d", c.APIRateLimitPerMinute)
 	}
 
-	// Database pool validation (only relevant for postgres)
-	if c.DatabaseDriver == "postgres" {
-		if c.DBMaxOpenConns < 1 {
-			return fmt.Errorf("DB_MAX_OPEN_CONNS must be > 0, got %d", c.DBMaxOpenConns)
-		}
-		if c.DBMaxIdleConns < 0 {
-			return fmt.Errorf("DB_MAX_IDLE_CONNS must be >= 0, got %d", c.DBMaxIdleConns)
-		}
-		if c.DBMaxIdleConns > c.DBMaxOpenConns {
-			return fmt.Errorf("DB_MAX_IDLE_CONNS (%d) must be <= DB_MAX_OPEN_CONNS (%d)",
-				c.DBMaxIdleConns, c.DBMaxOpenConns)
-		}
-	}
-
 	// Shared field validation (LogLevel, LogFormat, Environment)
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err
@@ -214,11 +189,6 @@ func (c *ProvisioningConfig) Validate() error {
 	// Validate CORS settings
 	if c.CORSMaxAge < 0 {
 		return fmt.Errorf("CORS_MAX_AGE must be >= 0, got %d", c.CORSMaxAge)
-	}
-
-	// DB connection max lifetime (only relevant for postgres)
-	if c.DatabaseDriver == "postgres" && c.DBConnMaxLifetime < time.Minute {
-		return fmt.Errorf("DB_CONN_MAX_LIFETIME must be >= 1m when DATABASE_DRIVER=postgres, got %s", c.DBConnMaxLifetime)
 	}
 
 	// Topic retention
@@ -282,15 +252,6 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("PROVISIONING_DELETION_TIMEOUT must be > 0, got %v", c.DeletionTimeout)
 	}
 
-	// Edition gates — uses startup-resolved Edition(), not expiry-aware CurrentEdition().
-	if c.editionManager != nil {
-		edition := c.editionManager.Edition()
-
-		if c.DatabaseDriver == "postgres" && !license.EditionHasFeature(edition, license.PostgresDatabase) {
-			return license.NewFeatureError(license.PostgresDatabase, edition)
-		}
-	}
-
 	return nil
 }
 
@@ -313,16 +274,7 @@ func (c *ProvisioningConfig) Print() {
 		_, _ = fmt.Fprintf(w, "Admin Token:        [REDACTED]\n")
 	}
 	_, _ = fmt.Fprintln(w, "\n=== Database ===")
-	_, _ = fmt.Fprintf(w, "Database Driver:    %s\n", c.DatabaseDriver)
-	if c.DatabaseDriver == "postgres" {
-		_, _ = fmt.Fprintf(w, "Database URL:       %s\n", maskDatabaseURL(c.DatabaseURL))
-		_, _ = fmt.Fprintf(w, "Max Open Conns:     %d\n", c.DBMaxOpenConns)
-		_, _ = fmt.Fprintf(w, "Max Idle Conns:     %d\n", c.DBMaxIdleConns)
-		_, _ = fmt.Fprintf(w, "Conn Max Lifetime:  %s\n", c.DBConnMaxLifetime)
-	} else {
-		_, _ = fmt.Fprintf(w, "Database Path:      %s\n", c.DatabasePath)
-	}
-	_, _ = fmt.Fprintf(w, "Auto Migrate:       %v\n", c.AutoMigrate)
+	_, _ = fmt.Fprintf(w, "Database URL:       %s\n", maskDatabaseURL(c.DatabaseURL))
 	_, _ = fmt.Fprintln(w, "\n=== Topic Defaults ===")
 	if c.KafkaTopicNamespaceOverride != "" {
 		_, _ = fmt.Fprintf(w, "Namespace Override: %s\n", c.KafkaTopicNamespaceOverride)
@@ -360,9 +312,7 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Str("edition", edition).
 		Str("environment", c.Environment).
 		Str("addr", c.Addr).
-		Str("database_driver", c.DatabaseDriver).
 		Int("grpc_port", c.GRPCPort).
-		Bool("auto_migrate", c.AutoMigrate).
 		Str("topic_namespace_override", c.KafkaTopicNamespaceOverride).
 		Int("default_partitions", c.DefaultPartitions).
 		Int64("default_retention_ms", c.DefaultRetentionMs).
@@ -382,16 +332,6 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 	// Admin token — redact, never log the value
 	if c.AdminToken != "" {
 		event = event.Str("admin_token", "[REDACTED]")
-	}
-
-	// Database-specific fields
-	if c.DatabaseDriver == "postgres" {
-		event = event.
-			Int("db_max_open_conns", c.DBMaxOpenConns).
-			Int("db_max_idle_conns", c.DBMaxIdleConns).
-			Dur("db_conn_max_lifetime", c.DBConnMaxLifetime)
-	} else {
-		event = event.Str("database_path", c.DatabasePath)
 	}
 
 	event.Msg("Provisioning service configuration loaded")

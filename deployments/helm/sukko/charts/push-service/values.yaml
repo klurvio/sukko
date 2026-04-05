@@ -21,25 +21,13 @@ image:
 # Message Backend: "kafka" or "nats"
 # messageBackend: kafka  # uncomment to override Go default
 
-# Database driver: "sqlite" (Go default) or "postgres"
-# Set databaseDriver: postgres with externalDatabase.
-databaseDriver: sqlite
-
+# PostgreSQL connection
 database:
-  # SQLite file path (only when databaseDriver=sqlite)
-  sqlitePath: "/data/sukko-push.db"
-
-# External PostgreSQL (when databaseDriver=postgres)
-externalDatabase:
-  url: ""
+  # Existing secret containing the database URL
   existingSecret: ""
   existingSecretKey: "database-url"
-
-# Persistent storage for SQLite (auto-enabled when using SQLite)
-persistence:
-  enabled: true
-  size: 1Gi
-  accessMode: ReadWriteOnce
+  # Direct URL (used when existingSecret is empty; auto-wired to in-cluster PostgreSQL if blank)
+  url: ""
 
 # Dry run mode — log push notifications instead of sending
 # dryRun: false

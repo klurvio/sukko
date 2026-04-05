@@ -29,7 +29,6 @@ import (
 	"github.com/klurvio/sukko/internal/push/worker"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/klurvio/sukko/internal/shared/migrations"
 	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/tracing"
 )
@@ -99,24 +98,16 @@ func main() {
 	}
 	defer pyroscopeStop()
 
-	// Open push database
-	db, err := repository.OpenDatabase(repository.DatabaseConfig{
-		Driver:                cfg.DatabaseDriver,
-		URL:                   cfg.DatabaseURL,
-		Path:                  cfg.DatabasePath,
-		AutoMigrate:           cfg.AutoMigrate,
-		PostgresMigrationsFS:  migrations.PostgresFS,
-		PostgresMigrationsDir: "postgres",
-		Logger:                structuredLogger,
-	})
+	// Open push database (PostgreSQL via pgxpool)
+	pool, err := repository.OpenDatabase(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to open database")
 	}
-	defer func() { _ = db.Close() }() // Close error non-actionable during shutdown
-	structuredLogger.Info().Str("driver", cfg.DatabaseDriver).Msg("Database opened")
+	defer pool.Close() // Close is non-blocking for pgxpool
+	structuredLogger.Info().Msg("Database pool opened")
 
 	// Create subscription repository
-	subRepo := repository.NewSubscriptionRepository(db, cfg.DatabaseDriver)
+	subRepo := repository.NewSubscriptionRepository(pool)
 
 	// Resolve topic namespace for Kafka
 	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)

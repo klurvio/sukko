@@ -2,24 +2,26 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
-// ChannelRulesRepository implements ChannelRulesStore using database/sql.
+// ChannelRulesRepository implements ChannelRulesStore using PostgreSQL via pgxpool.
 type ChannelRulesRepository struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
 // NewChannelRulesRepository creates a ChannelRulesRepository.
-func NewChannelRulesRepository(db *sql.DB) *ChannelRulesRepository {
-	return &ChannelRulesRepository{db: db}
+func NewChannelRulesRepository(pool *pgxpool.Pool) *ChannelRulesRepository {
+	return &ChannelRulesRepository{pool: pool}
 }
 
 // Create creates channel rules for a tenant.
@@ -35,7 +37,7 @@ func (r *ChannelRulesRepository) Create(ctx context.Context, tenantID string, ru
 		VALUES ($1, $2, $3, $3)
 	`
 
-	_, err = r.db.ExecContext(ctx, query, tenantID, rulesJSON, now)
+	_, err = r.pool.Exec(ctx, query, tenantID, rulesJSON, now)
 	if err != nil {
 		return fmt.Errorf("create channel rules: %w", err)
 	}
@@ -54,13 +56,13 @@ func (r *ChannelRulesRepository) Get(ctx context.Context, tenantID string) (*typ
 	tcr := &types.TenantChannelRules{}
 	var rulesJSON []byte
 
-	err := r.db.QueryRowContext(ctx, query, tenantID).Scan(
+	err := r.pool.QueryRow(ctx, query, tenantID).Scan(
 		&tcr.TenantID,
 		&rulesJSON,
 		&tcr.CreatedAt,
 		&tcr.UpdatedAt,
 	)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, types.ErrChannelRulesNotFound
 	}
 	if err != nil {
@@ -100,7 +102,7 @@ func (r *ChannelRulesRepository) Update(ctx context.Context, tenantID string, ru
 		DO UPDATE SET rules = $2, updated_at = $3
 	`
 
-	_, err = r.db.ExecContext(ctx, query, tenantID, rulesJSON, now)
+	_, err = r.pool.Exec(ctx, query, tenantID, rulesJSON, now)
 	if err != nil {
 		return fmt.Errorf("update channel rules: %w", err)
 	}
@@ -112,16 +114,12 @@ func (r *ChannelRulesRepository) Update(ctx context.Context, tenantID string, ru
 func (r *ChannelRulesRepository) Delete(ctx context.Context, tenantID string) error {
 	query := `DELETE FROM tenant_channel_rules WHERE tenant_id = $1`
 
-	result, err := r.db.ExecContext(ctx, query, tenantID)
+	result, err := r.pool.Exec(ctx, query, tenantID)
 	if err != nil {
 		return fmt.Errorf("delete channel rules: %w", err)
 	}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if rows == 0 {
+	if result.RowsAffected() == 0 {
 		return types.ErrChannelRulesNotFound
 	}
 
@@ -136,11 +134,11 @@ func (r *ChannelRulesRepository) List(ctx context.Context) ([]*types.TenantChann
 		ORDER BY created_at ASC
 	`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query channel rules: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	results := []*types.TenantChannelRules{}
 	for rows.Next() {
