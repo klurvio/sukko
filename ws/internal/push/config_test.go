@@ -44,6 +44,8 @@ func validConfig() Config {
 }
 
 func TestConfigValidate(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		modify  func(*Config)
@@ -153,6 +155,7 @@ func TestConfigValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := validConfig()
 			tt.modify(&cfg)
 			err := cfg.Validate()

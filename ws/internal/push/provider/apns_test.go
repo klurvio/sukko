@@ -11,6 +11,8 @@ import (
 // TODO: integration tests with mock APNs server
 
 func TestAPNsProvider_Name(t *testing.T) {
+	t.Parallel()
+
 	p, err := NewAPNsProvider(zerolog.Nop(), func(string) (json.RawMessage, error) {
 		return nil, nil
 	})
@@ -23,6 +25,8 @@ func TestAPNsProvider_Name(t *testing.T) {
 }
 
 func TestNewAPNsProvider_NilLookup(t *testing.T) {
+	t.Parallel()
+
 	_, err := NewAPNsProvider(zerolog.Nop(), nil)
 	if err == nil {
 		t.Fatal("expected error for nil credential lookup, got nil")
@@ -30,6 +34,8 @@ func TestNewAPNsProvider_NilLookup(t *testing.T) {
 }
 
 func TestAPNsProvider_Send_InvalidCredentials(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		creds string
@@ -50,6 +56,7 @@ func TestAPNsProvider_Send_InvalidCredentials(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			p, err := NewAPNsProvider(zerolog.Nop(), func(string) (json.RawMessage, error) {
 				return json.RawMessage(tt.creds), nil
 			})
@@ -75,6 +82,8 @@ func TestAPNsProvider_Send_InvalidCredentials(t *testing.T) {
 }
 
 func TestAPNsProvider_SendBatch_Empty(t *testing.T) {
+	t.Parallel()
+
 	p, err := NewAPNsProvider(zerolog.Nop(), func(string) (json.RawMessage, error) {
 		return nil, nil
 	})
@@ -91,6 +100,8 @@ func TestAPNsProvider_SendBatch_Empty(t *testing.T) {
 }
 
 func TestAPNsProvider_Close(t *testing.T) {
+	t.Parallel()
+
 	p, err := NewAPNsProvider(zerolog.Nop(), func(string) (json.RawMessage, error) {
 		return nil, nil
 	})

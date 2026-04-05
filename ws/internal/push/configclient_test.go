@@ -22,6 +22,8 @@ func newTestConfigClient() *ConfigClient {
 }
 
 func TestApplySnapshot_PatternsAndCredentials(t *testing.T) {
+	t.Parallel()
+
 	c := newTestConfigClient()
 
 	resp := &provisioningv1.WatchPushConfigResponse{
@@ -119,6 +121,8 @@ func TestApplySnapshot_PatternsAndCredentials(t *testing.T) {
 }
 
 func TestApplySnapshot_ReplacesExisting(t *testing.T) {
+	t.Parallel()
+
 	c := newTestConfigClient()
 
 	// Apply first snapshot.
@@ -155,6 +159,8 @@ func TestApplySnapshot_ReplacesExisting(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestApplyDelta_Upsert(t *testing.T) {
+	t.Parallel()
+
 	c := newTestConfigClient()
 
 	// Start with a snapshot.
@@ -206,6 +212,8 @@ func TestApplyDelta_Upsert(t *testing.T) {
 }
 
 func TestApplyDelta_RemoveTenant(t *testing.T) {
+	t.Parallel()
+
 	c := newTestConfigClient()
 
 	// Start with a snapshot containing two tenants.
@@ -242,6 +250,8 @@ func TestApplyDelta_RemoveTenant(t *testing.T) {
 }
 
 func TestApplyDelta_RemoveCredential(t *testing.T) {
+	t.Parallel()
+
 	c := newTestConfigClient()
 
 	c.applySnapshot(&provisioningv1.WatchPushConfigResponse{
@@ -275,6 +285,8 @@ func TestApplyDelta_RemoveCredential(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetPushPatterns_ReturnsCopy(t *testing.T) {
+	t.Parallel()
+
 	c := newTestConfigClient()
 
 	c.applySnapshot(&provisioningv1.WatchPushConfigResponse{
@@ -299,6 +311,8 @@ func TestGetPushPatterns_ReturnsCopy(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetCredential_ReturnsCopy(t *testing.T) {
+	t.Parallel()
+
 	c := newTestConfigClient()
 
 	c.applySnapshot(&provisioningv1.WatchPushConfigResponse{
@@ -329,6 +343,8 @@ func TestGetCredential_ReturnsCopy(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestParseCredentialID(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name         string
 		id           string
@@ -345,6 +361,7 @@ func TestParseCredentialID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			gotTenant, gotProvider := parseCredentialID(tt.id)
 			if gotTenant != tt.wantTenantID {
 				t.Errorf("tenantID = %q, want %q", gotTenant, tt.wantTenantID)
@@ -361,6 +378,8 @@ func TestParseCredentialID(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPushConfigBackoff(t *testing.T) {
+	t.Parallel()
+
 	base := 1 * time.Second
 	maxDelay := 30 * time.Second
 
@@ -384,6 +403,8 @@ func TestPushConfigBackoff(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestEmptySnapshot(t *testing.T) {
+	t.Parallel()
+
 	snap := emptySnapshot()
 	if snap.patterns == nil {
 		t.Error("patterns map should be initialized")

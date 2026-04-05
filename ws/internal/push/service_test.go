@@ -51,6 +51,8 @@ func (r *mockRepo) FindByTenant(_ context.Context, tenantID string) ([]repositor
 func (r *mockRepo) UpdateLastSuccess(_ context.Context, _ int64) error { return nil }
 
 func TestHandleMessage_Match(t *testing.T) {
+	t.Parallel()
+
 	cache := &mockConfigCache{
 		patterns: map[string][]string{
 			"acme": {"acme.alerts.*"},
@@ -128,6 +130,8 @@ func TestHandleMessage_Match(t *testing.T) {
 }
 
 func TestHandleMessage_NoMatch(t *testing.T) {
+	t.Parallel()
+
 	cache := &mockConfigCache{
 		patterns: map[string][]string{
 			"acme": {"acme.alerts.*"},
@@ -173,6 +177,8 @@ func TestHandleMessage_NoMatch(t *testing.T) {
 }
 
 func TestHandleMessage_NoPatterns(t *testing.T) {
+	t.Parallel()
+
 	cache := &mockConfigCache{
 		patterns: map[string][]string{}, // no patterns for any tenant
 	}
@@ -205,6 +211,8 @@ func TestHandleMessage_NoPatterns(t *testing.T) {
 }
 
 func TestHandleMessage_SubscriptionChannelFiltering(t *testing.T) {
+	t.Parallel()
+
 	// Tenant has push patterns for both alerts and market,
 	// but subscription only subscribes to alerts.
 	cache := &mockConfigCache{

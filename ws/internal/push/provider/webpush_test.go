@@ -68,6 +68,8 @@ func makeVAPIDCredsJSON(t *testing.T, publicKey, privateKey string) json.RawMess
 }
 
 func TestWebPushProvider_Name(t *testing.T) {
+	t.Parallel()
+
 	pub, priv := generateTestVAPIDKeys(t)
 	credsJSON := makeVAPIDCredsJSON(t, pub, priv)
 
@@ -83,6 +85,8 @@ func TestWebPushProvider_Name(t *testing.T) {
 }
 
 func TestNewWebPushProvider_NilLookup(t *testing.T) {
+	t.Parallel()
+
 	_, err := NewWebPushProvider(zerolog.Nop(), nil)
 	if err == nil {
 		t.Fatal("expected error for nil credential lookup, got nil")
@@ -90,6 +94,8 @@ func TestNewWebPushProvider_NilLookup(t *testing.T) {
 }
 
 func TestWebPushProvider_Send(t *testing.T) {
+	t.Parallel()
+
 	pub, priv := generateTestVAPIDKeys(t)
 	credsJSON := makeVAPIDCredsJSON(t, pub, priv)
 	p256dh, auth := generateTestSubscriptionKeys(t)
@@ -131,6 +137,7 @@ func TestWebPushProvider_Send(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.statusCode)
 			}))
@@ -172,6 +179,8 @@ func TestWebPushProvider_Send(t *testing.T) {
 }
 
 func TestWebPushProvider_SendBatch(t *testing.T) {
+	t.Parallel()
+
 	pub, priv := generateTestVAPIDKeys(t)
 	credsJSON := makeVAPIDCredsJSON(t, pub, priv)
 	p256dh, auth := generateTestSubscriptionKeys(t)
@@ -215,6 +224,8 @@ func TestWebPushProvider_SendBatch(t *testing.T) {
 }
 
 func TestWebPushProvider_SendBatch_PartialFailure(t *testing.T) {
+	t.Parallel()
+
 	pub, priv := generateTestVAPIDKeys(t)
 	credsJSON := makeVAPIDCredsJSON(t, pub, priv)
 	p256dh, auth := generateTestSubscriptionKeys(t)
@@ -268,6 +279,8 @@ func TestWebPushProvider_SendBatch_PartialFailure(t *testing.T) {
 }
 
 func TestWebPushProvider_Send_InvalidCredentials(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		creds   string
@@ -287,6 +300,7 @@ func TestWebPushProvider_Send_InvalidCredentials(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			p, err := NewWebPushProvider(zerolog.Nop(), func(string) (json.RawMessage, error) {
 				return json.RawMessage(tt.creds), nil
 			})
@@ -310,6 +324,8 @@ func TestWebPushProvider_Send_InvalidCredentials(t *testing.T) {
 }
 
 func TestWebPushProvider_Send_LookupError(t *testing.T) {
+	t.Parallel()
+
 	lookupErr := errors.New("credentials not found")
 	p, err := NewWebPushProvider(zerolog.Nop(), func(string) (json.RawMessage, error) {
 		return nil, lookupErr
@@ -335,6 +351,8 @@ func TestWebPushProvider_Send_LookupError(t *testing.T) {
 }
 
 func TestWebPushProvider_Close(t *testing.T) {
+	t.Parallel()
+
 	p, err := NewWebPushProvider(zerolog.Nop(), func(string) (json.RawMessage, error) {
 		return nil, nil
 	})

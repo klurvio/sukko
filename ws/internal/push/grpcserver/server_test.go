@@ -179,6 +179,8 @@ func setupTestServer(t *testing.T) *testEnv {
 // ---------------------------------------------------------------------------
 
 func TestRegisterDevice_WebPush(t *testing.T) {
+	t.Parallel()
+
 	env := setupTestServer(t)
 	ctx := context.Background()
 
@@ -218,6 +220,8 @@ func TestRegisterDevice_WebPush(t *testing.T) {
 }
 
 func TestRegisterDevice_FCM(t *testing.T) {
+	t.Parallel()
+
 	env := setupTestServer(t)
 	ctx := context.Background()
 
@@ -251,6 +255,8 @@ func TestRegisterDevice_FCM(t *testing.T) {
 }
 
 func TestRegisterDevice_InvalidPlatform(t *testing.T) {
+	t.Parallel()
+
 	env := setupTestServer(t)
 	ctx := context.Background()
 
@@ -273,6 +279,8 @@ func TestRegisterDevice_InvalidPlatform(t *testing.T) {
 }
 
 func TestRegisterDevice_MissingEndpoint(t *testing.T) {
+	t.Parallel()
+
 	env := setupTestServer(t)
 	ctx := context.Background()
 
@@ -297,6 +305,8 @@ func TestRegisterDevice_MissingEndpoint(t *testing.T) {
 }
 
 func TestRegisterDevice_MissingToken(t *testing.T) {
+	t.Parallel()
+
 	env := setupTestServer(t)
 	ctx := context.Background()
 
@@ -319,6 +329,8 @@ func TestRegisterDevice_MissingToken(t *testing.T) {
 }
 
 func TestRegisterDevice_InvalidChannelPrefix(t *testing.T) {
+	t.Parallel()
+
 	env := setupTestServer(t)
 	ctx := context.Background()
 
@@ -344,6 +356,8 @@ func TestRegisterDevice_InvalidChannelPrefix(t *testing.T) {
 }
 
 func TestRegisterDevice_EmptyChannels(t *testing.T) {
+	t.Parallel()
+
 	env := setupTestServer(t)
 	ctx := context.Background()
 
@@ -373,6 +387,8 @@ func TestRegisterDevice_EmptyChannels(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUnregisterDevice(t *testing.T) {
+	t.Parallel()
+
 	env := setupTestServer(t)
 	ctx := context.Background()
 
@@ -415,6 +431,8 @@ func TestUnregisterDevice(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetVAPIDKey_Cached(t *testing.T) {
+	t.Parallel()
+
 	env := setupTestServer(t)
 	ctx := context.Background()
 
@@ -441,6 +459,8 @@ func TestGetVAPIDKey_Cached(t *testing.T) {
 }
 
 func TestGetVAPIDKey_AutoGenerate(t *testing.T) {
+	t.Parallel()
+
 	env := setupTestServer(t)
 	ctx := context.Background()
 
@@ -508,6 +528,8 @@ func TestGetVAPIDKey_AutoGenerate(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNewServer_NilRepo(t *testing.T) {
+	t.Parallel()
+
 	_, err := grpcserver.NewServer(grpcserver.ServerConfig{
 		Repo:        nil,
 		ConfigCache: newMockConfigCache(),
@@ -520,6 +542,8 @@ func TestNewServer_NilRepo(t *testing.T) {
 }
 
 func TestNewServer_NilConfigCache(t *testing.T) {
+	t.Parallel()
+
 	_, err := grpcserver.NewServer(grpcserver.ServerConfig{
 		Repo:        newMockRepo(),
 		ConfigCache: nil,
@@ -532,6 +556,8 @@ func TestNewServer_NilConfigCache(t *testing.T) {
 }
 
 func TestNewServer_NilProvClient(t *testing.T) {
+	t.Parallel()
+
 	_, err := grpcserver.NewServer(grpcserver.ServerConfig{
 		Repo:        newMockRepo(),
 		ConfigCache: newMockConfigCache(),

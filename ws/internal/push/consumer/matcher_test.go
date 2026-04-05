@@ -3,6 +3,8 @@ package consumer
 import "testing"
 
 func TestMatchChannel(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		channelKey string
@@ -55,6 +57,7 @@ func TestMatchChannel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := MatchChannel(tt.channelKey, tt.patterns)
 			if got != tt.want {
 				t.Errorf("MatchChannel(%q, %v) = %v, want %v",

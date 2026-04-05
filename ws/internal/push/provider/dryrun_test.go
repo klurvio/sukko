@@ -8,6 +8,8 @@ import (
 )
 
 func TestDryRunProvider_Name(t *testing.T) {
+	t.Parallel()
+
 	p := NewDryRunProvider(zerolog.Nop())
 	if got := p.Name(); got != "dryrun" {
 		t.Fatalf("Name() = %q, want %q", got, "dryrun")
@@ -15,6 +17,8 @@ func TestDryRunProvider_Name(t *testing.T) {
 }
 
 func TestDryRunProvider_Send(t *testing.T) {
+	t.Parallel()
+
 	p := NewDryRunProvider(zerolog.Nop())
 
 	job := PushJob{
@@ -33,6 +37,8 @@ func TestDryRunProvider_Send(t *testing.T) {
 }
 
 func TestDryRunProvider_SendBatch(t *testing.T) {
+	t.Parallel()
+
 	p := NewDryRunProvider(zerolog.Nop())
 
 	jobs := []PushJob{
@@ -47,6 +53,8 @@ func TestDryRunProvider_SendBatch(t *testing.T) {
 }
 
 func TestDryRunProvider_SendBatch_Empty(t *testing.T) {
+	t.Parallel()
+
 	p := NewDryRunProvider(zerolog.Nop())
 
 	if err := p.SendBatch(context.Background(), nil); err != nil {
@@ -58,6 +66,8 @@ func TestDryRunProvider_SendBatch_Empty(t *testing.T) {
 }
 
 func TestDryRunProvider_Close(t *testing.T) {
+	t.Parallel()
+
 	p := NewDryRunProvider(zerolog.Nop())
 
 	if err := p.Close(); err != nil {

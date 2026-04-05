@@ -11,6 +11,8 @@ import (
 // TODO: integration tests with mock FCM server
 
 func TestFCMProvider_Name(t *testing.T) {
+	t.Parallel()
+
 	p, err := NewFCMProvider(zerolog.Nop(), func(string) (json.RawMessage, error) {
 		return nil, nil
 	})
@@ -23,6 +25,8 @@ func TestFCMProvider_Name(t *testing.T) {
 }
 
 func TestNewFCMProvider_NilLookup(t *testing.T) {
+	t.Parallel()
+
 	_, err := NewFCMProvider(zerolog.Nop(), nil)
 	if err == nil {
 		t.Fatal("expected error for nil credential lookup, got nil")
@@ -30,6 +34,8 @@ func TestNewFCMProvider_NilLookup(t *testing.T) {
 }
 
 func TestFCMProvider_SendBatch_Empty(t *testing.T) {
+	t.Parallel()
+
 	p, err := NewFCMProvider(zerolog.Nop(), func(string) (json.RawMessage, error) {
 		return nil, nil
 	})
@@ -46,6 +52,8 @@ func TestFCMProvider_SendBatch_Empty(t *testing.T) {
 }
 
 func TestFCMProvider_Send_InvalidCredentials(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		creds string
@@ -66,6 +74,7 @@ func TestFCMProvider_Send_InvalidCredentials(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			p, err := NewFCMProvider(zerolog.Nop(), func(string) (json.RawMessage, error) {
 				return json.RawMessage(tt.creds), nil
 			})
@@ -91,6 +100,8 @@ func TestFCMProvider_Send_InvalidCredentials(t *testing.T) {
 }
 
 func TestFCMProvider_Close(t *testing.T) {
+	t.Parallel()
+
 	p, err := NewFCMProvider(zerolog.Nop(), func(string) (json.RawMessage, error) {
 		return nil, nil
 	})

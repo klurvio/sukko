@@ -17,6 +17,8 @@ func validPoolConfig() PoolConfig {
 }
 
 func TestNewPool(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		modify  func(*PoolConfig)
@@ -59,6 +61,7 @@ func TestNewPool(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := validPoolConfig()
 			tt.modify(&cfg)
 			pool, err := NewPool(cfg)
@@ -87,6 +90,8 @@ func TestNewPool(t *testing.T) {
 }
 
 func TestExtractTenantFromTopic(t *testing.T) {
+	t.Parallel()
+
 	pool := &Pool{
 		config: PoolConfig{
 			Namespace: "prod",
@@ -142,6 +147,7 @@ func TestExtractTenantFromTopic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := pool.extractTenantFromTopic(tt.topic)
 			if got != tt.wantTID {
 				t.Errorf("extractTenantFromTopic(%q) = %q, want %q", tt.topic, got, tt.wantTID)
@@ -151,6 +157,8 @@ func TestExtractTenantFromTopic(t *testing.T) {
 }
 
 func TestUpdateTopicsBeforeStart(t *testing.T) {
+	t.Parallel()
+
 	pool, err := NewPool(validPoolConfig())
 	if err != nil {
 		t.Fatalf("NewPool: %v", err)

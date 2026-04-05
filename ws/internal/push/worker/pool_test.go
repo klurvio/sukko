@@ -96,6 +96,8 @@ func newTestPool(t *testing.T, prov provider.Provider, repo repository.Subscript
 }
 
 func TestBasicDispatch(t *testing.T) {
+	t.Parallel()
+
 	prov := &mockProvider{}
 	repo := &mockRepo{}
 	p := newTestPool(t, prov, repo, 2, 10)
@@ -121,6 +123,8 @@ func TestBasicDispatch(t *testing.T) {
 }
 
 func TestBackpressure(t *testing.T) {
+	t.Parallel()
+
 	// Slow provider that blocks for a while.
 	slowProv := &mockProvider{}
 	repo := &mockRepo{}
@@ -192,6 +196,8 @@ func (b *blockingProvider) Close() error                                        
 func (b *blockingProvider) InvalidateClient(_ string)                               {}
 
 func TestErrSubscriptionExpiredDeletesToken(t *testing.T) {
+	t.Parallel()
+
 	prov := &mockProvider{err: provider.ErrSubscriptionExpired}
 	repo := &mockRepo{}
 	p := newTestPool(t, prov, repo, 1, 10)
@@ -224,6 +230,8 @@ func TestErrSubscriptionExpiredDeletesToken(t *testing.T) {
 }
 
 func TestConcurrentDispatch(t *testing.T) {
+	t.Parallel()
+
 	var counter atomic.Int64
 	countingProv := &countingProvider{counter: &counter}
 	repo := &mockRepo{}
@@ -275,6 +283,8 @@ func (c *countingProvider) Close() error                                        
 func (c *countingProvider) InvalidateClient(_ string)                               {}
 
 func TestStopDrainsQueue(t *testing.T) {
+	t.Parallel()
+
 	prov := &mockProvider{}
 	repo := &mockRepo{}
 	p := newTestPool(t, prov, repo, 2, 20)
@@ -301,6 +311,8 @@ func TestStopDrainsQueue(t *testing.T) {
 }
 
 func TestNewPoolValidation(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		cfg     PoolConfig
@@ -330,6 +342,7 @@ func TestNewPoolValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := NewPool(tt.cfg)
 			if err == nil {
 				t.Fatal("expected error, got nil")
