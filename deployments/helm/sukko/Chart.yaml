@@ -28,6 +28,9 @@ dependencies:
   - name: nats
     version: "1.0.0"
     condition: nats.enabled
+  - name: push-service
+    version: "0.1.0"
+    condition: push-service.enabled
   - name: monitoring
     version: "1.0.0"
     condition: monitoring.enabled
