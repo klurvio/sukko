@@ -19,10 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ProvisioningInternalService_WatchKeys_FullMethodName         = "/sukko.provisioning.v1.ProvisioningInternalService/WatchKeys"
-	ProvisioningInternalService_WatchTenantConfig_FullMethodName = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTenantConfig"
-	ProvisioningInternalService_WatchTopics_FullMethodName       = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTopics"
-	ProvisioningInternalService_WatchAPIKeys_FullMethodName      = "/sukko.provisioning.v1.ProvisioningInternalService/WatchAPIKeys"
+	ProvisioningInternalService_WatchKeys_FullMethodName            = "/sukko.provisioning.v1.ProvisioningInternalService/WatchKeys"
+	ProvisioningInternalService_WatchTenantConfig_FullMethodName    = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTenantConfig"
+	ProvisioningInternalService_WatchTopics_FullMethodName          = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTopics"
+	ProvisioningInternalService_WatchAPIKeys_FullMethodName         = "/sukko.provisioning.v1.ProvisioningInternalService/WatchAPIKeys"
+	ProvisioningInternalService_WatchPushConfig_FullMethodName      = "/sukko.provisioning.v1.ProvisioningInternalService/WatchPushConfig"
+	ProvisioningInternalService_StorePushCredentials_FullMethodName = "/sukko.provisioning.v1.ProvisioningInternalService/StorePushCredentials"
 )
 
 // ProvisioningInternalServiceClient is the client API for ProvisioningInternalService service.
@@ -39,6 +41,11 @@ type ProvisioningInternalServiceClient interface {
 	WatchTopics(ctx context.Context, in *WatchTopicsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchTopicsResponse], error)
 	// Stream active API keys — snapshot on connect, deltas on change.
 	WatchAPIKeys(ctx context.Context, in *WatchAPIKeysRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchAPIKeysResponse], error)
+	// Stream push config (credentials + channel patterns) — snapshot on connect, deltas on change.
+	WatchPushConfig(ctx context.Context, in *WatchPushConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchPushConfigResponse], error)
+	// StorePushCredentials stores provider credentials for a tenant.
+	// Used by push service for VAPID auto-generation (FR-007) and admin API forwarding.
+	StorePushCredentials(ctx context.Context, in *StorePushCredentialsRequest, opts ...grpc.CallOption) (*StorePushCredentialsResponse, error)
 }
 
 type provisioningInternalServiceClient struct {
@@ -125,6 +132,35 @@ func (c *provisioningInternalServiceClient) WatchAPIKeys(ctx context.Context, in
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ProvisioningInternalService_WatchAPIKeysClient = grpc.ServerStreamingClient[WatchAPIKeysResponse]
 
+func (c *provisioningInternalServiceClient) WatchPushConfig(ctx context.Context, in *WatchPushConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchPushConfigResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ProvisioningInternalService_ServiceDesc.Streams[4], ProvisioningInternalService_WatchPushConfig_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WatchPushConfigRequest, WatchPushConfigResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ProvisioningInternalService_WatchPushConfigClient = grpc.ServerStreamingClient[WatchPushConfigResponse]
+
+func (c *provisioningInternalServiceClient) StorePushCredentials(ctx context.Context, in *StorePushCredentialsRequest, opts ...grpc.CallOption) (*StorePushCredentialsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StorePushCredentialsResponse)
+	err := c.cc.Invoke(ctx, ProvisioningInternalService_StorePushCredentials_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProvisioningInternalServiceServer is the server API for ProvisioningInternalService service.
 // All implementations must embed UnimplementedProvisioningInternalServiceServer
 // for forward compatibility.
@@ -139,6 +175,11 @@ type ProvisioningInternalServiceServer interface {
 	WatchTopics(*WatchTopicsRequest, grpc.ServerStreamingServer[WatchTopicsResponse]) error
 	// Stream active API keys — snapshot on connect, deltas on change.
 	WatchAPIKeys(*WatchAPIKeysRequest, grpc.ServerStreamingServer[WatchAPIKeysResponse]) error
+	// Stream push config (credentials + channel patterns) — snapshot on connect, deltas on change.
+	WatchPushConfig(*WatchPushConfigRequest, grpc.ServerStreamingServer[WatchPushConfigResponse]) error
+	// StorePushCredentials stores provider credentials for a tenant.
+	// Used by push service for VAPID auto-generation (FR-007) and admin API forwarding.
+	StorePushCredentials(context.Context, *StorePushCredentialsRequest) (*StorePushCredentialsResponse, error)
 	mustEmbedUnimplementedProvisioningInternalServiceServer()
 }
 
@@ -160,6 +201,12 @@ func (UnimplementedProvisioningInternalServiceServer) WatchTopics(*WatchTopicsRe
 }
 func (UnimplementedProvisioningInternalServiceServer) WatchAPIKeys(*WatchAPIKeysRequest, grpc.ServerStreamingServer[WatchAPIKeysResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchAPIKeys not implemented")
+}
+func (UnimplementedProvisioningInternalServiceServer) WatchPushConfig(*WatchPushConfigRequest, grpc.ServerStreamingServer[WatchPushConfigResponse]) error {
+	return status.Error(codes.Unimplemented, "method WatchPushConfig not implemented")
+}
+func (UnimplementedProvisioningInternalServiceServer) StorePushCredentials(context.Context, *StorePushCredentialsRequest) (*StorePushCredentialsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StorePushCredentials not implemented")
 }
 func (UnimplementedProvisioningInternalServiceServer) mustEmbedUnimplementedProvisioningInternalServiceServer() {
 }
@@ -227,13 +274,47 @@ func _ProvisioningInternalService_WatchAPIKeys_Handler(srv interface{}, stream g
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ProvisioningInternalService_WatchAPIKeysServer = grpc.ServerStreamingServer[WatchAPIKeysResponse]
 
+func _ProvisioningInternalService_WatchPushConfig_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchPushConfigRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ProvisioningInternalServiceServer).WatchPushConfig(m, &grpc.GenericServerStream[WatchPushConfigRequest, WatchPushConfigResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ProvisioningInternalService_WatchPushConfigServer = grpc.ServerStreamingServer[WatchPushConfigResponse]
+
+func _ProvisioningInternalService_StorePushCredentials_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StorePushCredentialsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProvisioningInternalServiceServer).StorePushCredentials(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProvisioningInternalService_StorePushCredentials_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProvisioningInternalServiceServer).StorePushCredentials(ctx, req.(*StorePushCredentialsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProvisioningInternalService_ServiceDesc is the grpc.ServiceDesc for ProvisioningInternalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var ProvisioningInternalService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "sukko.provisioning.v1.ProvisioningInternalService",
 	HandlerType: (*ProvisioningInternalServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "StorePushCredentials",
+			Handler:    _ProvisioningInternalService_StorePushCredentials_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "WatchKeys",
@@ -253,6 +334,11 @@ var ProvisioningInternalService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "WatchAPIKeys",
 			Handler:       _ProvisioningInternalService_WatchAPIKeys_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "WatchPushConfig",
+			Handler:       _ProvisioningInternalService_WatchPushConfig_Handler,
 			ServerStreams: true,
 		},
 	},

@@ -12,18 +12,18 @@ import (
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
-// PostgresChannelRulesRepository implements ChannelRulesStore using PostgreSQL.
-type PostgresChannelRulesRepository struct {
+// ChannelRulesRepository implements ChannelRulesStore using database/sql.
+type ChannelRulesRepository struct {
 	db *sql.DB
 }
 
-// NewPostgresChannelRulesRepository creates a new PostgresChannelRulesRepository.
-func NewPostgresChannelRulesRepository(db *sql.DB) *PostgresChannelRulesRepository {
-	return &PostgresChannelRulesRepository{db: db}
+// NewChannelRulesRepository creates a ChannelRulesRepository.
+func NewChannelRulesRepository(db *sql.DB) *ChannelRulesRepository {
+	return &ChannelRulesRepository{db: db}
 }
 
 // Create creates channel rules for a tenant.
-func (r *PostgresChannelRulesRepository) Create(ctx context.Context, tenantID string, rules *types.ChannelRules) error {
+func (r *ChannelRulesRepository) Create(ctx context.Context, tenantID string, rules *types.ChannelRules) error {
 	rulesJSON, err := json.Marshal(rules)
 	if err != nil {
 		return fmt.Errorf("marshal rules: %w", err)
@@ -44,7 +44,7 @@ func (r *PostgresChannelRulesRepository) Create(ctx context.Context, tenantID st
 }
 
 // Get retrieves channel rules by tenant ID.
-func (r *PostgresChannelRulesRepository) Get(ctx context.Context, tenantID string) (*types.TenantChannelRules, error) {
+func (r *ChannelRulesRepository) Get(ctx context.Context, tenantID string) (*types.TenantChannelRules, error) {
 	query := `
 		SELECT tenant_id, rules, created_at, updated_at
 		FROM tenant_channel_rules
@@ -76,7 +76,7 @@ func (r *PostgresChannelRulesRepository) Get(ctx context.Context, tenantID strin
 
 // GetRules retrieves just the channel rules (not the wrapper) by tenant ID.
 // This is a convenience method for the common use case.
-func (r *PostgresChannelRulesRepository) GetRules(ctx context.Context, tenantID string) (*types.ChannelRules, error) {
+func (r *ChannelRulesRepository) GetRules(ctx context.Context, tenantID string) (*types.ChannelRules, error) {
 	tcr, err := r.Get(ctx, tenantID)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func (r *PostgresChannelRulesRepository) GetRules(ctx context.Context, tenantID 
 }
 
 // Update updates channel rules for a tenant (upsert).
-func (r *PostgresChannelRulesRepository) Update(ctx context.Context, tenantID string, rules *types.ChannelRules) error {
+func (r *ChannelRulesRepository) Update(ctx context.Context, tenantID string, rules *types.ChannelRules) error {
 	rulesJSON, err := json.Marshal(rules)
 	if err != nil {
 		return fmt.Errorf("marshal rules: %w", err)
@@ -109,7 +109,7 @@ func (r *PostgresChannelRulesRepository) Update(ctx context.Context, tenantID st
 }
 
 // Delete deletes channel rules for a tenant.
-func (r *PostgresChannelRulesRepository) Delete(ctx context.Context, tenantID string) error {
+func (r *ChannelRulesRepository) Delete(ctx context.Context, tenantID string) error {
 	query := `DELETE FROM tenant_channel_rules WHERE tenant_id = $1`
 
 	result, err := r.db.ExecContext(ctx, query, tenantID)
@@ -129,7 +129,7 @@ func (r *PostgresChannelRulesRepository) Delete(ctx context.Context, tenantID st
 }
 
 // List returns all channel rules (used by gateway to build cache).
-func (r *PostgresChannelRulesRepository) List(ctx context.Context) ([]*types.TenantChannelRules, error) {
+func (r *ChannelRulesRepository) List(ctx context.Context) ([]*types.TenantChannelRules, error) {
 	query := `
 		SELECT tenant_id, rules, created_at, updated_at
 		FROM tenant_channel_rules
@@ -171,5 +171,4 @@ func (r *PostgresChannelRulesRepository) List(ctx context.Context) ([]*types.Ten
 	return results, nil
 }
 
-// Ensure PostgresChannelRulesRepository implements ChannelRulesStore.
-var _ provisioning.ChannelRulesStore = (*PostgresChannelRulesRepository)(nil)
+var _ provisioning.ChannelRulesStore = (*ChannelRulesRepository)(nil)

@@ -17,6 +17,13 @@ service ProvisioningInternalService {
 
   // Stream active API keys — snapshot on connect, deltas on change.
   rpc WatchAPIKeys(WatchAPIKeysRequest) returns (stream WatchAPIKeysResponse);
+
+  // Stream push config (credentials + channel patterns) — snapshot on connect, deltas on change.
+  rpc WatchPushConfig(WatchPushConfigRequest) returns (stream WatchPushConfigResponse);
+
+  // StorePushCredentials stores provider credentials for a tenant.
+  // Used by push service for VAPID auto-generation (FR-007) and admin API forwarding.
+  rpc StorePushCredentials(StorePushCredentialsRequest) returns (StorePushCredentialsResponse);
 }
 
 message WatchKeysRequest {}
@@ -97,4 +104,41 @@ message APIKeyInfo {
   string tenant_id = 2;
   string name = 3;
   bool is_active = 4;
+}
+
+// --- Push Config Streaming ---
+
+message WatchPushConfigRequest {}
+
+message WatchPushConfigResponse {
+  bool is_snapshot = 1;                              // true = full state, false = delta
+  repeated PushCredentialInfo push_credentials = 2;  // Per-tenant provider credentials
+  repeated PushChannelConfig push_channel_configs = 3; // Per-tenant push channel patterns
+  repeated string removed_credential_ids = 4;        // Credential IDs removed (delta only)
+  repeated string removed_config_tenant_ids = 5;     // Tenant IDs whose push config was removed (delta only)
+}
+
+message PushCredentialInfo {
+  string tenant_id = 1;
+  string provider = 2;        // "vapid", "fcm", "apns"
+  string credential_data = 3; // Decrypted JSON (encrypted at rest, decrypted before streaming)
+}
+
+message PushChannelConfig {
+  string tenant_id = 1;
+  repeated string patterns = 2;   // Channel glob patterns WITH tenant prefix
+  int32 default_ttl = 3;          // Push TTL in seconds (default 2419200 = 4 weeks)
+  string default_urgency = 4;     // "very-low", "low", "normal", "high"
+}
+
+// --- Store Push Credentials ---
+
+message StorePushCredentialsRequest {
+  string tenant_id = 1;
+  string provider = 2;            // "vapid", "fcm", "apns"
+  string credential_data = 3;     // Raw JSON (encrypted by provisioning before storage)
+}
+
+message StorePushCredentialsResponse {
+  bool success = 1;
 }

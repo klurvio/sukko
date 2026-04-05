@@ -69,6 +69,25 @@ provisioning:
       cpu: "500m"
       memory: "256Mi"
 
+# ── Push Service ───────────────────────────────────────────────────
+push-service:
+  enabled: true
+  replicaCount: 1
+  environment: demo
+  messageBackend: kafka
+  databaseDriver: sqlite
+  dryRun: "true"
+  image:
+    tag: latest
+    pullPolicy: Always
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
 # ── Redpanda (Kafka) ───────────────────────────────────────────────
 redpanda:
   enabled: true

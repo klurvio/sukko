@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/klurvio/sukko/internal/gateway"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/profiling"
@@ -128,6 +129,23 @@ func main() {
 		}
 	}()
 	gw.SetServerClient(serverClient)
+
+	// Create gRPC client to push service (Enterprise only — Constitution XIII)
+	if config.EditionManager().HasFeature(license.WebPushTransport) {
+		pushClient, err := gateway.NewPushClient(config.PushGRPCAddr, logger)
+		if err != nil {
+			logger.Fatal().Err(err).Str("addr", config.PushGRPCAddr).Msg("Failed to create push service gRPC client")
+		}
+		defer func() {
+			if err := pushClient.Close(); err != nil {
+				logger.Error().Err(err).Msg("Push client cleanup error")
+			}
+		}()
+		gw.SetPushClient(pushClient)
+		logger.Info().Str("addr", config.PushGRPCAddr).Msg("Push service client connected")
+	} else {
+		logger.Info().Msg("Push service disabled (requires Enterprise edition)")
+	}
 
 	// Create publish rate limiter (background cleanup goroutine)
 	var limiterWg sync.WaitGroup

@@ -857,6 +857,350 @@ func (x *APIKeyInfo) GetIsActive() bool {
 	return false
 }
 
+type WatchPushConfigRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchPushConfigRequest) Reset() {
+	*x = WatchPushConfigRequest{}
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchPushConfigRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchPushConfigRequest) ProtoMessage() {}
+
+func (x *WatchPushConfigRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchPushConfigRequest.ProtoReflect.Descriptor instead.
+func (*WatchPushConfigRequest) Descriptor() ([]byte, []int) {
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{15}
+}
+
+type WatchPushConfigResponse struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	IsSnapshot             bool                   `protobuf:"varint,1,opt,name=is_snapshot,json=isSnapshot,proto3" json:"is_snapshot,omitempty"`                                        // true = full state, false = delta
+	PushCredentials        []*PushCredentialInfo  `protobuf:"bytes,2,rep,name=push_credentials,json=pushCredentials,proto3" json:"push_credentials,omitempty"`                          // Per-tenant provider credentials
+	PushChannelConfigs     []*PushChannelConfig   `protobuf:"bytes,3,rep,name=push_channel_configs,json=pushChannelConfigs,proto3" json:"push_channel_configs,omitempty"`               // Per-tenant push channel patterns
+	RemovedCredentialIds   []string               `protobuf:"bytes,4,rep,name=removed_credential_ids,json=removedCredentialIds,proto3" json:"removed_credential_ids,omitempty"`         // Credential IDs removed (delta only)
+	RemovedConfigTenantIds []string               `protobuf:"bytes,5,rep,name=removed_config_tenant_ids,json=removedConfigTenantIds,proto3" json:"removed_config_tenant_ids,omitempty"` // Tenant IDs whose push config was removed (delta only)
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *WatchPushConfigResponse) Reset() {
+	*x = WatchPushConfigResponse{}
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchPushConfigResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchPushConfigResponse) ProtoMessage() {}
+
+func (x *WatchPushConfigResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchPushConfigResponse.ProtoReflect.Descriptor instead.
+func (*WatchPushConfigResponse) Descriptor() ([]byte, []int) {
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *WatchPushConfigResponse) GetIsSnapshot() bool {
+	if x != nil {
+		return x.IsSnapshot
+	}
+	return false
+}
+
+func (x *WatchPushConfigResponse) GetPushCredentials() []*PushCredentialInfo {
+	if x != nil {
+		return x.PushCredentials
+	}
+	return nil
+}
+
+func (x *WatchPushConfigResponse) GetPushChannelConfigs() []*PushChannelConfig {
+	if x != nil {
+		return x.PushChannelConfigs
+	}
+	return nil
+}
+
+func (x *WatchPushConfigResponse) GetRemovedCredentialIds() []string {
+	if x != nil {
+		return x.RemovedCredentialIds
+	}
+	return nil
+}
+
+func (x *WatchPushConfigResponse) GetRemovedConfigTenantIds() []string {
+	if x != nil {
+		return x.RemovedConfigTenantIds
+	}
+	return nil
+}
+
+type PushCredentialInfo struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Provider       string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`                                   // "vapid", "fcm", "apns"
+	CredentialData string                 `protobuf:"bytes,3,opt,name=credential_data,json=credentialData,proto3" json:"credential_data,omitempty"` // Decrypted JSON (encrypted at rest, decrypted before streaming)
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PushCredentialInfo) Reset() {
+	*x = PushCredentialInfo{}
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushCredentialInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushCredentialInfo) ProtoMessage() {}
+
+func (x *PushCredentialInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushCredentialInfo.ProtoReflect.Descriptor instead.
+func (*PushCredentialInfo) Descriptor() ([]byte, []int) {
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *PushCredentialInfo) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *PushCredentialInfo) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *PushCredentialInfo) GetCredentialData() string {
+	if x != nil {
+		return x.CredentialData
+	}
+	return ""
+}
+
+type PushChannelConfig struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Patterns       []string               `protobuf:"bytes,2,rep,name=patterns,proto3" json:"patterns,omitempty"`                                   // Channel glob patterns WITH tenant prefix
+	DefaultTtl     int32                  `protobuf:"varint,3,opt,name=default_ttl,json=defaultTtl,proto3" json:"default_ttl,omitempty"`            // Push TTL in seconds (default 2419200 = 4 weeks)
+	DefaultUrgency string                 `protobuf:"bytes,4,opt,name=default_urgency,json=defaultUrgency,proto3" json:"default_urgency,omitempty"` // "very-low", "low", "normal", "high"
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PushChannelConfig) Reset() {
+	*x = PushChannelConfig{}
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushChannelConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushChannelConfig) ProtoMessage() {}
+
+func (x *PushChannelConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushChannelConfig.ProtoReflect.Descriptor instead.
+func (*PushChannelConfig) Descriptor() ([]byte, []int) {
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *PushChannelConfig) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *PushChannelConfig) GetPatterns() []string {
+	if x != nil {
+		return x.Patterns
+	}
+	return nil
+}
+
+func (x *PushChannelConfig) GetDefaultTtl() int32 {
+	if x != nil {
+		return x.DefaultTtl
+	}
+	return 0
+}
+
+func (x *PushChannelConfig) GetDefaultUrgency() string {
+	if x != nil {
+		return x.DefaultUrgency
+	}
+	return ""
+}
+
+type StorePushCredentialsRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Provider       string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`                                   // "vapid", "fcm", "apns"
+	CredentialData string                 `protobuf:"bytes,3,opt,name=credential_data,json=credentialData,proto3" json:"credential_data,omitempty"` // Raw JSON (encrypted by provisioning before storage)
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *StorePushCredentialsRequest) Reset() {
+	*x = StorePushCredentialsRequest{}
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StorePushCredentialsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StorePushCredentialsRequest) ProtoMessage() {}
+
+func (x *StorePushCredentialsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StorePushCredentialsRequest.ProtoReflect.Descriptor instead.
+func (*StorePushCredentialsRequest) Descriptor() ([]byte, []int) {
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *StorePushCredentialsRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *StorePushCredentialsRequest) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *StorePushCredentialsRequest) GetCredentialData() string {
+	if x != nil {
+		return x.CredentialData
+	}
+	return ""
+}
+
+type StorePushCredentialsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StorePushCredentialsResponse) Reset() {
+	*x = StorePushCredentialsResponse{}
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StorePushCredentialsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StorePushCredentialsResponse) ProtoMessage() {}
+
+func (x *StorePushCredentialsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StorePushCredentialsResponse.ProtoReflect.Descriptor instead.
+func (*StorePushCredentialsResponse) Descriptor() ([]byte, []int) {
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *StorePushCredentialsResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 var File_sukko_provisioning_v1_provisioning_proto protoreflect.FileDescriptor
 
 const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
@@ -924,12 +1268,38 @@ const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1b\n" +
-	"\tis_active\x18\x04 \x01(\bR\bisActive2\xcc\x03\n" +
+	"\tis_active\x18\x04 \x01(\bR\bisActive\"\x18\n" +
+	"\x16WatchPushConfigRequest\"\xdd\x02\n" +
+	"\x17WatchPushConfigResponse\x12\x1f\n" +
+	"\vis_snapshot\x18\x01 \x01(\bR\n" +
+	"isSnapshot\x12T\n" +
+	"\x10push_credentials\x18\x02 \x03(\v2).sukko.provisioning.v1.PushCredentialInfoR\x0fpushCredentials\x12Z\n" +
+	"\x14push_channel_configs\x18\x03 \x03(\v2(.sukko.provisioning.v1.PushChannelConfigR\x12pushChannelConfigs\x124\n" +
+	"\x16removed_credential_ids\x18\x04 \x03(\tR\x14removedCredentialIds\x129\n" +
+	"\x19removed_config_tenant_ids\x18\x05 \x03(\tR\x16removedConfigTenantIds\"v\n" +
+	"\x12PushCredentialInfo\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1a\n" +
+	"\bprovider\x18\x02 \x01(\tR\bprovider\x12'\n" +
+	"\x0fcredential_data\x18\x03 \x01(\tR\x0ecredentialData\"\x96\x01\n" +
+	"\x11PushChannelConfig\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1a\n" +
+	"\bpatterns\x18\x02 \x03(\tR\bpatterns\x12\x1f\n" +
+	"\vdefault_ttl\x18\x03 \x01(\x05R\n" +
+	"defaultTtl\x12'\n" +
+	"\x0fdefault_urgency\x18\x04 \x01(\tR\x0edefaultUrgency\"\x7f\n" +
+	"\x1bStorePushCredentialsRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1a\n" +
+	"\bprovider\x18\x02 \x01(\tR\bprovider\x12'\n" +
+	"\x0fcredential_data\x18\x03 \x01(\tR\x0ecredentialData\"8\n" +
+	"\x1cStorePushCredentialsResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\xc1\x05\n" +
 	"\x1bProvisioningInternalService\x12`\n" +
 	"\tWatchKeys\x12'.sukko.provisioning.v1.WatchKeysRequest\x1a(.sukko.provisioning.v1.WatchKeysResponse0\x01\x12x\n" +
 	"\x11WatchTenantConfig\x12/.sukko.provisioning.v1.WatchTenantConfigRequest\x1a0.sukko.provisioning.v1.WatchTenantConfigResponse0\x01\x12f\n" +
 	"\vWatchTopics\x12).sukko.provisioning.v1.WatchTopicsRequest\x1a*.sukko.provisioning.v1.WatchTopicsResponse0\x01\x12i\n" +
-	"\fWatchAPIKeys\x12*.sukko.provisioning.v1.WatchAPIKeysRequest\x1a+.sukko.provisioning.v1.WatchAPIKeysResponse0\x01BIZGgithub.com/klurvio/sukko/gen/proto/sukko/provisioning/v1;provisioningv1b\x06proto3"
+	"\fWatchAPIKeys\x12*.sukko.provisioning.v1.WatchAPIKeysRequest\x1a+.sukko.provisioning.v1.WatchAPIKeysResponse0\x01\x12r\n" +
+	"\x0fWatchPushConfig\x12-.sukko.provisioning.v1.WatchPushConfigRequest\x1a..sukko.provisioning.v1.WatchPushConfigResponse0\x01\x12\x7f\n" +
+	"\x14StorePushCredentials\x122.sukko.provisioning.v1.StorePushCredentialsRequest\x1a3.sukko.provisioning.v1.StorePushCredentialsResponseBIZGgithub.com/klurvio/sukko/gen/proto/sukko/provisioning/v1;provisioningv1b\x06proto3"
 
 var (
 	file_sukko_provisioning_v1_provisioning_proto_rawDescOnce sync.Once
@@ -943,50 +1313,62 @@ func file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP() []byte {
 	return file_sukko_provisioning_v1_provisioning_proto_rawDescData
 }
 
-var file_sukko_provisioning_v1_provisioning_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_sukko_provisioning_v1_provisioning_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_sukko_provisioning_v1_provisioning_proto_goTypes = []any{
-	(*WatchKeysRequest)(nil),          // 0: sukko.provisioning.v1.WatchKeysRequest
-	(*WatchKeysResponse)(nil),         // 1: sukko.provisioning.v1.WatchKeysResponse
-	(*KeyInfo)(nil),                   // 2: sukko.provisioning.v1.KeyInfo
-	(*WatchTenantConfigRequest)(nil),  // 3: sukko.provisioning.v1.WatchTenantConfigRequest
-	(*WatchTenantConfigResponse)(nil), // 4: sukko.provisioning.v1.WatchTenantConfigResponse
-	(*TenantConfig)(nil),              // 5: sukko.provisioning.v1.TenantConfig
-	(*TopicRoutingRule)(nil),          // 6: sukko.provisioning.v1.TopicRoutingRule
-	(*ChannelRules)(nil),              // 7: sukko.provisioning.v1.ChannelRules
-	(*GroupChannels)(nil),             // 8: sukko.provisioning.v1.GroupChannels
-	(*WatchTopicsRequest)(nil),        // 9: sukko.provisioning.v1.WatchTopicsRequest
-	(*WatchTopicsResponse)(nil),       // 10: sukko.provisioning.v1.WatchTopicsResponse
-	(*DedicatedTenant)(nil),           // 11: sukko.provisioning.v1.DedicatedTenant
-	(*WatchAPIKeysRequest)(nil),       // 12: sukko.provisioning.v1.WatchAPIKeysRequest
-	(*WatchAPIKeysResponse)(nil),      // 13: sukko.provisioning.v1.WatchAPIKeysResponse
-	(*APIKeyInfo)(nil),                // 14: sukko.provisioning.v1.APIKeyInfo
-	nil,                               // 15: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
-	nil,                               // 16: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
+	(*WatchKeysRequest)(nil),             // 0: sukko.provisioning.v1.WatchKeysRequest
+	(*WatchKeysResponse)(nil),            // 1: sukko.provisioning.v1.WatchKeysResponse
+	(*KeyInfo)(nil),                      // 2: sukko.provisioning.v1.KeyInfo
+	(*WatchTenantConfigRequest)(nil),     // 3: sukko.provisioning.v1.WatchTenantConfigRequest
+	(*WatchTenantConfigResponse)(nil),    // 4: sukko.provisioning.v1.WatchTenantConfigResponse
+	(*TenantConfig)(nil),                 // 5: sukko.provisioning.v1.TenantConfig
+	(*TopicRoutingRule)(nil),             // 6: sukko.provisioning.v1.TopicRoutingRule
+	(*ChannelRules)(nil),                 // 7: sukko.provisioning.v1.ChannelRules
+	(*GroupChannels)(nil),                // 8: sukko.provisioning.v1.GroupChannels
+	(*WatchTopicsRequest)(nil),           // 9: sukko.provisioning.v1.WatchTopicsRequest
+	(*WatchTopicsResponse)(nil),          // 10: sukko.provisioning.v1.WatchTopicsResponse
+	(*DedicatedTenant)(nil),              // 11: sukko.provisioning.v1.DedicatedTenant
+	(*WatchAPIKeysRequest)(nil),          // 12: sukko.provisioning.v1.WatchAPIKeysRequest
+	(*WatchAPIKeysResponse)(nil),         // 13: sukko.provisioning.v1.WatchAPIKeysResponse
+	(*APIKeyInfo)(nil),                   // 14: sukko.provisioning.v1.APIKeyInfo
+	(*WatchPushConfigRequest)(nil),       // 15: sukko.provisioning.v1.WatchPushConfigRequest
+	(*WatchPushConfigResponse)(nil),      // 16: sukko.provisioning.v1.WatchPushConfigResponse
+	(*PushCredentialInfo)(nil),           // 17: sukko.provisioning.v1.PushCredentialInfo
+	(*PushChannelConfig)(nil),            // 18: sukko.provisioning.v1.PushChannelConfig
+	(*StorePushCredentialsRequest)(nil),  // 19: sukko.provisioning.v1.StorePushCredentialsRequest
+	(*StorePushCredentialsResponse)(nil), // 20: sukko.provisioning.v1.StorePushCredentialsResponse
+	nil,                                  // 21: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
+	nil,                                  // 22: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
 }
 var file_sukko_provisioning_v1_provisioning_proto_depIdxs = []int32{
 	2,  // 0: sukko.provisioning.v1.WatchKeysResponse.keys:type_name -> sukko.provisioning.v1.KeyInfo
 	5,  // 1: sukko.provisioning.v1.WatchTenantConfigResponse.tenants:type_name -> sukko.provisioning.v1.TenantConfig
 	7,  // 2: sukko.provisioning.v1.TenantConfig.channel_rules:type_name -> sukko.provisioning.v1.ChannelRules
 	6,  // 3: sukko.provisioning.v1.TenantConfig.routing_rules:type_name -> sukko.provisioning.v1.TopicRoutingRule
-	15, // 4: sukko.provisioning.v1.ChannelRules.group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
-	16, // 5: sukko.provisioning.v1.ChannelRules.publish_group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
+	21, // 4: sukko.provisioning.v1.ChannelRules.group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
+	22, // 5: sukko.provisioning.v1.ChannelRules.publish_group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
 	11, // 6: sukko.provisioning.v1.WatchTopicsResponse.dedicated_tenants:type_name -> sukko.provisioning.v1.DedicatedTenant
 	14, // 7: sukko.provisioning.v1.WatchAPIKeysResponse.api_keys:type_name -> sukko.provisioning.v1.APIKeyInfo
-	8,  // 8: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry.value:type_name -> sukko.provisioning.v1.GroupChannels
-	8,  // 9: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry.value:type_name -> sukko.provisioning.v1.GroupChannels
-	0,  // 10: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:input_type -> sukko.provisioning.v1.WatchKeysRequest
-	3,  // 11: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:input_type -> sukko.provisioning.v1.WatchTenantConfigRequest
-	9,  // 12: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:input_type -> sukko.provisioning.v1.WatchTopicsRequest
-	12, // 13: sukko.provisioning.v1.ProvisioningInternalService.WatchAPIKeys:input_type -> sukko.provisioning.v1.WatchAPIKeysRequest
-	1,  // 14: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:output_type -> sukko.provisioning.v1.WatchKeysResponse
-	4,  // 15: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:output_type -> sukko.provisioning.v1.WatchTenantConfigResponse
-	10, // 16: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:output_type -> sukko.provisioning.v1.WatchTopicsResponse
-	13, // 17: sukko.provisioning.v1.ProvisioningInternalService.WatchAPIKeys:output_type -> sukko.provisioning.v1.WatchAPIKeysResponse
-	14, // [14:18] is the sub-list for method output_type
-	10, // [10:14] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	17, // 8: sukko.provisioning.v1.WatchPushConfigResponse.push_credentials:type_name -> sukko.provisioning.v1.PushCredentialInfo
+	18, // 9: sukko.provisioning.v1.WatchPushConfigResponse.push_channel_configs:type_name -> sukko.provisioning.v1.PushChannelConfig
+	8,  // 10: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry.value:type_name -> sukko.provisioning.v1.GroupChannels
+	8,  // 11: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry.value:type_name -> sukko.provisioning.v1.GroupChannels
+	0,  // 12: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:input_type -> sukko.provisioning.v1.WatchKeysRequest
+	3,  // 13: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:input_type -> sukko.provisioning.v1.WatchTenantConfigRequest
+	9,  // 14: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:input_type -> sukko.provisioning.v1.WatchTopicsRequest
+	12, // 15: sukko.provisioning.v1.ProvisioningInternalService.WatchAPIKeys:input_type -> sukko.provisioning.v1.WatchAPIKeysRequest
+	15, // 16: sukko.provisioning.v1.ProvisioningInternalService.WatchPushConfig:input_type -> sukko.provisioning.v1.WatchPushConfigRequest
+	19, // 17: sukko.provisioning.v1.ProvisioningInternalService.StorePushCredentials:input_type -> sukko.provisioning.v1.StorePushCredentialsRequest
+	1,  // 18: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:output_type -> sukko.provisioning.v1.WatchKeysResponse
+	4,  // 19: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:output_type -> sukko.provisioning.v1.WatchTenantConfigResponse
+	10, // 20: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:output_type -> sukko.provisioning.v1.WatchTopicsResponse
+	13, // 21: sukko.provisioning.v1.ProvisioningInternalService.WatchAPIKeys:output_type -> sukko.provisioning.v1.WatchAPIKeysResponse
+	16, // 22: sukko.provisioning.v1.ProvisioningInternalService.WatchPushConfig:output_type -> sukko.provisioning.v1.WatchPushConfigResponse
+	20, // 23: sukko.provisioning.v1.ProvisioningInternalService.StorePushCredentials:output_type -> sukko.provisioning.v1.StorePushCredentialsResponse
+	18, // [18:24] is the sub-list for method output_type
+	12, // [12:18] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_sukko_provisioning_v1_provisioning_proto_init() }
@@ -1000,7 +1382,7 @@ func file_sukko_provisioning_v1_provisioning_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sukko_provisioning_v1_provisioning_proto_rawDesc), len(file_sukko_provisioning_v1_provisioning_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

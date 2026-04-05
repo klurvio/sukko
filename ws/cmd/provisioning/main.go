@@ -130,13 +130,18 @@ func main() {
 	structuredLogger.Info().Str("driver", cfg.DatabaseDriver).Msg("Database opened")
 
 	// Initialize repositories
-	tenantRepo := repository.NewPostgresTenantRepository(db)
-	keyRepo := repository.NewPostgresKeyRepository(db)
-	apiKeyRepo := repository.NewPostgresAPIKeyStore(db)
-	routingRulesRepo := repository.NewPostgresRoutingRulesRepository(db)
-	quotaRepo := repository.NewPostgresQuotaRepository(db)
-	auditRepo := repository.NewPostgresAuditRepository(db)
-	channelRulesRepo := repository.NewPostgresChannelRulesRepository(db)
+	tenantRepo := repository.NewTenantRepository(db)
+	keyRepo := repository.NewKeyRepository(db)
+	apiKeyRepo := repository.NewAPIKeyStore(db)
+	routingRulesRepo := repository.NewRoutingRulesRepository(db)
+	quotaRepo := repository.NewQuotaRepository(db)
+	auditRepo := repository.NewAuditRepository(db)
+	channelRulesRepo := repository.NewChannelRulesRepository(db)
+	pushCredentialsRepo, err := repository.NewCredentialsRepository(db, cfg.CredentialsEncryptionKey)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to create push credentials repository")
+	}
+	pushChannelConfigRepo := repository.NewChannelConfigRepository(db)
 
 	// Kafka admin disabled — topic creation is handled by ws-server's KafkaBackend
 	kafkaAdmin := provisioning.NewNoopKafkaAdmin()
@@ -264,7 +269,9 @@ func main() {
 		),
 	)
 	grpcStreamServer, err := grpcserver.NewServer(svc, bus, structuredLogger, grpcserver.ServerConfig{
-		MaxTenantsFetchLimit: cfg.MaxTenantsFetchLimit,
+		MaxTenantsFetchLimit:  cfg.MaxTenantsFetchLimit,
+		PushCredentialsRepo:   pushCredentialsRepo,
+		PushChannelConfigRepo: pushChannelConfigRepo,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create gRPC stream server")

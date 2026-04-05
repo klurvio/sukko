@@ -22,18 +22,18 @@ func isDuplicateKeyError(err error) bool {
 // defaultListLimit is the fallback page size when the caller provides no limit.
 const defaultListLimit = 50
 
-// PostgresTenantRepository implements TenantStore using PostgreSQL.
-type PostgresTenantRepository struct {
+// TenantRepository implements TenantStore using database/sql.
+type TenantRepository struct {
 	db *sql.DB
 }
 
-// NewPostgresTenantRepository creates a new PostgresTenantRepository.
-func NewPostgresTenantRepository(db *sql.DB) *PostgresTenantRepository {
-	return &PostgresTenantRepository{db: db}
+// NewTenantRepository creates a TenantRepository.
+func NewTenantRepository(db *sql.DB) *TenantRepository {
+	return &TenantRepository{db: db}
 }
 
 // Ping verifies database connectivity.
-func (r *PostgresTenantRepository) Ping(ctx context.Context) error {
+func (r *TenantRepository) Ping(ctx context.Context) error {
 	if err := r.db.PingContext(ctx); err != nil {
 		return fmt.Errorf("ping database: %w", err)
 	}
@@ -41,7 +41,7 @@ func (r *PostgresTenantRepository) Ping(ctx context.Context) error {
 }
 
 // Create creates a new tenant record.
-func (r *PostgresTenantRepository) Create(ctx context.Context, tenant *provisioning.Tenant) error {
+func (r *TenantRepository) Create(ctx context.Context, tenant *provisioning.Tenant) error {
 	query := `
 		INSERT INTO tenants (id, name, status, consumer_type, metadata, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -84,7 +84,7 @@ func (r *PostgresTenantRepository) Create(ctx context.Context, tenant *provision
 }
 
 // Get retrieves a tenant by ID.
-func (r *PostgresTenantRepository) Get(ctx context.Context, tenantID string) (*provisioning.Tenant, error) {
+func (r *TenantRepository) Get(ctx context.Context, tenantID string) (*provisioning.Tenant, error) {
 	query := `
 		SELECT id, name, status, consumer_type, metadata, created_at, updated_at,
 		       suspended_at, deprovision_at, deleted_at
@@ -128,7 +128,7 @@ func (r *PostgresTenantRepository) Get(ctx context.Context, tenantID string) (*p
 }
 
 // Update updates an existing tenant record.
-func (r *PostgresTenantRepository) Update(ctx context.Context, tenant *provisioning.Tenant) error {
+func (r *TenantRepository) Update(ctx context.Context, tenant *provisioning.Tenant) error {
 	query := `
 		UPDATE tenants
 		SET name = $2, consumer_type = $3, metadata = $4, updated_at = $5
@@ -159,7 +159,7 @@ func (r *PostgresTenantRepository) Update(ctx context.Context, tenant *provision
 }
 
 // List returns tenants matching the given options.
-func (r *PostgresTenantRepository) List(ctx context.Context, opts provisioning.ListOptions) ([]*provisioning.Tenant, int, error) {
+func (r *TenantRepository) List(ctx context.Context, opts provisioning.ListOptions) ([]*provisioning.Tenant, int, error) {
 	// Build query with optional status filter
 	whereClause := "WHERE status != 'deleted'"
 	args := []any{}
@@ -244,7 +244,7 @@ func (r *PostgresTenantRepository) List(ctx context.Context, opts provisioning.L
 }
 
 // UpdateStatus updates a tenant's status.
-func (r *PostgresTenantRepository) UpdateStatus(ctx context.Context, tenantID string, status provisioning.TenantStatus) error {
+func (r *TenantRepository) UpdateStatus(ctx context.Context, tenantID string, status provisioning.TenantStatus) error {
 	var query string
 	var args []any
 
@@ -300,7 +300,7 @@ func (r *PostgresTenantRepository) UpdateStatus(ctx context.Context, tenantID st
 }
 
 // SetDeprovisionAt sets the deprovision deadline for a tenant.
-func (r *PostgresTenantRepository) SetDeprovisionAt(ctx context.Context, tenantID string, deprovisionAt *provisioning.Time) error {
+func (r *TenantRepository) SetDeprovisionAt(ctx context.Context, tenantID string, deprovisionAt *provisioning.Time) error {
 	query := `
 		UPDATE tenants
 		SET deprovision_at = $2, updated_at = $3
@@ -325,7 +325,7 @@ func (r *PostgresTenantRepository) SetDeprovisionAt(ctx context.Context, tenantI
 }
 
 // GetTenantsForDeletion returns tenants past their deprovision deadline.
-func (r *PostgresTenantRepository) GetTenantsForDeletion(ctx context.Context) ([]*provisioning.Tenant, error) {
+func (r *TenantRepository) GetTenantsForDeletion(ctx context.Context) ([]*provisioning.Tenant, error) {
 	query := `
 		SELECT id, name, status, consumer_type, metadata, created_at, updated_at,
 		       suspended_at, deprovision_at, deleted_at
@@ -385,7 +385,7 @@ func (r *PostgresTenantRepository) GetTenantsForDeletion(ctx context.Context) ([
 
 // Count returns the number of active (non-deleted) tenants.
 // Uses $1 placeholder syntax compatible with both SQLite and PostgreSQL.
-func (r *PostgresTenantRepository) Count(ctx context.Context) (int, error) {
+func (r *TenantRepository) Count(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tenants WHERE status != $1", provisioning.StatusDeleted).Scan(&count)
 	if err != nil {
@@ -394,5 +394,4 @@ func (r *PostgresTenantRepository) Count(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-// Ensure PostgresTenantRepository implements TenantStore.
-var _ provisioning.TenantStore = (*PostgresTenantRepository)(nil)
+var _ provisioning.TenantStore = (*TenantRepository)(nil)

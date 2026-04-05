@@ -1,0 +1,115 @@
+# Default values for push-service subchart
+# Go envDefault values are the source of truth for application config.
+# Override any setting via extraEnv.
+
+global:
+  imageRegistry: ""
+
+enabled: true
+
+replicaCount: 1
+
+image:
+  repository: sukko-push
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Deployment identity — drives logging, metrics namespacing.
+# Free-form string; Sukko convention: local, dev, stg, prod
+# environment: local
+
+# Message Backend: "kafka" or "nats"
+# messageBackend: kafka  # uncomment to override Go default
+
+# Database driver: "sqlite" (Go default) or "postgres"
+# Set databaseDriver: postgres with externalDatabase.
+databaseDriver: sqlite
+
+database:
+  # SQLite file path (only when databaseDriver=sqlite)
+  sqlitePath: "/data/sukko-push.db"
+
+# External PostgreSQL (when databaseDriver=postgres)
+externalDatabase:
+  url: ""
+  existingSecret: ""
+  existingSecretKey: "database-url"
+
+# Persistent storage for SQLite (auto-enabled when using SQLite)
+persistence:
+  enabled: true
+  size: 1Gi
+  accessMode: ReadWriteOnce
+
+# Dry run mode — log push notifications instead of sending
+# dryRun: false
+
+# Worker pool size for push delivery
+# workerPoolSize: 10
+
+# --- Infrastructure Connections ---
+# Empty values auto-wire to in-cluster services via release name.
+kafka:
+  # brokers: ""  # Auto: {{ .Release.Name }}-redpanda:9092
+  sasl:
+    enabled: false
+    # mechanism: scram-sha-256
+    # username: ""
+    existingSecret: ""
+    existingSecretKey: "kafka-sasl-password"
+  tls:
+    enabled: false
+
+# Override any Go envDefault. See /health endpoint for current values.
+# Example: { LOG_LEVEL: "debug" }
+extraEnv: {}
+
+# --- Kubernetes Resources ---
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3009
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3009
+  initialDelaySeconds: 3
+  periodSeconds: 5
+  timeoutSeconds: 2
+
+service:
+  type: ClusterIP
+  grpcPort: 3008
+  httpPort: 3009
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
