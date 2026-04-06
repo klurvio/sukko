@@ -29,7 +29,7 @@ func TestProvisioningClient_CreateTenant(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusCreated)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
 	err := client.CreateTenant(context.Background(), "test-t1", "Test Tenant")
@@ -53,7 +53,7 @@ func TestProvisioningClient_DeleteTenant(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
 	err := client.DeleteTenant(context.Background(), "test-t1")
@@ -74,7 +74,7 @@ func TestProvisioningClient_RegisterKey(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusCreated)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
 	expires := time.Now().Add(24 * time.Hour)
@@ -101,7 +101,7 @@ func TestProvisioningClient_RevokeKey(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
 	err := client.RevokeKey(context.Background(), "test-t1", "tester-abcd1234")
@@ -117,7 +117,7 @@ func TestProvisioningClient_HTTPError(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"code":"INTERNAL","message":"boom"}`))
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	client := NewProvisioningClient(srv.URL, "token", zerolog.Nop())
 
@@ -141,7 +141,7 @@ func TestProvisioningClient_GetTenant(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{}`))
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	client := NewProvisioningClient(srv.URL, "admin-token", zerolog.Nop())
 
@@ -182,7 +182,7 @@ func TestProvisioningClient_SetChannelRules(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
 	err := client.SetChannelRules(context.Background(), "test-t1", map[string]any{
@@ -205,7 +205,7 @@ func TestProvisioningClient_SetRoutingRules(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
 	err := client.SetRoutingRules(context.Background(), "test-t1", []map[string]any{
@@ -228,7 +228,7 @@ func TestProvisioningClient_DeleteRoutingRules(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
 	err := client.DeleteRoutingRules(context.Background(), "test-t1")
@@ -243,7 +243,7 @@ func TestProvisioningClient_DeleteRoutingRules_NotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
 	err := client.DeleteRoutingRules(context.Background(), "test-t1")
