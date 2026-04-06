@@ -238,9 +238,9 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 			r.Get("/api-keys/active", h.GetActiveAPIKeys)
 		})
 
-		// Push notification management — requires Enterprise (WebPushTransport)
+		// Push notification management — requires Enterprise (PushNotifications)
 		r.Route("/push", func(r chi.Router) {
-			r.Use(RequireFeature(cfg.EditionManager, license.WebPushTransport))
+			r.Use(RequireFeature(cfg.EditionManager, license.PushNotifications))
 			if cfg.AuthEnabled {
 				r.Use(RequireRole("admin", "system"))
 			}

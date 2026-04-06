@@ -131,7 +131,7 @@ func main() {
 	gw.SetServerClient(serverClient)
 
 	// Create gRPC client to push service (Enterprise only — Constitution XIII)
-	if config.EditionManager().HasFeature(license.WebPushTransport) {
+	if config.EditionManager().HasFeature(license.PushNotifications) {
 		pushClient, err := gateway.NewPushClient(config.PushGRPCAddr, logger)
 		if err != nil {
 			logger.Fatal().Err(err).Str("addr", config.PushGRPCAddr).Msg("Failed to create push service gRPC client")

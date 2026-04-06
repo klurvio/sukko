@@ -10,9 +10,6 @@ const (
 	// StatusImplemented — feature is functional with EditionHasFeature gate check wired.
 	StatusImplemented FeatureStatus = "implemented"
 
-	// StatusUngated — feature is functional but missing EditionHasFeature gate check (bug).
-	StatusUngated FeatureStatus = "ungated"
-
 	// StatusFuture — feature is not yet implemented, gate reserved for future use.
 	StatusFuture FeatureStatus = "future"
 )
@@ -23,11 +20,10 @@ type FeaturePriority int
 
 // FeaturePriority constants for implementation ordering.
 const (
-	PriorityNone     FeaturePriority = 0 // Implemented — no priority needed
-	PriorityCritical FeaturePriority = 1 // Must fix (ungated features)
-	PriorityHigh     FeaturePriority = 2 // Next to implement
-	PriorityMedium   FeaturePriority = 3 // Planned
-	PriorityLow      FeaturePriority = 4 // Future / nice-to-have
+	PriorityNone   FeaturePriority = 0 // Implemented — no priority needed
+	PriorityHigh   FeaturePriority = 2 // Next to implement
+	PriorityMedium FeaturePriority = 3 // Planned
+	PriorityLow    FeaturePriority = 4 // Future / nice-to-have
 )
 
 // FeatureInfo holds metadata about a gated feature.
@@ -35,10 +31,10 @@ type FeatureInfo struct {
 	// Description is a human-readable summary of what the feature does.
 	Description string
 
-	// Status indicates whether the feature is implemented, ungated, or future.
+	// Status indicates whether the feature is implemented or future.
 	Status FeatureStatus
 
-	// Priority indicates implementation priority (0 = implemented, 1 = critical, 4 = low).
+	// Priority indicates implementation priority (0 = implemented, 2 = high, 4 = low).
 	Priority FeaturePriority
 }
 
@@ -72,7 +68,7 @@ const (
 	// ── Enterprise Features ──────────────────────────────────────────────
 
 	AuditLogging        Feature = "audit logging"
-	WebPushTransport    Feature = "Web Push transport" // Implemented
+	PushNotifications   Feature = "push notifications"
 	IPAllowlisting      Feature = "per-tenant IP allowlisting"
 	E2EEncryption       Feature = "end-to-end encryption"
 	PriorityRouting     Feature = "priority message routing"
@@ -102,7 +98,7 @@ var featureEditions = map[Feature]Edition{
 
 	// Enterprise
 	AuditLogging:        Enterprise,
-	WebPushTransport:    Enterprise,
+	PushNotifications:   Enterprise,
 	IPAllowlisting:      Enterprise,
 	E2EEncryption:       Enterprise,
 	PriorityRouting:     Enterprise,
@@ -114,19 +110,17 @@ var featureEditions = map[Feature]Edition{
 var featureMetadata = map[Feature]FeatureInfo{
 	// ── Implemented (gated) ──────────────────────────────────────────────
 
-	KafkaBackend:              {Description: "Kafka/Redpanda message backend", Status: StatusImplemented, Priority: PriorityNone},
-	NATSJetStreamBackend:      {Description: "NATS JetStream message backend", Status: StatusImplemented, Priority: PriorityNone},
-	PerTenantChannelRules:     {Description: "Per-tenant channel subscribe/publish rules", Status: StatusImplemented, Priority: PriorityNone},
-	PerTenantConnectionLimits: {Description: "Per-tenant WebSocket connection limits", Status: StatusImplemented, Priority: PriorityNone},
-	Alerting:                  {Description: "AlertManager integration for Prometheus alerts", Status: StatusImplemented, Priority: PriorityNone},
-	WebPushTransport:          {Description: "Push notifications (Web Push + FCM + APNs)", Status: StatusImplemented, Priority: PriorityNone},
-
-	// ── Implemented (ungated) — need EditionHasFeature checks ────────────
-
+	KafkaBackend:                {Description: "Kafka/Redpanda message backend", Status: StatusImplemented, Priority: PriorityNone},
+	NATSJetStreamBackend:        {Description: "NATS JetStream message backend", Status: StatusImplemented, Priority: PriorityNone},
+	PerTenantChannelRules:       {Description: "Per-tenant channel subscribe/publish rules", Status: StatusImplemented, Priority: PriorityNone},
+	PerTenantConnectionLimits:   {Description: "Per-tenant WebSocket connection limits", Status: StatusImplemented, Priority: PriorityNone},
+	Alerting:                    {Description: "AlertManager integration for Prometheus alerts", Status: StatusImplemented, Priority: PriorityNone},
+	PushNotifications:           {Description: "Push notifications (Web Push + FCM + APNs)", Status: StatusImplemented, Priority: PriorityNone},
 	PerTenantConfigurableQuotas: {Description: "Per-tenant configurable resource quotas (topics, connections, rules)", Status: StatusImplemented, Priority: PriorityNone},
 	TenantLifecycleManager:      {Description: "Tenant suspend/reactivate lifecycle management", Status: StatusImplemented, Priority: PriorityNone},
 	ConnectionTracing:           {Description: "OpenTelemetry distributed tracing for connections", Status: StatusImplemented, Priority: PriorityNone},
 	AuditLogging:                {Description: "Audit trail of all provisioning API actions", Status: StatusImplemented, Priority: PriorityNone},
+	SSETransport:                {Description: "SSE transport + REST publish", Status: StatusImplemented, Priority: PriorityNone},
 
 	// ── Future — Pro ─────────────────────────────────────────────────────
 
@@ -136,7 +130,6 @@ var featureMetadata = map[Feature]FeatureInfo{
 	Analytics:          {Description: "Real-time usage dashboards and metrics", Status: StatusFuture, Priority: PriorityMedium},
 	Webhooks:           {Description: "HTTP webhook delivery as alternative to WebSocket", Status: StatusFuture, Priority: PriorityMedium},
 	ChannelPatternsCEL: {Description: "CEL expressions for complex channel authorization", Status: StatusFuture, Priority: PriorityLow},
-	SSETransport:       {Description: "SSE transport + REST publish", Status: StatusImplemented, Priority: PriorityNone},
 	DeltaCompression:   {Description: "Send only changed fields in high-frequency updates", Status: StatusFuture, Priority: PriorityLow},
 
 	// ── Future — Enterprise ──────────────────────────────────────────────

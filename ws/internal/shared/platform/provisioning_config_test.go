@@ -556,7 +556,3 @@ func TestProvisioningConfig_Validate_DeletionTimeout(t *testing.T) {
 		})
 	}
 }
-
-// Edition gate tests for PostgresDatabase removed — PostgreSQL is now unconditional for all editions.
-
-// Edition gate tests for PostgresDatabase removed — PostgreSQL is now unconditional for all editions.
