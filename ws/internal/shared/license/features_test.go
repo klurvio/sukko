@@ -5,7 +5,7 @@ import "testing"
 func TestRequiredEdition(t *testing.T) {
 	t.Parallel()
 	proFeatures := []Feature{
-		KafkaBackend, NATSJetStreamBackend, PostgresDatabase, SSETransport,
+		KafkaBackend, NATSJetStreamBackend, SSETransport,
 		PerTenantChannelRules, PerTenantConnectionLimits, PerTenantConfigurableQuotas,
 		TenantLifecycleManager, Alerting, Analytics, ConnectionTracing, AdminUI,
 		TokenRevocation, Webhooks, MessageHistory, ChannelPatternsCEL, DeltaCompression,

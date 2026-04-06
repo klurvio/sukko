@@ -78,7 +78,6 @@ push-service:
   replicaCount: 1
   environment: demo
   messageBackend: kafka
-  databaseDriver: sqlite
   dryRun: "true"
   image:
     tag: latest
@@ -110,9 +109,8 @@ redpanda:
     enabled: false
 
 # ── PostgreSQL ──────────────────────────────────────────────────────
-# Disabled: provisioning uses SQLite by default (global.postgresql.enabled=false).
 postgresql:
-  enabled: false
+  enabled: true
 
 # ── NATS ────────────────────────────────────────────────────────────
 nats:

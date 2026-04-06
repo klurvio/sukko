@@ -2,39 +2,40 @@ package repository
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
-	"strings"
 	"time"
+
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// isDuplicateKeyError detects unique constraint violations from both SQLite and PostgreSQL.
-// SQLite: "UNIQUE constraint failed: tenants.id"
-// PostgreSQL: "duplicate key value violates unique constraint"
+// isDuplicateKeyError detects unique constraint violations from PostgreSQL.
 func isDuplicateKeyError(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "UNIQUE constraint failed") ||
-		strings.Contains(msg, "duplicate key value violates unique constraint")
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation
 }
 
 // defaultListLimit is the fallback page size when the caller provides no limit.
 const defaultListLimit = 50
 
-// TenantRepository implements TenantStore using database/sql.
+// TenantRepository implements TenantStore using PostgreSQL via pgxpool.
 type TenantRepository struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
 // NewTenantRepository creates a TenantRepository.
-func NewTenantRepository(db *sql.DB) *TenantRepository {
-	return &TenantRepository{db: db}
+func NewTenantRepository(pool *pgxpool.Pool) *TenantRepository {
+	return &TenantRepository{pool: pool}
 }
 
 // Ping verifies database connectivity.
 func (r *TenantRepository) Ping(ctx context.Context) error {
-	if err := r.db.PingContext(ctx); err != nil {
+	if err := r.pool.Ping(ctx); err != nil {
 		return fmt.Errorf("ping database: %w", err)
 	}
 	return nil
@@ -64,7 +65,7 @@ func (r *TenantRepository) Create(ctx context.Context, tenant *provisioning.Tena
 		tenant.Metadata = make(provisioning.Metadata)
 	}
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.pool.Exec(ctx, query,
 		tenant.ID,
 		tenant.Name,
 		tenant.Status,
@@ -93,9 +94,8 @@ func (r *TenantRepository) Get(ctx context.Context, tenantID string) (*provision
 	`
 
 	tenant := &provisioning.Tenant{}
-	var suspendedAt, deprovisionAt, deletedAt sql.NullTime
 
-	err := r.db.QueryRowContext(ctx, query, tenantID).Scan(
+	err := r.pool.QueryRow(ctx, query, tenantID).Scan(
 		&tenant.ID,
 		&tenant.Name,
 		&tenant.Status,
@@ -103,25 +103,15 @@ func (r *TenantRepository) Get(ctx context.Context, tenantID string) (*provision
 		&tenant.Metadata,
 		&tenant.CreatedAt,
 		&tenant.UpdatedAt,
-		&suspendedAt,
-		&deprovisionAt,
-		&deletedAt,
+		&tenant.SuspendedAt,
+		&tenant.DeprovisionAt,
+		&tenant.DeletedAt,
 	)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, tenantID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query tenant: %w", err)
-	}
-
-	if suspendedAt.Valid {
-		tenant.SuspendedAt = &suspendedAt.Time
-	}
-	if deprovisionAt.Valid {
-		tenant.DeprovisionAt = &deprovisionAt.Time
-	}
-	if deletedAt.Valid {
-		tenant.DeletedAt = &deletedAt.Time
 	}
 
 	return tenant, nil
@@ -136,7 +126,7 @@ func (r *TenantRepository) Update(ctx context.Context, tenant *provisioning.Tena
 	`
 
 	now := time.Now()
-	result, err := r.db.ExecContext(ctx, query,
+	result, err := r.pool.Exec(ctx, query,
 		tenant.ID,
 		tenant.Name,
 		tenant.ConsumerType,
@@ -147,11 +137,7 @@ func (r *TenantRepository) Update(ctx context.Context, tenant *provisioning.Tena
 		return fmt.Errorf("update tenant: %w", err)
 	}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if rows == 0 {
+	if result.RowsAffected() == 0 {
 		return fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, tenant.ID)
 	}
 
@@ -174,7 +160,7 @@ func (r *TenantRepository) List(ctx context.Context, opts provisioning.ListOptio
 	// Count total
 	countQuery := "SELECT COUNT(*) FROM tenants " + whereClause
 	var total int
-	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count tenants: %w", err)
 	}
 
@@ -196,16 +182,15 @@ func (r *TenantRepository) List(ctx context.Context, opts provisioning.ListOptio
 
 	args = append(args, limit, offset)
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query tenants: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	tenants := []*provisioning.Tenant{}
 	for rows.Next() {
 		tenant := &provisioning.Tenant{}
-		var suspendedAt, deprovisionAt, deletedAt sql.NullTime
 
 		err := rows.Scan(
 			&tenant.ID,
@@ -215,22 +200,12 @@ func (r *TenantRepository) List(ctx context.Context, opts provisioning.ListOptio
 			&tenant.Metadata,
 			&tenant.CreatedAt,
 			&tenant.UpdatedAt,
-			&suspendedAt,
-			&deprovisionAt,
-			&deletedAt,
+			&tenant.SuspendedAt,
+			&tenant.DeprovisionAt,
+			&tenant.DeletedAt,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan tenant: %w", err)
-		}
-
-		if suspendedAt.Valid {
-			tenant.SuspendedAt = &suspendedAt.Time
-		}
-		if deprovisionAt.Valid {
-			tenant.DeprovisionAt = &deprovisionAt.Time
-		}
-		if deletedAt.Valid {
-			tenant.DeletedAt = &deletedAt.Time
 		}
 
 		tenants = append(tenants, tenant)
@@ -283,16 +258,12 @@ func (r *TenantRepository) UpdateStatus(ctx context.Context, tenantID string, st
 		return fmt.Errorf("invalid status transition to: %s", status)
 	}
 
-	result, err := r.db.ExecContext(ctx, query, args...)
+	result, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("update status: %w", err)
 	}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if rows == 0 {
+	if result.RowsAffected() == 0 {
 		return fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, tenantID)
 	}
 
@@ -308,16 +279,12 @@ func (r *TenantRepository) SetDeprovisionAt(ctx context.Context, tenantID string
 	`
 
 	now := time.Now()
-	result, err := r.db.ExecContext(ctx, query, tenantID, deprovisionAt, now)
+	result, err := r.pool.Exec(ctx, query, tenantID, deprovisionAt, now)
 	if err != nil {
 		return fmt.Errorf("set deprovision_at: %w", err)
 	}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if rows == 0 {
+	if result.RowsAffected() == 0 {
 		return fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, tenantID)
 	}
 
@@ -336,16 +303,15 @@ func (r *TenantRepository) GetTenantsForDeletion(ctx context.Context) ([]*provis
 	`
 
 	now := time.Now()
-	rows, err := r.db.QueryContext(ctx, query, now)
+	rows, err := r.pool.Query(ctx, query, now)
 	if err != nil {
 		return nil, fmt.Errorf("query tenants for deletion: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	tenants := []*provisioning.Tenant{}
 	for rows.Next() {
 		tenant := &provisioning.Tenant{}
-		var suspendedAt, deprovisionAt, deletedAt sql.NullTime
 
 		err := rows.Scan(
 			&tenant.ID,
@@ -355,22 +321,12 @@ func (r *TenantRepository) GetTenantsForDeletion(ctx context.Context) ([]*provis
 			&tenant.Metadata,
 			&tenant.CreatedAt,
 			&tenant.UpdatedAt,
-			&suspendedAt,
-			&deprovisionAt,
-			&deletedAt,
+			&tenant.SuspendedAt,
+			&tenant.DeprovisionAt,
+			&tenant.DeletedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan tenant: %w", err)
-		}
-
-		if suspendedAt.Valid {
-			tenant.SuspendedAt = &suspendedAt.Time
-		}
-		if deprovisionAt.Valid {
-			tenant.DeprovisionAt = &deprovisionAt.Time
-		}
-		if deletedAt.Valid {
-			tenant.DeletedAt = &deletedAt.Time
 		}
 
 		tenants = append(tenants, tenant)
@@ -384,10 +340,9 @@ func (r *TenantRepository) GetTenantsForDeletion(ctx context.Context) ([]*provis
 }
 
 // Count returns the number of active (non-deleted) tenants.
-// Uses $1 placeholder syntax compatible with both SQLite and PostgreSQL.
 func (r *TenantRepository) Count(ctx context.Context) (int, error) {
 	var count int
-	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tenants WHERE status != $1", provisioning.StatusDeleted).Scan(&count)
+	err := r.pool.QueryRow(ctx, "SELECT COUNT(*) FROM tenants WHERE status != $1", provisioning.StatusDeleted).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count tenants: %w", err)
 	}

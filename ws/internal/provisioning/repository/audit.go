@@ -3,21 +3,22 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// AuditRepository implements AuditStore using database/sql.
+// AuditRepository implements AuditStore using PostgreSQL via pgxpool.
 type AuditRepository struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
 // NewAuditRepository creates an AuditRepository.
-func NewAuditRepository(db *sql.DB) *AuditRepository {
-	return &AuditRepository{db: db}
+func NewAuditRepository(pool *pgxpool.Pool) *AuditRepository {
+	return &AuditRepository{pool: pool}
 }
 
 // Log records an audit entry.
@@ -51,7 +52,7 @@ func (r *AuditRepository) Log(ctx context.Context, entry *provisioning.AuditEntr
 		ipAddress = entry.IPAddress
 	}
 
-	err := r.db.QueryRowContext(ctx, query,
+	err := r.pool.QueryRow(ctx, query,
 		tenantID,
 		entry.Action,
 		entry.Actor,
@@ -72,7 +73,7 @@ func (r *AuditRepository) ListByTenant(ctx context.Context, tenantID string, opt
 	// Count total
 	countQuery := `SELECT COUNT(*) FROM provisioning_audit WHERE tenant_id = $1`
 	var total int
-	if err := r.db.QueryRowContext(ctx, countQuery, tenantID).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, countQuery, tenantID).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count audit entries: %w", err)
 	}
 
@@ -91,17 +92,17 @@ func (r *AuditRepository) ListByTenant(ctx context.Context, tenantID string, opt
 		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, tenantID, limit, offset)
+	rows, err := r.pool.Query(ctx, query, tenantID, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query audit entries: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	entries := []*provisioning.AuditEntry{}
 	for rows.Next() {
 		entry := &provisioning.AuditEntry{}
-		var tenantIDNull sql.NullString
-		var ipAddressNull sql.NullString
+		var tenantIDNull *string
+		var ipAddressNull *string
 
 		err := rows.Scan(
 			&entry.ID,
@@ -117,11 +118,11 @@ func (r *AuditRepository) ListByTenant(ctx context.Context, tenantID string, opt
 			return nil, 0, fmt.Errorf("scan audit entry: %w", err)
 		}
 
-		if tenantIDNull.Valid {
-			entry.TenantID = tenantIDNull.String
+		if tenantIDNull != nil {
+			entry.TenantID = *tenantIDNull
 		}
-		if ipAddressNull.Valid {
-			entry.IPAddress = ipAddressNull.String
+		if ipAddressNull != nil {
+			entry.IPAddress = *ipAddressNull
 		}
 
 		entries = append(entries, entry)

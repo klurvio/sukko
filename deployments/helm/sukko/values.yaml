@@ -4,8 +4,8 @@
 #
 # DEPLOYMENT MODES (zero-config defaults work out of the box):
 #
-# 1. Minimal (default):    direct + NATS broadcast + SQLite
-#    → Just `helm install sukko .` — no external dependencies needed
+# 1. Minimal (default):    direct + NATS broadcast + PostgreSQL
+#    → `helm install sukko .` with postgresql.enabled: true
 #
 # ── Kafka/Redpanda message backend ──────────────────────────────────
 # Copy this block to enable Kafka ingestion via in-cluster Redpanda:
@@ -40,18 +40,15 @@
 #   enabled: true
 #
 # ── PostgreSQL provisioning database ────────────────────────────────
-# Copy this block for production-grade storage:
+# In-cluster PostgreSQL (default when postgresql.enabled: true):
 #
-# provisioning:
-#   databaseDriver: postgres
 # postgresql:
 #   enabled: true
 #
-# For external PostgreSQL, use instead:
+# For external/managed PostgreSQL, use instead:
 #
 # provisioning:
-#   databaseDriver: postgres
-#   externalDatabase:
+#   database:
 #     existingSecret: "my-db-credentials"
 #
 # Go envDefault values are the source of truth for application config.
@@ -143,10 +140,8 @@ provisioning:
     repository: sukko-provisioning
     tag: latest
     pullPolicy: IfNotPresent
-  # Database driver: "sqlite" (Go default) or "postgres"
-  databaseDriver: sqlite
-  # External PostgreSQL (when databaseDriver=postgres without postgresql.enabled)
-  externalDatabase:
+  # PostgreSQL connection (external/managed — used when postgresql.enabled is false)
+  database:
     url: ""
     existingSecret: ""
     existingSecretKey: "database-url"

@@ -2,21 +2,24 @@ package repository
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// KeyRepository implements KeyStore using database/sql.
+// KeyRepository implements KeyStore using PostgreSQL via pgxpool.
 type KeyRepository struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
 // NewKeyRepository creates a KeyRepository.
-func NewKeyRepository(db *sql.DB) *KeyRepository {
-	return &KeyRepository{db: db}
+func NewKeyRepository(pool *pgxpool.Pool) *KeyRepository {
+	return &KeyRepository{pool: pool}
 }
 
 // Create creates a new key record.
@@ -32,7 +35,7 @@ func (r *KeyRepository) Create(ctx context.Context, key *provisioning.TenantKey)
 	}
 	key.IsActive = true
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.pool.Exec(ctx, query,
 		key.KeyID,
 		key.TenantID,
 		key.Algorithm,
@@ -57,30 +60,22 @@ func (r *KeyRepository) Get(ctx context.Context, keyID string) (*provisioning.Te
 	`
 
 	key := &provisioning.TenantKey{}
-	var expiresAt, revokedAt sql.NullTime
 
-	err := r.db.QueryRowContext(ctx, query, keyID).Scan(
+	err := r.pool.QueryRow(ctx, query, keyID).Scan(
 		&key.KeyID,
 		&key.TenantID,
 		&key.Algorithm,
 		&key.PublicKey,
 		&key.IsActive,
 		&key.CreatedAt,
-		&expiresAt,
-		&revokedAt,
+		&key.ExpiresAt,
+		&key.RevokedAt,
 	)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %s", provisioning.ErrKeyNotFound, keyID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query key: %w", err)
-	}
-
-	if expiresAt.Valid {
-		key.ExpiresAt = &expiresAt.Time
-	}
-	if revokedAt.Valid {
-		key.RevokedAt = &revokedAt.Time
 	}
 
 	return key, nil
@@ -91,7 +86,7 @@ func (r *KeyRepository) ListByTenant(ctx context.Context, tenantID string, opts 
 	// Count total
 	var total int
 	countQuery := `SELECT COUNT(*) FROM tenant_keys WHERE tenant_id = $1`
-	if err := r.db.QueryRowContext(ctx, countQuery, tenantID).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, countQuery, tenantID).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count keys: %w", err)
 	}
 
@@ -103,16 +98,15 @@ func (r *KeyRepository) ListByTenant(ctx context.Context, tenantID string, opts 
 		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, tenantID, opts.Limit, opts.Offset)
+	rows, err := r.pool.Query(ctx, query, tenantID, opts.Limit, opts.Offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query keys: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	keys := []*provisioning.TenantKey{}
 	for rows.Next() {
 		key := &provisioning.TenantKey{}
-		var expiresAt, revokedAt sql.NullTime
 
 		err := rows.Scan(
 			&key.KeyID,
@@ -121,18 +115,11 @@ func (r *KeyRepository) ListByTenant(ctx context.Context, tenantID string, opts 
 			&key.PublicKey,
 			&key.IsActive,
 			&key.CreatedAt,
-			&expiresAt,
-			&revokedAt,
+			&key.ExpiresAt,
+			&key.RevokedAt,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan key: %w", err)
-		}
-
-		if expiresAt.Valid {
-			key.ExpiresAt = &expiresAt.Time
-		}
-		if revokedAt.Valid {
-			key.RevokedAt = &revokedAt.Time
 		}
 
 		keys = append(keys, key)
@@ -154,16 +141,12 @@ func (r *KeyRepository) Revoke(ctx context.Context, keyID string) error {
 	`
 
 	now := time.Now()
-	result, err := r.db.ExecContext(ctx, query, keyID, now)
+	result, err := r.pool.Exec(ctx, query, keyID, now)
 	if err != nil {
 		return fmt.Errorf("revoke key: %w", err)
 	}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if rows == 0 {
+	if result.RowsAffected() == 0 {
 		return fmt.Errorf("%w: %s", provisioning.ErrKeyNotFound, keyID)
 	}
 
@@ -179,7 +162,7 @@ func (r *KeyRepository) RevokeAllForTenant(ctx context.Context, tenantID string)
 	`
 
 	now := time.Now()
-	_, err := r.db.ExecContext(ctx, query, tenantID, now)
+	_, err := r.pool.Exec(ctx, query, tenantID, now)
 	if err != nil {
 		return fmt.Errorf("revoke keys for tenant: %w", err)
 	}
@@ -199,16 +182,15 @@ func (r *KeyRepository) GetActiveKeys(ctx context.Context) ([]*provisioning.Tena
 	`
 
 	now := time.Now()
-	rows, err := r.db.QueryContext(ctx, query, now)
+	rows, err := r.pool.Query(ctx, query, now)
 	if err != nil {
 		return nil, fmt.Errorf("query active keys: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 
 	keys := []*provisioning.TenantKey{}
 	for rows.Next() {
 		key := &provisioning.TenantKey{}
-		var expiresAt, revokedAt sql.NullTime
 
 		err := rows.Scan(
 			&key.KeyID,
@@ -217,18 +199,11 @@ func (r *KeyRepository) GetActiveKeys(ctx context.Context) ([]*provisioning.Tena
 			&key.PublicKey,
 			&key.IsActive,
 			&key.CreatedAt,
-			&expiresAt,
-			&revokedAt,
+			&key.ExpiresAt,
+			&key.RevokedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan key: %w", err)
-		}
-
-		if expiresAt.Valid {
-			key.ExpiresAt = &expiresAt.Time
-		}
-		if revokedAt.Valid {
-			key.RevokedAt = &revokedAt.Time
 		}
 
 		keys = append(keys, key)

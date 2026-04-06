@@ -109,39 +109,35 @@ func main() {
 	}
 	defer pyroscopeStop()
 
+	// Create cancellable context for service lifecycle
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var wg sync.WaitGroup
+
 	// Create event bus for gRPC streaming notifications
 	bus := eventbus.New(structuredLogger)
 
-	// Open database using factory (supports both SQLite and PostgreSQL)
-	db, err := repository.OpenDatabase(repository.DatabaseConfig{
-		Driver:          cfg.DatabaseDriver,
-		URL:             cfg.DatabaseURL,
-		Path:            cfg.DatabasePath,
-		AutoMigrate:     cfg.AutoMigrate,
-		MaxOpenConns:    cfg.DBMaxOpenConns,
-		MaxIdleConns:    cfg.DBMaxIdleConns,
-		ConnMaxLifetime: cfg.DBConnMaxLifetime,
-		Logger:          structuredLogger,
-	})
+	// Open database connection pool (PostgreSQL via pgxpool)
+	pool, err := repository.OpenDatabase(ctx, cfg.DatabaseURL)
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to open database")
 	}
-	defer func() { _ = db.Close() }() // Close error non-actionable during shutdown
-	structuredLogger.Info().Str("driver", cfg.DatabaseDriver).Msg("Database opened")
+	defer pool.Close()
+	structuredLogger.Info().Msg("Database pool opened")
 
 	// Initialize repositories
-	tenantRepo := repository.NewTenantRepository(db)
-	keyRepo := repository.NewKeyRepository(db)
-	apiKeyRepo := repository.NewAPIKeyStore(db)
-	routingRulesRepo := repository.NewRoutingRulesRepository(db)
-	quotaRepo := repository.NewQuotaRepository(db)
-	auditRepo := repository.NewAuditRepository(db)
-	channelRulesRepo := repository.NewChannelRulesRepository(db)
-	pushCredentialsRepo, err := repository.NewCredentialsRepository(db, cfg.CredentialsEncryptionKey)
+	tenantRepo := repository.NewTenantRepository(pool)
+	keyRepo := repository.NewKeyRepository(pool)
+	apiKeyRepo := repository.NewAPIKeyStore(pool)
+	routingRulesRepo := repository.NewRoutingRulesRepository(pool)
+	quotaRepo := repository.NewQuotaRepository(pool)
+	auditRepo := repository.NewAuditRepository(pool)
+	channelRulesRepo := repository.NewChannelRulesRepository(pool)
+	pushCredentialsRepo, err := repository.NewCredentialsRepository(pool, cfg.CredentialsEncryptionKey)
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create push credentials repository")
 	}
-	pushChannelConfigRepo := repository.NewChannelConfigRepository(db)
+	pushChannelConfigRepo := repository.NewChannelConfigRepository(pool)
 
 	// Kafka admin disabled — topic creation is handled by ws-server's KafkaBackend
 	kafkaAdmin := provisioning.NewNoopKafkaAdmin()
@@ -177,8 +173,8 @@ func main() {
 	var validator *auth.MultiTenantValidator
 	if cfg.AuthEnabled {
 		// Create key registry from existing database connection
-		keyRegistry, err := auth.NewPostgresKeyRegistry(auth.PostgresKeyRegistryConfig{
-			DB:              db,
+		keyRegistry, err := auth.NewKeyRegistry(auth.KeyRegistryConfig{
+			Pool:            pool,
 			RefreshInterval: cfg.KeyRegistryRefreshInterval,
 			QueryTimeout:    cfg.KeyRegistryQueryTimeout,
 			Logger:          structuredLogger.With().Str("component", "key_registry").Logger(),
@@ -204,10 +200,6 @@ func main() {
 	}
 
 	// Set up admin auth middleware (if admin token is configured)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var wg sync.WaitGroup
-
 	var adminAuth *api.AdminAuth
 	if cfg.AdminToken != "" {
 		var err error

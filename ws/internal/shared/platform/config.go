@@ -240,3 +240,18 @@ func (c *KafkaNamespaceConfig) Validate(environment string) error {
 	}
 	return nil
 }
+
+// DatabaseConfig holds PostgreSQL connection settings.
+// Embedded by services that use a database (provisioning, push).
+// Gateway and ws-server are stateless — they don't embed this.
+type DatabaseConfig struct {
+	DatabaseURL string `env:"DATABASE_URL" redact:"true"`
+}
+
+// Validate checks that DATABASE_URL is configured.
+func (c *DatabaseConfig) Validate() error {
+	if c.DatabaseURL == "" {
+		return errors.New("DATABASE_URL is required")
+	}
+	return nil
+}

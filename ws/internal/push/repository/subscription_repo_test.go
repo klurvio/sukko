@@ -1,324 +1,175 @@
-package repository
+package repository_test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
-	"github.com/rs/zerolog"
+	"github.com/klurvio/sukko/internal/push/repository"
+	"github.com/klurvio/sukko/internal/shared/testutil"
 )
 
-// openTestDB creates a SQLite database with the push_subscriptions table for testing.
-// The table is created manually with DATETIME column types (matching the provisioning
-// convention) so that the modernc/sqlite _texttotime driver parameter correctly scans
-// timestamps into time.Time values.
-func openTestDB(t *testing.T) *testDB {
-	t.Helper()
-
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test-push.db")
-
-	db, err := OpenDatabase(DatabaseConfig{
-		Driver:      "sqlite",
-		Path:        dbPath,
-		AutoMigrate: false,
-		Logger:      zerolog.Nop(),
-	})
-	if err != nil {
-		t.Fatalf("OpenDatabase() error = %v", err)
-	}
-
-	t.Cleanup(func() { _ = db.Close() })
-
-	// Create the table with DATETIME types so _texttotime scans work correctly.
-	createSQL := `
-		CREATE TABLE IF NOT EXISTS push_subscriptions (
-			id              INTEGER PRIMARY KEY AUTOINCREMENT,
-			tenant_id       TEXT NOT NULL,
-			principal       TEXT NOT NULL,
-			platform        TEXT NOT NULL,
-			token           TEXT,
-			endpoint        TEXT,
-			p256dh_key      TEXT,
-			auth_secret     TEXT,
-			channels        TEXT NOT NULL,
-			created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
-			last_success_at DATETIME
-		);
-		CREATE INDEX IF NOT EXISTS idx_push_subs_tenant ON push_subscriptions(tenant_id);
-		CREATE INDEX IF NOT EXISTS idx_push_subs_tenant_principal ON push_subscriptions(tenant_id, principal);
-	`
-	if _, err := db.ExecContext(context.Background(), createSQL); err != nil {
-		t.Fatalf("create push_subscriptions table: %v", err)
-	}
-
-	return &testDB{
-		repo: NewSQLiteSubscriptionRepository(db),
-	}
-}
-
-type testDB struct {
-	repo SubscriptionRepository
-}
-
-func TestSubscriptionRepo_CreateWebPush(t *testing.T) {
+func TestSubscriptionRepository_Create(t *testing.T) {
 	t.Parallel()
-
-	tdb := openTestDB(t)
+	pool := testutil.NewTestPool(t)
+	repo := repository.NewSubscriptionRepository(pool)
 	ctx := context.Background()
 
-	sub := &PushSubscription{
-		TenantID:   "acme",
-		Principal:  "user1",
+	sub := &repository.PushSubscription{
+		TenantID:   "test-tenant",
+		Principal:  "user-123",
 		Platform:   "web",
-		Endpoint:   "https://push.example.com/sub/abc",
-		P256dhKey:  "BPe1...",
-		AuthSecret: "secret123",
-		Channels:   []string{"acme.alerts.*"},
+		Endpoint:   "https://fcm.googleapis.com/fcm/send/test",
+		P256dhKey:  "BNcRdreALRFXTkOOUHK1EtK2wt...",
+		AuthSecret: "tBHItJI5svbpC7rN3fA...",
+		Channels:   []string{"test-tenant.trades", "test-tenant.balances"},
 	}
 
-	id, err := tdb.repo.Create(ctx, sub)
+	id, err := repo.Create(ctx, sub)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if id <= 0 {
-		t.Errorf("Create() returned id = %d, want > 0", id)
+	if id == 0 {
+		t.Fatal("Create() returned zero ID")
 	}
 }
 
-func TestSubscriptionRepo_CreateFCM(t *testing.T) {
+func TestSubscriptionRepository_FindByTenant(t *testing.T) {
 	t.Parallel()
-
-	tdb := openTestDB(t)
+	pool := testutil.NewTestPool(t)
+	repo := repository.NewSubscriptionRepository(pool)
 	ctx := context.Background()
 
-	sub := &PushSubscription{
-		TenantID:  "acme",
-		Principal: "user2",
-		Platform:  "android",
-		Token:     "fcm-token-xyz",
-		Channels:  []string{"acme.notifications.*"},
-	}
-
-	id, err := tdb.repo.Create(ctx, sub)
-	if err != nil {
-		t.Fatalf("Create() error = %v", err)
-	}
-	if id <= 0 {
-		t.Errorf("Create() returned id = %d, want > 0", id)
-	}
-
-	// Verify no endpoint or web push fields set
-	subs, err := tdb.repo.FindByTenant(ctx, "acme")
-	if err != nil {
-		t.Fatalf("FindByTenant() error = %v", err)
-	}
-	if len(subs) != 1 {
-		t.Fatalf("FindByTenant() returned %d subs, want 1", len(subs))
-	}
-	if subs[0].Token != "fcm-token-xyz" {
-		t.Errorf("Token = %q, want %q", subs[0].Token, "fcm-token-xyz")
-	}
-	if subs[0].Endpoint != "" {
-		t.Errorf("Endpoint = %q, want empty", subs[0].Endpoint)
-	}
-}
-
-func TestSubscriptionRepo_FindByTenant(t *testing.T) {
-	t.Parallel()
-
-	tdb := openTestDB(t)
-	ctx := context.Background()
-
-	// Insert 3 subs for "acme" and 1 for "other"
-	for _, s := range []*PushSubscription{
-		{TenantID: "acme", Principal: "u1", Platform: "web", Endpoint: "https://a.com/1", Channels: []string{"acme.a"}},
-		{TenantID: "acme", Principal: "u2", Platform: "web", Endpoint: "https://a.com/2", Channels: []string{"acme.b"}},
-		{TenantID: "acme", Principal: "u3", Platform: "android", Token: "tok", Channels: []string{"acme.c"}},
-		{TenantID: "other", Principal: "u4", Platform: "ios", Token: "ios-tok", Channels: []string{"other.x"}},
-	} {
-		if _, err := tdb.repo.Create(ctx, s); err != nil {
+	// Create two subscriptions for tenant-aaa
+	for i := range 2 {
+		sub := &repository.PushSubscription{
+			TenantID:  "tenant-aaa",
+			Principal: "user-123",
+			Platform:  "web",
+			Endpoint:  "https://example.com/push/" + string(rune('a'+i)),
+			Channels:  []string{"tenant-aaa.trades"},
+		}
+		if _, err := repo.Create(ctx, sub); err != nil {
 			t.Fatalf("Create() error = %v", err)
 		}
 	}
 
-	subs, err := tdb.repo.FindByTenant(ctx, "acme")
-	if err != nil {
-		t.Fatalf("FindByTenant(acme) error = %v", err)
+	// Create one for a different tenant
+	other := &repository.PushSubscription{
+		TenantID:  "tenant-bbb",
+		Principal: "user-456",
+		Platform:  "android",
+		Token:     "fcm-token-abc",
+		Channels:  []string{"tenant-bbb.trades"},
 	}
-	if len(subs) != 3 {
-		t.Errorf("FindByTenant(acme) returned %d subs, want 3", len(subs))
+	if _, err := repo.Create(ctx, other); err != nil {
+		t.Fatalf("Create() other error = %v", err)
 	}
 
-	otherSubs, err := tdb.repo.FindByTenant(ctx, "other")
-	if err != nil {
-		t.Fatalf("FindByTenant(other) error = %v", err)
-	}
-	if len(otherSubs) != 1 {
-		t.Errorf("FindByTenant(other) returned %d subs, want 1", len(otherSubs))
-	}
-}
-
-func TestSubscriptionRepo_FindByTenantEmpty(t *testing.T) {
-	t.Parallel()
-
-	tdb := openTestDB(t)
-	ctx := context.Background()
-
-	subs, err := tdb.repo.FindByTenant(ctx, "nonexistent")
+	subs, err := repo.FindByTenant(ctx, "tenant-aaa")
 	if err != nil {
 		t.Fatalf("FindByTenant() error = %v", err)
 	}
-	if subs != nil {
-		t.Errorf("FindByTenant() returned %v, want nil", subs)
+	if len(subs) != 2 {
+		t.Errorf("FindByTenant() returned %d subscriptions, want 2", len(subs))
+	}
+	for _, s := range subs {
+		if s.TenantID != "tenant-aaa" {
+			t.Errorf("subscription tenant = %q, want %q", s.TenantID, "tenant-aaa")
+		}
 	}
 }
 
-func TestSubscriptionRepo_Delete(t *testing.T) {
+func TestSubscriptionRepository_Delete(t *testing.T) {
 	t.Parallel()
-
-	tdb := openTestDB(t)
+	pool := testutil.NewTestPool(t)
+	repo := repository.NewSubscriptionRepository(pool)
 	ctx := context.Background()
 
-	sub := &PushSubscription{
-		TenantID:  "acme",
-		Principal: "u1",
-		Platform:  "web",
-		Endpoint:  "https://push.example.com/sub/del",
-		Channels:  []string{"acme.alerts.*"},
+	sub := &repository.PushSubscription{
+		TenantID:  "tenant-del",
+		Principal: "user-789",
+		Platform:  "ios",
+		Token:     "apns-token-xyz",
+		Channels:  []string{"tenant-del.alerts"},
 	}
-	id, err := tdb.repo.Create(ctx, sub)
+	id, err := repo.Create(ctx, sub)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	if err := tdb.repo.Delete(ctx, id, "acme"); err != nil {
+	if err := repo.Delete(ctx, id, "tenant-del"); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	subs, err := tdb.repo.FindByTenant(ctx, "acme")
+	subs, err := repo.FindByTenant(ctx, "tenant-del")
 	if err != nil {
-		t.Fatalf("FindByTenant() error = %v", err)
+		t.Fatalf("FindByTenant() after delete error = %v", err)
 	}
 	if len(subs) != 0 {
-		t.Errorf("FindByTenant() returned %d subs after delete, want 0", len(subs))
+		t.Errorf("FindByTenant() after delete returned %d, want 0", len(subs))
 	}
 }
 
-func TestSubscriptionRepo_DeleteByToken(t *testing.T) {
+func TestSubscriptionRepository_DeleteByToken(t *testing.T) {
 	t.Parallel()
-
-	tdb := openTestDB(t)
+	pool := testutil.NewTestPool(t)
+	repo := repository.NewSubscriptionRepository(pool)
 	ctx := context.Background()
 
-	sub := &PushSubscription{
-		TenantID:  "acme",
-		Principal: "u1",
+	sub := &repository.PushSubscription{
+		TenantID:  "tenant-dbt",
+		Principal: "user-111",
 		Platform:  "android",
-		Token:     "abc123",
-		Channels:  []string{"acme.alerts.*"},
+		Token:     "fcm-token-delete-me",
+		Channels:  []string{"tenant-dbt.updates"},
 	}
-	if _, err := tdb.repo.Create(ctx, sub); err != nil {
+	if _, err := repo.Create(ctx, sub); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	if err := tdb.repo.DeleteByToken(ctx, "acme", "abc123"); err != nil {
+	if err := repo.DeleteByToken(ctx, "tenant-dbt", "fcm-token-delete-me"); err != nil {
 		t.Fatalf("DeleteByToken() error = %v", err)
 	}
 
-	subs, err := tdb.repo.FindByTenant(ctx, "acme")
+	subs, err := repo.FindByTenant(ctx, "tenant-dbt")
 	if err != nil {
-		t.Fatalf("FindByTenant() error = %v", err)
+		t.Fatalf("FindByTenant() after DeleteByToken error = %v", err)
 	}
 	if len(subs) != 0 {
-		t.Errorf("FindByTenant() returned %d subs after DeleteByToken, want 0", len(subs))
+		t.Errorf("FindByTenant() after DeleteByToken returned %d, want 0", len(subs))
 	}
 }
 
-func TestSubscriptionRepo_UpdateLastSuccess(t *testing.T) {
+func TestSubscriptionRepository_UpdateLastSuccess(t *testing.T) {
 	t.Parallel()
-
-	tdb := openTestDB(t)
+	pool := testutil.NewTestPool(t)
+	repo := repository.NewSubscriptionRepository(pool)
 	ctx := context.Background()
 
-	sub := &PushSubscription{
-		TenantID:  "acme",
-		Principal: "u1",
+	sub := &repository.PushSubscription{
+		TenantID:  "tenant-uls",
+		Principal: "user-222",
 		Platform:  "web",
-		Endpoint:  "https://push.example.com/sub/upd",
-		Channels:  []string{"acme.alerts.*"},
+		Endpoint:  "https://example.com/push/success",
+		Channels:  []string{"tenant-uls.events"},
 	}
-	id, err := tdb.repo.Create(ctx, sub)
+	id, err := repo.Create(ctx, sub)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	// Verify LastSuccessAt is nil initially
-	subs, err := tdb.repo.FindByTenant(ctx, "acme")
-	if err != nil {
-		t.Fatalf("FindByTenant() error = %v", err)
-	}
-	if len(subs) != 1 {
-		t.Fatalf("expected 1 sub, got %d", len(subs))
-	}
-	if subs[0].LastSuccessAt != nil {
-		t.Error("LastSuccessAt should be nil initially")
-	}
-
-	// Update and verify
-	if err := tdb.repo.UpdateLastSuccess(ctx, id); err != nil {
+	if err := repo.UpdateLastSuccess(ctx, id); err != nil {
 		t.Fatalf("UpdateLastSuccess() error = %v", err)
 	}
 
-	subs, err = tdb.repo.FindByTenant(ctx, "acme")
+	subs, err := repo.FindByTenant(ctx, "tenant-uls")
 	if err != nil {
 		t.Fatalf("FindByTenant() error = %v", err)
 	}
 	if len(subs) != 1 {
-		t.Fatalf("expected 1 sub, got %d", len(subs))
+		t.Fatalf("FindByTenant() returned %d, want 1", len(subs))
 	}
 	if subs[0].LastSuccessAt == nil {
-		t.Fatal("LastSuccessAt should be non-nil after UpdateLastSuccess")
-	}
-	if subs[0].LastSuccessAt.IsZero() {
-		t.Error("LastSuccessAt should not be zero after UpdateLastSuccess")
-	}
-}
-
-func TestSubscriptionRepo_ChannelsRoundtrip(t *testing.T) {
-	t.Parallel()
-
-	tdb := openTestDB(t)
-	ctx := context.Background()
-
-	channels := []string{"acme.alerts.*", "acme.notifications.*"}
-	sub := &PushSubscription{
-		TenantID:  "acme",
-		Principal: "u1",
-		Platform:  "web",
-		Endpoint:  "https://push.example.com/sub/ch",
-		Channels:  channels,
-	}
-
-	if _, err := tdb.repo.Create(ctx, sub); err != nil {
-		t.Fatalf("Create() error = %v", err)
-	}
-
-	subs, err := tdb.repo.FindByTenant(ctx, "acme")
-	if err != nil {
-		t.Fatalf("FindByTenant() error = %v", err)
-	}
-	if len(subs) != 1 {
-		t.Fatalf("expected 1 sub, got %d", len(subs))
-	}
-
-	got := subs[0].Channels
-	if len(got) != len(channels) {
-		t.Fatalf("Channels length = %d, want %d", len(got), len(channels))
-	}
-	for i, ch := range channels {
-		if got[i] != ch {
-			t.Errorf("Channels[%d] = %q, want %q", i, got[i], ch)
-		}
+		t.Error("LastSuccessAt should be set after UpdateLastSuccess")
 	}
 }

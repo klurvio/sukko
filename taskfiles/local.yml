@@ -14,8 +14,8 @@ vars:
   LOCAL_KIND_CONFIG: "{{.ROOT_DIR}}/deployments/k8s/local/kind-config.yaml"
   LOCAL_CHART_PATH: "{{.ROOT_DIR}}/deployments/helm/sukko"
   LOCAL_VALUES_FILE: "{{.ROOT_DIR}}/deployments/helm/sukko/values/local.yaml"
-  LOCAL_DB_URL: "postgres://sukko:sukko_local_dev@localhost:5432/sukko_provisioning?sslmode=disable"
-  LOCAL_MIGRATIONS_DIR: "{{.ROOT_DIR}}/ws/internal/provisioning/repository/migrations"
+  LOCAL_DB_URL: "postgres://sukko:sukko@localhost:5432/sukko?sslmode=disable"
+  LOCAL_MIGRATIONS_DIR: "{{.ROOT_DIR}}/ws/internal/shared/migrations/postgres"
   # Images
   LOCAL_WS_IMAGE: sukko-server
   LOCAL_GATEWAY_IMAGE: sukko-gateway
