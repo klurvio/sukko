@@ -17,7 +17,7 @@ func TestRequiredEdition(t *testing.T) {
 	}
 
 	enterpriseFeatures := []Feature{
-		WebPushTransport, IPAllowlisting, AuditLogging,
+		PushNotifications, IPAllowlisting, AuditLogging,
 		E2EEncryption, PriorityRouting, CustomQuotaPolicies,
 	}
 	for _, f := range enterpriseFeatures {
@@ -43,17 +43,17 @@ func TestEditionHasFeature(t *testing.T) {
 		// Community cannot use Pro features
 		{"community+kafka", Community, KafkaBackend, false},
 		{"community+alerting", Community, Alerting, false},
-		{"community+webpush", Community, WebPushTransport, false},
+		{"community+push", Community, PushNotifications, false},
 
 		// Pro can use Pro features, not Enterprise
 		{"pro+kafka", Pro, KafkaBackend, true},
 		{"pro+alerting", Pro, Alerting, true},
-		{"pro+webpush", Pro, WebPushTransport, false},
+		{"pro+push", Pro, PushNotifications, false},
 		{"pro+audit", Pro, AuditLogging, false},
 
 		// Enterprise can use everything
 		{"enterprise+kafka", Enterprise, KafkaBackend, true},
-		{"enterprise+webpush", Enterprise, WebPushTransport, true},
+		{"enterprise+push", Enterprise, PushNotifications, true},
 		{"enterprise+audit", Enterprise, AuditLogging, true},
 	}
 	for _, tt := range tests {

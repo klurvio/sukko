@@ -260,8 +260,8 @@ func TestManager_HasFeature(t *testing.T) {
 	if !m.HasFeature(Alerting) {
 		t.Error("Pro should have Alerting")
 	}
-	if m.HasFeature(WebPushTransport) {
-		t.Error("Pro should NOT have WebPushTransport (Enterprise only)")
+	if m.HasFeature(PushNotifications) {
+		t.Error("Pro should NOT have PushNotifications (Enterprise only)")
 	}
 
 	// Community manager

@@ -148,7 +148,7 @@ func LoadConfig(logger zerolog.Logger) (*Config, error) {
 	cfg.editionManager = mgr
 
 	// Push service is Enterprise-only (Constitution XIII)
-	if !mgr.HasFeature(license.WebPushTransport) {
+	if !mgr.HasFeature(license.PushNotifications) {
 		return nil, fmt.Errorf("push notifications require Enterprise edition (current: %s)", mgr.Edition())
 	}
 

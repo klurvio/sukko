@@ -128,8 +128,7 @@ func TestHandleUploadCredentials_ValidationErrors(t *testing.T) {
 
 			// We create a handler with nil credentialsRepo. Validation errors
 			// are caught before the repo is called, so this is safe for
-			// validation-only tests. For tests that reach the repo, we use
-			// the SQLite-backed approach below.
+			// validation-only tests.
 			h := &PushCredentialHandler{
 				credentialsRepo: nil, // validation tests don't reach repo
 				eventBus:        bus,

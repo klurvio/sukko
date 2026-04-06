@@ -474,8 +474,8 @@ func (gw *Gateway) NewServer() *http.Server {
 	mux.HandleFunc("GET /sse", gate(gw.HandleSSE))
 	mux.HandleFunc("POST /api/v1/publish", gate(gw.HandlePublish))
 
-	// Web Push handlers (edition-gated to Enterprise)
-	pushGate := RequireFeature(gw.config.EditionManager(), license.WebPushTransport)
+	// Push notification handlers (edition-gated to Enterprise)
+	pushGate := RequireFeature(gw.config.EditionManager(), license.PushNotifications)
 	mux.HandleFunc("POST /api/v1/push/subscribe", pushGate(gw.HandlePushSubscribe))
 	mux.HandleFunc("DELETE /api/v1/push/subscribe", pushGate(gw.HandlePushUnsubscribe))
 	mux.HandleFunc("GET /api/v1/push/vapid-key", pushGate(gw.HandlePushVAPIDKey))

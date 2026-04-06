@@ -390,7 +390,7 @@ func TestHandlePushSubscribe_EditionGate_Community(t *testing.T) {
 
 	// Community edition should block Web Push
 	mgr := license.NewTestManager(license.Community)
-	pushGate := RequireFeature(mgr, license.WebPushTransport)
+	pushGate := RequireFeature(mgr, license.PushNotifications)
 
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -412,7 +412,7 @@ func TestHandlePushSubscribe_EditionGate_Pro(t *testing.T) {
 
 	// Pro edition should also block Web Push (Enterprise only)
 	mgr := license.NewTestManager(license.Pro)
-	pushGate := RequireFeature(mgr, license.WebPushTransport)
+	pushGate := RequireFeature(mgr, license.PushNotifications)
 
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -424,7 +424,7 @@ func TestHandlePushSubscribe_EditionGate_Pro(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want %d (Pro should not have WebPushTransport)", rec.Code, http.StatusForbidden)
+		t.Errorf("status = %d, want %d (Pro should not have PushNotifications)", rec.Code, http.StatusForbidden)
 	}
 }
 
@@ -433,7 +433,7 @@ func TestHandlePushSubscribe_EditionGate_Enterprise(t *testing.T) {
 
 	// Enterprise edition should allow Web Push
 	mgr := license.NewTestManager(license.Enterprise)
-	pushGate := RequireFeature(mgr, license.WebPushTransport)
+	pushGate := RequireFeature(mgr, license.PushNotifications)
 
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
