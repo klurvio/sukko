@@ -3,11 +3,13 @@ package runner
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/klurvio/sukko/cmd/tester/metrics"
 	"github.com/klurvio/sukko/cmd/tester/publisher"
 	testerws "github.com/klurvio/sukko/cmd/tester/ws"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/rs/zerolog"
 )
 
@@ -37,32 +39,68 @@ func runSoak(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 
 	testChannel := soakTestChannel
 
-	pool := testerws.NewPool(logger)
-	defer pool.Drain()
-
-	logger.Info().Int("connections", connections).Str("duration", duration.String()).Msg("soak test starting")
-
-	if err := pool.RampUp(ctx, testerws.PoolConfig{
+	// Canary connection: tracks sequences for message loss/duplication detection
+	ct := newChannelTrackers()
+	canary, err := testerws.Connect(ctx, testerws.ConnectConfig{
 		GatewayURL: run.Config.GatewayURL,
-		TokenFunc:  run.authResult.TokenFunc,
-		Channels:   []string{testChannel},
+		Token:      run.authResult.TokenFunc(0),
+		Logger:     logger.With().Str("role", "canary").Logger(),
 		OnMessage: func(msg testerws.Message) {
 			switch msg.Type {
 			case "auth_ack":
 				run.Collector.AuthRefreshTotal.Add(1)
 			case "auth_error":
 				run.Collector.AuthRefreshFailed.Add(1)
-				logger.Warn().Str("type", msg.Type).Msg("auth refresh rejected by gateway")
+				logger.Warn().Str("type", msg.Type).Msg("canary auth refresh rejected by gateway")
 			default:
 				run.Collector.MessagesReceived.Add(1)
+				ct.track(msg)
 			}
 		},
-	}, connections, rampRate); err != nil {
-		return nil, fmt.Errorf("ramp up: %w", err)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create canary connection: %w", err)
+	}
+	if err := canary.Subscribe([]string{testChannel}); err != nil {
+		_ = canary.Close()
+		return nil, fmt.Errorf("canary subscribe: %w", err)
+	}
+	var canaryWg sync.WaitGroup
+	canaryWg.Go(func() {
+		defer logging.RecoverPanic(logger, "canary_readloop", nil)
+		canary.ReadLoop(ctx)
+	})
+
+	pool := testerws.NewPool(logger)
+	defer pool.Drain()
+
+	logger.Info().Int("connections", connections).Str("duration", duration.String()).Msg("soak test starting")
+
+	poolCount := connections - 1
+	if poolCount > 0 {
+		if err := pool.RampUp(ctx, testerws.PoolConfig{
+			GatewayURL: run.Config.GatewayURL,
+			TokenFunc:  func(i int) string { return run.authResult.TokenFunc(i + 1) },
+			Channels:   []string{testChannel},
+			OnMessage: func(msg testerws.Message) {
+				switch msg.Type {
+				case "auth_ack":
+					run.Collector.AuthRefreshTotal.Add(1)
+				case "auth_error":
+					run.Collector.AuthRefreshFailed.Add(1)
+					logger.Warn().Str("type", msg.Type).Msg("auth refresh rejected by gateway")
+				default:
+					run.Collector.MessagesReceived.Add(1)
+				}
+			},
+		}, poolCount, rampRate); err != nil {
+			return nil, fmt.Errorf("ramp up: %w", err)
+		}
 	}
 
-	run.Collector.ConnectionsActive.Store(pool.Active())
-	run.Collector.ConnectionsTotal.Store(pool.Active())
+	totalActive := pool.Active() + 1 // pool + canary
+	run.Collector.ConnectionsActive.Store(totalActive)
+	run.Collector.ConnectionsTotal.Store(totalActive)
 
 	pub, pubErr := publisher.NewDirectPublisher(ctx, run.Config.GatewayURL, run.authResult.TokenFunc(0))
 	if pubErr != nil {
@@ -85,30 +123,43 @@ func runSoak(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 
 	deadline := time.After(duration)
 
+	var status string
 	for {
 		select {
 		case <-ctx.Done():
-			run.Collector.ConnectionsActive.Store(0)
-			return &metrics.Report{
-				TestType: "soak",
-				Status:   "stopped",
-				Metrics:  run.Collector.Snapshot(),
-			}, nil
+			status = "stopped"
+			goto done
 		case <-deadline:
-			run.Collector.ConnectionsActive.Store(0)
-			return &metrics.Report{
-				TestType: "soak",
-				Status:   "pass",
-				Metrics:  run.Collector.Snapshot(),
-			}, nil
+			status = "pass"
+			goto done
 		case <-publishTicker.C:
 			data, _ := gen.Next(testChannel) // json.Marshal on literal map of primitives cannot fail
 			if err := pub.Publish(ctx, testChannel, data); err != nil {
+				run.Collector.ErrorsTotal.Add(1)
 				logger.Warn().Err(err).Msg("publish failed")
+			} else {
+				run.Collector.MessagesSent.Add(1)
 			}
 		case <-refreshTicker.C:
 			refreshed, failed := pool.RefreshAll(run.authResult.Minter.TokenFunc())
+			if err := canary.RefreshToken(run.authResult.TokenFunc(0)); err != nil {
+				logger.Warn().Err(err).Msg("canary token refresh failed")
+			}
 			logger.Debug().Int("refreshed", refreshed).Int("failed", failed).Msg("auth refresh cycle")
 		}
 	}
+
+done:
+	run.Collector.ConnectionsActive.Store(0)
+	_ = canary.Close()
+	canaryWg.Wait()
+	stats := ct.aggregateStats()
+	run.Collector.MessagesLost.Store(stats.Gaps)
+	run.Collector.MessagesDuplicated.Store(stats.Duplicates)
+
+	return &metrics.Report{
+		TestType: "soak",
+		Status:   status,
+		Metrics:  run.Collector.Snapshot(),
+	}, nil
 }

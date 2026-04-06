@@ -3,12 +3,14 @@ package runner
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
 	"github.com/klurvio/sukko/cmd/tester/publisher"
 	testerws "github.com/klurvio/sukko/cmd/tester/ws"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/rs/zerolog"
 )
 
@@ -43,25 +45,54 @@ func runLoad(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 
 	testChannel := loadTestChannel
 
-	// Phase 1: Ramp up connections
+	// Phase 1: Ramp up connections (canary + pool)
 	logger.Info().Int("connections", connections).Int("ramp_rate", rampRate).Msg("ramping up")
 
+	// Canary connection: tracks sequences for message loss/duplication detection
+	ct := newChannelTrackers()
+	canary, err := testerws.Connect(ctx, testerws.ConnectConfig{
+		GatewayURL: run.Config.GatewayURL,
+		Token:      run.authResult.TokenFunc(0),
+		Logger:     logger.With().Str("role", "canary").Logger(),
+		OnMessage: func(msg testerws.Message) {
+			run.Collector.MessagesReceived.Add(1)
+			ct.track(msg)
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create canary connection: %w", err)
+	}
+	if err := canary.Subscribe([]string{testChannel}); err != nil {
+		_ = canary.Close()
+		return nil, fmt.Errorf("canary subscribe: %w", err)
+	}
+	var canaryWg sync.WaitGroup
+	canaryWg.Go(func() {
+		defer logging.RecoverPanic(logger, "canary_readloop", nil)
+		canary.ReadLoop(ctx)
+	})
+
+	// Pool: remaining connections (just counting, no tracking)
 	pool := testerws.NewPool(logger)
 	defer pool.Drain()
 
-	if err := pool.RampUp(ctx, testerws.PoolConfig{
-		GatewayURL: run.Config.GatewayURL,
-		TokenFunc:  run.authResult.TokenFunc,
-		Channels:   []string{testChannel},
-		OnMessage: func(msg testerws.Message) {
-			run.Collector.MessagesReceived.Add(1)
-		},
-	}, connections, rampRate); err != nil {
-		return nil, fmt.Errorf("ramp up: %w", err)
+	poolCount := connections - 1
+	if poolCount > 0 {
+		if err := pool.RampUp(ctx, testerws.PoolConfig{
+			GatewayURL: run.Config.GatewayURL,
+			TokenFunc:  func(i int) string { return run.authResult.TokenFunc(i + 1) },
+			Channels:   []string{testChannel},
+			OnMessage: func(msg testerws.Message) {
+				run.Collector.MessagesReceived.Add(1)
+			},
+		}, poolCount, rampRate); err != nil {
+			return nil, fmt.Errorf("ramp up: %w", err)
+		}
 	}
 
-	run.Collector.ConnectionsActive.Store(pool.Active())
-	run.Collector.ConnectionsTotal.Store(pool.Active())
+	totalActive := pool.Active() + 1 // pool + canary
+	run.Collector.ConnectionsActive.Store(totalActive)
+	run.Collector.ConnectionsTotal.Store(totalActive)
 
 	// Phase 2: Sustain — publish at rate
 	logger.Info().Int("rate", publishRate).Str("duration", duration.String()).Msg("sustaining load")
@@ -75,8 +106,13 @@ func runLoad(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 	gen := publisher.NewGenerator()
 	publishLoop(ctx, pub, gen, testChannel, publishRate, duration, run.Collector, logger)
 
-	// Phase 3: Drain (handled by defer pool.Drain())
+	// Phase 3: Drain + populate tracker stats
 	run.Collector.ConnectionsActive.Store(0)
+	_ = canary.Close()   // triggers ReadLoop exit
+	canaryWg.Wait()      // ensure ReadLoop goroutine finished before reading stats
+	stats := ct.aggregateStats()
+	run.Collector.MessagesLost.Store(stats.Gaps)
+	run.Collector.MessagesDuplicated.Store(stats.Duplicates)
 
 	return &metrics.Report{
 		TestType: "load",
@@ -123,23 +159,127 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 	groupPool := testerws.NewPool(logger)
 	defer groupPool.Drain()
 
-	// Public pool: default tokens, subscribe to general.test
+	// Canary connections: one per channel type for sequence tracking (only if that type has allocation)
+	ct := newChannelTrackers()
+	var canaryCount int64
+	var canaryWg sync.WaitGroup
+	var canaryCleanups []func() // collected for shutdown
+
+	// Public canary (only if publicCount > 0)
 	if publicCount > 0 {
+		publicCanary, err := testerws.Connect(ctx, testerws.ConnectConfig{
+			GatewayURL: run.Config.GatewayURL,
+			Token:      run.authResult.TokenFunc(0),
+			Logger:     logger.With().Str("role", "canary-public").Logger(),
+			OnMessage: func(msg testerws.Message) {
+				run.Collector.PublicReceived.Add(1)
+				run.Collector.MessagesReceived.Add(1)
+				ct.track(msg)
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create public canary: %w", err)
+		}
+		if err := publicCanary.Subscribe([]string{"general.test"}); err != nil {
+			_ = publicCanary.Close()
+			return nil, fmt.Errorf("public canary subscribe: %w", err)
+		}
+		canaryWg.Go(func() {
+			defer logging.RecoverPanic(logger, "canary_public_readloop", nil)
+			publicCanary.ReadLoop(ctx)
+		})
+		canaryCleanups = append(canaryCleanups, func() { _ = publicCanary.Close() })
+		canaryCount++
+	}
+
+	// User-scoped canary (only if userCount > 0)
+	if userCount > 0 {
+		userCanaryToken, err := minter.MintWithClaims(auth.MintOptions{
+			ConnIndex: 999,
+			Subject:   "canary-user",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("mint user canary token: %w", err)
+		}
+		userCanary, err := testerws.Connect(ctx, testerws.ConnectConfig{
+			GatewayURL: run.Config.GatewayURL,
+			Token:      userCanaryToken,
+			Logger:     logger.With().Str("role", "canary-user").Logger(),
+			OnMessage: func(msg testerws.Message) {
+				run.Collector.UserScopedReceived.Add(1)
+				run.Collector.MessagesReceived.Add(1)
+				ct.track(msg)
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create user canary: %w", err)
+		}
+		if err := userCanary.Subscribe([]string{"dm.{principal}"}); err != nil {
+			_ = userCanary.Close()
+			return nil, fmt.Errorf("user canary subscribe: %w", err)
+		}
+		canaryWg.Go(func() {
+			defer logging.RecoverPanic(logger, "canary_user_readloop", nil)
+			userCanary.ReadLoop(ctx)
+		})
+		canaryCleanups = append(canaryCleanups, func() { _ = userCanary.Close() })
+		canaryCount++
+	}
+
+	// Group-scoped canary (only if groupCount > 0)
+	if groupCount > 0 {
+		groupCanaryToken, err := minter.MintWithClaims(auth.MintOptions{
+			ConnIndex: 998,
+			Subject:   "canary-group",
+			Groups:    []string{"vip"},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("mint group canary token: %w", err)
+		}
+		groupCanary, err := testerws.Connect(ctx, testerws.ConnectConfig{
+			GatewayURL: run.Config.GatewayURL,
+			Token:      groupCanaryToken,
+			Logger:     logger.With().Str("role", "canary-group").Logger(),
+			OnMessage: func(msg testerws.Message) {
+				run.Collector.GroupScopedReceived.Add(1)
+				run.Collector.MessagesReceived.Add(1)
+				ct.track(msg)
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create group canary: %w", err)
+		}
+		if err := groupCanary.Subscribe([]string{"room.vip"}); err != nil {
+			_ = groupCanary.Close()
+			return nil, fmt.Errorf("group canary subscribe: %w", err)
+		}
+		canaryWg.Go(func() {
+			defer logging.RecoverPanic(logger, "canary_group_readloop", nil)
+			groupCanary.ReadLoop(ctx)
+		})
+		canaryCleanups = append(canaryCleanups, func() { _ = groupCanary.Close() })
+		canaryCount++
+	}
+
+	// Public pool: default tokens, subscribe to general.test
+	publicPoolCount := max(publicCount-1, 0) // subtract canary, floor at 0
+	if publicPoolCount > 0 {
 		if err := publicPool.RampUp(ctx, testerws.PoolConfig{
 			GatewayURL: run.Config.GatewayURL,
-			TokenFunc:  run.authResult.TokenFunc,
+			TokenFunc:  func(i int) string { return run.authResult.TokenFunc(i + 1) },
 			Channels:   []string{"general.test"},
 			OnMessage: func(_ testerws.Message) {
 				run.Collector.PublicReceived.Add(1)
 				run.Collector.MessagesReceived.Add(1)
 			},
-		}, publicCount, rampRate); err != nil {
+		}, publicPoolCount, rampRate); err != nil {
 			return nil, fmt.Errorf("ramp up public pool: %w", err)
 		}
 	}
 
 	// User-scoped pool: each connection subscribes to dm.<subject>
-	if userCount > 0 {
+	userPoolCount := max(userCount-1, 0) // subtract canary, floor at 0
+	if userPoolCount > 0 {
 		if err := userPool.RampUp(ctx, testerws.PoolConfig{
 			GatewayURL: run.Config.GatewayURL,
 			TokenFunc: func(i int) string {
@@ -158,13 +298,14 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 				run.Collector.UserScopedReceived.Add(1)
 				run.Collector.MessagesReceived.Add(1)
 			},
-		}, userCount, rampRate); err != nil {
+		}, userPoolCount, rampRate); err != nil {
 			return nil, fmt.Errorf("ramp up user pool: %w", err)
 		}
 	}
 
 	// Group pool: vip group, subscribe to room.vip
-	if groupCount > 0 {
+	groupPoolCount := max(groupCount-1, 0) // subtract canary, floor at 0
+	if groupPoolCount > 0 {
 		if err := groupPool.RampUp(ctx, testerws.PoolConfig{
 			GatewayURL: run.Config.GatewayURL,
 			TokenFunc: func(i int) string {
@@ -184,12 +325,12 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 				run.Collector.GroupScopedReceived.Add(1)
 				run.Collector.MessagesReceived.Add(1)
 			},
-		}, groupCount, rampRate); err != nil {
+		}, groupPoolCount, rampRate); err != nil {
 			return nil, fmt.Errorf("ramp up group pool: %w", err)
 		}
 	}
 
-	totalActive := publicPool.Active() + userPool.Active() + groupPool.Active()
+	totalActive := publicPool.Active() + userPool.Active() + groupPool.Active() + canaryCount
 	run.Collector.ConnectionsActive.Store(totalActive)
 	run.Collector.ConnectionsTotal.Store(totalActive)
 
@@ -225,6 +366,8 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 				if err := pub.Publish(ctx, "general.test", data); err == nil {
 					run.Collector.PublicSent.Add(1)
 					run.Collector.MessagesSent.Add(1)
+				} else {
+					run.Collector.ErrorsTotal.Add(1)
 				}
 			}
 			// Publish to group channel
@@ -233,6 +376,8 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 				if err := pub.Publish(ctx, "room.vip", data); err == nil {
 					run.Collector.GroupScopedSent.Add(1)
 					run.Collector.MessagesSent.Add(1)
+				} else {
+					run.Collector.ErrorsTotal.Add(1)
 				}
 			}
 		}
@@ -240,6 +385,14 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 
 done:
 	run.Collector.ConnectionsActive.Store(0)
+	// Close canaries and wait for ReadLoop goroutines before reading stats
+	for _, cleanup := range canaryCleanups {
+		cleanup()
+	}
+	canaryWg.Wait()
+	stats := ct.aggregateStats()
+	run.Collector.MessagesLost.Store(stats.Gaps)
+	run.Collector.MessagesDuplicated.Store(stats.Duplicates)
 
 	return &metrics.Report{
 		TestType: "load:channels",
