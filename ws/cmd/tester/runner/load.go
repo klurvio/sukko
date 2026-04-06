@@ -108,8 +108,8 @@ func runLoad(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 
 	// Phase 3: Drain + populate tracker stats
 	run.Collector.ConnectionsActive.Store(0)
-	_ = canary.Close()   // triggers ReadLoop exit
-	canaryWg.Wait()      // ensure ReadLoop goroutine finished before reading stats
+	_ = canary.Close() // triggers ReadLoop exit
+	canaryWg.Wait()    // ensure ReadLoop goroutine finished before reading stats
 	stats := ct.aggregateStats()
 	run.Collector.MessagesLost.Store(stats.Gaps)
 	run.Collector.MessagesDuplicated.Store(stats.Duplicates)
