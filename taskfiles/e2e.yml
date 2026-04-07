@@ -130,12 +130,8 @@ tasks:
       - |
         echo "Smoke test: creating tenants (should not be rejected)..."
         for i in 1 2 3 4 5; do
-          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" -X POST {{.PROVISIONING_URL}}/api/v1/tenants \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer sukko-dev-token" \
-            -d "{\"id\": \"_e2e_enterprise_$i\", \"name\": \"E2E Enterprise Test $i\"}")
-          if [ "$STATUS" = "403" ]; then
-            echo "FAIL: tenant creation rejected (HTTP 403) — Enterprise should be unlimited"
+          if ! sukko tenant create "_e2e_enterprise_$i" "E2E Enterprise Test $i" 2>&1; then
+            echo "FAIL: tenant creation rejected — Enterprise should be unlimited"
             exit 1
           fi
         done
@@ -143,8 +139,7 @@ tasks:
       # Cleanup test tenants
       - |
         for i in 1 2 3 4 5; do
-          curl -sf -X DELETE "{{.PROVISIONING_URL}}/api/v1/tenants/_e2e_enterprise_$i?force=true" \
-            -H "Authorization: Bearer sukko-dev-token" > /dev/null 2>&1 || true
+          sukko tenant delete "_e2e_enterprise_$i" --force 2>/dev/null || true
         done
         echo "  test tenants cleaned up ✓"
       - echo "=== Enterprise edition PASSED ==="

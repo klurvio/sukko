@@ -1,7 +1,4 @@
 {{- if and .Values.enabled .Values.ingress.enabled }}
-{{- if not .Values.config.adminToken }}
-  {{- fail "config.adminToken is required when ingress is enabled (FR-A08)" }}
-{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

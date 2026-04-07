@@ -62,7 +62,7 @@ services:
       - "8080:8080"
       - "9090:9090"
     environment:
-      PROVISIONING_ADMIN_TOKEN: "sukko-dev-token"
+      ADMIN_BOOTSTRAP_KEY: "${ADMIN_BOOTSTRAP_KEY:-}"  # base64 Ed25519 public key, set by sukko init
       DATABASE_URL: "postgres://sukko:sukko@postgres:5432/sukko?sslmode=disable"
       SUKKO_LICENSE_KEY: "${SUKKO_LICENSE_KEY:-}"
       # Observability (disabled by default, enable with OTEL_TRACING_ENABLED=true)
