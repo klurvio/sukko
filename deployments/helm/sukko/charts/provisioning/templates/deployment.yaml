@@ -86,13 +86,10 @@ spec:
               value: {{ .Values.service.grpcPort | quote }}
             {{- end }}
 
-            # Admin token authentication
-            {{- if .Values.adminToken }}
-            - name: PROVISIONING_ADMIN_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "provisioning.fullname" . }}-admin-token
-                  key: admin-token
+            # Admin bootstrap key (one-time first admin registration)
+            {{- if .Values.adminBootstrapKey }}
+            - name: ADMIN_BOOTSTRAP_KEY
+              value: {{ .Values.adminBootstrapKey | quote }}
             {{- end }}
 
             # Extra env overrides from values

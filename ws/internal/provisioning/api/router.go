@@ -13,6 +13,9 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/provisioning"
+	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
+	"github.com/klurvio/sukko/internal/provisioning/eventbus"
+	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/profiling"
@@ -32,9 +35,17 @@ type RouterConfig struct {
 	// Validator validates JWT tokens. Required when AuthEnabled is true.
 	Validator *auth.MultiTenantValidator
 
-	// AdminAuth provides admin token authentication middleware.
-	// When set, admin token auth is checked before JWT auth.
-	AdminAuth *AdminAuth
+	// AdminValidator validates admin JWTs (Ed25519 keypair auth).
+	AdminValidator *provauth.AdminValidator
+
+	// AdminKeyRegistry is the in-memory admin key cache.
+	AdminKeyRegistry *provauth.AdminKeyRegistry
+
+	// AdminKeyRepo is the PostgreSQL admin key repository.
+	AdminKeyRepo *repository.AdminKeyRepository
+
+	// EventBus for publishing admin key change events.
+	EventBus *eventbus.Bus
 
 	// PushCredentialHandler handles push credential upload/deletion.
 	// When set, push credential routes are registered.
@@ -120,12 +131,12 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 			r.Use(RateLimitMiddleware(cfg.RateLimit))
 		}
 
-		// Apply admin token auth first (falls through to JWT on mismatch)
-		if cfg.AdminAuth != nil {
-			r.Use(cfg.AdminAuth.Middleware())
+		// Apply admin JWT auth first (checks iss:"sukko-admin", falls through to tenant JWT)
+		if cfg.AdminValidator != nil {
+			r.Use(AdminJWTMiddleware(cfg.AdminValidator, cfg.Logger))
 		}
 
-		// Apply JWT auth middleware if enabled
+		// Apply tenant JWT auth middleware if enabled
 		if cfg.AuthEnabled && cfg.Validator != nil {
 			r.Use(AuthMiddleware(cfg.Validator, cfg.Logger))
 		}
@@ -258,6 +269,16 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 				r.Delete("/channels", cfg.PushChannelHandler.HandleDeleteChannelConfig)
 			}
 		})
+
+		// Admin key management — requires admin JWT auth
+		if cfg.AdminKeyRepo != nil && cfg.AdminKeyRegistry != nil && cfg.EventBus != nil {
+			adminKeysHandler := NewAdminKeysHandler(cfg.AdminKeyRepo, cfg.AdminKeyRegistry, cfg.EventBus, cfg.Logger)
+			r.Route("/admin/keys", func(r chi.Router) {
+				r.Post("/", adminKeysHandler.Register)
+				r.Get("/", adminKeysHandler.List)
+				r.Delete("/{id}", adminKeysHandler.Revoke)
+			})
+		}
 	})
 
 	return r, nil

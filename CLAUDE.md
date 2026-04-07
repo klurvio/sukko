@@ -129,7 +129,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.12.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-04-04
+**Version**: 1.14.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-04-07
 
 ### I. Configuration
 
@@ -238,7 +238,25 @@ Tests MUST be run with Go's race detector (`-race` flag) in local development an
 
 ### IX. Security
 
-Rate limiting MUST be applied at multiple levels (global, per-IP, per-tenant). Secrets MUST never appear in logs or error messages. JWT validation MUST verify expiration and issuer. `//nolint` or `#nosec` MUST include thorough written justification. Input validation at boundaries is mandated by II. Debug and profiling endpoints (`/debug/pprof/`) MUST be disabled by default — they expose memory contents, goroutine stacks, and CPU profiles. They MUST only be enabled via explicit opt-in (`PPROF_ENABLED=true`) and SHOULD be restricted to internal networks in production.
+**Rate Limiting** — Rate limiting MUST be applied at multiple levels (global, per-IP, per-tenant). Rate limit responses MUST use HTTP 429 with `Retry-After` header.
+
+**Secrets Management** — Secrets MUST never appear in logs, error messages, or API responses. Sensitive keys and credentials (license keys, VAPID private keys, push provider credentials, API secrets) MUST be encrypted at rest in storage and decrypted only at the point of access — never stored as plaintext in databases, config files, or context stores. Encryption keys MUST be managed separately from the data they protect. Credential rotation MUST be supported without downtime — all credentials (JWT signing keys, API keys, VAPID keys, push provider credentials, admin tokens) MUST be rotatable via API while the system continues serving.
+
+**Authentication & Replay Protection** — JWT validation MUST verify expiration (`exp`), issuer (`iss` when configured), and signature. JWTs MUST include `iat` (issued-at) and `exp` claims — tokens without expiration MUST be rejected. Token replay MUST be mitigated: short-lived tokens (≤15 min default), `jti` (JWT ID) claim SHOULD be used for critical operations, and the auth refresh protocol MUST issue a new token (not extend the old one). API key authentication MUST use constant-time comparison to prevent timing attacks. Webhook endpoints (e.g., license reload) MUST validate a shared secret — default deny if no secret is configured.
+
+**Tenant Isolation** — Every data path MUST enforce tenant boundaries. Cross-tenant data leakage is a critical severity bug. Kafka topics, NATS subjects, broadcast subjects, WebSocket subscriptions, and push subscriptions MUST be scoped to the authenticated tenant. Provisioning API MUST enforce `RequireTenant()` middleware — a tenant JWT MUST NOT access another tenant's resources. Database queries MUST include `tenant_id` in WHERE clauses — no unscoped queries that could return cross-tenant data.
+
+**Admin & Operator Endpoints** — All admin and operator endpoints MUST require authentication (admin token or equivalent). Default deny — if no admin token is configured, admin endpoints MUST reject all requests, not allow anonymous access. The `/config` endpoint MUST redact sensitive fields (fields tagged `redact:"true"`).
+
+**Transport Security** — TLS MUST be enforced for all external-facing endpoints in production. Internal service-to-service communication (gRPC, NATS, Kafka) SHOULD use TLS when crossing network boundaries. TLS configuration MUST support custom CA certificates for private PKI.
+
+**CORS** — CORS allowed origins MUST be explicitly configured — no wildcard (`*`) in production. Preflight responses MUST NOT cache longer than `CORS_MAX_AGE` (default 3600s). Only required headers and methods MUST be allowed.
+
+**Dependency Security** — Dependencies with known CVEs MUST NOT be merged. `govulncheck` SHOULD be run in CI. Dependency updates MUST be reviewed for breaking changes and security implications.
+
+**Audit Trail** — Security-relevant operations MUST be audit-logged: tenant lifecycle changes, key creation/revocation, credential rotation, license reload, admin authentication attempts (success and failure), and rate limit triggers.
+
+**Code Annotations** — `//nolint` or `#nosec` MUST include thorough written justification explaining why the suppression is safe. Debug and profiling endpoints (`/debug/pprof/`) MUST be disabled by default — they expose memory contents, goroutine stacks, and CPU profiles. They MUST only be enabled via explicit opt-in (`PPROF_ENABLED=true`) and SHOULD be restricted to internal networks in production. Input validation at boundaries is mandated by II.
 
 ### X. Shared Code Consolidation
 

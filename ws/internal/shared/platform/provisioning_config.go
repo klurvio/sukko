@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -33,14 +34,8 @@ type ProvisioningConfig struct {
 	// gRPC — internal service-to-service communication port
 	GRPCPort int `env:"GRPC_PORT" envDefault:"9090"`
 
-	// Admin Authentication — opaque admin token for operator access (separate from tenant JWT)
-	AdminToken string `env:"PROVISIONING_ADMIN_TOKEN" redact:"true"`
-
-	// Admin Auth Rate Limiting
-	AdminAuthFailureThreshold int           `env:"ADMIN_AUTH_FAILURE_THRESHOLD" envDefault:"10"`
-	AdminAuthBlockDuration    time.Duration `env:"ADMIN_AUTH_BLOCK_DURATION" envDefault:"60s"`
-	AdminAuthCleanupInterval  time.Duration `env:"ADMIN_AUTH_CLEANUP_INTERVAL" envDefault:"5m"`
-	AdminAuthCleanupMaxAge    time.Duration `env:"ADMIN_AUTH_CLEANUP_MAX_AGE" envDefault:"2m"`
+	// Admin Authentication — bootstrap key for first admin registration (base64-encoded Ed25519 public key)
+	AdminBootstrapKey string `env:"ADMIN_BOOTSTRAP_KEY"`
 
 	// Topic Defaults
 	DefaultPartitions  int   `env:"DEFAULT_PARTITIONS" envDefault:"3"`
@@ -147,13 +142,20 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("GRPC_PORT must be between 1 and %d, got %d", MaxPort, c.GRPCPort)
 	}
 
-	// Admin token validation
-	if c.AdminToken != "" && len(c.AdminToken) < 16 {
-		envName := strings.ToLower(strings.TrimSpace(c.Environment))
-		if envName != "dev" && envName != "development" && envName != "local" {
-			return fmt.Errorf("PROVISIONING_ADMIN_TOKEN must be at least 16 characters in non-development environments (got %d)", len(c.AdminToken))
+	// Admin bootstrap key validation (if set, must be valid base64 → 32 bytes for Ed25519)
+	// Accept both standard (padded) and raw (unpadded) base64 for operator convenience.
+	if c.AdminBootstrapKey != "" {
+		decoded, err := base64.StdEncoding.DecodeString(c.AdminBootstrapKey)
+		if err != nil {
+			// Retry with raw (no padding) — some base64 tools omit padding
+			decoded, err = base64.RawStdEncoding.DecodeString(c.AdminBootstrapKey)
+			if err != nil {
+				return fmt.Errorf("ADMIN_BOOTSTRAP_KEY must be valid base64: %w", err)
+			}
 		}
-		// In dev: warning is logged at startup, not a validation error
+		if len(decoded) != 32 {
+			return fmt.Errorf("ADMIN_BOOTSTRAP_KEY must decode to 32 bytes (Ed25519 public key), got %d", len(decoded))
+		}
 	}
 
 	// Range checks
@@ -207,20 +209,6 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("CONSUMER_BYTE_RATE must be >= %d, got %d", MinByteRate, c.ConsumerByteRate)
 	}
 
-	// Admin auth rate limiting
-	if c.AdminAuthFailureThreshold < 1 {
-		return fmt.Errorf("ADMIN_AUTH_FAILURE_THRESHOLD must be >= 1, got %d", c.AdminAuthFailureThreshold)
-	}
-	if c.AdminAuthBlockDuration < time.Second {
-		return fmt.Errorf("ADMIN_AUTH_BLOCK_DURATION must be >= 1s, got %s", c.AdminAuthBlockDuration)
-	}
-	if c.AdminAuthCleanupInterval < time.Second {
-		return fmt.Errorf("ADMIN_AUTH_CLEANUP_INTERVAL must be >= 1s, got %s", c.AdminAuthCleanupInterval)
-	}
-	if c.AdminAuthCleanupMaxAge < time.Second {
-		return fmt.Errorf("ADMIN_AUTH_CLEANUP_MAX_AGE must be >= 1s, got %s", c.AdminAuthCleanupMaxAge)
-	}
-
 	// HTTP timeouts
 	if err := c.HTTPTimeoutConfig.Validate(); err != nil {
 		return err
@@ -270,8 +258,8 @@ func (c *ProvisioningConfig) Print() {
 	_, _ = fmt.Fprintf(w, "Environment:        %s\n", c.Environment)
 	_, _ = fmt.Fprintf(w, "Address:            %s\n", c.Addr)
 	_, _ = fmt.Fprintf(w, "gRPC Port:          %d\n", c.GRPCPort)
-	if c.AdminToken != "" {
-		_, _ = fmt.Fprintf(w, "Admin Token:        [REDACTED]\n")
+	if c.AdminBootstrapKey != "" {
+		_, _ = fmt.Fprintf(w, "Bootstrap Key:      [SET]\n")
 	}
 	_, _ = fmt.Fprintln(w, "\n=== Database ===")
 	_, _ = fmt.Fprintf(w, "Database URL:       %s\n", maskDatabaseURL(c.DatabaseURL))
@@ -329,9 +317,9 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Str("log_level", c.LogLevel).
 		Str("log_format", c.LogFormat)
 
-	// Admin token — redact, never log the value
-	if c.AdminToken != "" {
-		event = event.Str("admin_token", "[REDACTED]")
+	// Bootstrap key — log presence only
+	if c.AdminBootstrapKey != "" {
+		event = event.Bool("admin_bootstrap_key_set", true)
 	}
 
 	event.Msg("Provisioning service configuration loaded")

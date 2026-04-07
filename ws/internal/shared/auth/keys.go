@@ -68,14 +68,22 @@ func (k *KeyInfo) IsValid() bool {
 	return true
 }
 
-// KeyRegistry provides public keys for JWT validation.
-// Implementations should be thread-safe.
-type KeyRegistry interface {
+// KeyResolver provides public key lookup by key ID.
+// This is the minimal interface needed for JWT signature verification.
+// Implementations must be thread-safe.
+type KeyResolver interface {
 	// GetKey retrieves a key by its ID.
 	// Returns ErrKeyNotFound if the key doesn't exist.
 	// Returns ErrKeyRevoked if the key has been revoked.
 	// Returns ErrKeyExpired if the key has expired.
 	GetKey(ctx context.Context, keyID string) (*KeyInfo, error)
+}
+
+// KeyRegistry provides public keys for JWT validation.
+// Extends KeyResolver with tenant-scoped queries and lifecycle management.
+// Implementations should be thread-safe.
+type KeyRegistry interface {
+	KeyResolver
 
 	// GetKeysByTenant retrieves all active keys for a tenant.
 	GetKeysByTenant(ctx context.Context, tenantID string) ([]*KeyInfo, error)

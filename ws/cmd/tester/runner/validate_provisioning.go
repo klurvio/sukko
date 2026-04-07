@@ -17,7 +17,6 @@ func validateProvisioning(ctx context.Context, run *TestRun, logger zerolog.Logg
 	setup, err := auth.Setup(ctx, auth.SetupConfig{
 		TestID:          run.ID + "-prov",
 		ProvisioningURL: run.Config.ProvisioningURL,
-		AdminToken:      run.Config.Token,
 		Logger:          logger,
 	})
 	if err != nil {

@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -61,8 +60,7 @@ type editionResponse struct {
 func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
 	provURL := run.Config.ProvisioningURL
 	gwURL := run.Config.GatewayURL
-	token := run.Config.Token
-	provClient := auth.NewProvisioningClient(provURL, token, logger)
+	provClient := run.authResult.ProvClient // authenticated via admin keypair JWT
 
 	// Fetch edition info from provisioning (tenants, limits)
 	provInfo, err := fetchEditionFrom(ctx, provURL)
@@ -114,7 +112,7 @@ func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Log
 	checks = append(checks, tenantChecks...)
 
 	// Routing rules limit boundary (uses shared tenant)
-	rulesChecks := checkRoutingRulesLimit(ctx, provClient, provURL, token, sharedTenantID, info, logger)
+	rulesChecks := checkRoutingRulesLimit(ctx, provClient, sharedTenantID, info, logger)
 	checks = append(checks, rulesChecks...)
 
 	// Connection limit boundary
@@ -207,7 +205,7 @@ func checkTenantLimit(ctx context.Context, provClient *auth.ProvisioningClient, 
 	return checks
 }
 
-func checkRoutingRulesLimit(ctx context.Context, provClient *auth.ProvisioningClient, provURL, token, tenantID string, info *editionInfo, logger zerolog.Logger) []metrics.CheckResult {
+func checkRoutingRulesLimit(ctx context.Context, provClient *auth.ProvisioningClient, tenantID string, info *editionInfo, logger zerolog.Logger) []metrics.CheckResult {
 	maxRules := info.Limits.MaxRoutingRulesPerTenant
 	if maxRules == 0 {
 		return []metrics.CheckResult{{Name: "routing rules limit", Status: "pass", Latency: "unlimited"}}
@@ -223,8 +221,8 @@ func checkRoutingRulesLimit(ctx context.Context, provClient *auth.ProvisioningCl
 
 	var checks []metrics.CheckResult
 
-	// Set rules at limit
-	statusCode, err := setTestRoutingRules(ctx, provURL, token, tenantID, maxRules)
+	// Set rules at limit — use provClient which has admin JWT auth
+	statusCode, err := setTestRoutingRulesViaClient(ctx, provClient, tenantID, maxRules)
 	if err != nil {
 		return []metrics.CheckResult{{
 			Name: "routing rules within limit", Status: "fail",
@@ -244,7 +242,7 @@ func checkRoutingRulesLimit(ctx context.Context, provClient *auth.ProvisioningCl
 	}
 
 	// Attempt limit+1 — expect rejection
-	statusCode, err = setTestRoutingRules(ctx, provURL, token, tenantID, maxRules+1)
+	statusCode, err = setTestRoutingRulesViaClient(ctx, provClient, tenantID, maxRules+1)
 	rejected := statusCode == http.StatusForbidden || (err != nil && strings.Contains(err.Error(), "403"))
 	if rejected {
 		checks = append(checks, metrics.CheckResult{
@@ -397,40 +395,20 @@ func fetchEditionFrom(ctx context.Context, baseURL string) (*editionResponse, er
 	return &result, nil
 }
 
-func setTestRoutingRules(ctx context.Context, provURL, token, tenantID string, count int) (int, error) {
-	rules := make([]map[string]string, 0, count)
+// setTestRoutingRulesViaClient sets routing rules using the ProvisioningClient for auth,
+// returning the HTTP status code for boundary limit testing (needs 200 vs 403 distinction).
+func setTestRoutingRulesViaClient(ctx context.Context, provClient *auth.ProvisioningClient, tenantID string, count int) (int, error) {
+	rules := make([]map[string]any, 0, count)
 	for i := range count {
-		rules = append(rules, map[string]string{
+		rules = append(rules, map[string]any{
 			"pattern":      fmt.Sprintf("test.%d.*", i),
 			"topic_suffix": fmt.Sprintf("test%d", i),
 		})
 	}
 
-	body, err := json.Marshal(map[string]any{"rules": rules})
+	status, err := provClient.SetRoutingRulesRaw(ctx, tenantID, rules)
 	if err != nil {
-		return 0, fmt.Errorf("marshal rules: %w", err)
+		return status, fmt.Errorf("set test routing rules: %w", err)
 	}
-
-	client := &http.Client{Timeout: editionHTTPTimeout}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, provURL+"/api/v1/tenants/"+tenantID+"/routing-rules", bytes.NewReader(body))
-	if err != nil {
-		return 0, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("set routing rules: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096)) // best-effort error body
-		return resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	return resp.StatusCode, nil
+	return status, nil
 }

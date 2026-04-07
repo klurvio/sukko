@@ -44,12 +44,12 @@ func (h *handlers) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // TestContext holds deployment context passed from the CLI.
 // All-or-nothing: when present, core fields are required.
 // SECURITY: This struct is decode-only (request deserialization). It is NEVER serialized
-// in responses — the handler converts to runner.TestContext (which tags AdminToken as json:"-")
+// in responses — the handler converts to runner.TestContext (which tags AdminKeyPath as json:"-")
 // before any response is written. Do not use this struct in response serialization paths.
 type TestContext struct {
 	GatewayURL         string `json:"gateway_url"`
 	ProvisioningURL    string `json:"provisioning_url"`
-	AdminToken         string `json:"admin_token"`
+	AdminKeyPath       string `json:"admin_key_path,omitempty"` // optional — ephemeral keypair if empty
 	Environment        string `json:"environment"`
 	MessageBackendURLs string `json:"message_backend_urls,omitempty"`
 }
@@ -92,8 +92,8 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 	// Validate context block (all-or-nothing)
 	if req.Context != nil {
 		if req.Context.GatewayURL == "" || req.Context.ProvisioningURL == "" ||
-			req.Context.AdminToken == "" || req.Context.Environment == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "INCOMPLETE_CONTEXT", "all core context fields required: gateway_url, provisioning_url, admin_token, environment")
+			req.Context.Environment == "" {
+			httputil.WriteError(w, http.StatusBadRequest, "INCOMPLETE_CONTEXT", "all core context fields required: gateway_url, provisioning_url, environment")
 			return
 		}
 		if (req.MessageBackend == "kafka" || req.MessageBackend == "nats") && req.Context.MessageBackendURLs == "" {
@@ -123,7 +123,7 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		cfg.Context = &runner.TestContext{
 			GatewayURL:         req.Context.GatewayURL,
 			ProvisioningURL:    req.Context.ProvisioningURL,
-			AdminToken:         req.Context.AdminToken,
+			AdminKeyPath:       req.Context.AdminKeyPath,
 			Environment:        req.Context.Environment,
 			MessageBackendURLs: req.Context.MessageBackendURLs,
 		}

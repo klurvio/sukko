@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
+	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
@@ -61,6 +62,73 @@ func LoggingMiddleware(logger zerolog.Logger) func(http.Handler) http.Handler {
 			}()
 
 			next.ServeHTTP(ww, r)
+		})
+	}
+}
+
+// AdminJWTMiddleware validates admin JWTs (iss:"sukko-admin").
+// If the token has the admin issuer, it validates via AdminValidator and sets context.
+// If not an admin JWT (different or missing issuer), it falls through to the next middleware.
+func AdminJWTMiddleware(validator *provauth.AdminValidator, logger zerolog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip if already authenticated
+			if auth.GetClaims(r.Context()) != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Extract Bearer token
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			scheme, tokenString, found := strings.Cut(authHeader, " ")
+			if !found || !strings.EqualFold(scheme, "Bearer") {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Quick check: is this an admin JWT? (peek at issuer without full validation)
+			iss, _ := auth.ExtractIssuer(tokenString)
+			if iss != "sukko-admin" {
+				// Not an admin JWT — fall through to tenant JWT middleware
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Validate admin JWT
+			claims, err := validator.ValidateToken(r.Context(), tokenString)
+			if err != nil {
+				kid, _ := auth.ExtractKeyID(tokenString)
+				clientIP := r.Header.Get("X-Real-IP")
+				if clientIP == "" {
+					clientIP, _, _ = net.SplitHostPort(r.RemoteAddr)
+				}
+				logger.Warn().
+					Err(err).
+					Str("kid", kid).
+					Str("client_ip", clientIP).
+					Msg("admin JWT authentication failed")
+
+				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid admin credentials")
+				return
+			}
+
+			// Set admin identity in context
+			sub, _ := claims.GetSubject()
+			kid, _ := auth.ExtractKeyID(tokenString)
+			ctx := auth.WithClaims(r.Context(), claims)
+			ctx = auth.WithActor(ctx, kid, "admin", r.RemoteAddr)
+
+			logger.Debug().
+				Str("admin_key_id", kid).
+				Str("admin_name", sub).
+				Msg("admin JWT authenticated")
+
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

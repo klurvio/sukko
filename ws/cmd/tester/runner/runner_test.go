@@ -11,7 +11,6 @@ func newTestRunner() *Runner {
 	return New(Config{
 		GatewayURL:      "ws://localhost:3000",
 		ProvisioningURL: "http://localhost:8080",
-		Token:           "test-token",
 		MessageBackend:  "direct",
 	}, zerolog.Nop())
 }
@@ -99,9 +98,6 @@ func TestRunner_Start_DefaultsFilled(t *testing.T) {
 	}
 	if run.Config.ProvisioningURL != "http://localhost:8080" {
 		t.Errorf("ProvisioningURL = %q, want %q", run.Config.ProvisioningURL, "http://localhost:8080")
-	}
-	if run.Config.Token != "test-token" {
-		t.Errorf("Token = %q, want %q", run.Config.Token, "test-token")
 	}
 	if run.Config.MessageBackend != "direct" {
 		t.Errorf("MessageBackend = %q, want %q", run.Config.MessageBackend, "direct")

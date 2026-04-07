@@ -11,6 +11,31 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// testProvClient creates a ProvisioningClient with an ephemeral keypair for testing.
+func testProvClient(t *testing.T, baseURL string) *ProvisioningClient {
+	t.Helper()
+	provider, _, err := NewEphemeralAuthProvider()
+	if err != nil {
+		t.Fatalf("NewEphemeralAuthProvider: %v", err)
+	}
+	return NewProvisioningClient(baseURL, provider, zerolog.Nop())
+}
+
+// requireAdminJWT validates that the request has a well-formed admin JWT.
+func requireAdminJWT(t *testing.T, r *http.Request) {
+	t.Helper()
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		t.Errorf("auth header = %q, want Bearer <jwt>", auth)
+		return
+	}
+	token := strings.TrimPrefix(auth, "Bearer ")
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		t.Errorf("JWT should have 3 parts, got %d", len(parts))
+	}
+}
+
 func TestProvisioningClient_CreateTenant(t *testing.T) {
 	t.Parallel()
 
@@ -21,9 +46,7 @@ func TestProvisioningClient_CreateTenant(t *testing.T) {
 		if r.URL.Path != "/api/v1/tenants" {
 			t.Errorf("path = %q, want /api/v1/tenants", r.URL.Path)
 		}
-		if auth := r.Header.Get("Authorization"); auth != "Bearer test-admin-token" {
-			t.Errorf("auth = %q, want Bearer test-admin-token", auth)
-		}
+		requireAdminJWT(t, r)
 		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
 			t.Errorf("content-type = %q, want application/json", ct)
 		}
@@ -31,7 +54,7 @@ func TestProvisioningClient_CreateTenant(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	client := testProvClient(t, srv.URL)
 	err := client.CreateTenant(context.Background(), "test-t1", "Test Tenant")
 	if err != nil {
 		t.Fatalf("CreateTenant: %v", err)
@@ -55,7 +78,7 @@ func TestProvisioningClient_DeleteTenant(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	client := testProvClient(t, srv.URL)
 	err := client.DeleteTenant(context.Background(), "test-t1")
 	if err != nil {
 		t.Fatalf("DeleteTenant: %v", err)
@@ -76,7 +99,7 @@ func TestProvisioningClient_RegisterKey(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	client := testProvClient(t, srv.URL)
 	expires := time.Now().Add(24 * time.Hour)
 	err := client.RegisterKey(context.Background(), "test-t1", RegisterKeyRequest{
 		KeyID:     "tester-abcd1234",
@@ -103,7 +126,7 @@ func TestProvisioningClient_RevokeKey(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	client := testProvClient(t, srv.URL)
 	err := client.RevokeKey(context.Background(), "test-t1", "tester-abcd1234")
 	if err != nil {
 		t.Fatalf("RevokeKey: %v", err)
@@ -119,7 +142,7 @@ func TestProvisioningClient_HTTPError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewProvisioningClient(srv.URL, "token", zerolog.Nop())
+	client := testProvClient(t, srv.URL)
 
 	err := client.CreateTenant(context.Background(), "t1", "T1")
 	if err == nil {
@@ -143,7 +166,7 @@ func TestProvisioningClient_GetTenant(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewProvisioningClient(srv.URL, "admin-token", zerolog.Nop())
+	client := testProvClient(t, srv.URL)
 
 	// With correct JWT
 	status, err := client.GetTenant(context.Background(), "t1", "my-jwt")
@@ -177,14 +200,12 @@ func TestProvisioningClient_SetChannelRules(t *testing.T) {
 		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
 			t.Errorf("content-type = %q, want application/json", ct)
 		}
-		if auth := r.Header.Get("Authorization"); auth != "Bearer test-admin-token" {
-			t.Errorf("auth = %q, want Bearer test-admin-token", auth)
-		}
+		requireAdminJWT(t, r)
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	client := testProvClient(t, srv.URL)
 	err := client.SetChannelRules(context.Background(), "test-t1", map[string]any{
 		"public": []string{"general.*"},
 	})
@@ -207,7 +228,7 @@ func TestProvisioningClient_SetRoutingRules(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	client := testProvClient(t, srv.URL)
 	err := client.SetRoutingRules(context.Background(), "test-t1", []map[string]any{
 		{"pattern": "*.*", "topic_suffix": "test"},
 	})
@@ -230,7 +251,7 @@ func TestProvisioningClient_DeleteRoutingRules(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	client := testProvClient(t, srv.URL)
 	err := client.DeleteRoutingRules(context.Background(), "test-t1")
 	if err != nil {
 		t.Fatalf("DeleteRoutingRules: %v", err)
@@ -245,7 +266,7 @@ func TestProvisioningClient_DeleteRoutingRules_NotFound(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewProvisioningClient(srv.URL, "test-admin-token", zerolog.Nop())
+	client := testProvClient(t, srv.URL)
 	err := client.DeleteRoutingRules(context.Background(), "test-t1")
 	if err != nil {
 		t.Fatalf("DeleteRoutingRules with 404 should not error, got: %v", err)

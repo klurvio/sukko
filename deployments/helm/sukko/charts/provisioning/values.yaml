@@ -18,10 +18,11 @@ image:
 # Free-form string; Sukko convention: local, dev, stg, prod
 # environment: local
 
-# Admin token for API authentication (optional).
-# When set, creates K8s secret and enables bearer token auth.
-# Must be >= 16 characters in non-dev environments.
-adminToken: ""
+# Admin bootstrap key for first admin registration (optional).
+# Base64-encoded Ed25519 public key (44 chars). Auto-registers on first startup
+# when no admin keys exist in the database. Ignored after first registration.
+# Generate with: sukko auth keygen && base64 < ~/.sukko/contexts/<ctx>/admin.pub
+adminBootstrapKey: ""
 
 # PostgreSQL connection
 database:
