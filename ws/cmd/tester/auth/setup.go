@@ -24,8 +24,9 @@ type SetupConfig struct {
 	// ProvisioningURL is the base URL of the provisioning API.
 	ProvisioningURL string
 
-	// AdminToken is the admin token for provisioning API management operations.
-	AdminToken string
+	// AdminAuthProvider signs admin requests with a JWT keypair.
+	// If nil, an ephemeral KeypairAuthProvider is generated for this test run.
+	AdminAuthProvider AuthProvider
 
 	// JWTLifetime is the JWT expiration duration.
 	JWTLifetime time.Duration
@@ -70,7 +71,18 @@ func Setup(ctx context.Context, cfg SetupConfig) (*SetupResult, error) {
 
 	logger := cfg.Logger.With().Str("test_id", cfg.TestID).Logger()
 
-	provClient := NewProvisioningClient(cfg.ProvisioningURL, cfg.AdminToken, logger)
+	// Use provided auth provider or generate ephemeral keypair
+	authProvider := cfg.AdminAuthProvider
+	if authProvider == nil {
+		ephemeral, _, err := NewEphemeralAuthProvider()
+		if err != nil {
+			return nil, fmt.Errorf("auth setup: generate ephemeral keypair: %w", err)
+		}
+		authProvider = ephemeral
+		logger.Info().Msg("generated ephemeral admin keypair for test run")
+	}
+
+	provClient := NewProvisioningClient(cfg.ProvisioningURL, authProvider, logger)
 
 	// Step 1: Resolve tenant
 	tenantID := cfg.TenantID

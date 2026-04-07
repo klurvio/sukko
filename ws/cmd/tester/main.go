@@ -50,7 +50,6 @@ func run() error {
 	r := runner.New(runner.Config{
 		GatewayURL:        cfg.GatewayURL,
 		ProvisioningURL:   cfg.ProvisioningURL,
-		Token:             cfg.AuthToken,
 		MessageBackend:    cfg.MessageBackend,
 		KafkaBrokers:      cfg.KafkaBrokers,
 		NATSJetStreamURLs: cfg.NATSJetStreamURLs,

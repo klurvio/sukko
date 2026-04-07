@@ -27,21 +27,24 @@ type RegisterKeyRequest struct {
 }
 
 // ProvisioningClient is an HTTP client for the provisioning API.
-// It handles tenant and key management operations using the admin token.
+// Admin auth is handled by the AuthProvider (signs each request with an admin JWT).
+// Tenant auth (GetTenant) uses a per-call JWT parameter — not the AuthProvider.
 type ProvisioningClient struct {
-	baseURL    string
-	adminToken string
-	httpClient *http.Client
-	logger     zerolog.Logger
+	baseURL      string
+	authProvider AuthProvider
+	httpClient   *http.Client
+	logger       zerolog.Logger
 }
 
 // NewProvisioningClient creates a new provisioning API client.
-func NewProvisioningClient(baseURL, adminToken string, logger zerolog.Logger) *ProvisioningClient {
+// The authProvider signs every admin request with a JWT. Pass nil to skip auth
+// (only valid for unauthenticated endpoints like /edition).
+func NewProvisioningClient(baseURL string, authProvider AuthProvider, logger zerolog.Logger) *ProvisioningClient {
 	return &ProvisioningClient{
-		baseURL:    baseURL,
-		adminToken: adminToken,
-		httpClient: &http.Client{Timeout: provisioningTimeout},
-		logger:     logger.With().Str("component", "provisioning_client").Logger(),
+		baseURL:      baseURL,
+		authProvider: authProvider,
+		httpClient:   &http.Client{Timeout: provisioningTimeout},
+		logger:       logger.With().Str("component", "provisioning_client").Logger(),
 	}
 }
 
@@ -219,6 +222,33 @@ func (c *ProvisioningClient) SetRoutingRules(ctx context.Context, tenantID strin
 
 	c.logger.Info().Str("tenant_id", tenantID).Msg("routing rules set")
 	return nil
+}
+
+// SetRoutingRulesRaw sets routing rules and returns the HTTP status code.
+// Used by edition limit boundary testing which needs to distinguish 200 vs 403.
+func (c *ProvisioningClient) SetRoutingRulesRaw(ctx context.Context, tenantID string, rules []map[string]any) (int, error) {
+	body, err := json.Marshal(map[string]any{"rules": rules})
+	if err != nil {
+		return 0, fmt.Errorf("set routing rules: marshal: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+"/api/v1/tenants/"+tenantID+"/routing-rules", bytes.NewReader(body))
+	if err != nil {
+		return 0, fmt.Errorf("set routing rules: build request: %w", err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("set routing rules: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		return resp.StatusCode, c.readError("set routing rules", resp)
+	}
+
+	return resp.StatusCode, nil
 }
 
 // DeleteRoutingRules deletes routing rules for a tenant via DELETE /api/v1/tenants/{id}/routing-rules.
@@ -442,8 +472,8 @@ func (c *ProvisioningClient) doPatchJSON(ctx context.Context, path string, data 
 
 func (c *ProvisioningClient) setHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
-	if c.adminToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.adminToken)
+	if c.authProvider != nil {
+		c.authProvider.SignRequest(req)
 	}
 }
 

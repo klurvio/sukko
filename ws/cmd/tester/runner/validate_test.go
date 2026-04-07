@@ -29,7 +29,10 @@ func testAuthResult(t *testing.T) *auth.SetupResult {
 		TenantID:   "test-tenant",
 		Minter:     minter,
 		TokenFunc:  minter.TokenFunc(),
-		ProvClient: auth.NewProvisioningClient("http://invalid:9999", "test-token", zerolog.Nop()),
+		ProvClient: func() *auth.ProvisioningClient {
+			p, _, _ := auth.NewEphemeralAuthProvider()
+			return auth.NewProvisioningClient("http://invalid:9999", p, zerolog.Nop())
+		}(),
 		Cleanup:    func(_ context.Context) {},
 	}
 }

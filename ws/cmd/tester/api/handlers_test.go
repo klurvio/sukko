@@ -15,7 +15,6 @@ func newTestRouter() (http.Handler, *runner.Runner) {
 	r := runner.New(runner.Config{
 		GatewayURL:      "ws://localhost:3000",
 		ProvisioningURL: "http://localhost:8080",
-		Token:           "test-token",
 		MessageBackend:  "direct",
 	}, zerolog.Nop())
 	return NewRouter(r, "test-auth", zerolog.Nop()), r
@@ -178,7 +177,6 @@ func TestAuthMiddleware_EmptyToken(t *testing.T) {
 	// Router with empty auth token — all requests should pass through
 	r := runner.New(runner.Config{
 		GatewayURL:     "ws://localhost:3000",
-		Token:          "test-token",
 		MessageBackend: "direct",
 	}, zerolog.Nop())
 	handler := NewRouter(r, "", zerolog.Nop()) // no auth token

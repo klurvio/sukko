@@ -14,7 +14,6 @@ func validateTenantIsolation(ctx context.Context, run *TestRun, logger zerolog.L
 	setupA, err := auth.Setup(ctx, auth.SetupConfig{
 		TestID:          run.ID + "-isolation-a",
 		ProvisioningURL: run.Config.ProvisioningURL,
-		AdminToken:      run.Config.Token,
 		Logger:          logger,
 	})
 	if err != nil {
@@ -25,7 +24,6 @@ func validateTenantIsolation(ctx context.Context, run *TestRun, logger zerolog.L
 	setupB, err := auth.Setup(ctx, auth.SetupConfig{
 		TestID:          run.ID + "-isolation-b",
 		ProvisioningURL: run.Config.ProvisioningURL,
-		AdminToken:      run.Config.Token,
 		Logger:          logger,
 	})
 	if err != nil {
