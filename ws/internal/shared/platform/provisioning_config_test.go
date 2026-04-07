@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -39,10 +40,6 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		LifecycleCheckInterval:     time.Hour,
 		LifecycleManagerEnabled:    true,
 		APIRateLimitPerMinute:      60,
-		AdminAuthFailureThreshold:  10,
-		AdminAuthBlockDuration:     60 * time.Second,
-		AdminAuthCleanupInterval:   5 * time.Minute,
-		AdminAuthCleanupMaxAge:     2 * time.Minute,
 		KeyRegistryRefreshInterval: time.Minute,
 		KeyRegistryQueryTimeout:    5 * time.Second,
 		ShutdownTimeout:            30 * time.Second,
@@ -88,34 +85,43 @@ func TestProvisioningConfig_Validate_DatabaseURL(t *testing.T) {
 	}
 }
 
-func TestProvisioningConfig_Validate_AdminToken(t *testing.T) {
+func TestProvisioningConfig_Validate_AdminBootstrapKey(t *testing.T) {
 	t.Parallel()
+
+	// Generate a valid 32-byte Ed25519 public key for testing
+	validKey := make([]byte, 32)
+	for i := range validKey {
+		validKey[i] = byte(i)
+	}
+	validBase64 := base64.StdEncoding.EncodeToString(validKey)
+
 	tests := []struct {
-		name        string
-		token       string
-		environment string
-		shouldError bool
+		name           string
+		bootstrapKey   string
+		shouldError    bool
+		errorSubstring string
 	}{
-		{"empty token", "", "prod", false},
-		{"long token prod", "this-is-a-long-admin-token-123", "prod", false},
-		{"short token prod", "short", "prod", true},
-		{"short token dev", "short", "dev", false},
-		{"short token local", "short", "local", false},
-		{"short token development", "short", "development", false},
-		{"exactly 16 chars prod", "exactly16chars!!", "prod", false},
+		{"empty (no bootstrap)", "", false, ""},
+		{"valid base64 padded", validBase64, false, ""},
+		{"valid base64 unpadded", base64.RawStdEncoding.EncodeToString(validKey), false, ""},
+		{"invalid base64", "not-valid-base64!!!", true, "valid base64"},
+		{"wrong key size (16 bytes)", base64.StdEncoding.EncodeToString(make([]byte, 16)), true, "32 bytes"},
+		{"wrong key size (64 bytes)", base64.StdEncoding.EncodeToString(make([]byte, 64)), true, "32 bytes"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidProvisioningConfig()
-			cfg.AdminToken = tt.token
-			cfg.Environment = tt.environment
+			cfg.AdminBootstrapKey = tt.bootstrapKey
 			err := cfg.Validate()
-			if tt.shouldError && err == nil {
-				t.Error("Should error")
-			}
-			if !tt.shouldError && err != nil {
+			if tt.shouldError {
+				if err == nil {
+					t.Error("Should error")
+				} else if tt.errorSubstring != "" && !strings.Contains(err.Error(), tt.errorSubstring) {
+					t.Errorf("Error should contain %q, got: %v", tt.errorSubstring, err)
+				}
+			} else if err != nil {
 				t.Errorf("Should not error: %v", err)
 			}
 		})
@@ -294,53 +300,6 @@ func TestProvisioningConfig_Validate_Quotas(t *testing.T) {
 	}
 }
 
-func TestProvisioningConfig_Validate_AdminAuthSettings(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name            string
-		threshold       int
-		blockDuration   time.Duration
-		cleanupInterval time.Duration
-		cleanupMaxAge   time.Duration
-		shouldError     bool
-		errorSubstring  string
-	}{
-		{"valid defaults", 10, 60 * time.Second, 5 * time.Minute, 2 * time.Minute, false, ""},
-		{"threshold exactly 1", 1, 60 * time.Second, 5 * time.Minute, 2 * time.Minute, false, ""},
-		{"threshold zero", 0, 60 * time.Second, 5 * time.Minute, 2 * time.Minute, true, "ADMIN_AUTH_FAILURE_THRESHOLD"},
-		{"threshold negative", -1, 60 * time.Second, 5 * time.Minute, 2 * time.Minute, true, "ADMIN_AUTH_FAILURE_THRESHOLD"},
-		{"block duration exactly 1s", 10, time.Second, 5 * time.Minute, 2 * time.Minute, false, ""},
-		{"block duration below 1s", 10, 500 * time.Millisecond, 5 * time.Minute, 2 * time.Minute, true, "ADMIN_AUTH_BLOCK_DURATION"},
-		{"block duration zero", 10, 0, 5 * time.Minute, 2 * time.Minute, true, "ADMIN_AUTH_BLOCK_DURATION"},
-		{"cleanup interval exactly 1s", 10, 60 * time.Second, time.Second, 2 * time.Minute, false, ""},
-		{"cleanup interval below 1s", 10, 60 * time.Second, 500 * time.Millisecond, 2 * time.Minute, true, "ADMIN_AUTH_CLEANUP_INTERVAL"},
-		{"cleanup max age exactly 1s", 10, 60 * time.Second, 5 * time.Minute, time.Second, false, ""},
-		{"cleanup max age below 1s", 10, 60 * time.Second, 5 * time.Minute, 500 * time.Millisecond, true, "ADMIN_AUTH_CLEANUP_MAX_AGE"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := newValidProvisioningConfig()
-			cfg.AdminAuthFailureThreshold = tt.threshold
-			cfg.AdminAuthBlockDuration = tt.blockDuration
-			cfg.AdminAuthCleanupInterval = tt.cleanupInterval
-			cfg.AdminAuthCleanupMaxAge = tt.cleanupMaxAge
-			err := cfg.Validate()
-			if tt.shouldError {
-				if err == nil {
-					t.Error("Should error")
-				} else if tt.errorSubstring != "" && !strings.Contains(err.Error(), tt.errorSubstring) {
-					t.Errorf("Error should contain %q, got: %v", tt.errorSubstring, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("Should not error: %v", err)
-				}
-			}
-		})
-	}
-}
 
 func TestProvisioningConfig_Validate_HTTPTimeouts(t *testing.T) {
 	t.Parallel()
