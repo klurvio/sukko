@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"fmt"
 	"testing"
 	"time"
 
@@ -186,5 +187,33 @@ func TestAdminValidator_MissingSub(t *testing.T) {
 	_, err := v.ValidateToken(context.Background(), token)
 	if err == nil {
 		t.Fatal("expected error for missing sub claim")
+	}
+}
+
+func TestClassifyError(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		errMsg   string
+		expected string
+	}{
+		{"wrong issuer", `invalid token: issuer "wrong" not allowed`, resultWrongIssuer},
+		{"key revoked", "key revoked: ak_xxx", resultRevoked},
+		{"key not found", "key not found: ak_xxx", resultUnknownKey},
+		{"expired token", "token expired", resultExpired},
+		{"max lifetime", "token lifetime 48h exceeds maximum 24h", resultMaxLifetime},
+		{"missing claim", "missing iss claim", resultMissingClaims},
+		{"invalid signature", "algorithm mismatch: token=RS256, key=EdDSA", resultInvalidSignature},
+		{"unknown error", "something unexpected", resultInvalid},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := classifyError(fmt.Errorf("%s", tt.errMsg))
+			if got != tt.expected {
+				t.Errorf("classifyError(%q) = %q, want %q", tt.errMsg, got, tt.expected)
+			}
+		})
 	}
 }

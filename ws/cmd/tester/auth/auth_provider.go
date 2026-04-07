@@ -69,9 +69,7 @@ func (p *KeypairAuthProvider) SignRequest(req *http.Request) {
 
 	signed, err := token.SignedString(p.privateKey)
 	if err != nil {
-		// Signing with a valid Ed25519 key cannot fail in practice.
-		// If it does, the request will be unauthenticated — provisioning rejects it.
-		return
+		return // Ed25519 signing cannot fail with a valid key; unauthenticated request will be rejected by server
 	}
 
 	req.Header.Set("Authorization", "Bearer "+signed)
