@@ -217,7 +217,7 @@ func (p *ShardProxy) copyMessages(src, dst net.Conn, direction string, maskOutpu
 		}
 
 		// Log control frames for ping/pong tracing
-		switch header.OpCode { //nolint:exhaustive // only log ping/pong control frames; text/binary/close/continuation handled above
+		switch header.OpCode {
 		case ws.OpPing:
 			p.logger.Debug().
 				Str("direction", direction).
