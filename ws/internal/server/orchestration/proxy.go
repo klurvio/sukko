@@ -226,6 +226,8 @@ func (p *ShardProxy) copyMessages(src, dst net.Conn, direction string, maskOutpu
 			p.logger.Debug().
 				Str("direction", direction).
 				Msg("Forwarded pong frame")
+		default:
+			// text, binary, close, continuation — no logging, forwarded below
 		}
 
 		// Forward all other frames (text, binary, ping, pong) as-is
