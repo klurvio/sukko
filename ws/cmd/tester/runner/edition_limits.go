@@ -406,5 +406,9 @@ func setTestRoutingRulesViaClient(ctx context.Context, provClient *auth.Provisio
 		})
 	}
 
-	return provClient.SetRoutingRulesRaw(ctx, tenantID, rules)
+	status, err := provClient.SetRoutingRulesRaw(ctx, tenantID, rules)
+	if err != nil {
+		return status, fmt.Errorf("set test routing rules: %w", err)
+	}
+	return status, nil
 }

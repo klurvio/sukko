@@ -148,7 +148,7 @@ func ValidateJWT(ctx context.Context, tokenString string, opts ValidateOpts) (*C
 		if iat == nil || exp == nil {
 			return nil, fmt.Errorf("%w: max lifetime enforcement requires iat and exp claims", ErrInvalidToken)
 		}
-		lifetime := exp.Time.Sub(iat.Time)
+		lifetime := exp.Sub(iat.Time)
 		if lifetime > opts.MaxLifetime {
 			return nil, fmt.Errorf("%w: token lifetime %s exceeds maximum %s", ErrInvalidToken, lifetime, opts.MaxLifetime)
 		}
@@ -186,4 +186,3 @@ func ValidateJWT(ctx context.Context, tokenString string, opts ValidateOpts) (*C
 
 	return claims, nil
 }
-

@@ -19,9 +19,6 @@ const (
 	authFailureReasonInvalidToken = "invalid_token"
 )
 
-// Admin auth result values (package-local).
-const adminAuthResultFallthrough = "fallthrough"
-
 // Authorization denial reason values (package-local).
 const (
 	authzDenialInsufficientRole = "insufficient_role"

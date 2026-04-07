@@ -209,7 +209,6 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("CONSUMER_BYTE_RATE must be >= %d, got %d", MinByteRate, c.ConsumerByteRate)
 	}
 
-
 	// HTTP timeouts
 	if err := c.HTTPTimeoutConfig.Validate(); err != nil {
 		return err

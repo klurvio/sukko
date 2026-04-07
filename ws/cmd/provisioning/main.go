@@ -443,4 +443,3 @@ func marshalPublicKeyPEM(pubKeyBytes []byte) (string, error) {
 	pemBlock := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
 	return string(pemBlock), nil
 }
-

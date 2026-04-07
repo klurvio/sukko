@@ -11,10 +11,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// AuthProvider signs HTTP requests with admin credentials.
+// Provider signs HTTP requests with admin credentials.
 // Every code path — CLI, tester, unit tests — uses KeypairAuthProvider.
 // No noop implementation: every request exercises real JWT signing.
-type AuthProvider interface {
+type Provider interface {
 	// SignRequest adds an Authorization header with a signed admin JWT.
 	SignRequest(req *http.Request)
 }
@@ -82,5 +82,5 @@ func (p *KeypairAuthProvider) KeyID() string {
 
 // PublicKey returns the Ed25519 public key (derived from the private key).
 func (p *KeypairAuthProvider) PublicKey() ed25519.PublicKey {
-	return p.privateKey.Public().(ed25519.PublicKey)
+	return p.privateKey.Public().(ed25519.PublicKey) //nolint:errcheck // ed25519.PrivateKey.Public() always returns ed25519.PublicKey
 }

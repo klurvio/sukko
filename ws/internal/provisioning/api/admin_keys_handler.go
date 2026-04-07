@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -216,18 +217,18 @@ func (h *AdminKeysHandler) refreshCache(ctx context.Context) {
 // of the expected algorithm. Constitution II: fail fast at registration.
 func validatePublicKeyMaterial(algorithm, pemEncoded string) error {
 	if pemEncoded == "" {
-		return fmt.Errorf("public_key is required")
+		return errors.New("public_key is required")
 	}
 
 	pubKey, err := provauth.ParsePublicKeyPEM(pemEncoded)
 	if err != nil {
-		return err
+		return fmt.Errorf("validate key material: %w", err)
 	}
 
 	switch algorithm {
 	case "Ed25519":
 		if _, ok := pubKey.(ed25519.PublicKey); !ok {
-			return fmt.Errorf("key material is not a valid Ed25519 public key")
+			return errors.New("key material is not a valid Ed25519 public key")
 		}
 	case "RS256":
 		// x509.ParsePKIXPublicKey already validates RSA key structure
@@ -237,4 +238,3 @@ func validatePublicKeyMaterial(algorithm, pemEncoded string) error {
 
 	return nil
 }
-

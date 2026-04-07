@@ -27,11 +27,11 @@ type RegisterKeyRequest struct {
 }
 
 // ProvisioningClient is an HTTP client for the provisioning API.
-// Admin auth is handled by the AuthProvider (signs each request with an admin JWT).
-// Tenant auth (GetTenant) uses a per-call JWT parameter — not the AuthProvider.
+// Admin auth is handled by the Provider (signs each request with an admin JWT).
+// Tenant auth (GetTenant) uses a per-call JWT parameter — not the Provider.
 type ProvisioningClient struct {
 	baseURL      string
-	authProvider AuthProvider
+	authProvider Provider
 	httpClient   *http.Client
 	logger       zerolog.Logger
 }
@@ -39,7 +39,7 @@ type ProvisioningClient struct {
 // NewProvisioningClient creates a new provisioning API client.
 // The authProvider signs every admin request with a JWT. Pass nil to skip auth
 // (only valid for unauthenticated endpoints like /edition).
-func NewProvisioningClient(baseURL string, authProvider AuthProvider, logger zerolog.Logger) *ProvisioningClient {
+func NewProvisioningClient(baseURL string, authProvider Provider, logger zerolog.Logger) *ProvisioningClient {
 	return &ProvisioningClient{
 		baseURL:      baseURL,
 		authProvider: authProvider,

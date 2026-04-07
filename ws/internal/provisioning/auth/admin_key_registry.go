@@ -8,6 +8,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -92,9 +93,13 @@ func AdminKeyToKeyInfo(keyID, name, algorithm string, publicKey crypto.PublicKey
 func ParsePublicKeyPEM(pemEncoded string) (any, error) {
 	block, _ := pem.Decode([]byte(pemEncoded))
 	if block == nil {
-		return nil, fmt.Errorf("invalid PEM encoding")
+		return nil, errors.New("invalid PEM encoding")
 	}
-	return x509.ParsePKIXPublicKey(block.Bytes)
+	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse PKIX public key: %w", err)
+	}
+	return key, nil
 }
 
 // Verify AdminKeyRegistry implements KeyResolver at compile time.

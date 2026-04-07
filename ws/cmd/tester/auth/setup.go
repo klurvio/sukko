@@ -24,9 +24,9 @@ type SetupConfig struct {
 	// ProvisioningURL is the base URL of the provisioning API.
 	ProvisioningURL string
 
-	// AdminAuthProvider signs admin requests with a JWT keypair.
-	// If nil, an ephemeral KeypairAuthProvider is generated for this test run.
-	AdminAuthProvider AuthProvider
+	// AdminProvider signs admin requests with a JWT keypair.
+	// If nil, an ephemeral KeypairProvider is generated for this test run.
+	AdminProvider Provider
 
 	// JWTLifetime is the JWT expiration duration.
 	JWTLifetime time.Duration
@@ -72,7 +72,7 @@ func Setup(ctx context.Context, cfg SetupConfig) (*SetupResult, error) {
 	logger := cfg.Logger.With().Str("test_id", cfg.TestID).Logger()
 
 	// Use provided auth provider or generate ephemeral keypair
-	authProvider := cfg.AdminAuthProvider
+	authProvider := cfg.AdminProvider
 	if authProvider == nil {
 		ephemeral, _, err := NewEphemeralAuthProvider()
 		if err != nil {

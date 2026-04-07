@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base32"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -83,7 +84,7 @@ func (r *AdminKeyRepository) GetByKeyID(ctx context.Context, keyID string) (*Adm
 		&key.PublicKey, &key.RegisteredBy, &key.CreatedAt, &key.RevokedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("admin key not found: %s", keyID)
 		}
 		return nil, fmt.Errorf("get admin key: %w", err)
@@ -119,7 +120,10 @@ func (r *AdminKeyRepository) ListActive(ctx context.Context) ([]*AdminKey, error
 		keys = append(keys, &key)
 	}
 
-	return keys, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate admin keys: %w", err)
+	}
+	return keys, nil
 }
 
 // Revoke marks an admin key as revoked by setting revoked_at.

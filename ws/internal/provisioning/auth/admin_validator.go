@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -60,7 +61,7 @@ func (v *AdminValidator) ValidateToken(ctx context.Context, tokenString string) 
 	if err != nil {
 		label := classifyError(err)
 		adminAuthTotal.WithLabelValues(label).Inc()
-		return nil, err
+		return nil, fmt.Errorf("admin JWT validation: %w", err)
 	}
 
 	adminAuthTotal.WithLabelValues(resultSuccess).Inc()

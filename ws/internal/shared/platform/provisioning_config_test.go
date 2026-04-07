@@ -300,7 +300,6 @@ func TestProvisioningConfig_Validate_Quotas(t *testing.T) {
 	}
 }
 
-
 func TestProvisioningConfig_Validate_HTTPTimeouts(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
