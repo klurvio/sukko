@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -93,12 +94,8 @@ func classifyError(err error) string {
 // containsAny returns true if s contains any of the substrings.
 func containsAny(s string, subs ...string) bool {
 	for _, sub := range subs {
-		if len(s) >= len(sub) {
-			for i := range len(s) - len(sub) + 1 {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
+		if strings.Contains(s, sub) {
+			return true
 		}
 	}
 	return false

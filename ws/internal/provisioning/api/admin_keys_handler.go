@@ -3,9 +3,7 @@ package api
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"net/http"
 
@@ -202,7 +200,7 @@ func (h *AdminKeysHandler) refreshCache(ctx context.Context) {
 
 	keyInfos := make([]*auth.KeyInfo, 0, len(keys))
 	for _, k := range keys {
-		pubKey, err := parsePublicKeyPEM(k.Algorithm, k.PublicKey)
+		pubKey, err := provauth.ParsePublicKeyPEM(k.PublicKey)
 		if err != nil {
 			h.logger.Warn().Err(err).Str("key_id", k.KeyID).Msg("skipping admin key with invalid public key material")
 			continue
@@ -221,7 +219,7 @@ func validatePublicKeyMaterial(algorithm, pemEncoded string) error {
 		return fmt.Errorf("public_key is required")
 	}
 
-	pubKey, err := parsePublicKeyPEM(algorithm, pemEncoded)
+	pubKey, err := provauth.ParsePublicKeyPEM(pemEncoded)
 	if err != nil {
 		return err
 	}
@@ -240,17 +238,3 @@ func validatePublicKeyMaterial(algorithm, pemEncoded string) error {
 	return nil
 }
 
-// parsePublicKeyPEM parses a PEM-encoded public key.
-func parsePublicKeyPEM(algorithm, pemEncoded string) (any, error) {
-	block, _ := pem.Decode([]byte(pemEncoded))
-	if block == nil {
-		return nil, fmt.Errorf("invalid PEM encoding for %s public key", algorithm)
-	}
-
-	pubKey, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse %s public key: %w", algorithm, err)
-	}
-
-	return pubKey, nil
-}

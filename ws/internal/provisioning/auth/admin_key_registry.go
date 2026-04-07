@@ -6,6 +6,9 @@ package auth
 import (
 	"context"
 	"crypto"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
 	"sync"
 
 	sharedauth "github.com/klurvio/sukko/internal/shared/auth"
@@ -82,6 +85,16 @@ func AdminKeyToKeyInfo(keyID, name, algorithm string, publicKey crypto.PublicKey
 		PublicKey: publicKey,
 		IsActive:  true,
 	}
+}
+
+// ParsePublicKeyPEM parses a PEM-encoded public key. Used by both the admin
+// keys handler (registration validation) and main.go (bootstrap cache loading).
+func ParsePublicKeyPEM(pemEncoded string) (any, error) {
+	block, _ := pem.Decode([]byte(pemEncoded))
+	if block == nil {
+		return nil, fmt.Errorf("invalid PEM encoding")
+	}
+	return x509.ParsePKIXPublicKey(block.Bytes)
 }
 
 // Verify AdminKeyRegistry implements KeyResolver at compile time.

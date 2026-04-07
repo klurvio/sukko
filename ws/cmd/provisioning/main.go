@@ -406,7 +406,7 @@ func loadAdminKeyCache(ctx context.Context, repo *repository.AdminKeyRepository,
 
 	keyInfos := make([]*auth.KeyInfo, 0, len(keys))
 	for _, k := range keys {
-		pubKey, err := parsePublicKeyPEM(k.PublicKey)
+		pubKey, err := provauth.ParsePublicKeyPEM(k.PublicKey)
 		if err != nil {
 			logger.Warn().Err(err).Str("key_id", k.KeyID).Msg("skipping admin key with invalid key material")
 			continue
@@ -444,11 +444,3 @@ func marshalPublicKeyPEM(pubKeyBytes []byte) (string, error) {
 	return string(pemBlock), nil
 }
 
-// parsePublicKeyPEM parses a PEM-encoded public key.
-func parsePublicKeyPEM(pemEncoded string) (any, error) {
-	block, _ := pem.Decode([]byte(pemEncoded))
-	if block == nil {
-		return nil, fmt.Errorf("invalid PEM encoding")
-	}
-	return x509.ParsePKIXPublicKey(block.Bytes)
-}
