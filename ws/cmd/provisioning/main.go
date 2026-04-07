@@ -3,6 +3,10 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,11 +18,13 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 
 	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/api"
+	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/grpcserver"
 	"github.com/klurvio/sukko/internal/provisioning/repository"
@@ -31,6 +37,12 @@ import (
 )
 
 const serviceName = "provisioning"
+
+// base64 encoding variants for bootstrap key decoding.
+var (
+	base64Std = base64.StdEncoding
+	base64Raw = base64.RawStdEncoding
+)
 
 func main() {
 	// Bootstrap logger for pre-config startup (zerolog without config dependency)
@@ -199,21 +211,21 @@ func main() {
 		structuredLogger.Info().Msg("Authentication enabled")
 	}
 
-	// Set up admin auth middleware (if admin token is configured)
-	var adminAuth *api.AdminAuth
-	if cfg.AdminToken != "" {
-		var err error
-		adminAuth, err = api.NewAdminAuth(ctx, &wg, cfg.AdminToken, api.AdminAuthConfig{
-			FailureThreshold: cfg.AdminAuthFailureThreshold,
-			BlockDuration:    cfg.AdminAuthBlockDuration,
-			CleanupInterval:  cfg.AdminAuthCleanupInterval,
-			CleanupMaxAge:    cfg.AdminAuthCleanupMaxAge,
-		}, structuredLogger)
-		if err != nil {
-			structuredLogger.Fatal().Err(err).Msg("Failed to create admin auth")
+	// Initialize admin key repository and registry
+	adminKeyRepo := repository.NewAdminKeyRepository(pool)
+	adminKeyRegistry := provauth.NewAdminKeyRegistry()
+
+	// Bootstrap: auto-register admin key from env var if no keys exist
+	if cfg.AdminBootstrapKey != "" {
+		if err := bootstrapAdminKey(ctx, cfg.AdminBootstrapKey, adminKeyRepo, adminKeyRegistry, structuredLogger); err != nil {
+			structuredLogger.Warn().Err(err).Msg("admin key bootstrap failed")
 		}
-		structuredLogger.Info().Msg("Admin token authentication enabled")
+	} else {
+		// Load existing keys into cache
+		loadAdminKeyCache(ctx, adminKeyRepo, adminKeyRegistry, structuredLogger)
 	}
+
+	adminValidator := provauth.NewAdminValidator(adminKeyRegistry)
 
 	// Initialize HTTP router
 	router, err := api.NewRouter(api.RouterConfig{
@@ -222,7 +234,10 @@ func main() {
 		RateLimit:          cfg.APIRateLimitPerMinute,
 		AuthEnabled:        cfg.AuthEnabled,
 		Validator:          validator,
-		AdminAuth:          adminAuth,
+		AdminValidator:     adminValidator,
+		AdminKeyRegistry:   adminKeyRegistry,
+		AdminKeyRepo:       adminKeyRepo,
+		EventBus:           bus,
 		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
 		CORSMaxAge:         cfg.CORSMaxAge,
 		ConfigHandler:      platform.ConfigHandler(cfg),
@@ -318,7 +333,7 @@ func main() {
 
 	structuredLogger.Info().Msg("Shutting down provisioning service")
 
-	// Cancel context to stop admin auth and other background goroutines
+	// Cancel context to stop background goroutines
 	cancel()
 
 	// Graceful shutdown with timeout
@@ -333,8 +348,107 @@ func main() {
 	// Graceful stop gRPC server
 	grpcSrv.GracefulStop()
 
-	// Wait for background goroutines (admin auth cleanup, etc.)
+	// Wait for background goroutines
 	wg.Wait()
 
 	structuredLogger.Info().Msg("Provisioning service gracefully shut down")
+}
+
+// bootstrapAdminKey auto-registers the bootstrap public key if no admin keys exist.
+// One-time only — ignored if keys already exist in the database.
+func bootstrapAdminKey(ctx context.Context, bootstrapKeyBase64 string, repo *repository.AdminKeyRepository, registry *provauth.AdminKeyRegistry, logger zerolog.Logger) error {
+	count, err := repo.CountActive(ctx)
+	if err != nil {
+		return fmt.Errorf("count active admin keys: %w", err)
+	}
+	if count > 0 {
+		logger.Debug().Int("existing_keys", count).Msg("admin keys exist, skipping bootstrap")
+		loadAdminKeyCache(ctx, repo, registry, logger)
+		return nil
+	}
+
+	// Decode base64 → Ed25519 public key → PEM for storage
+	decoded, err := decodeBootstrapKey(bootstrapKeyBase64)
+	if err != nil {
+		return fmt.Errorf("decode bootstrap key: %w", err)
+	}
+
+	pemKey, err := marshalPublicKeyPEM(decoded)
+	if err != nil {
+		return fmt.Errorf("marshal bootstrap key to PEM: %w", err)
+	}
+
+	key := &repository.AdminKey{
+		KeyID:        "bootstrap-0",
+		Name:         "bootstrap",
+		Algorithm:    "Ed25519",
+		PublicKey:    pemKey,
+		RegisteredBy: "system",
+	}
+	if err := repo.Create(ctx, key); err != nil {
+		return fmt.Errorf("register bootstrap key: %w", err)
+	}
+
+	logger.Info().Str("key_id", "bootstrap-0").Msg("admin key auto-registered from bootstrap")
+
+	// Load into cache
+	loadAdminKeyCache(ctx, repo, registry, logger)
+	return nil
+}
+
+// loadAdminKeyCache loads all active admin keys from DB into the in-memory registry.
+func loadAdminKeyCache(ctx context.Context, repo *repository.AdminKeyRepository, registry *provauth.AdminKeyRegistry, logger zerolog.Logger) {
+	keys, err := repo.ListActive(ctx)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to load admin keys into cache")
+		return
+	}
+
+	keyInfos := make([]*auth.KeyInfo, 0, len(keys))
+	for _, k := range keys {
+		pubKey, err := parsePublicKeyPEM(k.PublicKey)
+		if err != nil {
+			logger.Warn().Err(err).Str("key_id", k.KeyID).Msg("skipping admin key with invalid key material")
+			continue
+		}
+		keyInfos = append(keyInfos, provauth.AdminKeyToKeyInfo(k.KeyID, k.Name, k.Algorithm, pubKey))
+	}
+
+	registry.Refresh(keyInfos)
+	logger.Info().Int("keys", len(keyInfos)).Msg("admin key cache loaded")
+}
+
+// decodeBootstrapKey decodes a base64-encoded Ed25519 public key (padded or unpadded).
+func decodeBootstrapKey(b64 string) ([]byte, error) {
+	decoded, err := base64Std.DecodeString(b64)
+	if err != nil {
+		decoded, err = base64Raw.DecodeString(b64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid base64: %w", err)
+		}
+	}
+	if len(decoded) != 32 {
+		return nil, fmt.Errorf("expected 32 bytes for Ed25519 public key, got %d", len(decoded))
+	}
+	return decoded, nil
+}
+
+// marshalPublicKeyPEM encodes an Ed25519 public key as PEM.
+func marshalPublicKeyPEM(pubKeyBytes []byte) (string, error) {
+	pubKey := ed25519.PublicKey(pubKeyBytes)
+	der, err := x509.MarshalPKIXPublicKey(pubKey)
+	if err != nil {
+		return "", fmt.Errorf("marshal PKIX: %w", err)
+	}
+	pemBlock := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+	return string(pemBlock), nil
+}
+
+// parsePublicKeyPEM parses a PEM-encoded public key.
+func parsePublicKeyPEM(pemEncoded string) (any, error) {
+	block, _ := pem.Decode([]byte(pemEncoded))
+	if block == nil {
+		return nil, fmt.Errorf("invalid PEM encoding")
+	}
+	return x509.ParsePKIXPublicKey(block.Bytes)
 }

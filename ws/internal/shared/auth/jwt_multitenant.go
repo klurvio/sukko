@@ -98,6 +98,24 @@ func ExtractKeyID(tokenString string) (string, error) {
 	return kid, nil
 }
 
+// ExtractIssuer extracts the issuer from a token without validating it.
+// Useful for routing tokens to the correct validator (admin vs tenant).
+func ExtractIssuer(tokenString string) (string, error) {
+	parser := jwt.NewParser()
+	token, _, err := parser.ParseUnverified(tokenString, &Claims{})
+	if err != nil {
+		return "", fmt.Errorf("failed to parse token: %w", err)
+	}
+
+	claims, ok := token.Claims.(*Claims)
+	if !ok {
+		return "", errors.New("invalid claims type")
+	}
+
+	issuer, _ := claims.GetIssuer()
+	return issuer, nil
+}
+
 // ExtractTenantID extracts the tenant ID from a token without validating it.
 // Useful for routing or logging before validation.
 func ExtractTenantID(tokenString string) (string, error) {

@@ -30,6 +30,9 @@ const (
 	// PushConfigChanged indicates that push credentials or channel configs changed.
 	PushConfigChanged EventType = "push_config_changed"
 
+	// AdminKeysChanged indicates that admin keys were registered or revoked.
+	AdminKeysChanged EventType = "admin_keys_changed"
+
 	// subscriberBufferSize is the capacity of each subscriber's event channel.
 	// Buffered to absorb short bursts without blocking the publisher.
 	subscriberBufferSize = 16
