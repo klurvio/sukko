@@ -1,16 +1,17 @@
 # =============================================================================
 # Sync Compose — Push transformed docker-compose.yml to sukko-cli
 # =============================================================================
-# Triggers on PRs that change docker-compose.yml (validates the transform).
+# Runs on push to main when docker-compose.yml changes. Manual trigger available.
 # Transforms build: → image: and creates/updates a PR in sukko-cli.
 # Uses a GitHub App for minimal cross-repo access (contents + PRs on sukko-cli only).
 
 name: Sync Compose
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
     paths: [docker-compose.yml]
+  workflow_dispatch:
 
 permissions:
   contents: read
