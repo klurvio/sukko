@@ -160,12 +160,12 @@ func (w *StreamLicenseWatcher) streamLoop(ctx context.Context) {
 			}
 
 			// Empty key = Community / no license — skip reload
-			if resp.LicenseKey == "" {
+			if resp.GetLicenseKey() == "" {
 				w.logger.Debug().Msg("received empty license key (Community)")
 				continue
 			}
 
-			if err := w.manager.Reload(resp.LicenseKey); err != nil {
+			if err := w.manager.Reload(resp.GetLicenseKey()); err != nil {
 				w.logger.Warn().Err(err).Msg("license reload from stream failed")
 				continue
 			}

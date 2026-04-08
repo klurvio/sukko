@@ -35,6 +35,7 @@ func setupLicenseHandlerTest(t *testing.T) *LicenseHandler {
 	return NewLicenseHandler(mgr, repo, bus, logger)
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestHandleReload_Success(t *testing.T) {
 	h := setupLicenseHandlerTest(t)
 
@@ -70,6 +71,7 @@ func TestHandleReload_Success(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestHandleReload_MissingKey(t *testing.T) {
 	h := setupLicenseHandlerTest(t)
 
@@ -84,6 +86,7 @@ func TestHandleReload_MissingKey(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestHandleReload_InvalidJSON(t *testing.T) {
 	h := setupLicenseHandlerTest(t)
 
@@ -97,6 +100,7 @@ func TestHandleReload_InvalidJSON(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestHandleReload_InvalidSignature(t *testing.T) {
 	h := setupLicenseHandlerTest(t)
 
@@ -111,6 +115,7 @@ func TestHandleReload_InvalidSignature(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestHandleReload_ReplayDetected(t *testing.T) {
 	h := setupLicenseHandlerTest(t)
 
@@ -149,6 +154,7 @@ func TestHandleReload_ReplayDetected(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestHandleReload_ExpiredKey(t *testing.T) {
 	h := setupLicenseHandlerTest(t)
 
@@ -170,6 +176,7 @@ func TestHandleReload_ExpiredKey(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestHandleReload_RateLimited(t *testing.T) {
 	h := setupLicenseHandlerTest(t)
 
@@ -192,6 +199,7 @@ func TestHandleReload_RateLimited(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestCurrentKey_SetAndGet(t *testing.T) {
 	h := setupLicenseHandlerTest(t)
 

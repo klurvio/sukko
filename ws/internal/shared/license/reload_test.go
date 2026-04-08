@@ -27,6 +27,7 @@ func signKey(t *testing.T, edition Edition, org string, exp time.Time, iat int64
 	}, reloadTestPriv)
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestReload_ValidEditionChange(t *testing.T) {
 	setupReloadTest(t)
 	m, _ := NewManager("", zerolog.Nop())
@@ -44,6 +45,7 @@ func TestReload_ValidEditionChange(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestReload_ReplayRejected_SameIat(t *testing.T) {
 	setupReloadTest(t)
 	m, _ := NewManager("", zerolog.Nop())
@@ -66,6 +68,7 @@ func TestReload_ReplayRejected_SameIat(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestReload_ReplayRejected_OlderIat(t *testing.T) {
 	setupReloadTest(t)
 	m, _ := NewManager("", zerolog.Nop())
@@ -84,6 +87,7 @@ func TestReload_ReplayRejected_OlderIat(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestReload_FirstReload_NoCurrentIat(t *testing.T) {
 	setupReloadTest(t)
 	m, _ := NewManager("", zerolog.Nop())
@@ -98,6 +102,7 @@ func TestReload_FirstReload_NoCurrentIat(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestReload_InvalidKeyRejected_CurrentPreserved(t *testing.T) {
 	setupReloadTest(t)
 	m, _ := NewManager("", zerolog.Nop())
@@ -117,6 +122,7 @@ func TestReload_InvalidKeyRejected_CurrentPreserved(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestReload_ExpiredKeyRejected(t *testing.T) {
 	setupReloadTest(t)
 	m, _ := NewManager("", zerolog.Nop())
@@ -128,6 +134,7 @@ func TestReload_ExpiredKeyRejected(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // SetPublicKeyForTesting mutates package-level state
 func TestReload_DowngradeAccepted(t *testing.T) {
 	setupReloadTest(t)
 	m, _ := NewManager("", zerolog.Nop())

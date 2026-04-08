@@ -44,13 +44,13 @@ const (
 // LicenseHandler handles POST /api/v1/license for license hot-reload.
 // No auth required — the license key's Ed25519 signature is the authentication.
 type LicenseHandler struct {
-	manager       *license.Manager
-	licenseRepo   provisioning.LicenseStateStore
-	eventBus      *eventbus.Bus
-	logger        zerolog.Logger
-	currentKeyMu  sync.Mutex // guards currentKey read/write
-	currentKey    string     // raw key string for WatchLicense snapshot
-	rateLimiter   *ipRateLimiter
+	manager      *license.Manager
+	licenseRepo  provisioning.LicenseStateStore
+	eventBus     *eventbus.Bus
+	logger       zerolog.Logger
+	currentKeyMu sync.Mutex // guards currentKey read/write
+	currentKey   string     // raw key string for WatchLicense snapshot
+	rateLimiter  *ipRateLimiter
 }
 
 // ipRateLimiterMaxEntries caps the per-IP rate limiter map to prevent unbounded growth.

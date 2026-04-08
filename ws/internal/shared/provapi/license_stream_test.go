@@ -130,4 +130,3 @@ func TestStreamLicenseWatcher_InitialStateDisconnected(t *testing.T) {
 		t.Errorf("initial State() = %d, want %d (disconnected)", got, StreamStateDisconnected)
 	}
 }
-
