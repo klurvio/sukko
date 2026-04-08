@@ -670,15 +670,14 @@ func (s *Server) WatchLicense(_ *provisioningv1.WatchLicenseRequest, stream grpc
 	}
 
 	ctx := stream.Context()
+	logger := s.logger.With().Str("rpc", "WatchLicense").Logger()
 
-	// Snapshot: send current license key
+	// Snapshot: always send current key (empty = Community / no license)
 	currentKey := s.currentLicenseKey()
-	if currentKey != "" {
-		if err := stream.Send(&provisioningv1.WatchLicenseResponse{LicenseKey: currentKey}); err != nil {
-			return fmt.Errorf("send license snapshot: %w", err)
-		}
-		s.logger.Debug().Msg("WatchLicense: sent snapshot")
+	if err := stream.Send(&provisioningv1.WatchLicenseResponse{LicenseKey: currentKey}); err != nil {
+		return status.Errorf(codes.Unavailable, "send license snapshot: %v", err)
 	}
+	logger.Info().Bool("has_key", currentKey != "").Msg("sent license snapshot")
 
 	// Subscribe to license change events
 	subID, events := s.eventBus.Subscribe()
@@ -687,21 +686,22 @@ func (s *Server) WatchLicense(_ *provisioningv1.WatchLicenseRequest, stream grpc
 	for {
 		select {
 		case <-ctx.Done():
+			logger.Debug().Msg("stream context canceled")
 			return nil
-		case event := <-events:
+
+		case event, ok := <-events:
+			if !ok {
+				return nil
+			}
 			if event.Type != eventbus.LicenseChanged {
 				continue
 			}
 
 			key := s.currentLicenseKey()
-			if key == "" {
-				continue
-			}
-
 			if err := stream.Send(&provisioningv1.WatchLicenseResponse{LicenseKey: key}); err != nil {
-				return fmt.Errorf("send license update: %w", err)
+				return status.Errorf(codes.Unavailable, "send license update: %v", err)
 			}
-			s.logger.Debug().Msg("WatchLicense: sent update")
+			logger.Info().Msg("sent license update")
 		}
 	}
 }
