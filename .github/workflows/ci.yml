@@ -24,7 +24,7 @@ jobs:
   # ---------------------------------------------------------------------------
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-medium-4c-8g
     defaults:
       run:
         working-directory: ws
@@ -47,7 +47,7 @@ jobs:
   # ---------------------------------------------------------------------------
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-medium-4c-8g
     defaults:
       run:
         working-directory: ws
@@ -81,7 +81,7 @@ jobs:
   # ---------------------------------------------------------------------------
   helm-lint:
     name: Helm Lint
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-medium-4c-8g
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
