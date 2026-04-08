@@ -4,6 +4,7 @@ package provisioning
 
 import (
 	"context"
+	"time"
 
 	"github.com/klurvio/sukko/internal/shared/types"
 )
@@ -140,6 +141,16 @@ type ChannelRulesStore interface {
 
 	// List returns all channel rules (used by gateway to build cache).
 	List(ctx context.Context) ([]*types.TenantChannelRules, error)
+}
+
+// LicenseStateStore handles encrypted license key persistence (single-row table).
+type LicenseStateStore interface {
+	// Upsert encrypts and stores the license key. Creates or updates the single row.
+	Upsert(ctx context.Context, licenseKey, edition, org string, expiresAt *time.Time) error
+
+	// Load retrieves and decrypts the stored license key.
+	// Returns empty string if no license is stored (first deploy).
+	Load(ctx context.Context) (string, error)
 }
 
 // KafkaAdmin handles Redpanda/Kafka topic and ACL management.

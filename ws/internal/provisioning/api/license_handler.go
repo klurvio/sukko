@@ -12,8 +12,8 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
+	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
-	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/license"
 )
@@ -45,13 +45,17 @@ const (
 // No auth required — the license key's Ed25519 signature is the authentication.
 type LicenseHandler struct {
 	manager       *license.Manager
-	licenseRepo   *repository.LicenseStateRepository
+	licenseRepo   provisioning.LicenseStateStore
 	eventBus      *eventbus.Bus
 	logger        zerolog.Logger
 	currentKeyMu  sync.Mutex // guards currentKey read/write
 	currentKey    string     // raw key string for WatchLicense snapshot
 	rateLimiter   *ipRateLimiter
 }
+
+// ipRateLimiterMaxEntries caps the per-IP rate limiter map to prevent unbounded growth.
+// License reload is very low-traffic; 1000 unique IPs is more than enough.
+const ipRateLimiterMaxEntries = 1000
 
 // ipRateLimiter provides per-IP rate limiting for the license endpoint.
 type ipRateLimiter struct {
@@ -73,6 +77,12 @@ func (l *ipRateLimiter) allow(ip string) bool {
 	l.mu.Lock()
 	limiter, ok := l.limiters[ip]
 	if !ok {
+		// Evict all entries when map exceeds cap to prevent unbounded growth.
+		// License reload is very low-traffic so this is effectively never hit
+		// under normal operation, but prevents a slow leak from port scans or bots.
+		if len(l.limiters) >= ipRateLimiterMaxEntries {
+			clear(l.limiters)
+		}
 		limiter = rate.NewLimiter(l.rate, l.burst)
 		l.limiters[ip] = limiter
 	}
@@ -83,7 +93,7 @@ func (l *ipRateLimiter) allow(ip string) bool {
 // NewLicenseHandler creates a LicenseHandler.
 func NewLicenseHandler(
 	manager *license.Manager,
-	licenseRepo *repository.LicenseStateRepository,
+	licenseRepo provisioning.LicenseStateStore,
 	eventBus *eventbus.Bus,
 	logger zerolog.Logger,
 ) *LicenseHandler {
