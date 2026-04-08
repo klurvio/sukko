@@ -1,4 +1,4 @@
-h1:17ECd6WaadUXwptUFdlKlGmNcHotWvx1likARBWBDWo=
+h1:T2bq2mp0oMyaUoFtyBtJUnu1JlPMxrpIepGl//ZBrT8=
 001_initial.sql h1:q1NEdj5UnIiGDHj2dDa2nhap1FA0/cWizwYOatJjSto=
 002_oidc_channel_rules.sql h1:DvuqHAT3H7r8qeG2ldGDXN/uoo3GiFS2MmYFsvGEuns=
 003_routing_rules.sql h1:HUzTmXnnmfe2uJzjWV2B+3IFbW9hqKn2C58q0IxZhIA=
@@ -10,3 +10,4 @@ h1:17ECd6WaadUXwptUFdlKlGmNcHotWvx1likARBWBDWo=
 009_push_subscriptions.sql h1:UTRnWiP3DwukyWCL5ZNpYRxViS3G36o/JM1tdzS+2m8=
 010_analytics.sql h1:ptbgI1JYhEcGPlmEgTXxSoicDE1AvwZDduY7/oDMUjQ=
 011_admin_keys.sql h1:qNZ8suMmYJvMjQVxjrGDoebIiM6Mox7sDPLYUY9F/gs=
+012_license_state.sql h1:C2iM5+5IcZflAPLFh8RJyyadJZF30iideIqdSGD8VcA=

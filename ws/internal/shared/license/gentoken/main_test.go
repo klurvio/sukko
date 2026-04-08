@@ -160,7 +160,7 @@ func TestBuildClaims(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := buildClaims(tt.edition, tt.org, exp, 0, tt.limits)
+			got, err := buildClaims(tt.edition, tt.org, exp, time.Now().Unix(), 0, tt.limits)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("buildClaims() error = %v, wantErr %v", err, tt.wantErr)
 				return
