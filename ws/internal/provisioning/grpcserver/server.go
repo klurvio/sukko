@@ -33,6 +33,10 @@ type ServerConfig struct {
 	// PushChannelConfigRepo is the repository for push channel configurations.
 	// Optional — when nil, WatchPushConfig and StorePushCredentials return Unimplemented.
 	PushChannelConfigRepo *repository.ChannelConfigRepository
+
+	// CurrentLicenseKey returns the raw license key string for WatchLicense snapshot.
+	// Optional — when nil, WatchLicense returns Unimplemented.
+	CurrentLicenseKey func() string
 }
 
 // Server implements the ProvisioningInternalServiceServer gRPC interface.
@@ -47,6 +51,10 @@ type Server struct {
 	maxTenantsFetchLimit  int
 	pushCredentialsRepo   *repository.CredentialsRepository
 	pushChannelConfigRepo *repository.ChannelConfigRepository
+
+	// currentLicenseKey returns the current license key string for WatchLicense snapshot.
+	// Set by provisioning main.go. Nil if license hot-reload is not configured.
+	currentLicenseKey func() string
 }
 
 // NewServer creates a new gRPC stream server.
@@ -68,6 +76,7 @@ func NewServer(service *provisioning.Service, eventBus *eventbus.Bus, logger zer
 		maxTenantsFetchLimit:  cfg.MaxTenantsFetchLimit,
 		pushCredentialsRepo:   cfg.PushCredentialsRepo,
 		pushChannelConfigRepo: cfg.PushChannelConfigRepo,
+		currentLicenseKey:     cfg.CurrentLicenseKey,
 	}, nil
 }
 
@@ -651,4 +660,48 @@ func convertChannelRules(rules *types.ChannelRules) *provisioningv1.ChannelRules
 	}
 
 	return cr
+}
+
+// WatchLicense streams the current license key to subscribers.
+// Sends the current key on connect, then sends updates on LicenseChanged events.
+func (s *Server) WatchLicense(_ *provisioningv1.WatchLicenseRequest, stream grpc.ServerStreamingServer[provisioningv1.WatchLicenseResponse]) error {
+	if s.currentLicenseKey == nil {
+		return status.Error(codes.Unimplemented, "license hot-reload not configured")
+	}
+
+	ctx := stream.Context()
+
+	// Snapshot: send current license key
+	currentKey := s.currentLicenseKey()
+	if currentKey != "" {
+		if err := stream.Send(&provisioningv1.WatchLicenseResponse{LicenseKey: currentKey}); err != nil {
+			return fmt.Errorf("send license snapshot: %w", err)
+		}
+		s.logger.Debug().Msg("WatchLicense: sent snapshot")
+	}
+
+	// Subscribe to license change events
+	subID, events := s.eventBus.Subscribe()
+	defer s.eventBus.Unsubscribe(subID)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case event := <-events:
+			if event.Type != eventbus.LicenseChanged {
+				continue
+			}
+
+			key := s.currentLicenseKey()
+			if key == "" {
+				continue
+			}
+
+			if err := stream.Send(&provisioningv1.WatchLicenseResponse{LicenseKey: key}); err != nil {
+				return fmt.Errorf("send license update: %w", err)
+			}
+			s.logger.Debug().Msg("WatchLicense: sent update")
+		}
+	}
 }

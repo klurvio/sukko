@@ -1201,6 +1201,87 @@ func (x *StorePushCredentialsResponse) GetSuccess() bool {
 	return false
 }
 
+type WatchLicenseRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchLicenseRequest) Reset() {
+	*x = WatchLicenseRequest{}
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchLicenseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchLicenseRequest) ProtoMessage() {}
+
+func (x *WatchLicenseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchLicenseRequest.ProtoReflect.Descriptor instead.
+func (*WatchLicenseRequest) Descriptor() ([]byte, []int) {
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{21}
+}
+
+type WatchLicenseResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Raw license key string. Services call Manager.Reload() with this value.
+	LicenseKey    string `protobuf:"bytes,1,opt,name=license_key,json=licenseKey,proto3" json:"license_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchLicenseResponse) Reset() {
+	*x = WatchLicenseResponse{}
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchLicenseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchLicenseResponse) ProtoMessage() {}
+
+func (x *WatchLicenseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchLicenseResponse.ProtoReflect.Descriptor instead.
+func (*WatchLicenseResponse) Descriptor() ([]byte, []int) {
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *WatchLicenseResponse) GetLicenseKey() string {
+	if x != nil {
+		return x.LicenseKey
+	}
+	return ""
+}
+
 var File_sukko_provisioning_v1_provisioning_proto protoreflect.FileDescriptor
 
 const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
@@ -1292,14 +1373,19 @@ const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12'\n" +
 	"\x0fcredential_data\x18\x03 \x01(\tR\x0ecredentialData\"8\n" +
 	"\x1cStorePushCredentialsResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess2\xc1\x05\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"\x15\n" +
+	"\x13WatchLicenseRequest\"7\n" +
+	"\x14WatchLicenseResponse\x12\x1f\n" +
+	"\vlicense_key\x18\x01 \x01(\tR\n" +
+	"licenseKey2\xac\x06\n" +
 	"\x1bProvisioningInternalService\x12`\n" +
 	"\tWatchKeys\x12'.sukko.provisioning.v1.WatchKeysRequest\x1a(.sukko.provisioning.v1.WatchKeysResponse0\x01\x12x\n" +
 	"\x11WatchTenantConfig\x12/.sukko.provisioning.v1.WatchTenantConfigRequest\x1a0.sukko.provisioning.v1.WatchTenantConfigResponse0\x01\x12f\n" +
 	"\vWatchTopics\x12).sukko.provisioning.v1.WatchTopicsRequest\x1a*.sukko.provisioning.v1.WatchTopicsResponse0\x01\x12i\n" +
 	"\fWatchAPIKeys\x12*.sukko.provisioning.v1.WatchAPIKeysRequest\x1a+.sukko.provisioning.v1.WatchAPIKeysResponse0\x01\x12r\n" +
 	"\x0fWatchPushConfig\x12-.sukko.provisioning.v1.WatchPushConfigRequest\x1a..sukko.provisioning.v1.WatchPushConfigResponse0\x01\x12\x7f\n" +
-	"\x14StorePushCredentials\x122.sukko.provisioning.v1.StorePushCredentialsRequest\x1a3.sukko.provisioning.v1.StorePushCredentialsResponseBIZGgithub.com/klurvio/sukko/gen/proto/sukko/provisioning/v1;provisioningv1b\x06proto3"
+	"\x14StorePushCredentials\x122.sukko.provisioning.v1.StorePushCredentialsRequest\x1a3.sukko.provisioning.v1.StorePushCredentialsResponse\x12i\n" +
+	"\fWatchLicense\x12*.sukko.provisioning.v1.WatchLicenseRequest\x1a+.sukko.provisioning.v1.WatchLicenseResponse0\x01BIZGgithub.com/klurvio/sukko/gen/proto/sukko/provisioning/v1;provisioningv1b\x06proto3"
 
 var (
 	file_sukko_provisioning_v1_provisioning_proto_rawDescOnce sync.Once
@@ -1313,7 +1399,7 @@ func file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP() []byte {
 	return file_sukko_provisioning_v1_provisioning_proto_rawDescData
 }
 
-var file_sukko_provisioning_v1_provisioning_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_sukko_provisioning_v1_provisioning_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_sukko_provisioning_v1_provisioning_proto_goTypes = []any{
 	(*WatchKeysRequest)(nil),             // 0: sukko.provisioning.v1.WatchKeysRequest
 	(*WatchKeysResponse)(nil),            // 1: sukko.provisioning.v1.WatchKeysResponse
@@ -1336,16 +1422,18 @@ var file_sukko_provisioning_v1_provisioning_proto_goTypes = []any{
 	(*PushChannelConfig)(nil),            // 18: sukko.provisioning.v1.PushChannelConfig
 	(*StorePushCredentialsRequest)(nil),  // 19: sukko.provisioning.v1.StorePushCredentialsRequest
 	(*StorePushCredentialsResponse)(nil), // 20: sukko.provisioning.v1.StorePushCredentialsResponse
-	nil,                                  // 21: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
-	nil,                                  // 22: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
+	(*WatchLicenseRequest)(nil),          // 21: sukko.provisioning.v1.WatchLicenseRequest
+	(*WatchLicenseResponse)(nil),         // 22: sukko.provisioning.v1.WatchLicenseResponse
+	nil,                                  // 23: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
+	nil,                                  // 24: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
 }
 var file_sukko_provisioning_v1_provisioning_proto_depIdxs = []int32{
 	2,  // 0: sukko.provisioning.v1.WatchKeysResponse.keys:type_name -> sukko.provisioning.v1.KeyInfo
 	5,  // 1: sukko.provisioning.v1.WatchTenantConfigResponse.tenants:type_name -> sukko.provisioning.v1.TenantConfig
 	7,  // 2: sukko.provisioning.v1.TenantConfig.channel_rules:type_name -> sukko.provisioning.v1.ChannelRules
 	6,  // 3: sukko.provisioning.v1.TenantConfig.routing_rules:type_name -> sukko.provisioning.v1.TopicRoutingRule
-	21, // 4: sukko.provisioning.v1.ChannelRules.group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
-	22, // 5: sukko.provisioning.v1.ChannelRules.publish_group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
+	23, // 4: sukko.provisioning.v1.ChannelRules.group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
+	24, // 5: sukko.provisioning.v1.ChannelRules.publish_group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
 	11, // 6: sukko.provisioning.v1.WatchTopicsResponse.dedicated_tenants:type_name -> sukko.provisioning.v1.DedicatedTenant
 	14, // 7: sukko.provisioning.v1.WatchAPIKeysResponse.api_keys:type_name -> sukko.provisioning.v1.APIKeyInfo
 	17, // 8: sukko.provisioning.v1.WatchPushConfigResponse.push_credentials:type_name -> sukko.provisioning.v1.PushCredentialInfo
@@ -1358,14 +1446,16 @@ var file_sukko_provisioning_v1_provisioning_proto_depIdxs = []int32{
 	12, // 15: sukko.provisioning.v1.ProvisioningInternalService.WatchAPIKeys:input_type -> sukko.provisioning.v1.WatchAPIKeysRequest
 	15, // 16: sukko.provisioning.v1.ProvisioningInternalService.WatchPushConfig:input_type -> sukko.provisioning.v1.WatchPushConfigRequest
 	19, // 17: sukko.provisioning.v1.ProvisioningInternalService.StorePushCredentials:input_type -> sukko.provisioning.v1.StorePushCredentialsRequest
-	1,  // 18: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:output_type -> sukko.provisioning.v1.WatchKeysResponse
-	4,  // 19: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:output_type -> sukko.provisioning.v1.WatchTenantConfigResponse
-	10, // 20: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:output_type -> sukko.provisioning.v1.WatchTopicsResponse
-	13, // 21: sukko.provisioning.v1.ProvisioningInternalService.WatchAPIKeys:output_type -> sukko.provisioning.v1.WatchAPIKeysResponse
-	16, // 22: sukko.provisioning.v1.ProvisioningInternalService.WatchPushConfig:output_type -> sukko.provisioning.v1.WatchPushConfigResponse
-	20, // 23: sukko.provisioning.v1.ProvisioningInternalService.StorePushCredentials:output_type -> sukko.provisioning.v1.StorePushCredentialsResponse
-	18, // [18:24] is the sub-list for method output_type
-	12, // [12:18] is the sub-list for method input_type
+	21, // 18: sukko.provisioning.v1.ProvisioningInternalService.WatchLicense:input_type -> sukko.provisioning.v1.WatchLicenseRequest
+	1,  // 19: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:output_type -> sukko.provisioning.v1.WatchKeysResponse
+	4,  // 20: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:output_type -> sukko.provisioning.v1.WatchTenantConfigResponse
+	10, // 21: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:output_type -> sukko.provisioning.v1.WatchTopicsResponse
+	13, // 22: sukko.provisioning.v1.ProvisioningInternalService.WatchAPIKeys:output_type -> sukko.provisioning.v1.WatchAPIKeysResponse
+	16, // 23: sukko.provisioning.v1.ProvisioningInternalService.WatchPushConfig:output_type -> sukko.provisioning.v1.WatchPushConfigResponse
+	20, // 24: sukko.provisioning.v1.ProvisioningInternalService.StorePushCredentials:output_type -> sukko.provisioning.v1.StorePushCredentialsResponse
+	22, // 25: sukko.provisioning.v1.ProvisioningInternalService.WatchLicense:output_type -> sukko.provisioning.v1.WatchLicenseResponse
+	19, // [19:26] is the sub-list for method output_type
+	12, // [12:19] is the sub-list for method input_type
 	12, // [12:12] is the sub-list for extension type_name
 	12, // [12:12] is the sub-list for extension extendee
 	0,  // [0:12] is the sub-list for field type_name
@@ -1382,7 +1472,7 @@ func file_sukko_provisioning_v1_provisioning_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sukko_provisioning_v1_provisioning_proto_rawDesc), len(file_sukko_provisioning_v1_provisioning_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   23,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
