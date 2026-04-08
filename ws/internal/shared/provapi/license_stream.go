@@ -103,7 +103,10 @@ func NewStreamLicenseWatcher(cfg StreamLicenseWatcherConfig) (*StreamLicenseWatc
 func (w *StreamLicenseWatcher) Close() error {
 	w.cancel()
 	w.wg.Wait()
-	return w.conn.Close()
+	if err := w.conn.Close(); err != nil {
+		return fmt.Errorf("close gRPC connection: %w", err)
+	}
+	return nil
 }
 
 // State returns the current stream state (0=disconnected, 1=connected).

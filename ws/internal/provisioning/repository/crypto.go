@@ -83,7 +83,7 @@ func decryptCredential(ciphertext string, key []byte) (string, error) {
 	return string(plaintext), nil
 }
 
-// parseEncryptionKey accepts a hex-encoded (64 chars) or base64-encoded string
+// ParseEncryptionKey accepts a hex-encoded (64 chars) or base64-encoded string
 // and returns the 32-byte key. Returns an error if neither encoding works or
 // the result is not exactly 32 bytes.
 func ParseEncryptionKey(hexOrBase64 string) ([]byte, error) {
