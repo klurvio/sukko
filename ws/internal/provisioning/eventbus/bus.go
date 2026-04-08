@@ -33,6 +33,9 @@ const (
 	// AdminKeysChanged indicates that admin keys were registered or revoked.
 	AdminKeysChanged EventType = "admin_keys_changed"
 
+	// LicenseChanged indicates that the license key was reloaded.
+	LicenseChanged EventType = "license_changed"
+
 	// subscriberBufferSize is the capacity of each subscriber's event channel.
 	// Buffered to absorb short bursts without blocking the publisher.
 	subscriberBufferSize = 16
