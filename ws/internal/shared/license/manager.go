@@ -3,6 +3,7 @@ package license
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -49,6 +50,10 @@ type Manager struct {
 	// Claims from the license key (nil for Community with no key).
 	// Stored even when expired — useful for debugging and Org() access.
 	claims atomic.Pointer[Claims]
+
+	// reloadMu serializes concurrent Reload() calls on this Manager instance.
+	// The three atomic stores must happen together to prevent mixed state.
+	reloadMu sync.Mutex
 
 	logger zerolog.Logger
 }

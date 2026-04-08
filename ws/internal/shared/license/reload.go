@@ -2,14 +2,8 @@ package license
 
 import (
 	"fmt"
-	"sync"
 	"time"
 )
-
-// reloadMu serializes concurrent Reload() calls.
-// The three atomic pointer stores must happen together to prevent a mixed state
-// where edition is updated but limits aren't yet.
-var reloadMu sync.Mutex
 
 // Reload validates a new license key and atomically swaps the Manager's state.
 // If validation fails, the current state is preserved — no partial updates.
@@ -18,10 +12,10 @@ var reloadMu sync.Mutex
 // be strictly greater. If the current key has no iat (pre-dates the field),
 // any valid key is accepted.
 //
-// Thread-safe: concurrent calls are serialized via mutex.
+// Thread-safe: concurrent calls are serialized via the instance's reloadMu mutex.
 func (m *Manager) Reload(key string) error {
-	reloadMu.Lock()
-	defer reloadMu.Unlock()
+	m.reloadMu.Lock()
+	defer m.reloadMu.Unlock()
 
 	// 1. Parse and verify (Ed25519 signature check)
 	claims, err := ParseAndVerify(key)
