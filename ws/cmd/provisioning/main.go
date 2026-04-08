@@ -151,6 +151,33 @@ func main() {
 	}
 	pushChannelConfigRepo := repository.NewChannelConfigRepository(pool)
 
+	// Parse encryption key for license state persistence (same key as push credentials)
+	encryptionKey, err := repository.ParseEncryptionKey(cfg.CredentialsEncryptionKey)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to parse CREDENTIALS_ENCRYPTION_KEY")
+	}
+	licenseStateRepo := repository.NewLicenseStateRepository(pool, encryptionKey)
+
+	// Load license from DB (takes precedence over env var).
+	// The Manager was already created from SUKKO_LICENSE_KEY during config loading.
+	// If a newer key exists in DB (from a previous webhook reload), reload the Manager.
+	var currentLicenseKey string
+	if dbKey, err := licenseStateRepo.Load(ctx); err != nil {
+		structuredLogger.Warn().Err(err).Msg("failed to load license from DB, using env var")
+	} else if dbKey != "" {
+		if err := cfg.EditionManager().Reload(dbKey); err != nil {
+			structuredLogger.Warn().Err(err).Msg("DB license key failed reload, using env var")
+		} else {
+			currentLicenseKey = dbKey
+			structuredLogger.Info().
+				Str("edition", cfg.EditionManager().CurrentEdition().String()).
+				Msg("license loaded from DB (takes precedence over SUKKO_LICENSE_KEY)")
+		}
+	}
+	if currentLicenseKey == "" {
+		currentLicenseKey = cfg.LicenseKey // fall back to env var
+	}
+
 	// Kafka admin disabled — topic creation is handled by ws-server's KafkaBackend
 	kafkaAdmin := provisioning.NewNoopKafkaAdmin()
 	structuredLogger.Info().Msg("Kafka admin disabled (topic creation moved to ws-server)")
@@ -227,6 +254,10 @@ func main() {
 
 	adminValidator := provauth.NewAdminValidator(adminKeyRegistry)
 
+	// Initialize license handler for hot-reload endpoint
+	licenseHandler := api.NewLicenseHandler(cfg.EditionManager(), licenseStateRepo, bus, structuredLogger)
+	licenseHandler.SetCurrentKey(currentLicenseKey)
+
 	// Initialize HTTP router
 	router, err := api.NewRouter(api.RouterConfig{
 		Service:            svc,
@@ -238,6 +269,7 @@ func main() {
 		AdminKeyRegistry:   adminKeyRegistry,
 		AdminKeyRepo:       adminKeyRepo,
 		EventBus:           bus,
+		LicenseHandler:     licenseHandler,
 		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
 		CORSMaxAge:         cfg.CORSMaxAge,
 		ConfigHandler:      platform.ConfigHandler(cfg),
@@ -279,6 +311,7 @@ func main() {
 		MaxTenantsFetchLimit:  cfg.MaxTenantsFetchLimit,
 		PushCredentialsRepo:   pushCredentialsRepo,
 		PushChannelConfigRepo: pushChannelConfigRepo,
+		CurrentLicenseKey:     licenseHandler.CurrentKey,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create gRPC stream server")

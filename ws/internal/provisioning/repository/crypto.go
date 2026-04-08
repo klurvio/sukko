@@ -86,7 +86,7 @@ func decryptCredential(ciphertext string, key []byte) (string, error) {
 // parseEncryptionKey accepts a hex-encoded (64 chars) or base64-encoded string
 // and returns the 32-byte key. Returns an error if neither encoding works or
 // the result is not exactly 32 bytes.
-func parseEncryptionKey(hexOrBase64 string) ([]byte, error) {
+func ParseEncryptionKey(hexOrBase64 string) ([]byte, error) {
 	// Try hex first (64 hex chars = 32 bytes).
 	if len(hexOrBase64) == hex.EncodedLen(aes256KeySize) {
 		key, err := hex.DecodeString(hexOrBase64)

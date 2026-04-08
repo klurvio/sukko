@@ -47,6 +47,7 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		CORSMaxAge:                 3600,
 		MaxTenantsFetchLimit:       10000,
 		DeletionTimeout:            5 * time.Minute,
+		CredentialsEncryptionKey:   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // 64-char hex = 32 bytes
 	}
 }
 
