@@ -61,6 +61,9 @@ type Gateway struct {
 	// Web Push (Enterprise edition)
 	pushClient PushForwarder // gRPC client to push service PushService (interface for testability)
 
+	// Provisioning reverse proxy — catch-all for unmatched requests
+	provisioningProxy *ProvisioningProxy
+
 	logger zerolog.Logger
 }
 
@@ -100,6 +103,18 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 		gw.logger.Warn().
 			Str("default_tenant_id", config.DefaultTenantID).
 			Msg("Auth disabled — all connections treated as anonymous, routed to default tenant")
+	}
+
+	// Set up provisioning reverse proxy (catch-all for unmatched requests)
+	if config.ProvisioningHTTPAddr != "" {
+		proxy, err := NewProvisioningProxy(config.ProvisioningHTTPAddr, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create provisioning proxy: %w", err)
+		}
+		gw.provisioningProxy = proxy
+		gw.logger.Info().
+			Str("target", config.ProvisioningHTTPAddr).
+			Msg("Provisioning reverse proxy enabled")
 	}
 
 	// Set up per-tenant channel rules if enabled (requires auth to be enabled first for channel rules provider)
@@ -481,7 +496,13 @@ func (gw *Gateway) NewServer() *http.Server {
 	mux.HandleFunc("DELETE /api/v1/push/subscribe", pushGate(gw.HandlePushUnsubscribe))
 	mux.HandleFunc("GET /api/v1/push/vapid-key", pushGate(gw.HandlePushVAPIDKey))
 
-	// Wrap with CORS middleware (gateway-wide, all HTTP endpoints)
+	// Catch-all: proxy unmatched requests to provisioning service.
+	// Registered last — gateway-owned routes above take precedence via ServeMux longest-match-wins.
+	if gw.provisioningProxy != nil {
+		mux.Handle("/", gw.provisioningProxy)
+	}
+
+	// Wrap with CORS middleware (gateway-wide, all HTTP endpoints including proxy)
 	handler := CORSMiddleware(gw.config.CORSAllowedOrigins)(mux)
 
 	return &http.Server{

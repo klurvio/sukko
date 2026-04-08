@@ -188,13 +188,13 @@ tasks:
       - |
         lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
         sleep 1
-        kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-provisioning {{.K8S_PROVISIONING_LOCAL_PORT}}:8080 &
+        kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-ws-gateway {{.K8S_PROVISIONING_LOCAL_PORT}}:3000 &
         PF_PID=$!
         sleep 2
 
         API="http://localhost:{{.K8S_PROVISIONING_LOCAL_PORT}}"
 
-        # Wait for provisioning API
+        # Wait for provisioning API (via gateway proxy)
         echo "Checking provisioning API..."
         for i in $(seq 1 10); do
           if curl -sf $API/health >/dev/null 2>&1; then
@@ -251,7 +251,7 @@ tasks:
       - |
         lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
         sleep 1
-        kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-provisioning {{.K8S_PROVISIONING_LOCAL_PORT}}:8080 &
+        kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-ws-gateway {{.K8S_PROVISIONING_LOCAL_PORT}}:3000 &
         PF_PID=$!
         sleep 2
         API="http://localhost:{{.K8S_PROVISIONING_LOCAL_PORT}}"

@@ -58,9 +58,9 @@ services:
       dockerfile: build/provisioning/Dockerfile
       args:
         COMMIT_HASH: ${COMMIT_HASH:-local}
-    ports:
-      - "8080:8080"
-      - "9090:9090"
+    expose:
+      - "8080"  # HTTP REST API — internal only (accessed via gateway proxy)
+      - "9090"  # gRPC — internal only (service-to-service)
     environment:
       ADMIN_BOOTSTRAP_KEY: "${ADMIN_BOOTSTRAP_KEY:-}"  # base64 Ed25519 public key, set by sukko init
       DATABASE_URL: "postgres://sukko:sukko@postgres:5432/sukko?sslmode=disable"
@@ -126,6 +126,7 @@ services:
       # Inter-service wiring (only overrides needed)
       GATEWAY_BACKEND_URL: "ws://ws-server:3005/ws"
       PROVISIONING_GRPC_ADDR: "provisioning:9090"
+      GATEWAY_PROVISIONING_HTTP_ADDR: "http://provisioning:8080"
       SERVER_GRPC_ADDR: "ws-server:3006"
       PUSH_GRPC_ADDR: "push-service:3008"
       SUKKO_LICENSE_KEY: "${SUKKO_LICENSE_KEY:-}"

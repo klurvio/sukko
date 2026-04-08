@@ -79,6 +79,8 @@ spec:
               value: {{ .Values.backendURL | default (printf "ws://%s-ws-server:3001/ws" .Release.Name) | quote }}
             - name: PROVISIONING_GRPC_ADDR
               value: {{ .Values.provisioningGRPCAddr | default (printf "%s-provisioning-grpc:9090" .Release.Name) | quote }}
+            - name: GATEWAY_PROVISIONING_HTTP_ADDR
+              value: {{ printf "http://%s-provisioning:8080" .Release.Name | quote }}
             - name: SERVER_GRPC_ADDR
               value: {{ printf "%s-ws-server:3006" .Release.Name | quote }}
             - name: PUSH_GRPC_ADDR

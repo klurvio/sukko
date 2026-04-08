@@ -5,6 +5,7 @@ package platform
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -76,6 +77,9 @@ type GatewayConfig struct {
 
 	// Graceful shutdown timeout
 	ShutdownTimeout time.Duration `env:"GATEWAY_SHUTDOWN_TIMEOUT" envDefault:"30s"`
+
+	// Provisioning HTTP reverse proxy — gateway proxies unmatched requests to provisioning REST API
+	ProvisioningHTTPAddr string `env:"GATEWAY_PROVISIONING_HTTP_ADDR" envDefault:"http://localhost:8080"`
 
 	// SSE + REST Publish (Pro edition)
 	ServerGRPCAddr string `env:"SERVER_GRPC_ADDR" envDefault:"localhost:3006"` // ws-server gRPC address for RealtimeService
@@ -173,6 +177,17 @@ func (c *GatewayConfig) Validate() error {
 
 	if c.BackendURL == "" {
 		return errors.New("GATEWAY_BACKEND_URL is required")
+	}
+
+	// Provisioning HTTP proxy target validation
+	if c.ProvisioningHTTPAddr != "" {
+		u, err := url.Parse(c.ProvisioningHTTPAddr)
+		if err != nil {
+			return fmt.Errorf("GATEWAY_PROVISIONING_HTTP_ADDR is not a valid URL: %w", err)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("GATEWAY_PROVISIONING_HTTP_ADDR scheme must be http or https, got %q", u.Scheme)
+		}
 	}
 
 	if len(c.PublicPatterns) == 0 {
