@@ -41,6 +41,10 @@ type RouterConfig struct {
 	// AdminKeyRegistry is the in-memory admin key cache.
 	AdminKeyRegistry *provauth.AdminKeyRegistry
 
+	// LicenseHandler handles POST /api/v1/license for license hot-reload.
+	// Required — provisioning fails to start without CREDENTIALS_ENCRYPTION_KEY.
+	LicenseHandler *LicenseHandler
+
 	// AdminKeyRepo is the PostgreSQL admin key repository.
 	AdminKeyRepo *repository.AdminKeyRepository
 
@@ -118,6 +122,9 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 		r.Get("/config", cfg.ConfigHandler)
 	}
 	r.Get("/metrics", h.Metrics)
+
+	// License hot-reload endpoint (no auth — Ed25519 signature is the authentication)
+	r.Post("/api/v1/license", cfg.LicenseHandler.HandleReload)
 
 	// Register pprof endpoints if enabled (Constitution IX: opt-in only)
 	profiling.InitPprof(func(pattern string, handler func(http.ResponseWriter, *http.Request)) {

@@ -33,6 +33,11 @@ type Claims struct {
 	// Exp is the expiration time as a Unix timestamp (seconds).
 	Exp int64 `json:"exp"`
 
+	// Iat is the issued-at time as a Unix timestamp (seconds).
+	// Used for replay protection: reject keys with iat <= current key's iat.
+	// Omitempty for backward compatibility with pre-existing keys.
+	Iat int64 `json:"iat,omitempty"`
+
 	// Nodes is the advisory maximum node count (contractual, not enforced).
 	Nodes int `json:"nodes,omitempty"`
 

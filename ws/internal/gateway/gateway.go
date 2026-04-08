@@ -117,6 +117,7 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 			gw.logger.With().Str("component", "tenant_permissions").Logger(),
 		)
 		if err != nil {
+			_ = gw.Close() // cleanup license watcher + stream registries
 			return nil, fmt.Errorf("create tenant permission checker: %w", err)
 		}
 		gw.tenantPermChecker = permChecker

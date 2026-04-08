@@ -37,7 +37,7 @@ func NewCredentialsRepository(pool *pgxpool.Pool, encryptionKeyStr string) (*Cre
 	repo := &CredentialsRepository{pool: pool}
 
 	if encryptionKeyStr != "" {
-		key, err := parseEncryptionKey(encryptionKeyStr)
+		key, err := ParseEncryptionKey(encryptionKeyStr)
 		if err != nil {
 			return nil, fmt.Errorf("parse credentials encryption key: %w", err)
 		}

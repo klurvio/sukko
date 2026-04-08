@@ -24,6 +24,10 @@ service ProvisioningInternalService {
   // StorePushCredentials stores provider credentials for a tenant.
   // Used by push service for VAPID auto-generation (FR-007) and admin API forwarding.
   rpc StorePushCredentials(StorePushCredentialsRequest) returns (StorePushCredentialsResponse);
+
+  // Stream license key — sends current key on connect, updates on LicenseChanged events.
+  // Services call Manager.Reload() with the received key.
+  rpc WatchLicense(WatchLicenseRequest) returns (stream WatchLicenseResponse);
 }
 
 message WatchKeysRequest {}
@@ -141,4 +145,11 @@ message StorePushCredentialsRequest {
 
 message StorePushCredentialsResponse {
   bool success = 1;
+}
+
+message WatchLicenseRequest {}
+
+message WatchLicenseResponse {
+  // Raw license key string. Services call Manager.Reload() with this value.
+  string license_key = 1;
 }

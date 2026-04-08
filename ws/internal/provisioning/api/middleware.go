@@ -4,7 +4,6 @@ package api
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"slices"
 	"strconv"
@@ -103,10 +102,7 @@ func AdminJWTMiddleware(validator *provauth.AdminValidator, logger zerolog.Logge
 			claims, err := validator.ValidateToken(r.Context(), tokenString)
 			if err != nil {
 				kid, _ := auth.ExtractKeyID(tokenString)
-				clientIP := r.Header.Get("X-Real-IP")
-				if clientIP == "" {
-					clientIP, _, _ = net.SplitHostPort(r.RemoteAddr)
-				}
+				clientIP := httputil.GetClientIP(r)
 				logger.Warn().
 					Err(err).
 					Str("kid", kid).
@@ -302,7 +298,7 @@ func RateLimitMiddleware(requestsPerMinute int) func(http.Handler) http.Handler 
 			}
 
 			// Per-IP rate limit
-			ip := extractClientIP(r)
+			ip := httputil.GetClientIP(r)
 			v, _ := ipLimiters.LoadOrStore(ip, rate.NewLimiter(ipRate, ipBurst))
 			if limiter, ok := v.(*rate.Limiter); ok && !limiter.Allow() {
 				httputil.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Per-IP rate limit exceeded")
@@ -312,16 +308,4 @@ func RateLimitMiddleware(requestsPerMinute int) func(http.Handler) http.Handler 
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// extractClientIP returns the client IP from X-Real-IP or RemoteAddr.
-func extractClientIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

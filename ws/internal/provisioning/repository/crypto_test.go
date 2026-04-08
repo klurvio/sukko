@@ -162,15 +162,15 @@ func TestParseEncryptionKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			key, err := parseEncryptionKey(tt.input)
+			key, err := ParseEncryptionKey(tt.input)
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("parseEncryptionKey() error = nil, want error")
+					t.Errorf("ParseEncryptionKey() error = nil, want error")
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("parseEncryptionKey() error = %v", err)
+				t.Fatalf("ParseEncryptionKey() error = %v", err)
 			}
 			if len(key) != 32 {
 				t.Errorf("key length = %d, want 32", len(key))

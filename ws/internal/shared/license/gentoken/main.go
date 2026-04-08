@@ -30,6 +30,7 @@ func main() {
 		edition             = flag.String("edition", "", "edition tier: community, pro, enterprise (required)")
 		org                 = flag.String("org", "", "organization name (required)")
 		expires             = flag.String("expires", "", "expiry: YYYY-MM-DD or relative +30d/+1y/-1d (required)")
+		iat                 = flag.Int64("iat", 0, "issued-at Unix timestamp (0 = now)")
 		nodes               = flag.Int("nodes", 0, "advisory node count (optional)")
 		tenants             = flag.Int("tenants", 0, "override max tenants limit (0 = edition default)")
 		connections         = flag.Int("connections", 0, "override max total connections (0 = edition default)")
@@ -55,7 +56,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Warning: token expires in the past (%s). Sukko will degrade to Community edition.\n", exp.Format("2006-01-02"))
 	}
 
-	claims, err := buildClaims(*edition, *org, exp, *nodes, license.Limits{
+	iatValue := *iat
+	if iatValue == 0 {
+		iatValue = time.Now().Unix()
+	}
+
+	claims, err := buildClaims(*edition, *org, exp, iatValue, *nodes, license.Limits{
 		MaxTenants:               *tenants,
 		MaxTotalConnections:      *connections,
 		MaxShards:                *shards,
@@ -140,7 +146,7 @@ func parseExpiry(s string) (time.Time, error) {
 }
 
 // buildClaims constructs license.Claims from validated inputs.
-func buildClaims(edition, org string, exp time.Time, nodes int, limits license.Limits) (license.Claims, error) {
+func buildClaims(edition, org string, exp time.Time, iatUnix int64, nodes int, limits license.Limits) (license.Claims, error) {
 	ed, err := parseEdition(edition)
 	if err != nil {
 		return license.Claims{}, err
@@ -150,6 +156,7 @@ func buildClaims(edition, org string, exp time.Time, nodes int, limits license.L
 		Edition: ed,
 		Org:     org,
 		Exp:     exp.Unix(),
+		Iat:     iatUnix,
 		Nodes:   nodes,
 		Limits:  limits,
 	}, nil

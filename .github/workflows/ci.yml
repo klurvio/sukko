@@ -1,18 +1,17 @@
 # =============================================================================
-# CI — Push & PR Validation
+# CI — PR Validation Only
 # =============================================================================
-# Runs on every push and pull request — no path filtering.
+# Runs on pull requests only — not on every push. Skips spec/doc-only changes.
 # Jobs: test, lint, helm-lint (parallel).
 # Test and lint are required branch protection checks.
 
 name: CI
 
 on:
-  push:
-    branches-ignore:
-      - main
   pull_request:
     types: [opened, synchronize, reopened]
+    paths-ignore:
+      - '*.md'
 
 permissions:
   contents: read

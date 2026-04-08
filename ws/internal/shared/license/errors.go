@@ -21,6 +21,11 @@ var (
 	// ErrLicenseInvalidFormat indicates the license key is not in the expected
 	// base64url(claims).base64url(signature) format.
 	ErrLicenseInvalidFormat = errors.New("license format invalid")
+
+	// ErrReplayDetected indicates the pushed key has an iat (issued-at)
+	// older than or equal to the current key's iat. Prevents downgrade
+	// attacks with leaked older keys.
+	ErrReplayDetected = errors.New("license replay detected: iat not newer than current")
 )
 
 // EditionLimitError is returned when a runtime operation exceeds an edition's

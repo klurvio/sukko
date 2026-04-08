@@ -25,6 +25,7 @@ const (
 	ProvisioningInternalService_WatchAPIKeys_FullMethodName         = "/sukko.provisioning.v1.ProvisioningInternalService/WatchAPIKeys"
 	ProvisioningInternalService_WatchPushConfig_FullMethodName      = "/sukko.provisioning.v1.ProvisioningInternalService/WatchPushConfig"
 	ProvisioningInternalService_StorePushCredentials_FullMethodName = "/sukko.provisioning.v1.ProvisioningInternalService/StorePushCredentials"
+	ProvisioningInternalService_WatchLicense_FullMethodName         = "/sukko.provisioning.v1.ProvisioningInternalService/WatchLicense"
 )
 
 // ProvisioningInternalServiceClient is the client API for ProvisioningInternalService service.
@@ -46,6 +47,9 @@ type ProvisioningInternalServiceClient interface {
 	// StorePushCredentials stores provider credentials for a tenant.
 	// Used by push service for VAPID auto-generation (FR-007) and admin API forwarding.
 	StorePushCredentials(ctx context.Context, in *StorePushCredentialsRequest, opts ...grpc.CallOption) (*StorePushCredentialsResponse, error)
+	// Stream license key — sends current key on connect, updates on LicenseChanged events.
+	// Services call Manager.Reload() with the received key.
+	WatchLicense(ctx context.Context, in *WatchLicenseRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchLicenseResponse], error)
 }
 
 type provisioningInternalServiceClient struct {
@@ -161,6 +165,25 @@ func (c *provisioningInternalServiceClient) StorePushCredentials(ctx context.Con
 	return out, nil
 }
 
+func (c *provisioningInternalServiceClient) WatchLicense(ctx context.Context, in *WatchLicenseRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchLicenseResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ProvisioningInternalService_ServiceDesc.Streams[5], ProvisioningInternalService_WatchLicense_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WatchLicenseRequest, WatchLicenseResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ProvisioningInternalService_WatchLicenseClient = grpc.ServerStreamingClient[WatchLicenseResponse]
+
 // ProvisioningInternalServiceServer is the server API for ProvisioningInternalService service.
 // All implementations must embed UnimplementedProvisioningInternalServiceServer
 // for forward compatibility.
@@ -180,6 +203,9 @@ type ProvisioningInternalServiceServer interface {
 	// StorePushCredentials stores provider credentials for a tenant.
 	// Used by push service for VAPID auto-generation (FR-007) and admin API forwarding.
 	StorePushCredentials(context.Context, *StorePushCredentialsRequest) (*StorePushCredentialsResponse, error)
+	// Stream license key — sends current key on connect, updates on LicenseChanged events.
+	// Services call Manager.Reload() with the received key.
+	WatchLicense(*WatchLicenseRequest, grpc.ServerStreamingServer[WatchLicenseResponse]) error
 	mustEmbedUnimplementedProvisioningInternalServiceServer()
 }
 
@@ -207,6 +233,9 @@ func (UnimplementedProvisioningInternalServiceServer) WatchPushConfig(*WatchPush
 }
 func (UnimplementedProvisioningInternalServiceServer) StorePushCredentials(context.Context, *StorePushCredentialsRequest) (*StorePushCredentialsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StorePushCredentials not implemented")
+}
+func (UnimplementedProvisioningInternalServiceServer) WatchLicense(*WatchLicenseRequest, grpc.ServerStreamingServer[WatchLicenseResponse]) error {
+	return status.Error(codes.Unimplemented, "method WatchLicense not implemented")
 }
 func (UnimplementedProvisioningInternalServiceServer) mustEmbedUnimplementedProvisioningInternalServiceServer() {
 }
@@ -303,6 +332,17 @@ func _ProvisioningInternalService_StorePushCredentials_Handler(srv interface{}, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProvisioningInternalService_WatchLicense_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchLicenseRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ProvisioningInternalServiceServer).WatchLicense(m, &grpc.GenericServerStream[WatchLicenseRequest, WatchLicenseResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ProvisioningInternalService_WatchLicenseServer = grpc.ServerStreamingServer[WatchLicenseResponse]
+
 // ProvisioningInternalService_ServiceDesc is the grpc.ServiceDesc for ProvisioningInternalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -339,6 +379,11 @@ var ProvisioningInternalService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "WatchPushConfig",
 			Handler:       _ProvisioningInternalService_WatchPushConfig_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "WatchLicense",
+			Handler:       _ProvisioningInternalService_WatchLicense_Handler,
 			ServerStreams: true,
 		},
 	},
