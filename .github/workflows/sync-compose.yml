@@ -12,13 +12,14 @@ on:
     branches: [main]
     paths: [docker-compose.yml]
   workflow_dispatch: # Manual trigger via GitHub UI or: gh workflow run sync-compose.yml
+
 permissions:
   contents: read
 
 jobs:
   sync:
     name: Sync to sukko-cli
-    runs-on: tenki-standard-medium-4c-8g
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 

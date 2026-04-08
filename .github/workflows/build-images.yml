@@ -24,7 +24,7 @@ concurrency:
 jobs:
   build-and-push:
     name: Build ${{ matrix.name }}
-    runs-on: tenki-standard-medium-4c-8g
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
