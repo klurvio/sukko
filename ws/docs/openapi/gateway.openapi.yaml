@@ -246,7 +246,7 @@ paths:
           required: true
           schema:
             type: string
-          description: Comma-separated list of channels to subscribe to
+          description: "Comma-separated list of channels. All channels must be tenant-prefixed: {tenant}.{suffix}"
           example: "sukko.BTC.trade,sukko.ETH.trade"
         - name: token
           in: query
@@ -438,7 +438,7 @@ paths:
                   type: array
                   items:
                     type: string
-                  description: Channels to receive push notifications for
+                  description: "Channels to receive push notifications for. Must be tenant-prefixed: {tenant}.{suffix}"
             examples:
               web:
                 value:
