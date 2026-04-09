@@ -40,11 +40,11 @@ type Proxy struct {
 	maxFrameSize   int
 
 	// Auth (only active when authRequired=true)
-	claims      *auth.Claims
-	claimsMu    sync.RWMutex // protects claims and subscribedChannels
-	permissions *PermissionChecker
+	claims       *auth.Claims
+	claimsMu     sync.RWMutex // protects claims and subscribedChannels
+	permissions  *PermissionChecker
 	authRequired bool
-	validator   TokenValidator
+	validator    TokenValidator
 
 	// Auth refresh rate limiting
 	authLimiter           *rate.Limiter
@@ -75,9 +75,9 @@ type ProxyConfig struct {
 
 	// Auth (claims is nil when auth disabled — proxy won't use it)
 	AuthRequired bool
-	Claims      *auth.Claims
-	Permissions *PermissionChecker
-	Validator   TokenValidator
+	Claims       *auth.Claims
+	Permissions  *PermissionChecker
+	Validator    TokenValidator
 
 	// Auth refresh rate interval (minimum time between auth refreshes)
 	AuthRefreshRateInterval time.Duration
@@ -112,7 +112,7 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 		logger:                cfg.Logger,
 		messageTimeout:        cfg.MessageTimeout,
 		maxFrameSize:          cfg.MaxFrameSize,
-		authRequired:           cfg.AuthRequired,
+		authRequired:          cfg.AuthRequired,
 		claims:                cfg.Claims,
 		permissions:           cfg.Permissions,
 		validator:             cfg.Validator,

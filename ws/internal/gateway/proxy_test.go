@@ -55,7 +55,7 @@ func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatter
 	return &Proxy{
 		clientConn:         nil, // Not needed for interception tests
 		backendConn:        nil, // Not needed for interception tests
-		authRequired:        true,
+		authRequired:       true,
 		claims:             claims,
 		tenantID:           tenantID,
 		permissions:        pc,
@@ -75,7 +75,7 @@ func newTestProxyNoAuth(tenantID string) *Proxy {
 	return &Proxy{
 		clientConn:         nil,
 		backendConn:        nil,
-		authRequired:        false,
+		authRequired:       false,
 		claims:             nil,
 		tenantID:           tenantID,
 		permissions:        nil,
@@ -169,7 +169,7 @@ func TestProxy_InterceptClientMessage_EmptyTenantBypass(t *testing.T) {
 	// Empty tenantID should bypass all interception (defensive guard)
 	proxy := &Proxy{
 		tenantID:       "",
-		authRequired:    false,
+		authRequired:   false,
 		logger:         zerolog.Nop(),
 		publishLimiter: rate.NewLimiter(10, 100),
 		maxPublishSize: 64 * 1024,
@@ -567,7 +567,7 @@ func newRunTestProxy(maxFrameSize int, messageTimeout time.Duration) (proxy *Pro
 	proxy = &Proxy{
 		clientConn:         clientConn,
 		backendConn:        backendConn,
-		authRequired:        false,
+		authRequired:       false,
 		tenantID:           "test-tenant",
 		logger:             zerolog.Nop(),
 		messageTimeout:     messageTimeout,
@@ -792,7 +792,7 @@ func newTestProxyAPIKeyOnly(tenantID string, publicPatterns []string) *Proxy {
 	return &Proxy{
 		clientConn:         nil,
 		backendConn:        nil,
-		authRequired:        true,
+		authRequired:       true,
 		claims:             nil,
 		tenantID:           tenantID,
 		apiKeyOnly:         true,
@@ -821,7 +821,7 @@ func TestProxy_APIKeyOnly_PublishRejected(t *testing.T) {
 	proxy := &Proxy{
 		clientConn:         clientConn,
 		backendConn:        backendConn,
-		authRequired:        true,
+		authRequired:       true,
 		claims:             nil,
 		tenantID:           "sukko",
 		apiKeyOnly:         true,
@@ -923,7 +923,7 @@ func TestProxy_APIKeyOnly_AuthRefreshTenantMismatch(t *testing.T) {
 	proxy := &Proxy{
 		clientConn:            clientConn,
 		backendConn:           backendConn,
-		authRequired:           true,
+		authRequired:          true,
 		claims:                nil,
 		tenantID:              "tenant-a",
 		apiKeyOnly:            true,

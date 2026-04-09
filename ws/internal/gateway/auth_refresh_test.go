@@ -56,7 +56,7 @@ func newAuthTestProxy(validator TokenValidator, claims *auth.Claims) (proxy *Pro
 	proxy = &Proxy{
 		clientConn:            clientConn,
 		backendConn:           backendConn,
-		authRequired:           true,
+		authRequired:          true,
 		claims:                claims,
 		tenantID:              tenantID,
 		permissions:           pc,
@@ -251,7 +251,7 @@ func TestInterceptAuthRefresh_AuthDisabled(t *testing.T) {
 
 	proxy := &Proxy{
 		clientConn:            clientConn,
-		authRequired:           false,
+		authRequired:          false,
 		logger:                zerolog.Nop(),
 		subscribedChannels:    make(map[string]struct{}),
 		authLimiter:           rate.NewLimiter(rate.Every(30*time.Second), 1),
@@ -384,7 +384,7 @@ func TestForceUnsubscribeRevokedChannels_NoRevocation(t *testing.T) {
 	pc := NewPermissionChecker([]string{"*.trade", "*.liquidity"}, nil, nil)
 
 	proxy := &Proxy{
-		authRequired:        true,
+		authRequired:       true,
 		claims:             claims,
 		tenantID:           "test-tenant",
 		permissions:        pc,
@@ -426,13 +426,13 @@ func TestForceUnsubscribeRevokedChannels_PartialRevocation(t *testing.T) {
 	defer func() { _ = backendRemote.Close() }()
 
 	proxy := &Proxy{
-		clientConn:  clientConn,
-		backendConn: backendConn,
+		clientConn:   clientConn,
+		backendConn:  backendConn,
 		authRequired: true,
-		claims:      claims,
-		tenantID:    "test-tenant",
-		permissions: pc,
-		logger:      zerolog.Nop(),
+		claims:       claims,
+		tenantID:     "test-tenant",
+		permissions:  pc,
+		logger:       zerolog.Nop(),
 		subscribedChannels: map[string]struct{}{
 			"test-tenant.BTC.trade":     {},
 			"test-tenant.ETH.liquidity": {},
@@ -484,8 +484,8 @@ func TestForceUnsubscribeRevokedChannels_AllRevoked(t *testing.T) {
 	pc := NewPermissionChecker(nil, nil, nil)
 
 	proxy := &Proxy{
-		clientConn:  clientConn,
-		backendConn: backendConn,
+		clientConn:   clientConn,
+		backendConn:  backendConn,
 		authRequired: true,
 		claims: &auth.Claims{
 			RegisteredClaims: jwt.RegisteredClaims{Subject: "user1"},
@@ -581,7 +581,7 @@ func BenchmarkInterceptAuthRefresh(b *testing.B) {
 	proxy := &Proxy{
 		clientConn:            clientConn,
 		backendConn:           backendConn,
-		authRequired:           true,
+		authRequired:          true,
 		claims:                claims,
 		tenantID:              "test-tenant",
 		permissions:           NewPermissionChecker([]string{"*.trade"}, nil, nil),
