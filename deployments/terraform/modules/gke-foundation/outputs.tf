@@ -27,6 +27,11 @@ output "gateway_external_ip" {
   value       = google_compute_address.gateway_external.address
 }
 
+output "provisioning_external_ip" {
+  description = "The static external IP for the provisioning LoadBalancer"
+  value       = google_compute_address.provisioning_external.address
+}
+
 output "redpanda_internal_ip" {
   description = "The static internal IP for the Redpanda LoadBalancer"
   value       = google_compute_address.redpanda_internal.address

@@ -2,7 +2,7 @@
 # GKE - Demo Environment
 # =============================================================================
 # Demo environment on Google Kubernetes Engine (GKE Standard).
-# All backend services ClusterIP only — ws-gateway is the sole LoadBalancer.
+# Gateway (client-facing) and provisioning (operator-facing) are LoadBalancers.
 # Static gateway IP preserved via foundation layer (passed via --set at deploy time).
 #
 # Usage:
@@ -71,6 +71,12 @@ provisioning:
     limits:
       cpu: "500m"
       memory: "256Mi"
+  service:
+    type: LoadBalancer
+    port: 8080
+    targetPort: 8080
+    grpcPort: 9090
+    loadBalancerIP: ""  # Set to terraform output provisioning_external_ip, or pass via --set in CI
 
 # ── Push Service ───────────────────────────────────────────────────
 push-service:

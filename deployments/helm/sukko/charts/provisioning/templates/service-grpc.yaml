@@ -8,8 +8,8 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: {{ .Values.service.grpcPort | default 9090 }}
-      targetPort: {{ .Values.service.grpcPort | default 9090 }}
+    - port: {{ .Values.service.grpcPort }}
+      targetPort: {{ .Values.service.grpcPort }}
       protocol: TCP
       name: grpc
   selector:

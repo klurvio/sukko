@@ -5,17 +5,14 @@ version: "3"
 # =============================================================================
 # Pattern: {domain}:{action} [ENV=value]
 #
-# Domains:
-#   local - Kind cluster (no ENV needed)
-#   k8s   - Remote K8s (PLATFORM=doks|gke ENV=demo)
+# Environments:
+#   Local  - Docker Compose (sukko up / sukko down)
+#   Remote - Kubernetes (PLATFORM=doks|gke ENV=demo)
 #
 # Run 'task --list-all' to see all available tasks
 
 includes:
   # Domain taskfiles
-  local:
-    taskfile: ./taskfiles/local.yml
-    dir: .
   k8s:
     taskfile: ./taskfiles/k8s.yml
     dir: .
@@ -51,13 +48,6 @@ tasks:
     cmds:
       - echo "SUKKO WEBSOCKET SERVER"
       - echo ""
-      - echo "=== LOCAL DEVELOPMENT ==="
-      - echo "  task local                     Full setup (Kind + deploy)"
-      - echo "  task local:status              Show pods and services"
-      - echo "  task local:logs                Tail ws-server logs"
-      - echo "  task local:build               Build and reload images"
-      - echo "  task local:provision:create    Create topics + tenant"
-      - echo ""
       - echo "=== TESTER DEPLOYMENT ==="
       - echo "  task tester:do:deploy          Deploy tester to DO Droplet"
       - echo "  task tester:gce:deploy         Deploy tester to GCE VM"
@@ -81,11 +71,6 @@ tasks:
   # ===========================================================================
   # Minimal Shortcuts (to avoid confusion)
   # ===========================================================================
-  local:
-    desc: Full local setup (Kind + deploy)
-    cmds:
-      - task: local:setup
-
   test:
     desc: Run unit tests
     cmds:

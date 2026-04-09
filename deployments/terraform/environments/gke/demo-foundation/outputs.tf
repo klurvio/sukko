@@ -27,6 +27,11 @@ output "gateway_external_ip" {
   value       = module.foundation.gateway_external_ip
 }
 
+output "provisioning_external_ip" {
+  description = "The static external IP for the provisioning LoadBalancer"
+  value       = module.foundation.provisioning_external_ip
+}
+
 output "redpanda_internal_ip" {
   description = "The static internal IP for the Redpanda LoadBalancer"
   value       = module.foundation.redpanda_internal_ip

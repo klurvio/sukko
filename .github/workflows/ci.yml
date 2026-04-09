@@ -1,17 +1,13 @@
 # =============================================================================
-# CI — PR Validation Only
+# CI — Lint, Test, Helm Lint
 # =============================================================================
-# Runs on pull requests only — not on every push. Skips spec/doc-only changes.
-# Jobs: test, lint, helm-lint (parallel).
-# Test and lint are required branch protection checks.
+# Manual trigger only. Run via GitHub Actions UI ("Run workflow" button)
+# or CLI: gh workflow run ci.yml --ref <branch>
 
 name: CI
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths-ignore:
-      - '*.md'
+  workflow_dispatch:
 
 permissions:
   contents: read

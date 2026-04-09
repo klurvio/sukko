@@ -24,7 +24,7 @@ vars:
   K8S_GATEWAY_PORT: 3100
   K8S_GRAFANA_PORT: 3000
   K8S_PROMETHEUS_PORT: 9090
-  K8S_PROVISIONING_LOCAL_PORT: 48080
+  K8S_PROVISIONING_URL: ""  # Set to provisioning LoadBalancer IP (e.g., http://<ip>:8080)
 
 tasks:
   # ===========================================================================
@@ -56,12 +56,15 @@ tasks:
       - task: connect
       - |
         EXTRA_SETS=""
-        if [ "{{.PLATFORM}}" = "gke" ]; then
-          GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_external_ip 2>/dev/null || echo "")
-          if [ -n "$GATEWAY_IP" ]; then
-            EXTRA_SETS="--set ws-gateway.service.loadBalancerIP=$GATEWAY_IP"
-            echo "Using static gateway IP: $GATEWAY_IP"
-          fi
+        GATEWAY_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw gateway_external_ip 2>/dev/null || echo "")
+        if [ -n "$GATEWAY_IP" ]; then
+          EXTRA_SETS="$EXTRA_SETS --set ws-gateway.service.loadBalancerIP=$GATEWAY_IP"
+          echo "Using static gateway IP: $GATEWAY_IP"
+        fi
+        PROVISIONING_IP=$(terraform -chdir={{.K8S_FOUNDATION_TF_DIR}} output -raw provisioning_external_ip 2>/dev/null || echo "")
+        if [ -n "$PROVISIONING_IP" ]; then
+          EXTRA_SETS="$EXTRA_SETS --set provisioning.service.loadBalancerIP=$PROVISIONING_IP"
+          echo "Using static provisioning IP: $PROVISIONING_IP"
         fi
         helm upgrade --install {{.K8S_RELEASE_NAME}} {{.K8S_CHART_PATH}} \
           -f {{.K8S_VALUES_FILE}} -n {{.K8S_NAMESPACE}} --create-namespace $EXTRA_SETS
@@ -186,30 +189,20 @@ tasks:
     desc: Create sukko tenant + routing rules + channel rules
     cmds:
       - |
-        lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
-        sleep 1
-        kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-provisioning {{.K8S_PROVISIONING_LOCAL_PORT}}:8080 &
-        PF_PID=$!
-        sleep 2
-
-        API="http://localhost:{{.K8S_PROVISIONING_LOCAL_PORT}}"
-
-        # Wait for provisioning API
-        echo "Checking provisioning API..."
-        for i in $(seq 1 10); do
-          if curl -sf $API/health >/dev/null 2>&1; then
-            echo "Provisioning API ready"
-            break
-          fi
-          echo "Waiting for provisioning API..."
-          sleep 1
-        done
-
-        if ! curl -sf $API/health >/dev/null 2>&1; then
-          echo "ERROR: Provisioning API not accessible at $API"
-          kill $PF_PID 2>/dev/null || true
+        if [ -z "{{.K8S_PROVISIONING_URL}}" ]; then
+          echo "ERROR: K8S_PROVISIONING_URL is not set."
+          echo "Set it to the provisioning LoadBalancer IP (e.g., http://<ip>:8080)"
           exit 1
         fi
+
+        API="{{.K8S_PROVISIONING_URL}}"
+
+        # Check provisioning API is reachable
+        if ! curl -sf $API/health >/dev/null 2>&1; then
+          echo "ERROR: Provisioning API not accessible at $API"
+          exit 1
+        fi
+        echo "Provisioning API ready at $API"
 
         # Create tenant
         echo "Creating tenant..."
@@ -243,18 +236,18 @@ tasks:
         echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
 
         echo "Provisioning complete"
-        kill $PF_PID 2>/dev/null || true
 
   provision:status:
     desc: Show tenants and routing rules via provisioning API
     cmds:
       - |
-        lsof -ti:{{.K8S_PROVISIONING_LOCAL_PORT}} | xargs kill 2>/dev/null || true
-        sleep 1
-        kubectl port-forward -n {{.K8S_NAMESPACE}} svc/{{.K8S_RELEASE_NAME}}-provisioning {{.K8S_PROVISIONING_LOCAL_PORT}}:8080 &
-        PF_PID=$!
-        sleep 2
-        API="http://localhost:{{.K8S_PROVISIONING_LOCAL_PORT}}"
+        if [ -z "{{.K8S_PROVISIONING_URL}}" ]; then
+          echo "ERROR: K8S_PROVISIONING_URL is not set."
+          echo "Set it to the provisioning LoadBalancer IP (e.g., http://<ip>:8080)"
+          exit 1
+        fi
+
+        API="{{.K8S_PROVISIONING_URL}}"
         echo "=== Tenants ==="
         curl -s $API/api/v1/tenants | jq .
         echo ""
@@ -263,7 +256,6 @@ tasks:
         echo ""
         echo "=== Channel Rules (sukko) ==="
         curl -s $API/api/v1/tenants/sukko/channel-rules | jq .
-        kill $PF_PID 2>/dev/null || true
 
   # ===========================================================================
   # Foundation (VPC, static IPs — persists across cluster lifecycle)
