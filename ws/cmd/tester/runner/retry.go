@@ -16,7 +16,12 @@ var connectRetryBackoffs = []time.Duration{0, 1 * time.Second, 2 * time.Second, 
 // connectWithRetry attempts a WebSocket connection with exponential backoff.
 // Used at test startup to handle the key registry cache race — the gateway may
 // not have the newly registered key in its cache yet.
-func connectWithRetry(ctx context.Context, gatewayURL, token string, logger zerolog.Logger) (*testerws.Client, error) {
+func connectWithRetry(ctx context.Context, gatewayURL, token string, logger zerolog.Logger, onMessage ...func(testerws.Message)) (*testerws.Client, error) {
+	var msgCallback func(testerws.Message)
+	if len(onMessage) > 0 {
+		msgCallback = onMessage[0]
+	}
+
 	var lastErr error
 	for i, delay := range connectRetryBackoffs {
 		if delay > 0 {
@@ -31,6 +36,7 @@ func connectWithRetry(ctx context.Context, gatewayURL, token string, logger zero
 			GatewayURL: gatewayURL,
 			Token:      token,
 			Logger:     logger,
+			OnMessage:  msgCallback,
 		})
 		if err == nil {
 			if i > 0 {

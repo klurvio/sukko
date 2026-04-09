@@ -166,6 +166,32 @@ func TestCollector_ConcurrentAccess(t *testing.T) {
 	}
 }
 
+func TestCollector_SSEAndRESTCounters(t *testing.T) {
+	t.Parallel()
+
+	c := NewCollector()
+	c.SSEMessagesReceived.Add(15)
+	c.RESTPublishSuccess.Add(8)
+	c.RESTPublishErrors.Add(2)
+
+	snap := c.Snapshot()
+	if snap.SSEMessagesReceived != 15 {
+		t.Errorf("SSEMessagesReceived = %d, want 15", snap.SSEMessagesReceived)
+	}
+	if snap.RESTPublishSuccess != 8 {
+		t.Errorf("RESTPublishSuccess = %d, want 8", snap.RESTPublishSuccess)
+	}
+	if snap.RESTPublishErrors != 2 {
+		t.Errorf("RESTPublishErrors = %d, want 2", snap.RESTPublishErrors)
+	}
+
+	c.Reset()
+	snap = c.Snapshot()
+	if snap.SSEMessagesReceived != 0 || snap.RESTPublishSuccess != 0 || snap.RESTPublishErrors != 0 {
+		t.Error("SSE/REST counters not zeroed after reset")
+	}
+}
+
 func TestCollector_ChannelModeCounters(t *testing.T) {
 	t.Parallel()
 

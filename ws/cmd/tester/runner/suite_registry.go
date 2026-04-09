@@ -18,4 +18,6 @@ var SuiteRegistry = map[string]SuiteInfo{
 	"pubsub":           {Name: "pubsub", Description: "Pub-sub delivery with channel scoping (public, user, group)"},
 	"tenant-isolation": {Name: "tenant-isolation", Description: "Cross-tenant message isolation"},
 	"provisioning":     {Name: "provisioning", Description: "Provisioning API validation"},
+	"sse":              {Name: "sse", Description: "SSE transport receive and auth validation"},
+	"rest-publish":     {Name: "rest-publish", Description: "REST publish endpoint delivery and input validation"},
 }
