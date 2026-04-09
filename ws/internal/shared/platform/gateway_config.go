@@ -36,7 +36,7 @@ type GatewayConfig struct {
 	MaxFrameSize int `env:"GATEWAY_MAX_FRAME_SIZE" envDefault:"1048576"` // 1MB = protocol.DefaultMaxFrameSize
 
 	// DefaultTenantID disables multi-tenant support. All connections
-	// are routed to this tenant. Only used when AUTH_ENABLED=false.
+	// are routed to this tenant. Only used when AUTH_MODE=disabled.
 	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
 
 	// Per-tenant channel rules (Feature Flag)
@@ -128,6 +128,11 @@ func LoadGatewayConfig(logger zerolog.Logger) (*GatewayConfig, error) {
 
 // Validate checks gateway configuration for errors.
 func (c *GatewayConfig) Validate() error {
+	// Auth mode validation (must be first — other validations depend on it)
+	if err := c.AuthConfig.Validate(); err != nil {
+		return err
+	}
+
 	if c.Port < 1 || c.Port > MaxPort {
 		return fmt.Errorf("GATEWAY_PORT must be between 1 and %d, got %d", MaxPort, c.Port)
 	}
@@ -157,13 +162,13 @@ func (c *GatewayConfig) Validate() error {
 	}
 
 	// Auth-dependent validation
-	if c.AuthEnabled {
+	if c.AuthRequired() {
 		if err := c.ProvisioningClientConfig.Validate(); err != nil {
 			return err
 		}
 	} else {
 		if c.DefaultTenantID == "" {
-			return errors.New("DEFAULT_TENANT_ID is required when AUTH_ENABLED=false")
+			return errors.New("DEFAULT_TENANT_ID is required when AUTH_MODE=disabled")
 		}
 	}
 
@@ -266,7 +271,7 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		Str("edition", edition).
 		Str("environment", c.Environment).
 		Int("port", c.Port).
-		Bool("auth_enabled", c.AuthEnabled).
+		Str("auth_mode", c.AuthMode).
 		Dur("read_timeout", c.ReadTimeout).
 		Dur("write_timeout", c.WriteTimeout).
 		Dur("idle_timeout", c.IdleTimeout).
@@ -284,12 +289,12 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		Str("log_format", c.LogFormat)
 
 	// Add routing fields when auth is disabled
-	if !c.AuthEnabled {
+	if !c.AuthRequired() {
 		event = event.Str("default_tenant_id", c.DefaultTenantID)
 	}
 
 	// Add auth-specific fields when enabled
-	if c.AuthEnabled {
+	if c.AuthRequired() {
 		event = event.
 			Bool("require_tenant_id", c.RequireTenantID).
 			Str("provisioning_grpc_addr", c.ProvisioningGRPCAddr).

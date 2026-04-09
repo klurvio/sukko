@@ -18,7 +18,7 @@ func TestRequiredEdition(t *testing.T) {
 
 	enterpriseFeatures := []Feature{
 		PushNotifications, IPAllowlisting, AuditLogging,
-		E2EEncryption, PriorityRouting, CustomQuotaPolicies,
+		PriorityRouting, CustomQuotaPolicies,
 	}
 	for _, f := range enterpriseFeatures {
 		if got := RequiredEdition(f); got != Enterprise {

@@ -33,7 +33,7 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 			Environment: "test",
 		},
 		AuthConfig: platform.AuthConfig{
-			AuthEnabled: false, // Disabled by default for unit tests
+			AuthMode: "disabled", // Disabled by default for unit tests
 		},
 		Port:                         3000,
 		ReadTimeout:                  15 * time.Second,
@@ -92,7 +92,7 @@ func newGatewayWithMockValidator(cfg *platform.GatewayConfig, logger zerolog.Log
 func TestNew_AuthDisabled(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = false
+	cfg.AuthMode = "disabled"
 	logger := newTestLogger()
 
 	gw, err := New(cfg, logger)
@@ -115,7 +115,7 @@ func TestNew_AuthDisabled(t *testing.T) {
 func TestNew_AuthEnabled_ConfigValidation(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	cfg.ProvisioningGRPCAddr = "" // No gRPC address
 
 	// Config validation should catch missing gRPC address
@@ -208,7 +208,7 @@ func TestExtractBearerToken(t *testing.T) {
 func TestGateway_HandleHealth(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = false
+	cfg.AuthMode = "disabled"
 	logger := newTestLogger()
 	gw, err := New(cfg, logger)
 	if err != nil {
@@ -259,7 +259,7 @@ func TestGateway_NewServer(t *testing.T) {
 	cfg.ReadTimeout = 20 * time.Second
 	cfg.WriteTimeout = 25 * time.Second
 	cfg.IdleTimeout = 120 * time.Second
-	cfg.AuthEnabled = false
+	cfg.AuthMode = "disabled"
 	logger := newTestLogger()
 	gw, err := New(cfg, logger)
 	if err != nil {
@@ -299,7 +299,7 @@ func TestGateway_NewServer(t *testing.T) {
 func TestGateway_HandleWebSocket_NoToken_WithMockValidator(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true // Enable auth for this test
+	cfg.AuthMode = "required" // Enable auth for this test
 	logger := newTestLogger()
 
 	// Create a mock validator using StaticKeyRegistry
@@ -331,7 +331,7 @@ func TestGateway_HandleWebSocket_NoToken_WithMockValidator(t *testing.T) {
 func TestGateway_HandleWebSocket_InvalidToken_WithMockValidator(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true // Enable auth for this test
+	cfg.AuthMode = "required" // Enable auth for this test
 	logger := newTestLogger()
 
 	// Create a mock validator using StaticKeyRegistry (empty, so all tokens fail)
@@ -363,7 +363,7 @@ func TestGateway_HandleWebSocket_InvalidToken_WithMockValidator(t *testing.T) {
 func TestGateway_Close_NilFields(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = false
+	cfg.AuthMode = "disabled"
 	logger := newTestLogger()
 
 	gw, err := New(cfg, logger)
@@ -452,7 +452,7 @@ func createTestTokenForGateway(t *testing.T, key *auth.KeyInfo, privateKey any, 
 func TestHandleWebSocket_NoCredentials(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	logger := newTestLogger()
 
 	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{}}
@@ -489,7 +489,7 @@ func TestHandleWebSocket_NoCredentials(t *testing.T) {
 func TestHandleWebSocket_InvalidAPIKey(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	logger := newTestLogger()
 
 	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
@@ -533,7 +533,7 @@ func TestHandleWebSocket_InvalidAPIKey(t *testing.T) {
 func TestHandleWebSocket_InactiveAPIKey(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	logger := newTestLogger()
 
 	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
@@ -562,7 +562,7 @@ func TestHandleWebSocket_InactiveAPIKey(t *testing.T) {
 func TestHandleWebSocket_APIKeyOnly_Valid(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	cfg.TenantConnectionLimitEnabled = false // Disable to isolate auth testing
 	logger := newTestLogger()
 
@@ -597,7 +597,7 @@ func TestHandleWebSocket_APIKeyOnly_Valid(t *testing.T) {
 func TestHandleWebSocket_APIKeyViaHeader(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	logger := newTestLogger()
 
 	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
@@ -629,7 +629,7 @@ func TestHandleWebSocket_APIKeyViaHeader(t *testing.T) {
 func TestHandleWebSocket_APIKeyAndJWT_TenantMismatch(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	cfg.TenantConnectionLimitEnabled = false
 	logger := newTestLogger()
 
@@ -707,7 +707,7 @@ func TestHandleWebSocket_APIKeyAndJWT_TenantMismatch(t *testing.T) {
 func TestHandleWebSocket_APIKeyAndJWT_TenantMatch(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	cfg.TenantConnectionLimitEnabled = false
 	logger := newTestLogger()
 
@@ -774,7 +774,7 @@ func TestHandleWebSocket_APIKeyAndJWT_TenantMatch(t *testing.T) {
 func TestHandleWebSocket_BothCredentials_InvalidAPIKey(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	logger := newTestLogger()
 
 	// Set up JWT validator
@@ -844,7 +844,7 @@ func TestHandleWebSocket_BothCredentials_InvalidAPIKey(t *testing.T) {
 func TestHandleWebSocket_BothCredentials_InvalidJWT(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	logger := newTestLogger()
 
 	// Set up JWT validator (empty registry — no keys registered, so all tokens fail)

@@ -210,7 +210,7 @@ func main() {
 
 	// Set up authentication if enabled
 	var validator *auth.MultiTenantValidator
-	if cfg.AuthEnabled {
+	if cfg.AuthRequired() {
 		// Create key registry from existing database connection
 		keyRegistry, err := auth.NewKeyRegistry(auth.KeyRegistryConfig{
 			Pool:            pool,
@@ -263,7 +263,7 @@ func main() {
 		Service:            svc,
 		Logger:             structuredLogger,
 		RateLimit:          cfg.APIRateLimitPerMinute,
-		AuthEnabled:        cfg.AuthEnabled,
+		AuthRequired:       cfg.AuthRequired(),
 		Validator:          validator,
 		AdminValidator:     adminValidator,
 		AdminKeyRegistry:   adminKeyRegistry,

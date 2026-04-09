@@ -56,7 +56,7 @@ func newAuthTestProxy(validator TokenValidator, claims *auth.Claims) (proxy *Pro
 	proxy = &Proxy{
 		clientConn:            clientConn,
 		backendConn:           backendConn,
-		authEnabled:           true,
+		authRequired:           true,
 		claims:                claims,
 		tenantID:              tenantID,
 		permissions:           pc,
@@ -251,7 +251,7 @@ func TestInterceptAuthRefresh_AuthDisabled(t *testing.T) {
 
 	proxy := &Proxy{
 		clientConn:            clientConn,
-		authEnabled:           false,
+		authRequired:           false,
 		logger:                zerolog.Nop(),
 		subscribedChannels:    make(map[string]struct{}),
 		authLimiter:           rate.NewLimiter(rate.Every(30*time.Second), 1),
@@ -384,7 +384,7 @@ func TestForceUnsubscribeRevokedChannels_NoRevocation(t *testing.T) {
 	pc := NewPermissionChecker([]string{"*.trade", "*.liquidity"}, nil, nil)
 
 	proxy := &Proxy{
-		authEnabled:        true,
+		authRequired:        true,
 		claims:             claims,
 		tenantID:           "test-tenant",
 		permissions:        pc,
@@ -428,7 +428,7 @@ func TestForceUnsubscribeRevokedChannels_PartialRevocation(t *testing.T) {
 	proxy := &Proxy{
 		clientConn:  clientConn,
 		backendConn: backendConn,
-		authEnabled: true,
+		authRequired: true,
 		claims:      claims,
 		tenantID:    "test-tenant",
 		permissions: pc,
@@ -486,7 +486,7 @@ func TestForceUnsubscribeRevokedChannels_AllRevoked(t *testing.T) {
 	proxy := &Proxy{
 		clientConn:  clientConn,
 		backendConn: backendConn,
-		authEnabled: true,
+		authRequired: true,
 		claims: &auth.Claims{
 			RegisteredClaims: jwt.RegisteredClaims{Subject: "user1"},
 			TenantID:         "test-tenant",
@@ -526,7 +526,7 @@ func TestForceUnsubscribeRevokedChannels_NoSubscriptions(t *testing.T) {
 	t.Parallel()
 
 	proxy := &Proxy{
-		authEnabled: true,
+		authRequired: true,
 		claims: &auth.Claims{
 			RegisteredClaims: jwt.RegisteredClaims{Subject: "user1"},
 			TenantID:         "test-tenant",
@@ -581,7 +581,7 @@ func BenchmarkInterceptAuthRefresh(b *testing.B) {
 	proxy := &Proxy{
 		clientConn:            clientConn,
 		backendConn:           backendConn,
-		authEnabled:           true,
+		authRequired:           true,
 		claims:                claims,
 		tenantID:              "test-tenant",
 		permissions:           NewPermissionChecker([]string{"*.trade"}, nil, nil),

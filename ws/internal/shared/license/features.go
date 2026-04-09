@@ -70,7 +70,6 @@ const (
 	AuditLogging        Feature = "audit logging"
 	PushNotifications   Feature = "push notifications"
 	IPAllowlisting      Feature = "per-tenant IP allowlisting"
-	E2EEncryption       Feature = "end-to-end encryption"
 	PriorityRouting     Feature = "priority message routing"
 	CustomQuotaPolicies Feature = "custom quota policies"
 )
@@ -100,7 +99,6 @@ var featureEditions = map[Feature]Edition{
 	AuditLogging:        Enterprise,
 	PushNotifications:   Enterprise,
 	IPAllowlisting:      Enterprise,
-	E2EEncryption:       Enterprise,
 	PriorityRouting:     Enterprise,
 	CustomQuotaPolicies: Enterprise,
 }
@@ -135,7 +133,6 @@ var featureMetadata = map[Feature]FeatureInfo{
 	// ── Future — Enterprise ──────────────────────────────────────────────
 
 	IPAllowlisting:      {Description: "Per-tenant IP allowlisting for connection filtering", Status: StatusFuture, Priority: PriorityLow},
-	E2EEncryption:       {Description: "End-to-end encrypted message delivery", Status: StatusFuture, Priority: PriorityLow},
 	PriorityRouting:     {Description: "Priority-based message delivery under load", Status: StatusFuture, Priority: PriorityLow},
 	CustomQuotaPolicies: {Description: "Tenant-specific quota rules beyond simple limits", Status: StatusFuture, Priority: PriorityLow},
 }

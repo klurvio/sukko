@@ -37,16 +37,17 @@ func TestRecordAuthValidation(t *testing.T) {
 	tests := []struct {
 		name    string
 		status  string
+		method  string
 		latency time.Duration
 	}{
-		{"success", "success", 10 * time.Millisecond},
-		{"failed", "failed", 5 * time.Millisecond},
-		{"skipped", "skipped", 0},
+		{"success jwt", "success", "jwt", 10 * time.Millisecond},
+		{"failed api_key", "failed", "api_key", 5 * time.Millisecond},
+		{"skipped none", "skipped", "none", 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			RecordAuthValidation(tt.status, tt.latency)
+			RecordAuthValidation(tt.status, tt.method, tt.latency)
 		})
 	}
 }

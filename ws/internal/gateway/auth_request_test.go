@@ -15,7 +15,7 @@ func TestAuthenticateRequest_AuthDisabled(t *testing.T) {
 
 	gw := &Gateway{
 		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthEnabled: false},
+			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
 			DefaultTenantID: "default-tenant",
 		},
 		logger: testLogger(),
@@ -42,7 +42,7 @@ func TestAuthenticateRequest_NoCredentials(t *testing.T) {
 
 	gw := &Gateway{
 		config: &platform.GatewayConfig{
-			AuthConfig: platform.AuthConfig{AuthEnabled: true},
+			AuthConfig: platform.AuthConfig{AuthMode: "required"},
 		},
 		logger: testLogger(),
 	}

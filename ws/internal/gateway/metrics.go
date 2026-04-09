@@ -92,8 +92,8 @@ var connectionDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 
 var authValidations = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "gateway_auth_validations_total",
-	Help: "JWT validation attempts by status",
-}, []string{"status"}) // success, failed, skipped
+	Help: "Auth validation attempts by status and method",
+}, []string{"status", "method"}) // status: success/failed/skipped; method: jwt/api_key/jwt+api_key/none
 
 var authLatency = promauto.NewHistogram(prometheus.HistogramOpts{
 	Name:    "gateway_auth_latency_seconds",
@@ -257,9 +257,9 @@ func RecordDisconnection(reason string, duration time.Duration) {
 	connectionDuration.WithLabelValues(reason).Observe(duration.Seconds())
 }
 
-// RecordAuthValidation records auth attempt with status and latency.
-func RecordAuthValidation(status string, latency time.Duration) {
-	authValidations.WithLabelValues(status).Inc()
+// RecordAuthValidation records auth attempt with status, method, and latency.
+func RecordAuthValidation(status, method string, latency time.Duration) {
+	authValidations.WithLabelValues(status, method).Inc()
 	authLatency.Observe(latency.Seconds())
 }
 

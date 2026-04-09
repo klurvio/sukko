@@ -125,6 +125,11 @@ func LoadProvisioningConfig(logger zerolog.Logger) (*ProvisioningConfig, error) 
 
 // Validate checks provisioning configuration for errors.
 func (c *ProvisioningConfig) Validate() error {
+	// Auth mode validation
+	if err := c.AuthConfig.Validate(); err != nil {
+		return err
+	}
+
 	// Required fields
 	if c.Addr == "" {
 		return errors.New("PROVISIONING_ADDR is required")
@@ -316,7 +321,7 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Dur("http_read_timeout", c.HTTPReadTimeout).
 		Dur("http_write_timeout", c.HTTPWriteTimeout).
 		Dur("http_idle_timeout", c.HTTPIdleTimeout).
-		Bool("auth_enabled", c.AuthEnabled).
+		Str("auth_mode", c.AuthMode).
 		Strs("cors_allowed_origins", c.CORSAllowedOrigins).
 		Int("cors_max_age", c.CORSMaxAge).
 		Str("log_level", c.LogLevel).

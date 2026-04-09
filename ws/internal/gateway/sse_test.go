@@ -12,7 +12,7 @@ func sseTestGateway(t *testing.T) *Gateway {
 	t.Helper()
 	return &Gateway{
 		config: &platform.GatewayConfig{
-			AuthConfig:           platform.AuthConfig{AuthEnabled: false},
+			AuthConfig:           platform.AuthConfig{AuthMode: "disabled"},
 			DefaultTenantID:      "test-tenant",
 			SSEKeepAliveInterval: 45_000_000_000, // 45s
 		},

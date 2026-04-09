@@ -18,7 +18,7 @@ func newValidGatewayConfig() *GatewayConfig {
 			Environment: "test",
 		},
 		AuthConfig: AuthConfig{
-			AuthEnabled: false, // Disabled by default for tests
+			AuthMode: "disabled", // Disabled by default for tests
 		},
 		ProvisioningClientConfig: ProvisioningClientConfig{
 			ProvisioningGRPCAddr:  "localhost:9090",
@@ -69,7 +69,7 @@ func TestGatewayConfig_Validate_Valid(t *testing.T) {
 func TestGatewayConfig_Validate_AuthDisabled(t *testing.T) {
 	t.Parallel()
 	cfg := newValidGatewayConfig()
-	cfg.AuthEnabled = false
+	cfg.AuthMode = "disabled"
 	cfg.ProvisioningGRPCAddr = "" // Should be OK when auth disabled
 
 	if err := cfg.Validate(); err != nil {
@@ -80,7 +80,7 @@ func TestGatewayConfig_Validate_AuthDisabled(t *testing.T) {
 func TestGatewayConfig_Validate_AuthDisabled_RequiresDefaultTenantID(t *testing.T) {
 	t.Parallel()
 	cfg := newValidGatewayConfig()
-	cfg.AuthEnabled = false
+	cfg.AuthMode = "disabled"
 	cfg.DefaultTenantID = "" // Empty should fail
 
 	err := cfg.Validate()
@@ -92,10 +92,10 @@ func TestGatewayConfig_Validate_AuthDisabled_RequiresDefaultTenantID(t *testing.
 	}
 }
 
-func TestGatewayConfig_Validate_AuthEnabled_RequiresGRPC(t *testing.T) {
+func TestGatewayConfig_Validate_AuthMode_RequiresGRPC(t *testing.T) {
 	t.Parallel()
 	cfg := newValidGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	cfg.ProvisioningGRPCAddr = "" // Missing gRPC addr
 
 	err := cfg.Validate()
@@ -107,10 +107,10 @@ func TestGatewayConfig_Validate_AuthEnabled_RequiresGRPC(t *testing.T) {
 	}
 }
 
-func TestGatewayConfig_Validate_AuthEnabled_WithGRPC(t *testing.T) {
+func TestGatewayConfig_Validate_AuthMode_WithGRPC(t *testing.T) {
 	t.Parallel()
 	cfg := newValidGatewayConfig()
-	cfg.AuthEnabled = true
+	cfg.AuthMode = "required"
 	cfg.ProvisioningGRPCAddr = "localhost:9090"
 
 	if err := cfg.Validate(); err != nil {
@@ -168,7 +168,7 @@ func TestGatewayConfig_Validate_GRPCReconnectSettings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidGatewayConfig()
-			cfg.AuthEnabled = true   // GRPC validation runs when auth is enabled
+			cfg.AuthMode = "required"   // GRPC validation runs when auth is enabled
 			cfg.DefaultTenantID = "" // Not required when auth is enabled
 			cfg.GRPCReconnectDelay = tt.delay
 			cfg.GRPCReconnectMaxDelay = tt.maxDelay

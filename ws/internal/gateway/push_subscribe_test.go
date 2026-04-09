@@ -48,7 +48,7 @@ func pushTestGateway(t *testing.T, mock PushForwarder) *Gateway {
 	t.Helper()
 	return &Gateway{
 		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthEnabled: false},
+			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
 			DefaultTenantID: "test-tenant",
 			MaxPublishSize:  65536,
 		},
@@ -260,7 +260,7 @@ func TestHandlePushSubscribe_NoPushClient(t *testing.T) {
 
 	gw := &Gateway{
 		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthEnabled: false},
+			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
 			DefaultTenantID: "test-tenant",
 			MaxPublishSize:  65536,
 		},
@@ -365,7 +365,7 @@ func TestHandlePushUnsubscribe_NoPushClient(t *testing.T) {
 
 	gw := &Gateway{
 		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthEnabled: false},
+			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
 			DefaultTenantID: "test-tenant",
 			MaxPublishSize:  65536,
 		},
