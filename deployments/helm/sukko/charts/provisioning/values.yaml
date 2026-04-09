@@ -81,10 +81,14 @@ readinessProbe:
   periodSeconds: 5
   timeoutSeconds: 2
 
+# Provisioning is operator-facing (Admin UI + REST API).
+# Gateway is client-facing (WebSocket/SSE/push).
+# Both use LoadBalancer — same pattern. DNS/TLS/Ingress can be added later.
 service:
-  type: ClusterIP
+  type: LoadBalancer
   port: 8080
   targetPort: 8080
+  loadBalancerIP: ""
   grpcPort: 9090
 
 podAnnotations: {}

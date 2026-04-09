@@ -3,7 +3,7 @@
 # =============================================================================
 # Long-lived resources that persist across cluster lifecycle:
 # - VPC with Sukko cluster subnet
-# - Static IPs for gateway (external) and redpanda (internal)
+# - Static IPs for gateway (external), provisioning (external), and redpanda (internal)
 # - Firewall rules for internal traffic and health checks
 
 # =============================================================================
@@ -46,6 +46,13 @@ resource "google_compute_subnetwork" "sukko" {
 
 resource "google_compute_address" "gateway_external" {
   name         = "${var.vpc_name}-gateway-external"
+  region       = var.region
+  address_type = "EXTERNAL"
+  project      = var.project_id
+}
+
+resource "google_compute_address" "provisioning_external" {
+  name         = "${var.vpc_name}-provisioning-external"
   region       = var.region
   address_type = "EXTERNAL"
   project      = var.project_id
