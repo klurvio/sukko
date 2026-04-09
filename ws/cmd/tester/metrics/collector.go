@@ -30,6 +30,10 @@ type Collector struct {
 	GroupScopedSent     atomic.Int64
 	GroupScopedReceived atomic.Int64
 	Misrouted           atomic.Int64
+	// SSE + REST publish metrics (validation suites)
+	SSEMessagesReceived atomic.Int64
+	RESTPublishSuccess  atomic.Int64
+	RESTPublishErrors   atomic.Int64
 	Latency             *stats.Histogram
 	mu                  sync.RWMutex
 	startTime           time.Time
@@ -66,6 +70,9 @@ type Snapshot struct {
 	GroupScopedSent     int64          `json:"group_scoped_sent,omitzero"`
 	GroupScopedReceived int64          `json:"group_scoped_received,omitzero"`
 	Misrouted           int64          `json:"misrouted,omitzero"`
+	SSEMessagesReceived int64          `json:"sse_messages_received,omitzero"`
+	RESTPublishSuccess  int64          `json:"rest_publish_success,omitzero"`
+	RESTPublishErrors   int64          `json:"rest_publish_errors,omitzero"`
 	Latency             stats.Snapshot `json:"latency"`
 }
 
@@ -97,6 +104,9 @@ func (c *Collector) Snapshot() Snapshot {
 		GroupScopedSent:     c.GroupScopedSent.Load(),
 		GroupScopedReceived: c.GroupScopedReceived.Load(),
 		Misrouted:           c.Misrouted.Load(),
+		SSEMessagesReceived: c.SSEMessagesReceived.Load(),
+		RESTPublishSuccess:  c.RESTPublishSuccess.Load(),
+		RESTPublishErrors:   c.RESTPublishErrors.Load(),
 		Latency:             c.Latency.Snapshot(),
 	}
 }
@@ -122,6 +132,9 @@ func (c *Collector) Reset() {
 	c.GroupScopedSent.Store(0)
 	c.GroupScopedReceived.Store(0)
 	c.Misrouted.Store(0)
+	c.SSEMessagesReceived.Store(0)
+	c.RESTPublishSuccess.Store(0)
+	c.RESTPublishErrors.Store(0)
 	c.Latency.Reset()
 	c.mu.Lock()
 	c.startTime = time.Now()
