@@ -168,8 +168,8 @@ func TestGatewayConfig_Validate_GRPCReconnectSettings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidGatewayConfig()
-			cfg.AuthMode = "required"   // GRPC validation runs when auth is enabled
-			cfg.DefaultTenantID = "" // Not required when auth is enabled
+			cfg.AuthMode = "required" // GRPC validation runs when auth is enabled
+			cfg.DefaultTenantID = ""  // Not required when auth is enabled
 			cfg.GRPCReconnectDelay = tt.delay
 			cfg.GRPCReconnectMaxDelay = tt.maxDelay
 			err := cfg.Validate()
