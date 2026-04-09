@@ -49,7 +49,7 @@ func TestHandlePushVAPIDKey_AuthRequired(t *testing.T) {
 
 	gw := &Gateway{
 		config: &platform.GatewayConfig{
-			AuthConfig: platform.AuthConfig{AuthEnabled: true},
+			AuthConfig: platform.AuthConfig{AuthMode: "required"},
 		},
 		logger: testLogger(),
 	}
@@ -71,7 +71,7 @@ func TestHandlePushVAPIDKey_NoPushClient(t *testing.T) {
 
 	gw := &Gateway{
 		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthEnabled: false},
+			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
 			DefaultTenantID: "test-tenant",
 		},
 		logger:     testLogger(),

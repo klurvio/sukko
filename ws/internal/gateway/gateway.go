@@ -75,7 +75,7 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 	}
 
 	// Only create permission checker when auth is enabled (used for channel filtering)
-	if config.AuthEnabled {
+	if config.AuthRequired() {
 		gw.permissions = NewPermissionChecker(
 			config.PublicPatterns,
 			config.UserScopedPatterns,
@@ -92,7 +92,7 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 	}
 
 	// Set up validator if auth is enabled
-	if config.AuthEnabled {
+	if config.AuthRequired() {
 		if err := gw.setupValidator(); err != nil {
 			return nil, fmt.Errorf("setup validator: %w", err)
 		}
@@ -106,7 +106,7 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 	if config.PerTenantChannelRulesEnabled && gw.channelRulesProvider == nil {
 		gw.logger.Warn().
 			Bool("per_tenant_channel_rules_enabled", true).
-			Bool("auth_enabled", config.AuthEnabled).
+			Str("auth_mode", config.AuthMode).
 			Msg("Per-tenant channel rules enabled but channel rules provider not available (requires auth); feature inactive")
 	}
 	if config.PerTenantChannelRulesEnabled && gw.channelRulesProvider != nil {
@@ -359,6 +359,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	gw.logger.Info().
 		Str("principal", principal).
 		Str("tenant_id", tenantID).
+		Str("auth_method", authRes.AuthMethod).
 		Str("remote_addr", remoteAddr).
 		Dur("connect_time", time.Since(startTime)).
 		Msg("Client connected and proxying to backend")
@@ -367,7 +368,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	proxy := NewProxy(ProxyConfig{
 		ClientConn:              clientConn,
 		BackendConn:             backendConn,
-		AuthEnabled:             gw.config.AuthEnabled,
+		AuthRequired:            gw.config.AuthRequired(),
 		Claims:                  claims, // nil when auth disabled or API-key-only
 		TenantID:                tenantID,
 		Permissions:             gw.permissions,

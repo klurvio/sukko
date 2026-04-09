@@ -171,7 +171,7 @@ type ServerConfig struct {
 	AlertConsoleEnabled  bool          `env:"ALERT_CONSOLE_ENABLED" envDefault:"false"`
 
 	// DefaultTenantID disables multi-tenant support. All messages
-	// are routed to this tenant. Only used when AUTH_ENABLED=false.
+	// are routed to this tenant. Only used when AUTH_MODE=disabled.
 	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
 
 	// Valkey Configuration (for BroadcastBus when BROADCAST_TYPE=valkey)

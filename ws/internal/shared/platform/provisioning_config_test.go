@@ -14,6 +14,9 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 			LogFormat:   "json",
 			Environment: "local",
 		},
+		AuthConfig: AuthConfig{
+			AuthMode: "required",
+		},
 		DatabaseConfig: DatabaseConfig{
 			DatabaseURL: "postgres://test:test@localhost:5432/test",
 		},

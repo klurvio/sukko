@@ -3,6 +3,7 @@ package platform
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -59,10 +60,33 @@ func (c *BaseConfig) Validate() error {
 	return nil
 }
 
-// AuthConfig holds the authentication toggle.
+// ValidAuthModes lists the allowed values for AUTH_MODE.
+// Extensible: add "public-read" here when anonymous access is implemented.
+var ValidAuthModes = []string{"required", "disabled"}
+
+// AuthConfig holds the authentication mode.
 // Embedded by gateway and provisioning (not server — server relies on network-level security).
 type AuthConfig struct {
-	AuthEnabled bool `env:"AUTH_ENABLED" envDefault:"true"`
+	// AuthMode controls the authentication model:
+	//   - "required": all connections require JWT or API key
+	//   - "disabled": no auth (local dev only, DEFAULT_TENANT_ID used)
+	// Extensible to "public-read" in the future (anonymous connections for public channels).
+	AuthMode string `env:"AUTH_MODE" envDefault:"required"`
+}
+
+// AuthRequired returns true when auth is not disabled.
+// Use this for conditional checks instead of comparing AuthMode directly —
+// it returns true for both "required" and future "public-read" modes.
+func (c *AuthConfig) AuthRequired() bool {
+	return c.AuthMode != "disabled"
+}
+
+// Validate checks that AuthMode is a valid value.
+func (c *AuthConfig) Validate() error {
+	if !slices.Contains(ValidAuthModes, c.AuthMode) {
+		return fmt.Errorf("AUTH_MODE must be one of %v, got %q", ValidAuthModes, c.AuthMode)
+	}
+	return nil
 }
 
 // ProvisioningClientConfig holds gRPC client settings for connecting to the provisioning service.

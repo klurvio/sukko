@@ -33,6 +33,7 @@ type authResult struct {
 	TenantID       string       // Tenant from JWT or API key
 	APIKeyOnly     bool         // True if only API key was provided (no JWT)
 	APIKeyTenantID string       // API key tenant (for cross-validation)
+	AuthMethod     string       // "none", "api_key", "jwt", "jwt+api_key" — for metrics and logging
 }
 
 // authenticateRequest validates credentials from the HTTP request.
@@ -44,11 +45,12 @@ type authResult struct {
 // Auth metrics (RecordAuthValidation) are recorded inside this function.
 // Permission checking stays OUT — each handler applies its own permission logic.
 func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*authResult, error) {
-	if !gw.config.AuthEnabled {
-		RecordAuthValidation(pkgmetrics.AuthStatusSkipped, 0)
+	if !gw.config.AuthRequired() {
+		RecordAuthValidation(pkgmetrics.AuthStatusSkipped, "none", 0)
 		return &authResult{
-			Principal: "anonymous",
-			TenantID:  gw.config.DefaultTenantID,
+			Principal:  "anonymous",
+			TenantID:   gw.config.DefaultTenantID,
+			AuthMethod: "none",
 		}, nil
 	}
 
@@ -58,7 +60,7 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 
 	switch {
 	case token == "" && apiKey == "":
-		RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+		RecordAuthValidation(pkgmetrics.AuthStatusFailed, "none", time.Since(authStart))
 		gw.logger.Warn().
 			Str("remote_addr", r.RemoteAddr).
 			Msg("Request rejected: no credentials provided")
@@ -69,20 +71,21 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		info, ok := gw.apiKeyRegistry.Lookup(apiKey)
 		if !ok {
 			RecordAPIKeyAuth(APIKeyAuthInvalid)
-			RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "api_key", time.Since(authStart))
 			gw.logger.Warn().
 				Str("remote_addr", r.RemoteAddr).
 				Msg("Request rejected: invalid API key")
 			return nil, ErrInvalidAPIKey
 		}
 		RecordAPIKeyAuth(APIKeyAuthAccepted)
-		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
+		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, "api_key", time.Since(authStart))
 
 		result := &authResult{
 			TenantID:       info.TenantID,
 			Principal:      "anon:" + uuid.NewString(),
 			APIKeyOnly:     true,
 			APIKeyTenantID: info.TenantID,
+			AuthMethod:     "api_key",
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).
@@ -95,19 +98,20 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		// JWT only
 		claims, err := gw.validator.ValidateToken(ctx, token)
 		if err != nil {
-			RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "jwt", time.Since(authStart))
 			gw.logger.Warn().
 				Err(err).
 				Str("remote_addr", r.RemoteAddr).
 				Msg("Request rejected: invalid token")
 			return nil, ErrInvalidToken
 		}
-		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
+		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, "jwt", time.Since(authStart))
 
 		result := &authResult{
-			Claims:    claims,
-			Principal: claims.Subject,
-			TenantID:  claims.TenantID,
+			Claims:     claims,
+			Principal:  claims.Subject,
+			TenantID:   claims.TenantID,
+			AuthMethod: "jwt",
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).
@@ -122,7 +126,7 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		info, ok := gw.apiKeyRegistry.Lookup(apiKey)
 		if !ok {
 			RecordAPIKeyAuth(APIKeyAuthInvalid)
-			RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "jwt+api_key", time.Since(authStart))
 			gw.logger.Warn().
 				Str("remote_addr", r.RemoteAddr).
 				Msg("Request rejected: invalid API key")
@@ -132,7 +136,7 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 
 		claims, err := gw.validator.ValidateToken(ctx, token)
 		if err != nil {
-			RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "jwt+api_key", time.Since(authStart))
 			gw.logger.Warn().
 				Err(err).
 				Str("remote_addr", r.RemoteAddr).
@@ -142,7 +146,7 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 
 		// Verify JWT tenant matches API key tenant
 		if claims.TenantID != info.TenantID {
-			RecordAuthValidation(pkgmetrics.AuthStatusFailed, time.Since(authStart))
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "jwt+api_key", time.Since(authStart))
 			gw.logger.Warn().
 				Str("jwt_tenant", claims.TenantID).
 				Str("api_key_tenant", info.TenantID).
@@ -150,13 +154,14 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 				Msg("Request rejected: API key and JWT tenant mismatch")
 			return nil, ErrTenantMismatch
 		}
-		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, time.Since(authStart))
+		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, "jwt+api_key", time.Since(authStart))
 
 		result := &authResult{
 			Claims:         claims,
 			Principal:      claims.Subject,
 			TenantID:       claims.TenantID,
 			APIKeyTenantID: info.TenantID,
+			AuthMethod:     "jwt+api_key",
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).

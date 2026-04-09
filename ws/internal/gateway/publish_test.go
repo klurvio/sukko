@@ -17,7 +17,7 @@ func publishTestGateway(t *testing.T) *Gateway {
 	t.Helper()
 	return &Gateway{
 		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthEnabled: false},
+			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
 			DefaultTenantID: "test-tenant",
 			MaxPublishSize:  65536,
 		},

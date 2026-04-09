@@ -11,7 +11,7 @@ import (
 // newTrackingTestProxy creates a Proxy configured for subscription tracking tests.
 func newTrackingTestProxy() *Proxy {
 	return &Proxy{
-		authEnabled:        true,
+		authRequired:        true,
 		logger:             zerolog.Nop(),
 		subscribedChannels: make(map[string]struct{}),
 		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),

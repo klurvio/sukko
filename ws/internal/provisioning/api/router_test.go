@@ -236,7 +236,7 @@ func TestRouter_AuthDisabled_APIWorksWithoutToken(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
-		AuthEnabled: false, // Auth disabled
+		AuthRequired: false, // Auth disabled
 	})
 
 	tests := []struct {
@@ -286,7 +286,7 @@ func TestRouter_AuthDisabled_APIWorksWithoutToken(t *testing.T) {
 	}
 }
 
-func TestRouter_AuthEnabled_RequiresToken(t *testing.T) {
+func TestRouter_AuthRequired_RequiresToken(t *testing.T) {
 	t.Parallel()
 
 	// Create a key registry with a test key
@@ -314,7 +314,7 @@ func TestRouter_AuthEnabled_RequiresToken(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
-		AuthEnabled: true,
+		AuthRequired: true,
 		Validator:   validator,
 	})
 
@@ -328,7 +328,7 @@ func TestRouter_AuthEnabled_RequiresToken(t *testing.T) {
 	}
 }
 
-func TestRouter_AuthEnabled_ValidToken(t *testing.T) {
+func TestRouter_AuthRequired_ValidToken(t *testing.T) {
 	t.Parallel()
 
 	// Create a key registry with a test key
@@ -356,7 +356,7 @@ func TestRouter_AuthEnabled_ValidToken(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
-		AuthEnabled: true,
+		AuthRequired: true,
 		Validator:   validator,
 	})
 
@@ -384,7 +384,7 @@ func TestRouter_AuthEnabled_ValidToken(t *testing.T) {
 	}
 }
 
-func TestRouter_AuthEnabled_ExpiredToken(t *testing.T) {
+func TestRouter_AuthRequired_ExpiredToken(t *testing.T) {
 	t.Parallel()
 
 	// Create a key registry with a test key
@@ -412,7 +412,7 @@ func TestRouter_AuthEnabled_ExpiredToken(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
-		AuthEnabled: true,
+		AuthRequired: true,
 		Validator:   validator,
 	})
 
@@ -440,7 +440,7 @@ func TestRouter_AuthEnabled_ExpiredToken(t *testing.T) {
 	}
 }
 
-func TestRouter_AuthEnabled_InvalidToken(t *testing.T) {
+func TestRouter_AuthRequired_InvalidToken(t *testing.T) {
 	t.Parallel()
 
 	// Create a key registry with a test key
@@ -468,7 +468,7 @@ func TestRouter_AuthEnabled_InvalidToken(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
-		AuthEnabled: true,
+		AuthRequired: true,
 		Validator:   validator,
 	})
 
@@ -508,7 +508,7 @@ func TestRouter_AuthEnabled_InvalidToken(t *testing.T) {
 	}
 }
 
-func TestRouter_AuthEnabled_RoleRequirement(t *testing.T) {
+func TestRouter_AuthRequired_RoleRequirement(t *testing.T) {
 	t.Parallel()
 
 	// Create a key registry with a test key
@@ -536,7 +536,7 @@ func TestRouter_AuthEnabled_RoleRequirement(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
-		AuthEnabled: true,
+		AuthRequired: true,
 		Validator:   validator,
 	})
 
@@ -634,7 +634,7 @@ func TestRouter_HealthEndpoints_NoAuth(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     newTestService(),
 		Logger:      zerolog.Nop(),
-		AuthEnabled: true,
+		AuthRequired: true,
 		Validator:   validator,
 	})
 
@@ -678,7 +678,7 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
-		AuthEnabled: false,
+		AuthRequired: false,
 	})
 
 	// 1. GET routing rules — not found initially
@@ -756,7 +756,7 @@ func TestRouter_RoutingRules_InvalidJSON(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
-		AuthEnabled: false,
+		AuthRequired: false,
 	})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules",
@@ -781,7 +781,7 @@ func TestRouter_RoutingRules_InvalidRules(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
-		AuthEnabled: false,
+		AuthRequired: false,
 	})
 
 	// Empty rules should fail validation
@@ -810,7 +810,7 @@ func TestRouter_RoutingRules_DeleteNonexistent(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
-		AuthEnabled: false,
+		AuthRequired: false,
 	})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/tenants/test-tenant/routing-rules", nil)
@@ -840,7 +840,7 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
-		AuthEnabled: false,
+		AuthRequired: false,
 	})
 
 	tests := []struct {
@@ -958,7 +958,7 @@ func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
 	router := mustNewRouter(t, api.RouterConfig{
 		Service:     svc,
 		Logger:      zerolog.Nop(),
-		AuthEnabled: true,
+		AuthRequired: true,
 		Validator:   validator,
 	})
 
@@ -1061,7 +1061,7 @@ func TestRouter_APIKeys(t *testing.T) {
 		router := mustNewRouter(t, api.RouterConfig{
 			Service:     svc,
 			Logger:      zerolog.Nop(),
-			AuthEnabled: false,
+			AuthRequired: false,
 		})
 
 		body, _ := json.Marshal(map[string]string{"name": "test-key"})
@@ -1095,7 +1095,7 @@ func TestRouter_APIKeys(t *testing.T) {
 		router := mustNewRouter(t, api.RouterConfig{
 			Service:     svc,
 			Logger:      zerolog.Nop(),
-			AuthEnabled: false,
+			AuthRequired: false,
 		})
 
 		// Create a key first
@@ -1142,7 +1142,7 @@ func TestRouter_APIKeys(t *testing.T) {
 		router := mustNewRouter(t, api.RouterConfig{
 			Service:     svc,
 			Logger:      zerolog.Nop(),
-			AuthEnabled: false,
+			AuthRequired: false,
 		})
 
 		// Create a key first
@@ -1179,7 +1179,7 @@ func TestRouter_APIKeys(t *testing.T) {
 		router := mustNewRouter(t, api.RouterConfig{
 			Service:     newTestService(),
 			Logger:      zerolog.Nop(),
-			AuthEnabled: false,
+			AuthRequired: false,
 		})
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/api-keys/active", nil)
@@ -1204,7 +1204,7 @@ func TestRouter_APIKeys(t *testing.T) {
 		router := mustNewRouter(t, api.RouterConfig{
 			Service:     newTestService(),
 			Logger:      zerolog.Nop(),
-			AuthEnabled: false,
+			AuthRequired: false,
 		})
 
 		body, _ := json.Marshal(map[string]string{"name": "orphan-key"})

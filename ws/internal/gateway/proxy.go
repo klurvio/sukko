@@ -39,11 +39,11 @@ type Proxy struct {
 	messageTimeout time.Duration
 	maxFrameSize   int
 
-	// Auth (only used when authEnabled=true)
+	// Auth (only active when authRequired=true)
 	claims      *auth.Claims
 	claimsMu    sync.RWMutex // protects claims and subscribedChannels
 	permissions *PermissionChecker
-	authEnabled bool
+	authRequired bool
 	validator   TokenValidator
 
 	// Auth refresh rate limiting
@@ -74,7 +74,7 @@ type ProxyConfig struct {
 	MessageTimeout time.Duration
 
 	// Auth (claims is nil when auth disabled — proxy won't use it)
-	AuthEnabled bool
+	AuthRequired bool
 	Claims      *auth.Claims
 	Permissions *PermissionChecker
 	Validator   TokenValidator
@@ -112,7 +112,7 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 		logger:                cfg.Logger,
 		messageTimeout:        cfg.MessageTimeout,
 		maxFrameSize:          cfg.MaxFrameSize,
-		authEnabled:           cfg.AuthEnabled,
+		authRequired:           cfg.AuthRequired,
 		claims:                cfg.Claims,
 		permissions:           cfg.Permissions,
 		validator:             cfg.Validator,
@@ -327,7 +327,7 @@ func (p *Proxy) proxyBackendToClient(ctx context.Context, errChan chan error) {
 		}
 
 		// Track subscription acks from backend (observational — always forward to client)
-		if header.OpCode == ws.OpText && p.authEnabled {
+		if header.OpCode == ws.OpText && p.authRequired {
 			p.trackSubscriptionResponse(payload)
 		}
 
@@ -518,7 +518,7 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 	}
 
 	// 2. Permission filtering (auth only — never runs when auth disabled)
-	if p.authEnabled {
+	if p.authRequired {
 		// Read claims under lock — may be swapped by auth refresh
 		p.claimsMu.RLock()
 		currentClaims := p.claims
@@ -700,7 +700,7 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 	}()
 
 	// 1. Check if auth is enabled
-	if !p.authEnabled {
+	if !p.authRequired {
 		RecordAuthRefresh(AuthErrNotAvailable)
 		return p.sendAuthErrorToClient(AuthErrNotAvailable, AuthErrorMessages[AuthErrNotAvailable])
 	}
