@@ -129,7 +129,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.14.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-04-07
+**Version**: 1.15.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-04-10
 
 ### I. Configuration
 
@@ -290,6 +290,16 @@ Every edition-gated feature MUST be documented in `internal/shared/license/featu
 Every implemented gated feature MUST have an `EditionHasFeature()` check at its access boundary (API handler, config validation, or startup gate). Implemented features without gate checks allow Community users to access Pro/Enterprise functionality — this is a security and business logic bug.
 
 New feature implementations MUST check the feature matrix first: if a `Feature` constant exists for the capability being built, the implementation MUST wire the gate check. Adding new gated features MUST follow: (1) add `Feature` constant with `// Future` comment, (2) add `featureEditions` entry, (3) when implementing, add `EditionHasFeature()` check and update comment to `// Implemented`.
+
+### XIV. Tooling Boundary
+
+The project has two command execution surfaces: **Taskfile** (developer toolchain) and **sukko-cli** (operator platform management). They MUST NOT call each other — they are independent tools with no runtime dependency.
+
+- **Taskfile** operates on infrastructure and build artifacts: Go compilation, Docker builds, Helm releases, Terraform state, Kubernetes resources. It MUST NOT invoke `sukko-cli` commands or make provisioning API calls (`/api/v1/*`).
+- **CLI** operates on the Sukko platform: tenants, keys, rules, license, subscriptions. It MUST NOT invoke Taskfile tasks.
+- **Neither tool depends on the other being installed.** A developer can use Taskfile without CLI. An operator can use CLI without Taskfile.
+
+**Sole exception**: `taskfiles/e2e.yml` may invoke `sukko` CLI commands for E2E license test orchestration. These tests validate the edition enforcement pipeline (loading license tokens, restarting services, asserting claims and limits across Community/Pro/Enterprise editions). The CLI is the test driver, not the subject under test. No other Taskfile may reference or depend on `sukko-cli`. If E2E test scope grows beyond license validation, orchestration SHOULD move to a dedicated Go test binary rather than expanding this exception.
 
 ### Governance
 
