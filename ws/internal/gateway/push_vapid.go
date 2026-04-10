@@ -32,6 +32,9 @@ func (gw *Gateway) HandlePushVAPIDKey(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Forward to push service
 	if gw.pushClient == nil {
+		// LOG-012: Push service unavailable
+		gw.logger.Warn().Str("handler", "vapid-key").Str("tenant_id", authRes.TenantID).
+			Msg("push service unavailable")
 		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE",
 			"push service connection not available")
 		return

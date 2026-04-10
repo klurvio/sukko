@@ -37,6 +37,9 @@ func LoggingMiddleware(logger zerolog.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
+			// Inject logger into context so downstream middleware (RequireRole, RequireTenant) can log.
+			r = r.WithContext(logger.WithContext(r.Context()))
+
 			defer func() { //nolint:contextcheck // False positive: r.Context() is captured via closure from the enclosing HandlerFunc scope; the deferred func accesses the same request context used by next.ServeHTTP.
 				elapsed := time.Since(start)
 
@@ -223,6 +226,11 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 				return
 			}
 
+			// LOG-020: Role-based authorization denial
+			zerolog.Ctx(r.Context()).Warn().
+				Str("tenant_id", claims.TenantID).Str("subject", claims.Subject).
+				Strs("required_roles", roles).Str("path", r.URL.Path).
+				Msg("authorization denied: insufficient role")
 			RecordAuthorizationDenial(authzDenialInsufficientRole)
 			httputil.WriteError(w, http.StatusForbidden, "INSUFFICIENT_ROLE", "Required role: "+strings.Join(roles, " or "))
 		})
@@ -256,6 +264,11 @@ func RequireTenant() func(http.Handler) http.Handler {
 
 			// Check tenant match
 			if claims.TenantID != tenantID {
+				// LOG-021: Tenant mismatch authorization denial
+				zerolog.Ctx(r.Context()).Warn().
+					Str("jwt_tenant", claims.TenantID).Str("requested_tenant", tenantID).
+					Str("path", r.URL.Path).
+					Msg("authorization denied: tenant mismatch")
 				RecordAuthorizationDenial(authzDenialTenantMismatch)
 				httputil.WriteError(w, http.StatusForbidden, "TENANT_MISMATCH", "Cannot access other tenant's resources")
 				return

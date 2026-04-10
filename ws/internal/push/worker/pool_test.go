@@ -1,7 +1,9 @@
 package worker
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -194,6 +196,96 @@ func (b *blockingProvider) SendBatch(_ context.Context, _ []provider.PushJob) er
 func (b *blockingProvider) Name() string                                            { return "blocking" }
 func (b *blockingProvider) Close() error                                            { return nil }
 func (b *blockingProvider) InvalidateClient(_ string)                               {}
+
+// syncWriter is a thread-safe writer for capturing zerolog output in tests.
+type syncWriter struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
+}
+
+func (w *syncWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+func TestBackpressureWarnLog(t *testing.T) {
+	t.Parallel()
+
+	slowProv := &mockProvider{}
+	repo := &mockRepo{}
+
+	// Capture log output with thread-safe writer
+	buf := &syncWriter{}
+	logger := zerolog.New(buf)
+
+	p, err := NewPool(PoolConfig{
+		WorkerCount: 1,
+		QueueSize:   1,
+		Providers:   map[string]provider.Provider{"web": slowProv},
+		Repo:        repo,
+		MaxRetries:  0,
+		Logger:      logger,
+	})
+	if err != nil {
+		t.Fatalf("NewPool: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	p.Start(ctx)
+
+	// Block the worker
+	blocker := make(chan struct{})
+	blockingProv := &blockingProvider{blocker: blocker}
+	p.providers["web"] = blockingProv
+
+	p.StartWorkers(1)
+
+	// First job — picked up by worker (blocks).
+	p.Enqueue(provider.PushJob{Platform: "web", TenantID: "t1", Body: "1"})
+	// Second job — fills the queue buffer (size 1).
+	p.Enqueue(provider.PushJob{Platform: "web", TenantID: "t1", Body: "2"})
+
+	// Third enqueue blocks because queue is full — should trigger WARN log.
+	done := make(chan struct{})
+	go func() {
+		p.Enqueue(provider.PushJob{Platform: "web", TenantID: "t1", Body: "3"})
+		close(done)
+	}()
+
+	// Wait for the blocked goroutine to attempt enqueue
+	time.Sleep(100 * time.Millisecond)
+
+	// Unblock everything
+	close(blocker)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("blocked enqueue goroutine did not exit")
+	}
+
+	close(p.jobs)
+	p.wg.Wait()
+
+	// Verify WARN log was emitted
+	logOutput := buf.String()
+	if !strings.Contains(logOutput, "push job queue full") {
+		t.Errorf("expected backpressure WARN log, got:\n%s", logOutput)
+	}
+	if !strings.Contains(logOutput, `"queue_size":1`) {
+		t.Errorf("expected queue_size field in log, got:\n%s", logOutput)
+	}
+}
 
 func TestErrSubscriptionExpiredDeletesToken(t *testing.T) {
 	t.Parallel()

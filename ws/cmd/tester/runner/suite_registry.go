@@ -20,4 +20,5 @@ var SuiteRegistry = map[string]SuiteInfo{
 	"provisioning":     {Name: "provisioning", Description: "Provisioning API validation"},
 	"sse":              {Name: "sse", Description: "SSE transport receive and auth validation"},
 	"rest-publish":     {Name: "rest-publish", Description: "REST publish endpoint delivery and input validation"},
+	"push":             {Name: "push", Description: "Push notification subscription and pipeline validation"},
 }

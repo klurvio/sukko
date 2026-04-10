@@ -114,6 +114,9 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 
 	// 6. Forward to push service
 	if gw.pushClient == nil {
+		// LOG-012: Push service unavailable
+		gw.logger.Warn().Str("handler", "subscribe").Str("tenant_id", authRes.TenantID).
+			Msg("push service unavailable")
 		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE",
 			"push service connection not available")
 		return
@@ -138,6 +141,10 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 			"failed to register push subscription")
 		return
 	}
+
+	// LOG-013: Push device registered
+	gw.logger.Info().Str("tenant_id", authRes.TenantID).Str("platform", req.Platform).
+		Int64("device_id", resp.GetDeviceId()).Msg("push device registered")
 
 	// 7. Return device_id
 	_ = httputil.WriteJSON(w, http.StatusCreated, map[string]int64{
@@ -187,6 +194,9 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 
 	// 3. Forward to push service
 	if gw.pushClient == nil {
+		// LOG-012: Push service unavailable
+		gw.logger.Warn().Str("handler", "unsubscribe").Str("tenant_id", authRes.TenantID).
+			Msg("push service unavailable")
 		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE",
 			"push service connection not available")
 		return
@@ -205,6 +215,10 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 			"failed to unregister push subscription")
 		return
 	}
+
+	// LOG-014: Push device unregistered
+	gw.logger.Info().Str("tenant_id", authRes.TenantID).Int64("device_id", req.DeviceID).
+		Msg("push device unregistered")
 
 	// 4. Return success
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]bool{

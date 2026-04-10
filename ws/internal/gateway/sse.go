@@ -66,6 +66,10 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	// 4. Acquire tenant connection slot
 	if gw.connTracker != nil && authRes.TenantID != "" {
 		if !gw.connTracker.TryAcquire(authRes.TenantID) {
+			// LOG-010: SSE tenant connection rate limit rejection
+			gw.logger.Warn().Str("tenant_id", authRes.TenantID).
+				Str("remote_addr", httputil.GetClientIP(r)).
+				Msg("SSE connection rejected: tenant limit")
 			httputil.WriteError(w, http.StatusTooManyRequests, "TENANT_LIMIT_EXCEEDED",
 				"tenant connection limit reached")
 			return

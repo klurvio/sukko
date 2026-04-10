@@ -237,7 +237,10 @@ func (p *Proxy) proxyClientToBackend(ctx context.Context, errChan chan error) {
 
 		// Handle close frame
 		if header.OpCode == ws.OpClose {
-			p.logger.Debug().Msg("Client sent close frame")
+			// LOG-022: Close frame with code and reason
+			closeCode, closeReason := parseClosePayload(payload)
+			p.logger.Debug().Int("close_code", closeCode).Str("close_reason", closeReason).
+				Str("direction", "client").Msg("close frame received")
 			p.forwardCloseFrame(p.backendConn, payload, true)
 			errChan <- nil
 			return
@@ -320,7 +323,10 @@ func (p *Proxy) proxyBackendToClient(ctx context.Context, errChan chan error) {
 
 		// Handle close frame
 		if header.OpCode == ws.OpClose {
-			p.logger.Debug().Msg("Backend sent close frame")
+			// LOG-022: Close frame with code and reason
+			closeCode, closeReason := parseClosePayload(payload)
+			p.logger.Debug().Int("close_code", closeCode).Str("close_reason", closeReason).
+				Str("direction", "backend").Msg("close frame received")
 			p.sendCloseToClient(payload)
 			errChan <- nil
 			return
@@ -368,6 +374,18 @@ func (p *Proxy) forwardFrame(dst net.Conn, opCode ws.OpCode, payload []byte, fin
 		}
 	}
 	return nil
+}
+
+// parseClosePayload extracts the close code and reason from a WebSocket close frame payload.
+// Returns (0, "") if the payload is too short to contain a status code.
+func parseClosePayload(payload []byte) (code int, reason string) {
+	if len(payload) >= 2 { //nolint:mnd // WebSocket close frame: 2-byte status code per RFC 6455 §5.5.1
+		code = int(payload[0])<<8 | int(payload[1])
+		if len(payload) > 2 {
+			reason = string(payload[2:])
+		}
+	}
+	return code, reason
 }
 
 // forwardCloseFrame forwards a close frame to the destination.
@@ -707,6 +725,9 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 
 	// 2. Rate limit check
 	if !p.authLimiter.Allow() {
+		// LOG-016: Auth refresh denied — rate limited
+		p.logger.Warn().Str("tenant_id", p.tenantID).Str("reason", "rate_limited").
+			Msg("auth refresh denied")
 		RecordAuthRefresh(AuthErrRateLimited)
 		return p.sendAuthErrorToClient(AuthErrRateLimited, AuthErrorMessages[AuthErrRateLimited])
 	}
@@ -714,12 +735,18 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 	// 3. Parse auth data
 	var authData AuthData
 	if err := json.Unmarshal(clientMsg.Data, &authData); err != nil || authData.Token == "" {
+		// LOG-016: Auth refresh denied — invalid token
+		p.logger.Warn().Str("tenant_id", p.tenantID).Str("reason", "invalid_token").
+			Msg("auth refresh denied")
 		RecordAuthRefresh(AuthErrInvalidToken)
 		return p.sendAuthErrorToClient(AuthErrInvalidToken, AuthErrorMessages[AuthErrInvalidToken])
 	}
 
 	// 4. Validate the new token
 	if p.validator == nil {
+		// LOG-016: Auth refresh denied — not available
+		p.logger.Warn().Str("tenant_id", p.tenantID).Str("reason", "not_available").
+			Msg("auth refresh denied")
 		RecordAuthRefresh(AuthErrNotAvailable)
 		return p.sendAuthErrorToClient(AuthErrNotAvailable, AuthErrorMessages[AuthErrNotAvailable])
 	}
@@ -733,6 +760,9 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 		if errors.Is(err, auth.ErrTokenExpired) {
 			code = AuthErrTokenExpired
 		}
+		// LOG-016: Auth refresh denied — validation failed
+		p.logger.Warn().Str("tenant_id", p.tenantID).Str("reason", code).
+			Msg("auth refresh denied")
 		RecordAuthRefresh(code)
 		return p.sendAuthErrorToClient(code, AuthErrorMessages[code])
 	}
