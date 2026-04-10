@@ -26,65 +26,65 @@ type pushUnsubscribeRequest struct {
 
 // pushSubscribe registers a push device via the gateway.
 // Returns (deviceID, httpStatusCode, error).
-func pushSubscribe(ctx context.Context, gatewayURL, token string, req pushSubscribeRequest) (deviceID int64, statusCode int, err error) {
-	body, err := json.Marshal(req)
+func pushSubscribe(ctx context.Context, gatewayURL, token string, req pushSubscribeRequest) (int64, error) {
+	body, err := json.Marshal(req) //nolint:gosec // G117: AuthSecret is a Web Push shared key field name, not a real secret
 	if err != nil {
-		return 0, 0, fmt.Errorf("push subscribe: marshal: %w", err)
+		return 0, fmt.Errorf("push subscribe: marshal: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, gatewayURL+"/api/v1/push/subscribe", bytes.NewReader(body))
 	if err != nil {
-		return 0, 0, fmt.Errorf("push subscribe: create request: %w", err)
+		return 0, fmt.Errorf("push subscribe: create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return 0, 0, fmt.Errorf("push subscribe: %w", err)
+		return 0, fmt.Errorf("push subscribe: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
 	if resp.StatusCode != http.StatusCreated {
-		return 0, resp.StatusCode, fmt.Errorf("push subscribe: HTTP %d: %s", resp.StatusCode, string(respBody))
+		return 0, fmt.Errorf("push subscribe: HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var result struct {
 		DeviceID int64 `json:"device_id"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return 0, resp.StatusCode, fmt.Errorf("push subscribe: unmarshal response: %w", err)
+		return 0, fmt.Errorf("push subscribe: unmarshal response: %w", err)
 	}
 
-	return result.DeviceID, resp.StatusCode, nil
+	return result.DeviceID, nil
 }
 
 // pushUnsubscribe unregisters a push device via the gateway.
 // Returns (httpStatusCode, error).
-func pushUnsubscribe(ctx context.Context, gatewayURL, token string, deviceID int64) (statusCode int, err error) {
+func pushUnsubscribe(ctx context.Context, gatewayURL, token string, deviceID int64) error {
 	body, _ := json.Marshal(pushUnsubscribeRequest{DeviceID: deviceID}) // json.Marshal on simple struct cannot fail
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, gatewayURL+"/api/v1/push/subscribe", bytes.NewReader(body))
 	if err != nil {
-		return 0, fmt.Errorf("push unsubscribe: create request: %w", err)
+		return fmt.Errorf("push unsubscribe: create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return 0, fmt.Errorf("push unsubscribe: %w", err)
+		return fmt.Errorf("push unsubscribe: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		return resp.StatusCode, fmt.Errorf("push unsubscribe: HTTP %d: %s", resp.StatusCode, string(respBody))
+		return fmt.Errorf("push unsubscribe: HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	return resp.StatusCode, nil
+	return nil
 }
 
 // pushGetVAPIDKey retrieves the VAPID public key via the gateway.

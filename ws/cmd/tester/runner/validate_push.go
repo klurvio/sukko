@@ -15,7 +15,7 @@ import (
 // pushTestChannel is the channel pattern used by push validation (with tenant prefix).
 const pushTestChannel = "general.push-test"
 
-func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) { //nolint:unparam // matches validate suite function signature
+func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
 	provClient := run.authResult.ProvClient
 	tenantID := run.authResult.TenantID
 	token := run.authResult.TokenFunc(0)
@@ -28,7 +28,7 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	defer func() { //nolint:contextcheck // intentional: use background context so cleanup survives parent cancellation
 		cleanupCtx := context.Background()
 		for _, id := range deviceIDs {
-			if _, err := pushUnsubscribe(cleanupCtx, gwURL, token, id); err != nil {
+			if err := pushUnsubscribe(cleanupCtx, gwURL, token, id); err != nil {
 				logger.Debug().Err(err).Int64("device_id", id).Msg("push cleanup: unsubscribe failed")
 			}
 		}
@@ -67,7 +67,7 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 
 	// Step 1: Setup — set VAPID credentials + channel config
 	// Note: GetVAPIDKey in step 0 auto-generates credentials. SetPushCredentials overwrites via upsert.
-	vapidCreds := `{"public_key":"BGxGBnqX_test_key","private_key":"OISg2_test_private"}`
+	vapidCreds := `{"public_key":"BGxGBnqX_test_key","private_key":"OISg2_test_private"}` //nolint:gosec // G101: fake test credentials for push validation — not real secrets
 	if err := provClient.SetPushCredentials(ctx, tenantID, "vapid", vapidCreds); err != nil {
 		checks = append(checks, metrics.CheckResult{
 			Name: "credential create", Status: "fail", Error: err.Error(),
@@ -91,7 +91,7 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 
 	// Step 2: Register web subscription
 	subID := uuid.NewString()[:8]
-	deviceID, _, subErr := pushSubscribe(ctx, gwURL, token, pushSubscribeRequest{
+	deviceID, subErr := pushSubscribe(ctx, gwURL, token, pushSubscribeRequest{ //nolint:gosec // G101: fake test tokens for push validation
 		Platform:   "web",
 		Endpoint:   "https://push.example.com/test-" + subID,
 		P256dhKey:  "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8p8aE48",
@@ -132,7 +132,7 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 
 	// Step 4: Unregister subscription
 	if deviceID != 0 {
-		_, unsubErr := pushUnsubscribe(ctx, gwURL, token, deviceID)
+		unsubErr := pushUnsubscribe(ctx, gwURL, token, deviceID)
 		if unsubErr != nil {
 			checks = append(checks, metrics.CheckResult{
 				Name: "push unsubscribe", Status: "fail", Error: unsubErr.Error(),
@@ -170,7 +170,7 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 			if jsonErr := json.Unmarshal(body, &cfg); jsonErr != nil || len(cfg.Patterns) == 0 {
 				checks = append(checks, metrics.CheckResult{
 					Name: "channel config get", Status: "fail",
-					Error: fmt.Sprintf("unexpected response: %s", string(body)),
+					Error: "unexpected response: " + string(body),
 				})
 			} else {
 				checks = append(checks, metrics.CheckResult{
@@ -205,7 +205,7 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	}
 
 	// Step 6: Credential CRUD — create, delete
-	testCreds := `{"public_key":"test_crud_pub","private_key":"test_crud_priv"}`
+	testCreds := `{"public_key":"test_crud_pub","private_key":"test_crud_priv"}` //nolint:gosec // G101: fake test credentials for CRUD validation
 	if err := provClient.SetPushCredentials(ctx, tenantID, "vapid", testCreds); err != nil {
 		checks = append(checks, metrics.CheckResult{
 			Name: "credential crud create", Status: "fail", Error: err.Error(),
@@ -228,14 +228,12 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 
 	// Step 7 (P2): Multi-platform — register web, android, ios
 	multiPlatforms := []struct {
-		name     string
-		platform string
-		req      pushSubscribeRequest
+		name string
+		req  pushSubscribeRequest
 	}{
 		{
-			name:     "multi-platform web",
-			platform: "web",
-			req: pushSubscribeRequest{
+			name: "multi-platform web",
+			req: pushSubscribeRequest{ //nolint:gosec // G101: fake test tokens for multi-platform validation
 				Platform:   "web",
 				Endpoint:   "https://push.example.com/multi-" + uuid.NewString()[:8],
 				P256dhKey:  "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8p8aE48",
@@ -244,8 +242,7 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 			},
 		},
 		{
-			name:     "multi-platform android",
-			platform: "android",
+			name: "multi-platform android",
 			req: pushSubscribeRequest{
 				Platform: "android",
 				Token:    "fake-fcm-token-" + uuid.NewString()[:8],
@@ -253,8 +250,7 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 			},
 		},
 		{
-			name:     "multi-platform ios",
-			platform: "ios",
+			name: "multi-platform ios",
 			req: pushSubscribeRequest{
 				Platform: "ios",
 				Token:    "fake-apns-token-" + uuid.NewString()[:8],
@@ -268,7 +264,7 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	_ = provClient.SetPushCredentials(ctx, tenantID, "vapid", vapidCreds)
 
 	for _, mp := range multiPlatforms {
-		id, _, err := pushSubscribe(ctx, gwURL, token, mp.req)
+		id, err := pushSubscribe(ctx, gwURL, token, mp.req)
 		if err != nil {
 			checks = append(checks, metrics.CheckResult{
 				Name: mp.name, Status: "fail", Error: err.Error(),
