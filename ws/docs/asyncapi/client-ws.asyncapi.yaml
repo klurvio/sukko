@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 
 info:
   title: Sukko WebSocket Client API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Real-time WebSocket API for subscribing to chat events and publishing messages.
 
@@ -26,11 +26,11 @@ info:
 
     ## Channel Format
 
-    All channels use explicit tenant-prefixed format: `{tenant}.{identifier}.{category}`
+    All channels use explicit tenant-prefixed format: `{tenant}.{suffix}`
 
-    - Minimum 3 dot-separated parts
+    - Minimum 2 dot-separated parts (tenant prefix + at least one suffix segment)
     - The tenant prefix must match the authenticated tenant (JWT `tenant_id`) or the default tenant (when auth is disabled)
-    - Examples: `sukko.general.messages`, `sukko.support.typing`, `acme.inbox.user123`
+    - Examples: `sukko.general.messages`, `sukko.support.typing`, `acme.inbox.user123`, `sukko.trades`
 
     ## Connection Lifecycle
 
@@ -120,15 +120,15 @@ info:
     | Reconnect timeout | 5s | — |
     | Auth refresh rate | 1 per 30s | `GATEWAY_AUTH_REFRESH_RATE_INTERVAL` |
     | Auth validation timeout | 5s | `GATEWAY_AUTH_VALIDATION_TIMEOUT` |
-    | Min channel parts | 3 | — |
+    | Min channel parts | 2 | — |
 
     ## Internal Protocol Note
 
-    With explicit channels, the gateway-to-server protocol uses the same channel format as the client API (`{tenant}.{identifier}.{category}`). The gateway validates and filters; it does not transform channel names.
+    With explicit channels, the gateway-to-server protocol uses the same channel format as the client API (`{tenant}.{suffix}`). The gateway validates and filters; it does not transform channel names.
 
     | Aspect | Client to Gateway | Gateway to Server |
     |--------|-------------------|-------------------|
-    | Channel format | `{tenant}.{identifier}.{category}` | Same (passed through) |
+    | Channel format | `{tenant}.{suffix}` | Same (passed through) |
     | Auth | JWT validated at gateway | Already validated |
     | Subscribe filtering | Gateway filters unauthorized channels | All channels pre-authorized |
     | Publish validation | Gateway validates tenant + permissions | Server validates Kafka routing |
@@ -210,7 +210,7 @@ operations:
     summary: Subscribe to channels
     description: >
       Subscribe to one or more channels. Channels use explicit tenant-prefixed format
-      (`{tenant}.{identifier}.{category}`). The gateway validates the tenant prefix and,
+      (`{tenant}.{suffix}`). The gateway validates the tenant prefix and,
       when auth is enabled, filters channels by permission rules. Unauthorized channels
       are silently dropped.
     messages:
@@ -235,7 +235,7 @@ operations:
     description: |
       Publish a message to a single channel. The gateway validates:
       1. Tenant prefix matches authenticated tenant
-      2. Channel has at least 3 dot-separated parts
+      2. Channel has at least 2 dot-separated parts (tenant prefix + suffix)
       3. Payload does not exceed 64KB
       4. Rate limit not exceeded (10 msg/sec, burst 100)
 
@@ -529,7 +529,7 @@ components:
           type: array
           items:
             type: string
-          description: "Channels to subscribe to. Format: {tenant}.{identifier}.{category}"
+          description: "Channels to subscribe to. Format: {tenant}.{suffix}"
           examples:
             - ["sukko.general.messages", "sukko.support.typing"]
 
@@ -543,7 +543,7 @@ components:
           type: array
           items:
             type: string
-          description: "Channels to unsubscribe from. Format: {tenant}.{identifier}.{category}"
+          description: "Channels to unsubscribe from. Format: {tenant}.{suffix}"
           examples:
             - ["sukko.general.messages"]
 
@@ -556,7 +556,7 @@ components:
       properties:
         channel:
           type: string
-          description: "Target channel. Format: {tenant}.{identifier}.{category}"
+          description: "Target channel. Format: {tenant}.{suffix}"
           examples:
             - "sukko.general.messages"
         data:
@@ -610,7 +610,7 @@ components:
           description: Server timestamp in Unix milliseconds.
         channel:
           type: string
-          description: "Channel this message was broadcast on. Format: {tenant}.{identifier}.{category}"
+          description: "Channel this message was broadcast on. Format: {tenant}.{suffix}"
           examples:
             - "sukko.general.messages"
         data:
@@ -718,6 +718,8 @@ components:
             - forbidden
             - topic_not_provisioned
             - service_unavailable
+            - no_routing_rules
+            - no_matching_route
         message:
           type: string
           description: Human-readable error description.

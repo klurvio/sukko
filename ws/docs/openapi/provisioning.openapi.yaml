@@ -9,11 +9,13 @@ info:
 
     ## Authentication
 
-    All `/api/v1/` endpoints require authentication via one of:
-    - **Admin token**: `Authorization: Bearer {admin_token}` — checked first, bypasses JWT
-    - **JWT**: `Authorization: Bearer {jwt}` — validated against per-tenant asymmetric keys
+    Most `/api/v1/` endpoints require authentication via one of:
+    - **Admin JWT**: `Authorization: Bearer {admin_jwt}` — Ed25519 keypair auth with `iss: "sukko-admin"`. Checked first; if present and valid, bypasses tenant JWT.
+    - **Tenant JWT**: `Authorization: Bearer {jwt}` — validated against per-tenant asymmetric keys (ES256, RS256, EdDSA).
 
-    Health, readiness, version, and metrics endpoints require no authentication.
+    Exceptions:
+    - `POST /api/v1/license` requires no auth — the Ed25519 signature on the license key IS the authentication.
+    - Health, readiness, version, edition, config, and metrics endpoints require no authentication.
 
     ## Authorization
 
@@ -724,12 +726,466 @@ paths:
                     items:
                       $ref: "#/components/schemas/APIKey"
 
+  # ── License Hot-Reload ──────────────────────────────────────────────
+  /api/v1/license:
+    post:
+      operationId: reloadLicense
+      summary: Reload license key
+      description: |
+        Push a new license key to the provisioning service. No auth required — the
+        Ed25519 signature on the license key IS the authentication.
+
+        Rate-limited per IP (~10 req/min with burst of 3). Replay-protected via `iat` claim.
+        On success, the key is persisted (encrypted) and broadcast to all services via gRPC stream.
+      tags: [License]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key:
+                  type: string
+                  description: Signed license key (base64url payload + Ed25519 signature)
+            example:
+              key: "eyJlZGl0aW9uIjoicHJvIiwib3JnIjoiQWNtZSJ9.signature..."
+      responses:
+        "200":
+          description: License reloaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  edition:
+                    type: string
+                    enum: [community, pro, enterprise]
+                  org:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                  status:
+                    type: string
+                    const: reloaded
+              example:
+                edition: pro
+                org: "Acme Corp"
+                expires_at: "2027-04-08T00:00:00Z"
+                status: reloaded
+        "400":
+          description: Invalid key (bad format, invalid signature, or expired)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                invalidSignature:
+                  value: { code: "INVALID_SIGNATURE", message: "Ed25519 signature verification failed" }
+                keyExpired:
+                  value: { code: "KEY_EXPIRED", message: "pushed key is already expired" }
+                invalidFormat:
+                  value: { code: "INVALID_FORMAT", message: "license key format invalid" }
+        "409":
+          description: Replay detected (iat not newer than current)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: "REPLAY_DETECTED"
+                message: "key iat is not newer than current — replay rejected"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: "RATE_LIMITED"
+                message: "too many license reload requests"
+
+  # ── Admin Key Management ───────────────────────────────────────────
+  /api/v1/admin/keys:
+    post:
+      operationId: registerAdminKey
+      summary: Register an admin public key
+      description: |
+        Register a new Ed25519 or RS256 public key for admin JWT authentication.
+        Requires an existing admin JWT (bootstrap via `ADMIN_BOOTSTRAP_KEY` env var on first deploy).
+      tags: [Admin Keys]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [public_key]
+              properties:
+                name:
+                  type: string
+                  description: Human-readable key name (default "unnamed")
+                algorithm:
+                  type: string
+                  enum: [Ed25519, RS256]
+                  description: Key algorithm (default Ed25519)
+                public_key:
+                  type: string
+                  description: PEM-encoded public key
+            example:
+              name: "deploy-key"
+              algorithm: "Ed25519"
+              public_key: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA...\n-----END PUBLIC KEY-----"
+      responses:
+        "201":
+          description: Admin key registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminKey"
+        "400":
+          description: Invalid key material or unsupported algorithm
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    get:
+      operationId: listAdminKeys
+      summary: List active admin keys
+      description: Returns all active (non-revoked) admin keys. Requires admin JWT.
+      tags: [Admin Keys]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Active admin keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminKey"
+                  total:
+                    type: integer
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/keys/{id}:
+    delete:
+      operationId: revokeAdminKey
+      summary: Revoke an admin key
+      description: |
+        Revoke an admin key. Cannot revoke the last active key (returns 409).
+        Requires admin JWT.
+      tags: [Admin Keys]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Admin key ID
+      responses:
+        "200":
+          description: Key revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key_id:
+                    type: string
+                  status:
+                    type: string
+                    const: revoked
+              example:
+                key_id: "ak_abc123"
+                status: "revoked"
+        "404":
+          description: Key not found or already revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Cannot revoke the last active admin key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: "LAST_KEY"
+                message: "cannot revoke the last active admin key"
+
+  # ── Push Credentials (Enterprise) ─────────────────────────────────
+  /api/v1/push/credentials:
+    post:
+      operationId: uploadPushCredentials
+      summary: Upload push provider credentials
+      description: |
+        Upload push notification credentials for a tenant (FCM service account, APNs key, or VAPID keys).
+        Credentials are encrypted at rest with AES-256-GCM.
+
+        **Edition**: Enterprise (Push Notifications feature gate)
+      tags: [Push]
+      security:
+        - bearerAuth: []
+      x-edition: enterprise
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id, provider, credential_data]
+              properties:
+                tenant_id:
+                  type: string
+                provider:
+                  type: string
+                  enum: [fcm, apns, vapid]
+                credential_data:
+                  type: string
+                  description: Provider-specific credential payload (JSON string for FCM/APNs, VAPID format for vapid)
+            example:
+              tenant_id: "acme"
+              provider: "vapid"
+              credential_data: '{"public_key":"BNw...","private_key":"aBc..."}'
+      responses:
+        "201":
+          description: Credential created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  provider:
+                    type: string
+                  tenant_id:
+                    type: string
+        "400":
+          description: Invalid request (missing fields, invalid provider, invalid credential data)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Edition gate — requires Enterprise
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      operationId: deletePushCredentials
+      summary: Delete push provider credentials
+      description: |
+        Delete push credentials for a tenant and provider.
+        Supports JSON body or query parameters (`?tenant_id=X&provider=Y`).
+
+        **Edition**: Enterprise (Push Notifications feature gate)
+      tags: [Push]
+      security:
+        - bearerAuth: []
+      x-edition: enterprise
+      parameters:
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+          description: Tenant ID (alternative to JSON body)
+        - name: provider
+          in: query
+          schema:
+            type: string
+            enum: [fcm, apns, vapid]
+          description: Provider (alternative to JSON body)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenant_id:
+                  type: string
+                provider:
+                  type: string
+                  enum: [fcm, apns, vapid]
+      responses:
+        "200":
+          description: Credential deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: deleted
+        "404":
+          description: Credential not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Push Channel Config (Enterprise) ───────────────────────────────
+  /api/v1/push/channels:
+    post:
+      operationId: createPushChannelConfig
+      summary: Create or update push channel config
+      description: |
+        Configure which channels trigger push notifications for a tenant.
+        Patterns must be tenant-scoped (start with `{tenant_id}.`).
+
+        **Edition**: Enterprise (Push Notifications feature gate)
+      tags: [Push]
+      security:
+        - bearerAuth: []
+      x-edition: enterprise
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id, patterns]
+              properties:
+                tenant_id:
+                  type: string
+                patterns:
+                  type: array
+                  items:
+                    type: string
+                  description: Channel patterns that trigger push (must start with tenant_id prefix)
+                default_ttl:
+                  type: integer
+                  description: Push message TTL in seconds (default 2419200 = 28 days)
+                default_urgency:
+                  type: string
+                  enum: [very-low, low, normal, high]
+                  description: Push message urgency (default "normal")
+            example:
+              tenant_id: "acme"
+              patterns: ["acme.*.messages", "acme.*.alerts"]
+              default_ttl: 86400
+              default_urgency: "high"
+      responses:
+        "201":
+          description: Channel config created/updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushChannelConfig"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    get:
+      operationId: getPushChannelConfig
+      summary: Get push channel config for a tenant
+      description: |
+        **Edition**: Enterprise (Push Notifications feature gate)
+      tags: [Push]
+      security:
+        - bearerAuth: []
+      x-edition: enterprise
+      parameters:
+        - name: tenant_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Channel config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushChannelConfig"
+        "404":
+          description: Config not found for tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      operationId: deletePushChannelConfig
+      summary: Delete push channel config
+      description: |
+        Supports JSON body or query parameter (`?tenant_id=X`).
+
+        **Edition**: Enterprise (Push Notifications feature gate)
+      tags: [Push]
+      security:
+        - bearerAuth: []
+      x-edition: enterprise
+      parameters:
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenant_id:
+                  type: string
+      responses:
+        "200":
+          description: Config deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: deleted
+        "404":
+          description: Config not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
-      description: Admin token or JWT. Admin token is checked first; if it doesn't match, JWT validation is used.
+      description: |
+        Admin JWT (Ed25519 keypair, iss:"sukko-admin") or tenant JWT (per-tenant asymmetric keys).
+        Admin JWT is checked first; if the issuer is not "sukko-admin", tenant JWT validation is used.
 
   parameters:
     tenantID:
@@ -1199,3 +1655,55 @@ components:
           type: integer
         offset:
           type: integer
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code (UPPER_SNAKE_CASE)
+        message:
+          type: string
+          description: Human-readable error description
+
+    AdminKey:
+      type: object
+      properties:
+        key_id:
+          type: string
+        name:
+          type: string
+        algorithm:
+          type: string
+          enum: [Ed25519, RS256]
+        public_key:
+          type: string
+          description: PEM-encoded public key
+        registered_by:
+          type: string
+          description: Actor who registered this key
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: ["string", "null"]
+          format: date-time
+
+    PushChannelConfig:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        patterns:
+          type: array
+          items:
+            type: string
+          description: Channel patterns that trigger push notifications
+        default_ttl:
+          type: integer
+          description: Push message TTL in seconds (default 2419200 = 28 days)
+        default_urgency:
+          type: string
+          enum: [very-low, low, normal, high]
+          description: Push message urgency (default "normal")
