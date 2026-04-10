@@ -356,6 +356,51 @@ func (c *ProvisioningClient) GetAuditLog(ctx context.Context, tenantID string) (
 	return c.doGet(ctx, "/api/v1/tenants/"+tenantID+"/audit", "get audit log")
 }
 
+// --- Push credential + channel methods ---
+
+// SetPushCredentials uploads push provider credentials for a tenant.
+func (c *ProvisioningClient) SetPushCredentials(ctx context.Context, tenantID, provider, credentialData string) error {
+	payload, _ := json.Marshal(map[string]string{ // json.Marshal on literal map of strings cannot fail
+		"tenant_id":       tenantID,
+		"provider":        provider,
+		"credential_data": credentialData,
+	})
+	return c.doPost(ctx, "/api/v1/push/credentials", payload, "set push credentials")
+}
+
+// DeletePushCredentials removes push provider credentials for a tenant.
+func (c *ProvisioningClient) DeletePushCredentials(ctx context.Context, tenantID, provider string) error {
+	payload, _ := json.Marshal(map[string]string{
+		"tenant_id": tenantID,
+		"provider":  provider,
+	})
+	return c.doDeleteWithBody(ctx, "/api/v1/push/credentials", payload, "delete push credentials")
+}
+
+// SetPushChannels creates or updates push channel configuration for a tenant.
+func (c *ProvisioningClient) SetPushChannels(ctx context.Context, tenantID string, patterns []string, ttl int, urgency string) error {
+	payload, _ := json.Marshal(map[string]any{
+		"tenant_id":       tenantID,
+		"patterns":        patterns,
+		"default_ttl":     ttl,
+		"default_urgency": urgency,
+	})
+	return c.doPost(ctx, "/api/v1/push/channels", payload, "set push channels")
+}
+
+// GetPushChannels retrieves push channel configuration for a tenant. Returns raw JSON.
+func (c *ProvisioningClient) GetPushChannels(ctx context.Context, tenantID string) ([]byte, error) {
+	return c.doGet(ctx, "/api/v1/push/channels?tenant_id="+tenantID, "get push channels")
+}
+
+// DeletePushChannels removes push channel configuration for a tenant.
+func (c *ProvisioningClient) DeletePushChannels(ctx context.Context, tenantID string) error {
+	payload, _ := json.Marshal(map[string]string{
+		"tenant_id": tenantID,
+	})
+	return c.doDeleteWithBody(ctx, "/api/v1/push/channels", payload, "delete push channels")
+}
+
 // --- HTTP helpers ---
 
 func (c *ProvisioningClient) doGet(ctx context.Context, path, operation string) ([]byte, error) {
@@ -429,6 +474,25 @@ func (c *ProvisioningClient) doPostForBody(ctx context.Context, path string, pay
 
 func (c *ProvisioningClient) doDelete(ctx context.Context, path, operation string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("%s: build request: %w", operation, err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s: %w", operation, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.readError(operation, resp)
+	}
+	return nil
+}
+
+func (c *ProvisioningClient) doDeleteWithBody(ctx context.Context, path string, payload []byte, operation string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("%s: build request: %w", operation, err)
 	}

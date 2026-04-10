@@ -47,6 +47,8 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 		checks, err = validateSSE(ctx, run, logger)
 	case "rest-publish":
 		checks, err = validateRestPublish(ctx, run, logger)
+	case "push":
+		checks, err = validatePush(ctx, run, logger)
 	default:
 		checks = []metrics.CheckResult{{
 			Name:   "unknown suite",

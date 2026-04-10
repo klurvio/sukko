@@ -1,0 +1,119 @@
+package runner
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+)
+
+// pushSubscribeRequest is the JSON body for POST /api/v1/push/subscribe.
+type pushSubscribeRequest struct {
+	Platform   string   `json:"platform"`
+	Token      string   `json:"token,omitempty"`
+	Endpoint   string   `json:"endpoint,omitempty"`
+	P256dhKey  string   `json:"p256dh_key,omitempty"`
+	AuthSecret string   `json:"auth_secret,omitempty"`
+	Channels   []string `json:"channels"`
+}
+
+// pushUnsubscribeRequest is the JSON body for DELETE /api/v1/push/subscribe.
+type pushUnsubscribeRequest struct {
+	DeviceID int64 `json:"device_id"`
+}
+
+// pushSubscribe registers a push device via the gateway.
+// Returns (deviceID, httpStatusCode, error).
+func pushSubscribe(ctx context.Context, gatewayURL, token string, req pushSubscribeRequest) (deviceID int64, statusCode int, err error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return 0, 0, fmt.Errorf("push subscribe: marshal: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, gatewayURL+"/api/v1/push/subscribe", bytes.NewReader(body))
+	if err != nil {
+		return 0, 0, fmt.Errorf("push subscribe: create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return 0, 0, fmt.Errorf("push subscribe: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+
+	if resp.StatusCode != http.StatusCreated {
+		return 0, resp.StatusCode, fmt.Errorf("push subscribe: HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		DeviceID int64 `json:"device_id"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return 0, resp.StatusCode, fmt.Errorf("push subscribe: unmarshal response: %w", err)
+	}
+
+	return result.DeviceID, resp.StatusCode, nil
+}
+
+// pushUnsubscribe unregisters a push device via the gateway.
+// Returns (httpStatusCode, error).
+func pushUnsubscribe(ctx context.Context, gatewayURL, token string, deviceID int64) (statusCode int, err error) {
+	body, _ := json.Marshal(pushUnsubscribeRequest{DeviceID: deviceID}) // json.Marshal on simple struct cannot fail
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, gatewayURL+"/api/v1/push/subscribe", bytes.NewReader(body))
+	if err != nil {
+		return 0, fmt.Errorf("push unsubscribe: create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return 0, fmt.Errorf("push unsubscribe: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return resp.StatusCode, fmt.Errorf("push unsubscribe: HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return resp.StatusCode, nil
+}
+
+// pushGetVAPIDKey retrieves the VAPID public key via the gateway.
+// Returns (publicKey, httpStatusCode, error).
+func pushGetVAPIDKey(ctx context.Context, gatewayURL, token string) (publicKey string, statusCode int, err error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, gatewayURL+"/api/v1/push/vapid-key", http.NoBody)
+	if err != nil {
+		return "", 0, fmt.Errorf("push vapid key: create request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return "", 0, fmt.Errorf("push vapid key: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+
+	if resp.StatusCode != http.StatusOK {
+		return "", resp.StatusCode, fmt.Errorf("push vapid key: HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		PublicKey string `json:"public_key"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", resp.StatusCode, fmt.Errorf("push vapid key: unmarshal response: %w", err)
+	}
+
+	return result.PublicKey, resp.StatusCode, nil
+}
