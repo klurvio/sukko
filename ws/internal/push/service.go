@@ -219,11 +219,22 @@ func (s *Service) handleMessage(tenantID, channelKey string, data []byte) {
 	// Get push patterns for this tenant
 	patterns := s.cache.GetPushPatterns(tenantID)
 	if len(patterns) == 0 {
+		// LOG-001: No push patterns configured for tenant
+		if s.logger.Debug().Enabled() {
+			s.logger.Debug().Str("tenant_id", tenantID).Str("channel_key", channelKey).
+				Msg("no push patterns configured for tenant")
+		}
 		return
 	}
 
 	// Check if this channel matches any push pattern
 	if !consumer.MatchChannel(channelKey, patterns) {
+		// LOG-002: Channel did not match push patterns
+		if s.logger.Debug().Enabled() {
+			s.logger.Debug().Str("tenant_id", tenantID).Str("channel_key", channelKey).
+				Int("pattern_count", len(patterns)).
+				Msg("channel did not match push patterns")
+		}
 		return
 	}
 	messagesMatched.Inc()
@@ -239,10 +250,18 @@ func (s *Service) handleMessage(tenantID, channelKey string, data []byte) {
 	}
 
 	if len(subs) == 0 {
+		// LOG-003: No push subscriptions for tenant
+		if s.logger.Debug().Enabled() {
+			s.logger.Debug().Str("tenant_id", tenantID).Str("channel_key", channelKey).
+				Int("subscription_count", 0).
+				Msg("no push subscriptions for tenant")
+		}
 		return
 	}
 
 	// Filter subscriptions by channel match and build push jobs
+	var jobsEnqueued int
+	var platforms []string
 	for _, sub := range subs {
 		// Each subscription has its own channel patterns — filter in Go
 		if !consumer.MatchChannel(channelKey, sub.Channels) {
@@ -265,6 +284,17 @@ func (s *Service) handleMessage(tenantID, channelKey string, data []byte) {
 
 		devicesTargeted.Inc()
 		s.workerPool.Enqueue(job)
+		jobsEnqueued++
+		if s.logger.Debug().Enabled() {
+			platforms = append(platforms, sub.Platform)
+		}
+	}
+
+	// LOG-004: Push jobs enqueued
+	if s.logger.Debug().Enabled() && jobsEnqueued > 0 {
+		s.logger.Debug().Str("tenant_id", tenantID).Str("channel_key", channelKey).
+			Int("jobs_enqueued", jobsEnqueued).Strs("platforms", platforms).
+			Msg("push jobs enqueued")
 	}
 }
 
@@ -275,13 +305,28 @@ func (s *Service) refreshTopicsLoop() {
 	ticker := time.NewTicker(s.refreshInterval)
 	defer ticker.Stop()
 
+	lastTopicCount := -1 // unknown until first refresh
+
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
 			topics := s.cache.GetTopics()
+			newCount := len(topics)
+
+			// LOG-006: Warn if topics dropped from >0 to 0
+			if lastTopicCount > 0 && newCount == 0 {
+				s.logger.Warn().Int("old_count", lastTopicCount).
+					Msg("push topics dropped to zero — possible config loss")
+			}
+
+			// LOG-005: Debug topic refresh delta
+			s.logger.Debug().Int("old_count", lastTopicCount).Int("new_count", newCount).
+				Msg("push topics refreshed")
+
 			s.consumerPool.UpdateTopics(topics)
+			lastTopicCount = newCount
 		}
 	}
 }

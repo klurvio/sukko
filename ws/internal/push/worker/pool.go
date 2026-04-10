@@ -125,9 +125,19 @@ func (p *Pool) StartWorkers(n int) {
 }
 
 // Enqueue adds a push job to the work queue. If the queue is full, Enqueue
-// blocks until space is available or the context is canceled — providing
-// backpressure to the consumer.
+// logs a WARN and blocks until space is available or the context is canceled —
+// providing backpressure to the consumer.
 func (p *Pool) Enqueue(job provider.PushJob) {
+	// LOG-008: Non-blocking try first — detect backpressure deterministically
+	select {
+	case p.jobs <- job:
+		jobsEnqueued.Inc()
+		return
+	default:
+	}
+	p.logger.Warn().Int("queue_size", cap(p.jobs)).
+		Msg("push job queue full — backpressure")
+	// Fall back to blocking send
 	select {
 	case p.jobs <- job:
 		jobsEnqueued.Inc()
@@ -185,6 +195,12 @@ func (p *Pool) dispatch(job provider.PushJob) {
 
 	if err == nil {
 		jobsDispatched.WithLabelValues(job.Platform).Inc()
+		// LOG-007: Dispatch success
+		if p.logger.Debug().Enabled() {
+			p.logger.Debug().Str("tenant_id", job.TenantID).Str("platform", job.Platform).
+				Str("channel", job.Channel).Int64("duration_ms", elapsed.Milliseconds()).
+				Msg("push notification dispatched")
+		}
 		return
 	}
 

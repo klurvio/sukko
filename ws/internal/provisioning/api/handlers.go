@@ -123,6 +123,7 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 	var req provisioning.CreateTenantRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.Warn().Err(err).Str("handler", "CreateTenant").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
@@ -137,6 +138,7 @@ func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 
 	RecordTenantCreated()
 	RecordTenantOperation("create", pkgmetrics.ResultSuccess)
+	h.logger.Info().Str("tenant_id", req.TenantID).Str("operation", "create").Msg("tenant create succeeded") // LOG-017
 	_ = httputil.WriteJSON(w, http.StatusCreated, resp)
 }
 
@@ -183,6 +185,7 @@ func (h *Handler) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 
 	var req provisioning.UpdateTenantRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.Warn().Err(err).Str("handler", "UpdateTenant").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
@@ -194,6 +197,7 @@ func (h *Handler) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logger.Info().Str("tenant_id", tenantID).Str("operation", "update").Msg("tenant update succeeded") // LOG-017
 	_ = httputil.WriteJSON(w, http.StatusOK, tenant)
 }
 
@@ -209,6 +213,7 @@ func (h *Handler) SuspendTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordTenantOperation("suspend", pkgmetrics.ResultSuccess)
+	h.logger.Info().Str("tenant_id", tenantID).Str("operation", "suspend").Msg("tenant suspend succeeded") // LOG-017
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "suspended"})
 }
 
@@ -224,6 +229,7 @@ func (h *Handler) ReactivateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordTenantOperation("reactivate", pkgmetrics.ResultSuccess)
+	h.logger.Info().Str("tenant_id", tenantID).Str("operation", "reactivate").Msg("tenant reactivate succeeded") // LOG-017
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "active"})
 }
 
@@ -245,6 +251,7 @@ func (h *Handler) DeprovisionTenant(w http.ResponseWriter, r *http.Request) {
 		status = "deleted"
 	}
 	RecordTenantOperation("deprovision", pkgmetrics.ResultSuccess)
+	h.logger.Info().Str("tenant_id", tenantID).Str("operation", "deprovision").Msg("tenant deprovision succeeded") // LOG-017
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": status}) // WriteJSON error = broken client connection; nothing actionable
 }
 
@@ -254,6 +261,7 @@ func (h *Handler) CreateKey(w http.ResponseWriter, r *http.Request) {
 
 	var req provisioning.CreateKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.Warn().Err(err).Str("handler", "CreateKey").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
@@ -266,6 +274,7 @@ func (h *Handler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordKeyCreated()
+	h.logger.Info().Str("tenant_id", tenantID).Str("key_id", req.KeyID).Str("operation", "create").Msg("key create succeeded") // LOG-018
 	_ = httputil.WriteJSON(w, http.StatusCreated, key)
 }
 
@@ -301,6 +310,7 @@ func (h *Handler) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordKeyRevoked()
+	h.logger.Info().Str("tenant_id", tenantID).Str("key_id", keyID).Str("operation", "revoke").Msg("key revoke succeeded") // LOG-018
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 
@@ -344,6 +354,7 @@ func (h *Handler) SetRoutingRules(w http.ResponseWriter, r *http.Request) {
 
 	var req provisioning.SetRoutingRulesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.Warn().Err(err).Str("handler", "SetRoutingRules").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
@@ -361,6 +372,7 @@ func (h *Handler) SetRoutingRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordRoutingRulesSet()
+	h.logger.Info().Str("tenant_id", tenantID).Int("rule_count", len(req.Rules)).Msg("routing rules updated") // LOG-019
 
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"rules": req.Rules,
@@ -409,6 +421,7 @@ func (h *Handler) UpdateQuota(w http.ResponseWriter, r *http.Request) {
 
 	var req provisioning.UpdateQuotaRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.Warn().Err(err).Str("handler", "UpdateQuota").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
@@ -449,6 +462,7 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	var req provisioning.CreateAPIKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.Warn().Err(err).Str("handler", "CreateAPIKey").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
@@ -461,6 +475,7 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordAPIKeyCreated()
+	h.logger.Info().Str("tenant_id", tenantID).Str("key_id", key.KeyID).Str("operation", "create").Msg("key create succeeded") // LOG-018
 	_ = httputil.WriteJSON(w, http.StatusCreated, key)
 }
 
@@ -496,6 +511,7 @@ func (h *Handler) RevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordAPIKeyRevoked()
+	h.logger.Info().Str("tenant_id", tenantID).Str("key_id", keyID).Str("operation", "revoke").Msg("key revoke succeeded") // LOG-018
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 

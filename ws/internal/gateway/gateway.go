@@ -325,9 +325,11 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	clientConn, _, _, err := ws.UpgradeHTTP(r, w)
 	if err != nil {
 		closeReason = CloseReasonUpgradeFailed
+		// LOG-015: WS upgrade failure with structured context
 		gw.logger.Warn().
 			Err(err).
 			Str("remote_addr", remoteAddr).
+			Str("failure_reason", "upgrade_failed").
 			Msg("WebSocket upgrade failed")
 		return
 	}
