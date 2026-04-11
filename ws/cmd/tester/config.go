@@ -19,6 +19,9 @@ type TesterConfig struct {
 	NATSJetStreamURLs string `env:"NATS_JETSTREAM_URLS" envDefault:""`
 	MessageBackend    string `env:"MESSAGE_BACKEND" envDefault:"direct"`
 
+	// License reload suite
+	LicenseKeyFile string `env:"TESTER_LICENSE_KEY_FILE" envDefault:""` // Ed25519 private key for license-reload suite signing
+
 	// JWT auth configuration
 	JWTLifetime      time.Duration `env:"TESTER_JWT_LIFETIME" envDefault:"15m"`
 	JWTRefreshBefore time.Duration `env:"TESTER_JWT_REFRESH_BEFORE" envDefault:"2m"`
