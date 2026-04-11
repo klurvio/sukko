@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
+	"github.com/klurvio/sukko/cmd/tester/restpublish"
+	testersse "github.com/klurvio/sukko/cmd/tester/sse"
 	testerws "github.com/klurvio/sukko/cmd/tester/ws"
 	"github.com/rs/zerolog"
 )
@@ -85,11 +87,23 @@ func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Log
 		info.Usage.Shards = gwInfo.Usage.Shards
 	}
 
-	// If all limits are 0 (Enterprise/unlimited), skip boundary tests
+	// Feature gate checks (run on all editions including Enterprise)
+	checks := make([]metrics.CheckResult, 0, 12) //nolint:mnd // pre-allocate for ~12 checks across 4 dimensions + 2 feature gates
+
+	// Feature gate: SSE Transport (Pro+ only)
+	sseCheck := checkSSEFeatureGate(ctx, gwURL, run.authResult.TokenFunc(0), info.Edition, logger)
+	checks = append(checks, sseCheck)
+
+	// Feature gate: REST Publish (Pro+ only, same gate as SSE)
+	restCheck := checkRESTPublishFeatureGate(ctx, gwURL, run.authResult.TokenFunc(0), info.Edition)
+	checks = append(checks, restCheck)
+
+	// If all limits are 0 (Enterprise/unlimited), skip numeric boundary tests
 	if isUnlimited(info) {
-		return []metrics.CheckResult{
-			{Name: "edition", Status: "pass", Latency: "unlimited — no boundaries to test"},
-		}, nil
+		checks = append(checks, metrics.CheckResult{
+			Name: "edition", Status: "pass", Latency: "unlimited — no boundaries to test",
+		})
+		return checks, nil
 	}
 
 	// Create shared test tenant (used by routing rules check)
@@ -104,8 +118,6 @@ func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Log
 			logger.Warn().Err(delErr).Str("tenant_id", sharedTenantID).Msg("Failed to clean up shared test tenant")
 		}
 	}()
-
-	checks := make([]metrics.CheckResult, 0, 8) //nolint:mnd // pre-allocate for ~8 checks across 4 dimensions
 
 	// Tenant limit boundary
 	tenantChecks := checkTenantLimit(ctx, provClient, info, logger)
@@ -353,6 +365,61 @@ func checkShardLimit(info *editionInfo) []metrics.CheckResult {
 		Name: "shard count within limit", Status: "fail",
 		Error: fmt.Sprintf("shard count %d exceeds limit %d", shards, maxShards),
 	}}
+}
+
+func checkSSEFeatureGate(ctx context.Context, gwURL, token, edition string, logger zerolog.Logger) metrics.CheckResult {
+	client, statusCode, err := testersse.Connect(ctx, testersse.ConnectConfig{
+		GatewayURL: httpURL(gwURL),
+		Channels:   []string{"test.gate"},
+		Token:      token,
+		Logger:     logger,
+	})
+
+	if edition == "community" {
+		// Expect 403 EDITION_LIMIT
+		if statusCode == http.StatusForbidden {
+			return metrics.CheckResult{Name: "sse feature gate", Status: "pass", Latency: "community: correctly blocked (403)"}
+		}
+		if client != nil {
+			_ = client.Close()
+			return metrics.CheckResult{Name: "sse feature gate", Status: "fail", Error: "expected 403, got 200 (connection succeeded)"}
+		}
+		errMsg := fmt.Sprintf("expected 403, got %d", statusCode)
+		if err != nil {
+			errMsg = fmt.Sprintf("expected 403: %v", err)
+		}
+		return metrics.CheckResult{Name: "sse feature gate", Status: "fail", Error: errMsg}
+	}
+
+	// Pro/Enterprise — expect success
+	if err != nil {
+		return metrics.CheckResult{Name: "sse feature gate", Status: "fail", Error: fmt.Sprintf("expected 200: %v", err)}
+	}
+	_ = client.Close()
+	return metrics.CheckResult{Name: "sse feature gate", Status: "pass", Latency: edition + ": accessible (200)"}
+}
+
+func checkRESTPublishFeatureGate(ctx context.Context, gwURL, token, edition string) metrics.CheckResult {
+	client := restpublish.NewClient(httpURL(gwURL))
+	body := []byte(`{"channel":"test.gate","data":{}}`)
+	statusCode, _, err := client.PublishRaw(ctx, body, restpublish.AuthConfig{Token: token}, "application/json")
+
+	if err != nil {
+		return metrics.CheckResult{Name: "rest publish feature gate", Status: "fail", Error: fmt.Sprintf("request failed: %v", err)}
+	}
+
+	if edition == "community" {
+		if statusCode == http.StatusForbidden {
+			return metrics.CheckResult{Name: "rest publish feature gate", Status: "pass", Latency: "community: correctly blocked (403)"}
+		}
+		return metrics.CheckResult{Name: "rest publish feature gate", Status: "fail", Error: fmt.Sprintf("expected 403, got %d", statusCode)}
+	}
+
+	// Pro/Enterprise — expect success
+	if statusCode == http.StatusOK {
+		return metrics.CheckResult{Name: "rest publish feature gate", Status: "pass", Latency: edition + ": accessible (200)"}
+	}
+	return metrics.CheckResult{Name: "rest publish feature gate", Status: "fail", Error: fmt.Sprintf("expected 200, got %d", statusCode)}
 }
 
 func isUnlimited(info *editionInfo) bool {
