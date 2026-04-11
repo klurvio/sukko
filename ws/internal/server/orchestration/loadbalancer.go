@@ -490,10 +490,10 @@ func (lb *LoadBalancer) handleEditionWithMismatch(w http.ResponseWriter, r *http
 		resp["edition"] = edition.String()
 		resp["org"] = lb.editionManager.Org()
 		resp["limits"] = map[string]any{
-			"max_tenants":                limits.MaxTenants,
-			"max_total_connections":      limits.MaxTotalConnections,
-			"max_shards":                 limits.MaxShards,
-			"max_topics_per_tenant":      limits.MaxTopicsPerTenant,
+			"max_tenants":                  limits.MaxTenants,
+			"max_total_connections":        limits.MaxTotalConnections,
+			"max_shards":                   limits.MaxShards,
+			"max_topics_per_tenant":        limits.MaxTopicsPerTenant,
 			"max_routing_rules_per_tenant": limits.MaxRoutingRulesPerTenant,
 		}
 
