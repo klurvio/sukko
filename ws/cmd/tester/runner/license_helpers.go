@@ -169,7 +169,7 @@ func checkRESTGate(ctx context.Context, gwURL, token string, expectSuccess bool)
 
 // checkPushGate verifies push endpoint accessibility. Returns "skip" on 503 (push not deployed).
 func checkPushGate(ctx context.Context, gwURL, token string, expectSuccess bool) []metrics.CheckResult {
-	_, statusCode, err := pushGetVAPIDKey(ctx, gwURL, token)
+	statusCode, err := pushGetVAPIDKey(ctx, gwURL, token)
 
 	if err != nil && statusCode == http.StatusServiceUnavailable {
 		return []metrics.CheckResult{{Name: "push gate", Status: "skip", Error: "push service not deployed (503)"}}

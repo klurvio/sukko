@@ -41,7 +41,7 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	}()
 
 	// Step 0: Health probe — verify push infrastructure is available
-	_, vapidStatus, vapidErr := pushGetVAPIDKey(ctx, gwURL, token)
+	vapidStatus, vapidErr := pushGetVAPIDKey(ctx, gwURL, token)
 	if vapidErr != nil {
 		switch vapidStatus {
 		case 503:

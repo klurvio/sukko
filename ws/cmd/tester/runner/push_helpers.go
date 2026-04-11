@@ -88,32 +88,33 @@ func pushUnsubscribe(ctx context.Context, gatewayURL, token string, deviceID int
 }
 
 // pushGetVAPIDKey retrieves the VAPID public key via the gateway.
-// Returns (publicKey, httpStatusCode, error).
-func pushGetVAPIDKey(ctx context.Context, gatewayURL, token string) (publicKey string, statusCode int, err error) {
+// Returns (statusCode, error). The public key value is not used by callers
+// (they only need the status code for gate/availability checks).
+func pushGetVAPIDKey(ctx context.Context, gatewayURL, token string) (statusCode int, err error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, gatewayURL+"/api/v1/push/vapid-key", http.NoBody)
 	if err != nil {
-		return "", 0, fmt.Errorf("push vapid key: create request: %w", err)
+		return 0, fmt.Errorf("push vapid key: create request: %w", err)
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return "", 0, fmt.Errorf("push vapid key: %w", err)
+		return 0, fmt.Errorf("push vapid key: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
 	if resp.StatusCode != http.StatusOK {
-		return "", resp.StatusCode, fmt.Errorf("push vapid key: HTTP %d: %s", resp.StatusCode, string(respBody))
+		return resp.StatusCode, fmt.Errorf("push vapid key: HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var result struct {
 		PublicKey string `json:"public_key"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", resp.StatusCode, fmt.Errorf("push vapid key: unmarshal response: %w", err)
+		return resp.StatusCode, fmt.Errorf("push vapid key: unmarshal response: %w", err)
 	}
 
-	return result.PublicKey, resp.StatusCode, nil
+	return resp.StatusCode, nil
 }
