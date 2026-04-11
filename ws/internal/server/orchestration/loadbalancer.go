@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -52,6 +53,8 @@ type LoadBalancer struct {
 	metricsAggregationInterval time.Duration
 	editionManager             *license.Manager
 	pprofEnabled               bool
+	backendMismatch            *atomic.Bool
+	messageBackend             string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -86,6 +89,13 @@ type LoadBalancerConfig struct {
 	// PprofEnabled registers /debug/pprof/ handlers on the LB's HTTP mux when true.
 	// Disabled by default (Constitution IX: debug endpoints must be opt-in).
 	PprofEnabled bool
+
+	// BackendMismatch is set by the license watcher OnReload callback when the
+	// current MESSAGE_BACKEND is not supported by the new edition. Nil = no tracking.
+	BackendMismatch *atomic.Bool
+
+	// MessageBackend is the configured MESSAGE_BACKEND for health reporting.
+	MessageBackend string
 }
 
 // NewLoadBalancer creates a new LoadBalancer instance.
@@ -130,6 +140,8 @@ func NewLoadBalancer(cfg LoadBalancerConfig) (*LoadBalancer, error) {
 		metricsAggregationInterval: cfg.MetricsAggregationInterval,
 		editionManager:             cfg.EditionManager,
 		pprofEnabled:               cfg.PprofEnabled,
+		backendMismatch:            cfg.BackendMismatch,
+		messageBackend:             cfg.MessageBackend,
 		ctx:                        ctx,
 		cancel:                     cancel,
 	}
@@ -145,7 +157,7 @@ func (lb *LoadBalancer) Start() error {
 	mux.HandleFunc("/ws", lb.handleWebSocket)
 	mux.HandleFunc("/health", lb.handleHealth)
 	mux.HandleFunc("/version", version.Handler("ws-server"))
-	mux.HandleFunc("/edition", license.EditionHandler(lb.editionManager, func(_ context.Context) *license.EditionUsage {
+	editionUsageFunc := func(_ context.Context) *license.EditionUsage {
 		var totalConns int64
 		for _, shard := range lb.shards {
 			totalConns += shard.GetCurrentConnections()
@@ -153,7 +165,15 @@ func (lb *LoadBalancer) Start() error {
 		conns := int(totalConns)
 		shards := len(lb.shards)
 		return &license.EditionUsage{Connections: &conns, Shards: &shards}
-	}))
+	}
+	editionHandler := license.EditionHandler(lb.editionManager, editionUsageFunc)
+	mux.HandleFunc("/edition", func(w http.ResponseWriter, r *http.Request) {
+		if lb.backendMismatch != nil && lb.backendMismatch.Load() {
+			lb.handleEditionWithMismatch(w, r, editionUsageFunc)
+			return
+		}
+		editionHandler(w, r)
+	})
 	if lb.configHandler != nil {
 		mux.HandleFunc("/config", lb.configHandler)
 	}
@@ -389,9 +409,9 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// Get system-wide CPU/memory metrics (same for all shards - single process)
 	// Query from shard 0 (arbitrary choice - all shards share the same metrics)
-	cpuPercent, memoryMB := 0.0, 0.0
+	cpuPercent, memoryMB, memoryPercent := 0.0, 0.0, 0.0
 	if len(lb.shards) > 0 {
-		cpuPercent, memoryMB = lb.shards[0].GetSystemStats()
+		cpuPercent, memoryMB, memoryPercent = lb.shards[0].GetSystemStats()
 	}
 
 	// Build simplified health response matching expected format
@@ -406,25 +426,45 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		status = "degraded"
 	}
 
+	checksMap := map[string]any{
+		"capacity": map[string]any{
+			"current":    int(totalConnections),
+			"max":        int(totalMaxConnections),
+			"percentage": capacityPercent,
+		},
+		"cpu": map[string]any{
+			"percentage": cpuPercent, // System-wide CPU (all shards share same process)
+		},
+		"memory": map[string]any{
+			"used_mb":    memoryMB,      // System-wide memory (all shards share same heap)
+			"percentage": memoryPercent, // Percentage of container memory limit (0 if limit unknown)
+		},
+	}
+
+	// Backend mismatch check (atomic read — lock-free)
+	if lb.backendMismatch != nil && lb.backendMismatch.Load() {
+		editionStr := "unknown"
+		if lb.editionManager != nil {
+			editionStr = lb.editionManager.Edition().String()
+		}
+		checksMap["backend_mismatch"] = map[string]any{
+			"mismatch": true,
+			"backend":  lb.messageBackend,
+			"edition":  editionStr,
+			"message":  "MESSAGE_BACKEND=" + lb.messageBackend + " is not supported on " + editionStr + " edition. Restart with MESSAGE_BACKEND=direct or upgrade the license.",
+		}
+		// Degrade status (worst wins: unhealthy > degraded > healthy)
+		if status == "healthy" {
+			status = "degraded"
+		}
+	}
+
 	response := map[string]any{
 		"status":  status,
 		"healthy": isHealthy,
 		"version": version.Get("ws-server"),
-		"checks": map[string]any{
-			"capacity": map[string]any{
-				"current":    int(totalConnections),
-				"max":        int(totalMaxConnections),
-				"percentage": capacityPercent,
-			},
-			"cpu": map[string]any{
-				"percentage": cpuPercent, // System-wide CPU (all shards share same process)
-			},
-			"memory": map[string]any{
-				"used_mb":    memoryMB, // System-wide memory (all shards share same heap)
-				"percentage": 0.0,      // Could calculate from memory limit if needed
-			},
-		},
-		"shards": shardStats, // Per-shard connection breakdown (zero performance cost)
+		"checks":  checksMap,
+		"shards":  shardStats, // Per-shard connection breakdown (zero performance cost)
 	}
 
 	w.WriteHeader(statusCode)
@@ -432,4 +472,41 @@ func (lb *LoadBalancer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		// WriteHeader already sent — can't change status code, just log for debugging
 		lb.logger.Error().Err(err).Msg("Failed to encode health response")
 	}
+}
+
+// handleEditionWithMismatch serves the /edition endpoint with a backend_mismatch field.
+// Replicates the standard EditionHandler logic but adds the mismatch indicator.
+func (lb *LoadBalancer) handleEditionWithMismatch(w http.ResponseWriter, r *http.Request, usageFn license.UsageFunc) {
+	resp := map[string]any{
+		"edition":          license.Community.String(),
+		"limits":           license.DefaultLimits(license.Community),
+		"backend_mismatch": true,
+	}
+
+	if lb.editionManager != nil {
+		edition := lb.editionManager.CurrentEdition()
+		limits := lb.editionManager.CurrentLimits()
+
+		resp["edition"] = edition.String()
+		resp["org"] = lb.editionManager.Org()
+		resp["limits"] = map[string]any{
+			"max_tenants":                limits.MaxTenants,
+			"max_total_connections":      limits.MaxTotalConnections,
+			"max_shards":                 limits.MaxShards,
+			"max_topics_per_tenant":      limits.MaxTopicsPerTenant,
+			"max_routing_rules_per_tenant": limits.MaxRoutingRulesPerTenant,
+		}
+
+		if claims := lb.editionManager.Claims(); claims != nil {
+			resp["expires_at"] = time.Unix(claims.Exp, 0).UTC()
+			resp["expired"] = claims.IsExpired()
+		}
+	}
+
+	if usageFn != nil {
+		resp["usage"] = usageFn(r.Context())
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp) // encode error = broken client connection; nothing actionable
 }

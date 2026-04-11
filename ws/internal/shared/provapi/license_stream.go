@@ -27,6 +27,7 @@ type StreamLicenseWatcherConfig struct {
 	MetricPrefix      string // "gateway", "ws", or "push"
 	Manager           *license.Manager
 	Logger            zerolog.Logger
+	OnReload          func() // Optional callback invoked after each successful Manager.Reload(). Runs in the watcher goroutine (RecoverPanic covers panics).
 }
 
 // StreamLicenseWatcher subscribes to the WatchLicense gRPC stream and calls
@@ -176,6 +177,10 @@ func (w *StreamLicenseWatcher) streamLoop(ctx context.Context) {
 			w.logger.Info().
 				Str("edition", w.manager.CurrentEdition().String()).
 				Msg("license reloaded from stream")
+
+			if w.config.OnReload != nil {
+				w.config.OnReload()
+			}
 		}
 	}
 }

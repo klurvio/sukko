@@ -108,6 +108,50 @@ func TestStreamLicenseWatcher_CloseStopsGoroutine(t *testing.T) {
 	}
 }
 
+func TestStreamLicenseWatcher_OnReloadCallback(t *testing.T) {
+	t.Parallel()
+
+	logger := zerolog.Nop()
+	mgr, _ := license.NewManager("", logger)
+
+	var called bool
+	w, err := NewStreamLicenseWatcher(StreamLicenseWatcherConfig{
+		GRPCAddr:     "localhost:19999",
+		Manager:      mgr,
+		MetricPrefix: "test_onreload",
+		Logger:       logger,
+		OnReload:     func() { called = true },
+	})
+	if err != nil {
+		t.Fatalf("NewStreamLicenseWatcher() error = %v", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	// Verify callback is stored in config
+	if w.config.OnReload == nil {
+		t.Fatal("OnReload callback was not stored in config")
+	}
+
+	// Verify nil OnReload is safe (no panic)
+	w2, err := NewStreamLicenseWatcher(StreamLicenseWatcherConfig{
+		GRPCAddr:     "localhost:19998",
+		Manager:      mgr,
+		MetricPrefix: "test_onreload_nil",
+		Logger:       logger,
+		// OnReload not set — nil
+	})
+	if err != nil {
+		t.Fatalf("NewStreamLicenseWatcher() with nil OnReload error = %v", err)
+	}
+	defer func() { _ = w2.Close() }()
+
+	if w2.config.OnReload != nil {
+		t.Error("OnReload should be nil when not set")
+	}
+
+	_ = called // callback would be invoked by streamLoop on successful reload (requires live gRPC server)
+}
+
 func TestStreamLicenseWatcher_InitialStateDisconnected(t *testing.T) {
 	t.Parallel()
 
