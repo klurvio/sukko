@@ -21,14 +21,16 @@ var (
 
 // SystemMetrics holds current system resource measurements.
 type SystemMetrics struct {
-	CPUPercent    float64                // Current CPU usage percentage (container-aware)
-	CPUSmoothed   float64                // EWMA-smoothed CPU percentage (for load-shedding decisions)
-	MemoryBytes   int64                  // Current memory usage in bytes
-	MemoryMB      float64                // Current memory usage in MB
-	Goroutines    int                    // Current goroutine count
-	CPUAllocation float64                // CPU allocation (cores) from container limits
-	ThrottleStats platform.ThrottleStats // CPU throttling statistics
-	Timestamp     time.Time              // When these metrics were captured
+	CPUPercent       float64                // Current CPU usage percentage (container-aware)
+	CPUSmoothed      float64                // EWMA-smoothed CPU percentage (for load-shedding decisions)
+	MemoryBytes      int64                  // Current memory usage in bytes
+	MemoryMB         float64                // Current memory usage in MB
+	MemoryLimitBytes int64                  // Container memory limit in bytes (0 = unknown/unlimited)
+	MemoryPercent    float64                // Memory usage as percentage of limit (0 if limit unknown)
+	Goroutines       int                    // Current goroutine count
+	CPUAllocation    float64                // CPU allocation (cores) from container limits
+	ThrottleStats    platform.ThrottleStats // CPU throttling statistics
+	Timestamp        time.Time              // When these metrics were captured
 }
 
 // SystemMonitor centralizes system resource monitoring.
@@ -39,6 +41,9 @@ type SystemMonitor struct {
 	// Current metrics (protected by mutex)
 	mu      sync.RWMutex
 	metrics SystemMetrics
+
+	// Container memory limit (read once at startup, 0 = unknown)
+	memoryLimitBytes int64
 
 	// EWMA state
 	ewmaBeta        float64 // Decay factor (0-1), higher = smoother
@@ -80,6 +85,7 @@ func GetSystemMonitor(logger zerolog.Logger, ewmaBeta ...float64) *SystemMonitor
 		memLimit, err := platform.GetMemoryLimit()
 		if err == nil && memLimit > 0 {
 			memoryLimitBytes.Set(float64(memLimit))
+			systemMonitorInstance.memoryLimitBytes = memLimit
 		}
 
 		logger.Info().
@@ -179,15 +185,23 @@ func (sm *SystemMonitor) updateMetrics() {
 
 	sm.mu.Lock()
 	smoothed := sm.computeEWMA(cpuPercent)
+	memBytes := int64(mem.Alloc) //nolint:gosec // Memory allocation fits in int64
+	memMB := float64(mem.Alloc) / (1024 * 1024)
+	var memPercent float64
+	if sm.memoryLimitBytes > 0 {
+		memPercent = float64(memBytes) / float64(sm.memoryLimitBytes) * 100
+	}
 	sm.metrics = SystemMetrics{
-		CPUPercent:    cpuPercent,
-		CPUSmoothed:   smoothed,
-		MemoryBytes:   int64(mem.Alloc), //nolint:gosec // Memory allocation fits in int64
-		MemoryMB:      float64(mem.Alloc) / (1024 * 1024),
-		Goroutines:    goroutines,
-		CPUAllocation: sm.cpuMonitor.GetAllocation(),
-		ThrottleStats: throttleStats,
-		Timestamp:     time.Now(),
+		CPUPercent:       cpuPercent,
+		CPUSmoothed:      smoothed,
+		MemoryBytes:      memBytes,
+		MemoryMB:         memMB,
+		MemoryLimitBytes: sm.memoryLimitBytes,
+		MemoryPercent:    memPercent,
+		Goroutines:       goroutines,
+		CPUAllocation:    sm.cpuMonitor.GetAllocation(),
+		ThrottleStats:    throttleStats,
+		Timestamp:        time.Now(),
 	}
 	sm.mu.Unlock()
 

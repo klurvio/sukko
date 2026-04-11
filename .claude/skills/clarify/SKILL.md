@@ -56,7 +56,14 @@ Detect and reduce ambiguity in the active feature spec. This should run BEFORE p
    - Update the relevant spec section
    - Save immediately after each integration
 
-6. **Report completion**:
+6. **Update pass counter** in `spec.md`:
+   - Look for a `**Passes**:` line near the top of the spec (after the metadata block)
+   - If it exists, increment the `clarify` counter and update its status. Do NOT modify other skill counters.
+   - If it doesn't exist, add `**Passes**: clarify: 1 ✓` (or without `✓` if issues were found) after the last metadata line (before `## Context`)
+   - Set `✓` if no ambiguities were found (clean pass), remove `✓` if issues were found/questions asked
+   - Example: `**Passes**: clarify: 2 ✓` means 2 passes, last one was clean
+
+7. **Report completion**:
    - Number of questions asked & answered
    - Path to updated spec
    - Sections touched

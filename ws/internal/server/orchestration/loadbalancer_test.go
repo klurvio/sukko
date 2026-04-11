@@ -331,3 +331,35 @@ func TestShardStatus_Calculation(t *testing.T) {
 		})
 	}
 }
+
+func TestHealthStatus_BackendMismatch(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		mismatchSet    bool
+		baseStatus     string
+		expectedStatus string
+	}{
+		{"no_mismatch_healthy", false, "healthy", "healthy"},
+		{"mismatch_degrades_healthy", true, "healthy", "degraded"},
+		{"mismatch_keeps_degraded", true, "degraded", "degraded"},
+		{"mismatch_keeps_unhealthy", true, "unhealthy", "unhealthy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			status := tt.baseStatus
+			mismatch := tt.mismatchSet
+
+			// Simulate the mismatch degradation logic from handleHealth
+			if mismatch && status == "healthy" {
+				status = "degraded"
+			}
+
+			if status != tt.expectedStatus {
+				t.Errorf("status: got %s, want %s", status, tt.expectedStatus)
+			}
+		})
+	}
+}

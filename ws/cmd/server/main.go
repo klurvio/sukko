@@ -12,6 +12,7 @@ import (
 
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"google.golang.org/grpc"
 
@@ -27,6 +28,9 @@ import (
 	"github.com/klurvio/sukko/internal/shared/alerting"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/provapi"
@@ -94,6 +98,39 @@ func main() {
 		Str("edition", cfg.EditionManager().Edition().String()).
 		Str("org", cfg.EditionManager().Org()).
 		Msg("Sukko edition resolved")
+
+	// License watcher — subscribe to WatchLicense gRPC stream for runtime updates
+	backendMismatch := &atomic.Bool{}
+	backendMismatchGauge := promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "ws_license_backend_mismatch",
+		Help: "Whether the current MESSAGE_BACKEND is unsupported by the current license edition (1=mismatch, 0=ok)",
+	})
+
+	licenseWatcher, licErr := provapi.NewStreamLicenseWatcher(provapi.StreamLicenseWatcherConfig{
+		GRPCAddr:          cfg.ProvisioningGRPCAddr,
+		ReconnectDelay:    cfg.GRPCReconnectDelay,
+		ReconnectMaxDelay: cfg.GRPCReconnectMaxDelay,
+		MetricPrefix:      "ws",
+		Manager:           cfg.EditionManager(),
+		Logger:            structuredLogger,
+		OnReload: func() {
+			edition := cfg.EditionManager().CurrentEdition()
+			mismatch := checkBackendMismatch(cfg.MessageBackend, edition)
+			backendMismatch.Store(mismatch)
+			if mismatch {
+				backendMismatchGauge.Set(1)
+				structuredLogger.Warn().
+					Str("backend", cfg.MessageBackend).
+					Str("edition", string(edition)).
+					Msg("Backend mismatch: MESSAGE_BACKEND is not supported by current edition. Restart required.")
+			} else {
+				backendMismatchGauge.Set(0)
+			}
+		},
+	})
+	if licErr != nil {
+		structuredLogger.Fatal().Err(licErr).Msg("Failed to create license watcher")
+	}
 
 	// Initialize tracing (cold-path only, noop when disabled)
 	tracingShutdown, err := tracing.Init(context.Background(), tracing.Config{
@@ -347,6 +384,8 @@ func main() {
 		MetricsAggregationInterval: cfg.MetricsAggregationInterval,
 		EditionManager:             cfg.EditionManager(),
 		PprofEnabled:               cfg.PprofEnabled,
+		BackendMismatch:            backendMismatch,
+		MessageBackend:             cfg.MessageBackend,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create load balancer")
@@ -408,6 +447,11 @@ func main() {
 
 	// Shutdown LoadBalancer
 	lb.Shutdown()
+
+	// Shutdown license watcher
+	if err := licenseWatcher.Close(); err != nil {
+		structuredLogger.Warn().Err(err).Msg("License watcher close failed")
+	}
 
 	// Shutdown shards
 	for _, shard := range shards {
