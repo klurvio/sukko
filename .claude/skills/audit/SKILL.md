@@ -93,7 +93,14 @@ Examples:
    - If no findings, confirm: "All files pass constitution audit."
    - Sort findings by severity (critical first), then by file path
 
-7. **Summary line** at the end:
+7. **Update pass counter** in `spec.md` (if a spec exists for the current branch):
+   - Look for a `**Passes**:` line near the top of the spec (after the metadata block)
+   - If it exists, increment the `audit` counter and update its status. Do NOT modify other skill counters.
+   - If it doesn't exist, add `**Passes**: audit: 1 ✓` (or without `✓` if issues were found) after the last metadata line (before `## Context`)
+   - Set `✓` if PASS (no critical/warning findings), remove `✓` if findings exist
+   - Example: `**Passes**: clarify: 2 ✓ | audit: 1 ✓` means 1 audit pass, clean
+
+8. **Summary line** at the end:
    - `PASS` — No critical or warning findings
    - `WARN` — No critical findings but warnings exist
    - `FAIL` — Critical findings exist

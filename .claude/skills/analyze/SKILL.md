@@ -68,7 +68,14 @@ Identify inconsistencies, duplications, ambiguities, and underspecified items ac
    - [Prioritized recommendations]
    ```
 
-6. **Offer remediation**: Ask if the user wants concrete edit suggestions for top issues (do NOT apply automatically)
+6. **Update pass counter** in `spec.md`:
+   - Look for a `**Passes**:` line near the top of the spec (after the metadata block)
+   - If it exists, increment the `analyze` counter and update its status. Do NOT modify other skill counters.
+   - If it doesn't exist, add `**Passes**: analyze: 1 ✓` (or without `✓` if issues were found) after the last metadata line (before `## Context`)
+   - Set `✓` if no findings (PASS), remove `✓` if issues were found
+   - Example: `**Passes**: clarify: 2 ✓ | analyze: 1 ✓` means analyze ran once, clean
+
+7. **Offer remediation**: Ask if the user wants concrete edit suggestions for top issues (do NOT apply automatically)
 
 ## Notes
 

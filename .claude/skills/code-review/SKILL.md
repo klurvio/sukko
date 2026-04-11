@@ -86,7 +86,14 @@ Examples:
    - On each iteration, only review files that were modified in the previous pass
    - Ask the user before each iteration if they want to continue or stop
 
-10. **Move spec to completed** when review passes with no remaining issues:
+10. **Update pass counter** in `spec.md`:
+    - Look for a `**Passes**:` line near the top of the spec (after the metadata block)
+    - If it exists, increment the `code-review` counter and update its status. Do NOT modify other skill counters.
+    - If it doesn't exist, add `**Passes**: code-review: 1 ✓` (or without `✓` if issues were found) after the last metadata line (before `## Context`)
+    - Set `✓` if PASS (no issues), remove `✓` if issues were found
+    - Example: `**Passes**: clarify: 2 ✓ | code-review: 3 ✓` means 3 code-review passes, last one clean
+
+11. **Move spec to completed** when review passes with no remaining issues:
     - Get current branch: `git branch --show-current`
     - Resolve spec directory by searching in order (first match wins):
       1. `specs/in-progress/[branch-name]/`
