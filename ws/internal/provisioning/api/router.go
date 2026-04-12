@@ -72,6 +72,10 @@ type RouterConfig struct {
 	// PprofEnabled registers /debug/pprof/ handlers when true.
 	// Disabled by default (Constitution IX: debug endpoints must be opt-in).
 	PprofEnabled bool
+
+	// RevocationHandler handles token revocation (POST /api/v1/tenants/{tenantID}/tokens/revoke).
+	// When set, revocation routes are registered with Pro edition gate.
+	RevocationHandler *RevocationHandler
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -241,6 +245,14 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 						r.Delete("/", h.DeleteChannelRules)
 					})
 				})
+
+				// Token revocation — requires Pro
+				if cfg.RevocationHandler != nil {
+					r.Route("/tokens", func(r chi.Router) {
+						r.Use(RequireFeature(cfg.EditionManager, license.TokenRevocation))
+						r.Post("/revoke", cfg.RevocationHandler.HandleRevoke)
+					})
+				}
 
 				// Test access endpoint
 				r.Post("/test-access", h.TestAccess)

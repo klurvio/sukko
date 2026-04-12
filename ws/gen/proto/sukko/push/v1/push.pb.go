@@ -40,7 +40,11 @@ type RegisterDeviceRequest struct {
 	AuthSecret string `protobuf:"bytes,7,opt,name=auth_secret,json=authSecret,proto3" json:"auth_secret,omitempty"`
 	// channels is the list of channel patterns WITH tenant prefix.
 	// Example: ["acme.alerts.*", "acme.notifications.*"]
-	Channels      []string `protobuf:"bytes,8,rep,name=channels,proto3" json:"channels,omitempty"`
+	Channels []string `protobuf:"bytes,8,rep,name=channels,proto3" json:"channels,omitempty"`
+	// jti is the JWT ID from the token used during registration (for per-token revocation).
+	Jti string `protobuf:"bytes,9,opt,name=jti,proto3" json:"jti,omitempty"`
+	// token_iat is the JWT issued-at timestamp (Unix seconds) for per-user revocation comparison.
+	TokenIat      int64 `protobuf:"varint,10,opt,name=token_iat,json=tokenIat,proto3" json:"token_iat,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -129,6 +133,20 @@ func (x *RegisterDeviceRequest) GetChannels() []string {
 		return x.Channels
 	}
 	return nil
+}
+
+func (x *RegisterDeviceRequest) GetJti() string {
+	if x != nil {
+		return x.Jti
+	}
+	return ""
+}
+
+func (x *RegisterDeviceRequest) GetTokenIat() int64 {
+	if x != nil {
+		return x.TokenIat
+	}
+	return 0
 }
 
 // RegisterDeviceResponse confirms device registration.
@@ -374,7 +392,7 @@ var File_sukko_push_v1_push_proto protoreflect.FileDescriptor
 
 const file_sukko_push_v1_push_proto_rawDesc = "" +
 	"\n" +
-	"\x18sukko/push/v1/push.proto\x12\rsukko.push.v1\"\xfc\x01\n" +
+	"\x18sukko/push/v1/push.proto\x12\rsukko.push.v1\"\xab\x02\n" +
 	"\x15RegisterDeviceRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1c\n" +
 	"\tprincipal\x18\x02 \x01(\tR\tprincipal\x12\x1a\n" +
@@ -385,7 +403,10 @@ const file_sukko_push_v1_push_proto_rawDesc = "" +
 	"p256dh_key\x18\x06 \x01(\tR\tp256dhKey\x12\x1f\n" +
 	"\vauth_secret\x18\a \x01(\tR\n" +
 	"authSecret\x12\x1a\n" +
-	"\bchannels\x18\b \x03(\tR\bchannels\"5\n" +
+	"\bchannels\x18\b \x03(\tR\bchannels\x12\x10\n" +
+	"\x03jti\x18\t \x01(\tR\x03jti\x12\x1b\n" +
+	"\ttoken_iat\x18\n" +
+	" \x01(\x03R\btokenIat\"5\n" +
 	"\x16RegisterDeviceResponse\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\x03R\bdeviceId\"S\n" +
 	"\x17UnregisterDeviceRequest\x12\x1b\n" +

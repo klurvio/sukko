@@ -28,6 +28,10 @@ service ProvisioningInternalService {
   // Stream license key — sends current key on connect, updates on LicenseChanged events.
   // Services call Manager.Reload() with the received key.
   rpc WatchLicense(WatchLicenseRequest) returns (stream WatchLicenseResponse);
+
+  // Stream token revocations — snapshot on connect, deltas on change.
+  // Gateway checks revocation map on JWT validation. Push service deletes matching registrations.
+  rpc WatchTokenRevocations(WatchTokenRevocationsRequest) returns (stream WatchTokenRevocationsResponse);
 }
 
 message WatchKeysRequest {}
@@ -152,4 +156,21 @@ message WatchLicenseRequest {}
 message WatchLicenseResponse {
   // Raw license key string. Services call Manager.Reload() with this value.
   string license_key = 1;
+}
+
+message WatchTokenRevocationsRequest {}
+
+message WatchTokenRevocationsResponse {
+  repeated TokenRevocation revocations = 1;
+  bool is_snapshot = 2; // true = full snapshot, false = delta
+}
+
+message TokenRevocation {
+  string tenant_id = 1;
+  string type = 2;      // "user" or "token"
+  string sub = 3;       // For user-level revocation
+  string jti = 4;       // For token-level revocation
+  int64 revoked_at = 5; // Unix timestamp
+  int64 expires_at = 6; // Auto-prune time
+  bool removed = 7;     // true = entry expired/removed (delta only)
 }

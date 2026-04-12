@@ -19,13 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ProvisioningInternalService_WatchKeys_FullMethodName            = "/sukko.provisioning.v1.ProvisioningInternalService/WatchKeys"
-	ProvisioningInternalService_WatchTenantConfig_FullMethodName    = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTenantConfig"
-	ProvisioningInternalService_WatchTopics_FullMethodName          = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTopics"
-	ProvisioningInternalService_WatchAPIKeys_FullMethodName         = "/sukko.provisioning.v1.ProvisioningInternalService/WatchAPIKeys"
-	ProvisioningInternalService_WatchPushConfig_FullMethodName      = "/sukko.provisioning.v1.ProvisioningInternalService/WatchPushConfig"
-	ProvisioningInternalService_StorePushCredentials_FullMethodName = "/sukko.provisioning.v1.ProvisioningInternalService/StorePushCredentials"
-	ProvisioningInternalService_WatchLicense_FullMethodName         = "/sukko.provisioning.v1.ProvisioningInternalService/WatchLicense"
+	ProvisioningInternalService_WatchKeys_FullMethodName             = "/sukko.provisioning.v1.ProvisioningInternalService/WatchKeys"
+	ProvisioningInternalService_WatchTenantConfig_FullMethodName     = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTenantConfig"
+	ProvisioningInternalService_WatchTopics_FullMethodName           = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTopics"
+	ProvisioningInternalService_WatchAPIKeys_FullMethodName          = "/sukko.provisioning.v1.ProvisioningInternalService/WatchAPIKeys"
+	ProvisioningInternalService_WatchPushConfig_FullMethodName       = "/sukko.provisioning.v1.ProvisioningInternalService/WatchPushConfig"
+	ProvisioningInternalService_StorePushCredentials_FullMethodName  = "/sukko.provisioning.v1.ProvisioningInternalService/StorePushCredentials"
+	ProvisioningInternalService_WatchLicense_FullMethodName          = "/sukko.provisioning.v1.ProvisioningInternalService/WatchLicense"
+	ProvisioningInternalService_WatchTokenRevocations_FullMethodName = "/sukko.provisioning.v1.ProvisioningInternalService/WatchTokenRevocations"
 )
 
 // ProvisioningInternalServiceClient is the client API for ProvisioningInternalService service.
@@ -50,6 +51,9 @@ type ProvisioningInternalServiceClient interface {
 	// Stream license key — sends current key on connect, updates on LicenseChanged events.
 	// Services call Manager.Reload() with the received key.
 	WatchLicense(ctx context.Context, in *WatchLicenseRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchLicenseResponse], error)
+	// Stream token revocations — snapshot on connect, deltas on change.
+	// Gateway checks revocation map on JWT validation. Push service deletes matching registrations.
+	WatchTokenRevocations(ctx context.Context, in *WatchTokenRevocationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchTokenRevocationsResponse], error)
 }
 
 type provisioningInternalServiceClient struct {
@@ -184,6 +188,25 @@ func (c *provisioningInternalServiceClient) WatchLicense(ctx context.Context, in
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ProvisioningInternalService_WatchLicenseClient = grpc.ServerStreamingClient[WatchLicenseResponse]
 
+func (c *provisioningInternalServiceClient) WatchTokenRevocations(ctx context.Context, in *WatchTokenRevocationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchTokenRevocationsResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ProvisioningInternalService_ServiceDesc.Streams[6], ProvisioningInternalService_WatchTokenRevocations_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WatchTokenRevocationsRequest, WatchTokenRevocationsResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ProvisioningInternalService_WatchTokenRevocationsClient = grpc.ServerStreamingClient[WatchTokenRevocationsResponse]
+
 // ProvisioningInternalServiceServer is the server API for ProvisioningInternalService service.
 // All implementations must embed UnimplementedProvisioningInternalServiceServer
 // for forward compatibility.
@@ -206,6 +229,9 @@ type ProvisioningInternalServiceServer interface {
 	// Stream license key — sends current key on connect, updates on LicenseChanged events.
 	// Services call Manager.Reload() with the received key.
 	WatchLicense(*WatchLicenseRequest, grpc.ServerStreamingServer[WatchLicenseResponse]) error
+	// Stream token revocations — snapshot on connect, deltas on change.
+	// Gateway checks revocation map on JWT validation. Push service deletes matching registrations.
+	WatchTokenRevocations(*WatchTokenRevocationsRequest, grpc.ServerStreamingServer[WatchTokenRevocationsResponse]) error
 	mustEmbedUnimplementedProvisioningInternalServiceServer()
 }
 
@@ -236,6 +262,9 @@ func (UnimplementedProvisioningInternalServiceServer) StorePushCredentials(conte
 }
 func (UnimplementedProvisioningInternalServiceServer) WatchLicense(*WatchLicenseRequest, grpc.ServerStreamingServer[WatchLicenseResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchLicense not implemented")
+}
+func (UnimplementedProvisioningInternalServiceServer) WatchTokenRevocations(*WatchTokenRevocationsRequest, grpc.ServerStreamingServer[WatchTokenRevocationsResponse]) error {
+	return status.Error(codes.Unimplemented, "method WatchTokenRevocations not implemented")
 }
 func (UnimplementedProvisioningInternalServiceServer) mustEmbedUnimplementedProvisioningInternalServiceServer() {
 }
@@ -343,6 +372,17 @@ func _ProvisioningInternalService_WatchLicense_Handler(srv interface{}, stream g
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ProvisioningInternalService_WatchLicenseServer = grpc.ServerStreamingServer[WatchLicenseResponse]
 
+func _ProvisioningInternalService_WatchTokenRevocations_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchTokenRevocationsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ProvisioningInternalServiceServer).WatchTokenRevocations(m, &grpc.GenericServerStream[WatchTokenRevocationsRequest, WatchTokenRevocationsResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ProvisioningInternalService_WatchTokenRevocationsServer = grpc.ServerStreamingServer[WatchTokenRevocationsResponse]
+
 // ProvisioningInternalService_ServiceDesc is the grpc.ServiceDesc for ProvisioningInternalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -384,6 +424,11 @@ var ProvisioningInternalService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "WatchLicense",
 			Handler:       _ProvisioningInternalService_WatchLicense_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "WatchTokenRevocations",
+			Handler:       _ProvisioningInternalService_WatchTokenRevocations_Handler,
 			ServerStreams: true,
 		},
 	},

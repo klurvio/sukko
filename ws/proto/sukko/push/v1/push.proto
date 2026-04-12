@@ -46,6 +46,12 @@ message RegisterDeviceRequest {
   // channels is the list of channel patterns WITH tenant prefix.
   // Example: ["acme.alerts.*", "acme.notifications.*"]
   repeated string channels = 8;
+
+  // jti is the JWT ID from the token used during registration (for per-token revocation).
+  string jti = 9;
+
+  // token_iat is the JWT issued-at timestamp (Unix seconds) for per-user revocation comparison.
+  int64 token_iat = 10;
 }
 
 // RegisterDeviceResponse confirms device registration.

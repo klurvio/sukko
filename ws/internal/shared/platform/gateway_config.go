@@ -74,6 +74,9 @@ type GatewayConfig struct {
 	// Auth validation timeout for intercepting auth refresh operations
 	AuthValidationTimeout time.Duration `env:"GATEWAY_AUTH_VALIDATION_TIMEOUT" envDefault:"5s"`
 
+	// Token revocation
+	RevocationMaxLifetime time.Duration `env:"REVOCATION_MAX_LIFETIME" envDefault:"24h"` // Max time a revocation entry lives when exp is not provided
+
 	// Graceful shutdown timeout
 	ShutdownTimeout time.Duration `env:"GATEWAY_SHUTDOWN_TIMEOUT" envDefault:"30s"`
 
