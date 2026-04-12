@@ -15,6 +15,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/repository"
+	"github.com/klurvio/sukko/internal/provisioning/revocation"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
@@ -37,6 +38,10 @@ type ServerConfig struct {
 	// CurrentLicenseKey returns the raw license key string for WatchLicense snapshot.
 	// Optional — when nil, WatchLicense returns Unimplemented.
 	CurrentLicenseKey func() string
+
+	// RevocationStore is the in-memory token revocation store.
+	// Optional — when nil, WatchTokenRevocations returns Unimplemented.
+	RevocationStore *revocation.Store
 }
 
 // Server implements the ProvisioningInternalServiceServer gRPC interface.
@@ -55,6 +60,9 @@ type Server struct {
 	// currentLicenseKey returns the current license key string for WatchLicense snapshot.
 	// Set by provisioning main.go. Nil if license hot-reload is not configured.
 	currentLicenseKey func() string
+
+	// revocationStore is the in-memory token revocation store for WatchTokenRevocations.
+	revocationStore *revocation.Store
 }
 
 // NewServer creates a new gRPC stream server.
@@ -77,6 +85,7 @@ func NewServer(service *provisioning.Service, eventBus *eventbus.Bus, logger zer
 		pushCredentialsRepo:   cfg.PushCredentialsRepo,
 		pushChannelConfigRepo: cfg.PushChannelConfigRepo,
 		currentLicenseKey:     cfg.CurrentLicenseKey,
+		revocationStore:       cfg.RevocationStore,
 	}, nil
 }
 
@@ -704,4 +713,73 @@ func (s *Server) WatchLicense(_ *provisioningv1.WatchLicenseRequest, stream grpc
 			logger.Info().Msg("sent license update")
 		}
 	}
+}
+
+// WatchTokenRevocations streams token revocations. Sends a snapshot on connect,
+// then streams deltas when tokens are revoked via event bus.
+func (s *Server) WatchTokenRevocations(_ *provisioningv1.WatchTokenRevocationsRequest, stream grpc.ServerStreamingServer[provisioningv1.WatchTokenRevocationsResponse]) error {
+	if s.revocationStore == nil {
+		return status.Error(codes.Unimplemented, "token revocation not configured")
+	}
+
+	ctx := stream.Context()
+	logger := s.logger.With().Str("rpc", "WatchTokenRevocations").Logger()
+
+	// Send initial snapshot
+	entries := s.revocationStore.Snapshot()
+	snapshot := &provisioningv1.WatchTokenRevocationsResponse{
+		IsSnapshot:  true,
+		Revocations: convertRevocationEntries(entries),
+	}
+	if err := stream.Send(snapshot); err != nil {
+		return status.Errorf(codes.Unavailable, "send revocation snapshot: %v", err)
+	}
+	logger.Info().Int("entry_count", len(entries)).Msg("sent revocation snapshot")
+
+	// Subscribe to event bus for changes
+	subID, events := s.eventBus.Subscribe()
+	defer s.eventBus.Unsubscribe(subID)
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Debug().Msg("stream context canceled")
+			return nil
+
+		case event, ok := <-events:
+			if !ok {
+				return nil
+			}
+			if event.Type != eventbus.TokenRevocationsChanged {
+				continue
+			}
+
+			// Send current snapshot as delta (revocation store handles expiry filtering)
+			updated := s.revocationStore.Snapshot()
+			delta := &provisioningv1.WatchTokenRevocationsResponse{
+				IsSnapshot:  false,
+				Revocations: convertRevocationEntries(updated),
+			}
+			if err := stream.Send(delta); err != nil {
+				return status.Errorf(codes.Unavailable, "send revocation delta: %v", err)
+			}
+			logger.Debug().Int("entry_count", len(updated)).Msg("sent revocation delta")
+		}
+	}
+}
+
+// convertRevocationEntries converts store entries to proto messages.
+func convertRevocationEntries(entries []*revocation.Entry) []*provisioningv1.TokenRevocation {
+	result := make([]*provisioningv1.TokenRevocation, len(entries))
+	for i, e := range entries {
+		result[i] = &provisioningv1.TokenRevocation{
+			TenantId:  e.TenantID,
+			Type:      e.Type,
+			Sub:       e.Sub,
+			Jti:       e.JTI,
+			RevokedAt: e.RevokedAt,
+			ExpiresAt: e.ExpiresAt,
+		}
+	}
+	return result
 }

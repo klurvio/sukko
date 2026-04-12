@@ -36,6 +36,9 @@ const (
 	// LicenseChanged indicates that the license key was reloaded.
 	LicenseChanged EventType = "license_changed"
 
+	// TokenRevocationsChanged indicates that a token was revoked or a revocation expired.
+	TokenRevocationsChanged EventType = "token_revocations_changed"
+
 	// subscriberBufferSize is the capacity of each subscriber's event channel.
 	// Buffered to absorb short bursts without blocking the publisher.
 	subscriberBufferSize = 16
