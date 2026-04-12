@@ -278,7 +278,7 @@ func TestStartTest_SigningKey_Valid(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString(priv)
 
 	handler, r := newTestRouter()
-	body := fmt.Sprintf(`{"type":"validate","suite":"license-reload","signing_key":"%s"}`, encoded)
+	body := fmt.Sprintf(`{"type":"validate","suite":"license-reload","signing_key":"%s"}`, encoded) //nolint:gocritic // sprintfQuotedString: %s is correct here — value is inside a raw JSON template, %q would double-escape
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer test-auth")
 	w := httptest.NewRecorder()
@@ -316,7 +316,7 @@ func TestStartTest_SigningKey_WrongSize(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString(wrongKey)
 
 	handler, _ := newTestRouter()
-	body := fmt.Sprintf(`{"type":"validate","suite":"license-reload","signing_key":"%s"}`, encoded)
+	body := fmt.Sprintf(`{"type":"validate","suite":"license-reload","signing_key":"%s"}`, encoded) //nolint:gocritic // sprintfQuotedString: %s is correct here — value is inside a raw JSON template, %q would double-escape
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer test-auth")
 	w := httptest.NewRecorder()
