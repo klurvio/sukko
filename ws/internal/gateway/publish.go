@@ -11,8 +11,8 @@ import (
 
 	serverv1 "github.com/klurvio/sukko/gen/proto/sukko/server/v1"
 	"github.com/klurvio/sukko/internal/shared/auth"
-	"github.com/klurvio/sukko/internal/shared/protocol"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // publishRequest is the JSON body format for POST /api/v1/publish (FR-011).

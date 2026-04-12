@@ -211,7 +211,7 @@ func TestHandlePublish_APIKeyOnly_Forbidden(t *testing.T) {
 
 // publishTestGatewayWithJWT creates a Gateway with JWT auth enabled and returns
 // the gateway, a valid JWT token string, and the tenant ID.
-func publishTestGatewayWithJWT(t *testing.T) (*Gateway, string) {
+func publishTestGatewayWithJWT(t *testing.T) (_ *Gateway, _ string) {
 	t.Helper()
 
 	registry := auth.NewStaticKeyRegistry()

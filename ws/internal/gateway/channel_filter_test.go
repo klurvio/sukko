@@ -15,8 +15,8 @@ func testGatewayWithPermissions(t *testing.T) *Gateway {
 	return &Gateway{
 		permissions: NewPermissionChecker(
 			[]string{"*.trade", "*.metadata"}, // public
-			[]string{"inbox.{principal}"},      // user-scoped
-			[]string{"rooms.{group_id}"},       // group-scoped
+			[]string{"inbox.{principal}"},     // user-scoped
+			[]string{"rooms.{group_id}"},      // group-scoped
 		),
 		logger: zerolog.Nop(),
 	}
