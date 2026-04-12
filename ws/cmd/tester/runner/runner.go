@@ -68,7 +68,8 @@ type TestConfig struct {
 	Suite             string       `json:"suite,omitempty"`       // for validate type
 	ChannelMode       bool         `json:"channel_mode,omitzero"` // for load: distribute across public/user/group channels
 	TenantID          string       `json:"tenant_id,omitempty"`
-	LicenseKeyFile    string       `json:"license_key_file,omitempty"` // Ed25519 private key for license-reload suite
+	SigningKeyFile    string       `json:"signing_key_file,omitempty"` // Ed25519 private key path (env var fallback)
+	SigningKeyBytes   []byte       `json:"-"`                          // Ed25519 private key bytes (API passthrough, never serialized)
 	Context           *TestContext `json:"context,omitzero"`
 }
 
@@ -124,7 +125,7 @@ type Config struct {
 	JWTLifetime       time.Duration
 	JWTRefreshBefore  time.Duration
 	KeyExpiry         time.Duration
-	LicenseKeyFile    string // Ed25519 private key file for license-reload suite signing
+	SigningKeyFile    string // Ed25519 private key file for license-reload suite signing
 }
 
 // New creates a Runner with the given configuration and logger.
@@ -158,8 +159,8 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 	if cfg.KafkaBrokers == "" {
 		cfg.KafkaBrokers = r.cfg.KafkaBrokers
 	}
-	if cfg.LicenseKeyFile == "" {
-		cfg.LicenseKeyFile = r.cfg.LicenseKeyFile
+	if cfg.SigningKeyFile == "" {
+		cfg.SigningKeyFile = r.cfg.SigningKeyFile
 	}
 
 	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in TestRun.cancel and called by Stop()/StopAll()

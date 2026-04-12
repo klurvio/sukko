@@ -56,7 +56,7 @@ func run() error {
 		JWTLifetime:       cfg.JWTLifetime,
 		JWTRefreshBefore:  cfg.JWTRefreshBefore,
 		KeyExpiry:         cfg.KeyExpiry,
-		LicenseKeyFile:    cfg.LicenseKeyFile,
+		SigningKeyFile:    cfg.SigningKeyFile,
 	}, logger)
 
 	handler := api.NewRouter(r, cfg.AuthToken, logger)

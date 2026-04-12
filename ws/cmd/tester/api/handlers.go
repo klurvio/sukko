@@ -1,7 +1,9 @@
 package api
 
 import (
+	"crypto/ed25519"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -63,6 +65,7 @@ type startTestRequest struct {
 	Suite          string       `json:"suite,omitempty"`
 	TenantID       string       `json:"tenant_id,omitempty"`
 	MessageBackend string       `json:"message_backend,omitempty"`
+	SigningKey     string       `json:"signing_key,omitempty"` // base64.StdEncoding Ed25519 private key for license-reload suite
 	Context        *TestContext `json:"context,omitempty"`
 }
 
@@ -109,15 +112,33 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 	}
 	testID := id.String()[:testIDLength]
 
+	// Decode signing key if provided (for license-reload suite)
+	var signingKeyBytes []byte
+	if req.SigningKey != "" {
+		decoded, err := base64.StdEncoding.DecodeString(req.SigningKey)
+		if err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "INVALID_SIGNING_KEY", "signing_key must be valid base64 (base64.StdEncoding)")
+			return
+		}
+		if len(decoded) != ed25519.PrivateKeySize {
+			httputil.WriteError(w, http.StatusBadRequest, "INVALID_SIGNING_KEY",
+				fmt.Sprintf("signing key must be %d bytes (Ed25519 private key), got %d", ed25519.PrivateKeySize, len(decoded)))
+			return
+		}
+		h.logger.Info().Msg("signing key provided via API")
+		signingKeyBytes = decoded
+	}
+
 	cfg := runner.TestConfig{
-		Type:           runner.TestType(req.Type),
-		Connections:    req.Connections,
-		Duration:       req.Duration,
-		PublishRate:    req.PublishRate,
-		RampRate:       req.RampRate,
-		Suite:          req.Suite,
-		TenantID:       req.TenantID,
-		MessageBackend: req.MessageBackend,
+		Type:            runner.TestType(req.Type),
+		Connections:     req.Connections,
+		Duration:        req.Duration,
+		PublishRate:     req.PublishRate,
+		RampRate:        req.RampRate,
+		Suite:           req.Suite,
+		TenantID:        req.TenantID,
+		MessageBackend:  req.MessageBackend,
+		SigningKeyBytes: signingKeyBytes,
 	}
 	if req.Context != nil {
 		cfg.Context = &runner.TestContext{

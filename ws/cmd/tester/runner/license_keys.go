@@ -19,10 +19,16 @@ type licenseKeyGenerator struct {
 // newLicenseKeyGenerator reads the Ed25519 private key from the given file path
 // and returns a generator with monotonic iat starting from now.
 func newLicenseKeyGenerator(keyFilePath string) (*licenseKeyGenerator, error) {
-	keyBytes, err := os.ReadFile(keyFilePath) //nolint:gosec // G304: file path is from trusted config (TESTER_LICENSE_KEY_FILE env var), not user input
+	keyBytes, err := os.ReadFile(keyFilePath) //nolint:gosec // G304: file path is from trusted config (TESTER_SIGNING_KEY_FILE env var), not user input
 	if err != nil {
 		return nil, fmt.Errorf("read license signing key %s: %w", keyFilePath, err)
 	}
+	return newLicenseKeyGeneratorFromBytes(keyBytes)
+}
+
+// newLicenseKeyGeneratorFromBytes creates a generator from raw Ed25519 private key bytes.
+// Used when the key is passed via the API request body (no file read needed).
+func newLicenseKeyGeneratorFromBytes(keyBytes []byte) (*licenseKeyGenerator, error) {
 	if len(keyBytes) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("invalid Ed25519 private key: expected %d bytes, got %d", ed25519.PrivateKeySize, len(keyBytes))
 	}

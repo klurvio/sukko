@@ -24,10 +24,19 @@ func validateLicenseReload(ctx context.Context, run *TestRun, logger zerolog.Log
 	provURL := run.Config.ProvisioningURL
 	gwURL := run.Config.GatewayURL
 
-	if run.Config.LicenseKeyFile == "" {
-		return nil, errors.New("TESTER_LICENSE_KEY_FILE is required for license-reload suite")
+	var (
+		keygen *licenseKeyGenerator
+		err    error
+	)
+	switch {
+	case len(run.Config.SigningKeyBytes) > 0:
+		keygen, err = newLicenseKeyGeneratorFromBytes(run.Config.SigningKeyBytes)
+	case run.Config.SigningKeyFile != "":
+		keygen, err = newLicenseKeyGenerator(run.Config.SigningKeyFile)
+	default:
+		return nil, errors.New("signing key required for license-reload suite: " +
+			"pass signing_key in request body or set TESTER_SIGNING_KEY_FILE env var")
 	}
-	keygen, err := newLicenseKeyGenerator(run.Config.LicenseKeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("license key generator: %w", err)
 	}
