@@ -97,3 +97,39 @@ func TestHandleSSE_TenantLimitExceeded(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusTooManyRequests)
 	}
 }
+
+func TestHandleSSE_AllChannelsFiltered(t *testing.T) {
+	t.Parallel()
+
+	gw := sseTestGateway(t)
+	// Auth disabled but set permissions — filter will still apply since permissions != nil
+	gw.permissions = NewPermissionChecker([]string{"*.trade"}, nil, nil)
+
+	// All channels have wrong tenant → all filtered by filterSubscribeChannels
+	// (tenant is "test-tenant" but channels use "wrong")
+	req := httptest.NewRequest(http.MethodGet, "/sse?channels=wrong.BTC.trade,wrong.ETH.trade", http.NoBody)
+	rec := httptest.NewRecorder()
+
+	gw.HandleSSE(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleSSE_AuthDisabled_AllChannelsPass(t *testing.T) {
+	t.Parallel()
+
+	gw := sseTestGateway(t)
+	gw.serverClient = nil // will hit 503 if channels pass through
+
+	req := httptest.NewRequest(http.MethodGet, "/sse?channels=any.channel,whatever.foo", http.NoBody)
+	rec := httptest.NewRecorder()
+
+	gw.HandleSSE(rec, req)
+
+	// Auth disabled → no filtering → reaches server client check → 503
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d (channels should pass through when auth disabled)", rec.Code, http.StatusServiceUnavailable)
+	}
+}

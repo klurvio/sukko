@@ -11,6 +11,7 @@ import (
 	pushv1 "github.com/klurvio/sukko/gen/proto/sukko/push/v1"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
 // mockPushForwarder implements PushForwarder for testing.
@@ -198,6 +199,8 @@ func TestHandlePushSubscribe_InvalidTenantPrefix(t *testing.T) {
 	t.Parallel()
 
 	gw := pushTestGateway(t, nil)
+	// Enable permissions so filterSubscribeChannels validates tenant prefix
+	gw.permissions = NewPermissionChecker([]string{"*.alerts"}, nil, nil)
 
 	body := `{
 		"platform": "web",
@@ -446,5 +449,47 @@ func TestHandlePushSubscribe_EditionGate_Enterprise(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestHandlePushUnsubscribe_APIKeyOnly_Forbidden(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockPushForwarder{}
+	gw := pushTestGateway(t, mock)
+	gw.config.AuthMode = "required"
+	gw.apiKeyRegistry = &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
+		"test-key": {KeyID: "k1", TenantID: "test-tenant", IsActive: true},
+	}}
+
+	body := `{"device_id":42}`
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/push/subscribe", strings.NewReader(body))
+	req.Header.Set("X-API-Key", "test-key")
+	rec := httptest.NewRecorder()
+
+	gw.HandlePushUnsubscribe(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestHandlePushSubscribe_AuthDisabled_AllChannelsPass(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockPushForwarder{
+		registerResp: &pushv1.RegisterDeviceResponse{DeviceId: 99},
+	}
+	gw := pushTestGateway(t, mock)
+	// Auth disabled — all checks skipped
+
+	body := `{"platform":"web","endpoint":"https://example.com","p256dh_key":"key","auth_secret":"secret","channels":["test-tenant.alerts"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	gw.HandlePushSubscribe(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d (auth disabled, all pass)", rec.Code, http.StatusCreated)
 	}
 }
