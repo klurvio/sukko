@@ -5,9 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	pushv1 "github.com/klurvio/sukko/gen/proto/sukko/push/v1"
-	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 )
 
@@ -38,7 +38,7 @@ type pushUnsubscribeRequest struct {
 // Flow:
 //  1. Authenticate via shared authenticateRequest()
 //  2. Parse and validate JSON body (platform, platform-specific fields, channels)
-//  3. Validate each channel has tenant prefix via auth.ValidateChannelTenant
+//  3. Validate and filter channels via filterSubscribeChannels (tenant prefix, format, permissions)
 //  4. Forward to push service via gRPC RegisterDevice
 //  5. Return {"device_id": N}
 func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
@@ -98,19 +98,34 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 5. Validate channels non-empty and tenant prefix
+	// 5. Validate channels non-empty
 	if len(req.Channels) == 0 {
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST",
 			"at least one channel is required")
 		return
 	}
-	for _, ch := range req.Channels {
-		if !auth.ValidateChannelTenant(ch, authRes.TenantID) {
-			httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST",
-				"channel "+ch+" does not match tenant prefix "+authRes.TenantID)
-			return
+
+	// 5a. Permission filtering — tenant prefix, format, and subscribe permissions (FR-009)
+	// API-key-only allowed for public channels (nil claims → public patterns only)
+	allowed := gw.filterSubscribeChannels(ctx, req.Channels, authRes.TenantID, authRes.Claims)
+	if len(allowed) != len(req.Channels) {
+		// Build list of denied channels for error message
+		deniedSet := make(map[string]bool, len(req.Channels))
+		for _, ch := range req.Channels {
+			deniedSet[ch] = true
 		}
+		for _, ch := range allowed {
+			delete(deniedSet, ch)
+		}
+		denied := make([]string, 0, len(deniedSet))
+		for ch := range deniedSet {
+			denied = append(denied, ch)
+		}
+		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST",
+			"channels denied by permission rules: "+strings.Join(denied, ", "))
+		return
 	}
+	req.Channels = allowed
 
 	// 6. Forward to push service
 	if gw.pushClient == nil {
@@ -172,6 +187,14 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 			code = "FORBIDDEN"
 		}
 		httputil.WriteError(w, status, code, authErr.Error())
+		return
+	}
+
+	// 1a. Block API-key-only — JWT required for unsubscribe (FR-010)
+	// Skipped when AUTH_MODE=disabled (FR-011)
+	if gw.config.AuthRequired() && authRes.APIKeyOnly {
+		httputil.WriteError(w, http.StatusForbidden, "FORBIDDEN",
+			"push unsubscribe requires JWT authentication")
 		return
 	}
 

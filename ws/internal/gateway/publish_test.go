@@ -7,9 +7,14 @@ import (
 	"strings"
 	"testing"
 
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 
+	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
 // publishTestGateway creates a minimal Gateway for publish handler testing.
@@ -179,4 +184,156 @@ func assertErrorCode(t *testing.T, rec *httptest.ResponseRecorder, wantCode stri
 // testLogger returns a no-op logger for tests.
 func testLogger() zerolog.Logger {
 	return zerolog.Nop()
+}
+
+func TestHandlePublish_APIKeyOnly_Forbidden(t *testing.T) {
+	t.Parallel()
+
+	gw := publishTestGateway(t)
+	gw.config.AuthMode = "required"
+	// Simulate API-key-only by setting up an API key registry
+	gw.apiKeyRegistry = &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
+		"test-key": {KeyID: "k1", TenantID: "acme", IsActive: true},
+	}}
+
+	body := `{"channel":"acme.general.messages","data":{"msg":"hello"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "test-key")
+	rec := httptest.NewRecorder()
+
+	gw.HandlePublish(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+// publishTestGatewayWithJWT creates a Gateway with JWT auth enabled and returns
+// the gateway, a valid JWT token string, and the tenant ID.
+func publishTestGatewayWithJWT(t *testing.T) (*Gateway, string) {
+	t.Helper()
+
+	registry := auth.NewStaticKeyRegistry()
+	ecPEM, privateKey := generateTestECKeyForGateway(t)
+
+	key := &auth.KeyInfo{
+		KeyID:        "pub-test-key",
+		TenantID:     "acme",
+		Algorithm:    "ES256",
+		PublicKeyPEM: ecPEM,
+		IsActive:     true,
+	}
+	if err := registry.AddKey(key); err != nil {
+		t.Fatalf("AddKey: %v", err)
+	}
+
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry:     registry,
+		RequireTenantID: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator: %v", err)
+	}
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		TenantID: "acme",
+	}
+	tokenString := createTestTokenForGateway(t, key, privateKey, claims)
+
+	gw := &Gateway{
+		config: &platform.GatewayConfig{
+			AuthConfig:      platform.AuthConfig{AuthMode: "required"},
+			DefaultTenantID: "acme",
+			MaxPublishSize:  65536,
+		},
+		validator: validator,
+		logger:    testLogger(),
+	}
+
+	return gw, tokenString
+}
+
+func TestHandlePublish_WrongTenantPrefix(t *testing.T) {
+	t.Parallel()
+
+	gw, token := publishTestGatewayWithJWT(t)
+
+	// JWT tenant is "acme" but channel uses "wrong" prefix
+	body := `{"channel":"wrong.general.messages","data":{"msg":"hello"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	gw.HandlePublish(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestHandlePublish_InvalidChannelFormat(t *testing.T) {
+	t.Parallel()
+
+	gw, token := publishTestGatewayWithJWT(t)
+
+	// Single-part channel — less than MinInternalChannelParts
+	body := `{"channel":"acme","data":{"msg":"hello"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	gw.HandlePublish(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandlePublish_ValidJWT_Passes(t *testing.T) {
+	t.Parallel()
+
+	gw, token := publishTestGatewayWithJWT(t)
+	gw.serverClient = nil // will hit 503 after passing all checks
+
+	// Valid tenant prefix + format
+	body := `{"channel":"acme.general.messages","data":{"msg":"hello"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	gw.HandlePublish(rec, req)
+
+	// Should pass all checks → reach server client → 503 (nil)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d (valid JWT should pass checks)", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestHandlePublish_AuthDisabled_AllChecksSkipped(t *testing.T) {
+	t.Parallel()
+
+	gw := publishTestGateway(t) // auth disabled
+	gw.serverClient = nil
+
+	// Invalid tenant prefix + bad format — but auth disabled, all checks skip
+	body := `{"channel":"wrong","data":{"msg":"hello"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	gw.HandlePublish(rec, req)
+
+	// Auth disabled → all checks skipped → 503
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d (auth disabled, checks skipped)", rec.Code, http.StatusServiceUnavailable)
+	}
 }

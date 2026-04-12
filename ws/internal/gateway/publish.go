@@ -3,11 +3,15 @@ package gateway
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	serverv1 "github.com/klurvio/sukko/gen/proto/sukko/server/v1"
+	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 )
 
@@ -84,9 +88,32 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Check channel publish permissions
-	// TODO: Apply publish permission checking when integrating with existing permission checker
-	// For now, all authenticated users can publish
+	// 3a–4. Permission checks — skipped when AUTH_MODE=disabled (FR-011)
+	if gw.config.AuthRequired() {
+		// Block API-key-only — JWT required for publish (FR-005)
+		if authRes.APIKeyOnly {
+			RecordRestPublish("forbidden", time.Since(startTime))
+			httputil.WriteError(w, http.StatusForbidden, "FORBIDDEN",
+				"publish requires JWT authentication — API key provides read-only access")
+			return
+		}
+
+		// Validate channel format (FR-006)
+		if strings.Count(req.Channel, ".")+1 < protocol.MinInternalChannelParts {
+			RecordRestPublish("invalid_channel", time.Since(startTime))
+			httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST",
+				fmt.Sprintf("channel must have at least %d dot-separated parts", protocol.MinInternalChannelParts))
+			return
+		}
+
+		// Validate tenant prefix (FR-007)
+		if !auth.ValidateChannelTenant(req.Channel, authRes.TenantID) {
+			RecordRestPublish("forbidden", time.Since(startTime))
+			httputil.WriteError(w, http.StatusForbidden, "FORBIDDEN",
+				"channel tenant prefix does not match authenticated tenant")
+			return
+		}
+	}
 
 	// 5. Rate limit
 	if gw.publishRateLimiter != nil {

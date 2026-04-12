@@ -60,8 +60,12 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Filter channels by subscribe permissions (same as WebSocket)
-	// TODO: Apply permission filtering when integrating with existing permission checker
-	// For now, all authenticated channels pass through
+	channels = gw.filterSubscribeChannels(ctx, channels, authRes.TenantID, authRes.Claims)
+	if len(channels) == 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST",
+			"no channels remaining after permission filtering")
+		return
+	}
 
 	// 4. Acquire tenant connection slot
 	if gw.connTracker != nil && authRes.TenantID != "" {
