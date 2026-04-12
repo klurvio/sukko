@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -112,6 +113,26 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	// Record SSE connection
 	RecordSSEConnection()
 	defer func() { RecordSSEDisconnection(time.Since(startTime)) }()
+
+	// Register SSE connection for force-disconnect on token revocation
+	if gw.connectionRegistry != nil && !authRes.APIKeyOnly && authRes.Claims != nil {
+		sseCtx, sseCancel := context.WithCancel(ctx)
+		defer sseCancel()
+		ctx = sseCtx // replace ctx so stream.Recv() is canceled on force-disconnect
+
+		var iatUnix int64
+		if authRes.Claims.IssuedAt != nil {
+			iatUnix = authRes.Claims.IssuedAt.Unix()
+		}
+		sseConn := &sseConnection{
+			cancel: sseCancel,
+			sub:    authRes.Claims.Subject,
+			jti:    authRes.Claims.ID,
+			iat:    iatUnix,
+		}
+		gw.connectionRegistry.Register(sseConn, authRes.TenantID, authRes.Claims.Subject, authRes.Claims.ID)
+		defer gw.connectionRegistry.Unregister(sseConn, authRes.TenantID, authRes.Claims.Subject, authRes.Claims.ID)
+	}
 
 	// Set SSE headers (FR-005)
 	w.Header().Set("Content-Type", "text/event-stream")

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/auth"
@@ -431,8 +432,14 @@ func generateTestECKeyForGateway(t *testing.T) (string, *ecdsa.PrivateKey) {
 }
 
 // createTestTokenForGateway creates a signed JWT for testing.
+// Auto-generates jti if not set (required by FR-001a).
 func createTestTokenForGateway(t *testing.T, key *auth.KeyInfo, privateKey any, claims *auth.Claims) string {
 	t.Helper()
+
+	// Auto-generate jti if not set (mandatory per FR-001a)
+	if claims.ID == "" {
+		claims.ID = uuid.NewString()
+	}
 
 	method, err := auth.GetSigningMethod(key.Algorithm)
 	if err != nil {

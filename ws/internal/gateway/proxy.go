@@ -926,3 +926,38 @@ func (p *Proxy) sendAuthErrorToClient(code, message string) ([]byte, error) {
 	}
 	return nil, nil
 }
+
+// ForceClose sends a WebSocket close frame with the given code and reason,
+// then closes both client and backend connections. Used for token revocation
+// force-disconnect. Safe to call concurrently (uses closeOnce).
+func (p *Proxy) ForceClose(code int, reason string) {
+	// Build close frame payload: 2-byte status code + reason string
+	payload := make([]byte, 2+len(reason)) //nolint:mnd // WebSocket close frame: 2-byte status code per RFC 6455 §5.5.1
+	payload[0] = byte(code >> 8)           //nolint:mnd // High byte of close code
+	payload[1] = byte(code & 0xFF)         //nolint:mnd // Low byte of close code
+	copy(payload[2:], reason)
+
+	p.sendCloseToClient(payload)
+	p.closeOnce.Do(func() {
+		_ = p.clientConn.Close()
+		_ = p.backendConn.Close()
+	})
+}
+
+// Transport returns "ws" for WebSocket connections.
+func (p *Proxy) Transport() string { return "ws" }
+
+// ConnectionClaims returns the JWT claims from this connection for revocation matching.
+// Implements the Connection interface.
+func (p *Proxy) ConnectionClaims() (sub, jti string, iat int64) {
+	p.claimsMu.RLock()
+	defer p.claimsMu.RUnlock()
+	if p.claims == nil {
+		return "", "", 0
+	}
+	var iatUnix int64
+	if p.claims.IssuedAt != nil {
+		iatUnix = p.claims.IssuedAt.Unix()
+	}
+	return p.claims.Subject, p.claims.ID, iatUnix
+}
