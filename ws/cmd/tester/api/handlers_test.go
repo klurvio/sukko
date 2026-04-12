@@ -2,7 +2,11 @@ package api
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -263,4 +267,84 @@ func TestStartTest_AllTypes(t *testing.T) {
 			r.Wait()
 		})
 	}
+}
+
+func TestStartTest_SigningKey_Valid(t *testing.T) {
+	t.Parallel()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(priv)
+
+	handler, r := newTestRouter()
+	body := fmt.Sprintf(`{"type":"validate","suite":"license-reload","signing_key":"%s"}`, encoded)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if id, ok := resp["id"].(string); ok {
+		_ = r.Stop(id)
+	}
+	r.Wait()
+}
+
+func TestStartTest_SigningKey_InvalidBase64(t *testing.T) {
+	t.Parallel()
+	handler, _ := newTestRouter()
+	body := `{"type":"validate","suite":"license-reload","signing_key":"not-valid-base64!!!"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestStartTest_SigningKey_WrongSize(t *testing.T) {
+	t.Parallel()
+	wrongKey := make([]byte, 32) // should be 64
+	encoded := base64.StdEncoding.EncodeToString(wrongKey)
+
+	handler, _ := newTestRouter()
+	body := fmt.Sprintf(`{"type":"validate","suite":"license-reload","signing_key":"%s"}`, encoded)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestStartTest_SigningKey_NotProvided(t *testing.T) {
+	t.Parallel()
+	handler, r := newTestRouter()
+	body := `{"type":"smoke"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	// Should succeed — signing_key is optional, only needed for license-reload suite
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusCreated)
+	}
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if id, ok := resp["id"].(string); ok {
+		_ = r.Stop(id)
+	}
+	r.Wait()
 }

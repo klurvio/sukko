@@ -177,3 +177,20 @@ tasks:
     cmds:
       - sukko license remove 2>/dev/null || true
       - echo "=== E2E license matrix complete ==="
+
+  license-reload:
+    desc: Run license hot-reload validation (requires dev signing key)
+    cmds:
+      - |
+        if [ ! -f "{{.DEV_KEY_PATH}}" ]; then
+          echo "Dev signing key not found — generating..."
+          cd ws && go run ./internal/shared/license/genkeys
+        fi
+      - |
+        echo "=== Running license-reload validation suite ==="
+        KEY=$(base64 < {{.DEV_KEY_PATH}} | tr -d '\n')
+        curl -sf http://localhost:8090/api/v1/tests \
+          -H 'Content-Type: application/json' \
+          -d "{\"type\":\"validate\",\"suite\":\"license-reload\",\"signing_key\":\"$KEY\"}"
+        echo ""
+        echo "=== License-reload validation complete ==="
