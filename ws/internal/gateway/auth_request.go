@@ -24,6 +24,8 @@ var (
 	ErrInvalidToken   = errors.New("invalid token")
 	ErrInvalidAPIKey  = errors.New("invalid API key")
 	ErrTenantMismatch = errors.New("API key and token tenant mismatch")
+	ErrTokenRevoked   = errors.New("token revoked")
+	ErrMissingJTI     = errors.New("missing jti claim")
 )
 
 // authResult holds the validated identity from authenticateRequest.
@@ -107,6 +109,20 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		}
 		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, "jwt", time.Since(authStart))
 
+		// jti mandatory (FR-001a)
+		if claims.ID == "" {
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "jwt_missing_jti", time.Since(authStart))
+			return nil, ErrMissingJTI
+		}
+
+		// Revocation check (FR-002) — skip if registry not configured
+		if gw.revocationRegistry != nil && gw.revocationRegistry.IsRevoked(
+			claims.ID, claims.Subject, claims.TenantID, claims.IssuedAt.Unix(),
+		) {
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "jwt_revoked", time.Since(authStart))
+			return nil, ErrTokenRevoked
+		}
+
 		result := &authResult{
 			Claims:     claims,
 			Principal:  claims.Subject,
@@ -155,6 +171,20 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 			return nil, ErrTenantMismatch
 		}
 		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, "jwt+api_key", time.Since(authStart))
+
+		// jti mandatory (FR-001a)
+		if claims.ID == "" {
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "jwt+api_key_missing_jti", time.Since(authStart))
+			return nil, ErrMissingJTI
+		}
+
+		// Revocation check (FR-002) — skip if registry not configured
+		if gw.revocationRegistry != nil && gw.revocationRegistry.IsRevoked(
+			claims.ID, claims.Subject, claims.TenantID, claims.IssuedAt.Unix(),
+		) {
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "jwt+api_key_revoked", time.Since(authStart))
+			return nil, ErrTokenRevoked
+		}
 
 		result := &authResult{
 			Claims:         claims,

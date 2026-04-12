@@ -61,6 +61,10 @@ type Gateway struct {
 	// Web Push (Enterprise edition)
 	pushClient PushForwarder // gRPC client to push service PushService (interface for testability)
 
+	// Token revocation (Pro edition)
+	connectionRegistry  *ConnectionRegistry
+	revocationRegistry  *provapi.StreamRevocationRegistry
+
 	logger zerolog.Logger
 }
 
@@ -125,6 +129,10 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 			Int("fallback_patterns", len(config.FallbackPublicChannels)).
 			Msg("Per-tenant channel rules enabled")
 	}
+
+	// Token revocation — connection registry always created for registration.
+	// Revocation stream registry wired externally via SetRevocationRegistry (same pattern as SetPushClient).
+	gw.connectionRegistry = NewConnectionRegistry()
 
 	return gw, nil
 }
@@ -218,6 +226,13 @@ func (gw *Gateway) SetPushClient(client PushForwarder) {
 	gw.pushClient = client
 }
 
+// SetRevocationRegistry sets the token revocation stream registry.
+// Called from main.go after the Gateway is created. The OnRevocation callback
+// is set by the caller to invoke gw.handleRevocation.
+func (gw *Gateway) SetRevocationRegistry(reg *provapi.StreamRevocationRegistry) {
+	gw.revocationRegistry = reg
+}
+
 // Close releases resources held by the gateway.
 // Should be called during shutdown.
 func (gw *Gateway) Close() error {
@@ -239,6 +254,12 @@ func (gw *Gateway) Close() error {
 	if gw.streamKeyRegistry != nil {
 		if err := gw.streamKeyRegistry.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close stream key registry: %w", err))
+		}
+	}
+
+	if gw.revocationRegistry != nil {
+		if err := gw.revocationRegistry.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close revocation registry: %w", err))
 		}
 	}
 
@@ -386,6 +407,12 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		APIKeyOnly:              apiKeyOnly,
 		APIKeyTenantID:          apiKeyTenantID,
 	})
+	// Register in connection registry for force-disconnect on token revocation
+	if gw.connectionRegistry != nil && !apiKeyOnly && claims != nil {
+		gw.connectionRegistry.Register(proxy, tenantID, claims.Subject, claims.ID)
+		defer gw.connectionRegistry.Unregister(proxy, tenantID, claims.Subject, claims.ID)
+	}
+
 	proxy.Run(ctx)
 
 	gw.logger.Info().
@@ -575,4 +602,52 @@ func (gw *Gateway) fetchWsServerShards(ctx context.Context) *int {
 		return result.Usage.Shards
 	}
 	return nil
+}
+
+// handleRevocation processes a revocation event from the gRPC stream.
+// Looks up matching connections via ConnectionRegistry and force-disconnects them.
+// Force-disconnect is unconditional — auth refresh does not prevent disconnection.
+func (gw *Gateway) handleRevocation(entry provapi.RevocationEntry) {
+	if gw.connectionRegistry == nil {
+		return
+	}
+
+	switch entry.Type {
+	case "token":
+		conn := gw.connectionRegistry.FindByJTI(entry.JTI)
+		if conn == nil {
+			return
+		}
+		transport := conn.Transport()
+		conn.ForceClose(1008, "token revoked") //nolint:mnd // 1008 = Policy Violation per RFC 6455
+		sub, jti, _ := conn.ConnectionClaims()
+		gw.logger.Info().
+			Str("jti", jti).
+			Str("sub", sub).
+			Str("tenant_id", entry.TenantID).
+			Str("transport", transport).
+			Str("revocation_type", "token").
+			Msg("connection force-disconnected: token revoked")
+		RecordTokenForceDisconnect("token", transport)
+
+	case "user":
+		conns := gw.connectionRegistry.FindBySub(entry.TenantID, entry.Sub)
+		for _, conn := range conns {
+			_, _, iat := conn.ConnectionClaims()
+			if iat >= entry.RevokedAt {
+				continue // token issued after revocation — re-enabled user, skip
+			}
+			transport := conn.Transport()
+			conn.ForceClose(1008, "user revoked") //nolint:mnd // 1008 = Policy Violation per RFC 6455
+			sub, jti, _ := conn.ConnectionClaims()
+			gw.logger.Info().
+				Str("jti", jti).
+				Str("sub", sub).
+				Str("tenant_id", entry.TenantID).
+				Str("transport", transport).
+				Str("revocation_type", "user").
+				Msg("connection force-disconnected: user revoked")
+			RecordTokenForceDisconnect("user", transport)
+		}
+	}
 }

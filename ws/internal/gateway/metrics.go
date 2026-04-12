@@ -457,6 +457,20 @@ func SetServerGRPCState(connected bool) {
 	}
 }
 
+// --- Token Revocation Metrics ---
+
+var (
+	tokenForceDisconnectsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gateway_token_force_disconnects_total",
+		Help: "Total connections force-disconnected due to token revocation",
+	}, []string{"type", "transport"})
+)
+
+// RecordTokenForceDisconnect records a force-disconnect event by revocation type and transport.
+func RecordTokenForceDisconnect(revocationType, transport string) {
+	tokenForceDisconnectsTotal.WithLabelValues(revocationType, transport).Inc()
+}
+
 // Interface compliance checks.
 var (
 	_ pkgmetrics.AccessDenialMetrics = (*AccessDenialMetricsAdapter)(nil)
