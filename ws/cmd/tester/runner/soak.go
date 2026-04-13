@@ -68,7 +68,7 @@ func runSoak(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 	var canaryWg sync.WaitGroup
 	canaryWg.Go(func() {
 		defer logging.RecoverPanic(logger, "canary_readloop", nil)
-		canary.ReadLoop(ctx)
+		_, _ = canary.ReadLoop(ctx)
 	})
 
 	pool := testerws.NewPool(logger)

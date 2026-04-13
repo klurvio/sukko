@@ -65,7 +65,7 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 	// Start ReadLoop so OnMessage fires
 	go func() {
 		defer logging.RecoverPanic(logger, "rest-publish-ws-readloop", nil)
-		wsClient.ReadLoop(ctx)
+		_, _ = wsClient.ReadLoop(ctx)
 	}()
 
 	if err := wsClient.Subscribe([]string{validateSSEChannel}); err != nil {

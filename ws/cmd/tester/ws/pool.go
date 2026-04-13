@@ -86,7 +86,7 @@ func (p *Pool) RampUp(ctx context.Context, cfg PoolConfig, count, rate int) erro
 		// Start read loop
 		p.wg.Go(func() {
 			defer logging.RecoverPanic(p.logger, "pool-read-loop", nil)
-			client.ReadLoop(ctx)
+			_, _ = client.ReadLoop(ctx)
 		})
 
 		p.mu.Lock()

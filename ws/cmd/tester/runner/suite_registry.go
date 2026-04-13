@@ -21,5 +21,6 @@ var SuiteRegistry = map[string]SuiteInfo{
 	"sse":              {Name: "sse", Description: "SSE transport receive and auth validation"},
 	"rest-publish":     {Name: "rest-publish", Description: "REST publish endpoint delivery and input validation"},
 	"push":             {Name: "push", Description: "Push notification subscription and pipeline validation"},
-	"license-reload":   {Name: "license-reload", Description: "License hot-reload propagation, gating, and connection survival"},
+	"license-reload":     {Name: "license-reload", Description: "License hot-reload propagation, gating, and connection survival"},
+	"token-revocation":  {Name: "token-revocation", Description: "Token revocation force-disconnect and rejection validation"},
 }

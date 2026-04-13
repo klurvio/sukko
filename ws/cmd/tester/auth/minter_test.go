@@ -290,6 +290,117 @@ func TestMinter_MintWithClaims_GroupsAndRoles(t *testing.T) {
 	}
 }
 
+func TestMinter_MintWithClaims_JTI(t *testing.T) {
+	t.Parallel()
+
+	kp := testKeypair(t)
+	m := NewMinter(MinterConfig{Keypair: kp, TenantID: "t1"})
+
+	tokenStr, err := m.MintWithClaims(MintOptions{Subject: "u1", JTI: "my-jti-123"})
+	if err != nil {
+		t.Fatalf("MintWithClaims: %v", err)
+	}
+
+	claims := parseClaims(t, tokenStr, &kp.PrivateKey.PublicKey)
+	if claims.ID != "my-jti-123" {
+		t.Errorf("jti = %q, want %q", claims.ID, "my-jti-123")
+	}
+}
+
+func TestMinter_MintWithClaims_JTI_Empty(t *testing.T) {
+	t.Parallel()
+
+	kp := testKeypair(t)
+	m := NewMinter(MinterConfig{Keypair: kp, TenantID: "t1"})
+
+	tokenStr, err := m.MintWithClaims(MintOptions{Subject: "u1"})
+	if err != nil {
+		t.Fatalf("MintWithClaims: %v", err)
+	}
+
+	claims := parseClaims(t, tokenStr, &kp.PrivateKey.PublicKey)
+	if claims.ID != "" {
+		t.Errorf("jti = %q, want empty", claims.ID)
+	}
+}
+
+func TestMinter_MintWithClaims_IssuedAt(t *testing.T) {
+	t.Parallel()
+
+	kp := testKeypair(t)
+	m := NewMinter(MinterConfig{Keypair: kp, TenantID: "t1"})
+
+	customIAT := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+	tokenStr, err := m.MintWithClaims(MintOptions{Subject: "u1", IssuedAt: customIAT})
+	if err != nil {
+		t.Fatalf("MintWithClaims: %v", err)
+	}
+
+	claims := parseClaims(t, tokenStr, &kp.PrivateKey.PublicKey)
+	if claims.IssuedAt == nil {
+		t.Fatal("expected iat to be set")
+	}
+	if !claims.IssuedAt.Time.Equal(customIAT) {
+		t.Errorf("iat = %v, want %v", claims.IssuedAt.Time, customIAT)
+	}
+}
+
+func TestMinter_MintWithClaims_IssuedAt_Zero(t *testing.T) {
+	t.Parallel()
+
+	kp := testKeypair(t)
+	m := NewMinter(MinterConfig{Keypair: kp, TenantID: "t1"})
+
+	before := time.Now().Add(-1 * time.Second)
+	tokenStr, err := m.MintWithClaims(MintOptions{Subject: "u1"})
+	if err != nil {
+		t.Fatalf("MintWithClaims: %v", err)
+	}
+	after := time.Now().Add(1 * time.Second)
+
+	claims := parseClaims(t, tokenStr, &kp.PrivateKey.PublicKey)
+	if claims.IssuedAt == nil {
+		t.Fatal("expected iat to be set")
+	}
+	if claims.IssuedAt.Time.Before(before) || claims.IssuedAt.Time.After(after) {
+		t.Errorf("iat = %v, expected ≈ now (between %v and %v)", claims.IssuedAt.Time, before, after)
+	}
+}
+
+func TestMinter_MintWithClaims_AllNewFields(t *testing.T) {
+	t.Parallel()
+
+	kp := testKeypair(t)
+	m := NewMinter(MinterConfig{Keypair: kp, TenantID: "t1"})
+
+	customIAT := time.Now().Add(-1 * time.Hour)
+	tokenStr, err := m.MintWithClaims(MintOptions{
+		Subject:  "alice",
+		JTI:      "tok-456",
+		IssuedAt: customIAT,
+		TenantID: "t2",
+		Groups:   []string{"vip"},
+		Roles:    []string{"admin"},
+	})
+	if err != nil {
+		t.Fatalf("MintWithClaims: %v", err)
+	}
+
+	claims := parseClaims(t, tokenStr, &kp.PrivateKey.PublicKey)
+	if claims.Subject != "alice" {
+		t.Errorf("sub = %q, want alice", claims.Subject)
+	}
+	if claims.ID != "tok-456" {
+		t.Errorf("jti = %q, want tok-456", claims.ID)
+	}
+	if !claims.IssuedAt.Time.Truncate(time.Second).Equal(customIAT.Truncate(time.Second)) {
+		t.Errorf("iat = %v, want %v", claims.IssuedAt.Time, customIAT)
+	}
+	if claims.TenantID != "t2" {
+		t.Errorf("tenant_id = %q, want t2", claims.TenantID)
+	}
+}
+
 func parseClaims(t *testing.T, tokenStr string, pubKey *ecdsa.PublicKey) *sharedauth.Claims {
 	t.Helper()
 	claims := &sharedauth.Claims{}

@@ -87,10 +87,12 @@ func (m *Minter) MintWithTenant(connIndex int, tenantID string) (string, error) 
 // Zero values use defaults (auto-generated subject, minter's tenant, no groups/roles).
 type MintOptions struct {
 	ConnIndex int
-	TenantID  string   // override tenant (empty = use minter's default)
-	Groups    []string // JWT groups claim (for group-scoped channel access)
-	Roles     []string // JWT roles claim (for RBAC)
-	Subject   string   // override subject (empty = auto-generate from connIndex)
+	TenantID  string    // override tenant (empty = use minter's default)
+	Groups    []string  // JWT groups claim (for group-scoped channel access)
+	Roles     []string  // JWT roles claim (for RBAC)
+	Subject   string    // override subject (empty = auto-generate from connIndex)
+	JTI       string    // JWT ID claim (empty = no jti set)
+	IssuedAt  time.Time // override iat (zero = use now)
 }
 
 // MintWithClaims creates a JWT with custom groups, roles, and subject.
@@ -106,11 +108,16 @@ func (m *Minter) MintWithClaims(opts MintOptions) (string, error) {
 	}
 
 	now := time.Now()
+	iat := now
+	if !opts.IssuedAt.IsZero() {
+		iat = opts.IssuedAt
+	}
 	claims := &auth.Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   subject,
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.lifetime)),
-			IssuedAt:  jwt.NewNumericDate(now),
+			IssuedAt:  jwt.NewNumericDate(iat),
+			ID:        opts.JTI,
 		},
 		TenantID: tenantID,
 		Groups:   opts.Groups,

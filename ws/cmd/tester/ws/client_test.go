@@ -264,7 +264,7 @@ func TestClient_ReadLoop_OnMessage(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go client.ReadLoop(ctx)
+	go func() { _, _ = client.ReadLoop(ctx) }()
 
 	select {
 	case msg := <-received:
@@ -280,4 +280,94 @@ func TestClient_ReadLoop_OnMessage(t *testing.T) {
 
 	cancel()
 	client.Close()
+}
+
+func TestClient_ReadLoop_CloseCode(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := ws.HTTPUpgrader{}
+		conn, _, _, err := upgrader.Upgrade(r, w)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Send close frame with code 1008 (Policy Violation)
+		closeBody := ws.NewCloseFrameBody(ws.StatusPolicyViolation, "token revoked")
+		frame := ws.NewCloseFrame(closeBody)
+		if err := ws.WriteFrame(conn, frame); err != nil {
+			return
+		}
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + srv.URL[4:]
+	client, err := Connect(context.Background(), ConnectConfig{
+		GatewayURL: wsURL,
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer client.Close()
+
+	code, err := client.ReadLoop(context.Background())
+	if err != nil {
+		t.Fatalf("ReadLoop error: %v", err)
+	}
+	if code != ws.StatusPolicyViolation {
+		t.Errorf("close code = %d, want %d (PolicyViolation)", code, ws.StatusPolicyViolation)
+	}
+}
+
+func TestClient_ReadLoop_ContextCancel(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := ws.HTTPUpgrader{}
+		conn, _, _, err := upgrader.Upgrade(r, w)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// Keep connection open — never send anything
+		select {}
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + srv.URL[4:]
+	client, err := Connect(context.Background(), ConnectConfig{
+		GatewayURL: wsURL,
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer client.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	var code ws.StatusCode
+	var readErr error
+	go func() {
+		code, readErr = client.ReadLoop(ctx)
+		close(done)
+	}()
+
+	// Cancel context — ReadLoop should return
+	cancel()
+
+	select {
+	case <-done:
+		if readErr != nil {
+			t.Errorf("ReadLoop error: %v", readErr)
+		}
+		if code != 0 {
+			t.Errorf("close code = %d, want 0 (context cancel)", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for ReadLoop to return after context cancel")
+	}
 }

@@ -185,7 +185,7 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 	defer readCancel()
 	go func() {
 		defer logging.RecoverPanic(logger, "license-reload-read-loop", nil)
-		wsClient.ReadLoop(readCtx)
+		_, _ = wsClient.ReadLoop(readCtx)
 	}()
 
 	// Subscribe to delivery channel
