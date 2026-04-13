@@ -29,6 +29,7 @@ import (
 	"github.com/klurvio/sukko/internal/push/worker"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/tracing"
 )
@@ -226,6 +227,21 @@ func main() {
 		structuredLogger.Fatal().Err(err).Msg("Failed to start push service")
 	}
 
+	// Token revocation — subscribe to WatchTokenRevocations from provisioning
+	revocationRegistry, revErr := provapi.NewStreamRevocationRegistry(provapi.StreamRevocationRegistryConfig{
+		GRPCAddr:          cfg.ProvisioningGRPCAddr,
+		ReconnectDelay:    cfg.GRPCReconnectDelay,
+		ReconnectMaxDelay: cfg.GRPCReconnectMaxDelay,
+		MetricPrefix:      "push",
+		Logger:            structuredLogger,
+		OnRevocation: func(entry provapi.RevocationEntry) {
+			svc.HandleRevocation(entry)
+		},
+	})
+	if revErr != nil {
+		structuredLogger.Fatal().Err(revErr).Msg("Failed to create revocation registry")
+	}
+
 	// Create gRPC server with interceptors for device registration
 	grpcAddr := fmt.Sprintf(":%d", cfg.GRPCPort)
 	grpcListener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", grpcAddr)
@@ -325,6 +341,11 @@ func main() {
 	defer shutdownCancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		structuredLogger.Error().Err(err).Msg("Error during HTTP server shutdown")
+	}
+
+	// Stop revocation registry (closes gRPC stream)
+	if err := revocationRegistry.Close(); err != nil {
+		structuredLogger.Error().Err(err).Msg("Error stopping revocation registry")
 	}
 
 	// Stop config client (closes gRPC streams + connections)

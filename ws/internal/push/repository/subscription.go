@@ -22,8 +22,8 @@ func NewSubscriptionRepository(pool *pgxpool.Pool) SubscriptionRepository {
 // Create inserts a new push subscription and returns its ID via RETURNING.
 func (r *subscriptionRepo) Create(ctx context.Context, sub *PushSubscription) (int64, error) {
 	query := `
-		INSERT INTO push_subscriptions (tenant_id, principal, platform, token, endpoint, p256dh_key, auth_secret, channels)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO push_subscriptions (tenant_id, principal, platform, token, endpoint, p256dh_key, auth_secret, channels, jti, token_iat)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id
 	`
 
@@ -37,6 +37,8 @@ func (r *subscriptionRepo) Create(ctx context.Context, sub *PushSubscription) (i
 		sub.P256dhKey,
 		sub.AuthSecret,
 		sub.Channels,
+		sub.JTI,
+		sub.TokenIAT,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert push subscription: %w", err)
@@ -127,4 +129,31 @@ func (r *subscriptionRepo) UpdateLastSuccess(ctx context.Context, id int64) erro
 	}
 
 	return nil
+}
+
+// DeleteByJTI removes push subscriptions matching the given JWT ID, scoped to tenant.
+// Returns the count of deleted rows.
+func (r *subscriptionRepo) DeleteByJTI(ctx context.Context, tenantID, jti string) (int, error) {
+	query := `DELETE FROM push_subscriptions WHERE tenant_id = $1 AND jti = $2`
+
+	result, err := r.pool.Exec(ctx, query, tenantID, jti)
+	if err != nil {
+		return 0, fmt.Errorf("delete by jti: %w", err)
+	}
+
+	return int(result.RowsAffected()), nil
+}
+
+// DeleteBySub removes push subscriptions for a user where token_iat < revokedAt.
+// Only deletes registrations created with tokens issued before the revocation.
+// Returns the count of deleted rows.
+func (r *subscriptionRepo) DeleteBySub(ctx context.Context, tenantID, principal string, revokedAt int64) (int, error) {
+	query := `DELETE FROM push_subscriptions WHERE tenant_id = $1 AND principal = $2 AND token_iat < to_timestamp($3)`
+
+	result, err := r.pool.Exec(ctx, query, tenantID, principal, revokedAt)
+	if err != nil {
+		return 0, fmt.Errorf("delete by sub: %w", err)
+	}
+
+	return int(result.RowsAffected()), nil
 }
