@@ -49,6 +49,8 @@ func (r *mockRepo) FindByTenant(_ context.Context, tenantID string) ([]repositor
 }
 
 func (r *mockRepo) UpdateLastSuccess(_ context.Context, _ int64) error { return nil }
+func (r *mockRepo) DeleteByJTI(_ context.Context, _, _ string) (int, error)           { return 0, nil }
+func (r *mockRepo) DeleteBySub(_ context.Context, _, _ string, _ int64) (int, error)  { return 0, nil }
 
 func TestHandleMessage_Match(t *testing.T) {
 	t.Parallel()

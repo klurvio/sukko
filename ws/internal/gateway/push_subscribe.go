@@ -137,6 +137,16 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extract JWT metadata for token revocation support (FR-002c)
+	var jti string
+	var tokenIAT int64
+	if authRes.Claims != nil {
+		jti = authRes.Claims.ID
+		if authRes.Claims.IssuedAt != nil {
+			tokenIAT = authRes.Claims.IssuedAt.Unix()
+		}
+	}
+
 	resp, err := gw.pushClient.RegisterDevice(ctx, &pushv1.RegisterDeviceRequest{
 		TenantId:   authRes.TenantID,
 		Principal:  authRes.Principal,
@@ -146,6 +156,8 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 		P256DhKey:  req.P256dhKey,
 		AuthSecret: req.AuthSecret,
 		Channels:   req.Channels,
+		Jti:        jti,
+		TokenIat:   tokenIAT,
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).

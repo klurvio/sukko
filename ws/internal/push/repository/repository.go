@@ -17,6 +17,8 @@ type PushSubscription struct {
 	P256dhKey     string   // Web Push ECDH public key
 	AuthSecret    string   // Web Push auth secret
 	Channels      []string // Channel patterns WITH tenant prefix
+	JTI           string   // JWT ID from the token used during registration (for per-token revocation)
+	TokenIAT      time.Time // JWT issued-at from the token used during registration (for per-user revocation)
 	CreatedAt     time.Time
 	LastSuccessAt *time.Time // nullable
 }
@@ -37,4 +39,10 @@ type SubscriptionRepository interface {
 
 	// UpdateLastSuccess updates the last_success_at timestamp to now.
 	UpdateLastSuccess(ctx context.Context, id int64) error
+
+	// DeleteByJTI removes push subscriptions matching the given JWT ID, scoped to tenant. Returns count of deleted rows.
+	DeleteByJTI(ctx context.Context, tenantID, jti string) (int, error)
+
+	// DeleteBySub removes push subscriptions for a user where token_iat < revokedAt. Returns count of deleted rows.
+	DeleteBySub(ctx context.Context, tenantID, principal string, revokedAt int64) (int, error)
 }
