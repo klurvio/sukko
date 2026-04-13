@@ -340,8 +340,8 @@ func TestMinter_MintWithClaims_IssuedAt(t *testing.T) {
 	if claims.IssuedAt == nil {
 		t.Fatal("expected iat to be set")
 	}
-	if !claims.IssuedAt.Time.Equal(customIAT) {
-		t.Errorf("iat = %v, want %v", claims.IssuedAt.Time, customIAT)
+	if !claims.IssuedAt.Equal(customIAT) {
+		t.Errorf("iat = %v, want %v", claims.IssuedAt, customIAT)
 	}
 }
 
@@ -362,8 +362,8 @@ func TestMinter_MintWithClaims_IssuedAt_Zero(t *testing.T) {
 	if claims.IssuedAt == nil {
 		t.Fatal("expected iat to be set")
 	}
-	if claims.IssuedAt.Time.Before(before) || claims.IssuedAt.Time.After(after) {
-		t.Errorf("iat = %v, expected ≈ now (between %v and %v)", claims.IssuedAt.Time, before, after)
+	if claims.IssuedAt.Before(before) || claims.IssuedAt.After(after) {
+		t.Errorf("iat = %v, expected ≈ now (between %v and %v)", claims.IssuedAt, before, after)
 	}
 }
 

@@ -40,25 +40,17 @@ type revokeRequest struct {
 	JTI string `json:"jti,omitempty"`
 }
 
-// revokeResponse is the JSON response from the revocation API.
-type revokeResponse struct {
-	Status    string `json:"status"`
-	Type      string `json:"type"`
-	TenantID  string `json:"tenant_id"`
-	ExpiresAt string `json:"expires_at"`
-}
-
 // revokeToken sends a token revocation request via the gateway proxy.
-func revokeToken(ctx context.Context, gwURL, token, tenantID string, req revokeRequest) (revokeResponse, int, error) {
+func revokeToken(ctx context.Context, gwURL, token, tenantID string, req revokeRequest) (int, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
-		return revokeResponse{}, 0, fmt.Errorf("revoke token: marshal: %w", err)
+		return 0, fmt.Errorf("revoke token: marshal: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		gwURL+"/api/v1/tenants/"+tenantID+"/tokens/revoke", bytes.NewReader(body))
 	if err != nil {
-		return revokeResponse{}, 0, fmt.Errorf("revoke token: create request: %w", err)
+		return 0, fmt.Errorf("revoke token: create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+token)
@@ -66,20 +58,13 @@ func revokeToken(ctx context.Context, gwURL, token, tenantID string, req revokeR
 	client := &http.Client{Timeout: revocationHTTPTimeout}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return revokeResponse{}, 0, fmt.Errorf("revoke token: %w", err)
+		return 0, fmt.Errorf("revoke token: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // drain body
 
-	var result revokeResponse
-	if resp.StatusCode == http.StatusOK {
-		if err := json.Unmarshal(respBody, &result); err != nil {
-			return revokeResponse{}, resp.StatusCode, fmt.Errorf("revoke token: unmarshal: %w", err)
-		}
-	}
-
-	return result, resp.StatusCode, nil
+	return resp.StatusCode, nil
 }
 
 // connectAndReadLoop connects a WS client and starts ReadLoop in a goroutine.
@@ -135,7 +120,7 @@ func tryConnect(ctx context.Context, gwURL, token string, logger zerolog.Logger)
 		if errors.As(err, &statusErr) {
 			return nil, int(statusErr), nil
 		}
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("try connect: %w", err)
 	}
 	return client, http.StatusSwitchingProtocols, nil
 }
@@ -212,7 +197,7 @@ func checkJTIRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 	defer func() { _ = client.Close() }()
 
 	// Revoke the jti
-	_, status, err := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: jti})
+	status, err := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: jti})
 	if err != nil || status != http.StatusOK {
 		return append(checks, metrics.CheckResult{Name: "jti-force-disconnect", Status: "fail",
 			Error: fmt.Sprintf("revoke: HTTP %d, err: %v", status, err)})
@@ -223,11 +208,12 @@ func checkJTIRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 
 	// AC2: same jti rejected on reconnect (401)
 	_, connStatus, connErr := tryConnect(ctx, gwURL, token, logger)
-	if connErr != nil {
+	switch {
+	case connErr != nil:
 		checks = append(checks, metrics.CheckResult{Name: "jti-reject-reconnect", Status: "fail", Error: fmt.Sprintf("connect: %v", connErr)})
-	} else if connStatus == http.StatusUnauthorized {
+	case connStatus == http.StatusUnauthorized:
 		checks = append(checks, metrics.CheckResult{Name: "jti-reject-reconnect", Status: "pass"})
-	} else {
+	default:
 		checks = append(checks, metrics.CheckResult{Name: "jti-reject-reconnect", Status: "fail",
 			Error: fmt.Sprintf("expected 401, got %d", connStatus)})
 	}
@@ -242,12 +228,13 @@ func checkJTIRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 		checks = append(checks, metrics.CheckResult{Name: "jti-unaffected", Status: "fail", Error: fmt.Sprintf("mint: %v", err)})
 	} else {
 		otherClient, otherStatus, otherErr := tryConnect(ctx, gwURL, otherToken, logger)
-		if otherErr != nil {
+		switch {
+		case otherErr != nil:
 			checks = append(checks, metrics.CheckResult{Name: "jti-unaffected", Status: "fail", Error: fmt.Sprintf("connect: %v", otherErr)})
-		} else if otherStatus == http.StatusSwitchingProtocols {
+		case otherStatus == http.StatusSwitchingProtocols:
 			checks = append(checks, metrics.CheckResult{Name: "jti-unaffected", Status: "pass"})
 			_ = otherClient.Close()
-		} else {
+		default:
 			checks = append(checks, metrics.CheckResult{Name: "jti-unaffected", Status: "fail",
 				Error: fmt.Sprintf("expected 101, got %d", otherStatus)})
 		}
@@ -306,7 +293,7 @@ func checkSubRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 		return append(checks, metrics.CheckResult{Name: "sub-force-disconnect-all", Status: "fail", Error: fmt.Sprintf("mint revoke token: %v", err)})
 	}
 
-	_, status, revokeErr := revokeToken(ctx, gwURL, callerToken, tenantID, revokeRequest{Sub: sub})
+	status, revokeErr := revokeToken(ctx, gwURL, callerToken, tenantID, revokeRequest{Sub: sub})
 	if revokeErr != nil || status != http.StatusOK {
 		return append(checks, metrics.CheckResult{Name: "sub-force-disconnect-all", Status: "fail",
 			Error: fmt.Sprintf("revoke: HTTP %d, err: %v", status, revokeErr)})
@@ -347,12 +334,13 @@ func checkSubRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 		checks = append(checks, metrics.CheckResult{Name: "sub-new-token-allowed", Status: "fail", Error: fmt.Sprintf("mint: %v", err)})
 	} else {
 		newClient, connStatus, connErr := tryConnect(ctx, gwURL, newToken, logger)
-		if connErr != nil {
+		switch {
+		case connErr != nil:
 			checks = append(checks, metrics.CheckResult{Name: "sub-new-token-allowed", Status: "fail", Error: fmt.Sprintf("connect: %v", connErr)})
-		} else if connStatus == http.StatusSwitchingProtocols {
+		case connStatus == http.StatusSwitchingProtocols:
 			checks = append(checks, metrics.CheckResult{Name: "sub-new-token-allowed", Status: "pass"})
 			_ = newClient.Close()
-		} else {
+		default:
 			checks = append(checks, metrics.CheckResult{Name: "sub-new-token-allowed", Status: "fail",
 				Error: fmt.Sprintf("expected 101, got %d", connStatus)})
 		}
@@ -368,11 +356,12 @@ func checkSubRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 		checks = append(checks, metrics.CheckResult{Name: "sub-old-token-rejected", Status: "fail", Error: fmt.Sprintf("mint: %v", err)})
 	} else {
 		_, connStatus, connErr := tryConnect(ctx, gwURL, oldToken, logger)
-		if connErr != nil {
+		switch {
+		case connErr != nil:
 			checks = append(checks, metrics.CheckResult{Name: "sub-old-token-rejected", Status: "fail", Error: fmt.Sprintf("connect: %v", connErr)})
-		} else if connStatus == http.StatusUnauthorized {
+		case connStatus == http.StatusUnauthorized:
 			checks = append(checks, metrics.CheckResult{Name: "sub-old-token-rejected", Status: "pass"})
-		} else {
+		default:
 			checks = append(checks, metrics.CheckResult{Name: "sub-old-token-rejected", Status: "fail",
 				Error: fmt.Sprintf("expected 401, got %d", connStatus)})
 		}
@@ -389,12 +378,13 @@ func checkSubRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 		checks = append(checks, metrics.CheckResult{Name: "sub-iat-boundary", Status: "fail", Error: fmt.Sprintf("mint: %v", err)})
 	} else {
 		boundaryClient, connStatus, connErr := tryConnect(ctx, gwURL, boundaryToken, logger)
-		if connErr != nil {
+		switch {
+		case connErr != nil:
 			checks = append(checks, metrics.CheckResult{Name: "sub-iat-boundary", Status: "fail", Error: fmt.Sprintf("connect: %v", connErr)})
-		} else if connStatus == http.StatusSwitchingProtocols {
+		case connStatus == http.StatusSwitchingProtocols:
 			checks = append(checks, metrics.CheckResult{Name: "sub-iat-boundary", Status: "pass"})
 			_ = boundaryClient.Close()
-		} else {
+		default:
 			checks = append(checks, metrics.CheckResult{Name: "sub-iat-boundary", Status: "fail",
 				Error: fmt.Sprintf("expected 101, got %d", connStatus)})
 		}
@@ -455,7 +445,7 @@ func checkSSERevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 	}()
 
 	// Revoke the jti
-	_, status, revokeErr := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: jti})
+	status, revokeErr := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: jti})
 	if revokeErr != nil || status != http.StatusOK {
 		return append(checks, metrics.CheckResult{Name: "sse-force-disconnect", Status: "fail",
 			Error: fmt.Sprintf("revoke: HTTP %d, err: %v", status, revokeErr)})
@@ -482,7 +472,7 @@ func checkPushRevocation(ctx context.Context, gwURL string, minter *auth.Minter,
 	var checks []metrics.CheckResult
 
 	// Setup VAPID credentials and push channels (matching validate_push.go pattern)
-	vapidCreds := `{"public_key":"BDummy_VAPID_Public_Key_For_Testing_Only","private_key":"dummy-vapid-private-key-for-testing"}`
+	vapidCreds := `{"public_key":"BDummy_VAPID_Public_Key_For_Testing_Only","private_key":"dummy-vapid-private-key-for-testing"}` //nolint:gosec // G101: fake test credentials for push validation — not real secrets
 	if err := provClient.SetPushCredentials(ctx, tenantID, "vapid", vapidCreds); err != nil {
 		return append(checks, metrics.CheckResult{Name: "push-registration-deleted", Status: "fail", Error: fmt.Sprintf("set push credentials: %v", err)})
 	}
@@ -506,7 +496,7 @@ func checkPushRevocation(ctx context.Context, gwURL string, minter *auth.Minter,
 
 	// Subscribe push device
 	pushChannel := tenantID + ".revoke-push-test"
-	deviceID1, err := pushSubscribe(ctx, gwURL, token, pushSubscribeRequest{
+	deviceID1, err := pushSubscribe(ctx, gwURL, token, pushSubscribeRequest{ //nolint:gosec // G101: fake test tokens for push revocation validation
 		Platform:   "web",
 		Endpoint:   "https://push.example.com/test/" + jti,
 		P256dhKey:  "BDummy_P256DH_Key_For_Testing",
@@ -519,7 +509,7 @@ func checkPushRevocation(ctx context.Context, gwURL string, minter *auth.Minter,
 	logger.Info().Int64("device_id", deviceID1).Str("jti", jti).Msg("push device registered for revocation test")
 
 	// Revoke the jti
-	_, status, revokeErr := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: jti})
+	status, revokeErr := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: jti})
 	if revokeErr != nil || status != http.StatusOK {
 		return append(checks, metrics.CheckResult{Name: "push-registration-deleted", Status: "fail",
 			Error: fmt.Sprintf("revoke: HTTP %d, err: %v", status, revokeErr)})
@@ -539,7 +529,7 @@ func checkPushRevocation(ctx context.Context, gwURL string, minter *auth.Minter,
 			continue
 		}
 
-		deviceID2, err := pushSubscribe(ctx, gwURL, newToken, pushSubscribeRequest{
+		deviceID2, err := pushSubscribe(ctx, gwURL, newToken, pushSubscribeRequest{ //nolint:gosec // G101: fake test tokens for push revocation validation
 			Platform:   "web",
 			Endpoint:   "https://push.example.com/test/" + jti, // same endpoint
 			P256dhKey:  "BDummy_P256DH_Key_For_Testing",
@@ -577,7 +567,7 @@ func checkInvalidRevocations(ctx context.Context, run *TestRun, gwURL string, mi
 	}
 
 	// AC1: neither sub nor jti → 400
-	_, status, _ := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{})
+	status, _ := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{})
 	if status == http.StatusBadRequest {
 		checks = append(checks, metrics.CheckResult{Name: "revoke-missing-fields", Status: "pass"})
 	} else {
@@ -586,7 +576,7 @@ func checkInvalidRevocations(ctx context.Context, run *TestRun, gwURL string, mi
 	}
 
 	// AC2: both sub and jti → 400
-	_, status, _ = revokeToken(ctx, gwURL, token, tenantID, revokeRequest{Sub: "user", JTI: "token"})
+	status, _ = revokeToken(ctx, gwURL, token, tenantID, revokeRequest{Sub: "user", JTI: "token"})
 	if status == http.StatusBadRequest {
 		checks = append(checks, metrics.CheckResult{Name: "revoke-both-fields", Status: "pass"})
 	} else {
@@ -614,7 +604,7 @@ func checkInvalidRevocations(ctx context.Context, run *TestRun, gwURL string, mi
 	}
 
 	// Send tenant B's JWT to tenant A's revocation endpoint
-	_, status, _ = revokeToken(ctx, gwURL, tenantBToken, tenantID, revokeRequest{JTI: "some-jti"})
+	status, _ = revokeToken(ctx, gwURL, tenantBToken, tenantID, revokeRequest{JTI: "some-jti"})
 	if status == http.StatusForbidden {
 		checks = append(checks, metrics.CheckResult{Name: "revoke-tenant-mismatch", Status: "pass"})
 	} else {
@@ -626,7 +616,7 @@ func checkInvalidRevocations(ctx context.Context, run *TestRun, gwURL string, mi
 }
 
 // checkEdgeCases tests revocation edge cases.
-func checkEdgeCases(ctx context.Context, gwURL string, minter *auth.Minter, tenantID string, logger zerolog.Logger) []metrics.CheckResult {
+func checkEdgeCases(ctx context.Context, gwURL string, minter *auth.Minter, tenantID string, _ zerolog.Logger) []metrics.CheckResult {
 	var checks []metrics.CheckResult
 
 	token, err := minter.MintWithClaims(auth.MintOptions{
@@ -639,23 +629,25 @@ func checkEdgeCases(ctx context.Context, gwURL string, minter *auth.Minter, tena
 
 	// Edge: revoke jti with no active connection → 200
 	noConnJTI := "no-conn-" + uuid.NewString()[:8]
-	_, status, revokeErr := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: noConnJTI})
-	if revokeErr != nil {
+	status, revokeErr := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: noConnJTI})
+	switch {
+	case revokeErr != nil:
 		checks = append(checks, metrics.CheckResult{Name: "revoke-no-active-conn", Status: "fail", Error: fmt.Sprintf("revoke: %v", revokeErr)})
-	} else if status == http.StatusOK {
+	case status == http.StatusOK:
 		checks = append(checks, metrics.CheckResult{Name: "revoke-no-active-conn", Status: "pass"})
-	} else {
+	default:
 		checks = append(checks, metrics.CheckResult{Name: "revoke-no-active-conn", Status: "fail",
 			Error: fmt.Sprintf("expected 200, got %d", status)})
 	}
 
 	// Edge: revoke same jti twice → 200 (idempotent)
-	_, status, revokeErr = revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: noConnJTI})
-	if revokeErr != nil {
+	status, revokeErr = revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: noConnJTI})
+	switch {
+	case revokeErr != nil:
 		checks = append(checks, metrics.CheckResult{Name: "revoke-idempotent", Status: "fail", Error: fmt.Sprintf("revoke: %v", revokeErr)})
-	} else if status == http.StatusOK {
+	case status == http.StatusOK:
 		checks = append(checks, metrics.CheckResult{Name: "revoke-idempotent", Status: "pass"})
-	} else {
+	default:
 		checks = append(checks, metrics.CheckResult{Name: "revoke-idempotent", Status: "fail",
 			Error: fmt.Sprintf("expected 200, got %d", status)})
 	}
