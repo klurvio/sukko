@@ -69,7 +69,7 @@ func runLoad(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 	var canaryWg sync.WaitGroup
 	canaryWg.Go(func() {
 		defer logging.RecoverPanic(logger, "canary_readloop", nil)
-		canary.ReadLoop(ctx)
+		_, _ = canary.ReadLoop(ctx)
 	})
 
 	// Pool: remaining connections (just counting, no tracking)
@@ -186,7 +186,7 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 		}
 		canaryWg.Go(func() {
 			defer logging.RecoverPanic(logger, "canary_public_readloop", nil)
-			publicCanary.ReadLoop(ctx)
+			_, _ = publicCanary.ReadLoop(ctx)
 		})
 		canaryCleanups = append(canaryCleanups, func() { _ = publicCanary.Close() })
 		canaryCount++
@@ -220,7 +220,7 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 		}
 		canaryWg.Go(func() {
 			defer logging.RecoverPanic(logger, "canary_user_readloop", nil)
-			userCanary.ReadLoop(ctx)
+			_, _ = userCanary.ReadLoop(ctx)
 		})
 		canaryCleanups = append(canaryCleanups, func() { _ = userCanary.Close() })
 		canaryCount++
@@ -255,7 +255,7 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 		}
 		canaryWg.Go(func() {
 			defer logging.RecoverPanic(logger, "canary_group_readloop", nil)
-			groupCanary.ReadLoop(ctx)
+			_, _ = groupCanary.ReadLoop(ctx)
 		})
 		canaryCleanups = append(canaryCleanups, func() { _ = groupCanary.Close() })
 		canaryCount++

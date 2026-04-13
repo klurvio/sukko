@@ -149,7 +149,7 @@ func (e *PubSubEngine) CreateUser(ctx context.Context, minter *auth.Minter, opts
 	// Goroutine lifecycle: bounded to client connection — exits when client.Close() is called.
 	go func() {
 		defer logging.RecoverPanic(e.logger, "pubsub-engine-read-loop", nil)
-		client.ReadLoop(ctx)
+		_, _ = client.ReadLoop(ctx)
 	}()
 
 	return user, nil

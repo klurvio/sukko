@@ -117,7 +117,8 @@ func (c *Client) RefreshToken(token string) error {
 }
 
 // ReadLoop reads messages until the context is canceled or the connection closes.
-func (c *Client) ReadLoop(ctx context.Context) {
+// Returns the WebSocket close code if the server sent a close frame, or 0 otherwise.
+func (c *Client) ReadLoop(ctx context.Context) (ws.StatusCode, error) {
 	// When the context is canceled, set a short deadline to unblock any
 	// in-progress read. This avoids polling with read deadlines (which can
 	// corrupt WebSocket framing if a timeout hits mid-frame).
@@ -132,10 +133,14 @@ func (c *Client) ReadLoop(ctx context.Context) {
 		data, err := wsutil.ReadServerText(c.rw)
 		if err != nil {
 			if ctx.Err() != nil {
-				return
+				return 0, nil
+			}
+			var closeErr wsutil.ClosedError
+			if errors.As(err, &closeErr) {
+				return closeErr.Code, nil
 			}
 			c.logger.Debug().Err(err).Msg("read error")
-			return
+			return 0, fmt.Errorf("read loop: %w", err)
 		}
 
 		var msg Message

@@ -51,6 +51,8 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 		checks, err = validatePush(ctx, run, logger)
 	case "license-reload":
 		checks, err = validateLicenseReload(ctx, run, logger)
+	case "token-revocation":
+		checks, err = validateTokenRevocation(ctx, run, logger)
 	default:
 		checks = []metrics.CheckResult{{
 			Name:   "unknown suite",
