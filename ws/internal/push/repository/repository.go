@@ -11,13 +11,13 @@ type PushSubscription struct {
 	ID            int64
 	TenantID      string
 	Principal     string
-	Platform      string   // "web", "android", "ios"
-	Token         string   // FCM/APNs token (empty for web)
-	Endpoint      string   // Web Push endpoint URL (empty for android/ios)
-	P256dhKey     string   // Web Push ECDH public key
-	AuthSecret    string   // Web Push auth secret
-	Channels      []string // Channel patterns WITH tenant prefix
-	JTI           string   // JWT ID from the token used during registration (for per-token revocation)
+	Platform      string    // "web", "android", "ios"
+	Token         string    // FCM/APNs token (empty for web)
+	Endpoint      string    // Web Push endpoint URL (empty for android/ios)
+	P256dhKey     string    // Web Push ECDH public key
+	AuthSecret    string    // Web Push auth secret
+	Channels      []string  // Channel patterns WITH tenant prefix
+	JTI           string    // JWT ID from the token used during registration (for per-token revocation)
 	TokenIAT      time.Time // JWT issued-at from the token used during registration (for per-user revocation)
 	CreatedAt     time.Time
 	LastSuccessAt *time.Time // nullable

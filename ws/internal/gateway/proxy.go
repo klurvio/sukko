@@ -933,7 +933,7 @@ func (p *Proxy) sendAuthErrorToClient(code, message string) ([]byte, error) {
 func (p *Proxy) ForceClose(code int, reason string) {
 	// Build close frame payload: 2-byte status code + reason string
 	payload := make([]byte, 2+len(reason)) //nolint:mnd // WebSocket close frame: 2-byte status code per RFC 6455 §5.5.1
-	payload[0] = byte(code >> 8)           //nolint:mnd // High byte of close code
+	payload[0] = byte(code >> 8)           //nolint:mnd,gosec // G115: WebSocket close codes are 1000-4999, fits in 2 bytes per RFC 6455 §7.4
 	payload[1] = byte(code & 0xFF)         //nolint:mnd // Low byte of close code
 	copy(payload[2:], reason)
 

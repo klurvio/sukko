@@ -29,7 +29,7 @@ func (m *mockRevocationRepo) Create(_ context.Context, sub *repository.PushSubsc
 	return int64(len(m.subs)), nil
 }
 
-func (m *mockRevocationRepo) Delete(_ context.Context, _ int64, _ string) error { return nil }
+func (m *mockRevocationRepo) Delete(_ context.Context, _ int64, _ string) error  { return nil }
 func (m *mockRevocationRepo) DeleteByToken(_ context.Context, _, _ string) error { return nil }
 func (m *mockRevocationRepo) FindByTenant(_ context.Context, _ string) ([]repository.PushSubscription, error) {
 	return m.subs, nil

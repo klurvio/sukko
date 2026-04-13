@@ -4,6 +4,7 @@ package revocation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -71,16 +72,16 @@ func (s *Store) Close() {
 // revocations for the same key update the entry.
 func (s *Store) Revoke(entry Entry) error {
 	if entry.TenantID == "" {
-		return fmt.Errorf("revocation: tenant_id is required")
+		return errors.New("revocation: tenant_id is required")
 	}
 	if entry.Type != "user" && entry.Type != "token" {
 		return fmt.Errorf("revocation: type must be 'user' or 'token', got %q", entry.Type)
 	}
 	if entry.Type == "user" && entry.Sub == "" {
-		return fmt.Errorf("revocation: sub is required for user revocation")
+		return errors.New("revocation: sub is required for user revocation")
 	}
 	if entry.Type == "token" && entry.JTI == "" {
-		return fmt.Errorf("revocation: jti is required for token revocation")
+		return errors.New("revocation: jti is required for token revocation")
 	}
 
 	s.mu.Lock()

@@ -116,7 +116,7 @@ func (c *sseConnection) ForceClose(_ int, _ string) {
 }
 
 // ConnectionClaims returns the JWT claims from the SSE connection.
-func (c *sseConnection) ConnectionClaims() (string, string, int64) {
+func (c *sseConnection) ConnectionClaims() (sub, jti string, iat int64) {
 	return c.sub, c.jti, c.iat
 }
 

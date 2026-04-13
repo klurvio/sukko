@@ -19,17 +19,11 @@ func (m *mockConnection) ForceClose(_ int, _ string) {
 	m.mu.Unlock()
 }
 
-func (m *mockConnection) ConnectionClaims() (string, string, int64) {
+func (m *mockConnection) ConnectionClaims() (sub, jti string, iat int64) {
 	return m.sub, m.jti, m.iat
 }
 
 func (m *mockConnection) Transport() string { return "ws" }
-
-func (m *mockConnection) isClosed() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.closed
-}
 
 func TestConnectionRegistry_RegisterAndFindByJTI(t *testing.T) {
 	t.Parallel()

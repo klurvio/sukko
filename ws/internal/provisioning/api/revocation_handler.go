@@ -38,20 +38,20 @@ type revocationResponse struct {
 
 // RevocationHandler handles token revocation requests.
 type RevocationHandler struct {
-	store              *revocation.Store
-	eventBus           *eventbus.Bus
-	logger             zerolog.Logger
-	limiter            *ipRateLimiter
+	store                 *revocation.Store
+	eventBus              *eventbus.Bus
+	logger                zerolog.Logger
+	limiter               *ipRateLimiter
 	maxRevocationLifetime time.Duration
 }
 
 // NewRevocationHandler creates a handler for the token revocation endpoint.
 func NewRevocationHandler(store *revocation.Store, bus *eventbus.Bus, maxLifetime time.Duration, logger zerolog.Logger) *RevocationHandler {
 	return &RevocationHandler{
-		store:              store,
-		eventBus:           bus,
-		logger:             logger.With().Str("handler", "revocation").Logger(),
-		limiter:            newIPRateLimiter(rate.Every(2*time.Second), 5), // 30 req/min with burst of 5
+		store:                 store,
+		eventBus:              bus,
+		logger:                logger.With().Str("handler", "revocation").Logger(),
+		limiter:               newIPRateLimiter(rate.Every(2*time.Second), 5), // 30 req/min with burst of 5
 		maxRevocationLifetime: maxLifetime,
 	}
 }
@@ -138,4 +138,3 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 		ExpiresAt: time.Unix(expiresAt, 0).UTC().Format(time.RFC3339),
 	})
 }
-

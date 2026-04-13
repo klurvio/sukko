@@ -146,7 +146,10 @@ func (r *StreamRevocationRegistry) Close() error {
 // IsRevoked checks if a token is revoked. O(1) — two map lookups (jti + sub).
 // Called from JWT validation hot path — zero locks.
 func (r *StreamRevocationRegistry) IsRevoked(jti, sub, tenantID string, iat int64) bool {
-	snap := r.snapshot.Load().(*RevocationSnapshot)
+	snap, _ := r.snapshot.Load().(*RevocationSnapshot)
+	if snap == nil {
+		return false
+	}
 
 	// Check jti revocation
 	if jti != "" {
@@ -269,7 +272,13 @@ func (r *StreamRevocationRegistry) applySnapshot(revocations []*provisioningv1.T
 // applyDelta updates the revocation map with delta changes.
 func (r *StreamRevocationRegistry) applyDelta(revocations []*provisioningv1.TokenRevocation) {
 	now := time.Now().Unix()
-	old := r.snapshot.Load().(*RevocationSnapshot)
+	old, _ := r.snapshot.Load().(*RevocationSnapshot)
+	if old == nil {
+		old = &RevocationSnapshot{
+			JTIRevocations: make(map[string]*jtiEntry),
+			SubRevocations: make(map[string]*subEntry),
+		}
+	}
 
 	// Copy maps (copy-on-write)
 	jtiMap := make(map[string]*jtiEntry, len(old.JTIRevocations))

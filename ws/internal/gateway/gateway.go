@@ -62,8 +62,8 @@ type Gateway struct {
 	pushClient PushForwarder // gRPC client to push service PushService (interface for testability)
 
 	// Token revocation (Pro edition)
-	connectionRegistry  *ConnectionRegistry
-	revocationRegistry  *provapi.StreamRevocationRegistry
+	connectionRegistry *ConnectionRegistry
+	revocationRegistry *provapi.StreamRevocationRegistry
 
 	logger zerolog.Logger
 }
@@ -604,10 +604,11 @@ func (gw *Gateway) fetchWsServerShards(ctx context.Context) *int {
 	return nil
 }
 
-// handleRevocation processes a revocation event from the gRPC stream.
+// HandleRevocation processes a revocation event from the gRPC stream.
 // Looks up matching connections via ConnectionRegistry and force-disconnects them.
 // Force-disconnect is unconditional — auth refresh does not prevent disconnection.
-func (gw *Gateway) handleRevocation(entry provapi.RevocationEntry) {
+// Called from main.go via StreamRevocationRegistry.OnRevocation callback.
+func (gw *Gateway) HandleRevocation(entry provapi.RevocationEntry) {
 	if gw.connectionRegistry == nil {
 		return
 	}
