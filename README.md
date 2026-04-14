@@ -1,186 +1,150 @@
 # Sukko
 
-Multi-tenant WebSocket server with Kafka/Redpanda pub/sub for real-time data streaming.
+Multi-tenant WebSocket infrastructure platform for real-time data distribution. Built for trading and market data — delivers messages from Kafka/Redpanda through WebSocket, SSE, and push notification channels with JWT authentication, per-tenant isolation, and edition-based feature gating.
 
-## Prerequisites
+## Architecture
 
+```
+Client SDKs ──┐
+              ├──▶ ws-gateway ──▶ ws-server shards
+              │      (auth,        (Kafka consumer,
+              │       proxy,        NATS broadcast,
+              │       rate limit)   per-client delivery)
+              │
+              └──▶ provisioning
+                    (tenants, keys,
+                     rules, license)
+```
+
+**Services:**
+- **ws-gateway** — WebSocket/SSE/REST reverse proxy with JWT auth, tenant isolation, rate limiting, connection tracking, token revocation
+- **ws-server** — Core WebSocket server with sharded connections, Kafka/Redpanda consumption, NATS broadcast
+- **provisioning** — Multi-tenant management API (tenants, signing keys, API keys, routing rules, channel rules, license, token revocation)
+- **push** — Push notification service (Web Push, FCM, APNs) with Kafka-driven delivery
+
+**Transports:**
+- WebSocket (`/ws`) — bidirectional, real-time
+- SSE (`/sse`) — server-sent events, read-only stream
+- REST Publish (`POST /api/v1/publish`) — HTTP message injection
+- Push Notifications — offline delivery via Web Push, FCM, APNs
+
+## Quick Start
+
+### Prerequisites
+
+- [Go 1.26+](https://go.dev/dl/)
 - [Docker](https://docs.docker.com/get-docker/)
-- [Task](https://taskfile.dev/installation/)
-- [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) (Kubernetes in Docker)
-- [kubectl](https://kubernetes.io/docs/tasks/tools/)
-- [Helm](https://helm.sh/docs/intro/install/)
+- [Task](https://taskfile.dev/installation/) (optional — for remote K8s operations)
 
-## Quick Start (Local)
+### Local Development
 
 ```bash
-# Full setup (creates Kind cluster, deploys everything, starts port-forwards)
-task local
+# Install sukko-cli (manages local Docker Compose environment)
+go install github.com/klurvio/sukko-cli@latest
 
-# Check status
-task local:status
+# Initialize and start the platform
+sukko init --defaults
+sukko up
 
-# Create topics + tenant
-task local:provision:create
+# Create a tenant and generate credentials
+sukko tenant create --id my-app --name "My App"
+sukko key create --tenant my-app --generate
 
-# Run publisher (sends messages)
-task local:publisher:run RATE=1
-
-# Run load test
-task local:loadtest:smoke
+# Generate a JWT and connect
+sukko token generate --tenant my-app --sub user1
+sukko subscribe orders.new --token <jwt>
 ```
 
-## Command Pattern
+**Local URLs:**
 
-All commands follow the pattern: `{domain}:{service}:{action} [ENV=value]`
+| Service | URL | Description |
+|---------|-----|-------------|
+| Gateway | `ws://localhost:3000/ws` | WebSocket endpoint |
+| Gateway | `http://localhost:3000/sse` | SSE endpoint |
+| Gateway | `http://localhost:3000/api/v1/publish` | REST publish |
+| Provisioning | `http://localhost:8080` | Admin API |
 
-| Domain | Description | ENV |
-|--------|-------------|-----|
-| `local` | Kind cluster | Not needed |
-| `k8s` | Remote DOKS | `demo` |
-
-## Local Development
-
-### Core Operations
+### Observability (optional)
 
 ```bash
-task local:setup              # Full setup (create + deploy)
-task local:destroy            # Delete Kind cluster
-task local:deploy             # Deploy/upgrade Helm release
-task local:status             # Show pods and services
-task local:logs               # Tail ws-server logs
-task local:logs:gateway       # Tail ws-gateway logs
-task local:build              # Build and reload images
-task local:health             # Check health endpoint
+sukko up --profile observability    # Adds Prometheus, Grafana, Tempo
 ```
 
-### Provisioning
+| Service | URL |
+|---------|-----|
+| Grafana | `http://localhost:3010` |
+| Prometheus | `http://localhost:9090` |
+
+## Development
 
 ```bash
-task local:provision:create   # Create Kafka topics + tenant
-task local:provision:status   # List topics + tenants
-task local:provision:delete   # Delete topics
+# Run tests
+cd ws && go test -race ./...
+
+# Build binaries
+cd ws && go build ./cmd/server
+cd ws && go build ./cmd/gateway
+cd ws && go build ./cmd/push
+
+# Lint
+cd ws && golangci-lint run ./...
+
+# Proto codegen
+cd ws && buf generate
 ```
 
-### Load Testing
+## Remote Kubernetes
 
 ```bash
-task local:loadtest:smoke     # Quick test (10 connections, 30s)
-task local:loadtest:run       # Full test (CONNECTIONS=100 DURATION=1m)
-task local:loadtest:stop      # Stop load test
+# Deploy to DOKS
+task k8s:setup PLATFORM=doks ENV=demo
+
+# Deploy to GKE
+task k8s:setup PLATFORM=gke ENV=demo
+
+# Operations
+task k8s:status ENV=demo
+task k8s:logs ENV=demo
+task k8s:deploy ENV=demo      # Helm upgrade
+task k8s:reload ENV=demo      # Restart pods
 ```
 
-### Publisher
-
+After deployment, provision tenants via sukko-cli:
 ```bash
-task local:publisher:run      # Run publisher (RATE=10 msg/sec)
-task local:publisher:stop     # Stop publisher
+sukko tenant create --id <tenant> --name "<name>"
+sukko key create --tenant <tenant> --generate
+sukko rules routing set --tenant <tenant> --file routing.json
+sukko rules channels set --tenant <tenant> --public "*"
 ```
 
-### Port Forwarding
+## Editions
 
-```bash
-task local:port-forward:start # Start all port-forwards
-task local:port-forward:stop  # Stop all port-forwards
-```
+| Feature | Community | Pro | Enterprise |
+|---------|-----------|-----|------------|
+| WebSocket transport | Yes | Yes | Yes |
+| JWT + API key auth | Yes | Yes | Yes |
+| Tenant isolation | Yes | Yes | Yes |
+| Tenants | 3 | 50 | Unlimited |
+| Connections | 100 | 10,000 | Unlimited |
+| SSE transport | - | Yes | Yes |
+| REST publish | - | Yes | Yes |
+| Kafka/Redpanda backend | - | Yes | Yes |
+| Token revocation | - | Yes | Yes |
+| Push notifications | - | - | Yes |
 
-**Local Ports:**
+## Key Technologies
 
-| Service | Port | URL |
-|---------|------|-----|
-| ws-gateway | 3100 | `ws://localhost:3100/ws` |
-| Redpanda | 9092 | `localhost:9092` |
-| Grafana | 3010 | `http://localhost:3010` |
-| Prometheus | 9090 | `http://localhost:9090` |
+- **Go 1.26+** with modern features
+- **franz-go** for Kafka/Redpanda consumption
+- **NATS** for inter-pod broadcast
+- **gRPC + protobuf** for internal service communication
+- **gorilla/websocket** for WebSocket connections
+- **zerolog** for structured logging
+- **Prometheus** for metrics
+- **Helm 3** for Kubernetes deployments
+- **Terraform** for cloud infrastructure (DOKS, GKE)
 
-## Remote Kubernetes (DOKS)
+## Documentation
 
-### Deployment
-
-```bash
-task k8s:deploy ENV=demo     # Deploy to demo
-```
-
-### Operations
-
-```bash
-task k8s:status ENV=demo     # Show pods and services
-task k8s:logs ENV=demo       # Tail ws-server logs
-task k8s:health ENV=demo     # Check health endpoint
-task k8s:reload ENV=demo     # Restart pods (no rebuild)
-task k8s:rollback ENV=demo   # Rollback to previous release
-```
-
-### Provisioning
-
-```bash
-task k8s:provision:create ENV=demo   # Create topic + tenant
-task k8s:provision:status ENV=demo   # List topics
-```
-
-### Terraform
-
-```bash
-task k8s:tf:init ENV=demo    # Initialize Terraform
-task k8s:tf:plan ENV=demo    # Plan changes
-task k8s:tf:apply ENV=demo   # Apply infrastructure
-task k8s:tf:destroy ENV=demo # Destroy infrastructure
-```
-
-### Port Forwarding
-
-```bash
-task k8s:port-forward:grafana ENV=demo    # View Grafana locally
-task k8s:port-forward:prometheus ENV=demo # View Prometheus locally
-```
-
-## Testing
-
-```bash
-task test                     # Run unit tests
-task test:unit                # Run unit tests
-task test:integration         # Run integration tests
-```
-
-## WebSocket Usage
-
-Connect to WebSocket:
-```bash
-wscat -c ws://localhost:3100/ws
-```
-
-Subscribe to a channel:
-```json
-{"type":"subscribe","channels":["sukko.all.trade"]}
-```
-
-## Troubleshooting
-
-### Check logs
-
-```bash
-task local:logs               # ws-server
-task local:logs:gateway       # ws-gateway
-task local:logs:all           # All pods
-```
-
-### Check topics
-
-```bash
-task local:provision:status
-```
-
-### Check database
-
-```bash
-kubectl exec -n sukko-local -it $(kubectl get pods -n sukko-local -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}') -- psql -U sukko -d sukko_provisioning
-
-# Query tenants
-SELECT * FROM tenants;
-```
-
-## Cleanup
-
-```bash
-task local:destroy            # Delete Kind cluster
-task local:port-forward:stop  # Stop port-forwards
-```
+- [CLAUDE.md](CLAUDE.md) — Architecture, source structure, constitution
+- [sukko-cli README](https://github.com/klurvio/sukko-cli) — CLI reference
