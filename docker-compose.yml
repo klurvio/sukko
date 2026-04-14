@@ -59,8 +59,8 @@ services:
       args:
         COMMIT_HASH: ${COMMIT_HASH:-local}
     ports:
-      - "8080:8080"
-      - "9090:9090"
+      - "18080:8080"
+      - "19090:9090"
     environment:
       ADMIN_BOOTSTRAP_KEY: "${ADMIN_BOOTSTRAP_KEY:-}"  # base64 Ed25519 public key, set by sukko init
       DATABASE_URL: "postgres://sukko:sukko@postgres:5432/sukko?sslmode=disable"
@@ -121,7 +121,7 @@ services:
       args:
         COMMIT_HASH: ${COMMIT_HASH:-local}
     ports:
-      - "3000:3000"
+      - "13000:3000"
     environment:
       # Inter-service wiring (only overrides needed)
       GATEWAY_BACKEND_URL: "ws://ws-server:3005/ws"
@@ -228,7 +228,7 @@ services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      - "15432:5432"
     environment:
       POSTGRES_USER: sukko
       POSTGRES_PASSWORD: sukko
@@ -246,7 +246,7 @@ services:
     profiles: ["valkey"]
     image: valkey/valkey:7.2-alpine
     ports:
-      - "6379:6379"
+      - "16379:6379"
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
@@ -261,7 +261,7 @@ services:
     profiles: ["observability"]
     image: prom/prometheus:v2.47.0
     ports:
-      - "9091:9090"
+      - "19091:9090"
     configs:
       - source: prometheus-config
         target: /etc/prometheus/prometheus.yml
@@ -295,7 +295,7 @@ services:
     image: grafana/tempo:2.3.1
     ports:
       - "3200:3200"
-      - "4317:4317"
+      - "14317:4317"
     configs:
       - source: tempo-config
         target: /etc/tempo/tempo.yml
