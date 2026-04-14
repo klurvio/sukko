@@ -2,12 +2,26 @@
 # Build Images — Docker images pushed to ghcr.io
 # =============================================================================
 # Manual trigger only — Docker builds are expensive. Trigger via GitHub UI
-# or CLI: gh workflow run build-images.yml --ref main
+# or CLI:
+#   gh workflow run build-images.yml --ref main                        # all services
+#   gh workflow run build-images.yml --ref main -f services=gateway    # one service
+#   gh workflow run build-images.yml --ref main -f services="gateway,server"  # multiple
+#
+# When "all" (default), detects changes since last tag to decide what to build:
+#   - Changes in ws/internal/shared/ or ws/go.mod → rebuild all services
+#   - Changes in ws/cmd/server/ or ws/build/server/ → rebuild sukko-server only
+#   - etc.
 
 name: Build Images
 
 on:
   workflow_dispatch:
+    inputs:
+      services:
+        description: "Services to build (comma-separated: server,gateway,provisioning,push,tester) or 'all' for change detection"
+        required: false
+        default: "all"
+        type: string
 
 permissions:
   contents: read
@@ -18,22 +32,76 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect:
+    name: Detect services to build
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve build matrix
+        id: resolve
+        run: |
+          ALL_SERVICES='["server","gateway","provisioning","push","tester"]'
+          INPUT="${{ inputs.services }}"
+
+          # Explicit service list — no change detection needed
+          if [ "$INPUT" != "all" ] && [ -n "$INPUT" ]; then
+            VALID="server gateway provisioning push tester"
+            MATRIX="["
+            for svc in $(echo "$INPUT" | tr ',' ' '); do
+              svc=$(echo "$svc" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+              if ! echo "$VALID" | grep -qw "$svc"; then
+                echo "::error::Unknown service '$svc'. Valid: $VALID"
+                exit 1
+              fi
+              MATRIX="$MATRIX\"$svc\","
+            done
+            MATRIX="${MATRIX%,}]"
+            echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+            echo "Building explicitly selected: $INPUT"
+            exit 0
+          fi
+
+          # Change detection: compare HEAD against last tag (or first commit if no tags)
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          CHANGED=$(git diff --name-only "$LAST_TAG"..HEAD)
+
+          # Shared changes → rebuild everything
+          if echo "$CHANGED" | grep -qE '^ws/internal/shared/|^ws/go\.(mod|sum)$|^ws/proto/'; then
+            echo "matrix=$ALL_SERVICES" >> "$GITHUB_OUTPUT"
+            echo "Shared code changed — building all services"
+            exit 0
+          fi
+
+          # Per-service detection
+          SERVICES=""
+          for svc in server gateway provisioning push tester; do
+            if echo "$CHANGED" | grep -qE "^ws/cmd/$svc/|^ws/build/$svc/|^ws/internal/$svc/"; then
+              SERVICES="$SERVICES\"$svc\","
+            fi
+          done
+
+          if [ -z "$SERVICES" ]; then
+            # No service-specific changes detected — build all as fallback
+            echo "matrix=$ALL_SERVICES" >> "$GITHUB_OUTPUT"
+            echo "No service-specific changes detected — building all services"
+          else
+            MATRIX="[${SERVICES%,}]"
+            echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+            echo "Building changed services: $MATRIX"
+          fi
+
   build-and-push:
-    name: Build ${{ matrix.name }}
+    name: Build sukko-${{ matrix.dir }}
+    needs: detect
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - name: sukko-server
-            dir: server
-          - name: sukko-gateway
-            dir: gateway
-          - name: sukko-provisioning
-            dir: provisioning
-          - name: sukko-push
-            dir: push
-          - name: sukko-tester
-            dir: tester
+        dir: ${{ fromJson(needs.detect.outputs.matrix) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -60,8 +128,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/klurvio/${{ matrix.name }}:${{ github.sha }}
-            ghcr.io/klurvio/${{ matrix.name }}:latest
+            ghcr.io/klurvio/sukko-${{ matrix.dir }}:${{ github.sha }}
+            ghcr.io/klurvio/sukko-${{ matrix.dir }}:latest
           build-args: |
             VERSION=${{ github.sha }}
             COMMIT_HASH=${{ github.sha }}
