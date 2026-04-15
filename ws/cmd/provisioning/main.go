@@ -29,8 +29,10 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/grpcserver"
 	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/database"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/migrations"
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/tracing"
@@ -128,6 +130,11 @@ func main() {
 
 	// Create event bus for gRPC streaming notifications
 	bus := eventbus.New(structuredLogger)
+
+	// Run database migrations (embedded SQL files)
+	if err := database.RunMigrations(ctx, cfg.DatabaseURL, migrations.Postgres, structuredLogger); err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to run database migrations")
+	}
 
 	// Open database connection pool (PostgreSQL via pgxpool)
 	pool, err := repository.OpenDatabase(ctx, cfg.DatabaseURL)
