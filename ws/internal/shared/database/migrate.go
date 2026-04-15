@@ -36,8 +36,8 @@ func RunMigrations(ctx context.Context, databaseURL string, migrationFS fs.FS, l
 	if _, err := db.ExecContext(ctx, "SELECT pg_advisory_lock($1)", migrationLockID); err != nil {
 		return fmt.Errorf("acquire migration lock: %w", err)
 	}
-	defer func() {
-		_, _ = db.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrationLockID) //nolint:contextcheck // unlock must succeed even if parent ctx is canceled
+	defer func() { //nolint:contextcheck // unlock must succeed even if parent ctx is canceled
+		_, _ = db.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrationLockID)
 	}()
 
 	// Read migration files from embedded FS

@@ -40,6 +40,7 @@ func startTestPostgres(t *testing.T) string {
 }
 
 func TestRunMigrations_FreshDatabase(t *testing.T) {
+	t.Parallel()
 	connStr := startTestPostgres(t)
 	ctx := context.Background()
 	logger := zerolog.Nop()
@@ -81,6 +82,7 @@ func TestRunMigrations_FreshDatabase(t *testing.T) {
 }
 
 func TestRunMigrations_Idempotent(t *testing.T) {
+	t.Parallel()
 	connStr := startTestPostgres(t)
 	ctx := context.Background()
 	logger := zerolog.Nop()
@@ -97,6 +99,7 @@ func TestRunMigrations_Idempotent(t *testing.T) {
 }
 
 func TestRunMigrations_InvalidURL(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	logger := zerolog.Nop()
 
