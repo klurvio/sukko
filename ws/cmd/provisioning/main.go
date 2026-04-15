@@ -414,7 +414,7 @@ func bootstrapAdminKey(ctx context.Context, bootstrapKeyBase64 string, repo *rep
 	key := &repository.AdminKey{
 		KeyID:        "bootstrap-0",
 		Name:         "bootstrap",
-		Algorithm:    "Ed25519",
+		Algorithm:    "EdDSA",
 		PublicKey:    pemKey,
 		RegisteredBy: "system",
 	}
