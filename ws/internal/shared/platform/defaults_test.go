@@ -12,8 +12,7 @@ import (
 //
 // Most shared defaults are now structurally guaranteed by sub-config embedding
 // (AuthConfig, ProvisioningClientConfig, KafkaNamespaceConfig, HTTPTimeoutConfig).
-// This test only verifies defaults that are NOT structurally guaranteed:
-//   - DEFAULT_TENANT_ID: defined independently in GatewayConfig and ServerConfig
+// This test verifies defaults that are NOT structurally guaranteed:
 //   - HTTP timeout semantic consistency: gateway uses GATEWAY_*_TIMEOUT env vars,
 //     server/provisioning use HTTP_*_TIMEOUT — different names, same intended defaults
 func TestSharedDefaultsConsistency(t *testing.T) {
@@ -23,24 +22,6 @@ func TestSharedDefaultsConsistency(t *testing.T) {
 	gatewayDefaults := extractEnvDefaults(reflect.TypeFor[GatewayConfig]())
 	serverDefaults := extractEnvDefaults(reflect.TypeFor[ServerConfig]())
 	provisioningDefaults := extractEnvDefaults(reflect.TypeFor[ProvisioningConfig]())
-
-	// DEFAULT_TENANT_ID: shared between gateway and server (not via embedding)
-	for _, cfg := range []struct {
-		name     string
-		defaults map[string]string
-	}{
-		{"GatewayConfig", gatewayDefaults},
-		{"ServerConfig", serverDefaults},
-	} {
-		got, ok := cfg.defaults["DEFAULT_TENANT_ID"]
-		if !ok {
-			t.Errorf("%s: env var DEFAULT_TENANT_ID not found in struct", cfg.name)
-			continue
-		}
-		if got != DefaultTenantID {
-			t.Errorf("%s: envDefault for DEFAULT_TENANT_ID = %q, want %q (from defaults.go)", cfg.name, got, DefaultTenantID)
-		}
-	}
 
 	// Semantic consistency: HTTP timeout defaults should match across all services.
 	// Gateway uses GATEWAY_*_TIMEOUT env vars; server and provisioning use HTTP_*_TIMEOUT.

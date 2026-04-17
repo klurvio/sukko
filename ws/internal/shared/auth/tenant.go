@@ -164,7 +164,7 @@ func (t *TenantIsolator) CheckChannelAccess(ctx context.Context, claims *Claims,
 	// Check if auth is disabled (no claims or no tenant)
 	if claims == nil || claims.TenantID == "" {
 		result.Allowed = true
-		result.Reason = "auth disabled or no tenant in claims"
+		result.Reason = "no tenant in claims (API-key-only connection)"
 		result.Duration = time.Since(start)
 		t.logAccess(ctx, result, action)
 		return result

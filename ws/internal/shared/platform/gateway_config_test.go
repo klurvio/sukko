@@ -18,7 +18,7 @@ func newValidGatewayConfig() *GatewayConfig {
 			Environment: "test",
 		},
 		AuthConfig: AuthConfig{
-			AuthMode: "disabled", // Disabled by default for tests
+			AuthMode: "required",
 		},
 		ProvisioningClientConfig: ProvisioningClientConfig{
 			ProvisioningGRPCAddr:  "localhost:9090",
@@ -32,7 +32,6 @@ func newValidGatewayConfig() *GatewayConfig {
 		BackendURL:                   "ws://localhost:3005/ws",
 		DialTimeout:                  10 * time.Second,
 		MessageTimeout:               60 * time.Second,
-		DefaultTenantID:              "sukko", // Required when auth disabled
 		RequireTenantID:              true,
 		PublicPatterns:               []string{"*.trade"},
 		UserScopedPatterns:           []string{"balances.{principal}"},
@@ -66,29 +65,17 @@ func TestGatewayConfig_Validate_Valid(t *testing.T) {
 	}
 }
 
-func TestGatewayConfig_Validate_AuthDisabled(t *testing.T) {
+func TestGatewayConfig_Validate_AuthDisabledRejected(t *testing.T) {
 	t.Parallel()
 	cfg := newValidGatewayConfig()
 	cfg.AuthMode = "disabled"
-	cfg.ProvisioningGRPCAddr = "" // Should be OK when auth disabled
-
-	if err := cfg.Validate(); err != nil {
-		t.Errorf("Auth disabled config should not error: %v", err)
-	}
-}
-
-func TestGatewayConfig_Validate_AuthDisabled_RequiresDefaultTenantID(t *testing.T) {
-	t.Parallel()
-	cfg := newValidGatewayConfig()
-	cfg.AuthMode = "disabled"
-	cfg.DefaultTenantID = "" // Empty should fail
 
 	err := cfg.Validate()
 	if err == nil {
-		t.Error("Should error when auth disabled without DefaultTenantID")
+		t.Fatal("AUTH_MODE=disabled should be rejected")
 	}
-	if !strings.Contains(err.Error(), "DEFAULT_TENANT_ID") {
-		t.Errorf("Error should mention DEFAULT_TENANT_ID: %v", err)
+	if !strings.Contains(err.Error(), "has been removed") {
+		t.Errorf("Error should mention removal: %v", err)
 	}
 }
 
@@ -169,7 +156,6 @@ func TestGatewayConfig_Validate_GRPCReconnectSettings(t *testing.T) {
 			t.Parallel()
 			cfg := newValidGatewayConfig()
 			cfg.AuthMode = "required" // GRPC validation runs when auth is enabled
-			cfg.DefaultTenantID = ""  // Not required when auth is enabled
 			cfg.GRPCReconnectDelay = tt.delay
 			cfg.GRPCReconnectMaxDelay = tt.maxDelay
 			err := cfg.Validate()

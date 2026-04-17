@@ -10,33 +10,6 @@ import (
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
-func TestAuthenticateRequest_AuthDisabled(t *testing.T) {
-	t.Parallel()
-
-	gw := &Gateway{
-		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
-			DefaultTenantID: "default-tenant",
-		},
-		logger: testLogger(),
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/sse", http.NoBody)
-	result, err := gw.authenticateRequest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Principal != "anonymous" {
-		t.Errorf("principal = %q, want anonymous", result.Principal)
-	}
-	if result.TenantID != "default-tenant" {
-		t.Errorf("tenantID = %q, want default-tenant", result.TenantID)
-	}
-	if result.Claims != nil {
-		t.Error("claims should be nil when auth disabled")
-	}
-}
-
 func TestAuthenticateRequest_NoCredentials(t *testing.T) {
 	t.Parallel()
 

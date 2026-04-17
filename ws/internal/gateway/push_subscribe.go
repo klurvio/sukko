@@ -203,8 +203,7 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 1a. Block API-key-only — JWT required for unsubscribe (FR-010)
-	// Skipped when AUTH_MODE=disabled (FR-011)
-	if gw.config.AuthRequired() && authRes.APIKeyOnly {
+	if authRes.APIKeyOnly {
 		httputil.WriteError(w, http.StatusForbidden, "FORBIDDEN",
 			"push unsubscribe requires JWT authentication")
 		return

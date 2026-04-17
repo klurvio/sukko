@@ -9,13 +9,11 @@ info:
 
     ## Authentication
 
-    Most `/api/v1/` endpoints require authentication via one of:
+    All `/api/v1/` endpoints require authentication via one of:
     - **Admin JWT**: `Authorization: Bearer {admin_jwt}` — Ed25519 keypair auth with `iss: "sukko-admin"`. Checked first; if present and valid, bypasses tenant JWT.
     - **Tenant JWT**: `Authorization: Bearer {jwt}` — validated against per-tenant asymmetric keys (ES256, RS256, EdDSA).
 
-    Exceptions:
-    - `POST /api/v1/license` requires admin JWT auth (defense in depth — admin JWT proves caller is authorized to manage this deployment; the license key's Ed25519 signature proves the key is genuinely from Sukko).
-    - Health, readiness, version, edition, config, and metrics endpoints require no authentication.
+    Health, readiness, version, edition, config, and metrics endpoints (at root level, not under `/api/v1/`) require no authentication.
 
     ## Authorization
 

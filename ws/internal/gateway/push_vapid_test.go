@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	pushv1 "github.com/klurvio/sukko/gen/proto/sukko/push/v1"
-	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 func TestHandlePushVAPIDKey_Success(t *testing.T) {
@@ -16,9 +15,10 @@ func TestHandlePushVAPIDKey_Success(t *testing.T) {
 	mock := &mockPushForwarder{
 		vapidResp: &pushv1.GetVAPIDKeyResponse{PublicKey: "BNcRdreALRFXTkOOUHK1EtK2w"},
 	}
-	gw := pushTestGateway(t, mock)
+	gw, token := pushTestGatewayWithJWT(t, mock)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/push/vapid-key", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushVAPIDKey(rec, req)
@@ -47,12 +47,7 @@ func TestHandlePushVAPIDKey_Success(t *testing.T) {
 func TestHandlePushVAPIDKey_AuthRequired(t *testing.T) {
 	t.Parallel()
 
-	gw := &Gateway{
-		config: &platform.GatewayConfig{
-			AuthConfig: platform.AuthConfig{AuthMode: "required"},
-		},
-		logger: testLogger(),
-	}
+	gw, _ := pushTestGatewayWithJWT(t, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/push/vapid-key", http.NoBody)
 	// No credentials provided
@@ -69,16 +64,11 @@ func TestHandlePushVAPIDKey_AuthRequired(t *testing.T) {
 func TestHandlePushVAPIDKey_NoPushClient(t *testing.T) {
 	t.Parallel()
 
-	gw := &Gateway{
-		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
-			DefaultTenantID: "test-tenant",
-		},
-		logger:     testLogger(),
-		pushClient: nil,
-	}
+	gw, token := pushTestGatewayWithJWT(t, nil)
+	gw.pushClient = nil
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/push/vapid-key", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushVAPIDKey(rec, req)

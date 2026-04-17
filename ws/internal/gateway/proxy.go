@@ -39,12 +39,10 @@ type Proxy struct {
 	messageTimeout time.Duration
 	maxFrameSize   int
 
-	// Auth (only active when authRequired=true)
-	claims       *auth.Claims
-	claimsMu     sync.RWMutex // protects claims and subscribedChannels
-	permissions  *PermissionChecker
-	authRequired bool
-	validator    TokenValidator
+	claims      *auth.Claims
+	claimsMu    sync.RWMutex // protects claims and subscribedChannels
+	permissions *PermissionChecker
+	validator   TokenValidator
 
 	// Auth refresh rate limiting
 	authLimiter           *rate.Limiter
@@ -53,7 +51,7 @@ type Proxy struct {
 	// Backend→client subscription tracking for forced unsubscription on auth refresh
 	subscribedChannels map[string]struct{}
 
-	// Tenant (always set — from JWT when auth enabled, from config when disabled)
+	// Tenant (always set — from JWT or API key)
 	tenantID string
 
 	// API key auth (only set when auth enabled + API-key-only connection)
@@ -73,11 +71,9 @@ type ProxyConfig struct {
 	Logger         zerolog.Logger
 	MessageTimeout time.Duration
 
-	// Auth (claims is nil when auth disabled — proxy won't use it)
-	AuthRequired bool
-	Claims       *auth.Claims
-	Permissions  *PermissionChecker
-	Validator    TokenValidator
+	Claims      *auth.Claims
+	Permissions *PermissionChecker
+	Validator   TokenValidator
 
 	// Auth refresh rate interval (minimum time between auth refreshes)
 	AuthRefreshRateInterval time.Duration
@@ -112,7 +108,6 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 		logger:                cfg.Logger,
 		messageTimeout:        cfg.MessageTimeout,
 		maxFrameSize:          cfg.MaxFrameSize,
-		authRequired:          cfg.AuthRequired,
 		claims:                cfg.Claims,
 		permissions:           cfg.Permissions,
 		validator:             cfg.Validator,
@@ -333,7 +328,7 @@ func (p *Proxy) proxyBackendToClient(ctx context.Context, errChan chan error) {
 		}
 
 		// Track subscription acks from backend (observational — always forward to client)
-		if header.OpCode == ws.OpText && p.authRequired {
+		if header.OpCode == ws.OpText {
 			p.trackSubscriptionResponse(payload)
 		}
 
@@ -470,8 +465,7 @@ func (p *Proxy) trackSubscriptionResponse(payload []byte) {
 
 // interceptClientMessage intercepts client messages for subscribe and publish requests.
 func (p *Proxy) interceptClientMessage(ctx context.Context, msg []byte) ([]byte, error) {
-	// Defensive guard — tenantID is always set in practice (from JWT or config default).
-	// This only triggers if config has empty DefaultTenantID AND auth is disabled.
+	// Defensive guard — tenantID is always set (from JWT or API key).
 	if p.tenantID == "" {
 		return msg, nil
 	}
@@ -501,7 +495,7 @@ func (p *Proxy) interceptClientMessage(ctx context.Context, msg []byte) ([]byte,
 
 // interceptSubscribe intercepts subscribe messages to:
 // 1. Validate tenant prefix on each channel (always)
-// 2. Filter channels based on permissions (auth only — skipped when auth disabled)
+// 2. Filter channels based on permissions
 func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, error) {
 	// Parse subscribe data
 	var subData protocol.SubscribeData
@@ -535,42 +529,40 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 		}
 	}
 
-	// 2. Permission filtering (auth only — never runs when auth disabled)
-	if p.authRequired {
-		// Read claims under lock — may be swapped by auth refresh
-		p.claimsMu.RLock()
-		currentClaims := p.claims
-		p.claimsMu.RUnlock()
+	// 2. Permission filtering
+	// Read claims under lock — may be swapped by auth refresh
+	p.claimsMu.RLock()
+	currentClaims := p.claims
+	p.claimsMu.RUnlock()
 
-		// Strip tenant prefix locally for permission matching — patterns like *.trade
-		// operate on the non-tenant portion (e.g., "BTC.trade" from "sukko.BTC.trade")
-		stripped := make([]string, len(channels))
-		for i, ch := range channels {
-			stripped[i] = p.stripTenantPrefix(ch)
-		}
-		allowedStripped := p.permissions.FilterChannels(currentClaims, stripped)
-
-		// Map allowed stripped names back to full tenant-prefixed channels
-		allowed := make([]string, 0, len(allowedStripped))
-		for _, s := range allowedStripped {
-			allowed = append(allowed, p.tenantID+"."+s)
-		}
-
-		// Log denied channels and record metrics
-		for _, ch := range channels {
-			if slices.Contains(allowed, ch) {
-				RecordChannelCheck(ChannelCheckAllowed)
-			} else {
-				RecordChannelCheck(ChannelCheckDenied)
-				RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonUnauthorized)
-				p.logger.Warn().
-					Str("channel", ch).
-					Msg("Subscription denied")
-			}
-		}
-
-		channels = allowed
+	// Strip tenant prefix locally for permission matching — patterns like *.trade
+	// operate on the non-tenant portion (e.g., "BTC.trade" from "sukko.BTC.trade")
+	stripped := make([]string, len(channels))
+	for i, ch := range channels {
+		stripped[i] = p.stripTenantPrefix(ch)
 	}
+	allowedStripped := p.permissions.FilterChannels(currentClaims, stripped)
+
+	// Map allowed stripped names back to full tenant-prefixed channels
+	allowed := make([]string, 0, len(allowedStripped))
+	for _, s := range allowedStripped {
+		allowed = append(allowed, p.tenantID+"."+s)
+	}
+
+	// Log denied channels and record metrics
+	for _, ch := range channels {
+		if slices.Contains(allowed, ch) {
+			RecordChannelCheck(ChannelCheckAllowed)
+		} else {
+			RecordChannelCheck(ChannelCheckDenied)
+			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonUnauthorized)
+			p.logger.Warn().
+				Str("channel", ch).
+				Msg("Subscription denied")
+		}
+	}
+
+	channels = allowed
 
 	// 3. Rebuild message with validated channels
 	modifiedData := protocol.SubscribeData{Channels: channels}
@@ -717,13 +709,7 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 		RecordAuthRefreshLatency(time.Since(start).Seconds())
 	}()
 
-	// 1. Check if auth is enabled
-	if !p.authRequired {
-		RecordAuthRefresh(AuthErrNotAvailable)
-		return p.sendAuthErrorToClient(AuthErrNotAvailable, AuthErrorMessages[AuthErrNotAvailable])
-	}
-
-	// 2. Rate limit check
+	// 1. Rate limit check
 	if !p.authLimiter.Allow() {
 		// LOG-016: Auth refresh denied — rate limited
 		p.logger.Warn().Str("tenant_id", p.tenantID).Str("reason", "rate_limited").

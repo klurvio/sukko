@@ -54,9 +54,9 @@ func newAuthTestProxy(validator TokenValidator, claims *auth.Claims) (proxy *Pro
 	)
 
 	proxy = &Proxy{
-		clientConn:            clientConn,
-		backendConn:           backendConn,
-		authRequired:          true,
+		clientConn:  clientConn,
+		backendConn: backendConn,
+
 		claims:                claims,
 		tenantID:              tenantID,
 		permissions:           pc,
@@ -244,38 +244,6 @@ func TestInterceptAuthRefresh_RateLimited(t *testing.T) {
 	}
 }
 
-func TestInterceptAuthRefresh_AuthDisabled(t *testing.T) {
-	t.Parallel()
-	clientConn, clientRemote := net.Pipe()
-	defer func() { _ = clientRemote.Close() }()
-
-	proxy := &Proxy{
-		clientConn:            clientConn,
-		authRequired:          false,
-		logger:                zerolog.Nop(),
-		subscribedChannels:    make(map[string]struct{}),
-		authLimiter:           rate.NewLimiter(rate.Every(30*time.Second), 1),
-		authValidationTimeout: 5 * time.Second,
-		publishLimiter:        rate.NewLimiter(10, 100),
-		maxPublishSize:        64 * 1024,
-	}
-
-	go drainConn(clientRemote)
-
-	msg := protocol.ClientMessage{
-		Type: MsgTypeAuth,
-		Data: json.RawMessage(`{"token":"any-token"}`),
-	}
-	result, err := proxy.interceptAuthRefresh(context.Background(), msg)
-
-	if err != nil {
-		t.Fatalf("Expected nil error, got: %v", err)
-	}
-	if result != nil {
-		t.Error("Expected nil result for auth disabled")
-	}
-}
-
 func TestInterceptAuthRefresh_EmptyToken(t *testing.T) {
 	t.Parallel()
 	claims := &auth.Claims{
@@ -384,7 +352,7 @@ func TestForceUnsubscribeRevokedChannels_NoRevocation(t *testing.T) {
 	pc := NewPermissionChecker([]string{"*.trade", "*.liquidity"}, nil, nil)
 
 	proxy := &Proxy{
-		authRequired:       true,
+
 		claims:             claims,
 		tenantID:           "test-tenant",
 		permissions:        pc,
@@ -426,13 +394,13 @@ func TestForceUnsubscribeRevokedChannels_PartialRevocation(t *testing.T) {
 	defer func() { _ = backendRemote.Close() }()
 
 	proxy := &Proxy{
-		clientConn:   clientConn,
-		backendConn:  backendConn,
-		authRequired: true,
-		claims:       claims,
-		tenantID:     "test-tenant",
-		permissions:  pc,
-		logger:       zerolog.Nop(),
+		clientConn:  clientConn,
+		backendConn: backendConn,
+
+		claims:      claims,
+		tenantID:    "test-tenant",
+		permissions: pc,
+		logger:      zerolog.Nop(),
 		subscribedChannels: map[string]struct{}{
 			"test-tenant.BTC.trade":     {},
 			"test-tenant.ETH.liquidity": {},
@@ -484,9 +452,9 @@ func TestForceUnsubscribeRevokedChannels_AllRevoked(t *testing.T) {
 	pc := NewPermissionChecker(nil, nil, nil)
 
 	proxy := &Proxy{
-		clientConn:   clientConn,
-		backendConn:  backendConn,
-		authRequired: true,
+		clientConn:  clientConn,
+		backendConn: backendConn,
+
 		claims: &auth.Claims{
 			RegisteredClaims: jwt.RegisteredClaims{Subject: "user1"},
 			TenantID:         "test-tenant",
@@ -526,7 +494,7 @@ func TestForceUnsubscribeRevokedChannels_NoSubscriptions(t *testing.T) {
 	t.Parallel()
 
 	proxy := &Proxy{
-		authRequired: true,
+
 		claims: &auth.Claims{
 			RegisteredClaims: jwt.RegisteredClaims{Subject: "user1"},
 			TenantID:         "test-tenant",
@@ -579,9 +547,9 @@ func BenchmarkInterceptAuthRefresh(b *testing.B) {
 	defer func() { _ = backendRemote.Close() }()
 
 	proxy := &Proxy{
-		clientConn:            clientConn,
-		backendConn:           backendConn,
-		authRequired:          true,
+		clientConn:  clientConn,
+		backendConn: backendConn,
+
 		claims:                claims,
 		tenantID:              "test-tenant",
 		permissions:           NewPermissionChecker([]string{"*.trade"}, nil, nil),

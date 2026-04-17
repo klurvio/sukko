@@ -19,11 +19,10 @@ image:
 # environment: local
 
 # Feature flags (all default false in Go, set via extraEnv when needed)
-# AUTH_MODE: "required"                        — auth mode: required/disabled
 # GATEWAY_PER_TENANT_CHANNEL_RULES: "true"     — per-tenant channel access rules
 
 # Override any Go envDefault. See /config endpoint for all available settings.
-# Example: { LOG_LEVEL: "debug", GATEWAY_DIAL_TIMEOUT: "30s", AUTH_MODE: "required" }
+# Example: { LOG_LEVEL: "debug", GATEWAY_DIAL_TIMEOUT: "30s" }
 extraEnv: {}
 
 # --- Kubernetes Resources ---

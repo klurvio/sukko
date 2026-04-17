@@ -18,10 +18,6 @@ package platform
 // Helm overrides are unaffected — services read env vars via caarlos0/env struct tags
 // as before. These constants are never referenced in production code paths.
 
-// DefaultTenantID is the fallback tenant ID shared across gateway and server.
-// NOT structurally guaranteed — defined independently in both configs.
-const DefaultTenantID = "sukko"
-
 // HTTP timeout defaults for semantic consistency verification.
 // Gateway uses GATEWAY_*_TIMEOUT env vars; server/provisioning use HTTP_*_TIMEOUT
 // (from HTTPTimeoutConfig). Different env var names but same intended defaults.
