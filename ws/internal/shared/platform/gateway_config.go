@@ -35,10 +35,6 @@ type GatewayConfig struct {
 	// Frames exceeding this are rejected before payload allocation to prevent OOM.
 	MaxFrameSize int `env:"GATEWAY_MAX_FRAME_SIZE" envDefault:"1048576"` // 1MB = protocol.DefaultMaxFrameSize
 
-	// DefaultTenantID disables multi-tenant support. All connections
-	// are routed to this tenant. Only used when AUTH_MODE=disabled.
-	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
-
 	// Per-tenant channel rules (Feature Flag)
 	// When enabled, channel permissions come from per-tenant rules via gRPC streaming
 	PerTenantChannelRulesEnabled bool `env:"GATEWAY_PER_TENANT_CHANNEL_RULES" envDefault:"false"`
@@ -164,15 +160,9 @@ func (c *GatewayConfig) Validate() error {
 		return fmt.Errorf("GATEWAY_MESSAGE_TIMEOUT must be %v-%v, got %v", MinTimeout, MaxMessageTimeout, c.MessageTimeout)
 	}
 
-	// Auth-dependent validation
-	if c.AuthRequired() {
-		if err := c.ProvisioningClientConfig.Validate(); err != nil {
-			return err
-		}
-	} else {
-		if c.DefaultTenantID == "" {
-			return errors.New("DEFAULT_TENANT_ID is required when AUTH_MODE=disabled")
-		}
+	// Provisioning client config is always required (auth is always on).
+	if err := c.ProvisioningClientConfig.Validate(); err != nil {
+		return err
 	}
 
 	if c.AuthRefreshRateInterval < time.Second {
@@ -292,18 +282,12 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		Str("log_format", c.LogFormat)
 
 	// Add routing fields when auth is disabled
-	if !c.AuthRequired() {
-		event = event.Str("default_tenant_id", c.DefaultTenantID)
-	}
-
-	// Add auth-specific fields when enabled
-	if c.AuthRequired() {
-		event = event.
-			Bool("require_tenant_id", c.RequireTenantID).
-			Str("provisioning_grpc_addr", c.ProvisioningGRPCAddr).
-			Dur("grpc_reconnect_delay", c.GRPCReconnectDelay).
-			Dur("grpc_reconnect_max_delay", c.GRPCReconnectMaxDelay)
-	}
+	// Auth fields (always on)
+	event = event.
+		Bool("require_tenant_id", c.RequireTenantID).
+		Str("provisioning_grpc_addr", c.ProvisioningGRPCAddr).
+		Dur("grpc_reconnect_delay", c.GRPCReconnectDelay).
+		Dur("grpc_reconnect_max_delay", c.GRPCReconnectMaxDelay)
 
 	// Add per-tenant channel rules fields when enabled
 	if c.PerTenantChannelRulesEnabled {

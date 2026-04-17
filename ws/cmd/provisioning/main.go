@@ -215,35 +215,33 @@ func main() {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create provisioning service")
 	}
 
-	// Set up authentication if enabled
-	var validator *auth.MultiTenantValidator
-	if cfg.AuthRequired() {
-		// Create key registry from existing database connection
-		keyRegistry, err := auth.NewKeyRegistry(auth.KeyRegistryConfig{
-			Pool:            pool,
-			RefreshInterval: cfg.KeyRegistryRefreshInterval,
-			QueryTimeout:    cfg.KeyRegistryQueryTimeout,
-			Logger:          structuredLogger.With().Str("component", "key_registry").Logger(),
-		})
-		if err != nil {
-			structuredLogger.Fatal().Err(err).Msg("Failed to create key registry")
-		}
-		defer func() { _ = keyRegistry.Close() }() // Close error non-actionable during shutdown
-
-		// Build validator config
-		validatorCfg := auth.MultiTenantValidatorConfig{
-			KeyRegistry:     keyRegistry,
-			RequireTenantID: true,
-		}
-
-		// Create multi-tenant validator
-		validator, err = auth.NewMultiTenantValidator(validatorCfg)
-		if err != nil {
-			structuredLogger.Fatal().Err(err).Msg("Failed to create validator")
-		}
-
-		structuredLogger.Info().Msg("Authentication enabled")
+	// Set up authentication
+	// Create key registry from existing database connection
+	keyRegistry, err := auth.NewKeyRegistry(auth.KeyRegistryConfig{
+		Pool:            pool,
+		RefreshInterval: cfg.KeyRegistryRefreshInterval,
+		QueryTimeout:    cfg.KeyRegistryQueryTimeout,
+		Logger:          structuredLogger.With().Str("component", "key_registry").Logger(),
+	})
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to create key registry")
 	}
+	defer func() { _ = keyRegistry.Close() }() // Close error non-actionable during shutdown
+
+	// Build validator config
+	validatorCfg := auth.MultiTenantValidatorConfig{
+		KeyRegistry:     keyRegistry,
+		RequireTenantID: true,
+	}
+
+	// Create multi-tenant validator
+	var validator *auth.MultiTenantValidator
+	validator, err = auth.NewMultiTenantValidator(validatorCfg)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to create validator")
+	}
+
+	structuredLogger.Info().Msg("Authentication enabled")
 
 	// Initialize admin key repository and registry
 	adminKeyRepo := repository.NewAdminKeyRepository(pool)
@@ -270,7 +268,6 @@ func main() {
 		Service:            svc,
 		Logger:             structuredLogger,
 		RateLimit:          cfg.APIRateLimitPerMinute,
-		AuthRequired:       cfg.AuthRequired(),
 		Validator:          validator,
 		AdminValidator:     adminValidator,
 		AdminKeyRegistry:   adminKeyRegistry,

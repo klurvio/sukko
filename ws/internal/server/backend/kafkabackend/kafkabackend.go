@@ -84,9 +84,6 @@ type Config struct {
 	// Topic refresh interval for periodic discovery
 	TopicRefreshInterval time.Duration
 
-	// Default tenant ID for channels without tenant prefix
-	DefaultTenantID string
-
 	// TopicCreationTimeout is the timeout for admin topic creation operations.
 	TopicCreationTimeout time.Duration
 
@@ -209,7 +206,6 @@ func New(cfg Config) (*KafkaBackend, error) {
 		Logger:                     &producerLogger,
 		SASL:                       saslConfig,
 		TLS:                        tlsConfig,
-		DefaultTenantID:            cfg.DefaultTenantID,
 		BatchMaxBytes:              int32(min(cfg.ProducerBatchMaxBytes, math.MaxInt32)), //nolint:gosec // Bounds validated in ServerConfig.Validate()
 		MaxBufferedRecs:            cfg.ProducerMaxBufferedRecs,
 		RecordRetries:              cfg.ProducerRecordRetries,

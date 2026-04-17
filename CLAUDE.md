@@ -246,7 +246,7 @@ Tests MUST be run with Go's race detector (`-race` flag) in local development an
 
 **Tenant Isolation** — Every data path MUST enforce tenant boundaries. Cross-tenant data leakage is a critical severity bug. Kafka topics, NATS subjects, broadcast subjects, WebSocket subscriptions, and push subscriptions MUST be scoped to the authenticated tenant. Provisioning API MUST enforce `RequireTenant()` middleware — a tenant JWT MUST NOT access another tenant's resources. Database queries MUST include `tenant_id` in WHERE clauses — no unscoped queries that could return cross-tenant data.
 
-**Admin & Operator Endpoints** — All admin and operator endpoints MUST require authentication (admin token or equivalent). Default deny — if no admin token is configured, admin endpoints MUST reject all requests, not allow anonymous access. The `/config` endpoint MUST redact sensitive fields (fields tagged `redact:"true"`).
+**Admin & Operator Endpoints** — Admin and tenant auth is always enforced — there is no disabled or anonymous mode. All admin and operator endpoints MUST require authentication (admin JWT or equivalent). All tenant endpoints MUST require tenant JWT or API key authentication. Default deny — if no admin token is configured, admin endpoints MUST reject all requests. The `/config` endpoint MUST redact sensitive fields (fields tagged `redact:"true"`).
 
 **Transport Security** — TLS MUST be enforced for all external-facing endpoints in production. Internal service-to-service communication (gRPC, NATS, Kafka) SHOULD use TLS when crossing network boundaries. TLS configuration MUST support custom CA certificates for private PKI.
 

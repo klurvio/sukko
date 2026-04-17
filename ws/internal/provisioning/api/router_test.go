@@ -104,16 +104,71 @@ func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStor
 // mustNewRouter creates a test router, failing the test on error.
 // Automatically sets EditionManager to Enterprise if not provided,
 // so all feature gates pass through in existing tests.
+// newTestValidator creates a MultiTenantValidator with a static key registry for tests.
+// Returns the validator and the private key for signing test tokens.
+func newTestValidator(t *testing.T) (*auth.MultiTenantValidator, *ecdsa.PrivateKey) {
+	t.Helper()
+	registry := auth.NewStaticKeyRegistry()
+	ecPEM, privateKey := generateTestECKey(t)
+	keyInfo := &auth.KeyInfo{
+		KeyID:        "test-key-1",
+		TenantID:     "test-tenant",
+		Algorithm:    "ES256",
+		PublicKeyPEM: ecPEM,
+		IsActive:     true,
+	}
+	if err := registry.AddKey(keyInfo); err != nil {
+		t.Fatalf("AddKey failed: %v", err)
+	}
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry: registry,
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator failed: %v", err)
+	}
+	return validator, privateKey
+}
+
 func mustNewRouter(t *testing.T, cfg api.RouterConfig) http.Handler {
+	t.Helper()
+	r, _ := mustNewRouterWithAuth(t, cfg)
+	return r
+}
+
+// mustNewRouterWithAuth creates a test router and returns a function that adds
+// an admin-level Authorization header to HTTP requests. This is the preferred
+// helper for tests that need to send authenticated requests.
+func mustNewRouterWithAuth(t *testing.T, cfg api.RouterConfig) (handler http.Handler, setAuth func(*http.Request)) {
 	t.Helper()
 	if cfg.EditionManager == nil {
 		cfg.EditionManager = license.NewTestManager(license.Enterprise)
 	}
+	var privateKey *ecdsa.PrivateKey
+	if cfg.Validator == nil {
+		cfg.Validator, privateKey = newTestValidator(t)
+	}
 	router, err := api.NewRouter(cfg)
 	if err != nil {
-		t.Fatalf("mustNewRouter: %v", err)
+		t.Fatalf("mustNewRouterWithAuth: %v", err)
 	}
-	return router
+
+	addAuth := func(req *http.Request) {
+		if privateKey == nil {
+			t.Fatal("mustNewRouterWithAuth: no private key available — pass Validator via cfg to use custom auth")
+		}
+		claims := &auth.Claims{
+			RegisteredClaims: jwt.RegisteredClaims{
+				Subject:   "test-admin",
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+			},
+			TenantID: "test-tenant",
+			Roles:    []string{"admin"},
+		}
+		token := createTestToken(t, privateKey, claims)
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return router, addAuth
 }
 
 func TestRouter_CORSPreflight(t *testing.T) {
@@ -233,62 +288,6 @@ func TestRouter_CORSHeaders_OnActualRequest(t *testing.T) {
 	}
 }
 
-func TestRouter_AuthDisabled_APIWorksWithoutToken(t *testing.T) {
-	t.Parallel()
-
-	router := mustNewRouter(t, api.RouterConfig{
-		Service:      newTestService(),
-		Logger:       zerolog.Nop(),
-		AuthRequired: false, // Auth disabled
-	})
-
-	tests := []struct {
-		name       string
-		method     string
-		path       string
-		wantStatus int
-	}{
-		{
-			name:       "health endpoint",
-			method:     http.MethodGet,
-			path:       "/health",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "ready endpoint",
-			method:     http.MethodGet,
-			path:       "/ready",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "list tenants without auth",
-			method:     http.MethodGet,
-			path:       "/api/v1/tenants",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "get active keys without auth",
-			method:     http.MethodGet,
-			path:       "/api/v1/keys/active",
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			req := httptest.NewRequestWithContext(context.Background(), tt.method, tt.path, nil)
-			rec := httptest.NewRecorder()
-			router.ServeHTTP(rec, req)
-
-			if rec.Code != tt.wantStatus {
-				t.Errorf("status = %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
-			}
-		})
-	}
-}
-
 func TestRouter_AuthRequired_RequiresToken(t *testing.T) {
 	t.Parallel()
 
@@ -315,10 +314,10 @@ func TestRouter_AuthRequired_RequiresToken(t *testing.T) {
 	}
 
 	router := mustNewRouter(t, api.RouterConfig{
-		Service:      newTestService(),
-		Logger:       zerolog.Nop(),
-		AuthRequired: true,
-		Validator:    validator,
+		Service: newTestService(),
+		Logger:  zerolog.Nop(),
+
+		Validator: validator,
 	})
 
 	// Request without token should fail
@@ -357,10 +356,10 @@ func TestRouter_AuthRequired_ValidToken(t *testing.T) {
 	}
 
 	router := mustNewRouter(t, api.RouterConfig{
-		Service:      newTestService(),
-		Logger:       zerolog.Nop(),
-		AuthRequired: true,
-		Validator:    validator,
+		Service: newTestService(),
+		Logger:  zerolog.Nop(),
+
+		Validator: validator,
 	})
 
 	// Create a valid token with admin role
@@ -413,10 +412,10 @@ func TestRouter_AuthRequired_ExpiredToken(t *testing.T) {
 	}
 
 	router := mustNewRouter(t, api.RouterConfig{
-		Service:      newTestService(),
-		Logger:       zerolog.Nop(),
-		AuthRequired: true,
-		Validator:    validator,
+		Service: newTestService(),
+		Logger:  zerolog.Nop(),
+
+		Validator: validator,
 	})
 
 	// Create an expired token
@@ -469,10 +468,10 @@ func TestRouter_AuthRequired_InvalidToken(t *testing.T) {
 	}
 
 	router := mustNewRouter(t, api.RouterConfig{
-		Service:      newTestService(),
-		Logger:       zerolog.Nop(),
-		AuthRequired: true,
-		Validator:    validator,
+		Service: newTestService(),
+		Logger:  zerolog.Nop(),
+
+		Validator: validator,
 	})
 
 	tests := []struct {
@@ -537,10 +536,10 @@ func TestRouter_AuthRequired_RoleRequirement(t *testing.T) {
 	}
 
 	router := mustNewRouter(t, api.RouterConfig{
-		Service:      newTestService(),
-		Logger:       zerolog.Nop(),
-		AuthRequired: true,
-		Validator:    validator,
+		Service: newTestService(),
+		Logger:  zerolog.Nop(),
+
+		Validator: validator,
 	})
 
 	tests := []struct {
@@ -635,10 +634,10 @@ func TestRouter_HealthEndpoints_NoAuth(t *testing.T) {
 	}
 
 	router := mustNewRouter(t, api.RouterConfig{
-		Service:      newTestService(),
-		Logger:       zerolog.Nop(),
-		AuthRequired: true,
-		Validator:    validator,
+		Service: newTestService(),
+		Logger:  zerolog.Nop(),
+
+		Validator: validator,
 	})
 
 	tests := []struct {
@@ -668,7 +667,7 @@ func TestRouter_HealthEndpoints_NoAuth(t *testing.T) {
 // Routing Rules Endpoint Tests (W8)
 // =============================================================================
 
-func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
+func TestRouter_RoutingRules_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tenantStore := testutil.NewMockTenantStore()
@@ -678,14 +677,14 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 	// Pre-create a tenant so service calls succeed
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-	router := mustNewRouter(t, api.RouterConfig{
-		Service:      svc,
-		Logger:       zerolog.Nop(),
-		AuthRequired: false,
+	router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+		Service: svc,
+		Logger:  zerolog.Nop(),
 	})
 
 	// 1. GET routing rules — not found initially
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	addAuth(req)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -703,6 +702,7 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 	body, _ := json.Marshal(rules)
 	req = httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	addAuth(req)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -712,6 +712,7 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 
 	// 3. GET routing rules — should find them now
 	req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	addAuth(req)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -731,6 +732,7 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 
 	// 4. DELETE routing rules
 	req = httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	addAuth(req)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -740,6 +742,7 @@ func TestRouter_RoutingRules_CRUD_NoAuth(t *testing.T) {
 
 	// 5. GET after delete — should be not found again
 	req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	addAuth(req)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -756,15 +759,15 @@ func TestRouter_RoutingRules_InvalidJSON(t *testing.T) {
 	svc := newTestServiceWithStores(tenantStore, routingStore)
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-	router := mustNewRouter(t, api.RouterConfig{
-		Service:      svc,
-		Logger:       zerolog.Nop(),
-		AuthRequired: false,
+	router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+		Service: svc,
+		Logger:  zerolog.Nop(),
 	})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules",
 		bytes.NewReader([]byte(`{invalid json}`)))
 	req.Header.Set("Content-Type", "application/json")
+	addAuth(req)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -781,10 +784,9 @@ func TestRouter_RoutingRules_InvalidRules(t *testing.T) {
 	svc := newTestServiceWithStores(tenantStore, routingStore)
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-	router := mustNewRouter(t, api.RouterConfig{
-		Service:      svc,
-		Logger:       zerolog.Nop(),
-		AuthRequired: false,
+	router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+		Service: svc,
+		Logger:  zerolog.Nop(),
 	})
 
 	// Empty rules should fail validation
@@ -794,6 +796,7 @@ func TestRouter_RoutingRules_InvalidRules(t *testing.T) {
 	body, _ := json.Marshal(rules)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/test-tenant/routing-rules", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	addAuth(req)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -810,13 +813,13 @@ func TestRouter_RoutingRules_DeleteNonexistent(t *testing.T) {
 	svc := newTestServiceWithStores(tenantStore, routingStore)
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-	router := mustNewRouter(t, api.RouterConfig{
-		Service:      svc,
-		Logger:       zerolog.Nop(),
-		AuthRequired: false,
+	router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+		Service: svc,
+		Logger:  zerolog.Nop(),
 	})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/tenants/test-tenant/routing-rules", nil)
+	addAuth(req)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -840,10 +843,9 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("tenant-sub-only"))
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("tenant-sub-pub"))
 
-	router := mustNewRouter(t, api.RouterConfig{
-		Service:      svc,
-		Logger:       zerolog.Nop(),
-		AuthRequired: false,
+	router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+		Service: svc,
+		Logger:  zerolog.Nop(),
 	})
 
 	tests := []struct {
@@ -886,6 +888,7 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/"+tt.tenantID+"/channel-rules",
 				bytes.NewReader([]byte(tt.body)))
 			req.Header.Set("Content-Type", "application/json")
+			addAuth(req)
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 
@@ -895,6 +898,7 @@ func TestRouter_ChannelRules_PublishFields(t *testing.T) {
 
 			// GET channel rules back and verify publish fields roundtrip
 			req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/"+tt.tenantID+"/channel-rules", nil)
+			addAuth(req)
 			rec = httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 
@@ -959,10 +963,10 @@ func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
 	router := mustNewRouter(t, api.RouterConfig{
-		Service:      svc,
-		Logger:       zerolog.Nop(),
-		AuthRequired: true,
-		Validator:    validator,
+		Service: svc,
+		Logger:  zerolog.Nop(),
+
+		Validator: validator,
 	})
 
 	tests := []struct {
@@ -1061,15 +1065,15 @@ func TestRouter_APIKeys(t *testing.T) {
 
 		_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-		router := mustNewRouter(t, api.RouterConfig{
-			Service:      svc,
-			Logger:       zerolog.Nop(),
-			AuthRequired: false,
+		router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+			Service: svc,
+			Logger:  zerolog.Nop(),
 		})
 
 		body, _ := json.Marshal(map[string]string{"name": "test-key"})
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/tenants/test-tenant/api-keys", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		addAuth(req)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -1095,16 +1099,16 @@ func TestRouter_APIKeys(t *testing.T) {
 
 		_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-		router := mustNewRouter(t, api.RouterConfig{
-			Service:      svc,
-			Logger:       zerolog.Nop(),
-			AuthRequired: false,
+		router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+			Service: svc,
+			Logger:  zerolog.Nop(),
 		})
 
 		// Create a key first
 		body, _ := json.Marshal(map[string]string{"name": "list-test-key"})
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/tenants/test-tenant/api-keys", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		addAuth(req)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -1114,6 +1118,7 @@ func TestRouter_APIKeys(t *testing.T) {
 
 		// List keys
 		req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/test-tenant/api-keys", nil)
+		addAuth(req)
 		rec = httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -1142,16 +1147,16 @@ func TestRouter_APIKeys(t *testing.T) {
 
 		_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
-		router := mustNewRouter(t, api.RouterConfig{
-			Service:      svc,
-			Logger:       zerolog.Nop(),
-			AuthRequired: false,
+		router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+			Service: svc,
+			Logger:  zerolog.Nop(),
 		})
 
 		// Create a key first
 		body, _ := json.Marshal(map[string]string{"name": "revoke-test-key"})
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/tenants/test-tenant/api-keys", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		addAuth(req)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -1168,6 +1173,7 @@ func TestRouter_APIKeys(t *testing.T) {
 
 		// Revoke the key
 		req = httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/tenants/test-tenant/api-keys/"+createResp.KeyID, nil)
+		addAuth(req)
 		rec = httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -1179,13 +1185,13 @@ func TestRouter_APIKeys(t *testing.T) {
 	t.Run("get active api keys - 200", func(t *testing.T) {
 		t.Parallel()
 
-		router := mustNewRouter(t, api.RouterConfig{
-			Service:      newTestService(),
-			Logger:       zerolog.Nop(),
-			AuthRequired: false,
+		router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+			Service: newTestService(),
+			Logger:  zerolog.Nop(),
 		})
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/api-keys/active", nil)
+		addAuth(req)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -1204,15 +1210,15 @@ func TestRouter_APIKeys(t *testing.T) {
 	t.Run("create api key - tenant not found - 404", func(t *testing.T) {
 		t.Parallel()
 
-		router := mustNewRouter(t, api.RouterConfig{
-			Service:      newTestService(),
-			Logger:       zerolog.Nop(),
-			AuthRequired: false,
+		router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+			Service: newTestService(),
+			Logger:  zerolog.Nop(),
 		})
 
 		body, _ := json.Marshal(map[string]string{"name": "orphan-key"})
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/tenants/nonexistent-tenant/api-keys", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		addAuth(req)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -1279,7 +1285,7 @@ func TestRouter_LicenseEndpoint_AdminAuth(t *testing.T) {
 		t.Fatalf("generate unregistered keypair: %v", err)
 	}
 
-	// Create MultiTenantValidator with an empty key registry (required for AuthRequired=true).
+	// Create MultiTenantValidator with an empty key registry.
 	tenantValidator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry: emptyKeyRegistry{},
 	})
@@ -1302,10 +1308,9 @@ func TestRouter_LicenseEndpoint_AdminAuth(t *testing.T) {
 	)
 
 	router := mustNewRouter(t, api.RouterConfig{
-		Service:        newTestService(),
-		Logger:         zerolog.Nop(),
-		AuthRequired:   true,
-		Validator:      tenantValidator,
+		Service:   newTestService(),
+		Logger:    zerolog.Nop(),
+		Validator: tenantValidator,
 		AdminValidator: adminValidator,
 		LicenseHandler: licenseHandler,
 	})

@@ -24,8 +24,9 @@ import (
 	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
-// newTestGatewayConfig returns a gateway config with auth disabled for testing.
-// Auth requires a database connection, so most unit tests run with auth disabled.
+// newTestGatewayConfig returns a gateway config for testing.
+// Tests that need a Gateway instance should use newGatewayWithMockValidator
+// to bypass the gRPC validator setup.
 func newTestGatewayConfig() *platform.GatewayConfig {
 	return &platform.GatewayConfig{
 		BaseConfig: platform.BaseConfig{
@@ -34,7 +35,7 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 			Environment: "test",
 		},
 		AuthConfig: platform.AuthConfig{
-			AuthMode: "disabled", // Disabled by default for unit tests
+			AuthMode: "required",
 		},
 		Port:                         3000,
 		ReadTimeout:                  15 * time.Second,
@@ -43,7 +44,6 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 		BackendURL:                   "ws://localhost:3005/ws",
 		DialTimeout:                  10 * time.Second,
 		MessageTimeout:               60 * time.Second,
-		DefaultTenantID:              "sukko", // Required when auth disabled
 		PublicPatterns:               []string{"*.trade"},
 		UserScopedPatterns:           []string{"balances.{principal}"},
 		GroupScopedPatterns:          []string{"community.{group_id}"},
@@ -87,29 +87,6 @@ func newGatewayWithMockValidator(cfg *platform.GatewayConfig, logger zerolog.Log
 		),
 		validator: validator,
 		logger:    logger.With().Str("component", "gateway").Logger(),
-	}
-}
-
-func TestNew_AuthDisabled(t *testing.T) {
-	t.Parallel()
-	cfg := newTestGatewayConfig()
-	cfg.AuthMode = "disabled"
-	logger := newTestLogger()
-
-	gw, err := New(cfg, logger)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer func() { _ = gw.Close() }()
-
-	if gw == nil {
-		t.Fatal("New() returned nil")
-	}
-	if gw.validator != nil {
-		t.Error("Validator should be nil when auth is disabled")
-	}
-	if gw.permissions != nil {
-		t.Error("PermissionChecker should be nil when auth is disabled")
 	}
 }
 
@@ -209,13 +186,8 @@ func TestExtractBearerToken(t *testing.T) {
 func TestGateway_HandleHealth(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthMode = "disabled"
 	logger := newTestLogger()
-	gw, err := New(cfg, logger)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer func() { _ = gw.Close() }()
+	gw := newGatewayWithMockValidator(cfg, logger, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
@@ -260,13 +232,8 @@ func TestGateway_NewServer(t *testing.T) {
 	cfg.ReadTimeout = 20 * time.Second
 	cfg.WriteTimeout = 25 * time.Second
 	cfg.IdleTimeout = 120 * time.Second
-	cfg.AuthMode = "disabled"
 	logger := newTestLogger()
-	gw, err := New(cfg, logger)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer func() { _ = gw.Close() }()
+	gw := newGatewayWithMockValidator(cfg, logger, nil)
 
 	server := gw.NewServer()
 
@@ -364,13 +331,8 @@ func TestGateway_HandleWebSocket_InvalidToken_WithMockValidator(t *testing.T) {
 func TestGateway_Close_NilFields(t *testing.T) {
 	t.Parallel()
 	cfg := newTestGatewayConfig()
-	cfg.AuthMode = "disabled"
 	logger := newTestLogger()
-
-	gw, err := New(cfg, logger)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	gw := newGatewayWithMockValidator(cfg, logger, nil)
 
 	// Should not panic when closing gateway with nil streamKeyRegistry and streamTenantRegistry
 	if err := gw.Close(); err != nil {

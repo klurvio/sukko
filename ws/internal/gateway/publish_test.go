@@ -17,28 +17,16 @@ import (
 	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
-// publishTestGateway creates a minimal Gateway for publish handler testing.
-func publishTestGateway(t *testing.T) *Gateway {
-	t.Helper()
-	return &Gateway{
-		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
-			DefaultTenantID: "test-tenant",
-			MaxPublishSize:  65536,
-		},
-		logger: testLogger(),
-	}
-}
-
 func TestHandlePublish_NoServerClient(t *testing.T) {
 	t.Parallel()
 
-	gw := publishTestGateway(t)
+	gw, token := publishTestGatewayWithJWT(t)
 	gw.serverClient = nil // no gRPC client
 
-	body := `{"channel":"test.ch","data":{"msg":"hello"}}`
+	body := `{"channel":"acme.general.messages","data":{"msg":"hello"}}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePublish(rec, req)
@@ -51,7 +39,7 @@ func TestHandlePublish_NoServerClient(t *testing.T) {
 func TestHandlePublish_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	gw := publishTestGateway(t)
+	gw, _ := publishTestGatewayWithJWT(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
@@ -68,7 +56,7 @@ func TestHandlePublish_InvalidJSON(t *testing.T) {
 func TestHandlePublish_MissingChannel(t *testing.T) {
 	t.Parallel()
 
-	gw := publishTestGateway(t)
+	gw, _ := publishTestGatewayWithJWT(t)
 
 	body := `{"data":{"msg":"hello"}}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
@@ -86,7 +74,7 @@ func TestHandlePublish_MissingChannel(t *testing.T) {
 func TestHandlePublish_MissingData(t *testing.T) {
 	t.Parallel()
 
-	gw := publishTestGateway(t)
+	gw, _ := publishTestGatewayWithJWT(t)
 
 	body := `{"channel":"test.ch"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
@@ -103,7 +91,7 @@ func TestHandlePublish_MissingData(t *testing.T) {
 func TestHandlePublish_BodyTooLarge(t *testing.T) {
 	t.Parallel()
 
-	gw := publishTestGateway(t)
+	gw, _ := publishTestGatewayWithJWT(t)
 	gw.config.MaxPublishSize = 10 // 10 bytes max
 
 	body := `{"channel":"test.ch","data":{"msg":"this is way too long for 10 bytes"}}`
@@ -121,7 +109,7 @@ func TestHandlePublish_BodyTooLarge(t *testing.T) {
 func TestHandlePublish_InvalidContentType(t *testing.T) {
 	t.Parallel()
 
-	gw := publishTestGateway(t)
+	gw, _ := publishTestGatewayWithJWT(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader("data"))
 	req.Header.Set("Content-Type", "text/plain")
@@ -137,7 +125,7 @@ func TestHandlePublish_InvalidContentType(t *testing.T) {
 func TestHandlePublish_RateLimited(t *testing.T) {
 	t.Parallel()
 
-	gw := publishTestGateway(t)
+	gw, token := publishTestGatewayWithJWT(t)
 	// Create a rate limiter with burst=1
 	gw.publishRateLimiter = &PublishRateLimiter{
 		rateLimit: 0.001, // extremely low rate
@@ -145,9 +133,10 @@ func TestHandlePublish_RateLimited(t *testing.T) {
 	}
 
 	makeReq := func() *httptest.ResponseRecorder {
-		body := `{"channel":"test.ch","data":{"msg":"hello"}}`
+		body := `{"channel":"acme.general.messages","data":{"msg":"hello"}}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
 		rec := httptest.NewRecorder()
 		gw.HandlePublish(rec, req)
 		return rec
@@ -189,8 +178,7 @@ func testLogger() zerolog.Logger {
 func TestHandlePublish_APIKeyOnly_Forbidden(t *testing.T) {
 	t.Parallel()
 
-	gw := publishTestGateway(t)
-	gw.config.AuthMode = "required"
+	gw, _ := publishTestGatewayWithJWT(t)
 	// Simulate API-key-only by setting up an API key registry
 	gw.apiKeyRegistry = &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
 		"test-key": {KeyID: "k1", TenantID: "acme", IsActive: true},
@@ -248,9 +236,8 @@ func publishTestGatewayWithJWT(t *testing.T) (_ *Gateway, _ string) {
 
 	gw := &Gateway{
 		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthMode: "required"},
-			DefaultTenantID: "acme",
-			MaxPublishSize:  65536,
+			AuthConfig:     platform.AuthConfig{AuthMode: "required"},
+			MaxPublishSize: 65536,
 		},
 		validator: validator,
 		logger:    testLogger(),
@@ -315,25 +302,5 @@ func TestHandlePublish_ValidJWT_Passes(t *testing.T) {
 	// Should pass all checks → reach server client → 503 (nil)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want %d (valid JWT should pass checks)", rec.Code, http.StatusServiceUnavailable)
-	}
-}
-
-func TestHandlePublish_AuthDisabled_AllChecksSkipped(t *testing.T) {
-	t.Parallel()
-
-	gw := publishTestGateway(t) // auth disabled
-	gw.serverClient = nil
-
-	// Invalid tenant prefix + bad format — but auth disabled, all checks skip
-	body := `{"channel":"wrong","data":{"msg":"hello"}}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	gw.HandlePublish(rec, req)
-
-	// Auth disabled → all checks skipped → 503
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want %d (auth disabled, checks skipped)", rec.Code, http.StatusServiceUnavailable)
 	}
 }

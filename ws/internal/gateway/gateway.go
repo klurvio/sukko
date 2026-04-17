@@ -78,14 +78,11 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 		logger:             logger.With().Str("component", "gateway").Logger(),
 	}
 
-	// Only create permission checker when auth is enabled (used for channel filtering)
-	if config.AuthRequired() {
-		gw.permissions = NewPermissionChecker(
-			config.PublicPatterns,
-			config.UserScopedPatterns,
-			config.GroupScopedPatterns,
-		)
-	}
+	gw.permissions = NewPermissionChecker(
+		config.PublicPatterns,
+		config.UserScopedPatterns,
+		config.GroupScopedPatterns,
+	)
 
 	// Set up per-tenant connection tracking if enabled
 	if config.TenantConnectionLimitEnabled {
@@ -95,15 +92,8 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 			Msg("Per-tenant connection limits enabled")
 	}
 
-	// Set up validator if auth is enabled
-	if config.AuthRequired() {
-		if err := gw.setupValidator(); err != nil {
-			return nil, fmt.Errorf("setup validator: %w", err)
-		}
-	} else {
-		gw.logger.Warn().
-			Str("default_tenant_id", config.DefaultTenantID).
-			Msg("Auth disabled — all connections treated as anonymous, routed to default tenant")
+	if err := gw.setupValidator(); err != nil {
+		return nil, fmt.Errorf("setup validator: %w", err)
 	}
 
 	// Set up per-tenant channel rules if enabled (requires auth to be enabled first for channel rules provider)
@@ -391,8 +381,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	proxy := NewProxy(ProxyConfig{
 		ClientConn:              clientConn,
 		BackendConn:             backendConn,
-		AuthRequired:            gw.config.AuthRequired(),
-		Claims:                  claims, // nil when auth disabled or API-key-only
+		Claims:                  claims, // nil when API-key-only connection
 		TenantID:                tenantID,
 		Permissions:             gw.permissions,
 		Validator:               gw.validator,

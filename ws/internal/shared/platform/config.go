@@ -3,7 +3,6 @@ package platform
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 )
@@ -60,31 +59,25 @@ func (c *BaseConfig) Validate() error {
 	return nil
 }
 
-// ValidAuthModes lists the allowed values for AUTH_MODE.
-// Extensible: add "public-read" here when anonymous access is implemented.
-var ValidAuthModes = []string{"required", "disabled"}
-
 // AuthConfig holds the authentication mode.
 // Embedded by gateway and provisioning (not server — server relies on network-level security).
 type AuthConfig struct {
-	// AuthMode controls the authentication model:
-	//   - "required": all connections require JWT or API key
-	//   - "disabled": no auth (local dev only, DEFAULT_TENANT_ID used)
-	// Extensible to "public-read" in the future (anonymous connections for public channels).
+	// AuthMode is the authentication model. Only "required" is supported.
+	// Kept temporarily for backward compatibility with deployments that set AUTH_MODE=required.
+	// Extensible to "public-read" in the future (anonymous subscribe for public channels).
 	AuthMode string `env:"AUTH_MODE" envDefault:"required"`
 }
 
-// AuthRequired returns true when auth is not disabled.
-// Use this for conditional checks instead of comparing AuthMode directly —
-// it returns true for both "required" and future "public-read" modes.
-func (c *AuthConfig) AuthRequired() bool {
-	return c.AuthMode != "disabled"
-}
-
-// Validate checks that AuthMode is a valid value.
+// Validate checks that AuthMode is valid. Only "required" is accepted.
+// AUTH_MODE=disabled was removed — see docs/migration/auth-mode-removal.md.
 func (c *AuthConfig) Validate() error {
-	if !slices.Contains(ValidAuthModes, c.AuthMode) {
-		return fmt.Errorf("AUTH_MODE must be one of %v, got %q", ValidAuthModes, c.AuthMode)
+	if c.AuthMode == "disabled" {
+		return errors.New("AUTH_MODE=disabled has been removed. " +
+			"See docs/migration/auth-mode-removal.md. " +
+			"Set up admin + tenant JWT auth and remove AUTH_MODE/DEFAULT_TENANT_ID env vars")
+	}
+	if c.AuthMode != "required" {
+		return fmt.Errorf("AUTH_MODE must be \"required\", got %q", c.AuthMode)
 	}
 	return nil
 }

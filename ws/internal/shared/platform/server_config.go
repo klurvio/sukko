@@ -170,10 +170,6 @@ type ServerConfig struct {
 	AlertRateLimitMax    int           `env:"ALERT_RATE_LIMIT_MAX" envDefault:"3"`
 	AlertConsoleEnabled  bool          `env:"ALERT_CONSOLE_ENABLED" envDefault:"false"`
 
-	// DefaultTenantID disables multi-tenant support. All messages
-	// are routed to this tenant. Only used when AUTH_MODE=disabled.
-	DefaultTenantID string `env:"DEFAULT_TENANT_ID" envDefault:"sukko"`
-
 	// Valkey Configuration (for BroadcastBus when BROADCAST_TYPE=valkey)
 	// Supports both self-hosted Sentinel (3 addresses) and single instance (1 address)
 	ValkeyAddrs      []string `env:"VALKEY_ADDRS" envSeparator:","`
@@ -1031,7 +1027,6 @@ func (c *ServerConfig) Print() {
 	_, _ = fmt.Fprintf(os.Stdout, "Format:          %s\n", c.LogFormat)
 	_, _ = fmt.Fprintln(os.Stdout, "\n=== Authentication ===")
 	_, _ = fmt.Fprintln(os.Stdout, "Auth:            Handled by ws-gateway")
-	_, _ = fmt.Fprintf(os.Stdout, "Default Tenant:  %s\n", c.DefaultTenantID)
 	_, _ = fmt.Fprintln(os.Stdout, "\n=== Broadcast Bus ===")
 	_, _ = fmt.Fprintf(os.Stdout, "Type:            %s\n", c.BroadcastType)
 	if c.BroadcastType == "valkey" {
@@ -1150,7 +1145,6 @@ func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 		Str("provisioning_grpc_addr", c.ProvisioningGRPCAddr).
 		Dur("grpc_reconnect_delay", c.GRPCReconnectDelay).
 		Dur("grpc_reconnect_max_delay", c.GRPCReconnectMaxDelay).
-		Str("default_tenant_id", c.DefaultTenantID).
 		Dur("ws_pong_wait", c.PongWait).
 		Dur("ws_ping_period", c.PingPeriod).
 		Dur("ws_write_wait", c.WriteWait).

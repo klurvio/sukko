@@ -61,7 +61,7 @@ func (gw *Gateway) filterSubscribeChannels(
 		stripped[i] = strings.TrimPrefix(ch, tenantPrefix)
 	}
 
-	// 4. Permission filtering (per-tenant → global → pass all when auth disabled)
+	// 4. Permission filtering (per-tenant → global)
 	var allowedStripped []string
 	switch {
 	case gw.tenantPermChecker != nil:

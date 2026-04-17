@@ -247,7 +247,6 @@ func main() {
 			TLSInsecure:              cfg.KafkaTLSInsecure,
 			TLSCAPath:                cfg.KafkaTLSCAPath,
 			KafkaConsumerEnabled:     cfg.KafkaConsumerEnabled,
-			DefaultTenantID:          cfg.DefaultTenantID,
 			DefaultPartitions:        cfg.KafkaDefaultPartitions,
 			DefaultReplicationFactor: cfg.KafkaDefaultReplicationFactor,
 			MaxKafkaMessagesPerSec:   cfg.MaxKafkaMessagesPerSec,

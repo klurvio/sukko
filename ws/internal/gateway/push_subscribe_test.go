@@ -7,8 +7,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 
 	pushv1 "github.com/klurvio/sukko/gen/proto/sukko/push/v1"
+	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/provapi"
@@ -44,18 +48,54 @@ func (m *mockPushForwarder) GetVAPIDKey(_ context.Context, req *pushv1.GetVAPIDK
 	return m.vapidResp, m.vapidErr
 }
 
-// pushTestGateway creates a minimal Gateway for push handler testing with auth disabled.
-func pushTestGateway(t *testing.T, mock PushForwarder) *Gateway {
+// pushTestGatewayWithJWT creates a Gateway with JWT auth for push handler testing.
+// Returns the gateway and a valid Bearer token for tenant "test-tenant".
+func pushTestGatewayWithJWT(t *testing.T, mock PushForwarder) (gw *Gateway, token string) {
 	t.Helper()
-	return &Gateway{
-		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
-			DefaultTenantID: "test-tenant",
-			MaxPublishSize:  65536,
+
+	registry := auth.NewStaticKeyRegistry()
+	ecPEM, privateKey := generateTestECKeyForGateway(t)
+
+	key := &auth.KeyInfo{
+		KeyID:        "push-test-key",
+		TenantID:     "test-tenant",
+		Algorithm:    "ES256",
+		PublicKeyPEM: ecPEM,
+		IsActive:     true,
+	}
+	if err := registry.AddKey(key); err != nil {
+		t.Fatalf("AddKey: %v", err)
+	}
+
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry:     registry,
+		RequireTenantID: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator: %v", err)
+	}
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
+		TenantID: "test-tenant",
+	}
+	tokenString := createTestTokenForGateway(t, key, privateKey, claims)
+
+	gw = &Gateway{
+		config: &platform.GatewayConfig{
+			AuthConfig:     platform.AuthConfig{AuthMode: "required"},
+			MaxPublishSize: 65536,
+		},
+		validator:  validator,
 		logger:     testLogger(),
 		pushClient: mock,
 	}
+
+	return gw, tokenString
 }
 
 func TestHandlePushSubscribe_WebSuccess(t *testing.T) {
@@ -64,7 +104,7 @@ func TestHandlePushSubscribe_WebSuccess(t *testing.T) {
 	mock := &mockPushForwarder{
 		registerResp: &pushv1.RegisterDeviceResponse{DeviceId: 42},
 	}
-	gw := pushTestGateway(t, mock)
+	gw, token := pushTestGatewayWithJWT(t, mock)
 
 	body := `{
 		"platform": "web",
@@ -75,6 +115,7 @@ func TestHandlePushSubscribe_WebSuccess(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushSubscribe(rec, req)
@@ -109,7 +150,7 @@ func TestHandlePushSubscribe_AndroidSuccess(t *testing.T) {
 	mock := &mockPushForwarder{
 		registerResp: &pushv1.RegisterDeviceResponse{DeviceId: 99},
 	}
-	gw := pushTestGateway(t, mock)
+	gw, token := pushTestGatewayWithJWT(t, mock)
 
 	body := `{
 		"platform": "android",
@@ -118,6 +159,7 @@ func TestHandlePushSubscribe_AndroidSuccess(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushSubscribe(rec, req)
@@ -141,7 +183,7 @@ func TestHandlePushSubscribe_IOSSuccess(t *testing.T) {
 	mock := &mockPushForwarder{
 		registerResp: &pushv1.RegisterDeviceResponse{DeviceId: 77},
 	}
-	gw := pushTestGateway(t, mock)
+	gw, token := pushTestGatewayWithJWT(t, mock)
 
 	body := `{
 		"platform": "ios",
@@ -150,6 +192,7 @@ func TestHandlePushSubscribe_IOSSuccess(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushSubscribe(rec, req)
@@ -162,11 +205,12 @@ func TestHandlePushSubscribe_IOSSuccess(t *testing.T) {
 func TestHandlePushSubscribe_InvalidPlatform(t *testing.T) {
 	t.Parallel()
 
-	gw := pushTestGateway(t, nil)
+	gw, token := pushTestGatewayWithJWT(t, nil)
 
 	body := `{"platform": "blackberry", "channels": ["test-tenant.ch"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushSubscribe(rec, req)
@@ -180,11 +224,12 @@ func TestHandlePushSubscribe_InvalidPlatform(t *testing.T) {
 func TestHandlePushSubscribe_MissingChannels(t *testing.T) {
 	t.Parallel()
 
-	gw := pushTestGateway(t, nil)
+	gw, token := pushTestGatewayWithJWT(t, nil)
 
 	body := `{"platform": "web", "endpoint": "https://example.com", "p256dh_key": "key", "auth_secret": "sec", "channels": []}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushSubscribe(rec, req)
@@ -198,7 +243,7 @@ func TestHandlePushSubscribe_MissingChannels(t *testing.T) {
 func TestHandlePushSubscribe_InvalidTenantPrefix(t *testing.T) {
 	t.Parallel()
 
-	gw := pushTestGateway(t, nil)
+	gw, token := pushTestGatewayWithJWT(t, nil)
 	// Enable permissions so filterSubscribeChannels validates tenant prefix
 	gw.permissions = NewPermissionChecker([]string{"*.alerts"}, nil, nil)
 
@@ -211,6 +256,7 @@ func TestHandlePushSubscribe_InvalidTenantPrefix(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushSubscribe(rec, req)
@@ -224,12 +270,13 @@ func TestHandlePushSubscribe_InvalidTenantPrefix(t *testing.T) {
 func TestHandlePushSubscribe_MissingWebFields(t *testing.T) {
 	t.Parallel()
 
-	gw := pushTestGateway(t, nil)
+	gw, token := pushTestGatewayWithJWT(t, nil)
 
 	// Web platform without endpoint
 	body := `{"platform": "web", "p256dh_key": "key", "auth_secret": "sec", "channels": ["test-tenant.ch"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushSubscribe(rec, req)
@@ -243,11 +290,12 @@ func TestHandlePushSubscribe_MissingWebFields(t *testing.T) {
 func TestHandlePushSubscribe_MissingAndroidToken(t *testing.T) {
 	t.Parallel()
 
-	gw := pushTestGateway(t, nil)
+	gw, token := pushTestGatewayWithJWT(t, nil)
 
 	body := `{"platform": "android", "channels": ["test-tenant.ch"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushSubscribe(rec, req)
@@ -261,15 +309,8 @@ func TestHandlePushSubscribe_MissingAndroidToken(t *testing.T) {
 func TestHandlePushSubscribe_NoPushClient(t *testing.T) {
 	t.Parallel()
 
-	gw := &Gateway{
-		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
-			DefaultTenantID: "test-tenant",
-			MaxPublishSize:  65536,
-		},
-		logger:     testLogger(),
-		pushClient: nil,
-	}
+	gw, token := pushTestGatewayWithJWT(t, nil)
+	gw.pushClient = nil
 
 	body := `{
 		"platform": "web",
@@ -280,6 +321,7 @@ func TestHandlePushSubscribe_NoPushClient(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushSubscribe(rec, req)
@@ -292,10 +334,11 @@ func TestHandlePushSubscribe_NoPushClient(t *testing.T) {
 func TestHandlePushSubscribe_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	gw := pushTestGateway(t, nil)
+	gw, token := pushTestGatewayWithJWT(t, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushSubscribe(rec, req)
@@ -312,11 +355,12 @@ func TestHandlePushUnsubscribe_Success(t *testing.T) {
 	mock := &mockPushForwarder{
 		unregisterResp: &pushv1.UnregisterDeviceResponse{Success: true},
 	}
-	gw := pushTestGateway(t, mock)
+	gw, token := pushTestGatewayWithJWT(t, mock)
 
 	body := `{"device_id": 42}`
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushUnsubscribe(rec, req)
@@ -348,11 +392,12 @@ func TestHandlePushUnsubscribe_Success(t *testing.T) {
 func TestHandlePushUnsubscribe_MissingDeviceID(t *testing.T) {
 	t.Parallel()
 
-	gw := pushTestGateway(t, nil)
+	gw, token := pushTestGatewayWithJWT(t, nil)
 
 	body := `{}`
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushUnsubscribe(rec, req)
@@ -366,19 +411,13 @@ func TestHandlePushUnsubscribe_MissingDeviceID(t *testing.T) {
 func TestHandlePushUnsubscribe_NoPushClient(t *testing.T) {
 	t.Parallel()
 
-	gw := &Gateway{
-		config: &platform.GatewayConfig{
-			AuthConfig:      platform.AuthConfig{AuthMode: "disabled"},
-			DefaultTenantID: "test-tenant",
-			MaxPublishSize:  65536,
-		},
-		logger:     testLogger(),
-		pushClient: nil,
-	}
+	gw, token := pushTestGatewayWithJWT(t, nil)
+	gw.pushClient = nil
 
 	body := `{"device_id": 1}`
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/push/subscribe", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandlePushUnsubscribe(rec, req)
@@ -456,8 +495,7 @@ func TestHandlePushUnsubscribe_APIKeyOnly_Forbidden(t *testing.T) {
 	t.Parallel()
 
 	mock := &mockPushForwarder{}
-	gw := pushTestGateway(t, mock)
-	gw.config.AuthMode = "required"
+	gw, _ := pushTestGatewayWithJWT(t, mock)
 	gw.apiKeyRegistry = &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
 		"test-key": {KeyID: "k1", TenantID: "test-tenant", IsActive: true},
 	}}
@@ -471,25 +509,5 @@ func TestHandlePushUnsubscribe_APIKeyOnly_Forbidden(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusForbidden)
-	}
-}
-
-func TestHandlePushSubscribe_AuthDisabled_AllChannelsPass(t *testing.T) {
-	t.Parallel()
-
-	mock := &mockPushForwarder{
-		registerResp: &pushv1.RegisterDeviceResponse{DeviceId: 99},
-	}
-	gw := pushTestGateway(t, mock)
-	// Auth disabled — all checks skipped
-
-	body := `{"platform":"web","endpoint":"https://example.com","p256dh_key":"key","auth_secret":"secret","channels":["test-tenant.alerts"]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/subscribe", strings.NewReader(body))
-	rec := httptest.NewRecorder()
-
-	gw.HandlePushSubscribe(rec, req)
-
-	if rec.Code != http.StatusCreated {
-		t.Errorf("status = %d, want %d (auth disabled, all pass)", rec.Code, http.StatusCreated)
 	}
 }

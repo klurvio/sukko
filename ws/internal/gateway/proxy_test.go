@@ -43,9 +43,8 @@ func testClaimsWithGroups(subject string, groups []string) *auth.Claims {
 	return claims
 }
 
-// newTestProxy creates a Proxy for testing interceptClientMessage with auth enabled.
+// newTestProxy creates a Proxy for testing interceptClientMessage.
 // Uses nil connections since we're only testing message interception.
-// Sets authRequired=true and tenantID from claims.TenantID (mimics gateway auth-enabled path).
 func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatterns []string) *Proxy {
 	pc := NewPermissionChecker(publicPatterns, userPatterns, groupPatterns)
 	tenantID := ""
@@ -53,9 +52,9 @@ func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatter
 		tenantID = claims.TenantID
 	}
 	return &Proxy{
-		clientConn:         nil, // Not needed for interception tests
-		backendConn:        nil, // Not needed for interception tests
-		authRequired:       true,
+		clientConn:  nil, // Not needed for interception tests
+		backendConn: nil, // Not needed for interception tests
+
 		claims:             claims,
 		tenantID:           tenantID,
 		permissions:        pc,
@@ -69,107 +68,11 @@ func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatter
 	}
 }
 
-// newTestProxyNoAuth creates a Proxy for testing with auth disabled.
-// Sets authRequired=false with a default tenantID (mimics gateway auth-disabled path).
-func newTestProxyNoAuth(tenantID string) *Proxy {
-	return &Proxy{
-		clientConn:         nil,
-		backendConn:        nil,
-		authRequired:       false,
-		claims:             nil,
-		tenantID:           tenantID,
-		permissions:        nil,
-		logger:             zerolog.Nop(),
-		messageTimeout:     60 * time.Second,
-		maxFrameSize:       protocol.DefaultMaxFrameSize,
-		publishLimiter:     rate.NewLimiter(10, 100),
-		maxPublishSize:     64 * 1024,
-		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
-		subscribedChannels: make(map[string]struct{}),
-	}
-}
-
-func TestProxy_InterceptClientMessage_AuthDisabled(t *testing.T) {
-	t.Parallel()
-	// Auth disabled: no permission filtering, tenant prefix validated
-	proxy := newTestProxyNoAuth("sukko")
-
-	// Explicit channels: clients include tenant prefix
-	input := `{"type":"subscribe","data":{"channels":["sukko.secret.channel","sukko.forbidden.data"]}}`
-	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
-
-	if err != nil {
-		t.Fatalf("interceptClientMessage() error = %v", err)
-	}
-
-	var msg protocol.ClientMessage
-	if err := json.Unmarshal(result, &msg); err != nil {
-		t.Fatalf("Failed to parse result: %v", err)
-	}
-	var data protocol.SubscribeData
-	if err := json.Unmarshal(msg.Data, &data); err != nil {
-		t.Fatalf("Failed to parse data: %v", err)
-	}
-
-	// All channels with correct tenant prefix pass through (no permission filtering)
-	expected := []string{"sukko.secret.channel", "sukko.forbidden.data"}
-	if len(data.Channels) != len(expected) {
-		t.Errorf("Expected %d channels, got %d: %v", len(expected), len(data.Channels), data.Channels)
-	}
-	for i, ch := range expected {
-		if i < len(data.Channels) && data.Channels[i] != ch {
-			t.Errorf("Channel[%d] = %q, want %q", i, data.Channels[i], ch)
-		}
-	}
-}
-
-func TestProxy_InterceptClientMessage_AuthDisabledPublish(t *testing.T) {
-	t.Parallel()
-	// Auth disabled: tenant prefix validated, no access check
-	proxy := newTestProxyNoAuth("sukko")
-
-	// Explicit channels: clients include tenant prefix
-	input := `{"type":"publish","data":{"channel":"sukko.BTC.trade","data":{"price":50000}}}`
-	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
-
-	if err != nil {
-		t.Fatalf("interceptClientMessage() error = %v", err)
-	}
-
-	// Result should have channel as-is (no mapping, just validation)
-	var msg protocol.ClientMessage
-	if err := json.Unmarshal(result, &msg); err != nil {
-		t.Fatalf("Failed to parse result: %v", err)
-	}
-	if msg.Type != "publish" {
-		t.Errorf("Type should be publish, got %s", msg.Type)
-	}
-
-	var pubData protocol.PublishData
-	if err := json.Unmarshal(msg.Data, &pubData); err != nil {
-		t.Fatalf("Failed to parse publish data: %v", err)
-	}
-	// Channel should be unchanged (explicit tenant prefix)
-	expectedChannel := "sukko.BTC.trade"
-	if pubData.Channel != expectedChannel {
-		t.Errorf("Channel = %q, want %q", pubData.Channel, expectedChannel)
-	}
-	// Data payload should be preserved
-	var payload map[string]any
-	if err := json.Unmarshal(pubData.Data, &payload); err != nil {
-		t.Fatalf("Failed to parse publish payload: %v", err)
-	}
-	if price, ok := payload["price"]; !ok || price != float64(50000) {
-		t.Errorf("Payload not preserved: got %v", payload)
-	}
-}
-
 func TestProxy_InterceptClientMessage_EmptyTenantBypass(t *testing.T) {
 	t.Parallel()
 	// Empty tenantID should bypass all interception (defensive guard)
 	proxy := &Proxy{
 		tenantID:       "",
-		authRequired:   false,
 		logger:         zerolog.Nop(),
 		publishLimiter: rate.NewLimiter(10, 100),
 		maxPublishSize: 64 * 1024,
@@ -565,9 +468,9 @@ func newRunTestProxy(maxFrameSize int, messageTimeout time.Duration) (proxy *Pro
 	backendConn, backendRemote := net.Pipe()
 
 	proxy = &Proxy{
-		clientConn:         clientConn,
-		backendConn:        backendConn,
-		authRequired:       false,
+		clientConn:  clientConn,
+		backendConn: backendConn,
+
 		tenantID:           "test-tenant",
 		logger:             zerolog.Nop(),
 		messageTimeout:     messageTimeout,
@@ -790,9 +693,9 @@ func TestProxy_ContextCancellation(t *testing.T) {
 func newTestProxyAPIKeyOnly(tenantID string, publicPatterns []string) *Proxy {
 	pc := NewPermissionChecker(publicPatterns, nil, nil)
 	return &Proxy{
-		clientConn:         nil,
-		backendConn:        nil,
-		authRequired:       true,
+		clientConn:  nil,
+		backendConn: nil,
+
 		claims:             nil,
 		tenantID:           tenantID,
 		apiKeyOnly:         true,
@@ -819,9 +722,9 @@ func TestProxy_APIKeyOnly_PublishRejected(t *testing.T) {
 	go drainConn(clientRemote)
 
 	proxy := &Proxy{
-		clientConn:         clientConn,
-		backendConn:        backendConn,
-		authRequired:       true,
+		clientConn:  clientConn,
+		backendConn: backendConn,
+
 		claims:             nil,
 		tenantID:           "sukko",
 		apiKeyOnly:         true,
@@ -921,9 +824,9 @@ func TestProxy_APIKeyOnly_AuthRefreshTenantMismatch(t *testing.T) {
 	go drainConn(clientRemote)
 
 	proxy := &Proxy{
-		clientConn:            clientConn,
-		backendConn:           backendConn,
-		authRequired:          true,
+		clientConn:  clientConn,
+		backendConn: backendConn,
+
 		claims:                nil,
 		tenantID:              "tenant-a",
 		apiKeyOnly:            true,

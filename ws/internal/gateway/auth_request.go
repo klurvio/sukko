@@ -47,15 +47,6 @@ type authResult struct {
 // Auth metrics (RecordAuthValidation) are recorded inside this function.
 // Permission checking stays OUT — each handler applies its own permission logic.
 func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*authResult, error) {
-	if !gw.config.AuthRequired() {
-		RecordAuthValidation(pkgmetrics.AuthStatusSkipped, "none", 0)
-		return &authResult{
-			Principal:  "anonymous",
-			TenantID:   gw.config.DefaultTenantID,
-			AuthMethod: "none",
-		}, nil
-	}
-
 	authStart := time.Now()
 	token := httputil.ExtractBearerToken(r)
 	apiKey := httputil.ExtractAPIKey(r)

@@ -4,26 +4,67 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
-func sseTestGateway(t *testing.T) *Gateway {
+// sseTestGatewayWithJWT creates a Gateway with JWT auth for SSE handler testing.
+// Returns the gateway and a valid Bearer token for tenant "acme".
+func sseTestGatewayWithJWT(t *testing.T) (gw *Gateway, token string) {
 	t.Helper()
-	return &Gateway{
+
+	registry := auth.NewStaticKeyRegistry()
+	ecPEM, privateKey := generateTestECKeyForGateway(t)
+
+	key := &auth.KeyInfo{
+		KeyID:        "sse-test-key",
+		TenantID:     "acme",
+		Algorithm:    "ES256",
+		PublicKeyPEM: ecPEM,
+		IsActive:     true,
+	}
+	if err := registry.AddKey(key); err != nil {
+		t.Fatalf("AddKey: %v", err)
+	}
+
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry:     registry,
+		RequireTenantID: true,
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator: %v", err)
+	}
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		TenantID: "acme",
+	}
+	tokenString := createTestTokenForGateway(t, key, privateKey, claims)
+
+	gw = &Gateway{
 		config: &platform.GatewayConfig{
-			AuthConfig:           platform.AuthConfig{AuthMode: "disabled"},
-			DefaultTenantID:      "test-tenant",
+			AuthConfig:           platform.AuthConfig{AuthMode: "required"},
 			SSEKeepAliveInterval: 45_000_000_000, // 45s
 		},
-		logger: testLogger(),
+		validator: validator,
+		logger:    testLogger(),
 	}
+
+	return gw, tokenString
 }
 
 func TestHandleSSE_MissingChannels(t *testing.T) {
 	t.Parallel()
 
-	gw := sseTestGateway(t)
+	gw, _ := sseTestGatewayWithJWT(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/sse", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -38,7 +79,7 @@ func TestHandleSSE_MissingChannels(t *testing.T) {
 func TestHandleSSE_EmptyChannels(t *testing.T) {
 	t.Parallel()
 
-	gw := sseTestGateway(t)
+	gw, _ := sseTestGatewayWithJWT(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/sse?channels=", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -53,7 +94,7 @@ func TestHandleSSE_EmptyChannels(t *testing.T) {
 func TestHandleSSE_EmptyChannelsWithCommas(t *testing.T) {
 	t.Parallel()
 
-	gw := sseTestGateway(t)
+	gw, _ := sseTestGatewayWithJWT(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/sse?channels=,,", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -68,10 +109,11 @@ func TestHandleSSE_EmptyChannelsWithCommas(t *testing.T) {
 func TestHandleSSE_NoServerClient(t *testing.T) {
 	t.Parallel()
 
-	gw := sseTestGateway(t)
+	gw, token := sseTestGatewayWithJWT(t)
 	gw.serverClient = nil
 
-	req := httptest.NewRequest(http.MethodGet, "/sse?channels=test.ch", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/sse?channels=acme.general.messages", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandleSSE(rec, req)
@@ -84,11 +126,12 @@ func TestHandleSSE_NoServerClient(t *testing.T) {
 func TestHandleSSE_TenantLimitExceeded(t *testing.T) {
 	t.Parallel()
 
-	gw := sseTestGateway(t)
+	gw, token := sseTestGatewayWithJWT(t)
 	// Create a tracker with limit=0 (always rejects)
 	gw.connTracker = NewTenantConnectionTracker(0)
 
-	req := httptest.NewRequest(http.MethodGet, "/sse?channels=test.ch", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/sse?channels=acme.general.messages", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandleSSE(rec, req)
@@ -101,35 +144,19 @@ func TestHandleSSE_TenantLimitExceeded(t *testing.T) {
 func TestHandleSSE_AllChannelsFiltered(t *testing.T) {
 	t.Parallel()
 
-	gw := sseTestGateway(t)
-	// Auth disabled but set permissions — filter will still apply since permissions != nil
+	gw, token := sseTestGatewayWithJWT(t)
+	// Set permissions that require *.trade pattern — channels below use wrong tenant
 	gw.permissions = NewPermissionChecker([]string{"*.trade"}, nil, nil)
 
 	// All channels have wrong tenant → all filtered by filterSubscribeChannels
-	// (tenant is "test-tenant" but channels use "wrong")
+	// (JWT tenant is "acme" but channels use "wrong")
 	req := httptest.NewRequest(http.MethodGet, "/sse?channels=wrong.BTC.trade,wrong.ETH.trade", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	gw.HandleSSE(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestHandleSSE_AuthDisabled_AllChannelsPass(t *testing.T) {
-	t.Parallel()
-
-	gw := sseTestGateway(t)
-	gw.serverClient = nil // will hit 503 if channels pass through
-
-	req := httptest.NewRequest(http.MethodGet, "/sse?channels=any.channel,whatever.foo", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	gw.HandleSSE(rec, req)
-
-	// Auth disabled → no filtering → reaches server client check → 503
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want %d (channels should pass through when auth disabled)", rec.Code, http.StatusServiceUnavailable)
 	}
 }

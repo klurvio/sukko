@@ -106,10 +106,10 @@ func (t *TopicIsolator) CheckTopicAccess(claims *Claims, topic string, _ TopicAc
 		result.ClaimsTenant = claims.TenantID
 	}
 
-	// No claims = auth disabled, allow all
+	// No claims = API-key-only connection, allow all topics
 	if claims == nil || claims.TenantID == "" {
 		result.Allowed = true
-		result.Reason = "auth disabled or no tenant in claims"
+		result.Reason = "no tenant in claims (API-key-only connection)"
 		return result
 	}
 

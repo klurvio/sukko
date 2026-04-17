@@ -28,11 +28,7 @@ type RouterConfig struct {
 	Logger    zerolog.Logger
 	RateLimit int // requests per minute
 
-	// AuthRequired enables JWT authentication for API endpoints.
-	// When enabled, Validator must be provided.
-	AuthRequired bool
-
-	// Validator validates JWT tokens. Required when AuthRequired is true.
+	// Validator validates tenant JWTs. Required.
 	Validator *auth.MultiTenantValidator
 
 	// AdminValidator validates admin JWTs (Ed25519 keypair auth).
@@ -80,8 +76,8 @@ type RouterConfig struct {
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
 func NewRouter(cfg RouterConfig) (http.Handler, error) {
-	if cfg.AuthRequired && cfg.Validator == nil {
-		return nil, errors.New("router: Validator is required when AuthRequired is true")
+	if cfg.Validator == nil {
+		return nil, errors.New("router: Validator is required")
 	}
 
 	r := chi.NewRouter()
@@ -144,54 +140,41 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 			r.Use(AdminJWTMiddleware(cfg.AdminValidator, cfg.Logger))
 		}
 
-		// Apply tenant JWT auth middleware if enabled
-		if cfg.AuthRequired && cfg.Validator != nil {
-			r.Use(AuthMiddleware(cfg.Validator, cfg.Logger))
-		}
+		// Apply tenant JWT auth middleware
+		r.Use(AuthMiddleware(cfg.Validator, cfg.Logger))
 
 		// License hot-reload — admin auth required unconditionally (defense in depth).
-		// RequireRole is NOT gated on cfg.AuthRequired — license reload must never be
-		// anonymous regardless of tenant auth mode. This exception becomes the norm
-		// when refactor/remove-disabled-auth-mode lands.
 		r.Group(func(r chi.Router) {
 			r.Use(RequireRole("admin", "system"))
 			r.Post("/license", cfg.LicenseHandler.HandleReload)
 		})
 
-		// Tenant management - requires admin role when auth is enabled
+		// Tenant management
 		r.Route("/tenants", func(r chi.Router) {
 			// Admin-only operations
 			r.Group(func(r chi.Router) {
-				if cfg.AuthRequired {
-					r.Use(RequireRole("admin", "system"))
-				}
+				r.Use(RequireRole("admin", "system"))
 				r.Post("/", h.CreateTenant)
 				r.Get("/", h.ListTenants)
 			})
 
 			r.Route("/{tenantID}", func(r chi.Router) {
 				// Tenant isolation - users can only access their own tenant
-				if cfg.AuthRequired {
-					r.Use(RequireTenant())
-				}
+				r.Use(RequireTenant())
 
 				r.Get("/", h.GetTenant)
 				r.Patch("/", h.UpdateTenant)
 
 				// Admin-only operations
 				r.Group(func(r chi.Router) {
-					if cfg.AuthRequired {
-						r.Use(RequireRole("admin", "system"))
-					}
+					r.Use(RequireRole("admin", "system"))
 					r.Delete("/", h.DeprovisionTenant)
 				})
 
 				// Tenant lifecycle — requires Pro
 				r.Group(func(r chi.Router) {
 					r.Use(RequireFeature(cfg.EditionManager, license.TenantLifecycleManager))
-					if cfg.AuthRequired {
-						r.Use(RequireRole("admin", "system"))
-					}
+					r.Use(RequireRole("admin", "system"))
 					r.Post("/suspend", h.SuspendTenant)
 					r.Post("/reactivate", h.ReactivateTenant)
 				})
@@ -214,9 +197,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 				r.Route("/routing-rules", func(r chi.Router) {
 					r.Get("/", h.GetRoutingRules)
 					r.Group(func(r chi.Router) {
-						if cfg.AuthRequired {
-							r.Use(RequireRole("admin", "system"))
-						}
+						r.Use(RequireRole("admin", "system"))
 						r.Put("/", h.SetRoutingRules)
 						r.Delete("/", h.DeleteRoutingRules)
 					})
@@ -227,9 +208,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 					r.Use(RequireFeature(cfg.EditionManager, license.PerTenantConfigurableQuotas))
 					r.Get("/quotas", h.GetQuota)
 					r.Group(func(r chi.Router) {
-						if cfg.AuthRequired {
-							r.Use(RequireRole("admin", "system"))
-						}
+						r.Use(RequireRole("admin", "system"))
 						r.Patch("/quotas", h.UpdateQuota)
 					})
 				})
@@ -244,9 +223,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 				r.Route("/channel-rules", func(r chi.Router) {
 					r.Get("/", h.GetChannelRules)
 					r.Group(func(r chi.Router) {
-						if cfg.AuthRequired {
-							r.Use(RequireRole("admin", "system"))
-						}
+						r.Use(RequireRole("admin", "system"))
 						r.Put("/", h.SetChannelRules)
 						r.Delete("/", h.DeleteChannelRules)
 					})
@@ -267,9 +244,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 
 		// Active keys endpoint (for WS Gateway) - requires system role
 		r.Group(func(r chi.Router) {
-			if cfg.AuthRequired {
-				r.Use(RequireRole("system", "admin"))
-			}
+			r.Use(RequireRole("system", "admin"))
 			r.Get("/keys/active", h.GetActiveKeys)
 			r.Get("/api-keys/active", h.GetActiveAPIKeys)
 		})
@@ -277,9 +252,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 		// Push notification management — requires Enterprise (PushNotifications)
 		r.Route("/push", func(r chi.Router) {
 			r.Use(RequireFeature(cfg.EditionManager, license.PushNotifications))
-			if cfg.AuthRequired {
-				r.Use(RequireRole("admin", "system"))
-			}
+			r.Use(RequireRole("admin", "system"))
 
 			// Push credentials
 			if cfg.PushCredentialHandler != nil {
