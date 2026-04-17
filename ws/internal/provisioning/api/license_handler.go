@@ -14,6 +14,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
+	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/license"
 )
@@ -42,7 +43,7 @@ const (
 )
 
 // LicenseHandler handles POST /api/v1/license for license hot-reload.
-// No auth required — the license key's Ed25519 signature is the authentication.
+// Admin auth + Ed25519 signature — defense in depth.
 type LicenseHandler struct {
 	manager      *license.Manager
 	licenseRepo  provisioning.LicenseStateStore
@@ -135,7 +136,7 @@ type licenseReloadResponse struct {
 }
 
 // HandleReload handles POST /api/v1/license.
-// No auth — Ed25519 signature on the key is the authentication.
+// Admin auth + Ed25519 signature — defense in depth.
 // Rate-limited per IP. Replay-protected via iat.
 func (h *LicenseHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 	// Rate limiting
@@ -145,6 +146,14 @@ func (h *LicenseHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "too many license reload requests")
 		return
 	}
+
+	// Extract admin actor from middleware context for audit logging.
+	// GetSubject cannot fail on Claims populated by AdminJWTMiddleware.
+	adminSub := ""
+	if claims := auth.GetClaims(r.Context()); claims != nil {
+		adminSub, _ = claims.GetSubject()
+	}
+	adminKID := auth.GetActor(r.Context())
 
 	// Parse request body (limit to 64KB — a license key is ~200 bytes)
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
@@ -162,7 +171,7 @@ func (h *LicenseHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 
 	// Reload Manager (validates Ed25519 signature, checks iat replay, atomic swap)
 	if err := h.manager.Reload(req.Key); err != nil {
-		h.handleReloadError(w, err, clientIP)
+		h.handleReloadError(w, err, clientIP, adminSub, adminKID)
 		return
 	}
 
@@ -177,7 +186,11 @@ func (h *LicenseHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 	if err := h.licenseRepo.Upsert(r.Context(), req.Key, edition, org, &expiresAt); err != nil {
 		// Reload succeeded but persistence failed — log error, still return success
 		// The key is active in memory; persistence will be retried on next reload
-		h.logger.Error().Err(err).Msg("license reload succeeded but DB persistence failed")
+		h.logger.Error().Err(err).
+			Bool("audit", true).
+			Str("admin_sub", adminSub).
+			Str("admin_kid", adminKID).
+			Msg("license reload succeeded but DB persistence failed")
 	}
 
 	// Update current key for WatchLicense snapshot
@@ -193,9 +206,13 @@ func (h *LicenseHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 	licenseReloadTotal.WithLabelValues(reloadSuccess).Inc()
 
 	h.logger.Info().
+		Bool("audit", true).
+		Str("admin_sub", adminSub).
+		Str("admin_kid", adminKID).
 		Str("edition", edition).
 		Str("org", org).
 		Str("client_ip", clientIP).
+		Str("expires_at", expiresAt.Format(time.RFC3339)).
 		Msg("license reloaded via API")
 
 	_ = httputil.WriteJSON(w, http.StatusOK, licenseReloadResponse{
@@ -207,21 +224,27 @@ func (h *LicenseHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleReloadError classifies the reload error and returns the appropriate HTTP response.
-func (h *LicenseHandler) handleReloadError(w http.ResponseWriter, err error, clientIP string) {
+func (h *LicenseHandler) handleReloadError(w http.ResponseWriter, err error, clientIP, adminSub, adminKID string) {
 	switch {
 	case errors.Is(err, license.ErrReplayDetected):
 		licenseReloadTotal.WithLabelValues(reloadReplay).Inc()
-		h.logger.Warn().Err(err).Str("client_ip", clientIP).Msg("license replay detected")
+		h.logger.Warn().Err(err).
+			Bool("audit", true).Str("admin_sub", adminSub).Str("admin_kid", adminKID).
+			Str("client_ip", clientIP).Msg("license replay detected")
 		httputil.WriteError(w, http.StatusConflict, "REPLAY_DETECTED", "key iat is not newer than current — replay rejected")
 
 	case errors.Is(err, license.ErrLicenseExpired):
 		licenseReloadTotal.WithLabelValues(reloadExpired).Inc()
-		h.logger.Warn().Err(err).Str("client_ip", clientIP).Msg("expired license key pushed")
+		h.logger.Warn().Err(err).
+			Bool("audit", true).Str("admin_sub", adminSub).Str("admin_kid", adminKID).
+			Str("client_ip", clientIP).Msg("expired license key pushed")
 		httputil.WriteError(w, http.StatusBadRequest, "KEY_EXPIRED", "pushed key is already expired")
 
 	case errors.Is(err, license.ErrLicenseInvalidSignature):
 		licenseReloadTotal.WithLabelValues(reloadInvalidSignature).Inc()
-		h.logger.Warn().Err(err).Str("client_ip", clientIP).Msg("invalid license signature")
+		h.logger.Warn().Err(err).
+			Bool("audit", true).Str("admin_sub", adminSub).Str("admin_kid", adminKID).
+			Str("client_ip", clientIP).Msg("invalid license signature")
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_SIGNATURE", "Ed25519 signature verification failed")
 
 	case errors.Is(err, license.ErrLicenseInvalidFormat):
@@ -230,7 +253,9 @@ func (h *LicenseHandler) handleReloadError(w http.ResponseWriter, err error, cli
 
 	default:
 		licenseReloadTotal.WithLabelValues(reloadInternalError).Inc()
-		h.logger.Error().Err(err).Str("client_ip", clientIP).Msg("license reload failed")
+		h.logger.Error().Err(err).
+			Bool("audit", true).Str("admin_sub", adminSub).Str("admin_kid", adminKID).
+			Str("client_ip", clientIP).Msg("license reload failed")
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL", "license reload failed")
 	}
 }

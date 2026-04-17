@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
 	"github.com/klurvio/sukko/cmd/tester/restpublish"
 	testersse "github.com/klurvio/sukko/cmd/tester/sse"
@@ -32,14 +33,15 @@ const messageDeliveryTimeout = 3 * time.Second
 // --- HTTP helpers ---
 
 // postLicense sends a license key to provisioning via POST /api/v1/license.
-// No auth needed — the Ed25519 signature is the authentication.
-func postLicense(ctx context.Context, provURL, key string) (int, error) {
+// Admin JWT auth required — the signer adds the Authorization header.
+func postLicense(ctx context.Context, provURL, key string, signer auth.Provider) (int, error) {
 	body, _ := json.Marshal(map[string]string{"key": key}) // json.Marshal on literal map of strings cannot fail
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, provURL+"/api/v1/license", bytes.NewReader(body))
 	if err != nil {
 		return 0, fmt.Errorf("post license: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	signer.SignRequest(req)
 
 	client := &http.Client{Timeout: licenseHTTPTimeout}
 	resp, err := client.Do(req)

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
 	testerws "github.com/klurvio/sukko/cmd/tester/ws"
 	"github.com/klurvio/sukko/internal/shared/license"
@@ -23,6 +24,7 @@ import (
 func validateLicenseReload(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
 	provURL := run.Config.ProvisioningURL
 	gwURL := run.Config.GatewayURL
+	signer := run.authResult.ProvClient.AuthProvider()
 
 	var (
 		keygen *licenseKeyGenerator
@@ -53,7 +55,7 @@ func validateLicenseReload(ctx context.Context, run *TestRun, logger zerolog.Log
 		restoreCtx, cancel := context.WithTimeout(context.Background(), licenseHTTPTimeout)
 		defer cancel()
 		restoreKey := keygen.sign(startEdition, "Restore", 365*24*time.Hour)
-		status, restoreErr := postLicense(restoreCtx, provURL, restoreKey)
+		status, restoreErr := postLicense(restoreCtx, provURL, restoreKey, signer)
 		if restoreErr != nil || status != http.StatusOK {
 			logger.Warn().Err(restoreErr).Int("status", status).
 				Str("edition", string(startEdition)).Msg("license-reload cleanup: failed to restore edition")
@@ -63,9 +65,9 @@ func validateLicenseReload(ctx context.Context, run *TestRun, logger zerolog.Log
 	}()
 
 	// Phase 1: Invalid key rejection (Scenario 3 — uses burst budget, run first)
-	invalidChecks := checkInvalidKeys(ctx, provURL, keygen)
+	invalidChecks := checkInvalidKeys(ctx, provURL, keygen, signer)
 	// Phase 2: Transition chain (Scenarios 1 + 2 combined)
-	chainChecks := checkTransitionChain(ctx, provURL, gwURL, keygen, run, logger)
+	chainChecks := checkTransitionChain(ctx, provURL, gwURL, keygen, run, logger, signer)
 
 	checks := make([]metrics.CheckResult, 0, len(invalidChecks)+len(chainChecks))
 	checks = append(checks, invalidChecks...)
@@ -75,13 +77,13 @@ func validateLicenseReload(ctx context.Context, run *TestRun, logger zerolog.Log
 }
 
 // checkInvalidKeys tests bad signature, expired, and replay rejection (Scenario 3).
-func checkInvalidKeys(ctx context.Context, provURL string, keygen *licenseKeyGenerator) []metrics.CheckResult {
+func checkInvalidKeys(ctx context.Context, provURL string, keygen *licenseKeyGenerator, signer auth.Provider) []metrics.CheckResult {
 	var checks []metrics.CheckResult
 
 	// Ensure we're on Pro for the invalid key tests
 	proIat := keygen.nextIat // capture before sign() increments
 	proKey := keygen.sign(license.Pro, "Test Pro Setup", 24*time.Hour)
-	status, err := postLicense(ctx, provURL, proKey)
+	status, err := postLicense(ctx, provURL, proKey, signer)
 	if err != nil || status != http.StatusOK {
 		errMsg := fmt.Sprintf("failed to push Pro setup key: status=%d err=%v", status, err)
 		return []metrics.CheckResult{{Name: "invalid keys setup", Status: "fail", Error: errMsg}}
@@ -91,7 +93,7 @@ func checkInvalidKeys(ctx context.Context, provURL string, keygen *licenseKeyGen
 	}
 
 	// 1. Bad signature
-	status, _ = postLicense(ctx, provURL, "not-a-valid-license-key")
+	status, _ = postLicense(ctx, provURL, "not-a-valid-license-key", signer)
 	if status == http.StatusBadRequest {
 		checks = append(checks, metrics.CheckResult{Name: "invalid key: bad signature", Status: "pass"})
 	} else {
@@ -101,7 +103,7 @@ func checkInvalidKeys(ctx context.Context, provURL string, keygen *licenseKeyGen
 
 	// 2. Expired key
 	expiredKey := keygen.signExpired(license.Pro)
-	status, _ = postLicense(ctx, provURL, expiredKey)
+	status, _ = postLicense(ctx, provURL, expiredKey, signer)
 	if status == http.StatusBadRequest {
 		checks = append(checks, metrics.CheckResult{Name: "invalid key: expired", Status: "pass"})
 	} else {
@@ -111,7 +113,7 @@ func checkInvalidKeys(ctx context.Context, provURL string, keygen *licenseKeyGen
 
 	// 3. Replay (same iat as the Pro key we pushed above)
 	replayKey := keygen.signWithIat(license.Pro, proIat)
-	status, _ = postLicense(ctx, provURL, replayKey)
+	status, _ = postLicense(ctx, provURL, replayKey, signer)
 	if status == http.StatusConflict {
 		checks = append(checks, metrics.CheckResult{Name: "invalid key: replay", Status: "pass"})
 	} else {
@@ -132,7 +134,7 @@ func checkInvalidKeys(ctx context.Context, provURL string, keygen *licenseKeyGen
 }
 
 // checkTransitionChain runs CE→Pro→Enterprise→Pro→CE with gating + WS connection survival.
-func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *licenseKeyGenerator, run *TestRun, logger zerolog.Logger) []metrics.CheckResult {
+func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *licenseKeyGenerator, run *TestRun, logger zerolog.Logger, signer auth.Provider) []metrics.CheckResult {
 	var checks []metrics.CheckResult
 	token := run.authResult.TokenFunc(0)
 	httpGW := httpURL(gwURL)
@@ -142,7 +144,7 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 
 	// Step 0: Push CE key (starting point for chain)
 	ceKey := keygen.sign(license.Community, "Test CE", 24*time.Hour)
-	if status, err := postLicense(ctx, provURL, ceKey); err != nil || status != http.StatusOK {
+	if status, err := postLicense(ctx, provURL, ceKey, signer); err != nil || status != http.StatusOK {
 		return []metrics.CheckResult{{Name: "transition chain setup", Status: "fail",
 			Error: fmt.Sprintf("failed to push CE key: status=%d err=%v", status, err)}}
 	}
@@ -153,7 +155,7 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 
 	// Step 1: CE → Pro
 	proKey := keygen.sign(license.Pro, "Test Pro", 24*time.Hour)
-	postLicenseAndCheck(ctx, provURL, proKey) // error handled by propagation check
+	postLicenseAndCheck(ctx, provURL, proKey, signer) // error handled by propagation check
 	ok, _ := pollEdition(ctx, httpGW, license.Pro)
 	checks = append(checks, propagationCheck("CE→Pro", ok))
 	checks = append(checks, checkSSEGate(ctx, httpGW, token, true, logger)...)
@@ -198,7 +200,7 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 
 	// Step 2: Pro → Enterprise
 	entKey := keygen.sign(license.Enterprise, "Test Enterprise", 24*time.Hour)
-	postLicenseAndCheck(ctx, provURL, entKey)
+	postLicenseAndCheck(ctx, provURL, entKey, signer)
 	ok, _ = pollEdition(ctx, httpGW, license.Enterprise)
 	checks = append(checks, propagationCheck("Pro→Enterprise", ok))
 	checks = append(checks, checkPushGate(ctx, httpGW, token, true)...)
@@ -207,7 +209,7 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 
 	// Step 3: Enterprise → Pro
 	proKey2 := keygen.sign(license.Pro, "Test Pro 2", 24*time.Hour)
-	postLicenseAndCheck(ctx, provURL, proKey2)
+	postLicenseAndCheck(ctx, provURL, proKey2, signer)
 	ok, _ = pollEdition(ctx, httpGW, license.Pro)
 	checks = append(checks, propagationCheck("Enterprise→Pro", ok))
 	checks = append(checks, checkPushGate(ctx, httpGW, token, false)...)
@@ -217,7 +219,7 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 
 	// Step 4: Pro → CE
 	ceKey2 := keygen.sign(license.Community, "Test CE 2", 24*time.Hour)
-	postLicenseAndCheck(ctx, provURL, ceKey2)
+	postLicenseAndCheck(ctx, provURL, ceKey2, signer)
 	ok, _ = pollEdition(ctx, httpGW, license.Community)
 	checks = append(checks, propagationCheck("Pro→CE", ok))
 	checks = append(checks, checkSSEGate(ctx, httpGW, token, false, logger)...)
@@ -229,8 +231,8 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 }
 
 // postLicenseAndCheck posts a license key and logs errors (non-fatal — propagation check catches failures).
-func postLicenseAndCheck(ctx context.Context, provURL, key string) {
-	if _, err := postLicense(ctx, provURL, key); err != nil {
+func postLicenseAndCheck(ctx context.Context, provURL, key string, signer auth.Provider) {
+	if _, err := postLicense(ctx, provURL, key, signer); err != nil {
 		// Non-fatal: propagation check will catch the failure
 		_ = err
 	}

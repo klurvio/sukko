@@ -14,7 +14,7 @@ info:
     - **Tenant JWT**: `Authorization: Bearer {jwt}` — validated against per-tenant asymmetric keys (ES256, RS256, EdDSA).
 
     Exceptions:
-    - `POST /api/v1/license` requires no auth — the Ed25519 signature on the license key IS the authentication.
+    - `POST /api/v1/license` requires admin JWT auth (defense in depth — admin JWT proves caller is authorized to manage this deployment; the license key's Ed25519 signature proves the key is genuinely from Sukko).
     - Health, readiness, version, edition, config, and metrics endpoints require no authentication.
 
     ## Authorization
@@ -732,12 +732,14 @@ paths:
       operationId: reloadLicense
       summary: Reload license key
       description: |
-        Push a new license key to the provisioning service. No auth required — the
-        Ed25519 signature on the license key IS the authentication.
+        Push a new license key to the provisioning service. Requires admin JWT
+        authentication (defense in depth with license signature verification).
 
         Rate-limited per IP (~10 req/min with burst of 3). Replay-protected via `iat` claim.
         On success, the key is persisted (encrypted) and broadcast to all services via gRPC stream.
       tags: [License]
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -788,6 +790,30 @@ paths:
                   value: { code: "KEY_EXPIRED", message: "pushed key is already expired" }
                 invalidFormat:
                   value: { code: "INVALID_FORMAT", message: "license key format invalid" }
+        "401":
+          description: Authentication required or invalid admin credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                missingToken:
+                  value:
+                    code: MISSING_TOKEN
+                    message: Authorization header required
+                unauthorized:
+                  value:
+                    code: UNAUTHORIZED
+                    message: invalid admin credentials
+        "403":
+          description: Insufficient role — admin or system role required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: INSUFFICIENT_ROLE
+                message: "Required role: admin or system"
         "409":
           description: Replay detected (iat not newer than current)
           content:
