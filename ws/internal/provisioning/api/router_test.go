@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
@@ -15,10 +16,12 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/api"
+	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/testutil"
 	"github.com/klurvio/sukko/internal/shared/auth"
@@ -1219,4 +1222,197 @@ func TestRouter_APIKeys(t *testing.T) {
 			t.Errorf("status = %d, want %d; body: %s", rec.Code, http.StatusNotFound, rec.Body.String())
 		}
 	})
+}
+
+// emptyKeyRegistry implements auth.KeyRegistry with no keys (all lookups fail).
+// Used only for the license auth test where tenant JWT validation is in the
+// middleware chain but never exercised (admin JWT takes precedence).
+type emptyKeyRegistry struct{}
+
+func (emptyKeyRegistry) GetKey(context.Context, string) (*auth.KeyInfo, error) {
+	return nil, auth.ErrKeyNotFound
+}
+
+func (emptyKeyRegistry) GetKeysByTenant(context.Context, string) ([]*auth.KeyInfo, error) {
+	return nil, nil
+}
+
+func (emptyKeyRegistry) Close() error { return nil }
+
+// noopLicenseStore implements provisioning.LicenseStateStore as a no-op.
+// Used in the license auth integration test for the happy-path (200) case
+// where Upsert is called after a successful license reload.
+type noopLicenseStore struct{}
+
+func (noopLicenseStore) Upsert(context.Context, string, string, string, *time.Time) error {
+	return nil
+}
+
+func (noopLicenseStore) Load(context.Context) (string, error) { return "", nil }
+
+//nolint:paralleltest // shares package-level publicKey via license.SetPublicKeyForTesting
+func TestRouter_LicenseEndpoint_AdminAuth(t *testing.T) {
+	// --- License signing keypair (for the happy-path 200 test case) ---
+	licensePriv, licensePub := license.GenerateTestKeyPair()
+	license.SetPublicKeyForTesting(licensePub)
+
+	// --- Admin auth keypair (for AdminJWTMiddleware) ---
+	adminPub, adminPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate admin keypair: %v", err)
+	}
+	const adminKID = "test-admin-key-1"
+
+	// Register admin key in the AdminKeyRegistry.
+	adminRegistry := provauth.NewAdminKeyRegistry()
+	adminRegistry.Refresh([]*auth.KeyInfo{{
+		KeyID:     adminKID,
+		Algorithm: "EdDSA",
+		PublicKey: adminPub,
+		IsActive:  true,
+	}})
+	adminValidator := provauth.NewAdminValidator(adminRegistry)
+
+	// Generate a second unregistered Ed25519 keypair (for UNAUTHORIZED test case).
+	_, unregisteredPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate unregistered keypair: %v", err)
+	}
+
+	// Create MultiTenantValidator with an empty key registry (required for AuthRequired=true).
+	tenantValidator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry: emptyKeyRegistry{},
+	})
+	if err != nil {
+		t.Fatalf("create tenant validator: %v", err)
+	}
+
+	// Create a real LicenseManager via NewManager (empty key = Community, but Reload
+	// uses the package-level publicKey overridden above).
+	licenseManager, err := license.NewManager("", zerolog.Nop())
+	if err != nil {
+		t.Fatalf("create license manager: %v", err)
+	}
+
+	licenseHandler := api.NewLicenseHandler(
+		licenseManager,
+		noopLicenseStore{},
+		eventbus.New(zerolog.Nop()),
+		zerolog.Nop(),
+	)
+
+	router := mustNewRouter(t, api.RouterConfig{
+		Service:        newTestService(),
+		Logger:         zerolog.Nop(),
+		AuthRequired:   true,
+		Validator:      tenantValidator,
+		AdminValidator: adminValidator,
+		LicenseHandler: licenseHandler,
+	})
+
+	// Helper: mint an admin JWT with the given private key, kid, and roles.
+	mintAdminJWT := func(privKey ed25519.PrivateKey, kid string, roles []string) string {
+		t.Helper()
+		now := time.Now()
+		claims := jwt.MapClaims{
+			"iss":   "sukko-admin",
+			"sub":   "test-admin",
+			"roles": roles,
+			"exp":   jwt.NewNumericDate(now.Add(5 * time.Minute)),
+			"iat":   jwt.NewNumericDate(now),
+			"jti":   uuid.NewString(),
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+		token.Header["kid"] = kid
+		signed, err := token.SignedString(privKey)
+		if err != nil {
+			t.Fatalf("sign admin JWT: %v", err)
+		}
+		return signed
+	}
+
+	// Sign a valid test license for the happy-path case.
+	validLicenseKey := license.SignTestLicense(license.Claims{
+		Edition: license.Pro,
+		Org:     "Test Org",
+		Iat:     time.Now().Unix(),
+		Exp:     time.Now().Add(24 * time.Hour).Unix(),
+	}, licensePriv)
+
+	tests := []struct {
+		name       string
+		setAuth    func(*http.Request)
+		body       string
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "no auth header → MISSING_TOKEN",
+			setAuth:    nil,
+			body:       `{"key":"test"}`,
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "MISSING_TOKEN",
+		},
+		{
+			name: "admin JWT signed by unregistered key → UNAUTHORIZED",
+			setAuth: func(req *http.Request) {
+				token := mintAdminJWT(unregisteredPriv, "unregistered-kid", []string{"admin"})
+				req.Header.Set("Authorization", "Bearer "+token)
+			},
+			body:       `{"key":"test"}`,
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "UNAUTHORIZED",
+		},
+		{
+			name: "valid admin JWT with wrong role → INSUFFICIENT_ROLE",
+			setAuth: func(req *http.Request) {
+				token := mintAdminJWT(adminPriv, adminKID, []string{"viewer"})
+				req.Header.Set("Authorization", "Bearer "+token)
+			},
+			body:       `{"key":"test"}`,
+			wantStatus: http.StatusForbidden,
+			wantCode:   "INSUFFICIENT_ROLE",
+		},
+		{
+			name: "valid admin JWT + valid license → 200 (end-to-end)",
+			setAuth: func(req *http.Request) {
+				token := mintAdminJWT(adminPriv, adminKID, []string{"admin"})
+				req.Header.Set("Authorization", "Bearer "+token)
+			},
+			body:       `{"key":"` + validLicenseKey + `"}`,
+			wantStatus: http.StatusOK,
+			wantCode:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Not parallel — shares package-level license publicKey.
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/license", bytes.NewReader([]byte(tt.body)))
+			req.Header.Set("Content-Type", "application/json")
+			if tt.setAuth != nil {
+				tt.setAuth(req)
+			}
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+
+			if tt.wantCode != "" {
+				var errResp struct {
+					Code string `json:"code"`
+				}
+				if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
+					t.Fatalf("unmarshal error response: %v; body: %s", err, rec.Body.String())
+				}
+				if errResp.Code != tt.wantCode {
+					t.Errorf("error code = %q, want %q; body: %s", errResp.Code, tt.wantCode, rec.Body.String())
+				}
+			}
+		})
+	}
 }

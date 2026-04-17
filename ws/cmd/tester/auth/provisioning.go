@@ -48,6 +48,12 @@ func NewProvisioningClient(baseURL string, authProvider Provider, logger zerolog
 	}
 }
 
+// AuthProvider returns the underlying auth provider for direct HTTP calls
+// that don't go through ProvisioningClient's API methods (e.g., license reload).
+func (c *ProvisioningClient) AuthProvider() Provider {
+	return c.authProvider
+}
+
 // CreateTenant creates a new tenant via the provisioning API.
 func (c *ProvisioningClient) CreateTenant(ctx context.Context, tenantID, name string) error {
 	body, err := json.Marshal(map[string]string{

@@ -127,9 +127,6 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 	}
 	r.Get("/metrics", h.Metrics)
 
-	// License hot-reload endpoint (no auth — Ed25519 signature is the authentication)
-	r.Post("/api/v1/license", cfg.LicenseHandler.HandleReload)
-
 	// Register pprof endpoints if enabled (Constitution IX: opt-in only)
 	profiling.InitPprof(func(pattern string, handler func(http.ResponseWriter, *http.Request)) {
 		r.HandleFunc(pattern, handler)
@@ -151,6 +148,15 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 		if cfg.AuthRequired && cfg.Validator != nil {
 			r.Use(AuthMiddleware(cfg.Validator, cfg.Logger))
 		}
+
+		// License hot-reload — admin auth required unconditionally (defense in depth).
+		// RequireRole is NOT gated on cfg.AuthRequired — license reload must never be
+		// anonymous regardless of tenant auth mode. This exception becomes the norm
+		// when refactor/remove-disabled-auth-mode lands.
+		r.Group(func(r chi.Router) {
+			r.Use(RequireRole("admin", "system"))
+			r.Post("/license", cfg.LicenseHandler.HandleReload)
+		})
 
 		// Tenant management - requires admin role when auth is enabled
 		r.Route("/tenants", func(r chi.Router) {
