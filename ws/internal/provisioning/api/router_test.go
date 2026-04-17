@@ -1308,9 +1308,9 @@ func TestRouter_LicenseEndpoint_AdminAuth(t *testing.T) {
 	)
 
 	router := mustNewRouter(t, api.RouterConfig{
-		Service:   newTestService(),
-		Logger:    zerolog.Nop(),
-		Validator: tenantValidator,
+		Service:        newTestService(),
+		Logger:         zerolog.Nop(),
+		Validator:      tenantValidator,
 		AdminValidator: adminValidator,
 		LicenseHandler: licenseHandler,
 	})
