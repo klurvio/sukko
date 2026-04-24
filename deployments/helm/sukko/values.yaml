@@ -157,6 +157,15 @@ provisioning:
     port: 8080
 
 # =============================================================================
+# Push Service — Enterprise Edition only
+# Disabled by default. Requires Enterprise license + kafka/redpanda backend.
+# Enable: helm upgrade sukko deployments/helm/sukko \
+#   -f deployments/helm/sukko/values/<env>.yaml --set push-service.enabled=true
+# =============================================================================
+push-service:
+  enabled: false
+
+# =============================================================================
 # Redpanda (Kafka) — Enable for kafka message backend
 # =============================================================================
 redpanda:
