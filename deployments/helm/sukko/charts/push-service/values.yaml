@@ -5,7 +5,21 @@
 global:
   imageRegistry: ""
 
-enabled: true
+# Push Service is disabled by default. It requires:
+#   - An Enterprise license (push to provisioning via `sukko license push <key>`)
+#   - A kafka or redpanda message backend (ws-server.messageBackend: kafka|redpanda)
+#
+# Enabling with a direct or nats backend will start push-service but it will fail
+# to consume messages. Verify ws-server.messageBackend before enabling.
+#
+# To enable after pushing an Enterprise license:
+#   helm upgrade sukko deployments/helm/sukko \
+#     -f deployments/helm/sukko/values/<env>.yaml \
+#     --set push-service.enabled=true
+#
+# Note: helm upgrade --reuse-values preserves the previous enabled state.
+# To explicitly disable on an existing install: --set push-service.enabled=false
+enabled: false
 
 replicaCount: 1
 
