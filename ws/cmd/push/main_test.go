@@ -23,7 +23,7 @@ func TestHealthHandler_Connected(t *testing.T) {
 	t.Parallel()
 
 	mux := newHTTPMux(&fakeWatcher{state: provapi.StreamStateConnected}, license.NewTestManager(license.Enterprise))
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -50,7 +50,7 @@ func TestHealthHandler_Degraded(t *testing.T) {
 	t.Parallel()
 
 	mux := newHTTPMux(&fakeWatcher{state: provapi.StreamStateDisconnected}, license.NewTestManager(license.Enterprise))
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -87,7 +87,7 @@ func TestHealthHandler_Always200(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			mux := newHTTPMux(&fakeWatcher{state: tc.state}, license.NewTestManager(tc.edition))
-			req := httptest.NewRequest(http.MethodGet, "/health", nil)
+			req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 			w := httptest.NewRecorder()
 			mux.ServeHTTP(w, req)
 			if w.Code != http.StatusOK {
@@ -105,7 +105,7 @@ func TestReadyHandler_Enterprise(t *testing.T) {
 	t.Parallel()
 
 	mux := newHTTPMux(&fakeWatcher{state: provapi.StreamStateConnected}, license.NewTestManager(license.Enterprise))
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ready", http.NoBody)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -129,7 +129,7 @@ func TestReadyHandler_Community(t *testing.T) {
 	t.Parallel()
 
 	mux := newHTTPMux(&fakeWatcher{state: provapi.StreamStateConnected}, license.NewTestManager(license.Community))
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ready", http.NoBody)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -155,7 +155,7 @@ func TestReadyHandler_StreamDegraded_EnterpriseStaysReady(t *testing.T) {
 	t.Parallel()
 
 	mux := newHTTPMux(&fakeWatcher{state: provapi.StreamStateDisconnected}, license.NewTestManager(license.Enterprise))
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ready", http.NoBody)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 

@@ -116,8 +116,7 @@ func tryConnect(ctx context.Context, gwURL, token string, logger zerolog.Logger)
 		Logger:     logger,
 	})
 	if err != nil {
-		var statusErr ws.StatusError
-		if errors.As(err, &statusErr) {
+		if statusErr, ok := errors.AsType[ws.StatusError](err); ok {
 			return nil, int(statusErr), nil
 		}
 		return nil, 0, fmt.Errorf("try connect: %w", err)

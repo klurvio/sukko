@@ -87,13 +87,11 @@ func isEditionError(err error) bool {
 
 // writeEditionError writes an HTTP 403 response for edition limit/feature errors.
 func writeEditionError(w http.ResponseWriter, err error) {
-	var limitErr *license.EditionLimitError
-	if errors.As(err, &limitErr) {
+	if limitErr, ok := errors.AsType[*license.EditionLimitError](err); ok {
 		httputil.WriteError(w, http.StatusForbidden, limitErr.Code(), limitErr.Error())
 		return
 	}
-	var featureErr *license.EditionFeatureError
-	if errors.As(err, &featureErr) {
+	if featureErr, ok := errors.AsType[*license.EditionFeatureError](err); ok {
 		httputil.WriteError(w, http.StatusForbidden, featureErr.Code(), featureErr.Error())
 		return
 	}

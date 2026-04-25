@@ -120,15 +120,13 @@ func TestConnectionRegistry_ConcurrentAccess(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range 100 {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			conn := &mockConnection{sub: "alice", jti: "tok-" + string(rune('0'+id%10)), iat: int64(id)}
+		wg.Go(func() {
+			conn := &mockConnection{sub: "alice", jti: "tok-" + string(rune('0'+i%10)), iat: int64(i)}
 			r.Register(conn, "acme", "alice", conn.jti)
 			_ = r.FindByJTI(conn.jti)
 			_ = r.FindBySub("acme", "alice")
 			r.Unregister(conn, "acme", "alice", conn.jti)
-		}(i)
+		})
 	}
 	wg.Wait()
 }

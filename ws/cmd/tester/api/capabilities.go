@@ -1,8 +1,9 @@
 package api
 
 import (
+	"cmp"
 	"net/http"
-	"sort"
+	"slices"
 
 	"github.com/klurvio/sukko/cmd/tester/runner"
 )
@@ -42,7 +43,7 @@ func (h *handlers) getCapabilities(w http.ResponseWriter, _ *http.Request) {
 	for _, s := range runner.SuiteRegistry {
 		suites = append(suites, SuiteInfo{Name: s.Name, Description: s.Description})
 	}
-	sort.Slice(suites, func(i, j int) bool { return suites[i].Name < suites[j].Name })
+	slices.SortFunc(suites, func(a, b SuiteInfo) int { return cmp.Compare(a.Name, b.Name) })
 
 	caps := Capabilities{
 		TestTypes: []TestTypeInfo{
