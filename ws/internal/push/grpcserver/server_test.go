@@ -16,6 +16,7 @@ import (
 	pushv1 "github.com/klurvio/sukko/gen/proto/sukko/push/v1"
 	"github.com/klurvio/sukko/internal/push/grpcserver"
 	"github.com/klurvio/sukko/internal/push/repository"
+	"github.com/klurvio/sukko/internal/shared/license"
 )
 
 // ---------------------------------------------------------------------------
@@ -163,6 +164,7 @@ func setupTestServer(t *testing.T) *testEnv {
 		ConfigCache: cache,
 		ProvClient:  prov,
 		Logger:      zerolog.Nop(),
+		Manager:     license.NewTestManager(license.Enterprise),
 	})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -568,5 +570,96 @@ func TestNewServer_NilProvClient(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for nil provisioning client")
+	}
+}
+
+func TestNewServer_NilManager(t *testing.T) {
+	t.Parallel()
+
+	_, err := grpcserver.NewServer(grpcserver.ServerConfig{
+		Repo:        newMockRepo(),
+		ConfigCache: newMockConfigCache(),
+		ProvClient:  &mockProvClient{},
+		Logger:      zerolog.Nop(),
+		// Manager intentionally nil
+	})
+	if err == nil {
+		t.Fatal("expected error for nil manager")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: Community edition gate (PermissionDenied on all handlers)
+// ---------------------------------------------------------------------------
+
+func TestRegisterDevice_CommunityEdition(t *testing.T) {
+	t.Parallel()
+
+	srv, err := grpcserver.NewServer(grpcserver.ServerConfig{
+		Repo:        newMockRepo(),
+		ConfigCache: newMockConfigCache(),
+		ProvClient:  &mockProvClient{},
+		Logger:      zerolog.Nop(),
+		Manager:     license.NewTestManager(license.Community),
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	_, err = srv.RegisterDevice(context.Background(), &pushv1.RegisterDeviceRequest{
+		TenantId:   "t1",
+		Platform:   "web",
+		Endpoint:   "https://example.com/push/sub",
+		P256DhKey:  "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8p8v0w",
+		AuthSecret: "tBHItJI5svnpDal0rdE10w",
+		Channels:   []string{"t1.alerts.BTC"},
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected PermissionDenied, got %v", err)
+	}
+}
+
+func TestUnregisterDevice_CommunityEdition(t *testing.T) {
+	t.Parallel()
+
+	srv, err := grpcserver.NewServer(grpcserver.ServerConfig{
+		Repo:        newMockRepo(),
+		ConfigCache: newMockConfigCache(),
+		ProvClient:  &mockProvClient{},
+		Logger:      zerolog.Nop(),
+		Manager:     license.NewTestManager(license.Community),
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	_, err = srv.UnregisterDevice(context.Background(), &pushv1.UnregisterDeviceRequest{
+		TenantId: "t1",
+		DeviceId: 1,
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected PermissionDenied, got %v", err)
+	}
+}
+
+func TestGetVAPIDKey_CommunityEdition(t *testing.T) {
+	t.Parallel()
+
+	srv, err := grpcserver.NewServer(grpcserver.ServerConfig{
+		Repo:        newMockRepo(),
+		ConfigCache: newMockConfigCache(),
+		ProvClient:  &mockProvClient{},
+		Logger:      zerolog.Nop(),
+		Manager:     license.NewTestManager(license.Community),
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	_, err = srv.GetVAPIDKey(context.Background(), &pushv1.GetVAPIDKeyRequest{
+		TenantId: "t1",
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected PermissionDenied, got %v", err)
 	}
 }

@@ -21,6 +21,7 @@ import (
 	pushv1 "github.com/klurvio/sukko/gen/proto/sukko/push/v1"
 	"github.com/klurvio/sukko/internal/push/repository"
 	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/license"
 )
 
 // ConfigCache provides push credential data from the provisioning system.
@@ -45,6 +46,7 @@ type ServerConfig struct {
 	ConfigCache ConfigCache
 	ProvClient  provisioningv1.ProvisioningInternalServiceClient
 	Logger      zerolog.Logger
+	Manager     *license.Manager // required for per-request edition checks
 }
 
 // Server implements pushv1.PushServiceServer for device registration,
@@ -56,6 +58,7 @@ type Server struct {
 	provClient  provisioningv1.ProvisioningInternalServiceClient
 	logger      zerolog.Logger
 	vapidMu     sync.Mutex // guards VAPID auto-generation (prevent concurrent generation for same tenant)
+	manager     *license.Manager
 }
 
 // NewServer creates a PushService gRPC server.
@@ -70,18 +73,26 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.ProvClient == nil {
 		return nil, errors.New("grpcserver.NewServer: provisioning client is required")
 	}
+	if cfg.Manager == nil {
+		return nil, errors.New("grpcserver.NewServer: manager is required")
+	}
 
 	return &Server{
 		repo:        cfg.Repo,
 		configCache: cfg.ConfigCache,
 		provClient:  cfg.ProvClient,
 		logger:      cfg.Logger,
+		manager:     cfg.Manager,
 	}, nil
 }
 
 // RegisterDevice stores a push subscription for a device.
 // Validates platform, platform-specific fields, channels, and tenant prefix.
 func (s *Server) RegisterDevice(ctx context.Context, req *pushv1.RegisterDeviceRequest) (*pushv1.RegisterDeviceResponse, error) {
+	if !s.manager.HasFeature(license.PushNotifications) {
+		return nil, status.Errorf(codes.PermissionDenied, "push notifications require Enterprise edition (current: %s)", s.manager.CurrentEdition())
+	}
+
 	// Validate tenant
 	if req.GetTenantId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
@@ -159,6 +170,10 @@ func (s *Server) RegisterDevice(ctx context.Context, req *pushv1.RegisterDeviceR
 
 // UnregisterDevice removes a push subscription by device ID.
 func (s *Server) UnregisterDevice(ctx context.Context, req *pushv1.UnregisterDeviceRequest) (*pushv1.UnregisterDeviceResponse, error) {
+	if !s.manager.HasFeature(license.PushNotifications) {
+		return nil, status.Errorf(codes.PermissionDenied, "push notifications require Enterprise edition (current: %s)", s.manager.CurrentEdition())
+	}
+
 	if req.GetTenantId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
@@ -193,6 +208,10 @@ type vapidCredential struct {
 // GetVAPIDKey returns the tenant's VAPID public key for Web Push.
 // Auto-generates an ECDSA P-256 key pair on first use (FR-007).
 func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest) (*pushv1.GetVAPIDKeyResponse, error) {
+	if !s.manager.HasFeature(license.PushNotifications) {
+		return nil, status.Errorf(codes.PermissionDenied, "push notifications require Enterprise edition (current: %s)", s.manager.CurrentEdition())
+	}
+
 	if req.GetTenantId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}

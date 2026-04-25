@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
+
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
@@ -151,5 +154,25 @@ func TestConfigValidate(t *testing.T) {
 				t.Errorf("expected error containing %q, got: %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+// TestLoadConfig_CommunityStart asserts that LoadConfig with no license key
+// succeeds and returns a Community-edition manager (startup gate removed per FR-003).
+func TestLoadConfig_CommunityStart(t *testing.T) {
+	// Set required env vars so env.Parse succeeds.
+	t.Setenv("PROVISIONING_GRPC_ADDR", "localhost:9090")
+	t.Setenv("MESSAGE_BACKEND", "kafka")
+	t.Setenv("KAFKA_BROKERS", "localhost:19092")
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432/push")
+	t.Setenv("SUKKO_LICENSE_KEY", "") // explicitly empty — no key
+
+	cfg, err := LoadConfig(zerolog.Nop())
+	if err != nil {
+		t.Fatalf("LoadConfig with empty license key must not return an error, got: %v", err)
+	}
+
+	if cfg.EditionManager().Edition() != license.Community {
+		t.Errorf("expected Community edition with no license key, got: %s", cfg.EditionManager().Edition())
 	}
 }

@@ -147,14 +147,9 @@ func LoadConfig(logger zerolog.Logger) (*Config, error) {
 	}
 	cfg.editionManager = mgr
 
-	// Push service is Enterprise-only (Constitution XIII)
-	if !mgr.HasFeature(license.PushNotifications) {
-		return nil, fmt.Errorf("push notifications require Enterprise edition (current: %s)", mgr.Edition())
-	}
-
 	logger.Info().
 		Str("edition", mgr.Edition().String()).
-		Msg("Configuration loaded and validated successfully")
+		Msg("Configuration loaded — edition resolved from license key (Community if no key set)")
 
 	return cfg, nil
 }
