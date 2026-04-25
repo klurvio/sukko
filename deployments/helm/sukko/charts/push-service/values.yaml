@@ -97,11 +97,12 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /health
+    path: /ready
     port: 3009
-  initialDelaySeconds: 3
+  initialDelaySeconds: 10
   periodSeconds: 5
   timeoutSeconds: 2
+  failureThreshold: 6
 
 service:
   type: ClusterIP

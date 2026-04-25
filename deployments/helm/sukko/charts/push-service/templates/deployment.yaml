@@ -63,17 +63,6 @@ spec:
               value: {{ .Values.environment | quote }}
             {{- end }}
 
-            # License key (Pro/Enterprise editions)
-            {{- with ((.Values.global).license) }}
-            {{- if .existingSecret }}
-            - name: SUKKO_LICENSE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .existingSecret }}
-                  key: {{ .existingSecretKey | default "license-key" }}
-            {{- end }}
-            {{- end }}
-
             # Auto-wired service addresses (Kubernetes service discovery)
             - name: PROVISIONING_GRPC_ADDR
               value: {{ .Values.provisioningGRPCAddr | default (printf "%s-provisioning-grpc:9090" .Release.Name) | quote }}

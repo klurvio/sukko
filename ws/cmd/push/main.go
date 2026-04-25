@@ -27,7 +27,9 @@ import (
 	"github.com/klurvio/sukko/internal/push/provider"
 	"github.com/klurvio/sukko/internal/push/repository"
 	"github.com/klurvio/sukko/internal/push/worker"
+	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/provapi"
@@ -232,7 +234,7 @@ func main() {
 		GRPCAddr:          cfg.ProvisioningGRPCAddr,
 		ReconnectDelay:    cfg.GRPCReconnectDelay,
 		ReconnectMaxDelay: cfg.GRPCReconnectMaxDelay,
-		MetricPrefix:      "push",
+		MetricPrefix:      serviceName,
 		Logger:            structuredLogger,
 		OnRevocation: func(entry provapi.RevocationEntry) {
 			svc.HandleRevocation(entry)
@@ -240,6 +242,19 @@ func main() {
 	})
 	if revErr != nil {
 		structuredLogger.Fatal().Err(revErr).Msg("Failed to create revocation registry")
+	}
+
+	// License watcher — subscribe to WatchLicense gRPC stream for runtime edition updates
+	licenseWatcher, licErr := provapi.NewStreamLicenseWatcher(provapi.StreamLicenseWatcherConfig{
+		GRPCAddr:          cfg.ProvisioningGRPCAddr,
+		ReconnectDelay:    cfg.GRPCReconnectDelay,
+		ReconnectMaxDelay: cfg.GRPCReconnectMaxDelay,
+		MetricPrefix:      serviceName,
+		Manager:           cfg.EditionManager(),
+		Logger:            structuredLogger,
+	})
+	if licErr != nil {
+		structuredLogger.Fatal().Err(licErr).Msg("Failed to create license watcher")
 	}
 
 	// Create gRPC server with interceptors for device registration
@@ -268,6 +283,7 @@ func main() {
 		ConfigCache: configClient,
 		ProvClient:  configClient.ProvisioningClient(),
 		Logger:      structuredLogger,
+		Manager:     cfg.EditionManager(),
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create push gRPC server")
@@ -275,12 +291,7 @@ func main() {
 	pushv1.RegisterPushServiceServer(grpcSrv, pushGRPCServer)
 
 	// Set up HTTP server for health + metrics
-	httpMux := http.NewServeMux()
-	httpMux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok")) // Write error non-actionable for health endpoint
-	})
-	httpMux.Handle("/metrics", promhttp.Handler())
+	httpMux := newHTTPMux(licenseWatcher, cfg.EditionManager())
 
 	httpAddr := fmt.Sprintf(":%d", cfg.HTTPPort)
 	httpServer := &http.Server{
@@ -348,6 +359,11 @@ func main() {
 		structuredLogger.Error().Err(err).Msg("Error stopping revocation registry")
 	}
 
+	// Stop license watcher (closes gRPC stream)
+	if err := licenseWatcher.Close(); err != nil {
+		structuredLogger.Warn().Err(err).Msg("License watcher close failed")
+	}
+
 	// Stop config client (closes gRPC streams + connections)
 	if err := configClient.Stop(); err != nil {
 		structuredLogger.Error().Err(err).Msg("Error stopping config client")
@@ -364,6 +380,46 @@ func main() {
 	wg.Wait()
 
 	structuredLogger.Info().Msg("Push notification service gracefully shut down")
+}
+
+// licenseStateGetter is satisfied by *provapi.StreamLicenseWatcher.
+// Extracted as an interface to allow HTTP handler unit testing.
+type licenseStateGetter interface {
+	State() int32
+}
+
+// newHTTPMux builds the HTTP mux for the push service.
+// /health — liveness probe: always 200; reports license stream connectivity.
+// /ready  — readiness probe: 503 until Enterprise license active, then 200.
+// /metrics — Prometheus metrics.
+func newHTTPMux(watcher licenseStateGetter, mgr *license.Manager) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		streamState := provapi.StreamLabelConnected
+		if watcher.State() == provapi.StreamStateDisconnected {
+			streamState = provapi.StreamLabelDegraded
+		}
+		_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{ // write error non-actionable for liveness endpoint
+			"status":         "ok",
+			"service":        serviceName,
+			"license_stream": streamState,
+		})
+	})
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
+		if !mgr.HasFeature(license.PushNotifications) {
+			_ = httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{ // write error non-actionable for readiness endpoint
+				"ready":   false,
+				"edition": mgr.CurrentEdition().String(),
+			})
+			return
+		}
+		_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{ // write error non-actionable for readiness endpoint
+			"ready":   true,
+			"edition": mgr.CurrentEdition().String(),
+		})
+	})
+	mux.Handle("/metrics", promhttp.Handler())
+	return mux
 }
 
 // splitBrokers splits a comma-separated broker list into individual addresses.

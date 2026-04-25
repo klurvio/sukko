@@ -135,8 +135,7 @@ func (c *Client) ReadLoop(ctx context.Context) (ws.StatusCode, error) {
 			if ctx.Err() != nil {
 				return 0, nil
 			}
-			var closeErr wsutil.ClosedError
-			if errors.As(err, &closeErr) {
+			if closeErr, ok := errors.AsType[wsutil.ClosedError](err); ok {
 				return closeErr.Code, nil
 			}
 			c.logger.Debug().Err(err).Msg("read error")

@@ -16,8 +16,8 @@ import (
 
 // isDuplicateKeyError detects unique constraint violations from PostgreSQL.
 func isDuplicateKeyError(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	return ok && pgErr.Code == pgerrcode.UniqueViolation
 }
 
 // defaultListLimit is the fallback page size when the caller provides no limit.
