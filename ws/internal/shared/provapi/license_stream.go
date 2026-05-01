@@ -19,15 +19,21 @@ import (
 	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
+// DefaultDowngradeGracePeriod is the time allowed between downgrade detection and forced restart.
+// It is a vendor-enforced constant — not operator-configurable.
+const DefaultDowngradeGracePeriod = 14 * 24 * time.Hour
+
 // StreamLicenseWatcherConfig configures the StreamLicenseWatcher.
 type StreamLicenseWatcherConfig struct {
-	GRPCAddr          string
-	ReconnectDelay    time.Duration
-	ReconnectMaxDelay time.Duration
-	MetricPrefix      string // "gateway", "ws", or "push"
-	Manager           *license.Manager
-	Logger            zerolog.Logger
-	OnReload          func() // Optional callback invoked after each successful Manager.Reload(). Runs in the watcher goroutine (RecoverPanic covers panics).
+	GRPCAddr             string
+	ReconnectDelay       time.Duration
+	ReconnectMaxDelay    time.Duration
+	MetricPrefix         string // "gateway", "ws", or "push"
+	Manager              *license.Manager
+	Logger               zerolog.Logger
+	OnReload             func()                         // Optional callback invoked after each successful Manager.Reload(). Runs in the watcher goroutine (RecoverPanic covers panics).
+	OnDowngrade          func(from, to license.Edition) // Optional callback invoked when the downgrade grace period expires. Typically calls cancel() to initiate graceful shutdown.
+	DowngradeGracePeriod time.Duration                  // For testing only. When zero (production), DefaultDowngradeGracePeriod is used. Services MUST NOT set this field.
 }
 
 // StreamLicenseWatcher subscribes to the WatchLicense gRPC stream and calls
@@ -43,6 +49,13 @@ type StreamLicenseWatcher struct {
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	// Grace period drain state.
+	timer   *time.Timer // nil = no grace period running; non-nil = timer created (may be running or already fired; Stop() is always safe). Protected by timerMu.
+	timerMu sync.Mutex
+	// Intentional: fires OnDowngrade at most once per process lifetime.
+	// Not reset on reconnect or cancel — the process is expected to restart after a drain.
+	once sync.Once
 
 	streamStateGauge  prometheus.Gauge
 	reconnectsCounter prometheus.Counter
@@ -115,6 +128,64 @@ func (w *StreamLicenseWatcher) State() int32 {
 	return w.streamState.Load()
 }
 
+// startGracePeriod starts the downgrade grace period timer. No-op if already running.
+func (w *StreamLicenseWatcher) startGracePeriod(from, to license.Edition) {
+	w.timerMu.Lock()
+	if w.timer != nil {
+		w.timerMu.Unlock()
+		return // grace period already running
+	}
+	w.timerMu.Unlock()
+
+	gracePeriod := w.config.DowngradeGracePeriod
+	if gracePeriod == 0 {
+		gracePeriod = DefaultDowngradeGracePeriod
+	}
+
+	// Called outside the lock; time.AfterFunc is non-blocking and avoids holding timerMu across a goroutine spawn.
+	t := time.AfterFunc(gracePeriod, func() {
+		// time.AfterFunc runs on a Go runtime goroutine, not under wg.Go —
+		// RecoverPanic must be added explicitly per Constitution V.
+		defer logging.RecoverPanic(w.logger, "downgrade_timer", nil)
+		w.once.Do(func() {
+			if w.config.OnDowngrade != nil {
+				w.config.OnDowngrade(from, to)
+			} else {
+				w.logger.Warn().Msg("OnDowngrade is nil — grace period expired but no action taken")
+			}
+		})
+	})
+
+	w.timerMu.Lock()
+	w.timer = t
+	w.timerMu.Unlock()
+
+	w.logger.Warn().
+		Str("from_edition", from.String()).
+		Str("to_edition", to.String()).
+		Time("drain_at", time.Now().Add(gracePeriod)).
+		Msg("Edition downgrade detected — grace period started")
+}
+
+// cancelGracePeriod cancels the running grace period timer. No-op if no timer is running.
+func (w *StreamLicenseWatcher) cancelGracePeriod() {
+	w.timerMu.Lock()
+	if w.timer == nil {
+		w.timerMu.Unlock()
+		return
+	}
+	// Return value ignored — sync.Once in the callback handles the race where the timer already fired.
+	w.timer.Stop()
+	// time.AfterFunc timers have no .C channel — draining would deadlock.
+	w.timer = nil
+	w.timerMu.Unlock()
+
+	w.logger.Info().
+		Str("reason", "license renewed or upgraded").
+		Str("current_edition", w.manager.CurrentEdition().String()).
+		Msg("Edition downgrade grace period canceled")
+}
+
 // streamLoop runs the gRPC stream with reconnection logic.
 func (w *StreamLicenseWatcher) streamLoop(ctx context.Context) {
 	client := provisioningv1.NewProvisioningInternalServiceClient(w.conn)
@@ -169,17 +240,27 @@ func (w *StreamLicenseWatcher) streamLoop(ctx context.Context) {
 				continue
 			}
 
+			oldEdition := w.manager.CurrentEdition()
 			if err := w.manager.Reload(resp.GetLicenseKey()); err != nil {
 				w.logger.Warn().Err(err).Msg("license reload from stream failed")
 				continue
 			}
+			newEdition := w.manager.CurrentEdition()
 
 			w.logger.Info().
-				Str("edition", w.manager.CurrentEdition().String()).
+				Str("edition", newEdition.String()).
 				Msg("license reloaded from stream")
 
 			if w.config.OnReload != nil {
 				w.config.OnReload()
+			}
+
+			if !newEdition.IsAtLeast(oldEdition) {
+				// newEdition < oldEdition — downgrade detected; start grace period timer if not already running
+				w.startGracePeriod(oldEdition, newEdition)
+			} else {
+				// renewal or upgrade — cancel any running timer
+				w.cancelGracePeriod()
 			}
 		}
 	}
