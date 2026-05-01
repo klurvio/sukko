@@ -126,22 +126,28 @@ If no findings survive scoring: confirm "All changes pass review (0 issues score
 
 ---
 
-## Step 7 — Apply Fixes
+## Step 7 — Resolve via `/resolve`
 
-- Ask which issues to fix: all, specific ones by number, or none
-- Apply approved fixes
-- Re-read modified files to verify no new issues were introduced by the fixes
-- Run `go vet ./...` on changed packages after applying fixes
+Hand surviving findings to `/resolve` for interactive resolution. The resolve loop:
+
+- Presents issues **one at a time**, ordered Critical → Warning → Suggestion
+- For each issue: full context, options, recommendation — waits for user decision
+- Applies the accepted fix directly to the relevant file(s)
+- Confirms the change, reports remaining count, moves to the next issue
+- Repeats until all issues are resolved or user defers/stops
+
+Do NOT apply fixes directly — `/resolve` owns the fix-apply loop.
 
 ---
 
 ## Step 8 — Iterate
 
-Repeat Steps 4–7 on modified files only:
+After `/resolve` completes a round, re-run agents (Steps 4–5) on files modified during resolution only:
 
-- Continue until no issues remain or user opts to stop
-- Ask before each iteration: "N issues remain — continue reviewing? (yes / stop)"
-- On each pass, only re-run agents on files modified in the previous fix pass
+- If new findings survive scoring: hand them back to `/resolve` for another round
+- Ask before each re-run: "Modified files re-checked — N new issues found. Continue? (yes / stop)"
+- Continue until agents find no new issues on modified files, or user stops
+- Run `go vet ./...` on all changed packages when the iteration loop is clean
 
 ---
 
