@@ -76,6 +76,8 @@ autoscaling:
 
 podAnnotations: {}
 
+terminationGracePeriodSeconds: 60
+
 nodeSelector: {}
 
 tolerations: []

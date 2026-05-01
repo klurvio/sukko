@@ -1,12 +1,12 @@
 ---
 name: code-review
-description: Review local code changes against the project constitution and Go best practices. Iterates until all issues are resolved or user opts to stop.
+description: Review local code changes against the project constitution and Go best practices. Uses parallel specialized agents, adversarial scoring, and iterates until all issues are resolved or user opts to stop.
 user-invocable: true
 ---
 
 # Code Review
 
-Review local code changes for constitution compliance, codebase consistency, Go best practices, performance, and robustness. Iterates until clean.
+Review local code changes for constitution compliance, codebase consistency, Go best practices, performance, and robustness. Runs parallel specialized agents with adversarial verification scoring — only findings scored ≥70 are surfaced.
 
 ## Usage
 
@@ -19,96 +19,163 @@ Examples:
 - `/code-review ws/internal/shared/kafka/consumer.go` - Review a specific file
 - `/code-review ws/internal/server/` - Review all files in a directory
 
-## Instructions
+---
 
-1. **Determine review scope**:
-   - If a file or directory is provided as argument (`{{args}}`), review that target
-   - If no argument is provided, run these commands in parallel:
-     - `git diff --name-only` - Uncommitted changed files
-     - `git diff --cached --name-only` - Staged files
-     - `git log main..HEAD --name-only --pretty=format:""` - All files changed on this branch
-   - Deduplicate and filter to `.go`, `.yaml`, `.tf` files
-   - If no changes are found, inform the user
+## Step 1 — Eligibility Check
 
-2. **Load the constitution** from `CLAUDE.md` (the `## Constitution` section)
+Before investing in a full review, verify the scope is valid:
 
-3. **Read all files under review** and gather codebase context:
-   - Read each changed file in full
-   - Read neighboring files in the same package to understand local patterns
-   - Check for related code that interacts with the changed code
+- Run `git status` and `git diff --name-only` — if no changes exist, report "Nothing to review" and stop
+- Count changed files: if >50 Go files are changed, warn the user ("Large diff — review may be slow") and ask if they want to proceed
+- Identify file types in scope: `.go`, `.yaml`, `.tf` only — ignore generated files (`*.pb.go`, `*_gen.go`), vendored code, and test fixtures
+- Report: "Reviewing N files across M packages"
 
-4. **Review against each constitution principle**:
+---
 
-   | Principle | What to check |
-   |-----------|---------------|
-   | I. No Hardcoded Values | All configurable params use env vars or config structs |
-   | II. Defense in Depth | Input validation at every boundary, no assumptions about upstream |
-   | III. Error Handling | Errors wrapped with context (`%w`), sentinel errors defined, no ignored errors |
-   | IV. Graceful Degradation | Optional deps use noop implementations, multi-step cleanup continues on failure |
-   | V. Structured Logging | zerolog with structured fields, correct log levels, panic recovery on goroutines |
-   | VI. Observability | Prometheus metrics for key operations, consistent naming (`ws_` prefix), labels documented |
-   | VII. Concurrency Safety | Goroutine lifecycle managed (ctx+wg), minimal mutex sections, atomics for simple counters |
-   | VIII. Configuration | Env vars with `env:` struct tags, validation at startup, sensible defaults |
-   | IX. Testing | Table-driven tests, interface mocks, no t.Parallel() on shared resources |
-   | X. Security | Input validation, rate limiting, no secrets in logs, JWT validation |
-   | XI. Shared Code | No duplicates across packages, check `internal/shared/` before writing new utilities |
+## Step 2 — Find CLAUDE.md Files
 
-5. **Review for Go best practices** (beyond constitution):
-   - Modern Go (1.22+): `any`, `slices`, `maps`, `for range N`, `errors.Join`
-   - Interface design: small interfaces at point of use, accept interfaces return concrete
-   - No unnecessary allocations in hot paths
-   - Channel operations non-blocking where appropriate
-   - Proper `defer` ordering (panic recovery first)
+Scan the **entire directory hierarchy** for `CLAUDE.md` files — not just the root:
 
-6. **Review Helm/Terraform changes** (if applicable):
-   - Values have sensible defaults
-   - Env var names match Go `env:` struct tags
-   - No hardcoded IPs, passwords, or secrets
-   - Terraform variables have descriptions and validation
+```bash
+find . -name "CLAUDE.md" | sort
+```
 
-7. **Present findings** to the user:
-   - Group issues by severity: **Critical**, **Warning**, **Suggestion**
-   - For each issue include:
-     - File path and line number
-     - Constitution principle violated (if applicable)
-     - What the issue is
-     - Why it matters
-     - The fix (code snippet or clear instruction)
-   - If no issues are found, confirm the code passes review
+- Load each file found
+- Rules in subdirectory `CLAUDE.md` files apply only to code under that path
+- Compile all guidance into a unified rule set for the agents
+- The root `CLAUDE.md` `## Constitution` section takes precedence in conflicts
 
-8. **Apply fixes** after user approval:
-   - Ask the user which issues to fix (all, specific ones, or none)
-   - Apply the approved fixes
-   - Re-read the modified files to verify fixes don't introduce new issues
+---
 
-9. **Iterate** — repeat steps 4-8 on the modified files:
-   - Continue reviewing until no issues remain
-   - On each iteration, only review files that were modified in the previous pass
-   - Ask the user before each iteration if they want to continue or stop
+## Step 3 — PR Summary
 
-10. **Update pass counter** in `spec.md`:
-    - Look for a `**Passes**:` line near the top of the spec (after the metadata block)
-    - If it exists, increment the `code-review` counter and update its status. Do NOT modify other skill counters.
-    - If it doesn't exist, add `**Passes**: code-review: 1 ✓` (or without `✓` if issues were found) after the last metadata line (before `## Context`)
-    - Set `✓` if PASS (no issues), remove `✓` if issues were found
-    - Example: `**Passes**: clarify: 2 ✓ | code-review: 3 ✓` means 3 code-review passes, last one clean
+Run two operations **in parallel** to build context for the review agents:
 
-11. **Move spec to completed** when review passes with no remaining issues:
-    - Get current branch: `git branch --show-current`
-    - Resolve spec directory by searching in order (first match wins):
-      1. `specs/in-progress/[branch-name]/`
-      2. `specs/backlog/[branch-name]/`
-      3. `specs/completed/[branch-name]/`
-      4. `specs/[branch-name]/` (legacy fallback)
-    - If the spec was found in `specs/in-progress/[branch-name]/` or `specs/backlog/[branch-name]/`, move it to `specs/completed/[branch-name]/`
-    - Create a `COMPLETED_MM-DD-YYYY_HH-MM` timestamp marker in the spec directory
-    - If already in `specs/completed/`, just create the timestamp marker if not present
+**A — Change summary**: Collect commit messages (`git log main..HEAD --oneline`), PR description (if available via `gh pr view`), and the list of changed files with their change type (added/modified/deleted).
+
+**B — Diff context**: For each changed file, read the full file plus the `git diff` for that file. Also read 1-2 neighboring files in the same package to understand local patterns and what the changed code interacts with.
+
+Produce a brief internal summary (not shown to user unless asked):
+- What the change set does in one sentence
+- Which packages are affected
+- Whether infrastructure (Helm/Terraform) is also changed
+
+---
+
+## Step 4 — Five Parallel Review Agents
+
+Spawn all five agents **concurrently**. Each agent reviews the full diff + file context from Step 3, applies its specific lens, and returns findings with a **confidence score (0–100)** per finding.
+
+| Agent | Focus |
+|-------|-------|
+| **Agent 1** | Constitution compliance — all principles from every CLAUDE.md found in Step 2 |
+| **Agent 2** | Logic bugs — type mismatches, off-by-one errors, nil dereferences, incorrect error handling |
+| **Agent 3** | Concurrency safety — goroutine lifecycle, channel rules, mutex scope, atomics, panic recovery |
+| **Agent 4** | Infrastructure coherence — Helm values match Go `env:` tags, Terraform variables have descriptions, no hardcoded secrets or IPs |
+| **Agent 5** | Go best practices — modern Go (1.22+), interface design, allocations in hot paths, dead code, stale comments |
+
+Each agent formats findings as:
+
+```
+[AGENT-N] file/path.go:LINE — <issue title>
+Confidence: XX/100
+What: <description>
+Why: <impact>
+Fix: <code snippet or clear instruction>
+```
+
+---
+
+## Step 5 — Score and Filter Issues
+
+For each finding returned by the five agents:
+
+1. **Spawn a verification subagent** whose job is to **challenge** the finding — not restate it. The verifier re-reads the relevant code and tries to disprove the issue (e.g., "is the nil check actually present two lines up?", "does this mutex scope actually extend across I/O?").
+
+2. **Adjust the confidence score** based on verification:
+   - Finding confirmed as real: score unchanged or boosted
+   - Finding partially confirmed: score reduced by 10-20
+   - Finding disproven: score dropped to 0
+
+3. **Filter**: discard any finding with a final score below **70**. Findings below 70 are noise — either false positives or too speculative to act on.
+
+4. **Deduplicate**: if two agents reported the same issue, merge into one finding, keeping the higher confidence score.
+
+5. **Rank** surviving findings by severity:
+   - 🔴 **Critical** (score ≥ 90): Constitution MUST violations, data races, panic paths, silent failures
+   - 🟡 **Warning** (score 80–89): Constitution SHOULD violations, non-obvious bugs, missing tests for changed code
+   - 🔵 **Suggestion** (score 70–79): Style, naming, minor improvements worth addressing but not blocking
+
+---
+
+## Step 6 — Present Findings
+
+Present surviving findings (score ≥ 70) grouped by severity. For each issue:
+
+```
+🔴 Critical — [file:line]
+Constitution: <principle violated>
+Issue: <what is wrong>
+Impact: <why it matters>
+Fix:
+  <code snippet>
+Confidence: XX/100
+```
+
+If no findings survive scoring: confirm "All changes pass review (0 issues scored ≥70)."
+
+---
+
+## Step 7 — Apply Fixes
+
+- Ask which issues to fix: all, specific ones by number, or none
+- Apply approved fixes
+- Re-read modified files to verify no new issues were introduced by the fixes
+- Run `go vet ./...` on changed packages after applying fixes
+
+---
+
+## Step 8 — Iterate
+
+Repeat Steps 4–7 on modified files only:
+
+- Continue until no issues remain or user opts to stop
+- Ask before each iteration: "N issues remain — continue reviewing? (yes / stop)"
+- On each pass, only re-run agents on files modified in the previous fix pass
+
+---
+
+## Step 9 — Update Spec Pass Counter
+
+- Look for a `**Passes**:` line near the top of the spec (after the metadata block)
+- If it exists, increment the `code-review` counter and update its status. Do NOT modify other skill counters.
+- If it doesn't exist, add `**Passes**: code-review: 1 ✓` (or without `✓` if issues were found) after the last metadata line (before `## Context`)
+- Set `✓` if PASS (no issues), remove `✓` if issues were found
+- Example: `**Passes**: clarify: 2 ✓ | code-review: 3 ✓` means 3 code-review passes, last one clean
+
+---
+
+## Step 10 — Mark Spec Complete
+
+When review passes with no remaining issues:
+
+- Get current branch: `git branch --show-current`
+- Resolve spec directory by searching in order (first match wins):
+  1. `specs/in-progress/[branch-name]/`
+  2. `specs/backlog/[branch-name]/`
+  3. `specs/completed/[branch-name]/`
+  4. `specs/[branch-name]/` (legacy fallback)
+- If found in `specs/in-progress/` or `specs/backlog/`, move to `specs/completed/[branch-name]/`
+- Create a `COMPLETED_MM-DD-YYYY_HH-MM` timestamp marker in the spec directory
+- If already in `specs/completed/`, just add the timestamp marker if not present
+
+---
 
 ## Notes
 
 - Always read files before reviewing — never assume code patterns from memory
-- Prioritize issues that affect correctness and robustness over style preferences
+- Verification agents (Step 5) must be adversarial — their job is to disprove, not confirm
+- The 70-point threshold is the primary noise filter — do not lower it
 - Do not flag issues in code that was not changed unless it directly impacts the reviewed code
 - Respect existing patterns even if they differ from textbook best practices — consistency matters
-- Do not add comments, docstrings, or type annotations to unchanged code
-- If a pattern seems intentionally unconventional, ask before flagging it
+- Parallel agent spawning (Step 4) and verification (Step 5) MUST run concurrently for performance

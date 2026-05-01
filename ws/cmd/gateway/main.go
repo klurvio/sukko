@@ -19,6 +19,7 @@ import (
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/profiling"
+	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/tracing"
 )
 
@@ -29,7 +30,7 @@ var (
 	BuildTime  = "unknown"
 )
 
-const serviceName = "ws-gateway"
+const serviceName = gateway.ServiceName
 
 func main() {
 	// Bootstrap logger for pre-config startup (zerolog without config dependency)
@@ -146,6 +147,21 @@ func main() {
 	} else {
 		logger.Info().Msg("Push service disabled (requires Enterprise edition)")
 	}
+
+	// Closed via gw.Close() deferred above — fatal only if Manager is nil or addr is empty.
+	licenseWatcher, err := provapi.NewStreamLicenseWatcher(provapi.StreamLicenseWatcherConfig{
+		GRPCAddr:          config.ProvisioningGRPCAddr,
+		ReconnectDelay:    config.GRPCReconnectDelay,
+		ReconnectMaxDelay: config.GRPCReconnectMaxDelay,
+		MetricPrefix:      "gateway",
+		Manager:           config.EditionManager(),
+		Logger:            logger,
+	})
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to create license watcher")
+	}
+	gw.SetLicenseWatcher(licenseWatcher)
+	logger.Info().Str("addr", config.ProvisioningGRPCAddr).Msg("License watcher started")
 
 	// Create publish rate limiter (background cleanup goroutine)
 	var limiterWg sync.WaitGroup

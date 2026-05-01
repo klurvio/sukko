@@ -36,6 +36,10 @@ const (
 	spanWebSocketUpgrade = "websocket.upgrade"
 )
 
+// ServiceName is the canonical identifier for the ws-gateway service.
+// Used in health responses, logging, tracing, and profiling.
+const ServiceName = "ws-gateway"
+
 // Gateway handles WebSocket connections, authenticating clients and proxying
 // to the ws-server backend with permission-based channel filtering.
 type Gateway struct {
@@ -46,6 +50,7 @@ type Gateway struct {
 	streamKeyRegistry    *provapi.StreamKeyRegistry
 	streamChannelRules   *provapi.StreamChannelRulesProvider
 	streamAPIKeyRegistry *provapi.StreamAPIKeyRegistry // concrete for State() in health
+	streamLicenseWatcher licenseWatcher                // nil when provisioning not configured
 
 	apiKeyRegistry       APIKeyLookup // interface for Lookup() + mock injection in tests
 	channelRulesProvider ChannelRulesProvider
@@ -223,6 +228,12 @@ func (gw *Gateway) SetRevocationRegistry(reg *provapi.StreamRevocationRegistry) 
 	gw.revocationRegistry = reg
 }
 
+// SetLicenseWatcher sets the WatchLicense stream watcher for health reporting and shutdown.
+// Called from main.go after the Gateway is created.
+func (gw *Gateway) SetLicenseWatcher(w licenseWatcher) {
+	gw.streamLicenseWatcher = w
+}
+
 // Close releases resources held by the gateway.
 // Should be called during shutdown.
 func (gw *Gateway) Close() error {
@@ -250,6 +261,12 @@ func (gw *Gateway) Close() error {
 	if gw.revocationRegistry != nil {
 		if err := gw.revocationRegistry.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close revocation registry: %w", err))
+		}
+	}
+
+	if gw.streamLicenseWatcher != nil {
+		if err := gw.streamLicenseWatcher.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close license watcher: %w", err))
 		}
 	}
 
@@ -413,35 +430,47 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 // streamStatus returns the overall status and per-stream states.
 func (gw *Gateway) streamStatus() (status, keysStream, configStream, apiKeysStream string) {
 	status = "ok"
-	keysStream = "connected"
-	configStream = "connected"
-	apiKeysStream = "connected"
+	keysStream = provapi.StreamLabelConnected
+	configStream = provapi.StreamLabelConnected
+	apiKeysStream = provapi.StreamLabelConnected
 
 	if gw.streamKeyRegistry != nil {
 		if gw.streamKeyRegistry.State() == provapi.StreamStateDisconnected {
 			status = "degraded"
-			keysStream = "disconnected"
+			keysStream = provapi.StreamLabelDisconnected
 		}
 	} else {
-		keysStream = "disabled"
+		keysStream = provapi.StreamLabelDisabled
 	}
 	if gw.streamChannelRules != nil {
 		if gw.streamChannelRules.State() == provapi.StreamStateDisconnected {
 			status = "degraded"
-			configStream = "disconnected"
+			configStream = provapi.StreamLabelDisconnected
 		}
 	} else {
-		configStream = "disabled"
+		configStream = provapi.StreamLabelDisabled
 	}
 	if gw.streamAPIKeyRegistry != nil {
 		if gw.streamAPIKeyRegistry.State() == provapi.StreamStateDisconnected {
 			status = "degraded"
-			apiKeysStream = "disconnected"
+			apiKeysStream = provapi.StreamLabelDisconnected
 		}
 	} else {
-		apiKeysStream = "disabled"
+		apiKeysStream = provapi.StreamLabelDisabled
 	}
 	return
+}
+
+// licenseStreamState returns the WatchLicense stream state for health reporting.
+// Unlike streamStatus(), this never affects the top-level "status" field.
+func (gw *Gateway) licenseStreamState() string {
+	if gw.streamLicenseWatcher == nil {
+		return provapi.StreamLabelDisabled
+	}
+	if gw.streamLicenseWatcher.State() == provapi.StreamStateDisconnected {
+		return provapi.StreamLabelDisconnected
+	}
+	return provapi.StreamLabelConnected
 }
 
 // HandleHealth handles liveness checks. Always returns 200 — the process is alive.
@@ -451,10 +480,11 @@ func (gw *Gateway) HandleHealth(w http.ResponseWriter, _ *http.Request) {
 
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{
 		"status":                       status,
-		"service":                      "ws-gateway",
+		"service":                      ServiceName,
 		"provisioning_keys_stream":     keysStream,
 		"provisioning_config_stream":   configStream,
 		"provisioning_api_keys_stream": apiKeysStream,
+		"provisioning_license_stream":  gw.licenseStreamState(),
 	})
 }
 
@@ -470,10 +500,11 @@ func (gw *Gateway) HandleReady(w http.ResponseWriter, _ *http.Request) {
 
 	_ = httputil.WriteJSON(w, httpStatus, map[string]string{
 		"status":                       status,
-		"service":                      "ws-gateway",
+		"service":                      ServiceName,
 		"provisioning_keys_stream":     keysStream,
 		"provisioning_config_stream":   configStream,
 		"provisioning_api_keys_stream": apiKeysStream,
+		"provisioning_license_stream":  gw.licenseStreamState(),
 	})
 }
 
