@@ -99,6 +99,11 @@ func main() {
 		Str("org", cfg.EditionManager().Org()).
 		Msg("Sukko edition resolved")
 
+	// Context for goroutine lifecycle — cancel() signals server error or license downgrade to main.
+	// Must be declared before licenseWatcher so OnDowngrade can capture cancel.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// License watcher — subscribe to WatchLicense gRPC stream for runtime updates
 	backendMismatch := &atomic.Bool{}
 	backendMismatchGauge := promauto.NewGauge(prometheus.GaugeOpts{
@@ -127,6 +132,7 @@ func main() {
 				backendMismatchGauge.Set(0)
 			}
 		},
+		OnDowngrade: provapi.LicenseDowngradeShutdown(structuredLogger, cancel),
 	})
 	if licErr != nil {
 		structuredLogger.Fatal().Err(licErr).Msg("Failed to create license watcher")
@@ -326,9 +332,6 @@ func main() {
 		structuredLogger.Fatal().Err(err).Str("backend", cfg.MessageBackend).Msg("Failed to create message backend")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	if err := msgBackend.Start(ctx); err != nil {
 		structuredLogger.Fatal().Err(err).Str("backend", cfg.MessageBackend).Msg("Failed to start message backend")
 	}
@@ -428,13 +431,17 @@ func main() {
 		structuredLogger.Info().Str("addr", grpcAddr).Msg("Starting gRPC server")
 		if err := grpcSrv.Serve(grpcListener); err != nil {
 			structuredLogger.Error().Err(err).Msg("gRPC server error")
+			cancel() // FR-008: gRPC serve error triggers graceful shutdown
 		}
 	})
 
-	// Wait for interrupt signal
+	// Wait for interrupt signal or context cancellation (from server error or license downgrade)
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	<-sigCh
+	select {
+	case <-sigCh:
+	case <-ctx.Done():
+	}
 
 	structuredLogger.Info().Msg("Shutting down multi-core server")
 	cancel() // Signal ctx.Done() to all goroutines using ctx

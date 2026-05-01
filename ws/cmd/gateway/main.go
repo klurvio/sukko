@@ -148,6 +148,11 @@ func main() {
 		logger.Info().Msg("Push service disabled (requires Enterprise edition)")
 	}
 
+	// Context for goroutine lifecycle — cancel() signals server error or license downgrade to main.
+	// Must be declared before licenseWatcher so OnDowngrade can capture cancel.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Closed via gw.Close() deferred above — fatal only if Manager is nil or addr is empty.
 	licenseWatcher, err := provapi.NewStreamLicenseWatcher(provapi.StreamLicenseWatcherConfig{
 		GRPCAddr:          config.ProvisioningGRPCAddr,
@@ -156,6 +161,7 @@ func main() {
 		MetricPrefix:      "gateway",
 		Manager:           config.EditionManager(),
 		Logger:            logger,
+		OnDowngrade:       provapi.LicenseDowngradeShutdown(logger, cancel),
 	})
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to create license watcher")
@@ -176,10 +182,6 @@ func main() {
 	// Channel for shutdown signals
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
-
-	// Context for goroutine lifecycle — cancel() signals server error to main
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Start server in goroutine
 	var wg sync.WaitGroup

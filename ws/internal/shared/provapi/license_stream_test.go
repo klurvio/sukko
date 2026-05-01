@@ -2,6 +2,8 @@ package provapi
 
 import (
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9,6 +11,260 @@ import (
 
 	"github.com/klurvio/sukko/internal/shared/license"
 )
+
+// newDowngradeTestWatcher creates a StreamLicenseWatcher for downgrade-drain unit tests.
+// It uses a non-existent gRPC address so the stream loop stays disconnected.
+// The manager is pre-loaded with Enterprise edition. Cleanup is registered automatically.
+func newDowngradeTestWatcher(t *testing.T, metricPrefix string, cfg StreamLicenseWatcherConfig) *StreamLicenseWatcher {
+	t.Helper()
+	if cfg.Manager == nil {
+		cfg.Manager = license.NewTestManager(license.Enterprise)
+	}
+	cfg.GRPCAddr = "localhost:19997"
+	cfg.MetricPrefix = metricPrefix
+	cfg.Logger = zerolog.Nop()
+	w, err := NewStreamLicenseWatcher(cfg)
+	if err != nil {
+		t.Fatalf("NewStreamLicenseWatcher() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	return w
+}
+
+func TestStreamLicenseWatcher_StartGracePeriod_SetsTimer(t *testing.T) {
+	t.Parallel()
+	w := newDowngradeTestWatcher(t, "test_drain_set", StreamLicenseWatcherConfig{
+		DowngradeGracePeriod: 10 * time.Millisecond,
+	})
+
+	w.startGracePeriod(license.Enterprise, license.Pro)
+
+	w.timerMu.Lock()
+	timerSet := w.timer != nil
+	w.timerMu.Unlock()
+
+	if !timerSet {
+		t.Error("timer should be set after startGracePeriod")
+	}
+}
+
+func TestStreamLicenseWatcher_GracePeriodExpiry_CallsOnDowngrade(t *testing.T) {
+	t.Parallel()
+	called := make(chan struct{ from, to license.Edition }, 1)
+	w := newDowngradeTestWatcher(t, "test_drain_expiry", StreamLicenseWatcherConfig{
+		DowngradeGracePeriod: 20 * time.Millisecond,
+		OnDowngrade: func(from, to license.Edition) {
+			called <- struct{ from, to license.Edition }{from, to}
+		},
+	})
+
+	w.startGracePeriod(license.Enterprise, license.Pro)
+
+	select {
+	case result := <-called:
+		if result.from != license.Enterprise {
+			t.Errorf("from = %v, want Enterprise", result.from)
+		}
+		if result.to != license.Pro {
+			t.Errorf("to = %v, want Pro", result.to)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("OnDowngrade was not called within timeout")
+	}
+}
+
+func TestStreamLicenseWatcher_CancelGracePeriod_StopsTimer(t *testing.T) {
+	t.Parallel()
+	var callCount atomic.Int32
+	w := newDowngradeTestWatcher(t, "test_drain_cancel", StreamLicenseWatcherConfig{
+		DowngradeGracePeriod: 100 * time.Millisecond,
+		OnDowngrade: func(from, to license.Edition) {
+			callCount.Add(1)
+		},
+	})
+
+	w.startGracePeriod(license.Enterprise, license.Pro)
+	w.cancelGracePeriod()
+
+	// Wait longer than the timer duration to confirm callback was not called.
+	time.Sleep(200 * time.Millisecond)
+
+	if n := callCount.Load(); n != 0 {
+		t.Errorf("OnDowngrade called %d times after cancel, want 0", n)
+	}
+
+	w.timerMu.Lock()
+	timerNil := w.timer == nil
+	w.timerMu.Unlock()
+
+	if !timerNil {
+		t.Error("timer should be nil after cancelGracePeriod")
+	}
+}
+
+func TestStreamLicenseWatcher_DuplicateDowngrade_NoTimerReset(t *testing.T) {
+	t.Parallel()
+	var callCount atomic.Int32
+	w := newDowngradeTestWatcher(t, "test_drain_dup", StreamLicenseWatcherConfig{
+		DowngradeGracePeriod: 50 * time.Millisecond,
+		OnDowngrade: func(from, to license.Edition) {
+			callCount.Add(1)
+		},
+	})
+
+	w.startGracePeriod(license.Enterprise, license.Pro)
+
+	// Capture timer pointer after first call.
+	w.timerMu.Lock()
+	t1 := w.timer
+	w.timerMu.Unlock()
+
+	// Second downgrade event — must be a no-op (timer already running).
+	w.startGracePeriod(license.Enterprise, license.Pro)
+
+	w.timerMu.Lock()
+	t2 := w.timer
+	w.timerMu.Unlock()
+
+	if t1 != t2 {
+		t.Error("timer pointer changed on second startGracePeriod — timer was reset unexpectedly")
+	}
+
+	// Wait for timer to fire and verify OnDowngrade fires exactly once.
+	time.Sleep(200 * time.Millisecond)
+	if n := callCount.Load(); n != 1 {
+		t.Errorf("OnDowngrade called %d times, want exactly 1", n)
+	}
+}
+
+func TestStreamLicenseWatcher_OnDowngrade_FiresAtMostOnce(t *testing.T) {
+	t.Parallel()
+	var callCount atomic.Int32
+	called := make(chan struct{}, 1)
+	w := newDowngradeTestWatcher(t, "test_drain_once", StreamLicenseWatcherConfig{
+		DowngradeGracePeriod: 20 * time.Millisecond,
+		OnDowngrade: func(from, to license.Edition) {
+			callCount.Add(1)
+			select {
+			case called <- struct{}{}:
+			default:
+			}
+		},
+	})
+
+	// 10 goroutines call startGracePeriod concurrently — sync.Once in the
+	// timer callback must ensure OnDowngrade fires exactly once regardless.
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Go(func() {
+			w.startGracePeriod(license.Enterprise, license.Pro)
+		})
+	}
+	wg.Wait()
+
+	select {
+	case <-called:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("OnDowngrade was not called within timeout")
+	}
+
+	// Drain the grace period so any leaked timers can fire, then assert count.
+	time.Sleep(100 * time.Millisecond)
+	if n := callCount.Load(); n != 1 {
+		t.Errorf("OnDowngrade called %d times, want exactly 1", n)
+	}
+}
+
+func TestStreamLicenseWatcher_NilOnDowngrade_NoPanic(t *testing.T) {
+	t.Parallel()
+	w := newDowngradeTestWatcher(t, "test_drain_nil", StreamLicenseWatcherConfig{
+		DowngradeGracePeriod: 20 * time.Millisecond,
+		OnDowngrade:          nil,
+	})
+
+	// Must not panic — nil OnDowngrade logs a Warn and returns.
+	w.startGracePeriod(license.Enterprise, license.Pro)
+	time.Sleep(100 * time.Millisecond) // let timer fire
+}
+
+func TestStreamLicenseWatcher_CancelGracePeriod_NoopWhenNoTimer(t *testing.T) {
+	t.Parallel()
+	w := newDowngradeTestWatcher(t, "test_drain_cancel_noop", StreamLicenseWatcherConfig{})
+
+	// Must not panic or block.
+	w.cancelGracePeriod()
+
+	w.timerMu.Lock()
+	timerNil := w.timer == nil
+	w.timerMu.Unlock()
+	if !timerNil {
+		t.Error("timer should remain nil after cancelGracePeriod with no timer running")
+	}
+}
+
+func TestStreamLicenseWatcher_ZeroGracePeriod_UsesDefault(t *testing.T) {
+	t.Parallel()
+	var called atomic.Bool
+	w := newDowngradeTestWatcher(t, "test_drain_zero", StreamLicenseWatcherConfig{
+		DowngradeGracePeriod: 0, // production default — must resolve to DefaultDowngradeGracePeriod (14 days)
+		OnDowngrade: func(from, to license.Edition) {
+			called.Store(true)
+		},
+	})
+
+	w.startGracePeriod(license.Enterprise, license.Pro)
+
+	// Verify timer was created.
+	w.timerMu.Lock()
+	timerSet := w.timer != nil
+	w.timerMu.Unlock()
+	if !timerSet {
+		t.Fatal("timer should be set after startGracePeriod with zero DowngradeGracePeriod")
+	}
+
+	// With DefaultDowngradeGracePeriod (14 days), callback must NOT fire within 100ms.
+	time.Sleep(100 * time.Millisecond)
+	if called.Load() {
+		t.Error("OnDowngrade fired immediately — zero DowngradeGracePeriod was not resolved to DefaultDowngradeGracePeriod")
+	}
+
+	// Explicitly cancel to avoid the 14-day timer leaking after the test.
+	w.cancelGracePeriod()
+}
+
+func TestStreamLicenseWatcher_PostExpiryRenewal_Noop(t *testing.T) {
+	t.Parallel()
+	var callCount atomic.Int32
+	w := newDowngradeTestWatcher(t, "test_drain_postexpiry", StreamLicenseWatcherConfig{
+		DowngradeGracePeriod: 20 * time.Millisecond,
+		OnDowngrade: func(from, to license.Edition) {
+			callCount.Add(1)
+		},
+	})
+
+	// Start grace period and let it fire.
+	w.startGracePeriod(license.Enterprise, license.Pro)
+	time.Sleep(100 * time.Millisecond) // wait for timer to fire
+
+	if n := callCount.Load(); n != 1 {
+		t.Fatalf("expected OnDowngrade to fire once before renewal, got %d", n)
+	}
+
+	// Simulate post-expiry renewal — cancelGracePeriod must not panic.
+	w.cancelGracePeriod()
+
+	// Verify OnDowngrade was not called a second time.
+	if n := callCount.Load(); n != 1 {
+		t.Errorf("OnDowngrade called %d times after post-expiry renewal, want 1", n)
+	}
+
+	w.timerMu.Lock()
+	timerNil := w.timer == nil
+	w.timerMu.Unlock()
+	if !timerNil {
+		t.Error("timer should be nil after post-expiry cancelGracePeriod")
+	}
+}
 
 func TestNewStreamLicenseWatcher_Validation(t *testing.T) {
 	t.Parallel()

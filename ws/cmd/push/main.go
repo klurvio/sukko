@@ -252,6 +252,7 @@ func main() {
 		MetricPrefix:      serviceName,
 		Manager:           cfg.EditionManager(),
 		Logger:            structuredLogger,
+		OnDowngrade:       provapi.LicenseDowngradeShutdown(structuredLogger, cancel),
 	})
 	if licErr != nil {
 		structuredLogger.Fatal().Err(licErr).Msg("Failed to create license watcher")

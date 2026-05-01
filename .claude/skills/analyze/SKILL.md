@@ -128,15 +128,23 @@ Limit to 50 findings total; summarize overflow.
 
 ---
 
-### Step 8 — Offer Remediation
+### Step 8 — Resolve via `/resolve`
 
-Ask if the user wants concrete edit suggestions for top issues. Do NOT apply automatically.
+If findings exist, hand them to `/resolve` for interactive resolution. The resolve loop:
+
+- Presents issues **one at a time**, ordered CRITICAL → HIGH → MEDIUM → LOW
+- For each issue: full context, options, recommendation — waits for user decision
+- Applies the accepted fix to the relevant artifact (spec.md, plan.md, or tasks.md)
+- Confirms the change, reports remaining count, moves to the next issue
+- Repeats until all issues are resolved or user defers/stops
+
+If no findings exist: report "Analysis clean — all artifacts consistent" and stop.
 
 ---
 
 ## Notes
 
-- **NEVER modify files** — this is read-only analysis (Step 7 pass counter update is the sole exception)
+- **Analysis is read-only** — agents (Steps 4–5) and the report (Step 6) never modify files. Step 7 (pass counter) and Step 8 (`/resolve` fixes) are the sole exceptions.
 - **NEVER hallucinate missing sections** — report accurately what's absent
 - **Step 2 scope is strict**: only files named in tasks.md, only if they exist on disk
 - **Prioritize constitution violations** — always CRITICAL severity
