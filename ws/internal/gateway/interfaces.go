@@ -35,3 +35,10 @@ type APIKeyLookup interface {
 	// Close releases resources held by the registry.
 	Close() error
 }
+
+// licenseWatcher is used by Gateway for health reporting and shutdown.
+// Satisfied by *provapi.StreamLicenseWatcher; mock-injectable in tests.
+type licenseWatcher interface {
+	State() int32
+	Close() error
+}

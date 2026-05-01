@@ -30,12 +30,16 @@ const (
 	StreamStateConnected    = 1
 )
 
-// StreamLabelConnected and StreamLabelDegraded are the health-response string
-// representations of stream state, shared across all services that expose
-// stream state fields in their /health endpoint.
+// Stream label constants are the health-response string representations of stream
+// state, shared across all services that expose stream state in their /health endpoint.
+// StreamLabelDisconnected is used (not StreamLabelDegraded) when a stream is down but
+// the service remains functional on stale data — the distinction avoids ambiguity
+// with overall service degradation.
 const (
-	StreamLabelConnected = "connected"
-	StreamLabelDegraded  = "degraded"
+	StreamLabelConnected    = "connected"
+	StreamLabelDegraded     = "degraded"
+	StreamLabelDisconnected = "disconnected"
+	StreamLabelDisabled     = "disabled"
 )
 
 // Jitter constants for exponential backoff reconnection.

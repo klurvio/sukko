@@ -85,8 +85,9 @@ func newGatewayWithMockValidator(cfg *platform.GatewayConfig, logger zerolog.Log
 			cfg.UserScopedPatterns,
 			cfg.GroupScopedPatterns,
 		),
-		validator: validator,
-		logger:    logger.With().Str("component", "gateway").Logger(),
+		validator:          validator,
+		connectionRegistry: NewConnectionRegistry(),
+		logger:             logger.With().Str("component", "gateway").Logger(),
 	}
 }
 
@@ -220,8 +221,11 @@ func TestGateway_HandleHealth(t *testing.T) {
 	if result["status"] != "ok" {
 		t.Errorf("HandleHealth() status = %q, want %q", result["status"], "ok")
 	}
-	if result["service"] != "ws-gateway" {
-		t.Errorf("HandleHealth() service = %q, want %q", result["service"], "ws-gateway")
+	if result["service"] != ServiceName {
+		t.Errorf("HandleHealth() service = %q, want %q", result["service"], ServiceName)
+	}
+	if result["provisioning_license_stream"] != provapi.StreamLabelDisabled {
+		t.Errorf("HandleHealth() provisioning_license_stream = %q, want %q", result["provisioning_license_stream"], provapi.StreamLabelDisabled)
 	}
 }
 
@@ -355,6 +359,15 @@ func (m *mockAPIKeyLookup) Lookup(apiKey string) (*provapi.APIKeyInfo, bool) {
 
 func (m *mockAPIKeyLookup) Close() error { return nil }
 
+// mockLicenseWatcher implements licenseWatcher for testing.
+type mockLicenseWatcher struct {
+	state       int32
+	closeCalled bool
+}
+
+func (m *mockLicenseWatcher) State() int32 { return m.state }
+func (m *mockLicenseWatcher) Close() error { m.closeCalled = true; return nil }
+
 // newGatewayWithAPIKeyMock creates a gateway with auth enabled and injects both
 // a mock API key registry and an optional JWT validator. When validator is nil,
 // only API-key auth paths are exercisable.
@@ -366,9 +379,10 @@ func newGatewayWithAPIKeyMock(cfg *platform.GatewayConfig, logger zerolog.Logger
 			cfg.UserScopedPatterns,
 			cfg.GroupScopedPatterns,
 		),
-		validator:      validator,
-		apiKeyRegistry: apiKeys,
-		logger:         logger.With().Str("component", "gateway").Logger(),
+		validator:          validator,
+		connectionRegistry: NewConnectionRegistry(),
+		apiKeyRegistry:     apiKeys,
+		logger:             logger.With().Str("component", "gateway").Logger(),
 	}
 }
 
@@ -861,5 +875,165 @@ func TestHandleWebSocket_BothCredentials_InvalidJWT(t *testing.T) {
 	}
 	if errResp["message"] != "invalid token" {
 		t.Errorf("error message = %q, want %q", errResp["message"], "invalid token")
+	}
+}
+
+func TestGateway_LicenseStreamState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		watcher licenseWatcher
+		want    string
+	}{
+		{name: "nil watcher", watcher: nil, want: provapi.StreamLabelDisabled},
+		{name: "connected", watcher: &mockLicenseWatcher{state: provapi.StreamStateConnected}, want: provapi.StreamLabelConnected},
+		{name: "disconnected", watcher: &mockLicenseWatcher{state: provapi.StreamStateDisconnected}, want: provapi.StreamLabelDisconnected},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gw := newGatewayWithMockValidator(newTestGatewayConfig(), newTestLogger(), nil)
+			if tt.watcher != nil {
+				gw.SetLicenseWatcher(tt.watcher)
+			}
+			if got := gw.licenseStreamState(); got != tt.want {
+				t.Errorf("licenseStreamState() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGateway_HandleHealth_LicenseStreamDoesNotAffectStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		watcher       *mockLicenseWatcher
+		wantStatus    string
+		wantLicStream string
+	}{
+		{
+			name:          "disconnected watcher, all other streams nil",
+			watcher:       &mockLicenseWatcher{state: provapi.StreamStateDisconnected},
+			wantStatus:    "ok",
+			wantLicStream: provapi.StreamLabelDisconnected,
+		},
+		{
+			name:          "connected watcher",
+			watcher:       &mockLicenseWatcher{state: provapi.StreamStateConnected},
+			wantStatus:    "ok",
+			wantLicStream: provapi.StreamLabelConnected,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gw := newGatewayWithMockValidator(newTestGatewayConfig(), newTestLogger(), nil)
+			gw.SetLicenseWatcher(tt.watcher)
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil)
+			w := httptest.NewRecorder()
+			gw.HandleHealth(w, req)
+
+			resp := w.Result()
+			defer func() { _ = resp.Body.Close() }()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("HandleHealth() status code = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("Failed to read response body: %v", err)
+			}
+			var result map[string]string
+			if err := json.Unmarshal(body, &result); err != nil {
+				t.Fatalf("Failed to parse response body: %v", err)
+			}
+			if result["status"] != tt.wantStatus {
+				t.Errorf("status = %q, want %q", result["status"], tt.wantStatus)
+			}
+			if result["provisioning_license_stream"] != tt.wantLicStream {
+				t.Errorf("provisioning_license_stream = %q, want %q", result["provisioning_license_stream"], tt.wantLicStream)
+			}
+		})
+	}
+}
+
+func TestGateway_HandleReady_LicenseStreamDoesNotBlock(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		watcher        *mockLicenseWatcher
+		wantHTTPStatus int
+		wantLicStream  string
+	}{
+		{
+			name:           "disconnected watcher",
+			watcher:        &mockLicenseWatcher{state: provapi.StreamStateDisconnected},
+			wantHTTPStatus: http.StatusOK,
+			wantLicStream:  provapi.StreamLabelDisconnected,
+		},
+		{
+			name:           "connected watcher",
+			watcher:        &mockLicenseWatcher{state: provapi.StreamStateConnected},
+			wantHTTPStatus: http.StatusOK,
+			wantLicStream:  provapi.StreamLabelConnected,
+		},
+		{
+			name:           "nil watcher",
+			watcher:        nil,
+			wantHTTPStatus: http.StatusOK,
+			wantLicStream:  provapi.StreamLabelDisabled,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gw := newGatewayWithMockValidator(newTestGatewayConfig(), newTestLogger(), nil)
+			if tt.watcher != nil {
+				gw.SetLicenseWatcher(tt.watcher)
+			}
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ready", nil)
+			w := httptest.NewRecorder()
+			gw.HandleReady(w, req)
+
+			resp := w.Result()
+			defer func() { _ = resp.Body.Close() }()
+
+			if resp.StatusCode != tt.wantHTTPStatus {
+				t.Errorf("HandleReady() status code = %d, want %d (license stream must not cause 503)", resp.StatusCode, tt.wantHTTPStatus)
+			}
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("Failed to read response body: %v", err)
+			}
+			var result map[string]string
+			if err := json.Unmarshal(body, &result); err != nil {
+				t.Fatalf("Failed to parse response body: %v", err)
+			}
+			if result["provisioning_license_stream"] != tt.wantLicStream {
+				t.Errorf("provisioning_license_stream = %q, want %q", result["provisioning_license_stream"], tt.wantLicStream)
+			}
+		})
+	}
+}
+
+func TestGateway_Close_WithLicenseWatcher(t *testing.T) {
+	t.Parallel()
+	gw := newGatewayWithMockValidator(newTestGatewayConfig(), newTestLogger(), nil)
+	mock := &mockLicenseWatcher{}
+	gw.SetLicenseWatcher(mock)
+
+	if err := gw.Close(); err != nil {
+		t.Errorf("Close() error = %v, want nil", err)
+	}
+	if !mock.closeCalled {
+		t.Error("Close() did not call licenseWatcher.Close()")
 	}
 }
