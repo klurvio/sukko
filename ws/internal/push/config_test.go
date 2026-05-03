@@ -158,7 +158,7 @@ func TestConfigValidate(t *testing.T) {
 }
 
 // TestLoadConfig_CommunityStart asserts that LoadConfig with no license key
-// succeeds and returns a Community-edition manager (startup gate removed per FR-003).
+// fails with the Enterprise gate error — push-service requires Enterprise (FR-015).
 func TestLoadConfig_CommunityStart(t *testing.T) {
 	// Set required env vars so env.Parse succeeds.
 	t.Setenv("PROVISIONING_GRPC_ADDR", "localhost:9090")
@@ -167,12 +167,85 @@ func TestLoadConfig_CommunityStart(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/push")
 	t.Setenv("SUKKO_LICENSE_KEY", "") // explicitly empty — no key
 
+	_, err := LoadConfig(zerolog.Nop())
+	if err == nil {
+		t.Fatal("LoadConfig with empty license key must return an error — push-service requires Enterprise (FR-015)")
+	}
+	if !strings.Contains(err.Error(), "push-service requires an Enterprise license") {
+		t.Errorf("expected enterprise gate error, got: %v", err)
+	}
+}
+
+// enterpriseGateEnvVars sets the minimum required env vars for LoadConfig to reach the edition gate.
+func enterpriseGateEnvVars(t *testing.T) {
+	t.Helper()
+	t.Setenv("PROVISIONING_GRPC_ADDR", "localhost:9090")
+	t.Setenv("MESSAGE_BACKEND", "kafka")
+	t.Setenv("KAFKA_BROKERS", "localhost:19092")
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432/push")
+}
+
+// TestLoadConfig_EnterpriseGate_EmptyKey verifies that LoadConfig returns an error
+// when no license key is set — push-service requires Enterprise (FR-015).
+func TestLoadConfig_EnterpriseGate_EmptyKey(t *testing.T) {
+	enterpriseGateEnvVars(t)
+	t.Setenv("SUKKO_LICENSE_KEY", "")
+
+	_, err := LoadConfig(zerolog.Nop())
+	if err == nil {
+		t.Fatal("LoadConfig with empty key must return enterprise gate error")
+	}
+	if !strings.Contains(err.Error(), "push-service requires an Enterprise license") {
+		t.Errorf("expected enterprise gate error, got: %v", err)
+	}
+}
+
+// TestLoadConfig_EnterpriseGate_CommunityKey verifies that a Community or Pro key is rejected.
+// MUST NOT use t.Parallel() — SetPublicKeyForTesting mutates package-level state.
+func TestLoadConfig_EnterpriseGate_CommunityKey(t *testing.T) {
+	priv, pub := license.GenerateTestKeyPair()
+	license.SetPublicKeyForTesting(pub)
+
+	communityKey := license.SignTestLicense(license.Claims{
+		Edition: license.Community,
+		Org:     "CommunityOrg",
+		Exp:     1<<62 - 1, // far future
+		Iat:     1,
+	}, priv)
+
+	enterpriseGateEnvVars(t)
+	t.Setenv("SUKKO_LICENSE_KEY", communityKey)
+
+	_, err := LoadConfig(zerolog.Nop())
+	if err == nil {
+		t.Fatal("LoadConfig with Community key must return enterprise gate error")
+	}
+	if !strings.Contains(err.Error(), "push-service requires an Enterprise license") {
+		t.Errorf("expected enterprise gate error, got: %v", err)
+	}
+}
+
+// TestLoadConfig_EnterpriseGate_EnterpriseKey verifies that a valid Enterprise key passes the gate.
+// MUST NOT use t.Parallel() — SetPublicKeyForTesting mutates package-level state.
+func TestLoadConfig_EnterpriseGate_EnterpriseKey(t *testing.T) {
+	priv, pub := license.GenerateTestKeyPair()
+	license.SetPublicKeyForTesting(pub)
+
+	enterpriseKey := license.SignTestLicense(license.Claims{
+		Edition: license.Enterprise,
+		Org:     "EnterpriseOrg",
+		Exp:     1<<62 - 1, // far future
+		Iat:     1,
+	}, priv)
+
+	enterpriseGateEnvVars(t)
+	t.Setenv("SUKKO_LICENSE_KEY", enterpriseKey)
+
 	cfg, err := LoadConfig(zerolog.Nop())
 	if err != nil {
-		t.Fatalf("LoadConfig with empty license key must not return an error, got: %v", err)
+		t.Fatalf("LoadConfig with Enterprise key must not return an error, got: %v", err)
 	}
-
-	if cfg.EditionManager().Edition() != license.Community {
-		t.Errorf("expected Community edition with no license key, got: %s", cfg.EditionManager().Edition())
+	if cfg.EditionManager().Edition() != license.Enterprise {
+		t.Errorf("expected Enterprise edition, got: %s", cfg.EditionManager().Edition())
 	}
 }

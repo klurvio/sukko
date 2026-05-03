@@ -47,12 +47,14 @@ type StreamLicenseWatcher struct {
 	streamState atomic.Int32
 	reconnects  atomic.Int64
 
+	ctx    context.Context // root context; canceled by Close()
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	// Grace period drain state.
-	timer   *time.Timer // nil = no grace period running; non-nil = timer created (may be running or already fired; Stop() is always safe). Protected by timerMu.
-	timerMu sync.Mutex
+	// Grace period drain state (timerMu protects timer and expiryCancel).
+	timer        *time.Timer        // nil = no grace period running; non-nil = timer created (may be running or already fired; Stop() is always safe).
+	expiryCancel context.CancelFunc // cancels the running expiry watcher goroutine; nil if none
+	timerMu      sync.Mutex
 	// Intentional: fires OnDowngrade at most once per process lifetime.
 	// Not reset on reconnect or cancel — the process is expected to restart after a drain.
 	once sync.Once
@@ -94,6 +96,7 @@ func NewStreamLicenseWatcher(cfg StreamLicenseWatcherConfig) (*StreamLicenseWatc
 		config:  cfg,
 		logger:  cfg.Logger.With().Str("component", "license_stream_watcher").Logger(),
 		manager: cfg.Manager,
+		ctx:     ctx,
 		cancel:  cancel,
 		streamStateGauge: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: cfg.MetricPrefix + "_provisioning_license_stream_state",
@@ -103,6 +106,14 @@ func NewStreamLicenseWatcher(cfg StreamLicenseWatcherConfig) (*StreamLicenseWatc
 			Name: cfg.MetricPrefix + "_provisioning_license_stream_reconnects_total",
 			Help: "Total reconnection attempts for the provisioning license stream",
 		}),
+	}
+
+	// Bootstrap expiry watcher for the key already loaded at startup via NewManager.
+	// Stable deployments never receive a WatchLicense snapshot of their current key
+	// (that would be ErrReplayDetected), so without this the expiry goroutine would
+	// never be scheduled for keys that were loaded before the watcher started.
+	if claims := cfg.Manager.Claims(); claims != nil && claims.Exp > 0 && !claims.IsExpired() {
+		w.scheduleExpiryWatcher(claims.Exp)
 	}
 
 	w.wg.Go(func() {
@@ -167,6 +178,16 @@ func (w *StreamLicenseWatcher) startGracePeriod(from, to license.Edition) {
 		Msg("Edition downgrade detected — grace period started")
 }
 
+// cancelGracePeriodLocked stops and nils the grace period timer without acquiring timerMu.
+// Caller MUST hold timerMu.
+func (w *StreamLicenseWatcher) cancelGracePeriodLocked() {
+	if w.timer == nil {
+		return
+	}
+	w.timer.Stop()
+	w.timer = nil
+}
+
 // cancelGracePeriod cancels the running grace period timer. No-op if no timer is running.
 func (w *StreamLicenseWatcher) cancelGracePeriod() {
 	w.timerMu.Lock()
@@ -182,8 +203,40 @@ func (w *StreamLicenseWatcher) cancelGracePeriod() {
 
 	w.logger.Info().
 		Str("reason", "license renewed or upgraded").
-		Str("current_edition", w.manager.CurrentEdition().String()).
+		Str("current_edition", w.manager.Edition().String()).
 		Msg("Edition downgrade grace period canceled")
+}
+
+// scheduleExpiryWatcher cancels any prior expiry goroutine and grace period timer,
+// then (if exp > 0) launches a new expiry goroutine that starts the downgrade grace
+// period when the license key expires. fromEdition is captured at call time.
+func (w *StreamLicenseWatcher) scheduleExpiryWatcher(exp int64) {
+	fromEdition := w.manager.Edition() // capture before locking
+
+	w.timerMu.Lock()
+	w.cancelGracePeriodLocked()
+	if w.expiryCancel != nil {
+		w.expiryCancel()
+		w.expiryCancel = nil
+	}
+	var launchCtx context.Context
+	if exp > 0 {
+		ctx, cancel := context.WithDeadline(w.ctx, time.Unix(exp, 0)) //nolint:gosec // cancel stored in w.expiryCancel for external control; called by next scheduleExpiryWatcher or Close
+		w.expiryCancel = cancel
+		launchCtx = ctx
+	}
+	w.timerMu.Unlock() // MUST unlock before wg.Go (Constitution VII: no goroutine spawn while holding mutex)
+
+	if launchCtx != nil {
+		w.wg.Go(func() {
+			defer logging.RecoverPanic(w.logger, "expiry_watcher", nil)
+			<-launchCtx.Done()
+			if launchCtx.Err() == context.DeadlineExceeded {
+				w.startGracePeriod(fromEdition, license.Community)
+			}
+			// context.Canceled (renewal or Close()) — return without action
+		})
+	}
 }
 
 // streamLoop runs the gRPC stream with reconnection logic.
@@ -240,12 +293,12 @@ func (w *StreamLicenseWatcher) streamLoop(ctx context.Context) {
 				continue
 			}
 
-			oldEdition := w.manager.CurrentEdition()
+			oldEdition := w.manager.Edition()
 			if err := w.manager.Reload(resp.GetLicenseKey()); err != nil {
 				w.logger.Warn().Err(err).Msg("license reload from stream failed")
 				continue
 			}
-			newEdition := w.manager.CurrentEdition()
+			newEdition := w.manager.Edition()
 
 			w.logger.Info().
 				Str("edition", newEdition.String()).
@@ -253,6 +306,11 @@ func (w *StreamLicenseWatcher) streamLoop(ctx context.Context) {
 
 			if w.config.OnReload != nil {
 				w.config.OnReload()
+			}
+
+			// Reschedule expiry watcher for the renewed key's expiry timestamp.
+			if reloadClaims := w.manager.Claims(); reloadClaims != nil {
+				w.scheduleExpiryWatcher(reloadClaims.Exp) //nolint:contextcheck // scheduleExpiryWatcher uses w.ctx (struct root context), not the stream loop's ctx parameter
 			}
 
 			if !newEdition.IsAtLeast(oldEdition) {

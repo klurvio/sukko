@@ -484,8 +484,8 @@ func (lb *LoadBalancer) handleEditionWithMismatch(w http.ResponseWriter, r *http
 	}
 
 	if lb.editionManager != nil {
-		edition := lb.editionManager.CurrentEdition()
-		limits := lb.editionManager.CurrentLimits()
+		edition := lb.editionManager.Edition()
+		limits := lb.editionManager.Limits()
 
 		resp["edition"] = edition.String()
 		resp["org"] = lb.editionManager.Org()

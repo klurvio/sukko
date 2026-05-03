@@ -119,7 +119,7 @@ func main() {
 		Manager:           cfg.EditionManager(),
 		Logger:            structuredLogger,
 		OnReload: func() {
-			edition := cfg.EditionManager().CurrentEdition()
+			edition := cfg.EditionManager().Edition()
 			mismatch := checkBackendMismatch(cfg.MessageBackend, edition)
 			backendMismatch.Store(mismatch)
 			if mismatch {

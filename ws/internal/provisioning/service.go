@@ -176,9 +176,9 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		return nil, fmt.Errorf("invalid tenant: %w", err)
 	}
 
-	// Edition limit: tenant count (uses CurrentLimits() for mid-flight expiry detection)
+	// Edition limit: tenant count
 	if s.editionManager != nil {
-		limits := s.editionManager.CurrentLimits()
+		limits := s.editionManager.Limits()
 		count, err := s.tenants.Count(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("count tenants: %w", err)
@@ -846,9 +846,9 @@ func (s *Service) SetRoutingRules(ctx context.Context, tenantID string, rules []
 		return fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
 	}
 
-	// Edition limit: routing rules per tenant (uses CurrentLimits() for mid-flight expiry detection)
+	// Edition limit: routing rules per tenant
 	if s.editionManager != nil {
-		limits := s.editionManager.CurrentLimits()
+		limits := s.editionManager.Limits()
 		if err := limits.CheckRoutingRulesPerTenant(len(rules)); err != nil {
 			return fmt.Errorf("edition limit: %w", err)
 		}

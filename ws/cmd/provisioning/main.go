@@ -177,7 +177,7 @@ func main() {
 		} else {
 			currentLicenseKey = dbKey
 			structuredLogger.Info().
-				Str("edition", cfg.EditionManager().CurrentEdition().String()).
+				Str("edition", cfg.EditionManager().Edition().String()).
 				Msg("license loaded from DB (takes precedence over SUKKO_LICENSE_KEY)")
 		}
 	}

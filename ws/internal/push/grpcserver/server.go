@@ -90,7 +90,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 // Validates platform, platform-specific fields, channels, and tenant prefix.
 func (s *Server) RegisterDevice(ctx context.Context, req *pushv1.RegisterDeviceRequest) (*pushv1.RegisterDeviceResponse, error) {
 	if !s.manager.HasFeature(license.PushNotifications) {
-		return nil, status.Errorf(codes.PermissionDenied, "push notifications require Enterprise edition (current: %s)", s.manager.CurrentEdition())
+		return nil, status.Errorf(codes.PermissionDenied, "push notifications require Enterprise edition (current: %s)", s.manager.Edition())
 	}
 
 	// Validate tenant
@@ -171,7 +171,7 @@ func (s *Server) RegisterDevice(ctx context.Context, req *pushv1.RegisterDeviceR
 // UnregisterDevice removes a push subscription by device ID.
 func (s *Server) UnregisterDevice(ctx context.Context, req *pushv1.UnregisterDeviceRequest) (*pushv1.UnregisterDeviceResponse, error) {
 	if !s.manager.HasFeature(license.PushNotifications) {
-		return nil, status.Errorf(codes.PermissionDenied, "push notifications require Enterprise edition (current: %s)", s.manager.CurrentEdition())
+		return nil, status.Errorf(codes.PermissionDenied, "push notifications require Enterprise edition (current: %s)", s.manager.Edition())
 	}
 
 	if req.GetTenantId() == "" {
@@ -209,7 +209,7 @@ type vapidCredential struct {
 // Auto-generates an ECDSA P-256 key pair on first use (FR-007).
 func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest) (*pushv1.GetVAPIDKeyResponse, error) {
 	if !s.manager.HasFeature(license.PushNotifications) {
-		return nil, status.Errorf(codes.PermissionDenied, "push notifications require Enterprise edition (current: %s)", s.manager.CurrentEdition())
+		return nil, status.Errorf(codes.PermissionDenied, "push notifications require Enterprise edition (current: %s)", s.manager.Edition())
 	}
 
 	if req.GetTenantId() == "" {
