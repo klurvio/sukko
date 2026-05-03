@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -32,7 +33,7 @@ var (
 	}, []string{"edition"})
 )
 
-// License reload result labels.
+// License reload result labels (Prometheus metric label values).
 const (
 	reloadSuccess          = "success"
 	reloadInvalidSignature = "invalid_signature"
@@ -40,7 +41,20 @@ const (
 	reloadReplay           = "replay_detected"
 	reloadInvalidFormat    = "invalid_format"
 	reloadInternalError    = "internal_error"
+	reloadEditionChange    = "edition_change_rejected"
+	reloadRateLimited      = "rate_limited"
 )
+
+// editionChangeCode is the API error code returned when a reload is rejected due to an edition change.
+const editionChangeCode = "EDITION_CHANGE_REQUIRES_RESTART"
+
+// editionChangeRejectedResponse is the JSON body for HTTP 409 edition-change rejections.
+type editionChangeRejectedResponse struct {
+	Code             string `json:"code"`
+	Message          string `json:"message"`
+	CurrentEdition   string `json:"current_edition"`
+	RequestedEdition string `json:"requested_edition"`
+}
 
 // LicenseHandler handles POST /api/v1/license for license hot-reload.
 // Admin auth + Ed25519 signature — defense in depth.
@@ -142,7 +156,7 @@ func (h *LicenseHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 	// Rate limiting
 	clientIP := httputil.GetClientIP(r)
 	if !h.rateLimiter.allow(clientIP) {
-		licenseReloadTotal.WithLabelValues("rate_limited").Inc()
+		licenseReloadTotal.WithLabelValues(reloadRateLimited).Inc()
 		httputil.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "too many license reload requests")
 		return
 	}
@@ -166,6 +180,42 @@ func (h *LicenseHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 	if req.Key == "" {
 		licenseReloadTotal.WithLabelValues(reloadInvalidFormat).Inc()
 		httputil.WriteError(w, http.StatusBadRequest, "MISSING_KEY", "key field is required")
+		return
+	}
+
+	// Pre-check: signature + expiry gate before edition/replay comparison (FR-004).
+	// Errors here use handleReloadError for consistent error classification.
+	incomingClaims, parseErr := license.ParseAndVerify(req.Key)
+	if parseErr != nil {
+		h.handleReloadError(w, fmt.Errorf("reload: %w", parseErr), clientIP, adminSub, adminKID)
+		return
+	}
+
+	// Explicit replay pre-check: ensures ordering sig → replay → edition → Reload().
+	if current := h.manager.Claims(); current != nil && current.Iat > 0 && incomingClaims.Iat <= current.Iat {
+		h.handleReloadError(w, fmt.Errorf("reload: %w", license.ErrReplayDetected), clientIP, adminSub, adminKID)
+		return
+	}
+
+	// Edition check: reject if incoming edition differs from startup-resolved edition (FR-001).
+	currentEdition := h.manager.Edition()
+	requestedEdition := incomingClaims.Edition
+	if requestedEdition != currentEdition {
+		licenseReloadTotal.WithLabelValues(reloadEditionChange).Inc()
+		h.logger.Warn().
+			Bool("audit", true).
+			Str("admin_sub", adminSub).
+			Str("admin_kid", adminKID).
+			Str("client_ip", clientIP).
+			Str("current_edition", currentEdition.String()).
+			Str("requested_edition", requestedEdition.String()).
+			Msg("edition change rejected — restart or rollout required to change editions")
+		_ = httputil.WriteJSON(w, http.StatusConflict, editionChangeRejectedResponse{
+			Code:             editionChangeCode,
+			Message:          fmt.Sprintf("edition change from %s to %s requires a service restart or rollout", currentEdition, requestedEdition),
+			CurrentEdition:   currentEdition.String(),
+			RequestedEdition: requestedEdition.String(),
+		})
 		return
 	}
 

@@ -30,14 +30,14 @@ type limitsHolder struct{ v Limits }
 //
 // It is created once at startup with NewManager and provides two sets of accessors:
 //
-// Startup-resolved (for Config.Validate() — does not change mid-flight):
+// Startup-resolved (never change after construction, even if license expires mid-flight):
 //   - Edition()
 //   - Limits()
+//   - HasFeature()  (uses Edition() per FR-013 — features remain active during grace period)
 //
 // Expiry-aware (for runtime gates — returns Community if license expired mid-flight):
 //   - CurrentEdition()
 //   - CurrentLimits()
-//   - HasFeature()
 //
 // The expiry-aware methods check time.Now().Unix() > claims.Exp on every call.
 // This is an int comparison with zero overhead, and ensures Docker Compose
@@ -157,9 +157,11 @@ func (m *Manager) CurrentLimits() Limits {
 	return m.limits.Load().v
 }
 
-// HasFeature returns true if the current (expiry-aware) edition includes the feature.
+// HasFeature returns true if the startup-resolved edition includes the feature.
+// Uses Edition() (not CurrentEdition()) — feature gates remain active during the
+// expiry grace period. Shutdown is the enforcement mechanism, not feature revocation.
 func (m *Manager) HasFeature(feature Feature) bool {
-	return EditionHasFeature(m.CurrentEdition(), feature)
+	return EditionHasFeature(m.Edition(), feature)
 }
 
 // Claims returns the license claims, or nil if no license key was provided.

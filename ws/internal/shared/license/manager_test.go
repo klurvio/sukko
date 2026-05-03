@@ -160,8 +160,10 @@ func TestNewManager_MidFlightExpiry(t *testing.T) {
 	if m.CurrentEdition() != Community {
 		t.Errorf("CurrentEdition() = %q, want Community (expired mid-flight)", m.CurrentEdition())
 	}
-	if m.HasFeature(KafkaBackend) {
-		t.Error("HasFeature(KafkaBackend) should be false after expiry")
+	// HasFeature uses Edition() (startup-resolved), so it returns true even after expiry —
+	// features remain active during the grace period; shutdown is the enforcement mechanism.
+	if !m.HasFeature(KafkaBackend) {
+		t.Error("HasFeature(KafkaBackend) should be true after expiry: Edition()=Pro (startup-resolved), grace period keeps features active")
 	}
 
 	// CurrentLimits should be Community defaults
@@ -271,5 +273,41 @@ func TestManager_HasFeature(t *testing.T) {
 	}
 	if cm.HasFeature(KafkaBackend) {
 		t.Error("Community should NOT have KafkaBackend")
+	}
+}
+
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
+func TestHasFeature_UsesEditionNotCurrentEdition(t *testing.T) {
+	priv, pub := GenerateTestKeyPair()
+	SetPublicKeyForTesting(pub)
+
+	// License valid at construction (current Unix second), expires after a short sleep.
+	// Edition() == Enterprise (startup-resolved), CurrentEdition() == Community (expiry-degraded).
+	claims := Claims{
+		Edition: Enterprise,
+		Org:     "MidFlightEnterprise",
+		Exp:     time.Now().Unix(), // valid during current second boundary
+	}
+	key := SignTestLicense(claims, priv)
+
+	m, err := NewManager(key, testLogger)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	if m.Edition() != Enterprise {
+		t.Fatalf("Edition() = %q, want Enterprise (startup-resolved) — license not yet expired at construction", m.Edition())
+	}
+
+	// Wait for the next second so time.Now().Unix() > claims.Exp
+	time.Sleep(1100 * time.Millisecond)
+
+	if m.CurrentEdition() != Community {
+		t.Fatalf("CurrentEdition() = %q, want Community (expiry-degraded after sleep)", m.CurrentEdition())
+	}
+
+	// HasFeature uses Edition() — Enterprise features must remain active during grace period.
+	if !m.HasFeature(PushNotifications) {
+		t.Error("HasFeature(PushNotifications) = false for mid-flight expired Enterprise license, want true: grace period keeps features active until shutdown")
 	}
 }

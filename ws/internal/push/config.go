@@ -147,6 +147,10 @@ func LoadConfig(logger zerolog.Logger) (*Config, error) {
 	}
 	cfg.editionManager = mgr
 
+	if !mgr.HasFeature(license.PushNotifications) {
+		return nil, fmt.Errorf("push-service requires an Enterprise license — set SUKKO_LICENSE_KEY to a valid Enterprise key (current edition: %s)", mgr.Edition())
+	}
+
 	logger.Info().
 		Str("edition", mgr.Edition().String()).
 		Msg("Configuration loaded — edition resolved from license key (Community if no key set)")

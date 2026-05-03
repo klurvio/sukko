@@ -430,3 +430,205 @@ func TestStreamLicenseWatcher_InitialStateDisconnected(t *testing.T) {
 		t.Errorf("initial State() = %d, want %d (disconnected)", got, StreamStateDisconnected)
 	}
 }
+
+// newExpiryTestManager creates a Manager with a real signed key for expiry watcher tests.
+// The key has the given edition and expiry time. SetPublicKeyForTesting is called on the
+// test-generated public key; the manager is fully functional for claims inspection.
+// Tests using this helper MUST NOT call t.Parallel() — SetPublicKeyForTesting mutates
+// package-level state in the license package.
+func newExpiryTestManager(t *testing.T, edition license.Edition, exp int64) (*license.Manager, error) {
+	t.Helper()
+	priv, pub := license.GenerateTestKeyPair()
+	license.SetPublicKeyForTesting(pub)
+	claims := license.Claims{
+		Edition: edition,
+		Org:     "ExpiryTestOrg",
+		Exp:     exp,
+		Iat:     exp - 3600,
+	}
+	key := license.SignTestLicense(claims, priv)
+	return license.NewManager(key, zerolog.Nop())
+}
+
+//nolint:paralleltest // uses newExpiryTestManager which calls SetPublicKeyForTesting (package-level state)
+func TestStreamLicenseWatcher_ExpiryWatcher_BootstrapSetsCancel(t *testing.T) {
+	// Non-expired claims at construction → expiryCancel must be non-nil.
+	mgr, err := newExpiryTestManager(t, license.Enterprise, time.Now().Add(time.Hour).Unix())
+	if err != nil {
+		t.Fatalf("newExpiryTestManager() error = %v", err)
+	}
+
+	w := newDowngradeTestWatcher(t, "test_expiry_bootstrap", StreamLicenseWatcherConfig{
+		Manager: mgr,
+	})
+
+	w.timerMu.Lock()
+	cancelSet := w.expiryCancel != nil
+	w.timerMu.Unlock()
+
+	if !cancelSet {
+		t.Error("expiryCancel should be non-nil after construction with non-expired claims")
+	}
+}
+
+//nolint:paralleltest // calls SetPublicKeyForTesting directly (package-level state)
+func TestStreamLicenseWatcher_ExpiryWatcher_AlreadyExpiredSkipped(t *testing.T) {
+	// Expired claims at construction → bootstrap must skip, expiryCancel remains nil.
+	// NewManager with expired key degrades to Community (Edition() == Community).
+	// We still need Claims() to be non-nil — expired claims are preserved.
+	priv, pub := license.GenerateTestKeyPair()
+	license.SetPublicKeyForTesting(pub)
+	expiredClaims := license.Claims{
+		Edition: license.Enterprise,
+		Org:     "ExpiredOrg",
+		Exp:     time.Now().Add(-time.Hour).Unix(),
+		Iat:     time.Now().Add(-2 * time.Hour).Unix(),
+	}
+	key := license.SignTestLicense(expiredClaims, priv)
+	mgr, err := license.NewManager(key, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	w := newDowngradeTestWatcher(t, "test_expiry_skip", StreamLicenseWatcherConfig{
+		Manager: mgr,
+	})
+
+	w.timerMu.Lock()
+	cancelSet := w.expiryCancel != nil
+	w.timerMu.Unlock()
+
+	if cancelSet {
+		t.Error("expiryCancel should be nil when claims are already expired at construction")
+	}
+}
+
+//nolint:paralleltest // uses newExpiryTestManager which calls SetPublicKeyForTesting (package-level state)
+func TestStreamLicenseWatcher_ExpiryWatcher_FiresStartsGracePeriod(t *testing.T) {
+	// Short deadline → expiry goroutine fires → OnDowngrade called within timeout.
+	mgr, err := newExpiryTestManager(t, license.Enterprise, time.Now().Add(50*time.Millisecond).Unix())
+	if err != nil {
+		t.Fatalf("newExpiryTestManager() error = %v", err)
+	}
+
+	called := make(chan struct{ from, to license.Edition }, 1)
+	w := newDowngradeTestWatcher(t, "test_expiry_fires", StreamLicenseWatcherConfig{
+		Manager:              mgr,
+		DowngradeGracePeriod: 20 * time.Millisecond,
+		OnDowngrade: func(from, to license.Edition) {
+			called <- struct{ from, to license.Edition }{from, to}
+		},
+	})
+	_ = w // bootstrap already scheduled via NewStreamLicenseWatcher
+
+	select {
+	case result := <-called:
+		if result.to != license.Community {
+			t.Errorf("OnDowngrade to = %v, want Community", result.to)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnDowngrade was not called within timeout after expiry")
+	}
+}
+
+func TestStreamLicenseWatcher_ExpiryWatcher_RescheduleOnRenewal(t *testing.T) {
+	t.Parallel()
+	// Calling scheduleExpiryWatcher twice → second cancels first goroutine.
+	// OnDowngrade must fire at most once.
+	var callCount atomic.Int32
+	w := newDowngradeTestWatcher(t, "test_expiry_resched", StreamLicenseWatcherConfig{
+		DowngradeGracePeriod: 30 * time.Millisecond,
+		OnDowngrade: func(from, to license.Edition) {
+			callCount.Add(1)
+		},
+	})
+
+	// First schedule with a 2-second future expiry (Unix second precision — must be >= 1s ahead)
+	w.scheduleExpiryWatcher(time.Now().Unix() + 2)
+
+	// Second schedule immediately cancels the first goroutine and launches a new one with a long expiry
+	w.scheduleExpiryWatcher(time.Now().Add(time.Hour).Unix())
+
+	// Wait long enough for the first goroutine's original deadline to have fired (if not canceled)
+	time.Sleep(500 * time.Millisecond)
+
+	// OnDowngrade must not have fired — first goroutine was canceled before its deadline
+	if n := callCount.Load(); n != 0 {
+		t.Errorf("OnDowngrade called %d times after reschedule, want 0 (first goroutine should have been canceled)", n)
+	}
+}
+
+func TestStreamLicenseWatcher_ExpiryWatcher_ZeroExpCancelsOnly(t *testing.T) {
+	t.Parallel()
+	// scheduleExpiryWatcher(0) → cancel prior goroutine, no new goroutine launched.
+	var callCount atomic.Int32
+	w := newDowngradeTestWatcher(t, "test_expiry_zero", StreamLicenseWatcherConfig{
+		DowngradeGracePeriod: 20 * time.Millisecond,
+		OnDowngrade: func(from, to license.Edition) {
+			callCount.Add(1)
+		},
+	})
+
+	// Start an expiry goroutine with a 2-second future deadline (Unix second precision)
+	w.scheduleExpiryWatcher(time.Now().Unix() + 2)
+
+	w.timerMu.Lock()
+	hadCancel := w.expiryCancel != nil
+	w.timerMu.Unlock()
+
+	if !hadCancel {
+		t.Fatal("expiryCancel should be set before zero reschedule")
+	}
+
+	// scheduleExpiryWatcher(0) should cancel the goroutine and set expiryCancel to nil
+	w.scheduleExpiryWatcher(0)
+
+	w.timerMu.Lock()
+	cancelNil := w.expiryCancel == nil
+	w.timerMu.Unlock()
+
+	if !cancelNil {
+		t.Error("expiryCancel should be nil after scheduleExpiryWatcher(0)")
+	}
+
+	// No OnDowngrade should fire — goroutine was canceled
+	time.Sleep(200 * time.Millisecond)
+	if n := callCount.Load(); n != 0 {
+		t.Errorf("OnDowngrade called %d times after zero exp reschedule, want 0", n)
+	}
+}
+
+func TestStreamLicenseWatcher_CancelGracePeriodLocked_NilTimer(t *testing.T) {
+	t.Parallel()
+	// cancelGracePeriodLocked with nil timer must not panic.
+	w := newDowngradeTestWatcher(t, "test_locked_nil", StreamLicenseWatcherConfig{})
+
+	w.timerMu.Lock()
+	defer w.timerMu.Unlock()
+	// Must not panic — nil guard in cancelGracePeriodLocked
+	w.cancelGracePeriodLocked()
+}
+
+func TestStreamLicenseWatcher_CloseStopsExpiryWatcher(t *testing.T) {
+	t.Parallel()
+	// Close() must return without deadlock even when an expiry goroutine is running.
+	w := newDowngradeTestWatcher(t, "test_close_expiry", StreamLicenseWatcherConfig{
+		DowngradeGracePeriod: time.Hour, // long grace period so the goroutine stays blocked
+	})
+
+	// Launch an expiry goroutine with a far-future deadline
+	w.scheduleExpiryWatcher(time.Now().Add(time.Hour).Unix())
+
+	done := make(chan struct{})
+	go func() {
+		_ = w.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success — Close() drained the goroutine via wg.Wait()
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close() did not return within 5 seconds — expiry goroutine leak")
+	}
+}

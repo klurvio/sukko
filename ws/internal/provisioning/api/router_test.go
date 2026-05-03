@@ -1337,8 +1337,9 @@ func TestRouter_LicenseEndpoint_AdminAuth(t *testing.T) {
 	}
 
 	// Sign a valid test license for the happy-path case.
+	// Manager is Community (no key), so key must use Community edition to pass the edition gate.
 	validLicenseKey := license.SignTestLicense(license.Claims{
-		Edition: license.Pro,
+		Edition: license.Community,
 		Org:     "Test Org",
 		Iat:     time.Now().Unix(),
 		Exp:     time.Now().Add(24 * time.Hour).Unix(),
