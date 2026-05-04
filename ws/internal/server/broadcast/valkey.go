@@ -168,7 +168,7 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 		Msg("Successfully connected to Valkey")
 
 	// Create context for lifecycle management
-	busCtx, busCancel := context.WithCancel(context.Background()) //nolint:gosec // G118: busCancel is stored in bus.cancel and called in Close()
+	busCtx, busCancel := context.WithCancel(context.Background())
 
 	bus := &valkeyBus{
 		client:                    client,

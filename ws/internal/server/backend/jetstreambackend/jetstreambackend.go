@@ -187,7 +187,7 @@ func New(cfg Config) (*JetStreamBackend, error) {
 
 	replicas := max(cfg.Replicas, 1)
 
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is stored in jsb.cancel and called in Shutdown()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	jsb := &JetStreamBackend{
 		conn:              conn,
