@@ -235,7 +235,7 @@ func (s *Server) Start() error {
 				// syscall.Listen sets the TCP accept queue size
 				// This allows the OS to queue more pending connections during bursts
 				// Critical for trading platforms where connection timing affects fairness
-				_ = syscall.Listen(int(file.Fd()), s.config.TCPListenBacklog) //nolint:gosec // G115: TCPListenBacklog is validated at startup — always a small positive int
+				_ = syscall.Listen(int(file.Fd()), s.config.TCPListenBacklog)
 				_ = file.Close()
 
 				s.logger.Info().
