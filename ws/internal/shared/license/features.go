@@ -51,6 +51,7 @@ const (
 	PerTenantChannelRules     Feature = "GATEWAY_PER_TENANT_CHANNEL_RULES"
 	PerTenantConnectionLimits Feature = "TENANT_CONNECTION_LIMIT_ENABLED"
 	Alerting                  Feature = "ALERT_ENABLED"
+	ChannelTopicRouting       Feature = "CHANNEL_TOPIC_ROUTING"
 
 	PerTenantConfigurableQuotas Feature = "per-tenant configurable quotas"
 	TenantLifecycleManager      Feature = "tenant lifecycle manager"
@@ -67,6 +68,7 @@ const (
 
 	// ── Enterprise Features ──────────────────────────────────────────────
 
+	// Note: this gate covers only the audit-log query API (GET /audit-log). Audit record writes are unconditional — not gated.
 	AuditLogging        Feature = "audit logging"
 	PushNotifications   Feature = "push notifications"
 	IPAllowlisting      Feature = "per-tenant IP allowlisting"
@@ -83,6 +85,7 @@ var featureEditions = map[Feature]Edition{
 	PerTenantChannelRules:       Pro,
 	PerTenantConnectionLimits:   Pro,
 	Alerting:                    Pro,
+	ChannelTopicRouting:         Pro,
 	PerTenantConfigurableQuotas: Pro,
 	TenantLifecycleManager:      Pro,
 	ConnectionTracing:           Pro,
@@ -120,8 +123,11 @@ var featureMetadata = map[Feature]FeatureInfo{
 	AuditLogging:                {Description: "Audit trail of all provisioning API actions", Status: StatusImplemented, Priority: PriorityNone},
 	SSETransport:                {Description: "SSE transport + REST publish", Status: StatusImplemented, Priority: PriorityNone},
 
-	// ── Future — Pro ─────────────────────────────────────────────────────
+	// ── Implemented — Pro ────────────────────────────────────────────────
 
+	ChannelTopicRouting: {Description: "Per-tenant routing rules for channel-to-topic mapping, multi-topic fan-out, and header-based consumer routing", Status: StatusImplemented, Priority: PriorityNone},
+
+	// ── Future — Pro ─────────────────────────────────────────────────────
 	TokenRevocation:    {Description: "Revoke individual JWT tokens (not just keys)", Status: StatusFuture, Priority: PriorityHigh},
 	MessageHistory:     {Description: "Queryable message history per channel", Status: StatusFuture, Priority: PriorityHigh},
 	AdminUI:            {Description: "Web-based tenant management interface", Status: StatusFuture, Priority: PriorityMedium},

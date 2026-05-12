@@ -1,131 +1,183 @@
-package provisioning
+package provisioning_test
 
 import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// stubMatchWildcard is a simple wildcard matcher for tests, mirroring auth.MatchWildcard
-// without importing the auth package.
-func stubMatchWildcard(pattern, value string) bool {
-	if pattern == value {
-		return true
-	}
-	if pattern == "*" {
-		return true
-	}
-	if after, found := strings.CutPrefix(pattern, "*"); found {
-		return strings.HasSuffix(value, after)
-	}
-	if before, found := strings.CutSuffix(pattern, "*"); found {
-		return strings.HasPrefix(value, before)
-	}
-	if idx := strings.Index(pattern, "*"); idx > 0 {
-		prefix := pattern[:idx]
-		suffix := pattern[idx+1:]
-		return strings.HasPrefix(value, prefix) && strings.HasSuffix(value, suffix)
-	}
-	return false
-}
+// ---------------------------------------------------------------------------
+// ValidateRoutingRules
+// ---------------------------------------------------------------------------
 
 func TestValidateRoutingRules(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name         string
-		rules        []TopicRoutingRule
+		rules        []provisioning.TopicRoutingRule
+		maxRules     int
+		maxTopics    int
 		wantSentinel error
-		wantContains string // additional substring check (e.g. index prefix)
+		wantContains string
 	}{
 		{
 			name: "valid_single_rule",
-			rules: []TopicRoutingRule{
-				{Pattern: "*.trade", TopicSuffix: "trade"},
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 1},
 			},
 		},
 		{
 			name: "valid_multiple_rules",
-			rules: []TopicRoutingRule{
-				{Pattern: "crypto.*.trade", TopicSuffix: "crypto.trade"},
-				{Pattern: "*.trade", TopicSuffix: "trade"},
-				{Pattern: "*.analytics", TopicSuffix: "analytics"},
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "crypto.**.trade", Topics: []string{"crypto-trade"}, Priority: 1},
+				{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 2},
+				{Pattern: "**.analytics", Topics: []string{"analytics"}, Priority: 3},
 			},
 		},
 		{
-			name: "valid_exact_pattern",
-			rules: []TopicRoutingRule{
-				{Pattern: "BTC.trade", TopicSuffix: "btc-trade"},
+			name: "valid_multi_topic_fan_out",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.trade", Topics: []string{"trade", "trade-replica"}, Priority: 1},
 			},
 		},
 		{
-			name:         "empty_rules",
-			rules:        []TopicRoutingRule{},
-			wantSentinel: ErrEmptyRoutingRules,
+			name: "valid_exact_literal_segments",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "btc.trade", Topics: []string{"btc-trade"}, Priority: 1},
+			},
+		},
+		{
+			name: "valid_single_wildcard",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "acme.*.trade", Topics: []string{"trades"}, Priority: 1},
+			},
+		},
+		{
+			name: "valid_double_wildcard",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "acme.**.trade", Topics: []string{"trades"}, Priority: 1},
+			},
+		},
+		{
+			name:         "empty_rules_slice",
+			rules:        []provisioning.TopicRoutingRule{},
+			wantSentinel: provisioning.ErrEmptyRoutingRules,
+		},
+		{
+			name:         "nil_rules_slice",
+			rules:        nil,
+			wantSentinel: provisioning.ErrEmptyRoutingRules,
 		},
 		{
 			name: "empty_pattern",
-			rules: []TopicRoutingRule{
-				{Pattern: "", TopicSuffix: "trade"},
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "", Topics: []string{"trade"}, Priority: 1},
 			},
-			wantSentinel: ErrEmptyRoutingPattern,
+			wantSentinel: provisioning.ErrEmptyRoutingPattern,
 		},
 		{
-			name: "empty_suffix",
-			rules: []TopicRoutingRule{
-				{Pattern: "*.trade", TopicSuffix: ""},
+			name: "empty_topics_slice",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.trade", Topics: []string{}, Priority: 1},
 			},
-			wantSentinel: ErrEmptyTopicSuffix,
+			wantSentinel: provisioning.ErrEmptyTopics,
 		},
 		{
-			name: "wildcard_in_suffix",
-			rules: []TopicRoutingRule{
-				{Pattern: "*.trade", TopicSuffix: "*.trade"},
+			name: "nil_topics_slice",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.trade", Topics: nil, Priority: 1},
 			},
-			wantSentinel: ErrInvalidTopicSuffix,
+			wantSentinel: provisioning.ErrEmptyTopics,
 		},
 		{
-			name: "placeholder_in_pattern",
-			rules: []TopicRoutingRule{
-				{Pattern: "{principal}.trade", TopicSuffix: "trade"},
+			name:      "too_many_topics",
+			maxTopics: 2,
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.trade", Topics: []string{"t1", "t2", "t3"}, Priority: 1},
 			},
-			wantSentinel: ErrRoutingPlaceholderForbid,
+			wantSentinel: provisioning.ErrTooManyTopics,
 		},
 		{
-			name: "opening_brace_in_pattern",
-			rules: []TopicRoutingRule{
-				{Pattern: "{broken.trade", TopicSuffix: "trade"},
+			name:      "zero_maxTopicsPerRule_skips_limit",
+			maxTopics: 0,
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.trade", Topics: []string{"t1", "t2", "t3", "t4", "t5"}, Priority: 1},
 			},
-			wantSentinel: ErrRoutingPlaceholderForbid,
 		},
 		{
-			name: "closing_brace_in_pattern",
-			rules: []TopicRoutingRule{
-				{Pattern: "broken}.trade", TopicSuffix: "trade"},
+			name:     "too_many_rules",
+			maxRules: 2,
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 1},
+				{Pattern: "**.orderbook", Topics: []string{"ob"}, Priority: 2},
+				{Pattern: "**.analytics", Topics: []string{"an"}, Priority: 3},
 			},
-			wantSentinel: ErrRoutingPlaceholderForbid,
+			wantSentinel: provisioning.ErrTooManyRoutingRules,
 		},
 		{
-			name: "invalid_pattern_chars",
-			rules: []TopicRoutingRule{
-				{Pattern: "*.trade!", TopicSuffix: "trade"},
+			name:     "zero_maxRules_skips_count_check",
+			maxRules: 0,
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 1},
+				{Pattern: "**.ob", Topics: []string{"ob"}, Priority: 2},
+				{Pattern: "**.an", Topics: []string{"an"}, Priority: 3},
 			},
-			wantSentinel: ErrInvalidRoutingPattern,
 		},
 		{
-			name: "invalid_suffix_chars",
-			rules: []TopicRoutingRule{
-				{Pattern: "*.trade", TopicSuffix: "trade!"},
+			name: "duplicate_pattern",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 1},
+				{Pattern: "**.trade", Topics: []string{"trade-alt"}, Priority: 2},
 			},
-			wantSentinel: ErrInvalidTopicSuffix,
+			wantSentinel: provisioning.ErrDuplicateRoutingPattern,
 		},
 		{
-			name: "second_rule_invalid",
-			rules: []TopicRoutingRule{
-				{Pattern: "*.trade", TopicSuffix: "trade"},
-				{Pattern: "", TopicSuffix: "analytics"},
+			name: "duplicate_priority_distinct_patterns",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "acme.trade", Topics: []string{"t1"}, Priority: 1},
+				{Pattern: "acme.quote", Topics: []string{"t2"}, Priority: 1},
 			},
-			wantSentinel: ErrEmptyRoutingPattern,
+			wantSentinel: provisioning.ErrDuplicatePriority,
+		},
+		{
+			name: "invalid_pattern_multiple_double_wildcards",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "a.**.b.**", Topics: []string{"trade"}, Priority: 1},
+			},
+			wantSentinel: provisioning.ErrInvalidRoutingPattern,
+		},
+		{
+			name: "invalid_pattern_bad_segment_char",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.Trade!", Topics: []string{"trade"}, Priority: 1},
+			},
+			wantSentinel: provisioning.ErrInvalidRoutingPattern,
+		},
+		{
+			name: "invalid_pattern_uppercase_literal",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "BTC.trade", Topics: []string{"trade"}, Priority: 1},
+			},
+			wantSentinel: provisioning.ErrInvalidRoutingPattern,
+		},
+		{
+			name: "invalid_pattern_underscore_in_segment",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "acme_corp.trade", Topics: []string{"trade"}, Priority: 1},
+			},
+			wantSentinel: provisioning.ErrInvalidRoutingPattern,
+		},
+		{
+			name: "second_rule_invalid_reports_rule_index",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 1},
+				{Pattern: "", Topics: []string{"analytics"}, Priority: 2},
+			},
+			wantSentinel: provisioning.ErrEmptyRoutingPattern,
 			wantContains: "routing rule 1",
 		},
 	}
@@ -134,7 +186,7 @@ func TestValidateRoutingRules(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := ValidateRoutingRules(tt.rules)
+			err := provisioning.ValidateRoutingRules(tt.rules, tt.maxRules, tt.maxTopics)
 
 			if tt.wantSentinel == nil {
 				if err != nil {
@@ -159,82 +211,114 @@ func TestValidateRoutingRules(t *testing.T) {
 	}
 }
 
-func TestResolveTopicSuffix(t *testing.T) {
+// ---------------------------------------------------------------------------
+// ResolveTopics
+// ---------------------------------------------------------------------------
+
+func TestResolveTopics(t *testing.T) {
 	t.Parallel()
 
-	rules := []TopicRoutingRule{
-		{Pattern: "crypto.*.trade", TopicSuffix: "crypto.trade"},
-		{Pattern: "nft.*.trade", TopicSuffix: "nft.trade"},
-		{Pattern: "*.trade", TopicSuffix: "trade"},
-		{Pattern: "*.analytics", TopicSuffix: "analytics"},
+	// Shared ordered ruleset (caller is responsible for priority ordering).
+	// Rules are listed in ascending priority order (lower = higher priority),
+	// as a real caller would sort them before calling ResolveTopics.
+	sharedRules := []provisioning.TopicRoutingRule{
+		{Pattern: "acme.crypto.**.trade", Topics: []string{"crypto-trade"}, Priority: 1},
+		{Pattern: "acme.nft.**.trade", Topics: []string{"nft-trade"}, Priority: 2},
+		{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 3},
+		{Pattern: "**.analytics", Topics: []string{"analytics"}, Priority: 4},
 	}
 
 	tests := []struct {
-		name          string
-		rules         []TopicRoutingRule
-		channelSuffix string
-		wantSuffix    string
-		wantErr       error
+		name    string
+		rules   []provisioning.TopicRoutingRule
+		channel string
+		want    []string
+		wantNil bool
 	}{
 		{
-			name:          "first_match_specific",
-			rules:         rules,
-			channelSuffix: "crypto.BTC.trade",
-			wantSuffix:    "crypto.trade",
+			name:    "specific_match_returns_correct_topics",
+			rules:   sharedRules,
+			channel: "acme.crypto.btc.trade",
+			want:    []string{"crypto-trade"},
 		},
 		{
-			name:          "first_match_nft",
-			rules:         rules,
-			channelSuffix: "nft.punk.trade",
-			wantSuffix:    "nft.trade",
+			name:    "nft_match",
+			rules:   sharedRules,
+			channel: "acme.nft.punk.trade",
+			want:    []string{"nft-trade"},
 		},
 		{
-			name:          "catch_all_trade",
-			rules:         rules,
-			channelSuffix: "forex.EUR.trade",
-			wantSuffix:    "trade",
+			name:    "catch_all_trade",
+			rules:   sharedRules,
+			channel: "acme.forex.eur.trade",
+			want:    []string{"trade"},
 		},
 		{
-			name:          "analytics_match",
-			rules:         rules,
-			channelSuffix: "crypto.BTC.analytics",
-			wantSuffix:    "analytics",
+			name:    "analytics_match",
+			rules:   sharedRules,
+			channel: "acme.crypto.btc.analytics",
+			want:    []string{"analytics"},
 		},
 		{
-			name:          "exact_match",
-			rules:         []TopicRoutingRule{{Pattern: "BTC.trade", TopicSuffix: "btc-trade"}},
-			channelSuffix: "BTC.trade",
-			wantSuffix:    "btc-trade",
+			name:    "no_match_returns_nil",
+			rules:   sharedRules,
+			channel: "acme.unknown.data",
+			wantNil: true,
 		},
 		{
-			name:          "multi_segment_wildcard",
-			rules:         rules,
-			channelSuffix: "crypto.nft.BTC.trade",
-			wantSuffix:    "crypto.trade",
+			name:    "empty_rules_returns_nil",
+			rules:   []provisioning.TopicRoutingRule{},
+			channel: "acme.btc.trade",
+			wantNil: true,
 		},
 		{
-			name:          "no_match",
-			rules:         rules,
-			channelSuffix: "unknown.data",
-			wantErr:       ErrNoMatchingRoute,
+			name: "fan_out_multiple_topics",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "**.trade", Topics: []string{"trade", "trade-replica"}, Priority: 1},
+			},
+			channel: "acme.btc.trade",
+			want:    []string{"trade", "trade-replica"},
 		},
 		{
-			name:          "empty_rules",
-			rules:         []TopicRoutingRule{},
-			channelSuffix: "BTC.trade",
-			wantErr:       ErrNoRoutingRules,
+			// Rules are iterated in slice order; caller sorts by priority.
+			// The first rule in slice order wins when multiple rules match.
+			name: "first_priority_wins_when_multiple_could_match",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "acme.**.trade", Topics: []string{"high-priority"}, Priority: 1},
+				{Pattern: "**.trade", Topics: []string{"low-priority"}, Priority: 2},
+			},
+			channel: "acme.nyse.trade",
+			want:    []string{"high-priority"},
 		},
 		{
-			name:          "nil_rules",
-			rules:         nil,
-			channelSuffix: "BTC.trade",
-			wantErr:       ErrNoRoutingRules,
+			name: "second_rule_matches_when_first_does_not",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "acme.quote", Topics: []string{"quotes"}, Priority: 1},
+				{Pattern: "acme.**.trade", Topics: []string{"trades"}, Priority: 2},
+			},
+			channel: "acme.nyse.trade",
+			want:    []string{"trades"},
 		},
 		{
-			name:          "first_match_ordering",
-			rules:         rules,
-			channelSuffix: "crypto.ETH.trade",
-			wantSuffix:    "crypto.trade", // crypto.*.trade matches before *.trade
+			// An invalid-pattern rule must be silently skipped;
+			// subsequent valid rules must still be evaluated.
+			name: "invalid_pattern_rule_skipped_silently",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "a.**.b.**", Topics: []string{"bad"}, Priority: 1},
+				{Pattern: "acme.trade", Topics: []string{"trades"}, Priority: 2},
+			},
+			channel: "acme.trade",
+			want:    []string{"trades"},
+		},
+		{
+			// Single-wildcard pattern requires exactly one segment per position —
+			// a 2-segment channel must NOT match a 3-segment pattern.
+			name: "single_wildcard_segment_count_mismatch_no_match",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "acme.*.trade", Topics: []string{"trades"}, Priority: 1},
+			},
+			channel: "acme.trade",
+			wantNil: true,
 		},
 	}
 
@@ -242,179 +326,125 @@ func TestResolveTopicSuffix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			suffix, err := ResolveTopicSuffix(tt.rules, tt.channelSuffix, stubMatchWildcard)
-
-			if tt.wantErr != nil {
-				if err == nil {
-					t.Errorf("ResolveTopicSuffix() expected error %v, got nil", tt.wantErr)
-					return
-				}
-				if !errors.Is(err, tt.wantErr) {
-					t.Errorf("ResolveTopicSuffix() error = %v, want %v", err, tt.wantErr)
-				}
-				return
-			}
-
+			got, err := provisioning.ResolveTopics(tt.rules, tt.channel)
 			if err != nil {
-				t.Errorf("ResolveTopicSuffix() unexpected error: %v", err)
+				t.Fatalf("ResolveTopics() unexpected error: %v", err)
+			}
+
+			if tt.wantNil {
+				if got != nil {
+					t.Errorf("ResolveTopics() = %v, want nil", got)
+				}
 				return
 			}
-
-			if suffix != tt.wantSuffix {
-				t.Errorf("ResolveTopicSuffix() = %q, want %q", suffix, tt.wantSuffix)
-			}
-		})
-	}
-}
-
-func TestValidateRoutingRules_DuplicatePattern(t *testing.T) {
-	t.Parallel()
-
-	rules := []TopicRoutingRule{
-		{Pattern: "*.trade", TopicSuffix: "trade"},
-		{Pattern: "*.orderbook", TopicSuffix: "orderbook"},
-		{Pattern: "*.trade", TopicSuffix: "trade-alt"}, // duplicate of rule 0
-	}
-
-	err := ValidateRoutingRules(rules)
-	if err == nil {
-		t.Fatal("expected error for duplicate pattern, got nil")
-	}
-	if !strings.Contains(err.Error(), "duplicate pattern") {
-		t.Errorf("expected 'duplicate pattern' in error, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "*.trade") {
-		t.Errorf("expected pattern name in error, got: %v", err)
-	}
-}
-
-func TestUniqueTopicSuffixes(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		rules []TopicRoutingRule
-		want  []string
-	}{
-		{
-			name:  "nil_rules",
-			rules: nil,
-			want:  []string{},
-		},
-		{
-			name:  "empty_rules",
-			rules: []TopicRoutingRule{},
-			want:  []string{},
-		},
-		{
-			name: "single_rule",
-			rules: []TopicRoutingRule{
-				{Pattern: "*.trade", TopicSuffix: "trade"},
-			},
-			want: []string{"trade"},
-		},
-		{
-			name: "distinct_suffixes",
-			rules: []TopicRoutingRule{
-				{Pattern: "*.trade", TopicSuffix: "trade"},
-				{Pattern: "*.orderbook", TopicSuffix: "orderbook"},
-				{Pattern: "*.analytics", TopicSuffix: "analytics"},
-			},
-			want: []string{"trade", "orderbook", "analytics"},
-		},
-		{
-			name: "duplicate_suffixes_deduped",
-			rules: []TopicRoutingRule{
-				{Pattern: "crypto.*.trade", TopicSuffix: "trade"},
-				{Pattern: "forex.*.trade", TopicSuffix: "trade"},
-				{Pattern: "*.orderbook", TopicSuffix: "orderbook"},
-			},
-			want: []string{"trade", "orderbook"},
-		},
-		{
-			name: "all_same_suffix",
-			rules: []TopicRoutingRule{
-				{Pattern: "*.trade", TopicSuffix: "default"},
-				{Pattern: "*.orderbook", TopicSuffix: "default"},
-				{Pattern: "*.analytics", TopicSuffix: "default"},
-			},
-			want: []string{"default"},
-		},
-		{
-			name: "preserves_order",
-			rules: []TopicRoutingRule{
-				{Pattern: "*.z", TopicSuffix: "zebra"},
-				{Pattern: "*.a", TopicSuffix: "alpha"},
-				{Pattern: "*.m", TopicSuffix: "mid"},
-				{Pattern: "*.z2", TopicSuffix: "zebra"}, // duplicate — should not appear again
-			},
-			want: []string{"zebra", "alpha", "mid"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := UniqueTopicSuffixes(tt.rules)
 
 			if len(got) != len(tt.want) {
-				t.Fatalf("UniqueTopicSuffixes() returned %d items, want %d; got %v", len(got), len(tt.want), got)
+				t.Fatalf("ResolveTopics() returned %d topics, want %d; got %v", len(got), len(tt.want), got)
 			}
-
-			for i, s := range got {
-				if s != tt.want[i] {
-					t.Errorf("UniqueTopicSuffixes()[%d] = %q, want %q", i, s, tt.want[i])
+			for i, topic := range got {
+				if topic != tt.want[i] {
+					t.Errorf("ResolveTopics()[%d] = %q, want %q", i, topic, tt.want[i])
 				}
 			}
 		})
 	}
 }
 
-func TestResolveTopicSuffix_EmptyChannelSuffix(t *testing.T) {
+// ---------------------------------------------------------------------------
+// ErrDuplicatePriority — errors.Is sentinel behavior
+// ---------------------------------------------------------------------------
+
+func TestErrDuplicatePrioritySentinel(t *testing.T) {
 	t.Parallel()
 
-	rules := []TopicRoutingRule{
-		{Pattern: "*.trade", TopicSuffix: "trade"},
+	tests := []struct {
+		name   string
+		rules  []provisioning.TopicRoutingRule
+		target error
+		want   bool
+	}{
+		{
+			name: "errors_is_detects_duplicate_priority",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "acme.trade", Topics: []string{"t1"}, Priority: 5},
+				{Pattern: "acme.quote", Topics: []string{"t2"}, Priority: 5},
+			},
+			target: provisioning.ErrDuplicatePriority,
+			want:   true,
+		},
+		{
+			name: "errors_is_false_for_distinct_priorities",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "acme.trade", Topics: []string{"t1"}, Priority: 1},
+				{Pattern: "acme.quote", Topics: []string{"t2"}, Priority: 2},
+			},
+			target: provisioning.ErrDuplicatePriority,
+			want:   false,
+		},
+		{
+			name: "duplicate_priority_does_not_match_unrelated_sentinel",
+			rules: []provisioning.TopicRoutingRule{
+				{Pattern: "acme.trade", Topics: []string{"t1"}, Priority: 7},
+				{Pattern: "acme.quote", Topics: []string{"t2"}, Priority: 7},
+			},
+			target: provisioning.ErrEmptyTopics,
+			want:   false,
+		},
 	}
 
-	_, err := ResolveTopicSuffix(rules, "", stubMatchWildcard)
-	if err == nil {
-		t.Fatal("expected error for empty channel suffix, got nil")
-	}
-	if !errors.Is(err, ErrEmptyChannelSuffix) {
-		t.Errorf("expected ErrEmptyChannelSuffix, got: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := provisioning.ValidateRoutingRules(tt.rules, 0, 0)
+			got := errors.Is(err, tt.target)
+			if got != tt.want {
+				t.Errorf("errors.Is(err, %v) = %v, want %v (err = %v)", tt.target, got, tt.want, err)
+			}
+		})
 	}
 }
 
-func TestResolveTopicSuffix_NilMatchFn(t *testing.T) {
-	t.Parallel()
+// ---------------------------------------------------------------------------
+// Benchmark
+// ---------------------------------------------------------------------------
 
-	rules := []TopicRoutingRule{
-		{Pattern: "*.trade", TopicSuffix: "trade"},
+func BenchmarkResolveTopics(b *testing.B) {
+	// Build a 100-rule ruleset where the matching rule is last (worst-case scan).
+	// Non-matching rules use a literal pattern so each comparison is cheap but
+	// still exercises real pattern evaluation logic.
+	const numRules = 100
+	rules := make([]provisioning.TopicRoutingRule, numRules)
+	for i := range numRules {
+		rules[i] = provisioning.TopicRoutingRule{
+			// Distinct literal patterns that will NOT match the benchmark channel.
+			Pattern:  "no-match.segment",
+			Topics:   []string{"bucket"},
+			Priority: i + 1,
+		}
+	}
+	// The last rule uses a ** wildcard and matches the benchmark channel — it is
+	// reached only after all 99 non-matching rules are evaluated.
+	rules[numRules-1] = provisioning.TopicRoutingRule{
+		Pattern:  "bench.**.event",
+		Topics:   []string{"events", "audit"},
+		Priority: numRules,
 	}
 
-	_, err := ResolveTopicSuffix(rules, "BTC.trade", nil)
-	if err == nil {
-		t.Fatal("expected error for nil matchFn, got nil")
-	}
-	if !errors.Is(err, ErrNilMatchFunc) {
-		t.Errorf("expected ErrNilMatchFunc, got: %v", err)
-	}
-}
+	channel := "bench.us.east.event"
 
-func TestResolveTopicSuffix_SingleRule(t *testing.T) {
-	t.Parallel()
+	b.ResetTimer()
 
-	rules := []TopicRoutingRule{
-		{Pattern: "*", TopicSuffix: "default"},
+	n := 0
+	for b.Loop() {
+		_, _ = provisioning.ResolveTopics(rules, channel)
+		n++
 	}
 
-	suffix, err := ResolveTopicSuffix(rules, "anything.here", stubMatchWildcard)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if suffix != "default" {
-		t.Errorf("got %q, want %q", suffix, "default")
+	if n > 0 {
+		perOp := b.Elapsed() / time.Duration(n)
+		if perOp > time.Millisecond {
+			b.Fatalf("ResolveTopics too slow: %v per op (want ≤1ms)", perOp)
+		}
 	}
 }

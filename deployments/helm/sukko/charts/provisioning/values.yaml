@@ -40,6 +40,12 @@ ingress:
   tls: []
   annotations: {}
 
+# Kafka broker address — used by DLQ worker and migration tools (e.g., migrate-dlq).
+# Defaults to in-cluster Redpanda ({{ .Release.Name }}-redpanda:9092).
+# Override only if using an external Kafka cluster.
+kafka:
+  brokers: ""
+
 # Override any Go envDefault. See /config endpoint for all available settings.
 # Example: { LOG_LEVEL: "debug", CORS_ALLOWED_ORIGINS: "https://admin.example.com" }
 extraEnv: {}

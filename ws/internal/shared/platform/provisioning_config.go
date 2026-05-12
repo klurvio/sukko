@@ -28,6 +28,11 @@ type ProvisioningConfig struct {
 	KafkaNamespaceConfig
 	HTTPTimeoutConfig
 
+	// Kafka brokers — used by migration tools (e.g., migrate-dlq) that need Kafka access.
+	// Uses a provisioning-specific env var to avoid collision with the ws-server's KAFKA_BROKERS
+	// (defined in MessageBackendConfig). In-cluster default: <release>-redpanda:9092.
+	KafkaBrokers string `env:"PROVISIONING_KAFKA_BROKERS" envDefault:"localhost:19092"`
+
 	// Server
 	Addr string `env:"PROVISIONING_ADDR" envDefault:":8080"`
 
@@ -54,7 +59,10 @@ type ProvisioningConfig struct {
 	LifecycleManagerEnabled bool          `env:"LIFECYCLE_MANAGER_ENABLED" envDefault:"true"`
 
 	// Routing Rules
-	MaxRoutingRules int `env:"MAX_ROUTING_RULES" envDefault:"100"` // Max routing rules per tenant
+	MaxRoutingRulesPerTenant   int   `env:"MAX_ROUTING_RULES_PER_TENANT" envDefault:"100"`         // Max routing rules per tenant
+	MaxTopicsPerRule           int   `env:"MAX_TOPICS_PER_RULE" envDefault:"10"`                   // Max topics per routing rule
+	DeadLetterTopicPartitions  int   `env:"ROUTING_DLQ_TOPIC_PARTITIONS" envDefault:"1"`           // Partitions for dead-letter topics
+	DeadLetterTopicRetentionMs int64 `env:"ROUTING_DLQ_TOPIC_RETENTION_MS" envDefault:"604800000"` // Retention for dead-letter topics (7 days)
 
 	// Rate Limiting
 	APIRateLimitPerMinute int `env:"API_RATE_LIMIT_PER_MIN" envDefault:"60"`
@@ -181,8 +189,17 @@ func (c *ProvisioningConfig) Validate() error {
 	if c.DeprovisionGraceDays < 0 {
 		return fmt.Errorf("DEPROVISION_GRACE_DAYS must be >= 0, got %d", c.DeprovisionGraceDays)
 	}
-	if c.MaxRoutingRules < 1 {
-		return fmt.Errorf("MAX_ROUTING_RULES must be > 0, got %d", c.MaxRoutingRules)
+	if c.MaxRoutingRulesPerTenant < 1 {
+		return fmt.Errorf("MAX_ROUTING_RULES_PER_TENANT must be > 0, got %d", c.MaxRoutingRulesPerTenant)
+	}
+	if c.MaxTopicsPerRule < 1 {
+		return fmt.Errorf("MAX_TOPICS_PER_RULE must be > 0, got %d", c.MaxTopicsPerRule)
+	}
+	if c.DeadLetterTopicPartitions < 1 {
+		return fmt.Errorf("ROUTING_DLQ_TOPIC_PARTITIONS must be > 0, got %d", c.DeadLetterTopicPartitions)
+	}
+	if c.DeadLetterTopicRetentionMs < 1 {
+		return fmt.Errorf("ROUTING_DLQ_TOPIC_RETENTION_MS must be > 0, got %d", c.DeadLetterTopicRetentionMs)
 	}
 	if c.APIRateLimitPerMinute < 1 {
 		return fmt.Errorf("API_RATE_LIMIT_PER_MIN must be > 0, got %d", c.APIRateLimitPerMinute)

@@ -14,6 +14,7 @@ import (
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/klurvio/sukko/internal/shared/routing"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
@@ -68,9 +69,12 @@ type ServiceConfig struct {
 	// Lifecycle
 	DeprovisionGraceDays int
 
-	// MaxRoutingRules limits the number of routing rules per tenant.
-	// Wired from env var MAX_ROUTING_RULES (default: 100).
-	MaxRoutingRules int
+	// MaxRoutingRulesPerTenant limits the number of routing rules per tenant.
+	// Wired from env var MAX_ROUTING_RULES_PER_TENANT (default: 100).
+	MaxRoutingRulesPerTenant   int
+	MaxTopicsPerRule           int
+	DeadLetterTopicPartitions  int
+	DeadLetterTopicRetentionMs int64
 
 	// EditionManager provides expiry-aware edition limits for runtime gates.
 	// May be nil in tests — edition gates are skipped when nil.
@@ -198,8 +202,23 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		return nil, fmt.Errorf("%w: %s", ErrTenantIDUnderscorePrefix, req.TenantID)
 	}
 
+	// Create dead-letter topic before DB insert (saga pattern — rollback on DB failure).
+	deadLetterName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.ID, routing.DeadLetterTopicSuffix)
+	if err := s.kafka.CreateTopic(ctx, deadLetterName, s.config.DeadLetterTopicPartitions, map[string]string{
+		kafkaRetentionMsKey: strconv.FormatInt(s.config.DeadLetterTopicRetentionMs, 10),
+	}); err != nil {
+		return nil, fmt.Errorf("create dead-letter topic: %w", err)
+	}
+
 	// Create tenant record
 	if err := s.tenants.Create(ctx, tenant); err != nil {
+		// Saga rollback: best-effort delete the dead-letter topic we just created.
+		if dlqErr := s.kafka.DeleteTopic(ctx, deadLetterName); dlqErr != nil {
+			s.logger.Error().Err(dlqErr).
+				Str("tenant_id", tenant.ID).
+				Str("topic", deadLetterName).
+				Msg("saga rollback: failed to delete dead-letter topic")
+		}
 		return nil, fmt.Errorf("create tenant: %w", err)
 	}
 
@@ -415,21 +434,28 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 
 	// Update topic retention to grace period (Kafka will delete after)
 	if s.routingRules != nil {
-		rules, err := s.routingRules.Get(ctx, tenantID)
+		rules, err := s.routingRules.GetAll(ctx, tenantID)
 		if err != nil {
 			s.logger.Warn().Err(err).Str("tenant_id", tenantID).
 				Msg("Failed to get routing rules for topic retention update")
 		} else {
 			gracePeriodMs := int64(s.config.DeprovisionGraceDays) * msPerDay
-			for _, suffix := range UniqueTopicSuffixes(rules) {
-				topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
-				if err := s.kafka.SetTopicConfig(ctx, topicName, map[string]string{
-					kafkaRetentionMsKey: strconv.FormatInt(gracePeriodMs, 10),
-				}); err != nil {
-					s.logger.Error().Err(err).
-						Str("tenant_id", tenantID).
-						Str("topic", topicName).
-						Msg("Failed to update topic retention")
+			seen := make(map[string]struct{})
+			for _, rule := range rules {
+				for _, suffix := range rule.Topics {
+					if _, ok := seen[suffix]; ok {
+						continue
+					}
+					seen[suffix] = struct{}{}
+					topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
+					if err := s.kafka.SetTopicConfig(ctx, topicName, map[string]string{
+						kafkaRetentionMsKey: strconv.FormatInt(gracePeriodMs, 10),
+					}); err != nil {
+						s.logger.Error().Err(err).
+							Str("tenant_id", tenantID).
+							Str("topic", topicName).
+							Msg("Failed to update topic retention")
+					}
 				}
 			}
 		}
@@ -458,12 +484,20 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenantID string) error 
 	// Read routing rules BEFORE deleting them — needed for Kafka topic cleanup below.
 	var topicSuffixes []string
 	if s.routingRules != nil {
-		rules, err := s.routingRules.Get(ctx, tenantID)
+		rules, err := s.routingRules.GetAll(ctx, tenantID)
 		if err != nil {
 			s.logger.Debug().Err(err).Str("tenant_id", tenantID).
 				Msg("Force-delete: no routing rules to clean up") // not-found is expected
 		} else {
-			topicSuffixes = UniqueTopicSuffixes(rules)
+			seen := make(map[string]struct{})
+			for _, rule := range rules {
+				for _, suffix := range rule.Topics {
+					if _, ok := seen[suffix]; !ok {
+						seen[suffix] = struct{}{}
+						topicSuffixes = append(topicSuffixes, suffix)
+					}
+				}
+			}
 		}
 	}
 
@@ -503,7 +537,7 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenantID string) error 
 
 	// Delete routing rules (continue on failure)
 	if s.routingRules != nil {
-		if err := s.routingRules.Delete(ctx, tenantID); err != nil {
+		if err := s.routingRules.DeleteAll(ctx, tenantID); err != nil {
 			s.logger.Debug().Err(err).Str("tenant_id", tenantID).
 				Msg("Force-delete: routing rules delete (not-found is expected)")
 		}
@@ -824,20 +858,20 @@ func (s *Service) GetRoutingRules(ctx context.Context, tenantID string) ([]Topic
 		return nil, ErrRoutingRulesNotConfigured
 	}
 
-	rules, err := s.routingRules.Get(ctx, tenantID)
+	rules, err := s.routingRules.GetAll(ctx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("get routing rules: %w", err)
 	}
 	return rules, nil
 }
 
-// SetRoutingRules creates or updates routing rules for a tenant.
-func (s *Service) SetRoutingRules(ctx context.Context, tenantID string, rules []TopicRoutingRule) error {
+// ReplaceRoutingRules atomically replaces all routing rules for a tenant.
+func (s *Service) ReplaceRoutingRules(ctx context.Context, tenantID string, rules []TopicRoutingRule) error {
 	if s.routingRules == nil {
 		return ErrRoutingRulesNotConfigured
 	}
 
-	// Verify tenant exists and is active
+	// Verify tenant exists and is active.
 	tenant, err := s.tenants.Get(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("get tenant: %w", err)
@@ -846,7 +880,7 @@ func (s *Service) SetRoutingRules(ctx context.Context, tenantID string, rules []
 		return fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
 	}
 
-	// Edition limit: routing rules per tenant
+	// Edition limit: routing rules per tenant.
 	if s.editionManager != nil {
 		limits := s.editionManager.Limits()
 		if err := limits.CheckRoutingRulesPerTenant(len(rules)); err != nil {
@@ -854,35 +888,126 @@ func (s *Service) SetRoutingRules(ctx context.Context, tenantID string, rules []
 		}
 	}
 
-	// Enforce configurable count limit (default from env var MAX_ROUTING_RULES)
-	maxRules := s.config.MaxRoutingRules
-	if len(rules) > maxRules {
-		return fmt.Errorf("%w: got %d, max %d", ErrTooManyRoutingRules, len(rules), maxRules)
-	}
-
-	// Validate rule structure (patterns, suffixes, no placeholders)
-	if err := ValidateRoutingRules(rules); err != nil {
+	// Validate rule structure (count, patterns, topics, priorities).
+	if err := ValidateRoutingRules(rules, s.config.MaxRoutingRulesPerTenant, s.config.MaxTopicsPerRule); err != nil {
 		return fmt.Errorf("invalid routing rules: %w", err)
 	}
 
-	// Upsert in store
-	if err := s.routingRules.Set(ctx, tenantID, rules); err != nil {
-		return fmt.Errorf("set routing rules: %w", err)
+	// Verify all referenced topics are provisioned (deduped by suffix).
+	seen := make(map[string]struct{})
+	for _, rule := range rules {
+		for _, suffix := range rule.Topics {
+			if _, ok := seen[suffix]; ok {
+				continue
+			}
+			seen[suffix] = struct{}{}
+			topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
+			exists, err := s.kafka.TopicExists(ctx, topicName)
+			if err != nil {
+				return fmt.Errorf("check topic %s: %w", topicName, err)
+			}
+			if !exists {
+				return fmt.Errorf("%w: %s", ErrTopicNotProvisioned, topicName)
+			}
+		}
 	}
 
-	s.auditLog(ctx, tenantID, ActionSetRoutingRules, Metadata{
+	// Atomically replace all rules in store.
+	if err := s.routingRules.Replace(ctx, tenantID, rules); err != nil {
+		return fmt.Errorf("replace routing rules: %w", err)
+	}
+
+	s.auditLog(ctx, tenantID, ActionReplaceRoutingRules, Metadata{
 		"rule_count": len(rules),
 	})
 
 	s.logger.Info().
 		Str("tenant_id", tenantID).
 		Int("rule_count", len(rules)).
-		Msg("Routing rules set")
+		Msg("Routing rules replaced")
 
 	s.emitEvent(eventbus.TenantConfigChanged)
 	s.emitEvent(eventbus.TopicsChanged)
 
 	return nil
+}
+
+// AddRoutingRule adds a single routing rule for a tenant.
+func (s *Service) AddRoutingRule(ctx context.Context, tenantID string, rule TopicRoutingRule) error {
+	if s.routingRules == nil {
+		return ErrRoutingRulesNotConfigured
+	}
+
+	// Verify tenant exists and is active.
+	tenant, err := s.tenants.Get(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("get tenant: %w", err)
+	}
+	if tenant.Status != StatusActive {
+		return fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
+	}
+
+	// Validate rule structure (pattern syntax, non-empty topics, per-rule topic limit).
+	if err := ValidateRoutingRules([]TopicRoutingRule{rule}, 0, s.config.MaxTopicsPerRule); err != nil {
+		return fmt.Errorf("invalid routing rule: %w", err)
+	}
+
+	// Enforce per-tenant rule count limit (Constitution II: every boundary validates inputs).
+	if s.config.MaxRoutingRulesPerTenant > 0 {
+		_, total, err := s.routingRules.List(ctx, tenantID, 1, 0)
+		if err != nil {
+			return fmt.Errorf("count routing rules: %w", err)
+		}
+		if total >= s.config.MaxRoutingRulesPerTenant {
+			return fmt.Errorf("%w: got %d, max %d", ErrTooManyRoutingRules, total+1, s.config.MaxRoutingRulesPerTenant)
+		}
+	}
+
+	// Verify all referenced topics are provisioned.
+	for _, suffix := range rule.Topics {
+		topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
+		exists, err := s.kafka.TopicExists(ctx, topicName)
+		if err != nil {
+			return fmt.Errorf("check topic %s: %w", topicName, err)
+		}
+		if !exists {
+			return fmt.Errorf("%w: %s", ErrTopicNotProvisioned, topicName)
+		}
+	}
+
+	if err := s.routingRules.Add(ctx, tenantID, rule); err != nil {
+		return fmt.Errorf("add routing rule: %w", err)
+	}
+
+	s.auditLog(ctx, tenantID, ActionAddRoutingRule, Metadata{
+		"pattern":  rule.Pattern,
+		"topics":   rule.Topics,
+		"priority": rule.Priority,
+	})
+
+	s.logger.Info().
+		Str("tenant_id", tenantID).
+		Str("pattern", rule.Pattern).
+		Int("priority", rule.Priority).
+		Msg("Routing rule added")
+
+	s.emitEvent(eventbus.TenantConfigChanged)
+	s.emitEvent(eventbus.TopicsChanged)
+
+	return nil
+}
+
+// ListRoutingRules returns paginated routing rules for a tenant ordered by priority ASC.
+func (s *Service) ListRoutingRules(ctx context.Context, tenantID string, limit, offset int) ([]TopicRoutingRule, int, error) {
+	if s.routingRules == nil {
+		return nil, 0, ErrRoutingRulesNotConfigured
+	}
+
+	rules, total, err := s.routingRules.List(ctx, tenantID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list routing rules: %w", err)
+	}
+	return rules, total, nil
 }
 
 // DeleteRoutingRules deletes routing rules for a tenant.
@@ -891,7 +1016,7 @@ func (s *Service) DeleteRoutingRules(ctx context.Context, tenantID string) error
 		return ErrRoutingRulesNotConfigured
 	}
 
-	if err := s.routingRules.Delete(ctx, tenantID); err != nil {
+	if err := s.routingRules.DeleteAll(ctx, tenantID); err != nil {
 		return fmt.Errorf("delete routing rules: %w", err)
 	}
 

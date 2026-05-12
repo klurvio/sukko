@@ -133,11 +133,9 @@ func setupTestEnv(t *testing.T) *testEnv {
 	}
 
 	// Seed routing rules
-	if err := routingRulesStore.Set(ctx, "test-tenant", []provisioning.TopicRoutingRule{
-		{Pattern: "*.trade", TopicSuffix: "trade"},
-	}); err != nil {
-		t.Fatalf("seed routing rules: %v", err)
-	}
+	routingRulesStore.Seed("test-tenant", []provisioning.TopicRoutingRule{
+		{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 1},
+	})
 
 	// Seed channel rules
 	if err := channelRulesStore.Create(ctx, "test-tenant", &types.ChannelRules{
@@ -326,11 +324,14 @@ func TestWatchTenantConfig_Snapshot(t *testing.T) { //nolint:paralleltest // use
 	if len(tc.GetRoutingRules()) != 1 {
 		t.Fatalf("expected 1 routing rule in snapshot, got %d", len(tc.GetRoutingRules()))
 	}
-	if tc.GetRoutingRules()[0].GetPattern() != "*.trade" {
-		t.Errorf("routing rule pattern = %q, want %q", tc.GetRoutingRules()[0].GetPattern(), "*.trade")
+	if tc.GetRoutingRules()[0].GetPattern() != "**.trade" {
+		t.Errorf("routing rule pattern = %q, want %q", tc.GetRoutingRules()[0].GetPattern(), "**.trade")
 	}
 	if tc.GetRoutingRules()[0].GetTopicSuffix() != "trade" {
-		t.Errorf("routing rule topic suffix = %q, want %q", tc.GetRoutingRules()[0].GetTopicSuffix(), "trade")
+		t.Errorf("routing rule topic_suffix (compat) = %q, want %q", tc.GetRoutingRules()[0].GetTopicSuffix(), "trade")
+	}
+	if len(tc.GetRoutingRules()[0].GetTopics()) != 1 || tc.GetRoutingRules()[0].GetTopics()[0] != "trade" {
+		t.Errorf("routing rule topics = %v, want [trade]", tc.GetRoutingRules()[0].GetTopics())
 	}
 }
 

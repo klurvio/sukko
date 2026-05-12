@@ -14,6 +14,7 @@ import (
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/license"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // NOTE: httputil.WriteJSON errors are assigned to _ throughout this file.
@@ -24,21 +25,35 @@ import (
 const (
 	defaultPageLimit = 50  // Default number of items per page
 	maxPageLimit     = 100 // Maximum allowed items per page
+
+	// routingRulesMaxPageLimit is the per-page cap for routing rules list responses.
+	// Higher than the general maxPageLimit since routing rules are small structs.
+	routingRulesMaxPageLimit = 200
+)
+
+// Routing rules error code constants (Constitution I — no magic strings).
+const (
+	errCodeDuplicatePriority     = "ROUTING_RULE_DUPLICATE_PRIORITY"
+	errCodeTooManyRoutingRules   = "TOO_MANY_ROUTING_RULES"
+	errCodeRoutingRuleValidation = "ROUTING_RULE_VALIDATION_ERROR"
+	errCodeTopicNotProvisioned   = "TOPIC_NOT_PROVISIONED"
 )
 
 // Handler provides HTTP handlers for provisioning operations.
 type Handler struct {
 	service *provisioning.Service
+	cfg     platform.ProvisioningConfig
 	logger  zerolog.Logger
 }
 
 // NewHandler creates a new Handler.
-func NewHandler(svc *provisioning.Service, logger zerolog.Logger) (*Handler, error) {
+func NewHandler(svc *provisioning.Service, cfg platform.ProvisioningConfig, logger zerolog.Logger) (*Handler, error) {
 	if svc == nil {
 		return nil, errors.New("handler: service is required")
 	}
 	return &Handler{
 		service: svc,
+		cfg:     cfg,
 		logger:  logger,
 	}, nil
 }
@@ -70,7 +85,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error, code, msg 
 		errors.Is(err, provisioning.ErrRoutingRulesNotConfigured):
 		httputil.WriteError(w, http.StatusNotImplemented, "FEATURE_NOT_CONFIGURED", "Feature store not configured")
 	case errors.Is(err, provisioning.ErrTooManyRoutingRules):
-		httputil.WriteError(w, http.StatusBadRequest, "TOO_MANY_ROUTING_RULES", "Too many routing rules")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeTooManyRoutingRules, "Too many routing rules")
 	case isEditionError(err):
 		writeEditionError(w, err)
 	default:
@@ -326,66 +341,108 @@ func (h *Handler) GetActiveKeys(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetRoutingRules returns routing rules for a tenant.
+// GetRoutingRules returns paginated routing rules for a tenant.
 func (h *Handler) GetRoutingRules(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
 
-	rules, err := h.service.GetRoutingRules(r.Context(), tenantID)
+	limit, offset := parsePagination(r, defaultPageLimit, routingRulesMaxPageLimit)
+
+	rules, total, err := h.service.ListRoutingRules(r.Context(), tenantID, limit, offset)
 	if err != nil {
-		if errors.Is(err, provisioning.ErrRoutingRulesNotFound) {
-			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "No routing rules configured")
-			return
-		}
-		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to get routing rules")
+		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to list routing rules")
 		httputil.WriteError(w, http.StatusInternalServerError, "GET_ROUTING_RULES_FAILED", "Failed to retrieve routing rules")
 		return
 	}
 
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
-		"rules": rules,
+		"items":  rules,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
 	})
 }
 
-// SetRoutingRules creates or updates routing rules for a tenant.
-func (h *Handler) SetRoutingRules(w http.ResponseWriter, r *http.Request) {
+// AddRoutingRule adds a single routing rule for a tenant.
+func (h *Handler) AddRoutingRule(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
 
-	var req provisioning.SetRoutingRulesRequest
+	var req provisioning.AddRoutingRuleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Warn().Err(err).Str("handler", "SetRoutingRules").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
+		h.logger.Warn().Err(err).Str("handler", "AddRoutingRule").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed")
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
 		return
 	}
 
-	// Boundary validation (defense in depth)
-	if err := provisioning.ValidateRoutingRules(req.Rules); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
+	if err := h.service.AddRoutingRule(r.Context(), tenantID, req.Rule); err != nil {
+		switch {
+		case errors.Is(err, provisioning.ErrDuplicatePriority):
+			httputil.WriteError(w, http.StatusConflict, errCodeDuplicatePriority, "A routing rule with this priority already exists")
+		case errors.Is(err, provisioning.ErrTopicNotProvisioned):
+			httputil.WriteError(w, http.StatusBadRequest, errCodeTopicNotProvisioned, err.Error())
+		case errors.Is(err, provisioning.ErrInvalidRoutingPattern),
+			errors.Is(err, provisioning.ErrEmptyTopics),
+			errors.Is(err, provisioning.ErrTooManyTopics):
+			httputil.WriteError(w, http.StatusBadRequest, errCodeRoutingRuleValidation, err.Error())
+		default:
+			h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to add routing rule")
+			h.writeServiceError(w, err, "ADD_ROUTING_RULE_FAILED", "Failed to add routing rule")
+		}
 		return
 	}
 
-	if err := h.service.SetRoutingRules(r.Context(), tenantID, req.Rules); err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to set routing rules")
-		h.writeServiceError(w, err, "SET_ROUTING_RULES_FAILED", "Failed to set routing rules")
+	h.logger.Info().Str("tenant_id", tenantID).Str("pattern", req.Rule.Pattern).Int("priority", req.Rule.Priority).Msg("routing rule added")
+
+	_ = httputil.WriteJSON(w, http.StatusCreated, map[string]any{
+		"rule": req.Rule,
+	})
+}
+
+// ReplaceRoutingRules atomically replaces all routing rules for a tenant.
+func (h *Handler) ReplaceRoutingRules(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+
+	var req provisioning.ReplaceRoutingRulesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.Warn().Err(err).Str("handler", "ReplaceRoutingRules").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
+		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		return
+	}
+
+	// Boundary validation (defense in depth — Constitution II).
+	if err := provisioning.ValidateRoutingRules(req.Rules, h.cfg.MaxRoutingRulesPerTenant, h.cfg.MaxTopicsPerRule); err != nil {
+		switch {
+		case errors.Is(err, provisioning.ErrTooManyRoutingRules):
+			httputil.WriteError(w, http.StatusBadRequest, errCodeTooManyRoutingRules, err.Error())
+		default:
+			httputil.WriteError(w, http.StatusBadRequest, errCodeRoutingRuleValidation, err.Error())
+		}
+		return
+	}
+
+	if err := h.service.ReplaceRoutingRules(r.Context(), tenantID, req.Rules); err != nil {
+		switch {
+		case errors.Is(err, provisioning.ErrTopicNotProvisioned):
+			httputil.WriteError(w, http.StatusBadRequest, errCodeTopicNotProvisioned, err.Error())
+		default:
+			h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to replace routing rules")
+			h.writeServiceError(w, err, "SET_ROUTING_RULES_FAILED", "Failed to replace routing rules")
+		}
 		return
 	}
 
 	RecordRoutingRulesSet()
-	h.logger.Info().Str("tenant_id", tenantID).Int("rule_count", len(req.Rules)).Msg("routing rules updated") // LOG-019
+	h.logger.Info().Str("tenant_id", tenantID).Int("rule_count", len(req.Rules)).Msg("routing rules replaced") // LOG-019
 
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"rules": req.Rules,
 	})
 }
 
-// DeleteRoutingRules deletes routing rules for a tenant.
+// DeleteRoutingRules deletes all routing rules for a tenant (idempotent).
 func (h *Handler) DeleteRoutingRules(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
 
 	if err := h.service.DeleteRoutingRules(r.Context(), tenantID); err != nil {
-		if errors.Is(err, provisioning.ErrRoutingRulesNotFound) {
-			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "No routing rules configured")
-			return
-		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to delete routing rules")
 		httputil.WriteError(w, http.StatusInternalServerError, "DELETE_ROUTING_RULES_FAILED", "Failed to delete routing rules")
 		return
@@ -528,6 +585,23 @@ func (h *Handler) GetActiveAPIKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseListOptions extracts pagination options from query params.
+// parsePagination extracts limit and offset from query parameters,
+// clamping limit to [1, maxLimit] and defaulting to defaultLimit.
+func parsePagination(r *http.Request, defaultLimit, maxLimit int) (limit, offset int) {
+	limit = defaultLimit
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = min(n, maxLimit)
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if n, err := strconv.Atoi(o); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return limit, offset
+}
+
 func parseListOptions(r *http.Request) provisioning.ListOptions {
 	opts := provisioning.ListOptions{
 		Limit:  defaultPageLimit,

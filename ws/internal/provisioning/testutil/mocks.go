@@ -392,9 +392,10 @@ type MockRoutingRulesStore struct {
 	mu    sync.RWMutex
 	rules map[string][]provisioning.TopicRoutingRule // key: tenantID
 
-	GetErr    error
-	SetErr    error
-	DeleteErr error
+	GetAllErr  error
+	ReplaceErr error
+	DeleteErr  error
+	AddErr     error
 }
 
 // NewMockRoutingRulesStore creates a new MockRoutingRulesStore.
@@ -404,56 +405,78 @@ func NewMockRoutingRulesStore() *MockRoutingRulesStore {
 	}
 }
 
-// Get implements RoutingRulesStore.Get for testing.
-func (m *MockRoutingRulesStore) Get(_ context.Context, tenantID string) ([]provisioning.TopicRoutingRule, error) {
+// List implements RoutingRulesStore.List for testing.
+func (m *MockRoutingRulesStore) List(_ context.Context, tenantID string, limit, offset int) ([]provisioning.TopicRoutingRule, int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.GetErr != nil {
-		return nil, m.GetErr
+	all := m.rules[tenantID]
+	total := len(all)
+	if offset >= total {
+		return []provisioning.TopicRoutingRule{}, total, nil
 	}
-	rules, ok := m.rules[tenantID]
-	if !ok {
-		return nil, provisioning.ErrRoutingRulesNotFound
-	}
-	return rules, nil
+	end := min(offset+limit, total)
+	return all[offset:end], total, nil
 }
 
-// Set implements RoutingRulesStore.Set for testing.
-func (m *MockRoutingRulesStore) Set(_ context.Context, tenantID string, rules []provisioning.TopicRoutingRule) error {
+// Add implements RoutingRulesStore.Add for testing.
+func (m *MockRoutingRulesStore) Add(_ context.Context, tenantID string, rule provisioning.TopicRoutingRule) error {
+	if m.AddErr != nil {
+		return m.AddErr
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.SetErr != nil {
-		return m.SetErr
+	for _, r := range m.rules[tenantID] {
+		if r.Priority == rule.Priority {
+			return provisioning.ErrDuplicatePriority
+		}
 	}
+	m.rules[tenantID] = append(m.rules[tenantID], rule)
+	return nil
+}
+
+// Replace implements RoutingRulesStore.Replace for testing.
+func (m *MockRoutingRulesStore) Replace(_ context.Context, tenantID string, rules []provisioning.TopicRoutingRule) error {
+	if m.ReplaceErr != nil {
+		return m.ReplaceErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.rules[tenantID] = rules
 	return nil
 }
 
-// Delete implements RoutingRulesStore.Delete for testing.
-func (m *MockRoutingRulesStore) Delete(_ context.Context, tenantID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// DeleteAll implements RoutingRulesStore.DeleteAll for testing.
+func (m *MockRoutingRulesStore) DeleteAll(_ context.Context, tenantID string) error {
 	if m.DeleteErr != nil {
 		return m.DeleteErr
 	}
-	if _, ok := m.rules[tenantID]; !ok {
-		return provisioning.ErrRoutingRulesNotFound
-	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.rules, tenantID)
 	return nil
 }
 
-// ListAll implements RoutingRulesStore.ListAll for testing.
-func (m *MockRoutingRulesStore) ListAll(_ context.Context) (map[string][]provisioning.TopicRoutingRule, error) {
+// GetAll implements RoutingRulesStore.GetAll for testing.
+func (m *MockRoutingRulesStore) GetAll(_ context.Context, tenantID string) ([]provisioning.TopicRoutingRule, error) {
+	if m.GetAllErr != nil {
+		return nil, m.GetAllErr
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	result := make(map[string][]provisioning.TopicRoutingRule, len(m.rules))
-	for k, v := range m.rules {
-		copied := make([]provisioning.TopicRoutingRule, len(v))
-		copy(copied, v)
-		result[k] = copied
+	rules := m.rules[tenantID]
+	if len(rules) == 0 {
+		return nil, nil
 	}
+	result := make([]provisioning.TopicRoutingRule, len(rules))
+	copy(result, rules)
 	return result, nil
+}
+
+// Seed sets rules directly for test setup.
+func (m *MockRoutingRulesStore) Seed(tenantID string, rules []provisioning.TopicRoutingRule) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rules[tenantID] = rules
 }
 
 // MockQuotaStore is an in-memory mock implementation of QuotaStore.
