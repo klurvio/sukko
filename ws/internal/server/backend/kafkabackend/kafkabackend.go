@@ -114,7 +114,6 @@ type Config struct {
 	ProducerCircuitBreakerTimeout     time.Duration
 	ProducerCircuitBreakerMaxFailures int
 	ProducerCircuitBreakerHalfOpen    int
-	ProducerTopicCacheTTL             time.Duration
 
 	// Kafka consumer batch tuning
 	KafkaBatchSize    int
@@ -212,7 +211,6 @@ func New(cfg Config) (*KafkaBackend, error) {
 		CircuitBreakerTimeout:      cfg.ProducerCircuitBreakerTimeout,
 		CircuitBreakerMaxFailures:  uint32(min(cfg.ProducerCircuitBreakerMaxFailures, math.MaxUint32)), //nolint:gosec // Bounds validated in ServerConfig.Validate()
 		CircuitBreakerHalfOpenReqs: uint32(min(cfg.ProducerCircuitBreakerHalfOpen, math.MaxUint32)),    //nolint:gosec // Bounds validated in ServerConfig.Validate()
-		TopicCacheTTL:              cfg.ProducerTopicCacheTTL,
 	})
 	if err != nil {
 		kb.kgoClient.Close()

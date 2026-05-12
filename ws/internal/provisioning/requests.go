@@ -64,10 +64,16 @@ type CreateAPIKeyRequest struct {
 	Name string `json:"name"`
 }
 
-// SetRoutingRulesRequest is the request to set routing rules for a tenant.
-type SetRoutingRulesRequest struct {
+// ReplaceRoutingRulesRequest is the request to atomically replace all routing rules for a tenant.
+type ReplaceRoutingRulesRequest struct {
 	// Rules are the ordered topic routing rules.
 	Rules []TopicRoutingRule `json:"rules"`
+}
+
+// AddRoutingRuleRequest is the request to add a single routing rule for a tenant.
+type AddRoutingRuleRequest struct {
+	// Rule is the routing rule to add.
+	Rule TopicRoutingRule `json:"rule"`
 }
 
 // UpdateQuotaRequest is the request to update quotas.

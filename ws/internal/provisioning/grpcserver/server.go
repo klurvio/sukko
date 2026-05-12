@@ -568,9 +568,15 @@ func (s *Server) loadTopicsUpdate(ctx context.Context, namespace string) (*provi
 		}
 
 		var topics []string
-		for _, suffix := range provisioning.UniqueTopicSuffixes(rules) {
-			topic := kafka.BuildTopicName(namespace, tenant.ID, suffix)
-			topics = append(topics, topic)
+		seenSuffixes := make(map[string]struct{})
+		for _, rule := range rules {
+			for _, suffix := range rule.Topics {
+				if _, ok := seenSuffixes[suffix]; ok {
+					continue
+				}
+				seenSuffixes[suffix] = struct{}{}
+				topics = append(topics, kafka.BuildTopicName(namespace, tenant.ID, suffix))
+			}
 		}
 
 		if len(topics) == 0 {
@@ -621,10 +627,20 @@ func convertRoutingRules(rules []provisioning.TopicRoutingRule) []*provisioningv
 	for _, r := range rules {
 		result = append(result, &provisioningv1.TopicRoutingRule{
 			Pattern:     r.Pattern,
-			TopicSuffix: r.TopicSuffix,
+			TopicSuffix: firstOrEmpty(r.Topics), // deprecated field — backward compat
+			Topics:      r.Topics,
+			Priority:    int32(r.Priority), //nolint:gosec // G115: priority is validated at write time to be a small positive integer, never exceeds int32 max
 		})
 	}
 	return result
+}
+
+// firstOrEmpty returns the first element of s, or empty string if s is empty.
+func firstOrEmpty(s []string) string {
+	if len(s) == 0 {
+		return ""
+	}
+	return s[0]
 }
 
 // convertAPIKeys converts provisioning API keys to proto APIKeyInfo messages.

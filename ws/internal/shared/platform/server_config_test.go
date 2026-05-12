@@ -144,7 +144,6 @@ func newValidServerConfig() *ServerConfig {
 		KafkaProducerCBTimeout:          30 * time.Second,
 		KafkaProducerCBMaxFailures:      5,
 		KafkaProducerCBHalfOpenReqs:     1,
-		KafkaProducerTopicCacheTTL:      30 * time.Second,
 		// JetStream backend tuning
 		JetStreamReconnectWait:   2 * time.Second,
 		JetStreamMaxDeliver:      3,
@@ -156,6 +155,13 @@ func newValidServerConfig() *ServerConfig {
 		// Valkey config
 		ValkeyMasterName: "mymaster",
 		ValkeyChannel:    "ws.broadcast",
+		// Routing / DLQ config (T004)
+		RoutingFanoutWorkers:   4,
+		RoutingFanoutQueueSize: 256,
+		DLQMaxRetries:          3,
+		DLQBaseDelay:           100 * time.Millisecond,
+		DLQMaxDelay:            5 * time.Second,
+		DLQRetryWorkers:        4,
 	}
 }
 
@@ -1294,7 +1300,6 @@ func TestServerConfig_Validate_NewDurationFields(t *testing.T) {
 		{"KafkaRebalanceTimeout", func(c *ServerConfig) { c.KafkaRebalanceTimeout = 0 }, "KAFKA_REBALANCE_TIMEOUT"},
 		{"KafkaBackpressureCheckInterval", func(c *ServerConfig) { c.KafkaBackpressureCheckInterval = 0 }, "KAFKA_BACKPRESSURE_CHECK_INTERVAL"},
 		{"KafkaProducerCBTimeout", func(c *ServerConfig) { c.KafkaProducerCBTimeout = 0 }, "KAFKA_PRODUCER_CB_TIMEOUT"},
-		{"KafkaProducerTopicCacheTTL", func(c *ServerConfig) { c.KafkaProducerTopicCacheTTL = 0 }, "KAFKA_PRODUCER_TOPIC_CACHE_TTL"},
 		{"JetStreamReconnectWait", func(c *ServerConfig) { c.JetStreamReconnectWait = 0 }, "JETSTREAM_RECONNECT_WAIT"},
 		{"JetStreamAckWait", func(c *ServerConfig) { c.JetStreamAckWait = 0 }, "JETSTREAM_ACK_WAIT"},
 		{"JetStreamRefreshTimeout", func(c *ServerConfig) { c.JetStreamRefreshTimeout = 0 }, "JETSTREAM_REFRESH_TIMEOUT"},

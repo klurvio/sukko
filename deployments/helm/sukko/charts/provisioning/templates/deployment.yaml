@@ -86,6 +86,11 @@ spec:
               value: {{ .Values.service.grpcPort | quote }}
             {{- end }}
 
+            # Kafka brokers for DLQ and migration tools
+            # Auto-wires to in-cluster Redpanda; override via kafka.brokers.
+            - name: PROVISIONING_KAFKA_BROKERS
+              value: {{ .Values.kafka.brokers | default (printf "%s-redpanda:9092" .Release.Name) | quote }}
+
             # Admin bootstrap key (one-time first admin registration)
             {{- if .Values.adminBootstrapKey }}
             - name: ADMIN_BOOTSTRAP_KEY

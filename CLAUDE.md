@@ -129,7 +129,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.16.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-05-03
+**Version**: 1.17.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-05-04
 
 ### I. Configuration
 
@@ -290,6 +290,16 @@ Every edition-gated feature MUST be documented in `internal/shared/license/featu
 Every implemented gated feature MUST have an `EditionHasFeature()` check at its access boundary (API handler, config validation, or startup gate). Implemented features without gate checks allow Community users to access Pro/Enterprise functionality — this is a security and business logic bug.
 
 New feature implementations MUST check the feature matrix first: if a `Feature` constant exists for the capability being built, the implementation MUST wire the gate check. Adding new gated features MUST follow: (1) add `Feature` constant with `// Future` comment, (2) add `featureEditions` entry, (3) when implementing, add `EditionHasFeature()` check and update comment to `// Implemented`.
+
+### XV. Simplicity (KISS)
+
+Every feature, design, and implementation MUST be easy to reason about. Complexity is a cost, not a sign of thoroughness.
+
+**Design**: Prefer explicit, mutually exclusive modes over layered fallback chains. A system with two clearly named operating modes is always easier to reason about than one with three silent fallbacks. If explaining how something works requires the word "unless" more than once, redesign it.
+
+**Code**: Silent fallbacks, dual-purpose flags, and implicit mode detection are forbidden. If a value means two different things depending on context, split it into two values. If an operation behaves differently in different environments, the difference MUST be explicit in configuration — never inferred at runtime from the presence or absence of other values.
+
+**Specs and requirements**: Every feature specification MUST be reviewable by someone who hasn't read the code. If a requirement cannot be stated in one sentence without a footnote, it is too complex — simplify the design, not the sentence.
 
 ### XIV. Tooling Boundary
 
