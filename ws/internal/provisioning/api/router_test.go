@@ -74,31 +74,38 @@ func newTestService() *provisioning.Service {
 
 // newTestServiceWithStores creates a provisioning service with specific mock stores.
 func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStore *testutil.MockRoutingRulesStore, channelRulesStore ...*testutil.MockChannelRulesStore) *provisioning.Service {
+	svc, _ := newTestServiceWithKafka(tenantStore, routingStore, channelRulesStore...)
+	return svc
+}
+
+// newTestServiceWithKafka creates a provisioning service and returns the kafka admin for test assertions.
+func newTestServiceWithKafka(tenantStore *testutil.MockTenantStore, routingStore *testutil.MockRoutingRulesStore, channelRulesStore ...*testutil.MockChannelRulesStore) (*provisioning.Service, *testutil.MockKafkaAdmin) {
+	kafkaAdmin := testutil.NewMockKafkaAdmin()
 	cfg := provisioning.ServiceConfig{
-		TenantStore:          tenantStore,
-		KeyStore:             testutil.NewMockKeyStore(),
-		APIKeyStore:          testutil.NewMockAPIKeyStore(),
-		RoutingRulesStore:    routingStore,
-		QuotaStore:           testutil.NewMockQuotaStore(),
-		AuditStore:           testutil.NewMockAuditStore(),
-		KafkaAdmin:           testutil.NewMockKafkaAdmin(),
-		EventBus:             eventbus.New(zerolog.Nop()),
-		TopicNamespace:       "test",
-		DefaultPartitions:    3,
-		DefaultRetentionMs:   604800000,
-		MaxTopicsPerTenant:   50,
-		MaxRoutingRules:      100,
-		DeprovisionGraceDays: 30,
-		Logger:               zerolog.Nop(),
+		TenantStore:              tenantStore,
+		KeyStore:                 testutil.NewMockKeyStore(),
+		APIKeyStore:              testutil.NewMockAPIKeyStore(),
+		RoutingRulesStore:        routingStore,
+		QuotaStore:               testutil.NewMockQuotaStore(),
+		AuditStore:               testutil.NewMockAuditStore(),
+		KafkaAdmin:               kafkaAdmin,
+		EventBus:                 eventbus.New(zerolog.Nop()),
+		TopicNamespace:           "test",
+		DefaultPartitions:        3,
+		DefaultRetentionMs:       604800000,
+		MaxTopicsPerTenant:       50,
+		MaxRoutingRulesPerTenant: 100,
+		DeprovisionGraceDays:     30,
+		Logger:                   zerolog.Nop(),
 	}
 	if len(channelRulesStore) > 0 {
 		cfg.ChannelRulesStore = channelRulesStore[0]
 	}
 	svc, err := provisioning.NewService(cfg)
 	if err != nil {
-		panic("newTestServiceWithStores: " + err.Error())
+		panic("newTestServiceWithKafka: " + err.Error())
 	}
-	return svc
+	return svc, kafkaAdmin
 }
 
 // mustNewRouter creates a test router, failing the test on error.
@@ -672,31 +679,35 @@ func TestRouter_RoutingRules_CRUD(t *testing.T) {
 
 	tenantStore := testutil.NewMockTenantStore()
 	routingStore := testutil.NewMockRoutingRulesStore()
-	svc := newTestServiceWithStores(tenantStore, routingStore)
+	svc, kafkaAdmin := newTestServiceWithKafka(tenantStore, routingStore)
 
 	// Pre-create a tenant so service calls succeed
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+
+	// Pre-seed Kafka topics referenced by routing rules in this test.
+	_ = kafkaAdmin.CreateTopic(context.Background(), "test.test-tenant.trade", 1, nil)
+	_ = kafkaAdmin.CreateTopic(context.Background(), "test.test-tenant.orderbook", 1, nil)
 
 	router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
 		Service: svc,
 		Logger:  zerolog.Nop(),
 	})
 
-	// 1. GET routing rules — not found initially
+	// 1. GET routing rules — empty initially (200 with empty array)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
 	addAuth(req)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("GET (empty) status = %d, want %d; body: %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET (empty) status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
 	// 2. PUT routing rules
-	rules := provisioning.SetRoutingRulesRequest{
+	rules := provisioning.ReplaceRoutingRulesRequest{
 		Rules: []provisioning.TopicRoutingRule{
-			{Pattern: "*.trade", TopicSuffix: "trade"},
-			{Pattern: "*.orderbook", TopicSuffix: "orderbook"},
+			{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 1},
+			{Pattern: "**.orderbook", Topics: []string{"orderbook"}, Priority: 2},
 		},
 	}
 	body, _ := json.Marshal(rules)
@@ -721,13 +732,16 @@ func TestRouter_RoutingRules_CRUD(t *testing.T) {
 	}
 
 	var getResp struct {
-		Rules []provisioning.TopicRoutingRule `json:"rules"`
+		Items  []provisioning.TopicRoutingRule `json:"items"`
+		Total  int                             `json:"total"`
+		Limit  int                             `json:"limit"`
+		Offset int                             `json:"offset"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &getResp); err != nil {
 		t.Fatalf("failed to parse GET response: %v", err)
 	}
-	if len(getResp.Rules) != 2 {
-		t.Errorf("expected 2 rules, got %d", len(getResp.Rules))
+	if len(getResp.Items) != 2 {
+		t.Errorf("expected 2 rules, got %d", len(getResp.Items))
 	}
 
 	// 4. DELETE routing rules
@@ -740,14 +754,14 @@ func TestRouter_RoutingRules_CRUD(t *testing.T) {
 		t.Errorf("DELETE status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
-	// 5. GET after delete — should be not found again
+	// 5. GET after delete — empty (200 with empty array)
 	req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/tenants/test-tenant/routing-rules", nil)
 	addAuth(req)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("GET (after delete) status = %d, want %d; body: %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET (after delete) status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 }
 
@@ -790,7 +804,7 @@ func TestRouter_RoutingRules_InvalidRules(t *testing.T) {
 	})
 
 	// Empty rules should fail validation
-	rules := provisioning.SetRoutingRulesRequest{
+	rules := provisioning.ReplaceRoutingRulesRequest{
 		Rules: []provisioning.TopicRoutingRule{},
 	}
 	body, _ := json.Marshal(rules)
@@ -823,8 +837,8 @@ func TestRouter_RoutingRules_DeleteNonexistent(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want %d; body: %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 }
 
@@ -1018,9 +1032,9 @@ func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
 
 			var body *bytes.Reader
 			if tt.method == http.MethodPut {
-				rules := provisioning.SetRoutingRulesRequest{
+				rules := provisioning.ReplaceRoutingRulesRequest{
 					Rules: []provisioning.TopicRoutingRule{
-						{Pattern: "*.trade", TopicSuffix: "trade"},
+						{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 1},
 					},
 				}
 				b, _ := json.Marshal(rules)

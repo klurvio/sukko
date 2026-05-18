@@ -16,18 +16,33 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 
 	"github.com/klurvio/sukko/internal/server/metrics"
 	kafkautil "github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/routing"
 )
+
+// consumerRoutingMetrics holds Prometheus metrics shared across all Consumer instances.
+// Registered once at package level to avoid duplicate registration panics when the
+// orchestration pool creates one Consumer per active tenant.
+var consumerRoutingMetrics = struct {
+	deadLetterCounter     *prometheus.CounterVec
+	malformedTopicCounter prometheus.Counter
+	once                  sync.Once
+}{}
 
 // TokenEvent represents an event from Redpanda
 type TokenEvent struct {
@@ -90,12 +105,20 @@ type Consumer struct {
 	replayFetchMaxBytes       int32
 	backpressureCheckInterval time.Duration
 
+	// Routing — resolves channel from header or key based on edition.
+	namespace     string
+	rulesProvider RoutingSnapshotProvider
+	dlq           *DLQPool
+
 	// Metrics - lock-free atomic counters (Constitution VII)
 	messagesProcessed atomic.Uint64 // Successfully broadcast messages
 	messagesFailed    atomic.Uint64 // Messages with invalid format
 	messagesDropped   atomic.Uint64 // Rate limited or CPU paused
 	batchesSent       atomic.Uint64 // Number of batches sent
 	consumerGroup     string        // Consumer group ID for metrics labels
+
+	deadLetterCounter     *prometheus.CounterVec
+	malformedTopicCounter prometheus.Counter
 }
 
 // ConsumerConfig holds configuration for creating a Kafka consumer.
@@ -128,6 +151,11 @@ type ConsumerConfig struct {
 
 	// Backpressure tuning
 	BackpressureCheckInterval time.Duration // CPU brake poll interval (default: 100ms)
+
+	// Routing — optional; when set, channel extraction uses header and edition awareness.
+	Namespace     string                  // Topic namespace (e.g. "prod") — used to build DLQ topic names.
+	RulesProvider RoutingSnapshotProvider // Routing snapshot provider (nil = Community fallback always).
+	DLQ           *DLQPool                // Dead-letter queue pool (nil = drop on invalid channel).
 }
 
 // NewConsumer creates a new Kafka consumer with the provided configuration.
@@ -283,7 +311,28 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		fetchMaxBytes:             cfg.FetchMaxBytes,
 		replayFetchMaxBytes:       cfg.ReplayFetchMaxBytes,
 		backpressureCheckInterval: backpressureInterval,
+
+		// Routing
+		namespace:     cfg.Namespace,
+		rulesProvider: cfg.RulesProvider,
+		dlq:           cfg.DLQ,
 	}
+
+	// Register routing Prometheus metrics once across all Consumer instances.
+	// The orchestration pool creates one Consumer per active tenant, so
+	// per-instance promauto calls would panic on the second registration.
+	consumerRoutingMetrics.once.Do(func() {
+		consumerRoutingMetrics.deadLetterCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: MetricDeadLetterTotal,
+			Help: "Total records routed to the dead-letter topic",
+		}, []string{LabelTenant, LabelReason})
+		consumerRoutingMetrics.malformedTopicCounter = promauto.NewCounter(prometheus.CounterOpts{
+			Name: MetricMalformedTopicTotal,
+			Help: "Total records dropped due to malformed topic name",
+		})
+	})
+	consumer.deadLetterCounter = consumerRoutingMetrics.deadLetterCounter
+	consumer.malformedTopicCounter = consumerRoutingMetrics.malformedTopicCounter
 
 	if batchEnabled {
 		cfg.Logger.Info().
@@ -386,13 +435,7 @@ func (c *Consumer) consumeLoop() {
 	}
 
 	// Batching enabled: accumulate messages and flush periodically
-	type batchedMessage struct {
-		topic   string
-		subject string
-		message []byte
-	}
-
-	batch := make([]batchedMessage, 0, c.batchSize)
+	batch := make([]preparedMessage, 0, c.batchSize)
 	flushTimer := time.NewTimer(c.batchTimeout)
 	defer flushTimer.Stop()
 
@@ -497,13 +540,16 @@ func (c *Consumer) consumeLoopUnbatched() {
 	}
 }
 
-// prepareMessage validates and prepares a message for batching
-// Returns nil if message should be dropped (rate limited, invalid, etc.)
-func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
+// preparedMessage holds a validated, ready-to-broadcast Kafka message.
+type preparedMessage struct {
 	topic   string
 	subject string
 	message []byte
-} {
+}
+
+// prepareMessage validates and prepares a message for batching
+// Returns nil if message should be dropped (rate limited, invalid, etc.)
+func (c *Consumer) prepareMessage(record *kgo.Record) *preparedMessage {
 	// ============================================================================
 	// LAYER 1: RATE LIMITING
 	// ============================================================================
@@ -557,24 +603,23 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *struct {
 		}
 	}
 
-	// Extract subject (routing key) from Kafka key
-	// The Kafka Key IS the broadcast subject (e.g., "sukko.BTC.trade")
-	subject := string(record.Key)
-	if subject == "" {
-		c.logger.Warn().
-			Str("topic", record.Topic).
-			Msg("Record missing subject key")
+	channel, reason, malformed := extractChannel(record, c.rulesProvider)
+	if malformed {
+		if c.malformedTopicCounter != nil {
+			c.malformedTopicCounter.Inc()
+		}
+		c.incrementFailed()
+		return nil
+	}
+	if reason != "" {
+		c.routeToDLQ(record, reason)
 		c.incrementFailed()
 		return nil
 	}
 
-	return &struct {
-		topic   string
-		subject string
-		message []byte
-	}{
+	return &preparedMessage{
 		topic:   record.Topic,
-		subject: subject,
+		subject: channel,
 		message: record.Value,
 	}
 }
@@ -651,42 +696,113 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 		}
 	}
 
-	// Extract subject (routing key) from Kafka key
-	// The Kafka Key IS the broadcast subject (e.g., "sukko.BTC.trade")
-	subject := string(record.Key)
-	if subject == "" {
-		c.logger.Warn().
-			Str("topic", record.Topic).
-			Msg("Record missing subject key")
+	channel, reason, malformed := extractChannel(record, c.rulesProvider)
+	if malformed {
+		if c.malformedTopicCounter != nil {
+			c.malformedTopicCounter.Inc()
+		}
+		c.incrementFailed()
+		return
+	}
+	if reason != "" {
+		c.routeToDLQ(record, reason)
 		c.incrementFailed()
 		return
 	}
 
-	// ============================================================================
-	// DIRECT BROADCAST (Worker pool removed for performance)
-	// ============================================================================
-	// Worker pool was redundant because:
-	// 1. Broadcast is already non-blocking (uses select with default)
-	// 2. Only 25 msg/sec = minimal work (~12ms per poll cycle)
-	// 3. 192 workers sitting idle 87% of time, wasting CPU on context switches
-	// 4. Franz-go already has internal goroutines per partition
-	//
-	// Direct call is safe because:
-	// - Broadcast completes in ~1ms (iterates subscribed clients with non-blocking sends)
-	// - Poll cycle: 500ms wait + 12ms processing = well within franz-go timing requirements
-	// - Consumer group heartbeats, offsets, rebalancing all still work correctly
-	//
-	// Performance gain: ~1-2% CPU saved + reduced goroutine overhead
-	c.broadcast(subject, record.Value)
-
-	// Increment processed count after successful broadcast
+	c.broadcast(channel, record.Value)
 	c.incrementProcessed(record.Topic)
 
-	// DEBUG level: Zero overhead in production (LOG_LEVEL=info)
 	c.logger.Debug().
-		Str("subject", subject).
+		Str("channel", channel).
 		Str("topic", record.Topic).
 		Msg("Consumed Kafka message")
+}
+
+// routeToDLQ submits a record to the dead-letter queue using a non-blocking send.
+// If the DLQ is nil or the channel is full, the record is dropped and counted.
+func (c *Consumer) routeToDLQ(record *kgo.Record, reason string) {
+	topicParts := strings.SplitN(record.Topic, ".", 3)
+	tenant := ""
+	if len(topicParts) >= 2 {
+		tenant = topicParts[1]
+	}
+
+	if c.deadLetterCounter != nil {
+		c.deadLetterCounter.WithLabelValues(tenant, reason).Inc()
+	}
+
+	if c.dlq == nil {
+		return
+	}
+
+	dlqTopic := kafkautil.BuildTopicName(c.namespace, tenant, routing.DeadLetterTopicSuffix)
+	dlqRec := &kgo.Record{
+		Topic: dlqTopic,
+		Key:   record.Key,
+		Value: record.Value,
+		Headers: append(slices.Clone(record.Headers),
+			kgo.RecordHeader{Key: HeaderReason, Value: []byte(reason)},
+		),
+	}
+	// Non-blocking submit; drop silently if queue full (deadLetterCounter already incremented above).
+	c.dlq.TrySubmit(dlqJob{record: dlqRec, tenant: tenant, reason: reason})
+}
+
+// findHeader returns the value of the first header matching key, or nil.
+func findHeader(record *kgo.Record, key string) []byte {
+	for _, h := range record.Headers {
+		if h.Key == key {
+			return h.Value
+		}
+	}
+	return nil
+}
+
+// extractChannel resolves the broadcast channel from a Kafka record.
+// Returns (channel, reason, malformed):
+//   - malformed=true: topic has fewer than 3 segments; drop silently, no DLQ.
+//   - reason!="": channel is invalid/missing; caller should route to DLQ.
+//   - otherwise: channel is valid.
+func extractChannel(record *kgo.Record, rulesProvider RoutingSnapshotProvider) (channel, reason string, malformed bool) {
+	topicParts := strings.SplitN(record.Topic, ".", 3)
+	if len(topicParts) < 3 {
+		return "", "", true
+	}
+	tenant := topicParts[1]
+
+	var edition = license.Community
+	if rulesProvider != nil {
+		if snap, ok := rulesProvider.GetRoutingSnapshot(tenant); ok {
+			edition = snap.Edition
+		}
+	}
+
+	headerVal := findHeader(record, HeaderChannel)
+
+	if headerVal == nil {
+		if license.EditionHasFeature(edition, license.ChannelTopicRouting) {
+			return "", ReasonMissingChannelHeader, false
+		}
+		// Community fallback: channel from record.Key.
+		ch := string(record.Key)
+		if ch == "" || !strings.Contains(ch, ".") {
+			return "", ReasonInvalidChannelKey, false
+		}
+		return ch, "", false
+	}
+
+	// Header present: validate it's a well-formed channel (at least two segments)
+	// then check tenant prefix matches topic tenant.
+	ch := string(headerVal)
+	dot := strings.IndexByte(ch, '.')
+	if dot <= 0 {
+		return "", ReasonInvalidChannelKey, false
+	}
+	if ch[:dot] != tenant {
+		return "", ReasonTenantPrefixMismatch, false
+	}
+	return ch, "", false
 }
 
 // GetMetrics returns current consumer metrics: messages processed successfully,

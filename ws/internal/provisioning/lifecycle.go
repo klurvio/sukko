@@ -137,27 +137,33 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 
 	// 1. Delete Kafka topics derived from routing rules (nil-guarded: store is optional)
 	if lm.service.routingRules != nil {
-		rules, err := lm.service.routingRules.Get(ctx, tenantID)
+		rules, err := lm.service.routingRules.GetAll(ctx, tenantID)
 		if err != nil {
 			lm.logger.Warn().
 				Err(err).
 				Str("tenant_id", tenantID).
 				Msg("Failed to get routing rules for topic deletion, continuing anyway")
 		} else {
-			for _, suffix := range UniqueTopicSuffixes(rules) {
-				topicName := kafka.BuildTopicName(lm.service.config.TopicNamespace, tenantID, suffix)
-
-				if err := lm.service.kafka.DeleteTopic(ctx, topicName); err != nil {
-					lm.logger.Warn().
-						Err(err).
-						Str("topic", topicName).
-						Msg("Failed to delete Kafka topic, continuing anyway")
+			seen := make(map[string]struct{})
+			for _, rule := range rules {
+				for _, suffix := range rule.Topics {
+					if _, ok := seen[suffix]; ok {
+						continue
+					}
+					seen[suffix] = struct{}{}
+					topicName := kafka.BuildTopicName(lm.service.config.TopicNamespace, tenantID, suffix)
+					if err := lm.service.kafka.DeleteTopic(ctx, topicName); err != nil {
+						lm.logger.Warn().
+							Err(err).
+							Str("topic", topicName).
+							Msg("Failed to delete Kafka topic, continuing anyway")
+					}
 				}
 			}
 		}
 
 		// Delete routing rules from database
-		if err := lm.service.routingRules.Delete(ctx, tenantID); err != nil {
+		if err := lm.service.routingRules.DeleteAll(ctx, tenantID); err != nil {
 			lm.logger.Warn().
 				Err(err).
 				Str("tenant_id", tenantID).

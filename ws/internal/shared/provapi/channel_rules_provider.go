@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,11 +14,27 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 
 	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/routing"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
+
+// 20s ping + 10s timeout = 30s worst-case detection, matching NFR-002's 30-second propagation budget.
+// Using 30s would allow 40s detection, violating NFR-002.
+const (
+	provAPIKeepaliveTime    = 20 * time.Second
+	provAPIKeepaliveTimeout = 10 * time.Second
+)
+
+// TenantRoutingSnapshot is a point-in-time snapshot of routing rules and edition for a tenant.
+type TenantRoutingSnapshot struct {
+	Rules   []types.RoutingRule
+	Edition license.Edition
+}
 
 // StreamChannelRulesProviderConfig configures the gRPC stream-backed channel rules provider.
 type StreamChannelRulesProviderConfig struct {
@@ -34,6 +51,9 @@ type StreamChannelRulesProvider struct {
 	mu           sync.RWMutex
 	channelRules map[string]*types.ChannelRules // tenantID → rules
 
+	snapshotMu       sync.Mutex   // serializes concurrent UpdateEdition + updateTenantConfigs COW writes
+	routingSnapshots atomic.Value // holds map[string]TenantRoutingSnapshot
+
 	conn   *grpc.ClientConn
 	config StreamChannelRulesProviderConfig
 	logger zerolog.Logger
@@ -44,8 +64,9 @@ type StreamChannelRulesProvider struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	streamStateGauge  prometheus.Gauge
-	reconnectsCounter prometheus.Counter
+	streamStateGauge       prometheus.Gauge
+	reconnectsCounter      prometheus.Counter
+	invalidPatternsCounter prometheus.Counter
 }
 
 // NewStreamChannelRulesProvider creates a new gRPC stream-backed channel rules provider.
@@ -65,6 +86,11 @@ func NewStreamChannelRulesProvider(cfg StreamChannelRulesProviderConfig) (*Strea
 
 	conn, err := grpc.NewClient(cfg.GRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                provAPIKeepaliveTime,
+			Timeout:             provAPIKeepaliveTimeout,
+			PermitWithoutStream: true,
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial provisioning gRPC: %w", err)
@@ -86,7 +112,12 @@ func NewStreamChannelRulesProvider(cfg StreamChannelRulesProviderConfig) (*Strea
 			Name: cfg.MetricPrefix + "_provisioning_config_stream_reconnects_total",
 			Help: "Total reconnection attempts for the provisioning config stream",
 		}),
+		invalidPatternsCounter: promauto.NewCounter(prometheus.CounterOpts{
+			Name: cfg.MetricPrefix + "_" + routing.MetricInvalidPatternBase,
+			Help: "Total routing patterns skipped due to invalid syntax",
+		}),
 	}
+	r.routingSnapshots.Store(make(map[string]TenantRoutingSnapshot))
 
 	r.wg.Go(func() {
 		defer logging.RecoverPanic(r.logger, "channel_rules_stream", nil)
@@ -106,6 +137,26 @@ func (r *StreamChannelRulesProvider) GetChannelRules(_ context.Context, tenantID
 		return nil, types.ErrChannelRulesNotFound
 	}
 	return rules, nil
+}
+
+// GetRoutingSnapshot returns the routing snapshot for a tenant, or false if not found.
+func (r *StreamChannelRulesProvider) GetRoutingSnapshot(tenantID string) (TenantRoutingSnapshot, bool) {
+	m, _ := r.routingSnapshots.Load().(map[string]TenantRoutingSnapshot)
+	snap, ok := m[tenantID]
+	return snap, ok
+}
+
+// UpdateEdition propagates a new edition to all cached routing snapshots.
+// Called from the license watcher's OnReload callback.
+func (r *StreamChannelRulesProvider) UpdateEdition(edition license.Edition) {
+	r.snapshotMu.Lock()
+	defer r.snapshotMu.Unlock()
+	old, _ := r.routingSnapshots.Load().(map[string]TenantRoutingSnapshot)
+	next := make(map[string]TenantRoutingSnapshot, len(old))
+	for k, v := range old {
+		next[k] = TenantRoutingSnapshot{Rules: v.Rules, Edition: edition}
+	}
+	r.routingSnapshots.Store(next)
 }
 
 // State returns the current stream state (0=disconnected, 1=connected).
@@ -177,30 +228,70 @@ func (r *StreamChannelRulesProvider) streamLoop(ctx context.Context) {
 
 // updateTenantConfigs processes a WatchTenantConfigResponse and updates caches.
 func (r *StreamChannelRulesProvider) updateTenantConfigs(resp *provisioningv1.WatchTenantConfigResponse) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	isSnapshot := resp.GetIsSnapshot()
+	removedIDs := resp.GetRemovedTenantIds()
+	tenants := resp.GetTenants()
 
-	if resp.GetIsSnapshot() {
+	// Update channel rules under the mutex.
+	r.mu.Lock()
+	if isSnapshot {
 		r.channelRules = make(map[string]*types.ChannelRules)
 	}
-
-	// Remove tenants
-	for _, tenantID := range resp.GetRemovedTenantIds() {
+	for _, tenantID := range removedIDs {
 		delete(r.channelRules, tenantID)
 	}
-
-	// Add/update tenants
-	for _, tc := range resp.GetTenants() {
-		// Channel rules
+	for _, tc := range tenants {
 		if tc.GetChannelRules() != nil {
-			rules := protoToChannelRules(tc.GetChannelRules())
-			r.channelRules[tc.GetTenantId()] = rules
+			r.channelRules[tc.GetTenantId()] = protoToChannelRules(tc.GetChannelRules())
 		}
 	}
+	channelRulesLen := len(r.channelRules)
+	r.mu.Unlock()
+
+	// COW update for routing snapshots — snapshotMu serializes concurrent UpdateEdition calls.
+	r.snapshotMu.Lock()
+	defer r.snapshotMu.Unlock()
+	old, _ := r.routingSnapshots.Load().(map[string]TenantRoutingSnapshot)
+	next := make(map[string]TenantRoutingSnapshot, len(old))
+	if !isSnapshot {
+		maps.Copy(next, old)
+	}
+	for _, tenantID := range removedIDs {
+		delete(next, tenantID)
+	}
+	for _, tc := range tenants {
+		existing := next[tc.GetTenantId()]
+		protoRules := tc.GetRoutingRules()
+		rules := make([]types.RoutingRule, 0, len(protoRules))
+		for _, pr := range protoRules {
+			pattern := routing.NormalizePattern(pr.GetPattern())
+			if _, err := routing.MatchRoutingPattern(pattern, "x"); err != nil {
+				r.invalidPatternsCounter.Inc()
+				continue
+			}
+			topics := pr.GetTopics()
+			if len(topics) == 0 && pr.GetTopicSuffix() != "" {
+				topics = []string{pr.GetTopicSuffix()}
+			}
+			if len(topics) == 0 {
+				continue // skip misconfigured rules with no topic destinations
+			}
+			rules = append(rules, types.RoutingRule{
+				Pattern:  pattern,
+				Topics:   topics,
+				Priority: int(pr.GetPriority()),
+			})
+		}
+		next[tc.GetTenantId()] = TenantRoutingSnapshot{
+			Rules:   rules,
+			Edition: existing.Edition,
+		}
+	}
+	r.routingSnapshots.Store(next)
 
 	r.logger.Debug().
-		Bool("snapshot", resp.GetIsSnapshot()).
-		Int("channel_rules", len(r.channelRules)).
+		Bool("snapshot", isSnapshot).
+		Int("channel_rules", channelRulesLen).
 		Msg("tenant config cache updated")
 }
 

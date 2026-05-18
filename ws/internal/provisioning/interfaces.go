@@ -82,20 +82,23 @@ type APIKeyStore interface {
 }
 
 // RoutingRulesStore handles per-tenant topic routing rules persistence.
-// Rules are stored as a JSONB array of {pattern, topic_suffix} objects.
+// Rules are stored per-row with pattern, topics[], and priority.
 type RoutingRulesStore interface {
-	// Get retrieves routing rules for a tenant.
-	// Returns ErrRoutingRulesNotFound if not found.
-	Get(ctx context.Context, tenantID string) ([]TopicRoutingRule, error)
+	// List returns paginated routing rules for a tenant ordered by priority ASC.
+	List(ctx context.Context, tenantID string, limit, offset int) ([]TopicRoutingRule, int, error)
 
-	// Set creates or updates routing rules for a tenant (upsert).
-	Set(ctx context.Context, tenantID string, rules []TopicRoutingRule) error
+	// Add inserts a single routing rule. Returns ErrDuplicatePriority on conflict.
+	Add(ctx context.Context, tenantID string, rule TopicRoutingRule) error
 
-	// Delete deletes routing rules for a tenant.
-	Delete(ctx context.Context, tenantID string) error
+	// Replace atomically replaces all routing rules for a tenant (DELETE + batch INSERT).
+	Replace(ctx context.Context, tenantID string, rules []TopicRoutingRule) error
 
-	// ListAll returns routing rules for all tenants.
-	ListAll(ctx context.Context) (map[string][]TopicRoutingRule, error)
+	// DeleteAll deletes all routing rules for a tenant.
+	DeleteAll(ctx context.Context, tenantID string) error
+
+	// GetAll returns all routing rules for a tenant (used for WatchTenantConfig push).
+	// NormalizePattern is applied on read; invalid patterns are skipped and counted.
+	GetAll(ctx context.Context, tenantID string) ([]TopicRoutingRule, error)
 }
 
 // QuotaStore handles tenant quota operations.

@@ -111,6 +111,11 @@ func main() {
 		Help: "Whether the current MESSAGE_BACKEND is unsupported by the current license edition (1=mismatch, 0=ok)",
 	})
 
+	// rulesProvider is declared before licenseWatcher so its UpdateEdition method
+	// can be called from the OnReload closure. atomic.Pointer guards concurrent
+	// access between the main goroutine (Store) and the licenseWatcher goroutine (Load).
+	var rulesProvider atomic.Pointer[provapi.StreamChannelRulesProvider]
+
 	licenseWatcher, licErr := provapi.NewStreamLicenseWatcher(provapi.StreamLicenseWatcherConfig{
 		GRPCAddr:          cfg.ProvisioningGRPCAddr,
 		ReconnectDelay:    cfg.GRPCReconnectDelay,
@@ -120,6 +125,9 @@ func main() {
 		Logger:            structuredLogger,
 		OnReload: func() {
 			edition := cfg.EditionManager().Edition()
+			if rp := rulesProvider.Load(); rp != nil {
+				rp.UpdateEdition(edition)
+			}
 			mismatch := checkBackendMismatch(cfg.MessageBackend, edition)
 			backendMismatch.Store(mismatch)
 			if mismatch {
@@ -137,6 +145,18 @@ func main() {
 	if licErr != nil {
 		structuredLogger.Fatal().Err(licErr).Msg("Failed to create license watcher")
 	}
+
+	rp, err := provapi.NewStreamChannelRulesProvider(provapi.StreamChannelRulesProviderConfig{
+		GRPCAddr:          cfg.ProvisioningGRPCAddr,
+		ReconnectDelay:    cfg.GRPCReconnectDelay,
+		ReconnectMaxDelay: cfg.GRPCReconnectMaxDelay,
+		MetricPrefix:      "ws",
+		Logger:            structuredLogger,
+	})
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to create channel rules provider")
+	}
+	rulesProvider.Store(rp)
 
 	// Initialize tracing (cold-path only, noop when disabled)
 	tracingShutdown, err := tracing.Init(context.Background(), tracing.Config{
@@ -276,7 +296,6 @@ func main() {
 			ProducerCircuitBreakerTimeout:     cfg.KafkaProducerCBTimeout,
 			ProducerCircuitBreakerMaxFailures: cfg.KafkaProducerCBMaxFailures,
 			ProducerCircuitBreakerHalfOpen:    cfg.KafkaProducerCBHalfOpenReqs,
-			ProducerTopicCacheTTL:             cfg.KafkaProducerTopicCacheTTL,
 			// Kafka consumer tuning
 			KafkaBatchSize:    cfg.KafkaBatchSize,
 			KafkaBatchTimeout: cfg.KafkaBatchTimeout,
@@ -457,6 +476,11 @@ func main() {
 	// Shutdown license watcher
 	if err := licenseWatcher.Close(); err != nil {
 		structuredLogger.Warn().Err(err).Msg("License watcher close failed")
+	}
+
+	// Shutdown channel rules provider (owns its own internal context and gRPC connection)
+	if err := rp.Close(); err != nil {
+		structuredLogger.Warn().Err(err).Msg("Channel rules provider close failed")
 	}
 
 	// Shutdown shards

@@ -76,8 +76,8 @@ func TestRunMigrations_FreshDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("expected 1 recorded migration, got %d", count)
+	if count != 2 {
+		t.Errorf("expected 2 recorded migrations, got %d", count)
 	}
 }
 

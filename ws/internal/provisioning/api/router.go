@@ -18,15 +18,17 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/version"
 )
 
 // RouterConfig holds configuration for the HTTP router.
 type RouterConfig struct {
-	Service   *provisioning.Service
-	Logger    zerolog.Logger
-	RateLimit int // requests per minute
+	Service            *provisioning.Service
+	ProvisioningConfig platform.ProvisioningConfig
+	Logger             zerolog.Logger
+	RateLimit          int // requests per minute
 
 	// Validator validates tenant JWTs. Required.
 	Validator *auth.MultiTenantValidator
@@ -102,7 +104,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 	r.Use(middleware.SetHeader("Content-Type", "application/json"))
 
 	// Create handler
-	h, err := NewHandler(cfg.Service, cfg.Logger)
+	h, err := NewHandler(cfg.Service, cfg.ProvisioningConfig, cfg.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("create handler: %w", err)
 	}
@@ -193,13 +195,17 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 					r.Delete("/{keyID}", h.RevokeAPIKey)
 				})
 
-				// Routing rules management (admin-only for set/delete)
-				r.Route("/routing-rules", func(r chi.Router) {
-					r.Get("/", h.GetRoutingRules)
-					r.Group(func(r chi.Router) {
-						r.Use(RequireRole("admin", "system"))
-						r.Put("/", h.SetRoutingRules)
-						r.Delete("/", h.DeleteRoutingRules)
+				// Routing rules management — requires Pro edition
+				r.Group(func(r chi.Router) {
+					r.Use(RequireFeature(cfg.EditionManager, license.ChannelTopicRouting))
+					r.Route("/routing-rules", func(r chi.Router) {
+						r.Get("/", h.GetRoutingRules)
+						r.Group(func(r chi.Router) {
+							r.Use(RequireRole("admin", "system"))
+							r.Post("/", h.AddRoutingRule)
+							r.Put("/", h.ReplaceRoutingRules)
+							r.Delete("/", h.DeleteRoutingRules)
+						})
 					})
 				})
 

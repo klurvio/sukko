@@ -148,7 +148,7 @@ func main() {
 	tenantRepo := repository.NewTenantRepository(pool)
 	keyRepo := repository.NewKeyRepository(pool)
 	apiKeyRepo := repository.NewAPIKeyStore(pool)
-	routingRulesRepo := repository.NewRoutingRulesRepository(pool)
+	routingRulesRepo := repository.NewRoutingRulesRepository(pool, structuredLogger, "provisioning")
 	quotaRepo := repository.NewQuotaRepository(pool)
 	auditRepo := repository.NewAuditRepository(pool)
 	channelRulesRepo := repository.NewChannelRulesRepository(pool)
@@ -190,26 +190,29 @@ func main() {
 	structuredLogger.Info().Msg("Kafka admin disabled (topic creation moved to ws-server)")
 
 	svc, err := provisioning.NewService(provisioning.ServiceConfig{
-		TenantStore:          tenantRepo,
-		KeyStore:             keyRepo,
-		APIKeyStore:          apiKeyRepo,
-		RoutingRulesStore:    routingRulesRepo,
-		QuotaStore:           quotaRepo,
-		AuditStore:           auditRepo,
-		ChannelRulesStore:    channelRulesRepo,
-		KafkaAdmin:           kafkaAdmin,
-		EventBus:             bus,
-		TopicNamespace:       topicNamespace,
-		DefaultPartitions:    cfg.DefaultPartitions,
-		DefaultRetentionMs:   cfg.DefaultRetentionMs,
-		MaxTopicsPerTenant:   cfg.MaxTopicsPerTenant,
-		MaxStorageBytes:      cfg.MaxStorageBytes,
-		DefaultProducerRate:  cfg.ProducerByteRate,
-		DefaultConsumerRate:  cfg.ConsumerByteRate,
-		DeprovisionGraceDays: cfg.DeprovisionGraceDays,
-		MaxRoutingRules:      cfg.MaxRoutingRules,
-		EditionManager:       cfg.EditionManager(),
-		Logger:               structuredLogger,
+		TenantStore:                tenantRepo,
+		KeyStore:                   keyRepo,
+		APIKeyStore:                apiKeyRepo,
+		RoutingRulesStore:          routingRulesRepo,
+		QuotaStore:                 quotaRepo,
+		AuditStore:                 auditRepo,
+		ChannelRulesStore:          channelRulesRepo,
+		KafkaAdmin:                 kafkaAdmin,
+		EventBus:                   bus,
+		TopicNamespace:             topicNamespace,
+		DefaultPartitions:          cfg.DefaultPartitions,
+		DefaultRetentionMs:         cfg.DefaultRetentionMs,
+		MaxTopicsPerTenant:         cfg.MaxTopicsPerTenant,
+		MaxStorageBytes:            cfg.MaxStorageBytes,
+		DefaultProducerRate:        cfg.ProducerByteRate,
+		DefaultConsumerRate:        cfg.ConsumerByteRate,
+		DeprovisionGraceDays:       cfg.DeprovisionGraceDays,
+		MaxRoutingRulesPerTenant:   cfg.MaxRoutingRulesPerTenant,
+		MaxTopicsPerRule:           cfg.MaxTopicsPerRule,
+		DeadLetterTopicPartitions:  cfg.DeadLetterTopicPartitions,
+		DeadLetterTopicRetentionMs: cfg.DeadLetterTopicRetentionMs,
+		EditionManager:             cfg.EditionManager(),
+		Logger:                     structuredLogger,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create provisioning service")
@@ -266,6 +269,7 @@ func main() {
 	// Initialize HTTP router
 	router, err := api.NewRouter(api.RouterConfig{
 		Service:            svc,
+		ProvisioningConfig: *cfg,
 		Logger:             structuredLogger,
 		RateLimit:          cfg.APIRateLimitPerMinute,
 		Validator:          validator,

@@ -362,8 +362,10 @@ const (
 	ActionDeleteChannelRules = "delete_channel_rules"
 
 	// Routing rules actions
-	ActionSetRoutingRules    = "set_routing_rules"
-	ActionDeleteRoutingRules = "delete_routing_rules"
+	ActionSetRoutingRules     = "set_routing_rules" // deprecated: use ActionReplaceRoutingRules
+	ActionReplaceRoutingRules = "replace_routing_rules"
+	ActionAddRoutingRule      = "add_routing_rule"
+	ActionDeleteRoutingRules  = "delete_routing_rules"
 
 	// API key actions
 	ActionCreateAPIKey = "create_api_key"

@@ -68,7 +68,9 @@ message TenantConfig {
 
 message TopicRoutingRule {
   string pattern = 1;
-  string topic_suffix = 2;
+  string topic_suffix = 2; // deprecated: use topics instead
+  repeated string topics = 3;
+  int32 priority = 4;
 }
 
 message ChannelRules {

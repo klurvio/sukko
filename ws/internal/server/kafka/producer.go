@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,12 +19,13 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/sony/gobreaker/v2"
 	"github.com/twmb/franz-go/pkg/kgo"
-
-	"github.com/klurvio/sukko/internal/shared/types"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 
 	kafkautil "github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/shared/provapi"
+	"github.com/klurvio/sukko/internal/shared/routing"
 )
 
 // Re-export sentinel errors from protocol package for backward compatibility.
@@ -43,6 +45,12 @@ type ProducerStats struct {
 	MessagesFailed    atomic.Int64 // Failed publish attempts
 }
 
+// RoutingSnapshotProvider provides per-tenant routing snapshots used by the producer
+// to resolve channel → topic(s) mappings at publish time.
+type RoutingSnapshotProvider interface {
+	GetRoutingSnapshot(tenantID string) (provapi.TenantRoutingSnapshot, bool)
+}
+
 // ProducerConfig holds configuration for creating a Kafka producer.
 type ProducerConfig struct {
 	Brokers        []string        // Kafka/Redpanda broker addresses (required)
@@ -54,16 +62,18 @@ type ProducerConfig struct {
 	SASL *SASLConfig // SASL authentication (nil = no auth, for local dev)
 	TLS  *TLSConfig  // TLS encryption (nil = no TLS, for local dev)
 
-	// Topic validation (optional - if nil, topics are not validated)
-	TenantRegistry types.TenantRegistry // Registry to validate provisioned topics
+	// Routing — resolves channel → topic(s) using per-tenant routing rules.
+	// When nil the producer falls back to community mode (last channel segment).
+	RulesProvider RoutingSnapshotProvider
+
+	// Fanout — delivers records to multiple topics concurrently.
+	// When nil a direct synchronous produce is used (single-topic path only).
+	Fanout *FanoutPool
 
 	// Circuit breaker settings (optional - sensible defaults provided)
 	CircuitBreakerTimeout      time.Duration // Time before half-open (default: 30s)
 	CircuitBreakerMaxFailures  uint32        // Consecutive failures to trip (default: 5)
 	CircuitBreakerHalfOpenReqs uint32        // Requests allowed in half-open (default: 1)
-
-	// Topic cache settings
-	TopicCacheTTL time.Duration // TTL for provisioned topic cache (default: 60s)
 
 	// Producer tuning (optional - sensible defaults provided)
 	BatchMaxBytes   int32         // Max batch size in bytes (default: 1MB)
@@ -91,12 +101,9 @@ type Producer struct {
 	// Circuit breaker for Kafka connection
 	circuitBreaker *gobreaker.CircuitBreaker[any]
 
-	// Topic validation
-	tenantRegistry    types.TenantRegistry
-	provisionedTopics map[string]bool
-	topicCacheMu      sync.RWMutex
-	topicCacheExpiry  time.Time
-	topicCacheTTL     time.Duration
+	// Routing and fanout dependencies (nil = community fallback)
+	rulesProvider RoutingSnapshotProvider
+	fanout        *FanoutPool
 }
 
 // NewProducer creates a new Kafka producer with the provided configuration.
@@ -134,9 +141,6 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	cbTimeout := cfg.CircuitBreakerTimeout
 	cbMaxFailures := cfg.CircuitBreakerMaxFailures
 	cbHalfOpenReqs := cfg.CircuitBreakerHalfOpenReqs
-
-	// Topic cache TTL (value provided by env-parsed config)
-	topicCacheTTL := cfg.TopicCacheTTL
 
 	// Build client options
 	opts := []kgo.Opt{
@@ -249,15 +253,14 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	cb := gobreaker.NewCircuitBreaker[any](cbSettings)
 
 	producer := &Producer{
-		client:            client,
-		topicNamespace:    strings.ToLower(strings.TrimSpace(cfg.TopicNamespace)),
-		logger:            cfg.Logger,
-		ctx:               ctx,
-		cancel:            cancel,
-		circuitBreaker:    cb,
-		tenantRegistry:    cfg.TenantRegistry,
-		provisionedTopics: make(map[string]bool),
-		topicCacheTTL:     topicCacheTTL,
+		client:         client,
+		topicNamespace: strings.ToLower(strings.TrimSpace(cfg.TopicNamespace)),
+		logger:         cfg.Logger,
+		ctx:            ctx,
+		cancel:         cancel,
+		circuitBreaker: cb,
+		rulesProvider:  cfg.RulesProvider,
+		fanout:         cfg.Fanout,
 	}
 
 	if cfg.Logger != nil {
@@ -310,159 +313,174 @@ func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, 
 
 // doPublish performs the actual Kafka publish operation.
 func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string, data []byte) error {
-	// Extract tenant/category to build topic.
-	// Channels must be in full internal format: tenant.identifier.category (3+ parts).
-	tenant, category, err := parseChannel(channel)
+	tenant, err := extractTenant(channel)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidChannel, err)
 	}
 
-	topic := kafkautil.BuildTopicName(p.topicNamespace, tenant, category)
+	topics, dlqReason := p.resolveTargets(channel, tenant)
 
-	// Validate topic is provisioned (if registry is configured)
-	if p.tenantRegistry != nil && !p.isTopicProvisioned(ctx, topic) {
-		return fmt.Errorf("%w: %s", ErrTopicNotProvisioned, topic)
-	}
-
-	record := &kgo.Record{
-		Topic: topic,
+	baseRecord := &kgo.Record{
 		Key:   []byte(channel),
 		Value: data,
 		Headers: []kgo.RecordHeader{
-			{Key: "client_id", Value: []byte(strconv.FormatInt(clientID, 10))},
-			{Key: "source", Value: []byte("ws-client")},
-			{Key: "timestamp", Value: []byte(strconv.FormatInt(time.Now().UnixMilli(), 10))},
+			{Key: HeaderClientID, Value: []byte(strconv.FormatInt(clientID, 10))},
+			{Key: HeaderSource, Value: []byte(SourceWSClient)},
+			{Key: HeaderTimestamp, Value: []byte(strconv.FormatInt(time.Now().UnixMilli(), 10))},
+			{Key: HeaderChannel, Value: []byte(channel)},
 		},
 	}
 
-	// Use synchronous produce for reliability (client expects ack)
-	results := p.client.ProduceSync(ctx, record)
-	if err := results.FirstErr(); err != nil {
-		p.stats.MessagesFailed.Add(1)
+	if dlqReason != "" {
+		// No matching rule — route to dead-letter topic.
+		dlqTopic := kafkautil.BuildTopicName(p.topicNamespace, tenant, routing.DeadLetterTopicSuffix)
+		dlqRec := *baseRecord // struct copy — independent from baseRecord
+		dlqRec.Topic = dlqTopic
+		dlqRec.Headers = append(slices.Clone(baseRecord.Headers), kgo.RecordHeader{Key: HeaderReason, Value: []byte(dlqReason)})
+		results := p.client.ProduceSync(ctx, &dlqRec)
+		if results.FirstErr() != nil {
+			p.stats.MessagesFailed.Add(1)
+			return fmt.Errorf("kafka dlq produce failed: %w", results.FirstErr())
+		}
+		p.stats.MessagesPublished.Add(1)
+		return nil
+	}
+
+	n := len(topics)
+	if n > 1 && p.fanout == nil {
+		// Fanout pool not configured — multi-topic rule degrades to first topic only.
 		if p.logger != nil {
-			p.logger.Error().
-				Err(err).
+			p.logger.Warn().
+				Str("channel", channel).
+				Int("rule_topics", n).
+				Msg("fanout pool not configured: multi-topic rule delivering to first topic only")
+		}
+	}
+	if n == 1 || p.fanout == nil {
+		// Fast path: single topic or no fanout pool configured.
+		rec := *baseRecord // struct copy — independent from baseRecord
+		rec.Topic = topics[0]
+		results := p.client.ProduceSync(ctx, &rec)
+		if err := results.FirstErr(); err != nil {
+			p.stats.MessagesFailed.Add(1)
+			if p.logger != nil {
+				p.logger.Error().Err(err).Str("channel", channel).Str("topic", topics[0]).Msg("kafka produce failed")
+			}
+			return fmt.Errorf("kafka produce failed: %w", err)
+		}
+		p.stats.MessagesPublished.Add(1)
+		if p.logger != nil {
+			p.logger.Debug().
 				Int64("client_id", clientID).
 				Str("channel", channel).
-				Str("topic", topic).
-				Msg("Failed to publish message to Kafka")
+				Str("topic", topics[0]).
+				Int("data_size", len(data)).
+				Msg("Published message to Kafka")
 		}
-		return fmt.Errorf("kafka produce failed: %w", err)
+		return nil
 	}
 
-	p.stats.MessagesPublished.Add(1)
+	// Fan-out path: submit to multiple topics via the fanout pool.
+	successCh := make(chan string, n)
+	failCh := make(chan string, n)
 
-	if p.logger != nil {
-		p.logger.Debug().
-			Int64("client_id", clientID).
-			Str("channel", channel).
-			Str("topic", topic).
-			Int("data_size", len(data)).
-			Msg("Published message to Kafka")
+	var succeeded, failed []string
+	for _, topic := range topics {
+		job := fanoutJob{
+			topic:     topic,
+			record:    baseRecord,
+			channel:   channel,
+			tenant:    tenant,
+			successCh: successCh,
+			failCh:    failCh,
+		}
+		if !p.fanout.Submit(job) {
+			// Queue full — count as immediate failure so aggregator gets N results.
+			failCh <- topic
+		}
 	}
 
+	// Collect exactly N results. ctx.Done() guards against fanout workers exiting
+	// mid-flight (e.g., shutdown) before all jobs are processed.
+	for range n {
+		select {
+		case t := <-successCh:
+			succeeded = append(succeeded, t)
+		case t := <-failCh:
+			failed = append(failed, t)
+		case <-ctx.Done():
+			return fmt.Errorf("fanout canceled: %w", ctx.Err())
+		}
+	}
+
+	if len(failed) > 0 {
+		dlqTopic := kafkautil.BuildTopicName(p.topicNamespace, tenant, routing.DeadLetterTopicSuffix)
+		dlqRec := &kgo.Record{
+			Topic: dlqTopic,
+			Key:   baseRecord.Key,
+			Value: baseRecord.Value,
+			Headers: append(slices.Clone(baseRecord.Headers),
+				kgo.RecordHeader{Key: HeaderReason, Value: []byte(ReasonFanoutTopicWriteFailed)},
+				kgo.RecordHeader{Key: HeaderFailedTopics, Value: []byte(strings.Join(failed, ","))},
+				kgo.RecordHeader{Key: HeaderSucceededTopics, Value: []byte(strings.Join(succeeded, ","))},
+			),
+		}
+		if p.fanout.dlq != nil {
+			if !p.fanout.dlq.TrySubmit(dlqJob{record: dlqRec, tenant: tenant, reason: ReasonFanoutTopicWriteFailed}) {
+				if p.logger != nil {
+					p.logger.Warn().Str("tenant", tenant).Msg("DLQ queue full — dropping failed fanout record")
+				}
+			}
+		}
+	}
+
+	if len(succeeded) > 0 {
+		p.stats.MessagesPublished.Add(1)
+	} else {
+		p.stats.MessagesFailed.Add(1)
+	}
 	return nil
 }
 
-// parseChannel extracts tenant and category from an internal channel.
-// Channel format: {tenant}.{identifier}.{category} (minimum 3 parts)
-//
-// Example:
-//
-//	"acme.BTC.trade" → tenant: "acme", category: "trade"
-//	"acme.user123.balances" → tenant: "acme", category: "balances"
-//	"acme.group.chat.community" → tenant: "acme", category: "community"
-func parseChannel(channel string) (tenant, category string, err error) {
-	parts := strings.Split(channel, ".")
-
-	// Must be mapped format: tenant.identifier.category (3+ parts)
-	if len(parts) < 3 {
-		return "", "", fmt.Errorf("channel must have at least 3 parts (tenant.identifier.category), got %d", len(parts))
+// resolveTargets returns the Kafka topic(s) for a channel given the tenant's routing rules.
+// Falls back to community mode (last channel segment) when routing is unavailable.
+func (p *Producer) resolveTargets(channel, tenant string) (topics []string, dlqReason string) {
+	if p.rulesProvider != nil {
+		snap, ok := p.rulesProvider.GetRoutingSnapshot(tenant)
+		if ok && license.EditionHasFeature(snap.Edition, license.ChannelTopicRouting) {
+			for _, rule := range snap.Rules {
+				matched, err := routing.MatchRoutingPattern(rule.Pattern, channel)
+				if err != nil || !matched {
+					continue
+				}
+				fullTopics := make([]string, len(rule.Topics))
+				for i, suffix := range rule.Topics {
+					fullTopics[i] = kafkautil.BuildTopicName(p.topicNamespace, tenant, suffix)
+				}
+				return fullTopics, ""
+			}
+			// No rule matched — dead letter.
+			return nil, ReasonNoRoutingRuleMatched
+		}
 	}
 
-	tenant = parts[0]
-	category = parts[len(parts)-1]
+	// Community fallback: derive topic from last channel segment.
+	suffix := channel[strings.LastIndex(channel, ".")+1:]
+	return []string{kafkautil.BuildTopicName(p.topicNamespace, tenant, suffix)}, ""
+}
 
+// extractTenant returns the tenant ID from an internal channel (first segment).
+// Channel format: {tenant}.{rest...} (minimum 2 parts).
+func extractTenant(channel string) (string, error) {
+	dot := strings.IndexByte(channel, '.')
+	if dot <= 0 {
+		return "", fmt.Errorf("channel must have at least 2 dot-separated parts, got %q", channel)
+	}
+	tenant := channel[:dot]
 	if tenant == "" {
-		return "", "", errors.New("tenant (first segment) cannot be empty")
+		return "", errors.New("tenant (first segment) cannot be empty")
 	}
-	if category == "" {
-		return "", "", errors.New("category (last segment) cannot be empty")
-	}
-
-	return tenant, category, nil
-}
-
-// isTopicProvisioned checks if a topic exists in the cache or registry.
-// Uses a TTL-based cache to avoid querying the registry on every publish.
-func (p *Producer) isTopicProvisioned(ctx context.Context, topic string) bool {
-	// Check cache first
-	p.topicCacheMu.RLock()
-	if time.Now().Before(p.topicCacheExpiry) {
-		if provisioned, ok := p.provisionedTopics[topic]; ok {
-			p.topicCacheMu.RUnlock()
-			return provisioned
-		}
-	}
-	p.topicCacheMu.RUnlock()
-
-	// Cache miss or expired - refresh cache
-	p.refreshTopicCache(ctx)
-
-	// Check again after refresh
-	p.topicCacheMu.RLock()
-	defer p.topicCacheMu.RUnlock()
-	return p.provisionedTopics[topic]
-}
-
-// refreshTopicCache refreshes the provisioned topics cache from the registry.
-func (p *Producer) refreshTopicCache(ctx context.Context) {
-	p.topicCacheMu.Lock()
-	defer p.topicCacheMu.Unlock()
-
-	// Double-check after acquiring write lock
-	if time.Now().Before(p.topicCacheExpiry) {
-		return
-	}
-
-	// Query shared topics
-	sharedTopics, err := p.tenantRegistry.GetSharedTenantTopics(ctx, p.topicNamespace)
-	if err != nil {
-		if p.logger != nil {
-			p.logger.Warn().Err(err).Msg("Failed to refresh shared topic cache")
-		}
-		return
-	}
-
-	// Query dedicated tenants
-	dedicatedTenants, err := p.tenantRegistry.GetDedicatedTenants(ctx, p.topicNamespace)
-	if err != nil {
-		if p.logger != nil {
-			p.logger.Warn().Err(err).Msg("Failed to refresh dedicated topic cache")
-		}
-		return
-	}
-
-	// Rebuild cache
-	newCache := make(map[string]bool)
-	for _, topic := range sharedTopics {
-		newCache[topic] = true
-	}
-	for _, tenant := range dedicatedTenants {
-		for _, topic := range tenant.Topics {
-			newCache[topic] = true
-		}
-	}
-
-	p.provisionedTopics = newCache
-	p.topicCacheExpiry = time.Now().Add(p.topicCacheTTL)
-
-	if p.logger != nil {
-		p.logger.Debug().
-			Int("topic_count", len(newCache)).
-			Dur("ttl", p.topicCacheTTL).
-			Msg("Refreshed provisioned topic cache")
-	}
+	return tenant, nil
 }
 
 // Stats returns a snapshot of the current producer statistics.
@@ -481,8 +499,6 @@ type ProducerStatsSnapshot struct {
 
 // Namespace returns the topic namespace this producer uses.
 func (p *Producer) Namespace() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
 	return p.topicNamespace
 }
 

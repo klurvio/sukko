@@ -297,59 +297,53 @@ func TestProducer_Close_SetsClosedFlag(t *testing.T) {
 }
 
 // =============================================================================
-// parseChannel Tests
+// extractTenant Tests
 // =============================================================================
 
-func TestParseChannel_ValidFormats(t *testing.T) {
+func TestExtractTenant_ValidFormats(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
-		channel  string
-		tenant   string
-		category string
+		channel string
+		tenant  string
 	}{
-		{"acme.BTC.trade", "acme", "trade"},
-		{"globex.user123.balances", "globex", "balances"},
-		{"test.group.chat.community", "test", "community"},
-		{"tenant.a.b.c.d.category", "tenant", "category"},
+		{"acme.BTC.trade", "acme"},
+		{"globex.user123.balances", "globex"},
+		{"test.group.chat.community", "test"},
+		{"tenant.a.b.c.d.category", "tenant"},
+		{"t.x", "t"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.channel, func(t *testing.T) {
 			t.Parallel()
-			tenant, category, err := parseChannel(tc.channel)
+			tenant, err := extractTenant(tc.channel)
 			if err != nil {
-				t.Fatalf("parseChannel(%q) error = %v", tc.channel, err)
+				t.Fatalf("extractTenant(%q) error = %v", tc.channel, err)
 			}
 			if tenant != tc.tenant {
 				t.Errorf("tenant = %q, want %q", tenant, tc.tenant)
-			}
-			if category != tc.category {
-				t.Errorf("category = %q, want %q", category, tc.category)
 			}
 		})
 	}
 }
 
-func TestParseChannel_InvalidFormats(t *testing.T) {
+func TestExtractTenant_InvalidFormats(t *testing.T) {
 	t.Parallel()
 	invalidChannels := []struct {
 		channel string
 		reason  string
 	}{
 		{"", "empty string"},
-		{"single", "only 1 part"},
-		{"a.b", "only 2 parts"},
+		{"single", "no dot"},
 		{".b.c", "empty tenant"},
-		{"a.b.", "empty category"},
-		{"...", "all empty parts"},
 	}
 
 	for _, tc := range invalidChannels {
 		t.Run(tc.reason, func(t *testing.T) {
 			t.Parallel()
-			_, _, err := parseChannel(tc.channel)
+			_, err := extractTenant(tc.channel)
 			if err == nil {
-				t.Errorf("parseChannel(%q) should return error (reason: %s)", tc.channel, tc.reason)
+				t.Errorf("extractTenant(%q) should return error (reason: %s)", tc.channel, tc.reason)
 			}
 		})
 	}
@@ -455,9 +449,9 @@ func BenchmarkProducerStats_Read(b *testing.B) {
 	}
 }
 
-func BenchmarkParseChannel(b *testing.B) {
+func BenchmarkExtractTenant(b *testing.B) {
 	channel := "acme.BTC.trade"
 	for b.Loop() {
-		_, _, _ = parseChannel(channel)
+		_, _ = extractTenant(channel)
 	}
 }

@@ -38,7 +38,10 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		MaxStorageBytes:            10737418240,
 		ProducerByteRate:           10485760,
 		ConsumerByteRate:           52428800,
-		MaxRoutingRules:            100,
+		MaxRoutingRulesPerTenant:   100,
+		MaxTopicsPerRule:           10,
+		DeadLetterTopicPartitions:  1,
+		DeadLetterTopicRetentionMs: 604800000,
 		DeprovisionGraceDays:       30,
 		LifecycleCheckInterval:     time.Hour,
 		LifecycleManagerEnabled:    true,
@@ -181,7 +184,7 @@ func TestProvisioningConfig_Validate_MaxRoutingRules(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidProvisioningConfig()
-			cfg.MaxRoutingRules = tt.value
+			cfg.MaxRoutingRulesPerTenant = tt.value
 			err := cfg.Validate()
 			if tt.shouldError && err == nil {
 				t.Error("Should error")

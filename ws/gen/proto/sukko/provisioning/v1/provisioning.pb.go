@@ -360,7 +360,9 @@ func (x *TenantConfig) GetRoutingRules() []*TopicRoutingRule {
 type TopicRoutingRule struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Pattern       string                 `protobuf:"bytes,1,opt,name=pattern,proto3" json:"pattern,omitempty"`
-	TopicSuffix   string                 `protobuf:"bytes,2,opt,name=topic_suffix,json=topicSuffix,proto3" json:"topic_suffix,omitempty"`
+	TopicSuffix   string                 `protobuf:"bytes,2,opt,name=topic_suffix,json=topicSuffix,proto3" json:"topic_suffix,omitempty"` // deprecated: use topics instead
+	Topics        []string               `protobuf:"bytes,3,rep,name=topics,proto3" json:"topics,omitempty"`
+	Priority      int32                  `protobuf:"varint,4,opt,name=priority,proto3" json:"priority,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -407,6 +409,20 @@ func (x *TopicRoutingRule) GetTopicSuffix() string {
 		return x.TopicSuffix
 	}
 	return ""
+}
+
+func (x *TopicRoutingRule) GetTopics() []string {
+	if x != nil {
+		return x.Topics
+	}
+	return nil
+}
+
+func (x *TopicRoutingRule) GetPriority() int32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
 }
 
 type ChannelRules struct {
@@ -1489,10 +1505,12 @@ const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"\fTenantConfig\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12H\n" +
 	"\rchannel_rules\x18\x03 \x01(\v2#.sukko.provisioning.v1.ChannelRulesR\fchannelRules\x12L\n" +
-	"\rrouting_rules\x18\x04 \x03(\v2'.sukko.provisioning.v1.TopicRoutingRuleR\froutingRulesJ\x04\b\x02\x10\x03\"O\n" +
+	"\rrouting_rules\x18\x04 \x03(\v2'.sukko.provisioning.v1.TopicRoutingRuleR\froutingRulesJ\x04\b\x02\x10\x03\"\x83\x01\n" +
 	"\x10TopicRoutingRule\x12\x18\n" +
 	"\apattern\x18\x01 \x01(\tR\apattern\x12!\n" +
-	"\ftopic_suffix\x18\x02 \x01(\tR\vtopicSuffix\"\xff\x04\n" +
+	"\ftopic_suffix\x18\x02 \x01(\tR\vtopicSuffix\x12\x16\n" +
+	"\x06topics\x18\x03 \x03(\tR\x06topics\x12\x1a\n" +
+	"\bpriority\x18\x04 \x01(\x05R\bpriority\"\xff\x04\n" +
 	"\fChannelRules\x12'\n" +
 	"\x0fpublic_channels\x18\x01 \x03(\tR\x0epublicChannels\x12]\n" +
 	"\x0egroup_mappings\x18\x02 \x03(\v26.sukko.provisioning.v1.ChannelRules.GroupMappingsEntryR\rgroupMappings\x12)\n" +

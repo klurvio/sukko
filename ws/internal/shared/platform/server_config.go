@@ -370,7 +370,6 @@ type ServerConfig struct {
 	KafkaProducerCBTimeout          time.Duration `env:"KAFKA_PRODUCER_CB_TIMEOUT" envDefault:"30s"`
 	KafkaProducerCBMaxFailures      int           `env:"KAFKA_PRODUCER_CB_MAX_FAILURES" envDefault:"5"`
 	KafkaProducerCBHalfOpenReqs     int           `env:"KAFKA_PRODUCER_CB_HALF_OPEN_REQS" envDefault:"1"`
-	KafkaProducerTopicCacheTTL      time.Duration `env:"KAFKA_PRODUCER_TOPIC_CACHE_TTL" envDefault:"30s"`
 
 	// JetStream backend tuning
 	JetStreamReconnectWait   time.Duration `env:"JETSTREAM_RECONNECT_WAIT" envDefault:"2s"`
@@ -380,6 +379,16 @@ type ServerConfig struct {
 	JetStreamRefreshInterval time.Duration `env:"JETSTREAM_REFRESH_INTERVAL" envDefault:"60s"`
 	JetStreamReplayFetchWait time.Duration `env:"JETSTREAM_REPLAY_FETCH_WAIT" envDefault:"2s"`
 	JetStreamMaxAge          time.Duration `env:"JETSTREAM_MAX_AGE" envDefault:"24h"`
+
+	// Routing fan-out worker pool
+	RoutingFanoutWorkers   int `env:"WS_ROUTING_FANOUT_WORKERS"    envDefault:"4"`
+	RoutingFanoutQueueSize int `env:"WS_ROUTING_FANOUT_QUEUE_SIZE" envDefault:"256"`
+
+	// Dead-letter queue retry pool
+	DLQMaxRetries   int           `env:"WS_ROUTING_DLQ_MAX_RETRIES"   envDefault:"3"`
+	DLQBaseDelay    time.Duration `env:"WS_ROUTING_DLQ_BASE_DELAY"    envDefault:"100ms"`
+	DLQMaxDelay     time.Duration `env:"WS_ROUTING_DLQ_MAX_DELAY"     envDefault:"5s"`
+	DLQRetryWorkers int           `env:"WS_ROUTING_DLQ_RETRY_WORKERS" envDefault:"4"`
 
 	// editionManager holds the license-resolved edition and limits.
 	// Set by LoadServerConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.
@@ -777,9 +786,6 @@ func (c *ServerConfig) Validate() error {
 	if c.KafkaProducerCBTimeout <= 0 {
 		return fmt.Errorf("KAFKA_PRODUCER_CB_TIMEOUT must be > 0, got %v", c.KafkaProducerCBTimeout)
 	}
-	if c.KafkaProducerTopicCacheTTL <= 0 {
-		return fmt.Errorf("KAFKA_PRODUCER_TOPIC_CACHE_TTL must be > 0, got %v", c.KafkaProducerTopicCacheTTL)
-	}
 	if c.JetStreamReconnectWait <= 0 {
 		return fmt.Errorf("JETSTREAM_RECONNECT_WAIT must be > 0, got %v", c.JetStreamReconnectWait)
 	}
@@ -856,6 +862,27 @@ func (c *ServerConfig) Validate() error {
 	}
 	if c.JetStreamMaxDeliver < 1 {
 		return fmt.Errorf("JETSTREAM_MAX_DELIVER must be > 0, got %d", c.JetStreamMaxDeliver)
+	}
+	if c.RoutingFanoutWorkers < 1 {
+		return fmt.Errorf("WS_ROUTING_FANOUT_WORKERS must be > 0, got %d", c.RoutingFanoutWorkers)
+	}
+	if c.RoutingFanoutQueueSize < 1 {
+		return fmt.Errorf("WS_ROUTING_FANOUT_QUEUE_SIZE must be > 0, got %d", c.RoutingFanoutQueueSize)
+	}
+	if c.DLQMaxRetries < 1 {
+		return fmt.Errorf("WS_ROUTING_DLQ_MAX_RETRIES must be > 0, got %d", c.DLQMaxRetries)
+	}
+	if c.DLQRetryWorkers < 1 {
+		return fmt.Errorf("WS_ROUTING_DLQ_RETRY_WORKERS must be > 0, got %d", c.DLQRetryWorkers)
+	}
+	if c.DLQBaseDelay <= 0 {
+		return fmt.Errorf("WS_ROUTING_DLQ_BASE_DELAY must be > 0, got %v", c.DLQBaseDelay)
+	}
+	if c.DLQMaxDelay <= 0 {
+		return fmt.Errorf("WS_ROUTING_DLQ_MAX_DELAY must be > 0, got %v", c.DLQMaxDelay)
+	}
+	if c.DLQBaseDelay >= c.DLQMaxDelay {
+		return fmt.Errorf("WS_ROUTING_DLQ_BASE_DELAY (%v) must be < WS_ROUTING_DLQ_MAX_DELAY (%v)", c.DLQBaseDelay, c.DLQMaxDelay)
 	}
 
 	// Percentage fields (FR-026b: must be 1-100)
