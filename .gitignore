@@ -5,6 +5,7 @@ ws/provisioning
 ws/push
 ws/tester
 ws/cli
+ws/migrate-dlq
 scripts/compose-transform/compose-transform
 
 # Go build artifacts
