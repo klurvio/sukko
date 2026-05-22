@@ -15,6 +15,14 @@ import (
 	"github.com/klurvio/sukko/internal/shared/license"
 )
 
+// minTopicRetentionMs is the minimum allowed Kafka topic retention in milliseconds (1 minute).
+// Applied to both DEFAULT_RETENTION_MS and ROUTING_DLQ_TOPIC_RETENTION_MS.
+const minTopicRetentionMs int64 = 60000
+
+// maxInfraTopicReplicationFactor is the maximum allowed replication factor for infrastructure topics.
+// int16 max is 32767; values >= 32768 would overflow silently when cast to int16 at CreateTopic call sites.
+const maxInfraTopicReplicationFactor = 32767
+
 // ProvisioningConfig holds all provisioning service configuration.
 // Tags:
 //
@@ -59,10 +67,11 @@ type ProvisioningConfig struct {
 	LifecycleManagerEnabled bool          `env:"LIFECYCLE_MANAGER_ENABLED" envDefault:"true"`
 
 	// Routing Rules
-	MaxRoutingRulesPerTenant   int   `env:"MAX_ROUTING_RULES_PER_TENANT" envDefault:"100"`         // Max routing rules per tenant
-	MaxTopicsPerRule           int   `env:"MAX_TOPICS_PER_RULE" envDefault:"10"`                   // Max topics per routing rule
-	DeadLetterTopicPartitions  int   `env:"ROUTING_DLQ_TOPIC_PARTITIONS" envDefault:"1"`           // Partitions for dead-letter topics
-	DeadLetterTopicRetentionMs int64 `env:"ROUTING_DLQ_TOPIC_RETENTION_MS" envDefault:"604800000"` // Retention for dead-letter topics (7 days)
+	MaxRoutingRulesPerTenant    int   `env:"MAX_ROUTING_RULES_PER_TENANT" envDefault:"100"`         // Max routing rules per tenant
+	MaxTopicsPerRule            int   `env:"MAX_TOPICS_PER_RULE" envDefault:"10"`                   // Max topics per routing rule
+	DeadLetterTopicPartitions   int   `env:"ROUTING_DLQ_TOPIC_PARTITIONS" envDefault:"1"`           // Partitions for dead-letter topics
+	DeadLetterTopicRetentionMs  int64 `env:"ROUTING_DLQ_TOPIC_RETENTION_MS" envDefault:"604800000"` // Retention for dead-letter topics (7 days)
+	InfraTopicReplicationFactor int   `env:"INFRA_TOPIC_REPLICATION_FACTOR" envDefault:"1"`         // Replication factor for all infrastructure topics (DLQ + default); use int — caarlos0/env v11 does not handle int16; cast to int16 at CreateTopic call sites
 
 	// Rate Limiting
 	APIRateLimitPerMinute int `env:"API_RATE_LIMIT_PER_MIN" envDefault:"60"`
@@ -198,8 +207,11 @@ func (c *ProvisioningConfig) Validate() error {
 	if c.DeadLetterTopicPartitions < 1 {
 		return fmt.Errorf("ROUTING_DLQ_TOPIC_PARTITIONS must be > 0, got %d", c.DeadLetterTopicPartitions)
 	}
-	if c.DeadLetterTopicRetentionMs < 1 {
-		return fmt.Errorf("ROUTING_DLQ_TOPIC_RETENTION_MS must be > 0, got %d", c.DeadLetterTopicRetentionMs)
+	if c.DeadLetterTopicRetentionMs < minTopicRetentionMs {
+		return fmt.Errorf("ROUTING_DLQ_TOPIC_RETENTION_MS must be >= %d (1 minute), got %d", minTopicRetentionMs, c.DeadLetterTopicRetentionMs)
+	}
+	if c.InfraTopicReplicationFactor < 1 || c.InfraTopicReplicationFactor > maxInfraTopicReplicationFactor {
+		return fmt.Errorf("INFRA_TOPIC_REPLICATION_FACTOR must be 1–%d, got %d", maxInfraTopicReplicationFactor, c.InfraTopicReplicationFactor)
 	}
 	if c.APIRateLimitPerMinute < 1 {
 		return fmt.Errorf("API_RATE_LIMIT_PER_MIN must be > 0, got %d", c.APIRateLimitPerMinute)
@@ -221,8 +233,8 @@ func (c *ProvisioningConfig) Validate() error {
 	}
 
 	// Topic retention
-	if c.DefaultRetentionMs < 60000 {
-		return fmt.Errorf("DEFAULT_RETENTION_MS must be >= 60000 (1 minute), got %d", c.DefaultRetentionMs)
+	if c.DefaultRetentionMs < minTopicRetentionMs {
+		return fmt.Errorf("DEFAULT_RETENTION_MS must be >= %d (1 minute), got %d", minTopicRetentionMs, c.DefaultRetentionMs)
 	}
 
 	// Quota minimums
@@ -296,6 +308,12 @@ func (c *ProvisioningConfig) Print() {
 	}
 	_, _ = fmt.Fprintf(w, "Partitions:         %d\n", c.DefaultPartitions)
 	_, _ = fmt.Fprintf(w, "Retention:          %d ms (%d days)\n", c.DefaultRetentionMs, c.DefaultRetentionMs/86400000)
+	_, _ = fmt.Fprintln(w, "\n=== Routing Rules ===")
+	_, _ = fmt.Fprintf(w, "Max Rules/Tenant:   %d\n", c.MaxRoutingRulesPerTenant)
+	_, _ = fmt.Fprintf(w, "Max Topics/Rule:    %d\n", c.MaxTopicsPerRule)
+	_, _ = fmt.Fprintf(w, "DLQ Partitions:     %d\n", c.DeadLetterTopicPartitions)
+	_, _ = fmt.Fprintf(w, "DLQ Retention:      %d ms (%d days)\n", c.DeadLetterTopicRetentionMs, c.DeadLetterTopicRetentionMs/86400000)
+	_, _ = fmt.Fprintf(w, "Infra Replication:  %d\n", c.InfraTopicReplicationFactor)
 	_, _ = fmt.Fprintln(w, "\n=== Tenant Quotas (Defaults) ===")
 	_, _ = fmt.Fprintf(w, "Max Topics:         %d\n", c.MaxTopicsPerTenant)
 	_, _ = fmt.Fprintf(w, "Max Partitions:     %d\n", c.MaxPartitionsPerTenant)
@@ -331,6 +349,11 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Str("topic_namespace_override", c.KafkaTopicNamespaceOverride).
 		Int("default_partitions", c.DefaultPartitions).
 		Int64("default_retention_ms", c.DefaultRetentionMs).
+		Int("max_routing_rules_per_tenant", c.MaxRoutingRulesPerTenant).
+		Int("max_topics_per_rule", c.MaxTopicsPerRule).
+		Int("dlq_topic_partitions", c.DeadLetterTopicPartitions).
+		Int64("dlq_topic_retention_ms", c.DeadLetterTopicRetentionMs).
+		Int("infra_topic_replication_factor", c.InfraTopicReplicationFactor).
 		Int("max_topics_per_tenant", c.MaxTopicsPerTenant).
 		Int("max_partitions_per_tenant", c.MaxPartitionsPerTenant).
 		Int("deprovision_grace_days", c.DeprovisionGraceDays).

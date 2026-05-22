@@ -25,6 +25,14 @@ const (
 	authzDenialTenantMismatch   = "tenant_mismatch"
 )
 
+// Tenant operation label values (Constitution §I — metric label values are symbolic strings).
+const (
+	tenantOpCreate      = "create"
+	tenantOpSuspend     = "suspend"
+	tenantOpReactivate  = "reactivate"
+	tenantOpDeprovision = "deprovision"
+)
+
 // Prometheus metrics for the provisioning service.
 // Uses provisioning_ prefix for service-specific metrics.
 var (

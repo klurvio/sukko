@@ -95,7 +95,7 @@ func AdminJWTMiddleware(validator *provauth.AdminValidator, logger zerolog.Logge
 
 			// Quick check: is this an admin JWT? (peek at issuer without full validation)
 			iss, _ := auth.ExtractIssuer(tokenString)
-			if iss != "sukko-admin" {
+			if iss != provauth.AdminJWTIssuer {
 				// Not an admin JWT — fall through to tenant JWT middleware
 				next.ServeHTTP(w, r)
 				return
@@ -112,7 +112,7 @@ func AdminJWTMiddleware(validator *provauth.AdminValidator, logger zerolog.Logge
 					Str("client_ip", clientIP).
 					Msg("admin JWT authentication failed")
 
-				httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid admin credentials")
+				httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "invalid admin credentials")
 				return
 			}
 
@@ -147,14 +147,14 @@ func AuthMiddleware(validator *auth.MultiTenantValidator, logger zerolog.Logger)
 			// Extract token from Authorization header
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				httputil.WriteError(w, http.StatusUnauthorized, "MISSING_TOKEN", "Authorization header required")
+				httputil.WriteError(w, http.StatusUnauthorized, errCodeMissingToken, "Authorization header required")
 				return
 			}
 
 			// Expect "Bearer <token>"
 			scheme, tokenString, found := strings.Cut(authHeader, " ")
 			if !found || !strings.EqualFold(scheme, "Bearer") {
-				httputil.WriteError(w, http.StatusUnauthorized, "INVALID_AUTH_HEADER", "Authorization header must be 'Bearer <token>'")
+				httputil.WriteError(w, http.StatusUnauthorized, errCodeInvalidAuthHeader, "Authorization header must be 'Bearer <token>'")
 				return
 			}
 
@@ -171,19 +171,19 @@ func AuthMiddleware(validator *auth.MultiTenantValidator, logger zerolog.Logger)
 				switch {
 				case errors.Is(err, auth.ErrMissingToken):
 					reason = authFailureReasonMissingToken
-					httputil.WriteError(w, http.StatusUnauthorized, "MISSING_TOKEN", "Token required")
+					httputil.WriteError(w, http.StatusUnauthorized, errCodeMissingToken, "Token required")
 				case errors.Is(err, auth.ErrTokenExpired):
 					reason = authFailureReasonTokenExpired
-					httputil.WriteError(w, http.StatusUnauthorized, "TOKEN_EXPIRED", "Token has expired")
+					httputil.WriteError(w, http.StatusUnauthorized, errCodeTokenExpired, "Token has expired")
 				case errors.Is(err, auth.ErrKeyNotFound):
 					reason = authFailureReasonKeyNotFound
-					httputil.WriteError(w, http.StatusUnauthorized, "KEY_NOT_FOUND", "Signing key not found")
+					httputil.WriteError(w, http.StatusUnauthorized, errCodeKeyNotFound, "Signing key not found")
 				case errors.Is(err, auth.ErrKeyRevoked):
 					reason = authFailureReasonKeyRevoked
-					httputil.WriteError(w, http.StatusUnauthorized, "KEY_REVOKED", "Signing key has been revoked")
+					httputil.WriteError(w, http.StatusUnauthorized, errCodeKeyRevoked, "Signing key has been revoked")
 				default:
 					reason = authFailureReasonInvalidToken
-					httputil.WriteError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Token validation failed")
+					httputil.WriteError(w, http.StatusUnauthorized, errCodeInvalidToken, "Token validation failed")
 				}
 				RecordAuthAttempt(authResultFailure, reason)
 				return
@@ -216,7 +216,7 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims := GetClaimsFromContext(r.Context())
 			if claims == nil {
-				httputil.WriteError(w, http.StatusUnauthorized, "NOT_AUTHENTICATED", "Authentication required")
+				httputil.WriteError(w, http.StatusUnauthorized, errCodeNotAuthenticated, "Authentication required")
 				return
 			}
 
@@ -232,7 +232,7 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 				Strs("required_roles", roles).Str("path", r.URL.Path).
 				Msg("authorization denied: insufficient role")
 			RecordAuthorizationDenial(authzDenialInsufficientRole)
-			httputil.WriteError(w, http.StatusForbidden, "INSUFFICIENT_ROLE", "Required role: "+strings.Join(roles, " or "))
+			httputil.WriteError(w, http.StatusForbidden, errCodeInsufficientRole, "Required role: "+strings.Join(roles, " or "))
 		})
 	}
 }
@@ -245,7 +245,7 @@ func RequireTenant() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims := GetClaimsFromContext(r.Context())
 			if claims == nil {
-				httputil.WriteError(w, http.StatusUnauthorized, "NOT_AUTHENTICATED", "Authentication required")
+				httputil.WriteError(w, http.StatusUnauthorized, errCodeNotAuthenticated, "Authentication required")
 				return
 			}
 
@@ -270,7 +270,7 @@ func RequireTenant() func(http.Handler) http.Handler {
 					Str("path", r.URL.Path).
 					Msg("authorization denied: tenant mismatch")
 				RecordAuthorizationDenial(authzDenialTenantMismatch)
-				httputil.WriteError(w, http.StatusForbidden, "TENANT_MISMATCH", "Cannot access other tenant's resources")
+				httputil.WriteError(w, http.StatusForbidden, errCodeTenantMismatch, "Cannot access other tenant's resources")
 				return
 			}
 
@@ -306,7 +306,7 @@ func RateLimitMiddleware(requestsPerMinute int) func(http.Handler) http.Handler 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Global rate limit
 			if !globalLimiter.Allow() {
-				httputil.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "API rate limit exceeded")
+				httputil.WriteError(w, http.StatusTooManyRequests, errCodeRateLimited, "API rate limit exceeded")
 				return
 			}
 
@@ -314,7 +314,7 @@ func RateLimitMiddleware(requestsPerMinute int) func(http.Handler) http.Handler 
 			ip := httputil.GetClientIP(r)
 			v, _ := ipLimiters.LoadOrStore(ip, rate.NewLimiter(ipRate, ipBurst))
 			if limiter, ok := v.(*rate.Limiter); ok && !limiter.Allow() {
-				httputil.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Per-IP rate limit exceeded")
+				httputil.WriteError(w, http.StatusTooManyRequests, errCodeRateLimited, "Per-IP rate limit exceeded")
 				return
 			}
 

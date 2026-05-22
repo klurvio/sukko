@@ -172,7 +172,7 @@ func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 		Msg("Successfully connected to NATS")
 
 	// Create context for lifecycle management
-	busCtx, busCancel := context.WithCancel(context.Background())
+	busCtx, busCancel := context.WithCancel(context.Background()) //nolint:gosec // G118 false positive: busCancel stored in bus.cancel and called by Close
 
 	bus := &natsBus{
 		conn:                nc,

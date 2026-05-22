@@ -405,7 +405,7 @@ func checkSSERevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 		return append(checks, metrics.CheckResult{Name: "sse-force-disconnect", Status: "fail", Error: fmt.Sprintf("set channel rules: %v", err)})
 	}
 	if err := provClient.SetRoutingRules(ctx, tenantID, []map[string]any{
-		{"pattern": "revoke-test", "topic_suffix": "revoke-test"},
+		{"pattern": "revoke-test", "topics": []string{"revoke-test"}, "priority": 1},
 	}); err != nil {
 		return append(checks, metrics.CheckResult{Name: "sse-force-disconnect", Status: "fail", Error: fmt.Sprintf("set routing rules: %v", err)})
 	}

@@ -221,7 +221,7 @@ func (w *StreamLicenseWatcher) scheduleExpiryWatcher(exp int64) {
 	}
 	var launchCtx context.Context
 	if exp > 0 {
-		ctx, cancel := context.WithDeadline(w.ctx, time.Unix(exp, 0))
+		ctx, cancel := context.WithDeadline(w.ctx, time.Unix(exp, 0)) //nolint:gosec // G118 false positive: cancel stored in w.expiryCancel, called on next resetExpiryWatcher or Close
 		w.expiryCancel = cancel
 		launchCtx = ctx
 	}

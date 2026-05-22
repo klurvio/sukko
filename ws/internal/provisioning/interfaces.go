@@ -159,7 +159,10 @@ type LicenseStateStore interface {
 // KafkaAdmin handles Redpanda/Kafka topic and ACL management.
 type KafkaAdmin interface {
 	// CreateTopic creates a new Kafka topic.
-	CreateTopic(ctx context.Context, name string, partitions int, config map[string]string) error
+	// The production adapter may return kerr.TopicAlreadyExists when the topic already exists;
+	// NoopKafkaAdmin never returns it. Callers that need idempotent creation must swallow
+	// kerr.TopicAlreadyExists explicitly.
+	CreateTopic(ctx context.Context, name string, partitions int, replicationFactor int16, config map[string]string) error
 
 	// DeleteTopic deletes a Kafka topic.
 	DeleteTopic(ctx context.Context, name string) error

@@ -62,7 +62,7 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 	clientIP := httputil.GetClientIP(r)
 	if !h.limiter.allow(clientIP) {
 		revocationTotal.WithLabelValues("unknown", "rate_limited").Inc()
-		httputil.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "too many revocation requests")
+		httputil.WriteError(w, http.StatusTooManyRequests, errCodeRateLimited, "too many revocation requests")
 		return
 	}
 

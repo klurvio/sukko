@@ -82,21 +82,24 @@ func newTestServiceWithStores(tenantStore *testutil.MockTenantStore, routingStor
 func newTestServiceWithKafka(tenantStore *testutil.MockTenantStore, routingStore *testutil.MockRoutingRulesStore, channelRulesStore ...*testutil.MockChannelRulesStore) (*provisioning.Service, *testutil.MockKafkaAdmin) {
 	kafkaAdmin := testutil.NewMockKafkaAdmin()
 	cfg := provisioning.ServiceConfig{
-		TenantStore:              tenantStore,
-		KeyStore:                 testutil.NewMockKeyStore(),
-		APIKeyStore:              testutil.NewMockAPIKeyStore(),
-		RoutingRulesStore:        routingStore,
-		QuotaStore:               testutil.NewMockQuotaStore(),
-		AuditStore:               testutil.NewMockAuditStore(),
-		KafkaAdmin:               kafkaAdmin,
-		EventBus:                 eventbus.New(zerolog.Nop()),
-		TopicNamespace:           "test",
-		DefaultPartitions:        3,
-		DefaultRetentionMs:       604800000,
-		MaxTopicsPerTenant:       50,
-		MaxRoutingRulesPerTenant: 100,
-		DeprovisionGraceDays:     30,
-		Logger:                   zerolog.Nop(),
+		TenantStore:                 tenantStore,
+		KeyStore:                    testutil.NewMockKeyStore(),
+		APIKeyStore:                 testutil.NewMockAPIKeyStore(),
+		RoutingRulesStore:           routingStore,
+		QuotaStore:                  testutil.NewMockQuotaStore(),
+		AuditStore:                  testutil.NewMockAuditStore(),
+		KafkaAdmin:                  kafkaAdmin,
+		EventBus:                    eventbus.New(zerolog.Nop()),
+		TopicNamespace:              "test",
+		DefaultPartitions:           3,
+		DefaultRetentionMs:          604800000,
+		MaxTopicsPerTenant:          50,
+		MaxRoutingRulesPerTenant:    100,
+		DeadLetterTopicPartitions:   1,
+		DeadLetterTopicRetentionMs:  604800000,
+		InfraTopicReplicationFactor: 1,
+		DeprovisionGraceDays:        30,
+		Logger:                      zerolog.Nop(),
 	}
 	if len(channelRulesStore) > 0 {
 		cfg.ChannelRulesStore = channelRulesStore[0]
@@ -685,8 +688,8 @@ func TestRouter_RoutingRules_CRUD(t *testing.T) {
 	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
 
 	// Pre-seed Kafka topics referenced by routing rules in this test.
-	_ = kafkaAdmin.CreateTopic(context.Background(), "test.test-tenant.trade", 1, nil)
-	_ = kafkaAdmin.CreateTopic(context.Background(), "test.test-tenant.orderbook", 1, nil)
+	_ = kafkaAdmin.CreateTopic(context.Background(), "test.test-tenant.trade", 1, 1, nil)
+	_ = kafkaAdmin.CreateTopic(context.Background(), "test.test-tenant.orderbook", 1, 1, nil)
 
 	router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
 		Service: svc,
@@ -762,6 +765,174 @@ func TestRouter_RoutingRules_CRUD(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("GET (after delete) status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestRouter_AddRoutingRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(*testutil.MockTenantStore, *testutil.MockKafkaAdmin, *testutil.MockRoutingRulesStore)
+		reqBody    any
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name: "201 happy path",
+			setup: func(ts *testutil.MockTenantStore, k *testutil.MockKafkaAdmin, _ *testutil.MockRoutingRulesStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("t1"))
+				_ = k.CreateTopic(context.Background(), "test.t1.trade", 1, 1, nil)
+			},
+			reqBody: provisioning.AddRoutingRuleRequest{
+				Rule: provisioning.TopicRoutingRule{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 5},
+			},
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name: "409 duplicate priority",
+			setup: func(ts *testutil.MockTenantStore, k *testutil.MockKafkaAdmin, rs *testutil.MockRoutingRulesStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("t1"))
+				_ = k.CreateTopic(context.Background(), "test.t1.trade", 1, 1, nil)
+				rs.AddErr = provisioning.ErrDuplicatePriority
+			},
+			reqBody: provisioning.AddRoutingRuleRequest{
+				Rule: provisioning.TopicRoutingRule{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 5},
+			},
+			wantStatus: http.StatusConflict,
+			wantCode:   "ROUTING_RULE_DUPLICATE_PRIORITY",
+		},
+		{
+			name: "409 duplicate pattern",
+			setup: func(ts *testutil.MockTenantStore, k *testutil.MockKafkaAdmin, rs *testutil.MockRoutingRulesStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("t1"))
+				_ = k.CreateTopic(context.Background(), "test.t1.trade", 1, 1, nil)
+				rs.AddErr = provisioning.ErrDuplicateRoutingPattern
+			},
+			reqBody: provisioning.AddRoutingRuleRequest{
+				Rule: provisioning.TopicRoutingRule{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 10},
+			},
+			wantStatus: http.StatusConflict,
+			wantCode:   "ROUTING_RULE_DUPLICATE_PATTERN",
+		},
+		{
+			name: "400 invalid pattern",
+			setup: func(ts *testutil.MockTenantStore, _ *testutil.MockKafkaAdmin, _ *testutil.MockRoutingRulesStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("t1"))
+			},
+			reqBody: provisioning.AddRoutingRuleRequest{
+				Rule: provisioning.TopicRoutingRule{Pattern: "**.**.bad", Topics: []string{"trade"}, Priority: 1},
+			},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "ROUTING_RULE_VALIDATION_ERROR",
+		},
+		{
+			name: "400 empty topics",
+			setup: func(ts *testutil.MockTenantStore, _ *testutil.MockKafkaAdmin, _ *testutil.MockRoutingRulesStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("t1"))
+			},
+			reqBody: provisioning.AddRoutingRuleRequest{
+				Rule: provisioning.TopicRoutingRule{Pattern: "**.trade", Topics: []string{}, Priority: 1},
+			},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "ROUTING_RULE_VALIDATION_ERROR",
+		},
+		{
+			name: "400 topic not provisioned",
+			setup: func(ts *testutil.MockTenantStore, _ *testutil.MockKafkaAdmin, _ *testutil.MockRoutingRulesStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("t1"))
+				// topic "trade" not created in kafka — TopicExists returns false
+			},
+			reqBody: provisioning.AddRoutingRuleRequest{
+				Rule: provisioning.TopicRoutingRule{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 5},
+			},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "TOPIC_NOT_PROVISIONED",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tenantStore := testutil.NewMockTenantStore()
+			routingStore := testutil.NewMockRoutingRulesStore()
+			svc, kafkaAdmin := newTestServiceWithKafka(tenantStore, routingStore)
+			if tt.setup != nil {
+				tt.setup(tenantStore, kafkaAdmin, routingStore)
+			}
+
+			router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+				Service: svc,
+				Logger:  zerolog.Nop(),
+			})
+
+			b, _ := json.Marshal(tt.reqBody)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/tenants/t1/routing-rules", bytes.NewReader(b))
+			req.Header.Set("Content-Type", "application/json")
+			addAuth(req)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+
+			if tt.wantCode != "" {
+				var resp struct {
+					Code string `json:"code"`
+				}
+				if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("parse response: %v", err)
+				}
+				if resp.Code != tt.wantCode {
+					t.Errorf("code = %q, want %q", resp.Code, tt.wantCode)
+				}
+			}
+		})
+	}
+}
+
+func TestRouter_ReplaceRoutingRules_DuplicatePattern(t *testing.T) {
+	t.Parallel()
+
+	tenantStore := testutil.NewMockTenantStore()
+	routingStore := testutil.NewMockRoutingRulesStore()
+	svc := newTestServiceWithStores(tenantStore, routingStore)
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("t1"))
+
+	router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+		Service: svc,
+		Logger:  zerolog.Nop(),
+	})
+
+	// "trades.*" and "trades.**" are different raw patterns but NormalizePattern converts both to
+	// "trades.**" before service-level ValidateRoutingRules — this makes them duplicate post-normalization.
+	// The handler's boundary validation passes (raw strings differ); the service catches the duplicate.
+	rules := provisioning.ReplaceRoutingRulesRequest{
+		Rules: []provisioning.TopicRoutingRule{
+			{Pattern: "trades.*", Topics: []string{"trades"}, Priority: 1},
+			{Pattern: "trades.**", Topics: []string{"trades"}, Priority: 2},
+		},
+	}
+	b, _ := json.Marshal(rules)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/tenants/t1/routing-rules", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	addAuth(req)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+	if resp.Code != "ROUTING_RULE_DUPLICATE_PATTERN" {
+		t.Errorf("code = %q, want ROUTING_RULE_DUPLICATE_PATTERN", resp.Code)
 	}
 }
 
@@ -1002,6 +1173,18 @@ func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
 			wantForbidden: false,
 		},
 		{
+			name:          "user cannot POST routing rule",
+			roles:         []string{"user"},
+			method:        http.MethodPost,
+			wantForbidden: true,
+		},
+		{
+			name:          "admin can POST routing rule",
+			roles:         []string{"admin"},
+			method:        http.MethodPost,
+			wantForbidden: false,
+		},
+		{
 			name:          "user cannot DELETE routing rules",
 			roles:         []string{"user"},
 			method:        http.MethodDelete,
@@ -1031,7 +1214,8 @@ func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
 			token := createTestToken(t, privateKey, claims)
 
 			var body *bytes.Reader
-			if tt.method == http.MethodPut {
+			switch tt.method {
+			case http.MethodPut:
 				rules := provisioning.ReplaceRoutingRulesRequest{
 					Rules: []provisioning.TopicRoutingRule{
 						{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 1},
@@ -1039,7 +1223,13 @@ func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
 				}
 				b, _ := json.Marshal(rules)
 				body = bytes.NewReader(b)
-			} else {
+			case http.MethodPost:
+				req := provisioning.AddRoutingRuleRequest{
+					Rule: provisioning.TopicRoutingRule{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 1},
+				}
+				b, _ := json.Marshal(req)
+				body = bytes.NewReader(b)
+			default:
 				body = bytes.NewReader(nil)
 			}
 

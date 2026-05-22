@@ -30,7 +30,7 @@ func TestNoopKafkaAdmin_CreateAndCheckTopic(t *testing.T) {
 	}
 
 	// Create topic
-	if err := admin.CreateTopic(ctx, "test-topic", 3, nil); err != nil {
+	if err := admin.CreateTopic(ctx, "test-topic", 3, 1, nil); err != nil {
 		t.Fatalf("CreateTopic: %v", err)
 	}
 
@@ -87,7 +87,7 @@ func TestNoopKafkaAdmin_Concurrent(t *testing.T) {
 		wg.Go(func() {
 			defer logging.RecoverPanic(zerolog.Nop(), "test_noop_kafka_concurrent", nil)
 			topic := "topic-" + string(rune('a'+i))
-			_ = admin.CreateTopic(ctx, topic, 1, nil)
+			_ = admin.CreateTopic(ctx, topic, 1, 1, nil)
 			_, _ = admin.TopicExists(ctx, topic)
 			_ = admin.DeleteTopic(ctx, topic)
 			_ = admin.CreateACL(ctx, ACLBinding{Principal: topic})

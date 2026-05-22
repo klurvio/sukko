@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
-	"github.com/rs/zerolog"
+	"github.com/klurvio/sukko/internal/shared/routing"
 )
 
 // Channel rules fixture for pub-sub validation.
@@ -29,7 +31,7 @@ var testChannelRules = map[string]any{
 
 // Catch-all routing rule for test messages.
 var testRoutingRules = []map[string]any{
-	{"pattern": "*.*", "topic_suffix": "test-default"},
+	{"pattern": "**", "topics": []string{"test-default"}, "priority": routing.DefaultCatchAllPriority},
 }
 
 // Test user profiles for scoping checks.

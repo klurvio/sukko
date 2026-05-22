@@ -31,6 +31,10 @@ const (
 	resultInvalid          = "invalid"
 )
 
+// AdminJWTIssuer is the JWT issuer claim value for admin tokens.
+// Must match the value used by the admin JWT middleware and tester auth provider.
+const AdminJWTIssuer = "sukko-admin"
+
 // AdminValidator validates admin JWTs using the shared ValidateJWT core
 // with admin-specific options (issuer check, max lifetime, leeway).
 // Constitution X: lives in provisioning package — only provisioning validates admin JWTs.
@@ -45,7 +49,7 @@ func NewAdminValidator(registry *AdminKeyRegistry) *AdminValidator {
 		registry: registry,
 		opts: sharedauth.ValidateOpts{
 			KeyResolver:       registry,
-			AllowedIssuers:    []string{"sukko-admin"},
+			AllowedIssuers:    []string{AdminJWTIssuer},
 			AllowedAlgorithms: []string{"EdDSA", "RS256"},
 			Leeway:            30 * time.Second,
 			MaxLifetime:       24 * time.Hour,

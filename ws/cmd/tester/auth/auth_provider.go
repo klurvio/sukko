@@ -9,6 +9,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 )
 
 // Provider signs HTTP requests with admin credentials.
@@ -57,7 +59,7 @@ func NewEphemeralAuthProvider() (*KeypairAuthProvider, ed25519.PublicKey, error)
 func (p *KeypairAuthProvider) SignRequest(req *http.Request) {
 	now := time.Now()
 	claims := jwt.MapClaims{
-		"iss": "sukko-admin",
+		"iss": provauth.AdminJWTIssuer,
 		"sub": p.keyName,
 		"exp": jwt.NewNumericDate(now.Add(5 * time.Minute)),
 		"iat": jwt.NewNumericDate(now),

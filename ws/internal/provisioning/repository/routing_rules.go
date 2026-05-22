@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/provisioning"
@@ -16,6 +17,12 @@ import (
 )
 
 const labelTenantID = "tenant"
+
+// DB constraint names as named constants (§I — symbolic strings callers must match exactly).
+const (
+	constraintRoutingRuleTenantPriority = "uq_routing_rule_tenant_priority"
+	constraintRoutingRuleTenantPattern  = "uq_routing_rule_tenant_pattern"
+)
 
 // RoutingRulesRepository implements RoutingRulesStore using PostgreSQL via pgxpool.
 type RoutingRulesRepository struct {
@@ -25,16 +32,34 @@ type RoutingRulesRepository struct {
 }
 
 // NewRoutingRulesRepository creates a RoutingRulesRepository and registers its Prometheus counters.
+// metricPrefix is prepended to all metric names (use "provisioning" in production; tests must use
+// unique prefixes — see routing_rules_test.go:metricSeq — because the Prometheus default registerer
+// is process-global and panics on duplicate names.
 func NewRoutingRulesRepository(pool *pgxpool.Pool, logger zerolog.Logger, metricPrefix string) *RoutingRulesRepository {
-	counter := promauto.NewCounterVec(prometheus.CounterOpts{
+	cv := prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: metricPrefix + "_" + routing.MetricInvalidPatternBase,
 		Help: "Total number of routing rules skipped due to invalid pattern after normalization.",
 	}, []string{labelTenantID})
 
+	// Register with the default registerer; if already registered (e.g., in integration test suites
+	// that reuse the same prefix), reuse the existing collector rather than panic.
+	if err := prometheus.DefaultRegisterer.Register(cv); err != nil {
+		are, ok := errors.AsType[prometheus.AlreadyRegisteredError](err)
+		if !ok {
+			panic(err)
+		}
+		existing, ok := are.ExistingCollector.(*prometheus.CounterVec)
+		if !ok {
+			panic(fmt.Sprintf("routing_rules: metric %q already registered as wrong type %T",
+				metricPrefix+"_"+routing.MetricInvalidPatternBase, are.ExistingCollector))
+		}
+		cv = existing
+	}
+
 	return &RoutingRulesRepository{
 		pool:                pool,
 		logger:              logger,
-		invalidPatternCount: counter,
+		invalidPatternCount: cv,
 	}
 }
 
@@ -71,7 +96,7 @@ func (r *RoutingRulesRepository) List(ctx context.Context, tenantID string, limi
 }
 
 // Add inserts a single routing rule for a tenant.
-// Returns ErrDuplicatePriority on unique constraint violation.
+// Returns ErrDuplicatePriority on priority conflict, ErrDuplicateRoutingPattern on pattern conflict.
 func (r *RoutingRulesRepository) Add(ctx context.Context, tenantID string, rule provisioning.TopicRoutingRule) error {
 	query := `
 		INSERT INTO tenant_routing_rules (tenant_id, pattern, topics, priority)
@@ -79,8 +104,11 @@ func (r *RoutingRulesRepository) Add(ctx context.Context, tenantID string, rule 
 	`
 	_, err := r.pool.Exec(ctx, query, tenantID, rule.Pattern, rule.Topics, rule.Priority)
 	if err != nil {
-		if isUniqueViolation(err) {
+		switch pgUniqueConstraintName(err) {
+		case constraintRoutingRuleTenantPriority:
 			return fmt.Errorf("add routing rule: %w", provisioning.ErrDuplicatePriority)
+		case constraintRoutingRuleTenantPattern:
+			return fmt.Errorf("add routing rule: %w", provisioning.ErrDuplicateRoutingPattern)
 		}
 		return fmt.Errorf("add routing rule: %w", err)
 	}
@@ -109,8 +137,11 @@ func (r *RoutingRulesRepository) Replace(ctx context.Context, tenantID string, r
 			VALUES ($1, $2, $3, $4)
 		`
 		if _, err = tx.Exec(ctx, insertQuery, tenantID, rule.Pattern, rule.Topics, rule.Priority); err != nil {
-			if isUniqueViolation(err) {
+			switch pgUniqueConstraintName(err) {
+			case constraintRoutingRuleTenantPriority:
 				return fmt.Errorf("replace routing rules: %w", provisioning.ErrDuplicatePriority)
+			case constraintRoutingRuleTenantPattern:
+				return fmt.Errorf("replace routing rules: %w", provisioning.ErrDuplicateRoutingPattern)
 			}
 			return fmt.Errorf("replace routing rules: %w", err)
 		}
@@ -183,16 +214,14 @@ func (r *RoutingRulesRepository) scanRows(_ context.Context, tenantID string, ro
 	return rules, nil
 }
 
-// isUniqueViolation reports whether the error is a PostgreSQL unique constraint violation (23505).
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
+// pgUniqueConstraintName returns the constraint name when err is a PostgreSQL unique violation
+// (SQLSTATE 23505), or an empty string otherwise. Uses the Go 1.26+ errors.AsType pattern.
+func pgUniqueConstraintName(err error) string {
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	if !ok || pgErr.Code != pgerrcode.UniqueViolation {
+		return ""
 	}
-	var pgErr interface{ SQLState() string }
-	if errors.As(err, &pgErr) {
-		return pgErr.SQLState() == "23505"
-	}
-	return false
+	return pgErr.ConstraintName
 }
 
 var _ provisioning.RoutingRulesStore = (*RoutingRulesRepository)(nil)

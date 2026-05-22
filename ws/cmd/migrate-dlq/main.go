@@ -1,11 +1,12 @@
-// Command migrate-dlq creates dead-letter Kafka topics for existing active tenants.
-// It is a one-shot migration tool to be run once after deploying the routing-rules feature.
+// Command migrate-dlq creates the DLQ and default Kafka topics for existing active tenants.
+// It is a one-shot migration tool to be run BEFORE upgrading to the channel-topic routing
+// release so that infrastructure topics are in place when the new server starts routing.
 //
 // Exit codes:
 //
 //	0 — all tenants processed successfully (or dry-run completed)
 //	1 — startup failure (cannot connect to DB or Kafka)
-//	2 — partial failure (≥1 tenant DLQ topic creation failed)
+//	2 — partial failure (≥1 tenant topic creation failed)
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -32,6 +34,13 @@ const (
 	pageSize = 100
 )
 
+// topicAdmin is the subset of kadm.Client used by provisionTenantTopics.
+// Extracted as an interface so tests can inject a fake without a live broker.
+type topicAdmin interface {
+	CreateTopics(ctx context.Context, partitions int32, replicationFactor int16, configs map[string]*string, topics ...string) (kadm.CreateTopicResponses, error)
+	DeleteTopics(ctx context.Context, topics ...string) (kadm.DeleteTopicResponses, error)
+}
+
 func main() {
 	os.Exit(run())
 }
@@ -44,8 +53,9 @@ func run() int {
 		log.Fatal().Err(err).Msg("Failed to load provisioning config")
 	}
 
-	// Flags layer over env vars: CLI flag > KAFKA_BROKERS env var > envDefault.
-	dryRun := flag.Bool("dry-run", false, "Log intent without creating topics; exits 0 on success")
+	// Flags layer over env vars: CLI flag > env var > envDefault.
+	dryRun := flag.Bool("dry-run", false, "Log intent without creating or deleting topics; exits 0 on success")
+	recreate := flag.Bool("recreate", false, "Delete existing topics before recreating (non-atomic: topic may be absent if create fails; re-run to restore)")
 	brokerFlag := flag.String("brokers", cfg.KafkaBrokers, "Comma-separated Kafka broker addresses (overrides PROVISIONING_KAFKA_BROKERS)")
 	flag.Parse()
 
@@ -68,6 +78,22 @@ func run() int {
 	admin := kadm.NewClient(kgoClient)
 
 	namespace := kafkautil.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
+	rf := int16(cfg.InfraTopicReplicationFactor) //nolint:gosec // G115: RF validated 1–32767 at startup; cannot overflow int16
+
+	dlqRetentionVal := strconv.FormatInt(cfg.DeadLetterTopicRetentionMs, 10)
+	defaultRetentionVal := strconv.FormatInt(cfg.DefaultRetentionMs, 10)
+	specs := []topicMigSpec{
+		{
+			suffix:     routing.DeadLetterTopicSuffix,
+			partitions: int32(cfg.DeadLetterTopicPartitions), //nolint:gosec // G115: validated >= 1 at startup
+			cfg:        map[string]*string{kafkautil.RetentionMsConfigKey: &dlqRetentionVal},
+		},
+		{
+			suffix:     routing.DefaultTopicSuffix,
+			partitions: int32(cfg.DefaultPartitions), //nolint:gosec // G115: validated >= 1 at startup
+			cfg:        map[string]*string{kafkautil.RetentionMsConfigKey: &defaultRetentionVal},
+		},
+	}
 
 	tenantRepo := repository.NewTenantRepository(pool)
 	statusActive := provisioning.StatusActive
@@ -77,12 +103,7 @@ func run() int {
 		Status: &statusActive,
 	}
 
-	retentionVal := strconv.FormatInt(cfg.DeadLetterTopicRetentionMs, 10)
-	retentionCfg := map[string]*string{
-		"retention.ms": &retentionVal,
-	}
-
-	var succeeded, failed int
+	var totalSucceeded, totalFailed int
 
 	for {
 		tenants, _, err := tenantRepo.List(ctx, opts)
@@ -95,34 +116,12 @@ func run() int {
 		}
 
 		for _, tenant := range tenants {
-			dlqTopic := kafkautil.BuildTopicName(namespace, tenant.ID, routing.DeadLetterTopicSuffix)
-			if *dryRun {
-				log.Info().Str("tenant_id", tenant.ID).Str("topic", dlqTopic).Msg("[dry-run] would create DLQ topic")
-				succeeded++
-				continue
+			ok := provisionTenantTopics(ctx, admin, namespace, tenant, specs, rf, *recreate, *dryRun, log)
+			if ok {
+				totalSucceeded++
+			} else {
+				totalFailed++
 			}
-
-			resp, err := admin.CreateTopics(ctx,
-				int32(cfg.DeadLetterTopicPartitions), //nolint:gosec // G115: partition count validated at config load, always small
-				1,
-				retentionCfg,
-				dlqTopic,
-			)
-			if err != nil {
-				log.Error().Err(err).Str("tenant_id", tenant.ID).Str("topic", dlqTopic).Msg("Failed to create DLQ topic")
-				failed++
-				continue
-			}
-
-			topicErr := resp[dlqTopic].Err
-			if topicErr != nil && !isTopicAlreadyExists(topicErr) {
-				log.Error().Err(topicErr).Str("tenant_id", tenant.ID).Str("topic", dlqTopic).Msg("Failed to create DLQ topic")
-				failed++
-				continue
-			}
-
-			log.Info().Str("tenant_id", tenant.ID).Str("topic", dlqTopic).Msg("DLQ topic ready")
-			succeeded++
 		}
 
 		opts.Offset += len(tenants)
@@ -132,18 +131,92 @@ func run() int {
 	}
 
 	log.Info().
-		Int("succeeded", succeeded).
-		Int("failed", failed).
-		Msg("DLQ migration complete")
+		Int("succeeded", totalSucceeded).
+		Int("failed", totalFailed).
+		Msg("migrate-dlq complete")
 
-	if failed > 0 {
+	if totalFailed > 0 {
 		return 2
 	}
 	return 0
 }
 
-func isTopicAlreadyExists(err error) bool {
-	return errors.Is(err, kerr.TopicAlreadyExists)
+// topicMigSpec defines the creation parameters for a single infrastructure topic.
+type topicMigSpec struct {
+	suffix     string
+	partitions int32
+	cfg        map[string]*string
+}
+
+// provisionTenantTopics creates the infrastructure topics for a single tenant.
+// Returns true if all topics were provisioned successfully (or dry-run), false on any failure.
+// The admin parameter is an interface so tests can inject a fake without a live broker.
+func provisionTenantTopics(
+	ctx context.Context,
+	admin topicAdmin,
+	namespace string,
+	tenant *provisioning.Tenant,
+	specs []topicMigSpec,
+	rf int16,
+	recreate bool,
+	dryRun bool,
+	log zerolog.Logger,
+) bool {
+	allOK := true
+
+	for _, spec := range specs {
+		topicName := kafkautil.BuildTopicName(namespace, tenant.ID, spec.suffix)
+		tlog := log.With().Str("tenant_id", tenant.ID).Str("topic", topicName).Logger()
+
+		if dryRun {
+			if recreate {
+				tlog.Info().Msg("[dry-run] would delete and recreate topic")
+			} else {
+				tlog.Info().Msg("[dry-run] would create topic")
+			}
+			continue
+		}
+
+		if recreate {
+			deleteResp, err := admin.DeleteTopics(ctx, topicName)
+			if err != nil {
+				tlog.Error().Err(err).Msg("Failed to delete topic for recreation")
+				allOK = false
+				continue
+			}
+			if deleteErr := deleteResp[topicName].Err; deleteErr != nil {
+				tlog.Error().Err(deleteErr).Msg("Failed to delete topic for recreation")
+				allOK = false
+				continue
+			}
+		}
+
+		resp, err := admin.CreateTopics(ctx, spec.partitions, rf, spec.cfg, topicName)
+		if err != nil {
+			tlog.Error().Err(err).Msg("Failed to create topic")
+			allOK = false
+			continue
+		}
+
+		if topicErr := resp[topicName].Err; topicErr != nil {
+			if errors.Is(topicErr, kerr.TopicAlreadyExists) {
+				tlog.Info().Msg("topic already exists (skipped)")
+				continue
+			}
+			// If we just deleted the topic and create failed, it is now absent.
+			if recreate {
+				tlog.Error().Err(topicErr).Str("state", "topic_absent").Msg("topic deleted but recreation failed — re-run to restore")
+			} else {
+				tlog.Error().Err(topicErr).Msg("Failed to create topic")
+			}
+			allOK = false
+			continue
+		}
+
+		tlog.Info().Msg("topic ready")
+	}
+
+	return allOK
 }
 
 func splitBrokers(brokers string) []string {

@@ -100,6 +100,30 @@ func TestRoutingRulesRepository_Add_DuplicatePriority(t *testing.T) {
 	}
 }
 
+func TestRoutingRulesRepository_Add_DuplicatePattern(t *testing.T) {
+	t.Parallel()
+	f := newRoutingRulesFixture(t, "tenant-add-dup-pattern")
+
+	first := provisioning.TopicRoutingRule{Pattern: "trades.**", Topics: []string{"trades"}, Priority: 1}
+	second := provisioning.TopicRoutingRule{Pattern: "trades.**", Topics: []string{"audit"}, Priority: 2} // same pattern, different priority
+
+	if err := f.repo.Add(f.ctx, f.tenantID, first); err != nil {
+		t.Fatalf("first Add() error = %v", err)
+	}
+
+	err := f.repo.Add(f.ctx, f.tenantID, second)
+	if err == nil {
+		t.Fatal("second Add() should return an error for duplicate pattern, got nil")
+	}
+	if !errors.Is(err, provisioning.ErrDuplicateRoutingPattern) {
+		t.Errorf("second Add() error = %v, want errors.Is(err, ErrDuplicateRoutingPattern)", err)
+	}
+	// Verify priority conflict is NOT the cause (different priorities).
+	if errors.Is(err, provisioning.ErrDuplicatePriority) {
+		t.Errorf("error should be ErrDuplicateRoutingPattern, not ErrDuplicatePriority")
+	}
+}
+
 // ── List ──────────────────────────────────────────────────────────────────────
 
 func TestRoutingRulesRepository_List_Empty(t *testing.T) {

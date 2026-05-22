@@ -16,7 +16,7 @@ func RequireFeature(mgr *license.Manager, feature license.Feature) func(http.Han
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !mgr.HasFeature(feature) {
 				required := license.RequiredEdition(feature)
-				httputil.WriteError(w, http.StatusForbidden, "EDITION_LIMIT",
+				httputil.WriteError(w, http.StatusForbidden, errCodeEditionLimit,
 					fmt.Sprintf("This feature requires %s edition or higher", required))
 				return
 			}

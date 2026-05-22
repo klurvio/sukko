@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/twmb/franz-go/pkg/kerr"
 
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/shared/auth"
@@ -37,9 +38,6 @@ var (
 const (
 	// msPerDay is the number of milliseconds in one day.
 	msPerDay = 24 * 60 * 60 * 1000
-
-	// kafkaRetentionMsKey is the Kafka topic config key for message retention.
-	kafkaRetentionMsKey = "retention.ms"
 )
 
 // ServiceConfig holds the configuration for the provisioning service.
@@ -71,10 +69,11 @@ type ServiceConfig struct {
 
 	// MaxRoutingRulesPerTenant limits the number of routing rules per tenant.
 	// Wired from env var MAX_ROUTING_RULES_PER_TENANT (default: 100).
-	MaxRoutingRulesPerTenant   int
-	MaxTopicsPerRule           int
-	DeadLetterTopicPartitions  int
-	DeadLetterTopicRetentionMs int64
+	MaxRoutingRulesPerTenant    int
+	MaxTopicsPerRule            int
+	DeadLetterTopicPartitions   int
+	DeadLetterTopicRetentionMs  int64
+	InfraTopicReplicationFactor int // int (not int16) — cast to int16 at CreateTopic call sites
 
 	// EditionManager provides expiry-aware edition limits for runtime gates.
 	// May be nil in tests — edition gates are skipped when nil.
@@ -161,6 +160,34 @@ func (s *Service) CountTenants(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// infraTopicSpec defines the creation parameters for one infrastructure topic.
+type infraTopicSpec struct {
+	suffix     string
+	topicType  string
+	partitions int
+	cfg        map[string]string
+}
+
+// infraTopicSpecs returns the ordered list of infrastructure topics to create for a tenant:
+// DLQ first, default second. Both CreateTenant (saga) and ReactivateTenant (idempotent) use
+// this as the single source of truth for which topics get created and with what config.
+func (s *Service) infraTopicSpecs() []infraTopicSpec {
+	return []infraTopicSpec{
+		{
+			suffix:     routing.DeadLetterTopicSuffix,
+			topicType:  topicTypeDLQ,
+			partitions: s.config.DeadLetterTopicPartitions,
+			cfg:        map[string]string{kafka.RetentionMsConfigKey: strconv.FormatInt(s.config.DeadLetterTopicRetentionMs, 10)},
+		},
+		{
+			suffix:     routing.DefaultTopicSuffix,
+			topicType:  topicTypeDefault,
+			partitions: s.config.DefaultPartitions,
+			cfg:        map[string]string{kafka.RetentionMsConfigKey: strconv.FormatInt(s.config.DefaultRetentionMs, 10)},
+		},
+	}
+}
+
 // CreateTenant creates a new tenant with optional initial key and topics.
 func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*CreateTenantResponse, error) {
 	// Validate tenant
@@ -202,22 +229,68 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		return nil, fmt.Errorf("%w: %s", ErrTenantIDUnderscorePrefix, req.TenantID)
 	}
 
-	// Create dead-letter topic before DB insert (saga pattern — rollback on DB failure).
-	deadLetterName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.ID, routing.DeadLetterTopicSuffix)
-	if err := s.kafka.CreateTopic(ctx, deadLetterName, s.config.DeadLetterTopicPartitions, map[string]string{
-		kafkaRetentionMsKey: strconv.FormatInt(s.config.DeadLetterTopicRetentionMs, 10),
-	}); err != nil {
-		return nil, fmt.Errorf("create dead-letter topic: %w", err)
+	// Create infrastructure topics before DB insert (saga pattern — rollback on DB failure).
+	// Track whether each topic was created by this saga step (vs. pre-existing) so rollback
+	// only deletes topics it actually created — not pre-existing topics from a prior attempt.
+	specs := s.infraTopicSpecs()
+	rf := int16(s.config.InfraTopicReplicationFactor) //nolint:gosec // G115: value validated 1–32767 at startup; cannot overflow int16
+	deadLetterName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.ID, specs[0].suffix)
+	defaultName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.ID, specs[1].suffix)
+	var dlqCreatedHere, defaultCreatedHere bool
+
+	if err := s.kafka.CreateTopic(ctx, deadLetterName, specs[0].partitions, rf, specs[0].cfg); err != nil {
+		if !errors.Is(err, kerr.TopicAlreadyExists) {
+			recordCreateTenantTopicProvisionError(topicTypeDLQ, sagaPhaseCreate)
+			return nil, fmt.Errorf("create dead-letter topic: %w", err)
+		}
+		// TopicAlreadyExists: pre-existing, not created by this saga step.
+	} else {
+		dlqCreatedHere = true
+	}
+
+	if err := s.kafka.CreateTopic(ctx, defaultName, specs[1].partitions, rf, specs[1].cfg); err != nil {
+		if !errors.Is(err, kerr.TopicAlreadyExists) {
+			recordCreateTenantTopicProvisionError(topicTypeDefault, sagaPhaseCreate)
+			// Saga rollback: only delete the DLQ if this saga step created it.
+			if dlqCreatedHere {
+				recordCreateTenantTopicProvisionError(topicTypeDLQ, sagaPhaseRollback)
+				if dlqErr := s.kafka.DeleteTopic(ctx, deadLetterName); dlqErr != nil {
+					recordCreateTenantTopicProvisionError(topicTypeDLQ, sagaPhaseRollbackFailed)
+					s.logger.Error().Err(dlqErr).
+						Str("tenant_id", tenant.ID).
+						Str("topic", deadLetterName).
+						Msg("saga rollback: failed to delete dead-letter topic after default topic creation failure")
+				}
+			}
+			return nil, fmt.Errorf("create default topic: %w", err)
+		}
+		// TopicAlreadyExists: pre-existing.
+	} else {
+		defaultCreatedHere = true
 	}
 
 	// Create tenant record
 	if err := s.tenants.Create(ctx, tenant); err != nil {
-		// Saga rollback: best-effort delete the dead-letter topic we just created.
-		if dlqErr := s.kafka.DeleteTopic(ctx, deadLetterName); dlqErr != nil {
-			s.logger.Error().Err(dlqErr).
-				Str("tenant_id", tenant.ID).
-				Str("topic", deadLetterName).
-				Msg("saga rollback: failed to delete dead-letter topic")
+		// Saga rollback: delete only the topics created by this saga step, in reverse order.
+		if defaultCreatedHere {
+			recordCreateTenantTopicProvisionError(topicTypeDefault, sagaPhaseRollback)
+			if defErr := s.kafka.DeleteTopic(ctx, defaultName); defErr != nil {
+				recordCreateTenantTopicProvisionError(topicTypeDefault, sagaPhaseRollbackFailed)
+				s.logger.Error().Err(defErr).
+					Str("tenant_id", tenant.ID).
+					Str("topic", defaultName).
+					Msg("saga rollback: failed to delete default topic")
+			}
+		}
+		if dlqCreatedHere {
+			recordCreateTenantTopicProvisionError(topicTypeDLQ, sagaPhaseRollback)
+			if dlqErr := s.kafka.DeleteTopic(ctx, deadLetterName); dlqErr != nil {
+				recordCreateTenantTopicProvisionError(topicTypeDLQ, sagaPhaseRollbackFailed)
+				s.logger.Error().Err(dlqErr).
+					Str("tenant_id", tenant.ID).
+					Str("topic", deadLetterName).
+					Msg("saga rollback: failed to delete dead-letter topic")
+			}
 		}
 		return nil, fmt.Errorf("create tenant: %w", err)
 	}
@@ -364,6 +437,8 @@ func (s *Service) SuspendTenant(ctx context.Context, tenantID string) error {
 }
 
 // ReactivateTenant reactivates a suspended tenant.
+// Infrastructure topics (DLQ and default) are created idempotently before updating status.
+// Topic creation errors are logged and metered but do NOT block reactivation (§IV).
 func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 	tenant, err := s.tenants.Get(ctx, tenantID)
 	if err != nil {
@@ -374,6 +449,25 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 	}
 	if tenant.Status != StatusSuspended {
 		return fmt.Errorf("%w: current status is %s", ErrTenantNotActive, tenant.Status)
+	}
+
+	// Idempotently recreate infrastructure topics that may be absent for tenants
+	// that were suspended before the channel-topic routing feature was deployed.
+	rf := int16(s.config.InfraTopicReplicationFactor) //nolint:gosec // G115: value validated 1–32767 at startup; cannot overflow int16
+	for _, spec := range s.infraTopicSpecs() {
+		name := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, spec.suffix)
+		if err := s.kafka.CreateTopic(ctx, name, spec.partitions, rf, spec.cfg); err != nil {
+			if errors.Is(err, kerr.TopicAlreadyExists) {
+				continue // idempotent — topic already exists, nothing to do
+			}
+			s.logger.Error().Err(err).
+				Str("tenant_id", tenantID).
+				Str("topic", name).
+				Str("topic_type", spec.topicType).
+				Msg("failed to provision infrastructure topic during reactivation")
+			recordReactivateTopicProvisionError(spec.topicType)
+			// Continue with reactivation regardless (§IV: graceful degradation).
+		}
 	}
 
 	if err := s.tenants.UpdateStatus(ctx, tenantID, StatusActive); err != nil {
@@ -449,7 +543,7 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 					seen[suffix] = struct{}{}
 					topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
 					if err := s.kafka.SetTopicConfig(ctx, topicName, map[string]string{
-						kafkaRetentionMsKey: strconv.FormatInt(gracePeriodMs, 10),
+						kafka.RetentionMsConfigKey: strconv.FormatInt(gracePeriodMs, 10),
 					}); err != nil {
 						s.logger.Error().Err(err).
 							Str("tenant_id", tenantID).
@@ -888,6 +982,11 @@ func (s *Service) ReplaceRoutingRules(ctx context.Context, tenantID string, rule
 		}
 	}
 
+	// Normalize bare * to ** before validation so patterns are stored in canonical form.
+	for i := range rules {
+		rules[i].Pattern = routing.NormalizePattern(rules[i].Pattern)
+	}
+
 	// Validate rule structure (count, patterns, topics, priorities).
 	if err := ValidateRoutingRules(rules, s.config.MaxRoutingRulesPerTenant, s.config.MaxTopicsPerRule); err != nil {
 		return fmt.Errorf("invalid routing rules: %w", err)
@@ -946,6 +1045,9 @@ func (s *Service) AddRoutingRule(ctx context.Context, tenantID string, rule Topi
 	if tenant.Status != StatusActive {
 		return fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
 	}
+
+	// Normalize bare * to ** before validation so patterns are stored in canonical form.
+	rule.Pattern = routing.NormalizePattern(rule.Pattern)
 
 	// Validate rule structure (pattern syntax, non-empty topics, per-rule topic limit).
 	if err := ValidateRoutingRules([]TopicRoutingRule{rule}, 0, s.config.MaxTopicsPerRule); err != nil {

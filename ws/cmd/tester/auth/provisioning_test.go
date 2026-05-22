@@ -230,7 +230,7 @@ func TestProvisioningClient_SetRoutingRules(t *testing.T) {
 
 	client := testProvClient(t, srv.URL)
 	err := client.SetRoutingRules(context.Background(), "test-t1", []map[string]any{
-		{"pattern": "*.*", "topic_suffix": "test"},
+		{"pattern": "**", "topics": []string{"test"}, "priority": 100},
 	})
 	if err != nil {
 		t.Fatalf("SetRoutingRules: %v", err)

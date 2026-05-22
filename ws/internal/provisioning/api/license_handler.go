@@ -157,7 +157,7 @@ func (h *LicenseHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 	clientIP := httputil.GetClientIP(r)
 	if !h.rateLimiter.allow(clientIP) {
 		licenseReloadTotal.WithLabelValues(reloadRateLimited).Inc()
-		httputil.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "too many license reload requests")
+		httputil.WriteError(w, http.StatusTooManyRequests, errCodeRateLimited, "too many license reload requests")
 		return
 	}
 

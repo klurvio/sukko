@@ -24,7 +24,7 @@ func NewNoopKafkaAdmin() *NoopKafkaAdmin {
 }
 
 // CreateTopic records a topic creation (no-op).
-func (n *NoopKafkaAdmin) CreateTopic(_ context.Context, name string, _ int, _ map[string]string) error {
+func (n *NoopKafkaAdmin) CreateTopic(_ context.Context, name string, _ int, _ int16, _ map[string]string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.topics[name] = true
