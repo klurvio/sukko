@@ -4,6 +4,11 @@ package kafka
 
 import "fmt"
 
+// RetentionMsConfigKey is the Kafka topic configuration key for retention in milliseconds.
+// Used when creating or reconfiguring topics via the Kafka admin API.
+// Defined here (not in each consumer) to prevent magic-string duplication (§I).
+const RetentionMsConfigKey = "retention.ms"
+
 // BuildTopicName constructs a Kafka topic name from components.
 // This is the single source of truth for topic name format across the codebase.
 //

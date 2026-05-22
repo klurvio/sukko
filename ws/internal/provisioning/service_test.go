@@ -4,15 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/twmb/franz-go/pkg/kerr"
 
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/testutil"
+	sharedkafka "github.com/klurvio/sukko/internal/shared/kafka"
 )
 
 func newTestService() (*provisioning.Service, *testutil.MockTenantStore, *testutil.MockKeyStore, *testutil.MockKafkaAdmin) {
@@ -24,21 +27,24 @@ func newTestService() (*provisioning.Service, *testutil.MockTenantStore, *testut
 	kafkaAdmin := testutil.NewMockKafkaAdmin()
 
 	svc, err := provisioning.NewService(provisioning.ServiceConfig{
-		TenantStore:              tenantStore,
-		KeyStore:                 keyStore,
-		APIKeyStore:              testutil.NewMockAPIKeyStore(),
-		RoutingRulesStore:        routingRulesStore,
-		QuotaStore:               quotaStore,
-		AuditStore:               auditStore,
-		KafkaAdmin:               kafkaAdmin,
-		EventBus:                 eventbus.New(zerolog.Nop()),
-		TopicNamespace:           "test",
-		DefaultPartitions:        3,
-		DefaultRetentionMs:       604800000,
-		MaxTopicsPerTenant:       50,
-		MaxRoutingRulesPerTenant: 5,
-		DeprovisionGraceDays:     30,
-		Logger:                   zerolog.Nop(),
+		TenantStore:                 tenantStore,
+		KeyStore:                    keyStore,
+		APIKeyStore:                 testutil.NewMockAPIKeyStore(),
+		RoutingRulesStore:           routingRulesStore,
+		QuotaStore:                  quotaStore,
+		AuditStore:                  auditStore,
+		KafkaAdmin:                  kafkaAdmin,
+		EventBus:                    eventbus.New(zerolog.Nop()),
+		TopicNamespace:              "test",
+		DefaultPartitions:           3,
+		DefaultRetentionMs:          604800000,
+		MaxTopicsPerTenant:          50,
+		MaxRoutingRulesPerTenant:    5,
+		DeadLetterTopicPartitions:   1,
+		DeadLetterTopicRetentionMs:  86400000, // distinct from DefaultRetentionMs to catch wrong config wiring
+		InfraTopicReplicationFactor: 1,
+		DeprovisionGraceDays:        30,
+		Logger:                      zerolog.Nop(),
 	})
 	if err != nil {
 		panic("newTestService: " + err.Error())
@@ -346,6 +352,109 @@ func TestService_ReactivateTenant_StateValidation(t *testing.T) {
 	}
 }
 
+func TestService_ReactivateTenant_TopicProvisioning(t *testing.T) {
+	t.Parallel()
+
+	errNonIdempotent := errors.New("kafka: unexpected error")
+
+	tests := []struct {
+		name       string
+		setupKafka func(k *testutil.MockKafkaAdmin)
+		wantErr    bool
+	}{
+		{
+			name: "(a) both topics already exist → returns nil, no error",
+			setupKafka: func(k *testutil.MockKafkaAdmin) {
+				// Both CreateTopic calls return TopicAlreadyExists — idempotent.
+				k.CreateTopicErrs = []error{kerr.TopicAlreadyExists, kerr.TopicAlreadyExists}
+			},
+			wantErr: false,
+		},
+		{
+			name: "(b) DLQ already exists only → returns nil",
+			setupKafka: func(k *testutil.MockKafkaAdmin) {
+				k.CreateTopicErrs = []error{kerr.TopicAlreadyExists, nil}
+			},
+			wantErr: false,
+		},
+		{
+			name: "(c) DLQ non-idempotency error → returns nil (graceful degradation)",
+			setupKafka: func(k *testutil.MockKafkaAdmin) {
+				k.CreateTopicErrs = []error{errNonIdempotent, nil}
+			},
+			wantErr: false, // §IV: reactivation continues regardless
+		},
+		{
+			name: "(d) default topic non-idempotency error → returns nil (graceful degradation)",
+			setupKafka: func(k *testutil.MockKafkaAdmin) {
+				k.CreateTopicErrs = []error{nil, errNonIdempotent}
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			kafka := testutil.NewMockKafkaAdmin()
+			if tt.setupKafka != nil {
+				tt.setupKafka(kafka)
+			}
+
+			// Put tenant in suspended state so ReactivateTenant proceeds.
+			ts := testutil.NewMockTenantStore()
+			tenant := testutil.NewTestTenant("acme-corp")
+			tenant.Status = provisioning.StatusSuspended
+			_ = ts.Create(context.Background(), tenant)
+
+			svc := newTestServiceWithKafka(kafka, ts)
+
+			err := svc.ReactivateTenant(context.Background(), "acme-corp")
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestService_ReactivateTenant_TopicConfig(t *testing.T) {
+	t.Parallel()
+
+	kafka := testutil.NewMockKafkaAdmin()
+	ts := testutil.NewMockTenantStore()
+	tenant := testutil.NewTestTenant("acme-corp")
+	tenant.Status = provisioning.StatusSuspended
+	_ = ts.Create(context.Background(), tenant)
+
+	svc := newTestServiceWithKafka(kafka, ts)
+
+	if err := svc.ReactivateTenant(context.Background(), "acme-corp"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dlq := dlqTopic("acme-corp")
+	def := defaultTopic("acme-corp")
+
+	if p := kafka.CreatedTopicParts[dlq]; p != 1 {
+		t.Errorf("DLQ partitions = %d, want 1", p)
+	}
+	if p := kafka.CreatedTopicParts[def]; p != 3 {
+		t.Errorf("default partitions = %d, want 3", p)
+	}
+	wantDLQRetention := strconv.FormatInt(testDLQRetentionMs, 10)
+	wantDefaultRetention := strconv.FormatInt(testDefaultRetentionMs, 10)
+	if v := kafka.CreatedTopicConfigs[dlq][sharedkafka.RetentionMsConfigKey]; v != wantDLQRetention {
+		t.Errorf("DLQ retention.ms = %q, want %q", v, wantDLQRetention)
+	}
+	if v := kafka.CreatedTopicConfigs[def][sharedkafka.RetentionMsConfigKey]; v != wantDefaultRetention {
+		t.Errorf("default retention.ms = %q, want %q", v, wantDefaultRetention)
+	}
+}
+
 func TestService_DeprovisionTenant_StateValidation(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -439,8 +548,8 @@ func TestService_DeprovisionTenant_WithRoutingRules(t *testing.T) {
 	_ = tenantStore.Create(context.Background(), tenant)
 
 	// Pre-seed Kafka topics that routing rules reference.
-	_ = kafkaAdmin.CreateTopic(context.Background(), "test.acme-corp.trade", 1, nil)
-	_ = kafkaAdmin.CreateTopic(context.Background(), "test.acme-corp.orderbook", 1, nil)
+	_ = kafkaAdmin.CreateTopic(context.Background(), "test.acme-corp.trade", 1, 1, nil)
+	_ = kafkaAdmin.CreateTopic(context.Background(), "test.acme-corp.orderbook", 1, 1, nil)
 
 	_ = svc.ReplaceRoutingRules(context.Background(), "acme-corp", []provisioning.TopicRoutingRule{
 		{Pattern: "**.trade", Topics: []string{"trade"}, Priority: 1},
@@ -599,8 +708,8 @@ func TestService_SetRoutingRules(t *testing.T) {
 	_ = tenantStore.Create(context.Background(), tenant)
 
 	// Pre-seed Kafka topics that routing rules reference.
-	_ = kafkaAdmin.CreateTopic(context.Background(), "test.acme-corp.trade", 1, nil)
-	_ = kafkaAdmin.CreateTopic(context.Background(), "test.acme-corp.orderbook", 1, nil)
+	_ = kafkaAdmin.CreateTopic(context.Background(), "test.acme-corp.trade", 1, 1, nil)
+	_ = kafkaAdmin.CreateTopic(context.Background(), "test.acme-corp.orderbook", 1, 1, nil)
 
 	// Set routing rules
 	rules := []provisioning.TopicRoutingRule{
@@ -1037,6 +1146,26 @@ func TestService_SetRoutingRules_NonexistentTenant(t *testing.T) {
 	}
 }
 
+func TestService_AddRoutingRule_TopicExistsError(t *testing.T) {
+	t.Parallel()
+
+	kafka := testutil.NewMockKafkaAdmin()
+	kafka.TopicExistsErr = errors.New("kafka: topic check failed")
+
+	ts := testutil.NewMockTenantStore()
+	_ = ts.Create(context.Background(), testutil.NewTestTenant("acme-corp"))
+	svc := newTestServiceWithKafka(kafka, ts)
+
+	err := svc.AddRoutingRule(context.Background(), "acme-corp", provisioning.TopicRoutingRule{
+		Pattern:  "**.trade",
+		Topics:   []string{"trade"},
+		Priority: 1,
+	})
+	if err == nil {
+		t.Fatal("expected error when TopicExists fails, got nil")
+	}
+}
+
 func TestService_CreateTenant_DotsInID(t *testing.T) {
 	t.Parallel()
 	svc, _, _, _ := newTestService()
@@ -1087,21 +1216,24 @@ func newTestServiceWithAPIKeys() (*provisioning.Service, *testutil.MockTenantSto
 	kafkaAdmin := testutil.NewMockKafkaAdmin()
 
 	svc, err := provisioning.NewService(provisioning.ServiceConfig{
-		TenantStore:              tenantStore,
-		KeyStore:                 keyStore,
-		APIKeyStore:              apiKeyStore,
-		RoutingRulesStore:        routingRulesStore,
-		QuotaStore:               quotaStore,
-		AuditStore:               auditStore,
-		KafkaAdmin:               kafkaAdmin,
-		EventBus:                 eventbus.New(zerolog.Nop()),
-		TopicNamespace:           "test",
-		DefaultPartitions:        3,
-		DefaultRetentionMs:       604800000,
-		MaxTopicsPerTenant:       50,
-		MaxRoutingRulesPerTenant: 5,
-		DeprovisionGraceDays:     30,
-		Logger:                   zerolog.Nop(),
+		TenantStore:                 tenantStore,
+		KeyStore:                    keyStore,
+		APIKeyStore:                 apiKeyStore,
+		RoutingRulesStore:           routingRulesStore,
+		QuotaStore:                  quotaStore,
+		AuditStore:                  auditStore,
+		KafkaAdmin:                  kafkaAdmin,
+		EventBus:                    eventbus.New(zerolog.Nop()),
+		TopicNamespace:              "test",
+		DefaultPartitions:           3,
+		DefaultRetentionMs:          604800000,
+		MaxTopicsPerTenant:          50,
+		MaxRoutingRulesPerTenant:    5,
+		DeadLetterTopicPartitions:   1,
+		DeadLetterTopicRetentionMs:  86400000,
+		InfraTopicReplicationFactor: 1,
+		DeprovisionGraceDays:        30,
+		Logger:                      zerolog.Nop(),
 	})
 	if err != nil {
 		panic("newTestServiceWithAPIKeys: " + err.Error())

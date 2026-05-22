@@ -298,7 +298,7 @@ func TestRouteToDLQ_QueueFull_DropsJobSilently(t *testing.T) {
 
 	// Capacity-0 channel: TrySubmit always returns false.
 	pool := &DLQPool{
-		jobs:   make(chan dlqJob, 0),
+		jobs:   make(chan dlqJob),
 		cfg:    DLQConfig{Workers: 0},
 		logger: zerolog.Nop(),
 	}

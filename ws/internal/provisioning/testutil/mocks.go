@@ -3,6 +3,7 @@ package testutil
 import (
 	"context"
 	"errors"
+	"maps"
 	"sync"
 	"time"
 
@@ -591,13 +592,22 @@ func (m *MockAuditStore) GetEntries() []*provisioning.AuditEntry {
 
 // MockKafkaAdmin is a mock implementation of KafkaAdmin.
 type MockKafkaAdmin struct {
-	mu     sync.RWMutex
-	topics map[string]bool
-	acls   []provisioning.ACLBinding
-	quotas map[string]provisioning.QuotaConfig
+	mu                  sync.RWMutex
+	topics              map[string]bool
+	acls                []provisioning.ACLBinding
+	quotas              map[string]provisioning.QuotaConfig
+	CreatedTopicRFs     map[string]int16             // replication factor per topic name
+	CreatedTopicParts   map[string]int               // partition count per topic name
+	CreatedTopicConfigs map[string]map[string]string // topic config per topic name
+	DeleteAttempts      []string                     // topics passed to DeleteTopic regardless of outcome
+	DeletedTopics       []string                     // topics successfully deleted (DeleteTopicErr == nil)
 
+	// CreateTopicErrs is a per-call error queue. Each call to CreateTopic pops the first element;
+	// if the queue is empty, nil is returned. CreateTopicErr is used only when the queue is empty.
+	CreateTopicErrs   []error
 	CreateTopicErr    error
 	DeleteTopicErr    error
+	TopicExistsErr    error
 	SetTopicConfigErr error
 	CreateACLErr      error
 	SetQuotaErr       error
@@ -606,31 +616,48 @@ type MockKafkaAdmin struct {
 // NewMockKafkaAdmin creates a new MockKafkaAdmin.
 func NewMockKafkaAdmin() *MockKafkaAdmin {
 	return &MockKafkaAdmin{
-		topics: make(map[string]bool),
-		acls:   []provisioning.ACLBinding{},
-		quotas: make(map[string]provisioning.QuotaConfig),
+		topics:              make(map[string]bool),
+		acls:                []provisioning.ACLBinding{},
+		quotas:              make(map[string]provisioning.QuotaConfig),
+		CreatedTopicRFs:     make(map[string]int16),
+		CreatedTopicParts:   make(map[string]int),
+		CreatedTopicConfigs: make(map[string]map[string]string),
 	}
 }
 
 // CreateTopic implements KafkaAdmin.CreateTopic for testing.
-func (m *MockKafkaAdmin) CreateTopic(_ context.Context, name string, _ int, _ map[string]string) error {
-	if m.CreateTopicErr != nil {
-		return m.CreateTopicErr
-	}
+func (m *MockKafkaAdmin) CreateTopic(_ context.Context, name string, partitions int, rf int16, cfg map[string]string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Pop from per-call queue first; fall back to the static error.
+	if len(m.CreateTopicErrs) > 0 {
+		err := m.CreateTopicErrs[0]
+		m.CreateTopicErrs = m.CreateTopicErrs[1:]
+		if err != nil {
+			return err
+		}
+	} else if m.CreateTopicErr != nil {
+		return m.CreateTopicErr
+	}
 	m.topics[name] = true
+	m.CreatedTopicRFs[name] = rf
+	m.CreatedTopicParts[name] = partitions
+	cfgCopy := make(map[string]string, len(cfg))
+	maps.Copy(cfgCopy, cfg)
+	m.CreatedTopicConfigs[name] = cfgCopy
 	return nil
 }
 
 // DeleteTopic implements KafkaAdmin.DeleteTopic for testing.
 func (m *MockKafkaAdmin) DeleteTopic(_ context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.DeleteAttempts = append(m.DeleteAttempts, name)
 	if m.DeleteTopicErr != nil {
 		return m.DeleteTopicErr
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	delete(m.topics, name)
+	m.DeletedTopics = append(m.DeletedTopics, name)
 	return nil
 }
 
@@ -638,6 +665,9 @@ func (m *MockKafkaAdmin) DeleteTopic(_ context.Context, name string) error {
 func (m *MockKafkaAdmin) TopicExists(_ context.Context, name string) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	if m.TopicExistsErr != nil {
+		return false, m.TopicExistsErr
+	}
 	_, ok := m.topics[name]
 	return ok, nil
 }

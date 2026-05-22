@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
-	"github.com/rs/zerolog"
+	"github.com/klurvio/sukko/internal/shared/routing"
 )
 
 // healthCheckTimeout is the HTTP client timeout for dependency health checks.
@@ -112,7 +114,7 @@ func runSmoke(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metric
 		// Error ignored: if this fails, the publish round-trip check below will
 		// fail with "message not received within timeout" — no silent degradation.
 		_ = run.authResult.ProvClient.SetRoutingRules(ctx, run.authResult.TenantID, []map[string]any{
-			{"pattern": "*.*", "topic_suffix": "smoke-test"},
+			{"pattern": "**", "topics": []string{"smoke-test"}, "priority": routing.DefaultCatchAllPriority},
 		})
 
 		engine := NewPubSubEngine(PubSubEngineConfig{

@@ -17,4 +17,7 @@ CREATE TABLE tenant_routing_rules (
     CONSTRAINT uq_routing_rule_tenant_priority UNIQUE (tenant_id, priority)
 );
 
+ALTER TABLE tenant_routing_rules
+    ADD CONSTRAINT uq_routing_rule_tenant_pattern UNIQUE (tenant_id, pattern);
+
 CREATE INDEX idx_routing_rules_tenant ON tenant_routing_rules (tenant_id, priority ASC);

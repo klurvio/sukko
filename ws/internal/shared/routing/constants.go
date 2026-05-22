@@ -9,6 +9,15 @@ const (
 	// DeadLetterTopicSuffix is the Kafka topic suffix for the per-tenant dead-letter topic.
 	DeadLetterTopicSuffix = "dead-letter"
 
+	// DefaultTopicSuffix is the Kafka topic suffix for the per-tenant default topic.
+	// Used as the catch-all routing target for the default routing rule created by sukko up.
+	DefaultTopicSuffix = "default"
+
+	// DefaultCatchAllPriority is the priority for the default catch-all routing rule.
+	// Rules with lower priority values match first; the default rule sits at 100 so
+	// tenant-specific rules (0–99) always take precedence.
+	DefaultCatchAllPriority = 100
+
 	// MetricInvalidPatternBase is the base metric name without service prefix.
 	// Callers prepend their MetricPrefix (e.g., "ws", "gateway", "provisioning")
 	// and a separator to produce the full name per Constitution VI.

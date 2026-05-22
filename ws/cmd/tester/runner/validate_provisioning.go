@@ -121,8 +121,8 @@ func validateProvisioning(ctx context.Context, run *TestRun, logger zerolog.Logg
 		if err != nil {
 			return fmt.Errorf("get routing rules: %w", err)
 		}
-		if !strings.Contains(string(body), "default") {
-			return fmt.Errorf("expected 'default' topic suffix in rules, got: %s", string(body))
+		if !strings.Contains(string(body), "test-default") {
+			return fmt.Errorf("expected 'test-default' topic in rules, got: %s", string(body))
 		}
 		return nil
 	}))

@@ -31,12 +31,50 @@ const (
 	routingRulesMaxPageLimit = 200
 )
 
-// Routing rules error code constants (Constitution I — no magic strings).
+// API error code constants (Constitution §I — no magic strings).
+// All codes that appear more than once, or that callers must match exactly, are named here.
 const (
+	errCodeInvalidRequest        = "INVALID_REQUEST"
+	errCodeNotFound              = "NOT_FOUND"
 	errCodeDuplicatePriority     = "ROUTING_RULE_DUPLICATE_PRIORITY"
+	errCodeDuplicatePattern      = "ROUTING_RULE_DUPLICATE_PATTERN"
 	errCodeTooManyRoutingRules   = "TOO_MANY_ROUTING_RULES"
 	errCodeRoutingRuleValidation = "ROUTING_RULE_VALIDATION_ERROR"
 	errCodeTopicNotProvisioned   = "TOPIC_NOT_PROVISIONED"
+	errCodeInsufficientRole      = "INSUFFICIENT_ROLE"
+	errCodeEditionLimit          = "EDITION_LIMIT"
+
+	// Middleware / auth codes.
+	errCodeUnauthorized      = "UNAUTHORIZED"
+	errCodeMissingToken      = "MISSING_TOKEN"
+	errCodeInvalidAuthHeader = "INVALID_AUTH_HEADER"
+	errCodeTokenExpired      = "TOKEN_EXPIRED"
+	errCodeKeyRevoked        = "KEY_REVOKED"
+	errCodeInvalidToken      = "INVALID_TOKEN"
+	errCodeNotAuthenticated  = "NOT_AUTHENTICATED"
+	errCodeTenantMismatch    = "TENANT_MISMATCH"
+	errCodeRateLimited       = "RATE_LIMITED"
+
+	// writeServiceError sentinel-mapped codes.
+	errCodeTenantAlreadyExists  = "TENANT_ALREADY_EXISTS"
+	errCodeTenantNotFound       = "TENANT_NOT_FOUND"
+	errCodeTenantDeleted        = "TENANT_DELETED"
+	errCodeTenantNotActive      = "TENANT_NOT_ACTIVE"
+	errCodeKeyNotOwned          = "KEY_NOT_OWNED"
+	errCodeAPIKeyNotFound       = "API_KEY_NOT_FOUND" //nolint:gosec // G101 false positive: "KEY" in name triggers credential heuristic; this is an API error code string, not a secret
+	errCodeAPIKeyNotOwned       = "API_KEY_NOT_OWNED" //nolint:gosec // G101 false positive: same as above
+	errCodeQuotaNotFound        = "QUOTA_NOT_FOUND"
+	errCodeKeyNotFound          = "KEY_NOT_FOUND"
+	errCodeInvalidQuota         = "INVALID_QUOTA"
+	errCodeFeatureNotConfigured = "FEATURE_NOT_CONFIGURED"
+	errCodeAddRoutingRuleFailed = "ADD_ROUTING_RULE_FAILED"
+)
+
+// Response status string constants (Constitution §I — JSON response type codes appearing in
+// multiple handlers must be named constants to prevent silent divergence on rename).
+const (
+	statusDeleted = "deleted"
+	statusRevoked = "revoked"
 )
 
 // Handler provides HTTP handlers for provisioning operations.
@@ -62,28 +100,28 @@ func NewHandler(svc *provisioning.Service, cfg platform.ProvisioningConfig, logg
 func (h *Handler) writeServiceError(w http.ResponseWriter, err error, code, msg string) {
 	switch {
 	case errors.Is(err, provisioning.ErrTenantAlreadyExists):
-		httputil.WriteError(w, http.StatusConflict, "TENANT_ALREADY_EXISTS", "Tenant already exists")
+		httputil.WriteError(w, http.StatusConflict, errCodeTenantAlreadyExists, "Tenant already exists")
 	case errors.Is(err, provisioning.ErrTenantNotFound):
-		httputil.WriteError(w, http.StatusNotFound, "TENANT_NOT_FOUND", "Tenant not found")
+		httputil.WriteError(w, http.StatusNotFound, errCodeTenantNotFound, "Tenant not found")
 	case errors.Is(err, provisioning.ErrTenantDeleted):
-		httputil.WriteError(w, http.StatusConflict, "TENANT_DELETED", "Cannot modify deleted tenant")
+		httputil.WriteError(w, http.StatusConflict, errCodeTenantDeleted, "Cannot modify deleted tenant")
 	case errors.Is(err, provisioning.ErrTenantNotActive):
-		httputil.WriteError(w, http.StatusConflict, "TENANT_NOT_ACTIVE", "Tenant is not active")
+		httputil.WriteError(w, http.StatusConflict, errCodeTenantNotActive, "Tenant is not active")
 	case errors.Is(err, provisioning.ErrKeyNotOwnedByTenant):
-		httputil.WriteError(w, http.StatusForbidden, "KEY_NOT_OWNED", "Key does not belong to tenant")
+		httputil.WriteError(w, http.StatusForbidden, errCodeKeyNotOwned, "Key does not belong to tenant")
 	case errors.Is(err, provisioning.ErrAPIKeyNotFound):
-		httputil.WriteError(w, http.StatusNotFound, "API_KEY_NOT_FOUND", "API key not found")
+		httputil.WriteError(w, http.StatusNotFound, errCodeAPIKeyNotFound, "API key not found")
 	case errors.Is(err, provisioning.ErrAPIKeyNotOwnedByTenant):
-		httputil.WriteError(w, http.StatusForbidden, "API_KEY_NOT_OWNED", "API key does not belong to tenant")
+		httputil.WriteError(w, http.StatusForbidden, errCodeAPIKeyNotOwned, "API key does not belong to tenant")
 	case errors.Is(err, provisioning.ErrQuotaNotFound):
-		httputil.WriteError(w, http.StatusNotFound, "QUOTA_NOT_FOUND", "Quota not found")
+		httputil.WriteError(w, http.StatusNotFound, errCodeQuotaNotFound, "Quota not found")
 	case errors.Is(err, provisioning.ErrKeyNotFound):
-		httputil.WriteError(w, http.StatusNotFound, "KEY_NOT_FOUND", "Key not found")
+		httputil.WriteError(w, http.StatusNotFound, errCodeKeyNotFound, "Key not found")
 	case errors.Is(err, provisioning.ErrInvalidQuota):
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_QUOTA", err.Error())
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidQuota, err.Error())
 	case errors.Is(err, provisioning.ErrChannelRulesNotConfigured),
 		errors.Is(err, provisioning.ErrRoutingRulesNotConfigured):
-		httputil.WriteError(w, http.StatusNotImplemented, "FEATURE_NOT_CONFIGURED", "Feature store not configured")
+		httputil.WriteError(w, http.StatusNotImplemented, errCodeFeatureNotConfigured, "Feature store not configured")
 	case errors.Is(err, provisioning.ErrTooManyRoutingRules):
 		httputil.WriteError(w, http.StatusBadRequest, errCodeTooManyRoutingRules, "Too many routing rules")
 	case isEditionError(err):
@@ -95,9 +133,9 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error, code, msg 
 
 // isEditionError returns true if the error is a license edition limit or feature error.
 func isEditionError(err error) bool {
-	var limitErr *license.EditionLimitError
-	var featureErr *license.EditionFeatureError
-	return errors.As(err, &limitErr) || errors.As(err, &featureErr)
+	_, isLimit := errors.AsType[*license.EditionLimitError](err)
+	_, isFeature := errors.AsType[*license.EditionFeatureError](err)
+	return isLimit || isFeature
 }
 
 // writeEditionError writes an HTTP 403 response for edition limit/feature errors.
@@ -107,7 +145,10 @@ func writeEditionError(w http.ResponseWriter, err error) {
 		return
 	}
 	if featureErr, ok := errors.AsType[*license.EditionFeatureError](err); ok {
-		httputil.WriteError(w, http.StatusForbidden, featureErr.Code(), featureErr.Error())
+		// Normalise both edition error types to the same wire code for consistency:
+		// EditionFeatureError.Code() returns "EDITION_FEATURE_REQUIRED" but clients
+		// see "EDITION_LIMIT" here, matching RequireFeature middleware.
+		httputil.WriteError(w, http.StatusForbidden, errCodeEditionLimit, featureErr.Error())
 		return
 	}
 }
@@ -137,21 +178,21 @@ func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 	var req provisioning.CreateTenantRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn().Err(err).Str("handler", "CreateTenant").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid JSON body")
 		return
 	}
 
 	resp, err := h.service.CreateTenant(r.Context(), req)
 	if err != nil {
 		h.logger.Error().Err(err).Str("tenant_id", req.TenantID).Msg("Failed to create tenant")
-		RecordTenantOperation("create", pkgmetrics.ResultError)
+		RecordTenantOperation(tenantOpCreate, pkgmetrics.ResultError)
 		h.writeServiceError(w, err, "CREATE_FAILED", "Failed to create tenant")
 		return
 	}
 
 	RecordTenantCreated()
-	RecordTenantOperation("create", pkgmetrics.ResultSuccess)
-	h.logger.Info().Str("tenant_id", req.TenantID).Str("operation", "create").Msg("tenant create succeeded") // LOG-017
+	RecordTenantOperation(tenantOpCreate, pkgmetrics.ResultSuccess)
+	h.logger.Info().Str("tenant_id", req.TenantID).Str("operation", tenantOpCreate).Msg("tenant create succeeded") // LOG-017
 	_ = httputil.WriteJSON(w, http.StatusCreated, resp)
 }
 
@@ -162,7 +203,7 @@ func (h *Handler) GetTenant(w http.ResponseWriter, r *http.Request) {
 	tenant, err := h.service.GetTenant(r.Context(), tenantID)
 	if err != nil {
 		if errors.Is(err, provisioning.ErrTenantNotFound) {
-			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Tenant not found")
+			httputil.WriteError(w, http.StatusNotFound, errCodeNotFound, "Tenant not found")
 			return
 		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to get tenant")
@@ -199,7 +240,7 @@ func (h *Handler) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 	var req provisioning.UpdateTenantRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn().Err(err).Str("handler", "UpdateTenant").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid JSON body")
 		return
 	}
 
@@ -220,14 +261,14 @@ func (h *Handler) SuspendTenant(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.SuspendTenant(r.Context(), tenantID); err != nil {
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to suspend tenant")
-		RecordTenantOperation("suspend", pkgmetrics.ResultError)
+		RecordTenantOperation(tenantOpSuspend, pkgmetrics.ResultError)
 		h.writeServiceError(w, err, "SUSPEND_FAILED", "Failed to suspend tenant")
 		return
 	}
 
-	RecordTenantOperation("suspend", pkgmetrics.ResultSuccess)
-	h.logger.Info().Str("tenant_id", tenantID).Str("operation", "suspend").Msg("tenant suspend succeeded") // LOG-017
-	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "suspended"})
+	RecordTenantOperation(tenantOpSuspend, pkgmetrics.ResultSuccess)
+	h.logger.Info().Str("tenant_id", tenantID).Str("operation", tenantOpSuspend).Msg("tenant suspend succeeded") // LOG-017
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": string(provisioning.StatusSuspended)})
 }
 
 // ReactivateTenant reactivates a suspended tenant.
@@ -236,14 +277,14 @@ func (h *Handler) ReactivateTenant(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.ReactivateTenant(r.Context(), tenantID); err != nil {
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to reactivate tenant")
-		RecordTenantOperation("reactivate", pkgmetrics.ResultError)
+		RecordTenantOperation(tenantOpReactivate, pkgmetrics.ResultError)
 		h.writeServiceError(w, err, "REACTIVATE_FAILED", "Failed to reactivate tenant")
 		return
 	}
 
-	RecordTenantOperation("reactivate", pkgmetrics.ResultSuccess)
-	h.logger.Info().Str("tenant_id", tenantID).Str("operation", "reactivate").Msg("tenant reactivate succeeded") // LOG-017
-	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "active"})
+	RecordTenantOperation(tenantOpReactivate, pkgmetrics.ResultSuccess)
+	h.logger.Info().Str("tenant_id", tenantID).Str("operation", tenantOpReactivate).Msg("tenant reactivate succeeded") // LOG-017
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": string(provisioning.StatusActive)})
 }
 
 // DeprovisionTenant initiates tenant deletion. With ?force=true, deletes immediately
@@ -254,18 +295,18 @@ func (h *Handler) DeprovisionTenant(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.DeprovisionTenant(r.Context(), tenantID, force); err != nil {
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Bool("force", force).Msg("Failed to deprovision tenant")
-		RecordTenantOperation("deprovision", pkgmetrics.ResultError)
+		RecordTenantOperation(tenantOpDeprovision, pkgmetrics.ResultError)
 		h.writeServiceError(w, err, "DEPROVISION_FAILED", "Failed to deprovision tenant")
 		return
 	}
 
-	status := "deprovisioning"
+	status := string(provisioning.StatusDeprovisioning)
 	if force {
-		status = "deleted"
+		status = statusDeleted
 	}
-	RecordTenantOperation("deprovision", pkgmetrics.ResultSuccess)
-	h.logger.Info().Str("tenant_id", tenantID).Str("operation", "deprovision").Msg("tenant deprovision succeeded") // LOG-017
-	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": status})                                  // WriteJSON error = broken client connection; nothing actionable
+	RecordTenantOperation(tenantOpDeprovision, pkgmetrics.ResultSuccess)
+	h.logger.Info().Str("tenant_id", tenantID).Str("operation", tenantOpDeprovision).Msg("tenant deprovision succeeded") // LOG-017
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": status})                                        // WriteJSON error = broken client connection; nothing actionable
 }
 
 // CreateKey registers a new public key.
@@ -275,7 +316,7 @@ func (h *Handler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	var req provisioning.CreateKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn().Err(err).Str("handler", "CreateKey").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid JSON body")
 		return
 	}
 
@@ -324,7 +365,7 @@ func (h *Handler) RevokeKey(w http.ResponseWriter, r *http.Request) {
 
 	RecordKeyRevoked()
 	h.logger.Info().Str("tenant_id", tenantID).Str("key_id", keyID).Str("operation", "revoke").Msg("key revoke succeeded") // LOG-018
-	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": statusRevoked})
 }
 
 // GetActiveKeys returns all active keys (for WS Gateway).
@@ -369,7 +410,7 @@ func (h *Handler) AddRoutingRule(w http.ResponseWriter, r *http.Request) {
 	var req provisioning.AddRoutingRuleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn().Err(err).Str("handler", "AddRoutingRule").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed")
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid JSON body")
 		return
 	}
 
@@ -377,6 +418,8 @@ func (h *Handler) AddRoutingRule(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, provisioning.ErrDuplicatePriority):
 			httputil.WriteError(w, http.StatusConflict, errCodeDuplicatePriority, "A routing rule with this priority already exists")
+		case errors.Is(err, provisioning.ErrDuplicateRoutingPattern):
+			httputil.WriteError(w, http.StatusConflict, errCodeDuplicatePattern, "A routing rule with this pattern already exists")
 		case errors.Is(err, provisioning.ErrTopicNotProvisioned):
 			httputil.WriteError(w, http.StatusBadRequest, errCodeTopicNotProvisioned, err.Error())
 		case errors.Is(err, provisioning.ErrInvalidRoutingPattern),
@@ -385,7 +428,7 @@ func (h *Handler) AddRoutingRule(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusBadRequest, errCodeRoutingRuleValidation, err.Error())
 		default:
 			h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to add routing rule")
-			h.writeServiceError(w, err, "ADD_ROUTING_RULE_FAILED", "Failed to add routing rule")
+			h.writeServiceError(w, err, errCodeAddRoutingRuleFailed, "Failed to add routing rule")
 		}
 		return
 	}
@@ -404,7 +447,7 @@ func (h *Handler) ReplaceRoutingRules(w http.ResponseWriter, r *http.Request) {
 	var req provisioning.ReplaceRoutingRulesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn().Err(err).Str("handler", "ReplaceRoutingRules").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid JSON body")
 		return
 	}
 
@@ -423,6 +466,8 @@ func (h *Handler) ReplaceRoutingRules(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, provisioning.ErrTopicNotProvisioned):
 			httputil.WriteError(w, http.StatusBadRequest, errCodeTopicNotProvisioned, err.Error())
+		case errors.Is(err, provisioning.ErrDuplicateRoutingPattern):
+			httputil.WriteError(w, http.StatusBadRequest, errCodeDuplicatePattern, "Routing rules contain duplicate patterns")
 		default:
 			h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to replace routing rules")
 			h.writeServiceError(w, err, "SET_ROUTING_RULES_FAILED", "Failed to replace routing rules")
@@ -434,7 +479,10 @@ func (h *Handler) ReplaceRoutingRules(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info().Str("tenant_id", tenantID).Int("rule_count", len(req.Rules)).Msg("routing rules replaced") // LOG-019
 
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
-		"rules": req.Rules,
+		"items":  req.Rules,
+		"total":  len(req.Rules),
+		"limit":  len(req.Rules),
+		"offset": 0,
 	})
 }
 
@@ -449,7 +497,7 @@ func (h *Handler) DeleteRoutingRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordRoutingRulesDeleted()
-	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": statusDeleted})
 }
 
 // GetQuota returns quotas for a tenant.
@@ -459,7 +507,7 @@ func (h *Handler) GetQuota(w http.ResponseWriter, r *http.Request) {
 	quota, err := h.service.GetQuota(r.Context(), tenantID)
 	if err != nil {
 		if errors.Is(err, provisioning.ErrQuotaNotFound) {
-			httputil.WriteError(w, http.StatusNotFound, "QUOTA_NOT_FOUND", "Quota not found")
+			httputil.WriteError(w, http.StatusNotFound, errCodeQuotaNotFound, "Quota not found")
 			return
 		}
 		h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to get quota")
@@ -477,7 +525,7 @@ func (h *Handler) UpdateQuota(w http.ResponseWriter, r *http.Request) {
 	var req provisioning.UpdateQuotaRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn().Err(err).Str("handler", "UpdateQuota").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid JSON body")
 		return
 	}
 
@@ -518,7 +566,7 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	var req provisioning.CreateAPIKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Warn().Err(err).Str("handler", "CreateAPIKey").Str("remote_addr", r.RemoteAddr).Msg("request body parse failed") // LOG-023
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid JSON body")
 		return
 	}
 
@@ -567,7 +615,7 @@ func (h *Handler) RevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	RecordAPIKeyRevoked()
 	h.logger.Info().Str("tenant_id", tenantID).Str("key_id", keyID).Str("operation", "revoke").Msg("key revoke succeeded") // LOG-018
-	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": statusRevoked})
 }
 
 // GetActiveAPIKeys returns all active API keys (for gateway).

@@ -117,7 +117,7 @@ func NewServer(params Params, alerter alerting.Alerter) (*Server, error) {
 	}
 
 	config := params.Config
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118 false positive: cancel stored in s.cancel and called by Shutdown
 
 	// Initialize structured logger
 	logger := logging.NewLogger(logging.LoggerConfig{
@@ -235,7 +235,7 @@ func (s *Server) Start() error {
 				// syscall.Listen sets the TCP accept queue size
 				// This allows the OS to queue more pending connections during bursts
 				// Critical for trading platforms where connection timing affects fairness
-				_ = syscall.Listen(int(file.Fd()), s.config.TCPListenBacklog)
+				_ = syscall.Listen(int(file.Fd()), s.config.TCPListenBacklog) //nolint:gosec // G115: file.Fd() returns uintptr representing a small fd number; safe to cast to int on all supported platforms
 				_ = file.Close()
 
 				s.logger.Info().

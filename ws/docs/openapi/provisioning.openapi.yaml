@@ -434,8 +434,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RoutingRulesResponse"
-        "404":
-          description: No routing rules configured
+    post:
+      operationId: addRoutingRule
+      summary: Add a routing rule
+      description: |
+        Adds a single routing rule without replacing existing rules. Requires admin or system role.
+
+        The rule is stored with the normalized pattern (bare `*` → `**`). Returns 409 on duplicate
+        priority or duplicate pattern.
+      tags: [Routing Rules]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddRoutingRuleRequest"
+      responses:
+        "201":
+          description: Rule added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rule:
+                    $ref: "#/components/schemas/RoutingRule"
+        "400":
+          description: Validation error (invalid pattern, empty topics, topic not provisioned)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Conflict — duplicate priority or duplicate pattern
           content:
             application/json:
               schema:
@@ -447,9 +480,9 @@ paths:
       description: |
         Replaces all routing rules for the tenant. Requires admin or system role.
 
-        Rules are evaluated in order — **first match wins**. When a client publishes to a channel, the gateway strips the tenant prefix and matches the remaining suffix against each rule's pattern sequentially. The first matching rule determines the Kafka topic.
+        Rules are evaluated in ascending priority order — **first match wins**. Unmatched channels route to the dead-letter topic.
 
-        **Constraints**: Max 100 rules. No duplicate patterns (duplicates are unreachable due to first-match-wins). Patterns use `*` wildcard syntax only (no `{}` placeholders).
+        **Constraints**: Max 100 rules. No duplicate patterns or priorities. Patterns use `**` for multi-segment wildcard (`*` accepted, normalized to `**`).
       tags: [Routing Rules]
       security:
         - bearerAuth: []
@@ -1459,34 +1492,62 @@ components:
 
     RoutingRule:
       type: object
-      required: [pattern, topic_suffix]
+      required: [pattern, topics, priority]
       description: |
-        Maps a channel suffix pattern to a Kafka topic suffix. Rules are evaluated in order — first match wins. If no rule matches a published channel, the publish is rejected.
+        Maps a channel suffix pattern to one or more Kafka topic suffixes. Rules are evaluated in ascending priority order — first match wins. Unmatched channels are routed to the tenant's dead-letter topic.
 
-        **Pattern syntax**: Supports `*` wildcard which matches any sequence of characters including dots. For example, `rooms.*.messages` matches both `rooms.general.messages` and `rooms.eng.general.messages`. The `{}` placeholder syntax is NOT supported in routing patterns.
+        **Pattern syntax**: `**` matches any number of dot-separated segments (multi-segment wildcard). `*` is accepted as an alias and normalized to `**` on storage — GET responses always return `**`. For example, `trades.**` matches both `trades.BTC-USD` and `trades.spot.BTC-USD`. The `{}` placeholder syntax is NOT supported.
 
-        **Topic suffix**: A literal string (no wildcards). The final Kafka topic is constructed as `{tenant_id}.{topic_suffix}`.
+        **Topic suffixes**: Each value is a topic suffix (not a full topic name). The full topic name is constructed as `{namespace}.{tenant_id}.{suffix}`. Specifying multiple suffixes fans out the message to all listed topics simultaneously.
+
+        **Priority**: Rules are evaluated in ascending order (lower value = higher priority). Use lower priority values (e.g., 0–99) for tenant-specific rules; higher values (e.g., 100) work well for broad catch-all rules.
       properties:
         pattern:
           type: string
           maxLength: 256
           pattern: "^[a-zA-Z0-9.*_-]{1,256}$"
-          description: "Channel suffix pattern with `*` wildcards (e.g., `*.messages`, `rooms.*.presence`). No `{}` placeholders."
-          examples: ["*.messages", "rooms.*.presence", "*.typing"]
-        topic_suffix:
-          type: string
-          maxLength: 128
-          pattern: "^[a-zA-Z0-9._-]{1,128}$"
-          description: "Literal Kafka topic suffix — no wildcards (e.g., `messages`, `rooms.presence`)"
-          examples: ["messages", "rooms.presence", "typing"]
+          description: "Channel suffix pattern. Use `**` for multi-segment wildcard (e.g., `trades.**`, `rooms.*.presence`). Bare `*` is accepted and normalized to `**` on storage."
+          examples: ["trades.**", "rooms.*.presence", "**"]
+        topics:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 128
+            pattern: "^[a-zA-Z0-9._-]{1,128}$"
+          description: "One or more Kafka topic suffixes. Full topic name: `{namespace}.{tenant_id}.{suffix}`. Must be pre-provisioned topics."
+          examples: [["trades"], ["trades", "audit-log"]]
+        priority:
+          type: integer
+          minimum: 0
+          description: "Rule evaluation priority — lower value matches first. Must be unique per tenant."
+          examples: [0, 10, 100]
 
     RoutingRulesResponse:
       type: object
+      required: [items, total, limit, offset]
       properties:
-        rules:
+        items:
           type: array
           items:
             $ref: "#/components/schemas/RoutingRule"
+        total:
+          type: integer
+          description: Total number of routing rules for the tenant.
+        limit:
+          type: integer
+          description: Maximum number of items returned per page.
+        offset:
+          type: integer
+          description: Number of items skipped (pagination offset).
+
+    AddRoutingRuleRequest:
+      type: object
+      required: [rule]
+      properties:
+        rule:
+          $ref: "#/components/schemas/RoutingRule"
 
     SetRoutingRulesRequest:
       type: object

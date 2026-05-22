@@ -145,7 +145,7 @@ func (h *AdminKeysHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.repo.Revoke(r.Context(), keyID); err != nil {
 		h.logger.Error().Err(err).Str("key_id", keyID).Msg("failed to revoke admin key")
-		httputil.WriteError(w, http.StatusNotFound, "KEY_NOT_FOUND", "admin key not found or already revoked")
+		httputil.WriteError(w, http.StatusNotFound, errCodeKeyNotFound, "admin key not found or already revoked")
 		return
 	}
 

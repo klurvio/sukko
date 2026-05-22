@@ -29,31 +29,32 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 			HTTPWriteTimeout: 15 * time.Second,
 			HTTPIdleTimeout:  60 * time.Second,
 		},
-		Addr:                       ":8080",
-		GRPCPort:                   9090,
-		DefaultPartitions:          3,
-		DefaultRetentionMs:         604800000,
-		MaxTopicsPerTenant:         50,
-		MaxPartitionsPerTenant:     200,
-		MaxStorageBytes:            10737418240,
-		ProducerByteRate:           10485760,
-		ConsumerByteRate:           52428800,
-		MaxRoutingRulesPerTenant:   100,
-		MaxTopicsPerRule:           10,
-		DeadLetterTopicPartitions:  1,
-		DeadLetterTopicRetentionMs: 604800000,
-		DeprovisionGraceDays:       30,
-		LifecycleCheckInterval:     time.Hour,
-		LifecycleManagerEnabled:    true,
-		APIRateLimitPerMinute:      60,
-		KeyRegistryRefreshInterval: time.Minute,
-		KeyRegistryQueryTimeout:    5 * time.Second,
-		ShutdownTimeout:            30 * time.Second,
-		CORSAllowedOrigins:         []string{"http://localhost:3000"},
-		CORSMaxAge:                 3600,
-		MaxTenantsFetchLimit:       10000,
-		DeletionTimeout:            5 * time.Minute,
-		CredentialsEncryptionKey:   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // 64-char hex = 32 bytes
+		Addr:                        ":8080",
+		GRPCPort:                    9090,
+		DefaultPartitions:           3,
+		DefaultRetentionMs:          604800000,
+		MaxTopicsPerTenant:          50,
+		MaxPartitionsPerTenant:      200,
+		MaxStorageBytes:             10737418240,
+		ProducerByteRate:            10485760,
+		ConsumerByteRate:            52428800,
+		MaxRoutingRulesPerTenant:    100,
+		MaxTopicsPerRule:            10,
+		DeadLetterTopicPartitions:   1,
+		DeadLetterTopicRetentionMs:  604800000,
+		InfraTopicReplicationFactor: 1,
+		DeprovisionGraceDays:        30,
+		LifecycleCheckInterval:      time.Hour,
+		LifecycleManagerEnabled:     true,
+		APIRateLimitPerMinute:       60,
+		KeyRegistryRefreshInterval:  time.Minute,
+		KeyRegistryQueryTimeout:     5 * time.Second,
+		ShutdownTimeout:             30 * time.Second,
+		CORSAllowedOrigins:          []string{"http://localhost:3000"},
+		CORSMaxAge:                  3600,
+		MaxTenantsFetchLimit:        10000,
+		DeletionTimeout:             5 * time.Minute,
+		CredentialsEncryptionKey:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // 64-char hex = 32 bytes
 	}
 }
 
@@ -448,6 +449,67 @@ func TestProvisioningConfig_Validate_LifecycleCheckInterval(t *testing.T) {
 			cfg := newValidProvisioningConfig()
 			cfg.LifecycleManagerEnabled = tt.enabled
 			cfg.LifecycleCheckInterval = tt.interval
+			err := cfg.Validate()
+			if tt.shouldError && err == nil {
+				t.Error("Should error")
+			}
+			if !tt.shouldError && err != nil {
+				t.Errorf("Should not error: %v", err)
+			}
+		})
+	}
+}
+
+func TestProvisioningConfig_Validate_DLQTopicRetentionMs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		value       int64
+		shouldError bool
+	}{
+		{"valid default 7 days", 604800000, false},
+		{"valid exactly 60000", 60000, false},
+		{"below minimum 59999", 59999, true},
+		{"zero", 0, true},
+		{"negative", -1, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidProvisioningConfig()
+			cfg.DeadLetterTopicRetentionMs = tt.value
+			err := cfg.Validate()
+			if tt.shouldError && err == nil {
+				t.Error("Should error")
+			}
+			if !tt.shouldError && err != nil {
+				t.Errorf("Should not error: %v", err)
+			}
+		})
+	}
+}
+
+func TestProvisioningConfig_Validate_InfraTopicReplicationFactor(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		value       int
+		shouldError bool
+	}{
+		{"valid default 1", 1, false},
+		{"valid 3", 3, false},
+		{"valid max", 32767, false},
+		{"zero", 0, true},
+		{"negative", -1, true},
+		{"overflow int16", 32768, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidProvisioningConfig()
+			cfg.InfraTopicReplicationFactor = tt.value
 			err := cfg.Validate()
 			if tt.shouldError && err == nil {
 				t.Error("Should error")

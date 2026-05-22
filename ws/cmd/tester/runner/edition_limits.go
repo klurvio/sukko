@@ -468,8 +468,9 @@ func setTestRoutingRulesViaClient(ctx context.Context, provClient *auth.Provisio
 	rules := make([]map[string]any, 0, count)
 	for i := range count {
 		rules = append(rules, map[string]any{
-			"pattern":      fmt.Sprintf("test.%d.*", i),
-			"topic_suffix": fmt.Sprintf("test%d", i),
+			"pattern":  fmt.Sprintf("test.%d.**", i),
+			"topics":   []string{fmt.Sprintf("test%d", i)},
+			"priority": i + 1,
 		})
 	}
 
