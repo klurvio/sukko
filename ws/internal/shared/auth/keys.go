@@ -85,8 +85,8 @@ type KeyResolver interface {
 type KeyRegistry interface {
 	KeyResolver
 
-	// GetKeysByTenant retrieves all active keys for a tenant.
-	GetKeysByTenant(ctx context.Context, tenantID string) ([]*KeyInfo, error)
+	// GetKeysByTenant retrieves all active keys for a tenant slug.
+	GetKeysByTenant(ctx context.Context, tenantSlug string) ([]*KeyInfo, error)
 
 	// Close releases any resources held by the registry.
 	Close() error
@@ -221,13 +221,13 @@ func (r *StaticKeyRegistry) GetKey(_ context.Context, keyID string) (*KeyInfo, e
 	return key, nil
 }
 
-// GetKeysByTenant retrieves all active keys for a tenant.
-func (r *StaticKeyRegistry) GetKeysByTenant(_ context.Context, tenantID string) ([]*KeyInfo, error) {
+// GetKeysByTenant retrieves all active keys for a tenant slug.
+func (r *StaticKeyRegistry) GetKeysByTenant(_ context.Context, tenantSlug string) ([]*KeyInfo, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var keys []*KeyInfo
 	for _, key := range r.keys {
-		if key.TenantID == tenantID && key.IsValid() {
+		if key.TenantID == tenantSlug && key.IsValid() {
 			keys = append(keys, key)
 		}
 	}

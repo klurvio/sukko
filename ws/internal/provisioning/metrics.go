@@ -70,16 +70,16 @@ func recordCreateTenantTopicProvisionError(topicType, phase string) {
 	createTenantTopicProvisionErrors.WithLabelValues(topicType, phase).Inc()
 }
 
-// RecordTenantRenamed records the outcome and duration of a tenant slug rename.
+// recordTenantRenamed records the outcome and duration of a tenant slug rename.
 // status MUST be renameStatusSuccess or renameStatusPartialFailure.
-func RecordTenantRenamed(status string, dur time.Duration) {
+func recordTenantRenamed(status string, dur time.Duration) {
 	tenantRenamesTotal.WithLabelValues(status).Inc()
 	tenantRenameDuration.Observe(dur.Seconds())
 }
 
-// RecordStartupScanFindings sets the startup scan Prometheus gauges.
+// recordStartupScanFindings sets the startup scan Prometheus gauges.
 // Called once during Service.Start after scanning for pending/complete renames.
-func RecordStartupScanFindings(pending, complete int) {
+func recordStartupScanFindings(pending, complete int) {
 	startupPendingRenames.Set(float64(pending))
 	startupCompleteRenames.Set(float64(complete))
 }

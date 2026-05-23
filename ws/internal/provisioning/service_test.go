@@ -164,7 +164,7 @@ func TestService_CreateTenant(t *testing.T) {
 	}
 }
 
-func TestService_GetTenant(t *testing.T) {
+func TestService_GetTenantBySlug(t *testing.T) {
 	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
 
@@ -175,28 +175,27 @@ func TestService_GetTenant(t *testing.T) {
 	tests := []struct {
 		name     string
 		tenantID string
-		wantErr  bool
+		wantErr  error
 	}{
 		{
 			name:     "existing tenant",
 			tenantID: "acme-corp",
-			wantErr:  false,
 		},
 		{
 			name:     "non-existing tenant",
 			tenantID: "not-found",
-			wantErr:  true,
+			wantErr:  provisioning.ErrTenantNotFound,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := svc.GetTenant(context.Background(), tt.tenantID)
+			got, err := svc.GetTenantBySlug(context.Background(), tt.tenantID)
 
-			if tt.wantErr {
-				if err == nil {
-					t.Error("expected error, got nil")
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("error = %v, want %v", err, tt.wantErr)
 				}
 			} else {
 				if err != nil {
@@ -228,7 +227,7 @@ func TestService_SuspendAndReactivateTenant(t *testing.T) {
 	}
 
 	// Verify suspended
-	got, _ := svc.GetTenant(context.Background(), "acme-corp")
+	got, _ := svc.GetTenantBySlug(context.Background(), "acme-corp")
 	if got.Status != provisioning.StatusSuspended {
 		t.Errorf("expected status %q, got %q", provisioning.StatusSuspended, got.Status)
 	}
@@ -240,7 +239,7 @@ func TestService_SuspendAndReactivateTenant(t *testing.T) {
 	}
 
 	// Verify active
-	got, _ = svc.GetTenant(context.Background(), "acme-corp")
+	got, _ = svc.GetTenantBySlug(context.Background(), "acme-corp")
 	if got.Status != provisioning.StatusActive {
 		t.Errorf("expected status %q, got %q", provisioning.StatusActive, got.Status)
 	}
@@ -525,7 +524,7 @@ func TestService_DeprovisionTenant(t *testing.T) {
 	}
 
 	// Verify status
-	got, _ := svc.GetTenant(context.Background(), "acme-corp")
+	got, _ := svc.GetTenantBySlug(context.Background(), "acme-corp")
 	if got.Status != provisioning.StatusDeprovisioning {
 		t.Errorf("expected status %q, got %q", provisioning.StatusDeprovisioning, got.Status)
 	}
@@ -563,7 +562,7 @@ func TestService_DeprovisionTenant_WithRoutingRules(t *testing.T) {
 	}
 
 	// Verify status
-	got, _ := svc.GetTenant(context.Background(), "acme-corp")
+	got, _ := svc.GetTenantBySlug(context.Background(), "acme-corp")
 	if got.Status != provisioning.StatusDeprovisioning {
 		t.Errorf("expected status %q, got %q", provisioning.StatusDeprovisioning, got.Status)
 	}

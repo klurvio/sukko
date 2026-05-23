@@ -162,7 +162,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 
 			r.Route("/{tenantSlug}", func(r chi.Router) {
 				// Tenant isolation - users can only access their own tenant
-				r.Use(RequireTenant(cfg.Service.GetTenantBySlug))
+				r.Use(RequireTenant(cfg.Service.GetTenantBySlug, cfg.ProvisioningConfig.SlugRenameTopicHoldPeriod))
 
 				r.Get("/", h.GetTenant)
 				r.Patch("/", h.UpdateTenant)

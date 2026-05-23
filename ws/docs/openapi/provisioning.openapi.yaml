@@ -1482,6 +1482,7 @@ components:
           type: string
         tenant_id:
           type: string
+          format: uuid
         algorithm:
           type: string
           enum: [ES256, RS256, EdDSA]
@@ -1544,6 +1545,7 @@ components:
           description: "API key value (pk_live_ prefix + random). Only returned in full on creation."
         tenant_id:
           type: string
+          format: uuid
         name:
           type: string
         is_active:
@@ -1651,6 +1653,7 @@ components:
       properties:
         tenant_id:
           type: string
+          format: uuid
         rules:
           $ref: "#/components/schemas/ChannelRules"
         created_at:
@@ -1747,6 +1750,7 @@ components:
       properties:
         tenant_id:
           type: string
+          format: uuid
         max_topics:
           type: integer
         max_partitions:
@@ -1795,6 +1799,7 @@ components:
           type: integer
         tenant_id:
           type: string
+          format: uuid
         action:
           type: string
           description: "Action performed (e.g., 'create_tenant', 'revoke_key', 'set_routing_rules')"

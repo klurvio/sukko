@@ -143,15 +143,15 @@ func (r *DBKeyRegistry) GetKey(ctx context.Context, keyID string) (*KeyInfo, err
 	return key, nil
 }
 
-// GetKeysByTenant retrieves all active keys for a tenant.
-func (r *DBKeyRegistry) GetKeysByTenant(ctx context.Context, tenantID string) ([]*KeyInfo, error) {
+// GetKeysByTenant retrieves all active keys for a tenant slug.
+func (r *DBKeyRegistry) GetKeysByTenant(ctx context.Context, tenantSlug string) ([]*KeyInfo, error) {
 	r.cacheMu.RLock()
-	keys := r.keysByTenant[tenantID]
+	keys := r.keysByTenant[tenantSlug]
 	r.cacheMu.RUnlock()
 
 	if len(keys) == 0 {
 		// Try fetching from DB
-		return r.fetchKeysByTenantFromDB(ctx, tenantID)
+		return r.fetchKeysByTenantFromDB(ctx, tenantSlug)
 	}
 
 	// Filter to only valid keys
@@ -231,7 +231,7 @@ func (r *DBKeyRegistry) refreshCache(ctx context.Context) error {
 	query := `
 		SELECT
 			tk.key_id,
-			tk.tenant_id,
+			t.slug,
 			tk.algorithm,
 			tk.public_key,
 			tk.is_active,
@@ -318,7 +318,7 @@ func (r *DBKeyRegistry) fetchKeyFromDB(ctx context.Context, keyID string) (*KeyI
 	query := `
 		SELECT
 			tk.key_id,
-			tk.tenant_id,
+			t.slug,
 			tk.algorithm,
 			tk.public_key,
 			tk.is_active,
@@ -375,11 +375,11 @@ func (r *DBKeyRegistry) fetchKeyFromDB(ctx context.Context, keyID string) (*KeyI
 }
 
 // fetchKeysByTenantFromDB fetches all active keys for a tenant from the database.
-func (r *DBKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenantID string) ([]*KeyInfo, error) {
+func (r *DBKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenantSlug string) ([]*KeyInfo, error) {
 	query := `
 		SELECT
 			tk.key_id,
-			tk.tenant_id,
+			t.slug,
 			tk.algorithm,
 			tk.public_key,
 			tk.is_active,
@@ -387,14 +387,14 @@ func (r *DBKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenantID st
 			tk.revoked_at
 		FROM tenant_keys tk
 		JOIN tenants t ON tk.tenant_id = t.id
-		WHERE tk.tenant_id = $1
+		WHERE t.slug = $1
 		  AND tk.is_active = true
 		  AND tk.revoked_at IS NULL
 		  AND (tk.expires_at IS NULL OR tk.expires_at > $2)
 		  AND t.status = 'active'
 	`
 
-	rows, err := r.pool.Query(ctx, query, tenantID, time.Now())
+	rows, err := r.pool.Query(ctx, query, tenantSlug, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("query keys: %w", err)
 	}

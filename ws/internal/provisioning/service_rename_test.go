@@ -405,6 +405,19 @@ func TestRenameTenant_TOCTOU_CompensationExecuted(t *testing.T) {
 	if !found {
 		t.Errorf("DeleteTopicACLsCalls = %v, want to contain 'new-corp' (TOCTOU compensation)", kafka.DeleteTopicACLsCalls)
 	}
+	// Compensation: infra topics for the new slug must have been deleted.
+	for _, topic := range []string{"test.new-corp.dead-letter", "test.new-corp.default"} {
+		topicFound := false
+		for _, a := range kafka.DeleteAttempts {
+			if a == topic {
+				topicFound = true
+				break
+			}
+		}
+		if !topicFound {
+			t.Errorf("DeleteAttempts = %v, want to contain %q (TOCTOU compensation)", kafka.DeleteAttempts, topic)
+		}
+	}
 }
 
 func TestIsReservedSlug(t *testing.T) {

@@ -240,9 +240,11 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 
 // RequireTenant checks that the request is for the authenticated tenant's resources.
 // It looks up the tenant by slug (URL param "tenantSlug") and validates the caller's
-// JWT tenant_id claim matches — including a grace-period window for recently-renamed tenants.
+// JWT tenant_id claim matches — including a time-bounded grace-period window for
+// recently-renamed tenants so clients can rotate tokens without an outage.
+// holdPeriod bounds how long old-slug JWTs are accepted after a rename.
 // Must be used after AuthMiddleware.
-func RequireTenant(lookup provisioning.TenantLookupFunc) func(http.Handler) http.Handler {
+func RequireTenant(lookup provisioning.TenantLookupFunc, holdPeriod time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims := GetClaimsFromContext(r.Context())
@@ -281,11 +283,15 @@ func RequireTenant(lookup provisioning.TenantLookupFunc) func(http.Handler) http
 				return
 			}
 
-			// (4) Grace-period: tenant was recently renamed; accept tokens carrying the previous slug
-			// for the hold period duration so clients can rotate tokens without an outage.
+			// (4) Grace-period: accept old-slug tokens only within the configured hold window.
+			// Requires StatusActive so deprovisioning/deleted tenants cannot use old tokens.
+			// Requires SlugRenamedAt so the window is always time-bounded — a zero/nil timestamp
+			// means no rename occurred and the grace period does not apply.
 			if tenant.Status == provisioning.StatusActive &&
 				tenant.SlugRenameState == provisioning.SlugRenameStateComplete &&
 				tenant.PreviousSlug != "" &&
+				tenant.SlugRenamedAt != nil &&
+				time.Since(*tenant.SlugRenamedAt) < holdPeriod &&
 				claims.TenantID == tenant.PreviousSlug {
 				next.ServeHTTP(w, r)
 				return

@@ -49,6 +49,34 @@ const (
 	msPerDay = 24 * 60 * 60 * 1000
 )
 
+// Reserved slug segments — all HTTP route segments that a tenant slug must not shadow.
+// These must be kept in sync with the route tree in api/router.go.
+const (
+	slugReservedAdmin        = "admin"
+	slugReservedAPI          = "api"
+	slugReservedHealth       = "health"
+	slugReservedReady        = "ready"
+	slugReservedMetrics      = "metrics"
+	slugReservedVersion      = "version"
+	slugReservedEdition      = "edition"
+	slugReservedConfig       = "config"
+	slugReservedDebug        = "debug"
+	slugReservedInternal     = "internal"
+	slugReservedSystem       = "system"
+	slugReservedSukko        = "sukko"
+	slugReservedKeys         = "keys"
+	slugReservedAPIKeys      = "api-keys"
+	slugReservedRoutingRules = "routing-rules"
+	slugReservedQuotas       = "quotas"
+	slugReservedAudit        = "audit"
+	slugReservedChannelRules = "channel-rules"
+	slugReservedTokens       = "tokens"
+	slugReservedSuspend      = "suspend"
+	slugReservedReactivate   = "reactivate"
+	slugReservedRename       = "rename"
+	slugReservedTestAccess   = "test-access"
+)
+
 // ServiceConfig holds the configuration for the provisioning service.
 type ServiceConfig struct {
 	TenantStore       TenantStore
@@ -369,19 +397,14 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 	return response, nil
 }
 
-// GetTenant retrieves a tenant by slug.
-func (s *Service) GetTenant(ctx context.Context, tenantID string) (*Tenant, error) {
-	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+// GetTenantBySlug retrieves a tenant by slug. It satisfies TenantLookupFunc for
+// RequireTenant middleware wiring and is also called directly by HTTP handlers (e.g., GetTenant).
+func (s *Service) GetTenantBySlug(ctx context.Context, slug string) (*Tenant, error) {
+	tenant, err := s.tenants.GetBySlug(ctx, slug)
 	if err != nil {
 		return nil, fmt.Errorf("get tenant: %w", err)
 	}
 	return tenant, nil
-}
-
-// GetTenantBySlug retrieves a tenant by slug. It satisfies TenantLookupFunc for
-// RequireTenant middleware wiring.
-func (s *Service) GetTenantBySlug(ctx context.Context, slug string) (*Tenant, error) {
-	return s.tenants.GetBySlug(ctx, slug)
 }
 
 // ListTenants returns tenants matching the given options.
@@ -1312,11 +1335,12 @@ func (s *Service) GetActiveAPIKeys(ctx context.Context) ([]*APIKey, error) {
 // so that no tenant slug can shadow an API route.
 func isReservedSlug(s string) bool {
 	switch s {
-	case "admin", "api", "health", "ready", "metrics", "version",
-		"edition", "config", "debug", "internal", "system", "sukko",
-		"keys", "api-keys", "routing-rules", "quotas", "audit",
-		"channel-rules", "tokens", "suspend", "reactivate", "rename",
-		"test-access":
+	case slugReservedAdmin, slugReservedAPI, slugReservedHealth, slugReservedReady,
+		slugReservedMetrics, slugReservedVersion, slugReservedEdition, slugReservedConfig,
+		slugReservedDebug, slugReservedInternal, slugReservedSystem, slugReservedSukko,
+		slugReservedKeys, slugReservedAPIKeys, slugReservedRoutingRules, slugReservedQuotas,
+		slugReservedAudit, slugReservedChannelRules, slugReservedTokens,
+		slugReservedSuspend, slugReservedReactivate, slugReservedRename, slugReservedTestAccess:
 		return true
 	}
 	return false
@@ -1329,7 +1353,7 @@ func (s *Service) RenameTenant(ctx context.Context, tenantSlug, newSlug string) 
 
 	// Step 1: validate new slug format
 	if err := ValidateSlug(newSlug); err != nil {
-		return nil, ErrSlugInvalid
+		return nil, fmt.Errorf("%w: %w", ErrSlugInvalid, err)
 	}
 
 	// Step 2: reserved slug check
@@ -1407,6 +1431,13 @@ func (s *Service) RenameTenant(ctx context.Context, tenantSlug, newSlug string) 
 				s.logger.Error().Err(aclErr).Str("new_slug", newSlug).
 					Msg("RenameTenant: TOCTOU compensation: failed to delete new slug ACLs")
 			}
+			for _, spec := range s.infraTopicSpecs() {
+				topicName := kafka.BuildTopicName(namespace, newSlug, spec.suffix)
+				if topErr := s.kafka.DeleteTopic(ctx, topicName); topErr != nil {
+					s.logger.Error().Err(topErr).Str("topic", topicName).
+						Msg("RenameTenant: TOCTOU compensation: failed to delete new slug topic")
+				}
+			}
 			if clearErr := s.tenants.ClearRenameState(ctx, tenant.ID); clearErr != nil {
 				s.logger.Error().Err(clearErr).Str("tenant_id", tenant.ID).
 					Msg("RenameTenant: TOCTOU compensation: failed to clear rename state")
@@ -1473,7 +1504,7 @@ func (s *Service) RenameTenant(ctx context.Context, tenantSlug, newSlug string) 
 	if quotaFailed {
 		status = renameStatusPartialFailure
 	}
-	RecordTenantRenamed(status, s.clock().Sub(start))
+	recordTenantRenamed(status, s.clock().Sub(start))
 
 	return updatedTenant, nil
 }
@@ -1506,6 +1537,6 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 
-	RecordStartupScanFindings(pendingCount, completeCount)
+	recordStartupScanFindings(pendingCount, completeCount)
 	return nil
 }

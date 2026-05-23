@@ -74,6 +74,7 @@ const (
 	errCodeInvalidQuota         = "INVALID_QUOTA"
 	errCodeFeatureNotConfigured = "FEATURE_NOT_CONFIGURED"
 	errCodeAddRoutingRuleFailed = "ADD_ROUTING_RULE_FAILED"
+	errCodeGetTenantFailed      = "GET_TENANT_FAILED"
 )
 
 // Response status string constants (Constitution §I — JSON response type codes appearing in
@@ -212,18 +213,18 @@ func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 	_ = httputil.WriteJSON(w, http.StatusCreated, resp)
 }
 
-// GetTenant retrieves a tenant by ID.
+// GetTenant retrieves a tenant by slug.
 func (h *Handler) GetTenant(w http.ResponseWriter, r *http.Request) {
 	tenantSlug := chi.URLParam(r, "tenantSlug")
 
-	tenant, err := h.service.GetTenant(r.Context(), tenantSlug)
+	tenant, err := h.service.GetTenantBySlug(r.Context(), tenantSlug)
 	if err != nil {
 		if errors.Is(err, provisioning.ErrTenantNotFound) {
-			httputil.WriteError(w, http.StatusNotFound, errCodeNotFound, "Tenant not found")
+			httputil.WriteError(w, http.StatusNotFound, errCodeTenantNotFound, "Tenant not found")
 			return
 		}
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to get tenant")
-		httputil.WriteError(w, http.StatusInternalServerError, "GET_TENANT_FAILED", "Failed to get tenant")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to get tenant")
+		httputil.WriteError(w, http.StatusInternalServerError, errCodeGetTenantFailed, "Failed to get tenant")
 		return
 	}
 
@@ -267,12 +268,12 @@ func (h *Handler) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 
 	tenant, err := h.service.UpdateTenant(r.Context(), tenantSlug, req)
 	if err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to update tenant")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to update tenant")
 		h.writeServiceError(w, err, "UPDATE_FAILED", "Failed to update tenant")
 		return
 	}
 
-	h.logger.Info().Str("tenant_id", tenantSlug).Str("operation", "update").Msg("tenant update succeeded") // LOG-017
+	h.logger.Info().Str("slug", tenantSlug).Str("operation", "update").Msg("tenant update succeeded") // LOG-017
 	_ = httputil.WriteJSON(w, http.StatusOK, tenant)
 }
 
@@ -281,14 +282,14 @@ func (h *Handler) SuspendTenant(w http.ResponseWriter, r *http.Request) {
 	tenantSlug := chi.URLParam(r, "tenantSlug")
 
 	if err := h.service.SuspendTenant(r.Context(), tenantSlug); err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to suspend tenant")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to suspend tenant")
 		RecordTenantOperation(tenantOpSuspend, pkgmetrics.ResultError)
 		h.writeServiceError(w, err, "SUSPEND_FAILED", "Failed to suspend tenant")
 		return
 	}
 
 	RecordTenantOperation(tenantOpSuspend, pkgmetrics.ResultSuccess)
-	h.logger.Info().Str("tenant_id", tenantSlug).Str("operation", tenantOpSuspend).Msg("tenant suspend succeeded") // LOG-017
+	h.logger.Info().Str("slug", tenantSlug).Str("operation", tenantOpSuspend).Msg("tenant suspend succeeded") // LOG-017
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": string(provisioning.StatusSuspended)})
 }
 
@@ -297,14 +298,14 @@ func (h *Handler) ReactivateTenant(w http.ResponseWriter, r *http.Request) {
 	tenantSlug := chi.URLParam(r, "tenantSlug")
 
 	if err := h.service.ReactivateTenant(r.Context(), tenantSlug); err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to reactivate tenant")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to reactivate tenant")
 		RecordTenantOperation(tenantOpReactivate, pkgmetrics.ResultError)
 		h.writeServiceError(w, err, "REACTIVATE_FAILED", "Failed to reactivate tenant")
 		return
 	}
 
 	RecordTenantOperation(tenantOpReactivate, pkgmetrics.ResultSuccess)
-	h.logger.Info().Str("tenant_id", tenantSlug).Str("operation", tenantOpReactivate).Msg("tenant reactivate succeeded") // LOG-017
+	h.logger.Info().Str("slug", tenantSlug).Str("operation", tenantOpReactivate).Msg("tenant reactivate succeeded") // LOG-017
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": string(provisioning.StatusActive)})
 }
 
@@ -315,7 +316,7 @@ func (h *Handler) DeprovisionTenant(w http.ResponseWriter, r *http.Request) {
 	force := r.URL.Query().Get("force") == "true"
 
 	if err := h.service.DeprovisionTenant(r.Context(), tenantSlug, force); err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Bool("force", force).Msg("Failed to deprovision tenant")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Bool("force", force).Msg("Failed to deprovision tenant")
 		RecordTenantOperation(tenantOpDeprovision, pkgmetrics.ResultError)
 		h.writeServiceError(w, err, "DEPROVISION_FAILED", "Failed to deprovision tenant")
 		return
@@ -326,7 +327,7 @@ func (h *Handler) DeprovisionTenant(w http.ResponseWriter, r *http.Request) {
 		status = statusDeleted
 	}
 	RecordTenantOperation(tenantOpDeprovision, pkgmetrics.ResultSuccess)
-	h.logger.Info().Str("tenant_id", tenantSlug).Str("operation", tenantOpDeprovision).Msg("tenant deprovision succeeded") // LOG-017
+	h.logger.Info().Str("slug", tenantSlug).Str("operation", tenantOpDeprovision).Msg("tenant deprovision succeeded") // LOG-017
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": status})                                        // WriteJSON error = broken client connection; nothing actionable
 }
 
@@ -343,13 +344,13 @@ func (h *Handler) CreateKey(w http.ResponseWriter, r *http.Request) {
 
 	key, err := h.service.CreateKey(r.Context(), tenantSlug, req)
 	if err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to create key")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to create key")
 		h.writeServiceError(w, err, "CREATE_KEY_FAILED", "Failed to create key")
 		return
 	}
 
 	RecordKeyCreated()
-	h.logger.Info().Str("tenant_id", tenantSlug).Str("key_id", req.KeyID).Str("operation", "create").Msg("key create succeeded") // LOG-018
+	h.logger.Info().Str("slug", tenantSlug).Str("key_id", req.KeyID).Str("operation", "create").Msg("key create succeeded") // LOG-018
 	_ = httputil.WriteJSON(w, http.StatusCreated, key)
 }
 
@@ -360,7 +361,7 @@ func (h *Handler) ListKeys(w http.ResponseWriter, r *http.Request) {
 
 	keys, total, err := h.service.ListKeys(r.Context(), tenantSlug, opts)
 	if err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to list keys")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to list keys")
 		httputil.WriteError(w, http.StatusInternalServerError, "LIST_KEYS_FAILED", "Failed to list keys")
 		return
 	}
@@ -379,13 +380,13 @@ func (h *Handler) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	keyID := chi.URLParam(r, "keyID")
 
 	if err := h.service.RevokeKey(r.Context(), tenantSlug, keyID); err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Str("key_id", keyID).Msg("Failed to revoke key")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Str("key_id", keyID).Msg("Failed to revoke key")
 		h.writeServiceError(w, err, "REVOKE_KEY_FAILED", "Failed to revoke key")
 		return
 	}
 
 	RecordKeyRevoked()
-	h.logger.Info().Str("tenant_id", tenantSlug).Str("key_id", keyID).Str("operation", "revoke").Msg("key revoke succeeded") // LOG-018
+	h.logger.Info().Str("slug", tenantSlug).Str("key_id", keyID).Str("operation", "revoke").Msg("key revoke succeeded") // LOG-018
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": statusRevoked})
 }
 
@@ -411,7 +412,7 @@ func (h *Handler) GetRoutingRules(w http.ResponseWriter, r *http.Request) {
 
 	rules, total, err := h.service.ListRoutingRules(r.Context(), tenantSlug, limit, offset)
 	if err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to list routing rules")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to list routing rules")
 		httputil.WriteError(w, http.StatusInternalServerError, "GET_ROUTING_RULES_FAILED", "Failed to retrieve routing rules")
 		return
 	}
@@ -448,13 +449,13 @@ func (h *Handler) AddRoutingRule(w http.ResponseWriter, r *http.Request) {
 			errors.Is(err, provisioning.ErrTooManyTopics):
 			httputil.WriteError(w, http.StatusBadRequest, errCodeRoutingRuleValidation, err.Error())
 		default:
-			h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to add routing rule")
+			h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to add routing rule")
 			h.writeServiceError(w, err, errCodeAddRoutingRuleFailed, "Failed to add routing rule")
 		}
 		return
 	}
 
-	h.logger.Info().Str("tenant_id", tenantSlug).Str("pattern", req.Rule.Pattern).Int("priority", req.Rule.Priority).Msg("routing rule added")
+	h.logger.Info().Str("slug", tenantSlug).Str("pattern", req.Rule.Pattern).Int("priority", req.Rule.Priority).Msg("routing rule added")
 
 	_ = httputil.WriteJSON(w, http.StatusCreated, map[string]any{
 		"rule": req.Rule,
@@ -490,14 +491,14 @@ func (h *Handler) ReplaceRoutingRules(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, provisioning.ErrDuplicateRoutingPattern):
 			httputil.WriteError(w, http.StatusBadRequest, errCodeDuplicatePattern, "Routing rules contain duplicate patterns")
 		default:
-			h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to replace routing rules")
+			h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to replace routing rules")
 			h.writeServiceError(w, err, "SET_ROUTING_RULES_FAILED", "Failed to replace routing rules")
 		}
 		return
 	}
 
 	RecordRoutingRulesSet()
-	h.logger.Info().Str("tenant_id", tenantSlug).Int("rule_count", len(req.Rules)).Msg("routing rules replaced") // LOG-019
+	h.logger.Info().Str("slug", tenantSlug).Int("rule_count", len(req.Rules)).Msg("routing rules replaced") // LOG-019
 
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"items":  req.Rules,
@@ -512,7 +513,7 @@ func (h *Handler) DeleteRoutingRules(w http.ResponseWriter, r *http.Request) {
 	tenantSlug := chi.URLParam(r, "tenantSlug")
 
 	if err := h.service.DeleteRoutingRules(r.Context(), tenantSlug); err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to delete routing rules")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to delete routing rules")
 		httputil.WriteError(w, http.StatusInternalServerError, "DELETE_ROUTING_RULES_FAILED", "Failed to delete routing rules")
 		return
 	}
@@ -531,7 +532,7 @@ func (h *Handler) GetQuota(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusNotFound, errCodeQuotaNotFound, "Quota not found")
 			return
 		}
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to get quota")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to get quota")
 		httputil.WriteError(w, http.StatusInternalServerError, "GET_QUOTA_FAILED", "Failed to get quota")
 		return
 	}
@@ -552,7 +553,7 @@ func (h *Handler) UpdateQuota(w http.ResponseWriter, r *http.Request) {
 
 	quota, err := h.service.UpdateQuota(r.Context(), tenantSlug, req)
 	if err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to update quota")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to update quota")
 		h.writeServiceError(w, err, "UPDATE_QUOTA_FAILED", "Failed to update quota")
 		return
 	}
@@ -567,7 +568,7 @@ func (h *Handler) GetAuditLog(w http.ResponseWriter, r *http.Request) {
 
 	entries, total, err := h.service.GetAuditLog(r.Context(), tenantSlug, opts)
 	if err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to get audit log")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to get audit log")
 		httputil.WriteError(w, http.StatusInternalServerError, "GET_AUDIT_FAILED", "Failed to get audit log")
 		return
 	}
@@ -593,13 +594,13 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	key, err := h.service.CreateAPIKey(r.Context(), tenantSlug, req)
 	if err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to create API key")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to create API key")
 		h.writeServiceError(w, err, "CREATE_API_KEY_FAILED", "Failed to create API key")
 		return
 	}
 
 	RecordAPIKeyCreated()
-	h.logger.Info().Str("tenant_id", tenantSlug).Str("key_id", key.KeyID).Str("operation", "create").Msg("key create succeeded") // LOG-018
+	h.logger.Info().Str("slug", tenantSlug).Str("key_id", key.KeyID).Str("operation", "create").Msg("key create succeeded") // LOG-018
 	_ = httputil.WriteJSON(w, http.StatusCreated, key)
 }
 
@@ -610,7 +611,7 @@ func (h *Handler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 
 	keys, total, err := h.service.ListAPIKeys(r.Context(), tenantSlug, opts)
 	if err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to list API keys")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Msg("Failed to list API keys")
 		httputil.WriteError(w, http.StatusInternalServerError, "LIST_API_KEYS_FAILED", "Failed to list API keys")
 		return
 	}
@@ -629,13 +630,13 @@ func (h *Handler) RevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	keyID := chi.URLParam(r, "keyID")
 
 	if err := h.service.RevokeAPIKey(r.Context(), tenantSlug, keyID); err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Str("key_id", keyID).Msg("Failed to revoke API key")
+		h.logger.Error().Err(err).Str("slug", tenantSlug).Str("key_id", keyID).Msg("Failed to revoke API key")
 		h.writeServiceError(w, err, "REVOKE_API_KEY_FAILED", "Failed to revoke API key")
 		return
 	}
 
 	RecordAPIKeyRevoked()
-	h.logger.Info().Str("tenant_id", tenantSlug).Str("key_id", keyID).Str("operation", "revoke").Msg("key revoke succeeded") // LOG-018
+	h.logger.Info().Str("slug", tenantSlug).Str("key_id", keyID).Str("operation", "revoke").Msg("key revoke succeeded") // LOG-018
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": statusRevoked})
 }
 
