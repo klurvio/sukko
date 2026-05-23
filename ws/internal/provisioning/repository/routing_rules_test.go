@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/provisioning"
@@ -30,23 +31,25 @@ type routingRulesFixture struct {
 // newRoutingRulesFixture creates an isolated containerised Postgres DB, runs migrations,
 // seeds the required tenant row (tenant_routing_rules.tenant_id has a FK to tenants.id),
 // and returns a wired RoutingRulesRepository.
-func newRoutingRulesFixture(t *testing.T, tenantID string) routingRulesFixture {
+// slug is used as the human-readable slug; a fresh UUID is generated for tenants.id.
+func newRoutingRulesFixture(t *testing.T, slug string) routingRulesFixture {
 	t.Helper()
 	pool := testutil.NewTestPool(t)
 	ctx := context.Background()
 
+	tenantUUID := uuid.New().String()
 	// Seed the tenant row required by the FK constraint.
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO tenants (id, name, status, consumer_type, metadata)
-		 VALUES ($1, $2, 'active', 'shared', '{}')`,
-		tenantID, tenantID+"-name",
+		`INSERT INTO tenants (id, slug, name, status, consumer_type, metadata)
+		 VALUES ($1, $2, $3, 'active', 'shared', '{}')`,
+		tenantUUID, slug, slug+"-name",
 	); err != nil {
 		t.Fatalf("seed tenant row: %v", err)
 	}
 
 	prefix := fmt.Sprintf("test%d", metricSeq.Add(1))
 	repo := repository.NewRoutingRulesRepository(pool, zerolog.Nop(), prefix)
-	return routingRulesFixture{repo: repo, tenantID: tenantID, ctx: ctx}
+	return routingRulesFixture{repo: repo, tenantID: tenantUUID, ctx: ctx}
 }
 
 // ── Add ──────────────────────────────────────────────────────────────────────
@@ -373,33 +376,35 @@ func TestRoutingRulesRepository_DeleteAll_OnlyAffectsTargetTenant(t *testing.T) 
 	prefix := fmt.Sprintf("test%d", metricSeq.Add(1))
 	repo := repository.NewRoutingRulesRepository(pool, zerolog.Nop(), prefix)
 
-	for _, tenantID := range []string{"tenant-da-a", "tenant-da-b"} {
+	tenantA := uuid.New().String()
+	tenantB := uuid.New().String()
+	for _, row := range []struct{ id, slug string }{{tenantA, "tenant-da-a"}, {tenantB, "tenant-da-b"}} {
 		if _, err := pool.Exec(ctx,
-			`INSERT INTO tenants (id, name, status, consumer_type, metadata) VALUES ($1, $2, 'active', 'shared', '{}')`,
-			tenantID, tenantID+"-name",
+			`INSERT INTO tenants (id, slug, name, status, consumer_type, metadata) VALUES ($1, $2, $3, 'active', 'shared', '{}')`,
+			row.id, row.slug, row.slug+"-name",
 		); err != nil {
-			t.Fatalf("seed tenant %s: %v", tenantID, err)
+			t.Fatalf("seed tenant %s: %v", row.slug, err)
 		}
 	}
 
-	if err := repo.Add(ctx, "tenant-da-a", provisioning.TopicRoutingRule{
+	if err := repo.Add(ctx, tenantA, provisioning.TopicRoutingRule{
 		Pattern: "**.trade", Topics: []string{"trades"}, Priority: 1,
 	}); err != nil {
 		t.Fatalf("Add(tenantA) error = %v", err)
 	}
-	if err := repo.Add(ctx, "tenant-da-b", provisioning.TopicRoutingRule{
+	if err := repo.Add(ctx, tenantB, provisioning.TopicRoutingRule{
 		Pattern: "**.quote", Topics: []string{"quotes"}, Priority: 1,
 	}); err != nil {
 		t.Fatalf("Add(tenantB) error = %v", err)
 	}
 
 	// Delete only tenant-a's rules.
-	if err := repo.DeleteAll(ctx, "tenant-da-a"); err != nil {
+	if err := repo.DeleteAll(ctx, tenantA); err != nil {
 		t.Fatalf("DeleteAll(tenantA) error = %v", err)
 	}
 
 	// Tenant A should have no rules.
-	rulesA, err := repo.GetAll(ctx, "tenant-da-a")
+	rulesA, err := repo.GetAll(ctx, tenantA)
 	if err != nil {
 		t.Fatalf("GetAll(tenantA) error = %v", err)
 	}
@@ -408,7 +413,7 @@ func TestRoutingRulesRepository_DeleteAll_OnlyAffectsTargetTenant(t *testing.T) 
 	}
 
 	// Tenant B's rules must be untouched.
-	rulesB, err := repo.GetAll(ctx, "tenant-da-b")
+	rulesB, err := repo.GetAll(ctx, tenantB)
 	if err != nil {
 		t.Fatalf("GetAll(tenantB) error = %v", err)
 	}
@@ -468,13 +473,13 @@ func TestRoutingRulesRepository_GetAll_NormalizationApplied(t *testing.T) {
 	// scanRows must normalise bare * to ** on read.
 	pool := testutil.NewTestPool(t)
 	ctx := context.Background()
-	tenantID := "tenant-getall-norm"
+	tenantID := uuid.New().String()
 	prefix := fmt.Sprintf("test%d", metricSeq.Add(1))
 	repo := repository.NewRoutingRulesRepository(pool, zerolog.Nop(), prefix)
 
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO tenants (id, name, status, consumer_type, metadata) VALUES ($1, $2, 'active', 'shared', '{}')`,
-		tenantID, tenantID+"-name",
+		`INSERT INTO tenants (id, slug, name, status, consumer_type, metadata) VALUES ($1, $2, $3, 'active', 'shared', '{}')`,
+		tenantID, "tenant-getall-norm", "tenant-getall-norm-name",
 	); err != nil {
 		t.Fatalf("seed tenant: %v", err)
 	}
@@ -508,13 +513,13 @@ func TestRoutingRulesRepository_GetAll_InvalidPatternSkipped(t *testing.T) {
 	// scanRows must skip it silently and return only the valid rule.
 	pool := testutil.NewTestPool(t)
 	ctx := context.Background()
-	tenantID := "tenant-getall-skip"
+	tenantID := uuid.New().String()
 	prefix := fmt.Sprintf("test%d", metricSeq.Add(1))
 	repo := repository.NewRoutingRulesRepository(pool, zerolog.Nop(), prefix)
 
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO tenants (id, name, status, consumer_type, metadata) VALUES ($1, $2, 'active', 'shared', '{}')`,
-		tenantID, tenantID+"-name",
+		`INSERT INTO tenants (id, slug, name, status, consumer_type, metadata) VALUES ($1, $2, $3, 'active', 'shared', '{}')`,
+		tenantID, "tenant-getall-skip", "tenant-getall-skip-name",
 	); err != nil {
 		t.Fatalf("seed tenant: %v", err)
 	}

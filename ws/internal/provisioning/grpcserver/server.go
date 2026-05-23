@@ -518,11 +518,11 @@ func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.Tenan
 		}
 
 		tc := &provisioningv1.TenantConfig{
-			TenantId: tenant.ID,
+			TenantId: tenant.Slug,
 		}
 
 		// Load channel rules (optional — not all tenants have rules configured)
-		channelRules, err := s.service.GetChannelRules(ctx, tenant.ID)
+		channelRules, err := s.service.GetChannelRules(ctx, tenant.Slug)
 		if err != nil && !errors.Is(err, types.ErrChannelRulesNotFound) && !errors.Is(err, provisioning.ErrChannelRulesNotConfigured) {
 			s.logger.Warn().Err(err).Str("tenant_id", tenant.ID).Msg("failed to load channel rules")
 		}
@@ -531,7 +531,7 @@ func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.Tenan
 		}
 
 		// Load routing rules (optional — not all tenants have rules configured)
-		routingRules, err := s.service.GetRoutingRules(ctx, tenant.ID)
+		routingRules, err := s.service.GetRoutingRules(ctx, tenant.Slug)
 		if err != nil && !errors.Is(err, provisioning.ErrRoutingRulesNotConfigured) && !errors.Is(err, provisioning.ErrRoutingRulesNotFound) {
 			s.logger.Debug().Err(err).Str("tenant_id", tenant.ID).Msg("failed to load routing rules")
 		}
@@ -560,7 +560,7 @@ func (s *Server) loadTopicsUpdate(ctx context.Context, namespace string) (*provi
 			continue
 		}
 
-		rules, err := s.service.GetRoutingRules(ctx, tenant.ID)
+		rules, err := s.service.GetRoutingRules(ctx, tenant.Slug)
 		if err != nil {
 			s.logger.Debug().Err(err).Str("tenant_id", tenant.ID).
 				Msg("Skipping tenant in topics update: no routing rules")
@@ -575,7 +575,7 @@ func (s *Server) loadTopicsUpdate(ctx context.Context, namespace string) (*provi
 					continue
 				}
 				seenSuffixes[suffix] = struct{}{}
-				topics = append(topics, kafka.BuildTopicName(namespace, tenant.ID, suffix))
+				topics = append(topics, kafka.BuildTopicName(namespace, tenant.Slug, suffix))
 			}
 		}
 
@@ -588,7 +588,7 @@ func (s *Server) loadTopicsUpdate(ctx context.Context, namespace string) (*provi
 			sharedTopics = append(sharedTopics, topics...)
 		case provisioning.ConsumerDedicated:
 			dedicatedTenants = append(dedicatedTenants, &provisioningv1.DedicatedTenant{
-				TenantId: tenant.ID,
+				TenantId: tenant.Slug,
 				Topics:   topics,
 			})
 		default:

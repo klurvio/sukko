@@ -133,7 +133,8 @@ func (lm *LifecycleManager) processDeletions(parent context.Context) {
 
 // deleteTenant performs the full deletion of a tenant.
 func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) error {
-	tenantID := tenant.ID
+	tenantID := tenant.ID   // UUID — used for all store operations (WHERE id = $1)
+	tenantSlug := tenant.Slug // slug — used for all Kafka/ACL operations
 
 	// 1. Delete Kafka topics derived from routing rules (nil-guarded: store is optional)
 	if lm.service.routingRules != nil {
@@ -141,7 +142,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 		if err != nil {
 			lm.logger.Warn().
 				Err(err).
-				Str("tenant_id", tenantID).
+				Str("slug", tenantSlug).
 				Msg("Failed to get routing rules for topic deletion, continuing anyway")
 		} else {
 			seen := make(map[string]struct{})
@@ -151,7 +152,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 						continue
 					}
 					seen[suffix] = struct{}{}
-					topicName := kafka.BuildTopicName(lm.service.config.TopicNamespace, tenantID, suffix)
+					topicName := kafka.BuildTopicName(lm.service.config.TopicNamespace, tenantSlug, suffix)
 					if err := lm.service.kafka.DeleteTopic(ctx, topicName); err != nil {
 						lm.logger.Warn().
 							Err(err).
@@ -166,7 +167,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 		if err := lm.service.routingRules.DeleteAll(ctx, tenantID); err != nil {
 			lm.logger.Warn().
 				Err(err).
-				Str("tenant_id", tenantID).
+				Str("slug", tenantSlug).
 				Msg("Failed to delete routing rules, continuing anyway")
 		}
 	}
@@ -174,9 +175,9 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 	// 2. Delete Kafka ACLs for the tenant
 	// Delete topic ACLs
 	topicACL := ACLBinding{
-		Principal:    FormatPrincipal(tenantID),
+		Principal:    FormatPrincipal(tenantSlug),
 		ResourceType: ACLResourceTopic,
-		ResourceName: lm.service.config.TopicNamespace + "." + tenantID,
+		ResourceName: lm.service.config.TopicNamespace + "." + tenantSlug,
 		PatternType:  ACLPatternPrefixed,
 		Operation:    ACLOpAll,
 		Permission:   ACLPermissionAllow,
@@ -184,15 +185,15 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 	if err := lm.service.kafka.DeleteACL(ctx, topicACL); err != nil {
 		lm.logger.Warn().
 			Err(err).
-			Str("tenant_id", tenantID).
+			Str("slug", tenantSlug).
 			Msg("Failed to delete topic ACL, continuing anyway")
 	}
 
 	// Delete consumer group ACLs
 	groupACL := ACLBinding{
-		Principal:    FormatPrincipal(tenantID),
+		Principal:    FormatPrincipal(tenantSlug),
 		ResourceType: ACLResourceGroup,
-		ResourceName: tenantID,
+		ResourceName: tenantSlug,
 		PatternType:  ACLPatternPrefixed,
 		Operation:    ACLOpAll,
 		Permission:   ACLPermissionAllow,
@@ -200,7 +201,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 	if err := lm.service.kafka.DeleteACL(ctx, groupACL); err != nil {
 		lm.logger.Warn().
 			Err(err).
-			Str("tenant_id", tenantID).
+			Str("slug", tenantSlug).
 			Msg("Failed to delete group ACL, continuing anyway")
 	}
 
@@ -216,7 +217,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 	}); err != nil {
 		lm.logger.Warn().
 			Err(err).
-			Str("tenant_id", tenantID).
+			Str("slug", tenantSlug).
 			Msg("Failed to log deletion audit entry")
 	}
 

@@ -17,7 +17,7 @@ func TestTenant_Validate(t *testing.T) {
 		{
 			name: "valid tenant",
 			tenant: &Tenant{
-				ID:           "acme-corp",
+				Slug:         "acme-corp",
 				Name:         "Acme Corporation",
 				Status:       StatusActive,
 				ConsumerType: ConsumerShared,
@@ -27,7 +27,7 @@ func TestTenant_Validate(t *testing.T) {
 		{
 			name: "valid tenant with numbers",
 			tenant: &Tenant{
-				ID:           "tenant-123",
+				Slug:         "tenant-123",
 				Name:         "Tenant 123",
 				Status:       StatusActive,
 				ConsumerType: ConsumerShared,
@@ -37,7 +37,7 @@ func TestTenant_Validate(t *testing.T) {
 		{
 			name: "valid tenant - minimum length",
 			tenant: &Tenant{
-				ID:           "abc",
+				Slug:         "abc",
 				Name:         "ABC",
 				Status:       StatusActive,
 				ConsumerType: ConsumerShared,
@@ -47,7 +47,7 @@ func TestTenant_Validate(t *testing.T) {
 		{
 			name: "invalid - uppercase letters",
 			tenant: &Tenant{
-				ID:           "ACME-CORP",
+				Slug:         "ACME-CORP",
 				Name:         "Acme",
 				Status:       StatusActive,
 				ConsumerType: ConsumerShared,
@@ -57,7 +57,7 @@ func TestTenant_Validate(t *testing.T) {
 		{
 			name: "invalid - starts with number",
 			tenant: &Tenant{
-				ID:           "123-tenant",
+				Slug:         "123-tenant",
 				Name:         "Tenant",
 				Status:       StatusActive,
 				ConsumerType: ConsumerShared,
@@ -67,7 +67,7 @@ func TestTenant_Validate(t *testing.T) {
 		{
 			name: "invalid - starts with hyphen",
 			tenant: &Tenant{
-				ID:           "-tenant",
+				Slug:         "-tenant",
 				Name:         "Tenant",
 				Status:       StatusActive,
 				ConsumerType: ConsumerShared,
@@ -77,7 +77,7 @@ func TestTenant_Validate(t *testing.T) {
 		{
 			name: "invalid - too short",
 			tenant: &Tenant{
-				ID:           "ab",
+				Slug:         "ab",
 				Name:         "AB",
 				Status:       StatusActive,
 				ConsumerType: ConsumerShared,
@@ -87,7 +87,7 @@ func TestTenant_Validate(t *testing.T) {
 		{
 			name: "invalid - too long",
 			tenant: &Tenant{
-				ID:           "this-is-a-very-long-tenant-id-that-exceeds-the-maximum-allowed-length-limit",
+				Slug:         "this-is-a-very-long-tenant-id-that-exceeds-the-maximum-allowed-length-limit",
 				Name:         "Long",
 				Status:       StatusActive,
 				ConsumerType: ConsumerShared,
@@ -97,7 +97,7 @@ func TestTenant_Validate(t *testing.T) {
 		{
 			name: "invalid - special characters",
 			tenant: &Tenant{
-				ID:           "tenant_id",
+				Slug:         "tenant_id",
 				Name:         "Tenant",
 				Status:       StatusActive,
 				ConsumerType: ConsumerShared,
@@ -107,7 +107,7 @@ func TestTenant_Validate(t *testing.T) {
 		{
 			name: "invalid - empty name",
 			tenant: &Tenant{
-				ID:           "valid-id",
+				Slug:         "valid-id",
 				Name:         "",
 				Status:       StatusActive,
 				ConsumerType: ConsumerShared,
@@ -143,7 +143,7 @@ nUwZ9KeOJoL8G5FmH6u0L9Pt5TXpR1LW9YXhNO3WL9YqKYL7qfqB5i0b6Q==
 			name: "valid ES256 key",
 			key: &TenantKey{
 				KeyID:     "key-1",
-				TenantID:  "acme-corp",
+				TenantID:  "12345678-1234-1234-1234-123456789abc",
 				Algorithm: AlgorithmES256,
 				PublicKey: samplePEM,
 			},
@@ -153,7 +153,7 @@ nUwZ9KeOJoL8G5FmH6u0L9Pt5TXpR1LW9YXhNO3WL9YqKYL7qfqB5i0b6Q==
 			name: "valid RS256 key",
 			key: &TenantKey{
 				KeyID:     "rsa-key-1",
-				TenantID:  "acme-corp",
+				TenantID:  "12345678-1234-1234-1234-123456789abc",
 				Algorithm: AlgorithmRS256,
 				PublicKey: samplePEM,
 			},
@@ -163,7 +163,7 @@ nUwZ9KeOJoL8G5FmH6u0L9Pt5TXpR1LW9YXhNO3WL9YqKYL7qfqB5i0b6Q==
 			name: "valid EdDSA key",
 			key: &TenantKey{
 				KeyID:     "ed-key-1",
-				TenantID:  "acme-corp",
+				TenantID:  "12345678-1234-1234-1234-123456789abc",
 				Algorithm: AlgorithmEdDSA,
 				PublicKey: samplePEM,
 			},
@@ -173,7 +173,7 @@ nUwZ9KeOJoL8G5FmH6u0L9Pt5TXpR1LW9YXhNO3WL9YqKYL7qfqB5i0b6Q==
 			name: "invalid key ID - uppercase",
 			key: &TenantKey{
 				KeyID:     "KEY-1",
-				TenantID:  "acme-corp",
+				TenantID:  "12345678-1234-1234-1234-123456789abc",
 				Algorithm: AlgorithmES256,
 				PublicKey: samplePEM,
 			},
@@ -183,7 +183,7 @@ nUwZ9KeOJoL8G5FmH6u0L9Pt5TXpR1LW9YXhNO3WL9YqKYL7qfqB5i0b6Q==
 			name: "invalid key ID - too short",
 			key: &TenantKey{
 				KeyID:     "ab",
-				TenantID:  "acme-corp",
+				TenantID:  "12345678-1234-1234-1234-123456789abc",
 				Algorithm: AlgorithmES256,
 				PublicKey: samplePEM,
 			},
@@ -193,7 +193,7 @@ nUwZ9KeOJoL8G5FmH6u0L9Pt5TXpR1LW9YXhNO3WL9YqKYL7qfqB5i0b6Q==
 			name: "invalid algorithm",
 			key: &TenantKey{
 				KeyID:     "key-1",
-				TenantID:  "acme-corp",
+				TenantID:  "12345678-1234-1234-1234-123456789abc",
 				Algorithm: "HS256",
 				PublicKey: samplePEM,
 			},
@@ -203,7 +203,7 @@ nUwZ9KeOJoL8G5FmH6u0L9Pt5TXpR1LW9YXhNO3WL9YqKYL7qfqB5i0b6Q==
 			name: "empty public key",
 			key: &TenantKey{
 				KeyID:     "key-1",
-				TenantID:  "acme-corp",
+				TenantID:  "12345678-1234-1234-1234-123456789abc",
 				Algorithm: AlgorithmES256,
 				PublicKey: "",
 			},

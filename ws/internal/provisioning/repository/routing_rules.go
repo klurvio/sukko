@@ -25,6 +25,7 @@ const (
 )
 
 // RoutingRulesRepository implements RoutingRulesStore using PostgreSQL via pgxpool.
+// All tenantID parameters are the tenant UUID primary key (FK → tenants.id), not the slug.
 type RoutingRulesRepository struct {
 	pool                *pgxpool.Pool
 	logger              zerolog.Logger

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -21,9 +20,6 @@ import (
 
 // Sentinel errors for provisioning operations.
 var (
-	ErrTenantAlreadyExists       = errors.New("tenant already exists")
-	ErrTenantIDContainsDots      = errors.New("tenant ID must not contain dots")
-	ErrTenantIDUnderscorePrefix  = errors.New("tenant ID must not start with underscore")
 	ErrTenantDeleted             = errors.New("cannot modify deleted tenant")
 	ErrTenantNotActive           = errors.New("tenant is not active")
 	ErrTenantNotFound            = errors.New("tenant not found")
@@ -33,6 +29,19 @@ var (
 	ErrInvalidQuota              = errors.New("invalid quota")
 	ErrChannelRulesNotConfigured = errors.New("channel rules store not configured")
 	ErrRoutingRulesNotConfigured = errors.New("routing rules store not configured")
+
+	// Slug rename sentinel errors.
+	ErrSlugAlreadyTaken      = errors.New("slug already taken")
+	ErrSlugReserved          = errors.New("slug is reserved")
+	ErrSlugInvalid           = errors.New("slug is invalid")
+	ErrSlugUnchanged         = errors.New("new slug is identical to current slug")
+	ErrSlugRenameInProgress  = errors.New("slug rename already in progress or within hold period")
+	ErrSlugImmutableViaPatch = errors.New("slug cannot be changed via PATCH; use the /rename endpoint")
+	// ErrCASFailed is returned by TenantStore.SetRenameState when the CAS guard
+	// matches zero rows (another rename is already pending). This is an internal
+	// store-layer sentinel — it MUST NOT propagate to HTTP handlers; the service
+	// layer maps it to ErrSlugRenameInProgress before returning to callers.
+	ErrCASFailed = errors.New("CAS update matched zero rows")
 )
 
 const (
@@ -78,6 +87,13 @@ type ServiceConfig struct {
 	// EditionManager provides expiry-aware edition limits for runtime gates.
 	// May be nil in tests — edition gates are skipped when nil.
 	EditionManager *license.Manager
+
+	// Clock is an injectable time source for the rename saga. Nil → time.Now.
+	Clock func() time.Time
+
+	// SlugRenameTopicHoldPeriod is how long to keep old topics/ACLs after a rename
+	// and accept old-slug JWTs. Forwarded from platform.ProvisioningConfig.
+	SlugRenameTopicHoldPeriod time.Duration
 }
 
 // Service provides tenant lifecycle management and provisioning operations.
@@ -141,6 +157,14 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}, nil
 }
 
+// clock returns the current time using the injectable clock or time.Now.
+func (s *Service) clock() time.Time {
+	if s.config.Clock != nil {
+		return s.config.Clock()
+	}
+	return time.Now()
+}
+
 // Ready checks if the service is ready to handle requests.
 // Returns nil if database is accessible, otherwise returns the error.
 func (s *Service) Ready(ctx context.Context) error {
@@ -192,7 +216,7 @@ func (s *Service) infraTopicSpecs() []infraTopicSpec {
 func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*CreateTenantResponse, error) {
 	// Validate tenant
 	tenant := &Tenant{
-		ID:           req.TenantID,
+		Slug:         req.Slug,
 		Name:         req.Name,
 		Status:       StatusActive,
 		ConsumerType: req.ConsumerType,
@@ -207,6 +231,10 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		return nil, fmt.Errorf("invalid tenant: %w", err)
 	}
 
+	if isReservedSlug(req.Slug) {
+		return nil, ErrSlugReserved
+	}
+
 	// Edition limit: tenant count
 	if s.editionManager != nil {
 		limits := s.editionManager.Limits()
@@ -219,23 +247,13 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		}
 	}
 
-	// FR-008: Tenant IDs must not contain dots (used as channel separator)
-	if strings.Contains(req.TenantID, ".") {
-		return nil, fmt.Errorf("%w: %s", ErrTenantIDContainsDots, req.TenantID)
-	}
-
-	// FR-009: Tenant IDs must not start with underscore (reserved for system)
-	if strings.HasPrefix(req.TenantID, "_") {
-		return nil, fmt.Errorf("%w: %s", ErrTenantIDUnderscorePrefix, req.TenantID)
-	}
-
 	// Create infrastructure topics before DB insert (saga pattern — rollback on DB failure).
 	// Track whether each topic was created by this saga step (vs. pre-existing) so rollback
 	// only deletes topics it actually created — not pre-existing topics from a prior attempt.
 	specs := s.infraTopicSpecs()
 	rf := int16(s.config.InfraTopicReplicationFactor) //nolint:gosec // G115: value validated 1–32767 at startup; cannot overflow int16
-	deadLetterName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.ID, specs[0].suffix)
-	defaultName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.ID, specs[1].suffix)
+	deadLetterName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.Slug, specs[0].suffix)
+	defaultName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.Slug, specs[1].suffix)
 	var dlqCreatedHere, defaultCreatedHere bool
 
 	if err := s.kafka.CreateTopic(ctx, deadLetterName, specs[0].partitions, rf, specs[0].cfg); err != nil {
@@ -257,7 +275,7 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 				if dlqErr := s.kafka.DeleteTopic(ctx, deadLetterName); dlqErr != nil {
 					recordCreateTenantTopicProvisionError(topicTypeDLQ, sagaPhaseRollbackFailed)
 					s.logger.Error().Err(dlqErr).
-						Str("tenant_id", tenant.ID).
+						Str("slug", tenant.Slug).
 						Str("topic", deadLetterName).
 						Msg("saga rollback: failed to delete dead-letter topic after default topic creation failure")
 				}
@@ -277,7 +295,7 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 			if defErr := s.kafka.DeleteTopic(ctx, defaultName); defErr != nil {
 				recordCreateTenantTopicProvisionError(topicTypeDefault, sagaPhaseRollbackFailed)
 				s.logger.Error().Err(defErr).
-					Str("tenant_id", tenant.ID).
+					Str("slug", tenant.Slug).
 					Str("topic", defaultName).
 					Msg("saga rollback: failed to delete default topic")
 			}
@@ -287,7 +305,7 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 			if dlqErr := s.kafka.DeleteTopic(ctx, deadLetterName); dlqErr != nil {
 				recordCreateTenantTopicProvisionError(topicTypeDLQ, sagaPhaseRollbackFailed)
 				s.logger.Error().Err(dlqErr).
-					Str("tenant_id", tenant.ID).
+					Str("slug", tenant.Slug).
 					Str("topic", deadLetterName).
 					Msg("saga rollback: failed to delete dead-letter topic")
 			}
@@ -351,13 +369,19 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 	return response, nil
 }
 
-// GetTenant retrieves a tenant by ID.
+// GetTenant retrieves a tenant by slug.
 func (s *Service) GetTenant(ctx context.Context, tenantID string) (*Tenant, error) {
-	tenant, err := s.tenants.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("get tenant: %w", err)
 	}
 	return tenant, nil
+}
+
+// GetTenantBySlug retrieves a tenant by slug. It satisfies TenantLookupFunc for
+// RequireTenant middleware wiring.
+func (s *Service) GetTenantBySlug(ctx context.Context, slug string) (*Tenant, error) {
+	return s.tenants.GetBySlug(ctx, slug)
 }
 
 // ListTenants returns tenants matching the given options.
@@ -371,13 +395,17 @@ func (s *Service) ListTenants(ctx context.Context, opts ListOptions) ([]*Tenant,
 
 // UpdateTenant updates tenant metadata.
 func (s *Service) UpdateTenant(ctx context.Context, tenantID string, req UpdateTenantRequest) (*Tenant, error) {
-	tenant, err := s.tenants.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("get tenant: %w", err)
 	}
 
 	if tenant.Status == StatusDeleted {
 		return nil, ErrTenantDeleted
+	}
+
+	if req.Slug != nil {
+		return nil, ErrSlugImmutableViaPatch
 	}
 
 	if req.Name != nil {
@@ -399,7 +427,7 @@ func (s *Service) UpdateTenant(ctx context.Context, tenantID string, req UpdateT
 		return nil, fmt.Errorf("update tenant: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionUpdateTenant, Metadata{
+	s.auditLog(ctx, tenant.ID, ActionUpdateTenant, Metadata{
 		"name":          tenant.Name,
 		"consumer_type": tenant.ConsumerType,
 	})
@@ -411,7 +439,7 @@ func (s *Service) UpdateTenant(ctx context.Context, tenantID string, req UpdateT
 
 // SuspendTenant temporarily disables a tenant.
 func (s *Service) SuspendTenant(ctx context.Context, tenantID string) error {
-	tenant, err := s.tenants.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("get tenant: %w", err)
 	}
@@ -422,13 +450,13 @@ func (s *Service) SuspendTenant(ctx context.Context, tenantID string) error {
 		return fmt.Errorf("%w: %s", ErrTenantNotActive, tenant.Status)
 	}
 
-	if err := s.tenants.UpdateStatus(ctx, tenantID, StatusSuspended); err != nil {
+	if err := s.tenants.UpdateStatus(ctx, tenant.ID, StatusSuspended); err != nil {
 		return fmt.Errorf("suspend tenant: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionSuspendTenant, nil)
+	s.auditLog(ctx, tenant.ID, ActionSuspendTenant, nil)
 
-	s.logger.Info().Str("tenant_id", tenantID).Msg("Tenant suspended")
+	s.logger.Info().Str("slug", tenant.Slug).Msg("Tenant suspended")
 
 	s.emitEvent(eventbus.TopicsChanged)
 	s.emitEvent(eventbus.TenantConfigChanged)
@@ -440,7 +468,7 @@ func (s *Service) SuspendTenant(ctx context.Context, tenantID string) error {
 // Infrastructure topics (DLQ and default) are created idempotently before updating status.
 // Topic creation errors are logged and metered but do NOT block reactivation (§IV).
 func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
-	tenant, err := s.tenants.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("get tenant: %w", err)
 	}
@@ -455,13 +483,13 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 	// that were suspended before the channel-topic routing feature was deployed.
 	rf := int16(s.config.InfraTopicReplicationFactor) //nolint:gosec // G115: value validated 1–32767 at startup; cannot overflow int16
 	for _, spec := range s.infraTopicSpecs() {
-		name := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, spec.suffix)
+		name := kafka.BuildTopicName(s.config.TopicNamespace, tenant.Slug, spec.suffix)
 		if err := s.kafka.CreateTopic(ctx, name, spec.partitions, rf, spec.cfg); err != nil {
 			if errors.Is(err, kerr.TopicAlreadyExists) {
 				continue // idempotent — topic already exists, nothing to do
 			}
 			s.logger.Error().Err(err).
-				Str("tenant_id", tenantID).
+				Str("slug", tenant.Slug).
 				Str("topic", name).
 				Str("topic_type", spec.topicType).
 				Msg("failed to provision infrastructure topic during reactivation")
@@ -470,13 +498,13 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 		}
 	}
 
-	if err := s.tenants.UpdateStatus(ctx, tenantID, StatusActive); err != nil {
+	if err := s.tenants.UpdateStatus(ctx, tenant.ID, StatusActive); err != nil {
 		return fmt.Errorf("reactivate tenant: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionReactivateTenant, nil)
+	s.auditLog(ctx, tenant.ID, ActionReactivateTenant, nil)
 
-	s.logger.Info().Str("tenant_id", tenantID).Msg("Tenant reactivated")
+	s.logger.Info().Str("slug", tenant.Slug).Msg("Tenant reactivated")
 
 	s.emitEvent(eventbus.TopicsChanged)
 	s.emitEvent(eventbus.TenantConfigChanged)
@@ -490,7 +518,7 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 // Multi-step cleanup continues on individual failures (Constitution IV).
 func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force bool) error {
 	// Validate tenant state before deprovisioning
-	tenant, err := s.tenants.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("get tenant: %w", err)
 	}
@@ -502,19 +530,19 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 	}
 
 	if force {
-		return s.forceDeleteTenant(ctx, tenantID)
+		return s.forceDeleteTenant(ctx, tenant)
 	}
 
 	// --- Grace-period deprovision (existing behavior) ---
 
 	// Update status to deprovisioning
-	if err := s.tenants.UpdateStatus(ctx, tenantID, StatusDeprovisioning); err != nil {
+	if err := s.tenants.UpdateStatus(ctx, tenant.ID, StatusDeprovisioning); err != nil {
 		return fmt.Errorf("set deprovisioning status: %w", err)
 	}
 
 	// Revoke all keys immediately
-	if err := s.keys.RevokeAllForTenant(ctx, tenantID); err != nil {
-		s.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to revoke keys")
+	if err := s.keys.RevokeAllForTenant(ctx, tenant.ID); err != nil {
+		s.logger.Error().Err(err).Str("slug", tenant.Slug).Msg("Failed to revoke keys")
 	} else {
 		s.emitEvent(eventbus.KeysChanged)
 	}
@@ -522,15 +550,15 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 	// Set deprovision deadline
 	gracePeriod := time.Duration(s.config.DeprovisionGraceDays) * 24 * time.Hour
 	deprovisionAt := time.Now().Add(gracePeriod)
-	if err := s.tenants.SetDeprovisionAt(ctx, tenantID, &deprovisionAt); err != nil {
-		s.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to set deprovision deadline")
+	if err := s.tenants.SetDeprovisionAt(ctx, tenant.ID, &deprovisionAt); err != nil {
+		s.logger.Error().Err(err).Str("slug", tenant.Slug).Msg("Failed to set deprovision deadline")
 	}
 
 	// Update topic retention to grace period (Kafka will delete after)
 	if s.routingRules != nil {
-		rules, err := s.routingRules.GetAll(ctx, tenantID)
+		rules, err := s.routingRules.GetAll(ctx, tenant.ID)
 		if err != nil {
-			s.logger.Warn().Err(err).Str("tenant_id", tenantID).
+			s.logger.Warn().Err(err).Str("slug", tenant.Slug).
 				Msg("Failed to get routing rules for topic retention update")
 		} else {
 			gracePeriodMs := int64(s.config.DeprovisionGraceDays) * msPerDay
@@ -541,12 +569,12 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 						continue
 					}
 					seen[suffix] = struct{}{}
-					topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
+					topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.Slug, suffix)
 					if err := s.kafka.SetTopicConfig(ctx, topicName, map[string]string{
 						kafka.RetentionMsConfigKey: strconv.FormatInt(gracePeriodMs, 10),
 					}); err != nil {
 						s.logger.Error().Err(err).
-							Str("tenant_id", tenantID).
+							Str("slug", tenant.Slug).
 							Str("topic", topicName).
 							Msg("Failed to update topic retention")
 					}
@@ -555,13 +583,13 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 		}
 	}
 
-	s.auditLog(ctx, tenantID, ActionDeprovisionTenant, Metadata{
+	s.auditLog(ctx, tenant.ID, ActionDeprovisionTenant, Metadata{
 		"grace_days":     s.config.DeprovisionGraceDays,
 		"deprovision_at": deprovisionAt,
 	})
 
 	s.logger.Info().
-		Str("tenant_id", tenantID).
+		Str("slug", tenant.Slug).
 		Time("deprovision_at", deprovisionAt).
 		Msg("Tenant deprovisioning initiated")
 
@@ -574,13 +602,13 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 // forceDeleteTenant immediately deletes a tenant — no grace period, no reactivation.
 // Used by test cleanup and admin force-delete. Multi-step cleanup continues on
 // individual failures (Constitution IV).
-func (s *Service) forceDeleteTenant(ctx context.Context, tenantID string) error {
+func (s *Service) forceDeleteTenant(ctx context.Context, tenant *Tenant) error {
 	// Read routing rules BEFORE deleting them — needed for Kafka topic cleanup below.
 	var topicSuffixes []string
 	if s.routingRules != nil {
-		rules, err := s.routingRules.GetAll(ctx, tenantID)
+		rules, err := s.routingRules.GetAll(ctx, tenant.ID)
 		if err != nil {
-			s.logger.Debug().Err(err).Str("tenant_id", tenantID).
+			s.logger.Debug().Err(err).Str("slug", tenant.Slug).
 				Msg("Force-delete: no routing rules to clean up") // not-found is expected
 		} else {
 			seen := make(map[string]struct{})
@@ -596,27 +624,27 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenantID string) error 
 	}
 
 	// Set status to deleted immediately
-	if err := s.tenants.UpdateStatus(ctx, tenantID, StatusDeleted); err != nil {
+	if err := s.tenants.UpdateStatus(ctx, tenant.ID, StatusDeleted); err != nil {
 		return fmt.Errorf("set deleted status: %w", err)
 	}
 
 	// Revoke all JWT signing keys (continue on failure)
-	if err := s.keys.RevokeAllForTenant(ctx, tenantID); err != nil {
-		s.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Force-delete: failed to revoke signing keys")
+	if err := s.keys.RevokeAllForTenant(ctx, tenant.ID); err != nil {
+		s.logger.Error().Err(err).Str("slug", tenant.Slug).Msg("Force-delete: failed to revoke signing keys")
 	} else {
 		s.emitEvent(eventbus.KeysChanged)
 	}
 
 	// Revoke all API keys (continue on failure — Constitution IX: deleted tenant must not authenticate)
 	if s.apiKeys != nil {
-		if apiKeys, _, err := s.apiKeys.ListByTenant(ctx, tenantID, ListOptions{Limit: 10000}); err != nil {
-			s.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Force-delete: failed to list API keys for revocation")
+		if apiKeys, _, err := s.apiKeys.ListByTenant(ctx, tenant.ID, ListOptions{Limit: 10000}); err != nil {
+			s.logger.Error().Err(err).Str("slug", tenant.Slug).Msg("Force-delete: failed to list API keys for revocation")
 		} else {
 			anyRevoked := false
 			for _, key := range apiKeys {
 				if key.IsActive {
 					if err := s.apiKeys.Revoke(ctx, key.KeyID); err != nil {
-						s.logger.Error().Err(err).Str("tenant_id", tenantID).Str("key_id", key.KeyID).
+						s.logger.Error().Err(err).Str("slug", tenant.Slug).Str("key_id", key.KeyID).
 							Msg("Force-delete: failed to revoke API key")
 					} else {
 						anyRevoked = true
@@ -631,35 +659,35 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenantID string) error 
 
 	// Delete routing rules (continue on failure)
 	if s.routingRules != nil {
-		if err := s.routingRules.DeleteAll(ctx, tenantID); err != nil {
-			s.logger.Debug().Err(err).Str("tenant_id", tenantID).
+		if err := s.routingRules.DeleteAll(ctx, tenant.ID); err != nil {
+			s.logger.Debug().Err(err).Str("slug", tenant.Slug).
 				Msg("Force-delete: routing rules delete (not-found is expected)")
 		}
 	}
 
 	// Delete channel rules (continue on failure)
 	if s.channelRules != nil {
-		if err := s.channelRules.Delete(ctx, tenantID); err != nil {
-			s.logger.Debug().Err(err).Str("tenant_id", tenantID).
+		if err := s.channelRules.Delete(ctx, tenant.ID); err != nil {
+			s.logger.Debug().Err(err).Str("slug", tenant.Slug).
 				Msg("Force-delete: channel rules delete (not-found is expected)")
 		}
 	}
 
 	// Delete Kafka topics using pre-read suffixes (continue on failure)
 	for _, suffix := range topicSuffixes {
-		topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
+		topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.Slug, suffix)
 		if err := s.kafka.DeleteTopic(ctx, topicName); err != nil {
 			s.logger.Error().Err(err).
-				Str("tenant_id", tenantID).Str("topic", topicName).
+				Str("slug", tenant.Slug).Str("topic", topicName).
 				Msg("Force-delete: failed to delete topic")
 		}
 	}
 
-	s.auditLog(ctx, tenantID, ActionDeprovisionTenant, Metadata{
+	s.auditLog(ctx, tenant.ID, ActionDeprovisionTenant, Metadata{
 		"force": true,
 	})
 
-	s.logger.Info().Str("tenant_id", tenantID).Msg("Tenant force-deleted")
+	s.logger.Info().Str("slug", tenant.Slug).Msg("Tenant force-deleted")
 
 	s.emitEvent(eventbus.TopicsChanged)
 	s.emitEvent(eventbus.TenantConfigChanged)
@@ -670,7 +698,7 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenantID string) error 
 // CreateKey registers a new public key for a tenant.
 func (s *Service) CreateKey(ctx context.Context, tenantID string, req CreateKeyRequest) (*TenantKey, error) {
 	// Verify tenant exists and is active
-	tenant, err := s.tenants.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("get tenant: %w", err)
 	}
@@ -680,7 +708,7 @@ func (s *Service) CreateKey(ctx context.Context, tenantID string, req CreateKeyR
 
 	key := &TenantKey{
 		KeyID:     req.KeyID,
-		TenantID:  tenantID,
+		TenantID:  tenant.ID,
 		Algorithm: req.Algorithm,
 		PublicKey: req.PublicKey,
 		ExpiresAt: req.ExpiresAt,
@@ -694,13 +722,13 @@ func (s *Service) CreateKey(ctx context.Context, tenantID string, req CreateKeyR
 		return nil, fmt.Errorf("create key: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionCreateKey, Metadata{
+	s.auditLog(ctx, tenant.ID, ActionCreateKey, Metadata{
 		"key_id":    key.KeyID,
 		"algorithm": key.Algorithm,
 	})
 
 	s.logger.Info().
-		Str("tenant_id", tenantID).
+		Str("slug", tenant.Slug).
 		Str("key_id", key.KeyID).
 		Msg("Key created")
 
@@ -711,7 +739,11 @@ func (s *Service) CreateKey(ctx context.Context, tenantID string, req CreateKeyR
 
 // ListKeys returns keys for a tenant with pagination.
 func (s *Service) ListKeys(ctx context.Context, tenantID string, opts ListOptions) ([]*TenantKey, int, error) {
-	keys, total, err := s.keys.ListByTenant(ctx, tenantID, opts)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("get tenant: %w", err)
+	}
+	keys, total, err := s.keys.ListByTenant(ctx, tenant.ID, opts)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list keys: %w", err)
 	}
@@ -720,12 +752,17 @@ func (s *Service) ListKeys(ctx context.Context, tenantID string, opts ListOption
 
 // RevokeKey revokes a key.
 func (s *Service) RevokeKey(ctx context.Context, tenantID, keyID string) error {
-	// Verify key belongs to tenant
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("get tenant: %w", err)
+	}
+
+	// Verify key belongs to tenant (compare UUID against UUID)
 	key, err := s.keys.Get(ctx, keyID)
 	if err != nil {
 		return fmt.Errorf("get key: %w", err)
 	}
-	if key.TenantID != tenantID {
+	if key.TenantID != tenant.ID {
 		return ErrKeyNotOwnedByTenant
 	}
 
@@ -733,12 +770,12 @@ func (s *Service) RevokeKey(ctx context.Context, tenantID, keyID string) error {
 		return fmt.Errorf("revoke key: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionRevokeKey, Metadata{
+	s.auditLog(ctx, tenant.ID, ActionRevokeKey, Metadata{
 		"key_id": keyID,
 	})
 
 	s.logger.Info().
-		Str("tenant_id", tenantID).
+		Str("slug", tenant.Slug).
 		Str("key_id", keyID).
 		Msg("Key revoked")
 
@@ -764,7 +801,11 @@ func (s *Service) TopicNamespace() string {
 
 // GetQuota returns quotas for a tenant.
 func (s *Service) GetQuota(ctx context.Context, tenantID string) (*TenantQuota, error) {
-	quota, err := s.quotas.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get tenant: %w", err)
+	}
+	quota, err := s.quotas.Get(ctx, tenant.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get quota: %w", err)
 	}
@@ -773,7 +814,12 @@ func (s *Service) GetQuota(ctx context.Context, tenantID string) (*TenantQuota, 
 
 // UpdateQuota updates quotas for a tenant.
 func (s *Service) UpdateQuota(ctx context.Context, tenantID string, req UpdateQuotaRequest) (*TenantQuota, error) {
-	quota, err := s.quotas.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get tenant: %w", err)
+	}
+
+	quota, err := s.quotas.Get(ctx, tenant.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get quota: %w", err)
 	}
@@ -807,15 +853,15 @@ func (s *Service) UpdateQuota(ctx context.Context, tenantID string, req UpdateQu
 		return nil, fmt.Errorf("update quota: %w", err)
 	}
 
-	// Apply Kafka quotas
-	if err := s.kafka.SetQuota(ctx, tenantID, QuotaConfig{
+	// Apply Kafka quotas (keyed by slug — Kafka principal is based on slug)
+	if err := s.kafka.SetQuota(ctx, tenant.Slug, QuotaConfig{
 		ProducerByteRate: quota.ProducerByteRate,
 		ConsumerByteRate: quota.ConsumerByteRate,
 	}); err != nil {
-		s.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to apply Kafka quotas")
+		s.logger.Error().Err(err).Str("slug", tenant.Slug).Msg("Failed to apply Kafka quotas")
 	}
 
-	s.auditLog(ctx, tenantID, ActionUpdateQuota, Metadata{
+	s.auditLog(ctx, tenant.ID, ActionUpdateQuota, Metadata{
 		"max_topics":         quota.MaxTopics,
 		"max_partitions":     quota.MaxPartitions,
 		"producer_byte_rate": quota.ProducerByteRate,
@@ -827,7 +873,11 @@ func (s *Service) UpdateQuota(ctx context.Context, tenantID string, req UpdateQu
 
 // GetAuditLog returns audit entries for a tenant.
 func (s *Service) GetAuditLog(ctx context.Context, tenantID string, opts ListOptions) ([]*AuditEntry, int, error) {
-	entries, total, err := s.audit.ListByTenant(ctx, tenantID, opts)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("get tenant: %w", err)
+	}
+	entries, total, err := s.audit.ListByTenant(ctx, tenant.ID, opts)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list audit log: %w", err)
 	}
@@ -871,7 +921,12 @@ func (s *Service) GetChannelRules(ctx context.Context, tenantID string) (*types.
 		return nil, ErrChannelRulesNotConfigured
 	}
 
-	rules, err := s.channelRules.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get tenant: %w", err)
+	}
+
+	rules, err := s.channelRules.Get(ctx, tenant.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get channel rules: %w", err)
 	}
@@ -885,7 +940,7 @@ func (s *Service) SetChannelRules(ctx context.Context, tenantID string, rules *t
 	}
 
 	// Verify tenant exists and is active
-	tenant, err := s.tenants.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("get tenant: %w", err)
 	}
@@ -899,17 +954,17 @@ func (s *Service) SetChannelRules(ctx context.Context, tenantID string, rules *t
 	}
 
 	// Upsert in store
-	if err := s.channelRules.Update(ctx, tenantID, rules); err != nil {
+	if err := s.channelRules.Update(ctx, tenant.ID, rules); err != nil {
 		return fmt.Errorf("set channel rules: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionSetChannelRules, Metadata{
+	s.auditLog(ctx, tenant.ID, ActionSetChannelRules, Metadata{
 		"public_patterns": len(rules.Public),
 		"group_mappings":  len(rules.GroupMappings),
 	})
 
 	s.logger.Info().
-		Str("tenant_id", tenantID).
+		Str("slug", tenant.Slug).
 		Int("public_patterns", len(rules.Public)).
 		Int("group_mappings", len(rules.GroupMappings)).
 		Msg("Channel rules set")
@@ -925,20 +980,25 @@ func (s *Service) DeleteChannelRules(ctx context.Context, tenantID string) error
 		return ErrChannelRulesNotConfigured
 	}
 
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("get tenant: %w", err)
+	}
+
 	// Verify rules exist (will return error if not found)
-	if _, err := s.channelRules.Get(ctx, tenantID); err != nil {
+	if _, err := s.channelRules.Get(ctx, tenant.ID); err != nil {
 		return fmt.Errorf("get channel rules: %w", err)
 	}
 
 	// Delete from store
-	if err := s.channelRules.Delete(ctx, tenantID); err != nil {
+	if err := s.channelRules.Delete(ctx, tenant.ID); err != nil {
 		return fmt.Errorf("delete channel rules: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionDeleteChannelRules, nil)
+	s.auditLog(ctx, tenant.ID, ActionDeleteChannelRules, nil)
 
 	s.logger.Info().
-		Str("tenant_id", tenantID).
+		Str("slug", tenant.Slug).
 		Msg("Channel rules deleted")
 
 	s.emitEvent(eventbus.TenantConfigChanged)
@@ -952,7 +1012,12 @@ func (s *Service) GetRoutingRules(ctx context.Context, tenantID string) ([]Topic
 		return nil, ErrRoutingRulesNotConfigured
 	}
 
-	rules, err := s.routingRules.GetAll(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get tenant: %w", err)
+	}
+
+	rules, err := s.routingRules.GetAll(ctx, tenant.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get routing rules: %w", err)
 	}
@@ -966,7 +1031,7 @@ func (s *Service) ReplaceRoutingRules(ctx context.Context, tenantID string, rule
 	}
 
 	// Verify tenant exists and is active.
-	tenant, err := s.tenants.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("get tenant: %w", err)
 	}
@@ -1000,7 +1065,7 @@ func (s *Service) ReplaceRoutingRules(ctx context.Context, tenantID string, rule
 				continue
 			}
 			seen[suffix] = struct{}{}
-			topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
+			topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.Slug, suffix)
 			exists, err := s.kafka.TopicExists(ctx, topicName)
 			if err != nil {
 				return fmt.Errorf("check topic %s: %w", topicName, err)
@@ -1012,16 +1077,16 @@ func (s *Service) ReplaceRoutingRules(ctx context.Context, tenantID string, rule
 	}
 
 	// Atomically replace all rules in store.
-	if err := s.routingRules.Replace(ctx, tenantID, rules); err != nil {
+	if err := s.routingRules.Replace(ctx, tenant.ID, rules); err != nil {
 		return fmt.Errorf("replace routing rules: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionReplaceRoutingRules, Metadata{
+	s.auditLog(ctx, tenant.ID, ActionReplaceRoutingRules, Metadata{
 		"rule_count": len(rules),
 	})
 
 	s.logger.Info().
-		Str("tenant_id", tenantID).
+		Str("slug", tenant.Slug).
 		Int("rule_count", len(rules)).
 		Msg("Routing rules replaced")
 
@@ -1038,7 +1103,7 @@ func (s *Service) AddRoutingRule(ctx context.Context, tenantID string, rule Topi
 	}
 
 	// Verify tenant exists and is active.
-	tenant, err := s.tenants.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("get tenant: %w", err)
 	}
@@ -1056,7 +1121,7 @@ func (s *Service) AddRoutingRule(ctx context.Context, tenantID string, rule Topi
 
 	// Enforce per-tenant rule count limit (Constitution II: every boundary validates inputs).
 	if s.config.MaxRoutingRulesPerTenant > 0 {
-		_, total, err := s.routingRules.List(ctx, tenantID, 1, 0)
+		_, total, err := s.routingRules.List(ctx, tenant.ID, 1, 0)
 		if err != nil {
 			return fmt.Errorf("count routing rules: %w", err)
 		}
@@ -1067,7 +1132,7 @@ func (s *Service) AddRoutingRule(ctx context.Context, tenantID string, rule Topi
 
 	// Verify all referenced topics are provisioned.
 	for _, suffix := range rule.Topics {
-		topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenantID, suffix)
+		topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.Slug, suffix)
 		exists, err := s.kafka.TopicExists(ctx, topicName)
 		if err != nil {
 			return fmt.Errorf("check topic %s: %w", topicName, err)
@@ -1077,18 +1142,18 @@ func (s *Service) AddRoutingRule(ctx context.Context, tenantID string, rule Topi
 		}
 	}
 
-	if err := s.routingRules.Add(ctx, tenantID, rule); err != nil {
+	if err := s.routingRules.Add(ctx, tenant.ID, rule); err != nil {
 		return fmt.Errorf("add routing rule: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionAddRoutingRule, Metadata{
+	s.auditLog(ctx, tenant.ID, ActionAddRoutingRule, Metadata{
 		"pattern":  rule.Pattern,
 		"topics":   rule.Topics,
 		"priority": rule.Priority,
 	})
 
 	s.logger.Info().
-		Str("tenant_id", tenantID).
+		Str("slug", tenant.Slug).
 		Str("pattern", rule.Pattern).
 		Int("priority", rule.Priority).
 		Msg("Routing rule added")
@@ -1105,7 +1170,12 @@ func (s *Service) ListRoutingRules(ctx context.Context, tenantID string, limit, 
 		return nil, 0, ErrRoutingRulesNotConfigured
 	}
 
-	rules, total, err := s.routingRules.List(ctx, tenantID, limit, offset)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("get tenant: %w", err)
+	}
+
+	rules, total, err := s.routingRules.List(ctx, tenant.ID, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list routing rules: %w", err)
 	}
@@ -1118,14 +1188,19 @@ func (s *Service) DeleteRoutingRules(ctx context.Context, tenantID string) error
 		return ErrRoutingRulesNotConfigured
 	}
 
-	if err := s.routingRules.DeleteAll(ctx, tenantID); err != nil {
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("get tenant: %w", err)
+	}
+
+	if err := s.routingRules.DeleteAll(ctx, tenant.ID); err != nil {
 		return fmt.Errorf("delete routing rules: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionDeleteRoutingRules, nil)
+	s.auditLog(ctx, tenant.ID, ActionDeleteRoutingRules, nil)
 
 	s.logger.Info().
-		Str("tenant_id", tenantID).
+		Str("slug", tenant.Slug).
 		Msg("Routing rules deleted")
 
 	s.emitEvent(eventbus.TenantConfigChanged)
@@ -1137,7 +1212,7 @@ func (s *Service) DeleteRoutingRules(ctx context.Context, tenantID string) error
 // CreateAPIKey generates and registers a new API key for a tenant.
 func (s *Service) CreateAPIKey(ctx context.Context, tenantID string, req CreateAPIKeyRequest) (*APIKey, error) {
 	// Verify tenant exists and is active
-	tenant, err := s.tenants.Get(ctx, tenantID)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("get tenant: %w", err)
 	}
@@ -1153,7 +1228,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, tenantID string, req CreateA
 
 	key := &APIKey{
 		KeyID:    keyID,
-		TenantID: tenantID,
+		TenantID: tenant.ID,
 		Name:     req.Name,
 	}
 
@@ -1161,13 +1236,13 @@ func (s *Service) CreateAPIKey(ctx context.Context, tenantID string, req CreateA
 		return nil, fmt.Errorf("create api key: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionCreateAPIKey, Metadata{
+	s.auditLog(ctx, tenant.ID, ActionCreateAPIKey, Metadata{
 		"key_id": key.KeyID,
 		"name":   key.Name,
 	})
 
 	s.logger.Info().
-		Str("tenant_id", tenantID).
+		Str("slug", tenant.Slug).
 		Str("key_id", key.KeyID).
 		Msg("API key created")
 
@@ -1178,7 +1253,11 @@ func (s *Service) CreateAPIKey(ctx context.Context, tenantID string, req CreateA
 
 // ListAPIKeys returns API keys for a tenant with pagination.
 func (s *Service) ListAPIKeys(ctx context.Context, tenantID string, opts ListOptions) ([]*APIKey, int, error) {
-	keys, total, err := s.apiKeys.ListByTenant(ctx, tenantID, opts)
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("get tenant: %w", err)
+	}
+	keys, total, err := s.apiKeys.ListByTenant(ctx, tenant.ID, opts)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list api keys: %w", err)
 	}
@@ -1187,12 +1266,17 @@ func (s *Service) ListAPIKeys(ctx context.Context, tenantID string, opts ListOpt
 
 // RevokeAPIKey revokes an API key.
 func (s *Service) RevokeAPIKey(ctx context.Context, tenantID, keyID string) error {
-	// Verify key belongs to tenant
+	tenant, err := s.tenants.GetBySlug(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("get tenant: %w", err)
+	}
+
+	// Verify key belongs to tenant (compare UUID against UUID)
 	key, err := s.apiKeys.Get(ctx, keyID)
 	if err != nil {
 		return fmt.Errorf("get api key: %w", err)
 	}
-	if key.TenantID != tenantID {
+	if key.TenantID != tenant.ID {
 		return ErrAPIKeyNotOwnedByTenant
 	}
 
@@ -1200,12 +1284,12 @@ func (s *Service) RevokeAPIKey(ctx context.Context, tenantID, keyID string) erro
 		return fmt.Errorf("revoke api key: %w", err)
 	}
 
-	s.auditLog(ctx, tenantID, ActionRevokeAPIKey, Metadata{
+	s.auditLog(ctx, tenant.ID, ActionRevokeAPIKey, Metadata{
 		"key_id": keyID,
 	})
 
 	s.logger.Info().
-		Str("tenant_id", tenantID).
+		Str("slug", tenant.Slug).
 		Str("key_id", keyID).
 		Msg("API key revoked")
 
@@ -1221,4 +1305,207 @@ func (s *Service) GetActiveAPIKeys(ctx context.Context) ([]*APIKey, error) {
 		return nil, fmt.Errorf("get active api keys: %w", err)
 	}
 	return keys, nil
+}
+
+// isReservedSlug reports whether s is a reserved path segment.
+// All router sub-route segments (action endpoints, resource collections) are reserved
+// so that no tenant slug can shadow an API route.
+func isReservedSlug(s string) bool {
+	switch s {
+	case "admin", "api", "health", "ready", "metrics", "version",
+		"edition", "config", "debug", "internal", "system", "sukko",
+		"keys", "api-keys", "routing-rules", "quotas", "audit",
+		"channel-rules", "tokens", "suspend", "reactivate", "rename",
+		"test-access":
+		return true
+	}
+	return false
+}
+
+// RenameTenant renames a tenant slug, migrating Kafka ACLs and topics.
+// The old slug's topics and ACLs remain accessible until the hold period expires.
+func (s *Service) RenameTenant(ctx context.Context, tenantSlug, newSlug string) (*Tenant, error) {
+	start := s.clock()
+
+	// Step 1: validate new slug format
+	if err := ValidateSlug(newSlug); err != nil {
+		return nil, ErrSlugInvalid
+	}
+
+	// Step 2: reserved slug check
+	if isReservedSlug(newSlug) {
+		return nil, ErrSlugReserved
+	}
+
+	// Step 3: tenant lookup
+	tenant, err := s.tenants.GetBySlug(ctx, tenantSlug)
+	if err != nil {
+		return nil, fmt.Errorf("get tenant: %w", err)
+	}
+
+	// Step 4: must be active
+	if tenant.Status != StatusActive {
+		return nil, fmt.Errorf("%w: current status is %s", ErrTenantNotActive, tenant.Status)
+	}
+
+	// Step 5: same-slug check
+	if newSlug == tenant.Slug {
+		return nil, ErrSlugUnchanged
+	}
+
+	// Step 6 & 7: hold period gate (with lazy clear)
+	if tenant.SlugRenamedAt != nil {
+		elapsed := s.clock().Sub(*tenant.SlugRenamedAt)
+		if elapsed >= s.config.SlugRenameTopicHoldPeriod {
+			// Hold period expired — clear residue so the rename starts clean
+			if clearErr := s.tenants.ClearRenameState(ctx, tenant.ID); clearErr != nil {
+				s.logger.Warn().Err(clearErr).Str("tenant_id", tenant.ID).
+					Msg("RenameTenant: lazy clear of expired rename state failed, proceeding anyway")
+			}
+		} else {
+			return nil, ErrSlugRenameInProgress
+		}
+	}
+
+	// Step 8: check new slug availability
+	if existing, err := s.tenants.GetBySlug(ctx, newSlug); err == nil && existing.Status != StatusDeleted {
+		return nil, ErrSlugAlreadyTaken
+	}
+
+	// Step 9: CAS lock — prevent concurrent renames
+	if err := s.tenants.SetRenameState(ctx, tenant.ID, SlugRenameStatePending, tenant.Slug); err != nil {
+		if errors.Is(err, ErrCASFailed) {
+			return nil, ErrSlugRenameInProgress
+		}
+		return nil, fmt.Errorf("set rename state: %w", err)
+	}
+
+	namespace := s.config.TopicNamespace
+
+	// Step 10: create new topic ACLs
+	if err := s.kafka.CreateTopicACLs(ctx, newSlug, namespace); err != nil {
+		return nil, fmt.Errorf("create topic ACLs for new slug: %w", err)
+	}
+
+	// Step 11: create topics under new slug
+	rf := int16(s.config.InfraTopicReplicationFactor) //nolint:gosec // G115: value validated 1–32767 at startup
+	for _, spec := range s.infraTopicSpecs() {
+		topicName := kafka.BuildTopicName(namespace, newSlug, spec.suffix)
+		if err := s.kafka.CreateTopic(ctx, topicName, spec.partitions, rf, spec.cfg); err != nil {
+			if !errors.Is(err, kerr.TopicAlreadyExists) {
+				return nil, fmt.Errorf("create topic %s for new slug: %w", topicName, err)
+			}
+		}
+	}
+
+	// Step 12: commit slug in DB
+	updatedTenant, err := s.tenants.UpdateSlug(ctx, tenant.ID, newSlug)
+	if err != nil {
+		if errors.Is(err, ErrSlugAlreadyTaken) {
+			// TOCTOU: another create/rename won the race — compensate
+			if aclErr := s.kafka.DeleteTopicACLs(ctx, newSlug, namespace); aclErr != nil {
+				s.logger.Error().Err(aclErr).Str("new_slug", newSlug).
+					Msg("RenameTenant: TOCTOU compensation: failed to delete new slug ACLs")
+			}
+			if clearErr := s.tenants.ClearRenameState(ctx, tenant.ID); clearErr != nil {
+				s.logger.Error().Err(clearErr).Str("tenant_id", tenant.ID).
+					Msg("RenameTenant: TOCTOU compensation: failed to clear rename state")
+			}
+			return nil, ErrSlugAlreadyTaken
+		}
+		// Non-TOCTOU failure — tenant stays in 'pending' for startup scan
+		s.logger.Error().Err(err).Str("tenant_id", tenant.ID).Str("new_slug", newSlug).
+			Msg("RenameTenant: UpdateSlug failed; tenant rename state is 'pending' for operator inspection")
+		return nil, fmt.Errorf("commit slug rename: %w", err)
+	}
+
+	// Step 13: audit
+	s.auditLog(ctx, tenant.ID, ActionRenameTenant, Metadata{
+		"old_slug": tenant.Slug,
+		"new_slug": newSlug,
+	})
+
+	// Step 14: remove old slug ACLs
+	if err := s.kafka.DeleteTopicACLs(ctx, tenant.Slug, namespace); err != nil {
+		s.logger.Error().Err(err).Str("old_slug", tenant.Slug).
+			Msg("RenameTenant: failed to delete old slug ACLs (non-fatal, operator cleanup required)")
+	}
+
+	// Step 15: quota re-apply (non-fatal — quota failure does not roll back the rename)
+	quotaFailed := false
+	quota, quotaErr := s.quotas.Get(ctx, tenant.ID)
+	if quotaErr != nil {
+		quotaFailed = true
+		s.logger.Warn().Err(quotaErr).Str("tenant_id", tenant.ID).
+			Msg("RenameTenant: failed to fetch quota for re-apply (skipping SetQuota)")
+	} else {
+		if err := s.kafka.DeleteQuota(ctx, tenant.Slug, namespace); err != nil {
+			quotaFailed = true
+			s.logger.Warn().Err(err).Str("old_slug", tenant.Slug).
+				Msg("RenameTenant: failed to delete old slug quota")
+		}
+		if err := s.kafka.SetQuota(ctx, newSlug, QuotaConfig{
+			ProducerByteRate: quota.ProducerByteRate,
+			ConsumerByteRate: quota.ConsumerByteRate,
+		}); err != nil {
+			quotaFailed = true
+			s.logger.Warn().Err(err).Str("new_slug", newSlug).
+				Msg("RenameTenant: failed to set new slug quota")
+		}
+	}
+
+	// Step 16: notify consumers
+	// Re-emission on startup is intentional during the hold period — consumers MUST be idempotent.
+	s.emitEvent(eventbus.TenantConfigChanged)
+
+	// Step 17: log hold expiry using the DB-authoritative timestamp from UpdateSlug RETURNING
+	if updatedTenant.SlugRenamedAt != nil {
+		holdExpiry := updatedTenant.SlugRenamedAt.Add(s.config.SlugRenameTopicHoldPeriod)
+		s.logger.Info().
+			Str("old_slug", tenant.Slug).
+			Str("new_slug", newSlug).
+			Time("hold_expires_at", holdExpiry).
+			Msg("Tenant slug renamed; old slug topics and ACLs retained until hold expiry")
+	}
+
+	// Step 18: record metrics
+	status := renameStatusSuccess
+	if quotaFailed {
+		status = renameStatusPartialFailure
+	}
+	RecordTenantRenamed(status, s.clock().Sub(start))
+
+	return updatedTenant, nil
+}
+
+// Start performs the startup scan for pending/complete slug rename state residue.
+// On start: detects incomplete sagas and re-emits config events for crash recovery.
+// A scan failure only logs a warning — it MUST NOT block the service from serving requests.
+func (s *Service) Start(ctx context.Context) error {
+	tenants, err := s.tenants.ListPendingRenames(ctx)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Startup scan: failed to list pending renames; skipping scan")
+		return nil
+	}
+
+	var pendingCount, completeCount int
+	for _, t := range tenants {
+		switch t.SlugRenameState {
+		case SlugRenameStatePending:
+			pendingCount++
+			s.logger.Warn().
+				Str("tenant_id", t.ID).
+				Str("previous_slug", t.PreviousSlug).
+				Msg("Startup scan: tenant rename is in 'pending' state — operator investigation required")
+		case SlugRenameStateComplete:
+			if t.PreviousSlug != "" {
+				completeCount++
+				// Re-emit so ws-server refreshes its config (idempotent — consumers must handle duplicate events)
+				s.emitEvent(eventbus.TenantConfigChanged)
+			}
+		}
+	}
+
+	RecordStartupScanFindings(pendingCount, completeCount)
+	return nil
 }

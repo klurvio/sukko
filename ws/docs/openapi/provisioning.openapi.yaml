@@ -108,9 +108,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaginatedTenants"
 
-  /api/v1/tenants/{tenantID}:
+  /api/v1/tenants/{tenantSlug}:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
 
     get:
       operationId: getTenant
@@ -127,6 +127,12 @@ paths:
                 $ref: "#/components/schemas/Tenant"
         "404":
           description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Service temporarily unavailable (RequireTenant middleware DB lookup failed)
           content:
             application/json:
               schema:
@@ -190,9 +196,69 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /api/v1/tenants/{tenantID}/suspend:
+  /api/v1/tenants/{tenantSlug}/rename:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
+    post:
+      operationId: renameTenant
+      summary: Rename tenant slug
+      description: |
+        Renames the tenant's slug (Kafka namespace and URL identifier). This is a saga operation
+        that creates new Kafka topics and ACLs under the new slug before updating the database.
+        The old slug remains valid for JWT authentication during the `SLUG_RENAME_TOPIC_HOLD_PERIOD`
+        (default 7 days) to allow clients to rotate tokens without service interruption.
+
+        Requires admin or system role — tenant JWTs are rejected with 403.
+      tags: [Tenants]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameTenantRequest"
+      responses:
+        "200":
+          description: Tenant renamed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "400":
+          description: Validation error (invalid slug, reserved slug, unchanged slug)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden — tenant JWT rejected on this endpoint; admin JWT required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Conflict — slug already taken, rename already in progress, or tenant not active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Service temporarily unavailable (RequireTenant middleware DB lookup failed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/tenants/{tenantSlug}/suspend:
+    parameters:
+      - $ref: "#/components/parameters/tenantSlug"
     post:
       operationId: suspendTenant
       summary: Suspend tenant
@@ -224,9 +290,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /api/v1/tenants/{tenantID}/reactivate:
+  /api/v1/tenants/{tenantSlug}/reactivate:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
     post:
       operationId: reactivateTenant
       summary: Reactivate tenant
@@ -258,9 +324,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /api/v1/tenants/{tenantID}/keys:
+  /api/v1/tenants/{tenantSlug}/keys:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
 
     post:
       operationId: createKey
@@ -306,9 +372,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaginatedKeys"
 
-  /api/v1/tenants/{tenantID}/keys/{keyID}:
+  /api/v1/tenants/{tenantSlug}/keys/{keyID}:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
       - $ref: "#/components/parameters/keyID"
 
     delete:
@@ -336,9 +402,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /api/v1/tenants/{tenantID}/api-keys:
+  /api/v1/tenants/{tenantSlug}/api-keys:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
 
     post:
       operationId: createAPIKey
@@ -386,9 +452,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaginatedAPIKeys"
 
-  /api/v1/tenants/{tenantID}/api-keys/{keyID}:
+  /api/v1/tenants/{tenantSlug}/api-keys/{keyID}:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
       - $ref: "#/components/parameters/keyID"
 
     delete:
@@ -416,9 +482,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /api/v1/tenants/{tenantID}/routing-rules:
+  /api/v1/tenants/{tenantSlug}/routing-rules:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
 
     get:
       operationId: getRoutingRules
@@ -531,9 +597,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /api/v1/tenants/{tenantID}/channel-rules:
+  /api/v1/tenants/{tenantSlug}/channel-rules:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
 
     get:
       operationId: getChannelRules
@@ -610,9 +676,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /api/v1/tenants/{tenantID}/quotas:
+  /api/v1/tenants/{tenantSlug}/quotas:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
 
     get:
       operationId: getQuota
@@ -655,9 +721,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /api/v1/tenants/{tenantID}/audit:
+  /api/v1/tenants/{tenantSlug}/audit:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
 
     get:
       operationId: getAuditLog
@@ -677,9 +743,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaginatedAuditEntries"
 
-  /api/v1/tenants/{tenantID}/test-access:
+  /api/v1/tenants/{tenantSlug}/test-access:
     parameters:
-      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/tenantSlug"
 
     post:
       operationId: testAccess
@@ -1116,7 +1182,7 @@ paths:
       summary: Create or update push channel config
       description: |
         Configure which channels trigger push notifications for a tenant.
-        Patterns must be tenant-scoped (start with `{tenant_id}.`).
+        Patterns must be tenant-scoped (start with `{tenant_slug}.`).
 
         **Edition**: Enterprise (Push Notifications feature gate)
       tags: [Push]
@@ -1245,13 +1311,14 @@ components:
         Admin JWT is checked first; if the issuer is not "sukko-admin", tenant JWT validation is used.
 
   parameters:
-    tenantID:
-      name: tenantID
+    tenantSlug:
+      name: tenantSlug
       in: path
       required: true
       schema:
         type: string
-      description: Tenant identifier (3-63 chars, lowercase alphanumeric + hyphens)
+        pattern: "^[a-z][a-z0-9-]{2,62}$"
+      description: Tenant slug — the human-readable Kafka namespace and URL identifier (3–63 chars, lowercase alphanumeric + hyphens, must start with a letter)
 
     keyID:
       name: keyID
@@ -1299,6 +1366,15 @@ components:
       properties:
         id:
           type: string
+          format: uuid
+          description: Immutable UUID primary key (DB-generated)
+        slug:
+          type: string
+          pattern: "^[a-z][a-z0-9-]{2,62}$"
+          description: Human-readable Kafka namespace and URL identifier (mutable via /rename)
+        previous_slug:
+          type: ["string", "null"]
+          description: Slug before the most recent rename; present during the rename hold period
         name:
           type: string
         status:
@@ -1328,14 +1404,14 @@ components:
 
     CreateTenantRequest:
       type: object
-      required: [id, name]
+      required: [slug, name]
       properties:
-        id:
+        slug:
           type: string
           minLength: 3
           maxLength: 63
-          pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
-          description: Tenant ID (lowercase alphanumeric + hyphens)
+          pattern: "^[a-z][a-z0-9-]{2,62}$"
+          description: Tenant slug — Kafka namespace and URL identifier (lowercase alphanumeric + hyphens, must start with a letter)
         name:
           type: string
           minLength: 1
@@ -1359,6 +1435,17 @@ components:
         key:
           $ref: "#/components/schemas/TenantKey"
           description: Only present if public_key was provided in the request
+
+    RenameTenantRequest:
+      type: object
+      required: [slug]
+      properties:
+        slug:
+          type: string
+          minLength: 3
+          maxLength: 63
+          pattern: "^[a-z][a-z0-9-]{2,62}$"
+          description: New tenant slug
 
     UpdateTenantRequest:
       type: object
@@ -1498,7 +1585,7 @@ components:
 
         **Pattern syntax**: `**` matches any number of dot-separated segments (multi-segment wildcard). `*` is accepted as an alias and normalized to `**` on storage — GET responses always return `**`. For example, `trades.**` matches both `trades.BTC-USD` and `trades.spot.BTC-USD`. The `{}` placeholder syntax is NOT supported.
 
-        **Topic suffixes**: Each value is a topic suffix (not a full topic name). The full topic name is constructed as `{namespace}.{tenant_id}.{suffix}`. Specifying multiple suffixes fans out the message to all listed topics simultaneously.
+        **Topic suffixes**: Each value is a topic suffix (not a full topic name). The full topic name is constructed as `{namespace}.{tenant_slug}.{suffix}`. Specifying multiple suffixes fans out the message to all listed topics simultaneously.
 
         **Priority**: Rules are evaluated in ascending order (lower value = higher priority). Use lower priority values (e.g., 0–99) for tenant-specific rules; higher values (e.g., 100) work well for broad catch-all rules.
       properties:
@@ -1516,7 +1603,7 @@ components:
             type: string
             maxLength: 128
             pattern: "^[a-zA-Z0-9._-]{1,128}$"
-          description: "One or more Kafka topic suffixes. Full topic name: `{namespace}.{tenant_id}.{suffix}`. Must be pre-provisioned topics."
+          description: "One or more Kafka topic suffixes. Full topic name: `{namespace}.{tenant_slug}.{suffix}`. Must be pre-provisioned topics."
           examples: [["trades"], ["trades", "audit-log"]]
         priority:
           type: integer

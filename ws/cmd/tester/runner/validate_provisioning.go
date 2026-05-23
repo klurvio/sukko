@@ -29,26 +29,39 @@ func validateProvisioning(ctx context.Context, run *TestRun, logger zerolog.Logg
 
 	var checks []metrics.CheckResult
 
-	// 1. Get tenant by ID (admin-authenticated, tests GET /tenants/{id})
+	// 1. Get tenant by slug (admin-authenticated, tests GET /tenants/{slug})
 	checks = append(checks, provCheck("get tenant", func() error {
 		body, err := provClient.GetTenantByID(ctx, tenantID)
 		if err != nil {
 			return fmt.Errorf("get tenant: %w", err)
 		}
-		if !strings.Contains(string(body), tenantID) {
+		var resp struct {
+			ID   string `json:"id"`
+			Slug string `json:"slug"`
+		}
+		if parseErr := json.Unmarshal(body, &resp); parseErr == nil {
+			// Assert slug matches the input identifier (URL param)
+			if resp.Slug != tenantID {
+				return fmt.Errorf("tenant slug = %q, want %q", resp.Slug, tenantID)
+			}
+			// Assert id is UUID format (36 chars with 4 dashes)
+			if len(resp.ID) != 36 || strings.Count(resp.ID, "-") != 4 {
+				return fmt.Errorf("tenant id = %q, want UUID format (xxxx-xxxx-xxxx-xxxx-xxxx)", resp.ID)
+			}
+		} else if !strings.Contains(string(body), tenantID) {
 			return fmt.Errorf("tenant %s not found in response", tenantID)
 		}
 		return nil
 	}))
 
-	// 2. List tenants — verify our tenant appears
+	// 2. List tenants — verify our tenant appears (by slug)
 	checks = append(checks, provCheck("list tenants", func() error {
 		body, err := provClient.ListTenants(ctx)
 		if err != nil {
 			return fmt.Errorf("list tenants: %w", err)
 		}
 		if !strings.Contains(string(body), tenantID) {
-			return fmt.Errorf("tenant %s not found in list", tenantID)
+			return fmt.Errorf("tenant slug %q not found in list", tenantID)
 		}
 		return nil
 	}))

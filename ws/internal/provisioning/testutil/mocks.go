@@ -7,28 +7,38 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // MockTenantStore is an in-memory mock implementation of TenantStore.
+// Tenants are indexed by both UUID (byUUID) and slug (bySlug) to support
+// the dual-identity model introduced by the tenant-slug-separation feature.
 type MockTenantStore struct {
-	mu      sync.RWMutex
-	tenants map[string]*provisioning.Tenant
+	mu     sync.RWMutex
+	byUUID map[string]*provisioning.Tenant
+	bySlug map[string]*provisioning.Tenant
 
 	// Error injection for testing error paths
-	CreateErr           error
-	GetErr              error
-	UpdateErr           error
-	UpdateStatusErr     error
-	SetDeprovisionAtErr error
-	PingErr             error
+	CreateErr             error
+	GetBySlugErr          error
+	UpdateErr             error
+	UpdateSlugErr         error
+	UpdateStatusErr       error
+	SetDeprovisionAtErr   error
+	SetRenameStateErr     error
+	ClearRenameStateErr   error
+	ListPendingRenamesErr error
+	PingErr               error
 }
 
 // NewMockTenantStore creates a new MockTenantStore.
 func NewMockTenantStore() *MockTenantStore {
 	return &MockTenantStore{
-		tenants: make(map[string]*provisioning.Tenant),
+		byUUID: make(map[string]*provisioning.Tenant),
+		bySlug: make(map[string]*provisioning.Tenant),
 	}
 }
 
@@ -38,34 +48,51 @@ func (m *MockTenantStore) Ping(_ context.Context) error {
 }
 
 // Create implements TenantStore.Create for testing.
+// Stores the tenant indexed by both UUID and slug.
+// When tenant.ID is empty (simulating DB-generated UUID), a new UUID is assigned
+// to the original tenant pointer — callers can read it back after Create returns.
 func (m *MockTenantStore) Create(_ context.Context, tenant *provisioning.Tenant) error {
 	if m.CreateErr != nil {
 		return m.CreateErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, exists := m.tenants[tenant.ID]; exists {
+	if tenant.ID == "" {
+		tenant.ID = uuid.New().String()
+	}
+	if _, exists := m.byUUID[tenant.ID]; exists {
 		return errors.New("tenant already exists")
 	}
+	if _, exists := m.bySlug[tenant.Slug]; exists {
+		return provisioning.ErrSlugAlreadyTaken
+	}
 	t := *tenant
-	t.CreatedAt = time.Now()
-	t.UpdatedAt = time.Now()
-	m.tenants[tenant.ID] = &t
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = time.Now()
+	}
+	if t.UpdatedAt.IsZero() {
+		t.UpdatedAt = time.Now()
+	}
+	m.byUUID[t.ID] = &t
+	m.bySlug[t.Slug] = &t
 	return nil
 }
 
-// Get implements TenantStore.Get for testing.
-func (m *MockTenantStore) Get(_ context.Context, tenantID string) (*provisioning.Tenant, error) {
-	if m.GetErr != nil {
-		return nil, m.GetErr
+// GetBySlug implements TenantStore.GetBySlug for testing.
+// Returns a copy of the stored tenant so callers get a stable snapshot — mutations to
+// the returned value (or to the stored record via UpdateSlug) do not alias each other.
+func (m *MockTenantStore) GetBySlug(_ context.Context, slug string) (*provisioning.Tenant, error) {
+	if m.GetBySlugErr != nil {
+		return nil, m.GetBySlugErr
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	t, ok := m.tenants[tenantID]
+	t, ok := m.bySlug[slug]
 	if !ok {
 		return nil, provisioning.ErrTenantNotFound
 	}
-	return t, nil
+	copy := *t
+	return &copy, nil
 }
 
 // Update implements TenantStore.Update for testing.
@@ -75,20 +102,111 @@ func (m *MockTenantStore) Update(_ context.Context, tenant *provisioning.Tenant)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, exists := m.tenants[tenant.ID]; !exists {
+	existing, ok := m.byUUID[tenant.ID]
+	if !ok {
 		return provisioning.ErrTenantNotFound
 	}
 	tenant.UpdatedAt = time.Now()
-	m.tenants[tenant.ID] = tenant
+	// Keep slug index consistent if slug hasn't changed.
+	if existing.Slug != tenant.Slug {
+		delete(m.bySlug, existing.Slug)
+		m.bySlug[tenant.Slug] = tenant
+	} else {
+		m.bySlug[tenant.Slug] = tenant
+	}
+	m.byUUID[tenant.ID] = tenant
 	return nil
+}
+
+// UpdateSlug implements TenantStore.UpdateSlug for testing.
+func (m *MockTenantStore) UpdateSlug(_ context.Context, tenantUUID, newSlug string) (*provisioning.Tenant, error) {
+	if m.UpdateSlugErr != nil {
+		return nil, m.UpdateSlugErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.byUUID[tenantUUID]
+	if !ok {
+		return nil, provisioning.ErrTenantNotFound
+	}
+	if _, taken := m.bySlug[newSlug]; taken {
+		return nil, provisioning.ErrSlugAlreadyTaken
+	}
+	oldSlug := t.Slug
+	now := time.Now()
+	t.PreviousSlug = oldSlug
+	t.Slug = newSlug
+	t.SlugRenameState = provisioning.SlugRenameStateComplete
+	t.SlugRenamedAt = &now
+	t.UpdatedAt = now
+	delete(m.bySlug, oldSlug)
+	m.bySlug[newSlug] = t
+	return t, nil
+}
+
+// SetRenameState implements TenantStore.SetRenameState for testing.
+// Returns ErrCASFailed if the current slug_rename_state is already "pending".
+func (m *MockTenantStore) SetRenameState(_ context.Context, tenantUUID string, state provisioning.SlugRenameState, previousSlug string) error {
+	if m.SetRenameStateErr != nil {
+		return m.SetRenameStateErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.byUUID[tenantUUID]
+	if !ok {
+		return provisioning.ErrTenantNotFound
+	}
+	// CAS guard: only update when current state is NULL or 'complete'.
+	if t.SlugRenameState == provisioning.SlugRenameStatePending {
+		return provisioning.ErrCASFailed
+	}
+	t.SlugRenameState = state
+	t.PreviousSlug = previousSlug
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+// ClearRenameState implements TenantStore.ClearRenameState for testing.
+func (m *MockTenantStore) ClearRenameState(_ context.Context, tenantUUID string) error {
+	if m.ClearRenameStateErr != nil {
+		return m.ClearRenameStateErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.byUUID[tenantUUID]
+	if !ok {
+		return provisioning.ErrTenantNotFound
+	}
+	t.SlugRenameState = ""
+	t.PreviousSlug = ""
+	t.SlugRenamedAt = nil
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+// ListPendingRenames implements TenantStore.ListPendingRenames for testing.
+func (m *MockTenantStore) ListPendingRenames(_ context.Context) ([]*provisioning.Tenant, error) {
+	if m.ListPendingRenamesErr != nil {
+		return nil, m.ListPendingRenamesErr
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []*provisioning.Tenant
+	for _, t := range m.byUUID {
+		if t.SlugRenameState == provisioning.SlugRenameStatePending ||
+			(t.SlugRenameState == provisioning.SlugRenameStateComplete && t.PreviousSlug != "") {
+			result = append(result, t)
+		}
+	}
+	return result, nil
 }
 
 // List implements TenantStore.List for testing.
 func (m *MockTenantStore) List(_ context.Context, opts provisioning.ListOptions) ([]*provisioning.Tenant, int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	result := make([]*provisioning.Tenant, 0, len(m.tenants))
-	for _, t := range m.tenants {
+	result := make([]*provisioning.Tenant, 0, len(m.byUUID))
+	for _, t := range m.byUUID {
 		if opts.Status != nil && t.Status != *opts.Status {
 			continue
 		}
@@ -109,7 +227,7 @@ func (m *MockTenantStore) UpdateStatus(_ context.Context, tenantID string, statu
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	t, ok := m.tenants[tenantID]
+	t, ok := m.byUUID[tenantID]
 	if !ok {
 		return provisioning.ErrTenantNotFound
 	}
@@ -129,7 +247,7 @@ func (m *MockTenantStore) SetDeprovisionAt(_ context.Context, tenantID string, d
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	t, ok := m.tenants[tenantID]
+	t, ok := m.byUUID[tenantID]
 	if !ok {
 		return provisioning.ErrTenantNotFound
 	}
@@ -146,7 +264,7 @@ func (m *MockTenantStore) GetTenantsForDeletion(_ context.Context) ([]*provision
 	defer m.mu.RUnlock()
 	var result []*provisioning.Tenant
 	now := time.Now()
-	for _, t := range m.tenants {
+	for _, t := range m.byUUID {
 		if t.Status == provisioning.StatusDeprovisioning && t.DeprovisionAt != nil && t.DeprovisionAt.Before(now) {
 			result = append(result, t)
 		}
@@ -159,7 +277,7 @@ func (m *MockTenantStore) Count(_ context.Context) (int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	count := 0
-	for _, t := range m.tenants {
+	for _, t := range m.byUUID {
 		if t.Status != provisioning.StatusDeleted {
 			count++
 		}
@@ -602,15 +720,25 @@ type MockKafkaAdmin struct {
 	DeleteAttempts      []string                     // topics passed to DeleteTopic regardless of outcome
 	DeletedTopics       []string                     // topics successfully deleted (DeleteTopicErr == nil)
 
+	// CreateTopicACLsCalls, DeleteTopicACLsCalls, DeleteQuotaCalls, and SetQuotaCalls
+	// record slug arguments for test assertions.
+	CreateTopicACLsCalls []string
+	DeleteTopicACLsCalls []string
+	DeleteQuotaCalls     []string
+	SetQuotaCalls        []string
+
 	// CreateTopicErrs is a per-call error queue. Each call to CreateTopic pops the first element;
 	// if the queue is empty, nil is returned. CreateTopicErr is used only when the queue is empty.
-	CreateTopicErrs   []error
-	CreateTopicErr    error
-	DeleteTopicErr    error
-	TopicExistsErr    error
-	SetTopicConfigErr error
-	CreateACLErr      error
-	SetQuotaErr       error
+	CreateTopicErrs      []error
+	CreateTopicErr       error
+	DeleteTopicErr       error
+	TopicExistsErr       error
+	SetTopicConfigErr    error
+	CreateACLErr         error
+	SetQuotaErr          error
+	CreateTopicACLsErr   error
+	DeleteTopicACLsErr   error
+	DeleteQuotaErr       error
 }
 
 // NewMockKafkaAdmin creates a new MockKafkaAdmin.
@@ -704,6 +832,40 @@ func (m *MockKafkaAdmin) SetQuota(_ context.Context, tenantID string, quota prov
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.quotas[tenantID] = quota
+	m.SetQuotaCalls = append(m.SetQuotaCalls, tenantID)
+	return nil
+}
+
+// CreateTopicACLs implements KafkaAdmin.CreateTopicACLs for testing.
+func (m *MockKafkaAdmin) CreateTopicACLs(_ context.Context, slug, _ string) error {
+	if m.CreateTopicACLsErr != nil {
+		return m.CreateTopicACLsErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.CreateTopicACLsCalls = append(m.CreateTopicACLsCalls, slug)
+	return nil
+}
+
+// DeleteTopicACLs implements KafkaAdmin.DeleteTopicACLs for testing.
+func (m *MockKafkaAdmin) DeleteTopicACLs(_ context.Context, slug, _ string) error {
+	if m.DeleteTopicACLsErr != nil {
+		return m.DeleteTopicACLsErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.DeleteTopicACLsCalls = append(m.DeleteTopicACLsCalls, slug)
+	return nil
+}
+
+// DeleteQuota implements KafkaAdmin.DeleteQuota for testing.
+func (m *MockKafkaAdmin) DeleteQuota(_ context.Context, slug, _ string) error {
+	if m.DeleteQuotaErr != nil {
+		return m.DeleteQuotaErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.DeleteQuotaCalls = append(m.DeleteQuotaCalls, slug)
 	return nil
 }
 

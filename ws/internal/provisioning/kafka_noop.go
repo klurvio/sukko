@@ -70,5 +70,20 @@ func (n *NoopKafkaAdmin) SetQuota(_ context.Context, _ string, _ QuotaConfig) er
 	return nil
 }
 
+// CreateTopicACLs is a no-op.
+func (n *NoopKafkaAdmin) CreateTopicACLs(_ context.Context, _, _ string) error {
+	return nil
+}
+
+// DeleteTopicACLs is a no-op.
+func (n *NoopKafkaAdmin) DeleteTopicACLs(_ context.Context, _, _ string) error {
+	return nil
+}
+
+// DeleteQuota is a no-op.
+func (n *NoopKafkaAdmin) DeleteQuota(_ context.Context, _, _ string) error {
+	return nil
+}
+
 // Ensure NoopKafkaAdmin implements KafkaAdmin.
 var _ KafkaAdmin = (*NoopKafkaAdmin)(nil)

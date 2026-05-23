@@ -71,7 +71,7 @@ type RouterConfig struct {
 	// Disabled by default (Constitution IX: debug endpoints must be opt-in).
 	PprofEnabled bool
 
-	// RevocationHandler handles token revocation (POST /api/v1/tenants/{tenantID}/tokens/revoke).
+	// RevocationHandler handles token revocation (POST /api/v1/tenants/{tenantSlug}/tokens/revoke).
 	// When set, revocation routes are registered with Pro edition gate.
 	RevocationHandler *RevocationHandler
 }
@@ -160,9 +160,9 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 				r.Get("/", h.ListTenants)
 			})
 
-			r.Route("/{tenantID}", func(r chi.Router) {
+			r.Route("/{tenantSlug}", func(r chi.Router) {
 				// Tenant isolation - users can only access their own tenant
-				r.Use(RequireTenant())
+				r.Use(RequireTenant(cfg.Service.GetTenantBySlug))
 
 				r.Get("/", h.GetTenant)
 				r.Patch("/", h.UpdateTenant)
@@ -171,6 +171,7 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 				r.Group(func(r chi.Router) {
 					r.Use(RequireRole("admin", "system"))
 					r.Delete("/", h.DeprovisionTenant)
+					r.Post("/rename", h.RenameTenant)
 				})
 
 				// Tenant lifecycle — requires Pro

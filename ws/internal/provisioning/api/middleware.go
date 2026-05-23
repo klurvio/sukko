@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 
+	"github.com/klurvio/sukko/internal/provisioning"
 	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
@@ -120,7 +121,7 @@ func AdminJWTMiddleware(validator *provauth.AdminValidator, logger zerolog.Logge
 			sub, _ := claims.GetSubject()
 			kid, _ := auth.ExtractKeyID(tokenString)
 			ctx := auth.WithClaims(r.Context(), claims)
-			ctx = auth.WithActor(ctx, kid, "admin", r.RemoteAddr)
+			ctx = auth.WithActor(ctx, kid, provisioning.ActorTypeAdmin, r.RemoteAddr)
 
 			logger.Debug().
 				Str("admin_key_id", kid).
@@ -238,9 +239,10 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 }
 
 // RequireTenant checks that the request is for the authenticated tenant's resources.
-// Compares the tenantID URL param with the token's tenant_id claim.
+// It looks up the tenant by slug (URL param "tenantSlug") and validates the caller's
+// JWT tenant_id claim matches — including a grace-period window for recently-renamed tenants.
 // Must be used after AuthMiddleware.
-func RequireTenant() func(http.Handler) http.Handler {
+func RequireTenant(lookup provisioning.TenantLookupFunc) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims := GetClaimsFromContext(r.Context())
@@ -249,32 +251,54 @@ func RequireTenant() func(http.Handler) http.Handler {
 				return
 			}
 
-			// Get tenantID from URL
-			tenantID := chi.URLParam(r, "tenantID")
-			if tenantID == "" {
+			tenantSlug := chi.URLParam(r, "tenantSlug")
+			if tenantSlug == "" {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			// Allow if admin or system role
-			if claims.HasRole("admin") || claims.HasRole("system") {
+			// (1) Admin/system roles bypass tenant ownership check — service layer still enforces existence.
+			if claims.HasRole(provisioning.ActorTypeAdmin) || claims.HasRole(provisioning.ActorTypeSystem) {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			// Check tenant match
-			if claims.TenantID != tenantID {
-				// LOG-021: Tenant mismatch authorization denial
-				zerolog.Ctx(r.Context()).Warn().
-					Str("jwt_tenant", claims.TenantID).Str("requested_tenant", tenantID).
-					Str("path", r.URL.Path).
-					Msg("authorization denied: tenant mismatch")
-				RecordAuthorizationDenial(authzDenialTenantMismatch)
-				httputil.WriteError(w, http.StatusForbidden, errCodeTenantMismatch, "Cannot access other tenant's resources")
+			// (2) Look up the tenant by slug. No caching — intentional for this low-frequency admin API.
+			tenant, err := lookup(r.Context(), tenantSlug)
+			if err != nil {
+				if errors.Is(err, provisioning.ErrTenantNotFound) {
+					httputil.WriteError(w, http.StatusNotFound, errCodeTenantNotFound, "Tenant not found")
+					return
+				}
+				zerolog.Ctx(r.Context()).Error().Err(err).Str("tenant_slug", tenantSlug).Msg("tenant lookup failed")
+				httputil.WriteError(w, http.StatusServiceUnavailable, errCodeServiceUnavailable, "Service temporarily unavailable")
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			// (3) Direct slug match.
+			if claims.TenantID == tenant.Slug {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// (4) Grace-period: tenant was recently renamed; accept tokens carrying the previous slug
+			// for the hold period duration so clients can rotate tokens without an outage.
+			if tenant.Status == provisioning.StatusActive &&
+				tenant.SlugRenameState == provisioning.SlugRenameStateComplete &&
+				tenant.PreviousSlug != "" &&
+				claims.TenantID == tenant.PreviousSlug {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// (5) Mismatch — deny.
+			zerolog.Ctx(r.Context()).Warn().
+				Str("jwt_tenant", claims.TenantID).
+				Str("requested_tenant", tenantSlug).
+				Str("path", r.URL.Path).
+				Msg("authorization denied: tenant mismatch")
+			RecordAuthorizationDenial(authzDenialTenantMismatch)
+			httputil.WriteError(w, http.StatusForbidden, errCodeTenantMismatch, "Cannot access other tenant's resources")
 		})
 	}
 }

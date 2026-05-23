@@ -21,7 +21,7 @@ var revocationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Total token revocations by type and result",
 }, []string{"type", "result"})
 
-// revocationRequest is the JSON body for POST /api/v1/tenants/{tenantID}/tokens/revoke.
+// revocationRequest is the JSON body for POST /api/v1/tenants/{tenantSlug}/tokens/revoke.
 type revocationRequest struct {
 	Sub string `json:"sub,omitempty"`
 	JTI string `json:"jti,omitempty"`
@@ -56,7 +56,7 @@ func NewRevocationHandler(store *revocation.Store, bus *eventbus.Bus, maxLifetim
 	}
 }
 
-// HandleRevoke processes POST /api/v1/tenants/{tenantID}/tokens/revoke.
+// HandleRevoke processes POST /api/v1/tenants/{tenantSlug}/tokens/revoke.
 func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request) {
 	// Rate limiting
 	clientIP := httputil.GetClientIP(r)
@@ -89,7 +89,7 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Determine type and tenant (from URL path via RequireTenant middleware)
-	tenantID := chi.URLParam(r, "tenantID")
+	tenantSlug := chi.URLParam(r, "tenantSlug")
 	revType := "user"
 	if hasJTI {
 		revType = "token"
@@ -104,7 +104,7 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 
 	// Store revocation
 	entry := revocation.Entry{
-		TenantID:  tenantID,
+		TenantID:  tenantSlug,
 		Type:      revType,
 		Sub:       req.Sub,
 		JTI:       req.JTI,
@@ -113,7 +113,7 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 	}
 	if err := h.store.Revoke(entry); err != nil {
 		revocationTotal.WithLabelValues(revType, "error").Inc()
-		h.logger.Error().Err(err).Str("type", revType).Str("tenant_id", tenantID).Msg("revocation store error")
+		h.logger.Error().Err(err).Str("type", revType).Str("tenant_id", tenantSlug).Msg("revocation store error")
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to store revocation")
 		return
 	}
@@ -125,7 +125,7 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 
 	h.logger.Info().
 		Str("type", revType).
-		Str("tenant_id", tenantID).
+		Str("tenant_id", tenantSlug).
 		Str("sub", req.Sub).
 		Str("jti", req.JTI).
 		Str("client_ip", clientIP).
@@ -134,7 +134,7 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 	_ = httputil.WriteJSON(w, http.StatusOK, revocationResponse{
 		Status:    "revoked",
 		Type:      revType,
-		TenantID:  tenantID,
+		TenantID:  tenantSlug,
 		ExpiresAt: time.Unix(expiresAt, 0).UTC().Format(time.RFC3339),
 	})
 }

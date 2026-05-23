@@ -17,11 +17,28 @@ type TenantStore interface {
 	// Create creates a new tenant record.
 	Create(ctx context.Context, tenant *Tenant) error
 
-	// Get retrieves a tenant by ID.
-	Get(ctx context.Context, tenantID string) (*Tenant, error)
+	// GetBySlug retrieves a tenant by slug.
+	GetBySlug(ctx context.Context, slug string) (*Tenant, error)
 
 	// Update updates an existing tenant record.
 	Update(ctx context.Context, tenant *Tenant) error
+
+	// UpdateSlug commits a slug rename and returns the updated tenant via RETURNING.
+	// Returns ErrSlugAlreadyTaken if the unique constraint fires (23505 TOCTOU race).
+	UpdateSlug(ctx context.Context, tenantUUID, newSlug string) (*Tenant, error)
+
+	// SetRenameState sets the slug rename state with a CAS guard.
+	// The UPDATE fires only when slug_rename_state IS NULL OR slug_rename_state='complete'.
+	// Returns ErrCASFailed when zero rows are affected (concurrent rename in progress).
+	SetRenameState(ctx context.Context, tenantUUID string, state SlugRenameState, previousSlug string) error
+
+	// ClearRenameState unconditionally clears slug_rename_state, previous_slug, and slug_renamed_at.
+	ClearRenameState(ctx context.Context, tenantUUID string) error
+
+	// ListPendingRenames returns tenants with slug_rename_state='pending' OR
+	// (slug_rename_state='complete' AND previous_slug IS NOT NULL).
+	// Used by the startup scan to detect saga residue and re-emit config events.
+	ListPendingRenames(ctx context.Context) ([]*Tenant, error)
 
 	// List returns tenants matching the given options.
 	List(ctx context.Context, opts ListOptions) ([]*Tenant, int, error)
@@ -181,6 +198,15 @@ type KafkaAdmin interface {
 
 	// SetQuota sets resource quotas for a tenant principal.
 	SetQuota(ctx context.Context, tenantID string, quota QuotaConfig) error
+
+	// CreateTopicACLs creates all topic and consumer-group ACL rules for the given slug.
+	CreateTopicACLs(ctx context.Context, slug, namespace string) error
+
+	// DeleteTopicACLs removes all topic and consumer-group ACL rules for the given slug.
+	DeleteTopicACLs(ctx context.Context, slug, namespace string) error
+
+	// DeleteQuota removes resource quotas for the given slug principal.
+	DeleteQuota(ctx context.Context, slug, namespace string) error
 }
 
 // QuotaEnforcer checks resource limits before provisioning.

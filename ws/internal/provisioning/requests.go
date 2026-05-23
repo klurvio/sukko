@@ -6,8 +6,8 @@ import (
 
 // CreateTenantRequest is the request to create a new tenant.
 type CreateTenantRequest struct {
-	// TenantID is the unique identifier.
-	TenantID string `json:"id"`
+	// Slug is the human-readable Kafka namespace and URL identifier (e.g., "acme").
+	Slug string `json:"slug"`
 
 	// Name is the display name.
 	Name string `json:"name"`
@@ -20,6 +20,12 @@ type CreateTenantRequest struct {
 
 	// PublicKey is the initial public key to register (optional).
 	PublicKey *CreateKeyRequest `json:"public_key,omitempty"`
+}
+
+// RenameTenantRequest is the request to rename a tenant's slug.
+type RenameTenantRequest struct {
+	// Slug is the desired new slug.
+	Slug string `json:"slug"`
 }
 
 // CreateTenantResponse is the response from creating a tenant.
@@ -41,6 +47,9 @@ type UpdateTenantRequest struct {
 
 	// Metadata is the new metadata (replaces existing).
 	Metadata Metadata `json:"metadata,omitempty"`
+
+	// Slug is rejected — slugs are immutable via PATCH (use /rename endpoint).
+	Slug *string `json:"slug,omitempty"`
 }
 
 // CreateKeyRequest is the request to register a public key.

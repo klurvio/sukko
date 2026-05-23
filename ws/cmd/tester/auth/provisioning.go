@@ -57,7 +57,7 @@ func (c *ProvisioningClient) AuthProvider() Provider {
 // CreateTenant creates a new tenant via the provisioning API.
 func (c *ProvisioningClient) CreateTenant(ctx context.Context, tenantID, name string) error {
 	body, err := json.Marshal(map[string]string{
-		"id":            tenantID,
+		"slug":          tenantID,
 		"name":          name,
 		"consumer_type": "shared",
 	})
