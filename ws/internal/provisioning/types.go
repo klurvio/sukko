@@ -1,6 +1,7 @@
 package provisioning
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql/driver"
 	"encoding/base64"
@@ -9,6 +10,8 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Time is a wrapper around time.Time for nullable timestamps.
@@ -30,6 +33,20 @@ const (
 	// StatusDeleted indicates the tenant has been permanently removed.
 	StatusDeleted TenantStatus = "deleted"
 )
+
+// SlugRenameState tracks the progress of a tenant slug rename saga.
+type SlugRenameState string
+
+const (
+	// SlugRenameStatePending indicates a rename saga has started but not committed to DB.
+	SlugRenameStatePending SlugRenameState = "pending"
+
+	// SlugRenameStateComplete indicates the DB slug has been updated; hold period may still be active.
+	SlugRenameStateComplete SlugRenameState = "complete"
+)
+
+// TenantLookupFunc retrieves a tenant by slug. Used by RequireTenant middleware.
+type TenantLookupFunc func(ctx context.Context, slug string) (*Tenant, error)
 
 // IsValid checks if the status is a valid value.
 func (s TenantStatus) IsValid() bool {
@@ -89,9 +106,13 @@ func (m *Metadata) Scan(value any) error {
 
 // Tenant represents a tenant in the system.
 type Tenant struct {
-	// ID is the unique identifier (e.g., "acme").
-	// Must match pattern: ^[a-z][a-z0-9-]{2,62}$
+	// ID is the stable UUID primary key (DB-generated, never changes).
 	ID string `json:"id"`
+
+	// Slug is the human-readable Kafka namespace and URL identifier (e.g., "acme").
+	// Must match pattern: ^[a-z][a-z0-9-]{2,62}$
+	// Mutable via the /rename endpoint; all FK tables reference the UUID ID.
+	Slug string `json:"slug"`
 
 	// Name is the display name (e.g., "Acme Corporation").
 	Name string `json:"name"`
@@ -104,6 +125,17 @@ type Tenant struct {
 
 	// Metadata holds flexible key-value data.
 	Metadata Metadata `json:"metadata,omitempty"`
+
+	// PreviousSlug is the slug before the most recent rename (used for JWT grace period).
+	// Cleared after the hold period expires.
+	PreviousSlug string `json:"previous_slug,omitempty"`
+
+	// SlugRenameState tracks saga progress. Not exposed in API responses.
+	SlugRenameState SlugRenameState `json:"-"`
+
+	// SlugRenamedAt is the DB-authoritative timestamp of the most recent rename commit.
+	// Used to enforce the hold period gate. Not exposed in API responses.
+	SlugRenamedAt *time.Time `json:"-"`
 
 	// CreatedAt is when the tenant was created.
 	CreatedAt time.Time `json:"created_at"`
@@ -121,21 +153,21 @@ type Tenant struct {
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
-// tenantIDPattern validates tenant IDs.
-var tenantIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{2,62}$`)
+// tenantSlugPattern validates tenant slugs.
+var tenantSlugPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{2,62}$`)
 
-// ValidateTenantID checks if a tenant ID is valid.
-func ValidateTenantID(id string) error {
-	if !tenantIDPattern.MatchString(id) {
-		return fmt.Errorf("invalid tenant ID: must be 3-63 lowercase alphanumeric characters, "+
-			"starting with a letter, may contain hyphens (got: %q)", id)
+// ValidateSlug checks if a tenant slug is valid.
+func ValidateSlug(slug string) error {
+	if !tenantSlugPattern.MatchString(slug) {
+		return fmt.Errorf("invalid tenant slug: must be 3-63 lowercase alphanumeric characters, "+
+			"starting with a letter, may contain hyphens (got: %q)", slug)
 	}
 	return nil
 }
 
 // Validate checks if the tenant is valid for creation.
 func (t *Tenant) Validate() error {
-	if err := ValidateTenantID(t.ID); err != nil {
+	if err := ValidateSlug(t.Slug); err != nil {
 		return err
 	}
 	if t.Name == "" {
@@ -219,8 +251,8 @@ func (k *TenantKey) Validate() error {
 	if err := ValidateKeyID(k.KeyID); err != nil {
 		return err
 	}
-	if err := ValidateTenantID(k.TenantID); err != nil {
-		return fmt.Errorf("invalid tenant ID: %w", err)
+	if _, err := uuid.Parse(k.TenantID); err != nil {
+		return fmt.Errorf("invalid tenant ID: must be a valid UUID (got: %q)", k.TenantID)
 	}
 	if !k.Algorithm.IsValid() {
 		return fmt.Errorf("invalid algorithm: %q (must be ES256, RS256, or EdDSA)", k.Algorithm)
@@ -367,6 +399,9 @@ const (
 	ActionAddRoutingRule      = "add_routing_rule"
 	ActionDeleteRoutingRules  = "delete_routing_rules"
 
+	// Rename action
+	ActionRenameTenant = "rename_tenant"
+
 	// API key actions
 	ActionCreateAPIKey = "create_api_key"
 	ActionRevokeAPIKey = "revoke_api_key" //nolint:gosec // audit action label, not a credential
@@ -377,4 +412,5 @@ const (
 	ActorTypeUser   = "user"
 	ActorTypeSystem = "system"
 	ActorTypeAPIKey = "api_key"
+	ActorTypeAdmin  = "admin"
 )

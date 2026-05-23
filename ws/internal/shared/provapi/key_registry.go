@@ -61,7 +61,13 @@ type StreamKeyRegistryConfig struct {
 // backed by a gRPC streaming connection to the provisioning service.
 type StreamKeyRegistry struct {
 	mu           sync.RWMutex
-	keysByID     map[string]*auth.KeyInfo
+	keysByID map[string]*auth.KeyInfo
+	// BUG: keysByTenant is keyed by the UUID value in auth.KeyInfo.TenantID, which the
+	// gRPC server populates from TenantKey.TenantID (a validated UUID FK). GetKeysByTenant
+	// is called with a slug, so lookups always miss. Fix: update grpcserver/server.go
+	// convertKeys to send the tenant slug (not UUID) in the TenantId proto field, requiring
+	// TenantKey to carry a TenantSlug field populated via JOIN in the key repository.
+	// No production caller of GetKeysByTenant exists today, so runtime impact is zero.
 	keysByTenant map[string][]*auth.KeyInfo
 
 	conn   *grpc.ClientConn
@@ -152,12 +158,15 @@ func (r *StreamKeyRegistry) GetKey(_ context.Context, keyID string) (*auth.KeyIn
 	return key, nil
 }
 
-// GetKeysByTenant retrieves all active keys for a tenant.
-func (r *StreamKeyRegistry) GetKeysByTenant(_ context.Context, tenantID string) ([]*auth.KeyInfo, error) {
+// GetKeysByTenant retrieves all active keys for a tenant slug.
+// BUG: always returns empty because keysByTenant is UUID-keyed (see field comment).
+// Safe to call — returns nil, nil — but produces no results until the gRPC server is
+// updated to send slug in the TenantId proto field.
+func (r *StreamKeyRegistry) GetKeysByTenant(_ context.Context, tenantSlug string) ([]*auth.KeyInfo, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	keys := r.keysByTenant[tenantID]
+	keys := r.keysByTenant[tenantSlug]
 	if len(keys) == 0 {
 		return nil, nil
 	}

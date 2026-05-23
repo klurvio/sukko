@@ -33,6 +33,52 @@ func NewTenantRepository(pool *pgxpool.Pool) *TenantRepository {
 	return &TenantRepository{pool: pool}
 }
 
+// tenantCols is the ordered SELECT column list shared by all tenant queries.
+// scanTenant MUST scan in this exact column order.
+const tenantCols = `
+	id, slug, name, status, consumer_type, metadata,
+	created_at, updated_at, suspended_at, deprovision_at, deleted_at,
+	previous_slug, slug_rename_state, slug_renamed_at
+`
+
+// scanner is satisfied by both pgx.Row (QueryRow) and pgx.Rows (Query iteration).
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+// scanTenant scans a row (columns in tenantCols order) into a Tenant.
+// Nullable columns (previous_slug, slug_rename_state, slug_renamed_at) are handled
+// by scanning into pointer types; nil values produce zero/empty Go fields.
+func scanTenant(row scanner, tenant *provisioning.Tenant) error {
+	var previousSlug *string
+	var slugRenameState *string
+	if err := row.Scan(
+		&tenant.ID,
+		&tenant.Slug,
+		&tenant.Name,
+		&tenant.Status,
+		&tenant.ConsumerType,
+		&tenant.Metadata,
+		&tenant.CreatedAt,
+		&tenant.UpdatedAt,
+		&tenant.SuspendedAt,
+		&tenant.DeprovisionAt,
+		&tenant.DeletedAt,
+		&previousSlug,
+		&slugRenameState,
+		&tenant.SlugRenamedAt,
+	); err != nil {
+		return err
+	}
+	if previousSlug != nil {
+		tenant.PreviousSlug = *previousSlug
+	}
+	if slugRenameState != nil {
+		tenant.SlugRenameState = provisioning.SlugRenameState(*slugRenameState)
+	}
+	return nil
+}
+
 // Ping verifies database connectivity.
 func (r *TenantRepository) Ping(ctx context.Context) error {
 	if err := r.pool.Ping(ctx); err != nil {
@@ -42,10 +88,12 @@ func (r *TenantRepository) Ping(ctx context.Context) error {
 }
 
 // Create creates a new tenant record.
+// The UUID primary key is DB-generated; it is scanned back into tenant.ID via RETURNING.
 func (r *TenantRepository) Create(ctx context.Context, tenant *provisioning.Tenant) error {
 	query := `
-		INSERT INTO tenants (id, name, status, consumer_type, metadata, created_at, updated_at)
+		INSERT INTO tenants (slug, name, status, consumer_type, metadata, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id
 	`
 
 	now := time.Now()
@@ -65,18 +113,18 @@ func (r *TenantRepository) Create(ctx context.Context, tenant *provisioning.Tena
 		tenant.Metadata = make(provisioning.Metadata)
 	}
 
-	_, err := r.pool.Exec(ctx, query,
-		tenant.ID,
+	err := r.pool.QueryRow(ctx, query,
+		tenant.Slug,
 		tenant.Name,
 		tenant.Status,
 		tenant.ConsumerType,
 		tenant.Metadata,
 		tenant.CreatedAt,
 		tenant.UpdatedAt,
-	)
+	).Scan(&tenant.ID)
 	if err != nil {
 		if isDuplicateKeyError(err) {
-			return fmt.Errorf("%w: %s", provisioning.ErrTenantAlreadyExists, tenant.ID)
+			return fmt.Errorf("%w: %s", provisioning.ErrSlugAlreadyTaken, tenant.Slug)
 		}
 		return fmt.Errorf("insert tenant: %w", err)
 	}
@@ -84,40 +132,22 @@ func (r *TenantRepository) Create(ctx context.Context, tenant *provisioning.Tena
 	return nil
 }
 
-// Get retrieves a tenant by ID.
-func (r *TenantRepository) Get(ctx context.Context, tenantID string) (*provisioning.Tenant, error) {
-	query := `
-		SELECT id, name, status, consumer_type, metadata, created_at, updated_at,
-		       suspended_at, deprovision_at, deleted_at
-		FROM tenants
-		WHERE id = $1
-	`
+// GetBySlug retrieves a tenant by slug.
+func (r *TenantRepository) GetBySlug(ctx context.Context, slug string) (*provisioning.Tenant, error) {
+	query := `SELECT` + tenantCols + `FROM tenants WHERE slug = $1 AND deleted_at IS NULL`
 
 	tenant := &provisioning.Tenant{}
-
-	err := r.pool.QueryRow(ctx, query, tenantID).Scan(
-		&tenant.ID,
-		&tenant.Name,
-		&tenant.Status,
-		&tenant.ConsumerType,
-		&tenant.Metadata,
-		&tenant.CreatedAt,
-		&tenant.UpdatedAt,
-		&tenant.SuspendedAt,
-		&tenant.DeprovisionAt,
-		&tenant.DeletedAt,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, tenantID)
-	}
-	if err != nil {
+	if err := scanTenant(r.pool.QueryRow(ctx, query, slug), tenant); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, slug)
+		}
 		return nil, fmt.Errorf("query tenant: %w", err)
 	}
 
 	return tenant, nil
 }
 
-// Update updates an existing tenant record.
+// Update updates an existing tenant's mutable metadata fields.
 func (r *TenantRepository) Update(ctx context.Context, tenant *provisioning.Tenant) error {
 	query := `
 		UPDATE tenants
@@ -144,9 +174,114 @@ func (r *TenantRepository) Update(ctx context.Context, tenant *provisioning.Tena
 	return nil
 }
 
+// UpdateSlug commits a slug rename and returns the updated tenant via RETURNING.
+// The DB atomically records: new slug, previous_slug=old_slug, slug_rename_state='complete',
+// slug_renamed_at=NOW(). Returns ErrSlugAlreadyTaken when the unique constraint fires
+// (23505 TOCTOU race between the "slug available" check and this UPDATE).
+func (r *TenantRepository) UpdateSlug(ctx context.Context, tenantUUID, newSlug string) (*provisioning.Tenant, error) {
+	query := `
+		UPDATE tenants
+		SET slug             = $2,
+		    slug_rename_state = 'complete',
+		    previous_slug    = slug,
+		    slug_renamed_at  = NOW(),
+		    updated_at       = NOW()
+		WHERE id = $1
+		RETURNING ` + tenantCols
+
+	tenant := &provisioning.Tenant{}
+	if err := scanTenant(r.pool.QueryRow(ctx, query, tenantUUID, newSlug), tenant); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, tenantUUID)
+		}
+		if isDuplicateKeyError(err) {
+			return nil, provisioning.ErrSlugAlreadyTaken
+		}
+		return nil, fmt.Errorf("update slug: %w", err)
+	}
+
+	return tenant, nil
+}
+
+// SetRenameState sets the slug rename state with a CAS guard.
+// The UPDATE fires only when slug_rename_state IS NULL OR slug_rename_state='complete'.
+// Returns ErrCASFailed when zero rows are affected (concurrent rename in progress).
+func (r *TenantRepository) SetRenameState(ctx context.Context, tenantUUID string, state provisioning.SlugRenameState, previousSlug string) error {
+	query := `
+		UPDATE tenants
+		SET slug_rename_state = $2,
+		    previous_slug     = $3,
+		    updated_at        = NOW()
+		WHERE id = $1
+		  AND (slug_rename_state IS NULL OR slug_rename_state = 'complete')
+	`
+
+	result, err := r.pool.Exec(ctx, query, tenantUUID, string(state), previousSlug)
+	if err != nil {
+		return fmt.Errorf("set rename state: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return provisioning.ErrCASFailed
+	}
+
+	return nil
+}
+
+// ClearRenameState unconditionally clears slug_rename_state, previous_slug, and slug_renamed_at.
+// Clearing slug_renamed_at ensures a future rename finds a clean hold-period baseline.
+func (r *TenantRepository) ClearRenameState(ctx context.Context, tenantUUID string) error {
+	query := `
+		UPDATE tenants
+		SET slug_rename_state = NULL,
+		    previous_slug     = NULL,
+		    slug_renamed_at   = NULL,
+		    updated_at        = NOW()
+		WHERE id = $1
+	`
+
+	if _, err := r.pool.Exec(ctx, query, tenantUUID); err != nil {
+		return fmt.Errorf("clear rename state: %w", err)
+	}
+
+	return nil
+}
+
+// ListPendingRenames returns tenants with slug_rename_state='pending' OR
+// (slug_rename_state='complete' AND previous_slug IS NOT NULL).
+// Used by the startup scan to detect saga residue and re-emit config events.
+func (r *TenantRepository) ListPendingRenames(ctx context.Context) ([]*provisioning.Tenant, error) {
+	query := `
+		SELECT ` + tenantCols + `
+		FROM tenants
+		WHERE slug_rename_state = 'pending'
+		   OR (slug_rename_state = 'complete' AND previous_slug IS NOT NULL)
+	`
+
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list pending renames: %w", err)
+	}
+	defer rows.Close()
+
+	var tenants []*provisioning.Tenant
+	for rows.Next() {
+		tenant := &provisioning.Tenant{}
+		if err := scanTenant(rows, tenant); err != nil {
+			return nil, fmt.Errorf("scan tenant: %w", err)
+		}
+		tenants = append(tenants, tenant)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending renames: %w", err)
+	}
+
+	return tenants, nil
+}
+
 // List returns tenants matching the given options.
 func (r *TenantRepository) List(ctx context.Context, opts provisioning.ListOptions) ([]*provisioning.Tenant, int, error) {
-	// Build query with optional status filter
 	whereClause := "WHERE status != 'deleted'"
 	args := []any{}
 	argNum := 1
@@ -157,14 +292,12 @@ func (r *TenantRepository) List(ctx context.Context, opts provisioning.ListOptio
 		argNum++
 	}
 
-	// Count total
 	countQuery := "SELECT COUNT(*) FROM tenants " + whereClause
 	var total int
 	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count tenants: %w", err)
 	}
 
-	// Get page
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = defaultListLimit
@@ -172,8 +305,7 @@ func (r *TenantRepository) List(ctx context.Context, opts provisioning.ListOptio
 	offset := max(opts.Offset, 0)
 
 	query := fmt.Sprintf(`
-		SELECT id, name, status, consumer_type, metadata, created_at, updated_at,
-		       suspended_at, deprovision_at, deleted_at
+		SELECT `+tenantCols+`
 		FROM tenants
 		%s
 		ORDER BY created_at DESC
@@ -191,23 +323,9 @@ func (r *TenantRepository) List(ctx context.Context, opts provisioning.ListOptio
 	tenants := []*provisioning.Tenant{}
 	for rows.Next() {
 		tenant := &provisioning.Tenant{}
-
-		err := rows.Scan(
-			&tenant.ID,
-			&tenant.Name,
-			&tenant.Status,
-			&tenant.ConsumerType,
-			&tenant.Metadata,
-			&tenant.CreatedAt,
-			&tenant.UpdatedAt,
-			&tenant.SuspendedAt,
-			&tenant.DeprovisionAt,
-			&tenant.DeletedAt,
-		)
-		if err != nil {
+		if err := scanTenant(rows, tenant); err != nil {
 			return nil, 0, fmt.Errorf("scan tenant: %w", err)
 		}
-
 		tenants = append(tenants, tenant)
 	}
 
@@ -218,7 +336,7 @@ func (r *TenantRepository) List(ctx context.Context, opts provisioning.ListOptio
 	return tenants, total, nil
 }
 
-// UpdateStatus updates a tenant's status.
+// UpdateStatus updates a tenant's status. tenantID MUST be the tenant's UUID primary key.
 func (r *TenantRepository) UpdateStatus(ctx context.Context, tenantID string, status provisioning.TenantStatus) error {
 	var query string
 	var args []any
@@ -270,7 +388,7 @@ func (r *TenantRepository) UpdateStatus(ctx context.Context, tenantID string, st
 	return nil
 }
 
-// SetDeprovisionAt sets the deprovision deadline for a tenant.
+// SetDeprovisionAt sets the deprovision deadline for a tenant. tenantID MUST be the UUID.
 func (r *TenantRepository) SetDeprovisionAt(ctx context.Context, tenantID string, deprovisionAt *provisioning.Time) error {
 	query := `
 		UPDATE tenants
@@ -294,8 +412,7 @@ func (r *TenantRepository) SetDeprovisionAt(ctx context.Context, tenantID string
 // GetTenantsForDeletion returns tenants past their deprovision deadline.
 func (r *TenantRepository) GetTenantsForDeletion(ctx context.Context) ([]*provisioning.Tenant, error) {
 	query := `
-		SELECT id, name, status, consumer_type, metadata, created_at, updated_at,
-		       suspended_at, deprovision_at, deleted_at
+		SELECT ` + tenantCols + `
 		FROM tenants
 		WHERE status = 'deprovisioning'
 		  AND deprovision_at IS NOT NULL
@@ -312,23 +429,9 @@ func (r *TenantRepository) GetTenantsForDeletion(ctx context.Context) ([]*provis
 	tenants := []*provisioning.Tenant{}
 	for rows.Next() {
 		tenant := &provisioning.Tenant{}
-
-		err := rows.Scan(
-			&tenant.ID,
-			&tenant.Name,
-			&tenant.Status,
-			&tenant.ConsumerType,
-			&tenant.Metadata,
-			&tenant.CreatedAt,
-			&tenant.UpdatedAt,
-			&tenant.SuspendedAt,
-			&tenant.DeprovisionAt,
-			&tenant.DeletedAt,
-		)
-		if err != nil {
+		if err := scanTenant(rows, tenant); err != nil {
 			return nil, fmt.Errorf("scan tenant: %w", err)
 		}
-
 		tenants = append(tenants, tenant)
 	}
 

@@ -165,8 +165,8 @@ func provisionTenantTopics(
 	allOK := true
 
 	for _, spec := range specs {
-		topicName := kafkautil.BuildTopicName(namespace, tenant.ID, spec.suffix)
-		tlog := log.With().Str("tenant_id", tenant.ID).Str("topic", topicName).Logger()
+		topicName := kafkautil.BuildTopicName(namespace, tenant.Slug, spec.suffix)
+		tlog := log.With().Str("tenant_slug", tenant.Slug).Str("topic", topicName).Logger()
 
 		if dryRun {
 			if recreate {

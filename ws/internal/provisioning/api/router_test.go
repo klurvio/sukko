@@ -1460,6 +1460,236 @@ func (noopLicenseStore) Upsert(context.Context, string, string, string, *time.Ti
 
 func (noopLicenseStore) Load(context.Context) (string, error) { return "", nil }
 
+func TestRouter_RenameTenant(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(*testutil.MockTenantStore)
+		reqBody    any
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name: "happy path — 200 with updated slug",
+			setup: func(ts *testutil.MockTenantStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+			},
+			reqBody:    map[string]string{"slug": "new-corp"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "slug unchanged — 400",
+			setup: func(ts *testutil.MockTenantStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+			},
+			reqBody:    map[string]string{"slug": "test-tenant"},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "SLUG_UNCHANGED",
+		},
+		{
+			name: "slug invalid — 400",
+			setup: func(ts *testutil.MockTenantStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+			},
+			reqBody:    map[string]string{"slug": "Invalid_Slug"},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "SLUG_INVALID",
+		},
+		{
+			name: "slug reserved — 400",
+			setup: func(ts *testutil.MockTenantStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+			},
+			reqBody:    map[string]string{"slug": "rename"},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "SLUG_RESERVED",
+		},
+		{
+			name: "slug already taken — 409",
+			setup: func(ts *testutil.MockTenantStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("taken-corp"))
+			},
+			reqBody:    map[string]string{"slug": "taken-corp"},
+			wantStatus: http.StatusConflict,
+			wantCode:   "SLUG_ALREADY_TAKEN",
+		},
+		{
+			name:       "tenant not found — 404",
+			setup:      func(_ *testutil.MockTenantStore) {},
+			reqBody:    map[string]string{"slug": "new-corp"},
+			wantStatus: http.StatusNotFound,
+			wantCode:   "TENANT_NOT_FOUND",
+		},
+		{
+			name: "invalid JSON — 400",
+			setup: func(ts *testutil.MockTenantStore) {
+				_ = ts.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+			},
+			reqBody:    "not-json{{{",
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "INVALID_REQUEST",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ts := testutil.NewMockTenantStore()
+			tt.setup(ts)
+			svc := newTestServiceWithStores(ts, testutil.NewMockRoutingRulesStore())
+
+			router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+				Service: svc,
+				Logger:  zerolog.Nop(),
+			})
+
+			var body []byte
+			switch v := tt.reqBody.(type) {
+			case string:
+				body = []byte(v)
+			default:
+				body, _ = json.Marshal(v)
+			}
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+				"/api/v1/tenants/test-tenant/rename", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			addAuth(req)
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if tt.wantCode != "" {
+				var errResp struct {
+					Code string `json:"code"`
+				}
+				if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
+					t.Fatalf("unmarshal error response: %v; body: %s", err, rec.Body.String())
+				}
+				if errResp.Code != tt.wantCode {
+					t.Errorf("error code = %q, want %q; body: %s", errResp.Code, tt.wantCode, rec.Body.String())
+				}
+			}
+		})
+	}
+}
+
+func TestRouter_RenameTenant_RequiresAdminRole(t *testing.T) {
+	t.Parallel()
+
+	ts := testutil.NewMockTenantStore()
+	_ = ts.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+
+	// Build a validator with a known key, then sign the user-role token with that same key.
+	ecPEM, privateKey := generateTestECKey(t)
+	registry := auth.NewStaticKeyRegistry()
+	if err := registry.AddKey(&auth.KeyInfo{
+		KeyID:        "test-key-1",
+		TenantID:     "test-tenant",
+		Algorithm:    "ES256",
+		PublicKeyPEM: ecPEM,
+		IsActive:     true,
+	}); err != nil {
+		t.Fatalf("AddKey: %v", err)
+	}
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry: registry,
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator: %v", err)
+	}
+
+	router := mustNewRouter(t, api.RouterConfig{
+		Service:   newTestServiceWithStores(ts, testutil.NewMockRoutingRulesStore()),
+		Logger:    zerolog.Nop(),
+		Validator: validator,
+	})
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-only",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		TenantID: "test-tenant",
+		Roles:    []string{"user"},
+	}
+	token := createTestToken(t, privateKey, claims)
+
+	body, _ := json.Marshal(map[string]string{"slug": "new-corp"})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/api/v1/tenants/test-tenant/rename", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d (non-admin must be denied); body: %s",
+			rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+}
+
+// TestIsReservedSlug_CoversAllRouteSegments verifies that all action-endpoint path
+// segments used in the router are in the reserved slug list, so no tenant can shadow them.
+func TestIsReservedSlug_CoversAllRouteSegments(t *testing.T) {
+	t.Parallel()
+
+	// These are the exact route segment strings used in api/router.go as action endpoints
+	// or resource collections nested under /tenants/{tenantSlug}/. If any of these were
+	// not reserved, a tenant with that slug could shadow the route.
+	routeSegments := []string{
+		"rename", "suspend", "reactivate",
+		"keys", "api-keys", "routing-rules", "quotas", "audit",
+		"channel-rules", "tokens", "test-access",
+	}
+
+	svc, _ := newTestServiceWithKafka(
+		testutil.NewMockTenantStore(),
+		testutil.NewMockRoutingRulesStore(),
+	)
+	router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+		Service: svc,
+		Logger:  zerolog.Nop(),
+	})
+
+	for _, seg := range routeSegments {
+		t.Run(seg, func(t *testing.T) {
+			t.Parallel()
+			body, _ := json.Marshal(map[string]string{"slug": seg, "name": seg + " corp"})
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+				"/api/v1/tenants", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			addAuth(req)
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("slug %q: status = %d, want 400 (must be rejected as reserved); body: %s",
+					seg, rec.Code, rec.Body.String())
+				return
+			}
+			var errResp struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
+				t.Fatalf("slug %q: unmarshal error response: %v; body: %s", seg, err, rec.Body.String())
+			}
+			if errResp.Code != "SLUG_RESERVED" {
+				t.Errorf("slug %q: code = %q, want SLUG_RESERVED; body: %s", seg, errResp.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 //nolint:paralleltest // shares package-level publicKey via license.SetPublicKeyForTesting
 func TestRouter_LicenseEndpoint_AdminAuth(t *testing.T) {
 	// --- License signing keypair (for the happy-path 200 test case) ---

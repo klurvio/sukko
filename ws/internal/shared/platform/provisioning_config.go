@@ -19,6 +19,12 @@ import (
 // Applied to both DEFAULT_RETENTION_MS and ROUTING_DLQ_TOPIC_RETENTION_MS.
 const minTopicRetentionMs int64 = 60000
 
+// MinSlugRenameHoldPeriod is the minimum allowed hold period after a tenant slug rename.
+// During this period the old slug is still accepted by the JWT grace-period check.
+// Exported from the platform package so the provisioning service can reference it without
+// a cross-package import inversion.
+const MinSlugRenameHoldPeriod = 24 * time.Hour
+
 // maxInfraTopicReplicationFactor is the maximum allowed replication factor for infrastructure topics.
 // int16 max is 32767; values >= 32768 would overflow silently when cast to int16 at CreateTopic call sites.
 const maxInfraTopicReplicationFactor = 32767
@@ -94,6 +100,11 @@ type ProvisioningConfig struct {
 	// Provisioning-specific externalized constants
 	MaxTenantsFetchLimit int           `env:"PROVISIONING_MAX_TENANTS_FETCH_LIMIT" envDefault:"10000"`
 	DeletionTimeout      time.Duration `env:"PROVISIONING_DELETION_TIMEOUT" envDefault:"5m"`
+
+	// SlugRenameTopicHoldPeriod is how long old Kafka topics and ACLs are retained after a slug rename.
+	// During this window the old slug is still accepted by the JWT grace-period check.
+	// Must be >= MinSlugRenameHoldPeriod (24h). Default: 168h (7 days).
+	SlugRenameTopicHoldPeriod time.Duration `env:"SLUG_RENAME_TOPIC_HOLD_PERIOD" envDefault:"168h"`
 
 	// editionManager holds the license-resolved edition and limits.
 	// Set by LoadProvisioningConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.
@@ -279,6 +290,11 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("PROVISIONING_DELETION_TIMEOUT must be > 0, got %v", c.DeletionTimeout)
 	}
 
+	// Slug rename hold period — must be >= 24h to give old JWTs time to expire.
+	if c.SlugRenameTopicHoldPeriod < MinSlugRenameHoldPeriod {
+		return fmt.Errorf("SLUG_RENAME_TOPIC_HOLD_PERIOD must be >= %s, got %s", MinSlugRenameHoldPeriod, c.SlugRenameTopicHoldPeriod)
+	}
+
 	return nil
 }
 
@@ -322,6 +338,7 @@ func (c *ProvisioningConfig) Print() {
 	_, _ = fmt.Fprintf(w, "Consumer Rate:      %d MB/s\n", c.ConsumerByteRate/(1024*1024))
 	_, _ = fmt.Fprintln(w, "\n=== Tenant Lifecycle ===")
 	_, _ = fmt.Fprintf(w, "Grace Period:       %d days\n", c.DeprovisionGraceDays)
+	_, _ = fmt.Fprintf(w, "Slug Rename Hold:   %s\n", c.SlugRenameTopicHoldPeriod)
 	_, _ = fmt.Fprintln(w, "\n=== Rate Limiting ===")
 	_, _ = fmt.Fprintf(w, "API Rate Limit:     %d req/min\n", c.APIRateLimitPerMinute)
 	_, _ = fmt.Fprintln(w, "\n=== HTTP Server ===")
@@ -357,6 +374,7 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Int("max_topics_per_tenant", c.MaxTopicsPerTenant).
 		Int("max_partitions_per_tenant", c.MaxPartitionsPerTenant).
 		Int("deprovision_grace_days", c.DeprovisionGraceDays).
+		Dur("slug_rename_topic_hold_period", c.SlugRenameTopicHoldPeriod).
 		Int("api_rate_limit_per_min", c.APIRateLimitPerMinute).
 		Dur("http_read_timeout", c.HTTPReadTimeout).
 		Dur("http_write_timeout", c.HTTPWriteTimeout).

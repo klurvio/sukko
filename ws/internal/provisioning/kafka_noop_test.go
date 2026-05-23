@@ -75,6 +75,15 @@ func TestNoopKafkaAdmin_NoopMethods(t *testing.T) {
 	if err := admin.CreateACL(ctx, ACLBinding{Principal: "test"}); err != nil {
 		t.Errorf("CreateACL: %v", err)
 	}
+	if err := admin.CreateTopicACLs(ctx, "acme", "test"); err != nil {
+		t.Errorf("CreateTopicACLs: %v", err)
+	}
+	if err := admin.DeleteTopicACLs(ctx, "acme", "test"); err != nil {
+		t.Errorf("DeleteTopicACLs: %v", err)
+	}
+	if err := admin.DeleteQuota(ctx, "acme", "test"); err != nil {
+		t.Errorf("DeleteQuota: %v", err)
+	}
 }
 
 func TestNoopKafkaAdmin_Concurrent(t *testing.T) {

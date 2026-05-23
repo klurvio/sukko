@@ -21,7 +21,7 @@ func newTestRevocationHandler() (*RevocationHandler, *chi.Mux) {
 	h := NewRevocationHandler(store, bus, 24*time.Hour, zerolog.Nop())
 
 	r := chi.NewRouter()
-	r.Post("/api/v1/tenants/{tenantID}/tokens/revoke", h.HandleRevoke)
+	r.Post("/api/v1/tenants/{tenantSlug}/tokens/revoke", h.HandleRevoke)
 	return h, r
 }
 

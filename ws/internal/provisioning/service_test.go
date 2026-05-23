@@ -65,15 +65,15 @@ func TestService_CreateTenant(t *testing.T) {
 		{
 			name: "valid tenant without key",
 			req: provisioning.CreateTenantRequest{
-				TenantID: "acme-corp",
-				Name:     "Acme Corporation",
+				Slug: "acme-corp",
+				Name: "Acme Corporation",
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid tenant with consumer type",
 			req: provisioning.CreateTenantRequest{
-				TenantID:     "beta-test",
+				Slug:         "beta-test",
 				Name:         "Beta Test Inc",
 				ConsumerType: provisioning.ConsumerDedicated,
 			},
@@ -82,7 +82,7 @@ func TestService_CreateTenant(t *testing.T) {
 		{
 			name: "valid tenant with metadata",
 			req: provisioning.CreateTenantRequest{
-				TenantID: "gamma-labs",
+				Slug:     "gamma-labs",
 				Name:     "Gamma Labs",
 				Metadata: provisioning.Metadata{"env": "prod"},
 			},
@@ -91,8 +91,8 @@ func TestService_CreateTenant(t *testing.T) {
 		{
 			name: "invalid tenant ID - uppercase",
 			req: provisioning.CreateTenantRequest{
-				TenantID: "INVALID",
-				Name:     "Invalid Tenant",
+				Slug: "INVALID",
+				Name: "Invalid Tenant",
 			},
 			wantErr:     true,
 			errContains: "invalid tenant",
@@ -100,8 +100,8 @@ func TestService_CreateTenant(t *testing.T) {
 		{
 			name: "invalid tenant ID - too short",
 			req: provisioning.CreateTenantRequest{
-				TenantID: "ab",
-				Name:     "Too Short",
+				Slug: "ab",
+				Name: "Too Short",
 			},
 			wantErr:     true,
 			errContains: "invalid tenant",
@@ -109,20 +109,20 @@ func TestService_CreateTenant(t *testing.T) {
 		{
 			name: "duplicate tenant",
 			req: provisioning.CreateTenantRequest{
-				TenantID: "existing",
-				Name:     "Existing Tenant",
+				Slug: "existing",
+				Name: "Existing Tenant",
 			},
 			setupMock: func(ts *testutil.MockTenantStore, _ *testutil.MockKeyStore) {
 				_ = ts.Create(context.Background(), testutil.NewTestTenant("existing"))
 			},
 			wantErr:     true,
-			errContains: "already exists",
+			errContains: "slug already taken",
 		},
 		{
 			name: "store error",
 			req: provisioning.CreateTenantRequest{
-				TenantID: "store-fail",
-				Name:     "Store Fail",
+				Slug: "store-fail",
+				Name: "Store Fail",
 			},
 			setupMock: func(ts *testutil.MockTenantStore, _ *testutil.MockKeyStore) {
 				ts.CreateErr = errors.New("database connection failed")
@@ -156,15 +156,15 @@ func TestService_CreateTenant(t *testing.T) {
 				if resp == nil {
 					t.Error("expected response, got nil")
 				}
-				if resp != nil && resp.Tenant.ID != tt.req.TenantID {
-					t.Errorf("tenant ID mismatch: got %q, want %q", resp.Tenant.ID, tt.req.TenantID)
+				if resp != nil && resp.Tenant.Slug != tt.req.Slug {
+					t.Errorf("tenant slug mismatch: got %q, want %q", resp.Tenant.Slug, tt.req.Slug)
 				}
 			}
 		})
 	}
 }
 
-func TestService_GetTenant(t *testing.T) {
+func TestService_GetTenantBySlug(t *testing.T) {
 	t.Parallel()
 	svc, tenantStore, _, _ := newTestService()
 
@@ -175,28 +175,27 @@ func TestService_GetTenant(t *testing.T) {
 	tests := []struct {
 		name     string
 		tenantID string
-		wantErr  bool
+		wantErr  error
 	}{
 		{
 			name:     "existing tenant",
 			tenantID: "acme-corp",
-			wantErr:  false,
 		},
 		{
 			name:     "non-existing tenant",
 			tenantID: "not-found",
-			wantErr:  true,
+			wantErr:  provisioning.ErrTenantNotFound,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := svc.GetTenant(context.Background(), tt.tenantID)
+			got, err := svc.GetTenantBySlug(context.Background(), tt.tenantID)
 
-			if tt.wantErr {
-				if err == nil {
-					t.Error("expected error, got nil")
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("error = %v, want %v", err, tt.wantErr)
 				}
 			} else {
 				if err != nil {
@@ -205,8 +204,8 @@ func TestService_GetTenant(t *testing.T) {
 				if got == nil {
 					t.Error("expected tenant, got nil")
 				}
-				if got != nil && got.ID != tt.tenantID {
-					t.Errorf("tenant ID mismatch: got %q, want %q", got.ID, tt.tenantID)
+				if got != nil && got.Slug != tt.tenantID {
+					t.Errorf("tenant slug mismatch: got %q, want %q", got.Slug, tt.tenantID)
 				}
 			}
 		})
@@ -228,7 +227,7 @@ func TestService_SuspendAndReactivateTenant(t *testing.T) {
 	}
 
 	// Verify suspended
-	got, _ := svc.GetTenant(context.Background(), "acme-corp")
+	got, _ := svc.GetTenantBySlug(context.Background(), "acme-corp")
 	if got.Status != provisioning.StatusSuspended {
 		t.Errorf("expected status %q, got %q", provisioning.StatusSuspended, got.Status)
 	}
@@ -240,7 +239,7 @@ func TestService_SuspendAndReactivateTenant(t *testing.T) {
 	}
 
 	// Verify active
-	got, _ = svc.GetTenant(context.Background(), "acme-corp")
+	got, _ = svc.GetTenantBySlug(context.Background(), "acme-corp")
 	if got.Status != provisioning.StatusActive {
 		t.Errorf("expected status %q, got %q", provisioning.StatusActive, got.Status)
 	}
@@ -515,7 +514,7 @@ func TestService_DeprovisionTenant(t *testing.T) {
 	// Setup: create a tenant with key
 	tenant := testutil.NewTestTenant("acme-corp")
 	_ = tenantStore.Create(context.Background(), tenant)
-	key := testutil.NewTestTenantKey("key-1", "acme-corp")
+	key := testutil.NewTestTenantKey("key-1", tenant.ID)
 	_ = keyStore.Create(context.Background(), key)
 
 	// Deprovision
@@ -525,7 +524,7 @@ func TestService_DeprovisionTenant(t *testing.T) {
 	}
 
 	// Verify status
-	got, _ := svc.GetTenant(context.Background(), "acme-corp")
+	got, _ := svc.GetTenantBySlug(context.Background(), "acme-corp")
 	if got.Status != provisioning.StatusDeprovisioning {
 		t.Errorf("expected status %q, got %q", provisioning.StatusDeprovisioning, got.Status)
 	}
@@ -563,7 +562,7 @@ func TestService_DeprovisionTenant_WithRoutingRules(t *testing.T) {
 	}
 
 	// Verify status
-	got, _ := svc.GetTenant(context.Background(), "acme-corp")
+	got, _ := svc.GetTenantBySlug(context.Background(), "acme-corp")
 	if got.Status != provisioning.StatusDeprovisioning {
 		t.Errorf("expected status %q, got %q", provisioning.StatusDeprovisioning, got.Status)
 	}
@@ -659,7 +658,7 @@ func TestService_RevokeKey(t *testing.T) {
 	// Setup: create tenant and key
 	tenant := testutil.NewTestTenant("acme-corp")
 	_ = tenantStore.Create(context.Background(), tenant)
-	key := testutil.NewTestTenantKey("key-1", "acme-corp")
+	key := testutil.NewTestTenantKey("key-1", tenant.ID)
 	_ = keyStore.Create(context.Background(), key)
 
 	// Revoke
@@ -686,7 +685,7 @@ func TestService_RevokeKey_WrongTenant(t *testing.T) {
 	tenant2 := testutil.NewTestTenant("beta-test")
 	_ = tenantStore.Create(context.Background(), tenant1)
 	_ = tenantStore.Create(context.Background(), tenant2)
-	key := testutil.NewTestTenantKey("key-1", "acme-corp")
+	key := testutil.NewTestTenantKey("key-1", tenant1.ID)
 	_ = keyStore.Create(context.Background(), key)
 
 	// Try to revoke key with wrong tenant
@@ -806,9 +805,9 @@ func TestService_GetActiveKeys(t *testing.T) {
 	tenant := testutil.NewTestTenant("acme-corp")
 	_ = tenantStore.Create(context.Background(), tenant)
 
-	key1 := testutil.NewTestTenantKey("key-1", "acme-corp")
-	key2 := testutil.NewTestTenantKey("key-2", "acme-corp")
-	key3 := testutil.NewTestTenantKey("key-3", "acme-corp")
+	key1 := testutil.NewTestTenantKey("key-1", tenant.ID)
+	key2 := testutil.NewTestTenantKey("key-2", tenant.ID)
+	key3 := testutil.NewTestTenantKey("key-3", tenant.ID)
 	_ = keyStore.Create(context.Background(), key1)
 	_ = keyStore.Create(context.Background(), key2)
 	_ = keyStore.Create(context.Background(), key3)
@@ -835,8 +834,8 @@ func TestService_UpdateQuota(t *testing.T) {
 	tenant := testutil.NewTestTenant("acme-corp")
 	_ = tenantStore.Create(context.Background(), tenant)
 	_, _ = svc.CreateTenant(context.Background(), provisioning.CreateTenantRequest{
-		TenantID: "quota-test",
-		Name:     "Quota Test",
+		Slug: "quota-test",
+		Name: "Quota Test",
 	})
 
 	// Update quota
@@ -934,8 +933,8 @@ func TestService_GetAuditLog(t *testing.T) {
 
 	// Create a tenant (generates audit entries)
 	_, _ = svc.CreateTenant(context.Background(), provisioning.CreateTenantRequest{
-		TenantID: "acme-corp",
-		Name:     "Acme Corporation",
+		Slug: "acme-corp",
+		Name: "Acme Corporation",
 	})
 
 	// Suspend the tenant (generates another audit entry)
@@ -994,8 +993,8 @@ func TestService_CreateTenantWithKey(t *testing.T) {
 	// Create tenant with initial key
 	expiresAt := time.Now().Add(365 * 24 * time.Hour)
 	req := provisioning.CreateTenantRequest{
-		TenantID: "acme-corp",
-		Name:     "Acme Corporation",
+		Slug: "acme-corp",
+		Name: "Acme Corporation",
 		PublicKey: &provisioning.CreateKeyRequest{
 			KeyID:     "initial-key",
 			Algorithm: provisioning.AlgorithmES256,
@@ -1173,8 +1172,8 @@ func TestService_CreateTenant_DotsInID(t *testing.T) {
 	// "acme.corp" is rejected by tenant.Validate() before the dot check
 	// because dots are not valid in tenant IDs (lowercase alphanumeric + hyphens only).
 	_, err := svc.CreateTenant(context.Background(), provisioning.CreateTenantRequest{
-		TenantID: "acme.corp",
-		Name:     "Acme Corp",
+		Slug: "acme.corp",
+		Name: "Acme Corp",
 	})
 	if err == nil {
 		t.Fatal("expected error for dots in tenant ID, got nil")
@@ -1191,8 +1190,8 @@ func TestService_CreateTenant_UnderscorePrefix(t *testing.T) {
 	// "_system" is rejected by tenant.Validate() before the underscore-prefix check
 	// because underscores/leading underscores are not valid in tenant IDs.
 	_, err := svc.CreateTenant(context.Background(), provisioning.CreateTenantRequest{
-		TenantID: "_system",
-		Name:     "System Tenant",
+		Slug: "_system",
+		Name: "System Tenant",
 	})
 	if err == nil {
 		t.Fatal("expected error for underscore prefix, got nil")
@@ -1307,8 +1306,9 @@ func TestService_CreateAPIKey(t *testing.T) {
 				if key == nil {
 					t.Fatal("expected key, got nil")
 				}
-				if key.TenantID != tt.tenantID {
-					t.Errorf("tenant ID mismatch: got %q, want %q", key.TenantID, tt.tenantID)
+				// key.TenantID is the tenant UUID (not slug); assert UUID format only
+				if len(key.TenantID) != 36 || strings.Count(key.TenantID, "-") != 4 {
+					t.Errorf("key.TenantID = %q, want UUID format (36 chars, 4 dashes)", key.TenantID)
 				}
 				if key.Name != tt.req.Name {
 					t.Errorf("name mismatch: got %q, want %q", key.Name, tt.req.Name)
@@ -1365,10 +1365,11 @@ func TestService_RevokeAPIKey(t *testing.T) {
 			name:     "happy path",
 			tenantID: "acme-corp",
 			setupMock: func(ts *testutil.MockTenantStore, aks *testutil.MockAPIKeyStore) string {
-				_ = ts.Create(context.Background(), testutil.NewTestTenant("acme-corp"))
+				tenant := testutil.NewTestTenant("acme-corp")
+				_ = ts.Create(context.Background(), tenant)
 				key := &provisioning.APIKey{
 					KeyID:    "pk_live_test123",
-					TenantID: "acme-corp",
+					TenantID: tenant.ID,
 					Name:     "Test Key",
 					IsActive: true,
 				}
@@ -1392,11 +1393,12 @@ func TestService_RevokeAPIKey(t *testing.T) {
 			name:     "tenant mismatch",
 			tenantID: "other-corp",
 			setupMock: func(ts *testutil.MockTenantStore, aks *testutil.MockAPIKeyStore) string {
-				_ = ts.Create(context.Background(), testutil.NewTestTenant("acme-corp"))
+				acmeTenant := testutil.NewTestTenant("acme-corp")
+				_ = ts.Create(context.Background(), acmeTenant)
 				_ = ts.Create(context.Background(), testutil.NewTestTenant("other-corp"))
 				key := &provisioning.APIKey{
 					KeyID:    "pk_live_owned_by_acme",
-					TenantID: "acme-corp",
+					TenantID: acmeTenant.ID,
 					Name:     "Acme Key",
 					IsActive: true,
 				}
@@ -1480,7 +1482,7 @@ func TestService_DeprovisionTenant_Force_Active(t *testing.T) {
 	_ = tenantStore.Create(context.Background(), tenant)
 	_ = keyStore.Create(context.Background(), &provisioning.TenantKey{
 		KeyID:    "k1",
-		TenantID: "force-test",
+		TenantID: tenant.ID,
 	})
 
 	// Force-delete
@@ -1490,7 +1492,7 @@ func TestService_DeprovisionTenant_Force_Active(t *testing.T) {
 	}
 
 	// Verify status is deleted (not deprovisioning)
-	got, err := tenantStore.Get(context.Background(), "force-test")
+	got, err := tenantStore.GetBySlug(context.Background(), "force-test")
 	if err != nil {
 		t.Fatalf("get tenant: %v", err)
 	}
@@ -1514,7 +1516,7 @@ func TestService_DeprovisionTenant_Force_Deprovisioning(t *testing.T) {
 		t.Fatalf("force-delete of deprovisioning tenant failed: %v", err)
 	}
 
-	got, err := tenantStore.Get(context.Background(), "deprovisioning-test")
+	got, err := tenantStore.GetBySlug(context.Background(), "deprovisioning-test")
 	if err != nil {
 		t.Fatalf("get tenant: %v", err)
 	}
@@ -1532,7 +1534,7 @@ func TestService_DeprovisionTenant_Force_RevokesAPIKeys(t *testing.T) {
 	_ = tenantStore.Create(context.Background(), tenant)
 	_ = apiKeyStore.Create(context.Background(), &provisioning.APIKey{
 		KeyID:    "ak1",
-		TenantID: "apikey-test",
+		TenantID: tenant.ID,
 		Name:     "test-key",
 		IsActive: true,
 	})

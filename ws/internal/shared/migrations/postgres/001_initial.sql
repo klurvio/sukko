@@ -1,4 +1,4 @@
--- Sukko Database Schema (consolidated)
+-- Sukko Database Schema
 -- All tables for provisioning, push, and analytics services.
 
 -- ====================
@@ -12,30 +12,39 @@ CREATE TYPE consumer_type AS ENUM ('shared', 'dedicated');
 -- CORE TABLES
 -- ====================
 
--- Tenant registry
+-- Tenant registry.
+-- tenants.id (UUID) is the stable internal primary key referenced by all FK tables.
+-- tenants.slug (TEXT) is the human-readable Kafka namespace and URL identifier.
+-- Changing a tenant's slug (via /rename) only updates the slug column;
+-- all FK relationships are unaffected because they reference the UUID PK.
 CREATE TABLE tenants (
-    id              TEXT PRIMARY KEY,
-    name            TEXT NOT NULL,
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug            TEXT        NOT NULL,
+    name            TEXT        NOT NULL,
     status          tenant_status NOT NULL DEFAULT 'active',
     consumer_type   consumer_type NOT NULL DEFAULT 'shared',
-    metadata        JSONB NOT NULL DEFAULT '{}',
+    metadata        JSONB       NOT NULL DEFAULT '{}',
+    previous_slug   TEXT,
+    slug_rename_state TEXT CHECK (slug_rename_state IN ('pending', 'complete')),
+    slug_renamed_at TIMESTAMPTZ,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     suspended_at    TIMESTAMPTZ,
     deprovision_at  TIMESTAMPTZ,
     deleted_at      TIMESTAMPTZ,
 
-    CONSTRAINT valid_tenant_id CHECK (id ~ '^[a-z][a-z0-9-]{2,62}$'),
+    CONSTRAINT uq_tenant_slug UNIQUE (slug),
+    CONSTRAINT valid_tenant_slug CHECK (slug ~ '^[a-z][a-z0-9-]{2,62}$'),
+    CONSTRAINT chk_tenant_slug_no_dots CHECK (slug NOT LIKE '%.%'),
+    CONSTRAINT chk_tenant_slug_no_underscore_prefix CHECK (slug NOT LIKE E'\\_%'),
     CONSTRAINT name_not_empty CHECK (char_length(name) > 0),
-    CONSTRAINT name_max_length CHECK (char_length(name) <= 256),
-    CONSTRAINT chk_tenant_id_no_dots CHECK (id NOT LIKE '%.%'),
-    CONSTRAINT chk_tenant_id_no_underscore_prefix CHECK (id NOT LIKE E'\\_%')
+    CONSTRAINT name_max_length CHECK (char_length(name) <= 256)
 );
 
 -- Tenant JWT signing keys
 CREATE TABLE tenant_keys (
     key_id          TEXT PRIMARY KEY,
-    tenant_id       TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     algorithm       TEXT NOT NULL,
     public_key      TEXT NOT NULL,
     is_active       BOOLEAN NOT NULL DEFAULT true,
@@ -50,23 +59,29 @@ CREATE TABLE tenant_keys (
 
 -- Tenant channel access rules
 CREATE TABLE tenant_channel_rules (
-    tenant_id       TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+    tenant_id       UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
     rules           JSONB NOT NULL DEFAULT '{"public": [], "group_mappings": {}, "default": []}',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Tenant topic routing rules
+-- Tenant topic routing rules (per-row, ordered by priority)
 CREATE TABLE tenant_routing_rules (
-    tenant_id       TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
-    rules           JSONB NOT NULL DEFAULT '[]',
-    created_at      TIMESTAMPTZ NOT NULL,
-    updated_at      TIMESTAMPTZ NOT NULL
+    id          BIGSERIAL   PRIMARY KEY,
+    tenant_id   UUID        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    pattern     TEXT        NOT NULL,
+    topics      TEXT[]      NOT NULL,
+    priority    INT         NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_routing_rule_tenant_priority UNIQUE (tenant_id, priority),
+    CONSTRAINT uq_routing_rule_tenant_pattern UNIQUE (tenant_id, pattern)
 );
 
 -- Resource quotas per tenant
 CREATE TABLE tenant_quotas (
-    tenant_id               TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+    tenant_id               UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
     max_topics              INT NOT NULL DEFAULT 50,
     max_partitions          INT NOT NULL DEFAULT 200,
     max_storage_bytes       BIGINT NOT NULL DEFAULT 10737418240,
@@ -85,7 +100,7 @@ CREATE TABLE tenant_quotas (
 -- API keys for tenant identification
 CREATE TABLE api_keys (
     key_id     TEXT PRIMARY KEY,
-    tenant_id  TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    tenant_id  UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     name       TEXT NOT NULL DEFAULT '',
     is_active  BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -107,7 +122,7 @@ CREATE TABLE admin_keys (
 -- Audit log (append-only)
 CREATE TABLE provisioning_audit (
     id              BIGSERIAL PRIMARY KEY,
-    tenant_id       TEXT,
+    tenant_id       UUID,
     action          TEXT NOT NULL,
     actor           TEXT NOT NULL,
     actor_type      TEXT NOT NULL DEFAULT 'user',
@@ -137,7 +152,7 @@ CREATE TABLE license_state (
 -- Push credentials per tenant per provider (encrypted at app layer)
 CREATE TABLE push_credentials (
     id              SERIAL PRIMARY KEY,
-    tenant_id       VARCHAR NOT NULL,
+    tenant_id       UUID NOT NULL,
     provider        VARCHAR NOT NULL,
     credential_data TEXT NOT NULL,
     created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -147,7 +162,7 @@ CREATE TABLE push_credentials (
 -- Push channel config per tenant
 CREATE TABLE push_channel_configs (
     id              SERIAL PRIMARY KEY,
-    tenant_id       VARCHAR NOT NULL UNIQUE,
+    tenant_id       UUID NOT NULL UNIQUE,
     patterns        TEXT[] NOT NULL,
     default_ttl     INTEGER NOT NULL DEFAULT 2419200,
     default_urgency VARCHAR NOT NULL DEFAULT 'normal',
@@ -158,7 +173,7 @@ CREATE TABLE push_channel_configs (
 -- Push device subscriptions
 CREATE TABLE push_subscriptions (
     id              SERIAL PRIMARY KEY,
-    tenant_id       VARCHAR NOT NULL,
+    tenant_id       UUID NOT NULL,
     principal       VARCHAR NOT NULL,
     platform        VARCHAR NOT NULL,
     token           VARCHAR,
@@ -175,7 +190,7 @@ CREATE TABLE push_subscriptions (
 -- Push credential health tracking
 CREATE TABLE push_credential_health (
     id                      SERIAL PRIMARY KEY,
-    tenant_id               VARCHAR NOT NULL,
+    tenant_id               UUID NOT NULL,
     provider                VARCHAR NOT NULL,
     status                  VARCHAR NOT NULL DEFAULT 'unknown',
     last_success_at         TIMESTAMPTZ,
@@ -187,7 +202,7 @@ CREATE TABLE push_credential_health (
 -- Push subscription count snapshots
 CREATE TABLE subscription_stats (
     id                  SERIAL PRIMARY KEY,
-    tenant_id           VARCHAR NOT NULL,
+    tenant_id           UUID NOT NULL,
     platform            VARCHAR NOT NULL,
     total_count         INT NOT NULL DEFAULT 0,
     stale_cleaned_count INT NOT NULL DEFAULT 0,
@@ -201,7 +216,7 @@ CREATE TABLE subscription_stats (
 CREATE TABLE analytics_connections (
     id              BIGSERIAL PRIMARY KEY,
     pod_id          VARCHAR NOT NULL,
-    tenant_id       VARCHAR NOT NULL,
+    tenant_id       UUID NOT NULL,
     bucket_start    TIMESTAMPTZ NOT NULL,
     bucket_size     VARCHAR NOT NULL,
     transport       VARCHAR NOT NULL,
@@ -214,7 +229,7 @@ CREATE TABLE analytics_connections (
 CREATE TABLE analytics_messages (
     id              BIGSERIAL PRIMARY KEY,
     pod_id          VARCHAR NOT NULL,
-    tenant_id       VARCHAR NOT NULL,
+    tenant_id       UUID NOT NULL,
     bucket_start    TIMESTAMPTZ NOT NULL,
     bucket_size     VARCHAR NOT NULL,
     channel_prefix  VARCHAR NOT NULL,
@@ -228,7 +243,7 @@ CREATE TABLE analytics_messages (
 CREATE TABLE analytics_push (
     id                  BIGSERIAL PRIMARY KEY,
     pod_id              VARCHAR NOT NULL,
-    tenant_id           VARCHAR NOT NULL,
+    tenant_id           UUID NOT NULL,
     bucket_start        TIMESTAMPTZ NOT NULL,
     bucket_size         VARCHAR NOT NULL,
     provider            VARCHAR NOT NULL,
@@ -244,7 +259,7 @@ CREATE TABLE analytics_push (
 CREATE TABLE analytics_push_patterns (
     id              BIGSERIAL PRIMARY KEY,
     pod_id          VARCHAR NOT NULL,
-    tenant_id       VARCHAR NOT NULL,
+    tenant_id       UUID NOT NULL,
     bucket_start    TIMESTAMPTZ NOT NULL,
     bucket_size     VARCHAR NOT NULL,
     pattern         VARCHAR NOT NULL,
@@ -255,7 +270,7 @@ CREATE TABLE analytics_push_patterns (
 CREATE TABLE analytics_raw_events (
     id              BIGSERIAL PRIMARY KEY,
     pod_id          VARCHAR NOT NULL,
-    tenant_id       VARCHAR NOT NULL,
+    tenant_id       UUID NOT NULL,
     event_type      VARCHAR NOT NULL,
     event_data      JSONB,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -264,6 +279,12 @@ CREATE TABLE analytics_raw_events (
 -- ====================
 -- INDEXES
 -- ====================
+
+-- Tenant lookups
+CREATE INDEX idx_tenants_slug ON tenants(slug);
+CREATE INDEX idx_tenants_previous_slug ON tenants(previous_slug) WHERE previous_slug IS NOT NULL;
+CREATE INDEX idx_tenants_status ON tenants(status) WHERE status != 'deleted';
+CREATE INDEX idx_tenants_deprovision ON tenants(deprovision_at) WHERE status = 'deprovisioning' AND deprovision_at IS NOT NULL;
 
 -- Tenant keys
 CREATE INDEX idx_tenant_keys_tenant_active ON tenant_keys(tenant_id) WHERE is_active = true AND revoked_at IS NULL;
@@ -276,9 +297,8 @@ CREATE INDEX idx_api_keys_lookup ON api_keys(key_id, is_active) WHERE is_active 
 -- Admin keys
 CREATE INDEX idx_admin_keys_active ON admin_keys (key_id) WHERE revoked_at IS NULL;
 
--- Tenants
-CREATE INDEX idx_tenants_status ON tenants(status) WHERE status != 'deleted';
-CREATE INDEX idx_tenants_deprovision ON tenants(deprovision_at) WHERE status = 'deprovisioning' AND deprovision_at IS NOT NULL;
+-- Routing rules
+CREATE INDEX idx_routing_rules_tenant ON tenant_routing_rules (tenant_id, priority ASC);
 
 -- Audit
 CREATE INDEX idx_audit_tenant_time ON provisioning_audit(tenant_id, created_at DESC);

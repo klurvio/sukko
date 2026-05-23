@@ -4,15 +4,18 @@ package testutil
 import (
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/klurvio/sukko/internal/provisioning"
 )
 
-// NewTestTenant creates a test tenant with the given ID.
-func NewTestTenant(id string) *provisioning.Tenant {
+// NewTestTenant creates a test tenant with the given slug and a generated UUID primary key.
+func NewTestTenant(slug string) *provisioning.Tenant {
 	now := time.Now()
 	return &provisioning.Tenant{
-		ID:           id,
-		Name:         "Test Tenant " + id,
+		ID:           uuid.New().String(),
+		Slug:         slug,
+		Name:         "Test Tenant " + slug,
 		Status:       provisioning.StatusActive,
 		ConsumerType: provisioning.ConsumerShared,
 		Metadata:     provisioning.Metadata{"env": "test"},

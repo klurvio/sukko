@@ -212,11 +212,17 @@ func main() {
 		DeadLetterTopicPartitions:   cfg.DeadLetterTopicPartitions,
 		DeadLetterTopicRetentionMs:  cfg.DeadLetterTopicRetentionMs,
 		InfraTopicReplicationFactor: cfg.InfraTopicReplicationFactor,
+		SlugRenameTopicHoldPeriod:   cfg.SlugRenameTopicHoldPeriod,
 		EditionManager:              cfg.EditionManager(),
 		Logger:                      structuredLogger,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create provisioning service")
+	}
+
+	// Run startup scan for pending slug renames (informational — failure must not block startup).
+	if err := svc.Start(ctx); err != nil {
+		structuredLogger.Warn().Err(err).Msg("Startup scan for pending slug renames failed (non-fatal)")
 	}
 
 	// Set up authentication

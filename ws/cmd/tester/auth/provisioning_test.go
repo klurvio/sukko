@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -50,7 +51,22 @@ func TestProvisioningClient_CreateTenant(t *testing.T) {
 		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
 			t.Errorf("content-type = %q, want application/json", ct)
 		}
+
+		// Assert request uses "slug" field, not "id"
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		if _, hasID := body["id"]; hasID {
+			t.Error("request body must not contain 'id' field")
+		}
+		if body["slug"] != "test-t1" {
+			t.Errorf("request slug = %q, want test-t1", body["slug"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"tenant":{"id":"550e8400-e29b-41d4-a716-446655440000","slug":"test-t1","name":"Test Tenant","status":"active"}}`))
 	}))
 	t.Cleanup(srv.Close)
 

@@ -1,7 +1,6 @@
 package auth_test
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -10,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/auth"
@@ -33,24 +33,32 @@ func generateTestPEM(t *testing.T) string {
 	}))
 }
 
+// insertTestTenant inserts a tenant using the new UUID/slug schema and returns the generated UUID.
+func insertTestTenant(t *testing.T, pool *pgxpool.Pool, slug, name string) string {
+	t.Helper()
+	ctx := t.Context()
+	var tenantID string
+	err := pool.QueryRow(ctx,
+		`INSERT INTO tenants (slug, name, status, consumer_type) VALUES ($1, $2, 'active', 'shared') RETURNING id`,
+		slug, name).Scan(&tenantID)
+	if err != nil {
+		t.Fatalf("insert tenant %s: %v", slug, err)
+	}
+	return tenantID
+}
+
 func TestDBKeyRegistry_GetKey(t *testing.T) {
 	t.Parallel()
 	pool := testutil.NewTestPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	pubPEM := generateTestPEM(t)
 
-	// Seed a tenant and key
-	_, err := pool.Exec(ctx,
-		`INSERT INTO tenants (id, name, status, consumer_type) VALUES ($1, $2, 'active', 'shared')`,
-		"test-tenant", "Test Tenant")
-	if err != nil {
-		t.Fatalf("insert tenant: %v", err)
-	}
+	tenantID := insertTestTenant(t, pool, "test-tenant", "Test Tenant")
 
-	_, err = pool.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		`INSERT INTO tenant_keys (key_id, tenant_id, algorithm, public_key, is_active) VALUES ($1, $2, $3, $4, $5)`,
-		"test-key-001", "test-tenant", "ES256", pubPEM, true)
+		"test-key-001", tenantID, "ES256", pubPEM, true)
 	if err != nil {
 		t.Fatalf("insert key: %v", err)
 	}
@@ -73,6 +81,7 @@ func TestDBKeyRegistry_GetKey(t *testing.T) {
 	if key.KeyID != "test-key-001" {
 		t.Errorf("KeyID = %q, want %q", key.KeyID, "test-key-001")
 	}
+	// TenantID in KeyInfo is the slug (used for channel routing by the gateway).
 	if key.TenantID != "test-tenant" {
 		t.Errorf("TenantID = %q, want %q", key.TenantID, "test-tenant")
 	}
@@ -84,7 +93,7 @@ func TestDBKeyRegistry_GetKey(t *testing.T) {
 func TestDBKeyRegistry_GetKey_NotFound(t *testing.T) {
 	t.Parallel()
 	pool := testutil.NewTestPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	registry, err := auth.NewKeyRegistry(auth.KeyRegistryConfig{
 		Pool:            pool,
@@ -106,22 +115,16 @@ func TestDBKeyRegistry_GetKey_NotFound(t *testing.T) {
 func TestDBKeyRegistry_GetKeysByTenant(t *testing.T) {
 	t.Parallel()
 	pool := testutil.NewTestPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	pubPEM := generateTestPEM(t)
 
-	// Seed tenant with multiple keys
-	_, err := pool.Exec(ctx,
-		`INSERT INTO tenants (id, name, status, consumer_type) VALUES ($1, $2, 'active', 'shared')`,
-		"multi-key-tenant", "Multi Key Tenant")
-	if err != nil {
-		t.Fatalf("insert tenant: %v", err)
-	}
+	tenantID := insertTestTenant(t, pool, "multi-key-tenant", "Multi Key Tenant")
 
 	for _, kid := range []string{"key-aaa-001", "key-aaa-002"} {
-		_, err = pool.Exec(ctx,
+		_, err := pool.Exec(ctx,
 			`INSERT INTO tenant_keys (key_id, tenant_id, algorithm, public_key, is_active) VALUES ($1, $2, $3, $4, $5)`,
-			kid, "multi-key-tenant", "ES256", pubPEM, true)
+			kid, tenantID, "ES256", pubPEM, true)
 		if err != nil {
 			t.Fatalf("insert key %s: %v", kid, err)
 		}
@@ -138,6 +141,7 @@ func TestDBKeyRegistry_GetKeysByTenant(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = registry.Close() })
 
+	// GetKeysByTenant is called with the slug (same as claims.TenantID in JWTs).
 	keys, err := registry.GetKeysByTenant(ctx, "multi-key-tenant")
 	if err != nil {
 		t.Fatalf("GetKeysByTenant() error = %v", err)
@@ -150,21 +154,16 @@ func TestDBKeyRegistry_GetKeysByTenant(t *testing.T) {
 func TestDBKeyRegistry_RevokedKeyNotReturned(t *testing.T) {
 	t.Parallel()
 	pool := testutil.NewTestPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	pubPEM := generateTestPEM(t)
 	past := time.Now().Add(-time.Hour)
 
-	_, err := pool.Exec(ctx,
-		`INSERT INTO tenants (id, name, status, consumer_type) VALUES ($1, $2, 'active', 'shared')`,
-		"revoked-tenant", "Revoked Tenant")
-	if err != nil {
-		t.Fatalf("insert tenant: %v", err)
-	}
+	tenantID := insertTestTenant(t, pool, "revoked-tenant", "Revoked Tenant")
 
-	_, err = pool.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		`INSERT INTO tenant_keys (key_id, tenant_id, algorithm, public_key, is_active, revoked_at) VALUES ($1, $2, $3, $4, $5, $6)`,
-		"revoked-key-01", "revoked-tenant", "ES256", pubPEM, true, past)
+		"revoked-key-01", tenantID, "ES256", pubPEM, true, past)
 	if err != nil {
 		t.Fatalf("insert revoked key: %v", err)
 	}
@@ -189,7 +188,7 @@ func TestDBKeyRegistry_RevokedKeyNotReturned(t *testing.T) {
 func TestDBKeyRegistry_Refresh(t *testing.T) {
 	t.Parallel()
 	pool := testutil.NewTestPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	registry, err := auth.NewKeyRegistry(auth.KeyRegistryConfig{
 		Pool:            pool,

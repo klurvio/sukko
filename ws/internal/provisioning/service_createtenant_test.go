@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -131,9 +132,9 @@ func TestCreateTenant_SagaRollback(t *testing.T) {
 				svc = newTestServiceWithKafka(kafka)
 			}
 
-			_, err := svc.CreateTenant(context.Background(), provisioning.CreateTenantRequest{
-				TenantID: tenantID,
-				Name:     "Acme Corp",
+			resp, err := svc.CreateTenant(context.Background(), provisioning.CreateTenantRequest{
+				Slug: tenantID,
+				Name: "Acme Corp",
 			})
 
 			if tt.wantErr {
@@ -143,6 +144,16 @@ func TestCreateTenant_SagaRollback(t *testing.T) {
 			} else {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
+				}
+				// Happy path: assert returned tenant has UUID primary key and correct slug.
+				if resp == nil || resp.Tenant == nil {
+					t.Fatal("expected non-nil tenant in response")
+				}
+				if len(resp.Tenant.ID) != 36 || resp.Tenant.ID == tenantID {
+					t.Errorf("tenant.ID = %q; want UUID format (len 36, not the slug)", resp.Tenant.ID)
+				}
+				if resp.Tenant.Slug != tenantID {
+					t.Errorf("tenant.Slug = %q, want %q", resp.Tenant.Slug, tenantID)
 				}
 			}
 
@@ -189,3 +200,54 @@ func TestCreateTenant_SagaRollback(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateTenant_SlugValidation(t *testing.T) {
+	t.Parallel()
+
+	kafka := testutil.NewMockKafkaAdmin()
+	svc := newTestServiceWithKafka(kafka)
+
+	tests := []struct {
+		name        string
+		slug        string
+		wantErr     bool
+		errContains string
+	}{
+		{name: "valid simple", slug: "acme", wantErr: false},
+		{name: "valid with digits", slug: "acme-123", wantErr: false},
+		{name: "valid long", slug: "a" + "b" + "c" + "d" + "e" + "f" + "g-corp", wantErr: false},
+		{name: "empty slug", slug: "", wantErr: true},
+		{name: "uppercase rejected", slug: "Acme", wantErr: true},
+		{name: "underscore rejected", slug: "acme_corp", wantErr: true},
+		{name: "dot rejected", slug: "acme.corp", wantErr: true},
+		{name: "starts with digit", slug: "1acme", wantErr: true},
+		{name: "too short (2 chars)", slug: "ab", wantErr: true},
+		{name: "reserved: admin", slug: "admin", wantErr: true, errContains: "reserved"},
+		{name: "reserved: api", slug: "api", wantErr: true, errContains: "reserved"},
+		{name: "reserved: keys", slug: "keys", wantErr: true, errContains: "reserved"},
+		{name: "reserved: rename", slug: "rename", wantErr: true, errContains: "reserved"},
+		{name: "reserved: health", slug: "health", wantErr: true, errContains: "reserved"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := svc.CreateTenant(context.Background(), provisioning.CreateTenantRequest{
+				Slug: tt.slug,
+				Name: "Test Tenant",
+			})
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error for slug %q, got nil", tt.slug)
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error = %q, want contains %q", err.Error(), tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error for slug %q: %v", tt.slug, err)
+				}
+			}
+		})
+	}
+}
+

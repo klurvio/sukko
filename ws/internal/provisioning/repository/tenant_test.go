@@ -17,6 +17,7 @@ func TestTenantRepository_CreateAndGet(t *testing.T) {
 
 	tenant := &provisioning.Tenant{
 		ID:           "test-tenant",
+		Slug:         "test-tenant",
 		Name:         "Test Tenant",
 		Status:       provisioning.StatusActive,
 		ConsumerType: provisioning.ConsumerShared,
@@ -27,12 +28,9 @@ func TestTenantRepository_CreateAndGet(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	got, err := repo.Get(ctx, "test-tenant")
+	got, err := repo.GetBySlug(ctx, "test-tenant")
 	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got.ID != "test-tenant" {
-		t.Errorf("ID = %q, want %q", got.ID, "test-tenant")
+		t.Fatalf("GetBySlug() error = %v", err)
 	}
 	if got.Name != "Test Tenant" {
 		t.Errorf("Name = %q, want %q", got.Name, "Test Tenant")
@@ -50,6 +48,7 @@ func TestTenantRepository_CreateDuplicate(t *testing.T) {
 
 	tenant := &provisioning.Tenant{
 		ID:           "dup-tenant",
+		Slug:         "dup-tenant",
 		Name:         "Dup Tenant",
 		Status:       provisioning.StatusActive,
 		ConsumerType: provisioning.ConsumerShared,
@@ -71,8 +70,8 @@ func TestTenantRepository_GetNotFound(t *testing.T) {
 	repo := repository.NewTenantRepository(pool)
 	ctx := context.Background()
 
-	_, err := repo.Get(ctx, "nonexistent")
+	_, err := repo.GetBySlug(ctx, "nonexistent")
 	if err == nil {
-		t.Fatal("Get() should return error for nonexistent tenant")
+		t.Fatal("GetBySlug() should return error for nonexistent tenant")
 	}
 }
