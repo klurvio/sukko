@@ -43,6 +43,24 @@ func TestNewLicenseKeyGeneratorFromBytes_InvalidSize(t *testing.T) {
 	}
 }
 
+func TestNewLicenseKeyGeneratorFromBytes_CorruptedSeed(t *testing.T) {
+	t.Parallel()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	// Corrupt the seed (first 32 bytes) while keeping the key length valid.
+	corrupted := make([]byte, ed25519.PrivateKeySize)
+	copy(corrupted, priv)
+	corrupted[0] ^= 0xFF
+
+	_, err = newLicenseKeyGeneratorFromBytes(corrupted)
+	if err == nil {
+		t.Fatal("expected error for corrupted seed, got nil")
+	}
+}
+
 func TestNewLicenseKeyGeneratorFromBytes_Empty(t *testing.T) {
 	t.Parallel()
 	_, err := newLicenseKeyGeneratorFromBytes(nil)

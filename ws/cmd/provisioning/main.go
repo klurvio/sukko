@@ -427,7 +427,7 @@ func bootstrapAdminKey(ctx context.Context, bootstrapKeyBase64 string, repo *rep
 	}
 
 	key := &repository.AdminKey{
-		KeyID:        "bootstrap-0",
+		KeyID:        provauth.BootstrapAdminKeyID,
 		Name:         "bootstrap",
 		Algorithm:    "EdDSA",
 		PublicKey:    pemKey,
@@ -437,7 +437,7 @@ func bootstrapAdminKey(ctx context.Context, bootstrapKeyBase64 string, repo *rep
 		return fmt.Errorf("register bootstrap key: %w", err)
 	}
 
-	logger.Info().Str("key_id", "bootstrap-0").Msg("admin key auto-registered from bootstrap")
+	logger.Info().Str("key_id", provauth.BootstrapAdminKeyID).Msg("admin key auto-registered from bootstrap")
 
 	// Load into cache
 	loadAdminKeyCache(ctx, repo, registry, logger)

@@ -13,12 +13,19 @@ import (
 	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 )
 
+// AdminKeyName is the JWT sub claim value for admin tokens issued by this tester instance.
+// Used by both NewEphemeralAuthProvider and NewKeypairAuthProvider calls in resolveAdminProvider.
+const AdminKeyName = "tester"
+
 // Provider signs HTTP requests with admin credentials.
 // Every code path — CLI, tester, unit tests — uses KeypairAuthProvider.
 // No noop implementation: every request exercises real JWT signing.
 type Provider interface {
 	// SignRequest adds an Authorization header with a signed admin JWT.
 	SignRequest(req *http.Request)
+	// KeyID returns the key ID embedded in admin JWTs signed by this provider.
+	// Ephemeral providers return a key ID starting with "ephemeral-".
+	KeyID() string
 }
 
 // KeypairAuthProvider signs requests with an Ed25519 admin JWT.
@@ -40,8 +47,8 @@ func NewKeypairAuthProvider(privateKey ed25519.PrivateKey, keyID, keyName string
 }
 
 // NewEphemeralAuthProvider generates a random Ed25519 keypair and returns
-// a KeypairAuthProvider. Used by the tester and unit tests — the keypair
-// is registered with provisioning via ADMIN_BOOTSTRAP_KEY.
+// a KeypairAuthProvider for local dev mode only. The ephemeral keypair is
+// not pre-registered with provisioning — use TESTER_ADMIN_KEY_FILE for remote mode.
 func NewEphemeralAuthProvider() (*KeypairAuthProvider, ed25519.PublicKey, error) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -50,7 +57,7 @@ func NewEphemeralAuthProvider() (*KeypairAuthProvider, ed25519.PublicKey, error)
 	provider := &KeypairAuthProvider{
 		privateKey: priv,
 		keyID:      "ephemeral-" + uuid.NewString()[:8],
-		keyName:    "tester",
+		keyName:    AdminKeyName,
 	}
 	return provider, pub, nil
 }

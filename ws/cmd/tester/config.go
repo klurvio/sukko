@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	testerapi "github.com/klurvio/sukko/cmd/tester/api"
+	testerauth "github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
@@ -21,6 +23,14 @@ type TesterConfig struct {
 
 	// License reload suite — Ed25519 private key for signing test license keys
 	SigningKeyFile string `env:"TESTER_SIGNING_KEY_FILE" envDefault:""`
+
+	// Admin keypair for remote mode (required when targeting a deployed provisioning service).
+	// When unset, the tester generates an ephemeral keypair per test run (local dev mode only).
+	AdminKeyFile string `env:"TESTER_ADMIN_KEY_FILE" envDefault:""`
+	// AdminKeyID is the kid embedded in admin JWTs; must match BootstrapAdminKeyID unless a
+	// custom key was registered with provisioning under a different ID.
+	// envDefault must stay in sync with provauth.BootstrapAdminKeyID; enforced by TestTesterConfig_DefaultAdminKeyID_EqualsBootstrapConstant.
+	AdminKeyID string `env:"TESTER_ADMIN_KEY_ID" envDefault:"bootstrap-0"`
 
 	// JWT auth configuration
 	JWTLifetime      time.Duration `env:"TESTER_JWT_LIFETIME" envDefault:"15m"`
@@ -52,6 +62,17 @@ func (c *TesterConfig) Validate() error {
 	}
 	if c.MessageBackend == "nats" && c.NATSJetStreamURLs == "" {
 		return errors.New("NATS_JETSTREAM_URLS required when MESSAGE_BACKEND=nats")
+	}
+	if c.AdminKeyFile != "" {
+		if _, err := testerauth.LoadEd25519PrivateKey(c.AdminKeyFile); err != nil {
+			return fmt.Errorf("TESTER_ADMIN_KEY_FILE: %w", err)
+		}
+		if c.AdminKeyID == "" {
+			return errors.New("TESTER_ADMIN_KEY_ID must not be empty when TESTER_ADMIN_KEY_FILE is set")
+		}
+		if err := testerapi.ValidateAdminKeyID(c.AdminKeyID); err != nil {
+			return fmt.Errorf("TESTER_ADMIN_KEY_ID: %w", err)
+		}
 	}
 	if c.JWTLifetime <= 0 {
 		return errors.New("TESTER_JWT_LIFETIME must be positive")

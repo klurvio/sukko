@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -27,6 +28,11 @@ type SetupConfig struct {
 	// AdminProvider signs admin requests with a JWT keypair.
 	// If nil, an ephemeral KeypairProvider is generated for this test run.
 	AdminProvider Provider
+
+	// RequireAdminProvider — if true, Setup returns an error when AdminProvider is nil
+	// rather than generating an ephemeral keypair. Set by runner when TESTER_ADMIN_KEY_FILE is
+	// configured (remote mode). Hardcoded true on secondary Setup calls in validate suites.
+	RequireAdminProvider bool
 
 	// JWTLifetime is the JWT expiration duration.
 	JWTLifetime time.Duration
@@ -55,6 +61,11 @@ type SetupResult struct {
 	// Cleanup revokes the test key and deletes the throwaway tenant (if created).
 	// Idempotent — logs errors but does not fail.
 	Cleanup func(ctx context.Context)
+
+	// AdminProvider is the resolved admin auth provider used for this setup.
+	// Tagged json:"-" — holds a private key reference, must never be serialized.
+	// Exposed for secondary auth.Setup() calls in validate suites.
+	AdminProvider Provider `json:"-"`
 }
 
 // Setup orchestrates the full auth setup for a test run:
@@ -74,6 +85,9 @@ func Setup(ctx context.Context, cfg SetupConfig) (*SetupResult, error) {
 	// Use provided auth provider or generate ephemeral keypair
 	authProvider := cfg.AdminProvider
 	if authProvider == nil {
+		if cfg.RequireAdminProvider {
+			return nil, errors.New("auth.Setup: AdminProvider is nil but RequireAdminProvider is true (remote mode requires a pre-registered keypair via TESTER_ADMIN_KEY_FILE)")
+		}
 		ephemeral, _, err := NewEphemeralAuthProvider()
 		if err != nil {
 			return nil, fmt.Errorf("auth setup: generate ephemeral keypair: %w", err)
@@ -146,11 +160,12 @@ func Setup(ctx context.Context, cfg SetupConfig) (*SetupResult, error) {
 	}
 
 	return &SetupResult{
-		TenantID:   tenantID,
-		Minter:     minter,
-		TokenFunc:  minter.TokenFunc(),
-		ProvClient: provClient,
-		Cleanup:    cleanup,
+		TenantID:      tenantID,
+		Minter:        minter,
+		TokenFunc:     minter.TokenFunc(),
+		ProvClient:    provClient,
+		Cleanup:       cleanup,
+		AdminProvider: authProvider,
 	}, nil
 }
 

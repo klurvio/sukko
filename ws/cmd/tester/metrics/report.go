@@ -6,6 +6,21 @@ import (
 	"io"
 )
 
+// Report.Status values.
+const (
+	ReportStatusPass  = "pass"
+	ReportStatusFail  = "fail"
+	ReportStatusError = "error"
+)
+
+// CheckResult.Status values.
+// Note: CheckResult does NOT use "error" — errors surface at Report.Status level.
+const (
+	CheckStatusPass = "pass"
+	CheckStatusFail = "fail"
+	CheckStatusSkip = "skip"
+)
+
 // Report is the final test report.
 type Report struct {
 	TestType string        `json:"test_type"`

@@ -10,13 +10,14 @@ import (
 )
 
 // NewRouter creates the HTTP handler for the tester API.
-func NewRouter(r *runner.Runner, authToken string, logger zerolog.Logger) http.Handler {
+func NewRouter(r *runner.Runner, authToken, adminKeyID string, logger zerolog.Logger) http.Handler {
 	mux := http.NewServeMux()
 
 	h := &handlers{
-		runner:    r,
-		authToken: authToken,
-		logger:    logger,
+		runner:     r,
+		authToken:  authToken,
+		adminKeyID: adminKeyID,
+		logger:     logger,
 	}
 
 	// Public endpoints (no auth)

@@ -3,9 +3,9 @@ package runner
 import (
 	"crypto/ed25519"
 	"fmt"
-	"os"
 	"time"
 
+	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/internal/shared/license"
 )
 
@@ -19,11 +19,11 @@ type licenseKeyGenerator struct {
 // newLicenseKeyGenerator reads the Ed25519 private key from the given file path
 // and returns a generator with monotonic iat starting from now.
 func newLicenseKeyGenerator(keyFilePath string) (*licenseKeyGenerator, error) {
-	keyBytes, err := os.ReadFile(keyFilePath) //nolint:gosec // G304: file path is from trusted config (TESTER_SIGNING_KEY_FILE env var), not user input
+	key, err := auth.LoadEd25519PrivateKey(keyFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("read license signing key %s: %w", keyFilePath, err)
+		return nil, fmt.Errorf("license signing key: %w", err)
 	}
-	return newLicenseKeyGeneratorFromBytes(keyBytes)
+	return &licenseKeyGenerator{privateKey: key, nextIat: time.Now().Unix()}, nil
 }
 
 // newLicenseKeyGeneratorFromBytes creates a generator from raw Ed25519 private key bytes.
@@ -32,10 +32,11 @@ func newLicenseKeyGeneratorFromBytes(keyBytes []byte) (*licenseKeyGenerator, err
 	if len(keyBytes) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("invalid Ed25519 private key: expected %d bytes, got %d", ed25519.PrivateKeySize, len(keyBytes))
 	}
-	return &licenseKeyGenerator{
-		privateKey: ed25519.PrivateKey(keyBytes),
-		nextIat:    time.Now().Unix(),
-	}, nil
+	key := ed25519.PrivateKey(keyBytes)
+	if err := auth.ValidateEd25519Key(key); err != nil {
+		return nil, fmt.Errorf("license signing key: %w", err)
+	}
+	return &licenseKeyGenerator{privateKey: key, nextIat: time.Now().Unix()}, nil
 }
 
 // sign creates a valid license key for the given edition with a monotonically increasing iat.

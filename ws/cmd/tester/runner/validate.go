@@ -2,18 +2,24 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
+	"github.com/klurvio/sukko/cmd/tester/restpublish"
 	testerws "github.com/klurvio/sukko/cmd/tester/ws"
 	"github.com/rs/zerolog"
 )
 
 // validatePublicChannel is the channel used by the channels validation suite.
 const validatePublicChannel = "sukko.validate.public"
+
+// validPublishBody is a minimal well-formed publish payload used in Check 10 (API key REST publish).
+// The response is 403 regardless of body content — API keys cannot REST-publish.
+var validPublishBody = []byte(`{"channel":"general.test","data":{"x":1}}`)
 
 func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics.Report, error) {
 	suite := run.Config.Suite
@@ -56,7 +62,7 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 	default:
 		checks = []metrics.CheckResult{{
 			Name:   "unknown suite",
-			Status: "fail",
+			Status: metrics.CheckStatusFail,
 			Error:  "unknown validation suite: " + suite,
 		}}
 	}
@@ -65,10 +71,10 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 		return nil, err
 	}
 
-	status := "pass"
+	status := metrics.ReportStatusPass
 	for _, c := range checks {
-		if c.Status == "fail" {
-			status = "fail"
+		if c.Status == metrics.CheckStatusFail {
+			status = metrics.ReportStatusFail
 			break
 		}
 	}
@@ -89,11 +95,11 @@ func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	client, err := connectWithRetry(ctx, run.Config.GatewayURL, run.authResult.TokenFunc(0), logger)
 	if err != nil {
 		checks = append(checks, metrics.CheckResult{
-			Name: "valid JWT accepted", Status: "fail", Error: err.Error(),
+			Name: "valid JWT accepted", Status: metrics.CheckStatusFail, Error: err.Error(),
 		})
 	} else {
 		checks = append(checks, metrics.CheckResult{
-			Name: "valid JWT accepted", Status: "pass",
+			Name: "valid JWT accepted", Status: metrics.CheckStatusPass,
 			Latency: time.Since(start).Round(time.Millisecond).String(),
 		})
 		_ = client.Close()
@@ -103,7 +109,7 @@ func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	expiredToken, err := run.authResult.Minter.MintExpired(1)
 	if err != nil {
 		checks = append(checks, metrics.CheckResult{
-			Name: "expired JWT rejected", Status: "fail", Error: fmt.Sprintf("mint expired: %v", err),
+			Name: "expired JWT rejected", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("mint expired: %v", err),
 		})
 	} else {
 		client, err = testerws.Connect(ctx, testerws.ConnectConfig{
@@ -113,12 +119,12 @@ func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 		})
 		if err != nil {
 			checks = append(checks, metrics.CheckResult{
-				Name: "expired JWT rejected", Status: "pass",
+				Name: "expired JWT rejected", Status: metrics.CheckStatusPass,
 			})
 		} else {
 			_ = client.Close()
 			checks = append(checks, metrics.CheckResult{
-				Name: "expired JWT rejected", Status: "fail", Error: "expired JWT was accepted",
+				Name: "expired JWT rejected", Status: metrics.CheckStatusFail, Error: "expired JWT was accepted",
 			})
 		}
 	}
@@ -127,7 +133,7 @@ func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	wrongKidToken, err := run.authResult.Minter.MintWithKid(2, "nonexistent-key")
 	if err != nil {
 		checks = append(checks, metrics.CheckResult{
-			Name: "wrong kid rejected", Status: "fail", Error: fmt.Sprintf("mint wrong kid: %v", err),
+			Name: "wrong kid rejected", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("mint wrong kid: %v", err),
 		})
 	} else {
 		client, err = testerws.Connect(ctx, testerws.ConnectConfig{
@@ -137,12 +143,12 @@ func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 		})
 		if err != nil {
 			checks = append(checks, metrics.CheckResult{
-				Name: "wrong kid rejected", Status: "pass",
+				Name: "wrong kid rejected", Status: metrics.CheckStatusPass,
 			})
 		} else {
 			_ = client.Close()
 			checks = append(checks, metrics.CheckResult{
-				Name: "wrong kid rejected", Status: "fail", Error: "JWT with wrong kid was accepted",
+				Name: "wrong kid rejected", Status: metrics.CheckStatusFail, Error: "JWT with wrong kid was accepted",
 			})
 		}
 	}
@@ -151,7 +157,7 @@ func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	wrongTenantToken, err := run.authResult.Minter.MintWithTenant(3, "wrong-tenant-id")
 	if err != nil {
 		checks = append(checks, metrics.CheckResult{
-			Name: "wrong tenant rejected", Status: "fail", Error: fmt.Sprintf("mint wrong tenant: %v", err),
+			Name: "wrong tenant rejected", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("mint wrong tenant: %v", err),
 		})
 	} else {
 		client, err = testerws.Connect(ctx, testerws.ConnectConfig{
@@ -161,12 +167,12 @@ func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 		})
 		if err != nil {
 			checks = append(checks, metrics.CheckResult{
-				Name: "wrong tenant rejected", Status: "pass",
+				Name: "wrong tenant rejected", Status: metrics.CheckStatusPass,
 			})
 		} else {
 			_ = client.Close()
 			checks = append(checks, metrics.CheckResult{
-				Name: "wrong tenant rejected", Status: "fail", Error: "JWT with wrong tenant was accepted",
+				Name: "wrong tenant rejected", Status: metrics.CheckStatusFail, Error: "JWT with wrong tenant was accepted",
 			})
 		}
 	}
@@ -182,17 +188,134 @@ func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	})
 	if err != nil {
 		checks = append(checks, metrics.CheckResult{
-			Name: "missing token rejected", Status: "pass",
+			Name: "missing token rejected", Status: metrics.CheckStatusPass,
 		})
 	} else {
 		_ = client.Close()
 		checks = append(checks, metrics.CheckResult{
-			Name: "missing token rejected", Status: "fail", Error: "connection with no token was accepted",
+			Name: "missing token rejected", Status: metrics.CheckStatusFail, Error: "connection with no token was accepted",
 		})
 	}
 
 	// Check 7: Provisioning API tenant-scoped JWT (Scenario 2 AC-2)
 	checks = append(checks, validateProvisioningJWT(ctx, run, logger)...)
+
+	// Checks 9–10: API key authentication
+	// Create a temporary API key for the test tenant; revoke it unconditionally at the end.
+	apiKeyBody, apiKeyErr := run.authResult.ProvClient.CreateAPIKey(ctx, run.Config.TenantID, "tester-api-key-"+run.ID)
+	var apiKeyValue string
+	if apiKeyErr == nil && len(apiKeyBody) > 0 {
+		var apiKeyResp struct {
+			KeyID string `json:"key_id"`
+		}
+		if err := json.Unmarshal(apiKeyBody, &apiKeyResp); err == nil {
+			apiKeyValue = apiKeyResp.KeyID
+		}
+	}
+
+	// Check 9: Valid API key accepted (SC-002: always emitted — fail if create/parse failed)
+	if apiKeyErr != nil || apiKeyValue == "" {
+		errMsg := "create api key failed"
+		if apiKeyErr != nil {
+			errMsg = fmt.Sprintf("create api key: %v", apiKeyErr)
+		}
+		// Check 10 also fails when key creation fails (SC-002: all 11 slots always emitted)
+		checks = append(checks,
+			metrics.CheckResult{Name: "api key accepted", Status: metrics.CheckStatusFail, Error: errMsg},
+			metrics.CheckResult{Name: "api key REST publish blocked", Status: metrics.CheckStatusFail, Error: "skipped: api key not available"},
+		)
+	} else {
+		// Retry loop: handle key registry cache propagation (same race as JWT check 1)
+		var apiKeyClient *testerws.Client
+		var apiKeyConnErr error
+	apiKeyConnLoop:
+		for i, delay := range connectRetryBackoffs {
+			if delay > 0 {
+				select {
+				case <-ctx.Done():
+					apiKeyConnErr = fmt.Errorf("context canceled: %w", ctx.Err())
+					break apiKeyConnLoop
+				case <-time.After(delay):
+				}
+			}
+			apiKeyClient, apiKeyConnErr = testerws.Connect(ctx, testerws.ConnectConfig{
+				GatewayURL: run.Config.GatewayURL,
+				APIKey:     apiKeyValue,
+				Logger:     logger,
+			})
+			if apiKeyConnErr == nil {
+				if i > 0 {
+					logger.Info().Int("attempt", i+1).Msg("api key connected after retry")
+				}
+				break
+			}
+			logger.Debug().Err(apiKeyConnErr).Int("attempt", i+1).Msg("api key connection attempt failed")
+		}
+		if apiKeyConnErr != nil {
+			checks = append(checks, metrics.CheckResult{
+				Name: "api key accepted", Status: metrics.CheckStatusFail,
+				Error: fmt.Sprintf("connect: %v", apiKeyConnErr),
+			})
+		} else {
+			checks = append(checks, metrics.CheckResult{
+				Name: "api key accepted", Status: metrics.CheckStatusPass,
+			})
+			_ = apiKeyClient.Close() // best-effort: test cleanup; disconnect errors are not actionable
+		}
+
+		// Check 10: API key cannot REST-publish (gateway returns 403 — publish requires JWT)
+		if ctx.Err() != nil {
+			checks = append(checks, metrics.CheckResult{
+				Name: "api key REST publish blocked", Status: metrics.CheckStatusFail,
+				Error: fmt.Sprintf("skipped: %v", ctx.Err()),
+			})
+		} else {
+			restStatus, _, restErr := restpublish.NewClient(run.Config.GatewayURL).PublishRaw(
+				ctx, validPublishBody, restpublish.AuthConfig{APIKey: apiKeyValue}, "application/json",
+			)
+			switch {
+			case restErr != nil:
+				checks = append(checks, metrics.CheckResult{
+					Name: "api key REST publish blocked", Status: metrics.CheckStatusFail,
+					Error: fmt.Sprintf("publish: %v", restErr),
+				})
+			case restStatus == http.StatusForbidden:
+				checks = append(checks, metrics.CheckResult{
+					Name: "api key REST publish blocked", Status: metrics.CheckStatusPass,
+				})
+			default:
+				checks = append(checks, metrics.CheckResult{
+					Name: "api key REST publish blocked", Status: metrics.CheckStatusFail,
+					Error: fmt.Sprintf("expected 403, got %d", restStatus),
+				})
+			}
+		}
+
+		// Revoke the temporary API key regardless of check outcomes.
+		// best-effort: tenant cleanup cascade also handles revocation
+		_ = run.authResult.ProvClient.RevokeAPIKey(ctx, run.Config.TenantID, apiKeyValue)
+	}
+
+	// Check 11: Unauthenticated provisioning request rejected (expect 401)
+	// Creates a client with nil provider → no Authorization header is sent.
+	unauthClient := auth.NewProvisioningClient(run.Config.ProvisioningURL, nil, logger)
+	unauthStatus, unauthErr := unauthClient.GetTenant(ctx, run.Config.TenantID, "")
+	switch {
+	case unauthErr != nil:
+		checks = append(checks, metrics.CheckResult{
+			Name: "unauthenticated request rejected", Status: metrics.CheckStatusFail,
+			Error: fmt.Sprintf("get tenant: %v", unauthErr),
+		})
+	case unauthStatus == http.StatusUnauthorized:
+		checks = append(checks, metrics.CheckResult{
+			Name: "unauthenticated request rejected", Status: metrics.CheckStatusPass,
+		})
+	default:
+		checks = append(checks, metrics.CheckResult{
+			Name: "unauthenticated request rejected", Status: metrics.CheckStatusFail,
+			Error: fmt.Sprintf("expected 401, got %d", unauthStatus),
+		})
+	}
 
 	return checks, nil
 }
@@ -208,7 +331,7 @@ func validateRevokedKey(ctx context.Context, run *TestRun, logger zerolog.Logger
 	kp, err := auth.GenerateKeypair("revoke-" + run.ID)
 	if err != nil {
 		return []metrics.CheckResult{{
-			Name: "revoked key rejected", Status: "fail", Error: fmt.Sprintf("generate revoke keypair: %v", err),
+			Name: "revoked key rejected", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("generate revoke keypair: %v", err),
 		}}
 	}
 
@@ -221,14 +344,14 @@ func validateRevokedKey(ctx context.Context, run *TestRun, logger zerolog.Logger
 		ExpiresAt: &expiresAt,
 	}); err != nil {
 		return []metrics.CheckResult{{
-			Name: "revoked key rejected", Status: "fail", Error: fmt.Sprintf("register revoke key: %v", err),
+			Name: "revoked key rejected", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("register revoke key: %v", err),
 		}}
 	}
 
 	// Revoke it
 	if err := provClient.RevokeKey(ctx, tenantID, revokedKeyID); err != nil {
 		return []metrics.CheckResult{{
-			Name: "revoked key rejected", Status: "fail", Error: fmt.Sprintf("revoke key: %v", err),
+			Name: "revoked key rejected", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("revoke key: %v", err),
 		}}
 	}
 
@@ -237,7 +360,7 @@ func validateRevokedKey(ctx context.Context, run *TestRun, logger zerolog.Logger
 	revokedToken, err := run.authResult.Minter.MintWithKid(99, revokedKeyID)
 	if err != nil {
 		return []metrics.CheckResult{{
-			Name: "revoked key rejected", Status: "fail", Error: fmt.Sprintf("mint with revoked kid: %v", err),
+			Name: "revoked key rejected", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("mint with revoked kid: %v", err),
 		}}
 	}
 
@@ -248,12 +371,12 @@ func validateRevokedKey(ctx context.Context, run *TestRun, logger zerolog.Logger
 	})
 	if err != nil {
 		return []metrics.CheckResult{{
-			Name: "revoked key rejected", Status: "pass",
+			Name: "revoked key rejected", Status: metrics.CheckStatusPass,
 		}}
 	}
 	_ = client.Close()
 	return []metrics.CheckResult{{
-		Name: "revoked key rejected", Status: "fail", Error: "JWT with revoked kid was accepted",
+		Name: "revoked key rejected", Status: metrics.CheckStatusFail, Error: "JWT with revoked kid was accepted",
 	}}
 }
 
@@ -268,15 +391,15 @@ func validateProvisioningJWT(ctx context.Context, run *TestRun, logger zerolog.L
 	switch {
 	case err != nil:
 		checks = append(checks, metrics.CheckResult{
-			Name: "provisioning JWT own tenant", Status: "fail", Error: err.Error(),
+			Name: "provisioning JWT own tenant", Status: metrics.CheckStatusFail, Error: err.Error(),
 		})
 	case status == http.StatusOK:
 		checks = append(checks, metrics.CheckResult{
-			Name: "provisioning JWT own tenant", Status: "pass",
+			Name: "provisioning JWT own tenant", Status: metrics.CheckStatusPass,
 		})
 	default:
 		checks = append(checks, metrics.CheckResult{
-			Name: "provisioning JWT own tenant", Status: "fail",
+			Name: "provisioning JWT own tenant", Status: metrics.CheckStatusFail,
 			Error: fmt.Sprintf("expected 200, got %d", status),
 		})
 	}
@@ -286,15 +409,15 @@ func validateProvisioningJWT(ctx context.Context, run *TestRun, logger zerolog.L
 	switch {
 	case err != nil:
 		checks = append(checks, metrics.CheckResult{
-			Name: "provisioning JWT cross-tenant blocked", Status: "fail", Error: err.Error(),
+			Name: "provisioning JWT cross-tenant blocked", Status: metrics.CheckStatusFail, Error: err.Error(),
 		})
 	case status == http.StatusForbidden:
 		checks = append(checks, metrics.CheckResult{
-			Name: "provisioning JWT cross-tenant blocked", Status: "pass",
+			Name: "provisioning JWT cross-tenant blocked", Status: metrics.CheckStatusPass,
 		})
 	default:
 		checks = append(checks, metrics.CheckResult{
-			Name: "provisioning JWT cross-tenant blocked", Status: "fail",
+			Name: "provisioning JWT cross-tenant blocked", Status: metrics.CheckStatusFail,
 			Error: fmt.Sprintf("expected 403, got %d", status),
 		})
 	}
@@ -309,7 +432,7 @@ func validateChannels(ctx context.Context, run *TestRun, logger zerolog.Logger) 
 	client, err := connectWithRetry(ctx, run.Config.GatewayURL, run.authResult.TokenFunc(0), logger)
 	if err != nil {
 		return []metrics.CheckResult{{
-			Name: "connect", Status: "fail", Error: err.Error(),
+			Name: "connect", Status: metrics.CheckStatusFail, Error: err.Error(),
 		}}, nil
 	}
 	defer client.Close() //nolint:errcheck // best-effort: test cleanup
@@ -317,11 +440,11 @@ func validateChannels(ctx context.Context, run *TestRun, logger zerolog.Logger) 
 	// Test public channel subscribe
 	if err := client.Subscribe([]string{validatePublicChannel}); err != nil {
 		checks = append(checks, metrics.CheckResult{
-			Name: "public channel subscribe", Status: "fail", Error: err.Error(),
+			Name: "public channel subscribe", Status: metrics.CheckStatusFail, Error: err.Error(),
 		})
 	} else {
 		checks = append(checks, metrics.CheckResult{
-			Name: "public channel subscribe", Status: "pass",
+			Name: "public channel subscribe", Status: metrics.CheckStatusPass,
 		})
 	}
 

@@ -1,10 +1,15 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
@@ -22,6 +27,7 @@ func TestTesterConfig_Validate(t *testing.T) {
 			GatewayURL:       "ws://localhost:3000",
 			ProvisioningURL:  "http://localhost:8080",
 			MessageBackend:   "direct",
+			AdminKeyID:       provauth.BootstrapAdminKeyID, // mirrors envDefault:"bootstrap-0"
 			JWTLifetime:      15 * time.Minute,
 			JWTRefreshBefore: 2 * time.Minute,
 			KeyExpiry:        24 * time.Hour,
@@ -112,6 +118,95 @@ func TestTesterConfig_Validate(t *testing.T) {
 			},
 			wantErr: "NATS_JETSTREAM_URLS required when MESSAGE_BACKEND=nats",
 		},
+		{
+			name:   "admin key file not set",
+			modify: func(_ *TesterConfig) {},
+			// AdminKeyFile="" is valid — local dev mode
+		},
+		{
+			name: "admin key file valid",
+			modify: func(c *TesterConfig) {
+				_, priv, err := ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					return
+				}
+				path := filepath.Join(os.TempDir(), "test-admin-valid.key")
+				_ = os.WriteFile(path, []byte(priv), 0o600)
+				c.AdminKeyFile = path
+			},
+		},
+		{
+			name: "admin key file missing path",
+			modify: func(c *TesterConfig) {
+				c.AdminKeyFile = "/nonexistent/path/to/key.bin"
+			},
+			wantErr: "/nonexistent/path/to/key.bin",
+		},
+		{
+			name: "admin key file invalid bytes",
+			modify: func(c *TesterConfig) {
+				path := filepath.Join(os.TempDir(), "test-admin-short.key")
+				_ = os.WriteFile(path, make([]byte, 32), 0o600) // 32 bytes, should be 64
+				c.AdminKeyFile = path
+			},
+			wantErr: "must be 64 bytes",
+		},
+		{
+			name: "admin key file set but key id empty",
+			modify: func(c *TesterConfig) {
+				_, priv, err := ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					return
+				}
+				path := filepath.Join(os.TempDir(), "test-admin-empty-kid.key")
+				_ = os.WriteFile(path, []byte(priv), 0o600)
+				c.AdminKeyFile = path
+				c.AdminKeyID = ""
+			},
+			wantErr: "TESTER_ADMIN_KEY_ID must not be empty",
+		},
+		{
+			name: "admin key ID too long",
+			modify: func(c *TesterConfig) {
+				_, priv, err := ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					return
+				}
+				path := filepath.Join(os.TempDir(), "test-admin-long-kid.key")
+				_ = os.WriteFile(path, []byte(priv), 0o600)
+				c.AdminKeyFile = path
+				c.AdminKeyID = strings.Repeat("a", 64) // 64 chars, max is 63
+			},
+			wantErr: "TESTER_ADMIN_KEY_ID",
+		},
+		{
+			name: "admin key ID starts with digit",
+			modify: func(c *TesterConfig) {
+				_, priv, err := ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					return
+				}
+				path := filepath.Join(os.TempDir(), "test-admin-digit-kid.key")
+				_ = os.WriteFile(path, []byte(priv), 0o600)
+				c.AdminKeyFile = path
+				c.AdminKeyID = "1-invalid"
+			},
+			wantErr: "TESTER_ADMIN_KEY_ID",
+		},
+		{
+			name: "admin key ID uppercase rejected",
+			modify: func(c *TesterConfig) {
+				_, priv, err := ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					return
+				}
+				path := filepath.Join(os.TempDir(), "test-admin-upper-kid.key")
+				_ = os.WriteFile(path, []byte(priv), 0o600)
+				c.AdminKeyFile = path
+				c.AdminKeyID = "Bootstrap-0" // uppercase B rejected
+			},
+			wantErr: "TESTER_ADMIN_KEY_ID",
+		},
 	}
 
 	for _, tt := range tests {
@@ -133,5 +228,20 @@ func TestTesterConfig_Validate(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestTesterConfig_DefaultAdminKeyID_EqualsBootstrapConstant verifies that the
+// TESTER_ADMIN_KEY_ID env default matches the canonical BootstrapAdminKeyID constant.
+// This prevents the tester from silently using a wrong default in remote mode.
+func TestTesterConfig_DefaultAdminKeyID_EqualsBootstrapConstant(t *testing.T) {
+	t.Parallel()
+
+	// A zero-value TesterConfig uses Go's zero values, not env defaults.
+	// We compare the constant values directly to ensure they stay in sync.
+	const envDefault = "bootstrap-0"
+	if provauth.BootstrapAdminKeyID != envDefault {
+		t.Errorf("BootstrapAdminKeyID = %q, want %q (must match TESTER_ADMIN_KEY_ID envDefault)",
+			provauth.BootstrapAdminKeyID, envDefault)
 	}
 }

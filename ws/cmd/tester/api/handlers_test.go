@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/klurvio/sukko/cmd/tester/runner"
@@ -21,7 +22,7 @@ func newTestRouter() (http.Handler, *runner.Runner) {
 		ProvisioningURL: "http://localhost:8080",
 		MessageBackend:  "direct",
 	}, zerolog.Nop())
-	return NewRouter(r, "test-auth", zerolog.Nop()), r
+	return NewRouter(r, "test-auth", "", zerolog.Nop()), r
 }
 
 func TestHealth(t *testing.T) {
@@ -183,7 +184,7 @@ func TestAuthMiddleware_EmptyToken(t *testing.T) {
 		GatewayURL:     "ws://localhost:3000",
 		MessageBackend: "direct",
 	}, zerolog.Nop())
-	handler := NewRouter(r, "", zerolog.Nop()) // no auth token
+	handler := NewRouter(r, "", "", zerolog.Nop()) // no auth token
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tests/any", http.NoBody)
 	w := httptest.NewRecorder()
@@ -347,4 +348,249 @@ func TestStartTest_SigningKey_NotProvided(t *testing.T) {
 		_ = r.Stop(id)
 	}
 	r.Wait()
+}
+
+func TestStartTest_AdminKey_OverridesConfigured(t *testing.T) {
+	t.Parallel()
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(priv)
+
+	handler, r := newTestRouter()
+	body := fmt.Sprintf(`{"type":"smoke","admin_key":"%s"}`, encoded) //nolint:gocritic // sprintfQuotedString: %s is correct — value is inside a raw JSON template
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	id, _ := resp["id"].(string)
+
+	run, err := r.Get(id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !bytes.Equal(run.Config.AdminKeyBytes, []byte(priv)) {
+		t.Error("AdminKeyBytes does not match decoded admin_key")
+	}
+
+	_ = r.Stop(id)
+	r.Wait()
+}
+
+func TestStartTest_AdminKey_Empty(t *testing.T) {
+	t.Parallel()
+
+	handler, r := newTestRouter()
+	body := `{"type":"smoke"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	id, _ := resp["id"].(string)
+
+	run, err := r.Get(id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if run.Config.AdminKeyBytes != nil {
+		t.Errorf("AdminKeyBytes = %x, want nil", run.Config.AdminKeyBytes)
+	}
+
+	_ = r.Stop(id)
+	r.Wait()
+}
+
+func TestStartTest_AdminKey_LocalDevMode(t *testing.T) {
+	t.Parallel()
+
+	// Router without TESTER_ADMIN_KEY_FILE (local dev mode) — per-request admin_key still works.
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(priv)
+
+	handler, r := newTestRouter()                                     // newTestRouter passes empty adminKeyID → local dev mode
+	body := fmt.Sprintf(`{"type":"smoke","admin_key":"%s"}`, encoded) //nolint:gocritic // sprintfQuotedString: %s is correct
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	id, _ := resp["id"].(string)
+
+	run, err := r.Get(id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !bytes.Equal(run.Config.AdminKeyBytes, []byte(priv)) {
+		t.Error("AdminKeyBytes does not match body key in local dev mode")
+	}
+
+	_ = r.Stop(id)
+	r.Wait()
+}
+
+func TestStartTest_AdminKeyID_OverridesDefault(t *testing.T) {
+	t.Parallel()
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(priv)
+
+	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: "direct"}, zerolog.Nop())
+	h := NewRouter(rr, "test-auth", "default-key-id", zerolog.Nop())
+
+	body := fmt.Sprintf(`{"type":"smoke","admin_key":"%s","admin_key_id":"override-kid"}`, encoded) //nolint:gocritic // sprintfQuotedString: %s is correct — value is inside a raw JSON template, %q would double-escape
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	id, _ := resp["id"].(string)
+
+	run, getErr := rr.Get(id)
+	if getErr != nil {
+		t.Fatalf("Get: %v", getErr)
+	}
+	if run.Config.AdminKeyID != "override-kid" {
+		t.Errorf("AdminKeyID = %q, want %q", run.Config.AdminKeyID, "override-kid")
+	}
+
+	_ = rr.Stop(id)
+	rr.Wait()
+}
+
+func TestStartTest_AdminKey_DefaultKID(t *testing.T) {
+	t.Parallel()
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(priv)
+
+	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: "direct"}, zerolog.Nop())
+	h := NewRouter(rr, "test-auth", "configured-key-id", zerolog.Nop())
+
+	body := fmt.Sprintf(`{"type":"smoke","admin_key":"%s"}`, encoded) //nolint:gocritic // sprintfQuotedString
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	id, _ := resp["id"].(string)
+
+	run, getErr := rr.Get(id)
+	if getErr != nil {
+		t.Fatalf("Get: %v", getErr)
+	}
+	// When admin_key is provided without admin_key_id, effective kid = h.adminKeyID
+	if run.Config.AdminKeyID != "configured-key-id" {
+		t.Errorf("AdminKeyID = %q, want %q", run.Config.AdminKeyID, "configured-key-id")
+	}
+
+	_ = rr.Stop(id)
+	rr.Wait()
+}
+
+func TestStartTest_AdminKeyPath_DeprecationWarned(t *testing.T) {
+	t.Parallel()
+
+	// Use a log buffer to capture Warn output.
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf)
+
+	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: "direct"}, zerolog.Nop())
+	h := NewRouter(rr, "test-auth", "", logger)
+
+	body := `{"type":"smoke","context":{"gateway_url":"ws://gw","provisioning_url":"http://prov","environment":"test","admin_key_path":"/some/path.bin"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	logOutput := logBuf.String()
+	if !strings.Contains(logOutput, "admin_key_path") {
+		t.Errorf("expected deprecation warning containing 'admin_key_path' in log, got: %s", logOutput)
+	}
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	id, _ := resp["id"].(string)
+
+	run, getErr := rr.Get(id)
+	if getErr != nil {
+		t.Fatalf("Get: %v", getErr)
+	}
+	if run.Config.AdminKeyBytes != nil {
+		t.Errorf("AdminKeyBytes = %x, want nil (admin_key_path is deprecated, not decoded)", run.Config.AdminKeyBytes)
+	}
+	if run.Config.AdminKeyID != "" {
+		t.Errorf("AdminKeyID = %q, want empty string", run.Config.AdminKeyID)
+	}
+
+	_ = rr.Stop(id)
+	rr.Wait()
+}
+
+func TestStartTest_AdminKeyID_WithoutAdminKey_Returns400(t *testing.T) {
+	t.Parallel()
+
+	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: "direct"}, zerolog.Nop())
+	h := NewRouter(rr, "", "", zerolog.Nop())
+
+	body := `{"type":"smoke","admin_key_id":"bootstrap-0"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if got, _ := resp["code"].(string); got != "INVALID_ADMIN_KEY_ID" {
+		t.Errorf("code = %q, want %q", got, "INVALID_ADMIN_KEY_ID")
+	}
 }

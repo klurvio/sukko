@@ -163,7 +163,9 @@ func (c *ProvisioningClient) GetTenant(ctx context.Context, tenantID, token stri
 	if err != nil {
 		return 0, fmt.Errorf("get tenant: build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
