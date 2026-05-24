@@ -3,6 +3,7 @@ package provisioning_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -407,13 +408,7 @@ func TestRenameTenant_TOCTOU_CompensationExecuted(t *testing.T) {
 	}
 	// Compensation: infra topics for the new slug must have been deleted.
 	for _, topic := range []string{"test.new-corp.dead-letter", "test.new-corp.default"} {
-		topicFound := false
-		for _, a := range kafka.DeleteAttempts {
-			if a == topic {
-				topicFound = true
-				break
-			}
-		}
+		topicFound := slices.Contains(kafka.DeleteAttempts, topic)
 		if !topicFound {
 			t.Errorf("DeleteAttempts = %v, want to contain %q (TOCTOU compensation)", kafka.DeleteAttempts, topic)
 		}

@@ -68,7 +68,7 @@ func scanTenant(row scanner, tenant *provisioning.Tenant) error {
 		&slugRenameState,
 		&tenant.SlugRenamedAt,
 	); err != nil {
-		return err
+		return fmt.Errorf("scan tenant row: %w", err)
 	}
 	if previousSlug != nil {
 		tenant.PreviousSlug = *previousSlug

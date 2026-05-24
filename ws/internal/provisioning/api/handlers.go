@@ -328,7 +328,7 @@ func (h *Handler) DeprovisionTenant(w http.ResponseWriter, r *http.Request) {
 	}
 	RecordTenantOperation(tenantOpDeprovision, pkgmetrics.ResultSuccess)
 	h.logger.Info().Str("slug", tenantSlug).Str("operation", tenantOpDeprovision).Msg("tenant deprovision succeeded") // LOG-017
-	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": status})                                        // WriteJSON error = broken client connection; nothing actionable
+	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": status})                                     // WriteJSON error = broken client connection; nothing actionable
 }
 
 // CreateKey registers a new public key.

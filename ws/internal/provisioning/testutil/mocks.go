@@ -91,8 +91,8 @@ func (m *MockTenantStore) GetBySlug(_ context.Context, slug string) (*provisioni
 	if !ok {
 		return nil, provisioning.ErrTenantNotFound
 	}
-	copy := *t
-	return &copy, nil
+	clone := *t
+	return &clone, nil
 }
 
 // Update implements TenantStore.Update for testing.
@@ -729,16 +729,16 @@ type MockKafkaAdmin struct {
 
 	// CreateTopicErrs is a per-call error queue. Each call to CreateTopic pops the first element;
 	// if the queue is empty, nil is returned. CreateTopicErr is used only when the queue is empty.
-	CreateTopicErrs      []error
-	CreateTopicErr       error
-	DeleteTopicErr       error
-	TopicExistsErr       error
-	SetTopicConfigErr    error
-	CreateACLErr         error
-	SetQuotaErr          error
-	CreateTopicACLsErr   error
-	DeleteTopicACLsErr   error
-	DeleteQuotaErr       error
+	CreateTopicErrs    []error
+	CreateTopicErr     error
+	DeleteTopicErr     error
+	TopicExistsErr     error
+	SetTopicConfigErr  error
+	CreateACLErr       error
+	SetQuotaErr        error
+	CreateTopicACLsErr error
+	DeleteTopicACLsErr error
+	DeleteQuotaErr     error
 }
 
 // NewMockKafkaAdmin creates a new MockKafkaAdmin.

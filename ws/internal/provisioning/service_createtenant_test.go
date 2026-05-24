@@ -250,4 +250,3 @@ func TestCreateTenant_SlugValidation(t *testing.T) {
 		})
 	}
 }
-

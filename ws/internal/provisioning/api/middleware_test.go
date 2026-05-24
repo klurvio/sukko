@@ -123,7 +123,7 @@ func TestRequireTenant(t *testing.T) {
 		Slug:   "acme-corp",
 		Status: provisioning.StatusActive,
 	}
-	recentRename := time.Now().Add(-time.Minute) // within any reasonable hold period
+	recentRename := time.Now().Add(-time.Minute)    // within any reasonable hold period
 	expiredRename := time.Now().Add(-2 * time.Hour) // older than holdPeriod (1h) — grace window closed
 	renamedTenant := &provisioning.Tenant{
 		ID:              "uuid-1234",
@@ -199,8 +199,8 @@ func TestRequireTenant(t *testing.T) {
 			wantStatus: http.StatusForbidden,
 		},
 		{
-			name: "empty PreviousSlug guard — complete state without previous slug is not grace period",
-			claims: &auth.Claims{TenantID: "acme-corp", Roles: []string{"user"}},
+			name:      "empty PreviousSlug guard — complete state without previous slug is not grace period",
+			claims:    &auth.Claims{TenantID: "acme-corp", Roles: []string{"user"}},
 			slugParam: "new-corp",
 			tenant: &provisioning.Tenant{
 				ID: "uuid-1234", Slug: "new-corp", Status: provisioning.StatusActive,
