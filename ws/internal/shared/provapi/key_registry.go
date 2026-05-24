@@ -60,7 +60,7 @@ type StreamKeyRegistryConfig struct {
 // StreamKeyRegistry implements auth.KeyRegistry and auth.KeyRegistryWithRefresh
 // backed by a gRPC streaming connection to the provisioning service.
 type StreamKeyRegistry struct {
-	mu           sync.RWMutex
+	mu       sync.RWMutex
 	keysByID map[string]*auth.KeyInfo
 	// BUG: keysByTenant is keyed by the UUID value in auth.KeyInfo.TenantID, which the
 	// gRPC server populates from TenantKey.TenantID (a validated UUID FK). GetKeysByTenant
