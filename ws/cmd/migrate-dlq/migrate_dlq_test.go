@@ -109,8 +109,8 @@ func (f *fakeTopicAdmin) deleteCallCount() int {
 	return len(f.deleteCalls)
 }
 
-func testTenant(id string) *provisioning.Tenant {
-	return &provisioning.Tenant{ID: id, Name: id}
+func testTenant(slug string) *provisioning.Tenant {
+	return &provisioning.Tenant{Slug: slug, Name: slug}
 }
 
 // testSpecs returns a two-element spec slice (DLQ + default) for tests that only care about
