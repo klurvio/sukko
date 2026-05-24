@@ -35,6 +35,9 @@ const (
 // Must match the value used by the admin JWT middleware and tester auth provider.
 const AdminJWTIssuer = "sukko-admin"
 
+// BootstrapAdminKeyID is the default key ID for the admin bootstrap key.
+const BootstrapAdminKeyID = "bootstrap-0"
+
 // AdminValidator validates admin JWTs using the shared ValidateJWT core
 // with admin-specific options (issuer check, max lifetime, leeway).
 // Constitution X: lives in provisioning package — only provisioning validates admin JWTs.

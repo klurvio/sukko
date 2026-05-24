@@ -197,6 +197,88 @@ func TestSetup_DefaultKeyExpiry(t *testing.T) {
 	result.Cleanup(context.Background())
 }
 
+func TestSetup_AdminProvider_ExposedFromInput(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := mockProvisioning(t)
+	defer srv.Close()
+
+	provider, _, err := NewEphemeralAuthProvider()
+	if err != nil {
+		t.Fatalf("NewEphemeralAuthProvider: %v", err)
+	}
+
+	result, err := Setup(context.Background(), SetupConfig{
+		TestID:          "provexp1",
+		TenantID:        "t1",
+		ProvisioningURL: srv.URL,
+		AdminProvider:   provider,
+	})
+	if err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+	defer result.Cleanup(context.Background())
+
+	// SetupResult.AdminProvider must be pointer-equal to the input provider.
+	if result.AdminProvider != provider {
+		t.Error("AdminProvider is not pointer-equal to input provider")
+	}
+}
+
+func TestSetup_AdminProvider_ExposedEphemeral(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := mockProvisioning(t)
+	defer srv.Close()
+
+	result, err := Setup(context.Background(), SetupConfig{
+		TestID:          "ephprov1",
+		TenantID:        "t1",
+		ProvisioningURL: srv.URL,
+		// AdminProvider: nil → ephemeral generated internally
+	})
+	if err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+	defer result.Cleanup(context.Background())
+
+	if result.AdminProvider == nil {
+		t.Error("AdminProvider is nil — must be non-nil even for ephemeral case")
+	}
+}
+
+func TestSetup_RequireAdminProvider_NilErrors(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := mockProvisioning(t)
+	defer srv.Close()
+
+	_, err := Setup(context.Background(), SetupConfig{
+		TestID:               "reqprov1",
+		TenantID:             "t1",
+		ProvisioningURL:      srv.URL,
+		AdminProvider:        nil,
+		RequireAdminProvider: true,
+	})
+	if err == nil {
+		t.Fatal("expected error when AdminProvider is nil and RequireAdminProvider is true")
+	}
+}
+
+func TestEphemeralAuthProvider_KeyIDPrefix(t *testing.T) {
+	t.Parallel()
+
+	provider, _, err := NewEphemeralAuthProvider()
+	if err != nil {
+		t.Fatalf("NewEphemeralAuthProvider: %v", err)
+	}
+
+	kid := provider.KeyID()
+	if !strings.HasPrefix(kid, "ephemeral-") {
+		t.Errorf("KeyID() = %q, want prefix %q", kid, "ephemeral-")
+	}
+}
+
 func TestSetup_ProvisioningClient_Exposed(t *testing.T) {
 	t.Parallel()
 

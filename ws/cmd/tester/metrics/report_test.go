@@ -111,6 +111,28 @@ func TestReport_WriteTable_NoChecks(t *testing.T) {
 	}
 }
 
+func TestReportStatusConstants(t *testing.T) {
+	t.Parallel()
+	if ReportStatusPass != "pass" {
+		t.Errorf("ReportStatusPass = %q, want %q", ReportStatusPass, "pass")
+	}
+	if ReportStatusFail != "fail" {
+		t.Errorf("ReportStatusFail = %q, want %q", ReportStatusFail, "fail")
+	}
+	if ReportStatusError != "error" {
+		t.Errorf("ReportStatusError = %q, want %q", ReportStatusError, "error")
+	}
+	if CheckStatusPass != "pass" {
+		t.Errorf("CheckStatusPass = %q, want %q", CheckStatusPass, "pass")
+	}
+	if CheckStatusFail != "fail" {
+		t.Errorf("CheckStatusFail = %q, want %q", CheckStatusFail, "fail")
+	}
+	if CheckStatusSkip != "skip" {
+		t.Errorf("CheckStatusSkip = %q, want %q", CheckStatusSkip, "skip")
+	}
+}
+
 func TestReport_WriteTable_NoLatency(t *testing.T) {
 	t.Parallel()
 

@@ -13,14 +13,18 @@ import (
 
 //nolint:gocritic // appendCombine: sequential checks have data flow between them (apiKeyID captured in check 4, used in 5-6, check 6 is conditional). Combining into one append is not possible.
 func validateProvisioning(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
-	// Create a dedicated throwaway tenant for lifecycle testing
+	// Create a dedicated throwaway tenant for lifecycle testing.
+	// RequireAdminProvider: true — the provisioning suite is only valid in remote mode;
+	// an ephemeral keypair would be rejected by a deployed provisioning service.
 	setup, err := auth.Setup(ctx, auth.SetupConfig{
-		TestID:          run.ID + "-prov",
-		ProvisioningURL: run.Config.ProvisioningURL,
-		Logger:          logger,
+		TestID:               run.ID + "-prov",
+		ProvisioningURL:      run.Config.ProvisioningURL,
+		Logger:               logger,
+		AdminProvider:        run.authResult.AdminProvider,
+		RequireAdminProvider: true,
 	})
 	if err != nil {
-		return []metrics.CheckResult{{Name: "setup", Status: "fail", Error: err.Error()}}, nil
+		return []metrics.CheckResult{{Name: "setup", Status: metrics.CheckStatusFail, Error: err.Error()}}, nil
 	}
 	defer setup.Cleanup(context.Background()) //nolint:contextcheck // cleanup must survive parent cancellation
 
@@ -228,7 +232,7 @@ func validateProvisioning(ctx context.Context, run *TestRun, logger zerolog.Logg
 
 func provCheck(name string, fn func() error) metrics.CheckResult {
 	if err := fn(); err != nil {
-		return metrics.CheckResult{Name: name, Status: "fail", Error: err.Error()}
+		return metrics.CheckResult{Name: name, Status: metrics.CheckStatusFail, Error: err.Error()}
 	}
-	return metrics.CheckResult{Name: name, Status: "pass"}
+	return metrics.CheckResult{Name: name, Status: metrics.CheckStatusPass}
 }

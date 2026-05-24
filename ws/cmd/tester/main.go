@@ -57,9 +57,11 @@ func run() error {
 		JWTRefreshBefore:  cfg.JWTRefreshBefore,
 		KeyExpiry:         cfg.KeyExpiry,
 		SigningKeyFile:    cfg.SigningKeyFile,
+		AdminKeyFile:      cfg.AdminKeyFile,
+		AdminKeyID:        cfg.AdminKeyID,
 	}, logger)
 
-	handler := api.NewRouter(r, cfg.AuthToken, logger)
+	handler := api.NewRouter(r, cfg.AuthToken, cfg.AdminKeyID, logger)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

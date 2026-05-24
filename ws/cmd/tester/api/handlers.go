@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,10 +21,43 @@ const testIDLength = 8
 
 const maxRequestBodySize = 1 << 20 // 1MB
 
+// API error codes returned in error responses.
+const (
+	errCodeInvalidRequest    = "INVALID_REQUEST"
+	errCodeInvalidType       = "INVALID_TYPE"
+	errCodeIncompleteCtx     = "INCOMPLETE_CONTEXT"
+	errCodeMissingBackend    = "MISSING_BACKEND_URLS"
+	errCodeInvalidSignKey    = "INVALID_SIGNING_KEY"
+	errCodeInvalidAdminKey   = "INVALID_ADMIN_KEY"
+	errCodeInvalidAdminKID   = "INVALID_ADMIN_KEY_ID"
+	errCodeConflict          = "CONFLICT"
+	errCodeNotFound          = "NOT_FOUND"
+	errCodeInternalError     = "INTERNAL_ERROR"
+	errCodeStreamUnsupported = "STREAMING_UNSUPPORTED"
+	errCodeUnauthorized      = "UNAUTHORIZED"
+)
+
+// adminKeyIDPattern and adminKeyIDRegex validate admin key ID format:
+// 3–63 chars, starts with a lowercase letter, contains lowercase letters, digits, and hyphens only.
+const adminKeyIDPattern = `^[a-z][a-z0-9-]{2,62}$`
+
+var adminKeyIDRegex = regexp.MustCompile(adminKeyIDPattern)
+
+// ValidateAdminKeyID returns an error if id is not a valid admin key ID.
+// An empty string is accepted (treated as "not provided" — callers must enforce presence separately).
+// A non-empty ID must be 3–63 chars: starts with a lowercase letter; contains lowercase letters, digits, and hyphens only.
+func ValidateAdminKeyID(id string) error {
+	if id == "" || adminKeyIDRegex.MatchString(id) {
+		return nil
+	}
+	return fmt.Errorf("admin_key_id %q must be 3–63 characters: lowercase letters, digits, and hyphens only, starting with a letter", id)
+}
+
 type handlers struct {
-	runner    *runner.Runner
-	authToken string
-	logger    zerolog.Logger
+	runner     *runner.Runner
+	authToken  string
+	adminKeyID string // effective kid used when per-request admin_key omits admin_key_id
+	logger     zerolog.Logger
 }
 
 func (h *handlers) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -36,7 +70,7 @@ func (h *handlers) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		auth := r.Header.Get("Authorization")
 		expected := "Bearer " + h.authToken
 		if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
-			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid or missing authorization token")
+			httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "invalid or missing authorization token")
 			return
 		}
 		next(w, r)
@@ -46,14 +80,15 @@ func (h *handlers) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // TestContext holds deployment context passed from the CLI.
 // All-or-nothing: when present, core fields are required.
 // SECURITY: This struct is decode-only (request deserialization). It is NEVER serialized
-// in responses — the handler converts to runner.TestContext (which tags AdminKeyPath as json:"-")
-// before any response is written. Do not use this struct in response serialization paths.
+// in responses — the handler converts to runner.TestContext before any response is written.
 type TestContext struct {
 	GatewayURL         string `json:"gateway_url"`
 	ProvisioningURL    string `json:"provisioning_url"`
-	AdminKeyPath       string `json:"admin_key_path,omitempty"` // optional — ephemeral keypair if empty
 	Environment        string `json:"environment"`
 	MessageBackendURLs string `json:"message_backend_urls,omitempty"`
+	// AdminKeyPath is accepted for deprecation detection only — never forwarded to runner.
+	// Use admin_key (base64 Ed25519 private key) in the top-level request body instead.
+	AdminKeyPath string `json:"admin_key_path,omitempty"`
 }
 
 type startTestRequest struct {
@@ -65,7 +100,9 @@ type startTestRequest struct {
 	Suite          string       `json:"suite,omitempty"`
 	TenantID       string       `json:"tenant_id,omitempty"`
 	MessageBackend string       `json:"message_backend,omitempty"`
-	SigningKey     string       `json:"signing_key,omitempty"` // base64.StdEncoding Ed25519 private key for license-reload suite
+	SigningKey     string       `json:"signing_key,omitempty"`  // base64.StdEncoding Ed25519 private key for license-reload suite
+	AdminKey       string       `json:"admin_key,omitempty"`    // base64.StdEncoding Ed25519 private key for per-request admin auth
+	AdminKeyID     string       `json:"admin_key_id,omitempty"` // kid for admin_key JWT; falls back to server AdminKeyID when omitted
 	Context        *TestContext `json:"context,omitempty"`
 }
 
@@ -75,12 +112,12 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 	var req startTestRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Debug().Err(err).Msg("invalid request body")
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid request body")
 		return
 	}
 
 	if req.Type == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_TYPE", "test type is required")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidType, "test type is required")
 		return
 	}
 
@@ -88,7 +125,7 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 	case runner.TestSmoke, runner.TestLoad, runner.TestStress, runner.TestSoak, runner.TestValidate:
 		// valid
 	default:
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_TYPE", fmt.Sprintf("unknown test type: %q", req.Type))
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidType, fmt.Sprintf("unknown test type: %q", req.Type))
 		return
 	}
 
@@ -96,18 +133,18 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 	if req.Context != nil {
 		if req.Context.GatewayURL == "" || req.Context.ProvisioningURL == "" ||
 			req.Context.Environment == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "INCOMPLETE_CONTEXT", "all core context fields required: gateway_url, provisioning_url, environment")
+			httputil.WriteError(w, http.StatusBadRequest, errCodeIncompleteCtx, "all core context fields required: gateway_url, provisioning_url, environment")
 			return
 		}
 		if (req.MessageBackend == "kafka" || req.MessageBackend == "nats") && req.Context.MessageBackendURLs == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "MISSING_BACKEND_URLS", "message_backend_urls required when message_backend is kafka or nats")
+			httputil.WriteError(w, http.StatusBadRequest, errCodeMissingBackend, "message_backend_urls required when message_backend is kafka or nats")
 			return
 		}
 	}
 
 	id, err := uuid.NewRandom()
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to generate test ID")
+		httputil.WriteError(w, http.StatusInternalServerError, errCodeInternalError, "failed to generate test ID")
 		return
 	}
 	testID := id.String()[:testIDLength]
@@ -117,16 +154,50 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 	if req.SigningKey != "" {
 		decoded, err := base64.StdEncoding.DecodeString(req.SigningKey)
 		if err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "INVALID_SIGNING_KEY", "signing_key must be valid base64 (base64.StdEncoding)")
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidSignKey, "signing_key must be valid base64 (base64.StdEncoding)")
 			return
 		}
 		if len(decoded) != ed25519.PrivateKeySize {
-			httputil.WriteError(w, http.StatusBadRequest, "INVALID_SIGNING_KEY",
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidSignKey,
 				fmt.Sprintf("signing key must be %d bytes (Ed25519 private key), got %d", ed25519.PrivateKeySize, len(decoded)))
 			return
 		}
 		h.logger.Info().Msg("signing key provided via API")
 		signingKeyBytes = decoded
+	}
+
+	// admin_key_id without admin_key is a caller error — reject immediately.
+	if req.AdminKeyID != "" && req.AdminKey == "" {
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidAdminKID,
+			"admin_key_id requires admin_key")
+		return
+	}
+
+	// Decode admin key if provided (per-request admin auth override)
+	var adminKeyBytes []byte
+	var adminKeyID string
+	if req.AdminKey != "" {
+		decoded, err := base64.StdEncoding.DecodeString(req.AdminKey)
+		if err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidAdminKey, "admin_key must be valid base64 (base64.StdEncoding)")
+			return
+		}
+		if len(decoded) != ed25519.PrivateKeySize {
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidAdminKey,
+				fmt.Sprintf("admin key must be %d bytes (Ed25519 private key), got %d", ed25519.PrivateKeySize, len(decoded)))
+			return
+		}
+		if req.AdminKeyID != "" && !adminKeyIDRegex.MatchString(req.AdminKeyID) {
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidAdminKID,
+				"admin_key_id must be 3–63 characters: lowercase letters, digits, and hyphens only, starting with a letter")
+			return
+		}
+		adminKeyBytes = decoded
+		adminKeyID = req.AdminKeyID
+		if adminKeyID == "" {
+			adminKeyID = h.adminKeyID
+		}
+		h.logger.Info().Msg("admin key provided via API")
 	}
 
 	cfg := runner.TestConfig{
@@ -139,12 +210,17 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		TenantID:        req.TenantID,
 		MessageBackend:  req.MessageBackend,
 		SigningKeyBytes: signingKeyBytes,
+		AdminKeyBytes:   adminKeyBytes,
+		AdminKeyID:      adminKeyID,
 	}
 	if req.Context != nil {
+		if req.Context.AdminKeyPath != "" {
+			// FR-010: admin_key_path is deprecated — use top-level admin_key instead.
+			h.logger.Warn().Str("field", "admin_key_path").Msg("admin_key_path is deprecated; use admin_key in the request body instead")
+		}
 		cfg.Context = &runner.TestContext{
 			GatewayURL:         req.Context.GatewayURL,
 			ProvisioningURL:    req.Context.ProvisioningURL,
-			AdminKeyPath:       req.Context.AdminKeyPath,
 			Environment:        req.Context.Environment,
 			MessageBackendURLs: req.Context.MessageBackendURLs,
 		}
@@ -153,11 +229,11 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 	run, err := h.runner.Start(testID, cfg)
 	if err != nil {
 		status := http.StatusInternalServerError
-		code := "TEST_ERROR"
+		code := errCodeInternalError
 		msg := "failed to start test"
 		if errors.Is(err, runner.ErrTestAlreadyExists) {
 			status = http.StatusConflict
-			code = "CONFLICT"
+			code = errCodeConflict
 			msg = "a test with this ID already exists"
 		}
 		httputil.WriteError(w, status, code, msg)
@@ -175,10 +251,10 @@ func (h *handlers) stopTest(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := h.runner.Stop(id); err != nil {
 		if errors.Is(err, runner.ErrTestNotFound) {
-			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", fmt.Sprintf("test %q not found", id))
+			httputil.WriteError(w, http.StatusNotFound, errCodeNotFound, fmt.Sprintf("test %q not found", id))
 			return
 		}
-		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to stop test")
+		httputil.WriteError(w, http.StatusInternalServerError, errCodeInternalError, "failed to stop test")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopping"})
@@ -188,7 +264,7 @@ func (h *handlers) getTest(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run, err := h.runner.Get(id)
 	if err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", fmt.Sprintf("test %q not found", id))
+		httputil.WriteError(w, http.StatusNotFound, errCodeNotFound, fmt.Sprintf("test %q not found", id))
 		return
 	}
 
@@ -196,7 +272,7 @@ func (h *handlers) getTest(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
 		"id":     run.ID,
 		"status": status,
-		"config": run.Config,
+		"config": run.ConfigSnapshot(),
 	}
 	if report != nil {
 		resp["report"] = report
@@ -208,13 +284,13 @@ func (h *handlers) streamMetrics(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run, err := h.runner.Get(id)
 	if err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", fmt.Sprintf("test %q not found", id))
+		httputil.WriteError(w, http.StatusNotFound, errCodeNotFound, fmt.Sprintf("test %q not found", id))
 		return
 	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		httputil.WriteError(w, http.StatusInternalServerError, "STREAMING_UNSUPPORTED", "streaming not supported")
+		httputil.WriteError(w, http.StatusInternalServerError, errCodeStreamUnsupported, "streaming not supported")
 		return
 	}
 
