@@ -88,7 +88,7 @@ func (c *Client) ReadEvent(ctx context.Context) (*Event, error) {
 		defer logging.RecoverPanic(c.logger, "sse-read-event-cancel", nil)
 		select {
 		case <-ctx.Done():
-			c.Close() //nolint:errcheck // best-effort: unblock scanner
+			_ = c.Close() // best-effort: unblock scanner on context cancel
 		case <-done:
 		}
 	}()
