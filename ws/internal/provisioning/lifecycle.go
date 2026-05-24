@@ -133,7 +133,7 @@ func (lm *LifecycleManager) processDeletions(parent context.Context) {
 
 // deleteTenant performs the full deletion of a tenant.
 func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) error {
-	tenantID := tenant.ID   // UUID — used for all store operations (WHERE id = $1)
+	tenantID := tenant.ID     // UUID — used for all store operations (WHERE id = $1)
 	tenantSlug := tenant.Slug // slug — used for all Kafka/ACL operations
 
 	// 1. Delete Kafka topics derived from routing rules (nil-guarded: store is optional)

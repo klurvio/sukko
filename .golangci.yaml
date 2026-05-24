@@ -96,8 +96,6 @@ linters:
         - hugeParam # Often not a concern in modern Go
         - rangeValCopy # Go 1.22+ handles this
 
-    gosec:
-
     govet:
       # Enable all analyzers
       enable-all: true

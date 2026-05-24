@@ -16,7 +16,7 @@ import (
 
 // newStartupScanService builds a service configured for startup scan tests.
 // A subscription channel is returned so tests can observe TenantConfigChanged events.
-func newStartupScanService(ts *testutil.MockTenantStore) (*provisioning.Service, <-chan eventbus.Event) {
+func newStartupScanService(ts *testutil.MockTenantStore) (svc *provisioning.Service, events <-chan eventbus.Event) {
 	bus := eventbus.New(zerolog.Nop())
 	_, ch := bus.Subscribe()
 
