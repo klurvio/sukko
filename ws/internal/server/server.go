@@ -117,7 +117,7 @@ func NewServer(params Params, alerter alerting.Alerter) (*Server, error) {
 	}
 
 	config := params.Config
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118 false positive: cancel stored in s.cancel and called by Shutdown
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// Initialize structured logger
 	logger := logging.NewLogger(logging.LoggerConfig{

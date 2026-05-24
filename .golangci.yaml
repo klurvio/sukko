@@ -97,10 +97,6 @@ linters:
         - rangeValCopy # Go 1.22+ handles this
 
     gosec:
-      # Exclude some checks
-      excludes:
-        - G104 # Audit errors not checked (covered by errcheck)
-        - G307 # Deferring unsafe method (often false positive with Close)
 
     govet:
       # Enable all analyzers
