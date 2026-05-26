@@ -174,13 +174,28 @@ paths:
     delete:
       operationId: deprovisionTenant
       summary: Deprovision tenant
-      description: Marks tenant for deletion. Requires admin or system role.
+      description: |
+        Marks tenant for deletion. Requires admin or system role.
+
+        With `?force=true`, the tenant is deleted immediately and the response status is `deleted`.
+        Without it, the tenant is marked for async deprovisioning and the response status is `deprovisioning`.
+
+        The `force` parameter only accepts the literal string `"true"` — any other value (e.g. `1`, `True`) is treated as absent.
       tags: [Tenants]
       security:
         - bearerAuth: []
+      parameters:
+        - name: force
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Pass `force=true` (literal string) to delete the tenant immediately.
+            Any other value is treated as absent (deprovisioning mode).
       responses:
         "200":
-          description: Tenant deprovisioning started
+          description: Tenant deprovisioning started or deleted
           content:
             application/json:
               schema:
@@ -188,13 +203,31 @@ paths:
                 properties:
                   status:
                     type: string
-                    const: deprovisioning
+                    enum: [deprovisioning, deleted]
+              examples:
+                deprovisioning:
+                  summary: Default — async deprovisioning started
+                  value:
+                    status: deprovisioning
+                force_deleted:
+                  summary: Force delete — tenant removed immediately
+                  value:
+                    status: deleted
         "404":
           description: Tenant not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Deprovisioning failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: DEPROVISION_FAILED
+                message: "failed to deprovision tenant"
 
   /api/v1/tenants/{tenantSlug}/rename:
     parameters:
@@ -528,11 +561,22 @@ paths:
                   rule:
                     $ref: "#/components/schemas/RoutingRule"
         "400":
-          description: Validation error (invalid pattern, empty topics, topic not provisioned)
+          description: Validation error or rule limit exceeded
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                validation_error:
+                  summary: Schema validation failed
+                  value:
+                    code: ROUTING_RULE_VALIDATION_ERROR
+                    message: "invalid pattern, empty topics, topic not provisioned, or too many topics per rule"
+                too_many_rules:
+                  summary: Per-tenant rule limit exceeded
+                  value:
+                    code: TOO_MANY_ROUTING_RULES
+                    message: "too many routing rules"
         "409":
           description: Conflict — duplicate priority or duplicate pattern
           content:
@@ -575,7 +619,7 @@ paths:
     delete:
       operationId: deleteRoutingRules
       summary: Delete routing rules
-      description: Removes all routing rules for the tenant. Requires admin or system role.
+      description: Removes all routing rules for the tenant. Idempotent — returns 200 even if no rules exist. Requires admin or system role.
       tags: [Routing Rules]
       security:
         - bearerAuth: []
@@ -590,12 +634,15 @@ paths:
                   status:
                     type: string
                     const: deleted
-        "404":
-          description: No rules configured
+        "500":
+          description: Failed to delete routing rules
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: DELETE_ROUTING_RULES_FAILED
+                message: "failed to delete routing rules"
 
   /api/v1/tenants/{tenantSlug}/channel-rules:
     parameters:

@@ -66,6 +66,7 @@ paths:
                 provisioning_keys_stream: connected
                 provisioning_config_stream: connected
                 provisioning_api_keys_stream: connected
+                provisioning_license_stream: connected
 
   /ready:
     get:
@@ -92,6 +93,7 @@ paths:
                 provisioning_keys_stream: disconnected
                 provisioning_config_stream: connected
                 provisioning_api_keys_stream: connected
+                provisioning_license_stream: connected
 
   /version:
     get:
@@ -292,6 +294,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              example:
+                code: TENANT_LIMIT_EXCEEDED
+                message: "tenant connection limit reached"
         "503":
           description: ws-server not available
           content:
@@ -660,5 +665,8 @@ components:
           type: string
           enum: [connected, disconnected, disabled]
         provisioning_api_keys_stream:
+          type: string
+          enum: [connected, disconnected, disabled]
+        provisioning_license_stream:
           type: string
           enum: [connected, disconnected, disabled]
