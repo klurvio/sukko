@@ -47,22 +47,25 @@ An operator follows `sukko-docs` to deploy Sukko, onboard a tenant, and verify t
 5. **Given** the configuration reference in sukko-docs, **When** an operator searches for an environment variable, **Then** the docs show the correct name, type, default, and description.
 6. **Given** any edition-gated feature page in sukko-docs, **When** an operator reads it, **Then** the required edition (Community / Pro / Enterprise) is stated prominently before any setup instructions.
 
-### Scenario 3 — Operator evaluates the system locally before committing to a deployment (Priority: P1)
+### Scenario 3 — Operator validates their deployment comprehensively (Priority: P1)
 
-An operator wants to understand what Sukko does, how its features feel, and whether it fits their needs — without deploying to cloud. They use `sukko up` to spin up a local environment and `sukko test` to exercise the system end-to-end. Later they switch context to test against a remote deployment using the same commands.
+An operator needs to validate that their Sukko deployment — whether local (Docker Compose via `sukko up`) or remote (cloud/Kubernetes) — is working correctly across every feature area. They are not a developer and will not read source code, but they need the same confidence in system correctness that a developer gets from the full e2e test battery.
+
+The operator testing guide in sukko-docs is their complete reference. Every testing procedure that exists for developers must be represented here in operator-appropriate language and tooling. "Only available to developers" is not an acceptable state for any procedure that validates production deployment correctness.
 
 In this workflow:
-- **sukko-cli is the orchestrator** — it manages the environment (`sukko up/down`), provisions tenants, sets up keys and routing rules, configures the deployment context, and drives the test sequence.
-- **the tester is the executor** — it receives instructions from `sukko test` commands and runs the actual validation suites against whatever environment the CLI context points to.
+- **sukko-cli is the orchestrator** — it manages the environment (`sukko up/down`), provisions tenants, sets up keys and rules, configures contexts, and sequences the test workflow.
+- **the tester is the executor** — it runs validation suites against whatever environment the CLI context points to, returning structured pass/fail results.
+- **context switching** (`sukko context use <name>`) is the only difference between testing locally and testing remotely — the commands are identical.
 
-The operator never has to choose different tools for local vs. remote — context switching (`sukko context use <name>`) redirects all commands to the target environment transparently.
+Local environments have real limitations (single-node Kafka, no TLS, no cloud load balancer) that must be documented so operators know what they can and cannot validate locally vs. remotely.
 
 **Acceptance Criteria**:
-1. **Given** a machine with Docker and sukko-cli installed, **When** an operator follows the operator testing guide in sukko-docs, **Then** they can spin up a local Sukko environment, provision a tenant, and run validation suites — with no cloud account required.
-2. **Given** a local environment running via `sukko up`, **When** the operator runs `sukko test validate --suite pubsub`, **Then** the tester executes against the local environment and returns a pass/fail result the operator can interpret without reading the codebase.
-3. **Given** a remote deployment configured as a context, **When** the operator runs `sukko context use production` and re-runs `sukko test smoke`, **Then** the exact same command runs against the remote deployment — no changes to flags or commands required.
-4. **Given** the operator testing guide in sukko-docs, **When** an operator reads the CLI-as-orchestrator and tester-as-executor explanation, **Then** they understand the division of responsibilities without needing to understand the internal architecture.
-5. **Given** a failing validation suite result, **When** the operator reads the output, **Then** they can identify what failed and what to fix using sukko-cli commands — without needing developer assistance for common failure modes.
+1. **Given** a machine with Docker and sukko-cli installed, **When** an operator follows the testing guide in sukko-docs, **Then** they can spin up a full local environment, run the complete locally-viable test battery, and get a clear pass/fail verdict for each area — with no cloud account, no codebase access.
+2. **Given** a remote deployment configured as a context, **When** the operator follows the same guide's remote section, **Then** they can run the full test battery including suites only meaningful in production (TLS, multi-node, rate limits, push notifications) — using the same `sukko test` commands.
+3. **Given** any of the 14 tester suites, **When** an operator looks it up in the testing guide, **Then** they find: what the suite validates in plain language, whether it runs locally or requires a remote deployment, the required edition, the exact `sukko test validate --suite <name>` command, and how to interpret the output.
+4. **Given** a failing suite result, **When** the operator reads the output and consults the testing guide, **Then** they can identify the failure category and find the relevant `sukko` CLI commands to diagnose and remediate — without developer assistance for common failure modes.
+5. **Given** the local vs. remote limitations section of the testing guide, **When** an operator reads it, **Then** they understand exactly which suites and features can be validated locally and which require a live deployment, with the reason stated plainly (e.g., "Push notifications require a configured push provider — not available in local Docker environments").
 
 ### Scenario 4 — Developer adds a new feature (Priority: P2)
 
@@ -108,9 +111,19 @@ sukko-docs is the operator-facing documentation site. Operators consume it direc
 - **FR-012**: The tenant onboarding guide MUST explain routing rules in operator-friendly terms: what patterns match, what topics array does (fan-out to multiple Kafka topics), how priority works, and — critically — that topic suffixes must exist before routing rules can reference them (Phase 1 constraint stated in plain language, without referencing Go internals).
 - **FR-013**: The CLI reference page MUST document every command and subcommand in the current binary: `sukko up/down/init/status/health`, `sukko tenant`, `sukko keys`, `sukko api-keys`, `sukko auth`, `sukko rules routing/channels`, `sukko quota`, `sukko token`, `sukko connections`, `sukko publish`, `sukko subscribe`, `sukko license`, `sukko edition`, `sukko test`, `sukko grafana`, `sukko logs`. Written from the operator's perspective — what the command does, not how it's implemented.
 - **FR-014**: The configuration reference MUST list every environment variable for ws-server, ws-gateway, and provisioning with the correct name, type, default value, and a plain-English description an operator can act on.
-- **FR-015**: The testing guide (`guides/testing.mdx`) MUST explain the CLI-as-orchestrator / tester-as-executor model: sukko-cli manages the environment and drives the test sequence; the tester service executes the validation suites. The guide MUST cover both local testing (via `sukko up` Docker Compose, no cloud account required) and remote testing (via context switching with `sukko context use <name>`). The operator must be able to understand the full workflow without reading any source code.
-- **FR-015a**: The testing guide MUST document context switching as the mechanism for targeting local vs. remote environments — the same `sukko test` commands work in both cases; only the active context changes.
-- **FR-015b**: The testing guide MUST document all 14 tester suites in operator-friendly terms: what each suite validates about their deployment, which edition is required, and what healthy output looks like. It must read as a deployment verification tool, not a developer debugging tool.
+- **FR-015**: The testing guide (`guides/testing.mdx`) MUST be a comprehensive, standalone deployment validation reference for operators. It MUST NOT require the operator to consult any other source, read source code, or ask a developer. Every testing procedure available to developers MUST have an operator-accessible equivalent in this guide — the developer e2e doc and the operator testing guide cover the same system surface, in their respective audiences' language.
+
+- **FR-015a**: The guide MUST open with the CLI-as-orchestrator / tester-as-executor model explained in plain language — what each tool does, why you need both, and how context switching makes local and remote testing identical from the command perspective.
+
+- **FR-015b**: The guide MUST have an explicit local vs. remote limitations section. For each feature area, it MUST state clearly: (a) whether it can be validated locally, (b) what is not testable locally and why (e.g., push notifications need a real push provider, TLS termination requires a real load balancer, multi-node behaviors cannot be verified on a single Docker host), and (c) what the operator should validate manually in their remote deployment for those areas.
+
+- **FR-015c**: The guide MUST document all 14 tester suites with: suite name, the exact `sukko test validate --suite <name>` command, what it validates in operator terms (not implementation terms), minimum required edition, whether it runs locally or remote-only, and a representative healthy output excerpt so the operator knows what pass looks like.
+
+- **FR-015d**: The guide MUST include a sequential deployment validation checklist — a step-by-step procedure an operator follows after every deployment to confirm the system is healthy. It covers: environment health (`sukko health`, `sukko status`), smoke test (`sukko test smoke`), provisioning round-trip (`sukko test validate --suite provisioning`), WebSocket delivery (`sukko test validate --suite pubsub`), edition gate verification, and any edition-specific suites applicable to their license.
+
+- **FR-015e**: The guide MUST include a troubleshooting section for common failure modes: suite fails to connect to tester, suite fails due to wrong edition, provisioning suite fails on routing rules (topic not provisioned), auth suite fails (key not registered), and how to reset state (`sukko tenant deprovision`, `sukko rules routing delete`, re-run setup).
+
+- **FR-015f**: Context switching MUST be documented as a first-class workflow — not a footnote. The guide MUST show: how to create a context for a remote deployment, how to switch between local and remote, and how to verify which context is active before running tests.
 - **FR-016**: Every sukko-docs page covering an edition-gated feature (SSE, push notifications, REST publish, analytics) MUST state the required edition (e.g., "Requires Pro") as the first visible element — before prerequisites, before setup steps.
 - **FR-017**: The editions comparison page MUST accurately reflect which features are available today vs. planned — operators making purchase decisions depend on this being correct.
 
@@ -152,8 +165,10 @@ sukko-docs is the operator-facing documentation site. Operators consume it direc
 - **SC-005**: The routing rules documentation in both the e2e doc and sukko-docs uses `topics` (array), not `topic_suffix`, and correctly describes fan-out and Phase 1 constraints.
 - **SC-006**: The constitution contains an explicit maintenance requirement for `ws/docs/e2e-testing.md` and `/sukko-docs` that would be surfaced as a violation in code review when docs are not updated alongside code changes.
 - **SC-007**: An operator following the quickstart in sukko-docs reaches a working WebSocket connection with a real message delivered — no broken commands, no stale examples, no missing steps. The operator never needs to look at source code or ask a developer to interpret the instructions.
-- **SC-008**: An operator following the testing guide in sukko-docs can run `sukko up` locally, provision a tenant via CLI, run at least three validation suites via `sukko test validate`, and interpret the results — entirely from the guide, no cloud account, no codebase access.
-- **SC-009**: An operator can switch from local to remote testing by running `sukko context use <name>` and re-running the same `sukko test` commands — the testing guide makes this workflow explicit and the operator does not need to change any other flags or configuration.
+- **SC-008**: An operator with no prior Sukko knowledge can follow the testing guide in sukko-docs and successfully: (a) run the full locally-viable test battery on a Docker environment, (b) interpret every result as pass/fail with a clear reason, and (c) identify remediation steps for any failure — entirely from the guide, no cloud account, no codebase access, no developer assistance.
+- **SC-009**: An operator can switch from local to remote testing by running `sukko context use <name>` and re-running the identical `sukko test` commands — the testing guide makes this workflow explicit, and the operator does not need to change any flags or consult any other documentation.
+- **SC-010**: The testing guide covers all 14 validation suites. For each suite, an operator can determine in under 30 seconds: what it tests, whether it applies to their edition, whether it runs locally, and what command to run.
+- **SC-011**: No testing procedure documented in `ws/docs/e2e-testing.md` is absent from `guides/testing.mdx` without a documented reason (e.g., "developer-internal only" with justification). The two documents cover the same system surface for their respective audiences.
 
 ---
 
