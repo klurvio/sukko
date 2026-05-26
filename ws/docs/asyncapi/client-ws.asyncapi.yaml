@@ -85,12 +85,12 @@ info:
 
     ## Topic Mapping Rules
 
-    Published messages are routed to Kafka topics via **topic routing rules** configured per-tenant through the provisioning API. Each rule maps a channel suffix pattern to a literal Kafka topic suffix.
+    Published messages are routed to Kafka topics via **topic routing rules** configured per-tenant through the provisioning API. Each rule maps a channel suffix pattern to one or more Kafka topic suffixes.
 
     | Field | Description | Example |
     |-------|-------------|---------|
     | `pattern` | Channel suffix glob with `*` wildcards | `rooms.*.messages` |
-    | `topic_suffix` | Literal Kafka topic suffix (no wildcards) | `rooms.messages` |
+    | `topics` | Array of Kafka topic suffixes (no wildcards) | `["rooms.messages"]` |
 
     **Evaluation**: Rules are evaluated in order — **first match wins**. If no rule matches, the publish is rejected.
 
@@ -99,13 +99,13 @@ info:
     **Example rules**:
     ```json
     [
-      {"pattern": "*.messages", "topic_suffix": "messages"},
-      {"pattern": "*.typing", "topic_suffix": "typing"},
-      {"pattern": "rooms.*.presence", "topic_suffix": "rooms.presence"}
+      {"pattern": "*.messages", "topics": ["messages"]},
+      {"pattern": "*.typing", "topics": ["typing"]},
+      {"pattern": "rooms.*.presence", "topics": ["rooms.presence"]}
     ]
     ```
 
-    When a client publishes to `sukko.general.messages`, the gateway strips the tenant prefix (`general.messages`), matches against the first rule (`*.messages`), and routes to Kafka topic `sukko.messages` (tenant prefix + topic suffix).
+    When a client publishes to `sukko.general.messages`, the gateway strips the tenant prefix (`general.messages`), matches against the first rule (`*.messages`), and routes to Kafka topic `sukko.messages` (tenant prefix + first matching topics entry).
 
     ## Rate Limits and Constraints
 
@@ -653,7 +653,6 @@ components:
       required:
         - type
         - unsubscribed
-        - count
       properties:
         type:
           type: string
@@ -665,11 +664,20 @@ components:
           description: Channels that were unsubscribed (with tenant prefix).
         count:
           type: integer
-          description: Total active subscription count for this connection.
+          description: |
+            Total active subscription count for this connection.
+            Typically present for client-initiated unsubscribes; absent for server-forced ones.
+        forced:
+          type: boolean
+          description: |
+            Set to true when channels were force-unsubscribed due to auth refresh or permission change.
       examples:
         - type: unsubscription_ack
           unsubscribed: ["sukko.general.messages"]
           count: 4
+        - type: unsubscription_ack
+          unsubscribed: ["sukko.general.messages"]
+          forced: true
 
     PublishAck:
       type: object
