@@ -7,13 +7,17 @@
 
 ## Context
 
-Sukko is approaching its first production release. There are two blocking documentation gaps:
+Sukko is approaching its first production release. There are two distinct audiences with two distinct documentation gaps, plus a process gap that will cause both to drift after release.
 
-1. **No developer e2e testing guide exists.** Developers validating a release or a feature branch have no single document telling them what to run, in what order, and what a passing system looks like. The tester service and sukko-cli together cover the full feature surface but there is no document tying them together into a cohesive test battery. This means release validation is informal, inconsistent, and relies on tribal knowledge.
+**Audience separation is critical:**
+- **Developers** build, test, and release Sukko. They need a technical e2e testing guide (`ws/docs/e2e-testing.md`) that tells them exactly what to run, in what order, and what a passing system looks like. This lives in the sukko repo and is a developer tool.
+- **Operators** deploy and manage Sukko in production. They consume `sukko-docs` — a separate documentation site written for people who will never read the codebase. Developers do not use sukko-docs for their own work; they use it only to audit and validate that the operator experience is correct.
 
-2. **Operator documentation (`sukko-docs`) has known accuracy issues.** The quickstart references stale channel formats, some guides have not been updated to reflect routing rules replacing the old topic-suffix model, and CLI command references may lag implementation. An operator following these docs today will hit broken examples before they finish setup. Poor DX at first contact is a hard barrier to adoption.
+**Gap 1 — No developer e2e testing guide exists.** Developers validating a release or a feature branch have no single document telling them what to run, in what order, and what a passing system looks like. The tester service and sukko-cli together cover the full feature surface but there is no document tying them together into a cohesive test battery. This means release validation is informal, inconsistent, and relies on tribal knowledge.
 
-3. **Neither document is required to stay in sync with the codebase.** The constitution covers OpenAPI/AsyncAPI contract maintenance (XVII) and cross-repo awareness (XVI) but neither explicitly mandates that the e2e test guide or the operator docs be updated when the codebase changes. Without a constitution mandate, both documents will drift again the moment the next feature lands.
+**Gap 2 — Operator documentation (`sukko-docs`) has known accuracy issues.** The quickstart references stale channel formats, some guides have not been updated to reflect routing rules replacing the old topic-suffix model, and CLI command references may lag implementation. An operator following these docs today will hit broken examples before they finish setup. Poor DX at first contact is a hard barrier to adoption. Developers are responsible for auditing sukko-docs before each release to ensure the operator experience is correct — not for using it themselves.
+
+**Gap 3 — Neither document is required to stay in sync with the codebase.** The constitution covers OpenAPI/AsyncAPI contract maintenance (XVII) and cross-repo awareness (XVI) but neither explicitly mandates that the e2e test guide or the operator docs be updated when the codebase changes. Without a constitution mandate, both documents will drift again the moment the next feature lands.
 
 This spec covers all three gaps as a single release-readiness initiative.
 
@@ -31,32 +35,33 @@ A developer has just merged a feature branch into main. Before cutting a release
 3. **Given** the e2e document, **When** the developer reaches any manual CLI verification section, **Then** the exact `sukko` command, expected output, and failure indicators are shown.
 4. **Given** any feature (routing rules, edition gates, token revocation, push, etc.), **When** a developer looks it up in the e2e doc, **Then** the relevant edge cases and failure modes are documented alongside the happy path.
 
-### Scenario 2 — Operator follows documentation to deploy and validate (Priority: P1)
+### Scenario 2 — Operator follows sukko-docs to deploy and validate (Priority: P1)
 
-An operator follows `sukko-docs` to deploy Sukko, onboard a tenant, and verify their deployment is working correctly. They have no prior knowledge of the codebase.
+An operator follows `sukko-docs` to deploy Sukko, onboard a tenant, and verify their deployment is working correctly. They have no prior knowledge of the codebase and will never look at source code. The developer's role in this scenario is to audit sukko-docs before release and fix any inaccuracies so the operator experience is seamless.
 
 **Acceptance Criteria**:
 1. **Given** the quickstart guide, **When** an operator follows it step by step, **Then** they reach a working WebSocket connection with no broken commands or stale examples.
 2. **Given** any guide page (tenant onboarding, SSE, push notifications, testing), **When** the operator runs the CLI commands shown, **Then** the commands succeed and produce output matching the documented examples.
-3. **Given** the routing rules documentation, **When** an operator reads it, **Then** it correctly describes the `topics` array (not `topic_suffix`), the fan-out behavior, the `**` pattern semantics, and the priority evaluation order.
-4. **Given** the CLI reference, **When** an operator runs `sukko --help` and compares it to the docs, **Then** every command, subcommand, and flag in the docs exists in the binary and vice versa.
-5. **Given** the configuration reference, **When** an operator searches for an environment variable, **Then** the docs show the correct name, type, default, and description matching the Go `envDefault` value.
+3. **Given** the routing rules documentation in sukko-docs, **When** an operator reads it, **Then** it correctly describes the `topics` array (not `topic_suffix`), the fan-out behavior, the `**` pattern semantics, and the priority evaluation order — all without requiring knowledge of the Go implementation.
+4. **Given** the CLI reference in sukko-docs, **When** an operator runs `sukko --help` and compares it to the docs, **Then** every command, subcommand, and flag in the docs exists in the binary and vice versa.
+5. **Given** the configuration reference in sukko-docs, **When** an operator searches for an environment variable, **Then** the docs show the correct name, type, default, and description.
+6. **Given** any edition-gated feature page in sukko-docs, **When** an operator reads it, **Then** the required edition (Community / Pro / Enterprise) is stated prominently before any setup instructions.
 
 ### Scenario 3 — Developer adds a new feature (Priority: P2)
 
-A developer adds a new endpoint, changes a WebSocket message schema, or modifies system behavior. The constitution must force them to update both the e2e test document and the operator docs as part of the same PR.
+A developer adds a new endpoint, changes a WebSocket message schema, or modifies system behavior. The constitution must force them to update the e2e test document (developer tool) and trigger a sukko-docs update (operator tool) as part of the same PR. The key distinction: the developer updates `ws/docs/e2e-testing.md` themselves; they either update sukko-docs themselves or open and link a cross-repo PR so the operator docs stay accurate.
 
 **Acceptance Criteria**:
-1. **Given** the updated constitution, **When** a code reviewer reviews a PR that adds or changes a feature, **Then** a missing e2e doc update is a blocking constitution violation, not an optional follow-up.
-2. **Given** the updated constitution, **When** a code reviewer reviews a PR that changes operator-visible behavior (env vars, CLI flags, API schemas, feature gates), **Then** a missing sukko-docs update is a blocking constitution violation.
+1. **Given** the updated constitution, **When** a code reviewer reviews a PR that adds or changes a testable behavior, **Then** a missing `ws/docs/e2e-testing.md` update is a blocking constitution violation.
+2. **Given** the updated constitution, **When** a code reviewer reviews a PR that changes operator-visible behavior (env vars, CLI flags, API schemas, feature gates, user-facing error codes), **Then** a missing sukko-docs update (or linked cross-repo PR) is a blocking constitution violation.
 
 ### Edge Cases
 
 - What if a tester suite requires Pro/Enterprise edition to run? The document must specify which edition is required per suite and what the expected behavior is on lower editions.
 - What if `sukko up` fails to start a service? The document must cover service health verification before running tests.
 - What if routing rules cannot be set because the noop Kafka admin rejects custom topics? The document must explain which topic suffixes are valid in the current Phase 1 state (`default`, `dead-letter` only).
-- What if an operator has a Community license and tries to follow the SSE guide? The guide must state the edition requirement upfront.
-- What if sukko-docs has a page that references a removed CLI command? The accuracy audit must catch this.
+- What if an operator has a Community license and tries to follow the SSE guide in sukko-docs? The sukko-docs guide must state the edition requirement at the top — the operator should know before reading setup instructions that they need Pro.
+- What if sukko-docs has a page that references a removed CLI command? The developer accuracy audit (pre-release validation step in the e2e doc) must catch this before it reaches operators.
 
 ---
 
@@ -77,15 +82,17 @@ A developer adds a new endpoint, changes a WebSocket message schema, or modifies
 - **FR-009**: The document MUST include a load/stress/soak section describing `sukko test load`, `sukko test stress`, and `sukko test soak` with the key flags and what metrics to watch.
 - **FR-010**: The document MUST have a "test by feature area" index so a developer testing only one area can jump directly to the relevant section without reading the whole document.
 
-**Operator Documentation (`../sukko-docs`)**
+**Operator Documentation (`../sukko-docs`) — written for operators, audited by developers**
 
-- **FR-011**: The quickstart MUST use the current channel format (`{tenant}.{suffix}`) and routing rules format (`topics` array, not `topic_suffix`), with working CLI commands verified against the current binary.
-- **FR-012**: The tenant onboarding guide MUST accurately document routing rules: pattern syntax, topics array, fan-out semantics, priority ordering, and the Phase 1 constraint that topics must be pre-provisioned.
-- **FR-013**: The CLI reference page MUST document every command and subcommand present in the current binary: `sukko up/down/init/status/health`, `sukko tenant`, `sukko keys`, `sukko api-keys`, `sukko auth`, `sukko rules routing/channels`, `sukko quota`, `sukko token`, `sukko connections`, `sukko publish`, `sukko subscribe`, `sukko license`, `sukko edition`, `sukko test`, `sukko grafana`, `sukko logs`.
-- **FR-014**: The configuration reference MUST list every environment variable for ws-server, ws-gateway, and provisioning with the correct name, type, default (from `envDefault`), and description.
-- **FR-015**: The testing guide (`guides/testing.mdx`) MUST document all 14 tester suites with their names, descriptions, required edition, and example output.
-- **FR-016**: Every guide that documents an edition-gated feature (SSE, push, REST publish, analytics) MUST state the required edition at the top of the page.
-- **FR-017**: The editions comparison page MUST accurately reflect the feature matrix from `features.go` — implemented features must be marked as available, future features as planned.
+sukko-docs is the operator-facing documentation site. Operators consume it directly; developers validate its accuracy before each release and update it when operator-visible behavior changes. Content must be written for someone who will never read the codebase.
+
+- **FR-011**: The quickstart MUST use the current channel format (`{tenant}.{suffix}`) and routing rules format (`topics` array, not `topic_suffix`), with working CLI commands that an operator can copy-paste without modification.
+- **FR-012**: The tenant onboarding guide MUST explain routing rules in operator-friendly terms: what patterns match, what topics array does (fan-out to multiple Kafka topics), how priority works, and — critically — that topic suffixes must exist before routing rules can reference them (Phase 1 constraint stated in plain language, without referencing Go internals).
+- **FR-013**: The CLI reference page MUST document every command and subcommand in the current binary: `sukko up/down/init/status/health`, `sukko tenant`, `sukko keys`, `sukko api-keys`, `sukko auth`, `sukko rules routing/channels`, `sukko quota`, `sukko token`, `sukko connections`, `sukko publish`, `sukko subscribe`, `sukko license`, `sukko edition`, `sukko test`, `sukko grafana`, `sukko logs`. Written from the operator's perspective — what the command does, not how it's implemented.
+- **FR-014**: The configuration reference MUST list every environment variable for ws-server, ws-gateway, and provisioning with the correct name, type, default value, and a plain-English description an operator can act on.
+- **FR-015**: The testing guide (`guides/testing.mdx`) MUST explain all 14 tester suites in terms an operator can understand: what each suite validates about their deployment, which edition is required, and what healthy output looks like. It must read as a deployment verification tool, not a developer debugging tool.
+- **FR-016**: Every sukko-docs page covering an edition-gated feature (SSE, push notifications, REST publish, analytics) MUST state the required edition (e.g., "Requires Pro") as the first visible element — before prerequisites, before setup steps.
+- **FR-017**: The editions comparison page MUST accurately reflect which features are available today vs. planned — operators making purchase decisions depend on this being correct.
 
 **Constitution Amendment**
 
@@ -97,14 +104,14 @@ A developer adds a new endpoint, changes a WebSocket message schema, or modifies
 
 - **NFR-001**: The e2e document MUST be runnable by a developer with no prior Sukko knowledge — every command must be complete and copy-pasteable.
 - **NFR-002**: The e2e document MUST be structured so CI can eventually automate it — section headings and command formats MUST follow a consistent pattern.
-- **NFR-003**: The sukko-docs updates MUST be in a separate commit to `../sukko-docs` (different repo), but MUST be linked from the sukko PR via the cross-repo reference requirement in XVI.
+- **NFR-003**: sukko-docs updates MUST be in the `../sukko-docs` repo (operator docs, separate repo) — never in the sukko repo. They MUST be linked from the sukko PR per XVI. The language in sukko-docs MUST be written for operators, not developers — no references to Go packages, internal struct names, or codebase conventions.
 - **NFR-004**: The constitution amendment version bump MUST follow the governance rule: adding a new principle = MINOR bump.
 
 ### Docs Requirements
 
-- The e2e testing document is itself the primary deliverable — it lives at `ws/docs/e2e-testing.md`.
-- `../sukko-docs` updates are in scope for this spec and must be delivered as a companion PR to the sukko-docs repo.
-- The constitution amendment is in scope and is delivered by editing `CLAUDE.md`.
+- `ws/docs/e2e-testing.md` — developer tool, lives in the sukko repo, written for developers.
+- `../sukko-docs` updates — operator tool, lives in the sukko-docs repo, written for operators. Delivered as a companion PR to sukko-docs, linked from this sukko PR. Must never contain codebase-internal language.
+- `CLAUDE.md` constitution amendment — delivered inline in the sukko repo.
 
 ### CLI Requirements
 
@@ -124,7 +131,7 @@ A developer adds a new endpoint, changes a WebSocket message schema, or modifies
 - **SC-004**: Every environment variable in `ws/internal/shared/platform/` with an `envDefault` tag is present in the sukko-docs configuration reference with the correct default value.
 - **SC-005**: The routing rules documentation in both the e2e doc and sukko-docs uses `topics` (array), not `topic_suffix`, and correctly describes fan-out and Phase 1 constraints.
 - **SC-006**: The constitution contains an explicit maintenance requirement for `ws/docs/e2e-testing.md` and `/sukko-docs` that would be surfaced as a violation in code review when docs are not updated alongside code changes.
-- **SC-007**: An operator following the quickstart in sukko-docs reaches a working WebSocket connection with a real message delivered — no broken commands, no stale examples, no missing steps.
+- **SC-007**: An operator following the quickstart in sukko-docs reaches a working WebSocket connection with a real message delivered — no broken commands, no stale examples, no missing steps. The operator never needs to look at source code or ask a developer to interpret the instructions.
 
 ---
 
