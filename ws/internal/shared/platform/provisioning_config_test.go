@@ -55,6 +55,7 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		MaxTenantsFetchLimit:        10000,
 		DeletionTimeout:             5 * time.Minute,
 		SlugRenameTopicHoldPeriod:   7 * 24 * time.Hour,                                                 // 168h default
+		TokenRevocationMaxLifetime:  time.Hour,                                                           // 1h default
 		CredentialsEncryptionKey:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // 64-char hex = 32 bytes
 	}
 }
@@ -610,6 +611,37 @@ func TestProvisioningConfig_Validate_SlugRenameTopicHoldPeriod(t *testing.T) {
 					t.Error("Should error")
 				} else if !strings.Contains(err.Error(), "SLUG_RENAME_TOPIC_HOLD_PERIOD") {
 					t.Errorf("Error should mention SLUG_RENAME_TOPIC_HOLD_PERIOD: %v", err)
+				}
+			} else if err != nil {
+				t.Errorf("Should not error: %v", err)
+			}
+		})
+	}
+}
+
+func TestProvisioningConfig_Validate_TokenRevocationMaxLifetime(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		duration    time.Duration
+		shouldError bool
+	}{
+		{"negative", -1 * time.Second, true},
+		{"zero", 0, true},
+		{"positive 1h", time.Hour, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidProvisioningConfig()
+			cfg.TokenRevocationMaxLifetime = tt.duration
+			err := cfg.Validate()
+			if tt.shouldError {
+				if err == nil {
+					t.Error("Should error")
+				} else if !strings.Contains(err.Error(), "PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME") {
+					t.Errorf("Error should mention PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME: %v", err)
 				}
 			} else if err != nil {
 				t.Errorf("Should not error: %v", err)

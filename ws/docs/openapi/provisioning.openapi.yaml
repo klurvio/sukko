@@ -828,6 +828,119 @@ paths:
                     items:
                       type: string
 
+  /api/v1/tenants/{tenantSlug}/tokens/revoke:
+    parameters:
+      - $ref: "#/components/parameters/tenantSlug"
+
+    post:
+      operationId: revokeToken
+      summary: Revoke a JWT token or all tokens for a user
+      description: |
+        Revoke a specific JWT by `jti` (token ID) or all JWTs issued to a user by `sub` (subject).
+        Revocation entries are retained for `PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME` (default 1h)
+        before the background prune loop removes them.
+
+        **Edition**: Pro (Token Revocation feature gate)
+
+        Provide exactly one of `sub` or `jti` — not both.
+      tags: [Token Revocation]
+      security:
+        - bearerAuth: []
+      x-edition: pro
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sub:
+                  type: string
+                  description: Revoke all tokens for this subject (user ID). Mutually exclusive with `jti`.
+                jti:
+                  type: string
+                  description: Revoke a specific token by JWT ID. Mutually exclusive with `sub`.
+                exp:
+                  type: integer
+                  format: int64
+                  description: Optional explicit expiry (Unix timestamp). Overrides the default max lifetime if provided and in the future.
+            examples:
+              by_subject:
+                value:
+                  sub: "user-123"
+              by_jti:
+                value:
+                  jti: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      responses:
+        "200":
+          description: Token(s) revoked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "revoked"
+                  type:
+                    type: string
+                    enum: [user, token]
+                    description: Revocation type — `user` when `sub` was provided, `token` when `jti` was provided
+                  tenant_id:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+              example:
+                status: "revoked"
+                type: "user"
+                tenant_id: "acme"
+                expires_at: "2026-05-27T14:00:00Z"
+        "400":
+          description: Invalid request — missing both fields, or both provided simultaneously
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missing_fields:
+                  value:
+                    code: INVALID_REQUEST
+                    message: "one of 'sub' or 'jti' is required"
+                both_provided:
+                  value:
+                    code: INVALID_REQUEST
+                    message: "provide either 'sub' or 'jti', not both"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Edition gate — requires Pro
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: EDITION_LIMIT
+                message: "This feature requires pro edition or higher"
+        "429":
+          description: Rate limited
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds to wait before retrying
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: RATE_LIMITED
+                message: "too many revocation requests"
+
   /api/v1/keys/active:
     get:
       operationId: getActiveKeys

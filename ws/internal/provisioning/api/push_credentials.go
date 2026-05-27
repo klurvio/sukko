@@ -193,7 +193,7 @@ func (h *PushCredentialHandler) HandleDeleteCredentials(w http.ResponseWriter, r
 				Str("tenant_id", req.TenantID).
 				Str("provider", req.Provider).
 				Msg("Failed to delete push credential")
-			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete credential")
+			httputil.WriteError(w, http.StatusInternalServerError, errCodeInternal, "Failed to delete credential")
 		}
 		return
 	}

@@ -106,6 +106,10 @@ type ProvisioningConfig struct {
 	// Must be >= MinSlugRenameHoldPeriod (24h). Default: 168h (7 days).
 	SlugRenameTopicHoldPeriod time.Duration `env:"SLUG_RENAME_TOPIC_HOLD_PERIOD" envDefault:"168h"`
 
+	// TokenRevocationMaxLifetime is the maximum duration a revoked token entry is retained
+	// before the background prune loop removes it. Must be > 0. Default: 1h.
+	TokenRevocationMaxLifetime time.Duration `env:"PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME" envDefault:"1h"`
+
 	// editionManager holds the license-resolved edition and limits.
 	// Set by LoadProvisioningConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.
 	editionManager *license.Manager
@@ -295,6 +299,11 @@ func (c *ProvisioningConfig) Validate() error {
 		return fmt.Errorf("SLUG_RENAME_TOPIC_HOLD_PERIOD must be >= %s, got %s", MinSlugRenameHoldPeriod, c.SlugRenameTopicHoldPeriod)
 	}
 
+	// Token revocation max lifetime — must be positive to avoid infinite retention or no-op prune.
+	if c.TokenRevocationMaxLifetime <= 0 {
+		return fmt.Errorf("PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME must be > 0, got %v", c.TokenRevocationMaxLifetime)
+	}
+
 	return nil
 }
 
@@ -339,6 +348,7 @@ func (c *ProvisioningConfig) Print() {
 	_, _ = fmt.Fprintln(w, "\n=== Tenant Lifecycle ===")
 	_, _ = fmt.Fprintf(w, "Grace Period:       %d days\n", c.DeprovisionGraceDays)
 	_, _ = fmt.Fprintf(w, "Slug Rename Hold:   %s\n", c.SlugRenameTopicHoldPeriod)
+	_, _ = fmt.Fprintf(w, "Token Revoc TTL:    %s\n", c.TokenRevocationMaxLifetime)
 	_, _ = fmt.Fprintln(w, "\n=== Rate Limiting ===")
 	_, _ = fmt.Fprintf(w, "API Rate Limit:     %d req/min\n", c.APIRateLimitPerMinute)
 	_, _ = fmt.Fprintln(w, "\n=== HTTP Server ===")
@@ -375,6 +385,7 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Int("max_partitions_per_tenant", c.MaxPartitionsPerTenant).
 		Int("deprovision_grace_days", c.DeprovisionGraceDays).
 		Dur("slug_rename_topic_hold_period", c.SlugRenameTopicHoldPeriod).
+		Dur("token_revocation_max_lifetime", c.TokenRevocationMaxLifetime).
 		Int("api_rate_limit_per_min", c.APIRateLimitPerMinute).
 		Dur("http_read_timeout", c.HTTPReadTimeout).
 		Dur("http_write_timeout", c.HTTPWriteTimeout).
