@@ -126,9 +126,9 @@ var featureMetadata = map[Feature]FeatureInfo{
 	// ── Implemented — Pro ────────────────────────────────────────────────
 
 	ChannelTopicRouting: {Description: "Per-tenant routing rules for channel-to-topic mapping, multi-topic fan-out, and header-based consumer routing", Status: StatusImplemented, Priority: PriorityNone},
+	TokenRevocation:    {Description: "Revoke individual JWT tokens (not just keys)", Status: StatusImplemented, Priority: PriorityNone},
 
 	// ── Future — Pro ─────────────────────────────────────────────────────
-	TokenRevocation:    {Description: "Revoke individual JWT tokens (not just keys)", Status: StatusFuture, Priority: PriorityHigh},
 	MessageHistory:     {Description: "Queryable message history per channel", Status: StatusFuture, Priority: PriorityHigh},
 	AdminUI:            {Description: "Web-based tenant management interface", Status: StatusFuture, Priority: PriorityMedium},
 	Analytics:          {Description: "Real-time usage dashboards and metrics", Status: StatusFuture, Priority: PriorityMedium},

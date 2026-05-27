@@ -30,7 +30,7 @@ func TestRequireFeature(t *testing.T) {
 			edition:    license.Community,
 			feature:    license.PerTenantConfigurableQuotas,
 			wantStatus: http.StatusForbidden,
-			wantCode:   "EDITION_LIMIT",
+			wantCode:   api.ErrCodeEditionLimit,
 		},
 		{
 			name:       "pro allowed for pro feature",
@@ -43,7 +43,7 @@ func TestRequireFeature(t *testing.T) {
 			edition:    license.Pro,
 			feature:    license.AuditLogging,
 			wantStatus: http.StatusForbidden,
-			wantCode:   "EDITION_LIMIT",
+			wantCode:   api.ErrCodeEditionLimit,
 		},
 		{
 			name:       "enterprise allowed for enterprise feature",
@@ -62,7 +62,7 @@ func TestRequireFeature(t *testing.T) {
 			edition:    license.Community,
 			feature:    license.AuditLogging,
 			wantStatus: http.StatusForbidden,
-			wantCode:   "EDITION_LIMIT",
+			wantCode:   api.ErrCodeEditionLimit,
 		},
 	}
 

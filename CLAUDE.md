@@ -129,7 +129,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.19.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-05-24
+**Version**: 1.21.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-05-27
 
 ### I. Configuration
 
@@ -325,9 +325,10 @@ The Sukko platform spans three sibling repositories that MUST stay in sync whene
 
 - **`../sukko-docs`** — Documentation site. Impact triggers:
   - New or changed environment variables (name, default, type, description) → `docs/reference/configuration.mdx` MUST be updated
-  - New features or behavioral changes → relevant guide pages (e.g., `docs/guides/`) MUST be updated
+  - Any change to user-facing error messages, WebSocket protocol message types, HTTP error codes or error body schemas, connection close codes, env var names/defaults/types, CLI command/flag behavior, feature gate additions, or user-visible CLI output format triggers a sukko-docs update (or a linked cross-repo PR to `../sukko-docs`). Trigger descriptions MUST be specific and enumerated; vague catchall language ('any behavioral change', 'relevant updates') MUST NOT be used as triggers — enumeration is the enforcement mechanism. This trigger list is non-exhaustive but actionable — it covers the most common triggers. When a change is user-visible but does not clearly match any listed category, cross-repo impact MUST be assessed and documented explicitly; the default is to assess, not to skip.
   - New or changed REST API endpoints → API reference MUST be updated
   - Feature gate additions to `features.go` → the editions comparison page auto-generates from it, but guide content may still need updating
+  - Any docs page added, removed, renamed, or significantly repurposed → `static/llms.txt` MUST also be updated — it is the primary LLM discovery index for the documentation site; a stale index means AI assistants cannot discover or reference new content
 
 - **`cmd/tester`** (this repo) — Integration test service. Changes here that affect the tester API surface or configuration also affect sukko-cli (`sukko test run`) and sukko-docs (Tester configuration reference).
 
@@ -338,9 +339,9 @@ The Sukko platform spans three sibling repositories that MUST stay in sync whene
 3. Every code review (including `/code-review` and `/pr-review` skills) MUST check for cross-repo impact: if the diff adds env vars, changes API schemas, or modifies tester config, a finding MUST be surfaced if the corresponding docs or CLI updates are absent.
 4. Cross-repo changes that are in scope MUST be committed to their respective repos as part of the same logical change — they may be in separate PRs but MUST be referenced from each other.
 
-### XVII. API Contract Maintenance
+### XVII. In-Repo Documentation & Contract Maintenance
 
-OpenAPI and AsyncAPI specs are the authoritative contracts used by clients, the docs site, and external integrators. They MUST be kept in sync with the code — a spec that lags the implementation is a broken contract.
+OpenAPI, AsyncAPI, and in-repo behavioral documentation are authoritative artifacts used by clients, the docs site, and external integrators. They MUST be kept in sync with the code — a spec or guide that lags the implementation is a broken contract.
 
 **Spec files** (all under `ws/docs/`):
 - `openapi/provisioning.openapi.yaml` — Provisioning REST API
@@ -361,8 +362,9 @@ OpenAPI and AsyncAPI specs are the authoritative contracts used by clients, the 
 
 **Requirements:**
 1. Every spec (`spec.md`) MUST include an "API Contract Requirements" section when any of the above triggers apply — naming the exact file(s) and the change(s) needed. If no triggers apply, explicitly state "No API contract changes required."
-2. Every code review (including `/code-review` and `/pr-review` skills) MUST check for API contract impact: if the diff touches handler routing, request/response structs, error codes, or WebSocket protocol types, a finding MUST be surfaced if the corresponding spec file is not updated.
-3. OpenAPI/AsyncAPI spec updates MUST be committed in the same PR as the code change — they are not documentation, they are contracts.
+2. Every code review (including `/code-review` and `/pr-review` skills) MUST check for API contract and documentation impact: if the diff touches handler routing, request/response structs, error codes, WebSocket protocol types, tester suites, tester-visible env vars, or API endpoints tested by the tester, a finding MUST be surfaced if the corresponding artifact is not updated in the same PR. The in-scope artifacts are: `ws/docs/openapi/provisioning.openapi.yaml`, `ws/docs/openapi/gateway.openapi.yaml`, `ws/docs/asyncapi/client-ws.asyncapi.yaml`, and `ws/docs/e2e-testing.md`.
+3. If the diff adds a new tester suite, changes an error code in the provisioning or tester API, adds or removes a tester-visible env var, changes a WebSocket message type, or adds an API endpoint tested by the tester, a finding MUST be surfaced if `ws/docs/e2e-testing.md` is not updated in the same PR.
+4. OpenAPI/AsyncAPI spec updates and `ws/docs/e2e-testing.md` updates MUST be committed in the same PR as the code change — they are not documentation, they are contracts.
 
 ### Governance
 
@@ -374,3 +376,5 @@ OpenAPI and AsyncAPI specs are the authoritative contracts used by clients, the 
 - The detailed coding guidelines with examples live at `docs/architecture/CODING_GUIDELINES.md`.
 - **v1.18.0 amendment** (2026-05-24): Added XVI (Cross-Repo Awareness) — requires explicit docs and CLI impact assessment for every spec and code review.
 - **v1.19.0 amendment** (2026-05-24): Added XVII (API Contract Maintenance) — OpenAPI and AsyncAPI specs MUST be updated in the same PR as code changes that affect REST endpoints, schemas, or the WebSocket protocol.
+- **v1.20.0 amendment** (2026-05-27): Extended XVI (Cross-Repo Awareness) — added explicit `../sukko-docs/static/llms.txt` maintenance requirement to the sukko-docs impact triggers: any docs page addition, removal, rename, or significant repurposing MUST also update the LLM discovery index.
+- **v1.21.0 amendment** (2026-05-27): XVII renamed from 'API Contract Maintenance' to 'In-Repo Documentation & Contract Maintenance'; XVII extended to include ws/docs/e2e-testing.md as a tracked in-repo documentation artifact alongside OpenAPI/AsyncAPI specs; XVII requirement 3 (new) adds tester-specific code review triggers (tester suite additions, error code changes in provisioning/tester API, tester-visible env var changes, WebSocket message type changes, tester-tested endpoint additions); current XVII requirement 3 renumbered to requirement 4 (text updated to include ws/docs/e2e-testing.md); XVI extended with enumerated sukko-docs trigger list replacing vague 'behavioral changes' language.

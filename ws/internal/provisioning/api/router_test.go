@@ -23,6 +23,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/api"
 	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
+	"github.com/klurvio/sukko/internal/provisioning/revocation"
 	"github.com/klurvio/sukko/internal/provisioning/testutil"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/license"
@@ -1842,6 +1843,93 @@ func TestRouter_LicenseEndpoint_AdminAuth(t *testing.T) {
 				t.Errorf("status = %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
 			}
 
+			if tt.wantCode != "" {
+				var errResp struct {
+					Code string `json:"code"`
+				}
+				if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
+					t.Fatalf("unmarshal error response: %v; body: %s", err, rec.Body.String())
+				}
+				if errResp.Code != tt.wantCode {
+					t.Errorf("error code = %q, want %q; body: %s", errResp.Code, tt.wantCode, rec.Body.String())
+				}
+			}
+		})
+	}
+}
+
+func TestRouter_TokenRevocation_EditionGate(t *testing.T) {
+	t.Parallel()
+
+	// Pre-create the tenant so RequireTenant middleware can resolve the slug.
+	tenantStore := testutil.NewMockTenantStore()
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+	svc := newTestServiceWithStores(tenantStore, testutil.NewMockRoutingRulesStore())
+
+	// RevocationHandler setup — revocation.New starts a pruneLoop goroutine; Close is required.
+	// t.Cleanup fires after all parallel subtests complete (unlike defer, which fires when the
+	// parent function returns — before parallel subtests resume).
+	store := revocation.New(zerolog.Nop())
+	t.Cleanup(store.Close)
+	bus := eventbus.New(zerolog.Nop())
+	revHandler := api.NewRevocationHandler(store, bus, time.Hour, zerolog.Nop())
+
+	body := `{"sub":"user-123"}`
+
+	tests := []struct {
+		name       string
+		handler    *api.RevocationHandler
+		edition    license.Edition
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "community blocked — EDITION_LIMIT",
+			handler:    revHandler,
+			edition:    license.Community,
+			wantStatus: http.StatusForbidden,
+			wantCode:   api.ErrCodeEditionLimit,
+		},
+		{
+			name:       "pro allowed",
+			handler:    revHandler,
+			edition:    license.Pro,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "nil handler — route unregistered",
+			handler:    nil,
+			edition:    license.Pro,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+				Service:           svc,
+				Logger:            zerolog.Nop(),
+				EditionManager:    license.NewTestManager(tt.edition),
+				RevocationHandler: tt.handler,
+			})
+
+			req := httptest.NewRequestWithContext(
+				context.Background(),
+				http.MethodPost,
+				"/api/v1/tenants/test-tenant/tokens/revoke",
+				bytes.NewBufferString(body),
+			)
+			req.Header.Set("Content-Type", "application/json")
+			addAuth(req)
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
 			if tt.wantCode != "" {
 				var errResp struct {
 					Code string `json:"code"`

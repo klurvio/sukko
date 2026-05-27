@@ -75,6 +75,7 @@ const (
 	errCodeFeatureNotConfigured = "FEATURE_NOT_CONFIGURED"
 	errCodeAddRoutingRuleFailed = "ADD_ROUTING_RULE_FAILED"
 	errCodeGetTenantFailed      = "GET_TENANT_FAILED"
+	errCodeInternal             = "INTERNAL_ERROR"
 )
 
 // Response status string constants (Constitution §I — JSON response type codes appearing in

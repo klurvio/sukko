@@ -171,7 +171,7 @@ func (h *PushChannelHandler) HandleGetChannelConfig(w http.ResponseWriter, r *ht
 			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Push channel config not found for tenant")
 		} else {
 			h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to get push channel config")
-			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve channel config")
+			httputil.WriteError(w, http.StatusInternalServerError, errCodeInternal, "Failed to retrieve channel config")
 		}
 		return
 	}
@@ -211,7 +211,7 @@ func (h *PushChannelHandler) HandleDeleteChannelConfig(w http.ResponseWriter, r 
 			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Push channel config not found for tenant")
 		} else {
 			h.logger.Error().Err(err).Str("tenant_id", req.TenantID).Msg("Failed to delete push channel config")
-			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete channel config")
+			httputil.WriteError(w, http.StatusInternalServerError, errCodeInternal, "Failed to delete channel config")
 		}
 		return
 	}

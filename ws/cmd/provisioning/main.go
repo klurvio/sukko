@@ -26,6 +26,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/api"
 	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
+	"github.com/klurvio/sukko/internal/provisioning/revocation"
 	"github.com/klurvio/sukko/internal/provisioning/grpcserver"
 	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/shared/auth"
@@ -273,6 +274,11 @@ func main() {
 	licenseHandler := api.NewLicenseHandler(cfg.EditionManager(), licenseStateRepo, bus, structuredLogger)
 	licenseHandler.SetCurrentKey(currentLicenseKey)
 
+	// Initialize token revocation store (background prune goroutine; Close on shutdown)
+	revStore := revocation.New(structuredLogger)
+	defer revStore.Close()
+	revHandler := api.NewRevocationHandler(revStore, bus, cfg.TokenRevocationMaxLifetime, structuredLogger)
+
 	// Initialize HTTP router
 	router, err := api.NewRouter(api.RouterConfig{
 		Service:            svc,
@@ -290,6 +296,7 @@ func main() {
 		ConfigHandler:      platform.ConfigHandler(cfg),
 		EditionManager:     cfg.EditionManager(),
 		PprofEnabled:       cfg.PprofEnabled,
+		RevocationHandler: revHandler,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")
