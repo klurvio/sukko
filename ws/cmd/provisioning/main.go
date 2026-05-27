@@ -26,9 +26,9 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/api"
 	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
-	"github.com/klurvio/sukko/internal/provisioning/revocation"
 	"github.com/klurvio/sukko/internal/provisioning/grpcserver"
 	"github.com/klurvio/sukko/internal/provisioning/repository"
+	"github.com/klurvio/sukko/internal/provisioning/revocation"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/database"
 	"github.com/klurvio/sukko/internal/shared/kafka"
@@ -296,7 +296,7 @@ func main() {
 		ConfigHandler:      platform.ConfigHandler(cfg),
 		EditionManager:     cfg.EditionManager(),
 		PprofEnabled:       cfg.PprofEnabled,
-		RevocationHandler: revHandler,
+		RevocationHandler:  revHandler,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")

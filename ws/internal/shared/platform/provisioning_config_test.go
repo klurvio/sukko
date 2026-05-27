@@ -55,7 +55,7 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		MaxTenantsFetchLimit:        10000,
 		DeletionTimeout:             5 * time.Minute,
 		SlugRenameTopicHoldPeriod:   7 * 24 * time.Hour,                                                 // 168h default
-		TokenRevocationMaxLifetime:  time.Hour,                                                           // 1h default
+		TokenRevocationMaxLifetime:  time.Hour,                                                          // 1h default
 		CredentialsEncryptionKey:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // 64-char hex = 32 bytes
 	}
 }
