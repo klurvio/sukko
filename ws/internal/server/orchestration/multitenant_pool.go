@@ -170,7 +170,7 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		config.Environment = config.Namespace
 	}
 
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // cancel is stored in the struct and called in Stop()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	pool := &MultiTenantConsumerPool{
 		config:              config,
