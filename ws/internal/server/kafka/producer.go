@@ -364,7 +364,7 @@ func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string
 		if err := results.FirstErr(); err != nil {
 			p.stats.MessagesFailed.Add(1)
 			if p.logger != nil {
-				p.logger.Error().Err(err).Str("channel", channel).Str("topic", topics[0]).Msg("kafka produce failed")
+				p.logger.Error().Err(err).Str("channel", channel).Str(LabelTopic, topics[0]).Msg("kafka produce failed")
 			}
 			return fmt.Errorf("kafka produce failed: %w", err)
 		}
@@ -373,7 +373,7 @@ func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string
 			p.logger.Debug().
 				Int64("client_id", clientID).
 				Str("channel", channel).
-				Str("topic", topics[0]).
+				Str(LabelTopic, topics[0]).
 				Int("data_size", len(data)).
 				Msg("Published message to Kafka")
 		}

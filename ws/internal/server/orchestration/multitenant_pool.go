@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,15 @@ import (
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
+
+// MsgTopicAutoRemoved is logged when handleBrokerDeletedTopic removes a topic from the pool.
+const MsgTopicAutoRemoved = "topic removed from pool — deleted at broker"
+
+// consumerEntry is used to stop consumers outside of mu (Constitution VII: no I/O while holding a mutex).
+type consumerEntry struct {
+	tenantID string
+	consumer *kafka.Consumer
+}
 
 // MultiTenantConsumerPool manages Kafka consumers for multi-tenant deployments.
 // It supports two consumer modes:
@@ -55,12 +65,20 @@ type MultiTenantConsumerPool struct {
 	mu           sync.RWMutex
 	metrics      pkgmetrics.PoolMetrics
 
+	// topicMu protects sharedTopics/blockedSharedTopics/dedicatedTopics. Lock ordering: mu THEN topicMu (never reversed).
+	topicMu sync.Mutex
+
 	// Shared consumer for all shared-mode tenants
-	sharedConsumer *kafka.Consumer
-	sharedTopics   map[string]bool // Currently subscribed topics
+	sharedConsumer      *kafka.Consumer
+	sharedTopics        map[string]bool     // Currently subscribed topics (protected by topicMu)
+	blockedSharedTopics map[string]struct{} // Broker-deleted topics suppressed from re-subscription (protected by topicMu)
 
 	// Dedicated consumers per tenant (tenant_id -> consumer)
 	dedicatedConsumers map[string]*kafka.Consumer
+	dedicatedTopics    map[string]string // Reverse index: topic -> tenantID (protected by topicMu)
+
+	// consumerFactory creates consumers; replaced in tests to avoid real broker connections.
+	consumerFactory func(kafka.ConsumerConfig) (*kafka.Consumer, error)
 
 	// Refresh management
 	refreshInterval time.Duration
@@ -152,20 +170,23 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		config.Environment = config.Namespace
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // cancel is stored in the struct and called in Stop()
 
 	pool := &MultiTenantConsumerPool{
-		config:             config,
-		registry:           config.Registry,
-		broadcastBus:       config.BroadcastBus,
-		logger:             config.Logger.With().Str("component", "multitenant-pool").Logger(),
-		ctx:                ctx,
-		cancel:             cancel,
-		metrics:            config.Metrics,
-		sharedTopics:       make(map[string]bool),
-		dedicatedConsumers: make(map[string]*kafka.Consumer),
-		refreshInterval:    config.RefreshInterval,
-		refreshCh:          make(chan struct{}, 1), // Buffered to avoid blocking senders
+		config:              config,
+		registry:            config.Registry,
+		broadcastBus:        config.BroadcastBus,
+		logger:              config.Logger.With().Str("component", "multitenant-pool").Logger(),
+		ctx:                 ctx,
+		cancel:              cancel,
+		metrics:             config.Metrics,
+		sharedTopics:        make(map[string]bool),
+		blockedSharedTopics: make(map[string]struct{}),
+		dedicatedConsumers:  make(map[string]*kafka.Consumer),
+		dedicatedTopics:     make(map[string]string),
+		consumerFactory:     kafka.NewConsumer,
+		refreshInterval:     config.RefreshInterval,
+		refreshCh:           make(chan struct{}, 1), // Buffered to avoid blocking senders
 	}
 
 	pool.logger.Info().
@@ -176,42 +197,33 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 	return pool, nil
 }
 
-// Start begins consuming messages and starts the topic refresh loop.
-// It performs an initial topic discovery, creates the shared consumer,
-// creates dedicated consumers for dedicated-mode tenants, and starts
-// periodic refresh for new topics.
+// Start performs initial topic discovery and begins the periodic refresh loop.
 func (p *MultiTenantConsumerPool) Start() error {
 	p.logger.Info().Msg("Starting multi-tenant consumer pool")
 
-	// Initial topic discovery and consumer creation
+	// Do NOT call consumer.Start() here — updateSharedConsumer/updateDedicatedConsumers do it; calling twice double-starts the goroutine.
 	if err := p.refreshTopics(p.ctx); err != nil {
 		return fmt.Errorf("initial topic discovery failed: %w", err)
 	}
 
-	// Start shared consumer if we have topics
-	if p.sharedConsumer != nil {
-		if err := p.sharedConsumer.Start(); err != nil {
-			return fmt.Errorf("failed to start shared consumer: %w", err)
-		}
-	}
-
-	// Start all dedicated consumers
-	for tenantID, consumer := range p.dedicatedConsumers {
-		if err := consumer.Start(); err != nil {
-			p.logger.Error().
-				Err(err).
-				Str("tenant_id", tenantID).
-				Msg("Failed to start dedicated consumer")
-			// Continue with other consumers
-		}
-	}
+	// Snapshot under locks — consumer poll goroutines run concurrently and mutate sharedTopics.
+	sharedCount := func() int {
+		p.topicMu.Lock()
+		defer p.topicMu.Unlock()
+		return len(p.sharedTopics)
+	}()
+	dedicatedCount := func() int {
+		p.mu.RLock()
+		defer p.mu.RUnlock()
+		return len(p.dedicatedConsumers)
+	}()
 
 	// Start refresh loop
 	p.wg.Go(p.refreshLoop)
 
 	p.logger.Info().
-		Int("shared_topics", len(p.sharedTopics)).
-		Int("dedicated_consumers", len(p.dedicatedConsumers)).
+		Int("shared_topics", sharedCount).
+		Int("dedicated_consumers", dedicatedCount).
 		Msg("Multi-tenant consumer pool started")
 
 	return nil
@@ -281,33 +293,48 @@ func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	p.lastRefresh = time.Now()
 
-	// Update shared consumer
 	if err := p.updateSharedConsumer(ctx, sharedTopics); err != nil {
+		p.mu.Unlock()
 		if p.metrics != nil {
 			p.metrics.OnRefresh(false, 0, 0)
 		}
 		return fmt.Errorf("failed to update shared consumer: %w", err)
 	}
 
-	// Update dedicated consumers
-	if err := p.updateDedicatedConsumers(ctx, dedicatedTenants); err != nil {
+	var toStop []consumerEntry
+	if err := p.updateDedicatedConsumers(ctx, dedicatedTenants, &toStop); err != nil {
+		p.mu.Unlock()
 		if p.metrics != nil {
 			p.metrics.OnRefresh(false, 0, 0)
 		}
 		return fmt.Errorf("failed to update dedicated consumers: %w", err)
 	}
 
-	topicsCount := len(p.sharedTopics)
+	topicsCount := func() int {
+		p.topicMu.Lock()
+		defer p.topicMu.Unlock()
+		return len(p.sharedTopics)
+	}()
 	dedicatedCount := len(p.dedicatedConsumers)
 
-	p.topicsSubscribed.Store(uint64(topicsCount))
+	p.mu.Unlock()
+
+	// Stop deprovisioned consumers outside mu (Constitution VII: no I/O while holding a mutex).
+	for _, entry := range toStop {
+		if err := entry.consumer.Stop(); err != nil {
+			p.logger.Error().
+				Err(err).
+				Str(kafka.LogFieldTenantID, entry.tenantID).
+				Msg("Error stopping dedicated consumer")
+		}
+	}
+
+	p.topicsSubscribed.Store(uint64(topicsCount)) //nolint:gosec // len() is always non-negative
 	p.dedicatedCount.Store(uint64(dedicatedCount))
 
-	// Report success to Prometheus
 	if p.metrics != nil {
 		p.metrics.OnRefresh(true, topicsCount, dedicatedCount)
 	}
@@ -317,34 +344,55 @@ func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 
 // updateSharedConsumer creates or updates the shared consumer for shared-mode tenants.
 func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics []string) error {
-	// Build topic set for comparison
+	// Build topic set from registry.
 	newTopics := make(map[string]bool, len(topics))
 	for _, topic := range topics {
 		newTopics[topic] = true
 	}
 
+	// Single lock acquisition: eliminates TOCTOU window with concurrent handleBrokerDeletedTopic.
+	var currentTopics map[string]bool
+	func() {
+		p.topicMu.Lock()
+		defer p.topicMu.Unlock()
+		maps.DeleteFunc(p.blockedSharedTopics, func(t string, _ struct{}) bool { return !newTopics[t] })
+		for t := range p.blockedSharedTopics {
+			delete(newTopics, t)
+		}
+		currentTopics = maps.Clone(p.sharedTopics)
+	}()
+
 	// Find new topics to add
 	var toAdd []string
 	for topic := range newTopics {
-		if !p.sharedTopics[topic] {
+		if !currentTopics[topic] {
 			toAdd = append(toAdd, topic)
 		}
 	}
 
 	// Find topics to remove (tenant deprovisioned)
 	var toRemove []string
-	for topic := range p.sharedTopics {
+	for topic := range currentTopics {
 		if !newTopics[topic] {
 			toRemove = append(toRemove, topic)
 		}
 	}
 
-	// Create shared consumer if this is the first time
-	if p.sharedConsumer == nil && len(topics) > 0 {
-		consumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
+	if p.sharedConsumer == nil && len(newTopics) == 0 && len(topics) > 0 {
+		p.logger.Info().Int("blocked_topics", len(topics)).Msg("all shared topics broker-deleted; awaiting deprovisioning")
+		return nil
+	}
+
+	// Create shared consumer if this is the first time (using filtered newTopics).
+	if p.sharedConsumer == nil && len(newTopics) > 0 {
+		filteredTopics := make([]string, 0, len(newTopics))
+		for t := range newTopics {
+			filteredTopics = append(filteredTopics, t)
+		}
+		consumer, err := p.consumerFactory(kafka.ConsumerConfig{
 			Brokers:       p.config.Brokers,
 			ConsumerGroup: p.config.Environment + "-shared-consumer",
-			Topics:        topics,
+			Topics:        filteredTopics,
 			Logger:        &p.logger,
 			Broadcast:     p.routeMessage,
 			ResourceGuard: p.config.ResourceGuard,
@@ -360,20 +408,29 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 			RebalanceTimeout:          p.config.KafkaRebalanceTimeout,
 			ReplayFetchMaxBytes:       p.config.KafkaReplayFetchMaxBytes,
 			BackpressureCheckInterval: p.config.KafkaBackpressureCheckInterval,
+			ConsumerType:              kafka.ConsumerTypeKindShared,
+			OnUnknownTopic: func(topic string) {
+				p.handleBrokerDeletedTopic(topic, kafka.ConsumerTypeKindShared)
+			},
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create shared consumer: %w", err)
 		}
-		p.sharedConsumer = consumer
-		p.sharedTopics = newTopics
 
-		// Start the consumer (critical: must start after creation!)
 		if err := consumer.Start(); err != nil {
 			return fmt.Errorf("failed to start shared consumer: %w", err)
 		}
 
+		// Assign only after successful start to prevent a zombie consumer on Start() failure.
+		p.sharedConsumer = consumer
+		func() {
+			p.topicMu.Lock()
+			defer p.topicMu.Unlock()
+			p.sharedTopics = newTopics
+		}()
+
 		p.logger.Info().
-			Strs("topics", topics).
+			Strs("topics", filteredTopics).
 			Msg("Created shared consumer with initial topics")
 		return nil
 	}
@@ -384,13 +441,18 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 			Strs("topics", toAdd).
 			Msg("Adding new topics to shared consumer")
 
-		// Use AddConsumeTopics for incremental assignment (KIP-429)
-		// This avoids triggering a full consumer group rebalance
+		// AddConsumeTopics (KIP-429) hot-adds without triggering a rebalance.
 		p.sharedConsumer.AddConsumeTopics(toAdd...)
 
-		for _, topic := range toAdd {
-			p.sharedTopics[topic] = true
-		}
+		func() {
+			p.topicMu.Lock()
+			defer p.topicMu.Unlock()
+			for _, topic := range toAdd {
+				if _, blocked := p.blockedSharedTopics[topic]; !blocked {
+					p.sharedTopics[topic] = true
+				}
+			}
+		}()
 	}
 
 	if len(toRemove) > 0 {
@@ -400,38 +462,44 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 		if p.sharedConsumer != nil {
 			p.sharedConsumer.PauseFetchTopics(toRemove...)
 		}
-		for _, topic := range toRemove {
-			delete(p.sharedTopics, topic)
-		}
+		func() {
+			p.topicMu.Lock()
+			defer p.topicMu.Unlock()
+			for _, topic := range toRemove {
+				delete(p.sharedTopics, topic)
+			}
+		}()
 	}
 
 	return nil
 }
 
-// updateDedicatedConsumers creates, updates, or removes dedicated consumers.
+// updateDedicatedConsumers creates or removes dedicated consumers.
+// Deprovisioned consumers are appended to toStop; callers must Stop() them outside mu.
 //
 //nolint:unparam // error return is for interface consistency and future error handling
-func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, tenants []types.TenantTopics) error {
+func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, tenants []types.TenantTopics, toStop *[]consumerEntry) error {
 	// Build tenant set
 	activeTenants := make(map[string]bool, len(tenants))
 	for _, t := range tenants {
 		activeTenants[t.TenantID] = true
 	}
 
-	// Remove consumers for deprovisioned tenants
+	// Collect consumers for deprovisioned tenants; stop them outside mu (caller's responsibility).
 	for tenantID, consumer := range p.dedicatedConsumers {
-		if !activeTenants[tenantID] {
-			p.logger.Info().
-				Str("tenant_id", tenantID).
-				Msg("Stopping dedicated consumer for deprovisioned tenant")
-			if err := consumer.Stop(); err != nil {
-				p.logger.Error().
-					Err(err).
-					Str("tenant_id", tenantID).
-					Msg("Error stopping dedicated consumer")
-			}
-			delete(p.dedicatedConsumers, tenantID)
+		if activeTenants[tenantID] {
+			continue
 		}
+		p.logger.Info().
+			Str(kafka.LogFieldTenantID, tenantID).
+			Msg("Scheduling stop of dedicated consumer for deprovisioned tenant")
+		*toStop = append(*toStop, consumerEntry{tenantID: tenantID, consumer: consumer})
+		delete(p.dedicatedConsumers, tenantID)
+		func() {
+			p.topicMu.Lock()
+			defer p.topicMu.Unlock()
+			maps.DeleteFunc(p.dedicatedTopics, func(_, v string) bool { return v == tenantID })
+		}()
 	}
 
 	// Create consumers for new dedicated tenants
@@ -444,7 +512,8 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 			continue // No topics for this tenant
 		}
 
-		consumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
+		tenantID := tenant.TenantID
+		consumer, err := p.consumerFactory(kafka.ConsumerConfig{
 			Brokers:       p.config.Brokers,
 			ConsumerGroup: fmt.Sprintf("%s-%s-consumer", p.config.Environment, tenant.TenantID),
 			Topics:        tenant.Topics,
@@ -463,11 +532,15 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 			RebalanceTimeout:          p.config.KafkaRebalanceTimeout,
 			ReplayFetchMaxBytes:       p.config.KafkaReplayFetchMaxBytes,
 			BackpressureCheckInterval: p.config.KafkaBackpressureCheckInterval,
+			ConsumerType:              kafka.ConsumerTypeKindDedicated,
+			OnUnknownTopic: func(topic string) {
+				p.handleBrokerDeletedTopic(topic, kafka.ConsumerTypeKindDedicated)
+			},
 		})
 		if err != nil {
 			p.logger.Error().
 				Err(err).
-				Str("tenant_id", tenant.TenantID).
+				Str(kafka.LogFieldTenantID, tenant.TenantID).
 				Msg("Failed to create dedicated consumer")
 			continue
 		}
@@ -476,14 +549,23 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 		if err := consumer.Start(); err != nil {
 			p.logger.Error().
 				Err(err).
-				Str("tenant_id", tenant.TenantID).
+				Str(kafka.LogFieldTenantID, tenant.TenantID).
 				Msg("Failed to start dedicated consumer")
 			continue
 		}
 
-		p.dedicatedConsumers[tenant.TenantID] = consumer
+		p.dedicatedConsumers[tenantID] = consumer
+
+		func() {
+			p.topicMu.Lock()
+			defer p.topicMu.Unlock()
+			for _, t := range tenant.Topics {
+				p.dedicatedTopics[t] = tenantID
+			}
+		}()
+
 		p.logger.Info().
-			Str("tenant_id", tenant.TenantID).
+			Str(kafka.LogFieldTenantID, tenant.TenantID).
 			Strs("topics", tenant.Topics).
 			Msg("Created dedicated consumer for tenant")
 	}
@@ -516,6 +598,24 @@ func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte) {
 	}
 }
 
+// handleBrokerDeletedTopic removes a broker-deleted topic from the pool and blocks re-subscription until deprovisioned.
+func (p *MultiTenantConsumerPool) handleBrokerDeletedTopic(topic, consumerType string) {
+	func() {
+		p.topicMu.Lock()
+		defer p.topicMu.Unlock()
+		if _, ok := p.sharedTopics[topic]; ok {
+			delete(p.sharedTopics, topic)
+			p.blockedSharedTopics[topic] = struct{}{}
+		} else {
+			delete(p.dedicatedTopics, topic)
+		}
+	}()
+	p.logger.Info().
+		Str(kafka.LabelTopic, topic).
+		Str(kafka.LabelConsumerType, consumerType).
+		Msg(MsgTopicAutoRemoved)
+}
+
 // Stop gracefully shuts down the consumer pool.
 func (p *MultiTenantConsumerPool) Stop() error {
 	p.logger.Info().Msg("Stopping multi-tenant consumer pool")
@@ -526,26 +626,29 @@ func (p *MultiTenantConsumerPool) Stop() error {
 	// Wait for refresh loop to stop
 	p.wg.Wait()
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Stop shared consumer
-	if p.sharedConsumer != nil {
-		if err := p.sharedConsumer.Stop(); err != nil {
-			p.logger.Error().Err(err).Msg("Error stopping shared consumer")
+	// Snapshot under mu (fast map reads only); refreshLoop is dead after wg.Wait(), so no concurrent mutations.
+	var toStop []consumerEntry
+	func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.sharedConsumer != nil {
+			toStop = append(toStop, consumerEntry{tenantID: kafka.ConsumerTypeKindShared, consumer: p.sharedConsumer})
 		}
-	}
+		for tenantID, c := range p.dedicatedConsumers {
+			toStop = append(toStop, consumerEntry{tenantID: tenantID, consumer: c})
+		}
+	}()
 
-	// Stop all dedicated consumers
-	for tenantID, consumer := range p.dedicatedConsumers {
-		if err := consumer.Stop(); err != nil {
+	var errs []error
+	for _, entry := range toStop {
+		if err := entry.consumer.Stop(); err != nil {
 			p.logger.Error().
 				Err(err).
-				Str("tenant_id", tenantID).
-				Msg("Error stopping dedicated consumer")
+				Str(kafka.LogFieldTenantID, entry.tenantID).
+				Msg("Error stopping consumer")
+			errs = append(errs, fmt.Errorf("stop %s: %w", entry.tenantID, err))
 		}
 	}
-
 	p.logger.Info().
 		Uint64("total_routed", p.messagesRouted.Load()).
 		Uint64("total_dropped", p.messagesDropped.Load()).
@@ -553,14 +656,16 @@ func (p *MultiTenantConsumerPool) Stop() error {
 		Uint64("refresh_errors", p.refreshErrors.Load()).
 		Msg("Multi-tenant consumer pool stopped")
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // GetMetrics returns current pool metrics.
 func (p *MultiTenantConsumerPool) GetMetrics() MultiTenantPoolMetrics {
-	p.mu.RLock()
-	lastRefresh := p.lastRefresh
-	p.mu.RUnlock()
+	lastRefresh := func() time.Time {
+		p.mu.RLock()
+		defer p.mu.RUnlock()
+		return p.lastRefresh
+	}()
 
 	return MultiTenantPoolMetrics{
 		MessagesRouted:   p.messagesRouted.Load(),

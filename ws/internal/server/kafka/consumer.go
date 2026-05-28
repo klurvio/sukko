@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 
@@ -43,6 +44,19 @@ var consumerRoutingMetrics = struct {
 	malformedTopicCounter prometheus.Counter
 	once                  sync.Once
 }{}
+
+// consumerDeletedMetrics holds the broker-deleted-topic counter registered once
+// at package level. Tests bypass this singleton via ConsumerConfig.Registerer.
+var consumerDeletedMetrics = struct {
+	counterVec *prometheus.CounterVec
+	once       sync.Once
+}{}
+
+// topicPauser is the minimal interface for pausing Kafka topic fetching.
+// *kgo.Client satisfies this interface in production; mockPauser is used in tests.
+type topicPauser interface {
+	PauseFetchTopics(topics ...string) []string
+}
 
 // TokenEvent represents an event from Redpanda
 type TokenEvent struct {
@@ -119,6 +133,11 @@ type Consumer struct {
 
 	deadLetterCounter     *prometheus.CounterVec
 	malformedTopicCounter prometheus.Counter
+
+	// Broker-deleted-topic handling
+	pauser         topicPauser  // client in production; mockPauser in tests
+	onUnknownTopic func(string) // callback dispatched when a topic is deleted at the broker
+	deletedCounter prometheus.Counter
 }
 
 // ConsumerConfig holds configuration for creating a Kafka consumer.
@@ -156,6 +175,13 @@ type ConsumerConfig struct {
 	Namespace     string                  // Topic namespace (e.g. "prod") — used to build DLQ topic names.
 	RulesProvider RoutingSnapshotProvider // Routing snapshot provider (nil = Community fallback always).
 	DLQ           *DLQPool                // Dead-letter queue pool (nil = drop on invalid channel).
+
+	// OnUnknownTopic is called when the broker returns UnknownTopicOrPartition for a topic; nil is safe.
+	OnUnknownTopic func(topic string)
+	// ConsumerType labels the deleted-topic counter ("shared" or "dedicated").
+	ConsumerType string
+	// Registerer overrides the Prometheus registry; nil uses the promauto singleton (production default).
+	Registerer prometheus.Registerer
 }
 
 // NewConsumer creates a new Kafka consumer with the provided configuration.
@@ -184,6 +210,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 	if cfg.Logger == nil {
 		return nil, errors.New("logger is required")
+	}
+	if cfg.ConsumerType == "" {
+		return nil, errors.New("consumer type is required")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -333,6 +362,29 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	})
 	consumer.deadLetterCounter = consumerRoutingMetrics.deadLetterCounter
 	consumer.malformedTopicCounter = consumerRoutingMetrics.malformedTopicCounter
+
+	// Tests pass cfg.Registerer to bypass the package singleton; nil uses promauto.
+	if cfg.Registerer != nil {
+		counterVec := prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: MetricConsumerTopicDeletedTotal,
+			Help: "Total topics paused after broker-reported deletion, by consumer type",
+		}, []string{LabelConsumerType})
+		if err := cfg.Registerer.Register(counterVec); err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to register deleted topic counter: %w", err)
+		}
+		consumer.deletedCounter = counterVec.With(prometheus.Labels{LabelConsumerType: cfg.ConsumerType})
+	} else {
+		consumerDeletedMetrics.once.Do(func() {
+			consumerDeletedMetrics.counterVec = promauto.NewCounterVec(prometheus.CounterOpts{
+				Name: MetricConsumerTopicDeletedTotal,
+				Help: "Total topics paused after broker-reported deletion, by consumer type",
+			}, []string{LabelConsumerType})
+		})
+		consumer.deletedCounter = consumerDeletedMetrics.counterVec.With(prometheus.Labels{LabelConsumerType: cfg.ConsumerType})
+	}
+	consumer.pauser = client
+	consumer.onUnknownTopic = cfg.OnUnknownTopic
 
 	if batchEnabled {
 		cfg.Logger.Info().
@@ -486,12 +538,8 @@ func (c *Consumer) consumeLoop() {
 
 			// Check for errors
 			if errs := fetches.Errors(); len(errs) > 0 {
-				for _, err := range errs {
-					c.logger.Error().
-						Err(err.Err).
-						Str("topic", err.Topic).
-						Int32("partition", err.Partition).
-						Msg("Fetch error")
+				if paused := c.handleFetchErrors(errs); len(paused) > 0 {
+					c.deletedCounter.Add(float64(len(paused)))
 				}
 			}
 
@@ -523,12 +571,8 @@ func (c *Consumer) consumeLoopUnbatched() {
 
 			// Check for errors
 			if errs := fetches.Errors(); len(errs) > 0 {
-				for _, err := range errs {
-					c.logger.Error().
-						Err(err.Err).
-						Str("topic", err.Topic).
-						Int32("partition", err.Partition).
-						Msg("Fetch error")
+				if paused := c.handleFetchErrors(errs); len(paused) > 0 {
+					c.deletedCounter.Add(float64(len(paused)))
 				}
 			}
 
@@ -563,7 +607,7 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *preparedMessage {
 			c.logger.Warn().
 				Uint64("dropped_count", dropped).
 				Dur("would_wait", waitDuration).
-				Str("topic", record.Topic).
+				Str(LabelTopic, record.Topic).
 				Msg("Kafka rate limit exceeded - dropping messages")
 		}
 		return nil
@@ -582,7 +626,7 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *preparedMessage {
 		for c.resourceGuard.ShouldPauseKafka() {
 			if !pauseLogged {
 				c.logger.Warn().
-					Str("topic", record.Topic).
+					Str(LabelTopic, record.Topic).
 					Msg("CPU emergency brake - entering backpressure mode (waiting for CPU recovery)")
 				pauseLogged = true
 			}
@@ -598,7 +642,7 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *preparedMessage {
 		if pauseLogged {
 			c.logger.Info().
 				Dur("pause_duration", time.Since(pauseStart)).
-				Str("topic", record.Topic).
+				Str(LabelTopic, record.Topic).
 				Msg("CPU emergency brake released - resuming consumption")
 		}
 	}
@@ -648,7 +692,7 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 			c.logger.Warn().
 				Uint64("dropped_count", dropped).
 				Dur("would_wait", waitDuration).
-				Str("topic", record.Topic).
+				Str(LabelTopic, record.Topic).
 				Msg("Kafka rate limit exceeded - dropping messages")
 		}
 		return
@@ -673,7 +717,7 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 			// Log once when entering pause state
 			if !pauseLogged {
 				c.logger.Warn().
-					Str("topic", record.Topic).
+					Str(LabelTopic, record.Topic).
 					Msg("CPU emergency brake - entering backpressure mode (waiting for CPU recovery)")
 				pauseLogged = true
 			}
@@ -691,7 +735,7 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 		if pauseLogged {
 			c.logger.Info().
 				Dur("pause_duration", time.Since(pauseStart)).
-				Str("topic", record.Topic).
+				Str(LabelTopic, record.Topic).
 				Msg("CPU emergency brake released - resuming consumption")
 		}
 	}
@@ -715,7 +759,7 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 
 	c.logger.Debug().
 		Str("channel", channel).
-		Str("topic", record.Topic).
+		Str(LabelTopic, record.Topic).
 		Msg("Consumed Kafka message")
 }
 
@@ -836,6 +880,51 @@ func (c *Consumer) incrementBatches() {
 
 func (c *Consumer) getBatchCount() uint64 {
 	return c.batchesSent.Load()
+}
+
+// handleFetchErrors processes fetch errors from a single poll cycle.
+// It deduplicates by topic: for UnknownTopicOrPartition errors it pauses
+// the topic and dispatches the callback once per topic; all other errors
+// are logged at error level. Returns the list of newly paused topics so
+// the caller can increment the deleted-topic counter atomically.
+//
+// PauseFetchTopics is called BEFORE invokeUnknownTopicCallback to guarantee
+// the topic is paused even if the callback panics.
+func (c *Consumer) handleFetchErrors(errs []kgo.FetchError) []string {
+	seen := make(map[string]struct{})
+	var paused []string
+
+	for _, fe := range errs {
+		if errors.Is(fe.Err, kerr.UnknownTopicOrPartition) {
+			if _, ok := seen[fe.Topic]; ok {
+				continue // deduplicate: multiple partitions may report the same topic
+			}
+			seen[fe.Topic] = struct{}{}
+			c.pauser.PauseFetchTopics(fe.Topic)
+			paused = append(paused, fe.Topic)
+			c.logger.Warn().
+				Str(LabelTopic, fe.Topic).
+				Msg(MsgTopicDeletedAtBroker)
+			invokeUnknownTopicCallback(*c.logger, c.onUnknownTopic, fe.Topic)
+		} else {
+			c.logger.Error().
+				Err(fe.Err).
+				Str(LabelTopic, fe.Topic).
+				Int32(LogFieldPartition, fe.Partition).
+				Msg(MsgFetchError)
+		}
+	}
+	return paused
+}
+
+// invokeUnknownTopicCallback calls cb(topic) with panic recovery.
+// A panicking callback must not abort the handleFetchErrors loop or leave
+// remaining topics unprocessed.
+func invokeUnknownTopicCallback(logger zerolog.Logger, cb func(string), topic string) {
+	defer logging.RecoverPanic(logger, "unknownTopicCallback", nil)
+	if cb != nil {
+		cb(topic)
+	}
 }
 
 // ReplayMessage represents a message replayed from Kafka
@@ -965,13 +1054,14 @@ func (c *Consumer) ReplayFromOffsets(
 			break
 		}
 
-		// Check for errors
+		// intentionally not handleFetchErrors: replay consumer is short-lived; pausing or firing the pool callback would be wrong.
+		// Check for errors.
 		if errs := fetches.Errors(); len(errs) > 0 {
 			for _, err := range errs {
 				c.logger.Warn().
 					Err(err.Err).
-					Str("topic", err.Topic).
-					Int32("partition", err.Partition).
+					Str(LabelTopic, err.Topic).
+					Int32(LogFieldPartition, err.Partition).
 					Msg("Replay fetch error")
 			}
 		}

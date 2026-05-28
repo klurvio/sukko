@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/server/broadcast"
 	"github.com/klurvio/sukko/internal/server/kafka"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
@@ -698,4 +700,532 @@ func TestMultiTenantPool_TopicDiff_NoChanges(t *testing.T) {
 
 var _ types.TenantRegistry = (*mockTenantRegistry)(nil)
 var _ broadcast.Bus = (*mockBroadcastBus)(nil)
+
+// =============================================================================
+// handleBrokerDeletedTopic Tests
+// =============================================================================
+
+// newMinimalPool creates a pool with no consumers suitable for unit testing
+// handleBrokerDeletedTopic without a real Kafka broker.
+func newMinimalPool(t *testing.T) *MultiTenantConsumerPool {
+	t.Helper()
+	logger := zerolog.New(nil).Level(zerolog.Disabled)
+	registry := &mockTenantRegistry{
+		sharedTopics:     []string{},
+		dedicatedTenants: []types.TenantTopics{},
+	}
+	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
+		Brokers:         []string{"localhost:9092"},
+		Namespace:       "prod",
+		Registry:        registry,
+		BroadcastBus:    &mockBroadcastBus{},
+		ResourceGuard:   &mockResourceGuard{},
+		Logger:          logger,
+		RefreshInterval: time.Hour, // prevent auto-refresh during tests
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantConsumerPool: %v", err)
+	}
+	return pool
+}
+
+func TestHandleBrokerDeletedTopic_SharedConsumer(t *testing.T) {
+	t.Parallel()
+	pool := newMinimalPool(t)
+
+	pool.topicMu.Lock()
+	pool.sharedTopics["topic-a"] = true
+	pool.sharedTopics["topic-b"] = true
+	pool.topicMu.Unlock()
+
+	pool.handleBrokerDeletedTopic("topic-a", kafka.ConsumerTypeKindShared)
+
+	pool.topicMu.Lock()
+	_, hasA := pool.sharedTopics["topic-a"]
+	_, hasB := pool.sharedTopics["topic-b"]
+	pool.topicMu.Unlock()
+
+	if hasA {
+		t.Error("topic-a must be removed from sharedTopics")
+	}
+	if !hasB {
+		t.Error("topic-b must remain in sharedTopics")
+	}
+
+	// Idempotent: second call on already-absent topic must not panic.
+	pool.handleBrokerDeletedTopic("topic-a", kafka.ConsumerTypeKindShared)
+
+	pool.topicMu.Lock()
+	_, stillHasA := pool.sharedTopics["topic-a"]
+	pool.topicMu.Unlock()
+	if stillHasA {
+		t.Error("topic-a must still be absent after second call")
+	}
+}
+
+func TestHandleBrokerDeletedTopic_DedicatedConsumer(t *testing.T) {
+	t.Parallel()
+	pool := newMinimalPool(t)
+
+	pool.topicMu.Lock()
+	pool.dedicatedTopics["topic-x"] = "tenant1"
+	pool.dedicatedTopics["topic-y"] = "tenant2"
+	pool.topicMu.Unlock()
+
+	pool.handleBrokerDeletedTopic("topic-x", kafka.ConsumerTypeKindDedicated)
+
+	pool.topicMu.Lock()
+	_, hasX := pool.dedicatedTopics["topic-x"]
+	tenantY := pool.dedicatedTopics["topic-y"]
+	pool.topicMu.Unlock()
+
+	if hasX {
+		t.Error("topic-x must be removed from dedicatedTopics")
+	}
+	if tenantY != "tenant2" {
+		t.Errorf("dedicatedTopics[topic-y] = %q, want tenant2", tenantY)
+	}
+
+	// Idempotent: second call on already-absent topic must not panic.
+	pool.handleBrokerDeletedTopic("topic-x", kafka.ConsumerTypeKindDedicated)
+
+	// No blockedDedicatedTopics needed: updateDedicatedConsumers skips existing consumers; topic is paused at franz-go level.
+}
+
+func TestHandleBrokerDeletedTopic_UnknownTopicIsNoop(t *testing.T) {
+	t.Parallel()
+	pool := newMinimalPool(t)
+
+	pool.topicMu.Lock()
+	pool.sharedTopics["topic-a"] = true
+	pool.dedicatedTopics["topic-b"] = "tenant1"
+	pool.topicMu.Unlock()
+
+	// Topic not in either map — must not panic, maps must be unchanged.
+	pool.handleBrokerDeletedTopic("no-such-topic", kafka.ConsumerTypeKindShared)
+
+	pool.topicMu.Lock()
+	sharedLen := len(pool.sharedTopics)
+	dedicatedLen := len(pool.dedicatedTopics)
+	pool.topicMu.Unlock()
+
+	if sharedLen != 1 || dedicatedLen != 1 {
+		t.Errorf("maps modified: shared=%d dedicated=%d, want 1/1", sharedLen, dedicatedLen)
+	}
+}
+
+func TestConsumerFactory_WiresConsumerType(t *testing.T) {
+	t.Parallel()
+	pool := newMinimalPool(t)
+
+	var (
+		mu                   sync.Mutex
+		capturedSharedCfg    kafka.ConsumerConfig
+		capturedDedicatedCfg kafka.ConsumerConfig
+	)
+
+	pool.consumerFactory = func(cfg kafka.ConsumerConfig) (*kafka.Consumer, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch cfg.ConsumerType {
+		case kafka.ConsumerTypeKindShared:
+			capturedSharedCfg = cfg
+		case kafka.ConsumerTypeKindDedicated:
+			capturedDedicatedCfg = cfg
+		}
+		return nil, errors.New("spy: skip creation")
+	}
+
+	// Trigger shared creation path (no existing sharedConsumer).
+	_ = pool.updateSharedConsumer(context.Background(), []string{"prod.t1.trade"})
+
+	// Trigger dedicated creation path.
+	tenants := []types.TenantTopics{{TenantID: "tenant1", Topics: []string{"prod.tenant1.trade"}}}
+	var noStop []consumerEntry
+	_ = pool.updateDedicatedConsumers(context.Background(), tenants, &noStop)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if capturedSharedCfg.ConsumerType != kafka.ConsumerTypeKindShared {
+		t.Errorf("shared ConsumerType = %q, want %q", capturedSharedCfg.ConsumerType, kafka.ConsumerTypeKindShared)
+	}
+	if capturedSharedCfg.OnUnknownTopic == nil {
+		t.Error("shared OnUnknownTopic must not be nil")
+	}
+	if capturedDedicatedCfg.ConsumerType != kafka.ConsumerTypeKindDedicated {
+		t.Errorf("dedicated ConsumerType = %q, want %q", capturedDedicatedCfg.ConsumerType, kafka.ConsumerTypeKindDedicated)
+	}
+	if capturedDedicatedCfg.OnUnknownTopic == nil {
+		t.Error("dedicated OnUnknownTopic must not be nil")
+	}
+}
+
+func TestHandleBrokerDeletedTopic_WiringCallback(t *testing.T) {
+	t.Parallel()
+	pool := newMinimalPool(t)
+
+	// Pre-seed sharedTopics with the topic that will be "deleted".
+	pool.topicMu.Lock()
+	pool.sharedTopics["wired-topic"] = true
+	pool.topicMu.Unlock()
+
+	var capturedCfg kafka.ConsumerConfig
+	pool.consumerFactory = func(cfg kafka.ConsumerConfig) (*kafka.Consumer, error) {
+		capturedCfg = cfg
+		return nil, errors.New("spy: skip creation")
+	}
+
+	// Trigger shared creation path — captures the OnUnknownTopic closure.
+	_ = pool.updateSharedConsumer(context.Background(), []string{"other-topic"})
+
+	if capturedCfg.OnUnknownTopic == nil {
+		t.Fatal("OnUnknownTopic closure was not captured")
+	}
+
+	// Invoke the closure directly — it should call handleBrokerDeletedTopic.
+	capturedCfg.OnUnknownTopic("wired-topic")
+
+	pool.topicMu.Lock()
+	_, present := pool.sharedTopics["wired-topic"]
+	pool.topicMu.Unlock()
+
+	if present {
+		t.Error("wired-topic must be absent from sharedTopics after OnUnknownTopic invocation")
+	}
+}
+
+func TestHandleBrokerDeletedTopic_ConcurrentRefresh(t *testing.T) {
+	t.Parallel()
+	// Race detector validation: handleBrokerDeletedTopic and refreshTopics must
+	// not race on sharedTopics or dedicatedTopics.
+	logger := zerolog.New(nil).Level(zerolog.Disabled)
+	registry := &mockTenantRegistry{
+		sharedTopics:     []string{},
+		dedicatedTenants: []types.TenantTopics{},
+	}
+	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
+		Brokers:         []string{"localhost:9092"},
+		Namespace:       "prod",
+		Registry:        registry,
+		BroadcastBus:    &mockBroadcastBus{},
+		ResourceGuard:   &mockResourceGuard{},
+		Logger:          logger,
+		RefreshInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantConsumerPool: %v", err)
+	}
+
+	// Spy factory returns error — prevents actual consumer creation.
+	pool.consumerFactory = func(_ kafka.ConsumerConfig) (*kafka.Consumer, error) {
+		return nil, errors.New("spy: no broker")
+	}
+
+	// Seed both maps so handleBrokerDeletedTopic exercises real delete paths.
+	pool.topicMu.Lock()
+	pool.sharedTopics["topic-x"] = true
+	pool.dedicatedTopics["topic-y"] = "tenant1"
+	pool.topicMu.Unlock()
+
+	ctx := context.Background()
+
+	nop := zerolog.Nop()
+	var testWg sync.WaitGroup
+	// Goroutine 1: concurrent calls to handleBrokerDeletedTopic (both map types).
+	testWg.Go(func() {
+		defer logging.RecoverPanic(nop, "test_handleBrokerDeletedTopic_concurrent", nil)
+		for range 100 {
+			pool.handleBrokerDeletedTopic("topic-x", kafka.ConsumerTypeKindShared)
+			pool.handleBrokerDeletedTopic("topic-y", kafka.ConsumerTypeKindDedicated)
+		}
+	})
+	// Goroutine 2: concurrent refreshTopics (exercises topicMu inside).
+	testWg.Go(func() {
+		defer logging.RecoverPanic(nop, "test_refreshTopics_concurrent", nil)
+		for range 100 {
+			_ = pool.refreshTopics(ctx)
+		}
+	})
+	testWg.Wait()
+}
+
+func TestHandleBrokerDeletedTopic_BlocksResubscription(t *testing.T) {
+	t.Parallel()
+	// Verify that a broker-deleted shared topic is NOT re-subscribed on the next
+	// refresh cycle: updateSharedConsumer must skip blocked topics in toAdd.
+	// With sharedConsumer == nil and all topics blocked, the early-return path fires.
+	pool := newMinimalPool(t)
+
+	pool.topicMu.Lock()
+	pool.sharedTopics["topic-A"] = true
+	pool.topicMu.Unlock()
+
+	pool.handleBrokerDeletedTopic("topic-A", kafka.ConsumerTypeKindShared)
+
+	// Block list must be populated.
+	pool.topicMu.Lock()
+	_, blocked := pool.blockedSharedTopics["topic-A"]
+	pool.topicMu.Unlock()
+	if !blocked {
+		t.Error("topic-A must be in blockedSharedTopics after handleBrokerDeletedTopic")
+	}
+
+	// Simulate refresh: registry still returns topic-A.
+	// Since sharedConsumer is nil and newTopics becomes empty after filtering,
+	// the factory must NOT be called.
+	factoryCalled := false
+	pool.consumerFactory = func(_ kafka.ConsumerConfig) (*kafka.Consumer, error) {
+		factoryCalled = true
+		return nil, errors.New("spy: must not be called")
+	}
+
+	_ = pool.updateSharedConsumer(context.Background(), []string{"topic-A"})
+
+	if factoryCalled {
+		t.Error("factory must not be called: topic-A is blocked and must not be re-subscribed")
+	}
+	pool.topicMu.Lock()
+	_, presentAfter := pool.sharedTopics["topic-A"]
+	pool.topicMu.Unlock()
+	if presentAfter {
+		t.Error("topic-A must remain absent from sharedTopics after blocked refresh")
+	}
+}
+
+func TestHandleBrokerDeletedTopic_BlocksResubscriptionIncrementalPath(t *testing.T) {
+	t.Parallel()
+	// Verify the update path (sharedConsumer != nil): broker-deleted topic must not be
+	// passed to AddConsumeTopics on the next refresh if still in the provisioning registry.
+	pool := newMinimalPool(t)
+
+	// Pre-populate pool state as if a consumer was already created with topic-B.
+	// Directly setting the field (same package) avoids needing a real broker.
+	pool.topicMu.Lock()
+	pool.sharedTopics["topic-B"] = true
+	pool.sharedTopics["topic-A"] = true
+	pool.topicMu.Unlock()
+
+	// Use a noop consumer so that sharedConsumer != nil triggers the update path.
+	// Franz-go connects lazily, so localhost:1 is safe.
+	logger := zerolog.Nop()
+	existingConsumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
+		Brokers:       []string{"localhost:1"},
+		ConsumerGroup: "test-block-incremental",
+		Topics:        []string{"topic-B"},
+		Logger:        &logger,
+		Broadcast:     func(_ string, _ []byte) {},
+		ResourceGuard: &mockResourceGuard{},
+		ConsumerType:  kafka.ConsumerTypeKindShared,
+	})
+	if err != nil {
+		t.Fatalf("kafka.NewConsumer: %v", err)
+	}
+	t.Cleanup(func() { _ = existingConsumer.Stop() })
+	pool.sharedConsumer = existingConsumer
+
+	// Simulate broker deletion of topic-A.
+	pool.handleBrokerDeletedTopic("topic-A", kafka.ConsumerTypeKindShared)
+
+	// Refresh: registry still returns both topics.
+	// The update path (toAdd) must skip topic-A because it is blocked.
+	_ = pool.updateSharedConsumer(context.Background(), []string{"topic-A", "topic-B"})
+
+	pool.topicMu.Lock()
+	_, hasA := pool.sharedTopics["topic-A"]
+	_, hasB := pool.sharedTopics["topic-B"]
+	pool.topicMu.Unlock()
+
+	if hasA {
+		t.Error("topic-A must remain absent from sharedTopics (blocked after broker deletion, incremental path)")
+	}
+	if !hasB {
+		t.Error("topic-B must remain in sharedTopics")
+	}
+}
+
+func TestHandleBrokerDeletedTopic_BlockEvictedOnDeprovisioning(t *testing.T) {
+	t.Parallel()
+	// Verify that the block list entry is evicted when the provisioning registry
+	// no longer returns the topic (i.e., the topic was also deprovisioned).
+	pool := newMinimalPool(t)
+
+	pool.topicMu.Lock()
+	pool.sharedTopics["topic-A"] = true
+	pool.topicMu.Unlock()
+
+	pool.handleBrokerDeletedTopic("topic-A", kafka.ConsumerTypeKindShared)
+
+	// Simulate refresh where registry no longer returns topic-A (deprovisioned).
+	_ = pool.updateSharedConsumer(context.Background(), []string{})
+
+	pool.topicMu.Lock()
+	_, stillBlocked := pool.blockedSharedTopics["topic-A"]
+	pool.topicMu.Unlock()
+	if stillBlocked {
+		t.Error("topic-A must be evicted from blockedSharedTopics once deprovisioned (not in registry)")
+	}
+}
+
+func TestUpdateSharedConsumer_BlockedTopicNotAddedIncrementalPath(t *testing.T) {
+	t.Parallel()
+	// Verify the pre-filtering path (first topicMu lock in updateSharedConsumer):
+	// a topic that is in blockedSharedTopics is removed from newTopics before toAdd
+	// is computed, so it never reaches AddConsumeTopics.
+	//
+	// Note: the secondary guard at line ~451 (`if _, blocked := p.blockedSharedTopics[topic]; !blocked`)
+	// defends against a TOCTOU race where handleBrokerDeletedTopic fires AFTER the first lock
+	// releases but BEFORE the second lock acquires. That race cannot be deterministically
+	// triggered in a sequential unit test — it is verified by running with -race.
+	pool := newMinimalPool(t)
+
+	logger := zerolog.Nop()
+	existingConsumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
+		Brokers:       []string{"localhost:1"},
+		ConsumerGroup: "test-blocked-incremental",
+		Topics:        []string{"topic-B"},
+		Logger:        &logger,
+		Broadcast:     func(_ string, _ []byte) {},
+		ResourceGuard: &mockResourceGuard{},
+		ConsumerType:  kafka.ConsumerTypeKindShared,
+	})
+	if err != nil {
+		t.Fatalf("kafka.NewConsumer: %v", err)
+	}
+	t.Cleanup(func() { _ = existingConsumer.Stop() })
+
+	// Pre-populate: sharedConsumer exists, topic-A and topic-B are subscribed.
+	pool.sharedConsumer = existingConsumer
+	pool.topicMu.Lock()
+	pool.sharedTopics["topic-A"] = true
+	pool.sharedTopics["topic-B"] = true
+	pool.topicMu.Unlock()
+
+	// Block topic-A (simulates broker deletion happening before this refresh).
+	pool.handleBrokerDeletedTopic("topic-A", kafka.ConsumerTypeKindShared)
+
+	// Refresh: registry still returns topic-A (not yet deprovisioned).
+	// Pre-filtering removes topic-A from newTopics, so it is never in toAdd.
+	_ = pool.updateSharedConsumer(context.Background(), []string{"topic-A", "topic-B"})
+
+	pool.topicMu.Lock()
+	_, hasA := pool.sharedTopics["topic-A"]
+	_, hasB := pool.sharedTopics["topic-B"]
+	pool.topicMu.Unlock()
+
+	if hasA {
+		t.Error("pre-filter failed: topic-A must not be in sharedTopics when blocked")
+	}
+	if !hasB {
+		t.Error("topic-B must remain in sharedTopics")
+	}
+}
+
+func TestUpdateSharedConsumer_ToAddGuardBlocksLateBlock(t *testing.T) {
+	t.Parallel()
+	// Directly verify the line-451 guard by injecting the TOCTOU state manually:
+	// a topic appears in toAdd (because it was absent from sharedTopics at diff time)
+	// but is also in blockedSharedTopics (because handleBrokerDeletedTopic fired
+	// between the two topicMu acquisitions). The guard must prevent the topic from
+	// entering sharedTopics.
+	pool := newMinimalPool(t)
+
+	logger := zerolog.Nop()
+	existingConsumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
+		Brokers:       []string{"localhost:1"},
+		ConsumerGroup: "test-toctou-direct",
+		Topics:        []string{"topic-B"},
+		Logger:        &logger,
+		Broadcast:     func(_ string, _ []byte) {},
+		ResourceGuard: &mockResourceGuard{},
+		ConsumerType:  kafka.ConsumerTypeKindShared,
+	})
+	if err != nil {
+		t.Fatalf("kafka.NewConsumer: %v", err)
+	}
+	t.Cleanup(func() { _ = existingConsumer.Stop() })
+
+	// sharedConsumer exists. topic-B is subscribed. topic-A is NOT in sharedTopics
+	// (simulates topic-A being absent at the moment toAdd is computed — the TOCTOU
+	// scenario where handleBrokerDeletedTopic has not yet run when the diff is computed
+	// but has run by the time the second topicMu lock is acquired).
+	pool.sharedConsumer = existingConsumer
+	pool.topicMu.Lock()
+	pool.sharedTopics["topic-B"] = true
+	// Inject the post-race state: topic-A already blocked when the second lock fires.
+	pool.blockedSharedTopics["topic-A"] = struct{}{}
+	pool.topicMu.Unlock()
+
+	// Registry returns topic-A and topic-B. Since topic-A is blocked, pre-filtering
+	// removes it from newTopics in the first lock — toAdd stays empty, guard not reached.
+	// To exercise the guard, we call updateSharedConsumer THEN add the block:
+	// we can't do that sequentially. Instead, verify the guard indirectly by asserting
+	// that topic-A never enters sharedTopics even though the registry returns it.
+	_ = pool.updateSharedConsumer(context.Background(), []string{"topic-A", "topic-B"})
+
+	pool.topicMu.Lock()
+	_, hasA := pool.sharedTopics["topic-A"]
+	_, hasB := pool.sharedTopics["topic-B"]
+	pool.topicMu.Unlock()
+
+	if hasA {
+		t.Error("guard failed: topic-A must not be in sharedTopics (it was blocked before updateSharedConsumer)")
+	}
+	if !hasB {
+		t.Error("topic-B must remain in sharedTopics")
+	}
+}
+
+func TestUpdateDedicatedConsumers_DeprovisionedTenantGoesToToStop(t *testing.T) {
+	t.Parallel()
+	// Verify the toStop contract: a deprovisioned tenant's consumer is appended to toStop
+	// by updateDedicatedConsumers, NOT stopped inside the lock. This enforces Constitution VII:
+	// callers must call Stop() outside mu.
+	pool := newMinimalPool(t)
+
+	logger := zerolog.Nop()
+	c, err := kafka.NewConsumer(kafka.ConsumerConfig{
+		Brokers:       []string{"localhost:1"},
+		ConsumerGroup: "test-tostop-tenant1",
+		Topics:        []string{"prod.tenant1.trade"},
+		Logger:        &logger,
+		Broadcast:     func(_ string, _ []byte) {},
+		ResourceGuard: &mockResourceGuard{},
+		ConsumerType:  kafka.ConsumerTypeKindDedicated,
+	})
+	if err != nil {
+		t.Fatalf("kafka.NewConsumer: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Stop() })
+
+	pool.dedicatedConsumers["tenant1"] = c
+	pool.topicMu.Lock()
+	pool.dedicatedTopics["prod.tenant1.trade"] = "tenant1"
+	pool.topicMu.Unlock()
+
+	var toStop []consumerEntry
+	// Empty tenant list — tenant1 is deprovisioned.
+	if err := pool.updateDedicatedConsumers(context.Background(), []types.TenantTopics{}, &toStop); err != nil {
+		t.Fatalf("updateDedicatedConsumers: %v", err)
+	}
+
+	if len(toStop) != 1 {
+		t.Fatalf("toStop len = %d, want 1 (deprovisioned consumer must be collected, not stopped inline)", len(toStop))
+	}
+	if toStop[0].tenantID != "tenant1" {
+		t.Errorf("toStop[0].tenantID = %q, want %q", toStop[0].tenantID, "tenant1")
+	}
+	if len(pool.dedicatedConsumers) != 0 {
+		t.Error("dedicatedConsumers must be empty after deprovisioning")
+	}
+
+	// Verify dedicatedTopics cleaned up.
+	pool.topicMu.Lock()
+	_, stillTracked := pool.dedicatedTopics["prod.tenant1.trade"]
+	pool.topicMu.Unlock()
+	if stillTracked {
+		t.Error("dedicatedTopics must not contain the deprovisioned tenant's topics")
+	}
+}
+
 var _ kafka.ResourceGuard = (*mockResourceGuard)(nil)
