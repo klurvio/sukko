@@ -38,3 +38,27 @@ const (
 	LabelTopic  = "topic"
 	LabelReason = "reason"
 )
+
+// Consumer type identifiers used as Prometheus label values and log field values.
+const (
+	ConsumerTypeKindShared    = "shared"
+	ConsumerTypeKindDedicated = "dedicated"
+)
+
+// Structured log field keys used across kafka and orchestration packages.
+const (
+	LogFieldPartition = "partition" // pre-existing call sites in consumer.go and producer.go
+	LogFieldTenantID  = "tenant_id"
+)
+
+// Log message constants for broker-deleted-topic and fetch error events.
+const (
+	MsgTopicDeletedAtBroker = "topic deleted at broker — pausing fetches"
+	MsgFetchError           = "kafka fetch error"
+)
+
+// Prometheus metric and label names for the broker-deleted-topic counter.
+const (
+	MetricConsumerTopicDeletedTotal = "ws_consumer_topic_deleted_total"
+	LabelConsumerType               = "consumer_type"
+)
