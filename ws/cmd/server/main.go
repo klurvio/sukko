@@ -307,6 +307,9 @@ func main() {
 			KafkaRebalanceTimeout:          cfg.KafkaRebalanceTimeout,
 			KafkaReplayFetchMaxBytes:       cfg.KafkaReplayFetchMaxBytes,
 			KafkaBackpressureCheckInterval: cfg.KafkaBackpressureCheckInterval,
+			// Kafka partition-revoke commit tuning
+			KafkaCommitOnRevokeTimeout: cfg.KafkaCommitOnRevokeTimeout,
+			KafkaAutoCommitInterval:    cfg.KafkaAutoCommitInterval,
 		})
 	case "nats":
 		// Create a StreamTopicRegistry for tenant discovery via gRPC

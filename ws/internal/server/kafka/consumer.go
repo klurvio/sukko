@@ -52,10 +52,26 @@ var consumerDeletedMetrics = struct {
 	once       sync.Once
 }{}
 
+// consumerRevokeCommitMetrics holds the partition-revoke commit counter and latency
+// histogram registered once at package level. Tests bypass this singleton via
+// ConsumerConfig.Registerer.
+var consumerRevokeCommitMetrics = struct {
+	counterVec        *prometheus.CounterVec
+	durationHistogram prometheus.Histogram
+	once              sync.Once
+}{}
+
 // topicPauser is the minimal interface for pausing Kafka topic fetching.
 // *kgo.Client satisfies this interface in production; mockPauser is used in tests.
 type topicPauser interface {
 	PauseFetchTopics(topics ...string) []string
+}
+
+// committer is the minimal interface for committing Kafka offsets.
+// *kgo.Client satisfies this interface in production; mockCommitter is used in tests.
+type committer interface {
+	CommitMarkedOffsets(ctx context.Context) error
+	MarkCommitRecords(rs ...*kgo.Record)
 }
 
 // TokenEvent represents an event from Redpanda
@@ -138,6 +154,12 @@ type Consumer struct {
 	pauser         topicPauser  // client in production; mockPauser in tests
 	onUnknownTopic func(string) // callback dispatched when a topic is deleted at the broker
 	deletedCounter prometheus.Counter
+
+	// Partition-revoke commit handling (explicit-mark pattern)
+	committer             committer              // client in production; mockCommitter in tests
+	commitOnRevokeTimeout time.Duration          // max time for CommitMarkedOffsets in revoke callback
+	revokeCommitCounter   *prometheus.CounterVec // ws_consumer_revoke_commit_total{result}
+	revokeCommitDuration  prometheus.Observer    // ws_consumer_revoke_commit_duration_seconds (never nil after NewConsumer)
 }
 
 // ConsumerConfig holds configuration for creating a Kafka consumer.
@@ -170,6 +192,10 @@ type ConsumerConfig struct {
 
 	// Backpressure tuning
 	BackpressureCheckInterval time.Duration // CPU brake poll interval (default: 100ms)
+
+	// Partition-revoke commit tuning
+	CommitOnRevokeTimeout time.Duration // max time for CommitMarkedOffsets in revoke callback (must be > 0)
+	AutoCommitInterval    time.Duration // background auto-commit interval (0 = use franz-go default)
 
 	// Routing — optional; when set, channel extraction uses header and edition awareness.
 	Namespace     string                  // Topic namespace (e.g. "prod") — used to build DLQ topic names.
@@ -214,8 +240,15 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if cfg.ConsumerType == "" {
 		return nil, errors.New("consumer type is required")
 	}
+	if cfg.CommitOnRevokeTimeout <= 0 {
+		return nil, errors.New("CommitOnRevokeTimeout must be > 0")
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Pre-declare consumer pointer so OnPartitionsRevoked closure can capture it.
+	// The closure resolves consumer.committer at invocation time (after struct allocation).
+	var consumer *Consumer
 
 	// Build client options
 	opts := []kgo.Opt{
@@ -225,13 +258,11 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()), // Start from latest
 		kgo.OnPartitionsAssigned(func(_ context.Context, _ *kgo.Client, assigned map[string][]int32) {
 			cfg.Logger.Info().
-				Interface("partitions", assigned).
+				Interface(LogFieldPartitions, assigned).
 				Msg("Partitions assigned")
 		}),
-		kgo.OnPartitionsRevoked(func(_ context.Context, _ *kgo.Client, revoked map[string][]int32) {
-			cfg.Logger.Info().
-				Interface("partitions", revoked).
-				Msg("Partitions revoked")
+		kgo.OnPartitionsRevoked(func(ctx context.Context, _ *kgo.Client, revoked map[string][]int32) {
+			consumer.handleRevoke(ctx, revoked)
 		}),
 	}
 
@@ -250,6 +281,14 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 	if cfg.RebalanceTimeout > 0 {
 		opts = append(opts, kgo.RebalanceTimeout(cfg.RebalanceTimeout))
+	}
+
+	// Explicit-mark commit pattern: auto-commit fires on timer but only commits
+	// records explicitly marked via MarkCommitRecords. This prevents committing
+	// records that have been polled but not yet processed during rebalance.
+	opts = append(opts, kgo.AutoCommitMarks())
+	if cfg.AutoCommitInterval > 0 {
+		opts = append(opts, kgo.AutoCommitInterval(cfg.AutoCommitInterval))
 	}
 
 	// Add SASL authentication if configured
@@ -322,7 +361,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	// Backpressure check interval (validated > 0 by platform config layer)
 	backpressureInterval := cfg.BackpressureCheckInterval
 
-	consumer := &Consumer{
+	consumer = &Consumer{
 		client:        client,
 		logger:        cfg.Logger,
 		broadcast:     cfg.Broadcast,
@@ -345,6 +384,10 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		namespace:     cfg.Namespace,
 		rulesProvider: cfg.RulesProvider,
 		dlq:           cfg.DLQ,
+
+		// Partition-revoke commit handling
+		committer:             client,
+		commitOnRevokeTimeout: cfg.CommitOnRevokeTimeout,
 	}
 
 	// Register routing Prometheus metrics once across all Consumer instances.
@@ -370,6 +413,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 			Help: "Total topics paused after broker-reported deletion, by consumer type",
 		}, []string{LabelConsumerType})
 		if err := cfg.Registerer.Register(counterVec); err != nil {
+			client.Close()
 			cancel()
 			return nil, fmt.Errorf("failed to register deleted topic counter: %w", err)
 		}
@@ -385,6 +429,48 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 	consumer.pauser = client
 	consumer.onUnknownTopic = cfg.OnUnknownTopic
+
+	// Register partition-revoke commit metrics (counter + histogram).
+	// Tests pass cfg.Registerer to bypass the singleton; nil uses promauto.
+	if cfg.Registerer != nil {
+		revokeCounterVec := prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: MetricRevokeCommitTotal,
+			Help: "Total partition-revoke commit attempts, by result",
+		}, []string{LabelResult})
+		if err := cfg.Registerer.Register(revokeCounterVec); err != nil {
+			client.Close()
+			cancel()
+			return nil, fmt.Errorf("failed to register revoke commit counter: %w", err)
+		}
+		revokeHistogram := prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    MetricRevokeCommitDurationSeconds,
+			Help:    "Duration of CommitMarkedOffsets calls during partition revoke, in seconds",
+			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
+		})
+		if err := cfg.Registerer.Register(revokeHistogram); err != nil {
+			client.Close()
+			cancel()
+			return nil, fmt.Errorf("failed to register revoke commit duration histogram: %w", err)
+		}
+		consumer.revokeCommitCounter = revokeCounterVec
+		consumer.revokeCommitDuration = revokeHistogram
+	} else {
+		// Register both counter and histogram in a single once.Do for atomicity:
+		// either both are registered or neither (concurrent NewConsumer calls are safe).
+		consumerRevokeCommitMetrics.once.Do(func() {
+			consumerRevokeCommitMetrics.counterVec = promauto.NewCounterVec(prometheus.CounterOpts{
+				Name: MetricRevokeCommitTotal,
+				Help: "Total partition-revoke commit attempts, by result",
+			}, []string{LabelResult})
+			consumerRevokeCommitMetrics.durationHistogram = promauto.NewHistogram(prometheus.HistogramOpts{
+				Name:    MetricRevokeCommitDurationSeconds,
+				Help:    "Duration of CommitMarkedOffsets calls during partition revoke, in seconds",
+				Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
+			})
+		})
+		consumer.revokeCommitCounter = consumerRevokeCommitMetrics.counterVec
+		consumer.revokeCommitDuration = consumerRevokeCommitMetrics.durationHistogram
+	}
 
 	if batchEnabled {
 		cfg.Logger.Info().
@@ -429,6 +515,44 @@ func (c *Consumer) Stop() error {
 		Msg("Kafka consumer stopped")
 
 	return nil
+}
+
+// handleRevoke commits all explicitly marked offsets within the configured timeout
+// before the broker reassigns the revoked partitions. It is called from the
+// OnPartitionsRevoked closure registered in NewConsumer.
+//
+// The revokeCtx parameter is the context supplied by franz-go to OnPartitionsRevoked.
+// It is accepted for contextcheck compliance but intentionally NOT used as the commit
+// timeout base — see research.md Decision 3: during graceful shutdown, Stop() calls
+// c.cancel() before client.Close(), so c.ctx (and any child context) is already
+// canceled by the time this runs. context.Background() is the only correct base.
+func (c *Consumer) handleRevoke(_ context.Context, revoked map[string][]int32) {
+	// context.Background() is intentional — the caller's ctx (franz-go's rebalance ctx)
+	// is already canceled during graceful shutdown because Stop() calls c.cancel() before
+	// client.Close(), and OnPartitionsRevoked fires synchronously inside client.Close().
+	// Using the caller's ctx would make CommitMarkedOffsets fail immediately on shutdown.
+	// See research.md Decision 3 for the full rationale.
+	commitCtx, commitCancel := context.WithTimeout(context.Background(), c.commitOnRevokeTimeout)
+	defer commitCancel()
+
+	start := time.Now()
+	err := c.committer.CommitMarkedOffsets(commitCtx) //nolint:contextcheck // context.Background() is intentional — caller ctx is already canceled during shutdown (Stop cancels c.ctx before client.Close); see Decision 3 in research.md
+	c.revokeCommitDuration.Observe(time.Since(start).Seconds())
+
+	if err != nil {
+		c.revokeCommitCounter.WithLabelValues(ResultFailure).Inc()
+		c.logger.Error().
+			Err(err).
+			Interface(LogFieldPartitions, revoked).
+			Dur(LogFieldTimeout, c.commitOnRevokeTimeout).
+			Msg(MsgCommitOnRevokeFailed)
+		return
+	}
+
+	c.revokeCommitCounter.WithLabelValues(ResultSuccess).Inc()
+	c.logger.Info().
+		Interface(LogFieldPartitions, revoked).
+		Msg(MsgCommitOnRevokeSuccess)
 }
 
 // AddConsumeTopics dynamically adds topics to the consumer without triggering
@@ -499,6 +623,7 @@ func (c *Consumer) consumeLoop() {
 		// Send all messages in batch
 		for _, msg := range batch {
 			c.broadcast(msg.subject, msg.message)
+			c.committer.MarkCommitRecords(msg.record)
 			c.incrementProcessed(msg.topic)
 		}
 
@@ -545,7 +670,7 @@ func (c *Consumer) consumeLoop() {
 
 			// Accumulate records into batch
 			fetches.EachRecord(func(record *kgo.Record) {
-				msg := c.prepareMessage(record)
+				msg, ctxCanceled := c.prepareMessage(record)
 				if msg != nil {
 					batch = append(batch, *msg)
 
@@ -553,6 +678,11 @@ func (c *Consumer) consumeLoop() {
 					if len(batch) >= c.batchSize {
 						flushBatch()
 					}
+				} else if !ctxCanceled {
+					// Deliberate drop (rate-limit, malformed, DLQ): mark so the offset
+					// is not re-delivered after rebalance. CPU-brake ctx cancel is not
+					// marked — the record must be re-delivered after rebalance.
+					c.committer.MarkCommitRecords(record)
 				}
 			})
 		}
@@ -589,11 +719,15 @@ type preparedMessage struct {
 	topic   string
 	subject string
 	message []byte
+	record  *kgo.Record // original record, used for MarkCommitRecords at broadcast site
 }
 
-// prepareMessage validates and prepares a message for batching
-// Returns nil if message should be dropped (rate limited, invalid, etc.)
-func (c *Consumer) prepareMessage(record *kgo.Record) *preparedMessage {
+// prepareMessage validates and prepares a message for batching.
+// Returns (msg, ctxCanceled):
+//   - (nil, false): deliberate drop (rate-limit, malformed, DLQ) — caller MUST mark the record
+//   - (nil, true): CPU-brake interrupted by ctx.Done() — caller MUST NOT mark (re-delivery expected)
+//   - (msg, false): ready to broadcast — caller MUST mark after broadcast
+func (c *Consumer) prepareMessage(record *kgo.Record) (*preparedMessage, bool) {
 	// ============================================================================
 	// LAYER 1: RATE LIMITING
 	// ============================================================================
@@ -610,7 +744,7 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *preparedMessage {
 				Str(LabelTopic, record.Topic).
 				Msg("Kafka rate limit exceeded - dropping messages")
 		}
-		return nil
+		return nil, false // deliberate drop — caller must mark
 	}
 
 	// ============================================================================
@@ -633,7 +767,7 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *preparedMessage {
 
 			select {
 			case <-c.ctx.Done():
-				return nil // Context canceled, exit gracefully
+				return nil, true // context canceled during brake — do NOT mark; record will be re-delivered
 			case <-time.After(c.backpressureCheckInterval):
 				// Check CPU again
 			}
@@ -653,19 +787,20 @@ func (c *Consumer) prepareMessage(record *kgo.Record) *preparedMessage {
 			c.malformedTopicCounter.Inc()
 		}
 		c.incrementFailed()
-		return nil
+		return nil, false // deliberate drop — caller must mark
 	}
 	if reason != "" {
 		c.routeToDLQ(record, reason)
 		c.incrementFailed()
-		return nil
+		return nil, false // deliberate drop — caller must mark
 	}
 
 	return &preparedMessage{
 		topic:   record.Topic,
 		subject: channel,
 		message: record.Value,
-	}
+		record:  record,
+	}, false
 }
 
 // processRecord handles a single Kafka record with three-layer protection
@@ -695,6 +830,8 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 				Str(LabelTopic, record.Topic).
 				Msg("Kafka rate limit exceeded - dropping messages")
 		}
+		// Deliberate drop — mark so offset is not re-delivered after rebalance.
+		c.committer.MarkCommitRecords(record)
 		return
 	}
 
@@ -724,7 +861,8 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 
 			select {
 			case <-c.ctx.Done():
-				// Context canceled (shutdown), exit gracefully
+				// Context canceled during CPU brake — do NOT mark; record will be re-delivered
+				// after rebalance (same constraint as ctxCanceled=true path in prepareMessage).
 				return
 			case <-time.After(c.backpressureCheckInterval):
 				// Check CPU again after short wait
@@ -746,15 +884,20 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 			c.malformedTopicCounter.Inc()
 		}
 		c.incrementFailed()
+		// Deliberate drop — mark so offset is not re-delivered after rebalance.
+		c.committer.MarkCommitRecords(record)
 		return
 	}
 	if reason != "" {
 		c.routeToDLQ(record, reason)
 		c.incrementFailed()
+		// Deliberate drop — mark so offset is not re-delivered after rebalance.
+		c.committer.MarkCommitRecords(record)
 		return
 	}
 
 	c.broadcast(channel, record.Value)
+	c.committer.MarkCommitRecords(record)
 	c.incrementProcessed(record.Topic)
 
 	c.logger.Debug().
@@ -1077,8 +1220,10 @@ func (c *Consumer) ReplayFromOffsets(
 				return // Stop if we've hit the limit
 			}
 
-			// Parse message to get subject
-			msg := c.prepareMessage(record)
+			// Parse message to get subject.
+			// IMPORTANT: must NOT call MarkCommitRecords here — replay uses a temporary
+			// client and marking via c.committer would contaminate main consumer offset state.
+			msg, _ := c.prepareMessage(record)
 			if msg == nil {
 				return
 			}

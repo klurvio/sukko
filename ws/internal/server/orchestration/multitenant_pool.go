@@ -137,6 +137,10 @@ type MultiTenantPoolConfig struct {
 	KafkaReplayFetchMaxBytes       int32
 	KafkaBackpressureCheckInterval time.Duration
 
+	// Partition-revoke commit tuning
+	KafkaCommitOnRevokeTimeout time.Duration // max time for CommitMarkedOffsets in revoke callback
+	KafkaAutoCommitInterval    time.Duration // background auto-commit interval (0 = franz-go default)
+
 	// Security configuration for managed Kafka/Redpanda services
 	SASL *kafka.SASLConfig
 	TLS  *kafka.TLSConfig
@@ -408,7 +412,10 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 			RebalanceTimeout:          p.config.KafkaRebalanceTimeout,
 			ReplayFetchMaxBytes:       p.config.KafkaReplayFetchMaxBytes,
 			BackpressureCheckInterval: p.config.KafkaBackpressureCheckInterval,
-			ConsumerType:              kafka.ConsumerTypeKindShared,
+			// Partition-revoke commit tuning
+			CommitOnRevokeTimeout: p.config.KafkaCommitOnRevokeTimeout,
+			AutoCommitInterval:    p.config.KafkaAutoCommitInterval,
+			ConsumerType:          kafka.ConsumerTypeKindShared,
 			OnUnknownTopic: func(topic string) {
 				p.handleBrokerDeletedTopic(topic, kafka.ConsumerTypeKindShared)
 			},
@@ -532,7 +539,10 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 			RebalanceTimeout:          p.config.KafkaRebalanceTimeout,
 			ReplayFetchMaxBytes:       p.config.KafkaReplayFetchMaxBytes,
 			BackpressureCheckInterval: p.config.KafkaBackpressureCheckInterval,
-			ConsumerType:              kafka.ConsumerTypeKindDedicated,
+			// Partition-revoke commit tuning
+			CommitOnRevokeTimeout: p.config.KafkaCommitOnRevokeTimeout,
+			AutoCommitInterval:    p.config.KafkaAutoCommitInterval,
+			ConsumerType:          kafka.ConsumerTypeKindDedicated,
 			OnUnknownTopic: func(topic string) {
 				p.handleBrokerDeletedTopic(topic, kafka.ConsumerTypeKindDedicated)
 			},

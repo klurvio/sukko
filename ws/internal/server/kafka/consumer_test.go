@@ -430,7 +430,7 @@ func TestConsumer_PrepareMessage_IncludesTopic(t *testing.T) {
 		Value: []byte(`{"price":"50000"}`),
 	}
 
-	msg := consumer.prepareMessage(record)
+	msg, _ := consumer.prepareMessage(record)
 	if msg == nil {
 		t.Fatal("prepareMessage returned nil")
 	}
@@ -464,7 +464,7 @@ func TestConsumer_PrepareMessage_EmptyKey_ReturnNil(t *testing.T) {
 		Value: []byte(`{"price":"50000"}`),
 	}
 
-	msg := consumer.prepareMessage(record)
+	msg, _ := consumer.prepareMessage(record)
 	if msg != nil {
 		t.Error("prepareMessage should return nil for empty key")
 	}
@@ -494,7 +494,7 @@ func TestConsumer_PrepareMessage_RateLimited_DropsWithTopic(t *testing.T) {
 		Value: []byte(`{"price":"50000"}`),
 	}
 
-	msg := consumer.prepareMessage(record)
+	msg, _ := consumer.prepareMessage(record)
 	if msg != nil {
 		t.Error("prepareMessage should return nil when rate limited")
 	}
