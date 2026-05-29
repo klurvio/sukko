@@ -1,0 +1,23 @@
+name: Kafka Integration Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1' # Monday 04:00 UTC
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ws/go.mod
+
+      - name: Run Kafka integration tests
+        working-directory: ws
+        run: go test -race -tags integration -run TestRebalance -timeout 5m ./internal/server/kafka/...

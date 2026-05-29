@@ -128,6 +128,10 @@ type Config struct {
 	KafkaReplayFetchMaxBytes       int32
 	KafkaBackpressureCheckInterval time.Duration
 
+	// Kafka partition-revoke commit tuning
+	KafkaCommitOnRevokeTimeout time.Duration // max time for CommitMarkedOffsets in revoke callback
+	KafkaAutoCommitInterval    time.Duration // background auto-commit interval (0 = franz-go default)
+
 	// Provisioning gRPC connection
 	ProvisioningGRPCAddr  string
 	GRPCReconnectDelay    time.Duration
@@ -271,7 +275,10 @@ func New(cfg Config) (*KafkaBackend, error) {
 			KafkaRebalanceTimeout:          cfg.KafkaRebalanceTimeout,
 			KafkaReplayFetchMaxBytes:       cfg.KafkaReplayFetchMaxBytes,
 			KafkaBackpressureCheckInterval: cfg.KafkaBackpressureCheckInterval,
-			Metrics:                        &metrics.MultiTenantPoolMetricsAdapter{},
+			// Partition-revoke commit tuning
+			KafkaCommitOnRevokeTimeout: cfg.KafkaCommitOnRevokeTimeout,
+			KafkaAutoCommitInterval:    cfg.KafkaAutoCommitInterval,
+			Metrics:                    &metrics.MultiTenantPoolMetricsAdapter{},
 		})
 		if err != nil {
 			_ = kb.topicRegistry.Close() // Best-effort cleanup; already returning constructor error

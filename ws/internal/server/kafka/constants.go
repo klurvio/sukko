@@ -57,8 +57,34 @@ const (
 	MsgFetchError           = "kafka fetch error"
 )
 
+// Log message constants for rebalance duplicate delivery fix.
+const (
+	MsgCommitOnRevokeFailed  = "commit marked offsets on partition revoke failed"
+	MsgCommitOnRevokeSuccess = "partitions revoked — marked offsets committed"
+)
+
 // Prometheus metric and label names for the broker-deleted-topic counter.
 const (
 	MetricConsumerTopicDeletedTotal = "ws_consumer_topic_deleted_total"
 	LabelConsumerType               = "consumer_type"
+)
+
+// Prometheus metric names for rebalance commit tracking.
+const (
+	MetricRevokeCommitTotal           = "ws_consumer_revoke_commit_total"
+	MetricRevokeCommitDurationSeconds = "ws_consumer_revoke_commit_duration_seconds"
+)
+
+// Label key and values for ws_consumer_revoke_commit_total{result=...}.
+const (
+	LabelResult   = "result"
+	ResultSuccess = "success"
+	ResultFailure = "failure"
+)
+
+// Structured log field keys for partition maps and timeout durations.
+// LogFieldPartitions is plural (distinct from existing LogFieldPartition singular).
+const (
+	LogFieldPartitions = "partitions"
+	LogFieldTimeout    = "timeout"
 )

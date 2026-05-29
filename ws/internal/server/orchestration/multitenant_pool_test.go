@@ -625,12 +625,13 @@ func TestMultiTenantPool_TopicRemoval_Partial(t *testing.T) {
 	guard := &mockResourceGuard{}
 
 	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
-		Brokers:       []string{"localhost:9092"},
-		Namespace:     "prod",
-		Registry:      registry,
-		BroadcastBus:  bus,
-		ResourceGuard: guard,
-		Logger:        logger,
+		Brokers:                    []string{"localhost:9092"},
+		Namespace:                  "prod",
+		Registry:                   registry,
+		BroadcastBus:               bus,
+		ResourceGuard:              guard,
+		Logger:                     logger,
+		KafkaCommitOnRevokeTimeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -715,13 +716,14 @@ func newMinimalPool(t *testing.T) *MultiTenantConsumerPool {
 		dedicatedTenants: []types.TenantTopics{},
 	}
 	pool, err := NewMultiTenantConsumerPool(MultiTenantPoolConfig{
-		Brokers:         []string{"localhost:9092"},
-		Namespace:       "prod",
-		Registry:        registry,
-		BroadcastBus:    &mockBroadcastBus{},
-		ResourceGuard:   &mockResourceGuard{},
-		Logger:          logger,
-		RefreshInterval: time.Hour, // prevent auto-refresh during tests
+		Brokers:                    []string{"localhost:9092"},
+		Namespace:                  "prod",
+		Registry:                   registry,
+		BroadcastBus:               &mockBroadcastBus{},
+		ResourceGuard:              &mockResourceGuard{},
+		Logger:                     logger,
+		RefreshInterval:            time.Hour, // prevent auto-refresh during tests
+		KafkaCommitOnRevokeTimeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantConsumerPool: %v", err)
@@ -1010,13 +1012,14 @@ func TestHandleBrokerDeletedTopic_BlocksResubscriptionIncrementalPath(t *testing
 	// Franz-go connects lazily, so localhost:1 is safe.
 	logger := zerolog.Nop()
 	existingConsumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
-		Brokers:       []string{"localhost:1"},
-		ConsumerGroup: "test-block-incremental",
-		Topics:        []string{"topic-B"},
-		Logger:        &logger,
-		Broadcast:     func(_ string, _ []byte) {},
-		ResourceGuard: &mockResourceGuard{},
-		ConsumerType:  kafka.ConsumerTypeKindShared,
+		Brokers:               []string{"localhost:1"},
+		ConsumerGroup:         "test-block-incremental",
+		Topics:                []string{"topic-B"},
+		Logger:                &logger,
+		Broadcast:             func(_ string, _ []byte) {},
+		ResourceGuard:         &mockResourceGuard{},
+		ConsumerType:          kafka.ConsumerTypeKindShared,
+		CommitOnRevokeTimeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("kafka.NewConsumer: %v", err)
@@ -1081,13 +1084,14 @@ func TestUpdateSharedConsumer_BlockedTopicNotAddedIncrementalPath(t *testing.T) 
 
 	logger := zerolog.Nop()
 	existingConsumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
-		Brokers:       []string{"localhost:1"},
-		ConsumerGroup: "test-blocked-incremental",
-		Topics:        []string{"topic-B"},
-		Logger:        &logger,
-		Broadcast:     func(_ string, _ []byte) {},
-		ResourceGuard: &mockResourceGuard{},
-		ConsumerType:  kafka.ConsumerTypeKindShared,
+		Brokers:               []string{"localhost:1"},
+		ConsumerGroup:         "test-blocked-incremental",
+		Topics:                []string{"topic-B"},
+		Logger:                &logger,
+		Broadcast:             func(_ string, _ []byte) {},
+		ResourceGuard:         &mockResourceGuard{},
+		ConsumerType:          kafka.ConsumerTypeKindShared,
+		CommitOnRevokeTimeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("kafka.NewConsumer: %v", err)
@@ -1132,13 +1136,14 @@ func TestUpdateSharedConsumer_ToAddGuardBlocksLateBlock(t *testing.T) {
 
 	logger := zerolog.Nop()
 	existingConsumer, err := kafka.NewConsumer(kafka.ConsumerConfig{
-		Brokers:       []string{"localhost:1"},
-		ConsumerGroup: "test-toctou-direct",
-		Topics:        []string{"topic-B"},
-		Logger:        &logger,
-		Broadcast:     func(_ string, _ []byte) {},
-		ResourceGuard: &mockResourceGuard{},
-		ConsumerType:  kafka.ConsumerTypeKindShared,
+		Brokers:               []string{"localhost:1"},
+		ConsumerGroup:         "test-toctou-direct",
+		Topics:                []string{"topic-B"},
+		Logger:                &logger,
+		Broadcast:             func(_ string, _ []byte) {},
+		ResourceGuard:         &mockResourceGuard{},
+		ConsumerType:          kafka.ConsumerTypeKindShared,
+		CommitOnRevokeTimeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("kafka.NewConsumer: %v", err)
@@ -1185,13 +1190,14 @@ func TestUpdateDedicatedConsumers_DeprovisionedTenantGoesToToStop(t *testing.T) 
 
 	logger := zerolog.Nop()
 	c, err := kafka.NewConsumer(kafka.ConsumerConfig{
-		Brokers:       []string{"localhost:1"},
-		ConsumerGroup: "test-tostop-tenant1",
-		Topics:        []string{"prod.tenant1.trade"},
-		Logger:        &logger,
-		Broadcast:     func(_ string, _ []byte) {},
-		ResourceGuard: &mockResourceGuard{},
-		ConsumerType:  kafka.ConsumerTypeKindDedicated,
+		Brokers:               []string{"localhost:1"},
+		ConsumerGroup:         "test-tostop-tenant1",
+		Topics:                []string{"prod.tenant1.trade"},
+		Logger:                &logger,
+		Broadcast:             func(_ string, _ []byte) {},
+		ResourceGuard:         &mockResourceGuard{},
+		ConsumerType:          kafka.ConsumerTypeKindDedicated,
+		CommitOnRevokeTimeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("kafka.NewConsumer: %v", err)

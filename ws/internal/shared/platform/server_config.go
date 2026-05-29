@@ -38,6 +38,16 @@ const (
 	// Values under 5s create excessive ping traffic (>20% of connection
 	// lifetime becomes ping/pong overhead) and provide no reliability benefit.
 	MinPingPeriod = 5 * time.Second
+
+	// MinAutoCommitInterval is the minimum allowed Kafka auto-commit interval.
+	// Franz-go enforces this floor internally; pre-validating here produces a
+	// clear env-var-named error per Constitution §I.
+	MinAutoCommitInterval = 100 * time.Millisecond
+
+	// MsgCommitOnRevokeTimeoutWarning is emitted by LoadServerConfig when
+	// KAFKA_COMMIT_ON_REVOKE_TIMEOUT exceeds KafkaSessionTimeout/3.
+	// Defined here (not in kafka/constants.go) because platform MUST NOT import kafka.
+	MsgCommitOnRevokeTimeoutWarning = "KAFKA_COMMIT_ON_REVOKE_TIMEOUT exceeds recommended threshold relative to KAFKA_SESSION_TIMEOUT; large values may cause rebalance delays in multi-pod deployments"
 )
 
 // ServerConfig holds all server configuration
@@ -363,6 +373,15 @@ type ServerConfig struct {
 	KafkaReplayFetchMaxBytes       int32         `env:"KAFKA_REPLAY_FETCH_MAX_BYTES" envDefault:"5242880"`
 	KafkaBackpressureCheckInterval time.Duration `env:"KAFKA_BACKPRESSURE_CHECK_INTERVAL" envDefault:"100ms"`
 
+	// KafkaCommitOnRevokeTimeout controls how long OnPartitionsRevoked waits for
+	// CommitMarkedOffsets to complete before returning. Must be > 0 and < KafkaRebalanceTimeout.
+	KafkaCommitOnRevokeTimeout time.Duration `env:"KAFKA_COMMIT_ON_REVOKE_TIMEOUT" envDefault:"5s"`
+
+	// KafkaAutoCommitInterval controls the background auto-commit interval.
+	// Must be >= MinAutoCommitInterval (100ms). Franz-go enforces this floor;
+	// pre-validation here produces a clear error per Constitution §I.
+	KafkaAutoCommitInterval time.Duration `env:"KAFKA_AUTO_COMMIT_INTERVAL" envDefault:"5s"`
+
 	// Kafka producer tuning
 	KafkaProducerBatchMaxBytes      int           `env:"KAFKA_PRODUCER_BATCH_MAX_BYTES" envDefault:"1048576"`
 	KafkaProducerMaxBufferedRecords int           `env:"KAFKA_PRODUCER_MAX_BUFFERED_RECORDS" envDefault:"10000"`
@@ -438,6 +457,14 @@ func LoadServerConfig(logger zerolog.Logger) (*ServerConfig, error) {
 	}
 
 	logger.Info().Msg("Configuration loaded and validated successfully")
+
+	// Warn if CommitOnRevokeTimeout may cause rebalance delay pressure in large clusters.
+	if cfg.KafkaCommitOnRevokeTimeout > cfg.KafkaSessionTimeout/3 {
+		logger.Warn().
+			Dur("commit_on_revoke_timeout", cfg.KafkaCommitOnRevokeTimeout).
+			Dur("session_timeout", cfg.KafkaSessionTimeout).
+			Msg(MsgCommitOnRevokeTimeoutWarning)
+	}
 
 	return cfg, nil
 }
@@ -779,6 +806,21 @@ func (c *ServerConfig) Validate() error {
 	}
 	if c.KafkaRebalanceTimeout <= 0 {
 		return fmt.Errorf("KAFKA_REBALANCE_TIMEOUT must be > 0, got %v", c.KafkaRebalanceTimeout)
+	}
+	if c.KafkaCommitOnRevokeTimeout <= 0 {
+		return fmt.Errorf("KAFKA_COMMIT_ON_REVOKE_TIMEOUT must be > 0, got %v", c.KafkaCommitOnRevokeTimeout)
+	}
+	if c.KafkaCommitOnRevokeTimeout >= c.KafkaRebalanceTimeout {
+		return fmt.Errorf("KAFKA_COMMIT_ON_REVOKE_TIMEOUT (%v) must be < KAFKA_REBALANCE_TIMEOUT (%v)",
+			c.KafkaCommitOnRevokeTimeout, c.KafkaRebalanceTimeout)
+	}
+	if c.KafkaRebalanceTimeout <= c.KafkaSessionTimeout {
+		return fmt.Errorf("KAFKA_REBALANCE_TIMEOUT (%v) must be > KAFKA_SESSION_TIMEOUT (%v)",
+			c.KafkaRebalanceTimeout, c.KafkaSessionTimeout)
+	}
+	if c.KafkaAutoCommitInterval < MinAutoCommitInterval {
+		return fmt.Errorf("KAFKA_AUTO_COMMIT_INTERVAL must be >= %v, got %v",
+			MinAutoCommitInterval, c.KafkaAutoCommitInterval)
 	}
 	if c.KafkaBackpressureCheckInterval <= 0 {
 		return fmt.Errorf("KAFKA_BACKPRESSURE_CHECK_INTERVAL must be > 0, got %v", c.KafkaBackpressureCheckInterval)

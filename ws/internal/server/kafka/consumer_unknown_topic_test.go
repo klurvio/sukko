@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -334,15 +335,16 @@ func TestNewConsumer_WiresFields(t *testing.T) {
 	reg := prometheus.NewRegistry()
 
 	consumer, err := NewConsumer(ConsumerConfig{
-		Brokers:        []string{"localhost:1"}, // offline — franz-go connects lazily
-		ConsumerGroup:  "test-wires-group",
-		Topics:         []string{"sukko.tenant1.trade"},
-		Logger:         &logger,
-		Broadcast:      broadcast,
-		ResourceGuard:  guard,
-		Registerer:     reg,
-		ConsumerType:   ConsumerTypeKindShared,
-		OnUnknownTopic: func(_ string) {},
+		Brokers:               []string{"localhost:1"}, // offline — franz-go connects lazily
+		ConsumerGroup:         "test-wires-group",
+		Topics:                []string{"sukko.tenant1.trade"},
+		Logger:                &logger,
+		Broadcast:             broadcast,
+		ResourceGuard:         guard,
+		Registerer:            reg,
+		ConsumerType:          ConsumerTypeKindShared,
+		CommitOnRevokeTimeout: 5 * time.Second,
+		OnUnknownTopic:        func(_ string) {},
 	})
 	if err != nil {
 		t.Fatalf("NewConsumer: %v", err)
@@ -372,13 +374,14 @@ func TestNewConsumer_NilRegisterer_UsesSingleton(t *testing.T) { //nolint:parall
 	broadcast := func(_ string, _ []byte) {}
 
 	consumer, err := NewConsumer(ConsumerConfig{
-		Brokers:       []string{"localhost:1"},
-		ConsumerGroup: "test-singleton-group",
-		Topics:        []string{"sukko.tenant1.trade"},
-		Logger:        &logger,
-		Broadcast:     broadcast,
-		ResourceGuard: guard,
-		ConsumerType:  ConsumerTypeKindShared,
+		Brokers:               []string{"localhost:1"},
+		ConsumerGroup:         "test-singleton-group",
+		Topics:                []string{"sukko.tenant1.trade"},
+		Logger:                &logger,
+		Broadcast:             broadcast,
+		ResourceGuard:         guard,
+		ConsumerType:          ConsumerTypeKindShared,
+		CommitOnRevokeTimeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("NewConsumer (nil Registerer): %v", err)
