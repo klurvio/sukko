@@ -50,7 +50,7 @@ func TestNewConsumer_NoBrokers(t *testing.T) {
 	t.Parallel()
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
-	broadcast := func(_ string, _ []byte) {}
+	broadcast := func(_ string, _ []byte, _ string, _ int32, _ int64) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{},
@@ -71,7 +71,7 @@ func TestNewConsumer_NoConsumerGroup(t *testing.T) {
 	t.Parallel()
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
-	broadcast := func(_ string, _ []byte) {}
+	broadcast := func(_ string, _ []byte, _ string, _ int32, _ int64) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
@@ -92,7 +92,7 @@ func TestNewConsumer_NoTopics(t *testing.T) {
 	t.Parallel()
 	logger := zerolog.Nop()
 	guard := newMockResourceGuard()
-	broadcast := func(_ string, _ []byte) {}
+	broadcast := func(_ string, _ []byte, _ string, _ int32, _ int64) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
@@ -132,7 +132,7 @@ func TestNewConsumer_NoBroadcast(t *testing.T) {
 func TestNewConsumer_NoResourceGuard(t *testing.T) {
 	t.Parallel()
 	logger := zerolog.Nop()
-	broadcast := func(_ string, _ []byte) {}
+	broadcast := func(_ string, _ []byte, _ string, _ int32, _ int64) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
@@ -152,7 +152,7 @@ func TestNewConsumer_NoResourceGuard(t *testing.T) {
 func TestNewConsumer_NoLogger(t *testing.T) {
 	t.Parallel()
 	guard := newMockResourceGuard()
-	broadcast := func(_ string, _ []byte) {}
+	broadcast := func(_ string, _ []byte, _ string, _ int32, _ int64) {}
 
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
@@ -569,19 +569,25 @@ func TestReplayMessage_Fields(t *testing.T) {
 func TestBroadcastFunc_Signature(t *testing.T) {
 	t.Parallel()
 	var calls []struct {
-		subject string
-		message []byte
+		subject   string
+		message   []byte
+		topicName string
+		partition int32
+		offset    int64
 	}
 
-	var broadcast BroadcastFunc = func(subject string, message []byte) {
+	var broadcast BroadcastFunc = func(subject string, message []byte, topicName string, partition int32, offset int64) {
 		calls = append(calls, struct {
-			subject string
-			message []byte
-		}{subject, message})
+			subject   string
+			message   []byte
+			topicName string
+			partition int32
+			offset    int64
+		}{subject, message, topicName, partition, offset})
 	}
 
-	broadcast("BTC.trade", []byte(`{"test":true}`))
-	broadcast("ETH.liquidity", []byte(`{"pool":"abc"}`))
+	broadcast("BTC.trade", []byte(`{"test":true}`), "sukko.tenant1.market", 0, 100)
+	broadcast("ETH.liquidity", []byte(`{"pool":"abc"}`), "sukko.tenant1.market", 1, 200)
 
 	if len(calls) != 2 {
 		t.Fatalf("Expected 2 calls, got %d", len(calls))

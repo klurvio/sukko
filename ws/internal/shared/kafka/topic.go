@@ -2,7 +2,10 @@
 // This file contains the shared BuildTopicName function for constructing topic names.
 package kafka
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // RetentionMsConfigKey is the Kafka topic configuration key for retention in milliseconds.
 // Used when creating or reconfiguring topics via the Kafka admin API.
@@ -34,4 +37,24 @@ const RetentionMsConfigKey = "retention.ms"
 // namespace determined at runtime from configuration.
 func BuildTopicName(namespace, tenantID, category string) string {
 	return fmt.Sprintf("%s.%s.%s", namespace, tenantID, category)
+}
+
+// ExtractTenantID reverses BuildTopicName, extracting tenantID and channel from a topic name.
+// Returns an error if the topic does not start with the namespace prefix or is malformed.
+//
+// Example:
+//
+//	ExtractTenantID("prod.acme.BTC-USD", "prod") -> ("acme", "BTC-USD", nil)
+//	ExtractTenantID("dev.tenant.multi.dot.channel", "dev") -> ("tenant", "multi.dot.channel", nil)
+func ExtractTenantID(topicName, namespace string) (tenantID, channel string, err error) {
+	prefix := namespace + "."
+	if !strings.HasPrefix(topicName, prefix) {
+		return "", "", fmt.Errorf("kafka: topic %q does not start with namespace prefix %q", topicName, prefix)
+	}
+	rest := topicName[len(prefix):]
+	dot := strings.Index(rest, ".")
+	if dot < 0 || dot == 0 || dot == len(rest)-1 {
+		return "", "", fmt.Errorf("kafka: topic %q has no tenantID.channel segment after namespace prefix", topicName)
+	}
+	return rest[:dot], rest[dot+1:], nil
 }

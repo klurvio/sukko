@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -28,12 +29,15 @@ func (m *mockBus) Publish(msg *broadcast.Message) {
 	m.messages = append(m.messages, msg)
 }
 
-func (m *mockBus) Subscribe() <-chan *broadcast.Message { return make(chan *broadcast.Message) }
-func (m *mockBus) Run()                                 {}
-func (m *mockBus) Shutdown()                            {}
-func (m *mockBus) ShutdownWithContext(context.Context)  {}
-func (m *mockBus) IsHealthy() bool                      { return true }
-func (m *mockBus) GetMetrics() broadcast.Metrics        { return broadcast.Metrics{} }
+func (m *mockBus) Subscribe(_ int) (<-chan *broadcast.Message, *atomic.Uint64) {
+	return make(chan *broadcast.Message), &atomic.Uint64{}
+}
+func (m *mockBus) Unsubscribe(_ <-chan *broadcast.Message) error { return nil }
+func (m *mockBus) Run()                                          {}
+func (m *mockBus) Shutdown()                                     {}
+func (m *mockBus) ShutdownWithContext(context.Context)           {}
+func (m *mockBus) IsHealthy() bool                               { return true }
+func (m *mockBus) GetMetrics() broadcast.Metrics                 { return broadcast.Metrics{} }
 
 func (m *mockBus) published() []*broadcast.Message {
 	m.mu.Lock()

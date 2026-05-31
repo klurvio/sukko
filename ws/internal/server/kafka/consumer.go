@@ -81,9 +81,10 @@ type TokenEvent struct {
 	Data      map[string]any      `json:"data"`
 }
 
-// BroadcastFunc is called when a message is received
-// Parameters: subject (Kafka Key = broadcast channel, e.g., "sukko.BTC.trade"), messageJSON
-type BroadcastFunc func(subject string, message []byte)
+// BroadcastFunc is called when a message is received.
+// Parameters: subject (broadcast routing key), message (raw JSON), topicName, partition, offset.
+// The extra fields allow the history writer to populate TenantID/StreamID/Channel on broadcast.Message.
+type BroadcastFunc func(subject string, message []byte, topicName string, partition int32, offset int64)
 
 // ResourceGuard interface for rate limiting and CPU emergency brake
 type ResourceGuard interface {
@@ -622,7 +623,7 @@ func (c *Consumer) consumeLoop() {
 
 		// Send all messages in batch
 		for _, msg := range batch {
-			c.broadcast(msg.subject, msg.message)
+			c.broadcast(msg.subject, msg.message, msg.record.Topic, msg.record.Partition, msg.record.Offset)
 			c.committer.MarkCommitRecords(msg.record)
 			c.incrementProcessed(msg.topic)
 		}
@@ -896,7 +897,7 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 		return
 	}
 
-	c.broadcast(channel, record.Value)
+	c.broadcast(channel, record.Value, record.Topic, record.Partition, record.Offset)
 	c.committer.MarkCommitRecords(record)
 	c.incrementProcessed(record.Topic)
 

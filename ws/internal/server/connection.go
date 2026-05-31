@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -130,6 +131,16 @@ type Client struct {
 	// - 10K clients: 10K × 1.2KB = 12MB total (negligible)
 	subscriptions *SubscriptionSet // Thread-safe set of subscribed channels
 
+	// History delivery fields
+	// clientCtx/clientCancel are derived from context.Background() (not the server context)
+	// so delivery goroutines survive server shutdown until the client is disconnected.
+	// disconnectClient() calls clientCancel() → clientWg.Wait() before Put().
+	clientCtx         context.Context
+	clientCancel      context.CancelFunc
+	clientWg          *sync.WaitGroup
+	historyMu         sync.Mutex
+	historyInProgress map[string]struct{} // channels with in-flight history delivery
+
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 	remoteAddr string // Client's remote IP address for logging
@@ -178,10 +189,10 @@ func NewConnectionPool(maxSize, bufferSize int) *ConnectionPool {
 			client := &Client{
 				// Buffer size now configurable via WS_CLIENT_SEND_BUFFER_SIZE
 				// Default: 512 (reduced from 1024 to cut heap size by 50%)
-				send:    make(chan OutgoingMsg, cp.bufferSize),
-				control: make(chan []byte, controlChannelSize),
+				send:              make(chan OutgoingMsg, cp.bufferSize),
+				control:           make(chan []byte, controlChannelSize),
+				historyInProgress: make(map[string]struct{}),
 			}
-
 			return client
 		},
 	}
@@ -224,8 +235,8 @@ func (p *ConnectionPool) Get() *Client {
 		if client.seqGen == nil {
 			client.seqGen = messaging.NewSequenceGenerator()
 		} else {
-			// Reset counter for reused client
-			// (though with sync.Pool, usually get new instance)
+			// Reset counter for reused client — under load, Pool.Get() returns
+			// existing objects the vast majority of the time, so this is the common path.
 			client.seqGen.Reset()
 		}
 
@@ -253,6 +264,15 @@ func (p *ConnectionPool) Get() *Client {
 		// Reset logging fields
 		client.remoteAddr = ""
 
+		// Initialize history delivery context for this connection lease.
+		// Cancel any previous context first (nil-guarded: pool.New sets these nil).
+		if client.clientCancel != nil {
+			client.clientCancel()
+		}
+		client.clientCtx, client.clientCancel = context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in client.clientCancel and called during client disconnect
+		client.clientWg = new(sync.WaitGroup)
+		client.historyInProgress = make(map[string]struct{})
+
 		return client
 	}
 	return nil
@@ -276,6 +296,7 @@ func (p *ConnectionPool) Put(c *Client) {
 
 	// Clear connection data before returning to pool
 	c.remoteAddr = ""
+	c.historyInProgress = nil
 
 	p.pool.Put(c)
 }

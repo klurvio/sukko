@@ -12,10 +12,13 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -23,11 +26,18 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/prometheus/client_golang/prometheus"
+	valkey "github.com/valkey-io/valkey-go"
+
 	"github.com/klurvio/sukko/internal/server/backend"
+	"github.com/klurvio/sukko/internal/server/broadcast"
+	"github.com/klurvio/sukko/internal/server/history"
 	"github.com/klurvio/sukko/internal/server/limits"
 	"github.com/klurvio/sukko/internal/server/metrics"
 	"github.com/klurvio/sukko/internal/server/stats"
 	"github.com/klurvio/sukko/internal/shared/alerting"
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 	"github.com/klurvio/sukko/internal/shared/platform"
@@ -45,6 +55,8 @@ type Params struct {
 	Addr           string                 // Per-shard bind address (e.g., "0.0.0.0:3002")
 	MaxConnections int                    // Per-shard connection limit
 	Backend        backend.MessageBackend // Pluggable message backend instance
+	BroadcastBus   broadcast.Bus          // Required when HistoryEnabled=true; used by historyWriter
+	EditionManager *license.Manager       // Edition gate checks; nil = Community
 }
 
 // Server is the main WebSocket server that manages client connections, message
@@ -92,6 +104,12 @@ type Server struct {
 	// Pump for testable read/write operations
 	pump *Pump // Handles WebSocket read/write with dependency injection
 
+	// History
+	broadcastBus   broadcast.Bus    // Bus reference for historyWriter subscription
+	historyWriter  *history.Writer  // nil when HistoryEnabled=false
+	historyEnv     string           // resolved stream key namespace (ResolveNamespace result)
+	editionManager *license.Manager // Edition gate checks; nil = Community
+
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 }
@@ -117,7 +135,7 @@ func NewServer(params Params, alerter alerting.Alerter) (*Server, error) {
 	}
 
 	config := params.Config
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in s.cancel and called during Shutdown
 
 	// Initialize structured logger
 	logger := logging.NewLogger(logging.LoggerConfig{
@@ -131,6 +149,8 @@ func NewServer(params Params, alerter alerting.Alerter) (*Server, error) {
 		addr:              params.Addr,
 		maxConns:          params.MaxConnections,
 		backend:           params.Backend,
+		broadcastBus:      params.BroadcastBus,
+		editionManager:    params.EditionManager,
 		logger:            logger,
 		ctx:               ctx,
 		cancel:            cancel,
@@ -235,7 +255,7 @@ func (s *Server) Start() error {
 				// syscall.Listen sets the TCP accept queue size
 				// This allows the OS to queue more pending connections during bursts
 				// Critical for trading platforms where connection timing affects fairness
-				_ = syscall.Listen(int(file.Fd()), s.config.TCPListenBacklog)
+				_ = syscall.Listen(int(file.Fd()), s.config.TCPListenBacklog) //nolint:gosec // G115: Fd() returns a file descriptor as uintptr; int conversion is safe on all supported Unix platforms
 				_ = file.Close()
 
 				s.logger.Info().
@@ -288,6 +308,31 @@ func (s *Server) Start() error {
 
 	// Start buffer saturation sampling
 	s.wg.Go(s.sampleClientBuffers)
+
+	// Start history writer if enabled (requires BroadcastBus and Valkey).
+	if s.config.HistoryEnabled {
+		if s.broadcastBus == nil {
+			s.logger.Error().Msg("history writer: HistoryEnabled=true but BroadcastBus is nil; history disabled")
+		} else {
+			s.historyEnv = kafkashared.ResolveNamespace(s.config.KafkaTopicNamespaceOverride, s.config.Environment)
+			historyValkeyClient, hvErr := s.buildHistoryValkeyClient()
+			if hvErr != nil {
+				s.logger.Error().Err(hvErr).Msg("history writer: failed to create Valkey client; history disabled")
+			} else {
+				s.historyWriter = history.NewWriter(
+					s.ctx,
+					s.config,
+					s.broadcastBus,
+					historyValkeyClient,
+					s.logger,
+					prometheus.DefaultRegisterer,
+					s.historyEnv,
+				)
+				s.wg.Go(s.historyWriter.Run)
+				s.logger.Info().Msg("history writer started")
+			}
+		}
+	}
 
 	// Start ResourceGuard monitoring (static limits with safety checks)
 	// Now also updates server stats for unified CPU measurement
@@ -377,6 +422,12 @@ forceClose:
 			duration := time.Since(client.connectedAt)
 			metrics.RecordDisconnectWithStats(s.stats, string(client.TransportType()), pkgmetrics.DisconnectServerShutdown, pkgmetrics.InitiatedByServer, duration)
 
+			if client.clientCancel != nil {
+				client.clientCancel()
+			}
+			if client.clientWg != nil {
+				client.clientWg.Wait()
+			}
 			client.closeSend()
 		}
 		return true
@@ -395,6 +446,50 @@ cleanup:
 	s.logger.Info().Msg("Waiting for all goroutines to finish")
 	s.wg.Wait()
 
+	// Close the history writer's Valkey client after all goroutines have exited.
+	if s.historyWriter != nil {
+		s.historyWriter.Close()
+	}
+
 	s.logger.Info().Msg("Graceful shutdown completed")
 	return nil
+}
+
+// buildHistoryValkeyClient creates a dedicated valkey.Client for Streams I/O.
+// Separate from the broadcast bus client to avoid contention on the pub/sub connection.
+// Mirrors the TLS config used by the broadcast bus client.
+func (s *Server) buildHistoryValkeyClient() (valkey.Client, error) {
+	opt := valkey.ClientOption{
+		InitAddress: s.config.ValkeyAddrs,
+		Password:    s.config.ValkeyPassword,
+		SelectDB:    s.config.ValkeyDB,
+	}
+	if s.config.ValkeyMasterName != "" {
+		opt.Sentinel = valkey.SentinelOption{
+			MasterSet: s.config.ValkeyMasterName,
+		}
+	}
+	if s.config.ValkeyTLSEnabled {
+		tlsCfg := &tls.Config{
+			InsecureSkipVerify: s.config.ValkeyTLSInsecure, //nolint:gosec // Controlled by ValkeyTLSInsecure config for dev/testing environments
+			MinVersion:         tls.VersionTLS12,
+		}
+		if s.config.ValkeyTLSCAPath != "" {
+			caCert, err := os.ReadFile(s.config.ValkeyTLSCAPath)
+			if err != nil {
+				return nil, fmt.Errorf("history valkey: read CA cert: %w", err)
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(caCert) {
+				return nil, fmt.Errorf("history valkey: parse CA cert from %s", s.config.ValkeyTLSCAPath)
+			}
+			tlsCfg.RootCAs = pool
+		}
+		opt.TLSConfig = tlsCfg
+	}
+	client, err := valkey.NewClient(opt)
+	if err != nil {
+		return nil, fmt.Errorf("history valkey client: %w", err)
+	}
+	return client, nil
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -373,6 +374,64 @@ func TestDisconnectClient_Integration(t *testing.T) {
 		// Good - slot was released
 	default:
 		t.Error("Connection semaphore slot should have been released")
+	}
+}
+
+func TestDisconnectClient_WaitsForHistoryGoroutines(t *testing.T) {
+	t.Parallel()
+	s := stats.NewStats()
+	s.CurrentConnections.Store(1)
+
+	server := &Server{
+		logger:            zerolog.Nop(),
+		stats:             s,
+		connections:       NewConnectionPool(100, 256),
+		connectionsSem:    make(chan struct{}, 100),
+		subscriptionIndex: NewSubscriptionIndex(),
+		rateLimiter:       limits.NewRateLimiter(100, 10),
+	}
+	server.connectionsSem <- struct{}{}
+
+	clientCtx, clientCancel := context.WithCancel(context.Background())
+	wg := new(sync.WaitGroup)
+
+	client := &Client{
+		id:                1,
+		send:              make(chan OutgoingMsg, 256),
+		seqGen:            messaging.NewSequenceGenerator(),
+		subscriptions:     NewSubscriptionSet(),
+		historyInProgress: make(map[string]struct{}),
+		clientCtx:         clientCtx,
+		clientCancel:      clientCancel,
+		clientWg:          wg,
+		connectedAt:       time.Now(),
+	}
+	server.clients.Store(client, true)
+
+	// Launch a goroutine that blocks until clientCtx is canceled — simulates in-flight history delivery.
+	goroutineExited := make(chan struct{})
+	wg.Go(func() {
+		<-clientCtx.Done()
+		close(goroutineExited)
+	})
+
+	done := make(chan struct{})
+	go func() {
+		server.disconnectClient(client, pkgmetrics.DisconnectReadError, pkgmetrics.InitiatedByClient)
+		close(done)
+	}()
+
+	// disconnectClient must not return until the goroutine has exited.
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("disconnectClient blocked — did not cancel and wait for history goroutines")
+	}
+
+	select {
+	case <-goroutineExited:
+	default:
+		t.Error("history goroutine still running after disconnectClient returned")
 	}
 }
 

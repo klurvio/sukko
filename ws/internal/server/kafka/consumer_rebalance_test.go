@@ -136,7 +136,7 @@ func newRebalanceTestConsumer(t *testing.T, cfg ConsumerConfig) (*Consumer, *moc
 		cfg.Topics = []string{"sukko.test.trade"}
 	}
 	if cfg.Broadcast == nil {
-		cfg.Broadcast = func(_ string, _ []byte) {}
+		cfg.Broadcast = func(_ string, _ []byte, _ string, _ int32, _ int64) {}
 	}
 	if cfg.ResourceGuard == nil {
 		cfg.ResourceGuard = &mockResourceGuardFixed{allowKafka: true}
@@ -383,7 +383,7 @@ func TestExplicitMark_BroadcastMarked_Unbatched(t *testing.T) {
 	t.Parallel()
 	broadcastCalled := 0
 	consumer, mock, _ := newRebalanceTestConsumer(t, ConsumerConfig{
-		Broadcast:     func(_ string, _ []byte) { broadcastCalled++ },
+		Broadcast:     func(_ string, _ []byte, _ string, _ int32, _ int64) { broadcastCalled++ },
 		BatchSize:     1, // batching disabled (batchEnabled = batchSize > 1)
 		ResourceGuard: &mockResourceGuardFixed{allowKafka: true},
 	})
@@ -407,7 +407,7 @@ func TestExplicitMark_BroadcastMarked_Batched(t *testing.T) {
 	t.Parallel()
 	broadcastCalled := 0
 	consumer, mock, _ := newRebalanceTestConsumer(t, ConsumerConfig{
-		Broadcast:     func(_ string, _ []byte) { broadcastCalled++ },
+		Broadcast:     func(_ string, _ []byte, _ string, _ int32, _ int64) { broadcastCalled++ },
 		BatchSize:     10,
 		BatchTimeout:  10 * time.Millisecond,
 		ResourceGuard: &mockResourceGuardFixed{allowKafka: true},
@@ -426,7 +426,7 @@ func TestExplicitMark_BroadcastMarked_Batched(t *testing.T) {
 	}
 
 	// Simulate what flushBatch does
-	consumer.broadcast(msg.subject, msg.message)
+	consumer.broadcast(msg.subject, msg.message, msg.topic, msg.record.Partition, msg.record.Offset)
 	consumer.committer.MarkCommitRecords(msg.record)
 
 	if mock.markCount() != 1 {
@@ -561,7 +561,7 @@ func TestCPUBrakeMarking_BrakeNeverActive(t *testing.T) {
 	t.Parallel()
 	broadcastCalled := 0
 	consumer, mock, _ := newRebalanceTestConsumer(t, ConsumerConfig{
-		Broadcast:     func(_ string, _ []byte) { broadcastCalled++ },
+		Broadcast:     func(_ string, _ []byte, _ string, _ int32, _ int64) { broadcastCalled++ },
 		BatchSize:     1, // unbatched mode
 		ResourceGuard: &mockResourceGuardFixed{allowKafka: true, shouldPause: false},
 	})
@@ -633,7 +633,7 @@ func TestNewConsumer_CommitOnRevokeTimeout_Zero(t *testing.T) {
 		ConsumerGroup:         "test-group",
 		Topics:                []string{"sukko.test.trade"},
 		Logger:                &logger,
-		Broadcast:             func(_ string, _ []byte) {},
+		Broadcast:             func(_ string, _ []byte, _ string, _ int32, _ int64) {},
 		ResourceGuard:         guard,
 		ConsumerType:          ConsumerTypeKindShared,
 		Registerer:            reg,
@@ -655,7 +655,7 @@ func TestNewConsumer_CommitOnRevokeTimeout_Negative(t *testing.T) {
 		ConsumerGroup:         "test-group",
 		Topics:                []string{"sukko.test.trade"},
 		Logger:                &logger,
-		Broadcast:             func(_ string, _ []byte) {},
+		Broadcast:             func(_ string, _ []byte, _ string, _ int32, _ int64) {},
 		ResourceGuard:         guard,
 		ConsumerType:          ConsumerTypeKindShared,
 		Registerer:            reg,
@@ -708,7 +708,7 @@ func TestKafkaAutoCommitInterval_Override(t *testing.T) {
 		ConsumerGroup:         "test-autocommit-group",
 		Topics:                []string{"sukko.test.trade"},
 		Logger:                &logger,
-		Broadcast:             func(_ string, _ []byte) {},
+		Broadcast:             func(_ string, _ []byte, _ string, _ int32, _ int64) {},
 		ResourceGuard:         guard,
 		ConsumerType:          ConsumerTypeKindShared,
 		Registerer:            reg,

@@ -157,6 +157,10 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 			_ = client.transport.Close()
 		}
 	})
+	if client.clientCancel != nil {
+		client.clientCancel()
+	}
+	client.clientWg.Wait()
 	client.closeSend()
 
 	s.clients.Delete(client)

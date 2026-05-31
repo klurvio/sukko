@@ -675,6 +675,51 @@ HTTP/1.1 429 Too Many Requests
 After calling `POST /tokens/revoke`, the connected client receives WebSocket close
 code `4001` within `revocationTimeout` (default: 5 seconds).
 
+### 6.7 Message history (Pro+)
+
+Message history is available on Pro or higher editions with `WS_HISTORY_ENABLED=true` and a Valkey instance configured via `VALKEY_ADDRS`.
+
+**Subscribe-with-history** — single combined request:
+
+```json
+{"type": "subscribe", "data": {"channel": "acme.BTC.trade", "history": {"limit": 50}}}
+```
+
+The server first confirms the subscription, then delivers up to 50 historical messages each tagged `"history": true`, followed by a `history_complete` signal:
+
+```json
+{"type": "broadcast", "seq": 1, "ts": 1706000000000, "channel": "acme.BTC.trade", "data": {...}, "history": true, "stream_id": "1706000000000-0"}
+{"type": "history_complete", "channel": "acme.BTC.trade", "count": 50, "source": "cache", "attach_id": "1706000000000-0"}
+```
+
+**Standalone history request** — after subscribing separately:
+
+```json
+{"type": "history", "data": {"channel": "acme.BTC.trade", "limit": 50}}
+```
+
+**`attach_id` protocol** — the `attach_id` in `history_complete` marks the history/live boundary. Messages delivered after `history_complete` with no `history: true` field are live. An empty `attach_id` (`""`) means the channel has no stored history (new channel or TTL expired) — all messages are live.
+
+**Kafka fallback** — if the Valkey ring buffer has fewer messages than `limit` (partial history), the server automatically falls back to Kafka replay to fill the gap. The `source` field in `history_complete` reflects what was actually delivered:
+- `"cache"` — all messages from Valkey ring buffer
+- `"mixed"` — ring buffer + Kafka fallback combined
+
+Kafka fallback is unavailable when `BROADCAST_TYPE=valkey` (see migration notes).
+
+**History error codes:**
+
+| Code | Meaning | Retriable |
+|------|---------|-----------|
+| `history_disabled` | Feature not enabled (`WS_HISTORY_ENABLED=false`) | No |
+| `not_available` | Edition gate (Pro required) or JWT expired | No |
+| `history_not_subscribed` | Must subscribe before requesting history | No |
+| `history_time_range_not_supported` | `from_ts`/`to_ts` not supported in v1 | No |
+| `history_invalid_limit` | Limit out of range `[1, WS_HISTORY_MAX_LIMIT]` | No |
+| `history_invalid_channel` | Channel not in `{tenant}.{suffix}` format | No |
+| `history_invalid_request` | Malformed JSON in history request payload | No |
+| `history_in_progress` | Delivery already running for this channel | Retry after `history_complete` |
+| `history_storage_unavailable` | Valkey temporarily unreachable | Yes, with backoff |
+
 ---
 
 ## 7. Feature Index
@@ -694,6 +739,7 @@ code `4001` within `revocationTimeout` (default: 5 seconds).
 | Edition enforcement (Pro/Enterprise) | §5 |
 | WebSocket protocol | §6 |
 | Force-disconnect on revocation | §6.6 |
+| Message history (subscribe-with-history, attach_id, Kafka fallback) | §6.7 |
 
 ---
 

@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/klurvio/sukko/internal/server/backend"
+	"github.com/klurvio/sukko/internal/server/history"
 	"github.com/klurvio/sukko/internal/server/messaging"
 	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
@@ -90,22 +92,75 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			return
 		}
 
+		// Determine the channels to subscribe to.
+		channels := subReq.Channels
+		if subReq.History != nil {
+			// Subscribe-with-history: single channel.
+			if subReq.Channel == "" {
+				s.sendErrorToClient(c, RespTypeSubscribeError, protocol.ErrCodeInvalidRequest, "channel is required for subscribe-with-history")
+				return
+			}
+			channels = []string{subReq.Channel}
+
+			// FR-008 check (a): history feature must be enabled.
+			if !s.config.HistoryEnabled || s.historyWriter == nil {
+				sendHistoryError(c, subReq.Channel, history.ErrCodeHistoryDisabled, "message history is not enabled")
+				return
+			}
+			// FR-008 check (b): edition gate.
+			edition := license.Community
+			if s.editionManager != nil {
+				edition = s.editionManager.CurrentEdition()
+			}
+			if !license.EditionHasFeature(edition, license.MessageHistory) {
+				if s.historyWriter != nil {
+					s.historyWriter.Metrics().EditionGateDenials.Inc()
+				}
+				s.logger.Warn().
+					Str("edition", edition.String()).
+					Str("channel", subReq.Channel).
+					Str("event", history.EventHistoryEditionGateDenied).
+					Msg("subscribe-with-history denied: edition gate")
+				sendHistoryError(c, subReq.Channel, history.ErrCodeHistoryEditionGate, "message history requires a Pro or higher edition")
+				return
+			}
+		}
+
+		if len(channels) == 0 {
+			s.sendErrorToClient(c, RespTypeSubscribeError, protocol.ErrCodeInvalidRequest, "no channels specified")
+			return
+		}
+
+		// Enforce per-client channel limit before subscribing.
+		// Check remaining capacity against the full batch — a batch of 5 against a limit of 100
+		// with count=99 must be rejected, not partially admitted.
+		remaining := s.config.MaxChannelsPerClient - c.subscriptions.Count()
+		if remaining <= 0 || len(channels) > remaining {
+			s.logger.Warn().
+				Int64("client_id", c.id).
+				Int("limit", s.config.MaxChannelsPerClient).
+				Int("requested", len(channels)).
+				Msg("Client exceeded channel subscription limit")
+			s.sendErrorToClient(c, RespTypeSubscribeError, protocol.ErrCodeSubscribeLimitExceeded, "channel subscription limit reached")
+			return
+		}
+
 		// Add subscriptions to client's local set
-		c.subscriptions.AddMultiple(subReq.Channels)
+		c.subscriptions.AddMultiple(channels)
 
 		// Add to global subscription index for fast broadcast targeting
-		s.subscriptionIndex.AddMultiple(subReq.Channels, c)
+		s.subscriptionIndex.AddMultiple(channels, c)
 
 		s.logger.Info().
 			Int64("client_id", c.id).
-			Int("channel_count", len(subReq.Channels)).
-			Strs("channels", subReq.Channels).
+			Int("channel_count", len(channels)).
+			Strs("channels", channels).
 			Msg("Client subscribed")
 
 		// Send acknowledgment to client
 		ack := map[string]any{
 			"type":       RespTypeSubscriptionAck,
-			"subscribed": subReq.Channels,
+			"subscribed": channels,
 			"count":      c.subscriptions.Count(),
 		}
 
@@ -116,6 +171,14 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			default:
 				// Client buffer full - skip ack (not critical)
 			}
+		}
+
+		// After subscribe, trigger history delivery if requested.
+		if subReq.History != nil {
+			s.handleHistoryRequest(c, HistoryRequest{
+				Channel: subReq.Channel,
+				Limit:   subReq.History.Limit,
+			})
 		}
 
 	case protocol.MsgTypeUnsubscribe:
@@ -159,6 +222,25 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 				// Client buffer full - skip ack (not critical)
 			}
 		}
+
+	case MsgTypeHistory:
+		// Standalone history request (client already subscribed separately).
+		// Message format: {"type": "history", "data": {"channel": "acme.BTC.trade", "limit": 50}}
+		var histReq HistoryRequest
+		if err := json.Unmarshal(req.Data, &histReq); err != nil {
+			s.logger.Warn().
+				Int64("client_id", c.id).
+				Err(err).
+				Msg("Client sent invalid history request")
+			// Best-effort: extract channel so the client can correlate the error.
+			var partial struct {
+				Channel string `json:"channel"`
+			}
+			_ = json.Unmarshal(req.Data, &partial)
+			sendHistoryError(c, partial.Channel, history.ErrCodeHistoryInvalidRequest, "invalid history request format")
+			return
+		}
+		s.handleHistoryRequest(c, histReq)
 
 	case protocol.MsgTypePublish:
 		// Client publishing a message via the message backend

@@ -28,7 +28,7 @@ type natsBus struct {
 	subject    string
 	bufferSize int
 
-	subscribers []chan *Message
+	subscribers []subscriberEntry
 	subMu       sync.RWMutex
 
 	ctx    context.Context
@@ -141,15 +141,7 @@ func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 			Str("mode", "cluster").
 			Strs("urls", ncfg.URLs).
 			Msg("Connecting to NATS cluster")
-		serverURL = ""
-		var serverURLSb120 strings.Builder
-		for i, url := range ncfg.URLs {
-			if i > 0 {
-				serverURLSb120.WriteString(",")
-			}
-			serverURLSb120.WriteString(url)
-		}
-		serverURL += serverURLSb120.String()
+		serverURL = strings.Join(ncfg.URLs, ",")
 	} else {
 		// Single server mode
 		busLogger.Info().
@@ -172,13 +164,13 @@ func newNATSBus(cfg Config, logger zerolog.Logger) (*natsBus, error) {
 		Msg("Successfully connected to NATS")
 
 	// Create context for lifecycle management
-	busCtx, busCancel := context.WithCancel(context.Background())
+	busCtx, busCancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in bus.cancel and called during Shutdown
 
 	bus := &natsBus{
 		conn:                nc,
 		subject:             ncfg.Subject,
 		bufferSize:          cfg.BufferSize,
-		subscribers:         make([]chan *Message, 0, 3),
+		subscribers:         make([]subscriberEntry, 0, 3),
 		ctx:                 busCtx,
 		cancel:              busCancel,
 		shutdownTimeout:     cfg.ShutdownTimeout,
@@ -222,12 +214,15 @@ func (b *natsBus) Publish(msg *Message) {
 	b.healthy.Store(true)
 }
 
-// Subscribe returns a channel for receiving broadcast messages.
-func (b *natsBus) Subscribe() <-chan *Message {
-	subCh := make(chan *Message, b.bufferSize)
+// Subscribe returns a buffered channel for receiving broadcast messages and a drop counter.
+func (b *natsBus) Subscribe(bufSize int) (<-chan *Message, *atomic.Uint64) {
+	subCh := make(chan *Message, bufSize)
+	drops := new(atomic.Uint64)
+
+	entry := subscriberEntry{ch: subCh, drops: drops}
 
 	b.subMu.Lock()
-	b.subscribers = append(b.subscribers, subCh)
+	b.subscribers = append(b.subscribers, entry)
 	totalSubscribers := len(b.subscribers)
 	b.subMu.Unlock()
 
@@ -235,7 +230,27 @@ func (b *natsBus) Subscribe() <-chan *Message {
 		Int("total_subscribers", totalSubscribers).
 		Msg("New subscriber registered")
 
-	return subCh
+	return subCh, drops
+}
+
+// Unsubscribe removes the subscriber channel. The channel is NOT closed here
+// because fanOut() copies the subscriber list under RLock and then sends
+// without the lock held — closing between the RUnlock and the send would panic.
+// Subscribers exit via context cancellation, not channel close.
+func (b *natsBus) Unsubscribe(ch <-chan *Message) error {
+	b.subMu.Lock()
+	defer b.subMu.Unlock()
+
+	for i, entry := range b.subscribers {
+		if entry.ch == ch {
+			b.subscribers = append(b.subscribers[:i], b.subscribers[i+1:]...)
+			b.logger.Info().
+				Int("remaining_subscribers", len(b.subscribers)).
+				Msg("Subscriber removed")
+			return nil
+		}
+	}
+	return errors.New("nats bus: subscriber not found")
 }
 
 // Run starts the receive and health check loops.
@@ -293,6 +308,7 @@ func (b *natsBus) ShutdownWithContext(ctx context.Context) {
 	// Wait for goroutines to finish
 	done := make(chan struct{})
 	go func() {
+		defer logging.RecoverPanic(b.logger, "natsBus.shutdownWaiter", nil)
 		b.wg.Wait()
 		close(done)
 	}()
@@ -318,8 +334,8 @@ func (b *natsBus) ShutdownWithContext(ctx context.Context) {
 	// Only close subscriber channels if goroutines have stopped
 	if goroutinesStopped {
 		b.subMu.Lock()
-		for _, subCh := range b.subscribers {
-			close(subCh)
+		for _, entry := range b.subscribers {
+			close(entry.ch)
 		}
 		b.subscribers = nil
 		b.subMu.Unlock()
@@ -375,6 +391,8 @@ func (b *natsBus) GetMetrics() Metrics {
 
 // fanOut sends a message to all local subscribers.
 func (b *natsBus) fanOut(msg *Message) {
+	defer logging.RecoverPanic(b.logger, "natsBus.fanOut", nil)
+
 	select {
 	case <-b.ctx.Done():
 		return
@@ -386,34 +404,27 @@ func (b *natsBus) fanOut(msg *Message) {
 		b.subMu.RUnlock()
 		return
 	}
-	subscribers := make([]chan *Message, len(b.subscribers))
-	copy(subscribers, b.subscribers)
+	entries := make([]subscriberEntry, len(b.subscribers))
+	copy(entries, b.subscribers)
 	b.subMu.RUnlock()
 
 	sent := 0
 	dropped := 0
 
-	for _, subCh := range subscribers {
+	for _, entry := range entries {
 		select {
 		case <-b.ctx.Done():
 			return
 		default:
 		}
 
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					dropped++
-				}
-			}()
-
-			select {
-			case subCh <- msg:
-				sent++
-			default:
-				dropped++
-			}
-		}()
+		select {
+		case entry.ch <- msg:
+			sent++
+		default:
+			entry.drops.Add(1)
+			dropped++
+		}
 	}
 
 	if dropped > 0 {

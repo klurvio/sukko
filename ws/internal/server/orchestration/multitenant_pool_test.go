@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,8 +64,12 @@ func (m *mockBroadcastBus) Publish(msg *broadcast.Message) {
 	m.publishCount++
 }
 
-func (m *mockBroadcastBus) Subscribe() <-chan *broadcast.Message {
-	return make(chan *broadcast.Message, 100)
+func (m *mockBroadcastBus) Subscribe(bufSize int) (<-chan *broadcast.Message, *atomic.Uint64) {
+	return make(chan *broadcast.Message, bufSize), new(atomic.Uint64)
+}
+
+func (m *mockBroadcastBus) Unsubscribe(_ <-chan *broadcast.Message) error {
+	return nil
 }
 
 func (m *mockBroadcastBus) Run() {
@@ -365,7 +370,7 @@ func TestMultiTenantPool_RouteMessage(t *testing.T) {
 	}
 
 	// Test routing
-	pool.routeMessage("BTC.trade", []byte(`{"price":"100.50"}`))
+	pool.routeMessage("BTC.trade", []byte(`{"price":"100.50"}`), "sukko.tenant1.market", 0, 100)
 
 	if bus.getPublishCount() != 1 {
 		t.Errorf("publishCount: got %d, want 1", bus.getPublishCount())
@@ -406,7 +411,7 @@ func TestMultiTenantPool_RouteMessage_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range opsPerGoroutine {
-				pool.routeMessage("BTC.trade", []byte(`{}`))
+				pool.routeMessage("BTC.trade", []byte(`{}`), "sukko.tenant1.market", 0, 0)
 			}
 		}()
 	}
@@ -1016,7 +1021,7 @@ func TestHandleBrokerDeletedTopic_BlocksResubscriptionIncrementalPath(t *testing
 		ConsumerGroup:         "test-block-incremental",
 		Topics:                []string{"topic-B"},
 		Logger:                &logger,
-		Broadcast:             func(_ string, _ []byte) {},
+		Broadcast:             func(_ string, _ []byte, _ string, _ int32, _ int64) {},
 		ResourceGuard:         &mockResourceGuard{},
 		ConsumerType:          kafka.ConsumerTypeKindShared,
 		CommitOnRevokeTimeout: 5 * time.Second,
@@ -1088,7 +1093,7 @@ func TestUpdateSharedConsumer_BlockedTopicNotAddedIncrementalPath(t *testing.T) 
 		ConsumerGroup:         "test-blocked-incremental",
 		Topics:                []string{"topic-B"},
 		Logger:                &logger,
-		Broadcast:             func(_ string, _ []byte) {},
+		Broadcast:             func(_ string, _ []byte, _ string, _ int32, _ int64) {},
 		ResourceGuard:         &mockResourceGuard{},
 		ConsumerType:          kafka.ConsumerTypeKindShared,
 		CommitOnRevokeTimeout: 5 * time.Second,
@@ -1140,7 +1145,7 @@ func TestUpdateSharedConsumer_ToAddGuardBlocksLateBlock(t *testing.T) {
 		ConsumerGroup:         "test-toctou-direct",
 		Topics:                []string{"topic-B"},
 		Logger:                &logger,
-		Broadcast:             func(_ string, _ []byte) {},
+		Broadcast:             func(_ string, _ []byte, _ string, _ int32, _ int64) {},
 		ResourceGuard:         &mockResourceGuard{},
 		ConsumerType:          kafka.ConsumerTypeKindShared,
 		CommitOnRevokeTimeout: 5 * time.Second,
@@ -1194,7 +1199,7 @@ func TestUpdateDedicatedConsumers_DeprovisionedTenantGoesToToStop(t *testing.T) 
 		ConsumerGroup:         "test-tostop-tenant1",
 		Topics:                []string{"prod.tenant1.trade"},
 		Logger:                &logger,
-		Broadcast:             func(_ string, _ []byte) {},
+		Broadcast:             func(_ string, _ []byte, _ string, _ int32, _ int64) {},
 		ResourceGuard:         &mockResourceGuard{},
 		ConsumerType:          kafka.ConsumerTypeKindDedicated,
 		CommitOnRevokeTimeout: 5 * time.Second,

@@ -139,6 +139,13 @@ type KafkaNamespaceConfig struct {
 	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"`
 }
 
+// MessageBackend constants for MESSAGE_BACKEND env var.
+const (
+	MessageBackendDirect = "direct"
+	MessageBackendKafka  = "kafka"
+	MessageBackendNATS   = "nats"
+)
+
 // MessageBackendConfig holds message ingestion/persistence configuration.
 // Embedded by ServerConfig (ws-server) and future services that need message backend access.
 //
@@ -199,15 +206,15 @@ type MessageBackendConfig struct {
 // Validate checks MessageBackendConfig for errors.
 func (c *MessageBackendConfig) Validate() error {
 	// Backend type validation
-	validBackends := map[string]bool{"direct": true, "kafka": true, "nats": true}
+	validBackends := map[string]bool{MessageBackendDirect: true, MessageBackendKafka: true, MessageBackendNATS: true}
 	if !validBackends[c.MessageBackend] {
-		return fmt.Errorf("[CONFIG ERROR] MESSAGE_BACKEND=%q is invalid (valid: direct, kafka, nats)", c.MessageBackend)
+		return fmt.Errorf("[CONFIG ERROR] MESSAGE_BACKEND=%q is invalid (valid: %s, %s, %s)", c.MessageBackend, MessageBackendDirect, MessageBackendKafka, MessageBackendNATS)
 	}
 
 	// Kafka-specific validation (when MESSAGE_BACKEND=kafka)
-	if c.MessageBackend == "kafka" {
+	if c.MessageBackend == MessageBackendKafka {
 		if c.KafkaBrokers == "" {
-			return errors.New("KAFKA_BROKERS is required when MESSAGE_BACKEND=kafka")
+			return fmt.Errorf("KAFKA_BROKERS is required when MESSAGE_BACKEND=%s", MessageBackendKafka)
 		}
 		if c.KafkaSASLEnabled {
 			if err := validateKafkaSASLMechanism(c.KafkaSASLMechanism); err != nil {
@@ -223,9 +230,9 @@ func (c *MessageBackendConfig) Validate() error {
 	}
 
 	// NATS JetStream validation (when MESSAGE_BACKEND=nats)
-	if c.MessageBackend == "nats" {
+	if c.MessageBackend == MessageBackendNATS {
 		if c.NATSJetStreamURLs == "" {
-			return errors.New("NATS_JETSTREAM_URLS is required when MESSAGE_BACKEND=nats")
+			return fmt.Errorf("NATS_JETSTREAM_URLS is required when MESSAGE_BACKEND=%s", MessageBackendNATS)
 		}
 		if c.NATSJetStreamReplicas < 1 {
 			return fmt.Errorf("NATS_JETSTREAM_REPLICAS must be >= 1, got %d", c.NATSJetStreamReplicas)

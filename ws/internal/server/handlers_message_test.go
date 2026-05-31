@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,9 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
+	"github.com/klurvio/sukko/internal/server/history"
 	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // =============================================================================
@@ -736,6 +741,267 @@ func BenchmarkParseClientMessage_Heartbeat(b *testing.B) {
 
 	for b.Loop() {
 		_, _, _ = parseClientMessage(msg)
+	}
+}
+
+// =============================================================================
+// handleClientMessage — history and channel-limit paths
+// =============================================================================
+
+func TestHandleClientMessage_MsgTypeHistory_HistoryDisabled(t *testing.T) {
+	t.Parallel()
+	s := &Server{
+		config: &platform.ServerConfig{
+			BaseConfig:           platform.BaseConfig{Environment: "test"},
+			HistoryEnabled:       false,
+			MaxChannelsPerClient: 100,
+		},
+		logger:            zerolog.Nop(),
+		subscriptionIndex: NewSubscriptionIndex(),
+	}
+	c, cancel := newHistoryTestClient()
+	defer cancel()
+	c.subscriptions.Add("t.ch")
+
+	s.handleClientMessage(c, []byte(`{"type":"history","data":{"channel":"t.ch","limit":10}}`))
+
+	select {
+	case msg := <-c.send:
+		var resp map[string]any
+		if err := json.Unmarshal(msg.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if resp["type"] != RespTypeHistoryError {
+			t.Errorf("type = %v, want %v", resp["type"], RespTypeHistoryError)
+		}
+		if resp["code"] != history.ErrCodeHistoryDisabled {
+			t.Errorf("code = %v, want %v", resp["code"], history.ErrCodeHistoryDisabled)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected history_error response, got none")
+	}
+}
+
+func TestHandleClientMessage_MsgTypeHistory_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	s := &Server{
+		config: &platform.ServerConfig{
+			BaseConfig:           platform.BaseConfig{Environment: "test"},
+			HistoryEnabled:       false,
+			MaxChannelsPerClient: 100,
+		},
+		logger:            zerolog.Nop(),
+		subscriptionIndex: NewSubscriptionIndex(),
+	}
+	c, cancel := newHistoryTestClient()
+	defer cancel()
+
+	s.handleClientMessage(c, []byte(`{"type":"history","data":"not_an_object"}`))
+
+	select {
+	case msg := <-c.send:
+		var resp map[string]any
+		if err := json.Unmarshal(msg.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if resp["type"] != RespTypeHistoryError {
+			t.Errorf("type = %v, want %v", resp["type"], RespTypeHistoryError)
+		}
+		if resp["code"] != history.ErrCodeHistoryInvalidRequest {
+			t.Errorf("code = %v, want %v", resp["code"], history.ErrCodeHistoryInvalidRequest)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected history_error response, got none")
+	}
+}
+
+func TestHandleClientMessage_SubscribeWithHistory_HistoryDisabled(t *testing.T) {
+	t.Parallel()
+	s := &Server{
+		config: &platform.ServerConfig{
+			BaseConfig:           platform.BaseConfig{Environment: "test"},
+			HistoryEnabled:       false,
+			MaxChannelsPerClient: 100,
+		},
+		logger:            zerolog.Nop(),
+		subscriptionIndex: NewSubscriptionIndex(),
+	}
+	c, cancel := newHistoryTestClient()
+	defer cancel()
+
+	s.handleClientMessage(c, []byte(`{"type":"subscribe","data":{"channel":"t.BTC.trade","history":{"limit":50}}}`))
+
+	select {
+	case msg := <-c.send:
+		var resp map[string]any
+		if err := json.Unmarshal(msg.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if resp["type"] != RespTypeHistoryError {
+			t.Errorf("type = %v, want %v", resp["type"], RespTypeHistoryError)
+		}
+		if resp["code"] != history.ErrCodeHistoryDisabled {
+			t.Errorf("code = %v, want %v", resp["code"], history.ErrCodeHistoryDisabled)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected history_error response, got none")
+	}
+}
+
+func TestHandleClientMessage_SubscribeWithHistory_EditionGateDenied(t *testing.T) {
+	t.Parallel()
+	hw := newTestHistoryWriter(t)
+	s := newHistoryTestServer(hw)
+	s.subscriptionIndex = NewSubscriptionIndex()
+	// editionManager is nil → Community edition → history denied.
+
+	c, cancel := newHistoryTestClient()
+	defer cancel()
+
+	s.handleClientMessage(c, []byte(`{"type":"subscribe","data":{"channel":"t.BTC.trade","history":{"limit":50}}}`))
+
+	select {
+	case msg := <-c.send:
+		var resp map[string]any
+		if err := json.Unmarshal(msg.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if resp["type"] != RespTypeHistoryError {
+			t.Errorf("type = %v, want %v", resp["type"], RespTypeHistoryError)
+		}
+		if resp["code"] != string(protocol.ErrCodeNotAvailable) {
+			t.Errorf("code = %v, want %v", resp["code"], string(protocol.ErrCodeNotAvailable))
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected history_error response, got none")
+	}
+}
+
+func TestHandleClientMessage_Subscribe_ChannelLimitExceeded(t *testing.T) {
+	t.Parallel()
+	s := &Server{
+		config: &platform.ServerConfig{
+			BaseConfig:           platform.BaseConfig{Environment: "test"},
+			MaxChannelsPerClient: 2,
+		},
+		logger:            zerolog.Nop(),
+		subscriptionIndex: NewSubscriptionIndex(),
+	}
+	c, cancel := newHistoryTestClient()
+	defer cancel()
+	// Pre-fill the client to the limit.
+	c.subscriptions.Add("t.ch1")
+	c.subscriptions.Add("t.ch2")
+
+	// Attempt to subscribe to a third channel — must be rejected.
+	s.handleClientMessage(c, []byte(`{"type":"subscribe","data":{"channels":["t.ch3"]}}`))
+
+	select {
+	case msg := <-c.send:
+		var resp map[string]any
+		if err := json.Unmarshal(msg.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if resp["type"] != RespTypeSubscribeError {
+			t.Errorf("type = %v, want %v", resp["type"], RespTypeSubscribeError)
+		}
+		if resp["code"] != string(protocol.ErrCodeSubscribeLimitExceeded) {
+			t.Errorf("code = %v, want %v", resp["code"], string(protocol.ErrCodeSubscribeLimitExceeded))
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected subscribe_error response, got none")
+	}
+}
+
+func TestHandleClientMessage_SubscribeWithHistory_DeliversMessagesAndComplete(t *testing.T) {
+	t.Parallel()
+	valkeyClient := startMiniredis(t)
+
+	// Seed stream before constructing the writer so entries are present on first request.
+	ctx := context.Background()
+	streamKey := history.StreamKey("test", "sukko", "BTC.trade")
+	for _, p := range []string{`{"seq":1}`, `{"seq":2}`} {
+		if err := valkeyClient.Do(ctx, valkeyClient.B().Xadd().Key(streamKey).
+			Id("*").FieldValue().
+			FieldValue(history.HistoryFieldPayload, p).
+			FieldValue(history.HistoryFieldTenantID, "sukko").
+			FieldValue(history.HistoryFieldChannel, "BTC.trade").
+			FieldValue(history.HistoryFieldSubject, "sukko.BTC.trade").
+			Build()).Error(); err != nil {
+			t.Fatalf("XADD: %v", err)
+		}
+	}
+
+	cfg := &platform.ServerConfig{
+		PodID:                              "test-pod",
+		HistoryWriterLockTTLMs:             2000,
+		HistoryWriterHeartbeatInterval:     50 * time.Millisecond,
+		HistoryWriterRestartInitialBackoff: 10 * time.Millisecond,
+		HistoryWriterRestartMaxBackoff:     100 * time.Millisecond,
+		HistoryValkeyCmdTimeout:            500 * time.Millisecond,
+		HistoryWriterBuffer:                256,
+		HistoryWriterPipelineBatch:         50,
+		HistoryMaxConsecutiveLockFailures:  3,
+		HistoryBufferDepth:                 100,
+		HistoryTTL:                         24 * time.Hour,
+	}
+	hwCtx, hwCancel := context.WithCancel(context.Background())
+	t.Cleanup(hwCancel)
+	hw := history.NewWriter(hwCtx, cfg, &noopBus{}, valkeyClient, zerolog.Nop(), prometheus.NewRegistry(), "test")
+
+	s := newHistoryTestServer(hw)
+	s.editionManager = proEditionManager()
+	s.subscriptionIndex = NewSubscriptionIndex()
+	c, cancel := newHistoryTestClient()
+	defer cancel()
+
+	s.handleClientMessage(c, []byte(`{"type":"subscribe","data":{"channel":"sukko.BTC.trade","history":{"limit":10}}}`))
+
+	// First message must be subscription_ack.
+	ack := readEnvelope(t, c)
+	if got := envString(t, ack, "type"); got != RespTypeSubscriptionAck {
+		t.Fatalf("first message type = %q, want %q", got, RespTypeSubscriptionAck)
+	}
+
+	// Wait for async history delivery to complete.
+	c.clientWg.Wait()
+
+	// Collect remaining messages: should be 2 history + 1 history_complete.
+	var rest []map[string]json.RawMessage
+	for {
+		select {
+		case msg := <-c.send:
+			var env map[string]json.RawMessage
+			if err := json.Unmarshal(msg.Bytes(), &env); err == nil {
+				rest = append(rest, env)
+			}
+		default:
+			goto drained
+		}
+	}
+drained:
+
+	if len(rest) < 3 {
+		t.Fatalf("expected ≥3 messages (2 history + complete), got %d", len(rest))
+	}
+	for i, msg := range rest[:2] {
+		if got := envString(t, msg, "type"); got != MsgTypeMessage {
+			t.Errorf("msg[%d] type = %q, want %q", i, got, MsgTypeMessage)
+		}
+		var histFlag bool
+		_ = json.Unmarshal(msg["history"], &histFlag)
+		if !histFlag {
+			t.Errorf("msg[%d] history flag = false, want true", i)
+		}
+	}
+	last := rest[len(rest)-1]
+	if got := envString(t, last, "type"); got != RespTypeHistoryComplete {
+		t.Errorf("last type = %q, want %q", got, RespTypeHistoryComplete)
+	}
+	var count int
+	_ = json.Unmarshal(last["count"], &count)
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
 	}
 }
 

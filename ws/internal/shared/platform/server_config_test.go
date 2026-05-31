@@ -112,14 +112,7 @@ func newValidServerConfig() *ServerConfig {
 		NATSHealthCheckInterval: 10 * time.Second,
 		NATSFlushTimeout:        5 * time.Second,
 		// Valkey broadcast tuning
-		ValkeyPoolSize:                50,
-		ValkeyMinIdleConns:            10,
-		ValkeyDialTimeout:             5 * time.Second,
-		ValkeyReadTimeout:             3 * time.Second,
 		ValkeyWriteTimeout:            3 * time.Second,
-		ValkeyMaxRetries:              3,
-		ValkeyMinRetryBackoff:         100 * time.Millisecond,
-		ValkeyMaxRetryBackoff:         1 * time.Second,
 		ValkeyPublishTimeout:          100 * time.Millisecond,
 		ValkeyStartupPingTimeout:      5 * time.Second,
 		ValkeyReconnectInitialBackoff: 100 * time.Millisecond,
@@ -165,6 +158,8 @@ func newValidServerConfig() *ServerConfig {
 		// Partition-revoke commit tuning
 		KafkaCommitOnRevokeTimeout: 5 * time.Second,
 		KafkaAutoCommitInterval:    5 * time.Second,
+		// Channel subscription limit
+		MaxChannelsPerClient: 100,
 	}
 }
 
