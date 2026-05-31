@@ -240,15 +240,15 @@ type ServerConfig struct {
 
 	// Broadcast Bus Configuration
 	//
-	// BroadcastType: Backend for inter-instance messaging ("nats" or "valkey")
-	// - nats: NATS Core Pub/Sub (default, sub-millisecond latency, fire-and-forget)
-	// - valkey: Redis-compatible Pub/Sub (~1-2ms latency)
+	// BroadcastType: Backend for inter-instance messaging ("valkey" or "nats")
+	// - valkey: Redis-compatible Pub/Sub (default, ~1-2ms latency, required for message history)
+	// - nats: NATS Core Pub/Sub (sub-millisecond latency, fire-and-forget, no history support)
 	//
 	// When switching backends:
 	// 1. Set BROADCAST_TYPE to the new backend
-	// 2. Configure the corresponding backend settings (NATS_* or VALKEY_*)
+	// 2. Configure the corresponding backend settings (VALKEY_* or NATS_*)
 	// 3. Restart all instances to use the same backend
-	BroadcastType string `env:"BROADCAST_TYPE" envDefault:"nats"`
+	BroadcastType string `env:"BROADCAST_TYPE" envDefault:"valkey"`
 
 	// NATS Configuration (for BroadcastBus when BROADCAST_TYPE=nats)
 	//

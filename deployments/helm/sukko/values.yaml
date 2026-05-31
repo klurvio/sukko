@@ -4,7 +4,7 @@
 #
 # DEPLOYMENT MODES (zero-config defaults work out of the box):
 #
-# 1. Minimal (default):    direct + NATS broadcast + PostgreSQL
+# 1. Minimal (default):    direct + Valkey broadcast + PostgreSQL
 #    → `helm install sukko .` with postgresql.enabled: true
 #
 # ── Kafka/Redpanda message backend ──────────────────────────────────
@@ -31,12 +31,12 @@
 #   jetstream:
 #     enabled: true
 #
-# ── Valkey broadcast bus ────────────────────────────────────────────
-# Copy this block to replace NATS with Valkey for broadcast:
+# ── NATS broadcast bus ──────────────────────────────────────────────
+# Copy this block to switch from Valkey to NATS for broadcast:
 #
 # ws-server:
-#   broadcastType: valkey
-# valkey:
+#   broadcastType: nats
+# nats:
 #   enabled: true
 #
 # ── PostgreSQL provisioning database ────────────────────────────────
@@ -105,9 +105,9 @@ ws-server:
     repository: sukko-server
     tag: latest
     pullPolicy: IfNotPresent
-  # Mode selections — Go defaults: direct + nats (override in environment values)
+  # Mode selections — Go defaults: direct + valkey (override in environment values)
   # messageBackend: direct
-  # broadcastType: nats
+  # broadcastType: valkey
   connectionLimits:
     clusterMaxConnections: 100000
   resources:
@@ -197,10 +197,10 @@ redpanda:
     nodePort: ""
 
 # =============================================================================
-# Valkey (Redis-compatible) — Enable for valkey broadcast bus
+# Valkey (Redis-compatible) — Default broadcast bus
 # =============================================================================
 valkey:
-  enabled: false
+  enabled: true
   replicaCount: 1
   image:
     repository: valkey/valkey
@@ -221,10 +221,10 @@ valkey:
     enabled: true
 
 # =============================================================================
-# NATS — Primary broadcast bus (enabled by default)
+# NATS — Optional broadcast bus (disabled by default, enable when BROADCAST_TYPE=nats)
 # =============================================================================
 nats:
-  enabled: true
+  enabled: false
   replicaCount: 1
   image:
     repository: nats
