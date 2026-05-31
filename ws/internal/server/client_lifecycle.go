@@ -48,6 +48,19 @@ func (s *Server) disconnectClient(c *Client, reason, initiatedBy string) {
 	// Remove client from subscription index (prevent memory leak)
 	s.subscriptionIndex.RemoveClient(c)
 
+	// Cancel history delivery context and wait for in-flight delivery goroutines.
+	// Must complete before Put() so the pool allocator sees no lingering goroutines.
+	if c.clientCancel != nil {
+		c.clientCancel()
+	}
+	if c.clientWg != nil {
+		c.clientWg.Wait()
+	}
+	// Close the send channel so the WriteLoop (tracked by s.wg, not c.clientWg) exits
+	// before the client is returned to the pool. Without this, the old WriteLoop goroutine
+	// can still be reading c.send after Get() assigns the same struct to a new connection.
+	c.closeSend()
+
 	// Return client to pool for reuse
 	s.connections.Put(c)
 	<-s.connectionsSem // Release connection slot

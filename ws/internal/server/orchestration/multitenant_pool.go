@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/server/broadcast"
 	"github.com/klurvio/sukko/internal/server/kafka"
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 	"github.com/klurvio/sukko/internal/shared/types"
@@ -174,7 +176,7 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		config.Environment = config.Namespace
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in pool.cancelFn and called during Stop
 
 	pool := &MultiTenantConsumerPool{
 		config:              config,
@@ -585,7 +587,8 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 
 // routeMessage is called by consumers for each message.
 // It publishes the message to the BroadcastBus for distribution to WebSocket clients.
-func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte) {
+// topicName, partition, offset are used by the history writer to populate stream metadata.
+func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte, topicName string, partition int32, offset int64) {
 	p.messagesRouted.Add(1)
 
 	// Report to Prometheus via callback
@@ -593,9 +596,19 @@ func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte) {
 		p.metrics.OnMessageRouted()
 	}
 
+	tenantID, _, err := kafkashared.ExtractTenantID(topicName, p.config.Namespace)
+	if err != nil {
+		p.logger.Warn().Err(err).Str("topic", topicName).Msg("routeMessage: could not extract tenant/channel from topic name")
+	}
+	bareChannel := strings.TrimPrefix(subject, tenantID+".")
+	streamID := fmt.Sprintf("%d-%d", partition, offset)
+
 	p.broadcastBus.Publish(&broadcast.Message{
-		Subject: subject,
-		Payload: message,
+		Subject:  subject,
+		Payload:  message,
+		TenantID: tenantID,
+		StreamID: streamID,
+		Channel:  bareChannel,
 	})
 
 	// Log periodic metrics (sample every Nth message to avoid log spam)

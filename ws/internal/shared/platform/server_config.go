@@ -48,6 +48,27 @@ const (
 	// KAFKA_COMMIT_ON_REVOKE_TIMEOUT exceeds KafkaSessionTimeout/3.
 	// Defined here (not in kafka/constants.go) because platform MUST NOT import kafka.
 	MsgCommitOnRevokeTimeoutWarning = "KAFKA_COMMIT_ON_REVOKE_TIMEOUT exceeds recommended threshold relative to KAFKA_SESSION_TIMEOUT; large values may cause rebalance delays in multi-pod deployments"
+
+	// BroadcastType constants for BROADCAST_TYPE env var.
+	BroadcastTypeNATS   = "nats"
+	BroadcastTypeValkey = "valkey"
+
+	// History writer bound constants.
+	// Defined here (not in history/) to avoid import cycle: history → platform is fine,
+	// but platform MUST NOT import history; these bounds are used in platform.Validate().
+	MaxHistoryBufferDepth             = 10000
+	MaxHistoryMaxLimit                = 1000
+	MaxHistoryWriterBuffer            = 50000
+	MaxHistoryPipelineBatch           = 500
+	MaxHistoryTTL                     = 90 * 24 * time.Hour
+	MaxHistoryDeliveryTimeout         = 5 * time.Minute
+	MaxHistoryWriterRestartMaxBackoff = 5 * time.Minute
+	MaxHistoryWriterLockTTL           = 60 * time.Second
+	MaxChannelsPerClientLimit         = 1000
+	HistoryWriterLockRenewDivisor     = 3
+	HistoryKafkaFetchMultiplier       = 3
+	MinHistoryWriterHeartbeatInterval = 500 * time.Millisecond
+	MinHistoryWriterLockTTL           = 1 * time.Second
 )
 
 // ServerConfig holds all server configuration
@@ -343,14 +364,7 @@ type ServerConfig struct {
 	NATSFlushTimeout        time.Duration `env:"NATS_FLUSH_TIMEOUT" envDefault:"5s"`
 
 	// Valkey broadcast tuning
-	ValkeyPoolSize                  int           `env:"VALKEY_POOL_SIZE" envDefault:"50"`
-	ValkeyMinIdleConns              int           `env:"VALKEY_MIN_IDLE_CONNS" envDefault:"10"`
-	ValkeyDialTimeout               time.Duration `env:"VALKEY_DIAL_TIMEOUT" envDefault:"5s"`
-	ValkeyReadTimeout               time.Duration `env:"VALKEY_READ_TIMEOUT" envDefault:"3s"`
 	ValkeyWriteTimeout              time.Duration `env:"VALKEY_WRITE_TIMEOUT" envDefault:"3s"`
-	ValkeyMaxRetries                int           `env:"VALKEY_MAX_RETRIES" envDefault:"3"`
-	ValkeyMinRetryBackoff           time.Duration `env:"VALKEY_MIN_RETRY_BACKOFF" envDefault:"100ms"`
-	ValkeyMaxRetryBackoff           time.Duration `env:"VALKEY_MAX_RETRY_BACKOFF" envDefault:"1s"`
 	ValkeyPublishTimeout            time.Duration `env:"VALKEY_PUBLISH_TIMEOUT" envDefault:"100ms"`
 	ValkeyStartupPingTimeout        time.Duration `env:"VALKEY_STARTUP_PING_TIMEOUT" envDefault:"5s"`
 	ValkeyReconnectInitialBackoff   time.Duration `env:"VALKEY_RECONNECT_INITIAL_BACKOFF" envDefault:"100ms"`
@@ -408,6 +422,59 @@ type ServerConfig struct {
 	DLQBaseDelay    time.Duration `env:"WS_ROUTING_DLQ_BASE_DELAY"    envDefault:"100ms"`
 	DLQMaxDelay     time.Duration `env:"WS_ROUTING_DLQ_MAX_DELAY"     envDefault:"5s"`
 	DLQRetryWorkers int           `env:"WS_ROUTING_DLQ_RETRY_WORKERS" envDefault:"4"`
+
+	// PodID uniquely identifies this pod for distributed writer lock ownership.
+	// In Kubernetes it is injected via Downward API (metadata.name). If unset,
+	// Normalize() falls back to os.Hostname().
+	PodID string `env:"WS_POD_ID"`
+
+	// MaxChannelsPerClient limits the number of concurrent channel subscriptions per client.
+	// Prevents channel-fan-out attacks. Validated against MaxChannelsPerClientLimit (1000).
+	MaxChannelsPerClient int `env:"WS_MAX_CHANNELS_PER_CLIENT" envDefault:"100"`
+
+	// Message History (two-tier: Valkey Streams ring buffer + Kafka fallback)
+	HistoryEnabled bool `env:"WS_HISTORY_ENABLED" envDefault:"false"`
+
+	// HistoryBufferDepth is the Valkey Streams MAXLEN ~ per-channel (XADD MAXLEN ~).
+	HistoryBufferDepth int `env:"WS_HISTORY_BUFFER_DEPTH" envDefault:"1000"`
+
+	// HistoryTTL is the per-stream key expiry (EXPIRE) applied on every write.
+	HistoryTTL time.Duration `env:"WS_HISTORY_TTL" envDefault:"24h"`
+
+	// HistoryWriterBuffer is the historyWriter workChan capacity (messages in-flight before drops).
+	HistoryWriterBuffer int `env:"WS_HISTORY_WRITER_BUFFER" envDefault:"10000"`
+
+	// HistoryMaxLimit is the maximum number of entries a client may request per history call.
+	HistoryMaxLimit int `env:"WS_HISTORY_MAX_LIMIT" envDefault:"100"`
+
+	// HistoryDeliveryTimeout is the per-request deadline for XREVRANGE + Kafka fallback.
+	HistoryDeliveryTimeout time.Duration `env:"WS_HISTORY_DELIVERY_TIMEOUT" envDefault:"30s"`
+
+	// HistoryWriterPipelineBatch is the max number of XADD commands per DoMulti pipeline.
+	HistoryWriterPipelineBatch int `env:"WS_HISTORY_WRITER_PIPELINE_BATCH" envDefault:"50"`
+
+	// HistoryWriterLockTTL is the distributed lock TTL for the active historyWriter pod.
+	HistoryWriterLockTTL time.Duration `env:"WS_HISTORY_WRITER_LOCK_TTL" envDefault:"10s"`
+
+	// HistoryWriterLockTTLMs is pre-computed from HistoryWriterLockTTL in Normalize().
+	// Used by Valkey SET PX (milliseconds). Not an env var.
+	HistoryWriterLockTTLMs int64 `env:"-"`
+
+	// HistoryWriterRestartInitialBackoff is the starting delay before re-entering runOnce after a failure.
+	HistoryWriterRestartInitialBackoff time.Duration `env:"WS_HISTORY_WRITER_RESTART_INITIAL_BACKOFF" envDefault:"500ms"`
+
+	// HistoryWriterRestartMaxBackoff caps the exponential backoff for historyWriter restarts.
+	HistoryWriterRestartMaxBackoff time.Duration `env:"WS_HISTORY_WRITER_RESTART_MAX_BACKOFF" envDefault:"30s"`
+
+	// HistoryValkeyCmdTimeout is the per-command timeout for history Valkey operations (XADD, XREVRANGE, EXPIRE).
+	HistoryValkeyCmdTimeout time.Duration `env:"WS_HISTORY_VALKEY_CMD_TIMEOUT" envDefault:"2s"`
+
+	// HistoryMaxConsecutiveLockFailures is the number of consecutive heartbeat lock failures
+	// before the historyWriter exits runOnce and re-enters the supervised restart loop.
+	HistoryMaxConsecutiveLockFailures int `env:"WS_HISTORY_MAX_CONSECUTIVE_LOCK_FAILURES" envDefault:"3"`
+
+	// HistoryWriterHeartbeatInterval is the ticker interval for lock renewal and bus health checks.
+	HistoryWriterHeartbeatInterval time.Duration `env:"WS_HISTORY_WRITER_HEARTBEAT_INTERVAL" envDefault:"3s"`
 
 	// editionManager holds the license-resolved edition and limits.
 	// Set by LoadServerConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.
@@ -480,6 +547,16 @@ func (c *ServerConfig) Normalize() {
 	}
 	if c.CPUPauseThresholdLower == 0 {
 		c.CPUPauseThresholdLower = c.CPUPauseThreshold - 10.0
+	}
+
+	// Pre-compute lock TTL in milliseconds for Valkey SET PX (int64 required).
+	c.HistoryWriterLockTTLMs = c.HistoryWriterLockTTL.Milliseconds()
+
+	// Resolve pod identity — Kubernetes Downward API sets WS_POD_ID; fall back to hostname.
+	if c.PodID == "" {
+		if h, err := os.Hostname(); err == nil {
+			c.PodID = h
+		}
 	}
 }
 
@@ -606,13 +683,13 @@ func (c *ServerConfig) Validate() error {
 	}
 
 	// Broadcast bus configuration validation
-	validBroadcastTypes := map[string]bool{"valkey": true, "nats": true}
+	validBroadcastTypes := map[string]bool{BroadcastTypeValkey: true, BroadcastTypeNATS: true}
 	if !validBroadcastTypes[c.BroadcastType] {
-		return fmt.Errorf("[CONFIG ERROR] BROADCAST_TYPE=%q is invalid (valid: nats, valkey)", c.BroadcastType)
+		return fmt.Errorf("[CONFIG ERROR] BROADCAST_TYPE=%q is invalid (valid: %s, %s)", c.BroadcastType, BroadcastTypeNATS, BroadcastTypeValkey)
 	}
 
 	// Valkey-specific validation (when BROADCAST_TYPE=valkey)
-	if c.BroadcastType == "valkey" {
+	if c.BroadcastType == BroadcastTypeValkey {
 		if len(c.ValkeyAddrs) == 0 {
 			return fmt.Errorf("VALKEY_ADDRS is required when BROADCAST_TYPE=%s", c.BroadcastType)
 		}
@@ -625,9 +702,9 @@ func (c *ServerConfig) Validate() error {
 	}
 
 	// NATS-specific validation (when BROADCAST_TYPE=nats)
-	if c.BroadcastType == "nats" {
+	if c.BroadcastType == BroadcastTypeNATS {
 		if len(c.NATSURLs) == 0 {
-			return errors.New("NATS_URLS is required when BROADCAST_TYPE=nats")
+			return fmt.Errorf("NATS_URLS is required when BROADCAST_TYPE=%s", BroadcastTypeNATS)
 		}
 		if c.NATSSubject == "" {
 			return errors.New("NATS_SUBJECT cannot be empty")
@@ -668,12 +745,12 @@ func (c *ServerConfig) Validate() error {
 	}
 
 	// Topic refresh interval validation (applies to kafka and nats backends)
-	if c.MessageBackend != "direct" && c.TopicRefreshInterval < 1*time.Second {
+	if c.MessageBackend != MessageBackendDirect && c.TopicRefreshInterval < 1*time.Second {
 		return fmt.Errorf("TOPIC_REFRESH_INTERVAL must be >= 1s, got %v", c.TopicRefreshInterval)
 	}
 
 	// Kafka topic defaults validation (only relevant when MESSAGE_BACKEND=kafka)
-	if c.MessageBackend == "kafka" {
+	if c.MessageBackend == MessageBackendKafka {
 		if c.KafkaDefaultPartitions < 1 {
 			return fmt.Errorf("KAFKA_DEFAULT_PARTITIONS must be >= 1, got %d", c.KafkaDefaultPartitions)
 		}
@@ -762,20 +839,8 @@ func (c *ServerConfig) Validate() error {
 	if c.NATSFlushTimeout <= 0 {
 		return fmt.Errorf("NATS_FLUSH_TIMEOUT must be > 0, got %v", c.NATSFlushTimeout)
 	}
-	if c.ValkeyDialTimeout <= 0 {
-		return fmt.Errorf("VALKEY_DIAL_TIMEOUT must be > 0, got %v", c.ValkeyDialTimeout)
-	}
-	if c.ValkeyReadTimeout <= 0 {
-		return fmt.Errorf("VALKEY_READ_TIMEOUT must be > 0, got %v", c.ValkeyReadTimeout)
-	}
 	if c.ValkeyWriteTimeout <= 0 {
 		return fmt.Errorf("VALKEY_WRITE_TIMEOUT must be > 0, got %v", c.ValkeyWriteTimeout)
-	}
-	if c.ValkeyMinRetryBackoff <= 0 {
-		return fmt.Errorf("VALKEY_MIN_RETRY_BACKOFF must be > 0, got %v", c.ValkeyMinRetryBackoff)
-	}
-	if c.ValkeyMaxRetryBackoff <= 0 {
-		return fmt.Errorf("VALKEY_MAX_RETRY_BACKOFF must be > 0, got %v", c.ValkeyMaxRetryBackoff)
 	}
 	if c.ValkeyPublishTimeout <= 0 {
 		return fmt.Errorf("VALKEY_PUBLISH_TIMEOUT must be > 0, got %v", c.ValkeyPublishTimeout)
@@ -863,15 +928,6 @@ func (c *ServerConfig) Validate() error {
 	if c.NATSMaxPingsOutstanding < 1 {
 		return fmt.Errorf("NATS_MAX_PINGS_OUTSTANDING must be > 0, got %d", c.NATSMaxPingsOutstanding)
 	}
-	if c.ValkeyPoolSize < 1 {
-		return fmt.Errorf("VALKEY_POOL_SIZE must be > 0, got %d", c.ValkeyPoolSize)
-	}
-	if c.ValkeyMinIdleConns < 0 {
-		return fmt.Errorf("VALKEY_MIN_IDLE_CONNS must be >= 0, got %d", c.ValkeyMinIdleConns)
-	}
-	if c.ValkeyMaxRetries < 0 {
-		return fmt.Errorf("VALKEY_MAX_RETRIES must be >= 0, got %d", c.ValkeyMaxRetries)
-	}
 	if c.ValkeyReconnectMaxAttempts < 1 {
 		return fmt.Errorf("VALKEY_RECONNECT_MAX_ATTEMPTS must be > 0, got %d", c.ValkeyReconnectMaxAttempts)
 	}
@@ -946,10 +1002,6 @@ func (c *ServerConfig) Validate() error {
 		return fmt.Errorf("WS_MEMORY_WARNING_PERCENT (%d) must be < WS_MEMORY_CRITICAL_PERCENT (%d)",
 			c.MemoryWarningPercent, c.MemoryCriticalPercent)
 	}
-	if c.ValkeyMinRetryBackoff >= c.ValkeyMaxRetryBackoff {
-		return fmt.Errorf("VALKEY_MIN_RETRY_BACKOFF (%v) must be < VALKEY_MAX_RETRY_BACKOFF (%v)",
-			c.ValkeyMinRetryBackoff, c.ValkeyMaxRetryBackoff)
-	}
 	if c.ValkeyReconnectInitialBackoff >= c.ValkeyReconnectMaxBackoff {
 		return fmt.Errorf("VALKEY_RECONNECT_INITIAL_BACKOFF (%v) must be < VALKEY_RECONNECT_MAX_BACKOFF (%v)",
 			c.ValkeyReconnectInitialBackoff, c.ValkeyReconnectMaxBackoff)
@@ -981,6 +1033,71 @@ func (c *ServerConfig) Validate() error {
 		}
 	}
 
+	// MaxChannelsPerClient validation (independent of history gate)
+	if c.MaxChannelsPerClient < 1 || c.MaxChannelsPerClient > MaxChannelsPerClientLimit {
+		return fmt.Errorf("WS_MAX_CHANNELS_PER_CLIENT must be 1-%d, got %d", MaxChannelsPerClientLimit, c.MaxChannelsPerClient)
+	}
+
+	// History validation gate
+	if c.HistoryEnabled {
+		// Backend prerequisites
+		if c.BroadcastType != BroadcastTypeValkey {
+			return fmt.Errorf("WS_HISTORY_ENABLED requires BROADCAST_TYPE=%s, got %s (history writer uses Valkey Streams)", BroadcastTypeValkey, c.BroadcastType)
+		}
+		if len(c.ValkeyAddrs) == 0 {
+			return errors.New("WS_HISTORY_ENABLED requires VALKEY_ADDRS to be set")
+		}
+		if c.PodID == "" {
+			return errors.New("WS_HISTORY_ENABLED requires WS_POD_ID or a resolvable hostname (pod identity required for distributed lock)")
+		}
+
+		// Numeric bounds
+		if c.HistoryBufferDepth < 1 || c.HistoryBufferDepth > MaxHistoryBufferDepth {
+			return fmt.Errorf("WS_HISTORY_BUFFER_DEPTH must be 1-%d, got %d", MaxHistoryBufferDepth, c.HistoryBufferDepth)
+		}
+		if c.HistoryMaxLimit < 1 || c.HistoryMaxLimit > MaxHistoryMaxLimit {
+			return fmt.Errorf("WS_HISTORY_MAX_LIMIT must be 1-%d, got %d", MaxHistoryMaxLimit, c.HistoryMaxLimit)
+		}
+		if c.HistoryWriterBuffer < 1 || c.HistoryWriterBuffer > MaxHistoryWriterBuffer {
+			return fmt.Errorf("WS_HISTORY_WRITER_BUFFER must be 1-%d, got %d", MaxHistoryWriterBuffer, c.HistoryWriterBuffer)
+		}
+		if c.HistoryWriterPipelineBatch < 1 || c.HistoryWriterPipelineBatch > MaxHistoryPipelineBatch {
+			return fmt.Errorf("WS_HISTORY_WRITER_PIPELINE_BATCH must be 1-%d, got %d", MaxHistoryPipelineBatch, c.HistoryWriterPipelineBatch)
+		}
+		if c.HistoryTTL <= 0 || c.HistoryTTL > MaxHistoryTTL {
+			return fmt.Errorf("WS_HISTORY_TTL must be > 0 and <= %v, got %v", MaxHistoryTTL, c.HistoryTTL)
+		}
+		if c.HistoryDeliveryTimeout <= 0 || c.HistoryDeliveryTimeout > MaxHistoryDeliveryTimeout {
+			return fmt.Errorf("WS_HISTORY_DELIVERY_TIMEOUT must be > 0 and <= %v, got %v", MaxHistoryDeliveryTimeout, c.HistoryDeliveryTimeout)
+		}
+		if c.HistoryWriterLockTTL < MinHistoryWriterLockTTL || c.HistoryWriterLockTTL > MaxHistoryWriterLockTTL {
+			return fmt.Errorf("WS_HISTORY_WRITER_LOCK_TTL must be %v-%v, got %v", MinHistoryWriterLockTTL, MaxHistoryWriterLockTTL, c.HistoryWriterLockTTL)
+		}
+		if c.HistoryWriterRestartInitialBackoff <= 0 {
+			return fmt.Errorf("WS_HISTORY_WRITER_RESTART_INITIAL_BACKOFF must be > 0, got %v", c.HistoryWriterRestartInitialBackoff)
+		}
+		if c.HistoryWriterRestartMaxBackoff <= 0 || c.HistoryWriterRestartMaxBackoff > MaxHistoryWriterRestartMaxBackoff {
+			return fmt.Errorf("WS_HISTORY_WRITER_RESTART_MAX_BACKOFF must be > 0 and <= %v, got %v", MaxHistoryWriterRestartMaxBackoff, c.HistoryWriterRestartMaxBackoff)
+		}
+		if c.HistoryWriterRestartInitialBackoff >= c.HistoryWriterRestartMaxBackoff {
+			return fmt.Errorf("WS_HISTORY_WRITER_RESTART_INITIAL_BACKOFF (%v) must be < WS_HISTORY_WRITER_RESTART_MAX_BACKOFF (%v)", c.HistoryWriterRestartInitialBackoff, c.HistoryWriterRestartMaxBackoff)
+		}
+		if c.HistoryValkeyCmdTimeout <= 0 {
+			return fmt.Errorf("WS_HISTORY_VALKEY_CMD_TIMEOUT must be > 0, got %v", c.HistoryValkeyCmdTimeout)
+		}
+		if c.HistoryMaxConsecutiveLockFailures < 1 {
+			return fmt.Errorf("WS_HISTORY_MAX_CONSECUTIVE_LOCK_FAILURES must be >= 1, got %d", c.HistoryMaxConsecutiveLockFailures)
+		}
+		if c.HistoryWriterHeartbeatInterval < MinHistoryWriterHeartbeatInterval {
+			return fmt.Errorf("WS_HISTORY_WRITER_HEARTBEAT_INTERVAL must be >= %v, got %v", MinHistoryWriterHeartbeatInterval, c.HistoryWriterHeartbeatInterval)
+		}
+		// Heartbeat must renew the lock before it expires: interval must be <= TTL/HistoryWriterLockRenewDivisor.
+		if lockRenewThreshold := c.HistoryWriterLockTTL / HistoryWriterLockRenewDivisor; c.HistoryWriterHeartbeatInterval > lockRenewThreshold {
+			return fmt.Errorf("WS_HISTORY_WRITER_HEARTBEAT_INTERVAL (%v) must be <= WS_HISTORY_WRITER_LOCK_TTL / %d (%v) to ensure lock renewal before expiry",
+				c.HistoryWriterHeartbeatInterval, HistoryWriterLockRenewDivisor, lockRenewThreshold)
+		}
+	}
+
 	// Edition gates — checked after all other validation passes.
 	// Uses startup-resolved Edition()/Limits(), NOT expiry-aware CurrentEdition()/CurrentLimits().
 	// Config validation runs once at startup; runtime gates use CurrentLimits() for mid-flight expiry.
@@ -989,10 +1106,10 @@ func (c *ServerConfig) Validate() error {
 		limits := c.editionManager.Limits()
 
 		// Feature gates — fail at startup if config uses gated features (NFR-008)
-		if c.MessageBackend == "kafka" && !license.EditionHasFeature(edition, license.KafkaBackend) {
+		if c.MessageBackend == MessageBackendKafka && !license.EditionHasFeature(edition, license.KafkaBackend) {
 			return license.NewFeatureError(license.KafkaBackend, edition)
 		}
-		if c.MessageBackend == "nats" && !license.EditionHasFeature(edition, license.NATSJetStreamBackend) {
+		if c.MessageBackend == MessageBackendNATS && !license.EditionHasFeature(edition, license.NATSJetStreamBackend) {
 			return license.NewFeatureError(license.NATSJetStreamBackend, edition)
 		}
 		if c.AlertEnabled && !license.EditionHasFeature(edition, license.Alerting) {
@@ -1000,6 +1117,9 @@ func (c *ServerConfig) Validate() error {
 		}
 		if c.OTELTracingEnabled && !license.EditionHasFeature(edition, license.ConnectionTracing) {
 			return license.NewFeatureError(license.ConnectionTracing, edition)
+		}
+		if c.HistoryEnabled && !license.EditionHasFeature(edition, license.MessageHistory) {
+			return license.NewFeatureError(license.MessageHistory, edition)
 		}
 
 		// Hard limit gates — validate configured capacity doesn't exceed edition limits
@@ -1098,13 +1218,13 @@ func (c *ServerConfig) Print() {
 	_, _ = fmt.Fprintln(os.Stdout, "Auth:            Handled by ws-gateway")
 	_, _ = fmt.Fprintln(os.Stdout, "\n=== Broadcast Bus ===")
 	_, _ = fmt.Fprintf(os.Stdout, "Type:            %s\n", c.BroadcastType)
-	if c.BroadcastType == "valkey" {
+	if c.BroadcastType == BroadcastTypeValkey {
 		_, _ = fmt.Fprintf(os.Stdout, "Valkey Addrs:    %v\n", c.ValkeyAddrs)
 		_, _ = fmt.Fprintf(os.Stdout, "Master Name:     %s\n", c.ValkeyMasterName)
 		_, _ = fmt.Fprintf(os.Stdout, "Channel:         %s\n", c.ValkeyChannel)
 		_, _ = fmt.Fprintf(os.Stdout, "Database:        %d\n", c.ValkeyDB)
 	}
-	if c.BroadcastType == "nats" {
+	if c.BroadcastType == BroadcastTypeNATS {
 		_, _ = fmt.Fprintf(os.Stdout, "NATS URLs:       %v\n", c.NATSURLs)
 		_, _ = fmt.Fprintf(os.Stdout, "Cluster Mode:    %v\n", c.NATSClusterMode)
 		_, _ = fmt.Fprintf(os.Stdout, "Subject:         %s\n", c.NATSSubject)
@@ -1112,10 +1232,10 @@ func (c *ServerConfig) Print() {
 		_, _ = fmt.Fprintf(os.Stdout, "User Auth:       %v\n", c.NATSUser != "")
 		_, _ = fmt.Fprintf(os.Stdout, "TLS Enabled:     %v\n", c.NATSTLSEnabled)
 	}
-	if c.BroadcastType == "valkey" && c.ValkeyTLSEnabled {
+	if c.BroadcastType == BroadcastTypeValkey && c.ValkeyTLSEnabled {
 		_, _ = fmt.Fprintf(os.Stdout, "Valkey TLS:      %v\n", c.ValkeyTLSEnabled)
 	}
-	if c.MessageBackend == "nats" {
+	if c.MessageBackend == MessageBackendNATS {
 		_, _ = fmt.Fprintln(os.Stdout, "\n=== NATS JetStream ===")
 		_, _ = fmt.Fprintf(os.Stdout, "JetStream URLs:  %s\n", c.NATSJetStreamURLs)
 		_, _ = fmt.Fprintf(os.Stdout, "Replicas:        %d\n", c.NATSJetStreamReplicas)

@@ -57,6 +57,9 @@ const (
 
 	// ErrCodeReplayFailed indicates backend message replay failed.
 	ErrCodeReplayFailed ErrorCode = "replay_failed"
+
+	// ErrCodeSubscribeLimitExceeded indicates the per-client channel subscription limit was reached.
+	ErrCodeSubscribeLimitExceeded ErrorCode = "subscribe_limit_exceeded"
 )
 
 // publishErrorMessages maps error codes to human-readable messages for publish errors.

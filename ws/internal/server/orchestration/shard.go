@@ -12,6 +12,7 @@ import (
 	"github.com/klurvio/sukko/internal/server/broadcast"
 	"github.com/klurvio/sukko/internal/server/metrics"
 	"github.com/klurvio/sukko/internal/shared/alerting"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
@@ -40,6 +41,7 @@ type ShardConfig struct {
 	Config         *platform.ServerConfig
 	BroadcastBus   broadcast.Bus          // Reference to the central bus
 	MessageBackend backend.MessageBackend // Pluggable message backend
+	EditionManager *license.Manager       // Edition gate checks; nil = Community
 	Alerter        alerting.Alerter       // Shared alerter instance
 	Logger         zerolog.Logger
 	MaxConnections int
@@ -56,6 +58,8 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 		Addr:           cfg.Addr,
 		MaxConnections: cfg.MaxConnections,
 		Backend:        cfg.MessageBackend,
+		BroadcastBus:   cfg.BroadcastBus,
+		EditionManager: cfg.EditionManager,
 	}, cfg.Alerter)
 
 	if err != nil {
@@ -64,7 +68,7 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 	}
 
 	// Subscribe to the central broadcast bus
-	broadcastChan := cfg.BroadcastBus.Subscribe()
+	broadcastChan, _ := cfg.BroadcastBus.Subscribe(cfg.Config.BroadcastBufferSize)
 
 	shard := &Shard{
 		ID:             cfg.ID,

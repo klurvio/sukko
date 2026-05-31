@@ -11,6 +11,7 @@ package server
 const (
 	MsgTypeReconnect = "reconnect"
 	MsgTypeHeartbeat = "heartbeat"
+	MsgTypeHistory   = "history"
 )
 
 // Message type constants for server→client messages produced only by the server.
@@ -28,6 +29,8 @@ const (
 	RespTypeReconnectError    = "reconnect_error"
 	RespTypeSubscribeError    = "subscribe_error"
 	RespTypeUnsubscribeError  = "unsubscribe_error"
+	RespTypeHistoryComplete   = "history_complete"
+	RespTypeHistoryError      = "history_error"
 )
 
 // UnsubscribeData is the payload for unsubscribe messages, used only by the server.

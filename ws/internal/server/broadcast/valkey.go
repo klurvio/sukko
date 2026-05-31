@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
+	valkey "github.com/valkey-io/valkey-go"
 
 	"github.com/klurvio/sukko/internal/shared/logging"
 )
@@ -21,13 +21,12 @@ import (
 // valkeyBus implements Bus using Valkey/Redis Pub/Sub.
 // It supports both direct connections and Sentinel failover.
 type valkeyBus struct {
-	client *redis.Client
-	pubsub *redis.PubSub
+	client valkey.Client
 
 	channel    string
 	bufferSize int
 
-	subscribers []chan *Message
+	subscribers []subscriberEntry
 	subMu       sync.RWMutex
 
 	ctx    context.Context
@@ -90,75 +89,43 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 			Msg("Valkey broadcast TLS enabled")
 	}
 
-	// Create Valkey client
-	var client *redis.Client
-	if len(vcfg.Addrs) == 1 {
-		// Direct connection mode (single Valkey instance)
-		busLogger.Info().
-			Str("mode", "direct").
-			Str("addr", vcfg.Addrs[0]).
-			Msg("Connecting to Valkey (direct mode)")
+	// Build client option
+	opt := valkey.ClientOption{
+		InitAddress:      vcfg.Addrs,
+		Password:         vcfg.Password,
+		SelectDB:         vcfg.DB,
+		TLSConfig:        tlsCfg,
+		ConnWriteTimeout: vcfg.WriteTimeout,
+	}
 
-		client = redis.NewClient(&redis.Options{
-			Addr:     vcfg.Addrs[0],
-			Password: vcfg.Password,
-			DB:       vcfg.DB,
-
-			// TLS
-			TLSConfig: tlsCfg,
-
-			// Connection pooling
-			PoolSize:     vcfg.PoolSize,
-			MinIdleConns: vcfg.MinIdleConns,
-
-			// Timeouts
-			DialTimeout:  vcfg.DialTimeout,
-			ReadTimeout:  vcfg.ReadTimeout,
-			WriteTimeout: vcfg.WriteTimeout,
-
-			// Retry policy
-			MaxRetries:      vcfg.MaxRetries,
-			MinRetryBackoff: vcfg.MinRetryBackoff,
-			MaxRetryBackoff: vcfg.MaxRetryBackoff,
-		})
-	} else {
-		// Sentinel failover mode
+	// Sentinel failover mode
+	if vcfg.MasterName != "" {
+		opt.Sentinel = valkey.SentinelOption{
+			MasterSet: vcfg.MasterName,
+		}
 		busLogger.Info().
 			Str("mode", "sentinel").
 			Strs("sentinel_addrs", vcfg.Addrs).
 			Str("master_name", vcfg.MasterName).
 			Msg("Connecting to Valkey Sentinel")
+	} else {
+		busLogger.Info().
+			Str("mode", "direct").
+			Str("addr", vcfg.Addrs[0]).
+			Msg("Connecting to Valkey (direct mode)")
+	}
 
-		client = redis.NewFailoverClient(&redis.FailoverOptions{
-			MasterName:    vcfg.MasterName,
-			SentinelAddrs: vcfg.Addrs,
-			Password:      vcfg.Password,
-			DB:            vcfg.DB,
-
-			// TLS
-			TLSConfig: tlsCfg,
-
-			// Connection pooling
-			PoolSize:     vcfg.PoolSize,
-			MinIdleConns: vcfg.MinIdleConns,
-
-			// Timeouts
-			DialTimeout:  vcfg.DialTimeout,
-			ReadTimeout:  vcfg.ReadTimeout,
-			WriteTimeout: vcfg.WriteTimeout,
-
-			// Retry policy
-			MaxRetries:      vcfg.MaxRetries,
-			MinRetryBackoff: vcfg.MinRetryBackoff,
-			MaxRetryBackoff: vcfg.MaxRetryBackoff,
-		})
+	client, err := valkey.NewClient(opt)
+	if err != nil {
+		return nil, fmt.Errorf("valkey: failed to create client: %w", err)
 	}
 
 	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), vcfg.StartupPingTimeout)
-	defer cancel()
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), vcfg.StartupPingTimeout)
+	defer pingCancel()
 
-	if err := client.Ping(ctx).Err(); err != nil {
+	if err := client.Do(pingCtx, client.B().Ping().Build()).Error(); err != nil {
+		client.Close()
 		return nil, fmt.Errorf("valkey: failed to connect: %w", err)
 	}
 
@@ -168,13 +135,13 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 		Msg("Successfully connected to Valkey")
 
 	// Create context for lifecycle management
-	busCtx, busCancel := context.WithCancel(context.Background())
+	busCtx, busCancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in bus.cancel and called during Shutdown
 
 	bus := &valkeyBus{
 		client:                    client,
 		channel:                   vcfg.Channel,
 		bufferSize:                cfg.BufferSize,
-		subscribers:               make([]chan *Message, 0, 3),
+		subscribers:               make([]subscriberEntry, 0, 3),
 		ctx:                       busCtx,
 		cancel:                    busCancel,
 		shutdownTimeout:           cfg.ShutdownTimeout,
@@ -210,7 +177,7 @@ func (b *valkeyBus) Publish(msg *Message) {
 	ctx, cancel := context.WithTimeout(b.ctx, b.publishTimeout)
 	defer cancel()
 
-	if err := b.client.Publish(ctx, b.channel, payload).Err(); err != nil {
+	if err := b.client.Do(ctx, b.client.B().Publish().Channel(b.channel).Message(string(payload)).Build()).Error(); err != nil {
 		b.logger.Error().
 			Err(err).
 			Str("channel", b.channel).
@@ -226,12 +193,15 @@ func (b *valkeyBus) Publish(msg *Message) {
 	b.healthy.Store(true)
 }
 
-// Subscribe returns a channel for receiving broadcast messages.
-func (b *valkeyBus) Subscribe() <-chan *Message {
-	subCh := make(chan *Message, b.bufferSize)
+// Subscribe returns a buffered channel for receiving broadcast messages and a drop counter.
+func (b *valkeyBus) Subscribe(bufSize int) (<-chan *Message, *atomic.Uint64) {
+	subCh := make(chan *Message, bufSize)
+	drops := new(atomic.Uint64)
+
+	entry := subscriberEntry{ch: subCh, drops: drops}
 
 	b.subMu.Lock()
-	b.subscribers = append(b.subscribers, subCh)
+	b.subscribers = append(b.subscribers, entry)
 	totalSubscribers := len(b.subscribers)
 	b.subMu.Unlock()
 
@@ -239,21 +209,38 @@ func (b *valkeyBus) Subscribe() <-chan *Message {
 		Int("total_subscribers", totalSubscribers).
 		Msg("New subscriber registered")
 
-	return subCh
+	return subCh, drops
+}
+
+// Unsubscribe removes the subscriber channel. The channel is NOT closed here
+// because fanOut() copies the subscriber list under RLock and then sends
+// without the lock held — closing between the RUnlock and the send would panic.
+// Subscribers exit via context cancellation, not channel close.
+func (b *valkeyBus) Unsubscribe(ch <-chan *Message) error {
+	b.subMu.Lock()
+	defer b.subMu.Unlock()
+
+	for i, entry := range b.subscribers {
+		if entry.ch == ch {
+			b.subscribers = append(b.subscribers[:i], b.subscribers[i+1:]...)
+			b.logger.Info().
+				Int("remaining_subscribers", len(b.subscribers)).
+				Msg("Subscriber removed")
+			return nil
+		}
+	}
+	return errors.New("valkey bus: subscriber not found")
 }
 
 // Run starts the receive and health check loops.
 func (b *valkeyBus) Run() {
-	b.pubsub = b.client.Subscribe(b.ctx, b.channel)
-
 	b.logger.Info().
 		Str("channel", b.channel).
 		Int("subscribers", len(b.subscribers)).
 		Msg("BroadcastBus started (Valkey Pub/Sub)")
 
-	b.wg.Add(2)
-	go b.receiveLoop()
-	go b.healthCheckLoop()
+	b.wg.Go(b.receiveLoop)
+	b.wg.Go(b.healthCheckLoop)
 }
 
 // Shutdown gracefully stops the bus with default timeout.
@@ -286,22 +273,14 @@ func (b *valkeyBus) ShutdownWithContext(ctx context.Context) {
 		b.logger.Warn().Msg("BroadcastBus shutdown timeout, forcing exit")
 	}
 
-	// Close Valkey connections
-	if b.pubsub != nil {
-		if err := b.pubsub.Close(); err != nil {
-			b.logger.Error().Err(err).Msg("Failed to close Valkey Pub/Sub")
-		}
-	}
-
-	if err := b.client.Close(); err != nil {
-		b.logger.Error().Err(err).Msg("Failed to close Valkey client")
-	}
+	// Close Valkey client
+	b.client.Close()
 
 	// Only close subscriber channels if goroutines have stopped
 	if goroutinesStopped {
 		b.subMu.Lock()
-		for _, subCh := range b.subscribers {
-			close(subCh)
+		for _, entry := range b.subscribers {
+			close(entry.ch)
 		}
 		b.subscribers = nil
 		b.subMu.Unlock()
@@ -362,49 +341,45 @@ func (b *valkeyBus) GetMetrics() Metrics {
 // receiveLoop receives messages from Valkey and fans out to local subscribers.
 func (b *valkeyBus) receiveLoop() {
 	defer logging.RecoverPanic(b.logger, "valkeyBus.receiveLoop", nil)
-	defer b.wg.Done()
 
-	ch := b.pubsub.Channel()
 	b.logger.Info().Msg("Valkey receive loop started")
 
 	for {
-		select {
-		case <-b.ctx.Done():
-			b.logger.Info().Msg("Valkey receive loop stopping (context canceled)")
-			return
-
-		case valkeyMsg, ok := <-ch:
-			if !ok {
-				b.logger.Warn().Msg("Valkey Pub/Sub channel closed, reconnecting...")
-				b.healthy.Store(false)
-
-				if b.reconnect() {
-					ch = b.pubsub.Channel()
-					b.logger.Info().Msg("Reconnected to Valkey, resuming receive loop")
-				} else {
-					b.logger.Error().Msg("Failed to reconnect to Valkey, exiting receive loop")
-					return
-				}
-				continue
-			}
-
+		err := b.client.Receive(b.ctx, b.client.B().Subscribe().Channel(b.channel).Build(), func(valkeyMsg valkey.PubSubMessage) {
 			var msg Message
-			if err := json.Unmarshal([]byte(valkeyMsg.Payload), &msg); err != nil {
+			if err := json.Unmarshal([]byte(valkeyMsg.Message), &msg); err != nil {
 				b.logger.Error().
 					Err(err).
-					Str("payload", valkeyMsg.Payload).
+					Str("payload", valkeyMsg.Message).
 					Msg("Failed to deserialize Valkey message")
-				continue
+				return
 			}
 
 			b.messagesRecv.Add(1)
 			b.fanOut(&msg)
+		})
+
+		if b.ctx.Err() != nil {
+			b.logger.Info().Msg("Valkey receive loop stopping (context canceled)")
+			return
+		}
+
+		if err != nil {
+			b.logger.Error().Err(err).Msg("Valkey pub/sub receive error, reconnecting...")
+			b.healthy.Store(false)
+
+			if !b.reconnect() {
+				b.logger.Error().Msg("Failed to reconnect to Valkey, exiting receive loop")
+				return
+			}
 		}
 	}
 }
 
 // fanOut sends a message to all local subscribers.
 func (b *valkeyBus) fanOut(msg *Message) {
+	defer logging.RecoverPanic(b.logger, "valkeyBus.fanOut", nil)
+
 	select {
 	case <-b.ctx.Done():
 		return
@@ -416,34 +391,27 @@ func (b *valkeyBus) fanOut(msg *Message) {
 		b.subMu.RUnlock()
 		return
 	}
-	subscribers := make([]chan *Message, len(b.subscribers))
-	copy(subscribers, b.subscribers)
+	entries := make([]subscriberEntry, len(b.subscribers))
+	copy(entries, b.subscribers)
 	b.subMu.RUnlock()
 
 	sent := 0
 	dropped := 0
 
-	for _, subCh := range subscribers {
+	for _, entry := range entries {
 		select {
 		case <-b.ctx.Done():
 			return
 		default:
 		}
 
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					dropped++
-				}
-			}()
-
-			select {
-			case subCh <- msg:
-				sent++
-			default:
-				dropped++
-			}
-		}()
+		select {
+		case entry.ch <- msg:
+			sent++
+		default:
+			entry.drops.Add(1)
+			dropped++
+		}
 	}
 
 	if dropped > 0 {
@@ -455,7 +423,7 @@ func (b *valkeyBus) fanOut(msg *Message) {
 	}
 }
 
-// reconnect attempts to resubscribe to Valkey after connection loss.
+// reconnect waits with backoff and pings Valkey to verify the connection is available.
 func (b *valkeyBus) reconnect() bool {
 	backoff := b.reconnectInitialBackoff
 	maxBackoff := b.reconnectMaxBackoff
@@ -466,35 +434,31 @@ func (b *valkeyBus) reconnect() bool {
 		case <-b.ctx.Done():
 			return false
 		case <-time.After(backoff):
-			b.logger.Info().
-				Int("attempt", attempt).
-				Dur("backoff", backoff).
-				Msg("Attempting to reconnect to Valkey Pub/Sub")
+		}
 
-			if b.pubsub != nil {
-				_ = b.pubsub.Close() // Close error non-actionable during reconnect; new pubsub is created next
-			}
+		b.logger.Info().
+			Int("attempt", attempt).
+			Dur("backoff", backoff).
+			Msg("Attempting to reconnect to Valkey Pub/Sub")
 
-			b.pubsub = b.client.Subscribe(b.ctx, b.channel)
+		pingCtx, pingCancel := context.WithTimeout(b.ctx, b.healthCheckTimeout)
+		err := b.client.Do(pingCtx, b.client.B().Ping().Build()).Error()
+		pingCancel()
 
-			if err := b.pubsub.Ping(b.ctx); err != nil {
-				b.logger.Error().
-					Err(err).
-					Int("attempt", attempt).
-					Msg("Valkey Pub/Sub reconnection failed")
-
-				backoff *= 2
-				if backoff > maxBackoff {
-					backoff = maxBackoff
-				}
-				continue
-			}
-
-			b.logger.Info().
-				Int("attempt", attempt).
-				Msg("Successfully reconnected to Valkey Pub/Sub")
+		if err == nil {
+			b.logger.Info().Int("attempt", attempt).Msg("Successfully reconnected to Valkey Pub/Sub")
 			b.healthy.Store(true)
 			return true
+		}
+
+		b.logger.Error().
+			Err(err).
+			Int("attempt", attempt).
+			Msg("Valkey Pub/Sub reconnection failed")
+
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
 		}
 	}
 
@@ -507,7 +471,6 @@ func (b *valkeyBus) reconnect() bool {
 // healthCheckLoop periodically pings Valkey to verify connectivity.
 func (b *valkeyBus) healthCheckLoop() {
 	defer logging.RecoverPanic(b.logger, "valkeyBus.healthCheckLoop", nil)
-	defer b.wg.Done()
 
 	ticker := time.NewTicker(b.healthCheckInterval)
 	defer ticker.Stop()
@@ -518,7 +481,7 @@ func (b *valkeyBus) healthCheckLoop() {
 			return
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(b.ctx, b.healthCheckTimeout)
-			err := b.client.Ping(ctx).Err()
+			err := b.client.Do(ctx, b.client.B().Ping().Build()).Error()
 			cancel()
 
 			if err != nil {

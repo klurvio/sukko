@@ -28,9 +28,18 @@ type ClientMessage struct {
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
+// SubscribeHistoryOptions is the inline history options within a subscribe-with-history message.
+type SubscribeHistoryOptions struct {
+	Limit int `json:"limit"`
+}
+
 // SubscribeData is the payload for subscribe messages.
+// For a multi-channel subscribe, populate Channels.
+// For a single-channel subscribe-with-history, populate Channel and History.
 type SubscribeData struct {
-	Channels []string `json:"channels"`
+	Channels []string                 `json:"channels,omitempty"`
+	Channel  string                   `json:"channel,omitempty"`
+	History  *SubscribeHistoryOptions `json:"history,omitempty"`
 }
 
 // PublishData is the client-facing payload for publish messages.

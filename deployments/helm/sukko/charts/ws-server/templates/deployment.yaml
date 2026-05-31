@@ -117,6 +117,12 @@ spec:
             {{- end }}
             {{- end }}
 
+            # Pod identity (Downward API — stable pod name for distributed locks)
+            - name: WS_POD_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
             # Server topology (override Go envDefaults for Kubernetes deployments)
             - name: WS_NUM_SHARDS
               value: {{ .Values.shards | quote }}

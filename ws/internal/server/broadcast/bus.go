@@ -10,17 +10,21 @@
 //	defer bus.Shutdown()
 //
 //	// Subscribe before Run
-//	ch := bus.Subscribe()
+//	ch, drops := bus.Subscribe(1024)
 //
 //	// Start receiving
 //	bus.Run()
 //
 //	// Publish messages (fire-and-forget)
 //	bus.Publish(&broadcast.Message{Subject: "BTC.trade", Payload: data})
+//
+//	// Unsubscribe when done
+//	bus.Unsubscribe(ch)
 package broadcast
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 )
 
@@ -35,10 +39,16 @@ type Bus interface {
 	// This method must be non-blocking and safe for concurrent use.
 	Publish(msg *Message)
 
-	// Subscribe returns a channel for receiving broadcast messages.
+	// Subscribe returns a buffered channel for receiving broadcast messages and a drop counter.
+	// bufSize controls the channel buffer capacity. The *atomic.Uint64 is incremented each time
+	// a message is dropped for this subscriber (slow-consumer detection).
 	// Each shard should call this once before Run is called.
-	// The returned channel is buffered and will drop messages if full.
-	Subscribe() <-chan *Message
+	Subscribe(bufSize int) (<-chan *Message, *atomic.Uint64)
+
+	// Unsubscribe removes the subscriber channel and stops delivering messages to it.
+	// The channel is NOT closed — subscribers must exit via context cancellation, not channel close.
+	// Returns an error if the channel is not found.
+	Unsubscribe(ch <-chan *Message) error
 
 	// Run starts the receive loop and health monitoring.
 	// Must be called after all Subscribe calls. Returns immediately
@@ -69,6 +79,18 @@ type Message struct {
 
 	// Payload is the raw message data (typically JSON)
 	Payload []byte `json:"payload"`
+
+	// TenantID identifies the tenant that owns this message.
+	// Required for history stream key construction; populated by the Kafka consumer.
+	TenantID string `json:"tenant_id,omitempty"`
+
+	// StreamID is the Kafka position "{partition}-{offset}", informational only.
+	// XADD uses auto-assigned IDs (*); this field is preserved for traceability.
+	StreamID string `json:"stream_id,omitempty"`
+
+	// Channel is the bare channel name (distinct from the namespace-qualified Subject).
+	// Required for per-channel stream key routing; populated by the Kafka consumer.
+	Channel string `json:"channel,omitempty"`
 }
 
 // Metrics contains operational metrics for the broadcast bus.
@@ -136,19 +158,8 @@ type ValkeyConfig struct {
 	// Channel is the pub/sub channel name (default: "ws.broadcast")
 	Channel string
 
-	// Connection pooling
-	PoolSize     int // Connection pool size
-	MinIdleConns int // Minimum idle connections in pool
-
 	// Timeouts
-	DialTimeout  time.Duration // Timeout for establishing connections
-	ReadTimeout  time.Duration // Timeout for read operations
-	WriteTimeout time.Duration // Timeout for write operations
-
-	// Retry policy
-	MaxRetries      int           // Maximum number of retries
-	MinRetryBackoff time.Duration // Minimum backoff between retries
-	MaxRetryBackoff time.Duration // Maximum backoff between retries
+	WriteTimeout time.Duration // Timeout for write operations (maps to valkey-go ConnWriteTimeout)
 
 	// Publish
 	PublishTimeout time.Duration // Timeout for publish operations

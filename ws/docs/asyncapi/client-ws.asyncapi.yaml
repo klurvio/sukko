@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 
 info:
   title: Sukko WebSocket Client API
-  version: 1.2.0
+  version: 1.3.0
   description: |
     Real-time WebSocket API for subscribing to chat events and publishing messages.
 
@@ -154,7 +154,7 @@ channels:
     address: /ws
     description: >
       WebSocket endpoint for client-to-server messages.
-      Clients send subscribe, unsubscribe, publish, reconnect, heartbeat, and auth messages.
+      Clients send subscribe, unsubscribe, publish, reconnect, heartbeat, auth, and history messages.
     messages:
       subscribe:
         $ref: "#/components/messages/subscribe"
@@ -168,6 +168,8 @@ channels:
         $ref: "#/components/messages/heartbeat"
       auth:
         $ref: "#/components/messages/auth"
+      history:
+        $ref: "#/components/messages/history"
 
   clientReceive:
     address: /ws
@@ -201,6 +203,10 @@ channels:
         $ref: "#/components/messages/authAck"
       authError:
         $ref: "#/components/messages/authError"
+      historyComplete:
+        $ref: "#/components/messages/historyComplete"
+      historyError:
+        $ref: "#/components/messages/historyError"
 
 operations:
   sendSubscribe:
@@ -405,6 +411,52 @@ operations:
     messages:
       - $ref: "#/channels/clientReceive/messages/authError"
 
+  sendHistory:
+    action: send
+    channel:
+      $ref: "#/channels/clientSend"
+    summary: Request historical messages for a channel
+    description: >
+      Request delivery of historical messages for a previously-subscribed channel.
+      The client must be subscribed before sending this request.
+      Requires Pro or higher edition.
+      Responds with zero or more `broadcast` messages (each with `history: true`) followed by a `history_complete` message.
+      On error, responds with a `history_error` message.
+    messages:
+      - $ref: "#/channels/clientSend/messages/history"
+
+  receiveHistoryComplete:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive history delivery completion signal
+    description: >
+      Sent after all historical messages have been delivered for a channel.
+      The `attach_id` field marks the boundary between historical and live messages.
+      Messages with `stream_id <= attach_id` are historical; all subsequent messages (no `history: true`) are live.
+    messages:
+      - $ref: "#/channels/clientReceive/messages/historyComplete"
+
+  receiveHistoryError:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive history request error
+    description: >
+      Sent when a history request fails validation or encounters a storage error.
+      Error codes:
+        - `history_disabled`: history feature not enabled on this server (not retriable — feature is off)
+        - `not_available`: Pro or higher edition required, or JWT expired
+        - `history_not_subscribed`: client must subscribe to the channel first
+        - `history_time_range_not_supported`: from_ts/to_ts queries are not supported in v1
+        - `history_invalid_limit`: limit out of range [1, MAX_HISTORY_LIMIT]
+        - `history_in_progress`: history delivery already running for this channel
+        - `history_storage_unavailable`: Valkey temporarily unreachable (retriable — try again after backoff)
+        - `history_invalid_channel`: channel must be in {tenant}.{suffix} format (not retriable — fix the channel name)
+        - `history_invalid_request`: malformed JSON in history request payload (not retriable — fix the request)
+    messages:
+      - $ref: "#/channels/clientReceive/messages/historyError"
+
 components:
   securitySchemes:
     bearerToken:
@@ -445,6 +497,7 @@ components:
             - reconnect
             - heartbeat
             - auth
+            - history
         data:
           type: object
           description: Type-specific payload.
@@ -521,17 +574,37 @@ components:
 
     SubscribeData:
       type: object
-      description: Payload for subscribe messages.
-      required:
-        - channels
+      description: |
+        Payload for subscribe messages. Two mutually exclusive modes:
+        - **Multi-channel subscribe** (no history): populate `channels`.
+        - **Subscribe-with-history** (single channel): populate `channel` and `history`.
       properties:
         channels:
           type: array
           items:
             type: string
-          description: "Channels to subscribe to. Format: {tenant}.{suffix}"
+          description: "Channels to subscribe to (multi-channel mode). Format: {tenant}.{suffix}"
           examples:
             - ["sukko.general.messages", "sukko.support.typing"]
+        channel:
+          type: string
+          description: "Single channel to subscribe to (subscribe-with-history mode). Format: {tenant}.{suffix}"
+          examples:
+            - "sukko.BTC.trade"
+        history:
+          type: object
+          description: >
+            If present, triggers subscribe-with-history after the subscription is established.
+            Requires Pro or higher edition and `WS_HISTORY_ENABLED=true`.
+          required:
+            - limit
+          properties:
+            limit:
+              type: integer
+              minimum: 1
+              description: Number of historical messages to retrieve (1 to WS_HISTORY_MAX_LIMIT).
+              examples:
+                - 50
 
     UnsubscribeData:
       type: object
@@ -616,12 +689,30 @@ components:
         data:
           type: object
           description: Message payload (schema owned by the publishing service).
+        history:
+          type: boolean
+          description: >
+            Present and `true` when this message is a historical replay (delivered in response to a history
+            or subscribe-with-history request). Absent or `false` for live messages.
+            Clients use this flag — not `stream_id` comparisons — to identify historical messages.
+        stream_id:
+          type: string
+          description: >
+            Valkey Stream entry ID for historical messages (`history: true`). Format: `{ms}-{seq}`.
+            Absent for live messages and for history messages sourced from Kafka (which have no Valkey Stream ID).
       examples:
         - type: message
           seq: 1234
           ts: 1706000000000
           channel: "sukko.general.messages"
           data: { "text": "Hello everyone!", "sender": "user123" }
+        - type: message
+          seq: 1
+          ts: 1706000000000
+          channel: "sukko.BTC.trade"
+          data: { "price": "65432.10" }
+          history: true
+          stream_id: "1706000000000-0"
 
     SubscriptionAck:
       type: object
@@ -882,6 +973,112 @@ components:
           code: invalid_request
           message: "Invalid unsubscribe request format"
 
+    HistoryData:
+      type: object
+      description: Payload for a standalone history request (client→server `history` message type).
+      required:
+        - channel
+        - limit
+      properties:
+        channel:
+          type: string
+          description: "Channel to fetch history for. Must be currently subscribed. Format: {tenant}.{suffix}"
+          examples:
+            - "sukko.BTC.trade"
+        limit:
+          type: integer
+          minimum: 1
+          description: Number of historical messages to retrieve (1 to WS_HISTORY_MAX_LIMIT).
+          examples:
+            - 50
+
+    HistoryComplete:
+      type: object
+      description: >
+        Signals that history delivery is complete for a channel.
+        Sent after all historical messages (tagged `history: true`) have been delivered.
+      required:
+        - type
+        - channel
+        - count
+        - source
+        - attach_id
+      properties:
+        type:
+          type: string
+          const: history_complete
+        channel:
+          type: string
+          description: The channel for which history was delivered.
+        count:
+          type: integer
+          description: Total number of historical messages delivered (may be less than the requested limit).
+        source:
+          type: string
+          description: Source of the delivered history.
+          enum:
+            - cache
+            - kafka
+            - mixed
+        attach_id:
+          type: string
+          description: >
+            Valkey Stream entry ID marking the history/live boundary.
+            Empty string (`""`) when the channel has no history yet (new channel or TTL expired).
+            Clients use this value — not ID comparisons — to detect where live delivery begins.
+      examples:
+        - type: history_complete
+          channel: "sukko.BTC.trade"
+          count: 50
+          source: cache
+          attach_id: "1706000000000-0"
+        - type: history_complete
+          channel: "sukko.BTC.trade"
+          count: 0
+          source: cache
+          attach_id: ""
+
+    HistoryError:
+      type: object
+      description: Error response for a failed history or subscribe-with-history request.
+      required:
+        - type
+        - code
+        - channel
+        - message
+      properties:
+        type:
+          type: string
+          const: history_error
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - history_disabled
+            - not_available
+            - history_not_subscribed
+            - history_time_range_not_supported
+            - history_invalid_limit
+            - history_in_progress
+            - history_storage_unavailable
+            - history_invalid_channel
+            - history_invalid_request
+        channel:
+          type: string
+          description: The channel that was requested.
+        message:
+          type: string
+          description: Human-readable error description.
+      examples:
+        - type: history_error
+          code: history_disabled
+          channel: "sukko.BTC.trade"
+          message: "message history is not enabled"
+        - type: history_error
+          code: history_storage_unavailable
+          channel: "sukko.BTC.trade"
+          message: "history storage temporarily unavailable"
+
   messages:
     subscribe:
       name: subscribe
@@ -900,13 +1097,20 @@ components:
           data:
             $ref: "#/components/schemas/SubscribeData"
       examples:
-        - name: subscribeExample
+        - name: subscribeMultiChannel
           payload:
             type: subscribe
             data:
               channels:
                 - "sukko.general.messages"
                 - "sukko.support.typing"
+        - name: subscribeWithHistory
+          payload:
+            type: subscribe
+            data:
+              channel: "sukko.BTC.trade"
+              history:
+                limit: 50
 
     unsubscribe:
       name: unsubscribe
@@ -1134,3 +1338,48 @@ components:
       contentType: application/json
       payload:
         $ref: "#/components/schemas/AuthError"
+
+    history:
+      name: history
+      title: History Request
+      summary: Request historical messages for a subscribed channel.
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - type
+          - data
+        properties:
+          type:
+            type: string
+            const: history
+          data:
+            $ref: "#/components/schemas/HistoryData"
+      examples:
+        - name: historyExample
+          payload:
+            type: history
+            data:
+              channel: "sukko.BTC.trade"
+              limit: 50
+
+    historyComplete:
+      name: historyComplete
+      title: History Complete
+      summary: Signals that all historical messages for a channel have been delivered.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/HistoryComplete"
+
+    historyError:
+      name: historyError
+      title: History Error
+      summary: Indicates a history request failed.
+      description: |
+        Error code retriability:
+        - `history_disabled`: not retriable — the feature is off at the server level
+        - `history_storage_unavailable`: retriable — Valkey is temporarily unreachable; retry with exponential backoff
+        - All other codes: not retriable without fixing the root cause (subscribe first, adjust limit, upgrade edition, etc.)
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/HistoryError"
