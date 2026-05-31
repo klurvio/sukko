@@ -174,7 +174,7 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 		cfg.SigningKeyFile = r.cfg.SigningKeyFile
 	}
 
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in run.cancel and called during Stop/cleanup
+	ctx, cancel := context.WithCancel(context.Background())
 
 	run := &TestRun{
 		ID:        id,

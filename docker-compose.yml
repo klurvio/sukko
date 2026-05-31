@@ -15,18 +15,19 @@
 # Stop:  docker compose down
 # Reset: docker compose down -v
 #
-# Default mode: direct + NATS broadcast + PostgreSQL (zero config needed)
+# Default mode: direct + Valkey broadcast + PostgreSQL (zero config needed)
 # All application config uses Go envDefault values.
 # Only inter-service wiring env vars are set here.
 #
 # Optional infrastructure (activate via Docker Compose profiles):
 #   docker compose --profile kafka up         # Redpanda (Kafka)
-#   docker compose --profile valkey up        # Valkey (Redis-compatible)
-#   docker compose --profile kafka --profile valkey up  # combine profiles
+#   docker compose --profile nats up          # NATS (alternative broadcast bus)
+#   docker compose --profile kafka --profile nats up  # combine profiles
 
 services:
-  # ─── NATS (broadcast bus) ──────────────────────────────────────────
+  # ─── NATS — activate with: --profile nats ─────────────────────────
   nats:
+    profiles: ["nats"]
     image: nats:2.10-alpine
     ports:
       - "4222:4222"
@@ -80,7 +81,7 @@ services:
       - "3005:3005"
     environment:
       # Inter-service wiring (only overrides needed)
-      NATS_URLS: "nats://nats:4222"
+      VALKEY_ADDRS: "valkey:6379"
       PROVISIONING_GRPC_ADDR: "provisioning:9090"
       SUKKO_LICENSE_KEY: "${SUKKO_LICENSE_KEY:-}"
       # Observability (disabled by default, enable with OTEL_TRACING_ENABLED=true)
@@ -90,7 +91,7 @@ services:
       PYROSCOPE_ENABLED: "${PYROSCOPE_ENABLED:-false}"
       PYROSCOPE_ADDR: "http://pyroscope:4040"
     depends_on:
-      nats:
+      valkey:
         condition: service_healthy
       provisioning:
         condition: service_healthy
@@ -226,9 +227,8 @@ services:
       timeout: 3s
       retries: 5
 
-  # ─── Valkey — activate with: --profile valkey ───────────────────────
+  # ─── Valkey (default broadcast bus) ───────────────────────────────
   valkey:
-    profiles: ["valkey"]
     image: valkey/valkey:7.2-alpine
     ports:
       - "16379:6379"

@@ -28,12 +28,25 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- $broadcastType := .Values.broadcastType | default "nats" }}
+      {{- $broadcastType := .Values.broadcastType | default "valkey" }}
+      {{- $needsValkeyBroadcast := eq $broadcastType "valkey" }}
       {{- $needsNatsBroadcast := eq $broadcastType "nats" }}
       {{- $needsKafka := eq (.Values.messageBackend | default "direct") "kafka" }}
       {{- $needsJetStream := eq (.Values.messageBackend | default "direct") "nats" }}
-      {{- if or $needsNatsBroadcast $needsKafka $needsJetStream }}
+      {{- if or $needsValkeyBroadcast $needsNatsBroadcast $needsKafka $needsJetStream }}
       initContainers:
+        {{- if and $needsValkeyBroadcast (not .Values.valkey.addrs) }}
+        - name: wait-for-valkey
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-valkey 6379; do echo "waiting for valkey..."; sleep 2; done']
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "50m"
+              memory: "32Mi"
+        {{- end }}
         {{- if and $needsNatsBroadcast (not .Values.nats.urls) }}
         - name: wait-for-nats
           image: busybox:1.36
@@ -136,14 +149,14 @@ spec:
             - name: MESSAGE_BACKEND
               value: {{ .Values.messageBackend | quote }}
             {{- end }}
-            {{- if ne $broadcastType "nats" }}
+            {{- if ne $broadcastType "valkey" }}
             - name: BROADCAST_TYPE
               value: {{ $broadcastType | quote }}
             {{- end }}
 
             # Auto-wired service addresses (Kubernetes service discovery)
-            - name: NATS_URLS
-              value: {{ .Values.nats.urls | default (printf "nats://%s-nats:4222" .Release.Name) | quote }}
+            - name: VALKEY_ADDRS
+              value: {{ .Values.valkey.addrs | default (printf "%s-valkey:6379" .Release.Name) | quote }}
             - name: PROVISIONING_GRPC_ADDR
               value: {{ .Values.provisioningGRPCAddr | default (printf "%s-provisioning-grpc:9090" .Release.Name) | quote }}
 
@@ -228,10 +241,14 @@ spec:
             {{- end }}
             {{- end }}
 
-            {{- if eq $broadcastType "valkey" }}
-            # Valkey (only when broadcastType=valkey)
-            - name: VALKEY_ADDRS
-              value: {{ .Values.valkey.addrs | default (printf "%s-valkey:6379" .Release.Name) | quote }}
+            {{- if $needsNatsBroadcast }}
+            # NATS broadcast bus URLs (only when broadcastType=nats)
+            - name: NATS_URLS
+              value: {{ .Values.nats.urls | default (printf "nats://%s-nats:4222" .Release.Name) | quote }}
+            {{- end }}
+
+            {{- if $needsValkeyBroadcast }}
+            # Valkey broadcast bus TLS and auth (addrs always injected above)
             {{- if .Values.valkey.password }}
             - name: VALKEY_PASSWORD
               value: {{ .Values.valkey.password | quote }}

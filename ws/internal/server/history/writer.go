@@ -248,8 +248,7 @@ func (h *Writer) tryAcquireLock(ctx context.Context, lockKey string) {
 		h.logger.Info().Str("lock", lockKey).Msg("historyWriter: acquired active writer lock")
 		return
 	}
-	var ve *valkey.ValkeyError
-	if errors.As(err, &ve) && ve.IsNil() {
+	if ve, ok := errors.AsType[*valkey.ValkeyError](err); ok && ve.IsNil() {
 		// Another pod already holds the lock — run as passive.
 		h.isActiveWriter.Store(false)
 		h.metrics.WriterActive.Set(0)
@@ -307,8 +306,7 @@ func (h *Writer) handleHeartbeatTick(ctx context.Context, lockKey string, failur
 			PxMilliseconds(h.cfg.HistoryWriterLockTTLMs).Build(),
 	)
 	if err := result.Error(); err != nil {
-		var ve *valkey.ValkeyError
-		if errors.As(err, &ve) && ve.IsNil() {
+		if ve, ok := errors.AsType[*valkey.ValkeyError](err); ok && ve.IsNil() {
 			// Key still exists — another pod is active. Not an error.
 			return nil
 		}

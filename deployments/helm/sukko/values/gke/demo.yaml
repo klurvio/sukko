@@ -118,12 +118,10 @@ redpanda:
 postgresql:
   enabled: true
 
-# ── NATS ────────────────────────────────────────────────────────────
-nats:
+# ── Valkey ──────────────────────────────────────────────────────────
+valkey:
   enabled: true
   replicaCount: 1
-  cluster:
-    enabled: false
   resources:
     requests:
       cpu: "50m"

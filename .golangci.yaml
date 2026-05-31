@@ -103,6 +103,13 @@ linters:
         - fieldalignment # Too noisy for most codebases
         - shadow # Covered by predeclared
 
+    gosec:
+      excludes:
+        # G118 is a false positive when the cancel function is stored in a struct
+        # field and called later (e.g., during Shutdown/Stop). gosec cannot track
+        # the lifetime of the cancel beyond the current scope.
+        - G118
+
     misspell:
       locale: US
 
@@ -211,6 +218,12 @@ linters:
       - path: cmd/
         linters:
           - gochecknoinits
+
+      # G115 false positive: uintptr→int is safe on all supported 64-bit Unix platforms.
+      # This appears when calling syscall.Listen(int(file.Fd()), ...) where Fd() returns
+      # uintptr. Gosec v2.12+ no longer flags this pattern.
+      - linters: [gosec]
+        text: "G115.*uintptr"
 
       # Exclude lll issues for long lines with go:generate
       - linters:

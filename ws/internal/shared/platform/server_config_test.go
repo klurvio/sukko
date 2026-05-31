@@ -56,8 +56,8 @@ func newValidServerConfig() *ServerConfig {
 		},
 		MetricsInterval:             15 * time.Second,
 		CPUPollInterval:             1 * time.Second,
-		BroadcastType:               "nats",
-		NATSURLs:                    []string{"nats://localhost:4222"},
+		BroadcastType:               "valkey",
+		ValkeyAddrs:                 []string{"localhost:6379"},
 		NATSSubject:                 "ws.broadcast",
 		ClientSendBufferSize:        512,
 		SlowClientMaxAttempts:       3,
@@ -452,10 +452,13 @@ func TestServerConfig_Validate_BroadcastType(t *testing.T) {
 			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.BroadcastType = tt.bType
-			if tt.bType == "valkey" {
+			switch tt.bType {
+			case "valkey":
 				cfg.ValkeyAddrs = []string{"localhost:26379"}
 				cfg.ValkeyMasterName = "mymaster"
 				cfg.ValkeyChannel = "ws.broadcast"
+			case "nats":
+				cfg.NATSURLs = []string{"nats://localhost:4222"}
 			}
 			err := cfg.Validate()
 			if tt.shouldError && err == nil {

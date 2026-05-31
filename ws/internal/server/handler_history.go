@@ -179,8 +179,7 @@ func fetchHistoryEntries(ctx context.Context, client valkey.Client, streamKey, e
 	entries, err := result.AsXRange()
 	if err != nil {
 		// Nil reply (empty stream) is not an error.
-		var ve *valkey.ValkeyError
-		if errors.As(err, &ve) && ve.IsNil() {
+		if ve, ok := errors.AsType[*valkey.ValkeyError](err); ok && ve.IsNil() {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("XREVRANGE %s: %w", streamKey, err)

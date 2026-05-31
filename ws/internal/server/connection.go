@@ -269,7 +269,7 @@ func (p *ConnectionPool) Get() *Client {
 		if client.clientCancel != nil {
 			client.clientCancel()
 		}
-		client.clientCtx, client.clientCancel = context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in client.clientCancel and called during client disconnect
+		client.clientCtx, client.clientCancel = context.WithCancel(context.Background())
 		client.clientWg = new(sync.WaitGroup)
 		client.historyInProgress = make(map[string]struct{})
 

@@ -1,5 +1,5 @@
 {{- if .Values.enabled }}
-{{- $broadcastType := .Values.broadcastType | default "nats" }}
+{{- $broadcastType := .Values.broadcastType | default "valkey" }}
 {{- $needsKafka := eq (.Values.messageBackend | default "direct") "kafka" -}}
 {{- $needsJetStream := eq (.Values.messageBackend | default "direct") "nats" -}}
 apiVersion: batch/v1
@@ -48,12 +48,16 @@ spec:
             - name: MESSAGE_BACKEND
               value: {{ .Values.messageBackend | quote }}
             {{- end }}
-            {{- if ne $broadcastType "nats" }}
+            {{- if ne $broadcastType "valkey" }}
             - name: BROADCAST_TYPE
               value: {{ $broadcastType | quote }}
             {{- end }}
+            - name: VALKEY_ADDRS
+              value: {{ .Values.valkey.addrs | default (printf "%s-valkey:6379" .Release.Name) | quote }}
+            {{- if eq $broadcastType "nats" }}
             - name: NATS_URLS
               value: {{ .Values.nats.urls | default (printf "nats://%s-nats:4222" .Release.Name) | quote }}
+            {{- end }}
             - name: PROVISIONING_GRPC_ADDR
               value: {{ .Values.provisioningGRPCAddr | default (printf "%s-provisioning-grpc:9090" .Release.Name) | quote }}
 
@@ -139,9 +143,7 @@ spec:
             {{- end }}
 
             {{- if eq $broadcastType "valkey" }}
-            # Valkey (only when broadcastType=valkey)
-            - name: VALKEY_ADDRS
-              value: {{ .Values.valkey.addrs | default (printf "%s-valkey:6379" .Release.Name) | quote }}
+            # Valkey broadcast bus TLS and auth (addrs always injected above)
             {{- if .Values.valkey.password }}
             - name: VALKEY_PASSWORD
               value: {{ .Values.valkey.password | quote }}

@@ -176,7 +176,7 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		config.Environment = config.Namespace
 	}
 
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in pool.cancelFn and called during Stop
+	ctx, cancel := context.WithCancel(context.Background())
 
 	pool := &MultiTenantConsumerPool{
 		config:              config,

@@ -29,9 +29,10 @@ lbAddr: ":3001"
 #   nats   — NATS JetStream, lighter persistent streaming
 # messageBackend: direct  # uncomment to override Go default
 
-# Broadcast Bus: "nats" (Go default) or "valkey"
+# Broadcast Bus: "valkey" (Go default) or "nats"
 # Inter-pod pub/sub for message fan-out across server instances.
-# broadcastType: nats  # uncomment to override Go default
+# Valkey is required when WS_HISTORY_ENABLED=true.
+# broadcastType: valkey  # uncomment to override Go default
 
 # Cluster-wide max WebSocket connections. Per-pod = cluster / replicaCount.
 connectionLimits:
