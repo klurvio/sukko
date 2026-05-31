@@ -221,7 +221,7 @@ func (w *StreamLicenseWatcher) scheduleExpiryWatcher(exp int64) {
 	}
 	var launchCtx context.Context
 	if exp > 0 {
-		ctx, cancel := context.WithDeadline(w.ctx, time.Unix(exp, 0)) //nolint:gosec // G118: cancel stored in w.expiryCancel and called on the next token refresh or shutdown
+		ctx, cancel := context.WithDeadline(w.ctx, time.Unix(exp, 0))
 		w.expiryCancel = cancel
 		launchCtx = ctx
 	}
