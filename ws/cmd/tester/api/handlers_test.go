@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/klurvio/sukko/cmd/tester/runner"
+	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/rs/zerolog"
 )
 
@@ -572,6 +573,86 @@ func TestStartTest_AdminKeyPath_DeprecationWarned(t *testing.T) {
 
 	_ = rr.Stop(id)
 	rr.Wait()
+}
+
+func TestStartTest_BackendValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "direct backend accepted",
+			body:       `{"type":"smoke","message_backend":"direct"}`,
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "kafka backend with context accepted",
+			body:       `{"type":"smoke","message_backend":"kafka","context":{"gateway_url":"ws://gw","provisioning_url":"http://prov","environment":"test","message_backend_urls":"localhost:9092"}}`,
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "nats backend rejected with 400",
+			body:       `{"type":"smoke","message_backend":"nats"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "unknown backend rejected with 400",
+			body:       `{"type":"smoke","message_backend":"zombie"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: platform.MessageBackendDirect}, zerolog.Nop())
+			h := NewRouter(rr, "", "", zerolog.Nop())
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(tt.body))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d; body: %s", w.Code, tt.wantStatus, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestStartTest_BackendURLsRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "kafka with empty backend URLs returns 400",
+			body:       `{"type":"smoke","message_backend":"kafka","context":{"gateway_url":"ws://gw","provisioning_url":"http://prov","environment":"test","message_backend_urls":""}}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "kafka with backend URLs returns 201",
+			body:       `{"type":"smoke","message_backend":"kafka","context":{"gateway_url":"ws://gw","provisioning_url":"http://prov","environment":"test","message_backend_urls":"localhost:9092"}}`,
+			wantStatus: http.StatusCreated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: platform.MessageBackendDirect}, zerolog.Nop())
+			h := NewRouter(rr, "", "", zerolog.Nop())
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(tt.body))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d; body: %s", w.Code, tt.wantStatus, w.Body.String())
+			}
+		})
+	}
 }
 
 func TestStartTest_AdminKeyID_WithoutAdminKey_Returns400(t *testing.T) {

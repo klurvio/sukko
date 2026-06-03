@@ -289,3 +289,27 @@ func TestKafkaNamespaceConfig_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestMessageBackendConfig_Validate_NATSRejected(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		backend string
+	}{
+		{"nats rejected", "nats"},
+		{"unknown rejected", "unknown_value"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := MessageBackendConfig{MessageBackendBase: MessageBackendBase{MessageBackend: tt.backend, KafkaBrokers: "localhost:19092"}}
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("expected error for MESSAGE_BACKEND=%q, got nil", tt.backend)
+			}
+			if !strings.Contains(err.Error(), "(valid: direct, kafka)") {
+				t.Errorf("error must list valid backends as '(valid: direct, kafka)', got: %v", err)
+			}
+		})
+	}
+}

@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -28,10 +29,10 @@ func newValidServerConfig() *ServerConfig {
 		GRPCPort:                 3006,
 		RateLimitBurstMultiplier: 2,
 		MessageBackendConfig: MessageBackendConfig{
-			MessageBackend:        "direct",
-			KafkaBrokers:          "localhost:19092",
-			NATSJetStreamReplicas: 1,
-			NATSJetStreamMaxAge:   24 * time.Hour,
+			MessageBackendBase: MessageBackendBase{
+				MessageBackend: "direct",
+				KafkaBrokers:   "localhost:19092",
+			},
 		},
 		MemoryLimit:                512 * 1024 * 1024, // 512MB
 		MaxConnections:             1000,
@@ -58,14 +59,13 @@ func newValidServerConfig() *ServerConfig {
 		CPUPollInterval:             1 * time.Second,
 		BroadcastType:               "valkey",
 		ValkeyAddrs:                 []string{"localhost:6379"},
-		NATSSubject:                 "ws.broadcast",
 		ClientSendBufferSize:        512,
 		SlowClientMaxAttempts:       3,
 		MemoryWarningPercent:        80,
 		MemoryCriticalPercent:       90,
 		BufferHighSaturationPercent: 90,
 		BufferPopulationWarnPercent: 25,
-		// Topic refresh interval (required for kafka/nats backends)
+		// Topic refresh interval (required for kafka backend)
 		TopicRefreshInterval: 60 * time.Second,
 		// Kafka topic defaults (needed when tests switch to kafka backend)
 		KafkaDefaultPartitions:        1,
@@ -103,14 +103,6 @@ func newValidServerConfig() *ServerConfig {
 		// Broadcast bus
 		BroadcastBufferSize:      1024,
 		BroadcastShutdownTimeout: 5 * time.Second,
-		// NATS broadcast tuning
-		NATSReconnectBufSize:    5 * 1024 * 1024,
-		NATSPingInterval:        10 * time.Second,
-		NATSMaxPingsOutstanding: 3,
-		NATSReconnectWait:       2 * time.Second,
-		NATSMaxReconnects:       -1,
-		NATSHealthCheckInterval: 10 * time.Second,
-		NATSFlushTimeout:        5 * time.Second,
 		// Valkey broadcast tuning
 		ValkeyWriteTimeout:            3 * time.Second,
 		ValkeyPublishTimeout:          100 * time.Millisecond,
@@ -137,14 +129,6 @@ func newValidServerConfig() *ServerConfig {
 		KafkaProducerCBTimeout:          30 * time.Second,
 		KafkaProducerCBMaxFailures:      5,
 		KafkaProducerCBHalfOpenReqs:     1,
-		// JetStream backend tuning
-		JetStreamReconnectWait:   2 * time.Second,
-		JetStreamMaxDeliver:      3,
-		JetStreamAckWait:         30 * time.Second,
-		JetStreamRefreshTimeout:  30 * time.Second,
-		JetStreamRefreshInterval: 60 * time.Second,
-		JetStreamReplayFetchWait: 2 * time.Second,
-		JetStreamMaxAge:          24 * time.Hour,
 		// Valkey config
 		ValkeyMasterName: "mymaster",
 		ValkeyChannel:    "ws.broadcast",
@@ -440,7 +424,7 @@ func TestServerConfig_Validate_BroadcastType(t *testing.T) {
 		bType       string
 		shouldError bool
 	}{
-		{"nats", "nats", false},
+		{"nats rejected", "nats", true},
 		{"valkey", "valkey", false},
 		{"redis rejected", "redis", true},
 		{"empty", "", true},
@@ -452,13 +436,10 @@ func TestServerConfig_Validate_BroadcastType(t *testing.T) {
 			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.BroadcastType = tt.bType
-			switch tt.bType {
-			case "valkey":
+			if tt.bType == "valkey" {
 				cfg.ValkeyAddrs = []string{"localhost:26379"}
 				cfg.ValkeyMasterName = "mymaster"
 				cfg.ValkeyChannel = "ws.broadcast"
-			case "nats":
-				cfg.NATSURLs = []string{"nats://localhost:4222"}
 			}
 			err := cfg.Validate()
 			if tt.shouldError && err == nil {
@@ -468,6 +449,22 @@ func TestServerConfig_Validate_BroadcastType(t *testing.T) {
 				t.Errorf("Should not error: %v", err)
 			}
 		})
+	}
+}
+
+func TestServerConfig_Validate_BroadcastTypeOnlyValkey(t *testing.T) {
+	t.Parallel()
+	cfg := newValidServerConfig()
+	cfg.BroadcastType = "unknown_value"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Expected error for unknown broadcast type")
+	}
+	if !strings.Contains(err.Error(), "valid: valkey") {
+		t.Errorf("Error should mention valid: valkey, got: %v", err)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "nats") {
+		t.Errorf("Error should NOT mention nats, got: %v", err)
 	}
 }
 
@@ -812,16 +809,14 @@ func TestServerConfig_Validate_MessageBackend(t *testing.T) {
 	tests := []struct {
 		name        string
 		backend     string
-		jsURLs      string
 		shouldError bool
 		errorField  string
 	}{
-		{"direct", "direct", "", false, ""},
-		{"kafka", "kafka", "", false, ""},
-		{"nats with urls", "nats", "nats://localhost:4222", false, ""},
-		{"nats without urls", "nats", "", true, "NATS_JETSTREAM_URLS"},
-		{"invalid backend", "redis", "", true, "MESSAGE_BACKEND"},
-		{"empty backend", "", "", true, "MESSAGE_BACKEND"},
+		{"direct", "direct", false, ""},
+		{"kafka", "kafka", false, ""},
+		{"nats rejected", "nats", true, "MESSAGE_BACKEND"},
+		{"invalid backend", "redis", true, "MESSAGE_BACKEND"},
+		{"empty backend", "", true, "MESSAGE_BACKEND"},
 	}
 
 	for _, tt := range tests {
@@ -829,7 +824,6 @@ func TestServerConfig_Validate_MessageBackend(t *testing.T) {
 			t.Parallel()
 			cfg := newValidServerConfig()
 			cfg.MessageBackend = tt.backend
-			cfg.NATSJetStreamURLs = tt.jsURLs
 
 			err := cfg.Validate()
 			if tt.shouldError {
@@ -847,48 +841,6 @@ func TestServerConfig_Validate_MessageBackend(t *testing.T) {
 	}
 }
 
-func TestServerConfig_Validate_NATSJetStreamBounds(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		replicas   int
-		maxAge     time.Duration
-		wantErr    bool
-		errContain string
-	}{
-		{"valid defaults", 1, 24 * time.Hour, false, ""},
-		{"valid 3 replicas", 3, 1 * time.Hour, false, ""},
-		{"zero replicas", 0, 24 * time.Hour, true, "NATS_JETSTREAM_REPLICAS"},
-		{"negative replicas", -1, 24 * time.Hour, true, "NATS_JETSTREAM_REPLICAS"},
-		{"zero max age", 1, 0, true, "NATS_JETSTREAM_MAX_AGE"},
-		{"too small max age", 1, 30 * time.Second, true, "NATS_JETSTREAM_MAX_AGE"},
-		{"min valid max age", 1, 1 * time.Minute, false, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := newValidServerConfig()
-			cfg.MessageBackend = "nats"
-			cfg.NATSJetStreamURLs = "nats://localhost:4222"
-			cfg.NATSJetStreamReplicas = tt.replicas
-			cfg.NATSJetStreamMaxAge = tt.maxAge
-
-			err := cfg.Validate()
-			if tt.wantErr {
-				if err == nil {
-					t.Error("expected error")
-				} else if tt.errContain != "" && !strings.Contains(err.Error(), tt.errContain) {
-					t.Errorf("error should contain %q, got: %v", tt.errContain, err)
-				}
-			} else if err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-		})
-	}
-}
-
 func TestServerConfig_Validate_TopicRefreshInterval(t *testing.T) {
 	t.Parallel()
 
@@ -899,12 +851,10 @@ func TestServerConfig_Validate_TopicRefreshInterval(t *testing.T) {
 		wantErr  bool
 	}{
 		{"kafka valid", "kafka", 60 * time.Second, false},
-		{"nats valid", "nats", 30 * time.Second, false},
 		{"direct skips validation", "direct", 0, false},
 		{"kafka zero", "kafka", 0, true},
 		{"kafka too small", "kafka", 500 * time.Millisecond, true},
 		{"kafka min valid", "kafka", 1 * time.Second, false},
-		{"nats zero", "nats", 0, true},
 	}
 
 	for _, tt := range tests {
@@ -913,9 +863,6 @@ func TestServerConfig_Validate_TopicRefreshInterval(t *testing.T) {
 			cfg := newValidServerConfig()
 			cfg.MessageBackend = tt.backend
 			cfg.TopicRefreshInterval = tt.interval
-			if tt.backend == "nats" {
-				cfg.NATSJetStreamURLs = "nats://localhost:4222"
-			}
 
 			err := cfg.Validate()
 			if tt.wantErr && err == nil {
@@ -1291,22 +1238,12 @@ func TestServerConfig_Validate_NewDurationFields(t *testing.T) {
 		{"ConnRateLimitIPTTL", func(c *ServerConfig) { c.ConnRateLimitIPTTL = 0 }, "CONN_RATE_LIMIT_IP_TTL"},
 		{"ConnRateLimitCleanupInterval", func(c *ServerConfig) { c.ConnRateLimitCleanupInterval = 0 }, "CONN_RATE_LIMIT_CLEANUP_INTERVAL"},
 		{"BroadcastShutdownTimeout", func(c *ServerConfig) { c.BroadcastShutdownTimeout = 0 }, "BROADCAST_SHUTDOWN_TIMEOUT"},
-		{"NATSPingInterval", func(c *ServerConfig) { c.NATSPingInterval = 0 }, "NATS_PING_INTERVAL"},
-		{"NATSReconnectWait", func(c *ServerConfig) { c.NATSReconnectWait = 0 }, "NATS_RECONNECT_WAIT"},
-		{"NATSHealthCheckInterval", func(c *ServerConfig) { c.NATSHealthCheckInterval = 0 }, "NATS_HEALTH_CHECK_INTERVAL"},
-		{"NATSFlushTimeout", func(c *ServerConfig) { c.NATSFlushTimeout = 0 }, "NATS_FLUSH_TIMEOUT"},
 		{"KafkaBatchTimeout", func(c *ServerConfig) { c.KafkaBatchTimeout = 0 }, "KAFKA_BATCH_TIMEOUT"},
 		{"KafkaFetchMaxWait", func(c *ServerConfig) { c.KafkaFetchMaxWait = 0 }, "KAFKA_FETCH_MAX_WAIT"},
 		{"KafkaSessionTimeout", func(c *ServerConfig) { c.KafkaSessionTimeout = 0 }, "KAFKA_SESSION_TIMEOUT"},
 		{"KafkaRebalanceTimeout", func(c *ServerConfig) { c.KafkaRebalanceTimeout = 0 }, "KAFKA_REBALANCE_TIMEOUT"},
 		{"KafkaBackpressureCheckInterval", func(c *ServerConfig) { c.KafkaBackpressureCheckInterval = 0 }, "KAFKA_BACKPRESSURE_CHECK_INTERVAL"},
 		{"KafkaProducerCBTimeout", func(c *ServerConfig) { c.KafkaProducerCBTimeout = 0 }, "KAFKA_PRODUCER_CB_TIMEOUT"},
-		{"JetStreamReconnectWait", func(c *ServerConfig) { c.JetStreamReconnectWait = 0 }, "JETSTREAM_RECONNECT_WAIT"},
-		{"JetStreamAckWait", func(c *ServerConfig) { c.JetStreamAckWait = 0 }, "JETSTREAM_ACK_WAIT"},
-		{"JetStreamRefreshTimeout", func(c *ServerConfig) { c.JetStreamRefreshTimeout = 0 }, "JETSTREAM_REFRESH_TIMEOUT"},
-		{"JetStreamRefreshInterval", func(c *ServerConfig) { c.JetStreamRefreshInterval = 0 }, "JETSTREAM_REFRESH_INTERVAL"},
-		{"JetStreamReplayFetchWait", func(c *ServerConfig) { c.JetStreamReplayFetchWait = 0 }, "JETSTREAM_REPLAY_FETCH_WAIT"},
-		{"JetStreamMaxAge", func(c *ServerConfig) { c.JetStreamMaxAge = 0 }, "JETSTREAM_MAX_AGE"},
 	}
 
 	for _, tt := range tests {
@@ -1335,8 +1272,6 @@ func TestServerConfig_Validate_NewIntFields(t *testing.T) {
 		{"MaxReplayMessages", func(c *ServerConfig) { c.MaxReplayMessages = 0 }, "WS_MAX_REPLAY_MESSAGES"},
 		{"BufferMaxSamples", func(c *ServerConfig) { c.BufferMaxSamples = 0 }, "WS_BUFFER_MAX_SAMPLES"},
 		{"BroadcastBufferSize", func(c *ServerConfig) { c.BroadcastBufferSize = 0 }, "BROADCAST_BUFFER_SIZE"},
-		{"NATSReconnectBufSize", func(c *ServerConfig) { c.NATSReconnectBufSize = 0 }, "NATS_RECONNECT_BUF_SIZE"},
-		{"NATSMaxPingsOutstanding", func(c *ServerConfig) { c.NATSMaxPingsOutstanding = 0 }, "NATS_MAX_PINGS_OUTSTANDING"},
 		{"KafkaBatchSize", func(c *ServerConfig) { c.KafkaBatchSize = 0 }, "KAFKA_BATCH_SIZE"},
 		{"KafkaFetchMinBytes", func(c *ServerConfig) { c.KafkaFetchMinBytes = 0 }, "KAFKA_FETCH_MIN_BYTES"},
 		{"KafkaFetchMaxBytes", func(c *ServerConfig) { c.KafkaFetchMaxBytes = 0 }, "KAFKA_FETCH_MAX_BYTES"},
@@ -1346,7 +1281,6 @@ func TestServerConfig_Validate_NewIntFields(t *testing.T) {
 		{"KafkaProducerRecordRetries", func(c *ServerConfig) { c.KafkaProducerRecordRetries = 0 }, "KAFKA_PRODUCER_RECORD_RETRIES"},
 		{"KafkaProducerCBMaxFailures", func(c *ServerConfig) { c.KafkaProducerCBMaxFailures = 0 }, "KAFKA_PRODUCER_CB_MAX_FAILURES"},
 		{"KafkaProducerCBHalfOpenReqs", func(c *ServerConfig) { c.KafkaProducerCBHalfOpenReqs = 0 }, "KAFKA_PRODUCER_CB_HALF_OPEN_REQS"},
-		{"JetStreamMaxDeliver", func(c *ServerConfig) { c.JetStreamMaxDeliver = 0 }, "JETSTREAM_MAX_DELIVER"},
 	}
 
 	for _, tt := range tests {
@@ -1393,34 +1327,6 @@ func TestServerConfig_Validate_PercentageFields(t *testing.T) {
 	}
 }
 
-func TestServerConfig_Validate_NATSMaxReconnects(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name        string
-		value       int
-		shouldError bool
-	}{
-		{"unlimited (-1)", -1, false},
-		{"zero", 0, false},
-		{"positive", 10, false},
-		{"invalid (-2)", -2, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := newValidServerConfig()
-			cfg.NATSMaxReconnects = tt.value
-			err := cfg.Validate()
-			if tt.shouldError && err == nil {
-				t.Error("Should error")
-			}
-			if !tt.shouldError && err != nil {
-				t.Errorf("Should not error: %v", err)
-			}
-		})
-	}
-}
-
 // --- Edition Gate Tests ---
 // MUST NOT use t.Parallel() — tests share license.SetPublicKeyForTesting.
 
@@ -1454,11 +1360,6 @@ func TestServerConfig_Validate_EditionGates_Community(t *testing.T) {
 			name:   "community rejects kafka backend",
 			modify: func(c *ServerConfig) { c.MessageBackend = "kafka" },
 			errSub: "MESSAGE_BACKEND=kafka",
-		},
-		{
-			name:   "community rejects nats backend",
-			modify: func(c *ServerConfig) { c.MessageBackend = "nats"; c.NATSJetStreamURLs = "nats://localhost:4222" },
-			errSub: "MESSAGE_BACKEND=nats",
 		},
 		{
 			name: "community rejects alerting",
@@ -1508,10 +1409,6 @@ func TestServerConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
 		{
 			name:   "pro accepts kafka backend",
 			modify: func(c *ServerConfig) { c.MessageBackend = "kafka" },
-		},
-		{
-			name:   "pro accepts nats backend",
-			modify: func(c *ServerConfig) { c.MessageBackend = "nats"; c.NATSJetStreamURLs = "nats://localhost:4222" },
 		},
 		{
 			name: "pro accepts alerting",
@@ -1733,6 +1630,18 @@ func TestServerConfig_KafkaRebalanceSessionCrossField(t *testing.T) {
 					tt.rebalanceTimeout, tt.sessionTimeout, err)
 			}
 		})
+	}
+}
+
+func TestServerConfig_Validate_LogConfig_NoNATSFields(t *testing.T) {
+	t.Parallel()
+	cfg := newValidServerConfig()
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	cfg.LogConfig(logger)
+	output := buf.String()
+	if strings.Contains(strings.ToLower(output), "nats") {
+		t.Errorf("LogConfig output must not contain any 'nats' field, got: %s", output)
 	}
 }
 

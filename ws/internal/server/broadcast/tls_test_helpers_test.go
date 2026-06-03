@@ -1,7 +1,7 @@
 package broadcast
 
 // tlsTestCACert is a self-signed test certificate shared across TLS tests.
-// Used by nats_tls_test.go and valkey_tls_test.go.
+// Used by valkey_tls_test.go.
 var tlsTestCACert = []byte(`-----BEGIN CERTIFICATE-----
 MIIDATCCAemgAwIBAgIUPwru35BdNF7VD/F7jZJDg5LsMdwwDQYJKoZIhvcNAQEL
 BQAwDzENMAsGA1UEAwwEdGVzdDAgFw0yNjAzMDIwMzQ3NTBaGA8yMTI2MDIwNjAz

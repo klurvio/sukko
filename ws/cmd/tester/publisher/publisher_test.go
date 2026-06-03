@@ -3,6 +3,7 @@ package publisher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -150,9 +151,25 @@ func TestDirectPublisher_ImplementsPublisher(t *testing.T) {
 func TestNewPublisher_Factory_UnsupportedMode(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewPublisher(context.Background(), Config{Mode: "invalid"})
-	if err == nil {
-		t.Fatal("expected error for unsupported mode")
+	tests := []struct {
+		name string
+		mode string
+	}{
+		{"invalid mode", "invalid"},
+		{"nats mode rejected", "nats"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := NewPublisher(context.Background(), Config{Mode: tt.mode})
+			if err == nil {
+				t.Fatal("expected error for unsupported mode")
+			}
+			if !errors.Is(err, ErrUnsupportedPublisherMode) {
+				t.Errorf("expected ErrUnsupportedPublisherMode, got: %v", err)
+			}
+		})
 	}
 }
 

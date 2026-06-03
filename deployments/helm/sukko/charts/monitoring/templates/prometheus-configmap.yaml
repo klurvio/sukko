@@ -77,10 +77,6 @@ data:
           - targets: ['{{ .Release.Name }}-provisioning:8080']
         metrics_path: /metrics
 
-      # Note: NATS monitoring port 8222 exposes JSON endpoints (/varz, /connz),
-      # not Prometheus format. Use nats-prometheus-exporter sidecar if needed.
-      # For now, NATS health is monitored via ws-server connection status.
-
       # Prometheus self-monitoring
       - job_name: 'prometheus'
         static_configs:

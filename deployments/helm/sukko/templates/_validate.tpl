@@ -29,7 +29,7 @@
 {{- end -}}
 
 {{- /* === Valkey === */ -}}
-{{- $broadcastType := index .Values "ws-server" "broadcastType" | default "nats" -}}
+{{- $broadcastType := index .Values "ws-server" "broadcastType" | default "valkey" -}}
 {{- $valkeyAddrs := "" -}}
 {{- if index .Values "ws-server" "valkey" -}}
   {{- $valkeyAddrs = index .Values "ws-server" "valkey" "addrs" | default "" -}}

@@ -32,7 +32,7 @@ const (
 // resolves them to the wire format internally. OutgoingMsg is in the same package,
 // so there is no cross-package type leak.
 //
-// The broadcast fan-out path (NATS → subscription index → client.send channel)
+// The broadcast fan-out path (Valkey → subscription index → client.send channel)
 // does NOT touch this interface. Only the per-client write pump goroutine calls
 // these methods — no concurrent access to a single Transport instance.
 type Transport interface {

@@ -1,6 +1,6 @@
 // Package publisher provides message publishing backends for the tester service.
-// The Publisher interface abstracts direct WebSocket, Kafka, and NATS JetStream
-// publishing so the same test logic works against any backend.
+// The Publisher interface abstracts direct WebSocket and Kafka publishing
+// so the same test logic works against any backend.
 package publisher
 
 import (
@@ -18,7 +18,7 @@ import (
 
 // Publisher abstracts message publishing across backends.
 // Implementations: DirectPublisher (WebSocket), ClientPublisher (ws.Client wrapper),
-// KafkaPublisher (franz-go), NATSPublisher (JetStream).
+// KafkaPublisher (franz-go).
 type Publisher interface {
 	// Publish sends a message to the given channel.
 	// The payload is raw JSON (caller generates it via Generator).

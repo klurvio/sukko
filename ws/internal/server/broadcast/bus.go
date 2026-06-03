@@ -1,5 +1,5 @@
 // Package broadcast provides an abstraction for inter-instance message broadcasting.
-// It allows switching between different backends (Valkey, NATS) without code changes.
+// It provides Valkey-based inter-instance message broadcasting.
 //
 // Usage:
 //
@@ -95,7 +95,7 @@ type Message struct {
 
 // Metrics contains operational metrics for the broadcast bus.
 type Metrics struct {
-	// Type identifies the backend ("valkey" or "nats")
+	// Type identifies the backend ("valkey")
 	Type string `json:"type"`
 
 	// Healthy indicates if the backend connection is operational
@@ -121,9 +121,8 @@ type Metrics struct {
 }
 
 // Config holds configuration for creating a Bus.
-// Backend-specific fields are only used when the corresponding Type is selected.
 type Config struct {
-	// Type selects the backend: "valkey" or "nats"
+	// Type selects the backend: "valkey"
 	Type string
 
 	// BufferSize is the subscriber channel buffer size (default: 1024)
@@ -134,9 +133,6 @@ type Config struct {
 
 	// Valkey-specific configuration
 	Valkey ValkeyConfig
-
-	// NATS-specific configuration
-	NATS NATSConfig
 }
 
 // ValkeyConfig holds Valkey/Redis-specific configuration.
@@ -180,56 +176,6 @@ type ValkeyConfig struct {
 	PublishStalenessThreshold time.Duration // Log warning if no publish within this window
 
 	// TLS for managed Valkey/Redis services (ElastiCache, Memorystore, Upstash, etc.)
-	TLSEnabled  bool
-	TLSInsecure bool   // Skip TLS verification (not for production)
-	TLSCAPath   string // Custom CA certificate path
-}
-
-// NATSConfig holds NATS-specific configuration.
-type NATSConfig struct {
-	// URLs is the list of NATS server URLs (e.g., ["nats://localhost:4222"])
-	URLs []string
-
-	// ClusterMode enables connection to multiple NATS servers for HA
-	ClusterMode bool
-
-	// Subject is the NATS subject for broadcasting (default: "ws.broadcast")
-	Subject string
-
-	// Token for token-based authentication (preferred)
-	Token string
-
-	// User for user/password authentication
-	User string
-
-	// Password for user/password authentication
-	Password string
-
-	// Name is the client name for NATS connections (for debugging)
-	Name string
-
-	// ReconnectWait is the wait time between reconnect attempts
-	ReconnectWait time.Duration
-
-	// MaxReconnects is the maximum number of reconnect attempts (-1 for unlimited)
-	MaxReconnects int
-
-	// ReconnectBufSize is the NATS reconnection buffer size in bytes
-	ReconnectBufSize int
-
-	// PingInterval is the interval between client-to-server pings
-	PingInterval time.Duration
-
-	// MaxPingsOutstanding is the max outstanding pings before declaring connection stale
-	MaxPingsOutstanding int
-
-	// HealthCheckInterval is the interval for periodic NATS health checks
-	HealthCheckInterval time.Duration
-
-	// FlushTimeout is the timeout for flushing the NATS connection during health checks
-	FlushTimeout time.Duration
-
-	// TLS for managed NATS services (Synadia Cloud, etc.)
 	TLSEnabled  bool
 	TLSInsecure bool   // Skip TLS verification (not for production)
 	TLSCAPath   string // Custom CA certificate path

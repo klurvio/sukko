@@ -62,7 +62,7 @@ func (svc *GRPCService) Publish(ctx context.Context, req *serverv1.PublishReques
 		return nil, status.Error(codes.InvalidArgument, "data is required")
 	}
 
-	// Select any server (message goes to Kafka → NATS broadcast → all shards)
+	// Select any server (message goes to Kafka → Valkey broadcast → all shards)
 	s := svc.selectServer()
 
 	// Publish to message backend (routing rules → Kafka topic)

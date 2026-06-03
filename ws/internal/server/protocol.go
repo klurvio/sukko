@@ -1,5 +1,5 @@
 // Package server implements the core WebSocket server with sharded connections,
-// Kafka consumption, and NATS broadcast.
+// Kafka consumption, and Valkey broadcast.
 //
 // Protocol constants and types in this file are used exclusively by the
 // ws-server and MUST NOT be imported by the gateway. Shared types (used by

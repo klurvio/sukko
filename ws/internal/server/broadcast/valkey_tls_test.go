@@ -153,4 +153,4 @@ func TestNewValkeyBus_MissingAddrs(t *testing.T) {
 	}
 }
 
-// Test CA cert defined in tls_test_helpers_test.go (shared across NATS/Valkey TLS tests).
+// Test CA cert defined in tls_test_helpers_test.go (shared across Valkey TLS tests).

@@ -75,7 +75,7 @@ type Server struct {
 	maxConns int                    // Per-shard connection limit
 	logger   zerolog.Logger         // Structured logger for all server events
 	listener net.Listener           // TCP listener for accepting connections
-	backend  backend.MessageBackend // Pluggable message backend (direct, kafka, nats)
+	backend  backend.MessageBackend // Pluggable message backend (direct, kafka)
 
 	// Connection management
 	connections       *ConnectionPool    // Pre-allocated connection pool

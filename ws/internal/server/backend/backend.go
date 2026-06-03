@@ -1,14 +1,12 @@
 // Package backend provides the pluggable message backend abstraction for Sukko WS.
 //
 // The MessageBackend interface decouples the ws-server from any specific message
-// ingestion system. Three implementations are provided:
+// ingestion system. Two implementations are provided:
 //
 //   - DirectBackend: routes client-published messages directly to the broadcast bus
 //     with zero external dependencies. No persistence, no replay.
 //   - KafkaBackend: wraps the existing Kafka/Redpanda consumer pool and producer.
 //     Full persistence, offset-based replay, multi-tenant consumer isolation.
-//   - JetStreamBackend: uses NATS JetStream for persistent streams with
-//     sequence-based replay. Lighter than Kafka, supports multi-tenant stream isolation.
 //
 // The backend is selected at startup via the MESSAGE_BACKEND environment variable.
 package backend

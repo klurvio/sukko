@@ -177,41 +177,6 @@
       "type": "logs"
     },
     {
-      "datasource": {
-        "type": "loki",
-        "uid": "loki"
-      },
-      "gridPos": {
-        "h": 10,
-        "w": 12,
-        "x": 12,
-        "y": 25
-      },
-      "id": 4,
-      "options": {
-        "dedupStrategy": "none",
-        "enableLogDetails": true,
-        "prettifyLogMessage": false,
-        "showCommonLabels": false,
-        "showLabels": true,
-        "showTime": true,
-        "sortOrder": "Descending",
-        "wrapLogMessage": false
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "loki"
-          },
-          "expr": "{app=\"nats\"}",
-          "refId": "A"
-        }
-      ],
-      "title": "NATS Logs",
-      "type": "logs"
-    },
-    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -287,7 +252,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{app=~\"ws-server|ws-gateway|redpanda|nats\"} |~ \"(?i)(error|warn|fail|panic)\"",
+          "expr": "{app=~\"ws-server|ws-gateway|redpanda\"} |~ \"(?i)(error|warn|fail|panic)\"",
           "refId": "A"
         }
       ],

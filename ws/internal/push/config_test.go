@@ -26,10 +26,10 @@ func validConfig() Config {
 			GRPCReconnectMaxDelay: 30 * time.Second,
 		},
 		MessageBackendConfig: platform.MessageBackendConfig{
-			MessageBackend:        "kafka",
-			KafkaBrokers:          "localhost:19092",
-			NATSJetStreamReplicas: 1,
-			NATSJetStreamMaxAge:   24 * time.Hour,
+			MessageBackendBase: platform.MessageBackendBase{
+				MessageBackend: "kafka",
+				KafkaBrokers:   "localhost:19092",
+			},
 		},
 		KafkaNamespaceConfig: platform.KafkaNamespaceConfig{
 			ValidNamespaces: "local,dev,stag,prod",
@@ -65,7 +65,7 @@ func TestConfigValidate(t *testing.T) {
 			modify: func(c *Config) {
 				c.MessageBackend = "direct"
 			},
-			wantErr: "push notifications require kafka or nats",
+			wantErr: "push notifications require MESSAGE_BACKEND=kafka",
 		},
 		{
 			name: "empty database URL",
@@ -117,12 +117,11 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: "PUSH_MAX_RETRIES must be >= 0",
 		},
 		{
-			name: "nats message backend is valid",
+			name: "nats message backend is rejected",
 			modify: func(c *Config) {
 				c.MessageBackend = "nats"
-				c.NATSJetStreamURLs = "nats://localhost:4222"
 			},
-			wantErr: "",
+			wantErr: "MESSAGE_BACKEND",
 		},
 		{
 			name: "max retries zero is valid",

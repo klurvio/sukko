@@ -23,10 +23,12 @@ func TestTesterConfig_Validate(t *testing.T) {
 				LogFormat:   "json",
 				Environment: "test",
 			},
+			MessageBackendBase: platform.MessageBackendBase{
+				MessageBackend: "direct",
+			},
 			Port:             8090,
 			GatewayURL:       "ws://localhost:3000",
 			ProvisioningURL:  "http://localhost:8080",
-			MessageBackend:   "direct",
 			AdminKeyID:       provauth.BootstrapAdminKeyID, // mirrors envDefault:"bootstrap-0"
 			JWTLifetime:      15 * time.Minute,
 			JWTRefreshBefore: 2 * time.Minute,
@@ -66,7 +68,12 @@ func TestTesterConfig_Validate(t *testing.T) {
 		{
 			name:    "invalid message backend grpc",
 			modify:  func(c *TesterConfig) { c.MessageBackend = "grpc" },
-			wantErr: "MESSAGE_BACKEND must be 'direct', 'kafka', or 'nats'",
+			wantErr: "MESSAGE_BACKEND must be 'direct' or 'kafka'",
+		},
+		{
+			name:    "nats backend rejected",
+			modify:  func(c *TesterConfig) { c.MessageBackend = "nats" },
+			wantErr: "MESSAGE_BACKEND must be 'direct' or 'kafka'",
 		},
 		{
 			name: "kafka without brokers",
@@ -102,21 +109,6 @@ func TestTesterConfig_Validate(t *testing.T) {
 			name:    "key expiry less than JWT lifetime",
 			modify:  func(c *TesterConfig) { c.KeyExpiry = 1 * time.Minute },
 			wantErr: "TESTER_KEY_EXPIRY",
-		},
-		{
-			name: "nats with URLs",
-			modify: func(c *TesterConfig) {
-				c.MessageBackend = "nats"
-				c.NATSJetStreamURLs = "nats://localhost:4222"
-			},
-		},
-		{
-			name: "nats without URLs",
-			modify: func(c *TesterConfig) {
-				c.MessageBackend = "nats"
-				c.NATSJetStreamURLs = ""
-			},
-			wantErr: "NATS_JETSTREAM_URLS required when MESSAGE_BACKEND=nats",
 		},
 		{
 			name:   "admin key file not set",

@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Sukko is a multi-tenant WebSocket infrastructure platform built in Go. It provides real-time data distribution for trading/market data via a gateway → server → client pipeline, with Kafka/Redpanda ingestion and NATS broadcast.
+Sukko is a multi-tenant WebSocket infrastructure platform built in Go. It provides real-time data distribution for trading/market data via a gateway → server → client pipeline, with Kafka/Redpanda ingestion and Valkey broadcast.
 
 **Services:**
 - **ws-gateway** — WebSocket reverse proxy with JWT auth, tenant isolation, rate limiting, connection tracking
-- **ws-server** — Core WebSocket server with sharded connections, Kafka consumption, NATS broadcast
+- **ws-server** — Core WebSocket server with sharded connections, Kafka consumption, Valkey broadcast
 - **provisioning** — Multi-tenant provisioning API (tenants, API keys, topics, channel rules)
 
 ## Development Commands
@@ -40,7 +40,7 @@ kubectl logs -n sukko-demo -l app.kubernetes.io/name=ws-gateway --tail=50
 ### Data Flow
 ```
 Sukko API → Redpanda (Kafka) → ws-server (franz-go consumer)
-    → NATS broadcast bus → ws-server shards → WebSocket clients
+    → Valkey broadcast bus → ws-server shards → WebSocket clients
                                     ↑
                               ws-gateway (reverse proxy, auth, rate limiting)
 ```
@@ -59,7 +59,7 @@ ws/
 │   │   └── orchestration/ # Multi-tenant consumer pool
 │   └── shared/          # Shared across gateway + server
 │       ├── auth/        # JWT, OIDC, channel patterns
-│       ├── broadcast/   # NATS/Valkey broadcast bus
+│       ├── broadcast/   # Valkey broadcast bus
 │       ├── kafka/       # franz-go consumer/producer
 │       ├── platform/    # Config structs (env tags)
 │       ├── protocol/    # WebSocket protocol types
@@ -81,7 +81,7 @@ docs/architecture/       # Plans, findings, session handoffs
 ### Key Technologies
 - **Go 1.26+** with modern features (any, slices, maps, for range N, errors.Join, wg.Go, errors.AsType)
 - **franz-go** for Kafka/Redpanda consumption (consumer groups, partition management)
-- **NATS** for inter-pod broadcast (publish/subscribe)
+- **Valkey** for inter-pod broadcast (publish/subscribe)
 - **gRPC** + **protobuf** for internal service-to-service communication (buf for codegen)
 - **gorilla/websocket** for WebSocket connections
 - **zerolog** for structured logging
@@ -105,7 +105,7 @@ type ServerConfig struct {
     Port int   `env:"SERVER_PORT" envDefault:"8080"`
 }
 ```
-Helm and Docker Compose override via env vars only when a deployment needs a non-default value. Helm templates auto-wire Kubernetes service discovery (e.g., `{{ .Release.Name }}-nats`). Env var names in Go MUST match Helm template values.
+Helm and Docker Compose override via env vars only when a deployment needs a non-default value. Helm templates auto-wire Kubernetes service discovery (e.g., `{{ .Release.Name }}-valkey`). Env var names in Go MUST match Helm template values.
 
 ## Commit Message Format
 
@@ -244,11 +244,11 @@ Tests MUST be run with Go's race detector (`-race` flag) in local development an
 
 **Authentication & Replay Protection** — JWT validation MUST verify expiration (`exp`), issuer (`iss` when configured), and signature. JWTs MUST include `iat` (issued-at) and `exp` claims — tokens without expiration MUST be rejected. Token replay MUST be mitigated: short-lived tokens (≤15 min default), `jti` (JWT ID) claim SHOULD be used for critical operations, and the auth refresh protocol MUST issue a new token (not extend the old one). API key authentication MUST use constant-time comparison to prevent timing attacks. Webhook endpoints (e.g., license reload) MUST validate a shared secret — default deny if no secret is configured.
 
-**Tenant Isolation** — Every data path MUST enforce tenant boundaries. Cross-tenant data leakage is a critical severity bug. Kafka topics, NATS subjects, broadcast subjects, WebSocket subscriptions, and push subscriptions MUST be scoped to the authenticated tenant. Provisioning API MUST enforce `RequireTenant()` middleware — a tenant JWT MUST NOT access another tenant's resources. Database queries MUST include `tenant_id` in WHERE clauses — no unscoped queries that could return cross-tenant data.
+**Tenant Isolation** — Every data path MUST enforce tenant boundaries. Cross-tenant data leakage is a critical severity bug. Kafka topics, broadcast subjects, WebSocket subscriptions, and push subscriptions MUST be scoped to the authenticated tenant. Provisioning API MUST enforce `RequireTenant()` middleware — a tenant JWT MUST NOT access another tenant's resources. Database queries MUST include `tenant_id` in WHERE clauses — no unscoped queries that could return cross-tenant data.
 
 **Admin & Operator Endpoints** — Admin and tenant auth is always enforced — there is no disabled or anonymous mode. All admin and operator endpoints MUST require authentication (admin JWT or equivalent). All tenant endpoints MUST require tenant JWT or API key authentication. Default deny — if no admin token is configured, admin endpoints MUST reject all requests. The `/config` endpoint MUST redact sensitive fields (fields tagged `redact:"true"`).
 
-**Transport Security** — TLS MUST be enforced for all external-facing endpoints in production. Internal service-to-service communication (gRPC, NATS, Kafka) SHOULD use TLS when crossing network boundaries. TLS configuration MUST support custom CA certificates for private PKI.
+**Transport Security** — TLS MUST be enforced for all external-facing endpoints in production. Internal service-to-service communication (gRPC, Valkey, Kafka) SHOULD use TLS when crossing network boundaries. TLS configuration MUST support custom CA certificates for private PKI.
 
 **CORS** — CORS allowed origins MUST be explicitly configured — no wildcard (`*`) in production. Preflight responses MUST NOT cache longer than `CORS_MAX_AGE` (default 3600s). Only required headers and methods MUST be allowed.
 

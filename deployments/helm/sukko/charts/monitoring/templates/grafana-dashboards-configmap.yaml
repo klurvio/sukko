@@ -36,8 +36,6 @@ data:
     {{ .Files.Get "dashboards/websocket.json" | nindent 4 }}
   redpanda.json: |
     {{ .Files.Get "dashboards/redpanda.json" | nindent 4 }}
-  nats.json: |
-    {{ .Files.Get "dashboards/nats.json" | nindent 4 }}
   logs.json: |
     {{ .Files.Get "dashboards/logs.json" | nindent 4 }}
 {{- end }}

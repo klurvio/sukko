@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/klurvio/sukko/cmd/tester/runner"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/rs/zerolog"
 )
 
@@ -129,6 +130,12 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject unrecognized backends before processing context.
+	if req.MessageBackend != "" && req.MessageBackend != platform.MessageBackendDirect && req.MessageBackend != platform.MessageBackendKafka {
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("unsupported message_backend %q (valid: direct, kafka)", req.MessageBackend))
+		return
+	}
+
 	// Validate context block (all-or-nothing)
 	if req.Context != nil {
 		if req.Context.GatewayURL == "" || req.Context.ProvisioningURL == "" ||
@@ -136,8 +143,8 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusBadRequest, errCodeIncompleteCtx, "all core context fields required: gateway_url, provisioning_url, environment")
 			return
 		}
-		if (req.MessageBackend == "kafka" || req.MessageBackend == "nats") && req.Context.MessageBackendURLs == "" {
-			httputil.WriteError(w, http.StatusBadRequest, errCodeMissingBackend, "message_backend_urls required when message_backend is kafka or nats")
+		if req.MessageBackend == platform.MessageBackendKafka && req.Context.MessageBackendURLs == "" {
+			httputil.WriteError(w, http.StatusBadRequest, errCodeMissingBackend, "message_backend_urls required when message_backend is kafka")
 			return
 		}
 	}

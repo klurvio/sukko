@@ -22,23 +22,6 @@
 #   kafka:
 #     brokers: "your-kafka-host:9092"
 #
-# ── NATS JetStream message backend ──────────────────────────────────
-# Copy this block for lightweight persistent streaming:
-#
-# ws-server:
-#   messageBackend: nats
-# nats:
-#   jetstream:
-#     enabled: true
-#
-# ── NATS broadcast bus ──────────────────────────────────────────────
-# Copy this block to switch from Valkey to NATS for broadcast:
-#
-# ws-server:
-#   broadcastType: nats
-# nats:
-#   enabled: true
-#
 # ── PostgreSQL provisioning database ────────────────────────────────
 # In-cluster PostgreSQL (default when postgresql.enabled: true):
 #
@@ -219,38 +202,6 @@ valkey:
     maxmemoryPolicy: "allkeys-lru"
   auth:
     enabled: true
-
-# =============================================================================
-# NATS — Optional broadcast bus (disabled by default, enable when BROADCAST_TYPE=nats)
-# =============================================================================
-nats:
-  enabled: false
-  replicaCount: 1
-  image:
-    repository: nats
-    tag: 2.10-alpine
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "64Mi"
-    limits:
-      cpu: "500m"
-      memory: "256Mi"
-  ports:
-    client: 4222
-    cluster: 6222
-    monitor: 8222
-  cluster:
-    enabled: false
-    name: "nats-cluster"
-  auth:
-    enabled: false
-  logging:
-    debug: false
-    trace: false
-  jetstream:
-    enabled: false
 
 # =============================================================================
 # Monitoring Stack

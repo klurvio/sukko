@@ -13,13 +13,11 @@ import (
 // TesterConfig holds configuration for the sukko-tester service.
 type TesterConfig struct {
 	platform.BaseConfig
-	Port              int    `env:"TESTER_PORT" envDefault:"8090"`
-	AuthToken         string `env:"TESTER_AUTH_TOKEN"` // no default — must be explicitly set for production
-	GatewayURL        string `env:"GATEWAY_URL" envDefault:"ws://localhost:3000"`
-	ProvisioningURL   string `env:"PROVISIONING_URL" envDefault:"http://localhost:8080"`
-	KafkaBrokers      string `env:"KAFKA_BROKERS" envDefault:""`
-	NATSJetStreamURLs string `env:"NATS_JETSTREAM_URLS" envDefault:""`
-	MessageBackend    string `env:"MESSAGE_BACKEND" envDefault:"direct"`
+	platform.MessageBackendBase
+	Port            int    `env:"TESTER_PORT" envDefault:"8090"`
+	AuthToken       string `env:"TESTER_AUTH_TOKEN"` // no default — must be explicitly set for production
+	GatewayURL      string `env:"GATEWAY_URL" envDefault:"ws://localhost:3000"`
+	ProvisioningURL string `env:"PROVISIONING_URL" envDefault:"http://localhost:8080"`
 
 	// License reload suite — Ed25519 private key for signing test license keys
 	SigningKeyFile string `env:"TESTER_SIGNING_KEY_FILE" envDefault:""`
@@ -52,16 +50,13 @@ func (c *TesterConfig) Validate() error {
 		return errors.New("PROVISIONING_URL is required")
 	}
 	switch c.MessageBackend {
-	case "direct", "kafka", "nats":
+	case platform.MessageBackendDirect, platform.MessageBackendKafka:
 		// valid
 	default:
-		return fmt.Errorf("MESSAGE_BACKEND must be 'direct', 'kafka', or 'nats', got %q", c.MessageBackend)
+		return fmt.Errorf("MESSAGE_BACKEND must be 'direct' or 'kafka', got %q", c.MessageBackend)
 	}
-	if c.MessageBackend == "kafka" && c.KafkaBrokers == "" {
+	if c.MessageBackend == platform.MessageBackendKafka && c.KafkaBrokers == "" {
 		return errors.New("KAFKA_BROKERS required when MESSAGE_BACKEND=kafka")
-	}
-	if c.MessageBackend == "nats" && c.NATSJetStreamURLs == "" {
-		return errors.New("NATS_JETSTREAM_URLS required when MESSAGE_BACKEND=nats")
 	}
 	if c.AdminKeyFile != "" {
 		if _, err := testerauth.LoadEd25519PrivateKey(c.AdminKeyFile); err != nil {

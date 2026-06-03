@@ -23,13 +23,12 @@ shards: 2
 basePort: 3002
 lbAddr: ":3001"
 
-# Message Backend: "direct" (Go default), "kafka", or "nats"
+# Message Backend: "direct" (Go default) or "kafka"
 #   direct — in-process broadcast, zero external deps, no persistence
 #   kafka  — Kafka/Redpanda, persistence, offset-based replay
-#   nats   — NATS JetStream, lighter persistent streaming
 # messageBackend: direct  # uncomment to override Go default
 
-# Broadcast Bus: "valkey" (Go default) or "nats"
+# Broadcast Bus: "valkey" (only supported option)
 # Inter-pod pub/sub for message fan-out across server instances.
 # Valkey is required when WS_HISTORY_ENABLED=true.
 # broadcastType: valkey  # uncomment to override Go default
@@ -49,22 +48,6 @@ kafka:
     # username: ""
     existingSecret: ""
     existingSecretKey: "kafka-sasl-password"
-  tls:
-    enabled: false
-
-nats:
-  # urls: ""  # Auto: nats://{{ .Release.Name }}-nats:4222
-  existingSecret: ""
-  existingSecretTokenKey: "nats-token"
-  existingSecretPasswordKey: "nats-password"
-  tls:
-    enabled: false
-
-jetstream:
-  # urls: ""  # Auto: nats://{{ .Release.Name }}-nats:4222
-  existingSecret: ""
-  existingSecretTokenKey: "nats-jetstream-token"
-  existingSecretPasswordKey: "nats-jetstream-password"
   tls:
     enabled: false
 

@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/klurvio/sukko/cmd/tester/runner"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // Capabilities describes the tester's full API surface.
@@ -54,13 +55,13 @@ func (h *handlers) getCapabilities(w http.ResponseWriter, _ *http.Request) {
 			{Name: "validate", Description: "End-to-end correctness validation suites"},
 		},
 		Suites:   suites,
-		Backends: []string{"direct", "kafka", "nats"},
+		Backends: []string{platform.MessageBackendDirect, platform.MessageBackendKafka},
 		ContextFields: []ContextFieldInfo{
 			{Name: "gateway_url", Type: "string", Required: true, Description: "WebSocket gateway URL (e.g., ws://gateway:3000)"},
 			{Name: "provisioning_url", Type: "string", Required: true, Description: "Provisioning API base URL (e.g., http://provisioning:8080)"},
 			{Name: "admin_token", Type: "string", Required: true, Description: "Admin authentication token for provisioning API"},
 			{Name: "environment", Type: "string", Required: false, Description: "Deployment environment name (e.g., demo, dev, prod)"},
-			{Name: "message_backend_urls", Type: "string", Required: false, Description: "Message backend connection URLs (Kafka brokers or NATS URLs)"},
+			{Name: "message_backend_urls", Type: "string", Required: false, Description: "Kafka broker addresses (comma-separated, e.g., localhost:19092)"},
 		},
 	}
 

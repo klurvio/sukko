@@ -54,25 +54,24 @@ type TestContext struct {
 
 // TestConfig holds the parameters for a test run.
 type TestConfig struct {
-	Type              TestType     `json:"type"`
-	GatewayURL        string       `json:"gateway_url"`
-	ProvisioningURL   string       `json:"provisioning_url,omitempty"`
-	APIKey            string       `json:"api_key,omitempty"`
-	MessageBackend    string       `json:"message_backend,omitempty"`
-	KafkaBrokers      string       `json:"kafka_brokers,omitempty"`
-	NATSJetStreamURLs string       `json:"nats_jetstream_urls,omitempty"`
-	Connections       int          `json:"connections,omitzero"`
-	Duration          string       `json:"duration,omitempty"`
-	PublishRate       int          `json:"publish_rate,omitzero"`
-	RampRate          int          `json:"ramp_rate,omitzero"`
-	Suite             string       `json:"suite,omitempty"`       // for validate type
-	ChannelMode       bool         `json:"channel_mode,omitzero"` // for load: distribute across public/user/group channels
-	TenantID          string       `json:"tenant_id,omitempty"`
-	SigningKeyFile    string       `json:"signing_key_file,omitempty"` // Ed25519 private key path (env var fallback)
-	SigningKeyBytes   []byte       `json:"-"`                          // Ed25519 private key bytes (API passthrough, never serialized)
-	AdminKeyBytes     []byte       `json:"-"`                          // Ed25519 private key bytes from per-request admin_key (never serialized)
-	AdminKeyID        string       `json:"-"`                          // effective kid for per-request key (overridden by admin_key_id body field)
-	Context           *TestContext `json:"context,omitzero"`
+	Type            TestType     `json:"type"`
+	GatewayURL      string       `json:"gateway_url"`
+	ProvisioningURL string       `json:"provisioning_url,omitempty"`
+	APIKey          string       `json:"api_key,omitempty"`
+	MessageBackend  string       `json:"message_backend,omitempty"`
+	KafkaBrokers    string       `json:"kafka_brokers,omitempty"`
+	Connections     int          `json:"connections,omitzero"`
+	Duration        string       `json:"duration,omitempty"`
+	PublishRate     int          `json:"publish_rate,omitzero"`
+	RampRate        int          `json:"ramp_rate,omitzero"`
+	Suite           string       `json:"suite,omitempty"`       // for validate type
+	ChannelMode     bool         `json:"channel_mode,omitzero"` // for load: distribute across public/user/group channels
+	TenantID        string       `json:"tenant_id,omitempty"`
+	SigningKeyFile  string       `json:"signing_key_file,omitempty"` // Ed25519 private key path (env var fallback)
+	SigningKeyBytes []byte       `json:"-"`                          // Ed25519 private key bytes (API passthrough, never serialized)
+	AdminKeyBytes   []byte       `json:"-"`                          // Ed25519 private key bytes from per-request admin_key (never serialized)
+	AdminKeyID      string       `json:"-"`                          // effective kid for per-request key (overridden by admin_key_id body field)
+	Context         *TestContext `json:"context,omitzero"`
 }
 
 // TestStatus represents the current state of a test run.
@@ -126,17 +125,16 @@ type Runner struct {
 
 // Config holds default settings applied to all test runs.
 type Config struct {
-	GatewayURL        string
-	ProvisioningURL   string
-	MessageBackend    string
-	KafkaBrokers      string
-	NATSJetStreamURLs string
-	JWTLifetime       time.Duration
-	JWTRefreshBefore  time.Duration
-	KeyExpiry         time.Duration
-	SigningKeyFile    string // Ed25519 private key file for license-reload suite signing
-	AdminKeyFile      string // path to raw Ed25519 private key file (remote mode; empty = local dev mode)
-	AdminKeyID        string // kid embedded in admin JWTs; defaults to BootstrapAdminKeyID
+	GatewayURL       string
+	ProvisioningURL  string
+	MessageBackend   string
+	KafkaBrokers     string
+	JWTLifetime      time.Duration
+	JWTRefreshBefore time.Duration
+	KeyExpiry        time.Duration
+	SigningKeyFile   string // Ed25519 private key file for license-reload suite signing
+	AdminKeyFile     string // path to raw Ed25519 private key file (remote mode; empty = local dev mode)
+	AdminKeyID       string // kid embedded in admin JWTs; defaults to BootstrapAdminKeyID
 }
 
 // New creates a Runner with the given configuration and logger.

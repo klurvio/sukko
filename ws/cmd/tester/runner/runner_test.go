@@ -1,7 +1,9 @@
 package runner
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -189,5 +191,16 @@ func TestTestStatus_Constants(t *testing.T) {
 		if s == "" {
 			t.Error("found empty status constant")
 		}
+	}
+}
+
+func TestRunner_JSONMarshal_NoNATSJetStreamURLs(t *testing.T) {
+	t.Parallel()
+	data, err := json.Marshal(TestConfig{})
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	if strings.Contains(string(data), "nats_jetstream_urls") {
+		t.Errorf("TestConfig JSON must not contain 'nats_jetstream_urls', got: %s", data)
 	}
 }
