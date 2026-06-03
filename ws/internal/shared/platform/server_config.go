@@ -15,6 +15,8 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -50,7 +52,6 @@ const (
 	MsgCommitOnRevokeTimeoutWarning = "KAFKA_COMMIT_ON_REVOKE_TIMEOUT exceeds recommended threshold relative to KAFKA_SESSION_TIMEOUT; large values may cause rebalance delays in multi-pod deployments"
 
 	// BroadcastType constants for BROADCAST_TYPE env var.
-	BroadcastTypeNATS   = "nats"
 	BroadcastTypeValkey = "valkey"
 
 	// History writer bound constants.
@@ -203,7 +204,7 @@ type ServerConfig struct {
 
 	// Valkey Configuration (for BroadcastBus when BROADCAST_TYPE=valkey)
 	// Supports both self-hosted Sentinel (3 addresses) and single instance (1 address)
-	ValkeyAddrs      []string `env:"VALKEY_ADDRS" envSeparator:","`
+	ValkeyAddrs      []string `env:"VALKEY_ADDRS" envSeparator:"," envDefault:"localhost:6379"`
 	ValkeyMasterName string   `env:"VALKEY_MASTER_NAME" envDefault:"mymaster"`
 	ValkeyPassword   string   `env:"VALKEY_PASSWORD" redact:"true"`
 	ValkeyDB         int      `env:"VALKEY_DB" envDefault:"0"`
@@ -240,54 +241,17 @@ type ServerConfig struct {
 
 	// Broadcast Bus Configuration
 	//
-	// BroadcastType: Backend for inter-instance messaging ("valkey" or "nats")
+	// BroadcastType: Backend for inter-instance messaging ("valkey")
 	// - valkey: Redis-compatible Pub/Sub (default, ~1-2ms latency, required for message history)
-	// - nats: NATS Core Pub/Sub (sub-millisecond latency, fire-and-forget, no history support)
-	//
-	// When switching backends:
-	// 1. Set BROADCAST_TYPE to the new backend
-	// 2. Configure the corresponding backend settings (VALKEY_* or NATS_*)
-	// 3. Restart all instances to use the same backend
 	BroadcastType string `env:"BROADCAST_TYPE" envDefault:"valkey"`
-
-	// NATS Configuration (for BroadcastBus when BROADCAST_TYPE=nats)
-	//
-	// NATSURLs: Comma-separated NATS server URLs
-	// - Single: nats://localhost:4222
-	// - Cluster: nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
-	//
-	// NATSClusterMode: Enable cluster features (automatic failover, load balancing)
-	// - false: Local development (single server)
-	// - true: Production (cluster of NATS servers)
-	//
-	// NATSSubject: NATS subject for broadcasting (default: ws.broadcast)
-	//
-	// Authentication (choose one):
-	// - NATSToken: Token-based auth (preferred for production)
-	// - NATSUser + NATSPassword: User/password auth (alternative)
-	NATSURLs        []string `env:"NATS_URLS" envSeparator:","`
-	NATSClusterMode bool     `env:"NATS_CLUSTER_MODE" envDefault:"false"`
-	NATSSubject     string   `env:"NATS_SUBJECT" envDefault:"ws.broadcast"`
-	NATSToken       string   `env:"NATS_TOKEN" redact:"true"`
-	NATSUser        string   `env:"NATS_USER"`
-	NATSPassword    string   `env:"NATS_PASSWORD" redact:"true"`
-
-	// NATS Broadcast Bus TLS (for managed NATS: Synadia Cloud, etc.)
-	NATSTLSEnabled  bool   `env:"NATS_TLS_ENABLED" envDefault:"false"`
-	NATSTLSInsecure bool   `env:"NATS_TLS_INSECURE" envDefault:"false"`
-	NATSTLSCAPath   string `env:"NATS_TLS_CA_PATH"`
 
 	// Valkey Broadcast Bus TLS (for managed Valkey/Redis: ElastiCache, Memorystore, Upstash, etc.)
 	ValkeyTLSEnabled  bool   `env:"VALKEY_TLS_ENABLED" envDefault:"false"`
 	ValkeyTLSInsecure bool   `env:"VALKEY_TLS_INSECURE" envDefault:"false"`
 	ValkeyTLSCAPath   string `env:"VALKEY_TLS_CA_PATH"`
 
-	// Topic Refresh Interval
-	//
-	// How often to periodically re-sync tenant topics/streams from the registry.
-	// This is a safety net — primary updates come from the gRPC stream. The periodic
-	// refresh catches any events missed during transient disconnects.
-	// Applies to both Kafka (MultiTenantConsumerPool) and NATS JetStream backends.
+	// TopicRefreshInterval is how often to re-sync tenant topics from the registry.
+	// Safety net — primary updates come from the gRPC stream.
 	TopicRefreshInterval time.Duration `env:"TOPIC_REFRESH_INTERVAL" envDefault:"60s"`
 
 	// WebSocket Ping/Pong Configuration
@@ -354,15 +318,6 @@ type ServerConfig struct {
 	BroadcastBufferSize      int           `env:"BROADCAST_BUFFER_SIZE" envDefault:"1024"`
 	BroadcastShutdownTimeout time.Duration `env:"BROADCAST_SHUTDOWN_TIMEOUT" envDefault:"5s"`
 
-	// NATS broadcast tuning
-	NATSReconnectBufSize    int           `env:"NATS_RECONNECT_BUF_SIZE" envDefault:"5242880"`
-	NATSPingInterval        time.Duration `env:"NATS_PING_INTERVAL" envDefault:"10s"`
-	NATSMaxPingsOutstanding int           `env:"NATS_MAX_PINGS_OUTSTANDING" envDefault:"3"`
-	NATSReconnectWait       time.Duration `env:"NATS_RECONNECT_WAIT" envDefault:"2s"`
-	NATSMaxReconnects       int           `env:"NATS_MAX_RECONNECTS" envDefault:"-1"`
-	NATSHealthCheckInterval time.Duration `env:"NATS_HEALTH_CHECK_INTERVAL" envDefault:"10s"`
-	NATSFlushTimeout        time.Duration `env:"NATS_FLUSH_TIMEOUT" envDefault:"5s"`
-
 	// Valkey broadcast tuning
 	ValkeyWriteTimeout              time.Duration `env:"VALKEY_WRITE_TIMEOUT" envDefault:"3s"`
 	ValkeyPublishTimeout            time.Duration `env:"VALKEY_PUBLISH_TIMEOUT" envDefault:"100ms"`
@@ -403,15 +358,6 @@ type ServerConfig struct {
 	KafkaProducerCBTimeout          time.Duration `env:"KAFKA_PRODUCER_CB_TIMEOUT" envDefault:"30s"`
 	KafkaProducerCBMaxFailures      int           `env:"KAFKA_PRODUCER_CB_MAX_FAILURES" envDefault:"5"`
 	KafkaProducerCBHalfOpenReqs     int           `env:"KAFKA_PRODUCER_CB_HALF_OPEN_REQS" envDefault:"1"`
-
-	// JetStream backend tuning
-	JetStreamReconnectWait   time.Duration `env:"JETSTREAM_RECONNECT_WAIT" envDefault:"2s"`
-	JetStreamMaxDeliver      int           `env:"JETSTREAM_MAX_DELIVER" envDefault:"3"`
-	JetStreamAckWait         time.Duration `env:"JETSTREAM_ACK_WAIT" envDefault:"30s"`
-	JetStreamRefreshTimeout  time.Duration `env:"JETSTREAM_REFRESH_TIMEOUT" envDefault:"30s"`
-	JetStreamRefreshInterval time.Duration `env:"JETSTREAM_REFRESH_INTERVAL" envDefault:"60s"`
-	JetStreamReplayFetchWait time.Duration `env:"JETSTREAM_REPLAY_FETCH_WAIT" envDefault:"2s"`
-	JetStreamMaxAge          time.Duration `env:"JETSTREAM_MAX_AGE" envDefault:"24h"`
 
 	// Routing fan-out worker pool
 	RoutingFanoutWorkers   int `env:"WS_ROUTING_FANOUT_WORKERS"    envDefault:"4"`
@@ -683,36 +629,19 @@ func (c *ServerConfig) Validate() error {
 	}
 
 	// Broadcast bus configuration validation
-	validBroadcastTypes := map[string]bool{BroadcastTypeValkey: true, BroadcastTypeNATS: true}
-	if !validBroadcastTypes[c.BroadcastType] {
-		return fmt.Errorf("[CONFIG ERROR] BROADCAST_TYPE=%q is invalid (valid: %s, %s)", c.BroadcastType, BroadcastTypeNATS, BroadcastTypeValkey)
+	if c.BroadcastType != BroadcastTypeValkey {
+		return fmt.Errorf("[CONFIG ERROR] BROADCAST_TYPE=%q is invalid (valid: %s)", c.BroadcastType, BroadcastTypeValkey)
 	}
 
-	// Valkey-specific validation (when BROADCAST_TYPE=valkey)
-	if c.BroadcastType == BroadcastTypeValkey {
-		if len(c.ValkeyAddrs) == 0 {
-			return fmt.Errorf("VALKEY_ADDRS is required when BROADCAST_TYPE=%s", c.BroadcastType)
-		}
-		if c.ValkeyDB < 0 {
-			return fmt.Errorf("VALKEY_DB must be >= 0, got %d", c.ValkeyDB)
-		}
-		if c.ValkeyChannel == "" {
-			return errors.New("VALKEY_CHANNEL cannot be empty")
-		}
+	// Valkey-specific validation
+	if len(c.ValkeyAddrs) == 0 || !slices.ContainsFunc(c.ValkeyAddrs, func(s string) bool { return strings.TrimSpace(s) != "" }) {
+		return fmt.Errorf("VALKEY_ADDRS is required when BROADCAST_TYPE=%s (must contain at least one non-empty address)", c.BroadcastType)
 	}
-
-	// NATS-specific validation (when BROADCAST_TYPE=nats)
-	if c.BroadcastType == BroadcastTypeNATS {
-		if len(c.NATSURLs) == 0 {
-			return fmt.Errorf("NATS_URLS is required when BROADCAST_TYPE=%s", BroadcastTypeNATS)
-		}
-		if c.NATSSubject == "" {
-			return errors.New("NATS_SUBJECT cannot be empty")
-		}
-		// Cluster mode requires multiple URLs
-		if c.NATSClusterMode && len(c.NATSURLs) < 2 {
-			return fmt.Errorf("NATS_CLUSTER_MODE=true requires at least 2 NATS URLs, got %d", len(c.NATSURLs))
-		}
+	if c.ValkeyDB < 0 {
+		return fmt.Errorf("VALKEY_DB must be >= 0, got %d", c.ValkeyDB)
+	}
+	if c.ValkeyChannel == "" {
+		return errors.New("VALKEY_CHANNEL cannot be empty")
 	}
 
 	// Slow client threshold validation
@@ -739,13 +668,13 @@ func (c *ServerConfig) Validate() error {
 	// NOTE: Authentication is now handled by ws-gateway
 	// No auth config validation needed in ws-server
 
-	// Message backend validation (type, Kafka SASL/TLS, NATS JetStream)
+	// Message backend validation (type, Kafka SASL/TLS)
 	if err := c.MessageBackendConfig.Validate(); err != nil {
 		return err
 	}
 
-	// Topic refresh interval validation (applies to kafka and nats backends)
-	if c.MessageBackend != MessageBackendDirect && c.TopicRefreshInterval < 1*time.Second {
+	// Topic refresh interval validation (applies to kafka backend)
+	if c.MessageBackend == MessageBackendKafka && c.TopicRefreshInterval < 1*time.Second {
 		return fmt.Errorf("TOPIC_REFRESH_INTERVAL must be >= 1s, got %v", c.TopicRefreshInterval)
 	}
 
@@ -827,18 +756,6 @@ func (c *ServerConfig) Validate() error {
 	if c.BroadcastShutdownTimeout <= 0 {
 		return fmt.Errorf("BROADCAST_SHUTDOWN_TIMEOUT must be > 0, got %v", c.BroadcastShutdownTimeout)
 	}
-	if c.NATSPingInterval <= 0 {
-		return fmt.Errorf("NATS_PING_INTERVAL must be > 0, got %v", c.NATSPingInterval)
-	}
-	if c.NATSReconnectWait <= 0 {
-		return fmt.Errorf("NATS_RECONNECT_WAIT must be > 0, got %v", c.NATSReconnectWait)
-	}
-	if c.NATSHealthCheckInterval <= 0 {
-		return fmt.Errorf("NATS_HEALTH_CHECK_INTERVAL must be > 0, got %v", c.NATSHealthCheckInterval)
-	}
-	if c.NATSFlushTimeout <= 0 {
-		return fmt.Errorf("NATS_FLUSH_TIMEOUT must be > 0, got %v", c.NATSFlushTimeout)
-	}
 	if c.ValkeyWriteTimeout <= 0 {
 		return fmt.Errorf("VALKEY_WRITE_TIMEOUT must be > 0, got %v", c.ValkeyWriteTimeout)
 	}
@@ -893,24 +810,6 @@ func (c *ServerConfig) Validate() error {
 	if c.KafkaProducerCBTimeout <= 0 {
 		return fmt.Errorf("KAFKA_PRODUCER_CB_TIMEOUT must be > 0, got %v", c.KafkaProducerCBTimeout)
 	}
-	if c.JetStreamReconnectWait <= 0 {
-		return fmt.Errorf("JETSTREAM_RECONNECT_WAIT must be > 0, got %v", c.JetStreamReconnectWait)
-	}
-	if c.JetStreamAckWait <= 0 {
-		return fmt.Errorf("JETSTREAM_ACK_WAIT must be > 0, got %v", c.JetStreamAckWait)
-	}
-	if c.JetStreamRefreshTimeout <= 0 {
-		return fmt.Errorf("JETSTREAM_REFRESH_TIMEOUT must be > 0, got %v", c.JetStreamRefreshTimeout)
-	}
-	if c.JetStreamRefreshInterval <= 0 {
-		return fmt.Errorf("JETSTREAM_REFRESH_INTERVAL must be > 0, got %v", c.JetStreamRefreshInterval)
-	}
-	if c.JetStreamReplayFetchWait <= 0 {
-		return fmt.Errorf("JETSTREAM_REPLAY_FETCH_WAIT must be > 0, got %v", c.JetStreamReplayFetchWait)
-	}
-	if c.JetStreamMaxAge <= 0 {
-		return fmt.Errorf("JETSTREAM_MAX_AGE must be > 0, got %v", c.JetStreamMaxAge)
-	}
 
 	// Int fields (must be > 0)
 	if c.MaxReplayMessages < 1 {
@@ -921,12 +820,6 @@ func (c *ServerConfig) Validate() error {
 	}
 	if c.BroadcastBufferSize < 1 {
 		return fmt.Errorf("BROADCAST_BUFFER_SIZE must be > 0, got %d", c.BroadcastBufferSize)
-	}
-	if c.NATSReconnectBufSize < 1 {
-		return fmt.Errorf("NATS_RECONNECT_BUF_SIZE must be > 0, got %d", c.NATSReconnectBufSize)
-	}
-	if c.NATSMaxPingsOutstanding < 1 {
-		return fmt.Errorf("NATS_MAX_PINGS_OUTSTANDING must be > 0, got %d", c.NATSMaxPingsOutstanding)
 	}
 	if c.ValkeyReconnectMaxAttempts < 1 {
 		return fmt.Errorf("VALKEY_RECONNECT_MAX_ATTEMPTS must be > 0, got %d", c.ValkeyReconnectMaxAttempts)
@@ -957,9 +850,6 @@ func (c *ServerConfig) Validate() error {
 	}
 	if c.KafkaProducerCBHalfOpenReqs < 1 || c.KafkaProducerCBHalfOpenReqs > math.MaxUint32 {
 		return fmt.Errorf("KAFKA_PRODUCER_CB_HALF_OPEN_REQS must be 1-%d, got %d", math.MaxUint32, c.KafkaProducerCBHalfOpenReqs)
-	}
-	if c.JetStreamMaxDeliver < 1 {
-		return fmt.Errorf("JETSTREAM_MAX_DELIVER must be > 0, got %d", c.JetStreamMaxDeliver)
 	}
 	if c.RoutingFanoutWorkers < 1 {
 		return fmt.Errorf("WS_ROUTING_FANOUT_WORKERS must be > 0, got %d", c.RoutingFanoutWorkers)
@@ -1007,11 +897,6 @@ func (c *ServerConfig) Validate() error {
 			c.ValkeyReconnectInitialBackoff, c.ValkeyReconnectMaxBackoff)
 	}
 
-	// Special values (FR-026d: NATSMaxReconnects allows -1 for unlimited)
-	if c.NATSMaxReconnects < -1 {
-		return fmt.Errorf("NATS_MAX_RECONNECTS must be >= -1, got %d", c.NATSMaxReconnects)
-	}
-
 	// Kafka namespace validation (includes prod guard)
 	if err := c.KafkaNamespaceConfig.Validate(c.Environment); err != nil {
 		return err
@@ -1044,8 +929,8 @@ func (c *ServerConfig) Validate() error {
 		if c.BroadcastType != BroadcastTypeValkey {
 			return fmt.Errorf("WS_HISTORY_ENABLED requires BROADCAST_TYPE=%s, got %s (history writer uses Valkey Streams)", BroadcastTypeValkey, c.BroadcastType)
 		}
-		if len(c.ValkeyAddrs) == 0 {
-			return errors.New("WS_HISTORY_ENABLED requires VALKEY_ADDRS to be set")
+		if len(c.ValkeyAddrs) == 0 || !slices.ContainsFunc(c.ValkeyAddrs, func(s string) bool { return strings.TrimSpace(s) != "" }) {
+			return errors.New("WS_HISTORY_ENABLED requires VALKEY_ADDRS to be set (must contain at least one non-empty address)")
 		}
 		if c.PodID == "" {
 			return errors.New("WS_HISTORY_ENABLED requires WS_POD_ID or a resolvable hostname (pod identity required for distributed lock)")
@@ -1108,9 +993,6 @@ func (c *ServerConfig) Validate() error {
 		// Feature gates — fail at startup if config uses gated features (NFR-008)
 		if c.MessageBackend == MessageBackendKafka && !license.EditionHasFeature(edition, license.KafkaBackend) {
 			return license.NewFeatureError(license.KafkaBackend, edition)
-		}
-		if c.MessageBackend == MessageBackendNATS && !license.EditionHasFeature(edition, license.NATSJetStreamBackend) {
-			return license.NewFeatureError(license.NATSJetStreamBackend, edition)
 		}
 		if c.AlertEnabled && !license.EditionHasFeature(edition, license.Alerting) {
 			return license.NewFeatureError(license.Alerting, edition)
@@ -1218,31 +1100,12 @@ func (c *ServerConfig) Print() {
 	_, _ = fmt.Fprintln(os.Stdout, "Auth:            Handled by ws-gateway")
 	_, _ = fmt.Fprintln(os.Stdout, "\n=== Broadcast Bus ===")
 	_, _ = fmt.Fprintf(os.Stdout, "Type:            %s\n", c.BroadcastType)
-	if c.BroadcastType == BroadcastTypeValkey {
-		_, _ = fmt.Fprintf(os.Stdout, "Valkey Addrs:    %v\n", c.ValkeyAddrs)
-		_, _ = fmt.Fprintf(os.Stdout, "Master Name:     %s\n", c.ValkeyMasterName)
-		_, _ = fmt.Fprintf(os.Stdout, "Channel:         %s\n", c.ValkeyChannel)
-		_, _ = fmt.Fprintf(os.Stdout, "Database:        %d\n", c.ValkeyDB)
-	}
-	if c.BroadcastType == BroadcastTypeNATS {
-		_, _ = fmt.Fprintf(os.Stdout, "NATS URLs:       %v\n", c.NATSURLs)
-		_, _ = fmt.Fprintf(os.Stdout, "Cluster Mode:    %v\n", c.NATSClusterMode)
-		_, _ = fmt.Fprintf(os.Stdout, "Subject:         %s\n", c.NATSSubject)
-		_, _ = fmt.Fprintf(os.Stdout, "Token Auth:      %v\n", c.NATSToken != "")
-		_, _ = fmt.Fprintf(os.Stdout, "User Auth:       %v\n", c.NATSUser != "")
-		_, _ = fmt.Fprintf(os.Stdout, "TLS Enabled:     %v\n", c.NATSTLSEnabled)
-	}
-	if c.BroadcastType == BroadcastTypeValkey && c.ValkeyTLSEnabled {
+	_, _ = fmt.Fprintf(os.Stdout, "Valkey Addrs:    %v\n", c.ValkeyAddrs)
+	_, _ = fmt.Fprintf(os.Stdout, "Master Name:     %s\n", c.ValkeyMasterName)
+	_, _ = fmt.Fprintf(os.Stdout, "Channel:         %s\n", c.ValkeyChannel)
+	_, _ = fmt.Fprintf(os.Stdout, "Database:        %d\n", c.ValkeyDB)
+	if c.ValkeyTLSEnabled {
 		_, _ = fmt.Fprintf(os.Stdout, "Valkey TLS:      %v\n", c.ValkeyTLSEnabled)
-	}
-	if c.MessageBackend == MessageBackendNATS {
-		_, _ = fmt.Fprintln(os.Stdout, "\n=== NATS JetStream ===")
-		_, _ = fmt.Fprintf(os.Stdout, "JetStream URLs:  %s\n", c.NATSJetStreamURLs)
-		_, _ = fmt.Fprintf(os.Stdout, "Replicas:        %d\n", c.NATSJetStreamReplicas)
-		_, _ = fmt.Fprintf(os.Stdout, "Max Age:         %s\n", c.NATSJetStreamMaxAge)
-		_, _ = fmt.Fprintf(os.Stdout, "TLS Enabled:     %v\n", c.NATSJetStreamTLSEnabled)
-		_, _ = fmt.Fprintf(os.Stdout, "Token Auth:      %v\n", c.NATSJetStreamToken != "")
-		_, _ = fmt.Fprintf(os.Stdout, "User Auth:       %v\n", c.NATSJetStreamUser != "")
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "\n=== Client Buffers ===")
 	_, _ = fmt.Fprintf(os.Stdout, "Send Buffer:     %d slots (~%dKB/client)\n", c.ClientSendBufferSize, c.ClientSendBufferSize/2)
@@ -1313,19 +1176,7 @@ func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 		Str("valkey_master_name", c.ValkeyMasterName).
 		Str("valkey_channel", c.ValkeyChannel).
 		Int("valkey_db", c.ValkeyDB).
-		Strs("nats_urls", c.NATSURLs).
-		Bool("nats_cluster_mode", c.NATSClusterMode).
-		Str("nats_subject", c.NATSSubject).
-		Bool("nats_token_set", c.NATSToken != "").
-		Bool("nats_user_set", c.NATSUser != "").
-		Bool("nats_tls_enabled", c.NATSTLSEnabled).
 		Bool("valkey_tls_enabled", c.ValkeyTLSEnabled).
-		Str("nats_jetstream_urls", c.NATSJetStreamURLs).
-		Int("nats_jetstream_replicas", c.NATSJetStreamReplicas).
-		Dur("nats_jetstream_max_age", c.NATSJetStreamMaxAge).
-		Bool("nats_jetstream_tls_enabled", c.NATSJetStreamTLSEnabled).
-		Bool("nats_jetstream_token_set", c.NATSJetStreamToken != "").
-		Bool("nats_jetstream_user_set", c.NATSJetStreamUser != "").
 		Int("client_send_buffer_size", c.ClientSendBufferSize).
 		Int("slow_client_max_attempts", c.SlowClientMaxAttempts).
 		Int("kafka_default_partitions", c.KafkaDefaultPartitions).

@@ -143,8 +143,15 @@ type KafkaNamespaceConfig struct {
 const (
 	MessageBackendDirect = "direct"
 	MessageBackendKafka  = "kafka"
-	MessageBackendNATS   = "nats"
 )
+
+// MessageBackendBase holds the two fields shared between services (ws-server, tester)
+// that need message backend selection without the full Kafka SASL/TLS options.
+// Embedded by MessageBackendConfig and TesterConfig.
+type MessageBackendBase struct {
+	MessageBackend string `env:"MESSAGE_BACKEND" envDefault:"direct"`
+	KafkaBrokers   string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"`
+}
 
 // MessageBackendConfig holds message ingestion/persistence configuration.
 // Embedded by ServerConfig (ws-server) and future services that need message backend access.
@@ -154,14 +161,8 @@ const (
 //     Zero external dependencies beyond the broadcast bus. Default for lowest friction.
 //   - "kafka": Full Kafka/Redpanda integration. Persistence, offset-based replay,
 //     multi-tenant consumer isolation. Requires Kafka infrastructure.
-//   - "nats": NATS JetStream persistent streams. Sequence-based replay,
-//     stream-per-tenant isolation. Lighter than Kafka.
 type MessageBackendConfig struct {
-	// Message Backend Selection
-	MessageBackend string `env:"MESSAGE_BACKEND" envDefault:"direct"`
-
-	// Kafka Configuration (only used when MESSAGE_BACKEND=kafka)
-	KafkaBrokers string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"`
+	MessageBackendBase
 
 	// Kafka Security - SASL Authentication
 	//
@@ -186,29 +187,14 @@ type MessageBackendConfig struct {
 	KafkaTLSEnabled  bool   `env:"KAFKA_TLS_ENABLED" envDefault:"false"`
 	KafkaTLSInsecure bool   `env:"KAFKA_TLS_INSECURE" envDefault:"false"`
 	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`
-
-	// NATS JetStream Configuration (only used when MESSAGE_BACKEND=nats)
-	//
-	// Connects to an external NATS server with JetStream enabled for persistent
-	// message streams and sequence-based replay. Each tenant gets its own stream
-	// for natural noisy-tenant isolation.
-	NATSJetStreamURLs        string        `env:"NATS_JETSTREAM_URLS"`                            // Comma-separated NATS URLs
-	NATSJetStreamToken       string        `env:"NATS_JETSTREAM_TOKEN" redact:"true"`             // Auth token
-	NATSJetStreamUser        string        `env:"NATS_JETSTREAM_USER"`                            // Username
-	NATSJetStreamPassword    string        `env:"NATS_JETSTREAM_PASSWORD" redact:"true"`          // Password
-	NATSJetStreamReplicas    int           `env:"NATS_JETSTREAM_REPLICAS" envDefault:"1"`         // Stream replicas
-	NATSJetStreamMaxAge      time.Duration `env:"NATS_JETSTREAM_MAX_AGE" envDefault:"24h"`        // Message retention
-	NATSJetStreamTLSEnabled  bool          `env:"NATS_JETSTREAM_TLS_ENABLED" envDefault:"false"`  // TLS for managed NATS (Synadia Cloud, etc.)
-	NATSJetStreamTLSInsecure bool          `env:"NATS_JETSTREAM_TLS_INSECURE" envDefault:"false"` // Skip TLS verification (not for production)
-	NATSJetStreamTLSCAPath   string        `env:"NATS_JETSTREAM_TLS_CA_PATH"`                     // Custom CA certificate path
 }
 
 // Validate checks MessageBackendConfig for errors.
 func (c *MessageBackendConfig) Validate() error {
 	// Backend type validation
-	validBackends := map[string]bool{MessageBackendDirect: true, MessageBackendKafka: true, MessageBackendNATS: true}
+	validBackends := map[string]bool{MessageBackendDirect: true, MessageBackendKafka: true}
 	if !validBackends[c.MessageBackend] {
-		return fmt.Errorf("[CONFIG ERROR] MESSAGE_BACKEND=%q is invalid (valid: %s, %s, %s)", c.MessageBackend, MessageBackendDirect, MessageBackendKafka, MessageBackendNATS)
+		return fmt.Errorf("[CONFIG ERROR] MESSAGE_BACKEND=%q is invalid (valid: %s, %s)", c.MessageBackend, MessageBackendDirect, MessageBackendKafka)
 	}
 
 	// Kafka-specific validation (when MESSAGE_BACKEND=kafka)
@@ -226,19 +212,6 @@ func (c *MessageBackendConfig) Validate() error {
 			if c.KafkaSASLPassword == "" {
 				return errors.New("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
 			}
-		}
-	}
-
-	// NATS JetStream validation (when MESSAGE_BACKEND=nats)
-	if c.MessageBackend == MessageBackendNATS {
-		if c.NATSJetStreamURLs == "" {
-			return fmt.Errorf("NATS_JETSTREAM_URLS is required when MESSAGE_BACKEND=%s", MessageBackendNATS)
-		}
-		if c.NATSJetStreamReplicas < 1 {
-			return fmt.Errorf("NATS_JETSTREAM_REPLICAS must be >= 1, got %d", c.NATSJetStreamReplicas)
-		}
-		if c.NATSJetStreamMaxAge < 1*time.Minute {
-			return fmt.Errorf("NATS_JETSTREAM_MAX_AGE must be >= 1m, got %v", c.NATSJetStreamMaxAge)
 		}
 	}
 

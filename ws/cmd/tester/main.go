@@ -48,17 +48,16 @@ func run() error {
 	})
 
 	r := runner.New(runner.Config{
-		GatewayURL:        cfg.GatewayURL,
-		ProvisioningURL:   cfg.ProvisioningURL,
-		MessageBackend:    cfg.MessageBackend,
-		KafkaBrokers:      cfg.KafkaBrokers,
-		NATSJetStreamURLs: cfg.NATSJetStreamURLs,
-		JWTLifetime:       cfg.JWTLifetime,
-		JWTRefreshBefore:  cfg.JWTRefreshBefore,
-		KeyExpiry:         cfg.KeyExpiry,
-		SigningKeyFile:    cfg.SigningKeyFile,
-		AdminKeyFile:      cfg.AdminKeyFile,
-		AdminKeyID:        cfg.AdminKeyID,
+		GatewayURL:       cfg.GatewayURL,
+		ProvisioningURL:  cfg.ProvisioningURL,
+		MessageBackend:   cfg.MessageBackend,
+		KafkaBrokers:     cfg.KafkaBrokers,
+		JWTLifetime:      cfg.JWTLifetime,
+		JWTRefreshBefore: cfg.JWTRefreshBefore,
+		KeyExpiry:        cfg.KeyExpiry,
+		SigningKeyFile:   cfg.SigningKeyFile,
+		AdminKeyFile:     cfg.AdminKeyFile,
+		AdminKeyID:       cfg.AdminKeyID,
 	}, logger)
 
 	handler := api.NewRouter(r, cfg.AuthToken, cfg.AdminKeyID, logger)

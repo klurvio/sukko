@@ -208,6 +208,11 @@ linters:
         linters:
           - paralleltest
 
+      # Serial tests use os.Unsetenv and must not run in parallel
+      - path: _serial_test\.go
+        linters:
+          - paralleltest
+
       # Allow unused parameters in test helpers
       - path: testutil/
         linters:

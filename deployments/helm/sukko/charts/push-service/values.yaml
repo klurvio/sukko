@@ -9,7 +9,7 @@ global:
 #   - An Enterprise license (push to provisioning via `sukko license push <key>`)
 #   - A kafka or redpanda message backend (ws-server.messageBackend: kafka|redpanda)
 #
-# Enabling with a direct or nats backend will start push-service but it will fail
+# Enabling with a direct backend will start push-service but it will fail
 # to consume messages. Verify ws-server.messageBackend before enabling.
 #
 # To enable after pushing an Enterprise license:
@@ -32,7 +32,7 @@ image:
 # Free-form string; Sukko convention: local, dev, stg, prod
 # environment: local
 
-# Message Backend: "kafka" or "nats"
+# Message Backend: "direct" or "kafka"
 # messageBackend: kafka  # uncomment to override Go default
 
 # PostgreSQL connection

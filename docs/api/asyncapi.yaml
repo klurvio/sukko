@@ -117,7 +117,7 @@ channels:
       These are not WebSocket messages; they are sent out-of-band through
       Web Push, FCM, or APNs (Enterprise edition).
 
-      The push service consumes messages from the same Kafka/NATS pipeline as
+      The push service consumes messages from the same Kafka pipeline as
       WebSocket delivery, matches against subscribed channels, and dispatches
       per-platform payloads.
     subscribe:

@@ -47,7 +47,6 @@ const (
 	// ── Pro Features ─────────────────────────────────────────────────────
 
 	KafkaBackend              Feature = "MESSAGE_BACKEND=kafka"
-	NATSJetStreamBackend      Feature = "MESSAGE_BACKEND=nats"
 	PerTenantChannelRules     Feature = "GATEWAY_PER_TENANT_CHANNEL_RULES"
 	PerTenantConnectionLimits Feature = "TENANT_CONNECTION_LIMIT_ENABLED"
 	Alerting                  Feature = "ALERT_ENABLED"
@@ -81,7 +80,6 @@ const (
 var featureEditions = map[Feature]Edition{
 	// Pro
 	KafkaBackend:                Pro,
-	NATSJetStreamBackend:        Pro,
 	PerTenantChannelRules:       Pro,
 	PerTenantConnectionLimits:   Pro,
 	Alerting:                    Pro,
@@ -112,7 +110,6 @@ var featureMetadata = map[Feature]FeatureInfo{
 	// ── Implemented (gated) ──────────────────────────────────────────────
 
 	KafkaBackend:                {Description: "Kafka/Redpanda message backend", Status: StatusImplemented, Priority: PriorityNone},
-	NATSJetStreamBackend:        {Description: "NATS JetStream message backend", Status: StatusImplemented, Priority: PriorityNone},
 	PerTenantChannelRules:       {Description: "Per-tenant channel subscribe/publish rules", Status: StatusImplemented, Priority: PriorityNone},
 	PerTenantConnectionLimits:   {Description: "Per-tenant WebSocket connection limits", Status: StatusImplemented, Priority: PriorityNone},
 	Alerting:                    {Description: "AlertManager integration for Prometheus alerts", Status: StatusImplemented, Priority: PriorityNone},

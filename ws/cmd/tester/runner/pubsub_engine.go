@@ -170,7 +170,7 @@ type DeliveryResult struct {
 // PublishAndVerify publishes a message with a UUID and verifies delivery.
 // The pub argument determines the publish path:
 //   - TestUser.AsPublisher() → publishes via user's WS connection (tests auth+delivery)
-//   - KafkaPublisher/NATSPublisher → publishes via backend (tests delivery only)
+//   - KafkaPublisher → publishes via backend (tests delivery only)
 //
 // expectedReceivers are users that SHOULD get the message.
 // allUsers includes ALL connected users (expected + those that should NOT receive).

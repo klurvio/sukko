@@ -1,6 +1,7 @@
 package broadcast
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -19,8 +20,32 @@ func TestNewBus_InvalidType(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for invalid type, got nil")
 	}
-	if !strings.Contains(err.Error(), "unsupported broadcast bus type") {
-		t.Errorf("Error should mention unsupported type: %v", err)
+	if !errors.Is(err, ErrUnknownBroadcastType) {
+		t.Errorf("Expected ErrUnknownBroadcastType, got: %v", err)
+	}
+}
+
+func TestNewBus_NATSRejected(t *testing.T) {
+	t.Parallel()
+	cfg := Config{Type: "nats"}
+	_, err := NewBus(cfg, zerolog.Nop())
+	if err == nil {
+		t.Fatal("Expected error for nats type, got nil")
+	}
+	if !errors.Is(err, ErrUnknownBroadcastType) {
+		t.Errorf("Expected ErrUnknownBroadcastType, got: %v", err)
+	}
+}
+
+func TestNewBus_RedisAliasRemoved(t *testing.T) {
+	t.Parallel()
+	cfg := Config{Type: "redis"}
+	_, err := NewBus(cfg, zerolog.Nop())
+	if err == nil {
+		t.Fatal("Expected error for redis alias, got nil")
+	}
+	if !errors.Is(err, ErrUnknownBroadcastType) {
+		t.Errorf("Expected ErrUnknownBroadcastType, got: %v", err)
 	}
 }
 
@@ -54,55 +79,18 @@ func TestNewBus_DefaultsApplied(t *testing.T) {
 
 func TestNewBus_ValkeyType(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name     string
-		busType  string
-		wantType string
-	}{
-		{"valkey", "valkey", "valkey"},
-		{"redis", "redis", "valkey"}, // redis is alias for valkey
-	}
-
-	logger := zerolog.Nop()
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := Config{
-				Type:       tt.busType,
-				BufferSize: 1024,
-				Valkey: ValkeyConfig{
-					Addrs:   []string{"localhost:6379"},
-					Channel: "test",
-				},
-			}
-
-			_, err := NewBus(cfg, logger)
-			// Will fail due to no connection, but should attempt Valkey
-			if err != nil && strings.Contains(err.Error(), "unsupported") {
-				t.Errorf("Type %q should be supported: %v", tt.busType, err)
-			}
-		})
-	}
-}
-
-func TestNewBus_NATSType(t *testing.T) {
-	t.Parallel()
-	logger := zerolog.Nop()
-
 	cfg := Config{
-		Type:       "nats",
+		Type:       "valkey",
 		BufferSize: 1024,
-		NATS: NATSConfig{
-			URLs:    []string{"nats://localhost:4222"},
-			Subject: "test",
+		Valkey: ValkeyConfig{
+			Addrs:   []string{"localhost:6379"},
+			Channel: "test",
 		},
 	}
-
-	_, err := NewBus(cfg, logger)
-	// Will fail due to no connection, but should attempt NATS
+	_, err := NewBus(cfg, zerolog.Nop())
+	// Will fail due to no connection, but should attempt Valkey (not return "unsupported")
 	if err != nil && strings.Contains(err.Error(), "unsupported") {
-		t.Errorf("NATS type should be supported: %v", err)
+		t.Errorf("Type %q should be supported: %v", "valkey", err)
 	}
 }
 
@@ -124,26 +112,5 @@ func TestNewBus_ValkeyMissingAddrs(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "address") {
 		t.Errorf("Error should mention address requirement: %v", err)
-	}
-}
-
-func TestNewBus_NATSMissingURLs(t *testing.T) {
-	t.Parallel()
-	logger := zerolog.Nop()
-
-	cfg := Config{
-		Type:       "nats",
-		BufferSize: 1024,
-		NATS: NATSConfig{
-			URLs: []string{}, // Empty
-		},
-	}
-
-	_, err := NewBus(cfg, logger)
-	if err == nil {
-		t.Error("Expected error for missing NATS URLs")
-	}
-	if !strings.Contains(err.Error(), "URL") {
-		t.Errorf("Error should mention URL requirement: %v", err)
 	}
 }

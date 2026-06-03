@@ -25,9 +25,6 @@ dependencies:
   - name: valkey
     version: "1.0.0"
     condition: valkey.enabled
-  - name: nats
-    version: "1.0.0"
-    condition: nats.enabled
   - name: push-service
     version: "0.1.0"
     condition: push-service.enabled

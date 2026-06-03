@@ -20,7 +20,6 @@ import (
 	"github.com/klurvio/sukko/internal/server"
 	"github.com/klurvio/sukko/internal/server/backend"
 	"github.com/klurvio/sukko/internal/server/backend/directbackend"
-	"github.com/klurvio/sukko/internal/server/backend/jetstreambackend"
 	"github.com/klurvio/sukko/internal/server/backend/kafkabackend"
 	"github.com/klurvio/sukko/internal/server/broadcast"
 	"github.com/klurvio/sukko/internal/server/metrics"
@@ -28,8 +27,6 @@ import (
 	"github.com/klurvio/sukko/internal/shared/alerting"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/profiling"
@@ -105,12 +102,6 @@ func main() {
 	defer cancel()
 
 	// License watcher — subscribe to WatchLicense gRPC stream for runtime updates
-	backendMismatch := &atomic.Bool{}
-	backendMismatchGauge := promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "ws_license_backend_mismatch",
-		Help: "Whether the current MESSAGE_BACKEND is unsupported by the current license edition (1=mismatch, 0=ok)",
-	})
-
 	// rulesProvider is declared before licenseWatcher so its UpdateEdition method
 	// can be called from the OnReload closure. atomic.Pointer guards concurrent
 	// access between the main goroutine (Store) and the licenseWatcher goroutine (Load).
@@ -127,17 +118,6 @@ func main() {
 			edition := cfg.EditionManager().Edition()
 			if rp := rulesProvider.Load(); rp != nil {
 				rp.UpdateEdition(edition)
-			}
-			mismatch := checkBackendMismatch(cfg.MessageBackend, edition)
-			backendMismatch.Store(mismatch)
-			if mismatch {
-				backendMismatchGauge.Set(1)
-				structuredLogger.Warn().
-					Str("backend", cfg.MessageBackend).
-					Str("edition", string(edition)).
-					Msg("Backend mismatch: MESSAGE_BACKEND is not supported by current edition. Restart required.")
-			} else {
-				backendMismatchGauge.Set(0)
 			}
 		},
 		OnDowngrade: provapi.LicenseDowngradeShutdown(structuredLogger, cancel),
@@ -219,24 +199,6 @@ func main() {
 			HealthCheckTimeout:        cfg.ValkeyHealthCheckTimeout,
 			PublishStalenessThreshold: cfg.ValkeyPublishStalenessThreshold,
 		},
-		NATS: broadcast.NATSConfig{
-			URLs:                cfg.NATSURLs,
-			ClusterMode:         cfg.NATSClusterMode,
-			Subject:             cfg.NATSSubject,
-			Token:               cfg.NATSToken,
-			User:                cfg.NATSUser,
-			Password:            cfg.NATSPassword,
-			TLSEnabled:          cfg.NATSTLSEnabled,
-			TLSInsecure:         cfg.NATSTLSInsecure,
-			TLSCAPath:           cfg.NATSTLSCAPath,
-			ReconnectWait:       cfg.NATSReconnectWait,
-			MaxReconnects:       cfg.NATSMaxReconnects,
-			ReconnectBufSize:    cfg.NATSReconnectBufSize,
-			PingInterval:        cfg.NATSPingInterval,
-			MaxPingsOutstanding: cfg.NATSMaxPingsOutstanding,
-			HealthCheckInterval: cfg.NATSHealthCheckInterval,
-			FlushTimeout:        cfg.NATSFlushTimeout,
-		},
 	}
 
 	broadcastBus, err := broadcast.NewBus(busCfg, structuredLogger)
@@ -251,9 +213,9 @@ func main() {
 	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
 	var msgBackend backend.MessageBackend
 	switch cfg.MessageBackend {
-	case "direct":
+	case platform.MessageBackendDirect:
 		msgBackend, err = directbackend.New(broadcastBus, structuredLogger)
-	case "kafka":
+	case platform.MessageBackendKafka:
 		msgBackend, err = kafkabackend.New(kafkabackend.Config{
 			Brokers:                  kafkabackend.SplitBrokers(cfg.KafkaBrokers),
 			Namespace:                topicNamespace,
@@ -304,44 +266,8 @@ func main() {
 			KafkaCommitOnRevokeTimeout: cfg.KafkaCommitOnRevokeTimeout,
 			KafkaAutoCommitInterval:    cfg.KafkaAutoCommitInterval,
 		})
-	case "nats":
-		// Create a StreamTopicRegistry for tenant discovery via gRPC
-		topicRegistry, regErr := provapi.NewStreamTopicRegistry(provapi.StreamTopicRegistryConfig{
-			GRPCAddr:          cfg.ProvisioningGRPCAddr,
-			Namespace:         topicNamespace,
-			ReconnectDelay:    cfg.GRPCReconnectDelay,
-			ReconnectMaxDelay: cfg.GRPCReconnectMaxDelay,
-			MetricPrefix:      "ws",
-			Logger:            structuredLogger,
-		})
-		if regErr != nil {
-			structuredLogger.Fatal().Err(regErr).Msg("Failed to create topic registry for JetStream")
-		}
-
-		msgBackend, err = jetstreambackend.New(jetstreambackend.Config{
-			URLs:            jetstreambackend.SplitURLs(cfg.NATSJetStreamURLs),
-			Token:           cfg.NATSJetStreamToken,
-			User:            cfg.NATSJetStreamUser,
-			Password:        cfg.NATSJetStreamPassword,
-			TLSEnabled:      cfg.NATSJetStreamTLSEnabled,
-			TLSInsecure:     cfg.NATSJetStreamTLSInsecure,
-			TLSCAPath:       cfg.NATSJetStreamTLSCAPath,
-			Replicas:        cfg.NATSJetStreamReplicas,
-			MaxAge:          cfg.JetStreamMaxAge,
-			Namespace:       topicNamespace,
-			BroadcastBus:    broadcastBus,
-			Registry:        topicRegistry,
-			RefreshInterval: cfg.JetStreamRefreshInterval,
-			LogLevel:        cfg.LogLevel,
-			LogFormat:       cfg.LogFormat,
-			ReconnectWait:   cfg.JetStreamReconnectWait,
-			MaxDeliver:      cfg.JetStreamMaxDeliver,
-			AckWait:         cfg.JetStreamAckWait,
-			RefreshTimeout:  cfg.JetStreamRefreshTimeout,
-			ReplayFetchWait: cfg.JetStreamReplayFetchWait,
-		})
 	default:
-		structuredLogger.Fatal().Str("backend", cfg.MessageBackend).Msg("Unknown message backend (valid: direct, kafka, nats)")
+		structuredLogger.Fatal().Str("backend", cfg.MessageBackend).Msg("Unknown message backend (valid: direct, kafka)")
 	}
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Str("backend", cfg.MessageBackend).Msg("Failed to create message backend")
@@ -402,8 +328,6 @@ func main() {
 		MetricsAggregationInterval: cfg.MetricsAggregationInterval,
 		EditionManager:             cfg.EditionManager(),
 		PprofEnabled:               cfg.PprofEnabled,
-		BackendMismatch:            backendMismatch,
-		MessageBackend:             cfg.MessageBackend,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create load balancer")

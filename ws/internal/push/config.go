@@ -12,6 +12,9 @@ import (
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
+// ErrPushRequiresKafka is returned when MESSAGE_BACKEND is not kafka.
+var ErrPushRequiresKafka = errors.New("push notifications require MESSAGE_BACKEND=kafka")
+
 // Config holds all push notification service configuration.
 // Tags:
 //
@@ -66,7 +69,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("provisioning client config: %w", err)
 	}
 
-	// Message backend validation (backend type, broker/NATS settings)
+	// Message backend validation (backend type, broker settings)
 	if err := c.MessageBackendConfig.Validate(); err != nil {
 		return fmt.Errorf("message backend config: %w", err)
 	}
@@ -79,8 +82,8 @@ func (c *Config) Validate() error {
 	// Push notifications require persistent message ingestion — direct mode has no
 	// persistence, no replay, and no consumer groups, making it unsuitable for
 	// reliable push delivery.
-	if c.MessageBackend == "direct" {
-		return errors.New("push notifications require kafka or nats message backend")
+	if c.MessageBackend == platform.MessageBackendDirect {
+		return ErrPushRequiresKafka
 	}
 
 	// Database URL validation (PostgreSQL via pgxpool)

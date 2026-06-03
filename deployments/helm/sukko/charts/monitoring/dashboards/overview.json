@@ -194,7 +194,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "NATS health inferred from ws-server Kafka connected status. NATS itself doesn't expose Prometheus metrics.",
+      "description": "Broadcast bus (Valkey) health inferred from ws-server connection status.",
       "fieldConfig": {
         "defaults": {
           "color": {

@@ -1,20 +1,18 @@
 package broadcast
 
 import (
-	"fmt"
-
 	"github.com/rs/zerolog"
+
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // NewBus creates a new Bus based on the configuration type.
 // Returns an error if the configuration is invalid or connection fails.
 func NewBus(cfg Config, logger zerolog.Logger) (Bus, error) {
 	switch cfg.Type {
-	case "valkey", "redis":
+	case platform.BroadcastTypeValkey:
 		return newValkeyBus(cfg, logger)
-	case "nats":
-		return newNATSBus(cfg, logger)
 	default:
-		return nil, fmt.Errorf("unsupported broadcast bus type: %q (supported: valkey, nats)", cfg.Type)
+		return nil, ErrUnknownBroadcastType
 	}
 }
