@@ -602,3 +602,172 @@ func BenchmarkTimeSince(b *testing.B) {
 		_ = time.Since(connectedAt)
 	}
 }
+
+// =============================================================================
+// TestDisconnectClient_SubscriptionIndexCleanup (SC-010)
+// =============================================================================
+
+// TestDisconnectClient_SubscriptionIndexCleanup verifies that disconnectClient removes
+// the client from only its subscribed channels, leaving other clients' entries intact.
+func TestDisconnectClient_SubscriptionIndexCleanup(t *testing.T) {
+	t.Parallel()
+
+	newServer := func() *Server {
+		s := stats.NewStats()
+		s.CurrentConnections.Store(1)
+		return &Server{
+			logger:            zerolog.Nop(),
+			stats:             s,
+			connections:       NewConnectionPool(100, 256),
+			connectionsSem:    make(chan struct{}, 100),
+			subscriptionIndex: NewSubscriptionIndex(),
+			rateLimiter:       limits.NewRateLimiter(100, 10),
+		}
+	}
+
+	newClient := func(id int64) *Client {
+		return &Client{
+			id:            id,
+			send:          make(chan OutgoingMsg, 256),
+			seqGen:        messaging.NewSequenceGenerator(),
+			subscriptions: NewSubscriptionSet(),
+			connectedAt:   time.Now(),
+			transport:     nil,
+		}
+	}
+
+	assertSendClosed := func(t *testing.T, c *Client) {
+		t.Helper()
+		select {
+		case _, ok := <-c.send:
+			if ok {
+				t.Error("send channel should be closed, received data instead")
+			}
+		default:
+			t.Error("send channel not closed")
+		}
+	}
+
+	assertNotSubscribed := func(t *testing.T, srv *Server, prevSubs []string, c *Client) {
+		t.Helper()
+		for _, ch := range prevSubs {
+			for _, sub := range srv.subscriptionIndex.Get(ch) {
+				if sub == c {
+					t.Errorf("client should not be in subscriptionIndex[%q] after disconnect", ch)
+				}
+			}
+		}
+	}
+
+	t.Run("A has no subscriptions", func(t *testing.T) {
+		t.Parallel()
+
+		srv := newServer()
+		clientA := newClient(1)
+		clientB := newClient(2)
+
+		// B subscribes to ch1 — makes the assertion non-vacuous.
+		clientB.subscriptions.Add("ch1")
+		srv.subscriptionIndex.Add("ch1", clientB)
+
+		srv.clients.Store(clientA, true)
+		srv.connectionsSem <- struct{}{}
+
+		prevSubs := clientA.subscriptions.List()
+		srv.disconnectClient(clientA, pkgmetrics.DisconnectReadError, pkgmetrics.InitiatedByClient)
+
+		assertNotSubscribed(t, srv, prevSubs, clientA)
+
+		// ch1 is unaffected — still has B.
+		ch1Subs := srv.subscriptionIndex.Get("ch1")
+		if len(ch1Subs) != 1 || ch1Subs[0] != clientB {
+			t.Errorf("ch1 should still have only clientB, got %v", ch1Subs)
+		}
+
+		assertSendClosed(t, clientA)
+	})
+
+	t.Run("A shares channel with B", func(t *testing.T) {
+		t.Parallel()
+
+		srv := newServer()
+		clientA := newClient(1)
+		clientB := newClient(2)
+
+		for _, c := range []*Client{clientA, clientB} {
+			c.subscriptions.Add("ch1")
+			srv.subscriptionIndex.Add("ch1", c)
+		}
+
+		srv.clients.Store(clientA, true)
+		srv.connectionsSem <- struct{}{}
+
+		prevSubs := clientA.subscriptions.List()
+		srv.disconnectClient(clientA, pkgmetrics.DisconnectReadError, pkgmetrics.InitiatedByClient)
+
+		assertNotSubscribed(t, srv, prevSubs, clientA)
+
+		// ch1 still present with only B.
+		ch1Subs := srv.subscriptionIndex.Get("ch1")
+		if len(ch1Subs) != 1 {
+			t.Errorf("ch1 should have 1 subscriber (B), got %d", len(ch1Subs))
+		} else if ch1Subs[0] != clientB {
+			t.Error("ch1's remaining subscriber should be clientB")
+		}
+
+		assertSendClosed(t, clientA)
+	})
+
+	t.Run("A owns multiple channels, C unaffected", func(t *testing.T) {
+		t.Parallel()
+
+		srv := newServer()
+		clientA := newClient(1)
+		clientB := newClient(2)
+		clientC := newClient(3)
+
+		// A→{ch1,ch2,ch3}, B→{ch2}, C→{ch4,ch5}
+		for _, ch := range []string{"ch1", "ch2", "ch3"} {
+			clientA.subscriptions.Add(ch)
+			srv.subscriptionIndex.Add(ch, clientA)
+		}
+		clientB.subscriptions.Add("ch2")
+		srv.subscriptionIndex.Add("ch2", clientB)
+		for _, ch := range []string{"ch4", "ch5"} {
+			clientC.subscriptions.Add(ch)
+			srv.subscriptionIndex.Add(ch, clientC)
+		}
+
+		srv.clients.Store(clientA, true)
+		srv.connectionsSem <- struct{}{}
+
+		prevSubs := clientA.subscriptions.List()
+		srv.disconnectClient(clientA, pkgmetrics.DisconnectReadError, pkgmetrics.InitiatedByClient)
+
+		assertNotSubscribed(t, srv, prevSubs, clientA)
+
+		// ch1, ch3: A was sole subscriber — key absent.
+		if srv.subscriptionIndex.Get("ch1") != nil {
+			t.Error("ch1 should have no subscribers (A was sole subscriber)")
+		}
+		if srv.subscriptionIndex.Get("ch3") != nil {
+			t.Error("ch3 should have no subscribers (A was sole subscriber)")
+		}
+
+		// ch2: B remains.
+		ch2Subs := srv.subscriptionIndex.Get("ch2")
+		if len(ch2Subs) != 1 || ch2Subs[0] != clientB {
+			t.Errorf("ch2 should have only clientB, got %v", ch2Subs)
+		}
+
+		// ch4, ch5: C unaffected.
+		for _, ch := range []string{"ch4", "ch5"} {
+			subs := srv.subscriptionIndex.Get(ch)
+			if len(subs) != 1 || subs[0] != clientC {
+				t.Errorf("%q should still have only clientC, got %v", ch, subs)
+			}
+		}
+
+		assertSendClosed(t, clientA)
+	})
+}

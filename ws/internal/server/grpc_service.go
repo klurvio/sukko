@@ -165,7 +165,7 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 
 	s.clients.Delete(client)
 	s.stats.CurrentConnections.Add(-1)
-	s.subscriptionIndex.RemoveClient(client)
+	s.subscriptionIndex.RemoveMultiple(client.subscriptions.List(), client)
 	s.connections.Put(client)
 	<-s.connectionsSem // Release connection slot
 

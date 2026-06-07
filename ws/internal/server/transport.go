@@ -25,6 +25,11 @@ const (
 	TransportGRPCStream TransportType = "sse"
 )
 
+// initialBufCap is the initial capacity for each transport's reusable assembly buffer.
+// 512 bytes covers typical broadcast frame sizes without over-allocating.
+// Shared by both WebSocketTransport and GRPCStreamTransport.
+const initialBufCap = 512
+
 // Transport abstracts message delivery from the connection protocol.
 // All transports (WebSocket, SSE/gRPC stream, future Web Push) implement this interface.
 //
@@ -79,6 +84,7 @@ type Transport interface {
 type WebSocketTransport struct {
 	conn   net.Conn
 	writer *bufio.Writer
+	buf    []byte // reusable assembly buffer; owned exclusively by the write pump goroutine
 }
 
 // NewWebSocketTransport creates a WebSocket transport wrapping the given connection.
@@ -86,6 +92,7 @@ func NewWebSocketTransport(conn net.Conn) *WebSocketTransport {
 	return &WebSocketTransport{
 		conn:   conn,
 		writer: bufio.NewWriter(conn),
+		buf:    make([]byte, 0, initialBufCap),
 	}
 }
 
@@ -99,7 +106,13 @@ func (t *WebSocketTransport) Conn() net.Conn {
 // Send writes a single message as a WebSocket text frame and flushes.
 // Returns the number of bytes written (for accurate metrics without double allocation).
 func (t *WebSocketTransport) Send(msg OutgoingMsg) (int, error) {
-	data := msg.Bytes()
+	var data []byte
+	if msg.IsRaw() {
+		data = msg.Bytes() // zero-copy path: raw bytes sent directly
+	} else {
+		t.buf = msg.AppendTo(t.buf[:0]) // envelope path: reassign to store any grown slice
+		data = t.buf
+	}
 	if data == nil {
 		return 0, nil
 	}
@@ -118,7 +131,13 @@ func (t *WebSocketTransport) Send(msg OutgoingMsg) (int, error) {
 func (t *WebSocketTransport) SendBatch(msgs []OutgoingMsg) (int, error) {
 	var total int
 	for _, msg := range msgs {
-		data := msg.Bytes()
+		var data []byte
+		if msg.IsRaw() {
+			data = msg.Bytes()
+		} else {
+			t.buf = msg.AppendTo(t.buf[:0]) // reassign — bufio.Writer.Write copies into its buffer; t.buf safe to reuse next iteration
+			data = t.buf
+		}
 		if data == nil {
 			continue
 		}
@@ -193,6 +212,7 @@ type GRPCStreamTransport struct {
 	stream     serverv1.RealtimeService_SubscribeServer
 	cancel     context.CancelFunc
 	remoteAddr string // Stored from SubscribeRequest.remote_addr at construction
+	buf        []byte // reusable assembly buffer; owned exclusively by the write pump goroutine
 }
 
 // NewGRPCStreamTransport creates a gRPC stream transport.
@@ -202,25 +222,31 @@ func NewGRPCStreamTransport(stream serverv1.RealtimeService_SubscribeServer, can
 		stream:     stream,
 		cancel:     cancel,
 		remoteAddr: remoteAddr,
+		buf:        make([]byte, 0, initialBufCap),
 	}
 }
 
 // Send delivers a single message on the gRPC stream.
 // Constructs SubscribeResponse{Sequence, Payload} from the OutgoingMsg.
-// No JSON parsing — payload is the pre-built envelope from BroadcastEnvelope.Build(seq).
 func (t *GRPCStreamTransport) Send(msg OutgoingMsg) (int, error) {
-	data := msg.Bytes()
-	if data == nil {
+	var payload []byte
+	if msg.IsRaw() {
+		payload = msg.Bytes() // zero-copy path
+	} else {
+		t.buf = msg.AppendTo(t.buf[:0]) // envelope path: reassign — proto.Marshal copies before returning
+		payload = t.buf
+	}
+	if payload == nil {
 		return 0, nil
 	}
 	err := t.stream.Send(&serverv1.SubscribeResponse{
 		Sequence: msg.seq,
-		Payload:  data,
+		Payload:  payload,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("grpc stream send: %w", err)
 	}
-	return len(data), nil
+	return len(payload), nil
 }
 
 // SendBatch delivers multiple messages on the gRPC stream.

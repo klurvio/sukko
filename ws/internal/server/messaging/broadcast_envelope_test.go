@@ -3,6 +3,7 @@ package messaging
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -375,6 +376,97 @@ func TestBroadcastEnvelope_Concurrent(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// newTestEnvelope creates a standard test envelope for benchmarks and allocation tests.
+func newTestEnvelope(tb testing.TB) *BroadcastEnvelope {
+	tb.Helper()
+	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`))
+	if err != nil {
+		tb.Fatalf("newTestEnvelope: %v", err)
+	}
+	return env
+}
+
+// TestBroadcastEnvelope_AppendTo verifies AppendTo produces byte-identical output to
+// the expected wire format for key edge cases. Golden strings guard field-order
+// regressions that json.Unmarshal comparison would miss.
+func TestBroadcastEnvelope_AppendTo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		channel string
+		ts      int64
+		payload []byte
+		seq     int64
+		want    []byte
+	}{
+		{
+			name:    "nil payload normalizes to null",
+			channel: "BTC.trade",
+			ts:      1000,
+			payload: nil,
+			seq:     1,
+			want:    []byte(`{"type":"message","seq":1,"ts":1000,"channel":"BTC.trade","data":null}`),
+		},
+		{
+			name:    "channel requiring JSON escaping",
+			channel: `ch"1`,
+			ts:      1000,
+			payload: []byte(`{}`),
+			seq:     1,
+			want:    []byte(`{"type":"message","seq":1,"ts":1000,"channel":"ch\"1","data":{}}`),
+		},
+		{
+			name:    "max int64 seq",
+			channel: "BTC.trade",
+			ts:      1000,
+			payload: []byte(`{"x":1}`),
+			seq:     math.MaxInt64,
+			want:    []byte(`{"type":"message","seq":9223372036854775807,"ts":1000,"channel":"BTC.trade","data":{"x":1}}`),
+		},
+		{
+			name:    "seq zero not elided",
+			channel: "BTC.trade",
+			ts:      1000,
+			payload: []byte(`{"x":1}`),
+			seq:     0,
+			want:    []byte(`{"type":"message","seq":0,"ts":1000,"channel":"BTC.trade","data":{"x":1}}`),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env, err := NewBroadcastEnvelope(tt.channel, tt.ts, tt.payload)
+			if err != nil {
+				t.Fatalf("NewBroadcastEnvelope() error: %v", err)
+			}
+			got := env.AppendTo(nil, tt.seq)
+			if !bytes.Equal(got, tt.want) {
+				t.Errorf("AppendTo() mismatch:\n  got:  %s\n  want: %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestBroadcastEnvelope_ZeroAllocs verifies AppendTo causes zero allocations when
+// reusing a pre-warmed buffer — the core hot-path guarantee of this type.
+func TestBroadcastEnvelope_ZeroAllocs(t *testing.T) { //nolint:paralleltest // testing.AllocsPerRun is sensitive to GC pressure from concurrent goroutines; intentionally non-parallel
+	env := newTestEnvelope(t)
+
+	buf := env.AppendTo(nil, 0)
+	if len(buf) == 0 {
+		t.Fatal("AppendTo(nil, 0) returned empty result")
+	}
+
+	got := testing.AllocsPerRun(100, func() {
+		buf = env.AppendTo(buf[:0], 42)
+	})
+	if got != 0 {
+		t.Errorf("AppendTo allocations = %v, want 0", got)
+	}
 }
 
 // BenchmarkBroadcastEnvelope_Build measures per-call cost of Build().

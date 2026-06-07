@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gobwas/ws"
 	serverv1 "github.com/klurvio/sukko/gen/proto/sukko/server/v1"
+	"github.com/klurvio/sukko/internal/server/messaging"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -254,8 +257,15 @@ func (m *mockSubscribeServer) Send(resp *serverv1.SubscribeResponse) error {
 	if m.sendErr != nil {
 		return m.sendErr
 	}
+	// Simulate gRPC's synchronous proto.Marshal: copy payload before storing so
+	// tests remain correct when the transport reuses a buffer across SendBatch calls.
+	payload := make([]byte, len(resp.GetPayload()))
+	copy(payload, resp.GetPayload())
 	m.mu.Lock()
-	m.sent = append(m.sent, resp)
+	m.sent = append(m.sent, &serverv1.SubscribeResponse{
+		Sequence: resp.GetSequence(),
+		Payload:  payload,
+	})
 	m.mu.Unlock()
 	return nil
 }
@@ -434,5 +444,208 @@ func TestGRPCStreamTransport_NoOps(t *testing.T) {
 	}
 	if err := transport.SetWriteDeadline(time.Now()); err != nil {
 		t.Errorf("SetWriteDeadline should be no-op, got: %v", err)
+	}
+}
+
+// =============================================================================
+// Envelope dispatch tests (SC-011, SC-012, SC-013, SC-005 gate)
+// =============================================================================
+
+// discardConn is a net.Conn whose Write delegates to io.Discard.
+// Used for allocation tests where mockConn would itself allocate (append to written slice).
+type discardConn struct{}
+
+func (discardConn) Read(_ []byte) (int, error)         { return 0, io.EOF }
+func (discardConn) Write(b []byte) (int, error)        { return io.Discard.Write(b) }
+func (discardConn) Close() error                       { return nil }
+func (discardConn) LocalAddr() net.Addr                { return &net.TCPAddr{} }
+func (discardConn) RemoteAddr() net.Addr               { return &net.TCPAddr{} }
+func (discardConn) SetDeadline(_ time.Time) error      { return nil }
+func (discardConn) SetReadDeadline(_ time.Time) error  { return nil }
+func (discardConn) SetWriteDeadline(_ time.Time) error { return nil }
+
+// TestWebSocketTransport_EnvelopeSend (SC-011) verifies that envelope messages are
+// assembled correctly and that SendBatch buffer reuse does not corrupt earlier frames.
+func TestWebSocketTransport_EnvelopeSend(t *testing.T) {
+	t.Parallel()
+
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope: %v", err)
+	}
+	want42 := env.AppendTo(nil, 42)
+	want43 := env.AppendTo(nil, 43)
+
+	t.Run("Send", func(t *testing.T) {
+		t.Parallel()
+		conn := newMockConn()
+		tr := NewWebSocketTransport(conn)
+
+		if _, err := tr.Send(OutgoingMsg{envelope: env, seq: 42}); err != nil {
+			t.Fatalf("Send error: %v", err)
+		}
+
+		frame, err := ws.ReadFrame(bytes.NewReader(conn.written))
+		if err != nil {
+			t.Fatalf("ReadFrame error: %v", err)
+		}
+		if !bytes.Equal(frame.Payload, want42) {
+			t.Errorf("frame payload = %q, want %q", frame.Payload, want42)
+		}
+	})
+
+	t.Run("SendBatch buffer reuse", func(t *testing.T) {
+		t.Parallel()
+		conn := newMockConn()
+		tr := NewWebSocketTransport(conn)
+
+		msgs := []OutgoingMsg{
+			{envelope: env, seq: 42},
+			{envelope: env, seq: 43},
+		}
+		if _, err := tr.SendBatch(msgs); err != nil {
+			t.Fatalf("SendBatch error: %v", err)
+		}
+
+		r := bytes.NewReader(conn.written)
+		frame1, err := ws.ReadFrame(r)
+		if err != nil {
+			t.Fatalf("ReadFrame frame1 error: %v", err)
+		}
+		frame2, err := ws.ReadFrame(r)
+		if err != nil {
+			t.Fatalf("ReadFrame frame2 error: %v", err)
+		}
+		if !bytes.Equal(frame1.Payload, want42) {
+			t.Errorf("frame1 payload = %q, want %q", frame1.Payload, want42)
+		}
+		if !bytes.Equal(frame2.Payload, want43) {
+			t.Errorf("frame2 payload = %q, want %q", frame2.Payload, want43)
+		}
+	})
+}
+
+// TestGRPCStreamTransport_EnvelopeSend (SC-012) verifies envelope messages are
+// delivered with the correct Sequence and Payload on the gRPC stream.
+func TestGRPCStreamTransport_EnvelopeSend(t *testing.T) {
+	t.Parallel()
+
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope: %v", err)
+	}
+	want42 := env.AppendTo(nil, 42)
+	want43 := env.AppendTo(nil, 43)
+
+	t.Run("Send", func(t *testing.T) {
+		t.Parallel()
+		mock := &mockSubscribeServer{}
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		tr := NewGRPCStreamTransport(mock, cancel, "10.0.0.1")
+
+		if _, err := tr.Send(OutgoingMsg{envelope: env, seq: 42}); err != nil {
+			t.Fatalf("Send error: %v", err)
+		}
+
+		if len(mock.sent) != 1 {
+			t.Fatalf("sent count = %d, want 1", len(mock.sent))
+		}
+		if mock.sent[0].GetSequence() != 42 {
+			t.Errorf("sequence = %d, want 42", mock.sent[0].GetSequence())
+		}
+		if !bytes.Equal(mock.sent[0].GetPayload(), want42) {
+			t.Errorf("payload = %q, want %q", mock.sent[0].GetPayload(), want42)
+		}
+	})
+
+	t.Run("SendBatch", func(t *testing.T) {
+		t.Parallel()
+		mock := &mockSubscribeServer{}
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		tr := NewGRPCStreamTransport(mock, cancel, "10.0.0.1")
+
+		msgs := []OutgoingMsg{
+			{envelope: env, seq: 42},
+			{envelope: env, seq: 43},
+		}
+		if _, err := tr.SendBatch(msgs); err != nil {
+			t.Fatalf("SendBatch error: %v", err)
+		}
+
+		if len(mock.sent) != 2 {
+			t.Fatalf("sent count = %d, want 2", len(mock.sent))
+		}
+		if mock.sent[0].GetSequence() != 42 {
+			t.Errorf("msg0 sequence = %d, want 42", mock.sent[0].GetSequence())
+		}
+		if !bytes.Equal(mock.sent[0].GetPayload(), want42) {
+			t.Errorf("msg0 payload = %q, want %q", mock.sent[0].GetPayload(), want42)
+		}
+		if mock.sent[1].GetSequence() != 43 {
+			t.Errorf("msg1 sequence = %d, want 43", mock.sent[1].GetSequence())
+		}
+		if !bytes.Equal(mock.sent[1].GetPayload(), want43) {
+			t.Errorf("msg1 payload = %q, want %q", mock.sent[1].GetPayload(), want43)
+		}
+	})
+}
+
+// TestWebSocketTransport_BufMonotonicGrowth (SC-013) verifies that buf capacity is
+// monotonically non-decreasing: buf[:0] resets length but preserves the backing array.
+func TestWebSocketTransport_BufMonotonicGrowth(t *testing.T) {
+	t.Parallel()
+
+	// Large payload to force buf growth past initialBufCap (512).
+	largePayload := append(append([]byte{'"'}, bytes.Repeat([]byte("x"), 600)...), '"')
+	bigEnv, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, largePayload)
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope large: %v", err)
+	}
+	smallEnv, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope small: %v", err)
+	}
+
+	tr := NewWebSocketTransport(discardConn{})
+
+	if _, err := tr.Send(OutgoingMsg{envelope: bigEnv, seq: 1}); err != nil {
+		t.Fatalf("Send large: %v", err)
+	}
+	capAfterLarge := cap(tr.buf) // tr.buf accessible: package server internal test
+	if capAfterLarge <= initialBufCap {
+		t.Fatalf("buf cap %d did not grow past initialBufCap %d after large send", capAfterLarge, initialBufCap)
+	}
+
+	if _, err := tr.Send(OutgoingMsg{envelope: smallEnv, seq: 2}); err != nil {
+		t.Fatalf("Send small: %v", err)
+	}
+	if cap(tr.buf) != capAfterLarge {
+		t.Errorf("buf cap changed after small send: got %d, want %d (monotonic growth)", cap(tr.buf), capAfterLarge)
+	}
+}
+
+// TestWebSocketTransport_ZeroAllocsSend (SC-005 gate) verifies envelope dispatch adds
+// no allocations beyond the single gobwas/ws frame header buffer.
+func TestWebSocketTransport_ZeroAllocsSend(t *testing.T) { //nolint:paralleltest // testing.AllocsPerRun is sensitive to GC pressure from concurrent goroutines; intentionally non-parallel
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope: %v", err)
+	}
+	msg := OutgoingMsg{envelope: env, seq: 42}
+
+	tr := NewWebSocketTransport(discardConn{})
+
+	// Pre-warm: allocates the reusable buffer.
+	if _, err := tr.Send(msg); err != nil {
+		t.Fatalf("pre-warm Send error: %v", err)
+	}
+
+	got := testing.AllocsPerRun(100, func() {
+		_, _ = tr.Send(msg)
+	})
+	if got > 1 {
+		t.Errorf("Send allocations = %v, want <= 1 (gobwas/ws header budget)", got)
 	}
 }
