@@ -1,8 +1,12 @@
 package server
 
 import (
+	"bytes"
+	"math"
 	"sync"
 	"testing"
+
+	"github.com/klurvio/sukko/internal/server/messaging"
 )
 
 // =============================================================================
@@ -360,36 +364,6 @@ func TestSubscriptionIndex_RemoveMultiple(t *testing.T) {
 	}
 }
 
-func TestSubscriptionIndex_RemoveClient(t *testing.T) {
-	t.Parallel()
-	idx := NewSubscriptionIndex()
-	client1 := &Client{id: 1}
-	client2 := &Client{id: 2}
-
-	// Client1 subscribes to multiple channels
-	idx.AddMultiple([]string{"sukko.BTC.trade", "sukko.ETH.trade", "sukko.SOL.liquidity"}, client1)
-	// Client2 also subscribes to some
-	idx.AddMultiple([]string{"sukko.BTC.trade", "sukko.ETH.trade"}, client2)
-
-	// Remove client1 from all channels
-	idx.RemoveClient(client1)
-
-	// client1 should be gone from all channels
-	for _, ch := range []string{"sukko.BTC.trade", "sukko.ETH.trade", "sukko.SOL.liquidity"} {
-		clients := idx.Get(ch)
-		for _, c := range clients {
-			if c == client1 {
-				t.Errorf("client1 should not be in %s", ch)
-			}
-		}
-	}
-
-	// client2 should still be in its channels
-	if idx.Count("sukko.BTC.trade") != 1 || idx.Count("sukko.ETH.trade") != 1 {
-		t.Error("client2 should still be subscribed")
-	}
-}
-
 func TestSubscriptionIndex_Get_NonExistent(t *testing.T) {
 	t.Parallel()
 	idx := NewSubscriptionIndex()
@@ -611,6 +585,130 @@ func TestConnectionPool_ThreadSafety(t *testing.T) {
 
 	wg.Wait()
 	// Test passes if no race conditions or panics
+}
+
+// =============================================================================
+// OutgoingMsg Tests
+// =============================================================================
+
+func TestOutgoingMsg_IsRaw(t *testing.T) {
+	t.Parallel()
+
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		msg  OutgoingMsg
+		want bool
+	}{
+		{"raw only", OutgoingMsg{raw: []byte("data")}, true},
+		{"envelope only", OutgoingMsg{envelope: env, seq: 1}, false},
+		{"zero value", OutgoingMsg{}, false},
+		{"both raw and envelope", OutgoingMsg{raw: []byte("data"), envelope: env, seq: 1}, true},
+		{"nil raw non-nil envelope", OutgoingMsg{raw: nil, envelope: env, seq: 1}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.msg.IsRaw(); got != tt.want {
+				t.Errorf("IsRaw() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOutgoingMsg_AppendTo(t *testing.T) {
+	t.Parallel()
+
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		msg  OutgoingMsg
+		want []byte
+	}{
+		{
+			name: "envelope seq 42",
+			msg:  OutgoingMsg{envelope: env, seq: 42},
+			want: []byte(`{"type":"message","seq":42,"ts":1000,"channel":"BTC.trade","data":{"x":1}}`),
+		},
+		{
+			name: "zero value returns nil",
+			msg:  OutgoingMsg{},
+			want: nil,
+		},
+		{
+			name: "max int64 seq",
+			msg:  OutgoingMsg{envelope: env, seq: math.MaxInt64},
+			want: []byte(`{"type":"message","seq":9223372036854775807,"ts":1000,"channel":"BTC.trade","data":{"x":1}}`),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.msg.AppendTo(nil)
+			if !bytes.Equal(got, tt.want) {
+				t.Errorf("AppendTo() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOutgoingMsg_Bytes_RawIdentity(t *testing.T) {
+	t.Parallel()
+
+	t.Run("pointer identity", func(t *testing.T) {
+		t.Parallel()
+		raw := []byte("test")
+		msg := OutgoingMsg{raw: raw}
+		got := msg.Bytes()
+		raw[0] = 'X'
+		if got[0] != 'X' {
+			t.Error("Bytes() should return original slice (zero-copy), got a copy")
+		}
+	})
+
+	t.Run("raw wins over envelope", func(t *testing.T) {
+		t.Parallel()
+		env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+		if err != nil {
+			t.Fatalf("NewBroadcastEnvelope: %v", err)
+		}
+		msg := OutgoingMsg{raw: []byte("raw-data"), envelope: env, seq: 42}
+		got := msg.Bytes()
+		if !bytes.Equal(got, []byte("raw-data")) {
+			t.Errorf("Bytes() = %q, want raw-data when both raw and envelope set", got)
+		}
+	})
+}
+
+func TestOutgoingMsg_ZeroAllocs(t *testing.T) { //nolint:paralleltest // testing.AllocsPerRun is sensitive to GC pressure from concurrent goroutines; intentionally non-parallel
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	if err != nil {
+		t.Fatalf("NewBroadcastEnvelope: %v", err)
+	}
+	msg := OutgoingMsg{envelope: env, seq: 42}
+
+	var buf []byte
+	buf = msg.AppendTo(nil)
+	if len(buf) == 0 {
+		t.Fatal("pre-warm AppendTo returned empty result")
+	}
+
+	got := testing.AllocsPerRun(100, func() {
+		buf = msg.AppendTo(buf[:0])
+	})
+	if got != 0 {
+		t.Errorf("AppendTo allocations = %v, want 0", got)
+	}
 }
 
 // =============================================================================

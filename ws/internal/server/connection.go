@@ -42,6 +42,23 @@ func (m OutgoingMsg) Bytes() []byte {
 	return m.envelope.Build(m.seq)
 }
 
+// IsRaw reports whether this message carries pre-built bytes (acks, errors, replay).
+// Transports use this to choose between the zero-copy raw path and the reusable-buffer
+// envelope path.
+func (m OutgoingMsg) IsRaw() bool {
+	return m.raw != nil
+}
+
+// AppendTo appends the assembled envelope bytes for this message into dst and returns it.
+// Passing buf[:0] reuses the backing array with zero allocs on warm calls.
+// Returns nil for a zero-value OutgoingMsg. MUST NOT be called for raw messages — use Bytes().
+func (m OutgoingMsg) AppendTo(dst []byte) []byte {
+	if m.envelope == nil {
+		return nil
+	}
+	return m.envelope.AppendTo(dst, m.seq)
+}
+
 // RawMsg creates an OutgoingMsg from pre-built bytes.
 // Used by acks, errors, replay, and other non-broadcast messages.
 func RawMsg(data []byte) OutgoingMsg {
@@ -565,41 +582,6 @@ func (idx *SubscriptionIndex) RemoveMultiple(channels []string, client *Client) 
 		}
 
 		// Find and remove client
-		for i, existing := range currentSlice {
-			if existing != client {
-				continue
-			}
-			newSlice := make([]*Client, len(currentSlice)-1)
-			copy(newSlice, currentSlice[:i])
-			copy(newSlice[i:], currentSlice[i+1:])
-
-			if len(newSlice) == 0 {
-				delete(idx.subscribers, channel)
-			} else {
-				atomicVal.Store(newSlice)
-			}
-			break
-		}
-	}
-}
-
-// RemoveClient removes a client from ALL channels (called on disconnect)
-// Thread-safe: Uses write lock with copy-on-write
-func (idx *SubscriptionIndex) RemoveClient(client *Client) {
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
-
-	// Iterate all channels and remove client
-	for channel, atomicVal := range idx.subscribers {
-		v := atomicVal.Load()
-		if v == nil {
-			continue
-		}
-		currentSlice, ok := v.([]*Client)
-		if !ok {
-			continue
-		}
-
 		for i, existing := range currentSlice {
 			if existing != client {
 				continue

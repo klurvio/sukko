@@ -129,7 +129,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.21.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-05-27
+**Version**: 1.22.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-06-07
 
 ### I. Configuration
 
@@ -366,6 +366,18 @@ OpenAPI, AsyncAPI, and in-repo behavioral documentation are authoritative artifa
 3. If the diff adds a new tester suite, changes an error code in the provisioning or tester API, adds or removes a tester-visible env var, changes a WebSocket message type, or adds an API endpoint tested by the tester, a finding MUST be surfaced if `ws/docs/e2e-testing.md` is not updated in the same PR.
 4. OpenAPI/AsyncAPI spec updates and `ws/docs/e2e-testing.md` updates MUST be committed in the same PR as the code change — they are not documentation, they are contracts.
 
+### XVIII. Architectural & Style Consistency
+
+All services MUST implement equivalent functionality using the same patterns, conventions, and abstractions. Inconsistency across services creates cognitive load, increases defect surface, and impedes cross-team maintenance.
+
+**Scope** — Consistency is required across: error handling patterns, logging field names and levels, configuration struct layout and env var naming conventions, metric naming (service prefix excepted), concurrency primitives, shutdown sequences, middleware ordering, and gRPC interceptor setup.
+
+**Exceptions** — A service MAY deviate from a shared pattern only when: (1) its operational profile makes the shared pattern harmful (e.g., the tester service MUST NOT emit Prometheus metrics), or (2) the deviation is documented in the service's section of CLAUDE.md or in a code comment stating why. Silent deviation is forbidden.
+
+**New code alongside existing parallels** — When implementing a feature or fix that has a parallel in another service, that parallel MUST be reviewed first. If it is correct, the new code MUST follow it. If it is incorrect, both MUST be fixed — the new code establishes the correct pattern and a follow-up task MUST be filed for the sibling.
+
+**Code review** — Cross-service consistency MUST be checked during code review when a pattern is introduced in one service that already exists (or should exist) in another, or when a refactor diverges from the established pattern in a sibling service.
+
 ### Governance
 
 - This constitution supersedes all other ad-hoc practices in the codebase.
@@ -378,3 +390,4 @@ OpenAPI, AsyncAPI, and in-repo behavioral documentation are authoritative artifa
 - **v1.19.0 amendment** (2026-05-24): Added XVII (API Contract Maintenance) — OpenAPI and AsyncAPI specs MUST be updated in the same PR as code changes that affect REST endpoints, schemas, or the WebSocket protocol.
 - **v1.20.0 amendment** (2026-05-27): Extended XVI (Cross-Repo Awareness) — added explicit `../sukko-docs/static/llms.txt` maintenance requirement to the sukko-docs impact triggers: any docs page addition, removal, rename, or significant repurposing MUST also update the LLM discovery index.
 - **v1.21.0 amendment** (2026-05-27): XVII renamed from 'API Contract Maintenance' to 'In-Repo Documentation & Contract Maintenance'; XVII extended to include ws/docs/e2e-testing.md as a tracked in-repo documentation artifact alongside OpenAPI/AsyncAPI specs; XVII requirement 3 (new) adds tester-specific code review triggers (tester suite additions, error code changes in provisioning/tester API, tester-visible env var changes, WebSocket message type changes, tester-tested endpoint additions); current XVII requirement 3 renumbered to requirement 4 (text updated to include ws/docs/e2e-testing.md); XVI extended with enumerated sukko-docs trigger list replacing vague 'behavioral changes' language.
+- **v1.22.0 amendment** (2026-06-07): Added XVIII (Architectural & Style Consistency) — all services MUST implement equivalent functionality using the same patterns; deviations require documented justification; cross-service consistency MUST be checked in code review.

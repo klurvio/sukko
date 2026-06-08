@@ -12,7 +12,7 @@ import (
 var broadcastPrefix = []byte(`{"type":"message","seq":`)
 
 // maxInt64Digits is the maximum number of digits in a base-10 int64 representation.
-// Used for pre-calculating buffer capacity in Build().
+// Used to size the sharedSuffix allocation in NewBroadcastEnvelope.
 const maxInt64Digits = 20
 
 // Suffix fragment sizes (byte lengths of JSON structural tokens).
@@ -28,13 +28,13 @@ const (
 // reads by multiple write pump goroutines.
 //
 // Architecture: The broadcast loop creates one BroadcastEnvelope per event.
-// Each write pump goroutine calls Build(seq) to assemble per-client bytes.
-// This defers the ~100ns byte assembly to write pumps (parallelized across cores)
-// while keeping the broadcast loop at ~25ns/client (atomic + channel send).
+// Each write pump goroutine calls AppendTo(buf[:0], seq) to assemble per-client
+// bytes into a caller-owned buffer. This defers the ~100ns byte assembly to
+// write pumps (parallelized across cores) while keeping the broadcast loop at
+// ~25ns/client (atomic + channel send).
 type BroadcastEnvelope struct {
-	prefix        []byte // {"type":"message","seq":
-	sharedSuffix  []byte // ,"ts":...,"channel":"...","data":...}
-	totalEstimate int    // pre-calculated capacity for Build()
+	prefix       []byte // {"type":"message","seq":
+	sharedSuffix []byte // ,"ts":...,"channel":"...","data":...}
 }
 
 // NewBroadcastEnvelope pre-computes shared byte fragments from broadcast parameters.
@@ -66,19 +66,23 @@ func NewBroadcastEnvelope(channel string, timestamp int64, payload []byte) (*Bro
 	suffix = append(suffix, '}')
 
 	return &BroadcastEnvelope{
-		prefix:        broadcastPrefix,
-		sharedSuffix:  suffix,
-		totalEstimate: len(broadcastPrefix) + maxInt64Digits + len(suffix),
+		prefix:       broadcastPrefix,
+		sharedSuffix: suffix,
 	}, nil
 }
 
-// Build assembles the final message bytes for a specific client sequence number.
-// Returns a new []byte owned by the caller (safe to send via WebSocket).
-// Called per-client in write pump goroutines — O(1), ~100ns.
+// AppendTo appends the assembled message bytes for seq into dst and returns the result.
+// Passing dst[:0] reuses the backing array with zero allocs on warm calls.
+// Passing nil allocates on the first call; use the returned slice for subsequent calls.
+func (e *BroadcastEnvelope) AppendTo(dst []byte, seq int64) []byte {
+	dst = append(dst, e.prefix...)
+	dst = strconv.AppendInt(dst, seq, 10)
+	dst = append(dst, e.sharedSuffix...)
+	return dst
+}
+
+// Build assembles the final message bytes for seq.
+// Equivalent to AppendTo(nil, seq); retained for callers that do not hold a reuse buffer.
 func (e *BroadcastEnvelope) Build(seq int64) []byte {
-	buf := make([]byte, 0, e.totalEstimate)
-	buf = append(buf, e.prefix...)
-	buf = strconv.AppendInt(buf, seq, 10)
-	buf = append(buf, e.sharedSuffix...)
-	return buf
+	return e.AppendTo(nil, seq)
 }
