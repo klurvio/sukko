@@ -11,7 +11,6 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/prometheus/client_golang/prometheus"
-	prometheustestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/rs/zerolog"
 	valkey "github.com/valkey-io/valkey-go"
 
@@ -205,7 +204,7 @@ func TestSendHistoryComplete_EnvelopeFields(t *testing.T) {
 	c, cancel := newHistoryTestClient()
 	defer cancel()
 
-	sendHistoryComplete(c, "sukko.BTC.trade", 5, history.HistorySourceCache, "1706000000000-0", false)
+	sendHistoryComplete(c, "sukko.BTC.trade", 5, history.HistorySourceCache, false)
 
 	env := readEnvelope(t, c)
 	if got := envString(t, env, "type"); got != RespTypeHistoryComplete {
@@ -495,118 +494,6 @@ func TestHandleHistoryRequest_PumpFull_NoHang(t *testing.T) {
 // =============================================================================
 // handleHistoryRequest — successful delivery (cache hit)
 // =============================================================================
-
-// =============================================================================
-// fetchAttachID — coord field variants
-// =============================================================================
-
-func TestFetchAttachID(t *testing.T) {
-	t.Parallel()
-
-	t.Run("kafka_coord_returns_id_no_failure", func(t *testing.T) {
-		t.Parallel()
-		valkeyClient := startMiniredis(t)
-		hw := newTestHistoryWriterWithClient(t, valkeyClient)
-		m := hw.Metrics()
-
-		ctx := context.Background()
-		streamKey := history.StreamKey("test", "t", "ch")
-		pos := "3-100"
-		if err := valkeyClient.Do(ctx, valkeyClient.B().Xadd().Key(streamKey).
-			Id(pos).FieldValue().
-			FieldValue(history.HistoryFieldPayload, `{"x":1}`).
-			FieldValue(history.HistoryFieldCoord, pos).
-			Build()).Error(); err != nil {
-			t.Fatalf("XADD: %v", err)
-		}
-
-		attachID := fetchAttachID(ctx, valkeyClient, streamKey, m)
-
-		if attachID != pos {
-			t.Errorf("attachID = %q, want %q", attachID, pos)
-		}
-		if v := prometheustestutil.ToFloat64(m.AttachIDFailures); v != 0 {
-			t.Errorf("AttachIDFailures = %v, want 0", v)
-		}
-	})
-
-	t.Run("auto_coord_returns_id_no_failure", func(t *testing.T) {
-		t.Parallel()
-		valkeyClient := startMiniredis(t)
-		hw := newTestHistoryWriterWithClient(t, valkeyClient)
-		m := hw.Metrics()
-
-		ctx := context.Background()
-		streamKey := history.StreamKey("test", "t", "ch2")
-		addedID, err := valkeyClient.Do(ctx, valkeyClient.B().Xadd().Key(streamKey).
-			Id("*").FieldValue().
-			FieldValue(history.HistoryFieldPayload, `{"x":1}`).
-			FieldValue(history.HistoryFieldCoord, history.HistoryCoordAuto).
-			Build()).ToString()
-		if err != nil {
-			t.Fatalf("XADD: %v", err)
-		}
-
-		attachID := fetchAttachID(ctx, valkeyClient, streamKey, m)
-
-		if attachID != addedID {
-			t.Errorf("attachID = %q, want %q", attachID, addedID)
-		}
-		if v := prometheustestutil.ToFloat64(m.AttachIDFailures); v != 0 {
-			t.Errorf("AttachIDFailures = %v, want 0", v)
-		}
-	})
-
-	t.Run("legacy_no_coord_returns_id_and_increments_failure", func(t *testing.T) {
-		t.Parallel()
-		valkeyClient := startMiniredis(t)
-		hw := newTestHistoryWriterWithClient(t, valkeyClient)
-		m := hw.Metrics()
-
-		ctx := context.Background()
-		streamKey := history.StreamKey("test", "t", "ch3")
-		addedID, err := valkeyClient.Do(ctx, valkeyClient.B().Xadd().Key(streamKey).
-			Id("*").FieldValue().
-			FieldValue(history.HistoryFieldPayload, `{"x":1}`).
-			Build()).ToString()
-		if err != nil {
-			t.Fatalf("XADD: %v", err)
-		}
-
-		attachID := fetchAttachID(ctx, valkeyClient, streamKey, m)
-
-		if attachID != addedID {
-			t.Errorf("attachID = %q, want %q", attachID, addedID)
-		}
-		if v := prometheustestutil.ToFloat64(m.AttachIDFailures); v != 1 {
-			t.Errorf("AttachIDFailures = %v, want 1", v)
-		}
-	})
-
-	t.Run("valkey_error_returns_empty_and_increments_failure", func(t *testing.T) {
-		t.Parallel()
-		valkeyClient := startMiniredis(t)
-		hw := newTestHistoryWriterWithClient(t, valkeyClient)
-		m := hw.Metrics()
-
-		ctx := context.Background()
-		streamKey := history.StreamKey("test", "t", "ch4")
-
-		// Store a plain string at the stream key so XREVRANGE returns WRONGTYPE.
-		if err := valkeyClient.Do(ctx, valkeyClient.B().Set().Key(streamKey).Value("not-a-stream").Build()).Error(); err != nil {
-			t.Fatalf("SET: %v", err)
-		}
-
-		attachID := fetchAttachID(ctx, valkeyClient, streamKey, m)
-
-		if attachID != "" {
-			t.Errorf("attachID = %q, want empty string", attachID)
-		}
-		if v := prometheustestutil.ToFloat64(m.AttachIDFailures); v != 1 {
-			t.Errorf("AttachIDFailures = %v, want 1", v)
-		}
-	})
-}
 
 // =============================================================================
 // handleHistoryRequest — pos field in delivered messages

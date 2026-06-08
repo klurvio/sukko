@@ -96,13 +96,13 @@ func (s *Server) handleHistoryRequest(c *Client, req HistoryRequest) {
 		start := time.Now()
 		defer func() { m.DeliveryDuration.WithLabelValues(deliverySource).Observe(time.Since(start).Seconds()) }()
 
-		// --- Step 1: fetch attach_id (newest entry ID) ---
-		attachID := fetchAttachID(deliveryCtx, valkeyClient, streamKey, m)
+		// --- Step 1: anchor the fetch to the current stream head ---
+		streamHeadID := fetchStreamHeadID(deliveryCtx, valkeyClient, streamKey)
 
 		// --- Step 2: fetch history entries ---
 		var endID string
-		if attachID != "" {
-			endID = attachID
+		if streamHeadID != "" {
+			endID = streamHeadID
 		} else {
 			endID = "+"
 		}
@@ -125,7 +125,7 @@ func (s *Server) handleHistoryRequest(c *Client, req HistoryRequest) {
 			// Check for timeout/cancellation before consuming a sequence number.
 			select {
 			case <-deliveryCtx.Done():
-				sendHistoryComplete(c, req.Channel, delivered, history.HistorySourceCache, attachID, true)
+				sendHistoryComplete(c, req.Channel, delivered, history.HistorySourceCache, true)
 				return
 			default:
 			}
@@ -136,9 +136,9 @@ func (s *Server) handleHistoryRequest(c *Client, req HistoryRequest) {
 			}
 			coord := entry.FieldValues[history.HistoryFieldCoord]
 			var entryPos string
-			if coord != history.HistoryCoordAuto && coord != "" {
-				// coord is an encoded Kafka pos — use the entry ID (which equals the pos) as cursor.
-				entryPos = entry.ID
+			if coord != "" && coord != history.HistoryCoordAuto {
+				// coord is an encoded Kafka pos — deliver it directly as the replay cursor.
+				entryPos = coord
 			}
 			env := HistoryMessageEnvelope{
 				Type:    MsgTypeMessage,
@@ -162,28 +162,18 @@ func (s *Server) handleHistoryRequest(c *Client, req HistoryRequest) {
 		}
 
 		// --- Step 5: send history_complete ---
-		sendHistoryComplete(c, req.Channel, delivered, history.HistorySourceCache, attachID, false)
+		sendHistoryComplete(c, req.Channel, delivered, history.HistorySourceCache, false)
 	})
 }
 
-// fetchAttachID retrieves the most recent entry ID from the stream for client-side sync.
-func fetchAttachID(ctx context.Context, client valkey.Client, streamKey string, m *history.Metrics) string {
+// fetchStreamHeadID retrieves the newest Valkey stream entry ID to use as an
+// XREVRANGE upper bound, anchoring the history fetch to a consistent snapshot.
+func fetchStreamHeadID(ctx context.Context, client valkey.Client, streamKey string) string {
 	result := client.Do(ctx, client.B().Xrevrange().Key(streamKey).End("+").Start("-").Count(1).Build())
 	entries, err := result.AsXRange()
-	if err != nil {
-		m.AttachIDFailures.Inc()
+	if err != nil || len(entries) == 0 {
 		return ""
 	}
-	if len(entries) == 0 {
-		return ""
-	}
-	coord := entries[0].FieldValues[history.HistoryFieldCoord]
-	if coord == "" {
-		// Legacy entry written before the coord field was added — no pos available.
-		m.AttachIDFailures.Inc()
-	}
-	// All three coord branches return the entry ID as the attach point.
-	// coord=HistoryCoordAuto and coord="" entries have Pos omitted for clients (delivery loop below).
 	return entries[0].ID
 }
 
@@ -203,13 +193,12 @@ func fetchHistoryEntries(ctx context.Context, client valkey.Client, streamKey, e
 
 // sendHistoryComplete sends a non-blocking history_complete envelope to the client.
 // truncated should be true when delivery was cut short by a context timeout.
-func sendHistoryComplete(c *Client, channel string, count int, source, attachID string, truncated bool) {
+func sendHistoryComplete(c *Client, channel string, count int, source string, truncated bool) {
 	env := HistoryCompleteEnvelope{
 		Type:      RespTypeHistoryComplete,
 		Channel:   channel,
 		Count:     count,
 		Source:    source,
-		AttachID:  attachID,
 		Truncated: truncated,
 	}
 	data, err := json.Marshal(env)

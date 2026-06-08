@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,17 +18,6 @@ import (
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
-
-// valkeyErrIDTooSmall is the prefix of the error returned by Valkey/Redis when an explicit
-// XADD ID is smaller than or equal to the stream's last entry ID.
-const valkeyErrIDTooSmall = "The ID specified in XADD"
-
-// isTooSmallIDErr reports whether err is a Valkey "ID too small" error from XADD.
-// Used to detect Sub-case B: an encoded Kafka pos was rejected because replay caused
-// out-of-order writes to the stream.
-func isTooSmallIDErr(err error) bool {
-	return err != nil && strings.Contains(err.Error(), valkeyErrIDTooSmall)
-}
 
 // Writer subscribes to the broadcast bus and writes every received message to a
 // per-channel Valkey Stream (XADD MAXLEN ~). Exactly one pod in the cluster holds the
@@ -383,8 +371,7 @@ drained:
 	defer execCancel()
 
 	var cmds []valkey.Completed
-	validIdxs := make([]int, 0, len(msgs))    // tracks which msgs produced commands
-	hasPosSlice := make([]bool, 0, len(msgs)) // parallel to validIdxs: true = explicit pos XADD
+	validIdxs := make([]int, 0, len(msgs)) // tracks which msgs produced commands
 	for i, msg := range msgs {
 		if msg.TenantID == "" || msg.Subject == "" || msg.Channel == "" {
 			h.metrics.WriteDropped.WithLabelValues(HistoryDropReasonEmptyMeta).Inc()
@@ -392,17 +379,17 @@ drained:
 		}
 		streamKey := StreamKey(h.env, msg.TenantID, msg.Channel)
 
-		// Sub-case A: explicit Kafka-coordinate ID; Sub-case C: auto-assigned (*) with coord=auto.
-		xaddID := "*"
+		// Always use Valkey auto-ID ("*") so the stream maintains a strictly-increasing ID
+		// sequence regardless of Kafka partition ordering. The Kafka pos is stored in the
+		// coord field so the delivery loop can attach it as a replay cursor.
 		coordVal := HistoryCoordAuto
 		if msg.Pos != "" {
-			xaddID = msg.Pos
 			coordVal = msg.Pos
 		}
 
 		xaddCmd := h.valkeyClient.B().Xadd().Key(streamKey).
 			Maxlen().Almost().Threshold(depthStr).
-			Id(xaddID).
+			Id("*").
 			FieldValue().
 			FieldValue(HistoryFieldPayload, string(msg.Payload)).
 			FieldValue(HistoryFieldTenantID, msg.TenantID).
@@ -415,7 +402,6 @@ drained:
 
 		cmds = append(cmds, xaddCmd, expireCmd)
 		validIdxs = append(validIdxs, i)
-		hasPosSlice = append(hasPosSlice, msg.Pos != "")
 	}
 
 	if len(cmds) == 0 {
@@ -430,13 +416,7 @@ drained:
 		expireRes := results[j*2+1]
 
 		if err := xaddRes.Error(); err != nil {
-			if hasPosSlice[j] && isTooSmallIDErr(err) {
-				// Sub-case B: explicit Kafka pos rejected as too small (out-of-order replay).
-				// Skip without fallback — no auto-ID write for this entry.
-				h.metrics.XAddSkipTotal.Inc()
-			} else {
-				h.logger.Warn().Err(err).Str("topic", msgs[origIdx].Channel).Msg("historyWriter: XADD failed")
-			}
+			h.logger.Warn().Err(err).Str("topic", msgs[origIdx].Channel).Msg("historyWriter: XADD failed")
 			continue
 		}
 		if err := expireRes.Error(); err != nil {

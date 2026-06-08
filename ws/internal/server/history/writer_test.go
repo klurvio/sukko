@@ -910,9 +910,10 @@ func TestHistoryWriter_HeartbeatDualMode(t *testing.T) {
 	}
 }
 
-// TestHistoryWriter_KafkaSequentialIDs verifies that 3+ Kafka-coordinated messages produce
-// XADD entries with strictly increasing IDs equal to the encoded positions.
-func TestHistoryWriter_KafkaSequentialIDs(t *testing.T) {
+// TestHistoryWriter_KafkaCoordInField verifies that 3+ Kafka-coordinated messages produce
+// XADD entries with auto-assigned Valkey IDs (not encoded pos) and the encoded pos stored
+// in the coord field for use as a replay cursor.
+func TestHistoryWriter_KafkaCoordInField(t *testing.T) {
 	t.Parallel()
 
 	mr := newTestMiniredis(t)
@@ -948,17 +949,18 @@ func TestHistoryWriter_KafkaSequentialIDs(t *testing.T) {
 		t.Fatalf("expected ≥3 entries, got %d", len(entries))
 	}
 
-	expectedIDs := []string{history.EncodePos(0, 100), history.EncodePos(0, 200), history.EncodePos(0, 300)}
-	for i, want := range expectedIDs {
-		if entries[i].ID != want {
-			t.Errorf("entry[%d].ID = %q, want %q", i, entries[i].ID, want)
+	expectedCoords := []string{history.EncodePos(0, 100), history.EncodePos(0, 200), history.EncodePos(0, 300)}
+	for i, want := range expectedCoords {
+		// IDs must be Valkey auto-IDs, not encoded pos.
+		if entries[i].ID == want {
+			t.Errorf("entry[%d].ID = %q: must be Valkey auto-ID, not encoded pos", i, entries[i].ID)
 		}
 		if entries[i].FieldValues[history.HistoryFieldCoord] != want {
 			t.Errorf("entry[%d].coord = %q, want %q", i, entries[i].FieldValues[history.HistoryFieldCoord], want)
 		}
 	}
 
-	// Verify IDs are strictly increasing (Valkey guarantees this, but assert explicitly).
+	// Verify IDs are strictly increasing (auto-ID guarantees this).
 	for i := 1; i < len(entries); i++ {
 		if entries[i].ID <= entries[i-1].ID {
 			t.Errorf("entry[%d].ID=%q not > entry[%d].ID=%q", i, entries[i].ID, i-1, entries[i-1].ID)
@@ -966,11 +968,13 @@ func TestHistoryWriter_KafkaSequentialIDs(t *testing.T) {
 	}
 }
 
-// TestHistoryWriter_AutoIDAndSkip covers Sub-case A (auto-coord) and Sub-case B (too-small-ID skip).
-func TestHistoryWriter_AutoIDAndSkip(t *testing.T) {
+// TestHistoryWriter_AutoIDAndCoord covers the two coord modes:
+//   - no pos → coord=HistoryCoordAuto, auto-ID
+//   - with pos → coord=encoded pos, auto-ID (not the pos itself as stream ID)
+func TestHistoryWriter_AutoIDAndCoord(t *testing.T) {
 	t.Parallel()
 
-	t.Run("SubcaseA_AutoCoord", func(t *testing.T) {
+	t.Run("NoPos_AutoCoord", func(t *testing.T) {
 		t.Parallel()
 
 		mr := newTestMiniredis(t)
@@ -990,9 +994,6 @@ func TestHistoryWriter_AutoIDAndSkip(t *testing.T) {
 			Pos:      "", // no pos
 		})
 		time.Sleep(80 * time.Millisecond)
-
-		skipBefore := metricCounterValue(t, w.Metrics().XAddSkipTotal)
-
 		cancel()
 		wg.Wait()
 
@@ -1010,20 +1011,16 @@ func TestHistoryWriter_AutoIDAndSkip(t *testing.T) {
 		if entries[0].FieldValues[history.HistoryFieldCoord] != history.HistoryCoordAuto {
 			t.Errorf("coord = %q, want %q", entries[0].FieldValues[history.HistoryFieldCoord], history.HistoryCoordAuto)
 		}
-		// XAddSkipTotal must NOT be incremented for auto-coord writes.
-		if skipAfter := metricCounterValue(t, w.Metrics().XAddSkipTotal); skipAfter != skipBefore {
-			t.Errorf("XAddSkipTotal changed from %.0f to %.0f — should not increment on auto-ID write", skipBefore, skipAfter)
-		}
 	})
 
-	t.Run("SubcaseB_TooSmallIDSkipped", func(t *testing.T) {
+	t.Run("WithPos_PosStoredInCoord_NotInID", func(t *testing.T) {
 		t.Parallel()
 
 		mr := newTestMiniredis(t)
 		opts := defaultTestOpts()
 		w, cancel, bus := newTestWriter(t, mr, opts)
 
-		// Pre-insert a stream entry with a very high ID so subsequent pos-based XADDs fail.
+		// Pre-insert an entry with a high ID to prove auto-ID still succeeds after it.
 		client := newTestValkeyClient(t, mr)
 		streamKey := history.HistoryStreamKeyPrefix + opts.env + ":tenantA:SOL.trade"
 		if err := client.Do(context.Background(),
@@ -1044,35 +1041,36 @@ func TestHistoryWriter_AutoIDAndSkip(t *testing.T) {
 		wg.Go(func() { w.Run() })
 		time.Sleep(20 * time.Millisecond)
 
-		skipBefore := metricCounterValue(t, w.Metrics().XAddSkipTotal)
-
-		// Send a message with a small pos — its XADD ID will be smaller than the pre-inserted entry.
+		encodedPos := history.EncodePos(0, 100) // "1-100" — would fail as an explicit ID after "9999999999999-0"
 		bus.fanOut(&broadcast.Message{
 			Subject:  "tenantA.SOL.trade",
 			Payload:  []byte(`{"p":1}`),
 			TenantID: "tenantA",
 			Channel:  "SOL.trade",
-			Pos:      history.EncodePos(0, 100), // "1-100" << "9999999999999-0"
+			Pos:      encodedPos,
 		})
 		time.Sleep(120 * time.Millisecond)
-
 		cancel()
 		wg.Wait()
 
-		// Assert: skip metric incremented by exactly 1.
-		if skipAfter := metricCounterValue(t, w.Metrics().XAddSkipTotal); skipAfter != skipBefore+1 {
-			t.Errorf("XAddSkipTotal = %.0f, want %.0f (expected +1 for skipped XADD)", skipAfter, skipBefore+1)
-		}
-
-		// Assert: stream count unchanged (still 1 pre-inserted entry).
+		// Auto-ID succeeds even after the high pre-inserted entry; stream now has 2 entries.
 		entries, err := client.Do(context.Background(),
 			client.B().Xrange().Key(streamKey).Start("-").End("+").Build(),
 		).AsXRange()
 		if err != nil {
 			t.Fatalf("XRANGE: %v", err)
 		}
-		if len(entries) != 1 {
-			t.Errorf("stream entry count = %d, want 1 (skipped XADD must not add a new entry)", len(entries))
+		if len(entries) != 2 {
+			t.Fatalf("expected 2 entries (pre-inserted + new), got %d", len(entries))
+		}
+		newEntry := entries[1] // second entry: miniredis promoted auto-ID to 9999999999999-1 (sequence increment past high explicit entry)
+		// Entry ID must be a Valkey auto-ID, not the encoded pos.
+		if newEntry.ID == encodedPos {
+			t.Errorf("entry.ID = %q: must be Valkey auto-ID, not encoded pos", newEntry.ID)
+		}
+		// Encoded pos must be stored in the coord field.
+		if newEntry.FieldValues[history.HistoryFieldCoord] != encodedPos {
+			t.Errorf("coord = %q, want %q", newEntry.FieldValues[history.HistoryFieldCoord], encodedPos)
 		}
 	})
 }

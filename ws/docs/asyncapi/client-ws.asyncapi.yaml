@@ -432,8 +432,8 @@ operations:
     summary: Receive history delivery completion signal
     description: >
       Sent after all historical messages have been delivered for a channel.
-      The `attach_id` field marks the boundary between historical and live messages.
-      Historical messages carry `history: true`; live messages do not. The `attach_id` marks the stream boundary — messages delivered before it are historical, messages delivered after are live.
+      Historical messages carry `history: true`; live messages do not.
+      After receiving this signal, all subsequent messages on the channel are live.
     messages:
       - $ref: "#/channels/clientReceive/messages/historyComplete"
 
@@ -1005,12 +1005,12 @@ components:
       description: >
         Signals that history delivery is complete for a channel.
         Sent after all historical messages (tagged `history: true`) have been delivered.
+        All subsequent messages on the channel are live.
       required:
         - type
         - channel
         - count
         - source
-        - attach_id
       properties:
         type:
           type: string
@@ -1028,33 +1028,18 @@ components:
             - cache
             - kafka
             - mixed
-        attach_id:
-          type: string
-          description: >
-            Stream entry ID marking the history/live boundary.
-            Empty string (`""`) when the channel has no history yet (new channel or TTL expired).
-            Clients use this value — not ID comparisons — to detect where live delivery begins.
-            Two formats are possible: Valkey auto-ID (`"<unix-ms>-<seq>"`, e.g. `"1706000000000-0"`)
-            for legacy entries written before Kafka-coordinate tracking was introduced, and
-            pos-format (`"<partition+1>-<offset>"`, e.g. `"3-100"`) for entries written with
-            explicit Kafka-coordinate XADD IDs. Clients MUST treat this as an opaque token —
-            do not parse the format.
+        truncated:
+          type: boolean
+          description: Present and true when delivery was cut short by a server-side timeout. Omitted entirely (not present) when false — clients must treat absence as false.
       examples:
         - type: history_complete
           channel: "sukko.BTC.trade"
           count: 50
           source: cache
-          attach_id: "1706000000000-0"
-        - type: history_complete
-          channel: "sukko.BTC.trade"
-          count: 50
-          source: cache
-          attach_id: "3-100"
         - type: history_complete
           channel: "sukko.BTC.trade"
           count: 0
           source: cache
-          attach_id: ""
 
     HistoryError:
       type: object

@@ -26,7 +26,6 @@ type HistoryCompleteEnvelope struct {
 	Channel   string `json:"channel"`
 	Count     int    `json:"count"`
 	Source    string `json:"source"`
-	AttachID  string `json:"attach_id"`
 	Truncated bool   `json:"truncated,omitempty"` // true when delivery timed out before all entries were sent
 }
 
