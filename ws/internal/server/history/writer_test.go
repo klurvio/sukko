@@ -112,7 +112,7 @@ func TestHistoryWriter_XADDEntrySchema(t *testing.T) {
 		Payload:  []byte(`{"price":100}`),
 		TenantID: "tenantA",
 		Channel:  "BTC.trade",
-		StreamID: "0-1",
+		Pos:      "0-1",
 	}
 	bus.fanOut(msg)
 
@@ -182,7 +182,7 @@ func TestHistoryWriter_PassivePodNoXADD(t *testing.T) {
 		Payload:  []byte(`{"price":200}`),
 		TenantID: "tenantA",
 		Channel:  "ETH.trade",
-		StreamID: "0-2",
+		Pos:      "0-2",
 	}
 	bus.fanOut(msg)
 
@@ -908,4 +908,171 @@ func TestHistoryWriter_HeartbeatDualMode(t *testing.T) {
 	if active != 1 {
 		t.Errorf("passive writer: expected to acquire lock after TTL expiry (WriterActive=1), got %.0f", active)
 	}
+}
+
+// TestHistoryWriter_KafkaSequentialIDs verifies that 3+ Kafka-coordinated messages produce
+// XADD entries with strictly increasing IDs equal to the encoded positions.
+func TestHistoryWriter_KafkaSequentialIDs(t *testing.T) {
+	t.Parallel()
+
+	mr := newTestMiniredis(t)
+	opts := defaultTestOpts()
+	w, cancel, bus := newTestWriter(t, mr, opts)
+
+	var wg syncWaitGroup
+	wg.Go(func() { w.Run() })
+	time.Sleep(20 * time.Millisecond)
+
+	msgs := []*broadcast.Message{
+		{Subject: "tenantA.BTC.trade", Payload: []byte(`{"p":1}`), TenantID: "tenantA", Channel: "BTC.trade", Pos: history.EncodePos(0, 100)},
+		{Subject: "tenantA.BTC.trade", Payload: []byte(`{"p":2}`), TenantID: "tenantA", Channel: "BTC.trade", Pos: history.EncodePos(0, 200)},
+		{Subject: "tenantA.BTC.trade", Payload: []byte(`{"p":3}`), TenantID: "tenantA", Channel: "BTC.trade", Pos: history.EncodePos(0, 300)},
+	}
+	for _, m := range msgs {
+		bus.fanOut(m)
+	}
+	time.Sleep(120 * time.Millisecond)
+
+	cancel()
+	wg.Wait()
+
+	client := newTestValkeyClient(t, mr)
+	streamKey := history.HistoryStreamKeyPrefix + opts.env + ":tenantA:BTC.trade"
+	entries, err := client.Do(context.Background(),
+		client.B().Xrange().Key(streamKey).Start("-").End("+").Build(),
+	).AsXRange()
+	if err != nil {
+		t.Fatalf("XRANGE: %v", err)
+	}
+	if len(entries) < 3 {
+		t.Fatalf("expected ≥3 entries, got %d", len(entries))
+	}
+
+	expectedIDs := []string{history.EncodePos(0, 100), history.EncodePos(0, 200), history.EncodePos(0, 300)}
+	for i, want := range expectedIDs {
+		if entries[i].ID != want {
+			t.Errorf("entry[%d].ID = %q, want %q", i, entries[i].ID, want)
+		}
+		if entries[i].FieldValues[history.HistoryFieldCoord] != want {
+			t.Errorf("entry[%d].coord = %q, want %q", i, entries[i].FieldValues[history.HistoryFieldCoord], want)
+		}
+	}
+
+	// Verify IDs are strictly increasing (Valkey guarantees this, but assert explicitly).
+	for i := 1; i < len(entries); i++ {
+		if entries[i].ID <= entries[i-1].ID {
+			t.Errorf("entry[%d].ID=%q not > entry[%d].ID=%q", i, entries[i].ID, i-1, entries[i-1].ID)
+		}
+	}
+}
+
+// TestHistoryWriter_AutoIDAndSkip covers Sub-case A (auto-coord) and Sub-case B (too-small-ID skip).
+func TestHistoryWriter_AutoIDAndSkip(t *testing.T) {
+	t.Parallel()
+
+	t.Run("SubcaseA_AutoCoord", func(t *testing.T) {
+		t.Parallel()
+
+		mr := newTestMiniredis(t)
+		opts := defaultTestOpts()
+		w, cancel, bus := newTestWriter(t, mr, opts)
+
+		var wg syncWaitGroup
+		wg.Go(func() { w.Run() })
+		time.Sleep(20 * time.Millisecond)
+
+		// Message with no pos → writer should use XADD * with coord=HistoryCoordAuto.
+		bus.fanOut(&broadcast.Message{
+			Subject:  "tenantA.ETH.trade",
+			Payload:  []byte(`{"p":1}`),
+			TenantID: "tenantA",
+			Channel:  "ETH.trade",
+			Pos:      "", // no pos
+		})
+		time.Sleep(80 * time.Millisecond)
+
+		skipBefore := metricCounterValue(t, w.Metrics().XAddSkipTotal)
+
+		cancel()
+		wg.Wait()
+
+		client := newTestValkeyClient(t, mr)
+		streamKey := history.HistoryStreamKeyPrefix + opts.env + ":tenantA:ETH.trade"
+		entries, err := client.Do(context.Background(),
+			client.B().Xrange().Key(streamKey).Start("-").End("+").Build(),
+		).AsXRange()
+		if err != nil {
+			t.Fatalf("XRANGE: %v", err)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(entries))
+		}
+		if entries[0].FieldValues[history.HistoryFieldCoord] != history.HistoryCoordAuto {
+			t.Errorf("coord = %q, want %q", entries[0].FieldValues[history.HistoryFieldCoord], history.HistoryCoordAuto)
+		}
+		// XAddSkipTotal must NOT be incremented for auto-coord writes.
+		if skipAfter := metricCounterValue(t, w.Metrics().XAddSkipTotal); skipAfter != skipBefore {
+			t.Errorf("XAddSkipTotal changed from %.0f to %.0f — should not increment on auto-ID write", skipBefore, skipAfter)
+		}
+	})
+
+	t.Run("SubcaseB_TooSmallIDSkipped", func(t *testing.T) {
+		t.Parallel()
+
+		mr := newTestMiniredis(t)
+		opts := defaultTestOpts()
+		w, cancel, bus := newTestWriter(t, mr, opts)
+
+		// Pre-insert a stream entry with a very high ID so subsequent pos-based XADDs fail.
+		client := newTestValkeyClient(t, mr)
+		streamKey := history.HistoryStreamKeyPrefix + opts.env + ":tenantA:SOL.trade"
+		if err := client.Do(context.Background(),
+			client.B().Xadd().Key(streamKey).
+				Id("9999999999999-0").
+				FieldValue().
+				FieldValue(history.HistoryFieldPayload, `{"pre":"inserted"}`).
+				FieldValue(history.HistoryFieldTenantID, "tenantA").
+				FieldValue(history.HistoryFieldChannel, "SOL.trade").
+				FieldValue(history.HistoryFieldSubject, "tenantA.SOL.trade").
+				FieldValue(history.HistoryFieldCoord, history.HistoryCoordAuto).
+				Build(),
+		).Error(); err != nil {
+			t.Fatalf("pre-insert XADD: %v", err)
+		}
+
+		var wg syncWaitGroup
+		wg.Go(func() { w.Run() })
+		time.Sleep(20 * time.Millisecond)
+
+		skipBefore := metricCounterValue(t, w.Metrics().XAddSkipTotal)
+
+		// Send a message with a small pos — its XADD ID will be smaller than the pre-inserted entry.
+		bus.fanOut(&broadcast.Message{
+			Subject:  "tenantA.SOL.trade",
+			Payload:  []byte(`{"p":1}`),
+			TenantID: "tenantA",
+			Channel:  "SOL.trade",
+			Pos:      history.EncodePos(0, 100), // "1-100" << "9999999999999-0"
+		})
+		time.Sleep(120 * time.Millisecond)
+
+		cancel()
+		wg.Wait()
+
+		// Assert: skip metric incremented by exactly 1.
+		if skipAfter := metricCounterValue(t, w.Metrics().XAddSkipTotal); skipAfter != skipBefore+1 {
+			t.Errorf("XAddSkipTotal = %.0f, want %.0f (expected +1 for skipped XADD)", skipAfter, skipBefore+1)
+		}
+
+		// Assert: stream count unchanged (still 1 pre-inserted entry).
+		entries, err := client.Do(context.Background(),
+			client.B().Xrange().Key(streamKey).Start("-").End("+").Build(),
+		).AsXRange()
+		if err != nil {
+			t.Fatalf("XRANGE: %v", err)
+		}
+		if len(entries) != 1 {
+			t.Errorf("stream entry count = %d, want 1 (skipped XADD must not add a new entry)", len(entries))
+		}
+	})
 }

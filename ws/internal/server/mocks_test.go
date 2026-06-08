@@ -1,10 +1,65 @@
 package server
 
 import (
+	"context"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/klurvio/sukko/internal/server/backend"
 )
+
+// =============================================================================
+// Minimal Transport mock
+// =============================================================================
+
+// noopTransport satisfies the Transport interface by discarding all writes.
+// Used to make Client.transport non-nil without requiring a real connection.
+type noopTransport struct{}
+
+func (t *noopTransport) Send(_ OutgoingMsg) (int, error)        { return 0, nil }
+func (t *noopTransport) SendBatch(_ []OutgoingMsg) (int, error) { return 0, nil }
+func (t *noopTransport) WritePing() error                       { return nil }
+func (t *noopTransport) WritePong(_ []byte) error               { return nil }
+func (t *noopTransport) Close() error                           { return nil }
+func (t *noopTransport) SetWriteDeadline(_ time.Time) error     { return nil }
+func (t *noopTransport) Type() TransportType                    { return "noop" }
+func (t *noopTransport) RemoteAddr() string                     { return "127.0.0.1:0" }
+
+// =============================================================================
+// Configurable backend mock
+// =============================================================================
+
+// mockBackend implements backend.MessageBackend for handler tests.
+// channelTopics maps channel names to Kafka topic names.
+// replayMsgs and replayErr configure what Replay returns.
+// lastReplayReq captures the most recent ReplayRequest for assertion in tests.
+type mockBackend struct {
+	mu            sync.Mutex
+	channelTopics map[string]string
+	replayMsgs    []backend.ReplayMessage
+	replayErr     error
+	lastReplayReq backend.ReplayRequest
+}
+
+func (m *mockBackend) Start(_ context.Context) error { return nil }
+func (m *mockBackend) Publish(_ context.Context, _ int64, _ string, _ []byte) error {
+	return nil
+}
+func (m *mockBackend) Replay(_ context.Context, req backend.ReplayRequest) ([]backend.ReplayMessage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastReplayReq = req
+	return m.replayMsgs, m.replayErr
+}
+func (m *mockBackend) IsHealthy() bool                  { return true }
+func (m *mockBackend) Shutdown(_ context.Context) error { return nil }
+func (m *mockBackend) ChannelTopic(channel string) (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	topic, ok := m.channelTopics[channel]
+	return topic, ok
+}
 
 // =============================================================================
 // Test Mocks (internal to shared package tests)

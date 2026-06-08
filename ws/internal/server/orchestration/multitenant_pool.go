@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/server/broadcast"
+	"github.com/klurvio/sukko/internal/server/history"
 	"github.com/klurvio/sukko/internal/server/kafka"
 	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
@@ -67,7 +68,7 @@ type MultiTenantConsumerPool struct {
 	mu           sync.RWMutex
 	metrics      pkgmetrics.PoolMetrics
 
-	// topicMu protects sharedTopics/blockedSharedTopics/dedicatedTopics. Lock ordering: mu THEN topicMu (never reversed).
+	// topicMu protects sharedTopics/blockedSharedTopics/dedicatedTopics/channelTopics. Lock ordering: mu THEN topicMu (never reversed).
 	topicMu sync.Mutex
 
 	// Shared consumer for all shared-mode tenants
@@ -78,6 +79,10 @@ type MultiTenantConsumerPool struct {
 	// Dedicated consumers per tenant (tenant_id -> consumer)
 	dedicatedConsumers map[string]*kafka.Consumer
 	dedicatedTopics    map[string]string // Reverse index: topic -> tenantID (protected by topicMu)
+
+	// channelTopics maps full channel subject (tenant-prefixed, e.g. "acme.BTC.trade") → Kafka topic name (protected by topicMu).
+	// Populated on every routed message; key matches MessageEnvelope.channel for replay cursor lookup.
+	channelTopics map[string]string
 
 	// consumerFactory creates consumers; replaced in tests to avoid real broker connections.
 	consumerFactory func(kafka.ConsumerConfig) (*kafka.Consumer, error)
@@ -190,6 +195,7 @@ func NewMultiTenantConsumerPool(config MultiTenantPoolConfig) (*MultiTenantConsu
 		blockedSharedTopics: make(map[string]struct{}),
 		dedicatedConsumers:  make(map[string]*kafka.Consumer),
 		dedicatedTopics:     make(map[string]string),
+		channelTopics:       make(map[string]string),
 		consumerFactory:     kafka.NewConsumer,
 		refreshInterval:     config.RefreshInterval,
 		refreshCh:           make(chan struct{}, 1), // Buffered to avoid blocking senders
@@ -601,13 +607,19 @@ func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte, t
 		p.logger.Warn().Err(err).Str("topic", topicName).Msg("routeMessage: could not extract tenant/channel from topic name")
 	}
 	bareChannel := strings.TrimPrefix(subject, tenantID+".")
-	streamID := fmt.Sprintf("%d-%d", partition, offset)
+	pos := history.EncodePos(partition, offset)
+
+	func() {
+		p.topicMu.Lock()
+		defer p.topicMu.Unlock()
+		p.channelTopics[subject] = topicName
+	}()
 
 	p.broadcastBus.Publish(&broadcast.Message{
 		Subject:  subject,
 		Payload:  message,
 		TenantID: tenantID,
-		StreamID: streamID,
+		Pos:      pos,
 		Channel:  bareChannel,
 	})
 
@@ -707,6 +719,15 @@ func (p *MultiTenantConsumerPool) GetSharedConsumer() *kafka.Consumer {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.sharedConsumer
+}
+
+// ChannelTopic returns the Kafka topic name for the given channel subject.
+// Returns ok=false if no message has been routed for this channel yet.
+func (p *MultiTenantConsumerPool) ChannelTopic(channel string) (string, bool) {
+	p.topicMu.Lock()
+	defer p.topicMu.Unlock()
+	topic, ok := p.channelTopics[channel]
+	return topic, ok
 }
 
 // MultiTenantPoolMetrics contains metrics for the consumer pool.

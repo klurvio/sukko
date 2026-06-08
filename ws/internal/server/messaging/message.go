@@ -109,6 +109,11 @@ type MessageEnvelope struct {
 	// Example for "sukko.ETH.liquidity" channel:
 	//   {"token": "ETH", "poolId": "abc123", "liquidity": "1000000"}
 	Data json.RawMessage `json:"data"`
+
+	// Pos is the encoded Kafka position "(partition+1)-offset" for this message.
+	// Clients use this as a durable replay cursor on reconnect.
+	// Omitted when empty (omitempty) — not set for backends without pos support.
+	Pos string `json:"pos,omitempty"`
 }
 
 // SequenceGenerator creates unique, monotonically increasing sequence numbers

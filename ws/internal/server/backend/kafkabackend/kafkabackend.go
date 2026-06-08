@@ -371,6 +371,7 @@ func (kb *KafkaBackend) Replay(ctx context.Context, req backend.ReplayRequest) (
 		messages[i] = backend.ReplayMessage{
 			Subject: m.Subject,
 			Data:    m.Data,
+			Pos:     m.Pos,
 		}
 	}
 
@@ -564,6 +565,12 @@ func buildKgoOpts(brokers []string, sasl *kafka.SASLConfig, tlsCfg *kafka.TLSCon
 	}
 
 	return opts, nil
+}
+
+// ChannelTopic returns the Kafka topic for the given channel by delegating to the consumer pool.
+// Returns ok=false if no consumer has been registered for the channel.
+func (kb *KafkaBackend) ChannelTopic(channel string) (string, bool) {
+	return kb.pool.ChannelTopic(channel)
 }
 
 // Compile-time interface check.

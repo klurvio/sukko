@@ -611,6 +611,18 @@ func (a *MultiTenantPoolMetricsAdapter) OnRefresh(success bool, topicsSubscribed
 }
 
 // =============================================================================
+// Reconnect Metrics
+// =============================================================================
+
+// ReconnectPosDecodeFailures counts reconnect requests where the client-supplied pos
+// could not be decoded (malformed pos or unknown topic). These clients fall back to
+// replaying from the beginning of available history.
+var ReconnectPosDecodeFailures = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "ws_reconnect_pos_decode_failure_total",
+	Help: "Reconnect requests where the client pos was undecodable or the topic was unknown; falls back to full replay.",
+})
+
+// =============================================================================
 // HTTP Handler
 // =============================================================================
 

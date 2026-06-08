@@ -1512,8 +1512,8 @@ func TestServerConfig_Validate_EditionGates_FeatureError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 
-	var featureErr *license.EditionFeatureError
-	if !errors.As(err, &featureErr) {
+	featureErr, ok := errors.AsType[*license.EditionFeatureError](err)
+	if !ok {
 		t.Fatalf("expected EditionFeatureError, got %T: %v", err, err)
 	}
 	if featureErr.Feature != license.KafkaBackend {

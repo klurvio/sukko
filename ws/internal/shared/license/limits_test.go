@@ -71,8 +71,8 @@ func TestLimits_CheckTenants(t *testing.T) {
 				t.Errorf("CheckTenants(%d) error = %v, wantErr %v", tt.current, err, tt.wantErr)
 			}
 			if err != nil {
-				var limitErr *EditionLimitError
-				if !errors.As(err, &limitErr) {
+				limitErr, ok := errors.AsType[*EditionLimitError](err)
+				if !ok {
 					t.Fatalf("expected EditionLimitError, got %T", err)
 				}
 				if limitErr.Dimension != "tenants" {
@@ -168,8 +168,8 @@ func TestLimits_CheckError_Format(t *testing.T) {
 		t.Fatal("expected error")
 	}
 
-	var limitErr *EditionLimitError
-	if !errors.As(err, &limitErr) {
+	limitErr, ok := errors.AsType[*EditionLimitError](err)
+	if !ok {
 		t.Fatalf("expected EditionLimitError, got %T", err)
 	}
 

@@ -6,7 +6,14 @@ const (
 	HistoryFieldTenantID = "tenant_id"
 	HistoryFieldChannel  = "channel"
 	HistoryFieldSubject  = "subject"
+	HistoryFieldCoord    = "coord"
 )
+
+// HistoryCoordAuto is the coord field value written by the Valkey history writer
+// when the message was stored using an auto-assigned (*) XADD ID rather than an
+// encoded Kafka position. Clients receiving an entry with this coord value
+// receive Pos="" (omitted via omitempty) and cannot use that entry as a replay cursor.
+const HistoryCoordAuto = "auto"
 
 // Key prefix templates for Valkey keys.
 const (

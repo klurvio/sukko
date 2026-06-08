@@ -20,6 +20,7 @@ const (
 	suffixTsKey      = 6  // ,"ts":
 	suffixChannelKey = 11 // ,"channel":
 	suffixDataKey    = 8  // ,"data":
+	suffixPosKey     = 7  // ,"pos":
 	suffixClose      = 1  // }
 )
 
@@ -40,8 +41,10 @@ type BroadcastEnvelope struct {
 // NewBroadcastEnvelope pre-computes shared byte fragments from broadcast parameters.
 // The channel is JSON-escaped via json.Marshal to match json.Marshal(MessageEnvelope{}) output.
 // A nil payload is normalized to the JSON literal "null" to produce valid JSON output.
+// pos is the encoded Kafka position "(partition+1)-offset"; when non-empty it is appended as
+// `,"pos":"<pos>"` in the suffix. When empty the pos field is omitted (omitempty semantics).
 // Called once per broadcast event — O(1), not per-client.
-func NewBroadcastEnvelope(channel string, timestamp int64, payload []byte) (*BroadcastEnvelope, error) {
+func NewBroadcastEnvelope(channel string, timestamp int64, payload []byte, pos string) (*BroadcastEnvelope, error) {
 	// Normalize nil payload to JSON null (produces valid "data":null)
 	if payload == nil {
 		payload = []byte("null")
@@ -54,8 +57,13 @@ func NewBroadcastEnvelope(channel string, timestamp int64, payload []byte) (*Bro
 		return nil, fmt.Errorf("json-escape channel %q: %w", channel, err)
 	}
 
-	// Build sharedSuffix: ,"ts":<timestamp>,"channel":<channelJSON>,"data":<payload>}
-	suffixCap := suffixTsKey + maxInt64Digits + suffixChannelKey + len(channelJSON) + suffixDataKey + len(payload) + suffixClose
+	// Build sharedSuffix: ,"ts":<ts>,"channel":<channelJSON>,"data":<payload>[,"pos":"<pos>"]
+	posExtra := 0
+	if pos != "" {
+		// suffixPosKey + 2 quotes + len(pos)
+		posExtra = suffixPosKey + 2 + len(pos)
+	}
+	suffixCap := suffixTsKey + maxInt64Digits + suffixChannelKey + len(channelJSON) + suffixDataKey + len(payload) + posExtra + suffixClose
 	suffix := make([]byte, 0, suffixCap)
 	suffix = append(suffix, `,"ts":`...)
 	suffix = strconv.AppendInt(suffix, timestamp, 10)
@@ -63,6 +71,11 @@ func NewBroadcastEnvelope(channel string, timestamp int64, payload []byte) (*Bro
 	suffix = append(suffix, channelJSON...)
 	suffix = append(suffix, `,"data":`...)
 	suffix = append(suffix, payload...)
+	if pos != "" {
+		suffix = append(suffix, `,"pos":"`...)
+		suffix = append(suffix, pos...)
+		suffix = append(suffix, '"')
+	}
 	suffix = append(suffix, '}')
 
 	return &BroadcastEnvelope{

@@ -79,5 +79,8 @@ func (db *DirectBackend) Shutdown(_ context.Context) error {
 	return nil
 }
 
+// ChannelTopic returns ok=false — direct mode has no topic mapping.
+func (db *DirectBackend) ChannelTopic(_ string) (string, bool) { return "", false }
+
 // Compile-time interface check.
 var _ backend.MessageBackend = (*DirectBackend)(nil)

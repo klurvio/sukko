@@ -84,9 +84,9 @@ type Message struct {
 	// Required for history stream key construction; populated by the Kafka consumer.
 	TenantID string `json:"tenant_id,omitempty"`
 
-	// StreamID is the Kafka position "{partition}-{offset}", informational only.
-	// XADD uses auto-assigned IDs (*); this field is preserved for traceability.
-	StreamID string `json:"stream_id,omitempty"`
+	// Pos is the encoded Kafka position "(partition+1)-offset" used as the XADD stream ID
+	// and as the durable replay cursor returned to clients in HistoryMessageEnvelope.Pos.
+	Pos string `json:"pos,omitempty"`
 
 	// Channel is the bare channel name (distinct from the namespace-qualified Subject).
 	// Required for per-channel stream key routing; populated by the Kafka consumer.

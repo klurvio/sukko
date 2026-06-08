@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/rs/zerolog"
+
 	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/klurvio/sukko/internal/server/stats"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // =============================================================================
@@ -230,6 +234,115 @@ func BenchmarkExtractChannel_LongSubject(b *testing.B) {
 }
 
 // =============================================================================
+// Broadcast — pos stamping
+// =============================================================================
+
+func TestBroadcast_PosStampedOnEnvelope(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		subscriptionIndex: NewSubscriptionIndex(),
+		logger:            zerolog.Nop(),
+		alertLogger:       newTestMockAlertLogger(),
+		stats:             stats.NewStats(),
+		config: &platform.ServerConfig{
+			SlowClientMaxAttempts: 3,
+		},
+	}
+
+	c1 := &Client{
+		id:        1,
+		send:      make(chan OutgoingMsg, 8),
+		seqGen:    messaging.NewSequenceGenerator(),
+		transport: &noopTransport{},
+	}
+	c2 := &Client{
+		id:        2,
+		send:      make(chan OutgoingMsg, 8),
+		seqGen:    messaging.NewSequenceGenerator(),
+		transport: &noopTransport{},
+	}
+	// Advance c1's generator so the two clients produce different seq values on the
+	// same Broadcast call — demonstrating independent per-client generators.
+	c1.seqGen.Next()
+
+	s.subscriptionIndex.Add("BTC.trade", c1)
+	s.subscriptionIndex.Add("BTC.trade", c2)
+
+	s.Broadcast("BTC.trade", []byte(`{"price":"100"}`), "5-12345")
+
+	msg1, ok1 := <-c1.send
+	msg2, ok2 := <-c2.send
+	if !ok1 || !ok2 {
+		t.Fatal("expected messages from both clients")
+	}
+
+	var env1, env2 map[string]json.RawMessage
+	if err := json.Unmarshal(msg1.Bytes(), &env1); err != nil {
+		t.Fatalf("c1 unmarshal: %v", err)
+	}
+	if err := json.Unmarshal(msg2.Bytes(), &env2); err != nil {
+		t.Fatalf("c2 unmarshal: %v", err)
+	}
+
+	var pos1, pos2 string
+	if err := json.Unmarshal(env1["pos"], &pos1); err != nil {
+		t.Fatalf("c1 pos: %v (raw: %s)", err, env1["pos"])
+	}
+	if err := json.Unmarshal(env2["pos"], &pos2); err != nil {
+		t.Fatalf("c2 pos: %v (raw: %s)", err, env2["pos"])
+	}
+	if pos1 != "5-12345" {
+		t.Errorf("c1 pos: got %q, want %q", pos1, "5-12345")
+	}
+	if pos2 != "5-12345" {
+		t.Errorf("c2 pos: got %q, want %q", pos2, "5-12345")
+	}
+
+	var seq1, seq2 int64
+	if err := json.Unmarshal(env1["seq"], &seq1); err != nil {
+		t.Fatalf("c1 seq: %v", err)
+	}
+	if err := json.Unmarshal(env2["seq"], &seq2); err != nil {
+		t.Fatalf("c2 seq: %v", err)
+	}
+	if seq1 == seq2 {
+		t.Errorf("seq values should differ (each client has its own generator): c1=%d c2=%d", seq1, seq2)
+	}
+}
+
+// TestBroadcast_EmptyPosOmitted verifies that a zero-value pos produces no "pos" key in JSON.
+func TestBroadcast_EmptyPosOmitted(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		subscriptionIndex: NewSubscriptionIndex(),
+		logger:            zerolog.Nop(),
+		alertLogger:       newTestMockAlertLogger(),
+		stats:             stats.NewStats(),
+		config: &platform.ServerConfig{
+			SlowClientMaxAttempts: 3,
+		},
+	}
+
+	c := &Client{
+		id:        1,
+		send:      make(chan OutgoingMsg, 8),
+		seqGen:    messaging.NewSequenceGenerator(),
+		transport: &noopTransport{},
+	}
+	s.subscriptionIndex.Add("BTC.trade", c)
+
+	s.Broadcast("BTC.trade", []byte(`{"price":"100"}`), "" /* no pos */)
+
+	msg := <-c.send
+	raw := msg.Bytes()
+	if bytes.Contains(raw, []byte(`"pos"`)) {
+		t.Errorf("empty pos must be omitted from JSON envelope, got: %s", raw)
+	}
+}
+
+// =============================================================================
 // OutgoingMsg Tests
 // =============================================================================
 
@@ -250,7 +363,7 @@ func TestBroadcast_OutgoingMsgBytes(t *testing.T) {
 
 	t.Run("envelope mode calls Build", func(t *testing.T) {
 		t.Parallel()
-		env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`))
+		env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`), "")
 		if err != nil {
 			t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 		}
@@ -282,7 +395,7 @@ func TestBroadcast_OutgoingMsgBytes(t *testing.T) {
 func TestBroadcast_PerClientSequence(t *testing.T) {
 	t.Parallel()
 
-	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`))
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 	}
@@ -345,7 +458,7 @@ func TestBroadcast_SequenceMonotonicallyIncreasing(t *testing.T) {
 	t.Parallel()
 
 	seqGen := messaging.NewSequenceGenerator()
-	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`))
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 	}
@@ -408,11 +521,11 @@ func TestBroadcast_CrossChannelSequenceContinuity(t *testing.T) {
 
 	seqGen := messaging.NewSequenceGenerator()
 
-	envA, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`))
+	envA, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"price":45000}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope(A) error: %v", err)
 	}
-	envB, err := messaging.NewBroadcastEnvelope("ETH.liquidity", 1001, []byte(`{"amount":100}`))
+	envB, err := messaging.NewBroadcastEnvelope("ETH.liquidity", 1001, []byte(`{"amount":100}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope(B) error: %v", err)
 	}

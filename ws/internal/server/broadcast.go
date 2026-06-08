@@ -62,7 +62,7 @@ func extractChannel(subject string) string {
 // - With symbol filtering: 12 × 8 × 500 = 48,000 writes/sec (CPU 80%+)
 // - With hierarchical filtering: 12 × 500 = 6,000 writes/sec (CPU <30%)
 // - Result: 160x reduction vs no filtering, 8x reduction vs symbol-only filtering
-func (s *Server) Broadcast(subject string, message []byte) {
+func (s *Server) Broadcast(subject string, message []byte, pos string) {
 	// Extract hierarchical channel from subject for subscription filtering
 	// Example: "BTC.trade" (new format) or "sukko.token.BTC.trade" (legacy) → "BTC.trade"
 	channel := extractChannel(subject)
@@ -102,7 +102,7 @@ func (s *Server) Broadcast(subject string, message []byte) {
 	//   - Broadcast loop: ~25ns/client (up from ~15ns — atomic increment is negligible)
 	//   - Byte assembly: ~100ns/client (deferred to write pumps, parallelized)
 	//   - Enables client-side gap detection (seq>0, monotonically increasing)
-	envelope, err := messaging.NewBroadcastEnvelope(channel, time.Now().UnixMilli(), message)
+	envelope, err := messaging.NewBroadcastEnvelope(channel, time.Now().UnixMilli(), message, pos)
 	if err != nil {
 		metrics.RecordSerializationError(pkgmetrics.SeverityCritical)
 		s.logger.Error().

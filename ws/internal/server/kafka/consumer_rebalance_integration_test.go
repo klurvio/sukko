@@ -70,7 +70,7 @@ func TestRebalance_CommitOnLeaveGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create producer: %v", err)
 	}
-	for i := 0; i < numRecords; i++ {
+	for i := range numRecords {
 		if err := producer.ProduceSync(ctx, &kgo.Record{
 			Topic: topicName,
 			Key:   []byte("BTC.trade"),

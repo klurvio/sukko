@@ -693,7 +693,7 @@ func TestServer_BroadcastFunctionality_NotAffectedByBackendField(t *testing.T) {
 	defer func() { _ = server.Shutdown() }()
 
 	// Trigger a broadcast
-	server.Broadcast("BTC.trade", []byte(`{"price": "50000"}`))
+	server.Broadcast("BTC.trade", []byte(`{"price": "50000"}`), "")
 
 	// Note: Broadcast goes through subscription filtering, so it won't call
 	// the mockBroadcast directly. Instead, verify the server accepts the call

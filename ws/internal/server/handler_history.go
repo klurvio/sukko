@@ -134,14 +134,20 @@ func (s *Server) handleHistoryRequest(c *Client, req HistoryRequest) {
 				m.SkipTotal.WithLabelValues(history.HistorySkipReasonEmptyPayload).Inc()
 				continue
 			}
+			coord := entry.FieldValues[history.HistoryFieldCoord]
+			var entryPos string
+			if coord != history.HistoryCoordAuto && coord != "" {
+				// coord is an encoded Kafka pos — use the entry ID (which equals the pos) as cursor.
+				entryPos = entry.ID
+			}
 			env := HistoryMessageEnvelope{
-				Type:     MsgTypeMessage,
-				Seq:      c.seqGen.Next(),
-				Ts:       time.Now().UnixMilli(),
-				Channel:  req.Channel,
-				Data:     json.RawMessage(payload),
-				History:  true,
-				StreamID: entry.ID,
+				Type:    MsgTypeMessage,
+				Seq:     c.seqGen.Next(),
+				Ts:      time.Now().UnixMilli(),
+				Channel: req.Channel,
+				Data:    json.RawMessage(payload),
+				History: true,
+				Pos:     entryPos,
 			}
 			data, err := json.Marshal(env)
 			if err != nil {
@@ -164,12 +170,20 @@ func (s *Server) handleHistoryRequest(c *Client, req HistoryRequest) {
 func fetchAttachID(ctx context.Context, client valkey.Client, streamKey string, m *history.Metrics) string {
 	result := client.Do(ctx, client.B().Xrevrange().Key(streamKey).End("+").Start("-").Count(1).Build())
 	entries, err := result.AsXRange()
-	if err != nil || len(entries) == 0 {
-		if err != nil {
-			m.AttachIDFailures.Inc()
-		}
+	if err != nil {
+		m.AttachIDFailures.Inc()
 		return ""
 	}
+	if len(entries) == 0 {
+		return ""
+	}
+	coord := entries[0].FieldValues[history.HistoryFieldCoord]
+	if coord == "" {
+		// Legacy entry written before the coord field was added — no pos available.
+		m.AttachIDFailures.Inc()
+	}
+	// All three coord branches return the entry ID as the attach point.
+	// coord=HistoryCoordAuto and coord="" entries have Pos omitted for clients (delivery loop below).
 	return entries[0].ID
 }
 

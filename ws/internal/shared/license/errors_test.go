@@ -62,8 +62,8 @@ func TestEditionLimitError_ErrorsAs(t *testing.T) {
 	t.Parallel()
 	err := NewLimitError("tenants", 3, 3, Community)
 
-	var limitErr *EditionLimitError
-	if !errors.As(err, &limitErr) {
+	limitErr, ok := errors.AsType[*EditionLimitError](err)
+	if !ok {
 		t.Fatal("errors.As should match *EditionLimitError")
 	}
 	if limitErr.Dimension != "tenants" {
@@ -75,8 +75,8 @@ func TestEditionFeatureError_ErrorsAs(t *testing.T) {
 	t.Parallel()
 	err := NewFeatureError(KafkaBackend, Community)
 
-	var featureErr *EditionFeatureError
-	if !errors.As(err, &featureErr) {
+	featureErr, ok := errors.AsType[*EditionFeatureError](err)
+	if !ok {
 		t.Fatal("errors.As should match *EditionFeatureError")
 	}
 	if featureErr.Feature != KafkaBackend {
