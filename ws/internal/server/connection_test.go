@@ -594,7 +594,7 @@ func TestConnectionPool_ThreadSafety(t *testing.T) {
 func TestOutgoingMsg_IsRaw(t *testing.T) {
 	t.Parallel()
 
-	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope: %v", err)
 	}
@@ -624,7 +624,7 @@ func TestOutgoingMsg_IsRaw(t *testing.T) {
 func TestOutgoingMsg_AppendTo(t *testing.T) {
 	t.Parallel()
 
-	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope: %v", err)
 	}
@@ -678,7 +678,7 @@ func TestOutgoingMsg_Bytes_RawIdentity(t *testing.T) {
 
 	t.Run("raw wins over envelope", func(t *testing.T) {
 		t.Parallel()
-		env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+		env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`), "")
 		if err != nil {
 			t.Fatalf("NewBroadcastEnvelope: %v", err)
 		}
@@ -691,7 +691,7 @@ func TestOutgoingMsg_Bytes_RawIdentity(t *testing.T) {
 }
 
 func TestOutgoingMsg_ZeroAllocs(t *testing.T) { //nolint:paralleltest // testing.AllocsPerRun is sensitive to GC pressure from concurrent goroutines; intentionally non-parallel
-	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope: %v", err)
 	}

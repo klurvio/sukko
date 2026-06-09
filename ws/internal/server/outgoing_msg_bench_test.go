@@ -9,7 +9,7 @@ import (
 // BenchmarkOutgoingMsgAppendTo measures per-call cost of AppendTo with buffer reuse.
 // Expected: 0 allocs/op in steady-state (buffer pre-warmed before loop).
 func BenchmarkOutgoingMsgAppendTo(b *testing.B) {
-	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`))
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`), "")
 	if err != nil {
 		b.Fatalf("NewBroadcastEnvelope: %v", err)
 	}

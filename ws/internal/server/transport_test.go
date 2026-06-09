@@ -469,7 +469,7 @@ func (discardConn) SetWriteDeadline(_ time.Time) error { return nil }
 func TestWebSocketTransport_EnvelopeSend(t *testing.T) {
 	t.Parallel()
 
-	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope: %v", err)
 	}
@@ -530,7 +530,7 @@ func TestWebSocketTransport_EnvelopeSend(t *testing.T) {
 func TestGRPCStreamTransport_EnvelopeSend(t *testing.T) {
 	t.Parallel()
 
-	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope: %v", err)
 	}
@@ -599,11 +599,11 @@ func TestWebSocketTransport_BufMonotonicGrowth(t *testing.T) {
 
 	// Large payload to force buf growth past initialBufCap (512).
 	largePayload := append(append([]byte{'"'}, bytes.Repeat([]byte("x"), 600)...), '"')
-	bigEnv, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, largePayload)
+	bigEnv, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, largePayload, "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope large: %v", err)
 	}
-	smallEnv, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	smallEnv, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope small: %v", err)
 	}
@@ -629,7 +629,7 @@ func TestWebSocketTransport_BufMonotonicGrowth(t *testing.T) {
 // TestWebSocketTransport_ZeroAllocsSend (SC-005 gate) verifies envelope dispatch adds
 // no allocations beyond the single gobwas/ws frame header buffer.
 func TestWebSocketTransport_ZeroAllocsSend(t *testing.T) { //nolint:paralleltest // testing.AllocsPerRun is sensitive to GC pressure from concurrent goroutines; intentionally non-parallel
-	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`))
+	env, err := messaging.NewBroadcastEnvelope("BTC.trade", 1000, []byte(`{"x":1}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope: %v", err)
 	}
