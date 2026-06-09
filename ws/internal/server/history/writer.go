@@ -379,6 +379,14 @@ drained:
 		}
 		streamKey := StreamKey(h.env, msg.TenantID, msg.Channel)
 
+		// Always use Valkey auto-ID ("*") so the stream maintains a strictly-increasing ID
+		// sequence regardless of Kafka partition ordering. The Kafka pos is stored in the
+		// coord field so the delivery loop can attach it as a replay cursor.
+		coordVal := HistoryCoordAuto
+		if msg.Pos != "" {
+			coordVal = msg.Pos
+		}
+
 		xaddCmd := h.valkeyClient.B().Xadd().Key(streamKey).
 			Maxlen().Almost().Threshold(depthStr).
 			Id("*").
@@ -387,6 +395,7 @@ drained:
 			FieldValue(HistoryFieldTenantID, msg.TenantID).
 			FieldValue(HistoryFieldChannel, msg.Channel).
 			FieldValue(HistoryFieldSubject, msg.Subject).
+			FieldValue(HistoryFieldCoord, coordVal).
 			Build()
 
 		expireCmd := h.valkeyClient.B().Expire().Key(streamKey).Seconds(ttlSecs).Build()

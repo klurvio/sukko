@@ -266,8 +266,8 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 // handleReconnect handles client reconnection using the message backend's replay capability.
 func (s *Server) handleReconnect(c *Client, data []byte) {
 	var reconnectReq struct {
-		ClientID   string           `json:"client_id"`   // Persistent client identifier
-		LastOffset map[string]int64 `json:"last_offset"` // Last position per topic/stream
+		ClientID string            `json:"client_id"` // Persistent client identifier
+		LastPos  map[string]string `json:"last_pos"`  // Last pos per channel: {channel: "(partition+1)-offset"}
 	}
 
 	if err := json.Unmarshal(data, &reconnectReq); err != nil {
@@ -283,7 +283,7 @@ func (s *Server) handleReconnect(c *Client, data []byte) {
 	s.logger.Info().
 		Int64("client_id", c.id).
 		Str("persistent_id", reconnectReq.ClientID).
-		Interface("last_offsets", reconnectReq.LastOffset).
+		Interface("last_pos", reconnectReq.LastPos).
 		Msg("Client requesting message replay")
 
 	// Check if backend is available for replay
@@ -296,6 +296,34 @@ func (s *Server) handleReconnect(c *Client, data []byte) {
 		return
 	}
 
+	// Decode client's pos strings into topic→startOffset map for the Kafka replay backend.
+	positions := make(map[string]int64, len(reconnectReq.LastPos))
+	for channel, posStr := range reconnectReq.LastPos {
+		_, offset, ok := history.DecodePos(posStr)
+		if !ok {
+			metrics.ReconnectPosDecodeFailures.Inc()
+			s.logger.Warn().
+				Int64("client_id", c.id).
+				Str("channel", channel).
+				Str("pos", posStr).
+				Msg("handleReconnect: undecodable pos — channel skipped")
+			continue
+		}
+		topic, ok := s.backend.ChannelTopic(channel)
+		if !ok {
+			metrics.ReconnectPosDecodeFailures.Inc()
+			s.logger.Warn().
+				Int64("client_id", c.id).
+				Str("channel", channel).
+				Msg("handleReconnect: no topic mapping for channel — channel skipped")
+			continue
+		}
+		nextOffset := offset + 1 // replay from the message AFTER the last received
+		if existing, alreadySet := positions[topic]; !alreadySet || nextOffset < existing {
+			positions[topic] = nextOffset
+		}
+	}
+
 	// Get client's subscriptions for filtering
 	subscriptions := c.subscriptions.List()
 
@@ -305,7 +333,7 @@ func (s *Server) handleReconnect(c *Client, data []byte) {
 
 	// Perform replay from backend
 	replayedMsgs, err := s.backend.Replay(ctx, backend.ReplayRequest{
-		Positions:     reconnectReq.LastOffset,
+		Positions:     positions,
 		MaxMessages:   s.config.MaxReplayMessages,
 		Subscriptions: subscriptions,
 	})
@@ -332,6 +360,7 @@ replayLoop:
 			Channel:   msg.Subject,
 			Priority:  messaging.PriorityNormal,
 			Data:      json.RawMessage(msg.Data),
+			Pos:       msg.Pos,
 		}
 
 		envelopeData, err := envelope.Serialize()

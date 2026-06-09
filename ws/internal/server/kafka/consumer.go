@@ -29,6 +29,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 
+	"github.com/klurvio/sukko/internal/server/history"
 	"github.com/klurvio/sukko/internal/server/metrics"
 	kafkautil "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
@@ -1078,6 +1079,7 @@ type ReplayMessage struct {
 	Offset    int64
 	Subject   string // The Kafka Key = broadcast subject
 	Data      []byte
+	Pos       string // Encoded Kafka position "(partition+1)-offset" for replay cursor
 }
 
 // ReplayFromOffsets creates a temporary consumer and replays messages from specified offsets
@@ -1244,6 +1246,7 @@ func (c *Consumer) ReplayFromOffsets(
 				Offset:    record.Offset,
 				Subject:   msg.subject,
 				Data:      msg.message,
+				Pos:       history.EncodePos(record.Partition, record.Offset),
 			})
 			messagesRead++
 		})

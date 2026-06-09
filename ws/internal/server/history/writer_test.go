@@ -112,7 +112,7 @@ func TestHistoryWriter_XADDEntrySchema(t *testing.T) {
 		Payload:  []byte(`{"price":100}`),
 		TenantID: "tenantA",
 		Channel:  "BTC.trade",
-		StreamID: "0-1",
+		Pos:      "0-1",
 	}
 	bus.fanOut(msg)
 
@@ -182,7 +182,7 @@ func TestHistoryWriter_PassivePodNoXADD(t *testing.T) {
 		Payload:  []byte(`{"price":200}`),
 		TenantID: "tenantA",
 		Channel:  "ETH.trade",
-		StreamID: "0-2",
+		Pos:      "0-2",
 	}
 	bus.fanOut(msg)
 
@@ -908,4 +908,169 @@ func TestHistoryWriter_HeartbeatDualMode(t *testing.T) {
 	if active != 1 {
 		t.Errorf("passive writer: expected to acquire lock after TTL expiry (WriterActive=1), got %.0f", active)
 	}
+}
+
+// TestHistoryWriter_KafkaCoordInField verifies that 3+ Kafka-coordinated messages produce
+// XADD entries with auto-assigned Valkey IDs (not encoded pos) and the encoded pos stored
+// in the coord field for use as a replay cursor.
+func TestHistoryWriter_KafkaCoordInField(t *testing.T) {
+	t.Parallel()
+
+	mr := newTestMiniredis(t)
+	opts := defaultTestOpts()
+	w, cancel, bus := newTestWriter(t, mr, opts)
+
+	var wg syncWaitGroup
+	wg.Go(func() { w.Run() })
+	time.Sleep(20 * time.Millisecond)
+
+	msgs := []*broadcast.Message{
+		{Subject: "tenantA.BTC.trade", Payload: []byte(`{"p":1}`), TenantID: "tenantA", Channel: "BTC.trade", Pos: history.EncodePos(0, 100)},
+		{Subject: "tenantA.BTC.trade", Payload: []byte(`{"p":2}`), TenantID: "tenantA", Channel: "BTC.trade", Pos: history.EncodePos(0, 200)},
+		{Subject: "tenantA.BTC.trade", Payload: []byte(`{"p":3}`), TenantID: "tenantA", Channel: "BTC.trade", Pos: history.EncodePos(0, 300)},
+	}
+	for _, m := range msgs {
+		bus.fanOut(m)
+	}
+	time.Sleep(120 * time.Millisecond)
+
+	cancel()
+	wg.Wait()
+
+	client := newTestValkeyClient(t, mr)
+	streamKey := history.HistoryStreamKeyPrefix + opts.env + ":tenantA:BTC.trade"
+	entries, err := client.Do(context.Background(),
+		client.B().Xrange().Key(streamKey).Start("-").End("+").Build(),
+	).AsXRange()
+	if err != nil {
+		t.Fatalf("XRANGE: %v", err)
+	}
+	if len(entries) < 3 {
+		t.Fatalf("expected ≥3 entries, got %d", len(entries))
+	}
+
+	expectedCoords := []string{history.EncodePos(0, 100), history.EncodePos(0, 200), history.EncodePos(0, 300)}
+	for i, want := range expectedCoords {
+		// IDs must be Valkey auto-IDs, not encoded pos.
+		if entries[i].ID == want {
+			t.Errorf("entry[%d].ID = %q: must be Valkey auto-ID, not encoded pos", i, entries[i].ID)
+		}
+		if entries[i].FieldValues[history.HistoryFieldCoord] != want {
+			t.Errorf("entry[%d].coord = %q, want %q", i, entries[i].FieldValues[history.HistoryFieldCoord], want)
+		}
+	}
+
+	// Verify IDs are strictly increasing (auto-ID guarantees this).
+	for i := 1; i < len(entries); i++ {
+		if entries[i].ID <= entries[i-1].ID {
+			t.Errorf("entry[%d].ID=%q not > entry[%d].ID=%q", i, entries[i].ID, i-1, entries[i-1].ID)
+		}
+	}
+}
+
+// TestHistoryWriter_AutoIDAndCoord covers the two coord modes:
+//   - no pos → coord=HistoryCoordAuto, auto-ID
+//   - with pos → coord=encoded pos, auto-ID (not the pos itself as stream ID)
+func TestHistoryWriter_AutoIDAndCoord(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NoPos_AutoCoord", func(t *testing.T) {
+		t.Parallel()
+
+		mr := newTestMiniredis(t)
+		opts := defaultTestOpts()
+		w, cancel, bus := newTestWriter(t, mr, opts)
+
+		var wg syncWaitGroup
+		wg.Go(func() { w.Run() })
+		time.Sleep(20 * time.Millisecond)
+
+		// Message with no pos → writer should use XADD * with coord=HistoryCoordAuto.
+		bus.fanOut(&broadcast.Message{
+			Subject:  "tenantA.ETH.trade",
+			Payload:  []byte(`{"p":1}`),
+			TenantID: "tenantA",
+			Channel:  "ETH.trade",
+			Pos:      "", // no pos
+		})
+		time.Sleep(80 * time.Millisecond)
+		cancel()
+		wg.Wait()
+
+		client := newTestValkeyClient(t, mr)
+		streamKey := history.HistoryStreamKeyPrefix + opts.env + ":tenantA:ETH.trade"
+		entries, err := client.Do(context.Background(),
+			client.B().Xrange().Key(streamKey).Start("-").End("+").Build(),
+		).AsXRange()
+		if err != nil {
+			t.Fatalf("XRANGE: %v", err)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(entries))
+		}
+		if entries[0].FieldValues[history.HistoryFieldCoord] != history.HistoryCoordAuto {
+			t.Errorf("coord = %q, want %q", entries[0].FieldValues[history.HistoryFieldCoord], history.HistoryCoordAuto)
+		}
+	})
+
+	t.Run("WithPos_PosStoredInCoord_NotInID", func(t *testing.T) {
+		t.Parallel()
+
+		mr := newTestMiniredis(t)
+		opts := defaultTestOpts()
+		w, cancel, bus := newTestWriter(t, mr, opts)
+
+		// Pre-insert an entry with a high ID to prove auto-ID still succeeds after it.
+		client := newTestValkeyClient(t, mr)
+		streamKey := history.HistoryStreamKeyPrefix + opts.env + ":tenantA:SOL.trade"
+		if err := client.Do(context.Background(),
+			client.B().Xadd().Key(streamKey).
+				Id("9999999999999-0").
+				FieldValue().
+				FieldValue(history.HistoryFieldPayload, `{"pre":"inserted"}`).
+				FieldValue(history.HistoryFieldTenantID, "tenantA").
+				FieldValue(history.HistoryFieldChannel, "SOL.trade").
+				FieldValue(history.HistoryFieldSubject, "tenantA.SOL.trade").
+				FieldValue(history.HistoryFieldCoord, history.HistoryCoordAuto).
+				Build(),
+		).Error(); err != nil {
+			t.Fatalf("pre-insert XADD: %v", err)
+		}
+
+		var wg syncWaitGroup
+		wg.Go(func() { w.Run() })
+		time.Sleep(20 * time.Millisecond)
+
+		encodedPos := history.EncodePos(0, 100) // "1-100" — would fail as an explicit ID after "9999999999999-0"
+		bus.fanOut(&broadcast.Message{
+			Subject:  "tenantA.SOL.trade",
+			Payload:  []byte(`{"p":1}`),
+			TenantID: "tenantA",
+			Channel:  "SOL.trade",
+			Pos:      encodedPos,
+		})
+		time.Sleep(120 * time.Millisecond)
+		cancel()
+		wg.Wait()
+
+		// Auto-ID succeeds even after the high pre-inserted entry; stream now has 2 entries.
+		entries, err := client.Do(context.Background(),
+			client.B().Xrange().Key(streamKey).Start("-").End("+").Build(),
+		).AsXRange()
+		if err != nil {
+			t.Fatalf("XRANGE: %v", err)
+		}
+		if len(entries) != 2 {
+			t.Fatalf("expected 2 entries (pre-inserted + new), got %d", len(entries))
+		}
+		newEntry := entries[1] // second entry: miniredis promoted auto-ID to 9999999999999-1 (sequence increment past high explicit entry)
+		// Entry ID must be a Valkey auto-ID, not the encoded pos.
+		if newEntry.ID == encodedPos {
+			t.Errorf("entry.ID = %q: must be Valkey auto-ID, not encoded pos", newEntry.ID)
+		}
+		// Encoded pos must be stored in the coord field.
+		if newEntry.FieldValues[history.HistoryFieldCoord] != encodedPos {
+			t.Errorf("coord = %q, want %q", newEntry.FieldValues[history.HistoryFieldCoord], encodedPos)
+		}
+	})
 }

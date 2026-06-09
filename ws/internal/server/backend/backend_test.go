@@ -40,6 +40,8 @@ func (m *mockBackend) Shutdown(_ context.Context) error {
 	return m.shutdownErr
 }
 
+func (m *mockBackend) ChannelTopic(_ string) (string, bool) { return "", false }
+
 // Compile-time interface check.
 var _ backend.MessageBackend = (*mockBackend)(nil)
 

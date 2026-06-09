@@ -8,7 +8,6 @@ type Metrics struct {
 	WriteDropped                   *prometheus.CounterVec
 	DeliveryDropped                *prometheus.CounterVec
 	ExpireFailure                  prometheus.Counter
-	AttachIDFailures               prometheus.Counter
 	WriterActive                   prometheus.Gauge
 	WriterRestartTotal             prometheus.Counter
 	LockFailuresTotal              prometheus.Counter
@@ -33,11 +32,6 @@ func newMetrics(reg prometheus.Registerer) *Metrics {
 		ExpireFailure: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "ws_history_expire_failure_total",
 			Help: "Number of EXPIRE command failures during history writes.",
-		}),
-
-		AttachIDFailures: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "ws_history_attach_id_failure_total",
-			Help: "Number of failures to retrieve an attach_id from the stream.",
 		}),
 
 		WriterActive: prometheus.NewGauge(prometheus.GaugeOpts{
@@ -81,7 +75,6 @@ func newMetrics(reg prometheus.Registerer) *Metrics {
 		m.WriteDropped,
 		m.DeliveryDropped,
 		m.ExpireFailure,
-		m.AttachIDFailures,
 		m.WriterActive,
 		m.WriterRestartTotal,
 		m.LockFailuresTotal,

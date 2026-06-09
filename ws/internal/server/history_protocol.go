@@ -11,13 +11,13 @@ type HistoryRequest struct {
 
 // HistoryMessageEnvelope wraps a historical message delivered to a client.
 type HistoryMessageEnvelope struct {
-	Type     string          `json:"type"`
-	Seq      int64           `json:"seq"`
-	Ts       int64           `json:"ts"`
-	Channel  string          `json:"channel"`
-	Data     json.RawMessage `json:"data"`
-	History  bool            `json:"history"`
-	StreamID string          `json:"stream_id,omitempty"`
+	Type    string          `json:"type"`
+	Seq     int64           `json:"seq"`
+	Ts      int64           `json:"ts"`
+	Channel string          `json:"channel"`
+	Data    json.RawMessage `json:"data"`
+	History bool            `json:"history"`
+	Pos     string          `json:"pos,omitempty"`
 }
 
 // HistoryCompleteEnvelope signals that history delivery is finished.
@@ -26,7 +26,6 @@ type HistoryCompleteEnvelope struct {
 	Channel   string `json:"channel"`
 	Count     int    `json:"count"`
 	Source    string `json:"source"`
-	AttachID  string `json:"attach_id"`
 	Truncated bool   `json:"truncated,omitempty"` // true when delivery timed out before all entries were sent
 }
 

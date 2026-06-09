@@ -204,7 +204,7 @@ func TestSendHistoryComplete_EnvelopeFields(t *testing.T) {
 	c, cancel := newHistoryTestClient()
 	defer cancel()
 
-	sendHistoryComplete(c, "sukko.BTC.trade", 5, history.HistorySourceCache, "1706000000000-0", false)
+	sendHistoryComplete(c, "sukko.BTC.trade", 5, history.HistorySourceCache, false)
 
 	env := readEnvelope(t, c)
 	if got := envString(t, env, "type"); got != RespTypeHistoryComplete {
@@ -494,6 +494,143 @@ func TestHandleHistoryRequest_PumpFull_NoHang(t *testing.T) {
 // =============================================================================
 // handleHistoryRequest — successful delivery (cache hit)
 // =============================================================================
+
+// =============================================================================
+// handleHistoryRequest — pos field in delivered messages
+// =============================================================================
+
+func TestHistoryDelivery_PosField(t *testing.T) {
+	t.Parallel()
+
+	t.Run("auto_coord_pos_absent", func(t *testing.T) {
+		t.Parallel()
+		valkeyClient := startMiniredis(t)
+		ctx := context.Background()
+		streamKey := history.StreamKey("test", "sukko", "BTC.trade")
+
+		// Seed one entry with coord="auto" (no Kafka position).
+		if err := valkeyClient.Do(ctx, valkeyClient.B().Xadd().Key(streamKey).
+			Id("*").FieldValue().
+			FieldValue(history.HistoryFieldPayload, `{"seq":1}`).
+			FieldValue(history.HistoryFieldTenantID, "sukko").
+			FieldValue(history.HistoryFieldChannel, "BTC.trade").
+			FieldValue(history.HistoryFieldSubject, "sukko.BTC.trade").
+			FieldValue(history.HistoryFieldCoord, history.HistoryCoordAuto).
+			Build()).Error(); err != nil {
+			t.Fatalf("XADD: %v", err)
+		}
+
+		hw := newTestHistoryWriterWithClient(t, valkeyClient)
+		s := newHistoryTestServer(hw)
+		s.editionManager = proEditionManager()
+		c, cancel := newHistoryTestClient()
+		defer cancel()
+		c.subscriptions.Add("sukko.BTC.trade")
+
+		s.handleHistoryRequest(c, HistoryRequest{Channel: "sukko.BTC.trade", Limit: 10})
+		c.clientWg.Wait()
+
+		var msgs []map[string]json.RawMessage
+		for {
+			select {
+			case msg := <-c.send:
+				var env map[string]json.RawMessage
+				if err := json.Unmarshal(msg.Bytes(), &env); err == nil {
+					msgs = append(msgs, env)
+				}
+			default:
+				goto donePosAbsent
+			}
+		}
+	donePosAbsent:
+
+		// Find the history message (type=message, history=true).
+		var histMsg map[string]json.RawMessage
+		for _, m := range msgs {
+			var histFlag bool
+			_ = json.Unmarshal(m["history"], &histFlag)
+			if histFlag {
+				histMsg = m
+				break
+			}
+		}
+		if histMsg == nil {
+			t.Fatal("expected at least one history message")
+		}
+		if _, hasPosKey := histMsg["pos"]; hasPosKey {
+			t.Errorf("auto-coord history message must not include pos key, got: %s", histMsg["pos"])
+		}
+	})
+
+	t.Run("kafka_coord_pos_equals_entry_id", func(t *testing.T) {
+		t.Parallel()
+		valkeyClient := startMiniredis(t)
+		ctx := context.Background()
+		streamKey := history.StreamKey("test", "acme", "ETH.trade")
+		kafkaPos := "3-100"
+
+		// Seed one entry with an explicit Kafka pos as stream ID and coord.
+		if err := valkeyClient.Do(ctx, valkeyClient.B().Xadd().Key(streamKey).
+			Id(kafkaPos).FieldValue().
+			FieldValue(history.HistoryFieldPayload, `{"seq":1}`).
+			FieldValue(history.HistoryFieldTenantID, "acme").
+			FieldValue(history.HistoryFieldChannel, "ETH.trade").
+			FieldValue(history.HistoryFieldSubject, "acme.ETH.trade").
+			FieldValue(history.HistoryFieldCoord, kafkaPos).
+			Build()).Error(); err != nil {
+			t.Fatalf("XADD: %v", err)
+		}
+
+		hw := newTestHistoryWriterWithClient(t, valkeyClient)
+		s := newHistoryTestServer(hw)
+		s.editionManager = proEditionManager()
+		c, cancel := newHistoryTestClient()
+		defer cancel()
+		c.subscriptions.Add("acme.ETH.trade")
+
+		s.handleHistoryRequest(c, HistoryRequest{Channel: "acme.ETH.trade", Limit: 10})
+		c.clientWg.Wait()
+
+		var msgs []map[string]json.RawMessage
+		for {
+			select {
+			case msg := <-c.send:
+				var env map[string]json.RawMessage
+				if err := json.Unmarshal(msg.Bytes(), &env); err == nil {
+					msgs = append(msgs, env)
+				}
+			default:
+				goto donePosPresent
+			}
+		}
+	donePosPresent:
+
+		var histMsg map[string]json.RawMessage
+		for _, m := range msgs {
+			var histFlag bool
+			_ = json.Unmarshal(m["history"], &histFlag)
+			if histFlag {
+				histMsg = m
+				break
+			}
+		}
+		if histMsg == nil {
+			t.Fatal("expected at least one history message")
+		}
+
+		rawPos, hasPosKey := histMsg["pos"]
+		if !hasPosKey {
+			t.Fatal("kafka-coord history message must include pos key")
+		}
+		var pos string
+		if err := json.Unmarshal(rawPos, &pos); err != nil {
+			t.Fatalf("unmarshal pos: %v", err)
+		}
+		if pos != kafkaPos {
+			t.Errorf("pos = %q, want %q", pos, kafkaPos)
+		}
+	})
+}
 
 func TestHandleHistoryRequest_CacheHit_DeliversMessagesInOrder(t *testing.T) {
 	t.Parallel()

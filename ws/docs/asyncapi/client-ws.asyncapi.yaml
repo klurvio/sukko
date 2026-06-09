@@ -432,8 +432,8 @@ operations:
     summary: Receive history delivery completion signal
     description: >
       Sent after all historical messages have been delivered for a channel.
-      The `attach_id` field marks the boundary between historical and live messages.
-      Messages with `stream_id <= attach_id` are historical; all subsequent messages (no `history: true`) are live.
+      Historical messages carry `history: true`; live messages do not.
+      After receiving this signal, all subsequent messages on the channel are live.
     messages:
       - $ref: "#/channels/clientReceive/messages/historyComplete"
 
@@ -643,21 +643,24 @@ components:
       description: Payload for reconnect messages.
       required:
         - client_id
-        - last_offset
+        - last_pos
       properties:
         client_id:
           type: string
           description: Persistent client identifier for reconnection.
           examples:
             - "abc123"
-        last_offset:
+        last_pos:
           type: object
           additionalProperties:
-            type: integer
-            format: int64
-          description: Map of Kafka topic to last received offset.
+            type: string
+          description: >
+            Map of channel name to the last `pos` value received on that channel.
+            The `pos` value is the encoded Kafka position "(partition+1)-offset" from the most recent
+            live or history message received on each channel. Clients persist this across disconnections
+            and send it back on reconnect to resume from the correct offset.
           examples:
-            - { "local.sukko.messages": 12345 }
+            - { "BTC.trade": "3-100", "ETH.trade": "5-200" }
 
     MessageEnvelope:
       type: object
@@ -694,25 +697,30 @@ components:
           description: >
             Present and `true` when this message is a historical replay (delivered in response to a history
             or subscribe-with-history request). Absent or `false` for live messages.
-            Clients use this flag — not `stream_id` comparisons — to identify historical messages.
-        stream_id:
+            Clients use this flag to identify historical messages.
+        pos:
           type: string
           description: >
-            Valkey Stream entry ID for historical messages (`history: true`). Format: `{ms}-{seq}`.
-            Absent for live messages and for history messages sourced from Kafka (which have no Valkey Stream ID).
+            Encoded Kafka position "(partition+1)-offset" for this message. Present on Kafka-sourced messages:
+            live broadcast messages and history messages stored with an explicit Kafka-coordinate XADD ID.
+            Absent (omitted) for messages from the Direct backend and for history messages
+            stored with auto-assigned Valkey IDs (legacy entries written before Kafka-coordinate XADD was introduced).
+            Clients use this as a durable replay cursor: persist the most recent `pos` per channel and send it
+            back in `last_pos` on reconnect.
       examples:
         - type: message
           seq: 1234
           ts: 1706000000000
           channel: "sukko.general.messages"
           data: { "text": "Hello everyone!", "sender": "user123" }
+          pos: "3-1234"
         - type: message
           seq: 1
           ts: 1706000000000
           channel: "sukko.BTC.trade"
           data: { "price": "65432.10" }
           history: true
-          stream_id: "1706000000000-0"
+          pos: "1-99"
 
     SubscriptionAck:
       type: object
@@ -997,12 +1005,12 @@ components:
       description: >
         Signals that history delivery is complete for a channel.
         Sent after all historical messages (tagged `history: true`) have been delivered.
+        All subsequent messages on the channel are live.
       required:
         - type
         - channel
         - count
         - source
-        - attach_id
       properties:
         type:
           type: string
@@ -1020,23 +1028,18 @@ components:
             - cache
             - kafka
             - mixed
-        attach_id:
-          type: string
-          description: >
-            Valkey Stream entry ID marking the history/live boundary.
-            Empty string (`""`) when the channel has no history yet (new channel or TTL expired).
-            Clients use this value — not ID comparisons — to detect where live delivery begins.
+        truncated:
+          type: boolean
+          description: Present and true when delivery was cut short by a server-side timeout. Omitted entirely (not present) when false — clients must treat absence as false.
       examples:
         - type: history_complete
           channel: "sukko.BTC.trade"
           count: 50
           source: cache
-          attach_id: "1706000000000-0"
         - type: history_complete
           channel: "sukko.BTC.trade"
           count: 0
           source: cache
-          attach_id: ""
 
     HistoryError:
       type: object
@@ -1184,8 +1187,8 @@ components:
             type: reconnect
             data:
               client_id: "abc123"
-              last_offset:
-                "local.sukko.messages": 12345
+              last_pos:
+                "BTC.trade": "3-100"
 
     heartbeat:
       name: heartbeat

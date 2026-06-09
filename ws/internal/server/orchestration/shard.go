@@ -144,7 +144,7 @@ func (s *Shard) runBroadcastListener() {
 				return
 			}
 			// Call the local broadcast function of the shared server
-			s.server.Broadcast(msg.Subject, msg.Payload)
+			s.server.Broadcast(msg.Subject, msg.Payload, msg.Pos)
 		case <-s.ctx.Done():
 			s.logger.Info().Msg("Broadcast listener stopped")
 			return

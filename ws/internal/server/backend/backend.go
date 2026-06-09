@@ -17,11 +17,10 @@ import (
 )
 
 // MessageBackend is the abstraction for message ingestion, publishing, and replay.
-// Implementations: DirectBackend, KafkaBackend, JetStreamBackend.
+// Implementations: DirectBackend, KafkaBackend.
 type MessageBackend interface {
 	// Start begins the backend's consumption loop (if applicable).
 	// For Kafka: starts the MultiTenantConsumerPool.
-	// For JetStream: starts stream consumers.
 	// For Direct: no-op (returns nil immediately).
 	Start(ctx context.Context) error
 
@@ -39,6 +38,11 @@ type MessageBackend interface {
 
 	// Shutdown gracefully stops the backend.
 	Shutdown(ctx context.Context) error
+
+	// ChannelTopic returns the Kafka topic name for a given channel name.
+	// Returns ok=false for backends that don't have a topic mapping (Direct)
+	// or when the channel has no registered consumer.
+	ChannelTopic(channel string) (topic string, ok bool)
 }
 
 // Sentinel errors for expected backend conditions.
@@ -60,4 +64,5 @@ type ReplayRequest struct {
 type ReplayMessage struct {
 	Subject string // Channel/routing key (e.g., "acme.BTC.trade")
 	Data    []byte // Raw message payload
+	Pos     string // Encoded Kafka position "(partition+1)-offset"; empty for backends without pos support
 }

@@ -12,8 +12,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
+	"github.com/klurvio/sukko/internal/server/backend"
 	"github.com/klurvio/sukko/internal/server/history"
 	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/klurvio/sukko/internal/server/stats"
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/protocol"
 )
@@ -1019,6 +1021,296 @@ func BenchmarkSequenceGenerator(b *testing.B) {
 	for b.Loop() {
 		_ = gen.Next()
 	}
+}
+
+// =============================================================================
+// handleReconnect — pos-based replay flow
+// =============================================================================
+
+// newReconnectTestServer builds a minimal Server suitable for handleReconnect tests.
+func newReconnectTestServer(t *testing.T, mb *mockBackend) *Server {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return &Server{
+		backend: mb,
+		logger:  zerolog.Nop(),
+		ctx:     ctx,
+		stats:   stats.NewStats(),
+		config: &platform.ServerConfig{
+			ReplayTimeout:     2 * time.Second,
+			MaxReplayMessages: 100,
+		},
+	}
+}
+
+func TestHandleReconnect_NormalPath_PosForwarded(t *testing.T) {
+	t.Parallel()
+
+	mb := &mockBackend{
+		channelTopics: map[string]string{"acme.BTC.trade": "acme.prices.BTC"},
+		replayMsgs: []backend.ReplayMessage{
+			{Subject: "acme.BTC.trade", Data: []byte(`{"price":"50000"}`), Pos: "3-100"},
+			{Subject: "acme.BTC.trade", Data: []byte(`{"price":"51000"}`), Pos: "3-101"},
+		},
+	}
+	s := newReconnectTestServer(t, mb)
+	c := &Client{
+		id:            1,
+		send:          make(chan OutgoingMsg, 32),
+		seqGen:        messaging.NewSequenceGenerator(),
+		subscriptions: NewSubscriptionSet(),
+	}
+	c.subscriptions.Add("acme.BTC.trade")
+
+	// Client reconnects with last pos for the channel.
+	reqData := []byte(`{"client_id":"cli-1","last_pos":{"acme.BTC.trade":"3-99"}}`)
+	s.handleReconnect(c, reqData)
+
+	// Collect all sent messages.
+	var msgs []map[string]json.RawMessage
+	for len(c.send) > 0 {
+		msg := <-c.send
+		var env map[string]json.RawMessage
+		if err := json.Unmarshal(msg.Bytes(), &env); err == nil {
+			msgs = append(msgs, env)
+		}
+	}
+
+	// Expect 2 replayed message envelopes + 1 reconnect_ack.
+	if len(msgs) < 3 {
+		t.Fatalf("expected ≥3 messages (2 replay + ack), got %d", len(msgs))
+	}
+
+	// First two must be type=message with pos set.
+	for i, m := range msgs[:2] {
+		var typ string
+		_ = json.Unmarshal(m["type"], &typ)
+		if typ != MsgTypeMessage {
+			t.Errorf("msgs[%d] type = %q, want %q", i, typ, MsgTypeMessage)
+		}
+		rawPos, ok := m["pos"]
+		if !ok {
+			t.Errorf("msgs[%d] missing pos field", i)
+			continue
+		}
+		var pos string
+		_ = json.Unmarshal(rawPos, &pos)
+		wantPos := mb.replayMsgs[i].Pos
+		if pos != wantPos {
+			t.Errorf("msgs[%d] pos = %q, want %q", i, pos, wantPos)
+		}
+	}
+
+	// Last must be reconnect_ack with messages_replayed=2.
+	last := msgs[len(msgs)-1]
+	var typ string
+	_ = json.Unmarshal(last["type"], &typ)
+	if typ != RespTypeReconnectAck {
+		t.Errorf("last type = %q, want %q", typ, RespTypeReconnectAck)
+	}
+	var replayed float64
+	_ = json.Unmarshal(last["messages_replayed"], &replayed)
+	if replayed != 2 {
+		t.Errorf("messages_replayed = %v, want 2", replayed)
+	}
+}
+
+func TestHandleReconnect_NoLastPos_ReplayWithEmptyPositions(t *testing.T) {
+	t.Parallel()
+
+	mb := &mockBackend{
+		channelTopics: map[string]string{},
+		replayMsgs:    nil,
+	}
+	s := newReconnectTestServer(t, mb)
+	c := &Client{
+		id:            1,
+		send:          make(chan OutgoingMsg, 8),
+		seqGen:        messaging.NewSequenceGenerator(),
+		subscriptions: NewSubscriptionSet(),
+	}
+
+	// No last_pos key (backward compat / no-pos client).
+	reqData := []byte(`{"client_id":"cli-2"}`)
+	s.handleReconnect(c, reqData)
+
+	var msgs []map[string]json.RawMessage
+	for len(c.send) > 0 {
+		msg := <-c.send
+		var env map[string]json.RawMessage
+		if err := json.Unmarshal(msg.Bytes(), &env); err == nil {
+			msgs = append(msgs, env)
+		}
+	}
+
+	// Should just get a reconnect_ack with 0 replayed.
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message (ack), got %d", len(msgs))
+	}
+	var typ string
+	_ = json.Unmarshal(msgs[0]["type"], &typ)
+	if typ != RespTypeReconnectAck {
+		t.Errorf("type = %q, want %q", typ, RespTypeReconnectAck)
+	}
+	var replayed float64
+	_ = json.Unmarshal(msgs[0]["messages_replayed"], &replayed)
+	if replayed != 0 {
+		t.Errorf("messages_replayed = %v, want 0", replayed)
+	}
+}
+
+func TestHandleReconnect_InvalidPos_ChannelSkipped(t *testing.T) {
+	t.Parallel()
+
+	mb := &mockBackend{
+		channelTopics: map[string]string{"acme.BTC.trade": "acme.prices.BTC"},
+		replayMsgs:    nil,
+	}
+	s := newReconnectTestServer(t, mb)
+	c := &Client{
+		id:            1,
+		send:          make(chan OutgoingMsg, 8),
+		seqGen:        messaging.NewSequenceGenerator(),
+		subscriptions: NewSubscriptionSet(),
+	}
+	c.subscriptions.Add("acme.BTC.trade")
+
+	// "not-a-pos" is not a valid "(partition+1)-offset" string → DecodePos returns ok=false.
+	reqData := []byte(`{"client_id":"cli-3","last_pos":{"acme.BTC.trade":"not-a-pos"}}`)
+	s.handleReconnect(c, reqData)
+
+	var msgs []map[string]json.RawMessage
+	for len(c.send) > 0 {
+		msg := <-c.send
+		var env map[string]json.RawMessage
+		if err := json.Unmarshal(msg.Bytes(), &env); err == nil {
+			msgs = append(msgs, env)
+		}
+	}
+
+	// Channel was skipped → Replay called with empty positions → no replay messages,
+	// just the reconnect_ack.
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message (ack), got %d", len(msgs))
+	}
+	var typ string
+	_ = json.Unmarshal(msgs[0]["type"], &typ)
+	if typ != RespTypeReconnectAck {
+		t.Errorf("type = %q, want %q", typ, RespTypeReconnectAck)
+	}
+}
+
+func TestHandleReconnect_UnknownChannel_Skipped(t *testing.T) {
+	t.Parallel()
+
+	// No channel→topic mapping registered — ChannelTopic returns ok=false.
+	mb := &mockBackend{
+		channelTopics: map[string]string{},
+		replayMsgs:    nil,
+	}
+	s := newReconnectTestServer(t, mb)
+	c := &Client{
+		id:            1,
+		send:          make(chan OutgoingMsg, 8),
+		seqGen:        messaging.NewSequenceGenerator(),
+		subscriptions: NewSubscriptionSet(),
+	}
+	c.subscriptions.Add("acme.BTC.trade")
+
+	// Valid pos, but the channel has no topic mapping → ChannelTopic returns ok=false → skipped.
+	reqData := []byte(`{"client_id":"cli-4","last_pos":{"acme.BTC.trade":"3-99"}}`)
+	s.handleReconnect(c, reqData)
+
+	var msgs []map[string]json.RawMessage
+	for len(c.send) > 0 {
+		msg := <-c.send
+		var env map[string]json.RawMessage
+		if err := json.Unmarshal(msg.Bytes(), &env); err == nil {
+			msgs = append(msgs, env)
+		}
+	}
+
+	// Channel was skipped → Replay called with empty positions → reconnect_ack only.
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message (ack), got %d", len(msgs))
+	}
+	var typ string
+	_ = json.Unmarshal(msgs[0]["type"], &typ)
+	if typ != RespTypeReconnectAck {
+		t.Errorf("type = %q, want %q", typ, RespTypeReconnectAck)
+	}
+}
+
+func TestHandleReconnect_MultiChannelSameTopic_MinOffsetWins(t *testing.T) {
+	t.Parallel()
+
+	// Two channels share the same Kafka topic with different last offsets.
+	// The replay request must use the smaller nextOffset (min wins).
+	mb := &mockBackend{
+		channelTopics: map[string]string{
+			"acme.BTC.trade": "acme.trades",
+			"acme.ETH.trade": "acme.trades",
+		},
+		replayMsgs: nil,
+	}
+	s := newReconnectTestServer(t, mb)
+	c := &Client{
+		id:            5,
+		send:          make(chan OutgoingMsg, 8),
+		seqGen:        messaging.NewSequenceGenerator(),
+		subscriptions: NewSubscriptionSet(),
+	}
+	c.subscriptions.Add("acme.BTC.trade")
+	c.subscriptions.Add("acme.ETH.trade")
+
+	// BTC last_pos offset=99 (nextOffset=100), ETH last_pos offset=49 (nextOffset=50).
+	// Both share "acme.trades"; min nextOffset=50 must be used.
+	reqData := []byte(`{"client_id":"cli-5","last_pos":{"acme.BTC.trade":"3-99","acme.ETH.trade":"1-49"}}`)
+	s.handleReconnect(c, reqData)
+
+	mb.mu.Lock()
+	req := mb.lastReplayReq
+	mb.mu.Unlock()
+
+	got, ok := req.Positions["acme.trades"]
+	if !ok {
+		t.Fatal("Positions missing key 'acme.trades'")
+	}
+	const wantNextOffset = 50
+	if got != wantNextOffset {
+		t.Errorf("Positions[acme.trades] = %d, want %d (min nextOffset)", got, wantNextOffset)
+	}
+	if len(req.Positions) != 1 {
+		t.Errorf("len(Positions) = %d, want 1 (deduped to single topic)", len(req.Positions))
+	}
+}
+
+func TestHandleReconnect_ConcurrentSafe(t *testing.T) {
+	t.Parallel()
+	mb := &mockBackend{
+		channelTopics: map[string]string{"t.ch": "topic.ch"},
+		replayMsgs: []backend.ReplayMessage{
+			{Subject: "t.ch", Data: []byte(`{}`), Pos: "1-0"},
+		},
+	}
+	s := newReconnectTestServer(t, mb)
+
+	var wg sync.WaitGroup
+	const n = 10
+	for range n {
+		wg.Go(func() {
+			c := &Client{
+				id:            1,
+				send:          make(chan OutgoingMsg, 32),
+				seqGen:        messaging.NewSequenceGenerator(),
+				subscriptions: NewSubscriptionSet(),
+			}
+			c.subscriptions.Add("t.ch")
+			s.handleReconnect(c, []byte(`{"client_id":"cli","last_pos":{"t.ch":"1-0"}}`))
+		})
+	}
+	wg.Wait()
 }
 
 // =============================================================================

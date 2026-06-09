@@ -1,6 +1,8 @@
 package broadcast
 
 import (
+	"bytes"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -87,5 +89,42 @@ func TestValkeyConfig_Fields(t *testing.T) {
 	}
 	if cfg.Channel != "custom.channel" {
 		t.Errorf("Channel: got %s, want custom.channel", cfg.Channel)
+	}
+}
+
+// =============================================================================
+// Message.Pos JSON round-trip
+// =============================================================================
+
+func TestBroadcastBus_PosRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	// Pos field must survive a JSON marshal/unmarshal cycle (the Valkey bus encodes
+	// messages as JSON before publishing and decodes on receive).
+	msg := &Message{
+		Subject: "BTC.trade",
+		Payload: []byte(`{"price":"100"}`),
+		Pos:     "3-125",
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var decoded Message
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if decoded.Pos != "3-125" {
+		t.Errorf("Pos: got %q, want %q", decoded.Pos, "3-125")
+	}
+
+	// Empty Pos must be omitted from JSON (omitempty semantics).
+	emptyMsg := &Message{Subject: "BTC.trade", Payload: []byte(`{}`)}
+	emptyData, err := json.Marshal(emptyMsg)
+	if err != nil {
+		t.Fatalf("json.Marshal empty: %v", err)
+	}
+	if bytes.Contains(emptyData, []byte(`"pos"`)) {
+		t.Errorf("empty Pos must be omitted from JSON, got: %s", emptyData)
 	}
 }

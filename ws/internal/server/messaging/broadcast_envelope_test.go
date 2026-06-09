@@ -98,7 +98,7 @@ func TestBroadcastEnvelope_MatchesJsonMarshal(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			env, err := NewBroadcastEnvelope(tt.channel, tt.ts, tt.payload)
+			env, err := NewBroadcastEnvelope(tt.channel, tt.ts, tt.payload, "")
 			if err != nil {
 				t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 			}
@@ -129,7 +129,7 @@ func TestBroadcastEnvelope_MatchesJsonMarshal(t *testing.T) {
 func TestBroadcastEnvelope_FieldOrder(t *testing.T) {
 	t.Parallel()
 
-	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`))
+	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestBroadcastEnvelope_FieldOrder(t *testing.T) {
 func TestBroadcastEnvelope_SequenceValues(t *testing.T) {
 	t.Parallel()
 
-	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`))
+	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestBroadcastEnvelope_ChannelEscaping(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			env, err := NewBroadcastEnvelope(tt.channel, 1000, []byte(`{}`))
+			env, err := NewBroadcastEnvelope(tt.channel, 1000, []byte(`{}`), "")
 			if err != nil {
 				t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 			}
@@ -222,7 +222,7 @@ func TestBroadcastEnvelope_ChannelEscaping(t *testing.T) {
 func TestBroadcastEnvelope_NilPayload(t *testing.T) {
 	t.Parallel()
 
-	env, err := NewBroadcastEnvelope("BTC.trade", 1000, nil)
+	env, err := NewBroadcastEnvelope("BTC.trade", 1000, nil, "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestBroadcastEnvelope_NilPayload(t *testing.T) {
 func TestBroadcastEnvelope_EmptyPayload(t *testing.T) {
 	t.Parallel()
 
-	env, err := NewBroadcastEnvelope("BTC.trade", 1000, []byte("null"))
+	env, err := NewBroadcastEnvelope("BTC.trade", 1000, []byte("null"), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestBroadcastEnvelope_LargePayload(t *testing.T) {
 	// Create 100KB payload
 	payload := []byte(`{"data":"` + strings.Repeat("x", 100*1024) + `"}`)
 
-	env, err := NewBroadcastEnvelope("BTC.trade", 1000, payload)
+	env, err := NewBroadcastEnvelope("BTC.trade", 1000, payload, "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestBroadcastEnvelope_LargePayload(t *testing.T) {
 func TestBroadcastEnvelope_ValidJSON(t *testing.T) {
 	t.Parallel()
 
-	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`))
+	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestBroadcastEnvelope_ValidJSON(t *testing.T) {
 func TestBroadcastEnvelope_Concurrent(t *testing.T) {
 	t.Parallel()
 
-	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`))
+	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`), "")
 	if err != nil {
 		t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 	}
@@ -471,7 +471,7 @@ func TestBroadcastEnvelope_ZeroAllocs(t *testing.T) { //nolint:paralleltest // t
 
 // BenchmarkBroadcastEnvelope_Build measures per-call cost of Build().
 func BenchmarkBroadcastEnvelope_Build(b *testing.B) {
-	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"token":"BTC","price":45000,"amount_btc":1500000000}`))
+	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"token":"BTC","price":45000,"amount_btc":1500000000}`), "")
 	if err != nil {
 		b.Fatalf("NewBroadcastEnvelope() error: %v", err)
 	}
@@ -487,7 +487,7 @@ func BenchmarkBroadcastEnvelope_VsJsonMarshal(b *testing.B) {
 	payload := json.RawMessage(`{"token":"BTC","price":45000,"amount_btc":1500000000}`)
 
 	b.Run("Build", func(b *testing.B) {
-		env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, payload)
+		env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, payload, "")
 		if err != nil {
 			b.Fatalf("NewBroadcastEnvelope() error: %v", err)
 		}
