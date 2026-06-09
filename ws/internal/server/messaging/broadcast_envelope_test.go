@@ -381,7 +381,7 @@ func TestBroadcastEnvelope_Concurrent(t *testing.T) {
 // newTestEnvelope creates a standard test envelope for benchmarks and allocation tests.
 func newTestEnvelope(tb testing.TB) *BroadcastEnvelope {
 	tb.Helper()
-	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`))
+	env, err := NewBroadcastEnvelope("BTC.trade", 1708903200000, []byte(`{"price":45000}`), "")
 	if err != nil {
 		tb.Fatalf("newTestEnvelope: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestBroadcastEnvelope_AppendTo(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			env, err := NewBroadcastEnvelope(tt.channel, tt.ts, tt.payload)
+			env, err := NewBroadcastEnvelope(tt.channel, tt.ts, tt.payload, "")
 			if err != nil {
 				t.Fatalf("NewBroadcastEnvelope() error: %v", err)
 			}
