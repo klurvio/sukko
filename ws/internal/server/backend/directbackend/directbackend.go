@@ -47,14 +47,19 @@ func (db *DirectBackend) Start(_ context.Context) error {
 }
 
 // Publish sends a message directly to the broadcast bus.
-func (db *DirectBackend) Publish(_ context.Context, _ int64, channel string, data []byte) error {
+// tenantID must be non-empty; the bus rejects messages with an empty tenant ID.
+func (db *DirectBackend) Publish(_ context.Context, _ int64, tenantID string, channel string, data []byte) error {
 	if channel == "" {
 		return fmt.Errorf("%w: channel is required", backend.ErrPublishFailed)
 	}
+	if tenantID == "" {
+		return fmt.Errorf("%w: tenant ID is required", backend.ErrPublishFailed)
+	}
 	start := time.Now()
 	db.bus.Publish(&broadcast.Message{
-		Subject: channel,
-		Payload: data,
+		Subject:  channel,
+		Payload:  data,
+		TenantID: tenantID,
 	})
 	metrics.RecordBackendPublishLatency(backendName, time.Since(start).Seconds())
 	metrics.RecordBackendPublish(backendName)

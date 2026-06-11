@@ -80,7 +80,7 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 	ctx, cancel := context.WithTimeout(s.ctx, s.config.PublishTimeout)
 	defer cancel()
 
-	if err := s.backend.Publish(ctx, c.id, pubReq.Channel, pubReq.Data); err != nil {
+	if err := s.backend.Publish(ctx, c.id, c.tenantID, pubReq.Channel, pubReq.Data); err != nil {
 		s.logger.Error().
 			Err(err).
 			Int64("client_id", c.id).

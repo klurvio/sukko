@@ -328,7 +328,9 @@ func (kb *KafkaBackend) Start(_ context.Context) error {
 }
 
 // Publish sends a client-published message through the Kafka producer.
-func (kb *KafkaBackend) Publish(ctx context.Context, clientID int64, channel string, data []byte) error {
+// tenantID is accepted for interface compliance but not used by the Kafka backend —
+// routing is handled by the topic partitioning scheme.
+func (kb *KafkaBackend) Publish(ctx context.Context, clientID int64, _ string, channel string, data []byte) error {
 	if channel == "" {
 		return fmt.Errorf("%w: channel is required", backend.ErrPublishFailed)
 	}
@@ -570,6 +572,9 @@ func buildKgoOpts(brokers []string, sasl *kafka.SASLConfig, tlsCfg *kafka.TLSCon
 // ChannelTopic returns the Kafka topic for the given channel by delegating to the consumer pool.
 // Returns ok=false if no consumer has been registered for the channel.
 func (kb *KafkaBackend) ChannelTopic(channel string) (string, bool) {
+	if kb.pool == nil {
+		return "", false
+	}
 	return kb.pool.ChannelTopic(channel)
 }
 

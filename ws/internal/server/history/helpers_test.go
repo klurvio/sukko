@@ -3,7 +3,6 @@ package history_test
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -107,54 +106,84 @@ func newTestWriter(t *testing.T, mr *miniredis.Miniredis, opts testWriterOpts) (
 
 // mockBus is a minimal broadcast.Bus implementation for testing.
 type mockBus struct {
-	mu              sync.Mutex
-	subs            map[<-chan *broadcast.Message]chan *broadcast.Message
-	healthy         bool
-	publishLog      []*broadcast.Message
-	lastDropCounter *atomic.Uint64
+	mu                  sync.Mutex
+	tenantSubs          map[string]chan *broadcast.Message // per-tenant subscriber channels
+	allSubs             []chan *broadcast.Message           // SubscribeAll subscriber channels
+	healthy             bool
+	publishLog          []*broadcast.Message
+	subscribeAllCount   int // number of SubscribeAll calls
+	unsubscribeAllCalls int // number of UnsubscribeAll calls
 }
 
 func newMockBus() *mockBus {
 	return &mockBus{
-		subs:    make(map[<-chan *broadcast.Message]chan *broadcast.Message),
-		healthy: true,
+		tenantSubs: make(map[string]chan *broadcast.Message),
+		healthy:    true,
 	}
 }
 
-func (b *mockBus) Subscribe(bufSize int) (<-chan *broadcast.Message, *atomic.Uint64) {
-	ch := make(chan *broadcast.Message, bufSize)
-	dc := &atomic.Uint64{}
+func (b *mockBus) Subscribe(tenantID string) (<-chan *broadcast.Message, error) {
+	ch := make(chan *broadcast.Message, 64)
 	b.mu.Lock()
-	b.subs[ch] = ch
-	b.lastDropCounter = dc
+	b.tenantSubs[tenantID] = ch
 	b.mu.Unlock()
-	return ch, dc
+	return ch, nil
 }
 
-// simulateDrops increments the most-recently-returned subscription drop counter by n,
-// simulating bus-level message drops for use in delta-tracking tests.
-func (b *mockBus) simulateDrops(n uint64) {
+func (b *mockBus) SubscribeAll() (<-chan *broadcast.Message, error) {
+	ch := make(chan *broadcast.Message, 256)
 	b.mu.Lock()
-	dc := b.lastDropCounter
+	b.subscribeAllCount++
+	b.allSubs = append(b.allSubs, ch)
 	b.mu.Unlock()
-	if dc != nil {
-		dc.Add(n)
-	}
+	return ch, nil
 }
 
-func (b *mockBus) Unsubscribe(ch <-chan *broadcast.Message) error {
+func (b *mockBus) Unsubscribe(tenantID string, _ <-chan *broadcast.Message) error {
 	b.mu.Lock()
-	delete(b.subs, ch)
+	delete(b.tenantSubs, tenantID)
 	b.mu.Unlock()
 	return nil
+}
+
+func (b *mockBus) UnsubscribeAll(ch <-chan *broadcast.Message) error {
+	b.mu.Lock()
+	b.unsubscribeAllCalls++
+	for i, s := range b.allSubs {
+		if (<-chan *broadcast.Message)(s) == ch {
+			b.allSubs = append(b.allSubs[:i], b.allSubs[i+1:]...)
+			b.mu.Unlock()
+			return nil
+		}
+	}
+	b.mu.Unlock()
+	return broadcast.ErrSubscriberNotFound
+}
+
+func (b *mockBus) getSubscribeAllCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.subscribeAllCount
+}
+
+func (b *mockBus) getUnsubscribeAllCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.unsubscribeAllCalls
 }
 
 func (b *mockBus) Publish(msg *broadcast.Message) {
 	b.mu.Lock()
 	b.publishLog = append(b.publishLog, msg)
-	for _, sub := range b.subs {
+	if sub, ok := b.tenantSubs[msg.TenantID]; ok {
 		select {
 		case sub <- msg:
+		default:
+		}
+	}
+	for _, s := range b.allSubs {
+		select {
+		case s <- msg:
 		default:
 		}
 	}
@@ -173,12 +202,18 @@ func (b *mockBus) setHealthy(v bool) {
 	b.mu.Unlock()
 }
 
-// fanOut pushes a broadcast.Message directly to all subscribers on the bus.
+// fanOut pushes a broadcast.Message directly to all subscribers (per-tenant and SubscribeAll).
 func (b *mockBus) fanOut(msg *broadcast.Message) {
 	b.mu.Lock()
-	for _, sub := range b.subs {
+	if sub, ok := b.tenantSubs[msg.TenantID]; ok {
 		select {
 		case sub <- msg:
+		default:
+		}
+	}
+	for _, s := range b.allSubs {
+		select {
+		case s <- msg:
 		default:
 		}
 	}

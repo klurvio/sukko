@@ -101,7 +101,7 @@ func newValidServerConfig() *ServerConfig {
 		ConnRateLimitIPTTL:           5 * time.Minute,
 		ConnRateLimitCleanupInterval: 1 * time.Minute,
 		// Broadcast bus
-		BroadcastBufferSize:      1024,
+		BroadcastBufferSize:      256, // matches BROADCAST_BUFFER_SIZE envDefault
 		BroadcastShutdownTimeout: 5 * time.Second,
 		// Valkey broadcast tuning
 		ValkeyWriteTimeout:            3 * time.Second,
@@ -1707,6 +1707,107 @@ func TestLoadServerConfig_StartupWarning(t *testing.T) {
 			}
 			if !tt.expectWarning && hasWarning {
 				t.Errorf("unexpected warning %q in logs", MsgCommitOnRevokeTimeoutWarning)
+			}
+		})
+	}
+}
+
+func TestServerConfig_BroadcastBufferSizeBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		size      int
+		wantErr   bool
+		errSubstr string
+	}{
+		{"zero", 0, true, "BROADCAST_BUFFER_SIZE"},
+		{"above max", BroadcastBufferSizeMax + 1, true, "BROADCAST_BUFFER_SIZE_MAX"},
+		{"at max", BroadcastBufferSizeMax, false, ""},
+		{"default 256", 256, false, ""},
+		{"positive", 1, false, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.BroadcastBufferSize = tt.size
+			err := cfg.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for BroadcastBufferSize=%d, got nil", tt.size)
+				}
+				if tt.errSubstr != "" && !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errSubstr)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error for BroadcastBufferSize=%d: %v", tt.size, err)
+				}
+			}
+		})
+	}
+}
+
+func TestServerConfig_ValidateEditionLimits(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		limits      license.Limits
+		numShards   int
+		bufSize     int
+		memLimit    int64
+		wantErr     bool
+	}{
+		{
+			name:      "Enterprise unlimited always passes",
+			limits:    license.Limits{MaxTenants: 0}, // 0 = unlimited
+			numShards: 10,
+			bufSize:   BroadcastBufferSizeMax,
+			memLimit:  1, // tiny memory limit — still passes for unlimited
+			wantErr:   false,
+		},
+		{
+			name:      "Pro MaxTenants=50 within memory limit",
+			limits:    license.Limits{MaxTenants: 50},
+			numShards: 3,
+			bufSize:   256,
+			memLimit:  512 * 1024 * 1024, // 512MB
+			wantErr:   false,
+		},
+		{
+			name:      "Pro MaxTenants=50 exceeds memory limit",
+			limits:    license.Limits{MaxTenants: 50},
+			numShards: 3,
+			bufSize:   256,
+			memLimit:  1, // 1 byte — guaranteed failure
+			wantErr:   true,
+		},
+		{
+			name:      "Community MaxTenants=3 within memory",
+			limits:    license.Limits{MaxTenants: 3},
+			numShards: 1,
+			bufSize:   256,
+			memLimit:  512 * 1024 * 1024,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.NumShards = tt.numShards
+			cfg.BroadcastBufferSize = tt.bufSize
+			cfg.MemoryLimit = tt.memLimit
+			err := cfg.ValidateEditionLimits(tt.limits)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}

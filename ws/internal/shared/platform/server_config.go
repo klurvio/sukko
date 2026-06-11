@@ -70,6 +70,15 @@ const (
 	HistoryKafkaFetchMultiplier       = 3
 	MinHistoryWriterHeartbeatInterval = 500 * time.Millisecond
 	MinHistoryWriterLockTTL           = 1 * time.Second
+
+	// BroadcastBufferSizeMax is the upper bound for BROADCAST_BUFFER_SIZE.
+	// Prevents unbounded per-tenant memory allocation:
+	// worst-case = MaxTenants × NumShards × BroadcastBufferSizeMax × 8 bytes per pointer.
+	BroadcastBufferSizeMax = 65536
+
+	// logFieldChannelPrefix is the zerolog field key for the Valkey channel prefix.
+	// Named "prefix" because ValkeyChannel is now a prefix; the full channel is "{prefix}:{tenantID}".
+	logFieldChannelPrefix = "valkey_channel_prefix"
 )
 
 // ServerConfig holds all server configuration
@@ -315,7 +324,7 @@ type ServerConfig struct {
 	ConnRateLimitCleanupInterval time.Duration `env:"CONN_RATE_LIMIT_CLEANUP_INTERVAL" envDefault:"1m"`
 
 	// Broadcast bus
-	BroadcastBufferSize      int           `env:"BROADCAST_BUFFER_SIZE" envDefault:"1024"`
+	BroadcastBufferSize      int           `env:"BROADCAST_BUFFER_SIZE" envDefault:"256"`
 	BroadcastShutdownTimeout time.Duration `env:"BROADCAST_SHUTDOWN_TIMEOUT" envDefault:"5s"`
 
 	// Valkey broadcast tuning
@@ -821,6 +830,9 @@ func (c *ServerConfig) Validate() error {
 	if c.BroadcastBufferSize < 1 {
 		return fmt.Errorf("BROADCAST_BUFFER_SIZE must be > 0, got %d", c.BroadcastBufferSize)
 	}
+	if c.BroadcastBufferSize > BroadcastBufferSizeMax {
+		return fmt.Errorf("BROADCAST_BUFFER_SIZE must be <= %d (BROADCAST_BUFFER_SIZE_MAX), got %d", BroadcastBufferSizeMax, c.BroadcastBufferSize)
+	}
 	if c.ValkeyReconnectMaxAttempts < 1 {
 		return fmt.Errorf("VALKEY_RECONNECT_MAX_ATTEMPTS must be > 0, got %d", c.ValkeyReconnectMaxAttempts)
 	}
@@ -1018,6 +1030,24 @@ func (c *ServerConfig) Validate() error {
 	return nil
 }
 
+// ValidateEditionLimits checks whether the broadcast buffer configuration is safe
+// for the given edition's tenant limits. Returns an error if the worst-case memory
+// usage would exceed WS_MEMORY_LIMIT. Enterprise (unlimited tenants) is always valid.
+func (c *ServerConfig) ValidateEditionLimits(limits license.Limits) error {
+	if license.IsUnlimited(limits.MaxTenants) {
+		return nil // Enterprise: unlimited tenants — skip static formula
+	}
+	worstCaseBytes := int64(limits.MaxTenants) * int64(c.NumShards) * int64(c.BroadcastBufferSize) * 8
+	if worstCaseBytes > c.MemoryLimit {
+		return fmt.Errorf(
+			"BROADCAST_BUFFER_SIZE=%d with %d max tenants and %d shards would use ~%d bytes per pod, "+
+				"exceeding WS_MEMORY_LIMIT=%d; reduce BROADCAST_BUFFER_SIZE or increase WS_MEMORY_LIMIT",
+			c.BroadcastBufferSize, limits.MaxTenants, c.NumShards, worstCaseBytes, c.MemoryLimit,
+		)
+	}
+	return nil
+}
+
 // AlertConfig returns an alerting.Config derived from the server configuration.
 // serviceName identifies this service instance in alert messages.
 func (c *ServerConfig) AlertConfig(serviceName string) alerting.Config {
@@ -1102,7 +1132,7 @@ func (c *ServerConfig) Print() {
 	_, _ = fmt.Fprintf(os.Stdout, "Type:            %s\n", c.BroadcastType)
 	_, _ = fmt.Fprintf(os.Stdout, "Valkey Addrs:    %v\n", c.ValkeyAddrs)
 	_, _ = fmt.Fprintf(os.Stdout, "Master Name:     %s\n", c.ValkeyMasterName)
-	_, _ = fmt.Fprintf(os.Stdout, "Channel:         %s\n", c.ValkeyChannel)
+	_, _ = fmt.Fprintf(os.Stdout, "Channel prefix:  %s\n", c.ValkeyChannel)
 	_, _ = fmt.Fprintf(os.Stdout, "Database:        %d\n", c.ValkeyDB)
 	if c.ValkeyTLSEnabled {
 		_, _ = fmt.Fprintf(os.Stdout, "Valkey TLS:      %v\n", c.ValkeyTLSEnabled)
@@ -1174,7 +1204,7 @@ func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 		Str("broadcast_type", c.BroadcastType).
 		Strs("valkey_addrs", c.ValkeyAddrs).
 		Str("valkey_master_name", c.ValkeyMasterName).
-		Str("valkey_channel", c.ValkeyChannel).
+		Str(logFieldChannelPrefix, c.ValkeyChannel).
 		Int("valkey_db", c.ValkeyDB).
 		Bool("valkey_tls_enabled", c.ValkeyTLSEnabled).
 		Int("client_send_buffer_size", c.ClientSendBufferSize).

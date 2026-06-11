@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -29,15 +28,19 @@ func (m *mockBus) Publish(msg *broadcast.Message) {
 	m.messages = append(m.messages, msg)
 }
 
-func (m *mockBus) Subscribe(_ int) (<-chan *broadcast.Message, *atomic.Uint64) {
-	return make(chan *broadcast.Message), &atomic.Uint64{}
+func (m *mockBus) Subscribe(_ string) (<-chan *broadcast.Message, error) {
+	return make(chan *broadcast.Message), nil
 }
-func (m *mockBus) Unsubscribe(_ <-chan *broadcast.Message) error { return nil }
-func (m *mockBus) Run()                                          {}
-func (m *mockBus) Shutdown()                                     {}
-func (m *mockBus) ShutdownWithContext(context.Context)           {}
-func (m *mockBus) IsHealthy() bool                               { return true }
-func (m *mockBus) GetMetrics() broadcast.Metrics                 { return broadcast.Metrics{} }
+func (m *mockBus) SubscribeAll() (<-chan *broadcast.Message, error) {
+	return make(chan *broadcast.Message), nil
+}
+func (m *mockBus) Unsubscribe(_ string, _ <-chan *broadcast.Message) error { return nil }
+func (m *mockBus) UnsubscribeAll(_ <-chan *broadcast.Message) error        { return nil }
+func (m *mockBus) Run()                                                    {}
+func (m *mockBus) Shutdown()                                               {}
+func (m *mockBus) ShutdownWithContext(context.Context)                     {}
+func (m *mockBus) IsHealthy() bool                                         { return true }
+func (m *mockBus) GetMetrics() broadcast.Metrics                           { return broadcast.Metrics{} }
 
 func (m *mockBus) published() []*broadcast.Message {
 	m.mu.Lock()
@@ -149,7 +152,7 @@ func TestPublish(t *testing.T) {
 				t.Fatalf("New: %v", err)
 			}
 
-			if err := db.Publish(context.Background(), tt.clientID, tt.channel, tt.data); err != nil {
+			if err := db.Publish(context.Background(), tt.clientID, "test-tenant", tt.channel, tt.data); err != nil {
 				t.Fatalf("Publish returned unexpected error: %v", err)
 			}
 
@@ -165,6 +168,9 @@ func TestPublish(t *testing.T) {
 			if !bytes.Equal(msg.Payload, tt.data) {
 				t.Errorf("Payload: got %q, want %q", msg.Payload, tt.data)
 			}
+			if msg.TenantID != "test-tenant" {
+				t.Errorf("TenantID: got %q, want %q", msg.TenantID, "test-tenant")
+			}
 		})
 	}
 }
@@ -177,12 +183,34 @@ func TestPublish_EmptyChannel(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	err = db.Publish(context.Background(), 1, "", []byte("data"))
+	err = db.Publish(context.Background(), 1, "test-tenant", "", []byte("data"))
 	if err == nil {
 		t.Fatal("expected error for empty channel, got nil")
 	}
 	if !errors.Is(err, backend.ErrPublishFailed) {
 		t.Errorf("error = %v, want wrapping %v", err, backend.ErrPublishFailed)
+	}
+}
+
+func TestPublish_EmptyTenantID(t *testing.T) {
+	t.Parallel()
+
+	bus := &mockBus{}
+	db, err := New(bus, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = db.Publish(context.Background(), 1, "", "some.channel", []byte("data"))
+	if err == nil {
+		t.Fatal("expected error for empty tenantID, got nil")
+	}
+	if !errors.Is(err, backend.ErrPublishFailed) {
+		t.Errorf("error = %v, want wrapping %v", err, backend.ErrPublishFailed)
+	}
+	// Verify the bus was NOT called — message must not be delivered with empty tenantID.
+	if msgs := bus.published(); len(msgs) != 0 {
+		t.Errorf("bus received %d messages, want 0 (message must be rejected before bus call)", len(msgs))
 	}
 }
 

@@ -161,6 +161,11 @@ type Client struct {
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 	remoteAddr string // Client's remote IP address for logging
+
+	// tenantID is the tenant segment extracted from the first subscribed channel name
+	// (e.g., "acme" from "acme.BTC.trade"). Empty in direct/local mode (no tenant prefix).
+	// Used by OnTenantClientDisconnect to target the correct per-tenant broadcast channel.
+	tenantID string
 }
 
 // TransportType returns the transport type of this client for metrics labeling.

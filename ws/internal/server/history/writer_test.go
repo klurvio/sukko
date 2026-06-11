@@ -611,35 +611,10 @@ func TestHistoryWriter_XADDAndExpireCoBatched(t *testing.T) {
 	}
 }
 
-// TestHistoryDropCounterDelta verifies that bus-level drop counter increments are picked
-// up on the next flushBatch call and reflected in the WriteDropped[full] metric.
-func TestHistoryDropCounterDelta(t *testing.T) {
-	t.Parallel()
-
-	mr := newTestMiniredis(t)
-	opts := defaultTestOpts()
-	w, cancel, bus := newTestWriter(t, mr, opts)
-
-	var wg syncWaitGroup
-	wg.Go(func() { w.Run() })
-	time.Sleep(20 * time.Millisecond) // let writer subscribe
-
-	// Simulate 3 bus-level drops on the subscription's drop counter.
-	bus.simulateDrops(3)
-
-	// Trigger a flushBatch by sending a message via the relay.
-	bus.fanOut(&broadcast.Message{
-		Subject: "t1.ch", Payload: []byte(`{}`), TenantID: "t1", Channel: "ch",
-	})
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-	wg.Wait()
-
-	dropped := prometheustestutil.ToFloat64(w.Metrics().WriteDropped.WithLabelValues(history.HistoryDropReasonFull))
-	if dropped < 3 {
-		t.Errorf("WriteDropped[full]: expected ≥3 from bus-level delta tracking, got %v", dropped)
-	}
-}
+// TestHistoryDropCounterDelta was removed: bus-level drop counter tracking in the
+// history writer was removed as part of the broadcast tenant fairness refactor.
+// Bus-level drops are now tracked by ws_broadcast_bus_dropped_total{tenant_id="_all"}
+// at the bus layer. See spec: "Design: History writer migration" and FR-001.
 
 // TestHistoryWriter_LockCallFailureVsCASMiss verifies that a CAS miss (lock stolen by
 // another pod, returning n=0 from Lua) does NOT increment LockFailuresTotal, while the
@@ -1073,4 +1048,78 @@ func TestHistoryWriter_AutoIDAndCoord(t *testing.T) {
 			t.Errorf("coord = %q, want %q", newEntry.FieldValues[history.HistoryFieldCoord], encodedPos)
 		}
 	})
+}
+
+// TestHistoryWriter_SubscribeAll_Called verifies that the writer calls SubscribeAll (not Subscribe)
+// and calls UnsubscribeAll (not Unsubscribe) on shutdown.
+func TestHistoryWriter_SubscribeAll_Called(t *testing.T) {
+	t.Parallel()
+	mr := newTestMiniredis(t)
+	opts := defaultTestOpts()
+
+	w, cancel, bus := newTestWriter(t, mr, opts)
+
+	var wg syncWaitGroup
+	wg.Go(func() {
+		w.Run()
+	})
+
+	// Wait for the writer to start and call SubscribeAll.
+	time.Sleep(50 * time.Millisecond)
+
+	if got := bus.getSubscribeAllCount(); got < 1 {
+		t.Errorf("SubscribeAll not called after startup: got %d, want >= 1", got)
+	}
+
+	// Shutdown and verify UnsubscribeAll is called.
+	cancel()
+	wg.Wait()
+
+	if got := bus.getUnsubscribeAllCount(); got < 1 {
+		t.Errorf("UnsubscribeAll not called on shutdown: got %d, want >= 1", got)
+	}
+}
+
+// TestHistoryWriter_SubscribeAll_MessagesArrive verifies that messages published via fanOut
+// (which routes to allSubs = SubscribeAll channel) are written to Valkey streams.
+func TestHistoryWriter_SubscribeAll_MessagesArrive(t *testing.T) {
+	t.Parallel()
+	mr := newTestMiniredis(t)
+	opts := defaultTestOpts()
+
+	w, cancel, bus := newTestWriter(t, mr, opts)
+
+	var wg syncWaitGroup
+	wg.Go(func() {
+		w.Run()
+	})
+
+	// Wait for the writer to subscribe.
+	time.Sleep(30 * time.Millisecond)
+
+	bus.fanOut(&broadcast.Message{
+		Subject:  "subscribetest.BTC.trade",
+		TenantID: "subscribetest",
+		Channel:  "BTC.trade",
+		Payload:  []byte(`{"price":"99"}`),
+		Pos:      "0-1",
+	})
+
+	// Wait for relay + flushBatch.
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	wg.Wait()
+
+	// Verify the message was written to Valkey.
+	client := newTestValkeyClient(t, mr)
+	streamKey := history.HistoryStreamKeyPrefix + opts.env + ":subscribetest:BTC.trade"
+	entries, err := client.Do(context.Background(),
+		client.B().Xrevrange().Key(streamKey).End("+").Start("-").Count(10).Build(),
+	).AsXRange()
+	if err != nil {
+		t.Fatalf("XREVRANGE %s: %v", streamKey, err)
+	}
+	if len(entries) == 0 {
+		t.Errorf("no entries in stream %s, want >= 1", streamKey)
+	}
 }
