@@ -57,6 +57,7 @@ type Params struct {
 	Backend        backend.MessageBackend // Pluggable message backend instance
 	BroadcastBus   broadcast.Bus          // Required when HistoryEnabled=true; used by historyWriter
 	EditionManager *license.Manager       // Edition gate checks; nil = Community
+	TenantHooks    TenantHooks            // Optional; nil = no per-tenant channel management (test or direct mode)
 }
 
 // Server is the main WebSocket server that manages client connections, message
@@ -109,6 +110,7 @@ type Server struct {
 	historyWriter  *history.Writer  // nil when HistoryEnabled=false
 	historyEnv     string           // resolved stream key namespace (ResolveNamespace result)
 	editionManager *license.Manager // Edition gate checks; nil = Community
+	tenantHooks    TenantHooks      // Optional; nil = no per-tenant channel management
 
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
@@ -151,6 +153,7 @@ func NewServer(params Params, alerter alerting.Alerter) (*Server, error) {
 		backend:           params.Backend,
 		broadcastBus:      params.BroadcastBus,
 		editionManager:    params.EditionManager,
+		tenantHooks:       params.TenantHooks,
 		logger:            logger,
 		ctx:               ctx,
 		cancel:            cancel,

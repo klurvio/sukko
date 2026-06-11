@@ -96,6 +96,11 @@ func main() {
 		Str("org", cfg.EditionManager().Org()).
 		Msg("Sukko edition resolved")
 
+	// Validate that broadcast buffer config is safe for the resolved edition's tenant limits.
+	if err := cfg.ValidateEditionLimits(cfg.EditionManager().Limits()); err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Edition limits validation failed")
+	}
+
 	// Context for goroutine lifecycle — cancel() signals server error or license downgrade to main.
 	// Must be declared before licenseWatcher so OnDowngrade can capture cancel.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -180,6 +185,7 @@ func main() {
 		Type:            cfg.BroadcastType,
 		BufferSize:      cfg.BroadcastBufferSize,
 		ShutdownTimeout: cfg.BroadcastShutdownTimeout,
+		Limits:          cfg.EditionManager().Limits(),
 		Valkey: broadcast.ValkeyConfig{
 			Addrs:                     cfg.ValkeyAddrs,
 			MasterName:                cfg.ValkeyMasterName,
@@ -418,7 +424,8 @@ func main() {
 		structuredLogger.Error().Err(err).Msg("Error shutting down message backend")
 	}
 
-	// Shutdown BroadcastBus
+	// Shard shutdown (including all forwarder goroutines) MUST complete before bus.Shutdown() — NFR-002.
+	// The loop above ensures this: all shard.Shutdown() calls finish before broadcastBus.Shutdown().
 	broadcastBus.Shutdown()
 
 	// Shutdown SystemMonitor

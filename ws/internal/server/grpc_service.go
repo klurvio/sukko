@@ -66,7 +66,7 @@ func (svc *GRPCService) Publish(ctx context.Context, req *serverv1.PublishReques
 	s := svc.selectServer()
 
 	// Publish to message backend (routing rules → Kafka topic)
-	if err := s.backend.Publish(ctx, 0, req.GetChannel(), req.GetData()); err != nil {
+	if err := s.backend.Publish(ctx, 0, req.GetTenantId(), req.GetChannel(), req.GetData()); err != nil {
 		svc.logger.Error().Err(err).
 			Str("channel", req.GetChannel()).
 			Str("tenant_id", req.GetTenantId()).
@@ -118,6 +118,7 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 	client.server = s
 	client.id = s.clientCount.Add(1)
 	client.remoteAddr = req.GetRemoteAddr()
+	client.tenantID = req.GetTenantId()
 
 	// Track client
 	s.clients.Store(client, true)
@@ -128,6 +129,27 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 	for _, ch := range req.GetChannels() {
 		client.subscriptions.Add(ch)
 		s.subscriptionIndex.Add(ch, client)
+	}
+
+	// Wire per-tenant broadcast subscription so SSE clients receive broadcasts.
+	// Mirrors the WebSocket OnTenantClientConnect call in handlers_message.go.
+	if s.tenantHooks != nil && client.tenantID != "" {
+		if err := s.tenantHooks.OnTenantClientConnect(client.tenantID); err != nil {
+			cancel()
+			client.closeOnce.Do(func() {
+				if client.transport != nil {
+					_ = client.transport.Close()
+				}
+			})
+			client.closeSend()
+			s.clients.Delete(client)
+			s.stats.TotalConnections.Add(-1)
+			s.stats.CurrentConnections.Add(-1)
+			s.subscriptionIndex.RemoveMultiple(client.subscriptions.List(), client)
+			s.connections.Put(client)
+			<-s.connectionsSem
+			return status.Error(codes.Unavailable, "broadcast channel unavailable")
+		}
 	}
 
 	// Start write pump
@@ -162,6 +184,12 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 	}
 	client.clientWg.Wait()
 	client.closeSend()
+
+	// Notify shard to release per-tenant broadcast channel.
+	// Mirrors the OnTenantClientDisconnect call in disconnectClient (client_lifecycle.go).
+	if s.tenantHooks != nil && client.tenantID != "" {
+		s.tenantHooks.OnTenantClientDisconnect(client.tenantID)
+	}
 
 	s.clients.Delete(client)
 	s.stats.CurrentConnections.Add(-1)

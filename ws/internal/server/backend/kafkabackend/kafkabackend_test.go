@@ -316,7 +316,7 @@ func TestPublish_EmptyChannel(t *testing.T) {
 	// The empty channel validation runs before producer delegation.
 	kb := &KafkaBackend{}
 
-	err := kb.Publish(context.Background(), 1, "", []byte("data"))
+	err := kb.Publish(context.Background(), 1, "test-tenant", "", []byte("data"))
 	if err == nil {
 		t.Fatal("expected error for empty channel, got nil")
 	}
@@ -331,7 +331,7 @@ func TestPublish_NilProducer(t *testing.T) {
 	// Producer is nil but channel is valid — should hit the producer nil check.
 	kb := &KafkaBackend{}
 
-	err := kb.Publish(context.Background(), 1, "test.channel", []byte("data"))
+	err := kb.Publish(context.Background(), 1, "test-tenant", "test.channel", []byte("data"))
 	if err == nil {
 		t.Fatal("expected error for nil producer, got nil")
 	}

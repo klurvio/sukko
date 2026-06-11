@@ -24,14 +24,14 @@ import (
 // active-writer lock at a time; all other pods run as passive observers that skip XADD
 // but still participate in lock contention so they can take over on failover.
 type Writer struct {
-	cfg               *platform.ServerConfig
-	bus               broadcast.Bus
-	valkeyClient      valkey.Client
-	logger            zerolog.Logger
-	ctx               context.Context
-	isActiveWriter    atomic.Bool
-	lastSeenDropCount atomic.Uint64
-	env               string
+	cfg            *platform.ServerConfig
+	bus            broadcast.Bus
+	valkeyClient   valkey.Client
+	logger         zerolog.Logger
+	ctx            context.Context
+	isActiveWriter atomic.Bool
+
+	env string
 	// workChan is intentionally shared across runOnce restarts: messages queued
 	// during a failed run are picked up by the next run's flushBatch, preserving
 	// delivery continuity without losing messages at the restart boundary.
@@ -146,17 +146,21 @@ func (h *Writer) runOnce(parentCtx context.Context) (processed int, _ error) {
 	// pos1: panic recovery — runs last (LIFO), catches anything in between.
 	defer logging.RecoverPanic(h.logger, "historyWriter.runOnce", nil)
 
-	runOnceCtx, runOnceCancelFn := context.WithCancel(parentCtx)
-
 	// Acquire lock before subscribing so we know our role before messages arrive.
+	// parentCtx is sufficient here — lock acquisition is a single SET NX command.
 	lockKey := HistoryWriterLockKeyPrefix + h.env
-	h.tryAcquireLock(runOnceCtx, lockKey)
+	h.tryAcquireLock(parentCtx, lockKey)
 
-	// Subscribe to the broadcast bus.
-	busCh, dropCounter := h.bus.Subscribe(h.cfg.HistoryWriterBuffer)
+	// Subscribe to broadcast bus — all-tenant PSUBSCRIBE channel.
+	// Done before context creation so a SubscribeAll error doesn't leak the cancel function.
+	busCh, err := h.bus.SubscribeAll()
+	if err != nil {
+		return 0, fmt.Errorf("historyWriter: SubscribeAll failed: %w", err)
+	}
 
-	// Reset drop delta baseline for this run.
-	h.lastSeenDropCount.Store(0)
+	// Context for this run's goroutines (relay, etc.). Created after SubscribeAll so
+	// any early return from SubscribeAll does not create a leaked context.
+	runOnceCtx, runOnceCancelFn := context.WithCancel(parentCtx)
 
 	ticker := time.NewTicker(h.cfg.HistoryWriterHeartbeatInterval)
 
@@ -165,7 +169,7 @@ func (h *Writer) runOnce(parentCtx context.Context) (processed int, _ error) {
 	// Defer order (LIFO execution is pos5→pos4→pos3→pos2→pos1):
 	// pos2 — unsubscribe and release distributed lock (after relay exits, no more readers on busCh)
 	defer func() { //nolint:contextcheck // runOnceCtx is already canceled when this defer runs; context.Background() is required for the lock release call
-		if err := h.bus.Unsubscribe(busCh); err != nil {
+		if err := h.bus.UnsubscribeAll(busCh); err != nil {
 			h.logger.Warn().Err(err).Msg("historyWriter: unsubscribe error on runOnce exit")
 		}
 		// Release the writer lock on clean shutdown so the next pod can acquire it
@@ -225,10 +229,10 @@ func (h *Writer) runOnce(parentCtx context.Context) (processed int, _ error) {
 				return processed, err
 			}
 			// Flush any residual messages on heartbeat tick as well.
-			processed += h.flushBatch(runOnceCtx, dropCounter)
+			processed += h.flushBatch(runOnceCtx)
 
 		case <-h.notifyChan:
-			processed += h.flushBatch(runOnceCtx, dropCounter)
+			processed += h.flushBatch(runOnceCtx)
 		}
 	}
 }
@@ -331,16 +335,7 @@ func (h *Writer) handleHeartbeatTick(ctx context.Context, lockKey string, failur
 
 // flushBatch drains up to cfg.WriterPipelineBatch messages from workChan and writes
 // each to its Valkey Stream. Returns the number of messages successfully pipelined.
-func (h *Writer) flushBatch(ctx context.Context, dropCounter *atomic.Uint64) int {
-	// Account for bus-level drops since last flush.
-	curDrops := dropCounter.Load()
-	lastDrops := h.lastSeenDropCount.Load()
-	if curDrops > lastDrops {
-		delta := curDrops - lastDrops
-		h.metrics.WriteDropped.WithLabelValues(HistoryDropReasonFull).Add(float64(delta))
-		h.lastSeenDropCount.Store(curDrops)
-	}
-
+func (h *Writer) flushBatch(ctx context.Context) int {
 	wasActive := h.isActiveWriter.Load()
 
 	msgs := make([]*broadcast.Message, 0, h.cfg.HistoryWriterPipelineBatch)

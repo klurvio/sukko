@@ -3,69 +3,77 @@
 //
 // Usage:
 //
-//	bus, err := broadcast.NewBus(cfg)
+//	bus, err := broadcast.NewBus(cfg, logger)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //	defer bus.Shutdown()
 //
-//	// Subscribe before Run
-//	ch, drops := bus.Subscribe(1024)
+//	// Subscribe to a tenant's channel (safe to call at any time after construction)
+//	ch, err := bus.Subscribe("tenant-id")
 //
 //	// Start receiving
 //	bus.Run()
 //
 //	// Publish messages (fire-and-forget)
-//	bus.Publish(&broadcast.Message{Subject: "BTC.trade", Payload: data})
+//	bus.Publish(&broadcast.Message{Subject: "BTC.trade", TenantID: "tenant-id", Payload: data})
 //
 //	// Unsubscribe when done
-//	bus.Unsubscribe(ch)
+//	bus.Unsubscribe("tenant-id", ch)
 package broadcast
 
 import (
 	"context"
-	"sync/atomic"
 	"time"
+
+	"github.com/klurvio/sukko/internal/shared/license"
 )
 
 // Bus is the interface for inter-instance message broadcasting.
 // Implementations must be safe for concurrent use from multiple goroutines.
 //
-// Lifecycle: Create with NewBus, call Subscribe for each consumer,
-// call Run to start receiving, and Shutdown to stop.
+// Lifecycle: Create with NewBus, call Run to start receiving, call Subscribe
+// for each consumer (safe at any time after construction — before or after Run),
+// and Shutdown to stop.
 type Bus interface {
-	// Publish sends a message to all connected instances (fire-and-forget).
-	// Errors are logged internally and tracked via metrics.
-	// This method must be non-blocking and safe for concurrent use.
+	// Publish sends a message to all pods subscribed to the tenant's channel.
+	// Validates that msg.TenantID is non-empty and contains no reserved separator.
+	// Fire-and-forget: errors are logged internally and tracked via metrics.
+	// Non-blocking and safe for concurrent use.
 	Publish(msg *Message)
 
-	// Subscribe returns a buffered channel for receiving broadcast messages and a drop counter.
-	// bufSize controls the channel buffer capacity. The *atomic.Uint64 is incremented each time
-	// a message is dropped for this subscriber (slow-consumer detection).
-	// Each shard should call this once before Run is called.
-	Subscribe(bufSize int) (<-chan *Message, *atomic.Uint64)
+	// Subscribe returns a new independent buffered channel for the given tenant.
+	// Multiple callers with the same tenantID each receive their own channel and
+	// each get a copy of every message for that tenant.
+	// Safe to call at any time after construction — before or after Run().
+	Subscribe(tenantID string) (<-chan *Message, error)
 
-	// Unsubscribe removes the subscriber channel and stops delivering messages to it.
-	// The channel is NOT closed — subscribers must exit via context cancellation, not channel close.
-	// Returns an error if the channel is not found.
-	Unsubscribe(ch <-chan *Message) error
+	// SubscribeAll returns a channel that receives messages for ALL tenants via
+	// Valkey PSUBSCRIBE. Used exclusively by history/writer.go.
+	// Buffer size = min(BROADCAST_BUFFER_SIZE × license.MaxTenants, BroadcastBufferSizeMax).
+	SubscribeAll() (<-chan *Message, error)
 
-	// Run starts the receive loop and health monitoring.
-	// Must be called after all Subscribe calls. Returns immediately
-	// after launching background goroutines.
+	// Unsubscribe removes the subscriber entry for (tenantID, ch).
+	// Returns ErrSubscriberNotFound if no matching entry exists.
+	// The channel is NOT closed — the shard owns channel lifetime.
+	Unsubscribe(tenantID string, ch <-chan *Message) error
+
+	// UnsubscribeAll removes the SubscribeAll subscriber entry.
+	// Issues PUNSUBSCRIBE when subscribeAllRefCount drops to 0.
+	// Returns ErrSubscriberNotFound if the channel is not registered.
+	UnsubscribeAll(ch <-chan *Message) error
+
+	// Run starts the subscription management loop and health monitoring.
+	// Returns immediately after launching background goroutines.
 	Run()
 
-	// Shutdown gracefully stops the bus with a timeout.
-	// After Shutdown returns, no more messages will be delivered
-	// to subscriber channels.
+	// Shutdown gracefully stops the bus with a default timeout.
 	Shutdown()
 
 	// ShutdownWithContext gracefully stops the bus using the provided context.
-	// This allows for custom timeout control.
 	ShutdownWithContext(ctx context.Context)
 
 	// IsHealthy returns true if the bus connection is operational.
-	// Used by health endpoints to report readiness.
 	IsHealthy() bool
 
 	// GetMetrics returns current bus metrics for monitoring.
@@ -81,7 +89,7 @@ type Message struct {
 	Payload []byte `json:"payload"`
 
 	// TenantID identifies the tenant that owns this message.
-	// Required for history stream key construction; populated by the Kafka consumer.
+	// Required: Publish rejects messages with empty or invalid TenantID.
 	TenantID string `json:"tenant_id,omitempty"`
 
 	// Pos is the encoded Kafka position "(partition+1)-offset" used as the XADD stream ID
@@ -101,10 +109,10 @@ type Metrics struct {
 	// Healthy indicates if the backend connection is operational
 	Healthy bool `json:"healthy"`
 
-	// Channel is the pub/sub channel or subject name
-	Channel string `json:"channel"`
+	// ChannelPrefix is the Valkey pub/sub channel name prefix (full channel = prefix:tenantID)
+	ChannelPrefix string `json:"channel_prefix"`
 
-	// Subscribers is the number of local subscriber channels
+	// Subscribers is the total number of local subscriber channels (all tenants + SubscribeAll)
 	Subscribers int `json:"subscribers"`
 
 	// PublishErrors is the count of failed publish attempts
@@ -125,8 +133,12 @@ type Config struct {
 	// Type selects the backend: "valkey"
 	Type string
 
-	// BufferSize is the subscriber channel buffer size (default: 1024)
+	// BufferSize is the per-tenant subscriber channel buffer capacity.
 	BufferSize int
+
+	// Limits contains edition license limits used for SubscribeAll buffer sizing.
+	// Set from editionManager.Limits() in main.go after license initialization.
+	Limits license.Limits
 
 	// ShutdownTimeout is the maximum time to wait for graceful shutdown
 	ShutdownTimeout time.Duration
@@ -151,7 +163,7 @@ type ValkeyConfig struct {
 	// DB is the database number (default: 0)
 	DB int
 
-	// Channel is the pub/sub channel name (default: "ws.broadcast")
+	// Channel is the pub/sub channel name prefix (default: "ws.broadcast")
 	Channel string
 
 	// Timeouts

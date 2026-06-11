@@ -1,10 +1,8 @@
 package broadcast
 
-import "sync/atomic"
-
-// subscriberEntry holds a subscriber channel and its per-subscriber drop counter.
+// subscriberEntry holds a subscriber channel.
 // Used by valkeyBus to track active subscribers.
+// Unsubscribe matching uses channel pointer equality (entry.ch == ch).
 type subscriberEntry struct {
-	ch    chan *Message
-	drops *atomic.Uint64
+	ch chan *Message
 }

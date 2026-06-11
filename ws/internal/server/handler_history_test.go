@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -69,18 +68,22 @@ func proEditionManager() *license.Manager {
 // Used to satisfy HistoryWriter construction in tests that don't exercise the bus.
 type noopBus struct{}
 
-func (b *noopBus) Subscribe(_ int) (<-chan *broadcast.Message, *atomic.Uint64) {
+func (b *noopBus) Subscribe(_ string) (<-chan *broadcast.Message, error) {
 	ch := make(chan *broadcast.Message)
-	dc := new(atomic.Uint64)
-	return ch, dc
+	return ch, nil
 }
-func (b *noopBus) Unsubscribe(_ <-chan *broadcast.Message) error { return nil }
-func (b *noopBus) Publish(_ *broadcast.Message)                  {}
-func (b *noopBus) Run()                                          {}
-func (b *noopBus) Shutdown()                                     {}
-func (b *noopBus) ShutdownWithContext(_ context.Context)         {}
-func (b *noopBus) IsHealthy() bool                               { return true }
-func (b *noopBus) GetMetrics() broadcast.Metrics                 { return broadcast.Metrics{} }
+func (b *noopBus) SubscribeAll() (<-chan *broadcast.Message, error) {
+	ch := make(chan *broadcast.Message)
+	return ch, nil
+}
+func (b *noopBus) Unsubscribe(_ string, _ <-chan *broadcast.Message) error { return nil }
+func (b *noopBus) UnsubscribeAll(_ <-chan *broadcast.Message) error        { return nil }
+func (b *noopBus) Publish(_ *broadcast.Message)                            {}
+func (b *noopBus) Run()                                                    {}
+func (b *noopBus) Shutdown()                                               {}
+func (b *noopBus) ShutdownWithContext(_ context.Context)                   {}
+func (b *noopBus) IsHealthy() bool                                         { return true }
+func (b *noopBus) GetMetrics() broadcast.Metrics                           { return broadcast.Metrics{} }
 
 // startMiniredis starts a miniredis instance and a valkey-go client pointing at it.
 // Both are cleaned up via t.Cleanup.

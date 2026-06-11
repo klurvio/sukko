@@ -23,7 +23,7 @@ func (m *mockBackend) Start(_ context.Context) error {
 	return m.startErr
 }
 
-func (m *mockBackend) Publish(_ context.Context, _ int64, _ string, _ []byte) error {
+func (m *mockBackend) Publish(_ context.Context, _ int64, _, _ string, _ []byte) error {
 	return m.publishErr
 }
 
@@ -295,7 +295,7 @@ func TestMockBackend_Publish(t *testing.T) {
 			mb := &mockBackend{publishErr: tt.err}
 			var iface backend.MessageBackend = mb
 
-			err := iface.Publish(context.Background(), 42, "test.channel", []byte("payload"))
+			err := iface.Publish(context.Background(), 42, "test-tenant", "test.channel", []byte("payload"))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Publish() error = %v, wantErr %v", err, tt.wantErr)
 			}

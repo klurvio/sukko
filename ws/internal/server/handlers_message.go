@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/klurvio/sukko/internal/server/backend"
@@ -143,6 +144,26 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 				Msg("Client exceeded channel subscription limit")
 			s.sendErrorToClient(c, RespTypeSubscribeError, protocol.ErrCodeSubscribeLimitExceeded, "channel subscription limit reached")
 			return
+		}
+
+		// Wire per-tenant broadcast subscription on first subscribe.
+		// TenantID is the first segment of the channel (e.g., "acme" from "acme.BTC.trade").
+		// This is safe to call multiple times only once — the guard on c.tenantID == "" ensures
+		// OnTenantClientConnect is called exactly once per WebSocket connection lifetime.
+		if c.tenantID == "" && s.tenantHooks != nil && len(channels) > 0 {
+			tenantID, _, ok := strings.Cut(channels[0], ".")
+			if ok && tenantID != "" {
+				if err := s.tenantHooks.OnTenantClientConnect(tenantID); err != nil {
+					s.logger.Error().
+						Err(err).
+						Int64("client_id", c.id).
+						Str("tenant_id", tenantID).
+						Msg("OnTenantClientConnect failed, rejecting subscribe")
+					s.sendErrorToClient(c, RespTypeSubscribeError, protocol.ErrCodeNotAvailable, "failed to establish tenant broadcast channel")
+					return
+				}
+				c.tenantID = tenantID
+			}
 		}
 
 		// Add subscriptions to client's local set

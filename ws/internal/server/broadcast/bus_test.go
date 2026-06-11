@@ -5,7 +5,13 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 func TestMessage_Fields(t *testing.T) {
 	t.Parallel()
@@ -30,7 +36,7 @@ func TestMetrics_Fields(t *testing.T) {
 	m := Metrics{
 		Type:             "valkey",
 		Healthy:          true,
-		Channel:          "ws.broadcast",
+		ChannelPrefix:    "ws.broadcast",
 		Subscribers:      3,
 		PublishErrors:    5,
 		MessagesReceived: 1000,
@@ -44,8 +50,8 @@ func TestMetrics_Fields(t *testing.T) {
 	if !m.Healthy {
 		t.Error("Healthy: got false, want true")
 	}
-	if m.Channel != "ws.broadcast" {
-		t.Errorf("Channel: got %s, want ws.broadcast", m.Channel)
+	if m.ChannelPrefix != "ws.broadcast" {
+		t.Errorf("Channel: got %s, want ws.broadcast", m.ChannelPrefix)
 	}
 	if m.Subscribers != 3 {
 		t.Errorf("Subscribers: got %d, want 3", m.Subscribers)

@@ -172,3 +172,16 @@ type Dependencies struct {
 	Clock                Clock                // nil = use real time
 	TestMode             bool                 // Skip background goroutines in tests
 }
+
+// TenantHooks is called from the server's client lifecycle path to manage
+// per-tenant broadcast channel subscriptions.
+// The shard implements this interface and passes itself as TenantHooks in server.Params.
+type TenantHooks interface {
+	// OnTenantClientConnect is called after JWT validation succeeds for a new WebSocket
+	// client. Returns an error if the tenant broadcast channel cannot be established;
+	// the connection is rejected with HTTP 503 in that case.
+	OnTenantClientConnect(tenantID string) error
+
+	// OnTenantClientDisconnect is called when a client disconnects or is forcibly closed.
+	OnTenantClientDisconnect(tenantID string)
+}

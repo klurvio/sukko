@@ -25,9 +25,10 @@ type MessageBackend interface {
 	Start(ctx context.Context) error
 
 	// Publish sends a client-published message through the backend.
+	// tenantID identifies the tenant that owns the channel (extracted from the channel prefix).
 	// The backend is responsible for routing the message to reach subscribers
 	// (either directly via broadcast bus or through the backend's consume loop).
-	Publish(ctx context.Context, clientID int64, channel string, data []byte) error
+	Publish(ctx context.Context, clientID int64, tenantID string, channel string, data []byte) error
 
 	// Replay returns messages from the specified positions for client reconnection.
 	// Returns nil, nil if replay is not supported (direct mode).

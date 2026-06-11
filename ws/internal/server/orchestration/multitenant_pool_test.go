@@ -5,17 +5,36 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+	"go.uber.org/goleak"
 
 	"github.com/klurvio/sukko/internal/server/broadcast"
 	"github.com/klurvio/sukko/internal/server/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
+
+func TestMain(m *testing.M) {
+	// Ignore known franz-go (Kafka client) background goroutines from existing
+	// multitenant_pool_test.go tests that create real kgo.Client instances.
+	// goleak still catches goroutine leaks from shard/tenant forwarder tests.
+	goleak.VerifyTestMain(m,
+		// franz-go (Kafka client) background goroutines from multitenant_pool_test.go tests
+		// that create real kgo.Client instances without calling Close().
+		goleak.IgnoreTopFunction("github.com/twmb/franz-go/pkg/kgo.(*Client).PollRecords"),
+		goleak.IgnoreTopFunction("github.com/twmb/franz-go/pkg/kgo.(*Client).updateMetadataLoop"),
+		goleak.IgnoreTopFunction("github.com/twmb/franz-go/pkg/kgo.(*Client).pushMetrics"),
+		goleak.IgnoreTopFunction("github.com/twmb/franz-go/pkg/kgo.(*Client).reapConnectionsLoop"),
+		// Internal goroutine spawned BY kgo.PollRecords (top = sync.runtime_notifyListWait).
+		// goleak v1.3.0 IgnoreAnyFunction only checks actual stack frames, not "created by"
+		// metadata — so this targeted filter is required. No production code in this package
+		// uses sync.Cond, so this cannot mask real leaks from shard/tenant forwarder tests.
+		goleak.IgnoreTopFunction("sync.runtime_notifyListWait"),
+	)
+}
 
 // =============================================================================
 // Mock Implementations
@@ -64,11 +83,19 @@ func (m *mockBroadcastBus) Publish(msg *broadcast.Message) {
 	m.publishCount++
 }
 
-func (m *mockBroadcastBus) Subscribe(bufSize int) (<-chan *broadcast.Message, *atomic.Uint64) {
-	return make(chan *broadcast.Message, bufSize), new(atomic.Uint64)
+func (m *mockBroadcastBus) Subscribe(_ string) (<-chan *broadcast.Message, error) {
+	return make(chan *broadcast.Message, 64), nil
 }
 
-func (m *mockBroadcastBus) Unsubscribe(_ <-chan *broadcast.Message) error {
+func (m *mockBroadcastBus) SubscribeAll() (<-chan *broadcast.Message, error) {
+	return make(chan *broadcast.Message, 256), nil
+}
+
+func (m *mockBroadcastBus) Unsubscribe(_ string, _ <-chan *broadcast.Message) error {
+	return nil
+}
+
+func (m *mockBroadcastBus) UnsubscribeAll(_ <-chan *broadcast.Message) error {
 	return nil
 }
 
