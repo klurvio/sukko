@@ -330,7 +330,7 @@ func (kb *KafkaBackend) Start(_ context.Context) error {
 // Publish sends a client-published message through the Kafka producer.
 // tenantID is accepted for interface compliance but not used by the Kafka backend —
 // routing is handled by the topic partitioning scheme.
-func (kb *KafkaBackend) Publish(ctx context.Context, clientID int64, _ string, channel string, data []byte) error {
+func (kb *KafkaBackend) Publish(ctx context.Context, clientID int64, _, channel string, data []byte) error {
 	if channel == "" {
 		return fmt.Errorf("%w: channel is required", backend.ErrPublishFailed)
 	}

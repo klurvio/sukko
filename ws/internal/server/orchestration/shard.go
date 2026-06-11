@@ -28,7 +28,7 @@ type tenantEntry struct {
 }
 
 // drain discards buffered messages from a receive-only channel without blocking.
-// Called when a per-tenant forwarder's context is cancelled to prevent stale messages
+// Called when a per-tenant forwarder's context is canceled to prevent stale messages
 // from being forwarded to broadcastChan after cancellation.
 func drain(ch <-chan *broadcast.Message) {
 	for {

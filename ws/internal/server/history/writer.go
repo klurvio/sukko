@@ -24,14 +24,14 @@ import (
 // active-writer lock at a time; all other pods run as passive observers that skip XADD
 // but still participate in lock contention so they can take over on failover.
 type Writer struct {
-	cfg               *platform.ServerConfig
-	bus               broadcast.Bus
-	valkeyClient      valkey.Client
-	logger            zerolog.Logger
-	ctx               context.Context
-	isActiveWriter    atomic.Bool
+	cfg            *platform.ServerConfig
+	bus            broadcast.Bus
+	valkeyClient   valkey.Client
+	logger         zerolog.Logger
+	ctx            context.Context
+	isActiveWriter atomic.Bool
 
-	env               string
+	env string
 	// workChan is intentionally shared across runOnce restarts: messages queued
 	// during a failed run are picked up by the next run's flushBatch, preserving
 	// delivery continuity without losing messages at the restart boundary.

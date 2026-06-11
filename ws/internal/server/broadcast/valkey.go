@@ -217,7 +217,7 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 	}
 
 	// Use provided registerer from Config if present, else default.
-	reg := prometheus.Registerer(prometheus.DefaultRegisterer)
+	reg := prometheus.DefaultRegisterer
 	b.metrics = newBusMetrics(reg)
 	b.healthy.Store(true)
 	b.lastPublish.Store(time.Now().Unix())
@@ -321,16 +321,12 @@ func (b *valkeyBus) Subscribe(tenantID string) (<-chan *Message, error) {
 // Used exclusively by history/writer.go.
 func (b *valkeyBus) SubscribeAll() (<-chan *Message, error) {
 	// Buffer = min(bufferSize × MaxTenants, BroadcastBufferSizeMax)
-	bufSize := b.bufferSize
+	var bufSize int
 	if license.IsUnlimited(b.limits.MaxTenants) || b.limits.MaxTenants == 0 {
 		bufSize = platform.BroadcastBufferSizeMax
 	} else {
 		product := b.bufferSize * b.limits.MaxTenants
-		if product < platform.BroadcastBufferSizeMax {
-			bufSize = product
-		} else {
-			bufSize = platform.BroadcastBufferSizeMax
-		}
+		bufSize = min(product, platform.BroadcastBufferSizeMax)
 	}
 	if bufSize < b.bufferSize {
 		bufSize = b.bufferSize // minimum = one tenant's worth
@@ -365,7 +361,7 @@ func (b *valkeyBus) Unsubscribe(tenantID string, ch <-chan *Message) error {
 	entries := b.tenantSubscribers[tenantID]
 	found := false
 	for i, e := range entries {
-		if (<-chan *Message)(e.ch) == ch {
+		if e.ch == ch {
 			b.tenantSubscribers[tenantID] = append(entries[:i], entries[i+1:]...)
 			if len(b.tenantSubscribers[tenantID]) == 0 {
 				delete(b.tenantSubscribers, tenantID)
@@ -407,7 +403,7 @@ func (b *valkeyBus) UnsubscribeAll(ch <-chan *Message) error {
 	b.subMu.Lock()
 	found := false
 	for i, e := range b.allSubscribers {
-		if (<-chan *Message)(e.ch) == ch {
+		if e.ch == ch {
 			b.allSubscribers = append(b.allSubscribers[:i], b.allSubscribers[i+1:]...)
 			found = true
 			break

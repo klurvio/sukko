@@ -1741,10 +1741,8 @@ func TestServerConfig_BroadcastBufferSizeBounds(t *testing.T) {
 				if tt.errSubstr != "" && !strings.Contains(err.Error(), tt.errSubstr) {
 					t.Errorf("error %q does not contain %q", err.Error(), tt.errSubstr)
 				}
-			} else {
-				if err != nil {
-					t.Fatalf("unexpected error for BroadcastBufferSize=%d: %v", tt.size, err)
-				}
+			} else if err != nil {
+				t.Fatalf("unexpected error for BroadcastBufferSize=%d: %v", tt.size, err)
 			}
 		})
 	}
@@ -1754,12 +1752,12 @@ func TestServerConfig_ValidateEditionLimits(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		limits      license.Limits
-		numShards   int
-		bufSize     int
-		memLimit    int64
-		wantErr     bool
+		name      string
+		limits    license.Limits
+		numShards int
+		bufSize   int
+		memLimit  int64
+		wantErr   bool
 	}{
 		{
 			name:      "Enterprise unlimited always passes",

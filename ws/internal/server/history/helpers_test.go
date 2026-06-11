@@ -108,7 +108,7 @@ func newTestWriter(t *testing.T, mr *miniredis.Miniredis, opts testWriterOpts) (
 type mockBus struct {
 	mu                  sync.Mutex
 	tenantSubs          map[string]chan *broadcast.Message // per-tenant subscriber channels
-	allSubs             []chan *broadcast.Message           // SubscribeAll subscriber channels
+	allSubs             []chan *broadcast.Message          // SubscribeAll subscriber channels
 	healthy             bool
 	publishLog          []*broadcast.Message
 	subscribeAllCount   int // number of SubscribeAll calls
@@ -150,7 +150,7 @@ func (b *mockBus) UnsubscribeAll(ch <-chan *broadcast.Message) error {
 	b.mu.Lock()
 	b.unsubscribeAllCalls++
 	for i, s := range b.allSubs {
-		if (<-chan *broadcast.Message)(s) == ch {
+		if s == ch {
 			b.allSubs = append(b.allSubs[:i], b.allSubs[i+1:]...)
 			b.mu.Unlock()
 			return nil

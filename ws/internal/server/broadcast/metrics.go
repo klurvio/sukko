@@ -29,7 +29,7 @@ type busMetrics struct {
 	// Enterprise deployments. Track as follow-up task.
 	droppedTotal *prometheus.CounterVec
 
-	subscribeCommandsTotal   *prometheus.CounterVec
+	subscribeCommandsTotal    *prometheus.CounterVec
 	reconcileCorrectionsTotal prometheus.Counter
 }
 

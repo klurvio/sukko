@@ -185,4 +185,3 @@ type TenantHooks interface {
 	// OnTenantClientDisconnect is called when a client disconnects or is forcibly closed.
 	OnTenantClientDisconnect(tenantID string)
 }
-

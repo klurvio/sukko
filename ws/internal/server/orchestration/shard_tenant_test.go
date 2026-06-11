@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,11 +17,11 @@ import (
 // tenantMockBus records Subscribe/Unsubscribe calls and delivers messages
 // via caller-controlled channels.
 type tenantMockBus struct {
-	mu              sync.Mutex
-	subscribeCalls  []string
+	mu               sync.Mutex
+	subscribeCalls   []string
 	unsubscribeCalls []string
-	channels        map[string]chan *broadcast.Message
-	subscribeErr    error
+	channels         map[string]chan *broadcast.Message
+	subscribeErr     error
 }
 
 func newTenantMockBus() *tenantMockBus {
@@ -43,7 +44,7 @@ func (m *tenantMockBus) Subscribe(tenantID string) (<-chan *broadcast.Message, e
 		if _, exists := m.channels[key]; !exists {
 			break
 		}
-		key = key + "_2"
+		key += "_2"
 	}
 	m.channels[key] = ch
 	return ch, nil
@@ -60,12 +61,12 @@ func (m *tenantMockBus) SubscribeAll() (<-chan *broadcast.Message, error) {
 	return make(chan *broadcast.Message, 8), nil
 }
 func (m *tenantMockBus) UnsubscribeAll(_ <-chan *broadcast.Message) error { return nil }
-func (m *tenantMockBus) Publish(_ *broadcast.Message)                    {}
-func (m *tenantMockBus) Run()                                            {}
-func (m *tenantMockBus) Shutdown()                                       {}
-func (m *tenantMockBus) ShutdownWithContext(_ context.Context)           {}
-func (m *tenantMockBus) IsHealthy() bool                                 { return true }
-func (m *tenantMockBus) GetMetrics() broadcast.Metrics                   { return broadcast.Metrics{} }
+func (m *tenantMockBus) Publish(_ *broadcast.Message)                     {}
+func (m *tenantMockBus) Run()                                             {}
+func (m *tenantMockBus) Shutdown()                                        {}
+func (m *tenantMockBus) ShutdownWithContext(_ context.Context)            {}
+func (m *tenantMockBus) IsHealthy() bool                                  { return true }
+func (m *tenantMockBus) GetMetrics() broadcast.Metrics                    { return broadcast.Metrics{} }
 
 func (m *tenantMockBus) subscribeCount(tenantID string) int {
 	m.mu.Lock()
@@ -277,14 +278,14 @@ func TestShard_Forwarder_Drain(t *testing.T) {
 	bus.mu.Unlock()
 
 	const N = 5
-	for i := 0; i < N; i++ {
+	for range N {
 		busCh <- &broadcast.Message{Subject: "x"}
 	}
 
 	// Wait deterministically for all N messages to arrive in broadcastChan before
-	// disconnecting. This replaces a fragile time.Sleep with channel-based synchronisation.
+	// disconnecting. This replaces a fragile time.Sleep with channel-based synchronization.
 	deadline := time.After(200 * time.Millisecond)
-	for i := 0; i < N; i++ {
+	for i := range N {
 		select {
 		case <-broadcastChan:
 		case <-deadline:
@@ -302,7 +303,7 @@ func TestShard_Forwarder_Drain(t *testing.T) {
 	}
 }
 
-// TestShard_BroadcastChan_NotClosed verifies that cancelling the shard context and waiting
+// TestShard_BroadcastChan_NotClosed verifies that canceling the shard context and waiting
 // for goroutines does not panic (broadcastChan must not be closed by any goroutine).
 func TestShard_BroadcastChan_NotClosed(t *testing.T) {
 	t.Parallel()
@@ -354,7 +355,7 @@ func TestShard_ConcurrentFirstConnect(t *testing.T) {
 	const goroutines = 4
 
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
 			if err := s.OnTenantClientConnect(tid); err != nil {
@@ -416,9 +417,7 @@ func TestShard_FanIn_MultiTenant(t *testing.T) {
 	// Get the bus channels and send one message each.
 	bus.mu.Lock()
 	channels := make(map[string]chan *broadcast.Message, len(bus.channels))
-	for k, ch := range bus.channels {
-		channels[k] = ch
-	}
+	maps.Copy(channels, bus.channels)
 	bus.mu.Unlock()
 
 	for _, ch := range channels {

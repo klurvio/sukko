@@ -43,7 +43,7 @@ type mockBackend struct {
 }
 
 func (m *mockBackend) Start(_ context.Context) error { return nil }
-func (m *mockBackend) Publish(_ context.Context, _ int64, _ string, _ string, _ []byte) error {
+func (m *mockBackend) Publish(_ context.Context, _ int64, _, _ string, _ []byte) error {
 	return nil
 }
 func (m *mockBackend) Replay(_ context.Context, req backend.ReplayRequest) ([]backend.ReplayMessage, error) {

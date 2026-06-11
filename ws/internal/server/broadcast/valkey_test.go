@@ -124,7 +124,6 @@ func TestValkeyBus_FanOutDropsOnFullChannel(t *testing.T) {
 	}
 }
 
-
 // TestValkeyBus_MetricsStructure tests metrics returned format
 func TestValkeyBus_MetricsStructure(t *testing.T) {
 	t.Parallel()
