@@ -76,6 +76,17 @@ const (
 	// worst-case = MaxTenants × NumShards × BroadcastBufferSizeMax × 8 bytes per pointer.
 	BroadcastBufferSizeMax = 65536
 
+	// MaxGapNotifyBufferSize is the upper bound for WS_GAP_NOTIFY_BUFFER_SIZE.
+	// Gap notifications are low-frequency out-of-band events; a small ceiling caps per-client
+	// goroutine stack pressure. Drops beyond this limit are counted via GapDropReasonBufferFull.
+	MaxGapNotifyBufferSize = 64
+
+	// MaxReplayMessagesLimit is the upper bound for WS_MAX_REPLAY_MESSAGES.
+	// Caps per-goroutine memory use during live replay: each replayed message is buffered
+	// in memory before streaming; an uncapped value lets an operator accidentally cause
+	// unbounded heap growth with a single config change.
+	MaxReplayMessagesLimit = 10_000
+
 	// logFieldChannelPrefix is the zerolog field key for the Valkey channel prefix.
 	// Named "prefix" because ValkeyChannel is now a prefix; the full channel is "{prefix}:{tenantID}".
 	logFieldChannelPrefix = "valkey_channel_prefix"
@@ -247,6 +258,16 @@ type ServerConfig struct {
 	// Default: 512 (reduced from 1024 to cut heap size by 50%, reduce GC pressure)
 	// Production guidance: Start with 512, increase to 768 or 1024 if cascade disconnects occur
 	ClientSendBufferSize int `env:"WS_CLIENT_SEND_BUFFER_SIZE" envDefault:"512"`
+
+	// GapNotifyBufferSize is the per-client buffer for low-priority gap notifications.
+	// Must be 1-MaxGapNotifyBufferSize (64); 0 would make the channel unbuffered (blocks Broadcast hot path).
+	// Keep small relative to ClientSendBufferSize — gaps are low-frequency out-of-band events.
+	// Drops beyond capacity are counted via ws_gap_notifications_dropped_total{reason="buffer_full"}.
+	GapNotifyBufferSize int `env:"WS_GAP_NOTIFY_BUFFER_SIZE" envDefault:"8"`
+
+	// ReplayRateLimitInterval is the minimum time between live replay requests
+	// per (client, channel) pair. Prevents unbounded Kafka reads per client.
+	ReplayRateLimitInterval time.Duration `env:"WS_REPLAY_RATE_LIMIT_INTERVAL" envDefault:"10s"`
 
 	// Broadcast Bus Configuration
 	//
@@ -666,6 +687,14 @@ func (c *ServerConfig) Validate() error {
 		return fmt.Errorf("WS_CLIENT_SEND_BUFFER_SIZE must be <= 4096 (4096 = ~2MB per client), got %d", c.ClientSendBufferSize)
 	}
 
+	// Gap notify buffer and replay rate limit (unconditional — must not be inside HistoryEnabled gate)
+	if c.GapNotifyBufferSize < 1 || c.GapNotifyBufferSize > MaxGapNotifyBufferSize {
+		return fmt.Errorf("WS_GAP_NOTIFY_BUFFER_SIZE must be 1-%d, got %d", MaxGapNotifyBufferSize, c.GapNotifyBufferSize)
+	}
+	if c.ReplayRateLimitInterval <= 0 {
+		return fmt.Errorf("WS_REPLAY_RATE_LIMIT_INTERVAL must be > 0, got %v", c.ReplayRateLimitInterval)
+	}
+
 	// CPU poll interval validation
 	if c.CPUPollInterval < 100*time.Millisecond {
 		return fmt.Errorf("CPU_POLL_INTERVAL must be >= 100ms, got %v", c.CPUPollInterval)
@@ -821,8 +850,8 @@ func (c *ServerConfig) Validate() error {
 	}
 
 	// Int fields (must be > 0)
-	if c.MaxReplayMessages < 1 {
-		return fmt.Errorf("WS_MAX_REPLAY_MESSAGES must be > 0, got %d", c.MaxReplayMessages)
+	if c.MaxReplayMessages < 1 || c.MaxReplayMessages > MaxReplayMessagesLimit {
+		return fmt.Errorf("WS_MAX_REPLAY_MESSAGES must be 1-%d, got %d", MaxReplayMessagesLimit, c.MaxReplayMessages)
 	}
 	if c.BufferMaxSamples < 1 {
 		return fmt.Errorf("WS_BUFFER_MAX_SAMPLES must be > 0, got %d", c.BufferMaxSamples)
@@ -1139,6 +1168,8 @@ func (c *ServerConfig) Print() {
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "\n=== Client Buffers ===")
 	_, _ = fmt.Fprintf(os.Stdout, "Send Buffer:     %d slots (~%dKB/client)\n", c.ClientSendBufferSize, c.ClientSendBufferSize/2)
+	_, _ = fmt.Fprintf(os.Stdout, "Gap Notify Buffer: %d (WS_GAP_NOTIFY_BUFFER_SIZE)\n", c.GapNotifyBufferSize)
+	_, _ = fmt.Fprintf(os.Stdout, "Replay Rate Limit: %v (WS_REPLAY_RATE_LIMIT_INTERVAL)\n", c.ReplayRateLimitInterval)
 	_, _ = fmt.Fprintln(os.Stdout, "\n=== Slow Client Detection ===")
 	_, _ = fmt.Fprintf(os.Stdout, "Max Attempts:    %d\n", c.SlowClientMaxAttempts)
 	_, _ = fmt.Fprintln(os.Stdout, "\n=== Multi-Tenant Consumer ===")
@@ -1208,6 +1239,8 @@ func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 		Int("valkey_db", c.ValkeyDB).
 		Bool("valkey_tls_enabled", c.ValkeyTLSEnabled).
 		Int("client_send_buffer_size", c.ClientSendBufferSize).
+		Int("gap_notify_buffer_size", c.GapNotifyBufferSize).
+		Dur("replay_rate_limit_interval", c.ReplayRateLimitInterval).
 		Int("slow_client_max_attempts", c.SlowClientMaxAttempts).
 		Int("kafka_default_partitions", c.KafkaDefaultPartitions).
 		Int("kafka_default_replication_factor", c.KafkaDefaultReplicationFactor).

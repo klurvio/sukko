@@ -144,6 +144,9 @@ func newValidServerConfig() *ServerConfig {
 		KafkaAutoCommitInterval:    5 * time.Second,
 		// Channel subscription limit
 		MaxChannelsPerClient: 100,
+		// Gap notification and live replay (T004)
+		GapNotifyBufferSize:     8,
+		ReplayRateLimitInterval: 10 * time.Second,
 	}
 }
 
@@ -577,6 +580,70 @@ func TestServerConfig_Validate_CPUPollInterval(t *testing.T) {
 				if err != nil {
 					t.Errorf("Should not error: %v", err)
 				}
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_GapNotifyBufferSize(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		size        int
+		shouldError bool
+	}{
+		{"zero", 0, true},
+		{"negative", -1, true},
+		{"too large", MaxGapNotifyBufferSize + 1, true},
+		{"min valid", 1, false},
+		{"max valid", MaxGapNotifyBufferSize, false},
+		{"default", 8, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.GapNotifyBufferSize = tt.size
+			err := cfg.Validate()
+			if tt.shouldError && err == nil {
+				t.Error("expected error")
+			}
+			if tt.shouldError && err != nil && !strings.Contains(err.Error(), "WS_GAP_NOTIFY_BUFFER_SIZE") {
+				t.Errorf("error must mention WS_GAP_NOTIFY_BUFFER_SIZE: %v", err)
+			}
+			if !tt.shouldError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_ReplayRateLimitInterval(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		interval    time.Duration
+		shouldError bool
+	}{
+		{"zero", 0, true},
+		{"negative", -1 * time.Second, true},
+		{"valid default", 10 * time.Second, false},
+		{"valid small", 1 * time.Second, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			cfg.ReplayRateLimitInterval = tt.interval
+			err := cfg.Validate()
+			if tt.shouldError && err == nil {
+				t.Error("expected error")
+			}
+			if tt.shouldError && err != nil && !strings.Contains(err.Error(), "WS_REPLAY_RATE_LIMIT_INTERVAL") {
+				t.Errorf("error must mention WS_REPLAY_RATE_LIMIT_INTERVAL: %v", err)
+			}
+			if !tt.shouldError && err != nil {
+				t.Errorf("unexpected error: %v", err)
 			}
 		})
 	}

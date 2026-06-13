@@ -26,11 +26,11 @@ func testProvClient(t *testing.T, baseURL string) *ProvisioningClient {
 func requireAdminJWT(t *testing.T, r *http.Request) {
 	t.Helper()
 	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
+	token, ok := strings.CutPrefix(auth, "Bearer ")
+	if !ok {
 		t.Errorf("auth header = %q, want Bearer <jwt>", auth)
 		return
 	}
-	token := strings.TrimPrefix(auth, "Bearer ")
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		t.Errorf("JWT should have 3 parts, got %d", len(parts))

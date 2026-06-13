@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 
 info:
   title: Sukko WebSocket Client API
-  version: 1.3.0
+  version: 1.4.0
   description: |
     Real-time WebSocket API for subscribing to chat events and publishing messages.
 
@@ -114,10 +114,12 @@ info:
     | Publish rate | 10 msg/sec | `GATEWAY_PUBLISH_RATE_LIMIT` |
     | Publish burst | 100 | `GATEWAY_PUBLISH_BURST` |
     | Max publish payload | 64KB | `GATEWAY_MAX_PUBLISH_SIZE` |
-    | Send buffer | 256 messages | `WS_SEND_BUFFER_SIZE` |
+    | Send buffer | 512 messages | `WS_CLIENT_SEND_BUFFER_SIZE` |
     | Slow client max attempts | 3 | `WS_SLOW_CLIENT_MAX_ATTEMPTS` |
-    | Reconnect replay limit | 100 messages | — |
-    | Reconnect timeout | 5s | — |
+    | Reconnect replay limit | 100 messages | `WS_MAX_REPLAY_MESSAGES` |
+    | Reconnect timeout | 5s | `WS_REPLAY_TIMEOUT` |
+    | Gap notify buffer | 8 notifications | `WS_GAP_NOTIFY_BUFFER_SIZE` |
+    | Live replay rate limit | 1 per 10s per channel | `WS_REPLAY_RATE_LIMIT_INTERVAL` |
     | Auth refresh rate | 1 per 30s | `GATEWAY_AUTH_REFRESH_RATE_INTERVAL` |
     | Auth validation timeout | 5s | `GATEWAY_AUTH_VALIDATION_TIMEOUT` |
     | Min channel parts | 2 | — |
@@ -170,6 +172,8 @@ channels:
         $ref: "#/components/messages/auth"
       history:
         $ref: "#/components/messages/history"
+      replay:
+        $ref: "#/components/messages/replay"
 
   clientReceive:
     address: /ws
@@ -207,6 +211,12 @@ channels:
         $ref: "#/components/messages/historyComplete"
       historyError:
         $ref: "#/components/messages/historyError"
+      gap:
+        $ref: "#/components/messages/gap"
+      replayMessage:
+        $ref: "#/components/messages/replayMessage"
+      replayComplete:
+        $ref: "#/components/messages/replayComplete"
 
 operations:
   sendSubscribe:
@@ -457,6 +467,71 @@ operations:
     messages:
       - $ref: "#/channels/clientReceive/messages/historyError"
 
+  sendReplay:
+    action: send
+    channel:
+      $ref: "#/channels/clientSend"
+    summary: Request live gap recovery replay
+    description: >
+      Client requests replay of missed messages on the existing connection without reconnecting.
+      Used after receiving a gap notification. The server responds with zero or more
+      replay_message envelopes followed by a replay_complete message.
+      The client must be subscribed to the channel before sending a replay request.
+    messages:
+      - $ref: "#/channels/clientSend/messages/replay"
+
+  receiveGap:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive gap notification
+    description: >
+      Server notifies the client that one or more messages were dropped because
+      the client's send buffer was full. Use last_pos as from_pos in a sendReplay
+      request to recover all missed messages. Gap notifications are advisory — clients
+      detect gaps independently via the seq field on messages.
+    messages:
+      - $ref: "#/channels/clientReceive/messages/gap"
+
+  receiveReplayMessage:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive a replayed message during live gap recovery
+    description: >
+      A single message delivered as part of a live replay response. Structured the same
+      as a normal message envelope but with type replay_message. A replay_complete
+      message follows after the last replayed message.
+    messages:
+      - $ref: "#/channels/clientReceive/messages/replayMessage"
+
+  receiveReplayComplete:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive replay completion signal
+    description: >
+      Signals that live replay delivery is finished. messages_replayed is the count of
+      replay_message envelopes delivered (may be 0 if no messages existed in the range).
+      If truncated is true, delivery was cut short by a timeout — the client may need to
+      request another replay with a newer cursor.
+    messages:
+      - $ref: "#/channels/clientReceive/messages/replayComplete"
+
+  receiveReplayError:
+    action: receive
+    channel:
+      $ref: "#/channels/clientReceive"
+    summary: Receive live replay error response
+    description: >
+      Server sends a generic error envelope when a sendReplay request is rejected or fails.
+      The channel field identifies which channel triggered the error.
+      Possible codes: not_subscribed, invalid_request, replay_in_progress,
+      replay_rate_limited, offset_out_of_range, not_available, replay_failed.
+      Parallel to receiveHistoryError for the history handler.
+    messages:
+      - $ref: "#/channels/clientReceive/messages/error"
+
 components:
   securitySchemes:
     bearerToken:
@@ -498,6 +573,7 @@ components:
             - heartbeat
             - auth
             - history
+            - replay
         data:
           type: object
           description: Type-specific payload.
@@ -911,7 +987,8 @@ components:
       type: object
       description: >
         Generic error response. Sent when a client message cannot be parsed
-        (e.g., invalid JSON). The code field identifies the specific error.
+        (e.g., invalid JSON), or when a live replay request is rejected.
+        The code field identifies the specific error.
       required:
         - type
         - code
@@ -925,6 +1002,16 @@ components:
           description: Machine-readable error code.
           enum:
             - invalid_json
+            - invalid_request
+            - not_subscribed
+            - replay_in_progress
+            - replay_rate_limited
+            - offset_out_of_range
+            - replay_failed
+            - not_available
+        channel:
+          type: string
+          description: The channel related to the error (present for replay errors).
         message:
           type: string
           description: Human-readable error description.
@@ -932,6 +1019,10 @@ components:
         - type: error
           code: invalid_json
           message: "Message is not valid JSON"
+        - type: error
+          code: not_subscribed
+          channel: "sukko.BTC.trade"
+          message: "subscribe before replaying"
 
     SubscribeError:
       type: object
@@ -1081,6 +1172,163 @@ components:
           code: history_storage_unavailable
           channel: "sukko.BTC.trade"
           message: "history storage temporarily unavailable"
+
+    GapNotification:
+      type: object
+      description: >
+        Server notifies the client that one or more messages were dropped because
+        the client's send buffer was full. The last_pos field is the Kafka position
+        of the dropped message — clients should use it as from_pos in a replay request
+        to recover all missed messages (conservative anchor; may re-deliver the dropped
+        message itself, but never misses a message).
+      required:
+        - type
+        - channel
+        - from_seq
+        - to_seq
+        - last_pos
+        - ts
+      properties:
+        type:
+          type: string
+          const: gap
+        channel:
+          type: string
+          description: The channel on which message(s) were dropped.
+        from_seq:
+          type: integer
+          format: int64
+          description: Sequence number of the first dropped message.
+        to_seq:
+          type: integer
+          format: int64
+          description: Sequence number of the last dropped message (equal to from_seq for a single drop).
+        last_pos:
+          type: string
+          description: >
+            Kafka position of the dropped message (format: "(partition+1)-offset").
+            Use as from_pos in a replay request to recover missed messages.
+        ts:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds when the gap was detected.
+      examples:
+        - type: gap
+          channel: "sukko.BTC.trade"
+          from_seq: 42
+          to_seq: 44
+          last_pos: "(2)-12344"
+          ts: 1718041234567
+
+    ReplayRequest:
+      type: object
+      description: >
+        Client requests replay of missed messages on the existing connection
+        without reconnecting. The server responds with zero or more replay_message
+        envelopes followed by a replay_complete message.
+      required:
+        - type
+        - data
+      properties:
+        type:
+          type: string
+          const: replay
+        data:
+          type: object
+          required:
+            - channel
+            - from_pos
+          properties:
+            channel:
+              type: string
+              description: The channel to replay. Client must be subscribed to this channel.
+            from_pos:
+              type: string
+              description: >
+                Kafka position string (format: "(partition+1)-offset") from which to start replay.
+                Typically taken from the last_pos field of a gap notification.
+      examples:
+        - type: replay
+          data:
+            channel: "sukko.BTC.trade"
+            from_pos: "(2)-12344"
+
+    ReplayMessage:
+      type: object
+      description: A single replayed message delivered during live gap recovery.
+      required:
+        - type
+        - seq
+        - channel
+        - ts
+        - data
+      properties:
+        type:
+          type: string
+          const: replay_message
+        seq:
+          type: integer
+          format: int64
+          description: Client-scoped sequence number for this message.
+        channel:
+          type: string
+          description: The channel this message belongs to.
+        ts:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds of this message.
+        data:
+          type: object
+          description: The message payload.
+        pos:
+          type: string
+          description: Kafka position of this message (optional).
+      examples:
+        - type: replay_message
+          seq: 101
+          channel: "sukko.BTC.trade"
+          ts: 1718041234100
+          data:
+            price: "65432.10"
+            volume: "0.5"
+          pos: "(2)-12345"
+
+    ReplayComplete:
+      type: object
+      description: >
+        Signals that replay delivery is finished. If truncated is true, delivery was
+        cut short by a timeout or client disconnect — the client may need to request
+        another replay from a newer cursor.
+        The truncated field is omitempty: it is absent entirely when false.
+        Clients MUST treat a missing truncated field as false.
+      required:
+        - type
+        - channel
+        - messages_replayed
+      properties:
+        type:
+          type: string
+          const: replay_complete
+        channel:
+          type: string
+          description: The channel for which replay was performed.
+        messages_replayed:
+          type: integer
+          description: Number of replay_message envelopes delivered (may be 0).
+        truncated:
+          type: boolean
+          description: >
+            Present and true when delivery was cut short by a timeout or client disconnect.
+            Omitted entirely (not present as false) when replay completed normally.
+            Clients must treat absence as false.
+      examples:
+        - type: replay_complete
+          channel: "sukko.BTC.trade"
+          messages_replayed: 3
+        - type: replay_complete
+          channel: "sukko.BTC.trade"
+          messages_replayed: 1
+          truncated: true
 
   messages:
     subscribe:
@@ -1386,3 +1634,44 @@ components:
       contentType: application/json
       payload:
         $ref: "#/components/schemas/HistoryError"
+
+    gap:
+      name: gap
+      title: Gap Notification
+      summary: >
+        Server notifies the client that one or more messages were dropped
+        because the client's send buffer was full. The client should send
+        a replay request using last_pos as from_pos to recover missed messages.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/GapNotification"
+
+    replay:
+      name: replay
+      title: Live Replay Request
+      summary: >
+        Client requests replay of missed messages on the existing connection
+        without reconnecting. The from_pos cursor identifies where to start.
+        The server must respond with zero or more replay_message envelopes
+        followed by a replay_complete message.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/ReplayRequest"
+
+    replayMessage:
+      name: replayMessage
+      title: Replay Message
+      summary: A single replayed message delivered during live gap recovery.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/ReplayMessage"
+
+    replayComplete:
+      name: replayComplete
+      title: Replay Complete
+      summary: >
+        Signals that replay delivery is finished. If truncated is true,
+        delivery was cut short by a timeout or client disconnect.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/ReplayComplete"

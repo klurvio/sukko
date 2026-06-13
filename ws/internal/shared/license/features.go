@@ -62,6 +62,7 @@ const (
 	TokenRevocation    Feature = "token revocation"
 	Webhooks           Feature = "webhook delivery"
 	MessageHistory     Feature = "message history"
+	LiveGapRecovery    Feature = "live gap recovery" // Implemented
 	ChannelPatternsCEL Feature = "channel patterns (CEL)"
 	DeltaCompression   Feature = "delta compression"
 
@@ -93,6 +94,7 @@ var featureEditions = map[Feature]Edition{
 	TokenRevocation:             Pro,
 	Webhooks:                    Pro,
 	MessageHistory:              Pro,
+	LiveGapRecovery:             Pro,
 	ChannelPatternsCEL:          Pro,
 	DeltaCompression:            Pro,
 
@@ -126,7 +128,8 @@ var featureMetadata = map[Feature]FeatureInfo{
 	TokenRevocation:     {Description: "Revoke individual JWT tokens (not just keys)", Status: StatusImplemented, Priority: PriorityNone},
 
 	// ── Implemented — Pro (continued) ────────────────────────────────────
-	MessageHistory: {Description: "Queryable message history per channel", Status: StatusImplemented, Priority: PriorityNone},
+	MessageHistory:  {Description: "Queryable message history per channel", Status: StatusImplemented, Priority: PriorityNone},
+	LiveGapRecovery: {Description: "In-band gap detection and live replay on existing connections without reconnect", Status: StatusImplemented, Priority: PriorityNone},
 
 	// ── Future — Pro ─────────────────────────────────────────────────────
 	AdminUI:            {Description: "Web-based tenant management interface", Status: StatusFuture, Priority: PriorityMedium},

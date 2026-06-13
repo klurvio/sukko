@@ -12,6 +12,7 @@ const (
 	MsgTypeReconnect = "reconnect"
 	MsgTypeHeartbeat = "heartbeat"
 	MsgTypeHistory   = "history"
+	MsgTypeReplay    = "replay" // client→server: request live gap recovery replay
 )
 
 // Message type constants for server→client messages produced only by the server.
@@ -19,6 +20,13 @@ const (
 	MsgTypeMessage = "message"
 	MsgTypePong    = "pong"
 	MsgTypeError   = "error"
+	MsgTypeGap     = "gap" // server→client: gap notification (message drop detected)
+)
+
+// Replay response type constants (server→client gap recovery protocol).
+const (
+	RespTypeReplayMessage  = "replay_message"  // single replayed message envelope
+	RespTypeReplayComplete = "replay_complete" // signals end of replay stream
 )
 
 // Response type constants for server-only acknowledgments and errors.
