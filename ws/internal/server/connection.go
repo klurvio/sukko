@@ -158,6 +158,17 @@ type Client struct {
 	historyMu         sync.Mutex
 	historyInProgress map[string]struct{} // channels with in-flight history delivery
 
+	// gapChan is the low-priority channel for gap notifications.
+	// Nil for non-WebSocket transports; initialized unconditionally in ConnectionPool.Get()
+	// because transport type is not known at Get() time.
+	// Nil channels in select cases are permanently blocked — no nil guard needed in pump.
+	gapChan chan GapNotification
+
+	// replayInProgress and replayLastAt track live replay state per channel.
+	// Both guarded by historyMu (§XVIII: same pattern as historyInProgress).
+	replayInProgress map[string]struct{}  // channels with in-flight live replay
+	replayLastAt     map[string]time.Time // last replay completion time per channel (rate limit)
+
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 	remoteAddr string // Client's remote IP address for logging
@@ -187,33 +198,38 @@ func (c *Client) closeSend() {
 
 // ConnectionPool manages a pool of reusable client objects
 type ConnectionPool struct {
-	pool       sync.Pool
-	maxSize    int
-	bufferSize int
+	pool                sync.Pool
+	maxSize             int
+	bufferSize          int
+	gapNotifyBufferSize int
 }
 
 // NewConnectionPool creates a connection pool with configurable buffer size.
 // Config values MUST be validated (e.g., via ServerConfig.Validate()) before calling.
 //
-// bufferSize: per-client send channel buffer (range: 64-4096)
+// bufferSize: per-client send channel buffer (range: 64–4096)
 //
-// Buffer sizing at 125 msg/sec broadcast rate (25 msg/sec × 5 channel subscriptions):
-// - 512 slots: ~256KB/client, 4.1s buffer, ~3.5GB heap at 13.5K clients (default)
-// - 1024 slots: ~512KB/client, 8.2s buffer, ~6.9GB heap at 13.5K clients
-func NewConnectionPool(maxSize, bufferSize int) *ConnectionPool {
+//	At 125 msg/sec: 512 slots ≈ 4.1s buffer, ~3.5 GB heap at 13.5K clients (default)
+//	                1024 slots ≈ 8.2s buffer, ~6.9 GB heap at 13.5K clients
+//
+// gapNotifyBufferSize: per-client gap notification channel buffer (range: 1–64)
+//
+//	At default 8: absorbs ~8 burst drops before dropping; 8 × ~64 B ≈ 512 B per client
+func NewConnectionPool(maxSize, bufferSize, gapNotifyBufferSize int) *ConnectionPool {
 	cp := &ConnectionPool{
-		maxSize:    maxSize,
-		bufferSize: bufferSize,
+		maxSize:             maxSize,
+		bufferSize:          bufferSize,
+		gapNotifyBufferSize: gapNotifyBufferSize,
 	}
 
 	cp.pool = sync.Pool{
 		New: func() any {
 			client := &Client{
-				// Buffer size now configurable via WS_CLIENT_SEND_BUFFER_SIZE
-				// Default: 512 (reduced from 1024 to cut heap size by 50%)
-				send:              make(chan OutgoingMsg, cp.bufferSize),
-				control:           make(chan []byte, controlChannelSize),
-				historyInProgress: make(map[string]struct{}),
+				send:    make(chan OutgoingMsg, cp.bufferSize),
+				control: make(chan []byte, controlChannelSize),
+				// historyInProgress, gapChan, replayInProgress, replayLastAt: nil —
+				// Get() unconditionally initializes all four; allocating them here
+				// wastes one allocation per pool-miss (GC eviction + cold start).
 			}
 			return client
 		},
@@ -295,6 +311,15 @@ func (p *ConnectionPool) Get() *Client {
 		client.clientWg = new(sync.WaitGroup)
 		client.historyInProgress = make(map[string]struct{})
 
+		// Unconditional make — creates a fresh channel on each Get(), preventing
+		// stale notifications from a previous connection lease from reaching the new client.
+		// Put() does NOT nil gapChan (avoiding a data race with Broadcast() which reads
+		// the field without synchronization); the old channel is GC'd when the pool
+		// slot's *Client is overwritten by the next Get() call.
+		client.gapChan = make(chan GapNotification, p.gapNotifyBufferSize)
+		client.replayInProgress = make(map[string]struct{})
+		client.replayLastAt = make(map[string]time.Time)
+
 		return client
 	}
 	return nil
@@ -318,7 +343,12 @@ func (p *ConnectionPool) Put(c *Client) {
 
 	// Clear connection data before returning to pool
 	c.remoteAddr = ""
+	c.tenantID = "" // pre-existing reset gap: recycled clients carried stale tenant ID
 	c.historyInProgress = nil
+	// gapChan intentionally NOT nilled here — Get() always creates a fresh channel,
+	// and nilling concurrently with Broadcast() reads would be a data race.
+	c.replayInProgress = nil
+	c.replayLastAt = nil
 
 	p.pool.Put(c)
 }

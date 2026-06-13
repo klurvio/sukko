@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"slices"
 	"strings"
@@ -12,9 +13,11 @@ import (
 	"time"
 
 	"github.com/gobwas/ws"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/klurvio/sukko/internal/server/metrics"
 	"github.com/klurvio/sukko/internal/server/stats"
 )
 
@@ -1485,5 +1488,435 @@ func TestWriteLoop_SendChannelClosed_SendsClose(t *testing.T) {
 
 	if header.OpCode != ws.OpClose {
 		t.Errorf("Expected OpClose, got %v", header.OpCode)
+	}
+}
+
+// =============================================================================
+// WriteLoop gap notification tests (T013)
+// =============================================================================
+
+func TestWriteLoop_GapNotificationLowerPriorityThanSend(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockClock := newTestMockClock()
+	s := stats.NewStats()
+
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  s,
+		Clock:  mockClock,
+	}
+
+	liveMsg := RawMsg([]byte(`{"type":"message","seq":1}`))
+	client := &Client{
+		id:        1,
+		transport: NewWebSocketTransport(mockConn),
+		send:      make(chan OutgoingMsg, 4),
+		gapChan:   make(chan GapNotification, 4),
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+
+	// Pre-fill both channels before WriteLoop starts.
+	client.send <- liveMsg
+	client.gapChan <- GapNotification{
+		Channel: "test.ch", FromSeq: 1, ToSeq: 1,
+		LastPos: "(1)-10", Ts: 1000,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan bool)
+	go func() {
+		pump.WriteLoop(ctx, client)
+		done <- true
+	}()
+
+	// Wait for WriteLoop to drain the live message then cancel.
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WriteLoop did not exit")
+	}
+
+	// The first frame written should be the live message, not the gap.
+	data := mockConn.getWrittenData()
+	if len(data) == 0 {
+		t.Fatal("expected at least one written message")
+	}
+	// Decode the first WebSocket frame payload.
+	reader := bytes.NewReader(data)
+	hdr, err := ws.ReadHeader(reader)
+	if err != nil {
+		t.Fatalf("read header: %v", err)
+	}
+	payload := make([]byte, hdr.Length)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		t.Fatalf("read payload: %v", err)
+	}
+	if hdr.Masked {
+		ws.Cipher(payload, hdr.Mask, 0)
+	}
+	var msg map[string]any
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if msg["type"] != "message" {
+		t.Errorf("first frame type = %v, want message (live message must be delivered before gap)", msg["type"])
+	}
+}
+
+func TestWriteLoop_GapCoalescing(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockClock := newTestMockClock()
+	s := stats.NewStats()
+
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  s,
+		Clock:  mockClock,
+	}
+
+	client := &Client{
+		id:        1,
+		transport: NewWebSocketTransport(mockConn),
+		send:      make(chan OutgoingMsg, 4),
+		gapChan:   make(chan GapNotification, 8),
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+
+	// Enqueue 3 notifications for the same channel.
+	client.gapChan <- GapNotification{Channel: "BTC", FromSeq: 6, ToSeq: 6, LastPos: "(1)-100", Ts: 100}
+	client.gapChan <- GapNotification{Channel: "BTC", FromSeq: 7, ToSeq: 7, LastPos: "(1)-101", Ts: 101}
+	client.gapChan <- GapNotification{Channel: "BTC", FromSeq: 8, ToSeq: 8, LastPos: "(1)-102", Ts: 102}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan bool)
+	go func() {
+		pump.WriteLoop(ctx, client)
+		done <- true
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WriteLoop did not exit")
+	}
+
+	// The gap notifications should have been coalesced into a single gap message on c.send,
+	// which was then written. Look for a gap frame in written data.
+	data := mockConn.getWrittenData()
+	// Find the gap frame by parsing all frames.
+	reader := bytes.NewReader(data)
+	found := false
+	for reader.Len() > 0 {
+		hdr, err := ws.ReadHeader(reader)
+		if err != nil {
+			break
+		}
+		payload := make([]byte, hdr.Length)
+		if _, _ = io.ReadFull(reader, payload); hdr.Masked {
+			ws.Cipher(payload, hdr.Mask, 0)
+		}
+		var msg map[string]any
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			continue
+		}
+		if msg["type"] == MsgTypeGap {
+			fromSeq := int64(msg["from_seq"].(float64))
+			toSeq := int64(msg["to_seq"].(float64))
+			if fromSeq == 6 && toSeq == 8 {
+				found = true
+			} else {
+				t.Errorf("gap coalescing: want from_seq=6 to_seq=8, got from_seq=%d to_seq=%d", fromSeq, toSeq)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected a coalesced gap message with from_seq=6 to_seq=8 to be written")
+	}
+}
+
+func TestWriteLoop_GapNilChannel(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockClock := newTestMockClock()
+	s := stats.NewStats()
+
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  s,
+		Clock:  mockClock,
+	}
+
+	client := &Client{
+		id:        1,
+		transport: NewWebSocketTransport(mockConn),
+		send:      make(chan OutgoingMsg, 4),
+		gapChan:   nil, // non-WebSocket transport or uninitialized
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan bool)
+	go func() {
+		pump.WriteLoop(ctx, client)
+		done <- true
+	}()
+
+	// Cancel quickly — just verify no panic.
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WriteLoop did not exit")
+	}
+}
+
+func TestWriteLoop_GapNotificationDifferentChannels(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockClock := newTestMockClock()
+	s := stats.NewStats()
+
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  s,
+		Clock:  mockClock,
+	}
+
+	client := &Client{
+		id:        1,
+		transport: NewWebSocketTransport(mockConn),
+		send:      make(chan OutgoingMsg, 8),
+		gapChan:   make(chan GapNotification, 8),
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+
+	// Two different channels — should produce two separate gap messages (not coalesced).
+	client.gapChan <- GapNotification{Channel: "BTC", FromSeq: 1, ToSeq: 1, LastPos: "(1)-10", Ts: 100}
+	client.gapChan <- GapNotification{Channel: "ETH", FromSeq: 1, ToSeq: 1, LastPos: "(1)-20", Ts: 101}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan bool)
+	go func() {
+		pump.WriteLoop(ctx, client)
+		done <- true
+	}()
+
+	time.Sleep(150 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WriteLoop did not exit")
+	}
+
+	// Count gap frames for each channel in written output.
+	data := mockConn.getWrittenData()
+	reader := bytes.NewReader(data)
+	gapChannels := map[string]int{}
+	for reader.Len() > 0 {
+		hdr, err := ws.ReadHeader(reader)
+		if err != nil {
+			break
+		}
+		payload := make([]byte, hdr.Length)
+		if _, _ = io.ReadFull(reader, payload); hdr.Masked {
+			ws.Cipher(payload, hdr.Mask, 0)
+		}
+		var msg map[string]any
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			continue
+		}
+		if msg["type"] == MsgTypeGap {
+			if ch, ok := msg["channel"].(string); ok {
+				gapChannels[ch]++
+			}
+		}
+	}
+	// Both channels should be delivered: cross-channel item is re-enqueued by the pump
+	// instead of being dropped, so a subsequent loop iteration delivers the ETH notification.
+	if gapChannels["BTC"] == 0 {
+		t.Error("expected at least one gap message for BTC channel")
+	}
+	if gapChannels["ETH"] == 0 {
+		t.Error("expected at least one gap message for ETH channel (re-enqueued after cross-channel coalescing)")
+	}
+}
+
+func TestCoalesceGapNotifications_CrossChannelReturnsLostItem(t *testing.T) {
+	t.Parallel()
+
+	ch := make(chan GapNotification, 2)
+	ch <- GapNotification{Channel: "ETH", FromSeq: 2, ToSeq: 2, LastPos: "(1)-200", Ts: 200}
+	first := GapNotification{Channel: "BTC", FromSeq: 1, ToSeq: 1, LastPos: "(1)-100", Ts: 100}
+
+	// The function must return the cross-channel item (not drop it internally).
+	// The caller is responsible for re-enqueueing and counting drops if the buffer is full.
+	merged, lost := coalesceGapNotifications(first, ch)
+
+	if merged.Channel != "BTC" {
+		t.Errorf("merged.Channel = %q, want BTC", merged.Channel)
+	}
+	if merged.FromSeq != 1 || merged.ToSeq != 1 {
+		t.Errorf("merged seq range = [%d,%d], want [1,1]", merged.FromSeq, merged.ToSeq)
+	}
+	if lost == nil {
+		t.Fatal("expected non-nil lost item for the cross-channel ETH notification")
+	}
+	if lost.Channel != "ETH" {
+		t.Errorf("lost.Channel = %q, want ETH", lost.Channel)
+	}
+	if lost.FromSeq != 2 {
+		t.Errorf("lost.FromSeq = %d, want 2", lost.FromSeq)
+	}
+}
+
+func TestWriteLoop_GapNotificationDroppedWhenSendFull(t *testing.T) {
+	t.Parallel()
+
+	// c.send with capacity 0: the non-blocking send inside the gap handler always fires
+	// the default case, triggering GapDropReasonSendFull.
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  stats.NewStats(),
+	}
+	client := &Client{
+		id:        1,
+		transport: &noopTransport{},
+		send:      make(chan OutgoingMsg), // capacity 0 → non-blocking send always drops
+		gapChan:   make(chan GapNotification, 4),
+		control:   make(chan []byte, controlChannelSize),
+		closeOnce: sync.Once{},
+	}
+	client.gapChan <- GapNotification{
+		Channel: "BTC.trade", FromSeq: 1, ToSeq: 1, LastPos: "(1)-100", Ts: 100,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	before := testutil.ToFloat64(metrics.GapNotificationsDropped.WithLabelValues(GapDropReasonSendFull))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		pump.WriteLoop(ctx, client)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("WriteLoop did not exit after context cancellation")
+	}
+
+	after := testutil.ToFloat64(metrics.GapNotificationsDropped.WithLabelValues(GapDropReasonSendFull))
+	if after-before < 1 {
+		t.Error("expected GapNotificationsDropped[send_full] to increment when c.send is full")
+	}
+}
+
+// =============================================================================
+// handleSendMsg unit tests (T014)
+// =============================================================================
+
+func TestHandleSendMsg_ChannelClosed(t *testing.T) {
+	t.Parallel()
+	p := &Pump{Config: testPumpConfig(), Stats: stats.NewStats()}
+	c := &Client{
+		id:        1,
+		transport: &noopTransport{},
+		send:      make(chan OutgoingMsg, 4),
+	}
+	// ok=false simulates closed send channel.
+	if p.handleSendMsg(c, RawMsg([]byte(`{}`)), false) {
+		t.Error("handleSendMsg with ok=false must return false (exit signal)")
+	}
+}
+
+func TestHandleSendMsg_NilTransport(t *testing.T) {
+	t.Parallel()
+	p := &Pump{Config: testPumpConfig(), Stats: stats.NewStats()}
+	c := &Client{
+		id:        1,
+		transport: nil, // disconnected mid-flight
+		send:      make(chan OutgoingMsg, 4),
+	}
+	if p.handleSendMsg(c, RawMsg([]byte(`{}`)), true) {
+		t.Error("handleSendMsg with nil transport must return false")
+	}
+}
+
+func TestHandleSendMsg_SingleSendError_RecordsDrop(t *testing.T) {
+	t.Parallel()
+	s := stats.NewStats()
+	p := &Pump{Config: testPumpConfig(), Stats: s, Clock: newTestMockClock()}
+	sendErr := errors.New("write timeout")
+	c := &Client{
+		id:        1,
+		transport: &errTransport{sendErr: sendErr},
+		send:      make(chan OutgoingMsg, 4),
+	}
+	if p.handleSendMsg(c, RawMsg([]byte(`{}`)), true) {
+		t.Error("handleSendMsg must return false on send error")
+	}
+	_, total := s.GetDroppedBroadcastsByChannel()
+	if total == 0 {
+		t.Error("expected dropped broadcast count to be incremented after send error")
+	}
+}
+
+func TestHandleSendMsg_BatchSend_MultipleMessages(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	s := stats.NewStats()
+	p := &Pump{Config: testPumpConfig(), Stats: s, Clock: newTestMockClock()}
+	c := &Client{
+		id:        1,
+		transport: NewWebSocketTransport(mockConn),
+		send:      make(chan OutgoingMsg, 8),
+	}
+	// Pre-queue 3 additional messages so len(c.send) == 3 when handleSendMsg runs.
+	for range 3 {
+		c.send <- RawMsg([]byte(`{"type":"message"}`))
+	}
+	// Call with the first message; the function should enter batch mode.
+	if !p.handleSendMsg(c, RawMsg([]byte(`{"type":"message"}`)), true) {
+		t.Error("handleSendMsg must return true on successful batch send")
+	}
+	if s.MessagesSent.Load() < 4 {
+		t.Errorf("expected at least 4 messages sent (1 first + 3 batch), got %d", s.MessagesSent.Load())
+	}
+}
+
+func TestHandleSendMsg_BatchSendError_RecordsDrop(t *testing.T) {
+	t.Parallel()
+	s := stats.NewStats()
+	p := &Pump{Config: testPumpConfig(), Stats: s, Clock: newTestMockClock()}
+	batchErr := errors.New("batch write timeout")
+	c := &Client{
+		id:        1,
+		transport: &errTransport{sendBatchErr: batchErr},
+		send:      make(chan OutgoingMsg, 8),
+	}
+	// Pre-queue 2 additional messages to trigger batch mode.
+	c.send <- RawMsg([]byte(`{}`))
+	c.send <- RawMsg([]byte(`{}`))
+	if p.handleSendMsg(c, RawMsg([]byte(`{}`)), true) {
+		t.Error("handleSendMsg must return false on batch send error")
+	}
+	_, total := s.GetDroppedBroadcastsByChannel()
+	if total == 0 {
+		t.Error("expected dropped broadcast count to be incremented after batch send error")
 	}
 }

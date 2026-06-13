@@ -328,7 +328,7 @@ func TestDisconnectClient_Integration(t *testing.T) {
 	server := &Server{
 		logger:            logger,
 		stats:             s,
-		connections:       NewConnectionPool(100, 256),
+		connections:       NewConnectionPool(100, 256, 8),
 		connectionsSem:    make(chan struct{}, 100),
 		subscriptionIndex: NewSubscriptionIndex(),
 		rateLimiter:       limits.NewRateLimiter(100, 10),
@@ -385,7 +385,7 @@ func TestDisconnectClient_WaitsForHistoryGoroutines(t *testing.T) {
 	server := &Server{
 		logger:            zerolog.Nop(),
 		stats:             s,
-		connections:       NewConnectionPool(100, 256),
+		connections:       NewConnectionPool(100, 256, 8),
 		connectionsSem:    make(chan struct{}, 100),
 		subscriptionIndex: NewSubscriptionIndex(),
 		rateLimiter:       limits.NewRateLimiter(100, 10),
@@ -618,7 +618,7 @@ func TestDisconnectClient_SubscriptionIndexCleanup(t *testing.T) {
 		return &Server{
 			logger:            zerolog.Nop(),
 			stats:             s,
-			connections:       NewConnectionPool(100, 256),
+			connections:       NewConnectionPool(100, 256, 8),
 			connectionsSem:    make(chan struct{}, 100),
 			subscriptionIndex: NewSubscriptionIndex(),
 			rateLimiter:       limits.NewRateLimiter(100, 10),

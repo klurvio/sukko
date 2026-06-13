@@ -58,6 +58,9 @@ valkey:
 
 # Override any Go envDefault. See /config endpoint for all available settings.
 # Example: { LOG_LEVEL: "debug", WS_PONG_WAIT: "120s" }
+# Gap recovery tuning (defaults match Go envDefault; only set when deviating):
+#   WS_GAP_NOTIFY_BUFFER_SIZE: "8"        # per-client gap notify buffer (1-64)
+#   WS_REPLAY_RATE_LIMIT_INTERVAL: "10s"  # min interval between live replay requests per client+channel
 extraEnv: {}
 
 # --- Kubernetes Resources ---

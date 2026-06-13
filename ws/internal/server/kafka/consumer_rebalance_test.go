@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -364,7 +365,7 @@ func TestShutdown_BatchFlushBeforeRevoke(t *testing.T) {
 
 	// Verify ordering: both marks came before the commit
 	mock.mu.Lock()
-	order := append([]string(nil), mock.callOrder...)
+	order := slices.Clone(mock.callOrder)
 	mock.mu.Unlock()
 
 	if len(order) != 3 {

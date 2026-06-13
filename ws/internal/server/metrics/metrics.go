@@ -107,9 +107,46 @@ var (
 		Help: "Total number of rate limited messages",
 	})
 
+	// Renamed from ws_replay_requests_total to distinguish history/reconnect replays
+	// from live-connection gap recovery replays (ws_live_replay_requests_total).
 	replayRequests = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "ws_replay_requests_total",
-		Help: "Total number of replay requests served",
+		Name: "ws_history_replay_requests_total",
+		Help: "Total number of history replay requests served (reconnect path).",
+	})
+
+	// GapNotificationsEnqueued counts gap notifications successfully sent to a client's gapChan.
+	GapNotificationsEnqueued = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "ws_gap_notifications_enqueued_total",
+		Help: "Gap notifications successfully enqueued on a client's low-priority gap channel.",
+	})
+
+	// GapNotificationsDropped counts gap notifications that could not be delivered.
+	// Three drop causes: buffer_full (gapChan at capacity), coalesce_loss (cross-channel
+	// item consumed during merging), send_full (c.send full when pump tried to forward).
+	GapNotificationsDropped = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_gap_notifications_dropped_total",
+		Help: "Gap notifications dropped, by reason (buffer_full, coalesce_loss, or send_full).",
+	}, []string{"reason"})
+
+	// LiveReplayRequestsTotal counts live replay requests by outcome label.
+	LiveReplayRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_live_replay_requests_total",
+		Help: "Live replay requests by outcome.",
+	}, []string{"outcome"})
+
+	// LiveReplayResponseDropped counts replay terminal responses (replay_complete or error)
+	// dropped because the client's send channel was full when the write was attempted.
+	LiveReplayResponseDropped = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_live_replay_response_dropped_total",
+		Help: "Replay terminal responses dropped because c.send was full, by kind (complete or error).",
+	}, []string{"kind"})
+
+	// LiveReplayDurationSeconds measures live replay end-to-end latency (Kafka fetch + delivery).
+	// Observed for completed and timeout outcomes; not observed for fast rejections.
+	LiveReplayDurationSeconds = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "ws_live_replay_duration_seconds",
+		Help:    "Duration of live replay requests from goroutine start to completion or timeout.",
+		Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0},
 	})
 
 	connectionRateLimited = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -432,6 +469,18 @@ func RecordDroppedBroadcastWithStats(s *stats.Stats, channel, reason string) {
 	droppedBroadcastsDetailed.WithLabelValues(channel, reason).Inc()
 
 	s.RecordDroppedBroadcast(channel)
+}
+
+// RecordDroppedGapNotification records a dropped gap notification with the reason label.
+// reason must be one of GapDropReasonBufferFull, GapDropReasonCoalesceLoss, or GapDropReasonSendFull (server package).
+func RecordDroppedGapNotification(reason string) {
+	GapNotificationsDropped.WithLabelValues(reason).Inc()
+}
+
+// RecordDroppedReplayResponse records a dropped replay terminal message (complete or error)
+// because the client's send channel was full. kind must be "complete" or "error".
+func RecordDroppedReplayResponse(kind string) {
+	LiveReplayResponseDropped.WithLabelValues(kind).Inc()
 }
 
 // RecordSlowClientAttempt records send attempts before slow client disconnect.

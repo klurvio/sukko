@@ -244,6 +244,12 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			}
 		}
 
+	case MsgTypeReplay:
+		// Live gap recovery — replay missed messages on the existing connection without reconnect.
+		// Message format: {"type": "replay", "data": {"channel": "...", "from_pos": "..."}}
+		// See handler_replay.go for the full implementation.
+		s.handleReplayRequest(c, req.Data)
+
 	case MsgTypeHistory:
 		// Standalone history request (client already subscribed separately).
 		// Message format: {"type": "history", "data": {"channel": "acme.BTC.trade", "limit": 50}}

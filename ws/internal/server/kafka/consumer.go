@@ -1201,14 +1201,30 @@ func (c *Consumer) ReplayFromOffsets(
 		}
 
 		// intentionally not handleFetchErrors: replay consumer is short-lived; pausing or firing the pool callback would be wrong.
-		// Check for errors.
+		// Check for errors; propagate OffsetOutOfRange so callers can surface it to clients.
+		// Log all errors first, then return OOR — prevents a leading OOR from silently
+		// swallowing non-OOR errors on other partitions in the same fetch (Constitution III).
 		if errs := fetches.Errors(); len(errs) > 0 {
-			for _, err := range errs {
+			var oor bool
+			for _, fe := range errs {
+				if errors.Is(fe.Err, kerr.OffsetOutOfRange) {
+					oor = true
+					continue
+				}
 				c.logger.Warn().
-					Err(err.Err).
-					Str(LabelTopic, err.Topic).
-					Int32(LogFieldPartition, err.Partition).
+					Err(fe.Err).
+					Str(LabelTopic, fe.Topic).
+					Int32(LogFieldPartition, fe.Partition).
 					Msg("Replay fetch error")
+			}
+			if oor {
+				// Intentionally all-or-nothing: return nil (not partial messages) so the
+				// handler can surface a clean "offset out of range" error to the client.
+				// Unlike ctx-cancel (which delivers a partial set), OOR means the requested
+				// position never existed — partial delivery would be misleading.
+				// §III intentional exception: non-OOR errors on other partitions have already
+				// been logged in the loop above; we return OOR as the primary actionable error.
+				return nil, kerr.OffsetOutOfRange
 			}
 		}
 

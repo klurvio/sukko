@@ -60,6 +60,23 @@ const (
 
 	// ErrCodeSubscribeLimitExceeded indicates the per-client channel subscription limit was reached.
 	ErrCodeSubscribeLimitExceeded ErrorCode = "subscribe_limit_exceeded"
+
+	// Live replay error codes (used only by ws-server, but typed as shared ErrorCode
+	// so that replay error responses use the same ErrorCode type as other protocol errors).
+	// §X documented exception: ErrorCode is a protocol-level type; constants live here
+	// even when only one service emits them, to keep all error codes in a single registry.
+
+	// ErrCodeReplayInProgress indicates a replay is already in progress for this channel.
+	ErrCodeReplayInProgress ErrorCode = "replay_in_progress"
+
+	// ErrCodeNotSubscribed indicates the client is not subscribed to the requested channel.
+	ErrCodeNotSubscribed ErrorCode = "not_subscribed"
+
+	// ErrCodeOffsetOutOfRange indicates the requested position is outside available history.
+	ErrCodeOffsetOutOfRange ErrorCode = "offset_out_of_range"
+
+	// ErrCodeReplayRateLimited indicates replay requests are too frequent for this channel.
+	ErrCodeReplayRateLimited ErrorCode = "replay_rate_limited"
 )
 
 // publishErrorMessages maps error codes to human-readable messages for publish errors.

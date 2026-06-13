@@ -326,112 +326,50 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 	}()
 
 	for {
-		// Priority: drain pong responses first (they're time-sensitive)
+		// Priority 1: drain pong responses first (time-sensitive)
 		select {
 		case payload := <-c.control:
-			_ = c.transport.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
-			if err := c.transport.WritePong(payload); err != nil {
-				if p.Logger != nil {
-					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send pong")
-				}
+			if !p.handlePong(c, payload) {
 				return
-			}
-			if p.Logger != nil {
-				p.Logger.Debug().Int64("client_id", c.id).Msg("Sent pong to client")
 			}
 			continue
 		default:
 		}
 
-		// Normal select: data, control, ping, or shutdown
+		// Priority 2: try primary send alone (non-blocking).
+		// Provides a statistical bias toward live messages over gap notifications.
+		// If c.send is ready, deliver it now without giving gapChan a chance to fire.
+		//
+		// Starvation bound: if c.send is continuously saturated, gapChan is not drained
+		// until the burst subsides. In practice this is bounded: a persistently-saturated
+		// client triggers the SlowClient circuit breaker (SlowClientMaxAttempts), which
+		// disconnects the client before gapChan fills. Default gapChan buffer (8) absorbs
+		// bursts; drops beyond capacity are counted via GapDropReasonBufferFull.
+		select {
+		case msg, ok := <-c.send:
+			if !p.handleSendMsg(c, msg, ok) {
+				return
+			}
+			continue
+		default:
+		}
+
+		// Priority 3: block on all channels including gap notifications.
+		// Go's pseudorandom select is acceptable here: gap notifications are rare
+		// advisory events; brief reordering when both c.send and c.gapChan are
+		// simultaneously ready is acceptable (NFR-004 statistical priority guarantee).
 		select {
 		case <-ctx.Done():
 			return
 
 		case payload := <-c.control:
-			_ = c.transport.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
-			if err := c.transport.WritePong(payload); err != nil {
-				if p.Logger != nil {
-					p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send pong")
-				}
+			if !p.handlePong(c, payload) {
 				return
-			}
-			if p.Logger != nil {
-				p.Logger.Debug().Int64("client_id", c.id).Msg("Sent pong to client")
 			}
 
 		case msg, ok := <-c.send:
-			if !ok {
-				if p.Logger != nil {
-					p.Logger.Debug().Int64("client_id", c.id).Msg("Send channel closed")
-				}
-				// Don't call Close() here — deferred closeOnce.Do handles it.
-				// Calling Close() directly + deferred closeOnce = double-close on net.Conn.
+			if !p.handleSendMsg(c, msg, ok) {
 				return
-			}
-
-			// Guard against race condition: transport may be nil if client was
-			// disconnected and returned to pool while message was pending
-			if c.transport == nil {
-				return
-			}
-			_ = c.transport.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
-
-			// Collect batch: first message + any additional available messages.
-			// Send/SendBatch return accurate byte counts — no double Bytes() call needed.
-			n := len(c.send)
-			if n == 0 {
-				// Single message — use Send (includes flush)
-				byteCount, err := c.transport.Send(msg)
-				if err != nil {
-					if p.Logger != nil {
-						p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send message")
-					}
-					p.recordSendTimeoutDrops(c, 1)
-					return
-				}
-
-				if byteCount > 0 {
-					transportLabel := string(c.transport.Type())
-					p.Stats.MessagesSent.Add(1)
-					p.Stats.BytesSent.Add(int64(byteCount))
-					metrics.UpdateMessageMetrics(transportLabel, 1, 0)
-					metrics.UpdateBytesMetrics(int64(byteCount), 0)
-				}
-			} else {
-				// Batch: collect all available messages
-				batch := make([]OutgoingMsg, 1, 1+n)
-				batch[0] = msg
-			batchLoop:
-				for range n {
-					select {
-					case batchMsg, batchOk := <-c.send:
-						if !batchOk {
-							break batchLoop
-						}
-						batch = append(batch, batchMsg)
-					default:
-						break batchLoop
-					}
-				}
-
-				totalBytes, err := c.transport.SendBatch(batch)
-				if err != nil {
-					if p.Logger != nil {
-						p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send batch")
-					}
-					p.recordSendTimeoutDrops(c, len(batch))
-					return
-				}
-
-				// Message count: batch length (SendBatch skips nil internally,
-				// but all messages from the send channel should have valid data)
-				transportLabel := string(c.transport.Type())
-				batchMsgCount := int64(len(batch))
-				p.Stats.MessagesSent.Add(batchMsgCount)
-				p.Stats.BytesSent.Add(int64(totalBytes))
-				metrics.UpdateMessageMetrics(transportLabel, batchMsgCount, 0)
-				metrics.UpdateBytesMetrics(int64(totalBytes), 0)
 			}
 
 		case <-ticker.C():
@@ -450,8 +388,122 @@ func (p *Pump) WriteLoop(ctx context.Context, c *Client) {
 			if p.Logger != nil {
 				p.Logger.Debug().Int64("client_id", c.id).Msg("Sent ping to client")
 			}
+
+		case gap := <-c.gapChan:
+			// gapChan is never closed and always non-nil for an active client.
+			merged, lost := coalesceGapNotifications(gap, c.gapChan)
+			if lost != nil {
+				// Cross-channel item consumed during coalescing; re-enqueue non-blocking.
+				// If the buffer is full, count the loss — the client can recover via
+				// its own seq-gap detection without a notification.
+				select {
+				case c.gapChan <- *lost:
+				default:
+					metrics.RecordDroppedGapNotification(GapDropReasonCoalesceLoss)
+				}
+			}
+			// gapEnvelope contains only JSON-safe types (string, int64) — Marshal cannot fail.
+			data, _ := json.Marshal(gapEnvelope{
+				Type:    MsgTypeGap,
+				Channel: merged.Channel,
+				FromSeq: merged.FromSeq,
+				ToSeq:   merged.ToSeq,
+				LastPos: merged.LastPos,
+				Ts:      merged.Ts,
+			})
+			select {
+			case c.send <- RawMsg(data):
+			default:
+				// Primary channel full — skip gap notification this cycle.
+				metrics.RecordDroppedGapNotification(GapDropReasonSendFull)
+			}
 		}
 	}
+}
+
+// handlePong writes a pong response. Returns false if the write loop must exit.
+// Extracted to avoid duplicating pong write logic between Priority 1 drain and Priority 3 select.
+func (p *Pump) handlePong(c *Client, payload []byte) bool {
+	_ = c.transport.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
+	if err := c.transport.WritePong(payload); err != nil {
+		if p.Logger != nil {
+			p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send pong")
+		}
+		return false
+	}
+	if p.Logger != nil {
+		p.Logger.Debug().Int64("client_id", c.id).Msg("Sent pong to client")
+	}
+	return true
+}
+
+// handleSendMsg processes one message from c.send. Returns false if the write loop must exit.
+// Extracted to avoid duplicating the batch send logic between Priority 2 and Priority 3.
+func (p *Pump) handleSendMsg(c *Client, msg OutgoingMsg, ok bool) bool {
+	if !ok {
+		if p.Logger != nil {
+			p.Logger.Debug().Int64("client_id", c.id).Msg("Send channel closed")
+		}
+		// Don't call Close() here — deferred closeOnce.Do handles it.
+		return false
+	}
+
+	// Guard against race condition: transport may be nil if client was
+	// disconnected and returned to pool while message was pending.
+	if c.transport == nil {
+		return false
+	}
+	_ = c.transport.SetWriteDeadline(p.now().Add(p.Config.WriteWait))
+
+	// Collect batch: first message + any additional available messages.
+	n := len(c.send)
+	if n == 0 {
+		byteCount, err := c.transport.Send(msg)
+		if err != nil {
+			if p.Logger != nil {
+				p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send message")
+			}
+			p.recordSendTimeoutDrops(c, 1)
+			return false
+		}
+		if byteCount > 0 {
+			transportLabel := string(c.transport.Type())
+			p.Stats.MessagesSent.Add(1)
+			p.Stats.BytesSent.Add(int64(byteCount))
+			metrics.UpdateMessageMetrics(transportLabel, 1, 0)
+			metrics.UpdateBytesMetrics(int64(byteCount), 0)
+		}
+	} else {
+		batch := make([]OutgoingMsg, 1, 1+n)
+		batch[0] = msg
+	batchLoop:
+		for range n {
+			select {
+			case batchMsg, batchOk := <-c.send:
+				if !batchOk {
+					break batchLoop
+				}
+				batch = append(batch, batchMsg)
+			default:
+				break batchLoop
+			}
+		}
+		totalBytes, err := c.transport.SendBatch(batch)
+		if err != nil {
+			if p.Logger != nil {
+				p.Logger.Debug().Err(err).Int64("client_id", c.id).Msg("Failed to send batch")
+			}
+			p.recordSendTimeoutDrops(c, len(batch))
+			return false
+		}
+		transportLabel := string(c.transport.Type())
+		batchMsgCount := int64(len(batch))
+		p.Stats.MessagesSent.Add(batchMsgCount)
+		p.Stats.BytesSent.Add(int64(totalBytes))
+		metrics.UpdateMessageMetrics(transportLabel, batchMsgCount, 0)
+		metrics.UpdateBytesMetrics(int64(totalBytes), 0)
+	}
+	return true
 }
 
 // recordSendTimeoutDrops records dropped messages when a write operation fails.
@@ -483,6 +535,34 @@ func (p *Pump) recordSendTimeoutDrops(c *Client, failedCount int) {
 // =============================================================================
 // Pure Functions
 // =============================================================================
+
+// coalesceGapNotifications merges consecutive same-channel gap notifications from ch.
+// When the first different-channel item is encountered it is dequeued and returned as
+// the second return value so the caller can re-enqueue it (non-blocking) for delivery
+// in the next write-pump iteration. If re-enqueue fails (buffer full), the caller
+// increments GapDropReasonCoalesceLoss. Items not yet dequeued remain in ch.
+func coalesceGapNotifications(first GapNotification, ch <-chan GapNotification) (merged GapNotification, overflow *GapNotification) {
+	merged = first
+	for {
+		select {
+		case gap := <-ch:
+			// gapChan is never closed; the ok form is unnecessary.
+			if gap.Channel != merged.Channel {
+				// Different channel: return it to the caller for re-enqueue.
+				return merged, &gap
+			}
+			if gap.FromSeq < merged.FromSeq {
+				merged.FromSeq = gap.FromSeq
+			}
+			if gap.ToSeq > merged.ToSeq {
+				merged.ToSeq = gap.ToSeq
+			}
+			// Keep first notification's LastPos (gapChan is FIFO; first = earliest pos).
+		default:
+			return merged, nil
+		}
+	}
+}
 
 // CreateRateLimitErrorMessage creates the error response for rate limiting.
 func CreateRateLimitErrorMessage(ratePerSec float64) []byte {

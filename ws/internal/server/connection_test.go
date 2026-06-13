@@ -425,7 +425,7 @@ func TestSubscriptionIndex_ThreadSafety(t *testing.T) {
 
 func TestNewConnectionPool(t *testing.T) {
 	t.Parallel()
-	pool := NewConnectionPool(100, 512)
+	pool := NewConnectionPool(100, 512, 8)
 	if pool == nil {
 		t.Fatal("NewConnectionPool should return non-nil")
 	}
@@ -440,7 +440,7 @@ func TestNewConnectionPool(t *testing.T) {
 
 func TestConnectionPool_Get(t *testing.T) {
 	t.Parallel()
-	pool := NewConnectionPool(100, 256)
+	pool := NewConnectionPool(100, 256, 8)
 
 	client := pool.Get()
 	if client == nil {
@@ -460,7 +460,7 @@ func TestConnectionPool_Get(t *testing.T) {
 
 func TestConnectionPool_Get_SequenceReset(t *testing.T) {
 	t.Parallel()
-	pool := NewConnectionPool(100, 256)
+	pool := NewConnectionPool(100, 256, 8)
 
 	client := pool.Get()
 	// Advance sequence number
@@ -480,7 +480,7 @@ func TestConnectionPool_Get_SequenceReset(t *testing.T) {
 
 func TestConnectionPool_Get_SubscriptionsClear(t *testing.T) {
 	t.Parallel()
-	pool := NewConnectionPool(100, 256)
+	pool := NewConnectionPool(100, 256, 8)
 
 	client := pool.Get()
 	client.subscriptions.Add("sukko.BTC.trade")
@@ -498,7 +498,7 @@ func TestConnectionPool_Get_SubscriptionsClear(t *testing.T) {
 
 func TestConnectionPool_Get_ControlChannelInitialized(t *testing.T) {
 	t.Parallel()
-	pool := NewConnectionPool(100, 256)
+	pool := NewConnectionPool(100, 256, 8)
 
 	client := pool.Get()
 	if client == nil {
@@ -515,7 +515,7 @@ func TestConnectionPool_Get_ControlChannelInitialized(t *testing.T) {
 
 func TestConnectionPool_Get_ControlChannelDrained(t *testing.T) {
 	t.Parallel()
-	pool := NewConnectionPool(100, 256)
+	pool := NewConnectionPool(100, 256, 8)
 
 	client := pool.Get()
 
@@ -537,7 +537,7 @@ func TestConnectionPool_Get_ControlChannelDrained(t *testing.T) {
 
 func TestConnectionPool_Put(t *testing.T) {
 	t.Parallel()
-	pool := NewConnectionPool(100, 256)
+	pool := NewConnectionPool(100, 256, 8)
 
 	client := pool.Get()
 	client.id = 123
@@ -558,7 +558,7 @@ func TestConnectionPool_Put(t *testing.T) {
 
 func TestConnectionPool_Put_Nil(t *testing.T) {
 	t.Parallel()
-	pool := NewConnectionPool(100, 256)
+	pool := NewConnectionPool(100, 256, 8)
 
 	// Should not panic
 	pool.Put(nil)
@@ -566,7 +566,7 @@ func TestConnectionPool_Put_Nil(t *testing.T) {
 
 func TestConnectionPool_ThreadSafety(t *testing.T) {
 	t.Parallel()
-	pool := NewConnectionPool(100, 256)
+	pool := NewConnectionPool(100, 256, 8)
 	var wg sync.WaitGroup
 	iterations := 100
 
@@ -755,7 +755,7 @@ func BenchmarkSubscriptionIndex_Get(b *testing.B) {
 }
 
 func BenchmarkConnectionPool_GetPut(b *testing.B) {
-	pool := NewConnectionPool(1000, 256)
+	pool := NewConnectionPool(1000, 256, 8)
 
 	for b.Loop() {
 		client := pool.Get()

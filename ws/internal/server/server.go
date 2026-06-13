@@ -157,7 +157,7 @@ func NewServer(params Params, alerter alerting.Alerter) (*Server, error) {
 		logger:            logger,
 		ctx:               ctx,
 		cancel:            cancel,
-		connections:       NewConnectionPool(params.MaxConnections, config.ClientSendBufferSize),
+		connections:       NewConnectionPool(params.MaxConnections, config.ClientSendBufferSize, config.GapNotifyBufferSize),
 		connectionsSem:    make(chan struct{}, params.MaxConnections),
 		subscriptionIndex: NewSubscriptionIndex(), // Fast channel → subscribers lookup
 		rateLimiter:       limits.NewRateLimiter(config.ClientMsgBurstLimit, config.ClientMsgRatePerSec),

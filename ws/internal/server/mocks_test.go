@@ -26,6 +26,22 @@ func (t *noopTransport) SetWriteDeadline(_ time.Time) error     { return nil }
 func (t *noopTransport) Type() TransportType                    { return "noop" }
 func (t *noopTransport) RemoteAddr() string                     { return "127.0.0.1:0" }
 
+// errTransport returns a configurable error on Send and/or SendBatch.
+// Used to exercise the error paths in handleSendMsg.
+type errTransport struct {
+	sendErr      error
+	sendBatchErr error
+}
+
+func (t *errTransport) Send(_ OutgoingMsg) (int, error)        { return 0, t.sendErr }
+func (t *errTransport) SendBatch(_ []OutgoingMsg) (int, error) { return 0, t.sendBatchErr }
+func (t *errTransport) WritePing() error                       { return nil }
+func (t *errTransport) WritePong(_ []byte) error               { return nil }
+func (t *errTransport) Close() error                           { return nil }
+func (t *errTransport) SetWriteDeadline(_ time.Time) error     { return nil }
+func (t *errTransport) Type() TransportType                    { return "err" }
+func (t *errTransport) RemoteAddr() string                     { return "127.0.0.1:0" }
+
 // =============================================================================
 // Configurable backend mock
 // =============================================================================
@@ -34,23 +50,40 @@ func (t *noopTransport) RemoteAddr() string                     { return "127.0.
 // channelTopics maps channel names to Kafka topic names.
 // replayMsgs and replayErr configure what Replay returns.
 // lastReplayReq captures the most recent ReplayRequest for assertion in tests.
+// blockCh, when non-nil, causes Replay to block until the channel is closed
+// (or the context is canceled). Used by TestHandleReplayRequest_ConcurrentRace
+// to hold the async goroutine in Replay while all N handlers process the
+// replayInProgress check.
 type mockBackend struct {
 	mu            sync.Mutex
 	channelTopics map[string]string
 	replayMsgs    []backend.ReplayMessage
 	replayErr     error
 	lastReplayReq backend.ReplayRequest
+	blockCh       chan struct{}
 }
 
 func (m *mockBackend) Start(_ context.Context) error { return nil }
 func (m *mockBackend) Publish(_ context.Context, _ int64, _, _ string, _ []byte) error {
 	return nil
 }
-func (m *mockBackend) Replay(_ context.Context, req backend.ReplayRequest) ([]backend.ReplayMessage, error) {
+func (m *mockBackend) Replay(ctx context.Context, req backend.ReplayRequest) ([]backend.ReplayMessage, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.lastReplayReq = req
-	return m.replayMsgs, m.replayErr
+	blockCh := m.blockCh
+	msgs := m.replayMsgs
+	err := m.replayErr
+	m.mu.Unlock()
+
+	if blockCh != nil {
+		select {
+		case <-blockCh:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	return msgs, err
 }
 func (m *mockBackend) IsHealthy() bool                  { return true }
 func (m *mockBackend) Shutdown(_ context.Context) error { return nil }

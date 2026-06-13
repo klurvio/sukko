@@ -163,6 +163,28 @@ func (s *Server) Broadcast(subject string, message []byte, pos string) {
 			// Track dropped broadcast with channel and reason (both Prometheus and Stats)
 			metrics.RecordDroppedBroadcastWithStats(s.stats, channel, pkgmetrics.DropReasonBufferFull)
 
+			// Enqueue in-band gap notification (non-blocking — never stalls the broadcast hot path).
+			// Must be BEFORE the slow-client disconnect check: a client being disconnected
+			// does not need a gap notification.
+			//
+			// gapChan is always non-nil for an active client (Get() initializes it unconditionally;
+			// Put() does NOT nil it — the field is only overwritten by the next Get() call, which
+			// has exclusive access before the client enters any snapshot). This eliminates the
+			// data race that would exist if Put() nilled the field concurrently with this send.
+			gap := GapNotification{
+				Channel: channel,
+				FromSeq: seq,
+				ToSeq:   seq,
+				LastPos: pos,
+				Ts:      time.Now().UnixMilli(),
+			}
+			select {
+			case client.gapChan <- gap:
+				metrics.GapNotificationsEnqueued.Inc()
+			default:
+				metrics.RecordDroppedGapNotification(GapDropReasonBufferFull)
+			}
+
 			// Phase 4: Sampled structured logging (every 100th drop to avoid log spam)
 			dropCount := s.stats.DroppedBroadcastLogCounter.Add(1)
 			if dropCount%100 == 0 {
