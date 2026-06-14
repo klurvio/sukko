@@ -60,3 +60,44 @@ func TestConnectionPool_GapChannelResetOnReuse(t *testing.T) {
 		t.Fatal("expected non-nil replayLastAt on reused client")
 	}
 }
+
+// TestConnectionPool_Put_ClearsConnID verifies that Pool.Put clears connID so a recycled client
+// cannot emit registry events for the previous connection's ID (§IX — stale identity on recycled
+// pool object causes cross-connection registry pollution).
+func TestConnectionPool_Put_ClearsConnID(t *testing.T) {
+	t.Parallel()
+
+	pool := NewConnectionPool(10, 512, 8)
+	c := pool.Get()
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+
+	// Simulate post-upgrade identity assignment.
+	c.connID = "test-conn-id"
+	c.apiKeyID = "test-api-key-id"
+	c.userID = "test-user-id"
+	c.tenantID = "test-tenant-id"
+
+	pool.Put(c)
+
+	// Retrieve the client (may be same object).
+	c2 := pool.Get()
+	if c2 == nil {
+		t.Fatal("expected non-nil client from second Get()")
+	}
+
+	// All identity fields must be cleared by Put.
+	if c2.connID != "" {
+		t.Errorf("connID not cleared on Put: got %q", c2.connID)
+	}
+	if c2.apiKeyID != "" {
+		t.Errorf("apiKeyID not cleared on Put: got %q", c2.apiKeyID)
+	}
+	if c2.userID != "" {
+		t.Errorf("userID not cleared on Put: got %q", c2.userID)
+	}
+	if c2.tenantID != "" {
+		t.Errorf("tenantID not cleared on Put: got %q", c2.tenantID)
+	}
+}

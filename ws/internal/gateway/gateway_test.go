@@ -11,9 +11,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/gobwas/ws"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -21,6 +24,7 @@ import (
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
@@ -1035,5 +1039,98 @@ func TestGateway_Close_WithLicenseWatcher(t *testing.T) {
 	}
 	if !mock.closeCalled {
 		t.Error("Close() did not call licenseWatcher.Close()")
+	}
+}
+
+// TestHandleWebSocket_IdentityHeaderStripping verifies that inbound X-Sukko-* headers
+// from the client request are stripped before the gateway dials the backend (§II, §IX).
+// A malicious client must not be able to inject forged identity headers that reach ws-server.
+func TestHandleWebSocket_IdentityHeaderStripping(t *testing.T) {
+	t.Parallel()
+	// Fake backend: captures headers then completes WebSocket upgrade.
+	var capturedHeaders http.Header
+	var capturedMu sync.Mutex
+	var backendOnce sync.Once
+	backendReady := make(chan struct{})
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendOnce.Do(func() {
+			capturedMu.Lock()
+			capturedHeaders = r.Header.Clone()
+			capturedMu.Unlock()
+			_, _, _, _ = ws.UpgradeHTTP(r, w)
+			close(backendReady)
+		})
+	}))
+	defer backend.Close()
+
+	cfg := newTestGatewayConfig()
+	cfg.AuthMode = "required"
+	cfg.BackendURL = "ws" + strings.TrimPrefix(backend.URL, "http") + "/ws"
+	cfg.DialTimeout = 3 * time.Second
+	cfg.TenantConnectionLimitEnabled = false
+	logger := newTestLogger()
+
+	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
+		"valid-key": {KeyID: "pk_live_abc", TenantID: "acme", Name: "test key", IsActive: true},
+	}}
+	gw := newGatewayWithAPIKeyMock(cfg, logger, nil, mock)
+
+	gatewayServer := httptest.NewServer(http.HandlerFunc(gw.HandleWebSocket))
+	defer gatewayServer.Close()
+
+	// Connect to the gateway with spoofed X-Sukko-* headers in the upgrade request.
+	const (
+		spoofedTenantID = "evil-tenant"
+		spoofedAPIKeyID = "evil-api-key-id"
+		spoofedUserID   = "evil-user-id"
+		spoofedSecret   = "evil-secret"
+	)
+	dialer := ws.Dialer{
+		Header: ws.HandshakeHeaderHTTP(http.Header{
+			protocol.HeaderTenantID:       {spoofedTenantID},
+			protocol.HeaderAPIKeyID:       {spoofedAPIKeyID},
+			protocol.HeaderUserID:         {spoofedUserID},
+			protocol.HeaderInternalSecret: {spoofedSecret},
+		}),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(gatewayServer.URL, "http") + "/ws?api_key=valid-key"
+	conn, _, _, _ := dialer.Dial(ctx, wsURL)
+	if conn != nil {
+		defer conn.Close()
+	}
+
+	// Wait for the backend to receive the gateway's dial request.
+	select {
+	case <-backendReady:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for backend to receive the gateway dial")
+	}
+
+	capturedMu.Lock()
+	hdrs := capturedHeaders
+	capturedMu.Unlock()
+
+	// Assert that spoofed headers were stripped by the gateway before dialing.
+	if got := hdrs.Get(protocol.HeaderTenantID); got == spoofedTenantID {
+		t.Errorf("backend received spoofed %s = %q; gateway must strip client-supplied identity headers", protocol.HeaderTenantID, got)
+	}
+	if got := hdrs.Get(protocol.HeaderAPIKeyID); got == spoofedAPIKeyID {
+		t.Errorf("backend received spoofed %s = %q; gateway must strip client-supplied identity headers", protocol.HeaderAPIKeyID, got)
+	}
+	if got := hdrs.Get(protocol.HeaderUserID); got == spoofedUserID {
+		t.Errorf("backend received spoofed %s = %q; gateway must strip client-supplied identity headers", protocol.HeaderUserID, got)
+	}
+	if got := hdrs.Get(protocol.HeaderInternalSecret); got == spoofedSecret {
+		t.Errorf("backend received spoofed %s = %q; gateway must strip client-supplied identity headers", protocol.HeaderInternalSecret, got)
+	}
+
+	// Assert the gateway-built X-Sukko-Tenant-ID is forwarded correctly.
+	if got := hdrs.Get(protocol.HeaderTenantID); got != "acme" {
+		t.Errorf("backend %s = %q, want %q (gateway-built from auth result)", protocol.HeaderTenantID, got, "acme")
 	}
 }

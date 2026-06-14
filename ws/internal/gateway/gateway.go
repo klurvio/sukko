@@ -22,6 +22,7 @@ import (
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/profiling"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/version"
 )
@@ -363,12 +364,36 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = clientConn.Close() }() // best-effort: connection is shutting down
 
-	// Connect to backend ws-server using gobwas/ws
+	// Connect to backend ws-server using gobwas/ws, injecting identity headers.
 	dialCtx, cancel := context.WithTimeout(ctx, gw.config.DialTimeout)
 	defer cancel()
 
+	// SECURITY: Strip inbound X-Sukko-* headers from the client's request before forwarding.
+	// A WebSocket client must not be able to inject forged identity headers that reach ws-server.
+	// The gateway's own headers (set below) are the sole source of truth for identity.
+	r.Header.Del(protocol.HeaderTenantID)
+	r.Header.Del(protocol.HeaderAPIKeyID)
+	r.Header.Del(protocol.HeaderUserID)
+	r.Header.Del(protocol.HeaderInternalSecret)
+
+	// Build identity headers for ws-server. All auth paths populate X-Sukko-Tenant-ID.
+	// X-Sukko-API-Key-ID is forwarded only when an API key was used.
+	// X-Sukko-User-ID is forwarded only for JWT/jwt+api_key paths (non-empty UserID).
+	// X-Sukko-Internal-Secret is always forwarded verbatim (empty when not configured).
+	dialHeaders := http.Header{}
+	dialHeaders.Set(protocol.HeaderTenantID, tenantID)
+	dialHeaders.Set(protocol.HeaderInternalSecret, gw.config.InternalSecret)
+	if authRes.APIKeyID != "" {
+		dialHeaders.Set(protocol.HeaderAPIKeyID, authRes.APIKeyID)
+	}
+	if authRes.UserID != "" {
+		dialHeaders.Set(protocol.HeaderUserID, authRes.UserID)
+	}
+	RecordIdentityHeadersForwarded()
+
+	dialer := ws.Dialer{Header: ws.HandshakeHeaderHTTP(dialHeaders)}
 	dialStart := time.Now()
-	backendConn, _, _, err := ws.Dial(dialCtx, gw.config.BackendURL)
+	backendConn, _, _, err := dialer.Dial(dialCtx, gw.config.BackendURL)
 	if err != nil {
 		RecordBackendConnect(pkgmetrics.ResultFailed, time.Since(dialStart))
 		closeReason = CloseReasonBackendUnavailable

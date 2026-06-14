@@ -471,6 +471,18 @@ func RecordTokenForceDisconnect(revocationType, transport string) {
 	tokenForceDisconnectsTotal.WithLabelValues(revocationType, transport).Inc()
 }
 
+// --- Identity Header Forwarding Metrics ---
+
+var identityHeadersForwardedTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "gateway_identity_headers_forwarded_total",
+	Help: "Number of WebSocket upgrades where identity headers (X-Sukko-*) were forwarded to ws-server.",
+})
+
+// RecordIdentityHeadersForwarded records an identity header forwarding event.
+func RecordIdentityHeadersForwarded() {
+	identityHeadersForwardedTotal.Inc()
+}
+
 // Interface compliance checks.
 var (
 	_ pkgmetrics.AccessDenialMetrics = (*AccessDenialMetricsAdapter)(nil)

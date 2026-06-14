@@ -51,6 +51,16 @@ const (
 	// Defined here (not in kafka/constants.go) because platform MUST NOT import kafka.
 	MsgCommitOnRevokeTimeoutWarning = "KAFKA_COMMIT_ON_REVOKE_TIMEOUT exceeds recommended threshold relative to KAFKA_SESSION_TIMEOUT; large values may cause rebalance delays in multi-pod deployments"
 
+	// MsgHistoryValkeyMemoryWarning is emitted at startup when WS_HISTORY_ENABLED=true.
+	// Valkey OOM is silent until writes start failing; this gives operators a sizing
+	// estimate before load hits. Assumes 1KB average message size.
+	MsgHistoryValkeyMemoryWarning = "WS_HISTORY_ENABLED=true: size Valkey maxmemory for channels × WS_HISTORY_BUFFER_DEPTH × avg_msg_size × tenants; ensure Valkey maxmemory-policy=allkeys-lru and maxmemory < container memory limit"
+
+	// MsgRegistryValkeyMemoryInfo is emitted at startup when WS_CONNECTIONS_REGISTRY_ENABLED=true.
+	// Mirrors MsgHistoryValkeyMemoryWarning — both data features warn about Valkey footprint at startup.
+	// Assumes 200 channels × 32 bytes per channel name per connection (MaxRegistryChannelsPerConnection).
+	MsgRegistryValkeyMemoryInfo = "WS_CONNECTIONS_REGISTRY_ENABLED=true: size Valkey maxmemory for active_connections × MaxRegistryChannelsPerConnection × avg_channel_name_size; ensure maxmemory-policy=allkeys-lru and maxmemory < container memory limit"
+
 	// BroadcastType constants for BROADCAST_TYPE env var.
 	BroadcastTypeValkey = "valkey"
 
@@ -90,6 +100,40 @@ const (
 	// logFieldChannelPrefix is the zerolog field key for the Valkey channel prefix.
 	// Named "prefix" because ValkeyChannel is now a prefix; the full channel is "{prefix}:{tenantID}".
 	logFieldChannelPrefix = "valkey_channel_prefix"
+
+	// Registry (connections) bound constants.
+	// Defined here (not in registry/) to avoid import cycle: registry → platform is fine,
+	// but platform MUST NOT import registry; these bounds are used in platform.Validate().
+	RegistryValkeyDB = 0 // Valkey database index for all registry and provisioning clients
+
+	MinConnectionsRegistryRestartInitialBackoff = 10 * time.Millisecond
+	MaxConnectionsRegistryRestartInitialBackoff = 60 * time.Second
+	// MinConnectionsRegistryRestartMaxBackoff = 10ms — equal to the initial backoff floor.
+	// Named separately (not shared with MinConnectionsRegistryRestartInitialBackoff) to make
+	// the lower bound on MaxBackoff explicit and enforceable via named constant.
+	MinConnectionsRegistryRestartMaxBackoff = 10 * time.Millisecond
+	MaxConnectionsRegistryRestartMaxBackoff = 5 * time.Minute
+	MinConnectionsRegistryFlushInterval     = 50 * time.Millisecond
+	MaxConnectionsRegistryFlushInterval     = 10 * time.Second
+	MinConnectionsRegistryHeartbeatInterval = 5 * time.Second
+	MaxConnectionsRegistryHeartbeatInterval = 5 * time.Minute
+	MinConnectionsRegistryTTL               = 1 * time.Second
+	MaxConnectionsRegistryTTL               = 3600 * time.Second
+	RegistryHeartbeatTTLDivisor             = 3
+	RegistryStalenessDivisor                = 2
+	MaxRegistryChannelsPerConnection        = 200
+	MinConnectionsRegistryBuffer            = 1
+	MaxConnectionsRegistryBuffer            = 8192
+	MinRegistryWriterShutdownDrainTimeout   = 0 * time.Second // 0 = skip drain entirely (useful for tests)
+	MaxRegistryWriterShutdownDrainTimeout   = 10 * time.Second
+	RetryAfterRegistryUnavailable           = 30 * time.Second // used as int seconds in HTTP Retry-After header
+	MinAdminChannelSubscribeTimeout         = 1 * time.Second
+	MaxAdminChannelSubscribeTimeout         = 60 * time.Second
+
+	// DefaultConnectionsRegistryHeartbeatInterval is the default value of
+	// WS_CONNECTIONS_REGISTRY_HEARTBEAT_INTERVAL. Used by provisioning reader to compute
+	// stale-connection thresholds without hardcoding a magic number.
+	DefaultConnectionsRegistryHeartbeatInterval = 30 * time.Second
 )
 
 // ServerConfig holds all server configuration
@@ -452,6 +496,46 @@ type ServerConfig struct {
 	// HistoryWriterHeartbeatInterval is the ticker interval for lock renewal and bus health checks.
 	HistoryWriterHeartbeatInterval time.Duration `env:"WS_HISTORY_WRITER_HEARTBEAT_INTERVAL" envDefault:"3s"`
 
+	// Connections Registry (Connections Management API — Pro edition)
+	// When false, registryWriter and adminListeners are skipped entirely. X-Sukko-Tenant-ID is
+	// still read unconditionally (tenantHooks and channel subscription require it regardless).
+	ConnectionsRegistryEnabled bool `env:"WS_CONNECTIONS_REGISTRY_ENABLED" envDefault:"false"`
+
+	// ConnectionsRegistryTTL is the Valkey EXPIRE duration for each connection hash.
+	// Heartbeats renew the TTL; if a pod dies without heartbeat, entries expire after this.
+	ConnectionsRegistryTTL time.Duration `env:"WS_CONNECTIONS_REGISTRY_TTL" envDefault:"120s"`
+
+	// ConnectionsRegistryBuffer is the internal channel buffer for registry events
+	// (connect, disconnect, subscribe, unsubscribe, heartbeat).
+	ConnectionsRegistryBuffer int `env:"WS_CONNECTIONS_REGISTRY_BUFFER" envDefault:"1024"`
+
+	// ConnectionsRegistryFlushInterval is the tick interval for flushing buffered events to Valkey.
+	ConnectionsRegistryFlushInterval time.Duration `env:"WS_CONNECTIONS_REGISTRY_FLUSH_INTERVAL" envDefault:"5s"`
+
+	// ConnectionsRegistryHeartbeatInterval is how often the registry writer renews TTLs and writes health keys.
+	ConnectionsRegistryHeartbeatInterval time.Duration `env:"WS_CONNECTIONS_REGISTRY_HEARTBEAT_INTERVAL" envDefault:"30s"`
+
+	// ConnectionsRegistryRestartInitialBackoff is the initial restart delay after a registryWriter failure.
+	ConnectionsRegistryRestartInitialBackoff time.Duration `env:"WS_CONNECTIONS_REGISTRY_RESTART_INITIAL_BACKOFF" envDefault:"100ms"`
+
+	// ConnectionsRegistryRestartMaxBackoff is the maximum restart delay after repeated failures.
+	ConnectionsRegistryRestartMaxBackoff time.Duration `env:"WS_CONNECTIONS_REGISTRY_RESTART_MAX_BACKOFF" envDefault:"30s"`
+
+	// ConnectionsRegistryShutdownDrainTimeout is how long to wait draining buffered events on shutdown.
+	// 0 = skip drain entirely (useful for tests).
+	ConnectionsRegistryShutdownDrainTimeout time.Duration `env:"WS_CONNECTIONS_REGISTRY_SHUTDOWN_DRAIN_TIMEOUT" envDefault:"100ms"`
+
+	// AdminChannelSubscribeTimeout is the timeout for each shard's synchronous SUBSCRIBE call at startup.
+	AdminChannelSubscribeTimeout time.Duration `env:"WS_ADMIN_CHANNEL_SUBSCRIBE_TIMEOUT" envDefault:"10s"`
+
+	// InternalSecretEnabled controls whether ws-server validates X-Sukko-Internal-Secret.
+	// When true, WS_INTERNAL_SECRET must be non-empty or startup fails.
+	InternalSecretEnabled bool `env:"WS_INTERNAL_SECRET_ENABLED" envDefault:"false"`
+
+	// InternalSecret is the shared secret forwarded by the gateway as X-Sukko-Internal-Secret.
+	// redact:"true" prevents the /config endpoint from exposing this value.
+	InternalSecret string `env:"WS_INTERNAL_SECRET" redact:"true"`
+
 	// editionManager holds the license-resolved edition and limits.
 	// Set by LoadServerConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.
 	editionManager *license.Manager
@@ -507,6 +591,30 @@ func LoadServerConfig(logger zerolog.Logger) (*ServerConfig, error) {
 			Dur("commit_on_revoke_timeout", cfg.KafkaCommitOnRevokeTimeout).
 			Dur("session_timeout", cfg.KafkaSessionTimeout).
 			Msg(MsgCommitOnRevokeTimeoutWarning)
+	}
+
+	// Warn on estimated Valkey memory pressure from history.
+	// Gives operators a concrete sizing estimate at startup so they can right-size
+	// Valkey maxmemory before load hits. Assumes 1KB average message size.
+	if cfg.HistoryEnabled {
+		logger.Warn().
+			Int("history_buffer_depth", cfg.HistoryBufferDepth).
+			Dur("history_ttl", cfg.HistoryTTL).
+			Str("valkey_memory_formula", "channels × WS_HISTORY_BUFFER_DEPTH × avg_msg_size × tenants").
+			Str("example_1k_msg_100ch_10tenants", fmt.Sprintf("~%dMB",
+				cfg.HistoryBufferDepth*100*10*1024/(1024*1024))).
+			Msg(MsgHistoryValkeyMemoryWarning)
+	}
+
+	// Inform operators of estimated Valkey memory footprint from the connections registry.
+	// Assumes MaxRegistryChannelsPerConnection channels × ~30 bytes per channel name.
+	if cfg.ConnectionsRegistryEnabled {
+		logger.Info().
+			Int("registry_ttl_seconds", int(cfg.ConnectionsRegistryTTL.Seconds())).
+			Int("max_channels_per_connection", MaxRegistryChannelsPerConnection).
+			Str("example_10k_connections", fmt.Sprintf("~%dMB",
+				10000*MaxRegistryChannelsPerConnection*30/(1024*1024)+10)).
+			Msg(MsgRegistryValkeyMemoryInfo)
 	}
 
 	return cfg, nil
@@ -1024,6 +1132,50 @@ func (c *ServerConfig) Validate() error {
 		}
 	}
 
+	// Registry validation — UNCONDITIONAL per spec FR-010.
+	// Validates bounds regardless of ConnectionsRegistryEnabled so misconfigurations are
+	// caught before the feature is turned on. Also validates InternalSecret.
+	if c.ConnectionsRegistryBuffer < MinConnectionsRegistryBuffer || c.ConnectionsRegistryBuffer > MaxConnectionsRegistryBuffer {
+		return fmt.Errorf("WS_CONNECTIONS_REGISTRY_BUFFER must be %d-%d, got %d", MinConnectionsRegistryBuffer, MaxConnectionsRegistryBuffer, c.ConnectionsRegistryBuffer)
+	}
+	if c.ConnectionsRegistryTTL < MinConnectionsRegistryTTL || c.ConnectionsRegistryTTL > MaxConnectionsRegistryTTL {
+		return fmt.Errorf("WS_CONNECTIONS_REGISTRY_TTL must be %v-%v, got %v", MinConnectionsRegistryTTL, MaxConnectionsRegistryTTL, c.ConnectionsRegistryTTL)
+	}
+	if c.ConnectionsRegistryFlushInterval < MinConnectionsRegistryFlushInterval || c.ConnectionsRegistryFlushInterval > MaxConnectionsRegistryFlushInterval {
+		return fmt.Errorf("WS_CONNECTIONS_REGISTRY_FLUSH_INTERVAL must be %v-%v, got %v", MinConnectionsRegistryFlushInterval, MaxConnectionsRegistryFlushInterval, c.ConnectionsRegistryFlushInterval)
+	}
+	if c.ConnectionsRegistryHeartbeatInterval < MinConnectionsRegistryHeartbeatInterval || c.ConnectionsRegistryHeartbeatInterval > MaxConnectionsRegistryHeartbeatInterval {
+		return fmt.Errorf("WS_CONNECTIONS_REGISTRY_HEARTBEAT_INTERVAL must be %v-%v, got %v", MinConnectionsRegistryHeartbeatInterval, MaxConnectionsRegistryHeartbeatInterval, c.ConnectionsRegistryHeartbeatInterval)
+	}
+	if c.ConnectionsRegistryRestartInitialBackoff < MinConnectionsRegistryRestartInitialBackoff || c.ConnectionsRegistryRestartInitialBackoff > MaxConnectionsRegistryRestartInitialBackoff {
+		return fmt.Errorf("WS_CONNECTIONS_REGISTRY_RESTART_INITIAL_BACKOFF must be %v-%v, got %v", MinConnectionsRegistryRestartInitialBackoff, MaxConnectionsRegistryRestartInitialBackoff, c.ConnectionsRegistryRestartInitialBackoff)
+	}
+	if c.ConnectionsRegistryRestartMaxBackoff < MinConnectionsRegistryRestartMaxBackoff || c.ConnectionsRegistryRestartMaxBackoff > MaxConnectionsRegistryRestartMaxBackoff {
+		return fmt.Errorf("WS_CONNECTIONS_REGISTRY_RESTART_MAX_BACKOFF must be %v-%v, got %v", MinConnectionsRegistryRestartMaxBackoff, MaxConnectionsRegistryRestartMaxBackoff, c.ConnectionsRegistryRestartMaxBackoff)
+	}
+	if c.ConnectionsRegistryShutdownDrainTimeout < MinRegistryWriterShutdownDrainTimeout || c.ConnectionsRegistryShutdownDrainTimeout > MaxRegistryWriterShutdownDrainTimeout {
+		return fmt.Errorf("WS_CONNECTIONS_REGISTRY_SHUTDOWN_DRAIN_TIMEOUT must be %v-%v, got %v", MinRegistryWriterShutdownDrainTimeout, MaxRegistryWriterShutdownDrainTimeout, c.ConnectionsRegistryShutdownDrainTimeout)
+	}
+	if c.AdminChannelSubscribeTimeout < MinAdminChannelSubscribeTimeout || c.AdminChannelSubscribeTimeout > MaxAdminChannelSubscribeTimeout {
+		return fmt.Errorf("WS_ADMIN_CHANNEL_SUBSCRIBE_TIMEOUT must be %v-%v, got %v", MinAdminChannelSubscribeTimeout, MaxAdminChannelSubscribeTimeout, c.AdminChannelSubscribeTimeout)
+	}
+	// Cross-field checks
+	if c.ConnectionsRegistryTTL <= c.ConnectionsRegistryHeartbeatInterval*RegistryHeartbeatTTLDivisor {
+		return fmt.Errorf("WS_CONNECTIONS_REGISTRY_TTL (%v) must be > WS_CONNECTIONS_REGISTRY_HEARTBEAT_INTERVAL × %d (%v) to ensure TTL renewal before expiry",
+			c.ConnectionsRegistryTTL, RegistryHeartbeatTTLDivisor, c.ConnectionsRegistryHeartbeatInterval*RegistryHeartbeatTTLDivisor)
+	}
+	if c.ConnectionsRegistryFlushInterval > c.ConnectionsRegistryHeartbeatInterval {
+		return fmt.Errorf("WS_CONNECTIONS_REGISTRY_FLUSH_INTERVAL (%v) must be <= WS_CONNECTIONS_REGISTRY_HEARTBEAT_INTERVAL (%v)",
+			c.ConnectionsRegistryFlushInterval, c.ConnectionsRegistryHeartbeatInterval)
+	}
+	if c.ConnectionsRegistryRestartInitialBackoff >= c.ConnectionsRegistryRestartMaxBackoff {
+		return fmt.Errorf("WS_CONNECTIONS_REGISTRY_RESTART_INITIAL_BACKOFF (%v) must be < WS_CONNECTIONS_REGISTRY_RESTART_MAX_BACKOFF (%v)",
+			c.ConnectionsRegistryRestartInitialBackoff, c.ConnectionsRegistryRestartMaxBackoff)
+	}
+	if c.InternalSecretEnabled && c.InternalSecret == "" {
+		return errors.New("WS_INTERNAL_SECRET must be set when WS_INTERNAL_SECRET_ENABLED=true")
+	}
+
 	// Edition gates — checked after all other validation passes.
 	// Uses startup-resolved Edition()/Limits(), NOT expiry-aware CurrentEdition()/CurrentLimits().
 	// Config validation runs once at startup; runtime gates use CurrentLimits() for mid-flight expiry.
@@ -1043,6 +1195,9 @@ func (c *ServerConfig) Validate() error {
 		}
 		if c.HistoryEnabled && !license.EditionHasFeature(edition, license.MessageHistory) {
 			return license.NewFeatureError(license.MessageHistory, edition)
+		}
+		if c.ConnectionsRegistryEnabled && !license.EditionHasFeature(edition, license.ConnectionsAPI) {
+			return license.NewFeatureError(license.ConnectionsAPI, edition)
 		}
 
 		// Hard limit gates — validate configured capacity doesn't exceed edition limits

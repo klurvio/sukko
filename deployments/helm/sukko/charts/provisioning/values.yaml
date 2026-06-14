@@ -46,6 +46,23 @@ ingress:
 kafka:
   brokers: ""
 
+# Connections registry Valkey address, authentication and TLS.
+# addrs defaults to {{ .Release.Name }}-valkey:6379 (in-cluster). Override for external Valkey.
+# Set password when the Valkey chart has auth.enabled=true (the default).
+valkey:
+  # enabled: Set to false for Community edition deployments without a Valkey instance.
+  # Pro+ (ConnectionsAPI feature) requires Valkey — leave enabled: true.
+  enabled: true
+  addrs: ""             # Override in-cluster default (e.g. "external-valkey.example.com:6379")
+  # Prefer existingSecret in production to avoid storing credentials in Helm values/etcd.
+  # existingSecret: ""      # Name of a Kubernetes Secret containing the Valkey password.
+  # existingSecretKey: ""   # Key within the Secret (default: "valkey-password").
+  # password: ""            # Plaintext fallback — only for local/dev environments.
+  tls:
+    enabled: false
+    insecureSkipVerify: false
+    caPath: ""
+
 # Override any Go envDefault. See /config endpoint for all available settings.
 # Example: { LOG_LEVEL: "debug", CORS_ALLOWED_ORIGINS: "https://admin.example.com" }
 extraEnv: {}

@@ -1461,6 +1461,206 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/tenants/{tenantSlug}/connections:
+    get:
+      summary: List active connections for a tenant
+      operationId: listConnections
+      tags: [Connections]
+      description: Returns live WebSocket connections for the authenticated tenant. Requires Pro edition.
+      parameters:
+        - $ref: "#/components/parameters/tenantSlug"
+        - name: api_key_id
+          in: query
+          schema:
+            type: string
+          description: Filter by API key database ID.
+        - name: channel
+          in: query
+          schema:
+            type: string
+          description: Filter by subscribed channel name (exact match).
+        - name: transport
+          in: query
+          schema:
+            type: string
+            enum: [ws, sse]
+          description: Filter by transport type.
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: List of active connections
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionListResponse"
+        "503":
+          description: Registry unavailable — retry after the Retry-After header value
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Force-disconnect connections matching a filter (bulk)
+      operationId: bulkDisconnectConnections
+      tags: [Connections]
+      description: |
+        Force-disconnects all connections matching the provided filter(s). At least one filter is required.
+        Returns 202 Accepted immediately; the re-query goroutine fires after ~10s to disconnect connections
+        registered after the initial query. Requires Pro edition.
+      parameters:
+        - $ref: "#/components/parameters/tenantSlug"
+        - name: api_key_id
+          in: query
+          schema:
+            type: string
+          description: Disconnect all connections authenticated with this API key ID.
+        - name: channel
+          in: query
+          schema:
+            type: string
+          description: Disconnect all connections subscribed to this channel.
+      responses:
+        "202":
+          description: Bulk disconnect accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkDisconnectResponse"
+        "400":
+          description: No filter provided
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Registry unavailable
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/tenants/{tenantSlug}/connections/{connId}:
+    get:
+      summary: Get a single connection by ID
+      operationId: getConnection
+      tags: [Connections]
+      parameters:
+        - $ref: "#/components/parameters/tenantSlug"
+        - name: connId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Connection detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionDetail"
+        "404":
+          description: Connection not found or belongs to a different tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Registry unavailable
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Force-disconnect a single connection
+      operationId: forceDisconnectConnection
+      tags: [Connections]
+      parameters:
+        - $ref: "#/components/parameters/tenantSlug"
+        - name: connId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Force-disconnect command published successfully
+        "404":
+          description: |
+            Connection not found, belongs to a different tenant, or the target pod has no active
+            subscribers (stale registry entry). Retry-After: 1 — connections registered within the
+            last WS_CONNECTIONS_REGISTRY_FLUSH_INTERVAL may not yet appear in the registry.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Admin channel unavailable — admin listener reconnecting.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/connections:
+    get:
+      summary: List active connections across all tenants (admin)
+      operationId: adminListConnections
+      tags: [Connections, Admin]
+      description: Requires admin JWT. Returns connections across all tenants with optional filters.
+      parameters:
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+        - name: pod_id
+          in: query
+          schema:
+            type: string
+        - name: transport
+          in: query
+          schema:
+            type: string
+            enum: [ws, sse]
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Cross-tenant connection list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionListResponse"
+        "503":
+          description: Registry unavailable
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1508,6 +1708,79 @@ components:
       description: Number of items to skip
 
   schemas:
+    ConnectionDetail:
+      type: object
+      required: [connection_id, tenant_id, pod_id, shard_id, remote_ip, transport, connected_at, channels, registry_status]
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+        api_key_id:
+          type: string
+          description: Stable database ID of the API key; omitted for JWT-only auth.
+        user_id:
+          type: string
+          description: JWT subject claim; omitted for API-key-only auth.
+        pod_id:
+          type: string
+        shard_id:
+          type: string
+        remote_ip:
+          type: string
+        transport:
+          type: string
+          enum: [ws, sse]
+        connected_at:
+          type: string
+          format: date-time
+        channels:
+          type: array
+          items:
+            type: string
+        channels_capped:
+          type: boolean
+          description: True when the connection's channel list was capped at MaxRegistryChannelsPerConnection (200).
+        registry_status:
+          type: string
+          enum: [current, possibly_stale]
+          description: |
+            `current` — all health indicators are green.
+            `possibly_stale` — one or more health signals are degraded (drops > 0, stale heartbeat, admin channel unhealthy, or health key absent).
+
+    BulkDisconnectResponse:
+      type: object
+      required: [disconnected, errors, channels_capped_warning, re_query_skipped]
+      properties:
+        disconnected:
+          type: integer
+          description: Number of connections successfully published a disconnect command.
+        errors:
+          type: integer
+          description: Number of connections where the disconnect failed (unhealthy pod or Valkey error).
+        channels_capped_warning:
+          type: boolean
+          description: True when at least one connection's channel list was capped; the filter may have missed some channels.
+        re_query_skipped:
+          type: boolean
+          description: True when the re-query goroutine was not launched (WG unavailable). Normally false.
+
+    ConnectionListResponse:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectionDetail"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
     ErrorResponse:
       type: object
       required: [code, message]

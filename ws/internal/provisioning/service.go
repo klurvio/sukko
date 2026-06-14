@@ -928,6 +928,12 @@ func (s *Service) auditLog(ctx context.Context, tenantID, action string, details
 	}
 }
 
+// AuditLog writes an audit log entry with the actor resolved from ctx.
+// Exported so handlers outside the service (e.g., ConnectionsHandler) can write audit entries.
+func (s *Service) AuditLog(ctx context.Context, tenantID, action string, details Metadata) {
+	s.auditLog(ctx, tenantID, action, details)
+}
+
 // emitEvent publishes a provisioning change event to the event bus.
 // EventBus is guaranteed non-nil by NewService constructor validation.
 func (s *Service) emitEvent(eventType eventbus.EventType) {

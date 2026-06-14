@@ -22,6 +22,7 @@ func (t *noopTransport) SendBatch(_ []OutgoingMsg) (int, error) { return 0, nil 
 func (t *noopTransport) WritePing() error                       { return nil }
 func (t *noopTransport) WritePong(_ []byte) error               { return nil }
 func (t *noopTransport) Close() error                           { return nil }
+func (t *noopTransport) CloseWithCode(_ int, _ string) error    { return nil }
 func (t *noopTransport) SetWriteDeadline(_ time.Time) error     { return nil }
 func (t *noopTransport) Type() TransportType                    { return "noop" }
 func (t *noopTransport) RemoteAddr() string                     { return "127.0.0.1:0" }
@@ -38,6 +39,7 @@ func (t *errTransport) SendBatch(_ []OutgoingMsg) (int, error) { return 0, t.sen
 func (t *errTransport) WritePing() error                       { return nil }
 func (t *errTransport) WritePong(_ []byte) error               { return nil }
 func (t *errTransport) Close() error                           { return nil }
+func (t *errTransport) CloseWithCode(_ int, _ string) error    { return nil }
 func (t *errTransport) SetWriteDeadline(_ time.Time) error     { return nil }
 func (t *errTransport) Type() TransportType                    { return "err" }
 func (t *errTransport) RemoteAddr() string                     { return "127.0.0.1:0" }

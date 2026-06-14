@@ -36,6 +36,8 @@ type authResult struct {
 	APIKeyOnly     bool         // True if only API key was provided (no JWT)
 	APIKeyTenantID string       // API key tenant (for cross-validation)
 	AuthMethod     string       // "none", "api_key", "jwt", "jwt+api_key" — for metrics and logging
+	APIKeyID       string       // Stable database ID of the API key (APIKeyInfo.KeyID); empty if no API key was used
+	UserID         string       // JWT subject claim; empty for API-key-only auth
 }
 
 // authenticateRequest validates credentials from the HTTP request.
@@ -79,6 +81,8 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 			APIKeyOnly:     true,
 			APIKeyTenantID: info.TenantID,
 			AuthMethod:     "api_key",
+			APIKeyID:       info.KeyID,
+			// UserID is empty for API-key-only auth (no JWT subject to forward).
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).
@@ -119,6 +123,8 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 			Principal:  claims.Subject,
 			TenantID:   claims.TenantID,
 			AuthMethod: "jwt",
+			UserID:     claims.Subject,
+			// APIKeyID is empty for JWT-only auth.
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).
@@ -183,6 +189,8 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 			TenantID:       claims.TenantID,
 			APIKeyTenantID: info.TenantID,
 			AuthMethod:     "jwt+api_key",
+			APIKeyID:       info.KeyID,
+			UserID:         claims.Subject,
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).

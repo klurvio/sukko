@@ -147,6 +147,15 @@ func newValidServerConfig() *ServerConfig {
 		// Gap notification and live replay (T004)
 		GapNotifyBufferSize:     8,
 		ReplayRateLimitInterval: 10 * time.Second,
+		// Connections registry (validated unconditionally)
+		ConnectionsRegistryBuffer:                1024,
+		ConnectionsRegistryTTL:                   120 * time.Second,
+		ConnectionsRegistryFlushInterval:         5 * time.Second,
+		ConnectionsRegistryHeartbeatInterval:     30 * time.Second,
+		ConnectionsRegistryRestartInitialBackoff: 100 * time.Millisecond,
+		ConnectionsRegistryRestartMaxBackoff:     30 * time.Second,
+		ConnectionsRegistryShutdownDrainTimeout:  100 * time.Millisecond,
+		AdminChannelSubscribeTimeout:             10 * time.Second,
 	}
 }
 
@@ -1872,6 +1881,122 @@ func TestServerConfig_ValidateEditionLimits(t *testing.T) {
 				t.Fatal("expected error, got nil")
 			}
 			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestServerConfig_Validate_Registry(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		modify  func(*ServerConfig)
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid defaults",
+			modify:  func(c *ServerConfig) {},
+			wantErr: false,
+		},
+		{
+			name:    "buffer at min (1)",
+			modify:  func(c *ServerConfig) { c.ConnectionsRegistryBuffer = MinConnectionsRegistryBuffer },
+			wantErr: false,
+		},
+		{
+			name:    "buffer at max (8192)",
+			modify:  func(c *ServerConfig) { c.ConnectionsRegistryBuffer = MaxConnectionsRegistryBuffer },
+			wantErr: false,
+		},
+		{
+			name:    "buffer below min (0)",
+			modify:  func(c *ServerConfig) { c.ConnectionsRegistryBuffer = 0 },
+			wantErr: true,
+			errMsg:  "WS_CONNECTIONS_REGISTRY_BUFFER",
+		},
+		{
+			name:    "buffer above max (8193)",
+			modify:  func(c *ServerConfig) { c.ConnectionsRegistryBuffer = MaxConnectionsRegistryBuffer + 1 },
+			wantErr: true,
+			errMsg:  "WS_CONNECTIONS_REGISTRY_BUFFER",
+		},
+		{
+			name: "shutdown drain at min (0=ok, skip drain)",
+			modify: func(c *ServerConfig) {
+				c.ConnectionsRegistryShutdownDrainTimeout = MinRegistryWriterShutdownDrainTimeout
+			},
+			wantErr: false,
+		},
+		{
+			name: "shutdown drain above max",
+			modify: func(c *ServerConfig) {
+				c.ConnectionsRegistryShutdownDrainTimeout = MaxRegistryWriterShutdownDrainTimeout + time.Second
+			},
+			wantErr: true,
+			errMsg:  "WS_CONNECTIONS_REGISTRY_SHUTDOWN_DRAIN_TIMEOUT",
+		},
+		{
+			name:    "internal secret enabled with empty secret",
+			modify:  func(c *ServerConfig) { c.InternalSecretEnabled = true; c.InternalSecret = "" },
+			wantErr: true,
+			errMsg:  "WS_INTERNAL_SECRET",
+		},
+		{
+			name:    "internal secret enabled with non-empty secret",
+			modify:  func(c *ServerConfig) { c.InternalSecretEnabled = true; c.InternalSecret = "secret" },
+			wantErr: false,
+		},
+		{
+			name:    "internal secret disabled empty secret ok",
+			modify:  func(c *ServerConfig) { c.InternalSecretEnabled = false; c.InternalSecret = "" },
+			wantErr: false,
+		},
+		{
+			name:    "admin subscribe timeout below min",
+			modify:  func(c *ServerConfig) { c.AdminChannelSubscribeTimeout = 500 * time.Millisecond },
+			wantErr: true,
+			errMsg:  "WS_ADMIN_CHANNEL_SUBSCRIBE_TIMEOUT",
+		},
+		{
+			name:    "admin subscribe timeout above max",
+			modify:  func(c *ServerConfig) { c.AdminChannelSubscribeTimeout = MaxAdminChannelSubscribeTimeout + time.Second },
+			wantErr: true,
+			errMsg:  "WS_ADMIN_CHANNEL_SUBSCRIBE_TIMEOUT",
+		},
+		{
+			name: "flush interval exceeds heartbeat",
+			modify: func(c *ServerConfig) {
+				c.ConnectionsRegistryFlushInterval = c.ConnectionsRegistryHeartbeatInterval + time.Second
+			},
+			wantErr: true,
+			errMsg:  "WS_CONNECTIONS_REGISTRY_FLUSH_INTERVAL",
+		},
+		{
+			name: "initial backoff must be less than max backoff",
+			modify: func(c *ServerConfig) {
+				c.ConnectionsRegistryRestartInitialBackoff = c.ConnectionsRegistryRestartMaxBackoff
+			},
+			wantErr: true,
+			errMsg:  "WS_CONNECTIONS_REGISTRY_RESTART_INITIAL_BACKOFF",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidServerConfig()
+			tt.modify(cfg)
+			err := cfg.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected validation error, got nil")
+				}
+				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("error %q does not contain expected string %q", err.Error(), tt.errMsg)
+				}
+			} else if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})

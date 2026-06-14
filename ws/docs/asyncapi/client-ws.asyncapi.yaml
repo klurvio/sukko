@@ -47,6 +47,7 @@ info:
     | 1001 | Going away | Server shutting down (graceful) |
     | 1008 | Policy violation | Slow client disconnected after max delivery attempts |
     | 1011 | Internal error | Unexpected server error |
+    | 4000 | force_disconnect | Operator-initiated force-disconnect via Connections Management API (`DELETE /connections/{connId}`) |
 
     ## JWT Claims
 

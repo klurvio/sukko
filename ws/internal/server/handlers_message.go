@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/klurvio/sukko/internal/server/backend"
@@ -146,31 +145,18 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 			return
 		}
 
-		// Wire per-tenant broadcast subscription on first subscribe.
-		// TenantID is the first segment of the channel (e.g., "acme" from "acme.BTC.trade").
-		// This is safe to call multiple times only once — the guard on c.tenantID == "" ensures
-		// OnTenantClientConnect is called exactly once per WebSocket connection lifetime.
-		if c.tenantID == "" && s.tenantHooks != nil && len(channels) > 0 {
-			tenantID, _, ok := strings.Cut(channels[0], ".")
-			if ok && tenantID != "" {
-				if err := s.tenantHooks.OnTenantClientConnect(tenantID); err != nil {
-					s.logger.Error().
-						Err(err).
-						Int64("client_id", c.id).
-						Str("tenant_id", tenantID).
-						Msg("OnTenantClientConnect failed, rejecting subscribe")
-					s.sendErrorToClient(c, RespTypeSubscribeError, protocol.ErrCodeNotAvailable, "failed to establish tenant broadcast channel")
-					return
-				}
-				c.tenantID = tenantID
-			}
-		}
-
 		// Add subscriptions to client's local set
 		c.subscriptions.AddMultiple(channels)
 
 		// Add to global subscription index for fast broadcast targeting
 		s.subscriptionIndex.AddMultiple(channels, c)
+
+		// Push subscribe event to registry (snapshot taken after add, non-blocking).
+		if s.config != nil && s.config.ConnectionsRegistryEnabled && s.registryWriter != nil && c.connID != "" {
+			snapshot := c.subscriptions.List()
+			capped := len(snapshot) >= s.config.MaxChannelsPerClient
+			s.registryWriter.PushSubscribe(c.connID, snapshot, capped)
+		}
 
 		s.logger.Info().
 			Int64("client_id", c.id).
@@ -221,6 +207,13 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 
 		// Remove from global subscription index
 		s.subscriptionIndex.RemoveMultiple(unsubReq.Channels, c)
+
+		// Push unsubscribe event to registry (snapshot taken after removal, non-blocking).
+		if s.config != nil && s.config.ConnectionsRegistryEnabled && s.registryWriter != nil && c.connID != "" {
+			snapshot := c.subscriptions.List()
+			capped := len(snapshot) >= s.config.MaxChannelsPerClient
+			s.registryWriter.PushUnsubscribe(c.connID, snapshot, capped)
+		}
 
 		s.logger.Info().
 			Int64("client_id", c.id).

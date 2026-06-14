@@ -1,15 +1,18 @@
 package server
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"time"
 
 	"github.com/gobwas/ws"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/server/metrics"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // WebSocket upgrade handler
@@ -17,7 +20,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	clientIP := httputil.GetClientIP(r)
 
-	// DEBUG: Log incoming WebSocket upgrade request
 	s.logger.Debug().
 		Str("remote_addr", r.RemoteAddr).
 		Str("client_ip", clientIP).
@@ -26,7 +28,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Str("upgrade", r.Header.Get("Upgrade")).
 		Str("connection", r.Header.Get("Connection")).
 		Str("sec_websocket_version", r.Header.Get("Sec-WebSocket-Version")).
-		Str("sec_websocket_key", r.Header.Get("Sec-WebSocket-Key")).
 		Msg("WebSocket upgrade request received")
 
 	// Reject new connections during graceful shutdown
@@ -64,7 +65,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	shouldAccept, reason := s.resourceGuard.ShouldAcceptConnection()
 	if !shouldAccept {
 		currentConnections := s.stats.CurrentConnections.Load()
-		// DEBUG: Enhanced ResourceGuard rejection logging
 		s.logger.Warn().
 			Str("client_ip", clientIP).
 			Int64("current_connections", currentConnections).
@@ -77,7 +77,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// DEBUG: ResourceGuard accepted connection
 	// Guard with level check to avoid unnecessary atomic load when debug disabled
 	if s.logger.GetLevel() <= zerolog.DebugLevel {
 		s.logger.Debug().
@@ -86,6 +85,27 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			Int("max_connections", s.maxConns).
 			Msg("ResourceGuard accepted connection")
 	}
+
+	// Read and validate identity headers forwarded by the gateway.
+	// Must happen BEFORE ws.UpgradeHTTP — after upgrade, http.Error cannot be sent.
+	tenantID := r.Header.Get(protocol.HeaderTenantID)
+	if tenantID == "" {
+		http.Error(w, "missing tenant ID", http.StatusBadRequest)
+		return
+	}
+	if s.config != nil && s.config.InternalSecretEnabled {
+		received := r.Header.Get(protocol.HeaderInternalSecret)
+		if subtle.ConstantTimeCompare([]byte(received), []byte(s.config.InternalSecret)) != 1 {
+			s.logger.Warn().
+				Str("tenant_id", tenantID).
+				Str("client_ip", clientIP).
+				Msg("WebSocket upgrade rejected: invalid internal secret")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+	apiKeyID := r.Header.Get(protocol.HeaderAPIKeyID)
+	userID := r.Header.Get(protocol.HeaderUserID) // "" for API-key-only auth (same as absent header)
 
 	// NOTE: Authentication is now handled by ws-gateway (proxy layer)
 	// ws-server is a dumb broadcaster - no auth logic here
@@ -106,7 +126,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// DEBUG: Log before upgrade attempt
 	upgradeStart := time.Now()
 	s.logger.Debug().
 		Str("client_ip", clientIP).
@@ -118,7 +137,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		<-s.connectionsSem // Release slot
-		// DEBUG: Enhanced upgrade failure logging
 		s.alertLogger.Error("WebSocketUpgradeFailed", "Failed to upgrade HTTP connection to WebSocket", map[string]any{
 			"error":            err.Error(),
 			"remoteAddr":       r.RemoteAddr,
@@ -138,7 +156,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// DEBUG: Successful upgrade logging
 	s.logger.Debug().
 		Str("client_ip", clientIP).
 		Dur("upgrade_duration_ms", upgradeDuration).
@@ -150,6 +167,29 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	client.server = s
 	client.id = s.clientCount.Add(1)
 	client.remoteAddr = clientIP
+	client.tenantID = tenantID
+	client.apiKeyID = apiKeyID
+	client.userID = userID
+	if s.config != nil && s.config.ConnectionsRegistryEnabled {
+		client.connID = uuid.New().String()
+	}
+
+	// Wire per-tenant broadcast subscription now that tenantID is known from the header.
+	// OnTenantClientConnect is idempotent-guarded inside the hooks implementation — safe to call here.
+	if s.tenantHooks != nil && tenantID != "" {
+		if err := s.tenantHooks.OnTenantClientConnect(tenantID); err != nil {
+			// Fail the connection — cannot receive broadcast without the tenant channel.
+			client.transport.Close() //nolint:errcheck,gosec // G104: best-effort; connection is being dropped
+			s.connections.Put(client)
+			<-s.connectionsSem
+			s.logger.Error().
+				Err(err).
+				Int64("client_id", client.id).
+				Str("tenant_id", tenantID).
+				Msg("OnTenantClientConnect failed, rejecting connection")
+			return
+		}
+	}
 
 	s.clients.Store(client, true)
 	s.stats.TotalConnections.Add(1)
@@ -158,9 +198,20 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Update Prometheus metrics
 	metrics.UpdateConnectionMetrics(string(TransportWebSocket))
 
+	// Push registry connect event (non-blocking).
+	if s.config != nil && s.config.ConnectionsRegistryEnabled && s.registryWriter != nil && client.connID != "" {
+		s.registryWriter.PushConnect(
+			client.connID, tenantID, apiKeyID, userID,
+			s.config.PodID, s.shardID,
+			clientIP, string(TransportWebSocket),
+			client.connectedAt,
+		)
+	}
+
 	// Client fully initialized, starting pumps
 	s.logger.Info().
 		Str("client_ip", clientIP).
+		Str("tenant_id", tenantID).
 		Int64("client_id", client.id).
 		Int64("current_connections", currentConns).
 		Dur("total_setup_time_ms", time.Since(startTime)).

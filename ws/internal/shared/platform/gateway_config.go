@@ -76,6 +76,11 @@ type GatewayConfig struct {
 	// Graceful shutdown timeout
 	ShutdownTimeout time.Duration `env:"GATEWAY_SHUTDOWN_TIMEOUT" envDefault:"30s"`
 
+	// InternalSecret is forwarded verbatim as X-Sukko-Internal-Secret to ws-server.
+	// No envDefault — empty string is valid when ws-server WS_INTERNAL_SECRET_ENABLED=false.
+	// redact:"true" prevents the /config endpoint from exposing this value.
+	InternalSecret string `env:"WS_INTERNAL_SECRET" redact:"true"`
+
 	// SSE + REST Publish (Pro edition)
 	ServerGRPCAddr string `env:"SERVER_GRPC_ADDR" envDefault:"localhost:3006"` // ws-server gRPC address for RealtimeService
 	// Push service gRPC address for PushService (RegisterDevice, UnregisterDevice, GetVAPIDKey)
@@ -120,6 +125,14 @@ func LoadGatewayConfig(logger zerolog.Logger) (*GatewayConfig, error) {
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("gateway config validation failed: %w", err)
+	}
+
+	// Defense-in-depth: warn when secret is empty in non-local environments so operators
+	// can catch misconfigured deployments before they reach production traffic.
+	if cfg.InternalSecret == "" && cfg.Environment != "local" {
+		logger.Warn().
+			Str("environment", cfg.Environment).
+			Msg("WS_INTERNAL_SECRET is empty — gateway will forward empty X-Sukko-Internal-Secret header; ensure ws-server WS_INTERNAL_SECRET_ENABLED=false in this environment")
 	}
 
 	return cfg, nil

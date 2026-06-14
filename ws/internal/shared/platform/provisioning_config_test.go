@@ -57,6 +57,10 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		SlugRenameTopicHoldPeriod:   7 * 24 * time.Hour,                                                 // 168h default
 		TokenRevocationMaxLifetime:  time.Hour,                                                          // 1h default
 		CredentialsEncryptionKey:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // 64-char hex = 32 bytes
+		ValkeyConfig: ValkeyClientConfig{
+			Addrs: []string{"localhost:6379"},
+		},
+		BulkDisconnectConcurrency: 10,
 	}
 }
 
@@ -645,6 +649,74 @@ func TestProvisioningConfig_Validate_TokenRevocationMaxLifetime(t *testing.T) {
 				}
 			} else if err != nil {
 				t.Errorf("Should not error: %v", err)
+			}
+		})
+	}
+}
+
+func TestProvisioningConfig_Validate_ValkeyAddrs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		addrs   []string
+		wantErr bool
+	}{
+		{"valid single addr", []string{"localhost:6379"}, false},
+		{"valid multiple addrs", []string{"a:6379", "b:6379"}, false},
+		{"empty slice", []string{}, true},
+		{"nil slice", nil, true},
+		{"whitespace only entry", []string{"   "}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidProvisioningConfig()
+			cfg.ValkeyConfig.Addrs = tt.addrs
+			err := cfg.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), "PROVISIONING_VALKEY_ADDRS") {
+					t.Errorf("error should mention PROVISIONING_VALKEY_ADDRS: %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestProvisioningConfig_Validate_BulkDisconnectConcurrency(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		value   int
+		wantErr bool
+	}{
+		{"at min", MinBulkDisconnectConcurrency, false},
+		{"at max", MaxBulkDisconnectConcurrency, false},
+		{"below min (0)", 0, true},
+		{"above max", MaxBulkDisconnectConcurrency + 1, true},
+		{"valid mid-range", 10, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidProvisioningConfig()
+			cfg.BulkDisconnectConcurrency = tt.value
+			err := cfg.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), "PROVISIONING_BULK_DISCONNECT_CONCURRENCY") {
+					t.Errorf("error should mention PROVISIONING_BULK_DISCONNECT_CONCURRENCY: %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}

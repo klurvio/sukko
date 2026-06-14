@@ -93,6 +93,16 @@ spec:
               value: {{ $val | quote }}
             {{- end }}
 
+            # Internal secret (gateway → ws-server mutual auth).
+            # MUST reference the SAME Kubernetes Secret as ws-server so both services share the same value.
+            {{- if ((.Values.global).internalSecret).secretName }}
+            - name: WS_INTERNAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.internalSecret.secretName | quote }}
+                  key: {{ .Values.global.internalSecret.secretKey | default "internal-secret" | quote }}
+            {{- end }}
+
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

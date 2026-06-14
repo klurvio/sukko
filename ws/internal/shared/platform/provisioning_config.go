@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -109,6 +110,16 @@ type ProvisioningConfig struct {
 	// TokenRevocationMaxLifetime is the maximum duration a revoked token entry is retained
 	// before the background prune loop removes it. Must be > 0. Default: 1h.
 	TokenRevocationMaxLifetime time.Duration `env:"PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME" envDefault:"1h"`
+
+	// ValkeyConfig is the dedicated Valkey client config for the connections registry reader.
+	// The envPrefix:"PROVISIONING_" tag makes effective env var names PROVISIONING_VALKEY_ADDRS, etc.
+	// PROVISIONING_VALKEY_ADDRS has no envDefault — required runtime value (K8s service discovery);
+	// Helm injects it unconditionally (not a §I violation: Helm is not duplicating a Go default).
+	ValkeyConfig ValkeyClientConfig `envPrefix:"PROVISIONING_"`
+
+	// BulkDisconnectConcurrency controls the maximum number of concurrent pub/sub publishes
+	// during a bulk DELETE /connections request.
+	BulkDisconnectConcurrency int `env:"PROVISIONING_BULK_DISCONNECT_CONCURRENCY" envDefault:"10"`
 
 	// editionManager holds the license-resolved edition and limits.
 	// Set by LoadProvisioningConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.
@@ -302,6 +313,20 @@ func (c *ProvisioningConfig) Validate() error {
 	// Token revocation max lifetime — must be positive to avoid infinite retention or no-op prune.
 	if c.TokenRevocationMaxLifetime <= 0 {
 		return fmt.Errorf("PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME must be > 0, got %v", c.TokenRevocationMaxLifetime)
+	}
+
+	// Connections registry Valkey client — required only when ConnectionsAPI is licensed (Pro+).
+	// PROVISIONING_VALKEY_ADDRS has no Go default; it must be injected by Helm for licensed editions.
+	// When editionManager is nil (e.g. test contexts), default to requiring the address.
+	if c.editionManager == nil || license.EditionHasFeature(c.editionManager.Edition(), license.ConnectionsAPI) {
+		if !slices.ContainsFunc(c.ValkeyConfig.Addrs, func(s string) bool { return strings.TrimSpace(s) != "" }) {
+			return errors.New("PROVISIONING_VALKEY_ADDRS is required and must contain at least one non-empty address")
+		}
+	}
+
+	// Bulk disconnect concurrency bounds.
+	if c.BulkDisconnectConcurrency < MinBulkDisconnectConcurrency || c.BulkDisconnectConcurrency > MaxBulkDisconnectConcurrency {
+		return fmt.Errorf("PROVISIONING_BULK_DISCONNECT_CONCURRENCY must be %d-%d, got %d", MinBulkDisconnectConcurrency, MaxBulkDisconnectConcurrency, c.BulkDisconnectConcurrency)
 	}
 
 	return nil

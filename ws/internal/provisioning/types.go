@@ -405,6 +405,9 @@ const (
 	// API key actions
 	ActionCreateAPIKey = "create_api_key"
 	ActionRevokeAPIKey = "revoke_api_key" //nolint:gosec // audit action label, not a credential
+
+	ActionForceDisconnect = "force_disconnect"
+	ActionBulkDisconnect  = "bulk_disconnect"
 )
 
 // Actor type constants.

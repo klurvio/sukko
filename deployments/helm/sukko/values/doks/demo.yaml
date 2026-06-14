@@ -12,6 +12,13 @@
 global:
   namespace: sukko-demo
   imageRegistry: "ghcr.io/klurvio"
+  # internalSecret configures the shared Kubernetes Secret used for gateway → ws-server mutual auth.
+  # To enable: kubectl create secret generic sukko-internal-secret -n sukko-demo --from-literal=internal-secret=<random-value>
+  # Then set secretName to enable WS_INTERNAL_SECRET_ENABLED on ws-server and forward via gateway.
+  # Leave secretName unset to disable (WS_INTERNAL_SECRET_ENABLED defaults to false).
+  # internalSecret:
+  #   secretName: "sukko-internal-secret"
+  #   secretKey: "internal-secret"
 
 # ── Gateway ─────────────────────────────────────────────────────────
 ws-gateway:
@@ -53,6 +60,9 @@ ws-server:
       memory: "512Mi"
   service:
     type: ClusterIP
+  # Connections registry enabled for Pro+ demo environment.
+  connectionsRegistry:
+    enabled: true
 
 # ── Provisioning ────────────────────────────────────────────────────
 provisioning:
@@ -119,6 +129,12 @@ postgresql:
 valkey:
   enabled: true
   replicaCount: 1
+  config:
+    # maxmemory MUST be < limits.memory (128Mi = 131072 KiB; 96mb ≈ 75% → leaves room for
+    # Valkey process overhead, OS buffers, and RSS fragmentation).
+    # Without this override, the chart default of "384mb" would exceed the 128Mi K8s limit
+    # and K8s would OOM-kill the pod before Valkey's allkeys-lru eviction fires.
+    maxmemory: "96mb"
   resources:
     requests:
       cpu: "50m"

@@ -32,6 +32,7 @@ import (
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/database"
 	"github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/migrations"
 	"github.com/klurvio/sukko/internal/shared/platform"
@@ -279,6 +280,25 @@ func main() {
 	defer revStore.Close()
 	revHandler := api.NewRevocationHandler(revStore, bus, cfg.TokenRevocationMaxLifetime, structuredLogger)
 
+	// Initialize connections registry Valkey client and handler (Pro+ only).
+	var connectionsHandler *api.ConnectionsHandler
+	if mgr := cfg.EditionManager(); mgr != nil && license.EditionHasFeature(mgr.Edition(), license.ConnectionsAPI) {
+		connectionsValkeyClient, cvcErr := api.BuildConnectionsValkeyClient(*cfg)
+		if cvcErr != nil {
+			structuredLogger.Fatal().Err(cvcErr).Msg("Failed to create connections registry Valkey client")
+		}
+		defer connectionsValkeyClient.Close()
+		connectionsHandler = api.NewConnectionsHandler(api.ConnectionsHandlerParams{
+			Client:         connectionsValkeyClient,
+			Cfg:            *cfg,
+			EditionManager: mgr,
+			Logger:         structuredLogger,
+			WG:             &wg,
+			ServiceCtx:     ctx,
+			Service:        svc,
+		})
+	}
+
 	// Initialize HTTP router
 	router, err := api.NewRouter(api.RouterConfig{
 		Service:            svc,
@@ -297,6 +317,7 @@ func main() {
 		EditionManager:     cfg.EditionManager(),
 		PprofEnabled:       cfg.PprofEnabled,
 		RevocationHandler:  revHandler,
+		ConnectionsHandler: connectionsHandler,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")
