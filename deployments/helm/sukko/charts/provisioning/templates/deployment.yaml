@@ -23,8 +23,8 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if not (or .Values.database.url .Values.database.existingSecret) }}
       initContainers:
+        {{- if not (or .Values.database.url .Values.database.existingSecret) }}
         - name: wait-for-postgres
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-postgresql 5432; do echo "waiting for postgres..."; sleep 2; done']
@@ -35,7 +35,19 @@ spec:
             limits:
               cpu: "50m"
               memory: "32Mi"
-      {{- end }}
+        {{- end }}
+        {{- if .Values.valkey.enabled }}
+        - name: wait-for-valkey
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z {{ .Release.Name }}-valkey 6379; do echo "waiting for valkey..."; sleep 2; done']
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "50m"
+              memory: "32Mi"
+        {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           {{- with .Values.securityContext }}
@@ -53,8 +65,10 @@ spec:
               protocol: TCP
           env:
             # Deployment identity
+            {{- if .Values.environment }}
             - name: ENVIRONMENT
-              value: {{ .Values.environment | default "local" | quote }}
+              value: {{ .Values.environment | quote }}
+            {{- end }}
 
             # License key (Pro/Enterprise editions)
             {{- with ((.Values.global).license) }}
@@ -90,6 +104,35 @@ spec:
             # Auto-wires to in-cluster Redpanda; override via kafka.brokers.
             - name: PROVISIONING_KAFKA_BROKERS
               value: {{ .Values.kafka.brokers | default (printf "%s-redpanda:9092" .Release.Name) | quote }}
+
+            # Connections registry Valkey client — required for Pro+ (ConnectionsAPI feature).
+            # Gated on valkey.enabled so Community deployments without Valkey do not fail at startup.
+            {{- if .Values.valkey.enabled }}
+            - name: PROVISIONING_VALKEY_ADDRS
+              value: {{ .Values.valkey.addrs | default (printf "%s-valkey:6379" .Release.Name) | quote }}
+            {{- if .Values.valkey.existingSecret }}
+            - name: PROVISIONING_VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.valkey.existingSecret | quote }}
+                  key: {{ .Values.valkey.existingSecretKey | default "valkey-password" | quote }}
+            {{- else if .Values.valkey.password }}
+            - name: PROVISIONING_VALKEY_PASSWORD
+              value: {{ .Values.valkey.password | quote }}
+            {{- end }}
+            {{- if .Values.valkey.tls.enabled }}
+            - name: PROVISIONING_VALKEY_TLS_ENABLED
+              value: "true"
+            {{- if .Values.valkey.tls.insecureSkipVerify }}
+            - name: PROVISIONING_VALKEY_TLS_INSECURE
+              value: "true"
+            {{- end }}
+            {{- if .Values.valkey.tls.caPath }}
+            - name: PROVISIONING_VALKEY_TLS_CA_PATH
+              value: {{ .Values.valkey.tls.caPath | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
 
             # Admin bootstrap key (one-time first admin registration)
             {{- if .Values.adminBootstrapKey }}

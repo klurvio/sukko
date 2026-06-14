@@ -11,6 +11,7 @@ import (
 	"github.com/klurvio/sukko/internal/server/backend"
 	"github.com/klurvio/sukko/internal/server/broadcast"
 	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/server/registry"
 	"github.com/klurvio/sukko/internal/shared/alerting"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
@@ -79,6 +80,8 @@ type ShardConfig struct {
 	Alerter        alerting.Alerter       // Shared alerter instance
 	Logger         zerolog.Logger
 	MaxConnections int
+	RegistryWriter *registry.Writer       // Pod-level registry writer; nil when registry disabled
+	HealthWriter   *registry.HealthWriter // Pod-level health writer; nil when registry disabled
 }
 
 // NewShard creates a new Shard instance.
@@ -108,6 +111,9 @@ func NewShard(cfg ShardConfig) (*Shard, error) {
 		BroadcastBus:   cfg.BroadcastBus,
 		EditionManager: cfg.EditionManager,
 		TenantHooks:    shard, // shard implements server.TenantHooks
+		RegistryWriter: cfg.RegistryWriter,
+		HealthWriter:   cfg.HealthWriter,
+		ShardID:        cfg.ID,
 	}, cfg.Alerter)
 	if err != nil {
 		cancel()

@@ -41,6 +41,11 @@ func (s *Server) disconnectClient(c *Client, reason, initiatedBy string) {
 		}
 	})
 
+	// Push registry disconnect event (non-blocking, before client is returned to pool).
+	if s.config != nil && s.config.ConnectionsRegistryEnabled && s.registryWriter != nil && c.connID != "" {
+		s.registryWriter.PushDisconnect(c.connID, c.tenantID, c.apiKeyID)
+	}
+
 	// Notify shard to release per-tenant broadcast channel if this was the last client
 	// for this tenant on this shard. Guard: tenantID empty in direct/local mode.
 	if s.tenantHooks != nil && c.tenantID != "" {

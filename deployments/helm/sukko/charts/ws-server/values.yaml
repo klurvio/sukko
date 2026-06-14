@@ -56,6 +56,13 @@ valkey:
   tls:
     enabled: false
 
+# Connections registry (Pro+ edition — WS_CONNECTIONS_REGISTRY_ENABLED).
+# When enabled, ws-server tracks live connections in Valkey and exposes them
+# via the Provisioning API. Requires a valid Pro+ license key.
+# Uses the same Valkey instance as the broadcast bus (no extra Valkey needed).
+connectionsRegistry:
+  enabled: false
+
 # Override any Go envDefault. See /config endpoint for all available settings.
 # Example: { LOG_LEVEL: "debug", WS_PONG_WAIT: "120s" }
 # Gap recovery tuning (defaults match Go envDefault; only set when deviating):

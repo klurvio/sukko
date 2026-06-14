@@ -773,3 +773,27 @@ done
 
 > Known gap: `sukko test status --id` is advertised in hint text but NOT
 > implemented. Use `--follow` for live test output.
+
+---
+
+## Connections API
+
+No automated E2E suite exists yet for the Connections Management API. Manual validation steps are documented below. A dedicated suite is tracked as future work.
+
+### Manual Validation Scenarios
+
+**SC-001 — Connection visible after connect**
+1. Connect a WebSocket client via the gateway.
+2. Within 1 second, `GET /api/v1/tenants/{slug}/connections` must return the connection.
+
+**SC-002 — Force-disconnect via DELETE**
+1. Connect a WebSocket client.
+2. Issue `DELETE /api/v1/tenants/{slug}/connections/{connId}`.
+3. Verify the ws-server sends WebSocket close code `4000` (`force_disconnect`) to the client.
+4. Verify the registry entry disappears within `WS_CONNECTIONS_REGISTRY_TTL`.
+
+**SC-006 — TTL expiry on pod crash**
+1. Connect a client, then kill the ws-server pod without graceful shutdown.
+2. After `WS_CONNECTIONS_REGISTRY_TTL` seconds, `GET /connections` must no longer return the stale entry.
+
+> Note: `WS_CONNECTIONS_REGISTRY_ENABLED=true` must be set on ws-server, and `PROVISIONING_VALKEY_ADDRS` must point to the same Valkey cluster.

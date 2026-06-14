@@ -62,7 +62,8 @@ const (
 	TokenRevocation    Feature = "token revocation"
 	Webhooks           Feature = "webhook delivery"
 	MessageHistory     Feature = "message history"
-	LiveGapRecovery    Feature = "live gap recovery" // Implemented
+	LiveGapRecovery    Feature = "live gap recovery"          // Implemented
+	ConnectionsAPI     Feature = "connections management API" // Implemented
 	ChannelPatternsCEL Feature = "channel patterns (CEL)"
 	DeltaCompression   Feature = "delta compression"
 
@@ -95,6 +96,7 @@ var featureEditions = map[Feature]Edition{
 	Webhooks:                    Pro,
 	MessageHistory:              Pro,
 	LiveGapRecovery:             Pro,
+	ConnectionsAPI:              Pro,
 	ChannelPatternsCEL:          Pro,
 	DeltaCompression:            Pro,
 
@@ -130,6 +132,7 @@ var featureMetadata = map[Feature]FeatureInfo{
 	// ── Implemented — Pro (continued) ────────────────────────────────────
 	MessageHistory:  {Description: "Queryable message history per channel", Status: StatusImplemented, Priority: PriorityNone},
 	LiveGapRecovery: {Description: "In-band gap detection and live replay on existing connections without reconnect", Status: StatusImplemented, Priority: PriorityNone},
+	ConnectionsAPI:  {Description: "Inspect and force-disconnect live connections per tenant", Status: StatusImplemented, Priority: PriorityNone},
 
 	// ── Future — Pro ─────────────────────────────────────────────────────
 	AdminUI:            {Description: "Web-based tenant management interface", Status: StatusFuture, Priority: PriorityMedium},

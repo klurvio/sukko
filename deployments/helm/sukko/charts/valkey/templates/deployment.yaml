@@ -34,6 +34,10 @@ spec:
             - "{{ .Values.config.maxmemory }}"
             - "--maxmemory-policy"
             - "{{ .Values.config.maxmemoryPolicy }}"
+            - "--save"
+            - "{{ .Values.config.save }}"
+            - "--appendonly"
+            - "{{ .Values.config.appendonly }}"
           ports:
             - name: redis
               containerPort: {{ .Values.port }}

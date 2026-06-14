@@ -17,6 +17,8 @@ import (
 	"google.golang.org/grpc"
 
 	serverv1 "github.com/klurvio/sukko/gen/proto/sukko/server/v1"
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/klurvio/sukko/internal/server"
 	"github.com/klurvio/sukko/internal/server/backend"
 	"github.com/klurvio/sukko/internal/server/backend/directbackend"
@@ -24,6 +26,7 @@ import (
 	"github.com/klurvio/sukko/internal/server/broadcast"
 	"github.com/klurvio/sukko/internal/server/metrics"
 	"github.com/klurvio/sukko/internal/server/orchestration"
+	"github.com/klurvio/sukko/internal/server/registry"
 	"github.com/klurvio/sukko/internal/shared/alerting"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
@@ -289,6 +292,26 @@ func main() {
 	alertCfg.Logger = structuredLogger
 	alerter := alerting.NewFromConfig(alertCfg)
 
+	// Create pod-level registry components before the shard loop.
+	// HealthWriter and registryWriter are singletons — shared across all shards.
+	var (
+		healthWriter         *registry.HealthWriter
+		registryWriter       *registry.Writer
+		registryValkeyClient interface{ Close() } // valkey.Client; held for Close() on shutdown
+		registryWg           sync.WaitGroup       // tracks pod-level registryWriter goroutine
+	)
+	if cfg.ConnectionsRegistryEnabled {
+		healthWriter = registry.NewHealthWriter(*numShards)
+		rvc, rvcErr := registry.BuildRegistryValkeyClient(cfg)
+		if rvcErr != nil {
+			structuredLogger.Fatal().Err(rvcErr).Msg("Failed to create registry Valkey client")
+		}
+		registryValkeyClient = rvc
+		registryWriter = registry.NewWriter(ctx, cfg, rvc, healthWriter, structuredLogger, prometheus.DefaultRegisterer)
+		registryWg.Go(registryWriter.Run)
+		structuredLogger.Info().Msg("Registry writer started")
+	}
+
 	// Create and start shards
 	shards := make([]*orchestration.Shard, *numShards)
 	for i := range *numShards {
@@ -308,6 +331,8 @@ func main() {
 			Alerter:        alerter,
 			Logger:         logging.NewLogger(logging.LoggerConfig{Level: logging.LogLevel(cfg.LogLevel), Format: logging.LogFormat(cfg.LogFormat), ServiceName: serviceName}),
 			MaxConnections: maxConnsPerShard,
+			RegistryWriter: registryWriter,
+			HealthWriter:   healthWriter,
 		})
 		if err != nil {
 			structuredLogger.Fatal().Err(err).Int("shard_id", i).Msg("Failed to create shard")
@@ -427,6 +452,13 @@ func main() {
 	// Shard shutdown (including all forwarder goroutines) MUST complete before bus.Shutdown() — NFR-002.
 	// The loop above ensures this: all shard.Shutdown() calls finish before broadcastBus.Shutdown().
 	broadcastBus.Shutdown()
+
+	// Wait for registryWriter goroutine to exit before closing its Valkey client.
+	registryWg.Wait()
+	if registryValkeyClient != nil {
+		registryValkeyClient.Close()
+		structuredLogger.Info().Msg("Registry Valkey client closed")
+	}
 
 	// Shutdown SystemMonitor
 	systemMonitor.Shutdown()

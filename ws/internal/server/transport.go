@@ -30,6 +30,10 @@ const (
 // Shared by both WebSocketTransport and GRPCStreamTransport.
 const initialBufCap = 512
 
+// closeFrameWriteTimeout is the maximum time allowed to write a WebSocket close frame.
+// Prevents force-disconnect bulk paths from hanging on dead/slow clients.
+const closeFrameWriteTimeout = 3 * time.Second
+
 // Transport abstracts message delivery from the connection protocol.
 // All transports (WebSocket, SSE/gRPC stream, future Web Push) implement this interface.
 //
@@ -64,6 +68,13 @@ type Transport interface {
 	// WebSocket: sends close frame (1008 Policy Violation) then closes TCP.
 	// gRPC: cancels the stream context.
 	Close() error
+
+	// CloseWithCode terminates the transport with a specific WebSocket close code and reason.
+	// WebSocket: sends RFC 6455 close frame with the given code and reason, then closes TCP.
+	// gRPC: cancels the stream context (code and reason are ignored — gRPC has no equivalent).
+	// Call sites MUST use protocol.CloseCodeForceDisconnect / protocol.CloseReasonForceDisconnect
+	// constants rather than passing literal values.
+	CloseWithCode(code int, reason string) error
 
 	// SetWriteDeadline sets the deadline for write operations.
 	// WebSocket: delegates to net.Conn. gRPC: no-op (stream-level deadlines).
@@ -181,6 +192,24 @@ func (t *WebSocketTransport) Close() error {
 	return nil
 }
 
+// CloseWithCode sends an RFC 6455 close frame with the given application-defined close code
+// and reason, then closes the TCP connection.
+func (t *WebSocketTransport) CloseWithCode(code int, reason string) error {
+	if t.conn == nil {
+		return nil
+	}
+	// Set a short write deadline so a dead/slow client cannot stall the caller indefinitely.
+	// This is especially important for force-disconnect bulk paths where many connections
+	// are closed in parallel.
+	_ = t.conn.SetWriteDeadline(time.Now().Add(closeFrameWriteTimeout))
+	closeMsg := ws.NewCloseFrameBody(ws.StatusCode(code), reason) //nolint:gosec // G115: WebSocket close codes 1000-4999 fit in uint16; code is validated via protocol.CloseCode* constants
+	_ = ws.WriteFrame(t.conn, ws.NewCloseFrame(closeMsg))         // best-effort close frame
+	if err := t.conn.Close(); err != nil {
+		return fmt.Errorf("ws close conn: %w", err)
+	}
+	return nil
+}
+
 // SetWriteDeadline sets the write deadline on the underlying connection.
 func (t *WebSocketTransport) SetWriteDeadline(deadline time.Time) error {
 	if err := t.conn.SetWriteDeadline(deadline); err != nil {
@@ -271,6 +300,15 @@ func (t *GRPCStreamTransport) WritePong(_ []byte) error { return nil }
 
 // Close cancels the gRPC stream context, which terminates the stream.
 func (t *GRPCStreamTransport) Close() error {
+	if t.cancel != nil {
+		t.cancel()
+	}
+	return nil
+}
+
+// CloseWithCode cancels the gRPC stream context. Code and reason are ignored — gRPC has
+// no equivalent to WebSocket application-defined close codes.
+func (t *GRPCStreamTransport) CloseWithCode(_ int, _ string) error {
 	if t.cancel != nil {
 		t.cancel()
 	}

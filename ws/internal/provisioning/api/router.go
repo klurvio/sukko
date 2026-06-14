@@ -74,6 +74,10 @@ type RouterConfig struct {
 	// RevocationHandler handles token revocation (POST /api/v1/tenants/{tenantSlug}/tokens/revoke).
 	// When set, revocation routes are registered with Pro edition gate.
 	RevocationHandler *RevocationHandler
+
+	// ConnectionsHandler handles the connections management API (Pro edition).
+	// When nil, connections routes are not registered.
+	ConnectionsHandler *ConnectionsHandler
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -244,6 +248,19 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 					})
 				}
 
+				// Connections management API — requires Pro edition
+				if cfg.ConnectionsHandler != nil {
+					r.Group(func(r chi.Router) {
+						r.Use(RequireFeature(cfg.EditionManager, license.ConnectionsAPI))
+						r.Get("/connections", cfg.ConnectionsHandler.HandleListConnections)
+						r.Delete("/connections", cfg.ConnectionsHandler.HandleBulkDisconnect)
+						r.Route("/connections/{connId}", func(r chi.Router) {
+							r.Get("/", cfg.ConnectionsHandler.HandleGetConnection)
+							r.Delete("/", cfg.ConnectionsHandler.HandleDeleteConnection)
+						})
+					})
+				}
+
 				// Test access endpoint
 				r.Post("/test-access", h.TestAccess)
 			})
@@ -282,6 +299,15 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 				r.Post("/", adminKeysHandler.Register)
 				r.Get("/", adminKeysHandler.List)
 				r.Delete("/{id}", adminKeysHandler.Revoke)
+			})
+		}
+
+		// Admin connections listing — requires admin role + Pro edition
+		if cfg.ConnectionsHandler != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireRole("admin", "system"))
+				r.Use(RequireFeature(cfg.EditionManager, license.ConnectionsAPI))
+				r.Get("/admin/connections", cfg.ConnectionsHandler.HandleAdminListConnections)
 			})
 		}
 	})

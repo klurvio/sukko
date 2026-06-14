@@ -182,6 +182,25 @@ spec:
               value: {{ .Values.valkey.tls.caPath | quote }}
             {{- end }}
             {{- end }}
+
+            # Connections registry (Pro+ edition).
+            # Only inject when enabled — WS_CONNECTIONS_REGISTRY_ENABLED defaults to false in Go.
+            {{- if .Values.connectionsRegistry.enabled }}
+            - name: WS_CONNECTIONS_REGISTRY_ENABLED
+              value: "true"
+            {{- end }}
+
+            # Internal secret (gateway → ws-server mutual auth).
+            # Both ws-server and ws-gateway MUST source from the SAME Secret so the values always match.
+            {{- if ((.Values.global).internalSecret).secretName }}
+            - name: WS_INTERNAL_SECRET_ENABLED
+              value: "true"
+            - name: WS_INTERNAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.internalSecret.secretName | quote }}
+                  key: {{ .Values.global.internalSecret.secretKey | default "internal-secret" | quote }}
+            {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

@@ -34,6 +34,7 @@ import (
 	"github.com/klurvio/sukko/internal/server/history"
 	"github.com/klurvio/sukko/internal/server/limits"
 	"github.com/klurvio/sukko/internal/server/metrics"
+	"github.com/klurvio/sukko/internal/server/registry"
 	"github.com/klurvio/sukko/internal/server/stats"
 	"github.com/klurvio/sukko/internal/shared/alerting"
 	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
@@ -58,6 +59,9 @@ type Params struct {
 	BroadcastBus   broadcast.Bus          // Required when HistoryEnabled=true; used by historyWriter
 	EditionManager *license.Manager       // Edition gate checks; nil = Community
 	TenantHooks    TenantHooks            // Optional; nil = no per-tenant channel management (test or direct mode)
+	RegistryWriter *registry.Writer       // Pod-level registry event writer; nil when registry disabled
+	HealthWriter   *registry.HealthWriter // Pod-level health state tracker; nil when registry disabled
+	ShardID        int                    // Shard index for per-shard GaugeVec labels in AdminListener
 }
 
 // Server is the main WebSocket server that manages client connections, message
@@ -106,11 +110,18 @@ type Server struct {
 	pump *Pump // Handles WebSocket read/write with dependency injection
 
 	// History
-	broadcastBus   broadcast.Bus    // Bus reference for historyWriter subscription
-	historyWriter  *history.Writer  // nil when HistoryEnabled=false
-	historyEnv     string           // resolved stream key namespace (ResolveNamespace result)
-	editionManager *license.Manager // Edition gate checks; nil = Community
-	tenantHooks    TenantHooks      // Optional; nil = no per-tenant channel management
+	broadcastBus  broadcast.Bus   // Bus reference for historyWriter subscription
+	historyWriter *history.Writer // nil when HistoryEnabled=false
+	historyEnv    string          // resolved stream key namespace (ResolveNamespace result)
+
+	// Registry (Connections Management API)
+	registryWriter    *registry.Writer        // pod-level; nil when ConnectionsRegistryEnabled=false
+	healthWriter      *registry.HealthWriter  // pod-level; nil when ConnectionsRegistryEnabled=false
+	adminListener     *registry.AdminListener // per-shard; nil when ConnectionsRegistryEnabled=false
+	adminValkeyClient valkey.Client           // dedicated Valkey client for adminListener
+	shardID           int                     // shard index for GaugeVec labels
+	editionManager    *license.Manager        // Edition gate checks; nil = Community
+	tenantHooks       TenantHooks             // Optional; nil = no per-tenant channel management
 
 	// NOTE: Authentication is now handled by ws-gateway
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
@@ -154,6 +165,9 @@ func NewServer(params Params, alerter alerting.Alerter) (*Server, error) {
 		broadcastBus:      params.BroadcastBus,
 		editionManager:    params.EditionManager,
 		tenantHooks:       params.TenantHooks,
+		registryWriter:    params.RegistryWriter,
+		healthWriter:      params.HealthWriter,
+		shardID:           params.ShardID,
 		logger:            logger,
 		ctx:               ctx,
 		cancel:            cancel,
@@ -337,6 +351,34 @@ func (s *Server) Start() error {
 		}
 	}
 
+	// Start admin listener if registry enabled (per-shard, synchronous SUBSCRIBE before HTTP listener binds).
+	if s.config.ConnectionsRegistryEnabled {
+		adminValkeyClient, avErr := registry.BuildAdminValkeyClient(s.config)
+		if avErr != nil {
+			return fmt.Errorf("admin listener shard %d: build Valkey client: %w", s.shardID, avErr)
+		}
+		s.adminValkeyClient = adminValkeyClient
+		s.adminListener = registry.NewAdminListener(
+			s.shardID,
+			s.config,
+			adminValkeyClient,
+			s.healthWriter,
+			s.logger,
+			&s.clients,
+			prometheus.DefaultRegisterer,
+		)
+		if err := s.adminListener.Subscribe(s.ctx); err != nil {
+			adminValkeyClient.Close()
+			s.adminValkeyClient = nil
+			return fmt.Errorf("admin listener shard %d: %w", s.shardID, err)
+		}
+		s.wg.Go(func() {
+			defer logging.RecoverPanic(s.logger, "admin_listener_outer", nil)
+			s.adminListener.Run(s.ctx)
+		})
+		s.logger.Info().Int("shard_id", s.shardID).Msg("admin listener started")
+	}
+
 	// Start ResourceGuard monitoring (static limits with safety checks)
 	// Now also updates server stats for unified CPU measurement
 	s.resourceGuard.StartMonitoring(s.ctx, &s.wg, s.config.MetricsInterval, s.stats)
@@ -452,6 +494,12 @@ cleanup:
 	// Close the history writer's Valkey client after all goroutines have exited.
 	if s.historyWriter != nil {
 		s.historyWriter.Close()
+	}
+
+	// Close the admin listener's Valkey client after all goroutines have exited.
+	if s.adminValkeyClient != nil {
+		s.adminValkeyClient.Close()
+		s.adminValkeyClient = nil
 	}
 
 	s.logger.Info().Msg("Graceful shutdown completed")

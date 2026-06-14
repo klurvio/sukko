@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/klurvio/sukko/internal/server/messaging"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // controlChannelSize is the buffer size for the pong control channel.
@@ -173,10 +174,21 @@ type Client struct {
 	// ws-server is a dumb broadcaster with network-level security via NetworkPolicy
 	remoteAddr string // Client's remote IP address for logging
 
-	// tenantID is the tenant segment extracted from the first subscribed channel name
-	// (e.g., "acme" from "acme.BTC.trade"). Empty in direct/local mode (no tenant prefix).
-	// Used by OnTenantClientDisconnect to target the correct per-tenant broadcast channel.
+	// tenantID is set from X-Sukko-Tenant-ID at WebSocket upgrade (handlers_ws.go).
+	// Used by OnTenantClientConnect/Disconnect and registry events.
 	tenantID string
+
+	// connID is a UUID generated after successful WebSocket upgrade (handlers_ws.go).
+	// Used as the registry key and for force-disconnect targeting.
+	connID string
+
+	// apiKeyID is the stable database ID of the API key (X-Sukko-API-Key-ID header).
+	// Empty for JWT-only auth paths.
+	apiKeyID string
+
+	// userID is the JWT subject claim (X-Sukko-User-ID header).
+	// Empty for API-key-only auth.
+	userID string
 }
 
 // TransportType returns the transport type of this client for metrics labeling.
@@ -186,6 +198,25 @@ func (c *Client) TransportType() TransportType {
 		return ""
 	}
 	return c.transport.Type()
+}
+
+// ConnID returns the unique connection ID assigned at WebSocket upgrade.
+// Implements registry.ForceCloser.
+func (c *Client) ConnID() string { return c.connID }
+
+// TenantID returns the authenticated tenant ID for this connection.
+// Implements registry.ForceCloser.
+func (c *Client) TenantID() string { return c.tenantID }
+
+// ForceDisconnect sends WebSocket close code 4000 ("force_disconnect") exactly once.
+// Uses closeOnce to prevent double-close panics if concurrent shutdown fires simultaneously.
+// Implements registry.ForceCloser.
+func (c *Client) ForceDisconnect() {
+	c.closeOnce.Do(func() {
+		if c.transport != nil {
+			_ = c.transport.CloseWithCode(protocol.CloseCodeForceDisconnect, protocol.CloseReasonForceDisconnect)
+		}
+	})
 }
 
 // closeSend safely closes the send channel exactly once.
@@ -343,7 +374,10 @@ func (p *ConnectionPool) Put(c *Client) {
 
 	// Clear connection data before returning to pool
 	c.remoteAddr = ""
-	c.tenantID = "" // pre-existing reset gap: recycled clients carried stale tenant ID
+	c.tenantID = ""
+	c.connID = ""
+	c.apiKeyID = ""
+	c.userID = ""
 	c.historyInProgress = nil
 	// gapChan intentionally NOT nilled here — Get() always creates a fresh channel,
 	// and nilling concurrently with Broadcast() reads would be a data race.
