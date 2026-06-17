@@ -60,7 +60,7 @@ const (
 	Analytics          Feature = "real-time analytics"
 	AdminUI            Feature = "admin UI"
 	TokenRevocation    Feature = "token revocation"
-	Webhooks           Feature = "webhook delivery"
+	Webhooks           Feature = "webhook delivery" // Implemented
 	MessageHistory     Feature = "message history"
 	LiveGapRecovery    Feature = "live gap recovery"          // Implemented
 	ConnectionsAPI     Feature = "connections management API" // Implemented
@@ -137,7 +137,7 @@ var featureMetadata = map[Feature]FeatureInfo{
 	// ── Future — Pro ─────────────────────────────────────────────────────
 	AdminUI:            {Description: "Web-based tenant management interface", Status: StatusFuture, Priority: PriorityMedium},
 	Analytics:          {Description: "Real-time usage dashboards and metrics", Status: StatusFuture, Priority: PriorityMedium},
-	Webhooks:           {Description: "HTTP webhook delivery as alternative to WebSocket", Status: StatusFuture, Priority: PriorityMedium},
+	Webhooks:           {Description: "HTTP webhook delivery as alternative to WebSocket", Status: StatusImplemented, Priority: PriorityNone},
 	ChannelPatternsCEL: {Description: "CEL expressions for complex channel authorization", Status: StatusFuture, Priority: PriorityLow},
 	DeltaCompression:   {Description: "Send only changed fields in high-frequency updates", Status: StatusFuture, Priority: PriorityLow},
 

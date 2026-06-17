@@ -57,7 +57,11 @@ func TestRunMigrations_FreshDatabase(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	tables := []string{"tenants", "tenant_keys", "api_keys", "tenant_routing_rules", "push_credentials", "push_channel_configs", "push_subscriptions"}
+	tables := []string{
+		"tenants", "tenant_keys", "api_keys", "tenant_routing_rules",
+		"push_credentials", "push_channel_configs", "push_subscriptions",
+		"webhooks", "webhook_deliveries",
+	}
 	for _, table := range tables {
 		var exists bool
 		err := db.QueryRowContext(ctx,
@@ -77,7 +81,7 @@ func TestRunMigrations_FreshDatabase(t *testing.T) {
 		t.Fatalf("count migrations: %v", err)
 	}
 	if count != 1 {
-		t.Errorf("expected 1 recorded migrations, got %d", count)
+		t.Errorf("expected 1 recorded migration, got %d", count)
 	}
 }
 

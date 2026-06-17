@@ -5,7 +5,29 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/rs/zerolog"
 )
+
+// setProvisioningEditionManager creates a test license and assigns the manager to cfg.
+// MUST NOT use t.Parallel() in tests that call this — it shares license.SetPublicKeyForTesting.
+func setProvisioningEditionManager(t *testing.T, cfg *ProvisioningConfig, edition license.Edition) {
+	t.Helper()
+	priv, pub := license.GenerateTestKeyPair()
+	license.SetPublicKeyForTesting(pub)
+	claims := license.Claims{
+		Edition: edition,
+		Org:     "test",
+		Exp:     time.Now().Add(time.Hour).Unix(),
+	}
+	key := license.SignTestLicense(claims, priv)
+	mgr, err := license.NewManager(key, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("create test license manager: %v", err)
+	}
+	cfg.editionManager = mgr
+}
 
 func newValidProvisioningConfig() *ProvisioningConfig {
 	return &ProvisioningConfig{
@@ -31,6 +53,7 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		},
 		Addr:                        ":8080",
 		GRPCPort:                    9090,
+		WebhookWorkerGRPCPort:       9091,
 		DefaultPartitions:           3,
 		DefaultRetentionMs:          604800000,
 		MaxTopicsPerTenant:          50,
@@ -54,13 +77,18 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		CORSMaxAge:                  3600,
 		MaxTenantsFetchLimit:        10000,
 		DeletionTimeout:             5 * time.Minute,
-		SlugRenameTopicHoldPeriod:   7 * 24 * time.Hour,                                                 // 168h default
-		TokenRevocationMaxLifetime:  time.Hour,                                                          // 1h default
-		CredentialsEncryptionKey:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // 64-char hex = 32 bytes
+		SlugRenameTopicHoldPeriod:   7 * 24 * time.Hour, // 168h default
+		TokenRevocationMaxLifetime:  time.Hour,          // 1h default
+		CredentialsConfig: CredentialsConfig{
+			CredentialsEncryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // 64-char hex = 32 bytes
+		},
 		ValkeyConfig: ValkeyClientConfig{
 			Addrs: []string{"localhost:6379"},
 		},
-		BulkDisconnectConcurrency: 10,
+		BulkDisconnectConcurrency:    10,
+		MaxWebhooksPerTenant:         10,
+		WebhookAllowHTTP:             false,
+		WebhookDowngradePollInterval: 5 * time.Minute,
 	}
 }
 
@@ -717,6 +745,159 @@ func TestProvisioningConfig_Validate_BulkDisconnectConcurrency(t *testing.T) {
 				}
 			} else if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestProvisioningConfig_Validate_MaxWebhooksPerTenant(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		value   int
+		wantErr bool
+	}{
+		{"zero", 0, true},
+		{"min valid", 1, false},
+		{"max valid", 100, false},
+		{"above max", 101, true},
+		{"negative", -1, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidProvisioningConfig()
+			cfg.MaxWebhooksPerTenant = tt.value
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestProvisioningConfig_Validate_WebhookAllowHTTP(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		allowHTTP   bool
+		environment string
+		wantErr     bool
+	}{
+		{"false in prod — ok", false, "prod", false},
+		{"true in local — ok", true, "local", false},
+		{"true in prod — error", true, "prod", true},
+		{"true in dev — error", true, "dev", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidProvisioningConfig()
+			cfg.WebhookAllowHTTP = tt.allowHTTP
+			cfg.Environment = tt.environment
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setProvisioningEditionManager
+func TestProvisioningConfig_Validate_WebhookInternalToken(t *testing.T) {
+	t.Run("empty token on Community edition — ok", func(t *testing.T) {
+		cfg := newValidProvisioningConfig()
+		cfg.WebhookInternalToken = ""
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("unexpected error on Community edition: %v", err)
+		}
+	})
+	t.Run("empty token on Pro edition — error", func(t *testing.T) {
+		cfg := newValidProvisioningConfig()
+		setProvisioningEditionManager(t, cfg, license.Pro)
+		cfg.WebhookInternalToken = ""
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected error for empty WEBHOOK_INTERNAL_TOKEN on Pro edition")
+		}
+	})
+	t.Run("set token on Pro edition — ok", func(t *testing.T) {
+		cfg := newValidProvisioningConfig()
+		setProvisioningEditionManager(t, cfg, license.Pro)
+		cfg.WebhookInternalToken = "some-secret-token-that-is-at-least-32-chars"
+		cfg.WebhookDowngradePollInterval = 5 * time.Minute
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+	t.Run("short token on Pro edition — error", func(t *testing.T) {
+		cfg := newValidProvisioningConfig()
+		setProvisioningEditionManager(t, cfg, license.Pro)
+		cfg.WebhookInternalToken = "too-short"
+		cfg.WebhookDowngradePollInterval = 5 * time.Minute
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected error for short WEBHOOK_INTERNAL_TOKEN on Pro edition")
+		}
+	})
+}
+
+func TestCredentialsConfig_Validate(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		key     string
+		wantErr bool
+	}{
+		{"empty", "", true},
+		{"valid hex 64 chars", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", false},
+		{"valid base64", base64.StdEncoding.EncodeToString(make([]byte, 32)), false},
+		{"too short hex", "0123456789abcdef", true},
+		{"garbage string", "not-a-key", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := CredentialsConfig{CredentialsEncryptionKey: tt.key}
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+//nolint:paralleltest // shares license.SetPublicKeyForTesting via setProvisioningEditionManager
+func TestProvisioningConfig_Validate_WebhookDowngradePollInterval(t *testing.T) {
+	tests := []struct {
+		name    string
+		d       time.Duration
+		wantErr bool
+	}{
+		{"below min (30s)", 30 * time.Second, true},
+		{"min valid (1m)", time.Minute, false},
+		{"max valid (1h)", time.Hour, false},
+		{"above max (61m)", 61 * time.Minute, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newValidProvisioningConfig()
+			setProvisioningEditionManager(t, cfg, license.Pro)
+			cfg.WebhookInternalToken = "token-that-meets-the-32-char-minimum-requirement"
+			cfg.WebhookDowngradePollInterval = tt.d
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
 			}
 		})
 	}

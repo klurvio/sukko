@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/klurvio/sukko/internal/shared/crypto"
 )
 
 // LicenseStateRepository manages the single-row license_state table.
@@ -29,7 +31,7 @@ func NewLicenseStateRepository(pool *pgxpool.Pool, encryptionKey []byte) *Licens
 // Upsert encrypts and stores the license key. Uses INSERT ... ON CONFLICT DO UPDATE
 // since the table has a single row (id=1).
 func (r *LicenseStateRepository) Upsert(ctx context.Context, licenseKey, edition, org string, expiresAt *time.Time) error {
-	encrypted, err := encryptCredential(licenseKey, r.encryptionKey)
+	encrypted, err := crypto.EncryptCredential(licenseKey, r.encryptionKey)
 	if err != nil {
 		return fmt.Errorf("encrypt license key: %w", err)
 	}
@@ -67,7 +69,7 @@ func (r *LicenseStateRepository) Load(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("load license state: %w", err)
 	}
 
-	decrypted, err := decryptCredential(encrypted, r.encryptionKey)
+	decrypted, err := crypto.DecryptCredential(encrypted, r.encryptionKey)
 	if err != nil {
 		return "", fmt.Errorf("decrypt license key: %w", err)
 	}

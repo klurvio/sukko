@@ -12,6 +12,12 @@ spec:
       targetPort: {{ .Values.service.grpcPort }}
       protocol: TCP
       name: grpc
+    {{- if .Values.webhooks.enabled }}
+    - port: {{ .Values.service.webhookWorkerGRPCPort | default 9091 }}
+      targetPort: {{ .Values.service.webhookWorkerGRPCPort | default 9091 }}
+      protocol: TCP
+      name: grpc-webhook
+    {{- end }}
   selector:
     {{- include "provisioning.selectorLabels" . | nindent 4 }}
 {{- end }}

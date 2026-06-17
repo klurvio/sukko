@@ -113,6 +113,13 @@ service:
   targetPort: 8080
   loadBalancerIP: ""
   grpcPort: 9090
+  webhookWorkerGRPCPort: 9091  # Dedicated port for webhook-worker → provisioning gRPC (Pro+ only)
+
+# Webhook delivery configuration (Pro/Enterprise editions only).
+webhooks:
+  # Set to true for Pro/Enterprise deployments to expose the webhook-worker gRPC port (9091).
+  # Community edition: leave false.
+  enabled: false
 
 podAnnotations: {}
 

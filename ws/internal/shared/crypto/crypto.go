@@ -1,4 +1,7 @@
-package repository
+// Package crypto provides AES-256-GCM encryption helpers shared across services.
+// Used by the provisioning service (push credentials, license key, webhook secrets)
+// and the webhook-worker (decrypting webhook secrets at HMAC computation time).
+package crypto
 
 import (
 	"crypto/aes"
@@ -11,16 +14,16 @@ import (
 	"io"
 )
 
-// aes256KeySize is the required key length for AES-256.
-const aes256KeySize = 32
+// KeySize is the required key length for AES-256.
+const KeySize = 32
 
 // errInvalidKeyLength is returned when the parsed key is not exactly 32 bytes.
 var errInvalidKeyLength = errors.New("encryption key must be exactly 32 bytes for AES-256")
 
-// encryptCredential encrypts plaintext using AES-256-GCM and returns a base64-encoded
+// EncryptCredential encrypts plaintext using AES-256-GCM and returns a base64-encoded
 // ciphertext with the nonce prepended.
-func encryptCredential(plaintext string, key []byte) (string, error) {
-	if len(key) != aes256KeySize {
+func EncryptCredential(plaintext string, key []byte) (string, error) {
+	if len(key) != KeySize {
 		return "", errInvalidKeyLength
 	}
 
@@ -45,10 +48,10 @@ func encryptCredential(plaintext string, key []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(sealed), nil
 }
 
-// decryptCredential base64-decodes the ciphertext, extracts the prepended nonce,
+// DecryptCredential base64-decodes the ciphertext, extracts the prepended nonce,
 // and decrypts using AES-256-GCM.
-func decryptCredential(ciphertext string, key []byte) (string, error) {
-	if len(key) != aes256KeySize {
+func DecryptCredential(ciphertext string, key []byte) (string, error) {
+	if len(key) != KeySize {
 		return "", errInvalidKeyLength
 	}
 
@@ -57,6 +60,19 @@ func decryptCredential(ciphertext string, key []byte) (string, error) {
 		return "", fmt.Errorf("base64 decode: %w", err)
 	}
 
+	return decryptRaw(data, key)
+}
+
+// DecryptRaw decrypts raw AES-256-GCM ciphertext bytes (nonce prepended, not base64-encoded).
+// Used by the webhook-worker which receives raw bytes over gRPC rather than base64 strings.
+func DecryptRaw(data, key []byte) (string, error) {
+	if len(key) != KeySize {
+		return "", errInvalidKeyLength
+	}
+	return decryptRaw(data, key)
+}
+
+func decryptRaw(data, key []byte) (string, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", fmt.Errorf("create cipher: %w", err)
@@ -88,24 +104,24 @@ func decryptCredential(ciphertext string, key []byte) (string, error) {
 // the result is not exactly 32 bytes.
 func ParseEncryptionKey(hexOrBase64 string) ([]byte, error) {
 	// Try hex first (64 hex chars = 32 bytes).
-	if len(hexOrBase64) == hex.EncodedLen(aes256KeySize) {
+	if len(hexOrBase64) == hex.EncodedLen(KeySize) {
 		key, err := hex.DecodeString(hexOrBase64)
-		if err == nil && len(key) == aes256KeySize {
+		if err == nil && len(key) == KeySize {
 			return key, nil
 		}
 	}
 
 	// Try base64.
 	key, err := base64.StdEncoding.DecodeString(hexOrBase64)
-	if err == nil && len(key) == aes256KeySize {
+	if err == nil && len(key) == KeySize {
 		return key, nil
 	}
 
 	// Try base64 URL encoding as fallback.
 	key, err = base64.URLEncoding.DecodeString(hexOrBase64)
-	if err == nil && len(key) == aes256KeySize {
+	if err == nil && len(key) == KeySize {
 		return key, nil
 	}
 
-	return nil, fmt.Errorf("encryption key must decode to exactly %d bytes (provide 64-char hex or base64)", aes256KeySize)
+	return nil, fmt.Errorf("encryption key must decode to exactly %d bytes (provide 64-char hex or base64)", KeySize)
 }

@@ -1621,6 +1621,278 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  # ── Webhooks (Pro edition) ────────────────────────────────────────────────────
+
+  /api/v1/tenants/{tenantSlug}/webhooks:
+    post:
+      summary: Register a webhook endpoint
+      operationId: createWebhook
+      tags: [Webhooks]
+      description: Creates a new webhook registration. Requires Pro edition. URL must use https (http allowed for local dev only).
+      security:
+        - TenantJWT: []
+        - APIKey: []
+      parameters:
+        - $ref: "#/components/parameters/tenantSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookRequest"
+      responses:
+        "201":
+          description: Webhook created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "400":
+          description: Validation error (invalid URL, missing channel_pattern, max_retries out of range)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: WEBHOOK_INVALID_INPUT
+                message: "webhook url must use https"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Feature not available in current edition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: EDITION_LIMIT
+                message: "webhooks require Pro edition or higher"
+        "422":
+          description: Webhook quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: WEBHOOK_QUOTA_EXCEEDED
+                message: "webhook quota exceeded"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      summary: List webhook registrations
+      operationId: listWebhooks
+      tags: [Webhooks]
+      description: Returns paginated webhooks for the authenticated tenant.
+      security:
+        - TenantJWT: []
+        - APIKey: []
+      parameters:
+        - $ref: "#/components/parameters/tenantSlug"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated webhook list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Feature not available in current edition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: EDITION_LIMIT
+                message: "webhooks require Pro edition or higher"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/tenants/{tenantSlug}/webhooks/{webhookID}:
+    get:
+      summary: Get a webhook by ID
+      operationId: getWebhook
+      tags: [Webhooks]
+      security:
+        - TenantJWT: []
+        - APIKey: []
+      parameters:
+        - $ref: "#/components/parameters/tenantSlug"
+        - name: webhookID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Webhook found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Feature not available in current edition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: EDITION_LIMIT
+                message: "webhooks require Pro edition or higher"
+        "404":
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: WEBHOOK_NOT_FOUND
+                message: "webhook not found"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      summary: Partially update a webhook
+      operationId: updateWebhook
+      tags: [Webhooks]
+      description: All fields are optional. Omitted fields are unchanged. Status transitions — enabled ↔ degraded ↔ suspended.
+      security:
+        - TenantJWT: []
+        - APIKey: []
+      parameters:
+        - $ref: "#/components/parameters/tenantSlug"
+        - name: webhookID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWebhookRequest"
+      responses:
+        "200":
+          description: Updated webhook
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Feature not available in current edition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: EDITION_LIMIT
+                message: "webhooks require Pro edition or higher"
+        "404":
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Delete a webhook
+      operationId: deleteWebhook
+      tags: [Webhooks]
+      security:
+        - TenantJWT: []
+        - APIKey: []
+      parameters:
+        - $ref: "#/components/parameters/tenantSlug"
+        - name: webhookID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Webhook deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: deleted
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Feature not available in current edition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: EDITION_LIMIT
+                message: "webhooks require Pro edition or higher"
+        "404":
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/admin/connections:
     get:
       summary: List active connections across all tenants (admin)
@@ -2299,6 +2571,99 @@ components:
         revoked_at:
           type: ["string", "null"]
           format: date-time
+
+    Webhook:
+      type: object
+      required: [id, tenant_id, url, channel_pattern, status, max_retries, retry_count, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          description: "Webhook ID (wh_ prefix + base32)"
+          example: wh_abc1def2ghi3
+        tenant_id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+          description: HTTPS endpoint URL
+        channel_pattern:
+          type: string
+          description: Channel glob pattern (e.g. trades.*)
+        status:
+          type: string
+          enum: [enabled, degraded, suspended]
+        max_retries:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Maximum delivery attempts before entering degraded status
+        retry_count:
+          type: integer
+          description: Number of consecutive delivery failures since last success
+        last_status:
+          type: ["string", "null"]
+          description: HTTP status code string of last delivery attempt (null if never delivered)
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateWebhookRequest:
+      type: object
+      required: [url, channel_pattern, secret]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Delivery endpoint. Must be https (http allowed only when WEBHOOK_ALLOW_HTTP=true in local environments).
+        channel_pattern:
+          type: string
+          description: Channel glob pattern that triggers this webhook (e.g. trades.*)
+        secret:
+          type: string
+          description: Plaintext HMAC secret. Encrypted at rest; never returned in API responses.
+        max_retries:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 5
+          description: Maximum delivery attempts before entering degraded status (0 = use default of 5)
+
+    UpdateWebhookRequest:
+      type: object
+      description: All fields are optional. Omitted fields are unchanged.
+      properties:
+        url:
+          type: string
+          format: uri
+        channel_pattern:
+          type: string
+        max_retries:
+          type: integer
+          minimum: 1
+          maximum: 10
+        status:
+          type: string
+          enum: [enabled, degraded, suspended]
+          description: Explicit status transition. Transitioning to 'enabled' resets retry_count to 0.
+
+    WebhookListResponse:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Webhook"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
 
     PushChannelConfig:
       type: object

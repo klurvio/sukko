@@ -30,6 +30,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/provisioning/revocation"
 	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/crypto"
 	"github.com/klurvio/sukko/internal/shared/database"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
@@ -161,7 +162,7 @@ func main() {
 	pushChannelConfigRepo := repository.NewChannelConfigRepository(pool)
 
 	// Parse encryption key for license state persistence (same key as push credentials)
-	encryptionKey, err := repository.ParseEncryptionKey(cfg.CredentialsEncryptionKey)
+	encryptionKey, err := crypto.ParseEncryptionKey(cfg.CredentialsEncryptionKey)
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to parse CREDENTIALS_ENCRYPTION_KEY")
 	}
@@ -191,6 +192,8 @@ func main() {
 	kafkaAdmin := provisioning.NewNoopKafkaAdmin()
 	structuredLogger.Info().Msg("Kafka admin disabled (topic creation moved to ws-server)")
 
+	webhookRepo := repository.NewWebhookRepository(pool, structuredLogger)
+
 	svc, err := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:                 tenantRepo,
 		KeyStore:                    keyRepo,
@@ -217,6 +220,10 @@ func main() {
 		SlugRenameTopicHoldPeriod:   cfg.SlugRenameTopicHoldPeriod,
 		EditionManager:              cfg.EditionManager(),
 		Logger:                      structuredLogger,
+		WebhookStore:                webhookRepo,
+		EncryptionKey:               encryptionKey,
+		MaxWebhooksPerTenant:        cfg.MaxWebhooksPerTenant,
+		WebhookAllowHTTP:            cfg.WebhookAllowHTTP,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create provisioning service")
@@ -280,6 +287,12 @@ func main() {
 	defer revStore.Close()
 	revHandler := api.NewRevocationHandler(revStore, bus, cfg.TokenRevocationMaxLifetime, structuredLogger)
 
+	// Initialize webhook handler (Pro edition — always wired; RequireFeature gate in router).
+	webhookHandler, err := api.NewWebhookHandler(svc, structuredLogger)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to create webhook handler")
+	}
+
 	// Initialize connections registry Valkey client and handler (Pro+ only).
 	var connectionsHandler *api.ConnectionsHandler
 	if mgr := cfg.EditionManager(); mgr != nil && license.EditionHasFeature(mgr.Edition(), license.ConnectionsAPI) {
@@ -318,6 +331,7 @@ func main() {
 		PprofEnabled:       cfg.PprofEnabled,
 		RevocationHandler:  revHandler,
 		ConnectionsHandler: connectionsHandler,
+		WebhookHandler:     webhookHandler,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")
@@ -342,12 +356,19 @@ func main() {
 		structuredLogger.Fatal().Err(err).Int("port", cfg.GRPCPort).Msg("Failed to listen on gRPC port")
 	}
 
+	// Primary gRPC server — ProvisioningInternalService (ws-server, ws-gateway).
+	// Internal pod-to-pod; no auth interceptor needed.
 	grpcSrv := grpc.NewServer(
 		tracing.StatsHandler(),
 		grpc.ChainStreamInterceptor(
 			grpcserver.RecoveryStreamInterceptor(structuredLogger),
 			grpcserver.LoggingStreamInterceptor(structuredLogger),
 			grpcserver.MetricsStreamInterceptor(),
+		),
+		grpc.ChainUnaryInterceptor(
+			grpcserver.RecoveryUnaryInterceptor(structuredLogger),
+			grpcserver.LoggingUnaryInterceptor(structuredLogger),
+			grpcserver.MetricsUnaryInterceptor(),
 		),
 	)
 	grpcStreamServer, err := grpcserver.NewServer(svc, bus, structuredLogger, grpcserver.ServerConfig{
@@ -360,6 +381,41 @@ func main() {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create gRPC stream server")
 	}
 	provisioningv1.RegisterProvisioningInternalServiceServer(grpcSrv, grpcStreamServer)
+
+	// Webhook-worker gRPC server — WebhookWorkerService on a dedicated port.
+	// Separate from the primary gRPC server so auth is enforced at the listener
+	// level rather than via FullMethod filtering inside a shared interceptor.
+	// Only started for Pro/Enterprise editions (§IV: optional deps use nil-guarded gates).
+	var webhookWorkerGRPCSrv *grpc.Server
+	var webhookWorkerGRPCAddr string
+	if mgr := cfg.EditionManager(); mgr != nil && license.EditionHasFeature(mgr.Edition(), license.Webhooks) {
+		webhookWorkerGRPCAddr = fmt.Sprintf(":%d", cfg.WebhookWorkerGRPCPort)
+		webhookWorkerGRPCListener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", webhookWorkerGRPCAddr)
+		if err != nil {
+			structuredLogger.Fatal().Err(err).Int("port", cfg.WebhookWorkerGRPCPort).Msg("Failed to listen on webhook-worker gRPC port")
+		}
+		webhookWorkerGRPCSrv = grpc.NewServer(
+			grpc.ChainUnaryInterceptor(
+				grpcserver.RecoveryUnaryInterceptor(structuredLogger),
+				grpcserver.LoggingUnaryInterceptor(structuredLogger),
+				grpcserver.MetricsUnaryInterceptor(),
+				grpcserver.WebhookWorkerAuthUnaryInterceptor(cfg.WebhookInternalToken),
+			),
+		)
+		webhookWorkerSrv, err := grpcserver.NewWebhookWorkerServer(webhookRepo, structuredLogger)
+		if err != nil {
+			structuredLogger.Fatal().Err(err).Msg("Failed to create webhook worker gRPC server")
+		}
+		provisioningv1.RegisterWebhookWorkerServiceServer(webhookWorkerGRPCSrv, webhookWorkerSrv)
+		wg.Go(func() {
+			defer logging.RecoverPanic(structuredLogger, "webhookWorkerGRPC.Serve", nil)
+			structuredLogger.Info().Str("addr", webhookWorkerGRPCAddr).Msg("Starting webhook-worker gRPC server")
+			if err := webhookWorkerGRPCSrv.Serve(webhookWorkerGRPCListener); err != nil {
+				structuredLogger.Error().Err(err).Msg("Webhook-worker gRPC server error")
+				cancel()
+			}
+		})
+	}
 
 	// Start lifecycle manager (background job for tenant cleanup)
 	var lifecycleManager *provisioning.LifecycleManager
@@ -379,7 +435,7 @@ func main() {
 		structuredLogger.Info().Dur("interval", cfg.LifecycleCheckInterval).Msg("Lifecycle manager started")
 	}
 
-	// Start gRPC server in goroutine
+	// Start primary gRPC server in goroutine
 	wg.Go(func() {
 		defer logging.RecoverPanic(structuredLogger, "grpc.Serve", nil)
 		structuredLogger.Info().Str("addr", grpcAddr).Msg("Starting gRPC server")
@@ -421,8 +477,11 @@ func main() {
 		structuredLogger.Error().Err(err).Msg("Error during HTTP server shutdown")
 	}
 
-	// Graceful stop gRPC server
+	// Graceful stop gRPC server(s)
 	grpcSrv.GracefulStop()
+	if webhookWorkerGRPCSrv != nil {
+		webhookWorkerGRPCSrv.GracefulStop()
+	}
 
 	// Wait for background goroutines
 	wg.Wait()

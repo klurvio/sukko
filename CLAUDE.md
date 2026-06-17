@@ -129,7 +129,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.22.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-06-07
+**Version**: 1.23.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-06-16
 
 ### I. Configuration
 
@@ -151,7 +151,7 @@ All errors MUST be wrapped with context using `fmt.Errorf("operation: %w", err)`
 
 ### IV. Graceful Degradation
 
-Optional dependencies MUST use noop implementations or nil-guarded feature flags — never half-initialized state. Multi-step cleanup MUST continue on individual failures. Health endpoints MUST report degraded state. Retry logic MUST use exponential backoff with a cap. Slow WebSocket clients MUST be detected and disconnected via circuit breaker.
+Optional dependencies MUST use noop implementations or nil-guarded feature flags — never half-initialized state. Multi-step cleanup MUST continue on individual failures. Health endpoints MUST report degraded state. Retry logic MUST use exponential backoff with a cap. **Domain exception**: Application-layer webhook HTTP delivery uses a fixed retry schedule (`webhookRetrySchedule`: 1s, 5s, 30s, 2m, 10m) and an indefinite degraded-state maintenance poll — this matches industry-standard behavior (Stripe, GitHub, Pusher, Ably all use fixed schedules for webhook delivery). The §IV exponential backoff rule applies to infrastructure-layer reconnection (Kafka, Valkey) only. Slow WebSocket clients MUST be detected and disconnected via circuit breaker.
 
 ### V. Structured Logging
 
@@ -161,7 +161,7 @@ All logging MUST use zerolog with structured fields (Str, Int, Dur, Err). Approp
 
 ### VI. Observability
 
-Every significant operation MUST have Prometheus metrics. Metric names MUST use `ws_` prefix (server), `gateway_` prefix (gateway), or `provisioning_` prefix (provisioning service) with units (`_seconds`, `_bytes`, `_total`). Labels MUST be used sparingly to avoid cardinality explosion. Histograms MUST be used for latency, not summaries. **Excluded from Prometheus**: The tester service (`cmd/tester`) is a test/debugging tool, not a production service — it uses its own built-in `metrics.Collector` (atomic counters) and `stats.Histogram` with SSE streaming for real-time observability. Prometheus integration MUST NOT be added to the tester.
+Every significant operation MUST have Prometheus metrics. Metric names MUST use `ws_` prefix (server), `gateway_` prefix (gateway), `provisioning_` prefix (provisioning service), or `webhook_` prefix (webhook-worker service) with units (`_seconds`, `_bytes`, `_total`). Labels MUST be used sparingly to avoid cardinality explosion. Histograms MUST be used for latency, not summaries. **Excluded from Prometheus**: The tester service (`cmd/tester`) is a test/debugging tool, not a production service — it uses its own built-in `metrics.Collector` (atomic counters) and `stats.Histogram` with SSE streaming for real-time observability. Prometheus integration MUST NOT be added to the tester.
 
 **Tracing and Profiling** — Distributed tracing (OpenTelemetry) and profiling (pprof/Pyroscope) are opt-in, disabled by default — zero overhead when off (no goroutines, no allocations, noop `TracerProvider`). Tracing MUST cover cold paths only (auth, config changes, provisioning, consumer setup) — hot paths (proxy, broadcast fan-out, write pump) are covered by Prometheus histograms and MUST NOT be traced. Spans MUST be dropped silently when the exporter is slow or unreachable.
 
@@ -389,3 +389,4 @@ All services MUST implement equivalent functionality using the same patterns, co
 - **v1.20.0** (2026-05-27): XVI extended — `../sukko-docs/static/llms.txt` must be updated on any docs page addition, removal, or rename.
 - **v1.21.0** (2026-05-27): XVII renamed to 'In-Repo Documentation & Contract Maintenance'; extended to cover `ws/docs/e2e-testing.md` and tester-specific triggers; XVI sukko-docs trigger list made explicit.
 - **v1.22.0** (2026-06-07): Added XVIII — services MUST use consistent patterns; deviations need documented justification; consistency checked in code review.
+- **v1.23.0** (2026-06-16): §VI extended — added `webhook_` as a valid metric prefix for the webhook-worker service. §IV amended — application-layer webhook delivery is a domain exception to the exponential backoff rule; fixed schedule matches industry standard (Stripe, GitHub, Pusher, Ably).

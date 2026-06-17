@@ -2,6 +2,7 @@ package provisioning_test
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/testutil"
 	sharedkafka "github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 func newTestService() (*provisioning.Service, *testutil.MockTenantStore, *testutil.MockKeyStore, *testutil.MockKafkaAdmin) {
@@ -1568,5 +1570,296 @@ func TestService_DeprovisionTenant_Force_DeletedTenantRejected(t *testing.T) {
 	err := svc.DeprovisionTenant(context.Background(), "deleted-test", true)
 	if !errors.Is(err, provisioning.ErrTenantDeleted) {
 		t.Errorf("expected ErrTenantDeleted, got: %v", err)
+	}
+}
+
+// testWebhookEncryptionKey is a valid 32-byte AES-256 key for use in service webhook tests.
+var testWebhookEncryptionKey = func() []byte {
+	key, _ := hex.DecodeString("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	return key
+}()
+
+func newTestServiceWithWebhooks(store *testutil.MockWebhookStore) *provisioning.Service {
+	webhookStore := provisioning.WebhookStore(store)
+	svc, err := provisioning.NewService(provisioning.ServiceConfig{
+		TenantStore:                 testutil.NewMockTenantStore(),
+		KeyStore:                    testutil.NewMockKeyStore(),
+		APIKeyStore:                 testutil.NewMockAPIKeyStore(),
+		RoutingRulesStore:           testutil.NewMockRoutingRulesStore(),
+		QuotaStore:                  testutil.NewMockQuotaStore(),
+		AuditStore:                  testutil.NewMockAuditStore(),
+		KafkaAdmin:                  testutil.NewMockKafkaAdmin(),
+		EventBus:                    eventbus.New(zerolog.Nop()),
+		TopicNamespace:              "test",
+		DefaultPartitions:           3,
+		DefaultRetentionMs:          604800000,
+		MaxTopicsPerTenant:          50,
+		MaxRoutingRulesPerTenant:    5,
+		DeadLetterTopicPartitions:   1,
+		DeadLetterTopicRetentionMs:  86400000,
+		InfraTopicReplicationFactor: 1,
+		DeprovisionGraceDays:        30,
+		Logger:                      zerolog.Nop(),
+		WebhookStore:                webhookStore,
+		EncryptionKey:               testWebhookEncryptionKey,
+		MaxWebhooksPerTenant:        10,
+		WebhookAllowHTTP:            false,
+	})
+	if err != nil {
+		panic("newTestServiceWithWebhooks: " + err.Error())
+	}
+	return svc
+}
+
+// --- Webhook service tests ---
+
+func TestService_CreateWebhook_HappyPath(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewMockWebhookStore()
+	svc := newTestServiceWithWebhooks(store)
+	ctx := context.Background()
+
+	w, err := svc.CreateWebhook(ctx, provisioning.CreateWebhookRequest{
+		TenantID:       "tenant-1",
+		URL:            "https://example.com/hook",
+		ChannelPattern: "orders.*",
+		Secret:         "my-secret",
+		MaxRetries:     3,
+	})
+	if err != nil {
+		t.Fatalf("CreateWebhook() error = %v", err)
+	}
+	if w.ID == "" {
+		t.Error("CreateWebhook() returned empty ID")
+	}
+	if w.SecretEnc == "" {
+		t.Error("CreateWebhook() returned empty SecretEnc (secret not encrypted)")
+	}
+	if w.SecretEnc == "my-secret" {
+		t.Error("CreateWebhook() returned plaintext secret")
+	}
+	if w.Status != types.WebhookStatusEnabled {
+		t.Errorf("Status = %q, want %q", w.Status, types.WebhookStatusEnabled)
+	}
+}
+
+func TestService_CreateWebhook_NilStore(t *testing.T) {
+	t.Parallel()
+	svc, _, _, _ := newTestService() // no WebhookStore configured
+	_, err := svc.CreateWebhook(context.Background(), provisioning.CreateWebhookRequest{
+		TenantID: "t1", URL: "https://example.com", ChannelPattern: "a.*", Secret: "s",
+	})
+	if !errors.Is(err, provisioning.ErrWebhookStoreNotConfigured) {
+		t.Errorf("CreateWebhook() with nil store error = %v, want ErrWebhookStoreNotConfigured", err)
+	}
+}
+
+func TestService_CreateWebhook_InvalidURL(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewMockWebhookStore()
+	svc := newTestServiceWithWebhooks(store)
+	ctx := context.Background()
+
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"empty URL", ""},
+		{"http URL when not allowed", "http://example.com/hook"},
+		{"no host", "/relative/path"},
+		{"private loopback", "https://127.0.0.1/hook"},
+		{"private RFC-1918", "https://10.0.0.1/hook"},
+		{"link-local", "https://169.254.169.254/metadata"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := svc.CreateWebhook(ctx, provisioning.CreateWebhookRequest{
+				TenantID: "t1", URL: tt.url, ChannelPattern: "a.*", Secret: "s",
+			})
+			if !errors.Is(err, provisioning.ErrWebhookInvalidInput) {
+				t.Errorf("CreateWebhook(%q) error = %v, want ErrWebhookInvalidInput", tt.url, err)
+			}
+		})
+	}
+}
+
+func TestService_CreateWebhook_MaxRetriesOutOfRange(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewMockWebhookStore()
+	svc := newTestServiceWithWebhooks(store)
+	ctx := context.Background()
+
+	for _, retries := range []int{-1, 11} {
+		_, err := svc.CreateWebhook(ctx, provisioning.CreateWebhookRequest{
+			TenantID: "t1", URL: "https://example.com", ChannelPattern: "a.*", Secret: "s", MaxRetries: retries,
+		})
+		if !errors.Is(err, provisioning.ErrWebhookInvalidInput) {
+			t.Errorf("CreateWebhook(MaxRetries=%d) error = %v, want ErrWebhookInvalidInput", retries, err)
+		}
+	}
+}
+
+func TestService_CreateWebhook_QuotaExceeded(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewMockWebhookStore()
+	svc, err := provisioning.NewService(provisioning.ServiceConfig{
+		TenantStore:                 testutil.NewMockTenantStore(),
+		KeyStore:                    testutil.NewMockKeyStore(),
+		APIKeyStore:                 testutil.NewMockAPIKeyStore(),
+		RoutingRulesStore:           testutil.NewMockRoutingRulesStore(),
+		QuotaStore:                  testutil.NewMockQuotaStore(),
+		AuditStore:                  testutil.NewMockAuditStore(),
+		KafkaAdmin:                  testutil.NewMockKafkaAdmin(),
+		EventBus:                    eventbus.New(zerolog.Nop()),
+		TopicNamespace:              "test",
+		DefaultPartitions:           3,
+		DefaultRetentionMs:          604800000,
+		MaxTopicsPerTenant:          50,
+		MaxRoutingRulesPerTenant:    5,
+		DeadLetterTopicPartitions:   1,
+		DeadLetterTopicRetentionMs:  86400000,
+		InfraTopicReplicationFactor: 1,
+		DeprovisionGraceDays:        30,
+		Logger:                      zerolog.Nop(),
+		WebhookStore:                store,
+		EncryptionKey:               testWebhookEncryptionKey,
+		MaxWebhooksPerTenant:        1, // cap at 1
+		WebhookAllowHTTP:            false,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	ctx := context.Background()
+
+	// First webhook — succeeds.
+	if _, err := svc.CreateWebhook(ctx, provisioning.CreateWebhookRequest{
+		TenantID: "t1", URL: "https://example.com", ChannelPattern: "a.*", Secret: "s",
+	}); err != nil {
+		t.Fatalf("first CreateWebhook() error = %v", err)
+	}
+
+	// Second webhook — must be rejected.
+	_, err = svc.CreateWebhook(ctx, provisioning.CreateWebhookRequest{
+		TenantID: "t1", URL: "https://example.com/2", ChannelPattern: "b.*", Secret: "s2",
+	})
+	if !errors.Is(err, provisioning.ErrWebhookQuotaExceeded) {
+		t.Errorf("CreateWebhook() over quota error = %v, want ErrWebhookQuotaExceeded", err)
+	}
+}
+
+func TestService_GetWebhook_HappyPath(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewMockWebhookStore()
+	svc := newTestServiceWithWebhooks(store)
+	ctx := context.Background()
+
+	// Pre-seed the store directly.
+	_ = store.Create(ctx, &provisioning.Webhook{
+		ID: "wh_gettest1", TenantID: "t1", URL: "https://example.com",
+		ChannelPattern: "a.*", SecretEnc: "enc", Status: types.WebhookStatusEnabled, MaxRetries: 5,
+	})
+
+	got, err := svc.GetWebhook(ctx, "wh_gettest1", "t1")
+	if err != nil {
+		t.Fatalf("GetWebhook() error = %v", err)
+	}
+	if got.ID != "wh_gettest1" {
+		t.Errorf("ID = %q, want %q", got.ID, "wh_gettest1")
+	}
+}
+
+func TestService_GetWebhook_NilStore(t *testing.T) {
+	t.Parallel()
+	svc, _, _, _ := newTestService()
+	_, err := svc.GetWebhook(context.Background(), "wh_x", "t1")
+	if !errors.Is(err, provisioning.ErrWebhookStoreNotConfigured) {
+		t.Errorf("GetWebhook() nil store error = %v, want ErrWebhookStoreNotConfigured", err)
+	}
+}
+
+func TestService_ListWebhooks_NilStore(t *testing.T) {
+	t.Parallel()
+	svc, _, _, _ := newTestService()
+	_, _, err := svc.ListWebhooks(context.Background(), "t1", provisioning.ListOptions{Limit: 10})
+	if !errors.Is(err, provisioning.ErrWebhookStoreNotConfigured) {
+		t.Errorf("ListWebhooks() nil store error = %v, want ErrWebhookStoreNotConfigured", err)
+	}
+}
+
+func TestService_UpdateWebhook_EmptyPatchRejected(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewMockWebhookStore()
+	svc := newTestServiceWithWebhooks(store)
+	ctx := context.Background()
+
+	_, err := svc.UpdateWebhook(ctx, provisioning.UpdateWebhookRequest{
+		ID: "wh_x", TenantID: "t1",
+		// all optional fields nil
+	})
+	if !errors.Is(err, provisioning.ErrWebhookInvalidInput) {
+		t.Errorf("UpdateWebhook() empty PATCH error = %v, want ErrWebhookInvalidInput", err)
+	}
+}
+
+func TestService_UpdateWebhook_DegradedStatusRejected(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewMockWebhookStore()
+	svc := newTestServiceWithWebhooks(store)
+	ctx := context.Background()
+
+	degraded := types.WebhookStatusDegraded
+	_, err := svc.UpdateWebhook(ctx, provisioning.UpdateWebhookRequest{
+		ID: "wh_x", TenantID: "t1",
+		Status: &degraded,
+	})
+	if !errors.Is(err, provisioning.ErrWebhookInvalidInput) {
+		t.Errorf("UpdateWebhook(status=degraded) error = %v, want ErrWebhookInvalidInput", err)
+	}
+}
+
+func TestService_UpdateWebhook_SSRFURLRejected(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewMockWebhookStore()
+	svc := newTestServiceWithWebhooks(store)
+	ctx := context.Background()
+
+	ssrfURL := "https://169.254.169.254/latest/meta-data"
+	_, err := svc.UpdateWebhook(ctx, provisioning.UpdateWebhookRequest{
+		ID: "wh_x", TenantID: "t1",
+		URL: &ssrfURL,
+	})
+	if !errors.Is(err, provisioning.ErrWebhookInvalidInput) {
+		t.Errorf("UpdateWebhook(SSRF URL) error = %v, want ErrWebhookInvalidInput", err)
+	}
+}
+
+func TestService_DeleteWebhook_HappyPath(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewMockWebhookStore()
+	svc := newTestServiceWithWebhooks(store)
+	ctx := context.Background()
+
+	_ = store.Create(ctx, &provisioning.Webhook{
+		ID: "wh_del001", TenantID: "t1", URL: "https://example.com",
+		ChannelPattern: "a.*", SecretEnc: "enc", Status: types.WebhookStatusEnabled, MaxRetries: 5,
+	})
+
+	if err := svc.DeleteWebhook(ctx, "wh_del001", "t1"); err != nil {
+		t.Fatalf("DeleteWebhook() error = %v", err)
+	}
+
+	_, err := svc.GetWebhook(ctx, "wh_del001", "t1")
+	if !errors.Is(err, provisioning.ErrWebhookNotFound) {
+		t.Errorf("GetWebhook() after delete error = %v, want ErrWebhookNotFound", err)
+	}
+}
+
+func TestService_DeleteWebhook_NilStore(t *testing.T) {
+	t.Parallel()
+	svc, _, _, _ := newTestService()
+	err := svc.DeleteWebhook(context.Background(), "wh_x", "t1")
+	if !errors.Is(err, provisioning.ErrWebhookStoreNotConfigured) {
+		t.Errorf("DeleteWebhook() nil store error = %v, want ErrWebhookStoreNotConfigured", err)
 	}
 }

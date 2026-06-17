@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/klurvio/sukko/internal/provisioning/repository"
+	"github.com/klurvio/sukko/internal/shared/crypto"
 	"github.com/klurvio/sukko/internal/shared/testutil"
 )
 
@@ -15,7 +16,7 @@ const testEncryptionKeyHex = "0123456789abcdef0123456789abcdef0123456789abcdef01
 func newLicenseStateRepo(t *testing.T) *repository.LicenseStateRepository {
 	t.Helper()
 	pool := testutil.NewTestPool(t)
-	key, err := repository.ParseEncryptionKey(testEncryptionKeyHex)
+	key, err := crypto.ParseEncryptionKey(testEncryptionKeyHex)
 	if err != nil {
 		t.Fatalf("ParseEncryptionKey: %v", err)
 	}
