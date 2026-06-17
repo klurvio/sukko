@@ -417,3 +417,84 @@ const (
 	ActorTypeAPIKey = "api_key"
 	ActorTypeAdmin  = "admin"
 )
+
+// Webhook audit action constants.
+const (
+	ActionCreateWebhook             = "create_webhook"
+	ActionUpdateWebhook             = "update_webhook"
+	ActionDeleteWebhook             = "delete_webhook"
+	ActionSuspendWebhookOnDowngrade = "suspend_webhook_on_downgrade"
+)
+
+// WebhookStatusCodeConnectionError is the sentinel status_code value stored in webhook_deliveries
+// when a connection-level failure occurs (timeout, DNS error, refused) rather than an HTTP response.
+const WebhookStatusCodeConnectionError = 0
+
+// WebhookInvalidationSubjectPrefix is the Valkey pub/sub subject prefix the provisioning
+// service will publish on when a webhook is created, updated, or deleted (Future — not yet published).
+// The webhook-worker will subscribe via PSUBSCRIBE for near-real-time cache invalidation.
+// Defined here (not in ws/internal/webhook) to prevent a provisioning→webhook import cycle.
+// Currently the webhook-worker relies solely on CacheTTL (30s) for eventual consistency.
+const WebhookInvalidationSubjectPrefix = "ws.webhooks.invalidated."
+
+// Webhook is the in-memory representation of a registered webhook endpoint.
+type Webhook struct {
+	ID             string
+	TenantID       string
+	URL            string
+	ChannelPattern string
+	SecretEnc      string // AES-256-GCM encrypted base64; decrypted only at HMAC computation
+	Status         string
+	MaxRetries     int
+	RetryCount     int
+	LastDeliveryAt *time.Time
+	LastStatus     *string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// CreateWebhookRequest is the input for Service.CreateWebhook.
+type CreateWebhookRequest struct {
+	TenantID       string
+	URL            string
+	ChannelPattern string
+	Secret         string // plaintext; encrypted by service before storage
+	MaxRetries     int    // 0 = use default (5)
+}
+
+// UpdateWebhookRequest is the input for Service.UpdateWebhook.
+// Nil pointer fields mean "no change".
+type UpdateWebhookRequest struct {
+	ID             string
+	TenantID       string
+	URL            *string
+	ChannelPattern *string
+	MaxRetries     *int
+	Status         *string
+}
+
+// WebhookDelivery is a single delivery attempt record, written to webhook_deliveries.
+type WebhookDelivery struct {
+	ID          string
+	WebhookID   string
+	TenantID    string
+	Attempt     int
+	StatusCode  int
+	LatencyMS   int64
+	Error       string
+	DeliveredAt time.Time
+}
+
+// WebhookRecord is the gRPC-facing representation sent from provisioning to webhook-worker.
+// SecretEnc is raw AES-256-GCM ciphertext bytes (binary, not base64). The repository
+// decodes the base64 TEXT column from the DB before populating this field.
+// The webhook-worker calls crypto.DecryptRaw(rec.SecretEnc, key) — not DecryptCredential.
+type WebhookRecord struct {
+	ID             string
+	TenantID       string
+	URL            string
+	ChannelPattern string
+	SecretEnc      []byte // AES-256-GCM ciphertext; NOT plaintext
+	Status         string
+	MaxRetries     int
+}

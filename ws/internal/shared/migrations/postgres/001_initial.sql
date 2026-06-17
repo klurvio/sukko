@@ -142,6 +142,7 @@ CREATE TABLE license_state (
     edition         VARCHAR(16)  NOT NULL,
     org             VARCHAR(255) NOT NULL DEFAULT '',
     expires_at      TIMESTAMPTZ,
+    downgraded_at   TIMESTAMPTZ,
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
@@ -379,3 +380,53 @@ CREATE TRIGGER trigger_channel_rules_updated_at
     BEFORE UPDATE ON tenant_channel_rules
     FOR EACH ROW
     EXECUTE FUNCTION update_channel_rules_updated_at();
+
+-- ====================
+-- WEBHOOK TABLES
+-- ====================
+
+-- Webhook registrations (Pro edition feature)
+CREATE TABLE webhooks (
+    id               TEXT        PRIMARY KEY,  -- wh_ + base32(8 random bytes), no padding, ~16 chars
+    tenant_id        UUID        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    url              TEXT        NOT NULL,
+    channel_pattern  TEXT        NOT NULL,
+    secret_enc       TEXT        NOT NULL,     -- AES-256-GCM encrypted, base64; decrypted only at HMAC time
+    status           TEXT        NOT NULL DEFAULT 'enabled'
+                                 CHECK (status IN ('enabled', 'degraded', 'suspended')),
+    max_retries      INT         NOT NULL DEFAULT 5 CHECK (max_retries >= 1 AND max_retries <= 10),
+    retry_count      INT         NOT NULL DEFAULT 0, -- reset to 0 on any →enabled transition
+    last_delivery_at TIMESTAMPTZ,
+    last_status      TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_webhooks_tenant_id     ON webhooks(tenant_id);
+CREATE INDEX idx_webhooks_tenant_status ON webhooks(tenant_id, status);
+
+-- Delivery log: last 50 per webhook, pruned on insert inside a single transaction
+CREATE TABLE webhook_deliveries (
+    id           TEXT        PRIMARY KEY,  -- X-Sukko-Delivery UUID value
+    webhook_id   TEXT        NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+    tenant_id    UUID        NOT NULL,     -- denormalized for query efficiency
+    attempt      INT         NOT NULL,
+    status_code  INT         NOT NULL,     -- HTTP status; 0 = connection error sentinel
+    latency_ms   BIGINT      NOT NULL,
+    error        TEXT        NOT NULL DEFAULT '',
+    delivered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id, delivered_at DESC);
+
+CREATE OR REPLACE FUNCTION update_webhooks_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_webhooks_updated_at
+    BEFORE UPDATE ON webhooks
+    FOR EACH ROW
+    EXECUTE FUNCTION update_webhooks_updated_at();
+

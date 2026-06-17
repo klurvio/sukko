@@ -64,6 +64,26 @@ func TestRequireFeature(t *testing.T) {
 			wantStatus: http.StatusForbidden,
 			wantCode:   api.ErrCodeEditionLimit,
 		},
+		// Webhook delivery — Pro edition feature gate (§XIII).
+		{
+			name:       "community blocked from webhooks",
+			edition:    license.Community,
+			feature:    license.Webhooks,
+			wantStatus: http.StatusForbidden,
+			wantCode:   api.ErrCodeEditionLimit,
+		},
+		{
+			name:       "pro allowed for webhooks",
+			edition:    license.Pro,
+			feature:    license.Webhooks,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "enterprise allowed for webhooks",
+			edition:    license.Enterprise,
+			feature:    license.Webhooks,
+			wantStatus: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {

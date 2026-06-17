@@ -1,4 +1,4 @@
-package repository
+package crypto
 
 import (
 	"crypto/rand"
@@ -22,27 +22,27 @@ func TestEncryptDecryptRoundtrip(t *testing.T) {
 		{name: "short string", plaintext: "hello"},
 		{name: "json payload", plaintext: `{"project_id":"my-project","private_key":"-----BEGIN RSA..."}`},
 		{name: "empty string", plaintext: ""},
-		{name: "unicode", plaintext: "credentials with unicode: \u00e9\u00e0\u00fc"},
+		{name: "unicode", plaintext: "credentials with unicode: éàü"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			encrypted, err := encryptCredential(tt.plaintext, key)
+			encrypted, err := EncryptCredential(tt.plaintext, key)
 			if err != nil {
-				t.Fatalf("encryptCredential() error = %v", err)
+				t.Fatalf("EncryptCredential() error = %v", err)
 			}
 			if encrypted == tt.plaintext && tt.plaintext != "" {
 				t.Error("encrypted should differ from plaintext")
 			}
 
-			decrypted, err := decryptCredential(encrypted, key)
+			decrypted, err := DecryptCredential(encrypted, key)
 			if err != nil {
-				t.Fatalf("decryptCredential() error = %v", err)
+				t.Fatalf("DecryptCredential() error = %v", err)
 			}
 			if decrypted != tt.plaintext {
-				t.Errorf("decryptCredential() = %q, want %q", decrypted, tt.plaintext)
+				t.Errorf("DecryptCredential() = %q, want %q", decrypted, tt.plaintext)
 			}
 		})
 	}
@@ -58,11 +58,11 @@ func TestEncryptDifferentNonce(t *testing.T) {
 
 	plaintext := "same plaintext for both encryptions"
 
-	enc1, err := encryptCredential(plaintext, key)
+	enc1, err := EncryptCredential(plaintext, key)
 	if err != nil {
 		t.Fatalf("first encrypt: %v", err)
 	}
-	enc2, err := encryptCredential(plaintext, key)
+	enc2, err := EncryptCredential(plaintext, key)
 	if err != nil {
 		t.Fatalf("second encrypt: %v", err)
 	}
@@ -71,12 +71,11 @@ func TestEncryptDifferentNonce(t *testing.T) {
 		t.Error("encrypting the same plaintext twice should produce different ciphertexts (random nonce)")
 	}
 
-	// Both should decrypt to the same value
-	dec1, err := decryptCredential(enc1, key)
+	dec1, err := DecryptCredential(enc1, key)
 	if err != nil {
 		t.Fatalf("decrypt first: %v", err)
 	}
-	dec2, err := decryptCredential(enc2, key)
+	dec2, err := DecryptCredential(enc2, key)
 	if err != nil {
 		t.Fatalf("decrypt second: %v", err)
 	}
@@ -97,14 +96,14 @@ func TestDecryptWrongKey(t *testing.T) {
 		t.Fatalf("generate key B: %v", err)
 	}
 
-	encrypted, err := encryptCredential("secret data", keyA)
+	encrypted, err := EncryptCredential("secret data", keyA)
 	if err != nil {
 		t.Fatalf("encrypt: %v", err)
 	}
 
-	_, err = decryptCredential(encrypted, keyB)
+	_, err = DecryptCredential(encrypted, keyB)
 	if err == nil {
-		t.Fatal("decryptCredential() with wrong key should return an error")
+		t.Fatal("DecryptCredential() with wrong key should return an error")
 	}
 }
 
@@ -121,41 +120,13 @@ func TestParseEncryptionKey(t *testing.T) {
 		input   string
 		wantErr bool
 	}{
-		{
-			name:    "hex encoded 64 chars",
-			input:   hex.EncodeToString(rawKey),
-			wantErr: false,
-		},
-		{
-			name:    "base64 standard encoded",
-			input:   base64.StdEncoding.EncodeToString(rawKey),
-			wantErr: false,
-		},
-		{
-			name:    "base64 URL encoded",
-			input:   base64.URLEncoding.EncodeToString(rawKey),
-			wantErr: false,
-		},
-		{
-			name:    "too short",
-			input:   "abcd1234",
-			wantErr: true,
-		},
-		{
-			name:    "wrong length hex",
-			input:   hex.EncodeToString(rawKey[:16]), // 16 bytes = 32 hex chars, not 32 bytes
-			wantErr: true,
-		},
-		{
-			name:    "invalid encoding",
-			input:   "not-a-valid-encoding-string-that-is-long-enough-to-test!!!!!!!!!!!",
-			wantErr: true,
-		},
-		{
-			name:    "empty string",
-			input:   "",
-			wantErr: true,
-		},
+		{name: "hex encoded 64 chars", input: hex.EncodeToString(rawKey), wantErr: false},
+		{name: "base64 standard encoded", input: base64.StdEncoding.EncodeToString(rawKey), wantErr: false},
+		{name: "base64 URL encoded", input: base64.URLEncoding.EncodeToString(rawKey), wantErr: false},
+		{name: "too short", input: "abcd1234", wantErr: true},
+		{name: "wrong length hex", input: hex.EncodeToString(rawKey[:16]), wantErr: true},
+		{name: "invalid encoding", input: "not-a-valid-encoding-string-that-is-long-enough-to-test!!!!!!!!", wantErr: true},
+		{name: "empty string", input: "", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -187,13 +158,13 @@ func TestEncryptInvalidKeyLength(t *testing.T) {
 		t.Fatalf("generate key: %v", err)
 	}
 
-	_, err := encryptCredential("test", shortKey)
+	_, err := EncryptCredential("test", shortKey)
 	if err == nil {
-		t.Fatal("encryptCredential() with 16-byte key should return an error")
+		t.Fatal("EncryptCredential() with 16-byte key should return an error")
 	}
 
-	_, err = decryptCredential("dGVzdA==", shortKey)
+	_, err = DecryptCredential("dGVzdA==", shortKey)
 	if err == nil {
-		t.Fatal("decryptCredential() with 16-byte key should return an error")
+		t.Fatal("DecryptCredential() with 16-byte key should return an error")
 	}
 }

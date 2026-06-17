@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/klurvio/sukko/internal/shared/crypto"
 )
 
 // ErrCredentialAlreadyExists indicates a push credential already exists for the tenant+provider.
@@ -37,7 +39,7 @@ func NewCredentialsRepository(pool *pgxpool.Pool, encryptionKeyStr string) (*Cre
 	repo := &CredentialsRepository{pool: pool}
 
 	if encryptionKeyStr != "" {
-		key, err := ParseEncryptionKey(encryptionKeyStr)
+		key, err := crypto.ParseEncryptionKey(encryptionKeyStr)
 		if err != nil {
 			return nil, fmt.Errorf("parse credentials encryption key: %w", err)
 		}
@@ -52,7 +54,7 @@ func NewCredentialsRepository(pool *pgxpool.Pool, encryptionKeyStr string) (*Cre
 func (r *CredentialsRepository) Create(ctx context.Context, cred *PushCredential) error {
 	credData := cred.CredentialData
 	if r.encryptionKey != nil {
-		encrypted, err := encryptCredential(credData, r.encryptionKey)
+		encrypted, err := crypto.EncryptCredential(credData, r.encryptionKey)
 		if err != nil {
 			return fmt.Errorf("encrypt credential data: %w", err)
 		}
@@ -111,7 +113,7 @@ func (r *CredentialsRepository) Get(ctx context.Context, tenantID, provider stri
 	}
 
 	if r.encryptionKey != nil {
-		decrypted, err := decryptCredential(cred.CredentialData, r.encryptionKey)
+		decrypted, err := crypto.DecryptCredential(cred.CredentialData, r.encryptionKey)
 		if err != nil {
 			return nil, fmt.Errorf("decrypt credential data: %w", err)
 		}
@@ -152,7 +154,7 @@ func (r *CredentialsRepository) ListByTenant(ctx context.Context, tenantID strin
 		}
 
 		if r.encryptionKey != nil {
-			decrypted, err := decryptCredential(cred.CredentialData, r.encryptionKey)
+			decrypted, err := crypto.DecryptCredential(cred.CredentialData, r.encryptionKey)
 			if err != nil {
 				return nil, fmt.Errorf("decrypt credential data: %w", err)
 			}
@@ -199,7 +201,7 @@ func (r *CredentialsRepository) ListAll(ctx context.Context) ([]*PushCredential,
 		}
 
 		if r.encryptionKey != nil {
-			decrypted, err := decryptCredential(cred.CredentialData, r.encryptionKey)
+			decrypted, err := crypto.DecryptCredential(cred.CredentialData, r.encryptionKey)
 			if err != nil {
 				return nil, fmt.Errorf("decrypt credential data: %w", err)
 			}
@@ -222,7 +224,7 @@ func (r *CredentialsRepository) ListAll(ctx context.Context) ([]*PushCredential,
 func (r *CredentialsRepository) Update(ctx context.Context, cred *PushCredential) error {
 	credData := cred.CredentialData
 	if r.encryptionKey != nil {
-		encrypted, err := encryptCredential(credData, r.encryptionKey)
+		encrypted, err := crypto.EncryptCredential(credData, r.encryptionKey)
 		if err != nil {
 			return fmt.Errorf("encrypt credential data: %w", err)
 		}

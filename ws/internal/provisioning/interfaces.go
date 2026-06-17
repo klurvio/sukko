@@ -317,3 +317,59 @@ func ParsePrincipal(principal string) string {
 func ValidatePrincipal(principal string) bool {
 	return len(principal) > 5 && principal[:5] == "User:"
 }
+
+// WebhookStore handles webhook registration persistence.
+type WebhookStore interface {
+	// Create inserts a new webhook registration with an auto-generated ID.
+	Create(ctx context.Context, w *Webhook) error
+
+	// GetByID retrieves a webhook by ID, scoped to the given tenantID.
+	// Returns ErrWebhookNotFound if not found or wrong tenant.
+	GetByID(ctx context.Context, id, tenantID string) (*Webhook, error)
+
+	// List returns webhooks for a tenant with pagination.
+	List(ctx context.Context, tenantID string, opts ListOptions) ([]*Webhook, int, error)
+
+	// Update applies partial update from UpdateWebhookRequest.
+	// Returns ErrWebhookNotFound if not found or wrong tenant.
+	Update(ctx context.Context, req UpdateWebhookRequest) (*Webhook, error)
+
+	// Delete removes a webhook, scoped to tenantID.
+	// Returns ErrWebhookNotFound if not found or wrong tenant.
+	Delete(ctx context.Context, id, tenantID string) error
+
+	// CountActive returns the number of webhooks with status != 'suspended' for a tenant.
+	// Used for quota enforcement.
+	CountActive(ctx context.Context, tenantID string) (int, error)
+
+	// ListTenantIDs returns all distinct tenant IDs that have at least one
+	// non-suspended webhook. Used at webhook-worker startup.
+	ListTenantIDs(ctx context.Context) ([]string, error)
+
+	// ListByTenantForWorker returns webhooks for a tenant for cache hydration.
+	// SecretEnc in WebhookRecord is raw AES-256-GCM ciphertext (binary, not base64) —
+	// the repository decodes the base64 TEXT from the DB before setting this field.
+	// The webhook-worker passes it directly to crypto.DecryptRaw(rec.SecretEnc, key).
+	ListByTenantForWorker(ctx context.Context, tenantID string) ([]*WebhookRecord, error)
+
+	// UpdateStatus transitions a webhook's status and resets retry_count.
+	// retryCount is set to 0 on any →enabled transition.
+	UpdateStatus(ctx context.Context, id, tenantID, status string, retryCount int) error
+
+	// RecordDelivery inserts a delivery attempt into webhook_deliveries and
+	// updates webhooks.last_delivery_at and webhooks.last_status.
+	// Prunes oldest rows to keep at most 50 per webhook.
+	// INSERT + prune + UPDATE MUST execute in a single transaction.
+	RecordDelivery(ctx context.Context, d *WebhookDelivery) error
+
+	// SuspendAllForDowngrade bulk-suspends all non-suspended webhooks.
+	// cutoff is kept for interface compatibility and audit logging at the call site;
+	// implementations MUST suspend all non-suspended webhooks regardless of creation date
+	// (feature gate prevents new registrations after downgrade; defense-in-depth catches edge cases).
+	// Returns the count of rows updated. Called after the grace period has elapsed.
+	SuspendAllForDowngrade(ctx context.Context, cutoff time.Time) (int, error)
+
+	// ListForDowngrade returns all non-suspended webhooks eligible for suspension.
+	// cutoff is kept for interface compatibility and audit logging at the call site.
+	ListForDowngrade(ctx context.Context, cutoff time.Time) ([]*Webhook, error)
+}

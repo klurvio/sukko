@@ -63,6 +63,11 @@ spec:
             - name: grpc
               containerPort: {{ .Values.service.grpcPort | default 9090 }}
               protocol: TCP
+            {{- if .Values.webhooks.enabled }}
+            - name: grpc-webhook
+              containerPort: {{ .Values.service.webhookWorkerGRPCPort | default 9091 }}
+              protocol: TCP
+            {{- end }}
           env:
             # Deployment identity
             {{- if .Values.environment }}
@@ -98,6 +103,12 @@ spec:
             {{- if and .Values.service.grpcPort (ne (int .Values.service.grpcPort) 9090) }}
             - name: GRPC_PORT
               value: {{ .Values.service.grpcPort | quote }}
+            {{- end }}
+
+            # Webhook-worker gRPC port (only when overridden from Go default of 9091)
+            {{- if and .Values.webhooks.enabled .Values.service.webhookWorkerGRPCPort (ne (int .Values.service.webhookWorkerGRPCPort) 9091) }}
+            - name: WEBHOOK_WORKER_GRPC_PORT
+              value: {{ .Values.service.webhookWorkerGRPCPort | quote }}
             {{- end }}
 
             # Kafka brokers for DLQ and migration tools

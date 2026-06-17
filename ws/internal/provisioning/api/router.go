@@ -78,6 +78,10 @@ type RouterConfig struct {
 	// ConnectionsHandler handles the connections management API (Pro edition).
 	// When nil, connections routes are not registered.
 	ConnectionsHandler *ConnectionsHandler
+
+	// WebhookHandler handles webhook CRUD (Pro edition).
+	// When nil, webhook routes are not registered.
+	WebhookHandler *WebhookHandler
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -257,6 +261,20 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 						r.Route("/connections/{connId}", func(r chi.Router) {
 							r.Get("/", cfg.ConnectionsHandler.HandleGetConnection)
 							r.Delete("/", cfg.ConnectionsHandler.HandleDeleteConnection)
+						})
+					})
+				}
+
+				// Webhook management API — requires Pro edition (§XIII)
+				if cfg.WebhookHandler != nil {
+					r.Group(func(r chi.Router) {
+						r.Use(RequireFeature(cfg.EditionManager, license.Webhooks))
+						r.Post("/webhooks", cfg.WebhookHandler.HandleCreate)
+						r.Get("/webhooks", cfg.WebhookHandler.HandleList)
+						r.Route("/webhooks/{webhookID}", func(r chi.Router) {
+							r.Get("/", cfg.WebhookHandler.HandleGet)
+							r.Patch("/", cfg.WebhookHandler.HandleUpdate)
+							r.Delete("/", cfg.WebhookHandler.HandleDelete)
 						})
 					})
 				}

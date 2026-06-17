@@ -2,9 +2,14 @@ package provisioning
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base32"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -12,6 +17,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/crypto"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/routing"
@@ -42,6 +48,11 @@ var (
 	// store-layer sentinel — it MUST NOT propagate to HTTP handlers; the service
 	// layer maps it to ErrSlugRenameInProgress before returning to callers.
 	ErrCASFailed = errors.New("CAS update matched zero rows")
+
+	ErrWebhookNotFound           = errors.New("webhook not found")
+	ErrWebhookQuotaExceeded      = errors.New("webhook quota exceeded")
+	ErrWebhookStoreNotConfigured = errors.New("webhook store not configured")
+	ErrWebhookInvalidInput       = errors.New("invalid webhook input")
 )
 
 const (
@@ -122,6 +133,13 @@ type ServiceConfig struct {
 	// SlugRenameTopicHoldPeriod is how long to keep old topics/ACLs after a rename
 	// and accept old-slug JWTs. Forwarded from platform.ProvisioningConfig.
 	SlugRenameTopicHoldPeriod time.Duration
+
+	// Webhook configuration (Pro edition).
+	// WebhookStore is nil for Community deployments — webhook methods return ErrWebhookStoreNotConfigured.
+	WebhookStore         WebhookStore
+	EncryptionKey        []byte // AES-256 key for encrypting webhook secrets at rest.
+	MaxWebhooksPerTenant int    // Quota cap; 0 means unset (no enforcement).
+	WebhookAllowHTTP     bool   // Allow http:// webhook URLs (local/dev only).
 }
 
 // Service provides tenant lifecycle management and provisioning operations.
@@ -138,6 +156,7 @@ type Service struct {
 	logger         zerolog.Logger
 	config         ServiceConfig
 	editionManager *license.Manager
+	webhooks       WebhookStore // nil for Community — methods guard against nil
 }
 
 // NewService creates a new provisioning Service.
@@ -168,6 +187,9 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	if cfg.TopicNamespace == "" {
 		return nil, errors.New("provisioning service: topic namespace is required")
 	}
+	if cfg.WebhookStore != nil && len(cfg.EncryptionKey) != crypto.KeySize {
+		return nil, fmt.Errorf("provisioning service: EncryptionKey must be %d bytes when WebhookStore is configured (got %d)", crypto.KeySize, len(cfg.EncryptionKey))
+	}
 
 	return &Service{
 		tenants:        cfg.TenantStore,
@@ -182,6 +204,7 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		logger:         cfg.Logger,
 		config:         cfg,
 		editionManager: cfg.EditionManager,
+		webhooks:       cfg.WebhookStore,
 	}, nil
 }
 
@@ -1545,4 +1568,227 @@ func (s *Service) Start(ctx context.Context) error {
 
 	recordStartupScanFindings(pendingCount, completeCount)
 	return nil
+}
+
+const (
+	// defaultWebhookMaxRetries is used when CreateWebhookRequest.MaxRetries is 0.
+	defaultWebhookMaxRetries = 5
+	// maxWebhookMaxRetries is the upper bound for the max_retries field.
+	maxWebhookMaxRetries = 10
+)
+
+// privateBlocks is parsed once at init and used by isPrivateHost to check for SSRF.
+var privateBlocks []*net.IPNet
+
+func init() {
+	cidrs := []string{
+		"127.0.0.0/8",    // loopback
+		"::1/128",        // IPv6 loopback
+		"10.0.0.0/8",     // RFC-1918 private
+		"172.16.0.0/12",  // RFC-1918 private
+		"192.168.0.0/16", // RFC-1918 private
+		"169.254.0.0/16", // link-local
+		"fe80::/10",      // IPv6 link-local
+		"fc00::/7",       // IPv6 ULA
+		"100.64.0.0/10",  // shared address (RFC-6598, carrier-grade NAT)
+		"0.0.0.0/8",      // "this" network
+	}
+	for _, cidr := range cidrs {
+		_, block, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(fmt.Sprintf("invalid private CIDR %q: %v", cidr, err))
+		}
+		privateBlocks = append(privateBlocks, block)
+	}
+}
+
+// CreateWebhook creates a new webhook registration for a tenant.
+// Validates the URL, enforces the per-tenant quota, encrypts the secret, and writes to the store.
+func (s *Service) CreateWebhook(ctx context.Context, req CreateWebhookRequest) (*Webhook, error) {
+	if s.webhooks == nil {
+		return nil, ErrWebhookStoreNotConfigured
+	}
+
+	if err := validateWebhookURL(req.URL, s.config.WebhookAllowHTTP); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrWebhookInvalidInput, err)
+	}
+
+	if req.ChannelPattern == "" {
+		return nil, fmt.Errorf("%w: channel_pattern is required", ErrWebhookInvalidInput)
+	}
+	if req.Secret == "" {
+		return nil, fmt.Errorf("%w: secret is required", ErrWebhookInvalidInput)
+	}
+
+	maxRetries := req.MaxRetries
+	if maxRetries == 0 {
+		maxRetries = defaultWebhookMaxRetries
+	}
+	if maxRetries < 1 || maxRetries > maxWebhookMaxRetries {
+		return nil, fmt.Errorf("%w: max_retries must be between 1 and %d, got %d", ErrWebhookInvalidInput, maxWebhookMaxRetries, maxRetries)
+	}
+
+	// Enforce per-tenant quota.
+	if s.config.MaxWebhooksPerTenant > 0 {
+		count, err := s.webhooks.CountActive(ctx, req.TenantID)
+		if err != nil {
+			return nil, fmt.Errorf("count active webhooks: %w", err)
+		}
+		if count >= s.config.MaxWebhooksPerTenant {
+			return nil, ErrWebhookQuotaExceeded
+		}
+	}
+
+	// Encrypt the secret at rest.
+	secretEnc, err := crypto.EncryptCredential(req.Secret, s.config.EncryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt webhook secret: %w", err)
+	}
+
+	// Generate ID.
+	id, err := generateWebhookID()
+	if err != nil {
+		return nil, fmt.Errorf("generate webhook ID: %w", err)
+	}
+
+	w := &Webhook{
+		ID:             id,
+		TenantID:       req.TenantID,
+		URL:            req.URL,
+		ChannelPattern: req.ChannelPattern,
+		SecretEnc:      secretEnc,
+		Status:         types.WebhookStatusEnabled,
+		MaxRetries:     maxRetries,
+	}
+	if err := s.webhooks.Create(ctx, w); err != nil {
+		return nil, fmt.Errorf("create webhook: %w", err)
+	}
+
+	s.auditLog(ctx, req.TenantID, ActionCreateWebhook, Metadata{"webhook_id": w.ID, "url": w.URL})
+	return w, nil
+}
+
+// GetWebhook retrieves a webhook by ID scoped to a tenant.
+func (s *Service) GetWebhook(ctx context.Context, id, tenantID string) (*Webhook, error) {
+	if s.webhooks == nil {
+		return nil, ErrWebhookStoreNotConfigured
+	}
+	w, err := s.webhooks.GetByID(ctx, id, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get webhook: %w", err)
+	}
+	return w, nil
+}
+
+// ListWebhooks returns paginated webhooks for a tenant.
+func (s *Service) ListWebhooks(ctx context.Context, tenantID string, opts ListOptions) ([]*Webhook, int, error) {
+	if s.webhooks == nil {
+		return nil, 0, ErrWebhookStoreNotConfigured
+	}
+	webhooks, total, err := s.webhooks.List(ctx, tenantID, opts)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list webhooks: %w", err)
+	}
+	return webhooks, total, nil
+}
+
+// UpdateWebhook applies a partial update to a webhook.
+func (s *Service) UpdateWebhook(ctx context.Context, req UpdateWebhookRequest) (*Webhook, error) {
+	if s.webhooks == nil {
+		return nil, ErrWebhookStoreNotConfigured
+	}
+
+	if req.URL == nil && req.ChannelPattern == nil && req.MaxRetries == nil && req.Status == nil {
+		return nil, fmt.Errorf("%w: at least one field must be provided", ErrWebhookInvalidInput)
+	}
+
+	if req.URL != nil {
+		if err := validateWebhookURL(*req.URL, s.config.WebhookAllowHTTP); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrWebhookInvalidInput, err)
+		}
+	}
+	if req.MaxRetries != nil && (*req.MaxRetries < 1 || *req.MaxRetries > maxWebhookMaxRetries) {
+		return nil, fmt.Errorf("%w: max_retries must be between 1 and %d, got %d", ErrWebhookInvalidInput, maxWebhookMaxRetries, *req.MaxRetries)
+	}
+	if req.Status != nil {
+		switch *req.Status {
+		case types.WebhookStatusEnabled, types.WebhookStatusSuspended:
+			// valid tenant-settable transitions
+		default:
+			return nil, fmt.Errorf("%w: status must be %q or %q, got %q",
+				ErrWebhookInvalidInput, types.WebhookStatusEnabled, types.WebhookStatusSuspended, *req.Status)
+		}
+	}
+
+	w, err := s.webhooks.Update(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("update webhook: %w", err)
+	}
+	s.auditLog(ctx, req.TenantID, ActionUpdateWebhook, Metadata{"webhook_id": req.ID})
+	return w, nil
+}
+
+// DeleteWebhook removes a webhook.
+func (s *Service) DeleteWebhook(ctx context.Context, id, tenantID string) error {
+	if s.webhooks == nil {
+		return ErrWebhookStoreNotConfigured
+	}
+	if err := s.webhooks.Delete(ctx, id, tenantID); err != nil {
+		return fmt.Errorf("delete webhook: %w", err)
+	}
+	s.auditLog(ctx, tenantID, ActionDeleteWebhook, Metadata{"webhook_id": id})
+	return nil
+}
+
+// validateWebhookURL checks that the URL is valid, meets the https requirement,
+// and does not target private/loopback/link-local addresses (SSRF protection).
+func validateWebhookURL(rawURL string, allowHTTP bool) error {
+	if rawURL == "" {
+		return errors.New("url is required")
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	if u.Host == "" {
+		return errors.New("url must include a non-empty host")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "https" && (scheme != "http" || !allowHTTP) {
+		return fmt.Errorf("webhook url must use https (got %q)", u.Scheme)
+	}
+	// u.Hostname() strips brackets from IPv6 literals and strips the port,
+	// so net.ParseIP works correctly for both "[::1]" and "192.168.1.1:8080".
+	if isPrivateHost(u.Hostname()) {
+		return errors.New("webhook url must not target private, loopback, or link-local addresses")
+	}
+	return nil
+}
+
+// isPrivateHost returns true when host is an IP address that falls in a private,
+// loopback, or link-local range. Expects the bare hostname with no brackets or
+// port (pass url.URL.Hostname(), not url.URL.Host). Domain names are allowed at
+// registration time; dial-time SSRF protection is the webhook-worker's responsibility.
+func isPrivateHost(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false // domain name — checked at dial time by the worker
+	}
+	for _, block := range privateBlocks {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// generateWebhookID creates a unique webhook ID: "wh_" + 13-char lowercase base32.
+// 8 random bytes → 13 base32 chars with no padding, consistent with admin_key.go.
+func generateWebhookID() (string, error) {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate webhook ID: %w", err)
+	}
+	encoded := strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b))
+	return "wh_" + encoded, nil
 }

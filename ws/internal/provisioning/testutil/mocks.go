@@ -2,7 +2,9 @@ package testutil
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"maps"
 	"sync"
 	"time"
@@ -1027,4 +1029,247 @@ func (m *MockLicenseStateStore) Load(_ context.Context) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.key, nil
+}
+
+// MockWebhookStore is an in-memory implementation of provisioning.WebhookStore.
+type MockWebhookStore struct {
+	mu       sync.RWMutex
+	webhooks map[string]*provisioning.Webhook // keyed by ID
+
+	// Error injection
+	CreateErr                error
+	GetByIDErr               error
+	ListErr                  error
+	UpdateErr                error
+	DeleteErr                error
+	CountActiveErr           error
+	ListTenantIDsErr         error
+	ListByTenantForWorkerErr error
+	UpdateStatusErr          error
+	RecordDeliveryErr        error
+	SuspendAllErr            error
+	ListForDowngradeErr      error
+}
+
+// NewMockWebhookStore creates a new MockWebhookStore.
+func NewMockWebhookStore() *MockWebhookStore {
+	return &MockWebhookStore{webhooks: make(map[string]*provisioning.Webhook)}
+}
+
+// Create inserts a new webhook into the mock store.
+func (m *MockWebhookStore) Create(_ context.Context, w *provisioning.Webhook) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.CreateErr != nil {
+		return m.CreateErr
+	}
+	cp := *w
+	m.webhooks[w.ID] = &cp
+	return nil
+}
+
+// GetByID retrieves a webhook by ID scoped to the given tenantID.
+func (m *MockWebhookStore) GetByID(_ context.Context, id, tenantID string) (*provisioning.Webhook, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.GetByIDErr != nil {
+		return nil, m.GetByIDErr
+	}
+	w, ok := m.webhooks[id]
+	if !ok || w.TenantID != tenantID {
+		return nil, provisioning.ErrWebhookNotFound
+	}
+	cp := *w
+	return &cp, nil
+}
+
+// List returns paginated webhooks for a tenant.
+func (m *MockWebhookStore) List(_ context.Context, tenantID string, opts provisioning.ListOptions) ([]*provisioning.Webhook, int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.ListErr != nil {
+		return nil, 0, m.ListErr
+	}
+	var all []*provisioning.Webhook
+	for _, w := range m.webhooks {
+		if w.TenantID == tenantID {
+			cp := *w
+			all = append(all, &cp)
+		}
+	}
+	total := len(all)
+	if opts.Limit == 0 {
+		return []*provisioning.Webhook{}, total, nil
+	}
+	start := min(opts.Offset, total)
+	end := min(start+opts.Limit, total)
+	return all[start:end], total, nil
+}
+
+// Update applies a partial update from UpdateWebhookRequest.
+func (m *MockWebhookStore) Update(_ context.Context, req provisioning.UpdateWebhookRequest) (*provisioning.Webhook, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.UpdateErr != nil {
+		return nil, m.UpdateErr
+	}
+	w, ok := m.webhooks[req.ID]
+	if !ok || w.TenantID != req.TenantID {
+		return nil, provisioning.ErrWebhookNotFound
+	}
+	if req.URL != nil {
+		w.URL = *req.URL
+	}
+	if req.ChannelPattern != nil {
+		w.ChannelPattern = *req.ChannelPattern
+	}
+	if req.MaxRetries != nil {
+		w.MaxRetries = *req.MaxRetries
+	}
+	if req.Status != nil {
+		w.Status = *req.Status
+		if *req.Status == types.WebhookStatusEnabled {
+			w.RetryCount = 0
+		}
+	}
+	cp := *w
+	return &cp, nil
+}
+
+// Delete removes a webhook scoped to tenantID.
+func (m *MockWebhookStore) Delete(_ context.Context, id, tenantID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.DeleteErr != nil {
+		return m.DeleteErr
+	}
+	w, ok := m.webhooks[id]
+	if !ok || w.TenantID != tenantID {
+		return provisioning.ErrWebhookNotFound
+	}
+	delete(m.webhooks, id)
+	return nil
+}
+
+// CountActive returns the number of non-suspended webhooks for a tenant.
+func (m *MockWebhookStore) CountActive(_ context.Context, tenantID string) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.CountActiveErr != nil {
+		return 0, m.CountActiveErr
+	}
+	count := 0
+	for _, w := range m.webhooks {
+		if w.TenantID == tenantID && w.Status != types.WebhookStatusSuspended {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// ListTenantIDs returns all tenant IDs with at least one active webhook.
+func (m *MockWebhookStore) ListTenantIDs(_ context.Context) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.ListTenantIDsErr != nil {
+		return nil, m.ListTenantIDsErr
+	}
+	seen := make(map[string]struct{})
+	for _, w := range m.webhooks {
+		if w.Status != types.WebhookStatusSuspended {
+			seen[w.TenantID] = struct{}{}
+		}
+	}
+	ids := make([]string, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// ListByTenantForWorker returns webhook records for worker cache hydration.
+func (m *MockWebhookStore) ListByTenantForWorker(_ context.Context, tenantID string) ([]*provisioning.WebhookRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.ListByTenantForWorkerErr != nil {
+		return nil, m.ListByTenantForWorkerErr
+	}
+	var recs []*provisioning.WebhookRecord
+	for _, w := range m.webhooks {
+		if w.TenantID == tenantID {
+			// Decode base64 TEXT (Webhook.SecretEnc) to raw ciphertext bytes
+			// (WebhookRecord.SecretEnc), mirroring WebhookRepository.ListByTenantForWorker.
+			rawCiphertext, err := base64.StdEncoding.DecodeString(w.SecretEnc)
+			if err != nil {
+				return nil, fmt.Errorf("mock: decode secret_enc for webhook %s: %w", w.ID, err)
+			}
+			recs = append(recs, &provisioning.WebhookRecord{
+				ID:             w.ID,
+				TenantID:       w.TenantID,
+				URL:            w.URL,
+				ChannelPattern: w.ChannelPattern,
+				SecretEnc:      rawCiphertext,
+				Status:         w.Status,
+				MaxRetries:     w.MaxRetries,
+			})
+		}
+	}
+	return recs, nil
+}
+
+// UpdateStatus transitions a webhook's status and sets retry_count.
+func (m *MockWebhookStore) UpdateStatus(_ context.Context, id, tenantID, status string, retryCount int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.UpdateStatusErr != nil {
+		return m.UpdateStatusErr
+	}
+	w, ok := m.webhooks[id]
+	if !ok || w.TenantID != tenantID {
+		return provisioning.ErrWebhookNotFound
+	}
+	w.Status = status
+	w.RetryCount = retryCount
+	return nil
+}
+
+// RecordDelivery records a webhook delivery attempt (no-op in mock; returns injected error).
+func (m *MockWebhookStore) RecordDelivery(_ context.Context, _ *provisioning.WebhookDelivery) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.RecordDeliveryErr
+}
+
+// SuspendAllForDowngrade bulk-suspends all non-suspended webhooks in the mock store.
+func (m *MockWebhookStore) SuspendAllForDowngrade(_ context.Context, _ time.Time) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.SuspendAllErr != nil {
+		return 0, m.SuspendAllErr
+	}
+	n := 0
+	for _, w := range m.webhooks {
+		if w.Status != types.WebhookStatusSuspended {
+			w.Status = types.WebhookStatusSuspended
+			n++
+		}
+	}
+	return n, nil
+}
+
+// ListForDowngrade returns all non-suspended webhooks eligible for suspension.
+func (m *MockWebhookStore) ListForDowngrade(_ context.Context, _ time.Time) ([]*provisioning.Webhook, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.ListForDowngradeErr != nil {
+		return nil, m.ListForDowngradeErr
+	}
+	var result []*provisioning.Webhook
+	for _, w := range m.webhooks {
+		if w.Status != types.WebhookStatusSuspended {
+			cp := *w
+			result = append(result, &cp)
+		}
+	}
+	return result, nil
 }
