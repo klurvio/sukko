@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       services:
-        description: "Services to build (comma-separated: server,gateway,provisioning,push,tester) or 'all' for change detection"
+        description: "Services to build (comma-separated: server,gateway,provisioning,push,tester,webhook-worker) or 'all' for change detection"
         required: false
         default: "all"
         type: string
@@ -45,12 +45,12 @@ jobs:
       - name: Resolve build matrix
         id: resolve
         run: |
-          ALL_SERVICES='["server","gateway","provisioning","push","tester"]'
+          ALL_SERVICES='["server","gateway","provisioning","push","tester","webhook-worker"]'
           INPUT="${{ inputs.services }}"
 
           # Explicit service list — no change detection needed
           if [ "$INPUT" != "all" ] && [ -n "$INPUT" ]; then
-            VALID="server gateway provisioning push tester"
+            VALID="server gateway provisioning push tester webhook-worker"
             MATRIX="["
             for svc in $(echo "$INPUT" | tr ',' ' '); do
               svc=$(echo "$svc" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
@@ -71,7 +71,10 @@ jobs:
           CHANGED=$(git diff --name-only "$LAST_TAG"..HEAD)
 
           # Shared changes → rebuild everything
-          if echo "$CHANGED" | grep -qE '^ws/internal/shared/|^ws/go\.(mod|sum)$|^ws/proto/'; then
+          # ws/internal/webhook/[^/]+.go = top-level webhook package (constants, ratelimiter)
+          # shared between webhook-worker and provisioning. Excludes ws/internal/webhook/worker/
+          # (the worker's own private code, caught by per-service detection below).
+          if echo "$CHANGED" | grep -qE '^ws/internal/shared/|^ws/internal/webhook/[^/]+\.go|^ws/go\.(mod|sum)$|^ws/proto/'; then
             echo "matrix=$ALL_SERVICES" >> "$GITHUB_OUTPUT"
             echo "Shared code changed — building all services"
             exit 0
@@ -79,8 +82,13 @@ jobs:
 
           # Per-service detection
           SERVICES=""
-          for svc in server gateway provisioning push tester; do
-            if echo "$CHANGED" | grep -qE "^ws/cmd/$svc/|^ws/build/$svc/|^ws/internal/$svc/"; then
+          for svc in server gateway provisioning push tester webhook-worker; do
+            pattern="^ws/cmd/$svc/|^ws/build/$svc/|^ws/internal/$svc/"
+            # webhook-worker's implementation lives at ws/internal/webhook/worker/ (not ws/internal/webhook-worker/)
+            if [ "$svc" = "webhook-worker" ]; then
+              pattern="${pattern}|^ws/internal/webhook/worker/"
+            fi
+            if echo "$CHANGED" | grep -qE "$pattern"; then
               SERVICES="$SERVICES\"$svc\","
             fi
           done

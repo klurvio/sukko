@@ -84,10 +84,11 @@ func (c *AuthConfig) Validate() error {
 
 // ProvisioningClientConfig holds gRPC client settings for connecting to the provisioning service.
 // Embedded by gateway and server (not provisioning — it IS the gRPC server).
+// GRPCReconnectConfig is embedded to eliminate the duplicate inline fields
+// that previously appeared here, in WebhookWorkerConfig, and in ProvisioningConfig (§X).
 type ProvisioningClientConfig struct {
-	ProvisioningGRPCAddr  string        `env:"PROVISIONING_GRPC_ADDR" envDefault:"localhost:9090"`
-	GRPCReconnectDelay    time.Duration `env:"PROVISIONING_GRPC_RECONNECT_DELAY" envDefault:"1s"`
-	GRPCReconnectMaxDelay time.Duration `env:"PROVISIONING_GRPC_RECONNECT_MAX_DELAY" envDefault:"30s"`
+	GRPCReconnectConfig         // embeds PROVISIONING_GRPC_RECONNECT_* env vars; Validate() enforces bounds
+	ProvisioningGRPCAddr string `env:"PROVISIONING_GRPC_ADDR" envDefault:"localhost:9090"`
 }
 
 // Validate checks provisioning client config for errors.
@@ -95,14 +96,7 @@ func (c *ProvisioningClientConfig) Validate() error {
 	if c.ProvisioningGRPCAddr == "" {
 		return errors.New("PROVISIONING_GRPC_ADDR is required")
 	}
-	if c.GRPCReconnectDelay < 100*time.Millisecond {
-		return fmt.Errorf("PROVISIONING_GRPC_RECONNECT_DELAY must be >= 100ms, got %v", c.GRPCReconnectDelay)
-	}
-	if c.GRPCReconnectMaxDelay < c.GRPCReconnectDelay {
-		return fmt.Errorf("PROVISIONING_GRPC_RECONNECT_MAX_DELAY (%v) must be >= PROVISIONING_GRPC_RECONNECT_DELAY (%v)",
-			c.GRPCReconnectMaxDelay, c.GRPCReconnectDelay)
-	}
-	return nil
+	return c.GRPCReconnectConfig.Validate()
 }
 
 // HTTPTimeoutConfig holds HTTP server timeout settings.

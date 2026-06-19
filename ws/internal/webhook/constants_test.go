@@ -25,10 +25,19 @@ func TestRetryDelay(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := retryDelay(tt.attempt)
+			got := RetryDelay(tt.attempt)
 			if got != tt.want {
-				t.Errorf("retryDelay(%d) = %v, want %v", tt.attempt, got, tt.want)
+				t.Errorf("RetryDelay(%d) = %v, want %v", tt.attempt, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestWebhookTestDeliverDeadline(t *testing.T) {
+	t.Parallel()
+	// Verify the constant matches the documented derivation: WEBHOOK_DELIVERY_TIMEOUT max (30s) + 500ms.
+	want := 30*time.Second + 500*time.Millisecond
+	if WebhookTestDeliverDeadline != want {
+		t.Errorf("WebhookTestDeliverDeadline = %v, want %v", WebhookTestDeliverDeadline, want)
 	}
 }

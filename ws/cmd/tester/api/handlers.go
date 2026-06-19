@@ -247,10 +247,13 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Use the lock-protected accessors — execute() may concurrently write run.Status.
+	status, _ := run.StatusSnapshot()
+	config := run.ConfigSnapshot()
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":     run.ID,
-		"status": run.Status,
-		"config": run.Config,
+		"status": status,
+		"config": config,
 	})
 }
 

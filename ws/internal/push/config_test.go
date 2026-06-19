@@ -21,9 +21,8 @@ func validConfig() Config {
 			Environment: "local",
 		},
 		ProvisioningClientConfig: platform.ProvisioningClientConfig{
-			ProvisioningGRPCAddr:  "localhost:9090",
-			GRPCReconnectDelay:    1 * time.Second,
-			GRPCReconnectMaxDelay: 30 * time.Second,
+			ProvisioningGRPCAddr: "localhost:9090",
+			GRPCReconnectConfig:  platform.GRPCReconnectConfig{GRPCReconnectDelay: 1 * time.Second, GRPCReconnectMaxDelay: 30 * time.Second},
 		},
 		MessageBackendConfig: platform.MessageBackendConfig{
 			MessageBackendBase: platform.MessageBackendBase{

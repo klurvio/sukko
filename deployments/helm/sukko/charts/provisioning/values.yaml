@@ -40,7 +40,7 @@ ingress:
   tls: []
   annotations: {}
 
-# Kafka broker address — used by DLQ worker and migration tools (e.g., migrate-dlq).
+# Kafka broker address — used by the provisioning service for topic management.
 # Defaults to in-cluster Redpanda ({{ .Release.Name }}-redpanda:9092).
 # Override only if using an external Kafka cluster.
 kafka:
@@ -120,6 +120,18 @@ webhooks:
   # Set to true for Pro/Enterprise deployments to expose the webhook-worker gRPC port (9091).
   # Community edition: leave false.
   enabled: false
+
+  # workerInternalGRPCPort is the port the webhook-worker's internal gRPC server listens on.
+  # Provisioning dials this port for the TestDeliver RPC (WEBHOOK_WORKER_GRPC_ADDR).
+  # Default matches the webhook-worker chart's service.internalGrpcPort (9095).
+  workerInternalGRPCPort: 9095
+
+  # Credentials shared between provisioning and the webhook-worker.
+  # Must reference the same Kubernetes Secret used by the webhook-worker chart (§IX).
+  secrets:
+    existingSecret: ""         # e.g. "<release>-webhook-secrets"
+    internalTokenKey: "internal-token"
+    credentialsEncryptionKeyKey: "credentials-encryption-key"
 
 podAnnotations: {}
 

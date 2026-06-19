@@ -45,7 +45,7 @@ type ProvisioningConfig struct {
 	KafkaNamespaceConfig
 	HTTPTimeoutConfig
 
-	// Kafka brokers — used by migration tools (e.g., migrate-dlq) that need Kafka access.
+	// Kafka brokers — used by the provisioning service for topic management (create/delete).
 	// Uses a provisioning-specific env var to avoid collision with the ws-server's KAFKA_BROKERS
 	// (defined in MessageBackendConfig). In-cluster default: <release>-redpanda:9092.
 	KafkaBrokers string `env:"PROVISIONING_KAFKA_BROKERS" envDefault:"localhost:19092"`
@@ -124,14 +124,19 @@ type ProvisioningConfig struct {
 	BulkDisconnectConcurrency int `env:"PROVISIONING_BULK_DISCONNECT_CONCURRENCY" envDefault:"10"`
 
 	// Webhook delivery (Pro edition)
+	WebhookInternalTokenConfig                 // embeds WEBHOOK_INTERNAL_TOKEN (redact:"true"); Validate() called inside EditionHasFeature(Webhooks) guard
+	WebhookHTTPConfig                          // embeds WEBHOOK_ALLOW_HTTP (§X: eliminates duplicate field from WebhookWorkerConfig)
 	MaxWebhooksPerTenant         int           `env:"MAX_WEBHOOKS_PER_TENANT"         envDefault:"10"`
-	WebhookAllowHTTP             bool          `env:"WEBHOOK_ALLOW_HTTP"              envDefault:"false"`
-	WebhookInternalToken         string        `env:"WEBHOOK_INTERNAL_TOKEN"          redact:"true"`
 	WebhookDowngradePollInterval time.Duration `env:"WEBHOOK_DOWNGRADE_POLL_INTERVAL" envDefault:"5m"`
 	// WebhookWorkerGRPCPort is the dedicated port for the webhook-worker gRPC service.
 	// Separate from GRPC_PORT (ProvisioningInternalService) so auth is enforced at the
 	// listener level rather than via FullMethod filtering inside a shared interceptor.
+	// Direction: webhook-worker → provisioning (WebhookWorkerService).
 	WebhookWorkerGRPCPort int `env:"WEBHOOK_WORKER_GRPC_PORT" envDefault:"9091"`
+	// WebhookWorkerGRPCAddr is the address provisioning dials to call the worker's
+	// WebhookWorkerInternalService.TestDeliver RPC (reverse direction: provisioning → worker).
+	// No envDefault — required only when EditionHasFeature(Webhooks); validated conditionally.
+	WebhookWorkerGRPCAddr string `env:"WEBHOOK_WORKER_GRPC_ADDR"`
 
 	// editionManager holds the license-resolved edition and limits.
 	// Set by LoadProvisioningConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.
@@ -364,16 +369,16 @@ func (c *ProvisioningConfig) Validate() error {
 	if c.WebhookAllowHTTP && c.Environment != "local" {
 		return fmt.Errorf("WEBHOOK_ALLOW_HTTP is not permitted outside the local environment (current ENVIRONMENT=%s)", c.Environment)
 	}
-	// WebhookInternalToken and WebhookDowngradePollInterval are only required for Pro/Enterprise.
-	// Community deployments have no webhook-worker. Inverted from the Valkey pattern (nil||hasFeature):
-	// gateway validation here is behind the license so Community/test configs are not forced to set
-	// webhook fields they never use.
+	// WebhookInternalToken, WebhookWorkerGRPCAddr, and WebhookDowngradePollInterval are only
+	// required for Pro/Enterprise. Community deployments have no webhook-worker.
+	// Inverted from the Valkey pattern (nil||hasFeature): gate keeps Community/test configs
+	// from being forced to set webhook fields they never use.
 	if c.editionManager != nil && license.EditionHasFeature(c.editionManager.Edition(), license.Webhooks) {
-		if c.WebhookInternalToken == "" {
-			return errors.New("WEBHOOK_INTERNAL_TOKEN is required for Pro/Enterprise editions")
+		if err := c.WebhookInternalTokenConfig.Validate(); err != nil {
+			return fmt.Errorf("Pro/Enterprise edition: %w", err)
 		}
-		if len(c.WebhookInternalToken) < 32 {
-			return errors.New("WEBHOOK_INTERNAL_TOKEN must be at least 32 characters")
+		if c.WebhookWorkerGRPCAddr == "" {
+			return errors.New("WEBHOOK_WORKER_GRPC_ADDR is required for Pro/Enterprise editions")
 		}
 		if c.WebhookDowngradePollInterval < time.Minute || c.WebhookDowngradePollInterval > time.Hour {
 			return fmt.Errorf("WEBHOOK_DOWNGRADE_POLL_INTERVAL must be between 1m and 1h, got %s", c.WebhookDowngradePollInterval)

@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -12,20 +13,25 @@ func newValidWebhookWorkerConfig() *WebhookWorkerConfig {
 			LogFormat:   "json",
 			Environment: "local",
 		},
-		WebhookWorkerGRPCAddr: "localhost:9091",
-		GRPCReconnectDelay:    time.Second,
-		GRPCReconnectMaxDelay: 30 * time.Second,
 		CredentialsConfig: CredentialsConfig{
 			CredentialsEncryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		},
-		Port:              8083,
-		WorkerConcurrency: 50,
-		RetryQueueSize:    10000,
-		DeliveryTimeout:   10 * time.Second,
-		CacheTTL:          30 * time.Second,
-		WebhookAllowHTTP:  false,
-		ValkeyConfig:      ValkeyClientConfig{Addrs: []string{"localhost:6379"}},
-		InternalToken:     "test-internal-token-that-is-at-least-32-chars",
+		GRPCReconnectConfig: GRPCReconnectConfig{
+			GRPCReconnectDelay:    time.Second,
+			GRPCReconnectMaxDelay: 30 * time.Second,
+		},
+		WebhookInternalTokenConfig: WebhookInternalTokenConfig{
+			WebhookInternalToken: "test-internal-token-that-is-at-least-32-chars",
+		},
+		WebhookHTTPConfig:     WebhookHTTPConfig{WebhookAllowHTTP: false},
+		Port:                  8083,
+		InternalGRPCPort:      9095,
+		WebhookWorkerGRPCAddr: "localhost:9091",
+		WorkerConcurrency:     50,
+		RetryQueueSize:        10000,
+		DeliveryTimeout:       10 * time.Second,
+		CacheTTL:              30 * time.Second,
+		ValkeyConfig:          ValkeyClientConfig{Addrs: []string{"localhost:6379"}},
 	}
 }
 
@@ -71,11 +77,12 @@ func TestWebhookWorkerConfig_Validate_RetryQueueSize(t *testing.T) {
 		name    string
 		size    int
 		wantErr bool
+		errMsg  string
 	}{
-		{"below min", 99, true},
-		{"min valid", 100, false},
-		{"max valid", 100_000, false},
-		{"above max", 100_001, true},
+		{"below min", 99, true, "WEBHOOK_WORKER_RETRY_QUEUE_SIZE"},
+		{"min valid", 100, false, ""},
+		{"max valid", 100_000, false, ""},
+		{"above max", 100_001, true, "WEBHOOK_WORKER_RETRY_QUEUE_SIZE"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -85,9 +92,14 @@ func TestWebhookWorkerConfig_Validate_RetryQueueSize(t *testing.T) {
 			err := cfg.Validate()
 			if tt.wantErr && err == nil {
 				t.Error("expected error, got nil")
+				return
 			}
 			if !tt.wantErr && err != nil {
 				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if tt.errMsg != "" && err != nil && !strings.Contains(err.Error(), tt.errMsg) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
 			}
 		})
 	}
@@ -178,6 +190,42 @@ func TestWebhookWorkerConfig_Validate_Port(t *testing.T) {
 	}
 }
 
+func TestWebhookWorkerConfig_Validate_InternalGRPCPort(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		httpPort  int
+		grpcPort  int
+		wantErr   bool
+		errSubstr string
+	}{
+		{"valid distinct ports", 8083, 9095, false, ""},
+		{"zero grpc port", 8083, 0, true, "WEBHOOK_WORKER_INTERNAL_GRPC_PORT"},
+		{"grpc port above max", 8083, MaxPort + 1, true, "WEBHOOK_WORKER_INTERNAL_GRPC_PORT"},
+		{"cross-port conflict", 8083, 8083, true, "must differ"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidWebhookWorkerConfig()
+			cfg.Port = tt.httpPort
+			cfg.InternalGRPCPort = tt.grpcPort
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+				return
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if tt.errSubstr != "" && err != nil && !strings.Contains(err.Error(), tt.errSubstr) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.errSubstr)
+			}
+		})
+	}
+}
+
 func TestWebhookWorkerConfig_Validate_WebhookAllowHTTP(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -252,7 +300,7 @@ func TestWebhookWorkerConfig_Validate_InternalToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidWebhookWorkerConfig()
-			cfg.InternalToken = tt.token
+			cfg.WebhookInternalToken = tt.token
 			err := cfg.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
@@ -296,5 +344,18 @@ func TestWebhookWorkerConfig_Validate_WebhookWorkerGRPCAddr(t *testing.T) {
 	cfg.WebhookWorkerGRPCAddr = ""
 	if err := cfg.Validate(); err == nil {
 		t.Error("empty WEBHOOK_WORKER_PROVISIONING_GRPC_ADDR should error")
+	}
+}
+
+func TestWebhookWorkerConfig_Validate_GRPCReconnectMaxDelayAboveCeiling(t *testing.T) {
+	t.Parallel()
+	cfg := newValidWebhookWorkerConfig()
+	cfg.GRPCReconnectMaxDelay = 6 * time.Minute
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("GRPCReconnectMaxDelay above 5m ceiling should error")
+	}
+	if err != nil && !strings.Contains(err.Error(), "PROVISIONING_GRPC_RECONNECT_MAX_DELAY must be <= 5m") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }

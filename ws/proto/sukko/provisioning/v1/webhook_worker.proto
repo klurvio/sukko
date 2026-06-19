@@ -52,6 +52,7 @@ message WebhookRecord {
   bytes  secret_enc      = 5;
   string status          = 6;
   int32  max_retries     = 7;
+  int64  last_delivery_at_ms = 8; // Unix ms; 0 = no prior delivery (treat as nil, never as time.Unix(0,0))
 }
 
 message UpdateWebhookStatusRequest {

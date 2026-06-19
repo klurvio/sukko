@@ -168,3 +168,79 @@ func TestEncryptInvalidKeyLength(t *testing.T) {
 		t.Fatal("DecryptCredential() with 16-byte key should return an error")
 	}
 }
+
+// TestDecryptRawToBytes covers SC-019: happy path, tampered ciphertext, nil input,
+// empty input, wrong key length — all verified under -race.
+func TestDecryptRawToBytes(t *testing.T) {
+	t.Parallel()
+
+	key := make([]byte, KeySize)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	t.Run("happy path", func(t *testing.T) {
+		t.Parallel()
+		plaintext := "webhook-secret-value"
+		ct, err := EncryptCredential(plaintext, key)
+		if err != nil {
+			t.Fatalf("encrypt: %v", err)
+		}
+		raw, err := base64.StdEncoding.DecodeString(ct)
+		if err != nil {
+			t.Fatalf("base64 decode: %v", err)
+		}
+		got, err := DecryptRawToBytes(raw, key)
+		if err != nil {
+			t.Fatalf("DecryptRawToBytes() error = %v", err)
+		}
+		if string(got) != plaintext {
+			t.Errorf("got %q, want %q", string(got), plaintext)
+		}
+	})
+
+	t.Run("tampered ciphertext", func(t *testing.T) {
+		t.Parallel()
+		ct, err := EncryptCredential("original", key)
+		if err != nil {
+			t.Fatalf("encrypt: %v", err)
+		}
+		raw, _ := base64.StdEncoding.DecodeString(ct)
+		// Flip the last byte to tamper the auth tag.
+		raw[len(raw)-1] ^= 0xFF
+		_, err = DecryptRawToBytes(raw, key)
+		if err == nil {
+			t.Error("tampered ciphertext should return an error")
+		}
+	})
+
+	t.Run("nil input", func(t *testing.T) {
+		t.Parallel()
+		_, err := DecryptRawToBytes(nil, key)
+		if err == nil {
+			t.Error("nil input should return an error")
+		}
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		t.Parallel()
+		_, err := DecryptRawToBytes([]byte{}, key)
+		if err == nil {
+			t.Error("empty input should return an error (too short)")
+		}
+	})
+
+	t.Run("wrong key length", func(t *testing.T) {
+		t.Parallel()
+		ct, err := EncryptCredential("secret", key)
+		if err != nil {
+			t.Fatalf("encrypt: %v", err)
+		}
+		raw, _ := base64.StdEncoding.DecodeString(ct)
+		shortKey := key[:16]
+		_, err = DecryptRawToBytes(raw, shortKey)
+		if err == nil {
+			t.Error("wrong key length should return an error")
+		}
+	})
+}
