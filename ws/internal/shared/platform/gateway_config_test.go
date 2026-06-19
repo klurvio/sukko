@@ -21,9 +21,8 @@ func newValidGatewayConfig() *GatewayConfig {
 			AuthMode: "required",
 		},
 		ProvisioningClientConfig: ProvisioningClientConfig{
-			ProvisioningGRPCAddr:  "localhost:9090",
-			GRPCReconnectDelay:    1 * time.Second,
-			GRPCReconnectMaxDelay: 30 * time.Second,
+			ProvisioningGRPCAddr: "localhost:9090",
+			GRPCReconnectConfig:  GRPCReconnectConfig{GRPCReconnectDelay: 1 * time.Second, GRPCReconnectMaxDelay: 30 * time.Second},
 		},
 		Port:                         3000,
 		ReadTimeout:                  15 * time.Second,

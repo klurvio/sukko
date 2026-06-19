@@ -87,37 +87,64 @@ func TestProvisioningClientConfig_Validate(t *testing.T) {
 		errorContains string
 	}{
 		{
-			name:    "valid defaults",
-			config:  ProvisioningClientConfig{ProvisioningGRPCAddr: "localhost:9090", GRPCReconnectDelay: time.Second, GRPCReconnectMaxDelay: 30 * time.Second},
+			name: "valid defaults",
+			config: ProvisioningClientConfig{
+				ProvisioningGRPCAddr: "localhost:9090",
+				GRPCReconnectConfig:  GRPCReconnectConfig{GRPCReconnectDelay: time.Second, GRPCReconnectMaxDelay: 30 * time.Second},
+			},
 			wantErr: false,
 		},
 		{
-			name:          "empty addr",
-			config:        ProvisioningClientConfig{ProvisioningGRPCAddr: "", GRPCReconnectDelay: time.Second, GRPCReconnectMaxDelay: 30 * time.Second},
+			name: "empty addr",
+			config: ProvisioningClientConfig{
+				ProvisioningGRPCAddr: "",
+				GRPCReconnectConfig:  GRPCReconnectConfig{GRPCReconnectDelay: time.Second, GRPCReconnectMaxDelay: 30 * time.Second},
+			},
 			wantErr:       true,
 			errorContains: "PROVISIONING_GRPC_ADDR",
 		},
 		{
-			name:          "delay too small",
-			config:        ProvisioningClientConfig{ProvisioningGRPCAddr: "localhost:9090", GRPCReconnectDelay: 50 * time.Millisecond, GRPCReconnectMaxDelay: 30 * time.Second},
+			name: "delay too small",
+			config: ProvisioningClientConfig{
+				ProvisioningGRPCAddr: "localhost:9090",
+				GRPCReconnectConfig:  GRPCReconnectConfig{GRPCReconnectDelay: 50 * time.Millisecond, GRPCReconnectMaxDelay: 30 * time.Second},
+			},
 			wantErr:       true,
 			errorContains: "PROVISIONING_GRPC_RECONNECT_DELAY",
 		},
 		{
-			name:    "delay exactly 100ms",
-			config:  ProvisioningClientConfig{ProvisioningGRPCAddr: "localhost:9090", GRPCReconnectDelay: 100 * time.Millisecond, GRPCReconnectMaxDelay: 30 * time.Second},
+			name: "delay exactly 100ms",
+			config: ProvisioningClientConfig{
+				ProvisioningGRPCAddr: "localhost:9090",
+				GRPCReconnectConfig:  GRPCReconnectConfig{GRPCReconnectDelay: 100 * time.Millisecond, GRPCReconnectMaxDelay: 30 * time.Second},
+			},
 			wantErr: false,
 		},
 		{
-			name:          "max delay less than delay",
-			config:        ProvisioningClientConfig{ProvisioningGRPCAddr: "localhost:9090", GRPCReconnectDelay: 5 * time.Second, GRPCReconnectMaxDelay: time.Second},
+			name: "max delay less than delay",
+			config: ProvisioningClientConfig{
+				ProvisioningGRPCAddr: "localhost:9090",
+				GRPCReconnectConfig:  GRPCReconnectConfig{GRPCReconnectDelay: 5 * time.Second, GRPCReconnectMaxDelay: time.Second},
+			},
 			wantErr:       true,
 			errorContains: "PROVISIONING_GRPC_RECONNECT_MAX_DELAY",
 		},
 		{
-			name:    "equal delay values",
-			config:  ProvisioningClientConfig{ProvisioningGRPCAddr: "localhost:9090", GRPCReconnectDelay: 5 * time.Second, GRPCReconnectMaxDelay: 5 * time.Second},
+			name: "equal delay values",
+			config: ProvisioningClientConfig{
+				ProvisioningGRPCAddr: "localhost:9090",
+				GRPCReconnectConfig:  GRPCReconnectConfig{GRPCReconnectDelay: 5 * time.Second, GRPCReconnectMaxDelay: 5 * time.Second},
+			},
 			wantErr: false,
+		},
+		{
+			name: "max delay above 5m ceiling",
+			config: ProvisioningClientConfig{
+				ProvisioningGRPCAddr: "localhost:9090",
+				GRPCReconnectConfig:  GRPCReconnectConfig{GRPCReconnectDelay: time.Second, GRPCReconnectMaxDelay: 6 * time.Minute},
+			},
+			wantErr:       true,
+			errorContains: "PROVISIONING_GRPC_RECONNECT_MAX_DELAY must be <= 5m",
 		},
 	}
 

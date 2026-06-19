@@ -17,19 +17,23 @@ import (
 // webhook store. All RPCs are authenticated via WebhookWorkerAuthUnaryInterceptor.
 type WebhookWorkerServer struct {
 	provisioningv1.UnimplementedWebhookWorkerServiceServer
-	store  provisioning.WebhookStore
-	logger zerolog.Logger
+	store        provisioning.WebhookStore
+	invalidation provisioning.WebhookCacheInvalidator
+	logger       zerolog.Logger
 }
 
 // NewWebhookWorkerServer creates a WebhookWorkerServer backed by the given WebhookStore.
 // Returns an error if store is nil (indicates Community edition — worker binary should not start).
-func NewWebhookWorkerServer(store provisioning.WebhookStore, logger zerolog.Logger) (*WebhookWorkerServer, error) {
+// invalidation is optional (nil-safe): when set, UpdateWebhookStatus publishes a cache
+// invalidation signal so other worker instances refresh their cache immediately.
+func NewWebhookWorkerServer(store provisioning.WebhookStore, invalidation provisioning.WebhookCacheInvalidator, logger zerolog.Logger) (*WebhookWorkerServer, error) {
 	if store == nil {
 		return nil, errors.New("webhook store is required for WebhookWorkerServer (Pro/Enterprise editions only)")
 	}
 	return &WebhookWorkerServer{
-		store:  store,
-		logger: logger.With().Str("component", "webhook_worker_grpc_server").Logger(),
+		store:        store,
+		invalidation: invalidation,
+		logger:       logger.With().Str("component", "webhook_worker_grpc_server").Logger(),
 	}, nil
 }
 
@@ -55,14 +59,19 @@ func (s *WebhookWorkerServer) ListWebhooksForTenant(ctx context.Context, req *pr
 	}
 	protoRecords := make([]*provisioningv1.WebhookRecord, len(records))
 	for i, r := range records {
+		var lastDeliveryAtMs int64
+		if r.LastDeliveryAt != nil {
+			lastDeliveryAtMs = r.LastDeliveryAt.UnixMilli()
+		}
 		protoRecords[i] = &provisioningv1.WebhookRecord{
-			Id:             r.ID,
-			TenantId:       r.TenantID,
-			Url:            r.URL,
-			ChannelPattern: r.ChannelPattern,
-			SecretEnc:      r.SecretEnc,
-			Status:         r.Status,
-			MaxRetries:     int32(r.MaxRetries), //nolint:gosec // MaxRetries is validated to 1–10 at write time; int32 overflow is impossible.
+			Id:               r.ID,
+			TenantId:         r.TenantID,
+			Url:              r.URL,
+			ChannelPattern:   r.ChannelPattern,
+			SecretEnc:        r.SecretEnc,
+			Status:           r.Status,
+			MaxRetries:       int32(r.MaxRetries), //nolint:gosec // MaxRetries is validated to 1–10 at write time; int32 overflow is impossible.
+			LastDeliveryAtMs: lastDeliveryAtMs,    // 0 when nil — worker treats 0 as "no prior delivery" (SC-021)
 		}
 	}
 	return &provisioningv1.ListWebhooksForTenantResponse{Webhooks: protoRecords}, nil
@@ -87,6 +96,9 @@ func (s *WebhookWorkerServer) UpdateWebhookStatus(ctx context.Context, req *prov
 		}
 		s.logger.Error().Err(err).Str("webhook_id", req.GetWebhookId()).Msg("UpdateWebhookStatus: store error")
 		return nil, status.Errorf(codes.Internal, "update status: %v", err)
+	}
+	if s.invalidation != nil {
+		s.invalidation.Publish(req.GetTenantId())
 	}
 	return &provisioningv1.UpdateWebhookStatusResponse{}, nil
 }

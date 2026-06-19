@@ -797,3 +797,36 @@ No automated E2E suite exists yet for the Connections Management API. Manual val
 2. After `WS_CONNECTIONS_REGISTRY_TTL` seconds, `GET /connections` must no longer return the stale entry.
 
 > Note: `WS_CONNECTIONS_REGISTRY_ENABLED=true` must be set on ws-server, and `PROVISIONING_VALKEY_ADDRS` must point to the same Valkey cluster.
+
+---
+
+## Webhook Delivery
+
+No automated E2E suite exists yet for webhook delivery. A dedicated suite is deferred pending live HTTP endpoint infrastructure (a public endpoint the test harness controls). Manual validation steps and planned scenarios are documented below.
+
+### Planned Automation Scenarios (deferred)
+
+| Scenario | Description |
+|----------|-------------|
+| SC-WH-001 | Register a webhook, publish a channel message, assert delivery within 500ms |
+| SC-WH-002 | Endpoint returning HTTP 500 — verify retry schedule [1s, 5s, 30s, 2m, 10m] then `degraded` transition |
+| SC-WH-003 | `POST /webhooks/{id}/test` — assert 200 with destination status in body |
+| SC-WH-004 | Test endpoint rate limit — 11 calls in 1 minute, assert 429 on 11th |
+| SC-WH-005 | Webhook update via API — assert worker cache refreshes within WEBHOOK_CACHE_TTL (30s worst-case, ~1s with Valkey invalidation) |
+| SC-WH-006 | SIGTERM during in-flight delivery — assert clean shutdown without dropped delivery |
+| SC-WH-007 | URL resolving to `169.254.169.254` at dial time — assert `ssrf_blocked` and metric increment |
+| SC-WH-008 | Re-enable a degraded webhook — assert `POST /test` succeeds and status returns to `enabled` |
+
+### Manual Validation Steps (current)
+
+**SC-007 — SSRF blocking**
+1. Register a webhook with URL `http://169.254.169.254/hook`.
+2. Publish a channel message matching the webhook's pattern.
+3. Verify `webhook_deliveries_total{status="ssrf_blocked"}` increments in Prometheus.
+4. Verify no HTTP connection attempt reaches the metadata endpoint.
+
+**SC-004 — Test endpoint rate limit**
+1. Call `POST /api/v1/tenants/{slug}/webhooks/{id}/test` 11 times in one minute.
+2. Verify HTTP 429 on the 11th call with a `Retry-After` header.
+
+> Prerequisite: Pro/Enterprise license, `WEBHOOK_WORKER_PROVISIONING_GRPC_ADDR` set, webhook-worker pod running and healthy.

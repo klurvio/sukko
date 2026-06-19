@@ -2,13 +2,13 @@ package webhook
 
 import "time"
 
-// webhookRetrySchedule is the fixed backoff schedule for retriable delivery failures.
+// WebhookRetrySchedule is the fixed backoff schedule for retriable delivery failures.
 // Index 0 = delay before 1st retry, index 4 = delay before 5th retry.
 // For max_retries > 5, retries beyond index 4 reuse the last entry (10m).
 // Constitution §IV exception: application-layer webhook delivery uses a fixed schedule
 // (not exponential) — matching industry standard (Stripe, GitHub, Pusher, Ably).
-// See CLAUDE.md §IV amendment and spec FR-006.
-var webhookRetrySchedule = [5]time.Duration{
+// See CLAUDE.md §IV amendment and spec FR-006. Exported for test injection (NFR-008).
+var WebhookRetrySchedule = [5]time.Duration{
 	1 * time.Second,
 	5 * time.Second,
 	30 * time.Second,
@@ -16,15 +16,15 @@ var webhookRetrySchedule = [5]time.Duration{
 	10 * time.Minute,
 }
 
-// retryDelay returns the backoff duration for the given retry attempt number (1-indexed).
-// attempt=1 → webhookRetrySchedule[0], attempt≥6 → webhookRetrySchedule[4].
+// RetryDelay returns the backoff duration for the given retry attempt number (1-indexed).
+// attempt=1 → WebhookRetrySchedule[0], attempt≥6 → WebhookRetrySchedule[4].
 // Bounds-checked to prevent index-out-of-range on any max_retries value.
-func retryDelay(attempt int) time.Duration {
+func RetryDelay(attempt int) time.Duration {
 	idx := max(attempt-1, 0)
-	if idx >= len(webhookRetrySchedule) {
-		idx = len(webhookRetrySchedule) - 1
+	if idx >= len(WebhookRetrySchedule) {
+		idx = len(WebhookRetrySchedule) - 1
 	}
-	return webhookRetrySchedule[idx]
+	return WebhookRetrySchedule[idx]
 }
 
 const (
@@ -32,6 +32,23 @@ const (
 	// once a webhook has exhausted all retries and entered degraded status.
 	// Retries continue indefinitely at this interval until operator intervention.
 	WebhookDegradedRetryInterval = time.Hour
+
+	// WebhookDegradedInitialRetryDelay is the delay before the first degraded retry
+	// for a webhook that has no recorded LastDeliveryAt (e.g. never successfully
+	// delivered or restarted before recording). §I: magic number must be named.
+	WebhookDegradedInitialRetryDelay = time.Second
+
+	// WebhookDegradedQueueFullFallback is the reschedule delay when the degradedCh
+	// buffer is full and a new degraded timer cannot be enqueued immediately.
+	// The timer is rescheduled for this duration rather than dropped permanently.
+	// §I: magic number must be named.
+	WebhookDegradedQueueFullFallback = time.Minute
+
+	// WebhookTestDeliverDeadline is the fixed gRPC call deadline provisioning uses when
+	// calling the worker's TestDeliver RPC. Derivation: WEBHOOK_DELIVERY_TIMEOUT max (30s)
+	// + 500ms buffer so provisioning does not time out before the worker can respond.
+	// §I: magic numbers must be named constants.
+	WebhookTestDeliverDeadline = 30*time.Second + 500*time.Millisecond
 
 	// WebhookTestResponsePreviewBytes is the maximum response body bytes
 	// returned in the POST /webhooks/{id}/test API response preview.

@@ -17,9 +17,12 @@ import (
 	"runtime"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	grpcmetadata "google.golang.org/grpc/metadata"
 
 	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
 	"github.com/klurvio/sukko/internal/provisioning"
@@ -39,6 +42,7 @@ import (
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/tracing"
+	webhookconst "github.com/klurvio/sukko/internal/webhook"
 )
 
 const serviceName = "provisioning"
@@ -194,6 +198,19 @@ func main() {
 
 	webhookRepo := repository.NewWebhookRepository(pool, structuredLogger)
 
+	// Webhook invalidation publisher — built before NewService() so it can be wired into ServiceConfig.
+	// Uses the same PROVISIONING_VALKEY_ADDRS as the connections client; a separate client is
+	// created so shutdown ordering is independent.
+	var invalidationPublisher provisioning.WebhookCacheInvalidator
+	if mgr := cfg.EditionManager(); mgr != nil && license.EditionHasFeature(mgr.Edition(), license.Webhooks) {
+		invalidValkeyClient, ivErr := api.BuildConnectionsValkeyClient(*cfg)
+		if ivErr != nil {
+			structuredLogger.Fatal().Err(ivErr).Msg("Failed to create webhook invalidation Valkey client")
+		}
+		defer invalidValkeyClient.Close()
+		invalidationPublisher = provisioning.NewInvalidationPublisher(invalidValkeyClient, structuredLogger)
+	}
+
 	svc, err := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:                 tenantRepo,
 		KeyStore:                    keyRepo,
@@ -224,6 +241,7 @@ func main() {
 		EncryptionKey:               encryptionKey,
 		MaxWebhooksPerTenant:        cfg.MaxWebhooksPerTenant,
 		WebhookAllowHTTP:            cfg.WebhookAllowHTTP,
+		InvalidationPublisher:       invalidationPublisher,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create provisioning service")
@@ -293,6 +311,52 @@ func main() {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create webhook handler")
 	}
 
+	// Initialize webhook test handler — dials the worker's internal gRPC server (Pro+ only).
+	var webhookTestHandler *api.WebhookTestHandler
+	if mgr := cfg.EditionManager(); mgr != nil && license.EditionHasFeature(mgr.Edition(), license.Webhooks) &&
+		cfg.WebhookWorkerGRPCAddr != "" {
+		// Outbound client interceptor: adds WEBHOOK_INTERNAL_TOKEN to outgoing metadata.
+		internalToken := cfg.WebhookInternalToken // capture for closure
+		tokenInterceptor := func(ctx context.Context, method string, req, reply any,
+			cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			ctx = grpcmetadata.AppendToOutgoingContext(ctx, platform.GRPCInternalTokenMetadataKey, internalToken)
+			return invoker(ctx, method, req, reply, cc, opts...)
+		}
+		workerConn, wcErr := grpc.NewClient(cfg.WebhookWorkerGRPCAddr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithUnaryInterceptor(tokenInterceptor),
+		)
+		if wcErr != nil {
+			structuredLogger.Fatal().Err(wcErr).Str("addr", cfg.WebhookWorkerGRPCAddr).
+				Msg("Failed to dial webhook worker internal gRPC")
+		}
+		defer func() { _ = workerConn.Close() }()
+		workerInternalClient := provisioningv1.NewWebhookWorkerInternalServiceClient(workerConn)
+
+		// Two Valkey-backed rate limiters for the /test endpoint:
+		// one enforcing the per-webhook limit (10/min) and one the per-tenant limit (30/min).
+		if invalidValkeyClientForRL, rlErr := api.BuildConnectionsValkeyClient(*cfg); rlErr == nil {
+			defer invalidValkeyClientForRL.Close()
+			rlWebhook := api.NewValkeyRateLimiter(invalidValkeyClientForRL,
+				webhookconst.WebhookTestRateLimitPerWebhook, webhookconst.WebhookTestRateLimitWindow, structuredLogger)
+			rlTenant := api.NewValkeyRateLimiter(invalidValkeyClientForRL,
+				webhookconst.WebhookTestRateLimitPerTenant, webhookconst.WebhookTestRateLimitWindow, structuredLogger)
+			wth, wthErr := api.NewWebhookTestHandler(workerInternalClient, rlWebhook, rlTenant, structuredLogger)
+			if wthErr != nil {
+				structuredLogger.Fatal().Err(wthErr).Msg("Failed to create webhook test handler")
+			}
+			webhookTestHandler = wth
+		} else {
+			structuredLogger.Warn().Err(rlErr).Msg("Webhook test rate limiter Valkey unavailable; test endpoint will fail-open")
+			wth, wthErr := api.NewWebhookTestHandler(workerInternalClient,
+				&permitAllRateLimiter{}, &permitAllRateLimiter{}, structuredLogger)
+			if wthErr != nil {
+				structuredLogger.Fatal().Err(wthErr).Msg("Failed to create webhook test handler")
+			}
+			webhookTestHandler = wth
+		}
+	}
+
 	// Initialize connections registry Valkey client and handler (Pro+ only).
 	var connectionsHandler *api.ConnectionsHandler
 	if mgr := cfg.EditionManager(); mgr != nil && license.EditionHasFeature(mgr.Edition(), license.ConnectionsAPI) {
@@ -332,6 +396,7 @@ func main() {
 		RevocationHandler:  revHandler,
 		ConnectionsHandler: connectionsHandler,
 		WebhookHandler:     webhookHandler,
+		WebhookTestHandler: webhookTestHandler,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")
@@ -402,7 +467,7 @@ func main() {
 				grpcserver.WebhookWorkerAuthUnaryInterceptor(cfg.WebhookInternalToken),
 			),
 		)
-		webhookWorkerSrv, err := grpcserver.NewWebhookWorkerServer(webhookRepo, structuredLogger)
+		webhookWorkerSrv, err := grpcserver.NewWebhookWorkerServer(webhookRepo, invalidationPublisher, structuredLogger)
 		if err != nil {
 			structuredLogger.Fatal().Err(err).Msg("Failed to create webhook worker gRPC server")
 		}
@@ -566,6 +631,15 @@ func decodeBootstrapKey(b64 string) ([]byte, error) {
 		return nil, fmt.Errorf("expected 32 bytes for Ed25519 public key, got %d", len(decoded))
 	}
 	return decoded, nil
+}
+
+// permitAllRateLimiter is a fallback RateLimiter that always allows requests.
+// Used when the Valkey client fails to initialize; the handler logs a warning
+// and processes the request without enforcing rate limits (fail-open per FR-012).
+type permitAllRateLimiter struct{}
+
+func (p *permitAllRateLimiter) Allow(_ context.Context, _ string) (bool, time.Duration, error) {
+	return true, 0, nil
 }
 
 // marshalPublicKeyPEM encodes an Ed25519 public key as PEM.

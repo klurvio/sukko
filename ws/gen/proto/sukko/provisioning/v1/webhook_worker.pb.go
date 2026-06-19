@@ -193,16 +193,17 @@ func (x *ListWebhooksForTenantResponse) GetWebhooks() []*WebhookRecord {
 // secret_enc contains raw AES-256-GCM ciphertext bytes — NOT base64, NOT plaintext.
 // The webhook-worker decrypts using its local CREDENTIALS_ENCRYPTION_KEY.
 type WebhookRecord struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	TenantId       string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
-	Url            string                 `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
-	ChannelPattern string                 `protobuf:"bytes,4,opt,name=channel_pattern,json=channelPattern,proto3" json:"channel_pattern,omitempty"`
-	SecretEnc      []byte                 `protobuf:"bytes,5,opt,name=secret_enc,json=secretEnc,proto3" json:"secret_enc,omitempty"`
-	Status         string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
-	MaxRetries     int32                  `protobuf:"varint,7,opt,name=max_retries,json=maxRetries,proto3" json:"max_retries,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	TenantId         string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Url              string                 `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
+	ChannelPattern   string                 `protobuf:"bytes,4,opt,name=channel_pattern,json=channelPattern,proto3" json:"channel_pattern,omitempty"`
+	SecretEnc        []byte                 `protobuf:"bytes,5,opt,name=secret_enc,json=secretEnc,proto3" json:"secret_enc,omitempty"`
+	Status           string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	MaxRetries       int32                  `protobuf:"varint,7,opt,name=max_retries,json=maxRetries,proto3" json:"max_retries,omitempty"`
+	LastDeliveryAtMs int64                  `protobuf:"varint,8,opt,name=last_delivery_at_ms,json=lastDeliveryAtMs,proto3" json:"last_delivery_at_ms,omitempty"` // Unix ms; 0 = no prior delivery (treat as nil, never as time.Unix(0,0))
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *WebhookRecord) Reset() {
@@ -280,6 +281,13 @@ func (x *WebhookRecord) GetStatus() string {
 func (x *WebhookRecord) GetMaxRetries() int32 {
 	if x != nil {
 		return x.MaxRetries
+	}
+	return 0
+}
+
+func (x *WebhookRecord) GetLastDeliveryAtMs() int64 {
+	if x != nil {
+		return x.LastDeliveryAtMs
 	}
 	return 0
 }
@@ -536,7 +544,7 @@ const file_sukko_provisioning_v1_webhook_worker_proto_rawDesc = "" +
 	"\x1cListWebhooksForTenantRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\"a\n" +
 	"\x1dListWebhooksForTenantResponse\x12@\n" +
-	"\bwebhooks\x18\x01 \x03(\v2$.sukko.provisioning.v1.WebhookRecordR\bwebhooks\"\xcf\x01\n" +
+	"\bwebhooks\x18\x01 \x03(\v2$.sukko.provisioning.v1.WebhookRecordR\bwebhooks\"\xfe\x01\n" +
 	"\rWebhookRecord\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x10\n" +
@@ -546,7 +554,8 @@ const file_sukko_provisioning_v1_webhook_worker_proto_rawDesc = "" +
 	"secret_enc\x18\x05 \x01(\fR\tsecretEnc\x12\x16\n" +
 	"\x06status\x18\x06 \x01(\tR\x06status\x12\x1f\n" +
 	"\vmax_retries\x18\a \x01(\x05R\n" +
-	"maxRetries\"\x91\x01\n" +
+	"maxRetries\x12-\n" +
+	"\x13last_delivery_at_ms\x18\b \x01(\x03R\x10lastDeliveryAtMs\"\x91\x01\n" +
 	"\x1aUpdateWebhookStatusRequest\x12\x1d\n" +
 	"\n" +
 	"webhook_id\x18\x01 \x01(\tR\twebhookId\x12\x1b\n" +

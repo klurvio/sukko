@@ -509,3 +509,49 @@ func TestWebhookRepository_RecordDelivery_UpdatesLastDelivery(t *testing.T) {
 		t.Errorf("LastStatus = %v, want \"200\"", got.LastStatus)
 	}
 }
+
+// TestWebhookRepository_RecordDelivery_Idempotent covers SC-022:
+// inserting the same delivery_id twice must be a no-op on the second call,
+// leaving exactly 1 row in webhook_deliveries.
+func TestWebhookRepository_RecordDelivery_Idempotent(t *testing.T) {
+	t.Parallel()
+	env := newWebhookTestEnv(t)
+	ctx := context.Background()
+
+	w := baseWebhook(env.tenantID, "wh_idem01")
+	if err := env.repo.Create(ctx, w); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	d := &provisioning.WebhookDelivery{
+		ID:          "del-idem-00001",
+		WebhookID:   w.ID,
+		TenantID:    env.tenantID,
+		Attempt:     1,
+		StatusCode:  200,
+		LatencyMS:   10,
+		DeliveredAt: time.Now().UTC().Truncate(time.Millisecond),
+	}
+
+	// First insert — should succeed.
+	if err := env.repo.RecordDelivery(ctx, d); err != nil {
+		t.Fatalf("first RecordDelivery() error = %v", err)
+	}
+
+	// Second insert with the same ID — must be a no-op (not an error).
+	if err := env.repo.RecordDelivery(ctx, d); err != nil {
+		t.Fatalf("second RecordDelivery() (idempotent) error = %v", err)
+	}
+
+	// Verify exactly 1 row.
+	var count int
+	err := env.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM webhook_deliveries WHERE id = $1", d.ID,
+	).Scan(&count)
+	if err != nil {
+		t.Fatalf("count query error = %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 row for delivery id %s, got %d", d.ID, count)
+	}
+}

@@ -72,9 +72,8 @@ func newValidServerConfig() *ServerConfig {
 		KafkaDefaultReplicationFactor: 1,
 		// Provisioning gRPC (required for topic discovery)
 		ProvisioningClientConfig: ProvisioningClientConfig{
-			ProvisioningGRPCAddr:  "localhost:9090",
-			GRPCReconnectDelay:    1 * time.Second,
-			GRPCReconnectMaxDelay: 30 * time.Second,
+			ProvisioningGRPCAddr: "localhost:9090",
+			GRPCReconnectConfig:  GRPCReconnectConfig{GRPCReconnectDelay: 1 * time.Second, GRPCReconnectMaxDelay: 30 * time.Second},
 		},
 		// WebSocket ping/pong (required)
 		PongWait:   60 * time.Second,

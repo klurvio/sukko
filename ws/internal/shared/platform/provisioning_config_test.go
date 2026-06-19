@@ -87,7 +87,7 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 		},
 		BulkDisconnectConcurrency:    10,
 		MaxWebhooksPerTenant:         10,
-		WebhookAllowHTTP:             false,
+		WebhookHTTPConfig:            WebhookHTTPConfig{WebhookAllowHTTP: false},
 		WebhookDowngradePollInterval: 5 * time.Minute,
 	}
 }
@@ -830,6 +830,7 @@ func TestProvisioningConfig_Validate_WebhookInternalToken(t *testing.T) {
 		cfg := newValidProvisioningConfig()
 		setProvisioningEditionManager(t, cfg, license.Pro)
 		cfg.WebhookInternalToken = "some-secret-token-that-is-at-least-32-chars"
+		cfg.WebhookWorkerGRPCAddr = "webhook-worker:9095"
 		cfg.WebhookDowngradePollInterval = 5 * time.Minute
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("unexpected error: %v", err)
@@ -839,6 +840,7 @@ func TestProvisioningConfig_Validate_WebhookInternalToken(t *testing.T) {
 		cfg := newValidProvisioningConfig()
 		setProvisioningEditionManager(t, cfg, license.Pro)
 		cfg.WebhookInternalToken = "too-short"
+		cfg.WebhookWorkerGRPCAddr = "webhook-worker:9095"
 		cfg.WebhookDowngradePollInterval = 5 * time.Minute
 		if err := cfg.Validate(); err == nil {
 			t.Error("expected error for short WEBHOOK_INTERNAL_TOKEN on Pro edition")
@@ -891,6 +893,7 @@ func TestProvisioningConfig_Validate_WebhookDowngradePollInterval(t *testing.T) 
 			cfg := newValidProvisioningConfig()
 			setProvisioningEditionManager(t, cfg, license.Pro)
 			cfg.WebhookInternalToken = "token-that-meets-the-32-char-minimum-requirement"
+			cfg.WebhookWorkerGRPCAddr = "webhook-worker:9095"
 			cfg.WebhookDowngradePollInterval = tt.d
 			err := cfg.Validate()
 			if tt.wantErr && err == nil {

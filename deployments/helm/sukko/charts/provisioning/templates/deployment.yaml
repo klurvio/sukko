@@ -111,6 +111,33 @@ spec:
               value: {{ .Values.service.webhookWorkerGRPCPort | quote }}
             {{- end }}
 
+            {{- if .Values.webhooks.enabled }}
+            {{- if not .Values.webhooks.secrets.existingSecret }}
+            {{- fail "webhooks.secrets.existingSecret must be set when webhooks.enabled=true (required for WEBHOOK_INTERNAL_TOKEN and CREDENTIALS_ENCRYPTION_KEY)" }}
+            {{- end }}
+            # WEBHOOK_WORKER_GRPC_ADDR — address provisioning dials to call the worker's
+            # TestDeliver RPC (reverse direction: provisioning → worker internal gRPC server).
+            # No Go envDefault; validated at startup — startup fails if empty on Pro/Enterprise.
+            - name: WEBHOOK_WORKER_GRPC_ADDR
+              value: {{ printf "%s-webhook-worker:%d" .Release.Name (int .Values.webhooks.workerInternalGRPCPort | default 9095) | quote }}
+
+            # WEBHOOK_INTERNAL_TOKEN — shared secret for provisioning ↔ webhook-worker gRPC auth.
+            # Must reference the same Secret as the webhook-worker chart (§IX: never plaintext).
+            # existingSecret is guaranteed non-empty here — the {{- fail }} above guards it.
+            - name: WEBHOOK_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.webhooks.secrets.existingSecret | quote }}
+                  key: {{ .Values.webhooks.secrets.internalTokenKey | default "internal-token" | quote }}
+            # CREDENTIALS_ENCRYPTION_KEY — AES-256 key for encrypting/decrypting webhook secrets.
+            # Must match the value configured in the webhook-worker.
+            - name: CREDENTIALS_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.webhooks.secrets.existingSecret | quote }}
+                  key: {{ .Values.webhooks.secrets.credentialsEncryptionKeyKey | default "credentials-encryption-key" | quote }}
+            {{- end }}
+
             # Kafka brokers for DLQ and migration tools
             # Auto-wires to in-cluster Redpanda; override via kafka.brokers.
             - name: PROVISIONING_KAFKA_BROKERS

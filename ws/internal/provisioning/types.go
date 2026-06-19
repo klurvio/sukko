@@ -488,7 +488,7 @@ type WebhookDelivery struct {
 // WebhookRecord is the gRPC-facing representation sent from provisioning to webhook-worker.
 // SecretEnc is raw AES-256-GCM ciphertext bytes (binary, not base64). The repository
 // decodes the base64 TEXT column from the DB before populating this field.
-// The webhook-worker calls crypto.DecryptRaw(rec.SecretEnc, key) — not DecryptCredential.
+// The webhook-worker calls crypto.DecryptRawToBytes(rec.SecretEnc, key) — not DecryptCredential.
 type WebhookRecord struct {
 	ID             string
 	TenantID       string
@@ -497,4 +497,5 @@ type WebhookRecord struct {
 	SecretEnc      []byte // AES-256-GCM ciphertext; NOT plaintext
 	Status         string
 	MaxRetries     int
+	LastDeliveryAt *time.Time // nil = no prior delivery; sourced from last_delivery_at_ms proto field (0 → nil)
 }

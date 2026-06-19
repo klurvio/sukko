@@ -140,6 +140,11 @@ type ServiceConfig struct {
 	EncryptionKey        []byte // AES-256 key for encrypting webhook secrets at rest.
 	MaxWebhooksPerTenant int    // Quota cap; 0 means unset (no enforcement).
 	WebhookAllowHTTP     bool   // Allow http:// webhook URLs (local/dev only).
+
+	// InvalidationPublisher sends Valkey pub/sub signals after webhook writes so the
+	// webhook-worker refreshes its in-memory cache within ~1s. Nil for Community deployments
+	// or tests that don't wire Valkey — Publish() is guarded by nil check in service methods.
+	InvalidationPublisher WebhookCacheInvalidator
 }
 
 // Service provides tenant lifecycle management and provisioning operations.
@@ -1664,6 +1669,9 @@ func (s *Service) CreateWebhook(ctx context.Context, req CreateWebhookRequest) (
 		return nil, fmt.Errorf("create webhook: %w", err)
 	}
 
+	if s.config.InvalidationPublisher != nil {
+		s.config.InvalidationPublisher.Publish(req.TenantID)
+	}
 	s.auditLog(ctx, req.TenantID, ActionCreateWebhook, Metadata{"webhook_id": w.ID, "url": w.URL})
 	return w, nil
 }
@@ -1724,6 +1732,9 @@ func (s *Service) UpdateWebhook(ctx context.Context, req UpdateWebhookRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("update webhook: %w", err)
 	}
+	if s.config.InvalidationPublisher != nil {
+		s.config.InvalidationPublisher.Publish(req.TenantID)
+	}
 	s.auditLog(ctx, req.TenantID, ActionUpdateWebhook, Metadata{"webhook_id": req.ID})
 	return w, nil
 }
@@ -1735,6 +1746,9 @@ func (s *Service) DeleteWebhook(ctx context.Context, id, tenantID string) error 
 	}
 	if err := s.webhooks.Delete(ctx, id, tenantID); err != nil {
 		return fmt.Errorf("delete webhook: %w", err)
+	}
+	if s.config.InvalidationPublisher != nil {
+		s.config.InvalidationPublisher.Publish(tenantID)
 	}
 	s.auditLog(ctx, tenantID, ActionDeleteWebhook, Metadata{"webhook_id": id})
 	return nil

@@ -49,7 +49,7 @@ func EncryptCredential(plaintext string, key []byte) (string, error) {
 }
 
 // DecryptCredential base64-decodes the ciphertext, extracts the prepended nonce,
-// and decrypts using AES-256-GCM.
+// and decrypts using AES-256-GCM. Returns the plaintext as a string.
 func DecryptCredential(ciphertext string, key []byte) (string, error) {
 	if len(key) != KeySize {
 		return "", errInvalidKeyLength
@@ -60,32 +60,53 @@ func DecryptCredential(ciphertext string, key []byte) (string, error) {
 		return "", fmt.Errorf("base64 decode: %w", err)
 	}
 
-	return decryptRaw(data, key)
+	b, err := decryptRaw(data, key)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
-// DecryptRaw decrypts raw AES-256-GCM ciphertext bytes (nonce prepended, not base64-encoded).
-// Used by the webhook-worker which receives raw bytes over gRPC rather than base64 strings.
+// DecryptRaw decrypts raw AES-256-GCM ciphertext bytes (nonce prepended, not base64-encoded)
+// and returns the plaintext as a string. Used when the caller only needs a string result.
 func DecryptRaw(data, key []byte) (string, error) {
 	if len(key) != KeySize {
 		return "", errInvalidKeyLength
 	}
+	b, err := decryptRaw(data, key)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// DecryptRawToBytes decrypts raw AES-256-GCM ciphertext bytes (nonce prepended, not base64-encoded)
+// and returns the plaintext as []byte. Use when the caller must zero the secret after use
+// (defer clear(secret)) — avoids an intermediate string allocation that would pin the secret
+// in memory beyond the call site. See §IX NFR-005.
+func DecryptRawToBytes(data, key []byte) ([]byte, error) {
+	if len(key) != KeySize {
+		return nil, errInvalidKeyLength
+	}
 	return decryptRaw(data, key)
 }
 
-func decryptRaw(data, key []byte) (string, error) {
+// decryptRaw performs AES-256-GCM decryption on nonce-prepended ciphertext and
+// returns the plaintext as []byte. Key must be KeySize bytes; caller validates.
+func decryptRaw(data, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return "", fmt.Errorf("create cipher: %w", err)
+		return nil, fmt.Errorf("create cipher: %w", err)
 	}
 
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return "", fmt.Errorf("create GCM: %w", err)
+		return nil, fmt.Errorf("create GCM: %w", err)
 	}
 
 	nonceSize := gcm.NonceSize()
 	if len(data) < nonceSize {
-		return "", errors.New("ciphertext too short")
+		return nil, errors.New("ciphertext too short")
 	}
 
 	nonce := data[:nonceSize]
@@ -93,10 +114,10 @@ func decryptRaw(data, key []byte) (string, error) {
 
 	plaintext, err := gcm.Open(nil, nonce, encrypted, nil)
 	if err != nil {
-		return "", fmt.Errorf("decrypt: %w", err)
+		return nil, fmt.Errorf("decrypt: %w", err)
 	}
 
-	return string(plaintext), nil
+	return plaintext, nil
 }
 
 // ParseEncryptionKey accepts a hex-encoded (64 chars) or base64-encoded string

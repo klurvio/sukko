@@ -82,6 +82,11 @@ type RouterConfig struct {
 	// WebhookHandler handles webhook CRUD (Pro edition).
 	// When nil, webhook routes are not registered.
 	WebhookHandler *WebhookHandler
+
+	// WebhookTestHandler handles POST /webhooks/{id}/test (Pro edition).
+	// Independent from WebhookHandler — guarded by its own nil check.
+	// When nil, the /test route is not registered even if WebhookHandler is set.
+	WebhookTestHandler *WebhookTestHandler
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -275,6 +280,12 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 							r.Get("/", cfg.WebhookHandler.HandleGet)
 							r.Patch("/", cfg.WebhookHandler.HandleUpdate)
 							r.Delete("/", cfg.WebhookHandler.HandleDelete)
+							// Test delivery endpoint — independent nil guard (T022): WebhookTestHandler
+							// may be nil even when WebhookHandler is set (e.g. Community edition,
+							// tests, or missing worker gRPC address). Do NOT assume the two are coupled.
+							if cfg.WebhookTestHandler != nil {
+								r.Post("/test", cfg.WebhookTestHandler.HandleTestDeliver)
+							}
 						})
 					})
 				}

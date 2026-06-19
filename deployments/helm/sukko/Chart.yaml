@@ -31,6 +31,9 @@ dependencies:
   - name: monitoring
     version: "1.0.0"
     condition: monitoring.enabled
+  - name: webhook-worker
+    version: "1.0.0"
+    condition: webhook-worker.enabled
 
 maintainers:
   - name: Sukko Team

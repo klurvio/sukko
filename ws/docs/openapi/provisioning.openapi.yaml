@@ -1893,6 +1893,107 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/tenants/{tenantSlug}/webhooks/{webhookID}/test:
+    post:
+      summary: Synchronous test delivery
+      operationId: testWebhookDelivery
+      tags: [Webhooks]
+      security:
+        - BearerAuth: []
+      description: |
+        Performs a single synchronous HTTP POST to the registered webhook URL
+        using all standard worker logic (SSRF dial-time check, HMAC signing).
+        No retry is performed and no delivery record is written.
+        FR-017's status gate does **not** apply — suspended and degraded webhooks
+        can be test-delivered so operators can verify before re-enabling.
+
+        Rate limits: 10 requests per webhook per minute, 30 per tenant per minute.
+        When the webhook worker is unreachable, returns 503.
+      parameters:
+        - $ref: "#/components/parameters/tenantSlug"
+        - name: webhookID
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ID of the webhook to test
+      responses:
+        "200":
+          description: |
+            Test delivery completed. The destination may have returned a non-2xx status
+            or a connection error — check the response body for the actual outcome.
+            HTTP 200 indicates that the test delivery RPC itself succeeded; the
+            `status_code` field reflects the destination's response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestDeliveryResult"
+              examples:
+                success:
+                  summary: Destination returned 200
+                  value:
+                    status_code: 200
+                    latency_ms: 142
+                    response_body_preview: '{"received":true}'
+                    error: ""
+                ssrf_blocked:
+                  summary: SSRF protection blocked the delivery
+                  value:
+                    status_code: 0
+                    latency_ms: 0
+                    response_body_preview: ""
+                    error: "ssrf_blocked: example.internal resolves to private IP 10.0.0.1"
+        "401":
+          description: Unauthorized — missing or invalid tenant JWT
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: UNAUTHORIZED
+                message: "missing tenant context"
+        "403":
+          description: Feature not available in current edition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: EDITION_LIMIT
+                message: "webhooks require Pro edition or higher"
+        "404":
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: WEBHOOK_NOT_FOUND
+                message: "webhook not found"
+        "429":
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              description: Seconds until the rate limit window resets
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                message: "rate limit exceeded for this webhook"
+        "503":
+          description: Webhook worker unreachable or deadline exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: WEBHOOK_WORKER_UNAVAILABLE
+                message: "webhook worker is not reachable"
+
   /api/v1/admin/connections:
     get:
       summary: List active connections across all tenants (admin)
@@ -2571,6 +2672,38 @@ components:
         revoked_at:
           type: ["string", "null"]
           format: date-time
+
+    TestDeliveryResult:
+      type: object
+      description: |
+        Result of a synchronous test delivery attempt.
+        HTTP 200 is always returned for this schema — the destination's outcome
+        is reflected in `status_code` and `error`. An empty `error` field with a
+        2xx `status_code` indicates a fully successful delivery.
+      properties:
+        status_code:
+          type: integer
+          description: |
+            HTTP response status code from the destination. 0 indicates a
+            connection-level error (timeout, SSRF block, DNS failure) rather than
+            an HTTP response.
+          example: 200
+        latency_ms:
+          type: integer
+          format: int64
+          description: Round-trip delivery latency in milliseconds. 0 on connection error.
+          example: 142
+        response_body_preview:
+          type: string
+          maxLength: 512
+          description: First 512 bytes of the destination's response body. Empty on connection error.
+          example: '{"received":true}'
+        error:
+          type: string
+          description: |
+            Human-readable error description for connection-level failures
+            (ssrf_blocked, timeout, decryption_failure). Empty on success.
+          example: ""
 
     Webhook:
       type: object

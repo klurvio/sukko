@@ -211,10 +211,10 @@ func (r *WebhookRepository) ListTenantIDs(ctx context.Context) ([]string, error)
 // ListByTenantForWorker returns webhook records for worker cache hydration.
 // SecretEnc in the returned records is raw AES-256-GCM ciphertext (binary, not base64) —
 // this function decodes the base64 TEXT column from the DB before setting this field.
-// The webhook-worker passes it directly to crypto.DecryptRaw(rec.SecretEnc, key).
+// The webhook-worker passes it directly to crypto.DecryptRawToBytes(rec.SecretEnc, key).
 func (r *WebhookRepository) ListByTenantForWorker(ctx context.Context, tenantID string) ([]*provisioning.WebhookRecord, error) {
 	const query = `
-		SELECT id, tenant_id, url, channel_pattern, secret_enc, status, max_retries
+		SELECT id, tenant_id, url, channel_pattern, secret_enc, status, max_retries, last_delivery_at
 		FROM webhooks
 		WHERE tenant_id = $1
 	`
@@ -231,7 +231,7 @@ func (r *WebhookRepository) ListByTenantForWorker(ctx context.Context, tenantID 
 			secretEnc string
 		)
 		if err := rows.Scan(&rec.ID, &rec.TenantID, &rec.URL, &rec.ChannelPattern,
-			&secretEnc, &rec.Status, &rec.MaxRetries); err != nil {
+			&secretEnc, &rec.Status, &rec.MaxRetries, &rec.LastDeliveryAt); err != nil {
 			return nil, fmt.Errorf("scan worker webhook row: %w", err)
 		}
 		// Decode from base64 TEXT stored in DB to raw ciphertext bytes for gRPC transport.
@@ -267,6 +267,11 @@ func (r *WebhookRepository) UpdateStatus(ctx context.Context, id, tenantID, stat
 
 // RecordDelivery inserts a delivery attempt, updates last_delivery_at/last_status,
 // and prunes to keep at most 50 records per webhook — all in one transaction.
+// ON CONFLICT (id) DO NOTHING makes the INSERT idempotent: duplicate delivery_id
+// replays are no-ops (tag.RowsAffected() == 0) and the prune/update are skipped
+// (SC-022, FR-009). A three-statement transaction is used instead of a CTE because
+// the CTE's DELETE subquery runs against the pre-INSERT snapshot in PostgreSQL,
+// preventing the prune from seeing the newly inserted row.
 func (r *WebhookRepository) RecordDelivery(ctx context.Context, d *provisioning.WebhookDelivery) error {
 	const maxDeliveries = 50
 
@@ -283,14 +288,24 @@ func (r *WebhookRepository) RecordDelivery(ctx context.Context, d *provisioning.
 	const insertDelivery = `
 		INSERT INTO webhook_deliveries (id, webhook_id, tenant_id, attempt, status_code, latency_ms, error, delivered_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (id) DO NOTHING
 	`
-	if _, err = tx.Exec(ctx, insertDelivery,
+	tag, txErr := tx.Exec(ctx, insertDelivery,
 		d.ID, d.WebhookID, d.TenantID, d.Attempt,
 		d.StatusCode, d.LatencyMS, d.Error, d.DeliveredAt,
-	); err != nil {
-		return fmt.Errorf("insert delivery: %w", err)
+	)
+	if txErr != nil {
+		err = fmt.Errorf("insert delivery: %w", txErr)
+		return err
+	}
+	// Duplicate delivery_id — idempotent no-op (SC-022).
+	if tag.RowsAffected() == 0 {
+		_ = tx.Rollback(ctx)
+		return nil
 	}
 
+	// Prune: the DELETE reads the current transaction state (including the new row),
+	// so OFFSET $1 correctly skips the maxDeliveries newest and deletes the rest.
 	const pruneDeliveries = `
 		DELETE FROM webhook_deliveries
 		WHERE id IN (
@@ -300,8 +315,9 @@ func (r *WebhookRepository) RecordDelivery(ctx context.Context, d *provisioning.
 			OFFSET $2
 		)
 	`
-	if _, err = tx.Exec(ctx, pruneDeliveries, d.WebhookID, maxDeliveries); err != nil {
-		return fmt.Errorf("prune deliveries: %w", err)
+	if _, txErr = tx.Exec(ctx, pruneDeliveries, d.WebhookID, maxDeliveries); txErr != nil {
+		err = fmt.Errorf("prune deliveries: %w", txErr)
+		return err
 	}
 
 	lastStatus := strconv.Itoa(d.StatusCode)
@@ -310,8 +326,9 @@ func (r *WebhookRepository) RecordDelivery(ctx context.Context, d *provisioning.
 		SET last_delivery_at = $2, last_status = $3, updated_at = NOW()
 		WHERE id = $1 AND tenant_id = $4
 	`
-	if _, err = tx.Exec(ctx, updateWebhook, d.WebhookID, d.DeliveredAt, lastStatus, d.TenantID); err != nil {
-		return fmt.Errorf("update last delivery: %w", err)
+	if _, txErr = tx.Exec(ctx, updateWebhook, d.WebhookID, d.DeliveredAt, lastStatus, d.TenantID); txErr != nil {
+		err = fmt.Errorf("update last delivery: %w", txErr)
+		return err
 	}
 
 	if err = tx.Commit(ctx); err != nil {
