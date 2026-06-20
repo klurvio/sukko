@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/push/provider"
@@ -320,5 +321,24 @@ func newRealWorkerPool(prov provider.Provider, repo repository.SubscriptionRepos
 		Repo:        repo,
 		MaxRetries:  0,
 		Logger:      zerolog.Nop(),
+	})
+}
+
+// TestSetDryRunMode verifies the push_dry_run_mode gauge is set correctly.
+//
+//nolint:paralleltest // sub-tests share the package-level dryRunMode gauge — sequential is required.
+func TestSetDryRunMode(t *testing.T) {
+	t.Run("dry run enabled sets gauge to 1", func(t *testing.T) {
+		SetDryRunMode(true)
+		if got := testutil.ToFloat64(dryRunMode); got != 1.0 {
+			t.Errorf("SetDryRunMode(true): got %v, want 1.0", got)
+		}
+	})
+
+	t.Run("dry run disabled sets gauge to 0", func(t *testing.T) {
+		SetDryRunMode(false)
+		if got := testutil.ToFloat64(dryRunMode); got != 0.0 {
+			t.Errorf("SetDryRunMode(false): got %v, want 0.0", got)
+		}
 	})
 }

@@ -1863,3 +1863,121 @@ func TestService_DeleteWebhook_NilStore(t *testing.T) {
 		t.Errorf("DeleteWebhook() nil store error = %v, want ErrWebhookStoreNotConfigured", err)
 	}
 }
+
+// --- provisioning_active_tenants gauge side-effect tests ---
+// These tests verify that each service method correctly updates the gauge.
+// NOT parallel: they share the process-wide Prometheus default registry.
+
+//nolint:paralleltest // shares Prometheus default registry — concurrent gauge mutations across tests would make the assertion flaky.
+func TestGauge_SuspendTenant_Decrements(t *testing.T) {
+	svc, ts, _, _ := newTestService()
+	active := testutil.NewTestTenant("gauge-suspend")
+	_ = ts.Create(context.Background(), active)
+	provisioning.SetActiveTenants(1)
+
+	if err := svc.SuspendTenant(context.Background(), "gauge-suspend"); err != nil {
+		t.Fatalf("SuspendTenant: %v", err)
+	}
+	if got := activeTenantsGaugeValue(t); got != 0.0 {
+		t.Errorf("after SuspendTenant: gauge = %v, want 0.0", got)
+	}
+}
+
+//nolint:paralleltest // shares Prometheus default registry.
+func TestGauge_ReactivateTenant_Increments(t *testing.T) {
+	svc, ts, _, _ := newTestService()
+	susp := testutil.NewTestTenant("gauge-reactivate")
+	susp.Status = provisioning.StatusSuspended
+	_ = ts.Create(context.Background(), susp)
+	provisioning.SetActiveTenants(0)
+
+	if err := svc.ReactivateTenant(context.Background(), "gauge-reactivate"); err != nil {
+		t.Fatalf("ReactivateTenant: %v", err)
+	}
+	if got := activeTenantsGaugeValue(t); got != 1.0 {
+		t.Errorf("after ReactivateTenant: gauge = %v, want 1.0", got)
+	}
+}
+
+//nolint:paralleltest // shares Prometheus default registry.
+func TestGauge_DeprovisionTenant_Active_Decrements(t *testing.T) {
+	svc, ts, _, _ := newTestService()
+	active := testutil.NewTestTenant("gauge-deprovision-active")
+	_ = ts.Create(context.Background(), active)
+	provisioning.SetActiveTenants(1)
+
+	if err := svc.DeprovisionTenant(context.Background(), "gauge-deprovision-active", false); err != nil {
+		t.Fatalf("DeprovisionTenant: %v", err)
+	}
+	if got := activeTenantsGaugeValue(t); got != 0.0 {
+		t.Errorf("after DeprovisionTenant(active): gauge = %v, want 0.0", got)
+	}
+}
+
+//nolint:paralleltest // shares Prometheus default registry.
+func TestGauge_CreateTenant_Increments(t *testing.T) {
+	svc, _, _, _ := newTestService()
+	provisioning.SetActiveTenants(0)
+
+	_, err := svc.CreateTenant(context.Background(), provisioning.CreateTenantRequest{
+		Slug: "gauge-create",
+		Name: "Gauge Create",
+	})
+	if err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+	if got := activeTenantsGaugeValue(t); got != 1.0 {
+		t.Errorf("after CreateTenant: gauge = %v, want 1.0", got)
+	}
+}
+
+//nolint:paralleltest // shares Prometheus default registry.
+func TestGauge_DeprovisionTenant_Active_Force_Decrements(t *testing.T) {
+	svc, ts, _, _ := newTestService()
+	active := testutil.NewTestTenant("gauge-force-deprovision")
+	_ = ts.Create(context.Background(), active)
+	provisioning.SetActiveTenants(1)
+
+	if err := svc.DeprovisionTenant(context.Background(), "gauge-force-deprovision", true); err != nil {
+		t.Fatalf("DeprovisionTenant(force=true, active): %v", err)
+	}
+	if got := activeTenantsGaugeValue(t); got != 0.0 {
+		t.Errorf("after DeprovisionTenant(force=true, active): gauge = %v, want 0.0", got)
+	}
+}
+
+//nolint:paralleltest // shares Prometheus default registry.
+func TestGauge_DeprovisionTenant_Suspended_NoChange(t *testing.T) {
+	// A suspended tenant was already Dec'd by SuspendTenant.
+	// Force-deprovisioning it must NOT decrement the gauge again.
+	svc, ts, _, _ := newTestService()
+	susp := testutil.NewTestTenant("gauge-deprovision-susp")
+	susp.Status = provisioning.StatusSuspended
+	_ = ts.Create(context.Background(), susp)
+	provisioning.SetActiveTenants(0)
+
+	if err := svc.DeprovisionTenant(context.Background(), "gauge-deprovision-susp", true); err != nil {
+		t.Fatalf("DeprovisionTenant(force=true, suspended): %v", err)
+	}
+	if got := activeTenantsGaugeValue(t); got != 0.0 {
+		t.Errorf("after DeprovisionTenant(force=true, suspended): gauge = %v, want 0.0 (must not double-decrement)", got)
+	}
+}
+
+//nolint:paralleltest // shares Prometheus default registry.
+func TestGauge_DeprovisionTenant_Suspended_GracePeriod_NoChange(t *testing.T) {
+	// Grace-period (force=false) deprovision of a suspended tenant:
+	// the gauge guard at service.go line 613 must prevent a double-decrement.
+	svc, ts, _, _ := newTestService()
+	susp := testutil.NewTestTenant("gauge-deprovision-susp-grace")
+	susp.Status = provisioning.StatusSuspended
+	_ = ts.Create(context.Background(), susp)
+	provisioning.SetActiveTenants(0)
+
+	if err := svc.DeprovisionTenant(context.Background(), "gauge-deprovision-susp-grace", false); err != nil {
+		t.Fatalf("DeprovisionTenant(force=false, suspended): %v", err)
+	}
+	if got := activeTenantsGaugeValue(t); got != 0.0 {
+		t.Errorf("after DeprovisionTenant(force=false, suspended): gauge = %v, want 0.0 (must not double-decrement)", got)
+	}
+}

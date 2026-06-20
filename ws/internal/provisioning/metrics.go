@@ -83,3 +83,26 @@ func recordStartupScanFindings(pending, complete int) {
 	startupPendingRenames.Set(float64(pending))
 	startupCompleteRenames.Set(float64(complete))
 }
+
+// activeTenantsGauge tracks the current number of active (non-suspended, non-deleted) tenants.
+// Defined here (not in api/metrics.go) to avoid a circular import: api imports provisioning,
+// so provisioning.Service.Start() cannot import api. Handlers in api/ call the helpers below.
+var activeTenantsGauge = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "provisioning_active_tenants",
+	Help: "Current number of active (non-suspended, non-deleted) tenants.",
+})
+
+// IncActiveTenants increments the active tenant gauge by 1.
+// Called by CreateTenant (immediately after the tenant is persisted to DB in StatusActive)
+// and ReactivateTenant (suspended→active). Placing the CreateTenant call right after
+// the DB write ensures accuracy even when key creation subsequently fails.
+func IncActiveTenants() { activeTenantsGauge.Inc() }
+
+// DecActiveTenants decrements the active tenant gauge by 1.
+// Called by SuspendTenant (active→suspended) and DeprovisionTenant only when the
+// prior status was active. Service layer callers guard the precondition.
+func DecActiveTenants() { activeTenantsGauge.Dec() }
+
+// SetActiveTenants sets the active tenant gauge to n.
+// Called at startup from Service.Start() after querying the DB for the current count.
+func SetActiveTenants(n int64) { activeTenantsGauge.Set(float64(n)) }

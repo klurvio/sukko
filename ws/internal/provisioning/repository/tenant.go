@@ -452,4 +452,15 @@ func (r *TenantRepository) Count(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// CountActive returns the number of strictly active (status='active') tenants.
+// Used to initialize the provisioning_active_tenants Prometheus gauge at startup.
+func (r *TenantRepository) CountActive(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx, "SELECT COUNT(*) FROM tenants WHERE status = $1", provisioning.StatusActive).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active tenants: %w", err)
+	}
+	return count, nil
+}
+
 var _ provisioning.TenantStore = (*TenantRepository)(nil)
