@@ -134,6 +134,8 @@ func main() {
 	// Start ConfigClient (launches WatchPushConfig stream goroutine)
 	configClient.Start(ctx)
 
+	push.SetDryRunMode(cfg.DryRun)
+
 	// Create providers based on dry-run mode
 	providers := make(map[string]provider.Provider)
 	if cfg.DryRun {

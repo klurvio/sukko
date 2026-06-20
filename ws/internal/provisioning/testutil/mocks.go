@@ -33,6 +33,7 @@ type MockTenantStore struct {
 	SetRenameStateErr     error
 	ClearRenameStateErr   error
 	ListPendingRenamesErr error
+	CountActiveErr        error
 	PingErr               error
 }
 
@@ -281,6 +282,22 @@ func (m *MockTenantStore) Count(_ context.Context) (int, error) {
 	count := 0
 	for _, t := range m.byUUID {
 		if t.Status != provisioning.StatusDeleted {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// CountActive returns the number of strictly active tenants in the mock store.
+func (m *MockTenantStore) CountActive(_ context.Context) (int64, error) {
+	if m.CountActiveErr != nil {
+		return 0, m.CountActiveErr
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var count int64
+	for _, t := range m.byUUID {
+		if t.Status == provisioning.StatusActive {
 			count++
 		}
 	}

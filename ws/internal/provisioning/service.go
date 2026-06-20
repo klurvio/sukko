@@ -368,6 +368,9 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		}
 		return nil, fmt.Errorf("create tenant: %w", err)
 	}
+	// Tenant is now StatusActive in the DB — increment the gauge immediately so that
+	// any subsequent return (including key validation failure) does not under-count.
+	IncActiveTenants()
 
 	// Create default quotas
 	quota := &TenantQuota{
@@ -505,6 +508,10 @@ func (s *Service) SuspendTenant(ctx context.Context, tenantID string) error {
 		return fmt.Errorf("suspend tenant: %w", err)
 	}
 
+	// Tenant transitioned from StatusActive → StatusSuspended; always safe to Dec
+	// because SuspendTenant only accepts StatusActive tenants (checked above).
+	DecActiveTenants()
+
 	s.auditLog(ctx, tenant.ID, ActionSuspendTenant, nil)
 
 	s.logger.Info().Str("slug", tenant.Slug).Msg("Tenant suspended")
@@ -553,6 +560,10 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 		return fmt.Errorf("reactivate tenant: %w", err)
 	}
 
+	// Tenant transitioned from StatusSuspended → StatusActive; always safe to Inc
+	// because ReactivateTenant only accepts StatusSuspended tenants (checked above).
+	IncActiveTenants()
+
 	s.auditLog(ctx, tenant.ID, ActionReactivateTenant, nil)
 
 	s.logger.Info().Str("slug", tenant.Slug).Msg("Tenant reactivated")
@@ -564,8 +575,9 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 }
 
 // DeprovisionTenant initiates tenant deletion. When force=false, sets status to
-// deprovisioning with a grace period (reactivatable). When force=true, sets status
-// directly to deleted — no grace period, immediate cleanup, no reactivation.
+// deprovisioning with a grace period (not reactivatable via API). When force=true, sets
+// status directly to deleted — no grace period, immediate cleanup, no reactivation.
+// Valid source states: active, suspended (and deprovisioning when force=true).
 // Multi-step cleanup continues on individual failures (Constitution IV).
 func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force bool) error {
 	// Validate tenant state before deprovisioning
@@ -581,7 +593,14 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 	}
 
 	if force {
-		return s.forceDeleteTenant(ctx, tenant)
+		if err := s.forceDeleteTenant(ctx, tenant); err != nil {
+			return err
+		}
+		// Only Dec when the tenant was active; a suspended tenant was already Dec'd by SuspendTenant.
+		if tenant.Status == StatusActive {
+			DecActiveTenants()
+		}
+		return nil
 	}
 
 	// --- Grace-period deprovision (existing behavior) ---
@@ -589,6 +608,10 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 	// Update status to deprovisioning
 	if err := s.tenants.UpdateStatus(ctx, tenant.ID, StatusDeprovisioning); err != nil {
 		return fmt.Errorf("set deprovisioning status: %w", err)
+	}
+	// Only Dec when the tenant was active; a suspended tenant was already Dec'd by SuspendTenant.
+	if tenant.Status == StatusActive {
+		DecActiveTenants()
 	}
 
 	// Revoke all keys immediately
@@ -1572,6 +1595,17 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	recordStartupScanFindings(pendingCount, completeCount)
+
+	// Initialize the provisioning_active_tenants gauge. A failure here is non-fatal —
+	// we log at Warn and leave the gauge at its promauto default of 0 (not "No data" —
+	// promauto always registers the metric; 0 is indistinguishable from zero tenants).
+	// Service-layer Inc/Dec calls will correct the value over time.
+	if n, err := s.tenants.CountActive(ctx); err != nil {
+		s.logger.Warn().Err(err).Msg("Startup: failed to count active tenants for gauge init; gauge will read 0 until corrected by next operation")
+	} else {
+		SetActiveTenants(n)
+	}
+
 	return nil
 }
 

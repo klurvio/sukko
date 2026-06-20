@@ -51,7 +51,22 @@ var (
 		Name: "push_devices_targeted_total",
 		Help: "Total number of push notification jobs enqueued for device delivery.",
 	})
+
+	dryRunMode = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "push_dry_run_mode",
+		Help: "1 if push service is running in dry-run mode (PUSH_DRY_RUN=true), 0 otherwise.",
+	})
 )
+
+// SetDryRunMode sets the push_dry_run_mode gauge to 1 when dry-run is active, 0 otherwise.
+// Called at startup from cmd/push/main.go after config is loaded.
+func SetDryRunMode(enabled bool) {
+	if enabled {
+		dryRunMode.Set(1)
+	} else {
+		dryRunMode.Set(0)
+	}
+}
 
 // ServiceConfig configures the push notification service.
 type ServiceConfig struct {

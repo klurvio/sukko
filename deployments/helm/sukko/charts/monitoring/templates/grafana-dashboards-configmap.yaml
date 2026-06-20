@@ -30,12 +30,20 @@ metadata:
     {{- include "monitoring.labels" . | nindent 4 }}
     app.kubernetes.io/component: grafana
 data:
-  overview.json: |
-    {{ .Files.Get "dashboards/overview.json" | nindent 4 }}
-  websocket.json: |
-    {{ .Files.Get "dashboards/websocket.json" | nindent 4 }}
-  redpanda.json: |
-    {{ .Files.Get "dashboards/redpanda.json" | nindent 4 }}
-  logs.json: |
-    {{ .Files.Get "dashboards/logs.json" | nindent 4 }}
+  sukko-overview.json: |
+    {{ .Files.Get "dashboards/sukko-overview.json" | nindent 4 }}
+  sukko-websocket.json: |
+    {{ .Files.Get "dashboards/sukko-websocket.json" | nindent 4 }}
+  sukko-pipeline.json: |
+    {{ .Files.Get "dashboards/sukko-pipeline.json" | nindent 4 }}
+  sukko-auth.json: |
+    {{ .Files.Get "dashboards/sukko-auth.json" | nindent 4 }}
+  sukko-provisioning.json: |
+    {{ .Files.Get "dashboards/sukko-provisioning.json" | nindent 4 }}
+  sukko-push.json: |
+    {{ .Files.Get "dashboards/sukko-push.json" | nindent 4 }}
+  sukko-resources.json: |
+    {{ .Files.Get "dashboards/sukko-resources.json" | nindent 4 }}
+  sukko-log-explorer.json: |
+    {{ .Files.Get "dashboards/sukko-log-explorer.json" | nindent 4 }}
 {{- end }}

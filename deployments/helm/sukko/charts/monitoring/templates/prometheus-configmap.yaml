@@ -77,6 +77,34 @@ data:
           - targets: ['{{ .Release.Name }}-provisioning:8080']
         metrics_path: /metrics
 
+      # Scrape webhook-worker metrics from ALL pods
+      - job_name: 'webhook-worker'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - {{ .Release.Namespace }}
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: {{ .Release.Name }}-webhook-worker
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: http
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+        metrics_path: /metrics
+
+      # Scrape push-service metrics via static config (push-service is single-replica by design;
+      # endpoint discovery is used for multi-pod services like ws-server and webhook-worker).
+      # Port 3009 matches PUSH_HTTP_PORT envDefault in ws/internal/push/config.go.
+      - job_name: 'push-service'
+        static_configs:
+          - targets: ['{{ .Release.Name }}-push-service:3009']
+        metrics_path: /metrics
+
       # Prometheus self-monitoring
       - job_name: 'prometheus'
         static_configs:

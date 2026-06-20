@@ -55,6 +55,11 @@ type TenantStore interface {
 	// Count returns the number of active (non-deleted) tenants.
 	// Used by edition limit enforcement to check tenant count before creation.
 	Count(ctx context.Context) (int, error)
+
+	// CountActive returns the number of strictly active (status='active') tenants.
+	// Used by the provisioning_active_tenants Prometheus gauge at startup.
+	// Note: Count() includes suspended tenants; CountActive() excludes them.
+	CountActive(ctx context.Context) (int64, error)
 }
 
 // KeyStore handles public key persistence operations.
