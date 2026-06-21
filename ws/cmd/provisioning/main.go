@@ -416,6 +416,7 @@ func main() {
 				analyticsPool,
 				cfg.SSEMaxConns,
 				cfg.FlushInterval,
+				cfg.EditionManager(),
 				structuredLogger,
 			)
 		}(),

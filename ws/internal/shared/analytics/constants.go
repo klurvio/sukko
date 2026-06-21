@@ -42,10 +42,10 @@ var dayTables = []string{tableConnectionsDay, tableMessagesDay, tablePushDay}
 
 // Timing constants (§I: magic numbers must be named constants).
 const (
-	defaultFlushDeadline     = 10 * time.Second // flush goroutine final-flush deadline on shutdown
-	sseIdleTimeout           = 90 * time.Second // SSE connection idle disconnect timeout
-	pendingFlushQueueDivisor = 100              // pendingFlush chan capacity = max(BufferSize/100, 10)
-	pendingFlushQueueMin     = 10               // minimum pending-flush queue capacity
+	defaultFlushDeadline = 10 * time.Second // flush goroutine final-flush deadline on shutdown
+	// sseIdleTimeout removed — SSE handler lives in provisioning/api; §X prohibits cross-package duplicates.
+	pendingFlushQueueDivisor = 100 // pendingFlush chan capacity = max(BufferSize/100, 10)
+	pendingFlushQueueMin     = 10  // minimum pending-flush queue capacity
 
 	defaultDowngradePoll       = 5 * time.Minute // fallback DowngradePoll when cfg value is zero
 	analyticsDefaultBufferSize = 10000           // fallback BufferSize when CollectorConfig.BufferSize is zero

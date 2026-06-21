@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/license"
 )
 
 // analyticsSSEDroppedCounter counts events dropped due to slow SSE clients (§VI prefix).
@@ -21,28 +22,34 @@ var analyticsSSEDroppedCounter = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "Total SSE analytics events dropped due to slow client (provisioning service).",
 })
 
-// sseIdleTimeout is the max time an SSE connection can be idle before server closes it.
+// sseIdleTimeout is the max idle time before the server closes an SSE connection.
+// Must be > FlushInterval to have any effect — with default FlushInterval=60s, idle
+// timeout fires only if a tick succeeds but the next tick somehow never fires (stuck ticker).
+// Its primary purpose is guarding against connections where the client vanished silently.
 const sseIdleTimeout = 90 * time.Second
 
 // AnalyticsSSEHandler serves GET /api/v1/admin/analytics/stream?tenant_id={id}.
 // It is a polling reader of the analytics DB — not a flush-event subscriber —
 // so it always reflects the multi-pod aggregate, independent of per-pod flush timing.
 type AnalyticsSSEHandler struct {
-	pool     *pgxpool.Pool
-	maxConns int
-	sem      chan struct{} // semaphore: cap = ANALYTICS_SSE_MAX_CONNS
-	interval time.Duration
-	logger   zerolog.Logger
+	pool           *pgxpool.Pool
+	maxConns       int
+	sem            chan struct{} // semaphore: cap = ANALYTICS_SSE_MAX_CONNS
+	interval       time.Duration
+	editionManager *license.Manager // nil disables push-analytics edition gate check
+	logger         zerolog.Logger
 }
 
 // NewAnalyticsSSEHandler creates an AnalyticsSSEHandler.
-func NewAnalyticsSSEHandler(pool *pgxpool.Pool, maxConns int, interval time.Duration, logger zerolog.Logger) *AnalyticsSSEHandler {
+// editionManager is used to gate push analytics to Enterprise edition; pass nil to disable gating.
+func NewAnalyticsSSEHandler(pool *pgxpool.Pool, maxConns int, interval time.Duration, mgr *license.Manager, logger zerolog.Logger) *AnalyticsSSEHandler {
 	return &AnalyticsSSEHandler{
-		pool:     pool,
-		maxConns: maxConns,
-		sem:      make(chan struct{}, maxConns),
-		interval: interval,
-		logger:   logger.With().Str("component", "analytics_sse").Logger(),
+		pool:           pool,
+		maxConns:       maxConns,
+		sem:            make(chan struct{}, maxConns),
+		interval:       interval,
+		editionManager: mgr,
+		logger:         logger.With().Str("component", "analytics_sse").Logger(),
 	}
 }
 
@@ -69,6 +76,13 @@ func (h *AnalyticsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		h.logger.Error().Msg("SSE: response writer does not support flushing")
 		return
+	}
+
+	// Disable the HTTP server's WriteTimeout for this SSE connection.
+	// Without this, the default WriteTimeout (typically 15s) kills the stream
+	// before the first poll fires (default FlushInterval is 60s).
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		h.logger.Warn().Err(err).Msg("SSE: could not disable write deadline; stream may be killed by WriteTimeout")
 	}
 
 	// Initial snapshot on connect.
@@ -134,20 +148,26 @@ type pushMetrics struct {
 	RateLimited int64 `json:"rate_limited"`
 }
 
-// queryMetrics reads the most recent complete 1-minute bucket from the analytics tables.
-// tenantID="" aggregates across all tenants.
+// queryMetrics reads only the most recent complete 1-minute bucket from the analytics tables.
+// tenantID="" aggregates across all pods for all tenants.
+// Each table is queried independently: errors on individual tables are logged and cause
+// that section to be omitted from the snapshot (nil field) rather than returning zeros,
+// so clients can distinguish "no data" from "zero activity".
 func (h *AnalyticsSSEHandler) queryMetrics(ctx context.Context, tenantID string) *analyticsSnapshot {
 	snap := &analyticsSnapshot{TenantID: tenantID}
+	if h.pool == nil {
+		return snap // pool unavailable (e.g., analytics disabled); return empty snapshot
+	}
 	bucketCutoff := time.Now().UTC().Truncate(time.Minute)
 	var tid *string
 	if tenantID != "" {
 		tid = &tenantID
 	}
 
-	// Connections — aggregate across all pods, last complete minute.
+	// Connections — sum across all pods for the most recent complete 1-minute bucket.
 	var cm connMetrics
 	var bs *time.Time
-	err := h.pool.QueryRow(ctx, `
+	if err := h.pool.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(active_count), 0),
 			COALESCE(SUM(CASE WHEN transport='websocket' THEN active_count ELSE 0 END), 0),
@@ -156,47 +176,72 @@ func (h *AnalyticsSSEHandler) queryMetrics(ctx context.Context, tenantID string)
 			COALESCE(SUM(disconnect_count), 0),
 			MAX(bucket_start)
 		FROM analytics_connections
-		WHERE bucket_start < $1
+		WHERE bucket_size = 'minute'
 		  AND ($2::uuid IS NULL OR tenant_id = $2)
-		  AND bucket_size = 'minute'`,
+		  AND bucket_start = (
+			SELECT MAX(bucket_start) FROM analytics_connections
+			WHERE bucket_start < $1
+			  AND ($2::uuid IS NULL OR tenant_id = $2)
+			  AND bucket_size = 'minute'
+		  )`,
 		bucketCutoff, tid,
-	).Scan(&cm.Active, &cm.WebSocket, &cm.SSE, &cm.Connects, &cm.Disconnects, &bs)
-	if err == nil {
+	).Scan(&cm.Active, &cm.WebSocket, &cm.SSE, &cm.Connects, &cm.Disconnects, &bs); err == nil {
 		snap.Connections = &cm
 		snap.BucketStart = bs
+	} else {
+		h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("SSE: connections query failed")
 	}
 
-	// Messages.
+	// Messages — most recent complete 1-minute bucket only.
 	var mm msgMetrics
-	_ = h.pool.QueryRow(ctx, `
+	if err := h.pool.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(published_count), 0),
 			COALESCE(SUM(delivered_count), 0),
 			COALESCE(SUM(failed_count), 0)
 		FROM analytics_messages
-		WHERE bucket_start < $1
+		WHERE bucket_size = 'minute'
 		  AND ($2::uuid IS NULL OR tenant_id = $2)
-		  AND bucket_size = 'minute'`,
+		  AND bucket_start = (
+			SELECT MAX(bucket_start) FROM analytics_messages
+			WHERE bucket_start < $1
+			  AND ($2::uuid IS NULL OR tenant_id = $2)
+			  AND bucket_size = 'minute'
+		  )`,
 		bucketCutoff, tid,
-	).Scan(&mm.Published, &mm.Delivered, &mm.Failed)
-	snap.Messages = &mm
+	).Scan(&mm.Published, &mm.Delivered, &mm.Failed); err == nil {
+		snap.Messages = &mm
+	} else {
+		h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("SSE: messages query failed")
+	}
 
-	// Push.
-	var pm pushMetrics
-	_ = h.pool.QueryRow(ctx, `
-		SELECT
-			COALESCE(SUM(sent_count), 0),
-			COALESCE(SUM(success_count), 0),
-			COALESCE(SUM(failed_count), 0),
-			COALESCE(SUM(expired_count), 0),
-			COALESCE(SUM(rate_limited_count), 0)
-		FROM analytics_push
-		WHERE bucket_start < $1
-		  AND ($2::uuid IS NULL OR tenant_id = $2)
-		  AND bucket_size = 'minute'`,
-		bucketCutoff, tid,
-	).Scan(&pm.Sent, &pm.Success, &pm.Failed, &pm.Expired, &pm.RateLimited)
-	snap.Push = &pm
+	// Push — most recent complete 1-minute bucket only.
+	// Only included when push analytics (Enterprise edition) is available.
+	if h.editionManager == nil || license.EditionHasFeature(h.editionManager.Edition(), license.AnalyticsPush) {
+		var pm pushMetrics
+		if err := h.pool.QueryRow(ctx, `
+			SELECT
+				COALESCE(SUM(sent_count), 0),
+				COALESCE(SUM(success_count), 0),
+				COALESCE(SUM(failed_count), 0),
+				COALESCE(SUM(expired_count), 0),
+				COALESCE(SUM(rate_limited_count), 0)
+			FROM analytics_push
+			WHERE bucket_size = 'minute'
+			  AND ($2::uuid IS NULL OR tenant_id = $2)
+			  AND bucket_start = (
+				SELECT MAX(bucket_start) FROM analytics_push
+				WHERE bucket_start < $1
+				  AND ($2::uuid IS NULL OR tenant_id = $2)
+				  AND bucket_size = 'minute'
+			  )`,
+			bucketCutoff, tid,
+		).Scan(&pm.Sent, &pm.Success, &pm.Failed, &pm.Expired, &pm.RateLimited); err == nil {
+			snap.Push = &pm
+		} else {
+			h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("SSE: push query failed")
+		}
+	}
 
 	return snap
 }
