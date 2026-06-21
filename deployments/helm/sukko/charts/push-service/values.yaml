@@ -109,6 +109,13 @@ service:
   grpcPort: 3008
   httpPort: 3009
 
+
+analytics:
+  enabled: false
+  secrets:
+    existingSecret: ""
+    dbURLKey: "analytics-db-url"
+
 podAnnotations: {}
 
 nodeSelector: {}

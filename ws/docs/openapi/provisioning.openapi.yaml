@@ -2034,6 +2034,51 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/analytics/stream:
+    get:
+      summary: Stream real-time per-tenant analytics (admin, Pro edition)
+      operationId: adminAnalyticsStream
+      tags: [Analytics, Admin]
+      description: |
+        Server-Sent Events (SSE) stream of per-tenant analytics aggregated across all pods.
+        Polls the analytics DB every ~60s (ANALYTICS_FLUSH_INTERVAL) and pushes updated metrics.
+        Requires admin JWT and Pro edition.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tenant_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Filter to a specific tenant. Omit to aggregate across all tenants.
+      responses:
+        "200":
+          description: SSE stream of analytics events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Each event has a named type and JSON payload:
+                  - `snapshot` (on connect and every interval): full metrics for the tenant
+                example: |
+                  event: snapshot
+                  data: {"tenant_id":"acme","connections":{"active":142,"websocket":120,"sse":22},"messages":{"published":8420,"delivered":8415,"failed":5},"push":{"sent":450,"success":447,"failed":3}}
+        "401":
+          description: Missing or invalid admin JWT
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Max concurrent SSE connections reached (ANALYTICS_SSE_MAX_CONNS)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     bearerAuth:

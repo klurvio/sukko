@@ -87,6 +87,10 @@ type RouterConfig struct {
 	// Independent from WebhookHandler — guarded by its own nil check.
 	// When nil, the /test route is not registered even if WebhookHandler is set.
 	WebhookTestHandler *WebhookTestHandler
+
+	// AnalyticsSSEHandler serves GET /api/v1/admin/analytics/stream (Pro edition).
+	// When nil, the analytics stream route is not registered.
+	AnalyticsSSEHandler *AnalyticsSSEHandler
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -337,6 +341,15 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 				r.Use(RequireRole("admin", "system"))
 				r.Use(RequireFeature(cfg.EditionManager, license.ConnectionsAPI))
 				r.Get("/admin/connections", cfg.ConnectionsHandler.HandleAdminListConnections)
+			})
+		}
+
+		// Analytics SSE stream — requires admin role + Pro edition
+		if cfg.AnalyticsSSEHandler != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireRole("admin", "system"))
+				r.Use(RequireFeature(cfg.EditionManager, license.Analytics))
+				r.Get("/admin/analytics/stream", cfg.AnalyticsSSEHandler.ServeHTTP)
 			})
 		}
 	})

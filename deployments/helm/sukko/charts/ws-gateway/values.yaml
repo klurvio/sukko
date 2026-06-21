@@ -74,6 +74,12 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 
+analytics:
+  enabled: false  # Set true for Pro/Enterprise with analytics DB configured
+  secrets:
+    existingSecret: ""  # kubectl create secret with analytics-db-url key
+    dbURLKey: "analytics-db-url"
+
 podAnnotations: {}
 
 terminationGracePeriodSeconds: 60

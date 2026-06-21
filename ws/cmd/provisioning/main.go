@@ -144,6 +144,16 @@ func main() {
 		structuredLogger.Fatal().Err(err).Msg("Failed to run database migrations")
 	}
 
+	// Open analytics pool early so the SSE handler can be passed to NewRouter.
+	// Returns (nil, nil) when ANALYTICS_ENABLED=false — that's the default.
+	analyticsPool, err := platform.OpenAnalyticsPool(ctx, cfg.AnalyticsConfig)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to open analytics pool")
+	}
+	if analyticsPool != nil {
+		defer analyticsPool.Close()
+	}
+
 	// Open database connection pool (PostgreSQL via pgxpool)
 	pool, err := repository.OpenDatabase(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -398,6 +408,17 @@ func main() {
 		ConnectionsHandler: connectionsHandler,
 		WebhookHandler:     webhookHandler,
 		WebhookTestHandler: webhookTestHandler,
+		AnalyticsSSEHandler: func() *api.AnalyticsSSEHandler {
+			if analyticsPool == nil {
+				return nil
+			}
+			return api.NewAnalyticsSSEHandler(
+				analyticsPool,
+				cfg.SSEMaxConns,
+				cfg.FlushInterval,
+				structuredLogger,
+			)
+		}(),
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")
@@ -501,13 +522,8 @@ func main() {
 		structuredLogger.Info().Dur("interval", cfg.LifecycleCheckInterval).Msg("Lifecycle manager started")
 	}
 
-	// Open analytics pool and start AnalyticsManager (rollup + partition maintenance).
-	analyticsPool, err := platform.OpenAnalyticsPool(ctx, cfg.AnalyticsConfig)
-	if err != nil {
-		structuredLogger.Fatal().Err(err).Msg("Failed to open analytics pool")
-	}
+	// Start AnalyticsManager (rollup + partition maintenance) when analytics is enabled.
 	if analyticsPool != nil {
-		defer analyticsPool.Close()
 		pm := analytics.NewPartitionManager(analyticsPool, structuredLogger)
 		rm := analytics.NewRollupManager(analyticsPool, structuredLogger)
 		analyticsManager := provisioning.NewAnalyticsManager(provisioning.AnalyticsManagerConfig{

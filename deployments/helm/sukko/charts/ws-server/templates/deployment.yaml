@@ -113,6 +113,19 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
 
+            # Analytics (opt-in)
+            {{- if .Values.analytics.enabled }}
+            - name: ANALYTICS_ENABLED
+              value: "true"
+            {{- if .Values.analytics.secrets.existingSecret }}
+            - name: ANALYTICS_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.analytics.secrets.existingSecret | quote }}
+                  key: {{ .Values.analytics.secrets.dbURLKey | default "analytics-db-url" | quote }}
+            {{- end }}
+            {{- end }}
+
             # Server topology (override Go envDefaults for Kubernetes deployments)
             - name: WS_NUM_SHARDS
               value: {{ .Values.shards | quote }}
