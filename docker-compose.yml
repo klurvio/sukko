@@ -204,7 +204,12 @@ services:
 
   # ─── PostgreSQL ─────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    # Dev image includes pg_partman for analytics partition tests.
+    # End users receive image: postgres:16-alpine (sync-compose.yml strips build:).
+    build:
+      context: ./docker/postgres-dev
+      dockerfile: Dockerfile
+    platform: linux/amd64
     ports:
       - "15432:5432"
     environment:

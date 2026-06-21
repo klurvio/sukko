@@ -133,6 +133,13 @@ webhooks:
     internalTokenKey: "internal-token"
     credentialsEncryptionKeyKey: "credentials-encryption-key"
 
+
+analytics:
+  enabled: false
+  secrets:
+    existingSecret: ""
+    dbURLKey: "analytics-db-url"
+
 podAnnotations: {}
 
 nodeSelector: {}

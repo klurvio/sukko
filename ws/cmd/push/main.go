@@ -27,10 +27,12 @@ import (
 	"github.com/klurvio/sukko/internal/push/provider"
 	"github.com/klurvio/sukko/internal/push/repository"
 	"github.com/klurvio/sukko/internal/push/worker"
+	"github.com/klurvio/sukko/internal/shared/analytics"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/profiling"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/tracing"
@@ -303,8 +305,35 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	// Open analytics pool (returns nil when ANALYTICS_ENABLED=false → NoopCollector).
+	analyticsPool, err := platform.OpenAnalyticsPool(ctx, cfg.AnalyticsConfig)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to open analytics pool")
+	}
+	if analyticsPool != nil {
+		defer analyticsPool.Close()
+	}
+	if cfg.WSPodID != "" && cfg.SukkoPodID == "" {
+		structuredLogger.Warn().Msg("WS_POD_ID is deprecated; set SUKKO_POD_ID via Kubernetes Downward API")
+	}
+	analyticsCollector := analytics.NewCollector(analytics.CollectorConfig{
+		ServicePrefix:  "push",
+		PodID:          cfg.PodID(),
+		BufferSize:     cfg.BufferSize,
+		FlushInterval:  cfg.FlushInterval,
+		DowngradePoll:  cfg.DowngradePollInterval,
+		EditionManager: cfg.EditionManager(),
+		Feature:        license.AnalyticsPush,
+	}, analyticsPool, structuredLogger)
+	// T027: pass analyticsCollector to push worker for RecordPushDelivery calls.
+
 	// Start gRPC server in goroutine
 	var wg sync.WaitGroup
+
+	// Start analytics collector — registers its goroutines directly on wg.
+	if err := analyticsCollector.Start(ctx, &wg); err != nil {
+		structuredLogger.Error().Err(err).Msg("Analytics collector start failed")
+	}
 	wg.Go(func() {
 		defer logging.RecoverPanic(structuredLogger, "grpc.Serve", nil)
 		structuredLogger.Info().Str("addr", grpcAddr).Msg("Starting push gRPC server")

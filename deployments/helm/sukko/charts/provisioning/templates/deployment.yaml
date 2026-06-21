@@ -69,6 +69,25 @@ spec:
               protocol: TCP
             {{- end }}
           env:
+            # Pod identity (Downward API — stable pod name for analytics)
+            - name: SUKKO_POD_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+            # Analytics (opt-in; provisioning also runs SSE handler and partition manager)
+            {{- if .Values.analytics.enabled }}
+            - name: ANALYTICS_ENABLED
+              value: "true"
+            {{- if .Values.analytics.secrets.existingSecret }}
+            - name: ANALYTICS_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.analytics.secrets.existingSecret | quote }}
+                  key: {{ .Values.analytics.secrets.dbURLKey | default "analytics-db-url" | quote }}
+            {{- end }}
+            {{- end }}
+
             # Deployment identity
             {{- if .Values.environment }}
             - name: ENVIRONMENT

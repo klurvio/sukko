@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel"
 
+	"github.com/klurvio/sukko/internal/shared/analytics"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/license"
@@ -46,6 +47,10 @@ const ServiceName = "ws-gateway"
 type Gateway struct {
 	config    *platform.GatewayConfig
 	validator *auth.MultiTenantValidator
+
+	// analyticsCollector records per-tenant connection metrics.
+	// Set via SetAnalyticsCollector after construction; always a valid interface (NoopCollector when nil not set).
+	analyticsCollector analytics.Collector
 
 	// gRPC stream registries for provisioning data (keys, channel rules, API keys)
 	streamKeyRegistry    *provapi.StreamKeyRegistry
@@ -348,6 +353,13 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		// Ensure we release the connection slot on exit
 		defer gw.connTracker.Release(tenantID)
+	}
+
+	// Record analytics connection. tenantID is known here (post-auth). T025.
+	// Transport is "websocket" for this path; SSE path records separately.
+	if gw.analyticsCollector != nil && tenantID != "" {
+		gw.analyticsCollector.IncrementConnections(tenantID, "websocket", 1)
+		defer gw.analyticsCollector.IncrementConnections(tenantID, "websocket", -1)
 	}
 
 	// Upgrade client connection to WebSocket using gobwas/ws
@@ -695,5 +707,13 @@ func (gw *Gateway) HandleRevocation(entry provapi.RevocationEntry) {
 				Msg("connection force-disconnected: user revoked")
 			RecordTokenForceDisconnect("user", transport)
 		}
+	}
+}
+
+// SetAnalyticsCollector injects the analytics collector. Called from main.go after New().
+// Until called, IncrementConnections is a no-op (analyticsCollector is nil → no-op guard below).
+func (gw *Gateway) SetAnalyticsCollector(c analytics.Collector) {
+	if c != nil {
+		gw.analyticsCollector = c
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/klurvio/sukko/internal/gateway"
+	"github.com/klurvio/sukko/internal/shared/analytics"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/platform"
@@ -108,11 +109,34 @@ func main() {
 	}
 	defer pyroscopeStop()
 
+	// Open analytics pool (returns nil when ANALYTICS_ENABLED=false → NoopCollector).
+	analyticsPool, err := platform.OpenAnalyticsPool(context.Background(), config.AnalyticsConfig)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to open analytics pool")
+	}
+	if analyticsPool != nil { // nil when disabled
+		defer analyticsPool.Close()
+	}
+	// Deprecation warning for WS_POD_ID → SUKKO_POD_ID migration.
+	if config.WSPodID != "" && config.SukkoPodID == "" {
+		logger.Warn().Msg("WS_POD_ID is deprecated; set SUKKO_POD_ID via Kubernetes Downward API (fieldPath: metadata.name)")
+	}
+	analyticsCollector := analytics.NewCollector(analytics.CollectorConfig{
+		ServicePrefix:  "gateway",
+		PodID:          config.PodID(),
+		BufferSize:     config.BufferSize,
+		FlushInterval:  config.FlushInterval,
+		DowngradePoll:  config.DowngradePollInterval,
+		EditionManager: config.EditionManager(),
+		Feature:        license.Analytics,
+	}, analyticsPool, logger)
+
 	// Create gateway
 	gw, err := gateway.New(config, logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to create gateway")
 	}
+	gw.SetAnalyticsCollector(analyticsCollector)
 	defer func() {
 		if err := gw.Close(); err != nil {
 			logger.Error().Err(err).Msg("Gateway cleanup error")
@@ -185,6 +209,12 @@ func main() {
 
 	// Start server in goroutine
 	var wg sync.WaitGroup
+
+	// Start analytics collector — registers its goroutines directly on wg.
+	// Start() is non-blocking; calling it inside wg.Go would add an ephemeral no-op goroutine.
+	if err := analyticsCollector.Start(ctx, &wg); err != nil {
+		logger.Error().Err(err).Msg("Analytics collector start failed")
+	}
 	wg.Go(func() {
 		defer logging.RecoverPanic(logger, "http.ListenAndServe", nil)
 		logger.Info().

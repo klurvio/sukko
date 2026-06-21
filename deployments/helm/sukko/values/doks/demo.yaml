@@ -188,3 +188,15 @@ monitoring:
 # Enable for Pro/Enterprise with proper secrets configured.
 webhook-worker:
   enabled: false
+
+# Analytics: disabled by default. Enable for Pro/Enterprise:
+#   1. Create secret: kubectl create secret generic sukko-analytics-secrets -n sukko-demo \
+#        --from-literal=analytics-db-url="postgresql://user:pass@host/db?pool_max_conns=5"
+#   2. Set analytics.enabled=true and analytics.secrets.existingSecret="sukko-analytics-secrets"
+#      in each service override below.
+# ws-server:
+#   analytics:
+#     enabled: true
+#     secrets:
+#       existingSecret: "sukko-analytics-secrets"
+# (repeat for ws-gateway, push-service, provisioning)

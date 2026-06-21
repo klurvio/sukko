@@ -132,6 +132,13 @@ networkPolicy:
   enabled: true
   allowPrometheus: true
 
+
+analytics:
+  enabled: false
+  secrets:
+    existingSecret: ""
+    dbURLKey: "analytics-db-url"
+
 podAnnotations: {}
 
 nodeSelector: {}

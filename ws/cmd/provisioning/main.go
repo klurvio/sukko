@@ -32,6 +32,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/grpcserver"
 	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/provisioning/revocation"
+	"github.com/klurvio/sukko/internal/shared/analytics"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/crypto"
 	"github.com/klurvio/sukko/internal/shared/database"
@@ -141,6 +142,16 @@ func main() {
 	// Run database migrations (embedded SQL files)
 	if err := database.RunMigrations(ctx, cfg.DatabaseURL, migrations.Postgres, structuredLogger); err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to run database migrations")
+	}
+
+	// Open analytics pool early so the SSE handler can be passed to NewRouter.
+	// Returns (nil, nil) when ANALYTICS_ENABLED=false — that's the default.
+	analyticsPool, err := platform.OpenAnalyticsPool(ctx, cfg.AnalyticsConfig)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to open analytics pool")
+	}
+	if analyticsPool != nil {
+		defer analyticsPool.Close()
 	}
 
 	// Open database connection pool (PostgreSQL via pgxpool)
@@ -397,6 +408,18 @@ func main() {
 		ConnectionsHandler: connectionsHandler,
 		WebhookHandler:     webhookHandler,
 		WebhookTestHandler: webhookTestHandler,
+		AnalyticsSSEHandler: func() *api.AnalyticsSSEHandler {
+			if analyticsPool == nil {
+				return nil
+			}
+			return api.NewAnalyticsSSEHandler(
+				analyticsPool,
+				cfg.SSEMaxConns,
+				cfg.FlushInterval,
+				cfg.EditionManager(),
+				structuredLogger,
+			)
+		}(),
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")
@@ -498,6 +521,23 @@ func main() {
 		lifecycleManager.Start()
 		defer lifecycleManager.Stop()
 		structuredLogger.Info().Dur("interval", cfg.LifecycleCheckInterval).Msg("Lifecycle manager started")
+	}
+
+	// Start AnalyticsManager (rollup + partition maintenance) when analytics is enabled.
+	if analyticsPool != nil {
+		pm := analytics.NewPartitionManager(analyticsPool, structuredLogger)
+		rm := analytics.NewRollupManager(analyticsPool, structuredLogger)
+		analyticsManager := provisioning.NewAnalyticsManager(provisioning.AnalyticsManagerConfig{
+			PartitionManager: pm,
+			RollupManager:    rm,
+			PartmanInterval:  cfg.PartmanInterval,
+			Logger:           structuredLogger,
+		})
+		analyticsManager.Start(ctx)
+		defer analyticsManager.Stop()
+	}
+	if cfg.WSPodID != "" && cfg.SukkoPodID == "" {
+		structuredLogger.Warn().Msg("WS_POD_ID is deprecated; set SUKKO_POD_ID via Kubernetes Downward API")
 	}
 
 	// Start primary gRPC server in goroutine

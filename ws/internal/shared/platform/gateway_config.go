@@ -19,6 +19,8 @@ type GatewayConfig struct {
 	BaseConfig
 	AuthConfig
 	ProvisioningClientConfig
+	AnalyticsConfig
+	PodIdentityConfig
 
 	// Server settings
 	Port         int           `env:"GATEWAY_PORT" envDefault:"3000"`
@@ -191,6 +193,9 @@ func (c *GatewayConfig) Validate() error {
 	}
 
 	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+	if err := c.AnalyticsConfig.Validate(); err != nil {
 		return err
 	}
 
