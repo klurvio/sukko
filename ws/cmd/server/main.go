@@ -28,7 +28,9 @@ import (
 	"github.com/klurvio/sukko/internal/server/orchestration"
 	"github.com/klurvio/sukko/internal/server/registry"
 	"github.com/klurvio/sukko/internal/shared/alerting"
+	"github.com/klurvio/sukko/internal/shared/analytics"
 	"github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 
 	"github.com/klurvio/sukko/internal/shared/platform"
@@ -92,6 +94,18 @@ func main() {
 		Dur("metrics_interval", cfg.MetricsInterval).
 		Dur("cpu_poll_interval", cfg.CPUPollInterval).
 		Msg("SystemMonitor started")
+
+	// Open analytics pool (returns nil when ANALYTICS_ENABLED=false → NoopCollector).
+	analyticsPool, err := platform.OpenAnalyticsPool(context.Background(), cfg.AnalyticsConfig)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to open analytics pool")
+	}
+	if analyticsPool != nil {
+		defer analyticsPool.Close()
+	}
+	if cfg.WSPodID != "" && cfg.SukkoPodID == "" {
+		structuredLogger.Warn().Msg("WS_POD_ID is deprecated; set SUKKO_POD_ID via Kubernetes Downward API")
+	}
 
 	// Log edition
 	structuredLogger.Info().
@@ -396,7 +410,23 @@ func main() {
 	)
 	serverv1.RegisterRealtimeServiceServer(grpcSrv, server.NewGRPCService(servers, structuredLogger))
 
+	analyticsCollector := analytics.NewCollector(analytics.CollectorConfig{
+		ServicePrefix:  "ws",
+		PodID:          cfg.PodIdentityConfig.PodID(),
+		BufferSize:     cfg.BufferSize,
+		FlushInterval:  cfg.FlushInterval,
+		DowngradePoll:  cfg.DowngradePollInterval,
+		EditionManager: cfg.EditionManager(),
+		Feature:        license.Analytics,
+	}, analyticsPool, structuredLogger)
+	// T026: pass analyticsCollector to MultiTenantConsumerPool for IncrementMessages calls.
+
 	var grpcWg sync.WaitGroup
+	// Start analytics collector — registers its goroutines directly on grpcWg.
+	if err := analyticsCollector.Start(ctx, &grpcWg); err != nil {
+		structuredLogger.Error().Err(err).Msg("Analytics collector start failed")
+	}
+
 	grpcWg.Go(func() {
 		defer logging.RecoverPanic(structuredLogger, "grpc.Serve", nil)
 		structuredLogger.Info().Str("addr", grpcAddr).Msg("Starting gRPC server")

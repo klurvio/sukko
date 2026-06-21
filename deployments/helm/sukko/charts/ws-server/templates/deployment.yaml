@@ -102,7 +102,12 @@ spec:
             {{- end }}
             {{- end }}
 
-            # Pod identity (Downward API — stable pod name for distributed locks)
+            # Pod identity (Downward API — stable pod name for distributed locks and analytics)
+            - name: SUKKO_POD_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # TODO: remove WS_POD_ID in next release (feat/analytics-pod-id-cleanup)
             - name: WS_POD_ID
               valueFrom:
                 fieldRef:

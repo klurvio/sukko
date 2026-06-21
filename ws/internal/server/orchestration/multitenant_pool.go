@@ -15,6 +15,7 @@ import (
 	"github.com/klurvio/sukko/internal/server/broadcast"
 	"github.com/klurvio/sukko/internal/server/history"
 	"github.com/klurvio/sukko/internal/server/kafka"
+	"github.com/klurvio/sukko/internal/shared/analytics"
 	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
@@ -126,6 +127,9 @@ type MultiTenantPoolConfig struct {
 
 	// Logger for structured logging
 	Logger zerolog.Logger
+
+	// AnalyticsCollector records per-tenant message metrics. Optional; no-op when nil.
+	AnalyticsCollector analytics.Collector
 
 	// RefreshInterval controls how often to check for new tenant topics
 	// Default: 60 seconds
@@ -608,6 +612,12 @@ func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte, t
 	}
 	bareChannel := strings.TrimPrefix(subject, tenantID+".")
 	pos := history.EncodePos(partition, offset)
+
+	// Record analytics message throughput (T026). channelPrefix = first segment before ".".
+	if p.config.AnalyticsCollector != nil && tenantID != "" {
+		// provider = platform label: "web"/"android"/"ios", not push library name
+		p.config.AnalyticsCollector.IncrementMessages(tenantID, bareChannel, 1, 0, 0, 0)
+	}
 
 	func() {
 		p.topicMu.Lock()

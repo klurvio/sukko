@@ -17,6 +17,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/push/provider"
 	"github.com/klurvio/sukko/internal/push/repository"
+	"github.com/klurvio/sukko/internal/shared/analytics"
 	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
@@ -38,6 +39,9 @@ type PoolConfig struct {
 
 	// MaxRetries is the maximum number of retries for rate-limited requests.
 	MaxRetries int
+
+	// AnalyticsCollector records per-tenant push delivery metrics. Optional; no-op when nil.
+	AnalyticsCollector analytics.Collector
 
 	// Logger for structured logging.
 	Logger zerolog.Logger
@@ -73,14 +77,15 @@ var (
 //
 // Thread Safety: All public methods are safe for concurrent use.
 type Pool struct {
-	jobs       chan provider.PushJob
-	providers  map[string]provider.Provider
-	repo       repository.SubscriptionRepository
-	maxRetries int
-	logger     zerolog.Logger
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
+	jobs               chan provider.PushJob
+	providers          map[string]provider.Provider
+	repo               repository.SubscriptionRepository
+	maxRetries         int
+	analyticsCollector analytics.Collector
+	logger             zerolog.Logger
+	ctx                context.Context
+	cancel             context.CancelFunc
+	wg                 sync.WaitGroup
 }
 
 // NewPool creates a new worker pool. Call Start to launch worker goroutines.
@@ -99,11 +104,12 @@ func NewPool(cfg PoolConfig) (*Pool, error) {
 	}
 
 	return &Pool{
-		jobs:       make(chan provider.PushJob, cfg.QueueSize),
-		providers:  cfg.Providers,
-		repo:       cfg.Repo,
-		maxRetries: cfg.MaxRetries,
-		logger:     cfg.Logger,
+		jobs:               make(chan provider.PushJob, cfg.QueueSize),
+		providers:          cfg.Providers,
+		repo:               cfg.Repo,
+		maxRetries:         cfg.MaxRetries,
+		analyticsCollector: cfg.AnalyticsCollector,
+		logger:             cfg.Logger,
 	}, nil
 }
 
@@ -195,6 +201,11 @@ func (p *Pool) dispatch(job provider.PushJob) {
 
 	if err == nil {
 		jobsDispatched.WithLabelValues(job.Platform).Inc()
+		// Record analytics delivery success. provider = platform label (web/android/ios). T027.
+		// provider = platform label: "web"/"android"/"ios", not push library name.
+		if p.analyticsCollector != nil {
+			p.analyticsCollector.RecordPushDelivery(job.TenantID, job.Platform, 1, 0, 0, 0, elapsed.Milliseconds())
+		}
 		// LOG-007: Dispatch success
 		if p.logger.Debug().Enabled() {
 			p.logger.Debug().Str("tenant_id", job.TenantID).Str("platform", job.Platform).
@@ -234,6 +245,9 @@ func (p *Pool) dispatch(job provider.PushJob) {
 		Str("channel", job.Channel).
 		Msg("Push notification delivery failed")
 	jobsFailed.WithLabelValues(job.Platform, "send_error").Inc()
+	if p.analyticsCollector != nil {
+		p.analyticsCollector.RecordPushDelivery(job.TenantID, job.Platform, 0, 1, 0, 0, elapsed.Milliseconds())
+	}
 }
 
 // sendWithRetry attempts to send a push job with exponential backoff for rate limiting.

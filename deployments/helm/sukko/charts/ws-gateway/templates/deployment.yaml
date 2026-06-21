@@ -58,6 +58,12 @@ spec:
               containerPort: 3000
               protocol: TCP
           env:
+            # Pod identity (Downward API — stable pod name for analytics)
+            - name: SUKKO_POD_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
             # Deployment identity (only injected when overriding Go envDefault)
             {{- if .Values.environment }}
             - name: ENVIRONMENT

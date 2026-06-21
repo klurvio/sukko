@@ -69,6 +69,12 @@ spec:
               protocol: TCP
             {{- end }}
           env:
+            # Pod identity (Downward API — stable pod name for analytics)
+            - name: SUKKO_POD_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
             # Deployment identity
             {{- if .Values.environment }}
             - name: ENVIRONMENT

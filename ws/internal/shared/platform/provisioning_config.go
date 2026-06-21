@@ -44,6 +44,12 @@ type ProvisioningConfig struct {
 	DatabaseConfig
 	KafkaNamespaceConfig
 	HTTPTimeoutConfig
+	AnalyticsConfig
+	PodIdentityConfig
+
+	// Analytics — provisioning-only fields
+	PartmanInterval time.Duration `env:"ANALYTICS_PARTMAN_INTERVAL" envDefault:"15m"`
+	SSEMaxConns     int           `env:"ANALYTICS_SSE_MAX_CONNS"    envDefault:"10"`
 
 	// Kafka brokers — used by the provisioning service for topic management (create/delete).
 	// Uses a provisioning-specific env var to avoid collision with the ws-server's KAFKA_BROKERS
@@ -188,6 +194,19 @@ func (c *ProvisioningConfig) Validate() error {
 	// Auth mode validation
 	if err := c.AuthConfig.Validate(); err != nil {
 		return err
+	}
+	if err := c.AnalyticsConfig.Validate(); err != nil {
+		return err
+	}
+	if c.Enabled {
+		if c.PartmanInterval < analyticsPartmanIntervalFloor || c.PartmanInterval > analyticsPartmanIntervalCeiling {
+			return fmt.Errorf("ANALYTICS_PARTMAN_INTERVAL must be %s–%s, got %s",
+				analyticsPartmanIntervalFloor, analyticsPartmanIntervalCeiling, c.PartmanInterval)
+		}
+		if c.SSEMaxConns < analyticsSSEMaxConnsMin || c.SSEMaxConns > analyticsSSEMaxConnsMax {
+			return fmt.Errorf("ANALYTICS_SSE_MAX_CONNS must be %d–%d, got %d",
+				analyticsSSEMaxConnsMin, analyticsSSEMaxConnsMax, c.SSEMaxConns)
+		}
 	}
 
 	// Required fields

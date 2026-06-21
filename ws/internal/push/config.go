@@ -26,6 +26,8 @@ type Config struct {
 	platform.MessageBackendConfig
 	platform.KafkaNamespaceConfig
 	platform.DatabaseConfig
+	platform.AnalyticsConfig
+	platform.PodIdentityConfig
 
 	// Worker pool for sending push notifications
 	WorkerPoolSize int `env:"PUSH_WORKER_POOL_SIZE" envDefault:"200"`
@@ -62,6 +64,9 @@ func (c *Config) Validate() error {
 	// Shared field validation (LogLevel, LogFormat, Environment)
 	if err := c.BaseConfig.Validate(); err != nil {
 		return fmt.Errorf("base config: %w", err)
+	}
+	if err := c.AnalyticsConfig.Validate(); err != nil {
+		return fmt.Errorf("analytics config: %w", err)
 	}
 
 	// Provisioning client validation (gRPC address, reconnect delays)

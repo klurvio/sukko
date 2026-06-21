@@ -32,6 +32,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/grpcserver"
 	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/provisioning/revocation"
+	"github.com/klurvio/sukko/internal/shared/analytics"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/crypto"
 	"github.com/klurvio/sukko/internal/shared/database"
@@ -498,6 +499,28 @@ func main() {
 		lifecycleManager.Start()
 		defer lifecycleManager.Stop()
 		structuredLogger.Info().Dur("interval", cfg.LifecycleCheckInterval).Msg("Lifecycle manager started")
+	}
+
+	// Open analytics pool and start AnalyticsManager (rollup + partition maintenance).
+	analyticsPool, err := platform.OpenAnalyticsPool(ctx, cfg.AnalyticsConfig)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to open analytics pool")
+	}
+	if analyticsPool != nil {
+		defer analyticsPool.Close()
+		pm := analytics.NewPartitionManager(analyticsPool, structuredLogger)
+		rm := analytics.NewRollupManager(analyticsPool, structuredLogger)
+		analyticsManager := provisioning.NewAnalyticsManager(provisioning.AnalyticsManagerConfig{
+			PartitionManager: pm,
+			RollupManager:    rm,
+			PartmanInterval:  cfg.PartmanInterval,
+			Logger:           structuredLogger,
+		})
+		analyticsManager.Start(ctx)
+		defer analyticsManager.Stop()
+	}
+	if cfg.WSPodID != "" && cfg.SukkoPodID == "" {
+		structuredLogger.Warn().Msg("WS_POD_ID is deprecated; set SUKKO_POD_ID via Kubernetes Downward API")
 	}
 
 	// Start primary gRPC server in goroutine

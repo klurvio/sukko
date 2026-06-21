@@ -148,6 +148,8 @@ type ServerConfig struct {
 	ProvisioningClientConfig
 	KafkaNamespaceConfig
 	HTTPTimeoutConfig
+	AnalyticsConfig
+	PodIdentityConfig
 
 	// Server basics
 	Addr      string `env:"WS_ADDR" envDefault:":3002"`
@@ -443,10 +445,10 @@ type ServerConfig struct {
 	DLQMaxDelay     time.Duration `env:"WS_ROUTING_DLQ_MAX_DELAY"     envDefault:"5s"`
 	DLQRetryWorkers int           `env:"WS_ROUTING_DLQ_RETRY_WORKERS" envDefault:"4"`
 
-	// PodID uniquely identifies this pod for distributed writer lock ownership.
-	// In Kubernetes it is injected via Downward API (metadata.name). If unset,
-	// Normalize() falls back to os.Hostname().
-	PodID string `env:"WS_POD_ID"`
+	// PodID is the resolved pod identity, populated by Normalize() from PodIdentityConfig.PodID().
+	// Not an env var — configure via PodIdentityConfig (SUKKO_POD_ID / WS_POD_ID).
+	// Kept as a plain string so hot-path code (history writer, registry) avoids repeated method calls.
+	PodID string `env:"-"`
 
 	// MaxChannelsPerClient limits the number of concurrent channel subscriptions per client.
 	// Prevents channel-fan-out attacks. Validated against MaxChannelsPerClientLimit (1000).
@@ -636,12 +638,8 @@ func (c *ServerConfig) Normalize() {
 	// Pre-compute lock TTL in milliseconds for Valkey SET PX (int64 required).
 	c.HistoryWriterLockTTLMs = c.HistoryWriterLockTTL.Milliseconds()
 
-	// Resolve pod identity — Kubernetes Downward API sets WS_POD_ID; fall back to hostname.
-	if c.PodID == "" {
-		if h, err := os.Hostname(); err == nil {
-			c.PodID = h
-		}
-	}
+	// Resolve and cache pod identity — used by hot-path code (history writer, registry).
+	c.PodID = c.PodIdentityConfig.PodID()
 }
 
 // Validate checks server configuration for errors.
@@ -763,6 +761,9 @@ func (c *ServerConfig) Validate() error {
 
 	// Shared field validation (LogLevel, LogFormat, Environment)
 	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+	if err := c.AnalyticsConfig.Validate(); err != nil {
 		return err
 	}
 
@@ -1081,8 +1082,8 @@ func (c *ServerConfig) Validate() error {
 		if len(c.ValkeyAddrs) == 0 || !slices.ContainsFunc(c.ValkeyAddrs, func(s string) bool { return strings.TrimSpace(s) != "" }) {
 			return errors.New("WS_HISTORY_ENABLED requires VALKEY_ADDRS to be set (must contain at least one non-empty address)")
 		}
-		if c.PodID == "" {
-			return errors.New("WS_HISTORY_ENABLED requires WS_POD_ID or a resolvable hostname (pod identity required for distributed lock)")
+		if c.PodIdentityConfig.PodID() == "unknown-pod" {
+			return errors.New("WS_HISTORY_ENABLED requires SUKKO_POD_ID or WS_POD_ID or a resolvable hostname (pod identity required for distributed lock)")
 		}
 
 		// Numeric bounds

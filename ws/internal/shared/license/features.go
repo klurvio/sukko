@@ -57,7 +57,8 @@ const (
 	ConnectionTracing           Feature = "connection tracing"
 
 	SSETransport       Feature = "SSE transport"
-	Analytics          Feature = "real-time analytics"
+	Analytics          Feature = "real-time analytics"          // Implemented
+	AnalyticsPush      Feature = "real-time analytics for push" // Future — not yet implemented
 	AdminUI            Feature = "admin UI"
 	TokenRevocation    Feature = "token revocation"
 	Webhooks           Feature = "webhook delivery" // Implemented
@@ -91,6 +92,7 @@ var featureEditions = map[Feature]Edition{
 	ConnectionTracing:           Pro,
 	SSETransport:                Pro,
 	Analytics:                   Pro,
+	AnalyticsPush:               Enterprise,
 	AdminUI:                     Pro,
 	TokenRevocation:             Pro,
 	Webhooks:                    Pro,
@@ -136,7 +138,8 @@ var featureMetadata = map[Feature]FeatureInfo{
 
 	// ── Future — Pro ─────────────────────────────────────────────────────
 	AdminUI:            {Description: "Web-based tenant management interface", Status: StatusFuture, Priority: PriorityMedium},
-	Analytics:          {Description: "Real-time usage dashboards and metrics", Status: StatusFuture, Priority: PriorityMedium},
+	Analytics:          {Description: "Real-time per-tenant usage analytics (connections, messages)", Status: StatusImplemented, Priority: PriorityMedium},
+	AnalyticsPush:      {Description: "Real-time push delivery analytics (platform breakdown, failure reasons)", Status: StatusFuture, Priority: PriorityMedium},
 	Webhooks:           {Description: "HTTP webhook delivery as alternative to WebSocket", Status: StatusImplemented, Priority: PriorityNone},
 	ChannelPatternsCEL: {Description: "CEL expressions for complex channel authorization", Status: StatusFuture, Priority: PriorityLow},
 	DeltaCompression:   {Description: "Send only changed fields in high-frequency updates", Status: StatusFuture, Priority: PriorityLow},
