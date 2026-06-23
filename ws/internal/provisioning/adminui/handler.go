@@ -270,10 +270,13 @@ func (h *Handler) postLogout(w http.ResponseWriter, r *http.Request) {
 		h.auth.Logout(r.Context(), c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:   AdminSessionCookieName,
-		Value:  "",
-		Path:   AdminSessionCookiePath,
-		MaxAge: -1,
+		Name:     AdminSessionCookieName,
+		Value:    "",
+		Path:     AdminSessionCookiePath,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
 	})
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
