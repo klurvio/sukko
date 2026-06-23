@@ -2065,7 +2065,7 @@ paths:
                   - `snapshot` (on connect and every interval): full metrics for the tenant
                 example: |
                   event: snapshot
-                  data: {"tenant_id":"acme","connections":{"active":142,"websocket":120,"sse":22},"messages":{"published":8420,"delivered":8415,"failed":5},"push":{"sent":450,"success":447,"failed":3}}
+                  data: {"tenant_id":"acme","connections":{"active":142,"websocket":120,"sse":22},"messages":{"published":8420,"delivered":8415,"failed":5},"push":{"web":{"sent":200,"success":198,"failed":2,"expired":0,"rate_limited":0},"android":{"sent":150,"success":150,"failed":0,"expired":0,"rate_limited":0},"ios":{"sent":100,"success":99,"failed":1,"expired":0,"rate_limited":0}}}
         "401":
           description: Missing or invalid admin JWT
           content:
@@ -2078,6 +2078,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+
+  /admin/login:
+    post:
+      summary: Admin UI login — exchange ADMIN_TOKEN for session cookie
+      operationId: adminUILogin
+      tags: [Admin UI]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: ADMIN_TOKEN value configured via environment variable
+      responses:
+        "303":
+          description: Login successful — redirects to /admin/ with Set-Cookie header
+        "401":
+          description: Invalid token — re-renders login page with error message (text/html)
+
+  /admin/logout:
+    post:
+      summary: Admin UI logout — clear session cookie
+      operationId: adminUILogout
+      tags: [Admin UI]
+      responses:
+        "303":
+          description: Logged out — redirects to /admin/login with cleared session cookie
+
+  /admin/schemas/channel-rules.json:
+    get:
+      summary: JSON Schema for the channel rules editor
+      operationId: adminUIChannelRulesSchema
+      tags: [Admin UI]
+      responses:
+        "200":
+          description: JSON Schema for validating channel rules in the CodeMirror editor
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /admin/system/health:
+    get:
+      summary: System health status for all Sukko services (session-gated)
+      operationId: adminUISystemHealth
+      tags: [Admin UI]
+      description: |
+        Fans out HTTP health probes to WS_SERVER_HEALTH_URL and GATEWAY_HEALTH_URL.
+        Result is cached for 10 seconds. Provisioning self-status is always "ok".
+        Requires a valid admin_session cookie.
+      responses:
+        "200":
+          description: Health status of all configured services
+          content:
+            text/html:
+              schema:
+                type: string
+                description: HTMX partial — system_health.html partial
+        "303":
+          description: Session expired — redirect to /admin/login
 
 components:
   securitySchemes:
@@ -2860,3 +2924,20 @@ components:
           type: string
           enum: [very-low, low, normal, high]
           description: Push message urgency (default "normal")
+
+    AdminSystemHealth:
+      type: object
+      properties:
+        overall:
+          type: string
+          enum: [ok, degraded, unknown]
+        services:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              status:
+                type: string
+                enum: [ok, degraded, unknown, unconfigured]

@@ -91,6 +91,11 @@ type RouterConfig struct {
 	// AnalyticsSSEHandler serves GET /api/v1/admin/analytics/stream (Pro edition).
 	// When nil, the analytics stream route is not registered.
 	AnalyticsSSEHandler *AnalyticsSSEHandler
+
+	// AdminUIHandler serves all /admin/* routes (session-cookie auth, HTML).
+	// When nil, /admin/ is not mounted and returns 404 from chi's default handler.
+	// Set via adminui.NewHandler — accepted as http.Handler to avoid api→adminui import.
+	AdminUIHandler http.Handler
 }
 
 // NewRouter creates a new HTTP router with all provisioning endpoints.
@@ -118,7 +123,8 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 	r.Use(middleware.RealIP)
 	r.Use(LoggingMiddleware(cfg.Logger))
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.SetHeader("Content-Type", "application/json"))
+	// NOTE: Content-Type: application/json is set on the /api/v1 group only.
+	// Admin UI routes under /admin/ set text/html or delegate to httputil.WriteError.
 
 	// Create handler
 	h, err := NewHandler(cfg.Service, cfg.ProvisioningConfig, cfg.Logger)
@@ -147,8 +153,16 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 		r.HandleFunc(pattern, handler)
 	}, cfg.PprofEnabled, cfg.Logger)
 
-	// API v1 routes
+	// Admin UI — mounted before /api/v1 so it can set text/html independently.
+	// AdminUIHandler internally builds its full chi sub-router (AdminUIGate, SessionMiddleware,
+	// all route registrations). No api→adminui import needed: accepts http.Handler.
+	if cfg.AdminUIHandler != nil {
+		r.Mount("/admin", cfg.AdminUIHandler)
+	}
+
+	// API v1 routes — Content-Type: application/json applied to this group only.
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(middleware.SetHeader("Content-Type", "application/json"))
 		// Apply rate limiting if configured
 		if cfg.RateLimit > 0 {
 			r.Use(RateLimitMiddleware(cfg.RateLimit))
@@ -243,10 +257,11 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 					r.Get("/audit", h.GetAuditLog)
 				})
 
-				// Channel rules (admin-only for set/delete)
+				// Channel rules — read is open to tenant; write requires Pro + admin (§XIII security fix)
 				r.Route("/channel-rules", func(r chi.Router) {
 					r.Get("/", h.GetChannelRules)
 					r.Group(func(r chi.Router) {
+						r.Use(RequireFeature(cfg.EditionManager, license.PerTenantChannelRules))
 						r.Use(RequireRole("admin", "system"))
 						r.Put("/", h.SetChannelRules)
 						r.Delete("/", h.DeleteChannelRules)
