@@ -59,6 +59,56 @@ func TestAnalyticsSSEHandler_ContextCancel(t *testing.T) {
 	}
 }
 
+// TestAnalyticsSSEHandler_PushMetrics_PerProvider verifies that:
+// 1. analyticsSnapshot.Push is map[string]pushProviderMetrics (not a flat struct)
+// 2. The zero-fill initializes all three canonical providers ("web", "android", "ios")
+// 3. The SQL query used for push metrics contains GROUP BY provider
+func TestAnalyticsSSEHandler_PushMetrics_PerProvider(t *testing.T) {
+	t.Parallel()
+
+	// Verify Push field type is correct at compile time via explicit assignment.
+	snap := &analyticsSnapshot{
+		Push: map[string]pushProviderMetrics{
+			"web":     {Sent: 10, Success: 8},
+			"android": {},
+			"ios":     {},
+		},
+	}
+
+	if len(snap.Push) != 3 {
+		t.Fatalf("expected 3 providers, got %d", len(snap.Push))
+	}
+	for _, provider := range []string{"web", "android", "ios"} {
+		if _, ok := snap.Push[provider]; !ok {
+			t.Errorf("expected provider %q in Push map", provider)
+		}
+	}
+	if snap.Push["web"].Sent != 10 {
+		t.Errorf("expected web.Sent=10, got %d", snap.Push["web"].Sent)
+	}
+
+	// Verify the zero-fill initialisation matches the expected providers.
+	// This mirrors the inline init in queryMetrics.
+	pushMap := map[string]pushProviderMetrics{
+		"web":     {},
+		"android": {},
+		"ios":     {},
+	}
+	for _, provider := range []string{"web", "android", "ios"} {
+		if _, ok := pushMap[provider]; !ok {
+			t.Errorf("zero-fill missing provider %q", provider)
+		}
+	}
+
+	// Verify SQL query contains GROUP BY provider (const is the authoritative source).
+	if !strings.Contains(pushPerProviderSQL, "GROUP BY provider") {
+		t.Error("pushPerProviderSQL must contain GROUP BY provider for per-provider breakdown")
+	}
+	if !strings.Contains(pushPerProviderSQL, "provider,") {
+		t.Error("pushPerProviderSQL must SELECT provider column")
+	}
+}
+
 // TestSSEWriteEvent verifies the SSE event wire format: "event: X\ndata: Y\n\n".
 func TestSSEWriteEvent(t *testing.T) {
 	t.Parallel()

@@ -137,9 +137,9 @@ var featureMetadata = map[Feature]FeatureInfo{
 	ConnectionsAPI:  {Description: "Inspect and force-disconnect live connections per tenant", Status: StatusImplemented, Priority: PriorityNone},
 
 	// ── Future — Pro ─────────────────────────────────────────────────────
-	AdminUI:            {Description: "Web-based tenant management interface", Status: StatusFuture, Priority: PriorityMedium},
-	Analytics:          {Description: "Real-time per-tenant usage analytics (connections, messages)", Status: StatusImplemented, Priority: PriorityMedium},
-	AnalyticsPush:      {Description: "Real-time push delivery analytics (platform breakdown, failure reasons)", Status: StatusFuture, Priority: PriorityMedium},
+	AdminUI:            {Description: "Web-based tenant management interface", Status: StatusImplemented, Priority: PriorityNone},
+	Analytics:          {Description: "Real-time per-tenant usage analytics (connections, messages)", Status: StatusImplemented, Priority: PriorityNone},
+	AnalyticsPush:      {Description: "Real-time push delivery analytics (platform breakdown, failure reasons)", Status: StatusImplemented, Priority: PriorityNone},
 	Webhooks:           {Description: "HTTP webhook delivery as alternative to WebSocket", Status: StatusImplemented, Priority: PriorityNone},
 	ChannelPatternsCEL: {Description: "CEL expressions for complex channel authorization", Status: StatusFuture, Priority: PriorityLow},
 	DeltaCompression:   {Description: "Send only changed fields in high-frequency updates", Status: StatusFuture, Priority: PriorityLow},

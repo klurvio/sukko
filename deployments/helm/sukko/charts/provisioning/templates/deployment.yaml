@@ -197,6 +197,37 @@ spec:
               value: {{ .Values.adminBootstrapKey | quote }}
             {{- end }}
 
+            # Admin UI session-cookie configuration
+            {{- if .Values.adminUI.enabled }}
+            {{- if and (not .Values.adminUI.existingSecret) (not .Values.adminUI.adminToken) }}
+            {{- fail "adminUI.existingSecret or adminUI.adminToken must be set when adminUI.enabled=true (ADMIN_TOKEN is required)" }}
+            {{- end }}
+            - name: ADMIN_UI_ENABLED
+              value: "true"
+            {{- if .Values.adminUI.existingSecret }}
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.adminUI.existingSecret | quote }}
+                  key: {{ .Values.adminUI.existingSecretKey | default "admin-token" | quote }}
+            {{- else if .Values.adminUI.adminToken }}
+            - name: ADMIN_TOKEN
+              value: {{ .Values.adminUI.adminToken | quote }}
+            {{- end }}
+            {{- if .Values.adminUI.sessionTTL }}
+            - name: ADMIN_SESSION_TTL
+              value: {{ .Values.adminUI.sessionTTL | quote }}
+            {{- end }}
+            {{- if .Values.adminUI.wsServerHealthURL }}
+            - name: WS_SERVER_HEALTH_URL
+              value: {{ .Values.adminUI.wsServerHealthURL | quote }}
+            {{- end }}
+            {{- if .Values.adminUI.gatewayHealthURL }}
+            - name: GATEWAY_HEALTH_URL
+              value: {{ .Values.adminUI.gatewayHealthURL | quote }}
+            {{- end }}
+            {{- end }}
+
             # Extra env overrides from values
             {{- range $key, $val := .Values.extraEnv }}
             - name: {{ $key }}

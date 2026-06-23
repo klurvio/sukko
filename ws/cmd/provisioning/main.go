@@ -26,6 +26,7 @@ import (
 
 	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
 	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/provisioning/adminui"
 	"github.com/klurvio/sukko/internal/provisioning/api"
 	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
@@ -387,39 +388,48 @@ func main() {
 		})
 	}
 
+	// Create the SSE handler once — shared by both the REST API and Admin UI routes.
+	// Creating it twice would produce two independent semaphores and query goroutines.
+	var sharedAnalyticsSSEHandler *api.AnalyticsSSEHandler
+	if analyticsPool != nil {
+		sharedAnalyticsSSEHandler = api.NewAnalyticsSSEHandler(
+			analyticsPool,
+			cfg.SSEMaxConns,
+			cfg.FlushInterval,
+			cfg.EditionManager(),
+			structuredLogger,
+		)
+	}
+
+	// Initialize Admin UI handler (returns nil when ADMIN_UI_ENABLED=false — router nil-guards).
+	adminUIHandler, err := adminui.NewHandler(cfg.AdminUIConfig, svc, sharedAnalyticsSSEHandler, cfg.EditionManager(), structuredLogger)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to create Admin UI handler")
+	}
+
 	// Initialize HTTP router
 	router, err := api.NewRouter(api.RouterConfig{
-		Service:            svc,
-		ProvisioningConfig: *cfg,
-		Logger:             structuredLogger,
-		RateLimit:          cfg.APIRateLimitPerMinute,
-		Validator:          validator,
-		AdminValidator:     adminValidator,
-		AdminKeyRegistry:   adminKeyRegistry,
-		AdminKeyRepo:       adminKeyRepo,
-		EventBus:           bus,
-		LicenseHandler:     licenseHandler,
-		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
-		CORSMaxAge:         cfg.CORSMaxAge,
-		ConfigHandler:      platform.ConfigHandler(cfg),
-		EditionManager:     cfg.EditionManager(),
-		PprofEnabled:       cfg.PprofEnabled,
-		RevocationHandler:  revHandler,
-		ConnectionsHandler: connectionsHandler,
-		WebhookHandler:     webhookHandler,
-		WebhookTestHandler: webhookTestHandler,
-		AnalyticsSSEHandler: func() *api.AnalyticsSSEHandler {
-			if analyticsPool == nil {
-				return nil
-			}
-			return api.NewAnalyticsSSEHandler(
-				analyticsPool,
-				cfg.SSEMaxConns,
-				cfg.FlushInterval,
-				cfg.EditionManager(),
-				structuredLogger,
-			)
-		}(),
+		Service:             svc,
+		ProvisioningConfig:  *cfg,
+		Logger:              structuredLogger,
+		RateLimit:           cfg.APIRateLimitPerMinute,
+		Validator:           validator,
+		AdminValidator:      adminValidator,
+		AdminKeyRegistry:    adminKeyRegistry,
+		AdminKeyRepo:        adminKeyRepo,
+		EventBus:            bus,
+		LicenseHandler:      licenseHandler,
+		CORSAllowedOrigins:  cfg.CORSAllowedOrigins,
+		CORSMaxAge:          cfg.CORSMaxAge,
+		ConfigHandler:       platform.ConfigHandler(cfg),
+		EditionManager:      cfg.EditionManager(),
+		PprofEnabled:        cfg.PprofEnabled,
+		RevocationHandler:   revHandler,
+		ConnectionsHandler:  connectionsHandler,
+		WebhookHandler:      webhookHandler,
+		WebhookTestHandler:  webhookTestHandler,
+		AnalyticsSSEHandler: sharedAnalyticsSSEHandler,
+		AdminUIHandler:      adminUIHandler,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")

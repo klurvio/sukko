@@ -32,6 +32,16 @@ const MinSlugRenameHoldPeriod = 24 * time.Hour
 // int16 max is 32767; values >= 32768 would overflow silently when cast to int16 at CreateTopic call sites.
 const maxInfraTopicReplicationFactor = 32767
 
+// adminUIMinTokenLen is the minimum required ADMIN_TOKEN length when the Admin UI is enabled.
+// Intentionally duplicated (not imported from adminui) to avoid a platform→adminui import cycle.
+const adminUIMinTokenLen = 32
+
+// adminMinSessionTTL and adminMaxSessionTTL bound ADMIN_SESSION_TTL validation.
+const (
+	adminMinSessionTTL = time.Minute
+	adminMaxSessionTTL = 30 * 24 * time.Hour
+)
+
 // ProvisioningConfig holds all provisioning service configuration.
 // Tags:
 //
@@ -105,6 +115,10 @@ type ProvisioningConfig struct {
 	// CredentialsConfig embeds the shared AES-256 encryption key.
 	// Constitution §I: shared fields defined once in a shared struct, never duplicated.
 	CredentialsConfig
+
+	// AdminUIConfig embeds Admin UI session-cookie configuration.
+	// All fields are promoted: use c.AdminUIEnabled, c.AdminToken, etc.
+	AdminUIConfig
 
 	// Provisioning-specific externalized constants
 	MaxTenantsFetchLimit int           `env:"PROVISIONING_MAX_TENANTS_FETCH_LIMIT" envDefault:"10000"`
@@ -401,6 +415,22 @@ func (c *ProvisioningConfig) Validate() error {
 		}
 		if c.WebhookDowngradePollInterval < time.Minute || c.WebhookDowngradePollInterval > time.Hour {
 			return fmt.Errorf("WEBHOOK_DOWNGRADE_POLL_INTERVAL must be between 1m and 1h, got %s", c.WebhookDowngradePollInterval)
+		}
+	}
+
+	// Admin UI — validated even when disabled=false; all constraints are opt-in.
+	// NOTE: EditionHasFeature(AdminUI) is intentionally NOT checked at startup — Community
+	// operators who enable the UI receive a runtime upgrade notice via AdminUIGate middleware.
+	// Failing at startup would prevent the upgrade page from rendering.
+	if c.AdminUIEnabled {
+		if c.AdminOIDCIssuer != "" {
+			return errors.New("ADMIN_OIDC_ISSUER is reserved: OIDC SSO is not yet implemented (see feat/admin-ui-oidc)")
+		}
+		if len(c.AdminToken) < adminUIMinTokenLen {
+			return fmt.Errorf("ADMIN_TOKEN must be at least %d characters when ADMIN_UI_ENABLED=true", adminUIMinTokenLen)
+		}
+		if c.AdminSessionTTL < adminMinSessionTTL || c.AdminSessionTTL > adminMaxSessionTTL {
+			return fmt.Errorf("ADMIN_SESSION_TTL must be between %v and %v, got %v", adminMinSessionTTL, adminMaxSessionTTL, c.AdminSessionTTL)
 		}
 	}
 

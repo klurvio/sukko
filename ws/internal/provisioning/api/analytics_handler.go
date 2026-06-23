@@ -28,6 +28,27 @@ var analyticsSSEDroppedCounter = promauto.NewCounter(prometheus.CounterOpts{
 // Its primary purpose is guarding against connections where the client vanished silently.
 const sseIdleTimeout = 90 * time.Second
 
+// pushPerProviderSQL queries the most recent complete per-provider push metrics.
+// Uses GROUP BY provider to produce one row per provider ("web", "android", "ios").
+const pushPerProviderSQL = `
+			SELECT
+				provider,
+				COALESCE(SUM(sent_count), 0),
+				COALESCE(SUM(success_count), 0),
+				COALESCE(SUM(failed_count), 0),
+				COALESCE(SUM(expired_count), 0),
+				COALESCE(SUM(rate_limited_count), 0)
+			FROM analytics_push
+			WHERE bucket_size = 'minute'
+			  AND ($2::uuid IS NULL OR tenant_id = $2)
+			  AND bucket_start = (
+				SELECT MAX(bucket_start) FROM analytics_push
+				WHERE bucket_start < $1
+				  AND ($2::uuid IS NULL OR tenant_id = $2)
+				  AND bucket_size = 'minute'
+			  )
+			GROUP BY provider`
+
 // AnalyticsSSEHandler serves GET /api/v1/admin/analytics/stream?tenant_id={id}.
 // It is a polling reader of the analytics DB — not a flush-event subscriber —
 // so it always reflects the multi-pod aggregate, independent of per-pod flush timing.
@@ -119,11 +140,11 @@ func (h *AnalyticsSSEHandler) sendSnapshot(ctx context.Context, w http.ResponseW
 
 // analyticsSnapshot is the SSE payload for the analytics stream.
 type analyticsSnapshot struct {
-	TenantID    string       `json:"tenant_id,omitempty"`
-	Connections *connMetrics `json:"connections,omitempty"`
-	Messages    *msgMetrics  `json:"messages,omitempty"`
-	Push        *pushMetrics `json:"push,omitempty"`
-	BucketStart *time.Time   `json:"bucket_start,omitempty"`
+	TenantID    string                         `json:"tenant_id,omitempty"`
+	Connections *connMetrics                   `json:"connections,omitempty"`
+	Messages    *msgMetrics                    `json:"messages,omitempty"`
+	Push        map[string]pushProviderMetrics `json:"push,omitempty"` // key = "web" | "android" | "ios"
+	BucketStart *time.Time                     `json:"bucket_start,omitempty"`
 }
 
 type connMetrics struct {
@@ -140,7 +161,8 @@ type msgMetrics struct {
 	Failed    int64 `json:"failed"`
 }
 
-type pushMetrics struct {
+// pushProviderMetrics holds push delivery counters for a single provider (web/android/ios).
+type pushProviderMetrics struct {
 	Sent        int64 `json:"sent"`
 	Success     int64 `json:"success"`
 	Failed      int64 `json:"failed"`
@@ -215,31 +237,34 @@ func (h *AnalyticsSSEHandler) queryMetrics(ctx context.Context, tenantID string)
 		h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("SSE: messages query failed")
 	}
 
-	// Push — most recent complete 1-minute bucket only.
+	// Push — most recent complete 1-minute bucket only, broken down per provider.
 	// Only included when push analytics (Enterprise edition) is available.
 	if h.editionManager == nil || license.EditionHasFeature(h.editionManager.Edition(), license.AnalyticsPush) {
-		var pm pushMetrics
-		if err := h.pool.QueryRow(ctx, `
-			SELECT
-				COALESCE(SUM(sent_count), 0),
-				COALESCE(SUM(success_count), 0),
-				COALESCE(SUM(failed_count), 0),
-				COALESCE(SUM(expired_count), 0),
-				COALESCE(SUM(rate_limited_count), 0)
-			FROM analytics_push
-			WHERE bucket_size = 'minute'
-			  AND ($2::uuid IS NULL OR tenant_id = $2)
-			  AND bucket_start = (
-				SELECT MAX(bucket_start) FROM analytics_push
-				WHERE bucket_start < $1
-				  AND ($2::uuid IS NULL OR tenant_id = $2)
-				  AND bucket_size = 'minute'
-			  )`,
-			bucketCutoff, tid,
-		).Scan(&pm.Sent, &pm.Success, &pm.Failed, &pm.Expired, &pm.RateLimited); err == nil {
-			snap.Push = &pm
-		} else {
+		rows, err := h.pool.Query(ctx, pushPerProviderSQL, bucketCutoff, tid)
+		if err != nil {
 			h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("SSE: push query failed")
+		} else {
+			// Zero-fill all known providers so the client always sees three keys.
+			pushMap := map[string]pushProviderMetrics{
+				"web":     {},
+				"android": {},
+				"ios":     {},
+			}
+			for rows.Next() {
+				var provider string
+				var pm pushProviderMetrics
+				if err := rows.Scan(&provider, &pm.Sent, &pm.Success, &pm.Failed, &pm.Expired, &pm.RateLimited); err != nil {
+					h.logger.Warn().Err(err).Msg("SSE: push row scan failed")
+					continue
+				}
+				pushMap[provider] = pm
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("SSE: push rows error")
+			} else {
+				snap.Push = pushMap
+			}
 		}
 	}
 

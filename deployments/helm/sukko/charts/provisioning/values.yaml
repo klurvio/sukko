@@ -24,6 +24,27 @@ image:
 # Generate with: sukko auth keygen && base64 < ~/.sukko/contexts/<ctx>/admin.pub
 adminBootstrapKey: ""
 
+# Admin UI session-cookie configuration.
+# Requires Pro/Enterprise edition. Community operators see an upgrade notice page.
+adminUI:
+  # Set to true and configure adminToken to enable the web-based operator dashboard.
+  enabled: false
+  # existingSecret: name of a Kubernetes Secret with key "admin-token" (recommended for production).
+  # If set, adminToken is ignored.
+  existingSecret: ""
+  existingSecretKey: "admin-token"
+  # adminToken: ADMIN_TOKEN value (minimum 32 characters). Use existingSecret in production.
+  adminToken: ""
+  # sessionTTL: session lifetime. Valid range: 1m–720h. Leave blank to use Go default (8h).
+  sessionTTL: ""
+  # wsServerHealthURL: URL for the ws-server /health endpoint polled by GET /admin/system/health.
+  # Leave blank to skip ws-server health probing (status page shows "unconfigured").
+  # Example: http://<release>-ws-server:8080/health
+  wsServerHealthURL: ""
+  # gatewayHealthURL: URL for the ws-gateway /health endpoint polled by GET /admin/system/health.
+  # Leave blank to skip gateway health probing (status page shows "unconfigured").
+  gatewayHealthURL: ""
+
 # PostgreSQL connection
 database:
   # Existing secret containing the database URL

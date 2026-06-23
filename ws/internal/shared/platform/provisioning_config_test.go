@@ -876,6 +876,98 @@ func TestCredentialsConfig_Validate(t *testing.T) {
 	}
 }
 
+func TestProvisioningConfig_Validate_AdminUI(t *testing.T) {
+	t.Parallel()
+	validToken := strings.Repeat("x", 32)
+	tests := []struct {
+		name    string
+		cfg     func(*ProvisioningConfig)
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "disabled with empty token — no error",
+			cfg:     func(c *ProvisioningConfig) { c.AdminUIEnabled = false; c.AdminToken = "" },
+			wantErr: false,
+		},
+		{
+			name:    "disabled with short token — no error",
+			cfg:     func(c *ProvisioningConfig) { c.AdminUIEnabled = false; c.AdminToken = "short" },
+			wantErr: false,
+		},
+		{
+			name:    "enabled with empty token — error",
+			cfg:     func(c *ProvisioningConfig) { c.AdminUIEnabled = true; c.AdminToken = "" },
+			wantErr: true,
+			errMsg:  "ADMIN_TOKEN",
+		},
+		{
+			name:    "enabled with token < 32 chars — error",
+			cfg:     func(c *ProvisioningConfig) { c.AdminUIEnabled = true; c.AdminToken = "tooshort" },
+			wantErr: true,
+			errMsg:  "ADMIN_TOKEN",
+		},
+		{
+			name: "enabled with OIDC issuer set — error",
+			cfg: func(c *ProvisioningConfig) {
+				c.AdminUIEnabled = true
+				c.AdminToken = validToken
+				c.AdminSessionTTL = 8 * time.Hour
+				c.AdminOIDCIssuer = "https://accounts.google.com"
+			},
+			wantErr: true,
+			errMsg:  "ADMIN_OIDC_ISSUER",
+		},
+		{
+			name: "enabled with valid token — no error",
+			cfg: func(c *ProvisioningConfig) {
+				c.AdminUIEnabled = true
+				c.AdminToken = validToken
+				c.AdminSessionTTL = 8 * time.Hour
+			},
+			wantErr: false,
+		},
+		{
+			name: "enabled with TTL below minimum — error",
+			cfg: func(c *ProvisioningConfig) {
+				c.AdminUIEnabled = true
+				c.AdminToken = validToken
+				c.AdminSessionTTL = 30 * time.Second // below 1m
+			},
+			wantErr: true,
+			errMsg:  "ADMIN_SESSION_TTL",
+		},
+		{
+			name: "enabled with TTL above maximum — error",
+			cfg: func(c *ProvisioningConfig) {
+				c.AdminUIEnabled = true
+				c.AdminToken = validToken
+				c.AdminSessionTTL = 31 * 24 * time.Hour // above 30d
+			},
+			wantErr: true,
+			errMsg:  "ADMIN_SESSION_TTL",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidProvisioningConfig()
+			tt.cfg(cfg)
+			err := cfg.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("error should contain %q, got: %v", tt.errMsg, err)
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 //nolint:paralleltest // shares license.SetPublicKeyForTesting via setProvisioningEditionManager
 func TestProvisioningConfig_Validate_WebhookDowngradePollInterval(t *testing.T) {
 	tests := []struct {
