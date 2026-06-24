@@ -675,3 +675,135 @@ func TestStartTest_AdminKeyID_WithoutAdminKey_Returns400(t *testing.T) {
 		t.Errorf("code = %q, want %q", got, "INVALID_ADMIN_KEY_ID")
 	}
 }
+
+func TestStartTest_AuthModeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			// mixed mode not valid for validate
+			name:       "auth_mode=mixed + type=validate → 400",
+			body:       `{"type":"validate","auth_mode":"mixed"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// api-key mode not valid for load (only validate allowed)
+			name:       "auth_mode=api-key + type=load → 400",
+			body:       `{"type":"load","auth_mode":"api-key"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// upgrade mode not valid for load (only validate allowed)
+			name:       "auth_mode=upgrade + type=load → 400",
+			body:       `{"type":"load","auth_mode":"upgrade"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// api-key + validate + suite=api-key + tenant_id → 201
+			name:       "auth_mode=api-key + type=validate + suite=api-key + tenant_id → 201",
+			body:       `{"type":"validate","auth_mode":"api-key","suite":"api-key","tenant_id":"test-tenant"}`,
+			wantStatus: http.StatusCreated,
+		},
+		{
+			// api-key + validate + suite=auth is not in the allowlist (api-key, rest-publish)
+			name:       "auth_mode=api-key + type=validate + suite=auth → 400",
+			body:       `{"type":"validate","auth_mode":"api-key","suite":"auth","tenant_id":"test-tenant"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// upgrade mode only supports suite=upgrade; suite=channels is rejected
+			name:       "auth_mode=upgrade + type=validate + suite=channels → 400",
+			body:       `{"type":"validate","auth_mode":"upgrade","suite":"channels","tenant_id":"test-tenant"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// unrecognized auth_mode value → 400
+			name:       "auth_mode=invalid → 400",
+			body:       `{"type":"smoke","auth_mode":"invalid"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// auth_mix_ratio outside [0,1] (non-zero) → 400
+			name:       "auth_mix_ratio=1.5 → 400",
+			body:       `{"type":"load","auth_mix_ratio":1.5}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// auth_mix_ratio=0.0 is treated as "omitted" (float64 zero value) → uses default; valid for load
+			name:       "auth_mix_ratio=0.0 → 201",
+			body:       `{"type":"load","auth_mix_ratio":0.0}`,
+			wantStatus: http.StatusCreated,
+		},
+		{
+			// mixed mode is valid for load
+			name:       "auth_mode=mixed + type=load → 201",
+			body:       `{"type":"load","auth_mode":"mixed"}`,
+			wantStatus: http.StatusCreated,
+		},
+		{
+			// api-key + validate requires non-empty tenant_id
+			name:       "auth_mode=api-key + type=validate + empty tenant_id → 400",
+			body:       `{"type":"validate","auth_mode":"api-key","suite":"api-key"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, r := newTestRouter()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(tt.body))
+			req.Header.Set("Authorization", "Bearer test-auth")
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d; body: %s", w.Code, tt.wantStatus, w.Body.String())
+			}
+
+			if tt.wantStatus == http.StatusCreated {
+				var resp map[string]any
+				_ = json.Unmarshal(w.Body.Bytes(), &resp)
+				if id, ok := resp["id"].(string); ok {
+					_ = r.Stop(id)
+				}
+				r.Wait()
+			}
+		})
+	}
+}
+
+func TestStartTest_MissingAuthMode_DefaultsToJWT(t *testing.T) {
+	t.Parallel()
+
+	handler, r := newTestRouter()
+	body := `{"type":"smoke"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-auth")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	id, _ := resp["id"].(string)
+
+	run, err := r.Get(id)
+	if err != nil {
+		t.Fatalf("Get(%q): %v", id, err)
+	}
+	if run.Config.AuthMode != runner.AuthModeJWT {
+		t.Errorf("AuthMode = %q, want %q", run.Config.AuthMode, runner.AuthModeJWT)
+	}
+
+	_ = r.Stop(id)
+	r.Wait()
+}

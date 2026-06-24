@@ -73,12 +73,16 @@ wc -c ~/.sukko/admin.key   # should print exactly 64
 | `TESTER_KEY_EXPIRY` | `24h` | no | Signing key expiry issued by tester |
 | `TESTER_PORT` | `8090` | no | Tester HTTP server port |
 | `PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME` | `1h` | no | Max TTL for revoked token entries (provisioning service) |
+| `TESTER_AUTH_MODE` | `jwt` | no | Credential mode for connections: `jwt`, `api-key`, `upgrade`, or `mixed` |
+| `TESTER_API_KEY` | — | api-key / upgrade modes | Static pre-provisioned API key. Required when `TESTER_AUTH_MODE` is `api-key` or `upgrade`; optional for `mixed`. **Never echoed by the `/config` endpoint** (`redact:"true"`). |
+| `TESTER_AUTH_MIX_RATIO` | `0.5` | no | Fraction of connections using API key in `mixed` mode (range 0.0–1.0). Applies to load/soak only. |
+| `TESTER_AUTH_UPGRADE_TIMEOUT` | `10s` | no | Timeout waiting for `auth_ack` during upgrade flow. Max 60s. |
 
 ---
 
 ## 2. Validate Suite Battery
 
-Run all 14 suites in the order below. Each suite is independent and can be run
+Run all 17 suites in the order below. Each suite is independent and can be run
 individually with `sukko test validate --suite <name>`.
 
 Signal vocabulary:
@@ -104,6 +108,8 @@ Signal vocabulary:
 | 13 | `edition-limits` | Community | no | Edition boundary limits |
 | 14 | `push` | Enterprise | no | Push notification pipeline |
 | 15 | `license-reload` | Community | no | License hot-reload propagation |
+| 16 | `api-key` | Community | no | API key auth in isolation (no JWT provisioning) |
+| 17 | `upgrade` | Community | no | Auth upgrade flow: connect with API key, upgrade to JWT |
 
 > Note: `edition-limits` does NOT test `MaxTopicsPerTenant` — it is excluded from
 > the normative test matrix. Do not add it as a tested dimension.
@@ -350,6 +356,34 @@ edition changes propagate, connections survive downgrade where allowed.
 **Minimum edition**: Community  
 **Admin key**: not required
 
+### 2.17 api-key
+
+```bash
+sukko test validate --suite api-key
+```
+
+Validates static API key auth in isolation — no JWT provisioning; distinct from the
+`auth` suite which validates both auth methods within a single run. Requires
+`TESTER_AUTH_MODE=api-key`, a pre-provisioned `TESTER_API_KEY`, and `tenant_id` in
+the request body.
+
+**Minimum edition**: Community  
+**Admin key**: not required
+
+### 2.18 upgrade
+
+```bash
+sukko test validate --suite upgrade
+```
+
+Validates the auth upgrade flow: connect with an API key, send an `auth` message with
+a JWT, and assert that the server sends an `auth_ack` and grants access to private
+channels that require a JWT. Requires `TESTER_AUTH_MODE=upgrade`, a pre-provisioned
+`TESTER_API_KEY`, and `tenant_id` in the request body.
+
+**Minimum edition**: Community  
+**Admin key**: not required
+
 ---
 
 ## 3. Load / Stress / Soak Testing
@@ -364,6 +398,43 @@ Use `--follow` / `-f` to stream real-time SSE metrics while the test runs.
 
 > Note: `sukko test status --id` is advertised in hint text but NOT implemented.
 > Use `--follow` for live output instead.
+
+### 3.1 Auth modes for load / soak
+
+The tester supports four credential modes configured via `TESTER_AUTH_MODE` (or the
+`auth_mode` field in the POST body):
+
+| Mode | Valid for | Description |
+|---|---|---|
+| `jwt` | all types | JWT only — default. Issues JWTs per connection. |
+| `api-key` | `validate` only | Static API key only. No JWT provisioning. |
+| `upgrade` | `validate` only | Connect with API key, upgrade to JWT via `auth` message. |
+| `mixed` | `load`, `soak` | Split connections between API key and JWT per `auth_mix_ratio`. |
+
+**Request body fields** (POST to `/api/v1/tests`):
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `auth_mode` | string | `"jwt"` | Credential mode: `jwt`, `api-key`, `upgrade`, or `mixed`. |
+| `api_key` | string | — | Static pre-provisioned API key for `api-key`, `upgrade`, or `mixed` modes. Accepted in POST body; **never echoed in GET responses** — `TestConfig.APIKey` is tagged `json:"-"`. |
+| `auth_mix_ratio` | float64 | `0.5` | Fraction of connections using API key in `mixed` mode (range 0.0–1.0). **Note**: `auth_mix_ratio=0.0` in the JSON body is treated as "omitted" (JSON float64 zero value) and defaults to `0.5`. To use a ratio of zero, set `TESTER_AUTH_MIX_RATIO=0` via env var instead. |
+
+> `TESTER_AUTH_UPGRADE_TIMEOUT` is a runner-global env var only — it is not accepted
+> as a per-request body field.
+
+### 3.2 Snapshot fields for auth modes
+
+The SSE metrics stream and the final report include these fields when non-zero:
+
+| Field | Description |
+|---|---|
+| `connections_api_key` | Connections authenticated via static API key |
+| `connections_jwt` | Connections authenticated via JWT |
+| `connections_upgrade` | Connections that completed an auth upgrade flow |
+| `auth_upgrade_total` | Total auth upgrade attempts |
+| `auth_upgrade_failed` | Auth upgrade attempts that timed out or received a rejected `auth_ack` |
+
+### 3.3 Key metrics to monitor
 
 **Key metrics to monitor during load tests**:
 - `ws_server_connections_total` — connection count
@@ -764,7 +835,8 @@ sukko tenant --help
 
 # 3. Run a full suite battery and compare output format to this guide
 for s in smoke auth channels pubsub ordering reconnect ratelimit sse rest-publish \
-          provisioning tenant-isolation token-revocation edition-limits license-reload; do
+          provisioning tenant-isolation token-revocation edition-limits license-reload \
+          api-key upgrade; do
   sukko test validate --suite $s 2>&1 | head -5
 done
 

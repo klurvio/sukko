@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -21,6 +22,11 @@ const (
 )
 
 func runLoad(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics.Report, error) {
+	// §II: nil-guard — mixed mode is dispatched separately from execute(); non-mixed load requires JWT.
+	if run.authResult.TokenFunc == nil {
+		return nil, errors.New("runLoad: TokenFunc is nil — use auth_mode=mixed for api-key load tests")
+	}
+
 	connections := run.Config.Connections
 	if connections <= 0 {
 		connections = defaultLoadConnections

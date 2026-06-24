@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -18,6 +19,7 @@ import (
 var (
 	ErrTestNotFound      = errors.New("test not found")
 	ErrTestAlreadyExists = errors.New("test already exists")
+	ErrInvalidConfig     = errors.New("invalid config")
 )
 
 // TestType identifies the kind of test to run.
@@ -57,7 +59,9 @@ type TestConfig struct {
 	Type            TestType     `json:"type"`
 	GatewayURL      string       `json:"gateway_url"`
 	ProvisioningURL string       `json:"provisioning_url,omitempty"`
-	APIKey          string       `json:"api_key,omitempty"`
+	APIKey          string       `json:"-"` // per-request API key; tagged json:"-" — credentials must never appear in API responses (§IX)
+	AuthMode        AuthMode     `json:"auth_mode,omitempty"`
+	AuthMixRatio    float64      `json:"auth_mix_ratio,omitzero"`
 	MessageBackend  string       `json:"message_backend,omitempty"`
 	KafkaBrokers    string       `json:"kafka_brokers,omitempty"`
 	Connections     int          `json:"connections,omitzero"`
@@ -98,6 +102,9 @@ type TestRun struct {
 	authResult       *auth.SetupResult `json:"-"`
 	jwtLifetime      time.Duration     `json:"-"`
 	jwtRefreshBefore time.Duration     `json:"-"`
+	// Auth mode fields set by execute() before dispatching to test functions.
+	apiKey             string        `json:"-"` // effective API key for this run
+	authUpgradeTimeout time.Duration `json:"-"` // timeout for auth_ack in upgrade flow
 }
 
 // StatusSnapshot returns the current Status and Report under a read lock.
@@ -135,6 +142,11 @@ type Config struct {
 	SigningKeyFile   string // Ed25519 private key file for license-reload suite signing
 	AdminKeyFile     string // path to raw Ed25519 private key file (remote mode; empty = local dev mode)
 	AdminKeyID       string // kid embedded in admin JWTs; defaults to BootstrapAdminKeyID
+	// Auth mode fields (TESTER_AUTH_MODE and related)
+	AuthMode           AuthMode
+	APIKey             string // TESTER_API_KEY; stored here only, never in TestConfig (§IX)
+	AuthMixRatio       float64
+	AuthUpgradeTimeout time.Duration
 }
 
 // New creates a Runner with the given configuration and logger.
@@ -170,6 +182,55 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 	}
 	if cfg.SigningKeyFile == "" {
 		cfg.SigningKeyFile = r.cfg.SigningKeyFile
+	}
+	if cfg.AuthMixRatio == 0 && r.cfg.AuthMixRatio != 0 {
+		cfg.AuthMixRatio = r.cfg.AuthMixRatio
+	}
+
+	// §II defense-in-depth: validate auth mode and mode/type combinations.
+	// The handler also validates, but the runner validates again for programmatic callers.
+	if cfg.AuthMode == "" {
+		cfg.AuthMode = AuthModeJWT // backward compat: missing auth_mode defaults to jwt
+	}
+	switch cfg.AuthMode {
+	case AuthModeJWT, AuthModeAPIKey, AuthModeUpgrade, AuthModeMixed:
+		// valid
+	default:
+		return nil, fmt.Errorf("unknown auth_mode %q: %w", cfg.AuthMode, ErrInvalidConfig)
+	}
+	if cfg.AuthMixRatio < AuthMixRatioMin || cfg.AuthMixRatio > AuthMixRatioMax {
+		return nil, fmt.Errorf("auth_mix_ratio %.2f out of range [%.1f, %.1f]: %w", cfg.AuthMixRatio, AuthMixRatioMin, AuthMixRatioMax, ErrInvalidConfig)
+	}
+	switch cfg.AuthMode {
+	case AuthModeJWT:
+		// no restrictions
+	case AuthModeMixed:
+		switch cfg.Type {
+		case TestLoad, TestSoak:
+			// valid for mixed mode
+		case TestValidate, TestSmoke, TestStress:
+			return nil, fmt.Errorf("auth_mode=mixed is not valid for type=%s: %w", cfg.Type, ErrInvalidConfig)
+		}
+	case AuthModeAPIKey:
+		if cfg.Type != TestValidate {
+			return nil, fmt.Errorf("auth_mode=api-key is only valid for type=validate, got type=%s: %w", cfg.Type, ErrInvalidConfig)
+		}
+		if cfg.Suite != "" && cfg.Suite != SuiteAPIKey && cfg.Suite != SuiteRestPublish {
+			return nil, fmt.Errorf("auth_mode=api-key only supports suite=%s or suite=%s, got suite=%s: %w", SuiteAPIKey, SuiteRestPublish, cfg.Suite, ErrInvalidConfig)
+		}
+		if cfg.TenantID == "" {
+			return nil, fmt.Errorf("auth_mode=api-key requires tenant_id: %w", ErrInvalidConfig)
+		}
+	case AuthModeUpgrade:
+		if cfg.Type != TestValidate {
+			return nil, fmt.Errorf("auth_mode=upgrade is only valid for type=validate, got type=%s: %w", cfg.Type, ErrInvalidConfig)
+		}
+		if cfg.Suite != "" && cfg.Suite != SuiteUpgrade {
+			return nil, fmt.Errorf("auth_mode=upgrade only supports suite=%s, got suite=%s: %w", SuiteUpgrade, cfg.Suite, ErrInvalidConfig)
+		}
+		if cfg.TenantID == "" {
+			return nil, fmt.Errorf("auth_mode=upgrade requires tenant_id: %w", ErrInvalidConfig)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -262,44 +323,44 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 
 	defer logging.RecoverPanic(logger, "test-execution", map[string]any{"test_id": run.ID})
 
-	logger.Info().Msg("starting test")
+	logger.Info().Str("auth_mode", string(run.Config.AuthMode)).Msg("starting test")
 
 	adminProvider, providerErr := resolveAdminProvider(r.cfg, run.Config)
 	if providerErr != nil {
-		run.mu.Lock()
-		run.Status = StatusFailed
-		run.Report = &metrics.Report{
-			TestType: string(run.Config.Type),
-			Status:   metrics.ReportStatusError,
-			Metrics:  run.Collector.Snapshot(),
-			Errors:   []string{fmt.Sprintf("resolve admin provider: %v", providerErr)},
-		}
-		run.mu.Unlock()
+		r.failRun(run, fmt.Sprintf("resolve admin provider: %v", providerErr))
 		logger.Error().Err(providerErr).Msg("admin provider resolution failed")
 		return
 	}
 
-	// Auth setup: register key + create minter for JWT-authenticated connections
-	authResult, authErr := auth.Setup(ctx, auth.SetupConfig{
-		TestID:               run.ID,
-		TenantID:             run.Config.TenantID,
-		ProvisioningURL:      run.Config.ProvisioningURL,
-		JWTLifetime:          r.cfg.JWTLifetime,
-		KeyExpiry:            r.cfg.KeyExpiry,
-		Logger:               logger,
-		AdminProvider:        adminProvider,
-		RequireAdminProvider: r.cfg.AdminKeyFile != "",
-	})
+	// Auth setup: branch on auth mode.
+	// api-key mode: skip JWT keypair registration; Minter and TokenFunc will be nil.
+	// All other modes: full JWT setup (register keypair, create minter).
+	var authResult *auth.SetupResult
+	var authErr error
+
+	if run.Config.AuthMode == AuthModeAPIKey {
+		authResult, authErr = auth.SetupAPIKeyOnly(ctx, auth.SetupConfig{
+			TestID:               run.ID,
+			TenantID:             run.Config.TenantID,
+			ProvisioningURL:      run.Config.ProvisioningURL,
+			Logger:               logger,
+			AdminProvider:        adminProvider,
+			RequireAdminProvider: r.cfg.AdminKeyFile != "",
+		})
+	} else {
+		authResult, authErr = auth.Setup(ctx, auth.SetupConfig{
+			TestID:               run.ID,
+			TenantID:             run.Config.TenantID,
+			ProvisioningURL:      run.Config.ProvisioningURL,
+			JWTLifetime:          r.cfg.JWTLifetime,
+			KeyExpiry:            r.cfg.KeyExpiry,
+			Logger:               logger,
+			AdminProvider:        adminProvider,
+			RequireAdminProvider: r.cfg.AdminKeyFile != "",
+		})
+	}
 	if authErr != nil {
-		run.mu.Lock()
-		run.Status = StatusFailed
-		run.Report = &metrics.Report{
-			TestType: string(run.Config.Type),
-			Status:   metrics.ReportStatusError,
-			Metrics:  run.Collector.Snapshot(),
-			Errors:   []string{fmt.Sprintf("auth setup: %v", authErr)},
-		}
-		run.mu.Unlock()
+		r.failRun(run, fmt.Sprintf("auth setup: %v", authErr))
 		logger.Error().Err(authErr).Msg("auth setup failed")
 		return
 	}
@@ -314,23 +375,77 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	run.authResult = authResult
 	run.jwtLifetime = r.cfg.JWTLifetime
 	run.jwtRefreshBefore = r.cfg.JWTRefreshBefore
+	run.authUpgradeTimeout = r.cfg.AuthUpgradeTimeout
+
+	// Resolve effective API key: per-request key overrides runner-level config key.
+	effectiveAPIKey := r.cfg.APIKey
+	if run.Config.APIKey != "" {
+		effectiveAPIKey = run.Config.APIKey
+	}
+	run.apiKey = effectiveAPIKey
+
+	// Mixed mode with no static API key: create one dynamically at test start.
+	// The key is revoked at teardown (best-effort) using a fresh context (§III, §IV).
+	if run.Config.AuthMode == AuthModeMixed && run.apiKey == "" {
+		keyBody, keyErr := authResult.ProvClient.CreateAPIKey(ctx, authResult.TenantID, "tester-mixed-"+run.ID)
+		if keyErr != nil {
+			r.failRun(run, fmt.Sprintf("create mixed-mode api key: %v", keyErr))
+			logger.Error().Err(keyErr).Msg("failed to create mixed-mode api key")
+			return
+		}
+		// Register revoke defer immediately after CreateAPIKey succeeds — before any parse
+		// check — so teardown always runs. Guard on run.apiKey: if parse fails the key_id is
+		// unknown and revoke is impossible; log a prominent warning for manual cleanup.
+		defer func() { //nolint:contextcheck // teardown: test ctx is canceled at this point; fresh context required
+			if run.apiKey == "" {
+				logger.Error().Msg("teardown: mixed-mode api key created but key_id unknown — cannot revoke; manual cleanup required")
+				return
+			}
+			revokeCtx, revokeCancel := context.WithTimeout(context.Background(), editionHTTPTimeout)
+			defer revokeCancel()
+			if err := authResult.ProvClient.RevokeAPIKey(revokeCtx, authResult.TenantID, run.apiKey); err != nil {
+				logger.Error().Err(err).Str("key_id", run.apiKey).Msg("teardown: failed to revoke mixed-mode api key")
+			}
+		}()
+		var keyResp struct {
+			KeyID string `json:"key_id"`
+		}
+		if err := json.Unmarshal(keyBody, &keyResp); err != nil || keyResp.KeyID == "" {
+			r.failRun(run, "create mixed-mode api key: failed to parse key_id from response")
+			return
+		}
+		run.apiKey = keyResp.KeyID
+	}
 
 	var report *metrics.Report
 	var err error
 
-	switch run.Config.Type {
-	case TestSmoke:
-		report, err = runSmoke(ctx, run, logger)
-	case TestLoad:
-		report, err = runLoad(ctx, run, logger)
-	case TestStress:
-		report, err = runStress(ctx, run, logger)
-	case TestSoak:
-		report, err = runSoak(ctx, run, logger)
-	case TestValidate:
-		report, err = runValidate(ctx, run, logger)
-	default:
-		err = fmt.Errorf("unknown test type: %s", run.Config.Type)
+	// Mixed mode dispatch: handled here (in execute, a *Runner method) because runLoad/runSoak
+	// are package-level functions without access to r.cfg.
+	if run.Config.AuthMode == AuthModeMixed {
+		switch run.Config.Type {
+		case TestLoad:
+			report, err = runLoadMixed(ctx, run, logger)
+		case TestSoak:
+			report, err = runSoakMixed(ctx, run, logger)
+		default:
+			err = fmt.Errorf("mixed mode not valid for type %s", run.Config.Type)
+		}
+	} else {
+		switch run.Config.Type {
+		case TestSmoke:
+			report, err = runSmoke(ctx, run, logger)
+		case TestLoad:
+			report, err = runLoad(ctx, run, logger)
+		case TestStress:
+			report, err = runStress(ctx, run, logger)
+		case TestSoak:
+			report, err = runSoak(ctx, run, logger)
+		case TestValidate:
+			report, err = runValidate(ctx, run, logger)
+		default:
+			err = fmt.Errorf("unknown test type: %s", run.Config.Type)
+		}
 	}
 
 	run.mu.Lock()
@@ -354,4 +469,17 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	run.mu.Unlock()
 
 	logger.Info().Str("status", string(run.Status)).Msg("test completed")
+}
+
+// failRun sets a TestRun to StatusFailed with an error report. Used by execute() error paths.
+func (r *Runner) failRun(run *TestRun, errMsg string) {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	run.Status = StatusFailed
+	run.Report = &metrics.Report{
+		TestType: string(run.Config.Type),
+		Status:   metrics.ReportStatusError,
+		Metrics:  run.Collector.Snapshot(),
+		Errors:   []string{errMsg},
+	}
 }

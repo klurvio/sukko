@@ -51,7 +51,7 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 		checks, err = validateProvisioning(ctx, run, logger)
 	case "sse":
 		checks, err = validateSSE(ctx, run, logger)
-	case "rest-publish":
+	case SuiteRestPublish:
 		checks, err = validateRestPublish(ctx, run, logger)
 	case "push":
 		checks, err = validatePush(ctx, run, logger)
@@ -59,6 +59,10 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 		checks, err = validateLicenseReload(ctx, run, logger)
 	case "token-revocation":
 		checks, err = validateTokenRevocation(ctx, run, logger)
+	case SuiteAPIKey:
+		checks, err = validateAPIKey(ctx, run, logger)
+	case SuiteUpgrade:
+		checks, err = validateUpgrade(ctx, run, logger)
 	default:
 		checks = []metrics.CheckResult{{
 			Name:   "unknown suite",
@@ -292,8 +296,13 @@ func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 		}
 
 		// Revoke the temporary API key regardless of check outcomes.
-		// best-effort: tenant cleanup cascade also handles revocation
-		_ = run.authResult.ProvClient.RevokeAPIKey(ctx, run.Config.TenantID, apiKeyValue)
+		// Use a fresh context — the test run ctx may be canceled at this point.
+		// Failure is non-fatal: logged at Error, cleanup continues (§III, §IV).
+		revokeCtx, revokeCancel := context.WithTimeout(context.Background(), editionHTTPTimeout)
+		if err := run.authResult.ProvClient.RevokeAPIKey(revokeCtx, run.Config.TenantID, apiKeyValue); err != nil { //nolint:contextcheck // teardown: test ctx may be canceled; fresh context required
+			logger.Error().Err(err).Str("key_id", apiKeyValue).Msg("validate: failed to revoke temporary api key")
+		}
+		revokeCancel() // cancel immediately after use, not deferred, to avoid leaking through remainder of validateAuth
 	}
 
 	// Check 11: Unauthenticated provisioning request rejected (expect 401)

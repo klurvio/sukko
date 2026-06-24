@@ -23,4 +23,6 @@ var SuiteRegistry = map[string]SuiteInfo{
 	"push":             {Name: "push", Description: "Push notification subscription and pipeline validation"},
 	"license-reload":   {Name: "license-reload", Description: "License hot-reload propagation, gating, and connection survival"},
 	"token-revocation": {Name: "token-revocation", Description: "Token revocation force-disconnect and rejection validation"},
+	"api-key":          {Name: "api-key", Description: "validates static API key auth in isolation — no JWT provisioning; distinct from the 'auth' suite which validates both auth methods within a single run"},
+	"upgrade":          {Name: "upgrade", Description: "validates the auth upgrade flow — connect with API key, upgrade to JWT via auth message, access private channels"},
 }

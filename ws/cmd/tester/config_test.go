@@ -26,13 +26,16 @@ func TestTesterConfig_Validate(t *testing.T) {
 			MessageBackendBase: platform.MessageBackendBase{
 				MessageBackend: "direct",
 			},
-			Port:             8090,
-			GatewayURL:       "ws://localhost:3000",
-			ProvisioningURL:  "http://localhost:8080",
-			AdminKeyID:       provauth.BootstrapAdminKeyID, // mirrors envDefault:"bootstrap-0"
-			JWTLifetime:      15 * time.Minute,
-			JWTRefreshBefore: 2 * time.Minute,
-			KeyExpiry:        24 * time.Hour,
+			Port:               8090,
+			GatewayURL:         "ws://localhost:3000",
+			ProvisioningURL:    "http://localhost:8080",
+			AdminKeyID:         provauth.BootstrapAdminKeyID, // mirrors envDefault:"bootstrap-0"
+			JWTLifetime:        15 * time.Minute,
+			JWTRefreshBefore:   2 * time.Minute,
+			KeyExpiry:          24 * time.Hour,
+			AuthMode:           "jwt",
+			AuthMixRatio:       0.5,
+			AuthUpgradeTimeout: 10 * time.Second,
 		}
 	}
 
@@ -198,6 +201,80 @@ func TestTesterConfig_Validate(t *testing.T) {
 				c.AdminKeyID = "Bootstrap-0" // uppercase B rejected
 			},
 			wantErr: "TESTER_ADMIN_KEY_ID",
+		},
+		// Auth mode validation cases (FR-001, FR-002, SC-001)
+		{
+			name:    "invalid auth_mode",
+			modify:  func(c *TesterConfig) { c.AuthMode = "oauth" },
+			wantErr: "TESTER_AUTH_MODE must be jwt|api-key|upgrade|mixed",
+		},
+		{
+			name:   "valid auth_mode default (jwt)",
+			modify: func(_ *TesterConfig) {}, // validConfig already sets AuthMode="jwt"
+		},
+		{
+			name:    "auth_mix_ratio negative",
+			modify:  func(c *TesterConfig) { c.AuthMixRatio = -0.1 },
+			wantErr: "TESTER_AUTH_MIX_RATIO must be in [0.0, 1.0]",
+		},
+		{
+			name:    "auth_mix_ratio too high",
+			modify:  func(c *TesterConfig) { c.AuthMixRatio = 1.1 },
+			wantErr: "TESTER_AUTH_MIX_RATIO must be in [0.0, 1.0]",
+		},
+		{
+			name:   "auth_mix_ratio 0.0 valid",
+			modify: func(c *TesterConfig) { c.AuthMixRatio = 0.0 },
+		},
+		{
+			name:   "auth_mix_ratio 1.0 valid",
+			modify: func(c *TesterConfig) { c.AuthMixRatio = 1.0 },
+		},
+		{
+			name:   "auth_mix_ratio 0.5 valid",
+			modify: func(c *TesterConfig) { c.AuthMixRatio = 0.5 },
+		},
+		{
+			name: "api-key mode missing key",
+			modify: func(c *TesterConfig) {
+				c.AuthMode = "api-key"
+				c.APIKey = "" // ensure no key is set
+			},
+			wantErr: `TESTER_API_KEY is required when TESTER_AUTH_MODE is "api-key"`,
+		},
+		{
+			name: "upgrade mode missing key",
+			modify: func(c *TesterConfig) {
+				c.AuthMode = "upgrade"
+				c.APIKey = ""
+			},
+			wantErr: `TESTER_API_KEY is required when TESTER_AUTH_MODE is "upgrade"`,
+		},
+		{
+			name: "api-key mode with key",
+			modify: func(c *TesterConfig) {
+				c.AuthMode = "api-key"
+				c.APIKey = "pk_live_test123"
+			},
+		},
+		{
+			name:    "auth_upgrade_timeout zero",
+			modify:  func(c *TesterConfig) { c.AuthUpgradeTimeout = 0 },
+			wantErr: "TESTER_AUTH_UPGRADE_TIMEOUT must be > 0 and",
+		},
+		{
+			name:    "auth_upgrade_timeout negative",
+			modify:  func(c *TesterConfig) { c.AuthUpgradeTimeout = -1 * time.Second },
+			wantErr: "TESTER_AUTH_UPGRADE_TIMEOUT must be > 0 and",
+		},
+		{
+			name:    "auth_upgrade_timeout too large",
+			modify:  func(c *TesterConfig) { c.AuthUpgradeTimeout = 61 * time.Second },
+			wantErr: "TESTER_AUTH_UPGRADE_TIMEOUT must be > 0 and",
+		},
+		{
+			name:   "auth_upgrade_timeout valid",
+			modify: func(c *TesterConfig) { c.AuthUpgradeTimeout = 10 * time.Second },
 		},
 	}
 

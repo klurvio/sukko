@@ -105,6 +105,10 @@ type startTestRequest struct {
 	AdminKey       string       `json:"admin_key,omitempty"`    // base64.StdEncoding Ed25519 private key for per-request admin auth
 	AdminKeyID     string       `json:"admin_key_id,omitempty"` // kid for admin_key JWT; falls back to server AdminKeyID when omitted
 	Context        *TestContext `json:"context,omitempty"`
+	// Auth mode fields (FR-001, FR-002, SC-001)
+	AuthMode     string  `json:"auth_mode,omitempty"`
+	APIKey       string  `json:"api_key,omitempty"`        // accepted in POST body; never echoed (TestConfig.APIKey is json:"-")
+	AuthMixRatio float64 `json:"auth_mix_ratio,omitempty"` // 0.0 treated as "omitted" (float64 zero value) → uses default 0.5
 }
 
 func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
@@ -134,6 +138,70 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 	if req.MessageBackend != "" && req.MessageBackend != platform.MessageBackendDirect && req.MessageBackend != platform.MessageBackendKafka {
 		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("unsupported message_backend %q (valid: direct, kafka)", req.MessageBackend))
 		return
+	}
+
+	// Auth mode validation
+	authMode := runner.AuthModeJWT // default: backward compat when auth_mode is absent
+	if req.AuthMode != "" {
+		switch runner.AuthMode(req.AuthMode) {
+		case runner.AuthModeJWT, runner.AuthModeAPIKey, runner.AuthModeUpgrade, runner.AuthModeMixed:
+			authMode = runner.AuthMode(req.AuthMode)
+		default:
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest,
+				fmt.Sprintf("unknown auth_mode %q (valid: jwt, api-key, upgrade, mixed)", req.AuthMode))
+			return
+		}
+	}
+	if req.AuthMixRatio != 0 && (req.AuthMixRatio < runner.AuthMixRatioMin || req.AuthMixRatio > runner.AuthMixRatioMax) {
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest,
+			fmt.Sprintf("auth_mix_ratio must be in [%.1f, %.1f], got %v", runner.AuthMixRatioMin, runner.AuthMixRatioMax, req.AuthMixRatio))
+		return
+	}
+	testType := runner.TestType(req.Type)
+	switch authMode {
+	case runner.AuthModeJWT:
+		// no restrictions
+	case runner.AuthModeMixed:
+		switch testType {
+		case runner.TestLoad, runner.TestSoak:
+			// valid for mixed mode
+		case runner.TestValidate, runner.TestSmoke, runner.TestStress:
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest,
+				fmt.Sprintf("auth_mode=mixed is only valid for load/soak tests, not %q", req.Type))
+			return
+		}
+	case runner.AuthModeAPIKey:
+		if testType != runner.TestValidate {
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest,
+				fmt.Sprintf("auth_mode=api-key is only valid for type=validate, not %q", req.Type))
+			return
+		}
+		if req.Suite != "" && req.Suite != runner.SuiteAPIKey && req.Suite != runner.SuiteRestPublish {
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest,
+				fmt.Sprintf("auth_mode=api-key only supports suite=%s or suite=%s, not %q", runner.SuiteAPIKey, runner.SuiteRestPublish, req.Suite))
+			return
+		}
+		if req.TenantID == "" {
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest,
+				"auth_mode=api-key requires tenant_id (no throwaway tenant creation in api-key mode)")
+			return
+		}
+	case runner.AuthModeUpgrade:
+		if testType != runner.TestValidate {
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest,
+				fmt.Sprintf("auth_mode=upgrade is only valid for type=validate, not %q", req.Type))
+			return
+		}
+		if req.Suite != "" && req.Suite != runner.SuiteUpgrade {
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest,
+				fmt.Sprintf("auth_mode=upgrade only supports suite=%s, not %q", runner.SuiteUpgrade, req.Suite))
+			return
+		}
+		if req.TenantID == "" {
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest,
+				"auth_mode=upgrade requires tenant_id (no throwaway tenant creation in upgrade mode)")
+			return
+		}
 	}
 
 	// Validate context block (all-or-nothing)
@@ -219,6 +287,9 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		SigningKeyBytes: signingKeyBytes,
 		AdminKeyBytes:   adminKeyBytes,
 		AdminKeyID:      adminKeyID,
+		AuthMode:        authMode,
+		APIKey:          req.APIKey,
+		AuthMixRatio:    req.AuthMixRatio,
 	}
 	if req.Context != nil {
 		if req.Context.AdminKeyPath != "" {
