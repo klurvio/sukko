@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -20,6 +21,11 @@ const (
 )
 
 func runSoak(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics.Report, error) {
+	// §II: nil-guard — mixed mode is dispatched separately from execute(); non-mixed soak requires JWT.
+	if run.authResult.TokenFunc == nil {
+		return nil, errors.New("runSoak: TokenFunc is nil — use auth_mode=mixed for api-key soak tests")
+	}
+
 	connections := run.Config.Connections
 	if connections <= 0 {
 		connections = defaultSoakConnections

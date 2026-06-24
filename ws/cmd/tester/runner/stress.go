@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -17,6 +18,11 @@ const (
 )
 
 func runStress(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics.Report, error) {
+	// §II: nil-guard — api-key and upgrade modes do not produce a TokenFunc.
+	if run.authResult.TokenFunc == nil {
+		return nil, errors.New("runStress: TokenFunc is nil — api-key and upgrade modes are not supported for stress tests")
+	}
+
 	maxConnections := run.Config.Connections
 	if maxConnections <= 0 {
 		maxConnections = defaultStressConnections

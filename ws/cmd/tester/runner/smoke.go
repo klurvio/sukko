@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -16,6 +17,12 @@ import (
 const healthCheckTimeout = 5 * time.Second
 
 func runSmoke(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics.Report, error) {
+	// §II: nil-guard — api-key and upgrade modes do not produce a TokenFunc.
+	// The handler and runner.Start() enforce mode/type constraints, but guard here as defense-in-depth.
+	if run.authResult.TokenFunc == nil {
+		return nil, errors.New("runSmoke: TokenFunc is nil — api-key and upgrade modes are not supported for smoke tests")
+	}
+
 	var checks []metrics.CheckResult
 
 	// Check 1: WebSocket connectivity (with retry for key registry cache race)

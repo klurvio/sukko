@@ -7,6 +7,7 @@ import (
 
 	testerapi "github.com/klurvio/sukko/cmd/tester/api"
 	testerauth "github.com/klurvio/sukko/cmd/tester/auth"
+	"github.com/klurvio/sukko/cmd/tester/runner"
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
@@ -34,6 +35,15 @@ type TesterConfig struct {
 	JWTLifetime      time.Duration `env:"TESTER_JWT_LIFETIME" envDefault:"15m"`
 	JWTRefreshBefore time.Duration `env:"TESTER_JWT_REFRESH_BEFORE" envDefault:"2m"`
 	KeyExpiry        time.Duration `env:"TESTER_KEY_EXPIRY" envDefault:"24h"`
+
+	// Auth mode configuration (FR-001, FR-002, SC-001)
+	// AuthMode controls the credential mode for connections: jwt, api-key, upgrade, or mixed.
+	AuthMode runner.AuthMode `env:"TESTER_AUTH_MODE" envDefault:"jwt"`
+	// APIKey is a static pre-provisioned API key for api-key, upgrade, and mixed modes.
+	// Tagged redact:"true" so the /config endpoint never echoes it (§IX).
+	APIKey             string        `env:"TESTER_API_KEY" envDefault:"" redact:"true"`
+	AuthMixRatio       float64       `env:"TESTER_AUTH_MIX_RATIO" envDefault:"0.5"`
+	AuthUpgradeTimeout time.Duration `env:"TESTER_AUTH_UPGRADE_TIMEOUT" envDefault:"10s"`
 }
 
 func (c *TesterConfig) Validate() error {
@@ -77,6 +87,22 @@ func (c *TesterConfig) Validate() error {
 	}
 	if c.KeyExpiry < c.JWTLifetime {
 		return fmt.Errorf("TESTER_KEY_EXPIRY (%v) must be >= TESTER_JWT_LIFETIME (%v)", c.KeyExpiry, c.JWTLifetime)
+	}
+	// Auth mode validation
+	switch c.AuthMode {
+	case runner.AuthModeJWT, runner.AuthModeAPIKey, runner.AuthModeUpgrade, runner.AuthModeMixed:
+		// valid
+	default:
+		return fmt.Errorf("TESTER_AUTH_MODE must be jwt|api-key|upgrade|mixed, got %q", c.AuthMode)
+	}
+	if c.AuthMixRatio < runner.AuthMixRatioMin || c.AuthMixRatio > runner.AuthMixRatioMax {
+		return fmt.Errorf("TESTER_AUTH_MIX_RATIO must be in [%.1f, %.1f], got %v", runner.AuthMixRatioMin, runner.AuthMixRatioMax, c.AuthMixRatio)
+	}
+	if c.AuthUpgradeTimeout <= 0 || c.AuthUpgradeTimeout > 60*time.Second {
+		return fmt.Errorf("TESTER_AUTH_UPGRADE_TIMEOUT must be > 0 and ≤ 60s, got %v", c.AuthUpgradeTimeout)
+	}
+	if (c.AuthMode == runner.AuthModeAPIKey || c.AuthMode == runner.AuthModeUpgrade) && c.APIKey == "" {
+		return fmt.Errorf("TESTER_API_KEY is required when TESTER_AUTH_MODE is %q", c.AuthMode)
 	}
 	return nil
 }

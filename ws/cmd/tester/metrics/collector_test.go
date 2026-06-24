@@ -150,6 +150,12 @@ func TestCollector_ConcurrentAccess(t *testing.T) {
 		for range 1000 {
 			c.ConnectionsActive.Add(1)
 			c.MessagesSent.Add(1)
+			// Auth mode fields (SC-002)
+			c.ConnectionsAPIKey.Add(1)
+			c.ConnectionsJWT.Add(1)
+			c.ConnectionsUpgrade.Add(1)
+			c.AuthUpgradeTotal.Add(1)
+			c.AuthUpgradeFailed.Add(1)
 		}
 		close(done)
 	}()
@@ -163,6 +169,21 @@ func TestCollector_ConcurrentAccess(t *testing.T) {
 	snap := c.Snapshot()
 	if snap.ConnectionsActive != 1000 {
 		t.Errorf("expected ConnectionsActive=1000, got %d", snap.ConnectionsActive)
+	}
+	if snap.ConnectionsAPIKey != 1000 {
+		t.Errorf("expected ConnectionsAPIKey=1000, got %d", snap.ConnectionsAPIKey)
+	}
+	if snap.ConnectionsJWT != 1000 {
+		t.Errorf("expected ConnectionsJWT=1000, got %d", snap.ConnectionsJWT)
+	}
+	if snap.ConnectionsUpgrade != 1000 {
+		t.Errorf("expected ConnectionsUpgrade=1000, got %d", snap.ConnectionsUpgrade)
+	}
+	if snap.AuthUpgradeTotal != 1000 {
+		t.Errorf("expected AuthUpgradeTotal=1000, got %d", snap.AuthUpgradeTotal)
+	}
+	if snap.AuthUpgradeFailed != 1000 {
+		t.Errorf("expected AuthUpgradeFailed=1000, got %d", snap.AuthUpgradeFailed)
 	}
 }
 
@@ -234,5 +255,43 @@ func TestCollector_ChannelModeCounters(t *testing.T) {
 		snap.GroupScopedSent != 0 || snap.GroupScopedReceived != 0 ||
 		snap.Misrouted != 0 {
 		t.Error("channel-mode counters not zeroed after reset")
+	}
+}
+
+// TestCollector_APIKeyAuthCounters verifies the 5 new auth-mode metrics fields
+// introduced by SC-002 (connection type tracking + upgrade flow counters).
+func TestCollector_APIKeyAuthCounters(t *testing.T) {
+	t.Parallel()
+
+	c := NewCollector()
+	c.ConnectionsAPIKey.Add(7)
+	c.ConnectionsJWT.Add(11)
+	c.ConnectionsUpgrade.Add(3)
+	c.AuthUpgradeTotal.Add(20)
+	c.AuthUpgradeFailed.Add(2)
+
+	snap := c.Snapshot()
+	if snap.ConnectionsAPIKey != 7 {
+		t.Errorf("ConnectionsAPIKey = %d, want 7", snap.ConnectionsAPIKey)
+	}
+	if snap.ConnectionsJWT != 11 {
+		t.Errorf("ConnectionsJWT = %d, want 11", snap.ConnectionsJWT)
+	}
+	if snap.ConnectionsUpgrade != 3 {
+		t.Errorf("ConnectionsUpgrade = %d, want 3", snap.ConnectionsUpgrade)
+	}
+	if snap.AuthUpgradeTotal != 20 {
+		t.Errorf("AuthUpgradeTotal = %d, want 20", snap.AuthUpgradeTotal)
+	}
+	if snap.AuthUpgradeFailed != 2 {
+		t.Errorf("AuthUpgradeFailed = %d, want 2", snap.AuthUpgradeFailed)
+	}
+
+	c.Reset()
+	snap = c.Snapshot()
+	if snap.ConnectionsAPIKey != 0 || snap.ConnectionsJWT != 0 ||
+		snap.ConnectionsUpgrade != 0 || snap.AuthUpgradeTotal != 0 ||
+		snap.AuthUpgradeFailed != 0 {
+		t.Error("auth-mode counters not zeroed after reset")
 	}
 }

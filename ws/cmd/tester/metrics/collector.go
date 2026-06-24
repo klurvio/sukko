@@ -34,9 +34,16 @@ type Collector struct {
 	SSEMessagesReceived atomic.Int64
 	RESTPublishSuccess  atomic.Int64
 	RESTPublishErrors   atomic.Int64
-	Latency             *stats.Histogram
-	mu                  sync.RWMutex
-	startTime           time.Time
+	// Auth mode metrics (SC-002)
+	// Keyed off the actual credential used per-connection, not the global auth mode.
+	ConnectionsAPIKey  atomic.Int64 // connections established using API key as initial credential
+	ConnectionsJWT     atomic.Int64 // connections established using JWT as initial credential
+	ConnectionsUpgrade atomic.Int64 // connections that completed the auth upgrade flow (auth_ack received)
+	AuthUpgradeTotal   atomic.Int64 // total auth upgrade attempts (RefreshToken calls)
+	AuthUpgradeFailed  atomic.Int64 // auth upgrade attempts that failed (auth_error or timeout)
+	Latency            *stats.Histogram
+	mu                 sync.RWMutex
+	startTime          time.Time
 }
 
 // NewCollector creates a Collector with zeroed counters and a fresh start time.
@@ -49,31 +56,37 @@ func NewCollector() *Collector {
 
 // Snapshot is a serializable snapshot of current metrics.
 type Snapshot struct {
-	Timestamp           time.Time      `json:"timestamp"`
-	Elapsed             string         `json:"elapsed"`
-	ConnectionsActive   int64          `json:"connections_active"`
-	ConnectionsFailed   int64          `json:"connections_failed"`
-	ConnectionsTotal    int64          `json:"connections_total"`
-	MessagesSent        int64          `json:"messages_sent"`
-	MessagesReceived    int64          `json:"messages_received"`
-	MessagesDropped     int64          `json:"messages_dropped"`
-	ErrorsTotal         int64          `json:"errors_total"`
-	AuthRefreshTotal    int64          `json:"auth_refresh_total"`
-	AuthRefreshFailed   int64          `json:"auth_refresh_failed"`
-	AuthErrors          int64          `json:"auth_errors"`
-	MessagesLost        int64          `json:"messages_lost,omitzero"`
-	MessagesDuplicated  int64          `json:"messages_duplicated,omitzero"`
-	PublicSent          int64          `json:"public_sent,omitzero"`
-	PublicReceived      int64          `json:"public_received,omitzero"`
-	UserScopedSent      int64          `json:"user_scoped_sent,omitzero"`
-	UserScopedReceived  int64          `json:"user_scoped_received,omitzero"`
-	GroupScopedSent     int64          `json:"group_scoped_sent,omitzero"`
-	GroupScopedReceived int64          `json:"group_scoped_received,omitzero"`
-	Misrouted           int64          `json:"misrouted,omitzero"`
-	SSEMessagesReceived int64          `json:"sse_messages_received,omitzero"`
-	RESTPublishSuccess  int64          `json:"rest_publish_success,omitzero"`
-	RESTPublishErrors   int64          `json:"rest_publish_errors,omitzero"`
-	Latency             stats.Snapshot `json:"latency"`
+	Timestamp           time.Time `json:"timestamp"`
+	Elapsed             string    `json:"elapsed"`
+	ConnectionsActive   int64     `json:"connections_active"`
+	ConnectionsFailed   int64     `json:"connections_failed"`
+	ConnectionsTotal    int64     `json:"connections_total"`
+	MessagesSent        int64     `json:"messages_sent"`
+	MessagesReceived    int64     `json:"messages_received"`
+	MessagesDropped     int64     `json:"messages_dropped"`
+	ErrorsTotal         int64     `json:"errors_total"`
+	AuthRefreshTotal    int64     `json:"auth_refresh_total"`
+	AuthRefreshFailed   int64     `json:"auth_refresh_failed"`
+	AuthErrors          int64     `json:"auth_errors"`
+	MessagesLost        int64     `json:"messages_lost,omitzero"`
+	MessagesDuplicated  int64     `json:"messages_duplicated,omitzero"`
+	PublicSent          int64     `json:"public_sent,omitzero"`
+	PublicReceived      int64     `json:"public_received,omitzero"`
+	UserScopedSent      int64     `json:"user_scoped_sent,omitzero"`
+	UserScopedReceived  int64     `json:"user_scoped_received,omitzero"`
+	GroupScopedSent     int64     `json:"group_scoped_sent,omitzero"`
+	GroupScopedReceived int64     `json:"group_scoped_received,omitzero"`
+	Misrouted           int64     `json:"misrouted,omitzero"`
+	SSEMessagesReceived int64     `json:"sse_messages_received,omitzero"`
+	RESTPublishSuccess  int64     `json:"rest_publish_success,omitzero"`
+	RESTPublishErrors   int64     `json:"rest_publish_errors,omitzero"`
+	// Auth mode metrics (SC-002)
+	ConnectionsAPIKey  int64          `json:"connections_api_key,omitzero"`
+	ConnectionsJWT     int64          `json:"connections_jwt,omitzero"`
+	ConnectionsUpgrade int64          `json:"connections_upgrade,omitzero"`
+	AuthUpgradeTotal   int64          `json:"auth_upgrade_total,omitzero"`
+	AuthUpgradeFailed  int64          `json:"auth_upgrade_failed,omitzero"`
+	Latency            stats.Snapshot `json:"latency"`
 }
 
 // Snapshot returns a point-in-time copy of all collected metrics.
@@ -107,6 +120,11 @@ func (c *Collector) Snapshot() Snapshot {
 		SSEMessagesReceived: c.SSEMessagesReceived.Load(),
 		RESTPublishSuccess:  c.RESTPublishSuccess.Load(),
 		RESTPublishErrors:   c.RESTPublishErrors.Load(),
+		ConnectionsAPIKey:   c.ConnectionsAPIKey.Load(),
+		ConnectionsJWT:      c.ConnectionsJWT.Load(),
+		ConnectionsUpgrade:  c.ConnectionsUpgrade.Load(),
+		AuthUpgradeTotal:    c.AuthUpgradeTotal.Load(),
+		AuthUpgradeFailed:   c.AuthUpgradeFailed.Load(),
 		Latency:             c.Latency.Snapshot(),
 	}
 }
@@ -135,6 +153,11 @@ func (c *Collector) Reset() {
 	c.SSEMessagesReceived.Store(0)
 	c.RESTPublishSuccess.Store(0)
 	c.RESTPublishErrors.Store(0)
+	c.ConnectionsAPIKey.Store(0)
+	c.ConnectionsJWT.Store(0)
+	c.ConnectionsUpgrade.Store(0)
+	c.AuthUpgradeTotal.Store(0)
+	c.AuthUpgradeFailed.Store(0)
 	c.Latency.Reset()
 	c.mu.Lock()
 	c.startTime = time.Now()
