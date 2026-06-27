@@ -23,11 +23,12 @@ const (
 
 // Report is the final test report.
 type Report struct {
-	TestType string        `json:"test_type"`
-	Status   string        `json:"status"` // pass, fail, error
-	Metrics  Snapshot      `json:"metrics"`
-	Checks   []CheckResult `json:"checks,omitempty"`
-	Errors   []string      `json:"errors,omitempty"`
+	TestType      string        `json:"test_type"`
+	Status        string        `json:"status"` // pass, fail, error
+	Metrics       Snapshot      `json:"metrics"`
+	Checks        []CheckResult `json:"checks,omitempty"`
+	Errors        []string      `json:"errors,omitempty"`
+	SkippedChecks int           `json:"skipped_checks,omitempty"`
 }
 
 // CheckResult is an individual test check result (for smoke/validate).

@@ -1,13 +1,11 @@
 package runner
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gobwas/ws"
@@ -25,68 +23,23 @@ import (
 // revocationTimeout is the maximum wait for revocation propagation (gRPC stream delivery).
 const revocationTimeout = 5 * time.Second
 
-// revocationHTTPTimeout is the HTTP client timeout for revocation API calls.
-const revocationHTTPTimeout = 10 * time.Second
-
 // pushRetryAttempts is the number of re-subscribe attempts when verifying push registration deletion.
 const pushRetryAttempts = 5
 
 // pushRetryInterval is the interval between push re-subscribe attempts.
 const pushRetryInterval = 1 * time.Second
 
-// revokeRequest is the JSON body for POST /api/v1/tenants/{tenantID}/tokens/revoke.
-type revokeRequest struct {
-	Sub string `json:"sub,omitempty"`
-	JTI string `json:"jti,omitempty"`
-}
-
-// revokeToken sends a token revocation request via the gateway proxy.
-func revokeToken(ctx context.Context, gwURL, token, tenantID string, req revokeRequest) (int, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return 0, fmt.Errorf("revoke token: marshal: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		gwURL+"/api/v1/tenants/"+tenantID+"/tokens/revoke", bytes.NewReader(body))
-	if err != nil {
-		return 0, fmt.Errorf("revoke token: create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+token)
-
-	client := &http.Client{Timeout: revocationHTTPTimeout}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return 0, fmt.Errorf("revoke token: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	_, _ = io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // drain body
-
-	return resp.StatusCode, nil
-}
-
-// connectAndReadLoop connects a WS client and starts ReadLoop in a goroutine.
-// Returns the client and a channel that receives the close code when ReadLoop exits.
-func connectAndReadLoop(ctx context.Context, gwURL, token string, logger zerolog.Logger) (*testerws.Client, <-chan ws.StatusCode, error) {
+// connectAndReadLoop connects a WS client. Callers MUST launch ReadLoop via wg.Go() (§VII).
+func connectAndReadLoop(ctx context.Context, gwURL, token string, logger zerolog.Logger) (*testerws.Client, error) {
 	client, err := testerws.Connect(ctx, testerws.ConnectConfig{
 		GatewayURL: gwURL,
 		Token:      token,
 		Logger:     logger,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("connect: %w", err)
+		return nil, fmt.Errorf("connect: %w", err)
 	}
-
-	codeCh := make(chan ws.StatusCode, 1)
-	go func() {
-		defer logging.RecoverPanic(logger, "revocation-read-loop", nil)
-		code, _ := client.ReadLoop(ctx)
-		codeCh <- code
-	}()
-
-	return client, codeCh, nil
+	return client, nil
 }
 
 // waitForCloseCode waits for a close code on the channel with timeout.
@@ -138,10 +91,10 @@ func validateTokenRevocation(ctx context.Context, run *TestRun, logger zerolog.L
 	if err != nil {
 		return nil, fmt.Errorf("fetch edition: %w", err)
 	}
-	if edition == license.Community {
+	if !license.EditionHasFeature(edition, license.TokenRevocation) {
 		return []metrics.CheckResult{{
 			Name: "edition-gate", Status: metrics.CheckStatusSkip,
-			Error: "token revocation requires Pro+ edition (current: Community)",
+			Error: "token revocation requires Pro+ edition (current: " + string(edition) + ")",
 		}}, nil
 	}
 	logger.Info().Str("edition", string(edition)).Msg("token-revocation suite starting")
@@ -156,7 +109,7 @@ func validateTokenRevocation(ctx context.Context, run *TestRun, logger zerolog.L
 	checks = append(checks, checkSSERevocation(ctx, gwURL, minter, tenantID, provClient, logger)...)
 
 	// --- Scenario 4: push registration cleanup (Enterprise only) ---
-	if edition == license.Enterprise {
+	if license.EditionHasFeature(edition, license.PushNotifications) {
 		checks = append(checks, checkPushRevocation(ctx, gwURL, minter, tenantID, provClient, logger)...)
 	} else {
 		checks = append(checks, metrics.CheckResult{
@@ -192,12 +145,22 @@ func checkJTIRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 		return append(checks, metrics.CheckResult{Name: "jti-force-disconnect", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("mint: %v", err)})
 	}
 
-	// Connect and start ReadLoop
-	client, codeCh, err := connectAndReadLoop(ctx, gwURL, token, logger)
+	// Connect and start ReadLoop via wg.Go (§VII — no bare goroutines).
+	client, err := connectAndReadLoop(ctx, gwURL, token, logger)
 	if err != nil {
 		return append(checks, metrics.CheckResult{Name: "jti-force-disconnect", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("connect: %v", err)})
 	}
-	defer func() { _ = client.Close() }()
+	codeCh := make(chan ws.StatusCode, 1)
+	var readWg sync.WaitGroup
+	readWg.Go(func() {
+		defer logging.RecoverPanic(logger, "jti-revocation-read-loop", nil)
+		code, _ := client.ReadLoop(ctx)
+		codeCh <- code
+	})
+	defer func() {
+		_ = client.Close() // triggers ReadLoop exit if not already complete
+		readWg.Wait()
+	}()
 
 	// Revoke the jti
 	status, err := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: jti})
@@ -252,12 +215,13 @@ func checkSubRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 	sub := "revoke-user-" + uuid.NewString()[:8]
 	oldIAT := time.Now().Add(-1 * time.Hour)
 
-	// Connect 3 connections for the same sub with old iat
+	// Connect 3 connections for the same sub with old iat (§VII — goroutines via wg.Go).
 	type connResult struct {
 		client *testerws.Client
 		codeCh <-chan ws.StatusCode
 	}
 	conns := make([]connResult, 3)
+	var connWg sync.WaitGroup
 	for i := range 3 {
 		jti := fmt.Sprintf("sub-test-jti-%d-%s", i, uuid.NewString()[:8])
 		token, err := minter.MintWithClaims(auth.MintOptions{
@@ -266,17 +230,29 @@ func checkSubRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 			IssuedAt: oldIAT,
 		})
 		if err != nil {
-			return append(checks, metrics.CheckResult{Name: "sub-force-disconnect-all", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("mint conn %d: %v", i, err)})
-		}
-
-		client, codeCh, err := connectAndReadLoop(ctx, gwURL, token, logger)
-		if err != nil {
-			// Clean up already-connected clients
 			for j := range i {
 				_ = conns[j].client.Close()
 			}
+			connWg.Wait()
+			return append(checks, metrics.CheckResult{Name: "sub-force-disconnect-all", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("mint conn %d: %v", i, err)})
+		}
+
+		client, err := connectAndReadLoop(ctx, gwURL, token, logger)
+		if err != nil {
+			for j := range i {
+				_ = conns[j].client.Close()
+			}
+			connWg.Wait()
 			return append(checks, metrics.CheckResult{Name: "sub-force-disconnect-all", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("connect conn %d: %v", i, err)})
 		}
+
+		codeCh := make(chan ws.StatusCode, 1)
+		c := client
+		connWg.Go(func() {
+			defer logging.RecoverPanic(logger, "sub-revocation-read-loop", nil)
+			code, _ := c.ReadLoop(ctx)
+			codeCh <- code
+		})
 		conns[i] = connResult{client: client, codeCh: codeCh}
 	}
 	defer func() {
@@ -285,6 +261,7 @@ func checkSubRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 				_ = c.client.Close()
 			}
 		}
+		connWg.Wait()
 	}()
 
 	// Revoke by sub
@@ -302,19 +279,21 @@ func checkSubRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 			Error: fmt.Sprintf("revoke: HTTP %d, err: %v", status, revokeErr)})
 	}
 
-	// AC1: verify all 3 close codes in parallel
+	// AC1: verify all 3 close codes in parallel (§VII — goroutines via wg.Go).
 	type closeResult struct {
 		index int
 		check metrics.CheckResult
 	}
 	resultCh := make(chan closeResult, 3)
+	var verifyWg sync.WaitGroup
 	for i, c := range conns {
-		go func() {
+		verifyWg.Go(func() {
 			defer logging.RecoverPanic(logger, "sub-close-verify", nil)
 			r := waitForCloseCode(fmt.Sprintf("sub-force-disconnect-%d", i), c.codeCh, revocationTimeout, ws.StatusPolicyViolation)
 			resultCh <- closeResult{index: i, check: r}
-		}()
+		})
 	}
+	verifyWg.Wait()
 
 	allPass := true
 	for range 3 {
@@ -437,14 +416,18 @@ func checkSSERevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 		return append(checks, metrics.CheckResult{Name: "sse-force-disconnect", Status: metrics.CheckStatusFail,
 			Error: fmt.Sprintf("SSE connect: HTTP %d, err: %v", sseStatus, err)})
 	}
-	defer func() { _ = sseClient.Close() }()
-
-	// Start reading in background
+	// Start reading in background via wg.Go (§VII — no bare goroutines).
+	// Cleanup order: close socket (unblocks ReadEvent scanner) → wait.
 	eofCh := make(chan error, 1)
-	go func() {
+	var sseWg sync.WaitGroup
+	sseWg.Go(func() {
 		defer logging.RecoverPanic(logger, "sse-revocation-read", nil)
 		_, readErr := sseClient.ReadEvent(ctx)
 		eofCh <- readErr
+	})
+	defer func() {
+		_ = sseClient.Close()
+		sseWg.Wait()
 	}()
 
 	// Revoke the jti
@@ -521,7 +504,11 @@ func checkPushRevocation(ctx context.Context, gwURL string, minter *auth.Minter,
 	// Retry loop: re-subscribe until deviceID changes (confirms old registration deleted)
 	start := time.Now()
 	for attempt := range pushRetryAttempts {
-		time.Sleep(pushRetryInterval)
+		select {
+		case <-time.After(pushRetryInterval):
+		case <-ctx.Done():
+			return checks
+		}
 
 		newJTI := fmt.Sprintf("revoke-push-retry-%d-%s", attempt, uuid.NewString()[:8])
 		newToken, err := minter.MintWithClaims(auth.MintOptions{

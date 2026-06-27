@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	testerapi "github.com/klurvio/sukko/cmd/tester/api"
@@ -44,6 +45,12 @@ type TesterConfig struct {
 	APIKey             string        `env:"TESTER_API_KEY" envDefault:"" redact:"true"`
 	AuthMixRatio       float64       `env:"TESTER_AUTH_MIX_RATIO" envDefault:"0.5"`
 	AuthUpgradeTimeout time.Duration `env:"TESTER_AUTH_UPGRADE_TIMEOUT" envDefault:"10s"`
+
+	// Gateway metrics scraping for revocation load suites.
+	// GatewayMetricsURL is the Prometheus metrics endpoint of the gateway pod.
+	// When empty, metric-drift checks are skipped (not an error — recorded as skipped_checks).
+	GatewayMetricsURL      string        `env:"TESTER_GATEWAY_METRICS_URL" envDefault:""`
+	GatewayMetricsInterval time.Duration `env:"TESTER_GATEWAY_METRICS_INTERVAL" envDefault:"30s"`
 }
 
 func (c *TesterConfig) Validate() error {
@@ -103,6 +110,15 @@ func (c *TesterConfig) Validate() error {
 	}
 	if (c.AuthMode == runner.AuthModeAPIKey || c.AuthMode == runner.AuthModeUpgrade) && c.APIKey == "" {
 		return fmt.Errorf("TESTER_API_KEY is required when TESTER_AUTH_MODE is %q", c.AuthMode)
+	}
+	// GatewayMetricsInterval must be positive unconditionally — time.NewTicker(0) panics.
+	if c.GatewayMetricsInterval <= 0 {
+		return fmt.Errorf("TESTER_GATEWAY_METRICS_INTERVAL must be positive, got %v", c.GatewayMetricsInterval)
+	}
+	if c.GatewayMetricsURL != "" {
+		if !strings.HasPrefix(c.GatewayMetricsURL, "http://") && !strings.HasPrefix(c.GatewayMetricsURL, "https://") {
+			return fmt.Errorf("TESTER_GATEWAY_METRICS_URL must start with http:// or https://, got %q", c.GatewayMetricsURL)
+		}
 	}
 	return nil
 }

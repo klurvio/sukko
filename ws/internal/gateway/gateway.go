@@ -42,6 +42,9 @@ const (
 // Used in health responses, logging, tracing, and profiling.
 const ServiceName = "ws-gateway"
 
+// MetricPrefix is the Prometheus metric name prefix for all gateway metrics.
+const MetricPrefix = "gateway"
+
 // Gateway handles WebSocket connections, authenticating clients and proxying
 // to the ws-server backend with permission-based channel filtering.
 type Gateway struct {
@@ -146,7 +149,7 @@ func (gw *Gateway) setupValidator() error {
 		GRPCAddr:          gw.config.ProvisioningGRPCAddr,
 		ReconnectDelay:    gw.config.GRPCReconnectDelay,
 		ReconnectMaxDelay: gw.config.GRPCReconnectMaxDelay,
-		MetricPrefix:      "gateway",
+		MetricPrefix:      MetricPrefix,
 		Logger:            gw.logger.With().Str("component", "key_registry").Logger(),
 	})
 	if err != nil {
@@ -159,7 +162,7 @@ func (gw *Gateway) setupValidator() error {
 		GRPCAddr:          gw.config.ProvisioningGRPCAddr,
 		ReconnectDelay:    gw.config.GRPCReconnectDelay,
 		ReconnectMaxDelay: gw.config.GRPCReconnectMaxDelay,
-		MetricPrefix:      "gateway",
+		MetricPrefix:      MetricPrefix,
 		Logger:            gw.logger.With().Str("component", "api_key_registry").Logger(),
 	})
 	if err != nil {
@@ -174,7 +177,7 @@ func (gw *Gateway) setupValidator() error {
 		GRPCAddr:          gw.config.ProvisioningGRPCAddr,
 		ReconnectDelay:    gw.config.GRPCReconnectDelay,
 		ReconnectMaxDelay: gw.config.GRPCReconnectMaxDelay,
-		MetricPrefix:      "gateway",
+		MetricPrefix:      MetricPrefix,
 		Logger:            gw.logger.With().Str("component", "channel_rules_provider").Logger(),
 	})
 	if err != nil {
@@ -551,7 +554,7 @@ func (gw *Gateway) NewServer() *http.Server {
 	mux.HandleFunc("/ws", gw.HandleWebSocket)
 	mux.HandleFunc("/health", gw.HandleHealth)
 	mux.HandleFunc("/ready", gw.HandleReady)
-	mux.HandleFunc("/version", version.Handler("gateway"))
+	mux.HandleFunc("/version", version.Handler(MetricPrefix))
 	mux.HandleFunc("/edition", license.EditionHandler(gw.config.EditionManager(), gw.editionUsage))
 	mux.HandleFunc("/config", platform.ConfigHandler(gw.config))
 	mux.HandleFunc("/metrics", HandleMetrics)
@@ -677,7 +680,7 @@ func (gw *Gateway) HandleRevocation(entry provapi.RevocationEntry) {
 			return
 		}
 		transport := conn.Transport()
-		conn.ForceClose(1008, "token revoked") //nolint:mnd // 1008 = Policy Violation per RFC 6455
+		conn.ForceClose(int(ws.StatusPolicyViolation), "token revoked")
 		sub, jti, _ := conn.ConnectionClaims()
 		gw.logger.Info().
 			Str("jti", jti).
@@ -696,7 +699,7 @@ func (gw *Gateway) HandleRevocation(entry provapi.RevocationEntry) {
 				continue // token issued after revocation — re-enabled user, skip
 			}
 			transport := conn.Transport()
-			conn.ForceClose(1008, "user revoked") //nolint:mnd // 1008 = Policy Violation per RFC 6455
+			conn.ForceClose(int(ws.StatusPolicyViolation), "user revoked")
 			sub, jti, _ := conn.ConnectionClaims()
 			gw.logger.Info().
 				Str("jti", jti).

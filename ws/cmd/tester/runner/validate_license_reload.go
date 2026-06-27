@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/klurvio/sukko/cmd/tester/auth"
@@ -180,14 +181,18 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 			Error: fmt.Sprintf("failed to connect: %v", wsErr)})
 		return checks
 	}
-	defer func() { _ = wsClient.Close() }()
-
-	// Start read loop in background
+	// Start read loop via wg.Go (§VII — no bare goroutines).
+	// Cleanup order: cancel context → close socket (unblocks ReadLoop) → wait.
 	readCtx, readCancel := context.WithCancel(ctx)
-	defer readCancel()
-	go func() {
+	var readWg sync.WaitGroup
+	readWg.Go(func() {
 		defer logging.RecoverPanic(logger, "license-reload-read-loop", nil)
 		_, _ = wsClient.ReadLoop(readCtx)
+	})
+	defer func() {
+		readCancel()
+		_ = wsClient.Close()
+		readWg.Wait()
 	}()
 
 	// Subscribe to delivery channel
