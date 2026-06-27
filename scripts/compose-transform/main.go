@@ -26,6 +26,8 @@ var serviceImageMap = map[string]string{
 	"ws-server":    "ghcr.io/klurvio/sukko-server:latest",
 	"ws-gateway":   "ghcr.io/klurvio/sukko-gateway:latest",
 	"sukko-tester": "ghcr.io/klurvio/sukko-tester:latest",
+	"postgres":     "postgres:16-alpine",
+	"push-service": "ghcr.io/klurvio/sukko-push:latest",
 }
 
 func main() {
@@ -111,6 +113,12 @@ func transformService(name string, def *yaml.Node, errOut io.Writer) {
 
 	// Remove the build key-value pair (key at buildIdx, value at buildIdx+1)
 	def.Content = append(def.Content[:buildIdx], def.Content[buildIdx+2:]...)
+
+	// Strip platform: — it's a dev-only build architecture constraint. Published images
+	// should use host-native platform resolution via the image manifest.
+	if platformIdx := findMapKeyIndex(def, "platform"); platformIdx >= 0 {
+		def.Content = append(def.Content[:platformIdx], def.Content[platformIdx+2:]...)
+	}
 
 	if !known {
 		return // Unknown service — just remove build, don't add image

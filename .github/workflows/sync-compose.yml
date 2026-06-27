@@ -25,6 +25,10 @@ jobs:
         with:
           go-version-file: scripts/compose-transform/go.mod
 
+      - name: Test compose-transform
+        working-directory: scripts/compose-transform
+        run: go test -race ./...
+
       - name: Transform docker-compose.yml
         run: |
           cd scripts/compose-transform
