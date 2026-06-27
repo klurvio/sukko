@@ -116,6 +116,7 @@ func TestRebalance_CommitOnLeaveGroup(t *testing.T) {
 	if err := consumer.Start(); err != nil {
 		t.Fatalf("consumer.Start: %v", err)
 	}
+	t.Cleanup(func() { _ = consumer.Stop() })
 
 	// Wait for at least 1 record to be broadcast
 	select {
@@ -136,10 +137,10 @@ func TestRebalance_CommitOnLeaveGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create query client: %v", err)
 	}
-	defer queryClient.Close()
+	t.Cleanup(queryClient.Close)
 
-	adm3 := kadm.NewClient(queryClient)
-	offsets, err := adm3.FetchOffsetsForTopics(ctx, groupID, map[string][]int32{topicName: nil})
+	queryAdm := kadm.NewClient(queryClient)
+	offsets, err := queryAdm.FetchOffsetsForTopics(ctx, groupID, topicName)
 	if err != nil {
 		t.Fatalf("FetchOffsetsForTopics: %v", err)
 	}
@@ -157,6 +158,4 @@ func TestRebalance_CommitOnLeaveGroup(t *testing.T) {
 	}
 
 	t.Logf("broadcast count: %d, committed offset: %d", broadcastCount.Load(), maxCommitted)
-
-	_ = consumer.Stop()
 }
