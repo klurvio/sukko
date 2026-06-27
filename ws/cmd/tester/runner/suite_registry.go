@@ -25,4 +25,5 @@ var SuiteRegistry = map[string]SuiteInfo{
 	"token-revocation": {Name: "token-revocation", Description: "Token revocation force-disconnect and rejection validation"},
 	"api-key":          {Name: "api-key", Description: "validates static API key auth in isolation — no JWT provisioning; distinct from the 'auth' suite which validates both auth methods within a single run"},
 	"upgrade":          {Name: "upgrade", Description: "validates the auth upgrade flow — connect with API key, upgrade to JWT via auth message, access private channels"},
+	SuiteRevocation:    {Name: SuiteRevocation, Description: "Token revocation load testing — stress (mass force-disconnect at 1,000 connections) and soak (repeated revoke/reconnect over hours, memory/goroutine drift monitoring). Requires Pro+ edition."},
 }

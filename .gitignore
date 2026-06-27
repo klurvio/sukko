@@ -6,6 +6,7 @@ ws/push
 ws/tester
 ws/cli
 ws/migrate-dlq
+ws/webhook-worker
 scripts/compose-transform/compose-transform
 
 # Go build artifacts

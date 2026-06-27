@@ -122,7 +122,7 @@ func main() {
 		logger.Warn().Msg("WS_POD_ID is deprecated; set SUKKO_POD_ID via Kubernetes Downward API (fieldPath: metadata.name)")
 	}
 	analyticsCollector := analytics.NewCollector(analytics.CollectorConfig{
-		ServicePrefix:  "gateway",
+		ServicePrefix:  gateway.MetricPrefix,
 		PodID:          config.PodID(),
 		BufferSize:     config.BufferSize,
 		FlushInterval:  config.FlushInterval,
@@ -182,7 +182,7 @@ func main() {
 		GRPCAddr:          config.ProvisioningGRPCAddr,
 		ReconnectDelay:    config.GRPCReconnectDelay,
 		ReconnectMaxDelay: config.GRPCReconnectMaxDelay,
-		MetricPrefix:      "gateway",
+		MetricPrefix:      gateway.MetricPrefix,
 		Manager:           config.EditionManager(),
 		Logger:            logger,
 		OnDowngrade:       provapi.LicenseDowngradeShutdown(logger, cancel),
@@ -192,6 +192,24 @@ func main() {
 	}
 	gw.SetLicenseWatcher(licenseWatcher)
 	logger.Info().Str("addr", config.ProvisioningGRPCAddr).Msg("License watcher started")
+
+	// Wire token revocation stream — guards on ProvisioningGRPCAddr same as licenseWatcher above.
+	// When addr is empty (local dev without provisioning), revocations are silently skipped.
+	if config.ProvisioningGRPCAddr != "" {
+		revReg, err := provapi.NewStreamRevocationRegistry(provapi.StreamRevocationRegistryConfig{
+			GRPCAddr:          config.ProvisioningGRPCAddr,
+			ReconnectDelay:    config.GRPCReconnectDelay,
+			ReconnectMaxDelay: config.GRPCReconnectMaxDelay,
+			MetricPrefix:      gateway.MetricPrefix,
+			Logger:            logger,
+			OnRevocation:      func(entry provapi.RevocationEntry) { gw.HandleRevocation(entry) },
+		})
+		if err != nil {
+			logger.Fatal().Err(err).Msg("Failed to create revocation stream registry")
+		}
+		gw.SetRevocationRegistry(revReg)
+		logger.Info().Str("addr", config.ProvisioningGRPCAddr).Msg("Revocation stream registry started")
+	}
 
 	// Create publish rate limiter (background cleanup goroutine)
 	var limiterWg sync.WaitGroup

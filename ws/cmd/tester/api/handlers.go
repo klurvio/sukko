@@ -204,6 +204,13 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// suite=revocation is only valid for stress and soak test types.
+	if req.Suite == runner.SuiteRevocation && testType != runner.TestStress && testType != runner.TestSoak {
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest,
+			fmt.Sprintf("suite=%s is only valid for type=stress or type=soak, not %q", runner.SuiteRevocation, req.Type))
+		return
+	}
+
 	// Validate context block (all-or-nothing)
 	if req.Context != nil {
 		if req.Context.GatewayURL == "" || req.Context.ProvisioningURL == "" ||

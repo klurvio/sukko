@@ -77,6 +77,8 @@ wc -c ~/.sukko/admin.key   # should print exactly 64
 | `TESTER_API_KEY` | — | api-key / upgrade modes | Static pre-provisioned API key. Required when `TESTER_AUTH_MODE` is `api-key` or `upgrade`; optional for `mixed`. **Never echoed by the `/config` endpoint** (`redact:"true"`). |
 | `TESTER_AUTH_MIX_RATIO` | `0.5` | no | Fraction of connections using API key in `mixed` mode (range 0.0–1.0). Applies to load/soak only. |
 | `TESTER_AUTH_UPGRADE_TIMEOUT` | `10s` | no | Timeout waiting for `auth_ack` during upgrade flow. Max 60s. |
+| `TESTER_GATEWAY_METRICS_URL` | — | stress:revocation / soak:revocation | Prometheus `/metrics` endpoint of the gateway pod (e.g. `http://gateway-pod:9090`). Leave empty to skip gateway-side metric checks. Must use `http://` or `https://` scheme. Single-replica gateway required. |
+| `TESTER_GATEWAY_METRICS_INTERVAL` | `30s` | no | Poll interval for gateway Prometheus metrics scrapes. Must be positive. |
 
 ---
 
@@ -110,6 +112,13 @@ Signal vocabulary:
 | 15 | `license-reload` | Community | no | License hot-reload propagation |
 | 16 | `api-key` | Community | no | API key auth in isolation (no JWT provisioning) |
 | 17 | `upgrade` | Community | no | Auth upgrade flow: connect with API key, upgrade to JWT |
+
+### 3. Load Suite Battery
+
+| # | Suite name | Min edition | Admin key | Description |
+|---|-----------|------------|-----------|-------------|
+| 18 | `stress:revocation` | **Pro** | **yes** | Mass force-disconnect at 1,000 connections: S1 (sub-based revoke, p99 ≤ 10s), S2 (mixed keep/revoke with message continuity), S3 (reconnect verification, ≥95% pass) |
+| 19 | `soak:revocation` | **Pro** | **yes** | Repeated revoke/reconnect over hours: S1 (pool ramp-up health), S2 (cycle error rate ≤ 5%), S3 (memory/goroutine drift monitoring), S4 (JTI pruner cleanup via Prometheus) |
 
 > Note: `edition-limits` does NOT test `MaxTopicsPerTenant` — it is excluded from
 > the normative test matrix. Do not add it as a tested dimension.
@@ -442,6 +451,44 @@ The SSE metrics stream and the final report include these fields when non-zero:
 - `ws_server_messages_sent_total` — delivery rate
 - `gateway_websocket_connections_active` — gateway-side active count
 - Memory growth over time (soak tests)
+
+### 3.4 Revocation load suites (Pro+)
+
+Both revocation suites require **Pro edition**, an **admin key**, and a `GatewayURL`
+that points to a single-replica gateway pod. Set `TESTER_GATEWAY_METRICS_URL` to the
+gateway's Prometheus endpoint to enable gateway-side metric checks (S1-AC2, S2-AC2, S4).
+
+**Preflight check** (soak only, when `TESTER_GATEWAY_METRICS_URL` is set): scrapes
+`gateway_token_revocation_map_entries` and `gateway_token_force_disconnects_total` at
+start. If the gateway is not scraping correctly, the soak is aborted early.
+
+#### 3.4.1 stress:revocation (suite #18)
+
+```bash
+sukko test stress --suite revocation --connections 1000 --follow
+```
+
+| Stage | What it tests | Acceptance criteria |
+|---|---|---|
+| S1 | 1,000 sub-based revocations fired simultaneously | p99 force-disconnect ≤ 10s; ≥ 95% close events received |
+| S2 | 500 keep + 500 revoke connections with active publisher | ≥ 500 `keep` connections receive all messages without gaps; revoke pool is fully disconnected |
+| S3 | 100 tokens issued with future `IssuedAt`, reconnect verified | ≥ 95% reconnect successfully after revocation |
+
+#### 3.4.2 soak:revocation (suite #19)
+
+```bash
+sukko test soak --suite revocation --duration 2h --connections 100 --follow
+```
+
+| Stage | What it tests | Acceptance criteria |
+|---|---|---|
+| S1 | Pool ramp-up and initial connection health | All connections alive; cumulative error rate ≤ 5% |
+| S2 | Repeated revoke/reconnect cycles every 30s | Per-cycle error rate ≤ 5% throughout soak |
+| S3 | Memory/goroutine drift over full soak duration | Gateway heap ≤ 20% above baseline; revocation map plateaus in last 25% of run; goroutines ±10% of baseline |
+| S4 | JTI expiry-based pruner cleanup | `gateway_token_revocation_map_entries` drops within 2 min of JTI expiry |
+
+> S3 and S4 require `TESTER_GATEWAY_METRICS_URL`. If not set, S3/S4 checks are recorded
+> as `skip` and the suite still passes.
 
 ---
 

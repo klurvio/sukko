@@ -56,26 +56,29 @@ type TestContext struct {
 
 // TestConfig holds the parameters for a test run.
 type TestConfig struct {
-	Type            TestType     `json:"type"`
-	GatewayURL      string       `json:"gateway_url"`
-	ProvisioningURL string       `json:"provisioning_url,omitempty"`
-	APIKey          string       `json:"-"` // per-request API key; tagged json:"-" — credentials must never appear in API responses (§IX)
-	AuthMode        AuthMode     `json:"auth_mode,omitempty"`
-	AuthMixRatio    float64      `json:"auth_mix_ratio,omitzero"`
-	MessageBackend  string       `json:"message_backend,omitempty"`
-	KafkaBrokers    string       `json:"kafka_brokers,omitempty"`
-	Connections     int          `json:"connections,omitzero"`
-	Duration        string       `json:"duration,omitempty"`
-	PublishRate     int          `json:"publish_rate,omitzero"`
-	RampRate        int          `json:"ramp_rate,omitzero"`
-	Suite           string       `json:"suite,omitempty"`       // for validate type
-	ChannelMode     bool         `json:"channel_mode,omitzero"` // for load: distribute across public/user/group channels
-	TenantID        string       `json:"tenant_id,omitempty"`
-	SigningKeyFile  string       `json:"signing_key_file,omitempty"` // Ed25519 private key path (env var fallback)
-	SigningKeyBytes []byte       `json:"-"`                          // Ed25519 private key bytes (API passthrough, never serialized)
-	AdminKeyBytes   []byte       `json:"-"`                          // Ed25519 private key bytes from per-request admin_key (never serialized)
-	AdminKeyID      string       `json:"-"`                          // effective kid for per-request key (overridden by admin_key_id body field)
-	Context         *TestContext `json:"context,omitzero"`
+	Type                   TestType      `json:"type"`
+	GatewayURL             string        `json:"gateway_url"`
+	ProvisioningURL        string        `json:"provisioning_url,omitempty"`
+	APIKey                 string        `json:"-"` // per-request API key; tagged json:"-" — credentials must never appear in API responses (§IX)
+	AuthMode               AuthMode      `json:"auth_mode,omitempty"`
+	AuthMixRatio           float64       `json:"auth_mix_ratio,omitzero"`
+	MessageBackend         string        `json:"message_backend,omitempty"`
+	KafkaBrokers           string        `json:"kafka_brokers,omitempty"`
+	Connections            int           `json:"connections,omitzero"`
+	Duration               string        `json:"duration,omitempty"`
+	PublishRate            int           `json:"publish_rate,omitzero"`
+	RampRate               int           `json:"ramp_rate,omitzero"`
+	Suite                  string        `json:"suite,omitempty"`       // for validate type
+	ChannelMode            bool          `json:"channel_mode,omitzero"` // for load: distribute across public/user/group channels
+	TenantID               string        `json:"tenant_id,omitempty"`
+	GatewayMetricsURL      string        `json:"gateway_metrics_url,omitempty"`
+	GatewayMetricsInterval time.Duration `json:"-"` // never serialized — config-level only
+	RevocationsPerCycle    int           `json:"revocations_per_cycle,omitzero"`
+	SigningKeyFile         string        `json:"signing_key_file,omitempty"` // Ed25519 private key path (env var fallback)
+	SigningKeyBytes        []byte        `json:"-"`                          // Ed25519 private key bytes (API passthrough, never serialized)
+	AdminKeyBytes          []byte        `json:"-"`                          // Ed25519 private key bytes from per-request admin_key (never serialized)
+	AdminKeyID             string        `json:"-"`                          // effective kid for per-request key (overridden by admin_key_id body field)
+	Context                *TestContext  `json:"context,omitzero"`
 }
 
 // TestStatus represents the current state of a test run.
@@ -147,6 +150,9 @@ type Config struct {
 	APIKey             string // TESTER_API_KEY; stored here only, never in TestConfig (§IX)
 	AuthMixRatio       float64
 	AuthUpgradeTimeout time.Duration
+	// Gateway metrics scraping for revocation load suites.
+	GatewayMetricsURL      string
+	GatewayMetricsInterval time.Duration
 }
 
 // New creates a Runner with the given configuration and logger.
@@ -186,6 +192,12 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 	if cfg.AuthMixRatio == 0 && r.cfg.AuthMixRatio != 0 {
 		cfg.AuthMixRatio = r.cfg.AuthMixRatio
 	}
+	// GatewayMetricsURL: per-run override takes precedence; fall back to service-level.
+	if cfg.GatewayMetricsURL == "" {
+		cfg.GatewayMetricsURL = r.cfg.GatewayMetricsURL
+	}
+	// GatewayMetricsInterval: always use service-level value — no per-run override.
+	cfg.GatewayMetricsInterval = r.cfg.GatewayMetricsInterval
 
 	// §II defense-in-depth: validate auth mode and mode/type combinations.
 	// The handler also validates, but the runner validates again for programmatic callers.
@@ -231,6 +243,11 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 		if cfg.TenantID == "" {
 			return nil, fmt.Errorf("auth_mode=upgrade requires tenant_id: %w", ErrInvalidConfig)
 		}
+	}
+
+	// suite=revocation is only valid for stress and soak test types.
+	if cfg.Suite == SuiteRevocation && cfg.Type != TestStress && cfg.Type != TestSoak {
+		return nil, fmt.Errorf("suite=%s is only valid for type=stress or type=soak, got type=%s: %w", SuiteRevocation, cfg.Type, ErrInvalidConfig)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -438,9 +455,17 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 		case TestLoad:
 			report, err = runLoad(ctx, run, logger)
 		case TestStress:
-			report, err = runStress(ctx, run, logger)
+			if run.Config.Suite == SuiteRevocation {
+				report, err = runStressRevocation(ctx, run, logger)
+			} else {
+				report, err = runStress(ctx, run, logger)
+			}
 		case TestSoak:
-			report, err = runSoak(ctx, run, logger)
+			if run.Config.Suite == SuiteRevocation {
+				report, err = runSoakRevocation(ctx, run, logger)
+			} else {
+				report, err = runSoak(ctx, run, logger)
+			}
 		case TestValidate:
 			report, err = runValidate(ctx, run, logger)
 		default:

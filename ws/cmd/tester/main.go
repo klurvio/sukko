@@ -48,20 +48,22 @@ func run() error {
 	})
 
 	r := runner.New(runner.Config{
-		GatewayURL:         cfg.GatewayURL,
-		ProvisioningURL:    cfg.ProvisioningURL,
-		MessageBackend:     cfg.MessageBackend,
-		KafkaBrokers:       cfg.KafkaBrokers,
-		JWTLifetime:        cfg.JWTLifetime,
-		JWTRefreshBefore:   cfg.JWTRefreshBefore,
-		KeyExpiry:          cfg.KeyExpiry,
-		SigningKeyFile:     cfg.SigningKeyFile,
-		AdminKeyFile:       cfg.AdminKeyFile,
-		AdminKeyID:         cfg.AdminKeyID,
-		AuthMode:           cfg.AuthMode,
-		APIKey:             cfg.APIKey,
-		AuthMixRatio:       cfg.AuthMixRatio,
-		AuthUpgradeTimeout: cfg.AuthUpgradeTimeout,
+		GatewayURL:             cfg.GatewayURL,
+		ProvisioningURL:        cfg.ProvisioningURL,
+		MessageBackend:         cfg.MessageBackend,
+		KafkaBrokers:           cfg.KafkaBrokers,
+		JWTLifetime:            cfg.JWTLifetime,
+		JWTRefreshBefore:       cfg.JWTRefreshBefore,
+		KeyExpiry:              cfg.KeyExpiry,
+		SigningKeyFile:         cfg.SigningKeyFile,
+		AdminKeyFile:           cfg.AdminKeyFile,
+		AdminKeyID:             cfg.AdminKeyID,
+		AuthMode:               cfg.AuthMode,
+		APIKey:                 cfg.APIKey,
+		AuthMixRatio:           cfg.AuthMixRatio,
+		AuthUpgradeTimeout:     cfg.AuthUpgradeTimeout,
+		GatewayMetricsURL:      cfg.GatewayMetricsURL,
+		GatewayMetricsInterval: cfg.GatewayMetricsInterval,
 	}, logger)
 
 	handler := api.NewRouter(r, cfg.AuthToken, cfg.AdminKeyID, logger)

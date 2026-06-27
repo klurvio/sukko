@@ -27,6 +27,7 @@ const (
 	SuiteAPIKey      = "api-key"
 	SuiteUpgrade     = "upgrade"
 	SuiteRestPublish = "rest-publish"
+	SuiteRevocation  = "revocation"
 )
 
 // privateChannelSuffix is the channel name suffix used in the api-key validation

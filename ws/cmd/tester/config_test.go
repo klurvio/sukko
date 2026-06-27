@@ -26,16 +26,17 @@ func TestTesterConfig_Validate(t *testing.T) {
 			MessageBackendBase: platform.MessageBackendBase{
 				MessageBackend: "direct",
 			},
-			Port:               8090,
-			GatewayURL:         "ws://localhost:3000",
-			ProvisioningURL:    "http://localhost:8080",
-			AdminKeyID:         provauth.BootstrapAdminKeyID, // mirrors envDefault:"bootstrap-0"
-			JWTLifetime:        15 * time.Minute,
-			JWTRefreshBefore:   2 * time.Minute,
-			KeyExpiry:          24 * time.Hour,
-			AuthMode:           "jwt",
-			AuthMixRatio:       0.5,
-			AuthUpgradeTimeout: 10 * time.Second,
+			Port:                   8090,
+			GatewayURL:             "ws://localhost:3000",
+			ProvisioningURL:        "http://localhost:8080",
+			AdminKeyID:             provauth.BootstrapAdminKeyID, // mirrors envDefault:"bootstrap-0"
+			JWTLifetime:            15 * time.Minute,
+			JWTRefreshBefore:       2 * time.Minute,
+			KeyExpiry:              24 * time.Hour,
+			AuthMode:               "jwt",
+			AuthMixRatio:           0.5,
+			AuthUpgradeTimeout:     10 * time.Second,
+			GatewayMetricsInterval: 30 * time.Second,
 		}
 	}
 
@@ -275,6 +276,44 @@ func TestTesterConfig_Validate(t *testing.T) {
 		{
 			name:   "auth_upgrade_timeout valid",
 			modify: func(c *TesterConfig) { c.AuthUpgradeTimeout = 10 * time.Second },
+		},
+		// GatewayMetricsInterval validation (SC-004)
+		{
+			name:    "gateway_metrics_interval zero",
+			modify:  func(c *TesterConfig) { c.GatewayMetricsInterval = 0 },
+			wantErr: "TESTER_GATEWAY_METRICS_INTERVAL must be positive",
+		},
+		{
+			name:    "gateway_metrics_interval negative",
+			modify:  func(c *TesterConfig) { c.GatewayMetricsInterval = -1 * time.Second },
+			wantErr: "TESTER_GATEWAY_METRICS_INTERVAL must be positive",
+		},
+		{
+			name:   "gateway_metrics_interval valid",
+			modify: func(c *TesterConfig) { c.GatewayMetricsInterval = 30 * time.Second },
+		},
+		// GatewayMetricsURL validation (SC-004)
+		{
+			name:    "gateway_metrics_url invalid scheme",
+			modify:  func(c *TesterConfig) { c.GatewayMetricsURL = "ftp://invalid:9999" },
+			wantErr: "TESTER_GATEWAY_METRICS_URL must start with http:// or https://",
+		},
+		{
+			name:    "gateway_metrics_url no scheme",
+			modify:  func(c *TesterConfig) { c.GatewayMetricsURL = "localhost:9090" },
+			wantErr: "TESTER_GATEWAY_METRICS_URL must start with http:// or https://",
+		},
+		{
+			name:   "gateway_metrics_url valid http",
+			modify: func(c *TesterConfig) { c.GatewayMetricsURL = "http://gateway:9090" },
+		},
+		{
+			name:   "gateway_metrics_url valid https",
+			modify: func(c *TesterConfig) { c.GatewayMetricsURL = "https://gateway:9090" },
+		},
+		{
+			name:   "gateway_metrics_url empty (disabled)",
+			modify: func(c *TesterConfig) { c.GatewayMetricsURL = "" },
 		},
 	}
 

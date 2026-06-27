@@ -194,6 +194,59 @@ func TestTestStatus_Constants(t *testing.T) {
 	}
 }
 
+func TestSuiteRegistry_ContainsRevocation(t *testing.T) {
+	t.Parallel()
+
+	info, ok := SuiteRegistry[SuiteRevocation]
+	if !ok {
+		t.Fatalf("SuiteRegistry missing %q", SuiteRevocation)
+	}
+	if info.Name != SuiteRevocation {
+		t.Errorf("Name = %q, want %q", info.Name, SuiteRevocation)
+	}
+	if info.Description == "" {
+		t.Error("Description must not be empty")
+	}
+}
+
+// TestRunner_Start_SuiteRevocationValidType verifies that stress and soak are accepted.
+func TestRunner_Start_SuiteRevocationValidType(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []TestType{TestStress, TestSoak} {
+		t.Run(string(tt), func(t *testing.T) {
+			t.Parallel()
+			r := newTestRunner()
+			run, err := r.Start("test-rev-"+string(tt), TestConfig{
+				Type:  tt,
+				Suite: SuiteRevocation,
+			})
+			if err != nil {
+				t.Fatalf("Start(%s, revocation): unexpected error: %v", tt, err)
+			}
+			_ = r.Stop(run.ID)
+			r.Wait()
+		})
+	}
+}
+
+// TestRunner_Start_SuiteRevocationInvalidType verifies validate + SuiteRevocation returns ErrInvalidConfig.
+func TestRunner_Start_SuiteRevocationInvalidType(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRunner()
+	_, err := r.Start("test-rev-bad", TestConfig{
+		Type:  TestValidate,
+		Suite: SuiteRevocation,
+	})
+	if err == nil {
+		t.Fatal("expected error for suite=revocation with type=validate")
+	}
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Errorf("expected ErrInvalidConfig, got %v", err)
+	}
+}
+
 func TestRunner_JSONMarshal_NoNATSJetStreamURLs(t *testing.T) {
 	t.Parallel()
 	data, err := json.Marshal(TestConfig{})
