@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -231,5 +232,53 @@ func TestTransform_InvalidYAML(t *testing.T) {
 	err := run(strings.NewReader("{{invalid yaml"), &out, &errOut)
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestTransform_PlatformStrippedWithBuild(t *testing.T) {
+	t.Parallel()
+	input := `services:
+  postgres:
+    platform: linux/amd64
+    build:
+      context: ./docker/postgres-dev
+    ports:
+      - "15432:5432"
+`
+	var out, errOut bytes.Buffer
+	if err := run(strings.NewReader(input), &out, &errOut); err != nil {
+		t.Fatalf("transform error: %v", err)
+	}
+
+	result := out.String()
+	if strings.Contains(result, "platform:") {
+		t.Error("platform: should be stripped — it is a dev-only build constraint")
+	}
+	if strings.Contains(result, "build:") {
+		t.Error("build: should be removed")
+	}
+	if !strings.Contains(result, "image: postgres:16-alpine") {
+		t.Error("image: should be injected for postgres")
+	}
+}
+
+// TestServiceImageMap_CoversAllBuildServices guards against drift between
+// docker-compose.yml and serviceImageMap. If a service with a build: block
+// is missing from the map, the sync-compose CI will produce an invalid compose
+// file for end users (no image: and no build: → docker compose config fails).
+func TestServiceImageMap_CoversAllBuildServices(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile("../../docker-compose.yml")
+	if err != nil {
+		t.Skipf("docker-compose.yml not found at ../../docker-compose.yml: %v", err)
+	}
+
+	var out, errOut bytes.Buffer
+	if err := run(bytes.NewReader(data), &out, &errOut); err != nil {
+		t.Fatalf("transform failed: %v", err)
+	}
+
+	if warnings := errOut.String(); warnings != "" {
+		t.Errorf("transform emitted warnings for build: services not in serviceImageMap:\n%s\nAdd these services to serviceImageMap in main.go", warnings)
 	}
 }
