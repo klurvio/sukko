@@ -21,8 +21,10 @@ import (
 //
 // Test flow:
 //  1. Start Redpanda container.
-//  2. Produce 10 records to a test topic.
-//  3. Start a Consumer with a BroadcastFunc that signals a channel after each broadcast.
+//  2. Create topic and start consumer (consumer starts at AtEnd — latest offset).
+//  3. Produce records continuously in a goroutine until the consumer broadcasts one.
+//     Producing after consumer start ensures records land at or after AtEnd, so the
+//     consumer is guaranteed to see them regardless of partition assignment timing.
 //  4. Block until ≥ 1 record is broadcast (consumer is actively processing).
 //  5. Trigger OnPartitionsRevoked via client.LeaveGroup().
 //  6. Query committed offsets via kadm.FetchOffsetsForTopics.
@@ -49,12 +51,11 @@ func TestRebalance_CommitOnLeaveGroup(t *testing.T) {
 	}
 
 	const (
-		topicName  = "sukko.test.trade"
-		groupID    = "test-rebalance-group"
-		numRecords = 10
+		topicName = "sukko.test.trade"
+		groupID   = "test-rebalance-group"
 	)
 
-	// Create the topic before producing
+	// Create the topic before starting the consumer
 	adminClient, err := kgo.NewClient(kgo.SeedBrokers(broker))
 	if err != nil {
 		t.Fatalf("create admin kgo client: %v", err)
@@ -65,25 +66,9 @@ func TestRebalance_CommitOnLeaveGroup(t *testing.T) {
 	}
 	adminClient.Close()
 
-	// Produce 10 records to the topic
-	producer, err := kgo.NewClient(kgo.SeedBrokers(broker))
-	if err != nil {
-		t.Fatalf("create producer: %v", err)
-	}
-	for i := range numRecords {
-		if err := producer.ProduceSync(ctx, &kgo.Record{
-			Topic: topicName,
-			Key:   []byte("BTC.trade"),
-			Value: []byte(`{"price":"50000"}`),
-		}).FirstErr(); err != nil {
-			t.Fatalf("produce record %d: %v", i, err)
-		}
-	}
-	producer.Close()
-
 	// Signal channel to track broadcast delivery
 	broadcastCount := atomic.Int32{}
-	broadcastSignal := make(chan struct{}, numRecords)
+	broadcastSignal := make(chan struct{}, 1)
 	broadcastFn := func(_ string, _ []byte, _ string, _ int32, _ int64) {
 		broadcastCount.Add(1)
 		select {
@@ -118,13 +103,46 @@ func TestRebalance_CommitOnLeaveGroup(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = consumer.Stop() })
 
-	// Wait for at least 1 record to be broadcast
+	// Produce records continuously until the consumer broadcasts one.
+	// The consumer starts at AtEnd (latest offset); records produced before it
+	// joined are invisible to it. Continuous production after Start() guarantees
+	// the consumer sees a record as soon as partition assignment completes —
+	// no fixed timeout, no partition-assignment timing race.
+	producer, err := kgo.NewClient(kgo.SeedBrokers(broker))
+	if err != nil {
+		t.Fatalf("create producer: %v", err)
+	}
+	stopProducer := make(chan struct{})
+	producerDone := make(chan struct{})
+	go func() {
+		defer close(producerDone)
+		defer producer.Close()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stopProducer:
+				return
+			default:
+			}
+			_ = producer.ProduceSync(ctx, &kgo.Record{
+				Topic: topicName,
+				Key:   []byte("BTC.trade"),
+				Value: []byte(`{"price":"50000"}`),
+			})
+		}
+	}()
+
+	// Wait for at least 1 record to be broadcast — bounded by the 2-minute
+	// context, not a fixed wall-clock timeout that flakes on slow CI runners.
 	select {
 	case <-broadcastSignal:
 		// At least 1 record processed
-	case <-time.After(30 * time.Second):
-		t.Fatal("timeout waiting for first broadcast — consumer may not be connected")
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for first broadcast — consumer may not have joined the group")
 	}
+	close(stopProducer)
+	<-producerDone
 
 	// Trigger partition revoke via LeaveGroup — fires OnPartitionsRevoked synchronously
 	consumer.client.LeaveGroup()
