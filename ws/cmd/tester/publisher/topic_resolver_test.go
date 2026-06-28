@@ -1,6 +1,7 @@
 package publisher
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -97,18 +98,141 @@ func TestTopicResolver_EmptyRules(t *testing.T) {
 func TestParseRoutingRules(t *testing.T) {
 	t.Parallel()
 
-	input := `{"items":[{"pattern":"**","topics":["default"],"priority":100},{"pattern":"room.**","topics":["rooms"],"priority":1}],"total":2,"limit":50,"offset":0}`
-	rules, err := ParseRoutingRules([]byte(input))
+	tests := []struct {
+		name      string
+		input     string
+		wantRules []RoutingRule
+		wantErr   bool
+	}{
+		{
+			name:  "canonical single catch-all",
+			input: `{"items":[{"pattern":"**","topics":["default"],"priority":100}],"total":1,"limit":50,"offset":0}`,
+			wantRules: []RoutingRule{
+				{Pattern: "**", Topics: []string{"default"}},
+			},
+		},
+		{
+			name:  "multi-rule response",
+			input: `{"items":[{"pattern":"**","topics":["default"],"priority":100},{"pattern":"room.**","topics":["rooms"],"priority":1}],"total":2,"limit":50,"offset":0}`,
+			wantRules: []RoutingRule{
+				{Pattern: "**", Topics: []string{"default"}},
+				{Pattern: "room.**", Topics: []string{"rooms"}},
+			},
+		},
+		{
+			name:      "empty items array",
+			input:     `{"items":[],"total":0,"limit":50,"offset":0}`,
+			wantRules: []RoutingRule{},
+		},
+		{
+			name:    "malformed JSON",
+			input:   `{not-valid`,
+			wantErr: true,
+		},
+		{
+			name:  "item with empty topics",
+			input: `{"items":[{"pattern":"**","topics":[],"priority":100}],"total":1,"limit":50,"offset":0}`,
+			wantRules: []RoutingRule{
+				{Pattern: "**", Topics: []string{}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rules, err := ParseRoutingRules([]byte(tt.input))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseRoutingRules: %v", err)
+			}
+			if len(rules) != len(tt.wantRules) {
+				t.Fatalf("len = %d, want %d", len(rules), len(tt.wantRules))
+			}
+			for i, want := range tt.wantRules {
+				if rules[i].Pattern != want.Pattern {
+					t.Errorf("rules[%d].Pattern = %q, want %q", i, rules[i].Pattern, want.Pattern)
+				}
+				if !slices.Equal(rules[i].Topics, want.Topics) {
+					t.Errorf("rules[%d].Topics = %v, want %v", i, rules[i].Topics, want.Topics)
+				}
+			}
+		})
+	}
+}
+
+func TestTopicResolver_MultiTopicRule(t *testing.T) {
+	t.Parallel()
+
+	// Resolve() returns Topics[0] when multiple topics are present.
+	// Full fan-out (all topics) is out of scope for the test publisher — filed as follow-up.
+	r := NewTopicResolver("prod", "acme", []RoutingRule{
+		{Pattern: "**", Topics: []string{"primary", "audit"}},
+	})
+
+	topic, err := r.Resolve("any.channel")
 	if err != nil {
-		t.Fatalf("ParseRoutingRules: %v", err)
+		t.Fatalf("Resolve: %v", err)
 	}
-	if len(rules) != 2 {
-		t.Fatalf("len = %d, want 2", len(rules))
+	if topic != "prod.acme.primary" {
+		t.Errorf("topic = %q, want %q", topic, "prod.acme.primary")
 	}
-	if rules[0].Pattern != "**" || len(rules[0].Topics) != 1 || rules[0].Topics[0] != "default" {
-		t.Errorf("rule[0] = %+v", rules[0])
+}
+
+func TestTopicResolver_EmptyTopicsRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		rules   []RoutingRule
+		channel string
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "skip empty-topics rule fall through to valid rule",
+			rules: []RoutingRule{
+				{Pattern: "**", Topics: []string{}},
+				{Pattern: "**", Topics: []string{"fallback"}},
+			},
+			channel: "any.channel",
+			want:    "prod.acme.fallback",
+		},
+		{
+			name: "all matching rules have empty topics returns no-match error",
+			rules: []RoutingRule{
+				{Pattern: "**", Topics: []string{}},
+			},
+			channel: "any.channel",
+			wantErr: true,
+		},
 	}
-	if rules[1].Pattern != "room.**" || len(rules[1].Topics) != 1 || rules[1].Topics[0] != "rooms" {
-		t.Errorf("rule[1] = %+v", rules[1])
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := NewTopicResolver("prod", "acme", tt.rules)
+			topic, err := r.Resolve(tt.channel)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), "no routing rule matches") {
+					t.Errorf("error = %q, want 'no routing rule matches'", err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if topic != tt.want {
+				t.Errorf("topic = %q, want %q", topic, tt.want)
+			}
+		})
 	}
 }
