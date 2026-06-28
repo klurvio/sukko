@@ -582,6 +582,7 @@ func TestStartTest_BackendValidation(t *testing.T) {
 		name       string
 		body       string
 		wantStatus int
+		wantCode   string
 	}{
 		{
 			name:       "direct backend accepted",
@@ -597,11 +598,13 @@ func TestStartTest_BackendValidation(t *testing.T) {
 			name:       "nats backend rejected with 400",
 			body:       `{"type":"smoke","message_backend":"nats"}`,
 			wantStatus: http.StatusBadRequest,
+			wantCode:   "INVALID_REQUEST",
 		},
 		{
 			name:       "unknown backend rejected with 400",
 			body:       `{"type":"smoke","message_backend":"zombie"}`,
 			wantStatus: http.StatusBadRequest,
+			wantCode:   "INVALID_REQUEST",
 		},
 	}
 
@@ -615,6 +618,15 @@ func TestStartTest_BackendValidation(t *testing.T) {
 			h.ServeHTTP(w, req)
 			if w.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d; body: %s", w.Code, tt.wantStatus, w.Body.String())
+			}
+			if tt.wantCode != "" {
+				var resp map[string]any
+				if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+					t.Fatalf("decode body: %v", err)
+				}
+				if got, _ := resp["code"].(string); got != tt.wantCode {
+					t.Errorf("code = %q, want %q", got, tt.wantCode)
+				}
 			}
 		})
 	}

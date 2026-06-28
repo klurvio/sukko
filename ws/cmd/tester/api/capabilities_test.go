@@ -52,4 +52,9 @@ func TestGetCapabilities_NATSAbsent(t *testing.T) {
 			}
 		}
 	}
+
+	// (d) Backends must be exactly ["direct", "kafka"] — no other backends
+	if len(caps.Backends) != 2 {
+		t.Errorf("Backends = %v, want exactly [\"direct\", \"kafka\"] (len=%d)", caps.Backends, len(caps.Backends))
+	}
 }
