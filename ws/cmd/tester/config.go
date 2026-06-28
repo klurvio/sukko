@@ -63,7 +63,7 @@ func (c *TesterConfig) Validate() error {
 	case platform.MessageBackendDirect, platform.MessageBackendKafka:
 		// valid
 	default:
-		return fmt.Errorf("MESSAGE_BACKEND must be 'direct' or 'kafka', got %q", c.MessageBackend)
+		return fmt.Errorf("MESSAGE_BACKEND must be '%s' or '%s', got %q", platform.MessageBackendDirect, platform.MessageBackendKafka, c.MessageBackend)
 	}
 	if c.MessageBackend == platform.MessageBackendKafka && c.KafkaBrokers == "" {
 		return errors.New("KAFKA_BROKERS required when MESSAGE_BACKEND=kafka")

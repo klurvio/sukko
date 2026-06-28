@@ -32,8 +32,7 @@ func (s *Server) handleClientMessage(c *Client, data []byte) {
 	case MsgTypeReconnect:
 		// BACKEND-BASED RECONNECTION
 		// Client reconnecting after disconnect, requesting missed messages from message backend.
-		// Supports Kafka offset-based replay and JetStream sequence-based replay.
-		// Direct mode has no replay (returns immediately).
+		// Supports Kafka offset-based replay. Direct mode returns immediately (no replay).
 		s.handleReconnect(c, req.Data)
 
 	case MsgTypeHeartbeat:

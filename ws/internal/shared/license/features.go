@@ -58,7 +58,7 @@ const (
 
 	SSETransport       Feature = "SSE transport"
 	Analytics          Feature = "real-time analytics"          // Implemented
-	AnalyticsPush      Feature = "real-time analytics for push" // Future — not yet implemented
+	AnalyticsPush      Feature = "real-time analytics for push" // Implemented
 	AdminUI            Feature = "admin UI"
 	TokenRevocation    Feature = "token revocation"
 	Webhooks           Feature = "webhook delivery" // Implemented
