@@ -87,7 +87,7 @@ func TestParseClientMessage_Heartbeat(t *testing.T) {
 
 func TestParseClientMessage_Reconnect(t *testing.T) {
 	t.Parallel()
-	msg := `{"type": "reconnect", "data": {"client_id": "abc123", "last_offset": {"topic1": 12345}}}`
+	msg := `{"type": "reconnect", "data": {"client_id": "abc123", "last_pos": {"tenant.BTC.trade": "3-12345"}}}`
 
 	msgType, msgData, err := parseClientMessage([]byte(msg))
 
@@ -231,63 +231,67 @@ func TestParseSubscribeRequest_InvalidFormat(t *testing.T) {
 // Reconnect Request Parsing Tests
 // =============================================================================
 
-// parseReconnectRequest parses the reconnect message data
-func parseReconnectRequest(data json.RawMessage) (clientID string, lastOffsets map[string]int64, err error) {
+// parseReconnectRequestData parses the reconnect message data field using the
+// same schema as handleReconnect: client_id string and last_pos map[string]string.
+func parseReconnectRequestData(data json.RawMessage) (clientID string, lastPos map[string]string, err error) {
 	var req struct {
-		ClientID   string           `json:"client_id"`
-		LastOffset map[string]int64 `json:"last_offset"`
+		ClientID string            `json:"client_id"`
+		LastPos  map[string]string `json:"last_pos"`
 	}
 	if err = json.Unmarshal(data, &req); err != nil {
 		return "", nil, fmt.Errorf("unmarshal reconnect request: %w", err)
 	}
-	return req.ClientID, req.LastOffset, nil
+	return req.ClientID, req.LastPos, nil
 }
 
 func TestParseReconnectRequest_Valid(t *testing.T) {
 	t.Parallel()
-	data := json.RawMessage(`{"client_id": "abc123", "last_offset": {"topic1": 12345, "topic2": 67890}}`)
+	data := json.RawMessage(`{"client_id": "abc123", "last_pos": {"tenant.BTC.trade": "3-12345", "tenant.ETH.trade": "1-67890"}}`)
 
-	clientID, offsets, err := parseReconnectRequest(data)
+	clientID, positions, err := parseReconnectRequestData(data)
 
 	if err != nil {
-		t.Fatalf("parseReconnectRequest failed: %v", err)
+		t.Fatalf("parseReconnectRequestData failed: %v", err)
 	}
 	if clientID != "abc123" {
 		t.Errorf("clientID: got %q, want %q", clientID, "abc123")
 	}
-	if len(offsets) != 2 {
-		t.Fatalf("offsets length: got %d, want 2", len(offsets))
+	if len(positions) != 2 {
+		t.Fatalf("positions length: got %d, want 2", len(positions))
 	}
-	if offsets["topic1"] != 12345 {
-		t.Errorf("offsets[topic1]: got %d, want 12345", offsets["topic1"])
+	if positions["tenant.BTC.trade"] != "3-12345" {
+		t.Errorf("positions[tenant.BTC.trade]: got %q, want %q", positions["tenant.BTC.trade"], "3-12345")
+	}
+	if positions["tenant.ETH.trade"] != "1-67890" {
+		t.Errorf("positions[tenant.ETH.trade]: got %q, want %q", positions["tenant.ETH.trade"], "1-67890")
 	}
 }
 
-func TestParseReconnectRequest_EmptyOffsets(t *testing.T) {
+func TestParseReconnectRequest_EmptyPositions(t *testing.T) {
 	t.Parallel()
-	data := json.RawMessage(`{"client_id": "abc123", "last_offset": {}}`)
+	data := json.RawMessage(`{"client_id": "abc123", "last_pos": {}}`)
 
-	clientID, offsets, err := parseReconnectRequest(data)
+	clientID, positions, err := parseReconnectRequestData(data)
 
 	if err != nil {
-		t.Fatalf("parseReconnectRequest failed: %v", err)
+		t.Fatalf("parseReconnectRequestData failed: %v", err)
 	}
 	if clientID != "abc123" {
 		t.Errorf("clientID: got %q, want %q", clientID, "abc123")
 	}
-	if len(offsets) != 0 {
-		t.Errorf("offsets length: got %d, want 0", len(offsets))
+	if len(positions) != 0 {
+		t.Errorf("positions length: got %d, want 0", len(positions))
 	}
 }
 
 func TestParseReconnectRequest_MissingClientID(t *testing.T) {
 	t.Parallel()
-	data := json.RawMessage(`{"last_offset": {"topic1": 12345}}`)
+	data := json.RawMessage(`{"last_pos": {"tenant.BTC.trade": "3-12345"}}`)
 
-	clientID, _, err := parseReconnectRequest(data)
+	clientID, _, err := parseReconnectRequestData(data)
 
 	if err != nil {
-		t.Fatalf("parseReconnectRequest failed: %v", err)
+		t.Fatalf("parseReconnectRequestData failed: %v", err)
 	}
 	// Missing client_id defaults to empty string
 	if clientID != "" {
@@ -299,27 +303,27 @@ func TestParseReconnectRequest_InvalidJSON(t *testing.T) {
 	t.Parallel()
 	data := json.RawMessage(`{invalid json}`)
 
-	_, _, err := parseReconnectRequest(data)
+	_, _, err := parseReconnectRequestData(data)
 
 	if err == nil {
 		t.Error("Expected error for invalid JSON")
 	}
 }
 
-func TestParseReconnectRequest_NullOffsets(t *testing.T) {
+func TestParseReconnectRequest_NullPositions(t *testing.T) {
 	t.Parallel()
-	data := json.RawMessage(`{"client_id": "abc123", "last_offset": null}`)
+	data := json.RawMessage(`{"client_id": "abc123", "last_pos": null}`)
 
-	clientID, offsets, err := parseReconnectRequest(data)
+	clientID, positions, err := parseReconnectRequestData(data)
 
 	if err != nil {
-		t.Fatalf("parseReconnectRequest failed: %v", err)
+		t.Fatalf("parseReconnectRequestData failed: %v", err)
 	}
 	if clientID != "abc123" {
 		t.Errorf("clientID: got %q, want %q", clientID, "abc123")
 	}
-	if offsets != nil {
-		t.Errorf("offsets: got %v, want nil", offsets)
+	if positions != nil {
+		t.Errorf("positions: got %v, want nil", positions)
 	}
 }
 
