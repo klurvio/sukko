@@ -11,7 +11,7 @@ package platform
 type WebhookHTTPConfig struct {
 	// WebhookAllowHTTP allows http:// webhook URLs for local dev/testing.
 	// Must be false in production (enforced by top-level Validate()).
-	WebhookAllowHTTP bool `env:"WEBHOOK_ALLOW_HTTP" envDefault:"false"`
+	WebhookAllowHTTP bool `env:"WEBHOOK_ALLOW_HTTP" envDefault:"false"` // Allow webhook delivery to plain HTTP endpoints. Disabled by default; enable only in trusted network environments.
 }
 
 // Validate satisfies the shared config struct convention.

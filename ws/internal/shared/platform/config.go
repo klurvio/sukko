@@ -9,29 +9,29 @@ import (
 
 // BaseConfig contains configuration fields shared across ALL services.
 type BaseConfig struct {
-	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
-	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
+	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`  // Logging level (debug, info, warn, error). info is recommended for production.
+	LogFormat string `env:"LOG_FORMAT" envDefault:"json"` // Log output format: json for machine parsing (production), text for human-readable (development).
 
 	// Environment — deployment identity label, used for Kafka topic namespace, consumer
 	// group naming, and safety guards. Free-form: any string works as deployment identity.
 	// Sukko uses: local | dev | stg | prod by convention.
-	Environment string `env:"ENVIRONMENT" envDefault:"local"`
+	Environment string `env:"ENVIRONMENT" envDefault:"local"` // Deployment environment name (e.g. local, dev, stag, prod). Used for Kafka topic namespace resolution.
 
 	// LicenseKey is the signed Ed25519 license token that determines the edition
 	// (Community/Pro/Enterprise). Empty = Community. Parsed by license.Manager at startup.
 	// The editionManager field lives on each service config (ServerConfig, GatewayConfig,
 	// ProvisioningConfig) — not here — to avoid BaseConfig depending on the license package.
-	LicenseKey string `env:"SUKKO_LICENSE_KEY" redact:"true"`
+	LicenseKey string `env:"SUKKO_LICENSE_KEY" redact:"true"` // Sukko license token (JWT). Community edition has no key; Pro/Enterprise obtain via Sukko account. Leave empty for Community.
 
 	// Tracing (OpenTelemetry) — cold-path only, disabled by default.
-	OTELTracingEnabled   bool   `env:"OTEL_TRACING_ENABLED" envDefault:"false"`
-	OTELExporterType     string `env:"OTEL_EXPORTER_TYPE" envDefault:"otlp-grpc"`
-	OTELExporterEndpoint string `env:"OTEL_EXPORTER_ENDPOINT" envDefault:"localhost:4317"`
+	OTELTracingEnabled   bool   `env:"OTEL_TRACING_ENABLED" envDefault:"false"`            // Enable distributed tracing via OpenTelemetry. Disabled by default; configure OTEL_EXPORTER_TYPE and OTEL_EXPORTER_ENDPOINT when enabled.
+	OTELExporterType     string `env:"OTEL_EXPORTER_TYPE" envDefault:"otlp-grpc"`          // OpenTelemetry trace exporter type: otlp-grpc, otlp-http, or stdout. Required when OTEL_TRACING_ENABLED=true.
+	OTELExporterEndpoint string `env:"OTEL_EXPORTER_ENDPOINT" envDefault:"localhost:4317"` // OpenTelemetry collector endpoint (e.g. otelcol:4317). Required when OTEL_EXPORTER_TYPE is otlp-grpc or otlp-http.
 
 	// Profiling — pprof endpoints and Pyroscope continuous profiling, disabled by default.
-	PprofEnabled     bool   `env:"PPROF_ENABLED" envDefault:"false"`
-	PyroscopeEnabled bool   `env:"PYROSCOPE_ENABLED" envDefault:"false"`
-	PyroscopeAddr    string `env:"PYROSCOPE_ADDR" envDefault:"http://localhost:4040"`
+	PprofEnabled     bool   `env:"PPROF_ENABLED" envDefault:"false"`                  // Enable Go pprof profiling endpoints (/debug/pprof/). Disabled by default; enable only in controlled environments.
+	PyroscopeEnabled bool   `env:"PYROSCOPE_ENABLED" envDefault:"false"`              // Enable continuous profiling via Pyroscope. Disabled by default.
+	PyroscopeAddr    string `env:"PYROSCOPE_ADDR" envDefault:"http://localhost:4040"` // Pyroscope server address (e.g. http://pyroscope:4040). Required when PYROSCOPE_ENABLED=true.
 }
 
 // Validate checks that all BaseConfig fields have valid values.
@@ -65,7 +65,7 @@ type AuthConfig struct {
 	// AuthMode is the authentication model. Only "required" is supported.
 	// Kept temporarily for backward compatibility with deployments that set AUTH_MODE=required.
 	// Extensible to "public-read" in the future (anonymous subscribe for public channels).
-	AuthMode string `env:"AUTH_MODE" envDefault:"required"`
+	AuthMode string `env:"AUTH_MODE" envDefault:"required"` // Authentication enforcement mode. Only "required" is supported; tokens without valid signatures are rejected.
 }
 
 // Validate checks that AuthMode is valid. Only "required" is accepted.
@@ -88,7 +88,7 @@ func (c *AuthConfig) Validate() error {
 // that previously appeared here, in WebhookWorkerConfig, and in ProvisioningConfig (§X).
 type ProvisioningClientConfig struct {
 	GRPCReconnectConfig         // embeds PROVISIONING_GRPC_RECONNECT_* env vars; Validate() enforces bounds
-	ProvisioningGRPCAddr string `env:"PROVISIONING_GRPC_ADDR" envDefault:"localhost:9090"`
+	ProvisioningGRPCAddr string `env:"PROVISIONING_GRPC_ADDR" envDefault:"localhost:9090"` // gRPC address of the provisioning service for internal communication (e.g. channel rule streaming).
 }
 
 // Validate checks provisioning client config for errors.
@@ -102,9 +102,9 @@ func (c *ProvisioningClientConfig) Validate() error {
 // HTTPTimeoutConfig holds HTTP server timeout settings.
 // Embedded by server and provisioning (gateway uses GATEWAY_*_TIMEOUT env var names).
 type HTTPTimeoutConfig struct {
-	HTTPReadTimeout  time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"15s"`
-	HTTPWriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"15s"`
-	HTTPIdleTimeout  time.Duration `env:"HTTP_IDLE_TIMEOUT" envDefault:"60s"`
+	HTTPReadTimeout  time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"15s"`  // Maximum duration for reading a complete HTTP request. Protects against slow-loris attacks.
+	HTTPWriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"15s"` // Maximum duration for writing the HTTP response.
+	HTTPIdleTimeout  time.Duration `env:"HTTP_IDLE_TIMEOUT" envDefault:"60s"`  // Maximum idle time on a keep-alive connection before it is closed.
 }
 
 // Validate checks HTTP timeout config for errors.
@@ -127,10 +127,10 @@ type KafkaNamespaceConfig struct {
 	// KafkaTopicNamespaceOverride overrides ENVIRONMENT for Kafka topic naming only.
 	// If empty, defaults to normalized ENVIRONMENT value via kafka.ResolveNamespace().
 	// NOT allowed in production — startup validation blocks this.
-	KafkaTopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""`
+	KafkaTopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""` // Override for the Kafka topic namespace (normally derived from ENVIRONMENT). Forbidden in production — causes startup failure when ENVIRONMENT=prod.
 
 	// ValidNamespaces is a comma-separated list of allowed topic namespace prefixes.
-	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"`
+	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"` // Comma-separated list of allowed Kafka topic namespaces. Used to validate KAFKA_TOPIC_NAMESPACE_OVERRIDE.
 }
 
 // MessageBackend constants for MESSAGE_BACKEND env var.
@@ -143,8 +143,8 @@ const (
 // that need message backend selection without the full Kafka SASL/TLS options.
 // Embedded by MessageBackendConfig and TesterConfig.
 type MessageBackendBase struct {
-	MessageBackend string `env:"MESSAGE_BACKEND" envDefault:"direct"`
-	KafkaBrokers   string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"`
+	MessageBackend string `env:"MESSAGE_BACKEND" envDefault:"direct"`        // Message ingestion backend: direct (no persistence, no Kafka dependency) or kafka (full Kafka/Redpanda integration with replay).
+	KafkaBrokers   string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"` // Comma-separated Kafka/Redpanda broker addresses. Required when MESSAGE_BACKEND=kafka.
 }
 
 // MessageBackendConfig holds message ingestion/persistence configuration.
@@ -166,10 +166,10 @@ type MessageBackendConfig struct {
 	// Supported mechanisms:
 	// - scram-sha-256: SCRAM-SHA-256 (recommended, widely supported)
 	// - scram-sha-512: SCRAM-SHA-512 (stronger, less common)
-	KafkaSASLEnabled   bool   `env:"KAFKA_SASL_ENABLED" envDefault:"false"`
-	KafkaSASLMechanism string `env:"KAFKA_SASL_MECHANISM"` // scram-sha-256 or scram-sha-512
-	KafkaSASLUsername  string `env:"KAFKA_SASL_USERNAME"`
-	KafkaSASLPassword  string `env:"KAFKA_SASL_PASSWORD" redact:"true"`
+	KafkaSASLEnabled   bool   `env:"KAFKA_SASL_ENABLED" envDefault:"false"` // Enable SASL authentication for Kafka connections. Required for most managed Kafka/Redpanda services.
+	KafkaSASLMechanism string `env:"KAFKA_SASL_MECHANISM"`                  // SASL mechanism: scram-sha-256 or scram-sha-512. Required when KAFKA_SASL_ENABLED=true.
+	KafkaSASLUsername  string `env:"KAFKA_SASL_USERNAME"`                   // SASL username for Kafka authentication. Required when KAFKA_SASL_ENABLED=true.
+	KafkaSASLPassword  string `env:"KAFKA_SASL_PASSWORD" redact:"true"`     // SASL password for Kafka authentication. Required when KAFKA_SASL_ENABLED=true.
 
 	// Kafka Security - TLS Encryption
 	//
@@ -178,9 +178,9 @@ type MessageBackendConfig struct {
 	//
 	// KafkaTLSInsecure: Skip server certificate verification (NOT for production)
 	// KafkaTLSCAPath: Path to CA certificate for server verification
-	KafkaTLSEnabled  bool   `env:"KAFKA_TLS_ENABLED" envDefault:"false"`
-	KafkaTLSInsecure bool   `env:"KAFKA_TLS_INSECURE" envDefault:"false"`
-	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`
+	KafkaTLSEnabled  bool   `env:"KAFKA_TLS_ENABLED" envDefault:"false"`  // Enable TLS encryption for Kafka connections. Required for most managed Kafka/Redpanda services.
+	KafkaTLSInsecure bool   `env:"KAFKA_TLS_INSECURE" envDefault:"false"` // Skip TLS certificate verification. For development only — never use in production.
+	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`                     // Path to CA certificate file for verifying the Kafka broker's TLS certificate.
 }
 
 // Validate checks MessageBackendConfig for errors.
@@ -236,7 +236,7 @@ func (c *KafkaNamespaceConfig) Validate(environment string) error {
 // Embedded by services that use a database (provisioning, push).
 // Gateway and ws-server are stateless — they don't embed this.
 type DatabaseConfig struct {
-	DatabaseURL string `env:"DATABASE_URL" redact:"true"`
+	DatabaseURL string `env:"DATABASE_URL" redact:"true"` // PostgreSQL connection URL (postgres://user:pass@host:5432/db). Required for services that use the database (provisioning, push).
 }
 
 // Validate checks that DATABASE_URL is configured.

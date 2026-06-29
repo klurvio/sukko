@@ -14,10 +14,10 @@ import "os"
 //	}
 type PodIdentityConfig struct {
 	// SukkoPodID is the canonical pod identity env var, injected by Kubernetes Downward API.
-	SukkoPodID string `env:"SUKKO_POD_ID"`
+	SukkoPodID string `env:"SUKKO_POD_ID"` // Unique identifier for this pod instance, injected by Kubernetes via the Downward API.
 	// WSPodID is the legacy field — backward compat for one release cycle.
 	// TODO: remove WS_POD_ID fallback in next release (feat/analytics-pod-id-cleanup).
-	WSPodID string `env:"WS_POD_ID"`
+	WSPodID string `env:"WS_POD_ID"` // Deprecated alias for SUKKO_POD_ID. Use SUKKO_POD_ID in new deployments.
 }
 
 // PodID returns the stable pod identity string using a fallback chain.

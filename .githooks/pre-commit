@@ -52,6 +52,16 @@ if [ -n "$GO_FILES" ]; then
       echo -e "${GREEN}[Go] golangci-lint passed${NC}"
     fi
   fi
+
+  # Config inline comment check — every env-tagged field must have an inline comment
+  echo -e "\n${YELLOW}[Go] Checking config inline comments...${NC}"
+  if ! (cd ws && go run ./scripts/check-config-comments ./internal/shared/platform/ ./cmd/tester/ 2>&1); then
+    echo -e "${RED}[Go] Missing inline comments on env-tagged fields (see above)${NC}"
+    echo -e "${YELLOW}[Go] Every env-tagged field needs an inline comment — see §I of CLAUDE.md${NC}"
+    FAILED=1
+  else
+    echo -e "${GREEN}[Go] Config inline comments OK${NC}"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

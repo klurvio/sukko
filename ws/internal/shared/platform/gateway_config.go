@@ -23,76 +23,76 @@ type GatewayConfig struct {
 	PodIdentityConfig
 
 	// Server settings
-	Port         int           `env:"GATEWAY_PORT" envDefault:"3000"`
-	ReadTimeout  time.Duration `env:"GATEWAY_READ_TIMEOUT" envDefault:"15s"`
-	WriteTimeout time.Duration `env:"GATEWAY_WRITE_TIMEOUT" envDefault:"15s"`
-	IdleTimeout  time.Duration `env:"GATEWAY_IDLE_TIMEOUT" envDefault:"60s"`
+	Port         int           `env:"GATEWAY_PORT" envDefault:"3000"`         // HTTP listen port for the WebSocket gateway.
+	ReadTimeout  time.Duration `env:"GATEWAY_READ_TIMEOUT" envDefault:"15s"`  // HTTP server read timeout. Applies to the WebSocket upgrade handshake and HTTP request reads.
+	WriteTimeout time.Duration `env:"GATEWAY_WRITE_TIMEOUT" envDefault:"15s"` // HTTP server write timeout.
+	IdleTimeout  time.Duration `env:"GATEWAY_IDLE_TIMEOUT" envDefault:"60s"`  // HTTP keep-alive idle timeout. Connections idle longer than this are closed.
 
 	// Backend ws-server connection
-	BackendURL     string        `env:"GATEWAY_BACKEND_URL" envDefault:"ws://localhost:3005/ws"`
-	DialTimeout    time.Duration `env:"GATEWAY_DIAL_TIMEOUT" envDefault:"10s"`
-	MessageTimeout time.Duration `env:"GATEWAY_MESSAGE_TIMEOUT" envDefault:"60s"`
+	BackendURL     string        `env:"GATEWAY_BACKEND_URL" envDefault:"ws://localhost:3005/ws"` // WebSocket URL of the ws-server backend the gateway proxies connections to. Must include the /ws path.
+	DialTimeout    time.Duration `env:"GATEWAY_DIAL_TIMEOUT" envDefault:"10s"`                   // Timeout for dialing the ws-server backend when establishing a new proxied connection.
+	MessageTimeout time.Duration `env:"GATEWAY_MESSAGE_TIMEOUT" envDefault:"60s"`                // Timeout for forwarding a single message between a client and the ws-server backend.
 
 	// MaxFrameSize is the maximum allowed WebSocket frame size in bytes.
 	// Frames exceeding this are rejected before payload allocation to prevent OOM.
-	MaxFrameSize int `env:"GATEWAY_MAX_FRAME_SIZE" envDefault:"1048576"` // 1MB = protocol.DefaultMaxFrameSize
+	MaxFrameSize int `env:"GATEWAY_MAX_FRAME_SIZE" envDefault:"1048576"` // Maximum WebSocket frame size in bytes. Frames larger than this are rejected before allocation. Default: 1MB.
 
 	// Per-tenant channel rules (Feature Flag)
 	// When enabled, channel permissions come from per-tenant rules via gRPC streaming
-	PerTenantChannelRulesEnabled bool `env:"GATEWAY_PER_TENANT_CHANNEL_RULES" envDefault:"false"`
+	PerTenantChannelRulesEnabled bool `env:"GATEWAY_PER_TENANT_CHANNEL_RULES" envDefault:"false"` // When true, channel permissions are resolved per-tenant via gRPC streaming rules (Pro edition).
 
 	// Fallback channel rules (when tenant has none configured)
-	FallbackPublicChannels []string `env:"GATEWAY_FALLBACK_PUBLIC_CHANNELS" envSeparator:"," envDefault:"*.metadata"`
+	FallbackPublicChannels []string `env:"GATEWAY_FALLBACK_PUBLIC_CHANNELS" envSeparator:"," envDefault:"*.metadata"` // Channel patterns treated as public when a tenant has no per-tenant channel rules configured.
 
 	// Multi-tenant settings
-	RequireTenantID              bool `env:"REQUIRE_TENANT_ID" envDefault:"true"`
-	DefaultTenantConnectionLimit int  `env:"DEFAULT_TENANT_CONNECTION_LIMIT" envDefault:"1000"`
-	TenantConnectionLimitEnabled bool `env:"TENANT_CONNECTION_LIMIT_ENABLED" envDefault:"false"`
+	RequireTenantID              bool `env:"REQUIRE_TENANT_ID" envDefault:"true"`                // When true, all WebSocket connections must identify a tenant via their JWT or API key. Disable only in single-tenant deployments where the tenant is implicit.
+	DefaultTenantConnectionLimit int  `env:"DEFAULT_TENANT_CONNECTION_LIMIT" envDefault:"1000"`  // Default maximum simultaneous WebSocket connections allowed per tenant when TENANT_CONNECTION_LIMIT_ENABLED is true.
+	TenantConnectionLimitEnabled bool `env:"TENANT_CONNECTION_LIMIT_ENABLED" envDefault:"false"` // When true, the gateway enforces per-tenant connection limits using DEFAULT_TENANT_CONNECTION_LIMIT as the default cap.
 
 	// Permissions - channel patterns
 	// Patterns support wildcards: *.trade matches BTC.trade, *.trade.* matches BTC.trade.user123
 	// Aggregate channels (all.trade, all.liquidity, etc.) allow subscribing to ALL events of a type
-	PublicPatterns      []string `env:"GATEWAY_PUBLIC_PATTERNS" envSeparator:"," envDefault:"*.trade,*.liquidity,*.metadata,*.analytics,*.creation,*.social,all.trade,all.liquidity,all.metadata,all.analytics,all.creation,all.social"`
-	UserScopedPatterns  []string `env:"GATEWAY_USER_SCOPED_PATTERNS" envSeparator:"," envDefault:"*.balances.{principal},*.trade.{principal},balances.{principal},notifications.{principal}"`
-	GroupScopedPatterns []string `env:"GATEWAY_GROUP_SCOPED_PATTERNS" envSeparator:"," envDefault:"*.community.{group_id},community.{group_id},social.{group_id}"`
+	PublicPatterns      []string `env:"GATEWAY_PUBLIC_PATTERNS" envSeparator:"," envDefault:"*.trade,*.liquidity,*.metadata,*.analytics,*.creation,*.social,all.trade,all.liquidity,all.metadata,all.analytics,all.creation,all.social"` // Channel patterns accessible without authentication. Supports wildcards. Comma-separated.
+	UserScopedPatterns  []string `env:"GATEWAY_USER_SCOPED_PATTERNS" envSeparator:"," envDefault:"*.balances.{principal},*.trade.{principal},balances.{principal},notifications.{principal}"`                                            // Channel patterns restricted to the authenticated principal. {principal} is substituted with the JWT subject at connection time. Comma-separated.
+	GroupScopedPatterns []string `env:"GATEWAY_GROUP_SCOPED_PATTERNS" envSeparator:"," envDefault:"*.community.{group_id},community.{group_id},social.{group_id}"`                                                                       // Channel patterns restricted to a specific group. {group_id} is substituted with the JWT group claim at connection time. Comma-separated.
 
 	// Rate limiting per principal
-	RateLimitEnabled bool    `env:"GATEWAY_RATE_LIMIT_ENABLED" envDefault:"true"`
-	RateLimitBurst   int     `env:"GATEWAY_RATE_LIMIT_BURST" envDefault:"100"`
-	RateLimitRate    float64 `env:"GATEWAY_RATE_LIMIT_RATE" envDefault:"10.0"`
+	RateLimitEnabled bool    `env:"GATEWAY_RATE_LIMIT_ENABLED" envDefault:"true"` // When true, enforces per-authenticated-principal WebSocket message rate limits using GATEWAY_RATE_LIMIT_RATE and GATEWAY_RATE_LIMIT_BURST.
+	RateLimitBurst   int     `env:"GATEWAY_RATE_LIMIT_BURST" envDefault:"100"`    // Burst allowance for per-principal WebSocket message rate limiting. Allows short spikes above the sustained rate.
+	RateLimitRate    float64 `env:"GATEWAY_RATE_LIMIT_RATE" envDefault:"10.0"`    // Sustained message rate limit per authenticated principal, in messages per second.
 
 	// Publish-specific settings
-	PublishRateLimit float64 `env:"GATEWAY_PUBLISH_RATE_LIMIT" envDefault:"10.0"` // Messages per second
-	PublishBurst     int     `env:"GATEWAY_PUBLISH_BURST" envDefault:"100"`       // Burst capacity
-	MaxPublishSize   int     `env:"GATEWAY_MAX_PUBLISH_SIZE" envDefault:"65536"`  // Max message size (64KB = protocol.DefaultMaxPublishSize)
+	PublishRateLimit float64 `env:"GATEWAY_PUBLISH_RATE_LIMIT" envDefault:"10.0"` // Sustained rate limit for REST publish requests per authenticated principal, in messages per second.
+	PublishBurst     int     `env:"GATEWAY_PUBLISH_BURST" envDefault:"100"`       // Burst allowance for the REST publish rate limiter. Allows short spikes above GATEWAY_PUBLISH_RATE_LIMIT before throttling kicks in.
+	MaxPublishSize   int     `env:"GATEWAY_MAX_PUBLISH_SIZE" envDefault:"65536"`  // Maximum REST publish payload size in bytes. Payloads exceeding this are rejected. Default: 64KB.
 
 	// Auth refresh settings
-	AuthRefreshRateInterval time.Duration `env:"GATEWAY_AUTH_REFRESH_RATE_INTERVAL" envDefault:"30s"`
+	AuthRefreshRateInterval time.Duration `env:"GATEWAY_AUTH_REFRESH_RATE_INTERVAL" envDefault:"30s"` // Minimum interval between JWT refresh operations per connection. Prevents refresh storms under load.
 
 	// Auth validation timeout for intercepting auth refresh operations
-	AuthValidationTimeout time.Duration `env:"GATEWAY_AUTH_VALIDATION_TIMEOUT" envDefault:"5s"`
+	AuthValidationTimeout time.Duration `env:"GATEWAY_AUTH_VALIDATION_TIMEOUT" envDefault:"5s"` // Timeout for validating auth refresh operations per connection.
 
 	// Token revocation
 	RevocationMaxLifetime time.Duration `env:"REVOCATION_MAX_LIFETIME" envDefault:"24h"` // Max time a revocation entry lives when exp is not provided
 
 	// Graceful shutdown timeout
-	ShutdownTimeout time.Duration `env:"GATEWAY_SHUTDOWN_TIMEOUT" envDefault:"30s"`
+	ShutdownTimeout time.Duration `env:"GATEWAY_SHUTDOWN_TIMEOUT" envDefault:"30s"` // Maximum time the gateway waits for active connections to drain before forcing shutdown.
 
 	// InternalSecret is forwarded verbatim as X-Sukko-Internal-Secret to ws-server.
 	// No envDefault — empty string is valid when ws-server WS_INTERNAL_SECRET_ENABLED=false.
 	// redact:"true" prevents the /config endpoint from exposing this value.
-	InternalSecret string `env:"WS_INTERNAL_SECRET" redact:"true"`
+	InternalSecret string `env:"WS_INTERNAL_SECRET" redact:"true"` // Shared secret forwarded as X-Sukko-Internal-Secret to ws-server. Set WS_INTERNAL_SECRET_ENABLED=true on ws-server to enforce.
 
 	// SSE + REST Publish (Pro edition)
 	ServerGRPCAddr string `env:"SERVER_GRPC_ADDR" envDefault:"localhost:3006"` // ws-server gRPC address for RealtimeService
 	// Push service gRPC address for PushService (RegisterDevice, UnregisterDevice, GetVAPIDKey)
-	PushGRPCAddr         string        `env:"PUSH_GRPC_ADDR" envDefault:"localhost:3008"`
-	SSEKeepAliveInterval time.Duration `env:"SSE_KEEPALIVE_INTERVAL" envDefault:"45s"`              // SSE keepalive comment interval (prevents proxy timeouts)
+	PushGRPCAddr         string        `env:"PUSH_GRPC_ADDR" envDefault:"localhost:3008"`           // Push service gRPC address for device registration and VAPID key endpoints.
+	SSEKeepAliveInterval time.Duration `env:"SSE_KEEPALIVE_INTERVAL" envDefault:"45s"`              // Interval for SSE keepalive messages sent to prevent proxy timeouts on long-lived connections.
 	CORSAllowedOrigins   []string      `env:"GATEWAY_CORS_ORIGINS" envDefault:"*" envSeparator:","` // CORS allowed origins (* = all, production: restrict)
 
 	// Channel rules provider cache TTLs
-	ChannelRulesCacheTTL time.Duration `env:"GATEWAY_CHANNEL_RULES_CACHE_TTL" envDefault:"1m"`
-	RegistryQueryTimeout time.Duration `env:"GATEWAY_REGISTRY_QUERY_TIMEOUT" envDefault:"5s"`
+	ChannelRulesCacheTTL time.Duration `env:"GATEWAY_CHANNEL_RULES_CACHE_TTL" envDefault:"1m"` // How long per-tenant channel rules are cached locally before re-fetching from the provisioning service.
+	RegistryQueryTimeout time.Duration `env:"GATEWAY_REGISTRY_QUERY_TIMEOUT" envDefault:"5s"`  // Timeout for querying the connections registry when enforcing per-tenant connection limits.
 
 	// editionManager holds the license-resolved edition and limits.
 	// Set by LoadGatewayConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.
