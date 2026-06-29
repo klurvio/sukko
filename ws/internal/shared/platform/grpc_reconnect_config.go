@@ -9,8 +9,8 @@ import (
 // that connect to the provisioning service. Env var names carry the
 // PROVISIONING_ prefix — embed only in configs that connect to provisioning.
 type GRPCReconnectConfig struct {
-	GRPCReconnectDelay    time.Duration `env:"PROVISIONING_GRPC_RECONNECT_DELAY"     envDefault:"1s"`
-	GRPCReconnectMaxDelay time.Duration `env:"PROVISIONING_GRPC_RECONNECT_MAX_DELAY" envDefault:"30s"`
+	GRPCReconnectDelay    time.Duration `env:"PROVISIONING_GRPC_RECONNECT_DELAY"     envDefault:"1s"`  // Initial backoff delay between provisioning gRPC stream reconnect attempts.
+	GRPCReconnectMaxDelay time.Duration `env:"PROVISIONING_GRPC_RECONNECT_MAX_DELAY" envDefault:"30s"` // Maximum backoff delay cap for provisioning gRPC stream reconnect attempts.
 }
 
 const grpcReconnectDelayFloor = 100 * time.Millisecond

@@ -58,38 +58,38 @@ type ProvisioningConfig struct {
 	PodIdentityConfig
 
 	// Analytics — provisioning-only fields
-	PartmanInterval time.Duration `env:"ANALYTICS_PARTMAN_INTERVAL" envDefault:"15m"`
-	SSEMaxConns     int           `env:"ANALYTICS_SSE_MAX_CONNS"    envDefault:"10"`
+	PartmanInterval time.Duration `env:"ANALYTICS_PARTMAN_INTERVAL" envDefault:"15m"` // Interval for running pg_partman maintenance on analytics partition tables.
+	SSEMaxConns     int           `env:"ANALYTICS_SSE_MAX_CONNS"    envDefault:"10"`  // Maximum concurrent SSE connections for the analytics streaming endpoint.
 
 	// Kafka brokers — used by the provisioning service for topic management (create/delete).
 	// Uses a provisioning-specific env var to avoid collision with the ws-server's KAFKA_BROKERS
 	// (defined in MessageBackendConfig). In-cluster default: <release>-redpanda:9092.
-	KafkaBrokers string `env:"PROVISIONING_KAFKA_BROKERS" envDefault:"localhost:19092"`
+	KafkaBrokers string `env:"PROVISIONING_KAFKA_BROKERS" envDefault:"localhost:19092"` // Kafka broker addresses for provisioning-originated admin operations (topic creation, etc.). Comma-separated.
 
 	// Server
-	Addr string `env:"PROVISIONING_ADDR" envDefault:":8080"`
+	Addr string `env:"PROVISIONING_ADDR" envDefault:":8080"` // HTTP listen address for the provisioning API.
 
 	// gRPC — internal service-to-service communication port
-	GRPCPort int `env:"GRPC_PORT" envDefault:"9090"`
+	GRPCPort int `env:"GRPC_PORT" envDefault:"9090"` // gRPC server port for internal service-to-service communication.
 
 	// Admin Authentication — bootstrap key for first admin registration (base64-encoded Ed25519 public key)
-	AdminBootstrapKey string `env:"ADMIN_BOOTSTRAP_KEY"`
+	AdminBootstrapKey string `env:"ADMIN_BOOTSTRAP_KEY"` // Bootstrap admin API key for provisioning service. Required; used for initial tenant setup.
 
 	// Topic Defaults
-	DefaultPartitions  int   `env:"DEFAULT_PARTITIONS" envDefault:"3"`
-	DefaultRetentionMs int64 `env:"DEFAULT_RETENTION_MS" envDefault:"604800000"` // 7 days
+	DefaultPartitions  int   `env:"DEFAULT_PARTITIONS" envDefault:"3"`           // Default Kafka partition count assigned to new tenant topics.
+	DefaultRetentionMs int64 `env:"DEFAULT_RETENTION_MS" envDefault:"604800000"` // Default Kafka topic retention in milliseconds. Default: 604,800,000ms (7 days).
 
 	// Quotas (defaults per tenant)
-	MaxTopicsPerTenant     int   `env:"MAX_TOPICS_PER_TENANT" envDefault:"50"`
-	MaxPartitionsPerTenant int   `env:"MAX_PARTITIONS_PER_TENANT" envDefault:"200"`
-	MaxStorageBytes        int64 `env:"MAX_STORAGE_BYTES" envDefault:"10737418240"` // 10GB
-	ProducerByteRate       int64 `env:"PRODUCER_BYTE_RATE" envDefault:"10485760"`   // 10MB/s
-	ConsumerByteRate       int64 `env:"CONSUMER_BYTE_RATE" envDefault:"52428800"`   // 50MB/s
+	MaxTopicsPerTenant     int   `env:"MAX_TOPICS_PER_TENANT" envDefault:"50"`      // Default maximum number of Kafka topics per tenant.
+	MaxPartitionsPerTenant int   `env:"MAX_PARTITIONS_PER_TENANT" envDefault:"200"` // Default maximum total partitions across all topics per tenant.
+	MaxStorageBytes        int64 `env:"MAX_STORAGE_BYTES" envDefault:"10737418240"` // Default maximum Kafka storage quota per tenant in bytes. Default: 10,737,418,240 (10GB).
+	ProducerByteRate       int64 `env:"PRODUCER_BYTE_RATE" envDefault:"10485760"`   // Default Kafka producer byte-rate quota per tenant in bytes/sec. Default: 10485760 (10MB/s).
+	ConsumerByteRate       int64 `env:"CONSUMER_BYTE_RATE" envDefault:"52428800"`   // Default Kafka consumer byte-rate quota per tenant in bytes/sec. Default: 52428800 (50MB/s).
 
 	// Tenant Lifecycle
-	DeprovisionGraceDays    int           `env:"DEPROVISION_GRACE_DAYS" envDefault:"30"`
-	LifecycleCheckInterval  time.Duration `env:"LIFECYCLE_CHECK_INTERVAL" envDefault:"1h"`
-	LifecycleManagerEnabled bool          `env:"LIFECYCLE_MANAGER_ENABLED" envDefault:"true"`
+	DeprovisionGraceDays    int           `env:"DEPROVISION_GRACE_DAYS" envDefault:"30"`      // Days to retain a deprovisioned tenant's Kafka topics and ACLs before permanent deletion.
+	LifecycleCheckInterval  time.Duration `env:"LIFECYCLE_CHECK_INTERVAL" envDefault:"1h"`    // How often the lifecycle manager scans for tenants due for deprovisioning or cleanup.
+	LifecycleManagerEnabled bool          `env:"LIFECYCLE_MANAGER_ENABLED" envDefault:"true"` // Enables the background tenant lifecycle manager (deprovisioning, retention enforcement).
 
 	// Routing Rules
 	MaxRoutingRulesPerTenant    int   `env:"MAX_ROUTING_RULES_PER_TENANT" envDefault:"100"`         // Max routing rules per tenant
@@ -99,18 +99,18 @@ type ProvisioningConfig struct {
 	InfraTopicReplicationFactor int   `env:"INFRA_TOPIC_REPLICATION_FACTOR" envDefault:"1"`         // Replication factor for all infrastructure topics (DLQ + default); use int — caarlos0/env v11 does not handle int16; cast to int16 at CreateTopic call sites
 
 	// Rate Limiting
-	APIRateLimitPerMinute int `env:"API_RATE_LIMIT_PER_MIN" envDefault:"60"`
+	APIRateLimitPerMinute int `env:"API_RATE_LIMIT_PER_MIN" envDefault:"60"` // Maximum provisioning API requests per minute per IP before HTTP 429 is returned.
 
 	// Key Registry (for JWT validation in API mode with auth enabled)
-	KeyRegistryRefreshInterval time.Duration `env:"KEY_REGISTRY_REFRESH_INTERVAL" envDefault:"1m"`
-	KeyRegistryQueryTimeout    time.Duration `env:"KEY_REGISTRY_QUERY_TIMEOUT" envDefault:"5s"`
+	KeyRegistryRefreshInterval time.Duration `env:"KEY_REGISTRY_REFRESH_INTERVAL" envDefault:"1m"` // How often the key registry polls for updated tenant JWT signing keys.
+	KeyRegistryQueryTimeout    time.Duration `env:"KEY_REGISTRY_QUERY_TIMEOUT" envDefault:"5s"`    // Timeout for each key registry lookup query.
 
 	// Graceful shutdown timeout
-	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"30s"`
+	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"30s"` // Maximum time to wait for in-flight requests during graceful shutdown.
 
 	// CORS settings
-	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
-	CORSMaxAge         int      `env:"CORS_MAX_AGE" envDefault:"3600"`
+	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"` // Allowed origins for CORS preflight responses. Comma-separated; no wildcard in production.
+	CORSMaxAge         int      `env:"CORS_MAX_AGE" envDefault:"3600"`                                           // Maximum seconds a CORS preflight response may be cached by the browser.
 
 	// CredentialsConfig embeds the shared AES-256 encryption key.
 	// Constitution §I: shared fields defined once in a shared struct, never duplicated.
@@ -121,17 +121,17 @@ type ProvisioningConfig struct {
 	AdminUIConfig
 
 	// Provisioning-specific externalized constants
-	MaxTenantsFetchLimit int           `env:"PROVISIONING_MAX_TENANTS_FETCH_LIMIT" envDefault:"10000"`
-	DeletionTimeout      time.Duration `env:"PROVISIONING_DELETION_TIMEOUT" envDefault:"5m"`
+	MaxTenantsFetchLimit int           `env:"PROVISIONING_MAX_TENANTS_FETCH_LIMIT" envDefault:"10000"` // Maximum number of tenants returned by internal bulk-fetch operations.
+	DeletionTimeout      time.Duration `env:"PROVISIONING_DELETION_TIMEOUT" envDefault:"5m"`           // Timeout for a single tenant deletion operation (Kafka topic removal, ACL cleanup).
 
 	// SlugRenameTopicHoldPeriod is how long old Kafka topics and ACLs are retained after a slug rename.
 	// During this window the old slug is still accepted by the JWT grace-period check.
 	// Must be >= MinSlugRenameHoldPeriod (24h). Default: 168h (7 days).
-	SlugRenameTopicHoldPeriod time.Duration `env:"SLUG_RENAME_TOPIC_HOLD_PERIOD" envDefault:"168h"`
+	SlugRenameTopicHoldPeriod time.Duration `env:"SLUG_RENAME_TOPIC_HOLD_PERIOD" envDefault:"168h"` // Retention window for old Kafka topics and ACLs after a tenant slug rename. Minimum 24h.
 
 	// TokenRevocationMaxLifetime is the maximum duration a revoked token entry is retained
 	// before the background prune loop removes it. Must be > 0. Default: 1h.
-	TokenRevocationMaxLifetime time.Duration `env:"PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME" envDefault:"1h"`
+	TokenRevocationMaxLifetime time.Duration `env:"PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME" envDefault:"1h"` // Maximum duration to retain a revoked token record before the prune loop removes it.
 
 	// ValkeyConfig is the dedicated Valkey client config for the connections registry reader.
 	// The envPrefix:"PROVISIONING_" tag makes effective env var names PROVISIONING_VALKEY_ADDRS, etc.
@@ -141,22 +141,22 @@ type ProvisioningConfig struct {
 
 	// BulkDisconnectConcurrency controls the maximum number of concurrent pub/sub publishes
 	// during a bulk DELETE /connections request.
-	BulkDisconnectConcurrency int `env:"PROVISIONING_BULK_DISCONNECT_CONCURRENCY" envDefault:"10"`
+	BulkDisconnectConcurrency int `env:"PROVISIONING_BULK_DISCONNECT_CONCURRENCY" envDefault:"10"` // Maximum concurrent Valkey publishes during a bulk connection disconnect request.
 
 	// Webhook delivery (Pro edition)
 	WebhookInternalTokenConfig                 // embeds WEBHOOK_INTERNAL_TOKEN (redact:"true"); Validate() called inside EditionHasFeature(Webhooks) guard
 	WebhookHTTPConfig                          // embeds WEBHOOK_ALLOW_HTTP (§X: eliminates duplicate field from WebhookWorkerConfig)
-	MaxWebhooksPerTenant         int           `env:"MAX_WEBHOOKS_PER_TENANT"         envDefault:"10"`
-	WebhookDowngradePollInterval time.Duration `env:"WEBHOOK_DOWNGRADE_POLL_INTERVAL" envDefault:"5m"`
+	MaxWebhooksPerTenant         int           `env:"MAX_WEBHOOKS_PER_TENANT"         envDefault:"10"` // Maximum number of webhook endpoint registrations per tenant.
+	WebhookDowngradePollInterval time.Duration `env:"WEBHOOK_DOWNGRADE_POLL_INTERVAL" envDefault:"5m"` // Polling interval for checking whether a tenant's webhook delivery should pause due to edition downgrade.
 	// WebhookWorkerGRPCPort is the dedicated port for the webhook-worker gRPC service.
 	// Separate from GRPC_PORT (ProvisioningInternalService) so auth is enforced at the
 	// listener level rather than via FullMethod filtering inside a shared interceptor.
 	// Direction: webhook-worker → provisioning (WebhookWorkerService).
-	WebhookWorkerGRPCPort int `env:"WEBHOOK_WORKER_GRPC_PORT" envDefault:"9091"`
+	WebhookWorkerGRPCPort int `env:"WEBHOOK_WORKER_GRPC_PORT" envDefault:"9091"` // gRPC listen port for the webhook-worker internal service. Must differ from GRPC_PORT.
 	// WebhookWorkerGRPCAddr is the address provisioning dials to call the worker's
 	// WebhookWorkerInternalService.TestDeliver RPC (reverse direction: provisioning → worker).
 	// No envDefault — required only when EditionHasFeature(Webhooks); validated conditionally.
-	WebhookWorkerGRPCAddr string `env:"WEBHOOK_WORKER_GRPC_ADDR"`
+	WebhookWorkerGRPCAddr string `env:"WEBHOOK_WORKER_GRPC_ADDR"` // gRPC address provisioning dials to reach the webhook-worker service. Required for Pro/Enterprise editions.
 
 	// editionManager holds the license-resolved edition and limits.
 	// Set by LoadProvisioningConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.

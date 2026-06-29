@@ -38,14 +38,14 @@ const (
 // Bounds checks in Validate() are skipped when Enabled=false to avoid spurious errors
 // for operators who have disabled analytics (analogous to WebhookInternalTokenConfig guard).
 type AnalyticsConfig struct {
-	Enabled               bool          `env:"ANALYTICS_ENABLED"                 envDefault:"false"`
-	DBURL                 string        `env:"ANALYTICS_DB_URL"                  redact:"true"`
-	DBMaxConns            int           `env:"ANALYTICS_DB_MAX_CONNS"            envDefault:"5"`
-	FlushInterval         time.Duration `env:"ANALYTICS_FLUSH_INTERVAL"          envDefault:"60s"`
-	BufferSize            int           `env:"ANALYTICS_BUFFER_SIZE"             envDefault:"10000"`
-	RawEvents             bool          `env:"ANALYTICS_RAW_EVENTS"              envDefault:"false"`
-	RawRetention          time.Duration `env:"ANALYTICS_RAW_RETENTION"           envDefault:"1h"`
-	DowngradePollInterval time.Duration `env:"ANALYTICS_DOWNGRADE_POLL_INTERVAL" envDefault:"5m"`
+	Enabled               bool          `env:"ANALYTICS_ENABLED"                 envDefault:"false"` // Enable event analytics collection. Requires ANALYTICS_DB_URL.
+	DBURL                 string        `env:"ANALYTICS_DB_URL"                  redact:"true"`      // PostgreSQL connection URL for the analytics database.
+	DBMaxConns            int           `env:"ANALYTICS_DB_MAX_CONNS"            envDefault:"5"`     // Maximum database connections for the analytics writer pool.
+	FlushInterval         time.Duration `env:"ANALYTICS_FLUSH_INTERVAL"          envDefault:"60s"`   // Interval at which buffered analytics events are flushed to the database.
+	BufferSize            int           `env:"ANALYTICS_BUFFER_SIZE"             envDefault:"10000"` // In-memory buffer for analytics events before database flush. Events dropped when full.
+	RawEvents             bool          `env:"ANALYTICS_RAW_EVENTS"              envDefault:"false"` // Store raw (un-aggregated) events in addition to aggregates. Increases storage requirements.
+	RawRetention          time.Duration `env:"ANALYTICS_RAW_RETENTION"           envDefault:"1h"`    // Retention period for raw analytics events before automatic cleanup.
+	DowngradePollInterval time.Duration `env:"ANALYTICS_DOWNGRADE_POLL_INTERVAL" envDefault:"5m"`    // Interval for polling provisioning service for analytics-affecting edition downgrades.
 }
 
 // Validate checks AnalyticsConfig for correctness.

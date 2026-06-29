@@ -152,8 +152,8 @@ type ServerConfig struct {
 	PodIdentityConfig
 
 	// Server basics
-	Addr      string `env:"WS_ADDR" envDefault:":3002"`
-	NumShards int    `env:"WS_NUM_SHARDS" envDefault:"1"`       // Number of server shards
+	Addr      string `env:"WS_ADDR" envDefault:":3002"`         // HTTP listen address for the WebSocket load balancer.
+	NumShards int    `env:"WS_NUM_SHARDS" envDefault:"1"`       // Number of independent connection-routing shards. Higher values reduce lock contention; increase WS_BASE_PORT range accordingly.
 	BasePort  int    `env:"WS_BASE_PORT" envDefault:"3002"`     // Base port for shard binding (3002, 3003, ...)
 	LBAddr    string `env:"WS_LB_ADDR" envDefault:":3005"`      // Load balancer listen address
 	GRPCPort  int    `env:"SERVER_GRPC_PORT" envDefault:"3006"` // gRPC server port for RealtimeService (SSE Subscribe + REST Publish)
@@ -162,24 +162,24 @@ type ServerConfig struct {
 	// When false, the consumer pool is not created — no consumer group join, no message
 	// consumption. WebSocket connections still work (connection-only mode for loadtesting).
 	// Default: true
-	KafkaConsumerEnabled bool `env:"KAFKA_CONSUMER_ENABLED" envDefault:"true"`
+	KafkaConsumerEnabled bool `env:"KAFKA_CONSUMER_ENABLED" envDefault:"true"` // When false, the Kafka consumer pool is disabled and no messages are consumed from Kafka topics. Useful for debug deployments or when using an alternative message backend.
 
 	// Kafka Topic Defaults (for on-demand topic creation by KafkaBackend)
-	KafkaDefaultPartitions        int `env:"KAFKA_DEFAULT_PARTITIONS" envDefault:"1"`
-	KafkaDefaultReplicationFactor int `env:"KAFKA_DEFAULT_REPLICATION_FACTOR" envDefault:"1"`
+	KafkaDefaultPartitions        int `env:"KAFKA_DEFAULT_PARTITIONS" envDefault:"1"`         // Default partition count for Kafka topics created on demand by ws-server.
+	KafkaDefaultReplicationFactor int `env:"KAFKA_DEFAULT_REPLICATION_FACTOR" envDefault:"1"` // Default replication factor for Kafka topics created on demand by ws-server.
 
 	// Resource limits
 	// Note: CPU limit is detected automatically by Go runtime reading cgroup (Go 1.25+)
 	// WS_CPU_LIMIT env var is only used by Docker to set the container limit
-	MemoryLimit int64 `env:"WS_MEMORY_LIMIT" envDefault:"536870912"` // 512MB
+	MemoryLimit int64 `env:"WS_MEMORY_LIMIT" envDefault:"536870912"` // Memory limit in bytes. New connections are rejected (HTTP 503) when exceeded. Default: 512MB.
 
 	// Capacity
-	MaxConnections int `env:"WS_MAX_CONNECTIONS" envDefault:"500"`
+	MaxConnections int `env:"WS_MAX_CONNECTIONS" envDefault:"500"` // Maximum simultaneous WebSocket client connections per pod. New connections are rejected with HTTP 503 when this limit is reached.
 
 	// Rate limiting
-	MaxKafkaMessagesPerSec   int `env:"WS_MAX_KAFKA_RATE" envDefault:"1000"` // Kafka message consumption rate
-	MaxBroadcastsPerSec      int `env:"WS_MAX_BROADCAST_RATE" envDefault:"25"`
-	MaxGoroutines            int `env:"WS_MAX_GOROUTINES" envDefault:"100000"`
+	MaxKafkaMessagesPerSec   int `env:"WS_MAX_KAFKA_RATE" envDefault:"1000"`           // Maximum Kafka messages per second the server will consume across all topics.
+	MaxBroadcastsPerSec      int `env:"WS_MAX_BROADCAST_RATE" envDefault:"25"`         // Maximum Valkey broadcast fan-out rate in messages per second. Messages above this rate are dropped and counted in ws_broadcast_bus_dropped_total.
+	MaxGoroutines            int `env:"WS_MAX_GOROUTINES" envDefault:"100000"`         // Maximum number of goroutines allowed per pod. New connections are rejected when this limit is reached.
 	RateLimitBurstMultiplier int `env:"WS_RATE_LIMIT_BURST_MULTIPLIER" envDefault:"2"` // Burst capacity as a multiple of the steady-state rate
 
 	// Per-client message rate limiting (token bucket algorithm)
@@ -191,15 +191,15 @@ type ServerConfig struct {
 	//   - Coinbase: 10 orders/second
 	//   - Binance: 10 orders/second per symbol, 100/sec total
 	//   - Interactive Brokers: 50 orders/second
-	ClientMsgBurstLimit int     `env:"WS_CLIENT_MSG_BURST_LIMIT" envDefault:"100"` // Per-client burst capacity
+	ClientMsgBurstLimit int     `env:"WS_CLIENT_MSG_BURST_LIMIT" envDefault:"100"` // Per-client inbound message burst capacity (token bucket). Clients exceeding this are disconnected.
 	ClientMsgRatePerSec float64 `env:"WS_CLIENT_MSG_RATE_PER_SEC" envDefault:"10"` // Per-client sustained rate/sec
 
 	// Connection rate limiting (DoS protection)
-	ConnectionRateLimitEnabled bool    `env:"CONN_RATE_LIMIT_ENABLED" envDefault:"true"`
-	ConnRateLimitIPBurst       int     `env:"CONN_RATE_LIMIT_IP_BURST" envDefault:"100"`
-	ConnRateLimitIPRate        float64 `env:"CONN_RATE_LIMIT_IP_RATE" envDefault:"100.0"`
-	ConnRateLimitGlobalBurst   int     `env:"CONN_RATE_LIMIT_GLOBAL_BURST" envDefault:"300"`
-	ConnRateLimitGlobalRate    float64 `env:"CONN_RATE_LIMIT_GLOBAL_RATE" envDefault:"50.0"`
+	ConnectionRateLimitEnabled bool    `env:"CONN_RATE_LIMIT_ENABLED" envDefault:"true"`     // When true, connection rate limiting is enforced per source IP and globally to protect against connection flood attacks. Controlled by CONN_RATE_LIMIT_IP_RATE, CONN_RATE_LIMIT_IP_BURST, CONN_RATE_LIMIT_GLOBAL_RATE, and CONN_RATE_LIMIT_GLOBAL_BURST.
+	ConnRateLimitIPBurst       int     `env:"CONN_RATE_LIMIT_IP_BURST" envDefault:"100"`     // Burst allowance for per-source-IP connection rate limiting.
+	ConnRateLimitIPRate        float64 `env:"CONN_RATE_LIMIT_IP_RATE" envDefault:"100.0"`    // Sustained new-connection rate limit per source IP address, in connections per second.
+	ConnRateLimitGlobalBurst   int     `env:"CONN_RATE_LIMIT_GLOBAL_BURST" envDefault:"300"` // Burst allowance for the global (all-IP combined) new-connection rate limit.
+	ConnRateLimitGlobalRate    float64 `env:"CONN_RATE_LIMIT_GLOBAL_RATE" envDefault:"50.0"` // Sustained new-connection rate limit across all source IPs combined, in connections per second.
 
 	// CPU Safety Thresholds (Container-Aware) with Hysteresis
 	//
@@ -227,10 +227,10 @@ type ServerConfig struct {
 	//
 	// The 10% gap is the "hysteresis band" that provides stability.
 	//
-	CPURejectThreshold      float64 `env:"WS_CPU_REJECT_THRESHOLD" envDefault:"60.0"`    // Upper: start rejecting above this %
-	CPURejectThresholdLower float64 `env:"WS_CPU_REJECT_THRESHOLD_LOWER" envDefault:"0"` // Lower: stop rejecting below this % (0 = auto: upper - 10)
-	CPUPauseThreshold       float64 `env:"WS_CPU_PAUSE_THRESHOLD" envDefault:"70.0"`     // Upper: pause Kafka above this %
-	CPUPauseThresholdLower  float64 `env:"WS_CPU_PAUSE_THRESHOLD_LOWER" envDefault:"0"`  // Lower: resume Kafka below this % (0 = auto: upper - 10)
+	CPURejectThreshold      float64 `env:"WS_CPU_REJECT_THRESHOLD" envDefault:"60.0"`    // CPU percentage above which new connections are rejected with HTTP 503. Hysteresis: stop rejecting below WS_CPU_REJECT_THRESHOLD_LOWER.
+	CPURejectThresholdLower float64 `env:"WS_CPU_REJECT_THRESHOLD_LOWER" envDefault:"0"` // CPU percentage below which connection rejection stops (hysteresis lower bound). 0 = auto: WS_CPU_REJECT_THRESHOLD minus 10.
+	CPUPauseThreshold       float64 `env:"WS_CPU_PAUSE_THRESHOLD" envDefault:"70.0"`     // CPU percentage above which Kafka consumption is paused. Hysteresis: resume below WS_CPU_PAUSE_THRESHOLD_LOWER.
+	CPUPauseThresholdLower  float64 `env:"WS_CPU_PAUSE_THRESHOLD_LOWER" envDefault:"0"`  // CPU percentage below which the Kafka consumer pauses end (hysteresis lower bound). 0 = auto: WS_CPU_PAUSE_THRESHOLD minus 10.
 	CPUEWMABeta             float64 `env:"WS_CPU_EWMA_BETA" envDefault:"0.8"`            // EWMA decay factor for CPU smoothing (0-1, higher = smoother)
 
 	// TCP/Network Tuning (Burst Tolerance)
@@ -244,7 +244,7 @@ type ServerConfig struct {
 	TCPListenBacklog int `env:"TCP_LISTEN_BACKLOG" envDefault:"2048"` // TCP accept queue size (0 = Go default ~128)
 
 	// Monitoring
-	MetricsInterval time.Duration `env:"METRICS_INTERVAL" envDefault:"15s"`
+	MetricsInterval time.Duration `env:"METRICS_INTERVAL" envDefault:"15s"` // Prometheus metrics collection interval for system-level metrics (CPU usage, memory, connection counts).
 
 	// CPU Polling Interval (for protection decisions)
 	// Separate from MetricsInterval to allow faster CPU spike detection
@@ -255,26 +255,26 @@ type ServerConfig struct {
 	// - ShouldAcceptConnection() - reject connections when CPU > 75%
 	//
 	// Trade-off: 1s polling = 0.1% CPU overhead, but 15x faster spike detection
-	CPUPollInterval time.Duration `env:"CPU_POLL_INTERVAL" envDefault:"1s"`
+	CPUPollInterval time.Duration `env:"CPU_POLL_INTERVAL" envDefault:"1s"` // Interval for CPU usage sampling used by backpressure and connection rejection decisions. Lower values detect spikes faster at marginally higher overhead.
 
 	// Alerting
-	AlertEnabled         bool          `env:"ALERT_ENABLED" envDefault:"false"`
-	AlertMinLevel        string        `env:"ALERT_MIN_LEVEL" envDefault:"WARNING"`
-	AlertSlackWebhookURL string        `env:"ALERT_SLACK_WEBHOOK_URL" redact:"true"`
-	AlertSlackChannel    string        `env:"ALERT_SLACK_CHANNEL"`
-	AlertSlackUsername   string        `env:"ALERT_SLACK_USERNAME" envDefault:"AlertBot"`
-	AlertSlackTimeout    time.Duration `env:"ALERT_SLACK_TIMEOUT" envDefault:"5s"`
-	AlertRateLimitWindow time.Duration `env:"ALERT_RATE_LIMIT_WINDOW" envDefault:"5m"`
-	AlertRateLimitMax    int           `env:"ALERT_RATE_LIMIT_MAX" envDefault:"3"`
-	AlertConsoleEnabled  bool          `env:"ALERT_CONSOLE_ENABLED" envDefault:"false"`
+	AlertEnabled         bool          `env:"ALERT_ENABLED" envDefault:"false"`           // When true, ws-server sends operational alerts to the configured destinations (ALERT_SLACK_WEBHOOK_URL, ALERT_CONSOLE_ENABLED).
+	AlertMinLevel        string        `env:"ALERT_MIN_LEVEL" envDefault:"WARNING"`       // Minimum alert severity to send. One of: DEBUG, INFO, WARNING, ERROR, CRITICAL.
+	AlertSlackWebhookURL string        `env:"ALERT_SLACK_WEBHOOK_URL" redact:"true"`      // Slack incoming webhook URL for alert delivery.
+	AlertSlackChannel    string        `env:"ALERT_SLACK_CHANNEL"`                        // Slack channel to post alerts to (e.g. #ops-alerts).
+	AlertSlackUsername   string        `env:"ALERT_SLACK_USERNAME" envDefault:"AlertBot"` // Display name for the Slack alert bot.
+	AlertSlackTimeout    time.Duration `env:"ALERT_SLACK_TIMEOUT" envDefault:"5s"`        // HTTP request timeout for each Slack webhook delivery attempt.
+	AlertRateLimitWindow time.Duration `env:"ALERT_RATE_LIMIT_WINDOW" envDefault:"5m"`    // Window duration for alert rate limiting. At most ALERT_RATE_LIMIT_MAX alerts are sent per window.
+	AlertRateLimitMax    int           `env:"ALERT_RATE_LIMIT_MAX" envDefault:"3"`        // Maximum alerts sent per ALERT_RATE_LIMIT_WINDOW. Excess alerts are suppressed to prevent notification floods.
+	AlertConsoleEnabled  bool          `env:"ALERT_CONSOLE_ENABLED" envDefault:"false"`   // When true, alerts are written to the structured log output in addition to any remote destinations.
 
 	// Valkey Configuration (for BroadcastBus when BROADCAST_TYPE=valkey)
 	// Supports both self-hosted Sentinel (3 addresses) and single instance (1 address)
-	ValkeyAddrs      []string `env:"VALKEY_ADDRS" envSeparator:"," envDefault:"localhost:6379"`
-	ValkeyMasterName string   `env:"VALKEY_MASTER_NAME" envDefault:"mymaster"`
-	ValkeyPassword   string   `env:"VALKEY_PASSWORD" redact:"true"`
-	ValkeyDB         int      `env:"VALKEY_DB" envDefault:"0"`
-	ValkeyChannel    string   `env:"VALKEY_CHANNEL" envDefault:"ws.broadcast"`
+	ValkeyAddrs      []string `env:"VALKEY_ADDRS" envSeparator:"," envDefault:"localhost:6379"` // Valkey server addresses, comma-separated. For Sentinel high-availability, provide all Sentinel addresses (e.g. sentinel1:26379,sentinel2:26379,sentinel3:26379). For single-instance, provide one address.
+	ValkeyMasterName string   `env:"VALKEY_MASTER_NAME" envDefault:"mymaster"`                  // Valkey Sentinel master name. Only used when VALKEY_ADDRS contains Sentinel addresses.
+	ValkeyPassword   string   `env:"VALKEY_PASSWORD" redact:"true"`                             // Valkey authentication password.
+	ValkeyDB         int      `env:"VALKEY_DB" envDefault:"0"`                                  // Valkey database index. Use 0 (the default) unless your deployment requires database isolation.
+	ValkeyChannel    string   `env:"VALKEY_CHANNEL" envDefault:"ws.broadcast"`                  // Valkey pub/sub channel prefix. The full per-tenant channel is {VALKEY_CHANNEL}:{tenantID} (e.g. ws.broadcast:acme-corp). All ws-server pods must use the same prefix. If Valkey ACLs restrict pub/sub by channel pattern, update patterns from ws.broadcast to ws.broadcast:*.
 
 	// Slow Client Detection
 	//
@@ -288,7 +288,7 @@ type ServerConfig struct {
 	//
 	// Default: 3 (balanced - tolerates brief hiccups, disconnects persistent slow clients)
 	// Range: 1-10 (1 = aggressive, 10 = very lenient)
-	SlowClientMaxAttempts int `env:"WS_SLOW_CLIENT_MAX_ATTEMPTS" envDefault:"3"`
+	SlowClientMaxAttempts int `env:"WS_SLOW_CLIENT_MAX_ATTEMPTS" envDefault:"3"` // Number of consecutive failed send attempts before a slow client is disconnected. A send attempt fails when the client's outbound buffer is full.
 
 	// Client Send Buffer Size
 	// Controls the per-client send channel buffer (memory vs slow-client tolerance trade-off)
@@ -303,32 +303,32 @@ type ServerConfig struct {
 	//
 	// Default: 512 (reduced from 1024 to cut heap size by 50%, reduce GC pressure)
 	// Production guidance: Start with 512, increase to 768 or 1024 if cascade disconnects occur
-	ClientSendBufferSize int `env:"WS_CLIENT_SEND_BUFFER_SIZE" envDefault:"512"`
+	ClientSendBufferSize int `env:"WS_CLIENT_SEND_BUFFER_SIZE" envDefault:"512"` // Per-client outbound message buffer size in messages. Larger buffers tolerate temporary client slowness at the cost of higher memory usage per connection.
 
 	// GapNotifyBufferSize is the per-client buffer for low-priority gap notifications.
 	// Must be 1-MaxGapNotifyBufferSize (64); 0 would make the channel unbuffered (blocks Broadcast hot path).
 	// Keep small relative to ClientSendBufferSize — gaps are low-frequency out-of-band events.
 	// Drops beyond capacity are counted via ws_gap_notifications_dropped_total{reason="buffer_full"}.
-	GapNotifyBufferSize int `env:"WS_GAP_NOTIFY_BUFFER_SIZE" envDefault:"8"`
+	GapNotifyBufferSize int `env:"WS_GAP_NOTIFY_BUFFER_SIZE" envDefault:"8"` // Per-client buffer for gap notification messages. Gap notifications are low-priority; this buffer absorbs bursts without blocking the main message pipeline.
 
 	// ReplayRateLimitInterval is the minimum time between live replay requests
 	// per (client, channel) pair. Prevents unbounded Kafka reads per client.
-	ReplayRateLimitInterval time.Duration `env:"WS_REPLAY_RATE_LIMIT_INTERVAL" envDefault:"10s"`
+	ReplayRateLimitInterval time.Duration `env:"WS_REPLAY_RATE_LIMIT_INTERVAL" envDefault:"10s"` // Minimum interval between history replay requests per client per channel. Prevents replay storms from a single connection.
 
 	// Broadcast Bus Configuration
 	//
 	// BroadcastType: Backend for inter-instance messaging ("valkey")
 	// - valkey: Redis-compatible Pub/Sub (default, ~1-2ms latency, required for message history)
-	BroadcastType string `env:"BROADCAST_TYPE" envDefault:"valkey"`
+	BroadcastType string `env:"BROADCAST_TYPE" envDefault:"valkey"` // Backend for inter-instance message broadcasting. Only valkey is supported — Valkey pub/sub is required for all ws-server deployments.
 
 	// Valkey Broadcast Bus TLS (for managed Valkey/Redis: ElastiCache, Memorystore, Upstash, etc.)
-	ValkeyTLSEnabled  bool   `env:"VALKEY_TLS_ENABLED" envDefault:"false"`
-	ValkeyTLSInsecure bool   `env:"VALKEY_TLS_INSECURE" envDefault:"false"`
-	ValkeyTLSCAPath   string `env:"VALKEY_TLS_CA_PATH"`
+	ValkeyTLSEnabled  bool   `env:"VALKEY_TLS_ENABLED" envDefault:"false"`  // When true, Valkey connections use TLS encryption. Required for managed Valkey/Redis services (ElastiCache, Memorystore, Upstash).
+	ValkeyTLSInsecure bool   `env:"VALKEY_TLS_INSECURE" envDefault:"false"` // When true, TLS certificate verification is skipped for Valkey connections. Do not use in production.
+	ValkeyTLSCAPath   string `env:"VALKEY_TLS_CA_PATH"`                     // Path to a custom CA certificate file for Valkey TLS connections. Required when Valkey uses a private certificate authority.
 
 	// TopicRefreshInterval is how often to re-sync tenant topics from the registry.
 	// Safety net — primary updates come from the gRPC stream.
-	TopicRefreshInterval time.Duration `env:"TOPIC_REFRESH_INTERVAL" envDefault:"60s"`
+	TopicRefreshInterval time.Duration `env:"TOPIC_REFRESH_INTERVAL" envDefault:"60s"` // How often ws-server re-syncs the tenant topic list from the provisioning registry. This is a safety net; the primary update path is event-driven.
 
 	// WebSocket Ping/Pong Configuration
 	//
@@ -352,98 +352,98 @@ type ServerConfig struct {
 	//   - Buffer too small (<5s): Connections drop during GC pauses or network hiccups
 	//   - PingPeriod >= PongWait: Invalid, ping would always timeout
 	//
-	PongWait   time.Duration `env:"WS_PONG_WAIT" envDefault:"60s"`
-	PingPeriod time.Duration `env:"WS_PING_PERIOD" envDefault:"45s"`
+	PongWait   time.Duration `env:"WS_PONG_WAIT" envDefault:"60s"`   // Timeout for receiving a pong response after sending a ping. Clients that do not respond within this window are disconnected. Must be greater than WS_PING_PERIOD.
+	PingPeriod time.Duration `env:"WS_PING_PERIOD" envDefault:"45s"` // Interval between WebSocket ping frames sent to connected clients. Must be less than WS_PONG_WAIT.
 
 	// WriteWait is the timeout for WebSocket write operations.
 	// 5s is sufficient for local writes; network latency is handled by TCP.
-	WriteWait time.Duration `env:"WS_WRITE_WAIT" envDefault:"5s"`
+	WriteWait time.Duration `env:"WS_WRITE_WAIT" envDefault:"5s"` // Timeout for a single WebSocket write operation. Increase for high-latency networks.
 
 	// Handler timeouts
-	ReplayTimeout     time.Duration `env:"WS_REPLAY_TIMEOUT" envDefault:"5s"`
-	PublishTimeout    time.Duration `env:"WS_PUBLISH_TIMEOUT" envDefault:"5s"`
-	MaxReplayMessages int           `env:"WS_MAX_REPLAY_MESSAGES" envDefault:"100"`
+	ReplayTimeout     time.Duration `env:"WS_REPLAY_TIMEOUT" envDefault:"5s"`       // Timeout for a single history replay handler to complete.
+	PublishTimeout    time.Duration `env:"WS_PUBLISH_TIMEOUT" envDefault:"5s"`      // Timeout for a client publish operation (client to gateway to ws-server to Kafka).
+	MaxReplayMessages int           `env:"WS_MAX_REPLAY_MESSAGES" envDefault:"100"` // Maximum number of messages returned per history replay request.
 
 	// Topic/backend timeouts
-	TopicCreationTimeout time.Duration `env:"WS_TOPIC_CREATION_TIMEOUT" envDefault:"30s"`
+	TopicCreationTimeout time.Duration `env:"WS_TOPIC_CREATION_TIMEOUT" envDefault:"30s"` // Timeout for on-demand Kafka topic creation.
 
 	// Orchestration
-	ShardDialTimeout           time.Duration `env:"WS_SHARD_DIAL_TIMEOUT" envDefault:"10s"`
-	ShardMessageTimeout        time.Duration `env:"WS_SHARD_MESSAGE_TIMEOUT" envDefault:"60s"`
-	MetricsAggregationInterval time.Duration `env:"WS_METRICS_AGGREGATION_INTERVAL" envDefault:"5s"`
+	ShardDialTimeout           time.Duration `env:"WS_SHARD_DIAL_TIMEOUT" envDefault:"10s"`          // Timeout for the load balancer to dial a shard when proxying a new connection.
+	ShardMessageTimeout        time.Duration `env:"WS_SHARD_MESSAGE_TIMEOUT" envDefault:"60s"`       // Timeout for forwarding a single message between the load balancer and a shard.
+	MetricsAggregationInterval time.Duration `env:"WS_METRICS_AGGREGATION_INTERVAL" envDefault:"5s"` // Interval for aggregating per-shard metrics into cluster-level summaries.
 
 	// Shutdown
-	ShutdownGracePeriod   time.Duration `env:"WS_SHUTDOWN_GRACE_PERIOD" envDefault:"30s"`
-	ShutdownCheckInterval time.Duration `env:"WS_SHUTDOWN_CHECK_INTERVAL" envDefault:"1s"`
+	ShutdownGracePeriod   time.Duration `env:"WS_SHUTDOWN_GRACE_PERIOD" envDefault:"30s"`  // Maximum time ws-server waits for in-flight connections and consumers to drain during graceful shutdown.
+	ShutdownCheckInterval time.Duration `env:"WS_SHUTDOWN_CHECK_INTERVAL" envDefault:"1s"` // Polling interval for checking whether all connections have closed during graceful shutdown.
 
 	// Internal monitoring
-	MetricsCollectInterval      time.Duration `env:"WS_METRICS_COLLECT_INTERVAL" envDefault:"2s"`
-	MemoryMonitorInterval       time.Duration `env:"WS_MEMORY_MONITOR_INTERVAL" envDefault:"30s"`
-	MemoryWarningPercent        int           `env:"WS_MEMORY_WARNING_PERCENT" envDefault:"80"`
-	MemoryCriticalPercent       int           `env:"WS_MEMORY_CRITICAL_PERCENT" envDefault:"90"`
-	BufferSampleInterval        time.Duration `env:"WS_BUFFER_SAMPLE_INTERVAL" envDefault:"10s"`
-	BufferMaxSamples            int           `env:"WS_BUFFER_MAX_SAMPLES" envDefault:"100"`
-	BufferHighSaturationPercent int           `env:"WS_BUFFER_HIGH_SATURATION_PERCENT" envDefault:"90"`
-	BufferPopulationWarnPercent int           `env:"WS_BUFFER_POPULATION_WARN_PERCENT" envDefault:"25"`
+	MetricsCollectInterval      time.Duration `env:"WS_METRICS_COLLECT_INTERVAL" envDefault:"2s"`       // Interval for collecting internal runtime metrics (goroutine counts, buffer saturation).
+	MemoryMonitorInterval       time.Duration `env:"WS_MEMORY_MONITOR_INTERVAL" envDefault:"30s"`       // Interval for polling memory usage against WS_MEMORY_LIMIT.
+	MemoryWarningPercent        int           `env:"WS_MEMORY_WARNING_PERCENT" envDefault:"80"`         // Memory usage percentage of WS_MEMORY_LIMIT at which a warning log is emitted.
+	MemoryCriticalPercent       int           `env:"WS_MEMORY_CRITICAL_PERCENT" envDefault:"90"`        // Memory usage percentage of WS_MEMORY_LIMIT at which new connections are rejected.
+	BufferSampleInterval        time.Duration `env:"WS_BUFFER_SAMPLE_INTERVAL" envDefault:"10s"`        // Interval for sampling client send buffer saturation metrics.
+	BufferMaxSamples            int           `env:"WS_BUFFER_MAX_SAMPLES" envDefault:"100"`            // Rolling window size in samples for buffer saturation statistics.
+	BufferHighSaturationPercent int           `env:"WS_BUFFER_HIGH_SATURATION_PERCENT" envDefault:"90"` // Per-client send buffer fill percentage above which the client is considered saturated.
+	BufferPopulationWarnPercent int           `env:"WS_BUFFER_POPULATION_WARN_PERCENT" envDefault:"25"` // Percentage of clients considered saturated above which a warning alert is triggered.
 
 	// Connection rate limiter internals
-	ConnRateLimitIPTTL           time.Duration `env:"CONN_RATE_LIMIT_IP_TTL" envDefault:"5m"`
-	ConnRateLimitCleanupInterval time.Duration `env:"CONN_RATE_LIMIT_CLEANUP_INTERVAL" envDefault:"1m"`
+	ConnRateLimitIPTTL           time.Duration `env:"CONN_RATE_LIMIT_IP_TTL" envDefault:"5m"`           // How long per-IP connection rate limit state is retained after the last connection attempt from that IP.
+	ConnRateLimitCleanupInterval time.Duration `env:"CONN_RATE_LIMIT_CLEANUP_INTERVAL" envDefault:"1m"` // Interval for purging expired per-IP rate limit state.
 
 	// Broadcast bus
-	BroadcastBufferSize      int           `env:"BROADCAST_BUFFER_SIZE" envDefault:"256"`
-	BroadcastShutdownTimeout time.Duration `env:"BROADCAST_SHUTDOWN_TIMEOUT" envDefault:"5s"`
+	BroadcastBufferSize      int           `env:"BROADCAST_BUFFER_SIZE" envDefault:"256"`     // Per-tenant per-shard broadcast message buffer size. When this buffer is full, messages for that tenant are dropped and counted in ws_broadcast_bus_dropped_total. Maximum: 65,536 (BROADCAST_BUFFER_SIZE_MAX); values above this cause a startup failure. Operators running high-throughput single-tenant workloads should increase this value.
+	BroadcastShutdownTimeout time.Duration `env:"BROADCAST_SHUTDOWN_TIMEOUT" envDefault:"5s"` // Timeout for draining the broadcast bus during graceful shutdown.
 
 	// Valkey broadcast tuning
-	ValkeyWriteTimeout              time.Duration `env:"VALKEY_WRITE_TIMEOUT" envDefault:"3s"`
-	ValkeyPublishTimeout            time.Duration `env:"VALKEY_PUBLISH_TIMEOUT" envDefault:"100ms"`
-	ValkeyStartupPingTimeout        time.Duration `env:"VALKEY_STARTUP_PING_TIMEOUT" envDefault:"5s"`
-	ValkeyReconnectInitialBackoff   time.Duration `env:"VALKEY_RECONNECT_INITIAL_BACKOFF" envDefault:"100ms"`
-	ValkeyReconnectMaxBackoff       time.Duration `env:"VALKEY_RECONNECT_MAX_BACKOFF" envDefault:"30s"`
-	ValkeyReconnectMaxAttempts      int           `env:"VALKEY_RECONNECT_MAX_ATTEMPTS" envDefault:"10"`
-	ValkeyHealthCheckInterval       time.Duration `env:"VALKEY_HEALTH_CHECK_INTERVAL" envDefault:"10s"`
-	ValkeyHealthCheckTimeout        time.Duration `env:"VALKEY_HEALTH_CHECK_TIMEOUT" envDefault:"5s"`
-	ValkeyPublishStalenessThreshold time.Duration `env:"VALKEY_PUBLISH_STALENESS_THRESHOLD" envDefault:"60s"` // Log warning if no publish within this window
+	ValkeyWriteTimeout              time.Duration `env:"VALKEY_WRITE_TIMEOUT" envDefault:"3s"`                // Timeout for Valkey write operations (SET, EXPIRE) from the broadcast bus.
+	ValkeyPublishTimeout            time.Duration `env:"VALKEY_PUBLISH_TIMEOUT" envDefault:"100ms"`           // Timeout for each Valkey PUBLISH command in the broadcast hot path.
+	ValkeyStartupPingTimeout        time.Duration `env:"VALKEY_STARTUP_PING_TIMEOUT" envDefault:"5s"`         // Timeout for the Valkey connectivity check during ws-server startup.
+	ValkeyReconnectInitialBackoff   time.Duration `env:"VALKEY_RECONNECT_INITIAL_BACKOFF" envDefault:"100ms"` // Starting backoff delay for Valkey reconnection attempts after a connection failure.
+	ValkeyReconnectMaxBackoff       time.Duration `env:"VALKEY_RECONNECT_MAX_BACKOFF" envDefault:"30s"`       // Maximum backoff delay between Valkey reconnection attempts.
+	ValkeyReconnectMaxAttempts      int           `env:"VALKEY_RECONNECT_MAX_ATTEMPTS" envDefault:"10"`       // Maximum number of Valkey reconnection attempts before the broadcast bus is marked unhealthy.
+	ValkeyHealthCheckInterval       time.Duration `env:"VALKEY_HEALTH_CHECK_INTERVAL" envDefault:"10s"`       // Interval for periodic Valkey health checks.
+	ValkeyHealthCheckTimeout        time.Duration `env:"VALKEY_HEALTH_CHECK_TIMEOUT" envDefault:"5s"`         // Timeout for each Valkey health check PING.
+	ValkeyPublishStalenessThreshold time.Duration `env:"VALKEY_PUBLISH_STALENESS_THRESHOLD" envDefault:"60s"` // Staleness window for the Valkey broadcast publisher — a warning is logged if no message is published within this interval (indicates silent consumer failures).
 
 	// Kafka consumer tuning
-	KafkaBatchSize    int           `env:"KAFKA_BATCH_SIZE" envDefault:"50"`
-	KafkaBatchTimeout time.Duration `env:"KAFKA_BATCH_TIMEOUT" envDefault:"10ms"`
+	KafkaBatchSize    int           `env:"KAFKA_BATCH_SIZE" envDefault:"50"`      // Maximum number of Kafka messages processed per consumer batch.
+	KafkaBatchTimeout time.Duration `env:"KAFKA_BATCH_TIMEOUT" envDefault:"10ms"` // Maximum time to wait to fill a batch before processing it.
 
 	// Kafka consumer transport tuning
-	KafkaFetchMaxWait              time.Duration `env:"KAFKA_FETCH_MAX_WAIT" envDefault:"500ms"`
-	KafkaFetchMinBytes             int32         `env:"KAFKA_FETCH_MIN_BYTES" envDefault:"1"`
-	KafkaFetchMaxBytes             int32         `env:"KAFKA_FETCH_MAX_BYTES" envDefault:"10485760"`
-	KafkaSessionTimeout            time.Duration `env:"KAFKA_SESSION_TIMEOUT" envDefault:"30s"`
-	KafkaRebalanceTimeout          time.Duration `env:"KAFKA_REBALANCE_TIMEOUT" envDefault:"60s"`
-	KafkaReplayFetchMaxBytes       int32         `env:"KAFKA_REPLAY_FETCH_MAX_BYTES" envDefault:"5242880"`
-	KafkaBackpressureCheckInterval time.Duration `env:"KAFKA_BACKPRESSURE_CHECK_INTERVAL" envDefault:"100ms"`
+	KafkaFetchMaxWait              time.Duration `env:"KAFKA_FETCH_MAX_WAIT" envDefault:"500ms"`              // Maximum time the Kafka broker waits before returning a fetch response, even if KAFKA_FETCH_MIN_BYTES has not been met. Lower values reduce latency; higher values improve throughput.
+	KafkaFetchMinBytes             int32         `env:"KAFKA_FETCH_MIN_BYTES" envDefault:"1"`                 // Minimum bytes a broker should accumulate before returning a fetch response.
+	KafkaFetchMaxBytes             int32         `env:"KAFKA_FETCH_MAX_BYTES" envDefault:"10485760"`          // Maximum bytes returned per fetch request.
+	KafkaSessionTimeout            time.Duration `env:"KAFKA_SESSION_TIMEOUT" envDefault:"30s"`               // Kafka consumer group session timeout. If the consumer does not heartbeat within this window, it is declared dead and a rebalance is triggered. Must be within the broker's configured range.
+	KafkaRebalanceTimeout          time.Duration `env:"KAFKA_REBALANCE_TIMEOUT" envDefault:"60s"`             // Maximum time allowed for a consumer group rebalance to complete. Must be greater than KAFKA_COMMIT_ON_REVOKE_TIMEOUT.
+	KafkaReplayFetchMaxBytes       int32         `env:"KAFKA_REPLAY_FETCH_MAX_BYTES" envDefault:"5242880"`    // Maximum bytes per fetch during history replay. Kept separate from KAFKA_FETCH_MAX_BYTES to prevent replay reads from saturating the live consumer path.
+	KafkaBackpressureCheckInterval time.Duration `env:"KAFKA_BACKPRESSURE_CHECK_INTERVAL" envDefault:"100ms"` // Polling interval for the Kafka backpressure circuit breaker (CPU and goroutine pressure check).
 
 	// KafkaCommitOnRevokeTimeout controls how long OnPartitionsRevoked waits for
 	// CommitMarkedOffsets to complete before returning. Must be > 0 and < KafkaRebalanceTimeout.
-	KafkaCommitOnRevokeTimeout time.Duration `env:"KAFKA_COMMIT_ON_REVOKE_TIMEOUT" envDefault:"5s"`
+	KafkaCommitOnRevokeTimeout time.Duration `env:"KAFKA_COMMIT_ON_REVOKE_TIMEOUT" envDefault:"5s"` // How long ws-server waits to commit processed Kafka offsets during a consumer group rebalance (triggered on rolling deploys, pod restarts, or scale events). If the commit completes within this window, duplicate delivery to clients by the new consumer is minimized. If the commit times out, offsets since the last background auto-commit (see KAFKA_AUTO_COMMIT_INTERVAL) may be re-delivered.
 
 	// KafkaAutoCommitInterval controls the background auto-commit interval.
 	// Must be >= MinAutoCommitInterval (100ms). Franz-go enforces this floor;
 	// pre-validation here produces a clear error per Constitution §I.
-	KafkaAutoCommitInterval time.Duration `env:"KAFKA_AUTO_COMMIT_INTERVAL" envDefault:"5s"`
+	KafkaAutoCommitInterval time.Duration `env:"KAFKA_AUTO_COMMIT_INTERVAL" envDefault:"5s"` // Interval between background Kafka offset commits. Controls the crash-path duplicate window: if a pod crashes without a clean shutdown, messages processed in the final KAFKA_AUTO_COMMIT_INTERVAL before the crash may be re-delivered after failover. Lower values reduce the crash-path window at the cost of more frequent broker commits. Minimum: 100ms — values below this cause a startup validation error.
 
 	// Kafka producer tuning
-	KafkaProducerBatchMaxBytes      int           `env:"KAFKA_PRODUCER_BATCH_MAX_BYTES" envDefault:"1048576"`
-	KafkaProducerMaxBufferedRecords int           `env:"KAFKA_PRODUCER_MAX_BUFFERED_RECORDS" envDefault:"10000"`
-	KafkaProducerRecordRetries      int           `env:"KAFKA_PRODUCER_RECORD_RETRIES" envDefault:"8"`
-	KafkaProducerCBTimeout          time.Duration `env:"KAFKA_PRODUCER_CB_TIMEOUT" envDefault:"30s"`
-	KafkaProducerCBMaxFailures      int           `env:"KAFKA_PRODUCER_CB_MAX_FAILURES" envDefault:"5"`
-	KafkaProducerCBHalfOpenReqs     int           `env:"KAFKA_PRODUCER_CB_HALF_OPEN_REQS" envDefault:"1"`
+	KafkaProducerBatchMaxBytes      int           `env:"KAFKA_PRODUCER_BATCH_MAX_BYTES" envDefault:"1048576"`    // Maximum bytes per Kafka producer batch.
+	KafkaProducerMaxBufferedRecords int           `env:"KAFKA_PRODUCER_MAX_BUFFERED_RECORDS" envDefault:"10000"` // Maximum number of records buffered in the Kafka producer before backpressure is applied to callers.
+	KafkaProducerRecordRetries      int           `env:"KAFKA_PRODUCER_RECORD_RETRIES" envDefault:"8"`           // Number of retries for failed Kafka produce operations before the record is discarded.
+	KafkaProducerCBTimeout          time.Duration `env:"KAFKA_PRODUCER_CB_TIMEOUT" envDefault:"30s"`             // Circuit breaker observation window for Kafka producer failures.
+	KafkaProducerCBMaxFailures      int           `env:"KAFKA_PRODUCER_CB_MAX_FAILURES" envDefault:"5"`          // Maximum producer failures within the circuit breaker window before the producer circuit opens (pauses).
+	KafkaProducerCBHalfOpenReqs     int           `env:"KAFKA_PRODUCER_CB_HALF_OPEN_REQS" envDefault:"1"`        // Number of test requests permitted when the Kafka producer circuit breaker is in half-open state.
 
 	// Routing fan-out worker pool
-	RoutingFanoutWorkers   int `env:"WS_ROUTING_FANOUT_WORKERS"    envDefault:"4"`
-	RoutingFanoutQueueSize int `env:"WS_ROUTING_FANOUT_QUEUE_SIZE" envDefault:"256"`
+	RoutingFanoutWorkers   int `env:"WS_ROUTING_FANOUT_WORKERS"    envDefault:"4"`   // Number of parallel workers for routing message fan-out to subscribed clients. Increase for high-subscription-count workloads.
+	RoutingFanoutQueueSize int `env:"WS_ROUTING_FANOUT_QUEUE_SIZE" envDefault:"256"` // Internal queue depth for the routing fan-out worker pool.
 
 	// Dead-letter queue retry pool
-	DLQMaxRetries   int           `env:"WS_ROUTING_DLQ_MAX_RETRIES"   envDefault:"3"`
-	DLQBaseDelay    time.Duration `env:"WS_ROUTING_DLQ_BASE_DELAY"    envDefault:"100ms"`
-	DLQMaxDelay     time.Duration `env:"WS_ROUTING_DLQ_MAX_DELAY"     envDefault:"5s"`
-	DLQRetryWorkers int           `env:"WS_ROUTING_DLQ_RETRY_WORKERS" envDefault:"4"`
+	DLQMaxRetries   int           `env:"WS_ROUTING_DLQ_MAX_RETRIES"   envDefault:"3"`     // Maximum retry attempts for a failed message delivery before it is discarded.
+	DLQBaseDelay    time.Duration `env:"WS_ROUTING_DLQ_BASE_DELAY"    envDefault:"100ms"` // Initial retry delay for failed message deliveries (exponential backoff starting point).
+	DLQMaxDelay     time.Duration `env:"WS_ROUTING_DLQ_MAX_DELAY"     envDefault:"5s"`    // Maximum retry delay cap for failed message deliveries.
+	DLQRetryWorkers int           `env:"WS_ROUTING_DLQ_RETRY_WORKERS" envDefault:"4"`     // Number of parallel workers processing the dead-letter retry queue.
 
 	// PodID is the resolved pod identity, populated by Normalize() from PodIdentityConfig.PodID().
 	// Not an env var — configure via PodIdentityConfig (SUKKO_POD_ID / WS_POD_ID).
@@ -452,91 +452,91 @@ type ServerConfig struct {
 
 	// MaxChannelsPerClient limits the number of concurrent channel subscriptions per client.
 	// Prevents channel-fan-out attacks. Validated against MaxChannelsPerClientLimit (1000).
-	MaxChannelsPerClient int `env:"WS_MAX_CHANNELS_PER_CLIENT" envDefault:"100"`
+	MaxChannelsPerClient int `env:"WS_MAX_CHANNELS_PER_CLIENT" envDefault:"100"` // Maximum concurrent channel subscriptions per client connection. Subscription requests beyond this limit are rejected.
 
 	// Message History (two-tier: Valkey Streams ring buffer + Kafka fallback)
-	HistoryEnabled bool `env:"WS_HISTORY_ENABLED" envDefault:"false"`
+	HistoryEnabled bool `env:"WS_HISTORY_ENABLED" envDefault:"false"` // When true, message history is retained in a Valkey Streams ring buffer with Kafka as a fallback for deeper replay. Enables client history replay requests.
 
 	// HistoryBufferDepth is the Valkey Streams MAXLEN ~ per-channel (XADD MAXLEN ~).
-	HistoryBufferDepth int `env:"WS_HISTORY_BUFFER_DEPTH" envDefault:"1000"`
+	HistoryBufferDepth int `env:"WS_HISTORY_BUFFER_DEPTH" envDefault:"1000"` // Maximum number of messages retained per channel in the Valkey Streams ring buffer (XADD MAXLEN ~). Older messages are evicted when the limit is reached.
 
 	// HistoryTTL is the per-stream key expiry (EXPIRE) applied on every write.
-	HistoryTTL time.Duration `env:"WS_HISTORY_TTL" envDefault:"24h"`
+	HistoryTTL time.Duration `env:"WS_HISTORY_TTL" envDefault:"24h"` // Per-stream Valkey key expiry. Streams inactive longer than this duration are deleted to free memory.
 
 	// HistoryWriterBuffer is the historyWriter workChan capacity (messages in-flight before drops).
-	HistoryWriterBuffer int `env:"WS_HISTORY_WRITER_BUFFER" envDefault:"10000"`
+	HistoryWriterBuffer int `env:"WS_HISTORY_WRITER_BUFFER" envDefault:"10000"` // Internal message queue depth for the history writer. Messages are dropped when this buffer is full.
 
 	// HistoryMaxLimit is the maximum number of entries a client may request per history call.
-	HistoryMaxLimit int `env:"WS_HISTORY_MAX_LIMIT" envDefault:"100"`
+	HistoryMaxLimit int `env:"WS_HISTORY_MAX_LIMIT" envDefault:"100"` // Maximum number of messages a client may request in a single history replay call.
 
 	// HistoryDeliveryTimeout is the per-request deadline for XREVRANGE + Kafka fallback.
-	HistoryDeliveryTimeout time.Duration `env:"WS_HISTORY_DELIVERY_TIMEOUT" envDefault:"30s"`
+	HistoryDeliveryTimeout time.Duration `env:"WS_HISTORY_DELIVERY_TIMEOUT" envDefault:"30s"` // Deadline for completing a single history replay request, including Valkey XREVRANGE and optional Kafka fallback reads.
 
 	// HistoryWriterPipelineBatch is the max number of XADD commands per DoMulti pipeline.
-	HistoryWriterPipelineBatch int `env:"WS_HISTORY_WRITER_PIPELINE_BATCH" envDefault:"50"`
+	HistoryWriterPipelineBatch int `env:"WS_HISTORY_WRITER_PIPELINE_BATCH" envDefault:"50"` // Maximum number of Valkey XADD commands per pipeline batch for history writes.
 
 	// HistoryWriterLockTTL is the distributed lock TTL for the active historyWriter pod.
-	HistoryWriterLockTTL time.Duration `env:"WS_HISTORY_WRITER_LOCK_TTL" envDefault:"10s"`
+	HistoryWriterLockTTL time.Duration `env:"WS_HISTORY_WRITER_LOCK_TTL" envDefault:"10s"` // TTL for the distributed history writer lock in Valkey. The active writer pod renews this lock on each heartbeat interval.
 
 	// HistoryWriterLockTTLMs is pre-computed from HistoryWriterLockTTL in Normalize().
 	// Used by Valkey SET PX (milliseconds). Not an env var.
 	HistoryWriterLockTTLMs int64 `env:"-"`
 
 	// HistoryWriterRestartInitialBackoff is the starting delay before re-entering runOnce after a failure.
-	HistoryWriterRestartInitialBackoff time.Duration `env:"WS_HISTORY_WRITER_RESTART_INITIAL_BACKOFF" envDefault:"500ms"`
+	HistoryWriterRestartInitialBackoff time.Duration `env:"WS_HISTORY_WRITER_RESTART_INITIAL_BACKOFF" envDefault:"500ms"` // Initial delay before restarting the history writer after a failure.
 
 	// HistoryWriterRestartMaxBackoff caps the exponential backoff for historyWriter restarts.
-	HistoryWriterRestartMaxBackoff time.Duration `env:"WS_HISTORY_WRITER_RESTART_MAX_BACKOFF" envDefault:"30s"`
+	HistoryWriterRestartMaxBackoff time.Duration `env:"WS_HISTORY_WRITER_RESTART_MAX_BACKOFF" envDefault:"30s"` // Maximum delay between history writer restart attempts.
 
 	// HistoryValkeyCmdTimeout is the per-command timeout for history Valkey operations (XADD, XREVRANGE, EXPIRE).
-	HistoryValkeyCmdTimeout time.Duration `env:"WS_HISTORY_VALKEY_CMD_TIMEOUT" envDefault:"2s"`
+	HistoryValkeyCmdTimeout time.Duration `env:"WS_HISTORY_VALKEY_CMD_TIMEOUT" envDefault:"2s"` // Per-command timeout for history Valkey operations (XADD, XREVRANGE, EXPIRE).
 
 	// HistoryMaxConsecutiveLockFailures is the number of consecutive heartbeat lock failures
 	// before the historyWriter exits runOnce and re-enters the supervised restart loop.
-	HistoryMaxConsecutiveLockFailures int `env:"WS_HISTORY_MAX_CONSECUTIVE_LOCK_FAILURES" envDefault:"3"`
+	HistoryMaxConsecutiveLockFailures int `env:"WS_HISTORY_MAX_CONSECUTIVE_LOCK_FAILURES" envDefault:"3"` // Number of consecutive heartbeat lock renewal failures before the history writer steps down and triggers a restart.
 
 	// HistoryWriterHeartbeatInterval is the ticker interval for lock renewal and bus health checks.
-	HistoryWriterHeartbeatInterval time.Duration `env:"WS_HISTORY_WRITER_HEARTBEAT_INTERVAL" envDefault:"3s"`
+	HistoryWriterHeartbeatInterval time.Duration `env:"WS_HISTORY_WRITER_HEARTBEAT_INTERVAL" envDefault:"3s"` // Interval for history writer lock renewal and broadcast bus health checks.
 
 	// Connections Registry (Connections Management API — Pro edition)
 	// When false, registryWriter and adminListeners are skipped entirely. X-Sukko-Tenant-ID is
 	// still read unconditionally (tenantHooks and channel subscription require it regardless).
-	ConnectionsRegistryEnabled bool `env:"WS_CONNECTIONS_REGISTRY_ENABLED" envDefault:"false"`
+	ConnectionsRegistryEnabled bool `env:"WS_CONNECTIONS_REGISTRY_ENABLED" envDefault:"false"` // When true, ws-server tracks active connections in Valkey and exposes them via the Connections Management API (Pro edition). Requires Valkey memory headroom proportional to active connections x subscriptions x average channel name length.
 
 	// ConnectionsRegistryTTL is the Valkey EXPIRE duration for each connection hash.
 	// Heartbeats renew the TTL; if a pod dies without heartbeat, entries expire after this.
-	ConnectionsRegistryTTL time.Duration `env:"WS_CONNECTIONS_REGISTRY_TTL" envDefault:"120s"`
+	ConnectionsRegistryTTL time.Duration `env:"WS_CONNECTIONS_REGISTRY_TTL" envDefault:"120s"` // Valkey EXPIRE duration for each connection entry in the registry. Heartbeats renew the TTL; connections that fail to heartbeat within this window are treated as expired.
 
 	// ConnectionsRegistryBuffer is the internal channel buffer for registry events
 	// (connect, disconnect, subscribe, unsubscribe, heartbeat).
-	ConnectionsRegistryBuffer int `env:"WS_CONNECTIONS_REGISTRY_BUFFER" envDefault:"1024"`
+	ConnectionsRegistryBuffer int `env:"WS_CONNECTIONS_REGISTRY_BUFFER" envDefault:"1024"` // Internal channel buffer for registry events (connect, disconnect, subscribe). Events are dropped when this buffer is full.
 
 	// ConnectionsRegistryFlushInterval is the tick interval for flushing buffered events to Valkey.
-	ConnectionsRegistryFlushInterval time.Duration `env:"WS_CONNECTIONS_REGISTRY_FLUSH_INTERVAL" envDefault:"5s"`
+	ConnectionsRegistryFlushInterval time.Duration `env:"WS_CONNECTIONS_REGISTRY_FLUSH_INTERVAL" envDefault:"5s"` // Interval for flushing buffered registry events to Valkey.
 
 	// ConnectionsRegistryHeartbeatInterval is how often the registry writer renews TTLs and writes health keys.
-	ConnectionsRegistryHeartbeatInterval time.Duration `env:"WS_CONNECTIONS_REGISTRY_HEARTBEAT_INTERVAL" envDefault:"30s"`
+	ConnectionsRegistryHeartbeatInterval time.Duration `env:"WS_CONNECTIONS_REGISTRY_HEARTBEAT_INTERVAL" envDefault:"30s"` // Interval for renewing active connection TTLs in the registry.
 
 	// ConnectionsRegistryRestartInitialBackoff is the initial restart delay after a registryWriter failure.
-	ConnectionsRegistryRestartInitialBackoff time.Duration `env:"WS_CONNECTIONS_REGISTRY_RESTART_INITIAL_BACKOFF" envDefault:"100ms"`
+	ConnectionsRegistryRestartInitialBackoff time.Duration `env:"WS_CONNECTIONS_REGISTRY_RESTART_INITIAL_BACKOFF" envDefault:"100ms"` // Initial delay before restarting the registry writer after a failure.
 
 	// ConnectionsRegistryRestartMaxBackoff is the maximum restart delay after repeated failures.
-	ConnectionsRegistryRestartMaxBackoff time.Duration `env:"WS_CONNECTIONS_REGISTRY_RESTART_MAX_BACKOFF" envDefault:"30s"`
+	ConnectionsRegistryRestartMaxBackoff time.Duration `env:"WS_CONNECTIONS_REGISTRY_RESTART_MAX_BACKOFF" envDefault:"30s"` // Maximum delay between registry writer restart attempts.
 
 	// ConnectionsRegistryShutdownDrainTimeout is how long to wait draining buffered events on shutdown.
 	// 0 = skip drain entirely (useful for tests).
-	ConnectionsRegistryShutdownDrainTimeout time.Duration `env:"WS_CONNECTIONS_REGISTRY_SHUTDOWN_DRAIN_TIMEOUT" envDefault:"100ms"`
+	ConnectionsRegistryShutdownDrainTimeout time.Duration `env:"WS_CONNECTIONS_REGISTRY_SHUTDOWN_DRAIN_TIMEOUT" envDefault:"100ms"` // Time allowed to flush buffered registry events during graceful shutdown. Set to 0 to skip draining.
 
 	// AdminChannelSubscribeTimeout is the timeout for each shard's synchronous SUBSCRIBE call at startup.
-	AdminChannelSubscribeTimeout time.Duration `env:"WS_ADMIN_CHANNEL_SUBSCRIBE_TIMEOUT" envDefault:"10s"`
+	AdminChannelSubscribeTimeout time.Duration `env:"WS_ADMIN_CHANNEL_SUBSCRIBE_TIMEOUT" envDefault:"10s"` // Timeout for each shard's SUBSCRIBE call to the admin broadcast channel at startup.
 
 	// InternalSecretEnabled controls whether ws-server validates X-Sukko-Internal-Secret.
 	// When true, WS_INTERNAL_SECRET must be non-empty or startup fails.
-	InternalSecretEnabled bool `env:"WS_INTERNAL_SECRET_ENABLED" envDefault:"false"`
+	InternalSecretEnabled bool `env:"WS_INTERNAL_SECRET_ENABLED" envDefault:"false"` // When true, ws-server validates the X-Sukko-Internal-Secret header on all incoming connections, rejecting any that bypass the gateway.
 
 	// InternalSecret is the shared secret forwarded by the gateway as X-Sukko-Internal-Secret.
 	// redact:"true" prevents the /config endpoint from exposing this value.
-	InternalSecret string `env:"WS_INTERNAL_SECRET" redact:"true"`
+	InternalSecret string `env:"WS_INTERNAL_SECRET" redact:"true"` // Shared secret validated as X-Sukko-Internal-Secret on incoming connections. Must match the value configured on the gateway. Required when WS_INTERNAL_SECRET_ENABLED is true.
 
 	// editionManager holds the license-resolved edition and limits.
 	// Set by LoadServerConfig() before Validate(). Not an env var — derived from SUKKO_LICENSE_KEY.

@@ -9,7 +9,7 @@ const webhookInternalTokenMinLen = 32
 // Embed in WebhookWorkerConfig (unconditional) and ProvisioningConfig
 // (call Validate() inside the EditionHasFeature(Webhooks) guard only).
 type WebhookInternalTokenConfig struct {
-	WebhookInternalToken string `env:"WEBHOOK_INTERNAL_TOKEN" redact:"true"`
+	WebhookInternalToken string `env:"WEBHOOK_INTERNAL_TOKEN" redact:"true"` // Shared secret for authenticating internal webhook reload calls between the provisioning service and webhook worker.
 }
 
 // Validate checks the token is present and meets minimum length.

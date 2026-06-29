@@ -23,24 +23,24 @@ type WebhookWorkerConfig struct {
 	WebhookHTTPConfig          // embeds WEBHOOK_ALLOW_HTTP env var
 
 	// Port is the HTTP server port for health and metrics endpoints.
-	Port int `env:"WEBHOOK_HTTP_PORT" envDefault:"8083"`
+	Port int `env:"WEBHOOK_HTTP_PORT" envDefault:"8083"` // HTTP port for the webhook worker's management API.
 
 	// InternalGRPCPort is the port the worker's internal gRPC server listens on
 	// for inbound TestDeliver calls from the provisioning service.
 	// Distinct from WEBHOOK_WORKER_GRPC_PORT (provisioning side; default 9091).
-	InternalGRPCPort int `env:"WEBHOOK_WORKER_INTERNAL_GRPC_PORT" envDefault:"9095"`
+	InternalGRPCPort int `env:"WEBHOOK_WORKER_INTERNAL_GRPC_PORT" envDefault:"9095"` // gRPC port for internal communication between provisioning service and webhook worker.
 
 	// WebhookWorkerGRPCAddr is the gRPC address of the WebhookWorkerService endpoint
 	// on the provisioning server (WEBHOOK_WORKER_GRPC_PORT, default :9091).
 	// Distinct from PROVISIONING_GRPC_ADDR (:9090) used by ws-server and ws-gateway.
 	// No envDefault — required at startup (§XV: cannot be both defaulted and required).
-	WebhookWorkerGRPCAddr string `env:"WEBHOOK_WORKER_PROVISIONING_GRPC_ADDR"`
+	WebhookWorkerGRPCAddr string `env:"WEBHOOK_WORKER_PROVISIONING_GRPC_ADDR"` // gRPC address of the provisioning service for webhook configuration queries.
 
 	// Worker pool
-	WorkerConcurrency int           `env:"WEBHOOK_WORKER_CONCURRENCY"     envDefault:"50"`
-	RetryQueueSize    int           `env:"WEBHOOK_WORKER_RETRY_QUEUE_SIZE" envDefault:"10000"`
-	DeliveryTimeout   time.Duration `env:"WEBHOOK_DELIVERY_TIMEOUT"        envDefault:"10s"`
-	CacheTTL          time.Duration `env:"WEBHOOK_CACHE_TTL"               envDefault:"30s"`
+	WorkerConcurrency int           `env:"WEBHOOK_WORKER_CONCURRENCY"      envDefault:"50"`    // Maximum number of concurrent webhook delivery goroutines.
+	RetryQueueSize    int           `env:"WEBHOOK_WORKER_RETRY_QUEUE_SIZE" envDefault:"10000"` // In-memory retry queue capacity. Webhooks failing initial delivery are queued here.
+	DeliveryTimeout   time.Duration `env:"WEBHOOK_DELIVERY_TIMEOUT"        envDefault:"10s"`   // HTTP timeout for a single webhook delivery attempt.
+	CacheTTL          time.Duration `env:"WEBHOOK_CACHE_TTL"               envDefault:"30s"`   // TTL for cached webhook endpoint configurations fetched from provisioning.
 
 	// ValkeyConfig is the Valkey connection for this service.
 	// envPrefix:"WEBHOOK_WORKER_" produces WEBHOOK_WORKER_VALKEY_ADDRS etc.

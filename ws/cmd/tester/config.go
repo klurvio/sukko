@@ -16,41 +16,41 @@ import (
 type TesterConfig struct {
 	platform.BaseConfig
 	platform.MessageBackendBase
-	Port            int    `env:"TESTER_PORT" envDefault:"8090"`
-	AuthToken       string `env:"TESTER_AUTH_TOKEN"` // no default — must be explicitly set for production
-	GatewayURL      string `env:"GATEWAY_URL" envDefault:"ws://localhost:3000"`
-	ProvisioningURL string `env:"PROVISIONING_URL" envDefault:"http://localhost:8080"`
+	Port            int    `env:"TESTER_PORT" envDefault:"8090"`                       // HTTP port the tester service listens on for test run management and SSE metric streaming.
+	AuthToken       string `env:"TESTER_AUTH_TOKEN"`                                   // Bearer token required for all tester management API endpoints. Must be set explicitly — the tester rejects requests when unset.
+	GatewayURL      string `env:"GATEWAY_URL" envDefault:"ws://localhost:3000"`        // WebSocket URL of the gateway that test connections will target.
+	ProvisioningURL string `env:"PROVISIONING_URL" envDefault:"http://localhost:8080"` // HTTP base URL of the provisioning service used to create test tenants and API keys.
 
 	// License reload suite — Ed25519 private key for signing test license keys
-	SigningKeyFile string `env:"TESTER_SIGNING_KEY_FILE" envDefault:""`
+	SigningKeyFile string `env:"TESTER_SIGNING_KEY_FILE" envDefault:""` // Path to Ed25519 private key file for signing license tokens in the license-reload test suite. Leave empty when not running license tests.
 
 	// Admin keypair for remote mode (required when targeting a deployed provisioning service).
 	// When unset, the tester generates an ephemeral keypair per test run (local dev mode only).
-	AdminKeyFile string `env:"TESTER_ADMIN_KEY_FILE" envDefault:""`
+	AdminKeyFile string `env:"TESTER_ADMIN_KEY_FILE" envDefault:""` // Path to Ed25519 private key file for admin JWT signing. When unset, an ephemeral keypair is generated per test run (local dev only).
 	// AdminKeyID is the kid embedded in admin JWTs; must match BootstrapAdminKeyID unless a
 	// custom key was registered with provisioning under a different ID.
 	// envDefault must stay in sync with provauth.BootstrapAdminKeyID; enforced by TestTesterConfig_DefaultAdminKeyID_EqualsBootstrapConstant.
-	AdminKeyID string `env:"TESTER_ADMIN_KEY_ID" envDefault:"bootstrap-0"`
+	AdminKeyID string `env:"TESTER_ADMIN_KEY_ID" envDefault:"bootstrap-0"` // Key ID embedded in admin JWTs; must match the kid registered with the provisioning service.
 
 	// JWT auth configuration
-	JWTLifetime      time.Duration `env:"TESTER_JWT_LIFETIME" envDefault:"15m"`
-	JWTRefreshBefore time.Duration `env:"TESTER_JWT_REFRESH_BEFORE" envDefault:"2m"`
-	KeyExpiry        time.Duration `env:"TESTER_KEY_EXPIRY" envDefault:"24h"`
+	JWTLifetime      time.Duration `env:"TESTER_JWT_LIFETIME" envDefault:"15m"`      // Lifetime of JWTs issued by the tester. Must be positive and greater than TESTER_JWT_REFRESH_BEFORE.
+	JWTRefreshBefore time.Duration `env:"TESTER_JWT_REFRESH_BEFORE" envDefault:"2m"` // How early before JWT expiry the tester proactively refreshes tokens to avoid auth gaps during long-running tests.
+	KeyExpiry        time.Duration `env:"TESTER_KEY_EXPIRY" envDefault:"24h"`        // Lifetime of API keys created by the tester for test runs. Must be >= TESTER_JWT_LIFETIME.
 
 	// Auth mode configuration (FR-001, FR-002, SC-001)
 	// AuthMode controls the credential mode for connections: jwt, api-key, upgrade, or mixed.
-	AuthMode runner.AuthMode `env:"TESTER_AUTH_MODE" envDefault:"jwt"`
+	AuthMode runner.AuthMode `env:"TESTER_AUTH_MODE" envDefault:"jwt"` // Credential mode for WebSocket connections: jwt, api-key, upgrade (JWT → API key), or mixed (ratio-split).
 	// APIKey is a static pre-provisioned API key for api-key, upgrade, and mixed modes.
 	// Tagged redact:"true" so the /config endpoint never echoes it (§IX).
-	APIKey             string        `env:"TESTER_API_KEY" envDefault:"" redact:"true"`
-	AuthMixRatio       float64       `env:"TESTER_AUTH_MIX_RATIO" envDefault:"0.5"`
-	AuthUpgradeTimeout time.Duration `env:"TESTER_AUTH_UPGRADE_TIMEOUT" envDefault:"10s"`
+	APIKey             string        `env:"TESTER_API_KEY" envDefault:"" redact:"true"`   // Pre-provisioned static API key for api-key, upgrade, and mixed auth modes. Required when TESTER_AUTH_MODE is api-key or upgrade.
+	AuthMixRatio       float64       `env:"TESTER_AUTH_MIX_RATIO" envDefault:"0.5"`       // Fraction of connections using JWT in mixed mode (0.0 = all API key, 1.0 = all JWT).
+	AuthUpgradeTimeout time.Duration `env:"TESTER_AUTH_UPGRADE_TIMEOUT" envDefault:"10s"` // Timeout for the JWT-to-API-key upgrade handshake in upgrade mode.
 
 	// Gateway metrics scraping for revocation load suites.
 	// GatewayMetricsURL is the Prometheus metrics endpoint of the gateway pod.
 	// When empty, metric-drift checks are skipped (not an error — recorded as skipped_checks).
-	GatewayMetricsURL      string        `env:"TESTER_GATEWAY_METRICS_URL" envDefault:""`
-	GatewayMetricsInterval time.Duration `env:"TESTER_GATEWAY_METRICS_INTERVAL" envDefault:"30s"`
+	GatewayMetricsURL      string        `env:"TESTER_GATEWAY_METRICS_URL" envDefault:""`         // Prometheus metrics endpoint of the gateway pod. When empty, metric-drift checks in revocation suites are skipped (recorded as skipped_checks, not failures).
+	GatewayMetricsInterval time.Duration `env:"TESTER_GATEWAY_METRICS_INTERVAL" envDefault:"30s"` // Interval for polling gateway Prometheus metrics during revocation load tests.
 }
 
 func (c *TesterConfig) Validate() error {
