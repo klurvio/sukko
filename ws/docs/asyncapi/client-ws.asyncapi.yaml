@@ -268,7 +268,7 @@ operations:
     summary: Reconnect and replay missed messages
     description: >
       Request replay of missed messages using a persistent client ID and last-known
-      Kafka offsets. The server replays up to 100 messages within a 5-second timeout.
+      pos values. The server replays up to 100 messages within a 5-second timeout.
     messages:
       - $ref: "#/channels/clientSend/messages/reconnect"
 
@@ -733,9 +733,10 @@ components:
             type: string
           description: >
             Map of channel name to the last `pos` value received on that channel.
-            The `pos` value is the encoded Kafka position "(partition+1)-offset" from the most recent
-            live or history message received on each channel. Clients persist this across disconnections
-            and send it back on reconnect to resume from the correct offset.
+            Use the `pos` values from live or history messages received on each channel — persist
+            them across disconnections and send them back on reconnect to resume from the correct
+            position. Do NOT construct pos values manually — `pos` is an opaque token whose internal
+            encoding may change between releases. Only use values received from the server.
           examples:
             - { "BTC.trade": "3-100", "ETH.trade": "5-200" }
 
@@ -1218,7 +1219,7 @@ components:
           channel: "sukko.BTC.trade"
           from_seq: 42
           to_seq: 44
-          last_pos: "(2)-12344"
+          last_pos: "2-12344"
           ts: 1718041234567
 
     ReplayRequest:
@@ -1252,7 +1253,7 @@ components:
         - type: replay
           data:
             channel: "sukko.BTC.trade"
-            from_pos: "(2)-12344"
+            from_pos: "2-12344"
 
     ReplayMessage:
       type: object
@@ -1292,7 +1293,7 @@ components:
           data:
             price: "65432.10"
             volume: "0.5"
-          pos: "(2)-12345"
+          pos: "2-12345"
 
     ReplayComplete:
       type: object
