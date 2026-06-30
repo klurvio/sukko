@@ -79,12 +79,15 @@ wc -c ~/.sukko/admin.key   # should print exactly 64
 | `TESTER_AUTH_UPGRADE_TIMEOUT` | `10s` | no | Timeout waiting for `auth_ack` during upgrade flow. Max 60s. |
 | `TESTER_GATEWAY_METRICS_URL` | — | stress:revocation / soak:revocation | Prometheus `/metrics` endpoint of the gateway pod (e.g. `http://gateway-pod:9090`). Leave empty to skip gateway-side metric checks. Must use `http://` or `https://` scheme. Single-replica gateway required. |
 | `TESTER_GATEWAY_METRICS_INTERVAL` | `30s` | no | Poll interval for gateway Prometheus metrics scrapes. Must be positive. |
+| `TESTER_WEBHOOK_BASE_URL` | — | webhooks suite | Externally-reachable base URL this tester pod exposes to the webhook-worker (e.g. `http://tester.sukko-ci.svc.cluster.local:8085`). When empty, the `webhooks` suite is skipped. Must use `http://` or `https://` scheme. |
+| `TESTER_WEBHOOK_DELIVERY_TIMEOUT` | `15s` | no | Maximum time to wait for the initial webhook delivery in the happy-path scenario. Max 5m. |
+| `TESTER_WEBHOOK_RETRY_TIMEOUT` | `30s` | no | Maximum time to wait for the final retry delivery or degraded-status transition in retry/degraded scenarios. Max 30m. |
 
 ---
 
 ## 2. Validate Suite Battery
 
-Run all 17 suites in the order below. Each suite is independent and can be run
+Run all 18 suites in the order below. Each suite is independent and can be run
 individually with `sukko test validate --suite <name>`.
 
 Signal vocabulary:
@@ -112,13 +115,14 @@ Signal vocabulary:
 | 15 | `license-reload` | Community | no | License hot-reload propagation |
 | 16 | `api-key` | Community | no | API key auth in isolation (no JWT provisioning) |
 | 17 | `upgrade` | Community | no | Auth upgrade flow: connect with API key, upgrade to JWT |
+| 18 | `webhooks` | Pro | no | Webhook delivery: happy-path, retry-success, degraded transition |
 
 ### 3. Load Suite Battery
 
 | # | Suite name | Min edition | Admin key | Description |
 |---|-----------|------------|-----------|-------------|
-| 18 | `stress:revocation` | **Pro** | **yes** | Mass force-disconnect at 1,000 connections: S1 (sub-based revoke, p99 ≤ 10s), S2 (mixed keep/revoke with message continuity), S3 (reconnect verification, ≥95% pass) |
-| 19 | `soak:revocation` | **Pro** | **yes** | Repeated revoke/reconnect over hours: S1 (pool ramp-up health), S2 (cycle error rate ≤ 5%), S3 (memory/goroutine drift monitoring), S4 (JTI pruner cleanup via Prometheus) |
+| 19 | `stress:revocation` | **Pro** | **yes** | Mass force-disconnect at 1,000 connections: S1 (sub-based revoke, p99 ≤ 10s), S2 (mixed keep/revoke with message continuity), S3 (reconnect verification, ≥95% pass) |
+| 20 | `soak:revocation` | **Pro** | **yes** | Repeated revoke/reconnect over hours: S1 (pool ramp-up health), S2 (cycle error rate ≤ 5%), S3 (memory/goroutine drift monitoring), S4 (JTI pruner cleanup via Prometheus) |
 
 > Note: `edition-limits` does NOT test `MaxTopicsPerTenant` — it is excluded from
 > the normative test matrix. Do not add it as a tested dimension.
@@ -395,6 +399,37 @@ channels that require a JWT. Requires `TESTER_AUTH_MODE=upgrade`, a pre-provisio
 
 ---
 
+### 2.19 webhooks
+
+```sh
+sukko test validate --suite webhooks
+```
+
+Validates the full webhook delivery pipeline in three scenarios:
+
+| Scenario | `failFirstN` | `maxRetries` | Expected |
+|----------|-------------|--------------|---------|
+| T-006 happy-path | 0 (always 200) | default | 1 delivery, HMAC valid, status 200 |
+| T-007 retry-success | 2 (first 2 → 500) | default | 3 deliveries, first 2 → 500, last → 200 |
+| T-008 degraded | -1 (always 500) | 2 | 2 deliveries, webhook status transitions to `degraded` |
+
+Each scenario provisions a throw-away routing rule and webhook for the test tenant, publishes a message via REST, and polls the built-in `/webhook-receive/{runID}` endpoint to assert delivery count, HMAC signature validity, and response status codes.
+
+**Requirements:** Pro+ edition, Kafka backend, `TESTER_WEBHOOK_BASE_URL` set to the externally-reachable address of this tester pod. When either the base URL is unset or the current edition is Community, all checks return `skip` and the suite still passes.
+
+**Example output:**
+```
+Suite: webhooks  Status: pass
+  webhooks/happy-path/delivery-count   pass
+  webhooks/happy-path/signatures        pass
+  webhooks/happy-path/status-codes      pass
+  webhooks/retry-success/delivery-count pass
+  webhooks/retry-success/signatures     pass
+  webhooks/retry-success/status-codes   pass
+  webhooks/degraded/degraded-status     pass
+  webhooks/degraded/delivery-count      pass
+```
+
 ## 3. Load / Stress / Soak Testing
 
 ```bash
@@ -462,7 +497,7 @@ gateway's Prometheus endpoint to enable gateway-side metric checks (S1-AC2, S2-A
 `gateway_token_revocation_map_entries` and `gateway_token_force_disconnects_total` at
 start. If the gateway is not scraping correctly, the soak is aborted early.
 
-#### 3.4.1 stress:revocation (suite #18)
+#### 3.4.1 stress:revocation (suite #19)
 
 ```bash
 sukko test stress --suite revocation --connections 1000 --follow
@@ -474,7 +509,7 @@ sukko test stress --suite revocation --connections 1000 --follow
 | S2 | 500 keep + 500 revoke connections with active publisher | ≥ 500 `keep` connections receive all messages without gaps; revoke pool is fully disconnected |
 | S3 | 100 tokens issued with future `IssuedAt`, reconnect verified | ≥ 95% reconnect successfully after revocation |
 
-#### 3.4.2 soak:revocation (suite #19)
+#### 3.4.2 soak:revocation (suite #20)
 
 ```bash
 sukko test soak --suite revocation --duration 2h --connections 100 --follow
@@ -883,7 +918,7 @@ sukko tenant --help
 # 3. Run a full suite battery and compare output format to this guide
 for s in smoke auth channels pubsub ordering reconnect ratelimit sse rest-publish \
           provisioning tenant-isolation token-revocation edition-limits license-reload \
-          api-key upgrade; do
+          api-key upgrade webhooks; do
   sukko test validate --suite $s 2>&1 | head -5
 done
 
@@ -921,20 +956,11 @@ No automated E2E suite exists yet for the Connections Management API. Manual val
 
 ## Webhook Delivery
 
-No automated E2E suite exists yet for webhook delivery. A dedicated suite is deferred pending live HTTP endpoint infrastructure (a public endpoint the test harness controls). Manual validation steps and planned scenarios are documented below.
+The `webhooks` validation suite (§2.19) automates delivery scenarios T-006 through T-008.
+Set `TESTER_WEBHOOK_BASE_URL` to the externally-reachable base URL of the tester pod to enable it.
+Requires Pro edition and Kafka backend (direct mode does not set the channel field on broadcast messages).
 
-### Planned Automation Scenarios (deferred)
-
-| Scenario | Description |
-|----------|-------------|
-| SC-WH-001 | Register a webhook, publish a channel message, assert delivery within 500ms |
-| SC-WH-002 | Endpoint returning HTTP 500 — verify retry schedule [1s, 5s, 30s, 2m, 10m] then `degraded` transition |
-| SC-WH-003 | `POST /webhooks/{id}/test` — assert 200 with destination status in body |
-| SC-WH-004 | Test endpoint rate limit — 11 calls in 1 minute, assert 429 on 11th |
-| SC-WH-005 | Webhook update via API — assert worker cache refreshes within WEBHOOK_CACHE_TTL (30s worst-case, ~1s with Valkey invalidation) |
-| SC-WH-006 | SIGTERM during in-flight delivery — assert clean shutdown without dropped delivery |
-| SC-WH-007 | URL resolving to `169.254.169.254` at dial time — assert `ssrf_blocked` and metric increment |
-| SC-WH-008 | Re-enable a degraded webhook — assert `POST /test` succeeds and status returns to `enabled` |
+The following scenarios remain manual-only:
 
 ### Manual Validation Steps (current)
 

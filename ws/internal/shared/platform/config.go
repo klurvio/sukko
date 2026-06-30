@@ -126,8 +126,8 @@ func (c *HTTPTimeoutConfig) Validate() error {
 type KafkaNamespaceConfig struct {
 	// KafkaTopicNamespaceOverride overrides ENVIRONMENT for Kafka topic naming only.
 	// If empty, defaults to normalized ENVIRONMENT value via kafka.ResolveNamespace().
-	// NOT allowed in production — startup validation blocks this.
-	KafkaTopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""` // Override for the Kafka topic namespace (normally derived from ENVIRONMENT). Forbidden in production — causes startup failure when ENVIRONMENT=prod.
+	// Intended for dev/staging environments where a different namespace is needed.
+	KafkaTopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""` // Override for the Kafka topic namespace (normally derived from ENVIRONMENT). Use with care in production deployments.
 
 	// ValidNamespaces is a comma-separated list of allowed topic namespace prefixes.
 	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"` // Comma-separated list of allowed Kafka topic namespaces. Used to validate KAFKA_TOPIC_NAMESPACE_OVERRIDE.
@@ -213,9 +213,12 @@ func (c *MessageBackendConfig) Validate() error {
 }
 
 // Validate checks Kafka namespace config for errors.
-// The environment parameter is needed for the prod guard (namespace override is
-// forbidden in production). Callers pass their BaseConfig.Environment.
-func (c *KafkaNamespaceConfig) Validate(environment string) error {
+//
+// No environment-name guard on KAFKA_TOPIC_NAMESPACE_OVERRIDE: ENVIRONMENT is operator-defined
+// free text, so a check like env == "prod" silently misses "production", "live", etc.
+// The VALID_NAMESPACES allowlist is the value-based enforcement boundary. Operators are expected
+// to leave KAFKA_TOPIC_NAMESPACE_OVERRIDE unset in production. Do NOT add an env-name guard here.
+func (c *KafkaNamespaceConfig) Validate() error {
 	validNS := parseNamespaces(c.ValidNamespaces)
 	if len(validNS) == 0 {
 		return errors.New("VALID_NAMESPACES must contain at least one namespace")
@@ -223,11 +226,6 @@ func (c *KafkaNamespaceConfig) Validate(environment string) error {
 	if c.KafkaTopicNamespaceOverride != "" && !validNS[c.KafkaTopicNamespaceOverride] {
 		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE must be one of: %s (got: %s)",
 			c.ValidNamespaces, c.KafkaTopicNamespaceOverride)
-	}
-	// Prod guard: namespace override is only for dev/stg
-	env := strings.ToLower(strings.TrimSpace(environment))
-	if env == "prod" && c.KafkaTopicNamespaceOverride != "" {
-		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE is not allowed in production (environment: %s)", environment)
 	}
 	return nil
 }

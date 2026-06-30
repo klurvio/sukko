@@ -37,6 +37,8 @@ func TestTesterConfig_Validate(t *testing.T) {
 			AuthMixRatio:           0.5,
 			AuthUpgradeTimeout:     10 * time.Second,
 			GatewayMetricsInterval: 30 * time.Second,
+			WebhookDeliveryTimeout: 15 * time.Second,
+			WebhookRetryTimeout:    30 * time.Second,
 		}
 	}
 
@@ -314,6 +316,69 @@ func TestTesterConfig_Validate(t *testing.T) {
 		{
 			name:   "gateway_metrics_url empty (disabled)",
 			modify: func(c *TesterConfig) { c.GatewayMetricsURL = "" },
+		},
+		// WebhookBaseURL validation
+		{
+			name:    "webhook_base_url invalid scheme",
+			modify:  func(c *TesterConfig) { c.WebhookBaseURL = "ftp://tester:8085" },
+			wantErr: "TESTER_WEBHOOK_BASE_URL",
+		},
+		{
+			name:    "webhook_base_url no scheme",
+			modify:  func(c *TesterConfig) { c.WebhookBaseURL = "tester.sukko-ci.svc:8085" },
+			wantErr: "TESTER_WEBHOOK_BASE_URL",
+		},
+		{
+			name:   "webhook_base_url http ok",
+			modify: func(c *TesterConfig) { c.WebhookBaseURL = "http://tester.sukko-ci.svc.cluster.local:8085" },
+		},
+		{
+			name:   "webhook_base_url https ok",
+			modify: func(c *TesterConfig) { c.WebhookBaseURL = "https://tester.sukko-ci:8085" },
+		},
+		{
+			name:   "webhook_base_url empty (webhooks suite skipped)",
+			modify: func(c *TesterConfig) { c.WebhookBaseURL = "" },
+		},
+		// WebhookDeliveryTimeout validation
+		{
+			name:    "webhook_delivery_timeout zero",
+			modify:  func(c *TesterConfig) { c.WebhookDeliveryTimeout = 0 },
+			wantErr: "TESTER_WEBHOOK_DELIVERY_TIMEOUT",
+		},
+		{
+			name:    "webhook_delivery_timeout exceeds max",
+			modify:  func(c *TesterConfig) { c.WebhookDeliveryTimeout = 6 * time.Minute },
+			wantErr: "TESTER_WEBHOOK_DELIVERY_TIMEOUT",
+		},
+		{
+			name:   "webhook_delivery_timeout valid",
+			modify: func(c *TesterConfig) { c.WebhookDeliveryTimeout = 15 * time.Second },
+		},
+		// WebhookRetryTimeout validation
+		{
+			name:    "webhook_retry_timeout zero",
+			modify:  func(c *TesterConfig) { c.WebhookRetryTimeout = 0 },
+			wantErr: "TESTER_WEBHOOK_RETRY_TIMEOUT",
+		},
+		{
+			name:    "webhook_retry_timeout exceeds max",
+			modify:  func(c *TesterConfig) { c.WebhookRetryTimeout = 31 * time.Minute },
+			wantErr: "TESTER_WEBHOOK_RETRY_TIMEOUT",
+		},
+		{
+			name:   "webhook_retry_timeout valid",
+			modify: func(c *TesterConfig) { c.WebhookRetryTimeout = 30 * time.Second },
+		},
+		{
+			name:    "webhook_retry_timeout equals delivery_timeout",
+			modify:  func(c *TesterConfig) { c.WebhookRetryTimeout = c.WebhookDeliveryTimeout },
+			wantErr: "TESTER_WEBHOOK_RETRY_TIMEOUT",
+		},
+		{
+			name:    "webhook_retry_timeout less than delivery_timeout",
+			modify:  func(c *TesterConfig) { c.WebhookRetryTimeout = c.WebhookDeliveryTimeout / 2 },
+			wantErr: "TESTER_WEBHOOK_RETRY_TIMEOUT",
 		},
 	}
 

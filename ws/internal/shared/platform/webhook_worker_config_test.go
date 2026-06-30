@@ -229,22 +229,44 @@ func TestWebhookWorkerConfig_Validate_InternalGRPCPort(t *testing.T) {
 func TestWebhookWorkerConfig_Validate_WebhookAllowHTTP(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		allowHTTP   bool
-		environment string
-		wantErr     bool
+		name      string
+		allowHTTP bool
+		wantErr   bool
 	}{
-		{"false in prod — ok", false, "prod", false},
-		{"true in local — ok", true, "local", false},
-		{"true in prod — error", true, "prod", true},
-		{"true in dev — error", true, "dev", true},
+		{"false — ok", false, false},
+		{"true — ok (warning only, not a validation error)", true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidWebhookWorkerConfig()
 			cfg.WebhookAllowHTTP = tt.allowHTTP
-			cfg.Environment = tt.environment
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestWebhookWorkerConfig_Validate_WebhookAllowPrivateIPs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name            string
+		allowPrivateIPs bool
+		wantErr         bool
+	}{
+		{"false — ok", false, false},
+		{"true — ok in any environment (warning only, not a validation error)", true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidWebhookWorkerConfig()
+			cfg.WebhookAllowPrivateIPs = tt.allowPrivateIPs
 			err := cfg.Validate()
 			if tt.wantErr && err == nil {
 				t.Error("expected error, got nil")

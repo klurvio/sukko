@@ -60,6 +60,16 @@ const (
 	WebhookDowngradeGracePeriod = 24 * time.Hour
 )
 
+const (
+	// WebhookSignatureHeader is the HTTP header name carrying the HMAC-SHA256 delivery signature.
+	// Used by the worker (sender) and tester receiver — single source of truth (§X).
+	WebhookSignatureHeader = "X-Sukko-Signature"
+
+	// WebhookSignaturePrefix is the prefix prepended to the hex-encoded HMAC-SHA256 digest
+	// in the signature header value (e.g. "sha256=abc123...").
+	WebhookSignaturePrefix = "sha256="
+)
+
 // Rate-limit constants for POST /webhooks/{id}/test endpoint.
 // Exported so the test handler in provisioning/api can import them from this package (§X).
 const (

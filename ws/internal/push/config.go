@@ -80,7 +80,7 @@ func (c *Config) Validate() error {
 	}
 
 	// Topic namespace validation (includes prod guard)
-	if err := c.KafkaNamespaceConfig.Validate(c.Environment); err != nil {
+	if err := c.KafkaNamespaceConfig.Validate(); err != nil {
 		return fmt.Errorf("kafka namespace config: %w", err)
 	}
 

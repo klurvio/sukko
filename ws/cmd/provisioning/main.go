@@ -105,6 +105,9 @@ func main() {
 		Str("edition", cfg.EditionManager().Edition().String()).
 		Str("org", cfg.EditionManager().Org()).
 		Msg("Sukko edition resolved")
+	if cfg.WebhookAllowHTTP {
+		structuredLogger.Warn().Msg("WEBHOOK_ALLOW_HTTP=true: plain-HTTP delivery enabled — webhook payloads and signatures transmitted without TLS")
+	}
 
 	// Initialize tracing (cold-path only, noop when disabled)
 	tracingShutdown, err := tracing.Init(context.Background(), tracing.Config{

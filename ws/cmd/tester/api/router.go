@@ -36,5 +36,9 @@ func NewRouter(r *runner.Runner, authToken, adminKeyID string, logger zerolog.Lo
 	mux.HandleFunc("GET /api/v1/tests/{id}", h.authMiddleware(h.getTest))
 	mux.HandleFunc("GET /api/v1/tests/{id}/metrics", h.authMiddleware(h.streamMetrics))
 
+	// Webhook delivery receiver — called by the webhook-worker, not the CLI.
+	// No auth: the HMAC signature on each delivery is the integrity check.
+	mux.HandleFunc("POST /webhook-receive/{runID}", r.WebhookReceiveHandler())
+
 	return mux
 }

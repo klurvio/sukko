@@ -288,3 +288,105 @@ func TestProvisioningClient_DeleteRoutingRules_NotFound(t *testing.T) {
 		t.Fatalf("DeleteRoutingRules with 404 should not error, got: %v", err)
 	}
 }
+
+func TestProvisioningClient_CreateWebhook(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/v1/tenants/test-t1/webhooks" {
+			t.Errorf("path = %q, want /api/v1/tenants/test-t1/webhooks", r.URL.Path)
+		}
+
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		if body["url"] != "https://receiver.example.com/hook" {
+			t.Errorf("url = %v, want https://receiver.example.com/hook", body["url"])
+		}
+		if body["channel_pattern"] != "orders.*" {
+			t.Errorf("channel_pattern = %v, want orders.*", body["channel_pattern"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = strings.NewReader(`{"id":"wh-abc123"}`).WriteTo(w)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := testProvClient(t, srv.URL)
+	id, err := client.CreateWebhook(context.Background(), "test-t1",
+		"https://receiver.example.com/hook", "orders.*", "secret-hex", 3)
+	if err != nil {
+		t.Fatalf("CreateWebhook: %v", err)
+	}
+	if id != "wh-abc123" {
+		t.Errorf("id = %q, want wh-abc123", id)
+	}
+}
+
+func TestProvisioningClient_GetWebhookByID(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %q, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/v1/tenants/test-t1/webhooks/wh-abc123" {
+			t.Errorf("path = %q, want /api/v1/tenants/test-t1/webhooks/wh-abc123", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = strings.NewReader(`{"id":"wh-abc123","status":"degraded"}`).WriteTo(w)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := testProvClient(t, srv.URL)
+	status, err := client.GetWebhookByID(context.Background(), "test-t1", "wh-abc123")
+	if err != nil {
+		t.Fatalf("GetWebhookByID: %v", err)
+	}
+	if status != "degraded" {
+		t.Errorf("status = %q, want degraded", status)
+	}
+}
+
+func TestProvisioningClient_DeleteWebhook(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method = %q, want DELETE", r.Method)
+		}
+		if r.URL.Path != "/api/v1/tenants/test-t1/webhooks/wh-abc123" {
+			t.Errorf("path = %q, want /api/v1/tenants/test-t1/webhooks/wh-abc123", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := testProvClient(t, srv.URL)
+	if err := client.DeleteWebhook(context.Background(), "test-t1", "wh-abc123"); err != nil {
+		t.Fatalf("DeleteWebhook: %v", err)
+	}
+}
+
+func TestProvisioningClient_CreateWebhook_ErrorResponse(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = strings.NewReader(`{"code":"INVALID_URL","message":"url is not reachable"}`).WriteTo(w)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := testProvClient(t, srv.URL)
+	_, err := client.CreateWebhook(context.Background(), "test-t1",
+		"not-a-url", "orders.*", "secret", 0)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}

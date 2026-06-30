@@ -22,8 +22,6 @@ import (
 )
 
 const (
-	// signatureHeader is the HTTP header carrying the HMAC-SHA256 signature.
-	signatureHeader = "X-Sukko-Signature"
 	// deliveryIDHeader identifies the delivery attempt uniquely.
 	deliveryIDHeader = "X-Sukko-Delivery"
 	// bodyPreviewBytes is the maximum response body bytes captured (§VI, SC-018).
@@ -146,7 +144,7 @@ func (d *Deliverer) dispatch(ctx context.Context, task DeliveryTask) DeliveryRes
 	// Compute HMAC-SHA256 signature.
 	mac := hmac.New(sha256.New, secretBytes)
 	mac.Write(task.Payload)
-	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	sig := webhookconst.WebhookSignaturePrefix + hex.EncodeToString(mac.Sum(nil))
 
 	deliveryID := uuid.NewString()
 
@@ -156,7 +154,7 @@ func (d *Deliverer) dispatch(ctx context.Context, task DeliveryTask) DeliveryRes
 		return DeliveryResult{Error: fmt.Sprintf("build request: %v", err), StatusLabel: StatusLabelFailure}
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(signatureHeader, sig)
+	req.Header.Set(webhookconst.WebhookSignatureHeader, sig)
 	req.Header.Set(deliveryIDHeader, deliveryID)
 
 	start := time.Now()

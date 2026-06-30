@@ -129,9 +129,9 @@ func LoadGatewayConfig(logger zerolog.Logger) (*GatewayConfig, error) {
 		return nil, fmt.Errorf("gateway config validation failed: %w", err)
 	}
 
-	// Defense-in-depth: warn when secret is empty in non-local environments so operators
-	// can catch misconfigured deployments before they reach production traffic.
-	if cfg.InternalSecret == "" && cfg.Environment != "local" {
+	// Defense-in-depth: warn when secret is empty so operators can catch misconfigured
+	// deployments before they reach production traffic.
+	if cfg.InternalSecret == "" {
 		logger.Warn().
 			Str("environment", cfg.Environment).
 			Msg("WS_INTERNAL_SECRET is empty — gateway will forward empty X-Sukko-Internal-Secret header; ensure ws-server WS_INTERNAL_SECRET_ENABLED=false in this environment")

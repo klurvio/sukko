@@ -54,6 +54,12 @@ func main() {
 		Format: logging.LogFormat(cfg.LogFormat),
 	})
 	logger.Info().Str("service", serviceName).Str("environment", cfg.Environment).Msg("Starting")
+	if cfg.WebhookAllowPrivateIPs {
+		logger.Warn().Msg("WEBHOOK_ALLOW_PRIVATE_IPS=true: SSRF protection disabled — ensure this is not a production deployment")
+	}
+	if cfg.WebhookAllowHTTP {
+		logger.Warn().Msg("WEBHOOK_ALLOW_HTTP=true: plain-HTTP delivery enabled — webhook payloads and signatures transmitted without TLS")
+	}
 
 	// Parse AES-256 encryption key.
 	encKey, err := crypto.ParseEncryptionKey(cfg.CredentialsEncryptionKey)
@@ -117,7 +123,7 @@ func main() {
 	// --- Build cache and deliverer ---
 	cache := worker.NewWebhookCache(provClient, logger)
 
-	ssrfDialer := worker.NewSSRFDialer(&net.Resolver{}, cfg.DeliveryTimeout)
+	ssrfDialer := worker.NewSSRFDialer(&net.Resolver{}, cfg.DeliveryTimeout, cfg.WebhookAllowPrivateIPs)
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			DialContext: ssrfDialer.DialContext,

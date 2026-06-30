@@ -298,8 +298,8 @@ func (c *ProvisioningConfig) Validate() error {
 		return err
 	}
 
-	// Topic namespace validation (includes prod guard)
-	if err := c.KafkaNamespaceConfig.Validate(c.Environment); err != nil {
+	// Topic namespace validation
+	if err := c.KafkaNamespaceConfig.Validate(); err != nil {
 		return err
 	}
 
@@ -398,9 +398,6 @@ func (c *ProvisioningConfig) Validate() error {
 	}
 	if c.MaxWebhooksPerTenant < 1 || c.MaxWebhooksPerTenant > 100 {
 		return fmt.Errorf("MAX_WEBHOOKS_PER_TENANT must be between 1 and 100, got %d", c.MaxWebhooksPerTenant)
-	}
-	if c.WebhookAllowHTTP && c.Environment != "local" {
-		return fmt.Errorf("WEBHOOK_ALLOW_HTTP is not permitted outside the local environment (current ENVIRONMENT=%s)", c.Environment)
 	}
 	// WebhookInternalToken, WebhookWorkerGRPCAddr, and WebhookDowngradePollInterval are only
 	// required for Pro/Enterprise. Community deployments have no webhook-worker.

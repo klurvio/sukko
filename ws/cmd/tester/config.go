@@ -12,6 +12,11 @@ import (
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
+const (
+	maxWebhookDeliveryTimeout = 5 * time.Minute
+	maxWebhookRetryTimeout    = 30 * time.Minute
+)
+
 // TesterConfig holds configuration for the sukko-tester service.
 type TesterConfig struct {
 	platform.BaseConfig
@@ -51,6 +56,14 @@ type TesterConfig struct {
 	// When empty, metric-drift checks are skipped (not an error — recorded as skipped_checks).
 	GatewayMetricsURL      string        `env:"TESTER_GATEWAY_METRICS_URL" envDefault:""`         // Prometheus metrics endpoint of the gateway pod. When empty, metric-drift checks in revocation suites are skipped (recorded as skipped_checks, not failures).
 	GatewayMetricsInterval time.Duration `env:"TESTER_GATEWAY_METRICS_INTERVAL" envDefault:"30s"` // Interval for polling gateway Prometheus metrics during revocation load tests.
+
+	// Webhook suite configuration.
+	// WebhookBaseURL is the externally-reachable base URL the webhook-worker uses to deliver
+	// to this tester pod (e.g. http://tester.sukko-ci.svc.cluster.local:8085).
+	// When empty, the webhooks suite is skipped.
+	WebhookBaseURL         string        `env:"TESTER_WEBHOOK_BASE_URL" envDefault:""`            // Base URL the webhook-worker uses to deliver webhooks to this tester pod (e.g. http://tester.sukko-ci.svc.cluster.local:8085). When empty, the webhooks suite is skipped.
+	WebhookDeliveryTimeout time.Duration `env:"TESTER_WEBHOOK_DELIVERY_TIMEOUT" envDefault:"15s"` // Maximum time to wait for the initial webhook delivery after triggering a test delivery.
+	WebhookRetryTimeout    time.Duration `env:"TESTER_WEBHOOK_RETRY_TIMEOUT" envDefault:"30s"`    // Maximum time to wait for the final retry to arrive after triggering a retry test.
 }
 
 func (c *TesterConfig) Validate() error {
@@ -119,6 +132,21 @@ func (c *TesterConfig) Validate() error {
 		if !strings.HasPrefix(c.GatewayMetricsURL, "http://") && !strings.HasPrefix(c.GatewayMetricsURL, "https://") {
 			return fmt.Errorf("TESTER_GATEWAY_METRICS_URL must start with http:// or https://, got %q", c.GatewayMetricsURL)
 		}
+	}
+	if c.WebhookBaseURL != "" {
+		if !strings.HasPrefix(c.WebhookBaseURL, "http://") && !strings.HasPrefix(c.WebhookBaseURL, "https://") {
+			return fmt.Errorf("TESTER_WEBHOOK_BASE_URL must start with http:// or https://, got %q", c.WebhookBaseURL)
+		}
+	}
+	if c.WebhookDeliveryTimeout <= 0 || c.WebhookDeliveryTimeout > maxWebhookDeliveryTimeout {
+		return fmt.Errorf("TESTER_WEBHOOK_DELIVERY_TIMEOUT must be between 1ns and %v, got %v", maxWebhookDeliveryTimeout, c.WebhookDeliveryTimeout)
+	}
+	if c.WebhookRetryTimeout <= 0 || c.WebhookRetryTimeout > maxWebhookRetryTimeout {
+		return fmt.Errorf("TESTER_WEBHOOK_RETRY_TIMEOUT must be between 1ns and %v, got %v", maxWebhookRetryTimeout, c.WebhookRetryTimeout)
+	}
+	if c.WebhookRetryTimeout <= c.WebhookDeliveryTimeout {
+		return fmt.Errorf("TESTER_WEBHOOK_RETRY_TIMEOUT (%v) must exceed TESTER_WEBHOOK_DELIVERY_TIMEOUT (%v)",
+			c.WebhookRetryTimeout, c.WebhookDeliveryTimeout)
 	}
 	return nil
 }
