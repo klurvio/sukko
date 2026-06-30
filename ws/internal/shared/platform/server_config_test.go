@@ -1253,7 +1253,7 @@ func TestServerConfig_Validate_MetricsInterval(t *testing.T) {
 	}
 }
 
-func TestServerConfig_Validate_ProdOverrideBlocked(t *testing.T) {
+func TestServerConfig_Validate_NamespaceOverride(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name        string
@@ -1261,12 +1261,13 @@ func TestServerConfig_Validate_ProdOverrideBlocked(t *testing.T) {
 		override    string
 		shouldError bool
 	}{
-		{"prod_with_override", "prod", "dev", true},
-		{"prod_no_override", "prod", "", false},
-		{"dev_with_override", "dev", "prod", false},
-		{"dev_no_override", "dev", "", false},
-		{"PROD_uppercase", "PROD", "dev", true},
-		{"prod_whitespace", " prod ", "dev", true},
+		{"valid override in any env", "prod", "dev", false},
+		{"no override", "prod", "", false},
+		{"override in valid set", "dev", "prod", false},
+		{"no override in dev", "dev", "", false},
+		{"override in valid set any case env", "PROD", "dev", false},
+		{"override in valid set whitespace env", " prod ", "dev", false},
+		{"override not in valid set", "dev", "staging", true},
 	}
 
 	for _, tt := range tests {
@@ -1278,7 +1279,7 @@ func TestServerConfig_Validate_ProdOverrideBlocked(t *testing.T) {
 			err := cfg.Validate()
 			if tt.shouldError {
 				if err == nil {
-					t.Error("Should error on prod override")
+					t.Error("Should error on invalid namespace override")
 				} else if !strings.Contains(err.Error(), "KAFKA_TOPIC_NAMESPACE_OVERRIDE") {
 					t.Errorf("Error should mention KAFKA_TOPIC_NAMESPACE_OVERRIDE: %v", err)
 				}

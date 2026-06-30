@@ -64,6 +64,9 @@ func run() error {
 		AuthUpgradeTimeout:     cfg.AuthUpgradeTimeout,
 		GatewayMetricsURL:      cfg.GatewayMetricsURL,
 		GatewayMetricsInterval: cfg.GatewayMetricsInterval,
+		WebhookBaseURL:         cfg.WebhookBaseURL,
+		WebhookDeliveryTimeout: cfg.WebhookDeliveryTimeout,
+		WebhookRetryTimeout:    cfg.WebhookRetryTimeout,
 	}, logger)
 
 	handler := api.NewRouter(r, cfg.AuthToken, cfg.AdminKeyID, logger)

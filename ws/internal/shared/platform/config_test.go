@@ -244,69 +244,42 @@ func TestKafkaNamespaceConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name          string
 		config        KafkaNamespaceConfig
-		environment   string
 		wantErr       bool
 		errorContains string
 	}{
 		{
-			name:        "valid defaults",
-			config:      KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod"},
-			environment: "local",
-			wantErr:     false,
+			name:    "valid defaults",
+			config:  KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod"},
+			wantErr: false,
 		},
 		{
-			name:        "valid with override",
-			config:      KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod", KafkaTopicNamespaceOverride: "dev"},
-			environment: "dev",
-			wantErr:     false,
+			name:    "valid with override",
+			config:  KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod", KafkaTopicNamespaceOverride: "dev"},
+			wantErr: false,
 		},
 		{
 			name:          "empty valid namespaces",
 			config:        KafkaNamespaceConfig{ValidNamespaces: ""},
-			environment:   "local",
 			wantErr:       true,
 			errorContains: "VALID_NAMESPACES",
 		},
 		{
 			name:          "override not in valid set",
 			config:        KafkaNamespaceConfig{ValidNamespaces: "local,dev", KafkaTopicNamespaceOverride: "prod"},
-			environment:   "dev",
 			wantErr:       true,
 			errorContains: "KAFKA_TOPIC_NAMESPACE_OVERRIDE",
 		},
 		{
-			name:          "prod with override blocked",
-			config:        KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod", KafkaTopicNamespaceOverride: "dev"},
-			environment:   "prod",
-			wantErr:       true,
-			errorContains: "KAFKA_TOPIC_NAMESPACE_OVERRIDE",
-		},
-		{
-			name:        "prod without override ok",
-			config:      KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod"},
-			environment: "prod",
-			wantErr:     false,
-		},
-		{
-			name:          "PROD uppercase blocked",
-			config:        KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod", KafkaTopicNamespaceOverride: "dev"},
-			environment:   "PROD",
-			wantErr:       true,
-			errorContains: "KAFKA_TOPIC_NAMESPACE_OVERRIDE",
-		},
-		{
-			name:          "prod whitespace blocked",
-			config:        KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod", KafkaTopicNamespaceOverride: "dev"},
-			environment:   " prod ",
-			wantErr:       true,
-			errorContains: "KAFKA_TOPIC_NAMESPACE_OVERRIDE",
+			name:    "override in valid set — any env allowed",
+			config:  KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod", KafkaTopicNamespaceOverride: "dev"},
+			wantErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := tt.config.Validate(tt.environment)
+			err := tt.config.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("KafkaNamespaceConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}

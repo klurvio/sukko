@@ -5,19 +5,19 @@ package platform
 // Embed in both to eliminate the duplicate inline field (§X).
 //
 // Validate() is zero-argument — a bool field has no invalid state.
-// The cross-field check (WebhookAllowHTTP && Environment != "local")
-// belongs in the top-level Validate() of each embedding config,
-// where c.Environment is available without a parameter.
+// A startup warning is emitted by each service's main() when this is true.
 type WebhookHTTPConfig struct {
 	// WebhookAllowHTTP allows http:// webhook URLs for local dev/testing.
-	// Must be false in production (enforced by top-level Validate()).
 	WebhookAllowHTTP bool `env:"WEBHOOK_ALLOW_HTTP" envDefault:"false"` // Allow webhook delivery to plain HTTP endpoints. Disabled by default; enable only in trusted network environments.
 }
 
 // Validate satisfies the shared config struct convention.
-// The cross-field guard lives in the embedding config's Validate():
 //
-//	if c.WebhookAllowHTTP && c.Environment != "local" { return error }
+// No environment-name guard (e.g. c.Environment != "local"): ENVIRONMENT is operator-defined
+// free text — "production", "live", "prod-us-east" are all common and none equal "local".
+// A string-comparison guard would silently miss every such name, providing false safety.
+// Protection is the safe default (false) + an explicit startup warning in each service's main.go.
+// Do NOT re-add an environment-name guard here.
 func (c WebhookHTTPConfig) Validate() error {
 	return nil
 }

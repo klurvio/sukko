@@ -63,6 +63,8 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 		checks, err = validateAPIKey(ctx, run, logger)
 	case SuiteUpgrade:
 		checks, err = validateUpgrade(ctx, run, logger)
+	case SuiteWebhooks:
+		checks, err = validateWebhooks(ctx, run, logger, fetchCurrentEdition)
 	default:
 		checks = []metrics.CheckResult{{
 			Name:   "unknown suite",

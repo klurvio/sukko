@@ -553,7 +553,7 @@ func (r *Runner) scheduleRetry(task DeliveryTask, result DeliveryResult) {
 		return
 	}
 
-	nextDelay := r.retryDelay(task.Attempt + 1)
+	nextDelay := r.retryDelay(task.Attempt)
 	next := task
 	next.Attempt = task.Attempt + 1
 	next.NextAt = r.clock().Add(nextDelay)

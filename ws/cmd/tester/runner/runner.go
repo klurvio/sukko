@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -108,6 +109,11 @@ type TestRun struct {
 	// Auth mode fields set by execute() before dispatching to test functions.
 	apiKey             string        `json:"-"` // effective API key for this run
 	authUpgradeTimeout time.Duration `json:"-"` // timeout for auth_ack in upgrade flow
+	// Webhook suite fields set by execute().
+	webhookBaseURL         string        `json:"-"`
+	webhookDeliveryTimeout time.Duration `json:"-"`
+	webhookRetryTimeout    time.Duration `json:"-"`
+	webhookStore           *WebhookStore `json:"-"`
 }
 
 // StatusSnapshot returns the current Status and Report under a read lock.
@@ -126,11 +132,12 @@ func (t *TestRun) ConfigSnapshot() TestConfig {
 
 // Runner manages concurrent test executions.
 type Runner struct {
-	mu     sync.RWMutex
-	tests  map[string]*TestRun
-	wg     sync.WaitGroup
-	logger zerolog.Logger
-	cfg    Config
+	mu           sync.RWMutex
+	tests        map[string]*TestRun
+	wg           sync.WaitGroup
+	logger       zerolog.Logger
+	cfg          Config
+	webhookStore *WebhookStore
 }
 
 // Config holds default settings applied to all test runs.
@@ -153,14 +160,19 @@ type Config struct {
 	// Gateway metrics scraping for revocation load suites.
 	GatewayMetricsURL      string
 	GatewayMetricsInterval time.Duration
+	// Webhook suite configuration.
+	WebhookBaseURL         string
+	WebhookDeliveryTimeout time.Duration
+	WebhookRetryTimeout    time.Duration
 }
 
 // New creates a Runner with the given configuration and logger.
 func New(cfg Config, logger zerolog.Logger) *Runner {
 	return &Runner{
-		tests:  make(map[string]*TestRun),
-		logger: logger,
-		cfg:    cfg,
+		tests:        make(map[string]*TestRun),
+		logger:       logger,
+		cfg:          cfg,
+		webhookStore: newWebhookStore(),
 	}
 }
 
@@ -393,6 +405,10 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	run.jwtLifetime = r.cfg.JWTLifetime
 	run.jwtRefreshBefore = r.cfg.JWTRefreshBefore
 	run.authUpgradeTimeout = r.cfg.AuthUpgradeTimeout
+	run.webhookBaseURL = r.cfg.WebhookBaseURL
+	run.webhookDeliveryTimeout = r.cfg.WebhookDeliveryTimeout
+	run.webhookRetryTimeout = r.cfg.WebhookRetryTimeout
+	run.webhookStore = r.webhookStore
 
 	// Resolve effective API key: per-request key overrides runner-level config key.
 	effectiveAPIKey := r.cfg.APIKey
@@ -496,7 +512,12 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	logger.Info().Str("status", string(run.Status)).Msg("test completed")
 }
 
-// failRun sets a TestRun to StatusFailed with an error report. Used by execute() error paths.
+// WebhookReceiveHandler returns the http.HandlerFunc that records incoming webhook
+// deliveries. Register it at POST /webhook-receive/{runID} in the API router.
+func (r *Runner) WebhookReceiveHandler() http.HandlerFunc {
+	return webhookReceiveHandler(r.webhookStore)
+}
+
 func (r *Runner) failRun(run *TestRun, errMsg string) {
 	run.mu.Lock()
 	defer run.mu.Unlock()

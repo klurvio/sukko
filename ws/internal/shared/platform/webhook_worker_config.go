@@ -22,6 +22,13 @@ type WebhookWorkerConfig struct {
 	WebhookInternalTokenConfig // embeds WEBHOOK_INTERNAL_TOKEN env var
 	WebhookHTTPConfig          // embeds WEBHOOK_ALLOW_HTTP env var
 
+	// WebhookAllowPrivateIPs bypasses SSRF dialer for private-IP delivery targets.
+	// Intended for CI/testing environments where the tester pod runs in the same cluster.
+	// Protection: safe default (false) + startup warning in main.go. No environment-name
+	// guard — ENVIRONMENT is operator-defined free text; string comparison provides false
+	// safety. Do NOT add a c.Environment == "prod" check here.
+	WebhookAllowPrivateIPs bool `env:"WEBHOOK_ALLOW_PRIVATE_IPS" envDefault:"false"` // Allow webhook delivery to private-IP endpoints (disables SSRF protection). Safe default: false; enable only in trusted environments via explicit opt-in.
+
 	// Port is the HTTP server port for health and metrics endpoints.
 	Port int `env:"WEBHOOK_HTTP_PORT" envDefault:"8083"` // HTTP port for the webhook worker's management API.
 
@@ -82,9 +89,6 @@ func (c *WebhookWorkerConfig) Validate() error {
 	if c.InternalGRPCPort == c.Port {
 		return fmt.Errorf("WEBHOOK_WORKER_INTERNAL_GRPC_PORT (%d) must differ from WEBHOOK_HTTP_PORT (%d)",
 			c.InternalGRPCPort, c.Port)
-	}
-	if c.WebhookAllowHTTP && c.Environment != "local" {
-		return fmt.Errorf("WEBHOOK_ALLOW_HTTP is not permitted outside the local environment (current ENVIRONMENT=%s)", c.Environment)
 	}
 	if !slices.ContainsFunc(c.ValkeyConfig.Addrs, func(s string) bool { return strings.TrimSpace(s) != "" }) {
 		return errors.New("WEBHOOK_WORKER_VALKEY_ADDRS is required and must contain at least one non-empty address")

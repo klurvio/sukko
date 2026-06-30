@@ -231,30 +231,27 @@ func TestProvisioningConfig_Validate_MaxRoutingRules(t *testing.T) {
 	}
 }
 
-func TestProvisioningConfig_Validate_ProdOverrideBlocked(t *testing.T) {
+func TestProvisioningConfig_Validate_NamespaceOverride(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name        string
-		environment string
 		override    string
 		shouldError bool
 	}{
-		{"prod_with_override", "prod", "dev", true},
-		{"prod_no_override", "prod", "", false},
-		{"dev_with_override", "dev", "prod", false},
-		{"dev_no_override", "dev", "", false},
+		{"valid override in any env", "dev", false},
+		{"no override", "", false},
+		{"override not in valid set", "staging", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidProvisioningConfig()
-			cfg.Environment = tt.environment
 			cfg.KafkaTopicNamespaceOverride = tt.override
 			err := cfg.Validate()
 			if tt.shouldError {
 				if err == nil {
-					t.Error("Should error on prod override")
+					t.Error("Should error on invalid override")
 				} else if !strings.Contains(err.Error(), "KAFKA_TOPIC_NAMESPACE_OVERRIDE") {
 					t.Errorf("Error should mention KAFKA_TOPIC_NAMESPACE_OVERRIDE: %v", err)
 				}
@@ -782,22 +779,18 @@ func TestProvisioningConfig_Validate_MaxWebhooksPerTenant(t *testing.T) {
 func TestProvisioningConfig_Validate_WebhookAllowHTTP(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		allowHTTP   bool
-		environment string
-		wantErr     bool
+		name      string
+		allowHTTP bool
+		wantErr   bool
 	}{
-		{"false in prod — ok", false, "prod", false},
-		{"true in local — ok", true, "local", false},
-		{"true in prod — error", true, "prod", true},
-		{"true in dev — error", true, "dev", true},
+		{"false — ok", false, false},
+		{"true — ok (warning only, not a validation error)", true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidProvisioningConfig()
 			cfg.WebhookAllowHTTP = tt.allowHTTP
-			cfg.Environment = tt.environment
 			err := cfg.Validate()
 			if tt.wantErr && err == nil {
 				t.Error("expected error, got nil")

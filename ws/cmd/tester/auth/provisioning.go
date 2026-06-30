@@ -542,6 +542,104 @@ func (c *ProvisioningClient) doPatchJSON(ctx context.Context, path string, data 
 	return nil
 }
 
+type createWebhookRequest struct {
+	URL            string `json:"url"`
+	ChannelPattern string `json:"channel_pattern"`
+	Secret         string `json:"secret"`
+	MaxRetries     int    `json:"max_retries"`
+}
+
+// CreateWebhook registers a new webhook for the given tenant.
+// Returns the webhook ID assigned by the provisioning service.
+func (c *ProvisioningClient) CreateWebhook(ctx context.Context, tenantSlug, url, channelPattern, secret string, maxRetries int) (string, error) {
+	body, err := json.Marshal(createWebhookRequest{ //nolint:gosec // G117 false positive: Secret field carries the webhook signing secret intentionally sent to the provisioning API; this is not a credential leak
+		URL:            url,
+		ChannelPattern: channelPattern,
+		Secret:         secret,
+		MaxRetries:     maxRetries,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create webhook: marshal: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/api/v1/tenants/"+tenantSlug+"/webhooks",
+		bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("create webhook: build request: %w", err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("create webhook: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", c.readError("create webhook", resp)
+	}
+
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&result); err != nil {
+		return "", fmt.Errorf("create webhook: decode response: %w", err)
+	}
+	return result.ID, nil
+}
+
+// GetWebhookByID fetches a webhook by ID and returns its current status.
+func (c *ProvisioningClient) GetWebhookByID(ctx context.Context, tenantSlug, webhookID string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.baseURL+"/api/v1/tenants/"+tenantSlug+"/webhooks/"+webhookID,
+		http.NoBody)
+	if err != nil {
+		return "", fmt.Errorf("get webhook: build request: %w", err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("get webhook: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", c.readError("get webhook", resp)
+	}
+
+	var result struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&result); err != nil {
+		return "", fmt.Errorf("get webhook: decode response: %w", err)
+	}
+	return result.Status, nil
+}
+
+// DeleteWebhook deletes a webhook registration.
+func (c *ProvisioningClient) DeleteWebhook(ctx context.Context, tenantSlug, webhookID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		c.baseURL+"/api/v1/tenants/"+tenantSlug+"/webhooks/"+webhookID,
+		http.NoBody)
+	if err != nil {
+		return fmt.Errorf("delete webhook: build request: %w", err)
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete webhook: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.readError("delete webhook", resp)
+	}
+	return nil
+}
+
 func (c *ProvisioningClient) setHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
 	if c.authProvider != nil {

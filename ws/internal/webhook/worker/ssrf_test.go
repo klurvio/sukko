@@ -37,7 +37,7 @@ func TestSSRFDialer_PrivateIPBlocked(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			dialer := NewSSRFDialer(&mockResolver{ips: tt.ips}, 5*time.Second)
+			dialer := NewSSRFDialer(&mockResolver{ips: tt.ips}, 5*time.Second, false)
 			_, err := dialer.DialContext(context.Background(), "tcp", "example.com:443")
 			if tt.wantErr {
 				if err == nil {
@@ -66,7 +66,7 @@ func TestSSRFDialer_PrivateIPBlocked(t *testing.T) {
 func TestSSRFDialer_IPLiteral(t *testing.T) {
 	t.Parallel()
 	// Private IP literal in addr — resolver is never called.
-	dialer := NewSSRFDialer(&mockResolver{err: errShouldNotBeCalled}, 5*time.Second)
+	dialer := NewSSRFDialer(&mockResolver{err: errShouldNotBeCalled}, 5*time.Second, false)
 	_, err := dialer.DialContext(context.Background(), "tcp", "10.0.0.1:80")
 	if err == nil || !strings.Contains(err.Error(), ssrfBlockedPrefix) {
 		t.Errorf("private IP literal should be blocked with %q prefix, got: %v", ssrfBlockedPrefix, err)
@@ -74,3 +74,28 @@ func TestSSRFDialer_IPLiteral(t *testing.T) {
 }
 
 var errShouldNotBeCalled = &net.DNSError{Err: "resolver should not be called for IP literals"}
+
+// TestSSRFDialer_AllowPrivate verifies that allowPrivate=true bypasses all private-IP checks.
+func TestSSRFDialer_AllowPrivate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("private IP via DNS allowed when allowPrivate=true", func(t *testing.T) {
+		t.Parallel()
+		dialer := NewSSRFDialer(&mockResolver{ips: []string{"10.0.0.1"}}, 5*time.Second, true)
+		_, err := dialer.DialContext(context.Background(), "tcp", "tester.sukko.internal:8080")
+		// The connection will fail (no server at 10.0.0.1:8080), but the error must NOT
+		// be an ssrf_blocked error — it should be a network/connection error.
+		if err != nil && strings.HasPrefix(err.Error(), ssrfBlockedPrefix) {
+			t.Errorf("private IP should not be blocked when allowPrivate=true: %v", err)
+		}
+	})
+
+	t.Run("private IP literal allowed when allowPrivate=true", func(t *testing.T) {
+		t.Parallel()
+		dialer := NewSSRFDialer(&mockResolver{err: errShouldNotBeCalled}, 5*time.Second, true)
+		_, err := dialer.DialContext(context.Background(), "tcp", "192.168.1.50:8080")
+		if err != nil && strings.HasPrefix(err.Error(), ssrfBlockedPrefix) {
+			t.Errorf("private IP literal should not be blocked when allowPrivate=true: %v", err)
+		}
+	})
+}

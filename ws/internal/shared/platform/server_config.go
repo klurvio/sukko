@@ -1048,7 +1048,7 @@ func (c *ServerConfig) Validate() error {
 	}
 
 	// Kafka namespace validation (includes prod guard)
-	if err := c.KafkaNamespaceConfig.Validate(c.Environment); err != nil {
+	if err := c.KafkaNamespaceConfig.Validate(); err != nil {
 		return err
 	}
 
