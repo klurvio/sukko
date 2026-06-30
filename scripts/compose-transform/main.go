@@ -22,12 +22,13 @@ import (
 // serviceImageMap maps docker-compose service names to GHCR image references.
 // Hardcoded intentionally — new services are rare and changes should be explicit.
 var serviceImageMap = map[string]string{
-	"provisioning": "ghcr.io/klurvio/sukko-provisioning:latest",
-	"ws-server":    "ghcr.io/klurvio/sukko-server:latest",
-	"ws-gateway":   "ghcr.io/klurvio/sukko-gateway:latest",
-	"sukko-tester": "ghcr.io/klurvio/sukko-tester:latest",
-	"postgres":     "postgres:16-alpine",
-	"push-service": "ghcr.io/klurvio/sukko-push:latest",
+	"provisioning":   "ghcr.io/klurvio/sukko-provisioning:latest",
+	"ws-server":      "ghcr.io/klurvio/sukko-server:latest",
+	"ws-gateway":     "ghcr.io/klurvio/sukko-gateway:latest",
+	"webhook-worker": "ghcr.io/klurvio/sukko-webhook-worker:latest",
+	"sukko-tester":   "ghcr.io/klurvio/sukko-tester:latest",
+	"postgres":       "postgres:16-alpine",
+	"push-service":   "ghcr.io/klurvio/sukko-push:latest",
 }
 
 func main() {
