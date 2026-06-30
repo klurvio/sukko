@@ -31,7 +31,7 @@ type WebhookDelivery struct {
 // Owned by WebhookStore; the outer store lock is NEVER held while accessing Secret.
 type webhookRunState struct {
 	mu         sync.RWMutex
-	deleted    bool   // set by delete(); handler checks under same RLock as secret copy
+	deleted    bool // set by delete(); handler checks under same RLock as secret copy
 	secret     []byte
 	failFirstN int // 0=always 200; N>0=first N fail; -1=always 500
 	seenCount  int

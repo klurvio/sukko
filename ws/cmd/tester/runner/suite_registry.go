@@ -26,5 +26,5 @@ var SuiteRegistry = map[string]SuiteInfo{
 	"api-key":          {Name: "api-key", Description: "validates static API key auth in isolation — no JWT provisioning; distinct from the 'auth' suite which validates both auth methods within a single run"},
 	"upgrade":          {Name: "upgrade", Description: "validates the auth upgrade flow — connect with API key, upgrade to JWT via auth message, access private channels"},
 	SuiteRevocation:    {Name: SuiteRevocation, Description: "Token revocation load testing — stress (mass force-disconnect at 1,000 connections) and soak (repeated revoke/reconnect over hours, memory/goroutine drift monitoring). Requires Pro+ edition."},
-	SuiteWebhooks: {Name: SuiteWebhooks, Description: "Webhook delivery validation — happy-path single delivery, retry-on-failure recovery, and degraded-state transition after max retries exhausted. Requires Pro+ edition and TESTER_WEBHOOK_BASE_URL."},
+	SuiteWebhooks:      {Name: SuiteWebhooks, Description: "Webhook delivery validation — happy-path single delivery, retry-on-failure recovery, and degraded-state transition after max retries exhausted. Requires Pro+ edition and TESTER_WEBHOOK_BASE_URL."},
 }

@@ -552,7 +552,7 @@ type createWebhookRequest struct {
 // CreateWebhook registers a new webhook for the given tenant.
 // Returns the webhook ID assigned by the provisioning service.
 func (c *ProvisioningClient) CreateWebhook(ctx context.Context, tenantSlug, url, channelPattern, secret string, maxRetries int) (string, error) {
-	body, err := json.Marshal(createWebhookRequest{
+	body, err := json.Marshal(createWebhookRequest{ //nolint:gosec // G117 false positive: Secret field carries the webhook signing secret intentionally sent to the provisioning API; this is not a credential leak
 		URL:            url,
 		ChannelPattern: channelPattern,
 		Secret:         secret,
