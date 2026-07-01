@@ -139,12 +139,12 @@ const (
 	MessageBackendKafka  = "kafka"
 )
 
-// MessageBackendBase holds the two fields shared between services (ws-server, tester)
+// MessageBackendBase holds the two fields shared between ws-server, push, and tester
 // that need message backend selection without the full Kafka SASL/TLS options.
 // Embedded by MessageBackendConfig and TesterConfig.
 type MessageBackendBase struct {
 	MessageBackend string `env:"MESSAGE_BACKEND" envDefault:"direct"`        // Message ingestion backend: direct (no persistence, no Kafka dependency) or kafka (full Kafka/Redpanda integration with replay).
-	KafkaBrokers   string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"` // Comma-separated Kafka/Redpanda broker addresses. Required when MESSAGE_BACKEND=kafka.
+	KafkaBrokers   string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"` // Comma-separated Kafka/Redpanda broker addresses for ws-server, push, and tester (provisioning uses PROVISIONING_KAFKA_BROKERS instead); required when MESSAGE_BACKEND=kafka.
 }
 
 // MessageBackendConfig holds message ingestion/persistence configuration.

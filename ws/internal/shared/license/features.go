@@ -46,36 +46,36 @@ type FeatureInfo struct {
 const (
 	// ── Pro Features ─────────────────────────────────────────────────────
 
-	KafkaBackend              Feature = "MESSAGE_BACKEND=kafka"
-	PerTenantChannelRules     Feature = "GATEWAY_PER_TENANT_CHANNEL_RULES"
-	PerTenantConnectionLimits Feature = "TENANT_CONNECTION_LIMIT_ENABLED"
-	Alerting                  Feature = "ALERT_ENABLED"
-	ChannelTopicRouting       Feature = "CHANNEL_TOPIC_ROUTING"
+	KafkaBackend              Feature = "MESSAGE_BACKEND=kafka"            // Implemented
+	PerTenantChannelRules     Feature = "GATEWAY_PER_TENANT_CHANNEL_RULES" // Implemented
+	PerTenantConnectionLimits Feature = "TENANT_CONNECTION_LIMIT_ENABLED"  // Implemented
+	Alerting                  Feature = "ALERT_ENABLED"                    // Implemented
+	ChannelTopicRouting       Feature = "CHANNEL_TOPIC_ROUTING"            // Implemented
 
-	PerTenantConfigurableQuotas Feature = "per-tenant configurable quotas"
-	TenantLifecycleManager      Feature = "tenant lifecycle manager"
-	ConnectionTracing           Feature = "connection tracing"
+	PerTenantConfigurableQuotas Feature = "per-tenant configurable quotas" // Implemented
+	TenantLifecycleManager      Feature = "tenant lifecycle manager"       // Implemented
+	ConnectionTracing           Feature = "connection tracing"             // Implemented
 
-	SSETransport       Feature = "SSE transport"
-	Analytics          Feature = "real-time analytics"          // Implemented
-	AnalyticsPush      Feature = "real-time analytics for push" // Implemented
-	AdminUI            Feature = "admin UI"
-	TokenRevocation    Feature = "token revocation"
-	Webhooks           Feature = "webhook delivery" // Implemented
-	MessageHistory     Feature = "message history"
+	SSETransport       Feature = "SSE transport"              // Implemented
+	Analytics          Feature = "real-time analytics"        // Implemented
+	AdminUI            Feature = "admin UI"                   // Implemented
+	TokenRevocation    Feature = "token revocation"           // Implemented
+	Webhooks           Feature = "webhook delivery"           // Implemented
+	MessageHistory     Feature = "message history"            // Implemented
 	LiveGapRecovery    Feature = "live gap recovery"          // Implemented
 	ConnectionsAPI     Feature = "connections management API" // Implemented
-	ChannelPatternsCEL Feature = "channel patterns (CEL)"
-	DeltaCompression   Feature = "delta compression"
+	ChannelPatternsCEL Feature = "channel patterns (CEL)"     // Future
+	DeltaCompression   Feature = "delta compression"          // Future
 
 	// ── Enterprise Features ──────────────────────────────────────────────
 
-	// Note: this gate covers only the audit-log query API (GET /audit-log). Audit record writes are unconditional — not gated.
-	AuditLogging        Feature = "audit logging"
-	PushNotifications   Feature = "push notifications"
-	IPAllowlisting      Feature = "per-tenant IP allowlisting"
-	PriorityRouting     Feature = "priority message routing"
-	CustomQuotaPolicies Feature = "custom quota policies"
+	// Note: the AuditLogging gate covers only the audit-log query API (GET /audit-log). Audit record writes are unconditional — not gated.
+	AuditLogging        Feature = "audit logging"                // Implemented
+	PushNotifications   Feature = "push notifications"           // Implemented
+	AnalyticsPush       Feature = "real-time analytics for push" // Implemented
+	IPAllowlisting      Feature = "per-tenant IP allowlisting"   // Future
+	PriorityRouting     Feature = "priority message routing"     // Future
+	CustomQuotaPolicies Feature = "custom quota policies"        // Future
 )
 
 // featureEditions maps each feature to its minimum required edition.
@@ -92,7 +92,6 @@ var featureEditions = map[Feature]Edition{
 	ConnectionTracing:           Pro,
 	SSETransport:                Pro,
 	Analytics:                   Pro,
-	AnalyticsPush:               Enterprise,
 	AdminUI:                     Pro,
 	TokenRevocation:             Pro,
 	Webhooks:                    Pro,
@@ -105,6 +104,7 @@ var featureEditions = map[Feature]Edition{
 	// Enterprise
 	AuditLogging:        Enterprise,
 	PushNotifications:   Enterprise,
+	AnalyticsPush:       Enterprise,
 	IPAllowlisting:      Enterprise,
 	PriorityRouting:     Enterprise,
 	CustomQuotaPolicies: Enterprise,
@@ -113,34 +113,34 @@ var featureEditions = map[Feature]Edition{
 // featureMetadata holds implementation status and priority for each feature.
 // This is the authoritative metadata — the docs site reads this via extraction.
 var featureMetadata = map[Feature]FeatureInfo{
-	// ── Implemented (gated) ──────────────────────────────────────────────
+	// ── Implemented — Pro ────────────────────────────────────────────────
 
 	KafkaBackend:                {Description: "Kafka/Redpanda message backend", Status: StatusImplemented, Priority: PriorityNone},
 	PerTenantChannelRules:       {Description: "Per-tenant channel subscribe/publish rules", Status: StatusImplemented, Priority: PriorityNone},
 	PerTenantConnectionLimits:   {Description: "Per-tenant WebSocket connection limits", Status: StatusImplemented, Priority: PriorityNone},
 	Alerting:                    {Description: "AlertManager integration for Prometheus alerts", Status: StatusImplemented, Priority: PriorityNone},
-	PushNotifications:           {Description: "Push notifications (Web Push + FCM + APNs)", Status: StatusImplemented, Priority: PriorityNone},
 	PerTenantConfigurableQuotas: {Description: "Per-tenant configurable resource quotas (topics, connections, rules)", Status: StatusImplemented, Priority: PriorityNone},
 	TenantLifecycleManager:      {Description: "Tenant suspend/reactivate lifecycle management", Status: StatusImplemented, Priority: PriorityNone},
 	ConnectionTracing:           {Description: "OpenTelemetry distributed tracing for connections", Status: StatusImplemented, Priority: PriorityNone},
-	AuditLogging:                {Description: "Audit trail of all provisioning API actions", Status: StatusImplemented, Priority: PriorityNone},
 	SSETransport:                {Description: "SSE transport + REST publish", Status: StatusImplemented, Priority: PriorityNone},
+	ChannelTopicRouting:         {Description: "Per-tenant routing rules for channel-to-topic mapping, multi-topic fan-out, and header-based consumer routing", Status: StatusImplemented, Priority: PriorityNone},
+	TokenRevocation:             {Description: "Revoke individual JWT tokens (not just keys)", Status: StatusImplemented, Priority: PriorityNone},
+	MessageHistory:              {Description: "Queryable message history per channel", Status: StatusImplemented, Priority: PriorityNone},
+	LiveGapRecovery:             {Description: "In-band gap detection and live replay on existing connections without reconnect", Status: StatusImplemented, Priority: PriorityNone},
+	ConnectionsAPI:              {Description: "Inspect and force-disconnect live connections per tenant", Status: StatusImplemented, Priority: PriorityNone},
+	AdminUI:                     {Description: "Web-based tenant management interface", Status: StatusImplemented, Priority: PriorityNone},
+	Analytics:                   {Description: "Real-time per-tenant usage analytics (connections, messages)", Status: StatusImplemented, Priority: PriorityNone},
+	Webhooks:                    {Description: "HTTP webhook delivery as alternative to WebSocket", Status: StatusImplemented, Priority: PriorityNone},
 
-	// ── Implemented — Pro ────────────────────────────────────────────────
+	// ── Implemented — Enterprise ──────────────────────────────────────────
 
-	ChannelTopicRouting: {Description: "Per-tenant routing rules for channel-to-topic mapping, multi-topic fan-out, and header-based consumer routing", Status: StatusImplemented, Priority: PriorityNone},
-	TokenRevocation:     {Description: "Revoke individual JWT tokens (not just keys)", Status: StatusImplemented, Priority: PriorityNone},
-
-	// ── Implemented — Pro (continued) ────────────────────────────────────
-	MessageHistory:  {Description: "Queryable message history per channel", Status: StatusImplemented, Priority: PriorityNone},
-	LiveGapRecovery: {Description: "In-band gap detection and live replay on existing connections without reconnect", Status: StatusImplemented, Priority: PriorityNone},
-	ConnectionsAPI:  {Description: "Inspect and force-disconnect live connections per tenant", Status: StatusImplemented, Priority: PriorityNone},
+	// Note: AuditLogging covers only the audit-log query API (GET /audit-log); writes are unconditional.
+	AuditLogging:      {Description: "Audit trail of all provisioning API actions", Status: StatusImplemented, Priority: PriorityNone},
+	PushNotifications: {Description: "Push notifications (Web Push + FCM + APNs)", Status: StatusImplemented, Priority: PriorityNone},
+	AnalyticsPush:     {Description: "Real-time push delivery analytics (platform breakdown, failure reasons)", Status: StatusImplemented, Priority: PriorityNone},
 
 	// ── Future — Pro ─────────────────────────────────────────────────────
-	AdminUI:            {Description: "Web-based tenant management interface", Status: StatusImplemented, Priority: PriorityNone},
-	Analytics:          {Description: "Real-time per-tenant usage analytics (connections, messages)", Status: StatusImplemented, Priority: PriorityNone},
-	AnalyticsPush:      {Description: "Real-time push delivery analytics (platform breakdown, failure reasons)", Status: StatusImplemented, Priority: PriorityNone},
-	Webhooks:           {Description: "HTTP webhook delivery as alternative to WebSocket", Status: StatusImplemented, Priority: PriorityNone},
+
 	ChannelPatternsCEL: {Description: "CEL expressions for complex channel authorization", Status: StatusFuture, Priority: PriorityLow},
 	DeltaCompression:   {Description: "Send only changed fields in high-frequency updates", Status: StatusFuture, Priority: PriorityLow},
 

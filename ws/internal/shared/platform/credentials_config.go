@@ -13,7 +13,7 @@ import (
 // Embedded by both ProvisioningConfig and WebhookWorkerConfig.
 // Constitution §I: shared fields defined once in a shared struct, never duplicated.
 type CredentialsConfig struct {
-	CredentialsEncryptionKey string `env:"CREDENTIALS_ENCRYPTION_KEY" redact:"true"` // AES encryption key (hex-encoded, 32 bytes) for encrypting push provider credentials at rest.
+	CredentialsEncryptionKey string `env:"CREDENTIALS_ENCRYPTION_KEY" redact:"true"` // AES encryption key (hex-encoded, 32 bytes) for encrypting sensitive credentials at rest (push provider keys and webhook signing secrets).
 }
 
 // Validate checks that the encryption key is present and decodes to exactly 32 bytes.
