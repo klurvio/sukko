@@ -35,7 +35,7 @@ func TestKafkaPublisher_PublishAndConsume(t *testing.T) {
 	})
 
 	// Create publisher
-	pub, err := NewKafkaPublisher(brokers, resolver)
+	pub, err := NewKafkaPublisher(brokers, resolver, nil, nil)
 	if err != nil {
 		t.Fatalf("create kafka publisher: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestKafkaPublisher_ConnectionFailure(t *testing.T) {
 	})
 
 	// Use unreachable broker — publish should fail
-	pub, err := NewKafkaPublisher("localhost:19999", resolver)
+	pub, err := NewKafkaPublisher("localhost:19999", resolver, nil, nil)
 	if err != nil {
 		t.Skipf("NewKafkaPublisher failed on connect (acceptable — some drivers fail eagerly): %v", err)
 	}

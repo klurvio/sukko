@@ -5,19 +5,16 @@ package consumer
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/sasl/scram"
 
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
@@ -42,24 +39,10 @@ type PoolConfig struct {
 	Logger zerolog.Logger
 
 	// SASL authentication (nil = no auth, for local dev).
-	SASL *SASLConfig
+	SASL *kafkashared.SASLConfig
 
 	// TLS encryption (nil = no TLS, for local dev).
-	TLS *TLSConfig
-}
-
-// SASLConfig holds SASL authentication configuration for Kafka.
-type SASLConfig struct {
-	Mechanism string // "scram-sha-256" or "scram-sha-512"
-	Username  string
-	Password  string
-}
-
-// TLSConfig holds TLS encryption configuration for Kafka.
-type TLSConfig struct {
-	Enabled            bool
-	InsecureSkipVerify bool   // Skip server certificate verification (not for production)
-	CAPath             string // Path to CA certificate file (optional)
+	TLS *kafkashared.TLSConfig
 }
 
 // Pool manages a single Kafka consumer group for the push notification service.
@@ -303,8 +286,12 @@ func (p *Pool) extractTenantFromTopic(topic string) string {
 
 // createClient builds a franz-go client with the pool's configuration.
 func (p *Pool) createClient(topics []string) (*kgo.Client, error) {
-	opts := []kgo.Opt{
-		kgo.SeedBrokers(p.config.Brokers...),
+	opts, err := kafkashared.BuildKgoOpts(p.config.Brokers, p.config.SASL, p.config.TLS)
+	if err != nil {
+		return nil, fmt.Errorf("build kafka options: %w", err)
+	}
+
+	opts = append(opts,
 		kgo.ConsumerGroup(p.config.ConsumerGroup),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()),
 		kgo.OnPartitionsAssigned(func(_ context.Context, _ *kgo.Client, assigned map[string][]int32) {
@@ -317,57 +304,10 @@ func (p *Pool) createClient(topics []string) (*kgo.Client, error) {
 				Interface("partitions", revoked).
 				Msg("Push consumer partitions revoked")
 		}),
-	}
+	)
 
 	if len(topics) > 0 {
 		opts = append(opts, kgo.ConsumeTopics(topics...))
-	}
-
-	// SASL authentication
-	if p.config.SASL != nil {
-		mechanism := scram.Auth{
-			User: p.config.SASL.Username,
-			Pass: p.config.SASL.Password,
-		}
-
-		switch p.config.SASL.Mechanism {
-		case "scram-sha-256":
-			opts = append(opts, kgo.SASL(mechanism.AsSha256Mechanism()))
-		case "scram-sha-512":
-			opts = append(opts, kgo.SASL(mechanism.AsSha512Mechanism()))
-		default:
-			return nil, fmt.Errorf("unsupported SASL mechanism: %s (use scram-sha-256 or scram-sha-512)", p.config.SASL.Mechanism)
-		}
-
-		p.logger.Info().
-			Str("mechanism", p.config.SASL.Mechanism).
-			Str("username", p.config.SASL.Username).
-			Msg("Push consumer SASL authentication enabled")
-	}
-
-	// TLS encryption
-	if p.config.TLS != nil && p.config.TLS.Enabled {
-		tlsCfg := &tls.Config{
-			InsecureSkipVerify: p.config.TLS.InsecureSkipVerify, //nolint:gosec // Controlled by configuration for dev/testing environments
-			MinVersion:         tls.VersionTLS12,
-		}
-
-		if p.config.TLS.CAPath != "" {
-			caCert, err := os.ReadFile(p.config.TLS.CAPath)
-			if err != nil {
-				return nil, fmt.Errorf("read CA certificate from %s: %w", p.config.TLS.CAPath, err)
-			}
-			caCertPool := x509.NewCertPool()
-			if !caCertPool.AppendCertsFromPEM(caCert) {
-				return nil, fmt.Errorf("parse CA certificate from %s", p.config.TLS.CAPath)
-			}
-			tlsCfg.RootCAs = caCertPool
-		}
-
-		opts = append(opts, kgo.DialTLSConfig(tlsCfg))
-		p.logger.Info().
-			Bool("insecure_skip_verify", p.config.TLS.InsecureSkipVerify).
-			Msg("Push consumer TLS enabled")
 	}
 
 	client, err := kgo.NewClient(opts...)

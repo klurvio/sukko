@@ -290,6 +290,130 @@ func TestKafkaNamespaceConfig_Validate(t *testing.T) {
 	}
 }
 
+func TestMessageBackendConfig_Validate_SASL(t *testing.T) {
+	t.Parallel()
+
+	base := MessageBackendBase{MessageBackend: MessageBackendKafka, KafkaBrokers: "localhost:19092"}
+
+	tests := []struct {
+		name          string
+		cfg           MessageBackendConfig
+		wantErr       bool
+		errorContains string
+	}{
+		{
+			name: "invalid mechanism",
+			cfg: MessageBackendConfig{
+				MessageBackendBase: base,
+				KafkaSASLEnabled:   true,
+				KafkaSASLMechanism: "plain",
+				KafkaSASLUsername:  "user",
+				KafkaSASLPassword:  "pass",
+			},
+			wantErr:       true,
+			errorContains: "KAFKA_SASL_MECHANISM",
+		},
+		{
+			name: "missing username",
+			cfg: MessageBackendConfig{
+				MessageBackendBase: base,
+				KafkaSASLEnabled:   true,
+				KafkaSASLMechanism: "scram-sha-256",
+				KafkaSASLUsername:  "",
+				KafkaSASLPassword:  "pass",
+			},
+			wantErr:       true,
+			errorContains: "KAFKA_SASL_USERNAME",
+		},
+		{
+			name: "missing password",
+			cfg: MessageBackendConfig{
+				MessageBackendBase: base,
+				KafkaSASLEnabled:   true,
+				KafkaSASLMechanism: "scram-sha-256",
+				KafkaSASLUsername:  "user",
+				KafkaSASLPassword:  "",
+			},
+			wantErr:       true,
+			errorContains: "KAFKA_SASL_PASSWORD",
+		},
+		{
+			name: "all valid",
+			cfg: MessageBackendConfig{
+				MessageBackendBase: base,
+				KafkaSASLEnabled:   true,
+				KafkaSASLMechanism: "scram-sha-512",
+				KafkaSASLUsername:  "user",
+				KafkaSASLPassword:  "pass",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantErr && tt.errorContains != "" && err != nil && !strings.Contains(err.Error(), tt.errorContains) {
+				t.Errorf("error must contain %q, got: %v", tt.errorContains, err)
+			}
+		})
+	}
+}
+
+func TestMessageBackendConfig_Validate_TLSCAPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		caPath    string
+		wantErr   bool
+		wantSubst string
+	}{
+		{
+			name:    "TLS enabled, no CA path — no error",
+			caPath:  "",
+			wantErr: false,
+		},
+		{
+			name:      "TLS enabled, nonexistent CA path — startup failure",
+			caPath:    "/nonexistent/ca.pem",
+			wantErr:   true,
+			wantSubst: "KAFKA_TLS_CA_PATH",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := MessageBackendConfig{
+				MessageBackendBase: MessageBackendBase{
+					MessageBackend: MessageBackendKafka,
+					KafkaBrokers:   "localhost:19092",
+				},
+				KafkaTLSEnabled: true,
+				KafkaTLSCAPath:  tt.caPath,
+			}
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantErr && !strings.Contains(err.Error(), tt.wantSubst) {
+				t.Errorf("error must contain %q, got: %v", tt.wantSubst, err)
+			}
+		})
+	}
+}
+
 func TestMessageBackendConfig_Validate_NATSRejected(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

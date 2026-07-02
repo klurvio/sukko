@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
 
-	kafkautil "github.com/klurvio/sukko/internal/shared/kafka"
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 )
 
 // =============================================================================
@@ -55,7 +55,7 @@ func TestNewConsumer_NoBrokers(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
+		Topics:        []string{kafkashared.BuildTopicName("test", "sukko", "trade")},
 		Logger:        &logger,
 		Broadcast:     broadcast,
 		ResourceGuard: guard,
@@ -76,7 +76,7 @@ func TestNewConsumer_NoConsumerGroup(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "",
-		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
+		Topics:        []string{kafkashared.BuildTopicName("test", "sukko", "trade")},
 		Logger:        &logger,
 		Broadcast:     broadcast,
 		ResourceGuard: guard,
@@ -117,7 +117,7 @@ func TestNewConsumer_NoBroadcast(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
+		Topics:        []string{kafkashared.BuildTopicName("test", "sukko", "trade")},
 		Logger:        &logger,
 		Broadcast:     nil,
 		ResourceGuard: guard,
@@ -137,7 +137,7 @@ func TestNewConsumer_NoResourceGuard(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
+		Topics:        []string{kafkashared.BuildTopicName("test", "sukko", "trade")},
 		Logger:        &logger,
 		Broadcast:     broadcast,
 		ResourceGuard: nil,
@@ -157,7 +157,7 @@ func TestNewConsumer_NoLogger(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
+		Topics:        []string{kafkashared.BuildTopicName("test", "sukko", "trade")},
 		Logger:        nil,
 		Broadcast:     broadcast,
 		ResourceGuard: guard,
@@ -203,7 +203,7 @@ func TestConsumerConfig_BatchDefaults(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
+		Topics:        []string{kafkashared.BuildTopicName("test", "sukko", "trade")},
 	}
 
 	// Default BatchSize should be 0 (will be set to 50 in NewConsumer)
@@ -222,7 +222,7 @@ func TestConsumerConfig_CustomBatch(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers:       []string{"localhost:9092"},
 		ConsumerGroup: "test-group",
-		Topics:        []string{kafkautil.BuildTopicName("test", "sukko", "trade")},
+		Topics:        []string{kafkashared.BuildTopicName("test", "sukko", "trade")},
 		BatchSize:     100,
 		BatchTimeout:  20 * time.Millisecond,
 	}
@@ -512,7 +512,7 @@ func TestConsumer_PrepareMessage_RateLimited_DropsWithTopic(t *testing.T) {
 func TestTokenEvent_Fields(t *testing.T) {
 	t.Parallel()
 	event := TokenEvent{
-		Type:      kafkautil.EventTradeExecuted,
+		Type:      kafkashared.EventTradeExecuted,
 		Timestamp: 1234567890,
 		Data: map[string]any{
 			"price":  "100.50",
@@ -520,7 +520,7 @@ func TestTokenEvent_Fields(t *testing.T) {
 		},
 	}
 
-	if event.Type != kafkautil.EventTradeExecuted {
+	if event.Type != kafkashared.EventTradeExecuted {
 		t.Errorf("Type = %s, want TRADE_EXECUTED", event.Type)
 	}
 	if event.Timestamp != 1234567890 {
@@ -538,15 +538,15 @@ func TestTokenEvent_Fields(t *testing.T) {
 func TestReplayMessage_Fields(t *testing.T) {
 	t.Parallel()
 	msg := ReplayMessage{
-		Topic:     kafkautil.BuildTopicName("test", "sukko", "trade"),
+		Topic:     kafkashared.BuildTopicName("test", "sukko", "trade"),
 		Partition: 0,
 		Offset:    12345,
 		Subject:   "BTC.trade",
 		Data:      []byte(`{"price":"100.50"}`),
 	}
 
-	if msg.Topic != kafkautil.BuildTopicName("test", "sukko", "trade") {
-		t.Errorf("Topic = %s, want %s", msg.Topic, kafkautil.BuildTopicName("test", "sukko", "trade"))
+	if msg.Topic != kafkashared.BuildTopicName("test", "sukko", "trade") {
+		t.Errorf("Topic = %s, want %s", msg.Topic, kafkashared.BuildTopicName("test", "sukko", "trade"))
 	}
 	if msg.Partition != 0 {
 		t.Errorf("Partition = %d, want 0", msg.Partition)

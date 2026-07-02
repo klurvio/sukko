@@ -128,7 +128,7 @@ func runWebhookScenario(
 	}); err != nil {
 		return fail(pfx+"routing-rule", fmt.Sprintf("set routing rules: %v", err)), nil
 	}
-	defer func() { _ = provClient.DeleteRoutingRules(context.Background(), tenantID) }() //nolint:contextcheck // deferred cleanup must not use the request context which may already be canceled
+	defer func() { _ = provClient.DeleteRoutingRules(context.Background(), tenantID) }() //nolint:contextcheck // context.Background(): request ctx may be canceled at defer time; error: best-effort cleanup, test already reported its result
 
 	// Step 4: register webhook with the provisioning service.
 	webhookURL := run.webhookBaseURL + "/webhook-receive/" + runID
@@ -139,7 +139,7 @@ func runWebhookScenario(
 	if err != nil {
 		return fail(pfx+"create-webhook", fmt.Sprintf("create webhook: %v", err)), nil
 	}
-	defer func() { _ = provClient.DeleteWebhook(context.Background(), tenantID, webhookID) }() //nolint:contextcheck // deferred cleanup must not use the request context which may already be canceled
+	defer func() { _ = provClient.DeleteWebhook(context.Background(), tenantID, webhookID) }() //nolint:contextcheck // context.Background(): request ctx may be canceled at defer time; error: best-effort cleanup, test already reported its result
 
 	// Step 5: publish to the test channel to trigger delivery.
 	restClient := restpublish.NewClient(httpURL(run.Config.GatewayURL))

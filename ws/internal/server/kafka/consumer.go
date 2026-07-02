@@ -11,11 +11,8 @@ package kafka
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -27,11 +24,10 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/sasl/scram"
 
 	"github.com/klurvio/sukko/internal/server/history"
 	"github.com/klurvio/sukko/internal/server/metrics"
-	kafkautil "github.com/klurvio/sukko/internal/shared/kafka"
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/routing"
@@ -77,9 +73,9 @@ type committer interface {
 
 // TokenEvent represents an event from Redpanda
 type TokenEvent struct {
-	Type      kafkautil.EventType `json:"type"`
-	Timestamp int64               `json:"timestamp"`
-	Data      map[string]any      `json:"data"`
+	Type      kafkashared.EventType `json:"type"`
+	Timestamp int64                 `json:"timestamp"`
+	Data      map[string]any        `json:"data"`
 }
 
 // BroadcastFunc is called when a message is received.
@@ -91,20 +87,6 @@ type BroadcastFunc func(subject string, message []byte, topicName string, partit
 type ResourceGuard interface {
 	AllowKafkaMessage(ctx context.Context) (allow bool, waitDuration time.Duration)
 	ShouldPauseKafka() bool
-}
-
-// SASLConfig holds SASL authentication configuration for Kafka
-type SASLConfig struct {
-	Mechanism string // "scram-sha-256" or "scram-sha-512"
-	Username  string
-	Password  string
-}
-
-// TLSConfig holds TLS encryption configuration for Kafka
-type TLSConfig struct {
-	Enabled            bool
-	InsecureSkipVerify bool   // Skip server certificate verification (not for production)
-	CAPath             string // Path to CA certificate file (optional, uses system CA pool if empty)
 }
 
 // Consumer wraps franz-go client for consuming from Kafka/Redpanda.
@@ -162,6 +144,10 @@ type Consumer struct {
 	commitOnRevokeTimeout time.Duration          // max time for CommitMarkedOffsets in revoke callback
 	revokeCommitCounter   *prometheus.CounterVec // ws_consumer_revoke_commit_total{result}
 	revokeCommitDuration  prometheus.Observer    // ws_consumer_revoke_commit_duration_seconds (never nil after NewConsumer)
+
+	// Security config retained for the replay client (ReplayFromOffsets creates a separate kgo.Client).
+	sasl *kafkashared.SASLConfig
+	tls  *kafkashared.TLSConfig
 }
 
 // ConsumerConfig holds configuration for creating a Kafka consumer.
@@ -175,8 +161,8 @@ type ConsumerConfig struct {
 	ResourceGuard ResourceGuard   // Rate limiting and CPU brake (required)
 
 	// Security configuration for managed Kafka/Redpanda services
-	SASL *SASLConfig // SASL authentication (nil = no auth, for local dev)
-	TLS  *TLSConfig  // TLS encryption (nil = no TLS, for local dev)
+	SASL *kafkashared.SASLConfig // SASL authentication (nil = no auth, for local dev)
+	TLS  *kafkashared.TLSConfig  // TLS encryption (nil = no TLS, for local dev)
 
 	// Optional batching configuration - improves throughput by reducing per-message overhead
 	BatchSize    int           // Max messages per batch (default: 50, 0 = disabled)
@@ -252,9 +238,15 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	// The closure resolves consumer.committer at invocation time (after struct allocation).
 	var consumer *Consumer
 
-	// Build client options
-	opts := []kgo.Opt{
-		kgo.SeedBrokers(cfg.Brokers...),
+	// Build base client options (SeedBrokers, SASL, TLS)
+	opts, err := kafkashared.BuildKgoOpts(cfg.Brokers, cfg.SASL, cfg.TLS)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to build kafka options: %w", err)
+	}
+
+	// Consumer-specific options
+	opts = append(opts,
 		kgo.ConsumerGroup(cfg.ConsumerGroup),
 		kgo.ConsumeTopics(cfg.Topics...),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()), // Start from latest
@@ -266,7 +258,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		kgo.OnPartitionsRevoked(func(ctx context.Context, _ *kgo.Client, revoked map[string][]int32) {
 			consumer.handleRevoke(ctx, revoked)
 		}),
-	}
+	)
 
 	// Transport tuning (apply only if non-zero; omitting uses franz-go defaults)
 	if cfg.FetchMaxWait > 0 {
@@ -291,61 +283,6 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	opts = append(opts, kgo.AutoCommitMarks())
 	if cfg.AutoCommitInterval > 0 {
 		opts = append(opts, kgo.AutoCommitInterval(cfg.AutoCommitInterval))
-	}
-
-	// Add SASL authentication if configured
-	if cfg.SASL != nil {
-		var mechanism = scram.Auth{
-			User: cfg.SASL.Username,
-			Pass: cfg.SASL.Password,
-		}
-
-		switch cfg.SASL.Mechanism {
-		case "scram-sha-256":
-			opts = append(opts, kgo.SASL(mechanism.AsSha256Mechanism()))
-			cfg.Logger.Info().
-				Str("mechanism", "SCRAM-SHA-256").
-				Str("username", cfg.SASL.Username).
-				Msg("Kafka SASL authentication enabled")
-		case "scram-sha-512":
-			opts = append(opts, kgo.SASL(mechanism.AsSha512Mechanism()))
-			cfg.Logger.Info().
-				Str("mechanism", "SCRAM-SHA-512").
-				Str("username", cfg.SASL.Username).
-				Msg("Kafka SASL authentication enabled")
-		default:
-			cancel()
-			return nil, fmt.Errorf("unsupported SASL mechanism: %s (use scram-sha-256 or scram-sha-512)", cfg.SASL.Mechanism)
-		}
-	}
-
-	// Add TLS encryption if configured
-	if cfg.TLS != nil && cfg.TLS.Enabled {
-		tlsCfg := &tls.Config{
-			InsecureSkipVerify: cfg.TLS.InsecureSkipVerify, //nolint:gosec // Controlled by configuration for dev/testing environments
-			MinVersion:         tls.VersionTLS12,
-		}
-
-		// Load CA certificate if provided
-		if cfg.TLS.CAPath != "" {
-			caCert, err := os.ReadFile(cfg.TLS.CAPath)
-			if err != nil {
-				cancel()
-				return nil, fmt.Errorf("failed to read CA certificate from %s: %w", cfg.TLS.CAPath, err)
-			}
-			caCertPool := x509.NewCertPool()
-			if !caCertPool.AppendCertsFromPEM(caCert) {
-				cancel()
-				return nil, fmt.Errorf("failed to parse CA certificate from %s", cfg.TLS.CAPath)
-			}
-			tlsCfg.RootCAs = caCertPool
-		}
-
-		opts = append(opts, kgo.DialTLSConfig(tlsCfg))
-		cfg.Logger.Info().
-			Bool("insecure_skip_verify", cfg.TLS.InsecureSkipVerify).
-			Str("ca_path", cfg.TLS.CAPath).
-			Msg("Kafka TLS encryption enabled")
 	}
 
 	// Create franz-go client with all options
@@ -391,6 +328,8 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		committer:             client,
 		commitOnRevokeTimeout: cfg.CommitOnRevokeTimeout,
 	}
+	consumer.sasl = cfg.SASL
+	consumer.tls = cfg.TLS
 
 	// Register routing Prometheus metrics once across all Consumer instances.
 	// The orchestration pool creates one Consumer per active tenant, so
@@ -925,7 +864,7 @@ func (c *Consumer) routeToDLQ(record *kgo.Record, reason string) {
 		return
 	}
 
-	dlqTopic := kafkautil.BuildTopicName(c.namespace, tenant, routing.DeadLetterTopicSuffix)
+	dlqTopic := kafkashared.BuildTopicName(c.namespace, tenant, routing.DeadLetterTopicSuffix)
 	dlqRec := &kgo.Record{
 		Topic: dlqTopic,
 		Key:   record.Key,
@@ -1149,12 +1088,15 @@ func (c *Consumer) ReplayFromOffsets(
 		return nil, errors.New("replay: unable to extract broker addresses from consumer")
 	}
 
-	replayOpts := []kgo.Opt{
-		kgo.SeedBrokers(brokers...),
+	replayOpts, err := kafkashared.BuildKgoOpts(brokers, c.sasl, c.tls)
+	if err != nil {
+		return nil, fmt.Errorf("replay: build kafka options: %w", err)
+	}
+	replayOpts = append(replayOpts,
 		kgo.ConsumerGroup(tempGroupID),
 		kgo.ConsumeTopics(topics...),
-		kgo.ConsumePartitions(startOffsets), // Start from specified offsets
-	}
+		kgo.ConsumePartitions(startOffsets),
+	)
 	if c.fetchMaxWait > 0 {
 		replayOpts = append(replayOpts, kgo.FetchMaxWait(c.fetchMaxWait))
 	}

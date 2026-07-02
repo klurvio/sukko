@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
@@ -41,10 +42,9 @@ var validLogFormats = map[logging.LogFormat]bool{
 	logging.LogFormatPretty: true,
 }
 
-// validKafkaSASLMechanisms — no external constants package; hand-coded, unexported.
 var validKafkaSASLMechanisms = map[string]bool{
-	"scram-sha-256": true,
-	"scram-sha-512": true,
+	kafkashared.MechanismSCRAMSHA256: true,
+	kafkashared.MechanismSCRAMSHA512: true,
 }
 
 // validateLogLevel checks if the log level is valid.
@@ -66,7 +66,7 @@ func validateLogFormat(format string) error {
 // validateKafkaSASLMechanism checks if the SASL mechanism is valid.
 func validateKafkaSASLMechanism(mechanism string) error {
 	if !validKafkaSASLMechanisms[mechanism] {
-		return fmt.Errorf("KAFKA_SASL_MECHANISM must be 'scram-sha-256' or 'scram-sha-512', got: %s", mechanism)
+		return fmt.Errorf("KAFKA_SASL_MECHANISM must be %q or %q, got: %s", kafkashared.MechanismSCRAMSHA256, kafkashared.MechanismSCRAMSHA512, mechanism)
 	}
 	return nil
 }

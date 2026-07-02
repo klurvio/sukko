@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/twmb/franz-go/pkg/kerr"
 
 	"github.com/klurvio/sukko/internal/server/backend"
-	"github.com/klurvio/sukko/internal/server/kafka"
 )
 
 // Compile-time interface check.
@@ -145,163 +143,39 @@ func TestIsTopicAlreadyExistsError(t *testing.T) {
 }
 
 // =============================================================================
-// buildKgoOpts Tests
+// New — SASL/TLS passthrough Tests
 // =============================================================================
 
-func TestBuildKgoOpts(t *testing.T) {
+func TestNew_SASLAndTLSPassthrough(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name    string
-		brokers []string
-		sasl    *kafka.SASLConfig
-		tls     *kafka.TLSConfig
-		wantErr bool
-		errMsg  string
-	}{
-		{
-			name:    "brokers only",
-			brokers: []string{"broker1:9092", "broker2:9092"},
-			sasl:    nil,
-			tls:     nil,
-			wantErr: false,
-		},
-		{
-			name:    "with SASL scram-sha-256",
-			brokers: []string{"broker1:9092"},
-			sasl: &kafka.SASLConfig{
-				Mechanism: "scram-sha-256",
-				Username:  "user",
-				Password:  "pass",
-			},
-			tls:     nil,
-			wantErr: false,
-		},
-		{
-			name:    "with SASL scram-sha-512",
-			brokers: []string{"broker1:9092"},
-			sasl: &kafka.SASLConfig{
-				Mechanism: "scram-sha-512",
-				Username:  "user",
-				Password:  "pass",
-			},
-			tls:     nil,
-			wantErr: false,
-		},
-		{
-			name:    "unsupported SASL mechanism",
-			brokers: []string{"broker1:9092"},
-			sasl: &kafka.SASLConfig{
-				Mechanism: "plain",
-				Username:  "user",
-				Password:  "pass",
-			},
-			tls:     nil,
-			wantErr: true,
-			errMsg:  "unsupported SASL mechanism",
-		},
-		{
-			name:    "TLS enabled without CA",
-			brokers: []string{"broker1:9092"},
-			sasl:    nil,
-			tls: &kafka.TLSConfig{
-				Enabled:            true,
-				InsecureSkipVerify: false,
-			},
-			wantErr: false,
-		},
-		{
-			name:    "TLS with missing CA file",
-			brokers: []string{"broker1:9092"},
-			sasl:    nil,
-			tls: &kafka.TLSConfig{
-				Enabled: true,
-				CAPath:  "/nonexistent/ca.pem",
-			},
-			wantErr: true,
-			errMsg:  "failed to read CA certificate",
-		},
-		{
-			name:    "TLS disabled (no-op)",
-			brokers: []string{"broker1:9092"},
-			sasl:    nil,
-			tls: &kafka.TLSConfig{
-				Enabled: false,
-			},
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			opts, err := buildKgoOpts(tt.brokers, tt.sasl, tt.tls)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
-					t.Errorf("error = %q, want containing %q", err.Error(), tt.errMsg)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if len(opts) == 0 {
-				t.Fatal("expected at least one option (seed brokers)")
-			}
-		})
-	}
-}
-
-func TestBuildKgoOpts_TLSInvalidPEM(t *testing.T) {
-	t.Parallel()
-
-	tmpFile := t.TempDir() + "/invalid-ca.pem"
-	if err := os.WriteFile(tmpFile, []byte("not-a-valid-pem"), 0o600); err != nil {
-		t.Fatalf("failed to create temp file: %v", err)
-	}
-
-	_, err := buildKgoOpts(
-		[]string{"broker1:9092"},
-		nil,
-		&kafka.TLSConfig{
-			Enabled: true,
-			CAPath:  tmpFile,
-		},
-	)
+	// An unsupported SASL mechanism must propagate as a config error, not a broker error.
+	// Environment is set to produce a valid topic namespace and reach the SASL/TLS code path.
+	_, err := New(Config{
+		Brokers:       []string{"localhost:19092"},
+		Environment:   "test",
+		SASLEnabled:   true,
+		SASLMechanism: "plain",
+	})
 	if err == nil {
-		t.Fatal("expected error for invalid PEM, got nil")
+		t.Fatal("expected error for unsupported SASL mechanism, got nil")
 	}
-	if !strings.Contains(err.Error(), "failed to parse CA certificate") {
-		t.Errorf("error = %q, want containing 'failed to parse CA certificate'", err.Error())
-	}
-}
-
-func TestBuildKgoOpts_TLSValidPEM(t *testing.T) {
-	t.Parallel()
-
-	tmpFile := t.TempDir() + "/valid-ca.pem"
-	if err := os.WriteFile(tmpFile, testCACert, 0o600); err != nil {
-		t.Fatalf("failed to create temp file: %v", err)
+	if !strings.Contains(err.Error(), "unsupported SASL mechanism") {
+		t.Fatalf("expected SASL mechanism error, got: %v", err)
 	}
 
-	opts, err := buildKgoOpts(
-		[]string{"broker1:9092"},
-		nil,
-		&kafka.TLSConfig{
-			Enabled: true,
-			CAPath:  tmpFile,
-		},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// A missing CA file must propagate as a config error, not a broker error.
+	_, err = New(Config{
+		Brokers:     []string{"localhost:19092"},
+		Environment: "test",
+		TLSEnabled:  true,
+		TLSCAPath:   "/nonexistent/ca.pem",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing CA file, got nil")
 	}
-	// Expect at least 2 opts: seed brokers + TLS dial config
-	if len(opts) < 2 {
-		t.Errorf("expected at least 2 options (seed brokers + TLS), got %d", len(opts))
+	if !strings.Contains(err.Error(), "failed to read CA certificate") {
+		t.Fatalf("expected CA certificate error, got: %v", err)
 	}
 }
 
@@ -356,24 +230,3 @@ func TestIsHealthy_Default(t *testing.T) {
 // =============================================================================
 // Test Certificate
 // =============================================================================
-
-// testCACert is a self-signed test certificate for TLS tests.
-var testCACert = []byte(`-----BEGIN CERTIFICATE-----
-MIIDATCCAemgAwIBAgIUPwru35BdNF7VD/F7jZJDg5LsMdwwDQYJKoZIhvcNAQEL
-BQAwDzENMAsGA1UEAwwEdGVzdDAgFw0yNjAzMDIwMzQ3NTBaGA8yMTI2MDIwNjAz
-NDc1MFowDzENMAsGA1UEAwwEdGVzdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCC
-AQoCggEBAJT8PxfwA7IljdLiWW+cRfY46ZtEdj7F/DuPUeyex1qGwgG7JI1GX7Yq
-HeJDitzidLeYuh344B6u/FOz0hLlao7F6TfEh+5s64oq5PMbERSUB4gnAeMxoiNn
-CwnsStJkow63vO5fROt/iKom4HME9bwQKX6yQ15bVEuVKp1jQUl+4fTwC0zEidWy
-DS03SY+shxReR7hCzPJn08wff0fQh5/eDC7Fm3FNni7pziDMRz29V1oiTLC0gpf2
-MihX1xJOa8UwHDCibhT0ul9CigZUilsw6g+sxpZxEh62/j25KhaM+OrkHdHQqSWJ
-Z8ENo9X549GWslaDf7X+F7MLHXO8FlUCAwEAAaNTMFEwHQYDVR0OBBYEFHVLs+b8
-CRpT0PfQnvytJg/pxUCbMB8GA1UdIwQYMBaAFHVLs+b8CRpT0PfQnvytJg/pxUCb
-MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAJGllt8UelJhQ5K8
-UznrDPvGU5qN/sGU31wT9yRpkVK2xoJg0Ut85YdXxzIvregZ6mN5dTggn71Gcgfv
-L5szyuG9Zay0FS2cpEfCtE/tx8l8TfFfXPjdV7ZAxxvsXzFn0VtXmQB6PWG6NZ5w
-hN40woLC9YRcKub6mwsczaiHzgGOUfJnAfQZJkZ0PuMxYPVMsVm2lmkvpPTpjS+5
-4Ja1bi84dbyvYh14LFGwuxv1HM5o3TuvmqQ27M628cfHi53hWZiEsd9QiMtYk+mT
-MdjXH9epWrYcjDUAb3mVWWP0CR3yiQx3yKQX9V+CZaEbeBRBmzDGnJhKowkeqOHp
-Y8uBy4Q=
------END CERTIFICATE-----`)

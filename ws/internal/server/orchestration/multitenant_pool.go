@@ -153,8 +153,8 @@ type MultiTenantPoolConfig struct {
 	KafkaAutoCommitInterval    time.Duration // background auto-commit interval (0 = franz-go default)
 
 	// Security configuration for managed Kafka/Redpanda services
-	SASL *kafka.SASLConfig
-	TLS  *kafka.TLSConfig
+	SASL *kafkashared.SASLConfig
+	TLS  *kafkashared.TLSConfig
 
 	// Metrics is an optional callback for reporting pool metrics to Prometheus.
 	// If nil, metrics are still tracked internally via GetMetrics().

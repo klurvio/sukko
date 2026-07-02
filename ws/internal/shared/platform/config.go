@@ -3,6 +3,7 @@ package platform
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -141,14 +142,14 @@ const (
 
 // MessageBackendBase holds the two fields shared between ws-server, push, and tester
 // that need message backend selection without the full Kafka SASL/TLS options.
-// Embedded by MessageBackendConfig and TesterConfig.
+// Embedded by MessageBackendConfig (which is in turn embedded by ServerConfig, push.Config, and TesterConfig).
 type MessageBackendBase struct {
 	MessageBackend string `env:"MESSAGE_BACKEND" envDefault:"direct"`        // Message ingestion backend: direct (no persistence, no Kafka dependency) or kafka (full Kafka/Redpanda integration with replay).
 	KafkaBrokers   string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"` // Comma-separated Kafka/Redpanda broker addresses for ws-server, push, and tester (provisioning uses PROVISIONING_KAFKA_BROKERS instead); required when MESSAGE_BACKEND=kafka.
 }
 
 // MessageBackendConfig holds message ingestion/persistence configuration.
-// Embedded by ServerConfig (ws-server) and future services that need message backend access.
+// Embedded by ServerConfig (ws-server), push.Config (push service), and TesterConfig (tester).
 //
 // Controls which message ingestion/persistence layer the service uses:
 //   - "direct": Messages flow directly to broadcast bus. No persistence, no replay.
@@ -205,6 +206,11 @@ func (c *MessageBackendConfig) Validate() error {
 			}
 			if c.KafkaSASLPassword == "" {
 				return errors.New("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
+			}
+		}
+		if c.KafkaTLSEnabled && c.KafkaTLSCAPath != "" {
+			if _, err := os.Stat(c.KafkaTLSCAPath); err != nil {
+				return fmt.Errorf("KAFKA_TLS_CA_PATH %q: %w", c.KafkaTLSCAPath, err)
 			}
 		}
 	}

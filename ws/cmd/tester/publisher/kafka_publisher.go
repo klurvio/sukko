@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 )
 
 // KafkaPublisher produces messages to Kafka/Redpanda topics using franz-go.
@@ -23,16 +25,19 @@ type KafkaPublisher struct {
 
 // NewKafkaPublisher connects to Kafka brokers and returns a publisher.
 // The resolver handles channel → topic name resolution.
-func NewKafkaPublisher(brokers string, resolver *TopicResolver) (*KafkaPublisher, error) {
+func NewKafkaPublisher(brokers string, resolver *TopicResolver, sasl *kafkashared.SASLConfig, tlsCfg *kafkashared.TLSConfig) (*KafkaPublisher, error) {
 	seeds := splitBrokers(brokers)
 	if len(seeds) == 0 {
 		return nil, errors.New("kafka publisher: no brokers provided")
 	}
 
-	client, err := kgo.NewClient(
-		kgo.SeedBrokers(seeds...),
-		kgo.ProducerBatchCompression(kgo.NoCompression()),
-	)
+	opts, err := kafkashared.BuildKgoOpts(seeds, sasl, tlsCfg)
+	if err != nil {
+		return nil, fmt.Errorf("kafka publisher: build opts: %w", err)
+	}
+	opts = append(opts, kgo.ProducerBatchCompression(kgo.NoCompression()))
+
+	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka publisher: create client: %w", err)
 	}

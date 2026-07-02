@@ -14,7 +14,9 @@ import (
 	"github.com/caarlos0/env/v11"
 	"github.com/klurvio/sukko/cmd/tester/api"
 	"github.com/klurvio/sukko/cmd/tester/runner"
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 const (
@@ -47,27 +49,7 @@ func run() error {
 		ServiceName: "sukko-tester",
 	})
 
-	r := runner.New(runner.Config{
-		GatewayURL:             cfg.GatewayURL,
-		ProvisioningURL:        cfg.ProvisioningURL,
-		MessageBackend:         cfg.MessageBackend,
-		KafkaBrokers:           cfg.KafkaBrokers,
-		JWTLifetime:            cfg.JWTLifetime,
-		JWTRefreshBefore:       cfg.JWTRefreshBefore,
-		KeyExpiry:              cfg.KeyExpiry,
-		SigningKeyFile:         cfg.SigningKeyFile,
-		AdminKeyFile:           cfg.AdminKeyFile,
-		AdminKeyID:             cfg.AdminKeyID,
-		AuthMode:               cfg.AuthMode,
-		APIKey:                 cfg.APIKey,
-		AuthMixRatio:           cfg.AuthMixRatio,
-		AuthUpgradeTimeout:     cfg.AuthUpgradeTimeout,
-		GatewayMetricsURL:      cfg.GatewayMetricsURL,
-		GatewayMetricsInterval: cfg.GatewayMetricsInterval,
-		WebhookBaseURL:         cfg.WebhookBaseURL,
-		WebhookDeliveryTimeout: cfg.WebhookDeliveryTimeout,
-		WebhookRetryTimeout:    cfg.WebhookRetryTimeout,
-	}, logger)
+	r := runner.New(buildRunnerConfig(cfg), logger)
 
 	handler := api.NewRouter(r, cfg.AuthToken, cfg.AdminKeyID, logger)
 
@@ -114,4 +96,51 @@ func run() error {
 	wg.Wait() // wait for HTTP server goroutine
 	logger.Info().Msg("shutdown complete")
 	return nil
+}
+
+func buildSecurityConfig(cfg platform.MessageBackendConfig) (*kafkashared.SASLConfig, *kafkashared.TLSConfig) {
+	var sasl *kafkashared.SASLConfig
+	if cfg.KafkaSASLEnabled {
+		sasl = &kafkashared.SASLConfig{
+			Mechanism: cfg.KafkaSASLMechanism,
+			Username:  cfg.KafkaSASLUsername,
+			Password:  cfg.KafkaSASLPassword,
+		}
+	}
+	var tlsCfg *kafkashared.TLSConfig
+	if cfg.KafkaTLSEnabled {
+		tlsCfg = &kafkashared.TLSConfig{
+			Enabled:            true,
+			InsecureSkipVerify: cfg.KafkaTLSInsecure,
+			CAPath:             cfg.KafkaTLSCAPath,
+		}
+	}
+	return sasl, tlsCfg
+}
+
+func buildRunnerConfig(cfg TesterConfig) runner.Config {
+	sasl, tls := buildSecurityConfig(cfg.MessageBackendConfig)
+	return runner.Config{
+		GatewayURL:             cfg.GatewayURL,
+		ProvisioningURL:        cfg.ProvisioningURL,
+		MessageBackend:         cfg.MessageBackend,
+		KafkaBrokers:           cfg.KafkaBrokers,
+		KafkaSASL:              sasl,
+		KafkaTLS:               tls,
+		JWTLifetime:            cfg.JWTLifetime,
+		JWTRefreshBefore:       cfg.JWTRefreshBefore,
+		KeyExpiry:              cfg.KeyExpiry,
+		SigningKeyFile:         cfg.SigningKeyFile,
+		AdminKeyFile:           cfg.AdminKeyFile,
+		AdminKeyID:             cfg.AdminKeyID,
+		AuthMode:               cfg.AuthMode,
+		APIKey:                 cfg.APIKey,
+		AuthMixRatio:           cfg.AuthMixRatio,
+		AuthUpgradeTimeout:     cfg.AuthUpgradeTimeout,
+		GatewayMetricsURL:      cfg.GatewayMetricsURL,
+		GatewayMetricsInterval: cfg.GatewayMetricsInterval,
+		WebhookBaseURL:         cfg.WebhookBaseURL,
+		WebhookDeliveryTimeout: cfg.WebhookDeliveryTimeout,
+		WebhookRetryTimeout:    cfg.WebhookRetryTimeout,
+	}
 }

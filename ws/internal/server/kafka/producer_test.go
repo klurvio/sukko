@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
+
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 )
 
 // =============================================================================
@@ -52,7 +54,7 @@ func TestNewProducer_InvalidSASLMechanism(t *testing.T) {
 		Brokers:        []string{"localhost:9092"},
 		TopicNamespace: "test",
 		Logger:         &logger,
-		SASL: &SASLConfig{
+		SASL: &kafkashared.SASLConfig{
 			Mechanism: "invalid-mechanism",
 			Username:  "user",
 			Password:  "pass",
@@ -350,83 +352,6 @@ func TestExtractTenant_InvalidFormats(t *testing.T) {
 }
 
 // =============================================================================
-// SASL Config Tests
-// =============================================================================
-
-func TestSASLConfig_Fields(t *testing.T) {
-	t.Parallel()
-	sasl := &SASLConfig{
-		Mechanism: "scram-sha-256",
-		Username:  "testuser",
-		Password:  "testpass",
-	}
-
-	if sasl.Mechanism != "scram-sha-256" {
-		t.Errorf("Mechanism = %q, want %q", sasl.Mechanism, "scram-sha-256")
-	}
-	if sasl.Username != "testuser" {
-		t.Errorf("Username = %q, want %q", sasl.Username, "testuser")
-	}
-	if sasl.Password != "testpass" {
-		t.Errorf("Password = %q, want %q", sasl.Password, "testpass")
-	}
-}
-
-func TestSASLConfig_SupportedMechanisms(t *testing.T) {
-	t.Parallel()
-	mechanisms := []string{"scram-sha-256", "scram-sha-512"}
-
-	for _, mech := range mechanisms {
-		t.Run(mech, func(t *testing.T) {
-			t.Parallel()
-			// Just verify these are valid string values
-			// Actual validation happens in NewProducer
-			if mech != "scram-sha-256" && mech != "scram-sha-512" {
-				t.Errorf("Unexpected mechanism: %q", mech)
-			}
-		})
-	}
-}
-
-// =============================================================================
-// TLS Config Tests
-// =============================================================================
-
-func TestTLSConfig_Fields(t *testing.T) {
-	t.Parallel()
-	tlsCfg := &TLSConfig{
-		Enabled:            true,
-		InsecureSkipVerify: false,
-		CAPath:             "/path/to/ca.crt",
-	}
-
-	if !tlsCfg.Enabled {
-		t.Error("Enabled should be true")
-	}
-	if tlsCfg.InsecureSkipVerify {
-		t.Error("InsecureSkipVerify should be false")
-	}
-	if tlsCfg.CAPath != "/path/to/ca.crt" {
-		t.Errorf("CAPath = %q, want %q", tlsCfg.CAPath, "/path/to/ca.crt")
-	}
-}
-
-func TestTLSConfig_InsecureMode(t *testing.T) {
-	t.Parallel()
-	tlsCfg := &TLSConfig{
-		Enabled:            true,
-		InsecureSkipVerify: true,
-		CAPath:             "", // No CA needed when skipping verification
-	}
-
-	if !tlsCfg.Enabled {
-		t.Error("Enabled should be true")
-	}
-	if !tlsCfg.InsecureSkipVerify {
-		t.Error("InsecureSkipVerify should be true")
-	}
-}
-
 // =============================================================================
 // Benchmark Tests
 // =============================================================================
