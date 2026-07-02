@@ -59,7 +59,36 @@ To verify your key file is the right format:
 wc -c ~/.sukko/admin.key   # should print exactly 64
 ```
 
-### 1.3 Required environment variables
+### 1.3 Connecting to a managed Kafka service (TLS + SASL)
+
+By default, the tester publishes via the gateway WebSocket (`MESSAGE_BACKEND=direct`). To publish directly to a managed Kafka or Redpanda cluster (e.g., Redpanda Cloud, Confluent Cloud, Aiven), set `MESSAGE_BACKEND=kafka` and configure the security env vars below.
+
+| Variable | Default | Description |
+|---|---|---|
+| `KAFKA_SASL_ENABLED` | `false` | Set to `true` to enable SASL authentication. Required for most managed services. |
+| `KAFKA_SASL_MECHANISM` | — | `scram-sha-256` or `scram-sha-512`. Required when `KAFKA_SASL_ENABLED=true`. |
+| `KAFKA_SASL_USERNAME` | — | SASL username. Required when `KAFKA_SASL_ENABLED=true`. |
+| `KAFKA_SASL_PASSWORD` | — | SASL password. Required when `KAFKA_SASL_ENABLED=true`. **Never logged or echoed by `/config`** (`redact:"true"`). |
+| `KAFKA_TLS_ENABLED` | `false` | Set to `true` to enable TLS encryption. Required for most managed services. |
+| `KAFKA_TLS_INSECURE` | `false` | Skip TLS certificate verification. For development only — never use in production. |
+| `KAFKA_TLS_CA_PATH` | — | Path to a CA certificate file (PEM) for verifying the broker's TLS certificate. Optional when the CA is already in the system trust store. |
+
+**Example — Redpanda Cloud with SCRAM-SHA-256:**
+```bash
+export MESSAGE_BACKEND=kafka
+export KAFKA_BROKERS=seed-abc123.cloud.redpanda.com:9092
+export KAFKA_SASL_ENABLED=true
+export KAFKA_SASL_MECHANISM=scram-sha-256
+export KAFKA_SASL_USERNAME=myuser
+export KAFKA_SASL_PASSWORD=mysecretpassword
+export KAFKA_TLS_ENABLED=true
+```
+
+**CA certificate path note:** When connecting to a cluster whose CA is not in the system trust store (e.g., a self-signed or private CA), set `KAFKA_TLS_CA_PATH` to the absolute path of the PEM file. If your cluster uses a public CA (Let's Encrypt, AWS ACM), leave `KAFKA_TLS_CA_PATH` unset and the system trust store is used automatically.
+
+See `ws/internal/shared/platform/config.go` (`MessageBackendConfig`) for the canonical field definitions.
+
+### 1.4 Required environment variables
 
 | Variable | Default | Required | Description |
 |---|---|---|---|

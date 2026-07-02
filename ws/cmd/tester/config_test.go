@@ -23,8 +23,10 @@ func TestTesterConfig_Validate(t *testing.T) {
 				LogFormat:   "json",
 				Environment: "test",
 			},
-			MessageBackendBase: platform.MessageBackendBase{
-				MessageBackend: "direct",
+			MessageBackendConfig: platform.MessageBackendConfig{
+				MessageBackendBase: platform.MessageBackendBase{
+					MessageBackend: "direct",
+				},
 			},
 			Port:                   8090,
 			GatewayURL:             "ws://localhost:3000",
@@ -74,12 +76,12 @@ func TestTesterConfig_Validate(t *testing.T) {
 		{
 			name:    "invalid message backend grpc",
 			modify:  func(c *TesterConfig) { c.MessageBackend = "grpc" },
-			wantErr: "MESSAGE_BACKEND must be 'direct' or 'kafka'",
+			wantErr: "MESSAGE_BACKEND",
 		},
 		{
 			name:    "nats backend rejected",
 			modify:  func(c *TesterConfig) { c.MessageBackend = "nats" },
-			wantErr: "MESSAGE_BACKEND must be 'direct' or 'kafka'",
+			wantErr: "MESSAGE_BACKEND",
 		},
 		{
 			name: "kafka without brokers",
@@ -87,7 +89,7 @@ func TestTesterConfig_Validate(t *testing.T) {
 				c.MessageBackend = "kafka"
 				c.KafkaBrokers = ""
 			},
-			wantErr: "KAFKA_BROKERS required when MESSAGE_BACKEND=kafka",
+			wantErr: "KAFKA_BROKERS",
 		},
 		{
 			name: "kafka with brokers",

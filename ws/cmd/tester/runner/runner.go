@@ -12,6 +12,7 @@ import (
 
 	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/rs/zerolog"
 )
@@ -146,6 +147,8 @@ type Config struct {
 	ProvisioningURL  string
 	MessageBackend   string
 	KafkaBrokers     string
+	KafkaSASL        *kafkashared.SASLConfig // nil = no SASL auth; carrier field for future Kafka publisher wiring
+	KafkaTLS         *kafkashared.TLSConfig  // nil = plaintext; carrier field for future Kafka publisher wiring
 	JWTLifetime      time.Duration
 	JWTRefreshBefore time.Duration
 	KeyExpiry        time.Duration

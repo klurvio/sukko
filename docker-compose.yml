@@ -216,6 +216,8 @@ services:
     depends_on:
       provisioning:
         condition: service_healthy
+      valkey:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8083/health"]
       interval: 5s
@@ -366,6 +368,14 @@ configs:
         - job_name: provisioning
           static_configs:
             - targets: ['provisioning:8080']
+          metrics_path: /metrics
+        # webhook-worker is profile "pro"; prometheus is profile "observability" — no shared
+        # profile. When running --profile observability without --profile pro, this target
+        # appears DOWN in the Prometheus UI. The ServiceDown alert excludes webhook-worker
+        # (it filters on job=~"ws-server|ws-gateway|provisioning"), so no false alert fires.
+        - job_name: webhook-worker
+          static_configs:
+            - targets: ['webhook-worker:8083']
           metrics_path: /metrics
         - job_name: prometheus
           static_configs:

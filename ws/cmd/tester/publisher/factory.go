@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
@@ -20,6 +21,8 @@ type Config struct {
 	Namespace    string        // Kafka topic namespace (from ENVIRONMENT)
 	TenantID     string        // tenant ID for topic resolution
 	RoutingRules []RoutingRule // for Kafka topic resolution
+	SASL         *kafkashared.SASLConfig
+	TLS          *kafkashared.TLSConfig
 }
 
 // NewPublisher creates a Publisher based on the configured mode.
@@ -32,7 +35,7 @@ func NewPublisher(ctx context.Context, cfg Config) (Publisher, error) {
 			return nil, errors.New("kafka publisher: KAFKA_BROKERS / message_backend_urls required")
 		}
 		resolver := NewTopicResolver(cfg.Namespace, cfg.TenantID, cfg.RoutingRules)
-		return NewKafkaPublisher(cfg.BackendURLs, resolver)
+		return NewKafkaPublisher(cfg.BackendURLs, resolver, cfg.SASL, cfg.TLS)
 	default:
 		return nil, fmt.Errorf("unsupported publisher mode %q: %w", cfg.Mode, ErrUnsupportedPublisherMode)
 	}

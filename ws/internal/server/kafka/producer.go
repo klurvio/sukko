@@ -4,8 +4,6 @@ package kafka
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
@@ -19,9 +17,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/sony/gobreaker/v2"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/sasl/scram"
 
-	kafkautil "github.com/klurvio/sukko/internal/shared/kafka"
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/protocol"
 	"github.com/klurvio/sukko/internal/shared/provapi"
@@ -59,8 +56,8 @@ type ProducerConfig struct {
 	Logger         *zerolog.Logger // Structured logger (optional)
 
 	// Security configuration for managed Kafka/Redpanda services
-	SASL *SASLConfig // SASL authentication (nil = no auth, for local dev)
-	TLS  *TLSConfig  // TLS encryption (nil = no TLS, for local dev)
+	SASL *kafkashared.SASLConfig // SASL authentication (nil = no auth, for local dev)
+	TLS  *kafkashared.TLSConfig  // TLS encryption (nil = no TLS, for local dev)
 
 	// Routing — resolves channel → topic(s) using per-tenant routing rules.
 	// When nil the producer falls back to community mode (last channel segment).
@@ -142,15 +139,21 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	cbMaxFailures := cfg.CircuitBreakerMaxFailures
 	cbHalfOpenReqs := cfg.CircuitBreakerHalfOpenReqs
 
-	// Build client options
-	opts := []kgo.Opt{
-		kgo.SeedBrokers(cfg.Brokers...),
+	// Build base client options (SeedBrokers, SASL, TLS)
+	opts, err := kafkashared.BuildKgoOpts(cfg.Brokers, cfg.SASL, cfg.TLS)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to build kafka options: %w", err)
+	}
+
+	// Producer-specific options
+	opts = append(opts,
 		kgo.ClientID(clientID),
 		kgo.RetryBackoffFn(func(attempt int) time.Duration {
 			// Exponential backoff: 100ms, 200ms, 400ms, 800ms, ...
 			return time.Duration(100*(1<<attempt)) * time.Millisecond
 		}),
-	}
+	)
 
 	// Producer tuning (apply only if non-zero; omitting uses franz-go defaults)
 	if batchMaxBytes > 0 {
@@ -161,67 +164,6 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	}
 	if recordRetries > 0 {
 		opts = append(opts, kgo.RecordRetries(recordRetries))
-	}
-
-	// Add SASL authentication if configured
-	if cfg.SASL != nil {
-		mechanism := scram.Auth{
-			User: cfg.SASL.Username,
-			Pass: cfg.SASL.Password,
-		}
-
-		switch cfg.SASL.Mechanism {
-		case "scram-sha-256":
-			opts = append(opts, kgo.SASL(mechanism.AsSha256Mechanism()))
-			if cfg.Logger != nil {
-				cfg.Logger.Info().
-					Str("mechanism", "SCRAM-SHA-256").
-					Str("username", cfg.SASL.Username).
-					Msg("Kafka producer SASL authentication enabled")
-			}
-		case "scram-sha-512":
-			opts = append(opts, kgo.SASL(mechanism.AsSha512Mechanism()))
-			if cfg.Logger != nil {
-				cfg.Logger.Info().
-					Str("mechanism", "SCRAM-SHA-512").
-					Str("username", cfg.SASL.Username).
-					Msg("Kafka producer SASL authentication enabled")
-			}
-		default:
-			cancel()
-			return nil, fmt.Errorf("unsupported SASL mechanism: %s (use scram-sha-256 or scram-sha-512)", cfg.SASL.Mechanism)
-		}
-	}
-
-	// Add TLS encryption if configured
-	if cfg.TLS != nil && cfg.TLS.Enabled {
-		tlsCfg := &tls.Config{
-			InsecureSkipVerify: cfg.TLS.InsecureSkipVerify, //nolint:gosec // Controlled by configuration for dev/testing environments
-			MinVersion:         tls.VersionTLS12,
-		}
-
-		// Load CA certificate if provided
-		if cfg.TLS.CAPath != "" {
-			caCert, err := os.ReadFile(cfg.TLS.CAPath)
-			if err != nil {
-				cancel()
-				return nil, fmt.Errorf("failed to read CA certificate from %s: %w", cfg.TLS.CAPath, err)
-			}
-			caCertPool := x509.NewCertPool()
-			if !caCertPool.AppendCertsFromPEM(caCert) {
-				cancel()
-				return nil, fmt.Errorf("failed to parse CA certificate from %s", cfg.TLS.CAPath)
-			}
-			tlsCfg.RootCAs = caCertPool
-		}
-
-		opts = append(opts, kgo.DialTLSConfig(tlsCfg))
-		if cfg.Logger != nil {
-			cfg.Logger.Info().
-				Bool("insecure_skip_verify", cfg.TLS.InsecureSkipVerify).
-				Str("ca_path", cfg.TLS.CAPath).
-				Msg("Kafka producer TLS encryption enabled")
-		}
 	}
 
 	// Create franz-go client
@@ -333,7 +275,7 @@ func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string
 
 	if dlqReason != "" {
 		// No matching rule — route to dead-letter topic.
-		dlqTopic := kafkautil.BuildTopicName(p.topicNamespace, tenant, routing.DeadLetterTopicSuffix)
+		dlqTopic := kafkashared.BuildTopicName(p.topicNamespace, tenant, routing.DeadLetterTopicSuffix)
 		dlqRec := *baseRecord // struct copy — independent from baseRecord
 		dlqRec.Topic = dlqTopic
 		dlqRec.Headers = append(slices.Clone(baseRecord.Headers), kgo.RecordHeader{Key: HeaderReason, Value: []byte(dlqReason)})
@@ -414,7 +356,7 @@ func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string
 	}
 
 	if len(failed) > 0 {
-		dlqTopic := kafkautil.BuildTopicName(p.topicNamespace, tenant, routing.DeadLetterTopicSuffix)
+		dlqTopic := kafkashared.BuildTopicName(p.topicNamespace, tenant, routing.DeadLetterTopicSuffix)
 		dlqRec := &kgo.Record{
 			Topic: dlqTopic,
 			Key:   baseRecord.Key,
@@ -455,7 +397,7 @@ func (p *Producer) resolveTargets(channel, tenant string) (topics []string, dlqR
 				}
 				fullTopics := make([]string, len(rule.Topics))
 				for i, suffix := range rule.Topics {
-					fullTopics[i] = kafkautil.BuildTopicName(p.topicNamespace, tenant, suffix)
+					fullTopics[i] = kafkashared.BuildTopicName(p.topicNamespace, tenant, suffix)
 				}
 				return fullTopics, ""
 			}
@@ -466,7 +408,7 @@ func (p *Producer) resolveTargets(channel, tenant string) (topics []string, dlqR
 
 	// Community fallback: derive topic from last channel segment.
 	suffix := channel[strings.LastIndex(channel, ".")+1:]
-	return []string{kafkautil.BuildTopicName(p.topicNamespace, tenant, suffix)}, ""
+	return []string{kafkashared.BuildTopicName(p.topicNamespace, tenant, suffix)}, ""
 }
 
 // extractTenant returns the tenant ID from an internal channel (first segment).

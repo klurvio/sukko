@@ -5,12 +5,9 @@ package kafkabackend
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"math"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,7 +17,6 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/sasl/scram"
 
 	"github.com/klurvio/sukko/internal/server/backend"
 	"github.com/klurvio/sukko/internal/server/broadcast"
@@ -28,7 +24,7 @@ import (
 	"github.com/klurvio/sukko/internal/server/limits"
 	"github.com/klurvio/sukko/internal/server/metrics"
 	"github.com/klurvio/sukko/internal/server/orchestration"
-	kafkautil "github.com/klurvio/sukko/internal/shared/kafka"
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 )
@@ -152,15 +148,15 @@ func New(cfg Config) (*KafkaBackend, error) {
 	logger := cfg.Logger.With().Str("component", "kafka-backend").Logger()
 
 	// Resolve topic namespace
-	topicNamespace := kafkautil.ResolveNamespace("", cfg.Environment)
+	topicNamespace := kafkashared.ResolveNamespace("", cfg.Environment)
 	if cfg.Namespace != "" {
-		topicNamespace = kafkautil.ResolveNamespace(cfg.Namespace, cfg.Environment)
+		topicNamespace = kafkashared.ResolveNamespace(cfg.Namespace, cfg.Environment)
 	}
 
 	// Build SASL config if enabled
-	var saslConfig *kafka.SASLConfig
+	var saslConfig *kafkashared.SASLConfig
 	if cfg.SASLEnabled {
-		saslConfig = &kafka.SASLConfig{
+		saslConfig = &kafkashared.SASLConfig{
 			Mechanism: cfg.SASLMechanism,
 			Username:  cfg.SASLUsername,
 			Password:  cfg.SASLPassword,
@@ -168,9 +164,9 @@ func New(cfg Config) (*KafkaBackend, error) {
 	}
 
 	// Build TLS config if enabled
-	var tlsConfig *kafka.TLSConfig
+	var tlsConfig *kafkashared.TLSConfig
 	if cfg.TLSEnabled {
-		tlsConfig = &kafka.TLSConfig{
+		tlsConfig = &kafkashared.TLSConfig{
 			Enabled:            true,
 			InsecureSkipVerify: cfg.TLSInsecure,
 			CAPath:             cfg.TLSCAPath,
@@ -189,7 +185,7 @@ func New(cfg Config) (*KafkaBackend, error) {
 	}
 
 	// Create Kafka admin client for on-demand topic creation (uses same brokers/auth)
-	adminKgoOpts, err := buildKgoOpts(cfg.Brokers, saslConfig, tlsConfig)
+	adminKgoOpts, err := kafkashared.BuildKgoOpts(cfg.Brokers, saslConfig, tlsConfig)
 	if err != nil {
 		return nil, fmt.Errorf("kafka backend: build admin options: %w", err)
 	}
@@ -522,51 +518,6 @@ func SplitBrokers(brokers string) []string {
 		}
 	}
 	return result
-}
-
-// buildKgoOpts builds common kgo client options for brokers, SASL, and TLS.
-func buildKgoOpts(brokers []string, sasl *kafka.SASLConfig, tlsCfg *kafka.TLSConfig) ([]kgo.Opt, error) {
-	opts := []kgo.Opt{
-		kgo.SeedBrokers(brokers...),
-	}
-
-	// Add SASL authentication if configured
-	if sasl != nil {
-		mechanism := scram.Auth{
-			User: sasl.Username,
-			Pass: sasl.Password,
-		}
-		switch sasl.Mechanism {
-		case "scram-sha-256":
-			opts = append(opts, kgo.SASL(mechanism.AsSha256Mechanism()))
-		case "scram-sha-512":
-			opts = append(opts, kgo.SASL(mechanism.AsSha512Mechanism()))
-		default:
-			return nil, fmt.Errorf("unsupported SASL mechanism: %s (use scram-sha-256 or scram-sha-512)", sasl.Mechanism)
-		}
-	}
-
-	// Add TLS encryption if configured
-	if tlsCfg != nil && tlsCfg.Enabled {
-		tc := &tls.Config{
-			InsecureSkipVerify: tlsCfg.InsecureSkipVerify, //nolint:gosec // Controlled by configuration for dev/testing environments
-			MinVersion:         tls.VersionTLS12,
-		}
-		if tlsCfg.CAPath != "" {
-			caCert, err := os.ReadFile(tlsCfg.CAPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read CA certificate from %s: %w", tlsCfg.CAPath, err)
-			}
-			caCertPool := x509.NewCertPool()
-			if !caCertPool.AppendCertsFromPEM(caCert) {
-				return nil, fmt.Errorf("failed to parse CA certificate from %s", tlsCfg.CAPath)
-			}
-			tc.RootCAs = caCertPool
-		}
-		opts = append(opts, kgo.DialTLSConfig(tc))
-	}
-
-	return opts, nil
 }
 
 // ChannelTopic returns the Kafka topic for the given channel by delegating to the consumer pool.

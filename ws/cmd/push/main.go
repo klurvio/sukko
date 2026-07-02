@@ -29,7 +29,7 @@ import (
 	"github.com/klurvio/sukko/internal/push/worker"
 	"github.com/klurvio/sukko/internal/shared/analytics"
 	"github.com/klurvio/sukko/internal/shared/httputil"
-	"github.com/klurvio/sukko/internal/shared/kafka"
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/platform"
@@ -115,7 +115,7 @@ func main() {
 	subRepo := repository.NewSubscriptionRepository(pool)
 
 	// Resolve topic namespace for Kafka
-	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
+	topicNamespace := kafkashared.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
 	structuredLogger.Info().Str("namespace", topicNamespace).Str("environment", cfg.Environment).Msg("Topic namespace resolved")
 
 	// Create ConfigClient — connects to provisioning gRPC for WatchPushConfig + WatchTopics
@@ -178,18 +178,18 @@ func main() {
 	}
 
 	// Build consumer pool config from message backend settings
-	var consumerSASL *consumer.SASLConfig
+	var consumerSASL *kafkashared.SASLConfig
 	if cfg.KafkaSASLEnabled {
-		consumerSASL = &consumer.SASLConfig{
+		consumerSASL = &kafkashared.SASLConfig{
 			Mechanism: cfg.KafkaSASLMechanism,
 			Username:  cfg.KafkaSASLUsername,
 			Password:  cfg.KafkaSASLPassword,
 		}
 	}
 
-	var consumerTLS *consumer.TLSConfig
+	var consumerTLS *kafkashared.TLSConfig
 	if cfg.KafkaTLSEnabled {
-		consumerTLS = &consumer.TLSConfig{
+		consumerTLS = &kafkashared.TLSConfig{
 			Enabled:            true,
 			InsecureSkipVerify: cfg.KafkaTLSInsecure,
 			CAPath:             cfg.KafkaTLSCAPath,

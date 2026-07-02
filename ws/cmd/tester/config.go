@@ -20,7 +20,7 @@ const (
 // TesterConfig holds configuration for the sukko-tester service.
 type TesterConfig struct {
 	platform.BaseConfig
-	platform.MessageBackendBase
+	platform.MessageBackendConfig
 	Port            int    `env:"TESTER_PORT" envDefault:"8090"`                       // HTTP port the tester service listens on for test run management and SSE metric streaming.
 	AuthToken       string `env:"TESTER_AUTH_TOKEN"`                                   // Bearer token required for all tester management API endpoints. Must be set explicitly — the tester rejects requests when unset.
 	GatewayURL      string `env:"GATEWAY_URL" envDefault:"ws://localhost:3000"`        // WebSocket URL of the gateway that test connections will target.
@@ -70,6 +70,9 @@ func (c *TesterConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return fmt.Errorf("base config: %w", err)
 	}
+	if err := c.MessageBackendConfig.Validate(); err != nil {
+		return err //nolint:wrapcheck // pass-through: MessageBackendConfig.Validate() returns env-var-named errors with full context; wrapping adds depth without callsite value (spec R-006)
+	}
 	if c.Port < 1 || c.Port > 65535 {
 		return fmt.Errorf("TESTER_PORT must be between 1 and 65535, got %d", c.Port)
 	}
@@ -78,15 +81,6 @@ func (c *TesterConfig) Validate() error {
 	}
 	if c.ProvisioningURL == "" {
 		return errors.New("PROVISIONING_URL is required")
-	}
-	switch c.MessageBackend {
-	case platform.MessageBackendDirect, platform.MessageBackendKafka:
-		// valid
-	default:
-		return fmt.Errorf("MESSAGE_BACKEND must be '%s' or '%s', got %q", platform.MessageBackendDirect, platform.MessageBackendKafka, c.MessageBackend)
-	}
-	if c.MessageBackend == platform.MessageBackendKafka && c.KafkaBrokers == "" {
-		return errors.New("KAFKA_BROKERS required when MESSAGE_BACKEND=kafka")
 	}
 	if c.AdminKeyFile != "" {
 		if _, err := testerauth.LoadEd25519PrivateKey(c.AdminKeyFile); err != nil {
