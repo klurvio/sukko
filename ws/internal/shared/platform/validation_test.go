@@ -75,7 +75,7 @@ func TestValidLogFormats_InvalidFormats(t *testing.T) {
 
 func TestValidKafkaSASLMechanisms_Contents(t *testing.T) {
 	t.Parallel()
-	expectedMechanisms := []string{"scram-sha-256", "scram-sha-512"}
+	expectedMechanisms := []string{"plain", "scram-sha-256", "scram-sha-512"}
 
 	for _, mechanism := range expectedMechanisms {
 		if !validKafkaSASLMechanisms[mechanism] {
@@ -91,7 +91,7 @@ func TestValidKafkaSASLMechanisms_Contents(t *testing.T) {
 
 func TestValidKafkaSASLMechanisms_InvalidMechanisms(t *testing.T) {
 	t.Parallel()
-	invalidMechanisms := []string{"SCRAM-SHA-256", "SCRAM-SHA-512", "plain", "PLAIN", "oauthbearer", ""}
+	invalidMechanisms := []string{"SCRAM-SHA-256", "SCRAM-SHA-512", "PLAIN", "oauthbearer", ""}
 
 	for _, mechanism := range invalidMechanisms {
 		if validKafkaSASLMechanisms[mechanism] {
@@ -217,7 +217,7 @@ func TestValidateLogFormat_ErrorMessage(t *testing.T) {
 
 func TestValidateKafkaSASLMechanism_ValidMechanisms(t *testing.T) {
 	t.Parallel()
-	validMechanisms := []string{"scram-sha-256", "scram-sha-512"}
+	validMechanisms := []string{"plain", "scram-sha-256", "scram-sha-512"}
 
 	for _, mechanism := range validMechanisms {
 		t.Run(mechanism, func(t *testing.T) {
@@ -232,7 +232,7 @@ func TestValidateKafkaSASLMechanism_ValidMechanisms(t *testing.T) {
 
 func TestValidateKafkaSASLMechanism_InvalidMechanisms(t *testing.T) {
 	t.Parallel()
-	invalidMechanisms := []string{"SCRAM-SHA-256", "plain", "PLAIN", "oauthbearer", "", "scram-sha-384"}
+	invalidMechanisms := []string{"SCRAM-SHA-256", "PLAIN", "oauthbearer", "", "scram-sha-384"}
 
 	for _, mechanism := range invalidMechanisms {
 		t.Run(mechanism, func(t *testing.T) {
@@ -247,7 +247,7 @@ func TestValidateKafkaSASLMechanism_InvalidMechanisms(t *testing.T) {
 
 func TestValidateKafkaSASLMechanism_ErrorMessage(t *testing.T) {
 	t.Parallel()
-	err := validateKafkaSASLMechanism("plain")
+	err := validateKafkaSASLMechanism("oauthbearer")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
@@ -257,7 +257,7 @@ func TestValidateKafkaSASLMechanism_ErrorMessage(t *testing.T) {
 	if !strings.Contains(errMsg, "KAFKA_SASL_MECHANISM") {
 		t.Errorf("Error message should contain 'KAFKA_SASL_MECHANISM', got: %s", errMsg)
 	}
-	if !strings.Contains(errMsg, "plain") {
+	if !strings.Contains(errMsg, "oauthbearer") {
 		t.Errorf("Error message should contain the invalid value, got: %s", errMsg)
 	}
 	if !strings.Contains(errMsg, "scram-sha-256") {

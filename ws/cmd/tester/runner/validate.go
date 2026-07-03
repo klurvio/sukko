@@ -65,6 +65,8 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 		checks, err = validateUpgrade(ctx, run, logger)
 	case SuiteWebhooks:
 		checks, err = validateWebhooks(ctx, run, logger, fetchCurrentEdition)
+	case SuiteKafkaIngest:
+		checks, err = validateKafkaIngest(ctx, run, logger)
 	default:
 		checks = []metrics.CheckResult{{
 			Name:   "unknown suite",

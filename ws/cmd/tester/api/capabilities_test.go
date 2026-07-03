@@ -5,11 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
-	"strings"
 	"testing"
 )
 
-func TestGetCapabilities_NATSAbsent(t *testing.T) {
+// TestGetCapabilities_KafkaIngest verifies the capabilities surface after the
+// message_backend selector was replaced by the dedicated kafka-ingest suite:
+// the suite is advertised, the per-run broker override is exposed as kafka_brokers,
+// and the retired message_backend_urls field is gone.
+func TestGetCapabilities_KafkaIngest(t *testing.T) {
 	t.Parallel()
 
 	handler, _ := newTestRouter()
@@ -26,35 +29,26 @@ func TestGetCapabilities_NATSAbsent(t *testing.T) {
 		t.Fatalf("decode failed: %v", err)
 	}
 
-	// (a) Backends must not contain "nats"
-	for _, b := range caps.Backends {
-		if strings.EqualFold(b, "nats") {
-			t.Errorf("Backends contains %q — NATS must not be listed as a valid backend", b)
-		}
+	// (a) kafka-ingest suite is advertised.
+	hasSuite := slices.ContainsFunc(caps.Suites, func(s SuiteInfo) bool { return s.Name == "kafka-ingest" })
+	if !hasSuite {
+		t.Error("Suites missing \"kafka-ingest\"")
 	}
 
-	// (b) Backends must contain "direct" and "kafka"
-	has := func(s string) bool {
-		return slices.Contains(caps.Backends, s)
-	}
-	if !has("direct") {
-		t.Error("Backends missing \"direct\"")
-	}
-	if !has("kafka") {
-		t.Error("Backends missing \"kafka\"")
-	}
-
-	// (c) message_backend_urls Description must not contain "NATS" (case-insensitive)
+	// (b) Context fields: kafka_brokers present, message_backend_urls gone.
+	var hasKafkaBrokers, hasOldField bool
 	for _, f := range caps.ContextFields {
-		if f.Name == "message_backend_urls" {
-			if strings.Contains(strings.ToUpper(f.Description), "NATS") {
-				t.Errorf("message_backend_urls Description %q contains NATS reference", f.Description)
-			}
+		switch f.Name {
+		case "kafka_brokers":
+			hasKafkaBrokers = true
+		case "message_backend_urls":
+			hasOldField = true
 		}
 	}
-
-	// (d) Backends must be exactly ["direct", "kafka"] — no other backends
-	if len(caps.Backends) != 2 {
-		t.Errorf("Backends = %v, want exactly [\"direct\", \"kafka\"] (len=%d)", caps.Backends, len(caps.Backends))
+	if !hasKafkaBrokers {
+		t.Error("ContextFields missing \"kafka_brokers\"")
+	}
+	if hasOldField {
+		t.Error("ContextFields still contains retired \"message_backend_urls\"")
 	}
 }

@@ -27,4 +27,5 @@ var SuiteRegistry = map[string]SuiteInfo{
 	"upgrade":          {Name: "upgrade", Description: "validates the auth upgrade flow — connect with API key, upgrade to JWT via auth message, access private channels"},
 	SuiteRevocation:    {Name: SuiteRevocation, Description: "Token revocation load testing — stress (mass force-disconnect at 1,000 connections) and soak (repeated revoke/reconnect over hours, memory/goroutine drift monitoring). Requires Pro+ edition."},
 	SuiteWebhooks:      {Name: SuiteWebhooks, Description: "Webhook delivery validation — happy-path single delivery, retry-on-failure recovery, and degraded-state transition after max retries exhausted. Requires Pro+ edition and TESTER_WEBHOOK_BASE_URL."},
+	SuiteKafkaIngest:   {Name: SuiteKafkaIngest, Description: "Direct-to-Kafka ingestion verification — publishes straight to the message backend (SASL/TLS) and confirms a gateway-subscribed client receives it. Requires the target server to run MESSAGE_BACKEND=kafka; skips when KAFKA_BROKERS is unset."},
 }

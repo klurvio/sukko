@@ -98,7 +98,7 @@ func run() error {
 	return nil
 }
 
-func buildSecurityConfig(cfg platform.MessageBackendConfig) (*kafkashared.SASLConfig, *kafkashared.TLSConfig) {
+func buildSecurityConfig(cfg platform.KafkaConnectionConfig) (*kafkashared.SASLConfig, *kafkashared.TLSConfig) {
 	var sasl *kafkashared.SASLConfig
 	if cfg.KafkaSASLEnabled {
 		sasl = &kafkashared.SASLConfig{
@@ -119,28 +119,29 @@ func buildSecurityConfig(cfg platform.MessageBackendConfig) (*kafkashared.SASLCo
 }
 
 func buildRunnerConfig(cfg TesterConfig) runner.Config {
-	sasl, tls := buildSecurityConfig(cfg.MessageBackendConfig)
+	sasl, tls := buildSecurityConfig(cfg.KafkaConnectionConfig)
 	return runner.Config{
-		GatewayURL:             cfg.GatewayURL,
-		ProvisioningURL:        cfg.ProvisioningURL,
-		MessageBackend:         cfg.MessageBackend,
-		KafkaBrokers:           cfg.KafkaBrokers,
-		KafkaSASL:              sasl,
-		KafkaTLS:               tls,
-		JWTLifetime:            cfg.JWTLifetime,
-		JWTRefreshBefore:       cfg.JWTRefreshBefore,
-		KeyExpiry:              cfg.KeyExpiry,
-		SigningKeyFile:         cfg.SigningKeyFile,
-		AdminKeyFile:           cfg.AdminKeyFile,
-		AdminKeyID:             cfg.AdminKeyID,
-		AuthMode:               cfg.AuthMode,
-		APIKey:                 cfg.APIKey,
-		AuthMixRatio:           cfg.AuthMixRatio,
-		AuthUpgradeTimeout:     cfg.AuthUpgradeTimeout,
-		GatewayMetricsURL:      cfg.GatewayMetricsURL,
-		GatewayMetricsInterval: cfg.GatewayMetricsInterval,
-		WebhookBaseURL:         cfg.WebhookBaseURL,
-		WebhookDeliveryTimeout: cfg.WebhookDeliveryTimeout,
-		WebhookRetryTimeout:    cfg.WebhookRetryTimeout,
+		GatewayURL:                  cfg.GatewayURL,
+		ProvisioningURL:             cfg.ProvisioningURL,
+		Environment:                 cfg.Environment,
+		KafkaTopicNamespaceOverride: cfg.KafkaTopicNamespaceOverride,
+		KafkaBrokers:                cfg.KafkaBrokers,
+		KafkaSASL:                   sasl,
+		KafkaTLS:                    tls,
+		JWTLifetime:                 cfg.JWTLifetime,
+		JWTRefreshBefore:            cfg.JWTRefreshBefore,
+		KeyExpiry:                   cfg.KeyExpiry,
+		SigningKeyFile:              cfg.SigningKeyFile,
+		AdminKeyFile:                cfg.AdminKeyFile,
+		AdminKeyID:                  cfg.AdminKeyID,
+		AuthMode:                    cfg.AuthMode,
+		APIKey:                      cfg.APIKey,
+		AuthMixRatio:                cfg.AuthMixRatio,
+		AuthUpgradeTimeout:          cfg.AuthUpgradeTimeout,
+		GatewayMetricsURL:           cfg.GatewayMetricsURL,
+		GatewayMetricsInterval:      cfg.GatewayMetricsInterval,
+		WebhookBaseURL:              cfg.WebhookBaseURL,
+		WebhookDeliveryTimeout:      cfg.WebhookDeliveryTimeout,
+		WebhookRetryTimeout:         cfg.WebhookRetryTimeout,
 	}
 }

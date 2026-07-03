@@ -43,6 +43,7 @@ var validLogFormats = map[logging.LogFormat]bool{
 }
 
 var validKafkaSASLMechanisms = map[string]bool{
+	kafkashared.MechanismPLAIN:       true,
 	kafkashared.MechanismSCRAMSHA256: true,
 	kafkashared.MechanismSCRAMSHA512: true,
 }
@@ -66,7 +67,7 @@ func validateLogFormat(format string) error {
 // validateKafkaSASLMechanism checks if the SASL mechanism is valid.
 func validateKafkaSASLMechanism(mechanism string) error {
 	if !validKafkaSASLMechanisms[mechanism] {
-		return fmt.Errorf("KAFKA_SASL_MECHANISM must be %q or %q, got: %s", kafkashared.MechanismSCRAMSHA256, kafkashared.MechanismSCRAMSHA512, mechanism)
+		return fmt.Errorf("KAFKA_SASL_MECHANISM must be %q, %q, or %q, got: %s", kafkashared.MechanismPLAIN, kafkashared.MechanismSCRAMSHA256, kafkashared.MechanismSCRAMSHA512, mechanism)
 	}
 	return nil
 }

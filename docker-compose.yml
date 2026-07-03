@@ -175,6 +175,10 @@ services:
       GATEWAY_URL: "ws://ws-gateway:3000"
       PROVISIONING_URL: "http://provisioning:8080"
       TESTER_AUTH_TOKEN: "sukko-dev-token"
+      # Kafka brokers for the kafka-ingest suite's direct-to-Kafka publisher.
+      # Points at the redpanda service (--profile kafka). Empty ⇒ kafka-ingest skips;
+      # set here so the suite can run when the kafka profile is active.
+      KAFKA_BROKERS: "redpanda:9092"
       # Webhook delivery base URL — the address webhook-worker uses to POST deliveries back
       # to this tester pod. Only relevant when running with --profile pro (webhook-worker).
       TESTER_WEBHOOK_BASE_URL: "http://sukko-tester:8090"

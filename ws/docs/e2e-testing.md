@@ -59,23 +59,42 @@ To verify your key file is the right format:
 wc -c ~/.sukko/admin.key   # should print exactly 64
 ```
 
-### 1.3 Connecting to a managed Kafka service (TLS + SASL)
+### 1.3 Testing the Kafka ingestion pipeline
 
-By default, the tester publishes via the gateway WebSocket (`MESSAGE_BACKEND=direct`). To publish directly to a managed Kafka or Redpanda cluster (e.g., Redpanda Cloud, Confluent Cloud, Aiven), set `MESSAGE_BACKEND=kafka` and configure the security env vars below.
+There are two distinct ways the pipeline gets exercised — pick by what you want to test.
+
+**Default: through the gateway.** Every standard suite publishes through the gateway (WebSocket or REST). When the **server under test** runs `MESSAGE_BACKEND=kafka`, an inbound client publish is produced to Kafka by ws-server's own producer, consumed back, and broadcast — so the full Kafka round-trip is already exercised end-to-end. **You do not configure the tester for Kafka to test this** — point the *server* at your managed Kafka (`MESSAGE_BACKEND=kafka` + the `KAFKA_SASL_*`/`KAFKA_TLS_*` vars on ws-server) and run any delivery suite (e.g. `pubsub`, `smoke`).
+
+**The `kafka-ingest` suite: publish straight to Kafka.** To verify the ingestion half in isolation — a record that lands in Kafka *without* originating from a WebSocket client (the real "upstream producer" shape) — run the `kafka-ingest` suite. It publishes directly to the broker (bypassing the gateway and ws-server's producer) and confirms a gateway-subscribed client receives it. This is the only mode that requires **tester-side** Kafka credentials:
 
 | Variable | Default | Description |
 |---|---|---|
+| `KAFKA_BROKERS` | — (none) | Comma-separated broker addresses. **Empty ⇒ the `kafka-ingest` suite skips** (not a failure). |
 | `KAFKA_SASL_ENABLED` | `false` | Set to `true` to enable SASL authentication. Required for most managed services. |
-| `KAFKA_SASL_MECHANISM` | — | `scram-sha-256` or `scram-sha-512`. Required when `KAFKA_SASL_ENABLED=true`. |
-| `KAFKA_SASL_USERNAME` | — | SASL username. Required when `KAFKA_SASL_ENABLED=true`. |
-| `KAFKA_SASL_PASSWORD` | — | SASL password. Required when `KAFKA_SASL_ENABLED=true`. **Never logged or echoed by `/config`** (`redact:"true"`). |
+| `KAFKA_SASL_MECHANISM` | — | `plain` (Confluent Cloud), `scram-sha-256` (Redpanda Cloud, Aiven), or `scram-sha-512` (AWS MSK). Required when `KAFKA_SASL_ENABLED=true`. |
+| `KAFKA_SASL_USERNAME` | — | SASL username (or API key). Required when `KAFKA_SASL_ENABLED=true`. |
+| `KAFKA_SASL_PASSWORD` | — | SASL password (or API secret). Required when `KAFKA_SASL_ENABLED=true`. **Never logged or echoed by `/config`** (`redact:"true"`). |
 | `KAFKA_TLS_ENABLED` | `false` | Set to `true` to enable TLS encryption. Required for most managed services. |
 | `KAFKA_TLS_INSECURE` | `false` | Skip TLS certificate verification. For development only — never use in production. |
 | `KAFKA_TLS_CA_PATH` | — | Path to a CA certificate file (PEM) for verifying the broker's TLS certificate. Optional when the CA is already in the system trust store. |
 
+**Preconditions for `kafka-ingest`:**
+- The **server under test MUST run `MESSAGE_BACKEND=kafka`** — otherwise records dropped into Kafka are never consumed and the suite times out (the failure message includes this hint).
+- The tester and the server **MUST resolve to the same Kafka topic namespace** — set the same `ENVIRONMENT` (and, if used, the same `KAFKA_TOPIC_NAMESPACE_OVERRIDE`) on both. A mismatch means the tester publishes to a topic the server never consumes.
+
+**Example — Confluent Cloud with SASL/PLAIN:**
+```bash
+export KAFKA_BROKERS=pkc-abc12.us-east-1.aws.confluent.cloud:9092
+export KAFKA_SASL_ENABLED=true
+export KAFKA_SASL_MECHANISM=plain
+export KAFKA_SASL_USERNAME=<API_KEY>
+export KAFKA_SASL_PASSWORD=<API_SECRET>
+export KAFKA_TLS_ENABLED=true
+# then run the suite:  sukko test run --suite kafka-ingest   (or POST /api/v1/tests {"type":"validate","suite":"kafka-ingest"})
+```
+
 **Example — Redpanda Cloud with SCRAM-SHA-256:**
 ```bash
-export MESSAGE_BACKEND=kafka
 export KAFKA_BROKERS=seed-abc123.cloud.redpanda.com:9092
 export KAFKA_SASL_ENABLED=true
 export KAFKA_SASL_MECHANISM=scram-sha-256
@@ -86,7 +105,7 @@ export KAFKA_TLS_ENABLED=true
 
 **CA certificate path note:** When connecting to a cluster whose CA is not in the system trust store (e.g., a self-signed or private CA), set `KAFKA_TLS_CA_PATH` to the absolute path of the PEM file. If your cluster uses a public CA (Let's Encrypt, AWS ACM), leave `KAFKA_TLS_CA_PATH` unset and the system trust store is used automatically.
 
-See `ws/internal/shared/platform/config.go` (`MessageBackendConfig`) for the canonical field definitions.
+See `ws/internal/shared/platform/config.go` (`KafkaConnectionConfig`) for the canonical field definitions.
 
 ### 1.4 Required environment variables
 
@@ -116,7 +135,7 @@ See `ws/internal/shared/platform/config.go` (`MessageBackendConfig`) for the can
 
 ## 2. Validate Suite Battery
 
-Run all 18 suites in the order below. Each suite is independent and can be run
+Run all 19 suites in the order below. Each suite is independent and can be run
 individually with `sukko test validate --suite <name>`.
 
 Signal vocabulary:
@@ -145,6 +164,7 @@ Signal vocabulary:
 | 16 | `api-key` | Community | no | API key auth in isolation (no JWT provisioning) |
 | 17 | `upgrade` | Community | no | Auth upgrade flow: connect with API key, upgrade to JWT |
 | 18 | `webhooks` | Pro | no | Webhook delivery: happy-path, retry-success, degraded transition |
+| 19 | `kafka-ingest` | Community | no | Direct-to-Kafka ingestion: publishes straight to the broker (SASL/TLS) and verifies a gateway-subscribed client receives it. Skips when `KAFKA_BROKERS` unset; requires the server under test to run `MESSAGE_BACKEND=kafka` (see §1.3). |
 
 ### 3. Load Suite Battery
 

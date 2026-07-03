@@ -1,17 +1,18 @@
 package kafka
 
 // Kafka message header names used for channel-topic routing.
+// HeaderChannel, HeaderSource, and HeaderTimestamp are the cross-service wire
+// contract and live in internal/shared/kafka (referenced here as kafkashared.*).
 const (
-	HeaderChannel         = "x-sukko-channel"
 	HeaderReason          = "x-sukko-reason"
 	HeaderFailedTopics    = "x-sukko-failed-topics"
 	HeaderSucceededTopics = "x-sukko-succeeded-topics"
 
-	// Client message provenance headers stamped by the producer on every outbound record.
-	HeaderClientID  = "client_id"
-	HeaderSource    = "source"
-	HeaderTimestamp = "timestamp"
-	SourceWSClient  = "ws-client"
+	// Client message provenance stamped by the producer on every outbound record.
+	// HeaderClientID and SourceWSClient are server-specific; the source/timestamp
+	// header keys are shared (kafkashared.HeaderSource / kafkashared.HeaderTimestamp).
+	HeaderClientID = "client_id"
+	SourceWSClient = "ws-client"
 )
 
 // Reason codes embedded in dead-letter message headers.

@@ -140,16 +140,56 @@ const (
 	MessageBackendKafka  = "kafka"
 )
 
-// MessageBackendBase holds the two fields shared between ws-server, push, and tester
-// that need message backend selection without the full Kafka SASL/TLS options.
-// Embedded by MessageBackendConfig (which is in turn embedded by ServerConfig, push.Config, and TesterConfig).
-type MessageBackendBase struct {
-	MessageBackend string `env:"MESSAGE_BACKEND" envDefault:"direct"`        // Message ingestion backend: direct (no persistence, no Kafka dependency) or kafka (full Kafka/Redpanda integration with replay).
-	KafkaBrokers   string `env:"KAFKA_BROKERS" envDefault:"localhost:19092"` // Comma-separated Kafka/Redpanda broker addresses for ws-server, push, and tester (provisioning uses PROVISIONING_KAFKA_BROKERS instead); required when MESSAGE_BACKEND=kafka.
+// KafkaConnectionConfig holds Kafka/Redpanda broker addresses plus SASL/TLS
+// connection options. Embedded by MessageBackendConfig (ws-server, push) and
+// directly by TesterConfig — the tester has no MESSAGE_BACKEND selector and uses
+// these only for the kafka-ingest suite's direct-to-Kafka publisher.
+//
+// Supported SASL mechanisms:
+//   - plain: SASL/PLAIN (required by Confluent Cloud; API key/secret)
+//   - scram-sha-256: SCRAM-SHA-256 (Redpanda Cloud, Aiven)
+//   - scram-sha-512: SCRAM-SHA-512 (AWS MSK, stronger)
+//
+// KafkaBrokers has no envDefault: a localhost default is never production-intended
+// and would defeat the tester's "empty brokers ⇒ skip kafka-ingest" contract.
+type KafkaConnectionConfig struct {
+	KafkaBrokers string `env:"KAFKA_BROKERS"` // Comma-separated Kafka/Redpanda broker addresses for ws-server, push, and the tester's kafka-ingest suite (provisioning uses PROVISIONING_KAFKA_BROKERS instead). Required when MESSAGE_BACKEND=kafka; no default.
+
+	KafkaSASLEnabled   bool   `env:"KAFKA_SASL_ENABLED" envDefault:"false"` // Enable SASL authentication for Kafka connections. Required for most managed Kafka/Redpanda services.
+	KafkaSASLMechanism string `env:"KAFKA_SASL_MECHANISM"`                  // SASL mechanism: plain, scram-sha-256, or scram-sha-512. Required when KAFKA_SASL_ENABLED=true.
+	KafkaSASLUsername  string `env:"KAFKA_SASL_USERNAME"`                   // SASL username for Kafka authentication. Required when KAFKA_SASL_ENABLED=true.
+	KafkaSASLPassword  string `env:"KAFKA_SASL_PASSWORD" redact:"true"`     // SASL password for Kafka authentication. Required when KAFKA_SASL_ENABLED=true.
+
+	KafkaTLSEnabled  bool   `env:"KAFKA_TLS_ENABLED" envDefault:"false"`  // Enable TLS encryption for Kafka connections. Required for most managed Kafka/Redpanda services.
+	KafkaTLSInsecure bool   `env:"KAFKA_TLS_INSECURE" envDefault:"false"` // Skip TLS certificate verification. For development only — never use in production.
+	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`                     // Path to CA certificate file for verifying the Kafka broker's TLS certificate.
+}
+
+// Validate checks SASL/TLS connection options when they are enabled. It does NOT
+// require KafkaBrokers — an empty value is valid (for the tester it means "skip
+// the kafka-ingest suite"; MessageBackendConfig enforces brokers in kafka mode).
+func (c *KafkaConnectionConfig) Validate() error {
+	if c.KafkaSASLEnabled {
+		if err := validateKafkaSASLMechanism(c.KafkaSASLMechanism); err != nil {
+			return err
+		}
+		if c.KafkaSASLUsername == "" {
+			return errors.New("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLED=true")
+		}
+		if c.KafkaSASLPassword == "" {
+			return errors.New("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
+		}
+	}
+	if c.KafkaTLSEnabled && c.KafkaTLSCAPath != "" {
+		if _, err := os.Stat(c.KafkaTLSCAPath); err != nil {
+			return fmt.Errorf("KAFKA_TLS_CA_PATH %q: %w", c.KafkaTLSCAPath, err)
+		}
+	}
+	return nil
 }
 
 // MessageBackendConfig holds message ingestion/persistence configuration.
-// Embedded by ServerConfig (ws-server), push.Config (push service), and TesterConfig (tester).
+// Embedded by ServerConfig (ws-server) and push.Config (push service).
 //
 // Controls which message ingestion/persistence layer the service uses:
 //   - "direct": Messages flow directly to broadcast bus. No persistence, no replay.
@@ -157,31 +197,9 @@ type MessageBackendBase struct {
 //   - "kafka": Full Kafka/Redpanda integration. Persistence, offset-based replay,
 //     multi-tenant consumer isolation. Requires Kafka infrastructure.
 type MessageBackendConfig struct {
-	MessageBackendBase
+	MessageBackend string `env:"MESSAGE_BACKEND" envDefault:"direct"` // Message ingestion backend: direct (no persistence, no Kafka dependency) or kafka (full Kafka/Redpanda integration with replay).
 
-	// Kafka Security - SASL Authentication
-	//
-	// For connecting to managed Kafka/Redpanda services that require authentication.
-	// When KafkaSASLEnabled=false (default), connects without authentication (local dev).
-	//
-	// Supported mechanisms:
-	// - scram-sha-256: SCRAM-SHA-256 (recommended, widely supported)
-	// - scram-sha-512: SCRAM-SHA-512 (stronger, less common)
-	KafkaSASLEnabled   bool   `env:"KAFKA_SASL_ENABLED" envDefault:"false"` // Enable SASL authentication for Kafka connections. Required for most managed Kafka/Redpanda services.
-	KafkaSASLMechanism string `env:"KAFKA_SASL_MECHANISM"`                  // SASL mechanism: scram-sha-256 or scram-sha-512. Required when KAFKA_SASL_ENABLED=true.
-	KafkaSASLUsername  string `env:"KAFKA_SASL_USERNAME"`                   // SASL username for Kafka authentication. Required when KAFKA_SASL_ENABLED=true.
-	KafkaSASLPassword  string `env:"KAFKA_SASL_PASSWORD" redact:"true"`     // SASL password for Kafka authentication. Required when KAFKA_SASL_ENABLED=true.
-
-	// Kafka Security - TLS Encryption
-	//
-	// For encrypted connections to Kafka. Required for most managed services.
-	// When KafkaTLSEnabled=false (default), connects without TLS (local dev).
-	//
-	// KafkaTLSInsecure: Skip server certificate verification (NOT for production)
-	// KafkaTLSCAPath: Path to CA certificate for server verification
-	KafkaTLSEnabled  bool   `env:"KAFKA_TLS_ENABLED" envDefault:"false"`  // Enable TLS encryption for Kafka connections. Required for most managed Kafka/Redpanda services.
-	KafkaTLSInsecure bool   `env:"KAFKA_TLS_INSECURE" envDefault:"false"` // Skip TLS certificate verification. For development only — never use in production.
-	KafkaTLSCAPath   string `env:"KAFKA_TLS_CA_PATH"`                     // Path to CA certificate file for verifying the Kafka broker's TLS certificate.
+	KafkaConnectionConfig
 }
 
 // Validate checks MessageBackendConfig for errors.
@@ -197,21 +215,8 @@ func (c *MessageBackendConfig) Validate() error {
 		if c.KafkaBrokers == "" {
 			return fmt.Errorf("KAFKA_BROKERS is required when MESSAGE_BACKEND=%s", MessageBackendKafka)
 		}
-		if c.KafkaSASLEnabled {
-			if err := validateKafkaSASLMechanism(c.KafkaSASLMechanism); err != nil {
-				return err
-			}
-			if c.KafkaSASLUsername == "" {
-				return errors.New("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLED=true")
-			}
-			if c.KafkaSASLPassword == "" {
-				return errors.New("KAFKA_SASL_PASSWORD is required when KAFKA_SASL_ENABLED=true")
-			}
-		}
-		if c.KafkaTLSEnabled && c.KafkaTLSCAPath != "" {
-			if _, err := os.Stat(c.KafkaTLSCAPath); err != nil {
-				return fmt.Errorf("KAFKA_TLS_CA_PATH %q: %w", c.KafkaTLSCAPath, err)
-			}
+		if err := c.KafkaConnectionConfig.Validate(); err != nil {
+			return err
 		}
 	}
 

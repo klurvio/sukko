@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
 
@@ -14,11 +15,12 @@ import (
 const (
 	MechanismSCRAMSHA256 = "scram-sha-256"
 	MechanismSCRAMSHA512 = "scram-sha-512"
+	MechanismPLAIN       = "plain"
 )
 
 // SASLConfig holds SASL authentication configuration for Kafka.
 type SASLConfig struct {
-	Mechanism string // "scram-sha-256" or "scram-sha-512"
+	Mechanism string // "plain", "scram-sha-256", or "scram-sha-512"
 	Username  string
 	Password  string
 }
@@ -39,15 +41,13 @@ func BuildKgoOpts(brokers []string, sasl *SASLConfig, tlsCfg *TLSConfig) ([]kgo.
 	}
 
 	if sasl != nil {
-		mechanism := scram.Auth{
-			User: sasl.Username,
-			Pass: sasl.Password,
-		}
 		switch sasl.Mechanism {
 		case MechanismSCRAMSHA256:
-			opts = append(opts, kgo.SASL(mechanism.AsSha256Mechanism()))
+			opts = append(opts, kgo.SASL(scram.Auth{User: sasl.Username, Pass: sasl.Password}.AsSha256Mechanism()))
 		case MechanismSCRAMSHA512:
-			opts = append(opts, kgo.SASL(mechanism.AsSha512Mechanism()))
+			opts = append(opts, kgo.SASL(scram.Auth{User: sasl.Username, Pass: sasl.Password}.AsSha512Mechanism()))
+		case MechanismPLAIN:
+			opts = append(opts, kgo.SASL(plain.Auth{User: sasl.Username, Pass: sasl.Password}.AsMechanism()))
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", sasl.Mechanism)
 		}

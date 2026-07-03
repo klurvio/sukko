@@ -13,17 +13,31 @@ func TestBuildSecurityConfig(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		cfg      platform.MessageBackendConfig
+		cfg      platform.KafkaConnectionConfig
 		wantSASL *kafkashared.SASLConfig
 		wantTLS  *kafkashared.TLSConfig
 	}{
 		{
 			name: "both disabled returns nil/nil",
-			cfg:  platform.MessageBackendConfig{},
+			cfg:  platform.KafkaConnectionConfig{},
+		},
+		{
+			name: "SASL plain",
+			cfg: platform.KafkaConnectionConfig{
+				KafkaSASLEnabled:   true,
+				KafkaSASLMechanism: kafkashared.MechanismPLAIN,
+				KafkaSASLUsername:  "apikey",
+				KafkaSASLPassword:  "apisecret",
+			},
+			wantSASL: &kafkashared.SASLConfig{
+				Mechanism: kafkashared.MechanismPLAIN,
+				Username:  "apikey",
+				Password:  "apisecret",
+			},
 		},
 		{
 			name: "SASL scram-sha-256",
-			cfg: platform.MessageBackendConfig{
+			cfg: platform.KafkaConnectionConfig{
 				KafkaSASLEnabled:   true,
 				KafkaSASLMechanism: kafkashared.MechanismSCRAMSHA256,
 				KafkaSASLUsername:  "user",
@@ -37,7 +51,7 @@ func TestBuildSecurityConfig(t *testing.T) {
 		},
 		{
 			name: "SASL scram-sha-512",
-			cfg: platform.MessageBackendConfig{
+			cfg: platform.KafkaConnectionConfig{
 				KafkaSASLEnabled:   true,
 				KafkaSASLMechanism: kafkashared.MechanismSCRAMSHA512,
 				KafkaSASLUsername:  "u2",
@@ -51,7 +65,7 @@ func TestBuildSecurityConfig(t *testing.T) {
 		},
 		{
 			name: "TLS with CAPath",
-			cfg: platform.MessageBackendConfig{
+			cfg: platform.KafkaConnectionConfig{
 				KafkaTLSEnabled: true,
 				KafkaTLSCAPath:  "/etc/kafka/ca.pem",
 			},
@@ -62,7 +76,7 @@ func TestBuildSecurityConfig(t *testing.T) {
 		},
 		{
 			name: "TLS insecure",
-			cfg: platform.MessageBackendConfig{
+			cfg: platform.KafkaConnectionConfig{
 				KafkaTLSEnabled:  true,
 				KafkaTLSInsecure: true,
 			},
@@ -73,7 +87,7 @@ func TestBuildSecurityConfig(t *testing.T) {
 		},
 		{
 			name: "both SASL and TLS",
-			cfg: platform.MessageBackendConfig{
+			cfg: platform.KafkaConnectionConfig{
 				KafkaSASLEnabled:   true,
 				KafkaSASLMechanism: kafkashared.MechanismSCRAMSHA256,
 				KafkaSASLUsername:  "u",
@@ -145,15 +159,11 @@ func TestBuildRunnerConfig(t *testing.T) {
 		cfg         TesterConfig
 		wantSASLNil bool
 		wantTLSNil  bool
+		wantBrokers string
 	}{
 		{
 			name: "fields pass through without security",
 			cfg: TesterConfig{
-				MessageBackendConfig: platform.MessageBackendConfig{
-					MessageBackendBase: platform.MessageBackendBase{
-						MessageBackend: platform.MessageBackendDirect,
-					},
-				},
 				GatewayURL:      "ws://gw:3000",
 				ProvisioningURL: "http://prov:8080",
 				JWTLifetime:     5 * time.Minute,
@@ -162,26 +172,21 @@ func TestBuildRunnerConfig(t *testing.T) {
 			wantTLSNil:  true,
 		},
 		{
-			name: "Kafka backend fields pass through",
+			name: "kafka brokers pass through",
 			cfg: TesterConfig{
-				MessageBackendConfig: platform.MessageBackendConfig{
-					MessageBackendBase: platform.MessageBackendBase{
-						MessageBackend: platform.MessageBackendKafka,
-						KafkaBrokers:   "broker:9092",
-					},
+				KafkaConnectionConfig: platform.KafkaConnectionConfig{
+					KafkaBrokers: "broker:9092",
 				},
 			},
 			wantSASLNil: true,
 			wantTLSNil:  true,
+			wantBrokers: "broker:9092",
 		},
 		{
 			name: "SASL and TLS carrier fields populated",
 			cfg: TesterConfig{
-				MessageBackendConfig: platform.MessageBackendConfig{
-					MessageBackendBase: platform.MessageBackendBase{
-						MessageBackend: platform.MessageBackendKafka,
-						KafkaBrokers:   "broker:9092",
-					},
+				KafkaConnectionConfig: platform.KafkaConnectionConfig{
+					KafkaBrokers:       "broker:9092",
 					KafkaSASLEnabled:   true,
 					KafkaSASLMechanism: kafkashared.MechanismSCRAMSHA256,
 					KafkaSASLUsername:  "user",
@@ -192,6 +197,7 @@ func TestBuildRunnerConfig(t *testing.T) {
 			},
 			wantSASLNil: false,
 			wantTLSNil:  false,
+			wantBrokers: "broker:9092",
 		},
 	}
 
@@ -202,8 +208,8 @@ func TestBuildRunnerConfig(t *testing.T) {
 			if got.GatewayURL != tt.cfg.GatewayURL {
 				t.Errorf("GatewayURL = %q, want %q", got.GatewayURL, tt.cfg.GatewayURL)
 			}
-			if got.MessageBackend != tt.cfg.MessageBackend {
-				t.Errorf("MessageBackend = %q, want %q", got.MessageBackend, tt.cfg.MessageBackend)
+			if got.KafkaBrokers != tt.wantBrokers {
+				t.Errorf("KafkaBrokers = %q, want %q", got.KafkaBrokers, tt.wantBrokers)
 			}
 			if tt.wantSASLNil && got.KafkaSASL != nil {
 				t.Errorf("KafkaSASL: expected nil, got %+v", got.KafkaSASL)

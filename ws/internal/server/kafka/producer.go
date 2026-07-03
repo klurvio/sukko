@@ -267,9 +267,9 @@ func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string
 		Value: data,
 		Headers: []kgo.RecordHeader{
 			{Key: HeaderClientID, Value: []byte(strconv.FormatInt(clientID, 10))},
-			{Key: HeaderSource, Value: []byte(SourceWSClient)},
-			{Key: HeaderTimestamp, Value: []byte(strconv.FormatInt(time.Now().UnixMilli(), 10))},
-			{Key: HeaderChannel, Value: []byte(channel)},
+			{Key: kafkashared.HeaderSource, Value: []byte(SourceWSClient)},
+			{Key: kafkashared.HeaderTimestamp, Value: []byte(strconv.FormatInt(time.Now().UnixMilli(), 10))},
+			{Key: kafkashared.HeaderChannel, Value: []byte(channel)},
 		},
 	}
 

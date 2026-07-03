@@ -122,7 +122,6 @@ func TestRunnerExecute_AdminProviderWired(t *testing.T) { //nolint:paralleltest 
 		ProvisioningURL: m.srv.URL,
 		AdminKeyFile:    keyPath,
 		AdminKeyID:      "test-admin-kid",
-		MessageBackend:  "direct",
 		JWTLifetime:     5 * time.Minute,
 		KeyExpiry:       24 * time.Hour,
 	}, zerolog.Nop())
@@ -165,7 +164,6 @@ func TestSecondarySetupCallers_PropagateProvider(t *testing.T) { //nolint:parall
 		ProvisioningURL: m.srv.URL,
 		AdminKeyFile:    keyPath,
 		AdminKeyID:      "expected-kid",
-		MessageBackend:  "direct",
 		JWTLifetime:     5 * time.Minute,
 		KeyExpiry:       24 * time.Hour,
 	}, zerolog.Nop())
@@ -214,7 +212,6 @@ func TestValidateAuth_Check9_RetryExhaustion(t *testing.T) { //nolint:parallelte
 	r := New(Config{
 		GatewayURL:      "ws://127.0.0.1:1", // port 1 is never open
 		ProvisioningURL: m.srv.URL,
-		MessageBackend:  "direct",
 		JWTLifetime:     5 * time.Minute,
 		KeyExpiry:       24 * time.Hour,
 	}, zerolog.Nop())
@@ -256,7 +253,6 @@ func TestValidateAuth_Check9_CtxCancelled(t *testing.T) { //nolint:paralleltest 
 	r := New(Config{
 		GatewayURL:      "ws://127.0.0.1:1",
 		ProvisioningURL: m.srv.URL,
-		MessageBackend:  "direct",
 		JWTLifetime:     5 * time.Minute,
 		KeyExpiry:       24 * time.Hour,
 	}, zerolog.Nop())
@@ -320,7 +316,6 @@ func TestValidateAuth_Check9_CreateAPIKeyFailed_SkipsRevoke(t *testing.T) { //no
 	r := New(Config{
 		GatewayURL:      srv.URL,
 		ProvisioningURL: srv.URL,
-		MessageBackend:  "direct",
 		JWTLifetime:     5 * time.Minute,
 		KeyExpiry:       24 * time.Hour,
 	}, zerolog.Nop())

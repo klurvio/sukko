@@ -20,11 +20,12 @@ const (
 // TesterConfig holds configuration for the sukko-tester service.
 type TesterConfig struct {
 	platform.BaseConfig
-	platform.MessageBackendConfig
-	Port            int    `env:"TESTER_PORT" envDefault:"8090"`                       // HTTP port the tester service listens on for test run management and SSE metric streaming.
-	AuthToken       string `env:"TESTER_AUTH_TOKEN"`                                   // Bearer token required for all tester management API endpoints. Must be set explicitly — the tester rejects requests when unset.
-	GatewayURL      string `env:"GATEWAY_URL" envDefault:"ws://localhost:3000"`        // WebSocket URL of the gateway that test connections will target.
-	ProvisioningURL string `env:"PROVISIONING_URL" envDefault:"http://localhost:8080"` // HTTP base URL of the provisioning service used to create test tenants and API keys.
+	platform.KafkaConnectionConfig        // Kafka brokers + SASL/TLS for the kafka-ingest suite's direct-to-Kafka publisher (no MESSAGE_BACKEND — the tester has no backend selector).
+	platform.KafkaNamespaceConfig         // Topic namespace resolution, MUST match the server-under-test (shared ENVIRONMENT / KAFKA_TOPIC_NAMESPACE_OVERRIDE).
+	Port                           int    `env:"TESTER_PORT" envDefault:"8090"`                       // HTTP port the tester service listens on for test run management and SSE metric streaming.
+	AuthToken                      string `env:"TESTER_AUTH_TOKEN"`                                   // Bearer token required for all tester management API endpoints. Must be set explicitly — the tester rejects requests when unset.
+	GatewayURL                     string `env:"GATEWAY_URL" envDefault:"ws://localhost:3000"`        // WebSocket URL of the gateway that test connections will target.
+	ProvisioningURL                string `env:"PROVISIONING_URL" envDefault:"http://localhost:8080"` // HTTP base URL of the provisioning service used to create test tenants and API keys.
 
 	// License reload suite — Ed25519 private key for signing test license keys
 	SigningKeyFile string `env:"TESTER_SIGNING_KEY_FILE" envDefault:""` // Path to Ed25519 private key file for signing license tokens in the license-reload test suite. Leave empty when not running license tests.
@@ -70,8 +71,11 @@ func (c *TesterConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return fmt.Errorf("base config: %w", err)
 	}
-	if err := c.MessageBackendConfig.Validate(); err != nil {
-		return err //nolint:wrapcheck // pass-through: MessageBackendConfig.Validate() returns env-var-named errors with full context; wrapping adds depth without callsite value (spec R-006)
+	if err := c.KafkaConnectionConfig.Validate(); err != nil {
+		return err //nolint:wrapcheck // pass-through: KafkaConnectionConfig.Validate() returns env-var-named errors with full context; wrapping adds depth without callsite value (spec R-006)
+	}
+	if err := c.KafkaNamespaceConfig.Validate(); err != nil {
+		return err //nolint:wrapcheck // pass-through: KafkaNamespaceConfig.Validate() returns env-var-named errors with full context
 	}
 	if c.Port < 1 || c.Port > 65535 {
 		return fmt.Errorf("TESTER_PORT must be between 1 and 65535, got %d", c.Port)
