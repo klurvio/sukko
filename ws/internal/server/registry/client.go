@@ -32,7 +32,7 @@ func buildValkeyClient(cfg *platform.ServerConfig, label string) (valkey.Client,
 		Password:    cfg.ValkeyPassword,
 		SelectDB:    platform.RegistryValkeyDB,
 	}
-	if cfg.ValkeyMasterName != "" {
+	if platform.UseValkeySentinel(cfg.ValkeyAddrs, cfg.ValkeyMasterName) {
 		opt.Sentinel = valkey.SentinelOption{
 			MasterSet: cfg.ValkeyMasterName,
 		}

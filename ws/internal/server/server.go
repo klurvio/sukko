@@ -515,7 +515,7 @@ func (s *Server) buildHistoryValkeyClient() (valkey.Client, error) {
 		Password:    s.config.ValkeyPassword,
 		SelectDB:    s.config.ValkeyDB,
 	}
-	if s.config.ValkeyMasterName != "" {
+	if platform.UseValkeySentinel(s.config.ValkeyAddrs, s.config.ValkeyMasterName) {
 		opt.Sentinel = valkey.SentinelOption{
 			MasterSet: s.config.ValkeyMasterName,
 		}
