@@ -293,7 +293,10 @@ func TestKafkaNamespaceConfig_Validate(t *testing.T) {
 func TestMessageBackendConfig_Validate_SASL(t *testing.T) {
 	t.Parallel()
 
-	base := MessageBackendBase{MessageBackend: MessageBackendKafka, KafkaBrokers: "localhost:19092"}
+	mkCfg := func(conn KafkaConnectionConfig) MessageBackendConfig {
+		conn.KafkaBrokers = "localhost:19092"
+		return MessageBackendConfig{MessageBackend: MessageBackendKafka, KafkaConnectionConfig: conn}
+	}
 
 	tests := []struct {
 		name          string
@@ -303,49 +306,55 @@ func TestMessageBackendConfig_Validate_SASL(t *testing.T) {
 	}{
 		{
 			name: "invalid mechanism",
-			cfg: MessageBackendConfig{
-				MessageBackendBase: base,
+			cfg: mkCfg(KafkaConnectionConfig{
 				KafkaSASLEnabled:   true,
-				KafkaSASLMechanism: "plain",
+				KafkaSASLMechanism: "oauthbearer", // plain is now valid; use a still-invalid mechanism
 				KafkaSASLUsername:  "user",
 				KafkaSASLPassword:  "pass",
-			},
+			}),
 			wantErr:       true,
 			errorContains: "KAFKA_SASL_MECHANISM",
 		},
 		{
 			name: "missing username",
-			cfg: MessageBackendConfig{
-				MessageBackendBase: base,
+			cfg: mkCfg(KafkaConnectionConfig{
 				KafkaSASLEnabled:   true,
 				KafkaSASLMechanism: "scram-sha-256",
 				KafkaSASLUsername:  "",
 				KafkaSASLPassword:  "pass",
-			},
+			}),
 			wantErr:       true,
 			errorContains: "KAFKA_SASL_USERNAME",
 		},
 		{
 			name: "missing password",
-			cfg: MessageBackendConfig{
-				MessageBackendBase: base,
+			cfg: mkCfg(KafkaConnectionConfig{
 				KafkaSASLEnabled:   true,
 				KafkaSASLMechanism: "scram-sha-256",
 				KafkaSASLUsername:  "user",
 				KafkaSASLPassword:  "",
-			},
+			}),
 			wantErr:       true,
 			errorContains: "KAFKA_SASL_PASSWORD",
 		},
 		{
-			name: "all valid",
-			cfg: MessageBackendConfig{
-				MessageBackendBase: base,
+			name: "all valid (plain)",
+			cfg: mkCfg(KafkaConnectionConfig{
+				KafkaSASLEnabled:   true,
+				KafkaSASLMechanism: "plain",
+				KafkaSASLUsername:  "user",
+				KafkaSASLPassword:  "pass",
+			}),
+			wantErr: false,
+		},
+		{
+			name: "all valid (scram-512)",
+			cfg: mkCfg(KafkaConnectionConfig{
 				KafkaSASLEnabled:   true,
 				KafkaSASLMechanism: "scram-sha-512",
 				KafkaSASLUsername:  "user",
 				KafkaSASLPassword:  "pass",
-			},
+			}),
 			wantErr: false,
 		},
 	}
@@ -393,12 +402,12 @@ func TestMessageBackendConfig_Validate_TLSCAPath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := MessageBackendConfig{
-				MessageBackendBase: MessageBackendBase{
-					MessageBackend: MessageBackendKafka,
-					KafkaBrokers:   "localhost:19092",
+				MessageBackend: MessageBackendKafka,
+				KafkaConnectionConfig: KafkaConnectionConfig{
+					KafkaBrokers:    "localhost:19092",
+					KafkaTLSEnabled: true,
+					KafkaTLSCAPath:  tt.caPath,
 				},
-				KafkaTLSEnabled: true,
-				KafkaTLSCAPath:  tt.caPath,
 			}
 			err := cfg.Validate()
 			if tt.wantErr && err == nil {
@@ -426,7 +435,7 @@ func TestMessageBackendConfig_Validate_NATSRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			cfg := MessageBackendConfig{MessageBackendBase: MessageBackendBase{MessageBackend: tt.backend, KafkaBrokers: "localhost:19092"}}
+			cfg := MessageBackendConfig{MessageBackend: tt.backend, KafkaConnectionConfig: KafkaConnectionConfig{KafkaBrokers: "localhost:19092"}}
 			err := cfg.Validate()
 			if err == nil {
 				t.Fatalf("expected error for MESSAGE_BACKEND=%q, got nil", tt.backend)

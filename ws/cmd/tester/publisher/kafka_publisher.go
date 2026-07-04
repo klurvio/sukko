@@ -14,9 +14,12 @@ import (
 	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 )
 
+// testerSourceValue identifies records produced by the tester in the source header.
+const testerSourceValue = "sukko-tester"
+
 // KafkaPublisher produces messages to Kafka/Redpanda topics using franz-go.
-// Uses the same wire format as ws-server's producer: record key = channel,
-// value = JSON payload, headers include source and timestamp.
+// Uses the same wire format as ws-server's producer: record key = tenant-qualified
+// channel, value = JSON payload, headers = [x-sukko-channel, source, timestamp].
 type KafkaPublisher struct {
 	client    *kgo.Client
 	resolver  *TopicResolver
@@ -49,7 +52,11 @@ func NewKafkaPublisher(brokers string, resolver *TopicResolver, sasl *kafkashare
 }
 
 // Publish produces a message to the resolved Kafka topic.
-// Wire format matches ws-server: key=channel, value=payload, headers=[source, timestamp].
+// Wire format matches ws-server's producer: key = tenant-qualified channel (Community
+// key-based routing fallback), value = payload, headers = [x-sukko-channel (required
+// for Pro/Enterprise channel-header routing), source, timestamp]. The channel MUST be
+// tenant-qualified ("<tenant>.<channel>") — the consumer requires the header's tenant
+// prefix to match the topic's tenant segment.
 func (p *KafkaPublisher) Publish(ctx context.Context, channel string, payload []byte) error {
 	topic, err := p.resolver.Resolve(channel)
 	if err != nil {
@@ -61,8 +68,9 @@ func (p *KafkaPublisher) Publish(ctx context.Context, channel string, payload []
 		Key:   []byte(channel),
 		Value: payload,
 		Headers: []kgo.RecordHeader{
-			{Key: "source", Value: []byte("sukko-tester")},
-			{Key: "timestamp", Value: []byte(strconv.FormatInt(time.Now().UnixMilli(), 10))},
+			{Key: kafkashared.HeaderChannel, Value: []byte(channel)},
+			{Key: kafkashared.HeaderSource, Value: []byte(testerSourceValue)},
+			{Key: kafkashared.HeaderTimestamp, Value: []byte(strconv.FormatInt(time.Now().UnixMilli(), 10))},
 		},
 	}
 

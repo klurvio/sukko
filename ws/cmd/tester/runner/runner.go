@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
@@ -50,10 +51,9 @@ const defaultRampRate = 50
 // TestContext holds deployment context passed from the CLI.
 // When present, all core fields are required (all-or-nothing).
 type TestContext struct {
-	GatewayURL         string `json:"gateway_url"`
-	ProvisioningURL    string `json:"provisioning_url"`
-	Environment        string `json:"environment"`
-	MessageBackendURLs string `json:"message_backend_urls,omitempty"`
+	GatewayURL      string `json:"gateway_url"`
+	ProvisioningURL string `json:"provisioning_url"`
+	Environment     string `json:"environment"`
 }
 
 // TestConfig holds the parameters for a test run.
@@ -64,7 +64,6 @@ type TestConfig struct {
 	APIKey                 string        `json:"-"` // per-request API key; tagged json:"-" — credentials must never appear in API responses (§IX)
 	AuthMode               AuthMode      `json:"auth_mode,omitempty"`
 	AuthMixRatio           float64       `json:"auth_mix_ratio,omitzero"`
-	MessageBackend         string        `json:"message_backend,omitempty"`
 	KafkaBrokers           string        `json:"kafka_brokers,omitempty"`
 	Connections            int           `json:"connections,omitzero"`
 	Duration               string        `json:"duration,omitempty"`
@@ -115,6 +114,11 @@ type TestRun struct {
 	webhookDeliveryTimeout time.Duration `json:"-"`
 	webhookRetryTimeout    time.Duration `json:"-"`
 	webhookStore           *WebhookStore `json:"-"`
+	// kafka-ingest suite fields set by execute() (credentials never serialized — §IX).
+	kafkaSASL      *kafkashared.SASLConfig `json:"-"`
+	kafkaTLS       *kafkashared.TLSConfig  `json:"-"`
+	kafkaBrokers   string                  `json:"-"`
+	kafkaNamespace string                  `json:"-"`
 }
 
 // StatusSnapshot returns the current Status and Report under a read lock.
@@ -143,18 +147,19 @@ type Runner struct {
 
 // Config holds default settings applied to all test runs.
 type Config struct {
-	GatewayURL       string
-	ProvisioningURL  string
-	MessageBackend   string
-	KafkaBrokers     string
-	KafkaSASL        *kafkashared.SASLConfig // nil = no SASL auth; carrier field for future Kafka publisher wiring
-	KafkaTLS         *kafkashared.TLSConfig  // nil = plaintext; carrier field for future Kafka publisher wiring
-	JWTLifetime      time.Duration
-	JWTRefreshBefore time.Duration
-	KeyExpiry        time.Duration
-	SigningKeyFile   string // Ed25519 private key file for license-reload suite signing
-	AdminKeyFile     string // path to raw Ed25519 private key file (remote mode; empty = local dev mode)
-	AdminKeyID       string // kid embedded in admin JWTs; defaults to BootstrapAdminKeyID
+	GatewayURL                  string
+	ProvisioningURL             string
+	Environment                 string                  // resolved topic namespace derivation (kafka-ingest); MUST match the server-under-test
+	KafkaTopicNamespaceOverride string                  // overrides ENVIRONMENT for Kafka topic namespace (kafka-ingest); MUST match the server-under-test
+	KafkaBrokers                string                  // empty ⇒ kafka-ingest suite skips
+	KafkaSASL                   *kafkashared.SASLConfig // nil = no SASL auth (read by the kafka-ingest suite)
+	KafkaTLS                    *kafkashared.TLSConfig  // nil = plaintext (read by the kafka-ingest suite)
+	JWTLifetime                 time.Duration
+	JWTRefreshBefore            time.Duration
+	KeyExpiry                   time.Duration
+	SigningKeyFile              string // Ed25519 private key file for license-reload suite signing
+	AdminKeyFile                string // path to raw Ed25519 private key file (remote mode; empty = local dev mode)
+	AdminKeyID                  string // kid embedded in admin JWTs; defaults to BootstrapAdminKeyID
 	// Auth mode fields (TESTER_AUTH_MODE and related)
 	AuthMode           AuthMode
 	APIKey             string // TESTER_API_KEY; stored here only, never in TestConfig (§IX)
@@ -194,9 +199,6 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 	}
 	if cfg.ProvisioningURL == "" {
 		cfg.ProvisioningURL = r.cfg.ProvisioningURL
-	}
-	if cfg.MessageBackend == "" {
-		cfg.MessageBackend = r.cfg.MessageBackend
 	}
 	if cfg.KafkaBrokers == "" {
 		cfg.KafkaBrokers = r.cfg.KafkaBrokers
@@ -412,6 +414,18 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	run.webhookDeliveryTimeout = r.cfg.WebhookDeliveryTimeout
 	run.webhookRetryTimeout = r.cfg.WebhookRetryTimeout
 	run.webhookStore = r.webhookStore
+
+	// kafka-ingest suite fields. Brokers: per-request override else runner config.
+	// Namespace: derived from the override + environment, MUST match the server-under-test.
+	// Guard the nil *TestContext (nil on context-less runs — cmp.Or would nil-deref).
+	run.kafkaSASL = r.cfg.KafkaSASL
+	run.kafkaTLS = r.cfg.KafkaTLS
+	run.kafkaBrokers = cmp.Or(run.Config.KafkaBrokers, r.cfg.KafkaBrokers)
+	nsEnv := r.cfg.Environment
+	if run.Config.Context != nil && run.Config.Context.Environment != "" {
+		nsEnv = run.Config.Context.Environment
+	}
+	run.kafkaNamespace = kafkashared.ResolveNamespace(r.cfg.KafkaTopicNamespaceOverride, nsEnv)
 
 	// Resolve effective API key: per-request key overrides runner-level config key.
 	effectiveAPIKey := r.cfg.APIKey

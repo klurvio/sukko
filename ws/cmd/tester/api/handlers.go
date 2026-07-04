@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/klurvio/sukko/cmd/tester/runner"
 	"github.com/klurvio/sukko/internal/shared/httputil"
-	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/rs/zerolog"
 )
 
@@ -27,7 +26,6 @@ const (
 	errCodeInvalidRequest    = "INVALID_REQUEST"
 	errCodeInvalidType       = "INVALID_TYPE"
 	errCodeIncompleteCtx     = "INCOMPLETE_CONTEXT"
-	errCodeMissingBackend    = "MISSING_BACKEND_URLS"
 	errCodeInvalidSignKey    = "INVALID_SIGNING_KEY"
 	errCodeInvalidAdminKey   = "INVALID_ADMIN_KEY"
 	errCodeInvalidAdminKID   = "INVALID_ADMIN_KEY_ID"
@@ -83,28 +81,27 @@ func (h *handlers) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // SECURITY: This struct is decode-only (request deserialization). It is NEVER serialized
 // in responses — the handler converts to runner.TestContext before any response is written.
 type TestContext struct {
-	GatewayURL         string `json:"gateway_url"`
-	ProvisioningURL    string `json:"provisioning_url"`
-	Environment        string `json:"environment"`
-	MessageBackendURLs string `json:"message_backend_urls,omitempty"`
+	GatewayURL      string `json:"gateway_url"`
+	ProvisioningURL string `json:"provisioning_url"`
+	Environment     string `json:"environment"`
+	KafkaBrokers    string `json:"kafka_brokers,omitempty"` // Per-run override of the tester's KAFKA_BROKERS for the kafka-ingest suite.
 	// AdminKeyPath is accepted for deprecation detection only — never forwarded to runner.
 	// Use admin_key (base64 Ed25519 private key) in the top-level request body instead.
 	AdminKeyPath string `json:"admin_key_path,omitempty"`
 }
 
 type startTestRequest struct {
-	Type           string       `json:"type"`
-	Connections    int          `json:"connections,omitempty"`
-	Duration       string       `json:"duration,omitempty"`
-	PublishRate    int          `json:"publish_rate,omitempty"`
-	RampRate       int          `json:"ramp_rate,omitempty"`
-	Suite          string       `json:"suite,omitempty"`
-	TenantID       string       `json:"tenant_id,omitempty"`
-	MessageBackend string       `json:"message_backend,omitempty"`
-	SigningKey     string       `json:"signing_key,omitempty"`  // base64.StdEncoding Ed25519 private key for license-reload suite
-	AdminKey       string       `json:"admin_key,omitempty"`    // base64.StdEncoding Ed25519 private key for per-request admin auth
-	AdminKeyID     string       `json:"admin_key_id,omitempty"` // kid for admin_key JWT; falls back to server AdminKeyID when omitted
-	Context        *TestContext `json:"context,omitempty"`
+	Type        string       `json:"type"`
+	Connections int          `json:"connections,omitempty"`
+	Duration    string       `json:"duration,omitempty"`
+	PublishRate int          `json:"publish_rate,omitempty"`
+	RampRate    int          `json:"ramp_rate,omitempty"`
+	Suite       string       `json:"suite,omitempty"`
+	TenantID    string       `json:"tenant_id,omitempty"`
+	SigningKey  string       `json:"signing_key,omitempty"`  // base64.StdEncoding Ed25519 private key for license-reload suite
+	AdminKey    string       `json:"admin_key,omitempty"`    // base64.StdEncoding Ed25519 private key for per-request admin auth
+	AdminKeyID  string       `json:"admin_key_id,omitempty"` // kid for admin_key JWT; falls back to server AdminKeyID when omitted
+	Context     *TestContext `json:"context,omitempty"`
 	// Auth mode fields (FR-001, FR-002, SC-001)
 	AuthMode     string  `json:"auth_mode,omitempty"`
 	APIKey       string  `json:"api_key,omitempty"`        // accepted in POST body; never echoed (TestConfig.APIKey is json:"-")
@@ -131,12 +128,6 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		// valid
 	default:
 		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidType, fmt.Sprintf("unknown test type: %q", req.Type))
-		return
-	}
-
-	// Reject unrecognized backends before processing context.
-	if req.MessageBackend != "" && req.MessageBackend != platform.MessageBackendDirect && req.MessageBackend != platform.MessageBackendKafka {
-		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("unsupported message_backend %q (valid: direct, kafka)", req.MessageBackend))
 		return
 	}
 
@@ -218,10 +209,6 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusBadRequest, errCodeIncompleteCtx, "all core context fields required: gateway_url, provisioning_url, environment")
 			return
 		}
-		if req.MessageBackend == platform.MessageBackendKafka && req.Context.MessageBackendURLs == "" {
-			httputil.WriteError(w, http.StatusBadRequest, errCodeMissingBackend, "message_backend_urls required when message_backend is kafka")
-			return
-		}
 	}
 
 	id, err := uuid.NewRandom()
@@ -290,7 +277,6 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		RampRate:        req.RampRate,
 		Suite:           req.Suite,
 		TenantID:        req.TenantID,
-		MessageBackend:  req.MessageBackend,
 		SigningKeyBytes: signingKeyBytes,
 		AdminKeyBytes:   adminKeyBytes,
 		AdminKeyID:      adminKeyID,
@@ -304,10 +290,13 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 			h.logger.Warn().Str("field", "admin_key_path").Msg("admin_key_path is deprecated; use admin_key in the request body instead")
 		}
 		cfg.Context = &runner.TestContext{
-			GatewayURL:         req.Context.GatewayURL,
-			ProvisioningURL:    req.Context.ProvisioningURL,
-			Environment:        req.Context.Environment,
-			MessageBackendURLs: req.Context.MessageBackendURLs,
+			GatewayURL:      req.Context.GatewayURL,
+			ProvisioningURL: req.Context.ProvisioningURL,
+			Environment:     req.Context.Environment,
+		}
+		// Per-run broker override for the kafka-ingest suite (credentials stay env-only).
+		if req.Context.KafkaBrokers != "" {
+			cfg.KafkaBrokers = req.Context.KafkaBrokers
 		}
 	}
 

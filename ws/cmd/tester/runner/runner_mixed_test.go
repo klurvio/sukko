@@ -45,7 +45,6 @@ func TestRunnerMixed_StaticAPIKey(t *testing.T) { //nolint:paralleltest // uses 
 	r := New(Config{
 		GatewayURL:         srv.URL, // WS dial will fail — that's OK; we only test the API key lifecycle
 		ProvisioningURL:    srv.URL,
-		MessageBackend:     "direct",
 		JWTLifetime:        5 * time.Minute,
 		KeyExpiry:          24 * time.Hour,
 		AuthMode:           AuthModeMixed,
@@ -103,7 +102,6 @@ func TestRunnerMixed_DynamicAPIKey(t *testing.T) { //nolint:paralleltest // uses
 	r := New(Config{
 		GatewayURL:         srv.URL,
 		ProvisioningURL:    srv.URL,
-		MessageBackend:     "direct",
 		JWTLifetime:        5 * time.Minute,
 		KeyExpiry:          24 * time.Hour,
 		AuthMode:           AuthModeMixed,
@@ -154,7 +152,6 @@ func TestRunnerMixed_CreateAPIKeyFailure(t *testing.T) { //nolint:paralleltest /
 	r := New(Config{
 		GatewayURL:         srv.URL,
 		ProvisioningURL:    srv.URL,
-		MessageBackend:     "direct",
 		JWTLifetime:        5 * time.Minute,
 		KeyExpiry:          24 * time.Hour,
 		AuthMode:           AuthModeMixed,

@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/types"
@@ -42,7 +43,7 @@ func TestExtractChannel_ValidHeader_TenantMatch(t *testing.T) {
 	rec := &kgo.Record{
 		Topic: "prod.acme.orders",
 		Headers: []kgo.RecordHeader{
-			{Key: HeaderChannel, Value: []byte("acme.BTC.orders")},
+			{Key: kafkashared.HeaderChannel, Value: []byte("acme.BTC.orders")},
 		},
 	}
 
@@ -64,7 +65,7 @@ func TestExtractChannel_ValidHeader_TenantMismatch(t *testing.T) {
 	rec := &kgo.Record{
 		Topic: "prod.acme.orders",
 		Headers: []kgo.RecordHeader{
-			{Key: HeaderChannel, Value: []byte("globex.BTC.orders")}, // wrong tenant
+			{Key: kafkashared.HeaderChannel, Value: []byte("globex.BTC.orders")}, // wrong tenant
 		},
 	}
 
@@ -191,7 +192,7 @@ func TestFindHeader_ReturnsNilWhenAbsent(t *testing.T) {
 		},
 	}
 
-	val := findHeader(rec, HeaderChannel)
+	val := findHeader(rec, kafkashared.HeaderChannel)
 	if val != nil {
 		t.Errorf("findHeader = %q, want nil", val)
 	}
@@ -202,12 +203,12 @@ func TestFindHeader_ReturnsFirstMatch(t *testing.T) {
 
 	rec := &kgo.Record{
 		Headers: []kgo.RecordHeader{
-			{Key: HeaderChannel, Value: []byte("first")},
-			{Key: HeaderChannel, Value: []byte("second")},
+			{Key: kafkashared.HeaderChannel, Value: []byte("first")},
+			{Key: kafkashared.HeaderChannel, Value: []byte("second")},
 		},
 	}
 
-	val := findHeader(rec, HeaderChannel)
+	val := findHeader(rec, kafkashared.HeaderChannel)
 	if string(val) != "first" {
 		t.Errorf("findHeader = %q, want %q", val, "first")
 	}

@@ -29,9 +29,9 @@ func newValidServerConfig() *ServerConfig {
 		GRPCPort:                 3006,
 		RateLimitBurstMultiplier: 2,
 		MessageBackendConfig: MessageBackendConfig{
-			MessageBackendBase: MessageBackendBase{
-				MessageBackend: "direct",
-				KafkaBrokers:   "localhost:19092",
+			MessageBackend: "direct",
+			KafkaConnectionConfig: KafkaConnectionConfig{
+				KafkaBrokers: "localhost:19092",
 			},
 		},
 		MemoryLimit:                512 * 1024 * 1024, // 512MB

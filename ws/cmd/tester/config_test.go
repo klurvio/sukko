@@ -23,11 +23,7 @@ func TestTesterConfig_Validate(t *testing.T) {
 				LogFormat:   "json",
 				Environment: "test",
 			},
-			MessageBackendConfig: platform.MessageBackendConfig{
-				MessageBackendBase: platform.MessageBackendBase{
-					MessageBackend: "direct",
-				},
-			},
+			KafkaNamespaceConfig:   platform.KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod"},
 			Port:                   8090,
 			GatewayURL:             "ws://localhost:3000",
 			ProvisioningURL:        "http://localhost:8080",
@@ -74,28 +70,28 @@ func TestTesterConfig_Validate(t *testing.T) {
 			wantErr: "PROVISIONING_URL is required",
 		},
 		{
-			name:    "invalid message backend grpc",
-			modify:  func(c *TesterConfig) { c.MessageBackend = "grpc" },
-			wantErr: "MESSAGE_BACKEND",
-		},
-		{
-			name:    "nats backend rejected",
-			modify:  func(c *TesterConfig) { c.MessageBackend = "nats" },
-			wantErr: "MESSAGE_BACKEND",
-		},
-		{
-			name: "kafka without brokers",
+			name: "sasl enabled without username",
 			modify: func(c *TesterConfig) {
-				c.MessageBackend = "kafka"
-				c.KafkaBrokers = ""
+				c.KafkaSASLEnabled = true
+				c.KafkaSASLMechanism = "scram-sha-256"
+				c.KafkaSASLUsername = ""
+				c.KafkaSASLPassword = "pass"
 			},
-			wantErr: "KAFKA_BROKERS",
+			wantErr: "KAFKA_SASL_USERNAME",
 		},
 		{
-			name: "kafka with brokers",
+			name: "sasl enabled with plain mechanism valid",
 			modify: func(c *TesterConfig) {
-				c.MessageBackend = "kafka"
-				c.KafkaBrokers = "localhost:9092"
+				c.KafkaSASLEnabled = true
+				c.KafkaSASLMechanism = "plain"
+				c.KafkaSASLUsername = "key"
+				c.KafkaSASLPassword = "secret"
+			},
+		},
+		{
+			name: "empty brokers valid (kafka-ingest skips)",
+			modify: func(c *TesterConfig) {
+				c.KafkaBrokers = ""
 			},
 		},
 		{

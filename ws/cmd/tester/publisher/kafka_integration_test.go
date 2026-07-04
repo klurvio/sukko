@@ -10,6 +10,8 @@ import (
 
 	"github.com/testcontainers/testcontainers-go/modules/redpanda"
 	"github.com/twmb/franz-go/pkg/kgo"
+
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 )
 
 func TestKafkaPublisher_PublishAndConsume(t *testing.T) {
@@ -94,15 +96,21 @@ func TestKafkaPublisher_PublishAndConsume(t *testing.T) {
 		t.Error("timestamp should be positive")
 	}
 
-	// Verify headers include source
-	var foundSource bool
+	// Verify headers include source and the x-sukko-channel routing header (FR-010).
+	var foundSource, foundChannel bool
 	for _, h := range record.Headers {
-		if h.Key == "source" && string(h.Value) == "sukko-tester" {
+		if h.Key == kafkashared.HeaderSource && string(h.Value) == "sukko-tester" {
 			foundSource = true
+		}
+		if h.Key == kafkashared.HeaderChannel && string(h.Value) == channel {
+			foundChannel = true
 		}
 	}
 	if !foundSource {
 		t.Error("expected header source=sukko-tester")
+	}
+	if !foundChannel {
+		t.Errorf("expected header %s=%q (required for Pro/Enterprise channel routing)", kafkashared.HeaderChannel, channel)
 	}
 }
 

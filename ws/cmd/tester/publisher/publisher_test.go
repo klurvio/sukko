@@ -3,7 +3,6 @@ package publisher
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -146,62 +145,4 @@ func TestDirectPublisher_ImplementsPublisher(t *testing.T) {
 	t.Parallel()
 	var p Publisher = &DirectPublisher{}
 	_ = p
-}
-
-func TestNewPublisher_Factory_UnsupportedMode(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		mode string
-	}{
-		{"invalid mode", "invalid"},
-		{"nats mode rejected", "nats"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			_, err := NewPublisher(context.Background(), Config{Mode: tt.mode})
-			if err == nil {
-				t.Fatal("expected error for unsupported mode")
-			}
-			if !errors.Is(err, ErrUnsupportedPublisherMode) {
-				t.Errorf("expected ErrUnsupportedPublisherMode, got: %v", err)
-			}
-		})
-	}
-}
-
-func TestNewPublisher_Factory_DirectMode(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upgrader := ws.HTTPUpgrader{}
-		conn, _, _, err := upgrader.Upgrade(r, w)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		for {
-			if _, err := wsutil.ReadClientText(conn); err != nil {
-				return
-			}
-		}
-	}))
-	defer srv.Close()
-
-	wsURL := "ws" + srv.URL[4:]
-	pub, err := NewPublisher(context.Background(), Config{
-		Mode:       "direct",
-		GatewayURL: wsURL,
-	})
-	if err != nil {
-		t.Fatalf("new publisher: %v", err)
-	}
-	defer pub.Close()
-
-	if _, ok := pub.(*DirectPublisher); !ok {
-		t.Errorf("expected *DirectPublisher, got %T", pub)
-	}
 }

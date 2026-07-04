@@ -6,15 +6,13 @@ import (
 	"slices"
 
 	"github.com/klurvio/sukko/cmd/tester/runner"
-	"github.com/klurvio/sukko/internal/shared/platform"
 )
 
 // Capabilities describes the tester's full API surface.
-// Consumed by the CLI for auto-discovery — suites, backends, context fields.
+// Consumed by the CLI for auto-discovery — suites and context fields.
 type Capabilities struct {
 	TestTypes     []TestTypeInfo     `json:"test_types"`
 	Suites        []SuiteInfo        `json:"suites"`
-	Backends      []string           `json:"backends"`
 	ContextFields []ContextFieldInfo `json:"context_fields"`
 }
 
@@ -54,14 +52,13 @@ func (h *handlers) getCapabilities(w http.ResponseWriter, _ *http.Request) {
 			{Name: "soak", Description: "Long-running stability test for memory leaks and connection drift"},
 			{Name: "validate", Description: "End-to-end correctness validation suites"},
 		},
-		Suites:   suites,
-		Backends: []string{platform.MessageBackendDirect, platform.MessageBackendKafka},
+		Suites: suites,
 		ContextFields: []ContextFieldInfo{
 			{Name: "gateway_url", Type: "string", Required: true, Description: "WebSocket gateway URL (e.g., ws://gateway:3000)"},
 			{Name: "provisioning_url", Type: "string", Required: true, Description: "Provisioning API base URL (e.g., http://provisioning:8080)"},
 			{Name: "admin_token", Type: "string", Required: true, Description: "Admin authentication token for provisioning API"},
 			{Name: "environment", Type: "string", Required: false, Description: "Deployment environment name (e.g., demo, dev, prod)"},
-			{Name: "message_backend_urls", Type: "string", Required: false, Description: "Kafka broker addresses (comma-separated, e.g., localhost:19092)"},
+			{Name: "kafka_brokers", Type: "string", Required: false, Description: "Per-run override of the tester's KAFKA_BROKERS for the kafka-ingest suite (comma-separated)"},
 		},
 	}
 

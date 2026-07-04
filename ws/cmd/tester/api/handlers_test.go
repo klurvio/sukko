@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/klurvio/sukko/cmd/tester/runner"
-	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/rs/zerolog"
 )
 
@@ -21,7 +20,6 @@ func newTestRouter() (http.Handler, *runner.Runner) {
 	r := runner.New(runner.Config{
 		GatewayURL:      "ws://localhost:3000",
 		ProvisioningURL: "http://localhost:8080",
-		MessageBackend:  "direct",
 	}, zerolog.Nop())
 	return NewRouter(r, "test-auth", "", zerolog.Nop()), r
 }
@@ -182,8 +180,7 @@ func TestAuthMiddleware_EmptyToken(t *testing.T) {
 
 	// Router with empty auth token — all requests should pass through
 	r := runner.New(runner.Config{
-		GatewayURL:     "ws://localhost:3000",
-		MessageBackend: "direct",
+		GatewayURL: "ws://localhost:3000",
 	}, zerolog.Nop())
 	handler := NewRouter(r, "", "", zerolog.Nop()) // no auth token
 
@@ -463,7 +460,7 @@ func TestStartTest_AdminKeyID_OverridesDefault(t *testing.T) {
 	}
 	encoded := base64.StdEncoding.EncodeToString(priv)
 
-	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: "direct"}, zerolog.Nop())
+	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000"}, zerolog.Nop())
 	h := NewRouter(rr, "test-auth", "default-key-id", zerolog.Nop())
 
 	body := fmt.Sprintf(`{"type":"smoke","admin_key":"%s","admin_key_id":"override-kid"}`, encoded) //nolint:gocritic // sprintfQuotedString: %s is correct — value is inside a raw JSON template, %q would double-escape
@@ -501,7 +498,7 @@ func TestStartTest_AdminKey_DefaultKID(t *testing.T) {
 	}
 	encoded := base64.StdEncoding.EncodeToString(priv)
 
-	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: "direct"}, zerolog.Nop())
+	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000"}, zerolog.Nop())
 	h := NewRouter(rr, "test-auth", "configured-key-id", zerolog.Nop())
 
 	body := fmt.Sprintf(`{"type":"smoke","admin_key":"%s"}`, encoded) //nolint:gocritic // sprintfQuotedString
@@ -538,7 +535,7 @@ func TestStartTest_AdminKeyPath_DeprecationWarned(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := zerolog.New(&logBuf)
 
-	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: "direct"}, zerolog.Nop())
+	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000"}, zerolog.Nop())
 	h := NewRouter(rr, "test-auth", "", logger)
 
 	body := `{"type":"smoke","context":{"gateway_url":"ws://gw","provisioning_url":"http://prov","environment":"test","admin_key_path":"/some/path.bin"}}`
@@ -575,102 +572,10 @@ func TestStartTest_AdminKeyPath_DeprecationWarned(t *testing.T) {
 	rr.Wait()
 }
 
-func TestStartTest_BackendValidation(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantStatus int
-		wantCode   string
-	}{
-		{
-			name:       "direct backend accepted",
-			body:       `{"type":"smoke","message_backend":"direct"}`,
-			wantStatus: http.StatusCreated,
-		},
-		{
-			name:       "kafka backend with context accepted",
-			body:       `{"type":"smoke","message_backend":"kafka","context":{"gateway_url":"ws://gw","provisioning_url":"http://prov","environment":"test","message_backend_urls":"localhost:9092"}}`,
-			wantStatus: http.StatusCreated,
-		},
-		{
-			name:       "nats backend rejected with 400",
-			body:       `{"type":"smoke","message_backend":"nats"}`,
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "INVALID_REQUEST",
-		},
-		{
-			name:       "unknown backend rejected with 400",
-			body:       `{"type":"smoke","message_backend":"zombie"}`,
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "INVALID_REQUEST",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: platform.MessageBackendDirect}, zerolog.Nop())
-			h := NewRouter(rr, "", "", zerolog.Nop())
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(tt.body))
-			w := httptest.NewRecorder()
-			h.ServeHTTP(w, req)
-			if w.Code != tt.wantStatus {
-				t.Errorf("status = %d, want %d; body: %s", w.Code, tt.wantStatus, w.Body.String())
-			}
-			if tt.wantCode != "" {
-				var resp map[string]any
-				if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-					t.Fatalf("decode body: %v", err)
-				}
-				if got, _ := resp["code"].(string); got != tt.wantCode {
-					t.Errorf("code = %q, want %q", got, tt.wantCode)
-				}
-			}
-		})
-	}
-}
-
-func TestStartTest_BackendURLsRequired(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantStatus int
-	}{
-		{
-			name:       "kafka with empty backend URLs returns 400",
-			body:       `{"type":"smoke","message_backend":"kafka","context":{"gateway_url":"ws://gw","provisioning_url":"http://prov","environment":"test","message_backend_urls":""}}`,
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "kafka with backend URLs returns 201",
-			body:       `{"type":"smoke","message_backend":"kafka","context":{"gateway_url":"ws://gw","provisioning_url":"http://prov","environment":"test","message_backend_urls":"localhost:9092"}}`,
-			wantStatus: http.StatusCreated,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: platform.MessageBackendDirect}, zerolog.Nop())
-			h := NewRouter(rr, "", "", zerolog.Nop())
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(tt.body))
-			w := httptest.NewRecorder()
-			h.ServeHTTP(w, req)
-			if w.Code != tt.wantStatus {
-				t.Errorf("status = %d, want %d; body: %s", w.Code, tt.wantStatus, w.Body.String())
-			}
-		})
-	}
-}
-
 func TestStartTest_AdminKeyID_WithoutAdminKey_Returns400(t *testing.T) {
 	t.Parallel()
 
-	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000", MessageBackend: "direct"}, zerolog.Nop())
+	rr := runner.New(runner.Config{GatewayURL: "ws://localhost:3000"}, zerolog.Nop())
 	h := NewRouter(rr, "", "", zerolog.Nop())
 
 	body := `{"type":"smoke","admin_key_id":"bootstrap-0"}`

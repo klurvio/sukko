@@ -34,8 +34,13 @@ func TestBuildKgoOpts(t *testing.T) {
 			tls:  nil,
 		},
 		{
+			name: "PLAIN — success",
+			sasl: &SASLConfig{Mechanism: MechanismPLAIN, Username: "user", Password: "pass"},
+			tls:  nil,
+		},
+		{
 			name:    "invalid SASL mechanism — error",
-			sasl:    &SASLConfig{Mechanism: "plain"},
+			sasl:    &SASLConfig{Mechanism: "oauthbearer"},
 			wantErr: true,
 		},
 		{

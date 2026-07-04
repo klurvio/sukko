@@ -25,9 +25,9 @@ func validConfig() Config {
 			GRPCReconnectConfig:  platform.GRPCReconnectConfig{GRPCReconnectDelay: 1 * time.Second, GRPCReconnectMaxDelay: 30 * time.Second},
 		},
 		MessageBackendConfig: platform.MessageBackendConfig{
-			MessageBackendBase: platform.MessageBackendBase{
-				MessageBackend: "kafka",
-				KafkaBrokers:   "localhost:19092",
+			MessageBackend: "kafka",
+			KafkaConnectionConfig: platform.KafkaConnectionConfig{
+				KafkaBrokers: "localhost:19092",
 			},
 		},
 		KafkaNamespaceConfig: platform.KafkaNamespaceConfig{

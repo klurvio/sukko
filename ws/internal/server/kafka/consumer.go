@@ -906,7 +906,7 @@ func extractChannel(record *kgo.Record, rulesProvider RoutingSnapshotProvider) (
 		}
 	}
 
-	headerVal := findHeader(record, HeaderChannel)
+	headerVal := findHeader(record, kafkashared.HeaderChannel)
 
 	if headerVal == nil {
 		if license.EditionHasFeature(edition, license.ChannelTopicRouting) {

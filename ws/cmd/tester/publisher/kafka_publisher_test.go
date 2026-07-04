@@ -23,7 +23,7 @@ func TestNewKafkaPublisher_InvalidSASL(t *testing.T) {
 	t.Parallel()
 
 	_, err := NewKafkaPublisher("localhost:9092", nil, &kafkashared.SASLConfig{
-		Mechanism: "plain",
+		Mechanism: "oauthbearer", // plain is now supported; use a still-unsupported mechanism
 		Username:  "user",
 		Password:  "pass",
 	}, nil)
