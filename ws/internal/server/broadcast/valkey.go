@@ -165,7 +165,7 @@ func newValkeyBus(cfg Config, logger zerolog.Logger) (*valkeyBus, error) {
 		ConnWriteTimeout: vcfg.WriteTimeout,
 	}
 
-	if vcfg.MasterName != "" {
+	if platform.UseValkeySentinel(vcfg.Addrs, vcfg.MasterName) {
 		opt.Sentinel = valkey.SentinelOption{MasterSet: vcfg.MasterName}
 		busLogger.Info().
 			Str("mode", "sentinel").
