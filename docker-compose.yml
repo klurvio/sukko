@@ -71,21 +71,31 @@ services:
         COMMIT_HASH: ${COMMIT_HASH:-local}
     ports:
       - "3005:3005"
+    # NOTE: list syntax (deviates from other services' map syntax — §XVIII) is required for
+    # the bare-key MESSAGE_BACKEND passthrough below. A bare key forwards the host/compose-
+    # process value only when set and is OMITTED when unset (→ Go envDefault "direct").
+    # Map-syntax ${MESSAGE_BACKEND:-} would inject an empty string and fail
+    # MessageBackendConfig.Validate(); ${MESSAGE_BACKEND:-direct} would duplicate the Go
+    # default (§I). Bare-key list passthrough is the only form yielding genuine absence.
     environment:
       # Inter-service wiring (only overrides needed)
-      VALKEY_ADDRS: "valkey:6379"
-      PROVISIONING_GRPC_ADDR: "provisioning:9090"
-      SUKKO_LICENSE_KEY: "${SUKKO_LICENSE_KEY:-}"
+      - VALKEY_ADDRS=valkey:6379
+      - PROVISIONING_GRPC_ADDR=provisioning:9090
+      - SUKKO_LICENSE_KEY=${SUKKO_LICENSE_KEY:-}
       # Pod identity — required for connections registry key namespacing (no Go default).
-      WS_POD_ID: "ws-server-local"
+      - WS_POD_ID=ws-server-local
       # Connections registry — opt in for local dev (Pro+ license required).
-      WS_CONNECTIONS_REGISTRY_ENABLED: "${WS_CONNECTIONS_REGISTRY_ENABLED:-false}"
+      - WS_CONNECTIONS_REGISTRY_ENABLED=${WS_CONNECTIONS_REGISTRY_ENABLED:-false}
       # Observability (disabled by default, enable with OTEL_TRACING_ENABLED=true)
-      OTEL_TRACING_ENABLED: "${OTEL_TRACING_ENABLED:-false}"
-      OTEL_EXPORTER_ENDPOINT: "tempo:4317"
-      PPROF_ENABLED: "${PPROF_ENABLED:-false}"
-      PYROSCOPE_ENABLED: "${PYROSCOPE_ENABLED:-false}"
-      PYROSCOPE_ADDR: "http://pyroscope:4040"
+      - OTEL_TRACING_ENABLED=${OTEL_TRACING_ENABLED:-false}
+      - OTEL_EXPORTER_ENDPOINT=tempo:4317
+      - PPROF_ENABLED=${PPROF_ENABLED:-false}
+      - PYROSCOPE_ENABLED=${PYROSCOPE_ENABLED:-false}
+      - PYROSCOPE_ADDR=http://pyroscope:4040
+      # Kafka mode (Pro/Enterprise, opt-in): set MESSAGE_BACKEND=kafka to enable, with a Pro
+      # license and `--profile kafka`. Unset ⇒ omitted ⇒ direct (Community default).
+      - MESSAGE_BACKEND
+      - KAFKA_BROKERS=redpanda:9092
     depends_on:
       valkey:
         condition: service_healthy
