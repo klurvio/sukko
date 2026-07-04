@@ -151,11 +151,13 @@ func TestNew_SASLAndTLSPassthrough(t *testing.T) {
 
 	// An unsupported SASL mechanism must propagate as a config error, not a broker error.
 	// Environment is set to produce a valid topic namespace and reach the SASL/TLS code path.
+	// "oauthbearer" is a real SASL mechanism we deliberately do not support (supported:
+	// plain, scram-sha-256, scram-sha-512), so it must hit the unsupported-mechanism path.
 	_, err := New(Config{
 		Brokers:       []string{"localhost:19092"},
 		Environment:   "test",
 		SASLEnabled:   true,
-		SASLMechanism: "plain",
+		SASLMechanism: "oauthbearer",
 	})
 	if err == nil {
 		t.Fatal("expected error for unsupported SASL mechanism, got nil")
