@@ -68,9 +68,14 @@ func (p *KeypairAuthProvider) SignRequest(req *http.Request) {
 	claims := jwt.MapClaims{
 		"iss": provauth.AdminJWTIssuer,
 		"sub": p.keyName,
-		"exp": jwt.NewNumericDate(now.Add(5 * time.Minute)),
-		"iat": jwt.NewNumericDate(now),
-		"jti": uuid.NewString(),
+		// Provisioning's RequireRole("admin","system") reads the "roles" claim (admin keys
+		// carry no server-side role, and ValidateJWT never injects one). Without this, admin
+		// operations like tenant creation — including the tester's own throwaway-tenant setup —
+		// fail with 403 INSUFFICIENT_ROLE. Mirrors the CLI's admin signer (client/keypair_signer.go).
+		"roles": []string{"admin"},
+		"exp":   jwt.NewNumericDate(now.Add(5 * time.Minute)),
+		"iat":   jwt.NewNumericDate(now),
+		"jti":   uuid.NewString(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
