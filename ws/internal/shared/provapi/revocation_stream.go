@@ -203,10 +203,9 @@ func (r *StreamRevocationRegistry) streamLoop(ctx context.Context) {
 
 		r.streamState.Store(StreamStateConnected)
 		r.streamStateGauge.Set(StreamStateConnected)
-		delay = r.config.ReconnectDelay
-
 		r.logger.Info().Msg("WatchTokenRevocations stream connected")
 
+		healthy := false
 		for {
 			resp, err := stream.Recv()
 			if err != nil {
@@ -216,12 +215,37 @@ func (r *StreamRevocationRegistry) streamLoop(ctx context.Context) {
 				break
 			}
 
+			// Reset backoff only once the stream is proven healthy (a message arrived).
+			// Resetting on mere connect would defeat the backoff below when a stream connects
+			// but immediately errors on Recv (e.g. codes.Unimplemented when token revocation is
+			// unconfigured), collapsing it into a tight reconnect loop.
+			if !healthy {
+				healthy = true
+				delay = r.config.ReconnectDelay
+			}
+
 			if resp.GetIsSnapshot() {
 				r.applySnapshot(resp.GetRevocations())
 			} else {
 				r.applyDelta(resp.GetRevocations())
 			}
 		}
+
+		// Back off before reconnecting after ANY stream disconnect — not just a dial failure.
+		// A stream that errors immediately on Recv (e.g. Unimplemented when token revocation is
+		// unconfigured) must NOT reconnect in a tight loop: doing so floods the shared gRPC
+		// connection with pings, triggering the server's GOAWAY (too_many_pings), which tears
+		// down the sibling tenant-config and key streams and breaks connection authentication. (§IV)
+		r.reconnects.Add(1)
+		r.reconnectsCounter.Inc()
+		select {
+		case <-ctx.Done():
+			r.streamState.Store(StreamStateDisconnected)
+			r.streamStateGauge.Set(StreamStateDisconnected)
+			return
+		case <-time.After(delay):
+		}
+		delay = backoff(delay, r.config.ReconnectMaxDelay)
 	}
 }
 
