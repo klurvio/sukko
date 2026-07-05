@@ -86,7 +86,14 @@ func validateKafkaIngest(ctx context.Context, run *TestRun, logger zerolog.Logge
 			_ = user.Client.Close() // best-effort test cleanup
 		}
 	}()
-	if err := user.Client.Subscribe([]string{kafkaIngestTestChannel}); err != nil {
+	// Subscribe to the tenant-qualified channel. The gateway requires every
+	// subscribe/publish channel to carry the tenant prefix (interceptSubscribe →
+	// ValidateChannelTenant); a bare channel is filtered out, forwarded to the
+	// shard as an empty subscription, and silently dropped (subscriptions_count=0).
+	// Publish below uses the same qualified channel so the shard's subscription key
+	// matches the broadcast subject.
+	qualifiedChannel := tenantID + "." + kafkaIngestTestChannel
+	if err := user.Client.Subscribe([]string{qualifiedChannel}); err != nil {
 		return []metrics.CheckResult{{Name: "subscribe", Status: metrics.CheckStatusFail, Error: err.Error()}}, nil
 	}
 	time.Sleep(500 * time.Millisecond) // allow subscription to propagate
@@ -107,10 +114,10 @@ func validateKafkaIngest(ctx context.Context, run *TestRun, logger zerolog.Logge
 	}
 	defer func() { _ = pub.Close() }() // best-effort test cleanup
 
-	// Publish the tenant-qualified channel and verify delivery. Re-publish once on
-	// first timeout to defeat the offset race (the consumer may join the topic only
-	// after the first publish, and a latest-offset consumer would miss it).
-	qualifiedChannel := tenantID + "." + kafkaIngestTestChannel
+	// Publish the same tenant-qualified channel the subscriber registered and verify
+	// delivery. Re-publish once on first timeout to defeat the offset race (the
+	// consumer may join the topic only after the first publish, and a latest-offset
+	// consumer would miss it).
 	result := engine.PublishAndVerify(ctx, pub, qualifiedChannel, []*TestUser{user}, []*TestUser{user})
 	if !result.Delivered {
 		user.ClearReceived()
