@@ -45,8 +45,11 @@ func TestMultiAlerter_AlertAllAlerters(t *testing.T) {
 
 	multi.Alert(ERROR, "Test alert", map[string]any{"key": "value"})
 
-	// Give goroutines time to execute
-	time.Sleep(50 * time.Millisecond)
+	// MultiAlerter dispatches each alerter in its own goroutine; poll for all three instead
+	// of a fixed sleep (which races the goroutines under CI load).
+	waitForCondition(t, 2*time.Second, func() bool {
+		return alerter1.getAlerts() == 1 && alerter2.getAlerts() == 1 && alerter3.getAlerts() == 1
+	}, "all three alerters should receive the alert")
 
 	// All alerters should have received the alert
 	if alerter1.getAlerts() != 1 {
@@ -79,8 +82,10 @@ func TestMultiAlerter_RunsInGoroutines(t *testing.T) {
 		t.Errorf("MultiAlerter.Alert should not block, took %v", elapsed)
 	}
 
-	// Wait for both to complete
-	time.Sleep(150 * time.Millisecond)
+	// Wait for both to complete (blocking alerter sleeps 100ms) — poll instead of a fixed sleep.
+	waitForCondition(t, 2*time.Second, func() bool {
+		return fastAlerter.getAlerts() == 1 && blockingAlerter.getAlerts() == 1
+	}, "both alerters should complete")
 
 	if fastAlerter.getAlerts() != 1 {
 		t.Error("fastAlerter should have received alert")
@@ -88,6 +93,20 @@ func TestMultiAlerter_RunsInGoroutines(t *testing.T) {
 	if blockingAlerter.getAlerts() != 1 {
 		t.Error("blockingAlerter should have received alert")
 	}
+}
+
+// waitForCondition polls cond until true or timeout, replacing fixed sleeps that race async
+// goroutines (MultiAlerter dispatches each alerter in its own goroutine).
+func waitForCondition(t *testing.T, timeout time.Duration, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("condition not met within %s: %s", timeout, msg)
 }
 
 func TestMultiAlerter_ImplementsInterface(t *testing.T) {

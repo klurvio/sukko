@@ -1600,7 +1600,9 @@ func TestWriteLoop_GapCoalescing(t *testing.T) {
 		done <- true
 	}()
 
-	time.Sleep(100 * time.Millisecond)
+	// Poll for the coalesced gap frame before cancelling: the gap handler runs in the
+	// Priority-3 select alongside ctx.Done(), so cancelling first could race the write.
+	waitForGapFrames(t, mockConn, 1, 2*time.Second)
 	cancel()
 	select {
 	case <-done:
@@ -1712,7 +1714,8 @@ func TestWriteLoop_GapNotificationDifferentChannels(t *testing.T) {
 		done <- true
 	}()
 
-	time.Sleep(150 * time.Millisecond)
+	// Poll for both channels' gap frames before cancelling (gap handler races ctx.Done()).
+	waitForGapFrames(t, mockConn, 2, 2*time.Second)
 	cancel()
 	select {
 	case <-done:
@@ -1811,7 +1814,15 @@ func TestWriteLoop_GapNotificationDroppedWhenSendFull(t *testing.T) {
 		pump.WriteLoop(ctx, client)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	// Poll for the drop metric before cancelling: the gap handler runs in the Priority-3
+	// select alongside ctx.Done(), so cancelling first could race the drop.
+	dropDeadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(dropDeadline) {
+		if testutil.ToFloat64(metrics.GapNotificationsDropped.WithLabelValues(GapDropReasonSendFull))-before >= 1 {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 	cancel()
 
 	select {
@@ -1919,4 +1930,42 @@ func TestHandleSendMsg_BatchSendError_RecordsDrop(t *testing.T) {
 	if total == 0 {
 		t.Error("expected dropped broadcast count to be incremented after batch send error")
 	}
+}
+
+// gapFramesFromConn parses all gap-type frames written to the mock connection.
+func gapFramesFromConn(mockConn *testMockConn) []map[string]any {
+	reader := bytes.NewReader(mockConn.getWrittenData())
+	var frames []map[string]any
+	for reader.Len() > 0 {
+		hdr, err := ws.ReadHeader(reader)
+		if err != nil {
+			break
+		}
+		payload := make([]byte, hdr.Length)
+		if _, _ = io.ReadFull(reader, payload); hdr.Masked {
+			ws.Cipher(payload, hdr.Mask, 0)
+		}
+		var msg map[string]any
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			continue
+		}
+		if msg["type"] == MsgTypeGap {
+			frames = append(frames, msg)
+		}
+	}
+	return frames
+}
+
+// waitForGapFrames polls until at least n gap frames have been written by the WriteLoop
+// goroutine, or fails after timeout. Replaces fixed sleeps that race the async gap handler.
+func waitForGapFrames(t *testing.T, mockConn *testMockConn, n int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(gapFramesFromConn(mockConn)) >= n {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("expected >= %d gap frame(s) within %s, got %d", n, timeout, len(gapFramesFromConn(mockConn)))
 }
