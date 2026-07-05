@@ -1600,8 +1600,8 @@ func TestWriteLoop_GapCoalescing(t *testing.T) {
 		done <- true
 	}()
 
-	// Poll for the coalesced gap frame before cancelling: the gap handler runs in the
-	// Priority-3 select alongside ctx.Done(), so cancelling first could race the write.
+	// Poll for the coalesced gap frame before canceling: the gap handler runs in the
+	// Priority-3 select alongside ctx.Done(), so canceling first could race the write.
 	waitForGapFrames(t, mockConn, 1, 2*time.Second)
 	cancel()
 	select {
@@ -1714,7 +1714,7 @@ func TestWriteLoop_GapNotificationDifferentChannels(t *testing.T) {
 		done <- true
 	}()
 
-	// Poll for both channels' gap frames before cancelling (gap handler races ctx.Done()).
+	// Poll for both channels' gap frames before canceling (gap handler races ctx.Done()).
 	waitForGapFrames(t, mockConn, 2, 2*time.Second)
 	cancel()
 	select {
@@ -1814,8 +1814,8 @@ func TestWriteLoop_GapNotificationDroppedWhenSendFull(t *testing.T) {
 		pump.WriteLoop(ctx, client)
 	}()
 
-	// Poll for the drop metric before cancelling: the gap handler runs in the Priority-3
-	// select alongside ctx.Done(), so cancelling first could race the drop.
+	// Poll for the drop metric before canceling: the gap handler runs in the Priority-3
+	// select alongside ctx.Done(), so canceling first could race the drop.
 	dropDeadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(dropDeadline) {
 		if testutil.ToFloat64(metrics.GapNotificationsDropped.WithLabelValues(GapDropReasonSendFull))-before >= 1 {

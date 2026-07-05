@@ -23,7 +23,7 @@ func TestSignRequest_AdminRolesClaim(t *testing.T) {
 		t.Fatalf("NewEphemeralAuthProvider: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "http://provisioning/api/v1/tenants", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://provisioning/api/v1/tenants", http.NoBody)
 	provider.SignRequest(req)
 
 	authz := req.Header.Get("Authorization")
