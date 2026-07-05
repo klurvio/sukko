@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // ShardProxy is a WebSocket proxy that forwards connections to a backend shard.
@@ -38,6 +39,28 @@ func NewShardProxy(shard *Shard, backendURL *url.URL, logger zerolog.Logger, dia
 		dialTimeout:    dialTimeout,
 		messageTimeout: messageTimeout,
 	}
+}
+
+// buildBackendHeaders copies the gateway-set identity headers from the client
+// request so they can be forwarded to the backend shard. The shard checks these
+// on upgrade (defense in depth, §II): it requires the tenant header (400 "missing
+// tenant ID" if absent) and constant-time validates the internal secret (401 if
+// wrong). Only non-empty identity headers are copied; all other request headers
+// (Authorization, cookies, WebSocket handshake headers) are intentionally
+// excluded — the backend dial performs its own handshake.
+func buildBackendHeaders(r *http.Request) http.Header {
+	h := http.Header{}
+	for _, name := range []string{
+		protocol.HeaderTenantID,
+		protocol.HeaderInternalSecret,
+		protocol.HeaderAPIKeyID,
+		protocol.HeaderUserID,
+	} {
+		if v := r.Header.Get(name); v != "" {
+			h.Set(name, v)
+		}
+	}
+	return h
 }
 
 // ServeHTTP handles the WebSocket proxy request.
@@ -74,7 +97,11 @@ func (p *ShardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Str("client_remote_addr", r.RemoteAddr).
 		Msg("Attempting to dial backend shard")
 
-	backendConn, _, _, err := ws.Dial(ctx, p.backendURL.String())
+	// Forward the gateway-set identity headers to the backend shard, which checks
+	// them on upgrade (defense in depth, §II). Without this the shard rejects the
+	// upgrade with 400 "missing tenant ID" and the client never attaches to a shard.
+	dialer := ws.Dialer{Header: ws.HandshakeHeaderHTTP(buildBackendHeaders(r))}
+	backendConn, _, _, err := dialer.Dial(ctx, p.backendURL.String())
 	dialDuration := time.Since(dialStart)
 
 	if err != nil {
