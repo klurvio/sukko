@@ -22,6 +22,7 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	grpcmetadata "google.golang.org/grpc/metadata"
 
 	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
@@ -48,6 +49,11 @@ import (
 )
 
 const serviceName = "provisioning"
+
+// grpcKeepaliveMinTime is the minimum interval the gRPC server tolerates between client
+// keepalive pings. It MUST be <= the provapi stream clients' keepalive interval (20s) or the
+// server sends GOAWAY "too_many_pings" and tears down long-lived streams.
+const grpcKeepaliveMinTime = 10 * time.Second
 
 // base64 encoding variants for bootstrap key decoding.
 var (
@@ -461,6 +467,16 @@ func main() {
 	// Internal pod-to-pod; no auth interceptor needed.
 	grpcSrv := grpc.NewServer(
 		tracing.StatsHandler(),
+		// Tolerate the provapi stream clients' keepalive (gateway/ws-server ping every 20s with
+		// PermitWithoutStream — see provapi.provAPIKeepaliveTime). Without a matching enforcement
+		// policy the server uses gRPC's default (MinTime 5m, PermitWithoutStream false) and kills
+		// every long-lived stream with GOAWAY "too_many_pings" — which drops tenant-config/key
+		// propagation to the gateway and makes it 401 all connections. MinTime MUST be <= the
+		// client keepalive interval.
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             grpcKeepaliveMinTime,
+			PermitWithoutStream: true,
+		}),
 		grpc.ChainStreamInterceptor(
 			grpcserver.RecoveryStreamInterceptor(structuredLogger),
 			grpcserver.LoggingStreamInterceptor(structuredLogger),
