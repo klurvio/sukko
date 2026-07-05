@@ -237,3 +237,20 @@ func (w *syncWaitGroup) Wait() { w.wg.Wait() }
 func metricCounterValue(_ *testing.T, c prometheus.Counter) float64 {
 	return prometheustestutil.ToFloat64(c)
 }
+
+// waitForStreamEntry polls until the history stream key has at least one entry, or fails
+// after timeout. It replaces fixed sleeps that race the asynchronous HistoryWriter — under
+// CI load (and -race) a fixed sleep can elapse before the relay+flush writes the entry,
+// producing a spurious failure (e.g. TTL -2 on a not-yet-created key).
+func waitForStreamEntry(t *testing.T, client valkey.Client, streamKey string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		n, err := client.Do(context.Background(), client.B().Xlen().Key(streamKey).Build()).AsInt64()
+		if err == nil && n > 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("stream key %q did not receive an entry within %s (HistoryWriter did not process in time)", streamKey, timeout)
+}

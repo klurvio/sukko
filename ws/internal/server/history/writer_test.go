@@ -116,14 +116,14 @@ func TestHistoryWriter_XADDEntrySchema(t *testing.T) {
 	}
 	bus.fanOut(msg)
 
-	// Give time for the relay + flushBatch to fire.
-	time.Sleep(80 * time.Millisecond)
+	client := newTestValkeyClient(t, mr)
+	streamKey := history.HistoryStreamKeyPrefix + opts.env + ":tenantA:BTC.trade"
+	// Poll for the relay + flushBatch to land instead of a fixed sleep (races the async writer under CI load).
+	waitForStreamEntry(t, client, streamKey, 2*time.Second)
 
 	cancel()
 	wg.Wait()
 
-	client := newTestValkeyClient(t, mr)
-	streamKey := history.HistoryStreamKeyPrefix + opts.env + ":tenantA:BTC.trade"
 	entries, err := client.Do(context.Background(),
 		client.B().Xrevrange().Key(streamKey).End("+").Start("-").Count(10).Build(),
 	).AsXRange()
@@ -258,12 +258,14 @@ func TestHistoryWriter_TenantIsolation(t *testing.T) {
 		bus.fanOut(msg)
 	}
 
-	time.Sleep(80 * time.Millisecond)
-	cancel()
-	wg.Wait()
-
 	checkClient := newTestValkeyClient(t, mr)
 	ctx := context.Background()
+	// Poll for both tenants' entries instead of a fixed sleep (races the async writer under CI load).
+	for _, tenant := range []string{"tenantA", "tenantB"} {
+		waitForStreamEntry(t, checkClient, history.HistoryStreamKeyPrefix+opts.env+":"+tenant+":BTC.trade", 2*time.Second)
+	}
+	cancel()
+	wg.Wait()
 
 	for _, tc := range []struct {
 		tenant  string
@@ -515,12 +517,13 @@ func TestHistoryWriter_PayloadFieldStoresRawDataOnly(t *testing.T) {
 		TenantID: "tenantA",
 		Channel:  "TICK",
 	})
-	time.Sleep(80 * time.Millisecond)
+	streamKey := history.HistoryStreamKeyPrefix + opts.env + ":tenantA:TICK"
+	checkClient := newTestValkeyClient(t, mr)
+	// Poll for the entry instead of a fixed sleep (races the async writer under CI load).
+	waitForStreamEntry(t, checkClient, streamKey, 2*time.Second)
 	cancel()
 	wg.Wait()
 
-	streamKey := history.HistoryStreamKeyPrefix + opts.env + ":tenantA:TICK"
-	checkClient := newTestValkeyClient(t, mr)
 	entries, err := checkClient.Do(context.Background(),
 		checkClient.B().Xrevrange().Key(streamKey).End("+").Start("-").Count(1).Build(),
 	).AsXRange()
@@ -594,12 +597,15 @@ func TestHistoryWriter_XADDAndExpireCoBatched(t *testing.T) {
 	bus.fanOut(&broadcast.Message{
 		Subject: "t1.KEY", Payload: []byte(`{}`), TenantID: "t1", Channel: "KEY",
 	})
-	time.Sleep(80 * time.Millisecond)
-	cancel()
-	wg.Wait()
 
 	streamKey := history.HistoryStreamKeyPrefix + opts.env + ":t1:KEY"
 	checkClient := newTestValkeyClient(t, mr)
+	// Poll for the entry (writer processed the message) instead of a fixed sleep, then assert
+	// the TTL — the EXPIRE is co-batched with the XADD, so a present key must carry a TTL.
+	waitForStreamEntry(t, checkClient, streamKey, 2*time.Second)
+	cancel()
+	wg.Wait()
+
 	ttl, err := checkClient.Do(context.Background(),
 		checkClient.B().Ttl().Key(streamKey).Build(),
 	).AsInt64()
