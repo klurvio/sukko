@@ -263,8 +263,15 @@ func TestBackpressureWarnLog(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait for the blocked goroutine to attempt enqueue
-	time.Sleep(100 * time.Millisecond)
+	// Poll for the backpressure WARN log instead of a fixed sleep (races the blocked
+	// enqueue goroutine under CI load).
+	logDeadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(logDeadline) {
+		if strings.Contains(buf.String(), "push job queue full") {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 
 	// Unblock everything
 	close(blocker)
