@@ -307,7 +307,7 @@ func TestMinter_MintWithClaims_JTI(t *testing.T) {
 	}
 }
 
-func TestMinter_MintWithClaims_JTI_Empty(t *testing.T) {
+func TestMinter_MintWithClaims_JTI_DefaultsToGenerated(t *testing.T) {
 	t.Parallel()
 
 	kp := testKeypair(t)
@@ -318,9 +318,11 @@ func TestMinter_MintWithClaims_JTI_Empty(t *testing.T) {
 		t.Fatalf("MintWithClaims: %v", err)
 	}
 
+	// jti defaults to a generated value when not supplied — the gateway rejects tenant
+	// tokens without one (ErrMissingJTI, FR-001a).
 	claims := parseClaims(t, tokenStr, &kp.PrivateKey.PublicKey)
-	if claims.ID != "" {
-		t.Errorf("jti = %q, want empty", claims.ID)
+	if claims.ID == "" {
+		t.Error("jti = empty, want a generated jti")
 	}
 }
 
