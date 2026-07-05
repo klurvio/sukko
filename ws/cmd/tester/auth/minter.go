@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	"github.com/klurvio/sukko/internal/shared/auth"
 )
@@ -91,7 +92,7 @@ type MintOptions struct {
 	Groups    []string  // JWT groups claim (for group-scoped channel access)
 	Roles     []string  // JWT roles claim (for RBAC)
 	Subject   string    // override subject (empty = auto-generate from connIndex)
-	JTI       string    // JWT ID claim (empty = no jti set)
+	JTI       string    // JWT ID claim (empty = auto-generated; gateway mandates a jti, FR-001a)
 	IssuedAt  time.Time // override iat (zero = use now)
 }
 
@@ -112,12 +113,19 @@ func (m *Minter) MintWithClaims(opts MintOptions) (string, error) {
 	if !opts.IssuedAt.IsZero() {
 		iat = opts.IssuedAt
 	}
+	// The gateway mandates a jti on tenant JWTs (FR-001a) and rejects tokens without one
+	// (ErrMissingJTI) — so default to a generated jti. Callers that need a specific jti
+	// (e.g. replay/revocation tests) still override it via opts.JTI.
+	jti := opts.JTI
+	if jti == "" {
+		jti = uuid.NewString()
+	}
 	claims := &auth.Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   subject,
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.lifetime)),
 			IssuedAt:  jwt.NewNumericDate(iat),
-			ID:        opts.JTI,
+			ID:        jti,
 		},
 		TenantID: tenantID,
 		Groups:   opts.Groups,
@@ -142,6 +150,7 @@ func (m *Minter) mintWithOverrides(connIndex int, tenantID, kid string, exp time
 			Subject:   fmt.Sprintf("tester-%s-%04d", strings.TrimPrefix(m.keypair.KeyID, "tester-"), connIndex),
 			ExpiresAt: jwt.NewNumericDate(exp),
 			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        uuid.NewString(), // gateway mandates a jti on tenant JWTs (FR-001a)
 		},
 		TenantID: tenantID,
 	}
