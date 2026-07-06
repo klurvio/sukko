@@ -137,12 +137,11 @@ func (e *PubSubEngine) CreateUser(ctx context.Context, minter *auth.Minter, opts
 		received: make(map[string]receivedMsg),
 	}
 
-	client, err := testerws.Connect(ctx, testerws.ConnectConfig{
-		GatewayURL: e.gatewayURL,
-		Token:      token,
-		Logger:     e.logger,
-		OnMessage:  user.onMessage,
-	})
+	// Retry the connect: a freshly-minted user's signing key may not have propagated
+	// to the gateway's key-registry cache yet (provisioning pushes it over the gRPC
+	// stream asynchronously), so the first attempt can 401. connectWithRetry absorbs
+	// that key-registry cache race.
+	client, err := connectWithRetry(ctx, e.gatewayURL, token, e.logger, user.onMessage)
 	if err != nil {
 		return nil, fmt.Errorf("connect user %s: %w", opts.Subject, err)
 	}

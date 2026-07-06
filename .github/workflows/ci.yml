@@ -1,13 +1,20 @@
 # =============================================================================
-# CI — Lint, Test, Helm Lint
+# CI — Lint, Test, Helm Lint, kafka-ingest E2E
 # =============================================================================
-# Manual trigger only. Run via GitHub Actions UI ("Run workflow" button)
-# or CLI: gh workflow run ci.yml --ref <branch>
+# Runs automatically on every push to main (post-merge verification, including
+# the kafka-ingest data-path round-trip), and manually via the GitHub Actions
+# UI ("Run workflow" button) or CLI: gh workflow run ci.yml --ref <branch>
 
 name: CI
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -103,3 +110,51 @@ jobs:
 
       - name: Lint DOKS values
         run: helm lint deployments/helm/sukko -f deployments/helm/sukko/values/doks/demo.yaml
+
+  # ---------------------------------------------------------------------------
+  # kafka-ingest E2E — Pro-gated Kafka round-trip regression
+  # ---------------------------------------------------------------------------
+  # Boots the full stack in MESSAGE_BACKEND=kafka mode (built from source) with
+  # a Pro license, publishes directly to Redpanda, and asserts a
+  # gateway-subscribed client receives the message. Guards the ingestion
+  # pipeline (Kafka → ws-server consumer → broadcast → gateway → client), which
+  # no unit test exercises end-to-end. The task's report assertion fails closed
+  # on skip/error — a green run cannot be vacuous.
+  e2e-kafka-ingest:
+    name: kafka-ingest round-trip
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout sukko
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Checkout sukko-cli (test driver)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: klurvio/sukko-cli
+          path: .sukko-cli
+          ref: main
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: ws/go.mod
+          cache: true
+
+      - name: Fail fast if Docker is unavailable
+        # This regression MUST fail (not silently skip) without Docker.
+        run: docker version
+
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.44.0
+
+      - name: Build sukko CLI (driver)
+        working-directory: .sukko-cli
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          go build -o "$HOME/.local/bin/sukko" .
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run kafka-ingest E2E
+        run: task e2e:kafka-ingest
