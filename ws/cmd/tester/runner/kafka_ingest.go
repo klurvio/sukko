@@ -21,9 +21,8 @@ const (
 	// isolation. Requires the target server to run MESSAGE_BACKEND=kafka.
 	SuiteKafkaIngest = "kafka-ingest"
 
-	kafkaIngestTestChannel   = "kafka.ingest.test"
-	kafkaIngestChannelPatt   = "kafka.ingest.*"
-	kafkaIngestTopicCategory = "kafka-ingest"
+	kafkaIngestTestChannel = "kafka.ingest.test"
+	kafkaIngestChannelPatt = "kafka.ingest.*"
 
 	// kafkaIngestDeliveryTimeout is deliberately generous: a freshly-provisioned
 	// tenant's topic is created and subscribed via the provisioning gRPC-stream
@@ -55,8 +54,9 @@ func validateKafkaIngest(ctx context.Context, run *TestRun, logger zerolog.Logge
 	provClient := run.authResult.ProvClient
 	tenantID := run.authResult.TenantID
 
-	// Authorize the test channel and route it to a topic. SetRoutingRules drives
-	// ws-server's gRPC-stream update → topic auto-creation + consumer subscribe.
+	// Authorize the test channel and route it to the tenant's default topic —
+	// always provisioned at tenant creation; a custom category would be rejected
+	// by SetRoutingRules with TOPIC_NOT_PROVISIONED.
 	channelRules := map[string]any{
 		"public":  []string{kafkaIngestChannelPatt},
 		"default": []string{kafkaIngestChannelPatt},
@@ -65,7 +65,7 @@ func validateKafkaIngest(ctx context.Context, run *TestRun, logger zerolog.Logge
 		return []metrics.CheckResult{{Name: "setup channel rules", Status: metrics.CheckStatusFail, Error: err.Error()}}, nil
 	}
 	routingRules := []map[string]any{
-		{"pattern": "**", "topics": []string{kafkaIngestTopicCategory}, "priority": routing.DefaultCatchAllPriority},
+		{"pattern": "**", "topics": []string{routing.DefaultTopicSuffix}, "priority": routing.DefaultCatchAllPriority},
 	}
 	if err := provClient.SetRoutingRules(ctx, tenantID, routingRules); err != nil {
 		return []metrics.CheckResult{{Name: "setup routing rules", Status: metrics.CheckStatusFail, Error: err.Error()}}, nil
@@ -100,7 +100,7 @@ func validateKafkaIngest(ctx context.Context, run *TestRun, logger zerolog.Logge
 
 	// Direct-to-Kafka publisher (bypasses the gateway).
 	resolver := publisher.NewTopicResolver(run.kafkaNamespace, tenantID, []publisher.RoutingRule{
-		{Pattern: "**", Topics: []string{kafkaIngestTopicCategory}},
+		{Pattern: "**", Topics: []string{routing.DefaultTopicSuffix}},
 	})
 	pub, err := newKafkaPub(run.kafkaBrokers, resolver, run.kafkaSASL, run.kafkaTLS)
 	if err != nil {
