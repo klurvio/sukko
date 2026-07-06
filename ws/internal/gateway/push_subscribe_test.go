@@ -16,6 +16,7 @@ import (
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/provapi"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // mockPushForwarder implements PushForwarder for testing.
@@ -93,6 +94,12 @@ func pushTestGatewayWithJWT(t *testing.T, mock PushForwarder) (gw *Gateway, toke
 		validator:  validator,
 		logger:     testLogger(),
 		pushClient: mock,
+		// Permissive rules for tenant "test-tenant" — provisioning-only
+		// authorization requires a checker; tests override for deny scenarios.
+		tenantPermChecker: testTenantChecker("test-tenant", &types.ChannelRules{
+			Public:        []string{"*"},
+			PublishPublic: []string{"*"},
+		}),
 	}
 
 	return gw, tokenString
@@ -244,8 +251,9 @@ func TestHandlePushSubscribe_InvalidTenantPrefix(t *testing.T) {
 	t.Parallel()
 
 	gw, token := pushTestGatewayWithJWT(t, nil)
-	// Enable permissions so filterSubscribeChannels validates tenant prefix
-	gw.permissions = NewPermissionChecker([]string{"*.alerts"}, nil, nil)
+	// Rules allow *.alerts — the channel below uses a wrong tenant prefix,
+	// so it is filtered before rules even apply.
+	gw.tenantPermChecker = testTenantChecker("acme", &types.ChannelRules{Public: []string{"*.alerts"}})
 
 	body := `{
 		"platform": "web",

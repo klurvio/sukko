@@ -21,6 +21,14 @@ type ChannelRulesProvider interface {
 	// Returns types.ErrChannelRulesNotFound if not configured.
 	GetChannelRules(ctx context.Context, tenantID string) (*types.ChannelRules, error)
 
+	// SnapshotReceived reports whether the initial rules snapshot has been
+	// successfully applied. False means rules are unknown — callers fail
+	// closed and readiness is withheld.
+	SnapshotReceived() bool
+
+	// State returns the stream connection state (provapi.StreamState*).
+	State() int32
+
 	// Close releases resources held by the provider.
 	Close() error
 }

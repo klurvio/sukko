@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -10,34 +12,83 @@ import (
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
-// mustNewTenantPermissionChecker creates a TenantPermissionChecker or fails the test.
-func mustNewTenantPermissionChecker(t *testing.T, provider ChannelRulesProvider, fallback *types.ChannelRules) *TenantPermissionChecker {
+func mustNewTenantPermissionChecker(t *testing.T, provider ChannelRulesProvider) *TenantPermissionChecker {
 	t.Helper()
-	checker, err := NewTenantPermissionChecker(provider, fallback, zerolog.Nop())
+	checker, err := NewTenantPermissionChecker(provider, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("NewTenantPermissionChecker: %v", err)
 	}
 	return checker
 }
 
-func TestTenantPermissionChecker_CanSubscribe_WithTenantRules(t *testing.T) {
+// testTenantChecker builds a rules-backed tenant checker for the tenant.
+// nil rules = tenant absent (deny-all).
+func testTenantChecker(tenantID string, rules *types.ChannelRules) *TenantPermissionChecker {
+	registry := newMockChannelRulesProvider()
+	if rules != nil {
+		registry.setRules(tenantID, rules)
+	}
+	checker, err := NewTenantPermissionChecker(registry, zerolog.Nop())
+	if err != nil {
+		panic(err) // test helper: provider is never nil
+	}
+	return checker
+}
+
+// testProxyAuthz returns proxy authorization closures backed by a minimal
+// real Gateway + tenant checker, so direct-Proxy tests exercise the
+// production filter/publish path (§XVIII — same code as SSE/push/REST).
+// The returned registry allows mid-test rules mutation (revocation scenarios).
+func testProxyAuthz(tenantID string, rules *types.ChannelRules) (
+	filter func(ctx context.Context, channels []string, claims *auth.Claims) []string,
+	canPublish func(ctx context.Context, claims *auth.Claims, channel string) bool,
+	registry *mockChannelRulesProvider,
+) {
+	registry = newMockChannelRulesProvider()
+	if rules != nil {
+		registry.setRules(tenantID, rules)
+	}
+	checker, err := NewTenantPermissionChecker(registry, zerolog.Nop())
+	if err != nil {
+		panic(err) // test helper: provider is never nil
+	}
+	gw := &Gateway{tenantPermChecker: checker, logger: zerolog.Nop()}
+	filter = func(ctx context.Context, channels []string, claims *auth.Claims) []string {
+		return gw.filterSubscribeChannels(ctx, channels, tenantID, claims)
+	}
+	canPublish = func(ctx context.Context, claims *auth.Claims, channel string) bool {
+		return gw.checkPublishAllowed(ctx, tenantID, claims, channel)
+	}
+	return filter, canPublish, registry
+}
+
+func TestNewTenantPermissionChecker_NilProvider(t *testing.T) {
+	t.Parallel()
+	if _, err := NewTenantPermissionChecker(nil, zerolog.Nop()); err == nil {
+		t.Fatal("expected error for nil provider (§I constructor validation)")
+	}
+}
+
+// TestTenantPermissionChecker_CanSubscribe is the subscribe-side authorization
+// matrix: public / group mapping / default / {principal} / deny variants.
+func TestTenantPermissionChecker_CanSubscribe(t *testing.T) {
 	t.Parallel()
 
 	registry := newMockChannelRulesProvider()
-	registry.channelRules["acme"] = &types.ChannelRules{
-		Public: []string{"*.public", "*.metadata"},
+	registry.setRules("acme", &types.ChannelRules{
+		Public: []string{"*.public", "news.*"},
 		GroupMappings: map[string][]string{
-			"traders": {"*.trade", "*.liquidity"},
-			"premium": {"*.realtime"},
+			"traders": {"*.trade"},
 		},
-		Default: []string{"*.basic"},
-	}
+		Default: []string{"alerts.*", "inbox.{principal}"},
+	})
+	checker := mustNewTenantPermissionChecker(t, registry)
+	ctx := context.Background()
 
-	fallback := &types.ChannelRules{
-		Public: []string{"*.fallback"},
-	}
-
-	checker := mustNewTenantPermissionChecker(t, registry, fallback)
+	jwtClaims := &auth.Claims{TenantID: "acme", Groups: []string{"traders"}}
+	jwtClaims.Subject = "user123"
+	noGroupClaims := &auth.Claims{TenantID: "acme"}
+	noGroupClaims.Subject = "user456"
 
 	tests := []struct {
 		name    string
@@ -45,120 +96,54 @@ func TestTenantPermissionChecker_CanSubscribe_WithTenantRules(t *testing.T) {
 		channel string
 		want    bool
 	}{
-		{
-			name: "public channel allowed for any user",
-			claims: &auth.Claims{
-				TenantID: "acme",
-				Groups:   []string{},
-			},
-			channel: "BTC.public",
-			want:    true,
-		},
-		{
-			name: "public metadata channel allowed",
-			claims: &auth.Claims{
-				TenantID: "acme",
-				Groups:   []string{},
-			},
-			channel: "BTC.metadata",
-			want:    true,
-		},
-		{
-			name: "trader group can access trade channels",
-			claims: &auth.Claims{
-				TenantID: "acme",
-				Groups:   []string{"traders"},
-			},
-			channel: "BTC.trade",
-			want:    true,
-		},
-		{
-			name: "trader group can access liquidity channels",
-			claims: &auth.Claims{
-				TenantID: "acme",
-				Groups:   []string{"traders"},
-			},
-			channel: "ETH.liquidity",
-			want:    true,
-		},
-		{
-			name: "premium group can access realtime channels",
-			claims: &auth.Claims{
-				TenantID: "acme",
-				Groups:   []string{"premium"},
-			},
-			channel: "BTC.realtime",
-			want:    true,
-		},
-		{
-			name: "user with multiple groups",
-			claims: &auth.Claims{
-				TenantID: "acme",
-				Groups:   []string{"traders", "premium"},
-			},
-			channel: "BTC.realtime",
-			want:    true,
-		},
-		{
-			name: "user without matching group gets default",
-			claims: &auth.Claims{
-				TenantID: "acme",
-				Groups:   []string{"unknown-group"},
-			},
-			channel: "BTC.basic",
-			want:    true,
-		},
-		{
-			name: "user without groups gets default",
-			claims: &auth.Claims{
-				TenantID: "acme",
-				Groups:   []string{},
-			},
-			channel: "BTC.basic",
-			want:    true,
-		},
-		{
-			name: "trader cannot access premium channels",
-			claims: &auth.Claims{
-				TenantID: "acme",
-				Groups:   []string{"traders"},
-			},
-			channel: "BTC.realtime",
-			want:    false,
-		},
-		{
-			name: "user cannot access unmatched channel",
-			claims: &auth.Claims{
-				TenantID: "acme",
-				Groups:   []string{"traders"},
-			},
-			channel: "BTC.private",
-			want:    false,
-		},
+		{"public pattern allowed", jwtClaims, "BTC.public", true},
+		{"public prefix pattern allowed", jwtClaims, "news.breaking", true},
+		{"group mapping allowed for member", jwtClaims, "BTC.trade", true},
+		{"group mapping denied for non-member", noGroupClaims, "BTC.trade", false},
+		// Default is the no-group-matched fallback tier (channel_rules.go
+		// ComputeAllowedPatterns): users whose groups match a mapping skip it.
+		{"default tier applies when no group matched", noGroupClaims, "alerts.system", true},
+		{"default tier skipped for group-matched user", jwtClaims, "alerts.system", false},
+		{"principal substitution allows own inbox (default tier)", noGroupClaims, "inbox.user456", true},
+		{"principal substitution denies other inbox", noGroupClaims, "inbox.user123", false},
+		{"no matching pattern denied", jwtClaims, "secret.channel", false},
+		{"nil claims allowed on public only", nil, "BTC.public", true},
+		{"nil claims denied on group channel", nil, "BTC.trade", false},
+		{"nil claims denied on default channel", nil, "alerts.system", false},
+		{"nil claims denied on principal channel", nil, "inbox.user123", false},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := checker.CanSubscribe(context.Background(), tt.claims, tt.channel)
-			if got != tt.want {
-				t.Errorf("CanSubscribe() = %v, want %v", got, tt.want)
+			if got := checker.CanSubscribe(ctx, "acme", tt.claims, tt.channel); got != tt.want {
+				t.Errorf("CanSubscribe(%q, claims=%v) = %v, want %v", tt.channel, tt.claims, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestTenantPermissionChecker_CanSubscribe_FallbackRules(t *testing.T) {
+// TestTenantPermissionChecker_CanPublish is the publish-side matrix —
+// side-specific rules, {principal}, and the JWT-required contract.
+func TestTenantPermissionChecker_CanPublish(t *testing.T) {
 	t.Parallel()
 
-	// Registry with no rules for this tenant
 	registry := newMockChannelRulesProvider()
+	registry.setRules("acme", &types.ChannelRules{
+		// Subscribe side deliberately different from publish side (asymmetry).
+		Public:        []string{"*.public"},
+		PublishPublic: []string{"chat.*"},
+		PublishGroupMappings: map[string][]string{
+			"writers": {"docs.*"},
+		},
+		PublishDefault: []string{"outbox.{principal}"},
+	})
+	checker := mustNewTenantPermissionChecker(t, registry)
+	ctx := context.Background()
 
-	fallback := &types.ChannelRules{
-		Public: []string{"*.fallback", "*.public"},
-	}
-
-	checker := mustNewTenantPermissionChecker(t, registry, fallback)
+	writer := &auth.Claims{TenantID: "acme", Groups: []string{"writers"}}
+	writer.Subject = "alice"
+	reader := &auth.Claims{TenantID: "acme"}
+	reader.Subject = "bob"
 
 	tests := []struct {
 		name    string
@@ -166,210 +151,181 @@ func TestTenantPermissionChecker_CanSubscribe_FallbackRules(t *testing.T) {
 		channel string
 		want    bool
 	}{
-		{
-			name: "fallback public channel allowed",
-			claims: &auth.Claims{
-				TenantID: "unknown-tenant",
-				Groups:   []string{},
-			},
-			channel: "BTC.fallback",
-			want:    true,
-		},
-		{
-			name: "fallback public pattern matches",
-			claims: &auth.Claims{
-				TenantID: "unknown-tenant",
-				Groups:   []string{},
-			},
-			channel: "ETH.public",
-			want:    true,
-		},
-		{
-			name: "non-fallback channel denied",
-			claims: &auth.Claims{
-				TenantID: "unknown-tenant",
-				Groups:   []string{},
-			},
-			channel: "BTC.trade",
-			want:    false,
-		},
+		{"publish public allowed", reader, "chat.general", true},
+		{"publish group mapping allowed", writer, "docs.spec", true},
+		{"publish group mapping denied for non-member", reader, "docs.spec", false},
+		// PublishDefault is the no-group-matched fallback tier — writer's
+		// group match skips it; reader (no matching groups) gets it.
+		{"publish principal own outbox (default tier)", reader, "outbox.bob", true},
+		{"publish principal other outbox denied", reader, "outbox.alice", false},
+		{"group-matched user skips publish default tier", writer, "outbox.alice", false},
+		{"subscribe-side pattern does NOT grant publish", reader, "BTC.public", false},
+		{"nil claims always denied (publish requires JWT)", nil, "chat.general", false},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := checker.CanSubscribe(context.Background(), tt.claims, tt.channel)
-			if got != tt.want {
-				t.Errorf("CanSubscribe() = %v, want %v", got, tt.want)
+			if got := checker.CanPublish(ctx, "acme", tt.claims, tt.channel); got != tt.want {
+				t.Errorf("CanPublish(%q) = %v, want %v", tt.channel, got, tt.want)
 			}
 		})
 	}
+}
+
+// TestTenantPermissionChecker_DenyAll covers FR-4: no rules → deny everything;
+// an empty rule side → deny that side.
+func TestTenantPermissionChecker_DenyAll(t *testing.T) {
+	t.Parallel()
+
+	registry := newMockChannelRulesProvider() // snapshot done, no tenants
+	checker := mustNewTenantPermissionChecker(t, registry)
+	ctx := context.Background()
+	claims := &auth.Claims{TenantID: "ruleless"}
+	claims.Subject = "u1"
+
+	if checker.CanSubscribe(ctx, "ruleless", claims, "any.channel") {
+		t.Error("ruleless tenant must be denied subscribe (deny-all, no fallback)")
+	}
+	if checker.CanPublish(ctx, "ruleless", claims, "any.channel") {
+		t.Error("ruleless tenant must be denied publish (deny-all, no fallback)")
+	}
+	if got := checker.FilterChannels(ctx, "ruleless", claims, []string{"a.b", "c.d"}); len(got) != 0 {
+		t.Errorf("FilterChannels for ruleless tenant = %v, want empty", got)
+	}
+
+	// Empty publish side with populated subscribe side: publish denied.
+	registry.setRules("subonly", &types.ChannelRules{Public: []string{"*"}})
+	if !checker.CanSubscribe(ctx, "subonly", claims, "any.channel") {
+		t.Error("subscribe should be allowed by public wildcard")
+	}
+	if checker.CanPublish(ctx, "subonly", claims, "any.channel") {
+		t.Error("empty publish side must deny all publishes (side-specific deny)")
+	}
+}
+
+// TestTenantPermissionChecker_FailClosed covers the unknown-rules states:
+// cold start (no snapshot) and stream-down-uncached both deny; cached tenants
+// keep working when the stream drops (stale-serve).
+func TestTenantPermissionChecker_FailClosed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	claims := &auth.Claims{TenantID: "acme"}
+	claims.Subject = "u1"
+
+	t.Run("cold start denies uncached tenant", func(t *testing.T) {
+		t.Parallel()
+		registry := newMockChannelRulesProvider()
+		registry.snapshotDone.Store(false) // initial snapshot not applied
+		checker := mustNewTenantPermissionChecker(t, registry)
+		if checker.CanSubscribe(ctx, "acme", claims, "a.b") {
+			t.Error("must fail closed before the initial snapshot")
+		}
+	})
+
+	t.Run("stream down denies uncached tenant", func(t *testing.T) {
+		t.Parallel()
+		registry := newMockChannelRulesProvider()
+		registry.disconnected.Store(true)
+		checker := mustNewTenantPermissionChecker(t, registry)
+		if checker.CanSubscribe(ctx, "uncached", claims, "a.b") {
+			t.Error("must fail closed for uncached tenant while stream is down")
+		}
+	})
+
+	t.Run("stream down serves cached tenant stale", func(t *testing.T) {
+		t.Parallel()
+		registry := newMockChannelRulesProvider()
+		registry.setRules("acme", &types.ChannelRules{Public: []string{"*"}})
+		registry.disconnected.Store(true)
+		checker := mustNewTenantPermissionChecker(t, registry)
+		if !checker.CanSubscribe(ctx, "acme", claims, "a.b") {
+			t.Error("cached rules must keep serving while the stream is down (stale-serve)")
+		}
+	})
 }
 
 func TestTenantPermissionChecker_FilterChannels(t *testing.T) {
 	t.Parallel()
 
 	registry := newMockChannelRulesProvider()
-	registry.channelRules["acme"] = &types.ChannelRules{
-		Public: []string{"*.public"},
-		GroupMappings: map[string][]string{
-			"traders": {"*.trade"},
-		},
-	}
+	registry.setRules("acme", &types.ChannelRules{
+		Public:  []string{"*.public"},
+		Default: []string{"inbox.{principal}"},
+	})
+	checker := mustNewTenantPermissionChecker(t, registry)
+	ctx := context.Background()
+	claims := &auth.Claims{TenantID: "acme"}
+	claims.Subject = "user1"
 
-	checker := mustNewTenantPermissionChecker(t, registry, types.NewChannelRules())
-
-	claims := &auth.Claims{
-		TenantID: "acme",
-		Groups:   []string{"traders"},
-	}
-
-	channels := []string{
-		"BTC.public",
-		"BTC.trade",
-		"BTC.private",
-		"ETH.public",
-		"ETH.liquidity",
-	}
-
-	got := checker.FilterChannels(context.Background(), claims, channels)
-
-	want := []string{"BTC.public", "BTC.trade", "ETH.public"}
-
+	got := checker.FilterChannels(ctx, "acme", claims,
+		[]string{"BTC.public", "inbox.user1", "inbox.user2", "secret.x"})
+	want := []string{"BTC.public", "inbox.user1"}
 	if len(got) != len(want) {
-		t.Errorf("FilterChannels() returned %d channels, want %d", len(got), len(want))
-		t.Errorf("got: %v", got)
-		t.Errorf("want: %v", want)
-		return
+		t.Fatalf("FilterChannels = %v, want %v", got, want)
 	}
-
-	for i, ch := range got {
-		if ch != want[i] {
-			t.Errorf("FilterChannels()[%d] = %q, want %q", i, ch, want[i])
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("FilterChannels = %v, want %v", got, want)
 		}
 	}
-}
 
-func TestTenantPermissionChecker_NilFallback(t *testing.T) {
-	t.Parallel()
-
-	registry := newMockChannelRulesProvider()
-	// Create with nil fallback - should use empty rules
-	checker := mustNewTenantPermissionChecker(t, registry, nil)
-
-	claims := &auth.Claims{
-		TenantID: "unknown",
-		Groups:   []string{},
-	}
-
-	// Should deny everything since no rules and fallback is empty
-	got := checker.CanSubscribe(context.Background(), claims, "any.channel")
-	if got {
-		t.Error("expected denial with nil fallback and no rules")
+	// Nil claims: public only.
+	gotNil := checker.FilterChannels(ctx, "acme", nil,
+		[]string{"BTC.public", "inbox.user1"})
+	if len(gotNil) != 1 || gotNil[0] != "BTC.public" {
+		t.Fatalf("FilterChannels(nil claims) = %v, want [BTC.public]", gotNil)
 	}
 }
 
-// TestTenantPermissionChecker_CanSubscribe_NilClaims verifies that
-// TenantPermissionChecker returns false for ALL channels when claims are nil,
-// including channels that match public patterns. This is correct because
-// API-key-only connections (which have nil claims) use the global
-// PermissionChecker, not TenantPermissionChecker. TenantPermissionChecker
-// requires claims to resolve the tenant and look up per-tenant rules.
-func TestTenantPermissionChecker_CanSubscribe_NilClaims(t *testing.T) {
+// TestTenantPermissionChecker_ConcurrentReadsAndWrites exercises the checker
+// under concurrent authorization reads while the provider's rules mutate —
+// the -race run is the §VII/§VIII enforcement.
+func TestTenantPermissionChecker_ConcurrentReadsAndWrites(t *testing.T) {
 	t.Parallel()
 
 	registry := newMockChannelRulesProvider()
-	registry.channelRules["acme"] = &types.ChannelRules{
-		Public: []string{"*.public", "*.metadata"},
-		GroupMappings: map[string][]string{
-			"traders": {"*.trade"},
-		},
-		Default: []string{"*.basic"},
-	}
+	registry.setRules("acme", &types.ChannelRules{Public: []string{"*.public"}})
+	checker := mustNewTenantPermissionChecker(t, registry)
+	ctx := context.Background()
+	claims := &auth.Claims{TenantID: "acme", Groups: []string{"g1"}}
+	claims.Subject = "u1"
 
-	fallback := &types.ChannelRules{
-		Public: []string{"*.fallback"},
-	}
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
 
-	checker := mustNewTenantPermissionChecker(t, registry, fallback)
-
-	tests := []struct {
-		name    string
-		channel string
-	}{
-		{"public channel denied with nil claims", "BTC.public"},
-		{"metadata channel denied with nil claims", "ETH.metadata"},
-		{"trade channel denied with nil claims", "BTC.trade"},
-		{"basic channel denied with nil claims", "BTC.basic"},
-		{"fallback channel denied with nil claims", "BTC.fallback"},
-		{"arbitrary channel denied with nil claims", "unknown.channel"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := checker.CanSubscribe(context.Background(), nil, tt.channel)
-			if got {
-				t.Errorf("CanSubscribe(ctx, nil, %q) = true, want false", tt.channel)
+	for range 8 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_ = checker.CanSubscribe(ctx, "acme", claims, "BTC.public")
+				_ = checker.CanPublish(ctx, "acme", claims, "chat.x")
+				_ = checker.FilterChannels(ctx, "acme", claims, []string{"BTC.public", "x.y"})
 			}
 		})
 	}
-}
-
-// TestTenantPermissionChecker_FilterChannels_NilClaims verifies that
-// FilterChannels returns nil when claims are nil, regardless of channel
-// content. API-key-only connections bypass TenantPermissionChecker entirely.
-func TestTenantPermissionChecker_FilterChannels_NilClaims(t *testing.T) {
-	t.Parallel()
-
-	registry := newMockChannelRulesProvider()
-	registry.channelRules["acme"] = &types.ChannelRules{
-		Public: []string{"*.public"},
-		GroupMappings: map[string][]string{
-			"traders": {"*.trade"},
-		},
-	}
-
-	fallback := &types.ChannelRules{
-		Public: []string{"*.fallback"},
-	}
-
-	checker := mustNewTenantPermissionChecker(t, registry, fallback)
-
-	channels := []string{
-		"BTC.public",
-		"BTC.trade",
-		"BTC.fallback",
-		"unknown.channel",
-	}
-
-	got := checker.FilterChannels(context.Background(), nil, channels)
-	if got != nil {
-		t.Errorf("FilterChannels(ctx, nil, channels) = %v, want nil", got)
-	}
-}
-
-func TestDefaultChannelRules(t *testing.T) {
-	t.Parallel()
-
-	patterns := []string{"*.metadata", "*.public"}
-	rules := DefaultChannelRules(patterns)
-
-	if len(rules.Public) != len(patterns) {
-		t.Errorf("expected %d public patterns, got %d", len(patterns), len(rules.Public))
-	}
-
-	for i, p := range patterns {
-		if rules.Public[i] != p {
-			t.Errorf("Public[%d] = %q, want %q", i, rules.Public[i], p)
+	wg.Go(func() {
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			registry.setRules("acme", &types.ChannelRules{
+				Public:        []string{"*.public"},
+				PublishPublic: []string{"chat.*"},
+				GroupMappings: map[string][]string{"g1": {"*.trade"}},
+			})
+			if i%10 == 0 {
+				registry.snapshotDone.Store(true)
+			}
 		}
-	}
+	})
 
-	if len(rules.GroupMappings) != 0 {
-		t.Error("expected empty GroupMappings")
-	}
-
-	if len(rules.Default) != 0 {
-		t.Error("expected empty Default")
-	}
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	wg.Wait()
 }

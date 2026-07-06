@@ -18,9 +18,6 @@ image:
 # Free-form string; Sukko convention: local, dev, stg, prod
 # environment: local
 
-# Feature flags (all default false in Go, set via extraEnv when needed)
-# GATEWAY_PER_TENANT_CHANNEL_RULES: "true"     — per-tenant channel access rules
-
 # Override any Go envDefault. See /config endpoint for all available settings.
 # Example: { LOG_LEVEL: "debug", GATEWAY_DIAL_TIMEOUT: "30s" }
 extraEnv: {}

@@ -40,6 +40,10 @@ const (
 	StreamLabelDegraded     = "degraded"
 	StreamLabelDisconnected = "disconnected"
 	StreamLabelDisabled     = "disabled"
+	// StreamLabelConnectedAwaitingSnapshot: the stream is TCP-connected but the
+	// initial snapshot has not yet been applied — the consumer cannot answer
+	// queries and readiness must be withheld.
+	StreamLabelConnectedAwaitingSnapshot = "connected_awaiting_snapshot"
 )
 
 // Jitter constants for exponential backoff reconnection.

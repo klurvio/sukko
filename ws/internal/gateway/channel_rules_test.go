@@ -3,10 +3,13 @@ package gateway
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/rs/zerolog"
 
+	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
@@ -46,21 +49,50 @@ func TestNoopChannelRulesProvider_ImplementsInterface(t *testing.T) {
 }
 
 // mockChannelRulesProvider is a test helper that implements ChannelRulesProvider.
+// mu guards channelRules so concurrency tests can mutate rules while readers
+// run under -race.
 type mockChannelRulesProvider struct {
+	mu           sync.RWMutex
 	channelRules map[string]*types.ChannelRules
+	// snapshotDone defaults true: a missing tenant reads as "none configured"
+	// (deny-all, healthy). Set false to simulate the cold-start window.
+	snapshotDone atomic.Bool
+	// disconnected simulates a downed stream (rules unknown for uncached tenants).
+	disconnected atomic.Bool
 }
 
 func newMockChannelRulesProvider() *mockChannelRulesProvider {
-	return &mockChannelRulesProvider{
+	m := &mockChannelRulesProvider{
 		channelRules: make(map[string]*types.ChannelRules),
 	}
+	m.snapshotDone.Store(true)
+	return m
+}
+
+func (m *mockChannelRulesProvider) setRules(tenantID string, rules *types.ChannelRules) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.channelRules[tenantID] = rules
 }
 
 func (m *mockChannelRulesProvider) GetChannelRules(_ context.Context, tenantID string) (*types.ChannelRules, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if rules, ok := m.channelRules[tenantID]; ok {
 		return rules, nil
 	}
 	return nil, types.ErrChannelRulesNotFound
+}
+
+func (m *mockChannelRulesProvider) SnapshotReceived() bool {
+	return m.snapshotDone.Load()
+}
+
+func (m *mockChannelRulesProvider) State() int32 {
+	if m.disconnected.Load() {
+		return provapi.StreamStateDisconnected
+	}
+	return provapi.StreamStateConnected
 }
 
 func (m *mockChannelRulesProvider) Close() error {

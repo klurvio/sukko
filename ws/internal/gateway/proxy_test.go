@@ -17,6 +17,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // testClaims creates auth.Claims with the given subject for testing.
@@ -43,21 +44,44 @@ func testClaimsWithGroups(subject string, groups []string) *auth.Claims {
 	return claims
 }
 
-// newTestProxy creates a Proxy for testing interceptClientMessage.
-// Uses nil connections since we're only testing message interception.
+// newTestProxy creates a Proxy for testing interceptClientMessage, wired with
+// rules-backed authorization closures (provisioning-only model). The legacy
+// pattern-list signature is preserved by mapping onto per-tenant rules:
+// public → Public, user-scoped ({principal}) → Default, and group patterns
+// ({group_id}) → GroupMappings expanded from the claims' groups.
 func newTestProxy(claims *auth.Claims, publicPatterns, userPatterns, groupPatterns []string) *Proxy {
-	pc := NewPermissionChecker(publicPatterns, userPatterns, groupPatterns)
 	tenantID := ""
 	if claims != nil {
 		tenantID = claims.TenantID
 	}
+
+	// Publish was not rules-checked pre-provisioning-only; legacy fixtures
+	// treat public/user patterns as publishable to preserve test intent.
+	rules := &types.ChannelRules{
+		Public:         publicPatterns,
+		Default:        userPatterns,
+		PublishPublic:  publicPatterns,
+		PublishDefault: userPatterns,
+	}
+	if len(groupPatterns) > 0 && claims != nil {
+		rules.GroupMappings = make(map[string][]string, len(claims.Groups))
+		for _, g := range claims.Groups {
+			for _, p := range groupPatterns {
+				rules.GroupMappings[g] = append(rules.GroupMappings[g],
+					strings.ReplaceAll(p, "{group_id}", g))
+			}
+		}
+	}
+	filterFn, canPublishFn, _ := testProxyAuthz(tenantID, rules)
+
 	return &Proxy{
 		clientConn:  nil, // Not needed for interception tests
 		backendConn: nil, // Not needed for interception tests
 
 		claims:             claims,
 		tenantID:           tenantID,
-		permissions:        pc,
+		filterSubscribe:    filterFn,
+		canPublish:         canPublishFn,
 		logger:             zerolog.Nop(),
 		messageTimeout:     60 * time.Second,
 		maxFrameSize:       protocol.DefaultMaxFrameSize,
@@ -688,10 +712,26 @@ func TestProxy_ContextCancellation(t *testing.T) {
 	_ = backendRemote.Close()
 }
 
+// testAllowTradeFilter / testAllowTradePublish are small conveniences for
+// inline Proxy literals that just need *.trade rules for the given tenant.
+func testAllowTradeFilter(tenantID string) func(context.Context, []string, *auth.Claims) []string {
+	f, _, _ := testProxyAuthz(tenantID, &types.ChannelRules{Public: []string{"*.trade"}})
+	return f
+}
+
+func testAllowTradePublish(tenantID string) func(context.Context, *auth.Claims, string) bool {
+	_, p, _ := testProxyAuthz(tenantID, &types.ChannelRules{Public: []string{"*.trade"}})
+	return p
+}
+
 // newTestProxyAPIKeyOnly creates a Proxy for API-key-only connection testing.
-// Auth is enabled, claims are nil, apiKeyOnly=true.
+// Auth is enabled, claims are nil, apiKeyOnly=true. Rules-backed: nil claims
+// are checked against the tenant's public rules only.
 func newTestProxyAPIKeyOnly(tenantID string, publicPatterns []string) *Proxy {
-	pc := NewPermissionChecker(publicPatterns, nil, nil)
+	filterFn, canPublishFn, _ := testProxyAuthz(tenantID, &types.ChannelRules{
+		Public:        publicPatterns,
+		PublishPublic: publicPatterns, // legacy fixtures: public ⇒ publishable
+	})
 	return &Proxy{
 		clientConn:  nil,
 		backendConn: nil,
@@ -700,7 +740,8 @@ func newTestProxyAPIKeyOnly(tenantID string, publicPatterns []string) *Proxy {
 		tenantID:           tenantID,
 		apiKeyOnly:         true,
 		apiKeyTenantID:     tenantID,
-		permissions:        pc,
+		filterSubscribe:    filterFn,
+		canPublish:         canPublishFn,
 		logger:             zerolog.Nop(),
 		messageTimeout:     60 * time.Second,
 		maxFrameSize:       protocol.DefaultMaxFrameSize,
@@ -729,8 +770,9 @@ func TestProxy_APIKeyOnly_PublishRejected(t *testing.T) {
 		tenantID:           "sukko",
 		apiKeyOnly:         true,
 		apiKeyTenantID:     "sukko",
-		permissions:        NewPermissionChecker([]string{"*.trade"}, nil, nil),
 		logger:             zerolog.Nop(),
+		filterSubscribe:    testAllowTradeFilter("sukko"),
+		canPublish:         testAllowTradePublish("sukko"),
 		messageTimeout:     60 * time.Second,
 		maxFrameSize:       protocol.DefaultMaxFrameSize,
 		publishLimiter:     rate.NewLimiter(10, 100),
@@ -831,8 +873,9 @@ func TestProxy_APIKeyOnly_AuthRefreshTenantMismatch(t *testing.T) {
 		tenantID:              "tenant-a",
 		apiKeyOnly:            true,
 		apiKeyTenantID:        "tenant-a",
-		permissions:           NewPermissionChecker([]string{"*.trade"}, nil, nil),
 		logger:                zerolog.Nop(),
+		filterSubscribe:       testAllowTradeFilter("tenant-a"),
+		canPublish:            testAllowTradePublish("tenant-a"),
 		messageTimeout:        60 * time.Second,
 		maxFrameSize:          protocol.DefaultMaxFrameSize,
 		publishLimiter:        rate.NewLimiter(10, 100),
@@ -865,5 +908,87 @@ func TestProxy_APIKeyOnly_AuthRefreshTenantMismatch(t *testing.T) {
 	// apiKeyOnly should still be true (escalation failed)
 	if !proxy.apiKeyOnly {
 		t.Error("apiKeyOnly should still be true after failed escalation")
+	}
+}
+
+// TestProxy_InterceptPublish_RulesDenied verifies WS publish enforces the
+// per-tenant publish-side rules (FR-3): a tenant with subscribe-only rules is
+// denied publish with the FORBIDDEN error frame.
+func TestProxy_InterceptPublish_RulesDenied(t *testing.T) {
+	t.Parallel()
+
+	clientConn, clientRemote := net.Pipe()
+	backendConn, backendRemote := net.Pipe()
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
+	go drainConn(clientRemote)
+
+	// Subscribe-side only — publish side empty ⇒ deny all publishes.
+	filterFn, canPublishFn, _ := testProxyAuthz("test-tenant", &types.ChannelRules{
+		Public: []string{"*.trade"},
+	})
+
+	proxy := &Proxy{
+		clientConn:  clientConn,
+		backendConn: backendConn,
+
+		claims:             testClaims("user123"),
+		tenantID:           "test-tenant",
+		filterSubscribe:    filterFn,
+		canPublish:         canPublishFn,
+		logger:             zerolog.Nop(),
+		messageTimeout:     60 * time.Second,
+		maxFrameSize:       protocol.DefaultMaxFrameSize,
+		publishLimiter:     rate.NewLimiter(10, 100),
+		maxPublishSize:     64 * 1024,
+		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
+		subscribedChannels: make(map[string]struct{}),
+	}
+
+	input := `{"type":"publish","data":{"channel":"test-tenant.BTC.trade","data":"price=42000"}}`
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
+	if err != nil {
+		t.Fatalf("interceptClientMessage() error = %v", err)
+	}
+	// nil result = message consumed (error frame sent to client, not forwarded)
+	if result != nil {
+		t.Errorf("expected nil result for rules-denied publish, got %q", string(result))
+	}
+}
+
+// TestProxy_InterceptPublish_RulesAllowed verifies the frame forwards when the
+// publish-side rules allow the channel.
+func TestProxy_InterceptPublish_RulesAllowed(t *testing.T) {
+	t.Parallel()
+
+	filterFn, canPublishFn, _ := testProxyAuthz("test-tenant", &types.ChannelRules{
+		Public:        []string{"*.trade"},
+		PublishPublic: []string{"*.trade"},
+	})
+
+	proxy := &Proxy{
+		clientConn:  nil,
+		backendConn: nil,
+
+		claims:             testClaims("user123"),
+		tenantID:           "test-tenant",
+		filterSubscribe:    filterFn,
+		canPublish:         canPublishFn,
+		logger:             zerolog.Nop(),
+		messageTimeout:     60 * time.Second,
+		maxFrameSize:       protocol.DefaultMaxFrameSize,
+		publishLimiter:     rate.NewLimiter(10, 100),
+		maxPublishSize:     64 * 1024,
+		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
+		subscribedChannels: make(map[string]struct{}),
+	}
+
+	input := `{"type":"publish","data":{"channel":"test-tenant.BTC.trade","data":"price=42000"}}`
+	result, err := proxy.interceptClientMessage(context.Background(), []byte(input))
+	if err != nil {
+		t.Fatalf("interceptClientMessage() error = %v", err)
+	}
+	if result == nil {
+		t.Error("expected forwarded frame for rules-allowed publish, got nil")
 	}
 }

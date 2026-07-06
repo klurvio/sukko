@@ -14,6 +14,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/protocol"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // drainConn reads and discards all data from a connection until it closes.
@@ -47,11 +48,9 @@ func newAuthTestProxy(validator TokenValidator, claims *auth.Claims) (proxy *Pro
 		tenantID = claims.TenantID
 	}
 
-	pc := NewPermissionChecker(
-		[]string{"*.trade", "*.liquidity"},
-		[]string{},
-		[]string{},
-	)
+	filterFn, canPublishFn, _ := testProxyAuthz(tenantID, &types.ChannelRules{
+		Public: []string{"*.trade", "*.liquidity"},
+	})
 
 	proxy = &Proxy{
 		clientConn:  clientConn,
@@ -59,7 +58,8 @@ func newAuthTestProxy(validator TokenValidator, claims *auth.Claims) (proxy *Pro
 
 		claims:                claims,
 		tenantID:              tenantID,
-		permissions:           pc,
+		filterSubscribe:       filterFn,
+		canPublish:            canPublishFn,
 		validator:             validator,
 		logger:                zerolog.Nop(),
 		messageTimeout:        60 * time.Second,
@@ -349,13 +349,16 @@ func TestForceUnsubscribeRevokedChannels_NoRevocation(t *testing.T) {
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user1"},
 		TenantID:         "test-tenant",
 	}
-	pc := NewPermissionChecker([]string{"*.trade", "*.liquidity"}, nil, nil)
+	filterFn, canPublishFn, _ := testProxyAuthz("test-tenant", &types.ChannelRules{
+		Public: []string{"*.trade", "*.liquidity"},
+	})
 
 	proxy := &Proxy{
 
 		claims:             claims,
 		tenantID:           "test-tenant",
-		permissions:        pc,
+		filterSubscribe:    filterFn,
+		canPublish:         canPublishFn,
 		logger:             zerolog.Nop(),
 		subscribedChannels: map[string]struct{}{"test-tenant.BTC.trade": {}, "test-tenant.ETH.liquidity": {}},
 		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
@@ -369,7 +372,7 @@ func TestForceUnsubscribeRevokedChannels_NoRevocation(t *testing.T) {
 		TenantID:         "test-tenant",
 	}
 
-	revoked := proxy.forceUnsubscribeRevokedChannels(newClaims)
+	revoked := proxy.forceUnsubscribeRevokedChannels(context.Background(), newClaims)
 
 	if len(revoked) != 0 {
 		t.Errorf("Expected 0 revoked channels, got %d: %v", len(revoked), revoked)
@@ -385,8 +388,10 @@ func TestForceUnsubscribeRevokedChannels_PartialRevocation(t *testing.T) {
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user1"},
 		TenantID:         "test-tenant",
 	}
-	// Initial permissions: trade + liquidity
-	pc := NewPermissionChecker([]string{"*.trade", "*.liquidity"}, nil, nil)
+	// Initial rules: trade + liquidity
+	filterFn, canPublishFn, registry := testProxyAuthz("test-tenant", &types.ChannelRules{
+		Public: []string{"*.trade", "*.liquidity"},
+	})
 
 	clientConn, clientRemote := net.Pipe()
 	backendConn, backendRemote := net.Pipe()
@@ -397,10 +402,11 @@ func TestForceUnsubscribeRevokedChannels_PartialRevocation(t *testing.T) {
 		clientConn:  clientConn,
 		backendConn: backendConn,
 
-		claims:      claims,
-		tenantID:    "test-tenant",
-		permissions: pc,
-		logger:      zerolog.Nop(),
+		claims:          claims,
+		tenantID:        "test-tenant",
+		filterSubscribe: filterFn,
+		canPublish:      canPublishFn,
+		logger:          zerolog.Nop(),
 		subscribedChannels: map[string]struct{}{
 			"test-tenant.BTC.trade":     {},
 			"test-tenant.ETH.liquidity": {},
@@ -410,12 +416,9 @@ func TestForceUnsubscribeRevokedChannels_PartialRevocation(t *testing.T) {
 		maxPublishSize: 64 * 1024,
 	}
 
-	// New permissions: only trade (liquidity revoked)
-	// The permission checker uses the SAME patterns, so we need new claims
-	// that cause CanSubscribe to return false for liquidity.
-	// Since PermissionChecker uses pattern matching (not claims-based filtering for public),
-	// we need to use a checker with reduced patterns.
-	proxy.permissions = NewPermissionChecker([]string{"*.trade"}, nil, nil)
+	// Rules tightened: only trade remains (liquidity revoked) — the natural
+	// per-tenant flow, an operator updates the tenant's rules.
+	registry.setRules("test-tenant", &types.ChannelRules{Public: []string{"*.trade"}})
 
 	newClaims := &auth.Claims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user1"},
@@ -426,7 +429,7 @@ func TestForceUnsubscribeRevokedChannels_PartialRevocation(t *testing.T) {
 	go drainConn(clientRemote)
 	go drainConn(backendRemote)
 
-	revoked := proxy.forceUnsubscribeRevokedChannels(newClaims)
+	revoked := proxy.forceUnsubscribeRevokedChannels(context.Background(), newClaims)
 
 	if len(revoked) != 1 {
 		t.Fatalf("Expected 1 revoked channel, got %d: %v", len(revoked), revoked)
@@ -448,8 +451,8 @@ func TestForceUnsubscribeRevokedChannels_AllRevoked(t *testing.T) {
 	defer func() { _ = clientRemote.Close() }()
 	defer func() { _ = backendRemote.Close() }()
 
-	// No patterns allowed
-	pc := NewPermissionChecker(nil, nil, nil)
+	// No rules for the tenant → deny-all (everything revoked)
+	filterFn, canPublishFn, _ := testProxyAuthz("test-tenant", nil)
 
 	proxy := &Proxy{
 		clientConn:  clientConn,
@@ -459,9 +462,10 @@ func TestForceUnsubscribeRevokedChannels_AllRevoked(t *testing.T) {
 			RegisteredClaims: jwt.RegisteredClaims{Subject: "user1"},
 			TenantID:         "test-tenant",
 		},
-		tenantID:    "test-tenant",
-		permissions: pc,
-		logger:      zerolog.Nop(),
+		tenantID:        "test-tenant",
+		filterSubscribe: filterFn,
+		canPublish:      canPublishFn,
+		logger:          zerolog.Nop(),
 		subscribedChannels: map[string]struct{}{
 			"test-tenant.BTC.trade":     {},
 			"test-tenant.ETH.liquidity": {},
@@ -480,7 +484,7 @@ func TestForceUnsubscribeRevokedChannels_AllRevoked(t *testing.T) {
 		TenantID:         "test-tenant",
 	}
 
-	revoked := proxy.forceUnsubscribeRevokedChannels(newClaims)
+	revoked := proxy.forceUnsubscribeRevokedChannels(context.Background(), newClaims)
 
 	if len(revoked) != 2 {
 		t.Fatalf("Expected 2 revoked channels, got %d: %v", len(revoked), revoked)
@@ -500,20 +504,22 @@ func TestForceUnsubscribeRevokedChannels_NoSubscriptions(t *testing.T) {
 			TenantID:         "test-tenant",
 		},
 		tenantID:           "test-tenant",
-		permissions:        NewPermissionChecker([]string{"*.trade"}, nil, nil),
 		logger:             zerolog.Nop(),
 		subscribedChannels: make(map[string]struct{}),
 		authLimiter:        rate.NewLimiter(rate.Every(30*time.Second), 1),
 		publishLimiter:     rate.NewLimiter(10, 100),
 		maxPublishSize:     64 * 1024,
 	}
+	proxy.filterSubscribe, proxy.canPublish, _ = testProxyAuthz("test-tenant", &types.ChannelRules{
+		Public: []string{"*.trade"},
+	})
 
 	newClaims := &auth.Claims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user1"},
 		TenantID:         "test-tenant",
 	}
 
-	revoked := proxy.forceUnsubscribeRevokedChannels(newClaims)
+	revoked := proxy.forceUnsubscribeRevokedChannels(context.Background(), newClaims)
 
 	if revoked != nil {
 		t.Errorf("Expected nil revoked, got %v", revoked)
@@ -552,7 +558,6 @@ func BenchmarkInterceptAuthRefresh(b *testing.B) {
 
 		claims:                claims,
 		tenantID:              "test-tenant",
-		permissions:           NewPermissionChecker([]string{"*.trade"}, nil, nil),
 		validator:             validator,
 		logger:                zerolog.Nop(),
 		publishLimiter:        rate.NewLimiter(10, 100),
@@ -561,6 +566,9 @@ func BenchmarkInterceptAuthRefresh(b *testing.B) {
 		authValidationTimeout: 5 * time.Second,
 		subscribedChannels:    make(map[string]struct{}),
 	}
+	proxy.filterSubscribe, proxy.canPublish, _ = testProxyAuthz("test-tenant", &types.ChannelRules{
+		Public: []string{"*.trade"},
+	})
 
 	msg := protocol.ClientMessage{
 		Type: MsgTypeAuth,

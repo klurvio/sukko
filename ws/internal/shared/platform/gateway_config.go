@@ -37,24 +37,14 @@ type GatewayConfig struct {
 	// Frames exceeding this are rejected before payload allocation to prevent OOM.
 	MaxFrameSize int `env:"GATEWAY_MAX_FRAME_SIZE" envDefault:"1048576"` // Maximum WebSocket frame size in bytes. Frames larger than this are rejected before allocation. Default: 1MB.
 
-	// Per-tenant channel rules (Feature Flag)
-	// When enabled, channel permissions come from per-tenant rules via gRPC streaming
-	PerTenantChannelRulesEnabled bool `env:"GATEWAY_PER_TENANT_CHANNEL_RULES" envDefault:"false"` // When true, channel permissions are resolved per-tenant via gRPC streaming rules (Pro edition).
-
-	// Fallback channel rules (when tenant has none configured)
-	FallbackPublicChannels []string `env:"GATEWAY_FALLBACK_PUBLIC_CHANNELS" envSeparator:"," envDefault:"*.metadata"` // Channel patterns treated as public when a tenant has no per-tenant channel rules configured.
-
 	// Multi-tenant settings
 	RequireTenantID              bool `env:"REQUIRE_TENANT_ID" envDefault:"true"`                // When true, all WebSocket connections must identify a tenant via their JWT or API key. Disable only in single-tenant deployments where the tenant is implicit.
 	DefaultTenantConnectionLimit int  `env:"DEFAULT_TENANT_CONNECTION_LIMIT" envDefault:"1000"`  // Default maximum simultaneous WebSocket connections allowed per tenant when TENANT_CONNECTION_LIMIT_ENABLED is true.
 	TenantConnectionLimitEnabled bool `env:"TENANT_CONNECTION_LIMIT_ENABLED" envDefault:"false"` // When true, the gateway enforces per-tenant connection limits using DEFAULT_TENANT_CONNECTION_LIMIT as the default cap.
 
-	// Permissions - channel patterns
-	// Patterns support wildcards: *.trade matches BTC.trade, *.trade.* matches BTC.trade.user123
-	// Aggregate channels (all.trade, all.liquidity, etc.) allow subscribing to ALL events of a type
-	PublicPatterns      []string `env:"GATEWAY_PUBLIC_PATTERNS" envSeparator:"," envDefault:"*.trade,*.liquidity,*.metadata,*.analytics,*.creation,*.social,all.trade,all.liquidity,all.metadata,all.analytics,all.creation,all.social"` // Channel patterns accessible without authentication. Supports wildcards. Comma-separated.
-	UserScopedPatterns  []string `env:"GATEWAY_USER_SCOPED_PATTERNS" envSeparator:"," envDefault:"*.balances.{principal},*.trade.{principal},balances.{principal},notifications.{principal}"`                                            // Channel patterns restricted to the authenticated principal. {principal} is substituted with the JWT subject at connection time. Comma-separated.
-	GroupScopedPatterns []string `env:"GATEWAY_GROUP_SCOPED_PATTERNS" envSeparator:"," envDefault:"*.community.{group_id},community.{group_id},social.{group_id}"`                                                                       // Channel patterns restricted to a specific group. {group_id} is substituted with the JWT group claim at connection time. Comma-separated.
+	// Channel authorization is provisioning-only: per-tenant rules streamed
+	// over gRPC (PROVISIONING_GRPC_ADDR) are the sole source — there is no
+	// static pattern configuration and no fallback rule set.
 
 	// Rate limiting per principal
 	RateLimitEnabled bool    `env:"GATEWAY_RATE_LIMIT_ENABLED" envDefault:"true"` // When true, enforces per-authenticated-principal WebSocket message rate limits using GATEWAY_RATE_LIMIT_RATE and GATEWAY_RATE_LIMIT_BURST.
@@ -188,10 +178,6 @@ func (c *GatewayConfig) Validate() error {
 		return errors.New("GATEWAY_BACKEND_URL is required")
 	}
 
-	if len(c.PublicPatterns) == 0 {
-		return errors.New("GATEWAY_PUBLIC_PATTERNS must have at least one pattern")
-	}
-
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err
 	}
@@ -257,9 +243,6 @@ func (c *GatewayConfig) Validate() error {
 	if c.editionManager != nil {
 		edition := c.editionManager.Edition()
 
-		if c.PerTenantChannelRulesEnabled && !license.EditionHasFeature(edition, license.PerTenantChannelRules) {
-			return license.NewFeatureError(license.PerTenantChannelRules, edition)
-		}
 		if c.TenantConnectionLimitEnabled && !license.EditionHasFeature(edition, license.PerTenantConnectionLimits) {
 			return license.NewFeatureError(license.PerTenantConnectionLimits, edition)
 		}
@@ -288,9 +271,6 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		Dur("idle_timeout", c.IdleTimeout).
 		Str("backend_url", c.BackendURL).
 		Dur("dial_timeout", c.DialTimeout).
-		Strs("public_patterns", c.PublicPatterns).
-		Strs("user_scoped_patterns", c.UserScopedPatterns).
-		Strs("group_scoped_patterns", c.GroupScopedPatterns).
 		Bool("rate_limit_enabled", c.RateLimitEnabled).
 		Int("rate_limit_burst", c.RateLimitBurst).
 		Float64("rate_limit_rate", c.RateLimitRate).
@@ -300,24 +280,13 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		Str("log_format", c.LogFormat)
 
 	// Add routing fields when auth is disabled
-	// Auth fields (always on)
+	// Auth fields (always on). Channel authorization is provisioning-only:
+	// per-tenant rules stream over the same gRPC connection.
 	event = event.
 		Bool("require_tenant_id", c.RequireTenantID).
 		Str("provisioning_grpc_addr", c.ProvisioningGRPCAddr).
 		Dur("grpc_reconnect_delay", c.GRPCReconnectDelay).
 		Dur("grpc_reconnect_max_delay", c.GRPCReconnectMaxDelay)
 
-	// Add per-tenant channel rules fields when enabled
-	if c.PerTenantChannelRulesEnabled {
-		event = event.
-			Bool("per_tenant_channel_rules_enabled", true).
-			Strs("fallback_public_channels", c.FallbackPublicChannels)
-	}
-
 	event.Msg("Gateway configuration loaded")
-}
-
-// PerTenantChannelRulesReady returns true if per-tenant channel rules are enabled and provisioning gRPC is configured.
-func (c *GatewayConfig) PerTenantChannelRulesReady() bool {
-	return c.PerTenantChannelRulesEnabled && c.ProvisioningGRPCAddr != ""
 }

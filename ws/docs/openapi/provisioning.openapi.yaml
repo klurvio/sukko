@@ -674,7 +674,11 @@ paths:
       summary: Set channel rules
       description: |
         Replaces channel access control rules for the tenant. Requires admin or system role.
-        Patterns support wildcards (`*`) and placeholders (`{subject}`, `{group_id}`).
+        Per-tenant rules are the sole channel-authorization source: a tenant with no rules
+        (or an empty rule side) is denied all subscribes/publishes on that side.
+        Patterns support wildcards (`*`) and the `{principal}` placeholder, which is
+        substituted with the authenticated JWT subject at authorization time — on both
+        subscribe-side and publish-side patterns.
       tags: [Channel Rules]
       security:
         - bearerAuth: []
@@ -701,7 +705,7 @@ paths:
     delete:
       operationId: deleteChannelRules
       summary: Delete channel rules
-      description: Removes channel rules for the tenant. Falls back to global patterns. Requires admin or system role.
+      description: Removes channel rules for the tenant. The tenant is then denied all channel subscribes and publishes (deny-all — there is no fallback rule set). Requires admin or system role.
       tags: [Channel Rules]
       security:
         - bearerAuth: []

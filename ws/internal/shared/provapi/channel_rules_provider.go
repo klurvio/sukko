@@ -61,6 +61,12 @@ type StreamChannelRulesProvider struct {
 	streamState atomic.Int32
 	reconnects  atomic.Int64
 
+	// snapshotReceived flips true after the first snapshot has been successfully
+	// applied to the caches. Readiness gates on it: a stream that is TCP-connected
+	// but has not yet delivered its initial snapshot cannot answer authorization
+	// queries, and the gateway must not report ready until it can.
+	snapshotReceived atomic.Bool
+
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
@@ -162,6 +168,14 @@ func (r *StreamChannelRulesProvider) UpdateEdition(edition license.Edition) {
 // State returns the current stream state (0=disconnected, 1=connected).
 func (r *StreamChannelRulesProvider) State() int32 {
 	return r.streamState.Load()
+}
+
+// SnapshotReceived reports whether the initial rules snapshot has been
+// successfully applied. False means rules are unknown (not "empty"): callers
+// MUST fail closed and report degraded/not-ready rather than treating tenants
+// as having no rules configured.
+func (r *StreamChannelRulesProvider) SnapshotReceived() bool {
+	return r.snapshotReceived.Load()
 }
 
 // Close stops the stream and releases resources.
@@ -288,6 +302,13 @@ func (r *StreamChannelRulesProvider) updateTenantConfigs(resp *provisioningv1.Wa
 		}
 	}
 	r.routingSnapshots.Store(next)
+
+	// Flip only after the snapshot has been fully applied to both caches —
+	// receipt alone must not mark the provider ready (FR-9). Idempotent for
+	// later snapshots (reconnects).
+	if isSnapshot {
+		r.snapshotReceived.Store(true)
+	}
 
 	r.logger.Debug().
 		Bool("snapshot", isSnapshot).

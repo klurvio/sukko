@@ -1944,3 +1944,55 @@ func TestRouter_TokenRevocation_EditionGate(t *testing.T) {
 		})
 	}
 }
+
+// TestChannelRules_CommunityAccess verifies channel-rules routes are ungated:
+// channel rules are the sole channel-authorization mechanism (provisioning-
+// only), so Community deployments MUST be able to manage them. Previously the
+// write routes were Pro-gated via RequireFeature.
+func TestChannelRules_CommunityAccess(t *testing.T) {
+	t.Parallel()
+
+	tenantStore := testutil.NewMockTenantStore()
+	routingStore := testutil.NewMockRoutingRulesStore()
+	channelRulesStore := testutil.NewMockChannelRulesStore()
+	svc := newTestServiceWithStores(tenantStore, routingStore, channelRulesStore)
+	_ = tenantStore.Create(context.Background(), testutil.NewTestTenant("test-tenant"))
+
+	router, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
+		Service:        svc,
+		Logger:         zerolog.Nop(),
+		EditionManager: license.NewTestManager(license.Community),
+	})
+
+	// PUT channel rules under Community MUST succeed (no FEATURE/EDITION 403).
+	rulesBody := `{"public":["general.*"],"publish_public":["general.*"]}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+		"/api/v1/tenants/test-tenant/channel-rules", bytes.NewBufferString(rulesBody))
+	req.Header.Set("Content-Type", "application/json")
+	addAuth(req)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT channel-rules under Community = %d, want %d; body: %s",
+			rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	// GET and DELETE also reachable.
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/tenants/test-tenant/channel-rules", nil)
+	addAuth(req)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET channel-rules under Community = %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodDelete,
+		"/api/v1/tenants/test-tenant/channel-rules", nil)
+	addAuth(req)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE channel-rules under Community = %d; body: %s", rec.Code, rec.Body.String())
+	}
+}

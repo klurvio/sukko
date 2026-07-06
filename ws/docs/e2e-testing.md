@@ -142,6 +142,17 @@ Signal vocabulary:
 - `Report.Status`: `pass` / `fail` / `error`
 - `CheckResult.Status`: `pass` / `fail` / `skip`
 
+**Channel-rules precondition (provisioning-only authorization):** the gateway
+authorizes every subscribe and publish exclusively via per-tenant channel
+rules from provisioning — a tenant with no rules is denied everything
+(deny-all; there are no static gateway patterns and no fallback). The tester
+seeds permissive rules (`public`/`default`/`publish_public` = `["*"]`) for its
+throwaway tenant at suite setup (`seedDefaultChannelRules`); suites that test
+authorization semantics (pubsub scoping, tenant-isolation) overwrite them with
+their own precise rules. When targeting a pre-provisioned deployment with a
+static tester token, ensure the target tenant has channel rules covering the
+suite channels or every subscribe will be filtered to an empty list.
+
 ### 2.1 Suite run order
 
 | # | Suite | Min Edition | Admin Key? | Description |

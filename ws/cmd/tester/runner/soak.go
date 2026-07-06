@@ -26,6 +26,12 @@ func runSoak(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 		return nil, errors.New("runSoak: TokenFunc is nil — use auth_mode=mixed for api-key soak tests")
 	}
 
+	// Provisioning-only channel authorization: seed permissive rules so soak
+	// subscribes/publishes aren't denied by the deny-all default.
+	if err := seedDefaultChannelRules(ctx, run); err != nil {
+		return nil, fmt.Errorf("seed channel rules: %w", err)
+	}
+
 	connections := run.Config.Connections
 	if connections <= 0 {
 		connections = defaultSoakConnections

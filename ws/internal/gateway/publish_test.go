@@ -15,6 +15,7 @@ import (
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/provapi"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 func TestHandlePublish_NoServerClient(t *testing.T) {
@@ -241,6 +242,12 @@ func publishTestGatewayWithJWT(t *testing.T) (_ *Gateway, _ string) {
 		},
 		validator: validator,
 		logger:    testLogger(),
+		// Permissive rules for tenant "acme" — provisioning-only authorization
+		// requires a checker; tests override for rules-denied scenarios.
+		tenantPermChecker: testTenantChecker("acme", &types.ChannelRules{
+			Public:        []string{"*"},
+			PublishPublic: []string{"*"},
+		}),
 	}
 
 	return gw, tokenString
@@ -302,5 +309,54 @@ func TestHandlePublish_ValidJWT_Passes(t *testing.T) {
 	// Should pass all checks → reach server client → 503 (nil)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want %d (valid JWT should pass checks)", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestHandlePublish_RulesDenied(t *testing.T) {
+	t.Parallel()
+
+	gw, token := publishTestGatewayWithJWT(t)
+	// Tenant has subscribe-side rules but NO publish-side rules → all
+	// publishes denied (side-specific deny-all, FR-4).
+	gw.tenantPermChecker = testTenantChecker("acme", &types.ChannelRules{
+		Public: []string{"*"},
+	})
+
+	body := `{"channel":"acme.general.messages","data":{"msg":"hello"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	gw.HandlePublish(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d (rules-denied publish)", rec.Code, http.StatusForbidden)
+	}
+	assertErrorCode(t, rec, "FORBIDDEN")
+}
+
+func TestHandlePublish_RulesAllowed_PassesAuthorization(t *testing.T) {
+	t.Parallel()
+
+	gw, token := publishTestGatewayWithJWT(t)
+	// Publish-side rules allow the channel; with no server client the request
+	// proceeds past authorization to the 503 backend guard — proving the
+	// rules check allowed it.
+	gw.tenantPermChecker = testTenantChecker("acme", &types.ChannelRules{
+		PublishPublic: []string{"general.*"},
+	})
+	gw.serverClient = nil
+
+	body := `{"channel":"acme.general.messages","data":{"msg":"hello"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	gw.HandlePublish(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d (past authz, no backend)", rec.Code, http.StatusServiceUnavailable)
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -39,10 +38,14 @@ type Proxy struct {
 	messageTimeout time.Duration
 	maxFrameSize   int
 
-	claims      *auth.Claims
-	claimsMu    sync.RWMutex // protects claims and subscribedChannels
-	permissions *PermissionChecker
-	validator   TokenValidator
+	claims   *auth.Claims
+	claimsMu sync.RWMutex // protects claims and subscribedChannels
+	// filterSubscribe and canPublish are the gateway's shared authorization
+	// closures (per-tenant rules) — the same implementations SSE, Web Push,
+	// and REST publish use (§XVIII).
+	filterSubscribe func(ctx context.Context, channels []string, claims *auth.Claims) []string
+	canPublish      func(ctx context.Context, claims *auth.Claims, channel string) bool
+	validator       TokenValidator
 
 	// Auth refresh rate limiting
 	authLimiter           *rate.Limiter
@@ -71,9 +74,14 @@ type ProxyConfig struct {
 	Logger         zerolog.Logger
 	MessageTimeout time.Duration
 
-	Claims      *auth.Claims
-	Permissions *PermissionChecker
-	Validator   TokenValidator
+	Claims *auth.Claims
+	// FilterSubscribe filters tenant-prefixed channels to the allowed subset
+	// (gateway closure over filterSubscribeChannels — per-tenant rules).
+	FilterSubscribe func(ctx context.Context, channels []string, claims *auth.Claims) []string
+	// CanPublish authorizes a publish to a tenant-prefixed channel
+	// (gateway closure over checkPublishAllowed — per-tenant rules).
+	CanPublish func(ctx context.Context, claims *auth.Claims, channel string) bool
+	Validator  TokenValidator
 
 	// Auth refresh rate interval (minimum time between auth refreshes)
 	AuthRefreshRateInterval time.Duration
@@ -109,7 +117,8 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 		messageTimeout:        cfg.MessageTimeout,
 		maxFrameSize:          cfg.MaxFrameSize,
 		claims:                cfg.Claims,
-		permissions:           cfg.Permissions,
+		filterSubscribe:       cfg.FilterSubscribe,
+		canPublish:            cfg.CanPublish,
 		validator:             cfg.Validator,
 		tenantID:              cfg.TenantID,
 		apiKeyOnly:            cfg.APIKeyOnly,
@@ -483,9 +492,9 @@ func (p *Proxy) interceptClientMessage(ctx context.Context, msg []byte) ([]byte,
 
 	switch clientMsg.Type {
 	case protocol.MsgTypeSubscribe:
-		return p.interceptSubscribe(clientMsg)
+		return p.interceptSubscribe(ctx, clientMsg)
 	case protocol.MsgTypePublish:
-		return p.interceptPublish(clientMsg)
+		return p.interceptPublish(ctx, clientMsg)
 	case MsgTypeAuth:
 		return p.interceptAuthRefresh(ctx, clientMsg)
 	default:
@@ -493,10 +502,13 @@ func (p *Proxy) interceptClientMessage(ctx context.Context, msg []byte) ([]byte,
 	}
 }
 
-// interceptSubscribe intercepts subscribe messages to:
-// 1. Validate tenant prefix on each channel (always)
-// 2. Filter channels based on permissions
-func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, error) {
+// interceptSubscribe intercepts subscribe messages and filters the channel
+// list through the gateway's shared subscribe-authorization path
+// (filterSubscribeChannels — the same implementation SSE and Web Push use,
+// §XVIII). The filter validates tenant prefix + format, applies the
+// per-tenant rules, records all metrics/logs, and returns the allowed
+// tenant-prefixed subset.
+func (p *Proxy) interceptSubscribe(ctx context.Context, clientMsg protocol.ClientMessage) ([]byte, error) {
 	// Parse subscribe data
 	var subData protocol.SubscribeData
 	if err := json.Unmarshal(clientMsg.Data, &subData); err != nil {
@@ -508,63 +520,14 @@ func (p *Proxy) interceptSubscribe(clientMsg protocol.ClientMessage) ([]byte, er
 		return data, nil
 	}
 
-	// 1. Tenant prefix and channel format validation (always — filter out invalid channels)
-	channels := make([]string, 0, len(subData.Channels))
-	for _, ch := range subData.Channels {
-		switch {
-		case !p.validateChannelTenant(ch):
-			RecordChannelCheck(ChannelCheckDenied)
-			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonWrongTenant)
-			p.logger.Warn().
-				Str("channel", ch).
-				Msg("Subscription denied: wrong tenant prefix")
-		case strings.Count(ch, ".")+1 < protocol.MinInternalChannelParts:
-			RecordChannelCheck(ChannelCheckDenied)
-			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonInvalidFormat)
-			p.logger.Warn().
-				Str("channel", ch).
-				Msg("Subscription denied: invalid channel format")
-		default:
-			channels = append(channels, ch)
-		}
-	}
-
-	// 2. Permission filtering
 	// Read claims under lock — may be swapped by auth refresh
 	p.claimsMu.RLock()
 	currentClaims := p.claims
 	p.claimsMu.RUnlock()
 
-	// Strip tenant prefix locally for permission matching — patterns like *.trade
-	// operate on the non-tenant portion (e.g., "BTC.trade" from "sukko.BTC.trade")
-	stripped := make([]string, len(channels))
-	for i, ch := range channels {
-		stripped[i] = p.stripTenantPrefix(ch)
-	}
-	allowedStripped := p.permissions.FilterChannels(currentClaims, stripped)
+	channels := p.filterSubscribe(ctx, subData.Channels, currentClaims)
 
-	// Map allowed stripped names back to full tenant-prefixed channels
-	allowed := make([]string, 0, len(allowedStripped))
-	for _, s := range allowedStripped {
-		allowed = append(allowed, p.tenantID+"."+s)
-	}
-
-	// Log denied channels and record metrics
-	for _, ch := range channels {
-		if slices.Contains(allowed, ch) {
-			RecordChannelCheck(ChannelCheckAllowed)
-		} else {
-			RecordChannelCheck(ChannelCheckDenied)
-			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonUnauthorized)
-			p.logger.Warn().
-				Str("channel", ch).
-				Msg("Subscription denied")
-		}
-	}
-
-	channels = allowed
-
-	// 3. Rebuild message with validated channels
+	// Rebuild message with validated channels
 	modifiedData := protocol.SubscribeData{Channels: channels}
 	dataBytes, err := json.Marshal(modifiedData)
 	if err != nil {
@@ -594,16 +557,13 @@ func (p *Proxy) validateChannelTenant(channel string) bool {
 // stripTenantPrefix removes the tenant prefix from a channel for permission matching.
 // "sukko.BTC.trade" → "BTC.trade". Only used locally in the gateway for permission checks —
 // the full tenant-prefixed channel is always forwarded to the server.
-func (p *Proxy) stripTenantPrefix(channel string) string {
-	return strings.TrimPrefix(channel, p.tenantID+".")
-}
-
 // interceptPublish intercepts publish messages to:
 // 1. Validate tenant prefix
 // 2. Validate channel format (minimum 3 dot-separated parts)
 // 3. Rate limit publishes
 // 4. Validate message size
-func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, error) {
+// 5. Enforce per-tenant publish rules (shared check with REST publish, §XVIII)
+func (p *Proxy) interceptPublish(ctx context.Context, clientMsg protocol.ClientMessage) ([]byte, error) {
 	start := time.Now()
 	defer func() {
 		RecordPublishLatency(time.Since(start).Seconds())
@@ -657,6 +617,17 @@ func (p *Proxy) interceptPublish(clientMsg protocol.ClientMessage) ([]byte, erro
 		p.logger.Warn().
 			Str("channel", pubData.Channel).
 			Msg("Publish access denied: wrong tenant prefix")
+		RecordPublishResult(string(protocol.ErrCodeForbidden))
+		return p.sendPublishErrorToClient(protocol.ErrCodeForbidden)
+	}
+
+	// 6. Enforce per-tenant publish rules — the same shared check REST
+	// publish uses (checkPublishAllowed → tenant checker). Full channel is
+	// passed; the helper strips the tenant prefix internally.
+	p.claimsMu.RLock()
+	currentClaims := p.claims
+	p.claimsMu.RUnlock()
+	if !p.canPublish(ctx, currentClaims, pubData.Channel) {
 		RecordPublishResult(string(protocol.ErrCodeForbidden))
 		return p.sendPublishErrorToClient(protocol.ErrCodeForbidden)
 	}
@@ -774,7 +745,7 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 	}
 
 	// 6. Force unsubscribe from channels no longer permitted
-	revoked := p.forceUnsubscribeRevokedChannels(newClaims)
+	revoked := p.forceUnsubscribeRevokedChannels(ctx, newClaims)
 
 	// 7. Swap claims and escalate from API-key-only if applicable (lock is brief — no I/O)
 	p.claimsMu.Lock()
@@ -818,23 +789,44 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 }
 
 // forceUnsubscribeRevokedChannels checks which currently subscribed channels are
-// no longer permitted under the new claims, and sends a synthetic unsubscribe
-// to the backend for those channels.
+// no longer permitted under the new claims (re-validated through the shared
+// per-tenant rules filter), and sends a synthetic unsubscribe to the backend
+// for those channels.
 //
-// Uses two-phase pattern (Constitution VII — no mutex across I/O):
-// Phase A (under lock): collect revoked channels, update tracking map
-// Phase B (lock released): send synthetic unsubscribe to backend, notify client
-func (p *Proxy) forceUnsubscribeRevokedChannels(newClaims *auth.Claims) []string {
-	// Phase A: collect revoked channels under lock
+// Uses a three-phase pattern (Constitution VII — no mutex across I/O or
+// nested provider locks): snapshot under lock → filter without lock →
+// delete under lock. Client messages (subscribe, auth refresh) are processed
+// sequentially on the read loop, so no subscribe can interleave between
+// phases.
+func (p *Proxy) forceUnsubscribeRevokedChannels(ctx context.Context, newClaims *auth.Claims) []string {
+	// Phase A: snapshot subscribed channels under lock.
 	p.claimsMu.Lock()
-	var revoked []string
+	subscribed := make([]string, 0, len(p.subscribedChannels))
 	for ch := range p.subscribedChannels {
-		stripped := p.stripTenantPrefix(ch)
-		if !p.permissions.CanSubscribe(newClaims, stripped) {
+		subscribed = append(subscribed, ch)
+	}
+	p.claimsMu.Unlock()
+
+	if len(subscribed) == 0 {
+		return nil
+	}
+
+	// Phase B: re-validate through the shared filter (provider lookups happen
+	// here, outside claimsMu).
+	allowed := p.filterSubscribe(ctx, subscribed, newClaims)
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, ch := range allowed {
+		allowedSet[ch] = struct{}{}
+	}
+	var revoked []string
+	for _, ch := range subscribed {
+		if _, ok := allowedSet[ch]; !ok {
 			revoked = append(revoked, ch)
 		}
 	}
-	// Remove revoked from tracking while still under lock
+
+	// Phase C: remove revoked from tracking under lock.
+	p.claimsMu.Lock()
 	for _, ch := range revoked {
 		delete(p.subscribedChannels, ch)
 	}

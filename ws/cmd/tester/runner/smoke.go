@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -21,6 +22,12 @@ func runSmoke(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metric
 	// The handler and runner.Start() enforce mode/type constraints, but guard here as defense-in-depth.
 	if run.authResult.TokenFunc == nil {
 		return nil, errors.New("runSmoke: TokenFunc is nil — api-key and upgrade modes are not supported for smoke tests")
+	}
+
+	// Provisioning-only channel authorization: seed permissive rules so the
+	// smoke subscribe/pubsub checks aren't denied by the deny-all default.
+	if err := seedDefaultChannelRules(ctx, run); err != nil {
+		return nil, fmt.Errorf("seed channel rules: %w", err)
 	}
 
 	var checks []metrics.CheckResult
