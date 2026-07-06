@@ -3,7 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
-	"strings"
+	"regexp"
 
 	"github.com/rs/zerolog"
 
@@ -12,10 +12,12 @@ import (
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
-// principalPlaceholder is substituted with the JWT subject at match time.
-// It is the only placeholder token supported in channel rule patterns
-// (validated by types.ChannelRules.ValidateWithPlaceholders).
-const principalPlaceholder = "{principal}"
+// placeholderToken matches any {placeholder} token remaining in a pattern
+// after resolution. Patterns still containing tokens (nil claims, or a claim
+// that resolved to empty) are dropped — an unresolved placeholder can never
+// legitimately match a real channel, and keeping it literal would let a
+// client subscribe to the raw "{...}" name.
+var placeholderToken = regexp.MustCompile(`\{[a-zA-Z_][a-zA-Z0-9_]*\}`)
 
 // TenantPermissionChecker validates channel permissions using per-tenant rules
 // streamed from provisioning. It is the sole channel-authorization source:
@@ -25,6 +27,7 @@ const principalPlaceholder = "{principal}"
 // never the authorization outcome.
 type TenantPermissionChecker struct {
 	provider ChannelRulesProvider
+	resolver *auth.PlaceholderResolver
 	logger   zerolog.Logger
 }
 
@@ -36,6 +39,7 @@ func NewTenantPermissionChecker(provider ChannelRulesProvider, logger zerolog.Lo
 	}
 	return &TenantPermissionChecker{
 		provider: provider,
+		resolver: auth.NewPlaceholderResolver(),
 		logger:   logger,
 	}, nil
 }
@@ -85,7 +89,7 @@ func (pc *TenantPermissionChecker) CanPublish(ctx context.Context, tenantID stri
 		return false
 	}
 	rules := pc.getRulesForTenant(ctx, tenantID)
-	patterns := substitutePrincipal(rules.ComputeAllowedPublishPatterns(claims.Groups), claims)
+	patterns := pc.substitutePlaceholders(rules.ComputeAllowedPublishPatterns(claims.Groups), claims)
 	allowed := auth.MatchAnyWildcard(patterns, channel)
 
 	result := ChannelCheckDenied
@@ -107,26 +111,25 @@ func (pc *TenantPermissionChecker) CanPublish(ctx context.Context, tenantID stri
 // with {principal} substituted. Nil claims → public patterns only.
 func (pc *TenantPermissionChecker) subscribePatterns(rules *types.ChannelRules, claims *auth.Claims) []string {
 	if claims == nil {
-		return substitutePrincipal(rules.Public, nil)
+		return pc.substitutePlaceholders(rules.Public, nil)
 	}
-	return substitutePrincipal(rules.ComputeAllowedPatterns(claims.Groups), claims)
+	return pc.substitutePlaceholders(rules.ComputeAllowedPatterns(claims.Groups), claims)
 }
 
-// substitutePrincipal replaces the {principal} placeholder in each pattern
-// with the JWT subject. With nil claims (or an empty subject), patterns
-// containing {principal} are dropped — they can never legitimately match.
-func substitutePrincipal(patterns []string, claims *auth.Claims) []string {
-	subject := ""
-	if claims != nil {
-		subject = claims.Subject
-	}
+// substitutePlaceholders resolves every placeholder token the platform
+// validates ({principal}, {sub}, {user_id}, {tenant_id}, {tenant}, {app_id} —
+// auth.DefaultPlaceholders) against the JWT claims via the shared
+// PlaceholderResolver. Patterns that still contain a token after resolution
+// (nil claims, or a claim that resolved to empty) are dropped: an unresolved
+// placeholder can never legitimately match a real channel (fail closed).
+func (pc *TenantPermissionChecker) substitutePlaceholders(patterns []string, claims *auth.Claims) []string {
 	out := make([]string, 0, len(patterns))
 	for _, p := range patterns {
-		if strings.Contains(p, principalPlaceholder) {
-			if subject == "" {
-				continue
-			}
-			p = strings.ReplaceAll(p, principalPlaceholder, subject)
+		if claims != nil {
+			p = pc.resolver.Resolve(p, claims)
+		}
+		if placeholderToken.MatchString(p) {
+			continue
 		}
 		out = append(out, p)
 	}

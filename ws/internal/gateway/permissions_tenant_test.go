@@ -329,3 +329,59 @@ func TestTenantPermissionChecker_ConcurrentReadsAndWrites(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+// TestTenantPermissionChecker_AllBuiltinPlaceholders verifies every
+// placeholder the platform validates (auth.DefaultPlaceholders) is resolved
+// at match time — provisioning accepts these tokens in rules, so the gateway
+// must resolve all of them, not just {principal}. Patterns left with an
+// unresolved token are dropped (fail closed).
+func TestTenantPermissionChecker_AllBuiltinPlaceholders(t *testing.T) {
+	t.Parallel()
+
+	registry := newMockChannelRulesProvider()
+	registry.setRules("acme", &types.ChannelRules{
+		Default: []string{
+			"inbox.{principal}",
+			"mail.{sub}",
+			"files.{user_id}",
+			"scope.{tenant_id}.alerts",
+			"org.{tenant}.news",
+			"app.{app_id}.events",
+		},
+	})
+	checker := mustNewTenantPermissionChecker(t, registry)
+	ctx := context.Background()
+
+	claims := &auth.Claims{TenantID: "acme"}
+	claims.Subject = "user1"
+
+	tests := []struct {
+		name    string
+		channel string
+		want    bool
+	}{
+		{"principal resolves to subject", "inbox.user1", true},
+		{"sub resolves to subject", "mail.user1", true},
+		{"user_id resolves to subject", "files.user1", true},
+		{"tenant_id resolves to tenant", "scope.acme.alerts", true},
+		{"tenant resolves to tenant", "org.acme.news", true},
+		{"app_id resolves to subject", "app.user1.events", true},
+		{"other subject denied", "inbox.user2", false},
+		{"other tenant denied", "scope.other.alerts", false},
+		{"literal placeholder channel denied", "inbox.{principal}", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := checker.CanSubscribe(ctx, "acme", claims, tt.channel); got != tt.want {
+				t.Errorf("CanSubscribe(%q) = %v, want %v", tt.channel, got, tt.want)
+			}
+		})
+	}
+
+	// Nil claims: every placeholder pattern is dropped — nothing matches,
+	// including the literal token channel (fail closed).
+	if checker.CanSubscribe(ctx, "acme", nil, "inbox.{principal}") {
+		t.Error("nil claims must not match a literal placeholder channel")
+	}
+}
