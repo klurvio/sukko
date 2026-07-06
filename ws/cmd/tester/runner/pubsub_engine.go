@@ -102,8 +102,12 @@ func (u *TestUser) ClearReceived() {
 
 // onMessage is the callback for incoming WebSocket messages.
 // Called from the client's read loop goroutine — writes are mutex-protected.
+// Delivered broadcasts arrive as {"type":"message",...} (the server's
+// BroadcastEnvelope); peer-forwarded publishes as {"type":"publish",...} —
+// accept both, otherwise delivered messages are silently ignored and every
+// delivery check reports "missing" despite successful delivery.
 func (u *TestUser) onMessage(msg testerws.Message) {
-	if msg.Type != "publish" {
+	if msg.Type != "publish" && msg.Type != "message" {
 		return
 	}
 	var payload struct {
