@@ -26,6 +26,7 @@ import (
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/protocol"
 	"github.com/klurvio/sukko/internal/shared/provapi"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // newTestGatewayConfig returns a gateway config for testing.
@@ -48,9 +49,6 @@ func newTestGatewayConfig() *platform.GatewayConfig {
 		BackendURL:                   "ws://localhost:3005/ws",
 		DialTimeout:                  10 * time.Second,
 		MessageTimeout:               60 * time.Second,
-		PublicPatterns:               []string{"*.trade"},
-		UserScopedPatterns:           []string{"balances.{principal}"},
-		GroupScopedPatterns:          []string{"community.{group_id}"},
 		RateLimitEnabled:             true,
 		RateLimitBurst:               100,
 		RateLimitRate:                10.0,
@@ -78,16 +76,19 @@ func newTestLogger() zerolog.Logger {
 	return zerolog.Nop()
 }
 
-// newGatewayWithMockValidator creates a gateway with auth disabled and injects a mock validator.
+// newGatewayWithMockValidator creates a gateway with a mock validator and a
+// permissive rules-backed tenant checker (provisioning-only authorization).
 // This is useful for testing auth behavior without a database connection.
 func newGatewayWithMockValidator(cfg *platform.GatewayConfig, logger zerolog.Logger, validator *auth.MultiTenantValidator) *Gateway {
+	registry := newMockChannelRulesProvider()
+	registry.setRules("test-tenant", &types.ChannelRules{Public: []string{"*"}})
+	checker, err := NewTenantPermissionChecker(registry, zerolog.Nop())
+	if err != nil {
+		panic(err) // test helper: provider is never nil
+	}
 	return &Gateway{
-		config: cfg,
-		permissions: NewPermissionChecker(
-			cfg.PublicPatterns,
-			cfg.UserScopedPatterns,
-			cfg.GroupScopedPatterns,
-		),
+		config:             cfg,
+		tenantPermChecker:  checker,
 		validator:          validator,
 		connectionRegistry: NewConnectionRegistry(),
 		logger:             logger.With().Str("component", "gateway").Logger(),
@@ -375,13 +376,15 @@ func (m *mockLicenseWatcher) Close() error { m.closeCalled = true; return nil }
 // a mock API key registry and an optional JWT validator. When validator is nil,
 // only API-key auth paths are exercisable.
 func newGatewayWithAPIKeyMock(cfg *platform.GatewayConfig, logger zerolog.Logger, validator *auth.MultiTenantValidator, apiKeys *mockAPIKeyLookup) *Gateway {
+	registry := newMockChannelRulesProvider()
+	registry.setRules("test-tenant", &types.ChannelRules{Public: []string{"*"}})
+	checker, err := NewTenantPermissionChecker(registry, zerolog.Nop())
+	if err != nil {
+		panic(err) // test helper: provider is never nil
+	}
 	return &Gateway{
-		config: cfg,
-		permissions: NewPermissionChecker(
-			cfg.PublicPatterns,
-			cfg.UserScopedPatterns,
-			cfg.GroupScopedPatterns,
-		),
+		config:             cfg,
+		tenantPermChecker:  checker,
 		validator:          validator,
 		connectionRegistry: NewConnectionRegistry(),
 		apiKeyRegistry:     apiKeys,

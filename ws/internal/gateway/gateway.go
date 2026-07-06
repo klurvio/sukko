@@ -63,9 +63,8 @@ type Gateway struct {
 
 	apiKeyRegistry       APIKeyLookup // interface for Lookup() + mock injection in tests
 	channelRulesProvider ChannelRulesProvider
-	permissions          *PermissionChecker
 	connTracker          *TenantConnectionTracker // Per-tenant connection tracking
-	tenantPermChecker    *TenantPermissionChecker // Per-tenant channel authorization
+	tenantPermChecker    *TenantPermissionChecker // Sole channel-authorization source (provisioning-only)
 	wsServerHTTPClient   *http.Client             // Reused for ws-server /edition calls (cold path)
 
 	// SSE + REST Publish (Pro edition)
@@ -92,12 +91,6 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 		logger:             logger.With().Str("component", "gateway").Logger(),
 	}
 
-	gw.permissions = NewPermissionChecker(
-		config.PublicPatterns,
-		config.UserScopedPatterns,
-		config.GroupScopedPatterns,
-	)
-
 	// Set up per-tenant connection tracking if enabled
 	if config.TenantConnectionLimitEnabled {
 		gw.connTracker = NewTenantConnectionTracker(config.DefaultTenantConnectionLimit)
@@ -110,29 +103,18 @@ func New(config *platform.GatewayConfig, logger zerolog.Logger) (*Gateway, error
 		return nil, fmt.Errorf("setup validator: %w", err)
 	}
 
-	// Set up per-tenant channel rules if enabled (requires auth to be enabled first for channel rules provider)
-	if config.PerTenantChannelRulesEnabled && gw.channelRulesProvider == nil {
-		gw.logger.Warn().
-			Bool("per_tenant_channel_rules_enabled", true).
-			Str("auth_mode", config.AuthMode).
-			Msg("Per-tenant channel rules enabled but channel rules provider not available (requires auth); feature inactive")
+	// Per-tenant channel rules are the sole channel-authorization source
+	// (provisioning-only) — the checker is always constructed. The rules
+	// provider is wired by setupValidator from the provisioning gRPC stream.
+	permChecker, err := NewTenantPermissionChecker(
+		gw.channelRulesProvider,
+		gw.logger.With().Str("component", "tenant_permissions").Logger(),
+	)
+	if err != nil {
+		_ = gw.Close() // cleanup license watcher + stream registries
+		return nil, fmt.Errorf("create tenant permission checker: %w", err)
 	}
-	if config.PerTenantChannelRulesEnabled && gw.channelRulesProvider != nil {
-		fallbackRules := DefaultChannelRules(config.FallbackPublicChannels)
-		permChecker, err := NewTenantPermissionChecker(
-			gw.channelRulesProvider,
-			fallbackRules,
-			gw.logger.With().Str("component", "tenant_permissions").Logger(),
-		)
-		if err != nil {
-			_ = gw.Close() // cleanup license watcher + stream registries
-			return nil, fmt.Errorf("create tenant permission checker: %w", err)
-		}
-		gw.tenantPermChecker = permChecker
-		gw.logger.Info().
-			Int("fallback_patterns", len(config.FallbackPublicChannels)).
-			Msg("Per-tenant channel rules enabled")
-	}
+	gw.tenantPermChecker = permChecker
 
 	// Token revocation — connection registry always created for registration.
 	// Revocation stream registry wired externally via SetRevocationRegistry (same pattern as SetPushClient).
@@ -434,13 +416,20 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Dur("connect_time", time.Since(startTime)).
 		Msg("Client connected and proxying to backend")
 
-	// Create and run proxy
+	// Create and run proxy. Authorization is injected as closures so the WS
+	// proxy shares the exact same filter/check implementations as SSE, Web
+	// Push, and REST publish (§XVIII).
 	proxy := NewProxy(ProxyConfig{
-		ClientConn:              clientConn,
-		BackendConn:             backendConn,
-		Claims:                  claims, // nil when API-key-only connection
-		TenantID:                tenantID,
-		Permissions:             gw.permissions,
+		ClientConn:  clientConn,
+		BackendConn: backendConn,
+		Claims:      claims, // nil when API-key-only connection
+		TenantID:    tenantID,
+		FilterSubscribe: func(ctx context.Context, channels []string, cl *auth.Claims) []string {
+			return gw.filterSubscribeChannels(ctx, channels, tenantID, cl)
+		},
+		CanPublish: func(ctx context.Context, cl *auth.Claims, channel string) bool {
+			return gw.checkPublishAllowed(ctx, tenantID, cl, channel)
+		},
 		Validator:               gw.validator,
 		AuthRefreshRateInterval: gw.config.AuthRefreshRateInterval,
 		AuthValidationTimeout:   gw.config.AuthValidationTimeout,
@@ -468,6 +457,22 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 // streamStatus returns the overall status and per-stream states.
+// channelRulesStreamLabel maps the rules stream's connection state and
+// snapshot-received flag to a health label. FR-9 readiness gate: a stream
+// that is TCP-connected but has not yet applied its initial snapshot cannot
+// answer authorization queries — the gateway MUST report degraded (HandleReady
+// then returns 503) until the snapshot is applied.
+func channelRulesStreamLabel(state int32, snapshotReceived bool) (label string, degraded bool) {
+	switch {
+	case state == provapi.StreamStateDisconnected:
+		return provapi.StreamLabelDisconnected, true
+	case !snapshotReceived:
+		return provapi.StreamLabelConnectedAwaitingSnapshot, true
+	default:
+		return provapi.StreamLabelConnected, false
+	}
+}
+
 func (gw *Gateway) streamStatus() (status, keysStream, configStream, apiKeysStream string) {
 	status = "ok"
 	keysStream = provapi.StreamLabelConnected
@@ -483,9 +488,10 @@ func (gw *Gateway) streamStatus() (status, keysStream, configStream, apiKeysStre
 		keysStream = provapi.StreamLabelDisabled
 	}
 	if gw.streamChannelRules != nil {
-		if gw.streamChannelRules.State() == provapi.StreamStateDisconnected {
+		if label, degraded := channelRulesStreamLabel(
+			gw.streamChannelRules.State(), gw.streamChannelRules.SnapshotReceived()); degraded {
 			status = "degraded"
-			configStream = provapi.StreamLabelDisconnected
+			configStream = label
 		}
 	} else {
 		configStream = provapi.StreamLabelDisabled

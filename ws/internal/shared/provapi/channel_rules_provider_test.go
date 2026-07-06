@@ -383,3 +383,58 @@ func TestSnapshotReplace_RoutingSnapshotsTrimmedForRemovedTenants(t *testing.T) 
 		t.Error("globex snapshot should remain")
 	}
 }
+
+// =============================================================================
+// SnapshotReceived (FR-9 readiness gating)
+// =============================================================================
+
+func TestChannelRulesProvider_SnapshotReceived(t *testing.T) {
+	t.Parallel()
+
+	t.Run("false at construction", func(t *testing.T) {
+		t.Parallel()
+		r := newTestChannelRulesProvider()
+		if r.SnapshotReceived() {
+			t.Error("SnapshotReceived must be false before any snapshot is applied")
+		}
+	})
+
+	t.Run("delta update does not flip it", func(t *testing.T) {
+		t.Parallel()
+		r := newTestChannelRulesProvider()
+		r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
+			IsSnapshot: false,
+			Tenants: []*provisioningv1.TenantConfig{
+				{TenantId: "t1", ChannelRules: &provisioningv1.ChannelRules{PublicChannels: []string{"*"}}},
+			},
+		})
+		if r.SnapshotReceived() {
+			t.Error("a delta update must NOT mark the snapshot as received")
+		}
+	})
+
+	t.Run("true only after snapshot applied", func(t *testing.T) {
+		t.Parallel()
+		r := newTestChannelRulesProvider()
+		r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
+			IsSnapshot: true,
+			Tenants: []*provisioningv1.TenantConfig{
+				{TenantId: "t1", ChannelRules: &provisioningv1.ChannelRules{PublicChannels: []string{"*"}}},
+			},
+		})
+		if !r.SnapshotReceived() {
+			t.Error("SnapshotReceived must be true after the snapshot is applied")
+		}
+	})
+
+	t.Run("empty snapshot still counts as applied", func(t *testing.T) {
+		t.Parallel()
+		// A deployment with zero tenants is a valid, fully-applied snapshot —
+		// tenants are simply "none configured" (deny-all, healthy), not unknown.
+		r := newTestChannelRulesProvider()
+		r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{IsSnapshot: true})
+		if !r.SnapshotReceived() {
+			t.Error("an empty snapshot must still mark the provider ready")
+		}
+	})
+}

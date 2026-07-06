@@ -6,7 +6,7 @@ func TestRequiredEdition(t *testing.T) {
 	t.Parallel()
 	proFeatures := []Feature{
 		KafkaBackend, SSETransport,
-		PerTenantChannelRules, PerTenantConnectionLimits, PerTenantConfigurableQuotas,
+		PerTenantConnectionLimits, PerTenantConfigurableQuotas,
 		TenantLifecycleManager, Alerting, Analytics, ConnectionTracing, AdminUI,
 		TokenRevocation, Webhooks, MessageHistory, ChannelPatternsCEL, DeltaCompression,
 	}
@@ -14,6 +14,12 @@ func TestRequiredEdition(t *testing.T) {
 		if got := RequiredEdition(f); got != Pro {
 			t.Errorf("RequiredEdition(%q) = %q, want Pro", f, got)
 		}
+	}
+
+	// Channel rules are ungated — explicitly mapped to Community so the docs
+	// editions extractor renders the row (provisioning-only authorization).
+	if got := RequiredEdition(PerTenantChannelRules); got != Community {
+		t.Errorf("RequiredEdition(%q) = %q, want Community", PerTenantChannelRules, got)
 	}
 
 	enterpriseFeatures := []Feature{

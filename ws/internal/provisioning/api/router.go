@@ -257,11 +257,12 @@ func NewRouter(cfg RouterConfig) (http.Handler, error) {
 					r.Get("/audit", h.GetAuditLog)
 				})
 
-				// Channel rules — read is open to tenant; write requires Pro + admin (§XIII security fix)
+				// Channel rules — read is open to tenant; write requires admin.
+				// Ungated (Community): rules are the sole channel-authorization
+				// mechanism, so every edition must be able to manage them.
 				r.Route("/channel-rules", func(r chi.Router) {
 					r.Get("/", h.GetChannelRules)
 					r.Group(func(r chi.Router) {
-						r.Use(RequireFeature(cfg.EditionManager, license.PerTenantChannelRules))
 						r.Use(RequireRole("admin", "system"))
 						r.Put("/", h.SetChannelRules)
 						r.Delete("/", h.DeleteChannelRules)

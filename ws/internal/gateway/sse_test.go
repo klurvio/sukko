@@ -10,6 +10,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/platform"
+	"github.com/klurvio/sukko/internal/shared/types"
 )
 
 // sseTestGatewayWithJWT creates a Gateway with JWT auth for SSE handler testing.
@@ -56,6 +57,12 @@ func sseTestGatewayWithJWT(t *testing.T) (gw *Gateway, token string) {
 		},
 		validator: validator,
 		logger:    testLogger(),
+		// Permissive rules for tenant "acme" — provisioning-only authorization
+		// requires a checker; individual tests override for deny scenarios.
+		tenantPermChecker: testTenantChecker("acme", &types.ChannelRules{
+			Public:        []string{"*"},
+			PublishPublic: []string{"*"},
+		}),
 	}
 
 	return gw, tokenString
@@ -145,8 +152,9 @@ func TestHandleSSE_AllChannelsFiltered(t *testing.T) {
 	t.Parallel()
 
 	gw, token := sseTestGatewayWithJWT(t)
-	// Set permissions that require *.trade pattern — channels below use wrong tenant
-	gw.permissions = NewPermissionChecker([]string{"*.trade"}, nil, nil)
+	// Rules allow *.trade for acme — but the channels below use a wrong
+	// tenant prefix, so all are filtered before rules even apply.
+	gw.tenantPermChecker = testTenantChecker("acme", &types.ChannelRules{Public: []string{"*.trade"}})
 
 	// All channels have wrong tenant → all filtered by filterSubscribeChannels
 	// (JWT tenant is "acme" but channels use "wrong")

@@ -369,11 +369,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Edition gate — requires Pro
+          description: |
+            Forbidden — one of: edition gate (requires Pro), API-key-only
+            authentication (publish requires JWT), channel tenant prefix
+            mismatch, or the tenant's channel rules deny publish to this
+            channel (per-tenant publish rules are the sole publish
+            authorization source; a tenant with no publish rules is denied).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              example:
+                code: FORBIDDEN
+                message: "channel rules deny publish to this channel"
         "413":
           description: Request body too large
           content:

@@ -32,9 +32,6 @@ func newValidGatewayConfig() *GatewayConfig {
 		DialTimeout:                  10 * time.Second,
 		MessageTimeout:               60 * time.Second,
 		RequireTenantID:              true,
-		PublicPatterns:               []string{"*.trade"},
-		UserScopedPatterns:           []string{"balances.{principal}"},
-		GroupScopedPatterns:          []string{"community.{group_id}"},
 		MaxFrameSize:                 1048576,
 		RateLimitEnabled:             true,
 		RateLimitBurst:               100,
@@ -191,35 +188,6 @@ func TestGatewayConfig_Validate_BackendURL(t *testing.T) {
 			t.Parallel()
 			cfg := newValidGatewayConfig()
 			cfg.BackendURL = tt.url
-			err := cfg.Validate()
-			if tt.shouldError && err == nil {
-				t.Error("Should error")
-			}
-			if !tt.shouldError && err != nil {
-				t.Errorf("Should not error: %v", err)
-			}
-		})
-	}
-}
-
-func TestGatewayConfig_Validate_PublicPatterns(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name        string
-		patterns    []string
-		shouldError bool
-	}{
-		{"single pattern", []string{"*.trade"}, false},
-		{"multiple patterns", []string{"*.trade", "*.liquidity", "sukko.*"}, false},
-		{"empty slice", []string{}, true},
-		{"nil slice", nil, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := newValidGatewayConfig()
-			cfg.PublicPatterns = tt.patterns
 			err := cfg.Validate()
 			if tt.shouldError && err == nil {
 				t.Error("Should error")
@@ -658,11 +626,6 @@ func TestGatewayConfig_Validate_EditionGates_Community(t *testing.T) {
 		errSub string
 	}{
 		{
-			name:   "community rejects per-tenant channel rules",
-			modify: func(c *GatewayConfig) { c.PerTenantChannelRulesEnabled = true },
-			errSub: "GATEWAY_PER_TENANT_CHANNEL_RULES",
-		},
-		{
 			name:   "community rejects tenant connection limits",
 			modify: func(c *GatewayConfig) { c.TenantConnectionLimitEnabled = true },
 			errSub: "TENANT_CONNECTION_LIMIT_ENABLED",
@@ -671,7 +634,6 @@ func TestGatewayConfig_Validate_EditionGates_Community(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := newValidGatewayConfig()
-			cfg.PerTenantChannelRulesEnabled = false
 			cfg.TenantConnectionLimitEnabled = false
 			setGatewayEditionManager(t, cfg, license.Community)
 			tt.modify(cfg)
@@ -691,7 +653,6 @@ func TestGatewayConfig_Validate_EditionGates_Community(t *testing.T) {
 func TestGatewayConfig_Validate_EditionGates_ProAccepts(t *testing.T) {
 	cfg := newValidGatewayConfig()
 	setGatewayEditionManager(t, cfg, license.Pro)
-	cfg.PerTenantChannelRulesEnabled = true
 	cfg.TenantConnectionLimitEnabled = true
 
 	if err := cfg.Validate(); err != nil {

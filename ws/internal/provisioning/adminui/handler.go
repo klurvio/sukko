@@ -196,7 +196,7 @@ func (h *Handler) tenantDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	ed := h.edition()
 	h.renderHTML(w, "tenant_detail.html", TenantDetailData{
-		TemplateData:   TemplateData{NeedsCodeMirror: license.EditionHasFeature(ed, license.PerTenantChannelRules)},
+		TemplateData:   TemplateData{NeedsCodeMirror: true}, // rules editor is ungated (Community)
 		Tenant:         TenantSummary{Slug: t.Slug, Name: t.Name, Status: string(t.Status)},
 		ActiveTab:      "overview",
 		CanConnections: license.EditionHasFeature(ed, license.ConnectionsAPI),
@@ -381,10 +381,8 @@ func (h *Handler) auditPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) setChannelRules(w http.ResponseWriter, r *http.Request) {
-	if !license.EditionHasFeature(h.edition(), license.PerTenantChannelRules) {
-		httputil.WriteError(w, http.StatusForbidden, "EDITION_REQUIRED", "Channel rules require Pro edition")
-		return
-	}
+	// Ungated (Community): channel rules are the sole channel-authorization
+	// mechanism — every edition manages them.
 	slug := chi.URLParam(r, "tenantSlug")
 	var body types.ChannelRules
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

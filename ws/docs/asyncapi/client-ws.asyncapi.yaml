@@ -70,19 +70,27 @@ info:
     **Stage 2 — Pattern matching (auth enabled only):**
     The gateway strips the tenant prefix and matches the remaining portion against permission patterns.
 
-    | Pattern Type | Config Key | Format | Example | Behavior |
-    |--------------|-----------|--------|---------|----------|
-    | Public | `publicPatterns` | Wildcard glob | `*.messages` | Anyone can subscribe (matches `general.messages` from `sukko.general.messages`) |
-    | User-scoped | `userScopedPatterns` | `{principal}` placeholder | `inbox.{principal}` | Only the JWT subject can subscribe (`sukko.inbox.user123` requires `sub=user123`) |
-    | Group-scoped | `groupScopedPatterns` | `{group_id}` placeholder | `rooms.{group_id}` | Only group members can subscribe (matched against JWT `groups` claim) |
+    Channel authorization is **provisioning-only**: per-tenant channel rules
+    configured via the provisioning API (streamed to the gateway over gRPC)
+    are the sole authorization source. There is no static gateway pattern
+    configuration and no fallback rule set — a tenant with no rules is denied
+    all subscribes and publishes (deny-all).
+
+    | Rule Field | Format | Example | Behavior |
+    |------------|--------|---------|----------|
+    | `public` | Wildcard glob | `*.messages` | Any authenticated connection can subscribe (matches `general.messages` from `sukko.general.messages`) |
+    | `group_mappings` | Group → patterns | `{"traders": ["*.trade"]}` | Only members of the JWT `groups` claim get the mapped patterns |
+    | `default` | Wildcard glob | `alerts.*` | Fallback tier: applies to JWT-authenticated connections whose groups match no mapping |
+    | `{principal}` placeholder | Inside any pattern | `inbox.{principal}` | Substituted with the JWT subject at match time (`sukko.inbox.user123` requires `sub=user123`) |
+
+    Publish authorization uses the separate publish-side fields
+    (`publish_public`, `publish_group_mappings`, `publish_default`) with the
+    same pattern semantics — rules are side-specific and may be asymmetric.
+    A publish denied by rules receives the standard `FORBIDDEN` error.
 
     Channels not matching any pattern are denied.
 
-    ### Per-Tenant Channel Rules
-
-    When enabled (`GATEWAY_PER_TENANT_CHANNEL_RULES_ENABLED=true`), channel permission patterns can be configured per-tenant via the provisioning API. Per-tenant rules override global patterns from gateway config. If no per-tenant rules exist for a tenant, the gateway falls back to global patterns or configurable fallback public patterns (`GATEWAY_FALLBACK_PUBLIC_CHANNELS`).
-
-    **API-key-only connections** (no JWT) can only subscribe to public channels — user-scoped and group-scoped patterns require JWT claims.
+    **API-key-only connections** (no JWT) can only subscribe to public channels — user-scoped and group-scoped patterns require JWT claims, and publish always requires JWT.
 
     ## Topic Mapping Rules
 

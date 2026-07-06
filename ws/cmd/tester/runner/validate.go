@@ -27,6 +27,29 @@ func runValidate(ctx context.Context, run *TestRun, logger zerolog.Logger) (*met
 		suite = "auth"
 	}
 
+	// Channel authorization is provisioning-only: a ruleless tenant is denied
+	// every subscribe/publish. Seed permissive rules for the suite tenant so
+	// transport-focused suites aren't denied by deny-all; authorization-focused
+	// suites overwrite these with their own precise rules afterwards.
+	// Seeding failure surfaces as a failing check (the tester's error contract:
+	// infra failures produce reports, not hard errors) and skips the suite —
+	// running it under deny-all would only produce misleading failures.
+	if err := seedDefaultChannelRules(ctx, run); err != nil {
+		//nolint:nilerr // Intentional: the tester's error contract surfaces infra
+		// failures as failing check results in the report, not as hard errors
+		// (see TestRunValidate_* — suites must degrade into reports, not errors).
+		return &metrics.Report{
+			TestType: "validate:" + suite,
+			Status:   metrics.ReportStatusFail,
+			Metrics:  run.Collector.Snapshot(),
+			Checks: []metrics.CheckResult{{
+				Name:   "seed channel rules",
+				Status: metrics.CheckStatusFail,
+				Error:  err.Error(),
+			}},
+		}, nil
+	}
+
 	var checks []metrics.CheckResult
 	var err error
 

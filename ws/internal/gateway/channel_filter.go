@@ -10,33 +10,28 @@ import (
 )
 
 // filterSubscribeChannels validates and filters channels for subscribe-like operations.
-// Used by SSE and push subscribe. Replicates the WebSocket subscribe permission flow.
+// The single subscribe-authorization path for ALL transports (WS proxy, SSE,
+// Web Push) — §XVIII consistency by construction.
 //
 // Steps:
 //  1. Filter out channels failing tenant prefix validation
 //  2. Filter out channels with fewer than MinInternalChannelParts
 //  3. Strip tenant prefix from surviving channels
-//  4. Apply permission filtering (tenantPermChecker → global permissions → pass all)
+//  4. Apply per-tenant rules filtering (tenant checker — the sole source)
 //  5. Re-prefix allowed channels with tenantID
-//
-// When auth is disabled (both checkers nil), all valid channels pass through.
 func (gw *Gateway) filterSubscribeChannels(
 	ctx context.Context,
 	channels []string,
 	tenantID string,
 	claims *auth.Claims,
 ) []string {
-	// Auth disabled — no checkers, skip all validation (FR-011)
-	if gw.permissions == nil && gw.tenantPermChecker == nil {
-		return channels
-	}
-
 	// 1 + 2. Tenant prefix and channel format validation
 	valid := make([]string, 0, len(channels))
 	for _, ch := range channels {
 		switch {
 		case !auth.ValidateChannelTenant(ch, tenantID):
 			RecordChannelCheck(ChannelCheckDenied)
+			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonWrongTenant)
 			gw.logger.Warn().
 				Str("channel", ch).
 				Str("tenant_id", tenantID).
@@ -44,6 +39,7 @@ func (gw *Gateway) filterSubscribeChannels(
 				Msg("channel denied")
 		case strings.Count(ch, ".")+1 < protocol.MinInternalChannelParts:
 			RecordChannelCheck(ChannelCheckDenied)
+			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonInvalidFormat)
 			gw.logger.Warn().
 				Str("channel", ch).
 				Str("tenant_id", tenantID).
@@ -61,17 +57,15 @@ func (gw *Gateway) filterSubscribeChannels(
 		stripped[i] = strings.TrimPrefix(ch, tenantPrefix)
 	}
 
-	// 4. Permission filtering (per-tenant → global)
-	var allowedStripped []string
-	switch {
-	case gw.tenantPermChecker != nil:
-		allowedStripped = gw.tenantPermChecker.FilterChannels(ctx, claims, stripped)
-	case gw.permissions != nil:
-		allowedStripped = gw.permissions.FilterChannels(claims, stripped)
-	default:
-		// Auth disabled — no permission checker, all valid channels pass through
-		allowedStripped = stripped
+	// 4. Per-tenant rules filtering — the sole authorization source.
+	// Defensive (§II): the checker is constructed unconditionally at startup,
+	// so nil here should be impossible — fail closed rather than panic.
+	if gw.tenantPermChecker == nil {
+		gw.logger.Error().Str("tenant_id", tenantID).
+			Msg("tenant permission checker not initialized; denying all channels")
+		return nil
 	}
+	allowedStripped := gw.tenantPermChecker.FilterChannels(ctx, tenantID, claims, stripped)
 
 	// 5. Re-prefix allowed channels and record metrics
 	allowed := make([]string, 0, len(allowedStripped))
@@ -83,6 +77,7 @@ func (gw *Gateway) filterSubscribeChannels(
 	for _, ch := range valid {
 		if !slices.Contains(allowed, ch) {
 			RecordChannelCheck(ChannelCheckDenied)
+			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonUnauthorized)
 			gw.logger.Warn().
 				Str("channel", ch).
 				Str("tenant_id", tenantID).
@@ -94,4 +89,31 @@ func (gw *Gateway) filterSubscribeChannels(
 	}
 
 	return allowed
+}
+
+// checkPublishAllowed is the single publish-authorization path for ALL
+// transports (WS proxy interceptPublish + REST HandlePublish) — §XVIII.
+// It takes the FULL (tenant-prefixed) channel and strips the prefix
+// internally; rules are stored bare. Callers have already validated the
+// tenant prefix, but stripping tolerates a mismatch (no-op → deny).
+func (gw *Gateway) checkPublishAllowed(ctx context.Context, tenantID string, claims *auth.Claims, channel string) bool {
+	// Defensive (§II): fail closed if the checker is missing (see above).
+	if gw.tenantPermChecker == nil {
+		gw.logger.Error().Str("tenant_id", tenantID).
+			Msg("tenant permission checker not initialized; denying publish")
+		return false
+	}
+	stripped := strings.TrimPrefix(channel, tenantID+".")
+	if gw.tenantPermChecker.CanPublish(ctx, tenantID, claims, stripped) {
+		RecordChannelCheck(ChannelCheckAllowed)
+		return true
+	}
+	RecordChannelCheck(ChannelCheckDenied)
+	RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonUnauthorized)
+	gw.logger.Warn().
+		Str("channel", channel).
+		Str("tenant_id", tenantID).
+		Str("reason", "publish_denied").
+		Msg("channel publish denied")
+	return false
 }

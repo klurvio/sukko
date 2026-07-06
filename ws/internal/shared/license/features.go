@@ -46,11 +46,18 @@ type FeatureInfo struct {
 const (
 	// ── Pro Features ─────────────────────────────────────────────────────
 
-	KafkaBackend              Feature = "MESSAGE_BACKEND=kafka"            // Implemented
-	PerTenantChannelRules     Feature = "GATEWAY_PER_TENANT_CHANNEL_RULES" // Implemented
-	PerTenantConnectionLimits Feature = "TENANT_CONNECTION_LIMIT_ENABLED"  // Implemented
-	Alerting                  Feature = "ALERT_ENABLED"                    // Implemented
-	ChannelTopicRouting       Feature = "CHANNEL_TOPIC_ROUTING"            // Implemented
+	KafkaBackend              Feature = "MESSAGE_BACKEND=kafka"           // Implemented
+	PerTenantConnectionLimits Feature = "TENANT_CONNECTION_LIMIT_ENABLED" // Implemented
+	Alerting                  Feature = "ALERT_ENABLED"                   // Implemented
+	ChannelTopicRouting       Feature = "CHANNEL_TOPIC_ROUTING"           // Implemented
+
+	// ── Community Features (ungated — listed for the editions matrix) ────
+
+	// PerTenantChannelRules is ungated: channel rules are the sole channel
+	// authorization mechanism (provisioning-only), so every edition needs
+	// them. Mapped explicitly to Community in featureEditions so the docs
+	// extractor renders the row (it only emits map entries).
+	PerTenantChannelRules Feature = "CHANNEL_RULES" // Implemented — ungated
 
 	PerTenantConfigurableQuotas Feature = "per-tenant configurable quotas" // Implemented
 	TenantLifecycleManager      Feature = "tenant lifecycle manager"       // Implemented
@@ -81,9 +88,13 @@ const (
 // featureEditions maps each feature to its minimum required edition.
 // Features not in this map default to Community (always available).
 var featureEditions = map[Feature]Edition{
+	// Community (ungated) — explicit entry so the docs editions extractor,
+	// which emits only map entries, renders the feature as available in all
+	// editions. EditionHasFeature returns true for every edition ≥ Community.
+	PerTenantChannelRules: Community,
+
 	// Pro
 	KafkaBackend:                Pro,
-	PerTenantChannelRules:       Pro,
 	PerTenantConnectionLimits:   Pro,
 	Alerting:                    Pro,
 	ChannelTopicRouting:         Pro,

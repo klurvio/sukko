@@ -113,6 +113,16 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce per-tenant publish rules — the same shared check the WS proxy
+	// uses (checkPublishAllowed → tenant checker, §XVIII). Full channel is
+	// passed; the helper strips the tenant prefix internally.
+	if !gw.checkPublishAllowed(ctx, authRes.TenantID, authRes.Claims, req.Channel) {
+		RecordRestPublish("forbidden", time.Since(startTime))
+		httputil.WriteError(w, http.StatusForbidden, "FORBIDDEN",
+			"channel rules deny publish to this channel")
+		return
+	}
+
 	// 5. Rate limit
 	if gw.publishRateLimiter != nil {
 		clientIP := httputil.GetClientIP(r)

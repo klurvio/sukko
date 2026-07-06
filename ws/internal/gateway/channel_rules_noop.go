@@ -5,6 +5,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
@@ -28,6 +29,18 @@ func (n *NoopChannelRulesProvider) GetChannelRules(_ context.Context, tenantID s
 		Str("tenant_id", tenantID).
 		Msg("NoopChannelRulesProvider: channel rules lookup returning not found")
 	return nil, types.ErrChannelRulesNotFound
+}
+
+// SnapshotReceived always reports true: the noop provider's answer is final
+// (deny-all via not-found), never "unknown" — reporting false would hold
+// readiness degraded forever.
+func (n *NoopChannelRulesProvider) SnapshotReceived() bool {
+	return true
+}
+
+// State always reports connected — there is no stream to degrade.
+func (n *NoopChannelRulesProvider) State() int32 {
+	return provapi.StreamStateConnected
 }
 
 // Close is a no-op for NoopChannelRulesProvider.
