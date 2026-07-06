@@ -178,6 +178,70 @@ tasks:
       - sukko license remove 2>/dev/null || true
       - echo "=== E2E license matrix complete ==="
 
+  kafka-ingest:
+    desc: >-
+      E2E kafka-ingest round-trip regression — publish directly to Redpanda and verify a
+      gateway-subscribed client receives it, against a Pro-gated kafka-backend server built
+      from source. Fails (not skips) if the delivery check is absent or not "pass".
+    vars:
+      COMPOSE: docker compose -f docker-compose.yml -f taskfiles/e2e/kafka-ingest.override.yml --profile kafka
+      # Raw 64-byte Ed25519 admin private key, generated per-run and mounted into the tester by
+      # the override; its public half is wired to provisioning as ADMIN_BOOTSTRAP_KEY.
+      ADMIN_KEY_FILE: taskfiles/e2e/.admin.key
+      # The repo compose (build-from-source) maps provisioning to host 18080 (the CLI compose
+      # used by the license tasks maps 8080 — hence the shared PROVISIONING_URL differs here).
+      PROVISIONING_URL: http://localhost:18080
+      # Matches the tester's TESTER_AUTH_TOKEN in docker-compose.yml.
+      TESTER_TOKEN: sukko-dev-token
+    cmds:
+      # Teardown runs even on failure (Taskfile defer, LIFO): stack down, then remove the key.
+      - defer: "{{.COMPOSE}} down -v"
+      - defer: rm -f {{.ADMIN_KEY_FILE}}
+      - |
+        set -eu
+        # All setup that `up` depends on runs in THIS shell so the values reach the boot env.
+        echo "=== Generate keys + mint Pro token (before boot) ==="
+        # Kafka mode fail-fasts at startup without a Pro edition (server_config.go), so the token
+        # MUST exist before boot; `sukko license set` after boot is not usable here.
+        if [ ! -f "{{.DEV_KEY_PATH}}" ]; then (cd ws && go run ./internal/shared/license/genkeys); fi
+        TOKEN=$({{.GENTOKEN_CMD}} --key internal/shared/license/keys/sukko.dev.key --edition pro --org 'E2E Kafka' --expires +1y)
+        # Admin keypair: raw private → tester (mounted by the override), base64 public → provisioning.
+        ADMIN_ABS="$(pwd)/{{.ADMIN_KEY_FILE}}"
+        ADMIN_BOOTSTRAP_KEY=$(cd ws && go run ./cmd/gen-admin-key "$ADMIN_ABS")
+        echo "=== Boot kafka-mode stack (build from source, Pro license) ==="
+        MESSAGE_BACKEND=kafka \
+        SUKKO_LICENSE_KEY="$TOKEN" \
+        ADMIN_BOOTSTRAP_KEY="$ADMIN_BOOTSTRAP_KEY" \
+        CREDENTIALS_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+        WEBHOOK_INTERNAL_TOKEN="$(openssl rand -hex 24)" \
+        {{.COMPOSE}} up -d --build --wait
+      - |
+        set -eu
+        echo "=== Readiness gate ==="
+        {{.COMPOSE}} exec -T redpanda rpk cluster health
+        EDITION=$(curl -sf {{.PROVISIONING_URL}}/edition | jq -r '.edition')
+        [ "$EDITION" = "pro" ] || { echo "FAIL: expected edition=pro, got ${EDITION:-<empty>}"; exit 1; }
+        echo "  edition: $EDITION ✓"
+      - |
+        set -eu
+        echo "=== Run kafka-ingest suite ==="
+        # --follow streams to completion so the final report is emitted; SUKKO_TESTER_TOKEN
+        # authenticates the CLI to the tester. Run the CLI hermetically: an isolated HOME/
+        # XDG_CONFIG_HOME means no ambient context leaks in (otherwise a developer's active
+        # context — e.g. tenant "demo" — is sent, and the tester skips its throwaway-tenant
+        # auto-create and fails). With no context the tester auto-creates a throwaway tenant.
+        # Extract the final report JSON line (has "test_type"); progress lines are ignored.
+        TMPCFG=$(mktemp -d)
+        REPORT=$(HOME="$TMPCFG" XDG_CONFIG_HOME="$TMPCFG/.config" SUKKO_TESTER_TOKEN={{.TESTER_TOKEN}} sukko test validate --suite kafka-ingest --follow --output json 2>/dev/null | grep '"test_type"' | tail -1)
+        rm -rf "$TMPCFG"
+        echo "$REPORT" | jq .
+        # Anti-vacuous-green guard: the delivery check MUST be present AND "pass". A skip emits
+        # check name "kafka-ingest" (not "kafka-ingest delivery"); connect/setup failures emit
+        # other names — so "present AND pass" closes skip/error/connect all at once.
+        STATUS=$(echo "$REPORT" | jq -r '.checks[]? | select(.name=="kafka-ingest delivery") | .status')
+        [ "$STATUS" = "pass" ] || { echo "FAIL: kafka-ingest delivery check status=${STATUS:-<absent>} (want pass)"; exit 1; }
+        echo "=== kafka-ingest round-trip PASSED (delivery=$STATUS) ==="
+
   license-reload:
     desc: Run license hot-reload validation (requires dev signing key)
     cmds:

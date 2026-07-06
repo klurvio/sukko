@@ -107,6 +107,16 @@ export KAFKA_TLS_ENABLED=true
 
 See `ws/internal/shared/platform/config.go` (`KafkaConnectionConfig`) for the canonical field definitions.
 
+**Automated regression (CI).** The examples above are for pointing the suite at a *managed* broker manually. For continuous coverage, `task e2e:kafka-ingest` runs the whole round-trip against a local Redpanda built from source:
+
+1. Mints a **Pro** dev-license token **before** boot — kafka mode fail-fasts at startup on Community (`server_config.go`), so `sukko license set` after boot is not usable here.
+2. `docker compose --profile kafka up --build` with `MESSAGE_BACKEND=kafka` (the server) and an e2e-only override that sets the **tester's** `KAFKA_BROKERS=redpanda:9092` (the base compose leaves it unset so the suite skips for operators).
+3. Readiness gate: `rpk cluster health` + `GET /edition == pro`.
+4. Runs `sukko test validate --suite kafka-ingest --output json` and asserts the **`kafka-ingest delivery`** check is present **and** `pass`. This is deliberate: a skip emits check name `kafka-ingest` (not `kafka-ingest delivery`) and setup/connect failures emit other names, so "present ∧ pass" fails closed on skip/error/connect — a green run cannot be vacuous.
+5. Tears the stack down (`down -v`) even on failure.
+
+It runs as the `e2e-kafka-ingest` job of the `CI` workflow (`workflow_dispatch` + every push to `main`) and requires Docker (the job fails, not skips, if Docker is unavailable). The delivery wait is `kafkaIngestDeliveryTimeout` in `ws/cmd/tester/runner/kafka_ingest.go` — generous because a freshly-provisioned tenant's topic must be created and its consumer must join the group before the record is delivered.
+
 ### 1.4 Required environment variables
 
 | Variable | Default | Required | Description |
@@ -175,7 +185,7 @@ suite channels or every subscribe will be filtered to an empty list.
 | 16 | `api-key` | Community | no | API key auth in isolation (no JWT provisioning) |
 | 17 | `upgrade` | Community | no | Auth upgrade flow: connect with API key, upgrade to JWT |
 | 18 | `webhooks` | Pro | no | Webhook delivery: happy-path, retry-success, degraded transition |
-| 19 | `kafka-ingest` | Community | no | Direct-to-Kafka ingestion: publishes straight to the broker (SASL/TLS) and verifies a gateway-subscribed client receives it. Skips when `KAFKA_BROKERS` unset; requires the server under test to run `MESSAGE_BACKEND=kafka` (see §1.3). |
+| 19 | `kafka-ingest` | Community | no | Direct-to-Kafka ingestion: publishes straight to the broker (SASL/TLS) and verifies a gateway-subscribed client receives it. Skips when `KAFKA_BROKERS` unset; delivery requires the server under test to run `MESSAGE_BACKEND=kafka` (Pro-gated). Run continuously by `task e2e:kafka-ingest` / the CI workflow's `e2e-kafka-ingest` job (see §1.3). |
 
 ### 3. Load Suite Battery
 

@@ -129,7 +129,7 @@ Runs automatically: Go formatting, go vet, golangci-lint, Helm lint, binary chec
 
 ## Constitution
 
-**Version**: 1.23.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-06-16
+**Version**: 1.24.0 | **Ratified**: 2026-02-17 | **Last Amended**: 2026-07-04
 
 ### I. Configuration
 
@@ -308,7 +308,7 @@ The project has two command execution surfaces: **Taskfile** (developer toolchai
 - **CLI** operates on the Sukko platform: tenants, keys, rules, license, subscriptions. It MUST NOT invoke Taskfile tasks.
 - **Neither tool depends on the other being installed.** A developer can use Taskfile without CLI. An operator can use CLI without Taskfile.
 
-**Sole exception**: `taskfiles/e2e.yml` may invoke `sukko` CLI commands for E2E license test orchestration. These tests validate the edition enforcement pipeline (loading license tokens, restarting services, asserting claims and limits across Community/Pro/Enterprise editions). The CLI is the test driver, not the subject under test. No other Taskfile may reference or depend on `sukko-cli`. If E2E test scope grows beyond license validation, orchestration SHOULD move to a dedicated Go test binary rather than expanding this exception.
+**Sole exception**: `taskfiles/e2e.yml` may invoke `sukko` CLI commands for **edition-gated data-path E2E test orchestration**. This covers (a) edition enforcement validation (loading license tokens, restarting services, asserting claims and limits across Community/Pro/Enterprise editions) and (b) edition-gated message-pipeline verification (e.g. the kafka-ingest round-trip, where a Pro license is the enabling toggle for the Kafka backend). The CLI is the test driver, not the subject under test. No other Taskfile may reference or depend on `sukko-cli` — all CLI invocation MUST stay inside `taskfiles/e2e.yml`. If E2E test scope grows **beyond edition-gated data-path validation**, orchestration SHOULD move to a dedicated Go test binary rather than expanding this exception.
 
 ### XVI. Cross-Repo Awareness
 
@@ -391,3 +391,4 @@ All services MUST implement equivalent functionality using the same patterns, co
 - **v1.21.0** (2026-05-27): XVII renamed to 'In-Repo Documentation & Contract Maintenance'; extended to cover `ws/docs/e2e-testing.md` and tester-specific triggers; XVI sukko-docs trigger list made explicit.
 - **v1.22.0** (2026-06-07): Added XVIII — services MUST use consistent patterns; deviations need documented justification; consistency checked in code review.
 - **v1.23.0** (2026-06-16): §VI extended — added `webhook_` as a valid metric prefix for the webhook-worker service. §IV amended — application-layer webhook delivery is a domain exception to the exponential backoff rule; fixed schedule matches industry standard (Stripe, GitHub, Pusher, Ably).
+- **v1.24.0** (2026-07-04): §XIV amended — broadened the `taskfiles/e2e.yml` sukko-cli exception from license validation to edition-gated data-path E2E (adds the kafka-ingest message-pipeline round-trip); re-scoped the "move to a Go test binary" guidance to fire beyond edition-gated data-path validation; file-scope preserved (all CLI invocation stays in `taskfiles/e2e.yml`).

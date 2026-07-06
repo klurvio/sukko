@@ -80,3 +80,4 @@ handoffs
 sessions
 specs
 .sukko/
+taskfiles/e2e/.admin.key
