@@ -31,7 +31,7 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 	_ = provClient.SetRoutingRules(ctx, tenantID, testRoutingRules)
 	_ = provClient.SetChannelRules(ctx, tenantID, testChannelRules)
 
-	restClient := restpublish.NewClient(run.Config.GatewayURL)
+	restClient := restpublish.NewClient(httpURL(run.Config.GatewayURL))
 	auth := restpublish.AuthConfig{Token: token}
 
 	var checks []metrics.CheckResult
@@ -115,7 +115,7 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 
 	// Step 3: Connect SSE subscriber, publish via REST → verify SSE receives
 	sseClient, _, sseErr := sse.Connect(ctx, sse.ConnectConfig{
-		GatewayURL: run.Config.GatewayURL,
+		GatewayURL: httpURL(run.Config.GatewayURL),
 		Channels:   []string{validateSSEChannel},
 		Token:      token,
 		Logger:     logger,

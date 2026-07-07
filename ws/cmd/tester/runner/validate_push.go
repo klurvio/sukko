@@ -2,8 +2,13 @@ package runner
 
 import (
 	"context"
+	"crypto/ecdh"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -64,6 +69,13 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	checks = append(checks, metrics.CheckResult{
 		Name: "push available", Status: "pass",
 	})
+
+	// Step 0.5: Delivery verification — runs BEFORE the fake-credential
+	// overwrite below: real WebPush delivery needs the auto-generated (real)
+	// VAPID keys from step 0 and real client crypto material. This asserts a
+	// notification actually ARRIVES at an endpoint, not merely that the
+	// publish was accepted.
+	checks = append(checks, verifyPushDelivery(ctx, run, gwURL, token, tenantID, logger)...)
 
 	// Step 1: Setup — set VAPID credentials + channel config
 	// Note: GetVAPIDKey in step 0 auto-generates credentials. SetPushCredentials overwrites via upsert.
@@ -278,4 +290,98 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	}
 
 	return checks, nil
+}
+
+// pushDeliveryTimeout bounds the wait for the push service to deliver a
+// notification to the mock receiver — generous because delivery is queued
+// through the push worker.
+const pushDeliveryTimeout = 15 * time.Second
+
+// verifyPushDelivery registers a device whose endpoint is the tester's own
+// mock WebPush receiver, publishes to a push-routed channel, and asserts the
+// push service delivers an encrypted notification to it (RFC 8030). Skips
+// with an explicit reason when TESTER_PUSH_RECEIVER_HOST is unset (managed
+// deployments where the tester is not reachable from the push service).
+func verifyPushDelivery(ctx context.Context, run *TestRun, gwURL, token, tenantID string, logger zerolog.Logger) []metrics.CheckResult {
+	if run.pushReceiverHost == "" {
+		return []metrics.CheckResult{{
+			Name: "push delivery", Status: "skip",
+			Error: "receiver host not configured — set TESTER_PUSH_RECEIVER_HOST for delivery verification",
+		}}
+	}
+
+	receiver, err := startPushReceiver(ctx, run.pushReceiverPort, logger)
+	if err != nil {
+		return []metrics.CheckResult{{Name: "push delivery", Status: "fail", Error: err.Error()}}
+	}
+	//nolint:contextcheck // Close uses its own bounded shutdown context deliberately: cleanup must run even when the check's ctx is already canceled (§IV).
+	defer func() { _ = receiver.Close() }() // best-effort test cleanup
+
+	// Real client crypto material: WebPush encryption (aes128gcm) needs a
+	// genuine P-256 subscriber keypair and a 16-byte auth secret — fake
+	// strings would make the push service's encryption step fail.
+	clientKey, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		return []metrics.CheckResult{{Name: "push delivery", Status: "fail", Error: fmt.Sprintf("generate client key: %v", err)}}
+	}
+	authSecret := make([]byte, 16)
+	if _, err := rand.Read(authSecret); err != nil {
+		return []metrics.CheckResult{{Name: "push delivery", Status: "fail", Error: fmt.Sprintf("generate auth secret: %v", err)}}
+	}
+
+	deliveryChannel := tenantID + "." + pushTestChannel
+	provClient := run.authResult.ProvClient
+	if err := provClient.SetPushChannels(ctx, tenantID, []string{deliveryChannel}, 2419200, "normal"); err != nil {
+		return []metrics.CheckResult{{Name: "push delivery", Status: "fail", Error: fmt.Sprintf("set push channels: %v", err)}}
+	}
+
+	// Unique endpoint path so the assertion matches THIS run's delivery only.
+	pathToken := uuid.NewString()[:8]
+	endpoint := fmt.Sprintf("http://%s:%d/push/%s", run.pushReceiverHost, receiver.Port(), pathToken)
+
+	deviceID, subErr := pushSubscribe(ctx, gwURL, token, pushSubscribeRequest{
+		Platform:   "web",
+		Endpoint:   endpoint,
+		P256dhKey:  base64.RawURLEncoding.EncodeToString(clientKey.PublicKey().Bytes()),
+		AuthSecret: base64.RawURLEncoding.EncodeToString(authSecret),
+		Channels:   []string{deliveryChannel},
+	})
+	if subErr != nil {
+		return []metrics.CheckResult{{Name: "push delivery", Status: "fail", Error: fmt.Sprintf("subscribe: %v", subErr)}}
+	}
+	defer func() { _ = pushUnsubscribe(ctx, gwURL, token, deviceID) }() // best-effort test cleanup
+
+	payload, _ := json.Marshal(map[string]any{ // json.Marshal on literal map of primitives cannot fail
+		"msg_id": "push-delivery-" + pathToken,
+		"title":  "Delivery Test",
+	})
+	restClient := restpublish.NewClient(gwURL)
+	if _, err := restClient.Publish(ctx, restpublish.Request{
+		Channel: deliveryChannel,
+		Data:    payload,
+	}, restpublish.AuthConfig{Token: token}); err != nil {
+		return []metrics.CheckResult{{Name: "push delivery", Status: "fail", Error: fmt.Sprintf("publish: %v", err)}}
+	}
+
+	// Poll for arrival at the receiver.
+	deadline := time.After(pushDeliveryTimeout)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return []metrics.CheckResult{{Name: "push delivery", Status: "fail", Error: "context canceled while waiting for delivery"}}
+		case <-deadline:
+			return []metrics.CheckResult{{
+				Name: "push delivery", Status: "fail",
+				Error: fmt.Sprintf("no delivery to %s within %s (received %d unrelated requests)", endpoint, pushDeliveryTimeout, len(receiver.Requests())),
+			}}
+		case <-ticker.C:
+			for _, req := range receiver.Requests() {
+				if strings.Contains(req.Path, pathToken) && req.BodyLen > 0 {
+					return []metrics.CheckResult{{Name: "push delivery", Status: "pass"}}
+				}
+			}
+		}
+	}
 }

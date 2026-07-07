@@ -199,15 +199,11 @@ tasks:
       - defer: rm -f {{.ADMIN_KEY_FILE}}
       - |
         set -eu
+        . taskfiles/e2e/stack.sh
         # All setup that `up` depends on runs in THIS shell so the values reach the boot env.
         echo "=== Generate keys + mint Pro token (before boot) ==="
-        # Kafka mode fail-fasts at startup without a Pro edition (server_config.go), so the token
-        # MUST exist before boot; `sukko license set` after boot is not usable here.
-        if [ ! -f "{{.DEV_KEY_PATH}}" ]; then (cd ws && go run ./internal/shared/license/genkeys); fi
-        TOKEN=$({{.GENTOKEN_CMD}} --key internal/shared/license/keys/sukko.dev.key --edition pro --org 'E2E Kafka' --expires +1y)
-        # Admin keypair: raw private → tester (mounted by the override), base64 public → provisioning.
-        ADMIN_ABS="$(pwd)/{{.ADMIN_KEY_FILE}}"
-        ADMIN_BOOTSTRAP_KEY=$(cd ws && go run ./cmd/gen-admin-key "$ADMIN_ABS")
+        TOKEN=$(e2e_mint_license pro 'E2E Kafka')
+        ADMIN_BOOTSTRAP_KEY=$(e2e_gen_admin_key "$(pwd)/{{.ADMIN_KEY_FILE}}")
         echo "=== Boot kafka-mode stack (build from source, Pro license) ==="
         MESSAGE_BACKEND=kafka \
         SUKKO_LICENSE_KEY="$TOKEN" \
@@ -217,11 +213,10 @@ tasks:
         {{.COMPOSE}} up -d --build --wait
       - |
         set -eu
+        . taskfiles/e2e/stack.sh
         echo "=== Readiness gate ==="
         {{.COMPOSE}} exec -T redpanda rpk cluster health
-        EDITION=$(curl -sf {{.PROVISIONING_URL}}/edition | jq -r '.edition')
-        [ "$EDITION" = "pro" ] || { echo "FAIL: expected edition=pro, got ${EDITION:-<empty>}"; exit 1; }
-        echo "  edition: $EDITION ✓"
+        e2e_readiness_gate {{.PROVISIONING_URL}} pro
       - |
         set -eu
         echo "=== Run kafka-ingest suite ==="
@@ -241,6 +236,92 @@ tasks:
         STATUS=$(echo "$REPORT" | jq -r '.checks[]? | select(.name=="kafka-ingest delivery") | .status')
         [ "$STATUS" = "pass" ] || { echo "FAIL: kafka-ingest delivery check status=${STATUS:-<absent>} (want pass)"; exit 1; }
         echo "=== kafka-ingest round-trip PASSED (delivery=$STATUS) ==="
+
+  validate-battery:
+    desc: >-
+      Full validate-suite battery against an Enterprise-licensed direct-mode stack built
+      from source. 17 suites, fail-closed: a suite fails the run on report status != pass
+      OR any skipped check (empty allow-list). All suites run even after a failure; the
+      task exits non-zero at the end if any failed.
+    vars:
+      # No compose profiles: the enterprise profile (push-service) needs kafka, and
+      # the pro profile (webhook-worker) is deferred — the battery caught 3 boot bugs
+      # in it (see the webhooks exclusion below). The Enterprise LICENSE (not a profile)
+      # unlocks the SSE/revocation feature gates the battery exercises.
+      COMPOSE: docker compose -f docker-compose.yml -f taskfiles/e2e/validate-battery.override.yml
+      ADMIN_KEY_FILE: taskfiles/e2e/.admin.key
+      PROVISIONING_URL: http://localhost:18080
+      TESTER_TOKEN: sukko-dev-token
+      # Ordered battery. Excluded with reasons: kafka-ingest (own kafka-mode job),
+      # license-reload (mutates the deployment's edition mid-run — stays in the manual
+      # e2e:license family), load/soak/stress (scale tests, not validate suites).
+      # Excluded from this list (run elsewhere / deferred):
+      #  - push: push service requires MESSAGE_BACKEND=kafka → kafka-mode job.
+      #  - webhooks: the webhook-worker service does not boot — the battery caught
+      #    3 pre-existing bugs (missing LoggerConfig.ServiceName panic; broadcast-bus
+      #    Valkey StartupPingTimeout=0 → instant deadline; empty broadcast Channel
+      #    prefix → subscribes to wrong channel). Deferred to a dedicated fix; add
+      #    'webhooks' back and re-enable --profile pro once webhook-worker boots.
+      # (smoke is a top-level test type, not a validate suite — excluded)
+      SUITES: auth channels pubsub ordering reconnect ratelimit sse rest-publish provisioning tenant-isolation token-revocation edition-limits api-key upgrade
+    cmds:
+      - defer: "{{.COMPOSE}} down -v"
+      - defer: rm -f {{.ADMIN_KEY_FILE}}
+      - |
+        set -eu
+        . taskfiles/e2e/stack.sh
+        echo "=== Mint Enterprise token + admin key (before boot) ==="
+        TOKEN=$(e2e_mint_license enterprise 'E2E Battery')
+        ADMIN_BOOTSTRAP_KEY=$(e2e_gen_admin_key "$(pwd)/{{.ADMIN_KEY_FILE}}")
+        echo "=== Boot direct-mode stack (build from source, Enterprise license) ==="
+        SUKKO_LICENSE_KEY="$TOKEN" \
+        ADMIN_BOOTSTRAP_KEY="$ADMIN_BOOTSTRAP_KEY" \
+        CREDENTIALS_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+        WEBHOOK_INTERNAL_TOKEN="$(openssl rand -hex 24)" \
+        {{.COMPOSE}} up -d --build --wait
+      - |
+        set -eu
+        . taskfiles/e2e/stack.sh
+        echo "=== Readiness gate ==="
+        e2e_readiness_gate {{.PROVISIONING_URL}} pro
+      - |
+        set -eu
+        echo "=== Run validate battery ==="
+        # Hermetic CLI env (no ambient context; throwaway tenants per run). Gating parses
+        # the report rather than relying on the CLI exit code — the extraction pipe masks
+        # it — and fails closed on BOTH a non-pass status AND any skipped check. The skip
+        # allow-list is EMPTY by design: in this fully-provisioned Enterprise stack no
+        # suite has a legitimate reason to skip, and a skip in CI means coverage silently
+        # vanished. Any future exemption must be added here with a written reason.
+        TMPCFG=$(mktemp -d)
+        FAILED=""
+        for suite in {{.SUITES}}; do
+          echo "--- suite: $suite ---"
+          REPORT=$(HOME="$TMPCFG" XDG_CONFIG_HOME="$TMPCFG/.config" SUKKO_TESTER_TOKEN={{.TESTER_TOKEN}} sukko test validate --suite "$suite" --follow --output json 2>/dev/null | grep '"test_type"' | tail -1) || true
+          if [ -z "$REPORT" ]; then
+            echo "    verdict: NO REPORT"
+            FAILED="$FAILED $suite(no-report)"
+            continue
+          fi
+          STATUS=$(echo "$REPORT" | jq -r '.status // "missing"')
+          SKIPS=$(echo "$REPORT" | jq -r '[.checks[]? | select(.status=="skip") | .name] | join(",")')
+          FAILS=$(echo "$REPORT" | jq -r '[.checks[]? | select(.status=="fail") | .name] | join(",")')
+          if [ "$STATUS" != "pass" ]; then
+            echo "    verdict: $STATUS (failed checks: ${FAILS:-<none listed>})"
+            FAILED="$FAILED $suite($STATUS)"
+          elif [ -n "$SKIPS" ]; then
+            echo "    verdict: SKIPPED CHECKS: $SKIPS"
+            FAILED="$FAILED $suite(skip:$SKIPS)"
+          else
+            echo "    verdict: pass"
+          fi
+        done
+        rm -rf "$TMPCFG"
+        if [ -n "$FAILED" ]; then
+          echo "=== validate battery FAILED:$FAILED ==="
+          exit 1
+        fi
+        echo "=== validate battery PASSED ({{.SUITES}}) ==="
 
   license-reload:
     desc: Run license hot-reload validation (requires dev signing key)

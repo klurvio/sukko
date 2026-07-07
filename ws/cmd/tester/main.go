@@ -133,6 +133,8 @@ func buildRunnerConfig(cfg TesterConfig) runner.Config {
 		KeyExpiry:                   cfg.KeyExpiry,
 		SigningKeyFile:              cfg.SigningKeyFile,
 		AdminKeyFile:                cfg.AdminKeyFile,
+		PushReceiverHost:            cfg.PushReceiverHost,
+		PushReceiverPort:            cfg.PushReceiverPort,
 		AdminKeyID:                  cfg.AdminKeyID,
 		AuthMode:                    cfg.AuthMode,
 		APIKey:                      cfg.APIKey,

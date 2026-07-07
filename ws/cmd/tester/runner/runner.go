@@ -125,10 +125,12 @@ type TestRun struct {
 	webhookRetryTimeout    time.Duration `json:"-"`
 	webhookStore           *WebhookStore `json:"-"`
 	// kafka-ingest suite fields set by execute() (credentials never serialized — §IX).
-	kafkaSASL      *kafkashared.SASLConfig `json:"-"`
-	kafkaTLS       *kafkashared.TLSConfig  `json:"-"`
-	kafkaBrokers   string                  `json:"-"`
-	kafkaNamespace string                  `json:"-"`
+	kafkaSASL        *kafkashared.SASLConfig `json:"-"`
+	kafkaTLS         *kafkashared.TLSConfig  `json:"-"`
+	kafkaBrokers     string                  `json:"-"`
+	pushReceiverHost string                  `json:"-"`
+	pushReceiverPort int                     `json:"-"`
+	kafkaNamespace   string                  `json:"-"`
 }
 
 // StatusSnapshot returns the current Status and Report under a read lock.
@@ -162,6 +164,8 @@ type Config struct {
 	Environment                 string                  // resolved topic namespace derivation (kafka-ingest); MUST match the server-under-test
 	KafkaTopicNamespaceOverride string                  // overrides ENVIRONMENT for Kafka topic namespace (kafka-ingest); MUST match the server-under-test
 	KafkaBrokers                string                  // empty ⇒ kafka-ingest suite skips
+	PushReceiverHost            string                  // empty ⇒ push delivery check skips
+	PushReceiverPort            int                     // mock WebPush receiver listen port
 	KafkaSASL                   *kafkashared.SASLConfig // nil = no SASL auth (read by the kafka-ingest suite)
 	KafkaTLS                    *kafkashared.TLSConfig  // nil = plaintext (read by the kafka-ingest suite)
 	JWTLifetime                 time.Duration
@@ -431,6 +435,8 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	run.kafkaSASL = r.cfg.KafkaSASL
 	run.kafkaTLS = r.cfg.KafkaTLS
 	run.kafkaBrokers = cmp.Or(run.Config.KafkaBrokers, r.cfg.KafkaBrokers)
+	run.pushReceiverHost = r.cfg.PushReceiverHost
+	run.pushReceiverPort = r.cfg.PushReceiverPort
 	nsEnv := r.cfg.Environment
 	if run.Config.Context != nil && run.Config.Context.Environment != "" {
 		nsEnv = run.Config.Context.Environment
