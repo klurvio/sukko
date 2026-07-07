@@ -115,11 +115,12 @@ jobs:
   # kafka-ingest E2E — Pro-gated Kafka round-trip regression
   # ---------------------------------------------------------------------------
   # Boots the full stack in MESSAGE_BACKEND=kafka mode (built from source) with
-  # a Pro license, publishes directly to Redpanda, and asserts a
-  # gateway-subscribed client receives the message. Guards the ingestion
-  # pipeline (Kafka → ws-server consumer → broadcast → gateway → client), which
-  # no unit test exercises end-to-end. The task's report assertion fails closed
-  # on skip/error — a green run cannot be vacuous.
+  # an Enterprise license and runs (1) the kafka-ingest round-trip — publish
+  # directly to Redpanda, assert a gateway-subscribed client receives it — and
+  # (2) the push suite, including actual WebPush delivery to the tester's mock
+  # receiver (the push service requires MESSAGE_BACKEND=kafka, so its delivery
+  # verification lives here, not in the direct-mode battery). The task's report
+  # assertions fail closed on skip/error — a green run cannot be vacuous.
   e2e-kafka-ingest:
     name: kafka-ingest round-trip
     runs-on: ubuntu-latest
@@ -158,3 +159,54 @@ jobs:
 
       - name: Run kafka-ingest E2E
         run: task e2e:kafka-ingest
+
+  # ---------------------------------------------------------------------------
+  # Validate battery E2E — all delivery paths + platform behavior
+  # ---------------------------------------------------------------------------
+  # Boots an Enterprise-licensed DIRECT-mode stack (built from source, pro
+  # profile for the webhook worker) and runs 16 validate suites: WS pub-sub with scoping,
+  # SSE, REST publish, auth, channels, ordering, reconnect, rate limits,
+  # tenant isolation, provisioning CRUD, token revocation, edition limits,
+  # API-key auth, auth upgrade, and webhooks — deliberately covering the
+  # Community-default (direct backend) data path. Fail-closed: a suite fails
+  # the job on a non-pass report OR any skipped check (empty allow-list — a
+  # skip in CI means coverage silently vanished). kafka-ingest and push (which
+  # requires MESSAGE_BACKEND=kafka) run in the kafka-mode job.
+  e2e-validate-battery:
+    name: validate battery
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout sukko
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Checkout sukko-cli (test driver)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: klurvio/sukko-cli
+          path: .sukko-cli
+          ref: main
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: ws/go.mod
+          cache: true
+
+      - name: Fail fast if Docker is unavailable
+        # This regression MUST fail (not silently skip) without Docker.
+        run: docker version
+
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.44.0
+
+      - name: Build sukko CLI (driver)
+        working-directory: .sukko-cli
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          go build -o "$HOME/.local/bin/sukko" .
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run validate battery
+        run: task e2e:validate-battery

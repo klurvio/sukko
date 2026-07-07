@@ -42,7 +42,7 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 	defer func() { _ = wsClient.Close() }()
 
 	sseClient, statusCode, err := sse.Connect(ctx, sse.ConnectConfig{
-		GatewayURL: run.Config.GatewayURL,
+		GatewayURL: httpURL(run.Config.GatewayURL),
 		Channels:   []string{sseChannel},
 		Token:      token,
 		Logger:     logger,
@@ -116,7 +116,7 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 	// Step 3: Publish via REST → verify SSE receives
 	// Need a fresh SSE connection since step 2 may have consumed the previous one's context
 	sseClient2, _, err := sse.Connect(ctx, sse.ConnectConfig{
-		GatewayURL: run.Config.GatewayURL,
+		GatewayURL: httpURL(run.Config.GatewayURL),
 		Channels:   []string{sseChannel},
 		Token:      token,
 		Logger:     logger,
@@ -131,7 +131,7 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 
 		time.Sleep(500 * time.Millisecond) // subscription propagation
 
-		restClient := restpublish.NewClient(run.Config.GatewayURL)
+		restClient := restpublish.NewClient(httpURL(run.Config.GatewayURL))
 		msgID2 := uuid.NewString()
 		payload2, _ := json.Marshal(map[string]any{
 			"msg_id": msgID2,
@@ -173,7 +173,7 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 
 	// Step 4: No credentials → 401
 	checks = append(checks, checkSSEReject(ctx, run.Config.GatewayURL, sse.ConnectConfig{
-		GatewayURL: run.Config.GatewayURL,
+		GatewayURL: httpURL(run.Config.GatewayURL),
 		Channels:   []string{sseChannel},
 		Logger:     logger,
 	}, "no credentials → 401", 401))
@@ -187,7 +187,7 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 		})
 	} else {
 		checks = append(checks, checkSSEReject(ctx, run.Config.GatewayURL, sse.ConnectConfig{
-			GatewayURL: run.Config.GatewayURL,
+			GatewayURL: httpURL(run.Config.GatewayURL),
 			Channels:   []string{sseChannel},
 			Token:      expiredToken,
 			Logger:     logger,
@@ -197,13 +197,13 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 	// Steps 6-7: Edge cases → 400
 	checks = append(checks,
 		checkSSEReject(ctx, run.Config.GatewayURL, sse.ConnectConfig{
-			GatewayURL: run.Config.GatewayURL,
+			GatewayURL: httpURL(run.Config.GatewayURL),
 			Channels:   nil,
 			Token:      token,
 			Logger:     logger,
 		}, "no channels → 400", 400),
 		checkSSEReject(ctx, run.Config.GatewayURL, sse.ConnectConfig{
-			GatewayURL: run.Config.GatewayURL,
+			GatewayURL: httpURL(run.Config.GatewayURL),
 			Channels:   []string{",,,"},
 			Token:      token,
 			Logger:     logger,

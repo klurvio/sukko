@@ -123,6 +123,8 @@ It runs as the `e2e-kafka-ingest` job of the `CI` workflow (`workflow_dispatch` 
 |---|---|---|---|
 | `GATEWAY_URL` | `ws://localhost:3000` | always | WebSocket gateway address |
 | `PROVISIONING_URL` | `http://localhost:8080` | always | Provisioning API address |
+| `TESTER_PUSH_RECEIVER_HOST` | — | push delivery check | Hostname the push service uses to reach the tester's mock WebPush receiver (compose service name in the battery). Unset ⇒ the delivery check skips. |
+| `TESTER_PUSH_RECEIVER_PORT` | `8095` | no | Listen port of the tester's mock WebPush receiver. |
 | `TESTER_AUTH_TOKEN` | — | production | Token for tester HTTP API auth |
 | `TESTER_ADMIN_KEY_FILE` | — | provisioning/tenant-isolation/token-revocation suites | Raw 64-byte Ed25519 admin private key |
 | `TESTER_ADMIN_KEY_ID` | `bootstrap-0` | when admin key file is set | Key ID registered in provisioning |
@@ -163,6 +165,30 @@ their own precise rules. When targeting a pre-provisioned deployment with a
 static tester token, ensure the target tenant has channel rules covering the
 suite channels or every subscribe will be filtered to an empty list.
 
+### 2.0 Automated battery (CI)
+
+`task e2e:validate-battery` runs the confirmed-stable validate suites — `channels`,
+`pubsub` (WS delivery + scoping), `ordering`, `reconnect`, `sse` — against an
+**Enterprise-licensed, direct-backend stack built from source**, covering both client
+transports (WebSocket + SSE) over the Community-default (direct) data path. It executes
+as the `e2e-validate-battery` job of the CI workflow on every push to `main` (plus
+`workflow_dispatch`). The suite list grows as the remaining suites are triaged (tracked
+in the validate-battery backlog issue).
+
+**Fail-closed contract:** a suite fails the battery on a non-`pass` report **or any
+skipped check**. The skip allow-list is **empty by design** — in a fully-provisioned
+Enterprise stack no suite has a legitimate reason to skip, and a skip in CI means
+coverage silently vanished. All suites run even after a failure; the task reports every
+failed suite and exits non-zero at the end.
+
+**Not yet in the battery (tracked for triage):** `auth`, `rest-publish`, `tenant-isolation`,
+`token-revocation`, `edition-limits`, `api-key`, `upgrade`, `provisioning`, `ratelimit` —
+each surfaced a real first-contact finding when first run against a live gateway (see the
+validate-battery backlog issue). `kafka-ingest` and `push` run in the kafka-mode job (push
+requires `MESSAGE_BACKEND=kafka`, §1.3); `webhooks` is deferred (webhook-worker boot bugs);
+`license-reload` stays in the manual `task e2e:license` family (mutates edition mid-run);
+load/soak/stress are scale tests.
+
 ### 2.1 Suite run order
 
 | # | Suite | Min Edition | Admin Key? | Description |
@@ -180,7 +206,7 @@ suite channels or every subscribe will be filtered to an empty list.
 | 11 | `tenant-isolation` | Community | **yes** | Cross-tenant isolation |
 | 12 | `token-revocation` | **Pro** | **yes** | Token revocation force-disconnect |
 | 13 | `edition-limits` | Community | no | Edition boundary limits |
-| 14 | `push` | Enterprise | no | Push notification pipeline |
+| 14 | `push` | Enterprise | no | Push notification pipeline, including **actual WebPush delivery**: registers a device against the tester's mock receiver (`TESTER_PUSH_RECEIVER_HOST`) with real P-256 client keys and asserts the encrypted notification arrives (RFC 8030). Delivery check skips when the receiver host is unset (managed deployments). |
 | 15 | `license-reload` | Community | no | License hot-reload propagation |
 | 16 | `api-key` | Community | no | API key auth in isolation (no JWT provisioning) |
 | 17 | `upgrade` | Community | no | Auth upgrade flow: connect with API key, upgrade to JWT |

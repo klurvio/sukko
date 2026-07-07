@@ -38,6 +38,12 @@ type TesterConfig struct {
 	// envDefault must stay in sync with provauth.BootstrapAdminKeyID; enforced by TestTesterConfig_DefaultAdminKeyID_EqualsBootstrapConstant.
 	AdminKeyID string `env:"TESTER_ADMIN_KEY_ID" envDefault:"bootstrap-0"` // Key ID embedded in admin JWTs; must match the kid registered with the provisioning service.
 
+	// Push delivery verification (validate push suite). When the host is unset
+	// the delivery check skips — set it (e.g. to the tester's compose service
+	// name) so the push service can deliver to the tester's mock receiver.
+	PushReceiverHost string `env:"TESTER_PUSH_RECEIVER_HOST" envDefault:""`     // Hostname the push service uses to reach the tester's mock WebPush receiver for delivery verification. Empty skips the delivery check.
+	PushReceiverPort int    `env:"TESTER_PUSH_RECEIVER_PORT" envDefault:"8095"` // Port the tester's mock WebPush receiver listens on for push delivery verification.
+
 	// JWT auth configuration
 	JWTLifetime      time.Duration `env:"TESTER_JWT_LIFETIME" envDefault:"15m"`      // Lifetime of JWTs issued by the tester. Must be positive and greater than TESTER_JWT_REFRESH_BEFORE.
 	JWTRefreshBefore time.Duration `env:"TESTER_JWT_REFRESH_BEFORE" envDefault:"2m"` // How early before JWT expiry the tester proactively refreshes tokens to avoid auth gaps during long-running tests.

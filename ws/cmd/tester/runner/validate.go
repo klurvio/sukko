@@ -304,7 +304,7 @@ func validateAuth(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 				Error: fmt.Sprintf("skipped: %v", ctx.Err()),
 			})
 		} else {
-			restStatus, _, restErr := restpublish.NewClient(run.Config.GatewayURL).PublishRaw(
+			restStatus, _, restErr := restpublish.NewClient(httpURL(run.Config.GatewayURL)).PublishRaw(
 				ctx, validPublishBody, restpublish.AuthConfig{APIKey: apiKeyValue}, "application/json",
 			)
 			switch {
