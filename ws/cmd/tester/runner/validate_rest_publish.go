@@ -24,6 +24,7 @@ const oversizedBodySize = 65537
 func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
 	provClient := run.authResult.ProvClient
 	tenantID := run.authResult.TenantID
+	sseChannel := tenantChannel(tenantID, validateSSEChannel)
 	token := run.authResult.TokenFunc(0)
 
 	// Step 0: Set routing rules and channel rules
@@ -68,7 +69,7 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 		_, _ = wsClient.ReadLoop(ctx)
 	}()
 
-	if err := wsClient.Subscribe([]string{validateSSEChannel}); err != nil {
+	if err := wsClient.Subscribe([]string{sseChannel}); err != nil {
 		return []metrics.CheckResult{{
 			Name: "ws subscribe", Status: "fail", Error: err.Error(),
 		}}, nil
@@ -85,7 +86,7 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 
 	start := time.Now()
 	_, pubErr := restClient.Publish(ctx, restpublish.Request{
-		Channel: validateSSEChannel,
+		Channel: sseChannel,
 		Data:    payload,
 	}, auth)
 	if pubErr != nil {
@@ -137,7 +138,7 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 
 		start2 := time.Now()
 		_, pubErr2 := restClient.Publish(ctx, restpublish.Request{
-			Channel: validateSSEChannel,
+			Channel: sseChannel,
 			Data:    payload2,
 		}, auth)
 		if pubErr2 != nil {
@@ -171,7 +172,7 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 
 	// Step 4: Verify response format
 	resp, err := restClient.Publish(ctx, restpublish.Request{
-		Channel: validateSSEChannel,
+		Channel: sseChannel,
 		Data:    json.RawMessage(`{"check":"format"}`),
 	}, auth)
 	if err != nil {
@@ -179,7 +180,7 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 			Name: "response format", Status: "fail", Error: err.Error(),
 		})
 	} else {
-		if resp.Status == "accepted" && resp.Channel == validateSSEChannel {
+		if resp.Status == "accepted" && resp.Channel == sseChannel {
 			run.Collector.RESTPublishSuccess.Add(1)
 			checks = append(checks, metrics.CheckResult{
 				Name: "response format", Status: "pass",
@@ -187,7 +188,7 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 		} else {
 			checks = append(checks, metrics.CheckResult{
 				Name: "response format", Status: "fail",
-				Error: fmt.Sprintf("status=%q channel=%q, want accepted/%s", resp.Status, resp.Channel, validateSSEChannel),
+				Error: fmt.Sprintf("status=%q channel=%q, want accepted/%s", resp.Status, resp.Channel, sseChannel),
 			})
 		}
 	}

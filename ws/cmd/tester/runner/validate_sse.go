@@ -15,12 +15,14 @@ import (
 	"github.com/klurvio/sukko/cmd/tester/sse"
 )
 
-// validateSSEChannel is the channel used by the SSE validation suite.
+// validateSSEChannel is the channel SUFFIX used by the SSE and rest-publish
+// validation suites — qualified with the run's tenant via tenantChannel().
 const validateSSEChannel = "general.validate"
 
 func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
 	provClient := run.authResult.ProvClient
 	tenantID := run.authResult.TenantID
+	sseChannel := tenantChannel(tenantID, validateSSEChannel)
 
 	// Step 0: Set routing rules and channel rules
 	_ = provClient.SetRoutingRules(ctx, tenantID, testRoutingRules)
@@ -41,7 +43,7 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 
 	sseClient, statusCode, err := sse.Connect(ctx, sse.ConnectConfig{
 		GatewayURL: run.Config.GatewayURL,
-		Channels:   []string{validateSSEChannel},
+		Channels:   []string{sseChannel},
 		Token:      token,
 		Logger:     logger,
 	})
@@ -67,7 +69,7 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 	})
 
 	start := time.Now()
-	if err := wsClient.Publish(validateSSEChannel, payload); err != nil {
+	if err := wsClient.Publish(sseChannel, payload); err != nil {
 		checks = append(checks, metrics.CheckResult{
 			Name: "ws publish → sse receive", Status: "fail",
 			Error: fmt.Sprintf("ws publish: %v", err),
@@ -115,7 +117,7 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 	// Need a fresh SSE connection since step 2 may have consumed the previous one's context
 	sseClient2, _, err := sse.Connect(ctx, sse.ConnectConfig{
 		GatewayURL: run.Config.GatewayURL,
-		Channels:   []string{validateSSEChannel},
+		Channels:   []string{sseChannel},
 		Token:      token,
 		Logger:     logger,
 	})
@@ -138,7 +140,7 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 
 		start2 := time.Now()
 		_, pubErr := restClient.Publish(ctx, restpublish.Request{
-			Channel: validateSSEChannel,
+			Channel: sseChannel,
 			Data:    payload2,
 		}, restpublish.AuthConfig{Token: token})
 		if pubErr != nil {
@@ -172,7 +174,7 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 	// Step 4: No credentials → 401
 	checks = append(checks, checkSSEReject(ctx, run.Config.GatewayURL, sse.ConnectConfig{
 		GatewayURL: run.Config.GatewayURL,
-		Channels:   []string{validateSSEChannel},
+		Channels:   []string{sseChannel},
 		Logger:     logger,
 	}, "no credentials → 401", 401))
 
@@ -186,7 +188,7 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 	} else {
 		checks = append(checks, checkSSEReject(ctx, run.Config.GatewayURL, sse.ConnectConfig{
 			GatewayURL: run.Config.GatewayURL,
-			Channels:   []string{validateSSEChannel},
+			Channels:   []string{sseChannel},
 			Token:      expiredToken,
 			Logger:     logger,
 		}, "expired JWT → 401", 401))

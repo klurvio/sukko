@@ -196,12 +196,12 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 	}()
 
 	// Subscribe to delivery channel
-	if err := wsClient.Subscribe([]string{"test.license-delivery"}); err != nil {
+	if err := wsClient.Subscribe([]string{tenantChannel(run.authResult.TenantID, "test.license-delivery")}); err != nil {
 		checks = append(checks, metrics.CheckResult{Name: "ws subscribe", Status: "fail",
 			Error: fmt.Sprintf("subscribe failed: %v", err)})
 		return checks
 	}
-	checks = append(checks, checkMessageDelivery(ctx, httpGW, token, msgCh, "CE→Pro")...)
+	checks = append(checks, checkMessageDelivery(ctx, httpGW, token, run.authResult.TenantID, msgCh, "CE→Pro")...)
 
 	// Step 2: Pro → Enterprise
 	entKey := keygen.sign(license.Enterprise, "Test Enterprise", 24*time.Hour)
@@ -209,8 +209,8 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 	ok, _ = pollEdition(ctx, httpGW, license.Enterprise)
 	checks = append(checks, propagationCheck("Pro→Enterprise", ok))
 	checks = append(checks, checkPushGate(ctx, httpGW, token, true)...)
-	checks = append(checks, checkWSSurvival(wsClient, "Pro→Enterprise"))
-	checks = append(checks, checkMessageDelivery(ctx, httpGW, token, msgCh, "Pro→Enterprise")...)
+	checks = append(checks, checkWSSurvival(wsClient, run.authResult.TenantID, "Pro→Enterprise"))
+	checks = append(checks, checkMessageDelivery(ctx, httpGW, token, run.authResult.TenantID, msgCh, "Pro→Enterprise")...)
 
 	// Step 3: Enterprise → Pro
 	proKey2 := keygen.sign(license.Pro, "Test Pro 2", 24*time.Hour)
@@ -219,8 +219,8 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 	checks = append(checks, propagationCheck("Enterprise→Pro", ok))
 	checks = append(checks, checkPushGate(ctx, httpGW, token, false)...)
 	checks = append(checks, checkSSEGate(ctx, httpGW, token, true, logger)...)
-	checks = append(checks, checkWSSurvival(wsClient, "Enterprise→Pro"))
-	checks = append(checks, checkMessageDelivery(ctx, httpGW, token, msgCh, "Enterprise→Pro")...)
+	checks = append(checks, checkWSSurvival(wsClient, run.authResult.TenantID, "Enterprise→Pro"))
+	checks = append(checks, checkMessageDelivery(ctx, httpGW, token, run.authResult.TenantID, msgCh, "Enterprise→Pro")...)
 
 	// Step 4: Pro → CE
 	ceKey2 := keygen.sign(license.Community, "Test CE 2", 24*time.Hour)
@@ -229,7 +229,7 @@ func checkTransitionChain(ctx context.Context, provURL, gwURL string, keygen *li
 	checks = append(checks, propagationCheck("Pro→CE", ok))
 	checks = append(checks, checkSSEGate(ctx, httpGW, token, false, logger)...)
 	checks = append(checks, checkRESTGate(ctx, httpGW, token, false)...)
-	checks = append(checks, checkWSSurvival(wsClient, "Pro→CE"))
+	checks = append(checks, checkWSSurvival(wsClient, run.authResult.TenantID, "Pro→CE"))
 	// No message delivery check — REST publish is gated on CE
 
 	return checks

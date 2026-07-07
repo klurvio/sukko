@@ -36,7 +36,7 @@ func runStress(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metri
 		duration = defaultStressDuration
 	}
 
-	testChannel := stressTestChannel
+	testChannel := tenantChannel(run.authResult.TenantID, stressTestChannel)
 	pool := testerws.NewPool(logger)
 	defer pool.Drain()
 

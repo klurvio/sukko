@@ -69,10 +69,10 @@ func validateTenantIsolation(ctx context.Context, run *TestRun, logger zerolog.L
 	defer func() { _ = userB.Client.Close() }()
 
 	// Both subscribe to the same channel name (different tenants internally)
-	if err := userA.Client.Subscribe([]string{"general.test"}); err != nil {
+	if err := userA.Client.Subscribe([]string{tenantChannel(setupA.TenantID, "general.test")}); err != nil {
 		return []metrics.CheckResult{{Name: "subscribe user A", Status: metrics.CheckStatusFail, Error: err.Error()}}, nil
 	}
-	if err := userB.Client.Subscribe([]string{"general.test"}); err != nil {
+	if err := userB.Client.Subscribe([]string{tenantChannel(setupB.TenantID, "general.test")}); err != nil {
 		return []metrics.CheckResult{{Name: "subscribe user B", Status: metrics.CheckStatusFail, Error: err.Error()}}, nil
 	}
 
@@ -82,12 +82,12 @@ func validateTenantIsolation(ctx context.Context, run *TestRun, logger zerolog.L
 	checks := make([]metrics.CheckResult, 0, 2)
 
 	// Check 1: Publish from tenant A → only user A receives
-	result := engine.PublishAndVerify(ctx, userA.AsPublisher(), "general.test", []*TestUser{userA}, allUsers)
+	result := engine.PublishAndVerify(ctx, userA.AsPublisher(), tenantChannel(setupA.TenantID, "general.test"), []*TestUser{userA}, allUsers)
 	checks = append(checks, deliveryCheck("tenant A → only A receives", result))
 	clearAll(allUsers)
 
 	// Check 2: Publish from tenant B → only user B receives
-	result = engine.PublishAndVerify(ctx, userB.AsPublisher(), "general.test", []*TestUser{userB}, allUsers)
+	result = engine.PublishAndVerify(ctx, userB.AsPublisher(), tenantChannel(setupB.TenantID, "general.test"), []*TestUser{userB}, allUsers)
 	checks = append(checks, deliveryCheck("tenant B → only B receives", result))
 
 	return checks, nil

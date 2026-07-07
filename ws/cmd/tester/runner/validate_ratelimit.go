@@ -37,7 +37,7 @@ func validateRateLimit(ctx context.Context, run *TestRun, logger zerolog.Logger)
 	}
 	defer func() { _ = user.Client.Close() }()
 
-	if err := user.Client.Subscribe([]string{"general.test"}); err != nil {
+	if err := user.Client.Subscribe([]string{tenantChannel(tenantID, "general.test")}); err != nil {
 		return []metrics.CheckResult{{Name: "subscribe", Status: "fail", Error: err.Error()}}, nil
 	}
 
@@ -52,7 +52,7 @@ func validateRateLimit(ctx context.Context, run *TestRun, logger zerolog.Logger)
 			"msg_id": fmt.Sprintf("rl-%04d", i),
 			"ts":     time.Now().UnixMilli(),
 		})
-		if err := user.Client.Publish("general.test", payload); err != nil {
+		if err := user.Client.Publish(tenantChannel(tenantID, "general.test"), payload); err != nil {
 			writeErrors++
 			if writeErrors >= rateLimitMaxWriteErrors {
 				break // connection likely closed by rate limiter
@@ -69,7 +69,7 @@ func validateRateLimit(ctx context.Context, run *TestRun, logger zerolog.Logger)
 		"msg_id": "rl-probe",
 		"ts":     time.Now().UnixMilli(),
 	})
-	probeErr := user.Client.Publish("general.test", probePayload)
+	probeErr := user.Client.Publish(tenantChannel(tenantID, "general.test"), probePayload)
 
 	checks := make([]metrics.CheckResult, 0, 1)
 

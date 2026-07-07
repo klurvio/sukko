@@ -49,7 +49,7 @@ func runLoad(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 		return runLoadChannelMode(ctx, run, logger, connections, publishRate, rampRate, duration)
 	}
 
-	testChannel := loadTestChannel
+	testChannel := tenantChannel(run.authResult.TenantID, loadTestChannel)
 
 	// Phase 1: Ramp up connections (canary + pool)
 	logger.Info().Int("connections", connections).Int("ramp_rate", rampRate).Msg("ramping up")
@@ -133,6 +133,12 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 	provClient := run.authResult.ProvClient
 	tenantID := run.authResult.TenantID
 
+	// Tenant-qualified channel names — the gateway requires the tenant prefix
+	// on every subscribe/publish channel; rule patterns stay bare (matched
+	// after the prefix is stripped).
+	publicChannel := tenantChannel(tenantID, "general.test")
+	groupChannel := tenantChannel(tenantID, "room.vip")
+
 	// Setup: channel rules + routing rules
 	if err := provClient.SetChannelRules(ctx, tenantID, testChannelRules); err != nil {
 		return nil, fmt.Errorf("set channel rules: %w", err)
@@ -186,7 +192,7 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 		if err != nil {
 			return nil, fmt.Errorf("create public canary: %w", err)
 		}
-		if err := publicCanary.Subscribe([]string{"general.test"}); err != nil {
+		if err := publicCanary.Subscribe([]string{publicChannel}); err != nil {
 			_ = publicCanary.Close()
 			return nil, fmt.Errorf("public canary subscribe: %w", err)
 		}
@@ -220,7 +226,10 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 		if err != nil {
 			return nil, fmt.Errorf("create user canary: %w", err)
 		}
-		if err := userCanary.Subscribe([]string{"dm.{principal}"}); err != nil {
+		// User-scoped channels are concrete per-subject names — the gateway
+		// resolves placeholders in rule PATTERNS, never in requested channel
+		// names, so the canary subscribes to its own resolved channel.
+		if err := userCanary.Subscribe([]string{tenantChannel(tenantID, "dm.canary-user")}); err != nil {
 			_ = userCanary.Close()
 			return nil, fmt.Errorf("user canary subscribe: %w", err)
 		}
@@ -255,7 +264,7 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 		if err != nil {
 			return nil, fmt.Errorf("create group canary: %w", err)
 		}
-		if err := groupCanary.Subscribe([]string{"room.vip"}); err != nil {
+		if err := groupCanary.Subscribe([]string{groupChannel}); err != nil {
 			_ = groupCanary.Close()
 			return nil, fmt.Errorf("group canary subscribe: %w", err)
 		}
@@ -273,7 +282,7 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 		if err := publicPool.RampUp(ctx, testerws.PoolConfig{
 			GatewayURL: run.Config.GatewayURL,
 			TokenFunc:  func(i int) string { return run.authResult.TokenFunc(i + 1) },
-			Channels:   []string{"general.test"},
+			Channels:   []string{publicChannel},
 			OnMessage: func(_ testerws.Message) {
 				run.Collector.PublicReceived.Add(1)
 				run.Collector.MessagesReceived.Add(1)
@@ -299,7 +308,9 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 				}
 				return token
 			},
-			Channels: []string{"dm.{principal}"}, // gateway resolves {principal} per connection
+			ChannelsFunc: func(i int) []string { // per-connection resolved user channel
+				return []string{tenantChannel(tenantID, fmt.Sprintf("dm.load-user-%04d", i))}
+			},
 			OnMessage: func(_ testerws.Message) {
 				run.Collector.UserScopedReceived.Add(1)
 				run.Collector.MessagesReceived.Add(1)
@@ -326,7 +337,7 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 				}
 				return token
 			},
-			Channels: []string{"room.vip"},
+			Channels: []string{groupChannel},
 			OnMessage: func(_ testerws.Message) {
 				run.Collector.GroupScopedReceived.Add(1)
 				run.Collector.MessagesReceived.Add(1)
@@ -368,8 +379,8 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 		case <-ticker.C:
 			// Publish to public channel
 			for range publicRate {
-				data, _ := gen.Next("general.test") // json.Marshal on literal map of primitives cannot fail
-				if err := pub.Publish(ctx, "general.test", data); err == nil {
+				data, _ := gen.Next(publicChannel) // json.Marshal on literal map of primitives cannot fail
+				if err := pub.Publish(ctx, publicChannel, data); err == nil {
 					run.Collector.PublicSent.Add(1)
 					run.Collector.MessagesSent.Add(1)
 				} else {
@@ -378,8 +389,8 @@ func runLoadChannelMode(ctx context.Context, run *TestRun, logger zerolog.Logger
 			}
 			// Publish to group channel
 			for range groupRate {
-				data, _ := gen.Next("room.vip") // json.Marshal on literal map of primitives cannot fail
-				if err := pub.Publish(ctx, "room.vip", data); err == nil {
+				data, _ := gen.Next(groupChannel) // json.Marshal on literal map of primitives cannot fail
+				if err := pub.Publish(ctx, groupChannel, data); err == nil {
 					run.Collector.GroupScopedSent.Add(1)
 					run.Collector.MessagesSent.Add(1)
 				} else {
