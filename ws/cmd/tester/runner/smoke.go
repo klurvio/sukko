@@ -104,7 +104,7 @@ func runSmoke(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metric
 
 	// Check 3: Subscribe + receive
 	if client != nil {
-		testChannel := smokeTestChannel
+		testChannel := tenantChannel(run.authResult.TenantID, smokeTestChannel)
 		start := time.Now()
 		if err := client.Subscribe([]string{testChannel}); err != nil {
 			checks = append(checks, metrics.CheckResult{
@@ -128,7 +128,7 @@ func runSmoke(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metric
 		// Error ignored: if this fails, the publish round-trip check below will
 		// fail with "message not received within timeout" — no silent degradation.
 		_ = run.authResult.ProvClient.SetRoutingRules(ctx, run.authResult.TenantID, []map[string]any{
-			{"pattern": "**", "topics": []string{"smoke-test"}, "priority": routing.DefaultCatchAllPriority},
+			{"pattern": "**", "topics": []string{routing.DefaultTopicSuffix}, "priority": routing.DefaultCatchAllPriority},
 		})
 
 		engine := NewPubSubEngine(PubSubEngineConfig{
@@ -147,13 +147,14 @@ func runSmoke(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metric
 		} else {
 			defer func() { _ = smokeUser.Client.Close() }()
 
-			if subErr := smokeUser.Client.Subscribe([]string{smokeTestChannel}); subErr != nil {
+			smokeChannel := tenantChannel(run.authResult.TenantID, smokeTestChannel)
+			if subErr := smokeUser.Client.Subscribe([]string{smokeChannel}); subErr != nil {
 				checks = append(checks, metrics.CheckResult{
 					Name: "publish round-trip", Status: "fail", Error: subErr.Error(),
 				})
 			} else {
 				time.Sleep(200 * time.Millisecond) // allow subscription to propagate
-				result := engine.PublishAndVerify(ctx, smokeUser.AsPublisher(), smokeTestChannel, []*TestUser{smokeUser}, []*TestUser{smokeUser})
+				result := engine.PublishAndVerify(ctx, smokeUser.AsPublisher(), smokeChannel, []*TestUser{smokeUser}, []*TestUser{smokeUser})
 				if result.Delivered {
 					checks = append(checks, metrics.CheckResult{
 						Name:    "publish round-trip",

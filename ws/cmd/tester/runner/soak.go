@@ -49,7 +49,7 @@ func runSoak(ctx context.Context, run *TestRun, logger zerolog.Logger) (*metrics
 		duration = defaultSoakDuration
 	}
 
-	testChannel := soakTestChannel
+	testChannel := tenantChannel(run.authResult.TenantID, soakTestChannel)
 
 	// Canary connection: tracks sequences for message loss/duplication detection
 	ct := newChannelTrackers()

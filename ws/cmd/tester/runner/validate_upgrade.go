@@ -61,7 +61,7 @@ func validateUpgrade(ctx context.Context, run *TestRun, logger zerolog.Logger) (
 	})
 
 	// Check 2: Subscribe to public channel
-	if err := client1.Subscribe([]string{validatePublicChannel}); err != nil {
+	if err := client1.Subscribe([]string{tenantChannel(run.Config.TenantID, validatePublicChannel)}); err != nil {
 		checks = append(checks, metrics.CheckResult{
 			Name:   "public channel subscribe",
 			Status: metrics.CheckStatusFail,

@@ -37,13 +37,23 @@ const (
 	TestValidate TestType = "validate"
 )
 
-// Test channel names for each test type.
+// Test channel suffixes for each test type. Qualified with the run's tenant
+// via tenantChannel() at use — the gateway requires every subscribe/publish
+// channel to carry the authenticated tenant's prefix, and each run's tenant
+// is dynamic (throwaway tester-xxxx tenants), so a hardcoded prefix like the
+// old "sukko." never matched and every canary subscribe was filtered out.
 const (
-	smokeTestChannel  = "sukko.smoke.test"
-	loadTestChannel   = "sukko.load.test"
-	stressTestChannel = "sukko.stress.test"
-	soakTestChannel   = "sukko.soak.test"
+	smokeTestChannel  = "smoke.test"
+	loadTestChannel   = "load.test"
+	stressTestChannel = "stress.test"
+	soakTestChannel   = "soak.test"
 )
+
+// tenantChannel qualifies a channel suffix with the tenant prefix the gateway
+// mandates on every subscribe and publish channel (ValidateChannelTenant).
+func tenantChannel(tenantID, suffix string) string {
+	return tenantID + "." + suffix
+}
 
 // defaultRampRate is the fallback connections-per-second rate when not configured.
 const defaultRampRate = 50

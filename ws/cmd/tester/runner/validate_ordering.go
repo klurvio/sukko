@@ -34,7 +34,7 @@ func validateOrdering(ctx context.Context, run *TestRun, logger zerolog.Logger) 
 	}
 	defer func() { _ = user.Client.Close() }()
 
-	if err := user.Client.Subscribe([]string{"general.test"}); err != nil {
+	if err := user.Client.Subscribe([]string{tenantChannel(tenantID, "general.test")}); err != nil {
 		return []metrics.CheckResult{{Name: "subscribe", Status: "fail", Error: err.Error()}}, nil
 	}
 
@@ -46,7 +46,7 @@ func validateOrdering(ctx context.Context, run *TestRun, logger zerolog.Logger) 
 			"msg_id": fmt.Sprintf("order-%04d", i),
 			"ts":     time.Now().UnixMilli(),
 		})
-		if err := user.Client.Publish("general.test", payload); err != nil {
+		if err := user.Client.Publish(tenantChannel(tenantID, "general.test"), payload); err != nil {
 			return []metrics.CheckResult{{
 				Name: "publish sequence", Status: "fail",
 				Error: fmt.Sprintf("publish msg %d: %v", i, err),

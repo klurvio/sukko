@@ -42,7 +42,11 @@ type PoolConfig struct {
 	TokenFunc  func(connIndex int) string // per-connection token (takes precedence over Token)
 	APIKey     string
 	Channels   []string
-	OnMessage  func(Message)
+	// ChannelsFunc returns per-connection channels (takes precedence over
+	// Channels). Needed for user-scoped channels, where each connection
+	// subscribes to its own resolved name (e.g. "tenant.dm.<subject>").
+	ChannelsFunc func(connIndex int) []string
+	OnMessage    func(Message)
 	// OnClose is called when a connection's ReadLoop exits, with the slot index,
 	// WebSocket close code, and the time of closure. May be nil.
 	OnClose func(connIndex int, code ws.StatusCode, t time.Time)
@@ -89,8 +93,8 @@ func (p *Pool) RampUp(ctx context.Context, cfg PoolConfig, count, rate int) erro
 			continue
 		}
 
-		if len(cfg.Channels) > 0 {
-			if err := client.Subscribe(cfg.Channels); err != nil {
+		if channels := poolChannels(cfg, i); len(channels) > 0 {
+			if err := client.Subscribe(channels); err != nil {
 				p.logger.Warn().Err(err).Msg("subscribe failed")
 				_ = client.Close() // best-effort: subscribe already failed
 				p.clients[i] = nil
@@ -177,8 +181,8 @@ func (p *Pool) FillSlot(index int, cfg PoolConfig) error {
 		return fmt.Errorf("fill slot %d: connect: %w", index, err)
 	}
 
-	if len(cfg.Channels) > 0 {
-		if err := client.Subscribe(cfg.Channels); err != nil {
+	if channels := poolChannels(cfg, index); len(channels) > 0 {
+		if err := client.Subscribe(channels); err != nil {
 			_ = client.Close()
 			return fmt.Errorf("fill slot %d: subscribe: %w", index, err)
 		}
@@ -272,4 +276,13 @@ func (p *Pool) RefreshAll(tokenFunc func(connIndex int) string) (refreshed, fail
 // DrainSummary returns a human-readable summary of the last drain operation.
 func (p *Pool) DrainSummary() string {
 	return fmt.Sprintf("drained %d connections", p.lastDrainCount.Load())
+}
+
+// poolChannels resolves the subscribe channels for a connection slot:
+// ChannelsFunc (per-connection) takes precedence over the static Channels.
+func poolChannels(cfg PoolConfig, connIndex int) []string {
+	if cfg.ChannelsFunc != nil {
+		return cfg.ChannelsFunc(connIndex)
+	}
+	return cfg.Channels
 }

@@ -197,8 +197,8 @@ func checkPushGate(ctx context.Context, gwURL, token string, expectSuccess bool)
 // --- WS survival + message delivery ---
 
 // checkWSSurvival verifies the WebSocket connection is still alive by attempting a subscribe.
-func checkWSSurvival(client *testerws.Client, transition string) metrics.CheckResult {
-	if err := client.Subscribe([]string{"test.survival-" + transition}); err != nil {
+func checkWSSurvival(client *testerws.Client, tenantID, transition string) metrics.CheckResult {
+	if err := client.Subscribe([]string{tenantChannel(tenantID, "test.survival-"+transition)}); err != nil {
 		return metrics.CheckResult{Name: transition + " ws survival", Status: "fail", Error: fmt.Sprintf("subscribe failed: %v", err)}
 	}
 	return metrics.CheckResult{Name: transition + " ws survival", Status: "pass"}
@@ -206,8 +206,8 @@ func checkWSSurvival(client *testerws.Client, transition string) metrics.CheckRe
 
 // checkMessageDelivery publishes 1 message via REST and verifies it arrives on the WebSocket within 3 seconds.
 // The msgCh channel receives messages from the WS client's ReadLoop (set up at connect time via OnMessage callback).
-func checkMessageDelivery(ctx context.Context, gwURL, token string, msgCh <-chan string, transition string) []metrics.CheckResult {
-	channel := "test.license-delivery"
+func checkMessageDelivery(ctx context.Context, gwURL, token, tenantID string, msgCh <-chan string, transition string) []metrics.CheckResult {
+	channel := tenantChannel(tenantID, "test.license-delivery")
 
 	// Publish via REST
 	restClient := restpublish.NewClient(gwURL)

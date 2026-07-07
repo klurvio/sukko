@@ -32,14 +32,14 @@ func validateReconnect(ctx context.Context, run *TestRun, logger zerolog.Logger)
 		return []metrics.CheckResult{{Name: "initial connect", Status: "fail", Error: err.Error()}}, nil
 	}
 
-	if err := user1.Client.Subscribe([]string{"general.test"}); err != nil {
+	if err := user1.Client.Subscribe([]string{tenantChannel(tenantID, "general.test")}); err != nil {
 		_ = user1.Client.Close()
 		return []metrics.CheckResult{{Name: "initial subscribe", Status: "fail", Error: err.Error()}}, nil
 	}
 
 	time.Sleep(500 * time.Millisecond) // allow subscription to propagate
 
-	result := engine.PublishAndVerify(ctx, user1.AsPublisher(), "general.test", []*TestUser{user1}, []*TestUser{user1})
+	result := engine.PublishAndVerify(ctx, user1.AsPublisher(), tenantChannel(tenantID, "general.test"), []*TestUser{user1}, []*TestUser{user1})
 	checks = append(checks, deliveryCheck("pre-disconnect delivery", result))
 
 	// Phase 2: Disconnect
@@ -59,14 +59,14 @@ func validateReconnect(ctx context.Context, run *TestRun, logger zerolog.Logger)
 	checks = append(checks, metrics.CheckResult{Name: "reconnect", Status: "pass"})
 
 	// Phase 4: Re-subscribe and verify delivery
-	if err := user2.Client.Subscribe([]string{"general.test"}); err != nil {
+	if err := user2.Client.Subscribe([]string{tenantChannel(tenantID, "general.test")}); err != nil {
 		checks = append(checks, metrics.CheckResult{Name: "re-subscribe", Status: "fail", Error: err.Error()})
 		return checks, nil
 	}
 
 	time.Sleep(500 * time.Millisecond)
 
-	result = engine.PublishAndVerify(ctx, user2.AsPublisher(), "general.test", []*TestUser{user2}, []*TestUser{user2})
+	result = engine.PublishAndVerify(ctx, user2.AsPublisher(), tenantChannel(tenantID, "general.test"), []*TestUser{user2}, []*TestUser{user2})
 	checks = append(checks, deliveryCheck("post-reconnect delivery", result))
 
 	return checks, nil

@@ -31,7 +31,7 @@ var testChannelRules = map[string]any{
 
 // Catch-all routing rule for test messages.
 var testRoutingRules = []map[string]any{
-	{"pattern": "**", "topics": []string{"test-default"}, "priority": routing.DefaultCatchAllPriority},
+	{"pattern": "**", "topics": []string{routing.DefaultTopicSuffix}, "priority": routing.DefaultCatchAllPriority},
 }
 
 // Test user profiles for scoping checks.
@@ -82,13 +82,17 @@ func validatePubSub(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 	userA, userB, userC := users[0], users[1], users[2]
 
 	// Subscribe users to their authorized channels
-	if err := userA.Client.Subscribe([]string{"general.test", "dm.test-user-a", "room.vip"}); err != nil {
+	generalChannel := tenantChannel(tenantID, "general.test")
+	dmAChannel := tenantChannel(tenantID, "dm.test-user-a")
+	vipChannel := tenantChannel(tenantID, "room.vip")
+	tradersChannel := tenantChannel(tenantID, "room.traders")
+	if err := userA.Client.Subscribe([]string{generalChannel, dmAChannel, vipChannel}); err != nil {
 		return []metrics.CheckResult{{Name: "subscribe userA", Status: "fail", Error: err.Error()}}, nil
 	}
-	if err := userB.Client.Subscribe([]string{"general.test", "room.traders"}); err != nil {
+	if err := userB.Client.Subscribe([]string{generalChannel, tradersChannel}); err != nil {
 		return []metrics.CheckResult{{Name: "subscribe userB", Status: "fail", Error: err.Error()}}, nil
 	}
-	if err := userC.Client.Subscribe([]string{"general.test"}); err != nil {
+	if err := userC.Client.Subscribe([]string{generalChannel}); err != nil {
 		return []metrics.CheckResult{{Name: "subscribe userC", Status: "fail", Error: err.Error()}}, nil
 	}
 
@@ -98,27 +102,27 @@ func validatePubSub(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 	var checks []metrics.CheckResult
 
 	// Check 1: Public channel round-trip — all 3 receive
-	result := engine.PublishAndVerify(ctx, userA.AsPublisher(), "general.test", []*TestUser{userA, userB, userC}, users)
+	result := engine.PublishAndVerify(ctx, userA.AsPublisher(), generalChannel, []*TestUser{userA, userB, userC}, users)
 	checks = append(checks, deliveryCheck("public round-trip", result))
 	clearAll(users)
 
 	// Check 2: User-scoped isolation — only userA receives dm.test-user-a
-	result = engine.PublishAndVerify(ctx, userA.AsPublisher(), "dm.test-user-a", []*TestUser{userA}, users)
+	result = engine.PublishAndVerify(ctx, userA.AsPublisher(), dmAChannel, []*TestUser{userA}, users)
 	checks = append(checks, deliveryCheck("user-scoped isolation", result))
 	clearAll(users)
 
 	// Check 3: Group-scoped vip — only userA receives room.vip
-	result = engine.PublishAndVerify(ctx, userA.AsPublisher(), "room.vip", []*TestUser{userA}, users)
+	result = engine.PublishAndVerify(ctx, userA.AsPublisher(), vipChannel, []*TestUser{userA}, users)
 	checks = append(checks, deliveryCheck("group-scoped vip", result))
 	clearAll(users)
 
 	// Check 4: Group-scoped traders — only userB receives room.traders
-	result = engine.PublishAndVerify(ctx, userB.AsPublisher(), "room.traders", []*TestUser{userB}, users)
+	result = engine.PublishAndVerify(ctx, userB.AsPublisher(), tradersChannel, []*TestUser{userB}, users)
 	checks = append(checks, deliveryCheck("group-scoped traders", result))
 	clearAll(users)
 
 	// Check 5: Publish authorization — userC publishes to room.vip, should be rejected
-	err := userC.Client.Publish("room.vip", []byte(`{"msg_id":"auth-test","ts":0}`))
+	err := userC.Client.Publish(vipChannel, []byte(`{"msg_id":"auth-test","ts":0}`))
 	if err != nil {
 		checks = append(checks, metrics.CheckResult{Name: "publish auth rejection", Status: "pass", Latency: "rejected"})
 	} else {

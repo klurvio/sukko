@@ -253,3 +253,12 @@ func TestRunner_JSONMarshal_NoNATSJetStreamURLs(t *testing.T) {
 		t.Errorf("TestConfig JSON must not contain 'nats_jetstream_urls', got: %s", data)
 	}
 }
+
+// TestTenantChannel asserts the qualification helper produces the exact
+// "{tenant}.{suffix}" wire format the gateway's ValidateChannelTenant expects.
+func TestTenantChannel(t *testing.T) {
+	t.Parallel()
+	if got := tenantChannel("tester-abc", "general.test"); got != "tester-abc.general.test" {
+		t.Errorf("tenantChannel = %q, want %q", got, "tester-abc.general.test")
+	}
+}

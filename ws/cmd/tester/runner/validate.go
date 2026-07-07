@@ -14,8 +14,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// validatePublicChannel is the channel used by the channels validation suite.
-const validatePublicChannel = "sukko.validate.public"
+// validatePublicChannel is the channel SUFFIX used by the channels validation
+// suite — qualified with the run's tenant via tenantChannel() at use (the old
+// value hardcoded a "sukko." tenant prefix that never matched throwaway
+// tester tenants, so the subscribe was silently filtered out).
+const validatePublicChannel = "validate.public"
 
 // validPublishBody is a minimal well-formed publish payload used in Check 10 (API key REST publish).
 // The response is 403 regardless of body content — API keys cannot REST-publish.
@@ -474,7 +477,7 @@ func validateChannels(ctx context.Context, run *TestRun, logger zerolog.Logger) 
 	defer client.Close() //nolint:errcheck // best-effort: test cleanup
 
 	// Test public channel subscribe
-	if err := client.Subscribe([]string{validatePublicChannel}); err != nil {
+	if err := client.Subscribe([]string{tenantChannel(run.authResult.TenantID, validatePublicChannel)}); err != nil {
 		checks = append(checks, metrics.CheckResult{
 			Name: "public channel subscribe", Status: metrics.CheckStatusFail, Error: err.Error(),
 		})
