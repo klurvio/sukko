@@ -13,6 +13,7 @@ import (
 // resolver: current-slug resolution, previous-slug alias during a rename hold,
 // unknown-slug rejection, and the DS-001 readiness flag.
 func TestStreamChannelRulesProvider_ResolveTenantUUID(t *testing.T) {
+	t.Parallel()
 	r := newTestChannelRulesProvider()
 
 	const uuidA = "11111111-1111-1111-1111-111111111111"
@@ -57,6 +58,7 @@ func TestStreamChannelRulesProvider_ResolveTenantUUID(t *testing.T) {
 // guard: a non-empty snapshot with no tenant UUIDs keeps readiness degraded; a
 // zero-tenant snapshot is ready; and a later delta carrying a UUID recovers.
 func TestStreamChannelRulesProvider_DS001Readiness(t *testing.T) {
+	t.Parallel()
 	// Old provisioning peer: tenants present but no tenant_uuid -> degraded.
 	r := newTestChannelRulesProvider()
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{

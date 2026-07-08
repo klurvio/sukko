@@ -454,13 +454,6 @@ func validateProvisioningJWT(ctx context.Context, run *TestRun, logger zerolog.L
 			Error: fmt.Sprintf("setup second tenant: %v", createErr),
 		})
 	} else {
-		// Best-effort teardown with a fresh context (test ctx may be canceled).
-		defer func() {
-			delCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_ = provClient.DeleteTenant(delCtx, otherTenant) //nolint:contextcheck // teardown needs a fresh context
-		}()
-
 		status, err = provClient.GetTenant(ctx, otherTenant, tenantJWT)
 		switch {
 		case err != nil:
@@ -477,6 +470,12 @@ func validateProvisioningJWT(ctx context.Context, run *TestRun, logger zerolog.L
 				Error: fmt.Sprintf("expected 403, got %d", status),
 			})
 		}
+
+		// Best-effort teardown of the probe tenant. Fresh context — the test run
+		// ctx may be canceled; failure is non-fatal, cleanup continues (§III, §IV).
+		delCtx, delCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_ = provClient.DeleteTenant(delCtx, otherTenant) //nolint:contextcheck // teardown: test ctx may be canceled; fresh context required
+		delCancel()
 	}
 
 	logger.Debug().Msg("provisioning JWT validation complete")

@@ -37,7 +37,7 @@ func (r *GraceTenantResolver) ResolveTenantUUID(ctx context.Context, slug string
 			// Unknown/forged slug — reject as unresolvable, not transient.
 			return "", sharedauth.ErrTenantNotResolvable
 		}
-		// Transient (DB down, ctx cancelled) — surface so the binding fails closed
+		// Transient (DB down, ctx canceled) — surface so the binding fails closed
 		// while remaining distinguishable from a cross-tenant forgery.
 		return "", err
 	}

@@ -36,8 +36,10 @@ var (
 // constants; §XVIII branch-distinct, matching the jwt_revoked / jwt+api_key_revoked
 // convention).
 const (
-	authMethodJWTTenantMismatch       = "jwt_tenant_mismatch"
-	authMethodJWTAPIKeyTenantMismatch = "jwt+api_key_tenant_mismatch"
+	authMethodJWTTenantMismatch = "jwt_tenant_mismatch"
+	// G101 false positive: this is a Prometheus metric label value (the "api_key"
+	// substring trips gosec's hardcoded-credential heuristic), not a credential.
+	authMethodJWTAPIKeyTenantMismatch = "jwt+api_key_tenant_mismatch" //nolint:gosec // G101: metric label, not a credential
 )
 
 // logTenantMismatch Warn-logs a tenant-binding rejection with the structured
