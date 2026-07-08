@@ -12,11 +12,12 @@ const authResultFailure = "failure"
 
 // Auth failure reason values (package-local).
 const (
-	authFailureReasonMissingToken = "missing_token"
-	authFailureReasonTokenExpired = "token_expired"
-	authFailureReasonKeyNotFound  = "key_not_found"
-	authFailureReasonKeyRevoked   = "key_revoked"
-	authFailureReasonInvalidToken = "invalid_token"
+	authFailureReasonMissingToken   = "missing_token"
+	authFailureReasonTokenExpired   = "token_expired"
+	authFailureReasonKeyNotFound    = "key_not_found"
+	authFailureReasonKeyRevoked     = "key_revoked"
+	authFailureReasonInvalidToken   = "invalid_token"
+	authFailureReasonTenantMismatch = "tenant_mismatch"
 )
 
 // Authorization denial reason values (package-local).

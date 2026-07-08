@@ -127,7 +127,7 @@ type ProvisioningConfig struct {
 	// SlugRenameTopicHoldPeriod is how long old Kafka topics and ACLs are retained after a slug rename.
 	// During this window the old slug is still accepted by the JWT grace-period check.
 	// Must be >= MinSlugRenameHoldPeriod (24h). Default: 168h (7 days).
-	SlugRenameTopicHoldPeriod time.Duration `env:"SLUG_RENAME_TOPIC_HOLD_PERIOD" envDefault:"168h"` // Retention window for old Kafka topics and ACLs after a tenant slug rename. Minimum 24h.
+	SlugRenameTopicHoldPeriod time.Duration `env:"SLUG_RENAME_TOPIC_HOLD_PERIOD" envDefault:"168h"` // How long a tenant's previous slug is honored after a rename: retention window for old Kafka topics/ACLs, and the grace window during which old-slug JWTs are still accepted on both the provisioning API and the WebSocket gateway. Minimum 24h.
 
 	// TokenRevocationMaxLifetime is the maximum duration a revoked token entry is retained
 	// before the background prune loop removes it. Must be > 0. Default: 1h.

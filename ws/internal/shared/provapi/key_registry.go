@@ -44,6 +44,13 @@ const (
 	// initial snapshot has not yet been applied — the consumer cannot answer
 	// queries and readiness must be withheld.
 	StreamLabelConnectedAwaitingSnapshot = "connected_awaiting_snapshot"
+
+	// StreamLabelConnectedAwaitingTenantUUIDs marks the tenant-config stream as
+	// degraded when its snapshot arrived but carried no tenant UUIDs (DS-001:
+	// rolling-deploy skew against an older provisioning peer). Readiness stays
+	// 503 until UUIDs are present, so the fail-closed JWT binding never rejects
+	// all traffic.
+	StreamLabelConnectedAwaitingTenantUUIDs = "connected_awaiting_tenant_uuids"
 )
 
 // Jitter constants for exponential backoff reconnection.
@@ -66,12 +73,13 @@ type StreamKeyRegistryConfig struct {
 type StreamKeyRegistry struct {
 	mu       sync.RWMutex
 	keysByID map[string]*auth.KeyInfo
-	// BUG: keysByTenant is keyed by the UUID value in auth.KeyInfo.TenantID, which the
-	// gRPC server populates from TenantKey.TenantID (a validated UUID FK). GetKeysByTenant
-	// is called with a slug, so lookups always miss. Fix: update grpcserver/server.go
-	// convertKeys to send the tenant slug (not UUID) in the TenantId proto field, requiring
-	// TenantKey to carry a TenantSlug field populated via JOIN in the key repository.
-	// No production caller of GetKeysByTenant exists today, so runtime impact is zero.
+	// keysByTenant is keyed by the tenant UUID in auth.KeyInfo.TenantID (populated
+	// from TenantKey.TenantID, a validated UUID FK). This UUID is intentional and
+	// required: the tenant-UUID binding in auth.ValidateJWT compares KeyInfo.TenantID
+	// (UUID) against the tenant UUID the tenant_id claim resolves to — so the key
+	// stream MUST carry the UUID, never the slug. GetKeysByTenant is called with a
+	// slug, so its cache lookups miss (it has no production caller today); unifying
+	// the cache key to accept a slug is tracked under #161.
 	keysByTenant map[string][]*auth.KeyInfo
 
 	conn   *grpc.ClientConn

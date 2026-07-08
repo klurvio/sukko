@@ -24,6 +24,12 @@ type MultiTenantValidatorConfig struct {
 	// AllowedIssuers restricts which token issuers (iss claim) are accepted.
 	// Empty means issuer verification is skipped (for backward compatibility).
 	AllowedIssuers []string
+
+	// TenantResolver maps a tenant_id claim (slug) to the stable tenant UUID for
+	// tenant binding. Required — MultiTenantValidator is always tenant-scoped and
+	// always binds. (Admin validation, which is not tenant-scoped, uses a
+	// separate ValidateOpts with DisableTenantBinding set, not this constructor.)
+	TenantResolver TenantResolver
 }
 
 // MultiTenantValidator validates JWTs using tenant-specific public keys.
@@ -38,6 +44,13 @@ func NewMultiTenantValidator(cfg MultiTenantValidatorConfig) (*MultiTenantValida
 	if cfg.KeyRegistry == nil {
 		return nil, errors.New("key registry is required")
 	}
+	// MultiTenantValidator is always tenant-scoped and always binds the tenant_id
+	// claim to the signing key's owning tenant UUID, so a resolver is mandatory.
+	// Requiring it here (rather than only failing closed at validation time)
+	// surfaces a misconfiguration loudly at startup.
+	if cfg.TenantResolver == nil {
+		return nil, errors.New("tenant resolver is required")
+	}
 
 	var requireClaims []string
 	if cfg.RequireTenantID {
@@ -51,6 +64,8 @@ func NewMultiTenantValidator(cfg MultiTenantValidatorConfig) (*MultiTenantValida
 			AllowedAlgorithms: cfg.AllowedAlgorithms,
 			AllowedIssuers:    cfg.AllowedIssuers,
 			RequireClaims:     requireClaims,
+			TenantResolver:    cfg.TenantResolver,
+			// DisableTenantBinding left false — binding enabled (secure default).
 		},
 	}, nil
 }
@@ -70,7 +85,10 @@ func (v *MultiTenantValidator) ValidateTokenForTenant(ctx context.Context, token
 	}
 
 	if claims.TenantID != expectedTenant {
-		return nil, fmt.Errorf("%w: tenant mismatch", ErrInvalidToken)
+		// Generic message — do not leak tenant identifiers to clients (§IX);
+		// detail belongs in server-side structured logs. errors.Is routes on the
+		// shared sentinel, consistent with the binding path's TenantMismatchError.
+		return nil, fmt.Errorf("%w", ErrTenantMismatch)
 	}
 
 	return claims, nil

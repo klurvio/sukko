@@ -17,8 +17,9 @@ import (
 // without gRPC connections or Prometheus metrics.
 func newTestChannelRulesProvider() *StreamChannelRulesProvider {
 	r := &StreamChannelRulesProvider{
-		channelRules: make(map[string]*types.ChannelRules),
-		logger:       zerolog.Nop(),
+		channelRules:     make(map[string]*types.ChannelRules),
+		tenantUUIDBySlug: make(map[string]string),
+		logger:           zerolog.Nop(),
 	}
 	r.routingSnapshots.Store(make(map[string]TenantRoutingSnapshot))
 	return r

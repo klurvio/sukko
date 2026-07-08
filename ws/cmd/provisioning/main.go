@@ -286,10 +286,14 @@ func main() {
 	}
 	defer func() { _ = keyRegistry.Close() }() // Close error non-actionable during shutdown
 
-	// Build validator config
+	// Build validator config. The tenant resolver binds the JWT tenant_id claim
+	// to the signing key's owning tenant UUID (grace-aware, so old-slug tokens
+	// still resolve during a rename hold window).
+	tenantResolver := provauth.NewGraceTenantResolver(tenantRepo.GetIDBySlugWithGrace, cfg.SlugRenameTopicHoldPeriod)
 	validatorCfg := auth.MultiTenantValidatorConfig{
 		KeyRegistry:     keyRegistry,
 		RequireTenantID: true,
+		TenantResolver:  tenantResolver,
 	}
 
 	// Create multi-tenant validator
@@ -493,6 +497,7 @@ func main() {
 		PushCredentialsRepo:   pushCredentialsRepo,
 		PushChannelConfigRepo: pushChannelConfigRepo,
 		CurrentLicenseKey:     licenseHandler.CurrentKey,
+		SlugRenameHoldPeriod:  cfg.SlugRenameTopicHoldPeriod,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create gRPC stream server")

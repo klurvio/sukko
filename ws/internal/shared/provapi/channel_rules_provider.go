@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
+	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/routing"
@@ -51,6 +52,11 @@ type StreamChannelRulesProvider struct {
 	mu           sync.RWMutex
 	channelRules map[string]*types.ChannelRules // tenantID → rules
 
+	// tenantUUIDBySlug maps a tenant slug (current, and previous slug during a
+	// rename hold window) to the stable tenant UUID. Backs ResolveTenantUUID for
+	// JWT tenant binding. Guarded by mu; rebuilt on each snapshot.
+	tenantUUIDBySlug map[string]string
+
 	snapshotMu       sync.Mutex   // serializes concurrent UpdateEdition + updateTenantConfigs COW writes
 	routingSnapshots atomic.Value // holds map[string]TenantRoutingSnapshot
 
@@ -66,6 +72,13 @@ type StreamChannelRulesProvider struct {
 	// but has not yet delivered its initial snapshot cannot answer authorization
 	// queries, and the gateway must not report ready until it can.
 	snapshotReceived atomic.Bool
+
+	// tenantUUIDsPresent reports whether the stream is delivering tenant UUIDs
+	// (DS-001). It is false when a non-empty snapshot arrives with no tenant_uuid
+	// set — i.e. the provisioning peer predates the field during a rolling deploy
+	// — so readiness can stay degraded rather than serving a fail-closed binding
+	// that rejects all traffic. Cleared true on any batch carrying a UUID.
+	tenantUUIDsPresent atomic.Bool
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -105,11 +118,12 @@ func NewStreamChannelRulesProvider(cfg StreamChannelRulesProviderConfig) (*Strea
 	ctx, cancel := context.WithCancel(context.Background())
 
 	r := &StreamChannelRulesProvider{
-		channelRules: make(map[string]*types.ChannelRules),
-		conn:         conn,
-		config:       cfg,
-		logger:       cfg.Logger.With().Str("component", "stream_channel_rules_provider").Logger(),
-		cancel:       cancel,
+		channelRules:     make(map[string]*types.ChannelRules),
+		tenantUUIDBySlug: make(map[string]string),
+		conn:             conn,
+		config:           cfg,
+		logger:           cfg.Logger.With().Str("component", "stream_channel_rules_provider").Logger(),
+		cancel:           cancel,
 		streamStateGauge: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: cfg.MetricPrefix + "_provisioning_config_stream_state",
 			Help: "State of the provisioning config gRPC stream (0=disconnected, 1=connected)",
@@ -176,6 +190,26 @@ func (r *StreamChannelRulesProvider) State() int32 {
 // as having no rules configured.
 func (r *StreamChannelRulesProvider) SnapshotReceived() bool {
 	return r.snapshotReceived.Load()
+}
+
+// TenantUUIDsPresent reports whether the tenant-config stream is delivering
+// tenant UUIDs (DS-001). False during rolling-deploy skew against a provisioning
+// peer that predates the tenant_uuid field; readiness stays degraded until true.
+func (r *StreamChannelRulesProvider) TenantUUIDsPresent() bool {
+	return r.tenantUUIDsPresent.Load()
+}
+
+// ResolveTenantUUID maps a tenant slug (current or previous-within-hold) to its
+// stable tenant UUID, satisfying auth.TenantResolver for the gateway's JWT tenant
+// binding. Returns auth.ErrTenantNotResolvable when the slug is unknown.
+func (r *StreamChannelRulesProvider) ResolveTenantUUID(_ context.Context, slug string) (string, error) {
+	r.mu.RLock()
+	uuid, ok := r.tenantUUIDBySlug[slug]
+	r.mu.RUnlock()
+	if !ok || uuid == "" {
+		return "", auth.ErrTenantNotResolvable
+	}
+	return uuid, nil
 }
 
 // Close stops the stream and releases resources.
@@ -246,21 +280,47 @@ func (r *StreamChannelRulesProvider) updateTenantConfigs(resp *provisioningv1.Wa
 	removedIDs := resp.GetRemovedTenantIds()
 	tenants := resp.GetTenants()
 
-	// Update channel rules under the mutex.
+	// Update channel rules + the slug->UUID resolver map under the mutex.
 	r.mu.Lock()
 	if isSnapshot {
 		r.channelRules = make(map[string]*types.ChannelRules)
+		r.tenantUUIDBySlug = make(map[string]string)
 	}
 	for _, tenantID := range removedIDs {
 		delete(r.channelRules, tenantID)
+		delete(r.tenantUUIDBySlug, tenantID)
 	}
+	sawUUID := false
 	for _, tc := range tenants {
 		if tc.GetChannelRules() != nil {
 			r.channelRules[tc.GetTenantId()] = protoToChannelRules(tc.GetChannelRules())
 		}
+		if uuid := tc.GetTenantUuid(); uuid != "" {
+			sawUUID = true
+			r.tenantUUIDBySlug[tc.GetTenantId()] = uuid
+			// Alias the previous slug during the rename hold window so old-slug
+			// JWTs still resolve to this tenant's UUID.
+			if prev := tc.GetPreviousSlug(); prev != "" {
+				r.tenantUUIDBySlug[prev] = uuid
+			}
+		}
 	}
 	channelRulesLen := len(r.channelRules)
 	r.mu.Unlock()
+
+	// DS-001 readiness: a non-empty snapshot with no tenant_uuid means the
+	// provisioning peer predates the field (rolling-deploy skew) — stay degraded
+	// so the fail-closed binding doesn't reject all traffic. Any batch carrying a
+	// UUID (snapshot or delta) marks UUIDs present (covers recovery via delta).
+	// A zero-tenant snapshot is ready (nothing to resolve), never a permanent 503.
+	switch {
+	case sawUUID:
+		r.tenantUUIDsPresent.Store(true)
+	case isSnapshot && len(tenants) == 0:
+		r.tenantUUIDsPresent.Store(true)
+	case isSnapshot:
+		r.tenantUUIDsPresent.Store(false)
+	}
 
 	// COW update for routing snapshots — snapshotMu serializes concurrent UpdateEdition calls.
 	r.snapshotMu.Lock()

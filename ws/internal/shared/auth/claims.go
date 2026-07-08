@@ -36,6 +36,13 @@ type Claims struct {
 
 	// Custom is an extension point for application-specific claims
 	Custom map[string]any `json:"custom,omitempty"`
+
+	// ResolvedTenantUUID is the stable tenant UUID that TenantID (a slug)
+	// resolved to during tenant-binding validation. Populated by ValidateJWT
+	// when the binding runs; never serialized. Callers (e.g. the gateway
+	// JWT+API-key branch) use it to compare against a key's owning tenant UUID
+	// without re-resolving.
+	ResolvedTenantUUID string `json:"-"`
 }
 
 // AppID returns the subject (app ID) from the token.

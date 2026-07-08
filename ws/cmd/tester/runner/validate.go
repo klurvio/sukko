@@ -443,22 +443,40 @@ func validateProvisioningJWT(ctx context.Context, run *TestRun, logger zerolog.L
 		})
 	}
 
-	// GET other tenant with tenant JWT → expect 403
-	status, err = provClient.GetTenant(ctx, "nonexistent-other-tenant", tenantJWT)
-	switch {
-	case err != nil:
-		checks = append(checks, metrics.CheckResult{
-			Name: "provisioning JWT cross-tenant blocked", Status: metrics.CheckStatusFail, Error: err.Error(),
-		})
-	case status == http.StatusForbidden:
-		checks = append(checks, metrics.CheckResult{
-			Name: "provisioning JWT cross-tenant blocked", Status: metrics.CheckStatusPass,
-		})
-	default:
+	// Cross-tenant isolation: provision a real second tenant (admin), then GET it
+	// with tenant A's JWT → expect 403 (RequireTenant tenant-mismatch). A genuine
+	// existing tenant is required: a nonexistent slug would 404 (not found) before
+	// the isolation path and would not prove isolation.
+	otherTenant := run.Config.TenantID + "-xt"
+	if createErr := provClient.CreateTenant(ctx, otherTenant, "cross-tenant isolation probe"); createErr != nil {
 		checks = append(checks, metrics.CheckResult{
 			Name: "provisioning JWT cross-tenant blocked", Status: metrics.CheckStatusFail,
-			Error: fmt.Sprintf("expected 403, got %d", status),
+			Error: fmt.Sprintf("setup second tenant: %v", createErr),
 		})
+	} else {
+		// Best-effort teardown with a fresh context (test ctx may be canceled).
+		defer func() {
+			delCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = provClient.DeleteTenant(delCtx, otherTenant) //nolint:contextcheck // teardown needs a fresh context
+		}()
+
+		status, err = provClient.GetTenant(ctx, otherTenant, tenantJWT)
+		switch {
+		case err != nil:
+			checks = append(checks, metrics.CheckResult{
+				Name: "provisioning JWT cross-tenant blocked", Status: metrics.CheckStatusFail, Error: err.Error(),
+			})
+		case status == http.StatusForbidden:
+			checks = append(checks, metrics.CheckResult{
+				Name: "provisioning JWT cross-tenant blocked", Status: metrics.CheckStatusPass,
+			})
+		default:
+			checks = append(checks, metrics.CheckResult{
+				Name: "provisioning JWT cross-tenant blocked", Status: metrics.CheckStatusFail,
+				Error: fmt.Sprintf("expected 403, got %d", status),
+			})
+		}
 	}
 
 	logger.Debug().Msg("provisioning JWT validation complete")

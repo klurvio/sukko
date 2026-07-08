@@ -132,7 +132,8 @@ func newTestValidator(t *testing.T) (*auth.MultiTenantValidator, *ecdsa.PrivateK
 		t.Fatalf("AddKey failed: %v", err)
 	}
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -318,7 +319,8 @@ func TestRouter_AuthRequired_RequiresToken(t *testing.T) {
 	}
 
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -360,7 +362,8 @@ func TestRouter_AuthRequired_ValidToken(t *testing.T) {
 	}
 
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -416,7 +419,8 @@ func TestRouter_AuthRequired_ExpiredToken(t *testing.T) {
 	}
 
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -472,7 +476,8 @@ func TestRouter_AuthRequired_InvalidToken(t *testing.T) {
 	}
 
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -540,7 +545,8 @@ func TestRouter_AuthRequired_RoleRequirement(t *testing.T) {
 	}
 
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -638,7 +644,8 @@ func TestRouter_HealthEndpoints_NoAuth(t *testing.T) {
 	// Even with auth enabled, health endpoints should work without auth
 	registry := auth.NewStaticKeyRegistry()
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -1137,7 +1144,8 @@ func TestRouter_RoutingRules_RequiresAdminRole(t *testing.T) {
 	}
 
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -1600,7 +1608,8 @@ func TestRouter_RenameTenant_RequiresAdminRole(t *testing.T) {
 		t.Fatalf("AddKey: %v", err)
 	}
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator: %v", err)
@@ -1722,7 +1731,8 @@ func TestRouter_LicenseEndpoint_AdminAuth(t *testing.T) {
 
 	// Create MultiTenantValidator with an empty key registry.
 	tenantValidator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: emptyKeyRegistry{},
+		KeyRegistry:    emptyKeyRegistry{},
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("create tenant validator: %v", err)

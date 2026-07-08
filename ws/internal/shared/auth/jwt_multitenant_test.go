@@ -46,7 +46,8 @@ func TestMultiTenantValidator_ValidateToken_ES256(t *testing.T) {
 	}
 
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -94,7 +95,8 @@ func TestMultiTenantValidator_ValidateToken_RS256(t *testing.T) {
 	}
 
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -143,7 +145,8 @@ func TestMultiTenantValidator_ValidateToken_EdDSA(t *testing.T) {
 	}
 
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -188,7 +191,8 @@ func TestMultiTenantValidator_ValidateToken_ExpiredToken(t *testing.T) {
 	}
 
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -228,7 +232,8 @@ func TestMultiTenantValidator_ValidateToken_KeyNotFound(t *testing.T) {
 	}
 
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -270,7 +275,8 @@ func TestMultiTenantValidator_ValidateToken_RevokedKey(t *testing.T) {
 	}
 
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -298,7 +304,8 @@ func TestMultiTenantValidator_ValidateToken_MissingToken(t *testing.T) {
 	registry := NewStaticKeyRegistry()
 
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -330,6 +337,7 @@ func TestMultiTenantValidator_ValidateToken_RequireTenantID(t *testing.T) {
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
+		TenantResolver:  identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -370,7 +378,8 @@ func TestMultiTenantValidator_ValidateTokenForTenant(t *testing.T) {
 	}
 
 	validator, err := NewMultiTenantValidator(MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)

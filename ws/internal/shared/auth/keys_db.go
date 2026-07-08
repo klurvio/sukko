@@ -144,6 +144,12 @@ func (r *DBKeyRegistry) GetKey(ctx context.Context, keyID string) (*KeyInfo, err
 }
 
 // GetKeysByTenant retrieves all active keys for a tenant slug.
+//
+// NOTE: KeyInfo.TenantID now carries the tenant UUID (required by the tenant-UUID
+// binding in ValidateJWT), while keysByTenant is keyed by KeyInfo.TenantID. So the
+// in-memory cache is UUID-keyed and this slug-parameterized lookup always misses
+// the cache and falls through to the DB query (WHERE t.slug). GetKeysByTenant has
+// no production caller today; unifying the cache key is tracked under #161.
 func (r *DBKeyRegistry) GetKeysByTenant(ctx context.Context, tenantSlug string) ([]*KeyInfo, error) {
 	r.cacheMu.RLock()
 	keys := r.keysByTenant[tenantSlug]
@@ -231,7 +237,7 @@ func (r *DBKeyRegistry) refreshCache(ctx context.Context) error {
 	query := `
 		SELECT
 			tk.key_id,
-			t.slug,
+			t.id,
 			tk.algorithm,
 			tk.public_key,
 			tk.is_active,
@@ -318,7 +324,7 @@ func (r *DBKeyRegistry) fetchKeyFromDB(ctx context.Context, keyID string) (*KeyI
 	query := `
 		SELECT
 			tk.key_id,
-			t.slug,
+			t.id,
 			tk.algorithm,
 			tk.public_key,
 			tk.is_active,
@@ -379,7 +385,7 @@ func (r *DBKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenantSlug 
 	query := `
 		SELECT
 			tk.key_id,
-			t.slug,
+			t.id,
 			tk.algorithm,
 			tk.public_key,
 			tk.is_active,

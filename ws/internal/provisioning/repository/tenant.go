@@ -147,6 +147,40 @@ func (r *TenantRepository) GetBySlug(ctx context.Context, slug string) (*provisi
 	return tenant, nil
 }
 
+// GetIDBySlugWithGrace resolves a tenant slug to its stable UUID, accepting the
+// current slug OR a previous slug that is still within the rename hold window.
+// It is the grace-aware slug->UUID lookup backing the provisioning tenant-binding
+// resolver, so old-slug JWTs continue to validate during the hold period exactly
+// as RequireTenant's provisioning-API grace check allows. Returns
+// provisioning.ErrTenantNotFound when no active tenant matches.
+//
+// The previous-slug branch mirrors RequireTenant's grace predicate
+// (status=active, slug_rename_state='complete', slug_renamed_at within hold).
+func (r *TenantRepository) GetIDBySlugWithGrace(ctx context.Context, slug string, holdPeriod time.Duration) (string, error) {
+	query := `
+		SELECT id FROM tenants
+		WHERE deleted_at IS NULL
+		  AND (
+		    slug = $1
+		    OR (
+		      previous_slug = $1
+		      AND status = 'active'
+		      AND slug_rename_state = 'complete'
+		      AND slug_renamed_at IS NOT NULL
+		      AND slug_renamed_at > $2
+		    )
+		  )`
+
+	var id string
+	if err := r.pool.QueryRow(ctx, query, slug, time.Now().Add(-holdPeriod)).Scan(&id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, slug)
+		}
+		return "", fmt.Errorf("query tenant id by slug: %w", err)
+	}
+	return id, nil
+}
+
 // Update updates an existing tenant's mutable metadata fields.
 func (r *TenantRepository) Update(ctx context.Context, tenant *provisioning.Tenant) error {
 	query := `

@@ -81,9 +81,10 @@ func TestDBKeyRegistry_GetKey(t *testing.T) {
 	if key.KeyID != "test-key-001" {
 		t.Errorf("KeyID = %q, want %q", key.KeyID, "test-key-001")
 	}
-	// TenantID in KeyInfo is the slug (used for channel routing by the gateway).
-	if key.TenantID != "test-tenant" {
-		t.Errorf("TenantID = %q, want %q", key.TenantID, "test-tenant")
+	// TenantID in KeyInfo is the stable tenant UUID (required by the tenant-UUID
+	// binding in ValidateJWT), not the slug.
+	if key.TenantID != tenantID {
+		t.Errorf("TenantID = %q, want %q (tenant UUID)", key.TenantID, tenantID)
 	}
 	if key.PublicKey == nil {
 		t.Error("PublicKey should be parsed")

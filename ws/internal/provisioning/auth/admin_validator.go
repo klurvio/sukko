@@ -57,6 +57,9 @@ func NewAdminValidator(registry *AdminKeyRegistry) *AdminValidator {
 			Leeway:            30 * time.Second,
 			MaxLifetime:       24 * time.Hour,
 			RequireClaims:     []string{"iss", "sub", "exp", "iat"},
+			// Admin JWTs are not tenant-scoped (no tenant_id claim; admin keys
+			// have no owning tenant), so the tenant-UUID binding must be disabled.
+			DisableTenantBinding: true,
 		},
 	}
 }
