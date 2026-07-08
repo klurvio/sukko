@@ -283,6 +283,7 @@ func TestGateway_HandleWebSocket_NoToken_WithMockValidator(t *testing.T) {
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
+		TenantResolver:  identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
@@ -315,6 +316,7 @@ func TestGateway_HandleWebSocket_InvalidToken_WithMockValidator(t *testing.T) {
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
+		TenantResolver:  identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
@@ -640,6 +642,7 @@ func TestHandleWebSocket_APIKeyAndJWT_TenantMismatch(t *testing.T) {
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
+		TenantResolver:  identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -718,6 +721,7 @@ func TestHandleWebSocket_APIKeyAndJWT_TenantMatch(t *testing.T) {
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
+		TenantResolver:  identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -784,6 +788,7 @@ func TestHandleWebSocket_BothCredentials_InvalidAPIKey(t *testing.T) {
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
+		TenantResolver:  identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)
@@ -842,6 +847,7 @@ func TestHandleWebSocket_BothCredentials_InvalidJWT(t *testing.T) {
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
+		TenantResolver:  identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator failed: %v", err)

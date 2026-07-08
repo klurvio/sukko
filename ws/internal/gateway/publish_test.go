@@ -220,6 +220,7 @@ func publishTestGatewayWithJWT(t *testing.T) (_ *Gateway, _ string) {
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
+		TenantResolver:  identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator: %v", err)

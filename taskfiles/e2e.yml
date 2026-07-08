@@ -267,7 +267,7 @@ tasks:
       #  - ratelimit:          skips (gateway rate limiting disabled in the stack).
       #  - license-reload:     manual e2e:license family (mutates edition mid-run).
       #  - kafka-ingest:       own kafka-mode job.  smoke/load/soak/stress: not validate suites.
-      SUITES: channels pubsub ordering reconnect sse
+      SUITES: channels pubsub ordering reconnect sse auth
     cmds:
       - defer: "{{.COMPOSE}} down -v"
       - defer: rm -f {{.ADMIN_KEY_FILE}}

@@ -299,9 +299,11 @@ func (x *WatchTenantConfigResponse) GetRemovedTenantIds() []string {
 
 type TenantConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`             // tenant slug (the data-plane tenant identity / stream cache key)
 	ChannelRules  *ChannelRules          `protobuf:"bytes,3,opt,name=channel_rules,json=channelRules,proto3" json:"channel_rules,omitempty"` // nil = no rules
 	RoutingRules  []*TopicRoutingRule    `protobuf:"bytes,4,rep,name=routing_rules,json=routingRules,proto3" json:"routing_rules,omitempty"`
+	TenantUuid    string                 `protobuf:"bytes,5,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`       // stable tenant UUID — lets the gateway resolve tenant_id (slug) -> UUID for JWT tenant binding
+	PreviousSlug  string                 `protobuf:"bytes,6,opt,name=previous_slug,json=previousSlug,proto3" json:"previous_slug,omitempty"` // prior slug during a rename hold window (empty otherwise) — aliased to tenant_uuid so old-slug tokens still resolve
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -355,6 +357,20 @@ func (x *TenantConfig) GetRoutingRules() []*TopicRoutingRule {
 		return x.RoutingRules
 	}
 	return nil
+}
+
+func (x *TenantConfig) GetTenantUuid() string {
+	if x != nil {
+		return x.TenantUuid
+	}
+	return ""
+}
+
+func (x *TenantConfig) GetPreviousSlug() string {
+	if x != nil {
+		return x.PreviousSlug
+	}
+	return ""
 }
 
 type TopicRoutingRule struct {
@@ -1501,11 +1517,14 @@ const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"\vis_snapshot\x18\x01 \x01(\bR\n" +
 	"isSnapshot\x12=\n" +
 	"\atenants\x18\x02 \x03(\v2#.sukko.provisioning.v1.TenantConfigR\atenants\x12,\n" +
-	"\x12removed_tenant_ids\x18\x03 \x03(\tR\x10removedTenantIds\"\xc9\x01\n" +
+	"\x12removed_tenant_ids\x18\x03 \x03(\tR\x10removedTenantIds\"\x8f\x02\n" +
 	"\fTenantConfig\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12H\n" +
 	"\rchannel_rules\x18\x03 \x01(\v2#.sukko.provisioning.v1.ChannelRulesR\fchannelRules\x12L\n" +
-	"\rrouting_rules\x18\x04 \x03(\v2'.sukko.provisioning.v1.TopicRoutingRuleR\froutingRulesJ\x04\b\x02\x10\x03\"\x83\x01\n" +
+	"\rrouting_rules\x18\x04 \x03(\v2'.sukko.provisioning.v1.TopicRoutingRuleR\froutingRules\x12\x1f\n" +
+	"\vtenant_uuid\x18\x05 \x01(\tR\n" +
+	"tenantUuid\x12#\n" +
+	"\rprevious_slug\x18\x06 \x01(\tR\fpreviousSlugJ\x04\b\x02\x10\x03\"\x83\x01\n" +
 	"\x10TopicRoutingRule\x12\x18\n" +
 	"\apattern\x18\x01 \x01(\tR\apattern\x12!\n" +
 	"\ftopic_suffix\x18\x02 \x01(\tR\vtopicSuffix\x12\x16\n" +

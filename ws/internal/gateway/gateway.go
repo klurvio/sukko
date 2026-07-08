@@ -170,10 +170,14 @@ func (gw *Gateway) setupValidator() error {
 	gw.streamChannelRules = channelRulesProvider
 	gw.channelRulesProvider = channelRulesProvider
 
-	// Build validator config
+	// Build validator config. The channel-rules provider doubles as the tenant
+	// resolver: it caches slug->UUID (rename-aware) from the tenant-config stream,
+	// letting the binding map the JWT tenant_id claim to the signing key's owning
+	// tenant UUID.
 	validatorCfg := auth.MultiTenantValidatorConfig{
 		KeyRegistry:     keyRegistry,
 		RequireTenantID: gw.config.RequireTenantID,
+		TenantResolver:  channelRulesProvider,
 	}
 
 	// Create multi-tenant validator
@@ -488,8 +492,15 @@ func (gw *Gateway) streamStatus() (status, keysStream, configStream, apiKeysStre
 		keysStream = provapi.StreamLabelDisabled
 	}
 	if gw.streamChannelRules != nil {
-		if label, degraded := channelRulesStreamLabel(
-			gw.streamChannelRules.State(), gw.streamChannelRules.SnapshotReceived()); degraded {
+		label, degraded := channelRulesStreamLabel(
+			gw.streamChannelRules.State(), gw.streamChannelRules.SnapshotReceived())
+		if !degraded && !gw.streamChannelRules.TenantUUIDsPresent() {
+			// DS-001: snapshot applied but no tenant UUIDs (older provisioning
+			// peer) — the JWT tenant binding would reject all traffic, so stay
+			// degraded until UUIDs arrive.
+			label, degraded = provapi.StreamLabelConnectedAwaitingTenantUUIDs, true
+		}
+		if degraded {
 			status = "degraded"
 			configStream = label
 		}

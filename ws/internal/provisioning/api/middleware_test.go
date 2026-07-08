@@ -42,7 +42,8 @@ func TestAuthMiddleware_SkipsWhenPreAuthenticated(t *testing.T) {
 	// handler assertion below would fail.
 	registry := &auth.StaticKeyRegistry{}
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error creating validator: %v", err)
@@ -87,7 +88,8 @@ func TestAuthMiddleware_RejectsWhenNoClaims(t *testing.T) {
 
 	registry := &auth.StaticKeyRegistry{}
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
-		KeyRegistry: registry,
+		KeyRegistry:    registry,
+		TenantResolver: identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error creating validator: %v", err)

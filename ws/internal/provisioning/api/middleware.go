@@ -182,6 +182,11 @@ func AuthMiddleware(validator *auth.MultiTenantValidator, logger zerolog.Logger)
 				case errors.Is(err, auth.ErrKeyRevoked):
 					reason = authFailureReasonKeyRevoked
 					httputil.WriteError(w, http.StatusUnauthorized, errCodeKeyRevoked, "Signing key has been revoked")
+				case errors.Is(err, auth.ErrTenantMismatch):
+					// Cross-tenant token: tenant_id claim does not match the signing
+					// key's owning tenant (#158). Distinct reason for observability.
+					reason = authFailureReasonTenantMismatch
+					httputil.WriteError(w, http.StatusUnauthorized, errCodeInvalidToken, "Token validation failed")
 				default:
 					reason = authFailureReasonInvalidToken
 					httputil.WriteError(w, http.StatusUnauthorized, errCodeInvalidToken, "Token validation failed")

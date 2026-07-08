@@ -717,6 +717,11 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 		if errors.Is(err, auth.ErrTokenExpired) {
 			code = AuthErrTokenExpired
 		}
+		if errors.Is(err, auth.ErrTenantMismatch) {
+			// Cross-tenant refresh token — signed by a different tenant's key than
+			// it claims. Route to the tenant-mismatch code (§XVIII consistency).
+			code = AuthErrTenantMismatch
+		}
 		// LOG-016: Auth refresh denied — validation failed
 		p.logger.Warn().Str("tenant_id", p.tenantID).Str("reason", code).
 			Msg("auth refresh denied")

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
@@ -18,15 +19,43 @@ import (
 //   - ErrNoCredentials → 401
 //   - ErrInvalidToken → 401
 //   - ErrInvalidAPIKey → 401
-//   - ErrTenantMismatch → 403
+//   - ErrTenantMismatch → 401 (WS close reason CloseReasonAPIKeyTenantMismatch)
 var (
-	ErrNoCredentials  = errors.New("no credentials provided")
-	ErrInvalidToken   = errors.New("invalid token")
-	ErrInvalidAPIKey  = errors.New("invalid API key")
-	ErrTenantMismatch = errors.New("API key and token tenant mismatch")
+	ErrNoCredentials = errors.New("no credentials provided")
+	ErrInvalidToken  = errors.New("invalid token")
+	ErrInvalidAPIKey = errors.New("invalid API key")
+	// ErrTenantMismatch aliases the shared sentinel (§X — single definition in
+	// shared/auth). It covers both the JWT-claim-vs-signing-key binding failure
+	// (from ValidateToken) and the JWT-tenant-vs-API-key-tenant mismatch below.
+	ErrTenantMismatch = auth.ErrTenantMismatch
 	ErrTokenRevoked   = errors.New("token revoked")
 	ErrMissingJTI     = errors.New("missing jti claim")
 )
+
+// Auth-failure metric method labels for tenant-mismatch rejections (§I named
+// constants; §XVIII branch-distinct, matching the jwt_revoked / jwt+api_key_revoked
+// convention).
+const (
+	authMethodJWTTenantMismatch       = "jwt_tenant_mismatch"
+	authMethodJWTAPIKeyTenantMismatch = "jwt+api_key_tenant_mismatch"
+)
+
+// logTenantMismatch Warn-logs a tenant-binding rejection with the structured
+// fields carried by *auth.TenantMismatchError (kid, claimed slug, resolved claim
+// UUID, key owning UUID). The raw error is never returned to the client — the
+// owning tenant must not leak (§IX) — so callers return the generic sentinel.
+func logTenantMismatch(logger zerolog.Logger, err error, remoteAddr string) {
+	evt := logger.Warn().Str("remote_addr", remoteAddr)
+	var tmErr *auth.TenantMismatchError
+	if errors.As(err, &tmErr) {
+		evt = evt.
+			Str("kid", tmErr.KID).
+			Str("claimed_slug", tmErr.ClaimedSlug).
+			Str("claimed_uuid", tmErr.ClaimedUUID).
+			Str("key_uuid", tmErr.KeyUUID)
+	}
+	evt.Msg("Request rejected: JWT tenant does not match signing key")
+}
 
 // authResult holds the validated identity from authenticateRequest.
 type authResult struct {
@@ -95,6 +124,13 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		// JWT only
 		claims, err := gw.validator.ValidateToken(ctx, token)
 		if err != nil {
+			if errors.Is(err, auth.ErrTenantMismatch) {
+				// Cross-tenant token: signed by one tenant's key but claiming
+				// another (#158). Distinct label + structured detail server-side.
+				RecordAuthValidation(pkgmetrics.AuthStatusFailed, authMethodJWTTenantMismatch, time.Since(authStart))
+				logTenantMismatch(gw.logger, err, r.RemoteAddr)
+				return nil, ErrTenantMismatch
+			}
 			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "jwt", time.Since(authStart))
 			gw.logger.Warn().
 				Err(err).
@@ -157,11 +193,15 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 			return nil, ErrInvalidToken
 		}
 
-		// Verify JWT tenant matches API key tenant
-		if claims.TenantID != info.TenantID {
-			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "jwt+api_key", time.Since(authStart))
+		// Verify JWT tenant matches API key tenant. The core binding already bound
+		// the claim to the signing key's owning tenant UUID (claims.ResolvedTenantUUID);
+		// compare that UUID against the API key's tenant UUID (info.TenantID) — both
+		// UUIDs, so this is a like-for-like check (the old claims.TenantID slug vs
+		// info.TenantID UUID comparison never matched).
+		if claims.ResolvedTenantUUID != info.TenantID {
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, authMethodJWTAPIKeyTenantMismatch, time.Since(authStart))
 			gw.logger.Warn().
-				Str("jwt_tenant", claims.TenantID).
+				Str("jwt_tenant_uuid", claims.ResolvedTenantUUID).
 				Str("api_key_tenant", info.TenantID).
 				Str("remote_addr", r.RemoteAddr).
 				Msg("Request rejected: API key and JWT tenant mismatch")

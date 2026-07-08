@@ -6,12 +6,67 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 
+	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 )
+
+// TestAuthenticateRequest_CrossTenantJWT_Rejected is the gateway-level regression
+// for #158: a JWT signed by tenant A's key but claiming tenant B is rejected with
+// ErrTenantMismatch; a matching-tenant token is accepted.
+func TestAuthenticateRequest_CrossTenantJWT_Rejected(t *testing.T) {
+	t.Parallel()
+
+	ecPEM, privateKey := generateTestECKeyForGateway(t)
+	registry := auth.NewStaticKeyRegistry()
+	key := &auth.KeyInfo{KeyID: "k1", TenantID: "tenant-a", Algorithm: "ES256", PublicKeyPEM: ecPEM, IsActive: true}
+	if err := registry.AddKey(key); err != nil {
+		t.Fatalf("AddKey: %v", err)
+	}
+	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
+		KeyRegistry:     registry,
+		RequireTenantID: true,
+		TenantResolver:  identityTenantResolver{}, // resolves slug->slug; key TenantID is a slug here
+	})
+	if err != nil {
+		t.Fatalf("NewMultiTenantValidator: %v", err)
+	}
+	gw := &Gateway{
+		config:    &platform.GatewayConfig{AuthConfig: platform.AuthConfig{AuthMode: "required"}},
+		validator: validator,
+		logger:    zerolog.Nop(),
+	}
+
+	mint := func(tenantClaim string) string {
+		return createTestTokenForGateway(t, key, privateKey, &auth.Claims{
+			RegisteredClaims: jwt.RegisteredClaims{
+				Subject:   "user-1",
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+			},
+			TenantID: tenantClaim,
+		})
+	}
+
+	// Cross-tenant: key owns tenant-a, token claims tenant-b -> rejected.
+	req := httptest.NewRequest(http.MethodGet, "/ws", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+mint("tenant-b"))
+	if _, err := gw.authenticateRequest(context.Background(), req); !errors.Is(err, ErrTenantMismatch) {
+		t.Fatalf("cross-tenant token: err = %v, want ErrTenantMismatch", err)
+	}
+
+	// Matching tenant -> accepted.
+	req2 := httptest.NewRequest(http.MethodGet, "/ws", http.NoBody)
+	req2.Header.Set("Authorization", "Bearer "+mint("tenant-a"))
+	if _, err := gw.authenticateRequest(context.Background(), req2); err != nil {
+		t.Fatalf("matching-tenant token: err = %v, want nil", err)
+	}
+}
 
 func TestAuthenticateRequest_NoCredentials(t *testing.T) {
 	t.Parallel()

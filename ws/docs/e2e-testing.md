@@ -168,7 +168,8 @@ suite channels or every subscribe will be filtered to an empty list.
 ### 2.0 Automated battery (CI)
 
 `task e2e:validate-battery` runs the confirmed-stable validate suites — `channels`,
-`pubsub` (WS delivery + scoping), `ordering`, `reconnect`, `sse` — against an
+`pubsub` (WS delivery + scoping), `ordering`, `reconnect`, `sse`, `auth` (JWT
+validation incl. the cross-tenant "wrong tenant rejected" check, #158) — against an
 **Enterprise-licensed, direct-backend stack built from source**, covering both client
 transports (WebSocket + SSE) over the Community-default (direct) data path. It executes
 as the `e2e-validate-battery` job of the CI workflow on every push to `main` (plus

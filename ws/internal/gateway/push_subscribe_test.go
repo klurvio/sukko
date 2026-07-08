@@ -71,6 +71,7 @@ func pushTestGatewayWithJWT(t *testing.T, mock PushForwarder) (gw *Gateway, toke
 	validator, err := auth.NewMultiTenantValidator(auth.MultiTenantValidatorConfig{
 		KeyRegistry:     registry,
 		RequireTenantID: true,
+		TenantResolver:  identityTenantResolver{},
 	})
 	if err != nil {
 		t.Fatalf("NewMultiTenantValidator: %v", err)

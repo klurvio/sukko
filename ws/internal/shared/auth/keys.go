@@ -25,14 +25,56 @@ var (
 	ErrTenantInactive  = errors.New("tenant inactive")
 	ErrInvalidKeyType  = errors.New("invalid key type for algorithm")
 	ErrUnsupportedAlgo = errors.New("unsupported algorithm")
+
+	// ErrTenantMismatch is returned when a token's tenant_id claim does not
+	// resolve to the same tenant that owns the signing key (kid). This is the
+	// canonical cross-tenant-forgery sentinel; the gateway maps it to a
+	// tenant-mismatch response and callers route on it via errors.Is.
+	ErrTenantMismatch = errors.New("tenant mismatch")
+
+	// ErrTenantNotResolvable is returned by a TenantResolver when a tenant slug
+	// cannot be resolved to a tenant UUID (unknown/deleted tenant, or the
+	// resolver cache is not yet warm). Tenant-scoped validation treats this as
+	// a rejection (fail closed).
+	ErrTenantNotResolvable = errors.New("tenant not resolvable")
 )
+
+// TenantResolver maps a JWT tenant_id claim (a tenant slug) to the stable
+// tenant UUID, so validation can bind the claim to the signing key's owning
+// tenant UUID. Implementations are per-service: the gateway resolves from the
+// tenant-config stream cache (rename-aware, current + previous slug), the
+// provisioning tenant path from a grace-aware DB lookup. Implementations MUST
+// be thread-safe and return ErrTenantNotResolvable when the slug is unknown.
+type TenantResolver interface {
+	ResolveTenantUUID(ctx context.Context, slug string) (string, error)
+}
+
+// TenantMismatchError carries the details of a cross-tenant binding failure for
+// server-side structured logging. Its Error() message is intentionally generic
+// so the owning tenant is never leaked to clients (Constitution §IX); callers
+// use errors.As to log the fields and errors.Is(err, ErrTenantMismatch) to route.
+type TenantMismatchError struct {
+	KID         string // signing key id from the token header
+	ClaimedSlug string // tenant_id claim (slug) presented by the token
+	ClaimedUUID string // tenant UUID the claim resolved to ("" if unresolved)
+	KeyUUID     string // tenant UUID that actually owns the signing key
+}
+
+func (e *TenantMismatchError) Error() string { return ErrTenantMismatch.Error() }
+
+func (e *TenantMismatchError) Unwrap() error { return ErrTenantMismatch }
 
 // KeyInfo contains public key information for JWT validation.
 type KeyInfo struct {
 	// KeyID is the unique key identifier (kid in JWT header).
 	KeyID string
 
-	// TenantID is the owning tenant.
+	// TenantID is the stable UUID of the owning tenant. The tenant-UUID binding
+	// (ValidateJWT) compares this against the tenant UUID that the tenant_id
+	// claim resolves to, so a registry feeding a tenant-scoped validator MUST
+	// populate this with the tenant UUID — never the slug. (StreamKeyRegistry
+	// carries the UUID FK; DBKeyRegistry is normalized to the UUID for the same
+	// reason.)
 	TenantID string
 
 	// Algorithm is the signing algorithm (ES256, RS256, EdDSA).

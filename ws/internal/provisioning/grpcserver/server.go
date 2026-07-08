@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
@@ -42,6 +43,12 @@ type ServerConfig struct {
 	// RevocationStore is the in-memory token revocation store.
 	// Optional — when nil, WatchTokenRevocations returns Unimplemented.
 	RevocationStore *revocation.Store
+
+	// SlugRenameHoldPeriod is how long after a slug rename the previous slug is
+	// still emitted (as TenantConfig.previous_slug) so old-slug JWTs keep
+	// resolving on the gateway during the hold window. Mirrors the value
+	// RequireTenant uses for its provisioning-API grace check.
+	SlugRenameHoldPeriod time.Duration
 }
 
 // Server implements the ProvisioningInternalServiceServer gRPC interface.
@@ -63,6 +70,9 @@ type Server struct {
 
 	// revocationStore is the in-memory token revocation store for WatchTokenRevocations.
 	revocationStore *revocation.Store
+
+	// slugRenameHoldPeriod bounds how long previous_slug is emitted after a rename.
+	slugRenameHoldPeriod time.Duration
 }
 
 // NewServer creates a new gRPC stream server.
@@ -86,6 +96,7 @@ func NewServer(service *provisioning.Service, eventBus *eventbus.Bus, logger zer
 		pushChannelConfigRepo: cfg.PushChannelConfigRepo,
 		currentLicenseKey:     cfg.CurrentLicenseKey,
 		revocationStore:       cfg.RevocationStore,
+		slugRenameHoldPeriod:  cfg.SlugRenameHoldPeriod,
 	}, nil
 }
 
@@ -518,7 +529,19 @@ func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.Tenan
 		}
 
 		tc := &provisioningv1.TenantConfig{
-			TenantId: tenant.Slug,
+			TenantId:   tenant.Slug,
+			TenantUuid: tenant.ID, // stable UUID for the gateway's slug->UUID binding resolver
+		}
+
+		// During the rename hold window, also emit the previous slug so old-slug
+		// JWTs still resolve to this tenant's UUID on the gateway. Same predicate
+		// as RequireTenant's provisioning-API grace check.
+		if s.slugRenameHoldPeriod > 0 &&
+			tenant.SlugRenameState == provisioning.SlugRenameStateComplete &&
+			tenant.PreviousSlug != "" &&
+			tenant.SlugRenamedAt != nil &&
+			time.Since(*tenant.SlugRenamedAt) < s.slugRenameHoldPeriod {
+			tc.PreviousSlug = tenant.PreviousSlug
 		}
 
 		// Load channel rules (optional — not all tenants have rules configured)

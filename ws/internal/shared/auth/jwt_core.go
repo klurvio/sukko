@@ -31,6 +31,18 @@ type ValidateOpts struct {
 	// RequireClaims lists claim names that must be present (non-empty).
 	// Supported: "tenant_id", "iss", "exp", "iat", "sub", "jti".
 	RequireClaims []string
+
+	// TenantResolver maps the tenant_id claim (slug) to the stable tenant UUID
+	// so the token's claimed tenant can be bound to the signing key's owning
+	// tenant UUID. Required for tenant-scoped validation (unless the binding is
+	// disabled). See DisableTenantBinding.
+	TenantResolver TenantResolver
+
+	// DisableTenantBinding turns OFF the tenant-UUID binding. The zero value
+	// (false) keeps the binding ENABLED — the secure default, so a caller that
+	// forgets to configure it fails closed rather than open. Only the admin
+	// validator (not tenant-scoped) sets this true.
+	DisableTenantBinding bool
 }
 
 // resolvedAlgorithms returns the allowed algorithms map, using defaults if none specified.
@@ -88,6 +100,12 @@ func ValidateJWT(ctx context.Context, tokenString string, opts ValidateOpts) (*C
 		}
 	}
 
+	// keyTenantUUID / tokenKID capture the owning tenant UUID of the resolved
+	// signing key and the token's kid from inside the keyfunc closure, so the
+	// tenant binding below can compare against the (resolved) tenant_id claim
+	// after signature verification.
+	var keyTenantUUID, tokenKID string
+
 	// Parse with signature verification via KeyResolver
 	token, err := parser.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (any, error) {
 		kidRaw, ok := token.Header["kid"]
@@ -126,6 +144,8 @@ func ValidateJWT(ctx context.Context, tokenString string, opts ValidateOpts) (*C
 			return nil, fmt.Errorf("algorithm mismatch: token=%s, key=%s", alg, key.Algorithm)
 		}
 
+		keyTenantUUID = key.TenantID
+		tokenKID = kid
 		return key.PublicKey, nil
 	})
 
@@ -182,6 +202,41 @@ func ValidateJWT(ctx context.Context, tokenString string, opts ValidateOpts) (*C
 				return nil, fmt.Errorf("%w: missing jti claim", ErrInvalidToken)
 			}
 		}
+	}
+
+	// Tenant binding (Constitution §IX): the tenant_id claim MUST resolve to the
+	// same tenant that owns the signing key. Enabled by default (secure); only
+	// the admin validator disables it. All failure modes reject (fail closed).
+	//
+	// Only runs when a tenant_id is present: with RequireTenantID the claim is
+	// already mandatory (RequireClaims rejects an empty one above), so binding
+	// always runs for tenant-scoped tokens; in single-tenant mode
+	// (RequireTenantID=false) a tenant-less token is intentionally allowed and
+	// has nothing to bind. A non-empty tenant_id is ALWAYS bound regardless of
+	// RequireTenantID, so this never weakens multi-tenant isolation.
+	if !opts.DisableTenantBinding && claims.TenantID != "" {
+		if opts.TenantResolver == nil {
+			return nil, fmt.Errorf("%w: tenant binding enabled but no resolver configured", ErrInvalidToken)
+		}
+		if keyTenantUUID == "" {
+			return nil, fmt.Errorf("%w: signing key has no owning tenant", ErrInvalidToken)
+		}
+		claimUUID, resolveErr := opts.TenantResolver.ResolveTenantUUID(ctx, claims.TenantID)
+		if resolveErr != nil {
+			// Preserve the cause (fail closed, but distinguishable from forgery:
+			// a transient resolver/DB failure is not a cross-tenant attack). This
+			// keeps errors.Is(err, ErrTenantNotResolvable) working for callers.
+			return nil, fmt.Errorf("resolve tenant for binding: %w", resolveErr)
+		}
+		if claimUUID == "" || claimUUID != keyTenantUUID {
+			return nil, &TenantMismatchError{
+				KID:         tokenKID,
+				ClaimedSlug: claims.TenantID,
+				ClaimedUUID: claimUUID,
+				KeyUUID:     keyTenantUUID,
+			}
+		}
+		claims.ResolvedTenantUUID = claimUUID
 	}
 
 	return claims, nil

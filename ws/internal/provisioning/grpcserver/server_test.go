@@ -313,6 +313,14 @@ func TestWatchTenantConfig_Snapshot(t *testing.T) { //nolint:paralleltest // use
 	if tc.GetTenantId() != "test-tenant" {
 		t.Errorf("tenant ID = %q, want %q", tc.GetTenantId(), "test-tenant")
 	}
+	// tenant_uuid MUST be populated so the gateway can resolve slug->UUID for the
+	// JWT tenant binding. previous_slug is empty here (no rename in this fixture).
+	if tc.GetTenantUuid() == "" {
+		t.Error("tenant_uuid should be populated in the snapshot")
+	}
+	if tc.GetPreviousSlug() != "" {
+		t.Errorf("previous_slug = %q, want empty (no rename)", tc.GetPreviousSlug())
+	}
 
 	if tc.GetChannelRules() == nil {
 		t.Fatal("expected channel rules, got nil")
