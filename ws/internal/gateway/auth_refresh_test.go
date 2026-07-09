@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gobwas/ws"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
@@ -167,6 +168,68 @@ func TestInterceptAuthRefresh_InvalidToken(t *testing.T) {
 
 	if result != nil {
 		t.Error("Expected nil result")
+	}
+}
+
+// TestInterceptAuthRefresh_BindingTenantMismatch verifies the tenant-binding
+// rejection path on auth refresh (#158): when ValidateToken rejects a refresh
+// token because it is signed by a key whose owning tenant does not match the
+// claimed tenant (auth.ErrTenantMismatch), the refresh is denied with the
+// DISTINCT AuthErrTenantMismatch code — not the generic invalid-token code — and
+// the connection's claims are unchanged. Asserting the code is what exercises the
+// errors.Is(err, auth.ErrTenantMismatch) branch (a bare nil-result check would
+// pass even without it, since any error rejects the refresh).
+func TestInterceptAuthRefresh_BindingTenantMismatch(t *testing.T) {
+	t.Parallel()
+	oldClaims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "user1"},
+		TenantID:         "test-tenant",
+	}
+	validator := &mockTokenValidator{err: auth.ErrTenantMismatch}
+	proxy, clientRemote, backendRemote := newAuthTestProxy(validator, oldClaims)
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
+
+	// net.Pipe is synchronous — read the error frame concurrently so the proxy's
+	// send does not block.
+	type frameResult struct {
+		payload []byte
+		err     error
+	}
+	frameCh := make(chan frameResult, 1)
+	go func() {
+		frame, rerr := ws.ReadFrame(clientRemote)
+		frameCh <- frameResult{payload: frame.Payload, err: rerr}
+	}()
+
+	msg := protocol.ClientMessage{
+		Type: MsgTypeAuth,
+		Data: json.RawMessage(`{"token":"cross-tenant-signed"}`),
+	}
+	result, err := proxy.interceptAuthRefresh(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("interceptAuthRefresh error: %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected nil result (refresh rejected), got %q", string(result))
+	}
+
+	proxy.claimsMu.RLock()
+	if proxy.claims != oldClaims {
+		t.Error("claims should not change on tenant-binding rejection")
+	}
+	proxy.claimsMu.RUnlock()
+
+	fr := <-frameCh
+	if fr.err != nil {
+		t.Fatalf("read client error frame: %v", fr.err)
+	}
+	var resp AuthErrorResponse
+	if uerr := json.Unmarshal(fr.payload, &resp); uerr != nil {
+		t.Fatalf("unmarshal auth error frame: %v", uerr)
+	}
+	if resp.Data.Code != AuthErrTenantMismatch {
+		t.Errorf("auth error code = %q, want %q (distinct tenant-mismatch code)", resp.Data.Code, AuthErrTenantMismatch)
 	}
 }
 
