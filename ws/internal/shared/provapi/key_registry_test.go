@@ -79,22 +79,22 @@ func TestKeyRegistry_Snapshot(t *testing.T) {
 		}
 	})
 
-	t.Run("GetKeysByTenant", func(t *testing.T) {
+	t.Run("GetKeysByTenantUUID", func(t *testing.T) {
 		t.Parallel()
-		keys, err := r.GetKeysByTenant(ctx, "tenant-a")
+		keys, err := r.GetKeysByTenantUUID(ctx, "tenant-a")
 		if err != nil {
-			t.Fatalf("GetKeysByTenant() error = %v", err)
+			t.Fatalf("GetKeysByTenantUUID() error = %v", err)
 		}
 		if len(keys) != 2 {
 			t.Errorf("len(keys) = %d, want 2", len(keys))
 		}
 	})
 
-	t.Run("GetKeysByTenant empty", func(t *testing.T) {
+	t.Run("GetKeysByTenantUUID empty", func(t *testing.T) {
 		t.Parallel()
-		keys, err := r.GetKeysByTenant(ctx, "nonexistent")
+		keys, err := r.GetKeysByTenantUUID(ctx, "nonexistent")
 		if err != nil {
-			t.Fatalf("GetKeysByTenant() error = %v", err)
+			t.Fatalf("GetKeysByTenantUUID() error = %v", err)
 		}
 		if keys != nil {
 			t.Errorf("expected nil for unknown tenant, got %v", keys)
@@ -204,10 +204,10 @@ func TestKeyRegistry_DeltaUpdate(t *testing.T) {
 		t.Errorf("expected ErrKeyNotFound for inactive key, got %v", err)
 	}
 
-	// GetKeysByTenant should also filter inactive keys
-	activeKeys, err := r.GetKeysByTenant(ctx, "tenant-a")
+	// GetKeysByTenantUUID should also filter inactive keys
+	activeKeys, err := r.GetKeysByTenantUUID(ctx, "tenant-a")
 	if err != nil {
-		t.Fatalf("GetKeysByTenant() error = %v", err)
+		t.Fatalf("GetKeysByTenantUUID() error = %v", err)
 	}
 	if len(activeKeys) != 0 {
 		t.Errorf("expected 0 active keys, got %d", len(activeKeys))

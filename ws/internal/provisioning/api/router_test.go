@@ -1452,7 +1452,7 @@ func (emptyKeyRegistry) GetKey(context.Context, string) (*auth.KeyInfo, error) {
 	return nil, auth.ErrKeyNotFound
 }
 
-func (emptyKeyRegistry) GetKeysByTenant(context.Context, string) ([]*auth.KeyInfo, error) {
+func (emptyKeyRegistry) GetKeysByTenantUUID(context.Context, string) ([]*auth.KeyInfo, error) {
 	return nil, nil
 }
 
