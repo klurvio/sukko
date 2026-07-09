@@ -44,7 +44,7 @@ message WatchKeysResponse {
 
 message KeyInfo {
   string key_id = 1;
-  string tenant_id = 2;
+  string tenant_uuid = 2;         // owning tenant's stable UUID (identity of record)
   string algorithm = 3;           // ES256, RS256, EdDSA
   string public_key_pem = 4;
   bool is_active = 5;
@@ -56,15 +56,15 @@ message WatchTenantConfigRequest {}
 message WatchTenantConfigResponse {
   bool is_snapshot = 1;
   repeated TenantConfig tenants = 2;
-  repeated string removed_tenant_ids = 3;
+  repeated string removed_tenant_slugs = 3;
 }
 
 message TenantConfig {
-  string tenant_id = 1; // tenant slug (the data-plane tenant identity / stream cache key)
+  string tenant_slug = 1; // client-facing routing label (the data-plane tenant identity / stream cache key)
   reserved 2;           // was: OIDCConfig oidc (removed)
   ChannelRules channel_rules = 3; // nil = no rules
   repeated TopicRoutingRule routing_rules = 4;
-  string tenant_uuid = 5;   // stable tenant UUID — lets the gateway resolve tenant_id (slug) -> UUID for JWT tenant binding
+  string tenant_uuid = 5;   // stable tenant UUID — lets the gateway resolve tenant_slug -> UUID for JWT tenant binding
   string previous_slug = 6; // prior slug during a rename hold window (empty otherwise) — aliased to tenant_uuid so old-slug tokens still resolve
 }
 
@@ -99,7 +99,7 @@ message WatchTopicsResponse {
 }
 
 message DedicatedTenant {
-  string tenant_id = 1;
+  string tenant_slug = 1;   // client-facing routing label (topic names embed the slug)
   repeated string topics = 2;
 }
 
@@ -113,7 +113,7 @@ message WatchAPIKeysResponse {
 
 message APIKeyInfo {
   string key_id = 1;      // pk_live_...
-  string tenant_id = 2;
+  string tenant_uuid = 2;  // owning tenant's stable UUID (identity of record)
   string name = 3;
   bool is_active = 4;
 }
@@ -170,7 +170,7 @@ message WatchTokenRevocationsResponse {
 }
 
 message TokenRevocation {
-  string tenant_id = 1;
+  string tenant_slug = 1;  // client-facing routing label (revocation is matched slug==slug end-to-end)
   string type = 2;      // "user" or "token"
   string sub = 3;       // For user-level revocation
   string jti = 4;       // For token-level revocation

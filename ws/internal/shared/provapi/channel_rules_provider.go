@@ -277,7 +277,7 @@ func (r *StreamChannelRulesProvider) streamLoop(ctx context.Context) {
 // updateTenantConfigs processes a WatchTenantConfigResponse and updates caches.
 func (r *StreamChannelRulesProvider) updateTenantConfigs(resp *provisioningv1.WatchTenantConfigResponse) {
 	isSnapshot := resp.GetIsSnapshot()
-	removedIDs := resp.GetRemovedTenantIds()
+	removedIDs := resp.GetRemovedTenantSlugs()
 	tenants := resp.GetTenants()
 
 	// Update channel rules + the slug->UUID resolver map under the mutex.
@@ -293,11 +293,11 @@ func (r *StreamChannelRulesProvider) updateTenantConfigs(resp *provisioningv1.Wa
 	sawUUID := false
 	for _, tc := range tenants {
 		if tc.GetChannelRules() != nil {
-			r.channelRules[tc.GetTenantId()] = protoToChannelRules(tc.GetChannelRules())
+			r.channelRules[tc.GetTenantSlug()] = protoToChannelRules(tc.GetChannelRules())
 		}
 		if uuid := tc.GetTenantUuid(); uuid != "" {
 			sawUUID = true
-			r.tenantUUIDBySlug[tc.GetTenantId()] = uuid
+			r.tenantUUIDBySlug[tc.GetTenantSlug()] = uuid
 			// Alias the previous slug during the rename hold window so old-slug
 			// JWTs still resolve to this tenant's UUID.
 			if prev := tc.GetPreviousSlug(); prev != "" {
@@ -334,7 +334,7 @@ func (r *StreamChannelRulesProvider) updateTenantConfigs(resp *provisioningv1.Wa
 		delete(next, tenantID)
 	}
 	for _, tc := range tenants {
-		existing := next[tc.GetTenantId()]
+		existing := next[tc.GetTenantSlug()]
 		protoRules := tc.GetRoutingRules()
 		rules := make([]types.RoutingRule, 0, len(protoRules))
 		for _, pr := range protoRules {
@@ -356,7 +356,7 @@ func (r *StreamChannelRulesProvider) updateTenantConfigs(resp *provisioningv1.Wa
 				Priority: int(pr.GetPriority()),
 			})
 		}
-		next[tc.GetTenantId()] = TenantRoutingSnapshot{
+		next[tc.GetTenantSlug()] = TenantRoutingSnapshot{
 			Rules:   rules,
 			Edition: existing.Edition,
 		}

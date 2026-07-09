@@ -206,7 +206,7 @@ func (r *StreamAPIKeyRegistry) updateKeys(resp *provisioningv1.WatchAPIKeysRespo
 	for _, ki := range resp.GetApiKeys() {
 		r.keysByID[ki.GetKeyId()] = &APIKeyInfo{
 			KeyID:    ki.GetKeyId(),
-			TenantID: ki.GetTenantId(),
+			TenantID: ki.GetTenantUuid(),
 			Name:     ki.GetName(),
 			IsActive: ki.GetIsActive(),
 		}

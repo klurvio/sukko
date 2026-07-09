@@ -96,7 +96,7 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stream, err := gw.serverClient.Client().Subscribe(ctx, &serverv1.SubscribeRequest{
-		TenantId:   authRes.TenantID,
+		TenantSlug: authRes.TenantID,
 		Principal:  authRes.Principal,
 		Channels:   channels,
 		RemoteAddr: httputil.GetClientIP(r),

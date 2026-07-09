@@ -31,12 +31,12 @@ func (c *GRPCProvisioningClient) ListWebhookTenants(ctx context.Context) ([]stri
 	if err != nil {
 		return nil, fmt.Errorf("ListWebhookTenants: %w", err)
 	}
-	return resp.GetTenantIds(), nil
+	return resp.GetTenantUuids(), nil
 }
 
 // ListWebhooksForTenant implements ProvisioningClient.
 func (c *GRPCProvisioningClient) ListWebhooksForTenant(ctx context.Context, tenantID string) ([]*provisioning.WebhookRecord, error) {
-	resp, err := c.client.ListWebhooksForTenant(ctx, &provisioningv1.ListWebhooksForTenantRequest{TenantId: tenantID})
+	resp, err := c.client.ListWebhooksForTenant(ctx, &provisioningv1.ListWebhooksForTenantRequest{TenantUuid: tenantID})
 	if err != nil {
 		return nil, fmt.Errorf("ListWebhooksForTenant(%s): %w", tenantID, err)
 	}
@@ -44,7 +44,7 @@ func (c *GRPCProvisioningClient) ListWebhooksForTenant(ctx context.Context, tena
 	for i, w := range resp.GetWebhooks() {
 		rec := &provisioning.WebhookRecord{
 			ID:             w.GetId(),
-			TenantID:       w.GetTenantId(),
+			TenantID:       w.GetTenantUuid(),
 			URL:            w.GetUrl(),
 			ChannelPattern: w.GetChannelPattern(),
 			SecretEnc:      w.GetSecretEnc(),
@@ -65,7 +65,7 @@ func (c *GRPCProvisioningClient) ListWebhooksForTenant(ctx context.Context, tena
 func (c *GRPCProvisioningClient) UpdateWebhookStatus(ctx context.Context, id, tenantID, status string, retryCount int) error {
 	_, err := c.client.UpdateWebhookStatus(ctx, &provisioningv1.UpdateWebhookStatusRequest{
 		WebhookId:  id,
-		TenantId:   tenantID,
+		TenantUuid: tenantID,
 		Status:     status,
 		RetryCount: int32(retryCount), //nolint:gosec // retryCount is always small (0–10)
 	})
@@ -79,7 +79,7 @@ func (c *GRPCProvisioningClient) UpdateWebhookStatus(ctx context.Context, id, te
 func (c *GRPCProvisioningClient) RecordDelivery(ctx context.Context, d *provisioning.WebhookDelivery) error {
 	_, err := c.client.RecordDelivery(ctx, &provisioningv1.RecordDeliveryRequest{
 		WebhookId:     d.WebhookID,
-		TenantId:      d.TenantID,
+		TenantUuid:    d.TenantID,
 		DeliveryId:    d.ID,
 		Attempt:       int32(d.Attempt),    //nolint:gosec // attempt is always small (1–10)
 		StatusCode:    int32(d.StatusCode), //nolint:gosec // HTTP status codes are always in [0,599]

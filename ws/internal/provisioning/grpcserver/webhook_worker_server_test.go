@@ -69,7 +69,7 @@ func TestWebhookWorkerServer_ListWebhooksForTenant_LastDeliveryAtMapping(t *test
 			}
 
 			resp, err := srv.ListWebhooksForTenant(context.Background(),
-				&provisioningv1.ListWebhooksForTenantRequest{TenantId: "tenant-1"})
+				&provisioningv1.ListWebhooksForTenantRequest{TenantUuid: "tenant-1"})
 			if err != nil {
 				t.Fatalf("ListWebhooksForTenant() error = %v", err)
 			}

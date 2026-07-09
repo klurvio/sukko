@@ -44,7 +44,7 @@ func TestInternalServer_TestDeliver_OK(t *testing.T) {
 	})
 
 	resp, err := srv.TestDeliver(context.Background(), &provisioningv1.TestDeliverRequest{
-		WebhookId: "wh-1", TenantId: "t1",
+		WebhookId: "wh-1", TenantUuid: "t1",
 	})
 	if err != nil {
 		t.Fatalf("TestDeliver() error = %v", err)
@@ -62,7 +62,7 @@ func TestInternalServer_TestDeliver_NotFound(t *testing.T) {
 	}, map[string][]*provisioning.WebhookRecord{})
 
 	_, err := srv.TestDeliver(context.Background(), &provisioningv1.TestDeliverRequest{
-		WebhookId: "wh-missing", TenantId: "t1",
+		WebhookId: "wh-missing", TenantUuid: "t1",
 	})
 	if st, ok := status.FromError(err); !ok || st.Code() != codes.NotFound {
 		t.Errorf("expected NOT_FOUND, got %v", err)
@@ -79,7 +79,7 @@ func TestInternalServer_TestDeliver_SSRFBlock(t *testing.T) {
 	})
 
 	resp, err := srv.TestDeliver(context.Background(), &provisioningv1.TestDeliverRequest{
-		WebhookId: "wh-1", TenantId: "t1",
+		WebhookId: "wh-1", TenantUuid: "t1",
 	})
 	if err != nil {
 		t.Fatalf("TestDeliver() error = %v (should return result in resp, not gRPC error)", err)
@@ -105,7 +105,7 @@ func TestInternalServer_TestDeliver_BodyPreviewTruncated(t *testing.T) {
 	})
 
 	resp, err := srv.TestDeliver(context.Background(), &provisioningv1.TestDeliverRequest{
-		WebhookId: "wh-1", TenantId: "t1",
+		WebhookId: "wh-1", TenantUuid: "t1",
 	})
 	if err != nil {
 		t.Fatalf("TestDeliver() error = %v", err)

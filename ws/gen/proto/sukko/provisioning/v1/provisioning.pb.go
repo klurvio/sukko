@@ -120,8 +120,8 @@ func (x *WatchKeysResponse) GetRemovedKeyIds() []string {
 type KeyInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	KeyId         string                 `protobuf:"bytes,1,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
-	TenantId      string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
-	Algorithm     string                 `protobuf:"bytes,3,opt,name=algorithm,proto3" json:"algorithm,omitempty"` // ES256, RS256, EdDSA
+	TenantUuid    string                 `protobuf:"bytes,2,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"` // owning tenant's stable UUID (identity of record)
+	Algorithm     string                 `protobuf:"bytes,3,opt,name=algorithm,proto3" json:"algorithm,omitempty"`                     // ES256, RS256, EdDSA
 	PublicKeyPem  string                 `protobuf:"bytes,4,opt,name=public_key_pem,json=publicKeyPem,proto3" json:"public_key_pem,omitempty"`
 	IsActive      bool                   `protobuf:"varint,5,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
 	ExpiresAtUnix int64                  `protobuf:"varint,6,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix,omitempty"` // 0 = no expiry
@@ -166,9 +166,9 @@ func (x *KeyInfo) GetKeyId() string {
 	return ""
 }
 
-func (x *KeyInfo) GetTenantId() string {
+func (x *KeyInfo) GetTenantUuid() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantUuid
 	}
 	return ""
 }
@@ -238,12 +238,12 @@ func (*WatchTenantConfigRequest) Descriptor() ([]byte, []int) {
 }
 
 type WatchTenantConfigResponse struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	IsSnapshot       bool                   `protobuf:"varint,1,opt,name=is_snapshot,json=isSnapshot,proto3" json:"is_snapshot,omitempty"`
-	Tenants          []*TenantConfig        `protobuf:"bytes,2,rep,name=tenants,proto3" json:"tenants,omitempty"`
-	RemovedTenantIds []string               `protobuf:"bytes,3,rep,name=removed_tenant_ids,json=removedTenantIds,proto3" json:"removed_tenant_ids,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	IsSnapshot         bool                   `protobuf:"varint,1,opt,name=is_snapshot,json=isSnapshot,proto3" json:"is_snapshot,omitempty"`
+	Tenants            []*TenantConfig        `protobuf:"bytes,2,rep,name=tenants,proto3" json:"tenants,omitempty"`
+	RemovedTenantSlugs []string               `protobuf:"bytes,3,rep,name=removed_tenant_slugs,json=removedTenantSlugs,proto3" json:"removed_tenant_slugs,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *WatchTenantConfigResponse) Reset() {
@@ -290,19 +290,19 @@ func (x *WatchTenantConfigResponse) GetTenants() []*TenantConfig {
 	return nil
 }
 
-func (x *WatchTenantConfigResponse) GetRemovedTenantIds() []string {
+func (x *WatchTenantConfigResponse) GetRemovedTenantSlugs() []string {
 	if x != nil {
-		return x.RemovedTenantIds
+		return x.RemovedTenantSlugs
 	}
 	return nil
 }
 
 type TenantConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`             // tenant slug (the data-plane tenant identity / stream cache key)
+	TenantSlug    string                 `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`       // client-facing routing label (the data-plane tenant identity / stream cache key)
 	ChannelRules  *ChannelRules          `protobuf:"bytes,3,opt,name=channel_rules,json=channelRules,proto3" json:"channel_rules,omitempty"` // nil = no rules
 	RoutingRules  []*TopicRoutingRule    `protobuf:"bytes,4,rep,name=routing_rules,json=routingRules,proto3" json:"routing_rules,omitempty"`
-	TenantUuid    string                 `protobuf:"bytes,5,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`       // stable tenant UUID — lets the gateway resolve tenant_id (slug) -> UUID for JWT tenant binding
+	TenantUuid    string                 `protobuf:"bytes,5,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`       // stable tenant UUID — lets the gateway resolve tenant_slug -> UUID for JWT tenant binding
 	PreviousSlug  string                 `protobuf:"bytes,6,opt,name=previous_slug,json=previousSlug,proto3" json:"previous_slug,omitempty"` // prior slug during a rename hold window (empty otherwise) — aliased to tenant_uuid so old-slug tokens still resolve
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -338,9 +338,9 @@ func (*TenantConfig) Descriptor() ([]byte, []int) {
 	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *TenantConfig) GetTenantId() string {
+func (x *TenantConfig) GetTenantSlug() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -675,7 +675,7 @@ func (x *WatchTopicsResponse) GetDedicatedTenants() []*DedicatedTenant {
 
 type DedicatedTenant struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantSlug    string                 `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"` // client-facing routing label (topic names embed the slug)
 	Topics        []string               `protobuf:"bytes,2,rep,name=topics,proto3" json:"topics,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -711,9 +711,9 @@ func (*DedicatedTenant) Descriptor() ([]byte, []int) {
 	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *DedicatedTenant) GetTenantId() string {
+func (x *DedicatedTenant) GetTenantSlug() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -823,8 +823,8 @@ func (x *WatchAPIKeysResponse) GetRemovedKeyIds() []string {
 
 type APIKeyInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	KeyId         string                 `protobuf:"bytes,1,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"` // pk_live_...
-	TenantId      string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	KeyId         string                 `protobuf:"bytes,1,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`                // pk_live_...
+	TenantUuid    string                 `protobuf:"bytes,2,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"` // owning tenant's stable UUID (identity of record)
 	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	IsActive      bool                   `protobuf:"varint,4,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -868,9 +868,9 @@ func (x *APIKeyInfo) GetKeyId() string {
 	return ""
 }
 
-func (x *APIKeyInfo) GetTenantId() string {
+func (x *APIKeyInfo) GetTenantUuid() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantUuid
 	}
 	return ""
 }
@@ -1404,13 +1404,13 @@ func (x *WatchTokenRevocationsResponse) GetIsSnapshot() bool {
 
 type TokenRevocation struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`                             // "user" or "token"
-	Sub           string                 `protobuf:"bytes,3,opt,name=sub,proto3" json:"sub,omitempty"`                               // For user-level revocation
-	Jti           string                 `protobuf:"bytes,4,opt,name=jti,proto3" json:"jti,omitempty"`                               // For token-level revocation
-	RevokedAt     int64                  `protobuf:"varint,5,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"` // Unix timestamp
-	ExpiresAt     int64                  `protobuf:"varint,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"` // Auto-prune time
-	Removed       bool                   `protobuf:"varint,7,opt,name=removed,proto3" json:"removed,omitempty"`                      // true = entry expired/removed (delta only)
+	TenantSlug    string                 `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"` // client-facing routing label (revocation is matched slug==slug end-to-end)
+	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`                               // "user" or "token"
+	Sub           string                 `protobuf:"bytes,3,opt,name=sub,proto3" json:"sub,omitempty"`                                 // For user-level revocation
+	Jti           string                 `protobuf:"bytes,4,opt,name=jti,proto3" json:"jti,omitempty"`                                 // For token-level revocation
+	RevokedAt     int64                  `protobuf:"varint,5,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`   // Unix timestamp
+	ExpiresAt     int64                  `protobuf:"varint,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`   // Auto-prune time
+	Removed       bool                   `protobuf:"varint,7,opt,name=removed,proto3" json:"removed,omitempty"`                        // true = entry expired/removed (delta only)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1445,9 +1445,9 @@ func (*TokenRevocation) Descriptor() ([]byte, []int) {
 	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{25}
 }
 
-func (x *TokenRevocation) GetTenantId() string {
+func (x *TokenRevocation) GetTenantSlug() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -1504,22 +1504,24 @@ const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"\vis_snapshot\x18\x01 \x01(\bR\n" +
 	"isSnapshot\x122\n" +
 	"\x04keys\x18\x02 \x03(\v2\x1e.sukko.provisioning.v1.KeyInfoR\x04keys\x12&\n" +
-	"\x0fremoved_key_ids\x18\x03 \x03(\tR\rremovedKeyIds\"\xc6\x01\n" +
+	"\x0fremoved_key_ids\x18\x03 \x03(\tR\rremovedKeyIds\"\xca\x01\n" +
 	"\aKeyInfo\x12\x15\n" +
-	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12\x1b\n" +
-	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x1c\n" +
+	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12\x1f\n" +
+	"\vtenant_uuid\x18\x02 \x01(\tR\n" +
+	"tenantUuid\x12\x1c\n" +
 	"\talgorithm\x18\x03 \x01(\tR\talgorithm\x12$\n" +
 	"\x0epublic_key_pem\x18\x04 \x01(\tR\fpublicKeyPem\x12\x1b\n" +
 	"\tis_active\x18\x05 \x01(\bR\bisActive\x12&\n" +
 	"\x0fexpires_at_unix\x18\x06 \x01(\x03R\rexpiresAtUnix\"\x1a\n" +
-	"\x18WatchTenantConfigRequest\"\xa9\x01\n" +
+	"\x18WatchTenantConfigRequest\"\xad\x01\n" +
 	"\x19WatchTenantConfigResponse\x12\x1f\n" +
 	"\vis_snapshot\x18\x01 \x01(\bR\n" +
 	"isSnapshot\x12=\n" +
-	"\atenants\x18\x02 \x03(\v2#.sukko.provisioning.v1.TenantConfigR\atenants\x12,\n" +
-	"\x12removed_tenant_ids\x18\x03 \x03(\tR\x10removedTenantIds\"\x8f\x02\n" +
-	"\fTenantConfig\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12H\n" +
+	"\atenants\x18\x02 \x03(\v2#.sukko.provisioning.v1.TenantConfigR\atenants\x120\n" +
+	"\x14removed_tenant_slugs\x18\x03 \x03(\tR\x12removedTenantSlugs\"\x93\x02\n" +
+	"\fTenantConfig\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\x12H\n" +
 	"\rchannel_rules\x18\x03 \x01(\v2#.sukko.provisioning.v1.ChannelRulesR\fchannelRules\x12L\n" +
 	"\rrouting_rules\x18\x04 \x03(\v2'.sukko.provisioning.v1.TopicRoutingRuleR\froutingRules\x12\x1f\n" +
 	"\vtenant_uuid\x18\x05 \x01(\tR\n" +
@@ -1551,20 +1553,22 @@ const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"\vis_snapshot\x18\x01 \x01(\bR\n" +
 	"isSnapshot\x12#\n" +
 	"\rshared_topics\x18\x02 \x03(\tR\fsharedTopics\x12S\n" +
-	"\x11dedicated_tenants\x18\x03 \x03(\v2&.sukko.provisioning.v1.DedicatedTenantR\x10dedicatedTenants\"F\n" +
-	"\x0fDedicatedTenant\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x16\n" +
+	"\x11dedicated_tenants\x18\x03 \x03(\v2&.sukko.provisioning.v1.DedicatedTenantR\x10dedicatedTenants\"J\n" +
+	"\x0fDedicatedTenant\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\x12\x16\n" +
 	"\x06topics\x18\x02 \x03(\tR\x06topics\"\x15\n" +
 	"\x13WatchAPIKeysRequest\"\x9d\x01\n" +
 	"\x14WatchAPIKeysResponse\x12\x1f\n" +
 	"\vis_snapshot\x18\x01 \x01(\bR\n" +
 	"isSnapshot\x12<\n" +
 	"\bapi_keys\x18\x02 \x03(\v2!.sukko.provisioning.v1.APIKeyInfoR\aapiKeys\x12&\n" +
-	"\x0fremoved_key_ids\x18\x03 \x03(\tR\rremovedKeyIds\"q\n" +
+	"\x0fremoved_key_ids\x18\x03 \x03(\tR\rremovedKeyIds\"u\n" +
 	"\n" +
 	"APIKeyInfo\x12\x15\n" +
-	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12\x1b\n" +
-	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x12\n" +
+	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12\x1f\n" +
+	"\vtenant_uuid\x18\x02 \x01(\tR\n" +
+	"tenantUuid\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1b\n" +
 	"\tis_active\x18\x04 \x01(\bR\bisActive\"\x18\n" +
 	"\x16WatchPushConfigRequest\"\xdd\x02\n" +
@@ -1599,9 +1603,10 @@ const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"\x1dWatchTokenRevocationsResponse\x12H\n" +
 	"\vrevocations\x18\x01 \x03(\v2&.sukko.provisioning.v1.TokenRevocationR\vrevocations\x12\x1f\n" +
 	"\vis_snapshot\x18\x02 \x01(\bR\n" +
-	"isSnapshot\"\xbe\x01\n" +
-	"\x0fTokenRevocation\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x12\n" +
+	"isSnapshot\"\xc2\x01\n" +
+	"\x0fTokenRevocation\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x10\n" +
 	"\x03sub\x18\x03 \x01(\tR\x03sub\x12\x10\n" +
 	"\x03jti\x18\x04 \x01(\tR\x03jti\x12\x1d\n" +

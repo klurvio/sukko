@@ -251,7 +251,7 @@ func (r *StreamTopicRegistry) applyTopicUpdate(resp *provisioningv1.WatchTopicsR
 		topics := make([]string, len(dt.GetTopics()))
 		copy(topics, dt.GetTopics())
 		r.dedicatedTenants = append(r.dedicatedTenants, types.TenantTopics{
-			TenantID: dt.GetTenantId(),
+			TenantID: dt.GetTenantSlug(),
 			Topics:   topics,
 		})
 	}

@@ -37,14 +37,14 @@ func TestKeyRegistry_Snapshot(t *testing.T) {
 		Keys: []*provisioningv1.KeyInfo{
 			{
 				KeyId:        "key-1",
-				TenantId:     "tenant-a",
+				TenantUuid:   "tenant-a",
 				Algorithm:    "ES256",
 				PublicKeyPem: testPublicKeyPEM,
 				IsActive:     true,
 			},
 			{
 				KeyId:        "key-2",
-				TenantId:     "tenant-a",
+				TenantUuid:   "tenant-a",
 				Algorithm:    "ES256",
 				PublicKeyPem: testPublicKeyPEM,
 				IsActive:     true,
@@ -123,7 +123,7 @@ func TestKeyRegistry_Delta(t *testing.T) {
 		Keys: []*provisioningv1.KeyInfo{
 			{
 				KeyId:        "key-1",
-				TenantId:     "tenant-a",
+				TenantUuid:   "tenant-a",
 				Algorithm:    "ES256",
 				PublicKeyPem: testPublicKeyPEM,
 				IsActive:     true,
@@ -137,7 +137,7 @@ func TestKeyRegistry_Delta(t *testing.T) {
 		Keys: []*provisioningv1.KeyInfo{
 			{
 				KeyId:        "key-2",
-				TenantId:     "tenant-b",
+				TenantUuid:   "tenant-b",
 				Algorithm:    "ES256",
 				PublicKeyPem: testPublicKeyPEM,
 				IsActive:     true,
@@ -174,7 +174,7 @@ func TestKeyRegistry_DeltaUpdate(t *testing.T) {
 		Keys: []*provisioningv1.KeyInfo{
 			{
 				KeyId:        "key-1",
-				TenantId:     "tenant-a",
+				TenantUuid:   "tenant-a",
 				Algorithm:    "ES256",
 				PublicKeyPem: testPublicKeyPEM,
 				IsActive:     true,
@@ -188,7 +188,7 @@ func TestKeyRegistry_DeltaUpdate(t *testing.T) {
 		Keys: []*provisioningv1.KeyInfo{
 			{
 				KeyId:        "key-1",
-				TenantId:     "tenant-a",
+				TenantUuid:   "tenant-a",
 				Algorithm:    "ES256",
 				PublicKeyPem: testPublicKeyPEM,
 				IsActive:     false,
@@ -222,8 +222,8 @@ func TestKeyRegistry_SnapshotReplacesAll(t *testing.T) {
 	r.updateKeys(&provisioningv1.WatchKeysResponse{
 		IsSnapshot: true,
 		Keys: []*provisioningv1.KeyInfo{
-			{KeyId: "key-1", TenantId: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
-			{KeyId: "key-2", TenantId: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
+			{KeyId: "key-1", TenantUuid: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
+			{KeyId: "key-2", TenantUuid: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
 		},
 	})
 
@@ -231,7 +231,7 @@ func TestKeyRegistry_SnapshotReplacesAll(t *testing.T) {
 	r.updateKeys(&provisioningv1.WatchKeysResponse{
 		IsSnapshot: true,
 		Keys: []*provisioningv1.KeyInfo{
-			{KeyId: "key-3", TenantId: "t-b", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
+			{KeyId: "key-3", TenantUuid: "t-b", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
 		},
 	})
 
@@ -269,7 +269,7 @@ func TestKeyRegistry_ExpiredKey(t *testing.T) {
 		Keys: []*provisioningv1.KeyInfo{
 			{
 				KeyId:         "expired-key",
-				TenantId:      "tenant-a",
+				TenantUuid:    "tenant-a",
 				Algorithm:     "ES256",
 				PublicKeyPem:  testPublicKeyPEM,
 				IsActive:      true,
@@ -295,10 +295,10 @@ func TestKeyRegistry_StatsActiveCount(t *testing.T) {
 	r.updateKeys(&provisioningv1.WatchKeysResponse{
 		IsSnapshot: true,
 		Keys: []*provisioningv1.KeyInfo{
-			{KeyId: "active-1", TenantId: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
-			{KeyId: "active-2", TenantId: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
-			{KeyId: "inactive", TenantId: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: false},
-			{KeyId: "expired", TenantId: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true, ExpiresAtUnix: expired},
+			{KeyId: "active-1", TenantUuid: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
+			{KeyId: "active-2", TenantUuid: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true},
+			{KeyId: "inactive", TenantUuid: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: false},
+			{KeyId: "expired", TenantUuid: "t-a", Algorithm: "ES256", PublicKeyPem: testPublicKeyPEM, IsActive: true, ExpiresAtUnix: expired},
 		},
 	})
 

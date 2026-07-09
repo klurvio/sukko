@@ -30,11 +30,11 @@ service WebhookWorkerService {
 message ListWebhookTenantsRequest {}
 
 message ListWebhookTenantsResponse {
-  repeated string tenant_ids = 1;
+  repeated string tenant_uuids = 1;
 }
 
 message ListWebhooksForTenantRequest {
-  string tenant_id = 1;
+  string tenant_uuid = 1;   // tenant's stable UUID (webhooks.tenant_id FK)
 }
 
 message ListWebhooksForTenantResponse {
@@ -46,7 +46,7 @@ message ListWebhooksForTenantResponse {
 // The webhook-worker decrypts using its local CREDENTIALS_ENCRYPTION_KEY.
 message WebhookRecord {
   string id              = 1;
-  string tenant_id       = 2;
+  string tenant_uuid     = 2;
   string url             = 3;
   string channel_pattern = 4;
   bytes  secret_enc      = 5;
@@ -57,7 +57,7 @@ message WebhookRecord {
 
 message UpdateWebhookStatusRequest {
   string webhook_id  = 1;
-  string tenant_id   = 2;
+  string tenant_uuid = 2;
   string status      = 3;
   int32  retry_count = 4;
 }
@@ -66,7 +66,7 @@ message UpdateWebhookStatusResponse {}
 
 message RecordDeliveryRequest {
   string webhook_id      = 1;
-  string tenant_id       = 2;
+  string tenant_uuid     = 2;
   string delivery_id     = 3;
   int32  attempt         = 4;
   int32  status_code     = 5;

@@ -45,7 +45,7 @@ func NewInternalServer(cfg InternalServerConfig) (*InternalServer, error) {
 // FR-017 status gate does NOT apply — suspended/degraded webhooks are deliverable.
 func (s *InternalServer) TestDeliver(ctx context.Context, req *provisioningv1.TestDeliverRequest) (*provisioningv1.TestDeliverResponse, error) {
 	webhookID := req.GetWebhookId()
-	tenantID := req.GetTenantId()
+	tenantID := req.GetTenantUuid()
 
 	if webhookID == "" || tenantID == "" {
 		return nil, status.Error(codes.InvalidArgument, "webhook_id and tenant_id are required")

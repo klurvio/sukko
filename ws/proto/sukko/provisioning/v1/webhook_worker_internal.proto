@@ -14,7 +14,7 @@ service WebhookWorkerInternalService {
 
 message TestDeliverRequest {
   string webhook_id = 1;
-  string tenant_id  = 2;
+  string tenant_uuid = 2;
 }
 
 message TestDeliverResponse {

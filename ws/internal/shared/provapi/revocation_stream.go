@@ -262,11 +262,11 @@ func (r *StreamRevocationRegistry) applySnapshot(revocations []*provisioningv1.T
 		switch rev.GetType() {
 		case "token":
 			jtiMap[rev.GetJti()] = &jtiEntry{
-				TenantID:  rev.GetTenantId(),
+				TenantID:  rev.GetTenantSlug(),
 				ExpiresAt: rev.GetExpiresAt(),
 			}
 		case "user":
-			key := rev.GetTenantId() + ":" + rev.GetSub()
+			key := rev.GetTenantSlug() + ":" + rev.GetSub()
 			subMap[key] = &subEntry{
 				RevokedAt: rev.GetRevokedAt(),
 				ExpiresAt: rev.GetExpiresAt(),
@@ -325,12 +325,12 @@ func (r *StreamRevocationRegistry) applyDelta(revocations []*provisioningv1.Toke
 				delete(jtiMap, rev.GetJti())
 			} else if rev.GetExpiresAt() > now {
 				jtiMap[rev.GetJti()] = &jtiEntry{
-					TenantID:  rev.GetTenantId(),
+					TenantID:  rev.GetTenantSlug(),
 					ExpiresAt: rev.GetExpiresAt(),
 				}
 			}
 		case "user":
-			key := rev.GetTenantId() + ":" + rev.GetSub()
+			key := rev.GetTenantSlug() + ":" + rev.GetSub()
 			if rev.GetRemoved() {
 				delete(subMap, key)
 			} else if rev.GetExpiresAt() > now {
@@ -362,7 +362,7 @@ func (r *StreamRevocationRegistry) applyDelta(revocations []*provisioningv1.Toke
 
 func protoToRevocationEntry(rev *provisioningv1.TokenRevocation) RevocationEntry {
 	return RevocationEntry{
-		TenantID:  rev.GetTenantId(),
+		TenantID:  rev.GetTenantSlug(),
 		Type:      rev.GetType(),
 		Sub:       rev.GetSub(),
 		JTI:       rev.GetJti(),

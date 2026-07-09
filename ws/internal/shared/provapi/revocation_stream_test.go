@@ -101,9 +101,9 @@ func TestApplySnapshot(t *testing.T) {
 
 	now := time.Now().Unix()
 	revocations := []*provisioningv1.TokenRevocation{
-		{TenantId: "acme", Type: "token", Jti: "tok-1", ExpiresAt: now + 3600},
-		{TenantId: "acme", Type: "user", Sub: "alice", RevokedAt: now, ExpiresAt: now + 3600},
-		{TenantId: "acme", Type: "token", Jti: "expired", ExpiresAt: now - 100},
+		{TenantSlug: "acme", Type: "token", Jti: "tok-1", ExpiresAt: now + 3600},
+		{TenantSlug: "acme", Type: "user", Sub: "alice", RevokedAt: now, ExpiresAt: now + 3600},
+		{TenantSlug: "acme", Type: "token", Jti: "expired", ExpiresAt: now - 100},
 	}
 
 	r.applySnapshot(revocations)
@@ -130,8 +130,8 @@ func TestApplyDelta_AddAndRemove(t *testing.T) {
 	r := newTestRegistryWithSnapshot(initial)
 
 	delta := []*provisioningv1.TokenRevocation{
-		{TenantId: "acme", Type: "token", Jti: "tok-2", ExpiresAt: now + 3600},
-		{TenantId: "acme", Type: "token", Jti: "tok-1", Removed: true},
+		{TenantSlug: "acme", Type: "token", Jti: "tok-2", ExpiresAt: now + 3600},
+		{TenantSlug: "acme", Type: "token", Jti: "tok-1", Removed: true},
 	}
 
 	r.applyDelta(delta)
