@@ -287,7 +287,7 @@ func TestStaticKeyRegistry_GetKey_Expired(t *testing.T) {
 	}
 }
 
-func TestStaticKeyRegistry_GetKeysByTenant(t *testing.T) {
+func TestStaticKeyRegistry_GetKeysByTenantUUID(t *testing.T) {
 	t.Parallel()
 	registry := NewStaticKeyRegistry()
 
@@ -320,9 +320,9 @@ func TestStaticKeyRegistry_GetKeysByTenant(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	keys, err := registry.GetKeysByTenant(ctx, "acme")
+	keys, err := registry.GetKeysByTenantUUID(ctx, "acme")
 	if err != nil {
-		t.Fatalf("GetKeysByTenant failed: %v", err)
+		t.Fatalf("GetKeysByTenantUUID failed: %v", err)
 	}
 
 	if len(keys) != 3 {

@@ -113,7 +113,7 @@ func TestDBKeyRegistry_GetKey_NotFound(t *testing.T) {
 	}
 }
 
-func TestDBKeyRegistry_GetKeysByTenant(t *testing.T) {
+func TestDBKeyRegistry_GetKeysByTenantUUID(t *testing.T) {
 	t.Parallel()
 	pool := testutil.NewTestPool(t)
 	ctx := t.Context()
@@ -142,13 +142,23 @@ func TestDBKeyRegistry_GetKeysByTenant(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = registry.Close() })
 
-	// GetKeysByTenant is called with the slug (same as claims.TenantID in JWTs).
-	keys, err := registry.GetKeysByTenant(ctx, "multi-key-tenant")
+	// GetKeysByTenantUUID is called with the tenant UUID (identity of record), the
+	// same UUID the tenant_id claim resolves to during JWT tenant binding.
+	keys, err := registry.GetKeysByTenantUUID(ctx, tenantID)
 	if err != nil {
-		t.Fatalf("GetKeysByTenant() error = %v", err)
+		t.Fatalf("GetKeysByTenantUUID() error = %v", err)
 	}
 	if len(keys) != 2 {
-		t.Errorf("GetKeysByTenant() returned %d keys, want 2", len(keys))
+		t.Errorf("GetKeysByTenantUUID() returned %d keys, want 2", len(keys))
+	}
+
+	// An unknown tenant UUID returns no keys.
+	empty, err := registry.GetKeysByTenantUUID(ctx, "00000000-0000-0000-0000-000000000000")
+	if err != nil {
+		t.Fatalf("GetKeysByTenantUUID(unknown) error = %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("GetKeysByTenantUUID(unknown) returned %d keys, want 0", len(empty))
 	}
 }
 

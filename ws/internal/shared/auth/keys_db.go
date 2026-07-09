@@ -143,21 +143,18 @@ func (r *DBKeyRegistry) GetKey(ctx context.Context, keyID string) (*KeyInfo, err
 	return key, nil
 }
 
-// GetKeysByTenant retrieves all active keys for a tenant slug.
-//
-// NOTE: KeyInfo.TenantID now carries the tenant UUID (required by the tenant-UUID
-// binding in ValidateJWT), while keysByTenant is keyed by KeyInfo.TenantID. So the
-// in-memory cache is UUID-keyed and this slug-parameterized lookup always misses
-// the cache and falls through to the DB query (WHERE t.slug). GetKeysByTenant has
-// no production caller today; unifying the cache key is tracked under #161.
-func (r *DBKeyRegistry) GetKeysByTenant(ctx context.Context, tenantSlug string) ([]*KeyInfo, error) {
+// GetKeysByTenantUUID retrieves all active keys for a tenant UUID. keysByTenant
+// is keyed by KeyInfo.TenantID (the tenant UUID), and the fallthrough DB query
+// filters WHERE t.id = $1 — so both the cache lookup and the DB path key on the
+// same tenant UUID (identity of record).
+func (r *DBKeyRegistry) GetKeysByTenantUUID(ctx context.Context, tenantUUID string) ([]*KeyInfo, error) {
 	r.cacheMu.RLock()
-	keys := r.keysByTenant[tenantSlug]
+	keys := r.keysByTenant[tenantUUID]
 	r.cacheMu.RUnlock()
 
 	if len(keys) == 0 {
 		// Try fetching from DB
-		return r.fetchKeysByTenantFromDB(ctx, tenantSlug)
+		return r.fetchKeysByTenantFromDB(ctx, tenantUUID)
 	}
 
 	// Filter to only valid keys
@@ -381,7 +378,7 @@ func (r *DBKeyRegistry) fetchKeyFromDB(ctx context.Context, keyID string) (*KeyI
 }
 
 // fetchKeysByTenantFromDB fetches all active keys for a tenant from the database.
-func (r *DBKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenantSlug string) ([]*KeyInfo, error) {
+func (r *DBKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenantUUID string) ([]*KeyInfo, error) {
 	query := `
 		SELECT
 			tk.key_id,
@@ -393,14 +390,14 @@ func (r *DBKeyRegistry) fetchKeysByTenantFromDB(ctx context.Context, tenantSlug 
 			tk.revoked_at
 		FROM tenant_keys tk
 		JOIN tenants t ON tk.tenant_id = t.id
-		WHERE t.slug = $1
+		WHERE t.id = $1
 		  AND tk.is_active = true
 		  AND tk.revoked_at IS NULL
 		  AND (tk.expires_at IS NULL OR tk.expires_at > $2)
 		  AND t.status = 'active'
 	`
 
-	rows, err := r.pool.Query(ctx, query, tenantSlug, time.Now())
+	rows, err := r.pool.Query(ctx, query, tenantUUID, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("query keys: %w", err)
 	}

@@ -74,12 +74,11 @@ type StreamKeyRegistry struct {
 	mu       sync.RWMutex
 	keysByID map[string]*auth.KeyInfo
 	// keysByTenant is keyed by the tenant UUID in auth.KeyInfo.TenantID (populated
-	// from TenantKey.TenantID, a validated UUID FK). This UUID is intentional and
-	// required: the tenant-UUID binding in auth.ValidateJWT compares KeyInfo.TenantID
-	// (UUID) against the tenant UUID the tenant_id claim resolves to — so the key
-	// stream MUST carry the UUID, never the slug. GetKeysByTenant is called with a
-	// slug, so its cache lookups miss (it has no production caller today); unifying
-	// the cache key to accept a slug is tracked under #161.
+	// from the KeyInfo tenant_uuid proto field, a validated UUID FK). This UUID is
+	// intentional and required: the tenant-UUID binding in auth.ValidateJWT compares
+	// KeyInfo.TenantID (UUID) against the tenant UUID the tenant_id claim resolves to —
+	// so the key stream MUST carry the UUID, never the slug. GetKeysByTenantUUID looks
+	// up by that same UUID (key type matches cache key type).
 	keysByTenant map[string][]*auth.KeyInfo
 
 	conn   *grpc.ClientConn
@@ -170,15 +169,14 @@ func (r *StreamKeyRegistry) GetKey(_ context.Context, keyID string) (*auth.KeyIn
 	return key, nil
 }
 
-// GetKeysByTenant retrieves all active keys for a tenant slug.
-// BUG: always returns empty because keysByTenant is UUID-keyed (see field comment).
-// Safe to call — returns nil, nil — but produces no results until the gRPC server is
-// updated to send slug in the TenantId proto field.
-func (r *StreamKeyRegistry) GetKeysByTenant(_ context.Context, tenantSlug string) ([]*auth.KeyInfo, error) {
+// GetKeysByTenantUUID retrieves all active keys for a tenant UUID. keysByTenant
+// is keyed by the tenant UUID (KeyInfo.TenantID, populated from the KeyInfo
+// tenant_uuid proto field), so the lookup key type matches the cache key type.
+func (r *StreamKeyRegistry) GetKeysByTenantUUID(_ context.Context, tenantUUID string) ([]*auth.KeyInfo, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	keys := r.keysByTenant[tenantSlug]
+	keys := r.keysByTenant[tenantUUID]
 	if len(keys) == 0 {
 		return nil, nil
 	}
