@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/routing"
 )
 
@@ -194,7 +195,7 @@ func (r *RoutingRulesRepository) scanRows(_ context.Context, tenantID string, ro
 		normalized := routing.NormalizePattern(pattern)
 		if _, err := routing.MatchRoutingPattern(normalized, "probe"); err != nil {
 			r.logger.Warn().
-				Str("tenant_id", tenantID).
+				Str(logging.LogKeyTenantUUID, tenantID).
 				Str("pattern", pattern).
 				Err(err).
 				Msg("Skipping invalid routing rule pattern after normalization")

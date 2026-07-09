@@ -11,6 +11,7 @@ import (
 
 	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
 	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // WebhookWorkerServer implements WebhookWorkerServiceServer using the provisioning service's
@@ -54,7 +55,7 @@ func (s *WebhookWorkerServer) ListWebhooksForTenant(ctx context.Context, req *pr
 	}
 	records, err := s.store.ListByTenantForWorker(ctx, req.GetTenantUuid())
 	if err != nil {
-		s.logger.Error().Err(err).Str("tenant_id", req.GetTenantUuid()).Msg("ListWebhooksForTenant: store error")
+		s.logger.Error().Err(err).Str(logging.LogKeyTenantUUID, req.GetTenantUuid()).Msg("ListWebhooksForTenant: store error")
 		return nil, status.Errorf(codes.Internal, "list webhooks: %v", err)
 	}
 	protoRecords := make([]*provisioningv1.WebhookRecord, len(records))

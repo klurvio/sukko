@@ -1,7 +1,10 @@
 package worker
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -188,5 +191,41 @@ func TestWebhookCache_GetByID(t *testing.T) {
 
 	if cache.GetByID("tenant-e", "wh-missing") != nil {
 		t.Error("GetByID() should return nil for missing webhook")
+	}
+}
+
+// TestWebhookCache_RefreshAll_LogsTenantUUID verifies the webhook worker (UUID-native)
+// logs the tenant under the explicit tenant_uuid key on a refresh error, never the legacy
+// tenant_id (#161 log-key hygiene). Seeds a tenant, then forces a refresh failure.
+func TestWebhookCache_RefreshAll_LogsTenantUUID(t *testing.T) {
+	t.Parallel()
+	const tenantUUID = "11111111-2222-3333-4444-555555555555"
+
+	client := newStubClient()
+	client.records[tenantUUID] = []*provisioning.WebhookRecord{
+		{ID: "wh-1", TenantID: tenantUUID, URL: "https://example.com", Status: "enabled"},
+	}
+
+	var buf bytes.Buffer
+	cache := NewWebhookCache(client, zerolog.New(&buf))
+
+	// Seed the cache so RefreshAll has a tenant to iterate.
+	if err := cache.Refresh(context.Background(), tenantUUID); err != nil {
+		t.Fatalf("seed Refresh() error = %v", err)
+	}
+
+	// Force the next fetch to fail so RefreshAll logs the per-tenant warning.
+	client.mu.Lock()
+	client.err = errors.New("boom")
+	client.mu.Unlock()
+
+	_ = cache.RefreshAll(context.Background())
+
+	out := buf.String()
+	if !strings.Contains(out, `"tenant_uuid":"`+tenantUUID+`"`) {
+		t.Errorf("expected tenant_uuid key with the UUID value; got: %s", out)
+	}
+	if strings.Contains(out, `"tenant_id"`) {
+		t.Errorf("log must not use the legacy tenant_id key; got: %s", out)
 	}
 }

@@ -40,7 +40,7 @@
       "type": "logs",
       "id": 2,
       "title": "Log Lines",
-      "description": "Use the filter buttons on individual log lines to drill down by component, tenant_id, or channel. Stream label {app} corresponds to app.kubernetes.io/name. Level and service filters update in real time via the dropdowns above.",
+      "description": "Use the filter buttons on individual log lines to drill down by component, tenant_slug, tenant_uuid, or channel. Stream label {app} corresponds to app.kubernetes.io/name. Level and service filters update in real time via the dropdowns above.",
       "gridPos": {"h":20,"w":24,"x":0,"y":6},
       "datasource": {"type":"loki","uid":"${loki_datasource}"},
       "options": {
@@ -115,7 +115,8 @@
       },
       {"name":"search","type":"textbox","label":"Search","hide":0,"current":{"text":"","value":""},"query":""},
       {"name":"component","type":"textbox","label":"Component","hide":0,"current":{"text":"","value":""},"query":""},
-      {"name":"tenant_id","type":"textbox","label":"Tenant ID","hide":0,"current":{"text":"","value":""},"query":""},
+      {"name":"tenant_slug","type":"textbox","label":"Tenant Slug","hide":0,"current":{"text":"","value":""},"query":""},
+      {"name":"tenant_uuid","type":"textbox","label":"Tenant UUID","hide":0,"current":{"text":"","value":""},"query":""},
       {"name":"channel","type":"textbox","label":"Channel","hide":0,"current":{"text":"","value":""},"query":""}
     ]
   },

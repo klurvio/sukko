@@ -5,6 +5,7 @@ import (
 
 	pushv1 "github.com/klurvio/sukko/gen/proto/sukko/push/v1"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // HandlePushVAPIDKey returns the tenant's VAPID public key for Web Push subscriptions.
@@ -27,7 +28,7 @@ func (gw *Gateway) HandlePushVAPIDKey(w http.ResponseWriter, r *http.Request) {
 	// 2. Forward to push service
 	if gw.pushClient == nil {
 		// LOG-012: Push service unavailable
-		gw.logger.Warn().Str("handler", "vapid-key").Str("tenant_id", authRes.TenantSlug).
+		gw.logger.Warn().Str("handler", "vapid-key").Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
 			Msg("push service unavailable")
 		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE",
 			"push service connection not available")
@@ -39,7 +40,7 @@ func (gw *Gateway) HandlePushVAPIDKey(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).
-			Str("tenant_id", authRes.TenantSlug).
+			Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
 			Msg("Push GetVAPIDKey failed")
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR",
 			"failed to retrieve VAPID key")

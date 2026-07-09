@@ -294,7 +294,7 @@ func startInvalidationSubscriber(ctx context.Context, wg *sync.WaitGroup, cfg *p
 				select {
 				case ch <- tenantID:
 				default:
-					logger.Warn().Str("tenant_id", tenantID).
+					logger.Warn().Str(logging.LogKeyTenantUUID, tenantID).
 						Msg("Invalidation channel full; refresh delayed to next TTL tick")
 				}
 			},

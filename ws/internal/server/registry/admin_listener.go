@@ -284,7 +284,7 @@ func (al *AdminListener) handleMessage(m valkey.PubSubMessage) {
 		c.ForceDisconnect()
 		al.logger.Info().
 			Str("conn_id", msg.ConnectionID).
-			Str("tenant_id", msg.TenantID).
+			Str(logging.LogKeyTenantSlug, msg.TenantID).
 			Str("reason", msg.Reason).
 			Msg("admin listener: force-disconnected connection")
 		return false
@@ -294,7 +294,7 @@ func (al *AdminListener) handleMessage(m valkey.PubSubMessage) {
 		al.metrics.DisconnectMiss.Inc()
 		al.logger.Debug().
 			Str("conn_id", msg.ConnectionID).
-			Str("tenant_id", msg.TenantID).
+			Str(logging.LogKeyTenantSlug, msg.TenantID).
 			Msg("admin listener: disconnect target not on this shard (expected)")
 	}
 }

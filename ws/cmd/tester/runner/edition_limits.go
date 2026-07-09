@@ -15,6 +15,7 @@ import (
 	"github.com/klurvio/sukko/cmd/tester/restpublish"
 	testersse "github.com/klurvio/sukko/cmd/tester/sse"
 	testerws "github.com/klurvio/sukko/cmd/tester/ws"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/rs/zerolog"
 )
 
@@ -115,7 +116,7 @@ func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Log
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), editionHTTPTimeout)
 		defer cancel()
 		if delErr := provClient.DeleteTenant(cleanupCtx, sharedTenantID); delErr != nil {
-			logger.Warn().Err(delErr).Str("tenant_id", sharedTenantID).Msg("Failed to clean up shared test tenant")
+			logger.Warn().Err(delErr).Str(logging.LogKeyTenantSlug, sharedTenantID).Msg("Failed to clean up shared test tenant")
 		}
 	}()
 
@@ -160,7 +161,7 @@ func checkTenantLimit(ctx context.Context, provClient *auth.ProvisioningClient, 
 		defer cancel()
 		for _, id := range created {
 			if err := provClient.DeleteTenant(cleanupCtx, id); err != nil {
-				logger.Warn().Err(err).Str("tenant_id", id).Msg("Failed to clean up test tenant")
+				logger.Warn().Err(err).Str(logging.LogKeyTenantSlug, id).Msg("Failed to clean up test tenant")
 			}
 		}
 	}()
@@ -226,7 +227,7 @@ func checkRoutingRulesLimit(ctx context.Context, provClient *auth.ProvisioningCl
 	defer func() {
 		// Clean up rules on shared tenant
 		if err := provClient.DeleteRoutingRules(ctx, tenantID); err != nil {
-			logger.Debug().Err(err).Str("tenant_id", tenantID).
+			logger.Debug().Err(err).Str(logging.LogKeyTenantSlug, tenantID).
 				Msg("Routing rules cleanup (not-found is expected)")
 		}
 	}()

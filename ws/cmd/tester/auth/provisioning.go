@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/rs/zerolog"
 )
 
@@ -81,7 +82,7 @@ func (c *ProvisioningClient) CreateTenant(ctx context.Context, tenantID, name st
 		return c.readError("create tenant", resp)
 	}
 
-	c.logger.Info().Str("tenant_id", tenantID).Msg("tenant created")
+	c.logger.Info().Str(logging.LogKeyTenantSlug, tenantID).Msg("tenant created")
 	return nil
 }
 
@@ -103,7 +104,7 @@ func (c *ProvisioningClient) DeleteTenant(ctx context.Context, tenantID string) 
 		return c.readError("delete tenant", resp)
 	}
 
-	c.logger.Info().Str("tenant_id", tenantID).Msg("tenant deleted")
+	c.logger.Info().Str(logging.LogKeyTenantSlug, tenantID).Msg("tenant deleted")
 	return nil
 }
 
@@ -130,7 +131,7 @@ func (c *ProvisioningClient) RegisterKey(ctx context.Context, tenantID string, k
 		return c.readError("register key", resp)
 	}
 
-	c.logger.Info().Str("tenant_id", tenantID).Str("key_id", keyReq.KeyID).Msg("key registered")
+	c.logger.Info().Str(logging.LogKeyTenantSlug, tenantID).Str("key_id", keyReq.KeyID).Msg("key registered")
 	return nil
 }
 
@@ -152,7 +153,7 @@ func (c *ProvisioningClient) RevokeKey(ctx context.Context, tenantID, keyID stri
 		return c.readError("revoke key", resp)
 	}
 
-	c.logger.Info().Str("tenant_id", tenantID).Str("key_id", keyID).Msg("key revoked")
+	c.logger.Info().Str(logging.LogKeyTenantSlug, tenantID).Str("key_id", keyID).Msg("key revoked")
 	return nil
 }
 
@@ -201,7 +202,7 @@ func (c *ProvisioningClient) SetChannelRules(ctx context.Context, tenantID strin
 		return c.readError("set channel rules", resp)
 	}
 
-	c.logger.Info().Str("tenant_id", tenantID).Msg("channel rules set")
+	c.logger.Info().Str(logging.LogKeyTenantSlug, tenantID).Msg("channel rules set")
 	return nil
 }
 
@@ -228,7 +229,7 @@ func (c *ProvisioningClient) SetRoutingRules(ctx context.Context, tenantID strin
 		return c.readError("set routing rules", resp)
 	}
 
-	c.logger.Info().Str("tenant_id", tenantID).Msg("routing rules set")
+	c.logger.Info().Str(logging.LogKeyTenantSlug, tenantID).Msg("routing rules set")
 	return nil
 }
 
@@ -279,7 +280,7 @@ func (c *ProvisioningClient) DeleteRoutingRules(ctx context.Context, tenantID st
 		return c.readError("delete routing rules", resp)
 	}
 
-	c.logger.Info().Str("tenant_id", tenantID).Msg("routing rules deleted")
+	c.logger.Info().Str(logging.LogKeyTenantSlug, tenantID).Msg("routing rules deleted")
 	return nil
 }
 

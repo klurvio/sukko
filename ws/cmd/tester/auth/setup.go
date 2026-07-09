@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/rs/zerolog"
 )
 
@@ -107,7 +108,7 @@ func Setup(ctx context.Context, cfg SetupConfig) (*SetupResult, error) {
 			return nil, fmt.Errorf("auth setup: create tenant: %w", err)
 		}
 		createdTenant = true
-		logger.Info().Str("tenant_id", tenantID).Msg("throwaway tenant created")
+		logger.Info().Str(logging.LogKeyTenantSlug, tenantID).Msg("throwaway tenant created")
 	}
 
 	// Step 2: Generate keypair
@@ -141,7 +142,7 @@ func Setup(ctx context.Context, cfg SetupConfig) (*SetupResult, error) {
 	})
 
 	logger.Info().
-		Str("tenant_id", tenantID).
+		Str(logging.LogKeyTenantSlug, tenantID).
 		Str("key_id", keypair.KeyID).
 		Bool("throwaway", createdTenant).
 		Time("key_expires_at", expiresAt).
@@ -171,6 +172,6 @@ func Setup(ctx context.Context, cfg SetupConfig) (*SetupResult, error) {
 
 func cleanupTenant(ctx context.Context, client *ProvisioningClient, tenantID string, logger zerolog.Logger) {
 	if err := client.DeleteTenant(ctx, tenantID); err != nil {
-		logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("cleanup: failed to delete tenant")
+		logger.Warn().Err(err).Str(logging.LogKeyTenantSlug, tenantID).Msg("cleanup: failed to delete tenant")
 	}
 }

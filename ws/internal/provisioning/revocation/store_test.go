@@ -1,11 +1,40 @@
 package revocation
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
 )
+
+// TestRevoke_LogsTenantSlug verifies the revocation store (data plane) logs the tenant
+// under the explicit tenant_slug key, never the legacy tenant_id (#161 log-key hygiene).
+func TestRevoke_LogsTenantSlug(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	s := New(zerolog.New(&buf))
+	defer s.Close()
+
+	if err := s.Revoke(Entry{
+		TenantID:  "acme",
+		Type:      "token",
+		JTI:       "tok-1",
+		RevokedAt: time.Now().Unix(),
+		ExpiresAt: time.Now().Add(time.Hour).Unix(),
+	}); err != nil {
+		t.Fatalf("Revoke() error = %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, `"tenant_slug":"acme"`) {
+		t.Errorf("expected tenant_slug key with slug value; got: %s", out)
+	}
+	if strings.Contains(out, `"tenant_id"`) {
+		t.Errorf("log must not use the legacy tenant_id key; got: %s", out)
+	}
+}
 
 func TestRevoke_ByJTI(t *testing.T) {
 	t.Parallel()

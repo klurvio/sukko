@@ -166,7 +166,7 @@ func (s *Shard) OnTenantClientConnect(tenantID string) error {
 		if uerr := s.broadcastBus.Unsubscribe(tenantID, ch); uerr != nil {
 			s.logger.Warn().
 				Err(uerr).
-				Str("tenant_id", tenantID).
+				Str(logging.LogKeyTenantSlug, tenantID).
 				Msg("shard: rollback Unsubscribe error (non-fatal, channel will GC)")
 		}
 		return nil
@@ -213,7 +213,7 @@ func (s *Shard) OnTenantClientDisconnect(tenantID string) {
 	if err := s.broadcastBus.Unsubscribe(tenantID, ch); err != nil {
 		s.logger.Warn().
 			Err(err).
-			Str("tenant_id", tenantID).
+			Str(logging.LogKeyTenantSlug, tenantID).
 			Msg("shard: Unsubscribe error on disconnect")
 	}
 	// tenantEntry.ch MUST NOT be closed: bus fanOut (write-side) owns the channel lifecycle.

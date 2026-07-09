@@ -9,6 +9,8 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/rs/zerolog"
+
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // vapidCredentials holds VAPID keys parsed from tenant credentials JSON.
@@ -90,7 +92,7 @@ func (p *WebPushProvider) Send(ctx context.Context, job PushJob) error {
 	switch resp.StatusCode {
 	case http.StatusCreated, http.StatusOK:
 		p.logger.Debug().
-			Str("tenant_id", job.TenantID).
+			Str(logging.LogKeyTenantSlug, job.TenantID).
 			Str("principal", job.Principal).
 			Str("endpoint", job.Endpoint).
 			Msg("Web Push notification sent")

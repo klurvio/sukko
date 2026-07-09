@@ -68,7 +68,7 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	if gw.connTracker != nil && authRes.TenantSlug != "" {
 		if !gw.connTracker.TryAcquire(authRes.TenantSlug) {
 			// LOG-010: SSE tenant connection rate limit rejection
-			gw.logger.Warn().Str("tenant_id", authRes.TenantSlug).
+			gw.logger.Warn().Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
 				Str("remote_addr", httputil.GetClientIP(r)).
 				Msg("SSE connection rejected: tenant limit")
 			httputil.WriteError(w, http.StatusTooManyRequests, "TENANT_LIMIT_EXCEEDED",
@@ -99,7 +99,7 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).
-			Str("tenant_id", authRes.TenantSlug).
+			Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
 			Strs("channels", channels).
 			Msg("Failed to open Subscribe stream")
 		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "failed to connect to message server")
@@ -137,7 +137,7 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	gw.logger.Info().
-		Str("tenant_id", authRes.TenantSlug).
+		Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
 		Str("principal", authRes.Principal).
 		Strs("channels", channels).
 		Str("remote_addr", httputil.GetClientIP(r)).
@@ -202,7 +202,7 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 done:
 
 	gw.logger.Info().
-		Str("tenant_id", authRes.TenantSlug).
+		Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
 		Str("principal", authRes.Principal).
 		Dur("connection_duration", time.Since(startTime)).
 		Msg("SSE connection closed")

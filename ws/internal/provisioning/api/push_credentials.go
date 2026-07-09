@@ -10,6 +10,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // NOTE: httputil.WriteJSON errors are assigned to _ throughout this file.
@@ -110,14 +111,14 @@ func (h *PushCredentialHandler) HandleUploadCredentials(w http.ResponseWriter, r
 	// Connectivity test (FR-011): FCM OAuth2 token exchange
 	if req.Provider == "fcm" {
 		if err := testFCMConnectivity(req.CredentialData); err != nil {
-			h.logger.Warn().Err(err).Str("tenant_id", req.TenantID).Msg("FCM connectivity test failed")
+			h.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, req.TenantID).Msg("FCM connectivity test failed")
 			httputil.WriteError(w, http.StatusBadRequest, "FCM_CONNECTIVITY_FAILED", "FCM connectivity test failed: "+err.Error())
 			return
 		}
 	}
 	// APNs: skip in v1 (complex to test without real device token)
 	if req.Provider == "apns" {
-		h.logger.Warn().Str("tenant_id", req.TenantID).Msg("APNs connectivity test skipped in v1")
+		h.logger.Warn().Str(logging.LogKeyTenantUUID, req.TenantID).Msg("APNs connectivity test skipped in v1")
 	}
 	// VAPID: skip (no external service to test against)
 
@@ -129,7 +130,7 @@ func (h *PushCredentialHandler) HandleUploadCredentials(w http.ResponseWriter, r
 
 	if err := h.credentialsRepo.Create(r.Context(), cred); err != nil {
 		h.logger.Error().Err(err).
-			Str("tenant_id", req.TenantID).
+			Str(logging.LogKeyTenantUUID, req.TenantID).
 			Str("provider", req.Provider).
 			Msg("Failed to create push credential")
 		httputil.WriteError(w, http.StatusInternalServerError, "CREATE_FAILED", "Failed to create push credential")
@@ -139,7 +140,7 @@ func (h *PushCredentialHandler) HandleUploadCredentials(w http.ResponseWriter, r
 	h.eventBus.Publish(eventbus.Event{Type: eventbus.PushConfigChanged})
 
 	h.logger.Info().
-		Str("tenant_id", req.TenantID).
+		Str(logging.LogKeyTenantUUID, req.TenantID).
 		Str("provider", req.Provider).
 		Int64("id", cred.ID).
 		Msg("Push credential created")
@@ -190,7 +191,7 @@ func (h *PushCredentialHandler) HandleDeleteCredentials(w http.ResponseWriter, r
 			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Push credential not found")
 		} else {
 			h.logger.Error().Err(err).
-				Str("tenant_id", req.TenantID).
+				Str(logging.LogKeyTenantUUID, req.TenantID).
 				Str("provider", req.Provider).
 				Msg("Failed to delete push credential")
 			httputil.WriteError(w, http.StatusInternalServerError, errCodeInternal, "Failed to delete credential")
@@ -201,7 +202,7 @@ func (h *PushCredentialHandler) HandleDeleteCredentials(w http.ResponseWriter, r
 	h.eventBus.Publish(eventbus.Event{Type: eventbus.PushConfigChanged})
 
 	h.logger.Info().
-		Str("tenant_id", req.TenantID).
+		Str(logging.LogKeyTenantUUID, req.TenantID).
 		Str("provider", req.Provider).
 		Msg("Push credential deleted")
 

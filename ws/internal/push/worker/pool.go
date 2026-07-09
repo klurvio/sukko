@@ -188,7 +188,7 @@ func (p *Pool) dispatch(job provider.PushJob) {
 	if !ok {
 		p.logger.Error().
 			Str("platform", job.Platform).
-			Str("tenant_id", job.TenantID).
+			Str(logging.LogKeyTenantSlug, job.TenantID).
 			Msg("No provider registered for platform")
 		jobsFailed.WithLabelValues(job.Platform, "no_provider").Inc()
 		return
@@ -208,7 +208,7 @@ func (p *Pool) dispatch(job provider.PushJob) {
 		}
 		// LOG-007: Dispatch success
 		if p.logger.Debug().Enabled() {
-			p.logger.Debug().Str("tenant_id", job.TenantID).Str("platform", job.Platform).
+			p.logger.Debug().Str(logging.LogKeyTenantSlug, job.TenantID).Str("platform", job.Platform).
 				Str("channel", job.Channel).Int64("duration_ms", elapsed.Milliseconds()).
 				Msg("push notification dispatched")
 		}
@@ -218,7 +218,7 @@ func (p *Pool) dispatch(job provider.PushJob) {
 	// Handle expired subscriptions — remove stale token from storage
 	if errors.Is(err, provider.ErrSubscriptionExpired) {
 		p.logger.Info().
-			Str("tenant_id", job.TenantID).
+			Str(logging.LogKeyTenantSlug, job.TenantID).
 			Str("platform", job.Platform).
 			Str("channel", job.Channel).
 			Msg("Subscription expired, removing from storage")
@@ -230,7 +230,7 @@ func (p *Pool) dispatch(job provider.PushJob) {
 		if delErr := p.repo.DeleteByToken(p.ctx, job.TenantID, token); delErr != nil {
 			p.logger.Error().
 				Err(delErr).
-				Str("tenant_id", job.TenantID).
+				Str(logging.LogKeyTenantSlug, job.TenantID).
 				Msg("Failed to delete expired subscription")
 		}
 		jobsFailed.WithLabelValues(job.Platform, "expired").Inc()
@@ -240,7 +240,7 @@ func (p *Pool) dispatch(job provider.PushJob) {
 	// All other errors
 	p.logger.Error().
 		Err(err).
-		Str("tenant_id", job.TenantID).
+		Str(logging.LogKeyTenantSlug, job.TenantID).
 		Str("platform", job.Platform).
 		Str("channel", job.Channel).
 		Msg("Push notification delivery failed")

@@ -6,6 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
@@ -25,7 +26,7 @@ func (s *Service) HandleRevocation(entry provapi.RevocationEntry) {
 		if err != nil {
 			s.logger.Error().Err(err).
 				Str("jti", entry.JTI).
-				Str("tenant_id", entry.TenantID).
+				Str(logging.LogKeyTenantSlug, entry.TenantID).
 				Msg("push revocation: delete by jti failed")
 			return
 		}
@@ -33,7 +34,7 @@ func (s *Service) HandleRevocation(entry provapi.RevocationEntry) {
 			pushRegistrationsRevokedTotal.WithLabelValues("token").Add(float64(count))
 			s.logger.Info().
 				Str("jti", entry.JTI).
-				Str("tenant_id", entry.TenantID).
+				Str(logging.LogKeyTenantSlug, entry.TenantID).
 				Int("deleted", count).
 				Str("revocation_type", "token").
 				Msg("push registrations deleted: token revoked")
@@ -44,7 +45,7 @@ func (s *Service) HandleRevocation(entry provapi.RevocationEntry) {
 		if err != nil {
 			s.logger.Error().Err(err).
 				Str("sub", entry.Sub).
-				Str("tenant_id", entry.TenantID).
+				Str(logging.LogKeyTenantSlug, entry.TenantID).
 				Msg("push revocation: delete by sub failed")
 			return
 		}
@@ -52,7 +53,7 @@ func (s *Service) HandleRevocation(entry provapi.RevocationEntry) {
 			pushRegistrationsRevokedTotal.WithLabelValues("user").Add(float64(count))
 			s.logger.Info().
 				Str("sub", entry.Sub).
-				Str("tenant_id", entry.TenantID).
+				Str(logging.LogKeyTenantSlug, entry.TenantID).
 				Int("deleted", count).
 				Str("revocation_type", "user").
 				Msg("push registrations deleted: user revoked")

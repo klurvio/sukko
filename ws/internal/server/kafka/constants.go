@@ -49,7 +49,6 @@ const (
 // Structured log field keys used across kafka and orchestration packages.
 const (
 	LogFieldPartition = "partition" // pre-existing call sites in consumer.go and producer.go
-	LogFieldTenantID  = "tenant_id"
 )
 
 // Log message constants for broker-deleted-topic and fetch error events.

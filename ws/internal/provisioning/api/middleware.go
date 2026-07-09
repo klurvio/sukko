@@ -20,6 +20,7 @@ import (
 	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
@@ -212,7 +213,7 @@ func AuthMiddleware(validator *auth.MultiTenantValidator, logger zerolog.Logger)
 			ctx = context.WithValue(ctx, ActorContextKey, actor)
 
 			logger.Debug().
-				Str("tenant_id", claims.TenantID).
+				Str(logging.LogKeyTenantSlug, claims.TenantID).
 				Str("subject", claims.Subject).
 				Str("path", r.URL.Path).
 				Msg("Request authenticated")
@@ -241,7 +242,7 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 
 			// LOG-020: Role-based authorization denial
 			zerolog.Ctx(r.Context()).Warn().
-				Str("tenant_id", claims.TenantID).Str("subject", claims.Subject).
+				Str(logging.LogKeyTenantSlug, claims.TenantID).Str("subject", claims.Subject).
 				Strs("required_roles", roles).Str("path", r.URL.Path).
 				Msg("authorization denied: insufficient role")
 			RecordAuthorizationDenial(authzDenialInsufficientRole)
@@ -284,7 +285,7 @@ func RequireTenant(lookup provisioning.TenantLookupFunc, holdPeriod time.Duratio
 					httputil.WriteError(w, http.StatusNotFound, errCodeTenantNotFound, "Tenant not found")
 					return
 				}
-				zerolog.Ctx(r.Context()).Error().Err(err).Str("tenant_slug", tenantSlug).Msg("tenant lookup failed")
+				zerolog.Ctx(r.Context()).Error().Err(err).Str(logging.LogKeyTenantSlug, tenantSlug).Msg("tenant lookup failed")
 				httputil.WriteError(w, http.StatusServiceUnavailable, errCodeServiceUnavailable, "Service temporarily unavailable")
 				return
 			}

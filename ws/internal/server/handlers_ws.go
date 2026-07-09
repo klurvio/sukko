@@ -97,7 +97,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		received := r.Header.Get(protocol.HeaderInternalSecret)
 		if subtle.ConstantTimeCompare([]byte(received), []byte(s.config.InternalSecret)) != 1 {
 			s.logger.Warn().
-				Str("tenant_id", tenantID).
+				Str(logging.LogKeyTenantSlug, tenantID).
 				Str("client_ip", clientIP).
 				Msg("WebSocket upgrade rejected: invalid internal secret")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -185,7 +185,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error().
 				Err(err).
 				Int64("client_id", client.id).
-				Str("tenant_id", tenantID).
+				Str(logging.LogKeyTenantSlug, tenantID).
 				Msg("OnTenantClientConnect failed, rejecting connection")
 			return
 		}
@@ -211,7 +211,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Client fully initialized, starting pumps
 	s.logger.Info().
 		Str("client_ip", clientIP).
-		Str("tenant_id", tenantID).
+		Str(logging.LogKeyTenantSlug, tenantID).
 		Int64("client_id", client.id).
 		Int64("current_connections", currentConns).
 		Dur("total_setup_time_ms", time.Since(startTime)).

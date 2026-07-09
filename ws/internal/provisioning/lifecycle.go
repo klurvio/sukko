@@ -119,13 +119,13 @@ func (lm *LifecycleManager) processDeletions(parent context.Context) {
 		if err := lm.deleteTenant(ctx, tenant); err != nil {
 			lm.logger.Error().
 				Err(err).
-				Str("tenant_id", tenant.ID).
+				Str(logging.LogKeyTenantUUID, tenant.ID).
 				Msg("Failed to delete tenant")
 			continue
 		}
 
 		lm.logger.Info().
-			Str("tenant_id", tenant.ID).
+			Str(logging.LogKeyTenantUUID, tenant.ID).
 			Str("tenant_name", tenant.Name).
 			Msg("Tenant deleted successfully")
 	}
@@ -142,7 +142,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 		if err != nil {
 			lm.logger.Warn().
 				Err(err).
-				Str("slug", tenantSlug).
+				Str(logging.LogKeyTenantSlug, tenantSlug).
 				Msg("Failed to get routing rules for topic deletion, continuing anyway")
 		} else {
 			seen := make(map[string]struct{})
@@ -167,7 +167,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 		if err := lm.service.routingRules.DeleteAll(ctx, tenantID); err != nil {
 			lm.logger.Warn().
 				Err(err).
-				Str("slug", tenantSlug).
+				Str(logging.LogKeyTenantSlug, tenantSlug).
 				Msg("Failed to delete routing rules, continuing anyway")
 		}
 	}
@@ -185,7 +185,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 	if err := lm.service.kafka.DeleteACL(ctx, topicACL); err != nil {
 		lm.logger.Warn().
 			Err(err).
-			Str("slug", tenantSlug).
+			Str(logging.LogKeyTenantSlug, tenantSlug).
 			Msg("Failed to delete topic ACL, continuing anyway")
 	}
 
@@ -201,7 +201,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 	if err := lm.service.kafka.DeleteACL(ctx, groupACL); err != nil {
 		lm.logger.Warn().
 			Err(err).
-			Str("slug", tenantSlug).
+			Str(logging.LogKeyTenantSlug, tenantSlug).
 			Msg("Failed to delete group ACL, continuing anyway")
 	}
 
@@ -217,7 +217,7 @@ func (lm *LifecycleManager) deleteTenant(ctx context.Context, tenant *Tenant) er
 	}); err != nil {
 		lm.logger.Warn().
 			Err(err).
-			Str("slug", tenantSlug).
+			Str(logging.LogKeyTenantSlug, tenantSlug).
 			Msg("Failed to log deletion audit entry")
 	}
 

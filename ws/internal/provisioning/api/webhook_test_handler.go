@@ -15,6 +15,7 @@ import (
 
 	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/webhook"
 )
 
@@ -95,7 +96,7 @@ func (h *WebhookTestHandler) HandleTestDeliver(w http.ResponseWriter, r *http.Re
 	// Rate limit: per-tenant (30/min) — fail-open when Valkey unavailable.
 	tenantKey := webhook.WebhookTestRLTenantKeyPrefix + tenantID
 	if allowed, retryAfter, err := h.tenantRateLimiter.Allow(r.Context(), tenantKey); err != nil {
-		h.logger.Warn().Err(err).Str("tenant_id", tenantID).
+		h.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, tenantID).
 			Msg("rate limiter unavailable for tenant key — failing open (FR-012)")
 	} else if !allowed {
 		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter/time.Second)+1))

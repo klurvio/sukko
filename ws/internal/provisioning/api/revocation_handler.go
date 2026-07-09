@@ -15,6 +15,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/revocation"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 var revocationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -133,7 +134,7 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 	// required when the store is migrated to a persistent backend.
 	if err := h.store.Revoke(entry); err != nil {
 		revocationTotal.WithLabelValues(revType, revResultError).Inc()
-		h.logger.Error().Err(err).Str("type", revType).Str("tenant_id", tenantSlug).Msg("revocation store error")
+		h.logger.Error().Err(err).Str("type", revType).Str(logging.LogKeyTenantSlug, tenantSlug).Msg("revocation store error")
 		httputil.WriteError(w, http.StatusInternalServerError, errCodeInternal, "failed to store revocation")
 		return
 	}
@@ -143,7 +144,7 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 
 	revocationTotal.WithLabelValues(revType, revResultSuccess).Inc()
 
-	logEvt := h.logger.Info().Str("type", revType).Str("tenant_id", tenantSlug).Str("client_ip", clientIP)
+	logEvt := h.logger.Info().Str("type", revType).Str(logging.LogKeyTenantSlug, tenantSlug).Str("client_ip", clientIP)
 	if revType == revTypeUser {
 		logEvt = logEvt.Str("sub", req.Sub)
 	} else {

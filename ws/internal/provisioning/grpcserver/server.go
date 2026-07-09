@@ -18,6 +18,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/provisioning/revocation"
 	"github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
@@ -432,8 +433,8 @@ func (s *Server) StorePushCredentials(ctx context.Context, req *provisioningv1.S
 
 	logger := s.logger.With().
 		Str("rpc", "StorePushCredentials").
-		Str("tenant_slug", tenantSlug).
-		Str("tenant_uuid", tenant.ID).
+		Str(logging.LogKeyTenantSlug, tenantSlug).
+		Str(logging.LogKeyTenantUUID, tenant.ID).
 		Str("provider", provider).
 		Logger()
 
@@ -503,7 +504,7 @@ func (s *Server) convertPushCredentials(creds []*repository.PushCredential, slug
 	for _, c := range creds {
 		slug, ok := slugByUUID[c.TenantID]
 		if !ok {
-			s.logger.Warn().Str("tenant_uuid", c.TenantID).Str("provider", c.Provider).
+			s.logger.Warn().Str(logging.LogKeyTenantUUID, c.TenantID).Str("provider", c.Provider).
 				Msg("push credential skipped: tenant UUID has no slug mapping")
 			continue
 		}
@@ -523,7 +524,7 @@ func (s *Server) convertPushChannelConfigs(configs []*repository.PushChannelConf
 	for _, c := range configs {
 		slug, ok := slugByUUID[c.TenantID]
 		if !ok {
-			s.logger.Warn().Str("tenant_uuid", c.TenantID).
+			s.logger.Warn().Str(logging.LogKeyTenantUUID, c.TenantID).
 				Msg("push channel config skipped: tenant UUID has no slug mapping")
 			continue
 		}
@@ -581,7 +582,7 @@ func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.Tenan
 		// Load channel rules (optional — not all tenants have rules configured)
 		channelRules, err := s.service.GetChannelRules(ctx, tenant.Slug)
 		if err != nil && !errors.Is(err, types.ErrChannelRulesNotFound) && !errors.Is(err, provisioning.ErrChannelRulesNotConfigured) {
-			s.logger.Warn().Err(err).Str("tenant_id", tenant.ID).Msg("failed to load channel rules")
+			s.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, tenant.ID).Msg("failed to load channel rules")
 		}
 		if err == nil && channelRules != nil {
 			tc.ChannelRules = convertChannelRules(&channelRules.Rules)
@@ -590,7 +591,7 @@ func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.Tenan
 		// Load routing rules (optional — not all tenants have rules configured)
 		routingRules, err := s.service.GetRoutingRules(ctx, tenant.Slug)
 		if err != nil && !errors.Is(err, provisioning.ErrRoutingRulesNotConfigured) && !errors.Is(err, provisioning.ErrRoutingRulesNotFound) {
-			s.logger.Debug().Err(err).Str("tenant_id", tenant.ID).Msg("failed to load routing rules")
+			s.logger.Debug().Err(err).Str(logging.LogKeyTenantUUID, tenant.ID).Msg("failed to load routing rules")
 		}
 		if err == nil && len(routingRules) > 0 {
 			tc.RoutingRules = convertRoutingRules(routingRules)
@@ -619,7 +620,7 @@ func (s *Server) loadTopicsUpdate(ctx context.Context, namespace string) (*provi
 
 		rules, err := s.service.GetRoutingRules(ctx, tenant.Slug)
 		if err != nil {
-			s.logger.Debug().Err(err).Str("tenant_id", tenant.ID).
+			s.logger.Debug().Err(err).Str(logging.LogKeyTenantUUID, tenant.ID).
 				Msg("Skipping tenant in topics update: no routing rules")
 			continue
 		}

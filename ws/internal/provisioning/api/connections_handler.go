@@ -201,7 +201,7 @@ func (h *ConnectionsHandler) HandleListConnections(w http.ResponseWriter, r *htt
 
 	items, total, err := h.reader.listTenantConnections(r.Context(), tenantSlug, filters)
 	if err != nil {
-		h.logger.Warn().Err(err).Str("tenant_id", tenantSlug).Msg("connections: listTenantConnections failed")
+		h.logger.Warn().Err(err).Str(logging.LogKeyTenantSlug, tenantSlug).Msg("connections: listTenantConnections failed")
 		w.Header().Set("Retry-After", strconv.Itoa(int(platform.RetryAfterRegistryUnavailable.Seconds())))
 		httputil.WriteError(w, http.StatusServiceUnavailable, errCodeServiceUnavailable, errMsgRegistryUnavailable)
 		return
@@ -354,7 +354,7 @@ func (h *ConnectionsHandler) HandleBulkDisconnect(w http.ResponseWriter, r *http
 	}
 	items, _, err := h.reader.listTenantConnections(r.Context(), tenantSlug, filters)
 	if err != nil {
-		h.logger.Warn().Err(err).Str("tenant_id", tenantSlug).Msg("connections: bulk listTenantConnections failed")
+		h.logger.Warn().Err(err).Str(logging.LogKeyTenantSlug, tenantSlug).Msg("connections: bulk listTenantConnections failed")
 		w.Header().Set("Retry-After", strconv.Itoa(int(platform.RetryAfterRegistryUnavailable.Seconds())))
 		httputil.WriteError(w, http.StatusServiceUnavailable, errCodeServiceUnavailable, errMsgRegistryUnavailable)
 		return
@@ -454,7 +454,7 @@ func (h *ConnectionsHandler) HandleBulkDisconnect(w http.ResponseWriter, r *http
 			defer reCancel()
 			reItems, _, reErr := h.reader.listTenantConnections(reCtx, tenantSlugCopy, filtersCopy)
 			if reErr != nil {
-				h.logger.Warn().Err(reErr).Str("tenant_id", tenantSlugCopy).Msg("connections: bulk re-query failed")
+				h.logger.Warn().Err(reErr).Str(logging.LogKeyTenantSlug, tenantSlugCopy).Msg("connections: bulk re-query failed")
 				return
 			}
 			// Batch-fetch health keys for unique pods before the loop (avoids N round-trips).
@@ -503,7 +503,7 @@ func (h *ConnectionsHandler) HandleAdminListConnections(w http.ResponseWriter, r
 		// Single-tenant query — use the tenant index directly.
 		items, total, err := h.reader.listTenantConnections(r.Context(), tenantID, filters)
 		if err != nil {
-			h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("connections: admin single-tenant list failed")
+			h.logger.Warn().Err(err).Str(logging.LogKeyTenantSlug, tenantID).Msg("connections: admin single-tenant list failed")
 			w.Header().Set("Retry-After", strconv.Itoa(int(platform.RetryAfterRegistryUnavailable.Seconds())))
 			httputil.WriteError(w, http.StatusServiceUnavailable, errCodeServiceUnavailable, errMsgRegistryUnavailable)
 			return
@@ -549,7 +549,7 @@ func (h *ConnectionsHandler) HandleAdminListConnections(w http.ResponseWriter, r
 			// Registry is slug-keyed (data plane) — query by slug, not the tenant UUID.
 			items, _, err := h.reader.listTenantConnections(r.Context(), t.Slug, tFilters)
 			if err != nil {
-				h.logger.Warn().Err(err).Str("tenant_slug", t.Slug).Msg("connections: admin list: tenant read failed, skipping")
+				h.logger.Warn().Err(err).Str(logging.LogKeyTenantSlug, t.Slug).Msg("connections: admin list: tenant read failed, skipping")
 				continue
 			}
 			// Apply pod_id post-fetch filter.

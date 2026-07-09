@@ -236,7 +236,7 @@ func (s *Service) handleMessage(tenantID, channelKey string, data []byte) {
 	if len(patterns) == 0 {
 		// LOG-001: No push patterns configured for tenant
 		if s.logger.Debug().Enabled() {
-			s.logger.Debug().Str("tenant_id", tenantID).Str("channel_key", channelKey).
+			s.logger.Debug().Str(logging.LogKeyTenantSlug, tenantID).Str("channel_key", channelKey).
 				Msg("no push patterns configured for tenant")
 		}
 		return
@@ -246,7 +246,7 @@ func (s *Service) handleMessage(tenantID, channelKey string, data []byte) {
 	if !consumer.MatchChannel(channelKey, patterns) {
 		// LOG-002: Channel did not match push patterns
 		if s.logger.Debug().Enabled() {
-			s.logger.Debug().Str("tenant_id", tenantID).Str("channel_key", channelKey).
+			s.logger.Debug().Str(logging.LogKeyTenantSlug, tenantID).Str("channel_key", channelKey).
 				Int("pattern_count", len(patterns)).
 				Msg("channel did not match push patterns")
 		}
@@ -259,7 +259,7 @@ func (s *Service) handleMessage(tenantID, channelKey string, data []byte) {
 	if err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("tenant_id", tenantID).
+			Str(logging.LogKeyTenantSlug, tenantID).
 			Msg("Failed to find subscriptions for tenant")
 		return
 	}
@@ -267,7 +267,7 @@ func (s *Service) handleMessage(tenantID, channelKey string, data []byte) {
 	if len(subs) == 0 {
 		// LOG-003: No push subscriptions for tenant
 		if s.logger.Debug().Enabled() {
-			s.logger.Debug().Str("tenant_id", tenantID).Str("channel_key", channelKey).
+			s.logger.Debug().Str(logging.LogKeyTenantSlug, tenantID).Str("channel_key", channelKey).
 				Int("subscription_count", 0).
 				Msg("no push subscriptions for tenant")
 		}
@@ -307,7 +307,7 @@ func (s *Service) handleMessage(tenantID, channelKey string, data []byte) {
 
 	// LOG-004: Push jobs enqueued
 	if s.logger.Debug().Enabled() && jobsEnqueued > 0 {
-		s.logger.Debug().Str("tenant_id", tenantID).Str("channel_key", channelKey).
+		s.logger.Debug().Str(logging.LogKeyTenantSlug, tenantID).Str("channel_key", channelKey).
 			Int("jobs_enqueued", jobsEnqueued).Strs("platforms", platforms).
 			Msg("push jobs enqueued")
 	}

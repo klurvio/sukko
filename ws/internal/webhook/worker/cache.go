@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/klurvio/sukko/internal/provisioning"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
@@ -94,7 +95,7 @@ func (c *WebhookCache) Refresh(ctx context.Context, tenantID string) error {
 func (c *WebhookCache) RefreshAll(ctx context.Context) error {
 	for _, tid := range c.TenantIDs() {
 		if err := c.Refresh(ctx, tid); err != nil {
-			c.logger.Warn().Err(err).Str("tenant_id", tid).Msg("cache TTL refresh failed for tenant")
+			c.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, tid).Msg("cache TTL refresh failed for tenant")
 		}
 	}
 	return nil
@@ -110,7 +111,7 @@ func (c *WebhookCache) Hydrate(ctx context.Context) ([]WebhookRecord, error) {
 	var degraded []WebhookRecord
 	for _, tid := range tenantIDs {
 		if err := c.fetchAndStore(ctx, tid); err != nil {
-			c.logger.Warn().Err(err).Str("tenant_id", tid).Msg("hydration failed for tenant; skipping")
+			c.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, tid).Msg("hydration failed for tenant; skipping")
 			continue
 		}
 		for _, r := range c.Get(tid) {

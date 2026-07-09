@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/crypto"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/types"
 	webhookconst "github.com/klurvio/sukko/internal/webhook"
 )
@@ -134,7 +135,7 @@ func (d *Deliverer) dispatch(ctx context.Context, task DeliveryTask) DeliveryRes
 	if err != nil {
 		d.logger.Warn().Err(err).
 			Str("webhook_id", task.WebhookID).
-			Str("tenant_id", task.TenantID).
+			Str(logging.LogKeyTenantUUID, task.TenantID).
 			Msg("webhook secret decryption failed")
 		// §IX: secrets must not appear in errors. No secret content logged.
 		return DeliveryResult{Error: "decryption_failure", StatusLabel: StatusLabelDecryptFail}

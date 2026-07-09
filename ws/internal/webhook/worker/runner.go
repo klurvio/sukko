@@ -257,7 +257,7 @@ func (r *Runner) invalidationConsumer() {
 				return
 			}
 			if err := r.cfg.Cache.Refresh(r.ctx, tenantID); err != nil {
-				r.cfg.Logger.Warn().Err(err).Str("tenant_id", tenantID).
+				r.cfg.Logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, tenantID).
 					Msg("invalidation-triggered cache refresh failed")
 			}
 		}
@@ -618,7 +618,7 @@ func (r *Runner) dropOldest(incoming DeliveryTask, _ DeliveryResult) {
 		r.recordDelivery(t, DeliveryResult{StatusLabel: StatusLabelDropped, Error: "queue_full_refill"})
 		r.cfg.Logger.Warn().
 			Str("webhook_id", t.WebhookID).
-			Str("tenant_id", t.TenantID).
+			Str(logging.LogKeyTenantUUID, t.TenantID).
 			Msg("task dropped during dropOldest refill (concurrent sender race)")
 	}
 

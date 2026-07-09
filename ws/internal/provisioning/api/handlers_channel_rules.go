@@ -9,6 +9,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
 
@@ -23,7 +24,7 @@ func (h *Handler) GetChannelRules(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Channel rules not configured for this tenant")
 			return
 		}
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to get channel rules")
+		h.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenantSlug).Msg("Failed to get channel rules")
 		httputil.WriteError(w, http.StatusInternalServerError, "GET_FAILED", "Failed to get channel rules")
 		return
 	}
@@ -80,13 +81,13 @@ func (h *Handler) SetChannelRules(w http.ResponseWriter, r *http.Request) {
 
 	// Set via service (upsert)
 	if err := h.service.SetChannelRules(r.Context(), tenantSlug, rules); err != nil {
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to set channel rules")
+		h.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenantSlug).Msg("Failed to set channel rules")
 		h.writeServiceError(w, err, "SET_FAILED", "Failed to set channel rules")
 		return
 	}
 
 	h.logger.Info().
-		Str("tenant_id", tenantSlug).
+		Str(logging.LogKeyTenantSlug, tenantSlug).
 		Int("public_patterns", len(rules.Public)).
 		Int("group_mappings", len(rules.GroupMappings)).
 		Int("publish_public_patterns", len(rules.PublishPublic)).
@@ -106,13 +107,13 @@ func (h *Handler) DeleteChannelRules(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Channel rules not configured for this tenant")
 			return
 		}
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to delete channel rules")
+		h.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenantSlug).Msg("Failed to delete channel rules")
 		h.writeServiceError(w, err, "DELETE_FAILED", "Failed to delete channel rules")
 		return
 	}
 
 	h.logger.Info().
-		Str("tenant_id", tenantSlug).
+		Str(logging.LogKeyTenantSlug, tenantSlug).
 		Msg("Channel rules deleted")
 
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -139,7 +140,7 @@ func (h *Handler) TestAccess(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		h.logger.Error().Err(err).Str("tenant_id", tenantSlug).Msg("Failed to get channel rules for access test")
+		h.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenantSlug).Msg("Failed to get channel rules for access test")
 		httputil.WriteError(w, http.StatusInternalServerError, "GET_FAILED", "Failed to get channel rules")
 		return
 	}
