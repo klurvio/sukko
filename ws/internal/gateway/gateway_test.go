@@ -365,6 +365,21 @@ func (m *mockAPIKeyLookup) Lookup(apiKey string) (*provapi.APIKeyInfo, bool) {
 
 func (m *mockAPIKeyLookup) Close() error { return nil }
 
+// mockTenantSlugResolver is a test double for TenantSlugResolver (UUID -> slug).
+type mockTenantSlugResolver struct {
+	slugs   map[string]string // tenant UUID -> current slug
+	present bool
+}
+
+func (m *mockTenantSlugResolver) ResolveTenantSlug(_ context.Context, tenantUUID string) (string, error) {
+	if slug, ok := m.slugs[tenantUUID]; ok {
+		return slug, nil
+	}
+	return "", auth.ErrTenantNotResolvable
+}
+
+func (m *mockTenantSlugResolver) TenantUUIDsPresent() bool { return m.present }
+
 // mockLicenseWatcher implements licenseWatcher for testing.
 type mockLicenseWatcher struct {
 	state       int32
@@ -1083,6 +1098,7 @@ func TestHandleWebSocket_IdentityHeaderStripping(t *testing.T) {
 		"valid-key": {KeyID: "pk_live_abc", TenantID: "acme", Name: "test key", IsActive: true},
 	}}
 	gw := newGatewayWithAPIKeyMock(cfg, logger, nil, mock)
+	gw.tenantSlugResolver = &mockTenantSlugResolver{slugs: map[string]string{"acme": "acme"}, present: true}
 
 	gatewayServer := httptest.NewServer(http.HandlerFunc(gw.HandleWebSocket))
 	defer gatewayServer.Close()

@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -47,12 +46,7 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	// 1. Authenticate
 	authRes, authErr := gw.authenticateRequest(ctx, r)
 	if authErr != nil {
-		status := http.StatusUnauthorized
-		code := "UNAUTHORIZED"
-		if errors.Is(authErr, ErrTenantMismatch) {
-			status = http.StatusForbidden
-			code = "FORBIDDEN"
-		}
+		status, code := authErrorResponse(authErr)
 		httputil.WriteError(w, status, code, authErr.Error())
 		return
 	}
@@ -107,7 +101,7 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 
 	// 5a. Permission filtering — tenant prefix, format, and subscribe permissions (FR-009)
 	// API-key-only allowed for public channels (nil claims → public patterns only)
-	allowed := gw.filterSubscribeChannels(ctx, req.Channels, authRes.TenantID, authRes.Claims)
+	allowed := gw.filterSubscribeChannels(ctx, req.Channels, authRes.TenantSlug, authRes.Claims)
 	if len(allowed) != len(req.Channels) {
 		// Build list of denied channels for error message
 		deniedSet := make(map[string]bool, len(req.Channels))
@@ -130,7 +124,7 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	// 6. Forward to push service
 	if gw.pushClient == nil {
 		// LOG-012: Push service unavailable
-		gw.logger.Warn().Str("handler", "subscribe").Str("tenant_id", authRes.TenantID).
+		gw.logger.Warn().Str("handler", "subscribe").Str("tenant_id", authRes.TenantSlug).
 			Msg("push service unavailable")
 		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE",
 			"push service connection not available")
@@ -148,7 +142,7 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := gw.pushClient.RegisterDevice(ctx, &pushv1.RegisterDeviceRequest{
-		TenantId:   authRes.TenantID,
+		TenantId:   authRes.TenantSlug,
 		Principal:  authRes.Principal,
 		Platform:   req.Platform,
 		Token:      req.Token,
@@ -161,7 +155,7 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).
-			Str("tenant_id", authRes.TenantID).
+			Str("tenant_id", authRes.TenantSlug).
 			Str("platform", req.Platform).
 			Msg("Push RegisterDevice failed")
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR",
@@ -170,7 +164,7 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// LOG-013: Push device registered
-	gw.logger.Info().Str("tenant_id", authRes.TenantID).Str("platform", req.Platform).
+	gw.logger.Info().Str("tenant_id", authRes.TenantSlug).Str("platform", req.Platform).
 		Int64("device_id", resp.GetDeviceId()).Msg("push device registered")
 
 	// 7. Return device_id
@@ -192,12 +186,7 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 	// 1. Authenticate
 	authRes, authErr := gw.authenticateRequest(ctx, r)
 	if authErr != nil {
-		status := http.StatusUnauthorized
-		code := "UNAUTHORIZED"
-		if errors.Is(authErr, ErrTenantMismatch) {
-			status = http.StatusForbidden
-			code = "FORBIDDEN"
-		}
+		status, code := authErrorResponse(authErr)
 		httputil.WriteError(w, status, code, authErr.Error())
 		return
 	}
@@ -229,7 +218,7 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 	// 3. Forward to push service
 	if gw.pushClient == nil {
 		// LOG-012: Push service unavailable
-		gw.logger.Warn().Str("handler", "unsubscribe").Str("tenant_id", authRes.TenantID).
+		gw.logger.Warn().Str("handler", "unsubscribe").Str("tenant_id", authRes.TenantSlug).
 			Msg("push service unavailable")
 		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE",
 			"push service connection not available")
@@ -237,12 +226,12 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 	}
 
 	resp, err := gw.pushClient.UnregisterDevice(ctx, &pushv1.UnregisterDeviceRequest{
-		TenantId: authRes.TenantID,
+		TenantId: authRes.TenantSlug,
 		DeviceId: req.DeviceID,
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).
-			Str("tenant_id", authRes.TenantID).
+			Str("tenant_id", authRes.TenantSlug).
 			Int64("device_id", req.DeviceID).
 			Msg("Push UnregisterDevice failed")
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR",
@@ -251,7 +240,7 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 	}
 
 	// LOG-014: Push device unregistered
-	gw.logger.Info().Str("tenant_id", authRes.TenantID).Int64("device_id", req.DeviceID).
+	gw.logger.Info().Str("tenant_id", authRes.TenantSlug).Int64("device_id", req.DeviceID).
 		Msg("push device unregistered")
 
 	// 4. Return success

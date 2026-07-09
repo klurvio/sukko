@@ -30,6 +30,12 @@ var (
 	ErrTenantMismatch = auth.ErrTenantMismatch
 	ErrTokenRevoked   = errors.New("token revoked")
 	ErrMissingJTI     = errors.New("missing jti claim")
+	// ErrTenantUnavailable is returned when API-key auth cannot resolve the
+	// tenant UUID to a slug because the tenant-config projection is not yet warm.
+	// It is retryable → handlers map it to HTTP 503 (not 401), so a client
+	// reconnects once the projection catches up. Fail-closed: the request is
+	// still rejected, never served with an empty tenant slug.
+	ErrTenantUnavailable = errors.New("tenant resolution temporarily unavailable")
 )
 
 // Auth-failure metric method labels for tenant-mismatch rejections (§I named
@@ -59,16 +65,55 @@ func logTenantMismatch(logger zerolog.Logger, err error, remoteAddr string) {
 	evt.Msg("Request rejected: JWT tenant does not match signing key")
 }
 
+// authErrorResponse maps an authenticateRequest error to an (HTTP status, error
+// code) pair: tenant mismatch is a hard 403, a cold-projection resolution
+// failure is a retryable 503, and everything else is 401.
+func authErrorResponse(err error) (status int, code string) {
+	switch {
+	case errors.Is(err, ErrTenantMismatch):
+		return http.StatusForbidden, "FORBIDDEN"
+	case errors.Is(err, ErrTenantUnavailable):
+		return http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE"
+	default:
+		return http.StatusUnauthorized, "UNAUTHORIZED"
+	}
+}
+
+// resolveAPIKeyTenantSlug maps an API key's tenant UUID to the current slug via
+// the reverse projection. It distinguishes a cold projection (transient →
+// ErrTenantUnavailable, HTTP 503) from an unknown tenant against a warm
+// projection (hard reject → ErrTenantMismatch, HTTP 403). It never returns an
+// empty slug without an error, so an API-key request is never served with an
+// empty tenant scope (§II/§IX fail closed).
+func (gw *Gateway) resolveAPIKeyTenantSlug(ctx context.Context, tenantUUID string) (string, error) {
+	if gw.tenantSlugResolver == nil {
+		return "", ErrTenantUnavailable
+	}
+	slug, err := gw.tenantSlugResolver.ResolveTenantSlug(ctx, tenantUUID)
+	if err != nil {
+		if !gw.tenantSlugResolver.TenantUUIDsPresent() {
+			return "", ErrTenantUnavailable
+		}
+		return "", ErrTenantMismatch
+	}
+	if slug == "" {
+		return "", ErrTenantUnavailable
+	}
+	return slug, nil
+}
+
 // authResult holds the validated identity from authenticateRequest.
 type authResult struct {
-	Claims         *auth.Claims // nil for API-key-only or auth-disabled
-	Principal      string       // User identity (JWT subject or "anon:uuid")
-	TenantID       string       // Tenant from JWT or API key
-	APIKeyOnly     bool         // True if only API key was provided (no JWT)
-	APIKeyTenantID string       // API key tenant (for cross-validation)
-	AuthMethod     string       // "none", "api_key", "jwt", "jwt+api_key" — for metrics and logging
-	APIKeyID       string       // Stable database ID of the API key (APIKeyInfo.KeyID); empty if no API key was used
-	UserID         string       // JWT subject claim; empty for API-key-only auth
+	Claims     *auth.Claims // nil for API-key-only or auth-disabled
+	Principal  string       // User identity (JWT subject or "anon:uuid")
+	TenantSlug string       // client-facing routing label — data-plane channel scoping; always populated (resolved for API-key auth)
+	TenantUUID string       // stable tenant UUID (identity of record); may be empty when the resolver is cold for JWT-only auth
+	APIKeyOnly bool         // True if only API key was provided (no JWT)
+	// APIKeyTenantID is the API key's owning tenant UUID (for cross-validation).
+	APIKeyTenantID string
+	AuthMethod     string // "none", "api_key", "jwt", "jwt+api_key" — for metrics and logging
+	APIKeyID       string // Stable database ID of the API key (APIKeyInfo.KeyID); empty if no API key was used
+	UserID         string // JWT subject claim; empty for API-key-only auth
 }
 
 // authenticateRequest validates credentials from the HTTP request.
@@ -103,11 +148,25 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 				Msg("Request rejected: invalid API key")
 			return nil, ErrInvalidAPIKey
 		}
+		// API keys carry only the tenant UUID (info.TenantID). Resolve it to the
+		// current slug for data-plane channel scoping (#161 B0). Fail closed — an
+		// API-key request is never served with an empty tenant slug.
+		tenantSlug, resolveErr := gw.resolveAPIKeyTenantSlug(ctx, info.TenantID)
+		if resolveErr != nil {
+			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "api_key", time.Since(authStart))
+			gw.logger.Warn().
+				Str("tenant_uuid", info.TenantID).
+				Str("remote_addr", r.RemoteAddr).
+				Err(resolveErr).
+				Msg("Request rejected: cannot resolve API-key tenant slug")
+			return nil, resolveErr
+		}
 		RecordAPIKeyAuth(APIKeyAuthAccepted)
 		RecordAuthValidation(pkgmetrics.AuthStatusSuccess, "api_key", time.Since(authStart))
 
 		result := &authResult{
-			TenantID:       info.TenantID,
+			TenantSlug:     tenantSlug,
+			TenantUUID:     info.TenantID,
 			Principal:      "anon:" + uuid.NewString(),
 			APIKeyOnly:     true,
 			APIKeyTenantID: info.TenantID,
@@ -117,7 +176,8 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).
-			Str("tenant_id", result.TenantID).
+			Str("tenant_slug", result.TenantSlug).
+			Str("tenant_uuid", result.TenantUUID).
 			Str("remote_addr", r.RemoteAddr).
 			Msg("API key validated successfully")
 		return result, nil
@@ -159,14 +219,16 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		result := &authResult{
 			Claims:     claims,
 			Principal:  claims.Subject,
-			TenantID:   claims.TenantID,
+			TenantSlug: claims.TenantID,           // JWT tenant_id claim is the slug
+			TenantUUID: claims.ResolvedTenantUUID, // bound to the signing key's tenant (#158)
 			AuthMethod: "jwt",
 			UserID:     claims.Subject,
 			// APIKeyID is empty for JWT-only auth.
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).
-			Str("tenant_id", result.TenantID).
+			Str("tenant_slug", result.TenantSlug).
+			Str("tenant_uuid", result.TenantUUID).
 			Strs("groups", claims.Groups).
 			Str("remote_addr", r.RemoteAddr).
 			Msg("Token validated successfully")
@@ -228,7 +290,8 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		result := &authResult{
 			Claims:         claims,
 			Principal:      claims.Subject,
-			TenantID:       claims.TenantID,
+			TenantSlug:     claims.TenantID,           // JWT tenant_id claim is the slug
+			TenantUUID:     claims.ResolvedTenantUUID, // bound to the signing key's tenant (#158)
 			APIKeyTenantID: info.TenantID,
 			AuthMethod:     "jwt+api_key",
 			APIKeyID:       info.KeyID,
@@ -236,7 +299,8 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).
-			Str("tenant_id", result.TenantID).
+			Str("tenant_slug", result.TenantSlug).
+			Str("tenant_uuid", result.TenantUUID).
 			Str("remote_addr", r.RemoteAddr).
 			Msg("API key and token validated successfully")
 		return result, nil

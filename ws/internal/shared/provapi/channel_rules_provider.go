@@ -57,6 +57,12 @@ type StreamChannelRulesProvider struct {
 	// JWT tenant binding. Guarded by mu; rebuilt on each snapshot.
 	tenantUUIDBySlug map[string]string
 
+	// slugByUUID is the reverse of tenantUUIDBySlug, built from the CURRENT slug
+	// only (never previous-slug aliases) so a UUID always resolves to its live
+	// slug. Backs ResolveTenantSlug for API-key auth, which carries only the
+	// tenant UUID but needs the slug for data-plane channel scoping. Guarded by mu.
+	slugByUUID map[string]string
+
 	snapshotMu       sync.Mutex   // serializes concurrent UpdateEdition + updateTenantConfigs COW writes
 	routingSnapshots atomic.Value // holds map[string]TenantRoutingSnapshot
 
@@ -120,6 +126,7 @@ func NewStreamChannelRulesProvider(cfg StreamChannelRulesProviderConfig) (*Strea
 	r := &StreamChannelRulesProvider{
 		channelRules:     make(map[string]*types.ChannelRules),
 		tenantUUIDBySlug: make(map[string]string),
+		slugByUUID:       make(map[string]string),
 		conn:             conn,
 		config:           cfg,
 		logger:           cfg.Logger.With().Str("component", "stream_channel_rules_provider").Logger(),
@@ -212,6 +219,20 @@ func (r *StreamChannelRulesProvider) ResolveTenantUUID(_ context.Context, slug s
 	return uuid, nil
 }
 
+// ResolveTenantSlug maps a stable tenant UUID to its current slug. It backs
+// API-key auth, which carries only the tenant UUID (API keys have no slug) but
+// needs the slug for data-plane channel scoping. Returns the CURRENT slug — never
+// a previous-slug alias — or auth.ErrTenantNotResolvable when the UUID is unknown.
+func (r *StreamChannelRulesProvider) ResolveTenantSlug(_ context.Context, uuid string) (string, error) {
+	r.mu.RLock()
+	slug, ok := r.slugByUUID[uuid]
+	r.mu.RUnlock()
+	if !ok || slug == "" {
+		return "", auth.ErrTenantNotResolvable
+	}
+	return slug, nil
+}
+
 // Close stops the stream and releases resources.
 func (r *StreamChannelRulesProvider) Close() error {
 	r.cancel()
@@ -285,10 +306,17 @@ func (r *StreamChannelRulesProvider) updateTenantConfigs(resp *provisioningv1.Wa
 	if isSnapshot {
 		r.channelRules = make(map[string]*types.ChannelRules)
 		r.tenantUUIDBySlug = make(map[string]string)
+		r.slugByUUID = make(map[string]string)
 	}
-	for _, tenantID := range removedIDs {
-		delete(r.channelRules, tenantID)
-		delete(r.tenantUUIDBySlug, tenantID)
+	for _, slug := range removedIDs {
+		delete(r.channelRules, slug)
+		// Prune the reverse map by UUID before dropping the forward entry — a
+		// slug key cannot delete from a UUID-keyed map, and leaving a stale
+		// uuid->slug would mis-scope a later API-key auth after tenant removal.
+		if uuid, ok := r.tenantUUIDBySlug[slug]; ok {
+			delete(r.slugByUUID, uuid)
+		}
+		delete(r.tenantUUIDBySlug, slug)
 	}
 	sawUUID := false
 	for _, tc := range tenants {
@@ -298,8 +326,11 @@ func (r *StreamChannelRulesProvider) updateTenantConfigs(resp *provisioningv1.Wa
 		if uuid := tc.GetTenantUuid(); uuid != "" {
 			sawUUID = true
 			r.tenantUUIDBySlug[tc.GetTenantSlug()] = uuid
+			// Reverse map uses the CURRENT slug only — a UUID must resolve to its
+			// live slug, never a stale previous-slug alias.
+			r.slugByUUID[uuid] = tc.GetTenantSlug()
 			// Alias the previous slug during the rename hold window so old-slug
-			// JWTs still resolve to this tenant's UUID.
+			// JWTs still resolve to this tenant's UUID (forward direction only).
 			if prev := tc.GetPreviousSlug(); prev != "" {
 				r.tenantUUIDBySlug[prev] = uuid
 			}

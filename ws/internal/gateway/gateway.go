@@ -61,7 +61,8 @@ type Gateway struct {
 	streamAPIKeyRegistry *provapi.StreamAPIKeyRegistry // concrete for State() in health
 	streamLicenseWatcher licenseWatcher                // nil when provisioning not configured
 
-	apiKeyRegistry       APIKeyLookup // interface for Lookup() + mock injection in tests
+	apiKeyRegistry       APIKeyLookup       // interface for Lookup() + mock injection in tests
+	tenantSlugResolver   TenantSlugResolver // UUID->slug for API-key auth; nil in tests unless injected
 	channelRulesProvider ChannelRulesProvider
 	connTracker          *TenantConnectionTracker // Per-tenant connection tracking
 	tenantPermChecker    *TenantPermissionChecker // Sole channel-authorization source (provisioning-only)
@@ -169,6 +170,9 @@ func (gw *Gateway) setupValidator() error {
 	}
 	gw.streamChannelRules = channelRulesProvider
 	gw.channelRulesProvider = channelRulesProvider
+	// The channel-rules provider also backs the reverse (UUID->slug) resolver used
+	// by API-key auth — API keys carry only the tenant UUID.
+	gw.tenantSlugResolver = channelRulesProvider
 
 	// Build validator config. The channel-rules provider doubles as the tenant
 	// resolver: it caches slug->UUID (rename-aware) from the tenant-config stream,
@@ -314,6 +318,9 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(authErr, ErrTenantMismatch):
 			closeReason = CloseReasonAPIKeyTenantMismatch
 			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "api key and token tenant mismatch")
+		case errors.Is(authErr, ErrTenantUnavailable):
+			closeReason = CloseReasonTenantUnavailable
+			httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "tenant resolution temporarily unavailable")
 		default:
 			closeReason = CloseReasonInvalidToken
 			httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", authErr.Error())
@@ -323,7 +330,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	claims := authRes.Claims
 	principal := authRes.Principal
-	tenantID := authRes.TenantID
+	tenantID := authRes.TenantSlug
 	apiKeyOnly := authRes.APIKeyOnly
 	apiKeyTenantID := authRes.APIKeyTenantID
 

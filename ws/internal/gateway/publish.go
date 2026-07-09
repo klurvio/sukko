@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,12 +76,7 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 	// 3. Authenticate
 	authRes, authErr := gw.authenticateRequest(ctx, r)
 	if authErr != nil {
-		status := http.StatusUnauthorized
-		code := "UNAUTHORIZED"
-		if errors.Is(authErr, ErrTenantMismatch) {
-			status = http.StatusForbidden
-			code = "FORBIDDEN"
-		}
+		status, code := authErrorResponse(authErr)
 		RecordRestPublish("auth_failed", time.Since(startTime))
 		httputil.WriteError(w, status, code, authErr.Error())
 		return
@@ -106,7 +100,7 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate tenant prefix (FR-007)
-	if !auth.ValidateChannelTenant(req.Channel, authRes.TenantID) {
+	if !auth.ValidateChannelTenant(req.Channel, authRes.TenantSlug) {
 		RecordRestPublish("forbidden", time.Since(startTime))
 		httputil.WriteError(w, http.StatusForbidden, "FORBIDDEN",
 			"channel tenant prefix does not match authenticated tenant")
@@ -116,7 +110,7 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 	// Enforce per-tenant publish rules — the same shared check the WS proxy
 	// uses (checkPublishAllowed → tenant checker, §XVIII). Full channel is
 	// passed; the helper strips the tenant prefix internally.
-	if !gw.checkPublishAllowed(ctx, authRes.TenantID, authRes.Claims, req.Channel) {
+	if !gw.checkPublishAllowed(ctx, authRes.TenantSlug, authRes.Claims, req.Channel) {
 		RecordRestPublish("forbidden", time.Since(startTime))
 		httputil.WriteError(w, http.StatusForbidden, "FORBIDDEN",
 			"channel rules deny publish to this channel")
@@ -126,7 +120,7 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 	// 5. Rate limit
 	if gw.publishRateLimiter != nil {
 		clientIP := httputil.GetClientIP(r)
-		if !gw.publishRateLimiter.Allow(authRes.TenantID, clientIP) {
+		if !gw.publishRateLimiter.Allow(authRes.TenantSlug, clientIP) {
 			RecordRestPublish("rate_limited", time.Since(startTime))
 			httputil.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED",
 				"publish rate limit exceeded")
@@ -143,7 +137,7 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := gw.serverClient.Client().Publish(ctx, &serverv1.PublishRequest{
-		TenantSlug: authRes.TenantID,
+		TenantSlug: authRes.TenantSlug,
 		Channel:    req.Channel,
 		Data:       req.Data,
 		Principal:  authRes.Principal,
@@ -151,7 +145,7 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		gw.logger.Error().Err(err).
 			Str("channel", req.Channel).
-			Str("tenant_id", authRes.TenantID).
+			Str("tenant_id", authRes.TenantSlug).
 			Msg("gRPC Publish failed")
 		RecordRestPublish("error", time.Since(startTime))
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR",

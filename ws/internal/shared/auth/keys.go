@@ -32,10 +32,11 @@ var (
 	// tenant-mismatch response and callers route on it via errors.Is.
 	ErrTenantMismatch = errors.New("tenant mismatch")
 
-	// ErrTenantNotResolvable is returned by a TenantResolver when a tenant slug
-	// cannot be resolved to a tenant UUID (unknown/deleted tenant, or the
-	// resolver cache is not yet warm). Tenant-scoped validation treats this as
-	// a rejection (fail closed).
+	// ErrTenantNotResolvable is returned when a tenant identity cannot be resolved
+	// in EITHER direction — a slug that maps to no tenant UUID (JWT tenant binding),
+	// or a tenant UUID that maps to no current slug (API-key data-plane scoping) —
+	// because the tenant is unknown/deleted or the resolver cache is not yet warm.
+	// Tenant-scoped validation treats this as a rejection (fail closed).
 	ErrTenantNotResolvable = errors.New("tenant not resolvable")
 )
 

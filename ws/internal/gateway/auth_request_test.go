@@ -109,10 +109,12 @@ func TestAuthenticateRequest_APIKeyOnly_PopulatesAPIKeyID(t *testing.T) {
 	cfg := &platform.GatewayConfig{
 		AuthConfig: platform.AuthConfig{AuthMode: "required"},
 	}
+	// API keys carry only the tenant UUID; the gateway resolves the slug from
+	// the reverse projection for data-plane channel scoping (#161 B0).
 	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
 		"sk_live_secret": {
 			KeyID:    "db-key-uuid-001",
-			TenantID: "acme",
+			TenantID: "tenant-uuid-acme",
 			Name:     "test key",
 			IsActive: true,
 		},
@@ -120,7 +122,11 @@ func TestAuthenticateRequest_APIKeyOnly_PopulatesAPIKeyID(t *testing.T) {
 	gw := &Gateway{
 		config:         cfg,
 		apiKeyRegistry: mock,
-		logger:         zerolog.Nop(),
+		tenantSlugResolver: &mockTenantSlugResolver{
+			slugs:   map[string]string{"tenant-uuid-acme": "acme"},
+			present: true,
+		},
+		logger: zerolog.Nop(),
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/ws?api_key=sk_live_secret", http.NoBody)
@@ -138,8 +144,52 @@ func TestAuthenticateRequest_APIKeyOnly_PopulatesAPIKeyID(t *testing.T) {
 	if result.AuthMethod != "api_key" {
 		t.Errorf("AuthMethod = %q, want %q", result.AuthMethod, "api_key")
 	}
-	if result.TenantID != "acme" {
-		t.Errorf("TenantID = %q, want %q", result.TenantID, "acme")
+	// TenantUUID is the API key's owning tenant UUID; TenantSlug is resolved from it.
+	if result.TenantUUID != "tenant-uuid-acme" {
+		t.Errorf("TenantUUID = %q, want %q", result.TenantUUID, "tenant-uuid-acme")
+	}
+	if result.TenantSlug != "acme" {
+		t.Errorf("TenantSlug = %q, want %q", result.TenantSlug, "acme")
+	}
+}
+
+// TestAuthenticateRequest_APIKey_FailClosed asserts API-key auth never proceeds
+// with an empty tenant slug (§II/§IX): a cold projection or missing resolver is
+// a retryable ErrTenantUnavailable, and an unknown tenant against a warm
+// projection is a hard ErrTenantMismatch.
+func TestAuthenticateRequest_APIKey_FailClosed(t *testing.T) {
+	t.Parallel()
+
+	cfg := &platform.GatewayConfig{
+		AuthConfig: platform.AuthConfig{AuthMode: "required"},
+	}
+	mock := &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
+		"sk_live_secret": {KeyID: "k1", TenantID: "tenant-uuid-acme", Name: "k", IsActive: true},
+	}}
+
+	tests := []struct {
+		name     string
+		resolver TenantSlugResolver
+		wantErr  error
+	}{
+		{"nil resolver fails closed", nil, ErrTenantUnavailable},
+		{"cold projection is retryable", &mockTenantSlugResolver{present: false}, ErrTenantUnavailable},
+		{"unknown tenant on warm projection is rejected", &mockTenantSlugResolver{slugs: map[string]string{}, present: true}, ErrTenantMismatch},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gw := &Gateway{
+				config:             cfg,
+				apiKeyRegistry:     mock,
+				tenantSlugResolver: tt.resolver,
+				logger:             zerolog.Nop(),
+			}
+			req := httptest.NewRequest(http.MethodGet, "/ws?api_key=sk_live_secret", http.NoBody)
+			if _, err := gw.authenticateRequest(context.Background(), req); !errors.Is(err, tt.wantErr) {
+				t.Errorf("authenticateRequest() error = %v, want %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 
