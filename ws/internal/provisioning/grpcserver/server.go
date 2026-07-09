@@ -409,12 +409,12 @@ func (s *Server) StorePushCredentials(ctx context.Context, req *provisioningv1.S
 		return nil, status.Error(codes.Unimplemented, "push credentials repository not configured")
 	}
 
-	tenantID := req.GetTenantId()
+	tenantSlug := req.GetTenantSlug()
 	provider := req.GetProvider()
 	credentialData := req.GetCredentialData()
 
-	if tenantID == "" {
-		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	if tenantSlug == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_slug is required")
 	}
 	if provider == "" {
 		return nil, status.Error(codes.InvalidArgument, "provider is required")
@@ -423,20 +423,28 @@ func (s *Server) StorePushCredentials(ctx context.Context, req *provisioningv1.S
 		return nil, status.Error(codes.InvalidArgument, "credential_data is required")
 	}
 
+	// Push is slug-native, but push_credentials.tenant_id is a UUID FK — resolve the
+	// slug to the owning tenant's UUID here (provisioning owns the tenant table).
+	tenant, err := s.service.GetTenantBySlug(ctx, tenantSlug)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "resolve tenant slug %q: %v", tenantSlug, err)
+	}
+
 	logger := s.logger.With().
 		Str("rpc", "StorePushCredentials").
-		Str("tenant_id", tenantID).
+		Str("tenant_slug", tenantSlug).
+		Str("tenant_uuid", tenant.ID).
 		Str("provider", provider).
 		Logger()
 
 	cred := &repository.PushCredential{
-		TenantID:       tenantID,
+		TenantID:       tenant.ID,
 		Provider:       provider,
 		CredentialData: credentialData,
 	}
 
 	// Attempt create; if duplicate, update instead.
-	err := s.pushCredentialsRepo.Create(ctx, cred)
+	err = s.pushCredentialsRepo.Create(ctx, cred)
 	if err != nil {
 		if !errors.Is(err, repository.ErrCredentialAlreadyExists) {
 			logger.Error().Err(err).Msg("failed to create push credentials")
@@ -470,18 +478,37 @@ func (s *Server) loadPushConfig(ctx context.Context) (*provisioningv1.WatchPushC
 		return nil, fmt.Errorf("list push channel configs: %w", err)
 	}
 
+	// Push is slug-native, but the push tables key tenant by UUID FK. Build a
+	// UUID->slug map so the stream carries the slug the push runtime keys by.
+	tenants, _, err := s.service.ListTenants(ctx, provisioning.ListOptions{Limit: s.maxTenantsFetchLimit})
+	if err != nil {
+		return nil, fmt.Errorf("list tenants for push slug mapping: %w", err)
+	}
+	slugByUUID := make(map[string]string, len(tenants))
+	for _, t := range tenants {
+		slugByUUID[t.ID] = t.Slug
+	}
+
 	return &provisioningv1.WatchPushConfigResponse{
-		PushCredentials:    convertPushCredentials(creds),
-		PushChannelConfigs: convertPushChannelConfigs(configs),
+		PushCredentials:    s.convertPushCredentials(creds, slugByUUID),
+		PushChannelConfigs: s.convertPushChannelConfigs(configs, slugByUUID),
 	}, nil
 }
 
-// convertPushCredentials converts repository PushCredential to proto PushCredentialInfo.
-func convertPushCredentials(creds []*repository.PushCredential) []*provisioningv1.PushCredentialInfo {
+// convertPushCredentials converts repository PushCredential to proto PushCredentialInfo,
+// emitting the tenant slug (push runtime is slug-native). A credential whose tenant
+// UUID has no slug mapping is skipped and logged — never emitted with an empty slug.
+func (s *Server) convertPushCredentials(creds []*repository.PushCredential, slugByUUID map[string]string) []*provisioningv1.PushCredentialInfo {
 	result := make([]*provisioningv1.PushCredentialInfo, 0, len(creds))
 	for _, c := range creds {
+		slug, ok := slugByUUID[c.TenantID]
+		if !ok {
+			s.logger.Warn().Str("tenant_uuid", c.TenantID).Str("provider", c.Provider).
+				Msg("push credential skipped: tenant UUID has no slug mapping")
+			continue
+		}
 		result = append(result, &provisioningv1.PushCredentialInfo{
-			TenantId:       c.TenantID,
+			TenantSlug:     slug,
 			Provider:       c.Provider,
 			CredentialData: c.CredentialData,
 		})
@@ -489,12 +516,19 @@ func convertPushCredentials(creds []*repository.PushCredential) []*provisioningv
 	return result
 }
 
-// convertPushChannelConfigs converts repository PushChannelConfig to proto PushChannelConfig.
-func convertPushChannelConfigs(configs []*repository.PushChannelConfig) []*provisioningv1.PushChannelConfig {
+// convertPushChannelConfigs converts repository PushChannelConfig to proto PushChannelConfig,
+// emitting the tenant slug. A config whose tenant UUID has no slug mapping is skipped and logged.
+func (s *Server) convertPushChannelConfigs(configs []*repository.PushChannelConfig, slugByUUID map[string]string) []*provisioningv1.PushChannelConfig {
 	result := make([]*provisioningv1.PushChannelConfig, 0, len(configs))
 	for _, c := range configs {
+		slug, ok := slugByUUID[c.TenantID]
+		if !ok {
+			s.logger.Warn().Str("tenant_uuid", c.TenantID).
+				Msg("push channel config skipped: tenant UUID has no slug mapping")
+			continue
+		}
 		result = append(result, &provisioningv1.PushChannelConfig{
-			TenantId:       c.TenantID,
+			TenantSlug:     slug,
 			Patterns:       c.Patterns,
 			DefaultTtl:     clampInt32(c.DefaultTTL),
 			DefaultUrgency: c.DefaultUrgency,

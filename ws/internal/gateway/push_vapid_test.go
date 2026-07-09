@@ -39,8 +39,8 @@ func TestHandlePushVAPIDKey_Success(t *testing.T) {
 	if mock.lastVAPIDReq == nil {
 		t.Fatal("GetVAPIDKey was not called")
 	}
-	if mock.lastVAPIDReq.GetTenantId() != "test-tenant" {
-		t.Errorf("tenant_id = %q, want %q", mock.lastVAPIDReq.GetTenantId(), "test-tenant")
+	if mock.lastVAPIDReq.GetTenantSlug() != "test-tenant" {
+		t.Errorf("tenant_id = %q, want %q", mock.lastVAPIDReq.GetTenantSlug(), "test-tenant")
 	}
 }
 

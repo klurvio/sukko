@@ -30,29 +30,29 @@ func TestApplySnapshot_PatternsAndCredentials(t *testing.T) {
 		IsSnapshot: true,
 		PushCredentials: []*provisioningv1.PushCredentialInfo{
 			{
-				TenantId:       "acme",
+				TenantSlug:     "acme",
 				Provider:       "vapid",
 				CredentialData: `{"public_key":"abc","private_key":"xyz"}`,
 			},
 			{
-				TenantId:       "acme",
+				TenantSlug:     "acme",
 				Provider:       "fcm",
 				CredentialData: `{"api_key":"fcm-key-123"}`,
 			},
 			{
-				TenantId:       "beta",
+				TenantSlug:     "beta",
 				Provider:       "vapid",
 				CredentialData: `{"public_key":"beta-pub","private_key":"beta-priv"}`,
 			},
 		},
 		PushChannelConfigs: []*provisioningv1.PushChannelConfig{
 			{
-				TenantId: "acme",
-				Patterns: []string{"acme.alerts.*", "acme.market.*"},
+				TenantSlug: "acme",
+				Patterns:   []string{"acme.alerts.*", "acme.market.*"},
 			},
 			{
-				TenantId: "beta",
-				Patterns: []string{"beta.notifications.*"},
+				TenantSlug: "beta",
+				Patterns:   []string{"beta.notifications.*"},
 			},
 		},
 	}
@@ -129,7 +129,7 @@ func TestApplySnapshot_ReplacesExisting(t *testing.T) {
 	c.applySnapshot(&provisioningv1.WatchPushConfigResponse{
 		IsSnapshot: true,
 		PushChannelConfigs: []*provisioningv1.PushChannelConfig{
-			{TenantId: "acme", Patterns: []string{"acme.old.*"}},
+			{TenantSlug: "acme", Patterns: []string{"acme.old.*"}},
 		},
 	})
 
@@ -141,7 +141,7 @@ func TestApplySnapshot_ReplacesExisting(t *testing.T) {
 	c.applySnapshot(&provisioningv1.WatchPushConfigResponse{
 		IsSnapshot: true,
 		PushChannelConfigs: []*provisioningv1.PushChannelConfig{
-			{TenantId: "beta", Patterns: []string{"beta.new.*"}},
+			{TenantSlug: "beta", Patterns: []string{"beta.new.*"}},
 		},
 	})
 
@@ -167,21 +167,21 @@ func TestApplyDelta_Upsert(t *testing.T) {
 	c.applySnapshot(&provisioningv1.WatchPushConfigResponse{
 		IsSnapshot: true,
 		PushCredentials: []*provisioningv1.PushCredentialInfo{
-			{TenantId: "acme", Provider: "vapid", CredentialData: `{"public_key":"old"}`},
+			{TenantSlug: "acme", Provider: "vapid", CredentialData: `{"public_key":"old"}`},
 		},
 		PushChannelConfigs: []*provisioningv1.PushChannelConfig{
-			{TenantId: "acme", Patterns: []string{"acme.alerts.*"}},
+			{TenantSlug: "acme", Patterns: []string{"acme.alerts.*"}},
 		},
 	})
 
 	// Apply delta that updates acme's credential and adds beta.
 	c.applyDelta(&provisioningv1.WatchPushConfigResponse{
 		PushCredentials: []*provisioningv1.PushCredentialInfo{
-			{TenantId: "acme", Provider: "vapid", CredentialData: `{"public_key":"new"}`},
-			{TenantId: "beta", Provider: "vapid", CredentialData: `{"public_key":"beta-key"}`},
+			{TenantSlug: "acme", Provider: "vapid", CredentialData: `{"public_key":"new"}`},
+			{TenantSlug: "beta", Provider: "vapid", CredentialData: `{"public_key":"beta-key"}`},
 		},
 		PushChannelConfigs: []*provisioningv1.PushChannelConfig{
-			{TenantId: "beta", Patterns: []string{"beta.market.*"}},
+			{TenantSlug: "beta", Patterns: []string{"beta.market.*"}},
 		},
 	})
 
@@ -220,18 +220,18 @@ func TestApplyDelta_RemoveTenant(t *testing.T) {
 	c.applySnapshot(&provisioningv1.WatchPushConfigResponse{
 		IsSnapshot: true,
 		PushCredentials: []*provisioningv1.PushCredentialInfo{
-			{TenantId: "acme", Provider: "vapid", CredentialData: `{"public_key":"acme-key"}`},
-			{TenantId: "beta", Provider: "vapid", CredentialData: `{"public_key":"beta-key"}`},
+			{TenantSlug: "acme", Provider: "vapid", CredentialData: `{"public_key":"acme-key"}`},
+			{TenantSlug: "beta", Provider: "vapid", CredentialData: `{"public_key":"beta-key"}`},
 		},
 		PushChannelConfigs: []*provisioningv1.PushChannelConfig{
-			{TenantId: "acme", Patterns: []string{"acme.alerts.*"}},
-			{TenantId: "beta", Patterns: []string{"beta.alerts.*"}},
+			{TenantSlug: "acme", Patterns: []string{"acme.alerts.*"}},
+			{TenantSlug: "beta", Patterns: []string{"beta.alerts.*"}},
 		},
 	})
 
 	// Delta removes acme entirely.
 	c.applyDelta(&provisioningv1.WatchPushConfigResponse{
-		RemovedConfigTenantIds: []string{"acme"},
+		RemovedConfigTenantSlugs: []string{"acme"},
 	})
 
 	// acme should be gone.
@@ -257,8 +257,8 @@ func TestApplyDelta_RemoveCredential(t *testing.T) {
 	c.applySnapshot(&provisioningv1.WatchPushConfigResponse{
 		IsSnapshot: true,
 		PushCredentials: []*provisioningv1.PushCredentialInfo{
-			{TenantId: "acme", Provider: "vapid", CredentialData: `{"public_key":"v"}`},
-			{TenantId: "acme", Provider: "fcm", CredentialData: `{"api_key":"f"}`},
+			{TenantSlug: "acme", Provider: "vapid", CredentialData: `{"public_key":"v"}`},
+			{TenantSlug: "acme", Provider: "fcm", CredentialData: `{"api_key":"f"}`},
 		},
 	})
 
@@ -292,7 +292,7 @@ func TestGetPushPatterns_ReturnsCopy(t *testing.T) {
 	c.applySnapshot(&provisioningv1.WatchPushConfigResponse{
 		IsSnapshot: true,
 		PushChannelConfigs: []*provisioningv1.PushChannelConfig{
-			{TenantId: "acme", Patterns: []string{"acme.alerts.*"}},
+			{TenantSlug: "acme", Patterns: []string{"acme.alerts.*"}},
 		},
 	})
 
@@ -318,7 +318,7 @@ func TestGetCredential_ReturnsCopy(t *testing.T) {
 	c.applySnapshot(&provisioningv1.WatchPushConfigResponse{
 		IsSnapshot: true,
 		PushCredentials: []*provisioningv1.PushCredentialInfo{
-			{TenantId: "acme", Provider: "vapid", CredentialData: `{"public_key":"original"}`},
+			{TenantSlug: "acme", Provider: "vapid", CredentialData: `{"public_key":"original"}`},
 		},
 	})
 

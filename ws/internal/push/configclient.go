@@ -382,7 +382,7 @@ func (c *ConfigClient) updatePushConfig(resp *provisioningv1.WatchPushConfigResp
 		Int("credentials", len(resp.GetPushCredentials())).
 		Int("channel_configs", len(resp.GetPushChannelConfigs())).
 		Int("removed_credentials", len(resp.GetRemovedCredentialIds())).
-		Int("removed_tenants", len(resp.GetRemovedConfigTenantIds())).
+		Int("removed_tenants", len(resp.GetRemovedConfigTenantSlugs())).
 		Msg("push config cache updated")
 }
 
@@ -391,7 +391,7 @@ func (c *ConfigClient) applySnapshot(resp *provisioningv1.WatchPushConfigRespons
 	snap := emptySnapshot()
 
 	for _, cred := range resp.GetPushCredentials() {
-		tid := cred.GetTenantId()
+		tid := cred.GetTenantSlug()
 		if _, ok := snap.credentials[tid]; !ok {
 			snap.credentials[tid] = make(map[string]json.RawMessage)
 		}
@@ -400,7 +400,7 @@ func (c *ConfigClient) applySnapshot(resp *provisioningv1.WatchPushConfigRespons
 	}
 
 	for _, cfg := range resp.GetPushChannelConfigs() {
-		tid := cfg.GetTenantId()
+		tid := cfg.GetTenantSlug()
 		patterns := make([]string, len(cfg.GetPatterns()))
 		copy(patterns, cfg.GetPatterns())
 		snap.patterns[tid] = patterns
@@ -454,7 +454,7 @@ func (c *ConfigClient) applyDelta(resp *provisioningv1.WatchPushConfigResponse) 
 	}
 
 	// Apply removals first.
-	for _, tid := range resp.GetRemovedConfigTenantIds() {
+	for _, tid := range resp.GetRemovedConfigTenantSlugs() {
 		delete(snap.patterns, tid)
 		delete(snap.credentials, tid)
 		delete(snap.pushEnabledTenants, tid)
@@ -480,7 +480,7 @@ func (c *ConfigClient) applyDelta(resp *provisioningv1.WatchPushConfigResponse) 
 
 	// Apply upserts.
 	for _, cred := range resp.GetPushCredentials() {
-		tid := cred.GetTenantId()
+		tid := cred.GetTenantSlug()
 		if _, ok := snap.credentials[tid]; !ok {
 			snap.credentials[tid] = make(map[string]json.RawMessage)
 		}
@@ -489,7 +489,7 @@ func (c *ConfigClient) applyDelta(resp *provisioningv1.WatchPushConfigResponse) 
 	}
 
 	for _, cfg := range resp.GetPushChannelConfigs() {
-		tid := cfg.GetTenantId()
+		tid := cfg.GetTenantSlug()
 		patterns := make([]string, len(cfg.GetPatterns()))
 		copy(patterns, cfg.GetPatterns())
 		snap.patterns[tid] = patterns

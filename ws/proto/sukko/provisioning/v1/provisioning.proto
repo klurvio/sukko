@@ -127,17 +127,17 @@ message WatchPushConfigResponse {
   repeated PushCredentialInfo push_credentials = 2;  // Per-tenant provider credentials
   repeated PushChannelConfig push_channel_configs = 3; // Per-tenant push channel patterns
   repeated string removed_credential_ids = 4;        // Credential IDs removed (delta only)
-  repeated string removed_config_tenant_ids = 5;     // Tenant IDs whose push config was removed (delta only)
+  repeated string removed_config_tenant_slugs = 5;   // Tenant slugs whose push config was removed (delta only)
 }
 
 message PushCredentialInfo {
-  string tenant_id = 1;
+  string tenant_slug = 1;     // client-facing routing label (push runtime is slug-native; provisioning joins tenants to emit it)
   string provider = 2;        // "vapid", "fcm", "apns"
   string credential_data = 3; // Decrypted JSON (encrypted at rest, decrypted before streaming)
 }
 
 message PushChannelConfig {
-  string tenant_id = 1;
+  string tenant_slug = 1;         // client-facing routing label (patterns embed the slug prefix)
   repeated string patterns = 2;   // Channel glob patterns WITH tenant prefix
   int32 default_ttl = 3;          // Push TTL in seconds (default 2419200 = 4 weeks)
   string default_urgency = 4;     // "very-low", "low", "normal", "high"
@@ -146,7 +146,7 @@ message PushChannelConfig {
 // --- Store Push Credentials ---
 
 message StorePushCredentialsRequest {
-  string tenant_id = 1;
+  string tenant_slug = 1;         // push sends the slug; provisioning resolves it to the tenant UUID before the push_credentials insert
   string provider = 2;            // "vapid", "fcm", "apns"
   string credential_data = 3;     // Raw JSON (encrypted by provisioning before storage)
 }

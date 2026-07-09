@@ -94,7 +94,7 @@ func (s *Server) RegisterDevice(ctx context.Context, req *pushv1.RegisterDeviceR
 	}
 
 	// Validate tenant
-	if req.GetTenantId() == "" {
+	if req.GetTenantSlug() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 
@@ -128,14 +128,14 @@ func (s *Server) RegisterDevice(ctx context.Context, req *pushv1.RegisterDeviceR
 
 	// Validate tenant prefix on each channel
 	for _, ch := range req.GetChannels() {
-		if !auth.ValidateChannelTenant(ch, req.GetTenantId()) {
-			return nil, status.Errorf(codes.InvalidArgument, "channel %q does not belong to tenant %q", ch, req.GetTenantId())
+		if !auth.ValidateChannelTenant(ch, req.GetTenantSlug()) {
+			return nil, status.Errorf(codes.InvalidArgument, "channel %q does not belong to tenant %q", ch, req.GetTenantSlug())
 		}
 	}
 
 	// Build subscription and persist
 	sub := &repository.PushSubscription{
-		TenantID:   req.GetTenantId(),
+		TenantID:   req.GetTenantSlug(),
 		Principal:  req.GetPrincipal(),
 		Platform:   req.GetPlatform(),
 		Token:      req.GetToken(),
@@ -148,7 +148,7 @@ func (s *Server) RegisterDevice(ctx context.Context, req *pushv1.RegisterDeviceR
 	id, err := s.repo.Create(ctx, sub)
 	if err != nil {
 		s.logger.Error().Err(err).
-			Str("tenant_id", req.GetTenantId()).
+			Str("tenant_id", req.GetTenantSlug()).
 			Str("principal", req.GetPrincipal()).
 			Str("platform", req.GetPlatform()).
 			Msg("RegisterDevice: failed to create subscription")
@@ -157,7 +157,7 @@ func (s *Server) RegisterDevice(ctx context.Context, req *pushv1.RegisterDeviceR
 
 	s.logger.Info().
 		Int64("device_id", id).
-		Str("tenant_id", req.GetTenantId()).
+		Str("tenant_id", req.GetTenantSlug()).
 		Str("principal", req.GetPrincipal()).
 		Str("platform", req.GetPlatform()).
 		Int("channel_count", len(req.GetChannels())).
@@ -174,24 +174,24 @@ func (s *Server) UnregisterDevice(ctx context.Context, req *pushv1.UnregisterDev
 		return nil, status.Errorf(codes.PermissionDenied, "push notifications require Enterprise edition (current: %s)", s.manager.Edition())
 	}
 
-	if req.GetTenantId() == "" {
+	if req.GetTenantSlug() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 	if req.GetDeviceId() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "device_id is required")
 	}
 
-	if err := s.repo.Delete(ctx, req.GetDeviceId(), req.GetTenantId()); err != nil {
+	if err := s.repo.Delete(ctx, req.GetDeviceId(), req.GetTenantSlug()); err != nil {
 		s.logger.Error().Err(err).
 			Int64("device_id", req.GetDeviceId()).
-			Str("tenant_id", req.GetTenantId()).
+			Str("tenant_id", req.GetTenantSlug()).
 			Msg("UnregisterDevice: failed to delete subscription")
 		return nil, status.Errorf(codes.Internal, "delete subscription: %v", err)
 	}
 
 	s.logger.Info().
 		Int64("device_id", req.GetDeviceId()).
-		Str("tenant_id", req.GetTenantId()).
+		Str("tenant_id", req.GetTenantSlug()).
 		Msg("UnregisterDevice: subscription deleted")
 
 	return &pushv1.UnregisterDeviceResponse{}, nil
@@ -212,15 +212,15 @@ func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest
 		return nil, status.Errorf(codes.PermissionDenied, "push notifications require Enterprise edition (current: %s)", s.manager.Edition())
 	}
 
-	if req.GetTenantId() == "" {
+	if req.GetTenantSlug() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 
 	// Check cache first (lock-free fast path)
-	publicKey, err := s.lookupVAPIDPublicKey(req.GetTenantId())
+	publicKey, err := s.lookupVAPIDPublicKey(req.GetTenantSlug())
 	if err != nil {
 		s.logger.Error().Err(err).
-			Str("tenant_id", req.GetTenantId()).
+			Str("tenant_id", req.GetTenantSlug()).
 			Msg("GetVAPIDKey: failed to lookup VAPID credential")
 		return nil, status.Errorf(codes.Internal, "lookup VAPID credential: %v", err)
 	}
@@ -233,7 +233,7 @@ func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest
 	defer s.vapidMu.Unlock()
 
 	// Double-check after acquiring lock (another goroutine may have generated it)
-	publicKey, err = s.lookupVAPIDPublicKey(req.GetTenantId())
+	publicKey, err = s.lookupVAPIDPublicKey(req.GetTenantSlug())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "lookup VAPID credential: %v", err)
 	}
@@ -245,7 +245,7 @@ func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		s.logger.Error().Err(err).
-			Str("tenant_id", req.GetTenantId()).
+			Str("tenant_id", req.GetTenantSlug()).
 			Msg("GetVAPIDKey: failed to generate ECDSA key pair")
 		return nil, status.Errorf(codes.Internal, "generate VAPID key: %v", err)
 	}
@@ -254,7 +254,7 @@ func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest
 	ecdhKey, err := privateKey.ECDH()
 	if err != nil {
 		s.logger.Error().Err(err).
-			Str("tenant_id", req.GetTenantId()).
+			Str("tenant_id", req.GetTenantSlug()).
 			Msg("GetVAPIDKey: failed to convert ECDSA key to ECDH")
 		return nil, status.Errorf(codes.Internal, "convert VAPID key to ECDH: %v", err)
 	}
@@ -269,7 +269,7 @@ func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest
 	cred := vapidCredential{
 		PublicKey:  publicKeyB64,
 		PrivateKey: privateKeyB64,
-		Contact:    "mailto:push@" + req.GetTenantId() + ".sukko.local",
+		Contact:    "mailto:push@" + req.GetTenantSlug() + ".sukko.local",
 	}
 	credJSON, err := json.Marshal(cred) //nolint:gosec // G117: VAPID private key is intentionally serialized for encrypted storage via provisioning
 	if err != nil {
@@ -278,19 +278,19 @@ func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest
 
 	// Store via provisioning service
 	_, err = s.provClient.StorePushCredentials(ctx, &provisioningv1.StorePushCredentialsRequest{
-		TenantId:       req.GetTenantId(),
+		TenantSlug:     req.GetTenantSlug(),
 		Provider:       "vapid",
 		CredentialData: string(credJSON),
 	})
 	if err != nil {
 		s.logger.Error().Err(err).
-			Str("tenant_id", req.GetTenantId()).
+			Str("tenant_id", req.GetTenantSlug()).
 			Msg("GetVAPIDKey: failed to store VAPID credential")
 		return nil, status.Errorf(codes.Internal, "store VAPID credential: %v", err)
 	}
 
 	s.logger.Info().
-		Str("tenant_id", req.GetTenantId()).
+		Str("tenant_id", req.GetTenantSlug()).
 		Msg("GetVAPIDKey: auto-generated VAPID key pair")
 
 	return &pushv1.GetVAPIDKeyResponse{PublicKey: publicKeyB64}, nil

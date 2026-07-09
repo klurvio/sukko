@@ -142,7 +142,7 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := gw.pushClient.RegisterDevice(ctx, &pushv1.RegisterDeviceRequest{
-		TenantId:   authRes.TenantSlug,
+		TenantSlug: authRes.TenantSlug,
 		Principal:  authRes.Principal,
 		Platform:   req.Platform,
 		Token:      req.Token,
@@ -226,8 +226,8 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 	}
 
 	resp, err := gw.pushClient.UnregisterDevice(ctx, &pushv1.UnregisterDeviceRequest{
-		TenantId: authRes.TenantSlug,
-		DeviceId: req.DeviceID,
+		TenantSlug: authRes.TenantSlug,
+		DeviceId:   req.DeviceID,
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).

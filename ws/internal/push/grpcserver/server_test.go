@@ -126,7 +126,7 @@ func (m *mockProvClient) StorePushCredentials(_ context.Context, req *provisioni
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.storedCreds = append(m.storedCreds, storedCredential{
-		TenantID:       req.GetTenantId(),
+		TenantID:       req.GetTenantSlug(),
 		Provider:       req.GetProvider(),
 		CredentialData: req.GetCredentialData(),
 	})
@@ -189,7 +189,7 @@ func TestRegisterDevice_WebPush(t *testing.T) {
 	ctx := context.Background()
 
 	resp, err := env.server.RegisterDevice(ctx, &pushv1.RegisterDeviceRequest{
-		TenantId:   "acme",
+		TenantSlug: "acme",
 		Principal:  "user1",
 		Platform:   "web",
 		Endpoint:   "https://push.example.com/sub/abc",
@@ -230,11 +230,11 @@ func TestRegisterDevice_FCM(t *testing.T) {
 	ctx := context.Background()
 
 	resp, err := env.server.RegisterDevice(ctx, &pushv1.RegisterDeviceRequest{
-		TenantId:  "acme",
-		Principal: "user2",
-		Platform:  "android",
-		Token:     "fcm-token-abc123",
-		Channels:  []string{"acme.notifications.general"},
+		TenantSlug: "acme",
+		Principal:  "user2",
+		Platform:   "android",
+		Token:      "fcm-token-abc123",
+		Channels:   []string{"acme.notifications.general"},
 	})
 	if err != nil {
 		t.Fatalf("RegisterDevice() error = %v", err)
@@ -265,9 +265,9 @@ func TestRegisterDevice_InvalidPlatform(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := env.server.RegisterDevice(ctx, &pushv1.RegisterDeviceRequest{
-		TenantId: "acme",
-		Platform: "unknown",
-		Channels: []string{"acme.alerts.BTC"},
+		TenantSlug: "acme",
+		Platform:   "unknown",
+		Channels:   []string{"acme.alerts.BTC"},
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid platform")
@@ -289,7 +289,7 @@ func TestRegisterDevice_MissingEndpoint(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := env.server.RegisterDevice(ctx, &pushv1.RegisterDeviceRequest{
-		TenantId:   "acme",
+		TenantSlug: "acme",
 		Platform:   "web",
 		P256DhKey:  "some-key",
 		AuthSecret: "some-secret",
@@ -315,9 +315,9 @@ func TestRegisterDevice_MissingToken(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := env.server.RegisterDevice(ctx, &pushv1.RegisterDeviceRequest{
-		TenantId: "acme",
-		Platform: "android",
-		Channels: []string{"acme.alerts.BTC"},
+		TenantSlug: "acme",
+		Platform:   "android",
+		Channels:   []string{"acme.alerts.BTC"},
 	})
 	if err == nil {
 		t.Fatal("expected error for missing token")
@@ -339,7 +339,7 @@ func TestRegisterDevice_InvalidChannelPrefix(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := env.server.RegisterDevice(ctx, &pushv1.RegisterDeviceRequest{
-		TenantId:   "acme",
+		TenantSlug: "acme",
 		Platform:   "web",
 		Endpoint:   "https://push.example.com/sub/abc",
 		P256DhKey:  "some-key",
@@ -366,7 +366,7 @@ func TestRegisterDevice_EmptyChannels(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := env.server.RegisterDevice(ctx, &pushv1.RegisterDeviceRequest{
-		TenantId:   "acme",
+		TenantSlug: "acme",
 		Platform:   "web",
 		Endpoint:   "https://push.example.com/sub/abc",
 		P256DhKey:  "some-key",
@@ -398,7 +398,7 @@ func TestUnregisterDevice(t *testing.T) {
 
 	// Register first.
 	regResp, err := env.server.RegisterDevice(ctx, &pushv1.RegisterDeviceRequest{
-		TenantId:   "acme",
+		TenantSlug: "acme",
 		Principal:  "user1",
 		Platform:   "web",
 		Endpoint:   "https://push.example.com/sub/abc",
@@ -414,8 +414,8 @@ func TestUnregisterDevice(t *testing.T) {
 
 	// Unregister.
 	_, err = env.server.UnregisterDevice(ctx, &pushv1.UnregisterDeviceRequest{
-		TenantId: "acme",
-		DeviceId: deviceID,
+		TenantSlug: "acme",
+		DeviceId:   deviceID,
 	})
 	if err != nil {
 		t.Fatalf("UnregisterDevice() error = %v", err)
@@ -445,7 +445,7 @@ func TestGetVAPIDKey_Cached(t *testing.T) {
 	env.configCache.setCredential("acme", "vapid", json.RawMessage(vapidCred))
 
 	resp, err := env.server.GetVAPIDKey(ctx, &pushv1.GetVAPIDKeyRequest{
-		TenantId: "acme",
+		TenantSlug: "acme",
 	})
 	if err != nil {
 		t.Fatalf("GetVAPIDKey() error = %v", err)
@@ -470,7 +470,7 @@ func TestGetVAPIDKey_AutoGenerate(t *testing.T) {
 
 	// No VAPID credential in cache — should auto-generate.
 	resp, err := env.server.GetVAPIDKey(ctx, &pushv1.GetVAPIDKeyRequest{
-		TenantId: "acme",
+		TenantSlug: "acme",
 	})
 	if err != nil {
 		t.Fatalf("GetVAPIDKey() error = %v", err)
@@ -607,7 +607,7 @@ func TestRegisterDevice_CommunityEdition(t *testing.T) {
 	}
 
 	_, err = srv.RegisterDevice(context.Background(), &pushv1.RegisterDeviceRequest{
-		TenantId:   "t1",
+		TenantSlug: "t1",
 		Platform:   "web",
 		Endpoint:   "https://example.com/push/sub",
 		P256DhKey:  "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8p8v0w",
@@ -634,8 +634,8 @@ func TestUnregisterDevice_CommunityEdition(t *testing.T) {
 	}
 
 	_, err = srv.UnregisterDevice(context.Background(), &pushv1.UnregisterDeviceRequest{
-		TenantId: "t1",
-		DeviceId: 1,
+		TenantSlug: "t1",
+		DeviceId:   1,
 	})
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected PermissionDenied, got %v", err)
@@ -657,7 +657,7 @@ func TestGetVAPIDKey_CommunityEdition(t *testing.T) {
 	}
 
 	_, err = srv.GetVAPIDKey(context.Background(), &pushv1.GetVAPIDKeyRequest{
-		TenantId: "t1",
+		TenantSlug: "t1",
 	})
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected PermissionDenied, got %v", err)
