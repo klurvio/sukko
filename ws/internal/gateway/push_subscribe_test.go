@@ -147,8 +147,8 @@ func TestHandlePushSubscribe_WebSuccess(t *testing.T) {
 	if mock.lastRegisterReq.GetPlatform() != "web" {
 		t.Errorf("platform = %q, want %q", mock.lastRegisterReq.GetPlatform(), "web")
 	}
-	if mock.lastRegisterReq.GetTenantId() != "test-tenant" {
-		t.Errorf("tenant_id = %q, want %q", mock.lastRegisterReq.GetTenantId(), "test-tenant")
+	if mock.lastRegisterReq.GetTenantSlug() != "test-tenant" {
+		t.Errorf("tenant_id = %q, want %q", mock.lastRegisterReq.GetTenantSlug(), "test-tenant")
 	}
 }
 
@@ -390,8 +390,8 @@ func TestHandlePushUnsubscribe_Success(t *testing.T) {
 	if mock.lastUnregisterReq == nil {
 		t.Fatal("UnregisterDevice was not called")
 	}
-	if mock.lastUnregisterReq.GetTenantId() != "test-tenant" {
-		t.Errorf("tenant_id = %q, want %q", mock.lastUnregisterReq.GetTenantId(), "test-tenant")
+	if mock.lastUnregisterReq.GetTenantSlug() != "test-tenant" {
+		t.Errorf("tenant_id = %q, want %q", mock.lastUnregisterReq.GetTenantSlug(), "test-tenant")
 	}
 	if mock.lastUnregisterReq.GetDeviceId() != 42 {
 		t.Errorf("device_id = %d, want 42", mock.lastUnregisterReq.GetDeviceId())

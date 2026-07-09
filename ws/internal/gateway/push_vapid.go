@@ -35,7 +35,7 @@ func (gw *Gateway) HandlePushVAPIDKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := gw.pushClient.GetVAPIDKey(ctx, &pushv1.GetVAPIDKeyRequest{
-		TenantId: authRes.TenantSlug,
+		TenantSlug: authRes.TenantSlug,
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).

@@ -174,7 +174,7 @@ CREATE TABLE push_channel_configs (
 -- Push device subscriptions
 CREATE TABLE push_subscriptions (
     id              SERIAL PRIMARY KEY,
-    tenant_id       UUID NOT NULL,
+    tenant_id       TEXT NOT NULL,   -- tenant slug (push runtime is slug-native; #161)
     principal       VARCHAR NOT NULL,
     platform        VARCHAR NOT NULL,
     token           VARCHAR,

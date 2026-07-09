@@ -24,8 +24,8 @@ const (
 // RegisterDeviceRequest contains device push subscription details.
 type RegisterDeviceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// tenant_id identifies the tenant (from gateway auth).
-	TenantId string `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	// tenant_slug identifies the tenant (from gateway auth) — client-facing routing label.
+	TenantSlug string `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`
 	// principal is the user identity (from JWT claims).
 	Principal string `protobuf:"bytes,2,opt,name=principal,proto3" json:"principal,omitempty"`
 	// platform is the push platform: "web", "android", or "ios".
@@ -79,9 +79,9 @@ func (*RegisterDeviceRequest) Descriptor() ([]byte, []int) {
 	return file_sukko_push_v1_push_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *RegisterDeviceRequest) GetTenantId() string {
+func (x *RegisterDeviceRequest) GetTenantSlug() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -198,8 +198,8 @@ func (x *RegisterDeviceResponse) GetDeviceId() int64 {
 // UnregisterDeviceRequest identifies the subscription to remove.
 type UnregisterDeviceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// tenant_id identifies the tenant (from gateway auth).
-	TenantId string `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	// tenant_slug identifies the tenant (from gateway auth) — client-facing routing label.
+	TenantSlug string `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`
 	// device_id is the subscription ID returned by RegisterDevice.
 	DeviceId      int64 `protobuf:"varint,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -236,9 +236,9 @@ func (*UnregisterDeviceRequest) Descriptor() ([]byte, []int) {
 	return file_sukko_push_v1_push_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *UnregisterDeviceRequest) GetTenantId() string {
+func (x *UnregisterDeviceRequest) GetTenantSlug() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -299,8 +299,8 @@ func (x *UnregisterDeviceResponse) GetSuccess() bool {
 // GetVAPIDKeyRequest identifies the tenant for VAPID key lookup.
 type GetVAPIDKeyRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// tenant_id identifies the tenant (from gateway auth).
-	TenantId      string `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	// tenant_slug identifies the tenant (from gateway auth) — client-facing routing label.
+	TenantSlug    string `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -335,9 +335,9 @@ func (*GetVAPIDKeyRequest) Descriptor() ([]byte, []int) {
 	return file_sukko_push_v1_push_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *GetVAPIDKeyRequest) GetTenantId() string {
+func (x *GetVAPIDKeyRequest) GetTenantSlug() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -392,9 +392,10 @@ var File_sukko_push_v1_push_proto protoreflect.FileDescriptor
 
 const file_sukko_push_v1_push_proto_rawDesc = "" +
 	"\n" +
-	"\x18sukko/push/v1/push.proto\x12\rsukko.push.v1\"\xab\x02\n" +
-	"\x15RegisterDeviceRequest\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1c\n" +
+	"\x18sukko/push/v1/push.proto\x12\rsukko.push.v1\"\xaf\x02\n" +
+	"\x15RegisterDeviceRequest\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\x12\x1c\n" +
 	"\tprincipal\x18\x02 \x01(\tR\tprincipal\x12\x1a\n" +
 	"\bplatform\x18\x03 \x01(\tR\bplatform\x12\x14\n" +
 	"\x05token\x18\x04 \x01(\tR\x05token\x12\x1a\n" +
@@ -408,14 +409,16 @@ const file_sukko_push_v1_push_proto_rawDesc = "" +
 	"\ttoken_iat\x18\n" +
 	" \x01(\x03R\btokenIat\"5\n" +
 	"\x16RegisterDeviceResponse\x12\x1b\n" +
-	"\tdevice_id\x18\x01 \x01(\x03R\bdeviceId\"S\n" +
-	"\x17UnregisterDeviceRequest\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\x03R\bdeviceId\"W\n" +
+	"\x17UnregisterDeviceRequest\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\x12\x1b\n" +
 	"\tdevice_id\x18\x02 \x01(\x03R\bdeviceId\"4\n" +
 	"\x18UnregisterDeviceResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\"1\n" +
-	"\x12GetVAPIDKeyRequest\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\"4\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"5\n" +
+	"\x12GetVAPIDKeyRequest\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\"4\n" +
 	"\x13GetVAPIDKeyResponse\x12\x1d\n" +
 	"\n" +
 	"public_key\x18\x01 \x01(\tR\tpublicKey2\xa7\x02\n" +

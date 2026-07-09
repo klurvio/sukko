@@ -22,8 +22,8 @@ service PushService {
 
 // RegisterDeviceRequest contains device push subscription details.
 message RegisterDeviceRequest {
-  // tenant_id identifies the tenant (from gateway auth).
-  string tenant_id = 1;
+  // tenant_slug identifies the tenant (from gateway auth) — client-facing routing label.
+  string tenant_slug = 1;
 
   // principal is the user identity (from JWT claims).
   string principal = 2;
@@ -62,8 +62,8 @@ message RegisterDeviceResponse {
 
 // UnregisterDeviceRequest identifies the subscription to remove.
 message UnregisterDeviceRequest {
-  // tenant_id identifies the tenant (from gateway auth).
-  string tenant_id = 1;
+  // tenant_slug identifies the tenant (from gateway auth) — client-facing routing label.
+  string tenant_slug = 1;
 
   // device_id is the subscription ID returned by RegisterDevice.
   int64 device_id = 2;
@@ -77,8 +77,8 @@ message UnregisterDeviceResponse {
 
 // GetVAPIDKeyRequest identifies the tenant for VAPID key lookup.
 message GetVAPIDKeyRequest {
-  // tenant_id identifies the tenant (from gateway auth).
-  string tenant_id = 1;
+  // tenant_slug identifies the tenant (from gateway auth) — client-facing routing label.
+  string tenant_slug = 1;
 }
 
 // GetVAPIDKeyResponse contains the tenant's VAPID public key.

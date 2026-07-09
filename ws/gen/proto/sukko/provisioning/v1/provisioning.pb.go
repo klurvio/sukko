@@ -926,14 +926,14 @@ func (*WatchPushConfigRequest) Descriptor() ([]byte, []int) {
 }
 
 type WatchPushConfigResponse struct {
-	state                  protoimpl.MessageState `protogen:"open.v1"`
-	IsSnapshot             bool                   `protobuf:"varint,1,opt,name=is_snapshot,json=isSnapshot,proto3" json:"is_snapshot,omitempty"`                                        // true = full state, false = delta
-	PushCredentials        []*PushCredentialInfo  `protobuf:"bytes,2,rep,name=push_credentials,json=pushCredentials,proto3" json:"push_credentials,omitempty"`                          // Per-tenant provider credentials
-	PushChannelConfigs     []*PushChannelConfig   `protobuf:"bytes,3,rep,name=push_channel_configs,json=pushChannelConfigs,proto3" json:"push_channel_configs,omitempty"`               // Per-tenant push channel patterns
-	RemovedCredentialIds   []string               `protobuf:"bytes,4,rep,name=removed_credential_ids,json=removedCredentialIds,proto3" json:"removed_credential_ids,omitempty"`         // Credential IDs removed (delta only)
-	RemovedConfigTenantIds []string               `protobuf:"bytes,5,rep,name=removed_config_tenant_ids,json=removedConfigTenantIds,proto3" json:"removed_config_tenant_ids,omitempty"` // Tenant IDs whose push config was removed (delta only)
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	IsSnapshot               bool                   `protobuf:"varint,1,opt,name=is_snapshot,json=isSnapshot,proto3" json:"is_snapshot,omitempty"`                                              // true = full state, false = delta
+	PushCredentials          []*PushCredentialInfo  `protobuf:"bytes,2,rep,name=push_credentials,json=pushCredentials,proto3" json:"push_credentials,omitempty"`                                // Per-tenant provider credentials
+	PushChannelConfigs       []*PushChannelConfig   `protobuf:"bytes,3,rep,name=push_channel_configs,json=pushChannelConfigs,proto3" json:"push_channel_configs,omitempty"`                     // Per-tenant push channel patterns
+	RemovedCredentialIds     []string               `protobuf:"bytes,4,rep,name=removed_credential_ids,json=removedCredentialIds,proto3" json:"removed_credential_ids,omitempty"`               // Credential IDs removed (delta only)
+	RemovedConfigTenantSlugs []string               `protobuf:"bytes,5,rep,name=removed_config_tenant_slugs,json=removedConfigTenantSlugs,proto3" json:"removed_config_tenant_slugs,omitempty"` // Tenant slugs whose push config was removed (delta only)
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *WatchPushConfigResponse) Reset() {
@@ -994,16 +994,16 @@ func (x *WatchPushConfigResponse) GetRemovedCredentialIds() []string {
 	return nil
 }
 
-func (x *WatchPushConfigResponse) GetRemovedConfigTenantIds() []string {
+func (x *WatchPushConfigResponse) GetRemovedConfigTenantSlugs() []string {
 	if x != nil {
-		return x.RemovedConfigTenantIds
+		return x.RemovedConfigTenantSlugs
 	}
 	return nil
 }
 
 type PushCredentialInfo struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantSlug     string                 `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`             // client-facing routing label (push runtime is slug-native; provisioning joins tenants to emit it)
 	Provider       string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`                                   // "vapid", "fcm", "apns"
 	CredentialData string                 `protobuf:"bytes,3,opt,name=credential_data,json=credentialData,proto3" json:"credential_data,omitempty"` // Decrypted JSON (encrypted at rest, decrypted before streaming)
 	unknownFields  protoimpl.UnknownFields
@@ -1040,9 +1040,9 @@ func (*PushCredentialInfo) Descriptor() ([]byte, []int) {
 	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *PushCredentialInfo) GetTenantId() string {
+func (x *PushCredentialInfo) GetTenantSlug() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -1063,7 +1063,7 @@ func (x *PushCredentialInfo) GetCredentialData() string {
 
 type PushChannelConfig struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantSlug     string                 `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`             // client-facing routing label (patterns embed the slug prefix)
 	Patterns       []string               `protobuf:"bytes,2,rep,name=patterns,proto3" json:"patterns,omitempty"`                                   // Channel glob patterns WITH tenant prefix
 	DefaultTtl     int32                  `protobuf:"varint,3,opt,name=default_ttl,json=defaultTtl,proto3" json:"default_ttl,omitempty"`            // Push TTL in seconds (default 2419200 = 4 weeks)
 	DefaultUrgency string                 `protobuf:"bytes,4,opt,name=default_urgency,json=defaultUrgency,proto3" json:"default_urgency,omitempty"` // "very-low", "low", "normal", "high"
@@ -1101,9 +1101,9 @@ func (*PushChannelConfig) Descriptor() ([]byte, []int) {
 	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{18}
 }
 
-func (x *PushChannelConfig) GetTenantId() string {
+func (x *PushChannelConfig) GetTenantSlug() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -1131,7 +1131,7 @@ func (x *PushChannelConfig) GetDefaultUrgency() string {
 
 type StorePushCredentialsRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantSlug     string                 `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`             // push sends the slug; provisioning resolves it to the tenant UUID before the push_credentials insert
 	Provider       string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`                                   // "vapid", "fcm", "apns"
 	CredentialData string                 `protobuf:"bytes,3,opt,name=credential_data,json=credentialData,proto3" json:"credential_data,omitempty"` // Raw JSON (encrypted by provisioning before storage)
 	unknownFields  protoimpl.UnknownFields
@@ -1168,9 +1168,9 @@ func (*StorePushCredentialsRequest) Descriptor() ([]byte, []int) {
 	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *StorePushCredentialsRequest) GetTenantId() string {
+func (x *StorePushCredentialsRequest) GetTenantSlug() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -1571,26 +1571,29 @@ const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"tenantUuid\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1b\n" +
 	"\tis_active\x18\x04 \x01(\bR\bisActive\"\x18\n" +
-	"\x16WatchPushConfigRequest\"\xdd\x02\n" +
+	"\x16WatchPushConfigRequest\"\xe1\x02\n" +
 	"\x17WatchPushConfigResponse\x12\x1f\n" +
 	"\vis_snapshot\x18\x01 \x01(\bR\n" +
 	"isSnapshot\x12T\n" +
 	"\x10push_credentials\x18\x02 \x03(\v2).sukko.provisioning.v1.PushCredentialInfoR\x0fpushCredentials\x12Z\n" +
 	"\x14push_channel_configs\x18\x03 \x03(\v2(.sukko.provisioning.v1.PushChannelConfigR\x12pushChannelConfigs\x124\n" +
-	"\x16removed_credential_ids\x18\x04 \x03(\tR\x14removedCredentialIds\x129\n" +
-	"\x19removed_config_tenant_ids\x18\x05 \x03(\tR\x16removedConfigTenantIds\"v\n" +
-	"\x12PushCredentialInfo\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1a\n" +
+	"\x16removed_credential_ids\x18\x04 \x03(\tR\x14removedCredentialIds\x12=\n" +
+	"\x1bremoved_config_tenant_slugs\x18\x05 \x03(\tR\x18removedConfigTenantSlugs\"z\n" +
+	"\x12PushCredentialInfo\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\x12\x1a\n" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12'\n" +
-	"\x0fcredential_data\x18\x03 \x01(\tR\x0ecredentialData\"\x96\x01\n" +
-	"\x11PushChannelConfig\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1a\n" +
+	"\x0fcredential_data\x18\x03 \x01(\tR\x0ecredentialData\"\x9a\x01\n" +
+	"\x11PushChannelConfig\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\x12\x1a\n" +
 	"\bpatterns\x18\x02 \x03(\tR\bpatterns\x12\x1f\n" +
 	"\vdefault_ttl\x18\x03 \x01(\x05R\n" +
 	"defaultTtl\x12'\n" +
-	"\x0fdefault_urgency\x18\x04 \x01(\tR\x0edefaultUrgency\"\x7f\n" +
-	"\x1bStorePushCredentialsRequest\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1a\n" +
+	"\x0fdefault_urgency\x18\x04 \x01(\tR\x0edefaultUrgency\"\x83\x01\n" +
+	"\x1bStorePushCredentialsRequest\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\x12\x1a\n" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12'\n" +
 	"\x0fcredential_data\x18\x03 \x01(\tR\x0ecredentialData\"8\n" +
 	"\x1cStorePushCredentialsResponse\x12\x18\n" +
