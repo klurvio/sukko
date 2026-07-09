@@ -29,6 +29,13 @@ type contextKey string
 const (
 	// ActorContextKey is the context key for the actor (tenant_id:user_id).
 	ActorContextKey contextKey = "actor"
+	// tenantUUIDContextKey holds the validated tenant's UUID (identity-of-record),
+	// stashed by RequireTenant for handlers that write UUID-keyed records (webhooks,
+	// audit log). Reuses the tenant record RequireTenant already fetched — no extra query.
+	// The tenant SLUG (for data-plane/registry reads) is not stashed: it comes from the
+	// already-validated claims.TenantID via getTenantSlugFromClaims, preserving the
+	// connection registry's connect-time-slug keying (see getTenantSlugFromClaims).
+	tenantUUIDContextKey contextKey = "tenant_uuid"
 )
 
 // LoggingMiddleware provides structured request logging.
@@ -284,7 +291,7 @@ func RequireTenant(lookup provisioning.TenantLookupFunc, holdPeriod time.Duratio
 
 			// (3) Direct slug match.
 			if claims.TenantID == tenant.Slug {
-				next.ServeHTTP(w, r)
+				next.ServeHTTP(w, r.WithContext(stashTenantIdentity(r.Context(), tenant)))
 				return
 			}
 
@@ -298,7 +305,7 @@ func RequireTenant(lookup provisioning.TenantLookupFunc, holdPeriod time.Duratio
 				tenant.SlugRenamedAt != nil &&
 				time.Since(*tenant.SlugRenamedAt) < holdPeriod &&
 				claims.TenantID == tenant.PreviousSlug {
-				next.ServeHTTP(w, r)
+				next.ServeHTTP(w, r.WithContext(stashTenantIdentity(r.Context(), tenant)))
 				return
 			}
 
@@ -323,6 +330,35 @@ func GetClaimsFromContext(ctx context.Context) *auth.Claims {
 func GetActorFromContext(ctx context.Context) string {
 	actor, _ := ctx.Value(ActorContextKey).(string)
 	return actor
+}
+
+// stashTenantIdentity stores the validated tenant's UUID (identity-of-record) in ctx.
+// Called by RequireTenant after a successful tenant match so handlers that write
+// UUID-keyed records read the UUID from the validated record rather than from
+// claims.TenantID (a slug).
+func stashTenantIdentity(ctx context.Context, tenant *provisioning.Tenant) context.Context {
+	return context.WithValue(ctx, tenantUUIDContextKey, tenant.ID)
+}
+
+// getTenantUUIDFromContext returns the validated tenant UUID stashed by RequireTenant,
+// or "" when absent (e.g. admin/system callers that bypass the tenant lookup). Handlers
+// that write UUID-keyed records (webhooks, audit log) MUST use this, not claims.TenantID.
+func getTenantUUIDFromContext(r *http.Request) string {
+	v, _ := r.Context().Value(tenantUUIDContextKey).(string)
+	return v
+}
+
+// getTenantSlugFromClaims returns the caller's validated tenant slug (claims.TenantID),
+// or "" when absent. RequireTenant has already verified this slug matches the URL tenant
+// (directly or via the rename grace window). Handlers that read the connection registry
+// (data plane) MUST use this — the registry is keyed by the connect-time slug, so the
+// caller's authenticated slug is the correct scoping key.
+func getTenantSlugFromClaims(r *http.Request) string {
+	claims := GetClaimsFromContext(r.Context())
+	if claims == nil {
+		return ""
+	}
+	return claims.TenantID
 }
 
 // RateLimitMiddleware applies global and per-IP token-bucket rate limits.

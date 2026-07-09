@@ -123,7 +123,7 @@ func (h *WebhookHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	timer := prometheus.NewTimer(webhookRequestDuration.WithLabelValues("create"))
 	defer timer.ObserveDuration()
 
-	tenantID := getTenantIDFromClaims(r)
+	tenantID := getTenantUUIDFromContext(r)
 	if tenantID == "" {
 		httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing tenant context")
 		webhookRequestsTotal.WithLabelValues("create", "error").Inc()
@@ -164,7 +164,7 @@ func (h *WebhookHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 	timer := prometheus.NewTimer(webhookRequestDuration.WithLabelValues("list"))
 	defer timer.ObserveDuration()
 
-	tenantID := getTenantIDFromClaims(r)
+	tenantID := getTenantUUIDFromContext(r)
 	if tenantID == "" {
 		httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing tenant context")
 		webhookRequestsTotal.WithLabelValues("list", "error").Inc()
@@ -200,7 +200,7 @@ func (h *WebhookHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	timer := prometheus.NewTimer(webhookRequestDuration.WithLabelValues("get"))
 	defer timer.ObserveDuration()
 
-	tenantID := getTenantIDFromClaims(r)
+	tenantID := getTenantUUIDFromContext(r)
 	if tenantID == "" {
 		httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing tenant context")
 		webhookRequestsTotal.WithLabelValues("get", "error").Inc()
@@ -223,7 +223,7 @@ func (h *WebhookHandler) HandleUpdate(w http.ResponseWriter, r *http.Request) {
 	timer := prometheus.NewTimer(webhookRequestDuration.WithLabelValues("update"))
 	defer timer.ObserveDuration()
 
-	tenantID := getTenantIDFromClaims(r)
+	tenantID := getTenantUUIDFromContext(r)
 	if tenantID == "" {
 		httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing tenant context")
 		webhookRequestsTotal.WithLabelValues("update", "error").Inc()
@@ -260,7 +260,7 @@ func (h *WebhookHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 	timer := prometheus.NewTimer(webhookRequestDuration.WithLabelValues("delete"))
 	defer timer.ObserveDuration()
 
-	tenantID := getTenantIDFromClaims(r)
+	tenantID := getTenantUUIDFromContext(r)
 	if tenantID == "" {
 		httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing tenant context")
 		webhookRequestsTotal.WithLabelValues("delete", "error").Inc()

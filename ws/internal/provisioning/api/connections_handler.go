@@ -118,15 +118,32 @@ type ConnectionsHandlerParams struct {
 // defaultReQueryDelay is the default bulk re-query delay (2 × default flush interval).
 const defaultReQueryDelay = 10 * time.Second
 
+// connectionsRegistryReader is the subset of registryReader used by ConnectionsHandler.
+// Defined as an interface so handler tests can inject a fake reader without Valkey.
+type connectionsRegistryReader interface {
+	listTenantConnections(ctx context.Context, tenantID string, filters connectionFilters) ([]ConnectionDetail, int, error)
+	getConnection(ctx context.Context, connID, tenantID string) (*ConnectionDetail, error)
+	publishDisconnect(ctx context.Context, podID, connID, tenantID, reason string) (int64, error)
+	isAdminHealthy(ctx context.Context, podID string) bool
+	fetchHealthKeys(ctx context.Context, pods map[string]bool) map[string]map[string]string
+}
+
+// connectionsService is the subset of provisioning.Service used by ConnectionsHandler.
+// Defined as an interface so handler tests can inject a mock (mirrors webhookService).
+type connectionsService interface {
+	AuditLog(ctx context.Context, tenantID, action string, details provisioning.Metadata)
+	ListTenants(ctx context.Context, opts provisioning.ListOptions) ([]*provisioning.Tenant, int, error)
+}
+
 // ConnectionsHandler handles the connections management API.
 type ConnectionsHandler struct {
-	reader         *registryReader
+	reader         connectionsRegistryReader
 	cfg            platform.ProvisioningConfig
 	editionManager *license.Manager
 	logger         zerolog.Logger
 	wg             *sync.WaitGroup
 	serviceCtx     context.Context
-	service        *provisioning.Service
+	service        connectionsService
 	reQueryDelay   time.Duration
 	metrics        *connectionsHandlerMetricsType
 }
@@ -148,23 +165,30 @@ func NewConnectionsHandler(params ConnectionsHandlerParams) *ConnectionsHandler 
 	if reg == nil {
 		reg = prometheus.DefaultRegisterer
 	}
-	return &ConnectionsHandler{
+	h := &ConnectionsHandler{
 		reader:         reader,
 		cfg:            params.Cfg,
 		editionManager: params.EditionManager,
 		logger:         params.Logger,
 		wg:             params.WG,
 		serviceCtx:     svcCtx,
-		service:        params.Service,
 		reQueryDelay:   reQueryDelay,
 		metrics:        newConnectionsHandlerMetrics(reg),
 	}
+	// Assign service only when non-nil: a typed-nil *provisioning.Service stored in the
+	// interface field would make `h.service != nil` true and panic on use. The handler
+	// nil-guards h.service, so leaving it a true nil interface preserves that contract.
+	if params.Service != nil {
+		h.service = params.Service
+	}
+	return h
 }
 
 // HandleListConnections handles GET /tenants/{tenantSlug}/connections.
 func (h *ConnectionsHandler) HandleListConnections(w http.ResponseWriter, r *http.Request) {
-	tenantID := getTenantIDFromClaims(r)
-	if tenantID == "" {
+	// Connection registry is slug-keyed (data plane) — read the caller's authenticated slug.
+	tenantSlug := getTenantSlugFromClaims(r)
+	if tenantSlug == "" {
 		httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing tenant context")
 		return
 	}
@@ -175,9 +199,9 @@ func (h *ConnectionsHandler) HandleListConnections(w http.ResponseWriter, r *htt
 		return
 	}
 
-	items, total, err := h.reader.listTenantConnections(r.Context(), tenantID, filters)
+	items, total, err := h.reader.listTenantConnections(r.Context(), tenantSlug, filters)
 	if err != nil {
-		h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("connections: listTenantConnections failed")
+		h.logger.Warn().Err(err).Str("tenant_id", tenantSlug).Msg("connections: listTenantConnections failed")
 		w.Header().Set("Retry-After", strconv.Itoa(int(platform.RetryAfterRegistryUnavailable.Seconds())))
 		httputil.WriteError(w, http.StatusServiceUnavailable, errCodeServiceUnavailable, errMsgRegistryUnavailable)
 		return
@@ -193,8 +217,9 @@ func (h *ConnectionsHandler) HandleListConnections(w http.ResponseWriter, r *htt
 
 // HandleGetConnection handles GET /tenants/{tenantSlug}/connections/{connId}.
 func (h *ConnectionsHandler) HandleGetConnection(w http.ResponseWriter, r *http.Request) {
-	tenantID := getTenantIDFromClaims(r)
-	if tenantID == "" {
+	// Connection registry is slug-keyed (data plane) — read the caller's authenticated slug.
+	tenantSlug := getTenantSlugFromClaims(r)
+	if tenantSlug == "" {
 		httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing tenant context")
 		return
 	}
@@ -204,7 +229,7 @@ func (h *ConnectionsHandler) HandleGetConnection(w http.ResponseWriter, r *http.
 		return
 	}
 
-	detail, err := h.reader.getConnection(r.Context(), connID, tenantID)
+	detail, err := h.reader.getConnection(r.Context(), connID, tenantSlug)
 	if err != nil {
 		h.logger.Warn().Err(err).Str("conn_id", connID).Msg("connections: getConnection failed")
 		w.Header().Set("Retry-After", strconv.Itoa(int(platform.RetryAfterRegistryUnavailable.Seconds())))
@@ -221,8 +246,13 @@ func (h *ConnectionsHandler) HandleGetConnection(w http.ResponseWriter, r *http.
 
 // HandleDeleteConnection handles DELETE /tenants/{tenantSlug}/connections/{connId}.
 func (h *ConnectionsHandler) HandleDeleteConnection(w http.ResponseWriter, r *http.Request) {
-	tenantID := getTenantIDFromClaims(r)
-	if tenantID == "" {
+	// Registry reads/publish are slug-keyed (data plane) — from the caller's authenticated
+	// slug; the audit record is UUID-keyed (control plane) — from the UUID RequireTenant
+	// stashed. Guard both: both are present together for a validated tenant caller, so an
+	// empty UUID means no validated tenant context (fail closed, like the webhook handlers).
+	tenantSlug := getTenantSlugFromClaims(r)
+	tenantUUID := getTenantUUIDFromContext(r)
+	if tenantSlug == "" || tenantUUID == "" {
 		httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing tenant context")
 		return
 	}
@@ -232,7 +262,7 @@ func (h *ConnectionsHandler) HandleDeleteConnection(w http.ResponseWriter, r *ht
 		return
 	}
 
-	detail, err := h.reader.getConnection(r.Context(), connID, tenantID)
+	detail, err := h.reader.getConnection(r.Context(), connID, tenantSlug)
 	if err != nil {
 		h.logger.Warn().Err(err).Str("conn_id", connID).Msg("connections: getConnection for delete failed")
 		w.Header().Set("Retry-After", strconv.Itoa(int(platform.RetryAfterRegistryUnavailable.Seconds())))
@@ -253,12 +283,12 @@ func (h *ConnectionsHandler) HandleDeleteConnection(w http.ResponseWriter, r *ht
 		return
 	}
 
-	count, err := h.reader.publishDisconnect(r.Context(), detail.PodID, connID, tenantID, registry.AdminDisconnectReasonOperatorRequest)
+	count, err := h.reader.publishDisconnect(r.Context(), detail.PodID, connID, tenantSlug, registry.AdminDisconnectReasonOperatorRequest)
 	if err != nil {
 		h.logger.Warn().Err(err).Str("conn_id", connID).Str("pod_id", detail.PodID).Msg("connections: publishDisconnect failed")
 		h.metrics.DisconnectErrors.WithLabelValues("single").Inc()
 		if h.service != nil {
-			h.service.AuditLog(r.Context(), tenantID, provisioning.ActionForceDisconnect, provisioning.Metadata{
+			h.service.AuditLog(r.Context(), tenantUUID, provisioning.ActionForceDisconnect, provisioning.Metadata{
 				"connection_id": connID,
 				"pod_id":        detail.PodID,
 				"outcome":       "publish_error",
@@ -273,7 +303,7 @@ func (h *ConnectionsHandler) HandleDeleteConnection(w http.ResponseWriter, r *ht
 		// Pod appears dead — stale registry entry.
 		h.metrics.DeadPodDisconnect.Inc()
 		if h.service != nil {
-			h.service.AuditLog(r.Context(), tenantID, provisioning.ActionForceDisconnect, provisioning.Metadata{
+			h.service.AuditLog(r.Context(), tenantUUID, provisioning.ActionForceDisconnect, provisioning.Metadata{
 				"connection_id": connID,
 				"pod_id":        detail.PodID,
 				"outcome":       "dead_pod",
@@ -288,7 +318,7 @@ func (h *ConnectionsHandler) HandleDeleteConnection(w http.ResponseWriter, r *ht
 
 	// Audit log — successful force-disconnect.
 	if h.service != nil {
-		h.service.AuditLog(r.Context(), tenantID, provisioning.ActionForceDisconnect, provisioning.Metadata{
+		h.service.AuditLog(r.Context(), tenantUUID, provisioning.ActionForceDisconnect, provisioning.Metadata{
 			"connection_id": connID,
 			"pod_id":        detail.PodID,
 			"outcome":       "success",
@@ -300,8 +330,13 @@ func (h *ConnectionsHandler) HandleDeleteConnection(w http.ResponseWriter, r *ht
 
 // HandleBulkDisconnect handles DELETE /tenants/{tenantSlug}/connections (bulk by filter).
 func (h *ConnectionsHandler) HandleBulkDisconnect(w http.ResponseWriter, r *http.Request) {
-	tenantID := getTenantIDFromClaims(r)
-	if tenantID == "" {
+	// Registry reads/publish are slug-keyed (data plane) — from the caller's authenticated
+	// slug; the audit record is UUID-keyed (control plane) — from the UUID RequireTenant
+	// stashed. Guard both: both are present together for a validated tenant caller, so an
+	// empty UUID means no validated tenant context (fail closed, like the webhook handlers).
+	tenantSlug := getTenantSlugFromClaims(r)
+	tenantUUID := getTenantUUIDFromContext(r)
+	if tenantSlug == "" || tenantUUID == "" {
 		httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing tenant context")
 		return
 	}
@@ -317,9 +352,9 @@ func (h *ConnectionsHandler) HandleBulkDisconnect(w http.ResponseWriter, r *http
 		Channel:  channel,
 		Limit:    maxAdminConnectionsPageLimit,
 	}
-	items, _, err := h.reader.listTenantConnections(r.Context(), tenantID, filters)
+	items, _, err := h.reader.listTenantConnections(r.Context(), tenantSlug, filters)
 	if err != nil {
-		h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("connections: bulk listTenantConnections failed")
+		h.logger.Warn().Err(err).Str("tenant_id", tenantSlug).Msg("connections: bulk listTenantConnections failed")
 		w.Header().Set("Retry-After", strconv.Itoa(int(platform.RetryAfterRegistryUnavailable.Seconds())))
 		httputil.WriteError(w, http.StatusServiceUnavailable, errCodeServiceUnavailable, errMsgRegistryUnavailable)
 		return
@@ -367,7 +402,7 @@ func (h *ConnectionsHandler) HandleBulkDisconnect(w http.ResponseWriter, r *http
 			if apiKeyID != "" {
 				reason = registry.AdminDisconnectReasonKeyRevoked
 			}
-			count, pubErr := h.reader.publishDisconnect(r.Context(), conn.PodID, conn.ConnectionID, tenantID, reason)
+			count, pubErr := h.reader.publishDisconnect(r.Context(), conn.PodID, conn.ConnectionID, tenantSlug, reason)
 			switch {
 			case pubErr != nil:
 				h.metrics.DisconnectErrors.WithLabelValues("bulk").Inc()
@@ -389,7 +424,7 @@ func (h *ConnectionsHandler) HandleBulkDisconnect(w http.ResponseWriter, r *http
 
 	// Audit log.
 	if h.service != nil {
-		h.service.AuditLog(r.Context(), tenantID, provisioning.ActionBulkDisconnect, provisioning.Metadata{
+		h.service.AuditLog(r.Context(), tenantUUID, provisioning.ActionBulkDisconnect, provisioning.Metadata{
 			"api_key_id": apiKeyID,
 			"channel":    channel,
 		})
@@ -401,7 +436,7 @@ func (h *ConnectionsHandler) HandleBulkDisconnect(w http.ResponseWriter, r *http
 		h.metrics.BulkDisconnectReissue.Inc()
 		// Capture locals for the goroutine — r.Context() is NOT used (it cancels on handler return).
 		reQueryDelay := h.reQueryDelay
-		tenantIDCopy := tenantID
+		tenantSlugCopy := tenantSlug
 		apiKeyIDCopy := apiKeyID
 		filtersCopy := filters
 		h.wg.Go(func() { //nolint:contextcheck // goroutine intentionally uses context.Background() — r.Context() is canceled when the HTTP response returns
@@ -417,9 +452,9 @@ func (h *ConnectionsHandler) HandleBulkDisconnect(w http.ResponseWriter, r *http
 			// if Valkey is slow at shutdown time. reQueryDelay is a reasonable upper bound.
 			reCtx, reCancel := context.WithTimeout(context.Background(), reQueryDelay)
 			defer reCancel()
-			reItems, _, reErr := h.reader.listTenantConnections(reCtx, tenantIDCopy, filtersCopy)
+			reItems, _, reErr := h.reader.listTenantConnections(reCtx, tenantSlugCopy, filtersCopy)
 			if reErr != nil {
-				h.logger.Warn().Err(reErr).Str("tenant_id", tenantIDCopy).Msg("connections: bulk re-query failed")
+				h.logger.Warn().Err(reErr).Str("tenant_id", tenantSlugCopy).Msg("connections: bulk re-query failed")
 				return
 			}
 			// Batch-fetch health keys for unique pods before the loop (avoids N round-trips).
@@ -439,7 +474,7 @@ func (h *ConnectionsHandler) HandleBulkDisconnect(w http.ResponseWriter, r *http
 				}
 				// Best-effort: re-query is a fire-and-forget sweep. Errors and zero-subscriber
 				// count (dead pod) are not surfaced — the caller already received a 202.
-				_, _ = h.reader.publishDisconnect(reCtx, conn.PodID, conn.ConnectionID, tenantIDCopy, reReason)
+				_, _ = h.reader.publishDisconnect(reCtx, conn.PodID, conn.ConnectionID, tenantSlugCopy, reReason)
 				h.metrics.DisconnectTotal.WithLabelValues("bulk_requery").Inc()
 			}
 		})
@@ -511,9 +546,10 @@ func (h *ConnectionsHandler) HandleAdminListConnections(w http.ResponseWriter, r
 				// The outer loop (below) applies the PodID filter post-fetch.
 				Limit: maxAdminConnectionsPageLimit,
 			}
-			items, _, err := h.reader.listTenantConnections(r.Context(), t.ID, tFilters)
+			// Registry is slug-keyed (data plane) — query by slug, not the tenant UUID.
+			items, _, err := h.reader.listTenantConnections(r.Context(), t.Slug, tFilters)
 			if err != nil {
-				h.logger.Warn().Err(err).Str("tenant_id", t.ID).Msg("connections: admin list: tenant read failed, skipping")
+				h.logger.Warn().Err(err).Str("tenant_slug", t.Slug).Msg("connections: admin list: tenant read failed, skipping")
 				continue
 			}
 			// Apply pod_id post-fetch filter.
@@ -545,16 +581,6 @@ func (h *ConnectionsHandler) HandleAdminListConnections(w http.ResponseWriter, r
 		Limit:  filters.Limit,
 		Offset: filters.Offset,
 	})
-}
-
-// getTenantIDFromClaims extracts the tenant ID from the JWT claims in the request context.
-// RequireTenant middleware has already validated that claims.TenantID matches the URL tenantSlug.
-func getTenantIDFromClaims(r *http.Request) string {
-	claims := GetClaimsFromContext(r.Context())
-	if claims == nil {
-		return ""
-	}
-	return claims.TenantID
 }
 
 // parseConnectionFilters extracts and validates pagination + filter params from a request.

@@ -75,7 +75,7 @@ func NewWebhookTestHandler(client testDeliveryClient, webhookRL, tenantRL RateLi
 // Maps gRPC status → HTTP per FR-011: NOT_FOUND→404, UNAVAILABLE/deadline→503, OK→200.
 func (h *WebhookTestHandler) HandleTestDeliver(w http.ResponseWriter, r *http.Request) {
 	webhookID := chi.URLParam(r, "webhookID")
-	tenantID := getTenantIDFromClaims(r)
+	tenantID := getTenantUUIDFromContext(r)
 	if tenantID == "" {
 		httputil.WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing tenant context")
 		return

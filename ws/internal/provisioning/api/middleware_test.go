@@ -313,3 +313,90 @@ func TestRequireTenant(t *testing.T) {
 		})
 	}
 }
+
+// TestRequireTenant_StashesTenantUUID verifies that RequireTenant stashes the validated
+// tenant's UUID (identity-of-record) in context on both the direct-match and grace-period
+// branches, and that the admin/system bypass stashes nothing (the tenant is never looked
+// up). This is the load-bearing guarantee behind #166: handlers that write UUID-keyed
+// records read the UUID from context instead of re-deriving it from claims.TenantID (a slug).
+func TestRequireTenant_StashesTenantUUID(t *testing.T) {
+	t.Parallel()
+
+	recentRename := time.Now().Add(-time.Minute) // within the 1h hold period
+	active := &provisioning.Tenant{ID: "uuid-active", Slug: "acme", Status: provisioning.StatusActive}
+	renamed := &provisioning.Tenant{
+		ID:              "uuid-renamed",
+		Slug:            "new-corp", // current slug
+		Status:          provisioning.StatusActive,
+		SlugRenameState: provisioning.SlugRenameStateComplete,
+		PreviousSlug:    "old-corp",
+		SlugRenamedAt:   &recentRename,
+	}
+
+	lookup := func(_ context.Context, slug string) (*provisioning.Tenant, error) {
+		switch slug {
+		case "acme":
+			return active, nil
+		case "new-corp":
+			return renamed, nil
+		}
+		return nil, provisioning.ErrTenantNotFound
+	}
+
+	tests := []struct {
+		name      string
+		claims    *auth.Claims
+		slugParam string
+		wantUUID  string
+	}{
+		{
+			name:      "direct slug match stashes uuid",
+			claims:    &auth.Claims{TenantID: "acme", Roles: []string{"user"}},
+			slugParam: "acme",
+			wantUUID:  "uuid-active",
+		},
+		{
+			// Grace window: claims carry the OLD slug, but the stashed UUID is the
+			// validated tenant's stable UUID (rename-independent).
+			name:      "grace-period match stashes uuid",
+			claims:    &auth.Claims{TenantID: "old-corp", Roles: []string{"user"}},
+			slugParam: "new-corp",
+			wantUUID:  "uuid-renamed",
+		},
+		{
+			// Admin bypass returns before the lookup — nothing to stash.
+			name:      "admin bypass stashes nothing",
+			claims:    &auth.Claims{TenantID: "whatever", Roles: []string{"admin"}},
+			slugParam: "acme",
+			wantUUID:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var gotUUID string
+			capture := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotUUID = getTenantUUIDFromContext(r)
+				w.WriteHeader(http.StatusOK)
+			})
+			handler := RequireTenant(lookup, time.Hour)(capture)
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+			req = withTenantSlug(req, tt.slugParam)
+			req = withClaims(req, tt.claims)
+			req = req.WithContext(zerolog.Nop().WithContext(req.Context()))
+
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+			}
+			if gotUUID != tt.wantUUID {
+				t.Errorf("stashed UUID = %q, want %q", gotUUID, tt.wantUUID)
+			}
+		})
+	}
+}
