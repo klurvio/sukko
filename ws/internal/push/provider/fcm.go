@@ -10,6 +10,8 @@ import (
 	"firebase.google.com/go/v4/messaging"
 	"github.com/rs/zerolog"
 	"google.golang.org/api/option"
+
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // fcmMaxBatchSize is the maximum number of tokens per FCM SendEachForMulticast call.
@@ -48,7 +50,7 @@ func (p *FCMProvider) InvalidateClient(tenantID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.apps, tenantID)
-	p.logger.Info().Str("tenant_id", tenantID).Msg("invalidated cached FCM client")
+	p.logger.Info().Str(logging.LogKeyTenantSlug, tenantID).Msg("invalidated cached FCM client")
 }
 
 // Close is a no-op for FCM (firebase.App has no Close method).
@@ -86,7 +88,7 @@ func (p *FCMProvider) Send(ctx context.Context, job PushJob) error {
 	}
 
 	p.logger.Debug().
-		Str("tenant_id", job.TenantID).
+		Str(logging.LogKeyTenantSlug, job.TenantID).
 		Str("principal", job.Principal).
 		Str("token", truncateToken(job.Token)).
 		Msg("FCM notification sent")
@@ -173,7 +175,7 @@ func (p *FCMProvider) sendMulticast(ctx context.Context, client *messaging.Clien
 		}
 
 		p.logger.Debug().
-			Str("tenant_id", tenantID).
+			Str(logging.LogKeyTenantSlug, tenantID).
 			Int("success", resp.SuccessCount).
 			Int("failure", resp.FailureCount).
 			Msg("FCM multicast sent")

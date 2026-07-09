@@ -20,6 +20,7 @@ import (
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 	"github.com/klurvio/sukko/internal/shared/platform"
 	"github.com/klurvio/sukko/internal/shared/profiling"
@@ -339,7 +340,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		if !gw.connTracker.TryAcquire(tenantID) {
 			closeReason = CloseReasonTenantLimitExceeded
 			gw.logger.Warn().
-				Str("tenant_id", tenantID).
+				Str(logging.LogKeyTenantSlug, tenantID).
 				Str("remote_addr", remoteAddr).
 				Int64("current_connections", gw.connTracker.GetConnectionCount(tenantID)).
 				Int("limit", gw.connTracker.GetLimit(tenantID)).
@@ -421,7 +422,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	gw.logger.Info().
 		Str("principal", principal).
-		Str("tenant_id", tenantID).
+		Str(logging.LogKeyTenantSlug, tenantID).
 		Str("auth_method", authRes.AuthMethod).
 		Str("remote_addr", remoteAddr).
 		Dur("connect_time", time.Since(startTime)).
@@ -709,7 +710,7 @@ func (gw *Gateway) HandleRevocation(entry provapi.RevocationEntry) {
 		gw.logger.Info().
 			Str("jti", jti).
 			Str("sub", sub).
-			Str("tenant_id", entry.TenantID).
+			Str(logging.LogKeyTenantSlug, entry.TenantID).
 			Str("transport", transport).
 			Str("revocation_type", "token").
 			Msg("connection force-disconnected: token revoked")
@@ -728,7 +729,7 @@ func (gw *Gateway) HandleRevocation(entry provapi.RevocationEntry) {
 			gw.logger.Info().
 				Str("jti", jti).
 				Str("sub", sub).
-				Str("tenant_id", entry.TenantID).
+				Str(logging.LogKeyTenantSlug, entry.TenantID).
 				Str("transport", transport).
 				Str("revocation_type", "user").
 				Msg("connection force-disconnected: user revoked")

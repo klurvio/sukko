@@ -9,6 +9,9 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog"
+
+	"github.com/klurvio/sukko/internal/shared/logging"
+
 	"github.com/sideshow/apns2"
 	"github.com/sideshow/apns2/payload"
 	"github.com/sideshow/apns2/token"
@@ -61,7 +64,7 @@ func (p *APNsProvider) InvalidateClient(tenantID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.clients, tenantID)
-	p.logger.Info().Str("tenant_id", tenantID).Msg("invalidated cached APNs client")
+	p.logger.Info().Str(logging.LogKeyTenantSlug, tenantID).Msg("invalidated cached APNs client")
 }
 
 // Close is a no-op for APNs. The apns2 client uses HTTP/2 persistent connections
@@ -110,7 +113,7 @@ func (p *APNsProvider) Send(ctx context.Context, job PushJob) error {
 	}
 
 	p.logger.Debug().
-		Str("tenant_id", job.TenantID).
+		Str(logging.LogKeyTenantSlug, job.TenantID).
 		Str("principal", job.Principal).
 		Str("token", truncateToken(job.Token)).
 		Msg("APNs notification sent")

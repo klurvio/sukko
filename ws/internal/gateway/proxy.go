@@ -683,7 +683,7 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 	// 1. Rate limit check
 	if !p.authLimiter.Allow() {
 		// LOG-016: Auth refresh denied — rate limited
-		p.logger.Warn().Str("tenant_id", p.tenantID).Str("reason", "rate_limited").
+		p.logger.Warn().Str(logging.LogKeyTenantSlug, p.tenantID).Str("reason", "rate_limited").
 			Msg("auth refresh denied")
 		RecordAuthRefresh(AuthErrRateLimited)
 		return p.sendAuthErrorToClient(AuthErrRateLimited, AuthErrorMessages[AuthErrRateLimited])
@@ -693,7 +693,7 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 	var authData AuthData
 	if err := json.Unmarshal(clientMsg.Data, &authData); err != nil || authData.Token == "" {
 		// LOG-016: Auth refresh denied — invalid token
-		p.logger.Warn().Str("tenant_id", p.tenantID).Str("reason", "invalid_token").
+		p.logger.Warn().Str(logging.LogKeyTenantSlug, p.tenantID).Str("reason", "invalid_token").
 			Msg("auth refresh denied")
 		RecordAuthRefresh(AuthErrInvalidToken)
 		return p.sendAuthErrorToClient(AuthErrInvalidToken, AuthErrorMessages[AuthErrInvalidToken])
@@ -702,7 +702,7 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 	// 4. Validate the new token
 	if p.validator == nil {
 		// LOG-016: Auth refresh denied — not available
-		p.logger.Warn().Str("tenant_id", p.tenantID).Str("reason", "not_available").
+		p.logger.Warn().Str(logging.LogKeyTenantSlug, p.tenantID).Str("reason", "not_available").
 			Msg("auth refresh denied")
 		RecordAuthRefresh(AuthErrNotAvailable)
 		return p.sendAuthErrorToClient(AuthErrNotAvailable, AuthErrorMessages[AuthErrNotAvailable])
@@ -723,7 +723,7 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 			code = AuthErrTenantMismatch
 		}
 		// LOG-016: Auth refresh denied — validation failed
-		p.logger.Warn().Str("tenant_id", p.tenantID).Str("reason", code).
+		p.logger.Warn().Str(logging.LogKeyTenantSlug, p.tenantID).Str("reason", code).
 			Msg("auth refresh denied")
 		RecordAuthRefresh(code)
 		return p.sendAuthErrorToClient(code, AuthErrorMessages[code])

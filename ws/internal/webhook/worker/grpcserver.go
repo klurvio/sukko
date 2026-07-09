@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // InternalServerConfig holds dependencies for the internal gRPC server.
@@ -55,7 +56,7 @@ func (s *InternalServer) TestDeliver(ctx context.Context, req *provisioningv1.Te
 	if s.cfg.Cache.GetByID(tenantID, webhookID) == nil {
 		if err := s.cfg.Cache.Refresh(ctx, tenantID); err != nil {
 			s.cfg.Logger.Warn().Err(err).
-				Str("webhook_id", webhookID).Str("tenant_id", tenantID).
+				Str("webhook_id", webhookID).Str(logging.LogKeyTenantUUID, tenantID).
 				Msg("on-demand cache hydration failed")
 			return nil, status.Errorf(codes.Internal, "cache hydration failed: %v", err)
 		}

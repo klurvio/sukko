@@ -20,6 +20,7 @@ import (
 	"github.com/klurvio/sukko/internal/shared/crypto"
 	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/routing"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
@@ -331,7 +332,7 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 				if dlqErr := s.kafka.DeleteTopic(ctx, deadLetterName); dlqErr != nil {
 					recordCreateTenantTopicProvisionError(topicTypeDLQ, sagaPhaseRollbackFailed)
 					s.logger.Error().Err(dlqErr).
-						Str("slug", tenant.Slug).
+						Str(logging.LogKeyTenantSlug, tenant.Slug).
 						Str("topic", deadLetterName).
 						Msg("saga rollback: failed to delete dead-letter topic after default topic creation failure")
 				}
@@ -351,7 +352,7 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 			if defErr := s.kafka.DeleteTopic(ctx, defaultName); defErr != nil {
 				recordCreateTenantTopicProvisionError(topicTypeDefault, sagaPhaseRollbackFailed)
 				s.logger.Error().Err(defErr).
-					Str("slug", tenant.Slug).
+					Str(logging.LogKeyTenantSlug, tenant.Slug).
 					Str("topic", defaultName).
 					Msg("saga rollback: failed to delete default topic")
 			}
@@ -361,7 +362,7 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 			if dlqErr := s.kafka.DeleteTopic(ctx, deadLetterName); dlqErr != nil {
 				recordCreateTenantTopicProvisionError(topicTypeDLQ, sagaPhaseRollbackFailed)
 				s.logger.Error().Err(dlqErr).
-					Str("slug", tenant.Slug).
+					Str(logging.LogKeyTenantSlug, tenant.Slug).
 					Str("topic", deadLetterName).
 					Msg("saga rollback: failed to delete dead-letter topic")
 			}
@@ -385,7 +386,7 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		// Quotas are non-critical: tenant is usable without quotas (they default to unlimited).
 		// Failing the entire CreateTenant for a quota write failure would be worse than
 		// operating without quotas. The error is logged at Error level for operator visibility.
-		s.logger.Error().Err(err).Str("tenant_id", tenant.ID).Msg("Failed to create quotas")
+		s.logger.Error().Err(err).Str(logging.LogKeyTenantUUID, tenant.ID).Msg("Failed to create quotas")
 	}
 
 	response := &CreateTenantResponse{
@@ -418,7 +419,7 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 	})
 
 	s.logger.Info().
-		Str("tenant_id", tenant.ID).
+		Str(logging.LogKeyTenantUUID, tenant.ID).
 		Str("name", tenant.Name).
 		Msg("Tenant created")
 
@@ -514,7 +515,7 @@ func (s *Service) SuspendTenant(ctx context.Context, tenantID string) error {
 
 	s.auditLog(ctx, tenant.ID, ActionSuspendTenant, nil)
 
-	s.logger.Info().Str("slug", tenant.Slug).Msg("Tenant suspended")
+	s.logger.Info().Str(logging.LogKeyTenantSlug, tenant.Slug).Msg("Tenant suspended")
 
 	s.emitEvent(eventbus.TopicsChanged)
 	s.emitEvent(eventbus.TenantConfigChanged)
@@ -547,7 +548,7 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 				continue // idempotent — topic already exists, nothing to do
 			}
 			s.logger.Error().Err(err).
-				Str("slug", tenant.Slug).
+				Str(logging.LogKeyTenantSlug, tenant.Slug).
 				Str("topic", name).
 				Str("topic_type", spec.topicType).
 				Msg("failed to provision infrastructure topic during reactivation")
@@ -566,7 +567,7 @@ func (s *Service) ReactivateTenant(ctx context.Context, tenantID string) error {
 
 	s.auditLog(ctx, tenant.ID, ActionReactivateTenant, nil)
 
-	s.logger.Info().Str("slug", tenant.Slug).Msg("Tenant reactivated")
+	s.logger.Info().Str(logging.LogKeyTenantSlug, tenant.Slug).Msg("Tenant reactivated")
 
 	s.emitEvent(eventbus.TopicsChanged)
 	s.emitEvent(eventbus.TenantConfigChanged)
@@ -616,7 +617,7 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 
 	// Revoke all keys immediately
 	if err := s.keys.RevokeAllForTenant(ctx, tenant.ID); err != nil {
-		s.logger.Error().Err(err).Str("slug", tenant.Slug).Msg("Failed to revoke keys")
+		s.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenant.Slug).Msg("Failed to revoke keys")
 	} else {
 		s.emitEvent(eventbus.KeysChanged)
 	}
@@ -625,14 +626,14 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 	gracePeriod := time.Duration(s.config.DeprovisionGraceDays) * 24 * time.Hour
 	deprovisionAt := time.Now().Add(gracePeriod)
 	if err := s.tenants.SetDeprovisionAt(ctx, tenant.ID, &deprovisionAt); err != nil {
-		s.logger.Error().Err(err).Str("slug", tenant.Slug).Msg("Failed to set deprovision deadline")
+		s.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenant.Slug).Msg("Failed to set deprovision deadline")
 	}
 
 	// Update topic retention to grace period (Kafka will delete after)
 	if s.routingRules != nil {
 		rules, err := s.routingRules.GetAll(ctx, tenant.ID)
 		if err != nil {
-			s.logger.Warn().Err(err).Str("slug", tenant.Slug).
+			s.logger.Warn().Err(err).Str(logging.LogKeyTenantSlug, tenant.Slug).
 				Msg("Failed to get routing rules for topic retention update")
 		} else {
 			gracePeriodMs := int64(s.config.DeprovisionGraceDays) * msPerDay
@@ -648,7 +649,7 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 						kafka.RetentionMsConfigKey: strconv.FormatInt(gracePeriodMs, 10),
 					}); err != nil {
 						s.logger.Error().Err(err).
-							Str("slug", tenant.Slug).
+							Str(logging.LogKeyTenantSlug, tenant.Slug).
 							Str("topic", topicName).
 							Msg("Failed to update topic retention")
 					}
@@ -663,7 +664,7 @@ func (s *Service) DeprovisionTenant(ctx context.Context, tenantID string, force 
 	})
 
 	s.logger.Info().
-		Str("slug", tenant.Slug).
+		Str(logging.LogKeyTenantSlug, tenant.Slug).
 		Time("deprovision_at", deprovisionAt).
 		Msg("Tenant deprovisioning initiated")
 
@@ -682,7 +683,7 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenant *Tenant) error {
 	if s.routingRules != nil {
 		rules, err := s.routingRules.GetAll(ctx, tenant.ID)
 		if err != nil {
-			s.logger.Debug().Err(err).Str("slug", tenant.Slug).
+			s.logger.Debug().Err(err).Str(logging.LogKeyTenantSlug, tenant.Slug).
 				Msg("Force-delete: no routing rules to clean up") // not-found is expected
 		} else {
 			seen := make(map[string]struct{})
@@ -704,7 +705,7 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenant *Tenant) error {
 
 	// Revoke all JWT signing keys (continue on failure)
 	if err := s.keys.RevokeAllForTenant(ctx, tenant.ID); err != nil {
-		s.logger.Error().Err(err).Str("slug", tenant.Slug).Msg("Force-delete: failed to revoke signing keys")
+		s.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenant.Slug).Msg("Force-delete: failed to revoke signing keys")
 	} else {
 		s.emitEvent(eventbus.KeysChanged)
 	}
@@ -712,13 +713,13 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenant *Tenant) error {
 	// Revoke all API keys (continue on failure — Constitution IX: deleted tenant must not authenticate)
 	if s.apiKeys != nil {
 		if apiKeys, _, err := s.apiKeys.ListByTenant(ctx, tenant.ID, ListOptions{Limit: 10000}); err != nil {
-			s.logger.Error().Err(err).Str("slug", tenant.Slug).Msg("Force-delete: failed to list API keys for revocation")
+			s.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenant.Slug).Msg("Force-delete: failed to list API keys for revocation")
 		} else {
 			anyRevoked := false
 			for _, key := range apiKeys {
 				if key.IsActive {
 					if err := s.apiKeys.Revoke(ctx, key.KeyID); err != nil {
-						s.logger.Error().Err(err).Str("slug", tenant.Slug).Str("key_id", key.KeyID).
+						s.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenant.Slug).Str("key_id", key.KeyID).
 							Msg("Force-delete: failed to revoke API key")
 					} else {
 						anyRevoked = true
@@ -734,7 +735,7 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenant *Tenant) error {
 	// Delete routing rules (continue on failure)
 	if s.routingRules != nil {
 		if err := s.routingRules.DeleteAll(ctx, tenant.ID); err != nil {
-			s.logger.Debug().Err(err).Str("slug", tenant.Slug).
+			s.logger.Debug().Err(err).Str(logging.LogKeyTenantSlug, tenant.Slug).
 				Msg("Force-delete: routing rules delete (not-found is expected)")
 		}
 	}
@@ -742,7 +743,7 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenant *Tenant) error {
 	// Delete channel rules (continue on failure)
 	if s.channelRules != nil {
 		if err := s.channelRules.Delete(ctx, tenant.ID); err != nil {
-			s.logger.Debug().Err(err).Str("slug", tenant.Slug).
+			s.logger.Debug().Err(err).Str(logging.LogKeyTenantSlug, tenant.Slug).
 				Msg("Force-delete: channel rules delete (not-found is expected)")
 		}
 	}
@@ -752,7 +753,7 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenant *Tenant) error {
 		topicName := kafka.BuildTopicName(s.config.TopicNamespace, tenant.Slug, suffix)
 		if err := s.kafka.DeleteTopic(ctx, topicName); err != nil {
 			s.logger.Error().Err(err).
-				Str("slug", tenant.Slug).Str("topic", topicName).
+				Str(logging.LogKeyTenantSlug, tenant.Slug).Str("topic", topicName).
 				Msg("Force-delete: failed to delete topic")
 		}
 	}
@@ -761,7 +762,7 @@ func (s *Service) forceDeleteTenant(ctx context.Context, tenant *Tenant) error {
 		"force": true,
 	})
 
-	s.logger.Info().Str("slug", tenant.Slug).Msg("Tenant force-deleted")
+	s.logger.Info().Str(logging.LogKeyTenantSlug, tenant.Slug).Msg("Tenant force-deleted")
 
 	s.emitEvent(eventbus.TopicsChanged)
 	s.emitEvent(eventbus.TenantConfigChanged)
@@ -802,7 +803,7 @@ func (s *Service) CreateKey(ctx context.Context, tenantID string, req CreateKeyR
 	})
 
 	s.logger.Info().
-		Str("slug", tenant.Slug).
+		Str(logging.LogKeyTenantSlug, tenant.Slug).
 		Str("key_id", key.KeyID).
 		Msg("Key created")
 
@@ -849,7 +850,7 @@ func (s *Service) RevokeKey(ctx context.Context, tenantID, keyID string) error {
 	})
 
 	s.logger.Info().
-		Str("slug", tenant.Slug).
+		Str(logging.LogKeyTenantSlug, tenant.Slug).
 		Str("key_id", keyID).
 		Msg("Key revoked")
 
@@ -932,7 +933,7 @@ func (s *Service) UpdateQuota(ctx context.Context, tenantID string, req UpdateQu
 		ProducerByteRate: quota.ProducerByteRate,
 		ConsumerByteRate: quota.ConsumerByteRate,
 	}); err != nil {
-		s.logger.Error().Err(err).Str("slug", tenant.Slug).Msg("Failed to apply Kafka quotas")
+		s.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenant.Slug).Msg("Failed to apply Kafka quotas")
 	}
 
 	s.auditLog(ctx, tenant.ID, ActionUpdateQuota, Metadata{
@@ -1044,7 +1045,7 @@ func (s *Service) SetChannelRules(ctx context.Context, tenantID string, rules *t
 	})
 
 	s.logger.Info().
-		Str("slug", tenant.Slug).
+		Str(logging.LogKeyTenantSlug, tenant.Slug).
 		Int("public_patterns", len(rules.Public)).
 		Int("group_mappings", len(rules.GroupMappings)).
 		Msg("Channel rules set")
@@ -1078,7 +1079,7 @@ func (s *Service) DeleteChannelRules(ctx context.Context, tenantID string) error
 	s.auditLog(ctx, tenant.ID, ActionDeleteChannelRules, nil)
 
 	s.logger.Info().
-		Str("slug", tenant.Slug).
+		Str(logging.LogKeyTenantSlug, tenant.Slug).
 		Msg("Channel rules deleted")
 
 	s.emitEvent(eventbus.TenantConfigChanged)
@@ -1166,7 +1167,7 @@ func (s *Service) ReplaceRoutingRules(ctx context.Context, tenantID string, rule
 	})
 
 	s.logger.Info().
-		Str("slug", tenant.Slug).
+		Str(logging.LogKeyTenantSlug, tenant.Slug).
 		Int("rule_count", len(rules)).
 		Msg("Routing rules replaced")
 
@@ -1233,7 +1234,7 @@ func (s *Service) AddRoutingRule(ctx context.Context, tenantID string, rule Topi
 	})
 
 	s.logger.Info().
-		Str("slug", tenant.Slug).
+		Str(logging.LogKeyTenantSlug, tenant.Slug).
 		Str("pattern", rule.Pattern).
 		Int("priority", rule.Priority).
 		Msg("Routing rule added")
@@ -1280,7 +1281,7 @@ func (s *Service) DeleteRoutingRules(ctx context.Context, tenantID string) error
 	s.auditLog(ctx, tenant.ID, ActionDeleteRoutingRules, nil)
 
 	s.logger.Info().
-		Str("slug", tenant.Slug).
+		Str(logging.LogKeyTenantSlug, tenant.Slug).
 		Msg("Routing rules deleted")
 
 	s.emitEvent(eventbus.TenantConfigChanged)
@@ -1322,7 +1323,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, tenantID string, req CreateA
 	})
 
 	s.logger.Info().
-		Str("slug", tenant.Slug).
+		Str(logging.LogKeyTenantSlug, tenant.Slug).
 		Str("key_id", key.KeyID).
 		Msg("API key created")
 
@@ -1369,7 +1370,7 @@ func (s *Service) RevokeAPIKey(ctx context.Context, tenantID, keyID string) erro
 	})
 
 	s.logger.Info().
-		Str("slug", tenant.Slug).
+		Str(logging.LogKeyTenantSlug, tenant.Slug).
 		Str("key_id", keyID).
 		Msg("API key revoked")
 
@@ -1440,7 +1441,7 @@ func (s *Service) RenameTenant(ctx context.Context, tenantSlug, newSlug string) 
 		if elapsed >= s.config.SlugRenameTopicHoldPeriod {
 			// Hold period expired — clear residue so the rename starts clean
 			if clearErr := s.tenants.ClearRenameState(ctx, tenant.ID); clearErr != nil {
-				s.logger.Warn().Err(clearErr).Str("tenant_id", tenant.ID).
+				s.logger.Warn().Err(clearErr).Str(logging.LogKeyTenantUUID, tenant.ID).
 					Msg("RenameTenant: lazy clear of expired rename state failed, proceeding anyway")
 			}
 		} else {
@@ -1496,13 +1497,13 @@ func (s *Service) RenameTenant(ctx context.Context, tenantSlug, newSlug string) 
 				}
 			}
 			if clearErr := s.tenants.ClearRenameState(ctx, tenant.ID); clearErr != nil {
-				s.logger.Error().Err(clearErr).Str("tenant_id", tenant.ID).
+				s.logger.Error().Err(clearErr).Str(logging.LogKeyTenantUUID, tenant.ID).
 					Msg("RenameTenant: TOCTOU compensation: failed to clear rename state")
 			}
 			return nil, ErrSlugAlreadyTaken
 		}
 		// Non-TOCTOU failure — tenant stays in 'pending' for startup scan
-		s.logger.Error().Err(err).Str("tenant_id", tenant.ID).Str("new_slug", newSlug).
+		s.logger.Error().Err(err).Str(logging.LogKeyTenantUUID, tenant.ID).Str("new_slug", newSlug).
 			Msg("RenameTenant: UpdateSlug failed; tenant rename state is 'pending' for operator inspection")
 		return nil, fmt.Errorf("commit slug rename: %w", err)
 	}
@@ -1524,7 +1525,7 @@ func (s *Service) RenameTenant(ctx context.Context, tenantSlug, newSlug string) 
 	quota, quotaErr := s.quotas.Get(ctx, tenant.ID)
 	if quotaErr != nil {
 		quotaFailed = true
-		s.logger.Warn().Err(quotaErr).Str("tenant_id", tenant.ID).
+		s.logger.Warn().Err(quotaErr).Str(logging.LogKeyTenantUUID, tenant.ID).
 			Msg("RenameTenant: failed to fetch quota for re-apply (skipping SetQuota)")
 	} else {
 		if err := s.kafka.DeleteQuota(ctx, tenant.Slug, namespace); err != nil {
@@ -1582,7 +1583,7 @@ func (s *Service) Start(ctx context.Context) error {
 		case SlugRenameStatePending:
 			pendingCount++
 			s.logger.Warn().
-				Str("tenant_id", t.ID).
+				Str(logging.LogKeyTenantUUID, t.ID).
 				Str("previous_slug", t.PreviousSlug).
 				Msg("Startup scan: tenant rename is in 'pending' state — operator investigation required")
 		case SlugRenameStateComplete:

@@ -14,6 +14,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // analyticsSSEDroppedCounter counts events dropped due to slow SSE clients (§VI prefix).
@@ -108,7 +109,7 @@ func (h *AnalyticsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	// Initial snapshot on connect.
 	if err := h.sendSnapshot(r.Context(), w, flusher, tenantID); err != nil {
-		h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("SSE initial snapshot failed")
+		h.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, tenantID).Msg("SSE initial snapshot failed")
 		return
 	}
 
@@ -211,7 +212,7 @@ func (h *AnalyticsSSEHandler) queryMetrics(ctx context.Context, tenantID string)
 		snap.Connections = &cm
 		snap.BucketStart = bs
 	} else {
-		h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("SSE: connections query failed")
+		h.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, tenantID).Msg("SSE: connections query failed")
 	}
 
 	// Messages — most recent complete 1-minute bucket only.
@@ -234,7 +235,7 @@ func (h *AnalyticsSSEHandler) queryMetrics(ctx context.Context, tenantID string)
 	).Scan(&mm.Published, &mm.Delivered, &mm.Failed); err == nil {
 		snap.Messages = &mm
 	} else {
-		h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("SSE: messages query failed")
+		h.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, tenantID).Msg("SSE: messages query failed")
 	}
 
 	// Push — most recent complete 1-minute bucket only, broken down per provider.
@@ -242,7 +243,7 @@ func (h *AnalyticsSSEHandler) queryMetrics(ctx context.Context, tenantID string)
 	if h.editionManager == nil || license.EditionHasFeature(h.editionManager.Edition(), license.AnalyticsPush) {
 		rows, err := h.pool.Query(ctx, pushPerProviderSQL, bucketCutoff, tid)
 		if err != nil {
-			h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("SSE: push query failed")
+			h.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, tenantID).Msg("SSE: push query failed")
 		} else {
 			// Zero-fill all known providers so the client always sees three keys.
 			pushMap := map[string]pushProviderMetrics{
@@ -261,7 +262,7 @@ func (h *AnalyticsSSEHandler) queryMetrics(ctx context.Context, tenantID string)
 			}
 			rows.Close()
 			if err := rows.Err(); err != nil {
-				h.logger.Warn().Err(err).Str("tenant_id", tenantID).Msg("SSE: push rows error")
+				h.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, tenantID).Msg("SSE: push rows error")
 			} else {
 				snap.Push = pushMap
 			}

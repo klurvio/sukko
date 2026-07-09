@@ -11,6 +11,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
 )
 
@@ -155,7 +156,7 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		if resolveErr != nil {
 			RecordAuthValidation(pkgmetrics.AuthStatusFailed, "api_key", time.Since(authStart))
 			gw.logger.Warn().
-				Str("tenant_uuid", info.TenantID).
+				Str(logging.LogKeyTenantUUID, info.TenantID).
 				Str("remote_addr", r.RemoteAddr).
 				Err(resolveErr).
 				Msg("Request rejected: cannot resolve API-key tenant slug")
@@ -176,8 +177,8 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).
-			Str("tenant_slug", result.TenantSlug).
-			Str("tenant_uuid", result.TenantUUID).
+			Str(logging.LogKeyTenantSlug, result.TenantSlug).
+			Str(logging.LogKeyTenantUUID, result.TenantUUID).
 			Str("remote_addr", r.RemoteAddr).
 			Msg("API key validated successfully")
 		return result, nil
@@ -227,8 +228,8 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).
-			Str("tenant_slug", result.TenantSlug).
-			Str("tenant_uuid", result.TenantUUID).
+			Str(logging.LogKeyTenantSlug, result.TenantSlug).
+			Str(logging.LogKeyTenantUUID, result.TenantUUID).
 			Strs("groups", claims.Groups).
 			Str("remote_addr", r.RemoteAddr).
 			Msg("Token validated successfully")
@@ -299,8 +300,8 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		}
 		gw.logger.Debug().
 			Str("principal", result.Principal).
-			Str("tenant_slug", result.TenantSlug).
-			Str("tenant_uuid", result.TenantUUID).
+			Str(logging.LogKeyTenantSlug, result.TenantSlug).
+			Str(logging.LogKeyTenantUUID, result.TenantUUID).
 			Str("remote_addr", r.RemoteAddr).
 			Msg("API key and token validated successfully")
 		return result, nil

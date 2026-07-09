@@ -99,7 +99,7 @@ func (p *DLQPool) process(ctx context.Context, job dlqJob) {
 
 		if attempt == p.cfg.MaxRetries {
 			p.logger.Warn().
-				Str(LabelTenant, job.tenant).
+				Str(logging.LogKeyTenantSlug, job.tenant).
 				Str(LabelReason, job.reason).
 				Int("attempts", attempt+1).
 				Err(results.FirstErr()).
@@ -114,7 +114,7 @@ func (p *DLQPool) process(ctx context.Context, job dlqJob) {
 		select {
 		case <-ctx.Done():
 			p.logger.Warn().
-				Str(LabelTenant, job.tenant).
+				Str(logging.LogKeyTenantSlug, job.tenant).
 				Str(LabelReason, job.reason).
 				Msg("DLQ write aborted: context canceled during backoff")
 			if p.writeFailedCounter != nil {

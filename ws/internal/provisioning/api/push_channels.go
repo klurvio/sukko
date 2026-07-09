@@ -12,6 +12,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // NOTE: httputil.WriteJSON errors are assigned to _ throughout this file.
@@ -134,7 +135,7 @@ func (h *PushChannelHandler) HandleCreateChannelConfig(w http.ResponseWriter, r 
 
 	if err := h.channelConfigRepo.Upsert(r.Context(), config); err != nil {
 		h.logger.Error().Err(err).
-			Str("tenant_id", req.TenantID).
+			Str(logging.LogKeyTenantUUID, req.TenantID).
 			Msg("Failed to upsert push channel config")
 		httputil.WriteError(w, http.StatusInternalServerError, "UPSERT_FAILED", "Failed to save push channel config")
 		return
@@ -143,7 +144,7 @@ func (h *PushChannelHandler) HandleCreateChannelConfig(w http.ResponseWriter, r 
 	h.eventBus.Publish(eventbus.Event{Type: eventbus.PushConfigChanged})
 
 	h.logger.Info().
-		Str("tenant_id", req.TenantID).
+		Str(logging.LogKeyTenantUUID, req.TenantID).
 		Int("patterns", len(req.Patterns)).
 		Int("default_ttl", req.DefaultTTL).
 		Str("default_urgency", req.DefaultUrgency).
@@ -170,7 +171,7 @@ func (h *PushChannelHandler) HandleGetChannelConfig(w http.ResponseWriter, r *ht
 		if errors.Is(err, repository.ErrChannelConfigNotFound) {
 			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Push channel config not found for tenant")
 		} else {
-			h.logger.Error().Err(err).Str("tenant_id", tenantID).Msg("Failed to get push channel config")
+			h.logger.Error().Err(err).Str(logging.LogKeyTenantUUID, tenantID).Msg("Failed to get push channel config")
 			httputil.WriteError(w, http.StatusInternalServerError, errCodeInternal, "Failed to retrieve channel config")
 		}
 		return
@@ -210,7 +211,7 @@ func (h *PushChannelHandler) HandleDeleteChannelConfig(w http.ResponseWriter, r 
 		if errors.Is(err, repository.ErrChannelConfigNotFound) {
 			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Push channel config not found for tenant")
 		} else {
-			h.logger.Error().Err(err).Str("tenant_id", req.TenantID).Msg("Failed to delete push channel config")
+			h.logger.Error().Err(err).Str(logging.LogKeyTenantUUID, req.TenantID).Msg("Failed to delete push channel config")
 			httputil.WriteError(w, http.StatusInternalServerError, errCodeInternal, "Failed to delete channel config")
 		}
 		return
@@ -218,7 +219,7 @@ func (h *PushChannelHandler) HandleDeleteChannelConfig(w http.ResponseWriter, r 
 
 	h.eventBus.Publish(eventbus.Event{Type: eventbus.PushConfigChanged})
 
-	h.logger.Info().Str("tenant_id", req.TenantID).Msg("Push channel config deleted")
+	h.logger.Info().Str(logging.LogKeyTenantUUID, req.TenantID).Msg("Push channel config deleted")
 
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

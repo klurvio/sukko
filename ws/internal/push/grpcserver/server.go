@@ -22,6 +22,7 @@ import (
 	"github.com/klurvio/sukko/internal/push/repository"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // ConfigCache provides push credential data from the provisioning system.
@@ -148,7 +149,7 @@ func (s *Server) RegisterDevice(ctx context.Context, req *pushv1.RegisterDeviceR
 	id, err := s.repo.Create(ctx, sub)
 	if err != nil {
 		s.logger.Error().Err(err).
-			Str("tenant_id", req.GetTenantSlug()).
+			Str(logging.LogKeyTenantSlug, req.GetTenantSlug()).
 			Str("principal", req.GetPrincipal()).
 			Str("platform", req.GetPlatform()).
 			Msg("RegisterDevice: failed to create subscription")
@@ -157,7 +158,7 @@ func (s *Server) RegisterDevice(ctx context.Context, req *pushv1.RegisterDeviceR
 
 	s.logger.Info().
 		Int64("device_id", id).
-		Str("tenant_id", req.GetTenantSlug()).
+		Str(logging.LogKeyTenantSlug, req.GetTenantSlug()).
 		Str("principal", req.GetPrincipal()).
 		Str("platform", req.GetPlatform()).
 		Int("channel_count", len(req.GetChannels())).
@@ -184,14 +185,14 @@ func (s *Server) UnregisterDevice(ctx context.Context, req *pushv1.UnregisterDev
 	if err := s.repo.Delete(ctx, req.GetDeviceId(), req.GetTenantSlug()); err != nil {
 		s.logger.Error().Err(err).
 			Int64("device_id", req.GetDeviceId()).
-			Str("tenant_id", req.GetTenantSlug()).
+			Str(logging.LogKeyTenantSlug, req.GetTenantSlug()).
 			Msg("UnregisterDevice: failed to delete subscription")
 		return nil, status.Errorf(codes.Internal, "delete subscription: %v", err)
 	}
 
 	s.logger.Info().
 		Int64("device_id", req.GetDeviceId()).
-		Str("tenant_id", req.GetTenantSlug()).
+		Str(logging.LogKeyTenantSlug, req.GetTenantSlug()).
 		Msg("UnregisterDevice: subscription deleted")
 
 	return &pushv1.UnregisterDeviceResponse{}, nil
@@ -220,7 +221,7 @@ func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest
 	publicKey, err := s.lookupVAPIDPublicKey(req.GetTenantSlug())
 	if err != nil {
 		s.logger.Error().Err(err).
-			Str("tenant_id", req.GetTenantSlug()).
+			Str(logging.LogKeyTenantSlug, req.GetTenantSlug()).
 			Msg("GetVAPIDKey: failed to lookup VAPID credential")
 		return nil, status.Errorf(codes.Internal, "lookup VAPID credential: %v", err)
 	}
@@ -245,7 +246,7 @@ func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		s.logger.Error().Err(err).
-			Str("tenant_id", req.GetTenantSlug()).
+			Str(logging.LogKeyTenantSlug, req.GetTenantSlug()).
 			Msg("GetVAPIDKey: failed to generate ECDSA key pair")
 		return nil, status.Errorf(codes.Internal, "generate VAPID key: %v", err)
 	}
@@ -254,7 +255,7 @@ func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest
 	ecdhKey, err := privateKey.ECDH()
 	if err != nil {
 		s.logger.Error().Err(err).
-			Str("tenant_id", req.GetTenantSlug()).
+			Str(logging.LogKeyTenantSlug, req.GetTenantSlug()).
 			Msg("GetVAPIDKey: failed to convert ECDSA key to ECDH")
 		return nil, status.Errorf(codes.Internal, "convert VAPID key to ECDH: %v", err)
 	}
@@ -284,13 +285,13 @@ func (s *Server) GetVAPIDKey(ctx context.Context, req *pushv1.GetVAPIDKeyRequest
 	})
 	if err != nil {
 		s.logger.Error().Err(err).
-			Str("tenant_id", req.GetTenantSlug()).
+			Str(logging.LogKeyTenantSlug, req.GetTenantSlug()).
 			Msg("GetVAPIDKey: failed to store VAPID credential")
 		return nil, status.Errorf(codes.Internal, "store VAPID credential: %v", err)
 	}
 
 	s.logger.Info().
-		Str("tenant_id", req.GetTenantSlug()).
+		Str(logging.LogKeyTenantSlug, req.GetTenantSlug()).
 		Msg("GetVAPIDKey: auto-generated VAPID key pair")
 
 	return &pushv1.GetVAPIDKeyResponse{PublicKey: publicKeyB64}, nil

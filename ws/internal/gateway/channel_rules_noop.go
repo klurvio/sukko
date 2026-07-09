@@ -5,6 +5,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
@@ -26,7 +27,7 @@ func NewNoopChannelRulesProvider(logger zerolog.Logger) *NoopChannelRulesProvide
 // This forces fallback to default/global channel rules.
 func (n *NoopChannelRulesProvider) GetChannelRules(_ context.Context, tenantID string) (*types.ChannelRules, error) {
 	n.logger.Debug().
-		Str("tenant_id", tenantID).
+		Str(logging.LogKeyTenantSlug, tenantID).
 		Msg("NoopChannelRulesProvider: channel rules lookup returning not found")
 	return nil, types.ErrChannelRulesNotFound
 }

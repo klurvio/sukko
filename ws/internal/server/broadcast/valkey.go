@@ -239,7 +239,7 @@ func (b *valkeyBus) Publish(msg *Message) {
 	}
 	if strings.Contains(msg.TenantID, valkeyChannelSeparator) {
 		b.logger.Error().
-			Str("tenant_id", msg.TenantID).
+			Str(logging.LogKeyTenantSlug, msg.TenantID).
 			Str("subject", msg.Subject).
 			Msg("broadcast: publish rejected: tenant ID contains separator character")
 		b.metrics.droppedTotal.WithLabelValues(metricTenantLabelInvalid).Inc()
@@ -308,7 +308,7 @@ func (b *valkeyBus) Subscribe(tenantID string) (<-chan *Message, error) {
 		case b.subCmdCh <- subCmd{kind: subCmdSubscribe, tenantID: tenantID}:
 		default:
 			b.logger.Warn().
-				Str("tenant_id", tenantID).
+				Str(logging.LogKeyTenantSlug, tenantID).
 				Msg("broadcast: subCmdCh full, SUBSCRIBE enqueue dropped (reconciliation will recover)")
 			b.metrics.subscribeCommandsTotal.WithLabelValues(metricResultDropped).Inc()
 		}
@@ -389,7 +389,7 @@ func (b *valkeyBus) Unsubscribe(tenantID string, ch <-chan *Message) error {
 		case b.subCmdCh <- subCmd{kind: subCmdUnsubscribe, tenantID: tenantID}:
 		default:
 			b.logger.Warn().
-				Str("tenant_id", tenantID).
+				Str(logging.LogKeyTenantSlug, tenantID).
 				Msg("broadcast: subCmdCh full, UNSUBSCRIBE enqueue dropped (reconciliation will recover)")
 			b.metrics.subscribeCommandsTotal.WithLabelValues(metricResultDropped).Inc()
 		}
@@ -656,7 +656,7 @@ func (b *valkeyBus) issueValkeyCommand(
 	// Schedule retry with exponential backoff.
 	b.logger.Error().
 		Err(err).
-		Str("tenant_id", cmd.tenantID).
+		Str(logging.LogKeyTenantSlug, cmd.tenantID).
 		Msg("broadcast: subscription command failed, scheduling retry")
 	b.metrics.subscribeCommandsTotal.WithLabelValues(metricResultRetry).Inc()
 
@@ -689,7 +689,7 @@ func (b *valkeyBus) resubscribeAll() {
 		case b.subCmdCh <- subCmd{kind: subCmdSubscribe, tenantID: tid}:
 		default:
 			b.logger.Warn().
-				Str("tenant_id", tid).
+				Str(logging.LogKeyTenantSlug, tid).
 				Str("reason", "reconnect_overflow").
 				Msg("broadcast: subCmdCh full during reconnect; tenant will recover via reconciliation tick")
 			b.metrics.subscribeCommandsTotal.WithLabelValues(metricResultDropped).Inc()
@@ -726,20 +726,20 @@ func (b *valkeyBus) reconcile() {
 			// Do NOT abort — continue to next tenant per spec NFR-003
 			b.logger.Warn().
 				Err(result.Error()).
-				Str("tenant_id", tid).
+				Str(logging.LogKeyTenantSlug, tid).
 				Msg("broadcast: reconcile PUBSUB NUMSUB error, skipping tenant this tick")
 			continue
 		}
 
 		m, err := result.AsMap()
 		if err != nil {
-			b.logger.Warn().Err(err).Str("tenant_id", tid).Msg("broadcast: reconcile PUBSUB NUMSUB parse error")
+			b.logger.Warn().Err(err).Str(logging.LogKeyTenantSlug, tid).Msg("broadcast: reconcile PUBSUB NUMSUB parse error")
 			continue
 		}
 
 		v := m[ch]
 		if count, _ := v.AsInt64(); count == 0 {
-			b.logger.Info().Str("tenant_id", tid).Msg("broadcast: reconcile detected missing subscription, re-issuing")
+			b.logger.Info().Str(logging.LogKeyTenantSlug, tid).Msg("broadcast: reconcile detected missing subscription, re-issuing")
 			select {
 			case b.subCmdCh <- subCmd{kind: subCmdSubscribe, tenantID: tid}:
 				b.metrics.reconcileCorrectionsTotal.Inc()

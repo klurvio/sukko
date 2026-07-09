@@ -406,7 +406,7 @@ func (c *ConfigClient) applySnapshot(resp *provisioningv1.WatchPushConfigRespons
 		snap.patterns[tid] = patterns
 		snap.pushEnabledTenants[tid] = struct{}{}
 		// LOG-009: Per-tenant pattern update (snapshot)
-		c.logger.Debug().Str("tenant_id", tid).Int("pattern_count", len(patterns)).
+		c.logger.Debug().Str(logging.LogKeyTenantSlug, tid).Int("pattern_count", len(patterns)).
 			Str("action", "snapshot").Msg("push config updated for tenant")
 	}
 
@@ -459,7 +459,7 @@ func (c *ConfigClient) applyDelta(resp *provisioningv1.WatchPushConfigResponse) 
 		delete(snap.credentials, tid)
 		delete(snap.pushEnabledTenants, tid)
 		// LOG-009: Per-tenant config removed (delta)
-		c.logger.Debug().Str("tenant_id", tid).Int("pattern_count", 0).
+		c.logger.Debug().Str(logging.LogKeyTenantSlug, tid).Int("pattern_count", 0).
 			Str("action", "removed").Msg("push config updated for tenant")
 	}
 
@@ -495,7 +495,7 @@ func (c *ConfigClient) applyDelta(resp *provisioningv1.WatchPushConfigResponse) 
 		snap.patterns[tid] = patterns
 		snap.pushEnabledTenants[tid] = struct{}{}
 		// LOG-009: Per-tenant pattern update (delta)
-		c.logger.Debug().Str("tenant_id", tid).Int("pattern_count", len(patterns)).
+		c.logger.Debug().Str(logging.LogKeyTenantSlug, tid).Int("pattern_count", len(patterns)).
 			Str("action", "updated").Msg("push config updated for tenant")
 	}
 

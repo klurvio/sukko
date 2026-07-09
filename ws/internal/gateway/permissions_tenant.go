@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
@@ -59,7 +60,7 @@ func (pc *TenantPermissionChecker) CanSubscribe(ctx context.Context, tenantID st
 
 	if !allowed {
 		pc.logger.Debug().
-			Str("tenant_id", tenantID).
+			Str(logging.LogKeyTenantSlug, tenantID).
 			Str("channel", channel).
 			Msg("Channel subscription denied")
 	}
@@ -100,7 +101,7 @@ func (pc *TenantPermissionChecker) CanPublish(ctx context.Context, tenantID stri
 
 	if !allowed {
 		pc.logger.Debug().
-			Str("tenant_id", tenantID).
+			Str(logging.LogKeyTenantSlug, tenantID).
 			Str("channel", channel).
 			Msg("Channel publish denied")
 	}
@@ -159,7 +160,7 @@ func (pc *TenantPermissionChecker) getRulesForTenant(ctx context.Context, tenant
 		// unexpected provider error: fail closed and surface degradation.
 		pc.logger.Warn().
 			Err(err).
-			Str("tenant_id", tenantID).
+			Str(logging.LogKeyTenantSlug, tenantID).
 			Bool("snapshot_received", pc.provider.SnapshotReceived()).
 			Msg("Channel rules unavailable, denying (fail closed)")
 		RecordChannelRulesLookup(LookupSourceErrorFallback)

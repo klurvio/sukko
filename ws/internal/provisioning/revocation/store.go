@@ -90,7 +90,7 @@ func (s *Store) Revoke(entry Entry) error {
 
 	s.logger.Info().
 		Str("type", entry.Type).
-		Str("tenant_id", entry.TenantID).
+		Str(logging.LogKeyTenantSlug, entry.TenantID).
 		Str("sub", entry.Sub).
 		Str("jti", entry.JTI).
 		Int64("expires_at", entry.ExpiresAt).

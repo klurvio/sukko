@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/klurvio/sukko/internal/shared/auth"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
@@ -34,7 +35,7 @@ func (gw *Gateway) filterSubscribeChannels(
 			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonWrongTenant)
 			gw.logger.Warn().
 				Str("channel", ch).
-				Str("tenant_id", tenantID).
+				Str(logging.LogKeyTenantSlug, tenantID).
 				Str("reason", "wrong_tenant_prefix").
 				Msg("channel denied")
 		case strings.Count(ch, ".")+1 < protocol.MinInternalChannelParts:
@@ -42,7 +43,7 @@ func (gw *Gateway) filterSubscribeChannels(
 			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonInvalidFormat)
 			gw.logger.Warn().
 				Str("channel", ch).
-				Str("tenant_id", tenantID).
+				Str(logging.LogKeyTenantSlug, tenantID).
 				Str("reason", "invalid_format").
 				Msg("channel denied")
 		default:
@@ -61,7 +62,7 @@ func (gw *Gateway) filterSubscribeChannels(
 	// Defensive (§II): the checker is constructed unconditionally at startup,
 	// so nil here should be impossible — fail closed rather than panic.
 	if gw.tenantPermChecker == nil {
-		gw.logger.Error().Str("tenant_id", tenantID).
+		gw.logger.Error().Str(logging.LogKeyTenantSlug, tenantID).
 			Msg("tenant permission checker not initialized; denying all channels")
 		return nil
 	}
@@ -80,7 +81,7 @@ func (gw *Gateway) filterSubscribeChannels(
 			RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonUnauthorized)
 			gw.logger.Warn().
 				Str("channel", ch).
-				Str("tenant_id", tenantID).
+				Str(logging.LogKeyTenantSlug, tenantID).
 				Str("reason", "permission_denied").
 				Msg("channel denied")
 		} else {
@@ -99,7 +100,7 @@ func (gw *Gateway) filterSubscribeChannels(
 func (gw *Gateway) checkPublishAllowed(ctx context.Context, tenantID string, claims *auth.Claims, channel string) bool {
 	// Defensive (§II): fail closed if the checker is missing (see above).
 	if gw.tenantPermChecker == nil {
-		gw.logger.Error().Str("tenant_id", tenantID).
+		gw.logger.Error().Str(logging.LogKeyTenantSlug, tenantID).
 			Msg("tenant permission checker not initialized; denying publish")
 		return false
 	}
@@ -112,7 +113,7 @@ func (gw *Gateway) checkPublishAllowed(ctx context.Context, tenantID string, cla
 	RecordAccessDenial(AccessDenialResourceChannel, AccessDenialReasonUnauthorized)
 	gw.logger.Warn().
 		Str("channel", channel).
-		Str("tenant_id", tenantID).
+		Str(logging.LogKeyTenantSlug, tenantID).
 		Str("reason", "publish_denied").
 		Msg("channel publish denied")
 	return false

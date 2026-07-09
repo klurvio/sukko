@@ -11,6 +11,7 @@ import (
 	serverv1 "github.com/klurvio/sukko/gen/proto/sukko/server/v1"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
@@ -145,7 +146,7 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		gw.logger.Error().Err(err).
 			Str("channel", req.Channel).
-			Str("tenant_id", authRes.TenantSlug).
+			Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
 			Msg("gRPC Publish failed")
 		RecordRestPublish("error", time.Since(startTime))
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR",

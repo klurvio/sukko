@@ -6,6 +6,8 @@ import (
 
 	"github.com/rs/zerolog"
 	valkey "github.com/valkey-io/valkey-go"
+
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // invalidationPublishTimeout bounds the Valkey PUBLISH call so a TCP-stalled connection
@@ -48,7 +50,7 @@ func (p *InvalidationPublisher) Publish(tenantID string) {
 	subject := WebhookInvalidationSubjectPrefix + tenantID
 	cmd := p.client.B().Publish().Channel(subject).Message("1").Build()
 	if err := p.client.Do(ctx, cmd).Error(); err != nil {
-		p.logger.Warn().Err(err).Str("tenant_id", tenantID).
+		p.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, tenantID).
 			Msg("webhook cache invalidation publish failed (worker will rely on TTL refresh)")
 	}
 }

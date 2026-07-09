@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/rs/zerolog"
+
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // DryRunProvider logs push notification payloads without making any network
@@ -45,7 +47,7 @@ func (p *DryRunProvider) SendBatch(_ context.Context, jobs []PushJob) error {
 // logJob emits a structured log entry for a single push job.
 func (p *DryRunProvider) logJob(job PushJob) {
 	event := p.logger.Info().
-		Str("tenant_id", job.TenantID).
+		Str(logging.LogKeyTenantSlug, job.TenantID).
 		Str("principal", job.Principal).
 		Str("platform", job.Platform).
 		Str("title", job.Title).

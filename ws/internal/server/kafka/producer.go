@@ -20,6 +20,7 @@ import (
 
 	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/protocol"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 	"github.com/klurvio/sukko/internal/shared/routing"
@@ -370,7 +371,7 @@ func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string
 		if p.fanout.dlq != nil {
 			if !p.fanout.dlq.TrySubmit(dlqJob{record: dlqRec, tenant: tenant, reason: ReasonFanoutTopicWriteFailed}) {
 				if p.logger != nil {
-					p.logger.Warn().Str("tenant", tenant).Msg("DLQ queue full — dropping failed fanout record")
+					p.logger.Warn().Str(logging.LogKeyTenantSlug, tenant).Msg("DLQ queue full — dropping failed fanout record")
 				}
 			}
 		}

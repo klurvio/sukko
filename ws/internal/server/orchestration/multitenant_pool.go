@@ -343,7 +343,7 @@ func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 		if err := entry.consumer.Stop(); err != nil {
 			p.logger.Error().
 				Err(err).
-				Str(kafka.LogFieldTenantID, entry.tenantID).
+				Str(logging.LogKeyTenantSlug, entry.tenantID).
 				Msg("Error stopping dedicated consumer")
 		}
 	}
@@ -510,7 +510,7 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 			continue
 		}
 		p.logger.Info().
-			Str(kafka.LogFieldTenantID, tenantID).
+			Str(logging.LogKeyTenantSlug, tenantID).
 			Msg("Scheduling stop of dedicated consumer for deprovisioned tenant")
 		*toStop = append(*toStop, consumerEntry{tenantID: tenantID, consumer: consumer})
 		delete(p.dedicatedConsumers, tenantID)
@@ -562,7 +562,7 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 		if err != nil {
 			p.logger.Error().
 				Err(err).
-				Str(kafka.LogFieldTenantID, tenant.TenantID).
+				Str(logging.LogKeyTenantSlug, tenant.TenantID).
 				Msg("Failed to create dedicated consumer")
 			continue
 		}
@@ -571,7 +571,7 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 		if err := consumer.Start(); err != nil {
 			p.logger.Error().
 				Err(err).
-				Str(kafka.LogFieldTenantID, tenant.TenantID).
+				Str(logging.LogKeyTenantSlug, tenant.TenantID).
 				Msg("Failed to start dedicated consumer")
 			continue
 		}
@@ -587,7 +587,7 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 		}()
 
 		p.logger.Info().
-			Str(kafka.LogFieldTenantID, tenant.TenantID).
+			Str(logging.LogKeyTenantSlug, tenant.TenantID).
 			Strs("topics", tenant.Topics).
 			Msg("Created dedicated consumer for tenant")
 	}
@@ -689,7 +689,7 @@ func (p *MultiTenantConsumerPool) Stop() error {
 		if err := entry.consumer.Stop(); err != nil {
 			p.logger.Error().
 				Err(err).
-				Str(kafka.LogFieldTenantID, entry.tenantID).
+				Str(logging.LogKeyTenantSlug, entry.tenantID).
 				Msg("Error stopping consumer")
 			errs = append(errs, fmt.Errorf("stop %s: %w", entry.tenantID, err))
 		}

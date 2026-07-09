@@ -8,6 +8,7 @@ import (
 
 	pushv1 "github.com/klurvio/sukko/gen/proto/sukko/push/v1"
 	"github.com/klurvio/sukko/internal/shared/httputil"
+	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
 // validPushPlatforms defines the allowed push notification platforms.
@@ -124,7 +125,7 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	// 6. Forward to push service
 	if gw.pushClient == nil {
 		// LOG-012: Push service unavailable
-		gw.logger.Warn().Str("handler", "subscribe").Str("tenant_id", authRes.TenantSlug).
+		gw.logger.Warn().Str("handler", "subscribe").Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
 			Msg("push service unavailable")
 		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE",
 			"push service connection not available")
@@ -155,7 +156,7 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).
-			Str("tenant_id", authRes.TenantSlug).
+			Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
 			Str("platform", req.Platform).
 			Msg("Push RegisterDevice failed")
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR",
@@ -164,7 +165,7 @@ func (gw *Gateway) HandlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// LOG-013: Push device registered
-	gw.logger.Info().Str("tenant_id", authRes.TenantSlug).Str("platform", req.Platform).
+	gw.logger.Info().Str(logging.LogKeyTenantSlug, authRes.TenantSlug).Str("platform", req.Platform).
 		Int64("device_id", resp.GetDeviceId()).Msg("push device registered")
 
 	// 7. Return device_id
@@ -218,7 +219,7 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 	// 3. Forward to push service
 	if gw.pushClient == nil {
 		// LOG-012: Push service unavailable
-		gw.logger.Warn().Str("handler", "unsubscribe").Str("tenant_id", authRes.TenantSlug).
+		gw.logger.Warn().Str("handler", "unsubscribe").Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
 			Msg("push service unavailable")
 		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE",
 			"push service connection not available")
@@ -231,7 +232,7 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).
-			Str("tenant_id", authRes.TenantSlug).
+			Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
 			Int64("device_id", req.DeviceID).
 			Msg("Push UnregisterDevice failed")
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR",
@@ -240,7 +241,7 @@ func (gw *Gateway) HandlePushUnsubscribe(w http.ResponseWriter, r *http.Request)
 	}
 
 	// LOG-014: Push device unregistered
-	gw.logger.Info().Str("tenant_id", authRes.TenantSlug).Int64("device_id", req.DeviceID).
+	gw.logger.Info().Str(logging.LogKeyTenantSlug, authRes.TenantSlug).Int64("device_id", req.DeviceID).
 		Msg("push device unregistered")
 
 	// 4. Return success
