@@ -57,9 +57,19 @@ func stubWebhook() *provisioning.Webhook {
 	}
 }
 
-// reqWithTenantID injects tenant claims into the request context.
+// reqWithTenantID injects tenant claims and stashes the tenant identity in context,
+// simulating what RequireTenant does. Webhook handlers read the UUID from context.
+// uuid == slug here; tests that must distinguish the two use reqWithTenant.
 func reqWithTenantID(r *http.Request, tenantID string) *http.Request {
-	return withClaims(r, &auth.Claims{TenantID: tenantID, Roles: []string{"user"}})
+	r = withClaims(r, &auth.Claims{TenantID: tenantID, Roles: []string{"user"}})
+	return r.WithContext(stashTenantIdentity(r.Context(), &provisioning.Tenant{ID: tenantID, Slug: tenantID}))
+}
+
+// reqWithTenant stashes distinct tenant UUID and slug, simulating RequireTenant for
+// tests that assert handlers thread the correct identity (UUID vs slug).
+func reqWithTenant(r *http.Request, uuid, slug string) *http.Request {
+	r = withClaims(r, &auth.Claims{TenantID: slug, Roles: []string{"user"}})
+	return r.WithContext(stashTenantIdentity(r.Context(), &provisioning.Tenant{ID: uuid, Slug: slug}))
 }
 
 // reqWithWebhookID injects a chi URL param for webhookID.

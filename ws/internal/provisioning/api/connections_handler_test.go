@@ -1,14 +1,17 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
+	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/platform"
 )
@@ -30,11 +33,22 @@ func newTestConnectionsHandler() *ConnectionsHandler {
 	})
 }
 
-// withTenantClaims injects JWT claims with the given tenantID into the request context.
-// This is required for HandleListConnections which returns 401 before param validation
-// when claims are absent.
+// withTenantClaims injects JWT claims (the source of the tenant slug for registry reads,
+// via getTenantSlugFromClaims) and stashes the tenant UUID (for audit-log writes),
+// simulating what AuthMiddleware + RequireTenant do. uuid == slug here.
 func withTenantClaims(r *http.Request, tenantID string) *http.Request {
-	return r.WithContext(auth.WithClaims(r.Context(), &auth.Claims{TenantID: tenantID}))
+	r = r.WithContext(auth.WithClaims(r.Context(), &auth.Claims{TenantID: tenantID}))
+	//nolint:contextcheck // stashTenantIdentity derives from r.Context() (mirrors RequireTenant); test helper.
+	return r.WithContext(stashTenantIdentity(r.Context(), &provisioning.Tenant{ID: tenantID, Slug: tenantID}))
+}
+
+// withTenantIdentity injects a distinct tenant slug (in claims, the registry key) and
+// UUID (stashed, the audit key), simulating AuthMiddleware + RequireTenant. Used to prove
+// a handler threads the correct identity: slug to the registry, UUID to the audit log.
+func withTenantIdentity(r *http.Request, uuid, slug string) *http.Request {
+	r = r.WithContext(auth.WithClaims(r.Context(), &auth.Claims{TenantID: slug}))
+	//nolint:contextcheck // stashTenantIdentity derives from r.Context() (mirrors RequireTenant); test helper.
+	return r.WithContext(stashTenantIdentity(r.Context(), &provisioning.Tenant{ID: uuid, Slug: slug}))
 }
 
 // TestHandleListConnections_MissingClaims verifies that HandleListConnections returns
@@ -430,5 +444,178 @@ func assertErrorCodeNot(t *testing.T, rr *httptest.ResponseRecorder, badCode, ms
 	}
 	if body["code"] == badCode {
 		t.Errorf("%s: got error code %q; body: %v", msg, badCode, body)
+	}
+}
+
+// fakeConnReader is an injectable connectionsRegistryReader for handler tests — it never
+// touches Valkey. Fields control the paths exercised; unset methods return benign zero values.
+type fakeConnReader struct {
+	listResult []ConnectionDetail
+	getResult  *ConnectionDetail
+	listKeys   []string // records the tenant key passed to listTenantConnections (for slug/UUID assertions)
+}
+
+func (f *fakeConnReader) listTenantConnections(_ context.Context, tenantID string, _ connectionFilters) ([]ConnectionDetail, int, error) {
+	f.listKeys = append(f.listKeys, tenantID)
+	return f.listResult, len(f.listResult), nil
+}
+
+func (f *fakeConnReader) getConnection(_ context.Context, _, _ string) (*ConnectionDetail, error) {
+	return f.getResult, nil
+}
+
+// publishDisconnect returns 0 subscribers (dead-pod path) — reaches the audit-log call.
+func (f *fakeConnReader) publishDisconnect(_ context.Context, _, _, _, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (f *fakeConnReader) isAdminHealthy(_ context.Context, _ string) bool { return true }
+
+func (f *fakeConnReader) fetchHealthKeys(_ context.Context, _ map[string]bool) map[string]map[string]string {
+	return map[string]map[string]string{}
+}
+
+// mockConnService captures the tenant identifier passed to AuditLog and serves a
+// configurable tenant list for the cross-tenant admin path.
+type mockConnService struct {
+	auditCalled   bool
+	auditTenantID string
+	auditAction   string
+	tenants       []*provisioning.Tenant
+}
+
+func (m *mockConnService) AuditLog(_ context.Context, tenantID, action string, _ provisioning.Metadata) {
+	m.auditCalled = true
+	m.auditTenantID = tenantID
+	m.auditAction = action
+}
+
+func (m *mockConnService) ListTenants(_ context.Context, opts provisioning.ListOptions) ([]*provisioning.Tenant, int, error) {
+	if opts.Offset > 0 {
+		return nil, len(m.tenants), nil // second page empty — terminates the enumeration loop
+	}
+	return m.tenants, len(m.tenants), nil
+}
+
+// TestHandleBulkDisconnect_AuditLogUsesTenantUUID verifies the connections half of #166:
+// the force-disconnect audit entry MUST carry the tenant UUID (identity-of-record), not the
+// slug the caller authenticated with. The registry read still uses the slug (data plane).
+// Uses distinct uuid != slug so a regression (passing the slug) is caught.
+func TestHandleBulkDisconnect_AuditLogUsesTenantUUID(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockConnService{}
+	h := newTestConnectionsHandler()
+	h.reader = &fakeConnReader{} // no matching connections; the audit call still fires
+	h.service = svc
+
+	req := httptest.NewRequest(http.MethodDelete, "/tenants/acme/connections?channel=trades.*", http.NoBody)
+	req = withTenantIdentity(req, "uuid-xyz", "acme")
+	rr := httptest.NewRecorder()
+
+	h.HandleBulkDisconnect(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body: %s", rr.Code, rr.Body.String())
+	}
+	if !svc.auditCalled {
+		t.Fatal("AuditLog was not called")
+	}
+	if svc.auditTenantID != "uuid-xyz" {
+		t.Errorf("AuditLog tenant = %q, want UUID %q (slug is %q)", svc.auditTenantID, "uuid-xyz", "acme")
+	}
+	if svc.auditAction != provisioning.ActionBulkDisconnect {
+		t.Errorf("AuditLog action = %q, want %q", svc.auditAction, provisioning.ActionBulkDisconnect)
+	}
+}
+
+// TestHandleDeleteConnection_AuditLogUsesTenantUUID verifies the single force-disconnect
+// path audits with the tenant UUID, not the slug. The dead-pod branch (publishDisconnect
+// returns 0 subscribers) reaches the audit call.
+func TestHandleDeleteConnection_AuditLogUsesTenantUUID(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockConnService{}
+	h := newTestConnectionsHandler()
+	h.reader = &fakeConnReader{getResult: &ConnectionDetail{PodID: "pod-1"}}
+	h.service = svc
+
+	req := httptest.NewRequest(http.MethodDelete, "/tenants/acme/connections/conn-1", http.NoBody)
+	req = withTenantIdentity(req, "uuid-xyz", "acme")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("connId", "conn-1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+
+	h.HandleDeleteConnection(rr, req)
+
+	if !svc.auditCalled {
+		t.Fatal("AuditLog was not called")
+	}
+	if svc.auditTenantID != "uuid-xyz" {
+		t.Errorf("AuditLog tenant = %q, want UUID %q (slug is %q)", svc.auditTenantID, "uuid-xyz", "acme")
+	}
+	if svc.auditAction != provisioning.ActionForceDisconnect {
+		t.Errorf("AuditLog action = %q, want %q", svc.auditAction, provisioning.ActionForceDisconnect)
+	}
+}
+
+// TestHandleAdminListConnections_CrossTenantUsesSlug verifies the cross-tenant admin
+// listing queries the connection registry by tenant SLUG, not the tenant UUID. The
+// registry is slug-keyed (data plane), so querying by UUID silently returns zero
+// connections for every tenant. Uses slug != uuid to catch a regression.
+func TestHandleAdminListConnections_CrossTenantUsesSlug(t *testing.T) {
+	t.Parallel()
+
+	reader := &fakeConnReader{listResult: []ConnectionDetail{{ConnectionID: "c1", PodID: "pod-1"}}}
+	svc := &mockConnService{tenants: []*provisioning.Tenant{{ID: "uuid-1", Slug: "acme"}}}
+	h := newTestConnectionsHandler()
+	h.reader = reader
+	h.service = svc
+
+	// No tenant_id query param → cross-tenant enumeration path. Admin route: no RequireTenant.
+	req := httptest.NewRequest(http.MethodGet, "/admin/connections", http.NoBody)
+	rr := httptest.NewRecorder()
+
+	h.HandleAdminListConnections(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	if len(reader.listKeys) != 1 {
+		t.Fatalf("listTenantConnections called %d times, want 1", len(reader.listKeys))
+	}
+	if reader.listKeys[0] != "acme" {
+		t.Errorf("registry queried with key %q, want slug %q (not UUID %q)", reader.listKeys[0], "acme", "uuid-1")
+	}
+}
+
+// TestHandleDeleteConnection_MissingUUIDFailsClosed verifies the fail-closed guard: when
+// the caller has a validated slug (claims) but no stashed tenant UUID (e.g. a path that
+// bypassed RequireTenant's stash), the handler returns 401 rather than writing an audit
+// entry with an empty tenant_id. Mirrors the webhook handlers, which guard the UUID they consume.
+func TestHandleDeleteConnection_MissingUUIDFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockConnService{}
+	h := newTestConnectionsHandler()
+	h.reader = &fakeConnReader{getResult: &ConnectionDetail{PodID: "pod-1"}}
+	h.service = svc
+
+	req := httptest.NewRequest(http.MethodDelete, "/tenants/acme/connections/conn-1", http.NoBody)
+	// Claims set (slug present) but NO stashed UUID.
+	req = req.WithContext(auth.WithClaims(req.Context(), &auth.Claims{TenantID: "acme"}))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("connId", "conn-1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+
+	h.HandleDeleteConnection(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body: %s", rr.Code, rr.Body.String())
+	}
+	if svc.auditCalled {
+		t.Error("AuditLog must not be called when the tenant UUID is missing (fail closed)")
 	}
 }
