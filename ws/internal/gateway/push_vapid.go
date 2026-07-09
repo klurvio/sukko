@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"errors"
 	"net/http"
 
 	pushv1 "github.com/klurvio/sukko/gen/proto/sukko/push/v1"
@@ -20,12 +19,7 @@ func (gw *Gateway) HandlePushVAPIDKey(w http.ResponseWriter, r *http.Request) {
 	// 1. Authenticate
 	authRes, authErr := gw.authenticateRequest(ctx, r)
 	if authErr != nil {
-		status := http.StatusUnauthorized
-		code := "UNAUTHORIZED"
-		if errors.Is(authErr, ErrTenantMismatch) {
-			status = http.StatusForbidden
-			code = "FORBIDDEN"
-		}
+		status, code := authErrorResponse(authErr)
 		httputil.WriteError(w, status, code, authErr.Error())
 		return
 	}
@@ -33,7 +27,7 @@ func (gw *Gateway) HandlePushVAPIDKey(w http.ResponseWriter, r *http.Request) {
 	// 2. Forward to push service
 	if gw.pushClient == nil {
 		// LOG-012: Push service unavailable
-		gw.logger.Warn().Str("handler", "vapid-key").Str("tenant_id", authRes.TenantID).
+		gw.logger.Warn().Str("handler", "vapid-key").Str("tenant_id", authRes.TenantSlug).
 			Msg("push service unavailable")
 		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE",
 			"push service connection not available")
@@ -41,11 +35,11 @@ func (gw *Gateway) HandlePushVAPIDKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := gw.pushClient.GetVAPIDKey(ctx, &pushv1.GetVAPIDKeyRequest{
-		TenantId: authRes.TenantID,
+		TenantId: authRes.TenantSlug,
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).
-			Str("tenant_id", authRes.TenantID).
+			Str("tenant_id", authRes.TenantSlug).
 			Msg("Push GetVAPIDKey failed")
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR",
 			"failed to retrieve VAPID key")

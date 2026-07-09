@@ -184,6 +184,7 @@ func TestHandlePublish_APIKeyOnly_Forbidden(t *testing.T) {
 	gw.apiKeyRegistry = &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
 		"test-key": {KeyID: "k1", TenantID: "acme", IsActive: true},
 	}}
+	gw.tenantSlugResolver = &mockTenantSlugResolver{slugs: map[string]string{"acme": "acme"}, present: true}
 
 	body := `{"channel":"acme.general.messages","data":{"msg":"hello"}}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/publish", strings.NewReader(body))

@@ -508,6 +508,7 @@ func TestHandlePushUnsubscribe_APIKeyOnly_Forbidden(t *testing.T) {
 	gw.apiKeyRegistry = &mockAPIKeyLookup{keys: map[string]*provapi.APIKeyInfo{
 		"test-key": {KeyID: "k1", TenantID: "test-tenant", IsActive: true},
 	}}
+	gw.tenantSlugResolver = &mockTenantSlugResolver{slugs: map[string]string{"test-tenant": "test-tenant"}, present: true}
 
 	body := `{"device_id":42}`
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/push/subscribe", strings.NewReader(body))

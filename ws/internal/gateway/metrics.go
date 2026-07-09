@@ -61,6 +61,7 @@ const (
 	CloseReasonNoCredentials        = "no_credentials"
 	CloseReasonInvalidAPIKey        = "invalid_api_key"
 	CloseReasonAPIKeyTenantMismatch = "api_key_tenant_mismatch" //nolint:gosec // close reason label, not a credential
+	CloseReasonTenantUnavailable    = "tenant_unavailable"      // tenant-config projection cold; API-key slug resolution failed (retryable)
 )
 
 // Prometheus metrics for the gateway service.

@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -52,16 +51,13 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	// 2. Authenticate
 	authRes, authErr := gw.authenticateRequest(ctx, r)
 	if authErr != nil {
-		status := http.StatusUnauthorized
-		if errors.Is(authErr, ErrTenantMismatch) {
-			status = http.StatusForbidden
-		}
-		httputil.WriteError(w, status, "UNAUTHORIZED", authErr.Error())
+		status, code := authErrorResponse(authErr)
+		httputil.WriteError(w, status, code, authErr.Error())
 		return
 	}
 
 	// 3. Filter channels by subscribe permissions (same as WebSocket)
-	channels = gw.filterSubscribeChannels(ctx, channels, authRes.TenantID, authRes.Claims)
+	channels = gw.filterSubscribeChannels(ctx, channels, authRes.TenantSlug, authRes.Claims)
 	if len(channels) == 0 {
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST",
 			"no channels remaining after permission filtering")
@@ -69,17 +65,17 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. Acquire tenant connection slot
-	if gw.connTracker != nil && authRes.TenantID != "" {
-		if !gw.connTracker.TryAcquire(authRes.TenantID) {
+	if gw.connTracker != nil && authRes.TenantSlug != "" {
+		if !gw.connTracker.TryAcquire(authRes.TenantSlug) {
 			// LOG-010: SSE tenant connection rate limit rejection
-			gw.logger.Warn().Str("tenant_id", authRes.TenantID).
+			gw.logger.Warn().Str("tenant_id", authRes.TenantSlug).
 				Str("remote_addr", httputil.GetClientIP(r)).
 				Msg("SSE connection rejected: tenant limit")
 			httputil.WriteError(w, http.StatusTooManyRequests, "TENANT_LIMIT_EXCEEDED",
 				"tenant connection limit reached")
 			return
 		}
-		defer gw.connTracker.Release(authRes.TenantID)
+		defer gw.connTracker.Release(authRes.TenantSlug)
 	}
 
 	// Check that response supports flushing (required for SSE)
@@ -96,14 +92,14 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stream, err := gw.serverClient.Client().Subscribe(ctx, &serverv1.SubscribeRequest{
-		TenantSlug: authRes.TenantID,
+		TenantSlug: authRes.TenantSlug,
 		Principal:  authRes.Principal,
 		Channels:   channels,
 		RemoteAddr: httputil.GetClientIP(r),
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).
-			Str("tenant_id", authRes.TenantID).
+			Str("tenant_id", authRes.TenantSlug).
 			Strs("channels", channels).
 			Msg("Failed to open Subscribe stream")
 		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "failed to connect to message server")
@@ -130,8 +126,8 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 			jti:    authRes.Claims.ID,
 			iat:    iatUnix,
 		}
-		gw.connectionRegistry.Register(sseConn, authRes.TenantID, authRes.Claims.Subject, authRes.Claims.ID)
-		defer gw.connectionRegistry.Unregister(sseConn, authRes.TenantID, authRes.Claims.Subject, authRes.Claims.ID)
+		gw.connectionRegistry.Register(sseConn, authRes.TenantSlug, authRes.Claims.Subject, authRes.Claims.ID)
+		defer gw.connectionRegistry.Unregister(sseConn, authRes.TenantSlug, authRes.Claims.Subject, authRes.Claims.ID)
 	}
 
 	// Set SSE headers (FR-005)
@@ -141,7 +137,7 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	gw.logger.Info().
-		Str("tenant_id", authRes.TenantID).
+		Str("tenant_id", authRes.TenantSlug).
 		Str("principal", authRes.Principal).
 		Strs("channels", channels).
 		Str("remote_addr", httputil.GetClientIP(r)).
@@ -206,7 +202,7 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 done:
 
 	gw.logger.Info().
-		Str("tenant_id", authRes.TenantID).
+		Str("tenant_id", authRes.TenantSlug).
 		Str("principal", authRes.Principal).
 		Dur("connection_duration", time.Since(startTime)).
 		Msg("SSE connection closed")

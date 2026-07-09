@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 
 	provisioningv1 "github.com/klurvio/sukko/gen/proto/sukko/provisioning/v1"
+	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/types"
 )
@@ -19,6 +20,7 @@ func newTestChannelRulesProvider() *StreamChannelRulesProvider {
 	r := &StreamChannelRulesProvider{
 		channelRules:     make(map[string]*types.ChannelRules),
 		tenantUUIDBySlug: make(map[string]string),
+		slugByUUID:       make(map[string]string),
 		logger:           zerolog.Nop(),
 	}
 	r.routingSnapshots.Store(make(map[string]TenantRoutingSnapshot))
@@ -438,4 +440,112 @@ func TestChannelRulesProvider_SnapshotReceived(t *testing.T) {
 			t.Error("an empty snapshot must still mark the provider ready")
 		}
 	})
+}
+
+// TestResolveTenantSlug_ReverseResolution covers the UUID->slug reverse map (B0):
+// a known UUID resolves to its slug, an unknown UUID fails closed.
+func TestResolveTenantSlug_ReverseResolution(t *testing.T) {
+	t.Parallel()
+	r := newTestChannelRulesProvider()
+	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
+		IsSnapshot: true,
+		Tenants: []*provisioningv1.TenantConfig{
+			{TenantSlug: "acme", TenantUuid: "uuid-acme"},
+			{TenantSlug: "beta", TenantUuid: "uuid-beta"},
+		},
+	})
+
+	got, err := r.ResolveTenantSlug(context.Background(), "uuid-acme")
+	if err != nil {
+		t.Fatalf("ResolveTenantSlug(uuid-acme) error = %v", err)
+	}
+	if got != "acme" {
+		t.Errorf("ResolveTenantSlug(uuid-acme) = %q, want %q", got, "acme")
+	}
+	if _, err := r.ResolveTenantSlug(context.Background(), "uuid-unknown"); !errors.Is(err, auth.ErrTenantNotResolvable) {
+		t.Errorf("ResolveTenantSlug(unknown) error = %v, want ErrTenantNotResolvable", err)
+	}
+}
+
+// TestResolveTenantSlug_RenameHoldReturnsCurrentNotPrevious asserts the reverse
+// map returns the CURRENT slug during a rename hold window, never the previous
+// alias — while the forward map still resolves both slugs (JWT binding).
+func TestResolveTenantSlug_RenameHoldReturnsCurrentNotPrevious(t *testing.T) {
+	t.Parallel()
+	r := newTestChannelRulesProvider()
+	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
+		IsSnapshot: true,
+		Tenants: []*provisioningv1.TenantConfig{
+			{TenantSlug: "acme-v2", TenantUuid: "uuid-acme", PreviousSlug: "acme"},
+		},
+	})
+
+	// Forward: both current and previous slug resolve to the UUID.
+	if uuid, _ := r.ResolveTenantUUID(context.Background(), "acme"); uuid != "uuid-acme" {
+		t.Errorf("ResolveTenantUUID(previous slug) = %q, want uuid-acme", uuid)
+	}
+	if uuid, _ := r.ResolveTenantUUID(context.Background(), "acme-v2"); uuid != "uuid-acme" {
+		t.Errorf("ResolveTenantUUID(current slug) = %q, want uuid-acme", uuid)
+	}
+
+	// Reverse: the UUID resolves to the current slug only.
+	slug, err := r.ResolveTenantSlug(context.Background(), "uuid-acme")
+	if err != nil {
+		t.Fatalf("ResolveTenantSlug error = %v", err)
+	}
+	if slug != "acme-v2" {
+		t.Errorf("ResolveTenantSlug during rename hold = %q, want current slug %q (never previous)", slug, "acme-v2")
+	}
+}
+
+// TestResolveTenantSlug_DeltaRemovalPrunesReverseEntry asserts a delta removal
+// (keyed by slug) prunes the UUID-keyed reverse entry — no stale uuid->slug that
+// would mis-scope a later API-key auth.
+func TestResolveTenantSlug_DeltaRemovalPrunesReverseEntry(t *testing.T) {
+	t.Parallel()
+	r := newTestChannelRulesProvider()
+	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
+		IsSnapshot: true,
+		Tenants: []*provisioningv1.TenantConfig{
+			{TenantSlug: "doomed", TenantUuid: "uuid-doomed"},
+		},
+	})
+	if _, err := r.ResolveTenantSlug(context.Background(), "uuid-doomed"); err != nil {
+		t.Fatalf("precondition: ResolveTenantSlug(uuid-doomed) error = %v", err)
+	}
+
+	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
+		IsSnapshot:         false,
+		RemovedTenantSlugs: []string{"doomed"},
+	})
+	if _, err := r.ResolveTenantSlug(context.Background(), "uuid-doomed"); !errors.Is(err, auth.ErrTenantNotResolvable) {
+		t.Errorf("after removal: ResolveTenantSlug(uuid-doomed) error = %v, want ErrTenantNotResolvable (no stale slug)", err)
+	}
+}
+
+// TestResolveTenantSlug_ConcurrentWithUpdates_NoRace exercises the reverse map
+// under concurrent stream updates and reads (Constitution §VII / -race).
+func TestResolveTenantSlug_ConcurrentWithUpdates_NoRace(t *testing.T) {
+	t.Parallel()
+	r := newTestChannelRulesProvider()
+	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
+		IsSnapshot: true,
+		Tenants:    []*provisioningv1.TenantConfig{{TenantSlug: "acme", TenantUuid: "uuid-acme"}},
+	})
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for range 100 {
+			r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
+				IsSnapshot: true,
+				Tenants:    []*provisioningv1.TenantConfig{{TenantSlug: "acme", TenantUuid: "uuid-acme"}},
+			})
+		}
+	})
+	wg.Go(func() {
+		for range 100 {
+			_, _ = r.ResolveTenantSlug(context.Background(), "uuid-acme")
+		}
+	})
+	wg.Wait()
 }
