@@ -24,8 +24,8 @@ const (
 // PublishRequest contains the message to publish to a channel.
 type PublishRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// tenant_id identifies the tenant owning the channel.
-	TenantId string `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	// tenant_slug identifies the tenant owning the channel (client-facing routing label).
+	TenantSlug string `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`
 	// channel is the target channel for the message.
 	Channel string `protobuf:"bytes,2,opt,name=channel,proto3" json:"channel,omitempty"`
 	// data is the raw message payload (JSON bytes).
@@ -66,9 +66,9 @@ func (*PublishRequest) Descriptor() ([]byte, []int) {
 	return file_sukko_server_v1_server_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *PublishRequest) GetTenantId() string {
+func (x *PublishRequest) GetTenantSlug() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -152,8 +152,8 @@ func (x *PublishResponse) GetChannel() string {
 // SubscribeRequest initiates a streaming subscription to one or more channels.
 type SubscribeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// tenant_id identifies the tenant for this subscription.
-	TenantId string `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	// tenant_slug identifies the tenant for this subscription (client-facing routing label).
+	TenantSlug string `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`
 	// principal is the subscriber identity (from JWT claims).
 	Principal string `protobuf:"bytes,2,opt,name=principal,proto3" json:"principal,omitempty"`
 	// channels is the list of channels to subscribe to.
@@ -194,9 +194,9 @@ func (*SubscribeRequest) Descriptor() ([]byte, []int) {
 	return file_sukko_server_v1_server_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *SubscribeRequest) GetTenantId() string {
+func (x *SubscribeRequest) GetTenantSlug() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -283,17 +283,19 @@ var File_sukko_server_v1_server_proto protoreflect.FileDescriptor
 
 const file_sukko_server_v1_server_proto_rawDesc = "" +
 	"\n" +
-	"\x1csukko/server/v1/server.proto\x12\x0fsukko.server.v1\"y\n" +
-	"\x0ePublishRequest\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x18\n" +
+	"\x1csukko/server/v1/server.proto\x12\x0fsukko.server.v1\"}\n" +
+	"\x0ePublishRequest\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\x12\x18\n" +
 	"\achannel\x18\x02 \x01(\tR\achannel\x12\x12\n" +
 	"\x04data\x18\x03 \x01(\fR\x04data\x12\x1c\n" +
 	"\tprincipal\x18\x04 \x01(\tR\tprincipal\"C\n" +
 	"\x0fPublishResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x18\n" +
-	"\achannel\x18\x02 \x01(\tR\achannel\"\x8a\x01\n" +
-	"\x10SubscribeRequest\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1c\n" +
+	"\achannel\x18\x02 \x01(\tR\achannel\"\x8e\x01\n" +
+	"\x10SubscribeRequest\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\x12\x1c\n" +
 	"\tprincipal\x18\x02 \x01(\tR\tprincipal\x12\x1a\n" +
 	"\bchannels\x18\x03 \x03(\tR\bchannels\x12\x1f\n" +
 	"\vremote_addr\x18\x04 \x01(\tR\n" +

@@ -24,7 +24,7 @@ const (
 type TestDeliverRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	WebhookId     string                 `protobuf:"bytes,1,opt,name=webhook_id,json=webhookId,proto3" json:"webhook_id,omitempty"`
-	TenantId      string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantUuid    string                 `protobuf:"bytes,2,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -66,9 +66,9 @@ func (x *TestDeliverRequest) GetWebhookId() string {
 	return ""
 }
 
-func (x *TestDeliverRequest) GetTenantId() string {
+func (x *TestDeliverRequest) GetTenantUuid() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantUuid
 	}
 	return ""
 }
@@ -145,11 +145,12 @@ var File_sukko_provisioning_v1_webhook_worker_internal_proto protoreflect.FileDe
 
 const file_sukko_provisioning_v1_webhook_worker_internal_proto_rawDesc = "" +
 	"\n" +
-	"3sukko/provisioning/v1/webhook_worker_internal.proto\x12\x15sukko.provisioning.v1\"P\n" +
+	"3sukko/provisioning/v1/webhook_worker_internal.proto\x12\x15sukko.provisioning.v1\"T\n" +
 	"\x12TestDeliverRequest\x12\x1d\n" +
 	"\n" +
-	"webhook_id\x18\x01 \x01(\tR\twebhookId\x12\x1b\n" +
-	"\ttenant_id\x18\x02 \x01(\tR\btenantId\"\x9f\x01\n" +
+	"webhook_id\x18\x01 \x01(\tR\twebhookId\x12\x1f\n" +
+	"\vtenant_uuid\x18\x02 \x01(\tR\n" +
+	"tenantUuid\"\x9f\x01\n" +
 	"\x13TestDeliverResponse\x12\x1f\n" +
 	"\vstatus_code\x18\x01 \x01(\x05R\n" +
 	"statusCode\x12\x1d\n" +

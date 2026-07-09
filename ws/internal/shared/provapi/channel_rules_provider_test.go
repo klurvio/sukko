@@ -43,7 +43,7 @@ func TestChannelRulesProvider_Snapshot(t *testing.T) {
 		IsSnapshot: true,
 		Tenants: []*provisioningv1.TenantConfig{
 			{
-				TenantId: "tenant-a",
+				TenantSlug: "tenant-a",
 				ChannelRules: &provisioningv1.ChannelRules{
 					PublicChannels:  []string{"*.trade"},
 					DefaultChannels: []string{"news"},
@@ -92,7 +92,7 @@ func TestChannelRulesProvider_SnapshotReplacesAll(t *testing.T) {
 		IsSnapshot: true,
 		Tenants: []*provisioningv1.TenantConfig{
 			{
-				TenantId: "tenant-a",
+				TenantSlug: "tenant-a",
 				ChannelRules: &provisioningv1.ChannelRules{
 					PublicChannels: []string{"*.trade"},
 				},
@@ -105,7 +105,7 @@ func TestChannelRulesProvider_SnapshotReplacesAll(t *testing.T) {
 		IsSnapshot: true,
 		Tenants: []*provisioningv1.TenantConfig{
 			{
-				TenantId: "tenant-b",
+				TenantSlug: "tenant-b",
 				ChannelRules: &provisioningv1.ChannelRules{
 					PublicChannels: []string{"*.market"},
 				},
@@ -140,7 +140,7 @@ func TestChannelRulesProvider_DeltaRemove(t *testing.T) {
 		IsSnapshot: true,
 		Tenants: []*provisioningv1.TenantConfig{
 			{
-				TenantId: "tenant-a",
+				TenantSlug: "tenant-a",
 				ChannelRules: &provisioningv1.ChannelRules{
 					PublicChannels: []string{"*.trade"},
 				},
@@ -150,8 +150,8 @@ func TestChannelRulesProvider_DeltaRemove(t *testing.T) {
 
 	// Delta: remove tenant-a
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
-		IsSnapshot:       false,
-		RemovedTenantIds: []string{"tenant-a"},
+		IsSnapshot:         false,
+		RemovedTenantSlugs: []string{"tenant-a"},
 	})
 
 	ctx := context.Background()
@@ -225,7 +225,7 @@ func TestGetRoutingSnapshot_FoundAfterUpdate(t *testing.T) {
 		IsSnapshot: true,
 		Tenants: []*provisioningv1.TenantConfig{
 			{
-				TenantId: "acme",
+				TenantSlug: "acme",
 				RoutingRules: []*provisioningv1.TopicRoutingRule{
 					{Pattern: "acme.*.trade", Topics: []string{"trades"}, Priority: 1},
 				},
@@ -254,8 +254,8 @@ func TestUpdateEdition_PropagatesEditionToAllTenants(t *testing.T) {
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 		IsSnapshot: true,
 		Tenants: []*provisioningv1.TenantConfig{
-			{TenantId: "acme"},
-			{TenantId: "globex"},
+			{TenantSlug: "acme"},
+			{TenantSlug: "globex"},
 		},
 	})
 
@@ -280,7 +280,7 @@ func TestUpdateEdition_COWDoesNotMutatePrior(t *testing.T) {
 
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 		IsSnapshot: true,
-		Tenants:    []*provisioningv1.TenantConfig{{TenantId: "acme"}},
+		Tenants:    []*provisioningv1.TenantConfig{{TenantSlug: "acme"}},
 	})
 
 	// Set an explicit edition so before.Edition is a well-defined value (zero-value Edition is "").
@@ -308,7 +308,7 @@ func TestGetRoutingSnapshot_ConcurrentReadsDontRace(t *testing.T) {
 
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 		IsSnapshot: true,
-		Tenants:    []*provisioningv1.TenantConfig{{TenantId: "acme"}},
+		Tenants:    []*provisioningv1.TenantConfig{{TenantSlug: "acme"}},
 	})
 
 	const goroutines = 20
@@ -330,7 +330,7 @@ func TestUpdateEdition_ConcurrentWithReads_NoRace(t *testing.T) {
 
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 		IsSnapshot: true,
-		Tenants:    []*provisioningv1.TenantConfig{{TenantId: "acme"}},
+		Tenants:    []*provisioningv1.TenantConfig{{TenantSlug: "acme"}},
 	})
 
 	var wg sync.WaitGroup
@@ -363,15 +363,15 @@ func TestSnapshotReplace_RoutingSnapshotsTrimmedForRemovedTenants(t *testing.T) 
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 		IsSnapshot: true,
 		Tenants: []*provisioningv1.TenantConfig{
-			{TenantId: "acme"},
-			{TenantId: "globex"},
+			{TenantSlug: "acme"},
+			{TenantSlug: "globex"},
 		},
 	})
 
 	// New snapshot with only one tenant.
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 		IsSnapshot: true,
-		Tenants:    []*provisioningv1.TenantConfig{{TenantId: "globex"}},
+		Tenants:    []*provisioningv1.TenantConfig{{TenantSlug: "globex"}},
 	})
 
 	_, acmeOk := r.GetRoutingSnapshot("acme")
@@ -406,7 +406,7 @@ func TestChannelRulesProvider_SnapshotReceived(t *testing.T) {
 		r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 			IsSnapshot: false,
 			Tenants: []*provisioningv1.TenantConfig{
-				{TenantId: "t1", ChannelRules: &provisioningv1.ChannelRules{PublicChannels: []string{"*"}}},
+				{TenantSlug: "t1", ChannelRules: &provisioningv1.ChannelRules{PublicChannels: []string{"*"}}},
 			},
 		})
 		if r.SnapshotReceived() {
@@ -420,7 +420,7 @@ func TestChannelRulesProvider_SnapshotReceived(t *testing.T) {
 		r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 			IsSnapshot: true,
 			Tenants: []*provisioningv1.TenantConfig{
-				{TenantId: "t1", ChannelRules: &provisioningv1.ChannelRules{PublicChannels: []string{"*"}}},
+				{TenantSlug: "t1", ChannelRules: &provisioningv1.ChannelRules{PublicChannels: []string{"*"}}},
 			},
 		})
 		if !r.SnapshotReceived() {

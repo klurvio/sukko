@@ -242,8 +242,8 @@ func TestWatchKeys_Snapshot(t *testing.T) { //nolint:paralleltest // uses shared
 		t.Errorf("key ID = %q, want %q", key.GetKeyId(), "key-one")
 	}
 	// TenantId is the tenant UUID (TenantKey.TenantID is a UUID FK after slug/UUID separation).
-	if len(key.GetTenantId()) != 36 {
-		t.Errorf("key tenant ID = %q, expected UUID (len 36)", key.GetTenantId())
+	if len(key.GetTenantUuid()) != 36 {
+		t.Errorf("key tenant ID = %q, expected UUID (len 36)", key.GetTenantUuid())
 	}
 	if key.GetAlgorithm() != "ES256" {
 		t.Errorf("key algorithm = %q, want %q", key.GetAlgorithm(), "ES256")
@@ -310,8 +310,8 @@ func TestWatchTenantConfig_Snapshot(t *testing.T) { //nolint:paralleltest // use
 	}
 
 	tc := resp.GetTenants()[0]
-	if tc.GetTenantId() != "test-tenant" {
-		t.Errorf("tenant ID = %q, want %q", tc.GetTenantId(), "test-tenant")
+	if tc.GetTenantSlug() != "test-tenant" {
+		t.Errorf("tenant ID = %q, want %q", tc.GetTenantSlug(), "test-tenant")
 	}
 	// tenant_uuid MUST be populated so the gateway can resolve slug->UUID for the
 	// JWT tenant binding. previous_slug is empty here (no rename in this fixture).

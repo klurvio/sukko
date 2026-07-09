@@ -359,7 +359,7 @@ func protoToKeyInfo(ki *provisioningv1.KeyInfo) (*auth.KeyInfo, error) {
 
 	info := &auth.KeyInfo{
 		KeyID:        ki.GetKeyId(),
-		TenantID:     ki.GetTenantId(),
+		TenantID:     ki.GetTenantUuid(),
 		Algorithm:    ki.GetAlgorithm(),
 		PublicKey:    pubKey,
 		PublicKeyPEM: ki.GetPublicKeyPem(),

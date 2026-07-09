@@ -21,8 +21,8 @@ service RealtimeService {
 
 // PublishRequest contains the message to publish to a channel.
 message PublishRequest {
-  // tenant_id identifies the tenant owning the channel.
-  string tenant_id = 1;
+  // tenant_slug identifies the tenant owning the channel (client-facing routing label).
+  string tenant_slug = 1;
 
   // channel is the target channel for the message.
   string channel = 2;
@@ -45,8 +45,8 @@ message PublishResponse {
 
 // SubscribeRequest initiates a streaming subscription to one or more channels.
 message SubscribeRequest {
-  // tenant_id identifies the tenant for this subscription.
-  string tenant_id = 1;
+  // tenant_slug identifies the tenant for this subscription (client-facing routing label).
+  string tenant_slug = 1;
 
   // principal is the subscriber identity (from JWT claims).
   string principal = 2;

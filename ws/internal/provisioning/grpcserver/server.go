@@ -529,7 +529,7 @@ func (s *Server) loadTenantConfigs(ctx context.Context) ([]*provisioningv1.Tenan
 		}
 
 		tc := &provisioningv1.TenantConfig{
-			TenantId:   tenant.Slug,
+			TenantSlug: tenant.Slug,
 			TenantUuid: tenant.ID, // stable UUID for the gateway's slug->UUID binding resolver
 		}
 
@@ -611,8 +611,8 @@ func (s *Server) loadTopicsUpdate(ctx context.Context, namespace string) (*provi
 			sharedTopics = append(sharedTopics, topics...)
 		case provisioning.ConsumerDedicated:
 			dedicatedTenants = append(dedicatedTenants, &provisioningv1.DedicatedTenant{
-				TenantId: tenant.Slug,
-				Topics:   topics,
+				TenantSlug: tenant.Slug,
+				Topics:     topics,
 			})
 		default:
 			sharedTopics = append(sharedTopics, topics...)
@@ -631,7 +631,7 @@ func convertKeys(keys []*provisioning.TenantKey) []*provisioningv1.KeyInfo {
 	for _, k := range keys {
 		ki := &provisioningv1.KeyInfo{
 			KeyId:        k.KeyID,
-			TenantId:     k.TenantID,
+			TenantUuid:   k.TenantID,
 			Algorithm:    string(k.Algorithm),
 			PublicKeyPem: k.PublicKey,
 			IsActive:     k.RevokedAt == nil,
@@ -671,10 +671,10 @@ func convertAPIKeys(keys []*provisioning.APIKey) []*provisioningv1.APIKeyInfo {
 	result := make([]*provisioningv1.APIKeyInfo, 0, len(keys))
 	for _, k := range keys {
 		result = append(result, &provisioningv1.APIKeyInfo{
-			KeyId:    k.KeyID,
-			TenantId: k.TenantID,
-			Name:     k.Name,
-			IsActive: k.IsActive,
+			KeyId:      k.KeyID,
+			TenantUuid: k.TenantID,
+			Name:       k.Name,
+			IsActive:   k.IsActive,
 		})
 	}
 	return result
@@ -812,12 +812,12 @@ func convertRevocationEntries(entries []*revocation.Entry) []*provisioningv1.Tok
 	result := make([]*provisioningv1.TokenRevocation, len(entries))
 	for i, e := range entries {
 		result[i] = &provisioningv1.TokenRevocation{
-			TenantId:  e.TenantID,
-			Type:      e.Type,
-			Sub:       e.Sub,
-			Jti:       e.JTI,
-			RevokedAt: e.RevokedAt,
-			ExpiresAt: e.ExpiresAt,
+			TenantSlug: e.TenantID,
+			Type:       e.Type,
+			Sub:        e.Sub,
+			Jti:        e.JTI,
+			RevokedAt:  e.RevokedAt,
+			ExpiresAt:  e.ExpiresAt,
 		}
 	}
 	return result

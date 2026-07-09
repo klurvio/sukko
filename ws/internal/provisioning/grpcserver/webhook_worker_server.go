@@ -44,17 +44,17 @@ func (s *WebhookWorkerServer) ListWebhookTenants(ctx context.Context, _ *provisi
 		s.logger.Error().Err(err).Msg("ListWebhookTenants: store error")
 		return nil, status.Errorf(codes.Internal, "list tenant IDs: %v", err)
 	}
-	return &provisioningv1.ListWebhookTenantsResponse{TenantIds: ids}, nil
+	return &provisioningv1.ListWebhookTenantsResponse{TenantUuids: ids}, nil
 }
 
 // ListWebhooksForTenant returns all webhook registrations for a tenant for worker cache hydration.
 func (s *WebhookWorkerServer) ListWebhooksForTenant(ctx context.Context, req *provisioningv1.ListWebhooksForTenantRequest) (*provisioningv1.ListWebhooksForTenantResponse, error) {
-	if req.GetTenantId() == "" {
+	if req.GetTenantUuid() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
-	records, err := s.store.ListByTenantForWorker(ctx, req.GetTenantId())
+	records, err := s.store.ListByTenantForWorker(ctx, req.GetTenantUuid())
 	if err != nil {
-		s.logger.Error().Err(err).Str("tenant_id", req.GetTenantId()).Msg("ListWebhooksForTenant: store error")
+		s.logger.Error().Err(err).Str("tenant_id", req.GetTenantUuid()).Msg("ListWebhooksForTenant: store error")
 		return nil, status.Errorf(codes.Internal, "list webhooks: %v", err)
 	}
 	protoRecords := make([]*provisioningv1.WebhookRecord, len(records))
@@ -65,7 +65,7 @@ func (s *WebhookWorkerServer) ListWebhooksForTenant(ctx context.Context, req *pr
 		}
 		protoRecords[i] = &provisioningv1.WebhookRecord{
 			Id:               r.ID,
-			TenantId:         r.TenantID,
+			TenantUuid:       r.TenantID,
 			Url:              r.URL,
 			ChannelPattern:   r.ChannelPattern,
 			SecretEnc:        r.SecretEnc,
@@ -82,14 +82,14 @@ func (s *WebhookWorkerServer) UpdateWebhookStatus(ctx context.Context, req *prov
 	if req.GetWebhookId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "webhook_id is required")
 	}
-	if req.GetTenantId() == "" {
+	if req.GetTenantUuid() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 	if req.GetStatus() == "" {
 		return nil, status.Error(codes.InvalidArgument, "status is required")
 	}
 
-	err := s.store.UpdateStatus(ctx, req.GetWebhookId(), req.GetTenantId(), req.GetStatus(), int(req.GetRetryCount()))
+	err := s.store.UpdateStatus(ctx, req.GetWebhookId(), req.GetTenantUuid(), req.GetStatus(), int(req.GetRetryCount()))
 	if err != nil {
 		if errors.Is(err, provisioning.ErrWebhookNotFound) {
 			return nil, status.Errorf(codes.NotFound, "webhook %s not found", req.GetWebhookId())
@@ -98,7 +98,7 @@ func (s *WebhookWorkerServer) UpdateWebhookStatus(ctx context.Context, req *prov
 		return nil, status.Errorf(codes.Internal, "update status: %v", err)
 	}
 	if s.invalidation != nil {
-		s.invalidation.Publish(req.GetTenantId())
+		s.invalidation.Publish(req.GetTenantUuid())
 	}
 	return &provisioningv1.UpdateWebhookStatusResponse{}, nil
 }
@@ -111,7 +111,7 @@ func (s *WebhookWorkerServer) RecordDelivery(ctx context.Context, req *provision
 	if req.GetWebhookId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "webhook_id is required")
 	}
-	if req.GetTenantId() == "" {
+	if req.GetTenantUuid() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 	if req.GetAttempt() < 1 {
@@ -124,7 +124,7 @@ func (s *WebhookWorkerServer) RecordDelivery(ctx context.Context, req *provision
 	d := &provisioning.WebhookDelivery{
 		ID:          req.GetDeliveryId(),
 		WebhookID:   req.GetWebhookId(),
-		TenantID:    req.GetTenantId(),
+		TenantID:    req.GetTenantUuid(),
 		Attempt:     int(req.GetAttempt()),
 		StatusCode:  int(req.GetStatusCode()),
 		LatencyMS:   req.GetLatencyMs(),

@@ -59,7 +59,7 @@ func (*ListWebhookTenantsRequest) Descriptor() ([]byte, []int) {
 
 type ListWebhookTenantsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	TenantIds     []string               `protobuf:"bytes,1,rep,name=tenant_ids,json=tenantIds,proto3" json:"tenant_ids,omitempty"`
+	TenantUuids   []string               `protobuf:"bytes,1,rep,name=tenant_uuids,json=tenantUuids,proto3" json:"tenant_uuids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -94,16 +94,16 @@ func (*ListWebhookTenantsResponse) Descriptor() ([]byte, []int) {
 	return file_sukko_provisioning_v1_webhook_worker_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ListWebhookTenantsResponse) GetTenantIds() []string {
+func (x *ListWebhookTenantsResponse) GetTenantUuids() []string {
 	if x != nil {
-		return x.TenantIds
+		return x.TenantUuids
 	}
 	return nil
 }
 
 type ListWebhooksForTenantRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantUuid    string                 `protobuf:"bytes,1,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"` // tenant's stable UUID (webhooks.tenant_id FK)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -138,9 +138,9 @@ func (*ListWebhooksForTenantRequest) Descriptor() ([]byte, []int) {
 	return file_sukko_provisioning_v1_webhook_worker_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *ListWebhooksForTenantRequest) GetTenantId() string {
+func (x *ListWebhooksForTenantRequest) GetTenantUuid() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantUuid
 	}
 	return ""
 }
@@ -195,7 +195,7 @@ func (x *ListWebhooksForTenantResponse) GetWebhooks() []*WebhookRecord {
 type WebhookRecord struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	TenantId         string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantUuid       string                 `protobuf:"bytes,2,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
 	Url              string                 `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
 	ChannelPattern   string                 `protobuf:"bytes,4,opt,name=channel_pattern,json=channelPattern,proto3" json:"channel_pattern,omitempty"`
 	SecretEnc        []byte                 `protobuf:"bytes,5,opt,name=secret_enc,json=secretEnc,proto3" json:"secret_enc,omitempty"`
@@ -243,9 +243,9 @@ func (x *WebhookRecord) GetId() string {
 	return ""
 }
 
-func (x *WebhookRecord) GetTenantId() string {
+func (x *WebhookRecord) GetTenantUuid() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantUuid
 	}
 	return ""
 }
@@ -295,7 +295,7 @@ func (x *WebhookRecord) GetLastDeliveryAtMs() int64 {
 type UpdateWebhookStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	WebhookId     string                 `protobuf:"bytes,1,opt,name=webhook_id,json=webhookId,proto3" json:"webhook_id,omitempty"`
-	TenantId      string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantUuid    string                 `protobuf:"bytes,2,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
 	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
 	RetryCount    int32                  `protobuf:"varint,4,opt,name=retry_count,json=retryCount,proto3" json:"retry_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -339,9 +339,9 @@ func (x *UpdateWebhookStatusRequest) GetWebhookId() string {
 	return ""
 }
 
-func (x *UpdateWebhookStatusRequest) GetTenantId() string {
+func (x *UpdateWebhookStatusRequest) GetTenantUuid() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantUuid
 	}
 	return ""
 }
@@ -399,7 +399,7 @@ func (*UpdateWebhookStatusResponse) Descriptor() ([]byte, []int) {
 type RecordDeliveryRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	WebhookId     string                 `protobuf:"bytes,1,opt,name=webhook_id,json=webhookId,proto3" json:"webhook_id,omitempty"`
-	TenantId      string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantUuid    string                 `protobuf:"bytes,2,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
 	DeliveryId    string                 `protobuf:"bytes,3,opt,name=delivery_id,json=deliveryId,proto3" json:"delivery_id,omitempty"`
 	Attempt       int32                  `protobuf:"varint,4,opt,name=attempt,proto3" json:"attempt,omitempty"`
 	StatusCode    int32                  `protobuf:"varint,5,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
@@ -447,9 +447,9 @@ func (x *RecordDeliveryRequest) GetWebhookId() string {
 	return ""
 }
 
-func (x *RecordDeliveryRequest) GetTenantId() string {
+func (x *RecordDeliveryRequest) GetTenantUuid() string {
 	if x != nil {
-		return x.TenantId
+		return x.TenantUuid
 	}
 	return ""
 }
@@ -537,17 +537,18 @@ var File_sukko_provisioning_v1_webhook_worker_proto protoreflect.FileDescriptor
 const file_sukko_provisioning_v1_webhook_worker_proto_rawDesc = "" +
 	"\n" +
 	"*sukko/provisioning/v1/webhook_worker.proto\x12\x15sukko.provisioning.v1\"\x1b\n" +
-	"\x19ListWebhookTenantsRequest\";\n" +
-	"\x1aListWebhookTenantsResponse\x12\x1d\n" +
-	"\n" +
-	"tenant_ids\x18\x01 \x03(\tR\ttenantIds\";\n" +
-	"\x1cListWebhooksForTenantRequest\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\tR\btenantId\"a\n" +
+	"\x19ListWebhookTenantsRequest\"?\n" +
+	"\x1aListWebhookTenantsResponse\x12!\n" +
+	"\ftenant_uuids\x18\x01 \x03(\tR\vtenantUuids\"?\n" +
+	"\x1cListWebhooksForTenantRequest\x12\x1f\n" +
+	"\vtenant_uuid\x18\x01 \x01(\tR\n" +
+	"tenantUuid\"a\n" +
 	"\x1dListWebhooksForTenantResponse\x12@\n" +
-	"\bwebhooks\x18\x01 \x03(\v2$.sukko.provisioning.v1.WebhookRecordR\bwebhooks\"\xfe\x01\n" +
+	"\bwebhooks\x18\x01 \x03(\v2$.sukko.provisioning.v1.WebhookRecordR\bwebhooks\"\x82\x02\n" +
 	"\rWebhookRecord\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
-	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x10\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
+	"\vtenant_uuid\x18\x02 \x01(\tR\n" +
+	"tenantUuid\x12\x10\n" +
 	"\x03url\x18\x03 \x01(\tR\x03url\x12'\n" +
 	"\x0fchannel_pattern\x18\x04 \x01(\tR\x0echannelPattern\x12\x1d\n" +
 	"\n" +
@@ -555,19 +556,21 @@ const file_sukko_provisioning_v1_webhook_worker_proto_rawDesc = "" +
 	"\x06status\x18\x06 \x01(\tR\x06status\x12\x1f\n" +
 	"\vmax_retries\x18\a \x01(\x05R\n" +
 	"maxRetries\x12-\n" +
-	"\x13last_delivery_at_ms\x18\b \x01(\x03R\x10lastDeliveryAtMs\"\x91\x01\n" +
+	"\x13last_delivery_at_ms\x18\b \x01(\x03R\x10lastDeliveryAtMs\"\x95\x01\n" +
 	"\x1aUpdateWebhookStatusRequest\x12\x1d\n" +
 	"\n" +
-	"webhook_id\x18\x01 \x01(\tR\twebhookId\x12\x1b\n" +
-	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x16\n" +
+	"webhook_id\x18\x01 \x01(\tR\twebhookId\x12\x1f\n" +
+	"\vtenant_uuid\x18\x02 \x01(\tR\n" +
+	"tenantUuid\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x1f\n" +
 	"\vretry_count\x18\x04 \x01(\x05R\n" +
 	"retryCount\"\x1d\n" +
-	"\x1bUpdateWebhookStatusResponse\"\x8c\x02\n" +
+	"\x1bUpdateWebhookStatusResponse\"\x90\x02\n" +
 	"\x15RecordDeliveryRequest\x12\x1d\n" +
 	"\n" +
-	"webhook_id\x18\x01 \x01(\tR\twebhookId\x12\x1b\n" +
-	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x1f\n" +
+	"webhook_id\x18\x01 \x01(\tR\twebhookId\x12\x1f\n" +
+	"\vtenant_uuid\x18\x02 \x01(\tR\n" +
+	"tenantUuid\x12\x1f\n" +
 	"\vdelivery_id\x18\x03 \x01(\tR\n" +
 	"deliveryId\x12\x18\n" +
 	"\aattempt\x18\x04 \x01(\x05R\aattempt\x12\x1f\n" +

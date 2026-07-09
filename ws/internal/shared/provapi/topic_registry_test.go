@@ -28,8 +28,8 @@ func TestTopicRegistry_Snapshot(t *testing.T) {
 		SharedTopics: []string{"test.tenant-a.trade", "test.tenant-a.order"},
 		DedicatedTenants: []*provisioningv1.DedicatedTenant{
 			{
-				TenantId: "tenant-b",
-				Topics:   []string{"test.tenant-b.trade"},
+				TenantSlug: "tenant-b",
+				Topics:     []string{"test.tenant-b.trade"},
 			},
 		},
 	})

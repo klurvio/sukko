@@ -143,10 +143,10 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := gw.serverClient.Client().Publish(ctx, &serverv1.PublishRequest{
-		TenantId:  authRes.TenantID,
-		Channel:   req.Channel,
-		Data:      req.Data,
-		Principal: authRes.Principal,
+		TenantSlug: authRes.TenantID,
+		Channel:    req.Channel,
+		Data:       req.Data,
+		Principal:  authRes.Principal,
 	})
 	if err != nil {
 		gw.logger.Error().Err(err).

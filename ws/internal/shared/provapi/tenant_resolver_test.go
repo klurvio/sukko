@@ -21,7 +21,7 @@ func TestStreamChannelRulesProvider_ResolveTenantUUID(t *testing.T) {
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 		IsSnapshot: true,
 		Tenants: []*provisioningv1.TenantConfig{
-			{TenantId: "tenant-a", TenantUuid: uuidA, PreviousSlug: "tenant-a-old"},
+			{TenantSlug: "tenant-a", TenantUuid: uuidA, PreviousSlug: "tenant-a-old"},
 		},
 	})
 
@@ -46,7 +46,7 @@ func TestStreamChannelRulesProvider_ResolveTenantUUID(t *testing.T) {
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 		IsSnapshot: true,
 		Tenants: []*provisioningv1.TenantConfig{
-			{TenantId: "tenant-a", TenantUuid: uuidA},
+			{TenantSlug: "tenant-a", TenantUuid: uuidA},
 		},
 	})
 	if _, err := r.ResolveTenantUUID(context.Background(), "tenant-a-old"); !errors.Is(err, auth.ErrTenantNotResolvable) {
@@ -63,7 +63,7 @@ func TestStreamChannelRulesProvider_DS001Readiness(t *testing.T) {
 	r := newTestChannelRulesProvider()
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 		IsSnapshot: true,
-		Tenants:    []*provisioningv1.TenantConfig{{TenantId: "tenant-a"}},
+		Tenants:    []*provisioningv1.TenantConfig{{TenantSlug: "tenant-a"}},
 	})
 	if r.TenantUUIDsPresent() {
 		t.Fatal("TenantUUIDsPresent should be false when snapshot carries no UUIDs")
@@ -72,7 +72,7 @@ func TestStreamChannelRulesProvider_DS001Readiness(t *testing.T) {
 	// Recovery via a later delta carrying a UUID.
 	r.updateTenantConfigs(&provisioningv1.WatchTenantConfigResponse{
 		IsSnapshot: false,
-		Tenants:    []*provisioningv1.TenantConfig{{TenantId: "tenant-a", TenantUuid: "u"}},
+		Tenants:    []*provisioningv1.TenantConfig{{TenantSlug: "tenant-a", TenantUuid: "u"}},
 	})
 	if !r.TenantUUIDsPresent() {
 		t.Fatal("TenantUUIDsPresent should recover to true on a delta carrying a UUID")

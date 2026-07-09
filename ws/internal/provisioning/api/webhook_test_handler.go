@@ -107,8 +107,8 @@ func (h *WebhookTestHandler) HandleTestDeliver(w http.ResponseWriter, r *http.Re
 	defer cancel()
 
 	resp, err := h.client.TestDeliver(ctx, &provisioningv1.TestDeliverRequest{
-		WebhookId: webhookID,
-		TenantId:  tenantID,
+		WebhookId:  webhookID,
+		TenantUuid: tenantID,
 	})
 	if err != nil {
 		st, _ := status.FromError(err)

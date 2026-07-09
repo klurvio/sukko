@@ -24,8 +24,8 @@ func TestStreamAPIKeyRegistry_Lookup_AfterSnapshot(t *testing.T) {
 	r.updateKeys(&provisioningv1.WatchAPIKeysResponse{
 		IsSnapshot: true,
 		ApiKeys: []*provisioningv1.APIKeyInfo{
-			{KeyId: "pk_live_abc", TenantId: "tenant1", Name: "production", IsActive: true},
-			{KeyId: "pk_live_def", TenantId: "tenant2", Name: "staging", IsActive: true},
+			{KeyId: "pk_live_abc", TenantUuid: "tenant1", Name: "production", IsActive: true},
+			{KeyId: "pk_live_def", TenantUuid: "tenant2", Name: "staging", IsActive: true},
 		},
 	})
 
@@ -75,7 +75,7 @@ func TestStreamAPIKeyRegistry_Lookup_AfterDelta(t *testing.T) {
 	r.updateKeys(&provisioningv1.WatchAPIKeysResponse{
 		IsSnapshot: true,
 		ApiKeys: []*provisioningv1.APIKeyInfo{
-			{KeyId: "pk_live_abc", TenantId: "tenant1", Name: "first", IsActive: true},
+			{KeyId: "pk_live_abc", TenantUuid: "tenant1", Name: "first", IsActive: true},
 		},
 	})
 
@@ -83,7 +83,7 @@ func TestStreamAPIKeyRegistry_Lookup_AfterDelta(t *testing.T) {
 	r.updateKeys(&provisioningv1.WatchAPIKeysResponse{
 		IsSnapshot: false,
 		ApiKeys: []*provisioningv1.APIKeyInfo{
-			{KeyId: "pk_live_xyz", TenantId: "tenant2", Name: "second", IsActive: true},
+			{KeyId: "pk_live_xyz", TenantUuid: "tenant2", Name: "second", IsActive: true},
 		},
 	})
 
@@ -133,7 +133,7 @@ func TestStreamAPIKeyRegistry_Lookup_InactiveKey(t *testing.T) {
 	r.updateKeys(&provisioningv1.WatchAPIKeysResponse{
 		IsSnapshot: true,
 		ApiKeys: []*provisioningv1.APIKeyInfo{
-			{KeyId: "pk_live_inactive", TenantId: "tenant1", Name: "disabled", IsActive: false},
+			{KeyId: "pk_live_inactive", TenantUuid: "tenant1", Name: "disabled", IsActive: false},
 		},
 	})
 
@@ -154,7 +154,7 @@ func TestStreamAPIKeyRegistry_UpdateKeys_SnapshotReplacesAll(t *testing.T) {
 	r.updateKeys(&provisioningv1.WatchAPIKeysResponse{
 		IsSnapshot: true,
 		ApiKeys: []*provisioningv1.APIKeyInfo{
-			{KeyId: "pk_live_aaa", TenantId: "tenant1", Name: "key-a", IsActive: true},
+			{KeyId: "pk_live_aaa", TenantUuid: "tenant1", Name: "key-a", IsActive: true},
 		},
 	})
 
@@ -167,7 +167,7 @@ func TestStreamAPIKeyRegistry_UpdateKeys_SnapshotReplacesAll(t *testing.T) {
 	r.updateKeys(&provisioningv1.WatchAPIKeysResponse{
 		IsSnapshot: true,
 		ApiKeys: []*provisioningv1.APIKeyInfo{
-			{KeyId: "pk_live_bbb", TenantId: "tenant2", Name: "key-b", IsActive: true},
+			{KeyId: "pk_live_bbb", TenantUuid: "tenant2", Name: "key-b", IsActive: true},
 		},
 	})
 
@@ -205,8 +205,8 @@ func TestStreamAPIKeyRegistry_UpdateKeys_RemovedKeys(t *testing.T) {
 	r.updateKeys(&provisioningv1.WatchAPIKeysResponse{
 		IsSnapshot: true,
 		ApiKeys: []*provisioningv1.APIKeyInfo{
-			{KeyId: "pk_live_keep", TenantId: "tenant1", Name: "keeper", IsActive: true},
-			{KeyId: "pk_live_remove", TenantId: "tenant1", Name: "doomed", IsActive: true},
+			{KeyId: "pk_live_keep", TenantUuid: "tenant1", Name: "keeper", IsActive: true},
+			{KeyId: "pk_live_remove", TenantUuid: "tenant1", Name: "doomed", IsActive: true},
 		},
 	})
 

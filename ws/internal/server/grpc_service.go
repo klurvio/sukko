@@ -66,10 +66,10 @@ func (svc *GRPCService) Publish(ctx context.Context, req *serverv1.PublishReques
 	s := svc.selectServer()
 
 	// Publish to message backend (routing rules → Kafka topic)
-	if err := s.backend.Publish(ctx, 0, req.GetTenantId(), req.GetChannel(), req.GetData()); err != nil {
+	if err := s.backend.Publish(ctx, 0, req.GetTenantSlug(), req.GetChannel(), req.GetData()); err != nil {
 		svc.logger.Error().Err(err).
 			Str("channel", req.GetChannel()).
-			Str("tenant_id", req.GetTenantId()).
+			Str("tenant_id", req.GetTenantSlug()).
 			Str("principal", req.GetPrincipal()).
 			Msg("gRPC Publish failed")
 		return nil, status.Errorf(codes.Internal, "publish: %v", err)
@@ -77,7 +77,7 @@ func (svc *GRPCService) Publish(ctx context.Context, req *serverv1.PublishReques
 
 	svc.logger.Debug().
 		Str("channel", req.GetChannel()).
-		Str("tenant_id", req.GetTenantId()).
+		Str("tenant_id", req.GetTenantSlug()).
 		Msg("gRPC Publish accepted")
 
 	return &serverv1.PublishResponse{
@@ -118,7 +118,7 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 	client.server = s
 	client.id = s.clientCount.Add(1)
 	client.remoteAddr = req.GetRemoteAddr()
-	client.tenantID = req.GetTenantId()
+	client.tenantID = req.GetTenantSlug()
 
 	// Track client
 	s.clients.Store(client, true)
@@ -160,7 +160,7 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 
 	svc.logger.Info().
 		Int64("client_id", client.id).
-		Str("tenant_id", req.GetTenantId()).
+		Str("tenant_id", req.GetTenantSlug()).
 		Str("principal", req.GetPrincipal()).
 		Strs("channels", req.GetChannels()).
 		Str("remote_addr", req.GetRemoteAddr()).
@@ -199,7 +199,7 @@ func (svc *GRPCService) Subscribe(req *serverv1.SubscribeRequest, stream serverv
 
 	svc.logger.Info().
 		Int64("client_id", client.id).
-		Str("tenant_id", req.GetTenantId()).
+		Str("tenant_id", req.GetTenantSlug()).
 		Dur("connection_duration", duration).
 		Msg("SSE Subscribe stream ended")
 
