@@ -233,15 +233,12 @@ func TestNewPushChannelHandler_Validation(t *testing.T) {
 
 	t.Run("nil channel config repo", func(t *testing.T) {
 		t.Parallel()
-		_, err := NewPushChannelHandler(nil, bus, logger)
+		_, err := NewPushChannelHandler(nil, nil, bus, logger)
 		if err == nil {
 			t.Error("expected error for nil channel config repo")
 		}
 	})
 
-	t.Run("nil event bus", func(t *testing.T) {
-		t.Parallel()
-		// Can't test without a real ChannelConfigRepository (needs DB),
-		// but the nil-repo check fires first.
-	})
+	// nil resolver / nil event bus need a non-nil repo (DB) to reach; nil-repo fires first.
+	// The nil-resolver path is asserted in push_channels_integration_test.go (real repo).
 }

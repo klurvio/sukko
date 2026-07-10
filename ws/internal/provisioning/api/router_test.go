@@ -23,10 +23,12 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/api"
 	provauth "github.com/klurvio/sukko/internal/provisioning/auth"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
+	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/provisioning/revocation"
 	"github.com/klurvio/sukko/internal/provisioning/testutil"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/license"
+	sharedtestutil "github.com/klurvio/sukko/internal/shared/testutil"
 )
 
 // generateTestECKey generates an ECDSA P-256 key pair for testing.
@@ -2004,5 +2006,40 @@ func TestChannelRules_CommunityAccess(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("DELETE channel-rules under Community = %d; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRouter_PushRoutes_RegisteredWhenHandlerSet verifies the #173 wiring: when the push
+// handlers are set on RouterConfig, POST /api/v1/push/credentials is registered (an
+// unauthenticated request reaches auth middleware → 401, not 404); when unset, the route is
+// absent (404). This is the regression guard for the "handlers never wired → routes 404" bug.
+func TestRouter_PushRoutes_RegisteredWhenHandlerSet(t *testing.T) {
+	t.Parallel()
+	pool := sharedtestutil.NewTestPool(t)
+	credRepo, err := repository.NewCredentialsRepository(pool, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatalf("new credentials repo: %v", err)
+	}
+	h, err := api.NewPushCredentialHandler(credRepo, repository.NewTenantRepository(pool).GetBySlug, eventbus.New(zerolog.Nop()), zerolog.Nop())
+	if err != nil {
+		t.Fatalf("new push credential handler: %v", err)
+	}
+
+	wired := mustNewRouter(t, api.RouterConfig{
+		Service:               newTestService(),
+		Logger:                zerolog.Nop(),
+		PushCredentialHandler: h,
+	})
+	rec := httptest.NewRecorder()
+	wired.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/push/credentials", http.NoBody))
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("push credentials route not registered (404) despite handler set")
+	}
+
+	bare := mustNewRouter(t, api.RouterConfig{Service: newTestService(), Logger: zerolog.Nop()})
+	rec2 := httptest.NewRecorder()
+	bare.ServeHTTP(rec2, httptest.NewRequest(http.MethodPost, "/api/v1/push/credentials", http.NoBody))
+	if rec2.Code != http.StatusNotFound {
+		t.Errorf("without handler set, route should be 404, got %d", rec2.Code)
 	}
 }

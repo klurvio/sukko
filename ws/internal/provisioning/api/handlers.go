@@ -77,6 +77,19 @@ const (
 	errCodeAddRoutingRuleFailed = "ADD_ROUTING_RULE_FAILED"
 	errCodeGetTenantFailed      = "GET_TENANT_FAILED"
 	errCodeInternal             = "INTERNAL_ERROR"
+
+	// Push credential / channel error codes (§I — named; referenced by the push handlers).
+	errCodeMissingTenantID       = "MISSING_TENANT_ID"
+	errCodeMissingProvider       = "MISSING_PROVIDER"
+	errCodeInvalidProvider       = "INVALID_PROVIDER"
+	errCodeMissingCredentialData = "MISSING_CREDENTIAL_DATA"
+	errCodeInvalidCredentialData = "INVALID_CREDENTIAL_DATA" //nolint:gosec // G101 false positive: API error-code string, not a credential
+	errCodeFCMConnectivity       = "FCM_CONNECTIVITY_FAILED"
+	errCodeCreateFailed          = "CREATE_FAILED"
+	errCodeMissingPatterns       = "MISSING_PATTERNS"
+	errCodeInvalidPattern        = "INVALID_PATTERN"
+	errCodeInvalidUrgency        = "INVALID_URGENCY"
+	errCodeUpsertFailed          = "UPSERT_FAILED"
 )
 
 // Response status string constants (Constitution §I — JSON response type codes appearing in

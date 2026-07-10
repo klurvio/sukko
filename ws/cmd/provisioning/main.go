@@ -420,29 +420,43 @@ func main() {
 		structuredLogger.Fatal().Err(err).Msg("Failed to create Admin UI handler")
 	}
 
+	// Initialize push handlers (Enterprise — RequireFeature gate in the router). Wired here so
+	// the REST push routes are actually registered; both resolve the client tenant slug → UUID
+	// via svc.GetTenantBySlug before writing the UUID-typed columns.
+	pushCredentialHandler, err := api.NewPushCredentialHandler(pushCredentialsRepo, svc.GetTenantBySlug, bus, structuredLogger)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to create push credential handler")
+	}
+	pushChannelHandler, err := api.NewPushChannelHandler(pushChannelConfigRepo, svc.GetTenantBySlug, bus, structuredLogger)
+	if err != nil {
+		structuredLogger.Fatal().Err(err).Msg("Failed to create push channel handler")
+	}
+
 	// Initialize HTTP router
 	router, err := api.NewRouter(api.RouterConfig{
-		Service:             svc,
-		ProvisioningConfig:  *cfg,
-		Logger:              structuredLogger,
-		RateLimit:           cfg.APIRateLimitPerMinute,
-		Validator:           validator,
-		AdminValidator:      adminValidator,
-		AdminKeyRegistry:    adminKeyRegistry,
-		AdminKeyRepo:        adminKeyRepo,
-		EventBus:            bus,
-		LicenseHandler:      licenseHandler,
-		CORSAllowedOrigins:  cfg.CORSAllowedOrigins,
-		CORSMaxAge:          cfg.CORSMaxAge,
-		ConfigHandler:       platform.ConfigHandler(cfg),
-		EditionManager:      cfg.EditionManager(),
-		PprofEnabled:        cfg.PprofEnabled,
-		RevocationHandler:   revHandler,
-		ConnectionsHandler:  connectionsHandler,
-		WebhookHandler:      webhookHandler,
-		WebhookTestHandler:  webhookTestHandler,
-		AnalyticsSSEHandler: sharedAnalyticsSSEHandler,
-		AdminUIHandler:      adminUIHandler,
+		Service:               svc,
+		ProvisioningConfig:    *cfg,
+		Logger:                structuredLogger,
+		RateLimit:             cfg.APIRateLimitPerMinute,
+		Validator:             validator,
+		AdminValidator:        adminValidator,
+		AdminKeyRegistry:      adminKeyRegistry,
+		AdminKeyRepo:          adminKeyRepo,
+		EventBus:              bus,
+		LicenseHandler:        licenseHandler,
+		CORSAllowedOrigins:    cfg.CORSAllowedOrigins,
+		CORSMaxAge:            cfg.CORSMaxAge,
+		ConfigHandler:         platform.ConfigHandler(cfg),
+		EditionManager:        cfg.EditionManager(),
+		PprofEnabled:          cfg.PprofEnabled,
+		RevocationHandler:     revHandler,
+		ConnectionsHandler:    connectionsHandler,
+		WebhookHandler:        webhookHandler,
+		WebhookTestHandler:    webhookTestHandler,
+		AnalyticsSSEHandler:   sharedAnalyticsSSEHandler,
+		AdminUIHandler:        adminUIHandler,
+		PushCredentialHandler: pushCredentialHandler,
+		PushChannelHandler:    pushChannelHandler,
 	})
 	if err != nil {
 		structuredLogger.Fatal().Err(err).Msg("Failed to initialize HTTP router")

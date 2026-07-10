@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -87,6 +88,17 @@ func (h *AnalyticsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 
 	tenantID := r.URL.Query().Get("tenant_id")
+
+	// tenant_id, when present, MUST be a well-formed UUID (admin tooling passes UUIDs; the
+	// column is UUID-typed). Reject a malformed value up front with 400 — before the SSE
+	// stream opens — instead of letting it reach the $2::uuid cast, which errors silently and
+	// returns an empty 200. An empty tenant_id is a valid mode (aggregate across all tenants).
+	if tenantID != "" {
+		if _, err := uuid.Parse(tenantID); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "tenant_id must be a valid UUID")
+			return
+		}
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
