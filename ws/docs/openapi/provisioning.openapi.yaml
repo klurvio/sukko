@@ -1248,6 +1248,7 @@ paths:
               properties:
                 tenant_id:
                   type: string
+                  description: Tenant slug. The server resolves it to the tenant UUID stored at rest; the response echoes the slug.
                 provider:
                   type: string
                   enum: [fcm, apns, vapid]
@@ -1281,6 +1282,18 @@ paths:
                 $ref: "#/components/schemas/Error"
         "403":
           description: Edition gate — requires Enterprise
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Tenant not found — the tenant_id slug does not resolve (TENANT_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Service temporarily unavailable — tenant slug resolution failed
           content:
             application/json:
               schema:
@@ -1333,7 +1346,13 @@ paths:
                     type: string
                     const: deleted
         "404":
-          description: Credential not found
+          description: Credential not found, or the tenant_id slug does not resolve (TENANT_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Service temporarily unavailable — tenant slug resolution failed
           content:
             application/json:
               schema:
@@ -1363,6 +1382,7 @@ paths:
               properties:
                 tenant_id:
                   type: string
+                  description: Tenant slug (also the channel-pattern prefix). Resolved to the tenant UUID server-side; the response echoes the slug.
                 patterns:
                   type: array
                   items:
@@ -1393,6 +1413,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "404":
+          description: Tenant not found — the tenant_id slug does not resolve (TENANT_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Service temporarily unavailable — tenant slug resolution failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
     get:
       operationId: getPushChannelConfig
@@ -1417,7 +1449,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/PushChannelConfig"
         "404":
-          description: Config not found for tenant
+          description: Config not found for tenant, or the tenant_id slug does not resolve (TENANT_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Service temporarily unavailable — tenant slug resolution failed
           content:
             application/json:
               schema:
@@ -1459,7 +1497,13 @@ paths:
                     type: string
                     const: deleted
         "404":
-          description: Config not found
+          description: Config not found for tenant, or the tenant_id slug does not resolve (TENANT_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Service temporarily unavailable — tenant slug resolution failed
           content:
             application/json:
               schema:
@@ -2056,7 +2100,7 @@ paths:
           schema:
             type: string
             format: uuid
-          description: Filter to a specific tenant. Omit to aggregate across all tenants.
+          description: Filter to a specific tenant (UUID). Omit to aggregate across all tenants. A non-empty, malformed (non-UUID) value is rejected with 400 before the stream opens.
       responses:
         "200":
           description: SSE stream of analytics events
@@ -2070,6 +2114,12 @@ paths:
                 example: |
                   event: snapshot
                   data: {"tenant_id":"acme","connections":{"active":142,"websocket":120,"sse":22},"messages":{"published":8420,"delivered":8415,"failed":5},"push":{"web":{"sent":200,"success":198,"failed":2,"expired":0,"rate_limited":0},"android":{"sent":150,"success":150,"failed":0,"expired":0,"rate_limited":0},"ios":{"sent":100,"success":99,"failed":1,"expired":0,"rate_limited":0}}}
+        "400":
+          description: Malformed tenant_id (not a valid UUID)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           description: Missing or invalid admin JWT
           content:

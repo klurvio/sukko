@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/shared/auth"
@@ -36,30 +37,39 @@ var validUrgencies = map[string]bool{
 // PushChannelHandler handles push channel configuration CRUD.
 type PushChannelHandler struct {
 	channelConfigRepo *repository.ChannelConfigRepository
+	resolveTenant     provisioning.TenantLookupFunc
 	eventBus          *eventbus.Bus
 	logger            zerolog.Logger
 }
 
-// NewPushChannelHandler creates a PushChannelHandler.
+// NewPushChannelHandler creates a PushChannelHandler. resolveTenant maps the client-supplied
+// tenant slug to the tenant UUID written to the (UUID-typed) DB column.
 func NewPushChannelHandler(
 	channelConfigRepo *repository.ChannelConfigRepository,
+	resolveTenant provisioning.TenantLookupFunc,
 	eventBus *eventbus.Bus,
 	logger zerolog.Logger,
 ) (*PushChannelHandler, error) {
 	if channelConfigRepo == nil {
 		return nil, errNilChannelConfigRepo
 	}
+	if resolveTenant == nil {
+		return nil, errNilTenantResolver
+	}
 	if eventBus == nil {
 		return nil, errNilChannelEventBus
 	}
 	return &PushChannelHandler{
 		channelConfigRepo: channelConfigRepo,
+		resolveTenant:     resolveTenant,
 		eventBus:          eventBus,
 		logger:            logger.With().Str("component", "push_channel_handler").Logger(),
 	}, nil
 }
 
 // createChannelConfigRequest is the JSON body for POST /api/v1/push/channels.
+// tenant_id is the tenant SLUG (also the channel-pattern prefix); the server resolves it to
+// the UUID stored at rest.
 type createChannelConfigRequest struct {
 	TenantID       string   `json:"tenant_id"`
 	Patterns       []string `json:"patterns"`
@@ -68,6 +78,7 @@ type createChannelConfigRequest struct {
 }
 
 // channelConfigResponse is the JSON response for channel config operations.
+// tenant_id echoes the input slug (never the internal UUID).
 type channelConfigResponse struct {
 	TenantID       string   `json:"tenant_id"`
 	Patterns       []string `json:"patterns"`
@@ -88,37 +99,36 @@ func (h *PushChannelHandler) HandleCreateChannelConfig(w http.ResponseWriter, r 
 	r.Body = http.MaxBytesReader(w, r.Body, maxChannelConfigBodySize)
 	var req createChannelConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid JSON body")
 		return
 	}
 
 	if req.TenantID == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "MISSING_TENANT_ID", "tenant_id is required")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeMissingTenantID, "tenant_id is required")
 		return
 	}
-
 	if len(req.Patterns) == 0 {
-		httputil.WriteError(w, http.StatusBadRequest, "MISSING_PATTERNS", "patterns must be non-empty")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeMissingPatterns, "patterns must be non-empty")
 		return
 	}
 
-	// Validate tenant prefix on each pattern
+	// Channel patterns are SLUG-prefixed (data plane) — validate against the slug BEFORE
+	// resolving, so a malformed pattern is rejected without a DB round-trip.
 	for _, pattern := range req.Patterns {
 		if !auth.ValidateChannelTenant(pattern, req.TenantID) {
-			httputil.WriteError(w, http.StatusBadRequest, "INVALID_PATTERN",
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidPattern,
 				fmt.Sprintf("pattern %q must start with tenant prefix %q", pattern, req.TenantID+"."))
 			return
 		}
 	}
 
-	// Validate urgency if provided
 	if req.DefaultUrgency != "" && !validUrgencies[req.DefaultUrgency] {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_URGENCY",
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidUrgency,
 			"default_urgency must be one of: very-low, low, normal, high")
 		return
 	}
 
-	// Apply defaults
+	// Apply defaults.
 	if req.DefaultUrgency == "" {
 		req.DefaultUrgency = "normal"
 	}
@@ -126,8 +136,14 @@ func (h *PushChannelHandler) HandleCreateChannelConfig(w http.ResponseWriter, r 
 		req.DefaultTTL = defaultPushTTL
 	}
 
+	// Resolve slug → UUID for the (UUID-typed) FK column.
+	tenantUUID, ok := resolveTenantUUID(r.Context(), h.resolveTenant, req.TenantID, w, h.logger)
+	if !ok {
+		return
+	}
+
 	config := &repository.PushChannelConfig{
-		TenantID:       req.TenantID,
+		TenantID:       tenantUUID,
 		Patterns:       req.Patterns,
 		DefaultTTL:     req.DefaultTTL,
 		DefaultUrgency: req.DefaultUrgency,
@@ -135,23 +151,25 @@ func (h *PushChannelHandler) HandleCreateChannelConfig(w http.ResponseWriter, r 
 
 	if err := h.channelConfigRepo.Upsert(r.Context(), config); err != nil {
 		h.logger.Error().Err(err).
-			Str(logging.LogKeyTenantUUID, req.TenantID).
+			Str(logging.LogKeyTenantSlug, req.TenantID).
+			Str(logging.LogKeyTenantUUID, tenantUUID).
 			Msg("Failed to upsert push channel config")
-		httputil.WriteError(w, http.StatusInternalServerError, "UPSERT_FAILED", "Failed to save push channel config")
+		httputil.WriteError(w, http.StatusInternalServerError, errCodeUpsertFailed, "Failed to save push channel config")
 		return
 	}
 
 	h.eventBus.Publish(eventbus.Event{Type: eventbus.PushConfigChanged})
 
 	h.logger.Info().
-		Str(logging.LogKeyTenantUUID, req.TenantID).
+		Str(logging.LogKeyTenantSlug, req.TenantID).
+		Str(logging.LogKeyTenantUUID, tenantUUID).
 		Int("patterns", len(req.Patterns)).
 		Int("default_ttl", req.DefaultTTL).
 		Str("default_urgency", req.DefaultUrgency).
 		Msg("Push channel config created/updated")
 
 	_ = httputil.WriteJSON(w, http.StatusCreated, channelConfigResponse{
-		TenantID:       config.TenantID,
+		TenantID:       req.TenantID, // echo the input slug, never the internal UUID
 		Patterns:       config.Patterns,
 		DefaultTTL:     config.DefaultTTL,
 		DefaultUrgency: config.DefaultUrgency,
@@ -160,25 +178,33 @@ func (h *PushChannelHandler) HandleCreateChannelConfig(w http.ResponseWriter, r 
 
 // HandleGetChannelConfig handles GET /api/v1/push/channels.
 func (h *PushChannelHandler) HandleGetChannelConfig(w http.ResponseWriter, r *http.Request) {
-	tenantID := r.URL.Query().Get("tenant_id")
-	if tenantID == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "MISSING_TENANT_ID", "tenant_id query parameter is required")
+	tenantSlug := r.URL.Query().Get("tenant_id")
+	if tenantSlug == "" {
+		httputil.WriteError(w, http.StatusBadRequest, errCodeMissingTenantID, "tenant_id query parameter is required")
 		return
 	}
 
-	config, err := h.channelConfigRepo.Get(r.Context(), tenantID)
+	tenantUUID, ok := resolveTenantUUID(r.Context(), h.resolveTenant, tenantSlug, w, h.logger)
+	if !ok {
+		return
+	}
+
+	config, err := h.channelConfigRepo.Get(r.Context(), tenantUUID)
 	if err != nil {
 		if errors.Is(err, repository.ErrChannelConfigNotFound) {
-			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Push channel config not found for tenant")
+			httputil.WriteError(w, http.StatusNotFound, errCodeNotFound, "Push channel config not found for tenant")
 		} else {
-			h.logger.Error().Err(err).Str(logging.LogKeyTenantUUID, tenantID).Msg("Failed to get push channel config")
+			h.logger.Error().Err(err).
+				Str(logging.LogKeyTenantSlug, tenantSlug).
+				Str(logging.LogKeyTenantUUID, tenantUUID).
+				Msg("Failed to get push channel config")
 			httputil.WriteError(w, http.StatusInternalServerError, errCodeInternal, "Failed to retrieve channel config")
 		}
 		return
 	}
 
 	_ = httputil.WriteJSON(w, http.StatusOK, channelConfigResponse{
-		TenantID:       config.TenantID,
+		TenantID:       tenantSlug, // echo the input slug, not the stored UUID
 		Patterns:       config.Patterns,
 		DefaultTTL:     config.DefaultTTL,
 		DefaultUrgency: config.DefaultUrgency,
@@ -189,11 +215,11 @@ func (h *PushChannelHandler) HandleGetChannelConfig(w http.ResponseWriter, r *ht
 func (h *PushChannelHandler) HandleDeleteChannelConfig(w http.ResponseWriter, r *http.Request) {
 	var req deleteChannelConfigRequest
 
-	// Support both query params and JSON body
+	// Support both query params and JSON body.
 	if r.Body != nil && r.ContentLength > 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, maxChannelConfigBodySize)
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid JSON body")
 			return
 		}
 	}
@@ -203,15 +229,23 @@ func (h *PushChannelHandler) HandleDeleteChannelConfig(w http.ResponseWriter, r 
 	}
 
 	if req.TenantID == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "MISSING_TENANT_ID", "tenant_id is required")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeMissingTenantID, "tenant_id is required")
 		return
 	}
 
-	if err := h.channelConfigRepo.Delete(r.Context(), req.TenantID); err != nil {
+	tenantUUID, ok := resolveTenantUUID(r.Context(), h.resolveTenant, req.TenantID, w, h.logger)
+	if !ok {
+		return
+	}
+
+	if err := h.channelConfigRepo.Delete(r.Context(), tenantUUID); err != nil {
 		if errors.Is(err, repository.ErrChannelConfigNotFound) {
-			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Push channel config not found for tenant")
+			httputil.WriteError(w, http.StatusNotFound, errCodeNotFound, "Push channel config not found for tenant")
 		} else {
-			h.logger.Error().Err(err).Str(logging.LogKeyTenantUUID, req.TenantID).Msg("Failed to delete push channel config")
+			h.logger.Error().Err(err).
+				Str(logging.LogKeyTenantSlug, req.TenantID).
+				Str(logging.LogKeyTenantUUID, tenantUUID).
+				Msg("Failed to delete push channel config")
 			httputil.WriteError(w, http.StatusInternalServerError, errCodeInternal, "Failed to delete channel config")
 		}
 		return
@@ -219,7 +253,10 @@ func (h *PushChannelHandler) HandleDeleteChannelConfig(w http.ResponseWriter, r 
 
 	h.eventBus.Publish(eventbus.Event{Type: eventbus.PushConfigChanged})
 
-	h.logger.Info().Str(logging.LogKeyTenantUUID, req.TenantID).Msg("Push channel config deleted")
+	h.logger.Info().
+		Str(logging.LogKeyTenantSlug, req.TenantID).
+		Str(logging.LogKeyTenantUUID, tenantUUID).
+		Msg("Push channel config deleted")
 
 	_ = httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

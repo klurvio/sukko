@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 
 	"github.com/rs/zerolog"
 
+	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/repository"
 	"github.com/klurvio/sukko/internal/shared/httputil"
@@ -27,30 +29,62 @@ var validProviders = map[string]bool{
 // PushCredentialHandler handles push credential upload and deletion.
 type PushCredentialHandler struct {
 	credentialsRepo *repository.CredentialsRepository
+	resolveTenant   provisioning.TenantLookupFunc
 	eventBus        *eventbus.Bus
 	logger          zerolog.Logger
 }
 
-// NewPushCredentialHandler creates a PushCredentialHandler.
+// NewPushCredentialHandler creates a PushCredentialHandler. resolveTenant maps the
+// client-supplied tenant slug to the tenant UUID written to the (UUID-typed) DB columns.
 func NewPushCredentialHandler(
 	credentialsRepo *repository.CredentialsRepository,
+	resolveTenant provisioning.TenantLookupFunc,
 	eventBus *eventbus.Bus,
 	logger zerolog.Logger,
 ) (*PushCredentialHandler, error) {
 	if credentialsRepo == nil {
 		return nil, errNilCredentialsRepo
 	}
+	if resolveTenant == nil {
+		return nil, errNilTenantResolver
+	}
 	if eventBus == nil {
 		return nil, errNilEventBus
 	}
 	return &PushCredentialHandler{
 		credentialsRepo: credentialsRepo,
+		resolveTenant:   resolveTenant,
 		eventBus:        eventBus,
 		logger:          logger.With().Str("component", "push_credential_handler").Logger(),
 	}, nil
 }
 
+// resolveTenantUUID resolves a tenant slug to its UUID via lookup, writing the mapped error
+// response and returning ok=false on failure. Mirrors RequireTenant's error mapping
+// (middleware.go): an unknown slug → 404 TENANT_NOT_FOUND; any other (transient) error → 503
+// — a transient dependency failure MUST NOT be reported as a client 404 (§III).
+func resolveTenantUUID(
+	ctx context.Context,
+	lookup provisioning.TenantLookupFunc,
+	slug string,
+	w http.ResponseWriter,
+	logger zerolog.Logger,
+) (string, bool) {
+	tenant, err := lookup(ctx, slug)
+	if err != nil {
+		if errors.Is(err, provisioning.ErrTenantNotFound) {
+			httputil.WriteError(w, http.StatusNotFound, errCodeTenantNotFound, "Tenant not found")
+			return "", false
+		}
+		logger.Error().Err(err).Str(logging.LogKeyTenantSlug, slug).Msg("resolve tenant slug failed")
+		httputil.WriteError(w, http.StatusServiceUnavailable, errCodeServiceUnavailable, "Service temporarily unavailable")
+		return "", false
+	}
+	return tenant.ID, true
+}
+
 // uploadCredentialsRequest is the JSON body for POST /api/v1/push/credentials.
+// tenant_id is the tenant SLUG; the server resolves it to the UUID stored at rest.
 type uploadCredentialsRequest struct {
 	TenantID       string `json:"tenant_id"`
 	Provider       string `json:"provider"`
@@ -58,6 +92,7 @@ type uploadCredentialsRequest struct {
 }
 
 // uploadCredentialsResponse is the JSON body returned on successful upload.
+// tenant_id echoes the input slug (never the internal UUID).
 type uploadCredentialsResponse struct {
 	ID       int64  `json:"id"`
 	Provider string `json:"provider"`
@@ -78,69 +113,104 @@ func (h *PushCredentialHandler) HandleUploadCredentials(w http.ResponseWriter, r
 	r.Body = http.MaxBytesReader(w, r.Body, maxCredentialBodySize)
 	var req uploadCredentialsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid JSON body")
 		return
 	}
 
 	if req.TenantID == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "MISSING_TENANT_ID", "tenant_id is required")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeMissingTenantID, "tenant_id is required")
 		return
 	}
-
 	if req.Provider == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "MISSING_PROVIDER", "provider is required")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeMissingProvider, "provider is required")
 		return
 	}
-
 	if !validProviders[req.Provider] {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_PROVIDER", "provider must be one of: fcm, apns, vapid")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidProvider, "provider must be one of: fcm, apns, vapid")
 		return
 	}
-
 	if req.CredentialData == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "MISSING_CREDENTIAL_DATA", "credential_data is required")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeMissingCredentialData, "credential_data is required")
 		return
 	}
-
-	// Validate credential_data format per provider
 	if err := validateCredentialData(req.Provider, req.CredentialData); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_CREDENTIAL_DATA", err.Error())
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidCredentialData, err.Error())
 		return
 	}
 
-	// Connectivity test (FR-011): FCM OAuth2 token exchange
+	// Connectivity test (FR-011): FCM OAuth2 token exchange. Runs during credential validation,
+	// before tenant resolution — so its log line carries the slug only.
 	if req.Provider == "fcm" {
 		if err := testFCMConnectivity(req.CredentialData); err != nil {
-			h.logger.Warn().Err(err).Str(logging.LogKeyTenantUUID, req.TenantID).Msg("FCM connectivity test failed")
-			httputil.WriteError(w, http.StatusBadRequest, "FCM_CONNECTIVITY_FAILED", "FCM connectivity test failed: "+err.Error())
+			h.logger.Warn().Err(err).
+				Str(logging.LogKeyTenantSlug, req.TenantID).
+				Msg("FCM connectivity test failed")
+			httputil.WriteError(w, http.StatusBadRequest, errCodeFCMConnectivity, "FCM connectivity test failed: "+err.Error())
 			return
 		}
 	}
-	// APNs: skip in v1 (complex to test without real device token)
+	// APNs: skip in v1 (complex to test without real device token). VAPID: no external service.
 	if req.Provider == "apns" {
-		h.logger.Warn().Str(logging.LogKeyTenantUUID, req.TenantID).Msg("APNs connectivity test skipped in v1")
+		h.logger.Warn().
+			Str(logging.LogKeyTenantSlug, req.TenantID).
+			Msg("APNs connectivity test skipped in v1")
 	}
-	// VAPID: skip (no external service to test against)
+
+	// Resolve the tenant slug → UUID just before the (UUID-typed) write.
+	tenantUUID, ok := resolveTenantUUID(r.Context(), h.resolveTenant, req.TenantID, w, h.logger)
+	if !ok {
+		return
+	}
 
 	cred := &repository.PushCredential{
-		TenantID:       req.TenantID,
+		TenantID:       tenantUUID,
 		Provider:       req.Provider,
 		CredentialData: req.CredentialData,
 	}
 
+	// Idempotent upsert (mirror gRPC StorePushCredentials): Create, and on a duplicate for the
+	// same tenant+provider, Update in place. Update does not return the row ID, so re-Get it for
+	// the response.
 	if err := h.credentialsRepo.Create(r.Context(), cred); err != nil {
-		h.logger.Error().Err(err).
-			Str(logging.LogKeyTenantUUID, req.TenantID).
-			Str("provider", req.Provider).
-			Msg("Failed to create push credential")
-		httputil.WriteError(w, http.StatusInternalServerError, "CREATE_FAILED", "Failed to create push credential")
-		return
+		switch {
+		case errors.Is(err, repository.ErrCredentialAlreadyExists):
+			if uerr := h.credentialsRepo.Update(r.Context(), cred); uerr != nil {
+				h.logger.Error().Err(uerr).
+					Str(logging.LogKeyTenantSlug, req.TenantID).
+					Str(logging.LogKeyTenantUUID, tenantUUID).
+					Str("provider", req.Provider).
+					Msg("Failed to update push credential")
+				httputil.WriteError(w, http.StatusInternalServerError, errCodeUpsertFailed, "Failed to save push credential")
+				return
+			}
+			// Update succeeded; re-Get only repopulates cred.ID for the response (Update
+			// returns no ID). A failed re-Get is non-fatal — the write is durable — so log
+			// it and return id:0 rather than failing an already-successful upsert.
+			if existing, gerr := h.credentialsRepo.Get(r.Context(), tenantUUID, req.Provider); gerr == nil {
+				cred.ID = existing.ID
+			} else {
+				h.logger.Warn().Err(gerr).
+					Str(logging.LogKeyTenantSlug, req.TenantID).
+					Str(logging.LogKeyTenantUUID, tenantUUID).
+					Str("provider", req.Provider).
+					Msg("upsert: re-fetch after update failed; response id will be 0")
+			}
+		default:
+			h.logger.Error().Err(err).
+				Str(logging.LogKeyTenantSlug, req.TenantID).
+				Str(logging.LogKeyTenantUUID, tenantUUID).
+				Str("provider", req.Provider).
+				Msg("Failed to create push credential")
+			httputil.WriteError(w, http.StatusInternalServerError, errCodeCreateFailed, "Failed to create push credential")
+			return
+		}
 	}
 
 	h.eventBus.Publish(eventbus.Event{Type: eventbus.PushConfigChanged})
 
 	h.logger.Info().
-		Str(logging.LogKeyTenantUUID, req.TenantID).
+		Str(logging.LogKeyTenantSlug, req.TenantID).
+		Str(logging.LogKeyTenantUUID, tenantUUID).
 		Str("provider", req.Provider).
 		Int64("id", cred.ID).
 		Msg("Push credential created")
@@ -148,7 +218,7 @@ func (h *PushCredentialHandler) HandleUploadCredentials(w http.ResponseWriter, r
 	_ = httputil.WriteJSON(w, http.StatusCreated, uploadCredentialsResponse{
 		ID:       cred.ID,
 		Provider: cred.Provider,
-		TenantID: cred.TenantID,
+		TenantID: req.TenantID, // echo the input slug, never the internal UUID
 	})
 }
 
@@ -156,16 +226,16 @@ func (h *PushCredentialHandler) HandleUploadCredentials(w http.ResponseWriter, r
 func (h *PushCredentialHandler) HandleDeleteCredentials(w http.ResponseWriter, r *http.Request) {
 	var req deleteCredentialsRequest
 
-	// Support both query params and JSON body
+	// Support both query params and JSON body.
 	if r.Body != nil && r.ContentLength > 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, maxCredentialBodySize)
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON body")
+			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid JSON body")
 			return
 		}
 	}
 
-	// Query params override body (if present)
+	// Query params override body (if present).
 	if v := r.URL.Query().Get("tenant_id"); v != "" {
 		req.TenantID = v
 	}
@@ -174,24 +244,30 @@ func (h *PushCredentialHandler) HandleDeleteCredentials(w http.ResponseWriter, r
 	}
 
 	if req.TenantID == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "MISSING_TENANT_ID", "tenant_id is required")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeMissingTenantID, "tenant_id is required")
 		return
 	}
 	if req.Provider == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "MISSING_PROVIDER", "provider is required")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeMissingProvider, "provider is required")
 		return
 	}
 	if !validProviders[req.Provider] {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_PROVIDER", "provider must be one of: fcm, apns, vapid")
+		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidProvider, "provider must be one of: fcm, apns, vapid")
 		return
 	}
 
-	if err := h.credentialsRepo.Delete(r.Context(), req.TenantID, req.Provider); err != nil {
+	tenantUUID, ok := resolveTenantUUID(r.Context(), h.resolveTenant, req.TenantID, w, h.logger)
+	if !ok {
+		return
+	}
+
+	if err := h.credentialsRepo.Delete(r.Context(), tenantUUID, req.Provider); err != nil {
 		if errors.Is(err, repository.ErrCredentialNotFound) {
-			httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "Push credential not found")
+			httputil.WriteError(w, http.StatusNotFound, errCodeNotFound, "Push credential not found")
 		} else {
 			h.logger.Error().Err(err).
-				Str(logging.LogKeyTenantUUID, req.TenantID).
+				Str(logging.LogKeyTenantSlug, req.TenantID).
+				Str(logging.LogKeyTenantUUID, tenantUUID).
 				Str("provider", req.Provider).
 				Msg("Failed to delete push credential")
 			httputil.WriteError(w, http.StatusInternalServerError, errCodeInternal, "Failed to delete credential")
@@ -202,7 +278,8 @@ func (h *PushCredentialHandler) HandleDeleteCredentials(w http.ResponseWriter, r
 	h.eventBus.Publish(eventbus.Event{Type: eventbus.PushConfigChanged})
 
 	h.logger.Info().
-		Str(logging.LogKeyTenantUUID, req.TenantID).
+		Str(logging.LogKeyTenantSlug, req.TenantID).
+		Str(logging.LogKeyTenantUUID, tenantUUID).
 		Str("provider", req.Provider).
 		Msg("Push credential deleted")
 

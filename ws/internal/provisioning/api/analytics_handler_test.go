@@ -127,3 +127,22 @@ func TestSSEWriteEvent(t *testing.T) {
 		t.Errorf("expected double newline at end, got %q", body)
 	}
 }
+
+// TestAnalyticsSSEHandler_InvalidTenantIDRejected verifies a non-UUID tenant_id is rejected
+// with 400 up front, before the SSE stream opens (#173) — replacing the prior silent
+// empty-200 on the $2::uuid cast error. Empty tenant_id (all-tenants mode) skips this guard.
+func TestAnalyticsSSEHandler_InvalidTenantIDRejected(t *testing.T) {
+	t.Parallel()
+	h := NewAnalyticsSSEHandler(nil, 10, time.Minute, nil, zerolog.Nop())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/analytics/stream?tenant_id=not-a-uuid", http.NoBody)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), errCodeInvalidRequest) {
+		t.Errorf("want %s in body, got %q", errCodeInvalidRequest, rec.Body.String())
+	}
+}

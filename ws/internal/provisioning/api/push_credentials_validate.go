@@ -10,6 +10,8 @@ import (
 var (
 	errNilCredentialsRepo = errors.New("push credential handler: credentials repository is required")
 	errNilEventBus        = errors.New("push credential handler: event bus is required")
+	// errNilTenantResolver is shared by both push handlers (credentials + channels).
+	errNilTenantResolver = errors.New("push handler: tenant resolver is required")
 )
 
 // validateCredentialData validates the credential_data JSON structure

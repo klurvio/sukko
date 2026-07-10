@@ -333,18 +333,13 @@ func TestNewPushCredentialHandler_Validation(t *testing.T) {
 
 	t.Run("nil credentials repo", func(t *testing.T) {
 		t.Parallel()
-		_, err := NewPushCredentialHandler(nil, bus, logger)
+		_, err := NewPushCredentialHandler(nil, nil, bus, logger)
 		if err == nil {
 			t.Error("expected error for nil credentials repo")
 		}
 	})
 
-	t.Run("nil event bus", func(t *testing.T) {
-		t.Parallel()
-		// We can't create a real CredentialsRepository without a DB,
-		// but we can test the nil eventBus path by checking the error
-		// path with a non-nil repo. This requires a real repo which
-		// needs a DB. We'll skip this specific combination since the
-		// nil-repo check fires first.
-	})
+	// nil resolver / nil event bus require a non-nil repo (needs a DB) to reach — the nil-repo
+	// check fires first here. The nil-resolver path is asserted in the integration test
+	// (push_credentials_integration_test.go) where a real repo is available.
 }
