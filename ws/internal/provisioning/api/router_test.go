@@ -2025,21 +2025,30 @@ func TestRouter_PushRoutes_RegisteredWhenHandlerSet(t *testing.T) {
 		t.Fatalf("new push credential handler: %v", err)
 	}
 
-	wired := mustNewRouter(t, api.RouterConfig{
+	// Authenticate the request so it passes AuthMiddleware/RequireRole/RequireFeature (default
+	// EditionManager is Enterprise) — otherwise an unauthenticated request short-circuits at
+	// 401 before route matching, making "registered vs not" indistinguishable. With the handler
+	// wired, the route is registered → the request reaches the handler (400 empty body), NOT 404.
+	wired, addAuth := mustNewRouterWithAuth(t, api.RouterConfig{
 		Service:               newTestService(),
 		Logger:                zerolog.Nop(),
 		PushCredentialHandler: h,
 	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/push/credentials", http.NoBody)
+	addAuth(req)
 	rec := httptest.NewRecorder()
-	wired.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/push/credentials", http.NoBody))
+	wired.ServeHTTP(rec, req)
 	if rec.Code == http.StatusNotFound {
-		t.Fatalf("push credentials route not registered (404) despite handler set")
+		t.Fatalf("push credentials route not registered (404) despite handler set; body: %s", rec.Body.String())
 	}
 
-	bare := mustNewRouter(t, api.RouterConfig{Service: newTestService(), Logger: zerolog.Nop()})
+	// Without the handler, the route is not registered → an authenticated request 404s.
+	bare, addAuth2 := mustNewRouterWithAuth(t, api.RouterConfig{Service: newTestService(), Logger: zerolog.Nop()})
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/push/credentials", http.NoBody)
+	addAuth2(req2)
 	rec2 := httptest.NewRecorder()
-	bare.ServeHTTP(rec2, httptest.NewRequest(http.MethodPost, "/api/v1/push/credentials", http.NoBody))
+	bare.ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusNotFound {
-		t.Errorf("without handler set, route should be 404, got %d", rec2.Code)
+		t.Errorf("without handler set, route should be 404, got %d; body: %s", rec2.Code, rec2.Body.String())
 	}
 }
