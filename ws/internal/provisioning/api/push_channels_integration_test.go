@@ -114,6 +114,10 @@ func TestPushChannelHandler_Get_EchoesSlug(t *testing.T) {
 	if resp.TenantID != tenant.Slug {
 		t.Errorf("GET response tenant_id = %q, want input slug %q (not the stored UUID)", resp.TenantID, tenant.Slug)
 	}
+	// Patterns must round-trip through the TEXT[] column (pgx []string, not a JSON blob).
+	if len(resp.Patterns) != 1 || resp.Patterns[0] != tenant.Slug+".orders" {
+		t.Errorf("GET response patterns = %v, want [%q]", resp.Patterns, tenant.Slug+".orders")
+	}
 }
 
 // TestPushChannelHandler_Delete_BySlug verifies delete resolves slug and removes the UUID row.

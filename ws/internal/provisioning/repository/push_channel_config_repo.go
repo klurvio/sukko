@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -37,11 +36,6 @@ func NewChannelConfigRepository(pool *pgxpool.Pool) *ChannelConfigRepository {
 
 // Upsert inserts or updates the push channel configuration for a tenant.
 func (r *ChannelConfigRepository) Upsert(ctx context.Context, config *PushChannelConfig) error {
-	patternsJSON, err := json.Marshal(config.Patterns)
-	if err != nil {
-		return fmt.Errorf("marshal patterns: %w", err)
-	}
-
 	now := time.Now()
 	if config.CreatedAt.IsZero() {
 		config.CreatedAt = now
@@ -59,9 +53,10 @@ func (r *ChannelConfigRepository) Upsert(ctx context.Context, config *PushChanne
 		RETURNING id
 	`
 
-	err = r.pool.QueryRow(ctx, query,
+	// patterns is a Postgres TEXT[] — pgx encodes []string natively; do NOT JSON-encode.
+	err := r.pool.QueryRow(ctx, query,
 		config.TenantID,
-		string(patternsJSON),
+		config.Patterns,
 		config.DefaultTTL,
 		config.DefaultUrgency,
 		config.CreatedAt,
@@ -83,12 +78,11 @@ func (r *ChannelConfigRepository) Get(ctx context.Context, tenantID string) (*Pu
 	`
 
 	config := &PushChannelConfig{}
-	var patternsJSON string
 
 	err := r.pool.QueryRow(ctx, query, tenantID).Scan(
 		&config.ID,
 		&config.TenantID,
-		&patternsJSON,
+		&config.Patterns, // TEXT[] → []string (pgx native)
 		&config.DefaultTTL,
 		&config.DefaultUrgency,
 		&config.CreatedAt,
@@ -99,10 +93,6 @@ func (r *ChannelConfigRepository) Get(ctx context.Context, tenantID string) (*Pu
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query push channel config: %w", err)
-	}
-
-	if err := json.Unmarshal([]byte(patternsJSON), &config.Patterns); err != nil {
-		return nil, fmt.Errorf("unmarshal patterns: %w", err)
 	}
 
 	return config, nil
@@ -125,12 +115,11 @@ func (r *ChannelConfigRepository) ListAll(ctx context.Context) ([]*PushChannelCo
 	configs := []*PushChannelConfig{}
 	for rows.Next() {
 		config := &PushChannelConfig{}
-		var patternsJSON string
 
 		err := rows.Scan(
 			&config.ID,
 			&config.TenantID,
-			&patternsJSON,
+			&config.Patterns, // TEXT[] → []string (pgx native)
 			&config.DefaultTTL,
 			&config.DefaultUrgency,
 			&config.CreatedAt,
@@ -138,10 +127,6 @@ func (r *ChannelConfigRepository) ListAll(ctx context.Context) ([]*PushChannelCo
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan push channel config: %w", err)
-		}
-
-		if err := json.Unmarshal([]byte(patternsJSON), &config.Patterns); err != nil {
-			return nil, fmt.Errorf("unmarshal patterns: %w", err)
 		}
 
 		configs = append(configs, config)
