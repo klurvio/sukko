@@ -292,6 +292,11 @@ var (
 		Help: "Total publish errors by message backend",
 	}, []string{"backend"})
 
+	backendPublishRejected = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ws_backend_publish_rejected_total",
+		Help: "Total publishes rejected as not routable (no applicable routing rule) by message backend. Distinct from ws_backend_publish_errors_total (infrastructure failures) so tenant misconfiguration does not pollute the error alert series.",
+	}, []string{"backend"})
+
 	backendReplayRequests = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_backend_replay_requests_total",
 		Help: "Total replay requests by message backend",
@@ -557,6 +562,13 @@ func RecordBackendConsume(backend string) {
 // RecordBackendPublishError increments the backend publish error counter.
 func RecordBackendPublishError(backend string) {
 	backendPublishErrors.WithLabelValues(backend).Inc()
+}
+
+// RecordBackendPublishRejected increments the not-routable reject counter. Reject-class
+// publishes (no applicable routing rule) MUST use this instead of RecordBackendPublishError
+// so tenant misconfiguration stays out of the infrastructure error alert series.
+func RecordBackendPublishRejected(backend string) {
+	backendPublishRejected.WithLabelValues(backend).Inc()
 }
 
 // RecordBackendReplayRequest increments the backend replay request counter.

@@ -267,6 +267,11 @@ func main() {
 			TopicRefreshInterval:     cfg.TopicRefreshInterval,
 			TopicCreationTimeout:     cfg.TopicCreationTimeout,
 			BroadcastBus:             broadcastBus,
+			// Produce-path routing (#179): the rules provider resolves channel→topic per
+			// tenant; the edition accessor gates ChannelTopicRouting (server-global license,
+			// same instance the license watcher updates).
+			RulesProvider: rp,
+			Edition:       cfg.EditionManager().Edition,
 			// Kafka producer tuning
 			ProducerBatchMaxBytes:             cfg.KafkaProducerBatchMaxBytes,
 			ProducerMaxBufferedRecs:           cfg.KafkaProducerMaxBufferedRecords,

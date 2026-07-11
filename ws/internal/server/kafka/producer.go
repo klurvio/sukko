@@ -18,6 +18,7 @@ import (
 	"github.com/sony/gobreaker/v2"
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"github.com/klurvio/sukko/internal/server/backend"
 	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
@@ -43,10 +44,20 @@ type ProducerStats struct {
 	MessagesFailed    atomic.Int64 // Failed publish attempts
 }
 
-// RoutingSnapshotProvider provides per-tenant routing snapshots used by the producer
-// to resolve channel → topic(s) mappings at publish time.
+// RoutingSnapshotProvider provides per-tenant routing snapshots used to resolve
+// channel → topic(s) mappings at publish time. The consumer implements against this
+// narrow view; do NOT widen it (§XVIII — producer-specific needs go on RoutingRulesSource).
 type RoutingSnapshotProvider interface {
 	GetRoutingSnapshot(tenantID string) (provapi.TenantRoutingSnapshot, bool)
+}
+
+// RoutingRulesSource is the producer's view of the routing provider: snapshot lookup plus
+// readiness. SnapshotReceived() distinguishes "no rules synced yet" (server degraded,
+// retryable → 503) from "tenant has no rules" (reject → 409). StreamChannelRulesProvider
+// satisfies it.
+type RoutingRulesSource interface {
+	RoutingSnapshotProvider
+	SnapshotReceived() bool
 }
 
 // ProducerConfig holds configuration for creating a Kafka producer.
@@ -61,11 +72,17 @@ type ProducerConfig struct {
 	TLS  *kafkashared.TLSConfig  // TLS encryption (nil = no TLS, for local dev)
 
 	// Routing — resolves channel → topic(s) using per-tenant routing rules.
-	// When nil the producer falls back to community mode (last channel segment).
-	RulesProvider RoutingSnapshotProvider
+	// Required in kafka mode (kafkabackend.New rejects nil). Publish rejects when the
+	// provider yields no applicable rule — there is no community fallback.
+	RulesProvider RoutingRulesSource
+
+	// Edition returns the server's current license edition, checked at publish time to
+	// gate ChannelTopicRouting. Required in kafka mode (kafkabackend.New rejects nil).
+	Edition func() license.Edition
 
 	// Fanout — delivers records to multiple topics concurrently.
-	// When nil a direct synchronous produce is used (single-topic path only).
+	// When nil, multi-topic rules are rejected (single-topic uses the direct produce path).
+	// P1a: always nil; pool construction lands in P1b (#179).
 	Fanout *FanoutPool
 
 	// Circuit breaker settings (optional - sensible defaults provided)
@@ -99,8 +116,9 @@ type Producer struct {
 	// Circuit breaker for Kafka connection
 	circuitBreaker *gobreaker.CircuitBreaker[any]
 
-	// Routing and fanout dependencies (nil = community fallback)
-	rulesProvider RoutingSnapshotProvider
+	// Routing dependencies (validated non-nil by kafkabackend.New in production).
+	rulesProvider RoutingRulesSource
+	edition       func() license.Edition
 	fanout        *FanoutPool
 }
 
@@ -203,6 +221,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 		cancel:         cancel,
 		circuitBreaker: cb,
 		rulesProvider:  cfg.RulesProvider,
+		edition:        cfg.Edition,
 		fanout:         cfg.Fanout,
 	}
 
@@ -220,15 +239,25 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 
 // Publish sends a client message to Kafka.
 //
-// The message is published to the appropriate category topic based on channel:
-//   - Channel format: {tenant}.{identifier}.{category} (internal/mapped)
-//   - Topic: {namespace}.{tenant}.{category}
-//   - Key: full channel string (for partitioning - same channel = same partition = ordering)
-//   - Value: raw JSON from client (no parsing/validation)
+// The target topic(s) come from the tenant's per-tenant routing rules (resolveTargets) —
+// there is NO convention/last-segment fallback. The record uses:
+//   - Key: full channel string (for partitioning — same channel = same partition = ordering)
+//   - Value: raw JSON from the client (no parsing/validation)
 //   - Headers: metadata (client_id, source, timestamp)
 //
 // The channel must already be in internal format (tenant-prefixed) after gateway mapping.
-// Example: channel "acme.BTC.trade" → topic "prod.acme.trade", key "acme.BTC.trade"
+//
+// Callers branch on these sentinels (via errors.Is):
+//   - backend.ErrNoMatchingRoute    — rules present, none match this channel (reject → 409;
+//     wraps ErrPublishNotRoutable, so the check below it also fires)
+//   - backend.ErrPublishNotRoutable — no rules provisioned / routing unavailable (reject → 409)
+//   - ErrInvalidChannel             — malformed channel (→ 400)
+//   - ErrServiceUnavailable         — rules not yet synced or breaker open (retryable → 503)
+//   - other (e.g. ErrPublishFailed) — genuine produce failure (→ 500)
+//
+// A rule with no configured topics is treated as a non-match (skipped); if no rule matches,
+// the publish is REJECTED (ErrNoMatchingRoute) — never silently dead-lettered (C1 revised,
+// #179; ratified FR-014).
 func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, data []byte) error {
 	closed := func() bool {
 		p.mu.RLock()
@@ -239,30 +268,52 @@ func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, 
 		return ErrProducerClosed
 	}
 
-	// Execute through circuit breaker
-	_, err := p.circuitBreaker.Execute(func() (any, error) {
-		return nil, p.doPublish(ctx, clientID, channel, data)
-	})
-
-	if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
-		return fmt.Errorf("%w: kafka circuit breaker open", ErrServiceUnavailable)
-	}
-
-	if err != nil {
-		return fmt.Errorf("circuit breaker execute: %w", err)
-	}
-	return nil
-}
-
-// doPublish performs the actual Kafka publish operation.
-func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string, data []byte) error {
+	// Resolve routing BEFORE the circuit breaker. Rejects and the not-synced/unavailable
+	// signal are pure in-memory decisions with no Kafka I/O — they MUST NOT count toward
+	// breaker failure state (§IX: otherwise one rules-less tenant's retries open the shared
+	// breaker and 503 every tenant). Only genuine produce attempts enter the breaker.
 	tenant, err := extractTenant(channel)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidChannel, err)
 	}
+	topics, resolveErr := p.resolveTargets(channel, tenant)
+	if resolveErr != nil {
+		return resolveErr
+	}
+	// Multi-topic rule without a fanout pool is a server-capability gap (P1a defers fanout
+	// to P1b). Reject it HERE, before the breaker — like the other in-memory decisions above,
+	// it has no Kafka I/O and MUST NOT count toward breaker failure state (§IX: otherwise a
+	// tenant with a valid multi-topic rule opens the shared breaker and 503s every tenant).
+	if len(topics) > 1 && p.fanout == nil {
+		p.stats.MessagesFailed.Add(1)
+		if p.logger != nil {
+			p.logger.Error().
+				Str("channel", channel).
+				Int("rule_topics", len(topics)).
+				Msg("multi-topic routing rule requires the fanout pool (not configured)")
+		}
+		return fmt.Errorf("%w: multi-topic routing requires the fanout pool", backend.ErrPublishFailed)
+	}
 
-	topics, dlqReason := p.resolveTargets(channel, tenant)
+	_, cbErr := p.circuitBreaker.Execute(func() (any, error) {
+		return nil, p.doProduce(ctx, clientID, channel, tenant, topics, data)
+	})
 
+	if errors.Is(cbErr, gobreaker.ErrOpenState) || errors.Is(cbErr, gobreaker.ErrTooManyRequests) {
+		return fmt.Errorf("%w: kafka circuit breaker open", ErrServiceUnavailable)
+	}
+
+	if cbErr != nil {
+		return fmt.Errorf("circuit breaker execute: %w", cbErr)
+	}
+	return nil
+}
+
+// doProduce performs the actual Kafka produce for a pre-resolved plan (topics already
+// computed by resolveTargets, guaranteed non-empty — no-match rejects before this point).
+// It runs inside the circuit breaker, so only genuine produce failures count toward breaker
+// state.
+func (p *Producer) doProduce(ctx context.Context, clientID int64, channel, tenant string, topics []string, data []byte) error {
 	baseRecord := &kgo.Record{
 		Key:   []byte(channel),
 		Value: data,
@@ -274,33 +325,11 @@ func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string
 		},
 	}
 
-	if dlqReason != "" {
-		// No matching rule — route to dead-letter topic.
-		dlqTopic := kafkashared.BuildTopicName(p.topicNamespace, tenant, routing.DeadLetterTopicSuffix)
-		dlqRec := *baseRecord // struct copy — independent from baseRecord
-		dlqRec.Topic = dlqTopic
-		dlqRec.Headers = append(slices.Clone(baseRecord.Headers), kgo.RecordHeader{Key: HeaderReason, Value: []byte(dlqReason)})
-		results := p.client.ProduceSync(ctx, &dlqRec)
-		if results.FirstErr() != nil {
-			p.stats.MessagesFailed.Add(1)
-			return fmt.Errorf("kafka dlq produce failed: %w", results.FirstErr())
-		}
-		p.stats.MessagesPublished.Add(1)
-		return nil
-	}
-
-	n := len(topics)
-	if n > 1 && p.fanout == nil {
-		// Fanout pool not configured — multi-topic rule degrades to first topic only.
-		if p.logger != nil {
-			p.logger.Warn().
-				Str("channel", channel).
-				Int("rule_topics", n).
-				Msg("fanout pool not configured: multi-topic rule delivering to first topic only")
-		}
-	}
-	if n == 1 || p.fanout == nil {
-		// Fast path: single topic or no fanout pool configured.
+	// Single-topic: synchronous, error-propagating, breaker-protected — regardless of whether
+	// a fanout pool exists (the pool is for multi-topic fan-out only). Multi-topic with a nil
+	// pool is already rejected before the breaker in Publish, so here len(topics) > 1 implies
+	// p.fanout != nil.
+	if len(topics) == 1 {
 		rec := *baseRecord // struct copy — independent from baseRecord
 		rec.Topic = topics[0]
 		results := p.client.ProduceSync(ctx, &rec)
@@ -323,7 +352,9 @@ func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string
 		return nil
 	}
 
-	// Fan-out path: submit to multiple topics via the fanout pool.
+	// Fan-out path: submit to multiple topics via the fanout pool (reachable only once the
+	// pool is wired in P1b; P1a rejects multi-topic-with-nil-pool before the breaker).
+	n := len(topics)
 	successCh := make(chan string, n)
 	failCh := make(chan string, n)
 
@@ -385,31 +416,84 @@ func (p *Producer) doPublish(ctx context.Context, clientID int64, channel string
 	return nil
 }
 
-// resolveTargets returns the Kafka topic(s) for a channel given the tenant's routing rules.
-// Falls back to community mode (last channel segment) when routing is unavailable.
-func (p *Producer) resolveTargets(channel, tenant string) (topics []string, dlqReason string) {
-	if p.rulesProvider != nil {
-		snap, ok := p.rulesProvider.GetRoutingSnapshot(tenant)
-		if ok && license.EditionHasFeature(snap.Edition, license.ChannelTopicRouting) {
-			for _, rule := range snap.Rules {
-				matched, err := routing.MatchRoutingPattern(rule.Pattern, channel)
-				if err != nil || !matched {
-					continue
-				}
-				fullTopics := make([]string, len(rule.Topics))
-				for i, suffix := range rule.Topics {
-					fullTopics[i] = kafkashared.BuildTopicName(p.topicNamespace, tenant, suffix)
-				}
-				return fullTopics, ""
-			}
-			// No rule matched — dead letter.
-			return nil, ReasonNoRoutingRuleMatched
+// resolveTargets computes the produce plan for a channel from the tenant's routing rules.
+// There is NO community fallback (deleted in #179) and NO silent dead-letter on no-match
+// (C1 revised, #179): a channel with no applicable rule is REJECTED, never silently routed
+// to a convention-derived or dead-letter topic. This restores ratified FR-013/FR-014.
+//
+// Outcomes (checked in this order — not-synced MUST precede tenant-absent so a degraded
+// server returns a retryable 503, not a misleading 409):
+//   - err != nil      → REJECT (ErrPublishNotRoutable / ErrNoMatchingRoute) or UNAVAILABLE
+//     (ErrServiceUnavailable); do NOT produce
+//   - topics (len>=1) → produce to these rule topic(s)
+//
+// The edition is read from the server-global license accessor, NOT snap.Edition: the routing
+// snapshot and the license state arrive on independent streams, so snap.Edition can lag the
+// live license (zero-value on a fresh snapshot, or license/rules boot-order skew). The
+// accessor is always current (#179).
+func (p *Producer) resolveTargets(channel, tenant string) (topics []string, err error) {
+	if p.rulesProvider == nil {
+		return nil, fmt.Errorf("%w: routing rules provider not configured", backend.ErrPublishNotRoutable)
+	}
+	if !p.rulesProvider.SnapshotReceived() {
+		// The rules stream has not delivered its first snapshot — the server is degraded
+		// (cold start / provisioning outage), not the tenant misconfigured. Retryable.
+		return nil, fmt.Errorf("%w: routing rules not yet synced", ErrServiceUnavailable)
+	}
+	if p.edition == nil || !license.EditionHasFeature(p.edition(), license.ChannelTopicRouting) {
+		// License anomaly: kafka mode is Pro-gated, so ChannelTopicRouting should always be
+		// present. If not, fail closed and surface it loudly.
+		if p.logger != nil {
+			p.logger.Error().Str(logging.LogKeyTenantSlug, tenant).
+				Msg("channel-topic-routing feature unavailable on the produce path (license anomaly)")
 		}
+		return nil, fmt.Errorf("%w: channel-topic routing not licensed", backend.ErrPublishNotRoutable)
 	}
 
-	// Community fallback: derive topic from last channel segment.
-	suffix := channel[strings.LastIndex(channel, ".")+1:]
-	return []string{kafkashared.BuildTopicName(p.topicNamespace, tenant, suffix)}, ""
+	snap, ok := p.rulesProvider.GetRoutingSnapshot(tenant)
+	if !ok || len(snap.Rules) == 0 {
+		return nil, fmt.Errorf("%w: no routing rules provisioned for tenant", backend.ErrPublishNotRoutable)
+	}
+
+	for _, rule := range snap.Rules {
+		matched, matchErr := routing.MatchRoutingPattern(rule.Pattern, channel)
+		if matchErr != nil {
+			// Patterns are validated at provisioning time, so a match error here means the
+			// snapshot is corrupt or skewed — skip the rule (it can't route reliably) but
+			// surface it: silently dropping a provisioned rule is an operator-invisible gap.
+			if p.logger != nil {
+				p.logger.Warn().Err(matchErr).
+					Str(logging.LogKeyTenantSlug, tenant).
+					Str("pattern", rule.Pattern).
+					Str("channel", channel).
+					Msg("routing rule pattern failed to match; skipping rule")
+			}
+			continue
+		}
+		if !matched {
+			continue
+		}
+		if len(rule.Topics) == 0 {
+			continue // zero-topic rule — treat as no-match (defense in depth §II)
+		}
+		// Dedupe: duplicate topics within one rule would double-deliver.
+		fullTopics := make([]string, 0, len(rule.Topics))
+		seen := make(map[string]struct{}, len(rule.Topics))
+		for _, suffix := range rule.Topics {
+			name := kafkashared.BuildTopicName(p.topicNamespace, tenant, suffix)
+			if _, dup := seen[name]; dup {
+				continue
+			}
+			seen[name] = struct{}{}
+			fullTopics = append(fullTopics, name)
+		}
+		return fullTopics, nil
+	}
+	// Rules present but none matched — REJECT (C1 revised, #179; ratified FR-014). The WS
+	// handler emits protocol.ErrCodeNoMatchingRoute; the gateway maps it to 409. This is a
+	// synchronous reject, NOT a silent dead-letter (§III/§XV): a rules-bearing tenant
+	// publishing to an unmatched channel gets an immediate, actionable error.
+	return nil, fmt.Errorf("%w for channel %q", backend.ErrNoMatchingRoute, channel)
 }
 
 // extractTenant returns the tenant ID from an internal channel (first segment).

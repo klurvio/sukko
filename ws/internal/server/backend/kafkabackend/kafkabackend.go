@@ -25,6 +25,7 @@ import (
 	"github.com/klurvio/sukko/internal/server/metrics"
 	"github.com/klurvio/sukko/internal/server/orchestration"
 	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/provapi"
 )
@@ -132,6 +133,15 @@ type Config struct {
 	ProvisioningGRPCAddr  string
 	GRPCReconnectDelay    time.Duration
 	GRPCReconnectMaxDelay time.Duration
+
+	// RulesProvider resolves per-tenant routing rules on the produce path. REQUIRED —
+	// New returns an error if nil (a kafka-mode server without a rules source would reject
+	// every publish; #179).
+	RulesProvider kafka.RoutingRulesSource
+
+	// Edition returns the server's current license edition, checked at publish time to gate
+	// ChannelTopicRouting. REQUIRED — New returns an error if nil.
+	Edition func() license.Edition
 }
 
 // New creates a new Kafka backend with the provided configuration.
@@ -143,6 +153,15 @@ func New(cfg Config) (*KafkaBackend, error) {
 	}
 	if cfg.KafkaConsumerEnabled && cfg.BroadcastBus == nil {
 		return nil, errors.New("kafka backend: broadcast bus is required when consumer is enabled")
+	}
+	// Routing dependencies are required on the produce path (#179): a kafka-mode server
+	// without a rules source or edition accessor would reject every publish. Validate here —
+	// Config is a hand-assembled struct copy (main.go), an unvalidated source (§I/§II).
+	if cfg.RulesProvider == nil {
+		return nil, errors.New("kafka backend: rules provider is required")
+	}
+	if cfg.Edition == nil {
+		return nil, errors.New("kafka backend: edition accessor is required")
 	}
 
 	logger := cfg.Logger.With().Str("component", "kafka-backend").Logger()
@@ -211,6 +230,8 @@ func New(cfg Config) (*KafkaBackend, error) {
 		CircuitBreakerTimeout:      cfg.ProducerCircuitBreakerTimeout,
 		CircuitBreakerMaxFailures:  uint32(min(cfg.ProducerCircuitBreakerMaxFailures, math.MaxUint32)), //nolint:gosec // Bounds validated in ServerConfig.Validate()
 		CircuitBreakerHalfOpenReqs: uint32(min(cfg.ProducerCircuitBreakerHalfOpen, math.MaxUint32)),    //nolint:gosec // Bounds validated in ServerConfig.Validate()
+		RulesProvider:              cfg.RulesProvider,
+		Edition:                    cfg.Edition,
 	})
 	if err != nil {
 		kb.kgoClient.Close()
@@ -337,7 +358,13 @@ func (kb *KafkaBackend) Publish(ctx context.Context, clientID int64, _, channel 
 	err := kb.producer.Publish(ctx, clientID, channel, data)
 	metrics.RecordBackendPublishLatency(backendName, time.Since(start).Seconds())
 	if err != nil {
-		metrics.RecordBackendPublishError(backendName)
+		// Reject-class errors (no applicable routing rule) are client-caused, not
+		// infrastructure failures — keep them out of the error alert series (§VI).
+		if errors.Is(err, backend.ErrPublishNotRoutable) {
+			metrics.RecordBackendPublishRejected(backendName)
+		} else {
+			metrics.RecordBackendPublishError(backendName)
+		}
 		return fmt.Errorf("kafka backend publish: %w", err)
 	}
 	metrics.RecordBackendPublish(backendName)
