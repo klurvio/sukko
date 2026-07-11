@@ -17,3 +17,8 @@ const (
 	LogKeyTenantSlug = "tenant_slug"
 	LogKeyTenantUUID = "tenant_uuid"
 )
+
+// LogKeyGRPCCode is the structured-log field key for a gRPC status code. Used by both
+// ws-server and the gateway when logging a failed Publish RPC, so log correlation across
+// the two services relies on a single shared key (not per-service literals).
+const LogKeyGRPCCode = "grpc_code"

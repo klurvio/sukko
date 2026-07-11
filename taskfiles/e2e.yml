@@ -236,6 +236,31 @@ tasks:
         STATUS=$(echo "$REPORT" | jq -r '.checks[]? | select(.name=="kafka-ingest delivery") | .status')
         [ "$STATUS" = "pass" ] || { echo "FAIL: kafka-ingest delivery check status=${STATUS:-<absent>} (want pass)"; exit 1; }
         echo "=== kafka-ingest round-trip PASSED (delivery=$STATUS) ==="
+      - |
+        set -eu
+        # rest-publish suite (kafka mode) — regression guard for #179: the gateway REST →
+        # gRPC → producer → Kafka PRODUCE path. Before #179 this returned HTTP 500
+        # UNKNOWN_TOPIC_OR_PARTITION (producer ignored routing rules → wrong topic); the
+        # "response format" check requires a 2xx {"status":"accepted"} response, so it is a
+        # non-vacuous guard that the produce fix holds (kafka-ingest above injects directly
+        # to Kafka and never exercises backend.Publish, so only this catches a produce regression).
+        #
+        # NOTE: the suite's ws/sse DELIVERY checks are NOT gated here. They depend on two
+        # concerns outside #179 P1a's produce fix: (1) a consumer-subscription-timing race
+        # (ws-server's Kafka consumer joins the tenant topic at AtEnd; a message produced
+        # before partition assignment is missed — needs a tester re-publish/poll loop), and
+        # (2) a pre-existing SSE-connect HTTP 400. Both are tracked separately; gating them
+        # here would red the job on issues the produce fix doesn't own.
+        echo "=== Run rest-publish suite (kafka mode) ==="
+        TMPCFG=$(mktemp -d)
+        REPORT=$(HOME="$TMPCFG" XDG_CONFIG_HOME="$TMPCFG/.config" SUKKO_TESTER_TOKEN={{.TESTER_TOKEN}} sukko test validate --suite rest-publish --follow --output json 2>/dev/null | grep '"test_type"' | tail -1)
+        rm -rf "$TMPCFG"
+        echo "$REPORT" | jq '{status, checks:[.checks[]|{name,status}]}'
+        # Anti-vacuous guard: the "response format" check MUST be present AND pass (proves the
+        # REST publish was accepted with 2xx — i.e. the produce path resolved a valid topic).
+        ST=$(echo "$REPORT" | jq -r '.checks[]? | select(.name=="response format") | .status')
+        [ "$ST" = "pass" ] || { echo "FAIL: rest-publish 'response format' status=${ST:-<absent>} (want pass — produce path regressed to non-2xx)"; exit 1; }
+        echo "=== rest-publish PRODUCE path PASSED (publish accepted 2xx; delivery closure tracked separately) ==="
 
   validate-battery:
     desc: >-

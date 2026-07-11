@@ -8,12 +8,48 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	serverv1 "github.com/klurvio/sukko/gen/proto/sukko/server/v1"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/protocol"
 )
+
+// REST publish error codes and metric outcome labels (§I — named constants, not literals).
+const (
+	errCodePublishNotRoutable = "PUBLISH_NOT_ROUTABLE"
+	errCodeInvalidChannel     = "INVALID_CHANNEL"
+	errCodeServiceUnavailable = "SERVICE_UNAVAILABLE"
+	errCodeInternal           = "INTERNAL_ERROR"
+
+	publishOutcomeNotRoutable = "not_routable"
+	publishOutcomeInvalidChan = "invalid_channel"
+	publishOutcomeUnavailable = "unavailable"
+	publishOutcomeError       = "error"
+)
+
+// mapPublishError maps a gRPC status code from ws-server's Publish RPC to the REST
+// response shape (§XII). Only Internal is a genuine 500; the rest are expected conditions
+// (client misconfiguration or retryable degradation).
+func mapPublishError(code codes.Code) (httpStatus int, errCode, message, metricLabel string) {
+	switch code {
+	case codes.FailedPrecondition:
+		return http.StatusConflict, errCodePublishNotRoutable,
+			"no routing rule applies to this channel for the tenant", publishOutcomeNotRoutable
+	case codes.InvalidArgument:
+		return http.StatusBadRequest, errCodeInvalidChannel,
+			"invalid channel", publishOutcomeInvalidChan
+	case codes.Unavailable:
+		return http.StatusServiceUnavailable, errCodeServiceUnavailable,
+			"publish temporarily unavailable, retry", publishOutcomeUnavailable
+	default:
+		return http.StatusInternalServerError, errCodeInternal,
+			"failed to publish message", publishOutcomeError
+	}
+}
 
 // publishRequest is the JSON body format for POST /api/v1/publish (FR-011).
 type publishRequest struct {
@@ -77,9 +113,9 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 	// 3. Authenticate
 	authRes, authErr := gw.authenticateRequest(ctx, r)
 	if authErr != nil {
-		status, code := authErrorResponse(authErr)
+		authStatus, code := authErrorResponse(authErr)
 		RecordRestPublish("auth_failed", time.Since(startTime))
-		httputil.WriteError(w, status, code, authErr.Error())
+		httputil.WriteError(w, authStatus, code, authErr.Error())
 		return
 	}
 
@@ -94,7 +130,7 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 
 	// Validate channel format (FR-006)
 	if strings.Count(req.Channel, ".")+1 < protocol.MinInternalChannelParts {
-		RecordRestPublish("invalid_channel", time.Since(startTime))
+		RecordRestPublish(publishOutcomeInvalidChan, time.Since(startTime))
 		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST",
 			fmt.Sprintf("channel must have at least %d dot-separated parts", protocol.MinInternalChannelParts))
 		return
@@ -131,8 +167,8 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 
 	// 6. Call gRPC Publish() on ws-server
 	if gw.serverClient == nil {
-		RecordRestPublish("unavailable", time.Since(startTime))
-		httputil.WriteError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE",
+		RecordRestPublish(publishOutcomeUnavailable, time.Since(startTime))
+		httputil.WriteError(w, http.StatusServiceUnavailable, errCodeServiceUnavailable,
 			"ws-server connection not available")
 		return
 	}
@@ -144,13 +180,20 @@ func (gw *Gateway) HandlePublish(w http.ResponseWriter, r *http.Request) {
 		Principal:  authRes.Principal,
 	})
 	if err != nil {
-		gw.logger.Error().Err(err).
+		code := status.Code(err)
+		httpStatus, errCode, message, label := mapPublishError(code)
+		// Reject-class / unavailable are expected conditions — Warn, not Error (§V).
+		evt := gw.logger.Error()
+		if httpStatus != http.StatusInternalServerError {
+			evt = gw.logger.Warn()
+		}
+		evt.Err(err).
 			Str("channel", req.Channel).
 			Str(logging.LogKeyTenantSlug, authRes.TenantSlug).
+			Str(logging.LogKeyGRPCCode, code.String()).
 			Msg("gRPC Publish failed")
-		RecordRestPublish("error", time.Since(startTime))
-		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR",
-			"failed to publish message")
+		RecordRestPublish(label, time.Since(startTime))
+		httputil.WriteError(w, httpStatus, errCode, message)
 		return
 	}
 

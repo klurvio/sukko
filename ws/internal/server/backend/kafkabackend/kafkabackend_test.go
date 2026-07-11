@@ -10,10 +10,44 @@ import (
 	"github.com/twmb/franz-go/pkg/kerr"
 
 	"github.com/klurvio/sukko/internal/server/backend"
+	"github.com/klurvio/sukko/internal/shared/license"
+	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
 // Compile-time interface check.
 var _ backend.MessageBackend = (*KafkaBackend)(nil)
+
+// stubRulesSource is a minimal kafka.RoutingRulesSource for New() wiring tests.
+type stubRulesSource struct{}
+
+func (stubRulesSource) GetRoutingSnapshot(string) (provapi.TenantRoutingSnapshot, bool) {
+	return provapi.TenantRoutingSnapshot{}, false
+}
+func (stubRulesSource) SnapshotReceived() bool { return true }
+
+// validRoutingDeps returns a provider + edition accessor that pass New()'s required-field
+// validation, so a test can reach later code paths (SASL/TLS, etc.).
+func validRoutingDeps(c Config) Config {
+	c.RulesProvider = stubRulesSource{}
+	c.Edition = func() license.Edition { return license.Pro }
+	return c
+}
+
+func TestNew_RequiresRoutingDeps(t *testing.T) {
+	t.Parallel()
+
+	base := Config{Brokers: []string{"localhost:19092"}, Environment: "test"}
+
+	if _, err := New(base); err == nil || !strings.Contains(err.Error(), "rules provider is required") {
+		t.Fatalf("nil RulesProvider: got err=%v, want 'rules provider is required'", err)
+	}
+
+	withProvider := base
+	withProvider.RulesProvider = stubRulesSource{}
+	if _, err := New(withProvider); err == nil || !strings.Contains(err.Error(), "edition accessor is required") {
+		t.Fatalf("nil Edition: got err=%v, want 'edition accessor is required'", err)
+	}
+}
 
 // =============================================================================
 // SplitBrokers Tests
@@ -153,12 +187,12 @@ func TestNew_SASLAndTLSPassthrough(t *testing.T) {
 	// Environment is set to produce a valid topic namespace and reach the SASL/TLS code path.
 	// "oauthbearer" is a real SASL mechanism we deliberately do not support (supported:
 	// plain, scram-sha-256, scram-sha-512), so it must hit the unsupported-mechanism path.
-	_, err := New(Config{
+	_, err := New(validRoutingDeps(Config{
 		Brokers:       []string{"localhost:19092"},
 		Environment:   "test",
 		SASLEnabled:   true,
 		SASLMechanism: "oauthbearer",
-	})
+	}))
 	if err == nil {
 		t.Fatal("expected error for unsupported SASL mechanism, got nil")
 	}
@@ -167,12 +201,12 @@ func TestNew_SASLAndTLSPassthrough(t *testing.T) {
 	}
 
 	// A missing CA file must propagate as a config error, not a broker error.
-	_, err = New(Config{
+	_, err = New(validRoutingDeps(Config{
 		Brokers:     []string{"localhost:19092"},
 		Environment: "test",
 		TLSEnabled:  true,
 		TLSCAPath:   "/nonexistent/ca.pem",
-	})
+	}))
 	if err == nil {
 		t.Fatal("expected error for missing CA file, got nil")
 	}

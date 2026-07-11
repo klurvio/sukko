@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -9,9 +10,11 @@ import (
 	"google.golang.org/grpc/status"
 
 	serverv1 "github.com/klurvio/sukko/gen/proto/sukko/server/v1"
+	"github.com/klurvio/sukko/internal/server/backend"
 	srvmetrics "github.com/klurvio/sukko/internal/server/metrics"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
+	"github.com/klurvio/sukko/internal/shared/protocol"
 )
 
 // GRPCService implements the RealtimeService gRPC server.
@@ -67,12 +70,21 @@ func (svc *GRPCService) Publish(ctx context.Context, req *serverv1.PublishReques
 
 	// Publish to message backend (routing rules → Kafka topic)
 	if err := s.backend.Publish(ctx, 0, req.GetTenantSlug(), req.GetChannel(), req.GetData()); err != nil {
-		svc.logger.Error().Err(err).
+		code := publishErrorCode(err)
+		// Reject-class and unavailable are expected, non-fatal conditions (client
+		// misconfiguration / degraded-but-recovering) — Warn, not Error, to keep the error
+		// log clean (§V). Genuine produce failures stay Error.
+		evt := svc.logger.Error()
+		if code != codes.Internal {
+			evt = svc.logger.Warn()
+		}
+		evt.Err(err).
 			Str("channel", req.GetChannel()).
 			Str(logging.LogKeyTenantSlug, req.GetTenantSlug()).
 			Str("principal", req.GetPrincipal()).
+			Str(logging.LogKeyGRPCCode, code.String()).
 			Msg("gRPC Publish failed")
-		return nil, status.Errorf(codes.Internal, "publish: %v", err)
+		return nil, status.Errorf(code, "publish: %v", err)
 	}
 
 	svc.logger.Debug().
@@ -84,6 +96,24 @@ func (svc *GRPCService) Publish(ctx context.Context, req *serverv1.PublishReques
 		Status:  "accepted",
 		Channel: req.GetChannel(),
 	}, nil
+}
+
+// publishErrorCode maps a backend publish error to a gRPC status code (§XII):
+//   - not-routable (no applicable routing rule) → FailedPrecondition (gateway 409)
+//   - invalid channel                            → InvalidArgument     (gateway 400)
+//   - service unavailable (not-synced/breaker)   → Unavailable         (gateway 503)
+//   - everything else (genuine produce failure)  → Internal            (gateway 500)
+func publishErrorCode(err error) codes.Code {
+	switch {
+	case errors.Is(err, backend.ErrPublishNotRoutable):
+		return codes.FailedPrecondition
+	case errors.Is(err, protocol.ErrInvalidChannel):
+		return codes.InvalidArgument
+	case errors.Is(err, protocol.ErrServiceUnavailable):
+		return codes.Unavailable
+	default:
+		return codes.Internal
+	}
 }
 
 // Subscribe opens a server-streaming RPC for receiving messages.

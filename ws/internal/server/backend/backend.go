@@ -14,6 +14,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 // MessageBackend is the abstraction for message ingestion, publishing, and replay.
@@ -52,6 +53,22 @@ var (
 	ErrReplayNotSupported = errors.New("replay not supported by this backend")
 	ErrPublishFailed      = errors.New("message publish failed")
 	ErrUnknownBackend     = errors.New("unknown message backend")
+
+	// ErrPublishNotRoutable indicates a publish was rejected because the tenant has no
+	// applicable routing rule (no rules provisioned, or channel-topic routing unavailable).
+	// It is an expected, client-caused condition — callers MUST map it to a 4xx/reject
+	// (FailedPrecondition/409), NOT an infrastructure error, and MUST NOT let it trip
+	// producer circuit breakers.
+	ErrPublishNotRoutable = errors.New("publish not routable: no applicable routing rule")
+
+	// ErrNoMatchingRoute is the more-specific not-routable case: the tenant HAS routing
+	// rules provisioned, but none match this channel (a typo'd or unprovisioned channel
+	// suffix). It wraps ErrPublishNotRoutable so errors.Is(err, ErrPublishNotRoutable)
+	// catches both cases for the shared gRPC/metric/log reject-class handling; callers that
+	// need the distinction (the WS handler emits protocol.ErrCodeNoMatchingRoute vs
+	// ErrCodeNoRoutingRules) MUST check ErrNoMatchingRoute FIRST. Per the ratified
+	// feat/topic-routing spec (FR-014), no-match is a reject — never a silent dead-letter.
+	ErrNoMatchingRoute = fmt.Errorf("%w: no rule matches this channel", ErrPublishNotRoutable)
 )
 
 // ReplayRequest contains parameters for message replay on reconnect.

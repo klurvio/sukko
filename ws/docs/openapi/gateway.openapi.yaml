@@ -354,14 +354,21 @@ paths:
                   channel:
                     type: string
               example:
-                status: "published"
+                status: "accepted"
                 channel: "sukko.general.messages"
         "400":
-          description: Invalid request
+          description: |
+            Invalid request. Codes: `INVALID_REQUEST` — malformed body, wrong
+            Content-Type, invalid JSON, missing `channel`/`data`, or a channel with
+            too few dot-separated parts; `INVALID_CHANNEL` — the channel fails
+            server-side format validation.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              example:
+                code: INVALID_REQUEST
+                message: "channel is required"
         "401":
           description: Authentication failed
           content:
@@ -382,6 +389,20 @@ paths:
               example:
                 code: FORBIDDEN
                 message: "channel rules deny publish to this channel"
+        "409":
+          description: |
+            Publish not routable (Kafka backend only) — either the tenant has no routing
+            rules provisioned at all, or it has rules but none match this channel. In both
+            cases the message cannot be produced to a topic and is rejected (never silently
+            dead-lettered). Resolve by provisioning a routing rule whose pattern matches the
+            channel. The direct (Community) backend has no routing rules and never returns this.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: PUBLISH_NOT_ROUTABLE
+                message: "no routing rule applies to this channel for the tenant"
         "413":
           description: Request body too large
           content:
@@ -401,11 +422,17 @@ paths:
                 code: RATE_LIMITED
                 message: "publish rate limit exceeded"
         "503":
-          description: ws-server not available
+          description: |
+            Service unavailable (retryable) — either the ws-server connection is down, or
+            (Kafka backend) the tenant routing snapshot has not yet synced / the producer
+            circuit breaker is open. Retry with backoff.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              example:
+                code: SERVICE_UNAVAILABLE
+                message: "publish temporarily unavailable, retry"
 
   # ── Push Subscribe (Enterprise) ────────────────────────────────────
   /api/v1/push/subscribe:

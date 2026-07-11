@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/klurvio/sukko/internal/server/backend"
 	"github.com/klurvio/sukko/internal/server/metrics"
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/protocol"
@@ -81,22 +82,18 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 	defer cancel()
 
 	if err := s.backend.Publish(ctx, c.id, c.tenantID, pubReq.Channel, pubReq.Data); err != nil {
-		s.logger.Error().
-			Err(err).
+		// Map backend errors to client error codes.
+		code, reject := publishErrorToClientCode(err)
+
+		evt := s.logger.Error()
+		if reject {
+			evt = s.logger.Warn()
+		}
+		evt.Err(err).
 			Int64("client_id", c.id).
 			Str("channel", pubReq.Channel).
+			Str("error_code", string(code)).
 			Msg("Failed to publish message to backend")
-
-		// Map specific errors to error codes
-		code := protocol.ErrCodePublishFailed
-		switch {
-		case errors.Is(err, protocol.ErrInvalidChannel):
-			code = protocol.ErrCodeInvalidChannel
-		case errors.Is(err, protocol.ErrTopicNotProvisioned):
-			code = protocol.ErrCodeTopicNotProvisioned
-		case errors.Is(err, protocol.ErrServiceUnavailable):
-			code = protocol.ErrCodeServiceUnavailable
-		}
 
 		s.sendPublishError(c, code, protocol.PublishErrorMessage(code))
 		// Backend-agnostic publish error metrics are recorded inside each backend's Publish()
@@ -113,6 +110,27 @@ func (s *Server) handleClientPublish(c *Client, data json.RawMessage) {
 		Msg("Client message published to backend")
 
 	// Backend-agnostic publish metrics are recorded inside each backend's Publish()
+}
+
+// publishErrorToClientCode maps a backend publish error to the client-facing WS error code
+// and whether it is a reject/transient class (expected → Warn log per §V, vs a genuine
+// failure → Error). ErrNoMatchingRoute wraps ErrPublishNotRoutable, so it MUST be checked
+// first to emit the more-specific no_matching_route rather than no_routing_rules (#179 C1).
+func publishErrorToClientCode(err error) (protocol.ErrorCode, bool) {
+	switch {
+	case errors.Is(err, backend.ErrNoMatchingRoute):
+		return protocol.ErrCodeNoMatchingRoute, true
+	case errors.Is(err, backend.ErrPublishNotRoutable):
+		return protocol.ErrCodeNoRoutingRules, true
+	case errors.Is(err, protocol.ErrInvalidChannel):
+		return protocol.ErrCodeInvalidChannel, true
+	case errors.Is(err, protocol.ErrTopicNotProvisioned):
+		return protocol.ErrCodeTopicNotProvisioned, false
+	case errors.Is(err, protocol.ErrServiceUnavailable):
+		return protocol.ErrCodeServiceUnavailable, true
+	default:
+		return protocol.ErrCodePublishFailed, false
+	}
 }
 
 // sendPublishAck sends a publish acknowledgment to the client.
