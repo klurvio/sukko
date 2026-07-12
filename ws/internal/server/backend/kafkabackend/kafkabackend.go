@@ -111,6 +111,7 @@ type Config struct {
 	ProducerCircuitBreakerTimeout     time.Duration
 	ProducerCircuitBreakerMaxFailures int
 	ProducerCircuitBreakerHalfOpen    int
+	ProducerShutdownTimeout           time.Duration
 
 	// Kafka consumer batch tuning
 	KafkaBatchSize    int
@@ -142,6 +143,16 @@ type Config struct {
 	// Edition returns the server's current license edition, checked at publish time to gate
 	// ChannelTopicRouting. REQUIRED — New returns an error if nil.
 	Edition func() license.Edition
+
+	// Fan-out / DLQ pool sizing (#179 P1b), threaded to the producer so multi-topic routing
+	// rules fan out. All REQUIRED > 0 — New rejects non-positive values (the config layer
+	// validates the env-backed WS_ROUTING_* fields, but New is a defense-in-depth boundary).
+	RoutingFanoutWorkers   int
+	RoutingFanoutQueueSize int
+	DLQMaxRetries          int
+	DLQBaseDelay           time.Duration
+	DLQMaxDelay            time.Duration
+	DLQRetryWorkers        int
 }
 
 // New creates a new Kafka backend with the provided configuration.
@@ -162,6 +173,13 @@ func New(cfg Config) (*KafkaBackend, error) {
 	}
 	if cfg.Edition == nil {
 		return nil, errors.New("kafka backend: edition accessor is required")
+	}
+	// Fan-out / DLQ pool sizing must be positive (#179 P1b) — a zero would leave the producer
+	// with no fan-out pool (rejecting every multi-topic rule) or an undrained DLQ queue.
+	// Defense in depth (§II): server_config validates the env-backed values, this is the boundary.
+	if cfg.RoutingFanoutWorkers <= 0 || cfg.RoutingFanoutQueueSize <= 0 ||
+		cfg.DLQMaxRetries <= 0 || cfg.DLQBaseDelay <= 0 || cfg.DLQMaxDelay <= 0 || cfg.DLQRetryWorkers <= 0 {
+		return nil, errors.New("kafka backend: routing fan-out/DLQ sizing (WS_ROUTING_*) must all be > 0")
 	}
 
 	logger := cfg.Logger.With().Str("component", "kafka-backend").Logger()
@@ -232,6 +250,13 @@ func New(cfg Config) (*KafkaBackend, error) {
 		CircuitBreakerHalfOpenReqs: uint32(min(cfg.ProducerCircuitBreakerHalfOpen, math.MaxUint32)),    //nolint:gosec // Bounds validated in ServerConfig.Validate()
 		RulesProvider:              cfg.RulesProvider,
 		Edition:                    cfg.Edition,
+		FanoutWorkers:              cfg.RoutingFanoutWorkers,
+		FanoutQueueSize:            cfg.RoutingFanoutQueueSize,
+		DLQMaxRetries:              cfg.DLQMaxRetries,
+		DLQBaseDelay:               cfg.DLQBaseDelay,
+		DLQMaxDelay:                cfg.DLQMaxDelay,
+		DLQRetryWorkers:            cfg.DLQRetryWorkers,
+		ShutdownTimeout:            cfg.ProducerShutdownTimeout,
 	})
 	if err != nil {
 		kb.kgoClient.Close()

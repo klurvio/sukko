@@ -272,6 +272,13 @@ func main() {
 			// same instance the license watcher updates).
 			RulesProvider: rp,
 			Edition:       cfg.EditionManager().Edition,
+			// Fan-out / DLQ pool sizing (#179 P1b) — WS_ROUTING_* env-backed
+			RoutingFanoutWorkers:   cfg.RoutingFanoutWorkers,
+			RoutingFanoutQueueSize: cfg.RoutingFanoutQueueSize,
+			DLQMaxRetries:          cfg.DLQMaxRetries,
+			DLQBaseDelay:           cfg.DLQBaseDelay,
+			DLQMaxDelay:            cfg.DLQMaxDelay,
+			DLQRetryWorkers:        cfg.DLQRetryWorkers,
 			// Kafka producer tuning
 			ProducerBatchMaxBytes:             cfg.KafkaProducerBatchMaxBytes,
 			ProducerMaxBufferedRecs:           cfg.KafkaProducerMaxBufferedRecords,
@@ -279,6 +286,7 @@ func main() {
 			ProducerCircuitBreakerTimeout:     cfg.KafkaProducerCBTimeout,
 			ProducerCircuitBreakerMaxFailures: cfg.KafkaProducerCBMaxFailures,
 			ProducerCircuitBreakerHalfOpen:    cfg.KafkaProducerCBHalfOpenReqs,
+			ProducerShutdownTimeout:           cfg.KafkaProducerShutdownTimeout,
 			// Kafka consumer tuning
 			KafkaBatchSize:    cfg.KafkaBatchSize,
 			KafkaBatchTimeout: cfg.KafkaBatchTimeout,

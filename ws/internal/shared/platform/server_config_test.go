@@ -128,6 +128,7 @@ func newValidServerConfig() *ServerConfig {
 		KafkaProducerCBTimeout:          30 * time.Second,
 		KafkaProducerCBMaxFailures:      5,
 		KafkaProducerCBHalfOpenReqs:     1,
+		KafkaProducerShutdownTimeout:    10 * time.Second,
 		// Valkey config
 		ValkeyMasterName: "mymaster",
 		ValkeyChannel:    "ws.broadcast",
@@ -1320,6 +1321,7 @@ func TestServerConfig_Validate_NewDurationFields(t *testing.T) {
 		{"KafkaRebalanceTimeout", func(c *ServerConfig) { c.KafkaRebalanceTimeout = 0 }, "KAFKA_REBALANCE_TIMEOUT"},
 		{"KafkaBackpressureCheckInterval", func(c *ServerConfig) { c.KafkaBackpressureCheckInterval = 0 }, "KAFKA_BACKPRESSURE_CHECK_INTERVAL"},
 		{"KafkaProducerCBTimeout", func(c *ServerConfig) { c.KafkaProducerCBTimeout = 0 }, "KAFKA_PRODUCER_CB_TIMEOUT"},
+		{"KafkaProducerShutdownTimeout", func(c *ServerConfig) { c.KafkaProducerShutdownTimeout = 0 }, "KAFKA_PRODUCER_SHUTDOWN_TIMEOUT"},
 	}
 
 	for _, tt := range tests {

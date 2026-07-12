@@ -434,16 +434,17 @@ type ServerConfig struct {
 	KafkaProducerCBTimeout          time.Duration `env:"KAFKA_PRODUCER_CB_TIMEOUT" envDefault:"30s"`             // Circuit breaker observation window for Kafka producer failures.
 	KafkaProducerCBMaxFailures      int           `env:"KAFKA_PRODUCER_CB_MAX_FAILURES" envDefault:"5"`          // Maximum producer failures within the circuit breaker window before the producer circuit opens (pauses).
 	KafkaProducerCBHalfOpenReqs     int           `env:"KAFKA_PRODUCER_CB_HALF_OPEN_REQS" envDefault:"1"`        // Number of test requests permitted when the Kafka producer circuit breaker is in half-open state.
+	KafkaProducerShutdownTimeout    time.Duration `env:"KAFKA_PRODUCER_SHUTDOWN_TIMEOUT" envDefault:"10s"`       // Maximum time to wait for in-flight Kafka fan-out/DLQ writes to finish during shutdown before force-closing the producer connection.
 
-	// Routing fan-out worker pool
-	RoutingFanoutWorkers   int `env:"WS_ROUTING_FANOUT_WORKERS"    envDefault:"4"`   // Number of parallel workers for routing message fan-out to subscribed clients. Increase for high-subscription-count workloads.
-	RoutingFanoutQueueSize int `env:"WS_ROUTING_FANOUT_QUEUE_SIZE" envDefault:"256"` // Internal queue depth for the routing fan-out worker pool.
+	// Kafka multi-topic produce fan-out worker pool
+	RoutingFanoutWorkers   int `env:"WS_ROUTING_FANOUT_WORKERS"    envDefault:"4"`   // Number of parallel workers that produce a record to each Kafka topic when a routing rule fans a channel out to multiple topics.
+	RoutingFanoutQueueSize int `env:"WS_ROUTING_FANOUT_QUEUE_SIZE" envDefault:"256"` // Queue depth for the Kafka multi-topic fan-out worker pool; when full, the overflowing topic write is routed to the dead-letter path.
 
-	// Dead-letter queue retry pool
-	DLQMaxRetries   int           `env:"WS_ROUTING_DLQ_MAX_RETRIES"   envDefault:"3"`     // Maximum retry attempts for a failed message delivery before it is discarded.
-	DLQBaseDelay    time.Duration `env:"WS_ROUTING_DLQ_BASE_DELAY"    envDefault:"100ms"` // Initial retry delay for failed message deliveries (exponential backoff starting point).
-	DLQMaxDelay     time.Duration `env:"WS_ROUTING_DLQ_MAX_DELAY"     envDefault:"5s"`    // Maximum retry delay cap for failed message deliveries.
-	DLQRetryWorkers int           `env:"WS_ROUTING_DLQ_RETRY_WORKERS" envDefault:"4"`     // Number of parallel workers processing the dead-letter retry queue.
+	// Dead-letter topic retry pool (retries failed fan-out topic writes)
+	DLQMaxRetries   int           `env:"WS_ROUTING_DLQ_MAX_RETRIES"   envDefault:"3"`     // Maximum retry attempts for a failed dead-letter topic write before the record is discarded.
+	DLQBaseDelay    time.Duration `env:"WS_ROUTING_DLQ_BASE_DELAY"    envDefault:"100ms"` // Initial backoff delay before retrying a failed dead-letter topic write (exponential backoff starting point).
+	DLQMaxDelay     time.Duration `env:"WS_ROUTING_DLQ_MAX_DELAY"     envDefault:"5s"`    // Maximum backoff delay cap for dead-letter topic write retries.
+	DLQRetryWorkers int           `env:"WS_ROUTING_DLQ_RETRY_WORKERS" envDefault:"4"`     // Number of parallel workers retrying failed dead-letter topic writes.
 
 	// PodID is the resolved pod identity, populated by Normalize() from PodIdentityConfig.PodID().
 	// Not an env var — configure via PodIdentityConfig (SUKKO_POD_ID / WS_POD_ID).
@@ -953,6 +954,9 @@ func (c *ServerConfig) Validate() error {
 	}
 	if c.KafkaBackpressureCheckInterval <= 0 {
 		return fmt.Errorf("KAFKA_BACKPRESSURE_CHECK_INTERVAL must be > 0, got %v", c.KafkaBackpressureCheckInterval)
+	}
+	if c.KafkaProducerShutdownTimeout <= 0 {
+		return fmt.Errorf("KAFKA_PRODUCER_SHUTDOWN_TIMEOUT must be > 0, got %v", c.KafkaProducerShutdownTimeout)
 	}
 	if c.KafkaProducerCBTimeout <= 0 {
 		return fmt.Errorf("KAFKA_PRODUCER_CB_TIMEOUT must be > 0, got %v", c.KafkaProducerCBTimeout)

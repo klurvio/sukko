@@ -31,6 +31,12 @@ const (
 	MetricDLQWriteFailedTotal    = "ws_routing_dlq_write_failed_total"
 	MetricMalformedTopicTotal    = "ws_routing_malformed_topic_total"
 	MetricFanoutDroppedTotal     = "ws_routing_fanout_dropped_total"
+	// MetricDLQDroppedTotal counts records the producer could not enqueue to the DLQ pool
+	// because its queue was full (TrySubmit returned false) — terminal loss, the DLQ write
+	// was never attempted (#179 P1b-C4). Distinct from MetricDLQWriteFailedTotal (write
+	// attempted, failed after retry exhaustion) and MetricFanoutDroppedTotal (fanout
+	// enqueue-backpressure, still routed to DLQ).
+	MetricDLQDroppedTotal = "ws_routing_dlq_dropped_total"
 )
 
 // Prometheus label key constants for routing metrics.

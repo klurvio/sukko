@@ -6,12 +6,16 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/klurvio/sukko/internal/shared/logging"
 )
+
+// dlqQueueDepthPerWorker sizes the DLQ job channel as Workers × this factor. The DLQ is a
+// background retry buffer (not a live-publish gate like the fan-out queue), so its depth is
+// derived from worker count rather than exposed as a separate env var (#179 P1b-C5).
+const dlqQueueDepthPerWorker = 16
 
 // dlqJob represents a single dead-letter queue write attempt.
 // Namespace is stored on DLQPool rather than per-job — a pool always writes
@@ -42,18 +46,16 @@ type DLQPool struct {
 	writeFailedCounter *prometheus.CounterVec
 }
 
-// NewDLQPool creates a DLQ worker pool. The provided kgo.Client is used for
-// all dead-letter produce operations and must outlive the pool.
-func NewDLQPool(cfg DLQConfig, client *kgo.Client, logger zerolog.Logger) *DLQPool {
+// NewDLQPool creates a DLQ worker pool. The provided kgo.Client is used for all dead-letter
+// produce operations and must outlive the pool. writeFailedCounter is registered by the
+// caller via newPoolMetrics (#179 P1b-C2 — the pool no longer registers its own metric).
+func NewDLQPool(cfg DLQConfig, client *kgo.Client, logger zerolog.Logger, writeFailedCounter *prometheus.CounterVec) *DLQPool {
 	return &DLQPool{
-		jobs:   make(chan dlqJob, cfg.Workers*16),
-		client: client,
-		cfg:    cfg,
-		logger: logger.With().Str("component", "dlq_pool").Logger(),
-		writeFailedCounter: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: MetricDLQWriteFailedTotal,
-			Help: "Total dead-letter writes that failed after all retries",
-		}, []string{LabelTenant, LabelReason}),
+		jobs:               make(chan dlqJob, cfg.Workers*dlqQueueDepthPerWorker),
+		client:             client,
+		cfg:                cfg,
+		logger:             logger.With().Str("component", "dlq_pool").Logger(),
+		writeFailedCounter: writeFailedCounter,
 	}
 }
 

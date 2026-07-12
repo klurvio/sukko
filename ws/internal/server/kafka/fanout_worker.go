@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
 
@@ -38,22 +37,19 @@ type FanoutPool struct {
 }
 
 // NewFanoutPool creates a fan-out worker pool. workers controls concurrency;
-// queueSize is the depth of the handoff channel.
-func NewFanoutPool(workers, queueSize int, client *kgo.Client, dlq *DLQPool, logger zerolog.Logger) *FanoutPool {
+// queueSize is the depth of the handoff channel. writeFailedCounter and droppedCounter are
+// registered by the caller via newPoolMetrics (#179 P1b-C2 — the pool no longer registers
+// its own metrics, so a second Producer in one process does not panic on duplicate
+// registration).
+func NewFanoutPool(workers, queueSize int, client *kgo.Client, dlq *DLQPool, logger zerolog.Logger, writeFailedCounter, droppedCounter *prometheus.CounterVec) *FanoutPool {
 	return &FanoutPool{
-		handoff: make(chan fanoutJob, queueSize),
-		dlq:     dlq,
-		client:  client,
-		logger:  logger.With().Str("component", "fanout_pool").Logger(),
-		workers: workers,
-		writeFailedCounter: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: MetricFanoutWriteFailedTotal,
-			Help: "Total fan-out topic writes that failed",
-		}, []string{LabelTenant, LabelTopic}),
-		droppedCounter: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: MetricFanoutDroppedTotal,
-			Help: "Total fan-out jobs dropped because the queue was full",
-		}, []string{LabelTenant}),
+		handoff:            make(chan fanoutJob, queueSize),
+		dlq:                dlq,
+		client:             client,
+		logger:             logger.With().Str("component", "fanout_pool").Logger(),
+		workers:            workers,
+		writeFailedCounter: writeFailedCounter,
+		droppedCounter:     droppedCounter,
 	}
 }
 
@@ -110,18 +106,11 @@ func (p *FanoutPool) process(ctx context.Context, job fanoutJob) {
 		return
 	}
 
+	// Per-topic write failure. This is the ONLY site that increments fanoutWriteFailed;
+	// fanoutDropped is reserved for the Submit-queue-full leg (#179 P1b-C4 — the ctx-cancel
+	// path used to double-count here as both write-failed AND dropped).
 	if p.writeFailedCounter != nil {
 		p.writeFailedCounter.WithLabelValues(job.tenant, job.topic).Inc()
 	}
-
-	if ctx.Err() != nil {
-		// Context canceled — increment dropped counter and skip DLQ submission.
-		if p.droppedCounter != nil {
-			p.droppedCounter.WithLabelValues(job.tenant).Inc()
-		}
-		job.failCh <- job.topic
-		return
-	}
-
 	job.failCh <- job.topic
 }
