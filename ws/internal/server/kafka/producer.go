@@ -14,8 +14,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/sony/gobreaker/v2"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/klurvio/sukko/internal/server/backend"
@@ -37,6 +39,18 @@ var (
 
 // ErrProducerClosed is defined locally — it's a producer concern, not a shared protocol type.
 var ErrProducerClosed = errors.New("producer is closed")
+
+// defaultProducerShutdownTimeout is the fallback for ProducerConfig.ShutdownTimeout when it is
+// unset (test path / direct construction). Production sets it via KAFKA_PRODUCER_SHUTDOWN_TIMEOUT.
+const defaultProducerShutdownTimeout = 10 * time.Second
+
+// errFanoutAllFailed marks a multi-topic publish where every target topic write failed. It
+// wraps backend.ErrPublishFailed (→ gateway 500, §III: the client is NOT told a dropped
+// message succeeded) but is classified breaker-NEUTRAL (isBreakerNeutralErr): a genuine broker
+// outage trips the SHARED breaker via any tenant's single-topic produce path, so fan-out
+// 0-success needn't — and mustn't, or one tenant's all-unroutable multi-topic rule would 503
+// every tenant (#179 P1b-C1).
+var errFanoutAllFailed = errors.New("all fan-out topic writes failed")
 
 // ProducerStats holds metrics for the producer.
 type ProducerStats struct {
@@ -80,10 +94,21 @@ type ProducerConfig struct {
 	// gate ChannelTopicRouting. Required in kafka mode (kafkabackend.New rejects nil).
 	Edition func() license.Edition
 
-	// Fanout — delivers records to multiple topics concurrently.
-	// When nil, multi-topic rules are rejected (single-topic uses the direct produce path).
-	// P1a: always nil; pool construction lands in P1b (#179).
-	Fanout *FanoutPool
+	// Fan-out / DLQ pool sizing (#179 P1b). When FanoutWorkers > 0, NewProducer constructs
+	// the fan-out + DLQ pools so multi-topic routing rules fan out; the DLQ pool retries
+	// failed fan-out writes. Production always sets FanoutWorkers >= 1 (validated at startup),
+	// so the pools are always built; FanoutWorkers == 0 (no pool) is a test-only affordance
+	// (P1b-C8 — not an operator "disable" mode).
+	FanoutWorkers   int
+	FanoutQueueSize int
+	DLQMaxRetries   int
+	DLQBaseDelay    time.Duration
+	DLQMaxDelay     time.Duration
+	DLQRetryWorkers int
+
+	// Registerer overrides the Prometheus registry for the pool metrics; nil uses the
+	// package singleton (production default). Tests pass a fresh registry for isolation.
+	Registerer prometheus.Registerer
 
 	// Circuit breaker settings (optional - sensible defaults provided)
 	CircuitBreakerTimeout      time.Duration // Time before half-open (default: 30s)
@@ -95,6 +120,13 @@ type ProducerConfig struct {
 	MaxBufferedRecs int           // Max buffered records (default: 10000)
 	RecordRetries   int           // Number of retries (default: 8)
 	ProduceTimeout  time.Duration // Timeout for produce operations (default: 10s)
+
+	// ShutdownTimeout bounds how long Close waits for the fan-out/DLQ pool workers to exit
+	// before force-closing the client (default: 10s). franz-go ignores ctx cancellation once a
+	// record is buffered, so a worker producing to an unresponsive broker would otherwise block
+	// Close indefinitely; after this timeout Close closes the client anyway (which aborts the
+	// in-flight produce and unblocks the workers). Only used when FanoutWorkers > 0.
+	ShutdownTimeout time.Duration
 }
 
 // Producer wraps franz-go client for publishing to Kafka/Redpanda.
@@ -119,7 +151,14 @@ type Producer struct {
 	// Routing dependencies (validated non-nil by kafkabackend.New in production).
 	rulesProvider RoutingRulesSource
 	edition       func() license.Edition
-	fanout        *FanoutPool
+
+	// Fan-out pool (constructed in NewProducer when FanoutWorkers > 0). nil → multi-topic
+	// rules are rejected before the breaker. wg tracks the pool worker goroutines; Close
+	// cancels ctx then waits on wg (bounded by shutdownTimeout) before closing the client.
+	fanout          *FanoutPool
+	wg              sync.WaitGroup
+	shutdownTimeout time.Duration
+	dlqDropped      *prometheus.CounterVec // {tenant} — DLQ enqueue-full drop (producer-side leg)
 }
 
 // NewProducer creates a new Kafka producer with the provided configuration.
@@ -201,6 +240,15 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			return counts.ConsecutiveFailures >= cbMaxFailures
 		},
+		IsSuccessful: func(err error) bool {
+			// The breaker exists to protect against broker/transport unavailability — NOT
+			// tenant misconfiguration (#179 P1b-C1). Misconfiguration-class produce errors (a
+			// routing/topic problem that waiting will not fix) and shutdown are per-request
+			// failures that MUST NOT count toward the shared breaker; otherwise one tenant's
+			// bad multi-topic rule (UNKNOWN_TOPIC on every publish) trips the breaker and 503s
+			// every tenant. Genuine broker-unavailable errors stay breaker-eligible.
+			return err == nil || isBreakerNeutralErr(err)
+		},
 		OnStateChange: func(name string, from, to gobreaker.State) {
 			if cfg.Logger != nil {
 				cfg.Logger.Warn().
@@ -222,7 +270,35 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 		circuitBreaker: cb,
 		rulesProvider:  cfg.RulesProvider,
 		edition:        cfg.Edition,
-		fanout:         cfg.Fanout,
+	}
+
+	// Construct the fan-out + DLQ pools so multi-topic routing rules fan out (#179 P1b).
+	// Production validates FanoutWorkers >= 1, so the pools are always built; FanoutWorkers
+	// == 0 is a test-only affordance leaving p.fanout nil (multi-topic rules then reject).
+	// Metrics are registered once via newPoolMetrics (P1b-C2 — no per-pool promauto).
+	// Env-wired via WS/KAFKA_PRODUCER_SHUTDOWN_TIMEOUT (envDefault 10s is the production source
+	// of truth). The <=0 guard is the fallback for the test path / direct ProducerConfig use.
+	producer.shutdownTimeout = cfg.ShutdownTimeout
+	if producer.shutdownTimeout <= 0 {
+		producer.shutdownTimeout = defaultProducerShutdownTimeout
+	}
+
+	if cfg.FanoutWorkers > 0 {
+		pm := newPoolMetrics(cfg.Registerer)
+		producer.dlqDropped = pm.dlqDropped
+		dlq := NewDLQPool(DLQConfig{
+			MaxRetries: cfg.DLQMaxRetries,
+			BaseDelay:  cfg.DLQBaseDelay,
+			MaxDelay:   cfg.DLQMaxDelay,
+			Workers:    cfg.DLQRetryWorkers,
+			Namespace:  producer.topicNamespace,
+		}, client, loggerOrNop(cfg.Logger), pm.dlqWriteFailed)
+		fanout := NewFanoutPool(cfg.FanoutWorkers, cfg.FanoutQueueSize, client, dlq, loggerOrNop(cfg.Logger), pm.fanoutWriteFailed, pm.fanoutDropped)
+		// Start DLQ workers before fan-out workers so a fan-out failure always has a live
+		// DLQ consumer. Both are tracked by producer.wg; Close cancels ctx then waits.
+		dlq.Start(producer.ctx, &producer.wg)
+		fanout.Start(producer.ctx, &producer.wg)
+		producer.fanout = fanout
 	}
 
 	if cfg.Logger != nil {
@@ -280,10 +356,12 @@ func (p *Producer) Publish(ctx context.Context, clientID int64, channel string, 
 	if resolveErr != nil {
 		return resolveErr
 	}
-	// Multi-topic rule without a fanout pool is a server-capability gap (P1a defers fanout
-	// to P1b). Reject it HERE, before the breaker — like the other in-memory decisions above,
-	// it has no Kafka I/O and MUST NOT count toward breaker failure state (§IX: otherwise a
-	// tenant with a valid multi-topic rule opens the shared breaker and 503s every tenant).
+	// Multi-topic rule with no fan-out pool. Production always builds the pool
+	// (FanoutWorkers >= 1, validated at startup), so this is the FanoutWorkers == 0 test-only
+	// config (#179 P1b-C8). Reject HERE, before the breaker — like the other in-memory
+	// decisions above, it has no Kafka I/O and MUST NOT count toward breaker failure state
+	// (§IX: otherwise a tenant with a valid multi-topic rule opens the shared breaker and
+	// 503s every tenant).
 	if len(topics) > 1 && p.fanout == nil {
 		p.stats.MessagesFailed.Add(1)
 		if p.logger != nil {
@@ -352,8 +430,9 @@ func (p *Producer) doProduce(ctx context.Context, clientID int64, channel, tenan
 		return nil
 	}
 
-	// Fan-out path: submit to multiple topics via the fanout pool (reachable only once the
-	// pool is wired in P1b; P1a rejects multi-topic-with-nil-pool before the breaker).
+	// Fan-out path: submit to multiple topics via the fanout pool. Reached only when
+	// len(topics) > 1, which implies p.fanout != nil (nil-pool multi-topic is rejected in
+	// Publish before the breaker).
 	n := len(topics)
 	successCh := make(chan string, n)
 	failCh := make(chan string, n)
@@ -374,8 +453,10 @@ func (p *Producer) doProduce(ctx context.Context, clientID int64, channel, tenan
 		}
 	}
 
-	// Collect exactly N results. ctx.Done() guards against fanout workers exiting
-	// mid-flight (e.g., shutdown) before all jobs are processed.
+	// Collect exactly N results. Two cancel arms (#179 P1b-C3): the request ctx (client
+	// disconnected mid-publish) and the producer ctx (Close() fired — a fanout worker may
+	// have exited before draining all jobs, so we must not block forever). ErrProducerClosed
+	// is breaker-neutral (isBreakerNeutralErr), so a shutdown mid-fanout does not trip the breaker.
 	for range n {
 		select {
 		case t := <-successCh:
@@ -384,6 +465,8 @@ func (p *Producer) doProduce(ctx context.Context, clientID int64, channel, tenan
 			failed = append(failed, t)
 		case <-ctx.Done():
 			return fmt.Errorf("fanout canceled: %w", ctx.Err())
+		case <-p.ctx.Done():
+			return ErrProducerClosed
 		}
 	}
 
@@ -401,6 +484,11 @@ func (p *Producer) doProduce(ctx context.Context, clientID int64, channel, tenan
 		}
 		if p.fanout.dlq != nil {
 			if !p.fanout.dlq.TrySubmit(dlqJob{record: dlqRec, tenant: tenant, reason: ReasonFanoutTopicWriteFailed}) {
+				// DLQ queue full — the record is terminally lost (write never attempted).
+				// Count it so this silent-loss leg is observable (#179 P1b-C4, §VII).
+				if p.dlqDropped != nil {
+					p.dlqDropped.WithLabelValues(tenant).Inc()
+				}
 				if p.logger != nil {
 					p.logger.Warn().Str(logging.LogKeyTenantSlug, tenant).Msg("DLQ queue full — dropping failed fanout record")
 				}
@@ -409,11 +497,16 @@ func (p *Producer) doProduce(ctx context.Context, clientID int64, channel, tenan
 	}
 
 	if len(succeeded) > 0 {
+		// ≥1 target topic accepted the record → publish succeeds (P1b-C9). Failed topics were
+		// best-effort dead-lettered above.
 		p.stats.MessagesPublished.Add(1)
-	} else {
-		p.stats.MessagesFailed.Add(1)
+		return nil
 	}
-	return nil
+	// Every fan-out topic write failed. Return an error so the client sees 500 rather than a
+	// false 2xx for a fully-dropped message (§III / spec outcome table). Breaker-neutral
+	// (errFanoutAllFailed) so it cannot 503 other tenants — see errFanoutAllFailed doc.
+	p.stats.MessagesFailed.Add(1)
+	return fmt.Errorf("%w: %d fan-out topics: %w", backend.ErrPublishFailed, n, errFanoutAllFailed)
 }
 
 // resolveTargets computes the produce plan for a channel from the tenant's routing rules.
@@ -510,6 +603,49 @@ func extractTenant(channel string) (string, error) {
 	return tenant, nil
 }
 
+// isBreakerNeutralErr reports whether a produce error MUST NOT count toward the shared
+// circuit breaker (#179 P1b-C1). These are per-request conditions — tenant misconfiguration
+// (a routing/topic problem that waiting will not fix) and shutdown — as opposed to genuine
+// broker/transport unavailability, which the breaker exists to detect. Kept deliberately
+// narrow: unknown-topic/authorization errors and ErrProducerClosed. Everything else defaults
+// to breaker-eligible so real outages still trip the breaker.
+func isBreakerNeutralErr(err error) bool {
+	return errors.Is(err, ErrProducerClosed) ||
+		errors.Is(err, errFanoutAllFailed) ||
+		// Client disconnected mid-publish (request ctx canceled) — a per-request condition,
+		// not broker unavailability. NOTE: context.DeadlineExceeded is deliberately NOT here —
+		// a PublishTimeout expiry is a slow-broker signal the breaker SHOULD see.
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, kerr.UnknownTopicOrPartition) ||
+		errors.Is(err, kerr.TopicAuthorizationFailed)
+}
+
+// waitWithTimeout waits for wg up to d, returning true if the group completed and false on
+// timeout. Used by Close to bound the wait for pool workers that may be blocked in a produce
+// on an unresponsive broker (§VII — wg.Wait must not hang shutdown indefinitely).
+func waitWithTimeout(wg *sync.WaitGroup, d time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+// loggerOrNop returns the pointed-to logger, or a no-op logger when nil, so pool
+// constructors (which take zerolog.Logger by value) never dereference a nil *Logger.
+func loggerOrNop(l *zerolog.Logger) zerolog.Logger {
+	if l == nil {
+		return zerolog.Nop()
+	}
+	return *l
+}
+
 // Stats returns a snapshot of the current producer statistics.
 func (p *Producer) Stats() ProducerStatsSnapshot {
 	return ProducerStatsSnapshot{
@@ -550,7 +686,24 @@ func (p *Producer) Close() error {
 		return nil
 	}
 
+	// Records still buffered in the fan-out/DLQ queues at shutdown are intentionally NOT counted
+	// in the _dropped_total metrics (#179 P1b-C4, de-scoped): a buffered fan-out job belongs to a
+	// Publish that already returned ErrProducerClosed, and a buffered DLQ job is a best-effort
+	// copy whose failure is already counted and whose message is durable in Kafka — no signal is
+	// lost, so a bounded shutdown drain is unwarranted complexity (§XV).
+	//
+	// §VII shutdown ordering: cancel the producer ctx → wait for the fan-out/DLQ pool workers
+	// to exit → close the client. The wait is BOUNDED (shutdownTimeout): franz-go ignores ctx
+	// cancellation once a record is buffered, so a worker producing to an unresponsive broker
+	// would block wg.Wait indefinitely. On timeout we close the client anyway — client.Close
+	// aborts the in-flight produce, unblocking the workers — so shutdown never hangs. In-flight
+	// Publish collect loops unblock via their p.ctx.Done() arm (P1b-C3); those are caller
+	// goroutines, not tracked by p.wg.
 	p.cancel()
+	if !waitWithTimeout(&p.wg, p.shutdownTimeout) && p.logger != nil {
+		p.logger.Warn().Dur("timeout", p.shutdownTimeout).
+			Msg("kafka producer: fan-out/DLQ workers did not exit within shutdown timeout; force-closing client")
+	}
 	p.client.Close()
 
 	if p.logger != nil {

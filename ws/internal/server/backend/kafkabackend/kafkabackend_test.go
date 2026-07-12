@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kerr"
 
@@ -25,11 +26,17 @@ func (stubRulesSource) GetRoutingSnapshot(string) (provapi.TenantRoutingSnapshot
 }
 func (stubRulesSource) SnapshotReceived() bool { return true }
 
-// validRoutingDeps returns a provider + edition accessor that pass New()'s required-field
-// validation, so a test can reach later code paths (SASL/TLS, etc.).
+// validRoutingDeps returns a provider + edition accessor + positive fan-out/DLQ sizing that
+// pass New()'s required-field validation, so a test can reach later code paths (SASL/TLS, etc.).
 func validRoutingDeps(c Config) Config {
 	c.RulesProvider = stubRulesSource{}
 	c.Edition = func() license.Edition { return license.Pro }
+	c.RoutingFanoutWorkers = 4
+	c.RoutingFanoutQueueSize = 256
+	c.DLQMaxRetries = 3
+	c.DLQBaseDelay = 100 * time.Millisecond
+	c.DLQMaxDelay = 5 * time.Second
+	c.DLQRetryWorkers = 4
 	return c
 }
 
@@ -46,6 +53,13 @@ func TestNew_RequiresRoutingDeps(t *testing.T) {
 	withProvider.RulesProvider = stubRulesSource{}
 	if _, err := New(withProvider); err == nil || !strings.Contains(err.Error(), "edition accessor is required") {
 		t.Fatalf("nil Edition: got err=%v, want 'edition accessor is required'", err)
+	}
+
+	// Provider + edition set but sizing left zero → sizing validation rejects (#179 P1b).
+	withDeps := withProvider
+	withDeps.Edition = func() license.Edition { return license.Pro }
+	if _, err := New(withDeps); err == nil || !strings.Contains(err.Error(), "sizing (WS_ROUTING_*) must all be > 0") {
+		t.Fatalf("zero sizing: got err=%v, want 'sizing (WS_ROUTING_*) must all be > 0'", err)
 	}
 }
 
