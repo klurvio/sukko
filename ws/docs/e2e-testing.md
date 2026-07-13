@@ -117,13 +117,26 @@ See `ws/internal/shared/platform/config.go` (`KafkaConnectionConfig`) for the ca
 
 It runs as the `e2e-kafka-ingest` job of the `CI` workflow (`workflow_dispatch` + every push to `main`) and requires Docker (the job fails, not skips, if Docker is unavailable). The delivery wait is `kafkaIngestDeliveryTimeout` in `ws/cmd/tester/runner/kafka_ingest.go` — generous because a freshly-provisioned tenant's topic must be created and its consumer must join the group before the record is delivered.
 
+**Automated Web Push delivery regression (CI).** `task e2e:push-validate` runs *real* Web Push delivery against a kafka-mode, **Enterprise**-licensed stack built from source — the coverage the direct-mode battery cannot provide (push needs both `MESSAGE_BACKEND=kafka` and an Enterprise license, so it runs in its own job, not the battery and not the kafka-ingest job):
+
+1. Runs the guard fixture test (`taskfiles/e2e/guard_test.sh`) first — standalone, no Docker — so an anti-vacuous-guard regression fails fast before the stack boots.
+2. Mints an **Enterprise** dev-license token **before** boot (push-service fatals at `LoadConfig` without the `PushNotifications` grant, and kafka mode fail-fasts on Community).
+3. `docker compose --profile enterprise --profile kafka up --build` with `MESSAGE_BACKEND=kafka` and the `taskfiles/e2e/push-validate.override.yml` override, which flips the push-service var **`PUSH_DRY_RUN=false`** (a real WebPush POST instead of a dry-run log) and sets the tester's `TESTER_PUSH_RECEIVER_HOST` (presence flips the delivery check from skip to run).
+4. Readiness gate: `rpk cluster health` + `GET /edition == enterprise` + a bounded poll of push-service `/ready` on host port 3009 (503 until the Enterprise license syncs over the WatchLicense stream — distinct from the always-200 `/health` liveness probe).
+5. Runs `sukko test validate --suite push --output json` and pipes it to the **`push_validate_guard`** helper (`taskfiles/e2e/stack.sh`), which fails closed on **three** conditions: the `push delivery` check absent or not `pass`, **any** check skipped (empty allow-list), or the report `status != pass` (the backstop for the append-only credential/channel-config CRUD, subscribe, and multiprovider checks, which only ever pass/fail).
+6. Tears the stack down (`down -v`) even on failure.
+
+It runs as the `e2e-push-validate` job of the `CI` workflow (`workflow_dispatch` + every push to `main`) and requires Docker. The delivery wait is `pushDeliveryTimeout` (60s) in `ws/cmd/tester/runner/validate_push.go`, and the delivery check re-publishes on a throttle inside its poll loop — generous because push-service discovers a newly-push-enabled tenant's topic only via a 30s refresh cycle (plus a consumer-group rebalance) and consumes at `AtEnd`, so a single pre-assignment publish would be lost.
+
+> **Coverage boundary — real delivery is asserted for Web Push only.** The `push delivery` check exercises the full **Web Push** (VAPID / RFC 8030) round-trip and asserts an encrypted notification actually arrives at the mock receiver. The **FCM** (Android) and **APNs** (iOS) legs (`multi-platform android` / `multi-platform ios`) register a device with a *fake* provider token and assert only that the subscription is accepted — they do **not** POST to Google/Apple, so a green job is **not** evidence of real FCM/APNs delivery (that needs live external services, tracked as **#175**). Read the job as: Web Push delivered-and-verified end-to-end; mobile push registered-but-not-delivered.
+
 ### 1.4 Required environment variables
 
 | Variable | Default | Required | Description |
 |---|---|---|---|
 | `GATEWAY_URL` | `ws://localhost:3000` | always | WebSocket gateway address |
 | `PROVISIONING_URL` | `http://localhost:8080` | always | Provisioning API address |
-| `TESTER_PUSH_RECEIVER_HOST` | — | push delivery check | Hostname the push service uses to reach the tester's mock WebPush receiver (compose service name in the battery). Unset ⇒ the delivery check skips. |
+| `TESTER_PUSH_RECEIVER_HOST` | — | push delivery check | Hostname the push service uses to reach the tester's mock WebPush receiver (the compose service name, set by the `e2e-push-validate` job's override). Unset ⇒ the delivery check skips. |
 | `TESTER_PUSH_RECEIVER_PORT` | `8095` | no | Listen port of the tester's mock WebPush receiver. |
 | `TESTER_AUTH_TOKEN` | — | production | Token for tester HTTP API auth |
 | `TESTER_ADMIN_KEY_FILE` | — | provisioning/tenant-isolation/token-revocation suites | Raw 64-byte Ed25519 admin private key |
@@ -185,8 +198,9 @@ failed suite and exits non-zero at the end.
 **Not yet in the battery (tracked for triage):** `auth`, `rest-publish`, `tenant-isolation`,
 `token-revocation`, `edition-limits`, `api-key`, `upgrade`, `provisioning`, `ratelimit` —
 each surfaced a real first-contact finding when first run against a live gateway (see the
-validate-battery backlog issue). `kafka-ingest` and `push` run in the kafka-mode job (push
-requires `MESSAGE_BACKEND=kafka`, §1.3); `webhooks` is deferred (webhook-worker boot bugs);
+validate-battery backlog issue). `kafka-ingest` runs in its own kafka-mode job and `push` in
+the `e2e-push-validate` job (Enterprise + `MESSAGE_BACKEND=kafka`, §1.3); `webhooks` is
+deferred (webhook-worker boot bugs);
 `license-reload` stays in the manual `task e2e:license` family (mutates edition mid-run);
 load/soak/stress are scale tests.
 
@@ -207,7 +221,7 @@ load/soak/stress are scale tests.
 | 11 | `tenant-isolation` | Community | **yes** | Cross-tenant isolation |
 | 12 | `token-revocation` | **Pro** | **yes** | Token revocation force-disconnect |
 | 13 | `edition-limits` | Community | no | Edition boundary limits |
-| 14 | `push` | Enterprise | no | Push notification pipeline, including **actual WebPush delivery**: registers a device against the tester's mock receiver (`TESTER_PUSH_RECEIVER_HOST`) with real P-256 client keys and asserts the encrypted notification arrives (RFC 8030). Delivery check skips when the receiver host is unset (managed deployments). |
+| 14 | `push` | Enterprise | no | Push notification pipeline, including **actual Web Push delivery**: registers a device against the tester's mock receiver (`TESTER_PUSH_RECEIVER_HOST`) with real P-256 client keys and asserts the encrypted notification arrives (RFC 8030). Delivery check skips when the receiver host is unset (managed deployments). **Real delivery is Web Push (VAPID) only** — the FCM (Android) / APNs (iOS) legs register with fake provider tokens and assert subscription acceptance, not delivery (real mobile delivery tracked as #175). |
 | 15 | `license-reload` | Community | no | License hot-reload propagation |
 | 16 | `api-key` | Community | no | API key auth in isolation (no JWT provisioning) |
 | 17 | `upgrade` | Community | no | Auth upgrade flow: connect with API key, upgrade to JWT |
