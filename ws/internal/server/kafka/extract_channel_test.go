@@ -183,6 +183,54 @@ func TestExtractChannel_NoHeader_CommunityEditionProvider_ValidKey(t *testing.T)
 	}
 }
 
+// §IX (Commit 1): the Community record.Key fallback MUST reject a channel whose tenant prefix does not
+// match the topic tenant — parity with the header path (TestExtractChannel_ValidHeader_TenantMismatch).
+// Reachable in production: nil rules provider ⇒ edition defaults to Community ⇒ headerless records land
+// on this fallback. Failing-before/passing-after this commit.
+
+func TestExtractChannel_NoHeader_CommunityEdition_CrossTenantKey_Rejected(t *testing.T) {
+	t.Parallel()
+
+	rec := &kgo.Record{Topic: "prod.acme.trade", Key: []byte("evil.secret")} // wrong tenant prefix
+	channel, reason, malformed := extractChannel(rec, nil)                   // nil provider = production path
+	if malformed {
+		t.Error("expected malformed=false")
+	}
+	if reason != ReasonTenantPrefixMismatch {
+		t.Errorf("reason = %q, want %q (cross-tenant Key must be rejected)", reason, ReasonTenantPrefixMismatch)
+	}
+	if channel != "" {
+		t.Errorf("channel = %q, want empty — cross-tenant record must NOT be broadcast", channel)
+	}
+}
+
+func TestExtractChannel_NoHeader_CommunityProvider_SnapshotAbsent_CrossTenantKey_Rejected(t *testing.T) {
+	t.Parallel()
+
+	provider := &stubRulesProvider{ok: false} // no snapshot ⇒ edition stays Community default
+	rec := &kgo.Record{Topic: "prod.acme.trade", Key: []byte("globex.trade")}
+	channel, reason, malformed := extractChannel(rec, provider)
+	if malformed {
+		t.Error("expected malformed=false")
+	}
+	if reason != ReasonTenantPrefixMismatch {
+		t.Errorf("reason = %q, want %q", reason, ReasonTenantPrefixMismatch)
+	}
+	if channel != "" {
+		t.Errorf("channel = %q, want empty", channel)
+	}
+}
+
+func TestExtractChannel_NoHeader_CommunityEdition_LeadingDotKey_Rejected(t *testing.T) {
+	t.Parallel()
+
+	rec := &kgo.Record{Topic: "prod.acme.trade", Key: []byte(".trade")} // empty tenant prefix
+	_, reason, _ := extractChannel(rec, nil)
+	if reason != ReasonInvalidChannelKey {
+		t.Errorf("reason = %q, want %q", reason, ReasonInvalidChannelKey)
+	}
+}
+
 func TestFindHeader_ReturnsNilWhenAbsent(t *testing.T) {
 	t.Parallel()
 

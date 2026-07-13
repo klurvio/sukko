@@ -912,10 +912,18 @@ func extractChannel(record *kgo.Record, rulesProvider RoutingSnapshotProvider) (
 		if license.EditionHasFeature(edition, license.ChannelTopicRouting) {
 			return "", ReasonMissingChannelHeader, false
 		}
-		// Community fallback: channel from record.Key.
+		// No channel header: derive the channel from record.Key. Same validation as the header path
+		// below — well-formed (at least two segments) AND the channel's tenant prefix MUST match the
+		// topic tenant, or a record on prod.acme.* could carry record.Key="evil.secret" and broadcast
+		// cross-tenant (§IX). Reachable in production: the consumer pool wires no rules provider, so
+		// edition defaults to Community and headerless records land here.
 		ch := string(record.Key)
-		if ch == "" || !strings.Contains(ch, ".") {
+		dot := strings.IndexByte(ch, '.')
+		if dot <= 0 {
 			return "", ReasonInvalidChannelKey, false
+		}
+		if ch[:dot] != tenant {
+			return "", ReasonTenantPrefixMismatch, false
 		}
 		return ch, "", false
 	}

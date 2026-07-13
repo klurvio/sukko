@@ -425,8 +425,8 @@ func TestConsumer_PrepareMessage_IncludesTopic(t *testing.T) {
 	}
 
 	record := &kgo.Record{
-		Topic: "sukko.dev.trade",
-		Key:   []byte("BTC.trade"),
+		Topic: "sukko.dev.trade",       // topic tenant is the second segment: dev
+		Key:   []byte("dev.BTC.trade"), // channel tenant prefix must match the topic tenant (§IX)
 		Value: []byte(`{"price":"50000"}`),
 	}
 
@@ -438,8 +438,8 @@ func TestConsumer_PrepareMessage_IncludesTopic(t *testing.T) {
 	if msg.topic != "sukko.dev.trade" {
 		t.Errorf("msg.topic = %q, want %q", msg.topic, "sukko.dev.trade")
 	}
-	if msg.subject != "BTC.trade" {
-		t.Errorf("msg.subject = %q, want %q", msg.subject, "BTC.trade")
+	if msg.subject != "dev.BTC.trade" {
+		t.Errorf("msg.subject = %q, want %q", msg.subject, "dev.BTC.trade")
 	}
 	if string(msg.message) != `{"price":"50000"}` {
 		t.Errorf("msg.message = %q, want %q", msg.message, `{"price":"50000"}`)

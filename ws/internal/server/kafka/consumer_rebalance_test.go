@@ -175,11 +175,16 @@ var testRevoked = map[string][]int32{
 	"sukko.test.trade": {0, 1},
 }
 
-// makeRecord builds a minimal kgo.Record for testing.
+// makeRecord builds a minimal kgo.Record for testing. The channel key carries the topic's tenant
+// prefix so it passes the §IX tenant-prefix check in extractChannel.
 func makeRecord(topic string) *kgo.Record {
+	tenant := "test"
+	if parts := strings.SplitN(topic, ".", 3); len(parts) >= 3 {
+		tenant = parts[1]
+	}
 	return &kgo.Record{
 		Topic: topic,
-		Key:   []byte("BTC.trade"),
+		Key:   []byte(tenant + ".BTC.trade"),
 		Value: []byte(`{"price":"50000"}`),
 	}
 }
@@ -391,7 +396,7 @@ func TestExplicitMark_BroadcastMarked_Unbatched(t *testing.T) {
 
 	record := &kgo.Record{
 		Topic: "sukko.test.trade",
-		Key:   []byte("BTC.trade"),
+		Key:   []byte("test.BTC.trade"),
 		Value: []byte(`{"price":"50000"}`),
 	}
 	consumer.processRecord(record)
@@ -416,7 +421,7 @@ func TestExplicitMark_BroadcastMarked_Batched(t *testing.T) {
 
 	record := &kgo.Record{
 		Topic: "sukko.test.trade",
-		Key:   []byte("BTC.trade"),
+		Key:   []byte("test.BTC.trade"),
 		Value: []byte(`{"price":"50000"}`),
 	}
 
@@ -458,7 +463,7 @@ func TestExplicitMark_MalformedMarked(t *testing.T) {
 	// Malformed topic: fewer than 3 segments
 	record := &kgo.Record{
 		Topic: "malformed",
-		Key:   []byte("BTC.trade"),
+		Key:   []byte("test.BTC.trade"),
 		Value: []byte(`{}`),
 	}
 	consumer.processRecord(record)
@@ -569,7 +574,7 @@ func TestCPUBrakeMarking_BrakeNeverActive(t *testing.T) {
 
 	record := &kgo.Record{
 		Topic: "sukko.test.trade",
-		Key:   []byte("BTC.trade"),
+		Key:   []byte("test.BTC.trade"),
 		Value: []byte(`{"price":"50000"}`),
 	}
 	consumer.processRecord(record)
@@ -599,7 +604,7 @@ func TestCPUBrakeMarking_NoPreFlushMarks(t *testing.T) {
 
 	record := &kgo.Record{
 		Topic: "sukko.test.trade",
-		Key:   []byte("BTC.trade"),
+		Key:   []byte("test.BTC.trade"),
 		Value: []byte(`{"price":"50000"}`),
 	}
 
