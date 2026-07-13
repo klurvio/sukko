@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -37,7 +38,6 @@ import (
 	"github.com/klurvio/sukko/internal/server/registry"
 	"github.com/klurvio/sukko/internal/server/stats"
 	"github.com/klurvio/sukko/internal/shared/alerting"
-	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	pkgmetrics "github.com/klurvio/sukko/internal/shared/metrics"
@@ -112,7 +112,7 @@ type Server struct {
 	// History
 	broadcastBus  broadcast.Bus   // Bus reference for historyWriter subscription
 	historyWriter *history.Writer // nil when HistoryEnabled=false
-	historyEnv    string          // resolved stream key namespace (ResolveNamespace result)
+	historyEnv    string          // history stream/lock-key prefix, derived from ENVIRONMENT via historyNamespace()
 
 	// Registry (Connections Management API)
 	registryWriter    *registry.Writer        // pod-level; nil when ConnectionsRegistryEnabled=false
@@ -246,6 +246,14 @@ func (s *Server) GetStats() *stats.Stats {
 	return s.stats
 }
 
+// historyNamespace derives the history writer's Valkey stream/lock-key prefix from ENVIRONMENT
+// (a non-topic use, normalized trim+lowercase). It is deliberately decoupled from the Kafka topic
+// namespace (KAFKA_TOPIC_NAMESPACE): in kafka mode the two may differ, and history keys track the
+// deployment identity, not the topic prefix. Matches the value the deleted ResolveNamespace produced.
+func historyNamespace(environment string) string {
+	return strings.ToLower(strings.TrimSpace(environment))
+}
+
 // Start begins accepting WebSocket connections on the configured address.
 // It starts several background goroutines:
 //   - HTTP server for WebSocket upgrades, health checks, and Prometheus metrics
@@ -331,7 +339,7 @@ func (s *Server) Start() error {
 		if s.broadcastBus == nil {
 			s.logger.Error().Msg("history writer: HistoryEnabled=true but BroadcastBus is nil; history disabled")
 		} else {
-			s.historyEnv = kafkashared.ResolveNamespace(s.config.KafkaTopicNamespaceOverride, s.config.Environment)
+			s.historyEnv = historyNamespace(s.config.Environment)
 			historyValkeyClient, hvErr := s.buildHistoryValkeyClient()
 			if hvErr != nil {
 				s.logger.Error().Err(hvErr).Msg("history writer: failed to create Valkey client; history disabled")

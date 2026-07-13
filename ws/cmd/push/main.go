@@ -114,9 +114,9 @@ func main() {
 	// Create subscription repository
 	subRepo := repository.NewSubscriptionRepository(pool)
 
-	// Resolve topic namespace for Kafka
-	topicNamespace := kafkashared.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
-	structuredLogger.Info().Str("namespace", topicNamespace).Str("environment", cfg.Environment).Msg("Topic namespace resolved")
+	// Explicit topic namespace (validated + normalized at config load).
+	topicNamespace := cfg.KafkaTopicNamespace
+	structuredLogger.Info().Str("namespace", topicNamespace).Str("environment", cfg.Environment).Msg("Topic namespace set")
 
 	// Create ConfigClient — connects to provisioning gRPC for WatchPushConfig + WatchTopics
 	configClient, err := push.NewConfigClient(push.ConfigClientConfig{

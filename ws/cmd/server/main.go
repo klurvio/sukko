@@ -29,7 +29,6 @@ import (
 	"github.com/klurvio/sukko/internal/server/registry"
 	"github.com/klurvio/sukko/internal/shared/alerting"
 	"github.com/klurvio/sukko/internal/shared/analytics"
-	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 
@@ -233,7 +232,7 @@ func main() {
 	broadcastBus.Run()
 
 	// Create pluggable message backend based on MESSAGE_BACKEND env var
-	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
+	topicNamespace := cfg.KafkaTopicNamespace
 	var msgBackend backend.MessageBackend
 	switch cfg.MessageBackend {
 	case platform.MessageBackendDirect:

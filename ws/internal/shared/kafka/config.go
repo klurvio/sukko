@@ -8,51 +8,20 @@ import (
 // Topic Namespace Configuration
 // =============================================================================
 //
-// ENVIRONMENT vs KAFKA_TOPIC_NAMESPACE_OVERRIDE:
+// Kafka topic names use the format {namespace}.{tenant}.{category} (BuildTopicName, topic.go).
+// The {namespace} segment comes from a single explicit config value, KAFKA_TOPIC_NAMESPACE:
+//   - It is the sole source of truth — there is NO inference from ENVIRONMENT.
+//   - It is required wherever a service builds or parses namespaced topics, validated against
+//     VALID_NAMESPACES at startup (platform.KafkaNamespaceConfig), and normalized once at load.
 //
-// ENVIRONMENT: Identifies the deployment environment (dev, stg, prod).
-//   - Used for: logging, metrics labels, consumer group naming, operational context
-//   - Example: ENVIRONMENT=dev means "this is the dev deployment"
+// ENVIRONMENT is a separate concern: it identifies the deployment (logging, metrics labels,
+// consumer-group naming, history stream/lock keys) and has NO role in topic naming.
 //
-// KAFKA_TOPIC_NAMESPACE_OVERRIDE: Overrides ENVIRONMENT for Kafka topic naming only.
-//   - Used for: topic naming only ({namespace}.{tenant}.{category})
-//   - Defaults to: empty (uses normalized ENVIRONMENT value)
-//   - Example: KAFKA_TOPIC_NAMESPACE_OVERRIDE=prod means "consume from prod.* topics"
-//   - NOT allowed in production (startup validation blocks this)
-//
-// Resolution: Use ResolveNamespace(override, environment) to get the effective namespace.
-//
-// Why separate?
-//   - Allows dev/stg environments to consume from prod topics (Sukko API always publishes as prod)
-//   - Keeps logs/metrics accurate (shows "dev" not "prod")
-//   - Explicit about intent - "Override" in the name makes cross-env consumption deliberate
-//   - Safer - can't accidentally affect non-topic environment behavior
-//   - Blocked in prod - startup validation prevents override in production
-//
-// Valid namespaces (configured via Helm): local, dev, stg, prod
-//
-// Topic names are built at runtime using BuildTopicName() in topic.go:
-//   BuildTopicName(namespace, tenantID, category) -> "{namespace}.{tenantID}.{category}"
+// There is no environment-name guard anywhere: the VALID_NAMESPACES allowlist is the only
+// value-based enforcement boundary. Valid namespaces are configured via VALID_NAMESPACES
+// (default: local, dev, stag, prod).
 //
 // =============================================================================
-
-// ResolveNamespace resolves the effective topic namespace from an override and environment.
-// If override is non-empty, it takes precedence (normalized). Otherwise, falls back to
-// the normalized environment value. Both inputs are lowercased and trimmed.
-//
-// This is the single source of truth for namespace resolution — used by both ws-server
-// and provisioning to eliminate duplicated logic.
-//
-// Examples:
-//   - ResolveNamespace("prod", "dev") → "prod" (override wins)
-//   - ResolveNamespace("", "dev") → "dev" (fallback to environment)
-//   - ResolveNamespace("", "") → "" (no default — BaseConfig validates non-empty at startup)
-func ResolveNamespace(override, environment string) string {
-	if override != "" {
-		return strings.ToLower(strings.TrimSpace(override))
-	}
-	return strings.ToLower(strings.TrimSpace(environment))
-}
 
 // EventType represents different event types
 type EventType string

@@ -627,8 +627,14 @@ func LoadServerConfig(logger zerolog.Logger) (*ServerConfig, error) {
 // It MUST be called before Validate(). LoadServerConfig calls this automatically.
 //
 // Currently handles:
+//   - Canonicalizing KAFKA_TOPIC_NAMESPACE (trim + lowercase) via KafkaNamespaceConfig.Normalize().
 //   - Auto-computing CPU hysteresis lower thresholds (upper - 10) when not set explicitly (0 = auto).
 func (c *ServerConfig) Normalize() {
+	// Canonicalize the explicit topic namespace (trim + lowercase) before Validate() so the
+	// allowlist check and every BuildTopicName consumer read the same value. Called here (inside
+	// the outer Normalize) rather than as a bare embedded call, which the method promotion shadows.
+	c.KafkaNamespaceConfig.Normalize()
+
 	if c.CPURejectThresholdLower == 0 {
 		c.CPURejectThresholdLower = c.CPURejectThreshold - 10.0
 	}
@@ -1051,9 +1057,14 @@ func (c *ServerConfig) Validate() error {
 			c.ValkeyReconnectInitialBackoff, c.ValkeyReconnectMaxBackoff)
 	}
 
-	// Kafka namespace validation (includes prod guard)
+	// Kafka namespace validation (allowlist boundary; non-empty enforced per mode below)
 	if err := c.KafkaNamespaceConfig.Validate(); err != nil {
 		return err
+	}
+	// Namespace is required only in kafka mode — topics (and thus the prefix) exist only then.
+	// Mirrors the KAFKA_BROKERS required-in-kafka-mode pattern. Reads the normalized field.
+	if c.MessageBackend == MessageBackendKafka && c.KafkaTopicNamespace == "" {
+		return errors.New("KAFKA_TOPIC_NAMESPACE is required when MESSAGE_BACKEND=kafka")
 	}
 
 	// Alerting validation (conditional on enabled)
@@ -1266,8 +1277,8 @@ func (c *ServerConfig) Print() {
 	_, _ = fmt.Fprintln(os.Stdout, "=== Server Configuration ===")
 	_, _ = fmt.Fprintf(os.Stdout, "Edition:         %s\n", edition)
 	_, _ = fmt.Fprintf(os.Stdout, "Environment:     %s\n", c.Environment)
-	if c.KafkaTopicNamespaceOverride != "" {
-		_, _ = fmt.Fprintf(os.Stdout, "Topic Namespace: %s (override)\n", c.KafkaTopicNamespaceOverride)
+	if c.KafkaTopicNamespace != "" {
+		_, _ = fmt.Fprintf(os.Stdout, "Topic Namespace: %s\n", c.KafkaTopicNamespace)
 	}
 	_, _ = fmt.Fprintf(os.Stdout, "Address:         %s\n", c.Addr)
 	_, _ = fmt.Fprintf(os.Stdout, "Message Backend: %s\n", c.MessageBackend)
@@ -1357,7 +1368,7 @@ func (c *ServerConfig) LogConfig(logger zerolog.Logger) {
 	logger.Info().
 		Str("edition", edition).
 		Str("environment", c.Environment).
-		Str("kafka_topic_namespace_override", c.KafkaTopicNamespaceOverride).
+		Str("kafka_topic_namespace", c.KafkaTopicNamespace).
 		Str("addr", c.Addr).
 		Str("message_backend", c.MessageBackend).
 		Str("kafka_brokers", c.KafkaBrokers).

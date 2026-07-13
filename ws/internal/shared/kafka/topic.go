@@ -23,7 +23,7 @@ const RetentionMsConfigKey = "retention.ms"
 //	BuildTopicName("dev", "acme", "analytics") -> "dev.acme.analytics"
 //
 // Components:
-//   - namespace: Resolved via kafka.ResolveNamespace() (e.g., "local", "dev", "stag", "prod")
+//   - namespace: the explicit KAFKA_TOPIC_NAMESPACE value (e.g., "local", "dev", "stag", "prod")
 //   - tenantID: Tenant identifier (e.g., "sukko", "acme")
 //   - category: Topic category (e.g., "trade", "liquidity", "metadata")
 //

@@ -70,6 +70,7 @@ There are two distinct ways the pipeline gets exercised — pick by what you wan
 | Variable | Default | Description |
 |---|---|---|
 | `KAFKA_BROKERS` | — (none) | Comma-separated broker addresses. **Empty ⇒ the `kafka-ingest` suite skips** (not a failure). |
+| `KAFKA_TOPIC_NAMESPACE` | — (none) | Explicit topic namespace prefix (`{namespace}.{tenant}.{category}`). **Required when `KAFKA_BROKERS` is set**; MUST match the server-under-test's `KAFKA_TOPIC_NAMESPACE`. Validated against `VALID_NAMESPACES`. Per-run override via the `kafka_topic_namespace` request field. |
 | `KAFKA_SASL_ENABLED` | `false` | Set to `true` to enable SASL authentication. Required for most managed services. |
 | `KAFKA_SASL_MECHANISM` | — | `plain` (Confluent Cloud), `scram-sha-256` (Redpanda Cloud, Aiven), or `scram-sha-512` (AWS MSK). Required when `KAFKA_SASL_ENABLED=true`. |
 | `KAFKA_SASL_USERNAME` | — | SASL username (or API key). Required when `KAFKA_SASL_ENABLED=true`. |
@@ -80,7 +81,7 @@ There are two distinct ways the pipeline gets exercised — pick by what you wan
 
 **Preconditions for `kafka-ingest`:**
 - The **server under test MUST run `MESSAGE_BACKEND=kafka`** — otherwise records dropped into Kafka are never consumed and the suite times out (the failure message includes this hint).
-- The tester and the server **MUST resolve to the same Kafka topic namespace** — set the same `ENVIRONMENT` (and, if used, the same `KAFKA_TOPIC_NAMESPACE_OVERRIDE`) on both. A mismatch means the tester publishes to a topic the server never consumes.
+- The tester and the server **MUST use the same `KAFKA_TOPIC_NAMESPACE`** — set the identical explicit value on both (namespace is no longer inferred from `ENVIRONMENT`). A mismatch means the tester publishes to a topic the server never consumes.
 
 **Example — Confluent Cloud with SASL/PLAIN:**
 ```bash

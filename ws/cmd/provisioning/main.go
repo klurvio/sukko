@@ -38,7 +38,6 @@ import (
 	"github.com/klurvio/sukko/internal/shared/auth"
 	"github.com/klurvio/sukko/internal/shared/crypto"
 	"github.com/klurvio/sukko/internal/shared/database"
-	"github.com/klurvio/sukko/internal/shared/kafka"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/migrations"
@@ -93,9 +92,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Resolve effective topic namespace for Kafka
-	topicNamespace := kafka.ResolveNamespace(cfg.KafkaTopicNamespaceOverride, cfg.Environment)
-	bootLogger.Info().Str("namespace", topicNamespace).Str("environment", cfg.Environment).Msg("Topic namespace resolved")
+	// Explicit topic namespace (validated + normalized at config load).
+	topicNamespace := cfg.KafkaTopicNamespace
+	bootLogger.Info().Str("namespace", topicNamespace).Str("environment", cfg.Environment).Msg("Topic namespace set")
 
 	// Initialize structured logger
 	structuredLogger := logging.NewLogger(logging.LoggerConfig{

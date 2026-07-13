@@ -81,10 +81,11 @@ func (h *handlers) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // SECURITY: This struct is decode-only (request deserialization). It is NEVER serialized
 // in responses — the handler converts to runner.TestContext before any response is written.
 type TestContext struct {
-	GatewayURL      string `json:"gateway_url"`
-	ProvisioningURL string `json:"provisioning_url"`
-	Environment     string `json:"environment"`
-	KafkaBrokers    string `json:"kafka_brokers,omitempty"` // Per-run override of the tester's KAFKA_BROKERS for the kafka-ingest suite.
+	GatewayURL          string `json:"gateway_url"`
+	ProvisioningURL     string `json:"provisioning_url"`
+	Environment         string `json:"environment"`
+	KafkaBrokers        string `json:"kafka_brokers,omitempty"`         // Per-run override of the tester's KAFKA_BROKERS for the kafka-ingest suite.
+	KafkaTopicNamespace string `json:"kafka_topic_namespace,omitempty"` // Per-run override of the tester's KAFKA_TOPIC_NAMESPACE; MUST match the server-under-test.
 	// AdminKeyPath is accepted for deprecation detection only — never forwarded to runner.
 	// Use admin_key (base64 Ed25519 private key) in the top-level request body instead.
 	AdminKeyPath string `json:"admin_key_path,omitempty"`
@@ -297,6 +298,10 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		// Per-run broker override for the kafka-ingest suite (credentials stay env-only).
 		if req.Context.KafkaBrokers != "" {
 			cfg.KafkaBrokers = req.Context.KafkaBrokers
+		}
+		// Per-run topic-namespace override — MUST match the server-under-test (runner normalizes it).
+		if req.Context.KafkaTopicNamespace != "" {
+			cfg.KafkaTopicNamespace = req.Context.KafkaTopicNamespace
 		}
 	}
 

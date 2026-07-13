@@ -123,15 +123,24 @@ func (c *HTTPTimeoutConfig) Validate() error {
 }
 
 // KafkaNamespaceConfig holds Kafka topic namespace settings.
-// Embedded by server and provisioning.
+// Embedded by server, provisioning, push, and tester.
 type KafkaNamespaceConfig struct {
-	// KafkaTopicNamespaceOverride overrides ENVIRONMENT for Kafka topic naming only.
-	// If empty, defaults to normalized ENVIRONMENT value via kafka.ResolveNamespace().
-	// Intended for dev/staging environments where a different namespace is needed.
-	KafkaTopicNamespaceOverride string `env:"KAFKA_TOPIC_NAMESPACE_OVERRIDE" envDefault:""` // Override for the Kafka topic namespace (normally derived from ENVIRONMENT). Use with care in production deployments.
+	// KafkaTopicNamespace is the explicit topic-namespace prefix in {namespace}.{tenant}.{category}
+	// topic names — the single source of truth, with no inference from ENVIRONMENT. It is required
+	// wherever a service builds or parses namespaced topics (enforced per service, since this struct
+	// cannot see MESSAGE_BACKEND) and validated against ValidNamespaces. Normalize() canonicalizes it
+	// (trim + lowercase) once at load so validation and topic-building agree.
+	KafkaTopicNamespace string `env:"KAFKA_TOPIC_NAMESPACE"` // Explicit Kafka topic namespace prefix ({namespace}.{tenant}.{category}); required when the service builds or parses namespaced topics; validated against VALID_NAMESPACES.
 
 	// ValidNamespaces is a comma-separated list of allowed topic namespace prefixes.
-	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"` // Comma-separated list of allowed Kafka topic namespaces. Used to validate KAFKA_TOPIC_NAMESPACE_OVERRIDE.
+	ValidNamespaces string `env:"VALID_NAMESPACES" envDefault:"local,dev,stag,prod"` // Comma-separated list of allowed Kafka topic namespaces. Used to validate KAFKA_TOPIC_NAMESPACE.
+}
+
+// Normalize canonicalizes KafkaTopicNamespace (trim + lowercase). It MUST be called once at
+// config load, before Validate(), so the allowlist check and every BuildTopicName consumer read
+// the same canonical value. Replaces the normalization the deleted kafka.ResolveNamespace did.
+func (c *KafkaNamespaceConfig) Normalize() {
+	c.KafkaTopicNamespace = strings.ToLower(strings.TrimSpace(c.KafkaTopicNamespace))
 }
 
 // MessageBackend constants for MESSAGE_BACKEND env var.
@@ -225,18 +234,21 @@ func (c *MessageBackendConfig) Validate() error {
 
 // Validate checks Kafka namespace config for errors.
 //
-// No environment-name guard on KAFKA_TOPIC_NAMESPACE_OVERRIDE: ENVIRONMENT is operator-defined
-// free text, so a check like env == "prod" silently misses "production", "live", etc.
-// The VALID_NAMESPACES allowlist is the value-based enforcement boundary. Operators are expected
-// to leave KAFKA_TOPIC_NAMESPACE_OVERRIDE unset in production. Do NOT add an env-name guard here.
+// This is the value/allowlist boundary ONLY — it deliberately does NOT enforce non-empty, because
+// KafkaNamespaceConfig cannot see MESSAGE_BACKEND. Each embedding service's own Validate() enforces
+// the non-empty requirement per its topic-activation trigger (server: kafka mode; push and
+// provisioning: always; tester: when brokers are set).
+//
+// No environment-name guard: ENVIRONMENT no longer participates in topic naming, and the
+// VALID_NAMESPACES allowlist is the value-based enforcement boundary. Do NOT add an env-name guard.
 func (c *KafkaNamespaceConfig) Validate() error {
 	validNS := parseNamespaces(c.ValidNamespaces)
 	if len(validNS) == 0 {
 		return errors.New("VALID_NAMESPACES must contain at least one namespace")
 	}
-	if c.KafkaTopicNamespaceOverride != "" && !validNS[c.KafkaTopicNamespaceOverride] {
-		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE_OVERRIDE must be one of: %s (got: %s)",
-			c.ValidNamespaces, c.KafkaTopicNamespaceOverride)
+	if c.KafkaTopicNamespace != "" && !validNS[c.KafkaTopicNamespace] {
+		return fmt.Errorf("KAFKA_TOPIC_NAMESPACE must be one of: %s (got: %s)",
+			c.ValidNamespaces, c.KafkaTopicNamespace)
 	}
 	return nil
 }

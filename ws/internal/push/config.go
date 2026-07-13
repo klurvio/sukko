@@ -79,16 +79,21 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("message backend config: %w", err)
 	}
 
-	// Topic namespace validation (includes prod guard)
+	// Topic namespace validation (allowlist boundary)
 	if err := c.KafkaNamespaceConfig.Validate(); err != nil {
 		return fmt.Errorf("kafka namespace config: %w", err)
 	}
 
 	// Push notifications require persistent message ingestion — direct mode has no
 	// persistence, no replay, and no consumer groups, making it unsuitable for
-	// reliable push delivery.
+	// reliable push delivery. Checked before the namespace requirement so the clearer
+	// backend error surfaces first in direct mode.
 	if c.MessageBackend == platform.MessageBackendDirect {
 		return ErrPushRequiresKafka
+	}
+	// Push always runs in kafka mode, so an explicit namespace is unconditionally required.
+	if c.KafkaTopicNamespace == "" {
+		return errors.New("KAFKA_TOPIC_NAMESPACE is required")
 	}
 
 	// Database URL validation (PostgreSQL via pgxpool)
@@ -142,6 +147,9 @@ func LoadConfig(logger zerolog.Logger) (*Config, error) {
 	if err := env.Parse(cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
+
+	// Canonicalize the topic namespace before validation (trim + lowercase).
+	cfg.Normalize()
 
 	// Validation
 	if err := cfg.Validate(); err != nil {

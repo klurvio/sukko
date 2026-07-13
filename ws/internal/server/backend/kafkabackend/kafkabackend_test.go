@@ -190,6 +190,25 @@ func TestIsTopicAlreadyExistsError(t *testing.T) {
 	}
 }
 
+// TestNew_NamespacePassthrough guards FR-009: the constructor uses cfg.Namespace verbatim and does
+// NOT re-derive it from Environment (the deleted double-resolution). Namespace and Environment are set
+// to different values to prove the backend takes the passed namespace, not the environment label.
+func TestNew_NamespacePassthrough(t *testing.T) {
+	t.Parallel()
+
+	b, err := New(validRoutingDeps(Config{
+		Brokers:     []string{"localhost:19092"},
+		Namespace:   "prod",
+		Environment: "dev",
+	}))
+	if err != nil {
+		t.Fatalf("New() unexpected error: %v", err)
+	}
+	if b.namespace != "prod" {
+		t.Errorf("backend namespace = %q, want %q (verbatim cfg.Namespace, not Environment)", b.namespace, "prod")
+	}
+}
+
 // =============================================================================
 // New — SASL/TLS passthrough Tests
 // =============================================================================
@@ -198,7 +217,6 @@ func TestNew_SASLAndTLSPassthrough(t *testing.T) {
 	t.Parallel()
 
 	// An unsupported SASL mechanism must propagate as a config error, not a broker error.
-	// Environment is set to produce a valid topic namespace and reach the SASL/TLS code path.
 	// "oauthbearer" is a real SASL mechanism we deliberately do not support (supported:
 	// plain, scram-sha-256, scram-sha-512), so it must hit the unsupported-mechanism path.
 	_, err := New(validRoutingDeps(Config{
