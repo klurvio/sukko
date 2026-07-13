@@ -22,6 +22,10 @@ const (
 	ReasonTenantPrefixMismatch   = "tenant_prefix_mismatch"
 	ReasonInvalidChannelKey      = "invalid_channel_key"
 	ReasonFanoutTopicWriteFailed = "fanout_topic_write_failed"
+	// ReasonUnknownTopic marks a record whose topic is not in the registry topic→tenant map (#179 P3).
+	// Such records are dropped WITHOUT committing the offset so they redeliver once the registry catches
+	// up — they are never DLQ'd (the miss is expected to be transient).
+	ReasonUnknownTopic = "unknown_topic"
 )
 
 // Prometheus metric names for routing and DLQ operations.
@@ -29,7 +33,7 @@ const (
 	MetricDeadLetterTotal        = "ws_routing_dead_letter_total"
 	MetricFanoutWriteFailedTotal = "ws_routing_fanout_write_failed_total"
 	MetricDLQWriteFailedTotal    = "ws_routing_dlq_write_failed_total"
-	MetricMalformedTopicTotal    = "ws_routing_malformed_topic_total"
+	MetricUnknownTopicTotal      = "ws_routing_unknown_topic_total"
 	MetricFanoutDroppedTotal     = "ws_routing_fanout_dropped_total"
 	// MetricDLQDroppedTotal counts records the producer could not enqueue to the DLQ pool
 	// because its queue was full (TrySubmit returned false) — terminal loss, the DLQ write

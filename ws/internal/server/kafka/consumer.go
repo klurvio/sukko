@@ -37,9 +37,9 @@ import (
 // Registered once at package level to avoid duplicate registration panics when the
 // orchestration pool creates one Consumer per active tenant.
 var consumerRoutingMetrics = struct {
-	deadLetterCounter     *prometheus.CounterVec
-	malformedTopicCounter prometheus.Counter
-	once                  sync.Once
+	deadLetterCounter   *prometheus.CounterVec
+	unknownTopicCounter prometheus.Counter
+	once                sync.Once
 }{}
 
 // consumerDeletedMetrics holds the broker-deleted-topic counter registered once
@@ -132,8 +132,8 @@ type Consumer struct {
 	batchesSent       atomic.Uint64 // Number of batches sent
 	consumerGroup     string        // Consumer group ID for metrics labels
 
-	deadLetterCounter     *prometheus.CounterVec
-	malformedTopicCounter prometheus.Counter
+	deadLetterCounter   *prometheus.CounterVec
+	unknownTopicCounter prometheus.Counter
 
 	// Broker-deleted-topic handling
 	pauser         topicPauser  // client in production; mockPauser in tests
@@ -345,13 +345,13 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 			Name: MetricDeadLetterTotal,
 			Help: "Total records routed to the dead-letter topic",
 		}, []string{LabelTenant, LabelReason})
-		consumerRoutingMetrics.malformedTopicCounter = promauto.NewCounter(prometheus.CounterOpts{
-			Name: MetricMalformedTopicTotal,
-			Help: "Total records dropped due to malformed topic name",
+		consumerRoutingMetrics.unknownTopicCounter = promauto.NewCounter(prometheus.CounterOpts{
+			Name: MetricUnknownTopicTotal,
+			Help: "Total records dropped (without commit) because the topic is not in the registry map",
 		})
 	})
 	consumer.deadLetterCounter = consumerRoutingMetrics.deadLetterCounter
-	consumer.malformedTopicCounter = consumerRoutingMetrics.malformedTopicCounter
+	consumer.unknownTopicCounter = consumerRoutingMetrics.unknownTopicCounter
 
 	// Tests pass cfg.Registerer to bypass the package singleton; nil uses promauto.
 	if cfg.Registerer != nil {
@@ -728,16 +728,16 @@ func (c *Consumer) prepareMessage(record *kgo.Record) (*preparedMessage, bool) {
 		}
 	}
 
-	channel, reason, malformed := extractChannel(record, c.rulesProvider)
-	if malformed {
-		if c.malformedTopicCounter != nil {
-			c.malformedTopicCounter.Inc()
+	channel, reason, tenant := c.extractChannel(record)
+	if reason == ReasonUnknownTopic {
+		if c.unknownTopicCounter != nil {
+			c.unknownTopicCounter.Inc()
 		}
 		c.incrementFailed()
-		return nil, false // deliberate drop — caller must mark
+		return nil, true // registry miss — do NOT mark; redeliver once the registry catches up
 	}
 	if reason != "" {
-		c.routeToDLQ(record, reason)
+		c.routeToDLQ(record, tenant, reason)
 		c.incrementFailed()
 		return nil, false // deliberate drop — caller must mark
 	}
@@ -825,18 +825,17 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 		}
 	}
 
-	channel, reason, malformed := extractChannel(record, c.rulesProvider)
-	if malformed {
-		if c.malformedTopicCounter != nil {
-			c.malformedTopicCounter.Inc()
+	channel, reason, tenant := c.extractChannel(record)
+	if reason == ReasonUnknownTopic {
+		if c.unknownTopicCounter != nil {
+			c.unknownTopicCounter.Inc()
 		}
 		c.incrementFailed()
-		// Deliberate drop — mark so offset is not re-delivered after rebalance.
-		c.committer.MarkCommitRecords(record)
+		// Registry miss — do NOT mark; the record redelivers once the registry catches up.
 		return
 	}
 	if reason != "" {
-		c.routeToDLQ(record, reason)
+		c.routeToDLQ(record, tenant, reason)
 		c.incrementFailed()
 		// Deliberate drop — mark so offset is not re-delivered after rebalance.
 		c.committer.MarkCommitRecords(record)
@@ -855,12 +854,8 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 
 // routeToDLQ submits a record to the dead-letter queue using a non-blocking send.
 // If the DLQ is nil or the channel is full, the record is dropped and counted.
-func (c *Consumer) routeToDLQ(record *kgo.Record, reason string) {
-	topicParts := strings.SplitN(record.Topic, ".", 3)
-	tenant := ""
-	if len(topicParts) >= 2 {
-		tenant = topicParts[1]
-	}
+// tenant is resolved by the caller from the registry map (#179 P3) — no reverse-parse here.
+func (c *Consumer) routeToDLQ(record *kgo.Record, tenant, reason string) {
 
 	if c.deadLetterCounter != nil {
 		c.deadLetterCounter.WithLabelValues(tenant, reason).Inc()
@@ -893,21 +888,24 @@ func findHeader(record *kgo.Record, key string) []byte {
 	return nil
 }
 
-// extractChannel resolves the broadcast channel from a Kafka record.
-// Returns (channel, reason, malformed):
-//   - malformed=true: topic has fewer than 3 segments; drop silently, no DLQ.
-//   - reason!="": channel is invalid/missing; caller should route to DLQ.
+// extractChannel resolves the broadcast channel for a record. Returns (channel, reason, tenant):
+//   - reason=ReasonUnknownTopic: topic not in the registry map; caller drops WITHOUT commit (redeliver).
+//   - reason!="" (other): channel is invalid/missing; caller routes to DLQ (tenant supplied for the DLQ).
 //   - otherwise: channel is valid.
-func extractChannel(record *kgo.Record, rulesProvider RoutingSnapshotProvider) (channel, reason string, malformed bool) {
-	topicParts := strings.SplitN(record.Topic, ".", 3)
-	if len(topicParts) < 3 {
-		return "", "", true
+//
+// The topic's tenant is resolved from the registry map (#179 P3), never reverse-parsed.
+func (c *Consumer) extractChannel(record *kgo.Record) (channel, reason, tenant string) {
+	if c.tenantResolver == nil {
+		return "", ReasonUnknownTopic, ""
 	}
-	tenant := topicParts[1]
+	tenant, ok := c.tenantResolver(record.Topic)
+	if !ok {
+		return "", ReasonUnknownTopic, ""
+	}
 
 	var edition = license.Community
-	if rulesProvider != nil {
-		if snap, ok := rulesProvider.GetRoutingSnapshot(tenant); ok {
+	if c.rulesProvider != nil {
+		if snap, ok := c.rulesProvider.GetRoutingSnapshot(tenant); ok {
 			edition = snap.Edition
 		}
 	}
@@ -916,35 +914,32 @@ func extractChannel(record *kgo.Record, rulesProvider RoutingSnapshotProvider) (
 
 	if headerVal == nil {
 		if license.EditionHasFeature(edition, license.ChannelTopicRouting) {
-			return "", ReasonMissingChannelHeader, false
+			return "", ReasonMissingChannelHeader, tenant
 		}
-		// No channel header: derive the channel from record.Key. Same validation as the header path
-		// below — well-formed (at least two segments) AND the channel's tenant prefix MUST match the
-		// topic tenant, or a record on prod.acme.* could carry record.Key="evil.secret" and broadcast
-		// cross-tenant (§IX). Reachable in production: the consumer pool wires no rules provider, so
-		// edition defaults to Community and headerless records land here.
+		// No channel header: derive the channel from record.Key. The channel's tenant prefix MUST match
+		// the topic tenant, or a record on prod.acme.* could carry record.Key="evil.secret" and broadcast
+		// cross-tenant (§IX). (This fallback is deleted once the edition gate reads server-global state.)
 		ch := string(record.Key)
 		dot := strings.IndexByte(ch, '.')
 		if dot <= 0 {
-			return "", ReasonInvalidChannelKey, false
+			return "", ReasonInvalidChannelKey, tenant
 		}
 		if ch[:dot] != tenant {
-			return "", ReasonTenantPrefixMismatch, false
+			return "", ReasonTenantPrefixMismatch, tenant
 		}
-		return ch, "", false
+		return ch, "", tenant
 	}
 
-	// Header present: validate it's a well-formed channel (at least two segments)
-	// then check tenant prefix matches topic tenant.
+	// Header present: validate it's well-formed, then check its tenant prefix matches the topic tenant.
 	ch := string(headerVal)
 	dot := strings.IndexByte(ch, '.')
 	if dot <= 0 {
-		return "", ReasonInvalidChannelKey, false
+		return "", ReasonInvalidChannelKey, tenant
 	}
 	if ch[:dot] != tenant {
-		return "", ReasonTenantPrefixMismatch, false
+		return "", ReasonTenantPrefixMismatch, tenant
 	}
-	return ch, "", false
+	return ch, "", tenant
 }
 
 // GetMetrics returns current consumer metrics: messages processed successfully,

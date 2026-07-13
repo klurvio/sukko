@@ -633,9 +633,11 @@ func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte, t
 		p.metrics.OnMessageRouted()
 	}
 
-	tenantID, _, err := kafkashared.ExtractTenantID(topicName, p.config.Namespace)
-	if err != nil {
-		p.logger.Warn().Err(err).Str("topic", topicName).Msg("routeMessage: could not extract tenant/channel from topic name")
+	// Tenant resolved from the registry map (#179 P3) — routeMessage runs only after extractChannel
+	// accepted the record, so the topic is normally present; a miss (rare rebalance race) yields "".
+	tenantID, ok := p.resolveTenant(topicName)
+	if !ok {
+		p.logger.Warn().Str("topic", topicName).Msg("routeMessage: topic not in registry map")
 	}
 	bareChannel := strings.TrimPrefix(subject, tenantID+".")
 	pos := history.EncodePos(partition, offset)

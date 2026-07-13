@@ -142,6 +142,9 @@ func newRebalanceTestConsumer(t *testing.T, cfg ConsumerConfig) (*Consumer, *moc
 	if cfg.ResourceGuard == nil {
 		cfg.ResourceGuard = &mockResourceGuardFixed{allowKafka: true}
 	}
+	if cfg.TenantResolver == nil {
+		cfg.TenantResolver = parseResolver // tenant = 2nd topic segment (#179 P3)
+	}
 	if cfg.ConsumerType == "" {
 		cfg.ConsumerType = ConsumerTypeKindShared
 	}
@@ -454,13 +457,15 @@ func TestExplicitMark_RateLimitedMarked(t *testing.T) {
 	}
 }
 
-func TestExplicitMark_MalformedMarked(t *testing.T) {
+func TestExplicitMark_UnknownTopicNotMarked(t *testing.T) {
 	t.Parallel()
 	consumer, mock, _ := newRebalanceTestConsumer(t, ConsumerConfig{
 		ResourceGuard: &mockResourceGuardFixed{allowKafka: true},
 	})
 
-	// Malformed topic: fewer than 3 segments
+	// Unknown topic: the resolver has no tenant for it (fewer than 3 segments here).
+	// Tri-state: an unknown topic is dropped WITHOUT committing the offset so the record
+	// redelivers once the registry snapshot resolves the topic — it MUST NOT be marked.
 	record := &kgo.Record{
 		Topic: "malformed",
 		Key:   []byte("test.BTC.trade"),
@@ -468,8 +473,8 @@ func TestExplicitMark_MalformedMarked(t *testing.T) {
 	}
 	consumer.processRecord(record)
 
-	if mock.markCount() != 1 {
-		t.Errorf("malformed record: MarkCommitRecords called %d times, want 1", mock.markCount())
+	if mock.markCount() != 0 {
+		t.Errorf("unknown-topic record: MarkCommitRecords called %d times, want 0 (redeliver, do not commit)", mock.markCount())
 	}
 }
 

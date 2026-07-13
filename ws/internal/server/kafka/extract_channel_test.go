@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -17,23 +18,51 @@ import (
 // extractChannel tests
 // =============================================================================
 
-func TestExtractChannel_MalformedTopic_TwoSegments(t *testing.T) {
+// parseResolver is a test tenant resolver: tenant = the topic's second segment. Production wires the
+// registry topic→tenant map; tests parse for convenience. A topic with <3 segments is "unknown".
+func parseResolver(topic string) (string, bool) {
+	parts := strings.SplitN(topic, ".", 3)
+	if len(parts) < 3 {
+		return "", false
+	}
+	return parts[1], true
+}
+
+// newExtractConsumer builds a Consumer wired with parseResolver and the given rules provider for
+// extractChannel tests.
+func newExtractConsumer(provider RoutingSnapshotProvider) *Consumer {
+	return &Consumer{rulesProvider: provider, tenantResolver: parseResolver}
+}
+
+func TestExtractChannel_UnknownTopic_TwoSegments(t *testing.T) {
 	t.Parallel()
 
-	rec := &kgo.Record{Topic: "prod.acme"} // only 2 parts, need 3
-	_, _, malformed := extractChannel(rec, nil)
-	if !malformed {
-		t.Error("expected malformed=true for topic with <3 segments")
+	rec := &kgo.Record{Topic: "prod.acme"} // only 2 parts → not resolvable
+	_, reason, _ := newExtractConsumer(nil).extractChannel(rec)
+	if reason != ReasonUnknownTopic {
+		t.Errorf("reason = %q, want %q for a topic not in the registry", reason, ReasonUnknownTopic)
 	}
 }
 
-func TestExtractChannel_MalformedTopic_OneSegment(t *testing.T) {
+func TestExtractChannel_UnknownTopic_OneSegment(t *testing.T) {
 	t.Parallel()
 
 	rec := &kgo.Record{Topic: "prod"}
-	_, _, malformed := extractChannel(rec, nil)
-	if !malformed {
-		t.Error("expected malformed=true for topic with 1 segment")
+	_, reason, _ := newExtractConsumer(nil).extractChannel(rec)
+	if reason != ReasonUnknownTopic {
+		t.Errorf("reason = %q, want %q", reason, ReasonUnknownTopic)
+	}
+}
+
+func TestExtractChannel_NilResolver_UnknownTopic(t *testing.T) {
+	t.Parallel()
+
+	// No resolver wired → every topic is unknown (fail-closed).
+	c := &Consumer{}
+	rec := &kgo.Record{Topic: "prod.acme.orders", Key: []byte("acme.BTC.orders")}
+	_, reason, _ := c.extractChannel(rec)
+	if reason != ReasonUnknownTopic {
+		t.Errorf("reason = %q, want %q", reason, ReasonUnknownTopic)
 	}
 }
 
@@ -47,10 +76,7 @@ func TestExtractChannel_ValidHeader_TenantMatch(t *testing.T) {
 		},
 	}
 
-	channel, reason, malformed := extractChannel(rec, nil)
-	if malformed {
-		t.Error("expected malformed=false")
-	}
+	channel, reason, _ := newExtractConsumer(nil).extractChannel(rec)
 	if reason != "" {
 		t.Errorf("reason = %q, want empty", reason)
 	}
@@ -69,10 +95,7 @@ func TestExtractChannel_ValidHeader_TenantMismatch(t *testing.T) {
 		},
 	}
 
-	_, reason, malformed := extractChannel(rec, nil)
-	if malformed {
-		t.Error("expected malformed=false")
-	}
+	_, reason, _ := newExtractConsumer(nil).extractChannel(rec)
 	if reason != ReasonTenantPrefixMismatch {
 		t.Errorf("reason = %q, want %q", reason, ReasonTenantPrefixMismatch)
 	}
@@ -90,10 +113,7 @@ func TestExtractChannel_NoHeader_ProEdition_ReturnsReason(t *testing.T) {
 	}
 
 	rec := &kgo.Record{Topic: "prod.acme.orders"}
-	_, reason, malformed := extractChannel(rec, provider)
-	if malformed {
-		t.Error("expected malformed=false")
-	}
+	_, reason, _ := newExtractConsumer(provider).extractChannel(rec)
 	if reason != ReasonMissingChannelHeader {
 		t.Errorf("reason = %q, want %q", reason, ReasonMissingChannelHeader)
 	}
@@ -108,10 +128,7 @@ func TestExtractChannel_NoHeader_CommunityEdition_ValidKey(t *testing.T) {
 		Key:   []byte("acme.BTC.orders"),
 	}
 
-	channel, reason, malformed := extractChannel(rec, nil)
-	if malformed {
-		t.Error("expected malformed=false")
-	}
+	channel, reason, _ := newExtractConsumer(nil).extractChannel(rec)
 	if reason != "" {
 		t.Errorf("reason = %q, want empty", reason)
 	}
@@ -123,15 +140,8 @@ func TestExtractChannel_NoHeader_CommunityEdition_ValidKey(t *testing.T) {
 func TestExtractChannel_NoHeader_CommunityEdition_InvalidKey_NoDot(t *testing.T) {
 	t.Parallel()
 
-	rec := &kgo.Record{
-		Topic: "prod.acme.orders",
-		Key:   []byte("nodot"),
-	}
-
-	_, reason, malformed := extractChannel(rec, nil)
-	if malformed {
-		t.Error("expected malformed=false")
-	}
+	rec := &kgo.Record{Topic: "prod.acme.orders", Key: []byte("nodot")}
+	_, reason, _ := newExtractConsumer(nil).extractChannel(rec)
 	if reason != ReasonInvalidChannelKey {
 		t.Errorf("reason = %q, want %q", reason, ReasonInvalidChannelKey)
 	}
@@ -140,15 +150,8 @@ func TestExtractChannel_NoHeader_CommunityEdition_InvalidKey_NoDot(t *testing.T)
 func TestExtractChannel_NoHeader_CommunityEdition_EmptyKey(t *testing.T) {
 	t.Parallel()
 
-	rec := &kgo.Record{
-		Topic: "prod.acme.orders",
-		Key:   nil,
-	}
-
-	_, reason, malformed := extractChannel(rec, nil)
-	if malformed {
-		t.Error("expected malformed=false")
-	}
+	rec := &kgo.Record{Topic: "prod.acme.orders", Key: nil}
+	_, reason, _ := newExtractConsumer(nil).extractChannel(rec)
 	if reason != ReasonInvalidChannelKey {
 		t.Errorf("reason = %q, want %q", reason, ReasonInvalidChannelKey)
 	}
@@ -157,7 +160,6 @@ func TestExtractChannel_NoHeader_CommunityEdition_EmptyKey(t *testing.T) {
 func TestExtractChannel_NoHeader_CommunityEditionProvider_ValidKey(t *testing.T) {
 	t.Parallel()
 
-	// Provider present but edition is Community — should fall back to key-based routing.
 	provider := &stubRulesProvider{
 		ok: true,
 		snap: provapi.TenantRoutingSnapshot{
@@ -166,15 +168,8 @@ func TestExtractChannel_NoHeader_CommunityEditionProvider_ValidKey(t *testing.T)
 		},
 	}
 
-	rec := &kgo.Record{
-		Topic: "prod.acme.trades",
-		Key:   []byte("acme.BTC.trade"),
-	}
-
-	channel, reason, malformed := extractChannel(rec, provider)
-	if malformed {
-		t.Error("expected malformed=false")
-	}
+	rec := &kgo.Record{Topic: "prod.acme.trades", Key: []byte("acme.BTC.trade")}
+	channel, reason, _ := newExtractConsumer(provider).extractChannel(rec)
 	if reason != "" {
 		t.Errorf("reason = %q, want empty", reason)
 	}
@@ -183,19 +178,13 @@ func TestExtractChannel_NoHeader_CommunityEditionProvider_ValidKey(t *testing.T)
 	}
 }
 
-// §IX (Commit 1): the Community record.Key fallback MUST reject a channel whose tenant prefix does not
-// match the topic tenant — parity with the header path (TestExtractChannel_ValidHeader_TenantMismatch).
-// Reachable in production: nil rules provider ⇒ edition defaults to Community ⇒ headerless records land
-// on this fallback. Failing-before/passing-after this commit.
-
+// §IX: the Community record.Key fallback MUST reject a channel whose tenant prefix does not match the
+// topic tenant — parity with the header path.
 func TestExtractChannel_NoHeader_CommunityEdition_CrossTenantKey_Rejected(t *testing.T) {
 	t.Parallel()
 
-	rec := &kgo.Record{Topic: "prod.acme.trade", Key: []byte("evil.secret")} // wrong tenant prefix
-	channel, reason, malformed := extractChannel(rec, nil)                   // nil provider = production path
-	if malformed {
-		t.Error("expected malformed=false")
-	}
+	rec := &kgo.Record{Topic: "prod.acme.trade", Key: []byte("evil.secret")}
+	channel, reason, _ := newExtractConsumer(nil).extractChannel(rec)
 	if reason != ReasonTenantPrefixMismatch {
 		t.Errorf("reason = %q, want %q (cross-tenant Key must be rejected)", reason, ReasonTenantPrefixMismatch)
 	}
@@ -209,15 +198,9 @@ func TestExtractChannel_NoHeader_CommunityProvider_SnapshotAbsent_CrossTenantKey
 
 	provider := &stubRulesProvider{ok: false} // no snapshot ⇒ edition stays Community default
 	rec := &kgo.Record{Topic: "prod.acme.trade", Key: []byte("globex.trade")}
-	channel, reason, malformed := extractChannel(rec, provider)
-	if malformed {
-		t.Error("expected malformed=false")
-	}
+	_, reason, _ := newExtractConsumer(provider).extractChannel(rec)
 	if reason != ReasonTenantPrefixMismatch {
 		t.Errorf("reason = %q, want %q", reason, ReasonTenantPrefixMismatch)
-	}
-	if channel != "" {
-		t.Errorf("channel = %q, want empty", channel)
 	}
 }
 
@@ -225,7 +208,7 @@ func TestExtractChannel_NoHeader_CommunityEdition_LeadingDotKey_Rejected(t *test
 	t.Parallel()
 
 	rec := &kgo.Record{Topic: "prod.acme.trade", Key: []byte(".trade")} // empty tenant prefix
-	_, reason, _ := extractChannel(rec, nil)
+	_, reason, _ := newExtractConsumer(nil).extractChannel(rec)
 	if reason != ReasonInvalidChannelKey {
 		t.Errorf("reason = %q, want %q", reason, ReasonInvalidChannelKey)
 	}
@@ -235,11 +218,8 @@ func TestFindHeader_ReturnsNilWhenAbsent(t *testing.T) {
 	t.Parallel()
 
 	rec := &kgo.Record{
-		Headers: []kgo.RecordHeader{
-			{Key: "other-key", Value: []byte("v")},
-		},
+		Headers: []kgo.RecordHeader{{Key: "other-key", Value: []byte("v")}},
 	}
-
 	val := findHeader(rec, kafkashared.HeaderChannel)
 	if val != nil {
 		t.Errorf("findHeader = %q, want nil", val)
@@ -255,7 +235,6 @@ func TestFindHeader_ReturnsFirstMatch(t *testing.T) {
 			{Key: kafkashared.HeaderChannel, Value: []byte("second")},
 		},
 	}
-
 	val := findHeader(rec, kafkashared.HeaderChannel)
 	if string(val) != "first" {
 		t.Errorf("findHeader = %q, want %q", val, "first")
@@ -263,44 +242,15 @@ func TestFindHeader_ReturnsFirstMatch(t *testing.T) {
 }
 
 // =============================================================================
-// routeToDLQ tests
+// routeToDLQ tests — tenant is now passed by the caller (registry-resolved), not reverse-parsed.
 // =============================================================================
 
 func TestRouteToDLQ_NilDLQ_DoesNotPanic(t *testing.T) {
 	t.Parallel()
 
 	c := &Consumer{namespace: "prod", dlq: nil}
-	rec := &kgo.Record{
-		Topic: "prod.acme.orders",
-		Value: []byte("payload"),
-	}
-	c.routeToDLQ(rec, ReasonMissingChannelHeader)
-}
-
-func TestRouteToDLQ_MalformedTopic_EmptyTenant(t *testing.T) {
-	t.Parallel()
-
-	pool := &DLQPool{
-		jobs:   make(chan dlqJob, 4),
-		cfg:    DLQConfig{Workers: 0},
-		logger: zerolog.Nop(),
-	}
-	c := &Consumer{namespace: "prod", dlq: pool}
-	// Topic has only 1 segment — tenant extraction must yield "".
-	rec := &kgo.Record{
-		Topic: "prod",
-		Value: []byte("payload"),
-	}
-	c.routeToDLQ(rec, ReasonMissingChannelHeader)
-
-	select {
-	case job := <-pool.jobs:
-		if job.tenant != "" {
-			t.Errorf("tenant = %q, want empty for single-segment topic", job.tenant)
-		}
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("expected DLQ job to be submitted")
-	}
+	rec := &kgo.Record{Topic: "prod.acme.orders", Value: []byte("payload")}
+	c.routeToDLQ(rec, "acme", ReasonMissingChannelHeader)
 }
 
 func TestRouteToDLQ_ValidTopic_SubmitsJobWithReasonHeader(t *testing.T) {
@@ -318,7 +268,7 @@ func TestRouteToDLQ_ValidTopic_SubmitsJobWithReasonHeader(t *testing.T) {
 		Value:   []byte("payload"),
 		Headers: []kgo.RecordHeader{{Key: "existing", Value: []byte("val")}},
 	}
-	c.routeToDLQ(rec, ReasonMissingChannelHeader)
+	c.routeToDLQ(rec, "acme", ReasonMissingChannelHeader)
 
 	select {
 	case job := <-pool.jobs:
@@ -352,10 +302,6 @@ func TestRouteToDLQ_QueueFull_DropsJobSilently(t *testing.T) {
 		logger: zerolog.Nop(),
 	}
 	c := &Consumer{namespace: "prod", dlq: pool}
-	rec := &kgo.Record{
-		Topic: "prod.acme.orders",
-		Value: []byte("payload"),
-	}
-	// Must not block or panic.
-	c.routeToDLQ(rec, ReasonNoRoutingRuleMatched)
+	rec := &kgo.Record{Topic: "prod.acme.orders", Value: []byte("payload")}
+	c.routeToDLQ(rec, "acme", ReasonNoRoutingRuleMatched) // must not block or panic
 }

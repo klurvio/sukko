@@ -418,10 +418,11 @@ func TestConsumer_PrepareMessage_IncludesTopic(t *testing.T) {
 	guard := newMockResourceGuard()
 
 	consumer := &Consumer{
-		logger:        &logger,
-		resourceGuard: guard,
-		ctx:           context.Background(),
-		consumerGroup: "sukko-shared-dev",
+		logger:         &logger,
+		resourceGuard:  guard,
+		ctx:            context.Background(),
+		consumerGroup:  "sukko-shared-dev",
+		tenantResolver: parseResolver,
 	}
 
 	record := &kgo.Record{
