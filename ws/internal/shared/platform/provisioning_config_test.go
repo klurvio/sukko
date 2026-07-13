@@ -43,8 +43,8 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 			DatabaseURL: "postgres://test:test@localhost:5432/test",
 		},
 		KafkaNamespaceConfig: KafkaNamespaceConfig{
-			ValidNamespaces:             "local,dev,stag,prod",
-			KafkaTopicNamespaceOverride: "",
+			ValidNamespaces:     "local,dev,stag,prod",
+			KafkaTopicNamespace: "local",
 		},
 		HTTPTimeoutConfig: HTTPTimeoutConfig{
 			HTTPReadTimeout:  15 * time.Second,
@@ -231,29 +231,29 @@ func TestProvisioningConfig_Validate_MaxRoutingRules(t *testing.T) {
 	}
 }
 
-func TestProvisioningConfig_Validate_NamespaceOverride(t *testing.T) {
+func TestProvisioningConfig_Validate_NamespaceRequired(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name        string
-		override    string
+		namespace   string
 		shouldError bool
 	}{
-		{"valid override in any env", "dev", false},
-		{"no override", "", false},
-		{"override not in valid set", "staging", true},
+		{"valid namespace", "dev", false},
+		{"empty is required (provisioning always builds topic names)", "", true},
+		{"not in valid set", "staging", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidProvisioningConfig()
-			cfg.KafkaTopicNamespaceOverride = tt.override
+			cfg.KafkaTopicNamespace = tt.namespace
 			err := cfg.Validate()
 			if tt.shouldError {
 				if err == nil {
-					t.Error("Should error on invalid override")
-				} else if !strings.Contains(err.Error(), "KAFKA_TOPIC_NAMESPACE_OVERRIDE") {
-					t.Errorf("Error should mention KAFKA_TOPIC_NAMESPACE_OVERRIDE: %v", err)
+					t.Error("Should error on missing/invalid namespace")
+				} else if !strings.Contains(err.Error(), "KAFKA_TOPIC_NAMESPACE") {
+					t.Errorf("Error should mention KAFKA_TOPIC_NAMESPACE: %v", err)
 				}
 			} else {
 				if err != nil {

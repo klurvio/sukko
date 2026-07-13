@@ -41,6 +41,9 @@ ws-gateway:
 ws-server:
   replicaCount: 1
   environment: demo
+  # "demo" is not in the Go default VALID_NAMESPACES, so extend the allowlist alongside the namespace.
+  topicNamespace: demo
+  validNamespaces: "local,dev,stag,prod,demo"
   messageBackend: kafka
   image:
     tag: latest
@@ -61,6 +64,8 @@ ws-server:
 provisioning:
   replicaCount: 1
   environment: demo
+  topicNamespace: demo
+  validNamespaces: "local,dev,stag,prod,demo"
   image:
     tag: latest
     pullPolicy: Always
@@ -83,6 +88,8 @@ push-service:
   enabled: true
   replicaCount: 1
   environment: demo
+  topicNamespace: demo
+  validNamespaces: "local,dev,stag,prod,demo"
   messageBackend: kafka
   dryRun: "true"
   image:

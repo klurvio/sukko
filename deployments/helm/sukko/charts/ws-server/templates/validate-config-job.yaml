@@ -43,6 +43,14 @@ spec:
           env:
             - name: ENVIRONMENT
               value: {{ .Values.environment | default "local" | quote }}
+            {{- if .Values.topicNamespace }}
+            - name: KAFKA_TOPIC_NAMESPACE
+              value: {{ .Values.topicNamespace | quote }}
+            {{- end }}
+            {{- if .Values.validNamespaces }}
+            - name: VALID_NAMESPACES
+              value: {{ .Values.validNamespaces | quote }}
+            {{- end }}
             {{- if and .Values.messageBackend (ne .Values.messageBackend "direct") }}
             - name: MESSAGE_BACKEND
               value: {{ .Values.messageBackend | quote }}

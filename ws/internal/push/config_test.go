@@ -31,7 +31,8 @@ func validConfig() Config {
 			},
 		},
 		KafkaNamespaceConfig: platform.KafkaNamespaceConfig{
-			ValidNamespaces: "local,dev,stag,prod",
+			ValidNamespaces:     "local,dev,stag,prod",
+			KafkaTopicNamespace: "local",
 		},
 		DatabaseConfig: platform.DatabaseConfig{
 			DatabaseURL: "postgres://localhost:5432/push",
@@ -65,6 +66,13 @@ func TestConfigValidate(t *testing.T) {
 				c.MessageBackend = "direct"
 			},
 			wantErr: "push notifications require MESSAGE_BACKEND=kafka",
+		},
+		{
+			name: "empty topic namespace rejected (push always requires it)",
+			modify: func(c *Config) {
+				c.KafkaTopicNamespace = ""
+			},
+			wantErr: "KAFKA_TOPIC_NAMESPACE is required",
 		},
 		{
 			name: "empty database URL",
@@ -162,6 +170,7 @@ func TestLoadConfig_CommunityStart(t *testing.T) {
 	t.Setenv("PROVISIONING_GRPC_ADDR", "localhost:9090")
 	t.Setenv("MESSAGE_BACKEND", "kafka")
 	t.Setenv("KAFKA_BROKERS", "localhost:19092")
+	t.Setenv("KAFKA_TOPIC_NAMESPACE", "local")
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/push")
 	t.Setenv("SUKKO_LICENSE_KEY", "") // explicitly empty — no key
 
@@ -180,6 +189,7 @@ func enterpriseGateEnvVars(t *testing.T) {
 	t.Setenv("PROVISIONING_GRPC_ADDR", "localhost:9090")
 	t.Setenv("MESSAGE_BACKEND", "kafka")
 	t.Setenv("KAFKA_BROKERS", "localhost:19092")
+	t.Setenv("KAFKA_TOPIC_NAMESPACE", "local")
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/push")
 }
 

@@ -20,7 +20,8 @@ func newValidServerConfig() *ServerConfig {
 			Environment: "local",
 		},
 		KafkaNamespaceConfig: KafkaNamespaceConfig{
-			ValidNamespaces: "local,dev,stag,prod",
+			ValidNamespaces:     "local,dev,stag,prod",
+			KafkaTopicNamespace: "local",
 		},
 		Addr:                     ":3002",
 		NumShards:                1,
@@ -1254,40 +1255,36 @@ func TestServerConfig_Validate_MetricsInterval(t *testing.T) {
 	}
 }
 
-func TestServerConfig_Validate_NamespaceOverride(t *testing.T) {
+func TestServerConfig_Validate_NamespaceRequired(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name        string
-		environment string
-		override    string
+		backend     string
+		namespace   string
 		shouldError bool
 	}{
-		{"valid override in any env", "prod", "dev", false},
-		{"no override", "prod", "", false},
-		{"override in valid set", "dev", "prod", false},
-		{"no override in dev", "dev", "", false},
-		{"override in valid set any case env", "PROD", "dev", false},
-		{"override in valid set whitespace env", " prod ", "dev", false},
-		{"override not in valid set", "dev", "staging", true},
+		{"kafka mode + valid namespace", MessageBackendKafka, "dev", false},
+		{"kafka mode + empty is required", MessageBackendKafka, "", true},
+		{"kafka mode + not in valid set", MessageBackendKafka, "staging", true},
+		{"direct mode + empty passes (not required, SC-006)", MessageBackendDirect, "", false},
+		{"direct mode + valid namespace also fine", MessageBackendDirect, "dev", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := newValidServerConfig()
-			cfg.Environment = tt.environment
-			cfg.KafkaTopicNamespaceOverride = tt.override
+			cfg.MessageBackend = tt.backend
+			cfg.KafkaTopicNamespace = tt.namespace
 			err := cfg.Validate()
 			if tt.shouldError {
 				if err == nil {
-					t.Error("Should error on invalid namespace override")
-				} else if !strings.Contains(err.Error(), "KAFKA_TOPIC_NAMESPACE_OVERRIDE") {
-					t.Errorf("Error should mention KAFKA_TOPIC_NAMESPACE_OVERRIDE: %v", err)
+					t.Error("Should error on missing/invalid namespace")
+				} else if !strings.Contains(err.Error(), "KAFKA_TOPIC_NAMESPACE") {
+					t.Errorf("Error should mention KAFKA_TOPIC_NAMESPACE: %v", err)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("Should not error: %v", err)
-				}
+			} else if err != nil {
+				t.Errorf("Should not error: %v", err)
 			}
 		})
 	}

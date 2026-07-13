@@ -95,6 +95,29 @@ func TestTesterConfig_Validate(t *testing.T) {
 			},
 		},
 		{
+			name: "brokers set + namespace missing rejected",
+			modify: func(c *TesterConfig) {
+				c.KafkaBrokers = "localhost:19092"
+				c.KafkaTopicNamespace = ""
+			},
+			wantErr: "KAFKA_TOPIC_NAMESPACE is required",
+		},
+		{
+			name: "brokers set + valid namespace ok",
+			modify: func(c *TesterConfig) {
+				c.KafkaBrokers = "localhost:19092"
+				c.KafkaTopicNamespace = "dev"
+			},
+		},
+		{
+			name: "brokers set + namespace not in valid set",
+			modify: func(c *TesterConfig) {
+				c.KafkaBrokers = "localhost:19092"
+				c.KafkaTopicNamespace = "staging"
+			},
+			wantErr: "KAFKA_TOPIC_NAMESPACE",
+		},
+		{
 			name:    "JWT lifetime zero",
 			modify:  func(c *TesterConfig) { c.JWTLifetime = 0 },
 			wantErr: "TESTER_JWT_LIFETIME must be positive",

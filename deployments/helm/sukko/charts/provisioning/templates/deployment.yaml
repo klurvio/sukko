@@ -93,6 +93,15 @@ spec:
             - name: ENVIRONMENT
               value: {{ .Values.environment | quote }}
             {{- end }}
+            # Explicit Kafka topic namespace — provisioning always builds topic-name strings; required, no default.
+            {{- if .Values.topicNamespace }}
+            - name: KAFKA_TOPIC_NAMESPACE
+              value: {{ .Values.topicNamespace | quote }}
+            {{- end }}
+            {{- if .Values.validNamespaces }}
+            - name: VALID_NAMESPACES
+              value: {{ .Values.validNamespaces | quote }}
+            {{- end }}
 
             # License key (Pro/Enterprise editions)
             {{- with ((.Values.global).license) }}

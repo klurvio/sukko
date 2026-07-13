@@ -50,6 +50,15 @@ func validateKafkaIngest(ctx context.Context, run *TestRun, logger zerolog.Logge
 			Error:  "KAFKA_BROKERS not set — configure the tester's Kafka connection to run this suite",
 		}}, nil
 	}
+	// Brokers are set but no namespace resolved — fail clearly instead of publishing to prefixless
+	// topics the server never consumes (which would surface as a confusing delivery timeout).
+	if run.kafkaNamespace == "" {
+		return []metrics.CheckResult{{
+			Name:   "kafka-ingest",
+			Status: metrics.CheckStatusFail,
+			Error:  "KAFKA_TOPIC_NAMESPACE is required when Kafka brokers are set — it must match the server-under-test",
+		}}, nil
+	}
 
 	provClient := run.authResult.ProvClient
 	tenantID := run.authResult.TenantID

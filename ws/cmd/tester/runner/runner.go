@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,6 +59,15 @@ func tenantChannel(tenantID, suffix string) string {
 // defaultRampRate is the fallback connections-per-second rate when not configured.
 const defaultRampRate = 50
 
+// resolveRunNamespace picks the per-run Kafka topic namespace: an explicit per-request value
+// overrides the tester's own KAFKA_TOPIC_NAMESPACE, then the result is normalized (trim+lowercase)
+// because the per-request value bypasses config load. It MUST match the server-under-test.
+func resolveRunNamespace(perRequest, testerDefault string) string {
+	// Trim BEFORE cmp.Or so a whitespace-only per-request value counts as absent and does not
+	// wipe a valid tester default.
+	return strings.ToLower(cmp.Or(strings.TrimSpace(perRequest), strings.TrimSpace(testerDefault)))
+}
+
 // TestContext holds deployment context passed from the CLI.
 // When present, all core fields are required (all-or-nothing).
 type TestContext struct {
@@ -75,6 +85,7 @@ type TestConfig struct {
 	AuthMode               AuthMode      `json:"auth_mode,omitempty"`
 	AuthMixRatio           float64       `json:"auth_mix_ratio,omitzero"`
 	KafkaBrokers           string        `json:"kafka_brokers,omitempty"`
+	KafkaTopicNamespace    string        `json:"kafka_topic_namespace,omitempty"` // per-run override of the tester's KAFKA_TOPIC_NAMESPACE; MUST match the server-under-test
 	Connections            int           `json:"connections,omitzero"`
 	Duration               string        `json:"duration,omitempty"`
 	PublishRate            int           `json:"publish_rate,omitzero"`
@@ -159,21 +170,21 @@ type Runner struct {
 
 // Config holds default settings applied to all test runs.
 type Config struct {
-	GatewayURL                  string
-	ProvisioningURL             string
-	Environment                 string                  // resolved topic namespace derivation (kafka-ingest); MUST match the server-under-test
-	KafkaTopicNamespaceOverride string                  // overrides ENVIRONMENT for Kafka topic namespace (kafka-ingest); MUST match the server-under-test
-	KafkaBrokers                string                  // empty ⇒ kafka-ingest suite skips
-	PushReceiverHost            string                  // empty ⇒ push delivery check skips
-	PushReceiverPort            int                     // mock WebPush receiver listen port
-	KafkaSASL                   *kafkashared.SASLConfig // nil = no SASL auth (read by the kafka-ingest suite)
-	KafkaTLS                    *kafkashared.TLSConfig  // nil = plaintext (read by the kafka-ingest suite)
-	JWTLifetime                 time.Duration
-	JWTRefreshBefore            time.Duration
-	KeyExpiry                   time.Duration
-	SigningKeyFile              string // Ed25519 private key file for license-reload suite signing
-	AdminKeyFile                string // path to raw Ed25519 private key file (remote mode; empty = local dev mode)
-	AdminKeyID                  string // kid embedded in admin JWTs; defaults to BootstrapAdminKeyID
+	GatewayURL          string
+	ProvisioningURL     string
+	Environment         string                  // deployment environment label; part of the API context contract, no longer used for topic naming (namespace is explicit — see KafkaTopicNamespace)
+	KafkaTopicNamespace string                  // explicit Kafka topic namespace (kafka-ingest); MUST match the server-under-test
+	KafkaBrokers        string                  // empty ⇒ kafka-ingest suite skips
+	PushReceiverHost    string                  // empty ⇒ push delivery check skips
+	PushReceiverPort    int                     // mock WebPush receiver listen port
+	KafkaSASL           *kafkashared.SASLConfig // nil = no SASL auth (read by the kafka-ingest suite)
+	KafkaTLS            *kafkashared.TLSConfig  // nil = plaintext (read by the kafka-ingest suite)
+	JWTLifetime         time.Duration
+	JWTRefreshBefore    time.Duration
+	KeyExpiry           time.Duration
+	SigningKeyFile      string // Ed25519 private key file for license-reload suite signing
+	AdminKeyFile        string // path to raw Ed25519 private key file (remote mode; empty = local dev mode)
+	AdminKeyID          string // kid embedded in admin JWTs; defaults to BootstrapAdminKeyID
 	// Auth mode fields (TESTER_AUTH_MODE and related)
 	AuthMode           AuthMode
 	APIKey             string // TESTER_API_KEY; stored here only, never in TestConfig (§IX)
@@ -430,18 +441,14 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	run.webhookStore = r.webhookStore
 
 	// kafka-ingest suite fields. Brokers: per-request override else runner config.
-	// Namespace: derived from the override + environment, MUST match the server-under-test.
-	// Guard the nil *TestContext (nil on context-less runs — cmp.Or would nil-deref).
+	// Namespace: an explicit per-request value overrides the tester's own KAFKA_TOPIC_NAMESPACE.
+	// Normalized here because the per-request value bypasses config load; MUST match the server-under-test.
 	run.kafkaSASL = r.cfg.KafkaSASL
 	run.kafkaTLS = r.cfg.KafkaTLS
 	run.kafkaBrokers = cmp.Or(run.Config.KafkaBrokers, r.cfg.KafkaBrokers)
 	run.pushReceiverHost = r.cfg.PushReceiverHost
 	run.pushReceiverPort = r.cfg.PushReceiverPort
-	nsEnv := r.cfg.Environment
-	if run.Config.Context != nil && run.Config.Context.Environment != "" {
-		nsEnv = run.Config.Context.Environment
-	}
-	run.kafkaNamespace = kafkashared.ResolveNamespace(r.cfg.KafkaTopicNamespaceOverride, nsEnv)
+	run.kafkaNamespace = resolveRunNamespace(run.Config.KafkaTopicNamespace, r.cfg.KafkaTopicNamespace)
 
 	// Resolve effective API key: per-request key overrides runner-level config key.
 	effectiveAPIKey := r.cfg.APIKey

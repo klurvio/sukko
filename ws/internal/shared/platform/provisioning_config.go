@@ -193,6 +193,10 @@ func LoadProvisioningConfig(logger zerolog.Logger) (*ProvisioningConfig, error) 
 	}
 	cfg.editionManager = mgr
 
+	// Canonicalize the topic namespace (trim + lowercase) before Validate() so the allowlist
+	// check and BuildTopicName reads agree.
+	cfg.Normalize()
+
 	// Validation (now edition-aware)
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
@@ -298,9 +302,14 @@ func (c *ProvisioningConfig) Validate() error {
 		return err
 	}
 
-	// Topic namespace validation
+	// Topic namespace validation (allowlist boundary)
 	if err := c.KafkaNamespaceConfig.Validate(); err != nil {
 		return err
+	}
+	// Provisioning always builds namespaced topic-name strings (BuildTopicName) for API/ACL output,
+	// so the namespace is unconditionally required — there is no direct mode here.
+	if c.KafkaTopicNamespace == "" {
+		return errors.New("KAFKA_TOPIC_NAMESPACE is required")
 	}
 
 	// Validate CORS settings
@@ -455,8 +464,8 @@ func (c *ProvisioningConfig) Print() {
 	_, _ = fmt.Fprintln(w, "\n=== Database ===")
 	_, _ = fmt.Fprintf(w, "Database URL:       %s\n", maskDatabaseURL(c.DatabaseURL))
 	_, _ = fmt.Fprintln(w, "\n=== Topic Defaults ===")
-	if c.KafkaTopicNamespaceOverride != "" {
-		_, _ = fmt.Fprintf(w, "Namespace Override: %s\n", c.KafkaTopicNamespaceOverride)
+	if c.KafkaTopicNamespace != "" {
+		_, _ = fmt.Fprintf(w, "Topic Namespace:    %s\n", c.KafkaTopicNamespace)
 	}
 	_, _ = fmt.Fprintf(w, "Partitions:         %d\n", c.DefaultPartitions)
 	_, _ = fmt.Fprintf(w, "Retention:          %d ms (%d days)\n", c.DefaultRetentionMs, c.DefaultRetentionMs/86400000)
@@ -500,7 +509,7 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Str("environment", c.Environment).
 		Str("addr", c.Addr).
 		Int("grpc_port", c.GRPCPort).
-		Str("topic_namespace_override", c.KafkaTopicNamespaceOverride).
+		Str("kafka_topic_namespace", c.KafkaTopicNamespace).
 		Int("default_partitions", c.DefaultPartitions).
 		Int64("default_retention_ms", c.DefaultRetentionMs).
 		Int("max_routing_rules_per_tenant", c.MaxRoutingRulesPerTenant).

@@ -248,13 +248,13 @@ func TestKafkaNamespaceConfig_Validate(t *testing.T) {
 		errorContains string
 	}{
 		{
-			name:    "valid defaults",
+			name:    "empty namespace passes allowlist (non-empty enforced per service)",
 			config:  KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod"},
 			wantErr: false,
 		},
 		{
-			name:    "valid with override",
-			config:  KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod", KafkaTopicNamespaceOverride: "dev"},
+			name:    "valid namespace in allowlist",
+			config:  KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod", KafkaTopicNamespace: "dev"},
 			wantErr: false,
 		},
 		{
@@ -264,15 +264,10 @@ func TestKafkaNamespaceConfig_Validate(t *testing.T) {
 			errorContains: "VALID_NAMESPACES",
 		},
 		{
-			name:          "override not in valid set",
-			config:        KafkaNamespaceConfig{ValidNamespaces: "local,dev", KafkaTopicNamespaceOverride: "prod"},
+			name:          "namespace not in valid set",
+			config:        KafkaNamespaceConfig{ValidNamespaces: "local,dev", KafkaTopicNamespace: "prod"},
 			wantErr:       true,
-			errorContains: "KAFKA_TOPIC_NAMESPACE_OVERRIDE",
-		},
-		{
-			name:    "override in valid set — any env allowed",
-			config:  KafkaNamespaceConfig{ValidNamespaces: "local,dev,stag,prod", KafkaTopicNamespaceOverride: "dev"},
-			wantErr: false,
+			errorContains: "KAFKA_TOPIC_NAMESPACE",
 		},
 	}
 
@@ -285,6 +280,33 @@ func TestKafkaNamespaceConfig_Validate(t *testing.T) {
 			}
 			if tt.wantErr && tt.errorContains != "" && err != nil && !strings.Contains(err.Error(), tt.errorContains) {
 				t.Errorf("error should contain %q, got: %v", tt.errorContains, err)
+			}
+		})
+	}
+}
+
+// TestKafkaNamespaceConfig_Normalize covers the trim+lowercase canonicalization that replaces
+// the deleted kafka.ResolveNamespace normalizer (migrated cases).
+func TestKafkaNamespaceConfig_Normalize(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"already canonical", "prod", "prod"},
+		{"uppercase", "PROD", "prod"},
+		{"whitespace", "  dev  ", "dev"},
+		{"mixed", " StaG ", "stag"},
+		{"empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c := KafkaNamespaceConfig{KafkaTopicNamespace: tt.input}
+			c.Normalize()
+			if c.KafkaTopicNamespace != tt.want {
+				t.Errorf("Normalize(%q) = %q, want %q", tt.input, c.KafkaTopicNamespace, tt.want)
 			}
 		})
 	}

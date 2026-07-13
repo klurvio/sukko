@@ -184,11 +184,9 @@ func New(cfg Config) (*KafkaBackend, error) {
 
 	logger := cfg.Logger.With().Str("component", "kafka-backend").Logger()
 
-	// Resolve topic namespace
-	topicNamespace := kafkashared.ResolveNamespace("", cfg.Environment)
-	if cfg.Namespace != "" {
-		topicNamespace = kafkashared.ResolveNamespace(cfg.Namespace, cfg.Environment)
-	}
+	// Topic namespace is resolved + normalized upstream (server config) and passed in verbatim.
+	// The constructor never re-derives it from Environment (§I/§XV).
+	topicNamespace := cfg.Namespace
 
 	// Build SASL config if enabled
 	var saslConfig *kafkashared.SASLConfig

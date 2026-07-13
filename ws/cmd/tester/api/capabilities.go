@@ -59,6 +59,7 @@ func (h *handlers) getCapabilities(w http.ResponseWriter, _ *http.Request) {
 			{Name: "admin_token", Type: "string", Required: true, Description: "Admin authentication token for provisioning API"},
 			{Name: "environment", Type: "string", Required: false, Description: "Deployment environment name (e.g., demo, dev, prod)"},
 			{Name: "kafka_brokers", Type: "string", Required: false, Description: "Per-run override of the tester's KAFKA_BROKERS for the kafka-ingest suite (comma-separated)"},
+			{Name: "kafka_topic_namespace", Type: "string", Required: false, Description: "Per-run override of the tester's KAFKA_TOPIC_NAMESPACE; MUST match the server-under-test"},
 		},
 	}
 

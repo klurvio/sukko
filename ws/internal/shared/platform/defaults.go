@@ -12,7 +12,7 @@ package platform
 //   - LogLevel, LogFormat, Environment — via BaseConfig embedding
 //   - AuthEnabled — via AuthConfig embedding (gateway + provisioning)
 //   - ProvisioningGRPCAddr, GRPCReconnectDelay, GRPCReconnectMaxDelay — via ProvisioningClientConfig embedding (gateway + server)
-//   - KafkaTopicNamespaceOverride, ValidNamespaces — via KafkaNamespaceConfig embedding (server + provisioning)
+//   - ValidNamespaces — via KafkaNamespaceConfig embedding (server + provisioning + push + tester)
 //   - HTTPReadTimeout, HTTPWriteTimeout, HTTPIdleTimeout — via HTTPTimeoutConfig embedding (server + provisioning)
 //
 // Helm overrides are unaffected — services read env vars via caarlos0/env struct tags

@@ -81,6 +81,15 @@ spec:
             - name: ENVIRONMENT
               value: {{ .Values.environment | quote }}
             {{- end }}
+            # Explicit Kafka topic namespace — push always runs in kafka mode; required at DEPLOY time.
+            # Unlike ws-server/provisioning, push has no validate-config-job hook, so `required` aborts
+            # the release here rather than letting the pod CrashLoop at runtime (§XVIII fail-fast parity).
+            - name: KAFKA_TOPIC_NAMESPACE
+              value: {{ required "topicNamespace is required for push-service (always runs in kafka mode)" .Values.topicNamespace | quote }}
+            {{- if .Values.validNamespaces }}
+            - name: VALID_NAMESPACES
+              value: {{ .Values.validNamespaces | quote }}
+            {{- end }}
 
             # Auto-wired service addresses (Kubernetes service discovery)
             - name: PROVISIONING_GRPC_ADDR

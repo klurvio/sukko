@@ -21,7 +21,7 @@ const (
 type TesterConfig struct {
 	platform.BaseConfig
 	platform.KafkaConnectionConfig        // Kafka brokers + SASL/TLS for the kafka-ingest suite's direct-to-Kafka publisher (no MESSAGE_BACKEND — the tester has no backend selector).
-	platform.KafkaNamespaceConfig         // Topic namespace resolution, MUST match the server-under-test (shared ENVIRONMENT / KAFKA_TOPIC_NAMESPACE_OVERRIDE).
+	platform.KafkaNamespaceConfig         // Explicit KAFKA_TOPIC_NAMESPACE, MUST match the server-under-test.
 	Port                           int    `env:"TESTER_PORT" envDefault:"8090"`                       // HTTP port the tester service listens on for test run management and SSE metric streaming.
 	AuthToken                      string `env:"TESTER_AUTH_TOKEN"`                                   // Bearer token required for all tester management API endpoints. Must be set explicitly — the tester rejects requests when unset.
 	GatewayURL                     string `env:"GATEWAY_URL" envDefault:"ws://localhost:3000"`        // WebSocket URL of the gateway that test connections will target.
@@ -82,6 +82,11 @@ func (c *TesterConfig) Validate() error {
 	}
 	if err := c.KafkaNamespaceConfig.Validate(); err != nil {
 		return err //nolint:wrapcheck // pass-through: KafkaNamespaceConfig.Validate() returns env-var-named errors with full context
+	}
+	// The kafka-ingest suite runs only when brokers are set; the namespace is required then so the
+	// tester publishes to the same topics the server-under-test consumes ("empty brokers ⇒ skip").
+	if c.KafkaBrokers != "" && c.KafkaTopicNamespace == "" {
+		return errors.New("KAFKA_TOPIC_NAMESPACE is required when KAFKA_BROKERS is set")
 	}
 	if c.Port < 1 || c.Port > 65535 {
 		return fmt.Errorf("TESTER_PORT must be between 1 and 65535, got %d", c.Port)

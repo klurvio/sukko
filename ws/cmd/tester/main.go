@@ -39,6 +39,9 @@ func run() error {
 	if err := env.Parse(&cfg); err != nil {
 		return fmt.Errorf("parse config: %w", err)
 	}
+	// Canonicalize the topic namespace before validation (the tester parses config inline here,
+	// with no platform loader — see the other services' loaders).
+	cfg.Normalize()
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validate config: %w", err)
 	}
@@ -121,29 +124,29 @@ func buildSecurityConfig(cfg platform.KafkaConnectionConfig) (*kafkashared.SASLC
 func buildRunnerConfig(cfg TesterConfig) runner.Config {
 	sasl, tls := buildSecurityConfig(cfg.KafkaConnectionConfig)
 	return runner.Config{
-		GatewayURL:                  cfg.GatewayURL,
-		ProvisioningURL:             cfg.ProvisioningURL,
-		Environment:                 cfg.Environment,
-		KafkaTopicNamespaceOverride: cfg.KafkaTopicNamespaceOverride,
-		KafkaBrokers:                cfg.KafkaBrokers,
-		KafkaSASL:                   sasl,
-		KafkaTLS:                    tls,
-		JWTLifetime:                 cfg.JWTLifetime,
-		JWTRefreshBefore:            cfg.JWTRefreshBefore,
-		KeyExpiry:                   cfg.KeyExpiry,
-		SigningKeyFile:              cfg.SigningKeyFile,
-		AdminKeyFile:                cfg.AdminKeyFile,
-		PushReceiverHost:            cfg.PushReceiverHost,
-		PushReceiverPort:            cfg.PushReceiverPort,
-		AdminKeyID:                  cfg.AdminKeyID,
-		AuthMode:                    cfg.AuthMode,
-		APIKey:                      cfg.APIKey,
-		AuthMixRatio:                cfg.AuthMixRatio,
-		AuthUpgradeTimeout:          cfg.AuthUpgradeTimeout,
-		GatewayMetricsURL:           cfg.GatewayMetricsURL,
-		GatewayMetricsInterval:      cfg.GatewayMetricsInterval,
-		WebhookBaseURL:              cfg.WebhookBaseURL,
-		WebhookDeliveryTimeout:      cfg.WebhookDeliveryTimeout,
-		WebhookRetryTimeout:         cfg.WebhookRetryTimeout,
+		GatewayURL:             cfg.GatewayURL,
+		ProvisioningURL:        cfg.ProvisioningURL,
+		Environment:            cfg.Environment,
+		KafkaTopicNamespace:    cfg.KafkaTopicNamespace,
+		KafkaBrokers:           cfg.KafkaBrokers,
+		KafkaSASL:              sasl,
+		KafkaTLS:               tls,
+		JWTLifetime:            cfg.JWTLifetime,
+		JWTRefreshBefore:       cfg.JWTRefreshBefore,
+		KeyExpiry:              cfg.KeyExpiry,
+		SigningKeyFile:         cfg.SigningKeyFile,
+		AdminKeyFile:           cfg.AdminKeyFile,
+		PushReceiverHost:       cfg.PushReceiverHost,
+		PushReceiverPort:       cfg.PushReceiverPort,
+		AdminKeyID:             cfg.AdminKeyID,
+		AuthMode:               cfg.AuthMode,
+		APIKey:                 cfg.APIKey,
+		AuthMixRatio:           cfg.AuthMixRatio,
+		AuthUpgradeTimeout:     cfg.AuthUpgradeTimeout,
+		GatewayMetricsURL:      cfg.GatewayMetricsURL,
+		GatewayMetricsInterval: cfg.GatewayMetricsInterval,
+		WebhookBaseURL:         cfg.WebhookBaseURL,
+		WebhookDeliveryTimeout: cfg.WebhookDeliveryTimeout,
+		WebhookRetryTimeout:    cfg.WebhookRetryTimeout,
 	}
 }
