@@ -262,6 +262,78 @@ tasks:
         [ "$ST" = "pass" ] || { echo "FAIL: rest-publish 'response format' status=${ST:-<absent>} (want pass — produce path regressed to non-2xx)"; exit 1; }
         echo "=== rest-publish PRODUCE path PASSED (publish accepted 2xx; delivery closure tracked separately) ==="
 
+  push-validate:
+    desc: >-
+      E2E push (Web Push) delivery regression — boot push-service in a kafka-mode,
+      Enterprise-licensed stack built from source and run the tester's `push` suite,
+      asserting a real WebPush notification arrives at the tester's mock receiver. Fails
+      (not skips) if the delivery check is absent/not-pass, any check skips, or the report
+      status != pass.
+    vars:
+      COMPOSE: docker compose -f docker-compose.yml -f taskfiles/e2e/push-validate.override.yml --profile enterprise --profile kafka
+      # Raw 64-byte Ed25519 admin private key, generated per-run and mounted into the tester
+      # by the override; its public half is wired to provisioning as ADMIN_BOOTSTRAP_KEY.
+      ADMIN_KEY_FILE: taskfiles/e2e/.admin.key
+      # Repo compose (build-from-source) maps provisioning to host 18080.
+      PROVISIONING_URL: http://localhost:18080
+      # Matches the tester's TESTER_AUTH_TOKEN in docker-compose.yml.
+      TESTER_TOKEN: sukko-dev-token
+      # push-service /ready (host port 3009): 503 until the Enterprise license syncs over
+      # the WatchLicense stream — gated separately from /health (always-200 liveness).
+      PUSH_READY_URL: http://localhost:3009/ready
+    cmds:
+      # Teardown runs even on failure (Taskfile defer, LIFO): stack down, then remove the key.
+      - defer: "{{.COMPOSE}} down -v"
+      - defer: rm -f {{.ADMIN_KEY_FILE}}
+      # Guard fixture test first — standalone, no Docker, ~1s. Fails fast if the anti-vacuous
+      # guard regressed, before spending 20+ min booting the stack.
+      - bash taskfiles/e2e/guard_test.sh
+      - |
+        set -eu
+        . taskfiles/e2e/stack.sh
+        # All setup that `up` depends on runs in THIS shell so the values reach the boot env.
+        echo "=== Mint Enterprise token + admin key (before boot) ==="
+        TOKEN=$(e2e_mint_license enterprise 'E2E Push')
+        ADMIN_BOOTSTRAP_KEY=$(e2e_gen_admin_key "$(pwd)/{{.ADMIN_KEY_FILE}}")
+        echo "=== Boot kafka-mode Enterprise stack (build from source, push-service) ==="
+        MESSAGE_BACKEND=kafka \
+        SUKKO_LICENSE_KEY="$TOKEN" \
+        ADMIN_BOOTSTRAP_KEY="$ADMIN_BOOTSTRAP_KEY" \
+        CREDENTIALS_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+        WEBHOOK_INTERNAL_TOKEN="$(openssl rand -hex 24)" \
+        {{.COMPOSE}} up -d --build --wait
+      - |
+        set -eu
+        . taskfiles/e2e/stack.sh
+        echo "=== Readiness gate ==="
+        {{.COMPOSE}} exec -T redpanda rpk cluster health
+        e2e_readiness_gate {{.PROVISIONING_URL}} enterprise
+        # push-service /ready is 503 until the Enterprise license arrives over WatchLicense —
+        # poll it (NOT /health) so the suite doesn't start before the edition syncs.
+        echo "=== Poll push-service /ready ({{.PUSH_READY_URL}}) ==="
+        for i in $(seq 1 30); do
+          if curl -sf -o /dev/null "{{.PUSH_READY_URL}}"; then
+            echo "  push-service ready ✓"; break
+          fi
+          [ "$i" = "30" ] && { echo "FAIL: push-service /ready not 200 after 30 tries"; exit 1; }
+          sleep 2
+        done
+      - |
+        set -eu
+        . taskfiles/e2e/stack.sh
+        echo "=== Run push suite (Web Push delivery) ==="
+        # Hermetic CLI env (isolated HOME/XDG so no ambient context leaks in — otherwise the
+        # tester skips its throwaway-tenant auto-create and misvalidates). The guard reads the
+        # raw stream on stdin and owns report extraction; capture only its exit code (not the
+        # report) so `rm` still runs and the step fails on a non-zero guard.
+        TMPCFG=$(mktemp -d)
+        rc=0
+        HOME="$TMPCFG" XDG_CONFIG_HOME="$TMPCFG/.config" SUKKO_TESTER_TOKEN={{.TESTER_TOKEN}} \
+          sukko test validate --suite push --follow --output json 2>/dev/null | push_validate_guard || rc=$?
+        rm -rf "$TMPCFG"
+        [ "$rc" -eq 0 ] || { echo "FAIL: push delivery guard failed (rc=$rc)"; exit 1; }
+        echo "=== push delivery PASSED (real WebPush received by the mock receiver) ==="
+
   validate-battery:
     desc: >-
       Full validate-suite battery against an Enterprise-licensed direct-mode stack built

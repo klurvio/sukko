@@ -24,7 +24,10 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	provClient := run.authResult.ProvClient
 	tenantID := run.authResult.TenantID
 	token := run.authResult.TokenFunc(0)
-	gwURL := run.Config.GatewayURL
+	// GatewayURL is a ws:// URL (for WS client connects); the push suite only calls HTTP
+	// endpoints (VAPID key, subscribe, REST publish), so convert ws://→http:// once here —
+	// http.Client rejects a ws:// scheme. Mirrors validate_rest_publish.go's httpURL() wrap.
+	gwURL := httpURL(run.Config.GatewayURL)
 
 	var checks []metrics.CheckResult
 	var deviceIDs []int64 // track for cleanup
@@ -69,6 +72,20 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	checks = append(checks, metrics.CheckResult{
 		Name: "push available", Status: "pass",
 	})
+
+	// Step 0.4: Provision routing + channel rules (#179 P1 reconciliation). In kafka mode a REST
+	// publish with no applicable routing rule is now REJECTED (409 PUBLISH_NOT_ROUTABLE), and the
+	// gateway denies publishes to a tenant with no channel rules. Set a catch-all routing rule +
+	// the shared channel rules (publish authorization for general.*) so the push publishes below
+	// resolve a valid topic, then wait for the routing snapshot to reach ws-server (retry 409/503).
+	// Harmless in direct mode (no routing → waitForRoutable's first probe returns 2xx immediately).
+	if err := provClient.SetRoutingRules(ctx, tenantID, testRoutingRules); err != nil {
+		return []metrics.CheckResult{{Name: "push routing rules", Status: "fail", Error: err.Error()}}, nil
+	}
+	_ = provClient.SetChannelRules(ctx, tenantID, testChannelRules)
+	if err := waitForRoutable(ctx, restpublish.NewClient(gwURL), tenantID+"."+pushTestChannel, restpublish.AuthConfig{Token: token}); err != nil {
+		return []metrics.CheckResult{{Name: "push routing propagate", Status: "fail", Error: err.Error()}}, nil
+	}
 
 	// Step 0.5: Delivery verification — runs BEFORE the fake-credential
 	// overwrite below: real WebPush delivery needs the auto-generated (real)
@@ -292,10 +309,11 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 	return checks, nil
 }
 
-// pushDeliveryTimeout bounds the wait for the push service to deliver a
-// notification to the mock receiver — generous because delivery is queued
-// through the push worker.
-const pushDeliveryTimeout = 15 * time.Second
+// pushDeliveryTimeout bounds the wait for the push service to deliver a notification to the mock
+// receiver. Generous (60s) because in kafka mode the ws-server consumer joins the tenant topic
+// AtEnd only after a ~30s refreshTopicsLoop + rebalance, and delivery is then queued through the
+// push worker — so the loop below re-publishes on a throttle until arrival (#144).
+const pushDeliveryTimeout = 60 * time.Second
 
 // verifyPushDelivery registers a device whose endpoint is the tester's own
 // mock WebPush receiver, publishes to a push-routed channel, and asserts the
@@ -356,17 +374,26 @@ func verifyPushDelivery(ctx context.Context, run *TestRun, gwURL, token, tenantI
 		"title":  "Delivery Test",
 	})
 	restClient := restpublish.NewClient(gwURL)
-	if _, err := restClient.Publish(ctx, restpublish.Request{
-		Channel: deliveryChannel,
-		Data:    payload,
-	}, restpublish.AuthConfig{Token: token}); err != nil {
-		return []metrics.CheckResult{{Name: "push delivery", Status: "fail", Error: fmt.Sprintf("publish: %v", err)}}
+	publishOnce := func() error {
+		_, err := restClient.Publish(ctx, restpublish.Request{Channel: deliveryChannel, Data: payload}, restpublish.AuthConfig{Token: token})
+		if err != nil {
+			return fmt.Errorf("publish: %w", err)
+		}
+		return nil
+	}
+	// Publish immediately, then re-publish on a throttle until arrival or timeout. The ws-server
+	// consumer joins the tenant topic AtEnd only after the topic-refresh + rebalance window, so a
+	// single pre-assignment publish is lost; re-publishing tolerates that (#144). The first publish
+	// must succeed (routing was warmed by waitForRoutable in setup) — later ones are best-effort.
+	if err := publishOnce(); err != nil {
+		return []metrics.CheckResult{{Name: "push delivery", Status: "fail", Error: err.Error()}}
 	}
 
-	// Poll for arrival at the receiver.
 	deadline := time.After(pushDeliveryTimeout)
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
+	republish := time.NewTicker(2 * time.Second)
+	defer republish.Stop()
+	check := time.NewTicker(200 * time.Millisecond)
+	defer check.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -376,7 +403,9 @@ func verifyPushDelivery(ctx context.Context, run *TestRun, gwURL, token, tenantI
 				Name: "push delivery", Status: "fail",
 				Error: fmt.Sprintf("no delivery to %s within %s (received %d unrelated requests)", endpoint, pushDeliveryTimeout, len(receiver.Requests())),
 			}}
-		case <-ticker.C:
+		case <-republish.C:
+			_ = publishOnce() // best-effort re-publish; a transient failure is retried next tick
+		case <-check.C:
 			for _, req := range receiver.Requests() {
 				if strings.Contains(req.Path, pathToken) && req.BodyLen > 0 {
 					return []metrics.CheckResult{{Name: "push delivery", Status: "pass"}}
