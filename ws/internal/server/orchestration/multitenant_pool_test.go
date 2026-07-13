@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -68,6 +69,28 @@ func (m *mockTenantRegistry) GetDedicatedTenants(_ context.Context, _ string) ([
 	}
 	return m.dedicatedTenants, nil
 }
+
+func (m *mockTenantRegistry) TopicTenants(_ context.Context, _ string) (map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.err != nil {
+		return nil, m.err
+	}
+	out := make(map[string]string)
+	for _, topic := range m.sharedTopics {
+		if parts := strings.SplitN(topic, ".", 3); len(parts) >= 3 {
+			out[topic] = parts[1] // tenant is the second segment
+		}
+	}
+	for _, dt := range m.dedicatedTenants {
+		for _, topic := range dt.Topics {
+			out[topic] = dt.TenantID
+		}
+	}
+	return out, nil
+}
+
+func (m *mockTenantRegistry) SnapshotReceived() bool { return true }
 
 // mockBroadcastBus implements broadcast.Bus for testing
 type mockBroadcastBus struct {

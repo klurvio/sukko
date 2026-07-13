@@ -120,9 +120,10 @@ type Consumer struct {
 	backpressureCheckInterval time.Duration
 
 	// Routing — resolves channel from header or key based on edition.
-	namespace     string
-	rulesProvider RoutingSnapshotProvider
-	dlq           *DLQPool
+	namespace      string
+	rulesProvider  RoutingSnapshotProvider
+	tenantResolver func(topic string) (string, bool) // topic → tenant from the registry map (#179 P3)
+	dlq            *DLQPool
 
 	// Metrics - lock-free atomic counters (Constitution VII)
 	messagesProcessed atomic.Uint64 // Successfully broadcast messages
@@ -188,7 +189,11 @@ type ConsumerConfig struct {
 	// Routing — optional; when set, channel extraction uses header and edition awareness.
 	Namespace     string                  // Topic namespace (e.g. "prod") — used to build DLQ topic names.
 	RulesProvider RoutingSnapshotProvider // Routing snapshot provider (nil = Community fallback always).
-	DLQ           *DLQPool                // Dead-letter queue pool (nil = drop on invalid channel).
+
+	// TenantResolver resolves a record's topic to its owning tenant via the registry map (#179 P3).
+	// Set by the pool; used by extractChannel to avoid reverse-parsing the topic name.
+	TenantResolver func(topic string) (string, bool)
+	DLQ            *DLQPool // Dead-letter queue pool (nil = drop on invalid channel).
 
 	// OnUnknownTopic is called when the broker returns UnknownTopicOrPartition for a topic; nil is safe.
 	OnUnknownTopic func(topic string)
@@ -320,9 +325,10 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		backpressureCheckInterval: backpressureInterval,
 
 		// Routing
-		namespace:     cfg.Namespace,
-		rulesProvider: cfg.RulesProvider,
-		dlq:           cfg.DLQ,
+		namespace:      cfg.Namespace,
+		rulesProvider:  cfg.RulesProvider,
+		tenantResolver: cfg.TenantResolver,
+		dlq:            cfg.DLQ,
 
 		// Partition-revoke commit handling
 		committer:             client,
