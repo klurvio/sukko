@@ -432,6 +432,13 @@ func (kb *KafkaBackend) IsHealthy() bool {
 	return kb.healthy.Load()
 }
 
+// Ready reports readiness: the backend is ready once the topic-registry routing snapshot has been
+// applied, so the consumer pool never broadcasts before it can resolve topic->tenant (#179 P3). A nil
+// registry means the consumer is disabled (produce-only), which is ready immediately.
+func (kb *KafkaBackend) Ready() bool {
+	return kb.topicRegistry == nil || kb.topicRegistry.SnapshotReceived()
+}
+
 // Shutdown gracefully stops the Kafka backend.
 // Stops pool, closes producer, closes topic registry (continues on individual failures per Constitution IV).
 func (kb *KafkaBackend) Shutdown(ctx context.Context) error {

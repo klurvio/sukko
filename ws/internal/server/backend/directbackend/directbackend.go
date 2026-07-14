@@ -77,6 +77,11 @@ func (db *DirectBackend) IsHealthy() bool {
 	return true
 }
 
+// Ready is always true for direct mode: there is no routing snapshot to wait for (#179 P3).
+func (db *DirectBackend) Ready() bool {
+	return true
+}
+
 // Shutdown is a no-op for direct mode.
 func (db *DirectBackend) Shutdown(_ context.Context) error {
 	metrics.SetBackendHealthy(backendName, false)

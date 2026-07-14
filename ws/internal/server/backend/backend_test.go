@@ -15,6 +15,7 @@ type mockBackend struct {
 	replayMsgs  []backend.ReplayMessage
 	replayErr   error
 	healthy     bool
+	ready       bool
 	shutdownErr error
 	shutdowns   int
 }
@@ -33,6 +34,10 @@ func (m *mockBackend) Replay(_ context.Context, _ backend.ReplayRequest) ([]back
 
 func (m *mockBackend) IsHealthy() bool {
 	return m.healthy
+}
+
+func (m *mockBackend) Ready() bool {
+	return m.ready
 }
 
 func (m *mockBackend) Shutdown(_ context.Context) error {

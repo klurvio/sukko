@@ -63,6 +63,7 @@ type mockBackend struct {
 	replayErr     error
 	lastReplayReq backend.ReplayRequest
 	blockCh       chan struct{}
+	notReady      bool // when true, Ready() reports false (readiness gate tests); default = ready
 }
 
 func (m *mockBackend) Start(_ context.Context) error { return nil }
@@ -87,7 +88,12 @@ func (m *mockBackend) Replay(ctx context.Context, req backend.ReplayRequest) ([]
 
 	return msgs, err
 }
-func (m *mockBackend) IsHealthy() bool                  { return true }
+func (m *mockBackend) IsHealthy() bool { return true }
+func (m *mockBackend) Ready() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return !m.notReady
+}
 func (m *mockBackend) Shutdown(_ context.Context) error { return nil }
 func (m *mockBackend) ChannelTopic(channel string) (string, bool) {
 	m.mu.Lock()

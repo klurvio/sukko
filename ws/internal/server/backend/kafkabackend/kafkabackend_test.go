@@ -18,6 +18,16 @@ import (
 // Compile-time interface check.
 var _ backend.MessageBackend = (*KafkaBackend)(nil)
 
+// TestKafkaBackend_Ready_NilRegistry: a nil topic registry means the consumer is disabled
+// (produce-only), which is ready immediately (#179 P3). The snapshot-gated transition itself is
+// covered by provapi.TestTopicRegistry_SnapshotReceived, which Ready() delegates to.
+func TestKafkaBackend_Ready_NilRegistry(t *testing.T) {
+	t.Parallel()
+	if !(&KafkaBackend{}).Ready() {
+		t.Error("Ready() with a nil topic registry must be true (consumer disabled = ready)")
+	}
+}
+
 // stubRulesSource is a minimal kafka.RoutingRulesSource for New() wiring tests.
 type stubRulesSource struct{}
 

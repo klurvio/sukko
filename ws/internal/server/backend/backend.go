@@ -35,8 +35,15 @@ type MessageBackend interface {
 	// Returns nil, nil if replay is not supported (direct mode).
 	Replay(ctx context.Context, req ReplayRequest) ([]ReplayMessage, error)
 
-	// IsHealthy returns true if the backend is operational.
+	// IsHealthy returns true if the backend is operational (liveness).
 	IsHealthy() bool
+
+	// Ready reports whether the backend is ready to serve traffic (readiness). In kafka mode this is
+	// false until the topic-registry routing snapshot has been applied, so ws-server does not consume
+	// or broadcast before it can resolve topic->tenant — closing the startup cross-tenant window (#179
+	// P3). Direct mode is always ready. Unlike IsHealthy, a false result MUST NOT crash-loop the pod:
+	// it gates the /ready probe only, never /health.
+	Ready() bool
 
 	// Shutdown gracefully stops the backend.
 	Shutdown(ctx context.Context) error
