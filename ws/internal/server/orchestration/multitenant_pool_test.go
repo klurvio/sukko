@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -68,6 +69,28 @@ func (m *mockTenantRegistry) GetDedicatedTenants(_ context.Context, _ string) ([
 	}
 	return m.dedicatedTenants, nil
 }
+
+func (m *mockTenantRegistry) TopicTenants(_ context.Context, _ string) (map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.err != nil {
+		return nil, m.err
+	}
+	out := make(map[string]string)
+	for _, topic := range m.sharedTopics {
+		if parts := strings.SplitN(topic, ".", 3); len(parts) >= 3 {
+			out[topic] = parts[1] // tenant is the second segment
+		}
+	}
+	for _, dt := range m.dedicatedTenants {
+		for _, topic := range dt.Topics {
+			out[topic] = dt.TenantID
+		}
+	}
+	return out, nil
+}
+
+func (m *mockTenantRegistry) SnapshotReceived() bool { return true }
 
 // mockBroadcastBus implements broadcast.Bus for testing
 type mockBroadcastBus struct {
@@ -396,11 +419,29 @@ func TestMultiTenantPool_RouteMessage(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Test routing
-	pool.routeMessage("BTC.trade", []byte(`{"price":"100.50"}`), "sukko.tenant1.market", 0, 100)
+	// Registry map resolves the topic to its owning tenant (#179 P3): the pool no longer
+	// reverse-parses the tenant from the topic name — it looks it up here.
+	pool.topicTenants.Store(map[string]string{"sukko.tenant1.market": "tenant1"})
+
+	// Test routing: the channel is tenant-prefixed (tenant1.BTC.trade); the broadcast must
+	// carry the registry-resolved tenant and the bare channel with the prefix stripped.
+	pool.routeMessage("tenant1.BTC.trade", []byte(`{"price":"100.50"}`), "sukko.tenant1.market", 0, 100)
 
 	if bus.getPublishCount() != 1 {
 		t.Errorf("publishCount: got %d, want 1", bus.getPublishCount())
+	}
+
+	bus.mu.Lock()
+	msg := bus.messages[0]
+	bus.mu.Unlock()
+	if msg.TenantID != "tenant1" {
+		t.Errorf("broadcast TenantID: got %q, want %q (registry-resolved)", msg.TenantID, "tenant1")
+	}
+	if msg.Channel != "BTC.trade" {
+		t.Errorf("broadcast Channel: got %q, want %q (tenant prefix stripped)", msg.Channel, "BTC.trade")
+	}
+	if msg.Subject != "tenant1.BTC.trade" {
+		t.Errorf("broadcast Subject: got %q, want %q", msg.Subject, "tenant1.BTC.trade")
 	}
 
 	metrics := pool.GetMetrics()

@@ -614,12 +614,17 @@ func (x *WatchTopicsRequest) GetNamespace() string {
 }
 
 type WatchTopicsResponse struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	IsSnapshot       bool                   `protobuf:"varint,1,opt,name=is_snapshot,json=isSnapshot,proto3" json:"is_snapshot,omitempty"`
-	SharedTopics     []string               `protobuf:"bytes,2,rep,name=shared_topics,json=sharedTopics,proto3" json:"shared_topics,omitempty"`
-	DedicatedTenants []*DedicatedTenant     `protobuf:"bytes,3,rep,name=dedicated_tenants,json=dedicatedTenants,proto3" json:"dedicated_tenants,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	IsSnapshot bool                   `protobuf:"varint,1,opt,name=is_snapshot,json=isSnapshot,proto3" json:"is_snapshot,omitempty"`
+	// Deprecated in favour of shared_topic_tenants (kept populated during the transition so older
+	// consumers keep working). #179 P3: consumers resolve a shared topic's tenant from the map below
+	// instead of reverse-parsing the topic name.
+	SharedTopics     []string           `protobuf:"bytes,2,rep,name=shared_topics,json=sharedTopics,proto3" json:"shared_topics,omitempty"`
+	DedicatedTenants []*DedicatedTenant `protobuf:"bytes,3,rep,name=dedicated_tenants,json=dedicatedTenants,proto3" json:"dedicated_tenants,omitempty"`
+	// Shared topics carrying their owning tenant, so consumers need no reverse-parse (#179 P3).
+	SharedTopicTenants []*SharedTopic `protobuf:"bytes,4,rep,name=shared_topic_tenants,json=sharedTopicTenants,proto3" json:"shared_topic_tenants,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *WatchTopicsResponse) Reset() {
@@ -669,6 +674,13 @@ func (x *WatchTopicsResponse) GetSharedTopics() []string {
 func (x *WatchTopicsResponse) GetDedicatedTenants() []*DedicatedTenant {
 	if x != nil {
 		return x.DedicatedTenants
+	}
+	return nil
+}
+
+func (x *WatchTopicsResponse) GetSharedTopicTenants() []*SharedTopic {
+	if x != nil {
+		return x.SharedTopicTenants
 	}
 	return nil
 }
@@ -725,6 +737,58 @@ func (x *DedicatedTenant) GetTopics() []string {
 	return nil
 }
 
+type SharedTopic struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantSlug    string                 `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"` // owning tenant slug
+	Topic         string                 `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`                             // full topic name ({namespace}.{tenant}.{category})
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SharedTopic) Reset() {
+	*x = SharedTopic{}
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SharedTopic) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SharedTopic) ProtoMessage() {}
+
+func (x *SharedTopic) ProtoReflect() protoreflect.Message {
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SharedTopic.ProtoReflect.Descriptor instead.
+func (*SharedTopic) Descriptor() ([]byte, []int) {
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SharedTopic) GetTenantSlug() string {
+	if x != nil {
+		return x.TenantSlug
+	}
+	return ""
+}
+
+func (x *SharedTopic) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
 type WatchAPIKeysRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -733,7 +797,7 @@ type WatchAPIKeysRequest struct {
 
 func (x *WatchAPIKeysRequest) Reset() {
 	*x = WatchAPIKeysRequest{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[12]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -745,7 +809,7 @@ func (x *WatchAPIKeysRequest) String() string {
 func (*WatchAPIKeysRequest) ProtoMessage() {}
 
 func (x *WatchAPIKeysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[12]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -758,7 +822,7 @@ func (x *WatchAPIKeysRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchAPIKeysRequest.ProtoReflect.Descriptor instead.
 func (*WatchAPIKeysRequest) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{12}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{13}
 }
 
 type WatchAPIKeysResponse struct {
@@ -772,7 +836,7 @@ type WatchAPIKeysResponse struct {
 
 func (x *WatchAPIKeysResponse) Reset() {
 	*x = WatchAPIKeysResponse{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[13]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -784,7 +848,7 @@ func (x *WatchAPIKeysResponse) String() string {
 func (*WatchAPIKeysResponse) ProtoMessage() {}
 
 func (x *WatchAPIKeysResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[13]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -797,7 +861,7 @@ func (x *WatchAPIKeysResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchAPIKeysResponse.ProtoReflect.Descriptor instead.
 func (*WatchAPIKeysResponse) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{13}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *WatchAPIKeysResponse) GetIsSnapshot() bool {
@@ -833,7 +897,7 @@ type APIKeyInfo struct {
 
 func (x *APIKeyInfo) Reset() {
 	*x = APIKeyInfo{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[14]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -845,7 +909,7 @@ func (x *APIKeyInfo) String() string {
 func (*APIKeyInfo) ProtoMessage() {}
 
 func (x *APIKeyInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[14]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -858,7 +922,7 @@ func (x *APIKeyInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use APIKeyInfo.ProtoReflect.Descriptor instead.
 func (*APIKeyInfo) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{14}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *APIKeyInfo) GetKeyId() string {
@@ -897,7 +961,7 @@ type WatchPushConfigRequest struct {
 
 func (x *WatchPushConfigRequest) Reset() {
 	*x = WatchPushConfigRequest{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[15]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -909,7 +973,7 @@ func (x *WatchPushConfigRequest) String() string {
 func (*WatchPushConfigRequest) ProtoMessage() {}
 
 func (x *WatchPushConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[15]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -922,7 +986,7 @@ func (x *WatchPushConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchPushConfigRequest.ProtoReflect.Descriptor instead.
 func (*WatchPushConfigRequest) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{15}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{16}
 }
 
 type WatchPushConfigResponse struct {
@@ -938,7 +1002,7 @@ type WatchPushConfigResponse struct {
 
 func (x *WatchPushConfigResponse) Reset() {
 	*x = WatchPushConfigResponse{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[16]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -950,7 +1014,7 @@ func (x *WatchPushConfigResponse) String() string {
 func (*WatchPushConfigResponse) ProtoMessage() {}
 
 func (x *WatchPushConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[16]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -963,7 +1027,7 @@ func (x *WatchPushConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchPushConfigResponse.ProtoReflect.Descriptor instead.
 func (*WatchPushConfigResponse) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{16}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *WatchPushConfigResponse) GetIsSnapshot() bool {
@@ -1012,7 +1076,7 @@ type PushCredentialInfo struct {
 
 func (x *PushCredentialInfo) Reset() {
 	*x = PushCredentialInfo{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[17]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1024,7 +1088,7 @@ func (x *PushCredentialInfo) String() string {
 func (*PushCredentialInfo) ProtoMessage() {}
 
 func (x *PushCredentialInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[17]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1037,7 +1101,7 @@ func (x *PushCredentialInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushCredentialInfo.ProtoReflect.Descriptor instead.
 func (*PushCredentialInfo) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{17}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *PushCredentialInfo) GetTenantSlug() string {
@@ -1073,7 +1137,7 @@ type PushChannelConfig struct {
 
 func (x *PushChannelConfig) Reset() {
 	*x = PushChannelConfig{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[18]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1085,7 +1149,7 @@ func (x *PushChannelConfig) String() string {
 func (*PushChannelConfig) ProtoMessage() {}
 
 func (x *PushChannelConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[18]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1098,7 +1162,7 @@ func (x *PushChannelConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushChannelConfig.ProtoReflect.Descriptor instead.
 func (*PushChannelConfig) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{18}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *PushChannelConfig) GetTenantSlug() string {
@@ -1140,7 +1204,7 @@ type StorePushCredentialsRequest struct {
 
 func (x *StorePushCredentialsRequest) Reset() {
 	*x = StorePushCredentialsRequest{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[19]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1152,7 +1216,7 @@ func (x *StorePushCredentialsRequest) String() string {
 func (*StorePushCredentialsRequest) ProtoMessage() {}
 
 func (x *StorePushCredentialsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[19]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1165,7 +1229,7 @@ func (x *StorePushCredentialsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StorePushCredentialsRequest.ProtoReflect.Descriptor instead.
 func (*StorePushCredentialsRequest) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{19}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *StorePushCredentialsRequest) GetTenantSlug() string {
@@ -1198,7 +1262,7 @@ type StorePushCredentialsResponse struct {
 
 func (x *StorePushCredentialsResponse) Reset() {
 	*x = StorePushCredentialsResponse{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[20]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1210,7 +1274,7 @@ func (x *StorePushCredentialsResponse) String() string {
 func (*StorePushCredentialsResponse) ProtoMessage() {}
 
 func (x *StorePushCredentialsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[20]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1223,7 +1287,7 @@ func (x *StorePushCredentialsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StorePushCredentialsResponse.ProtoReflect.Descriptor instead.
 func (*StorePushCredentialsResponse) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{20}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *StorePushCredentialsResponse) GetSuccess() bool {
@@ -1241,7 +1305,7 @@ type WatchLicenseRequest struct {
 
 func (x *WatchLicenseRequest) Reset() {
 	*x = WatchLicenseRequest{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[21]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1253,7 +1317,7 @@ func (x *WatchLicenseRequest) String() string {
 func (*WatchLicenseRequest) ProtoMessage() {}
 
 func (x *WatchLicenseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[21]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1266,7 +1330,7 @@ func (x *WatchLicenseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchLicenseRequest.ProtoReflect.Descriptor instead.
 func (*WatchLicenseRequest) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{21}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{22}
 }
 
 type WatchLicenseResponse struct {
@@ -1279,7 +1343,7 @@ type WatchLicenseResponse struct {
 
 func (x *WatchLicenseResponse) Reset() {
 	*x = WatchLicenseResponse{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[22]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1291,7 +1355,7 @@ func (x *WatchLicenseResponse) String() string {
 func (*WatchLicenseResponse) ProtoMessage() {}
 
 func (x *WatchLicenseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[22]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1304,7 +1368,7 @@ func (x *WatchLicenseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchLicenseResponse.ProtoReflect.Descriptor instead.
 func (*WatchLicenseResponse) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{22}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *WatchLicenseResponse) GetLicenseKey() string {
@@ -1322,7 +1386,7 @@ type WatchTokenRevocationsRequest struct {
 
 func (x *WatchTokenRevocationsRequest) Reset() {
 	*x = WatchTokenRevocationsRequest{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[23]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1334,7 +1398,7 @@ func (x *WatchTokenRevocationsRequest) String() string {
 func (*WatchTokenRevocationsRequest) ProtoMessage() {}
 
 func (x *WatchTokenRevocationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[23]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1347,7 +1411,7 @@ func (x *WatchTokenRevocationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchTokenRevocationsRequest.ProtoReflect.Descriptor instead.
 func (*WatchTokenRevocationsRequest) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{23}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{24}
 }
 
 type WatchTokenRevocationsResponse struct {
@@ -1360,7 +1424,7 @@ type WatchTokenRevocationsResponse struct {
 
 func (x *WatchTokenRevocationsResponse) Reset() {
 	*x = WatchTokenRevocationsResponse{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[24]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1372,7 +1436,7 @@ func (x *WatchTokenRevocationsResponse) String() string {
 func (*WatchTokenRevocationsResponse) ProtoMessage() {}
 
 func (x *WatchTokenRevocationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[24]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1385,7 +1449,7 @@ func (x *WatchTokenRevocationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchTokenRevocationsResponse.ProtoReflect.Descriptor instead.
 func (*WatchTokenRevocationsResponse) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{24}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *WatchTokenRevocationsResponse) GetRevocations() []*TokenRevocation {
@@ -1417,7 +1481,7 @@ type TokenRevocation struct {
 
 func (x *TokenRevocation) Reset() {
 	*x = TokenRevocation{}
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[25]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1429,7 +1493,7 @@ func (x *TokenRevocation) String() string {
 func (*TokenRevocation) ProtoMessage() {}
 
 func (x *TokenRevocation) ProtoReflect() protoreflect.Message {
-	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[25]
+	mi := &file_sukko_provisioning_v1_provisioning_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1442,7 +1506,7 @@ func (x *TokenRevocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TokenRevocation.ProtoReflect.Descriptor instead.
 func (*TokenRevocation) Descriptor() ([]byte, []int) {
-	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{25}
+	return file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *TokenRevocation) GetTenantSlug() string {
@@ -1548,16 +1612,21 @@ const file_sukko_provisioning_v1_provisioning_proto_rawDesc = "" +
 	"\rGroupChannels\x12\x1a\n" +
 	"\bchannels\x18\x01 \x03(\tR\bchannels\"2\n" +
 	"\x12WatchTopicsRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"\xb0\x01\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"\x86\x02\n" +
 	"\x13WatchTopicsResponse\x12\x1f\n" +
 	"\vis_snapshot\x18\x01 \x01(\bR\n" +
 	"isSnapshot\x12#\n" +
 	"\rshared_topics\x18\x02 \x03(\tR\fsharedTopics\x12S\n" +
-	"\x11dedicated_tenants\x18\x03 \x03(\v2&.sukko.provisioning.v1.DedicatedTenantR\x10dedicatedTenants\"J\n" +
+	"\x11dedicated_tenants\x18\x03 \x03(\v2&.sukko.provisioning.v1.DedicatedTenantR\x10dedicatedTenants\x12T\n" +
+	"\x14shared_topic_tenants\x18\x04 \x03(\v2\".sukko.provisioning.v1.SharedTopicR\x12sharedTopicTenants\"J\n" +
 	"\x0fDedicatedTenant\x12\x1f\n" +
 	"\vtenant_slug\x18\x01 \x01(\tR\n" +
 	"tenantSlug\x12\x16\n" +
-	"\x06topics\x18\x02 \x03(\tR\x06topics\"\x15\n" +
+	"\x06topics\x18\x02 \x03(\tR\x06topics\"D\n" +
+	"\vSharedTopic\x12\x1f\n" +
+	"\vtenant_slug\x18\x01 \x01(\tR\n" +
+	"tenantSlug\x12\x14\n" +
+	"\x05topic\x18\x02 \x01(\tR\x05topic\"\x15\n" +
 	"\x13WatchAPIKeysRequest\"\x9d\x01\n" +
 	"\x14WatchAPIKeysResponse\x12\x1f\n" +
 	"\vis_snapshot\x18\x01 \x01(\bR\n" +
@@ -1640,7 +1709,7 @@ func file_sukko_provisioning_v1_provisioning_proto_rawDescGZIP() []byte {
 	return file_sukko_provisioning_v1_provisioning_proto_rawDescData
 }
 
-var file_sukko_provisioning_v1_provisioning_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_sukko_provisioning_v1_provisioning_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_sukko_provisioning_v1_provisioning_proto_goTypes = []any{
 	(*WatchKeysRequest)(nil),              // 0: sukko.provisioning.v1.WatchKeysRequest
 	(*WatchKeysResponse)(nil),             // 1: sukko.provisioning.v1.WatchKeysResponse
@@ -1654,58 +1723,60 @@ var file_sukko_provisioning_v1_provisioning_proto_goTypes = []any{
 	(*WatchTopicsRequest)(nil),            // 9: sukko.provisioning.v1.WatchTopicsRequest
 	(*WatchTopicsResponse)(nil),           // 10: sukko.provisioning.v1.WatchTopicsResponse
 	(*DedicatedTenant)(nil),               // 11: sukko.provisioning.v1.DedicatedTenant
-	(*WatchAPIKeysRequest)(nil),           // 12: sukko.provisioning.v1.WatchAPIKeysRequest
-	(*WatchAPIKeysResponse)(nil),          // 13: sukko.provisioning.v1.WatchAPIKeysResponse
-	(*APIKeyInfo)(nil),                    // 14: sukko.provisioning.v1.APIKeyInfo
-	(*WatchPushConfigRequest)(nil),        // 15: sukko.provisioning.v1.WatchPushConfigRequest
-	(*WatchPushConfigResponse)(nil),       // 16: sukko.provisioning.v1.WatchPushConfigResponse
-	(*PushCredentialInfo)(nil),            // 17: sukko.provisioning.v1.PushCredentialInfo
-	(*PushChannelConfig)(nil),             // 18: sukko.provisioning.v1.PushChannelConfig
-	(*StorePushCredentialsRequest)(nil),   // 19: sukko.provisioning.v1.StorePushCredentialsRequest
-	(*StorePushCredentialsResponse)(nil),  // 20: sukko.provisioning.v1.StorePushCredentialsResponse
-	(*WatchLicenseRequest)(nil),           // 21: sukko.provisioning.v1.WatchLicenseRequest
-	(*WatchLicenseResponse)(nil),          // 22: sukko.provisioning.v1.WatchLicenseResponse
-	(*WatchTokenRevocationsRequest)(nil),  // 23: sukko.provisioning.v1.WatchTokenRevocationsRequest
-	(*WatchTokenRevocationsResponse)(nil), // 24: sukko.provisioning.v1.WatchTokenRevocationsResponse
-	(*TokenRevocation)(nil),               // 25: sukko.provisioning.v1.TokenRevocation
-	nil,                                   // 26: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
-	nil,                                   // 27: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
+	(*SharedTopic)(nil),                   // 12: sukko.provisioning.v1.SharedTopic
+	(*WatchAPIKeysRequest)(nil),           // 13: sukko.provisioning.v1.WatchAPIKeysRequest
+	(*WatchAPIKeysResponse)(nil),          // 14: sukko.provisioning.v1.WatchAPIKeysResponse
+	(*APIKeyInfo)(nil),                    // 15: sukko.provisioning.v1.APIKeyInfo
+	(*WatchPushConfigRequest)(nil),        // 16: sukko.provisioning.v1.WatchPushConfigRequest
+	(*WatchPushConfigResponse)(nil),       // 17: sukko.provisioning.v1.WatchPushConfigResponse
+	(*PushCredentialInfo)(nil),            // 18: sukko.provisioning.v1.PushCredentialInfo
+	(*PushChannelConfig)(nil),             // 19: sukko.provisioning.v1.PushChannelConfig
+	(*StorePushCredentialsRequest)(nil),   // 20: sukko.provisioning.v1.StorePushCredentialsRequest
+	(*StorePushCredentialsResponse)(nil),  // 21: sukko.provisioning.v1.StorePushCredentialsResponse
+	(*WatchLicenseRequest)(nil),           // 22: sukko.provisioning.v1.WatchLicenseRequest
+	(*WatchLicenseResponse)(nil),          // 23: sukko.provisioning.v1.WatchLicenseResponse
+	(*WatchTokenRevocationsRequest)(nil),  // 24: sukko.provisioning.v1.WatchTokenRevocationsRequest
+	(*WatchTokenRevocationsResponse)(nil), // 25: sukko.provisioning.v1.WatchTokenRevocationsResponse
+	(*TokenRevocation)(nil),               // 26: sukko.provisioning.v1.TokenRevocation
+	nil,                                   // 27: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
+	nil,                                   // 28: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
 }
 var file_sukko_provisioning_v1_provisioning_proto_depIdxs = []int32{
 	2,  // 0: sukko.provisioning.v1.WatchKeysResponse.keys:type_name -> sukko.provisioning.v1.KeyInfo
 	5,  // 1: sukko.provisioning.v1.WatchTenantConfigResponse.tenants:type_name -> sukko.provisioning.v1.TenantConfig
 	7,  // 2: sukko.provisioning.v1.TenantConfig.channel_rules:type_name -> sukko.provisioning.v1.ChannelRules
 	6,  // 3: sukko.provisioning.v1.TenantConfig.routing_rules:type_name -> sukko.provisioning.v1.TopicRoutingRule
-	26, // 4: sukko.provisioning.v1.ChannelRules.group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
-	27, // 5: sukko.provisioning.v1.ChannelRules.publish_group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
+	27, // 4: sukko.provisioning.v1.ChannelRules.group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.GroupMappingsEntry
+	28, // 5: sukko.provisioning.v1.ChannelRules.publish_group_mappings:type_name -> sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry
 	11, // 6: sukko.provisioning.v1.WatchTopicsResponse.dedicated_tenants:type_name -> sukko.provisioning.v1.DedicatedTenant
-	14, // 7: sukko.provisioning.v1.WatchAPIKeysResponse.api_keys:type_name -> sukko.provisioning.v1.APIKeyInfo
-	17, // 8: sukko.provisioning.v1.WatchPushConfigResponse.push_credentials:type_name -> sukko.provisioning.v1.PushCredentialInfo
-	18, // 9: sukko.provisioning.v1.WatchPushConfigResponse.push_channel_configs:type_name -> sukko.provisioning.v1.PushChannelConfig
-	25, // 10: sukko.provisioning.v1.WatchTokenRevocationsResponse.revocations:type_name -> sukko.provisioning.v1.TokenRevocation
-	8,  // 11: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry.value:type_name -> sukko.provisioning.v1.GroupChannels
-	8,  // 12: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry.value:type_name -> sukko.provisioning.v1.GroupChannels
-	0,  // 13: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:input_type -> sukko.provisioning.v1.WatchKeysRequest
-	3,  // 14: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:input_type -> sukko.provisioning.v1.WatchTenantConfigRequest
-	9,  // 15: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:input_type -> sukko.provisioning.v1.WatchTopicsRequest
-	12, // 16: sukko.provisioning.v1.ProvisioningInternalService.WatchAPIKeys:input_type -> sukko.provisioning.v1.WatchAPIKeysRequest
-	15, // 17: sukko.provisioning.v1.ProvisioningInternalService.WatchPushConfig:input_type -> sukko.provisioning.v1.WatchPushConfigRequest
-	19, // 18: sukko.provisioning.v1.ProvisioningInternalService.StorePushCredentials:input_type -> sukko.provisioning.v1.StorePushCredentialsRequest
-	21, // 19: sukko.provisioning.v1.ProvisioningInternalService.WatchLicense:input_type -> sukko.provisioning.v1.WatchLicenseRequest
-	23, // 20: sukko.provisioning.v1.ProvisioningInternalService.WatchTokenRevocations:input_type -> sukko.provisioning.v1.WatchTokenRevocationsRequest
-	1,  // 21: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:output_type -> sukko.provisioning.v1.WatchKeysResponse
-	4,  // 22: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:output_type -> sukko.provisioning.v1.WatchTenantConfigResponse
-	10, // 23: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:output_type -> sukko.provisioning.v1.WatchTopicsResponse
-	13, // 24: sukko.provisioning.v1.ProvisioningInternalService.WatchAPIKeys:output_type -> sukko.provisioning.v1.WatchAPIKeysResponse
-	16, // 25: sukko.provisioning.v1.ProvisioningInternalService.WatchPushConfig:output_type -> sukko.provisioning.v1.WatchPushConfigResponse
-	20, // 26: sukko.provisioning.v1.ProvisioningInternalService.StorePushCredentials:output_type -> sukko.provisioning.v1.StorePushCredentialsResponse
-	22, // 27: sukko.provisioning.v1.ProvisioningInternalService.WatchLicense:output_type -> sukko.provisioning.v1.WatchLicenseResponse
-	24, // 28: sukko.provisioning.v1.ProvisioningInternalService.WatchTokenRevocations:output_type -> sukko.provisioning.v1.WatchTokenRevocationsResponse
-	21, // [21:29] is the sub-list for method output_type
-	13, // [13:21] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	12, // 7: sukko.provisioning.v1.WatchTopicsResponse.shared_topic_tenants:type_name -> sukko.provisioning.v1.SharedTopic
+	15, // 8: sukko.provisioning.v1.WatchAPIKeysResponse.api_keys:type_name -> sukko.provisioning.v1.APIKeyInfo
+	18, // 9: sukko.provisioning.v1.WatchPushConfigResponse.push_credentials:type_name -> sukko.provisioning.v1.PushCredentialInfo
+	19, // 10: sukko.provisioning.v1.WatchPushConfigResponse.push_channel_configs:type_name -> sukko.provisioning.v1.PushChannelConfig
+	26, // 11: sukko.provisioning.v1.WatchTokenRevocationsResponse.revocations:type_name -> sukko.provisioning.v1.TokenRevocation
+	8,  // 12: sukko.provisioning.v1.ChannelRules.GroupMappingsEntry.value:type_name -> sukko.provisioning.v1.GroupChannels
+	8,  // 13: sukko.provisioning.v1.ChannelRules.PublishGroupMappingsEntry.value:type_name -> sukko.provisioning.v1.GroupChannels
+	0,  // 14: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:input_type -> sukko.provisioning.v1.WatchKeysRequest
+	3,  // 15: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:input_type -> sukko.provisioning.v1.WatchTenantConfigRequest
+	9,  // 16: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:input_type -> sukko.provisioning.v1.WatchTopicsRequest
+	13, // 17: sukko.provisioning.v1.ProvisioningInternalService.WatchAPIKeys:input_type -> sukko.provisioning.v1.WatchAPIKeysRequest
+	16, // 18: sukko.provisioning.v1.ProvisioningInternalService.WatchPushConfig:input_type -> sukko.provisioning.v1.WatchPushConfigRequest
+	20, // 19: sukko.provisioning.v1.ProvisioningInternalService.StorePushCredentials:input_type -> sukko.provisioning.v1.StorePushCredentialsRequest
+	22, // 20: sukko.provisioning.v1.ProvisioningInternalService.WatchLicense:input_type -> sukko.provisioning.v1.WatchLicenseRequest
+	24, // 21: sukko.provisioning.v1.ProvisioningInternalService.WatchTokenRevocations:input_type -> sukko.provisioning.v1.WatchTokenRevocationsRequest
+	1,  // 22: sukko.provisioning.v1.ProvisioningInternalService.WatchKeys:output_type -> sukko.provisioning.v1.WatchKeysResponse
+	4,  // 23: sukko.provisioning.v1.ProvisioningInternalService.WatchTenantConfig:output_type -> sukko.provisioning.v1.WatchTenantConfigResponse
+	10, // 24: sukko.provisioning.v1.ProvisioningInternalService.WatchTopics:output_type -> sukko.provisioning.v1.WatchTopicsResponse
+	14, // 25: sukko.provisioning.v1.ProvisioningInternalService.WatchAPIKeys:output_type -> sukko.provisioning.v1.WatchAPIKeysResponse
+	17, // 26: sukko.provisioning.v1.ProvisioningInternalService.WatchPushConfig:output_type -> sukko.provisioning.v1.WatchPushConfigResponse
+	21, // 27: sukko.provisioning.v1.ProvisioningInternalService.StorePushCredentials:output_type -> sukko.provisioning.v1.StorePushCredentialsResponse
+	23, // 28: sukko.provisioning.v1.ProvisioningInternalService.WatchLicense:output_type -> sukko.provisioning.v1.WatchLicenseResponse
+	25, // 29: sukko.provisioning.v1.ProvisioningInternalService.WatchTokenRevocations:output_type -> sukko.provisioning.v1.WatchTokenRevocationsResponse
+	22, // [22:30] is the sub-list for method output_type
+	14, // [14:22] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_sukko_provisioning_v1_provisioning_proto_init() }
@@ -1719,7 +1790,7 @@ func file_sukko_provisioning_v1_provisioning_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sukko_provisioning_v1_provisioning_proto_rawDesc), len(file_sukko_provisioning_v1_provisioning_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   28,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

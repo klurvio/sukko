@@ -418,16 +418,18 @@ func TestConsumer_PrepareMessage_IncludesTopic(t *testing.T) {
 	guard := newMockResourceGuard()
 
 	consumer := &Consumer{
-		logger:        &logger,
-		resourceGuard: guard,
-		ctx:           context.Background(),
-		consumerGroup: "sukko-shared-dev",
+		logger:         &logger,
+		resourceGuard:  guard,
+		ctx:            context.Background(),
+		consumerGroup:  "sukko-shared-dev",
+		tenantResolver: parseResolver,
 	}
 
 	record := &kgo.Record{
-		Topic: "sukko.dev.trade",
-		Key:   []byte("BTC.trade"),
-		Value: []byte(`{"price":"50000"}`),
+		Topic: "sukko.dev.trade", // topic tenant is the second segment: dev
+		// Channel comes from HeaderChannel; its tenant prefix must match the topic tenant (§IX).
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte("dev.BTC.trade")}},
+		Value:   []byte(`{"price":"50000"}`),
 	}
 
 	msg, _ := consumer.prepareMessage(record)
@@ -438,8 +440,8 @@ func TestConsumer_PrepareMessage_IncludesTopic(t *testing.T) {
 	if msg.topic != "sukko.dev.trade" {
 		t.Errorf("msg.topic = %q, want %q", msg.topic, "sukko.dev.trade")
 	}
-	if msg.subject != "BTC.trade" {
-		t.Errorf("msg.subject = %q, want %q", msg.subject, "BTC.trade")
+	if msg.subject != "dev.BTC.trade" {
+		t.Errorf("msg.subject = %q, want %q", msg.subject, "dev.BTC.trade")
 	}
 	if string(msg.message) != `{"price":"50000"}` {
 		t.Errorf("msg.message = %q, want %q", msg.message, `{"price":"50000"}`)

@@ -105,9 +105,11 @@ livenessProbe:
   periodSeconds: 10
   timeoutSeconds: 5
 
+# Readiness gates traffic on backend readiness (kafka mode: topic-registry snapshot applied, #179 P3).
+# Liveness stays on /health so a not-ready pod is pulled from endpoints but never restarted.
 readinessProbe:
   httpGet:
-    path: /health
+    path: /ready
     port: 3001
   initialDelaySeconds: 5
   periodSeconds: 5

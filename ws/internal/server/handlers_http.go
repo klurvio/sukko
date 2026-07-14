@@ -5,7 +5,33 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/klurvio/sukko/internal/shared/httputil"
 )
+
+// handleReady is the Kubernetes readiness probe. It returns 200 iff the message backend is ready to
+// serve traffic, else 503. In kafka mode the backend is not ready until the topic-registry routing
+// snapshot has been applied, so ws-server does not consume or broadcast before it can resolve
+// topic->tenant (#179 P3). This is distinct from /health (liveness): a not-ready pod is pulled from
+// the Service endpoints but MUST NOT be restarted, so readiness never gates /health.
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// A nil backend is direct mode with nothing to wait for → ready.
+	ready := s.backend == nil || s.backend.Ready()
+	status := http.StatusOK
+	state := "ready"
+	if !ready {
+		status = http.StatusServiceUnavailable
+		state = "not_ready"
+	}
+	if err := httputil.WriteJSON(w, status, map[string]any{"status": state, "ready": ready}); err != nil {
+		s.logger.Debug().Err(err).Msg("Failed to encode readiness response")
+	}
+}
 
 // HTTP handlers for health and stats endpoints
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

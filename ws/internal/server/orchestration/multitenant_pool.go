@@ -85,6 +85,11 @@ type MultiTenantConsumerPool struct {
 	// Populated on every routed message; key matches MessageEnvelope.channel for replay cursor lookup.
 	channelTopics map[string]string
 
+	// topicTenants holds the complete topic → tenant map from the registry (#179 P3), stored as an
+	// atomic.Value for lock-free reads on the consume hot path. Rebuilt on every refresh. The consumer's
+	// TenantResolver closure reads it to resolve a record's tenant without reverse-parsing.
+	topicTenants atomic.Value // map[string]string
+
 	// consumerFactory creates consumers; replaced in tests to avoid real broker connections.
 	consumerFactory func(kafka.ConsumerConfig) (*kafka.Consumer, error)
 
@@ -308,6 +313,17 @@ func (p *MultiTenantConsumerPool) refreshTopics(ctx context.Context) error {
 		return fmt.Errorf("failed to get dedicated tenants: %w", err)
 	}
 
+	// Refresh the topic → tenant map (#179 P3) — the authoritative tenant source consumers resolve
+	// against, published lock-free via atomic.Value.
+	topicTenants, err := p.registry.TopicTenants(ctx, p.config.Namespace)
+	if err != nil {
+		if p.metrics != nil {
+			p.metrics.OnRefresh(false, 0, 0)
+		}
+		return fmt.Errorf("failed to get topic tenants: %w", err)
+	}
+	p.topicTenants.Store(topicTenants)
+
 	p.mu.Lock()
 
 	p.lastRefresh = time.Now()
@@ -406,16 +422,17 @@ func (p *MultiTenantConsumerPool) updateSharedConsumer(_ context.Context, topics
 			filteredTopics = append(filteredTopics, t)
 		}
 		consumer, err := p.consumerFactory(kafka.ConsumerConfig{
-			Brokers:       p.config.Brokers,
-			ConsumerGroup: p.config.Environment + "-shared-consumer",
-			Topics:        filteredTopics,
-			Logger:        &p.logger,
-			Broadcast:     p.routeMessage,
-			ResourceGuard: p.config.ResourceGuard,
-			SASL:          p.config.SASL,
-			TLS:           p.config.TLS,
-			BatchSize:     p.config.KafkaBatchSize,
-			BatchTimeout:  p.config.KafkaBatchTimeout,
+			Brokers:        p.config.Brokers,
+			ConsumerGroup:  p.config.Environment + "-shared-consumer",
+			Topics:         filteredTopics,
+			Logger:         &p.logger,
+			Broadcast:      p.routeMessage,
+			TenantResolver: p.resolveTenant,
+			ResourceGuard:  p.config.ResourceGuard,
+			SASL:           p.config.SASL,
+			TLS:            p.config.TLS,
+			BatchSize:      p.config.KafkaBatchSize,
+			BatchTimeout:   p.config.KafkaBatchTimeout,
 			// Transport tuning
 			FetchMaxWait:              p.config.KafkaFetchMaxWait,
 			FetchMinBytes:             p.config.KafkaFetchMinBytes,
@@ -533,16 +550,17 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 
 		tenantID := tenant.TenantID
 		consumer, err := p.consumerFactory(kafka.ConsumerConfig{
-			Brokers:       p.config.Brokers,
-			ConsumerGroup: fmt.Sprintf("%s-%s-consumer", p.config.Environment, tenant.TenantID),
-			Topics:        tenant.Topics,
-			Logger:        &p.logger,
-			Broadcast:     p.routeMessage,
-			ResourceGuard: p.config.ResourceGuard,
-			SASL:          p.config.SASL,
-			TLS:           p.config.TLS,
-			BatchSize:     p.config.KafkaBatchSize,
-			BatchTimeout:  p.config.KafkaBatchTimeout,
+			Brokers:        p.config.Brokers,
+			ConsumerGroup:  fmt.Sprintf("%s-%s-consumer", p.config.Environment, tenant.TenantID),
+			Topics:         tenant.Topics,
+			Logger:         &p.logger,
+			Broadcast:      p.routeMessage,
+			TenantResolver: p.resolveTenant,
+			ResourceGuard:  p.config.ResourceGuard,
+			SASL:           p.config.SASL,
+			TLS:            p.config.TLS,
+			BatchSize:      p.config.KafkaBatchSize,
+			BatchTimeout:   p.config.KafkaBatchTimeout,
 			// Transport tuning
 			FetchMaxWait:              p.config.KafkaFetchMaxWait,
 			FetchMinBytes:             p.config.KafkaFetchMinBytes,
@@ -595,6 +613,15 @@ func (p *MultiTenantConsumerPool) updateDedicatedConsumers(_ context.Context, te
 	return nil
 }
 
+// resolveTenant returns the owning tenant for a topic from the registry-fed map (#179 P3), lock-free.
+// Returns ("", false) if the topic is not in the current registry snapshot (before the first snapshot the
+// map is nil, so every topic misses — fail-closed, records drop-without-commit and redeliver).
+func (p *MultiTenantConsumerPool) resolveTenant(topic string) (string, bool) {
+	m, _ := p.topicTenants.Load().(map[string]string)
+	tenant, ok := m[topic]
+	return tenant, ok
+}
+
 // routeMessage is called by consumers for each message.
 // It publishes the message to the BroadcastBus for distribution to WebSocket clients.
 // topicName, partition, offset are used by the history writer to populate stream metadata.
@@ -606,9 +633,11 @@ func (p *MultiTenantConsumerPool) routeMessage(subject string, message []byte, t
 		p.metrics.OnMessageRouted()
 	}
 
-	tenantID, _, err := kafkashared.ExtractTenantID(topicName, p.config.Namespace)
-	if err != nil {
-		p.logger.Warn().Err(err).Str("topic", topicName).Msg("routeMessage: could not extract tenant/channel from topic name")
+	// Tenant resolved from the registry map (#179 P3) — routeMessage runs only after extractChannel
+	// accepted the record, so the topic is normally present; a miss (rare rebalance race) yields "".
+	tenantID, ok := p.resolveTenant(topicName)
+	if !ok {
+		p.logger.Warn().Str("topic", topicName).Msg("routeMessage: topic not in registry map")
 	}
 	bareChannel := strings.TrimPrefix(subject, tenantID+".")
 	pos := history.EncodePos(partition, offset)

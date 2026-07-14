@@ -127,7 +127,7 @@ func TestRebalance_CommitOnLeaveGroup(t *testing.T) {
 			}
 			_ = producer.ProduceSync(ctx, &kgo.Record{
 				Topic: topicName,
-				Key:   []byte("BTC.trade"),
+				Key:   []byte("test.BTC.trade"), // tenant prefix must match topicName's tenant (§IX)
 				Value: []byte(`{"price":"50000"}`),
 			})
 		}

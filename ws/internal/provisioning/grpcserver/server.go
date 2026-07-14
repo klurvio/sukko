@@ -611,6 +611,7 @@ func (s *Server) loadTopicsUpdate(ctx context.Context, namespace string) (*provi
 	}
 
 	var sharedTopics []string
+	var sharedTopicTenants []*provisioningv1.SharedTopic
 	var dedicatedTenants []*provisioningv1.DedicatedTenant
 
 	for _, tenant := range tenants {
@@ -642,21 +643,26 @@ func (s *Server) loadTopicsUpdate(ctx context.Context, namespace string) (*provi
 		}
 
 		switch tenant.ConsumerType {
-		case provisioning.ConsumerShared:
-			sharedTopics = append(sharedTopics, topics...)
 		case provisioning.ConsumerDedicated:
 			dedicatedTenants = append(dedicatedTenants, &provisioningv1.DedicatedTenant{
 				TenantSlug: tenant.Slug,
 				Topics:     topics,
 			})
-		default:
+		default: // ConsumerShared and unspecified both use shared consumers
 			sharedTopics = append(sharedTopics, topics...)
+			for _, topic := range topics {
+				sharedTopicTenants = append(sharedTopicTenants, &provisioningv1.SharedTopic{
+					TenantSlug: tenant.Slug,
+					Topic:      topic,
+				})
+			}
 		}
 	}
 
 	return &provisioningv1.WatchTopicsResponse{
-		SharedTopics:     sharedTopics,
-		DedicatedTenants: dedicatedTenants,
+		SharedTopics:       sharedTopics,
+		SharedTopicTenants: sharedTopicTenants,
+		DedicatedTenants:   dedicatedTenants,
 	}, nil
 }
 

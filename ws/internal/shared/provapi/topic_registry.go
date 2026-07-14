@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,8 +38,11 @@ type StreamTopicRegistry struct {
 	mu               sync.RWMutex
 	sharedTopics     []string
 	dedicatedTenants []types.TenantTopics
+	topicTenants     map[string]string // topic name → owning tenant slug (shared + dedicated), #179 P3
 	namespace        string
 	onUpdate         func()
+
+	snapshotReceived atomic.Bool // true once the initial full snapshot has been applied (#179 P3 readiness)
 
 	conn   *grpc.ClientConn
 	config StreamTopicRegistryConfig
@@ -256,7 +260,41 @@ func (r *StreamTopicRegistry) applyTopicUpdate(resp *provisioningv1.WatchTopicsR
 		})
 	}
 
+	// Build the topic → tenant map (#179 P3): shared topics carry their tenant via shared_topic_tenants;
+	// dedicated topics carry it via dedicated_tenants. This is the authoritative tenant source consumers
+	// use instead of reverse-parsing topic names.
+	r.topicTenants = make(map[string]string, len(resp.GetSharedTopicTenants()))
+	for _, st := range resp.GetSharedTopicTenants() {
+		r.topicTenants[st.GetTopic()] = st.GetTenantSlug()
+	}
+	for _, dt := range r.dedicatedTenants {
+		for _, topic := range dt.Topics {
+			r.topicTenants[topic] = dt.TenantID
+		}
+	}
+
+	if resp.GetIsSnapshot() {
+		r.snapshotReceived.Store(true)
+	}
+
 	return r.onUpdate
+}
+
+// SnapshotReceived reports whether the initial full topic snapshot has been applied. Used to gate
+// ws-server readiness in kafka mode (#179 P3) — before the snapshot, topic→tenant cannot be resolved.
+func (r *StreamTopicRegistry) SnapshotReceived() bool {
+	return r.snapshotReceived.Load()
+}
+
+// TopicTenants returns a copy of the topic → tenant map. Consumers resolve a record's tenant from this
+// map (#179 P3) instead of reverse-parsing the topic name. The namespace arg is ignored (set at
+// construction). Returns an empty (non-nil) map before the first snapshot.
+func (r *StreamTopicRegistry) TopicTenants(_ context.Context, _ string) (map[string]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]string, len(r.topicTenants))
+	maps.Copy(out, r.topicTenants)
+	return out, nil
 }
 
 // Ensure StreamTopicRegistry implements types.TenantRegistry.

@@ -28,7 +28,6 @@ import (
 	"github.com/klurvio/sukko/internal/server/history"
 	"github.com/klurvio/sukko/internal/server/metrics"
 	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
-	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/routing"
 )
@@ -37,9 +36,9 @@ import (
 // Registered once at package level to avoid duplicate registration panics when the
 // orchestration pool creates one Consumer per active tenant.
 var consumerRoutingMetrics = struct {
-	deadLetterCounter     *prometheus.CounterVec
-	malformedTopicCounter prometheus.Counter
-	once                  sync.Once
+	deadLetterCounter   *prometheus.CounterVec
+	unknownTopicCounter prometheus.Counter
+	once                sync.Once
 }{}
 
 // consumerDeletedMetrics holds the broker-deleted-topic counter registered once
@@ -119,10 +118,10 @@ type Consumer struct {
 	replayFetchMaxBytes       int32
 	backpressureCheckInterval time.Duration
 
-	// Routing — resolves channel from header or key based on edition.
-	namespace     string
-	rulesProvider RoutingSnapshotProvider
-	dlq           *DLQPool
+	// Routing — resolves the channel from the record's HeaderChannel and the registry-supplied tenant.
+	namespace      string
+	tenantResolver func(topic string) (string, bool) // topic → tenant from the registry map (#179 P3)
+	dlq            *DLQPool
 
 	// Metrics - lock-free atomic counters (Constitution VII)
 	messagesProcessed atomic.Uint64 // Successfully broadcast messages
@@ -131,8 +130,8 @@ type Consumer struct {
 	batchesSent       atomic.Uint64 // Number of batches sent
 	consumerGroup     string        // Consumer group ID for metrics labels
 
-	deadLetterCounter     *prometheus.CounterVec
-	malformedTopicCounter prometheus.Counter
+	deadLetterCounter   *prometheus.CounterVec
+	unknownTopicCounter prometheus.Counter
 
 	// Broker-deleted-topic handling
 	pauser         topicPauser  // client in production; mockPauser in tests
@@ -185,10 +184,13 @@ type ConsumerConfig struct {
 	CommitOnRevokeTimeout time.Duration // max time for CommitMarkedOffsets in revoke callback (must be > 0)
 	AutoCommitInterval    time.Duration // background auto-commit interval (0 = use franz-go default)
 
-	// Routing — optional; when set, channel extraction uses header and edition awareness.
-	Namespace     string                  // Topic namespace (e.g. "prod") — used to build DLQ topic names.
-	RulesProvider RoutingSnapshotProvider // Routing snapshot provider (nil = Community fallback always).
-	DLQ           *DLQPool                // Dead-letter queue pool (nil = drop on invalid channel).
+	// Routing — the channel comes from the record's HeaderChannel; the tenant from TenantResolver.
+	Namespace string // Topic namespace (e.g. "prod") — used to build DLQ topic names.
+
+	// TenantResolver resolves a record's topic to its owning tenant via the registry map (#179 P3).
+	// Set by the pool; used by extractChannel to avoid reverse-parsing the topic name.
+	TenantResolver func(topic string) (string, bool)
+	DLQ            *DLQPool // Dead-letter queue pool (nil = drop on invalid channel).
 
 	// OnUnknownTopic is called when the broker returns UnknownTopicOrPartition for a topic; nil is safe.
 	OnUnknownTopic func(topic string)
@@ -320,9 +322,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		backpressureCheckInterval: backpressureInterval,
 
 		// Routing
-		namespace:     cfg.Namespace,
-		rulesProvider: cfg.RulesProvider,
-		dlq:           cfg.DLQ,
+		namespace:      cfg.Namespace,
+		tenantResolver: cfg.TenantResolver,
+		dlq:            cfg.DLQ,
 
 		// Partition-revoke commit handling
 		committer:             client,
@@ -339,13 +341,13 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 			Name: MetricDeadLetterTotal,
 			Help: "Total records routed to the dead-letter topic",
 		}, []string{LabelTenant, LabelReason})
-		consumerRoutingMetrics.malformedTopicCounter = promauto.NewCounter(prometheus.CounterOpts{
-			Name: MetricMalformedTopicTotal,
-			Help: "Total records dropped due to malformed topic name",
+		consumerRoutingMetrics.unknownTopicCounter = promauto.NewCounter(prometheus.CounterOpts{
+			Name: MetricUnknownTopicTotal,
+			Help: "Total records dropped (without commit) because the topic is not in the registry map",
 		})
 	})
 	consumer.deadLetterCounter = consumerRoutingMetrics.deadLetterCounter
-	consumer.malformedTopicCounter = consumerRoutingMetrics.malformedTopicCounter
+	consumer.unknownTopicCounter = consumerRoutingMetrics.unknownTopicCounter
 
 	// Tests pass cfg.Registerer to bypass the package singleton; nil uses promauto.
 	if cfg.Registerer != nil {
@@ -722,16 +724,16 @@ func (c *Consumer) prepareMessage(record *kgo.Record) (*preparedMessage, bool) {
 		}
 	}
 
-	channel, reason, malformed := extractChannel(record, c.rulesProvider)
-	if malformed {
-		if c.malformedTopicCounter != nil {
-			c.malformedTopicCounter.Inc()
+	channel, reason, tenant := c.extractChannel(record)
+	if reason == ReasonUnknownTopic {
+		if c.unknownTopicCounter != nil {
+			c.unknownTopicCounter.Inc()
 		}
 		c.incrementFailed()
-		return nil, false // deliberate drop — caller must mark
+		return nil, true // registry miss — do NOT mark; redeliver once the registry catches up
 	}
 	if reason != "" {
-		c.routeToDLQ(record, reason)
+		c.routeToDLQ(record, tenant, reason)
 		c.incrementFailed()
 		return nil, false // deliberate drop — caller must mark
 	}
@@ -819,18 +821,17 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 		}
 	}
 
-	channel, reason, malformed := extractChannel(record, c.rulesProvider)
-	if malformed {
-		if c.malformedTopicCounter != nil {
-			c.malformedTopicCounter.Inc()
+	channel, reason, tenant := c.extractChannel(record)
+	if reason == ReasonUnknownTopic {
+		if c.unknownTopicCounter != nil {
+			c.unknownTopicCounter.Inc()
 		}
 		c.incrementFailed()
-		// Deliberate drop — mark so offset is not re-delivered after rebalance.
-		c.committer.MarkCommitRecords(record)
+		// Registry miss — do NOT mark; the record redelivers once the registry catches up.
 		return
 	}
 	if reason != "" {
-		c.routeToDLQ(record, reason)
+		c.routeToDLQ(record, tenant, reason)
 		c.incrementFailed()
 		// Deliberate drop — mark so offset is not re-delivered after rebalance.
 		c.committer.MarkCommitRecords(record)
@@ -849,12 +850,8 @@ func (c *Consumer) processRecord(record *kgo.Record) {
 
 // routeToDLQ submits a record to the dead-letter queue using a non-blocking send.
 // If the DLQ is nil or the channel is full, the record is dropped and counted.
-func (c *Consumer) routeToDLQ(record *kgo.Record, reason string) {
-	topicParts := strings.SplitN(record.Topic, ".", 3)
-	tenant := ""
-	if len(topicParts) >= 2 {
-		tenant = topicParts[1]
-	}
+// tenant is resolved by the caller from the registry map (#179 P3) — no reverse-parse here.
+func (c *Consumer) routeToDLQ(record *kgo.Record, tenant, reason string) {
 
 	if c.deadLetterCounter != nil {
 		c.deadLetterCounter.WithLabelValues(tenant, reason).Inc()
@@ -887,50 +884,42 @@ func findHeader(record *kgo.Record, key string) []byte {
 	return nil
 }
 
-// extractChannel resolves the broadcast channel from a Kafka record.
-// Returns (channel, reason, malformed):
-//   - malformed=true: topic has fewer than 3 segments; drop silently, no DLQ.
-//   - reason!="": channel is invalid/missing; caller should route to DLQ.
+// extractChannel resolves the broadcast channel for a record. Returns (channel, reason, tenant):
+//   - reason=ReasonUnknownTopic: topic not in the registry map; caller drops WITHOUT commit (redeliver).
+//   - reason!="" (other): channel is invalid/missing; caller routes to DLQ (tenant supplied for the DLQ).
 //   - otherwise: channel is valid.
-func extractChannel(record *kgo.Record, rulesProvider RoutingSnapshotProvider) (channel, reason string, malformed bool) {
-	topicParts := strings.SplitN(record.Topic, ".", 3)
-	if len(topicParts) < 3 {
-		return "", "", true
+//
+// The topic's tenant is resolved from the registry map (#179 P3), never reverse-parsed.
+func (c *Consumer) extractChannel(record *kgo.Record) (channel, reason, tenant string) {
+	if c.tenantResolver == nil {
+		return "", ReasonUnknownTopic, ""
 	}
-	tenant := topicParts[1]
-
-	var edition = license.Community
-	if rulesProvider != nil {
-		if snap, ok := rulesProvider.GetRoutingSnapshot(tenant); ok {
-			edition = snap.Edition
-		}
+	tenant, ok := c.tenantResolver(record.Topic)
+	if !ok {
+		return "", ReasonUnknownTopic, ""
 	}
 
+	// A kafka server is always ≥Pro (MESSAGE_BACKEND=kafka is Pro-gated), so every producer stamps the
+	// channel header (first-party producer.go and the tester's kafka publisher both do). The header is a
+	// protocol invariant here — there is no Community record.Key fallback. A headerless record on a known
+	// topic is a permanent producer bug, so it routes to the DLQ (caller marks the offset); it is NOT the
+	// transient ReasonUnknownTopic redeliver leg.
 	headerVal := findHeader(record, kafkashared.HeaderChannel)
-
 	if headerVal == nil {
-		if license.EditionHasFeature(edition, license.ChannelTopicRouting) {
-			return "", ReasonMissingChannelHeader, false
-		}
-		// Community fallback: channel from record.Key.
-		ch := string(record.Key)
-		if ch == "" || !strings.Contains(ch, ".") {
-			return "", ReasonInvalidChannelKey, false
-		}
-		return ch, "", false
+		return "", ReasonMissingChannelHeader, tenant
 	}
 
-	// Header present: validate it's a well-formed channel (at least two segments)
-	// then check tenant prefix matches topic tenant.
+	// Header present: validate it's well-formed, then check its tenant prefix matches the topic tenant —
+	// a record on prod.acme.* carrying channel "evil.secret" must never broadcast cross-tenant (§IX).
 	ch := string(headerVal)
 	dot := strings.IndexByte(ch, '.')
 	if dot <= 0 {
-		return "", ReasonInvalidChannelKey, false
+		return "", ReasonInvalidChannelKey, tenant
 	}
 	if ch[:dot] != tenant {
-		return "", ReasonTenantPrefixMismatch, false
+		return "", ReasonTenantPrefixMismatch, tenant
 	}
-	return ch, "", false
+	return ch, "", tenant
 }
 
 // GetMetrics returns current consumer metrics: messages processed successfully,

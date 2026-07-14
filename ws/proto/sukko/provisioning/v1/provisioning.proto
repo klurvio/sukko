@@ -94,13 +94,23 @@ message WatchTopicsRequest {
 
 message WatchTopicsResponse {
   bool is_snapshot = 1;
+  // Deprecated in favour of shared_topic_tenants (kept populated during the transition so older
+  // consumers keep working). #179 P3: consumers resolve a shared topic's tenant from the map below
+  // instead of reverse-parsing the topic name.
   repeated string shared_topics = 2;
   repeated DedicatedTenant dedicated_tenants = 3;
+  // Shared topics carrying their owning tenant, so consumers need no reverse-parse (#179 P3).
+  repeated SharedTopic shared_topic_tenants = 4;
 }
 
 message DedicatedTenant {
   string tenant_slug = 1;   // client-facing routing label (topic names embed the slug)
   repeated string topics = 2;
+}
+
+message SharedTopic {
+  string tenant_slug = 1;   // owning tenant slug
+  string topic = 2;         // full topic name ({namespace}.{tenant}.{category})
 }
 
 message WatchAPIKeysRequest {}

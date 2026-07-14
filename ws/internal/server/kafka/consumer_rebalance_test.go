@@ -12,6 +12,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
+
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 )
 
 // =============================================================================
@@ -142,6 +144,9 @@ func newRebalanceTestConsumer(t *testing.T, cfg ConsumerConfig) (*Consumer, *moc
 	if cfg.ResourceGuard == nil {
 		cfg.ResourceGuard = &mockResourceGuardFixed{allowKafka: true}
 	}
+	if cfg.TenantResolver == nil {
+		cfg.TenantResolver = parseResolver // tenant = 2nd topic segment (#179 P3)
+	}
 	if cfg.ConsumerType == "" {
 		cfg.ConsumerType = ConsumerTypeKindShared
 	}
@@ -175,12 +180,19 @@ var testRevoked = map[string][]int32{
 	"sukko.test.trade": {0, 1},
 }
 
-// makeRecord builds a minimal kgo.Record for testing.
+// makeRecord builds a minimal kgo.Record for testing. The channel key carries the topic's tenant
+// prefix so it passes the §IX tenant-prefix check in extractChannel.
 func makeRecord(topic string) *kgo.Record {
+	tenant := "test"
+	if parts := strings.SplitN(topic, ".", 3); len(parts) >= 3 {
+		tenant = parts[1]
+	}
+	channel := tenant + ".BTC.trade"
 	return &kgo.Record{
-		Topic: topic,
-		Key:   []byte("BTC.trade"),
-		Value: []byte(`{"price":"50000"}`),
+		Topic:   topic,
+		Key:     []byte(channel),
+		Value:   []byte(`{"price":"50000"}`),
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte(channel)}},
 	}
 }
 
@@ -390,9 +402,10 @@ func TestExplicitMark_BroadcastMarked_Unbatched(t *testing.T) {
 	})
 
 	record := &kgo.Record{
-		Topic: "sukko.test.trade",
-		Key:   []byte("BTC.trade"),
-		Value: []byte(`{"price":"50000"}`),
+		Topic:   "sukko.test.trade",
+		Key:     []byte("test.BTC.trade"),
+		Value:   []byte(`{"price":"50000"}`),
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte("test.BTC.trade")}},
 	}
 	consumer.processRecord(record)
 
@@ -415,9 +428,10 @@ func TestExplicitMark_BroadcastMarked_Batched(t *testing.T) {
 	})
 
 	record := &kgo.Record{
-		Topic: "sukko.test.trade",
-		Key:   []byte("BTC.trade"),
-		Value: []byte(`{"price":"50000"}`),
+		Topic:   "sukko.test.trade",
+		Key:     []byte("test.BTC.trade"),
+		Value:   []byte(`{"price":"50000"}`),
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte("test.BTC.trade")}},
 	}
 
 	// Use prepareMessage to prepare the record, then simulate flushBatch
@@ -449,22 +463,24 @@ func TestExplicitMark_RateLimitedMarked(t *testing.T) {
 	}
 }
 
-func TestExplicitMark_MalformedMarked(t *testing.T) {
+func TestExplicitMark_UnknownTopicNotMarked(t *testing.T) {
 	t.Parallel()
 	consumer, mock, _ := newRebalanceTestConsumer(t, ConsumerConfig{
 		ResourceGuard: &mockResourceGuardFixed{allowKafka: true},
 	})
 
-	// Malformed topic: fewer than 3 segments
+	// Unknown topic: the resolver has no tenant for it (fewer than 3 segments here).
+	// Tri-state: an unknown topic is dropped WITHOUT committing the offset so the record
+	// redelivers once the registry snapshot resolves the topic — it MUST NOT be marked.
 	record := &kgo.Record{
 		Topic: "malformed",
-		Key:   []byte("BTC.trade"),
+		Key:   []byte("test.BTC.trade"),
 		Value: []byte(`{}`),
 	}
 	consumer.processRecord(record)
 
-	if mock.markCount() != 1 {
-		t.Errorf("malformed record: MarkCommitRecords called %d times, want 1", mock.markCount())
+	if mock.markCount() != 0 {
+		t.Errorf("unknown-topic record: MarkCommitRecords called %d times, want 0 (redeliver, do not commit)", mock.markCount())
 	}
 }
 
@@ -568,9 +584,10 @@ func TestCPUBrakeMarking_BrakeNeverActive(t *testing.T) {
 	})
 
 	record := &kgo.Record{
-		Topic: "sukko.test.trade",
-		Key:   []byte("BTC.trade"),
-		Value: []byte(`{"price":"50000"}`),
+		Topic:   "sukko.test.trade",
+		Key:     []byte("test.BTC.trade"),
+		Value:   []byte(`{"price":"50000"}`),
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte("test.BTC.trade")}},
 	}
 	consumer.processRecord(record)
 
@@ -598,9 +615,10 @@ func TestCPUBrakeMarking_NoPreFlushMarks(t *testing.T) {
 	})
 
 	record := &kgo.Record{
-		Topic: "sukko.test.trade",
-		Key:   []byte("BTC.trade"),
-		Value: []byte(`{"price":"50000"}`),
+		Topic:   "sukko.test.trade",
+		Key:     []byte("test.BTC.trade"),
+		Value:   []byte(`{"price":"50000"}`),
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte("test.BTC.trade")}},
 	}
 
 	msg, ctxCanceled := consumer.prepareMessage(record)

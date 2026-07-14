@@ -1,9 +1,5 @@
 package kafka
 
-import (
-	"strings"
-)
-
 // =============================================================================
 // Topic Namespace Configuration
 // =============================================================================
@@ -59,28 +55,3 @@ const (
 	EventBalanceUpdated    EventType = "BALANCE_UPDATED"    // Balance updated event
 	EventTransferCompleted EventType = "TRANSFER_COMPLETED" // Transfer completed event
 )
-
-// TopicToEventType maps a full topic name to its category.
-// This extracts the category (last part) from any topic format.
-//
-// Example:
-//
-//	"prod.sukko.trade" -> "trade"
-//	"dev.acme.balances" -> "balances"
-//	"sukko.dev.trade" (legacy) -> "trade"
-func TopicToEventType(topic string) string {
-	// Handle new format: {namespace}.{tenant}.{category}
-	// Handle legacy format: sukko.{env}.{category}
-	parts := strings.Split(topic, ".")
-	if len(parts) >= 3 {
-		return parts[len(parts)-1] // Return last part (category)
-	}
-
-	// Handle legacy format with sukko. prefix
-	topic = strings.TrimPrefix(topic, "sukko.")
-	if _, after, found := strings.Cut(topic, "."); found {
-		return after
-	}
-
-	return topic
-}

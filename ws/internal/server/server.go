@@ -303,6 +303,7 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/ready", s.handleReady)           // Kubernetes readiness probe (backend snapshot gate)
 	mux.HandleFunc("/metrics", metrics.HandleMetrics) // Prometheus metrics endpoint
 
 	// NOTE: Token issuance moved to auth-service (internal/authservice)

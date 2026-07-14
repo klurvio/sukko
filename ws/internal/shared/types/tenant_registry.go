@@ -35,6 +35,15 @@ type TenantRegistry interface {
 	//   - []TenantTopics: List of tenant IDs with their topic lists
 	//   - error: If the database query fails
 	GetDedicatedTenants(ctx context.Context, namespace string) ([]TenantTopics, error)
+
+	// TopicTenants returns the topic-name → owning-tenant map (#179 P3). Consumers resolve a record's
+	// tenant from this map instead of reverse-parsing the topic name. Returns an empty (non-nil) map
+	// before the first snapshot.
+	TopicTenants(ctx context.Context, namespace string) (map[string]string, error)
+
+	// SnapshotReceived reports whether the initial topic snapshot has been applied. Used to gate
+	// ws-server readiness in kafka mode (#179 P3).
+	SnapshotReceived() bool
 }
 
 // TenantTopics represents a tenant and its associated topics.

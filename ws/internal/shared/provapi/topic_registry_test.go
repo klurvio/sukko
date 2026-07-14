@@ -196,3 +196,74 @@ func TestTopicRegistry_State(t *testing.T) {
 		t.Errorf("state after Store = %d, want %d", state, StreamStateConnected)
 	}
 }
+
+// TestTopicRegistry_SnapshotReceived guards the readiness gate (#179 P3): false until the first
+// snapshot is applied, true afterwards. A non-snapshot (incremental) update MUST NOT flip it.
+func TestTopicRegistry_SnapshotReceived(t *testing.T) {
+	t.Parallel()
+	r := newTestTopicRegistry()
+
+	if r.SnapshotReceived() {
+		t.Fatal("SnapshotReceived must be false before any snapshot is applied")
+	}
+
+	// An incremental (non-snapshot) update alone MUST NOT mark the registry ready.
+	r.updateTopics(&provisioningv1.WatchTopicsResponse{
+		IsSnapshot:   false,
+		SharedTopics: []string{"test.tenant-a.trade"},
+	})
+	if r.SnapshotReceived() {
+		t.Error("SnapshotReceived must stay false after a non-snapshot update")
+	}
+
+	r.updateTopics(&provisioningv1.WatchTopicsResponse{
+		IsSnapshot:   true,
+		SharedTopics: []string{"test.tenant-a.trade"},
+	})
+	if !r.SnapshotReceived() {
+		t.Error("SnapshotReceived must be true after the snapshot is applied")
+	}
+}
+
+// TestTopicRegistry_TopicTenants guards the authoritative topic→tenant map (#179 P3): shared topics
+// carry their tenant via shared_topic_tenants, dedicated topics via dedicated_tenants. TopicTenants
+// returns a copy.
+func TestTopicRegistry_TopicTenants(t *testing.T) {
+	t.Parallel()
+	r := newTestTopicRegistry()
+
+	r.updateTopics(&provisioningv1.WatchTopicsResponse{
+		IsSnapshot:   true,
+		SharedTopics: []string{"test.tenant-a.trade"},
+		SharedTopicTenants: []*provisioningv1.SharedTopic{
+			{TenantSlug: "tenant-a", Topic: "test.tenant-a.trade"},
+		},
+		DedicatedTenants: []*provisioningv1.DedicatedTenant{
+			{TenantSlug: "tenant-b", Topics: []string{"test.tenant-b.trade"}},
+		},
+	})
+
+	got, err := r.TopicTenants(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("TopicTenants() error = %v", err)
+	}
+	want := map[string]string{
+		"test.tenant-a.trade": "tenant-a",
+		"test.tenant-b.trade": "tenant-b",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("TopicTenants len = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for topic, tenant := range want {
+		if got[topic] != tenant {
+			t.Errorf("TopicTenants[%q] = %q, want %q", topic, got[topic], tenant)
+		}
+	}
+
+	// Mutating the returned map MUST NOT affect the registry's internal state.
+	got["test.tenant-a.trade"] = "mutated"
+	again, _ := r.TopicTenants(context.Background(), "test")
+	if again["test.tenant-a.trade"] != "tenant-a" {
+		t.Error("TopicTenants must return a copy, not the internal map")
+	}
+}
