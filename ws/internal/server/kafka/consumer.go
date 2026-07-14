@@ -28,7 +28,6 @@ import (
 	"github.com/klurvio/sukko/internal/server/history"
 	"github.com/klurvio/sukko/internal/server/metrics"
 	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
-	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/routing"
 )
@@ -119,9 +118,8 @@ type Consumer struct {
 	replayFetchMaxBytes       int32
 	backpressureCheckInterval time.Duration
 
-	// Routing — resolves channel from header or key based on edition.
+	// Routing — resolves the channel from the record's HeaderChannel and the registry-supplied tenant.
 	namespace      string
-	rulesProvider  RoutingSnapshotProvider
 	tenantResolver func(topic string) (string, bool) // topic → tenant from the registry map (#179 P3)
 	dlq            *DLQPool
 
@@ -186,9 +184,8 @@ type ConsumerConfig struct {
 	CommitOnRevokeTimeout time.Duration // max time for CommitMarkedOffsets in revoke callback (must be > 0)
 	AutoCommitInterval    time.Duration // background auto-commit interval (0 = use franz-go default)
 
-	// Routing — optional; when set, channel extraction uses header and edition awareness.
-	Namespace     string                  // Topic namespace (e.g. "prod") — used to build DLQ topic names.
-	RulesProvider RoutingSnapshotProvider // Routing snapshot provider (nil = Community fallback always).
+	// Routing — the channel comes from the record's HeaderChannel; the tenant from TenantResolver.
+	Namespace string // Topic namespace (e.g. "prod") — used to build DLQ topic names.
 
 	// TenantResolver resolves a record's topic to its owning tenant via the registry map (#179 P3).
 	// Set by the pool; used by extractChannel to avoid reverse-parsing the topic name.
@@ -326,7 +323,6 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 
 		// Routing
 		namespace:      cfg.Namespace,
-		rulesProvider:  cfg.RulesProvider,
 		tenantResolver: cfg.TenantResolver,
 		dlq:            cfg.DLQ,
 
@@ -903,34 +899,18 @@ func (c *Consumer) extractChannel(record *kgo.Record) (channel, reason, tenant s
 		return "", ReasonUnknownTopic, ""
 	}
 
-	var edition = license.Community
-	if c.rulesProvider != nil {
-		if snap, ok := c.rulesProvider.GetRoutingSnapshot(tenant); ok {
-			edition = snap.Edition
-		}
-	}
-
+	// A kafka server is always ≥Pro (MESSAGE_BACKEND=kafka is Pro-gated), so every producer stamps the
+	// channel header (first-party producer.go and the tester's kafka publisher both do). The header is a
+	// protocol invariant here — there is no Community record.Key fallback. A headerless record on a known
+	// topic is a permanent producer bug, so it routes to the DLQ (caller marks the offset); it is NOT the
+	// transient ReasonUnknownTopic redeliver leg.
 	headerVal := findHeader(record, kafkashared.HeaderChannel)
-
 	if headerVal == nil {
-		if license.EditionHasFeature(edition, license.ChannelTopicRouting) {
-			return "", ReasonMissingChannelHeader, tenant
-		}
-		// No channel header: derive the channel from record.Key. The channel's tenant prefix MUST match
-		// the topic tenant, or a record on prod.acme.* could carry record.Key="evil.secret" and broadcast
-		// cross-tenant (§IX). (This fallback is deleted once the edition gate reads server-global state.)
-		ch := string(record.Key)
-		dot := strings.IndexByte(ch, '.')
-		if dot <= 0 {
-			return "", ReasonInvalidChannelKey, tenant
-		}
-		if ch[:dot] != tenant {
-			return "", ReasonTenantPrefixMismatch, tenant
-		}
-		return ch, "", tenant
+		return "", ReasonMissingChannelHeader, tenant
 	}
 
-	// Header present: validate it's well-formed, then check its tenant prefix matches the topic tenant.
+	// Header present: validate it's well-formed, then check its tenant prefix matches the topic tenant —
+	// a record on prod.acme.* carrying channel "evil.secret" must never broadcast cross-tenant (§IX).
 	ch := string(headerVal)
 	dot := strings.IndexByte(ch, '.')
 	if dot <= 0 {

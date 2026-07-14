@@ -426,9 +426,10 @@ func TestConsumer_PrepareMessage_IncludesTopic(t *testing.T) {
 	}
 
 	record := &kgo.Record{
-		Topic: "sukko.dev.trade",       // topic tenant is the second segment: dev
-		Key:   []byte("dev.BTC.trade"), // channel tenant prefix must match the topic tenant (§IX)
-		Value: []byte(`{"price":"50000"}`),
+		Topic: "sukko.dev.trade", // topic tenant is the second segment: dev
+		// Channel comes from HeaderChannel; its tenant prefix must match the topic tenant (§IX).
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte("dev.BTC.trade")}},
+		Value:   []byte(`{"price":"50000"}`),
 	}
 
 	msg, _ := consumer.prepareMessage(record)

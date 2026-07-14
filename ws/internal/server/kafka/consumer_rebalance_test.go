@@ -12,6 +12,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
+
+	kafkashared "github.com/klurvio/sukko/internal/shared/kafka"
 )
 
 // =============================================================================
@@ -185,10 +187,12 @@ func makeRecord(topic string) *kgo.Record {
 	if parts := strings.SplitN(topic, ".", 3); len(parts) >= 3 {
 		tenant = parts[1]
 	}
+	channel := tenant + ".BTC.trade"
 	return &kgo.Record{
-		Topic: topic,
-		Key:   []byte(tenant + ".BTC.trade"),
-		Value: []byte(`{"price":"50000"}`),
+		Topic:   topic,
+		Key:     []byte(channel),
+		Value:   []byte(`{"price":"50000"}`),
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte(channel)}},
 	}
 }
 
@@ -398,9 +402,10 @@ func TestExplicitMark_BroadcastMarked_Unbatched(t *testing.T) {
 	})
 
 	record := &kgo.Record{
-		Topic: "sukko.test.trade",
-		Key:   []byte("test.BTC.trade"),
-		Value: []byte(`{"price":"50000"}`),
+		Topic:   "sukko.test.trade",
+		Key:     []byte("test.BTC.trade"),
+		Value:   []byte(`{"price":"50000"}`),
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte("test.BTC.trade")}},
 	}
 	consumer.processRecord(record)
 
@@ -423,9 +428,10 @@ func TestExplicitMark_BroadcastMarked_Batched(t *testing.T) {
 	})
 
 	record := &kgo.Record{
-		Topic: "sukko.test.trade",
-		Key:   []byte("test.BTC.trade"),
-		Value: []byte(`{"price":"50000"}`),
+		Topic:   "sukko.test.trade",
+		Key:     []byte("test.BTC.trade"),
+		Value:   []byte(`{"price":"50000"}`),
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte("test.BTC.trade")}},
 	}
 
 	// Use prepareMessage to prepare the record, then simulate flushBatch
@@ -578,9 +584,10 @@ func TestCPUBrakeMarking_BrakeNeverActive(t *testing.T) {
 	})
 
 	record := &kgo.Record{
-		Topic: "sukko.test.trade",
-		Key:   []byte("test.BTC.trade"),
-		Value: []byte(`{"price":"50000"}`),
+		Topic:   "sukko.test.trade",
+		Key:     []byte("test.BTC.trade"),
+		Value:   []byte(`{"price":"50000"}`),
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte("test.BTC.trade")}},
 	}
 	consumer.processRecord(record)
 
@@ -608,9 +615,10 @@ func TestCPUBrakeMarking_NoPreFlushMarks(t *testing.T) {
 	})
 
 	record := &kgo.Record{
-		Topic: "sukko.test.trade",
-		Key:   []byte("test.BTC.trade"),
-		Value: []byte(`{"price":"50000"}`),
+		Topic:   "sukko.test.trade",
+		Key:     []byte("test.BTC.trade"),
+		Value:   []byte(`{"price":"50000"}`),
+		Headers: []kgo.RecordHeader{{Key: kafkashared.HeaderChannel, Value: []byte("test.BTC.trade")}},
 	}
 
 	msg, ctxCanceled := consumer.prepareMessage(record)
