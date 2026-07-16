@@ -287,8 +287,9 @@ func main() {
 			ProducerCircuitBreakerHalfOpen:    cfg.KafkaProducerCBHalfOpenReqs,
 			ProducerShutdownTimeout:           cfg.KafkaProducerShutdownTimeout,
 			// Kafka consumer tuning
-			KafkaBatchSize:    cfg.KafkaBatchSize,
-			KafkaBatchTimeout: cfg.KafkaBatchTimeout,
+			KafkaBatchSize:      cfg.KafkaBatchSize,
+			KafkaBatchTimeout:   cfg.KafkaBatchTimeout,
+			KafkaMetadataMinAge: cfg.KafkaMetadataMinAge,
 			// Kafka consumer transport tuning
 			KafkaFetchMaxWait:              cfg.KafkaFetchMaxWait,
 			KafkaFetchMinBytes:             cfg.KafkaFetchMinBytes,

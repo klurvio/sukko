@@ -79,6 +79,7 @@ type ProducerConfig struct {
 	Brokers        []string        // Kafka/Redpanda broker addresses (required)
 	TopicNamespace string          // Topic namespace: "local", "dev", "staging", "prod" (required)
 	ClientID       string          // Client ID for Kafka connection (optional, defaults to "sukko-producer-{hostname}")
+	MetadataMinAge time.Duration   // Min interval before refreshing topic metadata (0 = franz-go default). Lower shortens produce latency to a just-created tenant topic.
 	Logger         *zerolog.Logger // Structured logger (optional)
 
 	// Security configuration for managed Kafka/Redpanda services
@@ -222,6 +223,12 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	}
 	if recordRetries > 0 {
 		opts = append(opts, kgo.RecordRetries(recordRetries))
+	}
+	// Lower MetadataMinAge shortens the window before the producer re-fetches metadata for a
+	// just-created tenant topic (kgo defaults to 5s), so a publish to a freshly-provisioned tenant
+	// succeeds sooner instead of stalling on the unknown topic.
+	if cfg.MetadataMinAge > 0 {
+		opts = append(opts, kgo.MetadataMinAge(cfg.MetadataMinAge))
 	}
 
 	// Create franz-go client
